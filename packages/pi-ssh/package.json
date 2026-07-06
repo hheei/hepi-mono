@@ -1,0 +1,46 @@
+{
+	"name": "@hheei/pi-ssh",
+	"version": "0.0.0",
+	"description": "SSH host discovery, remote exec, and sshfs mount tools for Pi.",
+	"type": "module",
+	"main": "src/index.ts",
+	"scripts": {
+		"test": "bun test test/*.test.ts"
+	},
+	"files": [
+		"src",
+		"README.md",
+		"LICENSE"
+	],
+	"pi": {
+		"extensions": [
+			"src/index.ts"
+		]
+	},
+	"keywords": [
+		"pi",
+		"pi-package",
+		"pi-extension",
+		"hepi",
+		"ssh",
+		"sshfs",
+		"remote"
+	],
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/hheei/hepi-mono.git",
+		"directory": "packages/pi-ssh"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"dependencies": {
+		"@hheei/pi-extcore": "0.0.0",
+		"typebox": "^1.1.38"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*",
+		"@earendil-works/pi-tui": "*"
+	}
+}
