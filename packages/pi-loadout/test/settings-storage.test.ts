@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { createLoadoutSettingsStorage } from "./settings-storage.js";
+import { createLoadoutSettingsStorage } from "../src/settings-storage.js";
 
 const tempDirs: string[] = [];
 

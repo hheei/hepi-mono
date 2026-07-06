@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { formatExtensionLabel, normalizePackageSlug } from "./index.js";
+import { formatExtensionLabel, normalizePackageSlug } from "../src/index";
 
 describe("formatExtensionLabel", () => {
 	it("formats non-empty names", () => {

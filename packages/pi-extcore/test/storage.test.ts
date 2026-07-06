@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createExtensionSettingsStorage } from "./storage.js";
+import { createExtensionSettingsStorage } from "../src/settings/storage.js";
 
 describe("extension settings storage", () => {
 	it("stores multiple providers in one shared file", async () => {

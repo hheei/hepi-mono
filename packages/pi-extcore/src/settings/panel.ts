@@ -587,7 +587,7 @@ function createEmptyPane(): SettingsPanelPane {
 		groups: [],
 		state: {},
 		onChange: () => {},
-  };
+	};
 }
 
 function padRight(text: string, width: number): string {
