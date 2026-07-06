@@ -1,0 +1,43 @@
+{
+	"name": "@hheei/pi-codex-dollar",
+	"version": "0.0.0",
+	"description": "Dollar-triggered inline skill path references for Pi.",
+	"type": "module",
+	"main": "src/index.ts",
+	"scripts": {
+		"test": "bun test test/*.test.ts"
+	},
+	"files": [
+		"src",
+		"README.md",
+		"LICENSE"
+	],
+	"pi": {
+		"extensions": [
+			"src/index.ts"
+		]
+	},
+	"keywords": [
+		"pi",
+		"pi-package",
+		"pi-extension",
+		"hepi",
+		"autocomplete",
+		"skills"
+	],
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/hheei/hepi-mono.git",
+		"directory": "packages/pi-codex-dollar"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"dependencies": {
+		"@hheei/pi-extcore": "0.0.0"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*"
+	}
+}
