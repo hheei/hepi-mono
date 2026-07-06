@@ -15,6 +15,16 @@
         "typescript": "^5.7.0",
       },
     },
+    "packages/pi-codex-dollar": {
+      "name": "@hheei/pi-codex-dollar",
+      "version": "0.0.0",
+      "dependencies": {
+        "@hheei/pi-extcore": "0.0.0",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "*",
+      },
+    },
     "packages/pi-example": {
       "name": "@hheei/pi-example",
       "version": "0.0.0",
@@ -39,6 +49,18 @@
       "version": "0.0.0",
       "dependencies": {
         "@hheei/pi-extcore": "0.0.0",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "*",
+        "@earendil-works/pi-tui": "*",
+      },
+    },
+    "packages/pi-ssh": {
+      "name": "@hheei/pi-ssh",
+      "version": "0.0.0",
+      "dependencies": {
+        "@hheei/pi-extcore": "0.0.0",
+        "typebox": "^1.1.38",
       },
       "peerDependencies": {
         "@earendil-works/pi-coding-agent": "*",
@@ -127,11 +149,15 @@
 
     "@google/genai": ["@google/genai@1.52.0", "", { "dependencies": { "google-auth-library": "^10.3.0", "p-retry": "^4.6.2", "protobufjs": "^7.5.4", "ws": "^8.18.0" }, "peerDependencies": { "@modelcontextprotocol/sdk": "^1.25.2" }, "optionalPeers": ["@modelcontextprotocol/sdk"] }, "sha512-gwSvbpiN/17O9TbsqSsE/OzZcpv5Fo4RQjdngGgogtuB9RsyJ8ZHhX5KjHj1bp5N9snN2eK8LDGXSaWW2hof8Q=="],
 
+    "@hheei/pi-codex-dollar": ["@hheei/pi-codex-dollar@workspace:packages/pi-codex-dollar"],
+
     "@hheei/pi-example": ["@hheei/pi-example@workspace:packages/pi-example"],
 
     "@hheei/pi-extcore": ["@hheei/pi-extcore@workspace:packages/pi-extcore"],
 
     "@hheei/pi-loadout": ["@hheei/pi-loadout@workspace:packages/pi-loadout"],
+
+    "@hheei/pi-ssh": ["@hheei/pi-ssh@workspace:packages/pi-ssh"],
 
     "@mariozechner/clipboard": ["@mariozechner/clipboard@0.3.9", "", { "optionalDependencies": { "@mariozechner/clipboard-darwin-arm64": "0.3.9", "@mariozechner/clipboard-darwin-universal": "0.3.9", "@mariozechner/clipboard-darwin-x64": "0.3.9", "@mariozechner/clipboard-linux-arm64-gnu": "0.3.9", "@mariozechner/clipboard-linux-arm64-musl": "0.3.9", "@mariozechner/clipboard-linux-riscv64-gnu": "0.3.9", "@mariozechner/clipboard-linux-x64-gnu": "0.3.9", "@mariozechner/clipboard-linux-x64-musl": "0.3.9", "@mariozechner/clipboard-win32-arm64-msvc": "0.3.9", "@mariozechner/clipboard-win32-x64-msvc": "0.3.9" } }, "sha512-ABnA53mdfkGZwOFUdZNv2S0CWGO/EIuPj8Vv9xmBFmSYg/qFc7ihO6q5FcQjvoE67kZpWkEc4AhD6B/os04yuA=="],
 

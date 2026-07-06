@@ -14,18 +14,16 @@ Other `@hheei/pi-xxxx` extensions should not register their own settings command
 
 A provider can contribute items to its own extension pane or to the shared `[General]` pane:
 
-- `groups`: plain setting rows in the provider's own pane.
+- `groups`: setting groups in the provider's own pane.
 - `panels`: custom subpanels in the provider's own pane.
-- `generalGroups`: plain setting rows in `[General]`.
+- `generalGroups`: setting groups in `[General]`.
 - `generalPanels`: custom subpanels in `[General]`.
+
+Groups render as expandable rows by default. Add `display: "plain"` to a `SettingGroup` to render its fields directly without a group header, or `display: "hidden"` to persist provider JSON state controlled by a custom subpanel.
 
 ```ts
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-	createAgentJsonSettingsStorage,
-	registerExtensionSettings,
-	type SettingGroup,
-} from "@hheei/pi-extcore";
+import { registerExtensionSettings, type SettingGroup } from "@hheei/pi-extcore";
 
 const groups: SettingGroup[] = [
 	{
@@ -48,7 +46,6 @@ export default function extension(pi: ExtensionAPI) {
 		title: "PI My Extension",
 		description: "Settings for my extension",
 		groups,
-		storage: createAgentJsonSettingsStorage("pi-my-extension.json"),
 		onChange: (change) => {
 			// Apply change.value immediately if the extension has live state.
 		},
@@ -58,10 +55,20 @@ export default function extension(pi: ExtensionAPI) {
 
 Storage options:
 
+- By default, `registerExtensionSettings()` stores provider settings under `~/.pi/agent/ext-settings.json` using the provider id.
+- `createAgentExtensionSettingsStorage("provider-id")` explicitly stores provider settings in the shared `ext-settings.json` file.
 - `createSessionSettingsStorage(pi)` appends settings to the current session branch.
-- `createAgentJsonSettingsStorage("file.json")` stores a global default under `~/.pi/agent/`, similar to `pi-loadout`'s global config file.
+- `createAgentJsonSettingsStorage("file.json")` stores a standalone global settings file under `~/.pi/agent/`.
 - `createJsonSettingsStorage(path)` stores settings at an explicit path.
 
-If no storage is provided, `registerExtensionSettings()` uses session storage with a provider-specific custom entry type.
+For custom subpanels, provide `panels`. Subpanels receive `getState()` and `saveState(state)` so custom UI can persist to the same provider entry in `ext-settings.json`. See `@hheei/pi-loadout` for copied upstream picker subpanels under `/extension-setting -> [PI Loadout]`.
 
-For custom subpanels, provide `panels`. See `@hheei/pi-loadout` for copied upstream picker subpanels under `/extension-setting -> [PI Loadout]`.
+## TUI Layout Helpers
+
+`@hheei/pi-extcore` also exports small layout helpers for extension TUI surfaces:
+
+- `renderWrappedTableRows()` renders a three-column table where the third column wraps under itself.
+- `renderRowsWithSidePanel()` renders existing rows with a right-side title/content panel.
+- `renderTwoColumnListWithSidePanel()` renders a two-column list with a right-side title/content panel.
+
+See [TUI Panel Layout Helpers](../../docs/tui-panel-layouts.md) and [docs/examples/tui-panels.ts](../../docs/examples/tui-panels.ts) for examples.

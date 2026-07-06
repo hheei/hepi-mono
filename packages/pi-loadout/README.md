@@ -63,8 +63,10 @@ Plain settings:
 Settings are stored in:
 
 ```text
-~/.pi/agent/pi-loadout-settings.json
+~/.pi/agent/ext-settings.json
 ```
+
+If `~/.pi/agent/ext-settings.json` has no `pi-loadout` entry yet, the extension copies a valid legacy `~/.pi/agent/pi-loadout-settings.json` value into the shared settings file on first load.
 
 The original loadout files are still used:
 

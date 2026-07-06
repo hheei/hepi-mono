@@ -8,9 +8,11 @@ import type { Component, SettingItem } from "@earendil-works/pi-tui";
 import {
 	createSettingsPanelComponent,
 	type SettingsPanelHost,
+	type SettingsPanelInput,
 	type SettingsPanelPane,
 } from "./panel.js";
 import { createDefaultSettingsState, mergeSettingsState } from "./state.js";
+import { createAgentExtensionSettingsStorage } from "./storage.js";
 import type { MaybePromise, SettingChange, SettingGroup, SettingsState } from "./types.js";
 
 export const EXTENSION_SETTING_COMMAND = "extension-setting";
@@ -40,6 +42,9 @@ export interface ExtensionSettingsSubpanelCreateOptions {
 	host: SettingsPanelHost;
 	theme: Theme;
 	close: () => void;
+	getState: () => SettingsState;
+	saveState: (state: SettingsState) => MaybePromise<void>;
+	onError: (error: unknown) => void;
 }
 
 export interface ExtensionSettingsProvider {
@@ -53,6 +58,12 @@ export interface ExtensionSettingsProvider {
 	storage?: SettingsStorageAdapter;
 	onChange?: (change: SettingChange, ctx: ExtensionCommandContext) => MaybePromise<void>;
 	onLoad?: (state: SettingsState, ctx: ExtensionContext) => MaybePromise<void>;
+	onClose?: (state: SettingsState, ctx: ExtensionCommandContext) => MaybePromise<void>;
+	onInput?: (
+		input: SettingsPanelInput,
+		ctx: ExtensionCommandContext,
+		theme: Theme,
+	) => MaybePromise<boolean | undefined>;
 }
 
 export interface RegisterExtensionSettingCommandOptions {
@@ -116,7 +127,7 @@ export function registerExtensionSettings(
 		generalPanels: provider.generalPanels ?? [],
 		groups: provider.groups ?? [],
 		panels: provider.panels ?? [],
-		storage: provider.storage ?? createSessionSettingsStorage(pi, `hheei-settings:${provider.id}`),
+		storage: provider.storage ?? createAgentExtensionSettingsStorage(provider.id),
 	};
 	registry.providers.set(provider.id, registered);
 
@@ -155,6 +166,7 @@ export function registerExtensionSettingCommand(
 				return;
 			}
 
+			const onError = (error: unknown): void => notifySettingsError(ctx, error);
 			const providers = getExtensionSettingsProviders();
 			if (providers.length === 0) {
 				ctx.ui.notify("No extension settings are registered", "info");
@@ -168,19 +180,31 @@ export function registerExtensionSettingCommand(
 					return;
 				}
 
-				providerStates.set(routed.provider.id, routed.change.state);
 				await routed.provider.storage.save(routed.change.state, ctx);
+				providerStates.set(routed.provider.id, routed.change.state);
 				await routed.provider.onChange?.(routed.change, ctx);
 			};
 
-			await ctx.ui.custom<void>((tui, theme, _keybindings, done) =>
-				createSettingsPanelComponent(tui, theme, {
+			await ctx.ui.custom<void>((tui, theme, _keybindings, done) => {
+				const closeSettings = () => {
+					void Promise.all(
+						providers.map((provider) => {
+							const state = providerStates.get(provider.id);
+							return state ? provider.onClose?.(state, ctx) : undefined;
+						}),
+					)
+						.catch(onError)
+						.finally(() => done(undefined));
+				};
+
+				return createSettingsPanelComponent(tui, theme, {
 					title: options.title ?? "Extension Settings",
 					description: options.panelDescription,
-					panes: createSettingsPanes(providers, providerStates, ctx, tui, theme, onChange),
-					onClose: () => done(undefined),
-				}),
-			);
+					panes: createSettingsPanes(providers, providerStates, ctx, tui, theme, onChange, onError),
+					onError,
+					onClose: closeSettings,
+				});
+			});
 		},
 	});
 }
@@ -205,25 +229,29 @@ async function loadProviderStates(
 
 function createSettingsPanes(
 	providers: readonly RegisteredSettingsProvider[],
-	providerStates: ReadonlyMap<string, SettingsState>,
+	providerStates: Map<string, SettingsState>,
 	ctx: ExtensionCommandContext,
 	host: SettingsPanelHost,
 	theme: Theme,
 	onChange: (change: SettingChange) => MaybePromise<void>,
+	onError: (error: unknown) => void,
 ): SettingsPanelPane[] {
 	return [
 		{
 			id: "general",
 			title: "General",
-			description: "Shared extension settings",
 			groups: createGeneralPaneGroups(providers),
 			state: createPaneState(providers, providerStates, (provider) => provider.generalGroups),
+			getState: () =>
+				createPaneState(providers, providerStates, (provider) => provider.generalGroups),
 			extraItems: createSubpanelItems(
 				providers,
 				(provider) => provider.generalPanels,
 				ctx,
 				host,
 				theme,
+				providerStates,
+				onError,
 				true,
 			),
 			onChange,
@@ -233,10 +261,20 @@ function createSettingsPanes(
 			.map((provider) => ({
 				id: provider.id,
 				title: provider.title,
-				description: provider.description,
 				groups: namespaceSettingGroups(provider, provider.groups, false),
 				state: createPaneState([provider], providerStates, (item) => item.groups),
-				extraItems: createSubpanelItems([provider], (item) => item.panels, ctx, host, theme, false),
+				getState: () => createPaneState([provider], providerStates, (item) => item.groups),
+				onInput: (input: SettingsPanelInput) => provider.onInput?.(input, ctx, theme),
+				extraItems: createSubpanelItems(
+					[provider],
+					(item) => item.panels,
+					ctx,
+					host,
+					theme,
+					providerStates,
+					onError,
+					false,
+				),
 				onChange,
 			})),
 	];
@@ -270,6 +308,8 @@ function createSubpanelItems(
 	ctx: ExtensionCommandContext,
 	host: SettingsPanelHost,
 	theme: Theme,
+	providerStates: Map<string, SettingsState>,
+	onError: (error: unknown) => void,
 	includeProviderLabel: boolean,
 ): SettingItem[] {
 	return providers.flatMap((provider) =>
@@ -282,7 +322,25 @@ function createSubpanelItems(
 					.join(" ") || undefined,
 			currentValue: panel.currentValue ?? "open",
 			submenu: (_currentValue: string, close: () => void) =>
-				panel.create({ ctx, host, theme, close }),
+				panel.create({
+					ctx,
+					host,
+					theme,
+					close,
+					getState: () =>
+						providerStates.get(provider.id) ??
+						createDefaultSettingsState(providerSettingGroups(provider)),
+					saveState: async (state) => {
+						try {
+							await provider.storage.save(state, ctx);
+							providerStates.set(provider.id, state);
+						} catch (error) {
+							onError(error);
+							throw error;
+						}
+					},
+					onError,
+				}),
 		})),
 	);
 }
@@ -353,4 +411,9 @@ function splitNamespacedGroupId(groupId: string): { providerId: string; groupId:
 		providerId: groupId.slice(0, index),
 		groupId: groupId.slice(index + namespaceSeparator.length),
 	};
+}
+
+function notifySettingsError(ctx: ExtensionCommandContext, error: unknown): void {
+	const message = error instanceof Error ? error.message : String(error);
+	ctx.ui.notify(`Settings update failed: ${message}`, "error");
 }

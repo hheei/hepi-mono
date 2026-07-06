@@ -5,6 +5,5 @@ export default function piExtcore(pi: ExtensionAPI) {
 	registerExtensionSettingCommand(pi, {
 		command: "extension-setting",
 		title: "Extension Settings",
-		panelDescription: "Configure settings contributed by installed HEPI extensions.",
 	});
 }

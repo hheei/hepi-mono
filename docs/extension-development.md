@@ -153,20 +153,18 @@ Settings are centralized under one command:
 
 Each extension contributes a settings provider with `registerExtensionSettings()`. The shared UI is pane-based: `[General]` comes first, then one pane per extension that contributes extension-local settings or subpanels.
 
-- `groups`: plain setting rows in the extension's own pane.
+- `groups`: setting groups in the extension's own pane.
 - `panels`: custom subpanels in the extension's own pane.
-- `generalGroups`: plain setting rows in `[General]`.
+- `generalGroups`: setting groups in `[General]`.
 - `generalPanels`: custom subpanels in `[General]`.
+
+Groups render as expandable rows by default. Add `display: "plain"` to a `SettingGroup` when its fields should appear directly in the list without a group header, or `display: "hidden"` for provider JSON state controlled by a custom subpanel.
 
 Plain settings example:
 
 ```ts
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-	createAgentJsonSettingsStorage,
-	registerExtensionSettings,
-	type SettingGroup,
-} from "@hheei/pi-extcore";
+import { registerExtensionSettings, type SettingGroup } from "@hheei/pi-extcore";
 
 const groups: SettingGroup[] = [
 	{
@@ -190,7 +188,6 @@ export default function extension(pi: ExtensionAPI) {
 		title: "PI My Extension",
 		description: "Settings for my extension",
 		groups,
-		storage: createAgentJsonSettingsStorage("pi-my-extension.json"),
 		onChange: (change) => {
 			// Use change.groupId, change.fieldId, change.value, and change.state.
 		},
@@ -203,28 +200,38 @@ Subpanels are for full-screen or multi-step UI. `@hheei/pi-loadout` exposes copi
 ```text
 /extension-setting -> [PI Loadout] -> Tools
 /extension-setting -> [PI Loadout] -> Skills
-/extension-setting -> [PI Loadout] -> Presets
 ```
 
-Within the shared panel, Tab switches `[General] [Extension...]` panes. Setting groups render as expandable rows; Enter/Space expands or collapses a group, and child rows stay editable through `SettingsList`.
+Inside the loadout picker, `Tab` switches Tools/Skills and `/` switches to or from Presets.
+
+Within the shared panel, Tab switches `[General] [Extension...]` panes. Setting groups render as expandable rows; Enter/Space expands or collapses a group, and child rows stay editable through `SettingsList`. Custom subpanels receive `getState()` and `saveState(state)` so they can persist to the same provider settings entry.
 
 Storage choices:
 
+- Default storage: `registerExtensionSettings()` stores provider settings under `~/.pi/agent/ext-settings.json` keyed by provider id.
+- `createAgentExtensionSettingsStorage("provider-id")`: explicitly stores provider settings in the shared `ext-settings.json` file.
 - `createSessionSettingsStorage(pi, "custom-type")`: persists settings into the current session branch.
-- `createAgentJsonSettingsStorage("file.json")`: stores global defaults under `~/.pi/agent/`.
+- `createAgentJsonSettingsStorage("file.json")`: stores a standalone global settings file under `~/.pi/agent/`.
 - `createJsonSettingsStorage(path)`: stores settings at an explicit path.
-
-If no storage is provided, `registerExtensionSettings()` uses provider-specific session storage. Prefer session storage for behavior that should follow a session branch. Prefer agent JSON storage for user defaults shared across sessions.
 
 ## TUI Guidelines
 
 Use Pi and `@earendil-works/pi-tui` components instead of hand-rolled terminal UI when possible:
 
 - settings and toggles: `/extension-setting` through `pi-extcore`
+- three-column wrapped tables: `renderWrappedTableRows()` from `pi-extcore`
+- two-column list plus right-side detail panel: `renderTwoColumnListWithSidePanel()` from `pi-extcore`
 - selection lists: `SelectList`
 - text blocks: `Text`
 - containers: `Container`
 - borders: `DynamicBorder`
+
+For the two common table-style TUI layouts, use the shared helpers documented in [TUI Panel Layout Helpers](tui-panel-layouts.md):
+
+- wrapped three-column table: `renderWrappedTableRows()`
+- two-column list with right-side detail panel: `renderTwoColumnListWithSidePanel()`
+
+Runnable-style examples live in [docs/examples/tui-panels.ts](examples/tui-panels.ts).
 
 When writing custom TUI components:
 

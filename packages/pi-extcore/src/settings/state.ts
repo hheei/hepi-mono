@@ -53,7 +53,10 @@ export function mergeSettingsState(
 
 		for (const field of group.fields) {
 			const savedValue = savedGroup[field.id];
-			if (savedValue !== undefined) {
+			if (
+				savedValue !== undefined &&
+				(group.display === "hidden" || isCompatibleSettingValue(field, savedValue))
+			) {
 				merged[group.id]![field.id] = savedValue;
 			}
 		}
@@ -79,13 +82,14 @@ export function formatSettingValue<T extends SettingPrimitive>(
 		return field.format(value);
 	}
 
-	const option = field.options?.find((item) => item.value === value);
+	const option = resolveSettingOptions(field).find((item) => item.value === value);
 	return option?.label ?? String(value);
 }
 
 export function settingValueLabels<T extends SettingPrimitive>(field: SettingField<T>): string[] {
-	if (field.options) {
-		return field.options.map((option) => option.label ?? String(option.value));
+	const options = resolveSettingOptions(field);
+	if (options.length > 0) {
+		return options.map((option) => option.label ?? String(option.value));
 	}
 
 	if (typeof field.defaultValue === "boolean") {
@@ -93,6 +97,12 @@ export function settingValueLabels<T extends SettingPrimitive>(field: SettingFie
 	}
 
 	return [formatSettingValue(field, field.defaultValue)];
+}
+
+function resolveSettingOptions<T extends SettingPrimitive>(
+	field: SettingField<T>,
+): readonly SettingOption<T>[] {
+	return typeof field.options === "function" ? field.options() : (field.options ?? []);
 }
 
 export function parseSettingValue<T extends SettingPrimitive>(
@@ -103,7 +113,7 @@ export function parseSettingValue<T extends SettingPrimitive>(
 		return field.parse(displayValue);
 	}
 
-	const option = field.options?.find((item) => optionLabel(item) === displayValue);
+	const option = resolveSettingOptions(field).find((item) => optionLabel(item) === displayValue);
 	if (option) {
 		return option.value;
 	}
@@ -151,4 +161,8 @@ export function applySettingChange(
 
 function optionLabel(option: SettingOption): string {
 	return option.label ?? String(option.value);
+}
+
+function isCompatibleSettingValue(field: SettingField, value: unknown): boolean {
+	return typeof value === typeof field.defaultValue;
 }
