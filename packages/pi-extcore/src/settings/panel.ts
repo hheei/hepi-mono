@@ -576,10 +576,6 @@ function formatFooter(theme: Theme, statusText: string, hasPaneSwitch: boolean):
 	return segments.join("");
 }
 
-function abc() {
-  
-}
-
 function keycap(theme: Theme, label: string): string {
 	return theme.fg("accent", theme.bold(label));
 }
@@ -591,7 +587,7 @@ function createEmptyPane(): SettingsPanelPane {
 		groups: [],
 		state: {},
 		onChange: () => {},
-	};
+  };
 }
 
 function padRight(text: string, width: number): string {
