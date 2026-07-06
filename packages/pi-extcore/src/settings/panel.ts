@@ -1,10 +1,15 @@
 import { DynamicBorder, getSettingsListTheme, type Theme } from "@earendil-works/pi-coding-agent";
 import {
 	type Component,
+	fuzzyFilter,
+	Input,
 	Key,
 	matchesKey,
 	type SettingItem,
-	SettingsList,
+	type SettingsListTheme,
+	truncateToWidth,
+	visibleWidth,
+	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import {
 	applySettingChange,
@@ -25,8 +30,19 @@ export interface SettingsPanelPane {
 	description?: string;
 	groups: readonly SettingGroup[];
 	state: SettingsState;
+	getState?: () => SettingsState;
 	extraItems?: readonly SettingItem[];
 	onChange: (change: SettingChange) => MaybePromise<void>;
+	onInput?: (input: SettingsPanelInput) => MaybePromise<boolean | undefined>;
+}
+
+export interface SettingsPanelInput {
+	data: string;
+	selectedItem?: SettingItem;
+	searchValue: string;
+	openSubmenu: (component: Component) => void;
+	closeSubmenu: () => void;
+	setValue: (value: string) => void;
 }
 
 export interface SettingsPanelOptions {
@@ -35,6 +51,7 @@ export interface SettingsPanelOptions {
 	panes: readonly SettingsPanelPane[];
 	maxVisible?: number;
 	enableSearch?: boolean;
+	onError?: (error: unknown) => void;
 	onClose: () => void;
 }
 
@@ -48,6 +65,8 @@ export function createSettingsPanelComponent(
 	const panes = options.panes.length > 0 ? options.panes : [createEmptyPane()];
 	let paneIndex = 0;
 	const paneStates = new Map(panes.map((pane) => [pane.id, pane.state]));
+	const pendingPaneStates = new Map<string, SettingsState>();
+	const paneChangeQueues = new Map<string, Promise<void>>();
 	const collapsedGroups = new Map<string, Set<string>>();
 	const border = new DynamicBorder((text: string) => theme.fg("accent", text));
 	let settingsList = createActiveSettingsList();
@@ -55,26 +74,14 @@ export function createSettingsPanelComponent(
 	return {
 		render(width: number): string[] {
 			const pane = activePane();
+			if (settingsList.submenuComponent) return settingsList.render(width);
+
 			const lines = [...border.render(width), theme.fg("accent", theme.bold(options.title))];
-
-			if (options.description) {
-				lines.push(theme.fg("muted", options.description));
-			}
-
+			if (options.description) lines.push(theme.fg("muted", options.description));
 			lines.push(formatPaneTabs(panes, paneIndex, theme));
-			if (pane.description) {
-				lines.push(theme.fg("muted", pane.description));
-			}
-
+			if (pane.description) lines.push(theme.fg("muted", pane.description));
 			lines.push(...settingsList.render(width));
-			lines.push(
-				theme.fg(
-					"dim",
-					panes.length > 1
-						? "  Tab switch pane · Enter/Space change · / search · Esc close"
-						: "  Enter/Space change · / search · Esc close",
-				),
-			);
+			lines.push(formatFooter(theme, settingsList.statusText(), panes.length > 1));
 			lines.push(...border.render(width));
 			return lines;
 		},
@@ -82,9 +89,9 @@ export function createSettingsPanelComponent(
 			settingsList.invalidate();
 		},
 		handleInput(data: string): void {
-			if (!isInSubmenu(settingsList) && panes.length > 1 && matchesKey(data, Key.tab)) {
+			if (!settingsList.submenuComponent && panes.length > 1 && matchesKey(data, Key.tab)) {
 				paneIndex = (paneIndex + 1) % panes.length;
-				settingsList = createActiveSettingsList();
+				settingsList = createActiveSettingsList(settingsList.selectedIndex);
 				host.requestRender();
 				return;
 			}
@@ -94,38 +101,86 @@ export function createSettingsPanelComponent(
 		},
 	};
 
-	function createActiveSettingsList(): SettingsList {
+	function createActiveSettingsList(selectedIndex = 0): SettingsTable {
 		const pane = activePane();
-		const currentState = paneStates.get(pane.id) ?? pane.state;
+		const currentState = getPaneState(pane);
 		const items = [
 			...createSettingItems(pane.groups, currentState, getCollapsedGroupIds(pane.id)),
 			...(pane.extraItems ?? []),
 		];
 
-		return new SettingsList(
+		const nextSettingsList = new SettingsTable(
 			items,
 			options.maxVisible ?? 14,
 			getSettingsListTheme(),
+			theme,
 			(id, newValue) => {
 				if (id.startsWith(groupItemPrefix)) {
+					const previousSelectedIndex = settingsList.selectedIndex;
 					toggleCollapsedGroup(pane.id, id.slice(groupItemPrefix.length));
-					settingsList = createActiveSettingsList();
+					settingsList = createActiveSettingsList(previousSelectedIndex);
 					return;
 				}
 
-				const state = paneStates.get(pane.id) ?? pane.state;
+				const previousSelectedIndex = settingsList.selectedIndex;
+				const state = getPaneState(pane);
 				const change = applySettingChange(pane.groups, state, id, newValue);
-				if (!change) {
-					return;
-				}
+				if (!change) return;
 
-				paneStates.set(pane.id, change.state);
-				void Promise.resolve(pane.onChange(change));
-				settingsList = createActiveSettingsList();
+				pendingPaneStates.set(pane.id, change.state);
+				settingsList = createActiveSettingsList(previousSelectedIndex);
+				queuePaneChange(pane, change, previousSelectedIndex);
 			},
 			options.onClose,
-			{ enableSearch: options.enableSearch ?? true },
+			{
+				enableSearch: options.enableSearch ?? true,
+				searchPlaceholder: "type to search",
+				onInput: pane.onInput,
+				onSubmenuClose: (nextSelectedIndex) => {
+					settingsList = createActiveSettingsList(nextSelectedIndex);
+					host.requestRender();
+				},
+			},
 		);
+
+		nextSettingsList.selectedIndex = Math.min(selectedIndex, Math.max(items.length - 1, 0));
+		return nextSettingsList;
+	}
+
+	function getPaneState(pane: SettingsPanelPane): SettingsState {
+		return (
+			pendingPaneStates.get(pane.id) ?? pane.getState?.() ?? paneStates.get(pane.id) ?? pane.state
+		);
+	}
+
+	function queuePaneChange(
+		pane: SettingsPanelPane,
+		change: SettingChange,
+		selectedIndex: number,
+	): void {
+		const previous = paneChangeQueues.get(pane.id) ?? Promise.resolve();
+		const queued = previous.then(async () => {
+			await pane.onChange(change);
+			paneStates.set(pane.id, change.state);
+		});
+		paneChangeQueues.set(pane.id, queued);
+
+		void queued
+			.then(() => {
+				if (paneChangeQueues.get(pane.id) !== queued) return;
+				paneChangeQueues.delete(pane.id);
+				pendingPaneStates.delete(pane.id);
+				settingsList = createActiveSettingsList(selectedIndex);
+				host.requestRender();
+			})
+			.catch((error) => {
+				if (paneChangeQueues.get(pane.id) !== queued) return;
+				paneChangeQueues.delete(pane.id);
+				pendingPaneStates.delete(pane.id);
+				(options.onError ?? noopErrorHandler)(error);
+				settingsList = createActiveSettingsList(selectedIndex);
+				host.requestRender();
+			});
 	}
 
 	function activePane(): SettingsPanelPane {
@@ -143,12 +198,273 @@ export function createSettingsPanelComponent(
 
 	function toggleCollapsedGroup(paneId: string, groupId: string): void {
 		const groupIds = getCollapsedGroupIds(paneId);
-		if (groupIds.has(groupId)) {
-			groupIds.delete(groupId);
-		} else {
-			groupIds.add(groupId);
+		if (groupIds.has(groupId)) groupIds.delete(groupId);
+		else groupIds.add(groupId);
+	}
+}
+
+function noopErrorHandler(_error: unknown): void {}
+
+interface SettingsTableOptions {
+	enableSearch?: boolean;
+	searchPlaceholder?: string;
+	onInput?: (input: SettingsPanelInput) => MaybePromise<boolean | undefined>;
+	onSubmenuClose?: (selectedIndex: number) => void;
+}
+
+class SettingsTable implements Component {
+	selectedIndex = 0;
+	submenuComponent: Component | null = null;
+	private readonly searchInput = new Input();
+	private filteredItems: SettingItem[];
+	private submenuItemIndex: number | null = null;
+
+	constructor(
+		private readonly items: SettingItem[],
+		private readonly maxVisible: number,
+		private readonly theme: SettingsListTheme,
+		private readonly uiTheme: Theme,
+		private readonly onChange: (id: string, newValue: string) => void,
+		private readonly onCancel: () => void,
+		private readonly options: SettingsTableOptions = {},
+	) {
+		this.filteredItems = items;
+		this.searchInput.focused = true;
+	}
+
+	updateValue(id: string, newValue: string): void {
+		const item = this.items.find((item) => item.id === id);
+		if (item) item.currentValue = newValue;
+	}
+
+	invalidate(): void {
+		this.submenuComponent?.invalidate?.();
+	}
+
+	render(width: number): string[] {
+		if (this.submenuComponent) return this.submenuComponent.render(width);
+
+		const lines: string[] = [];
+		if (this.options.enableSearch) {
+			lines.push(this.renderSearch(width));
+			lines.push("");
+		}
+
+		const displayItems = this.options.enableSearch ? this.filteredItems : this.items;
+		if (displayItems.length === 0) {
+			lines.push(
+				this.theme.hint(
+					this.items.length === 0 ? "  No settings available" : "  No matching settings",
+				),
+			);
+			return lines;
+		}
+
+		const startIndex = Math.max(
+			0,
+			Math.min(
+				this.selectedIndex - Math.floor(this.maxVisible / 2),
+				displayItems.length - this.maxVisible,
+			),
+		);
+		const endIndex = Math.min(startIndex + this.maxVisible, displayItems.length);
+		const visibleItems = displayItems.slice(startIndex, endIndex);
+		const labelWidth = Math.min(
+			30,
+			Math.max(...this.items.map((item) => visibleWidth(item.label))),
+		);
+		const valueWidth = Math.min(
+			18,
+			Math.max(8, ...this.items.map((item) => visibleWidth(item.currentValue))),
+		);
+		const prefixWidth = 2;
+		const gap = 2;
+		const descriptionWidth = Math.max(12, width - prefixWidth - labelWidth - valueWidth - gap * 2);
+		const selectedItem = displayItems[this.selectedIndex];
+		const descriptionLines = [
+			"Description",
+			...(selectedItem?.description
+				? wrapTextWithAnsi(selectedItem.description, descriptionWidth)
+				: []),
+		];
+
+		visibleItems.forEach((item, visibleIndex) => {
+			const absoluteIndex = startIndex + visibleIndex;
+			const selected = absoluteIndex === this.selectedIndex;
+			const prefix = selected ? this.theme.cursor : "  ";
+			const label = padRight(item.label, labelWidth);
+			const styledLabel = selected
+				? this.theme.label(label, true)
+				: this.uiTheme.fg("muted", label);
+			const value = padRight(item.currentValue, valueWidth);
+			const rawDescription = descriptionLines[visibleIndex] ?? "";
+			const description =
+				visibleIndex === 0 && rawDescription
+					? this.theme.label(rawDescription, true)
+					: this.styleDescriptionLine(rawDescription, selectedItem);
+			const row = `${prefix}${styledLabel}${" ".repeat(gap)}${this.theme.value(value, selected)}${" ".repeat(gap)}${description}`;
+			lines.push(truncateToWidth(row, width));
+		});
+
+		return lines;
+	}
+
+	handleInput(data: string): void {
+		if (this.submenuComponent) {
+			this.submenuComponent.handleInput?.(data);
+			return;
+		}
+
+		const handled = this.options.onInput?.({
+			data,
+			selectedItem: this.activeItem(),
+			searchValue: this.searchInput.getValue(),
+			openSubmenu: (component) => {
+				this.submenuItemIndex = this.selectedIndex;
+				this.submenuComponent = component;
+			},
+			closeSubmenu: () => {
+				this.submenuComponent = null;
+				if (this.submenuItemIndex !== null) this.selectedIndex = this.submenuItemIndex;
+				this.submenuItemIndex = null;
+				this.options.onSubmenuClose?.(this.selectedIndex);
+			},
+			setValue: (value) => {
+				const item = this.activeItem();
+				if (!item) return;
+				item.currentValue = value;
+				this.onChange(item.id, value);
+			},
+		});
+		if (handled === true) return;
+		if (handled && typeof (handled as Promise<boolean | undefined>).then === "function") {
+			void Promise.resolve(handled);
+			return;
+		}
+
+		if (matchesKey(data, Key.up)) {
+			this.selectedIndex = Math.max(0, this.selectedIndex - 1);
+			return;
+		}
+		if (matchesKey(data, Key.down)) {
+			const displayItems = this.options.enableSearch ? this.filteredItems : this.items;
+			this.selectedIndex = Math.min(Math.max(displayItems.length - 1, 0), this.selectedIndex + 1);
+			return;
+		}
+		if (matchesKey(data, Key.escape)) {
+			if (this.options.enableSearch && this.searchInput.getValue() !== "") {
+				this.searchInput.setValue("");
+				this.applyFilter("");
+				return;
+			}
+			this.onCancel();
+			return;
+		}
+		if (matchesKey(data, Key.enter) || data === " " || data === "]") {
+			this.activateItem(1);
+			return;
+		}
+		if (data === "[") {
+			this.activateItem(-1);
+			return;
+		}
+
+		if (this.options.enableSearch) {
+			const before = this.searchInput.getValue();
+			this.searchInput.handleInput(data);
+			const after = this.searchInput.getValue();
+			if (after !== before) this.applyFilter(after);
 		}
 	}
+
+	statusText(): string {
+		const displayItems = this.options.enableSearch ? this.filteredItems : this.items;
+		if (displayItems.length === 0) return "(0/0)";
+		return `(${this.selectedIndex + 1}/${displayItems.length})`;
+	}
+
+	private renderSearch(width: number): string {
+		if (this.searchInput.getValue() !== "") return this.searchInput.render(width)[0] ?? "";
+		return truncateToWidth(
+			`> ${this.theme.hint(this.options.searchPlaceholder ?? "type to search")}`,
+			width,
+		);
+	}
+
+	private activateItem(direction: 1 | -1): void {
+		const displayItems = this.options.enableSearch ? this.filteredItems : this.items;
+		const item = displayItems[this.selectedIndex];
+		if (!item) return;
+
+		if (item.submenu) {
+			this.submenuItemIndex = this.selectedIndex;
+			this.submenuComponent = item.submenu(item.currentValue, (selectedValue?: string) => {
+				if (selectedValue !== undefined) {
+					item.currentValue = selectedValue;
+					this.onChange(item.id, selectedValue);
+				}
+				this.submenuComponent = null;
+				if (this.submenuItemIndex !== null) this.selectedIndex = this.submenuItemIndex;
+				this.submenuItemIndex = null;
+				this.options.onSubmenuClose?.(this.selectedIndex);
+			});
+			return;
+		}
+
+		if (!item.values || item.values.length === 0) return;
+		const currentIndex = item.values.indexOf(item.currentValue);
+		const nextIndex = (currentIndex + direction + item.values.length) % item.values.length;
+		const nextValue = item.values[nextIndex] ?? item.values[0];
+		if (nextValue === undefined) return;
+		item.currentValue = nextValue;
+		this.onChange(item.id, nextValue);
+	}
+
+	private applyFilter(query: string): void {
+		this.filteredItems = fuzzyFilter(this.items, query, (item) => item.label);
+		this.selectedIndex = 0;
+	}
+
+	private activeItem(): SettingItem | undefined {
+		const displayItems = this.options.enableSearch ? this.filteredItems : this.items;
+		return displayItems[this.selectedIndex];
+	}
+
+	private styleDescriptionLine(text: string, selectedItem: SettingItem | undefined): string {
+		if (!isPresetSettingItem(selectedItem)) return text;
+		if (text.includes("[/]") || /\^[A-Za-z]/.test(text)) return this.styleShortcutDescription(text);
+		if (text.startsWith("Active tools") || text.startsWith("Active skills")) {
+			return text.replace(/\(\d+\/\d+\)/g, (count) => this.uiTheme.fg("dim", count));
+		}
+		return this.uiTheme.fg("dim", text);
+	}
+
+	private styleShortcutDescription(text: string): string {
+		const keyPattern = /(\[\/\]|\^[A-Za-z]|Tab|Space|Enter|Esc)/g;
+		const parts: string[] = [];
+		let offset = 0;
+		for (const match of text.matchAll(keyPattern)) {
+			const index = match.index ?? 0;
+			if (index > offset) parts.push(this.uiTheme.fg("dim", text.slice(offset, index)));
+			const key = match[0];
+			if (key === "[/]") {
+				parts.push(
+					this.uiTheme.fg("accent", this.uiTheme.bold("[")),
+					this.uiTheme.fg("dim", "/"),
+					this.uiTheme.fg("accent", this.uiTheme.bold("]")),
+				);
+			} else {
+				parts.push(this.uiTheme.fg("accent", this.uiTheme.bold(key)));
+			}
+			offset = index + key.length;
+		}
+		if (offset < text.length) parts.push(this.uiTheme.fg("dim", text.slice(offset)));
+		return parts.join("");
+	}
+}
+
+function isPresetSettingItem(item: SettingItem | undefined): boolean {
+	return item?.id.endsWith("/preset:preset") || item?.id === "preset:preset";
 }
 
 export function createSettingItems(
@@ -157,23 +473,23 @@ export function createSettingItems(
 	collapsedGroupIds: ReadonlySet<string> = new Set(),
 ): SettingItem[] {
 	return groups.flatMap((group) => {
+		if (group.display === "hidden") return [];
+		if (group.display === "plain") return createPlainSettingItems(group, state);
+
 		const collapsed = collapsedGroupIds.has(group.id);
 		const header = createGroupSettingItem(group, state, collapsed);
-		if (collapsed) {
-			return [header];
-		}
+		if (collapsed) return [header];
 
 		return [
 			header,
 			...group.fields.map((field, index) => {
 				const value = getSettingValue(state, group.id, field);
-				const description = [field.description].filter(Boolean).join(" ");
 				const branch = index === group.fields.length - 1 ? "╰─" : "├─";
 
 				return {
 					id: encodeSettingItemId(group.id, field.id),
 					label: `  ${branch} ${field.label}`,
-					description: description || undefined,
+					description: resolveSettingDescription(field.description),
 					currentValue: formatSettingValue(field, value),
 					values: settingValueLabels(field),
 				};
@@ -182,18 +498,39 @@ export function createSettingItems(
 	});
 }
 
+function createPlainSettingItems(group: SettingGroup, state: SettingsState): SettingItem[] {
+	return group.fields.map((field) => {
+		const value = getSettingValue(state, group.id, field);
+		return {
+			id: encodeSettingItemId(group.id, field.id),
+			label: field.label,
+			description:
+				[resolveSettingDescription(group.description), resolveSettingDescription(field.description)]
+					.filter(Boolean)
+					.join(" ") || undefined,
+			currentValue: formatSettingValue(field, value),
+			values: settingValueLabels(field),
+		};
+	});
+}
+
+function resolveSettingDescription(
+	description: string | (() => string) | undefined,
+): string | undefined {
+	return typeof description === "function" ? description() : description;
+}
+
 function createGroupSettingItem(
 	group: SettingGroup,
 	state: SettingsState,
 	collapsed: boolean,
 ): SettingItem {
-	const currentValue = summarizeGroup(group, state, collapsed);
 	return {
 		id: `${groupItemPrefix}${group.id}`,
 		label: `${collapsed ? "▸" : "▾"} ${group.title}`,
-		description: [group.description, "Enter/Space expands/collapses"].filter(Boolean).join(" · "),
-		currentValue,
-		values: [currentValue, summarizeGroup(group, state, !collapsed)],
+		description: resolveSettingDescription(group.description),
+		currentValue: summarizeGroup(group, state, collapsed),
+		values: [summarizeGroup(group, state, collapsed), summarizeGroup(group, state, !collapsed)],
 	};
 }
 
@@ -223,10 +560,28 @@ function formatPaneTabs(
 		.join(" ");
 }
 
-function isInSubmenu(settingsList: SettingsList): boolean {
-	return Boolean(
-		(settingsList as unknown as { submenuComponent?: Component | null }).submenuComponent,
+function formatFooter(theme: Theme, statusText: string, hasPaneSwitch: boolean): string {
+	const segments = [theme.fg("dim", `  ${statusText}  `)];
+	if (hasPaneSwitch) {
+		segments.push(keycap(theme, "Tab"), theme.fg("dim", " switch pane · "));
+	}
+	segments.push(
+		keycap(theme, "↩"),
+		theme.fg("dim", "/"),
+		keycap(theme, "Space"),
+		theme.fg("dim", " change · "),
+		keycap(theme, "Esc"),
+		theme.fg("dim", " close"),
 	);
+	return segments.join("");
+}
+
+function abc() {
+  
+}
+
+function keycap(theme: Theme, label: string): string {
+	return theme.fg("accent", theme.bold(label));
 }
 
 function createEmptyPane(): SettingsPanelPane {
@@ -237,4 +592,8 @@ function createEmptyPane(): SettingsPanelPane {
 		state: {},
 		onChange: () => {},
 	};
+}
+
+function padRight(text: string, width: number): string {
+	return `${text}${" ".repeat(Math.max(0, width - visibleWidth(text)))}`;
 }

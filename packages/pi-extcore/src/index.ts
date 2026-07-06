@@ -29,7 +29,12 @@ export {
 	parseSettingValue,
 	settingValueLabels,
 } from "./settings/state.js";
-export { createAgentJsonSettingsStorage, createJsonSettingsStorage } from "./settings/storage.js";
+export {
+	createAgentExtensionSettingsStorage,
+	createAgentJsonSettingsStorage,
+	createExtensionSettingsStorage,
+	createJsonSettingsStorage,
+} from "./settings/storage.js";
 export type {
 	MaybePromise,
 	SettingChange,
@@ -39,3 +44,14 @@ export type {
 	SettingPrimitive,
 	SettingsState,
 } from "./settings/types.js";
+export {
+	type RowsWithSidePanelOptions,
+	renderRowsWithSidePanel,
+	renderTwoColumnListWithSidePanel,
+	renderWrappedTableRows,
+	type SidePanelTheme,
+	type TwoColumnSidePanelOptions,
+	type TwoColumnSidePanelRow,
+	type WrappedTableOptions,
+	type WrappedTableRow,
+} from "./tui/panels.js";
