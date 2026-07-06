@@ -90,38 +90,33 @@ keybindingEditor.handleInput("<tui.select.down>");
 keybindingEditor.handleInput("<tui.select.confirm>");
 assert.equal(keybindingEditor.text, "$librarian ");
 const wrappedSymbol = Symbol.for("pi-codex-dollar.highlightWrapped");
-const versionSymbol = Symbol.for("pi-codex-dollar.highlightWrappedVersion");
 const baseEditorSymbol = Symbol.for("pi-codex-dollar.highlightBaseEditor");
-const staleEditor = new FakeEditor();
-staleEditor[wrappedSymbol] = true;
-const rewrappedEditor = createSkillPickerEditor(staleEditor, () => commands, noopTheme(), {
+const wrappedEditor = new FakeEditor();
+wrappedEditor[wrappedSymbol] = true;
+assert.equal(
+	createSkillPickerEditor(wrappedEditor, () => commands, noopTheme(), {
+		requestRender() {},
+	}),
+	wrappedEditor,
+);
+
+const baseEditor = new FakeEditor();
+const editorWithBaseMetadata = new Proxy(baseEditor, {
+	get(target, prop, receiver) {
+		if (prop === baseEditorSymbol) return baseEditor;
+		return Reflect.get(target, prop, receiver);
+	},
+});
+const rewrappedEditor = createSkillPickerEditor(editorWithBaseMetadata, () => commands, noopTheme(), {
 	requestRender() {},
 }) as ReturnType<typeof createSkillPickerEditor> & Record<symbol, unknown>;
-assert.notEqual(rewrappedEditor, staleEditor);
+assert.notEqual(rewrappedEditor, editorWithBaseMetadata);
 assert.equal(rewrappedEditor[wrappedSymbol], true);
-assert.equal(typeof rewrappedEditor[versionSymbol], "string");
-assert.equal(rewrappedEditor[baseEditorSymbol], staleEditor);
+assert.equal(rewrappedEditor[baseEditorSymbol], baseEditor);
 assert.equal(
 	createSkillPickerEditor(rewrappedEditor, () => commands, noopTheme(), { requestRender() {} }),
 	rewrappedEditor,
 );
-
-const preservedBaseEditor = new FakeEditor();
-const staleWrappedEditor = new Proxy(preservedBaseEditor, {
-	get(target, prop, receiver) {
-		if (prop === wrappedSymbol) return true;
-		if (prop === baseEditorSymbol) return preservedBaseEditor;
-		return Reflect.get(target, prop, receiver);
-	},
-});
-const refreshedWrappedEditor = createSkillPickerEditor(
-	staleWrappedEditor,
-	() => commands,
-	noopTheme(),
-	{ requestRender() {} },
-) as ReturnType<typeof createSkillPickerEditor> & Record<symbol, unknown>;
-assert.notEqual(refreshedWrappedEditor, staleWrappedEditor);
-assert.equal(refreshedWrappedEditor[baseEditorSymbol], preservedBaseEditor);
 const scrollingCommands = Array.from({ length: 12 }, (_value, index) => ({
 	name: `skill:item-${String(index).padStart(2, "0")}`,
 	description: `Description ${index}`,
