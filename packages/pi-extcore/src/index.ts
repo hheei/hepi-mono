@@ -1,5 +1,15 @@
 export { formatExtensionLabel, normalizePackageSlug } from "./package.js";
 export {
+	registerEditorModifier,
+	type EditorComponent,
+	type EditorComponentFactory,
+	type EditorKeybindings,
+	type EditorModifier,
+	type EditorModifierContext,
+	type EditorTheme,
+	type EditorTui,
+} from "./editor/modifiers.js";
+export {
 	createSettingItems,
 	createSettingsPanelComponent,
 	type SettingsPanelHost,
