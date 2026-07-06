@@ -1,3 +1,4 @@
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { renderRowsWithSidePanel } from "@hheei/pi-extcore";
 
@@ -20,6 +21,15 @@ export interface LoadoutFooterOptions {
 	width: number;
 	theme: LoadoutFooterTheme;
 }
+
+export interface LoadoutPresetDescriptionOptions {
+	tools: readonly string[];
+	totalTools: number;
+	skills: readonly string[];
+	totalSkills: number;
+	theme: Theme;
+}
+
 export type LoadoutStatus = "enabled" | "disabled" | "partial";
 
 export function loadoutStatusSymbol(status: LoadoutStatus): "●" | "○" | "◐" {
@@ -42,6 +52,24 @@ export function formatLoadoutGroupDescription(
 	totalCount: number,
 ): string {
 	return `${label} · ${enabledCount}/${totalCount} enabled`;
+}
+
+export function formatLoadoutPresetDescription(options: LoadoutPresetDescriptionOptions): string {
+	const style = presetDescriptionStyle(options.theme);
+	return [
+		`${style.key("[")}${style.dim("/")}${style.key("]")}${style.dim(" cycle")}`,
+		`Active tools ${style.dim(`(${options.tools.length}/${options.totalTools})`)}`,
+		style.dim(options.tools.length > 0 ? options.tools.join(", ") : "none"),
+		`Active skills ${style.dim(`(${options.skills.length}/${options.totalSkills})`)}`,
+		style.dim(options.skills.length > 0 ? options.skills.join(", ") : "none"),
+	].join("\n");
+}
+
+function presetDescriptionStyle(theme: Theme): LoadoutFooterTheme {
+	return {
+		dim: (text) => theme.fg("dim", text),
+		key: (text) => theme.fg("accent", theme.bold(text)),
+	};
 }
 
 export function stripSettingsListExtraLines(lines: readonly string[]): string[] {

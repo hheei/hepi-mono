@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import type { TextContent } from "@earendil-works/pi-ai";
 import {
 	type AgentToolResult,
@@ -13,9 +14,12 @@ import {
 	type SettingsState,
 } from "@hheei/pi-extcore";
 import { Type } from "typebox";
-import { SessionManager } from "./scripts/session-manager.js";
-import { createMcpServer } from "./scripts/ssh-exec-mcp.js";
-import { findConfiguredHosts, type SshHostRecord } from "./scripts/ssh-hosts.js";
+import type { ProcessResult } from "./session-manager.js";
+import { SessionManager } from "./session-manager.js";
+import { executeSshExec, validateSshExecArgs } from "./ssh-exec.js";
+import { findConfiguredHosts, type SshHostRecord, validateSshHostPattern } from "./ssh-host.js";
+import { executeSshMount, validateSshMountArgs } from "./ssh-mount.js";
+import { readProcessOutputTail } from "./stream-output.js";
 
 type SshToolDetails = Record<string, unknown>;
 type SshToolResult = AgentToolResult<SshToolDetails>;
@@ -88,11 +92,11 @@ const SSH_SETTING_GROUPS: SettingGroup[] = [
 
 export default function register(pi: ExtensionAPI) {
 	let settings = DEFAULT_SETTINGS;
-	let server = createServer(settings);
+	let manager = createManager(settings);
 
 	const applySettings = (nextSettings: SshExtensionSettings): void => {
 		settings = nextSettings;
-		server = createServer(settings);
+		manager = createManager(settings);
 	};
 
 	const isHostDisabled = (host: string): boolean => settings.disabledHosts.includes(host);
@@ -149,13 +153,13 @@ export default function register(pi: ExtensionAPI) {
 		},
 		renderResult: renderCollapsedResult,
 		async execute(_id, params) {
-			const response = await server.handle({
-				jsonrpc: "2.0",
-				id: 1,
-				method: "tools/call",
-				params: { name: "ssh_host", arguments: params },
-			});
-			return normalizePiToolResult(response);
+			try {
+				const pattern = validateSshHostPattern(params);
+				const hosts = filterDisabledHosts(await findConfiguredHosts(pattern), settings);
+				return hostLookupResult(pattern, hosts);
+			} catch (error) {
+				return errorResult(error, { hosts: [] });
+			}
 		},
 	});
 
@@ -175,14 +179,20 @@ export default function register(pi: ExtensionAPI) {
 		},
 		renderResult: renderCollapsedResult,
 		async execute(_id, params) {
-			if (isHostDisabled(params.host)) return disabledHostResult(params.host);
-			const response = await server.handle({
-				jsonrpc: "2.0",
-				id: 1,
-				method: "tools/call",
-				params: { name: "ssh_mount", arguments: params },
-			});
-			return normalizePiToolResult(response);
+			const args = validateSshMountArgs(params);
+			if (isHostDisabled(args.host)) return disabledHostResult(args.host);
+			try {
+				const runner = async (runnerArgs: string[], timeoutMs?: number) =>
+					await runCleanupSshProcess(
+						manager.sshBin,
+						runnerArgs,
+						timeoutMs,
+						manager.sensitiveValues(args.host),
+					);
+				return mountResult(await executeSshMount(manager, args, runner));
+			} catch (error) {
+				return errorResult(error);
+			}
 		},
 	});
 
@@ -207,29 +217,32 @@ export default function register(pi: ExtensionAPI) {
 		},
 		renderResult: renderCollapsedResult,
 		async execute(_id, params) {
-			if (isHostDisabled(params.host)) return disabledHostResult(params.host);
-			const response = await server.handle({
-				jsonrpc: "2.0",
-				id: 1,
-				method: "tools/call",
-				params: {
-					name: "ssh_exec",
-					arguments: { ...params, timeout: params.timeout ?? settings.commandTimeoutSeconds },
-				},
+			const args = validateSshExecArgs({
+				...(params as Record<string, unknown>),
+				timeout: (params as { timeout?: number }).timeout ?? settings.commandTimeoutSeconds,
 			});
-			return normalizePiToolResult(response);
+			if (isHostDisabled(args.host)) return disabledHostResult(args.host);
+			try {
+				const result = await executeSshExec(manager, args, { timeoutMode: "result" });
+				return sshExecResult(result, result.exitCode !== 0 || result.exitCode === null);
+			} catch (error) {
+				return errorResult(error, {
+					host: args.host,
+					exitCode: null,
+					durationMs: 0,
+					truncated: false,
+					notice: errorMessage(error),
+				});
+			}
 		},
 	});
 }
 
-function createServer(settings: SshExtensionSettings) {
-	return createMcpServer({
-		manager: new SessionManager({
-			controlPersist: String(settings.controlPersistSeconds),
-			serverAliveIntervalSeconds: settings.serverAliveIntervalSeconds,
-			serverAliveCountMax: settings.serverAliveCountMax,
-		}),
-		findHosts: async (pattern) => filterDisabledHosts(await findConfiguredHosts(pattern), settings),
+function createManager(settings: SshExtensionSettings): SessionManager {
+	return new SessionManager({
+		controlPersist: String(settings.controlPersistSeconds),
+		serverAliveIntervalSeconds: settings.serverAliveIntervalSeconds,
+		serverAliveCountMax: settings.serverAliveCountMax,
 	});
 }
 
@@ -246,6 +259,148 @@ function disabledHostResult(host: string): SshToolResult {
 		content: [{ type: "text", text: `SSH host ${host} is disabled by /extension-setting.` }],
 		details: { host, disabled: true },
 	};
+}
+
+function hostLookupResult(pattern: string, hosts: SshHostRecord[]): SshToolResult {
+	return {
+		content: [
+			{
+				type: "text",
+				text:
+					hosts.length > 0
+						? hosts.map((host) => host.display).join("\n")
+						: `No \`${pattern}\` host.`,
+			},
+		],
+		details: { hosts },
+	};
+}
+
+function mountResult(result: { host: string; localPath: string; status: string }): SshToolResult {
+	const displayPath = ensureTrailingSlash(formatDisplayPath(result.localPath));
+	const text = ["Success.", `Local path: ${displayPath}`, `Home path: ${displayPath}...`].join(
+		"\n",
+	);
+	return {
+		content: [{ type: "text", text }],
+		details: {
+			host: result.host,
+			localPath: result.localPath,
+			status: result.status,
+		},
+	};
+}
+
+function sshExecResult(
+	result: {
+		host: string;
+		exitCode: number | null;
+		output?: string;
+		stdout: string;
+		stderr: string;
+		durationMs: number;
+		truncated: boolean;
+		totalBytes?: number;
+		outputBytes?: number;
+		totalLines?: number;
+		outputLines?: number;
+		notice?: string;
+	},
+	isError: boolean,
+): SshToolResult {
+	const notice =
+		result.notice ??
+		(isError && result.exitCode !== null && result.exitCode !== 0
+			? `Command exited with code ${result.exitCode}`
+			: undefined);
+	const outputText = result.output ?? `${result.stdout}${result.stderr}`;
+	const displayOutput = outputText ? outputText.trimEnd() : "(no output)";
+	const text = notice ? `${displayOutput}\n\n${notice}` : outputText || "(no output)";
+
+	return {
+		content: [{ type: "text", text }],
+		details: {
+			host: result.host,
+			exitCode: result.exitCode,
+			output: result.output,
+			durationMs: result.durationMs,
+			truncated: result.truncated,
+			totalBytes: result.totalBytes,
+			outputBytes: result.outputBytes,
+			totalLines: result.totalLines,
+			outputLines: result.outputLines,
+			...(notice ? { notice } : {}),
+		},
+	};
+}
+
+function errorResult(error: unknown, details: Record<string, unknown> = {}): SshToolResult {
+	return {
+		content: [{ type: "text", text: errorMessage(error) }],
+		details,
+	};
+}
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+function formatDisplayPath(path: string): string {
+	const home = homedir();
+	if (path === home) return "~";
+	if (path.startsWith(`${home}/`)) return `~${path.slice(home.length)}`;
+	return path;
+}
+
+function ensureTrailingSlash(path: string): string {
+	return path.endsWith("/") ? path : `${path}/`;
+}
+
+async function runCleanupSshProcess(
+	sshBin: string,
+	args: string[],
+	timeoutMs = 10_000,
+	sensitiveValues: string[] = [],
+): Promise<ProcessResult> {
+	const { spawn } = await import("node:child_process");
+	const child = spawn(sshBin, args, {
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+
+	let timedOut = false;
+	let killTimer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = setTimeout(() => {
+		timedOut = true;
+		child.kill("SIGTERM");
+		killTimer = setTimeout(() => child.kill("SIGKILL"), 1000);
+	}, timeoutMs);
+
+	try {
+		const [output, exitCode] = await Promise.all([
+			readProcessOutputTail(child.stdout, child.stderr, sensitiveValues),
+			new Promise<number | null>((resolve, reject) => {
+				child.once("error", reject);
+				child.once("close", (code) => resolve(code));
+			}),
+		]);
+		return {
+			exitCode: timedOut ? null : exitCode,
+			output: output.text,
+			stdout: output.stdout,
+			stderr: output.stderr,
+			truncated: output.truncated,
+			totalBytes: output.totalBytes,
+			outputBytes: output.outputBytes,
+			totalLines: output.totalLines,
+			outputLines: output.outputLines,
+			...(timedOut
+				? { notice: `SSH cleanup timed out after ${Math.round(timeoutMs / 1000)}s` }
+				: {}),
+		};
+	} finally {
+		clearTimeout(timeout);
+		if (killTimer) clearTimeout(killTimer);
+	}
 }
 
 function createSshHostsPanel(

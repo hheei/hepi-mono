@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { OutputTailSink } from "../src/scripts/output-tail-sink.js";
-import { MAX_OUTPUT_BYTES } from "../src/scripts/ssh-exec.js";
+import { OutputTailSink } from "../src/output-tail-sink.js";
+import { MAX_OUTPUT_BYTES } from "../src/ssh-exec.js";
 
 test("OutputTailSink retains only the last maxBytes bytes", () => {
 	const sink = new OutputTailSink(8);

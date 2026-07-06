@@ -12,8 +12,6 @@ import {
 const MAX_SUGGESTIONS = 30;
 const DOLLAR_TOKEN_PATTERN = /(^|[\s([{])\$([A-Za-z0-9-]*)$/;
 const DOLLAR_REFERENCE_PATTERN = /(^|[\s([{])\$([A-Za-z0-9-]+)(?![A-Za-z0-9-:])/g;
-const CYAN = "\x1b[36m";
-const RESET_FG = "\x1b[39m";
 const HIGHLIGHT_WRAPPED = Symbol.for("pi-codex-dollar.highlightWrapped");
 const HIGHLIGHT_WRAPPED_VERSION = Symbol.for("pi-codex-dollar.highlightWrappedVersion");
 const HIGHLIGHT_BASE_EDITOR = Symbol.for("pi-codex-dollar.highlightBaseEditor");
@@ -212,9 +210,7 @@ function styleScrollInfo(text: string | undefined, theme?: DollarTheme): string 
 function styleSelectedRow(text: string, theme?: DollarTheme): string {
 	if (!text) return text;
 	const selectList = styleSelectList(theme);
-	return typeof selectList?.selectedText === "function"
-		? selectList.selectedText(text)
-		: `${CYAN}${text}${RESET_FG}`;
+	return typeof selectList?.selectedText === "function" ? selectList.selectedText(text) : text;
 }
 
 function styleInactiveRow(text: string, theme?: DollarTheme): string {

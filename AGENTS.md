@@ -21,6 +21,7 @@ Coding policy:
 - Use package names like `@hheei/pi-xxxx`.
 - Put shared core code, settings config, and settings TUI helpers in `packages/pi-extcore`.
 - Add code to `pi-extcore` only when future extensions are expected to share it.
+- Use native Pi theme APIs (`Theme.fg`, `Theme.bold`, pi-tui theme hooks) for colors and text styling. Do not hard-code ANSI color codes or add color wrapper helpers to `pi-extcore`; callers should preformat styled strings before passing them to shared core renderers.
 - Keep package manifests explicit: `main`, `files`, `pi.extensions`, `keywords`, and peer dependencies.
 
 Verification policy:
