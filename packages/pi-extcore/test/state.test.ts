@@ -7,8 +7,8 @@ import {
 	mergeSettingsState,
 	parseSettingValue,
 	settingValueLabels,
-} from "./state.js";
-import type { SettingGroup } from "./types.js";
+} from "../src/settings/state.js";
+import type { SettingGroup } from "../src/settings/types.js";
 
 const groups: SettingGroup[] = [
 	{

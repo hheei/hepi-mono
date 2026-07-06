@@ -3,7 +3,7 @@ import {
 	renderRowsWithSidePanel,
 	renderTwoColumnListWithSidePanel,
 	renderWrappedTableRows,
-} from "./panels.js";
+} from "../src/tui/panels.js";
 
 describe("TUI panel layouts", () => {
 	it("renders a wrapped three-column table", () => {

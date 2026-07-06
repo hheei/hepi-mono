@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { initTheme, type Theme } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { createSettingsPanelComponent } from "./panel.js";
-import type { SettingChange, SettingGroup } from "./types.js";
+import { createSettingsPanelComponent } from "../src/settings/panel.js";
+import type { SettingChange, SettingGroup } from "../src/settings/types.js";
 
 const theme = {
 	bold: (text: string) => text,

@@ -6,7 +6,7 @@ import {
 	type LoadoutFooterTheme,
 	mergeRowsWithDescription,
 	stripSettingsListExtraLines,
-} from "./tui.js";
+} from "../src/tui.js";
 
 const theme: LoadoutFooterTheme = {
 	dim: (text) => text,
