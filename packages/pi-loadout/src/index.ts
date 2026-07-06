@@ -33,6 +33,7 @@ import { createLoadoutSettingsStorage } from "./settings-storage.js";
 import {
 	createLoadoutFooterLines,
 	formatLoadoutGroupDescription,
+	formatLoadoutPresetDescription,
 	formatLoadoutStatusLabel,
 	type LoadoutFooterSelectionKind,
 	mergeRowsWithDescription,
@@ -255,16 +256,16 @@ export default function loadoutExtension(pi: ExtensionAPI) {
 		];
 	}
 
-	function presetSettingDescription(): string {
+	function presetSettingDescription(theme: Theme): string {
 		const tools = sorted(activeToolNames());
 		const skills = sorted(activeSkillNames());
-		return [
-			"[/] cycle",
-			`Active tools (${tools.length}/${allToolNames().length})`,
-			tools.length > 0 ? tools.join(", ") : "none",
-			`Active skills (${skills.length}/${allSkillNames().length})`,
-			skills.length > 0 ? skills.join(", ") : "none",
-		].join("\n");
+		return formatLoadoutPresetDescription({
+			tools,
+			totalTools: allToolNames().length,
+			skills,
+			totalSkills: allSkillNames().length,
+			theme,
+		});
 	}
 
 	function createPresetSettingOptions() {

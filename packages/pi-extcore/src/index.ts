@@ -38,6 +38,7 @@ export {
 export type {
 	MaybePromise,
 	SettingChange,
+	SettingDescription,
 	SettingField,
 	SettingGroup,
 	SettingOption,

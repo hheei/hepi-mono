@@ -18,7 +18,13 @@ import {
 	getSettingValue,
 	settingValueLabels,
 } from "./state.js";
-import type { MaybePromise, SettingChange, SettingGroup, SettingsState } from "./types.js";
+import type {
+	MaybePromise,
+	SettingChange,
+	SettingDescription,
+	SettingGroup,
+	SettingsState,
+} from "./types.js";
 
 export interface SettingsPanelHost {
 	requestRender(): void;
@@ -105,7 +111,7 @@ export function createSettingsPanelComponent(
 		const pane = activePane();
 		const currentState = getPaneState(pane);
 		const items = [
-			...createSettingItems(pane.groups, currentState, getCollapsedGroupIds(pane.id)),
+			...createSettingItems(pane.groups, currentState, getCollapsedGroupIds(pane.id), theme),
 			...(pane.extraItems ?? []),
 		];
 
@@ -301,7 +307,7 @@ class SettingsTable implements Component {
 			const description =
 				visibleIndex === 0 && rawDescription
 					? this.theme.label(rawDescription, true)
-					: this.styleDescriptionLine(rawDescription, selectedItem);
+					: rawDescription;
 			const row = `${prefix}${styledLabel}${" ".repeat(gap)}${this.theme.value(value, selected)}${" ".repeat(gap)}${description}`;
 			lines.push(truncateToWidth(row, width));
 		});
@@ -429,55 +435,20 @@ class SettingsTable implements Component {
 		const displayItems = this.options.enableSearch ? this.filteredItems : this.items;
 		return displayItems[this.selectedIndex];
 	}
-
-	private styleDescriptionLine(text: string, selectedItem: SettingItem | undefined): string {
-		if (!isPresetSettingItem(selectedItem)) return text;
-		if (text.includes("[/]") || /\^[A-Za-z]/.test(text)) return this.styleShortcutDescription(text);
-		if (text.startsWith("Active tools") || text.startsWith("Active skills")) {
-			return text.replace(/\(\d+\/\d+\)/g, (count) => this.uiTheme.fg("dim", count));
-		}
-		return this.uiTheme.fg("dim", text);
-	}
-
-	private styleShortcutDescription(text: string): string {
-		const keyPattern = /(\[\/\]|\^[A-Za-z]|Tab|Space|Enter|Esc)/g;
-		const parts: string[] = [];
-		let offset = 0;
-		for (const match of text.matchAll(keyPattern)) {
-			const index = match.index ?? 0;
-			if (index > offset) parts.push(this.uiTheme.fg("dim", text.slice(offset, index)));
-			const key = match[0];
-			if (key === "[/]") {
-				parts.push(
-					this.uiTheme.fg("accent", this.uiTheme.bold("[")),
-					this.uiTheme.fg("dim", "/"),
-					this.uiTheme.fg("accent", this.uiTheme.bold("]")),
-				);
-			} else {
-				parts.push(this.uiTheme.fg("accent", this.uiTheme.bold(key)));
-			}
-			offset = index + key.length;
-		}
-		if (offset < text.length) parts.push(this.uiTheme.fg("dim", text.slice(offset)));
-		return parts.join("");
-	}
-}
-
-function isPresetSettingItem(item: SettingItem | undefined): boolean {
-	return item?.id.endsWith("/preset:preset") || item?.id === "preset:preset";
 }
 
 export function createSettingItems(
 	groups: readonly SettingGroup[],
 	state: SettingsState,
 	collapsedGroupIds: ReadonlySet<string> = new Set(),
+	theme?: Theme,
 ): SettingItem[] {
 	return groups.flatMap((group) => {
 		if (group.display === "hidden") return [];
-		if (group.display === "plain") return createPlainSettingItems(group, state);
+		if (group.display === "plain") return createPlainSettingItems(group, state, theme);
 
 		const collapsed = collapsedGroupIds.has(group.id);
-		const header = createGroupSettingItem(group, state, collapsed);
+		const header = createGroupSettingItem(group, state, collapsed, theme);
 		if (collapsed) return [header];
 
 		return [
@@ -489,7 +460,7 @@ export function createSettingItems(
 				return {
 					id: encodeSettingItemId(group.id, field.id),
 					label: `  ${branch} ${field.label}`,
-					description: resolveSettingDescription(field.description),
+					description: resolveSettingDescription(field.description, theme),
 					currentValue: formatSettingValue(field, value),
 					values: settingValueLabels(field),
 				};
@@ -498,14 +469,21 @@ export function createSettingItems(
 	});
 }
 
-function createPlainSettingItems(group: SettingGroup, state: SettingsState): SettingItem[] {
+function createPlainSettingItems(
+	group: SettingGroup,
+	state: SettingsState,
+	theme: Theme | undefined,
+): SettingItem[] {
 	return group.fields.map((field) => {
 		const value = getSettingValue(state, group.id, field);
 		return {
 			id: encodeSettingItemId(group.id, field.id),
 			label: field.label,
 			description:
-				[resolveSettingDescription(group.description), resolveSettingDescription(field.description)]
+				[
+					resolveSettingDescription(group.description, theme),
+					resolveSettingDescription(field.description, theme),
+				]
 					.filter(Boolean)
 					.join(" ") || undefined,
 			currentValue: formatSettingValue(field, value),
@@ -515,20 +493,23 @@ function createPlainSettingItems(group: SettingGroup, state: SettingsState): Set
 }
 
 function resolveSettingDescription(
-	description: string | (() => string) | undefined,
+	description: SettingDescription | undefined,
+	theme: Theme | undefined,
 ): string | undefined {
-	return typeof description === "function" ? description() : description;
+	if (typeof description !== "function") return description;
+	return theme ? description(theme) : undefined;
 }
 
 function createGroupSettingItem(
 	group: SettingGroup,
 	state: SettingsState,
 	collapsed: boolean,
+	theme: Theme | undefined,
 ): SettingItem {
 	return {
 		id: `${groupItemPrefix}${group.id}`,
 		label: `${collapsed ? "▸" : "▾"} ${group.title}`,
-		description: resolveSettingDescription(group.description),
+		description: resolveSettingDescription(group.description, theme),
 		currentValue: summarizeGroup(group, state, collapsed),
 		values: [summarizeGroup(group, state, collapsed), summarizeGroup(group, state, !collapsed)],
 	};

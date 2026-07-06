@@ -14,7 +14,7 @@ const lines = renderSkillPickerLines([librarian], 0, 58, noopTheme());
 
 assert.ok(lines.length > 1);
 assert.match(stripAnsi(lines[0]!), /^→ librarian\s+User\s+Research open-source/);
-assert.ok(lines[0]!.startsWith(`${ANSI_ESCAPE}[36m→ librarian`));
+assert.ok(lines[0]!.startsWith("→ librarian"));
 assert.match(stripAnsi(lines[1]!), /^\s{8,}/);
 assert.match(lines.join(" "), /evidence-backed answers/);
 

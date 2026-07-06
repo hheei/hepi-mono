@@ -7,8 +7,8 @@ import {
 	type MountProbeResult,
 	SessionManager,
 	sanitizeHostForSocket,
-} from "../src/scripts/session-manager.js";
-import { clampTimeoutSeconds, executeSshExec } from "../src/scripts/ssh-exec.js";
+} from "../src/session-manager.js";
+import { clampTimeoutSeconds, executeSshExec } from "../src/ssh-exec.js";
 
 let tmpRoot: string;
 let fakeSshPath: string;

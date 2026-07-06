@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import {
 	createLoadoutFooterLines,
 	formatLoadoutGroupDescription,
+	formatLoadoutPresetDescription,
 	formatLoadoutStatusLabel,
 	type LoadoutFooterTheme,
 	mergeRowsWithDescription,
@@ -13,6 +15,11 @@ const theme: LoadoutFooterTheme = {
 	key: (text) => `<${text}>`,
 };
 
+const presetTheme = {
+	bold: (text: string) => `<bold>${text}</bold>`,
+	fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+} as unknown as Theme;
+
 describe("loadout TUI helpers", () => {
 	test("status labels put symbols before row names", () => {
 		expect(formatLoadoutStatusLabel("├─ ", "enabled", "edit")).toBe("├─ ● edit");
@@ -23,6 +30,26 @@ describe("loadout TUI helpers", () => {
 	test("group descriptions omit expanded or collapsed state", () => {
 		expect(formatLoadoutGroupDescription("Built-in tools", 4, 7)).toBe(
 			"Built-in tools · 4/7 enabled",
+		);
+	});
+
+	test("preset description is formatted before entering extcore", () => {
+		const description = formatLoadoutPresetDescription({
+			tools: ["bash", "read"],
+			totalTools: 5,
+			skills: [],
+			totalSkills: 3,
+			theme: presetTheme,
+		});
+
+		expect(description).toBe(
+			[
+				"<accent><bold>[</bold></accent><dim>/</dim><accent><bold>]</bold></accent><dim> cycle</dim>",
+				"Active tools <dim>(2/5)</dim>",
+				"<dim>bash, read</dim>",
+				"Active skills <dim>(0/3)</dim>",
+				"<dim>none</dim>",
+			].join("\n"),
 		);
 	});
 

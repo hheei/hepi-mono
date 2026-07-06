@@ -13,7 +13,13 @@ import {
 } from "./panel.js";
 import { createDefaultSettingsState, mergeSettingsState } from "./state.js";
 import { createAgentExtensionSettingsStorage } from "./storage.js";
-import type { MaybePromise, SettingChange, SettingGroup, SettingsState } from "./types.js";
+import type {
+	MaybePromise,
+	SettingChange,
+	SettingDescription,
+	SettingGroup,
+	SettingsState,
+} from "./types.js";
 
 export const EXTENSION_SETTING_COMMAND = "extension-setting";
 
@@ -295,11 +301,21 @@ function namespaceSettingGroups(
 		...group,
 		id: namespaceGroupId(provider.id, group.id),
 		title: includeProviderTitle ? `${provider.title} / ${group.title}` : group.title,
-		description:
-			[includeProviderTitle ? provider.description : undefined, group.description]
-				.filter(Boolean)
-				.join(" ") || undefined,
+		description: mergeDescriptions(
+			includeProviderTitle ? provider.description : undefined,
+			group.description,
+		),
 	}));
+}
+
+function mergeDescriptions(
+	first: string | undefined,
+	second: SettingDescription | undefined,
+): SettingDescription | undefined {
+	if (!first) return second;
+	if (!second) return first;
+	if (typeof second === "string") return `${first} ${second}`;
+	return (theme) => `${first} ${second(theme)}`;
 }
 
 function createSubpanelItems(

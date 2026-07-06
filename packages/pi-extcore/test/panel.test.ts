@@ -6,7 +6,7 @@ import type { SettingChange, SettingGroup } from "../src/settings/types.js";
 
 const theme = {
 	bold: (text: string) => text,
-	fg: (_color: string, text: string) => text,
+	fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
 } as unknown as Theme;
 
 const groups: SettingGroup[] = [
@@ -144,6 +144,41 @@ describe("settings panel", () => {
 		expect(renderText(component)).toContain("Open");
 		expect(renderText(component)).not.toContain("submenu body");
 		expect(renderCount).toBeGreaterThan(0);
+	});
+
+	it("renders caller-formatted description lines", () => {
+		const component = createSettingsPanelComponent({ requestRender: () => {} }, theme, {
+			title: "Settings",
+			panes: [
+				{
+					id: "styled",
+					title: "Styled",
+					groups: [
+						{
+							id: "general",
+							title: "General",
+							display: "plain",
+							fields: [
+								{
+									id: "first",
+									label: "First",
+									description: (theme) => theme.fg("dim", "Caller owned style"),
+									defaultValue: false,
+								},
+								{ id: "second", label: "Second", defaultValue: false },
+							],
+						},
+					],
+					state: { general: { first: false, second: false } },
+					onChange: () => {},
+				},
+			],
+			onClose: () => {},
+		});
+
+		const text = renderText(component);
+
+		expect(text).toContain("<dim>Caller owned style</dim>");
 	});
 
 	it("reverts optimistic state and reports async save rejection", async () => {

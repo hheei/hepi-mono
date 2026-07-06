@@ -20,7 +20,7 @@ assert.equal(expandDollarSkillReferences("Cost $5 stays", commands), null);
 
 assert.equal(
 	highlightDollarSkillReferences("Use $librarian and $UNKNOWN", commands),
-	"Use \x1b[36m$librarian\x1b[39m and $UNKNOWN",
+	"Use $librarian and $UNKNOWN",
 );
 assert.equal(
 	highlightDollarSkillReferences("Use $librarian", commands, {
@@ -88,7 +88,7 @@ try {
 	);
 	assert.equal(
 		highlightDollarSkillReferences("Use $packaged-only", pathlessPackageCommands),
-		"Use \x1b[36m$packaged-only\x1b[39m",
+		"Use $packaged-only",
 	);
 } finally {
 	if (previousNpmRoots === undefined) {
