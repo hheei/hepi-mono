@@ -1,0 +1,41 @@
+{
+	"name": "@hheei/pi-example",
+	"version": "0.0.0",
+	"description": "Example Pi extension package for hepi-mono.",
+	"type": "module",
+	"main": "src/index.ts",
+	"scripts": {
+		"test": "bun test"
+	},
+	"files": [
+		"src",
+		"README.md"
+	],
+	"pi": {
+		"extensions": [
+			"src/index.ts"
+		]
+	},
+	"keywords": [
+		"pi",
+		"pi-package",
+		"pi-extension",
+		"hepi"
+	],
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/hheei/hepi-mono.git",
+		"directory": "packages/pi-example"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"dependencies": {
+		"@hheei/pi-extcore": "0.0.0",
+		"typebox": "^1.1.38"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*"
+	}
+}
