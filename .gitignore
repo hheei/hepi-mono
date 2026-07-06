@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+*.log
+*.tgz
+.DS_Store
+.pi/
+.env
+.env.*
+!.env.example
+package-lock.json
+npm-debug.log*
