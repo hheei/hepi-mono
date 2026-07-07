@@ -6,7 +6,8 @@
 	"main": "src/index.ts",
 	"files": [
 		"src",
-		"README.md"
+		"README.md",
+		"LICENSE"
 	],
 	"pi": {
 		"extensions": [

@@ -105,8 +105,8 @@ bun run pi:dev
 This loads `pi-extcore` and `pi-loadout`. Test one or more packages:
 
 ```bash
-bun run pi:dev -- example
-bun run pi:dev -- loadout example
+bun run pi:dev -- inturl
+bun run pi:dev -- loadout inturl
 bun run pi:dev -- --all
 ```
 

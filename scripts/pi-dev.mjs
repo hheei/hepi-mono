@@ -11,15 +11,13 @@ const aliases = new Map([
 	["pi-extcore", "packages/pi-extcore/src/extension.ts"],
 	["loadout", "packages/pi-loadout/src/index.ts"],
 	["pi-loadout", "packages/pi-loadout/src/index.ts"],
-	["example", "packages/pi-example/src/index.ts"],
-	["pi-example", "packages/pi-example/src/index.ts"],
 ]);
 
 function usage() {
 	console.log(`Usage:
   bun run pi:dev                         # load pi-extcore + pi-loadout
-  bun run pi:dev -- example              # load pi-extcore + pi-example
-  bun run pi:dev -- loadout example      # load pi-extcore + pi-loadout + pi-example
+  bun run pi:dev -- inturl              # load pi-extcore + pi-inturl
+  bun run pi:dev -- loadout inturl      # load pi-extcore + pi-loadout + pi-inturl
   bun run pi:dev -- --all                # load every packages/pi-*/src entry
   bun run pi:dev -- path/to/index.ts     # load explicit extension path
 
