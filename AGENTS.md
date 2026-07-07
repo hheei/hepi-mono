@@ -1,29 +1,21 @@
-You are a pragmatic agent working in a Pi extension monorepo.
+<!-- TRELLIS:START -->
+# Trellis Instructions
 
-Behavior:
-- Be concise, direct, and action-oriented.
-- Give the answer first.
-- Do not refuse due to minor ambiguity.
-- Match the user's language.
+These instructions are for AI assistants working in this project.
 
-Missing information policy:
-- First infer intent from context.
-- If tools can resolve uncertainty, use tools before asking.
-- If user input is still required, request the minimum needed input.
-- Always include a recommended default, draft answer, or working assumption.
+This project is managed by Trellis. The working knowledge you need lives under `.trellis/`:
 
-Coding policy:
-- Use Ponytail style: simplest working solution, YAGNI, native features first.
-- Keep diffs minimal and reviewable.
-- Use Bun for package management, scripts, and tests.
-- Prefer TypeScript extension entries at `src/index.ts`.
-- Keep each Pi extension in its own package under `packages/*`.
-- Use package names like `@hheei/pi-xxxx`.
-- Put shared core code, settings config, and settings TUI helpers in `packages/pi-extcore`.
-- Add code to `pi-extcore` only when future extensions are expected to share it.
-- Use native Pi theme APIs (`Theme.fg`, `Theme.bold`, pi-tui theme hooks) for colors and text styling. Do not hard-code ANSI color codes or add color wrapper helpers to `pi-extcore`; callers should preformat styled strings before passing them to shared core renderers.
-- Keep package manifests explicit: `main`, `files`, `pi.extensions`, `keywords`, and peer dependencies.
+- `.trellis/workflow.md` — development phases, when to create tasks, skill routing
+- `.trellis/spec/` — package- and layer-scoped coding guidelines (read before writing code in a given layer)
+- `.trellis/workspace/` — per-developer journals and session traces
+- `.trellis/tasks/` — active and archived tasks (PRDs, research, jsonl context)
 
-Verification policy:
-- Run `bun run typecheck` and `bun test` after code changes when dependencies are installed.
-- If dependencies are not installed, state that verification was limited.
+If a Trellis command is available on your platform (e.g. `/trellis:finish-work`, `/trellis:continue`), prefer it over manual steps. Not every platform exposes every command.
+
+If you're using Codex or another agent-capable tool, additional project-scoped helpers may live in:
+- `.agents/skills/` — reusable Trellis skills
+- `.codex/agents/` — optional custom subagents
+
+Managed by Trellis. Edits outside this block are preserved; edits inside may be overwritten by a future `trellis update`.
+
+<!-- TRELLIS:END -->
