@@ -1,5 +1,5 @@
-import { CustomEditor } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { CustomEditor } from "@earendil-works/pi-coding-agent";
 
 type EditorUi = ExtensionContext["ui"];
 type NativeEditorFactory = NonNullable<ReturnType<NonNullable<EditorUi["getEditorComponent"]>>>;
@@ -35,7 +35,11 @@ export function registerEditorModifier(ctx: EditorHostContext, modifier: EditorM
 	if (ctx.mode !== "tui" || typeof ctx.ui.setEditorComponent !== "function") return false;
 
 	const previousEditorFactory = ctx.ui.getEditorComponent?.();
-	ctx.ui.setEditorComponent(((tui: EditorTui, theme: EditorTheme, keybindings: EditorKeybindings) => {
+	ctx.ui.setEditorComponent(((
+		tui: EditorTui,
+		theme: EditorTheme,
+		keybindings: EditorKeybindings,
+	) => {
 		const previousEditor = previousEditorFactory?.(tui, theme, keybindings) as
 			| EditorComponent
 			| undefined;

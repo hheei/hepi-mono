@@ -2,9 +2,9 @@ import { type Dirent, existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { MAX_SUGGESTIONS } from "./settings.js";
 import { bareSkillName, normalize } from "./text.js";
 import type { SkillCommand, SkillEntry, SkillSourceInfo, SkillSuggestion } from "./types.js";
-import { MAX_SUGGESTIONS } from "./settings.js";
 
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 const packageSkillIndexes = new Map<string, Map<string, string>>();
@@ -100,12 +100,15 @@ function packageSkillIndex(): Map<string, string> {
 }
 
 function packageSkillPath(skillName: unknown): string | undefined {
-	const normalizedName = String(skillName ?? "").replace(/[\/]/g, "");
+	const normalizedName = String(skillName ?? "").replace(/[/]/g, "");
 	if (!normalizedName) return undefined;
 	return packageSkillIndex().get(normalizedName);
 }
 
-function normalizeSkillDescription(description: unknown): { source: string | undefined; description: string } {
+function normalizeSkillDescription(description: unknown): {
+	source: string | undefined;
+	description: string;
+} {
 	const text = String(description ?? "").trim();
 	const match = text.match(/^\((User|Project|Extension)\)\s*-\s*(.*)$/i);
 	if (!match) return { source: undefined, description: text };
@@ -167,7 +170,9 @@ function formatSkillItem(entry: SkillEntry, active = true): SkillSuggestion {
 	return {
 		value: entry.value,
 		label: entry.name,
-		description: entry.description ? `(${entry.source}) - ${entry.description}` : `(${entry.source})`,
+		description: entry.description
+			? `(${entry.source}) - ${entry.description}`
+			: `(${entry.source})`,
 		active,
 	};
 }

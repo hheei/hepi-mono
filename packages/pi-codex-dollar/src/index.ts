@@ -1,23 +1,26 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { type EditorComponent, registerEditorModifier, registerExtensionSettings } from "@hheei/pi-extcore";
+import {
+	type EditorComponent,
+	registerEditorModifier,
+	registerExtensionSettings,
+} from "@hheei/pi-extcore";
 import { createSkillPickerEditor } from "./editor.js";
 import { loadoutActiveSkillNames } from "./loadout.js";
-import { expandDollarSkillReferences, highlightDollarSkillReferences } from "./references.js";
+import { expandDollarSkillReferences } from "./references.js";
 import {
 	DEFAULT_DOLLAR_SETTINGS,
 	DOLLAR_SETTING_GROUPS,
-	dollarSettingsFromState,
 	type DollarExtensionSettings,
+	dollarSettingsFromState,
 } from "./settings.js";
-import type {
-	DollarTheme,
-	EditorLike,
-	KeybindingsLike,
-	TuiLike,
-} from "./types.js";
+import type { DollarTheme, EditorLike, KeybindingsLike, TuiLike } from "./types.js";
 
 export { createSkillPickerEditor } from "./editor.js";
-export { applyDollarSkillCompletion, extractDollarSkillToken, renderSkillPickerLines } from "./picker.js";
+export {
+	applyDollarSkillCompletion,
+	extractDollarSkillToken,
+	renderSkillPickerLines,
+} from "./picker.js";
 export { expandDollarSkillReferences, highlightDollarSkillReferences } from "./references.js";
 export { getSkillSuggestions } from "./skills.js";
 export type { SkillSuggestion } from "./types.js";

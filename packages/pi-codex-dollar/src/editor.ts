@@ -1,3 +1,5 @@
+import { extractDollarSkillToken, renderSkillPickerLines } from "./picker.js";
+import { highlightDollarSkillReferences } from "./references.js";
 import { DEFAULT_DOLLAR_SETTINGS, type DollarExtensionSettings } from "./settings.js";
 import { getSkillSuggestions } from "./skills.js";
 import { clamp } from "./text.js";
@@ -10,8 +12,6 @@ import type {
 	SymbolMetadata,
 	TuiLike,
 } from "./types.js";
-import { extractDollarSkillToken, renderSkillPickerLines } from "./picker.js";
-import { highlightDollarSkillReferences } from "./references.js";
 
 const HIGHLIGHT_WRAPPED = Symbol.for("pi-codex-dollar.highlightWrapped");
 const HIGHLIGHT_BASE_EDITOR = Symbol.for("pi-codex-dollar.highlightBaseEditor");

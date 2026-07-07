@@ -1,6 +1,6 @@
+import { getSkillPathMap } from "./skills.js";
 import { highlightAccent } from "./text.js";
 import type { DollarTheme, SkillCommand } from "./types.js";
-import { getSkillPathMap } from "./skills.js";
 
 const DOLLAR_REFERENCE_PATTERN = /(^| )\$([A-Za-z0-9-]+)( |$)/g;
 
@@ -11,14 +11,17 @@ export function expandDollarSkillReferences(
 	let skills: Map<string, string> | undefined;
 	let changed = false;
 
-	const transformed = text.replace(DOLLAR_REFERENCE_PATTERN, (match, leadingSpace, rawName, trailingSpace) => {
-		skills ??= getSkillPathMap(commands);
-		const skillPath = skills.get(rawName);
-		if (!skillPath) return match;
+	const transformed = text.replace(
+		DOLLAR_REFERENCE_PATTERN,
+		(match, leadingSpace, rawName, trailingSpace) => {
+			skills ??= getSkillPathMap(commands);
+			const skillPath = skills.get(rawName);
+			if (!skillPath) return match;
 
-		changed = true;
-		return `${leadingSpace}${skillPath}${trailingSpace}`;
-	});
+			changed = true;
+			return `${leadingSpace}${skillPath}${trailingSpace}`;
+		},
+	);
 
 	return changed ? transformed : null;
 }
