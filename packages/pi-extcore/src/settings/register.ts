@@ -11,21 +11,23 @@ import {
 	type SettingsPanelInput,
 	type SettingsPanelPane,
 } from "./panel.js";
-import { createDefaultSettingsState, mergeSettingsState } from "./state.js";
-import { createAgentExtensionSettingsStorage } from "./storage.js";
-import type {
-	MaybePromise,
-	SettingChange,
-	SettingDescription,
-	SettingGroup,
-	SettingsState,
-} from "./types.js";
+import {
+	createGeneralPaneGroups,
+	createPaneState,
+	createProviderState,
+	loadProviderState,
+	loadProviderStates,
+	namespaceGroupId,
+	namespaceSettingGroups,
+	normalizeSettingsProvider,
+	type RegisteredSettingsProvider,
+	routeProviderChange,
+} from "./provider.js";
+import type { MaybePromise, SettingChange, SettingGroup, SettingsState } from "./types.js";
 
 export const EXTENSION_SETTING_COMMAND = "extension-setting";
 
 const registryKey = "__hheeiPiExtcoreSettingsRegistry__";
-const namespaceSeparator = "/";
-
 type GlobalWithSettingsRegistry = typeof globalThis & {
 	[registryKey]?: SettingsRegistry;
 };
@@ -79,14 +81,6 @@ export interface RegisterExtensionSettingCommandOptions {
 	panelDescription?: string;
 }
 
-interface RegisteredSettingsProvider extends ExtensionSettingsProvider {
-	generalGroups: readonly SettingGroup[];
-	generalPanels: readonly ExtensionSettingsSubpanel[];
-	groups: readonly SettingGroup[];
-	panels: readonly ExtensionSettingsSubpanel[];
-	storage: SettingsStorageAdapter;
-}
-
 interface SettingsRegistry {
 	providers: Map<string, RegisteredSettingsProvider>;
 }
@@ -127,19 +121,11 @@ export function registerExtensionSettings(
 	provider: ExtensionSettingsProvider,
 ): void {
 	const registry = getSettingsRegistry();
-	const registered: RegisteredSettingsProvider = {
-		...provider,
-		generalGroups: provider.generalGroups ?? [],
-		generalPanels: provider.generalPanels ?? [],
-		groups: provider.groups ?? [],
-		panels: provider.panels ?? [],
-		storage: provider.storage ?? createAgentExtensionSettingsStorage(provider.id),
-	};
+	const registered = normalizeSettingsProvider(provider);
 	registry.providers.set(provider.id, registered);
 
 	const loadState = async (ctx: ExtensionContext): Promise<void> => {
-		const savedState = await registered.storage.load(ctx);
-		const state = mergeSettingsState(providerSettingGroups(registered), savedState);
+		const state = await loadProviderState(registered, ctx);
 		await registered.onLoad?.(state, ctx);
 	};
 
@@ -221,18 +207,6 @@ function getSettingsRegistry(): SettingsRegistry {
 	return globalWithRegistry[registryKey];
 }
 
-async function loadProviderStates(
-	providers: readonly RegisteredSettingsProvider[],
-	ctx: ExtensionContext,
-): Promise<Map<string, SettingsState>> {
-	const states = new Map<string, SettingsState>();
-	for (const provider of providers) {
-		const savedState = await provider.storage.load(ctx);
-		states.set(provider.id, mergeSettingsState(providerSettingGroups(provider), savedState));
-	}
-	return states;
-}
-
 function createSettingsPanes(
 	providers: readonly RegisteredSettingsProvider[],
 	providerStates: Map<string, SettingsState>,
@@ -286,38 +260,6 @@ function createSettingsPanes(
 	];
 }
 
-function createGeneralPaneGroups(providers: readonly RegisteredSettingsProvider[]): SettingGroup[] {
-	return providers.flatMap((provider) =>
-		namespaceSettingGroups(provider, provider.generalGroups, true),
-	);
-}
-
-function namespaceSettingGroups(
-	provider: RegisteredSettingsProvider,
-	groups: readonly SettingGroup[],
-	includeProviderTitle: boolean,
-): SettingGroup[] {
-	return groups.map((group) => ({
-		...group,
-		id: namespaceGroupId(provider.id, group.id),
-		title: includeProviderTitle ? `${provider.title} / ${group.title}` : group.title,
-		description: mergeDescriptions(
-			includeProviderTitle ? provider.description : undefined,
-			group.description,
-		),
-	}));
-}
-
-function mergeDescriptions(
-	first: string | undefined,
-	second: SettingDescription | undefined,
-): SettingDescription | undefined {
-	if (!first) return second;
-	if (!second) return first;
-	if (typeof second === "string") return `${first} ${second}`;
-	return (theme) => `${first} ${second(theme)}`;
-}
-
 function createSubpanelItems(
 	providers: readonly RegisteredSettingsProvider[],
 	selectPanels: (provider: RegisteredSettingsProvider) => readonly ExtensionSettingsSubpanel[],
@@ -343,9 +285,7 @@ function createSubpanelItems(
 					host,
 					theme,
 					close,
-					getState: () =>
-						providerStates.get(provider.id) ??
-						createDefaultSettingsState(providerSettingGroups(provider)),
+					getState: () => createProviderState(provider, providerStates),
 					saveState: async (state) => {
 						try {
 							await provider.storage.save(state, ctx);
@@ -359,74 +299,6 @@ function createSubpanelItems(
 				}),
 		})),
 	);
-}
-
-function createPaneState(
-	providers: readonly RegisteredSettingsProvider[],
-	providerStates: ReadonlyMap<string, SettingsState>,
-	selectGroups: (provider: RegisteredSettingsProvider) => readonly SettingGroup[],
-): SettingsState {
-	const state: SettingsState = {};
-	for (const provider of providers) {
-		const providerState =
-			providerStates.get(provider.id) ??
-			createDefaultSettingsState(providerSettingGroups(provider));
-		for (const group of selectGroups(provider)) {
-			state[namespaceGroupId(provider.id, group.id)] = providerState[group.id] ?? {};
-		}
-	}
-	return state;
-}
-
-function providerSettingGroups(provider: RegisteredSettingsProvider): SettingGroup[] {
-	return [...provider.generalGroups, ...provider.groups];
-}
-
-function routeProviderChange(
-	providers: readonly RegisteredSettingsProvider[],
-	providerStates: ReadonlyMap<string, SettingsState>,
-	change: SettingChange,
-): { provider: RegisteredSettingsProvider; change: SettingChange } | undefined {
-	const { providerId, groupId } = splitNamespacedGroupId(change.groupId);
-	const provider = providers.find((item) => item.id === providerId);
-	if (!provider) {
-		return undefined;
-	}
-
-	const currentState =
-		providerStates.get(provider.id) ?? createDefaultSettingsState(providerSettingGroups(provider));
-	const nextState: SettingsState = {
-		...currentState,
-		[groupId]: {
-			...(currentState[groupId] ?? {}),
-			[change.fieldId]: change.value,
-		},
-	};
-
-	return {
-		provider,
-		change: {
-			...change,
-			groupId,
-			state: nextState,
-		},
-	};
-}
-
-function namespaceGroupId(providerId: string, groupId: string): string {
-	return `${providerId}${namespaceSeparator}${groupId}`;
-}
-
-function splitNamespacedGroupId(groupId: string): { providerId: string; groupId: string } {
-	const index = groupId.indexOf(namespaceSeparator);
-	if (index === -1) {
-		return { providerId: "", groupId };
-	}
-
-	return {
-		providerId: groupId.slice(0, index),
-		groupId: groupId.slice(index + namespaceSeparator.length),
-	};
 }
 
 function notifySettingsError(ctx: ExtensionCommandContext, error: unknown): void {
