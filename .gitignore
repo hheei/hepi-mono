@@ -11,3 +11,4 @@ coverage/
 package-lock.json
 npm-debug.log*
 .zed/
+.pi-subagents/
