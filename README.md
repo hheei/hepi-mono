@@ -18,9 +18,11 @@ Start with [Extension Development Guide](docs/extension-development.md) when add
 
 ```text
 packages/
-  pi-example/      Example Pi extension package
+  pi-codex-dollar/ Dollar-triggered inline skill references
   pi-extcore/      Shared core helpers and settings UI
+  pi-inturl/       Internal URL and path shortcut helpers
   pi-loadout/      HEPI fork of pi-loadout
+  pi-ssh/          SSH host discovery, exec, and sshfs mount tools
 templates/
   extension/       Copy template for new extension modules
 scripts/
@@ -62,8 +64,8 @@ bun run pi:dev
 By default this loads `pi-extcore` and `pi-loadout`. To test a specific package:
 
 ```bash
-bun run pi:dev -- example
-bun run pi:dev -- loadout example
+bun run pi:dev -- inturl
+bun run pi:dev -- loadout inturl
 bun run pi:dev -- --all
 ```
 
