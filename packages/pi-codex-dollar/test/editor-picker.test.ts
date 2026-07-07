@@ -107,9 +107,14 @@ const editorWithBaseMetadata = new Proxy(baseEditor, {
 		return Reflect.get(target, prop, receiver);
 	},
 });
-const rewrappedEditor = createSkillPickerEditor(editorWithBaseMetadata, () => commands, noopTheme(), {
-	requestRender() {},
-}) as ReturnType<typeof createSkillPickerEditor> & Record<symbol, unknown>;
+const rewrappedEditor = createSkillPickerEditor(
+	editorWithBaseMetadata,
+	() => commands,
+	noopTheme(),
+	{
+		requestRender() {},
+	},
+) as ReturnType<typeof createSkillPickerEditor> & Record<symbol, unknown>;
 assert.notEqual(rewrappedEditor, editorWithBaseMetadata);
 assert.equal(rewrappedEditor[wrappedSymbol], true);
 assert.equal(rewrappedEditor[baseEditorSymbol], baseEditor);

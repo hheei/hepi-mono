@@ -25,20 +25,20 @@
         "@earendil-works/pi-coding-agent": "*",
       },
     },
-    "packages/pi-example": {
-      "name": "@hheei/pi-example",
-      "version": "0.0.0",
-      "dependencies": {
-        "@hheei/pi-extcore": "0.0.0",
-        "typebox": "^1.1.38",
-      },
-      "peerDependencies": {
-        "@earendil-works/pi-coding-agent": "*",
-      },
-    },
     "packages/pi-extcore": {
       "name": "@hheei/pi-extcore",
       "version": "0.0.0",
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "*",
+        "@earendil-works/pi-tui": "*",
+      },
+    },
+    "packages/pi-inturl": {
+      "name": "@hheei/pi-inturl",
+      "version": "0.0.0",
+      "dependencies": {
+        "@hheei/pi-extcore": "0.0.0",
+      },
       "peerDependencies": {
         "@earendil-works/pi-coding-agent": "*",
         "@earendil-works/pi-tui": "*",
@@ -151,9 +151,9 @@
 
     "@hheei/pi-codex-dollar": ["@hheei/pi-codex-dollar@workspace:packages/pi-codex-dollar"],
 
-    "@hheei/pi-example": ["@hheei/pi-example@workspace:packages/pi-example"],
-
     "@hheei/pi-extcore": ["@hheei/pi-extcore@workspace:packages/pi-extcore"],
+
+    "@hheei/pi-inturl": ["@hheei/pi-inturl@workspace:packages/pi-inturl"],
 
     "@hheei/pi-loadout": ["@hheei/pi-loadout@workspace:packages/pi-loadout"],
 

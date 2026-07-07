@@ -9,22 +9,13 @@ import type {
 	Theme,
 	ToolInfo,
 } from "@earendil-works/pi-coding-agent";
-import { DynamicBorder, formatSkillsForPrompt } from "@earendil-works/pi-coding-agent";
+import { formatSkillsForPrompt } from "@earendil-works/pi-coding-agent";
+import type { Component } from "@earendil-works/pi-tui";
 import {
-	type Component,
-	Container,
-	fuzzyMatch,
-	Input,
-	Key,
-	matchesKey,
-	type SettingItem,
-	SettingsList,
-	type SettingsListTheme,
-	Text,
-	truncateToWidth,
-} from "@earendil-works/pi-tui";
-import {
+	createGroupedTogglePicker,
 	type ExtensionSettingsSubpanelCreateOptions,
+	type GroupedTogglePickerSelection,
+	type GroupedTogglePickerState,
 	registerExtensionSettings,
 	type SettingGroup,
 	type SettingsState,
@@ -36,8 +27,6 @@ import {
 	formatLoadoutPresetDescription,
 	formatLoadoutStatusLabel,
 	type LoadoutFooterSelectionKind,
-	mergeRowsWithDescription,
-	stripSettingsListExtraLines,
 } from "./tui.js";
 
 const STATE_CUSTOM_TYPE = "pi-loadout:selection";
@@ -77,19 +66,6 @@ type SkillGroup = {
 
 type Pane = "tools" | "skills";
 type LoadoutPresetName = "minimal";
-type RowId =
-	| `group:${string}`
-	| `tool:${string}`
-	| `skillgroup:${string}`
-	| `skill:${string}`
-	| `preset:${string}`;
-
-type RowRef =
-	| { kind: "toolGroup"; group: ToolGroup }
-	| { kind: "tool"; group: ToolGroup; tool: ToolInfo }
-	| { kind: "skillGroup"; group: SkillGroup }
-	| { kind: "skill"; group: SkillGroup; skill: SkillInfo }
-	| { kind: "preset"; name: string; source: "builtin" | "default" | "user"; profile?: Profile };
 
 type LoadoutResult = {
 	enabledTools: Set<string>;
@@ -916,173 +892,25 @@ export default function loadoutExtension(pi: ExtensionAPI) {
 			};
 		}
 
-		const toolGroups = groupTools(tools);
-		const skillGroups = groupSkills(skills);
+		const initialEnabledTools = normalizeEnabledTools(activeToolNames());
+		const initialEnabledSkills = normalizeEnabledSkills(activeSkillNames());
 		const draftEnabledTools = normalizeEnabledTools(activeToolNames());
 		const draftEnabledSkills = normalizeEnabledSkills(
 			skillLoadoutExplicit ? enabledSkills : allSkillNames(),
 		);
-		const rowRefs = new Map<RowId, RowRef>();
 
-		function toolGroupValue(group: ToolGroup): "enabled" | "disabled" | "partial" {
-			const count = group.tools.filter((tool) => draftEnabledTools.has(tool.name)).length;
-			if (count === 0) return "disabled";
-			if (count === group.tools.length) return "enabled";
-			return "partial";
-		}
-
-		function skillGroupValue(group: SkillGroup): "enabled" | "disabled" | "partial" {
-			const count = group.skills.filter((skill) => draftEnabledSkills.has(skill.name)).length;
-			if (count === 0) return "disabled";
-			if (count === group.skills.length) return "enabled";
-			return "partial";
-		}
-
-		const collapsedToolGroups = new Set<string>();
-		const collapsedSkillGroups = new Set<string>();
-		let searchQuery = "";
-		let pane: Pane =
-			initialPane === "tools" && tools.length === 0 ? "skills" : (initialPane ?? "tools");
-
-		function matchesQuery(text: string): boolean {
-			return fuzzyMatch(searchQuery, text).matches;
-		}
-
-		function isEnabledSettingValue(value: string): boolean {
-			return value.trim().startsWith("enabled");
-		}
-		let visibleRowIds: RowId[] = [];
-		const paneSelectedIndex: Record<Pane, number> = { tools: 0, skills: 0 };
-
-		function toolGroupDescription(group: ToolGroup): string {
-			const count = group.tools.filter((tool) => draftEnabledTools.has(tool.name)).length;
-			return formatLoadoutGroupDescription(group.label, count, group.tools.length);
-		}
-
-		function skillGroupDescription(group: SkillGroup): string {
-			const count = group.skills.filter((skill) => draftEnabledSkills.has(skill.name)).length;
-			return formatLoadoutGroupDescription(group.label, count, group.skills.length);
-		}
-
-		function buildToolItems(): SettingItem[] {
-			const items: SettingItem[] = [];
-			const query = searchQuery.trim();
-
-			for (const group of toolGroups) {
-				const groupMatch = query === "" || matchesQuery(group.label);
-				const tools =
-					query === "" || groupMatch
-						? group.tools
-						: group.tools.filter((tool) => matchesQuery(tool.name));
-				if (query !== "" && !groupMatch && tools.length === 0) continue;
-
-				const groupId = `group:${group.key}` as RowId;
-				const collapsed = query === "" && collapsedToolGroups.has(group.key);
-				rowRefs.set(groupId, { kind: "toolGroup", group });
-				visibleRowIds.push(groupId);
-				items.push({
-					id: groupId,
-					label: formatLoadoutStatusLabel("", toolGroupValue(group), group.label),
-					description: toolGroupDescription(group),
-					currentValue: toolGroupValue(group),
-					values: ["enabled", "disabled"],
-				});
-
-				if (collapsed) continue;
-
-				tools.forEach((tool, index) => {
-					const toolId = `tool:${tool.name}` as RowId;
-					const branch = index === tools.length - 1 ? "╰─" : "├─";
-					rowRefs.set(toolId, { kind: "tool", group, tool });
-					visibleRowIds.push(toolId);
-					items.push({
-						id: toolId,
-						label: formatLoadoutStatusLabel(
-							`${branch} `,
-							draftEnabledTools.has(tool.name) ? "enabled" : "disabled",
-							tool.name,
-						),
-						description: tool.description,
-						currentValue: draftEnabledTools.has(tool.name) ? "enabled" : "disabled",
-						values: ["enabled", "disabled"],
-					});
-				});
-			}
-
-			return items;
-		}
-
-		function buildSkillItems(): SettingItem[] {
-			const items: SettingItem[] = [];
-			const query = searchQuery.trim();
-
-			for (const group of skillGroups) {
-				const groupMatch = query === "" || matchesQuery(group.label);
-				const skills =
-					query === "" || groupMatch
-						? group.skills
-						: group.skills.filter((skill) => matchesQuery(skill.name));
-				if (query !== "" && !groupMatch && skills.length === 0) continue;
-
-				const groupId = `skillgroup:${group.key}` as RowId;
-				const collapsed = query === "" && collapsedSkillGroups.has(group.key);
-				rowRefs.set(groupId, { kind: "skillGroup", group });
-				visibleRowIds.push(groupId);
-				items.push({
-					id: groupId,
-					label: formatLoadoutStatusLabel("", skillGroupValue(group), group.label),
-					description: skillGroupDescription(group),
-					currentValue: skillGroupValue(group),
-					values: ["enabled", "disabled"],
-				});
-
-				if (collapsed) continue;
-
-				skills.forEach((skill, index) => {
-					const skillId = `skill:${skill.name}` as RowId;
-					const branch = index === skills.length - 1 ? "╰─" : "├─";
-					rowRefs.set(skillId, { kind: "skill", group, skill });
-					visibleRowIds.push(skillId);
-					items.push({
-						id: skillId,
-						label: formatLoadoutStatusLabel(
-							`${branch} `,
-							draftEnabledSkills.has(skill.name) ? "enabled" : "disabled",
-							skill.name,
-						),
-						description: skill.description,
-						currentValue: draftEnabledSkills.has(skill.name) ? "enabled" : "disabled",
-						values: ["enabled", "disabled"],
-					});
-				});
-			}
-
-			return items;
-		}
-
-		function buildItems(): SettingItem[] {
-			visibleRowIds = [];
-			rowRefs.clear();
-			if (pane === "tools") return buildToolItems();
-			return buildSkillItems();
-		}
-
-		const initialEnabledTools = normalizeEnabledTools(activeToolNames());
-		const initialEnabledSkills = normalizeEnabledSkills(activeSkillNames());
-
-		function finish(result: LoadoutResult | undefined): void {
+		function finish(result: LoadoutResult): void {
 			const diff = commitLoadout(
 				initialEnabledTools,
 				initialEnabledSkills,
-				result?.enabledTools ?? draftEnabledTools,
-				result?.enabledSkills ?? draftEnabledSkills,
+				result.enabledTools,
+				result.enabledSkills,
 				ctx,
 				commandSource,
 			);
 			if (loadoutSettings.showPromptCacheWarning && hasDiff(diff)) {
 				ctx.ui.notify("Loadout changed. Next response may miss prompt cache.", "warning");
 			}
-			done();
 		}
 
 		function saveDraftDefaultSilently() {
@@ -1095,406 +923,101 @@ export default function loadoutExtension(pi: ExtensionAPI) {
 			}
 		}
 
-		let settingsList: SettingsList;
-		let selectedIndex = paneSelectedIndex[pane];
-		let helpVisible = false;
-		const items = buildItems();
-		const headerText = new Text("", 1, 0);
-		const searchInput = new Input();
-		searchInput.focused = true;
-		function updateHeader() {
-			const toolsLabel =
-				pane === "tools" ? theme.fg("accent", theme.bold("[Tools]")) : theme.fg("dim", "Tools");
-			const skillsLabel =
-				pane === "skills" ? theme.fg("accent", theme.bold("[Skills]")) : theme.fg("dim", "Skills");
-			headerText.setText(`${toolsLabel}  ${skillsLabel}`);
+		function currentPaneState(state: GroupedTogglePickerState): LoadoutResult {
+			return {
+				enabledTools: normalizeEnabledTools(state.enabledIdsByPane.get("tools") ?? []),
+				enabledSkills: normalizeEnabledSkills(state.enabledIdsByPane.get("skills") ?? []),
+			};
 		}
 
-		function searchPlaceholder(): string {
-			return "type to search";
+		function footerSelectionKind(
+			selection: GroupedTogglePickerSelection | undefined,
+		): LoadoutFooterSelectionKind | undefined {
+			if (!selection) return undefined;
+			if (selection.pane.id === "tools") return selection.kind === "group" ? "toolGroup" : "tool";
+			return selection.kind === "group" ? "skillGroup" : "skill";
 		}
 
-		function renderSearchInput(width: number): string[] {
-			if (searchInput.getValue() !== "") return searchInput.render(width);
-			return [truncateToWidth(`> ${theme.fg("dim", searchPlaceholder())}`, width)];
-		}
-
-		function setSettingsSelectedIndex() {
-			selectedIndex = Math.max(0, Math.min(selectedIndex, Math.max(items.length - 1, 0)));
-			paneSelectedIndex[pane] = selectedIndex;
-			(settingsList as unknown as { selectedIndex: number }).selectedIndex = selectedIndex;
-		}
-
-		function syncSelectedIndex() {
-			selectedIndex = (settingsList as unknown as { selectedIndex: number }).selectedIndex;
-			paneSelectedIndex[pane] = selectedIndex;
-		}
-
-		function rebuildItems(preferredId?: RowId) {
-			const nextItems = buildItems();
-			items.splice(0, items.length, ...nextItems);
-
-			selectedIndex = paneSelectedIndex[pane];
-			if (preferredId) {
-				const preferredIndex = visibleRowIds.indexOf(preferredId);
-				if (preferredIndex !== -1) selectedIndex = preferredIndex;
-			}
-
-			updateHeader();
-			setSettingsSelectedIndex();
-			tui.requestRender();
-		}
-
-		function refreshValues() {
-			if (pane === "tools") {
-				for (const group of toolGroups) {
-					const groupId = `group:${group.key}`;
-					settingsList.updateValue(groupId, toolGroupValue(group));
-					const item = items.find((item) => item.id === groupId);
-					if (item) {
-						item.label = formatLoadoutStatusLabel("", toolGroupValue(group), group.label);
-						item.description = toolGroupDescription(group);
-					}
-
-					group.tools.forEach((tool, index) => {
-						const toolId = `tool:${tool.name}`;
-						const value = draftEnabledTools.has(tool.name) ? "enabled" : "disabled";
-						settingsList.updateValue(toolId, value);
-						const item = items.find((item) => item.id === toolId);
-						if (item) {
-							const branch = index === group.tools.length - 1 ? "╰─" : "├─";
-							item.label = formatLoadoutStatusLabel(`${branch} `, value, tool.name);
-						}
-					});
-				}
-			} else if (pane === "skills") {
-				for (const group of skillGroups) {
-					const groupId = `skillgroup:${group.key}`;
-					settingsList.updateValue(groupId, skillGroupValue(group));
-					const item = items.find((item) => item.id === groupId);
-					if (item) {
-						item.label = formatLoadoutStatusLabel("", skillGroupValue(group), group.label);
-						item.description = skillGroupDescription(group);
-					}
-
-					group.skills.forEach((skill, index) => {
-						const skillId = `skill:${skill.name}`;
-						const value = draftEnabledSkills.has(skill.name) ? "enabled" : "disabled";
-						settingsList.updateValue(skillId, value);
-						const item = items.find((item) => item.id === skillId);
-						if (item) {
-							const branch = index === group.skills.length - 1 ? "╰─" : "├─";
-							item.label = formatLoadoutStatusLabel(`${branch} `, value, skill.name);
-						}
-					});
-				}
-			}
-			tui.requestRender();
-		}
-		function formatFooterDescription(row: RowRef | undefined): string | undefined {
-			if (!row) return undefined;
+		function footerDescription(
+			selection: GroupedTogglePickerSelection | undefined,
+		): string | undefined {
+			if (!selection) return undefined;
 			const profile = currentProfileName ?? "default";
-			const group =
-				row.kind === "toolGroup" || row.kind === "tool"
-					? row.group.label
-					: row.kind === "skillGroup" || row.kind === "skill"
-						? row.group.label
-						: undefined;
-			if (!group) return profile;
-			return `${profile} · ${group.replace(/\s+(tools|skills)$/i, "")}`;
+			return `${profile} · ${selection.group.label.replace(/\s+(tools|skills)$/i, "")}`;
 		}
 
-		function loadoutFooter(width: number): string[] {
-			const selectedId = visibleRowIds[selectedIndex];
-			const selectedRow = selectedId ? rowRefs.get(selectedId) : undefined;
-			const selectedItem = items[selectedIndex];
-			const selectedKind = selectedRow?.kind as LoadoutFooterSelectionKind | undefined;
-			const selectedGroupCollapsed =
-				selectedRow?.kind === "toolGroup"
-					? collapsedToolGroups.has(selectedRow.group.key)
-					: selectedRow?.kind === "skillGroup"
-						? collapsedSkillGroups.has(selectedRow.group.key)
-						: undefined;
-
-			return createLoadoutFooterLines({
-				pane,
-				selectedIndex,
-				total: items.length,
-				selectedDescription: formatFooterDescription(selectedRow),
-				selectedSpaceAction: selectedItem?.currentValue === "enabled" ? "disable" : "enable",
-				selectedKind,
-				selectedGroupCollapsed,
-				width,
-				theme: {
-					dim: (text) => theme.fg("dim", text),
-					key: (text) => theme.fg("accent", theme.bold(text)),
+		return createGroupedTogglePicker({
+			host: tui,
+			theme,
+			done,
+			initialPaneId: initialPane,
+			helpTitle: "Loadout shortcuts",
+			panes: [
+				{
+					id: "tools",
+					label: "Tools",
+					enabledIds: draftEnabledTools,
+					groups: groupTools(tools).map((group) => ({
+						key: group.key,
+						label: group.label,
+						items: group.tools.map((tool) => ({
+							id: tool.name,
+							label: tool.name,
+							description: tool.description,
+						})),
+					})),
 				},
-			});
-		}
-
-		function renderLoadoutList(width: number): string[] {
-			const rowLines = stripSettingsListExtraLines(settingsList.render(width));
-			const selectedId = visibleRowIds[selectedIndex];
-			const selectedRow = selectedId ? rowRefs.get(selectedId) : undefined;
-			const selectedItem = items[selectedIndex];
-			const rowsWithDescription = mergeRowsWithDescription(
-				rowLines,
-				selectedRow?.kind === "tool" || selectedRow?.kind === "skill"
-					? selectedItem?.description
-					: undefined,
-				width,
-				{ title: (text) => theme.fg("accent", theme.bold(text)) },
-			);
-			return [...rowsWithDescription, ...loadoutFooter(width)];
-		}
-
-		function toggleSelectedGroupCollapse() {
-			const selectedId = visibleRowIds[selectedIndex];
-			if (!selectedId) return;
-			const row = rowRefs.get(selectedId);
-			if (!row) return;
-
-			if (row.kind === "toolGroup" || row.kind === "tool") {
-				const groupId = `group:${row.group.key}` as RowId;
-				if (collapsedToolGroups.has(row.group.key)) collapsedToolGroups.delete(row.group.key);
-				else collapsedToolGroups.add(row.group.key);
-				rebuildItems(groupId);
-				return;
-			}
-
-			if (row.kind === "skillGroup" || row.kind === "skill") {
-				const groupId = `skillgroup:${row.group.key}` as RowId;
-				if (collapsedSkillGroups.has(row.group.key)) collapsedSkillGroups.delete(row.group.key);
-				else collapsedSkillGroups.add(row.group.key);
-				rebuildItems(groupId);
-				return;
-			}
-
-			applyPresetRow(row);
-		}
-
-		function applyPresetRow(row: Extract<RowRef, { kind: "preset" }>) {
-			if (!row.profile) {
-				ctx.ui.notify(`No saved ${row.name} loadout found.`, "warning");
-				return;
-			}
-
-			draftEnabledTools.clear();
-			for (const name of normalizeEnabledTools(row.profile.enabledTools))
-				draftEnabledTools.add(name);
-			draftEnabledSkills.clear();
-			for (const name of normalizeEnabledSkills(row.profile.enabledSkills))
-				draftEnabledSkills.add(name);
-			applyEnabledInMemory(draftEnabledTools, draftEnabledSkills);
-			if (row.source === "default") {
-				currentProfileName = readGlobalLoadout()?.profileName;
-			} else {
-				currentProfileName = row.name;
-			}
-			saveDraftDefaultSilently();
-			updateStatus(ctx);
-			rebuildItems(`preset:${row.name}` as RowId);
-		}
-
-		function switchPane() {
-			syncSelectedIndex();
-			pane = pane === "tools" ? "skills" : "tools";
-			selectedIndex = paneSelectedIndex[pane];
-			rebuildItems();
-		}
-
-		function applySearch() {
-			paneSelectedIndex[pane] = 0;
-			selectedIndex = 0;
-			rebuildItems();
-		}
-
-		const listTheme: SettingsListTheme = {
-			cursor: theme.fg("accent", "→ "),
-			label: (text: string, selected: boolean) => {
-				const trimmed = text.trimStart();
-				if (selected) return theme.fg("accent", theme.bold(text));
-				if (trimmed.includes("●")) return theme.fg("success", text);
-				if (trimmed.includes("◐")) return theme.fg("warning", text);
-				if (trimmed.includes("○")) return theme.fg("dim", text);
-				return text;
-			},
-			value: (text: string, selected: boolean) => {
-				const trimmed = text.trim();
-				if (
-					[
-						"enabled",
-						"disabled",
-						"partial",
-						"apply",
-						"builtin",
-						"default",
-						"user",
-						"active",
-						"active*",
-					].includes(trimmed)
-				)
-					return "";
-				return selected ? theme.fg("accent", text) : theme.fg("muted", text);
-			},
-			description: (text: string) => theme.fg("dim", text),
-			hint: (text: string) =>
-				theme.fg(
-					"dim",
-					text.replace("Enter/Space to change", "Space to change · Enter collapse/expand"),
-				),
-		};
-
-		settingsList = new SettingsList(
-			items,
-			Math.min(Math.max(items.length, 1), 18),
-			listTheme,
-			(id, newValue) => {
-				const row = rowRefs.get(id as RowId);
-				if (!row) return;
-
-				if (row.kind === "preset") {
-					applyPresetRow(row);
-					return;
-				}
-
-				if (row.kind === "toolGroup") {
-					for (const tool of row.group.tools) {
-						if (newValue === "enabled") draftEnabledTools.add(tool.name);
-						else draftEnabledTools.delete(tool.name);
-					}
-				} else if (row.kind === "tool") {
-					if (isEnabledSettingValue(newValue)) draftEnabledTools.add(row.tool.name);
-					else draftEnabledTools.delete(row.tool.name);
-				} else if (row.kind === "skillGroup") {
-					for (const skill of row.group.skills) {
-						if (newValue === "enabled") draftEnabledSkills.add(skill.name);
-						else draftEnabledSkills.delete(skill.name);
-					}
-				} else if (isEnabledSettingValue(newValue)) {
-					draftEnabledSkills.add(row.skill.name);
-				} else {
-					draftEnabledSkills.delete(row.skill.name);
-				}
-
+				{
+					id: "skills",
+					label: "Skills",
+					enabledIds: draftEnabledSkills,
+					groups: groupSkills(skills).map((group) => ({
+						key: group.key,
+						label: group.label,
+						items: group.skills.map((skill) => ({
+							id: skill.name,
+							label: skill.name,
+							description: skill.description,
+						})),
+					})),
+				},
+			],
+			statusLabel: formatLoadoutStatusLabel,
+			groupDescription: (group, enabledCount, totalCount) =>
+				formatLoadoutGroupDescription(group.label, enabledCount, totalCount),
+			selectionDescription: (selection) =>
+				selection.kind === "item" ? selection.item?.description : undefined,
+			renderFooter: (selection, width) =>
+				createLoadoutFooterLines({
+					pane: (selection?.pane.id === "skills" ? "skills" : "tools") as Pane,
+					selectedIndex: selection?.index ?? 0,
+					total: selection?.total ?? 0,
+					selectedDescription: footerDescription(selection),
+					selectedSpaceAction: selection?.status === "enabled" ? "disable" : "enable",
+					selectedKind: footerSelectionKind(selection),
+					selectedGroupCollapsed: selection?.groupCollapsed,
+					width,
+					theme: {
+						dim: (text) => theme.fg("dim", text),
+						key: (text) => theme.fg("accent", theme.bold(text)),
+					},
+				}),
+			onChange: (state) => {
+				const next = currentPaneState(state);
+				draftEnabledTools.clear();
+				for (const name of next.enabledTools) draftEnabledTools.add(name);
+				draftEnabledSkills.clear();
+				for (const name of next.enabledSkills) draftEnabledSkills.add(name);
 				applyEnabledInMemory(draftEnabledTools, draftEnabledSkills);
 				updateStatus(ctx);
 				saveDraftDefaultSilently();
-				refreshValues();
 			},
-			() =>
-				finish({
-					enabledTools: new Set(draftEnabledTools),
-					enabledSkills: new Set(draftEnabledSkills),
-				}),
-		);
-
-		updateHeader();
-		const container = new Container();
-		container.addChild(new DynamicBorder((s: string) => theme.fg("borderAccent", s)));
-		container.addChild(headerText);
-		container.addChild({
-			render: renderSearchInput,
-			invalidate() {},
-		});
-		container.addChild({
-			render: renderLoadoutList,
-			invalidate() {
-				settingsList.invalidate();
-			},
-			handleInput(data: string) {
-				settingsList.handleInput(data);
+			onDone: (state) => finish(currentPaneState(state)),
+			onError: (error) => {
+				const message = error instanceof Error ? error.message : String(error);
+				ctx.ui.notify(message, "error");
 			},
 		});
-		container.addChild(new DynamicBorder((s: string) => theme.fg("borderAccent", s)));
-
-		const helpContainer = new Container();
-		const helpTitle = new Text(theme.fg("accent", theme.bold("Loadout shortcuts")), 1, 0);
-		const helpBody = new Text(
-			[
-				theme.fg("borderAccent", "Global"),
-				`  ${theme.bold("Tab")}      Switch`,
-				`  ${theme.bold("↑ ↓")}      Navigate`,
-				`  ${theme.bold("Type")}     Search / filter`,
-				`  ${theme.bold("Esc")}      Clear search, or close picker`,
-				"",
-				theme.fg("borderAccent", "Tools / Skills"),
-				`  ${theme.bold("Space")}    Enable / disable selected item or group`,
-				`  ${theme.bold("Enter")}    Expand / collapse selected group`,
-			].join("\n"),
-			1,
-			0,
-		);
-		const helpHint = new Text(theme.fg("dim", "? or Esc to close"), 1, 0);
-		helpContainer.addChild(new DynamicBorder((s: string) => theme.fg("borderAccent", s)));
-		helpContainer.addChild(helpTitle);
-		helpContainer.addChild(helpBody);
-		helpContainer.addChild(helpHint);
-		helpContainer.addChild(new DynamicBorder((s: string) => theme.fg("borderAccent", s)));
-
-		return {
-			render: (width: number) =>
-				helpVisible ? helpContainer.render(width) : container.render(width),
-			invalidate: () => container.invalidate(),
-			handleInput(data: string) {
-				if (helpVisible) {
-					if (data === "?" || matchesKey(data, Key.escape)) {
-						helpVisible = false;
-						tui.requestRender();
-					}
-					return;
-				}
-
-				if (data === "?") {
-					helpVisible = true;
-					tui.requestRender();
-					return;
-				}
-
-				if (matchesKey(data, Key.tab)) {
-					switchPane();
-					return;
-				}
-
-				if (matchesKey(data, Key.escape)) {
-					if (searchQuery !== "") {
-						searchInput.setValue("");
-						searchQuery = "";
-						applySearch();
-						return;
-					}
-					finish({
-						enabledTools: new Set(draftEnabledTools),
-						enabledSkills: new Set(draftEnabledSkills),
-					});
-					return;
-				}
-
-				// Navigation and toggle keys are handled by the list; everything else
-				// (printable characters, word-delete, etc.) edits the search field.
-				if (matchesKey(data, Key.up) || matchesKey(data, Key.down) || data === " ") {
-					settingsList.handleInput(data);
-					syncSelectedIndex();
-					tui.requestRender();
-					return;
-				}
-
-				if (matchesKey(data, Key.enter)) {
-					toggleSelectedGroupCollapse();
-					return;
-				}
-
-				const before = searchInput.getValue();
-				searchInput.handleInput(data);
-				const after = searchInput.getValue();
-				if (after !== before) {
-					searchQuery = after;
-					applySearch();
-				} else {
-					tui.requestRender();
-				}
-			},
-		};
 	}
 
 	const LOADOUT_SUBCOMMANDS: { value: string; label: string; description: string }[] = [

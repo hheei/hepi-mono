@@ -587,23 +587,3 @@ function renderCollapsedResult(
 	if (durationText) output += `\n\n${durationText}`;
 	return new Text(`\n${output}`, 0, 0);
 }
-
-function normalizePiToolResult(response: unknown): SshToolResult {
-	const result = (response as { result?: Record<string, unknown> }).result ?? {};
-	const content = normalizeToolContent(result.content);
-	const details = (result.structuredContent ?? {}) as Record<string, unknown>;
-	return {
-		content,
-		details,
-	};
-}
-
-function normalizeToolContent(content: unknown): TextContent[] {
-	if (!Array.isArray(content)) return [];
-	return content.flatMap((item): TextContent[] => {
-		if (!item || typeof item !== "object") return [];
-		const record = item as Record<string, unknown>;
-		if (record.type !== "text" || typeof record.text !== "string") return [];
-		return [{ type: "text", text: record.text }];
-	});
-}

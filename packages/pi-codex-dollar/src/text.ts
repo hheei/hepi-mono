@@ -25,7 +25,9 @@ export function clamp(value: number, min: number, max: number): number {
 	return Math.max(min, Math.min(value, max));
 }
 
-function styleSelectList(theme: DollarTheme | undefined): SelectListTheme | DollarTheme | undefined {
+function styleSelectList(
+	theme: DollarTheme | undefined,
+): SelectListTheme | DollarTheme | undefined {
 	return theme?.selectList ?? theme;
 }
 

@@ -10,6 +10,10 @@ This package is both a library and a Pi extension. When installed as a Pi packag
 
 Other `@hheei/pi-xxxx` extensions should not register their own settings commands. They contribute settings providers to `pi-extcore`, and the shared panel renders them together.
 
+## Related Extensions
+
+`@hheei/pi-inturl` provides `tmp://` path shortcut expansion and uses `pi-extcore` for its settings UI.
+
 ## Settings Providers
 
 A provider can contribute items to its own extension pane or to the shared `[General]` pane:

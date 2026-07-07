@@ -1,6 +1,4 @@
-export { formatExtensionLabel, normalizePackageSlug } from "./package.js";
 export {
-	registerEditorModifier,
 	type EditorComponent,
 	type EditorComponentFactory,
 	type EditorKeybindings,
@@ -8,7 +6,9 @@ export {
 	type EditorModifierContext,
 	type EditorTheme,
 	type EditorTui,
+	registerEditorModifier,
 } from "./editor/modifiers.js";
+export { formatExtensionLabel, normalizePackageSlug } from "./package.js";
 export {
 	createSettingItems,
 	createSettingsPanelComponent,
@@ -55,6 +55,17 @@ export type {
 	SettingPrimitive,
 	SettingsState,
 } from "./settings/types.js";
+export {
+	createGroupedTogglePicker,
+	type GroupedToggleGroup,
+	type GroupedToggleItem,
+	type GroupedTogglePane,
+	type GroupedTogglePickerOptions,
+	type GroupedTogglePickerSelection,
+	type GroupedTogglePickerState,
+	type GroupedToggleSelectionKind,
+	type GroupedToggleStatus,
+} from "./tui/grouped-toggle-picker.js";
 export {
 	type RowsWithSidePanelOptions,
 	renderRowsWithSidePanel,
