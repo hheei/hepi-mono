@@ -1,0 +1,8 @@
+[submodule "packages/pi-hashline"]
+	path = packages/pi-hashline
+	url = https://github.com/YuGiMob/pi-hashline-edit-pro
+	branch = master
+[submodule "packages/pi-search"]
+	path = packages/pi-search
+	url = https://github.com/heyhuynhgiabuu/pi-search
+	branch = main

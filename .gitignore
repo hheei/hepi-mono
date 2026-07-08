@@ -14,5 +14,3 @@ npm-debug.log*
 .pi-subagents/
 .codex/
 packages/pi-fff/
-packages/pi-hashline/
-packages/pi-search/
