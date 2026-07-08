@@ -18,7 +18,7 @@ Implement in a branch inside the `packages/pi-hashline` submodule. Do not implem
    - call FFF `grep()`;
    - collect displayed results by file;
    - load displayed files as normalized text;
-   - call `lineHashes(normalized, absolutePath)`;
+   - call `lineHashes(normalized, absolutePath)` on the full normalized content for each displayed file;
    - map FFF `lineNumber`/context offsets to anchors;
    - format pure `HASH│content` rows plus `hit: HASH` metadata.
 6. Wire `regGrep(pi)` from `index.ts` alongside `regRead()` and `regReplace()`.
@@ -45,3 +45,4 @@ If FFF native install or tests require platform-specific setup, document the exa
 - `lineHashes(content, path)` updates persistent hash-store snapshots. Tests should isolate `HOME` using existing test helpers.
 - Avoid outputting normal line numbers anywhere in text rows, including context rows and error examples.
 - Do not mark match rows by prefixing the hashline rows; use `hit: HASH` metadata to keep code rows copyable.
+- Do not add prefix-hashing or hash-store stat-cache optimization in v1 unless the task scope is reopened; full-file `lineHashes(content, path)` is the strict-equivalence path.
