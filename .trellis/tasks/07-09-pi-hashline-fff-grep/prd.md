@@ -29,6 +29,7 @@ The current reference package `pi-fff` already wraps `@ff-labs/fff-node` and reg
 - `packages/pi-hashline/src/hash-store.ts` currently stores `{ content, hashes }` snapshots without stat metadata, so current cache hits still require full content comparison through `lineHashes(content, path)`.
 - `packages/pi-hashline/src/snapshot.ts` already exposes `fileSnap(absolutePath)` with canonical path, `mtimeMs`, `size`, and `snapshotId`; this can support a stat-validated hash snapshot cache.
 - `packages/pi-hashline/src/file-reader.ts` currently combines full-file text load, LF normalization, and `lineHashes()`, so grep needs a separate fast path if it wants to reuse stored hashes without loading the whole file.
+- Algorithm alternatives were evaluated. Content-only, position-salted, and occurrence-ordinal anchors either lose duplicate-line uniqueness, compact perfect hashing, or stable anchors across edits. The preferred bottom-layer change is to keep the current 3-character perfect/stable hash algorithm and evolve the hash store into a stat-validated line-anchor index.
 
 ## Key Constraints and Limits
 
@@ -39,6 +40,7 @@ The current reference package `pi-fff` already wraps `@ff-labs/fff-node` and reg
 - V1 should add stat metadata to hash-store snapshots so grep can avoid full-file read/hash on cache hits. A prior `read`, `replace`, or cold grep full-load should make later grep calls on the same unchanged file cheap.
 - Cache-hit grep output still needs honest display text. Prefer a small local line-window reader around FFF `byteOffset` over trusting FFF `lineContent`, because FFF's type definition says matched line text may already be truncated.
 - Cold-cache prefix hashing is accepted for v1 by default, but only for files with no existing hash-store snapshot. If any snapshot exists but stat metadata is stale or missing, grep must full-load and let `lineHashes(fullContent, path)` decide whether stored hashes can be preserved.
+- The v1 performance redesign should not replace the existing hash wire format or switch to content-only/position-salted anchors. Those alternatives make grep easier but weaken current hashline guarantees.
 - FFF can refuse root scanning unless explicitly enabled. The hashline-aware grep should inherit `pi-fff`'s safe default: no filesystem-root scan unless an explicit flag/env enables it.
 - Binary/image/non-text files must not produce hashline rows; reuse `pi-hashline` file loading helpers where possible. `loadFileKindAndText()` already rejects unsupported files, detects null bytes, handles UTF-8 decode errors, and enforces the existing `MAX_BYTES = 100 * 1024 * 1024` limit.
 - The tool must avoid adding line numbers back as an alternate locator; the requirement explicitly removes normal line numbers from the primary output.
@@ -56,7 +58,7 @@ The current reference package `pi-fff` already wraps `@ff-labs/fff-node` and reg
 - Preserve useful FFF behavior where compatible: smart-case, regex/plain detection, path/exclude constraints, context lines, limit, cursor pagination, git/frecency-aware file ordering.
 - Keep strict hashline semantics: grep output anchors must be suitable for `replace` without fuzzy correction or alternate line-number fallback.
 - Avoid hashing every match candidate when only a limited result page will be displayed; only process files needed for the displayed results page.
-- Extend hash-store snapshots with stat metadata and add a stat-validated grep fast path that reuses stored hashes when the current file snapshot matches.
+- Extend hash-store snapshots with stat metadata and add a stat-validated grep fast path that reuses stored hashes when the current file snapshot matches. Treat this as evolving the existing hash store toward a line-anchor index, while keeping `lineHashes()` as the source of truth.
 - On hash-cache hits, avoid full-file content load; read only displayed line windows needed for output text, with explicit truncation markers.
 - On cache misses where a stored snapshot exists or prefix hashing is not eligible, load and validate the full displayed file, call `lineHashes(fullContent, absolutePath)`, and save stat metadata with the resulting complete hash snapshot.
 - On true cold files with no existing hash-store snapshot, use prefix hashing by default when the needed prefix through the last displayed context line is bounded and beneficial; default eligibility is at most `min(32 MiB, 50% of file size)`, tunable by env/config. Do not write partial prefix hashes to the persistent hash store.
@@ -75,6 +77,7 @@ The current reference package `pi-fff` already wraps `@ff-labs/fff-node` and reg
 - [x] The truncation behavior is defined: bounded row display with an explicit marker, while anchors still refer to full file lines.
 - [x] The PRD defines tests for at least one matched line and one context line, verifying anchors match `lineHashes` for the same file.
 - [x] The PRD records the performance conclusion: v1 includes stat-validated hash snapshot reuse and default no-snapshot prefix hashing with full-load fallback for stale snapshots.
+- [x] The PRD records the algorithm conclusion: preserve the existing 3-character perfect/stable hash wire format; optimize through a line-anchor index layer instead of content-only or position-salted anchors.
 - [x] Blocking product decisions are resolved before technical design begins.
 
 ## Out of Scope
@@ -93,3 +96,4 @@ The current reference package `pi-fff` already wraps `@ff-labs/fff-node` and reg
 - Resolved: hashline-aware grep may update the persistent hash store for files included in displayed grep results.
 - Resolved: `@ff-labs/fff-node` should be a normal dependency of the `pi-hashline` branch.
 - Resolved: v1 includes cold-cache prefix hashing by default only when no hash-store snapshot exists for the file; stale or metadata-less snapshots use full-load fallback.
+- Resolved: do not redesign the anchor wire algorithm for this grep task. Keep the current compact perfect/stable hashes and improve the bottom-layer index/cache contract.

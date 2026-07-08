@@ -3,4 +3,5 @@
 {"file":".trellis/tasks/07-09-pi-hashline-fff-grep/implement.md","reason":"Validation commands and risk points for implementation review."}
 {"file":"packages/pi-hashline/AGENTS.md","reason":"Strict semantics and test expectations for pi-hashline changes."}
 {"file":".trellis/tasks/07-09-pi-hashline-fff-grep/research/hashline-upstream-and-partial-hashing.md","reason":"Check implementation against lineHashes semantics and stable duplicate-line constraints."}
-{"file":".trellis/tasks/07-09-pi-hashline-fff-grep/research/grep-performance-options.md","reason":"Verify stat-cache hit behavior, stale-cache fallback, displayed line-window text, and any accepted prefix-hash scope."}
+{"file":".trellis/tasks/07-09-pi-hashline-fff-grep/research/grep-performance-options.md","reason":"Verify stat-cache hit behavior, stale-cache fallback, displayed line-window text, and accepted prefix-hash scope."}
+{"file":".trellis/tasks/07-09-pi-hashline-fff-grep/research/hash-algorithm-alternatives.md","reason":"Check that implementation preserves existing hash wire format and does not replace strict/stable anchors with weaker content-only or position-salted locators."}

@@ -4,3 +4,4 @@
 {"file":"packages/pi-hashline/AGENTS.md","reason":"pi-hashline repository guidelines and strict hashline protocol constraints."}
 {"file":".trellis/tasks/07-09-pi-hashline-fff-grep/research/hashline-upstream-and-partial-hashing.md","reason":"Research result: upstream hash changes, FFF grep metadata, and why anchors must preserve lineHashes semantics."}
 {"file":".trellis/tasks/07-09-pi-hashline-fff-grep/research/grep-performance-options.md","reason":"Performance design: stat-validated hash snapshot cache, displayed line-window reads, and cold-prefix hashing trade-offs."}
+{"file":".trellis/tasks/07-09-pi-hashline-fff-grep/research/hash-algorithm-alternatives.md","reason":"Algorithm alternatives analysis: why v1 should preserve the current 3-character perfect/stable hash algorithm and optimize through a line-anchor index."}
