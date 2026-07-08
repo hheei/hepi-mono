@@ -1,0 +1,4 @@
+{"file":".trellis/tasks/07-09-pi-hashline-fff-grep/prd.md","reason":"Acceptance criteria and scope boundaries to verify during planning review and implementation check."}
+{"file":".trellis/tasks/07-09-pi-hashline-fff-grep/design.md","reason":"Design constraints to check: no line numbers, pure hashline rows, hit metadata, and safe FFF/hash-store behavior."}
+{"file":".trellis/tasks/07-09-pi-hashline-fff-grep/implement.md","reason":"Validation commands and risk points for implementation review."}
+{"file":"packages/pi-hashline/AGENTS.md","reason":"Strict semantics and test expectations for pi-hashline changes."}

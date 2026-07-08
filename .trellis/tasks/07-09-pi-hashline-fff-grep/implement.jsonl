@@ -1,0 +1,4 @@
+{"file":".trellis/tasks/07-09-pi-hashline-fff-grep/prd.md","reason":"Product requirements, constraints, and accepted decisions for hashline-aware FFF grep."}
+{"file":".trellis/tasks/07-09-pi-hashline-fff-grep/design.md","reason":"Technical design notes covering FFF-to-hashline mapping, output shape, limits, and solutions."}
+{"file":".trellis/tasks/07-09-pi-hashline-fff-grep/implement.md","reason":"Ordered implementation plan and validation commands for the pi-hashline submodule branch."}
+{"file":"packages/pi-hashline/AGENTS.md","reason":"pi-hashline repository guidelines and strict hashline protocol constraints."}
