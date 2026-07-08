@@ -21,7 +21,8 @@
   "children": [
     "07-08-pi-extension-setting-panel",
     "07-08-pi-loadout-rewrite",
-    "07-08-pi-common-status-prompt"
+    "07-08-pi-common-status-prompt",
+    "07-09-pi-hashline-fff-grep"
   ],
   "parent": null,
   "relatedFiles": [],
