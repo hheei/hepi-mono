@@ -12,3 +12,7 @@ package-lock.json
 npm-debug.log*
 .zed/
 .pi-subagents/
+.codex/
+packages/pi-fff/
+packages/pi-hashline/
+packages/pi-search/
