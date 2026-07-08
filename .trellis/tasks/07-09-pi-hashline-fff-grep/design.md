@@ -74,11 +74,19 @@ Cold-prefix hashing is correct only under narrow conditions: pure hash assignmen
 
 Prefix eligibility should also be bounded: require FFF `isBinary === false`, local stat size within `MAX_BYTES`, a known prefix end through the last displayed context row, and prefix/window text validation. Default to prefix only when the required prefix is at most `min(32 MiB, 50% of file size)`, with an override such as `PI_HASHLINE_GREP_PREFIX_MAX_BYTES`. If the prefix exceeds that cap, prefer full-load fallback so the complete snapshot is warmed for future calls.
 
+## Algorithm Boundary
+
+Do not replace the current 3-character perfect/stable hash algorithm for this grep branch. The hard part is not producing any short token for a line; it is preserving all current guarantees at once: compact anchors, per-file uniqueness, duplicate-line disambiguation, stable unchanged-line anchors, and strict stale-anchor rejection.
+
+Content-only hashes are easy to compute from FFF snippets but cannot distinguish byte-identical lines. Position-salted hashes using `lineNumber` or `byteOffset` are easy to compute from FFF metadata but make unrelated insertions or formatting shifts invalidate later anchors. Occurrence-ordinal hashes reduce dependence on absolute position, but duplicate insertions above a line still shift ordinals and 3-character collision handling still needs prefix/global state.
+
+The practical bottom-layer change is therefore an index-layer change: evolve the persistent hash store into a stat-validated line-anchor index while keeping `lineHashes()` as the single source of truth. Fresh index hits let grep map line numbers to anchors without full-file reads; true cold files use bounded prefix hashing; stale or metadata-less snapshots full-load to preserve stable hashes.
+
 ## Limits and Solutions
 
 | Limit | Why it matters | V1 solution |
 | --- | --- | --- |
-| FFF returns line numbers and byte offsets, not anchors | Hashes require collision resolution and persistent store awareness | Use stat-validated stored hashes on cache hit; use no-snapshot prefix hashing when eligible; otherwise read the displayed file and call `lineHashes(content, absolutePath)` before formatting |
+| FFF returns line numbers and byte offsets, not anchors | Hashes require collision resolution and persistent store awareness | Keep the existing hash algorithm; use stat-validated stored hashes on cache hit, no-snapshot prefix hashing when eligible, or full-file `lineHashes(content, absolutePath)` fallback |
 | Snippet-only hashing is incorrect | Duplicate lines need full-file perfect hashing to get distinct anchors | Never hash a single returned line in isolation |
 | grep may touch many files | `lineHashes(content, path)` writes hash-store snapshots and full hashing can be costly | Only process files present in the displayed result page; memoize each file once per grep call; reuse fresh stored hashes when possible |
 | Native FFF finder can race on DB locks | `pi-fff` already serializes `FileFinder.create()` calls | Reuse the same single-flight initialization pattern |
@@ -87,7 +95,7 @@ Prefix eligibility should also be bounded: require FFF `isBinary === false`, loc
 | Long lines can blow token budget | Full grep output may be too large | Use bounded display with explicit truncation marker; anchor still targets the full line |
 | Marking match rows can corrupt hashline rows | Prefixing `>` makes rows no longer pure `HASH│content` | Keep rows pure and add `hit: HASH` metadata after each block |
 | FFF dependency is native | Install/runtime failures should be explicit | Add `@ff-labs/fff-node` as a normal branch dependency and fail clearly on init errors |
-| Partial hashing is tempting | Prefix hashing is correct only for true cold files and does not update a complete snapshot | Enable cold-prefix by default only when no snapshot exists; stale snapshots and uncertain validation use full-load fallback |
+| Replacing the hash algorithm is tempting | Content-only or position-salted anchors make grep easier but weaken duplicate-line uniqueness or stability across edits | Preserve the current 3-character perfect/stable hash wire format and optimize through a line-anchor index layer |
 
 ## Dependency Boundary
 

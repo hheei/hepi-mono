@@ -8,7 +8,7 @@ Implement in a branch inside the `packages/pi-hashline` submodule. Do not implem
 
 1. Create a feature branch in `packages/pi-hashline` for the hashline-aware FFF grep work.
 2. Add `@ff-labs/fff-node` as a normal dependency of the branch.
-3. Extend the hash-store contract with optional file snapshot metadata:
+3. Extend the hash-store contract into a stat-validated line-anchor index with optional file snapshot metadata:
    - keep backward compatibility with existing `{ content, hashes }` snapshots;
    - save current `fileSnap()` metadata whenever `lineHashes(content, path)` writes a complete snapshot;
    - add a helper that returns stored hashes only when current `fileSnap().snapshotId` matches stored metadata;
@@ -58,5 +58,5 @@ If FFF native install or tests require platform-specific setup, document the exa
 - `lineHashes(content, path)` updates persistent hash-store snapshots. Tests should isolate `HOME` using existing test helpers and cover snapshot metadata migrations.
 - Avoid outputting normal line numbers anywhere in text rows, including context rows and error examples.
 - Do not mark match rows by prefixing the hashline rows; use `hit: HASH` metadata to keep code rows copyable.
-- Stat-cache optimization is in v1 scope: cache hits must reuse hashes only when `fileSnap().snapshotId` matches stored metadata, otherwise fall back to full-file `lineHashes(content, path)`.
+- Stat-cache optimization is in v1 scope: cache hits must reuse hashes only when `fileSnap().snapshotId` matches stored metadata, otherwise fall back to full-file `lineHashes(content, path)`. Keep the existing 3-character hash wire format and avoid content-only or position-salted anchor redesigns in this branch.
 - Cold-cache prefix hashing is in v1 scope by default only for files with no existing hash-store snapshot. Stale snapshots, metadata-less snapshots, or uncertain validation must fall back to full-file `lineHashes(content, path)`.
