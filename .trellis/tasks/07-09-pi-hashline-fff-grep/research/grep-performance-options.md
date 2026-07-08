@@ -84,10 +84,10 @@ Limits:
 - Full-file text validation is weakened unless the implementation still scans the whole file for null bytes / UTF-8 errors.
 - It requires a new helper that computes prefix hashes without writing a partial snapshot to the normal hash-store.
 
-Accepted boundary: enable prefix hashing by default only when no hash-store snapshot exists for the canonical path. Do not use prefix hashing when any snapshot exists but is stat-stale or metadata-less; full-load instead so `lineHashes(fullContent, path)` can preserve stored hashes if content is actually unchanged.
+Accepted boundary: enable prefix hashing by default only when no complete hash-store snapshot exists for the canonical path. Prefix hashes are partial and separate from the persistent full hash-store. Cache only the file snapshot id, the covered prefix end, and the prefix hashes. Reuse the cache when a later request stays inside the covered prefix; if it needs more lines, reread from the beginning through the larger prefix and replace the partial cache. Do not use prefix hashing when any complete snapshot exists but is stat-stale or metadata-less; full-load instead so `lineHashes(fullContent, path)` can preserve stored hashes if content is actually unchanged.
 
 ## Performance recommendation
 
 Make stat-validated hash snapshot cache part of v1. It is a direct extension of existing stable-hash semantics and reduces repeated full-file reads for the common hot path.
 
-Also include no-snapshot prefix hashing in v1 by default. It improves first-grep behavior on large never-read files, but it must be bounded and must not write partial snapshots. Default prefix eligibility should be at most `min(32 MiB, 50% of file size)`, tunable by env/config. If prefix reading is too large, validation is uncertain, FFF reports binary, local stat exceeds `MAX_BYTES`, or any snapshot already exists, use full-load fallback and create/refresh the complete snapshot.
+Also include no-snapshot prefix hashing in v1 by default, using the simple prefix-coverage rule above. This improves first-grep behavior on large never-read files while keeping implementation simpler than incremental append or profitability heuristics. If validation is uncertain, FFF reports binary, local stat exceeds `MAX_BYTES`, or any complete snapshot already exists, use full-load fallback and create/refresh the complete snapshot.

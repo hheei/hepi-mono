@@ -94,6 +94,6 @@ Limits:
 Original strictness conclusion still holds: snippet-only hashing is unsafe, and stale snapshots must not use prefix hashing. After the large-file performance scope update, v1 should include two optimized paths with those constraints:
 
 - stat-validated snapshot cache hits may reuse stored hashes without full-file reads;
-- true cold files with no existing snapshot may use bounded prefix hashing by default, because later full-file pure hashing will produce the same anchors for displayed prefix rows.
+- true cold files with no existing complete snapshot may use prefix hashing by default with a simple prefix-coverage cache, because later full-file pure hashing will produce the same anchors for displayed prefix rows.
 
 All stale or metadata-less snapshots still require full-load fallback so `lineHashes(fullContent, path)` can preserve stored hashes if content is actually unchanged.
