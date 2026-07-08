@@ -15,7 +15,7 @@ Implement in a branch inside the `packages/pi-hashline` submodule. Do not implem
    - add tests for old snapshots, fresh metadata hits, and stale metadata misses.
 4. Add displayed-line-window and prefix-read helpers for grep:
    - use FFF `byteOffset` plus requested before/after context to read only displayed lines on cache hits;
-   - for true cold files with no full snapshot, read from file start through the last displayed context line and compute pure prefix hashes without writing the hash-store; cache only the covered prefix and recompute from the beginning when a later request needs a larger prefix;
+   - for true cold files with no full snapshot, read from file start through the last displayed context line and compute pure prefix hashes without writing the hash-store; cache only the covered prefix and recompute from the beginning when a later request needs a larger prefix; invalidate the prefix cache when `fileSnap().snapshotId` changes or when a complete snapshot is created;
    - normalize line endings consistently with read output;
    - apply the same explicit truncation marker used by grep rows;
    - fall back to full-file load if the window/prefix cannot be read or validated safely.
@@ -35,7 +35,7 @@ Implement in a branch inside the `packages/pi-hashline` submodule. Do not implem
    - map FFF `lineNumber`/context offsets to anchors;
    - format pure `HASH│content` rows plus `hit: HASH` metadata.
 8. Wire `regGrep(pi)` from `index.ts` alongside `regRead()` and `regReplace()`.
-9. Add tests for formatting, mapping, no-line-number output, non-text handling, pagination notices, stat-cache hits, stale-cache fallback, no-snapshot prefix hashing, prefix-cache reuse, prefix-cache recompute, and prefix-to-full hash equivalence.
+9. Add tests for formatting, mapping, no-line-number output, non-text handling, pagination notices, stat-cache hits, stale-cache fallback, no-snapshot prefix hashing, prefix-cache reuse, prefix-cache recompute, prefix-cache invalidation, prefix-to-replace/read stability, and prefix-to-full hash equivalence.
 10. Run validation inside `packages/pi-hashline`.
 11. Update the parent repo submodule pointer only after the submodule branch commit is ready.
 

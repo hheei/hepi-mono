@@ -65,14 +65,14 @@ Hash-store snapshots should be extended from `{ content, hashes }` to include st
 Grep anchor resolution should use three tiers:
 
 1. Fresh snapshot cache hit: stat the file, compare current `fileSnap().snapshotId` with stored snapshot metadata, and use `hashes[lineNumber - 1]` directly without loading the full file.
-2. True cold prefix path: when no full hash-store snapshot exists for the file, read from file start through the last displayed context line, compute pure prefix hashes, and store them only in a separate partial prefix cache keyed by file snapshot id. If a later request needs more lines than the cached prefix covers, recompute from the beginning through the larger prefix and replace the partial cache; do not append incrementally and do not write partial hashes to the persistent full hash-store.
+2. True cold prefix path: when no full hash-store snapshot exists for the file, read from file start through the last displayed context line, compute pure prefix hashes, and store them only in a separate partial prefix cache keyed by file snapshot id. If a later request needs more lines than the cached prefix covers, recompute from the beginning through the larger prefix and replace the partial cache; do not append incrementally and do not write partial hashes to the persistent full hash-store. If `fileSnap().snapshotId` changes, discard the prefix cache. If a full `read`, full-load grep fallback, or `replace` creates a complete hash-store snapshot, delete the prefix cache for that file.
 3. Full-load fallback: when a full snapshot exists but is stale/metadata-less, prefix validation is insufficient, or window reading fails, load and validate the full displayed file, normalize it the same way `read` does, call `lineHashes(fullContent, absolutePath)`, and store the resulting hashes with fresh stat metadata.
 
 The cache-hit path still needs display text. It should prefer a small local line-window reader around FFF `byteOffset` so output text gets the same explicit truncation marker as the cold path. FFF's `lineContent`/context strings are useful fallback data, but the type definition says `lineContent` may already be truncated, so using it as an exact `HASH│content` row without marking would be misleading.
 
 Cold-prefix hashing is correct only under narrow conditions: pure hash assignment for line N depends on previous lines, not future lines, so a prefix through the last displayed row can match full pure hashing. V1 should enable this path by default only when the canonical path has no full hash-store snapshot at all. It must not be used when a stored full snapshot exists but stat metadata is stale or missing, because `lineHashes(fullContent, path)` might still preserve old hashes after full content comparison.
 
-The prefix cache should be deliberately simple: store only the current file snapshot id, the covered prefix end, and the hashes for that prefix. If a request is within the cached prefix, reuse it. If a request needs beyond the cached prefix, reread from byte 0 / line 1 through the larger prefix and replace the cached prefix. This avoids incremental append state and removes the need for profitability heuristics. Existing validation still applies: require FFF `isBinary === false`, local stat size within `MAX_BYTES`, a known prefix end through the last displayed context row, and prefix/window text validation.
+The prefix cache should be deliberately simple: store only the current file snapshot id, the covered prefix end, and the hashes for that prefix. If a request is within the cached prefix and the snapshot id still matches, reuse it. If a request needs beyond the cached prefix, reread from byte 0 / line 1 through the larger prefix and replace the cached prefix. This avoids incremental append state and removes the need for profitability heuristics. Existing validation still applies: require FFF `isBinary === false`, local stat size within `MAX_BYTES`, a known prefix end through the last displayed context row, and prefix/window text validation.
 
 ## Algorithm Boundary
 
@@ -118,7 +118,9 @@ Minimum tests:
 - a no-snapshot prefix-hash test verifies displayed anchors match later full-file `lineHashes(content, path)` for the same lines;
 - a no-snapshot prefix-cache test verifies a request inside the cached prefix reuses it;
 - a no-snapshot prefix-cache test verifies a request beyond the cached prefix recomputes from the beginning and replaces the partial cache;
-- a no-snapshot prefix-hash test verifies no partial hash snapshot is written to the persistent full hash-store.
+- a no-snapshot prefix-hash test verifies no partial hash snapshot is written to the persistent full hash-store;
+- a prefix-cache invalidation test verifies snapshot id changes discard cached prefix hashes;
+- a prefix-to-replace/read test verifies anchors emitted from prefix grep still resolve through `replace`, and the resulting complete snapshot is used by later `read` instead of the old prefix cache.
 
 ## Branch and Repo Handling
 
