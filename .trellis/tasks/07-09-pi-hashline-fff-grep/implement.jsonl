@@ -2,3 +2,4 @@
 {"file":".trellis/tasks/07-09-pi-hashline-fff-grep/design.md","reason":"Technical design notes covering FFF-to-hashline mapping, output shape, limits, and solutions."}
 {"file":".trellis/tasks/07-09-pi-hashline-fff-grep/implement.md","reason":"Ordered implementation plan and validation commands for the pi-hashline submodule branch."}
 {"file":"packages/pi-hashline/AGENTS.md","reason":"pi-hashline repository guidelines and strict hashline protocol constraints."}
+{"file":".trellis/tasks/07-09-pi-hashline-fff-grep/research/hashline-upstream-and-partial-hashing.md","reason":"Research result: upstream hash changes, FFF grep metadata, and why v1 should keep full-file lineHashes with partial hashing deferred."}

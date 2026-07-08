@@ -15,7 +15,7 @@ The current reference package `pi-fff` already wraps `@ff-labs/fff-node` and reg
 - `packages/pi-fff/src/index.ts` imports `FileFinder` from `@ff-labs/fff-node` and calls `FileFinder.create({ basePath, frecencyDbPath, historyDbPath, aiMode: true, enableHomeDirScanning: true, enableFsRootScanning })`.
 - `pi-fff` serializes concurrent `FileFinder.create()` calls because native DB locks can race/deadlock if created in parallel for the same base path.
 - `pi-fff` calls `finder.grep(query, { mode, smartCase, maxMatchesPerFile, cursor, beforeContext, afterContext, classifyDefinitions })`.
-- FFF grep results include `relativePath`, `lineNumber`, `lineContent`, optional `contextBefore`, optional `contextAfter`, file annotations such as git status/frecency, and pagination cursor data.
+- FFF grep results include `relativePath`, `lineNumber`, `byteOffset`, `col`, `lineContent`, `matchRanges`, optional `contextBefore`, optional `contextAfter`, file annotations such as git status/frecency, file `size`/`modified`, and pagination cursor data.
 - `pi-fff` currently formats grep rows with normal line numbers and truncates each line to `GREP_MAX_LINE_LENGTH = 500`.
 - `packages/pi-fff/src/query.ts` normalizes path/exclude constraints and builds the query string consumed by FFF's query parser.
 - `packages/pi-hashline/src/hashline/hash.ts` exports async `lineHashes(content, path)` and `HASH_SEP = "│"`; `lineHashes` is the single source of truth for stable anchors and uses a persistent hash store when a file path is supplied.
@@ -24,13 +24,16 @@ The current reference package `pi-fff` already wraps `@ff-labs/fff-node` and reg
 - `packages/pi-hashline/package.json` currently does not depend on `@ff-labs/fff-node`; this branch should add it as a normal dependency.
 - `packages/pi-hashline` is tracked as an upstream submodule from `https://github.com/YuGiMob/pi-hashline-edit-pro`; implementation work should happen on a branch inside that submodule, not as ordinary parent repo files.
 - `packages/pi-fff` is a local reference package only and should not become a maintained dependency target.
+- Upstream `packages/pi-hashline` is already at latest `origin/master` (`83f4145`, release `0.15.5`) as of this research pass; no submodule pointer update was needed.
+- Recent upstream hash changes did not replace the full per-line hash-array approach. They improved stable duplicate-line disambiguation by making `mapStableHashes()` hash-aware and by collecting every hash in an edited range into `removedHashes`, including interior duplicates.
 
 ## Key Constraints and Limits
 
-- FFF grep gives line numbers, but hashline anchors cannot be computed from returned snippets alone. To produce stable anchors, the implementation must read the full matched file and call `lineHashes(fullContent, absolutePath)`, then map FFF's `lineNumber` and context offsets to the corresponding hash entries.
+- FFF grep gives line numbers and byte offsets, but hashline anchors cannot be computed safely from returned snippets alone. V1 must read the full displayed file and call `lineHashes(fullContent, absolutePath)`, then map FFF's `lineNumber` and context offsets to the corresponding hash entries.
 - Context rows returned by FFF are only text arrays. Their anchor mapping must be derived from `match.lineNumber - contextBefore.length + index` and `match.lineNumber + 1 + index`; this assumes FFF context rows are contiguous around the match.
 - Grep output should use bounded line display with a clear truncation marker. The anchor still refers to the full file line; if exact full content is needed, the model can call `read` on the file or use the anchor in `replace` directly.
 - `lineHashes(content, path)` writes/updates the persistent hash store. V1 may use that normal side effect, but should only hash files included in the displayed grep result page.
+- A no-full-file optimization is not a v1 requirement. Prefix hashing could match pure hashes for displayed rows when no stable snapshot is involved, and stat-validated hash-store lookup could avoid reads on cache hits, but both require additional hash-store/API design to preserve strict `read`/`replace` equivalence.
 - FFF can refuse root scanning unless explicitly enabled. The hashline-aware grep should inherit `pi-fff`'s safe default: no filesystem-root scan unless an explicit flag/env enables it.
 - Binary/image/non-text files must not produce hashline rows; reuse `pi-hashline` file loading helpers where possible. `loadFileKindAndText()` already rejects unsupported files, detects null bytes, handles UTF-8 decode errors, and enforces the existing `MAX_BYTES = 100 * 1024 * 1024` limit.
 - The tool must avoid adding line numbers back as an alternate locator; the requirement explicitly removes normal line numbers from the primary output.
@@ -62,6 +65,7 @@ The current reference package `pi-fff` already wraps `@ff-labs/fff-node` and reg
 - [x] The PRD defines root-scan, binary-file, large-file, truncation, and hash-store side effect limits.
 - [x] The truncation behavior is defined: bounded row display with an explicit marker, while anchors still refer to full file lines.
 - [x] The PRD defines tests for at least one matched line and one context line, verifying anchors match `lineHashes` for the same file.
+- [x] The PRD records the no-full-file hashing research conclusion: full-file `lineHashes` remains the v1 path; prefix/cache optimization is future work unless the hash-store contract changes.
 - [x] Blocking product decisions are resolved before technical design begins.
 
 ## Out of Scope
