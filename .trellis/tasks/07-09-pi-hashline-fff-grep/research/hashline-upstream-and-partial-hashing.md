@@ -89,8 +89,11 @@ Limits:
 - Size+mtime are practical cache validation, but not cryptographic proof of unchanged content.
 - Existing snapshots without metadata still need fallback behavior.
 
-## Recommendation
+## Recommendation Update
 
-Keep v1 full-file for displayed files. It is the only path that exactly matches current `read` / `replace` semantics and updates the persistent hash-store normally.
+Original strictness conclusion still holds: snippet-only hashing is unsafe, and stale snapshots must not use prefix hashing. After the large-file performance scope update, v1 should include two optimized paths with those constraints:
 
-Record prefix hashing and stat-validated snapshot lookup as future optimizations, not v1 requirements. They are useful if profiling shows full-file reads are too expensive, but they require careful hash-store/API design to avoid stale or mismatched anchors.
+- stat-validated snapshot cache hits may reuse stored hashes without full-file reads;
+- true cold files with no existing snapshot may use bounded prefix hashing by default, because later full-file pure hashing will produce the same anchors for displayed prefix rows.
+
+All stale or metadata-less snapshots still require full-load fallback so `lineHashes(fullContent, path)` can preserve stored hashes if content is actually unchanged.
