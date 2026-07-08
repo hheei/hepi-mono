@@ -65,14 +65,14 @@ Hash-store snapshots should be extended from `{ content, hashes }` to include st
 Grep anchor resolution should use three tiers:
 
 1. Fresh snapshot cache hit: stat the file, compare current `fileSnap().snapshotId` with stored snapshot metadata, and use `hashes[lineNumber - 1]` directly without loading the full file.
-2. True cold prefix path: when no hash-store snapshot exists for the file, read from file start through the last displayed context line, compute pure prefix hashes without writing a partial snapshot, and use those anchors for displayed rows.
-3. Full-load fallback: when a snapshot exists but is stale/metadata-less, prefix bounds are too large, validation is insufficient, or window reading fails, load and validate the full displayed file, normalize it the same way `read` does, call `lineHashes(fullContent, absolutePath)`, and store the resulting hashes with fresh stat metadata.
+2. True cold prefix path: when no full hash-store snapshot exists for the file, read from file start through the last displayed context line, compute pure prefix hashes, and store them only in a separate partial prefix cache keyed by file snapshot id. If a later request needs more lines than the cached prefix covers, recompute from the beginning through the larger prefix and replace the partial cache; do not append incrementally and do not write partial hashes to the persistent full hash-store.
+3. Full-load fallback: when a full snapshot exists but is stale/metadata-less, prefix validation is insufficient, or window reading fails, load and validate the full displayed file, normalize it the same way `read` does, call `lineHashes(fullContent, absolutePath)`, and store the resulting hashes with fresh stat metadata.
 
 The cache-hit path still needs display text. It should prefer a small local line-window reader around FFF `byteOffset` so output text gets the same explicit truncation marker as the cold path. FFF's `lineContent`/context strings are useful fallback data, but the type definition says `lineContent` may already be truncated, so using it as an exact `HASH│content` row without marking would be misleading.
 
-Cold-prefix hashing is correct only under narrow conditions: pure hash assignment for line N depends on previous lines, not future lines, so a prefix through the last displayed row can match full pure hashing. V1 should enable this path by default only when the canonical path has no hash-store snapshot at all. It must not be used when a stored snapshot exists but stat metadata is stale or missing, because `lineHashes(fullContent, path)` might still preserve old hashes after full content comparison. The prefix helper must not write to the normal hash-store; a later `read` or `replace` will full-hash the file and should produce the same anchors for previously displayed prefix rows.
+Cold-prefix hashing is correct only under narrow conditions: pure hash assignment for line N depends on previous lines, not future lines, so a prefix through the last displayed row can match full pure hashing. V1 should enable this path by default only when the canonical path has no full hash-store snapshot at all. It must not be used when a stored full snapshot exists but stat metadata is stale or missing, because `lineHashes(fullContent, path)` might still preserve old hashes after full content comparison.
 
-Prefix eligibility should also be bounded: require FFF `isBinary === false`, local stat size within `MAX_BYTES`, a known prefix end through the last displayed context row, and prefix/window text validation. Default to prefix only when the required prefix is at most `min(32 MiB, 50% of file size)`, with an override such as `PI_HASHLINE_GREP_PREFIX_MAX_BYTES`. If the prefix exceeds that cap, prefer full-load fallback so the complete snapshot is warmed for future calls.
+The prefix cache should be deliberately simple: store only the current file snapshot id, the covered prefix end, and the hashes for that prefix. If a request is within the cached prefix, reuse it. If a request needs beyond the cached prefix, reread from byte 0 / line 1 through the larger prefix and replace the cached prefix. This avoids incremental append state and removes the need for profitability heuristics. Existing validation still applies: require FFF `isBinary === false`, local stat size within `MAX_BYTES`, a known prefix end through the last displayed context row, and prefix/window text validation.
 
 ## Algorithm Boundary
 
@@ -80,7 +80,7 @@ Do not replace the current 3-character perfect/stable hash algorithm for this gr
 
 Content-only hashes are easy to compute from FFF snippets but cannot distinguish byte-identical lines. Position-salted hashes using `lineNumber` or `byteOffset` are easy to compute from FFF metadata but make unrelated insertions or formatting shifts invalidate later anchors. Occurrence-ordinal hashes reduce dependence on absolute position, but duplicate insertions above a line still shift ordinals and 3-character collision handling still needs prefix/global state.
 
-The practical bottom-layer change is therefore an index-layer change: evolve the persistent hash store into a stat-validated line-anchor index while keeping `lineHashes()` as the single source of truth. Fresh index hits let grep map line numbers to anchors without full-file reads; true cold files use bounded prefix hashing; stale or metadata-less snapshots full-load to preserve stable hashes.
+The practical bottom-layer change is therefore an index-layer change: evolve the persistent hash store into a stat-validated line-anchor index while keeping `lineHashes()` as the single source of truth. Fresh index hits let grep map line numbers to anchors without full-file reads; true cold files use simple prefix-coverage caching; stale or metadata-less snapshots full-load to preserve stable hashes.
 
 ## Limits and Solutions
 
@@ -96,6 +96,7 @@ The practical bottom-layer change is therefore an index-layer change: evolve the
 | Marking match rows can corrupt hashline rows | Prefixing `>` makes rows no longer pure `HASH│content` | Keep rows pure and add `hit: HASH` metadata after each block |
 | FFF dependency is native | Install/runtime failures should be explicit | Add `@ff-labs/fff-node` as a normal branch dependency and fail clearly on init errors |
 | Replacing the hash algorithm is tempting | Content-only or position-salted anchors make grep easier but weaken duplicate-line uniqueness or stability across edits | Preserve the current 3-character perfect/stable hash wire format and optimize through a line-anchor index layer |
+| Prefix caching can grow complex | Incremental append and profitability heuristics add edge cases | Use simple prefix coverage: reuse if covered; otherwise reread from start to the larger prefix and replace the partial cache |
 
 ## Dependency Boundary
 
@@ -115,7 +116,9 @@ Minimum tests:
 - a fresh stat-cache hit test verifies grep maps anchors without full-file load/hash and still emits correct displayed line windows;
 - a stale stat-cache test verifies grep falls back to full load/hash before emitting anchors;
 - a no-snapshot prefix-hash test verifies displayed anchors match later full-file `lineHashes(content, path)` for the same lines;
-- a no-snapshot prefix-hash test verifies no partial hash snapshot is written to the persistent store.
+- a no-snapshot prefix-cache test verifies a request inside the cached prefix reuses it;
+- a no-snapshot prefix-cache test verifies a request beyond the cached prefix recomputes from the beginning and replaces the partial cache;
+- a no-snapshot prefix-hash test verifies no partial hash snapshot is written to the persistent full hash-store.
 
 ## Branch and Repo Handling
 

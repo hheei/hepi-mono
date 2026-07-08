@@ -89,7 +89,7 @@ Benefits:
 Problems:
 
 - Requires a trusted per-file index and stat validation.
-- Cold files still need an initial index build or bounded prefix allocation.
+- Cold files still need an initial index build or simple prefix allocation.
 - External edits require either full-load reconciliation or a robust incremental file watcher/indexer.
 - The system still needs collision handling because 3-character space is finite.
 
@@ -134,7 +134,7 @@ Verdict: best fit. It keeps current benefits and makes grep efficient through a 
 
 ## Recommendation
 
-Do not replace the existing 3-character perfect/stable hash algorithm for this grep task. The current algorithm already has the key property needed for bounded cold-prefix hashing: earlier anchors do not depend on future lines. The performance issue comes from missing indexed snapshot metadata, not from the hash function itself.
+Do not replace the existing 3-character perfect/stable hash algorithm for this grep task. The current algorithm already has the key property needed for cold-prefix hashing: earlier anchors do not depend on future lines. The performance issue comes from missing indexed snapshot metadata, not from the hash function itself.
 
 The better bottom-layer change is to evolve `hash-store.ts` into a stat-validated line-anchor index:
 
@@ -142,6 +142,6 @@ The better bottom-layer change is to evolve `hash-store.ts` into a stat-validate
 - optionally add line offset metadata later;
 - keep `lineHashes()` as the single source of truth;
 - make grep/read/replace consume the same indexed snapshot helpers;
-- use no-snapshot prefix hashing only as a bounded cold-start path.
+- use no-snapshot prefix hashing only as a simple cold-start path with prefix-coverage caching.
 
 A more radical algorithm change should be a separate task only if we are willing to change at least one current benefit: anchor length, perfect uniqueness, duplicate-line behavior, or stable anchors across edits.
