@@ -1,0 +1,30 @@
+{
+  "id": "pi-hashline-block-mode",
+  "name": "pi-hashline-block-mode",
+  "title": "Build block-scoped hashline mode",
+  "description": "Brainstorm and plan a new pi-hashline mode where read/grep return block-scoped anchors and replace targets block IDs plus block-local anchors.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "chlo",
+  "assignee": "chlo",
+  "createdAt": "2026-07-09",
+  "completedAt": "2026-07-09",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "07-08-pi-extension-modules-rewrite",
+  "relatedFiles": [],
+  "notes": "Deprecated: superseded by docs/lazyhashline.md and task 07-09-pi-hashline-lazyhashline.",
+  "meta": {
+    "deprecated": true,
+    "supersededBy": "07-09-pi-hashline-lazyhashline",
+    "supersededByDoc": "docs/lazyhashline.md"
+  }
+}
