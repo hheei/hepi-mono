@@ -1,5 +1,11 @@
 # Build hashline-aware fff grep
 
+## Deprecated
+
+This task is deprecated. The standalone hashline-aware FFF grep plan has been superseded by the file-scoped lazy hashline plan in `docs/lazyhashline.md` and the new `pi-hashline-lazyhashline` Trellis task, where FFF grep is one part of the `read`/`grep`/`insert`/`edit` tool family. Keep this file as historical design context only; do not start implementation from this task.
+
+# Build hashline-aware fff grep
+
 ## Goal
 
 Plan a `pi-hashline` branch that uses the FFF search backend from `@ff-labs/fff-node` to provide a hashline-aware grep function. The grep output should use `HASH│content` anchors from `pi-hashline` instead of normal line numbers, so the model can jump directly from grep output to `replace` without a separate `read` call when the matched/context lines are sufficient.

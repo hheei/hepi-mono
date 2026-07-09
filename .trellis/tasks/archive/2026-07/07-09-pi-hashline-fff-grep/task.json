@@ -3,7 +3,7 @@
   "name": "pi-hashline-fff-grep",
   "title": "Build hashline-aware fff grep",
   "description": "Brainstorm and plan a pi-hashline branch that uses @ff-labs/fff-node as the search backend to provide a hashline-aware grep function without normal line numbers.",
-  "status": "planning",
+  "status": "completed",
   "dev_type": null,
   "scope": null,
   "package": null,
@@ -11,7 +11,7 @@
   "creator": "chlo",
   "assignee": "chlo",
   "createdAt": "2026-07-09",
-  "completedAt": null,
+  "completedAt": "2026-07-09",
   "branch": null,
   "base_branch": "main",
   "worktree_path": null,
@@ -21,6 +21,10 @@
   "children": [],
   "parent": "07-08-pi-extension-modules-rewrite",
   "relatedFiles": [],
-  "notes": "",
-  "meta": {}
+  "notes": "Deprecated: superseded by docs/lazyhashline.md and task 07-09-pi-hashline-lazyhashline.",
+  "meta": {
+    "deprecated": true,
+    "supersededBy": "07-09-pi-hashline-lazyhashline",
+    "supersededByDoc": "docs/lazyhashline.md"
+  }
 }
