@@ -1,0 +1,227 @@
+import { describe, expect, test } from "bun:test";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createStatusbarFeature } from "../../../src/contributions/statusbar/index.js";
+
+type EditorFactory = NonNullable<
+	Parameters<NonNullable<ExtensionContext["ui"]["setEditorComponent"]>>[0]
+>;
+type Editor = ReturnType<EditorFactory>;
+type EditorArgs = Parameters<EditorFactory>;
+type FooterFactory = NonNullable<Parameters<NonNullable<ExtensionContext["ui"]["setFooter"]>>[0]>;
+type EventHandler = (event: unknown, ctx: ExtensionContext) => unknown;
+
+function editorFactory(label: string, calls: string[]): EditorFactory {
+	return (..._args: EditorArgs): Editor => ({
+		render: () => [`${label}-top`, "PROMPT HERE", `${label}-bottom`, `${label}-autocomplete`],
+		invalidate: () => undefined,
+		getText: () => `${label}-text`,
+		setText: () => undefined,
+		handleInput: (data: string) => calls.push(`${label}:input:${data}`),
+	});
+}
+
+function harness(id: string, mode: "tui" | "json" = "tui", hasEditorGetter = true) {
+	let currentId = id;
+	let factory: FooterFactory | undefined;
+	let installs = 0;
+	let restored = 0;
+	let editorFactory: EditorFactory | undefined;
+	let editorSets = 0;
+	const handlers = new Map<string, EventHandler[]>();
+	const statusMap = new Map<string, string>();
+	let requests = 0;
+	const pi = {
+		on(event: string, handler: EventHandler) {
+			const list = handlers.get(event) ?? [];
+			list.push(handler);
+			handlers.set(event, list);
+		},
+		getThinkingLevel: () => "low" as const,
+	} as unknown as ExtensionAPI;
+	const ctx = {
+		mode,
+		model: { id: "model", name: "Model" },
+		getContextUsage: () => ({ percent: 50, contextWindow: 10 }),
+		sessionManager: { getSessionId: () => currentId, getSessionName: () => "Title" },
+		ui: {
+			theme: { fg: (_role: string, text: string) => text },
+			getEditorComponent: hasEditorGetter ? () => editorFactory : undefined,
+			setEditorComponent: (next: EditorFactory | undefined) => {
+				editorFactory = next;
+				editorSets++;
+			},
+			setFooter: (next: FooterFactory | undefined) => {
+				if (next) {
+					factory = next;
+					installs++;
+				} else restored++;
+			},
+		},
+	} as unknown as ExtensionContext;
+	return {
+		pi,
+		ctx,
+		statusMap,
+		setId(next: string) {
+			currentId = next;
+		},
+		setEditor(next: EditorFactory | undefined) {
+			editorFactory = next;
+		},
+		get editorFactory() {
+			return editorFactory;
+		},
+		get factory() {
+			return factory;
+		},
+		get installs() {
+			return installs;
+		},
+		get restored() {
+			return restored;
+		},
+		get editorSets() {
+			return editorSets;
+		},
+		get requests() {
+			return requests;
+		},
+		emit(event: string, eventCtx = ctx) {
+			for (const handler of handlers.get(event) ?? []) void handler({}, eventCtx);
+		},
+		makeFooter() {
+			if (!factory) throw new Error("footer factory not installed");
+			const tui = {
+				requestRender() {
+					if (this !== tui) throw new Error("requestRender called without owning TUI");
+					requests++;
+				},
+			};
+			return factory(
+				tui as never,
+				{ fg: (_role: string, text: string) => text } as never,
+				{ getExtensionStatuses: () => statusMap } as never,
+			);
+		},
+	};
+}
+
+const runtime = (pi: ExtensionAPI, ctx: ExtensionContext) => ({
+	pi,
+	ctx,
+	registry: {} as never,
+	requestRender: () => undefined,
+	close: () => undefined,
+});
+
+describe("statusbar lifecycle", () => {
+	test("registers handlers once and factory reads current values", () => {
+		const h = harness("a");
+		const feature = createStatusbarFeature(h.pi);
+		feature.start(runtime(h.pi, h.ctx));
+		feature.start(runtime(h.pi, h.ctx));
+		expect(h.installs).toBe(1);
+		expect(h.makeFooter().render(100)).toEqual([]);
+	});
+
+	test("editor rail replaces only first line and delegates editor behavior", () => {
+		const h = harness("a");
+		const calls: string[] = [];
+		h.setEditor(editorFactory("previous", calls));
+		const feature = createStatusbarFeature(h.pi);
+		feature.start(runtime(h.pi, h.ctx));
+		const editor = h.editorFactory?.({} as never, {} as never, {} as never);
+		expect(editor).toBeDefined();
+		expect(editor!.render(80)).toHaveLength(4);
+		expect(editor!.render(80)[0]).not.toBe("previous-top");
+		expect(editor!.render(80).slice(1)).toEqual([
+			"PROMPT HERE",
+			"previous-bottom",
+			"previous-autocomplete",
+		]);
+		editor!.handleInput("x");
+		expect(editor!.getText()).toBe("previous-text");
+		expect(calls).toEqual(["previous:input:x"]);
+	});
+
+	test("redraws owned events and ignores stale context", () => {
+		const h = harness("a");
+		const feature = createStatusbarFeature(h.pi);
+		feature.start(runtime(h.pi, h.ctx));
+		h.makeFooter();
+		for (const event of [
+			"model_select",
+			"thinking_level_select",
+			"session_info_changed",
+			"message_end",
+			"session_compact",
+			"session_tree",
+		])
+			h.emit(event);
+		expect(h.requests).toBe(6);
+		h.emit("model_select", { ...h.ctx } as ExtensionContext);
+		expect(h.requests).toBe(6);
+	});
+
+	test("restores A before B and rejects stale A lifecycle actions", () => {
+		const h = harness("a");
+		const feature = createStatusbarFeature(h.pi);
+		const a = editorFactory("A", []);
+		h.setEditor(a);
+		feature.start(runtime(h.pi, h.ctx));
+		const staleFooter = h.factory;
+		h.setId("b");
+		const b = editorFactory("B", []);
+		h.setEditor(b);
+		feature.start(runtime(h.pi, h.ctx));
+		expect(h.restored).toBe(1);
+		expect(h.installs).toBe(2);
+		h.makeFooter();
+		const before = h.requests;
+		staleFooter?.(
+			{
+				requestRender: () => {
+					h.emit("message_end");
+				},
+			} as never,
+			{} as never,
+			{ getExtensionStatuses: () => h.statusMap } as never,
+		);
+		h.emit("message_end");
+		expect(h.requests).toBe(before + 1);
+		feature.dispose("a");
+		expect(h.restored).toBe(1);
+		feature.dispose("b");
+		expect(h.restored).toBe(2);
+		feature.dispose("b");
+		expect(h.restored).toBe(2);
+	});
+
+	test("preserves later editor replacement during cleanup", () => {
+		const h = harness("a");
+		const feature = createStatusbarFeature(h.pi);
+		feature.start(runtime(h.pi, h.ctx));
+		const replacement = editorFactory("replacement", []);
+		h.setEditor(replacement);
+		feature.dispose("a");
+		expect(h.editorFactory).toBe(replacement);
+		expect(h.restored).toBe(1);
+	});
+
+	test("does not install when editor getter seam is unavailable", () => {
+		const h = harness("a", "tui", false);
+		const feature = createStatusbarFeature(h.pi);
+		feature.start(runtime(h.pi, h.ctx));
+		expect(h.installs).toBe(0);
+		expect(h.editorSets).toBe(0);
+		expect(h.restored).toBe(0);
+	});
+
+	test("does not install outside TUI", () => {
+		const h = harness("json", "json");
+		const feature = createStatusbarFeature(h.pi);
+		feature.start(runtime(h.pi, h.ctx));
+		expect(h.installs).toBe(0);
+		expect(h.restored).toBe(0);
+	});
+});
