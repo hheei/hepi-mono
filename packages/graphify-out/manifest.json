@@ -1,0 +1,272 @@
+{
+  "pi-codex-dollar/src/editor.ts": {
+    "mtime": 1783386683.6599169,
+    "ast_hash": "fd9c446457d1629aa4c30976f499a4b6",
+    "semantic_hash": "fd9c446457d1629aa4c30976f499a4b6"
+  },
+  "pi-codex-dollar/src/index.ts": {
+    "mtime": 1783386703.3041625,
+    "ast_hash": "a2135bf873496d0a290a66646cba305d",
+    "semantic_hash": "a2135bf873496d0a290a66646cba305d"
+  },
+  "pi-codex-dollar/src/loadout.ts": {
+    "mtime": 1783361675.1618588,
+    "ast_hash": "9f5c60f6c0e24c15c7c712cb4a03556e",
+    "semantic_hash": "9f5c60f6c0e24c15c7c712cb4a03556e"
+  },
+  "pi-codex-dollar/src/picker.ts": {
+    "mtime": 1783360292.6937227,
+    "ast_hash": "27dd57f03fce189ceaa40908cdca90e5",
+    "semantic_hash": "27dd57f03fce189ceaa40908cdca90e5"
+  },
+  "pi-codex-dollar/src/references.ts": {
+    "mtime": 1783386683.6575344,
+    "ast_hash": "905ec46bc05e21d36309ba02a6185aa8",
+    "semantic_hash": "905ec46bc05e21d36309ba02a6185aa8"
+  },
+  "pi-codex-dollar/src/settings.ts": {
+    "mtime": 1783360183.6139643,
+    "ast_hash": "0f3e100e2a5af9b3797a9b2c84a62b84",
+    "semantic_hash": "0f3e100e2a5af9b3797a9b2c84a62b84"
+  },
+  "pi-codex-dollar/src/skills.ts": {
+    "mtime": 1783386683.6614234,
+    "ast_hash": "8d0045c48b81cd7b43ad8fd102b2c8c8",
+    "semantic_hash": "8d0045c48b81cd7b43ad8fd102b2c8c8"
+  },
+  "pi-codex-dollar/src/text.ts": {
+    "mtime": 1783386683.6577086,
+    "ast_hash": "6e2b42e326709bace5c3e9a78189ef2f",
+    "semantic_hash": "6e2b42e326709bace5c3e9a78189ef2f"
+  },
+  "pi-codex-dollar/src/types.ts": {
+    "mtime": 1783360183.6138299,
+    "ast_hash": "10b7ca5051d8f31c8155fd196ffe1a04",
+    "semantic_hash": "10b7ca5051d8f31c8155fd196ffe1a04"
+  },
+  "pi-codex-dollar/test/editor-picker.test.ts": {
+    "mtime": 1783386683.6623416,
+    "ast_hash": "38d340cebb7a355aa536b72c7016fe20",
+    "semantic_hash": "38d340cebb7a355aa536b72c7016fe20"
+  },
+  "pi-codex-dollar/test/expansion-highlight.test.ts": {
+    "mtime": 1783362044.3387794,
+    "ast_hash": "089372bc309011b9ff109851534f6338",
+    "semantic_hash": "089372bc309011b9ff109851534f6338"
+  },
+  "pi-codex-dollar/test/filtering.test.ts": {
+    "mtime": 1783337062.5405333,
+    "ast_hash": "cc5c2979254d2a83d6bc8104f3f9a87e",
+    "semantic_hash": "cc5c2979254d2a83d6bc8104f3f9a87e"
+  },
+  "pi-codex-dollar/test/helpers.ts": {
+    "mtime": 1783336836.1707597,
+    "ast_hash": "e9a5740b4cf179212194c7898ace0825",
+    "semantic_hash": "e9a5740b4cf179212194c7898ace0825"
+  },
+  "pi-codex-dollar/test/parsing.test.ts": {
+    "mtime": 1783337062.540321,
+    "ast_hash": "ca400121f81b95a6453ef60ef3e588ce",
+    "semantic_hash": "ca400121f81b95a6453ef60ef3e588ce"
+  },
+  "pi-codex-dollar/test/rendering.test.ts": {
+    "mtime": 1783358822.4793148,
+    "ast_hash": "da6806e6e6509395a00c751935458415",
+    "semantic_hash": "da6806e6e6509395a00c751935458415"
+  },
+  "pi-extcore/src/editor/modifiers.ts": {
+    "mtime": 1783386683.6637285,
+    "ast_hash": "649bb176f1ec43de33270f5bd3e0bd94",
+    "semantic_hash": "649bb176f1ec43de33270f5bd3e0bd94"
+  },
+  "pi-extcore/src/extension.ts": {
+    "mtime": 1783386523.7601595,
+    "ast_hash": "d211c20d99dd869563022f3e67342069",
+    "semantic_hash": "d211c20d99dd869563022f3e67342069"
+  },
+  "pi-extcore/src/index.ts": {
+    "mtime": 1783386683.6644793,
+    "ast_hash": "8baa81642891a194c30edef40d9716ac",
+    "semantic_hash": "8baa81642891a194c30edef40d9716ac"
+  },
+  "pi-extcore/src/package.ts": {
+    "mtime": 1783322134.2364855,
+    "ast_hash": "35cb0857a583d9390eb1611786da8974",
+    "semantic_hash": "35cb0857a583d9390eb1611786da8974"
+  },
+  "pi-extcore/src/settings/panel.ts": {
+    "mtime": 1783359957.8480134,
+    "ast_hash": "bf70f3e2482ccf84409d4bce2275bafd",
+    "semantic_hash": "bf70f3e2482ccf84409d4bce2275bafd"
+  },
+  "pi-extcore/src/settings/provider.ts": {
+    "mtime": 1783407369.2663946,
+    "ast_hash": "3c9e27361ff8b1bde9e29ac2df756491",
+    "semantic_hash": "3c9e27361ff8b1bde9e29ac2df756491"
+  },
+  "pi-extcore/src/settings/register.ts": {
+    "mtime": 1783407369.268268,
+    "ast_hash": "3188df648f647b3f78e1e2396d2809a9",
+    "semantic_hash": "3188df648f647b3f78e1e2396d2809a9"
+  },
+  "pi-extcore/src/settings/state.ts": {
+    "mtime": 1783347224.7627192,
+    "ast_hash": "d89b66efa7b12060e7baef630c647bdf",
+    "semantic_hash": "d89b66efa7b12060e7baef630c647bdf"
+  },
+  "pi-extcore/src/settings/storage.ts": {
+    "mtime": 1783342618.4687583,
+    "ast_hash": "f384c06e49773c6ae2ac331336957ba8",
+    "semantic_hash": "f384c06e49773c6ae2ac331336957ba8"
+  },
+  "pi-extcore/src/settings/types.ts": {
+    "mtime": 1783357673.4376264,
+    "ast_hash": "bdfda30198c5a604f9e50ecac50519bc",
+    "semantic_hash": "bdfda30198c5a604f9e50ecac50519bc"
+  },
+  "pi-extcore/src/tui/grouped-toggle-picker.ts": {
+    "mtime": 1783386683.6835845,
+    "ast_hash": "266a326281cb9f95e54571910ae162c2",
+    "semantic_hash": "266a326281cb9f95e54571910ae162c2"
+  },
+  "pi-extcore/src/tui/panels.ts": {
+    "mtime": 1783345898.7550104,
+    "ast_hash": "d19e1d96b64e64f448d77a418cd2a420",
+    "semantic_hash": "d19e1d96b64e64f448d77a418cd2a420"
+  },
+  "pi-extcore/test/index.test.ts": {
+    "mtime": 1783356366.9609926,
+    "ast_hash": "9737fc7b085318860ab6425628220f68",
+    "semantic_hash": "9737fc7b085318860ab6425628220f68"
+  },
+  "pi-extcore/test/panel.test.ts": {
+    "mtime": 1783358272.315221,
+    "ast_hash": "f49e73624130eec9f275c3ff0c97d22f",
+    "semantic_hash": "f49e73624130eec9f275c3ff0c97d22f"
+  },
+  "pi-extcore/test/panels.test.ts": {
+    "mtime": 1783355309.5491862,
+    "ast_hash": "b3c895e7b3818451e4c899079eb5ec93",
+    "semantic_hash": "b3c895e7b3818451e4c899079eb5ec93"
+  },
+  "pi-extcore/test/provider.test.ts": {
+    "mtime": 1783407369.2645736,
+    "ast_hash": "bc286c487e561e5484613f6c77d912b4",
+    "semantic_hash": "bc286c487e561e5484613f6c77d912b4"
+  },
+  "pi-extcore/test/state.test.ts": {
+    "mtime": 1783354943.520045,
+    "ast_hash": "cd02b5a78eba1f9df26ce681d775d527",
+    "semantic_hash": "cd02b5a78eba1f9df26ce681d775d527"
+  },
+  "pi-extcore/test/storage.test.ts": {
+    "mtime": 1783355027.9350576,
+    "ast_hash": "053f22b0f94d8f7e01912058058d7c8f",
+    "semantic_hash": "053f22b0f94d8f7e01912058058d7c8f"
+  },
+  "pi-inturl/src/index.ts": {
+    "mtime": 1783386683.6762316,
+    "ast_hash": "6a7d786a43a90f08503da0fd94b79d11",
+    "semantic_hash": "6a7d786a43a90f08503da0fd94b79d11"
+  },
+  "pi-inturl/test/path-shortcuts.test.ts": {
+    "mtime": 1783386683.672794,
+    "ast_hash": "bf932281d3c0e6756b36f9e51a024094",
+    "semantic_hash": "bf932281d3c0e6756b36f9e51a024094"
+  },
+  "pi-loadout/src/index.ts": {
+    "mtime": 1783386683.690887,
+    "ast_hash": "9db1bb364d02640d6184d9c3865c02ab",
+    "semantic_hash": "9db1bb364d02640d6184d9c3865c02ab"
+  },
+  "pi-loadout/src/settings-storage.ts": {
+    "mtime": 1783355024.7825384,
+    "ast_hash": "294232f60082eed685ebf766b9613b9f",
+    "semantic_hash": "294232f60082eed685ebf766b9613b9f"
+  },
+  "pi-loadout/src/tui.ts": {
+    "mtime": 1783359957.8436258,
+    "ast_hash": "d354674ea1c61103046b1f093965c8d8",
+    "semantic_hash": "d354674ea1c61103046b1f093965c8d8"
+  },
+  "pi-loadout/test/settings-storage.test.ts": {
+    "mtime": 1783355024.1386511,
+    "ast_hash": "21b647f787d10cc48e734ec4292eb051",
+    "semantic_hash": "21b647f787d10cc48e734ec4292eb051"
+  },
+  "pi-loadout/test/tui.test.ts": {
+    "mtime": 1783359957.8439362,
+    "ast_hash": "4f32f8e22659c7e75fb838c2f2087c75",
+    "semantic_hash": "4f32f8e22659c7e75fb838c2f2087c75"
+  },
+  "pi-ssh/src/index.ts": {
+    "mtime": 1783386755.833303,
+    "ast_hash": "6305839e1041aa8060474169a91c147c",
+    "semantic_hash": "6305839e1041aa8060474169a91c147c"
+  },
+  "pi-ssh/src/output-tail-sink.ts": {
+    "mtime": 1783335641.5634322,
+    "ast_hash": "829dd4c4dd86086f1e84fa7f62b0e668",
+    "semantic_hash": "829dd4c4dd86086f1e84fa7f62b0e668"
+  },
+  "pi-ssh/src/session-manager.ts": {
+    "mtime": 1783337029.811268,
+    "ast_hash": "eba1bf1e4c0b5ec86060312571e67340",
+    "semantic_hash": "eba1bf1e4c0b5ec86060312571e67340"
+  },
+  "pi-ssh/src/ssh-exec.ts": {
+    "mtime": 1783359855.4421904,
+    "ast_hash": "4e88bb5bc928a98b96cf0561d8e19710",
+    "semantic_hash": "4e88bb5bc928a98b96cf0561d8e19710"
+  },
+  "pi-ssh/src/ssh-host.ts": {
+    "mtime": 1783335737.4367619,
+    "ast_hash": "118ca867fc7975779a962fa6b48f9519",
+    "semantic_hash": "118ca867fc7975779a962fa6b48f9519"
+  },
+  "pi-ssh/src/ssh-mount.ts": {
+    "mtime": 1783335345.0929184,
+    "ast_hash": "b1c74e35472efac6468008de3d75c479",
+    "semantic_hash": "b1c74e35472efac6468008de3d75c479"
+  },
+  "pi-ssh/src/stream-output.ts": {
+    "mtime": 1783335345.0932443,
+    "ast_hash": "c0d4d4d929ed851d0154f643e7c37bb1",
+    "semantic_hash": "c0d4d4d929ed851d0154f643e7c37bb1"
+  },
+  "pi-ssh/test/output-tail-sink.test.ts": {
+    "mtime": 1783359772.118246,
+    "ast_hash": "21d3507e17b333113f171dcfbafe443b",
+    "semantic_hash": "21d3507e17b333113f171dcfbafe443b"
+  },
+  "pi-ssh/test/ssh-exec.test.ts": {
+    "mtime": 1783359957.8483672,
+    "ast_hash": "7c5dd035ede52e76efa198a53fc5b97c",
+    "semantic_hash": "7c5dd035ede52e76efa198a53fc5b97c"
+  },
+  "pi-codex-dollar/README.md": {
+    "mtime": 1783345909.4808133,
+    "ast_hash": "35a945b5291d3ad604ec78426f89d148",
+    "semantic_hash": "35a945b5291d3ad604ec78426f89d148"
+  },
+  "pi-extcore/README.md": {
+    "mtime": 1783386579.5946193,
+    "ast_hash": "4774ed1be6c72065d71cc76fdf99ab37",
+    "semantic_hash": "4774ed1be6c72065d71cc76fdf99ab37"
+  },
+  "pi-inturl/README.md": {
+    "mtime": 1783386572.300782,
+    "ast_hash": "40adfdaafeb6b83f848ca0e27f74064b",
+    "semantic_hash": "40adfdaafeb6b83f848ca0e27f74064b"
+  },
+  "pi-loadout/README.md": {
+    "mtime": 1783347851.7781804,
+    "ast_hash": "be2f044fc86701698783476338a858df",
+    "semantic_hash": "be2f044fc86701698783476338a858df"
+  },
+  "pi-ssh/README.md": {
+    "mtime": 1783345909.4827523,
+    "ast_hash": "ff484c7bf9d71018a847c0c300668b05",
+    "semantic_hash": "ff484c7bf9d71018a847c0c300668b05"
+  }
+}
