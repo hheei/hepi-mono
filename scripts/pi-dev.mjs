@@ -11,11 +11,15 @@ const aliases = new Map([
 	["pi-extcore", "packages/pi-extcore/src/extension.ts"],
 	["loadout", "packages/pi-loadout/src/index.ts"],
 	["pi-loadout", "packages/pi-loadout/src/index.ts"],
+	["basics", "packages/pi-basics/src/index.ts"],
+	["pi-basics", "packages/pi-basics/src/index.ts"],
 ]);
 
 function usage() {
 	console.log(`Usage:
   bun run pi:dev                         # load pi-extcore + pi-loadout
+  bun run pi:dev -- basics                # load standalone pi-basics
+  bun run pi:dev -- pi-basics             # load standalone pi-basics
   bun run pi:dev -- inturl              # load pi-extcore + pi-inturl
   bun run pi:dev -- loadout inturl      # load pi-extcore + pi-loadout + pi-inturl
   bun run pi:dev -- --all                # load every packages/pi-*/src entry
@@ -60,9 +64,14 @@ function allExtensionEntries() {
 }
 
 const extensionInputs = requested.length === 0 ? ["pi-extcore", "pi-loadout"] : requested;
+const basicsOnly =
+	extensionInputs.length === 1 && ["basics", "pi-basics"].includes(extensionInputs[0]);
 const extensionPaths = extensionInputs.includes("--all")
 	? allExtensionEntries()
-	: ["pi-extcore", ...extensionInputs.filter((item) => item !== "pi-extcore")]
+	: (basicsOnly
+			? extensionInputs
+			: ["pi-extcore", ...extensionInputs.filter((item) => item !== "pi-extcore")]
+		)
 			.map(resolveExtension)
 			.filter((item, index, list) => list.indexOf(item) === index);
 
