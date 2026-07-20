@@ -13,6 +13,7 @@
 			"packages/*/**/*.ts",
 			"packages/*/**/*.json",
 			"scripts/**/*.mjs",
+			"scripts/**/*.ts",
 			"templates/**/*.ts",
 			"templates/**/*.json",
 			"test/**/*.ts",

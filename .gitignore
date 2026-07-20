@@ -14,3 +14,4 @@ npm-debug.log*
 .pi-subagents/
 .codex/
 packages/pi-fff/
+outputs/
