@@ -1,0 +1,40 @@
+{
+	"name": "@hheei/pi-basics",
+	"version": "0.0.0",
+	"description": "Session-scoped foundational runtime and Settings entry point for HEPI Pi extensions.",
+	"type": "module",
+	"main": "src/index.ts",
+	"files": [
+		"src",
+		"README.md",
+		"LICENSE"
+	],
+	"pi": {
+		"extensions": [
+			"src/index.ts"
+		]
+	},
+	"keywords": [
+		"pi",
+		"pi-package",
+		"pi-extension",
+		"hepi",
+		"settings"
+	],
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/hheei/hepi-mono.git",
+		"directory": "packages/pi-basics"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"dependencies": {
+		"typebox": "^1.1.38"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": ">=0.80.10",
+		"@earendil-works/pi-tui": "*"
+	}
+}
