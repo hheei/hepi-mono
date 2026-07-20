@@ -1,9 +1,0 @@
-{"file":".trellis/spec/guides/hepi-mono-project-conventions.md","reason":"Repo-wide quality, validation, and test expectations for review."}
-{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Reviewer should check whether refactor improves reuse without unnecessary abstraction."}
-{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Reviewer should check cross-layer effects across registry, UI, storage, and consumers."}
-{"file":".trellis/spec/pi-extcore/backend/index.md","reason":"pi-extcore backend quality checklist."}
-{"file":".trellis/spec/pi-extcore/backend/quality-guidelines.md","reason":"Shared API compatibility and test coverage review rules."}
-{"file":".trellis/spec/pi-extcore/frontend/index.md","reason":"TUI quality checklist for settings panel/picker behavior."}
-{"file":".trellis/spec/pi-extcore/frontend/quality-guidelines.md","reason":"Rendered line, keyboard, and test expectations for UI-related changes."}
-{"file":".trellis/spec/pi-extcore/frontend/type-safety.md","reason":"Review extracted helper and public contract type-safety."}
-{"file":".trellis/tasks/07-07-improve-pi-extcore-quality/research/pi-extcore-structure-scan.md","reason":"Reviewer should compare implementation against scoped structure findings and non-goals."}
