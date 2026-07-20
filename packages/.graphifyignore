@@ -1,0 +1,5 @@
+# Package metadata is repository bookkeeping, not architecture.
+**/package.json
+
+# License texts are legal metadata, not project concepts.
+**/LICENSE
