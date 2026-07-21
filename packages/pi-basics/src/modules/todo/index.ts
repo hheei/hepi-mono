@@ -22,16 +22,44 @@ export const TODO_COMMAND_NAME = "todos";
 const TODO_REMINDER_IDLE_TURNS = 5;
 const TODO_COMPLETED_HIDE_TURNS = 2;
 
-const todoOperation = Type.Object(
-	{
-		action: Type.String({ enum: ["create", "update", "list", "delete"] }),
-		id: Type.Optional(Type.Integer({ minimum: 1 })),
-		subject: Type.Optional(Type.String({ minLength: 1 })),
-		status: Type.Optional(Type.String({ enum: ["pending", "in_progress", "completed"] })),
-		blockedBy: Type.Optional(Type.Array(Type.Integer({ minimum: 1 }))),
-	},
-	{ additionalProperties: false },
-);
+const taskStatus = Type.String({ enum: ["pending", "in_progress", "completed"] });
+const taskId = Type.Integer({ minimum: 1 });
+const blockedBy = Type.Array(taskId);
+
+const todoOperation = Type.Union([
+	Type.Object(
+		{
+			action: Type.Literal("create"),
+			subject: Type.String({ minLength: 1 }),
+			blockedBy: Type.Optional(blockedBy),
+		},
+		{ additionalProperties: false },
+	),
+	Type.Object(
+		{
+			action: Type.Literal("update"),
+			id: taskId,
+			subject: Type.Optional(Type.String({ minLength: 1 })),
+			status: Type.Optional(taskStatus),
+			blockedBy: Type.Optional(blockedBy),
+		},
+		{ additionalProperties: false },
+	),
+	Type.Object(
+		{
+			action: Type.Literal("list"),
+			status: Type.Optional(taskStatus),
+		},
+		{ additionalProperties: false },
+	),
+	Type.Object(
+		{
+			action: Type.Literal("delete"),
+			id: taskId,
+		},
+		{ additionalProperties: false },
+	),
+]);
 
 export const TODO_PARAMETERS = Type.Object(
 	{

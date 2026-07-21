@@ -145,6 +145,26 @@ describe("Todo integration", () => {
 			}),
 		).toBe(true);
 		expect(
+			Value.Check(TODO_PARAMETERS, {
+				operations: [{ action: "create", subject: "Task", id: 1 }],
+			}),
+		).toBe(false);
+		expect(
+			Value.Check(TODO_PARAMETERS, {
+				operations: [{ action: "create", subject: "Task", status: "pending" }],
+			}),
+		).toBe(false);
+		expect(
+			Value.Check(TODO_PARAMETERS, {
+				operations: [{ action: "update", id: 1, status: "in_progress" }],
+			}),
+		).toBe(true);
+		expect(
+			Value.Check(TODO_PARAMETERS, {
+				operations: [{ action: "list", status: "pending" }],
+			}),
+		).toBe(true);
+		expect(
 			tool.prepareArguments?.({
 				operations: [{ action: "update", id: "1", blockedBy: ["2", "01", "1e2"] }],
 			}),
