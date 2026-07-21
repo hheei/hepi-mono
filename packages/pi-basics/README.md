@@ -6,7 +6,7 @@
 
 Load package as a Pi extension. For local development, run `bun run pi:dev -- basics`. Package entry registers `/hepi`, direct `/todos`, and the model-facing `ask` and `todo` tools.
 
-`/hepi setting` opens the Settings and Loadout tabs. Settings includes a session-backed `Pi Basics` provider with placeholder fields for TUI development.
+`/hepi setting` opens the Settings and Loadout tabs. Settings includes the built-in RTK provider alongside other Pi Basics settings. RTK rewrites bash commands through an installed external `rtk` executable and compacts `bash`, `read`, and `grep` results; it never installs the executable itself.
 
 ## Goal
 
@@ -59,6 +59,14 @@ Set `provider.origin` to module identifier shown in Description panel, for examp
 In Pi TUI, run `/hepi setting`. Providers are read when command opens, so providers registered after extension load are included. Optional provider id is currently ignored; Settings opens normally and shows available non-empty providers.
 
 `registerHePiModule(module)` is also exported for module integrations.
+
+## RTK
+
+The built-in RTK integration is controlled from the single `RTK` group in `/hepi setting` and persists project settings in `.pi/settings.json` under `pi-basics.rtk`. If the `rtk` executable cannot be found, bash calls are blocked with an error. The compatibility command `/rtk` supports `show`, `verify`, `stats`, `clear-stats`, `reset`, `path`, and `help`. `rtk` is optional: when unavailable, raw commands run unchanged.
+
+The defaults keep read compaction and source filtering disabled because lossy reads can make anchored edits fail. When enabling those options, disable read compaction temporarily if an edit reports that old text does not match. Existing `pi-rtk-optimizer` configuration is read once when no project RTK settings exist; new writes use `.pi/settings.json` only.
+
+Do not load the standalone `pi-rtk-optimizer` extension together with `@hheei/pi-basics`; both register RTK event handlers and would rewrite or compact the same tool call twice. The migrated implementation retains the upstream MIT-licensed RTK techniques and resolver behavior.
 
 ## Non-goals
 
