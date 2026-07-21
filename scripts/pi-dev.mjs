@@ -1,32 +1,26 @@
 #!/usr/bin/env bun
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const aliases = new Map([
-	["extcore", "packages/pi-extcore/src/extension.ts"],
-	["pi-extcore", "packages/pi-extcore/src/extension.ts"],
-	["loadout", "packages/pi-loadout/src/index.ts"],
-	["pi-loadout", "packages/pi-loadout/src/index.ts"],
 	["basics", "packages/pi-basics/src/index.ts"],
 	["pi-basics", "packages/pi-basics/src/index.ts"],
 ]);
 
 function usage() {
 	console.log(`Usage:
-  bun run pi:dev                         # load pi-extcore + pi-loadout
-  bun run pi:dev -- basics                # load standalone pi-basics
-  bun run pi:dev -- pi-basics             # load standalone pi-basics
-  bun run pi:dev -- inturl              # load pi-extcore + pi-inturl
-  bun run pi:dev -- loadout inturl      # load pi-extcore + pi-loadout + pi-inturl
-  bun run pi:dev -- --all                # load every packages/pi-*/src entry
-  bun run pi:dev -- path/to/index.ts     # load explicit extension path
+  bun run pi:dev                         # load pi-basics
+  bun run pi:dev -- basics                # load pi-basics
+  bun run pi:dev -- inturl                # load a specific extension
+  bun run pi:dev -- --all                 # load every active packages/pi-*/src entry
+  bun run pi:dev -- path/to/index.ts      # load explicit extension path
 
 Pass extra Pi flags after --, for example:
-  bun run pi:dev -- loadout -- --model openai/gpt-5
+  bun run pi:dev -- basics -- --model openai/gpt-5
 `);
 }
 
@@ -56,24 +50,38 @@ function resolveExtension(input) {
 
 function allExtensionEntries() {
 	const glob = new Bun.Glob("packages/pi-*/src/{extension,index}.ts");
-	return [...glob.scanSync({ cwd: root })].sort((a, b) => {
-		if (a.includes("pi-extcore/")) return -1;
-		if (b.includes("pi-extcore/")) return 1;
-		return a.localeCompare(b);
-	});
+	return [...glob.scanSync({ cwd: root })].sort((a, b) => a.localeCompare(b));
 }
 
-const extensionInputs = requested.length === 0 ? ["pi-extcore", "pi-loadout"] : requested;
-const basicsOnly =
-	extensionInputs.length === 1 && ["basics", "pi-basics"].includes(extensionInputs[0]);
-const extensionPaths = extensionInputs.includes("--all")
-	? allExtensionEntries()
-	: (basicsOnly
-			? extensionInputs
-			: ["pi-extcore", ...extensionInputs.filter((item) => item !== "pi-extcore")]
+function projectSubagentsExtension() {
+	const settingsPath = path.join(root, ".pi", "settings.json");
+	if (!existsSync(settingsPath)) return undefined;
+	try {
+		const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
+		if (
+			!Array.isArray(settings.packages) ||
+			!settings.packages.some(
+				(value) => typeof value === "string" && value.startsWith("npm:@tintinweb/pi-subagents"),
+			)
 		)
+			return undefined;
+		const extensionPath = ".pi/npm/node_modules/@tintinweb/pi-subagents/src/index.ts";
+		return existsSync(path.join(root, extensionPath)) ? extensionPath : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+const extensionInputs = requested.length === 0 ? ["pi-basics"] : requested;
+let extensionPaths = extensionInputs.includes("--all")
+	? allExtensionEntries()
+	: extensionInputs
 			.map(resolveExtension)
 			.filter((item, index, list) => list.indexOf(item) === index);
+
+const subagentsExtension = projectSubagentsExtension();
+if (extensionPaths.includes(aliases.get("basics")) && subagentsExtension)
+	extensionPaths = [subagentsExtension, ...extensionPaths];
 
 for (const extensionPath of extensionPaths) {
 	const absolutePath = path.isAbsolute(extensionPath)

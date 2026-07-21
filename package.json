@@ -9,12 +9,12 @@
 		"packages/*"
 	],
 	"scripts": {
-		"check": "biome check . && tsc --noEmit -p tsconfig.base.json && bun test",
+		"check": "biome check . && tsc --noEmit -p tsconfig.base.json && bun test --path-ignore-patterns='**/references/**' --path-ignore-patterns='**/legacy/**'",
 		"check:fix": "biome check --write .",
 		"format": "biome format --write .",
 		"format:check": "biome format .",
 		"lint": "biome lint .",
-		"test": "bun test",
+		"test": "bun test --path-ignore-patterns='**/references/**' --path-ignore-patterns='**/legacy/**'",
 		"typecheck": "tsc --noEmit -p tsconfig.base.json",
 		"new:extension": "bun scripts/create-extension.mjs",
 		"pi:dev": "bun scripts/pi-dev.mjs",
