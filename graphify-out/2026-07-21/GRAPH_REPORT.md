@@ -5,12 +5,12 @@
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 2179 nodes · 3634 edges · 178 communities (160 shown, 18 thin omitted)
+- 2201 nodes · 3652 edges · 188 communities (167 shown, 21 thin omitted)
 - Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 41 edges (avg confidence: 0.69)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `81a77274`
+- Built from commit: `c0b3c054`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -187,6 +187,14 @@
 - 8. Phase E：Lifecycle 与 pi-basics entry
 - 10. Verification plan
 - 4. Phase A：Domain model
+- component.ts
+- package.json
+- scripts
+- replayTui
+- widget.test.ts
+- writeReplayArtifacts
+- integration.test.ts
+- ReplayComponent
 
 ## God Nodes (most connected - your core abstractions)
 1. `SettingsController` - 33 edges
@@ -203,14 +211,14 @@
 ## Surprising Connections (you probably didn't know these)
 - `register()` --references--> `type`  [EXTRACTED]
   packages/pi-ssh/src/index.ts → package.json
+- `replayTui()` --references--> `bun`  [EXTRACTED]
+  scripts/tui-replay.ts → package.json
+- `runPiModel()` --references--> `bun`  [EXTRACTED]
+  scripts/tui-replay.ts → package.json
 - `wrappedThreeColumnTableExample()` --calls--> `renderWrappedTableRows()`  [EXTRACTED]
   docs/examples/tui-panels.ts → packages/pi-extcore/src/tui/panels.ts
 - `twoColumnListWithSidePanelExample()` --calls--> `renderTwoColumnListWithSidePanel()`  [EXTRACTED]
   docs/examples/tui-panels.ts → packages/pi-extcore/src/tui/panels.ts
-- `registerExtension()` --calls--> `formatExtensionLabel()`  [EXTRACTED]
-  templates/extension/src/index.ts → packages/pi-extcore/src/package.ts
-- `safe path shortcuts` --semantically_similar_to--> `skill path expansion`  [INFERRED] [semantically similar]
-  packages/pi-inturl/README.md → packages/pi-codex-dollar/README.md
 
 ## Import Cycles
 - 3-file cycle: `packages/pi-basics/src/api/modules.ts -> packages/pi-basics/src/api/settings.ts -> packages/pi-basics/src/api/panels.ts -> packages/pi-basics/src/api/modules.ts`
@@ -219,7 +227,7 @@
 - **Shared extension settings architecture** — packages_pi_extcore_readme_shared_extension_settings_core, packages_pi_codex_dollar_readme_extension_settings, packages_pi_inturl_readme_shared_settings_integration, packages_pi_loadout_readme_pi_loadout_extension, packages_pi_ssh_readme_shared_ssh_settings [EXTRACTED 1.00]
 - **Input path and skill reference transforms** — packages_pi_codex_dollar_readme_skill_path_expansion, packages_pi_inturl_readme_safe_path_shortcuts, packages_pi_inturl_readme_path_traversal_protection [INFERRED 0.85]
 
-## Communities (178 total, 18 thin omitted)
+## Communities (188 total, 21 thin omitted)
 
 ### Community 0 - "Codex Skill Picker"
 Cohesion: 0.17
@@ -234,12 +242,12 @@ Cohesion: 0.09
 Nodes (24): clampInt(), createManager(), createSshHostsPanel(), DEFAULT_SETTINGS, ensureTrailingSlash(), errorMessage(), errorResult(), formatDisplayPath() (+16 more)
 
 ### Community 3 - "Extcore TUI Components"
-Cohesion: 0.07
-Nodes (29): HePiSettingsState, createSettingsComponent(), SettingsComponentOptions, createSettingsController(), createSettingsLayout(), SettingsLayout, SettingsLayoutMode, SettingsListItem (+21 more)
+Cohesion: 0.10
+Nodes (19): createSettingsComponent(), createSettingsController(), assertVisibleWidth(), fakeHost, fakeProvider(), fakeStorage(), fakeTheme(), stripAnsi() (+11 more)
 
 ### Community 4 - "Extcore Settings Providers"
-Cohesion: 0.13
-Nodes (36): piExtcore(), SettingsPanelInput, SettingsPanelPane, createGeneralPaneGroups(), createPaneState(), createProviderState(), loadProviderState(), loadProviderStates() (+28 more)
+Cohesion: 0.14
+Nodes (33): piExtcore(), SettingsPanelInput, SettingsPanelPane, createGeneralPaneGroups(), createPaneState(), createProviderState(), loadProviderState(), loadProviderStates() (+25 more)
 
 ### Community 5 - "Codex Interaction Tests"
 Cohesion: 0.09
@@ -247,7 +255,7 @@ Nodes (19): ANSI_ESCAPE_PATTERN, backspaceEditor, baseEditor, baseEditorSymbol, 
 
 ### Community 6 - "Loadout State UI"
 Cohesion: 0.09
-Nodes (25): createLoadoutFooterLines(), formatLoadoutGroupDescription(), formatLoadoutPresetDescription(), formatLoadoutStatusLabel(), isSettingsListExtraLine(), LoadoutDescriptionTheme, LoadoutFooterOptions, LoadoutFooterPane (+17 more)
+Nodes (24): createLoadoutFooterLines(), formatLoadoutGroupDescription(), formatLoadoutPresetDescription(), formatLoadoutStatusLabel(), isSettingsListExtraLine(), LoadoutDescriptionTheme, LoadoutFooterOptions, LoadoutFooterPane (+16 more)
 
 ### Community 7 - "Extcore Settings Panel"
 Cohesion: 0.16
@@ -258,8 +266,8 @@ Cohesion: 0.06
 Nodes (36): ext-settings.json storage, extension settings, inline skill picker, pi-codex-dollar extension, pi-loadout integration, prompt highlighting, $skill-name autocomplete, skill ordering (+28 more)
 
 ### Community 9 - "Shared Settings Storage"
-Cohesion: 0.12
-Nodes (21): SavedSettingsEntry, asSettingsState(), createAgentExtensionSettingsStorage(), createAgentJsonSettingsStorage(), createExtensionSettingsStorage(), createJsonSettingsStorage(), isNodeError(), isRecord() (+13 more)
+Cohesion: 0.11
+Nodes (23): normalizeSettingsProvider(), SavedSettingsEntry, asSettingsState(), createAgentExtensionSettingsStorage(), createAgentJsonSettingsStorage(), createExtensionSettingsStorage(), createJsonSettingsStorage(), isNodeError() (+15 more)
 
 ### Community 10 - "Inturl Path Shortcuts"
 Cohesion: 0.07
@@ -286,24 +294,24 @@ Cohesion: 0.05
 Nodes (39): noUnusedImports, noUnusedVariables, files, ignoreUnknown, includes, formatter, enabled, indentStyle (+31 more)
 
 ### Community 16 - "package.json"
-Cohesion: 0.05
-Nodes (36): @biomejs/biome, @earendil-works/pi-ai, @earendil-works/pi-coding-agent, @earendil-works/pi-tui, description, devDependencies, @biomejs/biome, @earendil-works/pi-ai (+28 more)
+Cohesion: 0.12
+Nodes (17): @biomejs/biome, @earendil-works/pi-ai, @earendil-works/pi-coding-agent, @earendil-works/pi-tui, devDependencies, @biomejs/biome, @earendil-works/pi-ai, @earendil-works/pi-coding-agent (+9 more)
 
 ### Community 17 - "4. Extension 可以修改到什么程度"
 Cohesion: 0.06
 Nodes (31): 1.1 终端渲染流程, 1. 总体渲染模型, 2.1 Editor 的默认视觉结构, 2. `TEXT`：主输入编辑器如何渲染, 3.1 第一行：`<path> (git)`, 3.2 第二行：token、cache、context、model, 3.3 第三行：`<loadout>`, 3. Footer 的三层结构 (+23 more)
 
 ### Community 18 - "model.ts"
-Cohesion: 0.10
-Nodes (17): HePiSettingGroup, createSettingsModel(), cycleOption(), fieldForSelection(), providerHasContent(), settingFieldItemId(), settingGroupItemId(), settingPanelItemId() (+9 more)
+Cohesion: 0.09
+Nodes (19): HePiSettingGroup, HePiSettingsState, createSettingsModel(), cycleOption(), fieldForSelection(), providerHasContent(), settingFieldItemId(), settingGroupItemId() (+11 more)
 
 ### Community 19 - "`pi-basics` Loadout 實作計畫（核心共識已確認）"
 Cohesion: 0.13
 Nodes (15): 10. 暫不實作項目, 1. 目前結論, 3.1 檔案位置, 3.2 Project path 與 trust, 3. 建議 storage contract, 4. Effective precedence, 5. MCP adapter 邊界, 6.1 已確定的按鍵分工建議 (+7 more)
 
 ### Community 20 - "SettingsController"
-Cohesion: 0.10
-Nodes (13): HePiSettingField, HePiSettingsProvider, HePiSettingsRegistry, HePiSettingValue, applyChange(), cloneState(), PendingChange, readableError() (+5 more)
+Cohesion: 0.12
+Nodes (9): HePiSettingField, HePiSettingValue, applyChange(), cloneState(), PendingChange, readableError(), SettingsController, mergeSettingsState() (+1 more)
 
 ### Community 21 - "render.test.ts"
 Cohesion: 0.14
@@ -314,7 +322,7 @@ Cohesion: 0.16
 Nodes (28): editHints, ellipsizedDescription(), fieldValue(), finish(), formatSettingValue(), navigationHints(), renderDescription(), renderDraft() (+20 more)
 
 ### Community 23 - "HePiRegistry"
-Cohesion: 0.09
+Cohesion: 0.10
 Nodes (17): activeModuleRegistry(), moduleRegistries, placeholderFields, registerHePiModule(), createSettingsModule(), createHePiRuntimeContext(), HePiRuntimeContext, HePiRuntimeContextOptions (+9 more)
 
 ### Community 24 - "Extension Development Guide"
@@ -326,8 +334,8 @@ Cohesion: 0.39
 Nodes (7): createLoadoutInventory(), createMcpPlaceholder(), mergeLoadoutInventory(), skillItem(), sourceScope(), toolItem(), LoadoutSourceScope
 
 ### Community 26 - "settings.ts"
-Cohesion: 0.08
-Nodes (21): HePiMaybePromise, HePiPanel, HePiSettingsSubpanel, createGlobalJsonStorage(), createHePiSettingsRegistry(), createProjectJsonStorage(), createSessionStorage(), defaultSettingsRegistry (+13 more)
+Cohesion: 0.07
+Nodes (25): HePiMaybePromise, HePiPanel, HePiSettingsSubpanel, createGlobalJsonStorage(), createHePiSettingsRegistry(), createProjectJsonStorage(), createSessionStorage(), defaultSettingsRegistry (+17 more)
 
 ### Community 27 - "compilerOptions"
 Cohesion: 0.08
@@ -370,8 +378,8 @@ Cohesion: 0.18
 Nodes (14): createSkillPickerEditor(), getPickerState(), HIGHLIGHT_BASE_EDITOR, HIGHLIGHT_WRAPPED, isEditorLike(), CustomEditorConstructor, DollarSkillToken, EditorCursor (+6 more)
 
 ### Community 37 - "index.ts"
-Cohesion: 0.16
-Nodes (17): twoColumnListWithSidePanelExample(), wrappedThreeColumnTableExample(), autoColumnWidth(), autoTwoColumnWidth(), maxVisibleWidth(), padRight(), renderRowsWithSidePanel(), renderTwoColumnListWithSidePanel() (+9 more)
+Cohesion: 0.15
+Nodes (18): twoColumnListWithSidePanelExample(), wrappedThreeColumnTableExample(), autoColumnWidth(), autoTwoColumnWidth(), maxVisibleWidth(), padRight(), renderRowsWithSidePanel(), renderTwoColumnListWithSidePanel() (+10 more)
 
 ### Community 38 - "text.ts"
 Cohesion: 0.36
@@ -770,8 +778,8 @@ Cohesion: 0.67
 Nodes (3): 5.1 TypeBox shape, 5.2 `prepareArguments`, 5. 外部参数schema
 
 ### Community 153 - "panel.test.ts"
-Cohesion: 0.11
-Nodes (18): SettingsPanelHost, ExtensionSettingsSubpanelCreateOptions, DEFAULT_LOADOUT_SETTINGS, GLOBAL_LOADOUT_PATH, LOADOUT_SETTING_GROUPS, LoadoutDiff, loadoutExtension(), LoadoutLogDetails (+10 more)
+Cohesion: 0.10
+Nodes (19): SettingsPanelHost, ExtensionSettingsSubpanelCreateOptions, registerExtensionSettings(), DEFAULT_LOADOUT_SETTINGS, GLOBAL_LOADOUT_PATH, LOADOUT_SETTING_GROUPS, LoadoutDiff, loadoutExtension() (+11 more)
 
 ### Community 155 - "helpers.ts"
 Cohesion: 0.24
@@ -794,8 +802,8 @@ Cohesion: 0.25
 Nodes (5): Editor, EditorArgs, EditorFactory, EventHandler, FooterFactory
 
 ### Community 164 - "component.ts"
-Cohesion: 0.06
-Nodes (44): engines, bun, flush(), actionLabel(), ANSI_COLORS, ansiColor(), ansiSvgLine(), AnsiSvgStyle (+36 more)
+Cohesion: 0.11
+Nodes (25): ANSI_COLORS, ansiColor(), ansiSvgLine(), AnsiSvgStyle, applySgr(), asRecord(), assistantOutput(), escapeXml() (+17 more)
 
 ### Community 165 - "inventory.ts"
 Cohesion: 0.32
@@ -837,25 +845,45 @@ Nodes (4): 10. Verification plan, Focused tests, Package regression, Runtime smo
 Cohesion: 0.50
 Nodes (4): 4. Phase A：Domain model, A1. 建立类型与 reducer, A2. Model tests, A3. Phase check
 
+### Community 178 - "component.ts"
+Cohesion: 0.18
+Nodes (8): SettingsComponentOptions, createSettingsLayout(), SettingsLayout, SettingsLayoutMode, SettingsListItem, SettingsMainTab, createValueEditor(), wideDetail()
+
+### Community 179 - "package.json"
+Cohesion: 0.17
+Nodes (11): description, engines, bun, name, packageManager, private, type, version (+3 more)
+
+### Community 180 - "scripts"
+Cohesion: 0.18
+Nodes (11): scripts, check, check:fix, format, format:check, lint, new:extension, pi:dev (+3 more)
+
+### Community 181 - "replayTui"
+Cohesion: 0.20
+Nodes (7): actionLabel(), handleInput(), handleModelResult(), positiveInteger(), ReplayArtifactOptions, ReplayHost, replayTui()
+
+### Community 183 - "writeReplayArtifacts"
+Cohesion: 0.32
+Nodes (8): createArtifactDirectory(), finalFrameSvg(), formatReplay(), hasErrorCode(), replayTimestamp(), staticAnsi(), viewFrame(), writeReplayArtifacts()
+
 ## Knowledge Gaps
-- **912 isolated node(s):** `todoOperation`, `TODO_PARAMETERS`, `TODO_PROMPT_GUIDELINES`, `TodoAction`, `TodoOperation` (+907 more)
+- **913 isolated node(s):** `identityTheme`, `todoOperation`, `TODO_PARAMETERS`, `TODO_PROMPT_GUIDELINES`, `TodoAction` (+908 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **18 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **21 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `text()` connect `index.ts` to `Extcore TUI Components`, `Loadout State UI`, `panel.ts`, `index.ts`, `render.ts`?**
-  _High betweenness centrality (0.052) - this node is a cross-community bridge._
-- **Why does `flush()` connect `component.ts` to `Extcore TUI Components`?**
-  _High betweenness centrality (0.030) - this node is a cross-community bridge._
-- **What connects `todoOperation`, `TODO_PARAMETERS`, `TODO_PROMPT_GUIDELINES` to the rest of the system?**
-  _912 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _High betweenness centrality (0.044) - this node is a cross-community bridge._
+- **Why does `bun` connect `package.json` to `component.ts`, `replayTui`?**
+  _High betweenness centrality (0.033) - this node is a cross-community bridge._
+- **Why does `SettingsController` connect `SettingsController` to `modules.ts`, `Extcore Settings Providers`, `model.ts`, `component.ts`, `render.ts`, `HePiRegistry`, `settings.ts`?**
+  _High betweenness centrality (0.033) - this node is a cross-community bridge._
+- **What connects `identityTheme`, `todoOperation`, `TODO_PARAMETERS` to the rest of the system?**
+  _913 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `SSH Tool Registration` be split into smaller, more focused modules?**
   _Cohesion score 0.08571428571428572 - nodes in this community are weakly interconnected._
 - **Should `Extcore TUI Components` be split into smaller, more focused modules?**
-  _Cohesion score 0.06666666666666667 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.09682539682539683 - nodes in this community are weakly interconnected._
 - **Should `Extcore Settings Providers` be split into smaller, more focused modules?**
-  _Cohesion score 0.13356562137049943 - nodes in this community are weakly interconnected._
-- **Should `Codex Interaction Tests` be split into smaller, more focused modules?**
-  _Cohesion score 0.09090909090909091 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.13846153846153847 - nodes in this community are weakly interconnected._

@@ -176,5 +176,15 @@
   "174": "8. Phase E：Lifecycle 与 pi-basics entry",
   "175": "10. Verification plan",
   "176": "4. Phase A：Domain model",
-  "177": "pi-basics-todo-design.md"
+  "177": "pi-basics-todo-design.md",
+  "178": "component.ts",
+  "179": "package.json",
+  "180": "scripts",
+  "181": "replayTui",
+  "182": "widget.test.ts",
+  "183": "writeReplayArtifacts",
+  "184": "integration.test.ts",
+  "185": "ReplayComponent",
+  "186": "model.test.ts",
+  "187": "state.test.ts"
 }

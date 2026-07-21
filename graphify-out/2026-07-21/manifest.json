@@ -55,8 +55,8 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/src/index.ts": {
-    "mtime": 1784561880.413131,
-    "ast_hash": "6912bc87d77d7ae9a45618e514c3c8f2",
+    "mtime": 1784569079.8379626,
+    "ast_hash": "b44abf64c1b3934f640538ec4c9bc00a",
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/loadout/component.ts": {
@@ -740,8 +740,8 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/goal/feature.ts": {
-    "mtime": 1784567552.8642898,
-    "ast_hash": "366ea85db19924b73e9d8be2292f358a",
+    "mtime": 1784569079.2536325,
+    "ast_hash": "7ab37d2bd25d5969fa7b1544fa89ade6",
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/goal/index.ts": {
@@ -785,8 +785,8 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/src/runtime/tool-activation.ts": {
-    "mtime": 1784567552.2786505,
-    "ast_hash": "466c828a403613bbb03ddd29f8f4b517",
+    "mtime": 1784569080.3993392,
+    "ast_hash": "b60263f401f1af1c006bb10c22432107",
     "semantic_hash": ""
   },
   "packages/pi-basics/src/ui/scrollbar.ts": {
