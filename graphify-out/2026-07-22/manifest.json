@@ -30,7 +30,7 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/src/api/settings.ts": {
-    "mtime": 1784615870.0705972,
+    "mtime": 1784654181.4255698,
     "ast_hash": "6d9528a6e289b0ad7ceb6b44056e19c6",
     "semantic_hash": ""
   },
@@ -40,7 +40,7 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/src/command/hepi-command.ts": {
-    "mtime": 1784619451.7417362,
+    "mtime": 1784654181.4261012,
     "ast_hash": "c520cf0e0ec294109b1a009184c02af4",
     "semantic_hash": ""
   },
@@ -50,12 +50,12 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/src/index.ts": {
-    "mtime": 1784648605.4785647,
-    "ast_hash": "710f1653914df4632a20b999cfc6c4d7",
+    "mtime": 1784655159.5307515,
+    "ast_hash": "997106c9e2482889520ba1f671bbfaef",
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/loadout/component.ts": {
-    "mtime": 1784442944.314474,
+    "mtime": 1784654181.427771,
     "ast_hash": "a72397ff2381d19c2f624763aaecb9ec",
     "semantic_hash": ""
   },
@@ -80,7 +80,7 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/loadout/storage.ts": {
-    "mtime": 1784650323.7844322,
+    "mtime": 1784654181.4288623,
     "ast_hash": "43a3e9f8a23d6a510117b8c784308e3c",
     "semantic_hash": ""
   },
@@ -90,12 +90,12 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/setting/component.ts": {
-    "mtime": 1784619458.3489006,
+    "mtime": 1784654181.429356,
     "ast_hash": "0fe3c34491ded9283b7ec35c6a0fa498",
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/setting/controller.ts": {
-    "mtime": 1784647292.4739387,
+    "mtime": 1784654181.429714,
     "ast_hash": "4441f49bb673c819736e28c9b85fc276",
     "semantic_hash": ""
   },
@@ -105,7 +105,7 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/setting/layout.ts": {
-    "mtime": 1784441020.9077892,
+    "mtime": 1784654181.4301267,
     "ast_hash": "a03bbff499597eff7c7f3798f5e34e7d",
     "semantic_hash": ""
   },
@@ -115,7 +115,7 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/setting/render.ts": {
-    "mtime": 1784647299.8592303,
+    "mtime": 1784654181.4306295,
     "ast_hash": "9171230f31c019e9eff563eae4c83158",
     "semantic_hash": ""
   },
@@ -150,13 +150,13 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/src/ui/border.ts": {
-    "mtime": 1784392416.3379946,
-    "ast_hash": "7d7ed788ca8d3f9d17452b5c80038ed7",
+    "mtime": 1784654723.5216482,
+    "ast_hash": "ababde9cd7991bf68b5519b6128fca5a",
     "semantic_hash": ""
   },
   "packages/pi-basics/src/ui/keymap.ts": {
-    "mtime": 1784392416.3388414,
-    "ast_hash": "11f7699eed3b1e1d1749b23c16fb02e5",
+    "mtime": 1784654722.9553661,
+    "ast_hash": "234d81d768ff8a1d744ad0d5fb364b07",
     "semantic_hash": ""
   },
   "packages/pi-basics/src/ui/tabs.ts": {
@@ -180,7 +180,7 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/test/command/hepi-command.test.ts": {
-    "mtime": 1784616938.8496015,
+    "mtime": 1784654181.4320683,
     "ast_hash": "4ba2dabb96acbc1fa19dd754e1d12946",
     "semantic_hash": ""
   },
@@ -200,8 +200,8 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/test/integration/index.test.ts": {
-    "mtime": 1784646914.9921002,
-    "ast_hash": "c5b0c0d4d0e0012b3ae19156de512bbf",
+    "mtime": 1784655293.5565643,
+    "ast_hash": "63d75c8db17cd350e7af76c3f9e25b9b",
     "semantic_hash": ""
   },
   "packages/pi-basics/test/modules/loadout/controller.test.ts": {
@@ -220,12 +220,12 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/test/modules/loadout/storage.test.ts": {
-    "mtime": 1784650324.3519175,
+    "mtime": 1784654181.4337928,
     "ast_hash": "58f89c0fb537afc70f54de1411fc45f7",
     "semantic_hash": ""
   },
   "packages/pi-basics/test/modules/setting/component.test.ts": {
-    "mtime": 1784620282.886696,
+    "mtime": 1784654181.4341102,
     "ast_hash": "1ba73239f9ea28701d1f4397031ba9c6",
     "semantic_hash": ""
   },
@@ -250,12 +250,12 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/test/modules/shell/component.test.ts": {
-    "mtime": 1784438677.8381543,
+    "mtime": 1784654181.4345338,
     "ast_hash": "912d759817ea7e21dbda9ab78537a102",
     "semantic_hash": ""
   },
   "packages/pi-basics/test/ui/render.test.ts": {
-    "mtime": 1784620380.3099403,
+    "mtime": 1784654181.4350007,
     "ast_hash": "5b0d8a401d6aafdacd19c8e7d5be110a",
     "semantic_hash": ""
   },
@@ -395,12 +395,12 @@
     "semantic_hash": ""
   },
   "scripts/pi-dev.mjs": {
-    "mtime": 1784650737.2750018,
+    "mtime": 1784654181.4375987,
     "ast_hash": "83200343cc8996efb1d0daa4926f1544",
     "semantic_hash": ""
   },
   "templates/extension/src/index.ts": {
-    "mtime": 1784650199.45255,
+    "mtime": 1784654181.4382484,
     "ast_hash": "57657b17309c7221b6aee01b81612d06",
     "semantic_hash": ""
   },
@@ -415,17 +415,12 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1784650199.288775,
+    "mtime": 1784654181.4217134,
     "ast_hash": "9aa06e2227f840ca55cc910bd28d5cd0",
     "semantic_hash": ""
   },
-  "docs/examples/pi-extension-plan.md": {
-    "mtime": 1783521310.3820174,
-    "ast_hash": "731b294f060081c3685106ed0ac00136",
-    "semantic_hash": ""
-  },
   "docs/extension-development.md": {
-    "mtime": 1784650323.6711311,
+    "mtime": 1784654181.4233735,
     "ast_hash": "c5e5d676a3c3d1ba11a8a8d70087e4f7",
     "semantic_hash": ""
   },
@@ -535,28 +530,28 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/README.md": {
-    "mtime": 1784650323.6745286,
+    "mtime": 1784654181.424844,
     "ast_hash": "3ea6e1ff831d9708a9b9c57a970c4182",
     "semantic_hash": ""
   },
   "packages/pi-codex-dollar/README.md": {
-    "mtime": 1784650361.934845,
+    "mtime": 1784654181.435337,
     "ast_hash": "d972428b632fec688f69ad3448898cf0",
     "semantic_hash": ""
   },
   "packages/pi-inturl/README.md": {
-    "mtime": 1784650242.3911366,
+    "mtime": 1784654181.4357433,
     "ast_hash": "abcb8fd6248c8edf85f469b8e6a1d034",
     "semantic_hash": ""
   },
   "packages/pi-ssh/README.md": {
-    "mtime": 1784650269.4592006,
+    "mtime": 1784654181.436135,
     "ast_hash": "447e3734c8859db83fd51d48700bdbee",
     "semantic_hash": ""
   },
   "templates/extension/README.md": {
-    "mtime": 1783321681.9223065,
-    "ast_hash": "4c0581b6a2acf3a3cbf5d61c2ab951aa",
+    "mtime": 1784653864.9881735,
+    "ast_hash": "4f49101cc3fc2da66cabf43238f297d7",
     "semantic_hash": ""
   },
   "docs/loadout-design.png": {
@@ -580,8 +575,8 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/ask/component.ts": {
-    "mtime": 1784527154.4059906,
-    "ast_hash": "e887c58fb45ccac90fd37c28eee28545",
+    "mtime": 1784653864.9760206,
+    "ast_hash": "74587d8679696e9d57d4c4eda5356b12",
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/ask/fallback.ts": {
@@ -590,8 +585,8 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/ask/index.ts": {
-    "mtime": 1784567213.8916192,
-    "ast_hash": "61cee391218c44d9183591c404caccc9",
+    "mtime": 1784653864.9765592,
+    "ast_hash": "cb3772ba92758765f5db55403426fbdb",
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/ask/model.ts": {
@@ -620,7 +615,7 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/loadout/render.ts": {
-    "mtime": 1784648669.9105377,
+    "mtime": 1784654181.4284956,
     "ast_hash": "39425efcc6b70ba3f6f69527fe8ecc6e",
     "semantic_hash": ""
   },
@@ -670,8 +665,8 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/test/modules/ask/component.test.ts": {
-    "mtime": 1784527710.4652922,
-    "ast_hash": "cef09aa0e3845971979482b2ed1cba7f",
+    "mtime": 1784653864.9821956,
+    "ast_hash": "14e0a31ac299fb4f68a2a5cd2df2adf7",
     "semantic_hash": ""
   },
   "packages/pi-basics/test/modules/ask/fallback.test.ts": {
@@ -695,8 +690,8 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/test/modules/goal/model.test.ts": {
-    "mtime": 1784561155.6786547,
-    "ast_hash": "b89b2a54a76189f5280b7647895e272e",
+    "mtime": 1784653864.9833152,
+    "ast_hash": "8ea16d136883df87f11467c7128eed9a",
     "semantic_hash": ""
   },
   "packages/pi-basics/test/modules/goal/persistence.test.ts": {
@@ -705,12 +700,12 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/test/modules/loadout/component.test.ts": {
-    "mtime": 1784471720.8696418,
+    "mtime": 1784654181.4331563,
     "ast_hash": "fea084683f678cacc9dd5a0175e8da0f",
     "semantic_hash": ""
   },
   "packages/pi-basics/test/modules/loadout/render.test.ts": {
-    "mtime": 1784620341.230525,
+    "mtime": 1784654181.4335523,
     "ast_hash": "0d62ca3a456d0dd38df09d5e5685335a",
     "semantic_hash": ""
   },
@@ -4394,21 +4389,6 @@
     "ast_hash": "7d03c48c614e5eb02ec8bbca12d99d6e",
     "semantic_hash": ""
   },
-  "docs/pi-basics-ask-design.md": {
-    "mtime": 1784567240.7668839,
-    "ast_hash": "f972c590cc7cb7527d5b8dbe5726a6df",
-    "semantic_hash": ""
-  },
-  "docs/pi-basics-ask-high-level.md": {
-    "mtime": 1784486171.495823,
-    "ast_hash": "08050bfa631e3909463518b45040c751",
-    "semantic_hash": ""
-  },
-  "docs/pi-basics-ask-implementation.md": {
-    "mtime": 1784607570.196732,
-    "ast_hash": "97aa0ace44523a32462ce535095787ed",
-    "semantic_hash": ""
-  },
   "docs/pi-basics-goal-design.md": {
     "mtime": 1784569884.7167432,
     "ast_hash": "e156676850893d774e0b3ea88c5466fc",
@@ -4422,36 +4402,6 @@
   "docs/pi-basics-goal-implementation.md": {
     "mtime": 1784556092.9528475,
     "ast_hash": "15dbe02acb5f8dc74d2e2823e3a47870",
-    "semantic_hash": ""
-  },
-  "docs/pi-basics-statusbar-design.md": {
-    "mtime": 1784559986.5104024,
-    "ast_hash": "8c6e0382e4f343336687d86db726057f",
-    "semantic_hash": ""
-  },
-  "docs/pi-basics-statusbar-high-level.md": {
-    "mtime": 1784559974.4557679,
-    "ast_hash": "ba94306aa09413650461f43ffc86d38d",
-    "semantic_hash": ""
-  },
-  "docs/pi-basics-statusbar-implementation.md": {
-    "mtime": 1784563700.3663888,
-    "ast_hash": "dd535e7307f3c86d62e2aeddda939015",
-    "semantic_hash": ""
-  },
-  "docs/pi-basics-todo-design.md": {
-    "mtime": 1784478277.8586586,
-    "ast_hash": "a1c2f7127e29c02268a513bf1bb91692",
-    "semantic_hash": ""
-  },
-  "docs/pi-basics-todo-high-level.md": {
-    "mtime": 1784478020.4149725,
-    "ast_hash": "33cd78a32dc8f56050d32eff3b2fc0e8",
-    "semantic_hash": ""
-  },
-  "docs/pi-basics-todo-implementation.md": {
-    "mtime": 1784478020.4258053,
-    "ast_hash": "fb606dbdf9eeb18d0b6640b367494a18",
     "semantic_hash": ""
   },
   "docs/rpiv-advisor-design.md": {
@@ -8890,7 +8840,7 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/auto-title/index.ts": {
-    "mtime": 1784648604.895462,
+    "mtime": 1784654181.4271803,
     "ast_hash": "4cf13a5ff45cde7e76edee57734a6a43",
     "semantic_hash": ""
   },
@@ -8900,7 +8850,7 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/test/modules/auto-title.test.ts": {
-    "mtime": 1784646906.583019,
+    "mtime": 1784654181.432857,
     "ast_hash": "c68a757455ee443bfc5f3ab4273eb9c7",
     "semantic_hash": ""
   },
@@ -9225,8 +9175,163 @@
     "semantic_hash": ""
   },
   "legacy/pi-loadout/README.md": {
-    "mtime": 1783347851.7781804,
-    "ast_hash": "be2f044fc86701698783476338a858df",
+    "mtime": 1784653864.972154,
+    "ast_hash": "8c5328e4f27457104c3dae04e175661d",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/plan/confirmation.ts": {
+    "mtime": 1784653864.9782145,
+    "ast_hash": "2d76814441eb7fe241f031d9448170ec",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/plan/feature.ts": {
+    "mtime": 1784653864.9783962,
+    "ast_hash": "080f2bda897854209715b9cda1a0355e",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/plan/index.ts": {
+    "mtime": 1784653864.9785101,
+    "ast_hash": "3137d3584ff6f60c2503d252370e5c69",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/plan/model.ts": {
+    "mtime": 1784653864.978624,
+    "ast_hash": "b8669dea83ae23bb867da8e423d637e9",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/plan/persistence.ts": {
+    "mtime": 1784653864.9787738,
+    "ast_hash": "3030b54d353a8c020a5522611764cb65",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/ui/layout.ts": {
+    "mtime": 1784653864.9805765,
+    "ast_hash": "64eb74dc721581a9cb689263b8b622ed",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/ui/row.ts": {
+    "mtime": 1784653864.9806988,
+    "ast_hash": "b1bcd5882cc5692493d912f3ce5ddf7c",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/test/modules/plan/confirmation.test.ts": {
+    "mtime": 1784653864.9846642,
+    "ast_hash": "497c631c383c005bc8aa5286f33c8534",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/test/modules/plan/feature.test.ts": {
+    "mtime": 1784653864.9848197,
+    "ast_hash": "9d662aeb97352b832949ebb63e79817c",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/test/modules/plan/model.test.ts": {
+    "mtime": 1784653864.9849348,
+    "ast_hash": "9064f748cbd29360f6f19f8e188380c3",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/test/modules/plan/persistence.test.ts": {
+    "mtime": 1784653864.985051,
+    "ast_hash": "ff883fe8533d8c6686d5d2a8b93fb44e",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/test/ui/primitives.test.ts": {
+    "mtime": 1784653864.9857717,
+    "ast_hash": "431099a1122e44e7e22f2592c6286e4a",
+    "semantic_hash": ""
+  },
+  "AGENTS.md": {
+    "mtime": 1784653864.9666684,
+    "ast_hash": "42f73ee767b9d488c985a6dec593dad4",
+    "semantic_hash": ""
+  },
+  "DESIGN.md": {
+    "mtime": 1784653864.9669218,
+    "ast_hash": "ef944470cb4caedf95a1f22b6d0b794b",
+    "semantic_hash": ""
+  },
+  "docs/README.md": {
+    "mtime": 1784653864.9679837,
+    "ast_hash": "a81e9e5c8cb4908b6baa811ef8b97947",
+    "semantic_hash": ""
+  },
+  "docs/pi-basics-development.md": {
+    "mtime": 1784653864.968412,
+    "ast_hash": "002b5a758a6d29f3137b24cfa8e4940b",
+    "semantic_hash": ""
+  },
+  "docs/pi-original-theme-design-language.md": {
+    "mtime": 1784653864.9685767,
+    "ast_hash": "f62edb449096c2336fa80891f5639280",
+    "semantic_hash": ""
+  },
+  "docs/plans/README.md": {
+    "mtime": 1784653864.9687417,
+    "ast_hash": "4bb81025a6a8b4e1b818a583007acfcb",
+    "semantic_hash": ""
+  },
+  "docs/plans/ask/design.md": {
+    "mtime": 1784653864.9689379,
+    "ast_hash": "fd1a6a7357a239f2ca7f95e1a32687e2",
+    "semantic_hash": ""
+  },
+  "docs/plans/ask/high-level.md": {
+    "mtime": 1784653864.9692202,
+    "ast_hash": "0d1b420a6bcc21ca42db65504e90eaa8",
+    "semantic_hash": ""
+  },
+  "docs/plans/ask/implementation.md": {
+    "mtime": 1784653864.9694083,
+    "ast_hash": "a1771ca93acbbed55851b759fdcc71b5",
+    "semantic_hash": ""
+  },
+  "docs/plans/extension-template.md": {
+    "mtime": 1784653864.9695723,
+    "ast_hash": "731b294f060081c3685106ed0ac00136",
+    "semantic_hash": ""
+  },
+  "docs/plans/plan/design.md": {
+    "mtime": 1784653864.969778,
+    "ast_hash": "06892bac3e364dd56ac845c0435c98a2",
+    "semantic_hash": ""
+  },
+  "docs/plans/plan/high-level.md": {
+    "mtime": 1784653864.9699218,
+    "ast_hash": "f1d40956b223f833b0d565ac288c0716",
+    "semantic_hash": ""
+  },
+  "docs/plans/plan/implementation.md": {
+    "mtime": 1784653864.9700708,
+    "ast_hash": "35a966196bf8defc66077f55c50402f1",
+    "semantic_hash": ""
+  },
+  "docs/plans/statusbar/design.md": {
+    "mtime": 1784653864.9702342,
+    "ast_hash": "17f7ea4f1bddae12f9325fd0091eadca",
+    "semantic_hash": ""
+  },
+  "docs/plans/statusbar/high-level.md": {
+    "mtime": 1784653864.9703493,
+    "ast_hash": "e15d6b216587a0b56e3edcf186002634",
+    "semantic_hash": ""
+  },
+  "docs/plans/statusbar/implementation.md": {
+    "mtime": 1784653864.9704604,
+    "ast_hash": "83c2812ca8376b9ffd87b701aa334917",
+    "semantic_hash": ""
+  },
+  "docs/plans/todo/design.md": {
+    "mtime": 1784653864.9707704,
+    "ast_hash": "0770c3b6df3926f53c0a3d29564bfd07",
+    "semantic_hash": ""
+  },
+  "docs/plans/todo/high-level.md": {
+    "mtime": 1784653864.9710324,
+    "ast_hash": "828bc4b51753e98a6368803a9a2d4b87",
+    "semantic_hash": ""
+  },
+  "docs/plans/todo/implementation.md": {
+    "mtime": 1784653864.9712076,
+    "ast_hash": "4a7723180f111f028247c4c319f8ddc3",
     "semantic_hash": ""
   }
 }
