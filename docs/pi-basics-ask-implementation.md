@@ -572,7 +572,7 @@ bun test packages/pi-basics/test
 
 ### E2. Type diagnostics
 
-对新增/修改TypeScript files运行LSP diagnostics；然后运行repository适用的targeted typecheck。若workspace-wide `tsc`仍含既有`pi-fff`或Loadout Theme diagnostics，按文件区分，不宣称全绿。
+对新增/修改 TypeScript files 运行 LSP diagnostics；然后运行 repository 适用的 targeted typecheck。若 workspace-wide `tsc` 仍含既有 Loadout Theme diagnostics，按文件区分，不宣称全绿。
 
 ### E3. TUI smoke
 
