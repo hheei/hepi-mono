@@ -1,18 +1,12 @@
 import { homedir } from "node:os";
 import type { TextContent } from "@earendil-works/pi-ai";
-import {
-	type AgentToolResult,
-	type ExtensionAPI,
-	getSettingsListTheme,
-	type Theme,
-	type ToolRenderResultOptions,
+import type {
+	AgentToolResult,
+	ExtensionAPI,
+	Theme,
+	ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
-import { Container, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
-import {
-	registerExtensionSettings,
-	type SettingGroup,
-	type SettingsState,
-} from "@hheei/pi-extcore";
+import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import type { ProcessResult } from "./session-manager.js";
 import { SessionManager } from "./session-manager.js";
@@ -29,7 +23,6 @@ interface SshExtensionSettings {
 	controlPersistSeconds: number;
 	serverAliveIntervalSeconds: number;
 	serverAliveCountMax: number;
-	disabledHosts: string[];
 }
 
 const DEFAULT_SETTINGS: SshExtensionSettings = {
@@ -37,103 +30,10 @@ const DEFAULT_SETTINGS: SshExtensionSettings = {
 	controlPersistSeconds: 3600,
 	serverAliveIntervalSeconds: 300,
 	serverAliveCountMax: 3,
-	disabledHosts: [],
 };
 
-const SSH_SETTING_GROUPS: SettingGroup[] = [
-	{
-		id: "connection",
-		title: "Connection",
-		display: "plain",
-		fields: [
-			{
-				id: "commandTimeoutSeconds",
-				label: "Default command timeout",
-				defaultValue: DEFAULT_SETTINGS.commandTimeoutSeconds,
-				description: "Default timeout for ssh_exec when the tool call does not pass timeout",
-				options: secondsOptions([5, 10, 30, 60, 120, 300, 600]),
-			},
-			{
-				id: "controlPersistSeconds",
-				label: "ControlMaster alive",
-				defaultValue: DEFAULT_SETTINGS.controlPersistSeconds,
-				description: "SSH ControlPersist lifetime for reused master connections",
-				options: secondsOptions([300, 600, 1800, 3600, 7200]),
-			},
-			{
-				id: "serverAliveIntervalSeconds",
-				label: "Alive interval",
-				defaultValue: DEFAULT_SETTINGS.serverAliveIntervalSeconds,
-				description: "ServerAliveInterval seconds for ssh and sshfs connections",
-				options: secondsOptions([30, 60, 120, 300, 600]),
-			},
-			{
-				id: "serverAliveCountMax",
-				label: "Alive retry count",
-				defaultValue: DEFAULT_SETTINGS.serverAliveCountMax,
-				description: "ServerAliveCountMax before SSH treats the connection as dead",
-				options: [1, 2, 3, 5, 10].map((value) => ({ value, label: String(value) })),
-			},
-		],
-	},
-	{
-		id: "hosts",
-		title: "Hosts",
-		display: "hidden",
-		fields: [
-			{
-				id: "disabledHosts",
-				label: "Disabled hosts",
-				defaultValue: "",
-			},
-		],
-	},
-];
-
 export default function register(pi: ExtensionAPI) {
-	let settings = DEFAULT_SETTINGS;
-	let manager = createManager(settings);
-
-	const applySettings = (nextSettings: SshExtensionSettings): void => {
-		settings = nextSettings;
-		manager = createManager(settings);
-	};
-
-	const isHostDisabled = (host: string): boolean => settings.disabledHosts.includes(host);
-
-	registerExtensionSettings(pi, {
-		id: "pi-ssh",
-		title: "PI SSH",
-		description: "SSH host discovery, remote exec, and sshfs mount tools",
-		groups: SSH_SETTING_GROUPS,
-		panels: [
-			{
-				id: "hosts",
-				label: "Hosts",
-				description: "Enable or disable OpenSSH config hosts",
-				currentValue: "open",
-				create: (options) =>
-					createSshHostsPanel(
-						options.host,
-						options.theme,
-						options.close,
-						options.onError,
-						() => settings,
-						async (nextSettings) => {
-							await options.saveState(sshStateFromSettings(nextSettings));
-							applySettings(nextSettings);
-							options.host.requestRender();
-						},
-					),
-			},
-		],
-		onLoad: (state) => {
-			applySettings(sshSettingsFromState(state));
-		},
-		onChange: (change) => {
-			applySettings(sshSettingsFromState(change.state));
-		},
-	});
+	const manager = createManager(DEFAULT_SETTINGS);
 
 	pi.registerTool({
 		name: "ssh_host",
@@ -155,7 +55,7 @@ export default function register(pi: ExtensionAPI) {
 		async execute(_id, params) {
 			try {
 				const pattern = validateSshHostPattern(params);
-				const hosts = filterDisabledHosts(await findConfiguredHosts(pattern), settings);
+				const hosts = await findConfiguredHosts(pattern);
 				return hostLookupResult(pattern, hosts);
 			} catch (error) {
 				return errorResult(error, { hosts: [] });
@@ -180,7 +80,6 @@ export default function register(pi: ExtensionAPI) {
 		renderResult: renderCollapsedResult,
 		async execute(_id, params) {
 			const args = validateSshMountArgs(params);
-			if (isHostDisabled(args.host)) return disabledHostResult(args.host);
 			try {
 				const runner = async (runnerArgs: string[], timeoutMs?: number) =>
 					await runCleanupSshProcess(
@@ -210,7 +109,10 @@ export default function register(pi: ExtensionAPI) {
 		renderCall(args, theme) {
 			let text = theme.fg("toolTitle", theme.bold("ssh_exec "));
 			text += theme.fg("accent", `@${args.host}`);
-			text += theme.fg("dim", ` (timeout: ${args.timeout ?? settings.commandTimeoutSeconds}s)`);
+			text += theme.fg(
+				"dim",
+				` (timeout: ${args.timeout ?? DEFAULT_SETTINGS.commandTimeoutSeconds}s)`,
+			);
 
 			text += `\n${theme.fg("bashMode", `$ ${args.command}`)}`;
 			return new Text(text, 0, 0);
@@ -219,9 +121,8 @@ export default function register(pi: ExtensionAPI) {
 		async execute(_id, params) {
 			const args = validateSshExecArgs({
 				...(params as Record<string, unknown>),
-				timeout: (params as { timeout?: number }).timeout ?? settings.commandTimeoutSeconds,
+				timeout: (params as { timeout?: number }).timeout ?? DEFAULT_SETTINGS.commandTimeoutSeconds,
 			});
-			if (isHostDisabled(args.host)) return disabledHostResult(args.host);
 			try {
 				const result = await executeSshExec(manager, args, { timeoutMode: "result" });
 				return sshExecResult(result, result.exitCode !== 0 || result.exitCode === null);
@@ -244,21 +145,6 @@ function createManager(settings: SshExtensionSettings): SessionManager {
 		serverAliveIntervalSeconds: settings.serverAliveIntervalSeconds,
 		serverAliveCountMax: settings.serverAliveCountMax,
 	});
-}
-
-function filterDisabledHosts(
-	hosts: SshHostRecord[],
-	settings: SshExtensionSettings,
-): SshHostRecord[] {
-	const disabled = new Set(settings.disabledHosts);
-	return hosts.filter((host) => !disabled.has(host.alias));
-}
-
-function disabledHostResult(host: string): SshToolResult {
-	return {
-		content: [{ type: "text", text: `SSH host ${host} is disabled by /extension-setting.` }],
-		details: { host, disabled: true },
-	};
 }
 
 function hostLookupResult(pattern: string, hosts: SshHostRecord[]): SshToolResult {
@@ -401,156 +287,6 @@ async function runCleanupSshProcess(
 		clearTimeout(timeout);
 		if (killTimer) clearTimeout(killTimer);
 	}
-}
-
-function createSshHostsPanel(
-	host: { requestRender(): void },
-	theme: Theme,
-	close: () => void,
-	onError: (error: unknown) => void,
-	getSettings: () => SshExtensionSettings,
-	onChange: (settings: SshExtensionSettings) => Promise<void>,
-) {
-	const container = new Container();
-	container.addChild(new Text(theme.fg("accent", theme.bold("SSH Hosts")), 0, 0));
-	container.addChild(
-		new Text(theme.fg("dim", "Enter/Space toggles host availability · Esc closes"), 0, 0),
-	);
-
-	let settingsList = new SettingsList([], 8, getSettingsListTheme(), () => {}, close, {
-		enableSearch: true,
-	});
-	void rebuildItems().catch(onError);
-	container.addChild({
-		render: (width) => settingsList.render(width),
-		invalidate: () => settingsList.invalidate(),
-		handleInput: (data) => settingsList.handleInput(data),
-	});
-
-	return {
-		render: (width: number) => container.render(width),
-		invalidate: () => container.invalidate(),
-		handleInput: (data: string) => settingsList.handleInput(data),
-	};
-
-	async function rebuildItems(): Promise<void> {
-		const hosts = await findConfiguredHosts("*");
-		settingsList = new SettingsList(
-			sshHostItems(getSettings(), hosts),
-			Math.min(Math.max(hosts.length, 8), 20),
-			getSettingsListTheme(),
-			(id, newValue) => {
-				const previousSettings = getSettings();
-				const nextSettings = updateHostSetting(getSettings(), id, newValue);
-				void onChange(nextSettings)
-					.then(() => settingsList.updateValue(id, newValue))
-					.catch(() => {
-						settingsList.updateValue(id, hostSettingValue(previousSettings, id));
-						host.requestRender();
-					});
-			},
-			close,
-			{ enableSearch: true },
-		);
-		host.requestRender();
-	}
-}
-
-function sshHostItems(settings: SshExtensionSettings, hosts: SshHostRecord[]): SettingItem[] {
-	const disabled = new Set(settings.disabledHosts);
-	return hosts.map((host) => ({
-		id: `host:${host.alias}`,
-		label: `@${host.alias}`,
-		description: host.display,
-		currentValue: disabled.has(host.alias) ? "disabled" : "enabled",
-		values: ["enabled", "disabled"],
-	}));
-}
-
-function hostSettingValue(settings: SshExtensionSettings, id: string): "enabled" | "disabled" {
-	const host = id.startsWith("host:") ? id.slice("host:".length) : "";
-	return settings.disabledHosts.includes(host) ? "disabled" : "enabled";
-}
-
-function updateHostSetting(
-	settings: SshExtensionSettings,
-	id: string,
-	newValue: string,
-): SshExtensionSettings {
-	if (!id.startsWith("host:")) return settings;
-	const host = id.slice("host:".length);
-	const disabled = new Set(settings.disabledHosts);
-	if (newValue === "disabled") disabled.add(host);
-	else disabled.delete(host);
-	return { ...settings, disabledHosts: sorted(disabled) };
-}
-function sshStateFromSettings(settings: SshExtensionSettings): SettingsState {
-	return {
-		connection: {
-			commandTimeoutSeconds: settings.commandTimeoutSeconds,
-			controlPersistSeconds: settings.controlPersistSeconds,
-			serverAliveIntervalSeconds: settings.serverAliveIntervalSeconds,
-			serverAliveCountMax: settings.serverAliveCountMax,
-		},
-		hosts: {
-			disabledHosts: settings.disabledHosts,
-		},
-	};
-}
-
-function sshSettingsFromState(state: SettingsState | undefined): SshExtensionSettings {
-	const connection = state?.connection ?? {};
-	return {
-		commandTimeoutSeconds: clampInt(
-			connection.commandTimeoutSeconds,
-			DEFAULT_SETTINGS.commandTimeoutSeconds,
-			1,
-			3600,
-		),
-		controlPersistSeconds: clampInt(
-			connection.controlPersistSeconds,
-			DEFAULT_SETTINGS.controlPersistSeconds,
-			1,
-			86_400,
-		),
-		serverAliveIntervalSeconds: clampInt(
-			connection.serverAliveIntervalSeconds,
-			DEFAULT_SETTINGS.serverAliveIntervalSeconds,
-			1,
-			3600,
-		),
-		serverAliveCountMax: clampInt(
-			connection.serverAliveCountMax,
-			DEFAULT_SETTINGS.serverAliveCountMax,
-			1,
-			100,
-		),
-		disabledHosts: parseDisabledHosts(state?.hosts?.disabledHosts),
-	};
-}
-
-function parseDisabledHosts(value: unknown): string[] {
-	if (Array.isArray(value)) return sorted(value.filter((item) => typeof item === "string"));
-	if (typeof value !== "string") return [];
-	return sorted(
-		value
-			.split(/\r?\n/)
-			.map((item) => item.trim())
-			.filter(Boolean),
-	);
-}
-
-function secondsOptions(values: readonly number[]) {
-	return values.map((value) => ({ value, label: `${value}s` }));
-}
-
-function clampInt(value: unknown, fallback: number, min: number, max: number): number {
-	if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
-	return Math.min(max, Math.max(min, Math.floor(value)));
-}
-
-function sorted(names: Iterable<string>): string[] {
-	return [...new Set(names)].sort((a, b) => a.localeCompare(b));
 }
 
 function renderCollapsedResult(

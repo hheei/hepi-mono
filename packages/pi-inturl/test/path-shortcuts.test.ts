@@ -3,7 +3,6 @@ import {
 	applyPathShortcutExpansion,
 	expandPathShortcut,
 	PATH_SHORTCUT_TOOL_NAMES,
-	pathShortcutSettingsFromState,
 } from "../src/index.js";
 
 describe("path shortcuts", () => {
@@ -52,14 +51,4 @@ describe("path shortcuts", () => {
 		expect(event.input.path).toBe("tmp://note.md");
 	});
 
-	it("derives settings from state", () => {
-		expect(pathShortcutSettingsFromState(undefined)).toEqual({
-			enabled: true,
-			tmpEnabled: true,
-			enabledTools: [...PATH_SHORTCUT_TOOL_NAMES],
-		});
-		expect(
-			pathShortcutSettingsFromState({ pathShortcuts: { enabled: false, tmpEnabled: false } }),
-		).toEqual({ enabled: false, tmpEnabled: false, enabledTools: [...PATH_SHORTCUT_TOOL_NAMES] });
-	});
 });

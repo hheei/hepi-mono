@@ -40,7 +40,6 @@ export type SkillSuggestion = {
 	value: string;
 	label: string;
 	description: string;
-	active?: boolean;
 };
 
 export type DollarSkillToken = {

@@ -34,9 +34,6 @@
 	"publishConfig": {
 		"access": "public"
 	},
-	"dependencies": {
-		"@hheei/pi-extcore": "0.0.0"
-	},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": "*"
 	}

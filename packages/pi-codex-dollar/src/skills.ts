@@ -166,14 +166,13 @@ function getSkillEntries(commands: readonly SkillCommand[]): SkillEntry[] {
 	return entries;
 }
 
-function formatSkillItem(entry: SkillEntry, active = true): SkillSuggestion {
+function formatSkillItem(entry: SkillEntry): SkillSuggestion {
 	return {
 		value: entry.value,
 		label: entry.name,
 		description: entry.description
 			? `(${entry.source}) - ${entry.description}`
 			: `(${entry.source})`,
-		active,
 	};
 }
 
@@ -198,19 +197,10 @@ export function getSkillSuggestions(
 	commands: readonly SkillCommand[],
 	query: string,
 	maxSuggestions = MAX_SUGGESTIONS,
-	activeSkillNames?: ReadonlySet<string>,
 ): SkillSuggestion[] {
 	const normalizedQuery = normalize(query).trim();
-	const active = [];
-	const inactive = [];
-
-	for (const entry of getSkillEntries(commands)) {
-		if (normalizedQuery && !entry.normalizedName.startsWith(normalizedQuery)) continue;
-		if (activeSkillNames && !activeSkillNames.has(entry.name)) inactive.push(entry);
-		else active.push(entry);
-	}
-
-	return [...active, ...inactive]
+	return getSkillEntries(commands)
+		.filter((entry) => !normalizedQuery || entry.normalizedName.startsWith(normalizedQuery))
 		.slice(0, maxSuggestions)
-		.map((entry) => formatSkillItem(entry, !activeSkillNames || activeSkillNames.has(entry.name)));
+		.map(formatSkillItem);
 }

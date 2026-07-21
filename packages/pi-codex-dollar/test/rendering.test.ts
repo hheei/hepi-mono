@@ -67,24 +67,6 @@ const unselectedThemed = renderSkillPickerLines(
 ).join("\n");
 assert.match(unselectedThemed, /<description>first<\/description>/);
 assert.match(unselectedThemed, /<selected>→ b\s+User\s+second<\/selected>/);
-const inactiveThemed = renderSkillPickerLines(
-	[
-		{ value: "$active", label: "active", description: "(User) - available", active: true },
-		{ value: "$inactive", label: "inactive", description: "(User) - muted", active: false },
-	],
-	1,
-	80,
-	{
-		selectList: {
-			selectedText: (text: string) => `<selected>${text}</selected>`,
-			description: (text: string) => `<description>${text}</description>`,
-			scrollInfo: (text: string) => `<scroll>${text}</scroll>`,
-		},
-	},
-	4,
-).join("\n");
-assert.match(inactiveThemed, /<description>→ inactive\s+User\s+muted<\/description>/);
-assert.doesNotMatch(inactiveThemed, /<selected>→ inactive/);
 
 console.log("rendering ok");
 

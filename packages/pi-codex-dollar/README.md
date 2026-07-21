@@ -1,6 +1,6 @@
 # @hheei/pi-codex-dollar
 
-`@hheei/pi-codex-dollar` adds `$skill-name` autocomplete, cyan prompt highlighting, prompt-time skill path expansion, and `pi-loadout`-aware skill ordering to Pi.
+`@hheei/pi-codex-dollar` adds `$skill-name` autocomplete, cyan prompt highlighting, and prompt-time skill path expansion to Pi.
 
 It is intentionally different from `/skill:name`: it does not expand `SKILL.md` into the prompt. When you send a prompt, each recognized `$skill-name` token is replaced with the loaded skill's `sourceInfo.path`.
 
@@ -26,33 +26,8 @@ Review this using /Users/me/.pi/agent/skills/librarian/SKILL.md
 
 Multiple references in one prompt are supported, and unknown `$NAME` tokens remain unchanged.
 
-## pi-loadout Support
-
-When `@hheei/pi-loadout` has an active skill selection and Respect loadout is enabled, active skills are listed first. Inactive skills remain available lower in the picker and render with muted autocomplete styling.
-
-## Settings
-
-Run `/extension-setting` in Pi and open `PI Codex Dollar` to configure:
-
-| Setting | Default | Meaning |
-| --- | ---: | --- |
-| Inline picker | `true` | Show skill suggestions after typing `$` in the TUI editor. |
-| Suggestion limit | `30` | Maximum number of suggestions shown by the inline picker. |
-| Expand references | `true` | Replace `$skill` references with `SKILL.md` paths before input is submitted. |
-| Highlight references | `true` | Highlight valid `$skill` references while editing. |
-| Respect loadout | `true` | Rank active `pi-loadout` skills before inactive skills. |
-
-Settings are stored under `pi-codex-dollar` in `~/.pi/agent/ext-settings.json`.
-
 ## Development
 
 ```bash
-bun run typecheck
 bun test packages/pi-codex-dollar/test/*.test.ts
-```
-
-To test one run from this workspace, load `pi-extcore` too because it owns `/extension-setting`:
-
-```bash
-pi -e packages/pi-extcore/src/extension.ts -e packages/pi-codex-dollar/src/index.ts
 ```
