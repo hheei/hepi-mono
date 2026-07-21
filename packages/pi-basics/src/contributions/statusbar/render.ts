@@ -1,6 +1,28 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { padToWidth, truncateToWidth, visibleWidth } from "../../ui/text.js";
+import {
+	DEFAULT_STATUSBAR_FORMAT_TOKENS,
+	joinStatusbarFormat,
+	type RenderedStatusbarFormat,
+	renderStatusbarFormat,
+} from "./format.js";
 import { type StatusbarSnapshot, thinkingGlyph } from "./model.js";
+
+function renderWithFill(
+	beforeFill: string,
+	afterFill: string,
+	width: number,
+	rail: (text: string) => string,
+): string {
+	const bridgeBudget = width - visibleWidth(`${beforeFill}${afterFill}`);
+	const bridge =
+		bridgeBudget === 0
+			? ""
+			: bridgeBudget === 1
+				? rail("─")
+				: ` ${rail("─".repeat(bridgeBudget - 1))}`;
+	return `${beforeFill}${bridge}${afterFill}`;
+}
 
 export function renderStatusbarLine(
 	width: number,
@@ -21,40 +43,51 @@ export function renderStatusbarLine(
 					? "warning"
 					: "success";
 	const meterRole = snapshot.meter === "??" ? "dim" : levelRole;
-	const limitRole = snapshot.contextLimit === "?" ? "dim" : levelRole;
+	const tokensRole = snapshot.contextTokens === "?" ? "muted" : levelRole;
 	const prefix = `${rail("─")} ${style("accent", "π")} ${sep("·")} `;
 	const thinking = style("muted", thinkingGlyph(snapshot.thinkingLevel));
-	const context = ` ${sep("·")} ${sep("◫")} `;
-	const meter = style(meterRole, snapshot.meter);
-	const limit = style(limitRole, snapshot.contextLimit);
-	const statuses = snapshot.statuses;
-	let keptStatuses = statuses;
+	const context = ` ${sep("·")} ${style(meterRole, snapshot.meter)} ${style(tokensRole, `${snapshot.contextTokens}/${snapshot.contextLimit}`)}`;
+	let keptStatuses = snapshot.statuses;
 	let title = snapshot.sessionName;
-	const titleTail = () => (title ? ` ${style("muted", title)} ${rail("─")}` : rail("─"));
-	const statusPart = () =>
-		keptStatuses.length ? ` ${sep("·")} ${keptStatuses.join(` ${sep("·")} `)}` : "";
-	const fixed = () =>
-		`${prefix}${thinking} ${style("text", snapshot.model)}${context}${meter} ${limit}`;
-	while (title && visibleWidth(`${fixed()}${statusPart()}${titleTail()}`) > target)
+	const formatted = (): RenderedStatusbarFormat =>
+		renderStatusbarFormat(DEFAULT_STATUSBAR_FORMAT_TOKENS, {
+			prefix,
+			thinking,
+			model: style("text", snapshot.model),
+			context,
+			statuses: keptStatuses.length ? ` ${sep("·")} ${keptStatuses.join(` ${sep("·")} `)}` : "",
+			title: title ? ` ${style("muted", title)} ${rail("─")}` : rail("─"),
+		});
+	let output = formatted();
+	let beforeFill = joinStatusbarFormat(output.beforeFill);
+	let afterFill = joinStatusbarFormat(output.afterFill);
+	let mandatory = visibleWidth(`${beforeFill}${afterFill}`);
+	while (title && mandatory > target) {
 		title = undefined;
-	while (keptStatuses.length && visibleWidth(`${fixed()}${statusPart()}${titleTail()}`) > target)
+		output = formatted();
+		beforeFill = joinStatusbarFormat(output.beforeFill);
+		afterFill = joinStatusbarFormat(output.afterFill);
+		mandatory = visibleWidth(`${beforeFill}${afterFill}`);
+	}
+	while (keptStatuses.length && mandatory > target) {
 		keptStatuses = keptStatuses.slice(0, -1);
-	const mandatory = visibleWidth(`${fixed()}${statusPart()}${titleTail()}`);
+		output = formatted();
+		beforeFill = joinStatusbarFormat(output.beforeFill);
+		afterFill = joinStatusbarFormat(output.afterFill);
+		mandatory = visibleWidth(`${beforeFill}${afterFill}`);
+	}
 	if (mandatory > target) {
-		const fixedBeforeModel = `${prefix}${thinking} `;
-		const suffix = `${context}${meter} ${limit}${statusPart()}${titleTail()}`;
+		const modelIndex = output.beforeFill.findIndex(
+			(part) => part.type === "variable" && part.name === "model",
+		);
+		if (modelIndex < 0) return truncateToWidth(`${beforeFill}${afterFill}`, target);
+		const fixedBeforeModel = joinStatusbarFormat(output.beforeFill.slice(0, modelIndex));
+		const suffix = `${joinStatusbarFormat(output.beforeFill.slice(modelIndex + 1))}${afterFill}`;
 		const room = target - visibleWidth(fixedBeforeModel) - visibleWidth(suffix);
 		if (room > 0) return `${fixedBeforeModel}${truncateToWidth(snapshot.model, room)}${suffix}`;
 		return truncateToWidth(`${fixedBeforeModel}${snapshot.model}${suffix}`, target);
 	}
-	const bridgeBudget = target - mandatory;
-	const bridge =
-		bridgeBudget === 0
-			? ""
-			: bridgeBudget === 1
-				? rail("─")
-				: ` ${rail("─".repeat(bridgeBudget - 1))}`;
-	return `${fixed()}${statusPart()}${bridge}${titleTail()}`;
+	return renderWithFill(beforeFill, afterFill, target, rail);
 }
 
 export function renderStatusbar(

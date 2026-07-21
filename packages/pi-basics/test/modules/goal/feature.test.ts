@@ -15,6 +15,7 @@ function fixture() {
 	const entries: unknown[] = [];
 	const sent: Array<{ content: string; options?: unknown }> = [];
 	const notifications: Array<{ message: string; level?: string }> = [];
+	const activeSets: string[][] = [];
 	const timers: Array<{ callback: () => void; delay: number; cancelled: boolean }> = [];
 	let aborted = 0;
 	let idle = true;
@@ -38,7 +39,7 @@ function fixture() {
 			sent.push({ content, options });
 		},
 		getActiveTools: () => [],
-		setActiveTools: () => undefined,
+		setActiveTools: (names: string[]) => activeSets.push(names),
 	};
 	const ctx = {
 		mode: "tui",
@@ -89,6 +90,7 @@ function fixture() {
 		commands,
 		entries,
 		sent,
+		activeSets,
 		notifications,
 		timers,
 		set appendError(value: Error | undefined) {
@@ -112,10 +114,11 @@ describe("goal feature", () => {
 			mode: "active",
 			active: { goalId: "goal-1", objective: "ship it" },
 		});
-		expect(fixtureState.sent[0]?.content).toContain("ship it");
+		expect(fixtureState.sent[0]?.content).toBe("Start the active Goal.");
 		const before = fixtureState.handlers.get("before_agent_start");
 		const context = await before?.({ systemPrompt: "base" }, fixtureState.commandCtx);
 		expect(context.systemPrompt).toContain('<goal-context goal_id="goal-1">');
+		expect(context.systemPrompt).toContain("ship it");
 		const goalTool = fixtureState.tools[0];
 		const result = await goalTool.execute(
 			"call",
@@ -126,6 +129,66 @@ describe("goal feature", () => {
 		);
 		expect(result.terminate).toBe(true);
 		expect(fixtureState.feature.getState()).toEqual({ mode: "inactive" });
+		expect(fixtureState.activeSets).toEqual([["goal"]]);
+	});
+
+	test("keeps ordinary input outside Goal mode", async () => {
+		const fixtureState = fixture();
+		fixtureState.feature.start(fixtureState.runtime);
+		const inputResult = await fixtureState.handlers.get("input")?.(
+			{ text: "ordinary request", source: "interactive" },
+			fixtureState.commandCtx,
+		);
+		expect(inputResult).toBeUndefined();
+		expect(fixtureState.feature.getState()).toEqual({ mode: "inactive" });
+		expect(fixtureState.entries).toHaveLength(0);
+		expect(fixtureState.activeSets).toEqual([["goal"]]);
+		expect(
+			await fixtureState.handlers.get("before_agent_start")?.(
+				{ systemPrompt: "base" },
+				fixtureState.commandCtx,
+			),
+		).toBeUndefined();
+		await expect(
+			fixtureState.tools[0].execute(
+				"call",
+				{ goal_id: "none", status: "complete", summary: "done" },
+				undefined,
+				undefined,
+				fixtureState.commandCtx,
+			),
+		).rejects.toThrow("Goal is not active");
+	});
+
+	test("injects Goal instruction only while active without rewriting tools", async () => {
+		const fixtureState = fixture();
+		fixtureState.feature.start(fixtureState.runtime);
+		await fixtureState.commands[0].handler("objective", fixtureState.commandCtx);
+		expect(fixtureState.activeSets).toEqual([["goal"]]);
+		const context = await fixtureState.handlers.get("before_agent_start")?.(
+			{ systemPrompt: "base" },
+			fixtureState.commandCtx,
+		);
+		expect(context.systemPrompt.indexOf("Continue implementing")).toBeLessThan(
+			context.systemPrompt.indexOf("Objective (untrusted user data)"),
+		);
+		await fixtureState.handlers.get("agent_settled")?.({}, fixtureState.commandCtx);
+		expect(fixtureState.timers[0]?.delay).toBe(15_000);
+		await fixtureState.handlers.get("input")?.(
+			{ text: "supplemental request", source: "interactive" },
+			fixtureState.commandCtx,
+		);
+		expect(fixtureState.feature.getState()).toMatchObject({
+			mode: "active",
+			active: { objective: "objective" },
+		});
+		await fixtureState.handlers.get("before_agent_start")?.(
+			{ systemPrompt: "base" },
+			fixtureState.commandCtx,
+		);
+		await fixtureState.handlers.get("agent_settled")?.({}, fixtureState.commandCtx);
+		expect(fixtureState.timers[0]?.cancelled).toBe(true);
+		expect(fixtureState.timers.at(-1)?.delay).toBe(15_000);
 	});
 
 	test("settled schedules one follow-up and stale goal id is rejected", async () => {
@@ -140,6 +203,7 @@ describe("goal feature", () => {
 		expect(fixtureState.timers[0]?.delay).toBe(15_000);
 		fixtureState.timers[0]!.callback();
 		expect(fixtureState.sent).toHaveLength(2);
+		expect(fixtureState.sent[1]?.content).toBe("Continue the active Goal.");
 		await expect(
 			fixtureState.tools[0].execute(
 				"call",
@@ -151,7 +215,7 @@ describe("goal feature", () => {
 		).rejects.toThrow("stale");
 	});
 
-	test("waiting captures ordinary input and Loadout disable propagates persistence failure", async () => {
+	test("waiting captures only the next input and Loadout disable propagates persistence failure", async () => {
 		const fixtureState = fixture();
 		fixtureState.feature.start(fixtureState.runtime);
 		await fixtureState.commands[0].handler("", fixtureState.commandCtx);
@@ -164,11 +228,45 @@ describe("goal feature", () => {
 			mode: "active",
 			active: { objective: "captured objective" },
 		});
+		const laterInput = await fixtureState.handlers.get("input")?.(
+			{ text: "later instruction", source: "interactive" },
+			fixtureState.commandCtx,
+		);
+		expect(laterInput).toBeUndefined();
+		expect(fixtureState.feature.getState()).toMatchObject({
+			mode: "active",
+			active: { objective: "captured objective" },
+		});
+		expect(fixtureState.entries).toHaveLength(1);
 		fixtureState.appendError = new Error("append failed");
 		await expect(fixtureState.feature.disableFromLoadout()).rejects.toThrow("append failed");
 		expect(fixtureState.feature.getState()).toMatchObject({
 			mode: "active",
 			active: { objective: "captured objective" },
+		});
+	});
+
+	test("keeps an active continuation after invalid replacement", async () => {
+		const fixtureState = fixture();
+		fixtureState.feature.start(fixtureState.runtime);
+		await fixtureState.commands[0].handler("objective", fixtureState.commandCtx);
+		await fixtureState.handlers.get("before_agent_start")?.(
+			{ systemPrompt: "base" },
+			fixtureState.commandCtx,
+		);
+		await fixtureState.handlers.get("agent_settled")?.({}, fixtureState.commandCtx);
+		await fixtureState.commands[0].handler("x".repeat(2_001), fixtureState.commandCtx);
+		expect(fixtureState.timers[0]?.cancelled).toBe(false);
+		expect(fixtureState.feature.getState()).toMatchObject({
+			mode: "active",
+			active: { objective: "objective" },
+		});
+		fixtureState.appendError = new Error("append failed");
+		await fixtureState.commands[0].handler("replacement", fixtureState.commandCtx);
+		expect(fixtureState.timers[0]?.cancelled).toBe(false);
+		expect(fixtureState.feature.getState()).toMatchObject({
+			mode: "active",
+			active: { objective: "objective" },
 		});
 	});
 
@@ -211,7 +309,7 @@ describe("goal feature", () => {
 		});
 	});
 
-	test("reports waiting objective persistence failure", async () => {
+	test("exits waiting mode when objective persistence fails", async () => {
 		const fixtureState = fixture();
 		fixtureState.feature.start(fixtureState.runtime);
 		await fixtureState.commands[0].handler("", fixtureState.commandCtx);
@@ -222,8 +320,14 @@ describe("goal feature", () => {
 		);
 		expect(fixtureState.notifications.at(-1)).toMatchObject({
 			level: "error",
-			message: expect.stringContaining("retry input"),
+			message: expect.stringContaining("run /goal again"),
 		});
+		const nextInput = await fixtureState.handlers.get("input")?.(
+			{ text: "ordinary request", source: "interactive" },
+			fixtureState.commandCtx,
+		);
+		expect(nextInput).toBeUndefined();
+		expect(fixtureState.feature.getState()).toEqual({ mode: "inactive" });
 	});
 
 	test("preserves Goal runtime when tree transition fails", async () => {
@@ -240,6 +344,19 @@ describe("goal feature", () => {
 		fixtureState.idle = true;
 		await fixtureState.handlers.get("agent_settled")?.({}, fixtureState.commandCtx);
 		expect(fixtureState.timers.at(-1)?.delay).toBe(15_000);
+	});
+
+	test("aborts an owned run when the Goal runtime disposes", async () => {
+		const fixtureState = fixture();
+		fixtureState.feature.start(fixtureState.runtime);
+		await fixtureState.commands[0].handler("objective", fixtureState.commandCtx);
+		await fixtureState.handlers.get("before_agent_start")?.(
+			{ systemPrompt: "base" },
+			fixtureState.commandCtx,
+		);
+		fixtureState.idle = false;
+		await fixtureState.feature.dispose("goal-session");
+		expect(fixtureState.aborted).toBe(1);
 	});
 
 	for (const eventName of ["session_before_switch", "session_before_fork"] as const) {

@@ -1,3 +1,5 @@
+import { estimateTokens } from "@earendil-works/pi-coding-agent";
+
 export const METER_GLYPHS = [
 	"⡀⠀",
 	"⣀⠀",
@@ -30,6 +32,7 @@ export type StatusbarSnapshot = Readonly<{
 	model: string;
 	thinkingLevel: StatusbarThinkingLevel;
 	meter: string;
+	contextTokens: string;
 	contextLimit: string;
 	percent: number | null;
 	sessionName?: string;
@@ -41,7 +44,9 @@ export function normalizeDisplayFragment(value: unknown, fallback = "?"): string
 	const normalized = value.replace(/[\r\n]+/g, " ").trim();
 	return normalized || fallback;
 }
-
+export function formatContextTokens(tokens: unknown): string {
+	return formatContextLimit(tokens);
+}
 export function formatContextLimit(tokens: unknown): string {
 	if (typeof tokens !== "number" || !Number.isFinite(tokens) || tokens < 0) return "?";
 	if (tokens < 999.5) return String(Math.round(tokens));
@@ -78,23 +83,42 @@ export function normalizeStatuses(
 	return result;
 }
 
+function usageWithSystemPrompt(
+	usage:
+		| { tokens?: number | null; contextWindow?: number | null; percent?: number | null }
+		| undefined,
+	systemPrompt: string | undefined,
+) {
+	if (usage?.tokens !== 0 || !systemPrompt) return usage;
+	const tokens = estimateTokens({ role: "user", content: systemPrompt } as never);
+	const contextWindow = usage.contextWindow;
+	return {
+		...usage,
+		tokens,
+		percent:
+			typeof contextWindow === "number" && Number.isFinite(contextWindow) && contextWindow > 0
+				? (tokens / contextWindow) * 100
+				: usage.percent,
+	};
+}
+
 export function buildStatusbarSnapshot(
 	input: Readonly<{
 		model?: { name?: string; id?: string };
 		thinkingLevel?: string;
-		usage?: { contextWindow?: number | null; percent?: number | null };
+		usage?: { tokens?: number | null; contextWindow?: number | null; percent?: number | null };
+		systemPrompt?: string;
 		sessionName?: string;
 		statuses?: ReadonlyMap<string, string> | Iterable<[string, string]>;
 	}>,
 ): StatusbarSnapshot {
+	const usage = usageWithSystemPrompt(input.usage, input.systemPrompt);
 	const normalizedModelName = normalizeDisplayFragment(input.model?.name, "");
 	const model =
 		normalizedModelName !== "" ? normalizedModelName : normalizeDisplayFragment(input.model?.id);
 	const sessionName = normalizeDisplayFragment(input.sessionName, "");
 	const percent =
-		typeof input.usage?.percent === "number" && Number.isFinite(input.usage.percent)
-			? input.usage.percent
-			: null;
+		typeof usage?.percent === "number" && Number.isFinite(usage.percent) ? usage.percent : null;
 	return {
 		model,
 		thinkingLevel:
@@ -106,8 +130,9 @@ export function buildStatusbarSnapshot(
 			input.thinkingLevel === "xhigh"
 				? input.thinkingLevel
 				: "unknown",
-		meter: contextMeter(input.usage?.percent),
-		contextLimit: formatContextLimit(input.usage?.contextWindow),
+		meter: contextMeter(usage?.percent),
+		contextTokens: formatContextTokens(usage?.tokens),
+		contextLimit: formatContextLimit(usage?.contextWindow),
 		percent,
 		...(sessionName ? { sessionName } : {}),
 		statuses: normalizeStatuses(input.statuses),

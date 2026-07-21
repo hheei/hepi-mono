@@ -7,7 +7,7 @@ const theme = { fg: (_role: string, text: string) => text } as never;
 const snapshot = buildStatusbarSnapshot({
 	model: { name: "GPT-5.6" },
 	thinkingLevel: "medium",
-	usage: { percent: 70, contextWindow: 350000 },
+	usage: { tokens: 123456, percent: 70, contextWindow: 350000 },
 	sessionName: "Session title",
 	statuses: new Map([["goal", "active"]]),
 });
@@ -15,7 +15,7 @@ const snapshot = buildStatusbarSnapshot({
 describe("statusbar renderer", () => {
 	test("keeps grammar, status order and right-aligned title", () => {
 		const line = renderStatusbarLine(100, snapshot, theme);
-		expect(line).toContain("─ π · ◒ GPT-5.6 · ◫ ⣶⣶ 350k · active");
+		expect(line).toContain("─ π · ◒ GPT-5.6 · ⣶⣶ 123.5k/350k · active");
 		expect(line.endsWith("Session title ─")).toBe(true);
 		expect(visibleWidth(line)).toBe(100);
 		expect(line).not.toContain("\n");
@@ -68,7 +68,7 @@ test("maps every thinking level to muted glyph and records semantic roles", () =
 	expect(roleOf("M")).toBe("text");
 	expect(roleOf("T")).toBe("muted");
 	expect(roleOf("·")).toBe("muted");
-	expect(roleOf("◫")).toBe("muted");
+	expect(roleOf("◫")).toBeUndefined();
 	expect(roleOf("─")).toBe("border");
 });
 
@@ -93,10 +93,10 @@ test("uses independent theme roles for known and unknown usage", () => {
 	expect(render(80, 10).get("⣷⣶")).toBe("warning");
 	expect(render(95, 10).get("⣿⣿")).toBe("error");
 	expect(render(null, 10).get("??")).toBe("dim");
-	expect(render(null, 10).get("10")).toBe("text");
+	expect(render(null, 10).get("10")).toBeUndefined();
 	expect(render(80, null).get("⣷⣶")).toBe("warning");
-	expect(render(80, null).get("?")).toBe("dim");
-	expect(render(null, null).get("?")).toBe("dim");
+	expect(render(80, null).get("?")).toBe("muted");
+	expect(render(null, null).get("?")).toBe("muted");
 });
 
 test("implements exact bridge grammar for title/status combinations", () => {
@@ -143,7 +143,7 @@ test("implements exact bridge grammar for title/status combinations", () => {
 		},
 	];
 	for (const { snapshot: current, tail, status } of cases) {
-		const fixed = `─ π · ○ M · ◫ ⡀⠀ 0`;
+		const fixed = `─ π · ○ M · ⡀⠀ ?/0`;
 		const mandatory = visibleWidth(fixed + status + tail);
 		for (const [budget, bridge] of [
 			[0, ""],
@@ -179,4 +179,34 @@ test("drops title then statuses from right to left and remains ANSI/cell safe", 
 	const narrow = renderStatusbarLine(48, styled, theme);
 	expect(narrow).not.toContain("third");
 	expect(narrow).toContain("first");
+});
+
+test("keeps exact ANSI output and leaves a narrow model unstyled", () => {
+	const ansiTheme = {
+		fg: (role: string, text: string) => {
+			const code =
+				{
+					border: 31,
+					accent: 32,
+					muted: 33,
+					text: 34,
+					success: 35,
+					warning: 36,
+					error: 37,
+					dim: 90,
+				}[role] ?? 39;
+			return `\x1b[${code}m${text}\x1b[0m`;
+		},
+	} as never;
+	const current = buildStatusbarSnapshot({
+		model: { id: "LongModel" },
+		thinkingLevel: "off",
+		usage: { percent: 0, contextWindow: 0 },
+	});
+	const expected =
+		"\x1b[31m─\x1b[0m \x1b[32mπ\x1b[0m \x1b[33m·\x1b[0m \x1b[33m○\x1b[0m \x1b[34mLongModel\x1b[0m \x1b[33m·\x1b[0m \x1b[35m⡀⠀\x1b[0m \x1b[33m?/0\x1b[0m\x1b[31m─\x1b[0m";
+	expect(renderStatusbarLine(visibleWidth(expected), current, ansiTheme)).toBe(expected);
+	const narrow = renderStatusbarLine(20, current, ansiTheme);
+	expect(narrow).not.toContain("\x1b[34m");
+	expect(visibleWidth(narrow)).toBe(20);
 });

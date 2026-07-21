@@ -26,7 +26,7 @@ describe("statusbar model", () => {
 		const snapshot = buildStatusbarSnapshot({
 			model: { name: "  \n", id: "model-id" },
 			thinkingLevel: "medium",
-			usage: { contextWindow: 350000, percent: null },
+			usage: { tokens: 123456, contextWindow: 350000, percent: null },
 			sessionName: "  Session\nname ",
 			statuses: new Map([
 				["a", " active "],
@@ -37,10 +37,21 @@ describe("statusbar model", () => {
 		expect(snapshot.sessionName).toBe("Session name");
 		expect(snapshot.statuses).toEqual(["active"]);
 		expect(snapshot.meter).toBe("??");
+		expect(snapshot.contextTokens).toBe("123.5k");
 		expect(snapshot.contextLimit).toBe("350k");
 		expect(thinkingGlyph("off")).toBe("○");
 		expect(thinkingGlyph("medium")).toBe("◒");
 		expect(thinkingGlyph("xhigh")).toBe("●");
+	});
+
+	test("uses assembled system prompt tokens before first model response", () => {
+		const snapshot = buildStatusbarSnapshot({
+			usage: { tokens: 0, contextWindow: 1000, percent: 0 },
+			systemPrompt: "x".repeat(400),
+		});
+		expect(snapshot.contextTokens).toBe("100");
+		expect(snapshot.percent).toBe(10);
+		expect(snapshot.meter).toBe("⣀⠀");
 	});
 });
 

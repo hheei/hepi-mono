@@ -3,7 +3,6 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 export interface ToolActivationCoordinator {
 	setLoadoutBaseline(names: readonly string[]): void;
 	setAskVisible(visible: boolean): void;
-	setGoalVisible(visible: boolean): void;
 	isConfigured(toolName: string): boolean;
 	isEffective(toolName: string): boolean;
 	dispose(): void;
@@ -16,19 +15,16 @@ function unique(names: readonly string[]): string[] {
 export function createToolActivationCoordinator(pi: ExtensionAPI): ToolActivationCoordinator {
 	let baseline: string[] = [];
 	let askVisible = false;
-	let goalVisible = false;
 	let disposed = false;
 	let effective: string[] = [];
 
 	const recompute = (): void => {
 		if (disposed) return;
-		const next = baseline.filter(
-			(name) => (name !== "ask" || askVisible) && (name !== "goal" || goalVisible),
-		);
+		const next = baseline.filter((name) => name !== "ask" || askVisible);
 		if (next.length === effective.length && next.every((name, index) => name === effective[index]))
 			return;
+		if (typeof pi.setActiveTools === "function") pi.setActiveTools([...next]);
 		effective = next;
-		if (typeof pi.setActiveTools === "function") pi.setActiveTools([...effective]);
 	};
 	recompute();
 
@@ -41,11 +37,6 @@ export function createToolActivationCoordinator(pi: ExtensionAPI): ToolActivatio
 		setAskVisible(visible) {
 			if (disposed) return;
 			askVisible = visible;
-			recompute();
-		},
-		setGoalVisible(visible) {
-			if (disposed) return;
-			goalVisible = visible;
 			recompute();
 		},
 		isConfigured(toolName) {
