@@ -8,7 +8,7 @@ This layout follows the useful parts of `pix-mono` and `rpiv-mono`:
 - one package per Pi extension under `packages/*`
 - shared TypeScript, Biome, and Bun test config at the root
 - every publishable extension declares a `pi.extensions` entry in its `package.json`
-- shared core code, settings config, and settings UI live in `@hheei/pi-extcore`
+- Pi Basics owns session-scoped runtime coordination and Settings/Loadout UI
 
 ## Docs
 
@@ -18,11 +18,10 @@ Start with [Extension Development Guide](docs/extension-development.md) when add
 
 ```text
 packages/
-  pi-codex-dollar/ Dollar-triggered inline skill references
-  pi-extcore/      Shared core helpers and settings UI
-  pi-inturl/       Internal URL and path shortcut helpers
-  pi-loadout/      HEPI fork of pi-loadout
-  pi-ssh/          SSH host discovery, exec, and sshfs mount tools
+  pi-basics/        Session runtime coordination and Settings/Loadout UI
+  pi-codex-dollar/  Dollar-triggered inline skill references
+  pi-inturl/        Internal URL and path shortcut helpers
+  pi-ssh/           SSH host discovery, exec, and sshfs mount tools
 templates/
   extension/       Copy template for new extension modules
 scripts/
@@ -61,24 +60,23 @@ Use the wrapper to start Pi with automatic extension discovery disabled and only
 bun run pi:dev
 ```
 
-By default this loads `pi-extcore` and `pi-loadout`. To test a specific package:
+By default this loads `pi-basics`. To test a specific package:
 
 ```bash
+bun run pi:dev -- basics
 bun run pi:dev -- inturl
-bun run pi:dev -- loadout inturl
 bun run pi:dev -- --all
 ```
 
 Pass extra Pi flags after a second `--`:
-
 ```bash
-bun run pi:dev -- loadout -- --model openai/gpt-5
+bun run pi:dev -- basics -- --model openai/gpt-5
 ```
 
 Manual equivalent:
 
 ```bash
-pi --no-extensions --no-skills -e packages/pi-extcore/src/extension.ts -e packages/pi-loadout/src/index.ts
+pi --no-extensions --no-skills -e packages/pi-basics/src/index.ts
 ```
 
 Or install packages from the local repo with Pi's package installer once the package metadata is ready.
