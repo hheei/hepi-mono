@@ -46,10 +46,23 @@ export function parseLoadoutKey(key: string): LoadoutKey | undefined {
 export function loadoutKey(kind: LoadoutKind, name: string, source?: string): LoadoutKey {
 	return source ? `${kind}:${source}:${name}` : `${kind}:${name}`;
 }
+export function loadoutPersistenceKey(item: LoadoutItem): LoadoutKey {
+	return `${item.kind}:${item.name}`;
+}
+export function loadoutLegacyKeys(map: LoadoutMap, item: LoadoutItem): readonly LoadoutKey[] {
+	const stableKey = loadoutPersistenceKey(item);
+	const prefix = `${item.kind}:`;
+	const suffix = `:${item.name}`;
+	return Object.keys(map).filter(
+		(key): key is LoadoutKey => key !== stableKey && key.startsWith(prefix) && key.endsWith(suffix),
+	);
+}
 function configuredValue(map: LoadoutMap, item: LoadoutItem): boolean | undefined {
+	const stableKey = loadoutPersistenceKey(item);
+	if (Object.hasOwn(map, stableKey)) return map[stableKey];
 	if (Object.hasOwn(map, item.key)) return map[item.key];
-	const legacyKey = `${item.kind}:${item.name}`;
-	return Object.hasOwn(map, legacyKey) ? map[legacyKey] : undefined;
+	const legacyKey = loadoutLegacyKeys(map, item).at(-1);
+	return legacyKey === undefined ? undefined : map[legacyKey];
 }
 
 export function resolveConfiguredStatus(
@@ -153,11 +166,12 @@ export function toggleLoadoutState(
 	maps: LoadoutStatusMaps,
 ): LoadoutStatusMaps {
 	const next = nextConfiguredStatus(item, scope, maps);
+	const key = loadoutPersistenceKey(item);
 	const global = { ...maps.global };
 	const project = { ...maps.project };
-	if (scope === "global") global[item.key] = next === "active";
-	else if (item.hasGlobalDefinition && next === "inherit") delete project[item.key];
-	else project[item.key] = next === "active";
+	if (scope === "global") global[key] = next === "active";
+	else if (item.hasGlobalDefinition && next === "inherit") delete project[key];
+	else project[key] = next === "active";
 	return { global, project };
 }
 

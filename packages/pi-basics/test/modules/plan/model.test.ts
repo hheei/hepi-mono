@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { extractProposedPlan, planStatus } from "../../../src/modules/plan/model.js";
+import {
+	extractProposedPlan,
+	planStatus,
+	stripProposedPlan,
+} from "../../../src/modules/plan/model.js";
 
 describe("plan model", () => {
 	test("extracts canonical blocks without a hard length limit", () => {
@@ -15,6 +19,14 @@ describe("plan model", () => {
 			),
 		).toBeUndefined();
 		expect(extractProposedPlan(`<proposed_plan>\n${longPlan}\n</proposed_plan>`)).toBe(longPlan);
+	});
+
+	test("strips one canonical block from assistant display text", () => {
+		expect(stripProposedPlan("before\n<proposed_plan>\n# Ship\n</proposed_plan>\nafter")).toBe(
+			"before\n\nafter",
+		);
+		expect(stripProposedPlan("<proposed_plan>\n# Ship\n</proposed_plan>")).toBe("");
+		expect(stripProposedPlan("ordinary response")).toBeUndefined();
 	});
 
 	test("exposes revised phase statuses", () => {

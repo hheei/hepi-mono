@@ -1,5 +1,11 @@
 import { estimateTokens } from "@earendil-works/pi-coding-agent";
 
+export interface StatusbarContextUsage {
+	readonly tokens?: number | null;
+	readonly contextWindow?: number | null;
+	readonly percent?: number | null;
+}
+
 export const METER_GLYPHS = [
 	"⡀⠀",
 	"⣀⠀",
@@ -65,9 +71,11 @@ export function contextMeter(percent: unknown): string {
 }
 
 export function thinkingGlyph(level: unknown): string {
-	if (level === "medium") return "◒";
-	if (level === "high" || level === "xhigh") return "●";
-	if (level === "off" || level === "minimal" || level === "low") return "○";
+	if (level === "off" || level === "minimal") return "○";
+	if (level === "low") return "◔";
+	if (level === "medium") return "◑";
+	if (level === "high") return "◕";
+	if (level === "xhigh" || level === "max") return "●";
 	return "?";
 }
 
@@ -83,10 +91,39 @@ export function normalizeStatuses(
 	return result;
 }
 
+export function estimateContextUsage(
+	messages: readonly unknown[],
+	contextWindow: number | null | undefined,
+	systemPrompt?: string,
+): StatusbarContextUsage | undefined {
+	if (typeof contextWindow !== "number" || !Number.isFinite(contextWindow) || contextWindow <= 0)
+		return undefined;
+	let tokens = systemPrompt ? estimateTokens({ role: "user", content: systemPrompt } as never) : 0;
+	for (const message of messages) tokens += estimateTokens(message as never);
+	return { tokens, contextWindow, percent: (tokens / contextWindow) * 100 };
+}
+
+export function stabilizeContextUsage(
+	current: StatusbarContextUsage | undefined,
+	previous: StatusbarContextUsage | undefined,
+	fallback: StatusbarContextUsage | undefined,
+): StatusbarContextUsage | undefined {
+	const tokens = current?.tokens;
+	if (typeof tokens === "number" && Number.isFinite(tokens) && tokens >= 0) {
+		if (
+			previous &&
+			typeof previous.tokens === "number" &&
+			previous.tokens >= 1_000 &&
+			tokens < previous.tokens * 0.1
+		)
+			return previous;
+		return current;
+	}
+	return fallback ?? previous ?? current;
+}
+
 function usageWithSystemPrompt(
-	usage:
-		| { tokens?: number | null; contextWindow?: number | null; percent?: number | null }
-		| undefined,
+	usage: StatusbarContextUsage | undefined,
 	systemPrompt: string | undefined,
 ) {
 	if (usage?.tokens !== 0 || !systemPrompt) return usage;
@@ -106,7 +143,7 @@ export function buildStatusbarSnapshot(
 	input: Readonly<{
 		model?: { name?: string; id?: string };
 		thinkingLevel?: string;
-		usage?: { tokens?: number | null; contextWindow?: number | null; percent?: number | null };
+		usage?: StatusbarContextUsage;
 		systemPrompt?: string;
 		sessionName?: string;
 		statuses?: ReadonlyMap<string, string> | Iterable<[string, string]>;

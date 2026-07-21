@@ -10,6 +10,8 @@ import {
 	type LoadoutResolvedItem,
 	type LoadoutScope,
 	type LoadoutStatusMaps,
+	loadoutLegacyKeys,
+	loadoutPersistenceKey,
 	reconcileLoadoutSelection,
 	resolveLoadoutItems,
 	toggleLoadoutState,
@@ -165,16 +167,18 @@ export class LoadoutController {
 		if (resolved?.lockedBy) return;
 		const item = key && this.inventory.find((candidate) => candidate.key === key);
 		if (!item || !key) return;
+		const storageKey = loadoutPersistenceKey(item);
 		const previousMaps = copyMaps(this.maps);
 		const nextMaps = toggleLoadoutState(item, this.scope, this.maps);
-		const value = nextMaps[this.scope][key];
+		const value = nextMaps[this.scope][storageKey];
+		const legacyKeys = loadoutLegacyKeys(previousMaps[this.scope], item);
 		this.maps = nextMaps;
 		this.recompute();
 		this.pendingKey = key;
 		const operation = this.queue
 			.then(async () => {
 				try {
-					await this.options.storage.update(this.scope, key, value);
+					await this.options.storage.update(this.scope, storageKey, value, legacyKeys);
 				} catch (error) {
 					this.maps = previousMaps;
 					this.recompute();
@@ -188,7 +192,11 @@ export class LoadoutController {
 					const original = readable(error);
 					let rollbackError: string | undefined;
 					try {
-						await this.options.storage.update(this.scope, key, previousMaps[this.scope][key]);
+						await this.options.storage.update(
+							this.scope,
+							storageKey,
+							previousMaps[this.scope][storageKey],
+						);
 						this.maps = copyMaps(previousMaps);
 						this.recompute();
 						await this.applyRuntime();

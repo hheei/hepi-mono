@@ -15,7 +15,7 @@ const snapshot = buildStatusbarSnapshot({
 describe("statusbar renderer", () => {
 	test("keeps grammar, status order and right-aligned title", () => {
 		const line = renderStatusbarLine(100, snapshot, theme);
-		expect(line).toContain("─ π · ◒ GPT-5.6 · ⣶⣶ 123.5k/350k · active");
+		expect(line).toContain("─ π · ◑ GPT-5.6 · ⣶⣶ 123.5k/350k · active");
 		expect(line.endsWith("Session title ─")).toBe(true);
 		expect(visibleWidth(line)).toBe(100);
 		expect(line).not.toContain("\n");
@@ -45,9 +45,9 @@ test("maps every thinking level to muted glyph and records semantic roles", () =
 	for (const [level, glyph] of [
 		["off", "○"],
 		["minimal", "○"],
-		["low", "○"],
-		["medium", "◒"],
-		["high", "●"],
+		["low", "◔"],
+		["medium", "◑"],
+		["high", "◕"],
 		["xhigh", "●"],
 	] as const) {
 		calls.length = 0;

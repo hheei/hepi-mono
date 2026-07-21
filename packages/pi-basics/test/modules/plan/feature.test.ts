@@ -14,7 +14,7 @@ import { PLAN_MESSAGE_TYPE } from "../../../src/modules/plan/model.js";
 const selected = (action: PlanConfirmationAction): PlanConfirmationResult => ({
 	status: "selected",
 	action,
-	model: { id: "model", name: "Model" },
+	model: { provider: "configured", id: "model", name: "Model" },
 	thinkingLevel: "high",
 });
 interface Options {
@@ -31,12 +31,13 @@ function fixture(options: Options = {}) {
 		handlers = new Map<string, Array<(e: unknown, c: unknown) => Promise<unknown> | unknown>>(),
 		entries: Array<Record<string, unknown>> = [],
 		statuses = new Map<string, string | undefined>();
-	const sent: string[] = [],
+	const sent: Array<{ content: string; deliverAs?: string }> = [],
 		notifications: string[] = [],
 		compacted: Array<{ onComplete?: () => void; onError?: () => void }> = [],
 		childSent: string[] = [];
 	let id = 0,
-		customCalls = 0;
+		customCalls = 0,
+		customRendered = "";
 	const pi = {
 		registerCommand(
 			n: string,
@@ -62,8 +63,8 @@ function fixture(options: Options = {}) {
 				content: m.content,
 			});
 		},
-		sendUserMessage(c: string) {
-			sent.push(c);
+		sendUserMessage(c: string, options?: { deliverAs?: string }) {
+			sent.push({ content: c, deliverAs: options?.deliverAs });
 		},
 		getThinkingLevel: () => "high",
 		setThinkingLevel: () => undefined,
@@ -74,8 +75,14 @@ function fixture(options: Options = {}) {
 		mode: options.mode ?? "tui",
 		hasUI: options.mode !== "rpc",
 		signal: undefined,
-		model: { id: "model", name: "Model" },
-		modelRegistry: { getAvailable: () => [{ id: "model", name: "Model" }] },
+		model: { provider: "configured", id: "model", name: "Model" },
+		modelRegistry: {
+			getAvailable: () => [
+				{ provider: "configured", id: "model", name: "Model" },
+				{ provider: "missing-auth", id: "hidden", name: "Hidden" },
+			],
+			hasConfiguredAuth: (model: { provider: string }) => model.provider === "configured",
+		},
 		ui: {
 			setStatus(k: string, v: string | undefined) {
 				statuses.set(k, v);
@@ -95,7 +102,7 @@ function fixture(options: Options = {}) {
 							) => unknown,
 						) => {
 							customCalls++;
-							factory(
+							const component = factory(
 								{ requestRender() {} },
 								{
 									fg: (_: string, x: string) => x,
@@ -106,7 +113,8 @@ function fixture(options: Options = {}) {
 								},
 								{},
 								() => undefined,
-							);
+							) as { render?: (width: number) => string[] };
+							customRendered = component.render?.(100).join("\n") ?? "";
 							return options.action ? selected(options.action) : undefined;
 						},
 		},
@@ -144,6 +152,9 @@ function fixture(options: Options = {}) {
 		get customCalls() {
 			return customCalls;
 		},
+		get customRendered() {
+			return customRendered;
+		},
 	};
 }
 function start(h: ReturnType<typeof fixture>): void {
@@ -169,7 +180,8 @@ describe("Plan feature", () => {
 		await h.commands.get("plan")!("inspect", h.ctx);
 		await emit(h, "agent_end", planEvent);
 		expect(h.entries.some((e) => e.customType === PLAN_MESSAGE_TYPE)).toBe(true);
-		expect(h.sent.at(-1)).toContain("The user requests refine the plan.");
+		expect(h.sent.at(-1)?.content).toContain("The user requests refine the plan.");
+		expect(h.sent.at(-1)?.deliverAs).toBe("followUp");
 		expect(h.statuses.get("plan")).toBe("plan-refine");
 	});
 	test("dispatches implementation actions", async () => {
@@ -182,12 +194,34 @@ describe("Plan feature", () => {
 				expect(h.compacted).toHaveLength(1);
 				h.compacted[0]!.onComplete?.();
 			}
-			if (action === "continue")
-				expect(h.sent.at(-1)).toContain("normal tool permissions are restored");
+			if (action === "continue") {
+				expect(h.sent.at(-1)?.content).toContain("normal tool permissions are restored");
+				expect(h.sent.at(-1)?.deliverAs).toBe("followUp");
+			}
 			if (action === "new")
 				expect(h.childSent.at(-1)).toContain("normal tool permissions are restored");
 		}
 	});
+	test("hides the canonical block from the finalized assistant message", async () => {
+		const h = fixture({ custom: false });
+		start(h);
+		await h.commands.get("plan")!("inspect", h.ctx);
+		const result = await h.handlers.get("message_end")![0]!(
+			(planEvent.messages[0] ? { message: planEvent.messages[0] } : undefined) as never,
+			h.ctx,
+		);
+		expect(result).toMatchObject({ message: { content: [] } });
+	});
+
+	test("passes only authenticated models to confirmation", async () => {
+		const h = fixture();
+		start(h);
+		await h.commands.get("plan")!("inspect", h.ctx);
+		await emit(h, "agent_end", planEvent);
+		expect(h.customRendered).toContain("configured/Model");
+		expect(h.customRendered).not.toContain("missing-auth");
+	});
+
 	test("restores refinement after failures", async () => {
 		for (const o of [
 			{ action: "new" as const, cancelled: true },

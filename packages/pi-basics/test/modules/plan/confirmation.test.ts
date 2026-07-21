@@ -16,8 +16,8 @@ function harness() {
 	const done: unknown[] = [];
 	let level: PlanThinkingLevel = "high";
 	const models = [
-		{ id: "one", name: "gpt-5.6-sol" },
-		{ id: "two", name: "gpt-5.6-fast" },
+		{ provider: "openai", id: "one", name: "gpt-5.6-sol" },
+		{ provider: "anthropic", id: "two", name: "claude-fast" },
 	];
 	const component = createPlanConfirmationComponent({
 		plan: "Build exact confirmation flow",
@@ -46,7 +46,7 @@ describe("plan confirmation", () => {
 		const lines = component.render(90);
 		const output = lines.map(stripAnsi).join("\n");
 		expect(output).toContain("model:");
-		expect(output).toContain("→ gpt-5.6-sol (high)");
+		expect(output).toContain("→ openai/gpt-5.6-sol (high)");
 		expect(output).toContain("action:");
 		expect(output).toContain("  implement (compact)");
 		expect(output).toContain("  refine");
@@ -55,7 +55,8 @@ describe("plan confirmation", () => {
 		expect(descriptionBorder).toBeDefined();
 		const panelStart = descriptionBorder!.indexOf("╭─ Description");
 		expect(descriptionBorder!.slice(panelStart).trimEnd()).toHaveLength(44);
-		expect(output).toContain("│ Choose model for implementation.");
+		expect(output).toContain("│ openai/one");
+		expect(output).toContain("Only models with configured");
 		const modelHeading = lines.findIndex((line) => stripAnsi(line).startsWith("model:"));
 		expect(modelHeading).toBeGreaterThanOrEqual(0);
 		expect(stripAnsi(lines[modelHeading]!)).toContain("Description");
@@ -63,21 +64,23 @@ describe("plan confirmation", () => {
 		expect(stripAnsi(lines[0]!)).not.toContain("Description");
 		expect(stripAnsi(lines[modelHeading]!).indexOf("Description")).toBeLessThan(50);
 		expect(lines.map(stripAnsi).filter((line) => line.trimStart().startsWith("→ "))).toEqual([
-			expect.stringContaining("gpt-5.6-sol"),
+			expect.stringContaining("openai/gpt-5.6-sol"),
 		]);
 		assertVisibleWidth(lines, 90);
 	});
 
 	test("focus changes description and cycles model, thinking, and implementation mode", async () => {
 		const { component } = harness();
-		expect(text(component)).toContain("Choose model for");
-		expect(text(component)).toContain("implementation.");
+		expect(text(component)).toContain("openai/one");
+		expect(text(component)).toContain("Only models with configured");
+		expect(text(component)).toContain("authentication are shown.");
 		component.handleInput?.("\x1b[C");
 		await Bun.sleep(0);
 		await Bun.sleep(0);
 		await Bun.sleep(0);
 		await Bun.sleep(0);
-		expect(text(component)).toContain("gpt-5.6-fast (high)");
+		expect(text(component)).toContain("anthropic/claude-fast (high)");
+		expect(text(component)).toContain("anthropic/two");
 		component.handleInput?.("\t");
 		expect(text(component)).toContain("(xhigh)");
 		component.handleInput?.("\x1b[B");

@@ -22,6 +22,12 @@ function editorFactory(label: string, calls: string[]): EditorFactory {
 
 function harness(id: string, mode: "tui" | "json" = "tui", hasEditorGetter = true) {
 	let currentId = id;
+	let usage: { tokens: number | null; percent: number | null; contextWindow: number } = {
+		tokens: 12_000,
+		percent: 12,
+		contextWindow: 100_000,
+	};
+	let branch: unknown[] = [];
 	let factory: FooterFactory | undefined;
 	let installs = 0;
 	let restored = 0;
@@ -41,8 +47,13 @@ function harness(id: string, mode: "tui" | "json" = "tui", hasEditorGetter = tru
 	const ctx = {
 		mode,
 		model: { id: "model", name: "Model" },
-		getContextUsage: () => ({ percent: 50, contextWindow: 10 }),
-		sessionManager: { getSessionId: () => currentId, getSessionName: () => "Title" },
+		getContextUsage: () => usage,
+		getSystemPrompt: () => "s".repeat(400),
+		sessionManager: {
+			getSessionId: () => currentId,
+			getSessionName: () => "Title",
+			getBranch: () => branch,
+		},
 		ui: {
 			theme: { fg: (_role: string, text: string) => text },
 			getEditorComponent: hasEditorGetter ? () => editorFactory : undefined,
@@ -67,6 +78,12 @@ function harness(id: string, mode: "tui" | "json" = "tui", hasEditorGetter = tru
 		},
 		setEditor(next: EditorFactory | undefined) {
 			editorFactory = next;
+		},
+		setUsage(next: typeof usage) {
+			usage = next;
+		},
+		setBranch(next: unknown[]) {
+			branch = next;
 		},
 		get editorFactory() {
 			return editorFactory;
@@ -142,6 +159,31 @@ describe("statusbar lifecycle", () => {
 		editor!.handleInput("x");
 		expect(editor!.getText()).toBe("previous-text");
 		expect(calls).toEqual(["previous:input:x"]);
+	});
+
+	test("stabilizes first-turn and post-compaction token transitions", () => {
+		const h = harness("a");
+		h.setEditor(editorFactory("previous", []));
+		const feature = createStatusbarFeature(h.pi);
+		feature.start(runtime(h.pi, h.ctx));
+		const editor = h.editorFactory?.({} as never, {} as never, {} as never);
+		expect(editor!.render(100)[0]).toContain("12k/100k");
+		h.setUsage({ tokens: 7, percent: 0.007, contextWindow: 100_000 });
+		expect(editor!.render(100)[0]).toContain("12k/100k");
+		h.setBranch([
+			{
+				id: "root",
+				parentId: null,
+				timestamp: new Date().toISOString(),
+				type: "message",
+				message: { role: "user", content: "x".repeat(400), timestamp: Date.now() },
+			},
+		]);
+		h.setUsage({ tokens: null, percent: null, contextWindow: 100_000 });
+		h.emit("session_compact");
+		const compacted = editor!.render(100)[0]!;
+		expect(compacted).not.toContain("??");
+		expect(compacted).not.toContain("12k/100k");
 	});
 
 	test("redraws owned events and ignores stale context", () => {
