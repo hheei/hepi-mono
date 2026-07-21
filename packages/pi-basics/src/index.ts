@@ -137,8 +137,8 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 					),
 				);
 			const providers = () => [
-				traditionalToSimplifiedProvider,
 				autoTitleProvider,
+				traditionalToSimplifiedProvider,
 				...listHePiSettings().filter((provider) => provider.id !== autoTitleProvider.id),
 			];
 			const defaults = defaultLoadoutStoragePaths();

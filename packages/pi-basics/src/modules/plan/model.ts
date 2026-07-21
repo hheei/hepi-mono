@@ -19,16 +19,21 @@ export interface ActivePlan {
 	disposed: boolean;
 }
 
+const PROPOSED_PLAN_PATTERN = /(^|\n)<proposed_plan>\r?\n([\s\S]*?)\r?\n<\/proposed_plan>(?=\n|$)/g;
+
 export function extractProposedPlan(text: unknown): string | undefined {
 	if (typeof text !== "string") return undefined;
-	const matches = [
-		...text.matchAll(/(^|\n)<proposed_plan>\r?\n([\s\S]*?)\r?\n<\/proposed_plan>(?=\n|$)/g),
-	];
+	const matches = [...text.matchAll(PROPOSED_PLAN_PATTERN)];
 	if (matches.length !== 1) return undefined;
 	const body = matches[0]![2]!.trim();
 	if (!body || body.includes("<proposed_plan>") || body.includes("</proposed_plan>"))
 		return undefined;
 	return body;
+}
+
+export function stripProposedPlan(text: unknown): string | undefined {
+	if (typeof text !== "string" || !extractProposedPlan(text)) return undefined;
+	return text.replace(PROPOSED_PLAN_PATTERN, "\n").trim();
 }
 
 export function planStatus(phase: PlanPhase): PlanStatus | undefined {

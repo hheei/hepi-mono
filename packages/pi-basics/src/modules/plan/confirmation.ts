@@ -12,6 +12,7 @@ export type PlanConfirmationAction = PlanImplementationMode | "refine";
 
 /** Minimal model shape accepted from ModelRegistry values. */
 export interface PlanConfirmationModel {
+	readonly provider: string;
 	readonly id: string;
 	readonly name: string;
 }
@@ -53,7 +54,10 @@ export function createPlanConfirmationComponent(
 	const models = options.availableModels.length ? options.availableModels : [options.model];
 	let modelIndex = Math.max(
 		0,
-		models.findIndex((candidate) => candidate.id === options.model.id),
+		models.findIndex(
+			(candidate) =>
+				candidate.provider === options.model.provider && candidate.id === options.model.id,
+		),
 	);
 	let level = options.thinkingLevel ?? options.getThinkingLevel();
 	let mode: PlanImplementationMode = "compact";
@@ -99,12 +103,15 @@ export function createPlanConfirmationComponent(
 		settle({ status: "selected", action, model: models[modelIndex]!, thinkingLevel: level });
 	}
 	function description(): string[] {
-		if (focus === "model")
+		if (focus === "model") {
+			const model = models[modelIndex]!;
 			return [
-				"Choose model for implementation.",
+				`${model.provider}/${model.id}`,
+				"Only models with configured authentication are shown.",
 				switching ? "Switching model…" : "Use left/right to cycle models.",
 				"Tab changes thinking level.",
 			];
+		}
 		if (focus === "refine")
 			return ["Continue planning and revise", "this plan before implementation."];
 		return [
@@ -148,7 +155,7 @@ export function createPlanConfirmationComponent(
 			renderSelectableRow({ width: controlsWidth, selected: focus === focusRow, label });
 		const controls = [
 			"model:",
-			row("model", `${model.name} (${level})`),
+			row("model", `${model.provider}/${model.name} (${level})`),
 			"",
 			"action:",
 			row("implement", `implement (${mode})`),

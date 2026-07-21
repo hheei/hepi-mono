@@ -8,6 +8,8 @@ Load package as a Pi extension. For local development, run `bun run pi:dev -- ba
 
 `/hepi setting` opens the Settings and Loadout tabs. Settings includes a session-backed `Pi Basics` provider with placeholder fields for TUI development.
 
+Loadout stores global choices in `~/.pi/agent/setting.json` and project choices in `<cwd>/.pi/setting.json`, under `pi-basics-loadout`. Persisted entries use stable `kind:name` identities so extension source paths may change across reloads without losing the choice. Existing source-scoped entries remain readable and are migrated when that item is next changed.
+
 ## Goal
 
 Run `/goal <objective>` to start or replace a Goal. Run `/goal` with no argument to suspend an active Goal, restore the latest suspended or blocked Goal on the current branch, or wait for the next interactive/RPC text input when no Goal is stored.

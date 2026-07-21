@@ -29,6 +29,41 @@ describe("loadout controller", () => {
 		expect(controller.state.selectedKey).toBe("tool:a");
 		expect(controller.state.resolved.map((item) => item.key)).toEqual(["tool:a", "tool:z"]);
 	});
+	test("restores legacy selection when source identity changes after reopen", async () => {
+		const stored = { global: { "tool:/old/path:read": false }, project: {} };
+		const first = createLoadoutController({
+			storage: { load: async () => stored, update: async () => undefined },
+			inventory: inventory({ ...tool("tool:/new/path:read"), name: "read" }),
+		});
+		await first.load();
+		expect(first.state.resolved[0]?.effectiveStatus).toBe("disabled");
+		await first.close();
+		const reopened = createLoadoutController({
+			storage: { load: async () => stored, update: async () => undefined },
+			inventory: inventory({ ...tool("tool:package-name:read"), name: "read" }),
+		});
+		await reopened.load();
+		expect(reopened.state.resolved[0]?.effectiveStatus).toBe("disabled");
+	});
+
+	test("persists stable identity and removes source-scoped legacy keys", async () => {
+		const writes: Array<{ key: string; value: boolean | undefined; remove: readonly string[] }> =
+			[];
+		const item = { ...tool("tool:/new/path:read"), name: "read" };
+		const controller = createLoadoutController({
+			storage: {
+				load: async () => ({ global: { "tool:/old/path:read": true }, project: {} }),
+				update: async (_scope, key, value, remove = []) => {
+					writes.push({ key, value, remove });
+				},
+			},
+			inventory: inventory(item),
+		});
+		await controller.load();
+		await controller.toggleSelected();
+		expect(writes).toEqual([{ key: "tool:read", value: false, remove: ["tool:/old/path:read"] }]);
+	});
+
 	test("storage failure rolls optimistic model back without runtime apply", async () => {
 		let applied = 0;
 		const controller = createLoadoutController({

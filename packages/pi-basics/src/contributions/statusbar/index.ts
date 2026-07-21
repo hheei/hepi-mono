@@ -1,13 +1,19 @@
-import type {
-	ExtensionAPI,
-	ExtensionContext,
-	ReadonlyFooterDataProvider,
-	Theme,
+import {
+	buildSessionContext,
+	CustomEditor,
+	type ExtensionAPI,
+	type ExtensionContext,
+	type ReadonlyFooterDataProvider,
+	type Theme,
 } from "@earendil-works/pi-coding-agent";
-import { CustomEditor } from "@earendil-works/pi-coding-agent";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { HePiRuntimeContext } from "../../runtime/context.js";
-import { buildStatusbarSnapshot } from "./model.js";
+import {
+	buildStatusbarSnapshot,
+	estimateContextUsage,
+	type StatusbarContextUsage,
+	stabilizeContextUsage,
+} from "./model.js";
 import { renderStatusbarLine } from "./render.js";
 
 type EditorFactory = NonNullable<
@@ -21,6 +27,8 @@ type Owner = {
 	installedEditorFactory: EditorFactory;
 	footerData?: ReadonlyFooterDataProvider;
 	requestRender?: () => void;
+	usage?: StatusbarContextUsage;
+	compacted: boolean;
 	dispose(): void;
 };
 
@@ -43,10 +51,15 @@ export function createStatusbarFeature(pi: ExtensionAPI): StatusbarFeature {
 		"thinking_level_select",
 		"session_info_changed",
 		"message_end",
-		"session_compact",
 		"session_tree",
 	] as const)
 		pi.on(event as never, invalidate);
+	pi.on("session_compact", (_event, eventCtx) => {
+		if (!owner || eventCtx !== owner.ctx) return;
+		owner.usage = undefined;
+		owner.compacted = true;
+		owner.requestRender?.();
+	});
 	return {
 		start(runtime) {
 			const ctx = runtime.ctx;
@@ -70,15 +83,37 @@ export function createStatusbarFeature(pi: ExtensionAPI): StatusbarFeature {
 				(editor as Editor & { render: (width: number) => string[] }).render = (width: number) => {
 					const lines = originalRender(width);
 					if (!lines.length || owner !== next) return lines;
+					const systemPrompt =
+						typeof ctx.getSystemPrompt === "function" ? ctx.getSystemPrompt() : undefined;
+					const currentUsage = ctx.getContextUsage();
+					let fallback: StatusbarContextUsage | undefined;
+					if (currentUsage?.tokens == null || next.compacted) {
+						try {
+							const messages = buildSessionContext([
+								...ctx.sessionManager.getBranch(),
+							] as never).messages;
+							fallback = estimateContextUsage(messages, currentUsage?.contextWindow, systemPrompt);
+						} catch {
+							fallback = undefined;
+						}
+					}
+					const usage = stabilizeContextUsage(
+						currentUsage,
+						next.compacted ? undefined : next.usage,
+						fallback,
+					);
+					if (usage?.tokens != null) {
+						next.usage = usage;
+						next.compacted = false;
+					}
 					return [
 						renderStatusbarLine(
 							width,
 							buildStatusbarSnapshot({
 								model: ctx.model ? { name: ctx.model.name, id: ctx.model.id } : undefined,
 								thinkingLevel: pi.getThinkingLevel(),
-								usage: ctx.getContextUsage(),
-								systemPrompt:
-									typeof ctx.getSystemPrompt === "function" ? ctx.getSystemPrompt() : undefined,
+								usage,
+								systemPrompt,
 								sessionName: ctx.sessionManager.getSessionName(),
 								statuses: next.footerData?.getExtensionStatuses(),
 							}),
@@ -92,6 +127,7 @@ export function createStatusbarFeature(pi: ExtensionAPI): StatusbarFeature {
 			next = {
 				sessionId,
 				ctx,
+				compacted: false,
 				previousEditorFactory,
 				installedEditorFactory,
 				dispose() {

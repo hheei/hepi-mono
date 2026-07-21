@@ -43,14 +43,14 @@ describe("loadout model", () => {
 	});
 
 	test("project uses binary transitions while global item is disabled", () => {
-		const item = tool("tool:bash");
-		let maps: LoadoutStatusMaps = { global: { [item.key]: false }, project: {} };
+		const item = tool("tool:extension:bash", { name: "bash" });
+		let maps: LoadoutStatusMaps = { global: { "tool:bash": false }, project: {} };
 		expect(nextConfiguredStatus(item, "project", maps)).toBe("active");
 		maps = toggleLoadoutState(item, "project", maps);
-		expect(maps.project[item.key]).toBe(true);
+		expect(maps.project["tool:bash"]).toBe(true);
 		expect(nextConfiguredStatus(item, "project", maps)).toBe("disabled");
 		maps = toggleLoadoutState(item, "project", maps);
-		expect(maps.project[item.key]).toBe(false);
+		expect(maps.project["tool:bash"]).toBe(false);
 		expect(nextConfiguredStatus(item, "project", maps)).toBe("active");
 	});
 
@@ -72,21 +72,27 @@ describe("loadout model", () => {
 		let maps: LoadoutStatusMaps = { global: {}, project: {} };
 		expect(nextConfiguredStatus(item, "project", maps)).toBe("disabled");
 		maps = toggleLoadoutState(item, "project", maps);
-		expect(maps.project[item.key]).toBe(false);
+		expect(maps.project["skill:local"]).toBe(false);
 		expect(nextConfiguredStatus(item, "project", maps)).toBe("active");
 		maps = toggleLoadoutState(item, "project", maps);
-		expect(maps.project[item.key]).toBe(true);
+		expect(maps.project["skill:local"]).toBe(true);
 	});
 
-	test("global-capable project toggle writes true, false, then deletes key", () => {
-		const item = tool("tool:read");
+	test("global-capable project toggle writes stable key and preserves legacy reads", () => {
+		const item = tool("tool:/old/path:read", { name: "read" });
 		let maps: LoadoutStatusMaps = { global: {}, project: {} };
 		maps = toggleLoadoutState(item, "project", maps);
-		expect(maps.project[item.key]).toBe(true);
+		expect(maps.project["tool:read"]).toBe(true);
 		maps = toggleLoadoutState(item, "project", maps);
-		expect(maps.project[item.key]).toBe(false);
+		expect(maps.project["tool:read"]).toBe(false);
 		maps = toggleLoadoutState(item, "project", maps);
-		expect(Object.hasOwn(maps.project, item.key)).toBe(false);
+		expect(Object.hasOwn(maps.project, "tool:read")).toBe(false);
+		expect(
+			resolveLoadoutItem({ ...item, key: "tool:/new/path:read" }, "global", {
+				global: { "tool:/old/path:read": false },
+				project: {},
+			}).effectiveStatus,
+		).toBe("disabled");
 	});
 	test("locks lower-priority same-name tools behind selected winner", () => {
 		const builtin = {

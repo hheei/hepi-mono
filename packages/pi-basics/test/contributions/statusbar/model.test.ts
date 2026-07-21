@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
 	buildStatusbarSnapshot,
 	contextMeter,
+	estimateContextUsage,
 	formatContextLimit,
+	stabilizeContextUsage,
 	thinkingGlyph,
 } from "../../../src/contributions/statusbar/model.js";
 
@@ -40,8 +42,12 @@ describe("statusbar model", () => {
 		expect(snapshot.contextTokens).toBe("123.5k");
 		expect(snapshot.contextLimit).toBe("350k");
 		expect(thinkingGlyph("off")).toBe("○");
-		expect(thinkingGlyph("medium")).toBe("◒");
+		expect(thinkingGlyph("minimal")).toBe("○");
+		expect(thinkingGlyph("low")).toBe("◔");
+		expect(thinkingGlyph("medium")).toBe("◑");
+		expect(thinkingGlyph("high")).toBe("◕");
 		expect(thinkingGlyph("xhigh")).toBe("●");
+		expect(thinkingGlyph("max")).toBe("●");
 	});
 
 	test("uses assembled system prompt tokens before first model response", () => {
@@ -52,6 +58,26 @@ describe("statusbar model", () => {
 		expect(snapshot.contextTokens).toBe("100");
 		expect(snapshot.percent).toBe(10);
 		expect(snapshot.meter).toBe("⣀⠀");
+	});
+
+	test("stabilizes transient usage and estimates compacted context", () => {
+		const previous = { tokens: 12_000, contextWindow: 100_000, percent: 12 };
+		expect(
+			stabilizeContextUsage(
+				{ tokens: 7, contextWindow: 100_000, percent: 0.007 },
+				previous,
+				undefined,
+			),
+		).toBe(previous);
+		const fallback = estimateContextUsage(
+			[{ role: "user", content: "x".repeat(400) }],
+			1_000,
+			"y".repeat(400),
+		);
+		expect(fallback).toEqual({ tokens: 200, contextWindow: 1_000, percent: 20 });
+		expect(stabilizeContextUsage({ tokens: null, contextWindow: 1_000 }, previous, fallback)).toBe(
+			fallback,
+		);
 	});
 });
 
@@ -102,8 +128,10 @@ test("covers formatter examples and invalid values", () => {
 	] as const)
 		expect(formatContextLimit(input)).toBe(output);
 	for (const value of [null, NaN, Infinity, -1]) expect(formatContextLimit(value)).toBe("?");
-	for (const level of ["off", "minimal", "low"] as const) expect(thinkingGlyph(level)).toBe("○");
-	expect(thinkingGlyph("medium")).toBe("◒");
-	for (const level of ["high", "xhigh"] as const) expect(thinkingGlyph(level)).toBe("●");
+	for (const level of ["off", "minimal"] as const) expect(thinkingGlyph(level)).toBe("○");
+	expect(thinkingGlyph("low")).toBe("◔");
+	expect(thinkingGlyph("medium")).toBe("◑");
+	expect(thinkingGlyph("high")).toBe("◕");
+	for (const level of ["xhigh", "max"] as const) expect(thinkingGlyph(level)).toBe("●");
 	expect(thinkingGlyph("bad")).toBe("?");
 });

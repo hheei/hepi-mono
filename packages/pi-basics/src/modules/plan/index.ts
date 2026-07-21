@@ -10,6 +10,7 @@ export {
 	type PlanPhase,
 	planStatus,
 	type RequestedPlanAction,
+	stripProposedPlan,
 } from "./model.js";
 export {
 	appendPlanBoundary,

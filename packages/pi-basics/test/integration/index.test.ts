@@ -218,6 +218,7 @@ test("opens built-in automatic title settings without external providers", async
 	expect(rendered).toContain("◈ Loadout");
 	expect(rendered).toContain("auto title");
 	expect(rendered).toContain("title model");
+	expect(rendered).not.toContain("traditional to simplified");
 	expect(rendered).toContain("Origin: @pi-basics");
 	expect(host.notifications).toEqual([]);
 	await host.emit("session_shutdown");

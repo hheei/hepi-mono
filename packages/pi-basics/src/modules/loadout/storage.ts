@@ -16,7 +16,12 @@ export interface LoadoutStoredState {
 
 export interface LoadoutStorage {
 	load(): Promise<LoadoutStoredState>;
-	update(scope: LoadoutScope, key: LoadoutKey, value: boolean | undefined): Promise<void>;
+	update(
+		scope: LoadoutScope,
+		key: LoadoutKey,
+		value: boolean | undefined,
+		removeKeys?: readonly LoadoutKey[],
+	): Promise<void>;
 }
 
 export function defaultLoadoutStoragePaths(): LoadoutStoragePaths {
@@ -93,6 +98,7 @@ export function createLoadoutStorage(
 		scope: LoadoutScope,
 		key: LoadoutKey,
 		value: boolean | undefined,
+		removeKeys: readonly LoadoutKey[] = [],
 	): Promise<void> => {
 		if (scope === "global" && value === undefined)
 			throw new Error("Global loadout update cannot delete a key");
@@ -103,6 +109,7 @@ export function createLoadoutStorage(
 			const section = root[loadoutSection];
 			if (section === undefined && value === undefined) return;
 			const nextSection: JsonObject = section === undefined ? {} : { ...(section as JsonObject) };
+			for (const removeKey of removeKeys) delete nextSection[removeKey];
 			if (value === undefined) delete nextSection[key];
 			else nextSection[key] = value;
 			root[loadoutSection] = nextSection;

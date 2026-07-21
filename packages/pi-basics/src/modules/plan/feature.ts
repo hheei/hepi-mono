@@ -16,6 +16,7 @@ import {
 	type PlanPhase,
 	planStatus,
 	type RequestedPlanAction,
+	stripProposedPlan,
 } from "./model.js";
 import {
 	appendPlanBoundary,
@@ -26,6 +27,14 @@ import {
 } from "./persistence.js";
 
 const PLAN_COMMAND_NAME = "plan";
+
+type PlanMessage = AgentEndEvent["messages"][number];
+interface PlanMessageEndEvent {
+	readonly message: PlanMessage;
+}
+interface PlanMessageEndResult {
+	readonly message: PlanMessage;
+}
 
 interface ActivePlan {
 	readonly sessionId: string;
@@ -97,7 +106,9 @@ export function createPlanFeature(pi: ExtensionAPI): PlanFeature {
 		current.phase = "plan-refine";
 		persist(current);
 		updateStatus(current);
-		pi.sendUserMessage(buildPlanRefinementPrompt(current.planUrl, current.plan));
+		pi.sendUserMessage(buildPlanRefinementPrompt(current.planUrl, current.plan), {
+			deliverAs: "followUp",
+		});
 	};
 
 	const capturePlan = async (event: AgentEndEvent, ctx: ExtensionContext): Promise<void> => {
@@ -149,7 +160,9 @@ export function createPlanFeature(pi: ExtensionAPI): PlanFeature {
 				createPlanConfirmationComponent({
 					plan,
 					model,
-					availableModels: ctx.modelRegistry.getAvailable(),
+					availableModels: ctx.modelRegistry
+						.getAvailable()
+						.filter((candidate) => ctx.modelRegistry.hasConfiguredAuth(candidate)),
 					selectModel: (candidate) =>
 						pi.setModel(candidate as Parameters<ExtensionAPI["setModel"]>[0]),
 					getThinkingLevel: () => {
@@ -234,7 +247,7 @@ export function createPlanFeature(pi: ExtensionAPI): PlanFeature {
 		}
 		if (action === "continue") {
 			ctx.ui.notify("※ Implement plan in current session", "info");
-			pi.sendUserMessage(prompt);
+			pi.sendUserMessage(prompt, { deliverAs: "followUp" });
 			return;
 		}
 		ctx.ui.notify("※ Implement plan after compact", "info");
@@ -246,7 +259,7 @@ export function createPlanFeature(pi: ExtensionAPI): PlanFeature {
 				onComplete: () => {
 					if (settled) return;
 					settled = true;
-					pi.sendUserMessage(prompt);
+					pi.sendUserMessage(prompt, { deliverAs: "followUp" });
 				},
 				onError: () => {
 					if (settled) return;
@@ -405,6 +418,44 @@ export function createPlanFeature(pi: ExtensionAPI): PlanFeature {
 			return;
 		return { systemPrompt: `${event.systemPrompt}\n\n${buildPlanModePrompt()}` };
 	});
+	const onMessageEnd = (
+		event: PlanMessageEndEvent,
+		ctx: ExtensionContext,
+	): PlanMessageEndResult | undefined => {
+		const current = active;
+		if (
+			!sameSession(current, ctx) ||
+			(current.phase !== "plan" && current.phase !== "plan-refine") ||
+			event.message.role !== "assistant" ||
+			!Array.isArray(event.message.content)
+		)
+			return;
+		let changed = false;
+		const content: typeof event.message.content = [];
+		for (const part of event.message.content) {
+			if (part.type !== "text") {
+				content.push(part);
+				continue;
+			}
+			const stripped = stripProposedPlan(part.text);
+			if (stripped === undefined) {
+				content.push(part);
+				continue;
+			}
+			changed = true;
+			if (stripped) content.push({ ...part, text: stripped });
+		}
+		return changed ? { message: { ...event.message, content } } : undefined;
+	};
+	(
+		pi.on as unknown as (
+			event: "message_end",
+			handler: (
+				event: PlanMessageEndEvent,
+				ctx: ExtensionContext,
+			) => PlanMessageEndResult | undefined,
+		) => void
+	)("message_end", onMessageEnd);
 	pi.on("agent_end", capturePlan);
 	pi.on("session_tree", (_event, ctx) => {
 		const current = active;
