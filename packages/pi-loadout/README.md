@@ -6,10 +6,10 @@ This package keeps the original loadout implementation and registers it as a top
 
 ## Local Testing
 
-Load `pi-extcore` together with this package because `pi-extcore` owns `/extension-setting`:
+Use the repository wrapper; it loads `pi-extcore` with this package because `pi-extcore` owns `/extension-setting`:
 
 ```bash
-pi -e packages/pi-extcore/src/extension.ts -e packages/pi-loadout/src/index.ts
+bun run pi:dev -- loadout
 ```
 
 ## Main Flow

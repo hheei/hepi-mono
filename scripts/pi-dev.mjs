@@ -18,8 +18,8 @@ const aliases = new Map([
 function usage() {
 	console.log(`Usage:
   bun run pi:dev                         # load pi-extcore + pi-loadout
-  bun run pi:dev -- basics                # load standalone pi-basics
-  bun run pi:dev -- pi-basics             # load standalone pi-basics
+  bun run pi:dev -- basics              # load standalone pi-basics
+  bun run pi:dev -- pi-basics           # load standalone pi-basics
   bun run pi:dev -- inturl              # load pi-extcore + pi-inturl
   bun run pi:dev -- loadout inturl      # load pi-extcore + pi-loadout + pi-inturl
   bun run pi:dev -- --all                # load every packages/pi-*/src entry

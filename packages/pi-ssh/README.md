@@ -33,12 +33,9 @@ Settings are stored under `pi-ssh` in `~/.pi/agent/ext-settings.json`.
 ## Development
 
 ```bash
-bun run --filter @hheei/pi-ssh test
+bun test packages/pi-ssh/test
 bun run typecheck
+bun run pi:dev -- ssh
 ```
 
-To test one run from this workspace, load `pi-extcore` too because it owns `/extension-setting`:
-
-```bash
-pi -e packages/pi-extcore/src/extension.ts -e packages/pi-ssh/src/index.ts
-```
+The development wrapper loads `pi-extcore` with this package because it owns `/extension-setting`.

@@ -1,6 +1,8 @@
 # TUI Panel Layout Helpers
 
-`@hheei/pi-extcore` exports small layout helpers for extension TUI surfaces. Use them when a custom panel needs dense rows that still fit terminal width.
+> Legacy-compatible reference for packages that already use `@hheei/pi-extcore`. New Pi Basics TUI work should follow [`DESIGN.md`](../DESIGN.md) and use `packages/pi-basics/src/ui/`.
+
+`@hheei/pi-extcore` exports small layout helpers for extension TUI surfaces that need dense rows within terminal width.
 
 ## Wrapped Three-Column Table
 

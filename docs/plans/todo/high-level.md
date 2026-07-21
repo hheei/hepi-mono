@@ -1,5 +1,7 @@
 # pi-basics Todo 高层方案（Review Gate）
 
+> Archived plan: retained for implementation history. Current behavior is defined by source, tests, and `packages/pi-basics/README.md`.
+
 > 目的：先确认功能边界，再进入详细设计与实作。推荐方案以“够用、可恢复、低提示词成本”为目标，不复制 `rpiv-todo`、`pi-xtodo` 或 `@zhushanwen/pi-todo` 的全部能力。
 
 ## 1. 一句话方案
@@ -141,4 +143,4 @@ promptGuidelines:
 - no-op update 有明确 `No change` 回应；已 abort 的调用不 mutation。
 - 不新增磁盘格式、配置格式、全局 editor/footer owner 或跨 module mutable state。
 
-详细设计见 [`pi-basics-todo-design.md`](./pi-basics-todo-design.md)，实施步骤见 [`pi-basics-todo-implementation.md`](./pi-basics-todo-implementation.md)。
+详细设计见 [`design.md`](./design.md)，实施步骤见 [`implementation.md`](./implementation.md)。

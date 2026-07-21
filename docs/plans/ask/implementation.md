@@ -1,6 +1,8 @@
 # pi-basics Ask 实作方案
 
-> 输入：[`pi-basics-ask-high-level.md`](./pi-basics-ask-high-level.md) 与 [`pi-basics-ask-design.md`](./pi-basics-ask-design.md)。本文件描述实现顺序、文件改动、测试、smoke scenario和验收；不是已完成声明。
+> Archived plan: retained for implementation history. Current behavior is defined by source, tests, and `packages/pi-basics/README.md`.
+
+> 输入：[`high-level.md`](./high-level.md) 与 [`design.md`](./design.md)。本文件描述实现顺序、文件改动、测试、smoke scenario和验收；不是已完成声明。
 
 ## 1. 实作原则
 
@@ -41,7 +43,7 @@
 
 ## 3. Phase 0：Review Gate
 
-实现前由用户确认 [`pi-basics-ask-high-level.md`](./pi-basics-ask-high-level.md) 的推荐项，至少包括：
+实现前由用户确认 [`high-level.md`](./high-level.md) 的推荐项，至少包括：
 
 - Tool名称`ask`。
 - 同一process只启用一个`ask`实现；参考extension必须停用，不能依赖registration覆盖。
