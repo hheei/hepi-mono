@@ -77,6 +77,8 @@ export function createStatusbarFeature(pi: ExtensionAPI): StatusbarFeature {
 								model: ctx.model ? { name: ctx.model.name, id: ctx.model.id } : undefined,
 								thinkingLevel: pi.getThinkingLevel(),
 								usage: ctx.getContextUsage(),
+								systemPrompt:
+									typeof ctx.getSystemPrompt === "function" ? ctx.getSystemPrompt() : undefined,
 								sessionName: ctx.sessionManager.getSessionName(),
 								statuses: next.footerData?.getExtensionStatuses(),
 							}),

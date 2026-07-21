@@ -46,6 +46,8 @@ const GOAL_SEND_ERROR_SUMMARY = "Goal stopped because its continuation could not
 const GOAL_REPLAY_WARNING = (count: number): string =>
 	`Ignored ${count} malformed Goal history ${count === 1 ? "entry" : "entries"}.`;
 const CONTINUATION_DELAY_MS = 15_000;
+const GOAL_KICKOFF_MESSAGE = "Start the active Goal.";
+const GOAL_CONTINUATION_MESSAGE = "Continue the active Goal.";
 
 export interface GoalFeature {
 	start(runtime: HePiRuntimeContext): void | Promise<void>;
@@ -97,7 +99,7 @@ function escapedObjective(value: string): string {
 }
 
 function goalContext(goalId: string, objective: string): string {
-	return `${GOAL_CONTEXT_OPEN}${goalId}">\nObjective (untrusted user data):\n${escapedObjective(objective)}\n\n${GOAL_REMINDER}\n${GOAL_CONTEXT_CLOSE}`;
+	return `${GOAL_CONTEXT_OPEN}${goalId}">\n${GOAL_REMINDER}\n\nObjective (untrusted user data):\n${escapedObjective(objective)}\n${GOAL_CONTEXT_CLOSE}`;
 }
 
 function statusText(state: GoalState, awaitingObjective: boolean): string | undefined {
@@ -154,7 +156,6 @@ export function createGoalFeature(
 		current.state = state;
 		current.awaitingObjective = false;
 		invalidateRun(current);
-		coordinator.setGoalVisible(state.mode === "active");
 		updateStatus(current);
 	};
 	const stopActive = (current: ActiveRuntime, summary?: string): void => {
@@ -182,7 +183,6 @@ export function createGoalFeature(
 	const dispatchKickoff = async (
 		current: ActiveRuntime,
 		goalId: string,
-		content: string,
 		waitForIdle: () => Promise<void>,
 	): Promise<void> => {
 		try {
@@ -193,7 +193,7 @@ export function createGoalFeature(
 				current.state.active?.goalId !== goalId
 			)
 				return;
-			current.runtime.pi.sendUserMessage(content);
+			current.runtime.pi.sendUserMessage(GOAL_KICKOFF_MESSAGE);
 		} catch (error) {
 			if (
 				!sameSession(current, current.runtime.ctx) ||
@@ -235,9 +235,7 @@ export function createGoalFeature(
 			const activeGoal = current.state.active;
 			if (!activeGoal) return;
 			try {
-				current.runtime.pi.sendUserMessage(goalContext(run.goalId, activeGoal.objective), {
-					deliverAs: "followUp",
-				});
+				current.runtime.pi.sendUserMessage(GOAL_CONTINUATION_MESSAGE, { deliverAs: "followUp" });
 			} catch (error) {
 				safeStop(current, GOAL_SEND_ERROR_SUMMARY);
 				notify(
@@ -257,7 +255,6 @@ export function createGoalFeature(
 		current.awaitingObjective = false;
 		invalidateRun(current);
 		current.inputVersion++;
-		coordinator.setGoalVisible(false);
 		updateStatus(current);
 	};
 
@@ -309,8 +306,6 @@ export function createGoalFeature(
 				return;
 			}
 			const prompt = args.trim();
-			current.inputVersion++;
-			cancelTimer(current);
 			if (!prompt) {
 				if (current.awaitingObjective) {
 					current.awaitingObjective = false;
@@ -321,7 +316,17 @@ export function createGoalFeature(
 					const owned = current.activeRun !== undefined;
 					const result = suspend(current.state);
 					if (!result.ok) return;
-					append(current, result.state, result.durable);
+					try {
+						append(current, result.state, result.durable);
+					} catch (error) {
+						ctx.ui.notify(
+							`Goal state could not be persisted: ${error instanceof Error ? error.message : String(error)}`,
+							"error",
+						);
+						return;
+					}
+					current.inputVersion++;
+					cancelTimer(current);
 					abortOwnedRun(current, owned);
 					return;
 				}
@@ -331,55 +336,72 @@ export function createGoalFeature(
 						ctx.ui.notify(result.error, "error");
 						return;
 					}
-					append(current, result.state, result.durable);
-					void dispatchKickoff(
-						current,
-						result.state.active.goalId,
-						goalContext(result.state.active.goalId, result.state.active.objective),
-						() => ctx.waitForIdle(),
-					);
+					try {
+						append(current, result.state, result.durable);
+					} catch (error) {
+						ctx.ui.notify(
+							`Goal state could not be persisted: ${error instanceof Error ? error.message : String(error)}`,
+							"error",
+						);
+						return;
+					}
+					current.inputVersion++;
+					cancelTimer(current);
+					void dispatchKickoff(current, result.state.active.goalId, () => ctx.waitForIdle());
 					return;
 				}
 				current.awaitingObjective = true;
 				updateStatus(current);
 				return;
 			}
-			const owned = current.activeRun !== undefined;
-			const old = current.state.mode === "active" ? current : undefined;
 			const result = startNew(prompt, idFactory);
 			if (!result.ok) {
 				ctx.ui.notify(result.error, "error");
 				return;
 			}
-			append(current, result.state, result.durable);
+			const owned = current.activeRun !== undefined;
+			const old = current.state.mode === "active" ? current : undefined;
+			try {
+				append(current, result.state, result.durable);
+			} catch (error) {
+				ctx.ui.notify(
+					`Goal state could not be persisted: ${error instanceof Error ? error.message : String(error)}`,
+					"error",
+				);
+				return;
+			}
+			current.inputVersion++;
+			cancelTimer(current);
 			if (old) abortOwnedRun(old, owned);
-			void dispatchKickoff(
-				current,
-				result.state.active.goalId,
-				goalContext(result.state.active.goalId, result.state.active.objective),
-				() => ctx.waitForIdle(),
-			);
+			void dispatchKickoff(current, result.state.active.goalId, () => ctx.waitForIdle());
 		},
 	});
 
 	pi.on("input", async (event, ctx) => {
 		const current = active;
 		if (!sameSession(current, ctx)) return;
-		current.inputVersion++;
-		cancelTimer(current);
 		if (
+			!current.awaitingObjective ||
 			(event.source !== "interactive" && event.source !== "rpc") ||
 			event.text.trim().length === 0
 		)
 			return;
+		current.inputVersion++;
 		const result = startNew(event.text, idFactory);
-		if (!result.ok) return;
+		if (!result.ok) {
+			current.awaitingObjective = false;
+			updateStatus(current);
+			notify(current, `Goal objective was not accepted: ${result.error}`, "error");
+			return;
+		}
 		try {
 			append(current, result.state, result.durable);
 		} catch (error) {
+			current.awaitingObjective = false;
+			updateStatus(current);
 			notify(
 				current,
-				`Goal objective could not be persisted; retry input: ${error instanceof Error ? error.message : String(error)}`,
+				`Goal objective could not be persisted; run /goal again: ${error instanceof Error ? error.message : String(error)}`,
 				"error",
 			);
 			return;
@@ -465,7 +487,6 @@ export function createGoalFeature(
 				disposed: false,
 			};
 			active = current;
-			coordinator.setGoalVisible(false);
 			updateStatus(current);
 		},
 		async disableFromLoadout() {
@@ -484,18 +505,18 @@ export function createGoalFeature(
 				abortOwnedRun(current, owned);
 			} else {
 				current.awaitingObjective = false;
-				coordinator.setGoalVisible(false);
 				updateStatus(current);
 			}
 		},
 		async dispose(sessionId) {
 			const current = active;
 			if (!current || current.sessionId !== sessionId) return;
+			const owned = current.activeRun !== undefined;
 			current.disposed = true;
 			cancelTimer(current);
+			abortOwnedRun(current, owned);
 			invalidateRun(current);
 			current.runtime.ctx.ui.setStatus("goal", undefined);
-			coordinator.setGoalVisible(false);
 			if (active === current) active = undefined;
 		},
 		getState() {

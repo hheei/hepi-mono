@@ -23,17 +23,33 @@ describe("tool activation coordinator", () => {
 		const { getActiveToolsCalls } = host();
 		expect(getActiveToolsCalls()).toBe(0);
 	});
-	test("composes masks without enabling disabled baseline tools", () => {
+	test("masks Ask without removing configured Goal", () => {
 		const { coordinator, activeSets } = host(["read", "goal"]);
 		coordinator.setLoadoutBaseline(["read", "goal", "ask"]);
-		coordinator.setGoalVisible(true);
+		expect(activeSets.at(-1)).toEqual(["read", "goal"]);
 		coordinator.setAskVisible(true);
 		expect(activeSets.at(-1)).toEqual(["read", "goal", "ask"]);
 		coordinator.setLoadoutBaseline(["read"]);
 		expect(coordinator.isConfigured("goal")).toBe(false);
 		expect(coordinator.isEffective("goal")).toBe(false);
-		coordinator.setGoalVisible(true);
 		expect(activeSets.at(-1)).toEqual(["read"]);
+	});
+
+	test("keeps the previous effective tools when host update fails", () => {
+		const writes: string[][] = [];
+		let rejectWrites = false;
+		const pi = {
+			setActiveTools: (names: string[]) => {
+				if (rejectWrites) throw new Error("host rejected tools");
+				writes.push(names);
+			},
+		} as never;
+		const coordinator = createToolActivationCoordinator(pi);
+		coordinator.setLoadoutBaseline(["goal"]);
+		rejectWrites = true;
+		expect(() => coordinator.setLoadoutBaseline([])).toThrow("host rejected tools");
+		expect(coordinator.isEffective("goal")).toBe(true);
+		expect(writes).toEqual([["goal"]]);
 	});
 
 	test("does not rewrite unchanged effective set and dispose blocks writes", () => {
@@ -43,7 +59,7 @@ describe("tool activation coordinator", () => {
 		coordinator.setLoadoutBaseline(["read", "ask", "goal", "goal"]);
 		expect(activeSets).toHaveLength(count);
 		coordinator.dispose();
-		coordinator.setGoalVisible(true);
+		coordinator.setAskVisible(true);
 		expect(activeSets).toHaveLength(count);
 	});
 });
