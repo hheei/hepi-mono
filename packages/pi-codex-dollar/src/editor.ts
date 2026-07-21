@@ -20,7 +20,6 @@ function getPickerState(
 	baseEditor: EditorLike,
 	commands: readonly SkillCommand[],
 	maxSuggestions: number,
-	activeSkillNames?: ReadonlySet<string>,
 ): PickerState | null {
 	if (typeof baseEditor.getLines !== "function" || typeof baseEditor.getCursor !== "function")
 		return null;
@@ -28,7 +27,7 @@ function getPickerState(
 	const token = extractDollarSkillToken(baseEditor.getLines(), cursor.line, cursor.col);
 	if (!token) return null;
 
-	const items = getSkillSuggestions(commands, token.query, maxSuggestions, activeSkillNames);
+	const items = getSkillSuggestions(commands, token.query, maxSuggestions);
 	if (items.length === 0) return null;
 
 	return { token, items };
@@ -41,7 +40,6 @@ export function createSkillPickerEditor(
 	tui: TuiLike,
 	keybindings?: KeybindingsLike,
 	getSettings?: () => DollarExtensionSettings,
-	getActiveSkillNames?: () => ReadonlySet<string> | undefined,
 ): EditorLike {
 	const editorMetadata = baseEditor as unknown as SymbolMetadata;
 	if (editorMetadata[HIGHLIGHT_WRAPPED]) return baseEditor;
@@ -55,13 +53,7 @@ export function createSkillPickerEditor(
 	function currentPicker(): PickerState | null {
 		const settings = getSettings?.() ?? DEFAULT_DOLLAR_SETTINGS;
 		if (!settings.pickerEnabled) return null;
-		const activeSkillNames = settings.respectLoadout ? getActiveSkillNames?.() : undefined;
-		const picker = getPickerState(
-			baseEditor,
-			getCommands(),
-			settings.maxSuggestions,
-			activeSkillNames,
-		);
+		const picker = getPickerState(baseEditor, getCommands(), settings.maxSuggestions);
 		if (!picker) return null;
 		if (state.closedPrefix === picker.token.prefix) return null;
 
@@ -159,12 +151,7 @@ export function createSkillPickerEditor(
 					target.handleInput(data);
 					const settings = getSettings?.() ?? DEFAULT_DOLLAR_SETTINGS;
 					const nextPicker = settings.pickerEnabled
-						? getPickerState(
-								target,
-								getCommands(),
-								settings.maxSuggestions,
-								settings.respectLoadout ? getActiveSkillNames?.() : undefined,
-							)
+						? getPickerState(target, getCommands(), settings.maxSuggestions)
 						: null;
 					if (!nextPicker || nextPicker.token.prefix !== state.closedPrefix)
 						state.closedPrefix = undefined;

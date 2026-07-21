@@ -23,16 +23,6 @@ assert.deepEqual(
 
 assert.deepEqual(getSkillSuggestions(commands, "search"), []);
 
-const loadoutSorted = getSkillSuggestions(commands, "", 30, new Set(["pi-subagents"]));
-assert.deepEqual(
-	loadoutSorted.map((item) => [item.value, item.active]),
-	[
-		["$pi-subagents", true],
-		["$deploy-plan", false],
-		["$librarian", false],
-	],
-);
-
 const librarian = getSkillSuggestions(commands, "lib")[0]!;
 assert.equal(librarian.value, "$librarian");
 assert.equal(librarian.label, "librarian");

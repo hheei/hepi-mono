@@ -4,31 +4,21 @@ import { createSkillPickerEditor } from "../src/index.js";
 import { commands, FakeEditor, noopTheme } from "./helpers.js";
 
 const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
-const defaultDollarSettings = {
-	pickerEnabled: true,
-	maxSuggestions: 30,
-	expandReferences: true,
-	highlightReferences: true,
-	respectLoadout: true,
-};
 
 function stripAnsi(text: string): string {
 	return text.replace(ANSI_ESCAPE_PATTERN, "");
 }
 type TestEditor = FakeEditor & ReturnType<typeof createSkillPickerEditor> & Record<symbol, unknown>;
 
-function createEditor(
-	keybindings?: { matches?: (data: string, action: string) => boolean },
-	getActiveSkillNames?: () => Set<string>,
-): TestEditor {
+function createEditor(keybindings?: {
+	matches?: (data: string, action: string) => boolean;
+}): TestEditor {
 	return createSkillPickerEditor(
 		new FakeEditor(),
 		() => commands,
 		noopTheme(),
 		{ requestRender() {} },
 		keybindings,
-		() => defaultDollarSettings,
-		getActiveSkillNames,
 	) as TestEditor;
 }
 
@@ -38,24 +28,6 @@ let rendered = stripAnsi(editor.render(96).join("\n"));
 assert.match(rendered, /deploy-plan\s+Extension\s+Prepare deployment plans/);
 assert.match(rendered, /librarian\s+User\s+Research open-source/);
 assert.match(rendered, /pi-subagents\s+Extension\s+Delegate work to subagents/);
-
-const loadoutEditor = createSkillPickerEditor(
-	new FakeEditor(),
-	() => commands,
-	{ selectList: { description: (text: string) => `<muted>${text}</muted>` } },
-	{ requestRender() {} },
-	undefined,
-	() => defaultDollarSettings,
-	() => new Set(["pi-subagents"]),
-);
-loadoutEditor.handleInput("$");
-const loadoutRendered = loadoutEditor.render(120).join("\n");
-assert.match(loadoutRendered, /pi-subagents\s+Extension\s+Delegate work to subagents/);
-assert.match(
-	loadoutRendered,
-	/<muted>\s+deploy-plan\s+Extension\s+Prepare deployment plans<\/muted>/,
-);
-assert.ok(loadoutRendered.indexOf("pi-subagents") < loadoutRendered.indexOf("deploy-plan"));
 
 editor.handleInput("l");
 rendered = stripAnsi(editor.render(96).join("\n"));

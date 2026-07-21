@@ -2,7 +2,6 @@ import {
 	clamp,
 	padRight,
 	styleDescription,
-	styleInactiveRow,
 	styleScrollInfo,
 	styleSelectedRow,
 	truncate,
@@ -81,27 +80,22 @@ export function renderSkillPickerLines(
 		const description = sourceMatch?.[2] ?? item.description ?? "";
 		const descriptionLines = wrapText(description, descWidth);
 		const selected = index === selectedIndex;
-		const active = item.active !== false;
 		const prefix = selected ? "→ " : "  ";
 		const name = truncate(item.label, nameWidth);
 		const sourceLabel = truncate(source, sourceWidth);
 		const firstDescription = descriptionLines[0] ?? "";
 		const row = `${prefix}${padRight(name, nameWidth)}${" ".repeat(gap)}${padRight(sourceLabel, sourceWidth)}${" ".repeat(gap)}${
-			active && !selected ? styleDescription(firstDescription, theme) : firstDescription
+			selected ? firstDescription : styleDescription(firstDescription, theme)
 		}`;
-		const group = [
-			active ? (selected ? styleSelectedRow(row, theme) : row) : styleInactiveRow(row, theme),
-		];
+		const group = [selected ? styleSelectedRow(row, theme) : row];
 
 		for (const extraLine of descriptionLines.slice(1)) {
 			const row = `${continuationIndent}${extraLine}`;
-			if (!active) group.push(styleInactiveRow(row, theme));
-			else
-				group.push(
-					selected
-						? styleSelectedRow(row, theme)
-						: `${continuationIndent}${styleDescription(extraLine, theme)}`,
-				);
+			group.push(
+				selected
+					? styleSelectedRow(row, theme)
+					: `${continuationIndent}${styleDescription(extraLine, theme)}`,
+			);
 		}
 
 		if (selected) {
