@@ -67,7 +67,7 @@ describe("Ask component", () => {
 		expect(optionLines).toContain("→ Alpha (Recommended)");
 		expect(optionLines).toContain("  Beta");
 		expect(optionLines).toContain("  Other (type your own)");
-		expect(plain(component)).toContain("↵ Select");
+		expect(plain(component)).toContain("↵ select");
 		assertVisibleWidth(lines, 40);
 	});
 
@@ -149,7 +149,7 @@ describe("Ask component", () => {
 		const output = component.render(120).join("\n");
 		expect(output).toContain("<dim>#1 Deployment?</dim>");
 		expect(output).toContain("<borderAccent>☑</borderAccent> <border>Yes</border>");
-		expect(output).toContain("<dim>↕ scroll · ↔ tab · ↵ submit · ⎋ cancel</dim>");
+		expect(output).toContain("<dim>↕ scroll · ↔ switch · ↵ submit · ⎋ cancel</dim>");
 		expect(output).toContain("<text>╭");
 		expect(output).toContain("<accent>╭");
 		expect(output).toContain("<accent>╯");

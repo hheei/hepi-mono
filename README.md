@@ -2,22 +2,19 @@
 
 Monorepo for HEPI Pi Coding Agent extensions.
 
-This layout follows the useful parts of `pix-mono` and `rpiv-mono`:
+The repository uses one Bun workspace at the root, one Pi extension per `packages/pi-*` directory, and shared TypeScript, Biome, and test configuration. Every publishable extension declares a `pi.extensions` entry in its package manifest.
 
-- one Bun workspace at the root
-- one package per Pi extension under `packages/*`
-- shared TypeScript, Biome, and Bun test config at the root
-- every publishable extension declares a `pi.extensions` entry in its `package.json`
-- shared core code, settings config, and settings UI live in `@hheei/pi-extcore`
+`@hheei/pi-basics` is the current HEPI runtime and `/hepi` integration layer. `@hheei/pi-extcore` remains the settings and helper stack for existing packages that depend on `/extension-setting`.
 
 ## Docs
 
-Start with [Extension Development Guide](docs/extension-development.md) when adding or changing extension packages.
+Start with the [Documentation Index](docs/README.md). Use the [Extension Development Guide](docs/extension-development.md) for repository-wide package work and [Pi Basics Development](docs/pi-basics-development.md) for the foundational HEPI extension.
 
 ## Layout
 
 ```text
 packages/
+  pi-basics/       Foundational HEPI runtime, TUI, and workflow features
   pi-codex-dollar/ Dollar-triggered inline skill references
   pi-extcore/      Shared core helpers and settings UI
   pi-inturl/       Internal URL and path shortcut helpers
@@ -61,9 +58,10 @@ Use the wrapper to start Pi with automatic extension discovery disabled and only
 bun run pi:dev
 ```
 
-By default this loads `pi-extcore` and `pi-loadout`. To test a specific package:
+By default this loads the repository's default extension set. To test a specific package:
 
 ```bash
+bun run pi:dev -- basics
 bun run pi:dev -- inturl
 bun run pi:dev -- loadout inturl
 bun run pi:dev -- --all

@@ -54,6 +54,7 @@ export const ASK_PROMPT_GUIDELINES = [
 export interface AskFeature {
 	start(runtime: HePiRuntimeContext): void | Promise<void>;
 	dispose(sessionId: string): void | Promise<void>;
+	requestAsk(questionnaire: AskQuestionnaire, signal?: AbortSignal): Promise<AskInteractionResult>;
 }
 
 interface ActiveAsk {
@@ -83,6 +84,52 @@ export function createAskFeature(
 ): AskFeature {
 	let activeRuntime: HePiRuntimeContext | undefined;
 	let activeAsk: ActiveAsk | undefined;
+	const requestAsk = async (
+		questionnaire: AskQuestionnaire,
+		signal?: AbortSignal,
+	): Promise<AskInteractionResult> => {
+		const runtime = activeRuntime;
+		if (!runtime) throw new Error("Ask runtime is not active");
+		if (activeAsk) throw new Error("Ask is already active");
+		if (signal?.aborted) signal.throwIfAborted();
+		const abort = new AbortController();
+		const onAbort = () => abort.abort(signal?.reason);
+		if (signal) {
+			if (signal.aborted) onAbort();
+			else signal.addEventListener("abort", onAbort, { once: true });
+		}
+		const current: ActiveAsk = { sessionId: runtime.ctx.sessionManager.getSessionId(), abort };
+		activeAsk = current;
+		try {
+			if (runtime.ctx.mode === "tui" && typeof runtime.ctx.ui.custom === "function") {
+				const customResult = await runtime.ctx.ui.custom<AskInteractionResult>(
+					(tui, theme, _keybindings, done) => {
+						const component = createAskComponent({
+							questionnaire,
+							host: {
+								requestRender: () => tui.requestRender(),
+								getTerminalRows: () => tui.terminal.rows,
+							},
+							theme,
+							signal: abort.signal,
+							done,
+						});
+						current.component = component;
+						return component;
+					},
+				);
+				if (!customResult) throw new Error("Ask UI closed without a result");
+				return customResult;
+			}
+			if (hasDialogUI(runtime.ctx.ui))
+				return runAskFallback(questionnaire, runtime.ctx.ui, abort.signal);
+			throw new Error("Ask requires interactive UI");
+		} finally {
+			if (signal) signal.removeEventListener("abort", onAbort);
+			current.component?.dispose();
+			if (activeAsk === current) activeAsk = undefined;
+		}
+	};
 
 	pi.registerTool({
 		name: ASK_TOOL_NAME,
@@ -110,56 +157,15 @@ export function createAskFeature(
 				runtime.ctx.sessionManager.getSessionId() !== ctx.sessionManager.getSessionId()
 			)
 				throw new Error("Ask runtime is not active");
-			if (activeAsk) throw new Error("Ask is already active");
-			if (signal?.aborted) signal.throwIfAborted();
-			const abort = new AbortController();
-			const onAbort = () => abort.abort(signal?.reason);
-			if (signal) {
-				if (signal.aborted) onAbort();
-				else signal.addEventListener("abort", onAbort, { once: true });
-			}
-			const current: ActiveAsk = { sessionId: ctx.sessionManager.getSessionId(), abort };
-			activeAsk = current;
 			onUpdate?.({
 				content: [{ type: "text", text: "Waiting for user input..." }],
 				details: undefined,
 			});
-			try {
-				const questionnaire = normalizeAskParams(params) as AskQuestionnaire;
-				let result: AskInteractionResult;
-				if (ctx.mode === "tui" && typeof ctx.ui.custom === "function") {
-					const customResult = await ctx.ui.custom<AskInteractionResult>(
-						(tui, theme, _keybindings, done) => {
-							const component = createAskComponent({
-								questionnaire,
-								host: {
-									requestRender: () => tui.requestRender(),
-									getTerminalRows: () => tui.terminal.rows,
-								},
-								theme,
-								signal: abort.signal,
-								done,
-							});
-							current.component = component;
-							return component;
-						},
-					);
-					if (!customResult) throw new Error("Ask UI closed without a result");
-					result = customResult;
-				} else if (hasDialogUI(ctx.ui)) {
-					result = await runAskFallback(questionnaire, ctx.ui, abort.signal);
-				} else {
-					throw new Error("Ask requires interactive UI");
-				}
-				return {
-					content: [{ type: "text", text: formatAskResult(result.details) }],
-					details: result.details,
-				};
-			} finally {
-				if (signal) signal.removeEventListener("abort", onAbort);
-				current.component?.dispose();
-				if (activeAsk === current) activeAsk = undefined;
-			}
+			const result = await requestAsk(normalizeAskParams(params), signal);
+			return {
+				content: [{ type: "text", text: formatAskResult(result.details) }],
+				details: result.details,
+			};
 		},
 	});
 
@@ -171,6 +177,7 @@ export function createAskFeature(
 				hasDialogUI(runtime.ctx.ui);
 			coordinator.setAskVisible(interactive);
 		},
+		requestAsk,
 		async dispose(sessionId) {
 			if (activeRuntime?.ctx.sessionManager.getSessionId() !== sessionId) return;
 			activeAsk?.abort.abort(new Error("Ask session ended"));

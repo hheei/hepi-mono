@@ -1,6 +1,8 @@
 # pi-basics Todo 实作方案
 
-> 输入：[`pi-basics-todo-high-level.md`](./pi-basics-todo-high-level.md) 与 [`pi-basics-todo-design.md`](./pi-basics-todo-design.md)。本文件描述实现顺序、文件改动、测试和验收；不是已完成声明。
+> Archived plan: retained for implementation history. Current behavior is defined by source, tests, and `packages/pi-basics/README.md`.
+
+> 输入：[`high-level.md`](./high-level.md) 与 [`design.md`](./design.md)。本文件描述实现顺序、文件改动、测试和验收；不是已完成声明。
 
 ## 1. 实作原则
 
@@ -34,7 +36,7 @@
 
 ## 3. Phase 0：Review Gate
 
-实现前先由用户确认 [`pi-basics-todo-high-level.md`](./pi-basics-todo-high-level.md) 的推荐项，至少包括：`todo` tool、直接 `/todos` command、branch-only persistence、hard delete、四字段、ordered `operations[]` mixed batch、完整替换 `blockedBy`、四条来源化 prompt guidance、只读 widget。任一项改变时，先同步详细设计和 acceptance；未确认前不改完整逻辑。
+实现前先由用户确认 [`high-level.md`](./high-level.md) 的推荐项，至少包括：`todo` tool、直接 `/todos` command、branch-only persistence、hard delete、四字段、ordered `operations[]` mixed batch、完整替换 `blockedBy`、四条来源化 prompt guidance、只读 widget。任一项改变时，先同步详细设计和 acceptance；未确认前不改完整逻辑。
 
 
 

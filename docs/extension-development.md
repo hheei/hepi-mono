@@ -1,8 +1,8 @@
 # Extension Development Guide
 
-This guide is the fast path for building Pi extensions in `hepi-mono`.
+This guide covers repository-wide package conventions. For the foundational HEPI extension, continue with [Pi Basics Development](pi-basics-development.md).
 
-## Start Here
+## Package Layout
 
 Use one package per extension:
 
@@ -14,30 +14,65 @@ packages/
     src/index.ts
 ```
 
-Package names must use the `@hheei/pi-xxxx` pattern. The package directory should use the matching unscoped name, for example `packages/pi-my-extension`.
+Package names use `@hheei/pi-xxxx`; directories use the matching unscoped name, such as `packages/pi-my-extension`.
 
-Create a new extension from the template:
+Create a package from the template:
 
 ```bash
 bun run new:extension -- pi-my-extension
 ```
 
-The script also accepts names without the prefix and adds it:
+The script also accepts `my-extension` and adds the `pi-` prefix.
 
-```bash
-bun run new:extension -- my-extension
-# creates packages/pi-my-extension
+## Extension Entry Point
+
+Pi loads TypeScript extension entries through `jiti`, so packages normally expose `src/index.ts` directly:
+
+```ts
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+export default function extension(pi: ExtensionAPI) {
+  pi.registerCommand("pi-my-extension", {
+    description: "Run my extension command",
+    handler: async (_args, ctx) => {
+      ctx.ui.notify("Loaded", "info");
+    },
+  });
+}
 ```
+
+Declare the entry in `package.json`:
+
+```json
+{
+  "name": "@hheei/pi-my-extension",
+  "type": "module",
+  "main": "src/index.ts",
+  "pi": {
+    "extensions": ["src/index.ts"]
+  }
+}
+```
+
+Publishable packages should also declare `files`, `keywords`, repository metadata, license, and Pi peer dependencies.
+
+## Pi Basics Integration
+
+`@hheei/pi-basics` owns the current HEPI runtime, `/hepi` Settings/Loadout shell, shared lifecycle, and foundational workflow features. New packages that integrate with HEPI should use its package-root APIs.
+
+Use `registerHePiSettings()` to contribute settings to `/hepi setting`. Use `registerHePiModule()` only when a feature needs a distinct `/hepi` module. See [Pi Basics Development](pi-basics-development.md) for registration timing, persistence, lifecycle, TUI primitives, and tests.
+
+Do not register a competing `/hepi` command, footer/editor rail, or active-tool owner without first defining how ownership composes. In particular, `@hheei/pi-basics` and `@hheei/pi-loadout` must not be loaded in the same Pi process.
+
+`@hheei/pi-extcore`, `/extension-setting`, and the helpers in [TUI Panel Layout Helpers](tui-panel-layouts.md) remain available to packages that already depend on them. Treat them as legacy-compatible infrastructure; new HEPI integrations should target Pi Basics unless there is a concrete compatibility requirement.
 
 ## Forking Existing Extensions
 
-When forking an existing Pi extension, copy the upstream implementation into a package first, then adapt it in small reviewable steps. Do not rewrite a working extension from scratch unless the user explicitly asks for that.
+When forking an existing extension, copy the upstream implementation and adapt it in small, reviewable steps. Preserve upstream behavior until a HEPI-specific difference is intentional and tested.
 
-Current fork packages:
+Keep upstream attribution and license files. Document where HEPI behavior diverges and avoid silently replacing a package's persistence or runtime ownership model.
 
-- `packages/pi-loadout`: HEPI fork of `pi-loadout`; keeps `/loadout` behavior and contributes runtime settings to `/extension-setting`.
-
-## Development Commands
+## Local Testing
 
 Install dependencies:
 
@@ -45,12 +80,36 @@ Install dependencies:
 bun install
 ```
 
-Run checks:
+Run Pi with automatic extension and skill discovery disabled through the repository wrapper:
+
+```bash
+bun run pi:dev -- basics
+bun run pi:dev -- inturl
+bun run pi:dev -- --all
+```
+
+Pass Pi flags after a second `--`:
+
+```bash
+bun run pi:dev -- basics -- --model openai/gpt-5
+```
+
+Use only the packages required by the scenario. Avoid combinations with known ownership conflicts.
+
+## Verification
+
+Repository checks:
 
 ```bash
 bun run typecheck
 bun test
 bun run check
+```
+
+Run package-focused tests while iterating, for example:
+
+```bash
+bun test packages/pi-basics/test
 ```
 
 Format or apply safe lint fixes:
@@ -60,205 +119,30 @@ bun run format
 bun run check:fix
 ```
 
-## Extension Entry Point
+A package README should document its commands, tools, persistence, host/version requirements, incompatible packages, and local test command.
 
-Pi loads TypeScript extension entries through `jiti`, so extensions should normally expose `src/index.ts` directly.
+## TUI Work
 
-A minimal extension looks like this:
+For Pi Basics interfaces, [DESIGN.md](../DESIGN.md) is normative. Use the shared primitives under `packages/pi-basics/src/ui/` and test narrow and wide terminal widths.
 
-```ts
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+For other extensions:
 
-export default function extension(pi: ExtensionAPI) {
-	pi.registerCommand("pi-my-extension", {
-		description: "Run my extension command",
-		handler: async (_args, ctx) => {
-			ctx.ui.notify("Loaded", "info");
-		},
-	});
-}
-```
+- use Pi and `@earendil-works/pi-tui` components where possible
+- keep every rendered line within the supplied cell width
+- call `requestRender()` after state changes
+- implement `invalidate()` when caching rendered content
+- obtain theme functions from the custom UI context
+- keep non-obvious keyboard actions visible in concise hint text
 
-Each extension package must declare the Pi entry in `package.json`:
+Existing `pi-extcore` table helpers are documented in [TUI Panel Layout Helpers](tui-panel-layouts.md), with examples in [examples/tui-panels.ts](examples/tui-panels.ts).
 
-```json
-{
-	"name": "@hheei/pi-my-extension",
-	"type": "module",
-	"main": "src/index.ts",
-	"pi": {
-		"extensions": ["src/index.ts"]
-	}
-}
-```
+## Completion Checklist
 
-## Local Testing in Pi
-
-Use the wrapper script for isolated local testing. It starts Pi with automatic extension and skill discovery disabled, then loads only the mono extensions you ask for.
-
-Default loadout:
-
-```bash
-bun run pi:dev
-```
-
-This loads `pi-extcore` and `pi-loadout`. Test one or more packages:
-
-```bash
-bun run pi:dev -- inturl
-bun run pi:dev -- loadout inturl
-bun run pi:dev -- --all
-```
-
-Pass extra Pi flags after a second `--`:
-
-```bash
-bun run pi:dev -- loadout -- --model openai/gpt-5
-```
-
-Manual equivalent:
-
-```bash
-pi --no-extensions --no-skills -e packages/pi-extcore/src/extension.ts -e packages/pi-loadout/src/index.ts
-```
-
-Then run commands inside Pi:
-
-```text
-/extension-setting
-/loadout
-```
-
-## Shared Core Package
-
-Use `@hheei/pi-extcore` for code that multiple extensions will share. Current responsibilities:
-
-- package naming helpers
-- shared settings config types
-- shared `/extension-setting` command
-- reusable settings panel TUI
-- session-backed and JSON-backed settings storage adapters
-
-`pi-extcore` is both a library and a Pi extension. Its package manifest registers `src/extension.ts`, which owns the shared settings command. Other extensions should not register their own settings command.
-
-Do not put one-off extension code in `pi-extcore`. Move code there only when future extensions are expected to reuse it.
-
-## Settings Panel
-
-Settings are centralized under one command:
-
-```text
-/extension-setting
-```
-
-Each extension contributes a settings provider with `registerExtensionSettings()`. The shared UI is pane-based: `[General]` comes first, then one pane per extension that contributes extension-local settings or subpanels.
-
-- `groups`: setting groups in the extension's own pane.
-- `panels`: custom subpanels in the extension's own pane.
-- `generalGroups`: setting groups in `[General]`.
-- `generalPanels`: custom subpanels in `[General]`.
-
-Groups render as expandable rows by default. Add `display: "plain"` to a `SettingGroup` when its fields should appear directly in the list without a group header, or `display: "hidden"` for provider JSON state controlled by a custom subpanel.
-
-Plain settings example:
-
-```ts
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerExtensionSettings, type SettingGroup } from "@hheei/pi-extcore";
-
-const groups: SettingGroup[] = [
-	{
-		id: "general",
-		title: "General",
-		description: "Shared settings for this extension",
-		fields: [
-			{
-				id: "enabled",
-				label: "Enabled",
-				defaultValue: true,
-				description: "Enable this extension",
-			},
-		],
-	},
-];
-
-export default function extension(pi: ExtensionAPI) {
-	registerExtensionSettings(pi, {
-		id: "pi-my-extension",
-		title: "PI My Extension",
-		description: "Settings for my extension",
-		groups,
-		onChange: (change) => {
-			// Use change.groupId, change.fieldId, change.value, and change.state.
-		},
-	});
-}
-```
-
-Subpanels are for full-screen or multi-step UI. `@hheei/pi-loadout` exposes copied upstream picker entry points under:
-
-```text
-/extension-setting -> [PI Loadout] -> Tools
-/extension-setting -> [PI Loadout] -> Skills
-```
-
-Inside the loadout picker, `Tab` switches Tools/Skills and `/` switches to or from Presets.
-
-Within the shared panel, Tab switches `[General] [Extension...]` panes. Setting groups render as expandable rows; Enter/Space expands or collapses a group, and child rows stay editable through `SettingsList`. Custom subpanels receive `getState()` and `saveState(state)` so they can persist to the same provider settings entry.
-
-Storage choices:
-
-- Default storage: `registerExtensionSettings()` stores provider settings under `~/.pi/agent/ext-settings.json` keyed by provider id.
-- `createAgentExtensionSettingsStorage("provider-id")`: explicitly stores provider settings in the shared `ext-settings.json` file.
-- `createSessionSettingsStorage(pi, "custom-type")`: persists settings into the current session branch.
-- `createAgentJsonSettingsStorage("file.json")`: stores a standalone global settings file under `~/.pi/agent/`.
-- `createJsonSettingsStorage(path)`: stores settings at an explicit path.
-
-## TUI Guidelines
-
-Use Pi and `@earendil-works/pi-tui` components instead of hand-rolled terminal UI when possible:
-
-- settings and toggles: `/extension-setting` through `pi-extcore`
-- three-column wrapped tables: `renderWrappedTableRows()` from `pi-extcore`
-- two-column list plus right-side detail panel: `renderTwoColumnListWithSidePanel()` from `pi-extcore`
-- selection lists: `SelectList`
-- text blocks: `Text`
-- containers: `Container`
-- borders: `DynamicBorder`
-
-For the two common table-style TUI layouts, use the shared helpers documented in [TUI Panel Layout Helpers](tui-panel-layouts.md):
-
-- wrapped three-column table: `renderWrappedTableRows()`
-- two-column list with right-side detail panel: `renderTwoColumnListWithSidePanel()`
-
-Runnable-style examples live in [docs/examples/tui-panels.ts](examples/tui-panels.ts).
-
-When writing custom TUI components:
-
-- every rendered line must fit the provided width
-- call `tui.requestRender()` after state changes
-- use the `theme` object from the `ctx.ui.custom()` callback
-- implement `invalidate()` if the component caches rendered content
-- keep keyboard shortcuts visible in hint text when they are not obvious
-
-## Package Checklist
-
-Before considering an extension package ready:
-
-- `package.json` has `name`, `main`, `files`, `pi.extensions`, `keywords`, and peer dependencies
-- command names are stable and start with `pi-` where practical
-- settings, if any, use `registerExtensionSettings()` from `@hheei/pi-extcore`
-- extension settings are reachable through `/extension-setting`, not a package-specific settings command
-- README documents commands and local testing
-- `bun run check` passes
-
-## Agent Workflow
-
-When an agent adds or changes an extension:
-
-1. Read `AGENTS.md` and this document.
-2. Create or update one package under `packages/*`.
-3. Put shared code in `pi-extcore` only when it is genuinely reusable.
-4. Register extension settings with `registerExtensionSettings()` if needed.
-5. Run `bun run check`.
-6. Report changed files and verification results.
+- Package manifest declares the Pi entry and required metadata.
+- Public commands and tools have stable names and documented behavior.
+- HEPI settings/modules use Pi Basics package-root APIs.
+- Runtime resources are session-scoped and cleanup is idempotent.
+- TUI output is ANSI- and cell-width-safe.
+- README covers usage, persistence, compatibility, and local testing.
+- Focused tests and repository checks pass.
+- New proposals live under `docs/plans/`; completed plans are not presented as current specifications.

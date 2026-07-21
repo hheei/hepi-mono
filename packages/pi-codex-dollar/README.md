@@ -47,12 +47,9 @@ Settings are stored under `pi-codex-dollar` in `~/.pi/agent/ext-settings.json`.
 ## Development
 
 ```bash
+bun test packages/pi-codex-dollar/test
 bun run typecheck
-bun test packages/pi-codex-dollar/test/*.test.ts
+bun run pi:dev -- codex-dollar
 ```
 
-To test one run from this workspace, load `pi-extcore` too because it owns `/extension-setting`:
-
-```bash
-pi -e packages/pi-extcore/src/extension.ts -e packages/pi-codex-dollar/src/index.ts
-```
+The development wrapper loads `pi-extcore` with this package because it owns `/extension-setting`.

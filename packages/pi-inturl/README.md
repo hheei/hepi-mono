@@ -12,4 +12,4 @@ When installed as a Pi extension, `pi-inturl` expands safe shortcut URI paths be
 
 The expansion applies only to selected Pi built-in tools with a `path` input: `read`, `grep`, `find`, `ls`, `write`, and `edit`. Configure it in `/extension-setting -> [PI Inturl] -> Path shortcuts` and `/extension-setting -> [PI Inturl] -> Tools`.
 
-`pi-inturl` depends on `pi-extcore` for the shared settings command and picker UI. Load `pi-extcore` too when testing this extension directly.
+`pi-inturl` depends on `pi-extcore` for the shared settings command and picker UI. For local testing, `bun run pi:dev -- inturl` loads both packages.

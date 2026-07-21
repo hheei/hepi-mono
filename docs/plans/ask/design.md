@@ -1,6 +1,8 @@
 # pi-basics Ask 详细设计
 
-> 状态：提案。高层功能边界先见 [`pi-basics-ask-high-level.md`](./pi-basics-ask-high-level.md)。本设计默认采用其中推荐项。
+> Archived plan: retained for implementation history. Current behavior is defined by source, tests, and `packages/pi-basics/README.md`.
+
+> 状态：提案。高层功能边界先见 [`high-level.md`](./high-level.md)。本设计默认采用其中推荐项。
 
 ## 1. 目标
 
