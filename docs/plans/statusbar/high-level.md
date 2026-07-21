@@ -1,5 +1,7 @@
 # Pi Basics Statusbar — high level
 
+> Archived plan: retained for implementation history. Current behavior is defined by source, tests, and `packages/pi-basics/README.md`.
+
 ## Goal
 `pi-basics` renders one status rail by replacing Pi's editor top horizontal rail. Output order is:
 

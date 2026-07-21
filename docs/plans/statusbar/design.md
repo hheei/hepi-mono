@@ -1,5 +1,7 @@
 # Pi Basics Statusbar — design
 
+> Archived plan: retained for implementation history. Current behavior is defined by source, tests, and `packages/pi-basics/README.md`.
+
 ## Rail renderer
 `renderStatusbarLine(width, snapshot, ctx.ui.theme)` emits one ANSI-safe line at exact cell width. It uses visible-cell truncation and deterministic bridge fill; narrow widths degrade model, statuses, and title without changing order. Semantic roles: border for rails/fill, accent for `π`, muted for separators/`◫`/thinking glyph/title, text for model, and success/warning/error based on percent for known meter and context limit. Unknown meter is `??` and unknown limit is `?`, each dimmed independently.
 

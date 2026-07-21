@@ -1,5 +1,7 @@
 # Pi Basics Statusbar — implementation
 
+> Archived plan: retained for implementation history. Current behavior is defined by source, tests, and `packages/pi-basics/README.md`.
+
 ## Modules
 
 - `src/contributions/statusbar/model.ts`: normalizes model/title/status fragments, percent meter, thinking glyph, and `contextWindow` upper-limit formatter.

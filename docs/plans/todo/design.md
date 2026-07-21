@@ -1,6 +1,8 @@
 # pi-basics Todo 详细设计
 
-> 状态：提案。高层功能边界先见 [`pi-basics-todo-high-level.md`](./pi-basics-todo-high-level.md)。本设计默认采用其中推荐项。
+> Archived plan: retained for implementation history. Current behavior is defined by source, tests, and `packages/pi-basics/README.md`.
+
+> 状态：提案。高层功能边界先见 [`high-level.md`](./high-level.md)。本设计默认采用其中推荐项。
 
 ## 1. 目标
 
@@ -595,7 +597,7 @@ Widget是非关键派生视图。`tool_execution_end` refresh必须捕获 UI reg
 - module state不放 registry。
 - no-op update明确报告 `No change`，避免模型把重复调用误判为成功 mutation。
 
-来源：[`docs/rpiv-todo-design.md`](./rpiv-todo-design.md) 及 [`references/rpiv-mono/packages/rpiv-todo/`](../references/rpiv-mono/packages/rpiv-todo/)。
+来源：早期 `rpiv-todo` 设计与参考实现；这些参考资料未保留在当前 repository 中。
 
 ### 从 `@zhushanwen/pi-todo` 保留
 
