@@ -20,6 +20,9 @@ import { createLoadoutController, type LoadoutController } from "./modules/loado
 import { createLoadoutInventoryProvider } from "./modules/loadout/inventory.js";
 import { createLoadoutStorage, defaultLoadoutStoragePaths } from "./modules/loadout/storage.js";
 import { createPlanFeature } from "./modules/plan/index.js";
+import { registerRtkCommand } from "./modules/rtk/command.js";
+import { createRtkFeature } from "./modules/rtk/feature.js";
+import { createRtkSettingsProvider } from "./modules/rtk/settings.js";
 import { createSettingsComponent } from "./modules/setting/component.js";
 import { SettingsController } from "./modules/setting/controller.js";
 import { createShellModule } from "./modules/shell/index.js";
@@ -71,6 +74,8 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 	let autoTitleCoordinator: { dispose: () => void } | undefined;
 	let loadoutController: LoadoutController | undefined;
 	const coordinator = createToolActivationCoordinator(pi);
+	const rtk = createRtkFeature();
+	registerRtkCommand(pi, rtk);
 	const statusbar = createStatusbarFeature(pi);
 	const goal = createGoalFeature(pi, coordinator);
 	const ask = createAskFeature(pi, coordinator);
@@ -138,6 +143,7 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 				);
 			const providers = () => [
 				autoTitleProvider,
+				createRtkSettingsProvider(rtk),
 				traditionalToSimplifiedProvider,
 				...listHePiSettings().filter((provider) => provider.id !== autoTitleProvider.id),
 			];
@@ -167,6 +173,11 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 					`Unable to load HEPI Loadout: ${error instanceof Error ? error.message : String(error)}`,
 					"error",
 				);
+			});
+			await rtk.start(runtime);
+			runtime.registry.registerLifecycle({
+				id: "rtk",
+				cleanup: () => rtk.dispose(runtime.ctx.sessionManager.getSessionId()),
 			});
 			await ask.start(runtime);
 			const askSessionId = runtime.ctx.sessionManager.getSessionId();
