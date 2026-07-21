@@ -164,7 +164,7 @@ function harness(mode: "tui" | "json" = "tui") {
 test("registers commands and lifecycle handlers", () => {
 	const host = harness();
 	piBasicsExtension(host.pi);
-	expect(host.commands.map((command) => command.name)).toEqual(["goal", "todos", "plan", "hepi"]);
+	expect(host.commands.map((command) => command.name)).toEqual(["rtk", "goal", "todos", "plan", "hepi"]);
 	expect(host.getActiveToolsCalls).toBe(0);
 	expect(host.tools).toEqual(["goal", "ask", "todo"]);
 	expect(host.events.get("session_start")).toHaveLength(1);
@@ -218,6 +218,7 @@ test("opens built-in automatic title settings without external providers", async
 	expect(rendered).toContain("◈ Loadout");
 	expect(rendered).toContain("auto title");
 	expect(rendered).toContain("title model");
+	expect(rendered).not.toContain("RTK");
 	expect(rendered).not.toContain("traditional to simplified");
 	expect(rendered).toContain("Origin: @pi-basics");
 	expect(host.notifications).toEqual([]);

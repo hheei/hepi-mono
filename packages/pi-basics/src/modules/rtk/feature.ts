@@ -1,0 +1,194 @@
+import {
+	type ExtensionAPI,
+	type ExtensionContext,
+	isToolCallEventType,
+} from "@earendil-works/pi-coding-agent";
+import { computeRewriteDecision } from "./command-rewriter.js";
+import { loadRtkConfig } from "./config.js";
+import { normalizeRtkIntegrationConfig } from "./config-store.js";
+import { compactToolResult, type ToolResultCompactionMetadata } from "./output-compactor.js";
+import { clearOutputMetrics, getOutputMetricsSummary } from "./output-metrics.js";
+import { toRecord } from "./record-utils.js";
+import { applyRewrittenCommandShellSafetyFixups } from "./rewrite-pipeline-safety.js";
+import { applyRtkCommandEnvironment } from "./rtk-command-environment.js";
+import { type RtkExecutableResolution, resolveRtkExecutable } from "./rtk-executable-resolver.js";
+import { shouldSkipCommandHandlingWhenRtkMissing } from "./runtime-guard.js";
+import { sanitizeStreamingBashExecutionResult } from "./tool-execution-sanitizer.js";
+import type { RtkIntegrationConfig, RuntimeStatus } from "./types.js";
+
+export interface RtkFeature {
+	start(runtime: { pi: ExtensionAPI; ctx: ExtensionContext }): Promise<void>;
+	dispose(sessionId: string): void;
+	getConfig(): RtkIntegrationConfig;
+	setConfig(config: RtkIntegrationConfig): void;
+	getStatus(): RuntimeStatus;
+	refresh(force?: boolean): Promise<RuntimeStatus>;
+	metrics(): string;
+	clearMetrics(): void;
+}
+function mergeDetails(
+	existing: unknown,
+	metadata: ToolResultCompactionMetadata,
+): Record<string, unknown> {
+	const details = toRecord(existing);
+	const nested = toRecord(details.metadata);
+	return { ...details, rtkCompaction: metadata, metadata: { ...nested, rtkCompaction: metadata } };
+}
+export function createRtkFeature(): RtkFeature {
+	let sessionId: string | undefined;
+	let config = normalizeRtkIntegrationConfig(undefined);
+	let status: RuntimeStatus = { rtkAvailable: false };
+	const active = new Map<string, string>();
+	let piRef: ExtensionAPI | undefined;
+	let handlersRegistered = false;
+	let lastRefreshAt = 0;
+	const isCurrentSession = (
+		ctx: { sessionManager?: { getSessionId(): string } } | undefined,
+	): boolean => !ctx?.sessionManager || ctx.sessionManager.getSessionId() === sessionId;
+	const refresh = async (force = false): Promise<RuntimeStatus> => {
+		if (!force && lastRefreshAt > 0 && Date.now() - lastRefreshAt < 30_000) return status;
+		if (!piRef) return status;
+		let resolution: RtkExecutableResolution | undefined;
+		try {
+			resolution = await resolveRtkExecutable(piRef);
+			const result = await piRef.exec(resolution.command, ["--version"], { timeout: 5000 });
+			lastRefreshAt = Date.now();
+			status = {
+				rtkAvailable: result.code === 0,
+				lastCheckedAt: Date.now(),
+				lastError:
+					result.code === 0
+						? undefined
+						: (result.stderr || result.stdout || `exit ${result.code}`).trim(),
+				rtkExecutablePath: resolution.resolvedPath,
+				rtkExecutableCommand: resolution.command,
+				rtkExecutableResolver: resolution.resolver,
+				rtkExecutableResolutionWarning: resolution.warning,
+			};
+		} catch (error) {
+			status = {
+				rtkAvailable: false,
+				lastCheckedAt: Date.now(),
+				lastError: error instanceof Error ? error.message : String(error),
+				rtkExecutablePath: resolution?.resolvedPath,
+				rtkExecutableCommand: resolution?.command,
+				rtkExecutableResolver: resolution?.resolver,
+			};
+		}
+		return status;
+	};
+	return {
+		async start(runtime) {
+			piRef = runtime.pi;
+			sessionId = runtime.ctx.sessionManager.getSessionId();
+			const loaded = await loadRtkConfig(runtime.ctx.cwd ?? process.cwd());
+			config = loaded.config;
+			if (loaded.warning && runtime.ctx.hasUI) runtime.ctx.ui.notify(loaded.warning, "warning");
+			await refresh(true);
+			if (handlersRegistered) return;
+			handlersRegistered = true;
+			runtime.pi.on("tool_call", async (event, ctx) => {
+				if (!isCurrentSession(ctx) || !config.enabled || !isToolCallEventType("bash", event))
+					return {};
+				if (config.mode === "rewrite") {
+					const compatibility = (
+						await import("./windows-command-helpers.js")
+					).applyWindowsBashCompatibilityFixes(event.input.command);
+					event.input.command = compatibility.command;
+				}
+				await refresh();
+				if (shouldSkipCommandHandlingWhenRtkMissing(config, status)) {
+					const message = `RTK is unavailable${status.lastError ? `: ${status.lastError}` : ""}`;
+					if (ctx.hasUI) ctx.ui.notify(message, "error");
+					return { block: true, reason: message };
+				}
+				const resolution = status.rtkExecutableCommand
+					? {
+							command: status.rtkExecutableCommand,
+							resolvedPath: status.rtkExecutablePath,
+							resolver: (status.rtkExecutableResolver === "where" ? "where" : "which") as
+								| "where"
+								| "which",
+						}
+					: undefined;
+				const decision = await computeRewriteDecision(event.input.command, config, runtime.pi, {
+					executableResolution: resolution,
+				});
+				if (!decision.changed) {
+					if (decision.warning && ctx.hasUI)
+						ctx.ui.notify(`RTK rewrite skipped: ${decision.warning}`, "warning");
+					return {};
+				}
+				if (config.mode === "rewrite") {
+					event.input.command = applyRewrittenCommandShellSafetyFixups(
+						applyRtkCommandEnvironment(decision.rewrittenCommand),
+					);
+				} else if (ctx.hasUI) ctx.ui.notify(`RTK suggestion: ${decision.rewrittenCommand}`, "info");
+				return {};
+			});
+			(runtime.pi as any).on("tool_result", async (event: any, ctx: any) => {
+				if (!isCurrentSession(ctx) || !config.enabled || !config.outputCompaction.enabled)
+					return {};
+				try {
+					const outcome = compactToolResult(
+						{ toolName: event.toolName, input: event.input, content: event.content },
+						config,
+					);
+					if (!outcome.changed) return {};
+					return {
+						content: outcome.content,
+						details: outcome.metadata ? mergeDetails(event.details, outcome.metadata) : undefined,
+					};
+				} catch (error) {
+					if (ctx.hasUI)
+						ctx.ui.notify(
+							`RTK output compaction failed: ${error instanceof Error ? error.message : String(error)}`,
+							"warning",
+						);
+					return {};
+				}
+			});
+			(runtime.pi as any).on("tool_execution_start", async (event: any) => {
+				if (
+					config.outputCompaction.enabled &&
+					event.toolName === "bash" &&
+					typeof event.toolCallId === "string"
+				)
+					active.set(event.toolCallId, String(toRecord(event.args).command ?? ""));
+			});
+			(runtime.pi as any).on("tool_execution_update", async (event: any) => {
+				if (event.toolName !== "bash") return;
+				const result = sanitizeStreamingBashExecutionResult(
+					event.partialResult,
+					active.get(event.toolCallId),
+				);
+				if (result.changed) event.partialResult = result.result;
+			});
+			(runtime.pi as any).on("tool_execution_end", async (event: any) => {
+				if (event.toolName !== "bash") return;
+				const result = sanitizeStreamingBashExecutionResult(
+					event.result,
+					active.get(event.toolCallId),
+				);
+				if (result.changed) event.result = result.result;
+				active.delete(event.toolCallId);
+			});
+		},
+		dispose(id) {
+			if (sessionId === id) {
+				sessionId = undefined;
+				active.clear();
+				clearOutputMetrics();
+				piRef = undefined;
+			}
+		},
+		getConfig: () => config,
+		setConfig(next) {
+			config = normalizeRtkIntegrationConfig(next);
+		},
+		getStatus: () => status,
+		refresh,
+		metrics: getOutputMetricsSummary,
+		clearMetrics: clearOutputMetrics,
+	};
+}
