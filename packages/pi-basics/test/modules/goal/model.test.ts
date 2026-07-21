@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { GoalState } from "../../../src/modules/goal/model.js";
 import {
 	incrementContinuation,
 	MAX_CONTINUATIONS,
@@ -64,15 +65,16 @@ describe("goal model", () => {
 	});
 
 	test("caps continuations at twenty", () => {
-		let state = startNew("objective", ids);
-		if (!state.ok) throw new Error(state.error);
+		const started = startNew("objective", ids);
+		if (!started.ok) throw new Error(started.error);
+		let state: GoalState = started.state;
 		for (let index = 0; index < MAX_CONTINUATIONS; index++) {
-			const next = incrementContinuation(state.state);
+			const next = incrementContinuation(state);
 			expect(next.ok).toBe(true);
 			if (!next.ok) return;
-			state = next;
+			state = next.state;
 		}
-		const capped = incrementContinuation(state.state);
+		const capped = incrementContinuation(state);
 		expect(capped).toMatchObject({
 			ok: true,
 			state: { mode: "inactive", stored: { status: "suspended" } },

@@ -1,6 +1,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Input, Key, matchesKey } from "@earendil-works/pi-tui";
-import { formatKeymap } from "../../ui/keymap.js";
+import { formatKeymap, keyGlyph } from "../../ui/keymap.js";
+import { renderSelectableRow } from "../../ui/row.js";
 import { renderScrollbar } from "../../ui/scrollbar.js";
 import { renderTabs } from "../../ui/tabs.js";
 import { padToWidth, truncateToWidth, wrap } from "../../ui/text.js";
@@ -183,21 +184,21 @@ export function createAskComponent(options: AskComponentOptions): Component & { 
 		const hints =
 			state.mode === "review"
 				? [
-						{ key: "↕", label: "scroll", priority: 2 },
-						{ key: "↔", label: "tab", priority: 1 },
-						{ key: "↵", label: "submit", priority: 3 },
-						{ key: "⎋", label: "cancel", priority: 3 },
+						{ key: keyGlyph.vertical, label: "scroll", priority: 2 },
+						{ key: keyGlyph.horizontal, label: "switch", priority: 1 },
+						{ key: keyGlyph.confirm, label: "submit", priority: 3 },
+						{ key: keyGlyph.cancel, label: "cancel", priority: 3 },
 					]
 				: state.mode === "custom"
 					? [
-							{ key: "↵", label: "save", priority: 3 },
-							{ key: "⎋", label: "cancel", priority: 3 },
+							{ key: keyGlyph.confirm, label: "save", priority: 3 },
+							{ key: keyGlyph.cancel, label: "cancel", priority: 3 },
 						]
 					: [
-							{ key: "↕", label: "navigate", priority: 2 },
-							{ key: "↔", label: "tab", priority: 1 },
-							{ key: "↵", label: "Select", priority: 3 },
-							{ key: "⎋", label: "skip", priority: 3 },
+							{ key: keyGlyph.vertical, label: "navigate", priority: 2 },
+							{ key: keyGlyph.horizontal, label: "switch", priority: 1 },
+							{ key: keyGlyph.confirm, label: "select", priority: 3 },
+							{ key: keyGlyph.cancel, label: "skip", priority: 3 },
 						];
 		return formatKeymap(hints, { width, separator: " · " });
 	}
@@ -214,8 +215,11 @@ export function createAskComponent(options: AskComponentOptions): Component & { 
 		q.options.forEach((option, index) => {
 			const selected = state.answers[state.questionIndex]!.selected.includes(index);
 			const focused = state.focusedOption[state.questionIndex] === index;
-			const marker = focused ? "→ " : "  ";
-			const label = `${marker}${option.label}${q.recommended === index ? " (Recommended)" : ""}`;
+			const label = renderSelectableRow({
+				width: bodyWidth,
+				selected: focused,
+				label: `${option.label}${q.recommended === index ? " (Recommended)" : ""}`,
+			});
 			const color = selected ? "accent" : focused ? "warning" : undefined;
 			const style = (line: string): string => (color ? options.theme.fg(color, line) : line);
 			const rows = [style(finishLine(label, bodyWidth))];
@@ -226,7 +230,11 @@ export function createAskComponent(options: AskComponentOptions): Component & { 
 			blocks.push(rows);
 		});
 		const otherFocused = state.focusedOption[state.questionIndex] === q.options.length;
-		const other = `${otherFocused ? "→ " : "  "}${ASK_OTHER_LABEL}`;
+		const other = renderSelectableRow({
+			width: bodyWidth,
+			selected: otherFocused,
+			label: ASK_OTHER_LABEL,
+		});
 		blocks.push([otherFocused ? options.theme.fg("warning", other) : other]);
 		if (state.mode === "custom") {
 			const inputRows = editor?.render(Math.max(1, bodyWidth - 2)) ?? [""];

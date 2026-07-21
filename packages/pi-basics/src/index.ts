@@ -19,6 +19,7 @@ import { createLoadoutView } from "./modules/loadout/component.js";
 import { createLoadoutController, type LoadoutController } from "./modules/loadout/controller.js";
 import { createLoadoutInventoryProvider } from "./modules/loadout/inventory.js";
 import { createLoadoutStorage, defaultLoadoutStoragePaths } from "./modules/loadout/storage.js";
+import { createPlanFeature } from "./modules/plan/index.js";
 import { createSettingsComponent } from "./modules/setting/component.js";
 import { SettingsController } from "./modules/setting/controller.js";
 import { createShellModule } from "./modules/shell/index.js";
@@ -74,6 +75,7 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 	const goal = createGoalFeature(pi, coordinator);
 	const ask = createAskFeature(pi, coordinator);
 	const todo = createTodoFeature(pi);
+	const plan = createPlanFeature(pi);
 	const traditionalToSimplified = createTraditionalToSimplifiedFeature();
 	const lifecycle = new HePiLifecycleController({
 		onStart: async (runtime) => {
@@ -171,6 +173,12 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 			runtime.registry.registerLifecycle({
 				id: "ask",
 				cleanup: () => ask.dispose(askSessionId),
+			});
+			plan.start(runtime);
+			const planSessionId = runtime.ctx.sessionManager.getSessionId();
+			runtime.registry.registerLifecycle({
+				id: "plan",
+				cleanup: () => plan.dispose(planSessionId),
 			});
 			const shell = createShellModule({
 				settings: ({ context, host, theme }) => {
@@ -271,6 +279,7 @@ export type {
 	LoadoutStoredState,
 } from "./modules/loadout/storage.js";
 export { createLoadoutStorage, defaultLoadoutStoragePaths } from "./modules/loadout/storage.js";
+export * from "./modules/plan/index.js";
 export { createSettingsModule } from "./modules/setting/index.js";
 export { createHePiRuntimeContext, type HePiRuntimeContext } from "./runtime/context.js";
 export { HePiLifecycleController, registerHePiLifecycle } from "./runtime/lifecycle.js";

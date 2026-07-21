@@ -1,5 +1,14 @@
 import { truncateToWidth, visibleWidth } from "./text.js";
 
+export const keyGlyph = {
+	vertical: "↕",
+	horizontal: "↔",
+	confirm: "↵",
+	cancel: "⎋",
+	space: "␣",
+	tab: "⇥",
+} as const;
+
 export interface KeyHint {
 	key: string;
 	label: string;

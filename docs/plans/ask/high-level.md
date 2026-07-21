@@ -1,5 +1,7 @@
 # pi-basics Ask 高层方案（Review Gate）
 
+> Archived plan: retained for implementation history. Current behavior is defined by source, tests, and `packages/pi-basics/README.md`.
+
 > 目的：先确认功能边界，再进入详细设计与实作。推荐方案保留结构化决策的核心价值，但不复制 `rpiv-ask-user-question`、`pi-ask-user`、SuPi Ask 或 Claude Code 的完整 UI 产品面。
 
 ## 1. 一句话方案
@@ -245,7 +247,7 @@ Ask 表示模型被用户决定阻塞。自动 timeout 后让模型自行判断�
 - result text与details边界明确且有长度上限。
 - 不新增 package dependency、配置格式、持久化格式、public API或通用 form abstraction。
 
-详细设计见 [`pi-basics-ask-design.md`](./pi-basics-ask-design.md)，实施步骤见 [`pi-basics-ask-implementation.md`](./pi-basics-ask-implementation.md)。
+详细设计见 [`design.md`](./design.md)，实施步骤见 [`implementation.md`](./implementation.md)。
 
 ## 11. 研究基线
 
