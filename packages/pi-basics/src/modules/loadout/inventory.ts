@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import type { ToolInfo } from "@earendil-works/pi-coding-agent";
 import {
+	getLoadoutDescriptionPanel,
+	type LoadoutDescriptionRegistry,
 	type LoadoutItem,
 	type LoadoutKey,
 	type LoadoutSourceScope,
@@ -31,6 +33,7 @@ export interface LoadoutInventorySource {
 	readonly getAllTools?: () => readonly ToolInfo[];
 	readonly getCommands?: () => readonly LoadoutCommandInfo[];
 	readonly getToolDefinition?: (name: string) => ToolDefinitionLookup | undefined;
+	readonly descriptionRegistry?: LoadoutDescriptionRegistry;
 }
 const BUILTIN_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
 	bash: "Execute bash commands (ls, grep, find, etc.)",
@@ -69,6 +72,9 @@ function toolTokenCount(tool: ToolInfo, promptSnippet: string | undefined): numb
 function toolItem(
 	tool: ToolInfo,
 	getPromptSnippet: (name: string) => string | undefined,
+	getDescriptionPanel: (
+		item: Pick<LoadoutItem, "key" | "kind" | "name">,
+	) => LoadoutItem["descriptionPanel"],
 ): LoadoutItem {
 	const scope = sourceScope(tool.sourceInfo.scope, tool.sourceInfo.source);
 	const promptSnippet = getPromptSnippet(tool.name);
@@ -81,6 +87,11 @@ function toolItem(
 		origin: tool.sourceInfo.source,
 		description: promptSnippet,
 		instruction: tool.promptGuidelines?.join("\n"),
+		descriptionPanel: getDescriptionPanel({
+			key: loadoutKey("tool", tool.name, tool.sourceInfo.source),
+			kind: "tool",
+			name: tool.name,
+		}),
 		tokenCount: toolTokenCount(tool, promptSnippet),
 		conflictGroup: `tool:${tool.name}`,
 	};
@@ -91,6 +102,9 @@ function skillItem(
 	description: string | undefined,
 	source: string,
 	instruction: string | undefined,
+	getDescriptionPanel: (
+		item: Pick<LoadoutItem, "key" | "kind" | "name">,
+	) => LoadoutItem["descriptionPanel"],
 ): LoadoutItem {
 	return {
 		key: loadoutKey("skill", name, source),
@@ -101,17 +115,25 @@ function skillItem(
 		origin: source,
 		description,
 		instruction,
+		descriptionPanel: getDescriptionPanel({
+			key: loadoutKey("skill", name, source),
+			kind: "skill",
+			name,
+		}),
 		tokenCount: estimateTokenCount([name, description, instruction].filter(Boolean).join("\n")),
 	};
 }
 
 export function createLoadoutInventory(pi: LoadoutInventorySource): LoadoutInventory {
 	const items = new Map<LoadoutKey, LoadoutItem>();
+	const descriptions = pi.descriptionRegistry;
 	const getPromptSnippet = (name: string): string | undefined =>
 		pi.getToolDefinition?.(name)?.promptSnippet ?? BUILTIN_PROMPT_SNIPPETS[name];
+	const getDescriptionPanel = (item: Pick<LoadoutItem, "key" | "kind" | "name">) =>
+		descriptions?.get(item) ?? getLoadoutDescriptionPanel(item);
 	const tools = typeof pi.getAllTools === "function" ? pi.getAllTools() : [];
 	for (const tool of tools) {
-		const item = toolItem(tool, getPromptSnippet);
+		const item = toolItem(tool, getPromptSnippet, getDescriptionPanel);
 		items.set(item.key, item);
 	}
 	const commands = typeof pi.getCommands === "function" ? pi.getCommands() : [];
@@ -127,6 +149,7 @@ export function createLoadoutInventory(pi: LoadoutInventorySource): LoadoutInven
 				command.description,
 				command.sourceInfo.source,
 				readSkillInstruction(command.sourceInfo.path),
+				getDescriptionPanel,
 			),
 		);
 	}

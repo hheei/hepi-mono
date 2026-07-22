@@ -1,3 +1,50 @@
+export interface LoadoutDescriptionPanel {
+	readonly title?: string;
+	readonly lines?: readonly string[];
+	readonly render?: (width: number) => readonly string[];
+}
+
+export interface LoadoutDescriptionRegistry {
+	register(key: string, panel: LoadoutDescriptionPanel): void;
+	unregister(key: string): void;
+	get(item: Pick<LoadoutItem, "key" | "kind" | "name">): LoadoutDescriptionPanel | undefined;
+}
+
+class DescriptionRegistry implements LoadoutDescriptionRegistry {
+	readonly #panels = new Map<string, LoadoutDescriptionPanel>();
+	register(key: string, panel: LoadoutDescriptionPanel): void {
+		if (!key.trim()) throw new Error("Loadout description panel key cannot be empty");
+		this.#panels.set(key, panel);
+	}
+	unregister(key: string): void {
+		this.#panels.delete(key);
+	}
+	get(item: Pick<LoadoutItem, "key" | "kind" | "name">): LoadoutDescriptionPanel | undefined {
+		return (
+			this.#panels.get(item.key) ??
+			this.#panels.get(`${item.kind}:${item.name}`) ??
+			this.#panels.get(item.name)
+		);
+	}
+}
+
+const defaultDescriptionRegistry = new DescriptionRegistry();
+
+export function createLoadoutDescriptionRegistry(): LoadoutDescriptionRegistry {
+	return new DescriptionRegistry();
+}
+export function registerLoadoutDescriptionPanel(key: string, panel: LoadoutDescriptionPanel): void {
+	defaultDescriptionRegistry.register(key, panel);
+}
+export function unregisterLoadoutDescriptionPanel(key: string): void {
+	defaultDescriptionRegistry.unregister(key);
+}
+export function getLoadoutDescriptionPanel(
+	item: Pick<LoadoutItem, "key" | "kind" | "name">,
+): LoadoutDescriptionPanel | undefined {
+	return defaultDescriptionRegistry.get(item);
+}
+
 export type LoadoutScope = "global" | "project";
 export type LoadoutKind = "mcp" | "tool" | "skill";
 export type LoadoutKey = `${LoadoutKind}:${string}`;
@@ -15,6 +62,7 @@ export interface LoadoutItem {
 	readonly origin: string;
 	readonly description?: string;
 	readonly instruction?: string;
+	readonly descriptionPanel?: LoadoutDescriptionPanel;
 	readonly tokenCount?: number;
 	readonly parentMcpKey?: `mcp:${string}`;
 	readonly conflictGroup?: string;

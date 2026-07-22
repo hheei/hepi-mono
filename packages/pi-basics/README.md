@@ -62,6 +62,19 @@ In Pi TUI, run `/hepi setting`. Providers are read when command opens, so provid
 
 `registerHePiModule(module)` is also exported for module integrations.
 
+Loadout descriptions can be supplied by integrations without relying on Pi's generated tool metadata. Register by stable `kind:name` (or an exact source-scoped key):
+
+```ts
+import { registerLoadoutDescriptionPanel } from "@hheei/pi-basics";
+
+registerLoadoutDescriptionPanel("tool:inspect", {
+	title: "Inspect tool",
+	lines: ["Shows the active inspection target and its source."],
+});
+```
+
+A panel may provide `render(width)` instead of `lines`. Registrations are used by the built-in Loadout inventory and can be removed with `unregisterLoadoutDescriptionPanel(key)`. When no metadata is available, Loadout shows explicit `Description: unavailable` and `Instruction: unavailable` text instead of inserting empty section rows.
+
 ## RTK
 
 The built-in RTK integration is controlled from the single `RTK` group in `/hepi setting` and persists project settings in `.pi/settings.json` under `pi-basics.rtk`. If the `rtk` executable cannot be found, bash calls are blocked with an error. The compatibility command `/rtk` supports `show`, `verify`, `stats`, `clear-stats`, `reset`, `path`, and `help`. `rtk` is optional: when unavailable, raw commands run unchanged.

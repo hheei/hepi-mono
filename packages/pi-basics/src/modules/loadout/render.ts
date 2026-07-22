@@ -61,7 +61,11 @@ function panelLines(
 ): string[] {
 	if (width < 2 || height < 2) return [];
 	const inner = Math.max(0, width - 4);
-	const title = truncateToWidth("─ Description ─", Math.max(0, width - 2), "");
+	const title = truncateToWidth(
+		`─ ${item?.descriptionPanel?.title ?? "Description"} ─`,
+		Math.max(0, width - 2),
+		"",
+	);
 	const top = `╭${title}${"─".repeat(Math.max(0, width - 2 - visibleWidth(title)))}╮`;
 	const bottom = `╰${"─".repeat(Math.max(0, width - 2))}╯`;
 	if (!item)
@@ -71,17 +75,19 @@ function panelLines(
 			bottom,
 		];
 	const summary = `${item.name} (${item.kind})${item.tokenCount === undefined ? "" : ` · ${item.tokenCount} tokens`}`;
-	const content = [
-		summary,
-		"",
-		...shortDescription(item.description, inner, 3),
-		"",
-		`Origin: ${item.origin || "built-in"}`,
-		`Status: ${statusText(item)}`,
-		"",
-		"Instruction:",
-		...shortDescription(item.instruction ?? "None", inner, 4),
-	];
+	const customLines = item.descriptionPanel?.render?.(inner) ?? item.descriptionPanel?.lines;
+	const content = customLines
+		? [summary, ...customLines]
+		: [
+				summary,
+				...(item.description
+					? shortDescription(item.description, inner, 3)
+					: ["Description: unavailable"]),
+				`Origin: ${item.origin || "built-in"}`,
+				`Status: ${statusText(item)}`,
+				item.instruction ? "Instruction:" : "Instruction: unavailable",
+				...(item.instruction ? shortDescription(item.instruction, inner, 4) : []),
+			];
 	const rows = content.slice(0, Math.max(0, height - 2)).map((line, index) => {
 		const text = truncateToWidth(line, inner, "");
 		const styled = index === 0 ? theme.fg("accent", text) : theme.fg("dim", text);
