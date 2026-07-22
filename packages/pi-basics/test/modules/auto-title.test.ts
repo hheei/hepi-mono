@@ -131,6 +131,10 @@ describe("Pi Basics auto-title", () => {
 		};
 		const coordinator = createAutoTitleCoordinator({ pi, ctx } as never, "provider/model");
 		handlers.get("agent_settled")?.({});
+		expect([...handlers.keys()].some((key) => key.startsWith("subagents:rpc:spawn:reply:"))).toBe(
+			false,
+		);
+		coordinator.trigger();
 		const spawn = [...handlers.keys()].find((key) => key.startsWith("subagents:rpc:spawn:reply:"));
 		handlers.get(spawn!)?.({ success: true, data: { id: "child" } });
 		handlers.get("subagents:completed")?.({

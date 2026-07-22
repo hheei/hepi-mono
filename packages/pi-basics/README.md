@@ -25,6 +25,10 @@ Objectives are limited to 2,000 characters and summaries to 4,000 characters. Ma
 
 The `ask` tool opens a focused questionnaire in TUI sessions, or uses dialog UI when available. It collects answers and submits only from the final Review screen; non-interactive sessions fail closed.
 
+## Automatic Titles
+
+Enable automatic titles in `/hepi setting` and choose a title model. Titles are generated only at initial session startup, after `/new`, or when manually requested with `/hepi auto-title`. They do not run after `/resume`, `/fork`, `/clone`, or compaction. The title agent receives the latest user prompt, limited to 2,000 characters, and returns no more than five words.
+
 ## Todo
 
 The `todo` tool accepts one ordered `operations` batch. Supported actions are `create`, `update`, `list`, and `delete`; mixed batches such as delete + create validate fully before one atomic commit.

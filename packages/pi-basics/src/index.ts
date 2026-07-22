@@ -72,7 +72,9 @@ export function registerHePiModule(module: HePiModule, registry?: HePiModuleRegi
 
 export default function piBasicsExtension(pi: ExtensionAPI): void {
 	let settingsController: SettingsController | undefined;
-	let autoTitleCoordinator: { setModel: (model: string) => void; dispose: () => void } | undefined;
+	let autoTitleCoordinator:
+		| { trigger: (force?: boolean) => void; setModel: (model: string) => void; dispose: () => void }
+		| undefined;
 	let loadoutController: LoadoutController | undefined;
 	const coordinator = createToolActivationCoordinator(pi);
 	const rtk = createRtkFeature();
@@ -158,6 +160,14 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 				cleanup: () => {
 					autoTitleCoordinator?.dispose();
 					autoTitleCoordinator = undefined;
+				},
+			});
+			runtime.registry.registerModule({
+				id: "auto-title",
+				label: "Automatic Title",
+				commands: ["auto-title"],
+				open: () => {
+					autoTitleCoordinator?.trigger(true);
 				},
 			});
 			const defaults = defaultLoadoutStoragePaths();
@@ -277,6 +287,9 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 	moduleRegistries.set(lifecycle, commandRegistry);
 	registerHePiCommand(pi, commandRegistry);
 	registerHePiLifecycle(pi, lifecycle);
+	pi.on("session_start", (event) => {
+		if (event.reason === "startup" || event.reason === "new") autoTitleCoordinator?.trigger();
+	});
 }
 export * from "./api/index.js";
 export * from "./modules/goal/index.js";
