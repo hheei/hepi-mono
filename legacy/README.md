@@ -4,3 +4,5 @@ Archived reference packages. They are excluded from the Bun workspace and Pi dev
 
 - `pi-extcore/`: retired shared settings/editor core.
 - `pi-loadout/`: retired standalone loadout extension.
+- `pi-codex-dollar/`: retired dollar-triggered skill reference extension.
+- `pi-ssh/`: retired SSH helper extension.
