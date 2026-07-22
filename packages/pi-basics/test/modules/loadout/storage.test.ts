@@ -60,12 +60,14 @@ describe("loadout storage", () => {
 		}
 	});
 
-	test("reads missing files as empty and project undefined deletes key", async () => {
+	test("reads missing files as empty and undefined deletes keys", async () => {
 		const { directory, storage } = await fixture();
 		try {
 			expect(await storage.load()).toEqual({ global: {}, project: {} });
 			await storage.update("project", "tool:read", false);
 			await storage.update("project", "tool:read", undefined);
+			await storage.update("global", "tool:read", false);
+			await storage.update("global", "tool:read", undefined);
 			expect(await storage.load()).toEqual({ global: {}, project: {} });
 		} finally {
 			await cleanup(directory);
@@ -84,9 +86,7 @@ describe("loadout storage", () => {
 				JSON.stringify({ "pi-basics-loadout": { "tool:read": "yes" } }),
 			);
 			await expect(storage.load()).rejects.toThrow("tool:read");
-			await expect(storage.update("global", "tool:read", undefined)).rejects.toThrow(
-				"cannot delete",
-			);
+			await expect(storage.update("global", "tool:read", undefined)).rejects.toThrow("boolean");
 		} finally {
 			await cleanup(directory);
 		}

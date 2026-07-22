@@ -40,6 +40,9 @@ export class SettingsController {
 	readonly #operations = new Map<string, PendingChange[]>();
 	readonly #pending = new Set<Promise<void>>();
 	#closed = false;
+	#loading = false;
+	#loadGeneration = 0;
+	#activeLoad: Promise<void> | undefined;
 
 	constructor(options: SettingsControllerOptions) {
 		const providers = (options.providers ?? options.registry?.list() ?? []).filter(
@@ -56,16 +59,34 @@ export class SettingsController {
 	get provider(): HePiSettingsProvider | undefined {
 		return this.model.active?.provider;
 	}
+	get loading(): boolean {
+		return this.#loading;
+	}
 
-	async load(): Promise<void> {
-		this.#closed = false;
+	private async loadProviders(generation: number): Promise<void> {
 		for (const snapshot of this.model.state.providers) {
 			const stored = await snapshot.provider.storage.load(this.context);
+			if (this.#closed || generation !== this.#loadGeneration) return;
 			const merged = mergeSettingsState(snapshot.provider, stored);
 			this.#committed.set(snapshot.provider.id, cloneState(merged));
 			this.model.setCommitted(snapshot.provider.id, merged);
 			await snapshot.provider.onLoad?.(cloneState(merged), this.context);
+			if (this.#closed || generation !== this.#loadGeneration) return;
 		}
+	}
+
+	load(): Promise<void> {
+		if (this.#closed) return Promise.reject(new Error("Settings controller is closed"));
+		const generation = ++this.#loadGeneration;
+		this.#loading = true;
+		const operation = this.loadProviders(generation);
+		this.#activeLoad = operation;
+		return operation.finally(() => {
+			if (this.#activeLoad === operation) {
+				this.#activeLoad = undefined;
+				this.#loading = false;
+			}
+		});
 	}
 	select(itemId: string): void {
 		this.model.select(itemId);
@@ -174,6 +195,7 @@ export class SettingsController {
 		const provider = this.provider;
 		if (!provider) throw new Error("No settings provider selected");
 		if (this.#closed) throw new Error("Settings controller is closed");
+		if (this.#loading) throw new Error("Settings are still loading");
 		const field = this.field(fieldId);
 		if (field.options && !field.options.some((option) => Object.is(option.value, value)))
 			throw new Error(`Invalid option for setting: ${field.id}`);
@@ -232,7 +254,8 @@ export class SettingsController {
 	async close(): Promise<void> {
 		if (this.#closed) return;
 		this.#closed = true;
-		await Promise.allSettled([...this.#pending]);
+		this.#loadGeneration++;
+		await Promise.allSettled([this.#activeLoad, ...this.#pending].filter(Boolean));
 		const cleanups = this.state.providers.map(async (snapshot) => {
 			const failures: Array<{ readonly providerId: string; readonly error: unknown }> = [];
 			const state = cloneState(this.state.committed[snapshot.provider.id] ?? {});

@@ -310,8 +310,9 @@ function latestUserText(ctx: ExtensionContext): string | undefined {
 	return undefined;
 }
 
-export function createAutoTitleCoordinator(runtime: AutoTitleRuntime, modelRef: string) {
+export function createAutoTitleCoordinator(runtime: AutoTitleRuntime, initialModelRef: string) {
 	const { pi, ctx } = runtime;
+	let modelRef = initialModelRef;
 	let disposed = false;
 	let revision = 0;
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -444,6 +445,14 @@ export function createAutoTitleCoordinator(runtime: AutoTitleRuntime, modelRef: 
 		pi.on("agent_settled", launch);
 	}
 	return {
+		setModel: (nextModelRef: string) => {
+			if (disposed || nextModelRef === modelRef) return;
+			modelRef = nextModelRef;
+			revision++;
+			attempted = false;
+			clear();
+			stop();
+		},
 		dispose: () => {
 			disposed = true;
 			revision++;

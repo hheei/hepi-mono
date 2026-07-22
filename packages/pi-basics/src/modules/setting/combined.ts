@@ -24,18 +24,28 @@ export function combineSettingsProviders(
 			return { displayId, originalId: group.id, provider };
 		}),
 	);
-	const groups = mappings.map(({ displayId, originalId, provider }) => {
-		const group = provider.groups.find((candidate) => candidate.id === originalId)!;
-		return { ...group, id: displayId };
-	});
-	const owners = new Map(mappings.map((mapping) => [mapping.displayId, mapping]));
-
 	const providerState = (state: HePiSettingsState, provider: HePiSettingsProvider) =>
 		Object.fromEntries(
 			mappings
 				.filter((mapping) => mapping.provider === provider)
 				.map(({ displayId, originalId }) => [originalId, state[displayId] ?? {}]),
 		);
+	const groups = mappings.map(({ displayId, originalId, provider }) => {
+		const group = provider.groups.find((candidate) => candidate.id === originalId)!;
+		return {
+			...group,
+			id: displayId,
+			fields: group.fields.map((field) =>
+				field.enabled
+					? {
+							...field,
+							enabled: (state: HePiSettingsState) => field.enabled!(providerState(state, provider)),
+						}
+					: field,
+			),
+		};
+	});
+	const owners = new Map(mappings.map((mapping) => [mapping.displayId, mapping]));
 
 	return {
 		id: "pi-basics-settings",
@@ -69,7 +79,8 @@ export function combineSettingsProviders(
 			},
 		},
 		onLoad: async (state, ctx) => {
-			for (const provider of providers) await provider.onLoad?.(providerState(state, provider), ctx);
+			for (const provider of providers)
+				await provider.onLoad?.(providerState(state, provider), ctx);
 		},
 		onChange: async (change: HePiSettingChange, ctx: HePiContext) => {
 			const mapping = owners.get(change.groupId);

@@ -6,6 +6,7 @@ export interface ToolActivationCoordinator {
 	isConfigured(toolName: string): boolean;
 	isEffective(toolName: string): boolean;
 	dispose(): void;
+	reset(): void;
 }
 
 function unique(names: readonly string[]): string[] {
@@ -48,6 +49,13 @@ export function createToolActivationCoordinator(pi: ExtensionAPI): ToolActivatio
 		dispose() {
 			disposed = true;
 			baseline = [];
+			askVisible = false;
+			effective = [];
+		},
+		reset() {
+			disposed = false;
+			baseline = [];
+			askVisible = false;
 			effective = [];
 		},
 	};

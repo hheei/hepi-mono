@@ -30,8 +30,15 @@ export class HePiLifecycleController {
 				this.options.createRegistry?.() ?? new HePiRegistry(),
 			);
 			this.runtime = runtime;
-			await this.options.onStart?.(runtime);
-			return runtime;
+			try {
+				await this.options.onStart?.(runtime);
+				return runtime;
+			} catch (error) {
+				this.runtime = undefined;
+				const failures = await runtime.registry.cleanup();
+				await this.options.onShutdown?.(runtime, failures);
+				throw error;
+			}
 		});
 	}
 
