@@ -19,10 +19,10 @@ export interface SettingsLayout {
 	readonly valueStart: number;
 }
 
-const SETTINGS_WIDE_KEY_MAX_WIDTH = 24;
+const SETTINGS_WIDE_KEY_MAX_WIDTH = 30;
 const SETTINGS_WIDE_GAP = 3;
 const SETTINGS_WIDE_MIN_LEFT_WIDTH = 24;
-const SETTINGS_WIDE_MAX_LEFT_WIDTH = 40;
+const SETTINGS_WIDE_MAX_LEFT_WIDTH = 52;
 const SETTINGS_WIDE_MIN_DESCRIPTION_WIDTH = 32;
 const SETTINGS_WIDE_MAX_DESCRIPTION_WIDTH = 44;
 export const SETTINGS_WIDE_MIN_WIDTH = 72;
@@ -48,7 +48,7 @@ export function createSettingsLayout(rawWidth: number): SettingsLayout {
 	const listContentWidth = Math.max(0, leftWidth - scrollbarGap - scrollbarWidth);
 	const indicatorWidth = Math.min(2, listContentWidth);
 	const valueGap = listContentWidth - indicatorWidth > 0 ? 1 : 0;
-	const preferredValueWidth = mode === "wide" ? 13 : 16;
+	const preferredValueWidth = mode === "wide" ? 16 : 18;
 	const availableAfterIndicator = Math.max(0, listContentWidth - indicatorWidth - valueGap);
 	const wideKeyWidth = Math.min(
 		SETTINGS_WIDE_KEY_MAX_WIDTH,

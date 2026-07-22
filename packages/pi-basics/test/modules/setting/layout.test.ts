@@ -9,8 +9,8 @@ describe("settings layout", () => {
 		const baseline = createSettingsLayout(100);
 		const wider = createSettingsLayout(140);
 		expect(baseline.mode).toBe("wide");
-		expect(baseline.keyWidth).toBe(21);
-		expect(baseline.valueStart).toBe(24);
+		expect(baseline.keyWidth).toBe(30);
+		expect(baseline.valueStart).toBe(33);
 		expect(wider.keyWidth).toBe(baseline.keyWidth);
 		expect(wider.valueStart).toBe(baseline.valueStart);
 	});
@@ -24,16 +24,16 @@ describe("settings layout", () => {
 			expect(layout.descriptionWidth).toBeGreaterThanOrEqual(32);
 			expect(layout.descriptionWidth).toBeLessThanOrEqual(44);
 			expect(layout.leftWidth).toBeGreaterThanOrEqual(24);
-			expect(layout.leftWidth).toBeLessThanOrEqual(40);
+			expect(layout.leftWidth).toBeLessThanOrEqual(52);
 			const compactWidth = layout.leftWidth + layout.gap + layout.descriptionWidth;
 			expect(compactWidth).toBeLessThanOrEqual(layout.width);
 		}
-		expect(layouts.map((layout) => layout.leftWidth + layout.gap)).toEqual([40, 43, 43, 43]);
+		expect(layouts.map((layout) => layout.leftWidth + layout.gap)).toEqual([40, 55, 55, 55]);
 		expect(
 			layouts
 				.slice(1)
 				.map((layout) => layout.width - layout.leftWidth - layout.gap - layout.descriptionWidth),
-		).toEqual([19, 53, 113]);
+		).toEqual([7, 41, 101]);
 	});
 
 	test("preserves wide list columns and description panel invariant", () => {

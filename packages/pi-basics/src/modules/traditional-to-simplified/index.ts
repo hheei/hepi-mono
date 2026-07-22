@@ -137,10 +137,10 @@ export function createTraditionalToSimplifiedSettingsProvider(
 						defaultValue: "t2s",
 						options: [
 							{ value: "t2s", label: "t2s" },
-							{ value: "none", label: "none" },
+							{ value: "off", label: "off" },
 						],
 						description: "Convert interactive Traditional Chinese input to Simplified Chinese.",
-						parse: (draft) => (draft === "none" ? "none" : "t2s"),
+						parse: (draft) => (draft === "off" ? "off" : "t2s"),
 					},
 				] satisfies readonly HePiSettingField[],
 			},
@@ -157,11 +157,15 @@ export function createTraditionalToSimplifiedSettingsProvider(
 					? {
 							[TRADITIONAL_TO_SIMPLIFIED_GROUP]: {
 								mode:
-									(values as JsonObject).mode === "none" || (values as JsonObject).enabled === false
-										? "none"
+									(values as JsonObject).mode === "off" ||
+									(values as JsonObject).mode === "none" ||
+									(values as JsonObject).enabled === false
+										? "off"
 										: "t2s",
 								enabled: !(
-									(values as JsonObject).mode === "none" || (values as JsonObject).enabled === false
+									(values as JsonObject).mode === "off" ||
+									(values as JsonObject).mode === "none" ||
+									(values as JsonObject).enabled === false
 								),
 							},
 						}
@@ -176,23 +180,23 @@ export function createTraditionalToSimplifiedSettingsProvider(
 						? { ...(section as JsonObject) }
 						: {};
 				const values = state[TRADITIONAL_TO_SIMPLIFIED_GROUP] ?? {};
-				const mode = values.mode ?? (values.enabled === false ? "none" : "t2s");
+				const mode = values.mode ?? (values.enabled === false ? "off" : "t2s");
 				nextSection[TRADITIONAL_TO_SIMPLIFIED_GROUP] = { mode };
 				root[SETTINGS_SECTION] = nextSection;
 				await saveSettings(path, root);
 				options.onPersisted?.(
-					state[TRADITIONAL_TO_SIMPLIFIED_GROUP]?.[TRADITIONAL_TO_SIMPLIFIED_FIELD] !== "none",
+					state[TRADITIONAL_TO_SIMPLIFIED_GROUP]?.[TRADITIONAL_TO_SIMPLIFIED_FIELD] !== "off",
 				);
 			},
 		},
 		onLoad: async (state) => {
 			options.onPersisted?.(
-				state[TRADITIONAL_TO_SIMPLIFIED_GROUP]?.[TRADITIONAL_TO_SIMPLIFIED_FIELD] !== "none",
+				state[TRADITIONAL_TO_SIMPLIFIED_GROUP]?.[TRADITIONAL_TO_SIMPLIFIED_FIELD] !== "off",
 			);
 		},
 		onChange: async (change) => {
 			if (change.fieldId !== TRADITIONAL_TO_SIMPLIFIED_FIELD) return;
-			options.onPersisted?.(change.value !== "none");
+			options.onPersisted?.(change.value !== "off");
 		},
 	};
 }
