@@ -1,0 +1,81 @@
+import { describe, expect, test } from "bun:test";
+import type {
+	HePiContext,
+	HePiSettingsProvider,
+	HePiSettingsState,
+} from "../../../src/api/settings.js";
+import { combineSettingsProviders } from "../../../src/modules/setting/combined.js";
+
+const context: HePiContext = { sessionId: "session", cwd: "/tmp" };
+
+function provider(
+	id: string,
+	groupId: string,
+	fieldId: string,
+	initial: boolean,
+	calls: string[],
+): HePiSettingsProvider {
+	return {
+		id,
+		title: id,
+		groups: [
+			{
+				id: groupId,
+				title: id,
+				fields: [
+					{
+						id: fieldId,
+						label: fieldId,
+						type: "boolean",
+						defaultValue: initial,
+						parse: (value) => value === "true",
+					},
+				],
+			},
+		],
+		storage: {
+			load: () => ({ [groupId]: { [fieldId]: initial } }),
+			save: async (state) => {
+				calls.push(`save:${id}:${String(state[groupId]?.[fieldId])}`);
+			},
+		},
+		onLoad: async (state) => {
+			calls.push(`load:${id}:${String(state[groupId]?.[fieldId])}`);
+		},
+		onChange: async (change) => {
+			calls.push(`change:${id}:${String(change.value)}`);
+		},
+	};
+}
+
+describe("combineSettingsProviders", () => {
+	test("keeps module settings in one provider while routing lifecycle callbacks", async () => {
+		const calls: string[] = [];
+		const combined = combineSettingsProviders([
+			provider("auto-title", "auto-title", "enabled", false, calls),
+			provider("rtk", "rtk", "enabled", true, calls),
+		]);
+
+		expect(combined.groups.map((group) => group.id)).toEqual(["auto-title", "rtk"]);
+		const state = (await combined.storage.load(context)) ?? {};
+		await combined.onLoad?.(state, context);
+		await combined.onChange?.(
+			{
+				groupId: "rtk",
+				fieldId: "enabled",
+				value: false,
+				state: { ...state, rtk: { enabled: false } } as HePiSettingsState,
+			},
+			context,
+		);
+		await combined.storage.save({ "auto-title": { enabled: true }, rtk: { enabled: false } }, context);
+
+		expect(calls).toEqual([
+			"load:auto-title:false",
+			"load:rtk:true",
+			"change:rtk:false",
+			"save:auto-title:true",
+			"save:rtk:false",
+		]);
+	});
+});

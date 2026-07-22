@@ -23,6 +23,7 @@ import { createPlanFeature } from "./modules/plan/index.js";
 import { registerRtkCommand } from "./modules/rtk/command.js";
 import { createRtkFeature } from "./modules/rtk/feature.js";
 import { createRtkSettingsProvider } from "./modules/rtk/settings.js";
+import { combineSettingsProviders } from "./modules/setting/combined.js";
 import { createSettingsComponent } from "./modules/setting/component.js";
 import { SettingsController } from "./modules/setting/controller.js";
 import { createShellModule } from "./modules/shell/index.js";
@@ -123,30 +124,13 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 					(defaultTitleModel ? `${defaultTitleModel.provider}/${defaultTitleModel.id}` : undefined);
 				autoTitleCoordinator = selected ? createAutoTitleCoordinator(runtime, selected) : undefined;
 			});
-			void Promise.resolve(
-				autoTitleProvider.storage.load({
-					sessionId: runtime.ctx.sessionManager.getSessionId(),
-					cwd: runtime.ctx.cwd,
-				}),
-			)
-				.then((state) =>
-					autoTitleProvider.onLoad?.(state ?? {}, {
-						sessionId: runtime.ctx.sessionManager.getSessionId(),
-						cwd: runtime.ctx.cwd,
-					}),
-				)
-				.catch((error: unknown) =>
-					runtime.ctx.ui.notify(
-						`Unable to load HEPI automatic title settings: ${error instanceof Error ? error.message : String(error)}`,
-						"error",
-					),
-				);
-			const providers = () => [
-				autoTitleProvider,
-				createRtkSettingsProvider(rtk),
-				traditionalToSimplifiedProvider,
-				...listHePiSettings().filter((provider) => provider.id !== autoTitleProvider.id),
-			];
+			const providers = () =>
+				combineSettingsProviders([
+					autoTitleProvider,
+					createRtkSettingsProvider(rtk),
+					traditionalToSimplifiedProvider,
+					...listHePiSettings().filter((provider) => provider.id !== autoTitleProvider.id),
+				]);
 			const defaults = defaultLoadoutStoragePaths();
 			const storage = createLoadoutStorage({
 				globalPath: defaults.globalPath,
@@ -193,7 +177,7 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 			});
 			const shell = createShellModule({
 				settings: ({ context, host, theme }) => {
-					const next = new SettingsController({ context, providers: providers() });
+					const next = new SettingsController({ context, providers: [providers()] });
 					settingsController = next;
 					void next.load().catch((error) => {
 						runtime.ctx.ui.notify(
