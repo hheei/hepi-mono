@@ -218,9 +218,5 @@
   "216": "commands.ts",
   "217": "controller.ts",
   "218": "compilerOptions",
-  "219": "parseFormat",
-  "220": "5. 外部参数schema",
-  "221": "model.test.ts",
-  "222": "replayPlan",
-  "223": "responsiveSplit"
+  "219": "parseFormat"
 }
