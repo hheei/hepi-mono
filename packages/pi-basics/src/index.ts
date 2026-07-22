@@ -131,6 +131,19 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 					traditionalToSimplifiedProvider,
 					...listHePiSettings().filter((provider) => provider.id !== autoTitleProvider.id),
 				]);
+			const settingsContext = {
+				sessionId: runtime.ctx.sessionManager.getSessionId(),
+				cwd: runtime.ctx.cwd,
+			};
+			try {
+				const state = await autoTitleProvider.storage.load(settingsContext);
+				await autoTitleProvider.onLoad?.(state ?? {}, settingsContext);
+			} catch (error) {
+				runtime.ctx.ui.notify(
+					`Unable to load HEPI automatic title settings: ${error instanceof Error ? error.message : String(error)}`,
+					"error",
+				);
+			}
 			const defaults = defaultLoadoutStoragePaths();
 			const storage = createLoadoutStorage({
 				globalPath: defaults.globalPath,
@@ -179,12 +192,16 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 				settings: ({ context, host, theme }) => {
 					const next = new SettingsController({ context, providers: [providers()] });
 					settingsController = next;
-					void next.load().catch((error) => {
-						runtime.ctx.ui.notify(
-							`Unable to load HEPI Settings: ${error instanceof Error ? error.message : String(error)}`,
-							"error",
-						);
-					});
+					void next.load().then(
+						() => host.requestRender(),
+						(error) => {
+							runtime.ctx.ui.notify(
+								`Unable to load HEPI Settings: ${error instanceof Error ? error.message : String(error)}`,
+								"error",
+							);
+							host.requestRender();
+						},
+					);
 					return createSettingsComponent({
 						controller: next,
 						host,
