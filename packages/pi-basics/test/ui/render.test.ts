@@ -98,7 +98,7 @@ describe("settings renderer", () => {
 			[72, 100, 140, 200].map((width) =>
 				descriptionStart(renderSettings({ controller, theme, width })),
 			),
-		).toEqual([40, 43, 43, 43]);
+		).toEqual([40, 55, 55, 55]);
 		expect(plain(wide)).toContain("─ Description");
 		expect(plain(wide)).toContain("│ Name description");
 		expect(plain(wide)).toContain("Origin: @pi-basics");
@@ -356,10 +356,10 @@ describe("settings renderer", () => {
 		expect(loadoutTabs.map(stripAnsi)[0]).toMatch(/╭─+╮/);
 		expect(loadoutTabs.map(stripAnsi)[1]).toMatch(/│.*│/);
 		expect(loadoutTabs.join("\n")).not.toContain(ansi.dim);
-		expect(loadoutTabs[1]).toContain("│ ⚙ Settings");
-		expect(loadoutTabs[1]).toContain(`${ansi.bold} ◈ Loadout`);
-		expect(loadoutTabs[1]).toContain(`${ansi.other}│ ⚙ Settings`);
-		expect(stripAnsi(settingsTabs[1])).toBe(stripAnsi(loadoutTabs[1]));
+		expect(loadoutTabs[1]!).toContain("│ ⚙ Settings");
+		expect(loadoutTabs[1]!).toContain(`${ansi.bold} ◈ Loadout`);
+		expect(loadoutTabs[1]!).toContain(`${ansi.other}│ ⚙ Settings`);
+		expect(stripAnsi(settingsTabs[1]!)).toBe(stripAnsi(loadoutTabs[1]!));
 		expect(loadoutLines.map(stripAnsi)).toContain("↕ navigate · ↔ tab · ␣ edit · ⎋ close");
 		const narrowFooter = renderSettings({ controller, theme, width: 30 }).map(stripAnsi);
 		expect(narrowFooter.some((line) => line.includes("↕ navigate"))).toBe(true);

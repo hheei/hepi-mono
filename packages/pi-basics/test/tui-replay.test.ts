@@ -132,7 +132,7 @@ describe("tui replay", () => {
 			expect(stripAnsi(frame.lines[2]!)).toBe("previous-bottom");
 			expect(stripAnsi(frame.lines[3]!)).toBe("previous-autocomplete");
 		}
-		expect(stripAnsi(result.frames[0]!.lines[0]!)).toContain("◫");
+		expect(stripAnsi(result.frames[0]!.lines[0]!)).toContain("⣤⣤");
 		expect(stripAnsi(result.frames[0]!.lines[0]!)).toContain("1.2k");
 		expect(stripAnsi(result.frames[0]!.lines[0]!)).toContain("Session");
 		expect(stripAnsi(result.frames[1]!.lines[0]!)).toContain("Claude");

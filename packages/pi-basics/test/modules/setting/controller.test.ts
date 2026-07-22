@@ -5,6 +5,30 @@ import { createSettingsFixture } from "../../fixtures/settings.js";
 import { fakeStorage, testContext } from "../../helpers.js";
 
 describe("settings controller", () => {
+	test("blocks changes until asynchronous settings load completes", async () => {
+		const gate = Promise.withResolvers<void>();
+		const provider = createSettingsFixture({
+			storage: {
+				load: async () => {
+					await gate.promise;
+					return undefined;
+				},
+				save: async () => undefined,
+			},
+		});
+		const controller = createSettingsController({ providers: [provider], context: testContext() });
+		const loading = controller.load();
+		expect(controller.loading).toBe(true);
+		controller.select("enabled");
+		await expect(controller.toggle()).rejects.toThrow("still loading");
+		gate.resolve();
+		await loading;
+		expect(controller.loading).toBe(false);
+		await controller.toggle();
+		expect(controller.state.committed.fixture!.general!.enabled).toBe(false);
+		await controller.close();
+	});
+
 	test("loads defaults and orders callbacks before save", async () => {
 		const events: string[] = [];
 		const storage = fakeStorage();

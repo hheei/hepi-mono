@@ -100,8 +100,6 @@ export function createLoadoutStorage(
 		value: boolean | undefined,
 		removeKeys: readonly LoadoutKey[] = [],
 	): Promise<void> => {
-		if (scope === "global" && value === undefined)
-			throw new Error("Global loadout update cannot delete a key");
 		const path = scope === "global" ? paths.globalPath : paths.projectPath;
 		const previous = queues.get(path) ?? Promise.resolve();
 		const operation = async () => {

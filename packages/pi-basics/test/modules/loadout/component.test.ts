@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import { createLoadoutView } from "../../../src/modules/loadout/component.js";
 import { createLoadoutController } from "../../../src/modules/loadout/controller.js";
 import type { LoadoutItem } from "../../../src/modules/loadout/model.js";
@@ -29,7 +30,7 @@ async function setup() {
 			this.renders++;
 		},
 	};
-	const component = createLoadoutView({ controller, theme, host });
+	const component = createLoadoutView({ controller, theme: theme as unknown as Theme, host });
 	return { controller, component, host };
 }
 

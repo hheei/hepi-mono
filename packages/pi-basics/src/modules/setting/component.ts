@@ -81,8 +81,8 @@ export function createSettingsComponent(options: SettingsComponentOptions): Comp
 			if (
 				item.kind !== "group" &&
 				(item.kind !== "field" ||
-					!item.field.enabled ||
-					item.field.enabled(controller.state.committed[controller.provider?.id ?? ""] ?? {}))
+					item.field.enabled?.(controller.state.committed[controller.provider?.id ?? ""] ?? {}) !==
+						false)
 			)
 				break;
 			next += direction < 0 ? -1 : 1;
@@ -94,6 +94,7 @@ export function createSettingsComponent(options: SettingsComponentOptions): Comp
 	}
 
 	function activate(): void {
+		if (controller.loading) return;
 		const item = selectedItem();
 		if (!item || item.kind === "panel") return;
 		if (item.kind === "group") return;

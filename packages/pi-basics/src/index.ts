@@ -72,7 +72,7 @@ export function registerHePiModule(module: HePiModule, registry?: HePiModuleRegi
 
 export default function piBasicsExtension(pi: ExtensionAPI): void {
 	let settingsController: SettingsController | undefined;
-	let autoTitleCoordinator: { dispose: () => void } | undefined;
+	let autoTitleCoordinator: { setModel: (model: string) => void; dispose: () => void } | undefined;
 	let loadoutController: LoadoutController | undefined;
 	const coordinator = createToolActivationCoordinator(pi);
 	const rtk = createRtkFeature();
@@ -85,6 +85,11 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 	const traditionalToSimplified = createTraditionalToSimplifiedFeature();
 	const lifecycle = new HePiLifecycleController({
 		onStart: async (runtime) => {
+			coordinator.reset();
+			runtime.registry.registerLifecycle({
+				id: "tool-activation",
+				cleanup: () => coordinator.reset(),
+			});
 			if (typeof runtime.pi.getActiveTools === "function") {
 				coordinator.setLoadoutBaseline(runtime.pi.getActiveTools());
 			}
@@ -118,10 +123,14 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 				onPersisted: (enabled) => traditionalToSimplified.setEnabled(enabled),
 			});
 			const autoTitleProvider = createAutoTitleProvider(runtime, (model) => {
-				autoTitleCoordinator?.dispose();
 				const selected =
 					model ||
 					(defaultTitleModel ? `${defaultTitleModel.provider}/${defaultTitleModel.id}` : undefined);
+				if (selected && autoTitleCoordinator) {
+					autoTitleCoordinator.setModel(selected);
+					return;
+				}
+				autoTitleCoordinator?.dispose();
 				autoTitleCoordinator = selected ? createAutoTitleCoordinator(runtime, selected) : undefined;
 			});
 			const providers = () =>
@@ -144,6 +153,13 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 					"error",
 				);
 			}
+			runtime.registry.registerLifecycle({
+				id: "auto-title",
+				cleanup: () => {
+					autoTitleCoordinator?.dispose();
+					autoTitleCoordinator = undefined;
+				},
+			});
 			const defaults = defaultLoadoutStoragePaths();
 			const storage = createLoadoutStorage({
 				globalPath: defaults.globalPath,
@@ -170,6 +186,10 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 					`Unable to load HEPI Loadout: ${error instanceof Error ? error.message : String(error)}`,
 					"error",
 				);
+			});
+			runtime.registry.registerLifecycle({
+				id: "loadout",
+				cleanup: () => loadoutController?.close(),
 			});
 			await rtk.start(runtime);
 			runtime.registry.registerLifecycle({
@@ -219,10 +239,7 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 			runtime.registry.registerLifecycle({
 				id: "shell",
 				cleanup: async () => {
-					autoTitleCoordinator?.dispose();
-					autoTitleCoordinator = undefined;
 					await settingsController?.close();
-					await loadoutController?.close();
 					settingsController = undefined;
 					loadoutController = undefined;
 				},
