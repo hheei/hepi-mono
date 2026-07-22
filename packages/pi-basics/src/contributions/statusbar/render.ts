@@ -48,7 +48,7 @@ export function renderStatusbarLine(
 	const thinking = style("muted", thinkingGlyph(snapshot.thinkingLevel));
 	const context = ` ${sep("·")} ${style(meterRole, snapshot.meter)} ${style(tokensRole, `${snapshot.contextTokens}/${snapshot.contextLimit}`)}`;
 	let keptStatuses = snapshot.statuses;
-	let title = snapshot.sessionName;
+	const title = snapshot.sessionName;
 	const formatted = (): RenderedStatusbarFormat =>
 		renderStatusbarFormat(DEFAULT_STATUSBAR_FORMAT_TOKENS, {
 			prefix,
@@ -62,13 +62,6 @@ export function renderStatusbarLine(
 	let beforeFill = joinStatusbarFormat(output.beforeFill);
 	let afterFill = joinStatusbarFormat(output.afterFill);
 	let mandatory = visibleWidth(`${beforeFill}${afterFill}`);
-	while (title && mandatory > target) {
-		title = undefined;
-		output = formatted();
-		beforeFill = joinStatusbarFormat(output.beforeFill);
-		afterFill = joinStatusbarFormat(output.afterFill);
-		mandatory = visibleWidth(`${beforeFill}${afterFill}`);
-	}
 	while (keptStatuses.length && mandatory > target) {
 		keptStatuses = keptStatuses.slice(0, -1);
 		output = formatted();
