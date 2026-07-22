@@ -114,7 +114,7 @@ export function settingsListItems(controller: SettingsController): readonly Sett
 		return items;
 	}
 	for (const group of snapshot.groups) {
-		const collapsed = controller.state.collapsedGroupIds.has(group.id);
+		const collapsed = false;
 		if (group.title) {
 			items.push({
 				kind: "group",
@@ -125,17 +125,15 @@ export function settingsListItems(controller: SettingsController): readonly Sett
 				collapsed,
 			});
 		}
-		if (!collapsed) {
-			for (const field of snapshot.fields) {
-				if (field.groupId === group.id)
-					items.push({
-						kind: "field",
-						id: settingFieldItemId(group.id, field.id),
-						groupId: group.id,
-						label: field.label,
-						field,
-					});
-			}
+		for (const field of snapshot.fields) {
+			if (field.groupId === group.id)
+				items.push({
+					kind: "field",
+					id: settingFieldItemId(group.id, field.id),
+					groupId: group.id,
+					label: field.label,
+					field,
+				});
 		}
 	}
 	for (const panel of snapshot.panels)
@@ -255,14 +253,13 @@ function renderListRow(
 				? theme.fg("dim", key)
 				: key;
 	const isEmptyValue = item.kind === "field" && fieldValue(controller, item.field) === null;
-	const styledValue =
-		isEmptyValue
-			? theme.fg("dim", value)
-			: selected && controller.state.mode !== "Edit" && !locked
-				? theme.fg("accent", theme.bold(value))
-				: locked
-					? theme.fg("dim", value)
-					: value;
+	const styledValue = isEmptyValue
+		? theme.fg("dim", value)
+		: selected && controller.state.mode !== "Edit" && !locked
+			? theme.fg("accent", theme.bold(value))
+			: locked
+				? theme.fg("dim", value)
+				: value;
 	const row = `${indicator}${padToWidth(styledKey, layout.keyWidth)}${" ".repeat(layout.valueGap)}${padToWidth(styledValue, layout.valueWidth)}`;
 	if (controller.state.mode === "Edit")
 		return selected ? theme.fg("accent", theme.bold(row)) : theme.fg("dim", row);
