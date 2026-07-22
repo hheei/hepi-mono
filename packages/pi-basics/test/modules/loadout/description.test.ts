@@ -46,17 +46,33 @@ describe("loadout description panels", () => {
 			title: "Inspect tool",
 			lines: ["Registered details"],
 		});
-		const output = renderLoadout({ state, theme, width: 100, height: 20 }).join("\n");
-		expect(output).toContain("Inspect tool");
-		expect(output).toContain("Registered details");
-		expect(output).not.toContain("Description: unavailable");
-		unregisterLoadoutDescriptionPanel("tool:inspect");
+		try {
+			const registeredItem = {
+				...item,
+				descriptionPanel: getLoadoutDescriptionPanel(item),
+			};
+			const output = renderLoadout({
+				state: {
+					...state,
+					inventory: [registeredItem],
+					resolved: [{ ...state.resolved[0]!, ...registeredItem }],
+				},
+				theme,
+				width: 100,
+				height: 20,
+			}).join("\\n");
+			expect(output).toContain("Inspect tool");
+			expect(output).toContain("Registered details");
+			expect(output).not.toContain("Description: unavailable");
+		} finally {
+			unregisterLoadoutDescriptionPanel("tool:inspect");
+		}
 	});
 
 	test("shows an explicit fallback when metadata is unavailable", () => {
 		const output = renderLoadout({ state, theme, width: 100, height: 20 }).join("\n");
-		expect(output).toContain("Description: unavailable");
-		expect(output).toContain("Instruction: unavailable");
+		expect(output).not.toContain("Description: unavailable");
+		expect(output).not.toContain("Instruction: unavailable");
 	});
 
 	test("does not leak the default registry into later tests", () => {

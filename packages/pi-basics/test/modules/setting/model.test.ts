@@ -18,12 +18,13 @@ describe("settings model", () => {
 			advanced: { mode: "auto" },
 		});
 	});
-	test("preserves selection identity through search and collapse", () => {
+	test("keeps groups expanded while preserving selection identity", () => {
 		const model = createSettingsModel([createSettingsFixture()]);
 		model.select("mode");
 		model.setSearch("mode");
 		expect(model.state.selection?.itemId).toBe("mode");
 		model.toggleGroup("general");
+		expect(model.state.collapsedGroupIds.size).toBe(0);
 		expect(
 			visibleFields(model.active, "", model.state.collapsedGroupIds).some(
 				(field) => field.id === "mode",

@@ -201,10 +201,8 @@ export class SettingsModel {
 						: { providerId: this.state.activeProviderId! };
 		this.state = { ...this.state, search, selection: next, scrollTop: 0 };
 	}
-	toggleGroup(groupId: string): void {
-		const ids = new Set(this.state.collapsedGroupIds);
-		ids.has(groupId) ? ids.delete(groupId) : ids.add(groupId);
-		this.state = { ...this.state, collapsedGroupIds: ids };
+	toggleGroup(_groupId: string): void {
+		// Group headers are structural labels; fields remain permanently visible.
 	}
 	beginEdit(value: string): void {
 		this.state = { ...this.state, mode: "Edit", draftValue: value, error: undefined };

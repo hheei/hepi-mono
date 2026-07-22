@@ -79,9 +79,10 @@ export function createSettingsComponent(options: SettingsComponentOptions): Comp
 		while (next >= 0 && next < items.length) {
 			const item = items[next]!;
 			if (
-				item.kind !== "field" ||
-				!item.field.enabled ||
-				item.field.enabled(controller.state.committed[controller.provider?.id ?? ""] ?? {})
+				item.kind !== "group" &&
+				(item.kind !== "field" ||
+					!item.field.enabled ||
+					item.field.enabled(controller.state.committed[controller.provider?.id ?? ""] ?? {}))
 			)
 				break;
 			next += direction < 0 ? -1 : 1;
@@ -95,12 +96,7 @@ export function createSettingsComponent(options: SettingsComponentOptions): Comp
 	function activate(): void {
 		const item = selectedItem();
 		if (!item || item.kind === "panel") return;
-		if (item.kind === "group") {
-			controller.toggleGroup(item.groupId);
-			ensureSelectionVisible();
-			requestRender();
-			return;
-		}
+		if (item.kind === "group") return;
 		if (
 			item.field.enabled &&
 			!item.field.enabled(controller.state.committed[controller.provider?.id ?? ""] ?? {})

@@ -168,9 +168,9 @@ describe("settings component", () => {
 		expect(text(state.component, 100).split("\n").at(-2)).toBe(toggleFooter);
 
 		state.component.handleInput?.("\x1b[A");
-		expect(state.controller.state.selection?.itemId).toBe("group:general");
+		expect(state.controller.state.selection?.itemId).toBe("enabled");
 		state.component.handleInput?.(" ");
-		expect(text(state.component)).not.toContain("Enabled");
+		expect(text(state.component)).toContain("Enabled");
 		for (const character of "Enabled") state.component.handleInput?.(character);
 		expect(state.controller.state.search).toBe("Enabled");
 		expect(state.controller.state.selection?.itemId).toBe("enabled");

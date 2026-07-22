@@ -73,7 +73,7 @@ registerLoadoutDescriptionPanel("tool:inspect", {
 });
 ```
 
-A panel may provide `render(width)` instead of `lines`. Registrations are used by the built-in Loadout inventory and can be removed with `unregisterLoadoutDescriptionPanel(key)`. When no metadata is available, Loadout shows explicit `Description: unavailable` and `Instruction: unavailable` text instead of inserting empty section rows.
+A panel may provide `render(width)` instead of `lines`. Registrations are used by the built-in Loadout inventory and can be removed with `unregisterLoadoutDescriptionPanel(key)`. When no metadata is available, Loadout omits the missing Description and Instruction sections instead of inserting empty section rows.
 
 ## RTK
 

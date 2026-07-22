@@ -80,13 +80,12 @@ function panelLines(
 		? [summary, ...customLines]
 		: [
 				summary,
-				...(item.description
-					? shortDescription(item.description, inner, 3)
-					: ["Description: unavailable"]),
+				...(item.description ? shortDescription(item.description, inner, 3) : []),
 				`Origin: ${item.origin || "built-in"}`,
 				`Status: ${statusText(item)}`,
-				item.instruction ? "Instruction:" : "Instruction: unavailable",
-				...(item.instruction ? shortDescription(item.instruction, inner, 4) : []),
+				...(item.instruction
+					? ["Instruction:", ...shortDescription(item.instruction, inner, 4)]
+					: []),
 			];
 	const rows = content.slice(0, Math.max(0, height - 2)).map((line, index) => {
 		const text = truncateToWidth(line, inner, "");
