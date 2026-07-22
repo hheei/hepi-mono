@@ -329,7 +329,7 @@ export function createAutoTitleCoordinator(runtime: AutoTitleRuntime, initialMod
 	let launchRequested = false;
 	let spawned: Spawned | undefined;
 	const setStatus = (text?: string) => ctx.ui?.setStatus?.("auto-title", text);
-	const spinnerFrames = ["⠙", "⠹", "⠹", "⠏", "⠼", "⠏", "⠸", "⠦"];
+	const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 	let statusTimer: ReturnType<typeof setInterval> | undefined;
 	const clearStatus = () => {
 		if (statusTimer !== undefined) clearInterval(statusTimer);
