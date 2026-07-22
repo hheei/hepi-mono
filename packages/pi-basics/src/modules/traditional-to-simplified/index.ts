@@ -11,7 +11,7 @@ import type {
 } from "../../api/settings.js";
 
 export const TRADITIONAL_TO_SIMPLIFIED_GROUP = "traditional-to-simplified";
-export const TRADITIONAL_TO_SIMPLIFIED_FIELD = "enabled";
+export const TRADITIONAL_TO_SIMPLIFIED_FIELD = "mode";
 
 interface Fence {
 	char: "`" | "~";
@@ -132,15 +132,15 @@ export function createTraditionalToSimplifiedSettingsProvider(
 				fields: [
 					{
 						id: TRADITIONAL_TO_SIMPLIFIED_FIELD,
-						label: "traditional to simplified",
-						type: "boolean",
-						defaultValue: true,
+						label: "ZH translate",
+						type: "enum",
+						defaultValue: "t2s",
+						options: [
+							{ value: "t2s", label: "t2s" },
+							{ value: "none", label: "none" },
+						],
 						description: "Convert interactive Traditional Chinese input to Simplified Chinese.",
-						parse: (draft) => {
-							if (draft === "true") return true;
-							if (draft === "false") return false;
-							throw new Error("Expected true or false");
-						},
+						parse: (draft) => (draft === "none" ? "none" : "t2s"),
 					},
 				] satisfies readonly HePiSettingField[],
 			},
@@ -154,7 +154,17 @@ export function createTraditionalToSimplifiedSettingsProvider(
 						? (section as JsonObject)[TRADITIONAL_TO_SIMPLIFIED_GROUP]
 						: undefined;
 				return values && typeof values === "object" && !Array.isArray(values)
-					? { [TRADITIONAL_TO_SIMPLIFIED_GROUP]: values as Record<string, boolean> }
+					? {
+							[TRADITIONAL_TO_SIMPLIFIED_GROUP]: {
+								mode:
+									(values as JsonObject).mode === "none" || (values as JsonObject).enabled === false
+										? "none"
+										: "t2s",
+								enabled: !(
+									(values as JsonObject).mode === "none" || (values as JsonObject).enabled === false
+								),
+							},
+						}
 					: undefined;
 			},
 			async save(state: HePiSettingsState, ctx: HePiContext) {
@@ -165,24 +175,24 @@ export function createTraditionalToSimplifiedSettingsProvider(
 					section && typeof section === "object" && !Array.isArray(section)
 						? { ...(section as JsonObject) }
 						: {};
-				nextSection[TRADITIONAL_TO_SIMPLIFIED_GROUP] = {
-					...(state[TRADITIONAL_TO_SIMPLIFIED_GROUP] ?? {}),
-				};
+				const values = state[TRADITIONAL_TO_SIMPLIFIED_GROUP] ?? {};
+				const mode = values.mode ?? (values.enabled === false ? "none" : "t2s");
+				nextSection[TRADITIONAL_TO_SIMPLIFIED_GROUP] = { mode };
 				root[SETTINGS_SECTION] = nextSection;
 				await saveSettings(path, root);
 				options.onPersisted?.(
-					state[TRADITIONAL_TO_SIMPLIFIED_GROUP]?.[TRADITIONAL_TO_SIMPLIFIED_FIELD] === true,
+					state[TRADITIONAL_TO_SIMPLIFIED_GROUP]?.[TRADITIONAL_TO_SIMPLIFIED_FIELD] !== "none",
 				);
 			},
 		},
 		onLoad: async (state) => {
 			options.onPersisted?.(
-				state[TRADITIONAL_TO_SIMPLIFIED_GROUP]?.[TRADITIONAL_TO_SIMPLIFIED_FIELD] !== false,
+				state[TRADITIONAL_TO_SIMPLIFIED_GROUP]?.[TRADITIONAL_TO_SIMPLIFIED_FIELD] !== "none",
 			);
 		},
 		onChange: async (change) => {
 			if (change.fieldId !== TRADITIONAL_TO_SIMPLIFIED_FIELD) return;
-			options.onPersisted?.(change.value === true);
+			options.onPersisted?.(change.value !== "none");
 		},
 	};
 }
