@@ -15,7 +15,7 @@ export const AUTO_TITLE_MODEL_FIELD = "autoTitleModel";
 const SECTION = "pi-basics";
 const AGENT_PATH = [".pi", "agents", "pi-basics-auto-title.md"] as const;
 const MAX_PROMPT = 2000;
-const TIMEOUT_MS = 20_000;
+const TIMEOUT_MS = 60_000;
 
 type JsonObject = Record<string, unknown>;
 export interface AutoTitleStorageOptions {
