@@ -81,10 +81,11 @@ function panelLines(
 		: [
 				summary,
 				...(item.description ? shortDescription(item.description, inner, 3) : []),
+				"",
 				`Origin: ${item.origin || "built-in"}`,
 				`Status: ${statusText(item)}`,
 				...(item.instruction
-					? ["Instruction:", ...shortDescription(item.instruction, inner, 4)]
+					? ["", "Instruction:", ...shortDescription(item.instruction, inner, 4)]
 					: []),
 			];
 	const rows = content.slice(0, Math.max(0, height - 2)).map((line, index) => {
