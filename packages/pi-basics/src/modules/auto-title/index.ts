@@ -328,6 +328,23 @@ export function createAutoTitleCoordinator(runtime: AutoTitleRuntime, initialMod
 		.some((e) => e.type === "custom" && e.customType === "pi-basics-auto-title");
 	let launchRequested = false;
 	let spawned: Spawned | undefined;
+	const setStatus = (text?: string) => ctx.ui?.setStatus?.("auto-title", text);
+	const spinnerFrames = ["⠙", "⠹", "⠹", "⠏", "⠼", "⠏", "⠸", "⠦"];
+	let statusTimer: ReturnType<typeof setInterval> | undefined;
+	const clearStatus = () => {
+		if (statusTimer !== undefined) clearInterval(statusTimer);
+		statusTimer = undefined;
+		setStatus(undefined);
+	};
+	const startStatus = () => {
+		clearStatus();
+		let frame = 0;
+		const update = () => {
+			setStatus(`${spinnerFrames[frame++ % spinnerFrames.length]} Generating title...`);
+		};
+		update();
+		statusTimer = setInterval(update, 120);
+	};
 	const rpcUnsubs: Array<() => void> = [];
 	const clear = () => {
 		clearTimeout(timer);
@@ -355,9 +372,11 @@ export function createAutoTitleCoordinator(runtime: AutoTitleRuntime, initialMod
 		const pingId = randomUUID();
 		const spawnId = randomUUID();
 		let done = false;
+		startStatus();
 		const finish = () => {
 			if (done) return;
 			done = true;
+			clearStatus();
 			clear();
 			stop();
 		};
@@ -426,12 +445,14 @@ export function createAutoTitleCoordinator(runtime: AutoTitleRuntime, initialMod
 					pi.events.on("session_info_changed", (event) => {
 						revision++;
 						if (event && typeof event === "object" && "name" in event && event.name) {
+							clearStatus();
 							clear();
 							stop();
 						}
 					}),
 					pi.events.on("before_agent_start", () => {
 						revision++;
+						clearStatus();
 						clear();
 						stop();
 					}),
@@ -441,12 +462,14 @@ export function createAutoTitleCoordinator(runtime: AutoTitleRuntime, initialMod
 		pi.on("session_info_changed", (event) => {
 			revision++;
 			if (event.name) {
+				clearStatus();
 				clear();
 				stop();
 			}
 		});
 		pi.on("before_agent_start", () => {
 			revision++;
+			clearStatus();
 			clear();
 			stop();
 		});
@@ -464,12 +487,14 @@ export function createAutoTitleCoordinator(runtime: AutoTitleRuntime, initialMod
 			modelRef = nextModelRef;
 			revision++;
 			attempted = false;
+			clearStatus();
 			clear();
 			stop();
 		},
 		dispose: () => {
 			disposed = true;
 			revision++;
+			clearStatus();
 			clear();
 			for (const off of lifecycleUnsubs) off();
 			stop();
