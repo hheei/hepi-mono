@@ -391,7 +391,7 @@ export function createAutoTitleCoordinator(runtime: AutoTitleRuntime, initialMod
 				const e = event as { id?: unknown; status?: unknown; result?: unknown };
 				if (
 					e.id !== id ||
-					e.status !== "completed" ||
+					(e.status !== "completed" && e.status !== "steered") ||
 					typeof e.result !== "string" ||
 					done ||
 					disposed ||

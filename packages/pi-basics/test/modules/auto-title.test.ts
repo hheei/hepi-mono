@@ -49,7 +49,10 @@ describe("Pi Basics auto-title", () => {
 				persisted = model;
 			},
 		});
-		await provider.onLoad?.({ "auto-title": { autoTitle: true, autoTitleModel: "" } }, context("/tmp"));
+		await provider.onLoad?.(
+			{ "auto-title": { autoTitle: true, autoTitleModel: "" } },
+			context("/tmp"),
+		);
 		expect(persisted).toBeUndefined();
 		await provider.onChange?.(
 			{
@@ -95,7 +98,7 @@ describe("Pi Basics auto-title", () => {
 		).rejects.toThrow("unavailable");
 	});
 
-	test("applies only completed matching title and blocks manual title", () => {
+	test("applies completed or steered matching title and blocks manual title", () => {
 		const handlers = new Map<string, (value: unknown) => void>();
 		const pi = {
 			events: {
@@ -132,7 +135,7 @@ describe("Pi Basics auto-title", () => {
 		handlers.get(spawn!)?.({ success: true, data: { id: "child" } });
 		handlers.get("subagents:completed")?.({
 			id: "child",
-			status: "completed",
+			status: "steered",
 			result: "  My \n Session  ",
 		});
 		expect(applied).toBe("My Session");
