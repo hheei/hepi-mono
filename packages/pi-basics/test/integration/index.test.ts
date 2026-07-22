@@ -164,10 +164,16 @@ function harness(mode: "tui" | "json" = "tui") {
 test("registers commands and lifecycle handlers", () => {
 	const host = harness();
 	piBasicsExtension(host.pi);
-	expect(host.commands.map((command) => command.name)).toEqual(["rtk", "goal", "todos", "plan", "hepi"]);
+	expect(host.commands.map((command) => command.name)).toEqual([
+		"rtk",
+		"goal",
+		"todos",
+		"plan",
+		"hepi",
+	]);
 	expect(host.getActiveToolsCalls).toBe(0);
 	expect(host.tools).toEqual(["goal", "ask", "todo"]);
-	expect(host.events.get("session_start")).toHaveLength(1);
+	expect(host.events.get("session_start")).toHaveLength(2);
 	expect(host.events.get("session_shutdown")).toHaveLength(1);
 });
 

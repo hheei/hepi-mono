@@ -326,6 +326,7 @@ export function createAutoTitleCoordinator(runtime: AutoTitleRuntime, initialMod
 	let attempted = ctx.sessionManager
 		.getEntries()
 		.some((e) => e.type === "custom" && e.customType === "pi-basics-auto-title");
+	let launchRequested = false;
 	let spawned: Spawned | undefined;
 	const rpcUnsubs: Array<() => void> = [];
 	const clear = () => {
@@ -344,13 +345,13 @@ export function createAutoTitleCoordinator(runtime: AutoTitleRuntime, initialMod
 		setTimeout(off, 1000);
 	};
 	const launch = () => {
-		if (disposed || attempted || pi.getSessionName() || !ctx.isIdle()) return;
+		if (disposed || !launchRequested || attempted || pi.getSessionName() || !ctx.isIdle()) return;
+		const prompt = latestUserText(ctx);
+		if (!prompt) return;
 		attempted = true;
 		pi.appendEntry("pi-basics-auto-title", { attempted: true });
 		const sessionId = ctx.sessionManager.getSessionId();
 		const sessionRevision = revision;
-		const prompt = latestUserText(ctx);
-		if (!prompt) return;
 		const pingId = randomUUID();
 		const spawnId = randomUUID();
 		let done = false;
@@ -452,6 +453,12 @@ export function createAutoTitleCoordinator(runtime: AutoTitleRuntime, initialMod
 		pi.on("agent_settled", launch);
 	}
 	return {
+		trigger: (force = false) => {
+			if (disposed) return;
+			launchRequested = true;
+			if (force) attempted = false;
+			launch();
+		},
 		setModel: (nextModelRef: string) => {
 			if (disposed || nextModelRef === modelRef) return;
 			modelRef = nextModelRef;
@@ -481,7 +488,7 @@ export async function provisionAutoTitleAgent(cwd: string): Promise<void> {
 	await mkdir(dirname(path), { recursive: true });
 	await writeFile(
 		path,
-		`---\nname: pi-basics-auto-title\ndescription: Generate one short session title\ntools: none\nextensions: false\nskills: false\npromptMode: replace\n---\nReturn only one short, descriptive title for this session. No quotes, markdown, or explanation.\n`,
+		`---\nname: pi-basics-auto-title\ndescription: Generate one short session title\ntools: none\nextensions: false\nskills: false\npromptMode: replace\n---\nReturn only one short, descriptive title for this session. No more than 5 words. No quotes, markdown, or explanation.\n`,
 		"utf8",
 	);
 }
