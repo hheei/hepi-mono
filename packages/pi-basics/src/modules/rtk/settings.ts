@@ -9,7 +9,7 @@ import type { RtkFeature } from "./feature.js";
 
 const GROUP = "rtk";
 type RtkModeSetting = "off" | "rewrite" | "suggest";
-type RtkCompactionSetting = "none" | "out" | "read+out";
+type RtkCompactionSetting = "out" | "read+out";
 
 const fields: readonly HePiSettingField[] = [
 	{
@@ -30,12 +30,11 @@ const fields: readonly HePiSettingField[] = [
 		type: "enum",
 		defaultValue: "out",
 		options: [
-			{ value: "none", label: "none" },
 			{ value: "out", label: "out" },
 			{ value: "read+out", label: "read+out" },
 		],
-		parse: (value): RtkCompactionSetting =>
-			value === "none" || value === "read+out" ? value : "out",
+		parse: (value): RtkCompactionSetting => (value === "read+out" ? "read+out" : "out"),
+		enabled: (state) => state[GROUP]?.mode !== "off",
 	},
 ];
 
@@ -52,11 +51,7 @@ export function createRtkSettingsProvider(feature: RtkFeature): HePiSettingsProv
 				return {
 					[GROUP]: {
 						mode: config.enabled ? config.mode : "off",
-						compaction: !config.outputCompaction.enabled
-							? "none"
-							: config.outputCompaction.readCompaction.enabled
-								? "read+out"
-								: "out",
+						compaction: config.outputCompaction.readCompaction.enabled ? "read+out" : "out",
 					},
 				} as HePiSettingsState;
 			},
@@ -73,7 +68,7 @@ export function createRtkSettingsProvider(feature: RtkFeature): HePiSettingsProv
 						...config,
 						outputCompaction: {
 							...config.outputCompaction,
-							enabled: compaction !== "none",
+							enabled: true,
 							readCompaction: {
 								...config.outputCompaction.readCompaction,
 								enabled: compaction === "read+out",
