@@ -238,11 +238,15 @@ export function requireAutoTitleSubagents(pi: ExtensionAPI, timeoutMs = 2_000): 
 	const { promise, resolve, reject } = Promise.withResolvers<void>();
 	const requestId = randomUUID();
 	let settled = false;
+	let timer: ReturnType<typeof setTimeout>;
+	let offReply: () => void = () => undefined;
+	let offReady: () => void = () => undefined;
 	const finish = (error?: Error) => {
 		if (settled) return;
 		settled = true;
 		clearTimeout(timer);
-		off();
+		offReply();
+		offReady();
 		if (error) reject(error);
 		else resolve();
 	};
@@ -256,8 +260,11 @@ export function requireAutoTitleSubagents(pi: ExtensionAPI, timeoutMs = 2_000): 
 			return finish(new Error("pi-subagents RPC v2 is unavailable"));
 		finish();
 	});
-	const timer = setTimeout(() => finish(new Error("pi-subagents is unavailable")), timeoutMs);
-	pi.events.emit("subagents:rpc:ping", { requestId });
+	offReply = off;
+	const ping = () => pi.events.emit("subagents:rpc:ping", { requestId });
+	offReady = pi.events.on("subagents:ready", ping);
+	timer = setTimeout(() => finish(new Error("pi-subagents is unavailable")), timeoutMs);
+	ping();
 	return promise;
 }
 const ANSI_ESCAPE = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "g");
