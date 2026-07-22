@@ -156,7 +156,7 @@ test("implements exact bridge grammar for title/status combinations", () => {
 	}
 });
 
-test("drops title then statuses from right to left and remains ANSI/cell safe", () => {
+test("keeps the title while dropping statuses from right to left", () => {
 	const styled = {
 		...buildStatusbarSnapshot({
 			model: { name: "模型🙂\x1b[31mX\x1b[0m" },
@@ -179,6 +179,7 @@ test("drops title then statuses from right to left and remains ANSI/cell safe", 
 	const narrow = renderStatusbarLine(48, styled, theme);
 	expect(narrow).not.toContain("third");
 	expect(narrow).toContain("first");
+	expect(narrow).toContain("標題🙂");
 });
 
 test("keeps exact ANSI output and leaves a narrow model unstyled", () => {
