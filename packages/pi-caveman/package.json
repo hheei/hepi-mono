@@ -1,0 +1,49 @@
+{
+	"name": "@hheei/pi-caveman",
+	"version": "0.0.0",
+	"description": "Session-scoped Caveman communication mode for Pi.",
+	"type": "module",
+	"main": "src/index.ts",
+	"scripts": {
+		"test": "bun test"
+	},
+	"files": [
+		"src",
+		"README.md",
+		"LICENSE"
+	],
+	"pi": {
+		"extensions": [
+			"src/index.ts"
+		]
+	},
+	"keywords": [
+		"pi",
+		"pi-package",
+		"pi-extension",
+		"hepi",
+		"caveman",
+		"concise"
+	],
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/hheei/hepi-mono.git",
+		"directory": "packages/pi-caveman"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"devDependencies": {
+		"@hheei/pi-basics": "workspace:*"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": ">=0.80.10",
+		"@hheei/pi-basics": ">=0.0.0"
+	},
+	"peerDependenciesMeta": {
+		"@hheei/pi-basics": {
+			"optional": true
+		}
+	}
+}
