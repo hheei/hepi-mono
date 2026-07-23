@@ -49,6 +49,26 @@ describe("dollar skill model", () => {
 		]);
 	});
 
+	test("sorts disabled skills last and dims their display text", () => {
+		const mixed: readonly DollarSkillCommand[] = [
+			{ name: "skill:zeta", description: "Zeta", source: "skill" },
+			{ name: "skill:alpha", description: "Alpha", source: "skill" },
+			{ name: "skill:beta", description: "Beta", source: "skill" },
+		];
+
+		expect(
+			getDollarSkillSuggestions(mixed, "", 20, (command) => command.name !== "skill:alpha"),
+		).toEqual([
+			{ value: "$beta", label: "beta", description: "Skill - Beta" },
+			{ value: "$zeta", label: "zeta", description: "Skill - Zeta" },
+			{
+				value: "$alpha",
+				label: "\x1b[2malpha\x1b[22m",
+				description: "\x1b[2mSkill - Alpha\x1b[22m",
+			},
+		]);
+	});
+
 	test("expands known references at punctuation boundaries", () => {
 		expect(expandDollarSkillReferences("Use $librarian, then $deploy-plan.", commands)).toBe(
 			"Use /user/librarian/SKILL.md, then /package/deploy-plan/SKILL.md.",

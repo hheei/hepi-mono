@@ -20,6 +20,7 @@ import {
 import {
 	createDollarSkillAutocompleteProvider,
 	DEFAULT_DOLLAR_SKILL_CONFIG,
+	type DollarSkillCommand,
 	type DollarSkillConfig,
 	expandDollarSkillReferences,
 	MAX_DOLLAR_SKILL_SUGGESTIONS,
@@ -74,7 +75,10 @@ export interface DollarSkillFeature {
 	setConfig(config: DollarSkillConfig): void;
 }
 
-export function createDollarSkillFeature(pi: ExtensionAPI): DollarSkillFeature {
+export function createDollarSkillFeature(
+	pi: ExtensionAPI,
+	isSkillEnabled: (command: DollarSkillCommand) => boolean = () => true,
+): DollarSkillFeature {
 	let activeSessionId: string | undefined;
 	let config = DEFAULT_DOLLAR_SKILL_CONFIG;
 	let editorOwner: AtomicEditorOwner | undefined;
@@ -91,6 +95,7 @@ export function createDollarSkillFeature(pi: ExtensionAPI): DollarSkillFeature {
 						() => pi.getCommands(),
 						() => config,
 						() => activeSessionId !== undefined,
+						isSkillEnabled,
 					),
 				);
 			}
