@@ -14,7 +14,7 @@ export type GuardPatchMode = "auto" | "on" | "off";
 
 const APPLY_PATCH_COMMAND = /(?:^|[\n;&|()])\s*(?:command\s+)?apply_patch\s/;
 const BLOCK_REASON =
-	"`apply_patch` tool is unavailable. Use `edit` for precise changes or `write` for new files/complete rewrites.";
+	"The previous `bash` call was aborted before execution because `apply_patch` is unavailable in this Pi process. Do not retry `apply_patch`. Continue the same task now with `edit` for precise changes or `write` for new files/complete rewrites.";
 const SETTINGS_SECTION = "pi-basics";
 type JsonObject = Record<string, unknown>;
 
@@ -51,9 +51,29 @@ export interface ApplyPatchGuard {
 
 export function registerApplyPatchGuard(pi: ExtensionAPI): ApplyPatchGuard {
 	let interrupted = false;
+	let pendingInjection = false;
 	let mode: GuardPatchMode = "auto";
-	pi.on("turn_start", () => {
+	pi.on("before_agent_start", () => {
 		interrupted = false;
+	});
+	pi.on("session_start", () => {
+		interrupted = false;
+		pendingInjection = false;
+	});
+	pi.on("agent_settled", () => {
+		if (!pendingInjection) return;
+		pendingInjection = false;
+		pi.sendMessage(
+			{
+				customType: "apply-patch-guard",
+				content: BLOCK_REASON,
+				display: true,
+			},
+			{ triggerTurn: true },
+		);
+	});
+	pi.on("session_shutdown", () => {
+		pendingInjection = false;
 	});
 	pi.on("message_update", (event, ctx) => {
 		if (interrupted || event.assistantMessageEvent.type !== "toolcall_delta") return;
@@ -67,14 +87,7 @@ export function registerApplyPatchGuard(pi: ExtensionAPI): ApplyPatchGuard {
 		const command = content.arguments.command;
 		if (typeof command !== "string" || !hasStreamingApplyPatchCommand(command)) return;
 		interrupted = true;
-		pi.sendMessage(
-			{
-				customType: "apply-patch-guard",
-				content: BLOCK_REASON,
-				display: true,
-			},
-			{ deliverAs: "steer", triggerTurn: true },
-		);
+		pendingInjection = true;
 		ctx.abort();
 	});
 	return {
