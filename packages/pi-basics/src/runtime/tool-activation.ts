@@ -13,6 +13,8 @@ function unique(names: readonly string[]): string[] {
 	return [...new Set(names)];
 }
 
+const coordinators = new WeakMap<ExtensionAPI, ToolActivationCoordinator>();
+
 export function createToolActivationCoordinator(pi: ExtensionAPI): ToolActivationCoordinator {
 	let baseline: string[] = [];
 	let askVisible = false;
@@ -59,4 +61,12 @@ export function createToolActivationCoordinator(pi: ExtensionAPI): ToolActivatio
 			effective = [];
 		},
 	};
+}
+
+export function getToolActivationCoordinator(pi: ExtensionAPI): ToolActivationCoordinator {
+	const existing = coordinators.get(pi);
+	if (existing !== undefined) return existing;
+	const coordinator = createToolActivationCoordinator(pi);
+	coordinators.set(pi, coordinator);
+	return coordinator;
 }

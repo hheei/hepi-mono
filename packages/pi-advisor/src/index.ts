@@ -1,0 +1,10 @@
+export { registerAdvisorCommand } from "./command.js";
+export * from "./context.js";
+export * from "./feature.js";
+export * from "./feedback.js";
+export * from "./model.js";
+export * from "./persistence.js";
+export * from "./prompt.js";
+export * from "./renderer.js";
+export * from "./runtime.js";
+export * from "./settings.js";

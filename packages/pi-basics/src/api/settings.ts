@@ -91,6 +91,7 @@ export interface HePiSettingsProvider {
 
 export interface HePiSettingsRegistry {
 	register(provider: HePiSettingsProvider): void;
+	replace(provider: HePiSettingsProvider): void;
 	list(options?: { includeEmpty?: boolean }): readonly HePiSettingsProvider[];
 	get(id: string): HePiSettingsProvider | undefined;
 }
@@ -127,6 +128,11 @@ class SettingsRegistry implements HePiSettingsRegistry {
 		this.#providers.set(provider.id, provider);
 	}
 
+	replace(provider: HePiSettingsProvider): void {
+		validateSettingDescriptions(provider);
+		this.#providers.set(provider.id, provider);
+	}
+
 	list(options: { includeEmpty?: boolean } = {}): readonly HePiSettingsProvider[] {
 		return [...this.#providers.values()]
 			.filter(
@@ -154,6 +160,13 @@ export function registerHePiSettings(
 	registry: HePiSettingsRegistry = defaultSettingsRegistry,
 ): void {
 	registry.register(provider);
+}
+
+export function replaceHePiSettings(
+	provider: HePiSettingsProvider,
+	registry: HePiSettingsRegistry = defaultSettingsRegistry,
+): void {
+	registry.replace(provider);
 }
 
 export function listHePiSettings(

@@ -1,0 +1,37 @@
+{
+	"name": "@hheei/pi-ask",
+	"version": "0.0.0",
+	"description": "Interactive Ask Pi extension.",
+	"type": "module",
+	"main": "src/index.ts",
+	"files": [
+		"src",
+		"README.md",
+		"LICENSE"
+	],
+	"pi": {
+		"extensions": [
+			"src/index.ts"
+		]
+	},
+	"license": "MIT",
+	"dependencies": {
+		"typebox": "^1.1.38"
+	},
+	"devDependencies": {
+		"@hheei/pi-basics": "workspace:*"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": ">=0.80.10",
+		"@earendil-works/pi-tui": "*",
+		"@hheei/pi-basics": ">=0.0.0"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/hheei/hepi-mono.git",
+		"directory": "packages/pi-ask"
+	},
+	"publishConfig": {
+		"access": "public"
+	}
+}

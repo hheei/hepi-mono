@@ -1,0 +1,37 @@
+{
+	"name": "@hheei/pi-fix",
+	"version": "0.0.0",
+	"description": "Compatibility fixes for Pi hosts and providers.",
+	"type": "module",
+	"main": "src/index.ts",
+	"files": [
+		"src",
+		"README.md",
+		"LICENSE"
+	],
+	"pi": {
+		"extensions": [
+			"src/extension.ts"
+		]
+	},
+	"license": "MIT",
+	"scripts": {
+		"test": "bun test",
+		"typecheck": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@hheei/pi-basics": "workspace:*"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": ">=0.80.10",
+		"@hheei/pi-basics": ">=0.0.0"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/hheei/hepi-mono.git",
+		"directory": "packages/pi-fix"
+	},
+	"publishConfig": {
+		"access": "public"
+	}
+}

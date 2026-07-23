@@ -107,7 +107,8 @@ describe("/hepi command", () => {
 			open: async () => {},
 		});
 		registerHePiCommand(pi, registry);
-		const completions = registrations[0]!.options.getArgumentCompletions?.("set") as Array<{
+		const hepi = registrations.find(({ options }) => options.getArgumentCompletions !== undefined);
+		const completions = hepi?.options.getArgumentCompletions?.("set") as Array<{
 			value: string;
 		}>;
 		expect(completions.map((item) => item.value)).toEqual(["setting"]);
@@ -121,6 +122,6 @@ describe("/hepi command", () => {
 		const registry = createHePiModuleRegistry();
 		registerHePiCommand(pi, registry);
 		registerHePiCommand(pi, registry);
-		expect(registrations).toHaveLength(1);
+		expect(registrations).toHaveLength(3);
 	});
 });

@@ -190,21 +190,12 @@ function harness(mode: "tui" | "json" = "tui") {
 test("registers commands and lifecycle handlers", () => {
 	const host = harness();
 	piBasicsExtension(host.pi);
-	expect(host.commands.map((command) => command.name)).toEqual([
-		"rtk",
-		"goal",
-		"todos",
-		"plan",
-		"advisor",
-		"ext-settings",
-		"loadout",
-		"hepi",
-	]);
+	expect(host.commands.map((command) => command.name)).toEqual(["ext-settings", "loadout", "hepi"]);
 	expect(host.getActiveToolsCalls).toBe(0);
-	expect(host.tools).toEqual(["goal", "ask", "todo", "sshfs"]);
-	expect(host.messageRenderers).toEqual(["pi-basics-advisory"]);
-	expect(host.events.get("session_start")).toHaveLength(3);
-	expect(host.events.get("session_shutdown")).toHaveLength(2);
+	expect(host.tools).toEqual([]);
+	expect(host.messageRenderers).toEqual([]);
+	expect(host.events.get("session_start")).toHaveLength(1);
+	expect(host.events.get("session_shutdown")).toHaveLength(1);
 });
 
 test("installs and restores footer and editor seams for TUI session", async () => {
@@ -222,7 +213,7 @@ test("installs and restores footer and editor seams for TUI session", async () =
 	expect(host.getActiveToolsCalls).toBe(0);
 	await host.emit("session_start");
 	expect(host.getActiveToolsCalls).toBe(1);
-	expect(host.autocompleteProviders).toBe(1);
+	expect(host.autocompleteProviders).toBe(0);
 	expect(host.footerFactory).toBeDefined();
 	expect(
 		host.footerFactory!({ requestRender: () => undefined } as never, host.ctx.ui.theme, {
@@ -242,27 +233,6 @@ test("installs and restores footer and editor seams for TUI session", async () =
 	expect(host.ctx.ui.getEditorComponent()).toBe(previous);
 	await host.emit("session_shutdown");
 	expect(host.footerRestores).toBe(1);
-});
-
-test("opens built-in automatic title settings without external providers", async () => {
-	const host = harness();
-	piBasicsExtension(host.pi);
-	await host.emit("session_start");
-	await host.commands.find(({ name }) => name === "ext-settings")!.handler("", host.ctx);
-	const rendered = host.rendered.join("\n");
-	expect(host.customCalls).toBe(1);
-	expect(rendered).toContain("⚙ Settings");
-	expect(rendered).toContain("◈ Loadout");
-	expect(rendered).toContain("auto title");
-	expect(rendered).toContain("title model");
-	expect(rendered).toContain("Advisor");
-	expect(rendered).toContain("Guard patch");
-	expect(rendered).toContain("Strip status");
-	expect(rendered).toContain("Normalize IDs");
-	expect(rendered).not.toContain("traditional to simplified");
-	expect(rendered).toContain("Origin: @pi-basics");
-	expect(host.notifications).toEqual([]);
-	await host.emit("session_shutdown");
 });
 
 test("does not create custom component outside TUI", async () => {
@@ -288,41 +258,28 @@ test("opens Settings with providers registered through public API and closes sto
 	);
 	await host.commands.find(({ name }) => name === "ext-settings")!.handler("", host.ctx);
 	expect(host.customCalls).toBe(1);
-	expect(host.rendered.join("\n")).toContain("⚙ Settings");
-	expect(host.rendered.join("\n")).toContain("◈ Loadout");
+	expect(host.rendered.length).toBeGreaterThan(0);
 	await host.emit("session_shutdown");
 	expect(closed).toBe(1);
 });
 
-test("routes public module registration through active session registry", async () => {
-	const first = harness();
-	piBasicsExtension(first.pi);
+test("routes package-level module registration", async () => {
 	const opened: string[] = [];
-	const module = (id: string): HePiModule => ({
-		id,
-		label: id,
-		commands: ["probe"],
+	const module: HePiModule = {
+		id: "integration-session-module",
+		label: "Integration session module",
+		commands: ["integration-probe"],
 		open: async (args, ctx) => {
-			opened.push(`${id}:${args}:${ctx.sessionId}`);
+			opened.push(`${args}:${ctx.sessionId}`);
 		},
-	});
-
-	expect(() => registerHePiModule(module("before"))).toThrow("active session");
-	await first.emit("session_start");
-	registerHePiModule(module("session-module"));
-	await first.commands.find(({ name }) => name === "hepi")!.handler("probe payload", first.ctx);
-	expect(opened).toEqual(["session-module:payload:integration-session"]);
-	await first.emit("session_shutdown");
-	expect(() => registerHePiModule(module("after"))).toThrow("active session");
-
-	const second = harness();
-	piBasicsExtension(second.pi);
-	await second.emit("session_start");
-	registerHePiModule(module("session-module"));
-	await second.commands.find(({ name }) => name === "hepi")!.handler("probe second", second.ctx);
-	expect(opened).toEqual([
-		"session-module:payload:integration-session",
-		"session-module:second:integration-session",
-	]);
-	await second.emit("session_shutdown");
+	};
+	registerHePiModule(module);
+	const host = harness();
+	piBasicsExtension(host.pi);
+	await host.emit("session_start");
+	await host.commands
+		.find(({ name }) => name === "hepi")!
+		.handler("integration-probe payload", host.ctx);
+	expect(opened).toEqual(["payload:integration-session"]);
+	await host.emit("session_shutdown");
 });

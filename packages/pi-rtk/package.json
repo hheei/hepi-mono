@@ -1,0 +1,45 @@
+{
+	"name": "@hheei/pi-rtk",
+	"version": "0.0.0",
+	"description": "RTK command rewriting and tool output compaction for Pi.",
+	"type": "module",
+	"main": "src/index.ts",
+	"files": [
+		"src",
+		"README.md",
+		"LICENSE"
+	],
+	"pi": {
+		"extensions": [
+			"src/index.ts"
+		]
+	},
+	"keywords": [
+		"pi",
+		"pi-package",
+		"pi-extension",
+		"hepi",
+		"rtk"
+	],
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/hheei/hepi-mono.git",
+		"directory": "packages/pi-rtk"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": ">=0.80.10",
+		"@hheei/pi-basics": ">=0.0.0"
+	},
+	"peerDependenciesMeta": {
+		"@hheei/pi-basics": {
+			"optional": true
+		}
+	},
+	"devDependencies": {
+		"@hheei/pi-basics": "workspace:*"
+	}
+}
