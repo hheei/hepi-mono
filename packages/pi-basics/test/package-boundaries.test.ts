@@ -20,6 +20,14 @@ function packageDependencies(manifest: Record<string, unknown>): readonly string
 		.filter((name) => name.startsWith("@hheei/pi-"));
 }
 
+function hepiPackageImports(source: string): readonly string[] {
+	return [
+		...source.matchAll(/from\s+["'](@hheei\/pi-[^"']+)["']/gu),
+		...source.matchAll(/\bimport\s+["'](@hheei\/pi-[^"']+)["']/gu),
+		...source.matchAll(/\bimport\s*\(\s*["'](@hheei\/pi-[^"']+)["']\s*\)/gu),
+	].flatMap((match) => (match[1] === undefined ? [] : [match[1]]));
+}
+
 async function sourceFiles(directory: string): Promise<readonly string[]> {
 	const entries = await readdir(directory, { withFileTypes: true });
 	const nested = await Promise.all(
@@ -53,13 +61,23 @@ test("HEPI feature packages only depend on pi-basics", async () => {
 		const sourceDirectory = join(packagePath, "src");
 		for (const sourcePath of await sourceFiles(sourceDirectory)) {
 			const source = await readFile(sourcePath, "utf8");
-			const imports = source.matchAll(/from\s+["'](@hheei\/pi-[^"']+)["']/gu);
-			for (const match of imports)
-				expect(match[1], `${relative(repositoryRoot, sourcePath)} cannot import ${match[1]}`).toBe(
-					allowedFeatureDependency,
-				);
+			for (const dependency of hepiPackageImports(source))
+				expect(
+					dependency,
+					`${relative(repositoryRoot, sourcePath)} cannot import ${dependency}`,
+				).toBe(allowedFeatureDependency);
 		}
 	}
+});
+
+test("dependency scanner covers static and dynamic imports", () => {
+	expect(
+		hepiPackageImports(`
+			import { a } from "@hheei/pi-basics";
+			import "@hheei/pi-side-effect";
+			const b = await import("@hheei/pi-other");
+		`),
+	).toEqual(["@hheei/pi-basics", "@hheei/pi-side-effect", "@hheei/pi-other"]);
 });
 
 test("declared Pi extension entries exist and export a loader", async () => {

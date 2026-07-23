@@ -2,7 +2,7 @@
 
 Shared foundation for HEPI Pi extensions. It owns the session lifecycle, `/hepi` and `/ext-settings`, shared Settings TUI, statusbar, tool-activation coordination, loadout bridges, and ANSI/cell-width-safe TUI primitives.
 
-Load this extension before any `@hheei/pi-*` feature package. Feature packages are intentionally not bundled: install and load only the modules needed by a Pi process. They may depend on `pi-basics`, but never on another feature package.
+Load this extension before any `@hheei/pi-*` feature package. Feature packages are intentionally not bundled: install and load only the modules needed by a Pi process. They may depend on `pi-basics`, but never on another feature package. `@hheei/pi-loadout` is a supported companion and coordinates active tools through Pi Basics.
 
 ## Built-in behavior
 
@@ -11,6 +11,8 @@ Load this extension before any `@hheei/pi-*` feature package. Feature packages a
 ## Public API
 
 Import from the package root only. It exports Settings and module registries, session lifecycle/context helpers, shared TUI primitives, JSON section storage, tool activation, and the Loadout bridge contracts used for cross-feature support.
+
+Cross-feature runtime state is keyed by Pi's shared event bus, not by `ExtensionAPI`: Pi creates a separate API facade for every extension. Tool disable handlers must have unique non-empty names, register during session start, and unregister during cleanup. Disabling an unregistered tool is a no-op.
 
 ## Development
 
