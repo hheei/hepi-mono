@@ -50,8 +50,8 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/src/index.ts": {
-    "mtime": 1784808812.401763,
-    "ast_hash": "066a917e05c28b01db0d76b29eac4cce",
+    "mtime": 1784813682.5391681,
+    "ast_hash": "803364eb2cd8b0cf6384d5012dcc8d48",
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/loadout/component.ts": {
@@ -65,8 +65,8 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/loadout/index.ts": {
-    "mtime": 1784710354.8810835,
-    "ast_hash": "e44fb7e22593800abb59b06fd4c7a5c8",
+    "mtime": 1784813688.6485,
+    "ast_hash": "4dd4d5b01142e927523c6b67f0fdaf4b",
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/loadout/inventory.ts": {
@@ -75,13 +75,13 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/loadout/model.ts": {
-    "mtime": 1784731606.9423428,
-    "ast_hash": "b429d05737e0562e6e98968b9468a04a",
+    "mtime": 1784814824.3575008,
+    "ast_hash": "997d503f4477ca05fea34a64f7bfe7b5",
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/loadout/storage.ts": {
-    "mtime": 1784710354.8797574,
-    "ast_hash": "11f8969ea036d38be335529e8783f819",
+    "mtime": 1784813674.453257,
+    "ast_hash": "2c35d2ed472510fad18198498219206d",
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/loadout/tui.ts": {
@@ -115,7 +115,7 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/setting/render.ts": {
-    "mtime": 1784812526.0615506,
+    "mtime": 1784814488.0392478,
     "ast_hash": "7ad935b635e40f4b0621735c928caefd",
     "semantic_hash": ""
   },
@@ -215,13 +215,13 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/test/modules/loadout/model.test.ts": {
-    "mtime": 1784731491.9347954,
-    "ast_hash": "eda16b5445595b7fd5c8a33f668bbacf",
+    "mtime": 1784814850.06833,
+    "ast_hash": "df9921ac111b40fac215d6acc113de88",
     "semantic_hash": ""
   },
   "packages/pi-basics/test/modules/loadout/storage.test.ts": {
-    "mtime": 1784701257.5303137,
-    "ast_hash": "e8efdb99a2d85c70777947911b7cf31c",
+    "mtime": 1784813757.5682156,
+    "ast_hash": "57c97a77cf67562b196a1fc057fbd180",
     "semantic_hash": ""
   },
   "packages/pi-basics/test/modules/setting/component.test.ts": {
@@ -255,8 +255,8 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/test/ui/render.test.ts": {
-    "mtime": 1784812623.8841662,
-    "ast_hash": "adc57291fa2c67b10bb531c51890092b",
+    "mtime": 1784814496.3242924,
+    "ast_hash": "6b7723c39300dd146042a130005c1c92",
     "semantic_hash": ""
   },
   "packages/pi-basics/test/ui/text.test.ts": {
@@ -300,8 +300,8 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/README.md": {
-    "mtime": 1784812769.2421167,
-    "ast_hash": "d3a137fcca6d669d0d7a7eb8d6a8af18",
+    "mtime": 1784815407.4035766,
+    "ast_hash": "e827a16d3980ab022fadc2f3f2bf100b",
     "semantic_hash": ""
   },
   "templates/extension/README.md": {
@@ -780,13 +780,13 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/dollar-skill/index.ts": {
-    "mtime": 1784775363.89531,
-    "ast_hash": "c09f9af621ced9174402ce327de97c60",
+    "mtime": 1784813757.5680358,
+    "ast_hash": "cb2776e90201c8eae66782e92268eadb",
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/dollar-skill/model.ts": {
-    "mtime": 1784775302.1872165,
-    "ast_hash": "9b15dda15823e2cbef3e247aa3ec58a4",
+    "mtime": 1784813713.6691194,
+    "ast_hash": "b00b9a20a3c7dc58ae27bfbe75ba6de9",
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/setting/combined.ts": {
@@ -810,13 +810,13 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/test/modules/dollar-skill/feature.test.ts": {
-    "mtime": 1784775448.0510187,
-    "ast_hash": "e0075d2acbdbb3852191652606ab4c28",
+    "mtime": 1784813827.4494529,
+    "ast_hash": "affcfb1011d901479b5a60a0380f1908",
     "semantic_hash": ""
   },
   "packages/pi-basics/test/modules/dollar-skill/model.test.ts": {
-    "mtime": 1784775390.0675013,
-    "ast_hash": "68a44797770f73abd1b9343269646aa8",
+    "mtime": 1784813751.205732,
+    "ast_hash": "861cf3dc8ea8486b4f288ab9b31163e8",
     "semantic_hash": ""
   },
   "packages/pi-basics/test/modules/dollar-skill/settings.test.ts": {
@@ -1045,8 +1045,8 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/advisor/command.ts": {
-    "mtime": 1784796803.2047453,
-    "ast_hash": "962b69bacbdcd332789aed228270c9cc",
+    "mtime": 1784815071.862954,
+    "ast_hash": "e16e7f9fba04c039392bc52b0e0139e2",
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/advisor/context.ts": {
@@ -1055,8 +1055,8 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/advisor/feature.ts": {
-    "mtime": 1784796803.2053914,
-    "ast_hash": "72559656b82e1ae0025f11743829780b",
+    "mtime": 1784815399.6757364,
+    "ast_hash": "e34a5fdb42de62ddac60b3c23f78ad9e",
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/advisor/feedback.ts": {
@@ -1115,8 +1115,8 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/test/modules/advisor/feature.test.ts": {
-    "mtime": 1784796803.2124205,
-    "ast_hash": "d2576291d13db1cbb8fd011b03880252",
+    "mtime": 1784815413.719489,
+    "ast_hash": "d5c8b673b22a43a9c51ba175b920c78c",
     "semantic_hash": ""
   },
   "packages/pi-basics/test/modules/advisor/runtime.live.test.ts": {
