@@ -13,6 +13,7 @@ export interface DollarSkillCommand {
 	readonly source?: string;
 	readonly sourceInfo?: {
 		readonly path?: string;
+		readonly source?: string;
 		readonly scope?: string;
 		readonly origin?: string;
 	};
@@ -35,6 +36,12 @@ export interface DollarSkillToken {
 
 const TOKEN_PATTERN = /(^|[\s([{])\$([A-Za-z][A-Za-z0-9-]*|)$/;
 const REFERENCE_PATTERN = /(^|[\s([{])\$([A-Za-z][A-Za-z0-9-]*)(?=$|[^A-Za-z0-9:-])/g;
+const ANSI_DIM = "\x1b[2m";
+const ANSI_DIM_RESET = "\x1b[22m";
+
+function dim(text: string): string {
+	return `${ANSI_DIM}${text}${ANSI_DIM_RESET}`;
+}
 
 function bareSkillName(name: string): string {
 	return name.startsWith("skill:") ? name.slice("skill:".length) : name;
@@ -77,26 +84,41 @@ export function getDollarSkillSuggestions(
 	commands: readonly DollarSkillCommand[],
 	query: string,
 	maxSuggestions = DEFAULT_DOLLAR_SKILL_MAX_SUGGESTIONS,
+	isSkillEnabled: (command: DollarSkillCommand) => boolean = () => true,
 ): AutocompleteItem[] {
 	const normalizedQuery = query.toLowerCase();
 	const seen = new Set<string>();
-	const items: AutocompleteItem[] = [];
+	const candidates: Array<{
+		readonly name: string;
+		readonly description: string;
+		readonly enabled: boolean;
+	}> = [];
 	for (const command of commands) {
 		if (command.source !== "skill") continue;
 		const name = bareSkillName(command.name);
 		if (!name || seen.has(name) || !name.toLowerCase().startsWith(normalizedQuery)) continue;
 		seen.add(name);
 		const description = cleanDescription(command.description);
-		items.push({
-			value: `$${name}`,
-			label: name,
+		candidates.push({
+			name,
 			description: description ? `${sourceLabel(command)} - ${description}` : sourceLabel(command),
+			enabled: isSkillEnabled(command),
 		});
 	}
 	const limit = Number.isFinite(maxSuggestions)
 		? Math.max(1, Math.min(MAX_DOLLAR_SKILL_SUGGESTIONS, Math.floor(maxSuggestions)))
 		: DEFAULT_DOLLAR_SKILL_MAX_SUGGESTIONS;
-	return items.sort((left, right) => left.label.localeCompare(right.label)).slice(0, limit);
+	return candidates
+		.sort(
+			(left, right) =>
+				Number(right.enabled) - Number(left.enabled) || left.name.localeCompare(right.name),
+		)
+		.slice(0, limit)
+		.map(({ name, description, enabled }) => ({
+			value: `$${name}`,
+			label: enabled ? name : dim(name),
+			description: enabled ? description : dim(description),
+		}));
 }
 
 export function expandDollarSkillReferences(
@@ -124,6 +146,7 @@ export function createDollarSkillAutocompleteProvider(
 	getCommands: () => readonly DollarSkillCommand[],
 	getConfig: () => DollarSkillConfig,
 	isActive: () => boolean = () => true,
+	isSkillEnabled: (command: DollarSkillCommand) => boolean = () => true,
 ): AutocompleteProvider {
 	return {
 		triggerCharacters: [...new Set([...(current.triggerCharacters ?? []), "$"])],
@@ -137,7 +160,12 @@ export function createDollarSkillAutocompleteProvider(
 			const token = extractDollarSkillToken(lines, cursorLine, cursorCol);
 			if (!isActive() || !config.enabled || !token)
 				return current.getSuggestions(lines, cursorLine, cursorCol, options);
-			const items = getDollarSkillSuggestions(getCommands(), token.query, config.maxSuggestions);
+			const items = getDollarSkillSuggestions(
+				getCommands(),
+				token.query,
+				config.maxSuggestions,
+				isSkillEnabled,
+			);
 			if (items.length === 0) return current.getSuggestions(lines, cursorLine, cursorCol, options);
 			return { prefix: token.prefix, items };
 		},

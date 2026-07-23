@@ -21,6 +21,8 @@ import { createGoalFeature } from "./modules/goal/feature.js";
 import { createLoadoutView } from "./modules/loadout/component.js";
 import { createLoadoutController, type LoadoutController } from "./modules/loadout/controller.js";
 import { createLoadoutInventoryProvider } from "./modules/loadout/inventory.js";
+import { loadoutKey } from "./modules/loadout/model.js";
+import { filterLoadoutDisabledSkillsFromPrompt } from "./modules/loadout/skill-prompt-filter.js";
 import { createLoadoutStorage, defaultLoadoutStoragePaths } from "./modules/loadout/storage.js";
 import { createPlanFeature } from "./modules/plan/index.js";
 import { registerRtkCommand } from "./modules/rtk/command.js";
@@ -86,6 +88,7 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 		| { trigger: (force?: boolean) => void; setModel: (model: string) => void; dispose: () => void }
 		| undefined;
 	let loadoutController: LoadoutController | undefined;
+	let disabledDollarSkillKeys: ReadonlySet<string> = new Set();
 	const coordinator = createToolActivationCoordinator(pi);
 	const rtk = createRtkFeature();
 	registerRtkCommand(pi, rtk);
@@ -95,13 +98,33 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 	const todo = createTodoFeature(pi);
 	const sshfs = createSshfsFeature(pi);
 	const plan = createPlanFeature(pi);
-	const dollarSkill = createDollarSkillFeature(pi);
+	const dollarSkill = createDollarSkillFeature(pi, (command) => {
+		const source = command.sourceInfo?.source;
+		if (source === undefined) return true;
+		const name = command.name.startsWith("skill:")
+			? command.name.slice("skill:".length)
+			: command.name;
+		return !disabledDollarSkillKeys.has(loadoutKey("skill", name, source));
+	});
 	const dollarSkillProvider = createDollarSkillSettingsProvider(dollarSkill);
 	registerDollarSkillInputTransform(pi, dollarSkill);
+	pi.on("before_agent_start", (event) => {
+		const filtered = filterLoadoutDisabledSkillsFromPrompt(
+			event.systemPrompt,
+			event.systemPromptOptions,
+			disabledDollarSkillKeys,
+		);
+		if (filtered === undefined) return;
+		event.systemPromptOptions.skills = filtered.skills;
+		if (filtered.systemPrompt !== event.systemPrompt) {
+			return { systemPrompt: filtered.systemPrompt };
+		}
+	});
 	const traditionalToSimplified = createTraditionalToSimplifiedFeature();
 	const lifecycle = new HePiLifecycleController({
 		onStart: async (runtime) => {
 			coordinator.reset();
+			disabledDollarSkillKeys = new Set();
 			runtime.registry.registerLifecycle({
 				id: "tool-activation",
 				cleanup: () => coordinator.reset(),
@@ -241,6 +264,11 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 						const disablingGoal = coordinator.isConfigured("goal") && !names.includes("goal");
 						coordinator.setLoadoutBaseline(names);
 						if (disablingGoal) await goal.disableFromLoadout();
+					},
+					skill: async (items) => {
+						disabledDollarSkillKeys = new Set(
+							items.filter((item) => item.effectiveStatus === "disabled").map((item) => item.key),
+						);
 					},
 				},
 			});

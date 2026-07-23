@@ -79,6 +79,36 @@ describe("dollar skill feature", () => {
 		expect(host.inputHandler?.({ text: "$librarian", source: "interactive" })).toBeUndefined();
 	});
 
+	test("forwards live skill status to autocomplete", async () => {
+		const host = harness("tui");
+		const feature = createDollarSkillFeature(host.pi, () => false);
+		feature.start({ pi: host.pi, ctx: host.ctx } as never);
+		const current: AutocompleteProvider = {
+			async getSuggestions() {
+				return null;
+			},
+			applyCompletion(lines, cursorLine, cursorCol) {
+				return { lines, cursorLine, cursorCol };
+			},
+		};
+		const provider = host.wrapper?.(current);
+
+		expect(
+			await provider?.getSuggestions(["$lib"], 0, 4, {
+				signal: new AbortController().signal,
+			}),
+		).toEqual({
+			prefix: "$lib",
+			items: [
+				{
+					value: "$librarian",
+					label: "\x1b[2mlibrarian\x1b[22m",
+					description: "\x1b[2mUser\x1b[22m",
+				},
+			],
+		});
+	});
+
 	test("keeps input expansion but skips autocomplete outside TUI", () => {
 		const host = harness("json");
 		const feature = createDollarSkillFeature(host.pi);
