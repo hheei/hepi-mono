@@ -55,6 +55,7 @@ function harness(mode: "tui" | "json" = "tui") {
 	let footerFactory: FooterFactory | undefined;
 	let footerRestores = 0;
 	let editorFactory: EditorFactory | undefined;
+	let autocompleteProviders = 0;
 	const pi = {
 		registerTool(tool: { name: string }) {
 			tools.push(tool.name);
@@ -78,6 +79,19 @@ function harness(mode: "tui" | "json" = "tui") {
 			tools.splice(0, tools.length, ...next);
 		},
 		getThinkingLevel: () => "low" as const,
+		getCommands: () => [
+			{
+				name: "skill:librarian",
+				description: "Research libraries",
+				source: "skill" as const,
+				sourceInfo: {
+					path: "/skills/librarian/SKILL.md",
+					source: "fixture",
+					scope: "user" as const,
+					origin: "top-level" as const,
+				},
+			},
+		],
 	} as unknown as ExtensionAPI;
 	const ctx = {
 		mode,
@@ -88,6 +102,9 @@ function harness(mode: "tui" | "json" = "tui") {
 		getContextUsage: () => ({ percent: 50, contextWindow: 1000 }),
 		ui: {
 			theme: { fg: (_role: string, text: string) => text },
+			addAutocompleteProvider() {
+				autocompleteProviders++;
+			},
 			getEditorComponent() {
 				return editorFactory;
 			},
@@ -95,7 +112,7 @@ function harness(mode: "tui" | "json" = "tui") {
 				editorFactory = factory;
 			},
 			notify(message: string, level?: string) {
-				notifications.push({ message, level });
+				notifications.push(level === undefined ? { message } : { message, level });
 			},
 			setStatus() {},
 			setFooter(factory: FooterFactory | undefined) {
@@ -152,6 +169,9 @@ function harness(mode: "tui" | "json" = "tui") {
 		get getActiveToolsCalls() {
 			return getActiveToolsCalls;
 		},
+		get autocompleteProviders() {
+			return autocompleteProviders;
+		},
 		get rendered() {
 			return rendered;
 		},
@@ -172,7 +192,7 @@ test("registers commands and lifecycle handlers", () => {
 		"hepi",
 	]);
 	expect(host.getActiveToolsCalls).toBe(0);
-	expect(host.tools).toEqual(["goal", "ask", "todo"]);
+	expect(host.tools).toEqual(["goal", "ask", "todo", "sshfs"]);
 	expect(host.events.get("session_start")).toHaveLength(2);
 	expect(host.events.get("session_shutdown")).toHaveLength(1);
 });
@@ -192,6 +212,7 @@ test("installs and restores footer and editor seams for TUI session", async () =
 	expect(host.getActiveToolsCalls).toBe(0);
 	await host.emit("session_start");
 	expect(host.getActiveToolsCalls).toBe(1);
+	expect(host.autocompleteProviders).toBe(1);
 	expect(host.footerFactory).toBeDefined();
 	expect(
 		host.footerFactory!({ requestRender: () => undefined } as never, host.ctx.ui.theme, {
@@ -225,6 +246,7 @@ test("opens built-in automatic title settings without external providers", async
 	expect(rendered).toContain("auto title");
 	expect(rendered).toContain("title model");
 	expect(rendered).toContain("RTK");
+	expect(rendered).toContain("Dollar skill references");
 	expect(rendered).not.toContain("traditional to simplified");
 	expect(rendered).toContain("Origin: @pi-basics");
 	expect(host.notifications).toEqual([]);
