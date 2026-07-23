@@ -44,8 +44,7 @@ const COMMAND_DESCRIPTIONS: Record<(typeof COMMAND_VALUES)[number], string> = {
 	status: "Print the active Caveman mode without changing it.",
 };
 
-export default async function piCavemanExtension(pi: ExtensionAPI): Promise<void> {
-	pi.events.emit("hepi:settings:register", createCavemanSettingsProvider());
+export default function piCavemanExtension(pi: ExtensionAPI): void {
 	let defaults: CavemanDefaults = DEFAULT_CAVEMAN_DEFAULTS;
 	let mode: CavemanMode = DEFAULT_CAVEMAN_MODE;
 	let subagentSession = false;
@@ -102,6 +101,7 @@ export default async function piCavemanExtension(pi: ExtensionAPI): Promise<void
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
+		pi.events.emit("hepi:settings:register", createCavemanSettingsProvider());
 		defaults = await loadCavemanDefaults(ctx.cwd);
 		subagentSession = isPiSubagentSession(pi);
 		restoreModeFromBranch(ctx);

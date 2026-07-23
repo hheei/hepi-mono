@@ -26,24 +26,39 @@ export interface HePiModule {
 }
 
 export interface HePiModuleRegistry {
-	register(module: HePiModule): void;
-	replace(module: HePiModule): void;
+	register(module: HePiModule): () => void;
+	replace(module: HePiModule): () => void;
 	list(): readonly HePiModule[];
 	get(id: string): HePiModule | undefined;
 }
 
 class ModuleRegistry implements HePiModuleRegistry {
 	readonly #modules = new Map<string, HePiModule>();
+	readonly #registrations = new Map<string, symbol>();
 
-	register(module: HePiModule): void {
+	register(module: HePiModule): () => void {
 		if (this.#modules.has(module.id)) {
 			throw new Error(`HePi module id collision: ${module.id}`);
 		}
+		const registration = Symbol(module.id);
 		this.#modules.set(module.id, module);
+		this.#registrations.set(module.id, registration);
+		return () => {
+			if (this.#registrations.get(module.id) !== registration) return;
+			this.#registrations.delete(module.id);
+			this.#modules.delete(module.id);
+		};
 	}
 
-	replace(module: HePiModule): void {
+	replace(module: HePiModule): () => void {
+		const registration = Symbol(module.id);
 		this.#modules.set(module.id, module);
+		this.#registrations.set(module.id, registration);
+		return () => {
+			if (this.#registrations.get(module.id) !== registration) return;
+			this.#registrations.delete(module.id);
+			this.#modules.delete(module.id);
+		};
 	}
 
 	list(): readonly HePiModule[] {
@@ -78,15 +93,15 @@ export function createHePiModuleRegistry(): HePiModuleRegistry {
 export function registerHePiModule(
 	module: HePiModule,
 	registry: HePiModuleRegistry = defaultHePiModuleRegistry,
-): void {
-	registry.register(module);
+): () => void {
+	return registry.register(module);
 }
 
 export function replaceHePiModule(
 	module: HePiModule,
 	registry: HePiModuleRegistry = defaultHePiModuleRegistry,
-): void {
-	registry.replace(module);
+): () => void {
+	return registry.replace(module);
 }
 
 export function listHePiModules(

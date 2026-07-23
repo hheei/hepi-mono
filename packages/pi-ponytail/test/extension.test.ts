@@ -44,8 +44,11 @@ interface Harness {
 }
 
 const temporaryDirectories: string[] = [];
+const harnesses: Harness[] = [];
 
 afterEach(async () => {
+	for (const harness of harnesses.splice(0))
+		await harness.sessionShutdown?.({}, {} as ExtensionContext);
 	await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true })));
 });
 
@@ -105,6 +108,7 @@ function createHarness(
 		getAllTools: () => (options.tools ?? ["Agent"]).map((name) => ({ name })),
 	} as unknown as ExtensionAPI;
 	Object.assign(harness, { pi });
+	harnesses.push(harness);
 	return harness;
 }
 

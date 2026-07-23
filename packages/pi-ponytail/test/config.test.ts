@@ -26,10 +26,15 @@ async function createProject(settings: unknown): Promise<string> {
 }
 
 describe("Ponytail HEPI settings", () => {
-	test("registers idempotently through pi-basics public API", async () => {
-		expect(await registerPonytailHePiSettings()).toBeTrue();
-		expect(await registerPonytailHePiSettings()).toBeTrue();
+	test("registers once and disposes through pi-basics public API", async () => {
+		const unregister = await registerPonytailHePiSettings();
+		expect(unregister).toBeFunction();
+		await expect(registerPonytailHePiSettings()).rejects.toThrow(
+			"HePi settings provider id collision: pi-ponytail",
+		);
 		expect(getHePiSettings(PONYTAIL_SETTINGS_PROVIDER_ID)?.origin).toBe("@hheei/pi-ponytail");
+		unregister?.();
+		expect(getHePiSettings(PONYTAIL_SETTINGS_PROVIDER_ID)).toBeUndefined();
 	});
 
 	test("loads validated modes and presentation flags", async () => {

@@ -17,11 +17,20 @@ export default function piFixExtension(pi: ExtensionAPI): void {
 	const applyPatchGuard = registerApplyPatchGuard(pi);
 	const applyPatchGuardProvider = createApplyPatchGuardSettingsProvider(applyPatchGuard);
 	const responsesCompat = createOpenAIResponsesCompatFeature(pi);
-	registerHePiSettings(applyPatchGuardProvider);
-	registerHePiSettings(createOpenAIResponsesCompatSettingsProvider(responsesCompat));
+	const responsesCompatProvider = createOpenAIResponsesCompatSettingsProvider(responsesCompat);
 
 	const lifecycle = new HePiLifecycleController({
 		onStart: async (runtime) => {
+			const unregisterApplyPatchSettings = registerHePiSettings(applyPatchGuardProvider);
+			runtime.registry.registerLifecycle({
+				id: "apply-patch-settings",
+				cleanup: unregisterApplyPatchSettings,
+			});
+			const unregisterResponsesSettings = registerHePiSettings(responsesCompatProvider);
+			runtime.registry.registerLifecycle({
+				id: "responses-compat-settings",
+				cleanup: unregisterResponsesSettings,
+			});
 			const context = {
 				sessionId: runtime.ctx.sessionManager.getSessionId(),
 				cwd: runtime.ctx.cwd,

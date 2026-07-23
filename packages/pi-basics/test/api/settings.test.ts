@@ -3,10 +3,12 @@ import {
 	createGlobalJsonStorage,
 	createHePiSettingsRegistry,
 	createSessionStorage,
+	getHePiSettings,
 	type HePiContext,
 	type HePiSettingsProvider,
 	listHePiSettings,
 	registerHePiSettings,
+	replaceHePiSettings,
 } from "../../src/api/index.js";
 
 const context = (sessionId: string): HePiContext => ({ sessionId });
@@ -43,6 +45,23 @@ describe("HePi settings API", () => {
 		expect(() => registerHePiSettings(providerFor("a", "Again"), registry)).toThrow(
 			"HePi settings provider id collision: a",
 		);
+	});
+
+	test("disposers remove only their own provider", () => {
+		const registry = createHePiSettingsRegistry();
+		const first = providerFor("owned", "First");
+		const second = providerFor("owned", "Second");
+		const unregisterFirst = registerHePiSettings(first, registry);
+		const unregisterSecond = replaceHePiSettings(second, registry);
+
+		unregisterFirst();
+		expect(getHePiSettings("owned", registry)).toBe(second);
+		const unregisterSameProviderAgain = replaceHePiSettings(second, registry);
+		unregisterSecond();
+		expect(getHePiSettings("owned", registry)).toBe(second);
+		unregisterSameProviderAgain();
+		unregisterSameProviderAgain();
+		expect(getHePiSettings("owned", registry)).toBeUndefined();
 	});
 
 	test("rejects registered setting keys without detailed descriptions", () => {

@@ -59,11 +59,16 @@ export default function piLoadoutExtension(pi: ExtensionAPI): void {
 		if (filtered.systemPrompt !== event.systemPrompt)
 			return { systemPrompt: filtered.systemPrompt };
 	});
-	registerHePiModule(createLoadoutModule(pi, runtimeHandlers));
+	const loadoutModule = createLoadoutModule(pi, runtimeHandlers);
 	registerHePiLifecycle(
 		pi,
 		new HePiLifecycleController({
 			onStart: async (runtime) => {
+				const unregisterModule = registerHePiModule(loadoutModule);
+				runtime.registry.registerLifecycle({
+					id: "loadout-module",
+					cleanup: unregisterModule,
+				});
 				const defaults = defaultLoadoutStoragePaths();
 				startupController = createLoadoutController({
 					storage: createLoadoutStorage({

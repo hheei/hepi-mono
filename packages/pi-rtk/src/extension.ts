@@ -10,10 +10,15 @@ import { createRtkSettingsProvider } from "./rtk/settings.js";
 
 export default function piRtkExtension(pi: ExtensionAPI): void {
 	const feature = createRtkFeature();
+	const provider = createRtkSettingsProvider(feature);
 	registerRtkCommand(pi, feature);
-	registerHePiSettings(createRtkSettingsProvider(feature));
 	const lifecycle = new HePiLifecycleController({
 		onStart: async (runtime) => {
+			const unregisterSettings = registerHePiSettings(provider);
+			runtime.registry.registerLifecycle({
+				id: "rtk-settings",
+				cleanup: unregisterSettings,
+			});
 			await feature.start(runtime);
 			runtime.registry.registerLifecycle({
 				id: "rtk",

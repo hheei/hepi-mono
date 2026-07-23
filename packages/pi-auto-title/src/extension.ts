@@ -3,7 +3,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	HePiLifecycleController,
 	registerHePiLifecycle,
-	registerHePiSettingsIfAbsent,
+	registerHePiSettings,
 } from "@hheei/pi-basics";
 import {
 	autoTitleModelOptions,
@@ -41,10 +41,12 @@ export default function piAutoTitleExtension(pi: ExtensionAPI): void {
 							selected === undefined ? undefined : createAutoTitleCoordinator(runtime, selected);
 					},
 				});
-			if (settingsProvider === undefined) {
-				settingsProvider = provider;
-				registerHePiSettingsIfAbsent(provider);
-			}
+			if (settingsProvider === undefined) settingsProvider = provider;
+			const unregisterSettings = registerHePiSettings(provider);
+			runtime.registry.registerLifecycle({
+				id: "auto-title-settings",
+				cleanup: unregisterSettings,
+			});
 			try {
 				const state = await provider.storage.load({
 					sessionId: runtime.ctx.sessionManager.getSessionId(),

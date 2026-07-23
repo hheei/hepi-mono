@@ -92,8 +92,8 @@ export interface HePiSettingsProvider {
 }
 
 export interface HePiSettingsRegistry {
-	register(provider: HePiSettingsProvider): void;
-	replace(provider: HePiSettingsProvider): void;
+	register(provider: HePiSettingsProvider): () => void;
+	replace(provider: HePiSettingsProvider): () => void;
 	list(options?: { includeEmpty?: boolean }): readonly HePiSettingsProvider[];
 	get(id: string): HePiSettingsProvider | undefined;
 }
@@ -121,18 +121,19 @@ function validateSettingDescriptions(provider: HePiSettingsProvider): void {
 
 class SettingsRegistry implements HePiSettingsRegistry {
 	readonly #providers = new Map<string, HePiSettingsProvider>();
+	readonly #registrations = new Map<string, symbol>();
 
-	register(provider: HePiSettingsProvider): void {
+	register(provider: HePiSettingsProvider): () => void {
 		validateSettingDescriptions(provider);
 		if (this.#providers.has(provider.id)) {
 			throw new Error(`HePi settings provider id collision: ${provider.id}`);
 		}
-		this.#providers.set(provider.id, provider);
+		return this.set(provider);
 	}
 
-	replace(provider: HePiSettingsProvider): void {
+	replace(provider: HePiSettingsProvider): () => void {
 		validateSettingDescriptions(provider);
-		this.#providers.set(provider.id, provider);
+		return this.set(provider);
 	}
 
 	list(options: { includeEmpty?: boolean } = {}): readonly HePiSettingsProvider[] {
@@ -148,6 +149,17 @@ class SettingsRegistry implements HePiSettingsRegistry {
 
 	get(id: string): HePiSettingsProvider | undefined {
 		return this.#providers.get(id);
+	}
+
+	private set(provider: HePiSettingsProvider): () => void {
+		const registration = Symbol(provider.id);
+		this.#providers.set(provider.id, provider);
+		this.#registrations.set(provider.id, registration);
+		return () => {
+			if (this.#registrations.get(provider.id) !== registration) return;
+			this.#registrations.delete(provider.id);
+			this.#providers.delete(provider.id);
+		};
 	}
 }
 
@@ -172,8 +184,8 @@ export function createHePiSettingsRegistry(): HePiSettingsRegistry {
 export function registerHePiSettings(
 	provider: HePiSettingsProvider,
 	registry: HePiSettingsRegistry = defaultSettingsRegistry,
-): void {
-	registry.register(provider);
+): () => void {
+	return registry.register(provider);
 }
 
 export function registerHePiSettingsIfAbsent(
@@ -186,8 +198,8 @@ export function registerHePiSettingsIfAbsent(
 export function replaceHePiSettings(
 	provider: HePiSettingsProvider,
 	registry: HePiSettingsRegistry = defaultSettingsRegistry,
-): void {
-	registry.replace(provider);
+): () => void {
+	return registry.replace(provider);
 }
 
 export function listHePiSettings(

@@ -135,7 +135,9 @@ describe("goal feature", () => {
 		const commands: TestCommand[] = [];
 		const entries: unknown[] = [];
 		const sessionManager = { getSessionId: () => "goal-replay", getBranch: () => entries };
+		const events = { emit: () => undefined, on: () => () => undefined };
 		const shared = {
+			events,
 			setActiveTools: () => undefined,
 			appendEntry: (_type: string, data: unknown) => entries.push({ data }),
 			sendUserMessage: () => undefined,

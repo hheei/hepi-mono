@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { access, readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
+import ts from "typescript";
 
 const repositoryRoot = join(import.meta.dir, "../../..");
 const packagesDirectory = join(repositoryRoot, "packages");
@@ -20,12 +21,52 @@ function packageDependencies(manifest: Record<string, unknown>): readonly string
 		.filter((name) => name.startsWith("@hheei/pi-"));
 }
 
-function hepiPackageImports(source: string): readonly string[] {
-	return [
-		...source.matchAll(/from\s+["'](@hheei\/pi-[^"']+)["']/gu),
-		...source.matchAll(/\bimport\s+["'](@hheei\/pi-[^"']+)["']/gu),
-		...source.matchAll(/\bimport\s*\(\s*["'](@hheei\/pi-[^"']+)["']\s*\)/gu),
-	].flatMap((match) => (match[1] === undefined ? [] : [match[1]]));
+interface HePiPackageImport {
+	readonly name: string;
+	readonly runtimeStatic: boolean;
+}
+
+function runtimeImportClause(clause: ts.ImportClause | undefined): boolean {
+	if (clause === undefined) return true;
+	if (clause.isTypeOnly) return false;
+	if (clause.name !== undefined) return true;
+	const bindings = clause.namedBindings;
+	if (bindings === undefined || ts.isNamespaceImport(bindings)) return true;
+	return bindings.elements.length === 0 || bindings.elements.some((element) => !element.isTypeOnly);
+}
+
+function hepiPackageImports(source: string): readonly HePiPackageImport[] {
+	const imports: HePiPackageImport[] = [];
+	const sourceFile = ts.createSourceFile("source.ts", source, ts.ScriptTarget.Latest, false);
+	const add = (name: string, runtimeStatic: boolean): void => {
+		if (name.startsWith("@hheei/pi-")) imports.push({ name, runtimeStatic });
+	};
+	const visit = (node: ts.Node): void => {
+		if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier))
+			add(node.moduleSpecifier.text, runtimeImportClause(node.importClause));
+		else if (
+			ts.isExportDeclaration(node) &&
+			node.moduleSpecifier !== undefined &&
+			ts.isStringLiteral(node.moduleSpecifier)
+		) {
+			const runtime =
+				!node.isTypeOnly &&
+				(node.exportClause === undefined ||
+					ts.isNamespaceExport(node.exportClause) ||
+					node.exportClause.elements.some((element) => !element.isTypeOnly));
+			add(node.moduleSpecifier.text, runtime);
+		} else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+			const argument = node.arguments[0];
+			if (
+				argument !== undefined &&
+				(ts.isStringLiteral(argument) || ts.isNoSubstitutionTemplateLiteral(argument))
+			)
+				add(argument.text, false);
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(sourceFile);
+	return imports;
 }
 
 async function sourceFiles(directory: string): Promise<readonly string[]> {
@@ -58,26 +99,50 @@ test("HEPI feature packages only depend on pi-basics", async () => {
 				`${relative(repositoryRoot, manifestPath)} cannot depend on ${dependency}`,
 			).toBe(allowedFeatureDependency);
 
+		const peerDependenciesMeta = manifest.peerDependenciesMeta;
+		const basicsPeerMeta = isRecord(peerDependenciesMeta)
+			? peerDependenciesMeta[allowedFeatureDependency]
+			: undefined;
+		const basicsIsOptional = isRecord(basicsPeerMeta) && basicsPeerMeta.optional === true;
 		const sourceDirectory = join(packagePath, "src");
 		for (const sourcePath of await sourceFiles(sourceDirectory)) {
 			const source = await readFile(sourcePath, "utf8");
-			for (const dependency of hepiPackageImports(source))
+			const imports = hepiPackageImports(source);
+			if (basicsIsOptional)
 				expect(
-					dependency,
-					`${relative(repositoryRoot, sourcePath)} cannot import ${dependency}`,
+					imports
+						.filter((dependency) => dependency.runtimeStatic)
+						.map((dependency) => dependency.name),
+					`${relative(repositoryRoot, sourcePath)} cannot statically import optional ${allowedFeatureDependency}`,
+				).not.toContain(allowedFeatureDependency);
+			for (const dependency of imports)
+				expect(
+					dependency.name,
+					`${relative(repositoryRoot, sourcePath)} cannot import ${dependency.name}`,
 				).toBe(allowedFeatureDependency);
 		}
 	}
 });
 
 test("dependency scanner covers static and dynamic imports", () => {
-	expect(
-		hepiPackageImports(`
-			import { a } from "@hheei/pi-basics";
-			import "@hheei/pi-side-effect";
-			const b = await import("@hheei/pi-other");
-		`),
-	).toEqual(["@hheei/pi-basics", "@hheei/pi-side-effect", "@hheei/pi-other"]);
+	const source = `
+		import { a } from "@hheei/pi-basics";
+		import type { B } from "@hheei/pi-types";
+		import "@hheei/pi-side-effect";
+		export type { C } from "@hheei/pi-export-types";
+		const b = await import("@hheei/pi-other");
+		const c = await import(\`@hheei/pi-template\`);
+		const d = await import("@hheei/pi-options", { with: { type: "json" } });
+	`;
+	expect(hepiPackageImports(source)).toEqual([
+		{ name: "@hheei/pi-basics", runtimeStatic: true },
+		{ name: "@hheei/pi-types", runtimeStatic: false },
+		{ name: "@hheei/pi-side-effect", runtimeStatic: true },
+		{ name: "@hheei/pi-export-types", runtimeStatic: false },
+		{ name: "@hheei/pi-other", runtimeStatic: false },
+		{ name: "@hheei/pi-template", runtimeStatic: false },
+		{ name: "@hheei/pi-options", runtimeStatic: false },
+	]);
 });
 
 test("declared Pi extension entries exist and export a loader", async () => {
