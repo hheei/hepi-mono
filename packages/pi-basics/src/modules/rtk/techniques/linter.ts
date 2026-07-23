@@ -40,7 +40,7 @@ function parseLine(line: string): Issue | null {
 			severity,
 			rule,
 			file,
-			line: Number.isNaN(lineNumber) ? undefined : lineNumber,
+			...(Number.isNaN(lineNumber) ? {} : { line: lineNumber }),
 			message: content,
 		};
 	}
@@ -55,7 +55,7 @@ function parseLine(line: string): Issue | null {
 			severity,
 			rule: "unknown",
 			file,
-			line: Number.isNaN(lineNumber) ? undefined : lineNumber,
+			...(Number.isNaN(lineNumber) ? {} : { line: lineNumber }),
 			message,
 		};
 	}

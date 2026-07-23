@@ -85,10 +85,10 @@ export interface EnsureConfigResult {
 
 export interface RuntimeStatus {
 	rtkAvailable: boolean;
-	lastCheckedAt?: number;
-	lastError?: string;
-	rtkExecutablePath?: string;
-	rtkExecutableCommand?: string;
-	rtkExecutableResolver?: string;
-	rtkExecutableResolutionWarning?: string;
+	lastCheckedAt?: number | undefined;
+	lastError?: string | undefined;
+	rtkExecutablePath?: string | undefined;
+	rtkExecutableCommand?: string | undefined;
+	rtkExecutableResolver?: string | undefined;
+	rtkExecutableResolutionWarning?: string | undefined;
 }

@@ -15,22 +15,22 @@ const RTK_DB_PATH_EXPORT_PATTERN = new RegExp(
 function resolveTemporaryDirectory(): string {
 	if (process.platform === "win32") {
 		const windowsTempDir = process.env.TEMP ?? process.env.TMP;
-		if (windowsTempDir && windowsTempDir.trim()) {
+		if (windowsTempDir?.trim()) {
 			return windowsTempDir;
 		}
 
 		const localAppData = process.env.LOCALAPPDATA;
-		if (localAppData && localAppData.trim()) {
+		if (localAppData?.trim()) {
 			return join(localAppData, "Temp");
 		}
 
 		const userProfile = process.env.USERPROFILE;
-		if (userProfile && userProfile.trim()) {
+		if (userProfile?.trim()) {
 			return join(userProfile, "AppData", "Local", "Temp");
 		}
 
 		const systemRoot = process.env.SystemRoot ?? process.env.WINDIR;
-		if (systemRoot && systemRoot.trim()) {
+		if (systemRoot?.trim()) {
 			return join(systemRoot, "Temp");
 		}
 
@@ -38,7 +38,7 @@ function resolveTemporaryDirectory(): string {
 	}
 
 	const posixTempDir = process.env.TMPDIR ?? process.env.TMP;
-	if (posixTempDir && posixTempDir.trim()) {
+	if (posixTempDir?.trim()) {
 		return posixTempDir;
 	}
 
