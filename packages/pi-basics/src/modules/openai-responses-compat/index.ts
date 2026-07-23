@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -77,6 +78,12 @@ function compatValues(root: JsonObject): JsonObject | undefined {
 		: undefined;
 }
 
+export function normalizeAssistantMessageId(id: string): string {
+	if (!id.startsWith("item_")) return id;
+	const digest = createHash("sha256").update(id).digest("hex").slice(0, 40);
+	return `msg_pi_${digest}`;
+}
+
 export function applyOpenAIResponsesCompat(
 	payload: unknown,
 	config: OpenAIResponsesCompatConfig,
@@ -96,7 +103,7 @@ export function applyOpenAIResponsesCompat(
 			typeof rewritten.id === "string" &&
 			rewritten.id.startsWith("item_")
 		) {
-			rewritten = { ...rewritten, id: `msg_${rewritten.id.slice("item_".length)}` };
+			rewritten = { ...rewritten, id: normalizeAssistantMessageId(rewritten.id) };
 		}
 		if (rewritten !== item) changed = true;
 		return rewritten;
