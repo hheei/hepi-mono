@@ -123,7 +123,7 @@ export function createApplyPatchGuardSettingsProvider(
 		id: "pi-basics-apply-patch-guard",
 		title: "Guard patch",
 		origin: "@pi-basics",
-		groups: [{ id: GUARD_PATCH_GROUP, title: "", fields: [modeField] }],
+		groups: [{ id: GUARD_PATCH_GROUP, title: "Compatibility", fields: [modeField] }],
 		storage: {
 			async load(ctx: HePiContext) {
 				const root = await readRoot(settingsPath(ctx.cwd ?? process.cwd()));

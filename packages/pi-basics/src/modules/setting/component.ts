@@ -14,6 +14,7 @@ export interface SettingsComponentOptions {
 	readonly controller: SettingsController;
 	readonly host: { requestRender(): void };
 	readonly theme: Theme;
+	readonly height?: number;
 	readonly close: () => void | Promise<void>;
 	readonly showTabs?: boolean;
 }
@@ -70,6 +71,9 @@ export function createSettingsComponent(options: SettingsComponentOptions): Comp
 		const items = settingsListItems(controller);
 		if (items.length === 0) return;
 		const selection = controller.state.selection;
+		const providerId = controller.provider?.id;
+		const committed =
+			providerId === undefined ? {} : (controller.state.committed[providerId] ?? {});
 		const current = items.findIndex((item) =>
 			item.kind === "field"
 				? item.field.id === selection?.itemId && item.groupId === selection.groupId
@@ -81,9 +85,7 @@ export function createSettingsComponent(options: SettingsComponentOptions): Comp
 			if (!item) break;
 			if (
 				item.kind !== "group" &&
-				(item.kind !== "field" ||
-					item.field.enabled?.(controller.state.committed[controller.provider?.id ?? ""] ?? {}) !==
-						false)
+				(item.kind !== "field" || item.field.enabled?.(committed) !== false)
 			)
 				break;
 			next += direction < 0 ? -1 : 1;
@@ -101,11 +103,10 @@ export function createSettingsComponent(options: SettingsComponentOptions): Comp
 		const item = selectedItem();
 		if (!item || item.kind === "panel") return;
 		if (item.kind === "group") return;
-		if (
-			item.field.enabled &&
-			!item.field.enabled(controller.state.committed[controller.provider?.id ?? ""] ?? {})
-		)
-			return;
+		const providerId = controller.provider?.id;
+		const committed =
+			providerId === undefined ? {} : (controller.state.committed[providerId] ?? {});
+		if (item.field.enabled && !item.field.enabled(committed)) return;
 		if (item.field.type === "boolean") {
 			run(controller.toggle(item.field.id));
 			return;
@@ -135,6 +136,17 @@ export function createSettingsComponent(options: SettingsComponentOptions): Comp
 	}
 
 	function handleNavigation(input: string, routePanel = true): void {
+		const currentItem = selectedItem();
+		if (
+			currentItem?.kind === "field" &&
+			currentItem.field.tabCycle &&
+			(matchesKey(input, Key.tab) || matchesKey(input, Key.shift("tab")))
+		) {
+			if (controller.state.mode !== "Edit") activate();
+			controller.cycleTabDraft(matchesKey(input, Key.tab) ? 1 : -1);
+			requestRender();
+			return;
+		}
 		if (
 			showTabs &&
 			(matchesKey(input, Key.left) ||
@@ -206,6 +218,15 @@ export function createSettingsComponent(options: SettingsComponentOptions): Comp
 
 	function handleEdit(input: string): void {
 		const selected = selectedItem();
+		if (
+			selected?.kind === "field" &&
+			selected.field.tabCycle &&
+			(matchesKey(input, Key.tab) || matchesKey(input, Key.shift("tab")))
+		) {
+			controller.cycleTabDraft(matchesKey(input, Key.tab) ? 1 : -1);
+			requestRender();
+			return;
+		}
 		if (matchesKey(input, Key.escape)) {
 			controller.cancelEdit();
 			editor = undefined;
@@ -215,19 +236,34 @@ export function createSettingsComponent(options: SettingsComponentOptions): Comp
 		// Enum fields are selections, not text editors. Arrows cycle; printable input is ignored.
 		if (selected?.kind === "field" && selected.field.type === "enum") {
 			if (matchesKey(input, Key.up) || matchesKey(input, Key.down)) {
-				run(controller.cycle(selected.field.id, matchesKey(input, Key.up) ? -1 : 1), () => {
-					const value =
-						controller.state.committed[controller.provider?.id ?? ""]?.[selected.groupId]?.[
-							selected.field.id
-						];
-					editor?.setText(String(value ?? selected.field.defaultValue));
-					controller.setDraft(editor?.text ?? "");
-				});
+				if (selected.field.tabCycle) {
+					controller.cycleDraft(matchesKey(input, Key.up) ? -1 : 1);
+					editor?.setText(controller.state.draftValue ?? "");
+					requestRender();
+				} else {
+					const activeEditor = editor;
+					if (!activeEditor) return;
+					run(controller.cycle(selected.field.id, matchesKey(input, Key.up) ? -1 : 1), () => {
+						const providerId = controller.provider?.id;
+						const value =
+							providerId === undefined
+								? undefined
+								: controller.state.committed[providerId]?.[selected.groupId]?.[selected.field.id];
+						activeEditor.setText(String(value ?? selected.field.defaultValue));
+						controller.setDraft(activeEditor.text);
+					});
+				}
 			}
 			if (matchesKey(input, Key.enter)) {
-				controller.cancelEdit();
-				editor = undefined;
-				requestRender();
+				if (selected.field.tabCycle) {
+					run(controller.commitEdit(), () => {
+						editor = undefined;
+					});
+				} else {
+					controller.cancelEdit();
+					editor = undefined;
+					requestRender();
+				}
 			}
 			return;
 		}
@@ -258,7 +294,15 @@ export function createSettingsComponent(options: SettingsComponentOptions): Comp
 	return {
 		render(width: number): string[] {
 			lastWidth = width;
-			return renderSettings({ controller, theme, width, editor, activeTab, showTabs });
+			return renderSettings({
+				controller,
+				theme,
+				width,
+				...(options.height === undefined ? {} : { height: options.height }),
+				editor,
+				activeTab,
+				showTabs,
+			});
 		},
 		handleInput(input: string): void {
 			if (controller.state.mode === "Edit") handleEdit(input);

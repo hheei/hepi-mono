@@ -62,7 +62,11 @@ const createAutoTitleProvider = (
 ) =>
 	createAutoTitleSettingsProvider({
 		path: join(runtime.ctx.cwd, ".pi", "settings.json"),
-		modelOptions: autoTitleModelOptions(runtime.ctx.modelRegistry?.getAvailable?.() ?? []),
+		modelOptions: autoTitleModelOptions(
+			(runtime.ctx.modelRegistry?.getAvailable?.() ?? []).filter((model) =>
+				runtime.ctx.modelRegistry.hasConfiguredAuth(model),
+			),
+		),
 		validate: async (value) => {
 			const { provider, model: modelId } = parseModelRef(value);
 			const model = runtime.ctx.modelRegistry.find(provider, modelId);
@@ -97,6 +101,7 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 	let autoTitleCoordinator:
 		| { trigger: (force?: boolean) => void; setModel: (model: string) => void; dispose: () => void }
 		| undefined;
+	let runAutoTitle: (() => void) | undefined;
 	let loadoutController: LoadoutController | undefined;
 	let disabledDollarSkillKeys: ReadonlySet<string> = new Set();
 	const coordinator = createToolActivationCoordinator(pi);
@@ -200,7 +205,13 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 				cleanup: () => dollarSkill.dispose(dollarSkillSessionId),
 			});
 			const availableTitleModels = runtime.ctx.modelRegistry?.getAvailable?.() ?? [];
-			const defaultTitleModel = availableTitleModels[0];
+			const configuredTitleModels = availableTitleModels.filter((model) =>
+				runtime.ctx.modelRegistry.hasConfiguredAuth(model),
+			);
+			const defaultTitleModel = configuredTitleModels[0];
+			const advisorModelOptions = autoTitleModelOptions(configuredTitleModels).filter(
+				(option) => option.value.length > 0,
+			);
 			const traditionalToSimplifiedProvider = createTraditionalToSimplifiedSettingsProvider({
 				onPersisted: (enabled) => traditionalToSimplified.setEnabled(enabled),
 			});
@@ -234,6 +245,7 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 			}
 			const advisorProvider = createAdvisorSettingsProvider({
 				path: join(runtime.ctx.cwd, ".pi", "settings.json"),
+				modelOptions: advisorModelOptions,
 				validatePersisted: async (model, thinking) => {
 					if (model === undefined) return;
 					const ref = parseModelRef(model);
@@ -243,11 +255,7 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 					if (!runtime.ctx.modelRegistry.hasConfiguredAuth(selected))
 						throw new Error("Advisor model has no configured auth");
 					const level = parseThinking(thinking);
-					if (
-						selected.reasoning &&
-						level !== undefined &&
-						!getSupportedThinkingLevels(selected).includes(level)
-					)
+					if (level !== undefined && !getSupportedThinkingLevels(selected).includes(level))
 						throw new Error("Advisor thinking level is unsupported by this model");
 				},
 				onPersisted: (model, thinking) =>
@@ -258,10 +266,10 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 					autoTitleProvider,
 					advisorProvider,
 					applyPatchGuardProvider,
+					openAIResponsesCompatProvider,
 					createRtkSettingsProvider(rtk),
 					dollarSkillProvider,
 					traditionalToSimplifiedProvider,
-					openAIResponsesCompatProvider,
 					...listHePiSettings().filter((provider) => provider.id !== autoTitleProvider.id),
 				]);
 			const settingsContext = {
@@ -293,19 +301,28 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 					"error",
 				);
 			}
+			runAutoTitle = () => {
+				if (!autoTitleCoordinator && defaultTitleModel) {
+					autoTitleCoordinator = createAutoTitleCoordinator(
+						runtime,
+						`${defaultTitleModel.provider}/${defaultTitleModel.id}`,
+					);
+				}
+				if (!autoTitleCoordinator) {
+					runtime.ctx.ui.notify(
+						"Unable to generate title: no authenticated model is available",
+						"warning",
+					);
+					return;
+				}
+				autoTitleCoordinator.trigger(true);
+			};
 			runtime.registry.registerLifecycle({
 				id: "auto-title",
 				cleanup: () => {
+					runAutoTitle = undefined;
 					autoTitleCoordinator?.dispose();
 					autoTitleCoordinator = undefined;
-				},
-			});
-			runtime.registry.registerModule({
-				id: "auto-title",
-				label: "Automatic Title",
-				commands: ["auto-title"],
-				open: () => {
-					autoTitleCoordinator?.trigger(true);
 				},
 			});
 			const defaults = defaultLoadoutStoragePaths();
@@ -377,7 +394,7 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 				cleanup: () => plan.dispose(planSessionId),
 			});
 			const shell = createShellModule({
-				settings: ({ context, host, theme }) => {
+				settings: ({ context, host, theme, height }) => {
 					const next = new SettingsController({ context, providers: [providers()] });
 					settingsController = next;
 					void next.load().then(
@@ -394,6 +411,7 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 						controller: next,
 						host,
 						theme,
+						height,
 						close: () => undefined,
 						showTabs: false,
 					});
@@ -445,6 +463,21 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 	};
 	moduleRegistries.set(lifecycle, commandRegistry);
 	registerHePiCommand(pi, commandRegistry);
+	pi.registerCommand("auto-title", {
+		description: "Generate or replace the current session title",
+		handler: async (_args, ctx) => {
+			if (ctx.mode !== "tui") {
+				ctx.ui.notify("/auto-title requires TUI mode", "error");
+				return;
+			}
+			const run = runAutoTitle;
+			if (!run) {
+				ctx.ui.notify("Auto-title runtime is not active", "error");
+				return;
+			}
+			run();
+		},
+	});
 	registerHePiLifecycle(pi, lifecycle);
 	pi.on("session_start", (event) => {
 		if (event.reason === "startup" || event.reason === "new") autoTitleCoordinator?.trigger();

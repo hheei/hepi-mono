@@ -24,6 +24,7 @@ const styleTheme = {
 	bold: (text: string) => `${ansi.bold}${text}${ansi.intensityReset}`,
 } as unknown as Theme;
 const dim = (text: string) => `${ansi.dim}${text}${ansi.fgReset}`;
+const white = (text: string) => `${ansi.other}${text}${ansi.fgReset}`;
 const accentBold = (text: string) =>
 	`${ansi.accent}${ansi.bold}${text}${ansi.intensityReset}${ansi.fgReset}`;
 
@@ -128,7 +129,7 @@ describe("settings renderer", () => {
 		);
 	});
 
-	test("dims Description panel except edit draft Value and cursor", async () => {
+	test("renders the Description panel in white with an accent edit draft", async () => {
 		const width = 100;
 		const layout = createSettingsLayout(width);
 		const controller = await setup([provider("styled", "Styled")]);
@@ -138,13 +139,13 @@ describe("settings renderer", () => {
 		const navigation = renderSettings({ controller, theme: styleTheme, width });
 		const navigationOutput = navigation.join("\n");
 
-		expect(navigationOutput).toContain(dim(top));
-		expect(navigationOutput).toContain(dim(bottom));
-		expect(navigationOutput).toContain(dim("│ "));
-		expect(navigationOutput).toContain(dim(" │"));
-		expect(navigationOutput).toContain(dim("Name description"));
-		expect(navigationOutput).toContain(dim("Origin: @pi-basics"));
-		expect(navigationOutput).toContain(dim("Value: name-value"));
+		expect(navigationOutput).toContain(white(top));
+		expect(navigationOutput).toContain(white(bottom));
+		expect(navigationOutput).toContain(white("│ "));
+		expect(navigationOutput).toContain(white(" │"));
+		expect(navigationOutput).toContain(white("Name description"));
+		expect(navigationOutput).toContain(white("Origin: @pi-basics"));
+		expect(navigationOutput).toContain(white("Value: name-value"));
 		const navigationValueRow = navigation.find((line) =>
 			stripAnsi(line).includes("Value: name-value"),
 		);
@@ -160,10 +161,10 @@ describe("settings renderer", () => {
 		});
 		const editingOutput = editing.join("\n");
 
-		expect(editingOutput).toContain(dim(top));
-		expect(editingOutput).toContain(dim("Name description"));
-		expect(editingOutput).toContain(dim("Origin: @pi-basics"));
-		expect(editingOutput).toContain(dim("Value: "));
+		expect(editingOutput).toContain(white(top));
+		expect(editingOutput).toContain(white("Name description"));
+		expect(editingOutput).toContain(white("Origin: @pi-basics"));
+		expect(editingOutput).toContain(white("Value: "));
 		expect(editingOutput).toContain(accentBold("draft-value█"));
 		const editingValueRow = editing.find((line) => stripAnsi(line).includes("Value: draft-value█"));
 		expect(editingValueRow?.split(ansi.accent)).toHaveLength(2);
@@ -220,8 +221,8 @@ describe("settings renderer", () => {
 		expect(shortDetail.slice(1, -1).map(panelContent)).toEqual([
 			"Brief description.",
 			"",
-			"",
 			"Origin: @pi-basics",
+			"",
 			"Value: short-id-value",
 			"",
 			"",

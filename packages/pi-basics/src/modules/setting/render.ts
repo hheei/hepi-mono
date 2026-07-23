@@ -1,6 +1,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { HePiPanel } from "../../api/panels.js";
 import type { HePiSettingField, HePiSettingValue } from "../../api/settings.js";
+import { renderDetailPanel } from "../../ui/border.js";
 import { formatKeymap, type KeyHint } from "../../ui/keymap.js";
 import { renderScrollbar } from "../../ui/scrollbar.js";
 import { renderTabs } from "../../ui/tabs.js";
@@ -45,6 +46,7 @@ export interface RenderSettingsOptions {
 	readonly controller: SettingsController;
 	readonly theme: Theme;
 	readonly width: number;
+	readonly height?: number;
 	readonly editor?: ValueEditor | undefined;
 	readonly activeTab?: SettingsMainTab;
 	readonly showTabs?: boolean;
@@ -83,8 +85,27 @@ export function formatSettingValue(
 	controller: SettingsController,
 	field: HePiSettingField & { readonly groupId: string },
 ): string {
-	const value = fieldValue(controller, field);
-	return field.format ? field.format(value as never) : value === null ? "" : String(value);
+	const editing =
+		controller.state.mode === "Edit" &&
+		controller.state.selection?.itemId === field.id &&
+		controller.state.selection.groupId === field.groupId;
+	const committedValue = fieldValue(controller, field);
+	const value = editing
+		? (field.options?.find((option) => String(option.value) === (controller.state.draftValue ?? ""))
+				?.value ?? committedValue)
+		: committedValue;
+	const primary = field.format ? field.format(value as never) : value === null ? "" : String(value);
+	const tabCycle = field.tabCycle;
+	if (!tabCycle) return primary;
+	const providerId = controller.provider?.id;
+	const secondary = editing
+		? (controller.state.draftRelatedValue ?? tabCycle.defaultValue)
+		: providerId === undefined
+			? tabCycle.defaultValue
+			: (controller.state.committed[providerId]?.[field.groupId]?.[tabCycle.fieldId] ??
+				tabCycle.defaultValue);
+	const label = tabCycle.options.find((option) => Object.is(option.value, secondary))?.label;
+	return `${primary} · ${label ?? String(secondary)}`;
 }
 
 export function settingsListItems(controller: SettingsController): readonly SettingsListItem[] {
@@ -169,14 +190,24 @@ function ellipsizedDescription(
 	width: number,
 	lineCount: number,
 ): string[] {
-	if (!text || width <= 0 || lineCount <= 0) return Array.from({ length: lineCount }, () => "");
+	if (!text || width <= 0 || lineCount <= 0) return [];
 	const lines = wrap(text, width);
 	const visible = lines.slice(0, lineCount);
 	if (lines.length > lineCount)
 		visible[lineCount - 1] =
 			`${truncateToWidth(visible[lineCount - 1] ?? "", Math.max(0, width - 3), "")}...`;
-	while (visible.length < lineCount) visible.push("");
 	return visible;
+}
+
+function relatedDraftSuffix(
+	controller: SettingsController,
+	field: HePiSettingField & { readonly groupId: string },
+): string {
+	const tabCycle = field.tabCycle;
+	if (!tabCycle) return "";
+	const value = controller.state.draftRelatedValue ?? tabCycle.defaultValue;
+	const label = tabCycle.options.find((option) => Object.is(option.value, value))?.label;
+	return ` · ${label ?? String(value)}`;
 }
 
 function renderDescription(
@@ -188,16 +219,15 @@ function renderDescription(
 ): string[] {
 	const width = layout.descriptionWidth;
 	const contentWidth = Math.max(0, width - 4);
-	const title = truncateToWidth("─ Description ─", Math.max(0, width - 2));
-	const top = theme.fg(
-		"dim",
-		`╭${title}${"─".repeat(Math.max(0, width - 2 - visibleWidth(title)))}╮`,
-	);
-	const bottom = theme.fg("dim", `╰${"─".repeat(Math.max(0, width - 2))}╯`);
 	const field = item?.kind === "field" ? item.field : undefined;
 	const description = field?.description ?? (item?.kind === "group" ? item.description : undefined);
-	const origin = item ? (controller.provider?.origin ?? controller.provider?.id ?? "") : "";
-	const descriptionLines = ellipsizedDescription(description, contentWidth, 2);
+	const provider = controller.provider;
+	const origin = item && provider ? (provider.origin ?? provider.id) : "";
+	const descriptionLines = ellipsizedDescription(
+		description,
+		contentWidth,
+		Math.max(1, layout.descriptionHeight - 7),
+	).map((line) => theme.fg("text", line));
 	const committed = field ? formatSettingValue(controller, field) : "";
 	const editing =
 		controller.state.mode === "Edit" &&
@@ -205,24 +235,26 @@ function renderDescription(
 		field.id === controller.state.selection?.itemId &&
 		field.groupId === controller.state.selection?.groupId;
 	const valuePrefix = field ? "Value: " : "";
-	const valueWidth = Math.max(0, contentWidth - visibleWidth(valuePrefix));
-	const exactValue = field ? String(fieldValue(controller, field)) : committed;
+	const relatedSuffix = editing && field ? relatedDraftSuffix(controller, field) : "";
+	const valueWidth = Math.max(
+		0,
+		contentWidth - visibleWidth(valuePrefix) - visibleWidth(relatedSuffix),
+	);
 	const value = editing
-		? `${theme.fg("dim", valuePrefix)}${renderDraft(editor, controller.state.draftValue ?? "", valueWidth, theme)}`
-		: theme.fg("dim", `${valuePrefix}${truncateToWidth(exactValue, valueWidth, "")}`);
-	const body = [
-		...descriptionLines,
-		"",
-		truncateToWidth(`Origin: ${origin}`, contentWidth, ""),
-		value,
-		"",
-		"",
-	];
-	const rows = body.map((line, index) => {
-		const styled = index === body.length - 1 ? line : theme.fg("dim", line);
-		return `${theme.fg("dim", "│ ")}${padToWidth(styled, contentWidth)}${theme.fg("dim", " │")}`;
+		? `${theme.fg("text", valuePrefix)}${renderDraft(editor, controller.state.draftValue ?? "", valueWidth, theme)}${theme.fg("accent", relatedSuffix)}`
+		: theme.fg("text", `${valuePrefix}${truncateToWidth(committed, valueWidth, "")}`);
+	return renderDetailPanel({
+		width,
+		height: layout.descriptionHeight,
+		content: [
+			...descriptionLines,
+			"",
+			theme.fg("muted", truncateToWidth(`Origin: ${origin}`, contentWidth, "")),
+			"",
+			value,
+		],
+		theme: { border: (text) => theme.fg("text", text) },
 	});
-	return finish([top, ...rows, bottom], width);
 }
 
 function renderListRow(
@@ -238,10 +270,9 @@ function renderListRow(
 		selected && visibleWidth(rawKey) > layout.keyWidth
 			? horizontalViewport(rawKey, layout.keyWidth, visibleWidth(rawKey)).text
 			: truncateToWidth(rawKey, layout.keyWidth, "");
-	const locked =
-		item.kind === "field" &&
-		item.field.enabled &&
-		!item.field.enabled(controller.state.committed[controller.provider?.id ?? ""] ?? {});
+	const providerId = controller.provider?.id;
+	const committed = providerId === undefined ? {} : (controller.state.committed[providerId] ?? {});
+	const locked = item.kind === "field" && item.field.enabled && !item.field.enabled(committed);
 	const value =
 		item.kind === "field"
 			? truncateToWidth(formatSettingValue(controller, item.field), layout.valueWidth, "")
@@ -311,7 +342,7 @@ function renderList(
 
 export function renderSettings(options: RenderSettingsOptions): string[] {
 	const { controller, theme } = options;
-	const layout = createSettingsLayout(options.width);
+	const layout = createSettingsLayout(options.width, options.height);
 	const activeTab = options.activeTab ?? "settings";
 	const selected = settingsListItems(controller).find((item) => {
 		const selection = controller.state.selection;
@@ -362,9 +393,10 @@ export function renderSettings(options: RenderSettingsOptions): string[] {
 				const field = selected?.kind === "field" ? selected.field : undefined;
 				const committed = field ? formatSettingValue(controller, field) : "";
 				const editing = controller.state.mode === "Edit" && field;
+				const relatedSuffix = editing ? relatedDraftSuffix(controller, field) : "";
 				content.push(theme.fg("muted", "Value:"));
 				content.push(
-					`${editing ? theme.fg("accent", theme.bold("> ")) : selected?.kind === "field" ? theme.fg("accent", theme.bold("> ")) : "> "}${editing ? renderDraft(options.editor, controller.state.draftValue ?? "", Math.max(0, layout.width - 2), theme) : selected?.kind === "field" ? theme.fg("accent", theme.bold(truncateToWidth(committed, Math.max(0, layout.width - 2), ""))) : truncateToWidth(committed, Math.max(0, layout.width - 2), "")}`,
+					`${editing ? theme.fg("accent", theme.bold("> ")) : selected?.kind === "field" ? theme.fg("accent", theme.bold("> ")) : "> "}${editing ? `${renderDraft(options.editor, controller.state.draftValue ?? "", Math.max(0, layout.width - 2 - visibleWidth(relatedSuffix)), theme)}${theme.fg("accent", relatedSuffix)}` : selected?.kind === "field" ? theme.fg("accent", theme.bold(truncateToWidth(committed, Math.max(0, layout.width - 2), ""))) : truncateToWidth(committed, Math.max(0, layout.width - 2), "")}`,
 				);
 			}
 		}
@@ -393,7 +425,7 @@ export function renderSettings(options: RenderSettingsOptions): string[] {
 			{ width: layout.width },
 		),
 	);
-	content.push("─".repeat(layout.width));
+	content.push(theme.fg("border", "─".repeat(layout.width)));
 	return finish(content, layout.width);
 }
 

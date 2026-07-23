@@ -45,6 +45,29 @@ describe("HePi settings API", () => {
 		);
 	});
 
+	test("rejects registered setting keys without detailed descriptions", () => {
+		const registry = createHePiSettingsRegistry();
+		const provider = providerFor("short-description", "Short description", [
+			{
+				id: "general",
+				title: "General",
+				fields: [
+					{
+						id: "enabled",
+						label: "Enabled",
+						type: "boolean",
+						defaultValue: false,
+						description: "Too short",
+						parse: (value) => value === "true",
+					},
+				],
+			},
+		]);
+		expect(() => registerHePiSettings(provider, registry)).toThrow(
+			"requires a detailed description of at least 20 characters",
+		);
+	});
+
 	test("session storage isolates contexts and propagates backend errors", async () => {
 		const first = context("first");
 		const second = context("second");

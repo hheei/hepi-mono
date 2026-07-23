@@ -97,6 +97,17 @@ export async function dispatchHePiCommand(
 
 export function registerHePiCommand(pi: ExtensionAPI, registry: HePiModuleRegistry): void {
 	if (registeredApis.has(pi)) return;
+	for (const command of [
+		{ name: "ext-settings", subcommand: "setting", description: "Open extension settings" },
+		{ name: "loadout", subcommand: "loadout", description: "Open HEPI Loadout" },
+	] as const) {
+		pi.registerCommand(command.name, {
+			description: command.description,
+			handler: async (_args, ctx) => {
+				await dispatchHePiCommand(command.subcommand, ctx, registry);
+			},
+		});
+	}
 	pi.registerCommand("hepi", {
 		description: "Open a HEPI module",
 		getArgumentCompletions: (prefix) => commandCompletions(registry, prefix),

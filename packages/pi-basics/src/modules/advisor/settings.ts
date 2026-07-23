@@ -3,6 +3,7 @@ import { createAutoTitleStorage } from "../auto-title/index.js";
 import { parseModelRef, parseThinking } from "./model.js";
 export function createAdvisorSettingsProvider(options: {
 	readonly path: string;
+	readonly modelOptions?: readonly { readonly value: string; readonly label: string }[];
 	readonly validatePersisted?: (
 		model: string | undefined,
 		thinking: string,
@@ -18,30 +19,39 @@ export function createAdvisorSettingsProvider(options: {
 		groups: [
 			{
 				id: "advisor",
-				title: "Advisor",
+				title: "",
 				fields: [
 					{
 						id: "model",
-						label: "Model",
-						type: "text",
+						label: "Advisor model",
+						type: "enum",
 						defaultValue: "",
-						parse: (value) => value.trim(),
+						description:
+							"Select the authenticated model used for read-only Advisor reviews after settled turns.",
+						options: options.modelOptions ?? [{ value: "", label: "Not set" }],
+						format: (value) => {
+							if (typeof value !== "string") return String(value);
+							return (
+								(options.modelOptions ?? []).find((option) => option.value === value)?.label ??
+								(value || "Not set")
+							);
+						},
+						parse: (value) => value,
 						validate: (value) =>
 							typeof value === "string" && value.length > 0 && !parseModelRef(value)
 								? "Use provider/model"
 								: undefined,
-					},
-					{
-						id: "thinking",
-						label: "Thinking",
-						type: "enum",
-						defaultValue: "medium",
-						options: ["off", "minimal", "low", "medium", "high", "xhigh"].map((value) => ({
-							value,
-							label: value,
-						})),
-						parse: (value) => value,
-						validate: (value) => (parseThinking(value) ? undefined : "Invalid thinking level"),
+						tabCycle: {
+							fieldId: "thinking",
+							label: "Thinking",
+							description:
+								"Set the reasoning intensity used by the selected Advisor model during reviews.",
+							defaultValue: "medium",
+							options: ["off", "minimal", "low", "medium", "high", "xhigh"].map((value) => ({
+								value,
+								label: value,
+							})),
+						},
 					},
 				],
 			},
@@ -50,6 +60,15 @@ export function createAdvisorSettingsProvider(options: {
 			async load(ctx) {
 				const state = await storage.load(ctx);
 				return state?.advisor ? { advisor: state.advisor } : undefined;
+			},
+			async validate(state) {
+				const values = state.advisor;
+				const rawModel = typeof values?.model === "string" ? values.model.trim() : "";
+				const model = rawModel.length > 0 ? rawModel : undefined;
+				const thinking =
+					typeof values?.thinking === "string" ? parseThinking(values.thinking) : undefined;
+				if (thinking === undefined) throw new Error("Invalid thinking level");
+				await options.validatePersisted?.(model, thinking);
 			},
 			async save(state, ctx) {
 				const values = state.advisor;
