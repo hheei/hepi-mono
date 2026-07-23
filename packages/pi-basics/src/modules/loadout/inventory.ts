@@ -183,5 +183,5 @@ export function mergeLoadoutInventory(
 ): LoadoutInventory {
 	const items = new Map(native.items.map((item) => [item.key, item]));
 	for (const item of placeholders) if (!items.has(item.key)) items.set(item.key, item);
-	return { items: [...items.values()].sort((a, b) => a.key.localeCompare(b.key)) };
+	return { items: sortLoadoutItems([...items.values()]) };
 }

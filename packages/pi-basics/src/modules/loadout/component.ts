@@ -21,7 +21,7 @@ export function createLoadoutView(options: LoadoutComponentOptions): Component {
 				state: options.controller.state,
 				theme: options.theme,
 				width: nextWidth,
-				height: options.height,
+				...(options.height === undefined ? {} : { height: options.height }),
 			});
 		},
 		handleInput(input: string): void {

@@ -60,9 +60,9 @@ export interface LoadoutItem {
 	readonly sourceScope: LoadoutSourceScope;
 	readonly hasGlobalDefinition: boolean;
 	readonly origin: string;
-	readonly description?: string;
-	readonly instruction?: string;
-	readonly descriptionPanel?: LoadoutDescriptionPanel;
+	readonly description?: string | undefined;
+	readonly instruction?: string | undefined;
+	readonly descriptionPanel?: LoadoutDescriptionPanel | undefined;
 	readonly tokenCount?: number;
 	readonly parentMcpKey?: `mcp:${string}`;
 	readonly conflictGroup?: string;
@@ -196,16 +196,31 @@ export function nextConfiguredStatus(
 	return current === "active" ? "disabled" : "active";
 }
 
+function loadoutPackageSortKey(origin: string): string {
+	const normalized = origin.trim().toLocaleLowerCase();
+	return normalized === "" ||
+		normalized === "builtin" ||
+		normalized === "core" ||
+		normalized === "built-in"
+		? ""
+		: normalized;
+}
+
 export function sortLoadoutItems(items: readonly LoadoutItem[]): readonly LoadoutItem[] {
-	const sourceRank = (origin: string): number =>
-		origin === "builtin" || origin === "core" || origin === "built-in" ? 0 : 1;
-	return [...items].sort(
-		(a, b) =>
-			KIND_ORDER[a.kind] - KIND_ORDER[b.kind] ||
-			sourceRank(a.origin) - sourceRank(b.origin) ||
+	return [...items].sort((a, b) => {
+		const kindOrder = KIND_ORDER[a.kind] - KIND_ORDER[b.kind];
+		if (kindOrder !== 0) return kindOrder;
+		const packageOrder = loadoutPackageSortKey(a.origin).localeCompare(
+			loadoutPackageSortKey(b.origin),
+			undefined,
+			{ sensitivity: "base" },
+		);
+		return (
+			packageOrder ||
 			a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) ||
-			a.key.localeCompare(b.key),
-	);
+			a.key.localeCompare(b.key)
+		);
+	});
 }
 
 export function toggleLoadoutState(
@@ -256,12 +271,12 @@ export function reconcileLoadoutSelection(
 	const visible = sortLoadoutItems(items);
 	if (visible.length === 0) return undefined;
 	if (!selectedKey || visible.some((item) => item.key === selectedKey))
-		return selectedKey ?? visible[0]!.key;
+		return selectedKey ?? visible[0]?.key;
 	const previous = sortLoadoutItems(previousItems);
 	const selectedIndex = previous.findIndex((item) => item.key === selectedKey);
 	const selectedKind =
 		selectedIndex >= 0
-			? previous[selectedIndex]!.kind
+			? previous[selectedIndex]?.kind
 			: (parseLoadoutKey(selectedKey)?.split(":", 1)[0] as LoadoutKind | undefined);
 	if (selectedKind) {
 		const later =
@@ -278,5 +293,5 @@ export function reconcileLoadoutSelection(
 		const sameGroup = visible.find((item) => item.kind === selectedKind);
 		if (sameGroup) return sameGroup.key;
 	}
-	return visible[0]!.key;
+	return visible[0]?.key;
 }
