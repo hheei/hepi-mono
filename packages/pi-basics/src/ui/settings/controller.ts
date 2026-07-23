@@ -47,6 +47,10 @@ function changedValues(
 	);
 }
 
+export interface SettingsCloseOptions {
+	readonly retryOnFailure?: boolean;
+}
+
 export class SettingsController {
 	readonly model: SettingsModel;
 	readonly context: HePiContext;
@@ -56,6 +60,7 @@ export class SettingsController {
 	#loading: boolean = false;
 	#loadGeneration = 0;
 	#activeLoad: Promise<void> | undefined;
+	#activeClose: Promise<void> | undefined;
 
 	constructor(options: SettingsControllerOptions) {
 		const providers = (options.providers ?? options.registry?.list() ?? []).filter(
@@ -74,6 +79,9 @@ export class SettingsController {
 	}
 	get loading(): boolean {
 		return this.#loading;
+	}
+	get closed(): boolean {
+		return this.#closed;
 	}
 
 	private async loadProviders(generation: number): Promise<void> {
@@ -272,7 +280,23 @@ export class SettingsController {
 	cancelEdit(): void {
 		this.model.cancelEdit();
 	}
-	async close(): Promise<void> {
+	close(options: SettingsCloseOptions = {}): Promise<void> {
+		const active = this.#activeClose;
+		if (active !== undefined) {
+			if (options.retryOnFailure === true) return active;
+			return active.catch((error: unknown) => {
+				if (this.#closed) throw error;
+				return this.close(options);
+			});
+		}
+		const operation = this.closeUnlocked(options);
+		this.#activeClose = operation;
+		return operation.finally(() => {
+			if (this.#activeClose === operation) this.#activeClose = undefined;
+		});
+	}
+
+	private async closeUnlocked(options: SettingsCloseOptions): Promise<void> {
 		if (this.#closed) return;
 		this.#closed = true;
 		this.#loadGeneration++;
@@ -306,8 +330,19 @@ export class SettingsController {
 				failures.push({ providerId: provider.id, error });
 			}
 		}
+		if (failures.length > 0 && options.retryOnFailure === true) {
+			this.#closed = false;
+			this.model.cancelEdit();
+			this.model.setError(readableError(failures[0]?.error));
+			throw new AggregateError(
+				failures.map((failure) => failure.error),
+				"Settings cleanup failed",
+			);
+		}
 		const onCloseResults = await Promise.allSettled(
-			providers.map(({ provider, state }) => provider.onClose?.(state, this.context)),
+			providers.map(({ provider, state }) =>
+				Promise.resolve().then(() => provider.onClose?.(state, this.context)),
+			),
 		);
 		for (const [index, result] of onCloseResults.entries()) {
 			const provider = providers[index]?.provider;
@@ -315,22 +350,25 @@ export class SettingsController {
 				failures.push({ providerId: provider.id, error: result.reason });
 		}
 		const storageCloseResults = await Promise.allSettled(
-			providers.map(({ provider }) => provider.storage.close?.(this.context)),
+			providers.map(({ provider }) =>
+				Promise.resolve().then(() => provider.storage.close?.(this.context)),
+			),
 		);
 		for (const [index, result] of storageCloseResults.entries()) {
 			const provider = providers[index]?.provider;
 			if (result.status === "rejected" && provider !== undefined)
 				failures.push({ providerId: provider.id, error: result.reason });
 		}
-		this.#dirty.clear();
 		this.model.cancelEdit();
 		if (failures.length > 0) {
+			this.#dirty.clear();
 			this.model.setError(readableError(failures[0]?.error));
 			throw new AggregateError(
 				failures.map((failure) => failure.error),
 				"Settings cleanup failed",
 			);
 		}
+		this.#dirty.clear();
 	}
 }
 

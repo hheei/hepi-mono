@@ -1,9 +1,17 @@
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createCavemanSettingsProvider } from "./config.js";
 
-export async function registerCavemanHePiSettings(): Promise<(() => void) | undefined> {
+export async function registerCavemanHePiSettings(
+	pi: ExtensionAPI,
+): Promise<(() => void) | undefined> {
 	try {
-		const { registerHePiSettings } = await import("@hheei/pi-basics");
-		return registerHePiSettings(createCavemanSettingsProvider());
+		const { getHePiRuntimeSettingsRegistry, registerHePiSettings } = await import(
+			"@hheei/pi-basics"
+		);
+		return registerHePiSettings(
+			createCavemanSettingsProvider(),
+			getHePiRuntimeSettingsRegistry(pi),
+		);
 	} catch (error) {
 		if (isMissingPiBasics(error)) return undefined;
 		throw error;
@@ -15,5 +23,8 @@ function isMissingPiBasics(error: unknown): boolean {
 	const code = Reflect.get(error, "code");
 	if (code !== "ERR_MODULE_NOT_FOUND" && code !== "MODULE_NOT_FOUND") return false;
 	const message = Reflect.get(error, "message");
-	return typeof message === "string" && message.includes("@hheei/pi-basics");
+	return (
+		typeof message === "string" &&
+		/Cannot find (?:package|module) ["']@hheei\/pi-basics["']/u.test(message)
+	);
 }

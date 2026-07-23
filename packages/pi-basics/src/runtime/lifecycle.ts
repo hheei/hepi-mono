@@ -12,10 +12,13 @@ export interface HePiLifecycleOptions {
 }
 
 export class HePiLifecycleController {
+	private readonly options: HePiLifecycleOptions;
 	private runtime: HePiRuntimeContext | undefined;
 	private transitionQueue: Promise<void> = Promise.resolve();
 
-	constructor(private readonly options: HePiLifecycleOptions = {}) {}
+	constructor(options: HePiLifecycleOptions = {}) {
+		this.options = options;
+	}
 
 	get current(): HePiRuntimeContext | undefined {
 		return this.runtime;
@@ -35,8 +38,18 @@ export class HePiLifecycleController {
 				return runtime;
 			} catch (error) {
 				this.runtime = undefined;
-				const failures = await runtime.registry.cleanup();
-				await this.options.onShutdown?.(runtime, failures);
+				const failures = [...(await runtime.registry.cleanup())];
+				try {
+					await this.options.onShutdown?.(runtime, failures);
+				} catch (shutdownError) {
+					failures.push({ id: "onShutdown", error: shutdownError });
+				}
+				if (failures.length > 0)
+					throw new AggregateError(
+						[error, ...failures.map((failure) => failure.error)],
+						`HEPI start failed and cleanup failed: ${failures.map((failure) => failure.id).join(", ")}`,
+						{ cause: error },
+					);
 				throw error;
 			}
 		});
@@ -50,8 +63,17 @@ export class HePiLifecycleController {
 		const runtime = this.runtime;
 		if (!runtime) return;
 		this.runtime = undefined;
-		const failures = await runtime.registry.cleanup();
-		await this.options.onShutdown?.(runtime, failures);
+		const failures = [...(await runtime.registry.cleanup())];
+		try {
+			await this.options.onShutdown?.(runtime, failures);
+		} catch (error) {
+			failures.push({ id: "onShutdown", error });
+		}
+		if (failures.length > 0)
+			throw new AggregateError(
+				failures.map((failure) => failure.error),
+				`HEPI cleanup failed: ${failures.map((failure) => failure.id).join(", ")}`,
+			);
 	}
 
 	private enqueue<T>(transition: () => Promise<T>): Promise<T> {

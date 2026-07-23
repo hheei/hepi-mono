@@ -218,7 +218,7 @@ describe("statusbar lifecycle", () => {
 		expect(compacted).not.toContain("12k/100k");
 	});
 
-	test("redraws owned events and ignores stale context", () => {
+	test("redraws fresh contexts for the owned session and ignores other sessions", () => {
 		const h = harness("a");
 		const feature = createStatusbarFeature(h.pi);
 		feature.start(runtime(h.pi, h.ctx));
@@ -234,7 +234,12 @@ describe("statusbar lifecycle", () => {
 			h.emit(event);
 		expect(h.requests).toBe(6);
 		h.emit("model_select", { ...h.ctx } as ExtensionContext);
-		expect(h.requests).toBe(6);
+		expect(h.requests).toBe(7);
+		h.emit("model_select", {
+			...h.ctx,
+			sessionManager: { getSessionId: () => "stale" },
+		} as ExtensionContext);
+		expect(h.requests).toBe(7);
 	});
 
 	test("restores A before B and rejects stale A lifecycle actions", () => {

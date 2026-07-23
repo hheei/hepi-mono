@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { createEventBus } from "@earendil-works/pi-coding-agent";
 import {
 	createGlobalJsonStorage,
 	createHePiSettingsRegistry,
 	createSessionStorage,
+	getHePiRuntimeSettingsRegistry,
 	getHePiSettings,
 	type HePiContext,
 	type HePiSettingsProvider,
@@ -25,6 +27,19 @@ const providerFor = (
 });
 
 describe("HePi settings API", () => {
+	test("isolates live runtime registries", () => {
+		const first = getHePiRuntimeSettingsRegistry({ events: createEventBus() });
+		const second = getHePiRuntimeSettingsRegistry({ events: createEventBus() });
+		const unregisterFirst = first.register(providerFor("shared", "First"));
+		second.register(providerFor("shared", "Second"));
+
+		expect(first.get("shared")?.title).toBe("First");
+		expect(second.get("shared")?.title).toBe("Second");
+		unregisterFirst();
+		expect(first.get("shared")).toBeUndefined();
+		expect(second.get("shared")?.title).toBe("Second");
+	});
+
 	test("orders providers and filters groups without fields", () => {
 		const registry = createHePiSettingsRegistry();
 		registerHePiSettings(providerFor("empty", "Empty"), registry);

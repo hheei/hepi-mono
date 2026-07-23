@@ -8,7 +8,7 @@ import { computeRewriteDecision } from "./command-rewriter.js";
 import { loadRtkConfig } from "./config.js";
 import { normalizeRtkIntegrationConfig } from "./config-store.js";
 import { compactToolResult, type ToolResultCompactionMetadata } from "./output-compactor.js";
-import { clearOutputMetrics, getOutputMetricsSummary } from "./output-metrics.js";
+import { createOutputMetrics } from "./output-metrics.js";
 import { toRecord } from "./record-utils.js";
 import { applyRewrittenCommandShellSafetyFixups } from "./rewrite-pipeline-safety.js";
 import { applyRtkCommandEnvironment } from "./rtk-command-environment.js";
@@ -40,6 +40,7 @@ export function createRtkFeature(): RtkFeature {
 	let config = normalizeRtkIntegrationConfig(undefined);
 	let status: RuntimeStatus = { rtkAvailable: false };
 	const active = new Map<string, string>();
+	const outputMetrics = createOutputMetrics();
 	let piRef: ExtensionAPI | undefined;
 	let handlersRegistered = false;
 	let lastRefreshAt = 0;
@@ -142,6 +143,7 @@ export function createRtkFeature(): RtkFeature {
 					const outcome = compactToolResult(
 						{ toolName: event.toolName, input: event.input, content: event.content },
 						config,
+						outputMetrics,
 					);
 					if (!outcome.changed) return {};
 					return {
@@ -205,7 +207,7 @@ export function createRtkFeature(): RtkFeature {
 			if (sessionId === id) {
 				sessionId = undefined;
 				active.clear();
-				clearOutputMetrics();
+				outputMetrics.clear();
 				piRef = undefined;
 				handlersRegistered = false;
 				lastRefreshAt = 0;
@@ -217,7 +219,7 @@ export function createRtkFeature(): RtkFeature {
 		},
 		getStatus: () => status,
 		refresh,
-		metrics: getOutputMetricsSummary,
-		clearMetrics: clearOutputMetrics,
+		metrics: () => outputMetrics.summary(),
+		clearMetrics: () => outputMetrics.clear(),
 	};
 }

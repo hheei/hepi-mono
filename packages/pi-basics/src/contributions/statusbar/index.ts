@@ -55,8 +55,11 @@ function renderBarCursor(lines: readonly string[]): string[] {
 
 export function createStatusbarFeature(pi: ExtensionAPI): StatusbarFeature {
 	let owner: Owner | undefined;
+	const ownsContext = (eventCtx: ExtensionContext | undefined): boolean =>
+		owner !== undefined &&
+		(eventCtx === undefined || eventCtx.sessionManager.getSessionId() === owner.sessionId);
 	const invalidate = (_event?: unknown, eventCtx?: ExtensionContext) => {
-		if (owner && (!eventCtx || eventCtx === owner.ctx)) owner.requestRender?.();
+		if (ownsContext(eventCtx)) owner?.requestRender?.();
 	};
 	for (const event of [
 		"model_select",
@@ -67,7 +70,7 @@ export function createStatusbarFeature(pi: ExtensionAPI): StatusbarFeature {
 	] as const)
 		pi.on(event as never, invalidate);
 	pi.on("session_compact", (_event, eventCtx) => {
-		if (!owner || eventCtx !== owner.ctx) return;
+		if (!ownsContext(eventCtx) || owner === undefined) return;
 		owner.usage = undefined;
 		owner.compacted = true;
 		owner.requestRender?.();

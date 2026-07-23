@@ -112,9 +112,11 @@ function printableInput(input: string): boolean {
 
 class BoundedInput {
 	private readonly input = new Input();
+	private readonly maxLength: number;
 	private pasteBuffer = "";
 	private collectingPaste: boolean = false;
-	constructor(private readonly maxLength: number) {
+	constructor(maxLength: number) {
+		this.maxLength = maxLength;
 		this.input.focused = true;
 	}
 	getValue(): string {

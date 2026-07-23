@@ -1,10 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import {
-	type CavemanDefaults,
-	createCavemanSettingsProvider,
-	DEFAULT_CAVEMAN_DEFAULTS,
-	loadCavemanDefaults,
-} from "./config.js";
+import { type CavemanDefaults, DEFAULT_CAVEMAN_DEFAULTS, loadCavemanDefaults } from "./config.js";
+import { registerCavemanHePiSettings } from "./hepi-settings.js";
 import {
 	CAVEMAN_STATE_ENTRY,
 	type CavemanMode,
@@ -48,6 +44,7 @@ export default function piCavemanExtension(pi: ExtensionAPI): void {
 	let defaults: CavemanDefaults = DEFAULT_CAVEMAN_DEFAULTS;
 	let mode: CavemanMode = DEFAULT_CAVEMAN_MODE;
 	let subagentSession = false;
+	let unregisterSettings: (() => void) | undefined;
 
 	function configuredDefaultMode(): CavemanMode {
 		return subagentSession ? defaults.subagentMode : defaults.mainMode;
@@ -101,10 +98,16 @@ export default function piCavemanExtension(pi: ExtensionAPI): void {
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
-		pi.events.emit("hepi:settings:register", createCavemanSettingsProvider());
+		unregisterSettings?.();
+		unregisterSettings = await registerCavemanHePiSettings(pi);
 		defaults = await loadCavemanDefaults(ctx.cwd);
 		subagentSession = isPiSubagentSession(pi);
 		restoreModeFromBranch(ctx);
+	});
+
+	pi.on("session_shutdown", () => {
+		unregisterSettings?.();
+		unregisterSettings = undefined;
 	});
 
 	pi.on("session_tree", (_event, ctx) => {

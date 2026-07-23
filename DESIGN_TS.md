@@ -226,7 +226,7 @@ class Registry {
 }
 ```
 
-跨 extension runtime identity 使用宿主共享对象，例如 `pi.events`；不要用每个 extension 独有的 `ExtensionAPI` facade 作为共享状态 key。
+跨 extension runtime identity 使用宿主共享对象，例如 `pi.events`；不要用每个 extension 独有的 `ExtensionAPI` facade 作为共享状态 key。Module、Settings 等 live contribution registry 必须按该 identity 隔离，不能直接把 contribution 存在 process-global Map 中。
 
 ## 7. 函数、class 与依赖注入
 
