@@ -15,17 +15,73 @@
         "typescript": "^5.7.0",
       },
     },
-    "packages/pi-basics": {
-      "name": "@hheei/pi-basics",
+    "packages/pi-advisor": {
+      "name": "@hheei/pi-advisor",
       "version": "0.0.0",
       "dependencies": {
-        "opencc-js": "^1.4.0",
         "typebox": "^1.1.38",
+      },
+      "devDependencies": {
+        "@hheei/pi-basics": "workspace:*",
       },
       "peerDependencies": {
         "@earendil-works/pi-agent-core": ">=0.80.10",
+        "@earendil-works/pi-ai": ">=0.80.10",
         "@earendil-works/pi-coding-agent": ">=0.80.10",
         "@earendil-works/pi-tui": "*",
+        "@hheei/pi-basics": ">=0.0.0",
+      },
+    },
+    "packages/pi-ask": {
+      "name": "@hheei/pi-ask",
+      "version": "0.0.0",
+      "dependencies": {
+        "typebox": "^1.1.38",
+      },
+      "devDependencies": {
+        "@hheei/pi-basics": "workspace:*",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": ">=0.80.10",
+        "@earendil-works/pi-tui": "*",
+        "@hheei/pi-basics": ">=0.0.0",
+      },
+    },
+    "packages/pi-auto-title": {
+      "name": "@hheei/pi-auto-title",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@hheei/pi-basics": "workspace:*",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-agent-core": ">=0.80.10",
+        "@earendil-works/pi-ai": ">=0.80.10",
+        "@earendil-works/pi-coding-agent": ">=0.80.10",
+        "@earendil-works/pi-tui": "*",
+        "@hheei/pi-basics": ">=0.0.0",
+      },
+    },
+    "packages/pi-basics": {
+      "name": "@hheei/pi-basics",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@earendil-works/pi-agent-core": ">=0.80.10",
+        "@earendil-works/pi-ai": ">=0.80.10",
+        "@earendil-works/pi-coding-agent": ">=0.80.10",
+        "@earendil-works/pi-tui": "*",
+      },
+    },
+    "packages/pi-btw": {
+      "name": "@hheei/pi-btw",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@hheei/pi-basics": "workspace:*",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-ai": ">=0.80.10",
+        "@earendil-works/pi-coding-agent": ">=0.80.10",
+        "@earendil-works/pi-tui": "*",
+        "@hheei/pi-basics": ">=0.0.0",
       },
     },
     "packages/pi-caveman": {
@@ -42,6 +98,65 @@
         "@hheei/pi-basics",
       ],
     },
+    "packages/pi-dollar-skill": {
+      "name": "@hheei/pi-dollar-skill",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@hheei/pi-basics": "workspace:*",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": ">=0.80.10",
+        "@hheei/pi-basics": ">=0.0.0",
+      },
+    },
+    "packages/pi-fix": {
+      "name": "@hheei/pi-fix",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@hheei/pi-basics": "workspace:*",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": ">=0.80.10",
+        "@hheei/pi-basics": ">=0.0.0",
+      },
+    },
+    "packages/pi-goal": {
+      "name": "@hheei/pi-goal",
+      "version": "0.0.0",
+      "dependencies": {
+        "typebox": "^1.1.38",
+      },
+      "devDependencies": {
+        "@hheei/pi-basics": "workspace:*",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": ">=0.80.10",
+        "@hheei/pi-basics": ">=0.0.0",
+      },
+    },
+    "packages/pi-loadout": {
+      "name": "@hheei/pi-loadout",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@hheei/pi-basics": "workspace:*",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": ">=0.80.10",
+        "@hheei/pi-basics": ">=0.0.0",
+      },
+    },
+    "packages/pi-plan": {
+      "name": "@hheei/pi-plan",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@hheei/pi-basics": "workspace:*",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": ">=0.80.10",
+        "@earendil-works/pi-tui": "*",
+        "@hheei/pi-basics": ">=0.0.0",
+      },
+    },
     "packages/pi-ponytail": {
       "name": "@hheei/pi-ponytail",
       "version": "0.0.0",
@@ -55,6 +170,63 @@
       "optionalPeers": [
         "@hheei/pi-basics",
       ],
+    },
+    "packages/pi-rtk": {
+      "name": "@hheei/pi-rtk",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@hheei/pi-basics": "workspace:*",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": ">=0.80.10",
+        "@hheei/pi-basics": ">=0.0.0",
+      },
+      "optionalPeers": [
+        "@hheei/pi-basics",
+      ],
+    },
+    "packages/pi-sshfs": {
+      "name": "@hheei/pi-sshfs",
+      "version": "0.0.0",
+      "dependencies": {
+        "typebox": "^1.1.38",
+      },
+      "devDependencies": {
+        "@hheei/pi-basics": "workspace:*",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": ">=0.80.10",
+        "@hheei/pi-basics": ">=0.0.0",
+      },
+    },
+    "packages/pi-t2s": {
+      "name": "@hheei/pi-t2s",
+      "version": "0.0.0",
+      "dependencies": {
+        "opencc-js": "^1.4.0",
+      },
+      "devDependencies": {
+        "@hheei/pi-basics": "workspace:*",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": ">=0.80.10",
+        "@hheei/pi-basics": ">=0.0.0",
+      },
+    },
+    "packages/pi-todo": {
+      "name": "@hheei/pi-todo",
+      "version": "0.0.0",
+      "dependencies": {
+        "typebox": "^1.1.38",
+      },
+      "devDependencies": {
+        "@hheei/pi-basics": "workspace:*",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": ">=0.80.10",
+        "@earendil-works/pi-tui": "*",
+        "@hheei/pi-basics": ">=0.0.0",
+      },
     },
   },
   "packages": {
@@ -138,11 +310,37 @@
 
     "@google/genai": ["@google/genai@1.52.0", "", { "dependencies": { "google-auth-library": "^10.3.0", "p-retry": "^4.6.2", "protobufjs": "^7.5.4", "ws": "^8.18.0" }, "peerDependencies": { "@modelcontextprotocol/sdk": "^1.25.2" }, "optionalPeers": ["@modelcontextprotocol/sdk"] }, "sha512-gwSvbpiN/17O9TbsqSsE/OzZcpv5Fo4RQjdngGgogtuB9RsyJ8ZHhX5KjHj1bp5N9snN2eK8LDGXSaWW2hof8Q=="],
 
+    "@hheei/pi-advisor": ["@hheei/pi-advisor@workspace:packages/pi-advisor"],
+
+    "@hheei/pi-ask": ["@hheei/pi-ask@workspace:packages/pi-ask"],
+
+    "@hheei/pi-auto-title": ["@hheei/pi-auto-title@workspace:packages/pi-auto-title"],
+
     "@hheei/pi-basics": ["@hheei/pi-basics@workspace:packages/pi-basics"],
+
+    "@hheei/pi-btw": ["@hheei/pi-btw@workspace:packages/pi-btw"],
 
     "@hheei/pi-caveman": ["@hheei/pi-caveman@workspace:packages/pi-caveman"],
 
+    "@hheei/pi-dollar-skill": ["@hheei/pi-dollar-skill@workspace:packages/pi-dollar-skill"],
+
+    "@hheei/pi-fix": ["@hheei/pi-fix@workspace:packages/pi-fix"],
+
+    "@hheei/pi-goal": ["@hheei/pi-goal@workspace:packages/pi-goal"],
+
+    "@hheei/pi-loadout": ["@hheei/pi-loadout@workspace:packages/pi-loadout"],
+
+    "@hheei/pi-plan": ["@hheei/pi-plan@workspace:packages/pi-plan"],
+
     "@hheei/pi-ponytail": ["@hheei/pi-ponytail@workspace:packages/pi-ponytail"],
+
+    "@hheei/pi-rtk": ["@hheei/pi-rtk@workspace:packages/pi-rtk"],
+
+    "@hheei/pi-sshfs": ["@hheei/pi-sshfs@workspace:packages/pi-sshfs"],
+
+    "@hheei/pi-t2s": ["@hheei/pi-t2s@workspace:packages/pi-t2s"],
+
+    "@hheei/pi-todo": ["@hheei/pi-todo@workspace:packages/pi-todo"],
 
     "@mariozechner/clipboard": ["@mariozechner/clipboard@0.3.9", "", { "optionalDependencies": { "@mariozechner/clipboard-darwin-arm64": "0.3.9", "@mariozechner/clipboard-darwin-universal": "0.3.9", "@mariozechner/clipboard-darwin-x64": "0.3.9", "@mariozechner/clipboard-linux-arm64-gnu": "0.3.9", "@mariozechner/clipboard-linux-arm64-musl": "0.3.9", "@mariozechner/clipboard-linux-riscv64-gnu": "0.3.9", "@mariozechner/clipboard-linux-x64-gnu": "0.3.9", "@mariozechner/clipboard-linux-x64-musl": "0.3.9", "@mariozechner/clipboard-win32-arm64-msvc": "0.3.9", "@mariozechner/clipboard-win32-x64-msvc": "0.3.9" } }, "sha512-ABnA53mdfkGZwOFUdZNv2S0CWGO/EIuPj8Vv9xmBFmSYg/qFc7ihO6q5FcQjvoE67kZpWkEc4AhD6B/os04yuA=="],
 

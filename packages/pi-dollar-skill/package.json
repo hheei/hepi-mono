@@ -1,0 +1,33 @@
+{
+	"name": "@hheei/pi-dollar-skill",
+	"version": "0.0.0",
+	"description": "Dollar skill references for Pi prompts.",
+	"type": "module",
+	"main": "src/index.ts",
+	"files": [
+		"src",
+		"README.md",
+		"LICENSE"
+	],
+	"pi": {
+		"extensions": [
+			"src/extension.ts"
+		]
+	},
+	"license": "MIT",
+	"peerDependencies": {
+		"@hheei/pi-basics": ">=0.0.0",
+		"@earendil-works/pi-coding-agent": ">=0.80.10"
+	},
+	"devDependencies": {
+		"@hheei/pi-basics": "workspace:*"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/hheei/hepi-mono.git",
+		"directory": "packages/pi-dollar-skill"
+	},
+	"publishConfig": {
+		"access": "public"
+	}
+}

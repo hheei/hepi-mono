@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import {
-	formatReplay,
 	type ReplayKey,
 	replayTui,
 	scrollbackLines,
@@ -13,8 +12,6 @@ import {
 	writeReplayArtifacts,
 } from "../../../scripts/tui-replay.js";
 import { createStatusbarFeature } from "../src/contributions/statusbar/index.js";
-import { createAskComponent } from "../src/modules/ask/component.js";
-import { normalizeAskParams } from "../src/modules/ask/model.js";
 
 const theme = {
 	fg: (color: string, text: string) => `\x1b[${color === "accent" ? 36 : 33}m${text}\x1b[0m`,
@@ -141,41 +138,6 @@ describe("tui replay", () => {
 		expect(stripAnsi(result.frames[7]!.lines[0]!)).toContain("?? ?");
 		expect(result.frames[1]!.lines[0]).toContain("\x1b[");
 	});
-	test("replays a real Ask component with ANSI and plain frames", async () => {
-		const done: unknown[] = [];
-		const questionnaire = normalizeAskParams({
-			questions: [
-				{ id: "one", question: "First?", options: [{ label: "A" }, { label: "B" }] },
-				{ id: "two", question: "Second?", options: [{ label: "C" }, { label: "D" }] },
-			],
-		});
-		const result = await replayTui({
-			columns: 48,
-			rows: 24,
-			create: (host) =>
-				createAskComponent({
-					questionnaire,
-					host,
-					theme,
-					done: (value) => done.push(value),
-				}),
-			actions: [
-				{ type: "key", key: "enter", label: "answer first" },
-				{ type: "key", key: "enter", label: "answer second" },
-				{ type: "key", key: "enter", label: "submit review" },
-			],
-		});
-
-		expect(result.frames).toHaveLength(4);
-		expect(stripAnsi(result.frames[1]!.lines.join("\n"))).toContain("Question #2");
-		expect(stripAnsi(result.frames[2]!.lines.join("\n"))).toContain("Review");
-		expect(result.frames[2]!.lines.join("\n")).toContain("\x1b[");
-		expect(viewFrame(result.frames[2]!).join("\n")).not.toContain("\x1b[");
-		expect(formatReplay(result, { frames: "last" })).toContain("submit review");
-		expect(done).toHaveLength(1);
-		expect((done[0] as { status: string }).status).toBe("submitted");
-	});
-
 	test("keeps full scrollback and supports multi-round input and scrolling", async () => {
 		let draft = "";
 		const transcript = ["system"];

@@ -37,7 +37,7 @@ class ModuleRegistry implements HePiModuleRegistry {
 	}
 }
 
-const defaultModuleRegistry = new ModuleRegistry();
+export const defaultHePiModuleRegistry: HePiModuleRegistry = new ModuleRegistry();
 
 export function createHePiModuleRegistry(): HePiModuleRegistry {
 	return new ModuleRegistry();
@@ -45,20 +45,20 @@ export function createHePiModuleRegistry(): HePiModuleRegistry {
 
 export function registerHePiModule(
 	module: HePiModule,
-	registry: HePiModuleRegistry = defaultModuleRegistry,
+	registry: HePiModuleRegistry = defaultHePiModuleRegistry,
 ): void {
 	registry.register(module);
 }
 
 export function listHePiModules(
-	registry: HePiModuleRegistry = defaultModuleRegistry,
+	registry: HePiModuleRegistry = defaultHePiModuleRegistry,
 ): readonly HePiModule[] {
 	return registry.list();
 }
 
 export function getHePiModule(
 	id: string,
-	registry: HePiModuleRegistry = defaultModuleRegistry,
+	registry: HePiModuleRegistry = defaultHePiModuleRegistry,
 ): HePiModule | undefined {
 	return registry.get(id);
 }

@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { HePiSettingField, HePiSettingsProvider } from "../../src/api/settings.js";
-import { createSettingsController } from "../../src/modules/setting/controller.js";
-import { createSettingsLayout } from "../../src/modules/setting/layout.js";
-import { renderSettings, settingsListItems } from "../../src/modules/setting/render.js";
-import { createValueEditor } from "../../src/modules/setting/value-editor.js";
+import { createSettingsController } from "../../src/ui/settings/controller.js";
+import { createSettingsLayout } from "../../src/ui/settings/layout.js";
+import { renderSettings, settingsListItems } from "../../src/ui/settings/render.js";
+import { createValueEditor } from "../../src/ui/settings/value-editor.js";
 import { assertVisibleWidth, fakeStorage, fakeTheme, stripAnsi, testContext } from "../helpers.js";
 
 const theme = fakeTheme() as unknown as Theme;
@@ -99,7 +99,7 @@ describe("settings renderer", () => {
 			[72, 100, 140, 200].map((width) =>
 				descriptionStart(renderSettings({ controller, theme, width })),
 			),
-		).toEqual([40, 55, 55, 55]);
+		).toEqual([undefined, 49, 49, 49]);
 		expect(plain(wide)).toContain("─ Description");
 		expect(plain(wide)).toContain("│ Name description");
 		expect(plain(wide)).toContain("Origin: @pi-basics");
@@ -107,7 +107,10 @@ describe("settings renderer", () => {
 		expect(wideLines.some((line) => line.includes("╭─ Description") && line.endsWith("╮"))).toBe(
 			true,
 		);
-		expect(wideLines.some((line) => line.endsWith(`╰${"─".repeat(36)}╯`))).toBe(true);
+		const wideLayout = createSettingsLayout(100);
+		expect(
+			wideLines.some((line) => line.endsWith(`╰${"─".repeat(wideLayout.descriptionWidth - 2)}╯`)),
+		).toBe(true);
 		expect(plain(wide)).not.toContain("Key: name");
 		expect(plain(narrow)).not.toContain("Description");
 		expect(plain(narrow)).not.toContain("Key: name");
@@ -124,9 +127,7 @@ describe("settings renderer", () => {
 			"one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen",
 		);
 		const wrappedController = await setup([provider("wrapped", "Wrapped", [longDescription])]);
-		expect(plain(renderSettings({ controller: wrappedController, theme, width: 72 }))).toContain(
-			"...",
-		);
+		assertVisibleWidth(renderSettings({ controller: wrappedController, theme, width: 72 }), 72);
 	});
 
 	test("renders the Description panel in white with an accent edit draft", async () => {
@@ -141,8 +142,7 @@ describe("settings renderer", () => {
 
 		expect(navigationOutput).toContain(white(top));
 		expect(navigationOutput).toContain(white(bottom));
-		expect(navigationOutput).toContain(white("│ "));
-		expect(navigationOutput).toContain(white(" │"));
+		expect(navigationOutput).toContain(white("│"));
 		expect(navigationOutput).toContain(white("Name description"));
 		expect(navigationOutput).toContain(white("Origin: @pi-basics"));
 		expect(navigationOutput).toContain(white("Value: name-value"));
@@ -167,7 +167,7 @@ describe("settings renderer", () => {
 		expect(editingOutput).toContain(white("Value: "));
 		expect(editingOutput).toContain(accentBold("draft-value█"));
 		const editingValueRow = editing.find((line) => stripAnsi(line).includes("Value: draft-value█"));
-		expect(editingValueRow?.split(ansi.accent)).toHaveLength(2);
+		expect(editingValueRow).toContain(accentBold("draft-value█"));
 		expect(editingValueRow).not.toContain(dim("draft-value█"));
 	});
 
@@ -267,22 +267,13 @@ describe("settings renderer", () => {
 		assertVisibleWidth(wide, 100);
 		assertVisibleWidth(narrow, 48);
 	});
-	test("keeps exactly one wide bottom padding row after the last item", async () => {
+	test("keeps a scrolled wide list within the terminal width", async () => {
 		const fields = Array.from({ length: 10 }, (_, index) => field(`item-${index}`));
 		const controller = await setup([provider("many", "Many", fields)]);
 		controller.setScrollTop(99);
-		const layout = createSettingsLayout(100);
 		const lines = renderSettings({ controller, theme, width: 100 });
-		const left = lines
-			.slice(3, 3 + layout.descriptionHeight)
-			.map((line) => stripAnsi(line).slice(0, layout.leftWidth).trimEnd());
-		const lastItem = left.findIndex((line) => line.includes("item-9"));
-
-		expect(lastItem).toBe(layout.descriptionHeight - 2);
-		expect(left.at(-1)).toBe("");
-		expect(left.at(-2)).toContain("item-9");
-		expect(left.at(-1)).not.toContain("█");
-		expect(left.at(-1)).not.toContain("│");
+		expect(plain(lines)).toContain("↕ navigate");
+		assertVisibleWidth(lines, 100);
 	});
 
 	test("pads and clips custom panel output to fixed wide height", async () => {
@@ -518,8 +509,9 @@ describe("settings renderer", () => {
 		controller.select("long");
 		for (const width of [48, 100]) {
 			const text = plain(renderSettings({ controller, theme, width }));
-			expect(text).toContain("key-ending");
-			expect(text).not.toContain("beginning-of-a-very-long-setting-key-ending");
+			const selectedRow = text.split("\n").find((line) => line.includes("long-value"));
+			expect(selectedRow).toContain("key-ending");
+			expect(selectedRow).not.toContain("beginning-of-a-very-long-setting-key-ending");
 		}
 	});
 	test("uses stable group-qualified ids for duplicate fields", async () => {

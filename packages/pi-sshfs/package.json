@@ -1,0 +1,40 @@
+{
+	"name": "@hheei/pi-sshfs",
+	"version": "0.0.0",
+	"description": "SSHFS mount tool for Pi.",
+	"type": "module",
+	"main": "src/index.ts",
+	"files": [
+		"src",
+		"README.md",
+		"LICENSE"
+	],
+	"pi": {
+		"extensions": [
+			"src/extension.ts"
+		]
+	},
+	"license": "MIT",
+	"scripts": {
+		"test": "bun test",
+		"typecheck": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@hheei/pi-basics": "workspace:*"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": ">=0.80.10",
+		"@hheei/pi-basics": ">=0.0.0"
+	},
+	"dependencies": {
+		"typebox": "^1.1.38"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/hheei/hepi-mono.git",
+		"directory": "packages/pi-sshfs"
+	},
+	"publishConfig": {
+		"access": "public"
+	}
+}
