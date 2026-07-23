@@ -361,7 +361,7 @@ export function createPlanFeature(pi: ExtensionAPI): PlanFeature {
 				current.initialAskPending = true;
 				persist(current);
 				updateStatus(current);
-				ctx.ui.notify("Plan mode enabled. Submit a prompt with /plan <prompt>.", "info");
+				ctx.ui.notify("※ Plan mode enabled. Submit a prompt with /plan <prompt>.", "info");
 				return;
 			}
 			if (current.phase === "plan" && !current.plan) {

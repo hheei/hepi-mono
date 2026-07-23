@@ -13,9 +13,7 @@ function unique(names: readonly string[]): string[] {
 	return [...new Set(names)];
 }
 
-const coordinators = new WeakMap<ExtensionAPI, ToolActivationCoordinator>();
-
-export function createToolActivationCoordinator(pi: ExtensionAPI): ToolActivationCoordinator {
+function createCoordinator(getPi: () => ExtensionAPI): ToolActivationCoordinator {
 	let baseline: string[] = [];
 	let askVisible = false;
 	let disposed = false;
@@ -26,6 +24,7 @@ export function createToolActivationCoordinator(pi: ExtensionAPI): ToolActivatio
 		const next = baseline.filter((name) => name !== "ask" || askVisible);
 		if (next.length === effective.length && next.every((name, index) => name === effective[index]))
 			return;
+		const pi = getPi();
 		if (typeof pi.setActiveTools === "function") pi.setActiveTools([...next]);
 		effective = next;
 	};
@@ -63,10 +62,29 @@ export function createToolActivationCoordinator(pi: ExtensionAPI): ToolActivatio
 	};
 }
 
+export function createToolActivationCoordinator(pi: ExtensionAPI): ToolActivationCoordinator {
+	return createCoordinator(() => pi);
+}
+
+class GlobalCoordinatorState {
+	readonly coordinator: ToolActivationCoordinator;
+
+	constructor(public pi: ExtensionAPI) {
+		this.coordinator = createCoordinator(() => this.pi);
+	}
+}
+
+declare global {
+	var __hepiToolActivationCoordinatorState: GlobalCoordinatorState | undefined;
+}
+
 export function getToolActivationCoordinator(pi: ExtensionAPI): ToolActivationCoordinator {
-	const existing = coordinators.get(pi);
-	if (existing !== undefined) return existing;
-	const coordinator = createToolActivationCoordinator(pi);
-	coordinators.set(pi, coordinator);
-	return coordinator;
+	const existing = globalThis.__hepiToolActivationCoordinatorState;
+	if (existing !== undefined) {
+		existing.pi = pi;
+		return existing.coordinator;
+	}
+	const created = new GlobalCoordinatorState(pi);
+	globalThis.__hepiToolActivationCoordinatorState = created;
+	return created.coordinator;
 }

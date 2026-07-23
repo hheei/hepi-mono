@@ -76,7 +76,7 @@ export function createSettingsLayout(rawWidth: number, rawHeight?: number): Sett
 		descriptionWidth,
 		descriptionHeight: panelHeight,
 		listHeight,
-		itemCapacity: Math.max(1, listHeight - 1),
+		itemCapacity: Math.max(1, listHeight - 2),
 		indicatorWidth,
 		keyWidth,
 		valueGap,

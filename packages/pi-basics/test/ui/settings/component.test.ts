@@ -58,7 +58,7 @@ function provider(id = "first", title = "First Provider"): HePiSettingsProvider 
 	};
 }
 
-async function setup(providers: readonly HePiSettingsProvider[] = [provider()]) {
+async function setup(providers: readonly HePiSettingsProvider[] = [provider()], height?: number) {
 	const controller = createSettingsController({ providers, context: testContext() });
 	await controller.load();
 	const host = fakeHost();
@@ -67,6 +67,7 @@ async function setup(providers: readonly HePiSettingsProvider[] = [provider()]) 
 		controller,
 		host,
 		theme,
+		...(height === undefined ? {} : { height }),
 		close: () => {
 			closes++;
 		},
@@ -91,6 +92,16 @@ function text(component: { render(width: number): string[] }, width = 48): strin
 }
 
 describe("settings component", () => {
+	test("renders plugin titles with the plugin glyph and indents child settings", async () => {
+		const state = await setup();
+		const lines = state.component.render(100).map(stripAnsi);
+		const title = lines.find((line) => line.includes("General"));
+		const child = lines.find((line) => line.includes("Enabled"));
+		expect(title?.trimStart()).toStartWith("⧉ General");
+		expect(title).not.toContain("▾");
+		expect(child?.indexOf("Enabled")).toBe((title?.indexOf("⧉") ?? 0) + 1);
+	});
+
 	test("matches footer through toggle, edit, cancel, confirm, and close", async () => {
 		const state = await setup();
 		expect(text(state.component, 100).split("\n").at(-2)).toBe(toggleFooter);
@@ -302,6 +313,36 @@ describe("settings component", () => {
 		await expect(state.controller.close()).rejects.toThrow("Settings cleanup failed");
 		expect(text(state.component)).toContain("Error: save failed");
 	});
+	test("keeps the last provider visible while scrolling at terminal-relative height", async () => {
+		const providers = Array.from({ length: 15 }, (_, index) => ({
+			...provider(`provider-${index}`, `Provider ${index}`),
+			groups: [
+				{
+					id: `group-${index}`,
+					title: index === 14 ? "Traditional to Simplified" : `Provider ${index}`,
+					fields: [{ ...fields[0]!, id: `enabled-${index}` }],
+				},
+			],
+		}));
+		const combined = {
+			...provider("combined", "Combined"),
+			groups: providers.flatMap((item) => item.groups),
+		};
+		const { component, controller } = await setup([combined], 50);
+		component.render(100);
+		for (let index = 0; index < 29; index++) {
+			component.handleInput?.("\x1b[B");
+			component.render(100);
+		}
+		const screen = component.render(100).map(stripAnsi).join("\n");
+		expect(screen).toContain("Traditional to Simplif");
+		expect(controller.state.selection).toMatchObject({
+			itemId: "enabled-14",
+			groupId: "group-14",
+		});
+		expect(controller.state.scrollTop).toBe(17);
+	});
+
 	test("renders and routes input to panels-only provider", async () => {
 		const inputs: string[] = [];
 		let invalidations = 0;

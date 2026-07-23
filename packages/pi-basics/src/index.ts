@@ -10,6 +10,7 @@ import { registerHePiCommand } from "./command/hepi-command.js";
 import { createStatusbarFeature } from "./contributions/statusbar/index.js";
 import { HePiLifecycleController, registerHePiLifecycle } from "./runtime/lifecycle.js";
 import { getToolActivationCoordinator } from "./runtime/tool-activation.js";
+import { combineSettingsProviders } from "./ui/settings/combined.js";
 import { createSettingsModule, type SettingsModule } from "./ui/settings/index.js";
 
 function isSettingsModule(module: HePiModule | undefined): module is SettingsModule {
@@ -22,7 +23,11 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 		throw new Error("HEPI module id setting is reserved by pi-basics");
 	const settingsModule =
 		registeredSettingsModule ??
-		createSettingsModule({ getProviders: () => listHePiSettings(), showTabs: false });
+		createSettingsModule({
+			getProviders: () => [combineSettingsProviders(listHePiSettings())],
+			getLoadoutView: () => getHePiModule("loadout")?.createShellView,
+			showTabs: false,
+		});
 	if (registeredSettingsModule === undefined) registerHePiModule(settingsModule);
 
 	const coordinator = getToolActivationCoordinator(pi);

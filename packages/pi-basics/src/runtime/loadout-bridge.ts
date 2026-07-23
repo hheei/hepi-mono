@@ -6,17 +6,19 @@ interface LoadoutBridgeState {
 	readonly toolDisableHandlers: Map<string, () => HePiMaybePromise<void>>;
 }
 
-const states = new WeakMap<ExtensionAPI, LoadoutBridgeState>();
+declare global {
+	var __hepiLoadoutBridgeState: LoadoutBridgeState | undefined;
+}
 
-function stateFor(pi: ExtensionAPI): LoadoutBridgeState {
-	const existing = states.get(pi);
+function stateFor(_pi: ExtensionAPI): LoadoutBridgeState {
+	const existing = globalThis.__hepiLoadoutBridgeState;
 	if (existing !== undefined) return existing;
-	const state: LoadoutBridgeState = {
+	const created: LoadoutBridgeState = {
 		disabledSkillKeys: new Set(),
 		toolDisableHandlers: new Map(),
 	};
-	states.set(pi, state);
-	return state;
+	globalThis.__hepiLoadoutBridgeState = created;
+	return created;
 }
 
 export function hePiLoadoutKey(kind: string, name: string, source?: string): string {

@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { HePiModule } from "@hheei/pi-basics";
+import type { HePiModule, HePiModuleView, HePiModuleViewContext } from "@hheei/pi-basics";
 import { createLoadoutView } from "./component.js";
 import { createLoadoutController, type LoadoutRuntimeHandlers } from "./controller.js";
 import { createLoadoutInventoryProvider } from "./inventory.js";
@@ -23,35 +23,55 @@ export function createLoadoutModule(
 	pi: ExtensionAPI,
 	runtime: LoadoutRuntimeHandlers,
 ): LoadoutModule {
+	async function createShellView(options: HePiModuleViewContext): Promise<HePiModuleView> {
+		const defaults = defaultLoadoutStoragePaths();
+		const controller = createLoadoutController({
+			scope: await initialLoadoutScope(options.context.cwd ?? process.cwd()),
+			storage: createLoadoutStorage({
+				globalPath: defaults.globalPath,
+				projectPath: join(options.context.cwd ?? process.cwd(), ".pi", "setting.json"),
+			}),
+			inventory: createLoadoutInventoryProvider(pi),
+			runtime,
+		});
+		await controller.load();
+		return {
+			component: createLoadoutView({
+				controller,
+				host: options.host,
+				theme: options.theme,
+				height: options.height,
+			}),
+			close: () => controller.close(),
+		};
+	}
 	return {
 		id: "loadout",
 		label: "Loadout",
 		icon: "◉",
-		commands: ["loadout"],
+		commands: [],
+		createShellView,
 		open: async (_args, rawCtx) => {
 			const ctx = rawCtx as unknown as ExtensionCommandContext;
 			if (ctx.mode !== "tui") return;
-			const defaults = defaultLoadoutStoragePaths();
-			const controller = createLoadoutController({
-				scope: await initialLoadoutScope(ctx.cwd),
-				storage: createLoadoutStorage({
-					globalPath: defaults.globalPath,
-					projectPath: join(ctx.cwd, ".pi", "setting.json"),
-				}),
-				inventory: createLoadoutInventoryProvider(pi),
-				runtime,
-			});
-			await controller.load();
-			await ctx.ui.custom<void>((tui, theme, _keybindings, done) =>
-				createLoadoutView({
-					controller,
+			await ctx.ui.custom<void>(async (tui, theme, _keybindings, done) => {
+				const view = await createShellView({
+					context: rawCtx,
 					host: { requestRender: () => tui.requestRender() },
 					theme,
 					height: tui.terminal?.rows ?? 30,
-					close: () => done(undefined),
-				}),
-			);
-			await controller.close();
+				});
+				return {
+					...view.component,
+					handleInput(input: string) {
+						if (input === "\x1b") {
+							void Promise.resolve(view.close?.()).finally(() => done(undefined));
+							return;
+						}
+						view.component.handleInput?.(input);
+					},
+				};
+			});
 		},
 	};
 }

@@ -39,6 +39,12 @@ describe("settings layout", () => {
 		expect(layout.descriptionHeight).toBe(9);
 	});
 
+	test("reserves rows for search and spacer before list items", () => {
+		const layout = createSettingsLayout(100, 30);
+		expect(layout.listHeight).toBe(9);
+		expect(layout.itemCapacity).toBe(7);
+	});
+
 	test("matches Loadout's terminal-relative panel height", () => {
 		const layout = createSettingsLayout(120, 50);
 		expect(layout.descriptionHeight).toBe(15);

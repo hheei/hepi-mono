@@ -4,7 +4,12 @@ import type {
 	ExtensionCommandContext,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { createHePiRuntimeContext, createToolActivationCoordinator } from "@hheei/pi-basics";
+import {
+	createHePiRuntimeContext,
+	createToolActivationCoordinator,
+	getToolActivationCoordinator,
+} from "@hheei/pi-basics";
+import { replayTui, stripAnsi } from "../../../scripts/tui-replay.js";
 import { createGoalFeature } from "../src/feature.js";
 
 type TestHandler = (
@@ -32,6 +37,7 @@ function fixture() {
 	const sent: Array<{ content: string; options?: unknown }> = [];
 	const notifications: Array<{ message: string; level?: string }> = [];
 	const activeSets: string[][] = [];
+	const statuses = new Map<string, string | undefined>();
 	const timers: Array<{ callback: () => void; delay: number; cancelled: boolean }> = [];
 	let aborted = 0;
 	let idle = true;
@@ -66,7 +72,7 @@ function fixture() {
 		ui: {
 			notify: (message: string, level?: string) =>
 				notifications.push(level === undefined ? { message } : { message, level }),
-			setStatus: () => undefined,
+			setStatus: (key: string, value: string | undefined) => statuses.set(key, value),
 		},
 		isIdle: () => idle,
 		hasPendingMessages: () => false,
@@ -109,6 +115,7 @@ function fixture() {
 		sent,
 		activeSets,
 		notifications,
+		statuses,
 		timers,
 		set appendError(value: Error | undefined) {
 			appendError = value;
@@ -123,6 +130,63 @@ function fixture() {
 }
 
 describe("goal feature", () => {
+	test("replays Goal activation across per-extension API wrappers", async () => {
+		const notifications: string[] = [];
+		const commands: TestCommand[] = [];
+		const entries: unknown[] = [];
+		const sessionManager = { getSessionId: () => "goal-replay", getBranch: () => entries };
+		const shared = {
+			setActiveTools: () => undefined,
+			appendEntry: (_type: string, data: unknown) => entries.push({ data }),
+			sendUserMessage: () => undefined,
+		};
+		const loadoutApi = { ...shared } as unknown as ExtensionAPI;
+		const goalApi = {
+			...shared,
+			on: () => undefined,
+			registerTool: () => undefined,
+			registerCommand: (name: string, command: TestCommand) =>
+				commands.push({ name, handler: command.handler }),
+		} as unknown as ExtensionAPI;
+		const coordinator = getToolActivationCoordinator(loadoutApi);
+		coordinator.reset();
+		coordinator.setLoadoutBaseline(["goal"]);
+		const ctx = {
+			mode: "tui",
+			hasUI: true,
+			cwd: "/tmp/goal-replay",
+			sessionManager,
+			ui: {
+				notify: (message: string) => notifications.push(message),
+				setStatus: () => undefined,
+			},
+			isIdle: () => true,
+			hasPendingMessages: () => false,
+			waitForIdle: async () => undefined,
+		} as unknown as ExtensionCommandContext;
+		const feature = createGoalFeature(goalApi, getToolActivationCoordinator(goalApi));
+		await feature.start(createHePiRuntimeContext(goalApi, ctx, {} as never));
+		const command = first(commands);
+		const replay = await replayTui({
+			create: () => ({
+				render: () => [
+					feature.getState().mode === "active"
+						? `Goal active: ${feature.getState().active?.objective}`
+						: (notifications.at(-1) ?? "Goal inactive"),
+				],
+				async handleInput(data: string): Promise<void> {
+					await command.handler(data.replace(/^\/goal\s*/u, ""), ctx);
+				},
+			}),
+			actions: [{ type: "text", text: "/goal diagnostic", label: "start Goal" }],
+		});
+		const frame = stripAnsi(replay.last.lines.join("\n"));
+		expect(frame).toContain("Goal active: diagnostic");
+		expect(frame).not.toContain("Goal is disabled in Loadout");
+		await feature.dispose("goal-replay");
+		coordinator.dispose();
+	});
+
 	test("direct command persists objective, injects context, and completes", async () => {
 		const fixtureState = fixture();
 		await fixtureState.feature.start(fixtureState.runtime);
@@ -148,6 +212,25 @@ describe("goal feature", () => {
 		expect(result.terminate).toBe(true);
 		expect(fixtureState.feature.getState()).toEqual({ mode: "inactive" });
 		expect(fixtureState.activeSets).toEqual([["goal"]]);
+	});
+
+	test("uses mode notices and one stable Goal status label", async () => {
+		const fixtureState = fixture();
+		await fixtureState.feature.start(fixtureState.runtime);
+		expect(fixtureState.statuses.get("goal")).toBeUndefined();
+
+		await first(fixtureState.commands).handler("", fixtureState.commandCtx);
+		expect(fixtureState.statuses.get("goal")).toBe("Goal");
+		await first(fixtureState.commands).handler("", fixtureState.commandCtx);
+		expect(fixtureState.notifications.at(-1)?.message).toBe("※ Goal Mode stopped");
+		expect(fixtureState.statuses.get("goal")).toBeUndefined();
+
+		await first(fixtureState.commands).handler("objective", fixtureState.commandCtx);
+		expect(fixtureState.notifications.at(-1)?.message).toBe("※ Goal Mode enabled");
+		expect(fixtureState.statuses.get("goal")).toBe("Goal");
+		await first(fixtureState.commands).handler("", fixtureState.commandCtx);
+		expect(fixtureState.notifications.at(-1)?.message).toBe("※ Goal Mode stopped");
+		expect(fixtureState.statuses.get("goal")).toBe("Goal");
 	});
 
 	test("keeps ordinary input outside Goal mode", async () => {
@@ -248,6 +331,8 @@ describe("goal feature", () => {
 			mode: "active",
 			active: { objective: "captured objective" },
 		});
+		expect(fixtureState.notifications.at(-1)?.message).toBe("※ Goal Mode enabled");
+		expect(fixtureState.statuses.get("goal")).toBe("Goal");
 		const laterInput = await fixtureState.handlers.get("input")?.(
 			{ text: "later instruction", source: "interactive" },
 			fixtureState.commandCtx,

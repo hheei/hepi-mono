@@ -4,7 +4,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	HePiLifecycleController,
 	registerHePiLifecycle,
-	replaceHePiSettings,
+	registerHePiSettingsIfAbsent,
 } from "@hheei/pi-basics";
 import { registerAdvisorCommand } from "./command.js";
 import { createAdvisorFeature } from "./feature.js";
@@ -14,6 +14,7 @@ import { createAdvisorSettingsProvider } from "./settings.js";
 
 export default function piAdvisorExtension(pi: ExtensionAPI): void {
 	const advisor = createAdvisorFeature();
+	let settingsProvider: ReturnType<typeof createAdvisorSettingsProvider> | undefined;
 	registerAdvisorCommand(pi, advisor);
 	registerAdvisorRenderer(pi);
 	const lifecycle = new HePiLifecycleController({
@@ -21,34 +22,39 @@ export default function piAdvisorExtension(pi: ExtensionAPI): void {
 			const models = (runtime.ctx.modelRegistry.getAvailable?.() ?? []).filter((model) =>
 				runtime.ctx.modelRegistry.hasConfiguredAuth(model),
 			);
-			const provider = createAdvisorSettingsProvider({
-				path: join(runtime.ctx.cwd, ".pi", "settings.json"),
-				modelOptions: [
-					{ value: "", label: "Not set" },
-					...models.map((model) => ({
-						value: `${model.provider}/${model.id}`,
-						label: model.name ?? `${model.provider}/${model.id}`,
-					})),
-				],
-				validatePersisted: (modelRef, thinking) => {
-					if (modelRef === undefined) return;
-					const ref = parseModelRef(modelRef);
-					if (ref === undefined) throw new Error("Advisor model must use provider/model format");
-					const model = runtime.ctx.modelRegistry.find(ref.provider, ref.id);
-					if (model === undefined) throw new Error("Advisor model is unavailable");
-					if (!runtime.ctx.modelRegistry.hasConfiguredAuth(model))
-						throw new Error("Advisor model has no configured auth");
-					const level = parseThinking(thinking);
-					if (level !== undefined && !getSupportedThinkingLevels(model).includes(level))
-						throw new Error("Advisor thinking level is unsupported by this model");
-				},
-				onPersisted: async (model, thinking) => {
-					const level = parseThinking(thinking);
-					if (level === undefined) throw new Error("Invalid Advisor thinking level");
-					await advisor.configure(model, level);
-				},
-			});
-			replaceHePiSettings(provider);
+			const provider =
+				settingsProvider ??
+				createAdvisorSettingsProvider({
+					path: join(runtime.ctx.cwd, ".pi", "settings.json"),
+					modelOptions: [
+						{ value: "", label: "Not set" },
+						...models.map((model) => ({
+							value: `${model.provider}/${model.id}`,
+							label: model.name ?? `${model.provider}/${model.id}`,
+						})),
+					],
+					validatePersisted: (modelRef, thinking) => {
+						if (modelRef === undefined) return;
+						const ref = parseModelRef(modelRef);
+						if (ref === undefined) throw new Error("Advisor model must use provider/model format");
+						const model = runtime.ctx.modelRegistry.find(ref.provider, ref.id);
+						if (model === undefined) throw new Error("Advisor model is unavailable");
+						if (!runtime.ctx.modelRegistry.hasConfiguredAuth(model))
+							throw new Error("Advisor model has no configured auth");
+						const level = parseThinking(thinking);
+						if (level !== undefined && !getSupportedThinkingLevels(model).includes(level))
+							throw new Error("Advisor thinking level is unsupported by this model");
+					},
+					onPersisted: async (model, thinking) => {
+						const level = parseThinking(thinking);
+						if (level === undefined) throw new Error("Invalid Advisor thinking level");
+						await advisor.configure(model, level);
+					},
+				});
+			if (settingsProvider === undefined) {
+				settingsProvider = provider;
+				registerHePiSettingsIfAbsent(provider);
+			}
 
 			let model: string | undefined;
 			let thinking = parseThinking("medium");

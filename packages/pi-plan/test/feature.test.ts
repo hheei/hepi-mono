@@ -281,6 +281,7 @@ describe("Plan feature", () => {
 		start(h);
 		await h.commands.get("plan")!("", h.ctx);
 		expect(h.statuses.get("plan")).toBe("plan");
+		expect(h.notifications).toContain("※ Plan mode enabled. Submit a prompt with /plan <prompt>.");
 
 		await h.commands.get("plan")!("", h.ctx);
 		expect(h.statuses.get("plan")).toBeUndefined();
