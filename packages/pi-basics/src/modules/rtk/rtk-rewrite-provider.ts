@@ -39,7 +39,7 @@ export async function resolveRtkRewrite(
 	const options = normalizeOptions(optionsOrTimeout);
 	const timeoutMs = options.timeoutMs ?? 3000;
 
-	if (!command?.trim()) {
+	if (!command.trim()) {
 		return { changed: false, originalCommand: command, rewrittenCommand: command, exitCode: 1 };
 	}
 

@@ -6,7 +6,7 @@ import {
 	type ReadonlyFooterDataProvider,
 	type Theme,
 } from "@earendil-works/pi-coding-agent";
-import type { Component, TUI } from "@earendil-works/pi-tui";
+import { type Component, CURSOR_MARKER, type TUI } from "@earendil-works/pi-tui";
 import type { HePiRuntimeContext } from "../../runtime/context.js";
 import {
 	buildStatusbarSnapshot,
@@ -39,6 +39,18 @@ export interface StatusbarFeature {
 
 function emptyFooter(): Component {
 	return { render: () => [], invalidate: () => undefined };
+}
+
+function renderBarCursor(lines: readonly string[]): string[] {
+	const startMarker = `${CURSOR_MARKER}\x1b[7m`;
+	const endMarker = "\x1b[0m";
+	return lines.map((line) => {
+		const start = line.indexOf(startMarker);
+		if (start < 0) return line;
+		const end = line.indexOf(endMarker, start + startMarker.length);
+		if (end < 0) return line;
+		return `${line.slice(0, start)}${CURSOR_MARKER}│${line.slice(end + endMarker.length)}`;
+	});
 }
 
 export function createStatusbarFeature(pi: ExtensionAPI): StatusbarFeature {
@@ -81,7 +93,7 @@ export function createStatusbarFeature(pi: ExtensionAPI): StatusbarFeature {
 					new CustomEditor(tui, theme, keybindings);
 				const originalRender = editor.render.bind(editor);
 				(editor as Editor & { render: (width: number) => string[] }).render = (width: number) => {
-					const lines = originalRender(width);
+					const lines = renderBarCursor(originalRender(width));
 					if (!lines.length || !next || owner !== next) return lines;
 					const systemPrompt =
 						typeof ctx.getSystemPrompt === "function" ? ctx.getSystemPrompt() : undefined;

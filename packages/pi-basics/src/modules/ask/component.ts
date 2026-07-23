@@ -108,7 +108,7 @@ function printableInput(input: string): boolean {
 class BoundedInput {
 	private readonly input = new Input();
 	private pasteBuffer = "";
-	private collectingPaste = false;
+	private collectingPaste: boolean = false;
 	constructor(private readonly maxLength: number) {
 		this.input.focused = true;
 	}
@@ -266,7 +266,8 @@ export function createAskComponent(options: AskComponentOptions): Component & { 
 		});
 		blocks.push([otherFocused ? options.theme.fg("warning", other) : other]);
 		if (state.mode === "custom") {
-			const inputRows = editor?.render(Math.max(1, bodyWidth - 2)) ?? [""];
+			const customEditor = invariant(editor, "Ask custom editor state is inconsistent");
+			const inputRows = customEditor.render(Math.max(1, bodyWidth - 2));
 			blocks.push([
 				options.theme.fg("muted", "Your answer:"),
 				...inputRows.map((line) => `  ${line}`),
@@ -370,8 +371,9 @@ export function createAskComponent(options: AskComponentOptions): Component & { 
 			return;
 		}
 		if (state.mode === "custom") {
+			const customEditor = invariant(editor, "Ask custom editor state is inconsistent");
 			if (matchesKey(input, Key.enter)) {
-				const value = editor?.getValue() ?? "";
+				const value = customEditor.getValue();
 				try {
 					validateAskCustomAnswer(value);
 				} catch {
@@ -386,10 +388,10 @@ export function createAskComponent(options: AskComponentOptions): Component & { 
 				apply({ type: "cancel_custom" });
 				return;
 			}
-			editor?.handleInput(input);
+			customEditor.handleInput(input);
 			state = reduceAsk(state, questionnaire, {
 				type: "set_custom_draft",
-				value: editor?.getValue() ?? "",
+				value: customEditor.getValue(),
 			});
 			options.host.requestRender();
 			return;

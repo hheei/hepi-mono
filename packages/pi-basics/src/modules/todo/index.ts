@@ -11,6 +11,8 @@ import {
 	type Task,
 	type TaskState,
 	type TaskStatus,
+	type TodoOperation,
+	type TodoOperationResult,
 	type TodoParams,
 } from "./model.js";
 import { latestTodoSnapshot, snapshotFromState } from "./state.js";
@@ -180,6 +182,27 @@ function formatTodosCommand(state: TaskState): string {
 	return lines.join("\n");
 }
 
+function formatTodoOperationResult(
+	operation: TodoOperation,
+	result: TodoOperationResult,
+	state: TaskState,
+): string {
+	switch (operation.action) {
+		case "create": {
+			const task = state.tasks.find((candidate) => candidate.id === result.id);
+			return task ? `Created #${task.id}: ${task.subject}` : "Created task";
+		}
+		case "update":
+			return result.changed
+				? `Updated #${operation.id}`
+				: `No change: #${operation.id} already matches the requested values`;
+		case "delete":
+			return `Deleted #${operation.id}`;
+		case "list":
+			return formatTodoList(state, operation.status);
+	}
+}
+
 function formatTodoResult(
 	params: TodoParams,
 	result: Extract<ReturnType<typeof applyTodo>, { ok: true }>,
@@ -187,27 +210,7 @@ function formatTodoResult(
 	const lines: string[] = [];
 	for (const operationResult of result.operations) {
 		const operation = params.operations[operationResult.index];
-		if (!operation) continue;
-		switch (operation.action) {
-			case "create": {
-				const task = result.state.tasks.find((candidate) => candidate.id === operationResult.id);
-				lines.push(task ? `Created #${task.id}: ${task.subject}` : "Created task");
-				break;
-			}
-			case "update":
-				lines.push(
-					operationResult.changed
-						? `Updated #${operation.id}`
-						: `No change: #${operation.id} already matches the requested values`,
-				);
-				break;
-			case "delete":
-				lines.push(`Deleted #${operation.id}`);
-				break;
-			case "list":
-				lines.push(formatTodoList(result.state, operation.status));
-				break;
-		}
+		if (operation) lines.push(formatTodoOperationResult(operation, operationResult, result.state));
 	}
 	return lines.join("\n");
 }

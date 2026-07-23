@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 // biome-ignore-all lint/suspicious/noControlCharactersInRegex: ANSI parser intentionally matches terminal controls.
+// biome-ignore-all lint/suspicious/noUnnecessaryConditions: ReplayAction switch handles all runtime action variants.
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 

@@ -37,7 +37,7 @@ describe("tool activation coordinator", () => {
 
 	test("keeps the previous effective tools when host update fails", () => {
 		const writes: string[][] = [];
-		let rejectWrites = false;
+		let rejectWrites: boolean = false;
 		const pi = {
 			setActiveTools: (names: string[]) => {
 				if (rejectWrites) throw new Error("host rejected tools");

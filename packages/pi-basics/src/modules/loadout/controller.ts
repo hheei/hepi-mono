@@ -62,7 +62,7 @@ export class LoadoutController {
 	private maps: LoadoutStatusMaps = { global: {}, project: {} };
 	private pendingKey: LoadoutKey | undefined;
 	private error: string | undefined;
-	private closed = false;
+	private closed: boolean = false;
 	private queue: Promise<void> = Promise.resolve();
 	private readonly pending = new Set<Promise<void>>();
 	constructor(private readonly options: LoadoutControllerOptions) {
