@@ -5,12 +5,12 @@
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 2115 nodes · 3556 edges · 152 communities (128 shown, 24 thin omitted)
-- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 40 edges (avg confidence: 0.67)
+- 2127 nodes · 3522 edges · 150 communities (126 shown, 24 thin omitted)
+- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 49 edges (avg confidence: 0.68)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `dc6a5d53`
+- Built from commit: `f506419b`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -73,15 +73,14 @@
 - TUI 設計語言規範
 - replayTui
 - writeReplayArtifacts
-- controller.test.ts
+- description.test.ts
 - controller.ts
 - references.ts
-- 2. Token 分層
+- subagents.ts
 - stream-output.ts
 - 17. 顏色語義
-- `pi-basics` Loadout 逐步實作參考
-- HePiSettingField
-- component.test.ts
+- rtk-command-environment.ts
+- config.ts
 - ssh-exec.test.ts
 - ssh-mount.ts
 - pi-basics Ask 详细设计
@@ -90,6 +89,7 @@
 - 04｜公开 API、Settings contract 与 storage
 - 05｜`/hepi` dispatcher
 - 7.4 Transition rules
+- config.test.ts
 - 6. 搜尋欄
 - package.json
 - @hheei/pi-basics
@@ -111,7 +111,6 @@
 - createHorizontalViewport
 - wrapText
 - 7. 为什么推荐这些取舍
-- 7. 實作階段
 - 9. RPC/ACP fallback
 - 4. Phase A：Normalized model与validation
 - atomic-editor.test.ts
@@ -123,9 +122,7 @@
 - askWithDialogFallback
 - storage.ts
 - controller.ts
-- component.test.ts
 - formatter
-- integration.test.ts
 - vcs
 - ValueEditor
 - component.ts
@@ -165,57 +162,57 @@
 - HePiSettingsRegistry
 
 ## God Nodes (most connected - your core abstractions)
-1. `SettingsController` - 33 edges
+1. `SettingsController` - 36 edges
 2. `LoadoutController` - 21 edges
-3. `HePiRegistry` - 17 edges
-4. `includes` - 16 edges
-5. `ValueEditor` - 16 edges
-6. `createBtwFeature()` - 15 edges
-7. `SettingsModel` - 15 edges
-8. `applyTodo()` - 15 edges
-9. `createPlanFeature()` - 14 edges
-10. `compilerOptions` - 14 edges
+3. `HePiSettingField` - 18 edges
+4. `HePiSettingsProvider` - 18 edges
+5. `piBasicsExtension()` - 17 edges
+6. `HePiRegistry` - 17 edges
+7. `SettingsModel` - 16 edges
+8. `includes` - 16 edges
+9. `applyTodo()` - 15 edges
+10. `createPlanFeature()` - 14 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `plain()` --indirect_call--> `stripAnsi()`  [INFERRED]
   packages/pi-basics/test/modules/ask/component.test.ts → packages/pi-basics/test/helpers.ts
-- `createGoalFeature()` --indirect_call--> `summary()`  [INFERRED]
-  packages/pi-basics/src/modules/goal/feature.ts → packages/pi-basics/src/modules/ask/fallback.ts
-- `LoadoutComponentOptions` --references--> `LoadoutController`  [EXTRACTED]
-  packages/pi-basics/src/modules/loadout/component.ts → packages/pi-basics/src/modules/loadout/controller.ts
-- `createShellModule()` --indirect_call--> `host()`  [INFERRED]
-  packages/pi-basics/src/modules/shell/index.ts → packages/pi-basics/test/runtime/tool-activation.test.ts
-- `fixture()` --indirect_call--> `message()`  [INFERRED]
-  packages/pi-basics/test/modules/btw/feature.test.ts → packages/pi-basics/test/modules/btw/model.test.ts
+- `createAutoTitleCoordinator()` --indirect_call--> `text()`  [INFERRED]
+  packages/pi-basics/src/modules/auto-title/index.ts → packages/pi-basics/test/modules/setting/component.test.ts
+- `SettingsComponentOptions` --references--> `SettingsController`  [EXTRACTED]
+  packages/pi-basics/src/modules/setting/component.ts → packages/pi-basics/src/modules/setting/controller.ts
+- `SettingsModule` --references--> `SettingsController`  [EXTRACTED]
+  packages/pi-basics/src/modules/setting/index.ts → packages/pi-basics/src/modules/setting/controller.ts
+- `renderDescription()` --indirect_call--> `text()`  [INFERRED]
+  packages/pi-basics/src/modules/setting/render.ts → packages/pi-basics/test/modules/setting/component.test.ts
 
 ## Import Cycles
-- 3-file cycle: `packages/pi-basics/src/api/modules.ts -> packages/pi-basics/src/api/settings.ts -> packages/pi-basics/src/api/panels.ts -> packages/pi-basics/src/api/modules.ts`
+- None detected.
 
-## Communities (152 total, 24 thin omitted)
+## Communities (150 total, 24 thin omitted)
 
 ### Community 0 - "Codex Skill Picker"
 Cohesion: 0.11
 Nodes (18): ActiveRuntime, createGoalFeature(), ErrorCandidate, escapedObjective(), GOAL_PARAMETERS, GOAL_REPLAY_WARNING(), goalContext(), GoalFeature (+10 more)
 
 ### Community 1 - "SSH Session Management"
-Cohesion: 0.18
-Nodes (7): createSettingsLayout(), SettingsLayout, SettingsLayoutMode, ansi, styleTheme, theme, wideDetail()
+Cohesion: 0.08
+Nodes (13): HePiSettingField, createSettingsComponent(), createSettingsController(), SettingsModule, SettingsModuleOptions, fields, setup(), text() (+5 more)
 
 ### Community 2 - "SSH Tool Registration"
-Cohesion: 0.06
-Nodes (32): 10. 后续扩展的决策门, 11. 验证命令, 1. 一句话方案, 2.1 首版包含, 2.2 首版明确不包含, 2. 功能边界, 3.1 命令, 3.2 Overlay (+24 more)
+Cohesion: 0.17
+Nodes (12): 10. 后续扩展的决策门, 11. 验证命令, 1. 一句话方案, 2.1 首版包含, 2.2 首版明确不包含, 2. 功能边界, 6. 错误和取消矩阵, 7. 与现有 pi-basics 的整合规则 (+4 more)
 
 ### Community 3 - "Extcore TUI Components"
-Cohesion: 0.27
-Nodes (8): createSettingsComponent(), createSettingsController(), fakeHost, testContext(), fields, setup(), theme, setup()
+Cohesion: 0.14
+Nodes (16): detectPonytailDeactivation(), INTENSITY_SET, isPonytailIntensity(), isRecord(), parsePonytailCommand(), PONYTAIL_INTENSITIES, PonytailCommand, PonytailIntensity (+8 more)
 
 ### Community 4 - "Extcore Settings Providers"
-Cohesion: 0.67
-Nodes (3): @earendil-works/pi-tui, @earendil-works/pi-tui, @earendil-works/pi-tui
+Cohesion: 0.21
+Nodes (16): ActivePlan, PlanPhase, RequestedPlanAction, appendPlanBoundary(), decodePlanBoundary(), encodePlanBoundary(), findPlanArtifact(), keys() (+8 more)
 
 ### Community 5 - "Codex Interaction Tests"
-Cohesion: 0.23
-Nodes (11): createRtkFeature(), fallbackResolution(), getResolverCommand(), parseRtkExecutablePath(), ResolverCommand, resolveRtkExecutable(), ResolveRtkExecutableOptions, RtkExecutableResolution (+3 more)
+Cohesion: 0.13
+Nodes (18): createAutoTitleProvider(), createAdvisorSettingsProvider(), ANSI_ESCAPE, AutoTitleAgentFactory, autoTitleDescription(), autoTitleFields(), AutoTitleModelOption, autoTitleModelOptions() (+10 more)
 
 ### Community 6 - "Loadout State UI"
 Cohesion: 0.12
@@ -226,32 +223,32 @@ Cohesion: 0.67
 Nodes (3): typebox, typebox, typebox
 
 ### Community 8 - "Package Architecture Docs"
-Cohesion: 0.10
-Nodes (13): BtwComponentController, at(), Command, ComponentState, EventHandler, first(), fixture(), FixtureOptions (+5 more)
+Cohesion: 0.07
+Nodes (31): BtwComponentController, BtwComponentOptions, BtwComponentStatus, createBtwComponent(), requestRender(), abortRequest(), ActiveRequest, ActiveRuntime (+23 more)
 
 ### Community 9 - "Shared Settings Storage"
-Cohesion: 0.19
-Nodes (15): budgetContext(), BudgetedContext, buildBtwMessages(), BuildBtwMessagesOptions, contentPartText(), contentText(), createBtwUserMessage(), normalizeBtwQuestion() (+7 more)
+Cohesion: 0.10
+Nodes (26): BtwExecutionResult, createCompletionOptions(), errorText(), executeBtwTurn(), ExecuteBtwTurnOptions, BtwRequestToken, BtwTurn, budgetContext() (+18 more)
 
 ### Community 10 - "Inturl Path Shortcuts"
 Cohesion: 0.10
 Nodes (43): ActiveGoal, ActiveGoalResult, ActiveGoalState, ActiveGoalTransition, activeResult(), DurableGoalResult, DurableGoalTransition, GoalComplete (+35 more)
 
 ### Community 11 - "modules.ts"
-Cohesion: 0.16
-Nodes (7): createHePiModuleRegistry(), defaultModuleRegistry, getHePiModule(), HePiModuleRegistry, listHePiModules(), ModuleRegistry, registerHePiModule()
+Cohesion: 0.05
+Nodes (30): HePiContribution, HePiEditorContribution, HePiFooterContribution, HePiStatusContribution, createHePiModuleRegistry(), defaultModuleRegistry, getHePiModule(), HePiMaybePromise (+22 more)
 
 ### Community 12 - "model.ts"
-Cohesion: 0.12
-Nodes (28): configuredValue(), defaultDescriptionRegistry, filterLoadoutItems(), groupLoadoutItems(), KIND_ORDER, LoadoutConfiguredStatus, LoadoutDescriptionPanel, LoadoutDisplayStatus (+20 more)
+Cohesion: 0.11
+Nodes (30): configuredValue(), defaultDescriptionRegistry, filterLoadoutItems(), groupLoadoutItems(), KIND_ORDER, LoadoutConfiguredStatus, LoadoutDescriptionPanel, LoadoutDisplayStatus (+22 more)
 
 ### Community 13 - "component.ts"
-Cohesion: 0.19
-Nodes (11): BtwComponentOptions, BtwComponentStatus, createBtwComponent(), requestRender(), ActiveRuntime, BtwFeatureOptions, BtwTurn, createBtwTurn() (+3 more)
+Cohesion: 0.12
+Nodes (12): COMMAND_DESCRIPTIONS, COMMAND_VALUES, piCavemanExtension(), BeforeAgentStartHandler, CommandHandler, Completions, Harness, HarnessOptions (+4 more)
 
 ### Community 14 - "feature.ts"
-Cohesion: 0.22
-Nodes (10): abortRequest(), ActiveRequest, BtwFeature, createBtwFeature(), hasResolvedContext(), isCurrentRequest(), isSameSession(), SessionContextSource (+2 more)
+Cohesion: 0.19
+Nodes (6): registerRtkCommand(), RtkFeature, shouldRequireRtkAvailabilityForCommandHandling(), shouldSkipCommandHandlingWhenRtkMissing(), RtkIntegrationConfig, RuntimeStatus
 
 ### Community 15 - "includes"
 Cohesion: 0.25
@@ -259,38 +256,38 @@ Nodes (7): files, ignoreUnknown, quoteStyle, javascript, formatter, overrides, $
 
 ### Community 16 - "package.json"
 Cohesion: 0.16
-Nodes (9): createShellComponent(), ShellChild, ShellComponentOptions, createShellModule(), requestRender(), ShellModule, ShellModuleOptions, ShellViewFactory (+1 more)
+Nodes (15): createPlanConfirmationComponent(), defined(), Focus, levels, modes, PlanConfirmationComponentOptions, PlanConfirmationModel, PlanImplementationMode (+7 more)
 
 ### Community 17 - "executor.ts"
-Cohesion: 0.22
-Nodes (8): BtwExecutionResult, createCompletionOptions(), errorText(), executeBtwTurn(), ExecuteBtwTurnOptions, extractAssistantText(), messages, model
+Cohesion: 0.21
+Nodes (12): createRtkFeature(), ToolResultCompactionMetadata, fallbackResolution(), getResolverCommand(), parseRtkExecutablePath(), ResolverCommand, resolveRtkExecutable(), ResolveRtkExecutableOptions (+4 more)
 
 ### Community 18 - "model.ts"
-Cohesion: 0.11
-Nodes (13): createSettingsModel(), fieldForSelection(), mergeSettingsState(), providerHasContent(), settingFieldItemId(), settingPanelItemId(), SettingsMode, SettingsModel (+5 more)
+Cohesion: 0.10
+Nodes (15): HePiSettingGroup, HePiSettingsState, HePiSettingValue, PendingChange, createSettingsModel(), fieldForSelection(), providerHasContent(), settingPanelItemId() (+7 more)
 
 ### Community 19 - "Pi Basics BTW 可复用代码清单"
-Cohesion: 0.17
-Nodes (12): 4. rpiv：只抽取的窄代码块, 5. Firstp1ck：只抽取的窄代码块, 6. dbachelder：只作反例和未来参考, 7. 许可证和 attribution, 9. 实施前最终判断, Pi Basics BTW 可复用代码清单, 不采用, 不采用 (+4 more)
+Cohesion: 0.06
+Nodes (32): 1. 总结结论, 2.1 Session runtime 和 cleanup, 2.2 Custom UI 和 exactly-once settle, 2.3 文本、键盘和滚动原语, 2.4 Model/auth 和 stale result 模式, 2.5 测试设施, 2. 本仓库：应直接 import 的代码, 3. narumiruna：逐函数沿用清单 (+24 more)
 
 ### Community 20 - "SettingsController"
 Cohesion: 0.27
 Nodes (12): aborted(), cancelled(), checkAbort(), collectQuestion(), customAnswer(), DialogOptions, DialogUI, hostError() (+4 more)
 
 ### Community 21 - "index.ts"
-Cohesion: 0.23
-Nodes (8): activeModuleRegistry(), createAutoTitleProvider(), moduleRegistries, piBasicsExtension(), registerHePiModule(), Editor, EditorFactory, FooterFactory
+Cohesion: 0.15
+Nodes (12): listHePiSettings(), activeModuleRegistry(), moduleRegistries, piBasicsExtension(), registerHePiModule(), createRtkSettingsProvider(), fields, RtkCompactionSetting (+4 more)
 
 ### Community 22 - "render.ts"
-Cohesion: 0.23
-Nodes (16): settingGroupItemId(), editHints, ellipsizedDescription(), fieldValue(), finish(), formatSettingValue(), navigationHints(), renderDescription() (+8 more)
+Cohesion: 0.13
+Nodes (25): SettingsComponentOptions, createSettingsLayout(), SettingsLayout, SettingsLayoutMode, settingFieldItemId(), settingGroupItemId(), editHints, ellipsizedDescription() (+17 more)
 
 ### Community 23 - "HePiRegistry"
-Cohesion: 0.24
-Nodes (10): computeRewriteDecision(), RewriteDecision, shouldBypassRtkFindRewrite(), isAlreadyRtk(), normalizeOptions(), resolveRtkRewrite(), RtkRewriteProviderOptions, RtkRewriteProviderResult (+2 more)
+Cohesion: 0.27
+Nodes (8): PlanConfirmationAction, PlanConfirmationResult, completePlan(), emit(), fixture(), Options, planEvent, selected()
 
 ### Community 24 - "Extension Development Guide"
-Cohesion: 0.25
+Cohesion: 0.22
 Nodes (8): Agent Workflow, Development Commands, Extension Development Guide, Extension Entry Point, Local Testing in Pi, Package Checklist, Start Here, TUI Guidelines
 
 ### Community 25 - "index.ts"
@@ -298,8 +295,8 @@ Cohesion: 0.13
 Nodes (20): BUILTIN_PROMPT_SNIPPETS, createLoadoutInventory(), createMcpPlaceholder(), estimateTokenCount(), LoadoutCommandInfo, LoadoutInventoryProvider, LoadoutInventorySource, LoadoutInventoryValue (+12 more)
 
 ### Community 26 - "settings.ts"
-Cohesion: 0.11
-Nodes (17): createGlobalJsonStorage(), createHePiSettingsRegistry(), createProjectJsonStorage(), createSessionStorage(), defaultSettingsRegistry, getHePiSettings(), HePiContext, HePiJsonStorageBackend (+9 more)
+Cohesion: 0.09
+Nodes (16): createGlobalJsonStorage(), createProjectJsonStorage(), createSessionStorage(), defaultSettingsRegistry, getHePiSettings(), HePiJsonStorageBackend, HePiSettingChange, HePiSettingOption (+8 more)
 
 ### Community 27 - "compilerOptions"
 Cohesion: 0.08
@@ -314,16 +311,16 @@ Cohesion: 0.33
 Nodes (4): Baseline recommendation for Pi Basics, Executive comparison, Pi Basics BTW Research, Verification performed
 
 ### Community 30 - "2. 本仓库：应直接 import 的代码"
-Cohesion: 0.33
-Nodes (6): 2.1 Session runtime 和 cleanup, 2.2 Custom UI 和 exactly-once settle, 2.3 文本、键盘和滚动原语, 2.4 Model/auth 和 stale result 模式, 2.5 测试设施, 2. 本仓库：应直接 import 的代码
+Cohesion: 0.29
+Nodes (7): 8. 分阶段实施, Phase 0：Host seam 和边界确认, Phase 1：纯模型和 SideThread, Phase 2：模型执行器, Phase 3：TUI overlay, Phase 4：Feature 和生命周期, Phase 5：文档、集成验证和 smoke test
 
 ### Community 31 - "1. dbachelder/pi-btw"
 Cohesion: 0.40
 Nodes (5): 1. dbachelder/pi-btw, Execution and context, Shape, State and behavior, Strengths and risks
 
 ### Community 32 - "modules.ts"
-Cohesion: 0.21
-Nodes (15): HePiModule, HePiCommandContext, HePiCommandRegistration, HePiCommandRoute, ParsedHePiCommand, commandCompletions(), CommandContext, dispatchHePiCommand() (+7 more)
+Cohesion: 0.33
+Nodes (9): commandCompletions(), CommandContext, dispatchHePiCommand(), getSessionId(), notify(), parseHePiCommand(), registeredApis, registerHePiCommand() (+1 more)
 
 ### Community 33 - "2. narumiruna/pi-extensions"
 Cohesion: 0.40
@@ -339,19 +336,19 @@ Nodes (5): 4. Firstp1ck/npm-packages, Execution and context, Shape, Strengths an
 
 ### Community 36 - "editor.ts"
 Cohesion: 0.06
-Nodes (52): DEFAULT_STATUSBAR_FORMAT_TOKENS, FORMAT_VARIABLES, joinStatusbarFormat(), parseStatusbarFormat(), RenderedStatusbarFormat, renderStatusbarFormat(), StatusbarFormatPart, StatusbarFormatToken (+44 more)
+Nodes (51): DEFAULT_STATUSBAR_FORMAT_TOKENS, FORMAT_VARIABLES, joinStatusbarFormat(), parseStatusbarFormat(), RenderedStatusbarFormat, renderStatusbarFormat(), StatusbarFormatPart, StatusbarFormatToken (+43 more)
 
 ### Community 37 - "HePiSettingField"
 Cohesion: 0.29
 Nodes (8): escapeXml(), FilteredSkillPrompt, filterLoadoutDisabledSkillsFromPrompt(), formatSkillsForPrompt(), PromptSkill, promptSkillKey(), replaceSkillsSection(), skill()
 
 ### Community 38 - "1. 总结结论"
-Cohesion: 0.40
-Nodes (5): 1. 总结结论, 优先直接复用本仓库代码, 只能借鉴并重写, 可以从参考仓库 copy 后小改, 明确不要复制
+Cohesion: 0.33
+Nodes (3): AskFeature, AskInteractionResult, AskQuestionnaire
 
 ### Community 39 - "8. 推荐的实际 copy 顺序"
 Cohesion: 0.40
-Nodes (5): 8. 推荐的实际 copy 顺序, Step 1：先不 copy 上游 UI, Step 2：copy narumiruna 的纯 message skeleton, Step 3：补 rpiv/Firstp1ck 的窄逻辑, Step 4：最后写 feature orchestration
+Nodes (5): 4.1 请求消息, 4.2 SideThread, 4.3 System prompt, 4.4 Provider 调用, 4. 模型和上下文契约
 
 ### Community 40 - "contributions.ts"
 Cohesion: 0.22
@@ -359,59 +356,51 @@ Nodes (4): copyMaps(), LoadoutController, normalize(), readable()
 
 ### Community 41 - "index.ts"
 Cohesion: 0.14
-Nodes (13): AskComponentOptions, Block, createAskComponent(), formatAskReviewAnswer(), invariant(), requestRender(), visibleBlocks(), done() (+5 more)
+Nodes (13): AskComponentOptions, Block, createAskComponent(), formatAskReviewAnswer(), invariant(), printableInput(), requestRender(), visibleBlocks() (+5 more)
 
 ### Community 42 - "contributions.ts"
-Cohesion: 0.70
-Nodes (4): HePiContribution, HePiEditorContribution, HePiFooterContribution, HePiStatusContribution
+Cohesion: 0.40
+Nodes (5): Documentation, Pi Basics, Plans, Repository Development, Source Of Truth
 
 ### Community 43 - "12. 逐步執行順序"
-Cohesion: 0.40
-Nodes (5): engines, bun, flush(), engines, bun
+Cohesion: 0.50
+Nodes (4): 3.1 命令, 3.2 Overlay, 3.3 主 session 隔离, 3. 用户可见行为
 
 ### Community 44 - "component.ts"
-Cohesion: 0.21
-Nodes (5): HePiMaybePromise, HePiPanel, HePiSettingsSubpanel, HePiSettingsProvider, HePiSettingsStorage
+Cohesion: 0.50
+Nodes (4): 5.1 Feature 结构, 5.2 Session lifecycle, 5.3 并发和 stale callback, 5. Runtime 和生命周期
 
 ### Community 45 - "pi-basics Ask 高层方案（Review Gate）"
-Cohesion: 0.07
-Nodes (52): createPlanConfirmationComponent(), defined(), Focus, levels, modes, PlanConfirmationAction, PlanConfirmationComponentOptions, PlanConfirmationModel (+44 more)
+Cohesion: 0.20
+Nodes (18): boundary(), createPlanFeature(), PendingPlan, persist(), PlanMessage, PlanMessageEndEvent, PlanMessageEndResult, restored() (+10 more)
 
 ### Community 46 - "HePiMaybePromise"
-Cohesion: 0.15
-Nodes (10): LoadoutScope, createLoadoutStorage(), JsonObject, LoadoutStorage, LoadoutStoragePaths, queues, readRoot(), readState() (+2 more)
-
-### Community 47 - "3. narumiruna：逐函数沿用清单"
-Cohesion: 0.50
-Nodes (4): 3. narumiruna：逐函数沿用清单, A：可近乎原样作为逻辑起点, B：可 copy 后改写, C/D：不应直接带入
+Cohesion: 0.16
+Nodes (9): createLoadoutStorage(), JsonObject, LoadoutStorage, LoadoutStoragePaths, queues, readRoot(), readState(), writeRoot() (+1 more)
 
 ### Community 49 - "controller.ts"
 Cohesion: 0.18
-Nodes (7): SettingsComponentOptions, PendingChange, SettingsControllerOptions, SettingsModule, SettingsModuleOptions, SettingsListItem, SettingsMainTab
+Nodes (11): HePiContext, HePiSettingsProvider, combineSettingsProviders(), GroupMapping, applyChange(), applyChanges(), changedValues(), cloneState() (+3 more)
 
 ### Community 50 - "tui-replay.test.ts"
 Cohesion: 0.17
 Nodes (7): Editor, EditorFactory, theme, outputLines(), ReplayKey, scrollbackLines(), stripAnsi()
 
 ### Community 51 - "ssh-exec.ts"
-Cohesion: 0.13
-Nodes (6): applyChange(), cloneState(), readableError(), SettingsController, cycleOption(), RenderSettingsOptions
+Cohesion: 0.14
+Nodes (4): SettingsController, cycleOption(), mergeSettingsState(), RenderSettingsOptions
 
 ### Community 52 - "pi-dev.mjs"
 Cohesion: 0.17
 Nodes (9): aliases, args, child, packageEntry(), rawArgs, resolveExtension(), root, separatorIndex (+1 more)
 
-### Community 53 - "3. 各介面元素的官方用法"
-Cohesion: 0.20
-Nodes (10): 3.1 User message, 3.2 Assistant message, 3.3 Tool execution, 3.4 Bash execution, 3.5 Selector / model selector, 3.6 Settings list, 3.7 Editor, 3.8 Footer / status line (+2 more)
-
 ### Community 54 - "helpers.ts"
-Cohesion: 0.29
-Nodes (7): assertVisibleWidth(), fakeProvider(), FakeStorageOptions, stripAnsi(), text(), theme, plain()
+Cohesion: 0.22
+Nodes (4): fakeHost, fakeProvider(), fakeStorage(), FakeStorageOptions
 
 ### Community 55 - "TUI 設計語言規範"
-Cohesion: 0.15
-Nodes (14): hasDialogUI(), ActiveAsk, AgentToolResultLike, ASK_PARAMETERS, ASK_PROMPT_GUIDELINES, askOption, askQuestion, createAskFeature() (+6 more)
+Cohesion: 0.11
+Nodes (13): hasDialogUI(), ActiveAsk, AgentToolResultLike, ASK_PARAMETERS, ASK_PROMPT_GUIDELINES, askOption, askQuestion, createAskFeature() (+5 more)
 
 ### Community 56 - "replayTui"
 Cohesion: 0.22
@@ -421,37 +410,41 @@ Nodes (6): actionLabel(), handleInput(), handleModelResult(), ReplayArtifactOpti
 Cohesion: 0.28
 Nodes (9): ansiSvgLine(), escapeXml(), finalFrameSvg(), formatReplay(), positiveInteger(), replayTimestamp(), staticAnsi(), viewFrame() (+1 more)
 
-### Community 58 - "controller.test.ts"
-Cohesion: 0.33
-Nodes (4): createSettingsFixture(), fakeStorage(), provider(), provider()
+### Community 58 - "description.test.ts"
+Cohesion: 0.18
+Nodes (9): createLoadoutDescriptionRegistry(), DescriptionRegistry, getLoadoutDescriptionPanel(), registerLoadoutDescriptionPanel(), resolveLoadoutItems(), unregisterLoadoutDescriptionPanel(), item, state (+1 more)
 
 ### Community 59 - "controller.ts"
 Cohesion: 0.15
 Nodes (16): applyOpenAIResponsesCompat(), compatValues(), configFromState(), configFromValues(), createOpenAIResponsesCompatFeature(), createOpenAIResponsesCompatSettingsProvider(), fields, isJsonObject() (+8 more)
 
 ### Community 60 - "references.ts"
-Cohesion: 0.17
-Nodes (12): HePiSettingsState, Json, legacyConfigPath(), loadRtkConfig(), readRoot(), saveRtkConfig(), settingsPath(), fields (+4 more)
+Cohesion: 0.24
+Nodes (10): computeRewriteDecision(), RewriteDecision, shouldBypassRtkFindRewrite(), isAlreadyRtk(), normalizeOptions(), resolveRtkRewrite(), RtkRewriteProviderOptions, RtkRewriteProviderResult (+2 more)
 
-### Community 61 - "2. Token 分層"
-Cohesion: 0.33
-Nodes (6): 2.1 Core UI, 2.2 區塊背景, 2.3 Markdown, 2.4 Tool diff 與 syntax, 2.5 Thinking 與 mode, 2. Token 分層
+### Community 61 - "subagents.ts"
+Cohesion: 0.21
+Nodes (9): CavemanDefaults, CavemanIntensity, CavemanMode, buildCavemanPrompt(), INTENSITY_RULES, AgentToolInput, injectSubagentPrompt(), isPiSubagentSession() (+1 more)
 
 ### Community 62 - "stream-output.ts"
-Cohesion: 0.18
+Cohesion: 0.20
 Nodes (9): CI workflow, Checks, Create a New Extension Package, Docs, hepi-mono, Install, Layout, Local Pi Testing (+1 more)
 
 ### Community 63 - "17. 顏色語義"
-Cohesion: 0.33
-Nodes (3): combineSettingsProviders(), GroupMapping, context
+Cohesion: 0.32
+Nodes (10): ACTIVATE_PATTERN, CavemanCommand, cavemanStatusLabel(), detectCavemanIntent(), INTENSITY_SET, isCavemanIntensity(), isRecord(), normalizeIntentText() (+2 more)
 
-### Community 64 - "`pi-basics` Loadout 逐步實作參考"
-Cohesion: 0.18
-Nodes (9): createLoadoutDescriptionRegistry(), DescriptionRegistry, getLoadoutDescriptionPanel(), registerLoadoutDescriptionPanel(), resolveLoadoutItems(), unregisterLoadoutDescriptionPanel(), item, state (+1 more)
+### Community 64 - "rtk-command-environment.ts"
+Cohesion: 0.42
+Nodes (8): applyRtkCommandEnvironment(), getTemporaryRtkHistoryDbPath(), hasInheritedRtkDbPath(), hasLeadingRtkDbPathAssignment(), quoteForShellEnv(), resolveTemporaryDirectory(), RTK_DB_PATH_ASSIGNMENT_PATTERN, RTK_DB_PATH_EXPORT_PATTERN
+
+### Community 65 - "config.ts"
+Cohesion: 0.52
+Nodes (6): Json, legacyConfigPath(), loadRtkConfig(), readRoot(), saveRtkConfig(), settingsPath()
 
 ### Community 67 - "ssh-exec.test.ts"
-Cohesion: 0.15
-Nodes (19): LoadoutInventory, LoadoutItem, LoadoutKind, LoadoutResolvedItem, finish(), footer(), groupOrder, icons (+11 more)
+Cohesion: 0.14
+Nodes (18): LoadoutInventory, LoadoutItem, LoadoutResolvedItem, finish(), footer(), groupOrder, icons, labels (+10 more)
 
 ### Community 68 - "ssh-mount.ts"
 Cohesion: 0.20
@@ -462,28 +455,28 @@ Cohesion: 0.14
 Nodes (13): Backgrounds, Colors, Do, Do's and Don'ts, Don't, Elevation & Depth, Implementation Notes, Layout (+5 more)
 
 ### Community 71 - "render.test.ts"
-Cohesion: 0.06
-Nodes (52): asRecord(), CavemanDefaults, createCavemanSettingsProvider(), DEFAULT_CAVEMAN_DEFAULTS, defaultsFromRoot(), defaultsFromState(), errorMessage(), isMissingFile() (+44 more)
+Cohesion: 0.17
+Nodes (16): asRecord(), DEFAULT_CAVEMAN_DEFAULTS, defaultsFromRoot(), defaultsFromState(), errorMessage(), isMissingFile(), isRecord(), JsonObject (+8 more)
 
 ### Community 72 - "04｜公开 API、Settings contract 与 storage"
-Cohesion: 0.09
-Nodes (13): AskFeature, createHePiRuntimeContext(), HePiRuntimeContext, HePiRuntimeContextOptions, HePiLifecycleController, HePiLifecycleOptions, registerHePiLifecycle(), HePiCleanupFailure (+5 more)
+Cohesion: 0.10
+Nodes (12): createHePiRuntimeContext(), HePiRuntimeContext, HePiRuntimeContextOptions, HePiLifecycleController, HePiLifecycleOptions, registerHePiLifecycle(), HePiCleanupFailure, HePiIdentified (+4 more)
 
 ### Community 73 - "05｜`/hepi` dispatcher"
-Cohesion: 0.06
-Nodes (52): asRecord(), booleanField(), createPonytailSettingsProvider(), DEFAULT_PONYTAIL_DEFAULTS, defaultsFromRoot(), defaultsFromState(), defaultsFromValues(), errorMessage() (+44 more)
+Cohesion: 0.07
+Nodes (33): asRecord(), createPonytailSettingsProvider(), DEFAULT_PONYTAIL_DEFAULTS, defaultsFromRoot(), defaultsFromState(), defaultsFromValues(), errorMessage(), isMissingFile() (+25 more)
 
-### Community 74 - "7.4 Transition rules"
-Cohesion: 0.24
-Nodes (7): Historical Plans, Pi Basics Features, Documentation, Pi Basics, Plans, Repository Development, Source Of Truth
+### Community 75 - "config.test.ts"
+Cohesion: 0.43
+Nodes (4): createCavemanSettingsProvider(), isMissingPiBasics(), registerCavemanHePiSettings(), temporaryDirectories
 
 ### Community 93 - "6. 搜尋欄"
 Cohesion: 0.11
 Nodes (19): assertDirectChildDirectory(), createSshfsFeature(), ensureDirectory(), findMountEntry(), isAbortError(), isMissingBinaryError(), MountEntry, MountProbe (+11 more)
 
 ### Community 95 - "package.json"
-Cohesion: 0.20
-Nodes (9): description, name, packageManager, private, type, version, workspaces, packages/* (+1 more)
+Cohesion: 0.17
+Nodes (11): description, engines, bun, name, packageManager, private, type, version (+3 more)
 
 ### Community 100 - "@hheei/pi-basics"
 Cohesion: 0.15
@@ -521,13 +514,9 @@ Nodes (12): Assistant message, Bash execution, Components, Custom message, Edito
 Cohesion: 0.18
 Nodes (11): Change Checklist, HEPI modules, Local Development, Pi Basics Development, Public Integration APIs, Responsibilities, Runtime Lifecycle, Settings providers (+3 more)
 
-### Community 124 - "7. 實作階段"
-Cohesion: 0.42
-Nodes (8): applyRtkCommandEnvironment(), getTemporaryRtkHistoryDbPath(), hasInheritedRtkDbPath(), hasLeadingRtkDbPathAssignment(), quoteForShellEnv(), resolveTemporaryDirectory(), RTK_DB_PATH_ASSIGNMENT_PATTERN, RTK_DB_PATH_EXPORT_PATTERN
-
 ### Community 127 - "9. RPC/ACP fallback"
-Cohesion: 0.13
-Nodes (14): 1.1 用語義 token，不直接在元件內決定顏色, 1.2 背景色是少數例外，不是通用卡片底色, 1.3 狀態用色彩，選取用位置與文字, 1.4 低裝飾、單層容器、保留空白, 1. 核心原則, 4. 色彩決策規則, 5. 形狀、間距與密度, 6. 對本專案的落地要求 (+6 more)
+Cohesion: 0.06
+Nodes (30): 1.1 用語義 token，不直接在元件內決定顏色, 1.2 背景色是少數例外，不是通用卡片底色, 1.3 狀態用色彩，選取用位置與文字, 1.4 低裝飾、單層容器、保留空白, 1. 核心原則, 2.1 Core UI, 2.2 區塊背景, 2.3 Markdown (+22 more)
 
 ### Community 128 - "4. Phase A：Normalized model与validation"
 Cohesion: 0.13
@@ -538,8 +527,8 @@ Cohesion: 0.29
 Nodes (5): DollarSkillCommand, atomicEditor(), commands, inputs, keybindings
 
 ### Community 137 - "Phase 1｜Pure model"
-Cohesion: 0.13
-Nodes (20): @biomejs/biome, @earendil-works/pi-ai, @earendil-works/pi-coding-agent, devDependencies, @biomejs/biome, @earendil-works/pi-ai, @earendil-works/pi-coding-agent, @types/bun (+12 more)
+Cohesion: 0.11
+Nodes (23): @biomejs/biome, @earendil-works/pi-ai, @earendil-works/pi-coding-agent, @earendil-works/pi-tui, devDependencies, @biomejs/biome, @earendil-works/pi-ai, @earendil-works/pi-coding-agent (+15 more)
 
 ### Community 140 - "Phase 4｜Loadout controller"
 Cohesion: 0.11
@@ -551,7 +540,7 @@ Nodes (8): Documentation, Package Boundaries, Pi Basics TUI, Repository Instruct
 
 ### Community 143 - "4. Tool identity与prompt surface"
 Cohesion: 0.09
-Nodes (47): ANCHORED_READ_LINE_PATTERNS, AnchoredReadLine, AnchorSafeReadLine, AnchorSafeReadParts, applyAnsiStripping(), applyConditionalTechnique(), applyNullableTechnique(), applyReadCompactionBanner() (+39 more)
+Nodes (46): ANCHORED_READ_LINE_PATTERNS, AnchoredReadLine, AnchorSafeReadLine, AnchorSafeReadParts, applyAnsiStripping(), applyConditionalTechnique(), applyNullableTechnique(), applyReadCompactionBanner() (+38 more)
 
 ### Community 148 - "Phase 3｜Inventory 與 runtime adapters"
 Cohesion: 0.17
@@ -562,12 +551,8 @@ Cohesion: 0.22
 Nodes (8): Attribution, Command, Compatibility, Defaults, Development, @hheei/pi-caveman, Install, State And Lifecycle
 
 ### Community 157 - "controller.ts"
-Cohesion: 0.06
-Nodes (36): ACTIONS, applyTodo(), ApplyTodoResult, cloneState(), dependencyError(), findTask(), freshTaskState(), hasCycle() (+28 more)
-
-### Community 158 - "component.test.ts"
-Cohesion: 0.19
-Nodes (6): registerRtkCommand(), RtkFeature, shouldRequireRtkAvailabilityForCommandHandling(), shouldSkipCommandHandlingWhenRtkMissing(), RtkIntegrationConfig, RuntimeStatus
+Cohesion: 0.07
+Nodes (34): ACTIONS, applyTodo(), ApplyTodoResult, cloneState(), dependencyError(), findTask(), freshTaskState(), hasCycle() (+26 more)
 
 ### Community 159 - "formatter"
 Cohesion: 0.50
@@ -578,8 +563,8 @@ Cohesion: 0.50
 Nodes (4): vcs, clientKind, enabled, useIgnoreFile
 
 ### Community 162 - "ValueEditor"
-Cohesion: 0.10
-Nodes (20): ANSI_ESCAPE, AutoTitleAgentAdapter, AutoTitleAgentFactory, AutoTitleCoordinator, autoTitleDescription(), autoTitleFields(), AutoTitleModelOption, autoTitleModelOptions() (+12 more)
+Cohesion: 0.43
+Nodes (4): AutoTitleAgentAdapter, createAutoTitleCoordinator(), createCoreAutoTitleAgent(), safeTitle()
 
 ### Community 164 - "component.ts"
 Cohesion: 0.11
@@ -607,15 +592,15 @@ Nodes (12): rules, noFloatingPromises, nursery, preset, style, suspicious, noEnu
 
 ### Community 181 - "HePiSettingField"
 Cohesion: 0.20
-Nodes (4): createValueEditor(), graphemeBoundaries(), ValueEditor, ValueEditorState
+Nodes (3): graphemeBoundaries(), ValueEditor, ValueEditorState
 
 ### Community 198 - "6. Phase C — Feature, command, input and tool surface"
 Cohesion: 0.23
 Nodes (10): bareSkillName(), cleanDescription(), createDollarSkillAutocompleteProvider(), dim(), DollarSkillToken, expandDollarSkillReferences(), extractDollarSkillToken(), getDollarSkillSuggestions() (+2 more)
 
 ### Community 203 - "settings.ts"
-Cohesion: 0.13
-Nodes (13): HePiSettingGroup, advancedGroup, booleanField, delayedSaveProvider, emptyProvider, enumField, failedSaveProvider, generalGroup (+5 more)
+Cohesion: 0.12
+Nodes (13): advancedGroup, booleanField, createSettingsFixture(), delayedSaveProvider, emptyProvider, enumField, failedSaveProvider, generalGroup (+5 more)
 
 ### Community 211 - "component.test.ts"
 Cohesion: 0.28
@@ -670,8 +655,8 @@ Cohesion: 0.40
 Nodes (4): Boundaries, Honesty boundary, Ponytail Gain, Scoreboard
 
 ### Community 259 - "package.json"
-Cohesion: 0.29
-Nodes (6): description, name, packageManager, private, type, version
+Cohesion: 0.22
+Nodes (8): description, engines, bun, name, packageManager, private, type, version
 
 ### Community 262 - "linter"
 Cohesion: 0.50
@@ -690,24 +675,24 @@ Cohesion: 0.50
 Nodes (3): Boundaries, Output, Scan
 
 ## Knowledge Gaps
-- **648 isolated node(s):** `EditorFactory`, `Editor`, `Owner`, `AskComponentOptions`, `Block` (+643 more)
+- **657 isolated node(s):** `Docs`, `Layout`, `Install`, `Checks`, `Create a New Extension Package` (+652 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **24 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `createAskFeature()` connect `TUI 設計語言規範` to `ValueEditor`, `index.ts`, `SettingsController`, `panels.ts`, `controller.ts`?**
-  _High betweenness centrality (0.079) - this node is a cross-community bridge._
-- **Why does `summary()` connect `SettingsController` to `Codex Skill Picker`?**
-  _High betweenness centrality (0.047) - this node is a cross-community bridge._
+- **Why does `createAskFeature()` connect `TUI 設計語言規範` to `ValueEditor`, `index.ts`, `modules.ts`, `package.json`, `SettingsController`, `panels.ts`?**
+  _High betweenness centrality (0.073) - this node is a cross-community bridge._
+- **Why does `createAutoTitleCoordinator()` connect `ValueEditor` to `SSH Session Management`, `Codex Interaction Tests`, `index.ts`?**
+  _High betweenness centrality (0.059) - this node is a cross-community bridge._
 - **Why does `createGoalFeature()` connect `Codex Skill Picker` to `SettingsController`?**
-  _High betweenness centrality (0.047) - this node is a cross-community bridge._
-- **What connects `EditorFactory`, `Editor`, `Owner` to the rest of the system?**
-  _648 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _High betweenness centrality (0.042) - this node is a cross-community bridge._
+- **What connects `Docs`, `Layout`, `Install` to the rest of the system?**
+  _657 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Codex Skill Picker` be split into smaller, more focused modules?**
   _Cohesion score 0.10591133004926108 - nodes in this community are weakly interconnected._
-- **Should `SSH Tool Registration` be split into smaller, more focused modules?**
-  _Cohesion score 0.0625 - nodes in this community are weakly interconnected._
-- **Should `Loadout State UI` be split into smaller, more focused modules?**
-  _Cohesion score 0.1164021164021164 - nodes in this community are weakly interconnected._
+- **Should `SSH Session Management` be split into smaller, more focused modules?**
+  _Cohesion score 0.07881773399014778 - nodes in this community are weakly interconnected._
+- **Should `Extcore TUI Components` be split into smaller, more focused modules?**
+  _Cohesion score 0.1422924901185771 - nodes in this community are weakly interconnected._
