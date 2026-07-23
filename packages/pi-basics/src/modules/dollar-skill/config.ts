@@ -1,0 +1,73 @@
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
+import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
+import {
+	DEFAULT_DOLLAR_SKILL_CONFIG,
+	type DollarSkillConfig,
+	MAX_DOLLAR_SKILL_SUGGESTIONS,
+} from "./model.js";
+
+const SECTION = "pi-basics";
+export const DOLLAR_SKILL_SETTINGS_GROUP = "dollarSkillReferences";
+type JsonObject = Record<string, unknown>;
+
+function isJsonObject(value: unknown): value is JsonObject {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeMaxSuggestions(value: unknown): number {
+	if (typeof value !== "number" || !Number.isInteger(value))
+		return DEFAULT_DOLLAR_SKILL_CONFIG.maxSuggestions;
+	return Math.max(1, Math.min(MAX_DOLLAR_SKILL_SUGGESTIONS, value));
+}
+
+export function normalizeDollarSkillConfig(value: unknown): DollarSkillConfig {
+	if (!isJsonObject(value)) return DEFAULT_DOLLAR_SKILL_CONFIG;
+	return {
+		enabled:
+			typeof value.enabled === "boolean" ? value.enabled : DEFAULT_DOLLAR_SKILL_CONFIG.enabled,
+		maxSuggestions: normalizeMaxSuggestions(value.maxSuggestions),
+	};
+}
+
+async function readRoot(path: string): Promise<JsonObject> {
+	try {
+		const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
+		return isJsonObject(parsed) ? parsed : {};
+	} catch (error) {
+		if (isJsonObject(error) && error.code === "ENOENT") return {};
+		throw error;
+	}
+}
+
+export function dollarSkillSettingsPath(cwd: string): string {
+	return join(cwd, CONFIG_DIR_NAME, "settings.json");
+}
+
+export async function loadDollarSkillConfig(cwd: string): Promise<DollarSkillConfig> {
+	const root = await readRoot(dollarSkillSettingsPath(cwd));
+	const section = root[SECTION];
+	return normalizeDollarSkillConfig(
+		isJsonObject(section) ? section[DOLLAR_SKILL_SETTINGS_GROUP] : undefined,
+	);
+}
+
+export async function saveDollarSkillConfig(cwd: string, config: DollarSkillConfig): Promise<void> {
+	const path = dollarSkillSettingsPath(cwd);
+	const root = await readRoot(path);
+	const existing = root[SECTION];
+	const section = isJsonObject(existing) ? { ...existing } : {};
+	section[DOLLAR_SKILL_SETTINGS_GROUP] = normalizeDollarSkillConfig(config);
+	root[SECTION] = section;
+	const directory = dirname(path);
+	await mkdir(directory, { recursive: true });
+	const temporary = join(directory, `.${basename(path)}.${randomUUID()}.tmp`);
+	try {
+		await writeFile(temporary, `${JSON.stringify(root, null, 2)}\n`, "utf8");
+		await rename(temporary, path);
+	} catch (error) {
+		await rm(temporary, { force: true }).catch(() => undefined);
+		throw error;
+	}
+}
