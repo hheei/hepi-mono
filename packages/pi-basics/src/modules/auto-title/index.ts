@@ -1,25 +1,41 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Agent } from "@earendil-works/pi-agent-core";
+import {
+	convertToLlm,
+	type ExtensionAPI,
+	type ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import type {
 	HePiContext,
 	HePiSettingField,
 	HePiSettingsProvider,
 	HePiSettingsState,
+	HePiSettingsStorage,
 } from "../../api/settings.js";
 
 export const AUTO_TITLE_GROUP = "auto-title";
 export const AUTO_TITLE_FIELD = "autoTitle";
 export const AUTO_TITLE_MODEL_FIELD = "autoTitleModel";
 const SECTION = "pi-basics";
-const AGENT_PATH = [".pi", "agents", "pi-basics-auto-title.md"] as const;
 const MAX_PROMPT = 2000;
 const TIMEOUT_MS = 60_000;
 
 type JsonObject = Record<string, unknown>;
 export interface AutoTitleStorageOptions {
 	readonly path?: string;
+}
+
+export interface AutoTitleModelOption {
+	readonly value: string;
+	readonly label: string;
+}
+
+export interface AutoTitleCoordinator {
+	trigger(force?: boolean): void;
+	setModel(modelRef: string): void;
+	dispose(): void;
 }
 
 async function readRoot(path: string): Promise<JsonObject> {
@@ -59,7 +75,7 @@ async function writeRoot(path: string, root: JsonObject): Promise<void> {
 	}
 }
 
-export function createAutoTitleStorage(options: AutoTitleStorageOptions = {}) {
+export function createAutoTitleStorage(options: AutoTitleStorageOptions = {}): HePiSettingsStorage {
 	const path = options.path;
 	return {
 		async load(ctx: { cwd?: string }): Promise<HePiSettingsState | undefined> {
@@ -106,7 +122,7 @@ export function parseModelRef(value: string): { provider: string; model: string 
 
 export function autoTitleModelOptions(
 	models: Iterable<{ readonly provider: string; readonly id: string; readonly name?: string }>,
-) {
+): readonly AutoTitleModelOption[] {
 	const unique = new Map<string, { readonly value: string; readonly label: string }>();
 	for (const model of models) {
 		const value = `${model.provider}/${model.id}`;
@@ -169,7 +185,9 @@ export interface AutoTitleSettingsOptions {
 export function createAutoTitleSettingsProvider(
 	options: AutoTitleSettingsOptions = {},
 ): HePiSettingsProvider {
-	const backingStorage = createAutoTitleStorage({ path: options.path });
+	const backingStorage = createAutoTitleStorage(
+		options.path === undefined ? {} : { path: options.path },
+	);
 	const storage = {
 		load: backingStorage.load,
 		save: async (state: HePiSettingsState, ctx: HePiContext) => {
@@ -224,49 +242,6 @@ export interface AutoTitleRuntime {
 	readonly pi: ExtensionAPI;
 	readonly ctx: ExtensionContext;
 }
-interface RpcReply {
-	success?: boolean;
-	data?: unknown;
-	error?: string;
-}
-interface Spawned {
-	id: string;
-	requestId: string;
-}
-const reply = (channel: string, id: string) => `${channel}:reply:${id}`;
-export function requireAutoTitleSubagents(pi: ExtensionAPI, timeoutMs = 2_000): Promise<void> {
-	const { promise, resolve, reject } = Promise.withResolvers<void>();
-	const requestId = randomUUID();
-	let settled = false;
-	let timer: ReturnType<typeof setTimeout>;
-	let offReply: () => void = () => undefined;
-	let offReady: () => void = () => undefined;
-	const finish = (error?: Error) => {
-		if (settled) return;
-		settled = true;
-		clearTimeout(timer);
-		offReply();
-		offReady();
-		if (error) reject(error);
-		else resolve();
-	};
-	const off = pi.events.on(reply("subagents:rpc:ping", requestId), (data) => {
-		const response = data as RpcReply;
-		const version =
-			response.data && typeof response.data === "object" && "version" in response.data
-				? response.data.version
-				: undefined;
-		if (response.success !== true || version !== 2)
-			return finish(new Error("pi-subagents RPC v2 is unavailable"));
-		finish();
-	});
-	offReply = off;
-	const ping = () => pi.events.emit("subagents:rpc:ping", { requestId });
-	offReady = pi.events.on("subagents:ready", ping);
-	timer = setTimeout(() => finish(new Error("pi-subagents is unavailable")), timeoutMs);
-	ping();
-	return promise;
-}
 const ANSI_ESCAPE = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "g");
 
 function safeTitle(value: string): string | undefined {
@@ -317,7 +292,66 @@ function latestUserText(ctx: ExtensionContext): string | undefined {
 	return undefined;
 }
 
-export function createAutoTitleCoordinator(runtime: AutoTitleRuntime, initialModelRef: string) {
+export interface AutoTitleAgentAdapter {
+	prompt(prompt: string): Promise<void>;
+	abort(): void;
+	waitForIdle(): Promise<void>;
+	result(): string | undefined;
+}
+
+export type AutoTitleAgentFactory = (
+	runtime: AutoTitleRuntime,
+	modelRef: string,
+) => AutoTitleAgentAdapter;
+
+export function createCoreAutoTitleAgent(
+	runtime: AutoTitleRuntime,
+	modelRef: string,
+): AutoTitleAgentAdapter {
+	const { provider, model: modelId } = parseModelRef(modelRef);
+	const model = runtime.ctx.modelRegistry.find(provider, modelId);
+	if (!model || !runtime.ctx.modelRegistry.hasConfiguredAuth(model))
+		throw new Error(`Unavailable title model: ${modelRef}`);
+	const agent = new Agent({
+		sessionId: `pi-basics-auto-title:${runtime.ctx.sessionManager.getSessionId()}`,
+		initialState: {
+			systemPrompt:
+				"Return only one short, descriptive title for this session. No more than 5 words. No quotes, markdown, or explanation.",
+			model,
+			thinkingLevel: "off",
+			tools: [],
+		},
+		convertToLlm,
+		getApiKey: (providerName) => runtime.ctx.modelRegistry.getApiKeyForProvider(providerName),
+	});
+	return {
+		prompt: async (prompt) => {
+			await agent.prompt(prompt);
+		},
+		abort: () => agent.abort(),
+		waitForIdle: async () => {
+			await agent.waitForIdle();
+		},
+		result: () => {
+			for (let index = agent.state.messages.length - 1; index >= 0; index--) {
+				const message = agent.state.messages[index];
+				if (message?.role !== "assistant") continue;
+				if (message.stopReason !== "stop" && message.stopReason !== "toolUse") return undefined;
+				return message.content
+					.filter((part) => part.type === "text")
+					.map((part) => part.text)
+					.join(" ");
+			}
+			return undefined;
+		},
+	};
+}
+
+export function createAutoTitleCoordinator(
+	runtime: AutoTitleRuntime,
+	initialModelRef: string,
+	createAgent: AutoTitleAgentFactory = createCoreAutoTitleAgent,
+): AutoTitleCoordinator {
 	const { pi, ctx } = runtime;
 	let modelRef = initialModelRef;
 	let disposed = false;
@@ -325,9 +359,9 @@ export function createAutoTitleCoordinator(runtime: AutoTitleRuntime, initialMod
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let attempted = ctx.sessionManager
 		.getEntries()
-		.some((e) => e.type === "custom" && e.customType === "pi-basics-auto-title");
+		.some((entry) => entry.type === "custom" && entry.customType === "pi-basics-auto-title");
 	let launchRequested = false;
-	let spawned: Spawned | undefined;
+	let activeAgent: AutoTitleAgentAdapter | undefined;
 	const setStatus = (text?: string) => ctx.ui?.setStatus?.("auto-title", text);
 	const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 	let statusTimer: ReturnType<typeof setInterval> | undefined;
@@ -345,98 +379,78 @@ export function createAutoTitleCoordinator(runtime: AutoTitleRuntime, initialMod
 		update();
 		statusTimer = setInterval(update, 120);
 	};
-	const rpcUnsubs: Array<() => void> = [];
-	const clear = () => {
+	const stop = () => {
 		clearTimeout(timer);
 		timer = undefined;
-		for (const off of rpcUnsubs.splice(0)) off();
-	};
-	const stop = () => {
-		const run = spawned;
-		spawned = undefined;
-		if (!run) return;
-		const stopId = randomUUID();
-		const channel = reply("subagents:rpc:stop", stopId);
-		const off = pi.events.on(channel, () => off());
-		pi.events.emit("subagents:rpc:stop", { requestId: stopId, agentId: run.id });
-		setTimeout(off, 1000);
+		const agent = activeAgent;
+		activeAgent = undefined;
+		agent?.abort();
+		if (agent) void agent.waitForIdle().catch(() => undefined);
 	};
 	const launch = () => {
-		if (disposed || !launchRequested || attempted || pi.getSessionName() || !ctx.isIdle()) return;
+		if (
+			disposed ||
+			!launchRequested ||
+			activeAgent !== undefined ||
+			attempted ||
+			pi.getSessionName() ||
+			!ctx.isIdle()
+		)
+			return;
 		const prompt = latestUserText(ctx);
 		if (!prompt) return;
-		attempted = true;
-		pi.appendEntry("pi-basics-auto-title", { attempted: true });
 		const sessionId = ctx.sessionManager.getSessionId();
 		const sessionRevision = revision;
-		const pingId = randomUUID();
-		const spawnId = randomUUID();
-		let done = false;
+		let agent: AutoTitleAgentAdapter;
+		try {
+			agent = createAgent(runtime, modelRef);
+		} catch (error) {
+			ctx.ui.notify(
+				`Unable to start automatic title: ${error instanceof Error ? error.message : String(error)}`,
+				"warning",
+			);
+			return;
+		}
+		activeAgent = agent;
+		attempted = true;
+		pi.appendEntry("pi-basics-auto-title", { attempted: true });
 		startStatus();
-		const finish = () => {
-			if (done) return;
-			done = true;
-			clearStatus();
-			clear();
-			stop();
-		};
-		timer = setTimeout(finish, TIMEOUT_MS);
-		const onPing = (data: unknown) => {
-			const r = data as RpcReply;
-			const version =
-				r.data && typeof r.data === "object" && "version" in r.data ? r.data.version : undefined;
-			if (done || r.success !== true || version !== 2) return;
-			pi.events.emit("subagents:rpc:spawn", {
-				requestId: spawnId,
-				type: "pi-basics-auto-title",
-				prompt,
-				options: {
-					description: "Generate session title",
-					model: modelRef,
-					maxTurns: 1,
-					isolated: true,
-					thinkingLevel: "off",
-				},
-			});
-		};
-		const onSpawn = (data: unknown) => {
-			const r = data as RpcReply;
-			const id =
-				r.data && typeof r.data === "object" && "id" in r.data && typeof r.data.id === "string"
-					? r.data.id
-					: undefined;
-			if (done || r.success !== true || !id) return;
-			spawned = { id, requestId: spawnId };
-			const onCompleted = (event: unknown) => {
-				const e = event as { id?: unknown; status?: unknown; result?: unknown };
+		let timedOut = false;
+		timer = setTimeout(() => {
+			timedOut = true;
+			agent.abort();
+		}, TIMEOUT_MS);
+		void (async () => {
+			try {
+				await agent.prompt(prompt);
+				await agent.waitForIdle();
 				if (
-					e.id !== id ||
-					(e.status !== "completed" && e.status !== "steered") ||
-					typeof e.result !== "string" ||
-					done ||
 					disposed ||
+					activeAgent !== agent ||
 					sessionId !== ctx.sessionManager.getSessionId() ||
 					sessionRevision !== revision ||
 					pi.getSessionName()
 				)
 					return;
-				const title = safeTitle(e.result);
+				const title = safeTitle(agent.result() ?? "");
 				if (title) pi.setSessionName(title);
-				finish();
-			};
-			const onFailed = (event: unknown) => {
-				if ((event as { id?: unknown }).id === id) finish();
-			};
-			rpcUnsubs.push(
-				pi.events.on("subagents:completed", onCompleted),
-				pi.events.on("subagents:failed", onFailed),
-			);
-		};
-		rpcUnsubs.push(
-			pi.events.on(reply("subagents:rpc:ping", pingId), onPing),
-			pi.events.on(reply("subagents:rpc:spawn", spawnId), onSpawn),
-		);
-		pi.events.emit("subagents:rpc:ping", { requestId: pingId });
+			} catch (error) {
+				if (!disposed && activeAgent === agent && sessionRevision === revision)
+					ctx.ui.notify(
+						timedOut
+							? "Automatic title generation timed out"
+							: `Automatic title generation failed: ${error instanceof Error ? error.message : String(error)}`,
+						"warning",
+					);
+			} finally {
+				if (activeAgent === agent) {
+					activeAgent = undefined;
+					clearTimeout(timer);
+					timer = undefined;
+					clearStatus();
+				}
+			}
+		})();
 	};
 	const lifecycleUnsubs =
 		typeof pi.on === "function"
@@ -446,14 +460,12 @@ export function createAutoTitleCoordinator(runtime: AutoTitleRuntime, initialMod
 						revision++;
 						if (event && typeof event === "object" && "name" in event && event.name) {
 							clearStatus();
-							clear();
 							stop();
 						}
 					}),
 					pi.events.on("before_agent_start", () => {
 						revision++;
 						clearStatus();
-						clear();
 						stop();
 					}),
 					pi.events.on("agent_settled", launch),
@@ -463,14 +475,12 @@ export function createAutoTitleCoordinator(runtime: AutoTitleRuntime, initialMod
 			revision++;
 			if (event.name) {
 				clearStatus();
-				clear();
 				stop();
 			}
 		});
 		pi.on("before_agent_start", () => {
 			revision++;
 			clearStatus();
-			clear();
 			stop();
 		});
 		pi.on("agent_settled", launch);
@@ -488,32 +498,14 @@ export function createAutoTitleCoordinator(runtime: AutoTitleRuntime, initialMod
 			revision++;
 			attempted = false;
 			clearStatus();
-			clear();
 			stop();
 		},
 		dispose: () => {
 			disposed = true;
 			revision++;
 			clearStatus();
-			clear();
 			for (const off of lifecycleUnsubs) off();
 			stop();
 		},
 	};
-}
-
-export async function provisionAutoTitleAgent(cwd: string): Promise<void> {
-	const path = join(cwd, ...AGENT_PATH);
-	try {
-		await readFile(path);
-		return;
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-	}
-	await mkdir(dirname(path), { recursive: true });
-	await writeFile(
-		path,
-		`---\nname: pi-basics-auto-title\ndescription: Generate one short session title\ntools: none\nextensions: false\nskills: false\npromptMode: replace\n---\nReturn only one short, descriptive title for this session. No more than 5 words. No quotes, markdown, or explanation.\n`,
-		"utf8",
-	);
 }

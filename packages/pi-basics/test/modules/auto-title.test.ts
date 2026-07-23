@@ -98,50 +98,103 @@ describe("Pi Basics auto-title", () => {
 		).rejects.toThrow("unavailable");
 	});
 
-	test("applies completed or steered matching title and blocks manual title", () => {
+	test("runs one isolated title agent and records the attempt", async () => {
 		const handlers = new Map<string, (value: unknown) => void>();
+		let appended = 0;
+		let created = 0;
+		let aborted = 0;
+		let releasePrompt: (() => void) | undefined;
+		const promptDone = new Promise<void>((resolve) => {
+			releasePrompt = resolve;
+		});
 		const pi = {
 			events: {
 				on: (channel: string, handler: (value: unknown) => void) => {
 					handlers.set(channel, handler);
 					return () => handlers.delete(channel);
 				},
-				emit: (channel: string, value: unknown) => {
-					if (channel === "subagents:rpc:ping")
-						handlers.get(
-							`subagents:rpc:ping:reply:${(value as { requestId: string }).requestId}`,
-						)?.({ success: true, data: { version: 2 } });
+			},
+			appendEntry: () => {
+				appended++;
+			},
+			getSessionName: () => undefined,
+			setSessionName: () => undefined,
+		};
+		const ctx = {
+			sessionManager: {
+				getEntries: () => [
+					{ type: "message", message: { role: "user", content: "Independent title" } },
+				],
+				getSessionId: () => "s",
+			},
+			isIdle: () => true,
+			ui: { notify: () => undefined },
+		};
+		const coordinator = createAutoTitleCoordinator(
+			{ pi, ctx } as never,
+			"provider/model",
+			(_runtime, model) => {
+				created++;
+				expect(model).toBe("provider/model");
+				return {
+					prompt: async (prompt) => {
+						expect(prompt).toBe("Independent title");
+						await promptDone;
+					},
+					abort: () => {
+						aborted++;
+					},
+					waitForIdle: async () => undefined,
+					result: () => "unused",
+				};
+			},
+		);
+
+		coordinator.trigger();
+		coordinator.trigger();
+		expect(created).toBe(1);
+		expect(appended).toBe(1);
+		releasePrompt?.();
+		await Bun.sleep(0);
+		coordinator.dispose();
+		expect(aborted).toBe(0);
+	});
+
+	test("applies a sanitized title from the isolated agent", async () => {
+		const handlers = new Map<string, (value: unknown) => void>();
+		let applied: string | undefined;
+		const pi = {
+			events: {
+				on: (channel: string, handler: (value: unknown) => void) => {
+					handlers.set(channel, handler);
+					return () => handlers.delete(channel);
 				},
 			},
 			appendEntry: () => undefined,
-			getSessionName: () => undefined,
+			getSessionName: () => applied,
 			setSessionName: (name: string) => {
 				applied = name;
 			},
 		};
-		let applied: string | undefined;
-		const entries = [{ type: "message", message: { role: "user", content: "Need title" } }];
 		const ctx = {
 			sessionManager: {
-				getEntries: () => entries,
+				getEntries: () => [{ type: "message", message: { role: "user", content: "Need title" } }],
 				getSessionId: () => "s",
-				getSessionName: () => undefined,
 			},
 			isIdle: () => true,
+			ui: { notify: () => undefined },
 		};
-		const coordinator = createAutoTitleCoordinator({ pi, ctx } as never, "provider/model");
+		const coordinator = createAutoTitleCoordinator({ pi, ctx } as never, "provider/model", () => ({
+			prompt: async () => undefined,
+			abort: () => undefined,
+			waitForIdle: async () => undefined,
+			result: () => "  My \n Session  ",
+		}));
+
 		handlers.get("agent_settled")?.({});
-		expect([...handlers.keys()].some((key) => key.startsWith("subagents:rpc:spawn:reply:"))).toBe(
-			false,
-		);
+		expect(applied).toBeUndefined();
 		coordinator.trigger();
-		const spawn = [...handlers.keys()].find((key) => key.startsWith("subagents:rpc:spawn:reply:"));
-		handlers.get(spawn!)?.({ success: true, data: { id: "child" } });
-		handlers.get("subagents:completed")?.({
-			id: "child",
-			status: "steered",
-			result: "  My \n Session  ",
-		});
+		await Bun.sleep(0);
 		expect(applied).toBe("My Session");
 		coordinator.dispose();
 	});
