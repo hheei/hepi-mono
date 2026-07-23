@@ -14,7 +14,7 @@ export type GuardPatchMode = "auto" | "on" | "off";
 
 const APPLY_PATCH_COMMAND = /(?:^|[\n;&|()])\s*(?:command\s+)?apply_patch\s/;
 const BLOCK_REASON =
-	"The previous `bash` call was aborted before execution because `apply_patch` is unavailable in this Pi process. Do not retry `apply_patch`. Continue the same task now with `edit` for precise changes or `write` for new files/complete rewrites.";
+	"`apply_patch` is unavailable; the call was aborted. Continue with `edit` or `write`. Do not retry `apply_patch`.";
 const SETTINGS_SECTION = "pi-basics";
 type JsonObject = Record<string, unknown>;
 
