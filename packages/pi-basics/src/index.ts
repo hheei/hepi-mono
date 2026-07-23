@@ -24,6 +24,10 @@ import { createLoadoutInventoryProvider } from "./modules/loadout/inventory.js";
 import { loadoutKey } from "./modules/loadout/model.js";
 import { filterLoadoutDisabledSkillsFromPrompt } from "./modules/loadout/skill-prompt-filter.js";
 import { createLoadoutStorage, defaultLoadoutStoragePaths } from "./modules/loadout/storage.js";
+import {
+	createOpenAIResponsesCompatFeature,
+	createOpenAIResponsesCompatSettingsProvider,
+} from "./modules/openai-responses-compat/index.js";
 import { createPlanFeature } from "./modules/plan/index.js";
 import { registerRtkCommand } from "./modules/rtk/command.js";
 import { createRtkFeature } from "./modules/rtk/feature.js";
@@ -121,6 +125,7 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 		}
 	});
 	const traditionalToSimplified = createTraditionalToSimplifiedFeature();
+	const openAIResponsesCompat = createOpenAIResponsesCompatFeature(pi);
 	const lifecycle = new HePiLifecycleController({
 		onStart: async (runtime) => {
 			coordinator.reset();
@@ -152,10 +157,16 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 				cleanup: () => todo.dispose(todoSessionId),
 			});
 			traditionalToSimplified.start(runtime);
+			await openAIResponsesCompat.start(runtime);
 			const traditionalToSimplifiedSessionId = runtime.ctx.sessionManager.getSessionId();
 			runtime.registry.registerLifecycle({
 				id: "traditional-to-simplified",
 				cleanup: () => traditionalToSimplified.dispose(traditionalToSimplifiedSessionId),
+			});
+			const openAIResponsesCompatSessionId = runtime.ctx.sessionManager.getSessionId();
+			runtime.registry.registerLifecycle({
+				id: "openai-responses-compat",
+				cleanup: () => openAIResponsesCompat.dispose(openAIResponsesCompatSessionId),
 			});
 			try {
 				const state = await dollarSkillProvider.storage.load({
@@ -183,6 +194,8 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 			const traditionalToSimplifiedProvider = createTraditionalToSimplifiedSettingsProvider({
 				onPersisted: (enabled) => traditionalToSimplified.setEnabled(enabled),
 			});
+			const openAIResponsesCompatProvider =
+				createOpenAIResponsesCompatSettingsProvider(openAIResponsesCompat);
 			const autoTitleProvider = createAutoTitleProvider(runtime, (model) => {
 				const selected =
 					model ||
@@ -216,6 +229,7 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 					createRtkSettingsProvider(rtk),
 					dollarSkillProvider,
 					traditionalToSimplifiedProvider,
+					openAIResponsesCompatProvider,
 					...listHePiSettings().filter((provider) => provider.id !== autoTitleProvider.id),
 				]);
 			const settingsContext = {
@@ -403,6 +417,7 @@ export type {
 	LoadoutStoredState,
 } from "./modules/loadout/storage.js";
 export { createLoadoutStorage, defaultLoadoutStoragePaths } from "./modules/loadout/storage.js";
+export * from "./modules/openai-responses-compat/index.js";
 export * from "./modules/plan/index.js";
 export { createSettingsModule } from "./modules/setting/index.js";
 export { createHePiRuntimeContext, type HePiRuntimeContext } from "./runtime/context.js";

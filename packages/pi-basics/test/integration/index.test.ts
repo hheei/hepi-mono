@@ -193,8 +193,8 @@ test("registers commands and lifecycle handlers", () => {
 	]);
 	expect(host.getActiveToolsCalls).toBe(0);
 	expect(host.tools).toEqual(["goal", "ask", "todo", "sshfs"]);
-	expect(host.events.get("session_start")).toHaveLength(2);
-	expect(host.events.get("session_shutdown")).toHaveLength(1);
+	expect(host.events.get("session_start")).toHaveLength(3);
+	expect(host.events.get("session_shutdown")).toHaveLength(2);
 });
 
 test("installs and restores footer and editor seams for TUI session", async () => {
