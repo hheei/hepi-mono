@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	AUTO_TITLE_SYSTEM_PROMPT,
 	autoTitleModelOptions,
 	createAutoTitleCoordinator,
 	createAutoTitleSettingsProvider,
@@ -11,6 +12,7 @@ import {
 } from "../../src/modules/auto-title/index.js";
 
 const context = (cwd: string) => ({ sessionId: "s", cwd });
+const LONG_SESSION_CONTEXT = "x".repeat(501);
 
 describe("Pi Basics auto-title", () => {
 	test("parses exact provider/model and preserves project packages", async () => {
@@ -31,6 +33,14 @@ describe("Pi Basics auto-title", () => {
 		} finally {
 			await rm(dir, { recursive: true, force: true });
 		}
+	});
+
+	test("defines a concise plain-text title contract", () => {
+		expect(AUTO_TITLE_SYSTEM_PROMPT).toContain("no more than 6 words");
+		expect(AUTO_TITLE_SYSTEM_PROMPT).toContain("English only");
+		expect(AUTO_TITLE_SYSTEM_PROMPT).toContain("Use sentence case");
+		expect(AUTO_TITLE_SYSTEM_PROMPT).toContain("Return only the title as plain text");
+		expect(AUTO_TITLE_SYSTEM_PROMPT).not.toContain("branch");
 	});
 
 	test("lists available models as selectable provider/model options", () => {
@@ -123,7 +133,7 @@ describe("Pi Basics auto-title", () => {
 		const ctx = {
 			sessionManager: {
 				getEntries: () => [
-					{ type: "message", message: { role: "user", content: "Independent title" } },
+					{ type: "message", message: { role: "user", content: LONG_SESSION_CONTEXT } },
 				],
 				getSessionId: () => "s",
 			},
@@ -138,7 +148,9 @@ describe("Pi Basics auto-title", () => {
 				expect(model).toBe("provider/model");
 				return {
 					prompt: async (prompt) => {
-						expect(prompt).toBe("Independent title");
+						expect(prompt).toBe(
+							`Session transcript:\n\nUser: ${LONG_SESSION_CONTEXT.slice(0, 500)}`,
+						);
 						await promptDone;
 					},
 					abort: () => {
@@ -160,6 +172,131 @@ describe("Pi Basics auto-title", () => {
 		expect(aborted).toBe(0);
 	});
 
+	test("requires more than 500 user and assistant characters", async () => {
+		const handlers = new Map<string, (value: unknown) => void>();
+		const userText = "u".repeat(250);
+		const assistantText = "a".repeat(250);
+		const entries: Array<{
+			type: "message";
+			message: { role: "user" | "assistant"; content: unknown };
+		}> = [
+			{ type: "message", message: { role: "user", content: userText } },
+			{
+				type: "message",
+				message: {
+					role: "assistant",
+					content: [
+						{ type: "thinking", thinking: "Internal analysis" },
+						{ type: "text", text: assistantText },
+					],
+				},
+			},
+		];
+		let created = 0;
+		let generatedPrompt: string | undefined;
+		let applied: string | undefined;
+		const pi = {
+			events: {
+				on: (channel: string, handler: (value: unknown) => void) => {
+					handlers.set(channel, handler);
+					return () => handlers.delete(channel);
+				},
+			},
+			appendEntry: () => undefined,
+			getSessionName: () => applied,
+			setSessionName: (name: string) => {
+				applied = name;
+			},
+		};
+		const ctx = {
+			sessionManager: {
+				getEntries: () => entries,
+				getSessionId: () => "s",
+			},
+			isIdle: () => true,
+			ui: { notify: () => undefined },
+		};
+		const coordinator = createAutoTitleCoordinator({ pi, ctx } as never, "provider/model", () => {
+			created++;
+			return {
+				prompt: async (prompt) => {
+					generatedPrompt = prompt;
+				},
+				abort: () => undefined,
+				waitForIdle: async () => undefined,
+				result: () => "Fix mobile login button",
+			};
+		});
+
+		coordinator.trigger();
+		expect(created).toBe(0);
+		entries.push({ type: "message", message: { role: "assistant", content: "b" } });
+		handlers.get("agent_settled")?.({});
+		await Bun.sleep(0);
+
+		expect(created).toBe(1);
+		expect(generatedPrompt).toContain(`User: ${userText}`);
+		expect(generatedPrompt).toContain(`Assistant: ${assistantText}`);
+		expect(generatedPrompt).toContain("Assistant: b");
+		expect(generatedPrompt).not.toContain("Internal analysis");
+		expect(applied).toBe("Fix mobile login button");
+		coordinator.dispose();
+	});
+
+	test("triggers on the third user turn below 500 characters", async () => {
+		const handlers = new Map<string, (value: unknown) => void>();
+		const entries: Array<{
+			type: "message";
+			message: { role: "user" | "assistant"; content: string };
+		}> = [
+			{ type: "message", message: { role: "user", content: "First" } },
+			{ type: "message", message: { role: "assistant", content: "First response" } },
+			{ type: "message", message: { role: "user", content: "Second" } },
+			{ type: "message", message: { role: "assistant", content: "Second response" } },
+		];
+		let created = 0;
+		const pi = {
+			events: {
+				on: (channel: string, handler: (value: unknown) => void) => {
+					handlers.set(channel, handler);
+					return () => handlers.delete(channel);
+				},
+			},
+			appendEntry: () => undefined,
+			getSessionName: () => undefined,
+			setSessionName: () => undefined,
+		};
+		const ctx = {
+			sessionManager: {
+				getEntries: () => entries,
+				getSessionId: () => "s",
+			},
+			isIdle: () => true,
+			ui: { notify: () => undefined },
+		};
+		const coordinator = createAutoTitleCoordinator({ pi, ctx } as never, "provider/model", () => {
+			created++;
+			return {
+				prompt: async () => undefined,
+				abort: () => undefined,
+				waitForIdle: async () => undefined,
+				result: () => "Third turn title",
+			};
+		});
+
+		coordinator.trigger();
+		expect(created).toBe(0);
+		entries.push(
+			{ type: "message", message: { role: "user", content: "Third" } },
+			{ type: "message", message: { role: "assistant", content: "Third response" } },
+		);
+		handlers.get("agent_settled")?.({});
+		await Bun.sleep(0);
+
+		expect(created).toBe(1);
+		coordinator.dispose();
+	});
+
 	test("applies a sanitized title from the isolated agent", async () => {
 		const handlers = new Map<string, (value: unknown) => void>();
 		let applied: string | undefined;
@@ -178,7 +315,9 @@ describe("Pi Basics auto-title", () => {
 		};
 		const ctx = {
 			sessionManager: {
-				getEntries: () => [{ type: "message", message: { role: "user", content: "Need title" } }],
+				getEntries: () => [
+					{ type: "message", message: { role: "user", content: LONG_SESSION_CONTEXT } },
+				],
 				getSessionId: () => "s",
 			},
 			isIdle: () => true,
