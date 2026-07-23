@@ -66,6 +66,35 @@ function sourceLabel(command: DollarSkillCommand): string {
 	}
 }
 
+interface SelectedSkillCommand {
+	readonly command: DollarSkillCommand;
+	readonly name: string;
+	readonly enabled: boolean;
+}
+
+function selectSkillCommands(
+	commands: readonly DollarSkillCommand[],
+	isSkillEnabled: (command: DollarSkillCommand) => boolean,
+): readonly SelectedSkillCommand[] {
+	const selected = new Map<string, SelectedSkillCommand>();
+	for (const command of commands) {
+		if (command.source !== "skill") continue;
+		const name = bareSkillName(command.name);
+		if (!name) continue;
+		const candidate = { command, name, enabled: isSkillEnabled(command) };
+		const current = selected.get(name);
+		if (
+			current === undefined ||
+			(candidate.enabled && !current.enabled) ||
+			(candidate.enabled === current.enabled &&
+				command.sourceInfo?.scope === "project" &&
+				current.command.sourceInfo?.scope !== "project")
+		)
+			selected.set(name, candidate);
+	}
+	return [...selected.values()];
+}
+
 export function extractDollarSkillToken(
 	lines: readonly string[],
 	cursorLine: number,
@@ -87,22 +116,18 @@ export function getDollarSkillSuggestions(
 	isSkillEnabled: (command: DollarSkillCommand) => boolean = () => true,
 ): AutocompleteItem[] {
 	const normalizedQuery = query.toLowerCase();
-	const seen = new Set<string>();
 	const candidates: Array<{
 		readonly name: string;
 		readonly description: string;
 		readonly enabled: boolean;
 	}> = [];
-	for (const command of commands) {
-		if (command.source !== "skill") continue;
-		const name = bareSkillName(command.name);
-		if (!name || seen.has(name) || !name.toLowerCase().startsWith(normalizedQuery)) continue;
-		seen.add(name);
+	for (const { command, name, enabled } of selectSkillCommands(commands, isSkillEnabled)) {
+		if (!name.toLowerCase().startsWith(normalizedQuery)) continue;
 		const description = cleanDescription(command.description);
 		candidates.push({
 			name,
 			description: description ? `${sourceLabel(command)} - ${description}` : sourceLabel(command),
-			enabled: isSkillEnabled(command),
+			enabled,
 		});
 	}
 	const limit = Number.isFinite(maxSuggestions)
@@ -124,12 +149,11 @@ export function getDollarSkillSuggestions(
 export function expandDollarSkillReferences(
 	text: string,
 	commands: readonly DollarSkillCommand[],
+	isSkillEnabled: (command: DollarSkillCommand) => boolean = () => true,
 ): string | undefined {
 	const paths = new Map<string, string>();
-	for (const command of commands) {
-		if (command.source !== "skill" || !command.sourceInfo?.path) continue;
-		const name = bareSkillName(command.name);
-		if (name && !paths.has(name)) paths.set(name, command.sourceInfo.path);
+	for (const { command, name } of selectSkillCommands(commands, isSkillEnabled)) {
+		if (command.sourceInfo?.path) paths.set(name, command.sourceInfo.path);
 	}
 	let changed = false;
 	const transformed = text.replace(REFERENCE_PATTERN, (match, boundary: string, name: string) => {

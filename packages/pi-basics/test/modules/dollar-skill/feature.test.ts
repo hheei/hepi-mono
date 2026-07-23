@@ -3,6 +3,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import type { AutocompleteProvider } from "@earendil-works/pi-tui";
 import {
 	createDollarSkillFeature,
+	type DollarSkillCommand,
 	registerDollarSkillInputTransform,
 } from "../../../src/modules/dollar-skill/index.js";
 
@@ -16,7 +17,16 @@ type InputHandler = (event: {
 	source: "interactive" | "rpc" | "extension";
 }) => unknown;
 
-function harness(mode: "tui" | "json") {
+function harness(
+	mode: "tui" | "json",
+	commands: readonly DollarSkillCommand[] = [
+		{
+			name: "skill:librarian",
+			source: "skill",
+			sourceInfo: { path: "/skills/librarian/SKILL.md", scope: "user" },
+		},
+	],
+) {
 	let inputHandler: InputHandler | undefined;
 	let wrapper: ((current: AutocompleteProvider) => AutocompleteProvider) | undefined;
 	let editorFactory: EditorFactory | undefined;
@@ -24,13 +34,7 @@ function harness(mode: "tui" | "json") {
 		on(event: string, handler: InputHandler) {
 			if (event === "input") inputHandler = handler;
 		},
-		getCommands: () => [
-			{
-				name: "skill:librarian",
-				source: "skill",
-				sourceInfo: { path: "/skills/librarian/SKILL.md", scope: "user" },
-			},
-		],
+		getCommands: () => commands,
 	} as unknown as ExtensionAPI;
 	const ctx = {
 		mode,
@@ -106,6 +110,32 @@ describe("dollar skill feature", () => {
 					description: "\x1b[2mUser\x1b[22m",
 				},
 			],
+		});
+	});
+
+	test("uses the enabled project path for duplicate skill names", () => {
+		const host = harness("tui", [
+			{
+				name: "skill:review",
+				source: "skill",
+				sourceInfo: { path: "/user/review/SKILL.md", scope: "user" },
+			},
+			{
+				name: "skill:review",
+				source: "skill",
+				sourceInfo: { path: "/project/.pi/skills/review/SKILL.md", scope: "project" },
+			},
+		]);
+		const feature = createDollarSkillFeature(
+			host.pi,
+			(command) => command.sourceInfo?.scope === "project",
+		);
+		registerDollarSkillInputTransform(host.pi, feature);
+		feature.start({ pi: host.pi, ctx: host.ctx } as never);
+
+		expect(host.inputHandler?.({ text: "Use $review.", source: "interactive" })).toEqual({
+			action: "transform",
+			text: "Use /project/.pi/skills/review/SKILL.md.",
 		});
 	});
 

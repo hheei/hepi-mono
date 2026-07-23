@@ -29,7 +29,11 @@ import { createLoadoutController, type LoadoutController } from "./modules/loado
 import { createLoadoutInventoryProvider } from "./modules/loadout/inventory.js";
 import { loadoutKey } from "./modules/loadout/model.js";
 import { filterLoadoutDisabledSkillsFromPrompt } from "./modules/loadout/skill-prompt-filter.js";
-import { createLoadoutStorage, defaultLoadoutStoragePaths } from "./modules/loadout/storage.js";
+import {
+	createLoadoutStorage,
+	defaultLoadoutStoragePaths,
+	initialLoadoutScope,
+} from "./modules/loadout/storage.js";
 import {
 	createOpenAIResponsesCompatFeature,
 	createOpenAIResponsesCompatSettingsProvider,
@@ -332,6 +336,7 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 			});
 			loadoutController = createLoadoutController({
 				storage,
+				scope: await initialLoadoutScope(runtime.ctx.cwd),
 				inventory: createLoadoutInventoryProvider(pi),
 				runtime: {
 					tool: async (items) => {

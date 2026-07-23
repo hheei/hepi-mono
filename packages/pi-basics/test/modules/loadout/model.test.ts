@@ -67,6 +67,28 @@ describe("loadout model", () => {
 		});
 	});
 
+	test("inherits an explicit global setting for a project-scoped tool", () => {
+		const item = tool("tool:package:agent", {
+			name: "agent",
+			sourceScope: "project",
+			hasGlobalDefinition: false,
+		});
+		let maps: LoadoutStatusMaps = { global: { "tool:agent": true }, project: {} };
+		expect(resolveLoadoutItem(item, "project", maps)).toMatchObject({
+			configuredStatus: "inherit",
+			effectiveStatus: "active",
+			displayStatus: "inherit",
+		});
+
+		maps = { ...maps, project: { "tool:agent": true } };
+		expect(resolveLoadoutItem(item, "project", maps).configuredStatus).toBe("active");
+		maps = toggleLoadoutState(item, "project", maps);
+		expect(maps.project["tool:agent"]).toBe(false);
+		maps = toggleLoadoutState(item, "project", maps);
+		expect(Object.hasOwn(maps.project, "tool:agent")).toBe(false);
+		expect(resolveLoadoutItem(item, "project", maps).configuredStatus).toBe("inherit");
+	});
+
 	test("project-only item has binary transitions", () => {
 		const item = projectOnly("skill:local");
 		let maps: LoadoutStatusMaps = { global: {}, project: {} };

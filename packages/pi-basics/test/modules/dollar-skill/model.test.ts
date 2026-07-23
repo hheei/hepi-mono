@@ -49,6 +49,39 @@ describe("dollar skill model", () => {
 		]);
 	});
 
+	test("prefers an enabled project skill over a disabled global duplicate", () => {
+		const duplicates: readonly DollarSkillCommand[] = [
+			{
+				name: "skill:review",
+				description: "Global review",
+				source: "skill",
+				sourceInfo: { path: "/user/review/SKILL.md", scope: "user", source: "user" },
+			},
+			{
+				name: "skill:review",
+				description: "Project review",
+				source: "skill",
+				sourceInfo: {
+					path: "/project/.pi/skills/review/SKILL.md",
+					scope: "project",
+					source: "project",
+				},
+			},
+		];
+		const enabled = (command: DollarSkillCommand) => command.sourceInfo?.scope === "project";
+
+		expect(getDollarSkillSuggestions(duplicates, "", 20, enabled)).toEqual([
+			{
+				value: "$review",
+				label: "review",
+				description: "Project - Project review",
+			},
+		]);
+		expect(expandDollarSkillReferences("Use $review.", duplicates, enabled)).toBe(
+			"Use /project/.pi/skills/review/SKILL.md.",
+		);
+	});
+
 	test("sorts disabled skills last and dims their display text", () => {
 		const mixed: readonly DollarSkillCommand[] = [
 			{ name: "skill:zeta", description: "Zeta", source: "skill" },
