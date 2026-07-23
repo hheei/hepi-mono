@@ -109,16 +109,22 @@ describe("loadout model", () => {
 		});
 	});
 
-	test("filters searchable metadata and orders groups/items by built-in source", () => {
+	test("filters searchable metadata and orders items by built-in then package", () => {
 		const items = [
-			{ ...tool("tool:zeta"), origin: "plugin" },
+			{ ...tool("tool:zeta"), origin: "package-z" },
+			{ ...tool("tool:aardvark"), origin: "package-b" },
+			{ ...tool("tool:zulu"), origin: "package-a" },
+			{ ...tool("tool:beta"), origin: "package-a" },
 			{ ...tool("tool:bash"), origin: "builtin" },
 			{ ...projectOnly("skill:docs"), description: "Documentation" },
-			{ ...tool("tool:alpha"), description: "Filesystem", origin: "builtin" },
+			{ ...tool("tool:alpha"), description: "Filesystem", origin: "core" },
 		];
 		expect(sortLoadoutItems(items).map((item) => item.key)).toEqual([
 			"tool:alpha",
 			"tool:bash",
+			"tool:beta",
+			"tool:zulu",
+			"tool:aardvark",
 			"tool:zeta",
 			"skill:docs",
 		]);

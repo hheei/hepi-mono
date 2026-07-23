@@ -16,11 +16,11 @@ export interface LoadoutTheme {
 export interface LoadoutRenderSnapshot {
 	readonly scope: LoadoutScope;
 	readonly query: string;
-	readonly selectedKey?: string;
+	readonly selectedKey?: string | undefined;
 	readonly inventory: readonly LoadoutItem[];
 	readonly resolved: readonly LoadoutResolvedItem[];
-	readonly pendingKey?: string;
-	readonly error?: string;
+	readonly pendingKey?: string | undefined;
+	readonly error?: string | undefined;
 }
 
 export interface RenderLoadoutOptions {

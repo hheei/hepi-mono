@@ -27,12 +27,12 @@ export interface LoadoutRuntimeHandlers {
 export interface LoadoutControllerState {
 	readonly scope: LoadoutScope;
 	readonly query: string;
-	readonly selectedKey?: LoadoutKey;
+	readonly selectedKey?: LoadoutKey | undefined;
 	readonly scrollTop: number;
 	readonly inventory: readonly LoadoutItem[];
 	readonly resolved: readonly LoadoutResolvedItem[];
-	readonly pendingKey?: LoadoutKey;
-	readonly error?: string;
+	readonly pendingKey?: LoadoutKey | undefined;
+	readonly error?: string | undefined;
 	readonly closed: boolean;
 }
 export interface LoadoutControllerOptions {
@@ -153,7 +153,7 @@ export class LoadoutController {
 			0,
 			items.findIndex((item) => item.key === this.selectedKey),
 		);
-		this.selectedKey = items[(index + delta + items.length) % items.length]!.key;
+		this.selectedKey = items[(index + delta + items.length) % items.length]?.key;
 	}
 	select(key: LoadoutKey | undefined): void {
 		this.ensureOpen();
