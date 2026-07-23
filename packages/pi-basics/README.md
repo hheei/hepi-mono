@@ -1,14 +1,16 @@
 # @hheei/pi-basics
 
-`pi-basics` provides session-scoped HEPI runtime coordination, Settings/Loadout UI, integrated Todo and Ask tools.
+`pi-basics` provides session-scoped HEPI runtime coordination, Settings/Loadout UI, and integrated Todo, Ask, and SSHFS tools.
 
 ## Load and use
 
-Load package as a Pi extension. For local development, run `bun run pi:dev -- basics`. Package entry registers `/hepi`, direct `/todos`, and the model-facing `ask` and `todo` tools.
+Load package as a Pi extension. For local development, run `bun run pi:dev -- basics`. Package entry registers `/hepi`, direct `/todos`, and the model-facing `ask`, `todo`, and `sshfs` tools.
+
+`Guard patch` in `/hepi setting` controls streamed `bash` interception with `auto`, `on`, and `off` modes. `auto` aborts generation when `apply_patch` appears in executable command position only when no configured `apply_patch` tool exists; `on` always guards and `off` disables the guard. An abort injects guidance to use Pi's `edit` or `write` tool instead. Commands that only mention `apply_patch` do not trigger it. The mode persists under `pi-basics.guardPatch` in `.pi/settings.json`.
 
 `/hepi setting` opens the Settings and Loadout tabs. Settings includes the built-in RTK provider alongside other Pi Basics settings. RTK rewrites bash commands through an installed external `rtk` executable and compacts `bash`, `read`, and `grep` results; it never installs the executable itself.
 
-Loadout stores global choices in `~/.pi/agent/setting.json` and project choices in `<cwd>/.pi/setting.json`, under `pi-basics-loadout`. Persisted entries use stable `kind:name` identities so extension source paths may change across reloads without losing the choice. Existing source-scoped entries remain readable and are migrated when that item is next changed.
+Loadout stores global choices in `~/.pi/agent/setting.json` and project choices in `<cwd>/.pi/setting.json`, under `pi-basics-loadout`. Within each kind, built-in/core items appear first; remaining items are ordered by package/source, then by name inside that package. Persisted entries use stable `kind:name` identities so extension source paths may change across reloads without losing the choice. Existing source-scoped entries remain readable and are migrated when that item is next changed.
 
 ## Goal
 
@@ -25,9 +27,21 @@ Objectives are limited to 2,000 characters and summaries to 4,000 characters. Ma
 
 The `ask` tool opens a focused questionnaire in TUI sessions, or uses dialog UI when available. It collects answers and submits only from the final Review screen; non-interactive sessions fail closed.
 
+## SSHFS
+
+The `sshfs` tool accepts one OpenSSH host alias or destination, mounts that host's remote root (`<host>:/`) under `~/.cache/sshfs-addon/`, and returns the absolute local `Home path`. The agent can pass paths below it directly to `grep`, `edit`, `write`, `read`, `find`, and `ls` to inspect or change remote files.
+
+SSHFS requires Linux or macOS, a local `sshfs` executable, and OpenSSH authentication that works non-interactively in batch mode. macOS mounts are marked `local` so Pi can access them under system volume privacy rules. A healthy existing SSHFS mount is reused only when its source matches the requested host; another filesystem occupying that path is left untouched and reported as a conflict. A mount operation has a 24-second deadline, followed by at most 5 seconds of rollback, keeping a tool call below 30 seconds. Mounts created by the current Pi Basics session are unmounted serially during session cleanup, with failed cleanup retained for a later retry.
+
+## Dollar skill references
+
+Type `$` in the TUI editor to complete loaded skills by name. A complete known reference acts as one editor token: left/right movement crosses it in one step, and Backspace/Delete removes it as a unit. Pi's built-in `Editor` and `CustomEditor` also restore the full reference with one Undo; unrelated custom editor implementations retain their own undo semantics. A known standalone reference such as `$librarian` is replaced at submission time with that skill command's canonical `sourceInfo.path`; it references `SKILL.md` without injecting the skill contents as `/skill:librarian` would. Partial and unknown references remain character-editable; unknown references, shell-style variables embedded in words, and numeric values such as `$5` remain unchanged at submission. Punctuation after a reference is supported.
+
+Use `/hepi setting` to disable the behavior or change the suggestion limit. Settings persist under `pi-basics.dollarSkillReferences` in `<cwd>/.pi/settings.json`. Autocomplete is TUI-only, while path expansion also applies to interactive and RPC/print input. Do not load the standalone `pi-codex-dollar` extension with `@hheei/pi-basics`, because both transform the same input syntax.
+
 ## Automatic Titles
 
-Enable automatic titles in `/hepi setting` and choose a title model. Titles are generated only at initial session startup, after `/new`, or when manually requested with `/hepi auto-title`. They do not run after `/resume`, `/fork`, `/clone`, or compaction. The title agent receives the latest user prompt, limited to 2,000 characters, and returns no more than five words.
+Enable automatic titles in `/hepi setting` and choose a title model. Titles are generated only at initial session startup, after `/new`, or when manually requested with `/hepi auto-title`. They do not run after `/resume`, `/fork`, `/clone`, or compaction. Pi Basics runs a one-shot isolated agent with no tools or inherited extensions, so automatic titles do not require `pi-subagents`. The title agent receives the latest user prompt, limited to 2,000 characters, and returns no more than five words.
 
 ## Todo
 

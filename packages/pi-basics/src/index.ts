@@ -11,9 +11,12 @@ import {
 	createAutoTitleCoordinator,
 	createAutoTitleSettingsProvider,
 	parseModelRef,
-	provisionAutoTitleAgent,
-	requireAutoTitleSubagents,
 } from "./modules/auto-title/index.js";
+import {
+	createDollarSkillFeature,
+	createDollarSkillSettingsProvider,
+	registerDollarSkillInputTransform,
+} from "./modules/dollar-skill/index.js";
 import { createGoalFeature } from "./modules/goal/feature.js";
 import { createLoadoutView } from "./modules/loadout/component.js";
 import { createLoadoutController, type LoadoutController } from "./modules/loadout/controller.js";
@@ -27,11 +30,16 @@ import { combineSettingsProviders } from "./modules/setting/combined.js";
 import { createSettingsComponent } from "./modules/setting/component.js";
 import { SettingsController } from "./modules/setting/controller.js";
 import { createShellModule } from "./modules/shell/index.js";
+import { createSshfsFeature } from "./modules/sshfs/index.js";
 import { createTodoFeature } from "./modules/todo/index.js";
 import {
 	createTraditionalToSimplifiedFeature,
 	createTraditionalToSimplifiedSettingsProvider,
 } from "./modules/traditional-to-simplified/index.js";
+import {
+	createApplyPatchGuardSettingsProvider,
+	registerApplyPatchGuard,
+} from "./runtime/apply-patch-guard.js";
 import type { HePiRuntimeContext } from "./runtime/context.js";
 import { HePiLifecycleController, registerHePiLifecycle } from "./runtime/lifecycle.js";
 import { createToolActivationCoordinator } from "./runtime/tool-activation.js";
@@ -50,9 +58,7 @@ const createAutoTitleProvider = (
 				throw new Error(`Unavailable title model: ${value}`);
 			const auth = await runtime.ctx.modelRegistry.getApiKeyAndHeaders(model);
 			if (!auth.ok) throw new Error(auth.error);
-			await requireAutoTitleSubagents(runtime.pi);
 		},
-		prepareEnable: () => provisionAutoTitleAgent(runtime.ctx.cwd),
 		onPersisted,
 	});
 
@@ -63,7 +69,9 @@ function activeModuleRegistry(): HePiModuleRegistry {
 	if (active.length === 0) throw new Error("HEPI module registration requires an active session");
 	if (active.length > 1)
 		throw new Error("HEPI module registration is ambiguous across active sessions");
-	return active[0]![1];
+	const entry = active[0];
+	if (entry === undefined) throw new Error("HEPI module registration requires an active session");
+	return entry[1];
 }
 
 export function registerHePiModule(module: HePiModule, registry?: HePiModuleRegistry): void {
@@ -71,6 +79,8 @@ export function registerHePiModule(module: HePiModule, registry?: HePiModuleRegi
 }
 
 export default function piBasicsExtension(pi: ExtensionAPI): void {
+	const applyPatchGuard = registerApplyPatchGuard(pi);
+	const applyPatchGuardProvider = createApplyPatchGuardSettingsProvider(applyPatchGuard);
 	let settingsController: SettingsController | undefined;
 	let autoTitleCoordinator:
 		| { trigger: (force?: boolean) => void; setModel: (model: string) => void; dispose: () => void }
@@ -83,7 +93,11 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 	const goal = createGoalFeature(pi, coordinator);
 	const ask = createAskFeature(pi, coordinator);
 	const todo = createTodoFeature(pi);
+	const sshfs = createSshfsFeature(pi);
 	const plan = createPlanFeature(pi);
+	const dollarSkill = createDollarSkillFeature(pi);
+	const dollarSkillProvider = createDollarSkillSettingsProvider(dollarSkill);
+	registerDollarSkillInputTransform(pi, dollarSkill);
 	const traditionalToSimplified = createTraditionalToSimplifiedFeature();
 	const lifecycle = new HePiLifecycleController({
 		onStart: async (runtime) => {
@@ -92,6 +106,7 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 				id: "tool-activation",
 				cleanup: () => coordinator.reset(),
 			});
+			runtime.registry.registerLifecycle({ id: "sshfs", cleanup: () => sshfs.dispose() });
 			if (typeof runtime.pi.getActiveTools === "function") {
 				coordinator.setLoadoutBaseline(runtime.pi.getActiveTools());
 			}
@@ -119,6 +134,27 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 				id: "traditional-to-simplified",
 				cleanup: () => traditionalToSimplified.dispose(traditionalToSimplifiedSessionId),
 			});
+			try {
+				const state = await dollarSkillProvider.storage.load({
+					sessionId: runtime.ctx.sessionManager.getSessionId(),
+					cwd: runtime.ctx.cwd,
+				});
+				await dollarSkillProvider.onLoad?.(state ?? {}, {
+					sessionId: runtime.ctx.sessionManager.getSessionId(),
+					cwd: runtime.ctx.cwd,
+				});
+			} catch (error) {
+				runtime.ctx.ui.notify(
+					`Unable to load dollar skill settings: ${error instanceof Error ? error.message : String(error)}`,
+					"error",
+				);
+			}
+			dollarSkill.start(runtime);
+			const dollarSkillSessionId = runtime.ctx.sessionManager.getSessionId();
+			runtime.registry.registerLifecycle({
+				id: "dollar-skill",
+				cleanup: () => dollarSkill.dispose(dollarSkillSessionId),
+			});
 			const availableTitleModels = runtime.ctx.modelRegistry?.getAvailable?.() ?? [];
 			const defaultTitleModel = availableTitleModels[0];
 			const traditionalToSimplifiedProvider = createTraditionalToSimplifiedSettingsProvider({
@@ -135,10 +171,27 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 				autoTitleCoordinator?.dispose();
 				autoTitleCoordinator = selected ? createAutoTitleCoordinator(runtime, selected) : undefined;
 			});
+			try {
+				const state = await applyPatchGuardProvider.storage.load({
+					sessionId: runtime.ctx.sessionManager.getSessionId(),
+					cwd: runtime.ctx.cwd,
+				});
+				await applyPatchGuardProvider.onLoad?.(state ?? {}, {
+					sessionId: runtime.ctx.sessionManager.getSessionId(),
+					cwd: runtime.ctx.cwd,
+				});
+			} catch (error) {
+				runtime.ctx.ui.notify(
+					`Unable to load Guard patch settings: ${error instanceof Error ? error.message : String(error)}`,
+					"error",
+				);
+			}
 			const providers = () =>
 				combineSettingsProviders([
 					autoTitleProvider,
+					applyPatchGuardProvider,
 					createRtkSettingsProvider(rtk),
+					dollarSkillProvider,
 					traditionalToSimplifiedProvider,
 					...listHePiSettings().filter((provider) => provider.id !== autoTitleProvider.id),
 				]);
@@ -292,6 +345,7 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 	});
 }
 export * from "./api/index.js";
+export * from "./modules/dollar-skill/index.js";
 export * from "./modules/goal/index.js";
 export {
 	createLoadoutController,
