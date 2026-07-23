@@ -1,5 +1,5 @@
 import type { BuildSystemPromptOptions } from "@earendil-works/pi-coding-agent";
-import { loadoutKey, type LoadoutKey } from "./model.js";
+import { type LoadoutKey, loadoutKey } from "./model.js";
 
 type PromptSkill = NonNullable<BuildSystemPromptOptions["skills"]>[number];
 
@@ -17,7 +17,7 @@ function escapeXml(value: string): string {
 		.replace(/&/g, "&amp;")
 		.replace(/</g, "&lt;")
 		.replace(/>/g, "&gt;")
-		.replace(/\"/g, "&quot;")
+		.replace(/"/g, "&quot;")
 		.replace(/'/g, "&apos;");
 }
 
@@ -68,9 +68,7 @@ export function filterLoadoutDisabledSkillsFromPrompt(
 	disabledSkillKeys: ReadonlySet<string>,
 ): FilteredSkillPrompt | undefined {
 	const skills = options.skills ?? [];
-	const filteredSkills = skills.filter(
-		(skill) => !disabledSkillKeys.has(promptSkillKey(skill)),
-	);
+	const filteredSkills = skills.filter((skill) => !disabledSkillKeys.has(promptSkillKey(skill)));
 	if (filteredSkills.length === skills.length) return undefined;
 	return {
 		systemPrompt: replaceSkillsSection(

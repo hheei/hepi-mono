@@ -68,21 +68,6 @@ export const DEFAULT_RTK_INTEGRATION_CONFIG: RtkIntegrationConfig = {
 	},
 };
 
-export interface ConfigLoadResult {
-	config: RtkIntegrationConfig;
-	warning?: string;
-}
-
-export interface ConfigSaveResult {
-	success: boolean;
-	error?: string;
-}
-
-export interface EnsureConfigResult {
-	created: boolean;
-	error?: string;
-}
-
 export interface RuntimeStatus {
 	rtkAvailable: boolean;
 	lastCheckedAt?: number | undefined;

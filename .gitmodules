@@ -1,0 +1,9 @@
+[submodule "references/bpx-mono"]
+	path = references/bpx-mono
+	url = https://github.com/gabelul/bpx-mono
+[submodule "references/pi-omplike-advisor"]
+	path = references/pi-omplike-advisor
+	url = https://github.com/pasky/pi-omplike-advisor
+[submodule "references/rpiv-mono"]
+	path = references/rpiv-mono
+	url = https://github.com/juicesharp/rpiv-mono.git

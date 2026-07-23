@@ -47,6 +47,7 @@ function harness(mode: "tui" | "json" = "tui") {
 		handler: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
 	}> = [];
 	const tools: string[] = [];
+	const messageRenderers: string[] = [];
 	const events = new Map<string, Array<(event: unknown, ctx: ExtensionContext) => Promise<void>>>();
 	const notifications: Array<{ message: string; level?: string }> = [];
 	let customCalls = 0;
@@ -65,6 +66,9 @@ function harness(mode: "tui" | "json" = "tui") {
 			options: { handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> },
 		) {
 			commands.push({ name, handler: options.handler });
+		},
+		registerMessageRenderer(type: string) {
+			messageRenderers.push(type);
 		},
 		on(event: string, handler: (event: unknown, ctx: ExtensionContext) => Promise<void>) {
 			const handlers = events.get(event) ?? [];
@@ -155,6 +159,7 @@ function harness(mode: "tui" | "json" = "tui") {
 		ctx,
 		commands,
 		tools,
+		messageRenderers,
 		events,
 		notifications,
 		get footerFactory() {
@@ -189,10 +194,12 @@ test("registers commands and lifecycle handlers", () => {
 		"goal",
 		"todos",
 		"plan",
+		"advisor",
 		"hepi",
 	]);
 	expect(host.getActiveToolsCalls).toBe(0);
 	expect(host.tools).toEqual(["goal", "ask", "todo", "sshfs"]);
+	expect(host.messageRenderers).toEqual(["pi-basics-advisory"]);
 	expect(host.events.get("session_start")).toHaveLength(3);
 	expect(host.events.get("session_shutdown")).toHaveLength(2);
 });
@@ -245,8 +252,8 @@ test("opens built-in automatic title settings without external providers", async
 	expect(rendered).toContain("◈ Loadout");
 	expect(rendered).toContain("auto title");
 	expect(rendered).toContain("title model");
-	expect(rendered).toContain("RTK");
-	expect(rendered).toContain("Dollar skill references");
+	expect(rendered).toContain("Advisor");
+	expect(rendered).toContain("Guard patch");
 	expect(rendered).not.toContain("traditional to simplified");
 	expect(rendered).toContain("Origin: @pi-basics");
 	expect(host.notifications).toEqual([]);

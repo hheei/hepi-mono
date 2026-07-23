@@ -13,8 +13,6 @@ Pi Basics is the foundational HEPI extension. Its entry point is `packages/pi-ba
 - tool and skill activation through Loadout
 - shared module, settings, registry, and lifecycle APIs
 
-Do not load `@hheei/pi-loadout` in the same Pi process. Both packages own the host active-tool list.
-
 ## Source Layout
 
 ```text

@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { normalizeRtkIntegrationConfig } from "./config-store.js";
@@ -21,17 +20,9 @@ async function readRoot(path: string): Promise<Json> {
 export function settingsPath(cwd: string): string {
 	return join(cwd, ".pi", "settings.json");
 }
-export function legacyConfigPath(): string {
-	return join(
-		process.env.PI_CODING_AGENT_DIR ?? join(process.env.HOME ?? "", ".pi", "agent"),
-		"extensions",
-		"pi-rtk-optimizer",
-		"config.json",
-	);
-}
 export async function loadRtkConfig(
 	cwd: string,
-): Promise<{ config: RtkIntegrationConfig; warning?: string; migrated: boolean }> {
+): Promise<{ config: RtkIntegrationConfig; warning?: string }> {
 	try {
 		const root = await readRoot(settingsPath(cwd));
 		const section = root[SECTION];
@@ -39,20 +30,12 @@ export async function loadRtkConfig(
 			section && typeof section === "object" && !Array.isArray(section)
 				? (section as Json)[GROUP]
 				: undefined;
-		if (value !== undefined)
-			return { config: normalizeRtkIntegrationConfig(value), migrated: false };
-		const oldPath = legacyConfigPath();
-		if (existsSync(oldPath))
-			return {
-				config: normalizeRtkIntegrationConfig(JSON.parse(await readFile(oldPath, "utf8"))),
-				migrated: true,
-			};
-		return { config: structuredClone(DEFAULT_RTK_INTEGRATION_CONFIG), migrated: false };
+		if (value !== undefined) return { config: normalizeRtkIntegrationConfig(value) };
+		return { config: structuredClone(DEFAULT_RTK_INTEGRATION_CONFIG) };
 	} catch (error) {
 		return {
 			config: structuredClone(DEFAULT_RTK_INTEGRATION_CONFIG),
 			warning: `Unable to load RTK settings: ${error instanceof Error ? error.message : String(error)}`,
-			migrated: false,
 		};
 	}
 }

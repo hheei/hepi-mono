@@ -46,7 +46,7 @@ function resolveTemporaryDirectory(): string {
 }
 
 function getTemporaryRtkHistoryDbPath(): string {
-	return join(resolveTemporaryDirectory(), "pi-rtk-optimizer", "history.db");
+	return join(resolveTemporaryDirectory(), "pi-basics", "rtk-history.db");
 }
 
 function quoteForShellEnv(value: string): string {

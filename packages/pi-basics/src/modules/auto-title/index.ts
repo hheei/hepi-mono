@@ -25,6 +25,18 @@ const TIMEOUT_MS = 60_000;
 type JsonObject = Record<string, unknown>;
 export interface AutoTitleStorageOptions {
 	readonly path?: string;
+	readonly group?: string;
+}
+
+export interface AutoTitleModelOption {
+	readonly value: string;
+	readonly label: string;
+}
+
+export interface AutoTitleCoordinator {
+	trigger(force?: boolean): void;
+	setModel(modelRef: string): void;
+	dispose(): void;
 }
 
 export interface AutoTitleModelOption {
@@ -77,17 +89,18 @@ async function writeRoot(path: string, root: JsonObject): Promise<void> {
 
 export function createAutoTitleStorage(options: AutoTitleStorageOptions = {}): HePiSettingsStorage {
 	const path = options.path;
+	const group = options.group ?? AUTO_TITLE_GROUP;
 	return {
 		async load(ctx: { cwd?: string }): Promise<HePiSettingsState | undefined> {
 			const root = await readRoot(path ?? join(ctx.cwd ?? process.cwd(), ".pi", "settings.json"));
 			const section = root[SECTION];
 			const values =
 				section && typeof section === "object" && !Array.isArray(section)
-					? (section as JsonObject)[AUTO_TITLE_GROUP]
+					? (section as JsonObject)[group]
 					: undefined;
 			if (!values || typeof values !== "object" || Array.isArray(values)) return undefined;
 			return {
-				[AUTO_TITLE_GROUP]: Object.fromEntries(
+				[group]: Object.fromEntries(
 					Object.entries(values).filter(
 						([, value]) =>
 							value === null ||
@@ -106,7 +119,7 @@ export function createAutoTitleStorage(options: AutoTitleStorageOptions = {}): H
 				prior && typeof prior === "object" && !Array.isArray(prior)
 					? { ...(prior as JsonObject) }
 					: {};
-			section[AUTO_TITLE_GROUP] = { ...(state[AUTO_TITLE_GROUP] ?? {}) };
+			section[group] = { ...(state[group] ?? {}) };
 			root[SECTION] = section;
 			await writeRoot(target, root);
 		},
