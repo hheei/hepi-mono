@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { LoadoutKey, LoadoutScope } from "./model.js";
@@ -29,6 +29,15 @@ export function defaultLoadoutStoragePaths(): LoadoutStoragePaths {
 		globalPath: join(homedir(), ".pi", "agent", "setting.json"),
 		projectPath: join(process.cwd(), ".pi", "setting.json"),
 	};
+}
+
+export async function initialLoadoutScope(cwd: string): Promise<LoadoutScope> {
+	try {
+		return (await stat(join(cwd, ".pi"))).isDirectory() ? "project" : "global";
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return "global";
+		throw error;
+	}
 }
 
 const loadoutSection = "pi-basics-loadout";

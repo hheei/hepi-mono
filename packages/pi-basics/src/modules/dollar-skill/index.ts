@@ -71,6 +71,7 @@ export interface DollarSkillFeature {
 	start(runtime: HePiRuntimeContext): void;
 	dispose(sessionId: string): void;
 	isActive(): boolean;
+	isSkillEnabled(command: DollarSkillCommand): boolean;
 	getConfig(): DollarSkillConfig;
 	setConfig(config: DollarSkillConfig): void;
 }
@@ -134,6 +135,7 @@ export function createDollarSkillFeature(
 			if (editorOwner?.sessionId === sessionId) editorOwner.dispose();
 		},
 		isActive: () => activeSessionId !== undefined,
+		isSkillEnabled,
 		getConfig: () => config,
 		setConfig(value) {
 			config = normalizeDollarSkillConfig(value);
@@ -147,7 +149,7 @@ export function registerDollarSkillInputTransform(
 ): void {
 	pi.on("input", (event) => {
 		if (event.source === "extension" || !feature.isActive() || !feature.getConfig().enabled) return;
-		const text = expandDollarSkillReferences(event.text, pi.getCommands());
+		const text = expandDollarSkillReferences(event.text, pi.getCommands(), feature.isSkillEnabled);
 		if (text === undefined) return;
 		return {
 			action: "transform",

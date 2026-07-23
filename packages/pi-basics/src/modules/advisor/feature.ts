@@ -296,7 +296,7 @@ export function createAdvisorFeature(
 				ctx.ui.notify("Advisor runtime is not active", "error");
 				return;
 			}
-			const action = args || "status";
+			const action = args || (item.enabled ? "off" : "on");
 			if (action === "status") {
 				const value = status();
 				ctx.ui.notify(
@@ -337,7 +337,7 @@ export function createAdvisorFeature(
 				item.backlog = 0;
 				await item.adapter.abort();
 			}
-			ctx.ui.notify(`Advisor ${action}`, "info");
+			ctx.ui.notify(`※ Advisor ${action}`, "info");
 		},
 	};
 }

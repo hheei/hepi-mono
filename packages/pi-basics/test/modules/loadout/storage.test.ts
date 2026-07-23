@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createLoadoutStorage } from "../../../src/modules/loadout/storage.js";
+import { createLoadoutStorage, initialLoadoutScope } from "../../../src/modules/loadout/storage.js";
 
 async function fixture() {
 	const directory = await mkdtemp(join(tmpdir(), "pi-basics-loadout-"));
@@ -18,6 +18,17 @@ async function cleanup(directory: string) {
 }
 
 describe("loadout storage", () => {
+	test("prefers project scope when cwd contains a .pi directory", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "pi-basics-loadout-scope-"));
+		try {
+			expect(await initialLoadoutScope(directory)).toBe("global");
+			await mkdir(join(directory, ".pi"));
+			expect(await initialLoadoutScope(directory)).toBe("project");
+		} finally {
+			await cleanup(directory);
+		}
+	});
+
 	test("preserves unrelated root and unknown loadout keys", async () => {
 		const { directory, paths, storage } = await fixture();
 		try {

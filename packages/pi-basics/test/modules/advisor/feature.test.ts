@@ -104,6 +104,7 @@ function fixture(enabled: boolean, adapter = fakeAdapter()) {
 		: [];
 	const handlers = new Map<string, Handler[]>();
 	const messages: Array<Record<string, unknown>> = [];
+	const notifications: Array<{ message: string; level: string | undefined }> = [];
 	const deliveries: Array<{
 		message: Record<string, unknown>;
 		options: Record<string, unknown> | undefined;
@@ -121,7 +122,11 @@ function fixture(enabled: boolean, adapter = fakeAdapter()) {
 		},
 	} as unknown as ExtensionAPI;
 	const ctx = {
-		ui: { notify() {} },
+		ui: {
+			notify(message: string, level?: string) {
+				notifications.push({ message, level });
+			},
+		},
 		sessionManager: {
 			getSessionId: () => "advisor-session",
 			getBranch: () => entries,
@@ -136,7 +141,7 @@ function fixture(enabled: boolean, adapter = fakeAdapter()) {
 	} as unknown as HePiRuntimeContext;
 	const factory: AdvisorAdapterFactory = (_options: AdvisorAdapterOptions) => adapter;
 	const feature = createAdvisorFeature(factory);
-	return { adapter, ctx, deliveries, feature, handlers, messages, runtime, entries };
+	return { adapter, ctx, deliveries, entries, feature, handlers, messages, notifications, runtime };
 }
 
 async function waitFor(predicate: () => boolean, description: string): Promise<void> {
@@ -180,6 +185,25 @@ describe("Advisor feature lifecycle", () => {
 		});
 		await h.feature.command("on", h.ctx as unknown as ExtensionCommandContext);
 		expect(h.adapter.createCalls).toBe(1);
+	});
+
+	test("/advisor toggles while explicit on and off stay idempotent", async () => {
+		const h = fixture(false);
+		await h.feature.start(h.runtime);
+
+		await h.feature.command("", h.ctx as unknown as ExtensionCommandContext);
+		expect(h.feature.status()).toMatchObject({ enabled: true, phase: "idle" });
+		expect(h.adapter.createCalls).toBe(1);
+		expect(h.notifications.at(-1)).toEqual({ message: "※ Advisor on", level: "info" });
+
+		await h.feature.command("on", h.ctx as unknown as ExtensionCommandContext);
+		expect(h.adapter.createCalls).toBe(1);
+		await h.feature.command("", h.ctx as unknown as ExtensionCommandContext);
+		expect(h.feature.status()).toMatchObject({ enabled: false, phase: "disabled" });
+		expect(h.notifications.at(-1)).toEqual({ message: "※ Advisor off", level: "info" });
+
+		await h.feature.command("off", h.ctx as unknown as ExtensionCommandContext);
+		expect(h.feature.status().enabled).toBe(false);
 	});
 
 	test("/advisor on create failure stays disabled without an enabled boundary", async () => {

@@ -227,13 +227,15 @@ describe("settings renderer", () => {
 			"",
 			"",
 		]);
-		expect(panelContent(longDetail[1]!)).toBe("one two three four five six seven");
-		expect(panelContent(longDetail[2]!)).toBe("eight nine ten eleven twelve...");
-		expect(panelContent(longDetail[3]!)).toBe("");
-		expect(panelContent(longDetail[4]!)).toBe("Origin: @pi-basics");
-		expect(panelContent(longDetail[5]!)).toBe("Value: long-id-value");
-		expect(panelContent(longDetail[6]!)).toBe("");
-		expect(panelContent(longDetail[7]!)).toBe("");
+		expect(longDetail.slice(1, -1).map(panelContent)).toEqual([
+			"one two three four five six seven eight nine",
+			"ten eleven twelve thirteen fourteen fifteen...",
+			"",
+			"Origin: @pi-basics",
+			"",
+			"Value: long-id-value",
+			"",
+		]);
 		expect(longDetail.join("\n")).not.toMatch(/[↑↓]/);
 	});
 

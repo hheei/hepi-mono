@@ -113,6 +113,10 @@ function configuredValue(map: LoadoutMap, item: LoadoutItem): boolean | undefine
 	return legacyKey === undefined ? undefined : map[legacyKey];
 }
 
+function inheritsGlobalConfiguration(item: LoadoutItem, maps: LoadoutStatusMaps): boolean {
+	return item.hasGlobalDefinition || configuredValue(maps.global, item) !== undefined;
+}
+
 export function resolveConfiguredStatus(
 	item: LoadoutItem,
 	scope: LoadoutScope,
@@ -120,7 +124,7 @@ export function resolveConfiguredStatus(
 ): LoadoutConfiguredStatus {
 	if (scope === "global")
 		return configuredValue(maps.global, item) === false ? "disabled" : "active";
-	if (!item.hasGlobalDefinition)
+	if (!inheritsGlobalConfiguration(item, maps))
 		return configuredValue(maps.project, item) === false ? "disabled" : "active";
 	const projectValue = configuredValue(maps.project, item);
 	if (projectValue !== undefined) return projectValue ? "active" : "disabled";
@@ -188,7 +192,7 @@ export function nextConfiguredStatus(
 	maps: LoadoutStatusMaps,
 ): LoadoutConfiguredStatus {
 	const current = resolveConfiguredStatus(item, scope, maps);
-	if (scope === "project" && item.hasGlobalDefinition) {
+	if (scope === "project" && inheritsGlobalConfiguration(item, maps)) {
 		const globalDisabled = resolveConfiguredStatus(item, "global", maps) === "disabled";
 		if (globalDisabled) return current === "active" ? "disabled" : "active";
 		return current === "inherit" ? "active" : current === "active" ? "disabled" : "inherit";
@@ -233,7 +237,7 @@ export function toggleLoadoutState(
 	const global = { ...maps.global };
 	const project = { ...maps.project };
 	if (scope === "global") global[key] = next === "active";
-	else if (item.hasGlobalDefinition && next === "inherit") delete project[key];
+	else if (inheritsGlobalConfiguration(item, maps) && next === "inherit") delete project[key];
 	else project[key] = next === "active";
 	return { global, project };
 }
