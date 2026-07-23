@@ -186,7 +186,7 @@ export function renderLoadout(options: RenderLoadoutOptions): string[] {
 		...body,
 		...(state.error ? [theme.fg("error", `Error: ${state.error}`)] : []),
 		theme.fg("dim", footer(state.scope, width)),
-		"─".repeat(width),
+		theme.fg("border", "─".repeat(width)),
 	];
 	return finish(tail, width);
 }

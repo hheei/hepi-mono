@@ -11,7 +11,6 @@ import {
 	PONYTAIL_STATE_ENTRY,
 	type PonytailMode,
 	parsePonytailCommand,
-	ponytailStatusLabel,
 	restorePonytailMode,
 } from "./mode.js";
 import { buildPonytailPrompt } from "./prompt.js";
@@ -23,6 +22,13 @@ import {
 } from "./subagents.js";
 
 const COMMAND_VALUES = ["lite", "full", "ultra", "off", "status"] as const;
+const COMMAND_DESCRIPTIONS: Record<(typeof COMMAND_VALUES)[number], string> = {
+	lite: "Apply conservative YAGNI guidance while allowing moderate explanation.",
+	full: "Apply the default smallest-correct-change engineering guidance.",
+	ultra: "Apply the strictest deletion-first and minimum-code guidance.",
+	off: "Disable Ponytail prompt injection for the current session branch.",
+	status: "Print the active Ponytail mode without changing it.",
+};
 
 export default async function piPonytailExtension(pi: ExtensionAPI): Promise<void> {
 	await registerPonytailHePiSettings();
@@ -34,14 +40,9 @@ export default async function piPonytailExtension(pi: ExtensionAPI): Promise<voi
 		return subagentSession ? defaults.subagentMode : defaults.mainMode;
 	}
 
-	function updateStatus(ctx: ExtensionContext): void {
-		ctx.ui.setStatus("pi-ponytail", defaults.hideStatus ? undefined : ponytailStatusLabel(mode));
-	}
-
-	function setMode(nextMode: PonytailMode, ctx: ExtensionContext): void {
+	function setMode(nextMode: PonytailMode, _ctx: ExtensionContext): void {
 		const changed = mode !== nextMode;
 		mode = nextMode;
-		updateStatus(ctx);
 		if (changed) {
 			pi.appendEntry(PONYTAIL_STATE_ENTRY, { version: 1, mode });
 		}
@@ -52,7 +53,7 @@ export default async function piPonytailExtension(pi: ExtensionAPI): Promise<voi
 		getArgumentCompletions: (prefix) => {
 			const normalized = prefix.trim().toLowerCase();
 			const matches = COMMAND_VALUES.filter((value) => value.startsWith(normalized)).map(
-				(value) => ({ value, label: value }),
+				(value) => ({ value, label: value, description: COMMAND_DESCRIPTIONS[value] }),
 			);
 			return matches.length > 0 ? matches : null;
 		},
@@ -62,8 +63,9 @@ export default async function piPonytailExtension(pi: ExtensionAPI): Promise<voi
 				case "set":
 					setMode(command.mode, ctx);
 					ctx.ui.notify(
-						command.mode === "off" ? "Ponytail mode off" : `Ponytail mode: ${command.mode}`,
-						"info",
+						command.mode === "off"
+							? "※ Ponytail mode disabled."
+							: `※ Ponytail mode enabled: ${command.mode}.`,
 					);
 					return;
 				case "status":
@@ -83,16 +85,12 @@ export default async function piPonytailExtension(pi: ExtensionAPI): Promise<voi
 
 	function restoreModeFromBranch(ctx: ExtensionContext): void {
 		mode = restorePonytailMode(ctx.sessionManager.getBranch(), configuredDefaultMode());
-		updateStatus(ctx);
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
 		defaults = await loadPonytailDefaults(ctx.cwd);
 		subagentSession = isPiSubagentSession(pi);
 		restoreModeFromBranch(ctx);
-		if (!defaults.quietStartup && !subagentSession) {
-			ctx.ui.notify(`Ponytail loaded: ${mode}`, "info");
-		}
 	});
 
 	pi.on("session_tree", (_event, ctx) => {
@@ -117,10 +115,6 @@ export default async function piPonytailExtension(pi: ExtensionAPI): Promise<voi
 		const prompt = buildPonytailPrompt(mode);
 		if (prompt === undefined) return undefined;
 		return { systemPrompt: `${event.systemPrompt}\n\n${prompt}` };
-	});
-
-	pi.on("session_shutdown", (_event, ctx) => {
-		ctx.ui.setStatus("pi-ponytail", undefined);
 	});
 }
 

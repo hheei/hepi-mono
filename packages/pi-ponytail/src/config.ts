@@ -72,16 +72,6 @@ export function createPonytailSettingsProvider(): HePiSettingsProvider {
 						"Subagent mode",
 						"Default mode for agents launched by pi-subagents.",
 					),
-					booleanField(
-						PONYTAIL_HIDE_STATUS_FIELD,
-						"Hide status",
-						"Keep Ponytail active without a status indicator.",
-					),
-					booleanField(
-						PONYTAIL_QUIET_STARTUP_FIELD,
-						"Quiet startup",
-						"Do not show the Ponytail loaded notification.",
-					),
 				],
 			},
 		],
@@ -111,17 +101,6 @@ function modeField(id: string, label: string, description: string): HePiSettingF
 		options: MODE_OPTIONS.map((value) => ({ value, label: value })),
 		description,
 		parse: (draft) => normalizeMode(draft, DEFAULT_PONYTAIL_MODE),
-	};
-}
-
-function booleanField(id: string, label: string, description: string): HePiSettingField<boolean> {
-	return {
-		id,
-		label,
-		type: "boolean",
-		defaultValue: false,
-		description,
-		parse: (draft) => draft === "true",
 	};
 }
 

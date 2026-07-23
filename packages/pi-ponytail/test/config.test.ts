@@ -57,8 +57,6 @@ describe("Ponytail HEPI settings", () => {
 		expect(provider.groups[0]?.fields.map((field) => field.id)).toEqual([
 			"mainMode",
 			"subagentMode",
-			"hideStatus",
-			"quietStartup",
 		]);
 
 		await provider.storage.save(

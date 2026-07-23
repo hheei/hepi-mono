@@ -4,7 +4,6 @@ import { registerCavemanHePiSettings } from "./hepi-settings.js";
 import {
 	CAVEMAN_STATE_ENTRY,
 	type CavemanMode,
-	cavemanStatusLabel,
 	DEFAULT_CAVEMAN_MODE,
 	detectCavemanIntent,
 	parseCavemanCommand,
@@ -29,6 +28,17 @@ const COMMAND_VALUES = [
 	"off",
 	"status",
 ] as const;
+const COMMAND_DESCRIPTIONS: Record<(typeof COMMAND_VALUES)[number], string> = {
+	lite: "Use concise replies while preserving normal explanatory detail.",
+	full: "Use the default compressed Caveman response style.",
+	ultra: "Use the shortest Caveman response style with minimal prose.",
+	wenyan: "Use the default Classical Chinese Caveman response style.",
+	"wenyan-lite": "Use concise Classical Chinese with moderate detail.",
+	"wenyan-full": "Use the default compressed Classical Chinese style.",
+	"wenyan-ultra": "Use the shortest Classical Chinese response style.",
+	off: "Disable Caveman prompt injection for the current session branch.",
+	status: "Print the active Caveman mode without changing it.",
+};
 
 export default async function piCavemanExtension(pi: ExtensionAPI): Promise<void> {
 	await registerCavemanHePiSettings();
@@ -40,14 +50,9 @@ export default async function piCavemanExtension(pi: ExtensionAPI): Promise<void
 		return subagentSession ? defaults.subagentMode : defaults.mainMode;
 	}
 
-	function updateStatus(ctx: ExtensionContext): void {
-		ctx.ui.setStatus("pi-caveman", cavemanStatusLabel(mode));
-	}
-
-	function setMode(nextMode: CavemanMode, ctx: ExtensionContext): void {
+	function setMode(nextMode: CavemanMode, _ctx: ExtensionContext): void {
 		const changed = mode !== nextMode;
 		mode = nextMode;
-		updateStatus(ctx);
 		if (changed) {
 			pi.appendEntry(CAVEMAN_STATE_ENTRY, { version: 1, mode });
 		}
@@ -58,7 +63,7 @@ export default async function piCavemanExtension(pi: ExtensionAPI): Promise<void
 		getArgumentCompletions: (prefix) => {
 			const normalized = prefix.trim().toLowerCase();
 			const matches = COMMAND_VALUES.filter((value) => value.startsWith(normalized)).map(
-				(value) => ({ value, label: value }),
+				(value) => ({ value, label: value, description: COMMAND_DESCRIPTIONS[value] }),
 			);
 			return matches.length > 0 ? matches : null;
 		},
@@ -68,8 +73,9 @@ export default async function piCavemanExtension(pi: ExtensionAPI): Promise<void
 				case "set":
 					setMode(command.mode, ctx);
 					ctx.ui.notify(
-						command.mode === "off" ? "Caveman mode off" : `Caveman mode: ${command.mode}`,
-						"info",
+						command.mode === "off"
+							? "※ Caveman mode disabled."
+							: `※ Caveman mode enabled: ${command.mode}.`,
 					);
 					return;
 				case "status":
@@ -89,7 +95,6 @@ export default async function piCavemanExtension(pi: ExtensionAPI): Promise<void
 
 	function restoreModeFromBranch(ctx: ExtensionContext): void {
 		mode = restoreCavemanMode(ctx.sessionManager.getBranch(), configuredDefaultMode());
-		updateStatus(ctx);
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -121,10 +126,6 @@ export default async function piCavemanExtension(pi: ExtensionAPI): Promise<void
 		const prompt = buildCavemanPrompt(mode);
 		if (prompt === undefined) return undefined;
 		return { systemPrompt: `${event.systemPrompt}\n\n${prompt}` };
-	});
-
-	pi.on("session_shutdown", (_event, ctx) => {
-		ctx.ui.setStatus("pi-caveman", undefined);
 	});
 }
 
