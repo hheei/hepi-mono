@@ -16,7 +16,18 @@
 
 Feature extensions load alongside `pi-basics`. Register Settings providers with `registerHePiSettings()` and command surfaces with `registerHePiModule()`. Use `HePiLifecycleController` for session state and cleanup. Import only from the `@hheei/pi-basics` package root.
 
-Cross-feature support must use a `pi-basics` contract. Do not import another feature package. Current contracts include the tool activation coordinator and Loadout bridge callbacks.
+Cross-feature support must use a `pi-basics` contract. Do not import another feature package. Runtime-shared contracts use `pi.events` as the Pi runtime identity because each loaded extension receives a different `ExtensionAPI` facade.
+
+### Cross-Feature Contracts
+
+| Contract | Owner | Producers / consumers | Scope and cleanup | Missing collaborator |
+| --- | --- | --- | --- | --- |
+| `ToolActivationCoordinator` | `pi-basics` | Basics establishes the host baseline; Loadout updates configured tools; Ask controls temporary visibility | One instance per shared Pi event bus. Basics resets it on session start and disposes it on shutdown. A reload rebinds host actions to the current `ExtensionAPI`. | Features may read an empty baseline; no feature-to-feature call is required. |
+| Loadout bridge | `pi-basics` | Loadout publishes disabled skill keys and requests tool disable; Goal registers the `goal` disable handler; Dollar Skill reads skill state | State is scoped to the shared Pi event bus. Tool handlers register during session start and unregister during cleanup. Disabled skill keys reset during Loadout cleanup. | Unknown tool disable requests are no-ops. Skills are enabled unless Loadout explicitly disables their key. |
+
+Registration IDs must be non-empty. Duplicate tool disable handlers are programmer errors and throw. An unregister function removes only the exact handler that created it.
+
+Use `pi.events` directly only for namespaced notifications without shared state ownership. Use a `pi-basics` contract for coordinated state or request/response semantics. Do not add a generic registry until at least two concrete contracts need identical ownership and collision behavior.
 
 ## TUI
 

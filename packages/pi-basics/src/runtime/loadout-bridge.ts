@@ -1,24 +1,24 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { HePiMaybePromise } from "../api/modules.js";
+import { extensionRuntimeIdentity } from "./identity.js";
 
 interface LoadoutBridgeState {
 	disabledSkillKeys: ReadonlySet<string>;
 	readonly toolDisableHandlers: Map<string, () => HePiMaybePromise<void>>;
 }
 
-declare global {
-	var __hepiLoadoutBridgeState: LoadoutBridgeState | undefined;
-}
+const states = new WeakMap<object, LoadoutBridgeState>();
 
-function stateFor(_pi: ExtensionAPI): LoadoutBridgeState {
-	const existing = globalThis.__hepiLoadoutBridgeState;
+function stateFor(pi: ExtensionAPI): LoadoutBridgeState {
+	const identity = extensionRuntimeIdentity(pi);
+	const existing = states.get(identity);
 	if (existing !== undefined) return existing;
-	const created: LoadoutBridgeState = {
+	const state: LoadoutBridgeState = {
 		disabledSkillKeys: new Set(),
 		toolDisableHandlers: new Map(),
 	};
-	globalThis.__hepiLoadoutBridgeState = created;
-	return created;
+	states.set(identity, state);
+	return state;
 }
 
 export function hePiLoadoutKey(kind: string, name: string, source?: string): string {
@@ -38,7 +38,10 @@ export function registerHePiToolDisableHandler(
 	toolName: string,
 	handler: () => HePiMaybePromise<void>,
 ): () => void {
+	if (!toolName.trim()) throw new Error("HEPI tool disable handler name must not be empty");
 	const state = stateFor(pi);
+	if (state.toolDisableHandlers.has(toolName))
+		throw new Error(`HEPI tool disable handler already exists: ${toolName}`);
 	state.toolDisableHandlers.set(toolName, handler);
 	return () => {
 		if (state.toolDisableHandlers.get(toolName) === handler)

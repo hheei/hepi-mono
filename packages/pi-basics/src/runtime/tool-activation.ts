@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { extensionRuntimeIdentity } from "./identity.js";
 
 export interface ToolActivationCoordinator {
 	setLoadoutBaseline(names: readonly string[]): void;
@@ -13,7 +14,16 @@ function unique(names: readonly string[]): string[] {
 	return [...new Set(names)];
 }
 
-function createCoordinator(getPi: () => ExtensionAPI): ToolActivationCoordinator {
+interface RebindableToolActivationCoordinator extends ToolActivationCoordinator {
+	bind(pi: ExtensionAPI): void;
+}
+
+const coordinators = new WeakMap<object, RebindableToolActivationCoordinator>();
+
+function createRebindableToolActivationCoordinator(
+	pi: ExtensionAPI,
+): RebindableToolActivationCoordinator {
+	let host = pi;
 	let baseline: string[] = [];
 	let askVisible = false;
 	let disposed = false;
@@ -24,13 +34,15 @@ function createCoordinator(getPi: () => ExtensionAPI): ToolActivationCoordinator
 		const next = baseline.filter((name) => name !== "ask" || askVisible);
 		if (next.length === effective.length && next.every((name, index) => name === effective[index]))
 			return;
-		const pi = getPi();
-		if (typeof pi.setActiveTools === "function") pi.setActiveTools([...next]);
+		if (typeof host.setActiveTools === "function") host.setActiveTools([...next]);
 		effective = next;
 	};
 	recompute();
 
 	return {
+		bind(nextHost) {
+			host = nextHost;
+		},
 		setLoadoutBaseline(names) {
 			if (disposed) return;
 			baseline = unique(names);
@@ -63,28 +75,17 @@ function createCoordinator(getPi: () => ExtensionAPI): ToolActivationCoordinator
 }
 
 export function createToolActivationCoordinator(pi: ExtensionAPI): ToolActivationCoordinator {
-	return createCoordinator(() => pi);
-}
-
-class GlobalCoordinatorState {
-	readonly coordinator: ToolActivationCoordinator;
-
-	constructor(public pi: ExtensionAPI) {
-		this.coordinator = createCoordinator(() => this.pi);
-	}
-}
-
-declare global {
-	var __hepiToolActivationCoordinatorState: GlobalCoordinatorState | undefined;
+	return createRebindableToolActivationCoordinator(pi);
 }
 
 export function getToolActivationCoordinator(pi: ExtensionAPI): ToolActivationCoordinator {
-	const existing = globalThis.__hepiToolActivationCoordinatorState;
+	const identity = extensionRuntimeIdentity(pi);
+	const existing = coordinators.get(identity);
 	if (existing !== undefined) {
-		existing.pi = pi;
-		return existing.coordinator;
+		existing.bind(pi);
+		return existing;
 	}
-	const created = new GlobalCoordinatorState(pi);
-	globalThis.__hepiToolActivationCoordinatorState = created;
-	return created.coordinator;
+	const coordinator = createRebindableToolActivationCoordinator(pi);
+	coordinators.set(identity, coordinator);
+	return coordinator;
 }

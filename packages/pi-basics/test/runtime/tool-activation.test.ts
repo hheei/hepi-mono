@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	createToolActivationCoordinator,
 	getToolActivationCoordinator,
@@ -21,24 +22,68 @@ function host(initial: string[] = ["read", "ask", "goal"]) {
 	};
 }
 
-describe("tool activation coordinator", () => {
-	test("shares state across per-extension API wrappers", () => {
-		const writes: string[][] = [];
-		const loadoutApi = { setActiveTools: (names: string[]) => writes.push(names) } as never;
-		const goalApi = { setActiveTools: (names: string[]) => writes.push(names) } as never;
-		const loadoutCoordinator = getToolActivationCoordinator(loadoutApi);
-		const goalCoordinator = getToolActivationCoordinator(goalApi);
-		loadoutCoordinator.reset();
-		loadoutCoordinator.setLoadoutBaseline(["goal"]);
-		expect(goalCoordinator).toBe(loadoutCoordinator);
-		expect(goalCoordinator.isConfigured("goal")).toBe(true);
-		expect(writes.at(-1)).toEqual(["goal"]);
-		goalCoordinator.dispose();
-	});
+function sharedRuntimeApis(events = { emit() {}, on: () => () => undefined }): {
+	readonly first: ExtensionAPI;
+	readonly second: ExtensionAPI;
+	readonly firstWrites: string[][];
+	readonly secondWrites: string[][];
+} {
+	const firstWrites: string[][] = [];
+	const secondWrites: string[][] = [];
+	return {
+		first: {
+			events,
+			setActiveTools: (names: string[]) => {
+				firstWrites.push(names);
+			},
+		} as unknown as ExtensionAPI,
+		second: {
+			events,
+			setActiveTools: (names: string[]) => {
+				secondWrites.push(names);
+			},
+		} as unknown as ExtensionAPI,
+		firstWrites,
+		secondWrites,
+	};
+}
 
+describe("tool activation coordinator", () => {
 	test("does not access host actions during construction", () => {
 		const { getActiveToolsCalls } = host();
 		expect(getActiveToolsCalls()).toBe(0);
+	});
+
+	test("shares state across extension APIs and rebinds host actions", () => {
+		const { first, second, firstWrites, secondWrites } = sharedRuntimeApis();
+		const fromFirst = getToolActivationCoordinator(first);
+		const fromSecond = getToolActivationCoordinator(second);
+		expect(fromSecond).toBe(fromFirst);
+		fromFirst.setLoadoutBaseline(["read", "goal"]);
+		expect(firstWrites).toEqual([]);
+		expect(secondWrites).toEqual([["read", "goal"]]);
+	});
+
+	test("rebinds after reload on the same event bus", () => {
+		const { first, second, firstWrites, secondWrites } = sharedRuntimeApis();
+		const beforeReload = getToolActivationCoordinator(first);
+		beforeReload.setLoadoutBaseline(["read"]);
+		beforeReload.dispose();
+
+		const afterReload = getToolActivationCoordinator(second);
+		expect(afterReload).toBe(beforeReload);
+		afterReload.reset();
+		afterReload.setLoadoutBaseline(["goal"]);
+		expect(firstWrites).toEqual([["read"]]);
+		expect(secondWrites).toEqual([["goal"]]);
+	});
+
+	test("isolates coordinators from different Pi runtimes", () => {
+		const firstRuntime = sharedRuntimeApis();
+		const secondRuntime = sharedRuntimeApis();
+		expect(getToolActivationCoordinator(firstRuntime.first)).not.toBe(
+			getToolActivationCoordinator(secondRuntime.first),
+		);
 	});
 	test("masks Ask without removing configured Goal", () => {
 		const { coordinator, activeSets } = host(["read", "goal"]);
