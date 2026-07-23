@@ -1,7 +1,7 @@
 # Graph Report - hepi-mono  (2026-07-23)
 
 ## Corpus Check
-- 262 files · ~153,302 words
+- 262 files · ~153,726 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `d0ab161e`
+- Built from commit: `0a8dbbaf`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -1235,7 +1235,7 @@ Cohesion: 0.40
 Nodes (3): SettingsPanelHost, ExtensionSettingsSubpanelCreateOptions, MaybePromise
 
 ## Knowledge Gaps
-- **1288 isolated node(s):** `Load and use`, `Goal`, `Ask`, `SSHFS`, `Dollar skill references` (+1283 more)
+- **1288 isolated node(s):** `GuardPatchMode`, `JsonObject`, `modeField`, `Handler`, `Load and use` (+1283 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **24 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
@@ -1243,12 +1243,12 @@ Nodes (3): SettingsPanelHost, ExtensionSettingsSubpanelCreateOptions, MaybePromi
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `themeFgFirst()` connect `output-tail-sink.ts` to `.key`?**
-  _High betweenness centrality (0.066) - this node is a cross-community bridge._
+  _High betweenness centrality (0.077) - this node is a cross-community bridge._
 - **Why does `Harness` connect `04｜公开 API、Settings contract 与 storage` to `widget.test.ts`, `.key`?**
-  _High betweenness centrality (0.065) - this node is a cross-community bridge._
-- **Why does `createAskFeature()` connect `TUI 設計語言規範` to `ValueEditor`, `index.ts`, `pi-basics Ask 高层方案（Review Gate）`, `SettingsController`, `compilerOptions`, `panels.ts`?**
-  _High betweenness centrality (0.047) - this node is a cross-community bridge._
-- **What connects `Load and use`, `Goal`, `Ask` to the rest of the system?**
+  _High betweenness centrality (0.073) - this node is a cross-community bridge._
+- **Why does `renderSkillPickerLines()` connect `output-tail-sink.ts` to `SSH Tool Registration`, `model.test.ts`, `6. Phase C — Feature, command, input and tool surface`, `text.ts`?**
+  _High betweenness centrality (0.053) - this node is a cross-community bridge._
+- **What connects `GuardPatchMode`, `JsonObject`, `modeField` to the rest of the system?**
   _1288 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `SSH Session Management` be split into smaller, more focused modules?**
   _Cohesion score 0.13043478260869565 - nodes in this community are weakly interconnected._
