@@ -121,7 +121,8 @@ export class SettingsController {
 	}
 	private currentValue(field: HePiSettingField & { readonly groupId: string }): HePiSettingValue {
 		return (
-			this.state.committed[this.provider!.id]?.[field.groupId]?.[field.id] ?? field.defaultValue
+			this.state.committed[this.provider?.id ?? ""]?.[field.groupId]?.[field.id] ??
+			field.defaultValue
 		);
 	}
 	private updateOptimistic(
@@ -155,11 +156,12 @@ export class SettingsController {
 		const operation = prior.then(async () => {
 			const committed = cloneState(this.#committed.get(provider.id) ?? {});
 			const next = applyChange(committed, change);
+			const previousValue = committed[groupId]?.[fieldId];
 			const callbackChange = {
 				groupId,
 				fieldId,
 				value,
-				previousValue: committed[groupId]?.[fieldId],
+				...(previousValue === undefined ? {} : { previousValue }),
 				state: cloneState(next),
 			};
 			try {

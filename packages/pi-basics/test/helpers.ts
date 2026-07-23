@@ -47,7 +47,7 @@ export function fakeHost(): FakeHost {
 		notifications: [],
 		renderRequests: 0,
 		notify(message, level) {
-			host.notifications.push({ message, level });
+			host.notifications.push(level === undefined ? { message } : { message, level });
 		},
 		requestRender() {
 			host.renderRequests++;

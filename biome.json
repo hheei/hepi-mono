@@ -19,7 +19,10 @@
 			"test/**/*.ts",
 			"!**/node_modules",
 			"!**/dist",
-			"!**/.pi"
+			"!**/.pi",
+			"!references",
+			"!legacy",
+			"!graphify-out"
 		]
 	},
 	"formatter": {
@@ -29,21 +32,42 @@
 	},
 	"linter": {
 		"enabled": true,
+		"domains": {
+			"types": "all"
+		},
 		"rules": {
 			"preset": "recommended",
 			"correctness": {
 				"noUnusedImports": "error",
 				"noUnusedVariables": "warn"
 			},
+			"nursery": {
+				"noFloatingPromises": "error"
+			},
 			"style": {
-				"noNonNullAssertion": "off",
+				"noEnum": "error",
+				"noNamespace": "error",
+				"noNonNullAssertion": "error",
 				"useConst": "warn"
 			},
 			"suspicious": {
-				"noExplicitAny": "off"
+				"noExplicitAny": "error",
+				"noTsIgnore": "error"
 			}
 		}
 	},
+	"overrides": [
+		{
+			"includes": ["packages/*/test/**/*.ts", "packages/*/**/*.test.ts"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noNonNullAssertion": "off"
+					}
+				}
+			}
+		}
+	],
 	"javascript": {
 		"formatter": {
 			"quoteStyle": "double"

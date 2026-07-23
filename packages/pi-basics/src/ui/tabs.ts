@@ -49,8 +49,10 @@ export function renderTabBar(
 	width?: number,
 	theme?: Theme,
 ): string[] {
-	if (Array.isArray(optionsOrLabels))
-		return renderTabs(optionsOrLabels, activeIndex ?? 0, width ?? 0, theme!);
+	if (Array.isArray(optionsOrLabels)) {
+		if (!theme) throw new Error("Tab bar theme is required");
+		return renderTabs(optionsOrLabels, activeIndex ?? 0, width ?? 0, theme);
+	}
 	const options = optionsOrLabels as TabBarOptions;
 	return renderTabs(options.labels, options.activeIndex, options.width, options.theme);
 }

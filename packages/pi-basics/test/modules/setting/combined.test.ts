@@ -49,6 +49,24 @@ function provider(
 }
 
 describe("combineSettingsProviders", () => {
+	test("captures each provider group from one groups read", () => {
+		const calls: string[] = [];
+		const source = provider("dynamic", "dynamic", "enabled", true, calls);
+		let reads = 0;
+		Object.defineProperty(source, "groups", {
+			get: () => {
+				reads++;
+				return reads === 1 ? provider("dynamic", "dynamic", "enabled", true, calls).groups : [];
+			},
+		});
+
+		const combined = combineSettingsProviders([source]);
+
+		expect(reads).toBe(1);
+		expect(combined.groups.map((group) => group.id)).toEqual(["dynamic"]);
+		expect(combined.groups[0]?.fields.map((field) => field.id)).toEqual(["enabled"]);
+	});
+
 	test("keeps module settings in one provider while routing lifecycle callbacks", async () => {
 		const calls: string[] = [];
 		const combined = combineSettingsProviders([
@@ -68,7 +86,10 @@ describe("combineSettingsProviders", () => {
 			},
 			context,
 		);
-		await combined.storage.save({ "auto-title": { enabled: true }, rtk: { enabled: false } }, context);
+		await combined.storage.save(
+			{ "auto-title": { enabled: true }, rtk: { enabled: false } },
+			context,
+		);
 
 		expect(calls).toEqual([
 			"load:auto-title:false",

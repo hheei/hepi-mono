@@ -21,15 +21,15 @@ export interface SettingsProviderSnapshot {
 }
 export interface SettingsModelState {
 	readonly providers: readonly SettingsProviderSnapshot[];
-	readonly activeProviderId?: string;
-	readonly selection?: SettingsSelection;
+	readonly activeProviderId?: string | undefined;
+	readonly selection?: SettingsSelection | undefined;
 	readonly mode: SettingsMode;
 	readonly committed: Readonly<Record<string, HePiSettingsState>>;
-	readonly draftValue?: string;
+	readonly draftValue?: string | undefined;
 	readonly search: string;
 	readonly collapsedGroupIds: ReadonlySet<string>;
 	readonly scrollTop: number;
-	readonly error?: string;
+	readonly error?: string | undefined;
 }
 
 export function settingGroupItemId(groupId: string): string {
@@ -70,9 +70,11 @@ export function mergeSettingsState(
 		const storedGroup = storedState[group.id] ?? {};
 		const fields: Record<string, HePiSettingValue> = {};
 		for (const field of group.fields) {
-			fields[field.id] = Object.hasOwn(storedGroup, field.id)
-				? storedGroup[field.id]!
-				: field.defaultValue;
+			const storedValue = storedGroup[field.id];
+			fields[field.id] =
+				Object.hasOwn(storedGroup, field.id) && storedValue !== undefined
+					? storedValue
+					: field.defaultValue;
 		}
 		// Preserve unknown fields from storage; domain state owns them.
 		result[group.id] = { ...storedGroup, ...fields };
@@ -120,7 +122,9 @@ export function cycleOption<T extends boolean | number | string>(
 	if (!field.options?.length) throw new Error(`Setting has no options: ${field.id}`);
 	const index = field.options.findIndex((option) => Object.is(option.value, value));
 	if (index < 0) throw new Error(`Invalid option for setting: ${field.id}`);
-	return field.options[(index + direction + field.options.length) % field.options.length]!.value;
+	const option = field.options[(index + direction + field.options.length) % field.options.length];
+	if (!option) throw new Error(`Invalid option for setting: ${field.id}`);
+	return option.value;
 }
 
 export class SettingsModel {
@@ -133,7 +137,7 @@ export class SettingsModel {
 			providers: snapshots,
 			activeProviderId: first?.provider.id,
 			selection: firstField
-				? { providerId: first!.provider.id, itemId: firstField.id, groupId: firstField.groupId }
+				? { providerId: first?.provider.id, itemId: firstField.id, groupId: firstField.groupId }
 				: first?.panels[0]
 					? { providerId: first.provider.id, itemId: settingPanelItemId(first.panels[0].id) }
 					: undefined,
@@ -187,18 +191,19 @@ export class SettingsModel {
 			(field) => field.id === old?.itemId && field.groupId === old?.groupId,
 		);
 		const panelStillVisible = panels.some((panel) => settingPanelItemId(panel.id) === old?.itemId);
+		const providerId = this.state.activeProviderId;
+		if (!providerId) {
+			this.state = { ...this.state, search, selection: undefined, scrollTop: 0 };
+			return;
+		}
 		const next =
 			fieldStillVisible || panelStillVisible
 				? old
 				: fields[0]
-					? {
-							providerId: this.state.activeProviderId!,
-							itemId: fields[0].id,
-							groupId: fields[0].groupId,
-						}
+					? { providerId, itemId: fields[0].id, groupId: fields[0].groupId }
 					: panels[0]
-						? { providerId: this.state.activeProviderId!, itemId: settingPanelItemId(panels[0].id) }
-						: { providerId: this.state.activeProviderId! };
+						? { providerId, itemId: settingPanelItemId(panels[0].id) }
+						: { providerId };
 		this.state = { ...this.state, search, selection: next, scrollTop: 0 };
 	}
 	toggleGroup(_groupId: string): void {
@@ -231,7 +236,9 @@ export class SettingsModel {
 		const panelStillVisible = panels.some((panel) => settingPanelItemId(panel.id) === old?.itemId);
 		const selection =
 			fieldStillVisible || panelStillVisible
-				? { ...old!, providerId }
+				? old
+					? { ...old, providerId }
+					: { providerId }
 				: fields[0]
 					? { providerId, itemId: fields[0].id, groupId: fields[0].groupId }
 					: panels[0]

@@ -8,7 +8,9 @@ import { padToWidth, truncateToWidth, wrap } from "../../ui/text.js";
 import {
 	ASK_LIMITS,
 	ASK_OTHER_LABEL,
+	type AskAnswerDraft,
 	type AskInteractionResult,
+	type AskQuestion,
 	type AskQuestionnaire,
 	type AskState,
 	askDetails,
@@ -28,6 +30,23 @@ export interface AskComponentOptions {
 
 type Block = readonly string[];
 
+function invariant<T>(value: T | undefined, message: string): T {
+	if (value === undefined) throw new Error(message);
+	return value;
+}
+
+export function formatAskReviewAnswer(question: AskQuestion, draft: AskAnswerDraft): string {
+	return (
+		[
+			...draft.selected.map(
+				(selected) =>
+					invariant(question.options[selected], "Ask option state is inconsistent").label,
+			),
+			...(draft.custom ? [`Other: ${draft.custom}`] : []),
+		].join(", ") || "None selected"
+	);
+}
+
 /** Pick complete blocks around focus, clipping only when one block exceeds budget. */
 export function visibleBlocks(
 	blocks: readonly Block[],
@@ -41,10 +60,16 @@ export function visibleBlocks(
 	const rows: string[] = [];
 	let first = focus;
 	let last = focus;
-	let used = blocks[focus]!.length;
+	let used = invariant(blocks[focus], "Ask viewport focus is inconsistent").length;
 	while (first > 0 || last < blocks.length - 1) {
-		const before = first > 0 ? blocks[first - 1]!.length : Infinity;
-		const after = last < blocks.length - 1 ? blocks[last + 1]!.length : Infinity;
+		const before =
+			first > 0
+				? invariant(blocks[first - 1], "Ask viewport block is inconsistent").length
+				: Infinity;
+		const after =
+			last < blocks.length - 1
+				? invariant(blocks[last + 1], "Ask viewport block is inconsistent").length
+				: Infinity;
 		if (after <= before && last < blocks.length - 1 && used + after <= budget) {
 			last++;
 			used += after;
@@ -62,7 +87,8 @@ export function visibleBlocks(
 		}
 		break;
 	}
-	for (let i = first; i <= last; i++) rows.push(...blocks[i]!);
+	for (let i = first; i <= last; i++)
+		rows.push(...invariant(blocks[i], "Ask viewport block is inconsistent"));
 	const clippedAbove = first > 0;
 	const clippedBelow = last < blocks.length - 1;
 	if (rows.length <= budget) return { rows, clippedAbove, clippedBelow };
@@ -203,7 +229,10 @@ export function createAskComponent(options: AskComponentOptions): Component & { 
 		return formatKeymap(hints, { width, separator: " · " });
 	}
 	function renderQuestionBody(bodyWidth: number): Block[] {
-		const q = questionnaire.questions[state.questionIndex]!;
+		const q = invariant(
+			questionnaire.questions[state.questionIndex],
+			"Ask question state is inconsistent",
+		);
 		const blocks: Block[] = [];
 		if (questionnaire.context)
 			blocks.push(
@@ -213,7 +242,7 @@ export function createAskComponent(options: AskComponentOptions): Component & { 
 			);
 		blocks.push(wrap(`Q: ${q.question}`, bodyWidth).map((line) => options.theme.bold(line)));
 		q.options.forEach((option, index) => {
-			const selected = state.answers[state.questionIndex]!.selected.includes(index);
+			const selected = state.answers[state.questionIndex]?.selected.includes(index);
 			const focused = state.focusedOption[state.questionIndex] === index;
 			const label = renderSelectableRow({
 				width: bodyWidth,
@@ -253,12 +282,8 @@ export function createAskComponent(options: AskComponentOptions): Component & { 
 	}
 	function renderReviewRows(bodyWidth: number): string[] {
 		return questionnaire.questions.flatMap((q, index) => {
-			const draft = state.answers[index]!;
-			const answer =
-				[
-					...draft.selected.map((selected) => q.options[selected]!.label),
-					...(draft.custom ? [`Other: ${draft.custom}`] : []),
-				].join(", ") || "None selected";
+			const draft = invariant(state.answers[index], "Ask answer state is inconsistent");
+			const answer = formatAskReviewAnswer(q, draft);
 			return [
 				...wrap(`#${index + 1} ${q.question}`, bodyWidth).map((line) =>
 					options.theme.fg("dim", line),
@@ -299,7 +324,7 @@ export function createAskComponent(options: AskComponentOptions): Component & { 
 	function render(nextWidth: number): string[] {
 		width = Math.max(0, Math.floor(nextWidth));
 		const labels = questionnaire.questions
-			.map((_, index) => `${state.answers[index]!.answered ? "☑" : "☐"} #${index + 1}`)
+			.map((_, index) => `${state.answers[index]?.answered ? "☑" : "☐"} #${index + 1}`)
 			.concat("≡ Review");
 		const tabs = renderTabs(
 			labels,
@@ -322,7 +347,9 @@ export function createAskComponent(options: AskComponentOptions): Component & { 
 		} else {
 			const blocks = renderQuestionBody(bodyWidth);
 			const focusBlock =
-				(questionnaire.context ? 1 : 0) + 1 + state.focusedOption[state.questionIndex]!;
+				(questionnaire.context ? 1 : 0) +
+				1 +
+				invariant(state.focusedOption[state.questionIndex], "Ask focus state is inconsistent");
 			const viewport = visibleBlocks(blocks, focusBlock, Math.max(0, terminalRows - fixed - 2));
 			body = [
 				...(viewport.clippedAbove ? ["↑"] : []),
@@ -394,7 +421,10 @@ export function createAskComponent(options: AskComponentOptions): Component & { 
 			return;
 		}
 		if (matchesKey(input, Key.enter)) {
-			const q = questionnaire.questions[state.questionIndex]!;
+			const q = invariant(
+				questionnaire.questions[state.questionIndex],
+				"Ask question state is inconsistent",
+			);
 			if (state.focusedOption[state.questionIndex] === q.options.length) openCustom();
 			else apply({ type: "select_option" });
 		}

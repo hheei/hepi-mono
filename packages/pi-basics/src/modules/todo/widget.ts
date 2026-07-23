@@ -43,7 +43,8 @@ function renderTodo(state: TaskState, width: number, theme: Theme): string[] {
 		),
 	];
 	for (let index = 0; index < visible.length; index++) {
-		const task = visible[index]!;
+		const task = visible[index];
+		if (!task) continue;
 		const blockers = task.blockedBy.filter((id) => unresolved.get(id)?.status !== "completed");
 		const suffix = blockers.length
 			? `  ${theme.fg("warning", "⊘")} ${blockers.map((id) => theme.fg("accent", `#${id}`)).join(",")}`

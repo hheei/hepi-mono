@@ -9,7 +9,7 @@ import {
 const create = (subject: string, blockedBy?: number[]) => ({
 	action: "create" as const,
 	subject,
-	blockedBy,
+	...(blockedBy === undefined ? {} : { blockedBy }),
 });
 const update = (id: number, fields: Record<string, unknown>) => ({
 	action: "update" as const,

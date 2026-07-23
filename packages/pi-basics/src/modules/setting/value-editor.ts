@@ -43,7 +43,7 @@ export class ValueEditor {
 		const boundaries = graphemeBoundaries(this.text);
 		const index = boundaries.indexOf(this.cursor);
 		if (index > 0) {
-			const start = boundaries[index - 1]!;
+			const start = boundaries[index - 1] ?? 0;
 			this.text = this.text.slice(0, start) + this.text.slice(this.cursor);
 			this.cursor = start;
 		}
@@ -52,14 +52,15 @@ export class ValueEditor {
 		const boundaries = graphemeBoundaries(this.text);
 		const index = boundaries.indexOf(this.cursor);
 		if (index >= 0 && index < boundaries.length - 1) {
-			const end = boundaries[index + 1]!;
+			const end = boundaries[index + 1];
 			this.text = this.text.slice(0, this.cursor) + this.text.slice(end);
 		}
 	}
 	move(delta: number): void {
 		const boundaries = graphemeBoundaries(this.text);
 		const current = Math.max(0, boundaries.indexOf(this.cursor));
-		this.cursor = boundaries[Math.max(0, Math.min(boundaries.length - 1, current + delta))]!;
+		this.cursor =
+			boundaries[Math.max(0, Math.min(boundaries.length - 1, current + delta))] ?? this.cursor;
 	}
 	home(): void {
 		this.cursor = 0;

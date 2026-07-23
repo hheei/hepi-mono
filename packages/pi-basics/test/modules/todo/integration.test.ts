@@ -77,7 +77,7 @@ function harness(mode: "tui" | "json" = "tui", sessionId = "todo-session") {
 		hasUI: mode === "tui",
 		ui: {
 			notify(message: string, level?: string) {
-				notifications.push({ message, level });
+				notifications.push(level === undefined ? { message } : { message, level });
 			},
 			setWidget(key: string, content: unknown, options?: unknown) {
 				widgets.push({ key, content, options });

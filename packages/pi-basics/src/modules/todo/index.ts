@@ -85,7 +85,7 @@ export const TODO_PROMPT_GUIDELINES = [
 interface ActiveTodoRuntime {
 	readonly sessionId: string;
 	state: TaskState;
-	widget?: TodoWidget;
+	widget: TodoWidget | undefined;
 	idleTurns: number;
 	reminderSent: boolean;
 	toolUsedThisTurn: boolean;
@@ -354,6 +354,7 @@ export function createTodoFeature(pi: ExtensionAPI): TodoFeature {
 				reminderSent: false,
 				toolUsedThisTurn: false,
 				completedIdleTurns: 0,
+				widget: undefined,
 				widgetHidden: false,
 			};
 			current.widget = createTodoWidget(runtime, state);

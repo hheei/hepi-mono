@@ -57,7 +57,7 @@ export interface AskState {
 	readonly focusedOption: readonly number[];
 	readonly answers: readonly AskAnswerDraft[];
 	readonly customDraft: string;
-	readonly terminal?: "submitted" | "cancelled" | "aborted";
+	readonly terminal?: "submitted" | "cancelled" | "aborted" | undefined;
 }
 export type AskAction =
 	| { readonly type: "move_option"; readonly delta: -1 | 1 }
@@ -70,6 +70,11 @@ export type AskAction =
 	| { readonly type: "submit" }
 	| { readonly type: "cancel" }
 	| { readonly type: "abort" };
+
+function invariant<T>(value: T | undefined, message: string): T {
+	if (value === undefined) throw new Error(message);
+	return value;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -161,15 +166,17 @@ export function normalizeAskParams(value: unknown): AskQuestionnaire {
 		if (typeof multi !== "boolean") throw new Error(`questions[${qi}].multi must be a boolean`);
 		let recommended: number | undefined;
 		if (raw.recommended !== undefined) {
+			const recommendedValue = raw.recommended;
 			if (
-				!Number.isSafeInteger(raw.recommended) ||
-				(raw.recommended as number) < 0 ||
-				(raw.recommended as number) >= options.length
+				typeof recommendedValue !== "number" ||
+				!Number.isSafeInteger(recommendedValue) ||
+				recommendedValue < 0 ||
+				recommendedValue >= options.length
 			)
 				throw new Error(
 					`questions[${qi}].recommended must be an integer between 0 and ${options.length - 1}`,
 				);
-			recommended = raw.recommended as number;
+			recommended = recommendedValue;
 		}
 		return recommended === undefined
 			? { id, question, options, multi }
@@ -233,11 +240,13 @@ export function reduceAsk(
 			const answers = [...state.answers];
 			answers[state.questionIndex] = {
 				answered: true,
-				selected: [...answers[state.questionIndex]!.selected],
+				selected: [
+					...invariant(answers[state.questionIndex], "Ask answer state is inconsistent").selected,
+				],
 				custom,
 			};
 			const result = { ...state, answers, customDraft: "" };
-			return state.answers[state.questionIndex]!.answered
+			return state.answers[state.questionIndex]?.answered
 				? { ...result, mode: "question" }
 				: advance({ ...result, mode: "question" }, questionnaire.questions.length);
 		}
@@ -258,11 +267,15 @@ export function reduceAsk(
 		return state;
 	}
 	if (action.type === "move_option") {
-		const max = questionnaire.questions[state.questionIndex]!.options.length;
-		next.focusedOption[state.questionIndex] = Math.max(
-			0,
-			Math.min(max, next.focusedOption[state.questionIndex]! + action.delta),
+		const max = invariant(
+			questionnaire.questions[state.questionIndex],
+			"Ask question state is inconsistent",
+		).options.length;
+		const focused = invariant(
+			next.focusedOption[state.questionIndex],
+			"Ask focus state is inconsistent",
 		);
+		next.focusedOption[state.questionIndex] = Math.max(0, Math.min(max, focused + action.delta));
 		return next;
 	}
 	if (action.type === "move_tab") {
@@ -278,13 +291,19 @@ export function reduceAsk(
 		action.type === "open_custom" ||
 		(action.type === "select_option" &&
 			state.focusedOption[state.questionIndex] ===
-				questionnaire.questions[state.questionIndex]!.options.length)
+				questionnaire.questions[state.questionIndex]?.options.length)
 	)
 		return { ...state, mode: "custom", customDraft: "" };
 	if (action.type === "select_option") {
-		const q = questionnaire.questions[state.questionIndex]!;
-		const index = state.focusedOption[state.questionIndex]!;
-		const old = state.answers[state.questionIndex]!;
+		const q = invariant(
+			questionnaire.questions[state.questionIndex],
+			"Ask question state is inconsistent",
+		);
+		const index = invariant(
+			state.focusedOption[state.questionIndex],
+			"Ask focus state is inconsistent",
+		);
+		const old = invariant(state.answers[state.questionIndex], "Ask answer state is inconsistent");
 		const selected = q.multi
 			? old.selected.includes(index)
 				? old.selected.filter((x) => x !== index)
@@ -306,21 +325,24 @@ export function answersFromState(
 	state: AskState,
 	questionnaire: AskQuestionnaire,
 ): readonly AskAnswer[] {
-	return state.answers.flatMap((draft, index) =>
-		draft.answered
-			? [
-					{
-						id: questionnaire.questions[index]!.id,
-						question: questionnaire.questions[index]!.question,
-						selected: draft.selected.map((i) => ({
-							index: i,
-							label: questionnaire.questions[index]!.options[i]!.label,
-						})),
-						...(draft.custom === undefined ? {} : { custom: draft.custom }),
-					},
-				]
-			: [],
-	);
+	return state.answers.flatMap((draft, index) => {
+		if (!draft.answered) return [];
+		const question = invariant(
+			questionnaire.questions[index],
+			"Ask question state is inconsistent",
+		);
+		return [
+			{
+				id: question.id,
+				question: question.question,
+				selected: draft.selected.map((i) => ({
+					index: i,
+					label: invariant(question.options[i], "Ask option state is inconsistent").label,
+				})),
+				...(draft.custom === undefined ? {} : { custom: draft.custom }),
+			},
+		];
+	});
 }
 export function askDetails(questionnaire: AskQuestionnaire, state: AskState): AskToolDetails {
 	const status = state.terminal ?? "submitted";

@@ -28,7 +28,8 @@ describe("statusbar renderer", () => {
 		}
 	});
 	test("omits title when absent", () => {
-		const line = renderStatusbarLine(80, { ...snapshot, sessionName: undefined }, theme);
+		const { sessionName: _sessionName, ...snapshotWithoutTitle } = snapshot;
+		const line = renderStatusbarLine(80, snapshotWithoutTitle, theme);
 		expect(line).not.toContain("Session title");
 		expect(line.endsWith("─")).toBe(true);
 	});

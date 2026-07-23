@@ -9,6 +9,7 @@ interface GroupMapping {
 	readonly displayId: string;
 	readonly originalId: string;
 	readonly provider: HePiSettingsProvider;
+	readonly group: HePiSettingsProvider["groups"][number];
 }
 
 /** Presents module-owned settings as one Pi Basics settings tree while preserving each module's storage contract. */
@@ -21,7 +22,7 @@ export function combineSettingsProviders(
 			let displayId = group.id;
 			if (usedGroupIds.has(displayId)) displayId = `${provider.id}:${group.id}`;
 			usedGroupIds.add(displayId);
-			return { displayId, originalId: group.id, provider };
+			return { displayId, originalId: group.id, provider, group };
 		}),
 	);
 	const providerState = (state: HePiSettingsState, provider: HePiSettingsProvider) =>
@@ -30,21 +31,19 @@ export function combineSettingsProviders(
 				.filter((mapping) => mapping.provider === provider)
 				.map(({ displayId, originalId }) => [originalId, state[displayId] ?? {}]),
 		);
-	const groups = mappings.map(({ displayId, originalId, provider }) => {
-		const group = provider.groups.find((candidate) => candidate.id === originalId)!;
-		return {
-			...group,
-			id: displayId,
-			fields: group.fields.map((field) =>
-				field.enabled
-					? {
-							...field,
-							enabled: (state: HePiSettingsState) => field.enabled!(providerState(state, provider)),
-						}
-					: field,
-			),
-		};
-	});
+	const groups = mappings.map(({ displayId, provider, group }) => ({
+		...group,
+		id: displayId,
+		fields: group.fields.map((field) => {
+			const enabled = field.enabled;
+			return enabled
+				? {
+						...field,
+						enabled: (state: HePiSettingsState) => enabled(providerState(state, provider)),
+					}
+				: field;
+		}),
+	}));
 	const owners = new Map(mappings.map((mapping) => [mapping.displayId, mapping]));
 
 	return {

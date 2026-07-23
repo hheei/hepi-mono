@@ -25,7 +25,8 @@ export function hasDialogUI(ui: unknown): ui is DialogUI {
 }
 
 function wireOption(question: AskQuestion, index: number): string {
-	const option = question.options[index]!;
+	const option = question.options[index];
+	if (option === undefined) throw hostError();
 	return `${index + 1}. ${option.label}${option.description ? ` — ${option.description}` : ""}`;
 }
 function wireOptions(question: AskQuestion): string[] {
@@ -61,7 +62,7 @@ async function customAnswer(
 	title: string,
 	signal: AbortSignal | undefined,
 ): Promise<{ value?: string; cancelled: boolean; invalid: boolean }> {
-	const raw = await ui.input(title, "Type your answer", { signal });
+	const raw = await ui.input(title, "Type your answer", signal === undefined ? {} : { signal });
 	if (raw === undefined) return { cancelled: true, invalid: false };
 	try {
 		return { value: validateAskCustomAnswer(raw), cancelled: false, invalid: false };
@@ -77,21 +78,33 @@ async function collectQuestion(
 ): Promise<AskAnswer | undefined> {
 	const offered = wireOptions(question);
 	if (!question.multi) {
-		const choice = await ui.select(question.question, offered, { signal });
+		const choice = await ui.select(
+			question.question,
+			offered,
+			signal === undefined ? {} : { signal },
+		);
 		if (choice === undefined) return undefined;
-		const other = offered[offered.length - 1]!;
+		const other = offered[offered.length - 1];
+		if (other === undefined) throw hostError();
 		if (choice === other) {
 			const custom = await customAnswer(ui, question.question, signal);
 			if (custom.cancelled) return undefined;
 			if (custom.invalid) throw new Error("Host returned an invalid custom Ask answer");
-			return { id: question.id, question: question.question, selected: [], custom: custom.value };
+			return {
+				id: question.id,
+				question: question.question,
+				selected: [],
+				...(custom.value === undefined ? {} : { custom: custom.value }),
+			};
 		}
 		const index = offered.indexOf(choice);
 		if (index < 0 || index >= question.options.length) throw hostError();
+		const option = question.options[index];
+		if (option === undefined) throw hostError();
 		return {
 			id: question.id,
 			question: question.question,
-			selected: [{ index, label: question.options[index]!.label }],
+			selected: [{ index, label: option.label }],
 		};
 	}
 
@@ -100,13 +113,21 @@ async function collectQuestion(
 	const finish = "Finish selection";
 	while (true) {
 		const choices = [...offered, finish];
-		const choice = await ui.select(question.question, choices, { signal });
+		const choice = await ui.select(
+			question.question,
+			choices,
+			signal === undefined ? {} : { signal },
+		);
 		if (choice === undefined) return undefined;
 		if (choice === finish)
 			return {
 				id: question.id,
 				question: question.question,
-				selected: selected.map((index) => ({ index, label: question.options[index]!.label })),
+				selected: selected.map((index) => {
+					const option = question.options[index];
+					if (option === undefined) throw hostError();
+					return { index, label: option.label };
+				}),
 				...(custom === undefined ? {} : { custom }),
 			};
 		if (choice === offered[offered.length - 1]) {
@@ -157,7 +178,7 @@ export async function runAskFallback(
 		const review = await ui.select(
 			`Review answers\n${summary(answers)}`,
 			["Submit answers", "Start over", "Cancel"],
-			{ signal },
+			signal === undefined ? {} : { signal },
 		);
 		const after = checkAbort(signal, questionnaire);
 		if (after) return after;
