@@ -77,7 +77,8 @@ export function createSettingsComponent(options: SettingsComponentOptions): Comp
 		);
 		let next = Math.max(0, Math.min(items.length - 1, (current < 0 ? 0 : current) + direction));
 		while (next >= 0 && next < items.length) {
-			const item = items[next]!;
+			const item = items[next];
+			if (!item) break;
 			if (
 				item.kind !== "group" &&
 				(item.kind !== "field" ||
@@ -88,7 +89,9 @@ export function createSettingsComponent(options: SettingsComponentOptions): Comp
 			next += direction < 0 ? -1 : 1;
 		}
 		if (next < 0 || next >= items.length) return;
-		controller.select(items[next]!.id);
+		const nextItem = items[next];
+		if (!nextItem) return;
+		controller.select(nextItem.id);
 		ensureSelectionVisible();
 		requestRender();
 	}

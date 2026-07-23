@@ -23,11 +23,11 @@ type Editor = ReturnType<EditorFactory>;
 type Owner = {
 	sessionId: string;
 	ctx: ExtensionContext;
-	previousEditorFactory?: EditorFactory;
+	previousEditorFactory?: EditorFactory | undefined;
 	installedEditorFactory: EditorFactory;
 	footerData?: ReadonlyFooterDataProvider;
 	requestRender?: () => void;
-	usage?: StatusbarContextUsage;
+	usage?: StatusbarContextUsage | undefined;
 	compacted: boolean;
 	dispose(): void;
 };
@@ -74,7 +74,7 @@ export function createStatusbarFeature(pi: ExtensionAPI): StatusbarFeature {
 			)
 				return;
 			const previousEditorFactory = ctx.ui.getEditorComponent();
-			let next!: Owner;
+			let next: Owner | undefined;
 			const installedEditorFactory = ((tui, theme, keybindings) => {
 				const editor =
 					previousEditorFactory?.(tui, theme, keybindings) ??
@@ -82,7 +82,7 @@ export function createStatusbarFeature(pi: ExtensionAPI): StatusbarFeature {
 				const originalRender = editor.render.bind(editor);
 				(editor as Editor & { render: (width: number) => string[] }).render = (width: number) => {
 					const lines = originalRender(width);
-					if (!lines.length || owner !== next) return lines;
+					if (!lines.length || !next || owner !== next) return lines;
 					const systemPrompt =
 						typeof ctx.getSystemPrompt === "function" ? ctx.getSystemPrompt() : undefined;
 					const currentUsage = ctx.getContextUsage();
@@ -97,6 +97,7 @@ export function createStatusbarFeature(pi: ExtensionAPI): StatusbarFeature {
 							fallback = undefined;
 						}
 					}
+					const sessionName = ctx.sessionManager.getSessionName();
 					const usage = stabilizeContextUsage(
 						currentUsage,
 						next.compacted ? undefined : next.usage,
@@ -106,16 +107,17 @@ export function createStatusbarFeature(pi: ExtensionAPI): StatusbarFeature {
 						next.usage = usage;
 						next.compacted = false;
 					}
+					const statuses = next.footerData?.getExtensionStatuses();
 					return [
 						renderStatusbarLine(
 							width,
 							buildStatusbarSnapshot({
-								model: ctx.model ? { name: ctx.model.name, id: ctx.model.id } : undefined,
+								...(ctx.model ? { model: { name: ctx.model.name, id: ctx.model.id } } : {}),
 								thinkingLevel: pi.getThinkingLevel(),
-								usage,
-								systemPrompt,
-								sessionName: ctx.sessionManager.getSessionName(),
-								statuses: next.footerData?.getExtensionStatuses(),
+								...(usage === undefined ? {} : { usage }),
+								...(systemPrompt === undefined ? {} : { systemPrompt }),
+								...(sessionName === undefined ? {} : { sessionName }),
+								...(statuses === undefined ? {} : { statuses }),
 							}),
 							ctx.ui.theme,
 						),
@@ -140,7 +142,7 @@ export function createStatusbarFeature(pi: ExtensionAPI): StatusbarFeature {
 			};
 			owner = next;
 			ctx.ui.setFooter((tui: TUI, _theme: Theme, footerData: ReadonlyFooterDataProvider) => {
-				if (owner !== next) return emptyFooter();
+				if (!next || owner !== next) return emptyFooter();
 				next.footerData = footerData;
 				next.requestRender = () => tui.requestRender();
 				return emptyFooter();

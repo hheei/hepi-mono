@@ -101,7 +101,7 @@ describe("tui replay", () => {
 					render: (width: number) => editor.render(width),
 					handleInput(data: string) {
 						if (data === "model") modelName = "Claude";
-						if (data === "thinking") thinking = "high";
+						if (data === "thinking") thinking = "xhigh";
 						if (data === "status") {
 							statuses = new Map([["goal", "active"]]);
 							title = "Updated session";

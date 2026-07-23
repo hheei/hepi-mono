@@ -333,7 +333,9 @@ export async function replayTui(options: ReplayOptions): Promise<TuiReplayResult
 		capture(actionLabel(action));
 	}
 
-	return { frames, last: frames.at(-1)!, modelResults };
+	const last = frames.at(-1);
+	if (!last) throw new Error("Replay produced no frames");
+	return { frames, last, modelResults };
 }
 
 function outputLines(frame: ReplayFrame, color: boolean): readonly string[] {
@@ -467,7 +469,9 @@ function applySgr(style: AnsiSvgStyle, value: string): void {
 		else if (code >= 90 && code <= 97) style.color = ansiColor(code - 90 + 8);
 		else if (code === 39) style.color = "#d8dee9";
 		else if (code === 38 && codes[index + 1] === 5 && codes[index + 2] !== undefined) {
-			style.color = ansiColor(Math.max(0, Math.min(255, codes[index + 2]!)));
+			const colorIndex = codes[index + 2];
+			if (colorIndex === undefined) continue;
+			style.color = ansiColor(Math.max(0, Math.min(255, colorIndex)));
 			index += 2;
 		} else if (
 			code === 38 &&
@@ -610,9 +614,10 @@ Every replay writes outputs/replay-<time>/ with plain, ANSI, metadata, and final
 		process.exit(0);
 	}
 	const values = (flag: string): string[] =>
-		args.flatMap((arg, index) =>
-			arg === flag && args[index + 1] !== undefined ? [args[index + 1]!] : [],
-		);
+		args.flatMap((arg, index) => {
+			const next = args[index + 1];
+			return arg === flag && next !== undefined ? [next] : [];
+		});
 	const value = (flag: string, fallback: string): string => values(flag).at(-1) ?? fallback;
 	const columns = positiveInteger(
 		Number(value("--columns", String(DEFAULT_REPLAY_COLUMNS))),

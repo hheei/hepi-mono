@@ -61,7 +61,7 @@ const ACTIONS: readonly TodoAction[] = ["create", "update", "list", "delete"];
 function subjectError(subject: string): string | undefined {
 	if (subject.trim() === "") return "Subject must not be empty";
 	for (const character of subject) {
-		const codePoint = character.codePointAt(0)!;
+		const codePoint = character.codePointAt(0) ?? 0;
 		if (
 			codePoint <= 0x1f ||
 			(codePoint >= 0x7f && codePoint <= 0x9f) ||
@@ -95,7 +95,8 @@ function hasCycle(tasks: readonly Task[]): boolean {
 		];
 		states.set(root.id, "visiting");
 		while (stack.length > 0) {
-			const frame = stack[stack.length - 1]!;
+			const frame = stack[stack.length - 1];
+			if (!frame) break;
 			const dependency = frame.task.blockedBy[frame.dependencyIndex++];
 			if (dependency === undefined) {
 				states.set(frame.task.id, "visited");

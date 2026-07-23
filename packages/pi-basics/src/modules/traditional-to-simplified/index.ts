@@ -67,7 +67,8 @@ export function convertInputText(text: string): string {
 	let activeFence: Fence | undefined;
 	let output = "";
 	for (let index = 0; index < lines.length; index++) {
-		const line = lines[index]!;
+		const line = lines[index];
+		if (line === undefined) continue;
 		const hasLineFeed = index < lines.length - 1;
 		const lineWithEnding = hasLineFeed ? `${line}\n` : line;
 		const fence = matchFence(line);

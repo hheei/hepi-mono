@@ -20,13 +20,20 @@ describe("shared shell", () => {
 	test("routes arrows, owns escape, and retains child state", () => {
 		const settings = child("settings");
 		const loadout = child("loadout");
-		const host = { renders: 0, requestRender() { this.renders++; } };
+		const host = {
+			renders: 0,
+			requestRender() {
+				this.renders++;
+			},
+		};
 		let closes = 0;
 		const shell = createShellComponent({
 			children: [settings, loadout],
 			host,
 			theme: fakeTheme() as unknown as Theme,
-			close: () => { closes++; },
+			close: () => {
+				closes++;
+			},
 		});
 		expect(shell.render(50).at(-1)).toBe("settings");
 		shell.handleInput?.("x");

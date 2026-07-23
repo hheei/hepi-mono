@@ -12,7 +12,7 @@ export interface SettingsModuleOptions
 }
 
 export interface SettingsModule extends HePiModule {
-	readonly controller?: SettingsController;
+	readonly controller?: SettingsController | undefined;
 }
 
 export function createSettingsModule(options: SettingsModuleOptions): SettingsModule {

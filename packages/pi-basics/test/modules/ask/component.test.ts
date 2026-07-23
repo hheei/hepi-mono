@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { createAskComponent } from "../../../src/modules/ask/component.js";
+import { createAskComponent, formatAskReviewAnswer } from "../../../src/modules/ask/component.js";
 import { normalizeAskParams } from "../../../src/modules/ask/model.js";
 import { assertVisibleWidth, stripAnsi } from "../../helpers.js";
 
@@ -155,6 +155,15 @@ describe("Ask component", () => {
 		expect(output).toContain("<accent>╯");
 		expect(output).toContain("<text>│ ☑ #1 │</text>");
 		expect(output).toContain("<accent>│ ≡ Review │</accent>");
+	});
+
+	test("review rejects an inconsistent selected option index", () => {
+		const question = questionnaire.questions[0];
+		if (question === undefined) throw new Error("Expected fixture question");
+
+		expect(() =>
+			formatAskReviewAnswer(question, { answered: true, selected: [question.options.length] }),
+		).toThrow("Ask option state is inconsistent");
 	});
 
 	test("selected row keeps answer color over cursor color and uses arrow slot", () => {

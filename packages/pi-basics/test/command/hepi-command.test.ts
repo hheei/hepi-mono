@@ -15,7 +15,7 @@ function context(mode: string) {
 			mode,
 			ui: {
 				notify(message: string, level?: string) {
-					notifications.push({ message, level });
+					notifications.push(level === undefined ? { message } : { message, level });
 				},
 				custom() {
 					customCalls++;

@@ -35,6 +35,7 @@ function harness(id: string, mode: "tui" | "json" = "tui", hasEditorGetter = tru
 	let editorSets = 0;
 	const handlers = new Map<string, EventHandler[]>();
 	const statusMap = new Map<string, string>();
+	let statusReads = 0;
 	let requests = 0;
 	const pi = {
 		on(event: string, handler: EventHandler) {
@@ -103,6 +104,9 @@ function harness(id: string, mode: "tui" | "json" = "tui", hasEditorGetter = tru
 		get requests() {
 			return requests;
 		},
+		get statusReads() {
+			return statusReads;
+		},
 		emit(event: string, eventCtx = ctx) {
 			for (const handler of handlers.get(event) ?? []) void handler({}, eventCtx);
 		},
@@ -117,7 +121,12 @@ function harness(id: string, mode: "tui" | "json" = "tui", hasEditorGetter = tru
 			return factory(
 				tui as never,
 				{ fg: (_role: string, text: string) => text } as never,
-				{ getExtensionStatuses: () => statusMap } as never,
+				{
+					getExtensionStatuses: () => {
+						statusReads++;
+						return statusMap;
+					},
+				} as never,
 			);
 		},
 	};
@@ -147,15 +156,14 @@ describe("statusbar lifecycle", () => {
 		h.setEditor(editorFactory("previous", calls));
 		const feature = createStatusbarFeature(h.pi);
 		feature.start(runtime(h.pi, h.ctx));
+		h.makeFooter();
 		const editor = h.editorFactory?.({} as never, {} as never, {} as never);
 		expect(editor).toBeDefined();
-		expect(editor!.render(80)).toHaveLength(4);
-		expect(editor!.render(80)[0]).not.toBe("previous-top");
-		expect(editor!.render(80).slice(1)).toEqual([
-			"PROMPT HERE",
-			"previous-bottom",
-			"previous-autocomplete",
-		]);
+		const lines = editor!.render(80);
+		expect(lines).toHaveLength(4);
+		expect(lines[0]).not.toBe("previous-top");
+		expect(lines.slice(1)).toEqual(["PROMPT HERE", "previous-bottom", "previous-autocomplete"]);
+		expect(h.statusReads).toBe(1);
 		editor!.handleInput("x");
 		expect(editor!.getText()).toBe("previous-text");
 		expect(calls).toEqual(["previous:input:x"]);

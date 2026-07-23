@@ -59,10 +59,10 @@ export function renderDetailPanel(options: DetailPanelOptions): string[] {
 		width: options.width,
 		title: options.title ?? "Description",
 		leadingRule: true,
-		content: options.content,
-		height: options.height,
+		...(options.content === undefined ? {} : { content: options.content }),
+		...(options.height === undefined ? {} : { height: options.height }),
 		paddingX: 1,
-		theme: options.theme,
+		...(options.theme === undefined ? {} : { theme: options.theme }),
 	});
 }
 
@@ -71,7 +71,7 @@ export function roundedPanel(
 	title: string | undefined,
 	content: readonly string[] = [],
 ): string[] {
-	return roundedBorder({ width, title, content });
+	return roundedBorder({ ...(title === undefined ? {} : { title }), width, content });
 }
 
 export const renderRoundedPanel = roundedPanel;

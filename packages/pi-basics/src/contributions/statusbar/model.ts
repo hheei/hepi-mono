@@ -67,7 +67,8 @@ function trimNumber(n: number): string {
 export function contextMeter(percent: unknown): string {
 	if (typeof percent !== "number" || !Number.isFinite(percent)) return "??";
 	const p = Math.max(0, Math.min(100, percent));
-	return METER_GLYPHS[Math.max(0, Math.min(15, Math.ceil((p / 100) * 16) - 1))]!;
+	const glyph = METER_GLYPHS[Math.max(0, Math.min(15, Math.ceil((p / 100) * 16) - 1))];
+	return glyph ?? METER_GLYPHS[0];
 }
 
 export function thinkingGlyph(level: unknown): string {

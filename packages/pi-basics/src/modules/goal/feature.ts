@@ -76,8 +76,8 @@ interface ActiveRuntime {
 	readonly runtime: HePiRuntimeContext;
 	state: GoalState;
 	awaitingObjective: boolean;
-	activeRun?: { goalId: string; runSequence: number };
-	errorCandidate?: ErrorCandidate;
+	activeRun?: { goalId: string; runSequence: number } | undefined;
+	errorCandidate?: ErrorCandidate | undefined;
 	timer?: unknown;
 	inputVersion: number;
 	disposed: boolean;

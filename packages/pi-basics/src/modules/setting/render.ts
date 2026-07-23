@@ -45,7 +45,7 @@ export interface RenderSettingsOptions {
 	readonly controller: SettingsController;
 	readonly theme: Theme;
 	readonly width: number;
-	readonly editor?: ValueEditor;
+	readonly editor?: ValueEditor | undefined;
 	readonly activeTab?: SettingsMainTab;
 	readonly showTabs?: boolean;
 }
@@ -121,7 +121,7 @@ export function settingsListItems(controller: SettingsController): readonly Sett
 				id: settingGroupItemId(group.id),
 				groupId: group.id,
 				label: group.title,
-				description: group.description,
+				...(group.description === undefined ? {} : { description: group.description }),
 				collapsed,
 			});
 		}
