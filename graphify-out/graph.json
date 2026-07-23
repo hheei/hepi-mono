@@ -4,15 +4,224 @@
   "graph": {},
   "nodes": [
     {
+      "label": "apply-patch-guard.ts",
+      "file_type": "code",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "packages_pi_basics_src_runtime_apply_patch_guard",
+      "community": 148,
+      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
+      "norm_label": "apply-patch-guard.ts"
+    },
+    {
+      "label": "GuardPatchMode",
+      "file_type": "code",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L13",
+      "_origin": "ast",
+      "id": "packages_pi_basics_src_runtime_apply_patch_guard_guardpatchmode",
+      "community": 148,
+      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
+      "norm_label": "guardpatchmode"
+    },
+    {
+      "label": "JsonObject",
+      "file_type": "code",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L19",
+      "_origin": "ast",
+      "id": "packages_pi_basics_src_runtime_apply_patch_guard_jsonobject",
+      "community": 148,
+      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
+      "norm_label": "jsonobject"
+    },
+    {
+      "label": "isJsonObject()",
+      "file_type": "code",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L21",
+      "_origin": "ast",
+      "id": "packages_pi_basics_src_runtime_apply_patch_guard_isjsonobject",
+      "community": 148,
+      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
+      "norm_label": "isjsonobject()"
+    },
+    {
+      "label": "normalizeGuardPatchMode()",
+      "file_type": "code",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L25",
+      "_origin": "ast",
+      "id": "packages_pi_basics_src_runtime_apply_patch_guard_normalizeguardpatchmode",
+      "community": 148,
+      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
+      "norm_label": "normalizeguardpatchmode()"
+    },
+    {
+      "label": "hasStreamingApplyPatchCommand()",
+      "file_type": "code",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L29",
+      "_origin": "ast",
+      "id": "packages_pi_basics_src_runtime_apply_patch_guard_hasstreamingapplypatchcommand",
+      "community": 148,
+      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
+      "norm_label": "hasstreamingapplypatchcommand()"
+    },
+    {
+      "label": "readRoot()",
+      "file_type": "code",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L33",
+      "_origin": "ast",
+      "id": "packages_pi_basics_src_runtime_apply_patch_guard_readroot",
+      "community": 148,
+      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
+      "norm_label": "readroot()"
+    },
+    {
+      "label": "settingsPath()",
+      "file_type": "code",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L43",
+      "_origin": "ast",
+      "id": "packages_pi_basics_src_runtime_apply_patch_guard_settingspath",
+      "community": 148,
+      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
+      "norm_label": "settingspath()"
+    },
+    {
+      "label": "ApplyPatchGuard",
+      "file_type": "code",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L47",
+      "_origin": "ast",
+      "id": "packages_pi_basics_src_runtime_apply_patch_guard_applypatchguard",
+      "community": 148,
+      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
+      "norm_label": "applypatchguard"
+    },
+    {
+      "label": ".getMode()",
+      "file_type": "code",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L48",
+      "_origin": "ast",
+      "id": "packages_pi_basics_src_runtime_apply_patch_guard_applypatchguard_getmode",
+      "community": 148,
+      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
+      "norm_label": ".getmode()"
+    },
+    {
+      "label": ".setMode()",
+      "file_type": "code",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L49",
+      "_origin": "ast",
+      "id": "packages_pi_basics_src_runtime_apply_patch_guard_applypatchguard_setmode",
+      "community": 148,
+      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
+      "norm_label": ".setmode()"
+    },
+    {
+      "label": "registerApplyPatchGuard()",
+      "file_type": "code",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L52",
+      "_origin": "ast",
+      "id": "packages_pi_basics_src_runtime_apply_patch_guard_registerapplypatchguard",
+      "community": 148,
+      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
+      "norm_label": "registerapplypatchguard()"
+    },
+    {
+      "label": "modeFromState()",
+      "file_type": "code",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L101",
+      "_origin": "ast",
+      "id": "packages_pi_basics_src_runtime_apply_patch_guard_modefromstate",
+      "community": 148,
+      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
+      "norm_label": "modefromstate()"
+    },
+    {
+      "label": "modeField",
+      "file_type": "code",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L105",
+      "_origin": "ast",
+      "id": "packages_pi_basics_src_runtime_apply_patch_guard_modefield",
+      "community": 148,
+      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
+      "norm_label": "modefield"
+    },
+    {
+      "label": "createApplyPatchGuardSettingsProvider()",
+      "file_type": "code",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L119",
+      "_origin": "ast",
+      "id": "packages_pi_basics_src_runtime_apply_patch_guard_createapplypatchguardsettingsprovider",
+      "community": 148,
+      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
+      "norm_label": "createapplypatchguardsettingsprovider()"
+    },
+    {
+      "label": "apply-patch-guard.test.ts",
+      "file_type": "code",
+      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "packages_pi_basics_test_runtime_apply_patch_guard_test",
+      "community": 148,
+      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
+      "norm_label": "apply-patch-guard.test.ts"
+    },
+    {
+      "label": "Handler",
+      "file_type": "code",
+      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
+      "source_location": "L10",
+      "_origin": "ast",
+      "id": "packages_pi_basics_test_runtime_apply_patch_guard_test_handler",
+      "community": 148,
+      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
+      "norm_label": "handler"
+    },
+    {
+      "label": "streamEvent()",
+      "file_type": "code",
+      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
+      "source_location": "L12",
+      "_origin": "ast",
+      "id": "packages_pi_basics_test_runtime_apply_patch_guard_test_streamevent",
+      "community": 148,
+      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
+      "norm_label": "streamevent()"
+    },
+    {
+      "label": "harness()",
+      "file_type": "code",
+      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
+      "source_location": "L24",
+      "_origin": "ast",
+      "id": "packages_pi_basics_test_runtime_apply_patch_guard_test_harness",
+      "community": 148,
+      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
+      "norm_label": "harness()"
+    },
+    {
       "label": "README.md",
       "file_type": "document",
       "source_file": "packages/pi-basics/README.md",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "packages_pi_basics_readme",
       "community": 69,
       "community_name": "pi-basics Ask \u8be6\u7ec6\u8bbe\u8ba1",
-      "norm_label": "readme.md"
+      "norm_label": "readme.md",
+      "id": "packages_pi_basics_readme"
     },
     {
       "label": "@hheei/pi-basics",
@@ -20,10 +229,10 @@
       "source_file": "packages/pi-basics/README.md",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "packages_pi_basics_readme_hheei_pi_basics",
       "community": 100,
       "community_name": "@hheei/pi-basics",
-      "norm_label": "@hheei/pi-basics"
+      "norm_label": "@hheei/pi-basics",
+      "id": "packages_pi_basics_readme_hheei_pi_basics"
     },
     {
       "label": "Load and use",
@@ -31,10 +240,10 @@
       "source_file": "packages/pi-basics/README.md",
       "source_location": "L5",
       "_origin": "ast",
-      "id": "packages_pi_basics_readme_load_and_use",
       "community": 100,
       "community_name": "@hheei/pi-basics",
-      "norm_label": "load and use"
+      "norm_label": "load and use",
+      "id": "packages_pi_basics_readme_load_and_use"
     },
     {
       "label": "Goal",
@@ -42,10 +251,10 @@
       "source_file": "packages/pi-basics/README.md",
       "source_location": "L15",
       "_origin": "ast",
-      "id": "packages_pi_basics_readme_goal",
       "community": 100,
       "community_name": "@hheei/pi-basics",
-      "norm_label": "goal"
+      "norm_label": "goal",
+      "id": "packages_pi_basics_readme_goal"
     },
     {
       "label": "Ask",
@@ -53,10 +262,10 @@
       "source_file": "packages/pi-basics/README.md",
       "source_location": "L26",
       "_origin": "ast",
-      "id": "packages_pi_basics_readme_ask",
       "community": 100,
       "community_name": "@hheei/pi-basics",
-      "norm_label": "ask"
+      "norm_label": "ask",
+      "id": "packages_pi_basics_readme_ask"
     },
     {
       "label": "SSHFS",
@@ -64,10 +273,10 @@
       "source_file": "packages/pi-basics/README.md",
       "source_location": "L30",
       "_origin": "ast",
-      "id": "packages_pi_basics_readme_sshfs",
       "community": 100,
       "community_name": "@hheei/pi-basics",
-      "norm_label": "sshfs"
+      "norm_label": "sshfs",
+      "id": "packages_pi_basics_readme_sshfs"
     },
     {
       "label": "Dollar skill references",
@@ -75,10 +284,10 @@
       "source_file": "packages/pi-basics/README.md",
       "source_location": "L36",
       "_origin": "ast",
-      "id": "packages_pi_basics_readme_dollar_skill_references",
       "community": 100,
       "community_name": "@hheei/pi-basics",
-      "norm_label": "dollar skill references"
+      "norm_label": "dollar skill references",
+      "id": "packages_pi_basics_readme_dollar_skill_references"
     },
     {
       "label": "Automatic Titles",
@@ -86,10 +295,10 @@
       "source_file": "packages/pi-basics/README.md",
       "source_location": "L42",
       "_origin": "ast",
-      "id": "packages_pi_basics_readme_automatic_titles",
       "community": 100,
       "community_name": "@hheei/pi-basics",
-      "norm_label": "automatic titles"
+      "norm_label": "automatic titles",
+      "id": "packages_pi_basics_readme_automatic_titles"
     },
     {
       "label": "Todo",
@@ -97,10 +306,10 @@
       "source_file": "packages/pi-basics/README.md",
       "source_location": "L46",
       "_origin": "ast",
-      "id": "packages_pi_basics_readme_todo",
       "community": 100,
       "community_name": "@hheei/pi-basics",
-      "norm_label": "todo"
+      "norm_label": "todo",
+      "id": "packages_pi_basics_readme_todo"
     },
     {
       "label": "Public APIs",
@@ -108,10 +317,10 @@
       "source_file": "packages/pi-basics/README.md",
       "source_location": "L67",
       "_origin": "ast",
-      "id": "packages_pi_basics_readme_public_apis",
       "community": 100,
       "community_name": "@hheei/pi-basics",
-      "norm_label": "public apis"
+      "norm_label": "public apis",
+      "id": "packages_pi_basics_readme_public_apis"
     },
     {
       "label": "RTK",
@@ -119,10 +328,10 @@
       "source_file": "packages/pi-basics/README.md",
       "source_location": "L96",
       "_origin": "ast",
-      "id": "packages_pi_basics_readme_rtk",
       "community": 100,
       "community_name": "@hheei/pi-basics",
-      "norm_label": "rtk"
+      "norm_label": "rtk",
+      "id": "packages_pi_basics_readme_rtk"
     },
     {
       "label": "Non-goals",
@@ -130,10 +339,10 @@
       "source_file": "packages/pi-basics/README.md",
       "source_location": "L104",
       "_origin": "ast",
-      "id": "packages_pi_basics_readme_non_goals",
       "community": 100,
       "community_name": "@hheei/pi-basics",
-      "norm_label": "non-goals"
+      "norm_label": "non-goals",
+      "id": "packages_pi_basics_readme_non_goals"
     },
     {
       "label": "index.ts",
@@ -141,10 +350,10 @@
       "source_file": "packages/pi-basics/src/index.ts",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "packages_pi_basics_src_index",
       "community": 59,
       "community_name": "controller.ts",
-      "norm_label": "index.ts"
+      "norm_label": "index.ts",
+      "id": "packages_pi_basics_src_index"
     },
     {
       "label": "createAutoTitleProvider()",
@@ -152,10 +361,10 @@
       "source_file": "packages/pi-basics/src/index.ts",
       "source_location": "L47",
       "_origin": "ast",
-      "id": "packages_pi_basics_src_index_createautotitleprovider",
       "community": 59,
       "community_name": "controller.ts",
-      "norm_label": "createautotitleprovider()"
+      "norm_label": "createautotitleprovider()",
+      "id": "packages_pi_basics_src_index_createautotitleprovider"
     },
     {
       "label": "moduleRegistries",
@@ -163,10 +372,10 @@
       "source_file": "packages/pi-basics/src/index.ts",
       "source_location": "L65",
       "_origin": "ast",
-      "id": "packages_pi_basics_src_index_moduleregistries",
       "community": 59,
       "community_name": "controller.ts",
-      "norm_label": "moduleregistries"
+      "norm_label": "moduleregistries",
+      "id": "packages_pi_basics_src_index_moduleregistries"
     },
     {
       "label": "activeModuleRegistry()",
@@ -174,10 +383,10 @@
       "source_file": "packages/pi-basics/src/index.ts",
       "source_location": "L67",
       "_origin": "ast",
-      "id": "packages_pi_basics_src_index_activemoduleregistry",
       "community": 59,
       "community_name": "controller.ts",
-      "norm_label": "activemoduleregistry()"
+      "norm_label": "activemoduleregistry()",
+      "id": "packages_pi_basics_src_index_activemoduleregistry"
     },
     {
       "label": "registerHePiModule()",
@@ -185,10 +394,10 @@
       "source_file": "packages/pi-basics/src/index.ts",
       "source_location": "L77",
       "_origin": "ast",
-      "id": "packages_pi_basics_src_index_registerhepimodule",
       "community": 59,
       "community_name": "controller.ts",
-      "norm_label": "registerhepimodule()"
+      "norm_label": "registerhepimodule()",
+      "id": "packages_pi_basics_src_index_registerhepimodule"
     },
     {
       "label": "piBasicsExtension()",
@@ -196,10 +405,10 @@
       "source_file": "packages/pi-basics/src/index.ts",
       "source_location": "L81",
       "_origin": "ast",
-      "id": "packages_pi_basics_src_index_pibasicsextension",
       "community": 59,
       "community_name": "controller.ts",
-      "norm_label": "pibasicsextension()"
+      "norm_label": "pibasicsextension()",
+      "id": "packages_pi_basics_src_index_pibasicsextension"
     },
     {
       "label": "index.test.ts",
@@ -207,10 +416,10 @@
       "source_file": "packages/pi-basics/test/integration/index.test.ts",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "packages_pi_basics_test_integration_index_test",
       "community": 59,
       "community_name": "controller.ts",
-      "norm_label": "index.test.ts"
+      "norm_label": "index.test.ts",
+      "id": "packages_pi_basics_test_integration_index_test"
     },
     {
       "label": "EditorFactory",
@@ -218,10 +427,10 @@
       "source_file": "packages/pi-basics/test/integration/index.test.ts",
       "source_location": "L8",
       "_origin": "ast",
-      "id": "packages_pi_basics_test_integration_index_test_editorfactory",
       "community": 59,
       "community_name": "controller.ts",
-      "norm_label": "editorfactory"
+      "norm_label": "editorfactory",
+      "id": "packages_pi_basics_test_integration_index_test_editorfactory"
     },
     {
       "label": "Editor",
@@ -229,10 +438,10 @@
       "source_file": "packages/pi-basics/test/integration/index.test.ts",
       "source_location": "L11",
       "_origin": "ast",
-      "id": "packages_pi_basics_test_integration_index_test_editor",
       "community": 59,
       "community_name": "controller.ts",
-      "norm_label": "editor"
+      "norm_label": "editor",
+      "id": "packages_pi_basics_test_integration_index_test_editor"
     },
     {
       "label": "FooterFactory",
@@ -240,10 +449,10 @@
       "source_file": "packages/pi-basics/test/integration/index.test.ts",
       "source_location": "L12",
       "_origin": "ast",
-      "id": "packages_pi_basics_test_integration_index_test_footerfactory",
       "community": 59,
       "community_name": "controller.ts",
-      "norm_label": "footerfactory"
+      "norm_label": "footerfactory",
+      "id": "packages_pi_basics_test_integration_index_test_footerfactory"
     },
     {
       "label": "provider()",
@@ -251,10 +460,10 @@
       "source_file": "packages/pi-basics/test/integration/index.test.ts",
       "source_location": "L22",
       "_origin": "ast",
-      "id": "packages_pi_basics_test_integration_index_test_provider",
       "community": 59,
       "community_name": "controller.ts",
-      "norm_label": "provider()"
+      "norm_label": "provider()",
+      "id": "packages_pi_basics_test_integration_index_test_provider"
     },
     {
       "label": "harness()",
@@ -262,10 +471,10 @@
       "source_file": "packages/pi-basics/test/integration/index.test.ts",
       "source_location": "L44",
       "_origin": "ast",
-      "id": "packages_pi_basics_test_integration_index_test_harness",
       "community": 59,
       "community_name": "controller.ts",
-      "norm_label": "harness()"
+      "norm_label": "harness()",
+      "id": "packages_pi_basics_test_integration_index_test_harness"
     },
     {
       "label": "index.ts",
@@ -4468,215 +4677,6 @@
       "community_name": "Phase 4\uff5cLoadout controller",
       "norm_label": "settings.test.ts",
       "id": "packages_pi_basics_test_modules_dollar_skill_settings_test"
-    },
-    {
-      "label": "apply-patch-guard.ts",
-      "file_type": "code",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L1",
-      "_origin": "ast",
-      "community": 148,
-      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
-      "norm_label": "apply-patch-guard.ts",
-      "id": "packages_pi_basics_src_runtime_apply_patch_guard"
-    },
-    {
-      "label": "GuardPatchMode",
-      "file_type": "code",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L13",
-      "_origin": "ast",
-      "community": 148,
-      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
-      "norm_label": "guardpatchmode",
-      "id": "packages_pi_basics_src_runtime_apply_patch_guard_guardpatchmode"
-    },
-    {
-      "label": "JsonObject",
-      "file_type": "code",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L19",
-      "_origin": "ast",
-      "community": 148,
-      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
-      "norm_label": "jsonobject",
-      "id": "packages_pi_basics_src_runtime_apply_patch_guard_jsonobject"
-    },
-    {
-      "label": "isJsonObject()",
-      "file_type": "code",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L21",
-      "_origin": "ast",
-      "community": 148,
-      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
-      "norm_label": "isjsonobject()",
-      "id": "packages_pi_basics_src_runtime_apply_patch_guard_isjsonobject"
-    },
-    {
-      "label": "normalizeGuardPatchMode()",
-      "file_type": "code",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L25",
-      "_origin": "ast",
-      "community": 148,
-      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
-      "norm_label": "normalizeguardpatchmode()",
-      "id": "packages_pi_basics_src_runtime_apply_patch_guard_normalizeguardpatchmode"
-    },
-    {
-      "label": "hasStreamingApplyPatchCommand()",
-      "file_type": "code",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L29",
-      "_origin": "ast",
-      "community": 148,
-      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
-      "norm_label": "hasstreamingapplypatchcommand()",
-      "id": "packages_pi_basics_src_runtime_apply_patch_guard_hasstreamingapplypatchcommand"
-    },
-    {
-      "label": "readRoot()",
-      "file_type": "code",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L33",
-      "_origin": "ast",
-      "community": 148,
-      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
-      "norm_label": "readroot()",
-      "id": "packages_pi_basics_src_runtime_apply_patch_guard_readroot"
-    },
-    {
-      "label": "settingsPath()",
-      "file_type": "code",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L43",
-      "_origin": "ast",
-      "community": 148,
-      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
-      "norm_label": "settingspath()",
-      "id": "packages_pi_basics_src_runtime_apply_patch_guard_settingspath"
-    },
-    {
-      "label": "ApplyPatchGuard",
-      "file_type": "code",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L47",
-      "_origin": "ast",
-      "community": 148,
-      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
-      "norm_label": "applypatchguard",
-      "id": "packages_pi_basics_src_runtime_apply_patch_guard_applypatchguard"
-    },
-    {
-      "label": ".getMode()",
-      "file_type": "code",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L48",
-      "_origin": "ast",
-      "community": 148,
-      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
-      "norm_label": ".getmode()",
-      "id": "packages_pi_basics_src_runtime_apply_patch_guard_applypatchguard_getmode"
-    },
-    {
-      "label": ".setMode()",
-      "file_type": "code",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L49",
-      "_origin": "ast",
-      "community": 148,
-      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
-      "norm_label": ".setmode()",
-      "id": "packages_pi_basics_src_runtime_apply_patch_guard_applypatchguard_setmode"
-    },
-    {
-      "label": "registerApplyPatchGuard()",
-      "file_type": "code",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L52",
-      "_origin": "ast",
-      "community": 148,
-      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
-      "norm_label": "registerapplypatchguard()",
-      "id": "packages_pi_basics_src_runtime_apply_patch_guard_registerapplypatchguard"
-    },
-    {
-      "label": "modeFromState()",
-      "file_type": "code",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L88",
-      "_origin": "ast",
-      "community": 148,
-      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
-      "norm_label": "modefromstate()",
-      "id": "packages_pi_basics_src_runtime_apply_patch_guard_modefromstate"
-    },
-    {
-      "label": "modeField",
-      "file_type": "code",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L92",
-      "_origin": "ast",
-      "community": 148,
-      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
-      "norm_label": "modefield",
-      "id": "packages_pi_basics_src_runtime_apply_patch_guard_modefield"
-    },
-    {
-      "label": "createApplyPatchGuardSettingsProvider()",
-      "file_type": "code",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L106",
-      "_origin": "ast",
-      "community": 148,
-      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
-      "norm_label": "createapplypatchguardsettingsprovider()",
-      "id": "packages_pi_basics_src_runtime_apply_patch_guard_createapplypatchguardsettingsprovider"
-    },
-    {
-      "label": "apply-patch-guard.test.ts",
-      "file_type": "code",
-      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
-      "source_location": "L1",
-      "_origin": "ast",
-      "community": 148,
-      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
-      "norm_label": "apply-patch-guard.test.ts",
-      "id": "packages_pi_basics_test_runtime_apply_patch_guard_test"
-    },
-    {
-      "label": "Handler",
-      "file_type": "code",
-      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
-      "source_location": "L10",
-      "_origin": "ast",
-      "community": 148,
-      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
-      "norm_label": "handler",
-      "id": "packages_pi_basics_test_runtime_apply_patch_guard_test_handler"
-    },
-    {
-      "label": "streamEvent()",
-      "file_type": "code",
-      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
-      "source_location": "L12",
-      "_origin": "ast",
-      "community": 148,
-      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
-      "norm_label": "streamevent()",
-      "id": "packages_pi_basics_test_runtime_apply_patch_guard_test_streamevent"
-    },
-    {
-      "label": "harness()",
-      "file_type": "code",
-      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
-      "source_location": "L24",
-      "_origin": "ast",
-      "community": 148,
-      "community_name": "Phase 3\uff5cInventory \u8207 runtime adapters",
-      "norm_label": "harness()",
-      "id": "packages_pi_basics_test_runtime_apply_patch_guard_test_harness"
     },
     {
       "label": "confirmation.ts",
@@ -34586,6 +34586,338 @@
   ],
   "links": [
     {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L47",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_src_runtime_apply_patch_guard",
+      "target": "packages_pi_basics_src_runtime_apply_patch_guard_applypatchguard",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L119",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_src_runtime_apply_patch_guard",
+      "target": "packages_pi_basics_src_runtime_apply_patch_guard_createapplypatchguardsettingsprovider",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L13",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_src_runtime_apply_patch_guard",
+      "target": "packages_pi_basics_src_runtime_apply_patch_guard_guardpatchmode",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L29",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_src_runtime_apply_patch_guard",
+      "target": "packages_pi_basics_src_runtime_apply_patch_guard_hasstreamingapplypatchcommand",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L21",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_src_runtime_apply_patch_guard",
+      "target": "packages_pi_basics_src_runtime_apply_patch_guard_isjsonobject",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L19",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_src_runtime_apply_patch_guard",
+      "target": "packages_pi_basics_src_runtime_apply_patch_guard_jsonobject",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L105",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_src_runtime_apply_patch_guard",
+      "target": "packages_pi_basics_src_runtime_apply_patch_guard_modefield",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L101",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_src_runtime_apply_patch_guard",
+      "target": "packages_pi_basics_src_runtime_apply_patch_guard_modefromstate",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "indirect_call",
+      "confidence": "INFERRED",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L116",
+      "weight": 1.0,
+      "_origin": "ast",
+      "context": "collection",
+      "source": "packages_pi_basics_src_runtime_apply_patch_guard",
+      "target": "packages_pi_basics_src_runtime_apply_patch_guard_normalizeguardpatchmode",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L33",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_src_runtime_apply_patch_guard",
+      "target": "packages_pi_basics_src_runtime_apply_patch_guard_readroot",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L52",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_src_runtime_apply_patch_guard",
+      "target": "packages_pi_basics_src_runtime_apply_patch_guard_registerapplypatchguard",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L43",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_src_runtime_apply_patch_guard",
+      "target": "packages_pi_basics_src_runtime_apply_patch_guard_settingspath",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
+      "source_location": "L4",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_test_runtime_apply_patch_guard_test",
+      "target": "packages_pi_basics_src_runtime_apply_patch_guard",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L36",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_src_runtime_apply_patch_guard_readroot",
+      "target": "packages_pi_basics_src_runtime_apply_patch_guard_isjsonobject",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L102",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_src_runtime_apply_patch_guard_modefromstate",
+      "target": "packages_pi_basics_src_runtime_apply_patch_guard_normalizeguardpatchmode",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L96",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_src_runtime_apply_patch_guard_registerapplypatchguard",
+      "target": "packages_pi_basics_src_runtime_apply_patch_guard_normalizeguardpatchmode",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L88",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_src_runtime_apply_patch_guard_registerapplypatchguard",
+      "target": "packages_pi_basics_src_runtime_apply_patch_guard_hasstreamingapplypatchcommand",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
+      "source_location": "L4",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_test_runtime_apply_patch_guard_test",
+      "target": "packages_pi_basics_src_runtime_apply_patch_guard_hasstreamingapplypatchcommand",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L48",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_src_runtime_apply_patch_guard_applypatchguard",
+      "target": "packages_pi_basics_src_runtime_apply_patch_guard_applypatchguard_getmode",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L49",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_src_runtime_apply_patch_guard_applypatchguard",
+      "target": "packages_pi_basics_src_runtime_apply_patch_guard_applypatchguard_setmode",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L153",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_src_runtime_apply_patch_guard_createapplypatchguardsettingsprovider",
+      "target": "packages_pi_basics_src_runtime_apply_patch_guard_applypatchguard_setmode",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
+      "source_location": "L4",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_test_runtime_apply_patch_guard_test",
+      "target": "packages_pi_basics_src_runtime_apply_patch_guard_registerapplypatchguard",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
+      "source_location": "L28",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_test_runtime_apply_patch_guard_test_harness",
+      "target": "packages_pi_basics_src_runtime_apply_patch_guard_registerapplypatchguard",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
+      "source_location": "L153",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_src_runtime_apply_patch_guard_createapplypatchguardsettingsprovider",
+      "target": "packages_pi_basics_src_runtime_apply_patch_guard_modefromstate",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
+      "source_location": "L4",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_test_runtime_apply_patch_guard_test",
+      "target": "packages_pi_basics_src_runtime_apply_patch_guard_createapplypatchguardsettingsprovider",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
+      "source_location": "L10",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_test_runtime_apply_patch_guard_test",
+      "target": "packages_pi_basics_test_runtime_apply_patch_guard_test_handler",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
+      "source_location": "L24",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_test_runtime_apply_patch_guard_test",
+      "target": "packages_pi_basics_test_runtime_apply_patch_guard_test_harness",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
+      "source_location": "L12",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_test_runtime_apply_patch_guard_test",
+      "target": "packages_pi_basics_test_runtime_apply_patch_guard_test_streamevent",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
+      "source_location": "L47",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "packages_pi_basics_test_runtime_apply_patch_guard_test_harness",
+      "target": "packages_pi_basics_test_runtime_apply_patch_guard_test_streamevent",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "docs/pi-basics-development.md",
@@ -34625,9 +34957,9 @@
       "source_location": "L1",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_readme",
-      "target": "packages_pi_basics_readme_hheei_pi_basics",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_readme_hheei_pi_basics"
     },
     {
       "relation": "contains",
@@ -34636,9 +34968,9 @@
       "source_location": "L26",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_readme_hheei_pi_basics",
-      "target": "packages_pi_basics_readme_ask",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_readme_ask"
     },
     {
       "relation": "contains",
@@ -34647,9 +34979,9 @@
       "source_location": "L42",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_readme_hheei_pi_basics",
-      "target": "packages_pi_basics_readme_automatic_titles",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_readme_automatic_titles"
     },
     {
       "relation": "contains",
@@ -34658,9 +34990,9 @@
       "source_location": "L36",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_readme_hheei_pi_basics",
-      "target": "packages_pi_basics_readme_dollar_skill_references",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_readme_dollar_skill_references"
     },
     {
       "relation": "contains",
@@ -34669,9 +35001,9 @@
       "source_location": "L15",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_readme_hheei_pi_basics",
-      "target": "packages_pi_basics_readme_goal",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_readme_goal"
     },
     {
       "relation": "contains",
@@ -34680,9 +35012,9 @@
       "source_location": "L5",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_readme_hheei_pi_basics",
-      "target": "packages_pi_basics_readme_load_and_use",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_readme_load_and_use"
     },
     {
       "relation": "contains",
@@ -34691,9 +35023,9 @@
       "source_location": "L104",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_readme_hheei_pi_basics",
-      "target": "packages_pi_basics_readme_non_goals",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_readme_non_goals"
     },
     {
       "relation": "contains",
@@ -34702,9 +35034,9 @@
       "source_location": "L67",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_readme_hheei_pi_basics",
-      "target": "packages_pi_basics_readme_public_apis",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_readme_public_apis"
     },
     {
       "relation": "contains",
@@ -34713,9 +35045,9 @@
       "source_location": "L96",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_readme_hheei_pi_basics",
-      "target": "packages_pi_basics_readme_rtk",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_readme_rtk"
     },
     {
       "relation": "contains",
@@ -34724,9 +35056,9 @@
       "source_location": "L30",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_readme_hheei_pi_basics",
-      "target": "packages_pi_basics_readme_sshfs",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_readme_sshfs"
     },
     {
       "relation": "contains",
@@ -34735,9 +35067,9 @@
       "source_location": "L46",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_readme_hheei_pi_basics",
-      "target": "packages_pi_basics_readme_todo",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_readme_todo"
     },
     {
       "relation": "contains",
@@ -34746,9 +35078,9 @@
       "source_location": "L67",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_src_index",
-      "target": "packages_pi_basics_src_index_activemoduleregistry",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_src_index_activemoduleregistry"
     },
     {
       "relation": "contains",
@@ -34757,9 +35089,9 @@
       "source_location": "L47",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_src_index",
-      "target": "packages_pi_basics_src_index_createautotitleprovider",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_src_index_createautotitleprovider"
     },
     {
       "relation": "contains",
@@ -34768,9 +35100,9 @@
       "source_location": "L65",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_src_index",
-      "target": "packages_pi_basics_src_index_moduleregistries",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_src_index_moduleregistries"
     },
     {
       "relation": "contains",
@@ -34779,9 +35111,9 @@
       "source_location": "L81",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_src_index",
-      "target": "packages_pi_basics_src_index_pibasicsextension",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_src_index_pibasicsextension"
     },
     {
       "relation": "contains",
@@ -34790,9 +35122,9 @@
       "source_location": "L77",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_src_index",
-      "target": "packages_pi_basics_src_index_registerhepimodule",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_src_index_registerhepimodule"
     },
     {
       "relation": "imports_from",
@@ -34802,9 +35134,9 @@
       "source_location": "L14",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_test_integration_index_test",
-      "target": "packages_pi_basics_src_index",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_src_index"
     },
     {
       "relation": "indirect_call",
@@ -34826,9 +35158,9 @@
       "source_location": "L163",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_src_index_pibasicsextension",
-      "target": "packages_pi_basics_src_index_createautotitleprovider",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_src_index_createautotitleprovider"
     },
     {
       "relation": "calls",
@@ -34838,9 +35170,9 @@
       "source_location": "L78",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_src_index_registerhepimodule",
-      "target": "packages_pi_basics_src_index_activemoduleregistry",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_src_index_activemoduleregistry"
     },
     {
       "relation": "imports",
@@ -34850,9 +35182,9 @@
       "source_location": "L14",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_test_integration_index_test",
-      "target": "packages_pi_basics_src_index_registerhepimodule",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_src_index_registerhepimodule"
     },
     {
       "relation": "imports",
@@ -34862,9 +35194,9 @@
       "source_location": "L14",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_test_integration_index_test",
-      "target": "packages_pi_basics_src_index_pibasicsextension",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_src_index_pibasicsextension"
     },
     {
       "relation": "contains",
@@ -34873,9 +35205,9 @@
       "source_location": "L11",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_test_integration_index_test",
-      "target": "packages_pi_basics_test_integration_index_test_editor",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_test_integration_index_test_editor"
     },
     {
       "relation": "contains",
@@ -34884,9 +35216,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_test_integration_index_test",
-      "target": "packages_pi_basics_test_integration_index_test_editorfactory",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_test_integration_index_test_editorfactory"
     },
     {
       "relation": "contains",
@@ -34895,9 +35227,9 @@
       "source_location": "L12",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_test_integration_index_test",
-      "target": "packages_pi_basics_test_integration_index_test_footerfactory",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_test_integration_index_test_footerfactory"
     },
     {
       "relation": "contains",
@@ -34906,9 +35238,9 @@
       "source_location": "L44",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_test_integration_index_test",
-      "target": "packages_pi_basics_test_integration_index_test_harness",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_test_integration_index_test_harness"
     },
     {
       "relation": "contains",
@@ -34917,9 +35249,9 @@
       "source_location": "L22",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "packages_pi_basics_test_integration_index_test",
-      "target": "packages_pi_basics_test_integration_index_test_provider",
-      "confidence_score": 1.0
+      "target": "packages_pi_basics_test_integration_index_test_provider"
     },
     {
       "relation": "contains",
@@ -44648,338 +44980,6 @@
       "confidence_score": 1.0,
       "source": "packages_pi_basics_test_modules_dollar_skill_model_test",
       "target": "packages_pi_basics_test_modules_dollar_skill_model_test_getsuggestions"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L47",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_src_runtime_apply_patch_guard",
-      "target": "packages_pi_basics_src_runtime_apply_patch_guard_applypatchguard"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L106",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_src_runtime_apply_patch_guard",
-      "target": "packages_pi_basics_src_runtime_apply_patch_guard_createapplypatchguardsettingsprovider"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L13",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_src_runtime_apply_patch_guard",
-      "target": "packages_pi_basics_src_runtime_apply_patch_guard_guardpatchmode"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L29",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_src_runtime_apply_patch_guard",
-      "target": "packages_pi_basics_src_runtime_apply_patch_guard_hasstreamingapplypatchcommand"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L21",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_src_runtime_apply_patch_guard",
-      "target": "packages_pi_basics_src_runtime_apply_patch_guard_isjsonobject"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L19",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_src_runtime_apply_patch_guard",
-      "target": "packages_pi_basics_src_runtime_apply_patch_guard_jsonobject"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L92",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_src_runtime_apply_patch_guard",
-      "target": "packages_pi_basics_src_runtime_apply_patch_guard_modefield"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L88",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_src_runtime_apply_patch_guard",
-      "target": "packages_pi_basics_src_runtime_apply_patch_guard_modefromstate"
-    },
-    {
-      "relation": "indirect_call",
-      "confidence": "INFERRED",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L103",
-      "weight": 1.0,
-      "_origin": "ast",
-      "context": "collection",
-      "confidence_score": 0.5,
-      "source": "packages_pi_basics_src_runtime_apply_patch_guard",
-      "target": "packages_pi_basics_src_runtime_apply_patch_guard_normalizeguardpatchmode"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L33",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_src_runtime_apply_patch_guard",
-      "target": "packages_pi_basics_src_runtime_apply_patch_guard_readroot"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L52",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_src_runtime_apply_patch_guard",
-      "target": "packages_pi_basics_src_runtime_apply_patch_guard_registerapplypatchguard"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L43",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_src_runtime_apply_patch_guard",
-      "target": "packages_pi_basics_src_runtime_apply_patch_guard_settingspath"
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
-      "source_location": "L4",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_test_runtime_apply_patch_guard_test",
-      "target": "packages_pi_basics_src_runtime_apply_patch_guard"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L36",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_src_runtime_apply_patch_guard_readroot",
-      "target": "packages_pi_basics_src_runtime_apply_patch_guard_isjsonobject"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L89",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_src_runtime_apply_patch_guard_modefromstate",
-      "target": "packages_pi_basics_src_runtime_apply_patch_guard_normalizeguardpatchmode"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L83",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_src_runtime_apply_patch_guard_registerapplypatchguard",
-      "target": "packages_pi_basics_src_runtime_apply_patch_guard_normalizeguardpatchmode"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L68",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_src_runtime_apply_patch_guard_registerapplypatchguard",
-      "target": "packages_pi_basics_src_runtime_apply_patch_guard_hasstreamingapplypatchcommand"
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
-      "source_location": "L4",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_test_runtime_apply_patch_guard_test",
-      "target": "packages_pi_basics_src_runtime_apply_patch_guard_hasstreamingapplypatchcommand"
-    },
-    {
-      "relation": "method",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L48",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_src_runtime_apply_patch_guard_applypatchguard",
-      "target": "packages_pi_basics_src_runtime_apply_patch_guard_applypatchguard_getmode"
-    },
-    {
-      "relation": "method",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L49",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_src_runtime_apply_patch_guard_applypatchguard",
-      "target": "packages_pi_basics_src_runtime_apply_patch_guard_applypatchguard_setmode"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L140",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_src_runtime_apply_patch_guard_createapplypatchguardsettingsprovider",
-      "target": "packages_pi_basics_src_runtime_apply_patch_guard_applypatchguard_setmode"
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
-      "source_location": "L4",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_test_runtime_apply_patch_guard_test",
-      "target": "packages_pi_basics_src_runtime_apply_patch_guard_registerapplypatchguard"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
-      "source_location": "L28",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_test_runtime_apply_patch_guard_test_harness",
-      "target": "packages_pi_basics_src_runtime_apply_patch_guard_registerapplypatchguard"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/src/runtime/apply-patch-guard.ts",
-      "source_location": "L140",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_src_runtime_apply_patch_guard_createapplypatchguardsettingsprovider",
-      "target": "packages_pi_basics_src_runtime_apply_patch_guard_modefromstate"
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
-      "source_location": "L4",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_test_runtime_apply_patch_guard_test",
-      "target": "packages_pi_basics_src_runtime_apply_patch_guard_createapplypatchguardsettingsprovider"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
-      "source_location": "L10",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_test_runtime_apply_patch_guard_test",
-      "target": "packages_pi_basics_test_runtime_apply_patch_guard_test_handler"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
-      "source_location": "L24",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_test_runtime_apply_patch_guard_test",
-      "target": "packages_pi_basics_test_runtime_apply_patch_guard_test_harness"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
-      "source_location": "L12",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_test_runtime_apply_patch_guard_test",
-      "target": "packages_pi_basics_test_runtime_apply_patch_guard_test_streamevent"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "packages/pi-basics/test/runtime/apply-patch-guard.test.ts",
-      "source_location": "L38",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "packages_pi_basics_test_runtime_apply_patch_guard_test_harness",
-      "target": "packages_pi_basics_test_runtime_apply_patch_guard_test_streamevent"
     },
     {
       "relation": "contains",
@@ -91256,5 +91256,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "d0ab161e05836305b9bacbe8f71b50bdde3fe620"
+  "built_at_commit": "0a8dbbaf9702076c81e6da57720f25be18c68472"
 }
