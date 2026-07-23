@@ -25,6 +25,7 @@ function provider(id: string, closed: () => void): HePiSettingsProvider {
 		label: "Enabled",
 		type: "boolean",
 		defaultValue: false,
+		description: "Enable or disable the integration fixture provider during Settings tests.",
 		parse: (value) => value === "true",
 	};
 	return {
@@ -195,6 +196,8 @@ test("registers commands and lifecycle handlers", () => {
 		"todos",
 		"plan",
 		"advisor",
+		"ext-settings",
+		"loadout",
 		"hepi",
 	]);
 	expect(host.getActiveToolsCalls).toBe(0);
@@ -245,7 +248,7 @@ test("opens built-in automatic title settings without external providers", async
 	const host = harness();
 	piBasicsExtension(host.pi);
 	await host.emit("session_start");
-	await host.commands.find(({ name }) => name === "hepi")!.handler("setting", host.ctx);
+	await host.commands.find(({ name }) => name === "ext-settings")!.handler("", host.ctx);
 	const rendered = host.rendered.join("\n");
 	expect(host.customCalls).toBe(1);
 	expect(rendered).toContain("⚙ Settings");
@@ -254,6 +257,8 @@ test("opens built-in automatic title settings without external providers", async
 	expect(rendered).toContain("title model");
 	expect(rendered).toContain("Advisor");
 	expect(rendered).toContain("Guard patch");
+	expect(rendered).toContain("Strip status");
+	expect(rendered).toContain("Normalize IDs");
 	expect(rendered).not.toContain("traditional to simplified");
 	expect(rendered).toContain("Origin: @pi-basics");
 	expect(host.notifications).toEqual([]);
@@ -265,7 +270,7 @@ test("does not create custom component outside TUI", async () => {
 	piBasicsExtension(host.pi);
 	await host.emit("session_start");
 	registerHePiSettings(provider("integration-json", () => undefined));
-	await host.commands.find(({ name }) => name === "hepi")!.handler("setting", host.ctx);
+	await host.commands.find(({ name }) => name === "ext-settings")!.handler("", host.ctx);
 	expect(host.customCalls).toBe(0);
 	expect(host.notifications[0]?.message).toContain("requires TUI mode");
 	await host.emit("session_shutdown");
@@ -281,7 +286,7 @@ test("opens Settings with providers registered through public API and closes sto
 			closed++;
 		}),
 	);
-	await host.commands.find(({ name }) => name === "hepi")!.handler("setting", host.ctx);
+	await host.commands.find(({ name }) => name === "ext-settings")!.handler("", host.ctx);
 	expect(host.customCalls).toBe(1);
 	expect(host.rendered.join("\n")).toContain("⚙ Settings");
 	expect(host.rendered.join("\n")).toContain("◈ Loadout");

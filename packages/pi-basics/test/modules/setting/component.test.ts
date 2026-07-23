@@ -16,6 +16,7 @@ const fields: readonly HePiSettingField[] = [
 		label: "Enabled",
 		type: "boolean",
 		defaultValue: true,
+		description: "Enable or disable the fixture feature shown by the Settings component.",
 		parse: (draft) => draft === "true",
 	},
 	{
@@ -23,15 +24,24 @@ const fields: readonly HePiSettingField[] = [
 		label: "Mode",
 		type: "enum",
 		defaultValue: "auto",
+		description: "Choose automatic or manual behavior for the Settings component fixture.",
 		options: [{ value: "auto" }, { value: "manual" }],
 		parse: (draft) => draft,
 	},
-	{ id: "name", label: "Name", type: "text", defaultValue: "Alice", parse: (draft) => draft },
+	{
+		id: "name",
+		label: "Name",
+		type: "text",
+		defaultValue: "Alice",
+		description: "Set the fixture display name shown by the Settings component.",
+		parse: (draft) => draft,
+	},
 	{
 		id: "strict",
 		label: "Strict",
 		type: "text",
 		defaultValue: "ok",
+		description: "Set a validated fixture value used to test visible parse errors.",
 		parse: (draft) => {
 			if (draft === "bad") throw new Error("invalid draft");
 			return draft;
@@ -154,6 +164,78 @@ describe("settings component", () => {
 		expect(state.controller.state.mode).toBe("Edit");
 		expect(state.controller.state.draftValue).toBe("auto");
 		state.component.handleInput?.("\r");
+	});
+
+	test("cycles a related value with Tab without switching the main tab", async () => {
+		const tabFields = fields.map((field) =>
+			field.id === "mode"
+				? {
+						...field,
+						tabCycle: {
+							fieldId: "thinking",
+							label: "Thinking",
+							description: "Choose the fixture reasoning intensity paired with the selected mode.",
+							defaultValue: "medium",
+							options: [{ value: "medium" }, { value: "high" }],
+						},
+					}
+				: field,
+		);
+		const tabProvider = {
+			...provider(),
+			groups: [{ id: "general", title: "General", fields: tabFields }],
+		};
+		const state = await setup([tabProvider]);
+		state.controller.select("mode");
+		state.component.handleInput?.("\t");
+		expect(state.controller.state.committed.first?.general?.thinking).toBe("medium");
+		expect(text(state.component)).toContain("auto · high");
+		expect(text(state.component, 100)).toContain("Value: auto█ · high");
+		expect(text(state.component)).not.toContain("Loadout shared tab is available.");
+		state.component.handleInput?.("\r");
+		await flush();
+		expect(state.controller.state.committed.first?.general?.thinking).toBe("high");
+	});
+
+	test("defers tab-cycle validation until Enter", async () => {
+		const tabFields = fields.map((field) =>
+			field.id === "mode"
+				? {
+						...field,
+						tabCycle: {
+							fieldId: "thinking",
+							label: "Thinking",
+							description: "Choose the fixture reasoning intensity paired with the selected mode.",
+							defaultValue: "medium",
+							options: [{ value: "medium" }, { value: "high" }],
+						},
+					}
+				: field,
+		);
+		const baseProvider = provider();
+		const invalidProvider: HePiSettingsProvider = {
+			...baseProvider,
+			groups: [{ id: "general", title: "General", fields: tabFields }],
+			storage: {
+				...baseProvider.storage,
+				validate: (state) => {
+					if (state.general?.mode === "manual" && state.general.thinking === "high")
+						throw new Error("thinking level unsupported");
+				},
+			},
+		};
+		const state = await setup([invalidProvider]);
+		state.controller.select("mode");
+		state.component.handleInput?.("\r");
+		state.component.handleInput?.("\x1b[B");
+		state.component.handleInput?.("\t");
+		await flush();
+		expect(state.controller.state.committed.first?.general?.mode).toBe("auto");
+		expect(state.controller.state.committed.first?.general?.thinking).toBe("medium");
+		state.component.handleInput?.("\r");
+		await flush();
+		expect(state.controller.state.mode).toBe("Edit");
+		expect(text(state.component)).toContain("thinking level unsupported");
 	});
 
 	test("switches main tabs with arrows and keeps Settings content usable", async () => {

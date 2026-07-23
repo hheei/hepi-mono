@@ -297,9 +297,11 @@ describe("Pi Basics auto-title", () => {
 		coordinator.dispose();
 	});
 
-	test("applies a sanitized title from the isolated agent", async () => {
+	test("manual trigger waits for idle and replaces an existing title with short context", async () => {
 		const handlers = new Map<string, (value: unknown) => void>();
-		let applied: string | undefined;
+		let applied: string | undefined = "Old title";
+		let idle = false;
+		const widgets: Array<{ readonly content: unknown; readonly options: unknown }> = [];
 		const pi = {
 			events: {
 				on: (channel: string, handler: (value: unknown) => void) => {
@@ -316,12 +318,17 @@ describe("Pi Basics auto-title", () => {
 		const ctx = {
 			sessionManager: {
 				getEntries: () => [
-					{ type: "message", message: { role: "user", content: LONG_SESSION_CONTEXT } },
+					{ type: "message", message: { role: "user", content: "Fix the parser" } },
 				],
 				getSessionId: () => "s",
 			},
-			isIdle: () => true,
-			ui: { notify: () => undefined },
+			isIdle: () => idle,
+			ui: {
+				notify: () => undefined,
+				setWidget: (_key: string, content: unknown, options: unknown) => {
+					widgets.push({ content, options });
+				},
+			},
 		};
 		const coordinator = createAutoTitleCoordinator({ pi, ctx } as never, "provider/model", () => ({
 			prompt: async () => undefined,
@@ -331,10 +338,61 @@ describe("Pi Basics auto-title", () => {
 		}));
 
 		handlers.get("agent_settled")?.({});
-		expect(applied).toBeUndefined();
+		expect(applied).toBe("Old title");
+		coordinator.trigger(true);
+		expect(applied).toBe("Old title");
+		idle = true;
+		await Bun.sleep(60);
+		expect(applied).toBe("My Session");
+		expect(widgets.some((entry) => String(entry.content).includes("Generating title"))).toBe(true);
+		expect(widgets.at(-1)).toEqual({ content: undefined, options: { placement: "aboveEditor" } });
+		coordinator.dispose();
+	});
+
+	test("retries after a title model returns an empty result", async () => {
+		const handlers = new Map<string, (value: unknown) => void>();
+		let created = 0;
+		let result: string | undefined;
+		const pi = {
+			events: {
+				on: (channel: string, handler: (value: unknown) => void) => {
+					handlers.set(channel, handler);
+					return () => handlers.delete(channel);
+				},
+			},
+			appendEntry: () => undefined,
+			getSessionName: () => result,
+			setSessionName: (name: string) => {
+				result = name;
+			},
+		};
+		const ctx = {
+			sessionManager: {
+				getEntries: () => [
+					{ type: "message", message: { role: "user", content: LONG_SESSION_CONTEXT } },
+				],
+				getSessionId: () => "s",
+			},
+			isIdle: () => true,
+			ui: { notify: () => undefined },
+		};
+		const coordinator = createAutoTitleCoordinator({ pi, ctx } as never, "provider/model", () => {
+			created++;
+			return {
+				prompt: async () => undefined,
+				abort: () => undefined,
+				waitForIdle: async () => undefined,
+				result: () => (created === 1 ? "" : "Retry title"),
+			};
+		});
+
 		coordinator.trigger();
 		await Bun.sleep(0);
-		expect(applied).toBe("My Session");
+		expect(created).toBe(1);
+		handlers.get("agent_settled")?.({});
+		await Bun.sleep(0);
+		expect(created).toBe(2);
+		expect(result).toBe("Retry title");
 		coordinator.dispose();
 	});
 });

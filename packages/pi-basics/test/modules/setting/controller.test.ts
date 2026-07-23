@@ -29,7 +29,7 @@ describe("settings controller", () => {
 		await controller.close();
 	});
 
-	test("loads defaults and orders callbacks before save", async () => {
+	test("defers callbacks and one provider save until close", async () => {
 		const events: string[] = [];
 		const storage = fakeStorage();
 		const provider = createSettingsFixture({
@@ -37,37 +37,32 @@ describe("settings controller", () => {
 			onLoad: async () => {
 				events.push("load");
 			},
-			onChange: async () => {
-				events.push("change");
+			onChange: async (change) => {
+				events.push(`change:${change.fieldId}:${String(change.value)}`);
 			},
 		});
 		const controller = createSettingsController({ providers: [provider], context: testContext() });
 		await controller.load();
 		controller.select("enabled");
 		await controller.toggle();
-		events.push("after");
-		expect(events).toEqual(["load", "change", "after"]);
+		await controller.change("manual", "mode");
+		expect(events).toEqual(["load"]);
+		expect(storage.saves).toHaveLength(0);
+		await controller.close();
+		expect(events).toEqual(["load", "change:enabled:false", "change:mode:manual"]);
 		expect(storage.saves).toHaveLength(1);
+		expect(storage.saves[0]?.general).toMatchObject({ enabled: false, mode: "manual" });
 	});
-	test("serializes provider saves in change order", async () => {
-		const events: string[] = [];
-		const gate = Promise.withResolvers<void>();
-		const provider = createSettingsFixture({
-			onChange: async (change) => {
-				events.push(String(change.value));
-				if (change.value === false) await gate.promise;
-			},
-		});
+	test("does not save when edits return to the loaded state", async () => {
+		const storage = fakeStorage();
+		const provider = createSettingsFixture({ storage });
 		const controller = createSettingsController({ providers: [provider], context: testContext() });
 		await controller.load();
 		controller.select("enabled");
-		const first = controller.change(false);
-		await Promise.resolve();
-		const second = controller.change(true);
-		expect(events).toEqual(["false"]);
-		gate.resolve();
-		await Promise.all([first, second]);
-		expect(events).toEqual(["false", "true"]);
+		await controller.change(false);
+		await controller.change(true);
+		await controller.close();
+		expect(storage.saves).toHaveLength(0);
 	});
 	test("keeps draft and committed value on parse failure", async () => {
 		const provider = createSettingsFixture();
@@ -81,34 +76,16 @@ describe("settings controller", () => {
 		expect(controller.state.draftValue).toBe("bad");
 		expect(controller.state.committed.fixture!.general!.mode).toBe("auto");
 	});
-	test("rolls back failed save and retains error", async () => {
+	test("reports a deferred save failure during close", async () => {
 		const provider = createSettingsFixture({
 			storage: fakeStorage({ failSave: new Error("nope") }),
 		});
 		const controller = createSettingsController({ providers: [provider], context: testContext() });
 		await controller.load();
 		controller.select("enabled");
-		await expect(controller.toggle()).rejects.toThrow("nope");
-		expect(controller.state.committed.fixture!.general!.enabled).toBe(true);
-		expect(controller.state.error).toBe("nope");
-	});
-	test("reconciles sequential failures against committed state", async () => {
-		const provider = createSettingsFixture({
-			storage: fakeStorage({ failSave: new Error("nope") }),
-		});
-		const controller = createSettingsController({ providers: [provider], context: testContext() });
-		await controller.load();
-		controller.select("enabled");
-		controller.beginEdit();
-		controller.setDraft("keep draft");
-		const first = controller.change(false, "enabled");
-		const second = controller.change(true, "enabled");
-		const results = await Promise.allSettled([first, second]);
-		expect(results.every((result) => result.status === "rejected")).toBe(true);
-		expect(controller.state.committed.fixture!.general!.enabled).toBe(true);
-		expect(controller.state.mode).toBe("Edit");
-		expect(controller.state.draftValue).toBe("keep draft");
-		expect(controller.state.selection?.itemId).toBe("enabled");
+		await controller.toggle();
+		expect(controller.state.committed.fixture!.general!.enabled).toBe(false);
+		await expect(controller.close()).rejects.toThrow("Settings cleanup failed");
 		expect(controller.state.error).toBe("nope");
 	});
 

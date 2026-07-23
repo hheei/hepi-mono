@@ -57,17 +57,6 @@ export interface AutoTitleCoordinator {
 	dispose(): void;
 }
 
-export interface AutoTitleModelOption {
-	readonly value: string;
-	readonly label: string;
-}
-
-export interface AutoTitleCoordinator {
-	trigger(force?: boolean): void;
-	setModel(modelRef: string): void;
-	dispose(): void;
-}
-
 async function readRoot(path: string): Promise<JsonObject> {
 	let text: string;
 	try {
@@ -319,7 +308,7 @@ function messageText(content: unknown): string {
 	return text.replace(/\s+/g, " ").trim();
 }
 
-function autoTitleDescription(ctx: ExtensionContext): string | undefined {
+function autoTitleDescription(ctx: ExtensionContext, force: boolean): string | undefined {
 	const transcript: string[] = [];
 	let contextCharacters = 0;
 	let userTurns = 0;
@@ -335,10 +324,8 @@ function autoTitleDescription(ctx: ExtensionContext): string | undefined {
 			`${role === "user" ? "User" : "Assistant"}: ${text.slice(0, MAX_MESSAGE_TEXT)}`,
 		);
 	}
-	if (
-		(contextCharacters <= MIN_SESSION_CONTEXT_CHARACTERS && userTurns < 3) ||
-		transcript.length === 0
-	)
+	if (transcript.length === 0) return undefined;
+	if (!force && contextCharacters <= MIN_SESSION_CONTEXT_CHARACTERS && userTurns < 3)
 		return undefined;
 	return `Session transcript:\n\n${transcript.join("\n\n").slice(-MAX_PROMPT)}`;
 }
@@ -411,8 +398,13 @@ export function createAutoTitleCoordinator(
 		.getEntries()
 		.some((entry) => entry.type === "custom" && entry.customType === "pi-basics-auto-title");
 	let launchRequested = false;
+	let forceRequested = false;
+	let launchTimer: ReturnType<typeof setTimeout> | undefined;
 	let activeAgent: AutoTitleAgentAdapter | undefined;
-	const setStatus = (text?: string) => ctx.ui?.setStatus?.("auto-title", text);
+	const setStatus = (text?: string) =>
+		ctx.ui?.setWidget?.("auto-title", text === undefined ? undefined : [text], {
+			placement: "aboveEditor",
+		});
 	const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 	let statusTimer: ReturnType<typeof setInterval> | undefined;
 	const clearStatus = () => {
@@ -431,36 +423,55 @@ export function createAutoTitleCoordinator(
 	};
 	const stop = () => {
 		clearTimeout(timer);
+		clearTimeout(launchTimer);
 		timer = undefined;
+		launchTimer = undefined;
 		const agent = activeAgent;
 		activeAgent = undefined;
+		if (agent) attempted = false;
 		agent?.abort();
 		if (agent) void agent.waitForIdle().catch(() => undefined);
+	};
+	const scheduleForcedLaunch = () => {
+		if (disposed || !forceRequested || launchTimer !== undefined) return;
+		launchTimer = setTimeout(() => {
+			launchTimer = undefined;
+			launch();
+		}, 50);
 	};
 	const launch = () => {
 		if (
 			disposed ||
 			!launchRequested ||
 			activeAgent !== undefined ||
-			attempted ||
-			pi.getSessionName() ||
-			!ctx.isIdle()
+			(!forceRequested && (attempted || pi.getSessionName()))
 		)
 			return;
-		const prompt = autoTitleDescription(ctx);
-		if (!prompt) return;
+		if (!ctx.isIdle()) {
+			scheduleForcedLaunch();
+			return;
+		}
+		const forced = forceRequested;
+		const prompt = autoTitleDescription(ctx, forced);
+		if (!prompt) {
+			if (forced) ctx.ui.notify("Unable to generate title: no conversation content", "warning");
+			forceRequested = false;
+			return;
+		}
 		const sessionId = ctx.sessionManager.getSessionId();
 		const sessionRevision = revision;
 		let agent: AutoTitleAgentAdapter;
 		try {
 			agent = createAgent(runtime, modelRef);
 		} catch (error) {
+			forceRequested = false;
 			ctx.ui.notify(
 				`Unable to start automatic title: ${error instanceof Error ? error.message : String(error)}`,
 				"warning",
 			);
 			return;
 		}
+		forceRequested = false;
 		activeAgent = agent;
 		attempted = true;
 		pi.appendEntry("pi-basics-auto-title", { attempted: true });
@@ -483,15 +494,22 @@ export function createAutoTitleCoordinator(
 				)
 					return;
 				const title = safeTitle(agent.result() ?? "");
-				if (title) pi.setSessionName(title);
+				if (!title) {
+					attempted = false;
+					ctx.ui.notify("Automatic title model returned no usable title", "warning");
+					return;
+				}
+				pi.setSessionName(title);
 			} catch (error) {
-				if (!disposed && activeAgent === agent && sessionRevision === revision)
+				if (!disposed && activeAgent === agent && sessionRevision === revision) {
+					attempted = false;
 					ctx.ui.notify(
 						timedOut
 							? "Automatic title generation timed out"
 							: `Automatic title generation failed: ${error instanceof Error ? error.message : String(error)}`,
 						"warning",
 					);
+				}
 			} finally {
 				if (activeAgent === agent) {
 					activeAgent = undefined;
@@ -539,7 +557,10 @@ export function createAutoTitleCoordinator(
 		trigger: (force = false) => {
 			if (disposed) return;
 			launchRequested = true;
-			if (force) attempted = false;
+			if (force) {
+				attempted = false;
+				forceRequested = true;
+			}
 			launch();
 		},
 		setModel: (nextModelRef: string) => {

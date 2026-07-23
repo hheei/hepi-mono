@@ -28,6 +28,7 @@ function provider(
 						label: fieldId,
 						type: "boolean",
 						defaultValue: initial,
+						description: `Control the ${fieldId} fixture value for combined provider routing tests.`,
 						parse: (value) => value === "true",
 					},
 				],

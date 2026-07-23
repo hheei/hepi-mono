@@ -25,22 +25,35 @@ interface PendingChange {
 	readonly fieldId: string;
 	readonly value: HePiSettingValue;
 }
-
 function applyChange(state: HePiSettingsState, change: PendingChange): HePiSettingsState {
 	const next = cloneState(state);
 	next[change.groupId] = { ...(next[change.groupId] ?? {}), [change.fieldId]: change.value };
 	return next;
 }
+function applyChanges(
+	state: HePiSettingsState,
+	changes: readonly PendingChange[],
+): HePiSettingsState {
+	return changes.reduce(applyChange, state);
+}
+function changedValues(
+	previous: HePiSettingsState,
+	next: HePiSettingsState,
+): readonly PendingChange[] {
+	return Object.entries(next).flatMap(([groupId, values]) =>
+		Object.entries(values).flatMap(([fieldId, value]) =>
+			Object.is(previous[groupId]?.[fieldId], value) ? [] : [{ groupId, fieldId, value }],
+		),
+	);
+}
 
 export class SettingsController {
 	readonly model: SettingsModel;
 	readonly context: HePiContext;
-	readonly #queues = new Map<string, Promise<void>>();
 	readonly #committed = new Map<string, HePiSettingsState>();
-	readonly #operations = new Map<string, PendingChange[]>();
-	readonly #pending = new Set<Promise<void>>();
-	#closed = false;
-	#loading = false;
+	readonly #dirty = new Set<string>();
+	#closed: boolean = false;
+	#loading: boolean = false;
 	#loadGeneration = 0;
 	#activeLoad: Promise<void> | undefined;
 
@@ -135,62 +148,7 @@ export class SettingsController {
 			provider.id,
 			applyChange(this.state.committed[provider.id] ?? {}, { groupId, fieldId, value }),
 		);
-	}
-	private reconcile(providerId: string): void {
-		let state = cloneState(this.#committed.get(providerId) ?? {});
-		for (const operation of this.#operations.get(providerId) ?? [])
-			state = applyChange(state, operation);
-		this.model.setCommitted(providerId, state);
-	}
-	private enqueue(
-		provider: HePiSettingsProvider,
-		groupId: string,
-		fieldId: string,
-		value: HePiSettingValue,
-	): Promise<void> {
-		const change = { groupId, fieldId, value };
-		const operations = this.#operations.get(provider.id) ?? [];
-		operations.push(change);
-		this.#operations.set(provider.id, operations);
-		const prior = this.#queues.get(provider.id) ?? Promise.resolve();
-		const operation = prior.then(async () => {
-			const committed = cloneState(this.#committed.get(provider.id) ?? {});
-			const next = applyChange(committed, change);
-			const previousValue = committed[groupId]?.[fieldId];
-			const callbackChange = {
-				groupId,
-				fieldId,
-				value,
-				...(previousValue === undefined ? {} : { previousValue }),
-				state: cloneState(next),
-			};
-			try {
-				await provider.onChange?.(callbackChange, this.context);
-				await provider.storage.save(cloneState(next), this.context);
-				this.#committed.set(provider.id, next);
-				this.model.setError(undefined);
-			} catch (error) {
-				this.model.setError(readableError(error));
-				throw error;
-			} finally {
-				const pending = this.#operations.get(provider.id);
-				if (pending) {
-					const index = pending.indexOf(change);
-					if (index >= 0) pending.splice(index, 1);
-					if (pending.length === 0) this.#operations.delete(provider.id);
-				}
-				this.reconcile(provider.id);
-			}
-		});
-		const tracked = operation.finally(() => {
-			this.#pending.delete(tracked);
-		});
-		this.#queues.set(
-			provider.id,
-			tracked.catch(() => undefined),
-		);
-		this.#pending.add(tracked);
-		return tracked;
+		this.#dirty.add(provider.id);
 	}
 
 	async change(value: HePiSettingValue, fieldId?: string): Promise<void> {
@@ -202,7 +160,6 @@ export class SettingsController {
 		if (field.options && !field.options.some((option) => Object.is(option.value, value)))
 			throw new Error(`Invalid option for setting: ${field.id}`);
 		this.updateOptimistic(provider, field.groupId, field.id, value);
-		await this.enqueue(provider, field.groupId, field.id, value);
 	}
 	async toggle(fieldId?: string): Promise<void> {
 		const field = this.field(fieldId);
@@ -220,21 +177,64 @@ export class SettingsController {
 			field.id,
 		);
 	}
+	async cycleTab(fieldId?: string, direction = 1): Promise<void> {
+		const field = this.field(fieldId);
+		const tabCycle = field.tabCycle;
+		if (!tabCycle) throw new Error(`Setting has no Tab cycle: ${field.id}`);
+		const providerId = this.provider?.id ?? "";
+		const current = this.state.committed[providerId]?.[field.groupId]?.[tabCycle.fieldId];
+		const cycleField: HePiSettingField = {
+			...field,
+			id: tabCycle.fieldId,
+			options: tabCycle.options,
+		};
+		const value = cycleOption(cycleField, current ?? tabCycle.defaultValue, direction);
+		const provider = this.provider;
+		if (!provider) throw new Error("No settings provider selected");
+		this.updateOptimistic(provider, field.groupId, tabCycle.fieldId, value);
+	}
 	beginEdit(fieldId?: string): void {
 		const field = this.field(fieldId);
 		const value = this.currentValue(field);
-		this.model.beginEdit(
-			field.format ? field.format(value as never) : value === null ? "" : String(value),
-		);
+		const tabCycle = field.tabCycle;
+		const relatedValue = tabCycle
+			? (this.state.committed[this.provider?.id ?? ""]?.[field.groupId]?.[tabCycle.fieldId] ??
+				tabCycle.defaultValue)
+			: undefined;
+		this.model.beginEdit(value === null ? "" : String(value), relatedValue);
 	}
 	setDraft(draft: string): void {
 		if (this.state.mode !== "Edit") throw new Error("Not editing a setting");
 		this.model.setDraftValue(draft);
 	}
+	cycleDraft(direction = 1): void {
+		if (this.state.mode !== "Edit") throw new Error("Not editing a setting");
+		const field = this.field() as HePiSettingField<boolean | number | string> & {
+			readonly groupId: string;
+		};
+		const current = field.parse(this.state.draftValue ?? "");
+		this.model.setDraftValue(String(cycleOption(field, current, direction)));
+	}
+	cycleTabDraft(direction = 1): void {
+		if (this.state.mode !== "Edit") throw new Error("Not editing a setting");
+		const field = this.field();
+		const tabCycle = field.tabCycle;
+		if (!tabCycle) throw new Error(`Setting has no Tab cycle: ${field.id}`);
+		const cycleField: HePiSettingField = {
+			...field,
+			id: tabCycle.fieldId,
+			options: tabCycle.options,
+		};
+		const current = this.state.draftRelatedValue ?? tabCycle.defaultValue;
+		this.model.setDraftRelatedValue(
+			cycleOption(cycleField, current as boolean | number | string, direction),
+		);
+	}
 	async commitEdit(): Promise<void> {
 		if (this.state.mode !== "Edit") throw new Error("Not editing a setting");
 		const field = this.field();
 		let value: HePiSettingValue;
+		let changes: readonly [PendingChange, ...PendingChange[]];
 		try {
 			value = field.parse(this.state.draftValue ?? "");
 			if (typeof value === "number" && Number.isNaN(value))
@@ -243,11 +243,30 @@ export class SettingsController {
 				throw new Error(`Invalid option for setting: ${field.id}`);
 			const validation = field.validate?.(value as never);
 			if (validation) throw new Error(validation);
+			const primary: PendingChange = { groupId: field.groupId, fieldId: field.id, value };
+			const tabCycle = field.tabCycle;
+			if (!tabCycle) changes = [primary];
+			else {
+				const related = this.state.draftRelatedValue ?? tabCycle.defaultValue;
+				if (!tabCycle.options.some((option) => Object.is(option.value, related)))
+					throw new Error(`Invalid option for setting: ${tabCycle.fieldId}`);
+				changes = [primary, { groupId: field.groupId, fieldId: tabCycle.fieldId, value: related }];
+			}
 		} catch (error) {
 			this.model.setError(readableError(error));
 			throw error;
 		}
-		await this.change(value, field.id);
+		const provider = this.provider;
+		if (!provider) throw new Error("No settings provider selected");
+		const next = applyChanges(this.state.committed[provider.id] ?? {}, changes);
+		try {
+			await provider.storage.validate?.(cloneState(next), this.context);
+		} catch (error) {
+			this.model.setError(readableError(error));
+			throw error;
+		}
+		for (const change of changes)
+			this.updateOptimistic(provider, change.groupId, change.fieldId, change.value);
 		this.model.cancelEdit();
 	}
 	cancelEdit(): void {
@@ -257,20 +276,45 @@ export class SettingsController {
 		if (this.#closed) return;
 		this.#closed = true;
 		this.#loadGeneration++;
-		await Promise.allSettled([this.#activeLoad, ...this.#pending].filter(Boolean));
+		await Promise.allSettled([this.#activeLoad].filter(Boolean));
 		const cleanups = this.state.providers.map(async (snapshot) => {
 			const failures: Array<{ readonly providerId: string; readonly error: unknown }> = [];
-			const state = cloneState(this.state.committed[snapshot.provider.id] ?? {});
+			const provider = snapshot.provider;
+			const state = cloneState(this.state.committed[provider.id] ?? {});
+			const previous = cloneState(this.#committed.get(provider.id) ?? {});
+			const changes = changedValues(previous, state);
+			if (this.#dirty.has(provider.id) && changes.length > 0) {
+				try {
+					await provider.storage.validate?.(cloneState(state), this.context);
+					for (const change of changes) {
+						const previousValue = previous[change.groupId]?.[change.fieldId];
+						await provider.onChange?.(
+							{
+								...change,
+								...(previousValue === undefined ? {} : { previousValue }),
+								state: cloneState(state),
+							},
+							this.context,
+						);
+					}
+					await provider.storage.save(cloneState(state), this.context);
+					this.#committed.set(provider.id, cloneState(state));
+					this.#dirty.delete(provider.id);
+				} catch (error) {
+					this.model.setError(readableError(error));
+					failures.push({ providerId: provider.id, error });
+				}
+			}
 			const onClose = await Promise.allSettled([
-				Promise.resolve().then(() => snapshot.provider.onClose?.(state, this.context)),
+				Promise.resolve().then(() => provider.onClose?.(state, this.context)),
 			]);
 			if (onClose[0]?.status === "rejected")
-				failures.push({ providerId: snapshot.provider.id, error: onClose[0].reason });
+				failures.push({ providerId: provider.id, error: onClose[0].reason });
 			const storageClose = await Promise.allSettled([
-				Promise.resolve().then(() => snapshot.provider.storage.close?.(this.context)),
+				Promise.resolve().then(() => provider.storage.close?.(this.context)),
 			]);
 			if (storageClose[0]?.status === "rejected")
-				failures.push({ providerId: snapshot.provider.id, error: storageClose[0].reason });
+				failures.push({ providerId: provider.id, error: storageClose[0].reason });
 			return failures;
 		});
 		const settled = await Promise.allSettled(cleanups);
@@ -279,9 +323,7 @@ export class SettingsController {
 				? result.value
 				: [{ providerId: "settings", error: result.reason }],
 		);
-		this.#queues.clear();
-		this.#pending.clear();
-		this.#operations.clear();
+		this.#dirty.clear();
 		this.model.cancelEdit();
 		if (failures.length > 0)
 			throw new AggregateError(

@@ -22,17 +22,22 @@ export function renderTabs(
 		const innerWidth = Math.max(2, visibleWidth(label) + 2);
 		const content = ` ${padToWidth(label, innerWidth - 2)} `;
 		const active = index === activeIndex;
-		const style = (text: string): string => theme.fg(active ? "accent" : "text", text);
+		const tabRole = active ? "accent" : "text";
 		return {
-			top: style(`╭${"─".repeat(innerWidth)}╮`),
-			middle: style(`│${active ? theme.bold(content) : content}│`),
-			bottom: style(active ? `╯${" ".repeat(innerWidth)}╰` : `┴${"─".repeat(innerWidth)}┴`),
+			top: theme.fg(tabRole, `╭${"─".repeat(innerWidth)}╮`),
+			middle: theme.fg(tabRole, `│${active ? theme.bold(content) : content}│`),
+			bottom: active
+				? theme.fg("accent", `╯${" ".repeat(innerWidth)}╰`)
+				: theme.fg("border", `┴${"─".repeat(innerWidth)}┴`),
 		};
 	});
 	const top = ` ${tabs.map((tab) => tab.top).join("")}`;
 	const middle = ` ${tabs.map((tab) => tab.middle).join("")}`;
-	const bottomPrefix = `─${tabs.map((tab) => tab.bottom).join("")}`;
-	const bottom = `${bottomPrefix}${"─".repeat(Math.max(0, width - visibleWidth(bottomPrefix)))}`;
+	const bottomPrefix = `${theme.fg("border", "─")}${tabs.map((tab) => tab.bottom).join("")}`;
+	const bottom = `${bottomPrefix}${theme.fg(
+		"border",
+		"─".repeat(Math.max(0, width - visibleWidth(bottomPrefix))),
+	)}`;
 	return [top, middle, bottom].map((line) => truncateToWidth(line, width, ""));
 }
 

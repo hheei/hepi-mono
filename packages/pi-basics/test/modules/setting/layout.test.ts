@@ -9,31 +9,27 @@ describe("settings layout", () => {
 		const baseline = createSettingsLayout(100);
 		const wider = createSettingsLayout(140);
 		expect(baseline.mode).toBe("wide");
-		expect(baseline.keyWidth).toBe(30);
-		expect(baseline.valueStart).toBe(33);
+		expect(baseline.keyWidth).toBe(24);
+		expect(baseline.valueStart).toBe(27);
 		expect(wider.keyWidth).toBe(baseline.keyWidth);
 		expect(wider.valueStart).toBe(baseline.valueStart);
 	});
 
 	test("bounds and anchors wide outer columns", () => {
-		const widths = [72, 100, 140, 200];
+		const widths = [75, 100, 140, 200];
 		const layouts = widths.map((width) => createSettingsLayout(width));
 		for (const layout of layouts) {
 			expect(layout.mode).toBe("wide");
 			expect(layout.gap).toBe(3);
 			expect(layout.descriptionWidth).toBeGreaterThanOrEqual(32);
-			expect(layout.descriptionWidth).toBeLessThanOrEqual(44);
+			expect(layout.descriptionWidth).toBeLessThanOrEqual(100);
 			expect(layout.leftWidth).toBeGreaterThanOrEqual(24);
-			expect(layout.leftWidth).toBeLessThanOrEqual(52);
+			expect(layout.leftWidth).toBeLessThanOrEqual(46);
 			const compactWidth = layout.leftWidth + layout.gap + layout.descriptionWidth;
 			expect(compactWidth).toBeLessThanOrEqual(layout.width);
 		}
-		expect(layouts.map((layout) => layout.leftWidth + layout.gap)).toEqual([40, 55, 55, 55]);
-		expect(
-			layouts
-				.slice(1)
-				.map((layout) => layout.width - layout.leftWidth - layout.gap - layout.descriptionWidth),
-		).toEqual([7, 41, 101]);
+		expect(layouts.map((layout) => layout.leftWidth + layout.gap)).toEqual([43, 49, 49, 49]);
+		expect(layouts.map((layout) => layout.descriptionWidth)).toEqual([32, 51, 91, 100]);
 	});
 
 	test("preserves wide list columns and description panel invariant", () => {
@@ -44,6 +40,13 @@ describe("settings layout", () => {
 		);
 		expect(layout.valueStart).toBe(layout.indicatorWidth + layout.keyWidth + layout.valueGap);
 		expect(layout.descriptionHeight).toBe(9);
+	});
+
+	test("matches Loadout's terminal-relative panel height", () => {
+		const layout = createSettingsLayout(120, 50);
+		expect(layout.descriptionHeight).toBe(15);
+		expect(layout.listHeight).toBe(15);
+		expect(layout.descriptionWidth).toBeGreaterThan(44);
 	});
 
 	test("uses full-width narrow list and fixed value area", () => {

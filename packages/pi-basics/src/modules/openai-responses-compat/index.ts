@@ -160,7 +160,7 @@ export function createOpenAIResponsesCompatFeature(pi: ExtensionAPI): OpenAIResp
 const fields: readonly HePiSettingField[] = [
 	{
 		id: OPENAI_RESPONSES_COMPAT_FIELD,
-		label: "Strip assistant message status",
+		label: "Strip status",
 		type: "boolean",
 		defaultValue: false,
 		description:
@@ -169,7 +169,7 @@ const fields: readonly HePiSettingField[] = [
 	},
 	{
 		id: OPENAI_RESPONSES_NORMALIZE_MESSAGE_ID_FIELD,
-		label: "Normalize assistant message IDs",
+		label: "Normalize IDs",
 		type: "boolean",
 		defaultValue: false,
 		description: "Rewrite replayed assistant message IDs from item_ to the required msg_ prefix.",

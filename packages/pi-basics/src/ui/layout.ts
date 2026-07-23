@@ -31,8 +31,11 @@ export function createSplitLayout(options: SplitLayoutOptions): SplitLayout {
 	const rightMax = Math.max(rightMin, Math.floor(options.rightMax ?? 44));
 	const available = Math.max(0, width - gap);
 	const preferredLeft = Math.floor(available * (options.leftRatio ?? 0.58));
-	const leftWidth = Math.min(leftMax, Math.max(leftMin, preferredLeft));
-	const rightWidth = Math.min(rightMax, Math.max(rightMin, available - leftWidth));
+	const leftWidth = Math.min(
+		leftMax,
+		Math.max(leftMin, Math.min(preferredLeft, Math.max(leftMin, available - rightMin))),
+	);
+	const rightWidth = Math.min(rightMax, available - leftWidth);
 	return { width, mode: "split", leftWidth, rightWidth, gap };
 }
 

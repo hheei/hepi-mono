@@ -26,6 +26,7 @@ export interface SettingsModelState {
 	readonly mode: SettingsMode;
 	readonly committed: Readonly<Record<string, HePiSettingsState>>;
 	readonly draftValue?: string | undefined;
+	readonly draftRelatedValue?: HePiSettingValue | undefined;
 	readonly search: string;
 	readonly collapsedGroupIds: ReadonlySet<string>;
 	readonly scrollTop: number;
@@ -75,6 +76,9 @@ export function mergeSettingsState(
 				Object.hasOwn(storedGroup, field.id) && storedValue !== undefined
 					? storedValue
 					: field.defaultValue;
+			const tabCycle = field.tabCycle;
+			if (tabCycle && !Object.hasOwn(storedGroup, tabCycle.fieldId))
+				fields[tabCycle.fieldId] = tabCycle.defaultValue;
 		}
 		// Preserve unknown fields from storage; domain state owns them.
 		result[group.id] = { ...storedGroup, ...fields };
@@ -144,6 +148,7 @@ export class SettingsModel {
 			mode: "Navigation",
 			committed: {},
 			draftValue: undefined,
+			draftRelatedValue: undefined,
 			search: "",
 			collapsedGroupIds: new Set(),
 			scrollTop: 0,
@@ -209,14 +214,29 @@ export class SettingsModel {
 	toggleGroup(_groupId: string): void {
 		// Group headers are structural labels; fields remain permanently visible.
 	}
-	beginEdit(value: string): void {
-		this.state = { ...this.state, mode: "Edit", draftValue: value, error: undefined };
+	beginEdit(value: string, relatedValue?: HePiSettingValue): void {
+		this.state = {
+			...this.state,
+			mode: "Edit",
+			draftValue: value,
+			draftRelatedValue: relatedValue,
+			error: undefined,
+		};
 	}
 	cancelEdit(): void {
-		this.state = { ...this.state, mode: "Navigation", draftValue: undefined, error: undefined };
+		this.state = {
+			...this.state,
+			mode: "Navigation",
+			draftValue: undefined,
+			draftRelatedValue: undefined,
+			error: undefined,
+		};
 	}
 	setDraftValue(value: string): void {
-		this.state = { ...this.state, draftValue: value };
+		this.state = { ...this.state, draftValue: value, error: undefined };
+	}
+	setDraftRelatedValue(value: HePiSettingValue): void {
+		this.state = { ...this.state, draftRelatedValue: value, error: undefined };
 	}
 	setError(error: string | undefined): void {
 		this.state = { ...this.state, error };

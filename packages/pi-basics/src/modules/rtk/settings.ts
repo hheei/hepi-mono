@@ -17,6 +17,8 @@ const fields: readonly HePiSettingField[] = [
 		label: "RTK Mode",
 		type: "enum",
 		defaultValue: "rewrite",
+		description:
+			"Choose whether RTK rewrites supported shell commands, suggests replacements, or stays disabled.",
 		options: [
 			{ value: "off", label: "off" },
 			{ value: "rewrite", label: "rewrite" },
@@ -29,6 +31,8 @@ const fields: readonly HePiSettingField[] = [
 		label: "RTK Compaction",
 		type: "enum",
 		defaultValue: "out",
+		description:
+			"Choose whether RTK compacts command output only or also compacts supported file-read output.",
 		options: [
 			{ value: "out", label: "out" },
 			{ value: "read+out", label: "read+out" },

@@ -1,3 +1,5 @@
+import { createSplitLayout } from "../../ui/layout.js";
+
 export type SettingsLayoutMode = "wide" | "narrow";
 
 export interface SettingsLayout {
@@ -22,27 +24,26 @@ export interface SettingsLayout {
 const SETTINGS_WIDE_KEY_MAX_WIDTH = 30;
 const SETTINGS_WIDE_GAP = 3;
 const SETTINGS_WIDE_MIN_LEFT_WIDTH = 24;
-const SETTINGS_WIDE_MAX_LEFT_WIDTH = 52;
+const SETTINGS_WIDE_MAX_LEFT_WIDTH = 46;
 const SETTINGS_WIDE_MIN_DESCRIPTION_WIDTH = 32;
-const SETTINGS_WIDE_MAX_DESCRIPTION_WIDTH = 44;
-export const SETTINGS_WIDE_MIN_WIDTH = 72;
+const SETTINGS_WIDE_MAX_DESCRIPTION_WIDTH = 100;
+export const SETTINGS_WIDE_MIN_WIDTH = 75;
 
-export function createSettingsLayout(rawWidth: number): SettingsLayout {
+export function createSettingsLayout(rawWidth: number, rawHeight?: number): SettingsLayout {
 	const width = Math.max(0, Math.floor(rawWidth));
-	const mode: SettingsLayoutMode = width >= SETTINGS_WIDE_MIN_WIDTH ? "wide" : "narrow";
-	const gap = mode === "wide" ? SETTINGS_WIDE_GAP : 0;
-	const requestedDescriptionWidth = Math.min(
-		SETTINGS_WIDE_MAX_DESCRIPTION_WIDTH,
-		Math.max(SETTINGS_WIDE_MIN_DESCRIPTION_WIDTH, Math.floor(width * 0.38)),
-	);
-	const descriptionWidth =
-		mode === "wide"
-			? Math.min(requestedDescriptionWidth, Math.max(0, width - gap - SETTINGS_WIDE_MIN_LEFT_WIDTH))
-			: 0;
-	const leftWidth =
-		mode === "wide"
-			? Math.min(SETTINGS_WIDE_MAX_LEFT_WIDTH, Math.max(0, width - gap - descriptionWidth))
-			: width;
+	const split = createSplitLayout({
+		width,
+		breakpoint: SETTINGS_WIDE_MIN_WIDTH,
+		gap: SETTINGS_WIDE_GAP,
+		leftMin: SETTINGS_WIDE_MIN_LEFT_WIDTH,
+		leftMax: SETTINGS_WIDE_MAX_LEFT_WIDTH,
+		rightMin: SETTINGS_WIDE_MIN_DESCRIPTION_WIDTH,
+		rightMax: SETTINGS_WIDE_MAX_DESCRIPTION_WIDTH,
+	});
+	const mode: SettingsLayoutMode = split.mode === "split" ? "wide" : "narrow";
+	const gap = split.gap;
+	const descriptionWidth = split.rightWidth;
+	const leftWidth = split.leftWidth;
 	const scrollbarGap = 2;
 	const scrollbarWidth = 1;
 	const listContentWidth = Math.max(0, leftWidth - scrollbarGap - scrollbarWidth);
@@ -60,7 +61,9 @@ export function createSettingsLayout(rawWidth: number): SettingsLayout {
 			: Math.min(preferredValueWidth, Math.max(0, Math.floor(availableAfterIndicator / 2)));
 	const keyWidth =
 		mode === "wide" ? wideKeyWidth : Math.max(0, availableAfterIndicator - valueWidth);
-	const listHeight = mode === "wide" ? 7 : 8;
+	const panelHeight =
+		rawHeight === undefined ? 9 : Math.max(4, Math.floor(Math.max(0, rawHeight) * 0.3));
+	const listHeight = mode === "wide" ? panelHeight : Math.max(8, panelHeight);
 
 	return {
 		width,
@@ -71,7 +74,7 @@ export function createSettingsLayout(rawWidth: number): SettingsLayout {
 		scrollbarWidth,
 		gap,
 		descriptionWidth,
-		descriptionHeight: 9,
+		descriptionHeight: panelHeight,
 		listHeight,
 		itemCapacity: Math.max(1, listHeight - 1),
 		indicatorWidth,

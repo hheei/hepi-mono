@@ -13,10 +13,21 @@ async function target(): Promise<string> {
 }
 
 describe("advisor settings provider", () => {
-	test("uses a unique provider ID with the compatible group", () => {
-		const provider = createAdvisorSettingsProvider({ path: "/tmp/settings.json" });
+	test("uses one model field with configured options and Tab thinking cycle", () => {
+		const provider = createAdvisorSettingsProvider({
+			path: "/tmp/settings.json",
+			modelOptions: [{ value: "openai/gpt-4.1", label: "GPT-4.1" }],
+		});
 		expect(provider.id).toBe("pi-basics-advisor");
 		expect(provider.groups[0]?.id).toBe("advisor");
+		expect(provider.groups[0]?.fields).toHaveLength(1);
+		expect(provider.groups[0]?.fields[0]).toMatchObject({
+			id: "model",
+			label: "Advisor model",
+			type: "enum",
+			options: [{ value: "openai/gpt-4.1", label: "GPT-4.1" }],
+			tabCycle: { fieldId: "thinking", defaultValue: "medium" },
+		});
 	});
 
 	test("normalizes blank model and passes it to persistence callback", async () => {

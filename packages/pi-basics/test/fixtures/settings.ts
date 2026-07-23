@@ -16,6 +16,7 @@ export const booleanField: HePiSettingField<boolean> = {
 	label: "Enabled",
 	type: "boolean",
 	defaultValue: true,
+	description: "Enable or disable this fixture feature for controller behavior tests.",
 	parse: parseBoolean,
 };
 
@@ -24,6 +25,7 @@ export const enumField: HePiSettingField<string> = {
 	label: "Mode",
 	type: "enum",
 	defaultValue: "auto",
+	description: "Choose automatic or manual operation for enum setting behavior tests.",
 	options: [
 		{ value: "auto", label: "Automatic" },
 		{ value: "manual", label: "Manual" },
@@ -39,6 +41,7 @@ export const textField: HePiSettingField<string> = {
 	label: "Name",
 	type: "text",
 	defaultValue: "Alice",
+	description: "Set the display name used by text setting behavior tests.",
 	parse: (draft) => draft,
 };
 
@@ -47,6 +50,7 @@ export const numberField: HePiSettingField<number> = {
 	label: "Count",
 	type: "number",
 	defaultValue: 2,
+	description: "Set the finite numeric count used by number setting behavior tests.",
 	parse: (draft) => {
 		const value = Number(draft);
 		if (!Number.isFinite(value)) throw new Error("expected finite number");
@@ -59,6 +63,7 @@ export const pathField: HePiSettingField<string> = {
 	label: "Root path",
 	type: "path",
 	defaultValue: "/tmp",
+	description: "Set the filesystem root used by path setting behavior tests.",
 	parse: (draft) => draft,
 };
 

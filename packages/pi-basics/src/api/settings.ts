@@ -24,13 +24,23 @@ export interface HePiSettingOption<T extends HePiSettingPrimitive = HePiSettingP
 	readonly description?: string;
 }
 
+export interface HePiSettingTabCycle {
+	readonly fieldId: string;
+	readonly label: string;
+	readonly description: string;
+	readonly defaultValue: HePiSettingPrimitive;
+	readonly options: readonly HePiSettingOption[];
+}
+
 export interface HePiSettingField<T extends HePiSettingPrimitive = HePiSettingPrimitive> {
 	readonly id: string;
 	readonly label: string;
 	readonly type: HePiSettingType;
 	readonly defaultValue: T;
-	readonly description?: string;
+	readonly description: string;
 	readonly options?: readonly HePiSettingOption<T>[];
+	/** A related persisted value cycled with Tab while this field is selected. */
+	readonly tabCycle?: HePiSettingTabCycle;
 	format?(value: T): string;
 	parse(draft: string): T;
 	validate?(value: T): string | undefined;
@@ -54,6 +64,8 @@ export interface HePiSettingChange {
 
 export interface HePiSettingsStorage {
 	load(ctx: HePiContext): HePiMaybePromise<HePiSettingsState | undefined>;
+	/** Validate a final state without persisting it. */
+	validate?(state: HePiSettingsState, ctx: HePiContext): HePiMaybePromise<void>;
 	save(state: HePiSettingsState, ctx: HePiContext): HePiMaybePromise<void>;
 	close?(ctx: HePiContext): HePiMaybePromise<void>;
 }
@@ -83,10 +95,32 @@ export interface HePiSettingsRegistry {
 	get(id: string): HePiSettingsProvider | undefined;
 }
 
+export const HEPI_SETTING_DESCRIPTION_MIN_LENGTH = 20;
+
+function validateSettingDescriptions(provider: HePiSettingsProvider): void {
+	for (const group of provider.groups) {
+		for (const field of group.fields) {
+			if (field.description.trim().length < HEPI_SETTING_DESCRIPTION_MIN_LENGTH)
+				throw new Error(
+					`HEPI setting ${provider.id}.${group.id}.${field.id} requires a detailed description of at least ${HEPI_SETTING_DESCRIPTION_MIN_LENGTH} characters`,
+				);
+			const tabCycle = field.tabCycle;
+			if (
+				tabCycle !== undefined &&
+				tabCycle.description.trim().length < HEPI_SETTING_DESCRIPTION_MIN_LENGTH
+			)
+				throw new Error(
+					`HEPI setting ${provider.id}.${group.id}.${tabCycle.fieldId} requires a detailed description of at least ${HEPI_SETTING_DESCRIPTION_MIN_LENGTH} characters`,
+				);
+		}
+	}
+}
+
 class SettingsRegistry implements HePiSettingsRegistry {
 	readonly #providers = new Map<string, HePiSettingsProvider>();
 
 	register(provider: HePiSettingsProvider): void {
+		validateSettingDescriptions(provider);
 		if (this.#providers.has(provider.id)) {
 			throw new Error(`HePi settings provider id collision: ${provider.id}`);
 		}

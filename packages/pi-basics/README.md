@@ -4,19 +4,19 @@
 
 ## Advisor
 
-Use `/advisor on`, `/advisor off`, or `/advisor status` to control the session-scoped read-only reviewer. Advisor settings are available in `/hepi setting` under `pi-basics.advisor`; `model` uses `provider/model` and may be left empty to keep Advisor unconfigured. Advisor can submit structured advice and only uses `read`, `grep`, `find`, `ls`, and `advise`; it never receives `bash`, `edit`, or `write`.
+Use `/advisor on`, `/advisor off`, or `/advisor status` to control the session-scoped read-only reviewer. In `/ext-settings`, `Advisor model` lists only models with configured authentication. Use arrows to select a model and Tab to cycle thinking intensity; both values remain drafts until Enter validates and accepts them together. All Settings changes are saved once when the Settings view closes. An unsupported model/thinking combination shows a warning on Enter without blocking navigation. Advisor can submit structured advice and only uses `read`, `grep`, `find`, `ls`, and `advise`; it never receives `bash`, `edit`, or `write`.
 
 ## Load and use
 
 Load package as a Pi extension. For local development, run `bun run pi:dev -- basics`. Package entry registers `/hepi`, direct `/todos`, and the model-facing `ask`, `todo`, and `sshfs` tools.
 
-`Guard patch` in `/hepi setting` controls streamed `bash` interception with `auto`, `on`, and `off` modes. `auto` aborts generation when `apply_patch` appears in executable command position only when no configured `apply_patch` tool exists; `on` always guards and `off` disables the guard. An abort injects guidance to use Pi's `edit` or `write` tool instead. Commands that only mention `apply_patch` do not trigger it. The mode persists under `pi-basics.guardPatch` in `.pi/settings.json`.
+`Guard patch` under `Compatibility` in `/ext-settings` controls streamed `bash` interception with `auto`, `on`, and `off` modes. `auto` aborts generation when `apply_patch` appears in executable command position only when no configured `apply_patch` tool exists; `on` always guards and `off` disables the guard. An abort injects guidance to use Pi's `edit` or `write` tool instead. Commands that only mention `apply_patch` do not trigger it. The mode persists under `pi-basics.guardPatch` in `.pi/settings.json`.
 
-`/hepi setting` opens the Settings and Loadout tabs. Settings includes the built-in RTK provider alongside other Pi Basics settings. RTK rewrites bash commands through an installed external `rtk` executable and compacts `bash`, `read`, and `grep` results; it never installs the executable itself.
+`/ext-settings` opens Settings and `/loadout` opens Loadout; the left and right arrow keys switch between the shared tabs. The legacy `/hepi setting` and `/hepi loadout` routes remain available for compatibility. Settings includes the built-in RTK provider alongside other Pi Basics settings. RTK rewrites bash commands through an installed external `rtk` executable and compacts `bash`, `read`, and `grep` results; it never installs the executable itself.
 
 The rewrite path preserves native `find` commands when they use predicates or actions unsupported by the installed RTK version, such as `-empty`, `-not`, `-exec`, or `-mtime`, preventing deterministic RTK failures and agent retry loops.
 
-The `OpenAI Responses compatibility` settings are disabled by default. `Strip assistant message status` removes `status` from replayed assistant `message` input items, while `Normalize assistant message IDs` rewrites their `item_` ID prefix to `msg_`. Enable them only for an OpenAI Responses gateway that rejects those fields. Reasoning and tool items are left unchanged. The settings persist under `pi-basics.openai-responses-compat` in `<cwd>/.pi/settings.json`; legacy configurations that enabled status stripping implicitly enable ID normalization until that setting is explicitly saved.
+The `Strip status` and `Normalize IDs` compatibility settings are disabled by default. `Strip status` removes `status` from replayed assistant `message` input items, while `Normalize IDs` rewrites their `item_` ID prefix to `msg_`. Enable them only for an OpenAI Responses gateway that rejects those fields. Reasoning and tool items are left unchanged. The settings persist under `pi-basics.openai-responses-compat` in `<cwd>/.pi/settings.json`; legacy configurations that enabled status stripping implicitly enable ID normalization until that setting is explicitly saved.
 
 Loadout stores global choices in `~/.pi/agent/setting.json` and project choices in `<cwd>/.pi/setting.json`, under `pi-basics-loadout`. Within each kind, built-in/core items appear first; remaining items are ordered by package/source, then by name inside that package. Persisted entries use stable `kind:name` identities so extension source paths may change across reloads without losing the choice. Existing source-scoped entries remain readable and are migrated when that item is next changed.
 
@@ -37,7 +37,7 @@ The `ask` tool opens a focused questionnaire in TUI sessions, or uses dialog UI 
 
 ## BTW
 
-`/btw <question>` 仅在 TUI 中可用，并使用当前 active model 发起无工具侧问。侧问请求的 tools 为空，因此不能执行工具或修改文件。成功的侧问历史只保存在当前 session 的内存中，不写入主 transcript 或磁盘。按 `Esc` 取消并关闭，使用上下键滚动，按 `x` 清除历史；一次只处理一个请求。
+`/btw [question]` 仅在 TUI 中可用。带问题时使用当前 active model 发起无工具侧问；不带问题时直接打开侧问历史面板。侧问请求的 tools 为空，因此不能执行工具或修改文件。成功的侧问历史只保存在当前 session 的内存中，不写入主 transcript 或磁盘。按 `Esc` 取消并关闭，使用上下键滚动，按 `x` 清除历史；一次只处理一个请求。
 
 ## SSHFS
 
@@ -49,11 +49,11 @@ SSHFS requires Linux or macOS, a local `sshfs` executable, and OpenSSH authentic
 
 Type `$` in the TUI editor to complete loaded skills by name. A complete known reference acts as one editor token: left/right movement crosses it in one step, and Backspace/Delete removes it as a unit. Pi's built-in `Editor` and `CustomEditor` also restore the full reference with one Undo; unrelated custom editor implementations retain their own undo semantics. A known standalone reference such as `$librarian` is replaced at submission time with that skill command's canonical `sourceInfo.path`; it references `SKILL.md` without injecting the skill contents as `/skill:librarian` would. Partial and unknown references remain character-editable; unknown references, shell-style variables embedded in words, and numeric values such as `$5` remain unchanged at submission. Punctuation after a reference is supported.
 
-Use `/hepi setting` to disable the behavior or change the suggestion limit. Settings persist under `pi-basics.dollarSkillReferences` in `<cwd>/.pi/settings.json`. Autocomplete is TUI-only, while path expansion also applies to interactive and RPC/print input. Do not load the standalone `pi-codex-dollar` extension with `@hheei/pi-basics`, because both transform the same input syntax.
+Use `/ext-settings` to disable the behavior or change the suggestion limit. Settings persist under `pi-basics.dollarSkillReferences` in `<cwd>/.pi/settings.json`. Autocomplete is TUI-only, while path expansion also applies to interactive and RPC/print input. Do not load the standalone `pi-codex-dollar` extension with `@hheei/pi-basics`, because both transform the same input syntax.
 
 ## Automatic Titles
 
-Enable automatic titles in `/hepi setting` and choose a title model. Titles are generated only at initial session startup, after `/new`, or when manually requested with `/hepi auto-title`. They do not run after `/resume`, `/fork`, `/clone`, or compaction. Pi Basics runs a one-shot isolated agent with no tools or inherited extensions, so automatic titles do not require `pi-subagents`. The title agent receives the latest user prompt, limited to 2,000 characters, and returns no more than five words.
+Enable automatic titles in `/ext-settings` and choose a title model. Titles are generated only at initial session startup, after `/new`, or when manually requested with `/auto-title`. Manual generation can replace an existing title and works with short conversations; automatic generation retries after a failed or empty model result. They do not run after `/resume`, `/fork`, `/clone`, or compaction. Pi Basics runs a one-shot isolated agent with no tools or inherited extensions, so automatic titles do not require `pi-subagents`. The title agent receives the session transcript and returns no more than six words.
 
 ## Todo
 
@@ -86,9 +86,9 @@ import { registerHePiSettings } from "@hheei/pi-basics";
 registerHePiSettings(provider);
 ```
 
-Set `provider.origin` to module identifier shown in Description panel, for example `"@my-module"`.
+Every registered setting field and related `tabCycle` key must provide a detailed `description` of at least 20 characters; the public registry rejects shorter descriptions. Set `provider.origin` to the module identifier shown one line below the selected key description, for example `"@my-module"`.
 
-In Pi TUI, run `/hepi setting`. Providers are read when command opens, so providers registered after extension load are included. Optional provider id is currently ignored; Settings opens normally and shows available non-empty providers.
+In Pi TUI, run `/ext-settings`. Providers are read when command opens, so providers registered after extension load are included. Optional provider id is currently ignored; Settings opens normally and shows available non-empty providers.
 
 `registerHePiModule(module)` is also exported for module integrations.
 
@@ -107,7 +107,7 @@ A panel may provide `render(width)` instead of `lines`. Registrations are used b
 
 ## RTK
 
-The built-in RTK integration is controlled from compact `RTK Mode` (`off`, `rewrite`, `suggest`) and `RTK Compaction` (`none`, `out`, `read+out`) fields in `/hepi setting`. It persists project settings in `.pi/settings.json` under `pi-basics.rtk`. If the `rtk` executable cannot be found, bash calls are blocked with an error. The compatibility command `/rtk` supports `show`, `verify`, `stats`, `clear-stats`, `reset`, `path`, and `help`. `rtk` is optional: when unavailable, raw commands run unchanged.
+The built-in RTK integration is controlled from compact `RTK Mode` (`off`, `rewrite`, `suggest`) and `RTK Compaction` (`none`, `out`, `read+out`) fields in `/ext-settings`. It persists project settings in `.pi/settings.json` under `pi-basics.rtk`. If the `rtk` executable cannot be found, bash calls are blocked with an error. The compatibility command `/rtk` supports `show`, `verify`, `stats`, `clear-stats`, `reset`, `path`, and `help`. `rtk` is optional: when unavailable, raw commands run unchanged.
 
 The defaults keep read compaction and source filtering disabled because lossy reads can make anchored edits fail. When enabling those options, disable read compaction temporarily if an edit reports that old text does not match. Existing `pi-rtk-optimizer` configuration is read once when no project RTK settings exist; new writes use `.pi/settings.json` only.
 
