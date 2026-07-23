@@ -10,6 +10,8 @@ Load package as a Pi extension. For local development, run `bun run pi:dev -- ba
 
 `/hepi setting` opens the Settings and Loadout tabs. Settings includes the built-in RTK provider alongside other Pi Basics settings. RTK rewrites bash commands through an installed external `rtk` executable and compacts `bash`, `read`, and `grep` results; it never installs the executable itself.
 
+The `OpenAI Responses compatibility` settings are disabled by default. `Strip assistant message status` removes `status` from replayed assistant `message` input items, while `Normalize assistant message IDs` rewrites their `item_` ID prefix to `msg_`. Enable them only for an OpenAI Responses gateway that rejects those fields. Reasoning and tool items are left unchanged. The settings persist under `pi-basics.openai-responses-compat` in `<cwd>/.pi/settings.json`; legacy configurations that enabled status stripping implicitly enable ID normalization until that setting is explicitly saved.
+
 Loadout stores global choices in `~/.pi/agent/setting.json` and project choices in `<cwd>/.pi/setting.json`, under `pi-basics-loadout`. Within each kind, built-in/core items appear first; remaining items are ordered by package/source, then by name inside that package. Persisted entries use stable `kind:name` identities so extension source paths may change across reloads without losing the choice. Existing source-scoped entries remain readable and are migrated when that item is next changed.
 
 ## Goal
