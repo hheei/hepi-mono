@@ -1,14 +1,11 @@
-import { CAVEMAN_SETTINGS_PROVIDER_ID, createCavemanSettingsProvider } from "./config.js";
+import { createCavemanSettingsProvider } from "./config.js";
 
-export async function registerCavemanHePiSettings(): Promise<boolean> {
+export async function registerCavemanHePiSettings(): Promise<(() => void) | undefined> {
 	try {
-		const { getHePiSettings, registerHePiSettings } = await import("@hheei/pi-basics");
-		if (getHePiSettings(CAVEMAN_SETTINGS_PROVIDER_ID) === undefined) {
-			registerHePiSettings(createCavemanSettingsProvider());
-		}
-		return true;
+		const { registerHePiSettings } = await import("@hheei/pi-basics");
+		return registerHePiSettings(createCavemanSettingsProvider());
 	} catch (error) {
-		if (isMissingPiBasics(error)) return false;
+		if (isMissingPiBasics(error)) return undefined;
 		throw error;
 	}
 }

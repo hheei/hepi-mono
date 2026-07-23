@@ -1,12 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { defaultHePiModuleRegistry, getHePiModule, registerHePiModule } from "./api/modules.js";
 import {
-	defaultHePiModuleRegistry,
-	getHePiModule,
-	type HePiModule,
-	registerHePiModule,
-} from "./api/modules.js";
-import {
-	getHePiSettings,
 	type HePiSettingsProvider,
 	listHePiSettings,
 	registerHePiSettings,
@@ -16,13 +10,9 @@ import { createStatusbarFeature } from "./contributions/statusbar/index.js";
 import { HePiLifecycleController, registerHePiLifecycle } from "./runtime/lifecycle.js";
 import { getToolActivationCoordinator } from "./runtime/tool-activation.js";
 import { combineSettingsProviders } from "./ui/settings/combined.js";
-import { createSettingsModule, type SettingsModule } from "./ui/settings/index.js";
+import { createSettingsModule } from "./ui/settings/index.js";
 
 const SETTINGS_REGISTRATION_EVENT = "hepi:settings:register";
-
-function isSettingsModule(module: HePiModule | undefined): module is SettingsModule {
-	return module !== undefined && "controller" in module;
-}
 
 function isSettingsProvider(value: unknown): value is HePiSettingsProvider {
 	if (typeof value !== "object" || value === null) return false;
@@ -42,27 +32,36 @@ function isSettingsProvider(value: unknown): value is HePiSettingsProvider {
 }
 
 export default function piBasicsExtension(pi: ExtensionAPI): void {
-	const registeredSettingsModule = getHePiModule("setting");
-	if (registeredSettingsModule !== undefined && !isSettingsModule(registeredSettingsModule))
-		throw new Error("HEPI module id setting is reserved by pi-basics");
-	const settingsModule =
-		registeredSettingsModule ??
-		createSettingsModule({
-			getProviders: () => [combineSettingsProviders(listHePiSettings())],
-			getLoadoutView: () => getHePiModule("loadout")?.createShellView,
-			showTabs: false,
-		});
-	if (registeredSettingsModule === undefined) registerHePiModule(settingsModule);
+	const settingsModule = createSettingsModule({
+		getProviders: () => [combineSettingsProviders(listHePiSettings())],
+		getLoadoutView: () => getHePiModule("loadout")?.createShellView,
+		showTabs: false,
+	});
+	let registerSettingsContribution: ((provider: HePiSettingsProvider) => void) | undefined;
 
 	const coordinator = getToolActivationCoordinator(pi);
 	const statusbar = createStatusbarFeature(pi);
 	const lifecycle = new HePiLifecycleController({
 		onStart: async (runtime) => {
-			coordinator.reset();
+			const unregisterSettingsModule = registerHePiModule(settingsModule);
 			runtime.registry.registerLifecycle({
-				id: "settings-registration-listener",
-				cleanup: unregisterSettingsListener,
+				id: "settings-module",
+				cleanup: unregisterSettingsModule,
 			});
+			registerSettingsContribution = (provider) => {
+				const unregisterSettings = registerHePiSettings(provider);
+				runtime.registry.registerLifecycle({
+					id: `settings-provider:${provider.id}`,
+					cleanup: unregisterSettings,
+				});
+			};
+			runtime.registry.registerLifecycle({
+				id: "settings-registration-owner",
+				cleanup: () => {
+					registerSettingsContribution = undefined;
+				},
+			});
+			coordinator.reset();
 			if (typeof runtime.pi.getActiveTools === "function")
 				coordinator.setLoadoutBaseline(runtime.pi.getActiveTools());
 			runtime.registry.registerLifecycle({
@@ -84,7 +83,9 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 	registerHePiCommand(pi, defaultHePiModuleRegistry);
 	registerHePiLifecycle(pi, lifecycle);
 	const unregisterSettingsListener = pi.events.on(SETTINGS_REGISTRATION_EVENT, (provider) => {
-		if (!isSettingsProvider(provider)) return;
-		if (getHePiSettings(provider.id) === undefined) registerHePiSettings(provider);
+		if (isSettingsProvider(provider)) registerSettingsContribution?.(provider);
+	});
+	pi.on("session_shutdown", (event) => {
+		if (event.reason === "quit" || event.reason === "reload") unregisterSettingsListener();
 	});
 }

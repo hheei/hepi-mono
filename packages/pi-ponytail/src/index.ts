@@ -30,8 +30,7 @@ const COMMAND_DESCRIPTIONS: Record<(typeof COMMAND_VALUES)[number], string> = {
 	status: "Print the active Ponytail mode without changing it.",
 };
 
-export default async function piPonytailExtension(pi: ExtensionAPI): Promise<void> {
-	pi.events.emit("hepi:settings:register", createPonytailSettingsProvider());
+export default function piPonytailExtension(pi: ExtensionAPI): void {
 	let defaults: PonytailDefaults = DEFAULT_PONYTAIL_DEFAULTS;
 	let mode: PonytailMode = DEFAULT_PONYTAIL_MODE;
 	let subagentSession = false;
@@ -88,6 +87,7 @@ export default async function piPonytailExtension(pi: ExtensionAPI): Promise<voi
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
+		pi.events.emit("hepi:settings:register", createPonytailSettingsProvider());
 		defaults = await loadPonytailDefaults(ctx.cwd);
 		subagentSession = isPiSubagentSession(pi);
 		restoreModeFromBranch(ctx);

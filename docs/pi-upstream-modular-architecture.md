@@ -253,7 +253,9 @@ Pi Basics 现在用共享 event bus 标识 runtime：
 - 不同 event bus 的 Pi runtime 仍隔离；
 - package boundary test 同时检查静态和动态 HEPI imports。
 
-这个修复保留现有 API，没有新增通用 registry。下一步先观察现有 module/settings registry 的 reload 和多 runtime 行为；只有出现真实 cleanup 或 collision 问题时，再给这些 process-level registrations 增加 unregister contract。
+第一步修复保留了现有 API，没有新增通用 registry。第二轮 review 随后通过上游真实 `loadExtensions()` 复现了 module/settings process-level registry 的 `/reload` collision，以及 package removal 后的 stale contribution。这个 decision gate 已触发：module/settings registration 现在返回 identity-checked disposer，feature 在 `session_start` 注册，并通过现有 lifecycle registry 在 `session_shutdown` 清理。Duplicate ID 仍是同一 active generation 内的错误。
+
+当前没有证据要求支持同一进程内多个并发 Pi runtime，因此不引入 owner-token framework 或按 runtime 分片的 contribution registry。若未来需要并发 runtime，再以 `pi.events` identity 扩展这一边界。
 
 ## 6. HEPI 目标规则
 
@@ -262,9 +264,9 @@ Pi Basics 现在用共享 event bus 标识 runtime：
 `pi.extensions` 指向的默认 export 只做组装：
 
 1. 创建本包 feature objects。
-2. 注册 tools、commands、events 和 settings contribution。
-3. 在 `session_start` 创建 session-scoped state/resources。
-4. 在 `session_shutdown` 幂等清理。
+2. 在 factory 阶段注册 tools、commands 和 runner-owned events。
+3. 在 `session_start` 注册 module/settings contributions，并创建 session-scoped state/resources。
+4. 在 `session_shutdown` 幂等清理 contributions 和 resources。
 
 entry 不放 reducer、persistence parser、rendering algorithm 或 provider payload logic。这些留在本包内部文件。
 

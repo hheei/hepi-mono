@@ -28,10 +28,15 @@ async function createProject(settings: unknown): Promise<string> {
 }
 
 describe("Caveman HEPI settings", () => {
-	test("registers idempotently through pi-basics public API", async () => {
-		expect(await registerCavemanHePiSettings()).toBeTrue();
-		expect(await registerCavemanHePiSettings()).toBeTrue();
+	test("registers once and disposes through pi-basics public API", async () => {
+		const unregister = await registerCavemanHePiSettings();
+		expect(unregister).toBeFunction();
+		await expect(registerCavemanHePiSettings()).rejects.toThrow(
+			"HePi settings provider id collision: pi-caveman",
+		);
 		expect(getHePiSettings(CAVEMAN_SETTINGS_PROVIDER_ID)?.origin).toBe("@hheei/pi-caveman");
+		unregister?.();
+		expect(getHePiSettings(CAVEMAN_SETTINGS_PROVIDER_ID)).toBeUndefined();
 	});
 
 	test("loads validated main and subagent defaults", async () => {

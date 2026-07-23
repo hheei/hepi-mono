@@ -124,7 +124,7 @@ Before considering an extension package ready:
 
 - `package.json` has `name`, `main`, `files`, `pi.extensions`, `keywords`, and peer dependencies
 - command names are stable and start with `pi-` where practical
-- settings, if any, must have one explicit runtime owner and no hidden global registry
+- modules and settings register during `session_start`; their returned disposers are owned by the runtime lifecycle
 - README documents commands and local testing
 - `bun run check` passes
 

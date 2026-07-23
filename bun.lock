@@ -181,9 +181,6 @@
         "@earendil-works/pi-coding-agent": ">=0.80.10",
         "@hheei/pi-basics": ">=0.0.0",
       },
-      "optionalPeers": [
-        "@hheei/pi-basics",
-      ],
     },
     "packages/pi-sshfs": {
       "name": "@hheei/pi-sshfs",

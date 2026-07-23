@@ -14,6 +14,8 @@ Import from the package root only. It exports Settings and module registries, se
 
 Cross-feature runtime state is keyed by Pi's shared event bus, not by `ExtensionAPI`: Pi creates a separate API facade for every extension. Tool disable handlers must have unique non-empty names, register during session start, and unregister during cleanup. Disabling an unregistered tool is a no-op.
 
+`registerHePiModule()` and `registerHePiSettings()` return idempotent disposers. Extensions must register contributions during `session_start` and add the disposer to their lifecycle registry so `/reload` and package removal do not retain stale modules or providers. Duplicate IDs in one active generation remain errors.
+
 ## Development
 
 Run `bun run typecheck`, `bun test packages/pi-basics/test`, and `bunx biome check packages/pi-basics` from repository root.

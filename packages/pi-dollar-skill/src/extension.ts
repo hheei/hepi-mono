@@ -17,11 +17,15 @@ export default function piDollarSkillExtension(pi: ExtensionAPI): void {
 	);
 	registerDollarSkillInputTransform(pi, feature);
 	const provider = createDollarSkillSettingsProvider(feature);
-	registerHePiSettings(provider);
 	registerHePiLifecycle(
 		pi,
 		new HePiLifecycleController({
 			onStart: async (runtime) => {
+				const unregisterSettings = registerHePiSettings(provider);
+				runtime.registry.registerLifecycle({
+					id: "dollar-skill-settings",
+					cleanup: unregisterSettings,
+				});
 				const context = {
 					sessionId: runtime.ctx.sessionManager.getSessionId(),
 					cwd: runtime.ctx.cwd,

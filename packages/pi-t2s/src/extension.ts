@@ -14,9 +14,13 @@ export default function piT2sExtension(pi: ExtensionAPI): void {
 	const provider = createTraditionalToSimplifiedSettingsProvider({
 		onPersisted: (enabled) => feature.setEnabled(enabled),
 	});
-	registerHePiSettings(provider);
 	const lifecycle = new HePiLifecycleController({
 		onStart: async (runtime) => {
+			const unregisterSettings = registerHePiSettings(provider);
+			runtime.registry.registerLifecycle({
+				id: "t2s-settings",
+				cleanup: unregisterSettings,
+			});
 			const context = {
 				sessionId: runtime.ctx.sessionManager.getSessionId(),
 				cwd: runtime.ctx.cwd,

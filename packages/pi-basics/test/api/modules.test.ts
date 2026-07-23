@@ -15,17 +15,26 @@ const moduleFor = (id: string, label: string): HePiModule => ({
 });
 
 describe("HePi module registry", () => {
-	test("orders modules by label then id and rejects collisions", () => {
+	test("orders modules, rejects collisions, and disposes its registration", () => {
 		const registry = createHePiModuleRegistry();
 		registerHePiModule(moduleFor("z", "Same"), registry);
 		registerHePiModule(moduleFor("a", "Same"), registry);
-		registerHePiModule(moduleFor("b", "First"), registry);
+		const owned = moduleFor("b", "First");
+		const unregister = registerHePiModule(owned, registry);
 
 		expect(listHePiModules(registry).map((module) => module.id)).toEqual(["b", "a", "z"]);
 		expect(() => registerHePiModule(moduleFor("a", "Other"), registry)).toThrow(
 			"HePi module id collision: a",
 		);
-		replaceHePiModule(moduleFor("a", "Replaced"), registry);
+		const unregisterReplacement = replaceHePiModule(moduleFor("a", "Replaced"), registry);
 		expect(listHePiModules(registry).find((module) => module.id === "a")?.label).toBe("Replaced");
+		unregisterReplacement();
+		unregister();
+		const unregisterAgain = registerHePiModule(owned, registry);
+		unregister();
+		expect(listHePiModules(registry).map((module) => module.id)).toEqual(["b", "z"]);
+		unregisterAgain();
+		unregisterAgain();
+		expect(listHePiModules(registry).map((module) => module.id)).toEqual(["z"]);
 	});
 });

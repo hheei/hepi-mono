@@ -4,7 +4,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	HePiLifecycleController,
 	registerHePiLifecycle,
-	registerHePiSettingsIfAbsent,
+	registerHePiSettings,
 } from "@hheei/pi-basics";
 import { registerAdvisorCommand } from "./command.js";
 import { createAdvisorFeature } from "./feature.js";
@@ -51,10 +51,12 @@ export default function piAdvisorExtension(pi: ExtensionAPI): void {
 						await advisor.configure(model, level);
 					},
 				});
-			if (settingsProvider === undefined) {
-				settingsProvider = provider;
-				registerHePiSettingsIfAbsent(provider);
-			}
+			if (settingsProvider === undefined) settingsProvider = provider;
+			const unregisterSettings = registerHePiSettings(provider);
+			runtime.registry.registerLifecycle({
+				id: "advisor-settings",
+				cleanup: unregisterSettings,
+			});
 
 			let model: string | undefined;
 			let thinking = parseThinking("medium");

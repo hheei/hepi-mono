@@ -216,18 +216,19 @@ test("registers commands and lifecycle handlers", () => {
 	expect(host.tools).toEqual([]);
 	expect(host.messageRenderers).toEqual([]);
 	expect(host.events.get("session_start")).toHaveLength(1);
-	expect(host.events.get("session_shutdown")).toHaveLength(1);
+	expect(host.events.get("session_shutdown")).toHaveLength(2);
 });
 
 test("registers settings providers through the extension event bus", async () => {
 	const host = harness();
 	piBasicsExtension(host.pi);
+	await host.emit("session_start");
 	const eventProvider = provider("integration-event", () => undefined);
 	host.pi.events.emit("hepi:settings:register", eventProvider);
 	expect(getHePiSettings(eventProvider.id)).toBe(eventProvider);
 	host.pi.events.emit("hepi:settings:register", {});
-	await host.emit("session_start");
 	await host.emit("session_shutdown");
+	expect(getHePiSettings(eventProvider.id)).toBeUndefined();
 	const lateProvider = provider("integration-event-late", () => undefined);
 	host.pi.events.emit("hepi:settings:register", lateProvider);
 	expect(getHePiSettings(lateProvider.id)).toBeUndefined();
@@ -236,10 +237,14 @@ test("registers settings providers through the extension event bus", async () =>
 test("accepts settings providers from mode extensions", async () => {
 	const host = harness();
 	piBasicsExtension(host.pi);
-	await piCavemanExtension(host.pi);
-	await piPonytailExtension(host.pi);
+	piCavemanExtension(host.pi);
+	piPonytailExtension(host.pi);
+	await host.emit("session_start");
 	expect(getHePiSettings(CAVEMAN_SETTINGS_PROVIDER_ID)?.origin).toBe("@hheei/pi-caveman");
 	expect(getHePiSettings(PONYTAIL_SETTINGS_PROVIDER_ID)?.origin).toBe("@hheei/pi-ponytail");
+	await host.emit("session_shutdown");
+	expect(getHePiSettings(CAVEMAN_SETTINGS_PROVIDER_ID)).toBeUndefined();
+	expect(getHePiSettings(PONYTAIL_SETTINGS_PROVIDER_ID)).toBeUndefined();
 });
 
 test("installs and restores footer and editor seams for TUI session", async () => {
@@ -283,10 +288,11 @@ test("does not create custom component outside TUI", async () => {
 	const host = harness("json");
 	piBasicsExtension(host.pi);
 	await host.emit("session_start");
-	registerHePiSettings(provider("integration-json", () => undefined));
+	const unregister = registerHePiSettings(provider("integration-json", () => undefined));
 	await host.commands.find(({ name }) => name === "ext-settings")!.handler("", host.ctx);
 	expect(host.customCalls).toBe(0);
 	expect(host.notifications[0]?.message).toContain("requires TUI mode");
+	unregister();
 	await host.emit("session_shutdown");
 });
 
@@ -295,7 +301,7 @@ test("opens Settings with providers registered through public API and closes sto
 	const host = harness();
 	piBasicsExtension(host.pi);
 	await host.emit("session_start");
-	registerHePiSettings(
+	const unregister = registerHePiSettings(
 		provider("integration-tui", () => {
 			closed++;
 		}),
@@ -303,6 +309,7 @@ test("opens Settings with providers registered through public API and closes sto
 	await host.commands.find(({ name }) => name === "ext-settings")!.handler("", host.ctx);
 	expect(host.customCalls).toBe(1);
 	expect(host.rendered.length).toBeGreaterThan(0);
+	unregister();
 	await host.emit("session_shutdown");
 	expect(closed).toBe(1);
 });
@@ -364,7 +371,7 @@ test("routes package-level module registration", async () => {
 			opened.push(`${args}:${ctx.sessionId}`);
 		},
 	};
-	registerHePiModule(module);
+	const unregister = registerHePiModule(module);
 	const host = harness();
 	piBasicsExtension(host.pi);
 	await host.emit("session_start");
@@ -372,5 +379,6 @@ test("routes package-level module registration", async () => {
 		.find(({ name }) => name === "hepi")!
 		.handler("integration-probe payload", host.ctx);
 	expect(opened).toEqual(["payload:integration-session"]);
+	unregister();
 	await host.emit("session_shutdown");
 });
