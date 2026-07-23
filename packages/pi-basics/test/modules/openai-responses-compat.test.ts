@@ -6,6 +6,7 @@ import {
 	applyOpenAIResponsesCompat,
 	createOpenAIResponsesCompatFeature,
 	createOpenAIResponsesCompatSettingsProvider,
+	normalizeAssistantMessageId,
 	stripAssistantMessageStatus,
 } from "../../src/modules/openai-responses-compat/index.js";
 
@@ -49,6 +50,11 @@ describe("OpenAI Responses compatibility", () => {
 	});
 
 	test("normalizes only item-prefixed assistant message IDs", () => {
+		const normalizedId = normalizeAssistantMessageId("item_1897cee2cf04599211fdda0d");
+		expect(normalizedId).toMatch(/^msg_pi_[0-9a-f]{40}$/);
+		expect(normalizeAssistantMessageId("item_1897cee2cf04599211fdda0d")).toBe(normalizedId);
+		expect(normalizeAssistantMessageId("msg_existing")).toBe("msg_existing");
+
 		const rewritten = applyOpenAIResponsesCompat(payload, {
 			stripAssistantMessageStatus: true,
 			normalizeAssistantMessageId: true,
@@ -60,7 +66,7 @@ describe("OpenAI Responses compatibility", () => {
 				{
 					type: "message",
 					role: "assistant",
-					id: "msg_1897cee2cf04599211fdda0d",
+					id: normalizedId,
 					content: [{ type: "output_text", text: "answer", annotations: [] }],
 				},
 				payload.input[2],
@@ -69,6 +75,12 @@ describe("OpenAI Responses compatibility", () => {
 		});
 		expect(payload.input[1]!.id).toBe("item_1897cee2cf04599211fdda0d");
 		expect(payload.input[2]!.id).toBe("item_reasoning");
+		expect(
+			applyOpenAIResponsesCompat(rewritten, {
+				stripAssistantMessageStatus: true,
+				normalizeAssistantMessageId: true,
+			}),
+		).toBe(rewritten);
 	});
 
 	test("returns unrelated payloads unchanged", () => {
@@ -112,7 +124,7 @@ describe("OpenAI Responses compatibility", () => {
 		const rewritten = await hook({ payload }, context);
 		expect(rewritten).not.toBeUndefined();
 		expect(JSON.stringify(rewritten)).not.toContain('"id":"item_1897cee2cf04599211fdda0d"');
-		expect(JSON.stringify(rewritten)).toContain('"id":"msg_1897cee2cf04599211fdda0d"');
+		expect(JSON.stringify(rewritten)).toMatch(/"id":"msg_pi_[0-9a-f]{40}"/);
 
 		const saved = JSON.parse(await readFile(join(cwd, ".pi", "settings.json"), "utf8"));
 		expect(saved["pi-basics"]["openai-responses-compat"].stripAssistantMessageStatus).toBe(true);
