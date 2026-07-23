@@ -47,6 +47,8 @@ const GOAL_REPLAY_WARNING = (count: number): string =>
 const CONTINUATION_DELAY_MS = 15_000;
 const GOAL_KICKOFF_MESSAGE = "Start the active Goal.";
 const GOAL_CONTINUATION_MESSAGE = "Continue the active Goal.";
+const GOAL_MODE_ENABLED_MESSAGE = "※ Goal Mode enabled";
+const GOAL_MODE_STOPPED_MESSAGE = "※ Goal Mode stopped";
 
 export interface GoalFeature {
 	start(runtime: HePiRuntimeContext): void | Promise<void>;
@@ -102,10 +104,7 @@ function goalContext(goalId: string, objective: string): string {
 }
 
 function statusText(state: GoalState, awaitingObjective: boolean): string | undefined {
-	if (awaitingObjective) return "Goal · waiting";
-	if (state.mode === "active") return "Goal · active";
-	if (!state.stored) return undefined;
-	return state.stored.status === "blocked" ? "Goal · stored · blocked" : "Goal · stored";
+	return awaitingObjective || state.mode === "active" || state.stored ? "Goal" : undefined;
 }
 
 function isFinalErrorOrAbort(event: AgentEndEvent): boolean {
@@ -309,6 +308,7 @@ export function createGoalFeature(
 				if (current.awaitingObjective) {
 					current.awaitingObjective = false;
 					updateStatus(current);
+					notify(current, GOAL_MODE_STOPPED_MESSAGE);
 					return;
 				}
 				if (current.state.mode === "active") {
@@ -327,6 +327,7 @@ export function createGoalFeature(
 					current.inputVersion++;
 					cancelTimer(current);
 					abortOwnedRun(current, owned);
+					notify(current, GOAL_MODE_STOPPED_MESSAGE);
 					return;
 				}
 				if (current.state.stored) {
@@ -346,6 +347,7 @@ export function createGoalFeature(
 					}
 					current.inputVersion++;
 					cancelTimer(current);
+					notify(current, GOAL_MODE_ENABLED_MESSAGE);
 					void dispatchKickoff(current, result.state.active.goalId, () => ctx.waitForIdle());
 					return;
 				}
@@ -372,6 +374,7 @@ export function createGoalFeature(
 			current.inputVersion++;
 			cancelTimer(current);
 			if (old) abortOwnedRun(old, owned);
+			notify(current, GOAL_MODE_ENABLED_MESSAGE);
 			void dispatchKickoff(current, result.state.active.goalId, () => ctx.waitForIdle());
 		},
 	});
@@ -405,6 +408,7 @@ export function createGoalFeature(
 			);
 			return;
 		}
+		notify(current, GOAL_MODE_ENABLED_MESSAGE);
 		return { action: "continue" as const };
 	});
 

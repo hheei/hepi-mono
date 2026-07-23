@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { createToolActivationCoordinator } from "../../src/runtime/tool-activation.js";
+import {
+	createToolActivationCoordinator,
+	getToolActivationCoordinator,
+} from "../../src/runtime/tool-activation.js";
 
 function host(initial: string[] = ["read", "ask", "goal"]) {
 	const activeSets: string[][] = [];
@@ -19,6 +22,20 @@ function host(initial: string[] = ["read", "ask", "goal"]) {
 }
 
 describe("tool activation coordinator", () => {
+	test("shares state across per-extension API wrappers", () => {
+		const writes: string[][] = [];
+		const loadoutApi = { setActiveTools: (names: string[]) => writes.push(names) } as never;
+		const goalApi = { setActiveTools: (names: string[]) => writes.push(names) } as never;
+		const loadoutCoordinator = getToolActivationCoordinator(loadoutApi);
+		const goalCoordinator = getToolActivationCoordinator(goalApi);
+		loadoutCoordinator.reset();
+		loadoutCoordinator.setLoadoutBaseline(["goal"]);
+		expect(goalCoordinator).toBe(loadoutCoordinator);
+		expect(goalCoordinator.isConfigured("goal")).toBe(true);
+		expect(writes.at(-1)).toEqual(["goal"]);
+		goalCoordinator.dispose();
+	});
+
 	test("does not access host actions during construction", () => {
 		const { getActiveToolsCalls } = host();
 		expect(getActiveToolsCalls()).toBe(0);

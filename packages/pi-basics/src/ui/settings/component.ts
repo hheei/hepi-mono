@@ -52,7 +52,7 @@ export function createSettingsComponent(options: SettingsComponentOptions): Comp
 				: item.id === selection?.itemId,
 		);
 		if (index < 0) return;
-		const capacity = createSettingsLayout(lastWidth).itemCapacity;
+		const capacity = createSettingsLayout(lastWidth, options.height).itemCapacity;
 		let top = controller.state.scrollTop;
 		if (index < top) top = index;
 		else if (index >= top + capacity) top = index - capacity + 1;

@@ -68,6 +68,22 @@ describe("combineSettingsProviders", () => {
 		expect(combined.groups[0]?.fields.map((field) => field.id)).toEqual(["enabled"]);
 	});
 
+	test("groups fragmented providers once under their pi module name", () => {
+		const calls: string[] = [];
+		const first = {
+			...provider("guard", "guard", "enabled", true, calls),
+			origin: "@hheei/pi-fix",
+			title: "Guard patch",
+		};
+		const second = {
+			...provider("responses", "responses", "enabled", true, calls),
+			origin: "@hheei/pi-fix",
+			title: "OpenAI Responses compatibility",
+		};
+		const combined = combineSettingsProviders([first, second]);
+		expect(combined.groups.map((group) => group.title)).toEqual(["pi-fix", ""]);
+	});
+
 	test("keeps module settings in one provider while routing lifecycle callbacks", async () => {
 		const calls: string[] = [];
 		const combined = combineSettingsProviders([

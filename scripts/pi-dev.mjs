@@ -49,8 +49,15 @@ function resolveExtension(input) {
 }
 
 function allExtensionEntries() {
-	const glob = new Bun.Glob("packages/pi-*/src/{extension,index}.ts");
-	return [...glob.scanSync({ cwd: root })].sort((a, b) => a.localeCompare(b));
+	const packageGlob = new Bun.Glob("packages/pi-*/package.json");
+	const entries = [];
+	for (const packageJson of packageGlob.scanSync({ cwd: root })) {
+		const packageDir = path.dirname(packageJson);
+		const extension = path.join(packageDir, "src/extension.ts");
+		const index = path.join(packageDir, "src/index.ts");
+		entries.push(existsSync(path.join(root, extension)) ? extension : index);
+	}
+	return entries.sort((a, b) => a.localeCompare(b));
 }
 
 function projectSubagentsExtension() {

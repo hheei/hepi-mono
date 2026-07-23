@@ -78,6 +78,8 @@ export interface HePiJsonStorageBackend {
 export interface HePiSettingsProvider {
 	readonly id: string;
 	readonly title: string;
+	/** Stable package module name used to group Settings, such as pi-fix. */
+	readonly moduleName?: string;
 	/** Module identifier shown in Settings Description panel. */
 	readonly origin?: string;
 	readonly description?: string;
@@ -149,7 +151,19 @@ class SettingsRegistry implements HePiSettingsRegistry {
 	}
 }
 
-const defaultSettingsRegistry = new SettingsRegistry();
+declare global {
+	var __hepiDefaultSettingsRegistry: HePiSettingsRegistry | undefined;
+}
+
+function getDefaultSettingsRegistry(): HePiSettingsRegistry {
+	const existing = globalThis.__hepiDefaultSettingsRegistry;
+	if (existing !== undefined) return existing;
+	const created = new SettingsRegistry();
+	globalThis.__hepiDefaultSettingsRegistry = created;
+	return created;
+}
+
+const defaultSettingsRegistry = getDefaultSettingsRegistry();
 
 export function createHePiSettingsRegistry(): HePiSettingsRegistry {
 	return new SettingsRegistry();
@@ -160,6 +174,13 @@ export function registerHePiSettings(
 	registry: HePiSettingsRegistry = defaultSettingsRegistry,
 ): void {
 	registry.register(provider);
+}
+
+export function registerHePiSettingsIfAbsent(
+	provider: HePiSettingsProvider,
+	registry: HePiSettingsRegistry = defaultSettingsRegistry,
+): void {
+	if (registry.get(provider.id) === undefined) registry.register(provider);
 }
 
 export function replaceHePiSettings(

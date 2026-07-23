@@ -12,14 +12,20 @@ type Editor = ReturnType<EditorFactory>;
 type FooterFactory = NonNullable<Parameters<NonNullable<ExtensionContext["ui"]["setFooter"]>>[0]>;
 
 import piBasicsExtension, {
+	getHePiModule,
 	type HePiModule,
 	type HePiSettingField,
 	type HePiSettingsProvider,
 	registerHePiModule,
 	registerHePiSettings,
+	type SettingsModule,
 } from "../../src/index.js";
 
-function provider(id: string, closed: () => void): HePiSettingsProvider {
+function provider(
+	id: string,
+	closed: () => void,
+	title: string = "Integration Provider",
+): HePiSettingsProvider {
 	const field: HePiSettingField<boolean> = {
 		id: "enabled",
 		label: "Enabled",
@@ -30,7 +36,7 @@ function provider(id: string, closed: () => void): HePiSettingsProvider {
 	};
 	return {
 		id,
-		title: "Integration Provider",
+		title,
 		groups: [{ id: "general", title: "General", fields: [field] }],
 		storage: {
 			load: async () => ({}),
@@ -54,6 +60,9 @@ function harness(mode: "tui" | "json" = "tui") {
 	let customCalls = 0;
 	let getActiveToolsCalls = 0;
 	let rendered: string[] = [];
+	let customComponent:
+		| { render(width: number): string[]; handleInput?(input: string): void; invalidate(): void }
+		| undefined;
 	let footerFactory: FooterFactory | undefined;
 	let footerRestores = 0;
 	let editorFactory: EditorFactory | undefined;
@@ -126,15 +135,15 @@ function harness(mode: "tui" | "json" = "tui") {
 			},
 			async custom(
 				factory: (
-					tui: { requestRender(): void },
+					tui: { requestRender(): void; terminal?: { rows: number } },
 					theme: unknown,
 					keybindings: unknown,
 					done: (result: undefined) => void,
 				) => { render(width: number): string[]; invalidate(): void },
 			) {
 				customCalls++;
-				const component = factory(
-					{ requestRender() {} },
+				const component = await factory(
+					{ requestRender() {}, terminal: { rows: 50 } },
 					{
 						fg: (_color: string, text: string) => text,
 						bold: (text: string) => text,
@@ -145,6 +154,7 @@ function harness(mode: "tui" | "json" = "tui") {
 					{},
 					() => undefined,
 				);
+				customComponent = component;
 				rendered = component.render(100);
 				return undefined;
 			},
@@ -180,6 +190,10 @@ function harness(mode: "tui" | "json" = "tui") {
 		},
 		get rendered() {
 			return rendered;
+		},
+		inputCustom(input: string) {
+			customComponent?.handleInput?.(input);
+			if (customComponent !== undefined) rendered = customComponent.render(100);
 		},
 		async emit(event: string) {
 			for (const handler of events.get(event) ?? []) await handler({}, ctx);
@@ -261,6 +275,53 @@ test("opens Settings with providers registered through public API and closes sto
 	expect(host.rendered.length).toBeGreaterThan(0);
 	await host.emit("session_shutdown");
 	expect(closed).toBe(1);
+});
+
+test("renders every registered provider in the unified Settings view", async () => {
+	const host = harness();
+	piBasicsExtension(host.pi);
+	await host.emit("session_start");
+	registerHePiSettings(provider("integration-first", () => undefined, "First Provider"));
+	registerHePiSettings(provider("integration-second", () => undefined, "Second Provider"));
+	await host.commands.find(({ name }) => name === "ext-settings")!.handler("", host.ctx);
+	const screen = host.rendered.join("\n");
+	expect(screen).toContain("pi-integration-first");
+	const settingsModule = getHePiModule("setting");
+	expect(settingsModule).toHaveProperty("controller");
+	const groupTitles = (settingsModule as SettingsModule).controller?.provider?.groups.map(
+		(group) => group.title,
+	);
+	expect(groupTitles).toContain("pi-integration-first");
+	expect(groupTitles).toContain("pi-integration-second");
+	await host.emit("session_shutdown");
+});
+
+test("sizes Settings from the terminal height", async () => {
+	const host = harness();
+	piBasicsExtension(host.pi);
+	await host.emit("session_start");
+	await host.commands.find(({ name }) => name === "ext-settings")!.handler("", host.ctx);
+	expect(host.rendered).toHaveLength(17);
+	await host.emit("session_shutdown");
+});
+
+test("switches from Settings to a late-registered Loadout view", async () => {
+	const host = harness();
+	piBasicsExtension(host.pi);
+	registerHePiModule({
+		id: "loadout",
+		label: "Loadout",
+		commands: [],
+		open: () => undefined,
+		createShellView: () => ({
+			component: { render: () => ["LOADOUT VIEW"], invalidate: () => undefined },
+		}),
+	});
+	await host.emit("session_start");
+	await host.commands.find(({ name }) => name === "ext-settings")!.handler("", host.ctx);
+	host.inputCustom("\x1b[C");
+	expect(host.rendered.join("\n")).toContain("LOADOUT VIEW");
+	await host.emit("session_shutdown");
 });
 
 test("routes package-level module registration", async () => {

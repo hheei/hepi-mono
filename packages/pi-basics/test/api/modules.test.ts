@@ -4,6 +4,7 @@ import {
 	type HePiModule,
 	listHePiModules,
 	registerHePiModule,
+	replaceHePiModule,
 } from "../../src/api/index.js";
 
 const moduleFor = (id: string, label: string): HePiModule => ({
@@ -24,5 +25,7 @@ describe("HePi module registry", () => {
 		expect(() => registerHePiModule(moduleFor("a", "Other"), registry)).toThrow(
 			"HePi module id collision: a",
 		);
+		replaceHePiModule(moduleFor("a", "Replaced"), registry);
+		expect(listHePiModules(registry).find((module) => module.id === "a")?.label).toBe("Replaced");
 	});
 });

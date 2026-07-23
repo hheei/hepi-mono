@@ -259,7 +259,7 @@ function renderListRow(
 	theme: Theme,
 ): string {
 	const indicator = padToWidth(selected ? theme.fg("accent", "→") : "", layout.indicatorWidth);
-	const rawKey = item.kind === "group" ? `${item.collapsed ? "▸" : "▾"} ${item.label}` : item.label;
+	const rawKey = item.kind === "group" ? `⧉ ${item.label}` : ` ${item.label}`;
 	const key =
 		selected && visibleWidth(rawKey) > layout.keyWidth
 			? horizontalViewport(rawKey, layout.keyWidth, visibleWidth(rawKey)).text

@@ -8,8 +8,18 @@ import type {
 interface GroupMapping {
 	readonly displayId: string;
 	readonly originalId: string;
+	readonly moduleName: string;
+	readonly showModuleHeader: boolean;
 	readonly provider: HePiSettingsProvider;
 	readonly group: HePiSettingsProvider["groups"][number];
+}
+
+function providerModuleName(provider: HePiSettingsProvider): string {
+	if (provider.moduleName !== undefined) return provider.moduleName;
+	const originName = provider.origin?.split("/").at(-1);
+	if (originName?.startsWith("pi-") && originName !== "pi-basics") return originName;
+	if (provider.id.startsWith("pi-basics-")) return `pi-${provider.id.slice("pi-basics-".length)}`;
+	return provider.id.startsWith("pi-") ? provider.id : `pi-${provider.id}`;
 }
 
 /** Presents module-owned settings as one Pi Basics settings tree while preserving each module's storage contract. */
@@ -17,23 +27,35 @@ export function combineSettingsProviders(
 	providers: readonly HePiSettingsProvider[],
 ): HePiSettingsProvider {
 	const usedGroupIds = new Set<string>();
-	const mappings: readonly GroupMapping[] = providers.flatMap((provider) =>
-		provider.groups.map((group) => {
+	const seenModules = new Set<string>();
+	const mappings: readonly GroupMapping[] = providers.flatMap((provider) => {
+		const moduleName = providerModuleName(provider);
+		return provider.groups.map((group, index) => {
 			let displayId = group.id;
 			if (usedGroupIds.has(displayId)) displayId = `${provider.id}:${group.id}`;
 			usedGroupIds.add(displayId);
-			return { displayId, originalId: group.id, provider, group };
-		}),
-	);
+			const showModuleHeader = index === 0 && !seenModules.has(moduleName);
+			seenModules.add(moduleName);
+			return {
+				displayId,
+				originalId: group.id,
+				moduleName,
+				showModuleHeader,
+				provider,
+				group,
+			};
+		});
+	});
 	const providerState = (state: HePiSettingsState, provider: HePiSettingsProvider) =>
 		Object.fromEntries(
 			mappings
 				.filter((mapping) => mapping.provider === provider)
 				.map(({ displayId, originalId }) => [originalId, state[displayId] ?? {}]),
 		);
-	const groups = mappings.map(({ displayId, provider, group }) => ({
+	const groups = mappings.map(({ displayId, moduleName, showModuleHeader, provider, group }) => ({
 		...group,
 		id: displayId,
+		title: showModuleHeader ? moduleName : "",
 		fields: group.fields.map((field) => {
 			const enabled = field.enabled;
 			return enabled

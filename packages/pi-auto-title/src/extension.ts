@@ -3,7 +3,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	HePiLifecycleController,
 	registerHePiLifecycle,
-	replaceHePiSettings,
+	registerHePiSettingsIfAbsent,
 } from "@hheei/pi-basics";
 import {
 	autoTitleModelOptions,
@@ -15,30 +15,36 @@ import {
 export default function piAutoTitleExtension(pi: ExtensionAPI): void {
 	let coordinator: ReturnType<typeof createAutoTitleCoordinator> | undefined;
 	let run: (() => void) | undefined;
+	let settingsProvider: ReturnType<typeof createAutoTitleSettingsProvider> | undefined;
 	const lifecycle = new HePiLifecycleController({
 		onStart: async (runtime) => {
 			const models = (runtime.ctx.modelRegistry.getAvailable?.() ?? []).filter((model) =>
 				runtime.ctx.modelRegistry.hasConfiguredAuth(model),
 			);
-			const provider = createAutoTitleSettingsProvider({
-				path: join(runtime.ctx.cwd, ".pi", "settings.json"),
-				modelOptions: autoTitleModelOptions(models),
-				validate: async (value) => {
-					const ref = parseModelRef(value);
-					const model = runtime.ctx.modelRegistry.find(ref.provider, ref.model);
-					if (!model || !runtime.ctx.modelRegistry.hasConfiguredAuth(model))
-						throw new Error(`Unavailable title model: ${value}`);
-				},
-				onPersisted: (model) => {
-					coordinator?.dispose();
-					const selected =
-						model ??
-						(models[0] === undefined ? undefined : `${models[0].provider}/${models[0].id}`);
-					coordinator =
-						selected === undefined ? undefined : createAutoTitleCoordinator(runtime, selected);
-				},
-			});
-			replaceHePiSettings(provider);
+			const provider =
+				settingsProvider ??
+				createAutoTitleSettingsProvider({
+					path: join(runtime.ctx.cwd, ".pi", "settings.json"),
+					modelOptions: autoTitleModelOptions(models),
+					validate: async (value) => {
+						const ref = parseModelRef(value);
+						const model = runtime.ctx.modelRegistry.find(ref.provider, ref.model);
+						if (!model || !runtime.ctx.modelRegistry.hasConfiguredAuth(model))
+							throw new Error(`Unavailable title model: ${value}`);
+					},
+					onPersisted: (model) => {
+						coordinator?.dispose();
+						const selected =
+							model ??
+							(models[0] === undefined ? undefined : `${models[0].provider}/${models[0].id}`);
+						coordinator =
+							selected === undefined ? undefined : createAutoTitleCoordinator(runtime, selected);
+					},
+				});
+			if (settingsProvider === undefined) {
+				settingsProvider = provider;
+				registerHePiSettingsIfAbsent(provider);
+			}
 			try {
 				const state = await provider.storage.load({
 					sessionId: runtime.ctx.sessionManager.getSessionId(),

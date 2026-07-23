@@ -78,6 +78,19 @@ function panelContent(row: string): string {
 }
 
 describe("settings renderer", () => {
+	test("renders plugin titles with the plugin glyph and indents child settings", async () => {
+		const controller = await setup([provider("first", "First Provider")]);
+		const layout = createSettingsLayout(100);
+		const lines = renderSettings({ controller, theme, width: 100, showTabs: false })
+			.map(stripAnsi)
+			.map((line) => line.slice(0, layout.leftWidth));
+		const title = lines.find((line) => line.includes("General"));
+		const child = lines.find((line) => line.includes("Name"));
+		expect(title?.trimStart()).toStartWith("⧉ General");
+		expect(title).not.toContain("▾");
+		expect(child?.indexOf("Name")).toBe((title?.indexOf("⧉") ?? 0) + 1);
+	});
+
 	test("renders wide description and narrow fixed Value area within width", async () => {
 		const controller = await setup([provider("first", "First Provider")]);
 		const wide = renderSettings({ controller, theme, width: 100 });
@@ -431,6 +444,28 @@ describe("settings renderer", () => {
 		expect(visibleList.some((line) => line.endsWith("█"))).toBe(true);
 		expect(visibleList.some((line) => line.endsWith("│"))).toBe(true);
 
+		const wideController = await setup([
+			provider(
+				"wide-many",
+				"Wide Many",
+				Array.from({ length: 10 }, (_, index) => field(`last-${index}`)),
+			),
+		]);
+		wideController.setScrollTop(99);
+		const wideBottom = renderSettings({
+			controller: wideController,
+			theme,
+			width: 100,
+			height: 30,
+			showTabs: false,
+		}).map(stripAnsi);
+		expect(wideBottom.some((line) => line.includes("last-9"))).toBe(true);
+		const wideLayout = createSettingsLayout(100, 30);
+		const itemRows = wideBottom
+			.slice(2, 2 + wideLayout.itemCapacity)
+			.map((line) => line.slice(0, wideLayout.leftWidth));
+		expect(itemRows.at(-1)?.endsWith("█")).toBe(true);
+
 		const shortController = await setup([provider("short", "Short")]);
 		visibleList = listLines(renderSettings({ controller: shortController, theme, width: 50 }), 50);
 		expect(visibleList.some((line) => line.endsWith("█") || line.endsWith("│"))).toBe(false);
@@ -474,7 +509,7 @@ describe("settings renderer", () => {
 		);
 		expect(selectedRow).toBeDefined();
 		expect(selectedRow?.slice(0, listWidth)).toContain(`${ansi.accent}→${ansi.fgReset}`);
-		expect(selectedRow?.slice(0, listWidth)).toContain(accentBold("First"));
+		expect(selectedRow?.slice(0, listWidth)).toContain(accentBold(" First"));
 		expect(selectedRow).toContain(accentBold("first-value"));
 		expect(unselectedRow).toBeDefined();
 		expect(unselectedRow?.slice(0, listWidth)).not.toContain(ansi.accent);

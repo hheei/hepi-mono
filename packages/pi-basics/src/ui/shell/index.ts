@@ -30,11 +30,12 @@ export function createShellModule(options: ShellModuleOptions): ShellModule {
 			if (context.mode !== "tui") return;
 			await context.ui.custom<void>((tui, theme, _keybindings, done) => {
 				const host = { requestRender: () => tui.requestRender() };
+				const terminalRows = tui.terminal?.rows ?? 30;
 				const factoryOptions = {
 					context: rawContext,
 					host,
 					theme,
-					height: tui.terminal?.rows ?? 30,
+					height: Math.max(4, terminalRows - 3),
 				};
 				const settings = options.settings(factoryOptions);
 				const loadout = options.loadout(factoryOptions);
