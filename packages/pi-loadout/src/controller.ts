@@ -53,6 +53,7 @@ function normalize(value: LoadoutInventoryValue): readonly LoadoutItem[] {
 }
 
 export class LoadoutController {
+	private readonly options: LoadoutControllerOptions;
 	private scope: LoadoutScope;
 	private query = "";
 	private selectedKey: LoadoutKey | undefined;
@@ -65,7 +66,8 @@ export class LoadoutController {
 	private closed: boolean = false;
 	private queue: Promise<void> = Promise.resolve();
 	private readonly pending = new Set<Promise<void>>();
-	constructor(private readonly options: LoadoutControllerOptions) {
+	constructor(options: LoadoutControllerOptions) {
+		this.options = options;
 		this.scope = options.scope ?? "global";
 	}
 	get state(): LoadoutControllerState {

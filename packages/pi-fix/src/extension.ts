@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
+	getHePiRuntimeSettingsRegistry,
 	HePiLifecycleController,
 	registerHePiLifecycle,
 	registerHePiSettings,
@@ -14,6 +15,7 @@ import {
 } from "./index.js";
 
 export default function piFixExtension(pi: ExtensionAPI): void {
+	const settingsRegistry = getHePiRuntimeSettingsRegistry(pi);
 	const applyPatchGuard = registerApplyPatchGuard(pi);
 	const applyPatchGuardProvider = createApplyPatchGuardSettingsProvider(applyPatchGuard);
 	const responsesCompat = createOpenAIResponsesCompatFeature(pi);
@@ -21,12 +23,18 @@ export default function piFixExtension(pi: ExtensionAPI): void {
 
 	const lifecycle = new HePiLifecycleController({
 		onStart: async (runtime) => {
-			const unregisterApplyPatchSettings = registerHePiSettings(applyPatchGuardProvider);
+			const unregisterApplyPatchSettings = registerHePiSettings(
+				applyPatchGuardProvider,
+				settingsRegistry,
+			);
 			runtime.registry.registerLifecycle({
 				id: "apply-patch-settings",
 				cleanup: unregisterApplyPatchSettings,
 			});
-			const unregisterResponsesSettings = registerHePiSettings(responsesCompatProvider);
+			const unregisterResponsesSettings = registerHePiSettings(
+				responsesCompatProvider,
+				settingsRegistry,
+			);
 			runtime.registry.registerLifecycle({
 				id: "responses-compat-settings",
 				cleanup: unregisterResponsesSettings,

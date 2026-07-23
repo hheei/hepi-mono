@@ -17,8 +17,8 @@ import piPonytailExtension, {
 	PONYTAIL_SETTINGS_PROVIDER_ID,
 } from "../../../pi-ponytail/src/index.js";
 import piBasicsExtension, {
-	getHePiModule,
-	getHePiSettings,
+	getHePiRuntimeModuleRegistry,
+	getHePiRuntimeSettingsRegistry,
 	type HePiModule,
 	type HePiSettingField,
 	type HePiSettingsProvider,
@@ -54,7 +54,7 @@ function provider(
 	};
 }
 
-function harness(mode: "tui" | "json" = "tui") {
+function harness(mode: "tui" | "json" = "tui", waitForCustomDone = false) {
 	const commands: Array<{
 		name: string;
 		handler: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
@@ -64,6 +64,7 @@ function harness(mode: "tui" | "json" = "tui") {
 	const events = new Map<string, Array<(event: unknown, ctx: ExtensionContext) => Promise<void>>>();
 	const notifications: Array<{ message: string; level?: string }> = [];
 	let customCalls = 0;
+	let customDoneCalls = 0;
 	let getActiveToolsCalls = 0;
 	let rendered: string[] = [];
 	let customComponent:
@@ -100,6 +101,8 @@ function harness(mode: "tui" | "json" = "tui") {
 			tools.splice(0, tools.length, ...next);
 		},
 		getThinkingLevel: () => "low" as const,
+		getSessionName: () => undefined,
+		getAllTools: () => [],
 		getCommands: () => [
 			{
 				name: "skill:librarian",
@@ -149,6 +152,7 @@ function harness(mode: "tui" | "json" = "tui") {
 				) => { render(width: number): string[]; invalidate(): void },
 			) {
 				customCalls++;
+				const completion = waitForCustomDone ? Promise.withResolvers<void>() : undefined;
 				const component = await factory(
 					{ requestRender() {}, terminal: { rows: 50 } },
 					{
@@ -159,10 +163,14 @@ function harness(mode: "tui" | "json" = "tui") {
 						strikethrough: (text: string) => text,
 					},
 					{},
-					() => undefined,
+					() => {
+						customDoneCalls++;
+						completion?.resolve();
+					},
 				);
 				customComponent = component;
 				rendered = component.render(100);
+				await completion?.promise;
 				return undefined;
 			},
 		},
@@ -188,6 +196,9 @@ function harness(mode: "tui" | "json" = "tui") {
 		},
 		get customCalls() {
 			return customCalls;
+		},
+		get customDoneCalls() {
+			return customDoneCalls;
 		},
 		get getActiveToolsCalls() {
 			return getActiveToolsCalls;
@@ -216,35 +227,21 @@ test("registers commands and lifecycle handlers", () => {
 	expect(host.tools).toEqual([]);
 	expect(host.messageRenderers).toEqual([]);
 	expect(host.events.get("session_start")).toHaveLength(1);
-	expect(host.events.get("session_shutdown")).toHaveLength(2);
-});
-
-test("registers settings providers through the extension event bus", async () => {
-	const host = harness();
-	piBasicsExtension(host.pi);
-	await host.emit("session_start");
-	const eventProvider = provider("integration-event", () => undefined);
-	host.pi.events.emit("hepi:settings:register", eventProvider);
-	expect(getHePiSettings(eventProvider.id)).toBe(eventProvider);
-	host.pi.events.emit("hepi:settings:register", {});
-	await host.emit("session_shutdown");
-	expect(getHePiSettings(eventProvider.id)).toBeUndefined();
-	const lateProvider = provider("integration-event-late", () => undefined);
-	host.pi.events.emit("hepi:settings:register", lateProvider);
-	expect(getHePiSettings(lateProvider.id)).toBeUndefined();
+	expect(host.events.get("session_shutdown")).toHaveLength(1);
 });
 
 test("accepts settings providers from mode extensions", async () => {
 	const host = harness();
-	piBasicsExtension(host.pi);
 	piCavemanExtension(host.pi);
 	piPonytailExtension(host.pi);
+	piBasicsExtension(host.pi);
+	const settingsRegistry = getHePiRuntimeSettingsRegistry(host.pi);
 	await host.emit("session_start");
-	expect(getHePiSettings(CAVEMAN_SETTINGS_PROVIDER_ID)?.origin).toBe("@hheei/pi-caveman");
-	expect(getHePiSettings(PONYTAIL_SETTINGS_PROVIDER_ID)?.origin).toBe("@hheei/pi-ponytail");
+	expect(settingsRegistry.get(CAVEMAN_SETTINGS_PROVIDER_ID)?.origin).toBe("@hheei/pi-caveman");
+	expect(settingsRegistry.get(PONYTAIL_SETTINGS_PROVIDER_ID)?.origin).toBe("@hheei/pi-ponytail");
 	await host.emit("session_shutdown");
-	expect(getHePiSettings(CAVEMAN_SETTINGS_PROVIDER_ID)).toBeUndefined();
-	expect(getHePiSettings(PONYTAIL_SETTINGS_PROVIDER_ID)).toBeUndefined();
+	expect(settingsRegistry.get(CAVEMAN_SETTINGS_PROVIDER_ID)).toBeUndefined();
+	expect(settingsRegistry.get(PONYTAIL_SETTINGS_PROVIDER_ID)).toBeUndefined();
 });
 
 test("installs and restores footer and editor seams for TUI session", async () => {
@@ -288,7 +285,10 @@ test("does not create custom component outside TUI", async () => {
 	const host = harness("json");
 	piBasicsExtension(host.pi);
 	await host.emit("session_start");
-	const unregister = registerHePiSettings(provider("integration-json", () => undefined));
+	const unregister = registerHePiSettings(
+		provider("integration-json", () => undefined),
+		getHePiRuntimeSettingsRegistry(host.pi),
+	);
 	await host.commands.find(({ name }) => name === "ext-settings")!.handler("", host.ctx);
 	expect(host.customCalls).toBe(0);
 	expect(host.notifications[0]?.message).toContain("requires TUI mode");
@@ -298,32 +298,193 @@ test("does not create custom component outside TUI", async () => {
 
 test("opens Settings with providers registered through public API and closes storage", async () => {
 	let closed = 0;
-	const host = harness();
+	const host = harness("tui", true);
 	piBasicsExtension(host.pi);
 	await host.emit("session_start");
 	const unregister = registerHePiSettings(
 		provider("integration-tui", () => {
 			closed++;
 		}),
+		getHePiRuntimeSettingsRegistry(host.pi),
 	);
-	await host.commands.find(({ name }) => name === "ext-settings")!.handler("", host.ctx);
+	const opening = host.commands.find(({ name }) => name === "ext-settings")!.handler("", host.ctx);
+	await Bun.sleep(0);
 	expect(host.customCalls).toBe(1);
 	expect(host.rendered.length).toBeGreaterThan(0);
+	host.inputCustom("\x1b");
+	await opening;
+	expect(host.customDoneCalls).toBe(1);
+	expect(closed).toBe(1);
 	unregister();
 	await host.emit("session_shutdown");
 	expect(closed).toBe(1);
+});
+
+test("closes Settings resources when provider loading fails", async () => {
+	let closed = 0;
+	const host = harness();
+	piBasicsExtension(host.pi);
+	registerHePiSettings(
+		{
+			...provider("integration-load-failure", () => {
+				closed++;
+			}),
+			storage: {
+				load: () => {
+					throw new Error("load failed");
+				},
+				save: () => undefined,
+				close: () => {
+					closed++;
+				},
+			},
+		},
+		getHePiRuntimeSettingsRegistry(host.pi),
+	);
+	await host.emit("session_start");
+	await host.commands.find(({ name }) => name === "ext-settings")!.handler("", host.ctx);
+	expect(closed).toBe(1);
+	expect(host.notifications.at(-1)?.message).toContain("load failed");
+	await host.emit("session_shutdown");
+});
+
+test("shutdown waits for an active Loadout close", async () => {
+	const gate = Promise.withResolvers<void>();
+	let loadoutCloseStarted = false;
+	const host = harness("tui", true);
+	piBasicsExtension(host.pi);
+	registerHePiModule(
+		{
+			id: "loadout",
+			label: "Loadout",
+			commands: [],
+			open: () => undefined,
+			createShellView: () => ({
+				component: { render: () => ["LOADOUT VIEW"], invalidate: () => undefined },
+				close: async () => {
+					loadoutCloseStarted = true;
+					await gate.promise;
+				},
+			}),
+		},
+		getHePiRuntimeModuleRegistry(host.pi),
+	);
+	await host.emit("session_start");
+	const opening = host.commands.find(({ name }) => name === "ext-settings")!.handler("", host.ctx);
+	await Bun.sleep(0);
+	host.inputCustom("\x1b");
+	await Bun.sleep(0);
+	expect(loadoutCloseStarted).toBe(true);
+	let shutdownSettled = false;
+	const shutdown = host.emit("session_shutdown").finally(() => {
+		shutdownSettled = true;
+	});
+	await Bun.sleep(0);
+	expect(shutdownSettled).toBe(false);
+
+	gate.resolve();
+	await Promise.all([opening, shutdown]);
+	expect(host.customDoneCalls).toBe(1);
+});
+
+test("session shutdown settles an open Settings shell and closes both views", async () => {
+	let settingsClosed = 0;
+	let loadoutClosed = 0;
+	const host = harness("tui", true);
+	piBasicsExtension(host.pi);
+	registerHePiModule(
+		{
+			id: "loadout",
+			label: "Loadout",
+			commands: [],
+			open: () => undefined,
+			createShellView: () => ({
+				component: { render: () => ["LOADOUT VIEW"], invalidate: () => undefined },
+				close: () => {
+					loadoutClosed++;
+				},
+			}),
+		},
+		getHePiRuntimeModuleRegistry(host.pi),
+	);
+	registerHePiSettings(
+		provider("integration-shutdown", () => {
+			settingsClosed++;
+		}),
+		getHePiRuntimeSettingsRegistry(host.pi),
+	);
+	await host.emit("session_start");
+	const opening = host.commands.find(({ name }) => name === "ext-settings")!.handler("", host.ctx);
+	await Bun.sleep(0);
+
+	await host.emit("session_shutdown");
+	await opening;
+	expect(host.customDoneCalls).toBe(1);
+	expect(settingsClosed).toBe(1);
+	expect(loadoutClosed).toBe(1);
+});
+
+test("session shutdown waits for an opening Loadout view", async () => {
+	const gate = Promise.withResolvers<void>();
+	let settingsClosed = 0;
+	let loadoutClosed = 0;
+	const host = harness("tui", true);
+	piBasicsExtension(host.pi);
+	registerHePiModule(
+		{
+			id: "loadout",
+			label: "Loadout",
+			commands: [],
+			open: () => undefined,
+			createShellView: async () => {
+				await gate.promise;
+				return {
+					component: { render: () => ["LOADOUT VIEW"], invalidate: () => undefined },
+					close: () => {
+						loadoutClosed++;
+					},
+				};
+			},
+		},
+		getHePiRuntimeModuleRegistry(host.pi),
+	);
+	registerHePiSettings(
+		provider("integration-opening", () => {
+			settingsClosed++;
+		}),
+		getHePiRuntimeSettingsRegistry(host.pi),
+	);
+	await host.emit("session_start");
+	const opening = host.commands.find(({ name }) => name === "ext-settings")!.handler("", host.ctx);
+	await Bun.sleep(0);
+	const shutdown = host.emit("session_shutdown");
+	await Bun.sleep(0);
+	expect(host.customDoneCalls).toBe(0);
+
+	gate.resolve();
+	await Promise.all([opening, shutdown]);
+	expect(host.customDoneCalls).toBe(1);
+	expect(settingsClosed).toBe(1);
+	expect(loadoutClosed).toBe(1);
 });
 
 test("renders every registered provider in the unified Settings view", async () => {
 	const host = harness();
 	piBasicsExtension(host.pi);
 	await host.emit("session_start");
-	registerHePiSettings(provider("integration-first", () => undefined, "First Provider"));
-	registerHePiSettings(provider("integration-second", () => undefined, "Second Provider"));
+	const settingsRegistry = getHePiRuntimeSettingsRegistry(host.pi);
+	registerHePiSettings(
+		provider("integration-first", () => undefined, "First Provider"),
+		settingsRegistry,
+	);
+	registerHePiSettings(
+		provider("integration-second", () => undefined, "Second Provider"),
+		settingsRegistry,
+	);
 	await host.commands.find(({ name }) => name === "ext-settings")!.handler("", host.ctx);
 	const screen = host.rendered.join("\n");
 	expect(screen).toContain("pi-integration-first");
-	const settingsModule = getHePiModule("setting");
+	const settingsModule = getHePiRuntimeModuleRegistry(host.pi).get("setting");
 	expect(settingsModule).toHaveProperty("controller");
 	const groupTitles = (settingsModule as SettingsModule).controller?.provider?.groups.map(
 		(group) => group.title,
@@ -345,15 +506,18 @@ test("sizes Settings from the terminal height", async () => {
 test("switches from Settings to a late-registered Loadout view", async () => {
 	const host = harness();
 	piBasicsExtension(host.pi);
-	registerHePiModule({
-		id: "loadout",
-		label: "Loadout",
-		commands: [],
-		open: () => undefined,
-		createShellView: () => ({
-			component: { render: () => ["LOADOUT VIEW"], invalidate: () => undefined },
-		}),
-	});
+	registerHePiModule(
+		{
+			id: "loadout",
+			label: "Loadout",
+			commands: [],
+			open: () => undefined,
+			createShellView: () => ({
+				component: { render: () => ["LOADOUT VIEW"], invalidate: () => undefined },
+			}),
+		},
+		getHePiRuntimeModuleRegistry(host.pi),
+	);
 	await host.emit("session_start");
 	await host.commands.find(({ name }) => name === "ext-settings")!.handler("", host.ctx);
 	host.inputCustom("\x1b[C");
@@ -371,8 +535,8 @@ test("routes package-level module registration", async () => {
 			opened.push(`${args}:${ctx.sessionId}`);
 		},
 	};
-	const unregister = registerHePiModule(module);
 	const host = harness();
+	const unregister = registerHePiModule(module, getHePiRuntimeModuleRegistry(host.pi));
 	piBasicsExtension(host.pi);
 	await host.emit("session_start");
 	await host.commands

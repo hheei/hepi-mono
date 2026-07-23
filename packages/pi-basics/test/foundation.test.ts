@@ -55,6 +55,33 @@ describe("HePiRegistry", () => {
 });
 
 describe("HePiLifecycleController", () => {
+	test("reports cleanup failures after running every cleanup", async () => {
+		const calls: string[] = [];
+		const controller = new HePiLifecycleController({
+			onStart: (runtime) => {
+				runtime.registry.registerLifecycle({
+					id: "first",
+					cleanup: () => {
+						calls.push("first");
+					},
+				});
+				runtime.registry.registerLifecycle({
+					id: "second",
+					cleanup: () => {
+						calls.push("second");
+						throw new Error("cleanup failed");
+					},
+				});
+			},
+		});
+		await controller.start(fakePi, fakeContext("a"));
+
+		await expect(controller.shutdown()).rejects.toThrow("HEPI cleanup failed: second");
+		expect(calls).toEqual(["second", "first"]);
+		expect(controller.current).toBeUndefined();
+		await expect(controller.shutdown()).resolves.toBeUndefined();
+	});
+
 	test("replaces active session and makes shutdown idempotent", async () => {
 		const started: string[] = [];
 		const controller = new HePiLifecycleController({

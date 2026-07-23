@@ -2,6 +2,7 @@ import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	disableHePiTool,
+	getHePiRuntimeModuleRegistry,
 	getToolActivationCoordinator,
 	HePiLifecycleController,
 	hePiLoadoutKey,
@@ -25,6 +26,7 @@ import {
 
 export default function piLoadoutExtension(pi: ExtensionAPI): void {
 	const coordinator = getToolActivationCoordinator(pi);
+	const moduleRegistry = getHePiRuntimeModuleRegistry(pi);
 	let disabledSkillKeys: ReadonlySet<string> = new Set();
 	let startupController: LoadoutController | undefined;
 	const runtimeHandlers: LoadoutRuntimeHandlers = {
@@ -64,7 +66,7 @@ export default function piLoadoutExtension(pi: ExtensionAPI): void {
 		pi,
 		new HePiLifecycleController({
 			onStart: async (runtime) => {
-				const unregisterModule = registerHePiModule(loadoutModule);
+				const unregisterModule = registerHePiModule(loadoutModule, moduleRegistry);
 				runtime.registry.registerLifecycle({
 					id: "loadout-module",
 					cleanup: unregisterModule,

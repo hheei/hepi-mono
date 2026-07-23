@@ -1,10 +1,10 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
-	createPonytailSettingsProvider,
 	DEFAULT_PONYTAIL_DEFAULTS,
 	loadPonytailDefaults,
 	type PonytailDefaults,
 } from "./config.js";
+import { registerPonytailHePiSettings } from "./hepi-settings.js";
 import {
 	DEFAULT_PONYTAIL_MODE,
 	detectPonytailDeactivation,
@@ -34,6 +34,7 @@ export default function piPonytailExtension(pi: ExtensionAPI): void {
 	let defaults: PonytailDefaults = DEFAULT_PONYTAIL_DEFAULTS;
 	let mode: PonytailMode = DEFAULT_PONYTAIL_MODE;
 	let subagentSession = false;
+	let unregisterSettings: (() => void) | undefined;
 
 	function configuredDefaultMode(): PonytailMode {
 		return subagentSession ? defaults.subagentMode : defaults.mainMode;
@@ -87,10 +88,16 @@ export default function piPonytailExtension(pi: ExtensionAPI): void {
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
-		pi.events.emit("hepi:settings:register", createPonytailSettingsProvider());
+		unregisterSettings?.();
+		unregisterSettings = await registerPonytailHePiSettings(pi);
 		defaults = await loadPonytailDefaults(ctx.cwd);
 		subagentSession = isPiSubagentSession(pi);
 		restoreModeFromBranch(ctx);
+	});
+
+	pi.on("session_shutdown", () => {
+		unregisterSettings?.();
+		unregisterSettings = undefined;
 	});
 
 	pi.on("session_tree", (_event, ctx) => {

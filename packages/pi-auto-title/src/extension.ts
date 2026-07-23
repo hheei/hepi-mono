@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
+	getHePiRuntimeSettingsRegistry,
 	HePiLifecycleController,
 	registerHePiLifecycle,
 	registerHePiSettings,
@@ -13,6 +14,7 @@ import {
 } from "./module.js";
 
 export default function piAutoTitleExtension(pi: ExtensionAPI): void {
+	const settingsRegistry = getHePiRuntimeSettingsRegistry(pi);
 	let coordinator: ReturnType<typeof createAutoTitleCoordinator> | undefined;
 	let run: (() => void) | undefined;
 	let settingsProvider: ReturnType<typeof createAutoTitleSettingsProvider> | undefined;
@@ -42,7 +44,7 @@ export default function piAutoTitleExtension(pi: ExtensionAPI): void {
 					},
 				});
 			if (settingsProvider === undefined) settingsProvider = provider;
-			const unregisterSettings = registerHePiSettings(provider);
+			const unregisterSettings = registerHePiSettings(provider, settingsRegistry);
 			runtime.registry.registerLifecycle({
 				id: "auto-title-settings",
 				cleanup: unregisterSettings,

@@ -253,9 +253,9 @@ Pi Basics 现在用共享 event bus 标识 runtime：
 - 不同 event bus 的 Pi runtime 仍隔离；
 - package boundary test 同时检查静态和动态 HEPI imports。
 
-第一步修复保留了现有 API，没有新增通用 registry。第二轮 review 随后通过上游真实 `loadExtensions()` 复现了 module/settings process-level registry 的 `/reload` collision，以及 package removal 后的 stale contribution。这个 decision gate 已触发：module/settings registration 现在返回 identity-checked disposer，feature 在 `session_start` 注册，并通过现有 lifecycle registry 在 `session_shutdown` 清理。Duplicate ID 仍是同一 active generation 内的错误。
+第一步修复保留了现有 API，没有新增通用 registry。第二轮 review 随后通过上游真实 `loadExtensions()` 复现了 module/settings process-level registry 的 `/reload` collision，以及 package removal 后的 stale contribution。Module/settings registration 因此返回 identity-checked disposer，feature 在 `session_start` 注册，并通过现有 lifecycle registry 在 `session_shutdown` 清理。Duplicate ID 仍是同一 active generation 内的错误。
 
-当前没有证据要求支持同一进程内多个并发 Pi runtime，因此不引入 owner-token framework 或按 runtime 分片的 contribution registry。若未来需要并发 runtime，再以 `pi.events` identity 扩展这一边界。
+后续 review 确认公开 `createAgentSession()` SDK 允许同一进程持有多个独立 runtime。这个 decision gate 已触发：live module/settings registry 现在按 `pi.events` identity 分片。全局对象只持有 runtime identity 到 registry 的 `WeakMap`，用于重复 package copy 互操作；实际 contribution 不再跨 runtime 共享。该修复没有引入通用 owner-token framework。
 
 ## 6. HEPI 目标规则
 

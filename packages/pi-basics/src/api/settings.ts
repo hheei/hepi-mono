@@ -1,3 +1,4 @@
+import { type ExtensionRuntimeHost, extensionRuntimeIdentity } from "../runtime/identity.js";
 import type { HePiMaybePromise } from "./modules.js";
 import type { HePiPanel } from "./panels.js";
 
@@ -164,18 +165,22 @@ class SettingsRegistry implements HePiSettingsRegistry {
 }
 
 declare global {
-	var __hepiDefaultSettingsRegistry: HePiSettingsRegistry | undefined;
+	var __hepiSettingsRegistriesByRuntime: WeakMap<object, HePiSettingsRegistry> | undefined;
 }
 
-function getDefaultSettingsRegistry(): HePiSettingsRegistry {
-	const existing = globalThis.__hepiDefaultSettingsRegistry;
+export function getHePiRuntimeSettingsRegistry(pi: ExtensionRuntimeHost): HePiSettingsRegistry {
+	let registries = globalThis.__hepiSettingsRegistriesByRuntime;
+	if (registries === undefined) {
+		registries = new WeakMap();
+		globalThis.__hepiSettingsRegistriesByRuntime = registries;
+	}
+	const identity = extensionRuntimeIdentity(pi);
+	const existing = registries.get(identity);
 	if (existing !== undefined) return existing;
 	const created = new SettingsRegistry();
-	globalThis.__hepiDefaultSettingsRegistry = created;
+	registries.set(identity, created);
 	return created;
 }
-
-const defaultSettingsRegistry = getDefaultSettingsRegistry();
 
 export function createHePiSettingsRegistry(): HePiSettingsRegistry {
 	return new SettingsRegistry();
@@ -183,27 +188,27 @@ export function createHePiSettingsRegistry(): HePiSettingsRegistry {
 
 export function registerHePiSettings(
 	provider: HePiSettingsProvider,
-	registry: HePiSettingsRegistry = defaultSettingsRegistry,
+	registry: HePiSettingsRegistry,
 ): () => void {
 	return registry.register(provider);
 }
 
 export function registerHePiSettingsIfAbsent(
 	provider: HePiSettingsProvider,
-	registry: HePiSettingsRegistry = defaultSettingsRegistry,
+	registry: HePiSettingsRegistry,
 ): void {
 	if (registry.get(provider.id) === undefined) registry.register(provider);
 }
 
 export function replaceHePiSettings(
 	provider: HePiSettingsProvider,
-	registry: HePiSettingsRegistry = defaultSettingsRegistry,
+	registry: HePiSettingsRegistry,
 ): () => void {
 	return registry.replace(provider);
 }
 
 export function listHePiSettings(
-	registry: HePiSettingsRegistry = defaultSettingsRegistry,
+	registry: HePiSettingsRegistry,
 	options?: { includeEmpty?: boolean },
 ): readonly HePiSettingsProvider[] {
 	return registry.list(options);
@@ -211,7 +216,7 @@ export function listHePiSettings(
 
 export function getHePiSettings(
 	id: string,
-	registry: HePiSettingsRegistry = defaultSettingsRegistry,
+	registry: HePiSettingsRegistry,
 ): HePiSettingsProvider | undefined {
 	return registry.get(id);
 }

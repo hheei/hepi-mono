@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
+	getHePiRuntimeSettingsRegistry,
 	HePiLifecycleController,
 	registerHePiLifecycle,
 	registerHePiSettings,
@@ -14,6 +15,7 @@ import { createAdvisorSettingsProvider } from "./settings.js";
 
 export default function piAdvisorExtension(pi: ExtensionAPI): void {
 	const advisor = createAdvisorFeature();
+	const settingsRegistry = getHePiRuntimeSettingsRegistry(pi);
 	let settingsProvider: ReturnType<typeof createAdvisorSettingsProvider> | undefined;
 	registerAdvisorCommand(pi, advisor);
 	registerAdvisorRenderer(pi);
@@ -52,7 +54,7 @@ export default function piAdvisorExtension(pi: ExtensionAPI): void {
 					},
 				});
 			if (settingsProvider === undefined) settingsProvider = provider;
-			const unregisterSettings = registerHePiSettings(provider);
+			const unregisterSettings = registerHePiSettings(provider, settingsRegistry);
 			runtime.registry.registerLifecycle({
 				id: "advisor-settings",
 				cleanup: unregisterSettings,

@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { createEventBus } from "@earendil-works/pi-coding-agent";
 import {
 	createHePiModuleRegistry,
+	getHePiRuntimeModuleRegistry,
 	type HePiModule,
 	listHePiModules,
 	registerHePiModule,
@@ -15,6 +17,19 @@ const moduleFor = (id: string, label: string): HePiModule => ({
 });
 
 describe("HePi module registry", () => {
+	test("isolates live runtime registries", () => {
+		const first = getHePiRuntimeModuleRegistry({ events: createEventBus() });
+		const second = getHePiRuntimeModuleRegistry({ events: createEventBus() });
+		const unregisterFirst = first.register(moduleFor("shared", "First"));
+		second.register(moduleFor("shared", "Second"));
+
+		expect(first.get("shared")?.label).toBe("First");
+		expect(second.get("shared")?.label).toBe("Second");
+		unregisterFirst();
+		expect(first.get("shared")).toBeUndefined();
+		expect(second.get("shared")?.label).toBe("Second");
+	});
+
 	test("orders modules, rejects collisions, and disposes its registration", () => {
 		const registry = createHePiModuleRegistry();
 		registerHePiModule(moduleFor("z", "Same"), registry);

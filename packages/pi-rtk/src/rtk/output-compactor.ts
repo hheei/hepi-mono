@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { trackOutputSavings } from "./output-metrics.js";
+import { type OutputMetrics, trackOutputSavings } from "./output-metrics.js";
 import { mapTextContentBlocks, toRecord } from "./record-utils.js";
 import {
 	aggregateLinterOutput,
@@ -668,6 +668,7 @@ function compactGrepText(
 export function compactToolResult(
 	event: ToolResultLikeEvent,
 	config: RtkIntegrationConfig,
+	metrics?: OutputMetrics,
 ): ToolResultCompactionOutcome {
 	if (!config.outputCompaction.enabled) {
 		return { changed: false, techniques: [] };
@@ -718,7 +719,9 @@ export function compactToolResult(
 	const compactedText = filteredChunks.join("\n");
 
 	if (config.outputCompaction.trackSavings) {
-		trackOutputSavings(originalText, compactedText, event.toolName, techniques);
+		if (metrics === undefined)
+			trackOutputSavings(originalText, compactedText, event.toolName, techniques);
+		else metrics.track(originalText, compactedText, event.toolName, techniques);
 	}
 
 	const metadata: ToolResultCompactionMetadata = {

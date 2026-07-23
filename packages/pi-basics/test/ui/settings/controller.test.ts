@@ -116,17 +116,53 @@ describe("settings controller", () => {
 		expect(controller.state.draftValue).toBe("bad");
 		expect(controller.state.committed.fixture!.general!.mode).toBe("auto");
 	});
-	test("reports a deferred save failure during close", async () => {
+	test("retries a deferred save after close fails", async () => {
+		let attempts = 0;
 		const provider = createSettingsFixture({
-			storage: fakeStorage({ failSave: new Error("nope") }),
+			storage: {
+				load: () => undefined,
+				save: () => {
+					attempts++;
+					if (attempts === 1) throw new Error("nope");
+				},
+			},
 		});
 		const controller = createSettingsController({ providers: [provider], context: testContext() });
 		await controller.load();
 		controller.select("enabled");
 		await controller.toggle();
 		expect(controller.state.committed.fixture!.general!.enabled).toBe(false);
-		await expect(controller.close()).rejects.toThrow("Settings cleanup failed");
+		await expect(controller.close({ retryOnFailure: true })).rejects.toThrow(
+			"Settings cleanup failed",
+		);
 		expect(controller.state.error).toBe("nope");
+		await expect(controller.close({ retryOnFailure: true })).resolves.toBeUndefined();
+		expect(attempts).toBe(2);
+	});
+
+	test("runs provider cleanup after a permanent save failure", async () => {
+		const events: string[] = [];
+		const provider = createSettingsFixture({
+			storage: {
+				load: () => undefined,
+				save: () => {
+					throw new Error("save failed");
+				},
+				close: () => {
+					events.push("storage:close");
+				},
+			},
+			onClose: () => {
+				events.push("provider:close");
+			},
+		});
+		const controller = createSettingsController({ providers: [provider], context: testContext() });
+		await controller.load();
+		controller.select("enabled");
+		await controller.toggle();
+
+		await expect(controller.close()).rejects.toThrow("Settings cleanup failed");
+		expect(events).toEqual(["provider:close", "storage:close"]);
 	});
 
 	test("retains session storage values across controller close and reopen", async () => {
@@ -164,17 +200,49 @@ describe("settings controller", () => {
 		expect(saved).toBe(true);
 	});
 
-	test("attempts every cleanup and closes storage after onClose", async () => {
+	test("forced close waits for an active retryable save", async () => {
+		const save = Promise.withResolvers<void>();
+		const events: string[] = [];
+		const provider = createSettingsFixture({
+			storage: {
+				load: () => undefined,
+				save: () => save.promise,
+				close: () => {
+					events.push("storage:close");
+				},
+			},
+			onClose: () => {
+				events.push("provider:close");
+			},
+		});
+		const controller = createSettingsController({ providers: [provider], context: testContext() });
+		await controller.load();
+		controller.select("enabled");
+		await controller.toggle();
+		const retryable = controller.close({ retryOnFailure: true });
+		let forcedSettled = false;
+		const forced = controller.close().finally(() => {
+			forcedSettled = true;
+		});
+		await Bun.sleep(0);
+		expect(forcedSettled).toBe(false);
+
+		save.resolve();
+		await Promise.all([retryable, forced]);
+		expect(events).toEqual(["provider:close", "storage:close"]);
+	});
+
+	test("attempts every synchronous cleanup and closes storage after onClose", async () => {
 		const events: string[] = [];
 		const firstStorage = {
 			...fakeStorage(),
-			close: async () => {
+			close: () => {
 				events.push("first:storage");
 			},
 		};
 		const secondStorage = {
 			...fakeStorage(),
-			close: async () => {
+			close: () => {
 				events.push("second:storage");
 				throw new Error("storage failed");
 			},
@@ -182,7 +250,7 @@ describe("settings controller", () => {
 		const first = createSettingsFixture({
 			id: "first",
 			storage: firstStorage,
-			onClose: async () => {
+			onClose: () => {
 				events.push("first:onClose");
 				throw new Error("callback failed");
 			},
@@ -190,7 +258,7 @@ describe("settings controller", () => {
 		const second = createSettingsFixture({
 			id: "second",
 			storage: secondStorage,
-			onClose: async () => {
+			onClose: () => {
 				events.push("second:onClose");
 			},
 		});

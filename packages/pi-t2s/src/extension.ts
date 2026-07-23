@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
+	getHePiRuntimeSettingsRegistry,
 	HePiLifecycleController,
 	registerHePiLifecycle,
 	registerHePiSettings,
@@ -11,12 +12,13 @@ import {
 
 export default function piT2sExtension(pi: ExtensionAPI): void {
 	const feature = createTraditionalToSimplifiedFeature();
+	const settingsRegistry = getHePiRuntimeSettingsRegistry(pi);
 	const provider = createTraditionalToSimplifiedSettingsProvider({
 		onPersisted: (enabled) => feature.setEnabled(enabled),
 	});
 	const lifecycle = new HePiLifecycleController({
 		onStart: async (runtime) => {
-			const unregisterSettings = registerHePiSettings(provider);
+			const unregisterSettings = registerHePiSettings(provider, settingsRegistry);
 			runtime.registry.registerLifecycle({
 				id: "t2s-settings",
 				cleanup: unregisterSettings,
