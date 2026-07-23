@@ -36,14 +36,21 @@ interface PlanMessageEndResult {
 	readonly message: PlanMessage;
 }
 
+interface PendingPlan {
+	readonly plan: string;
+	readonly wasPlanning: boolean;
+	readonly shouldAsk: boolean;
+}
+
 interface ActivePlan {
 	readonly sessionId: string;
 	readonly runtime: HePiRuntimeContext;
 	phase: PlanPhase;
-	plan?: string;
-	planEntryId?: string;
-	planUrl?: string;
-	requestedAction?: RequestedPlanAction;
+	plan?: string | undefined;
+	planEntryId?: string | undefined;
+	planUrl?: string | undefined;
+	requestedAction?: RequestedPlanAction | undefined;
+	pendingPlan?: PendingPlan | undefined;
 	initialAskPending: boolean;
 	disposed: boolean;
 }
@@ -58,17 +65,6 @@ function sameSession(
 	ctx: ExtensionContext,
 ): current is ActivePlan {
 	return !!current && !current.disposed && current.sessionId === ctx.sessionManager.getSessionId();
-}
-
-function assistantText(event: AgentEndEvent): string {
-	for (const message of [...event.messages].reverse()) {
-		if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
-		return message.content
-			.filter((part): part is { type: "text"; text: string } => part.type === "text")
-			.map((part) => part.text)
-			.join("\n");
-	}
-	return "";
 }
 
 function boundary(current: ActivePlan): PlanBoundary {
@@ -111,14 +107,13 @@ export function createPlanFeature(pi: ExtensionAPI): PlanFeature {
 		});
 	};
 
-	const capturePlan = async (event: AgentEndEvent, ctx: ExtensionContext): Promise<void> => {
+	const publishPendingPlan = async (ctx: ExtensionContext): Promise<void> => {
 		const current = active;
-		if (!sameSession(current, ctx) || (current.phase !== "plan" && current.phase !== "plan-refine"))
-			return;
-		const plan = extractProposedPlan(assistantText(event));
-		if (!plan) return;
-		const wasPlanning = current.phase === "plan";
-		const shouldAsk = wasPlanning && current.initialAskPending;
+		if (!sameSession(current, ctx)) return;
+		const pending = current.pendingPlan;
+		if (!pending) return;
+		current.pendingPlan = undefined;
+		const { plan, wasPlanning, shouldAsk } = pending;
 		pi.sendMessage(
 			{ customType: "pi-basics-plan", content: plan, display: true, details: { version: 1 } },
 			{ triggerTurn: false },
@@ -195,6 +190,7 @@ export function createPlanFeature(pi: ExtensionAPI): PlanFeature {
 	const leave = (current: ActivePlan, notify = true): void => {
 		current.phase = "none";
 		current.requestedAction = undefined;
+		current.pendingPlan = undefined;
 		persist(current);
 		updateStatus(current);
 		if (notify) current.runtime.ctx.ui.notify("※ Plan mode stopped", "info");
@@ -225,8 +221,9 @@ export function createPlanFeature(pi: ExtensionAPI): PlanFeature {
 		if (action === "new") {
 			ctx.ui.notify("※ Implement plan in new section", "info");
 			try {
+				const parentSession = ctx.sessionManager.getSessionFile();
 				const result = await ctx.newSession({
-					parentSession: ctx.sessionManager.getSessionFile(),
+					...(parentSession === undefined ? {} : { parentSession }),
 					withSession: async (replacement) => replacement.sendUserMessage(prompt),
 				});
 				if (!result.cancelled) return;
@@ -367,8 +364,8 @@ export function createPlanFeature(pi: ExtensionAPI): PlanFeature {
 				ctx.ui.notify("Plan mode enabled. Submit a prompt with /plan <prompt>.", "info");
 				return;
 			}
-			if (current.phase === "plan") {
-				ctx.ui.notify("Plan mode is active. Continue with /plan <prompt>.", "info");
+			if (current.phase === "plan" && !current.plan) {
+				leave(current);
 				return;
 			}
 			if (current.requestedAction) {
@@ -430,6 +427,19 @@ export function createPlanFeature(pi: ExtensionAPI): PlanFeature {
 			!Array.isArray(event.message.content)
 		)
 			return;
+		const plan = extractProposedPlan(
+			event.message.content
+				.filter((part): part is { type: "text"; text: string } => part.type === "text")
+				.map((part) => part.text)
+				.join("\n"),
+		);
+		if (!plan) return;
+		const wasPlanning = current.phase === "plan";
+		current.pendingPlan = {
+			plan,
+			wasPlanning,
+			shouldAsk: wasPlanning && current.initialAskPending,
+		};
 		let changed = false;
 		const content: typeof event.message.content = [];
 		for (const part of event.message.content) {
@@ -456,7 +466,7 @@ export function createPlanFeature(pi: ExtensionAPI): PlanFeature {
 			) => PlanMessageEndResult | undefined,
 		) => void
 	)("message_end", onMessageEnd);
-	pi.on("agent_end", capturePlan);
+	pi.on("agent_settled", (_event, ctx) => publishPendingPlan(ctx));
 	pi.on("session_tree", (_event, ctx) => {
 		const current = active;
 		if (!sameSession(current, ctx)) return;
@@ -467,6 +477,7 @@ export function createPlanFeature(pi: ExtensionAPI): PlanFeature {
 		current.planUrl = state.boundary.phase === "none" ? undefined : state.boundary.planUrl;
 		current.requestedAction =
 			state.boundary.phase === "none" ? undefined : state.boundary.requestedAction;
+		current.pendingPlan = undefined;
 		current.initialAskPending =
 			state.boundary.phase === "none" ? false : state.boundary.initialAskPending;
 		updateStatus(current);

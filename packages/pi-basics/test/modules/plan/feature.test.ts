@@ -64,7 +64,11 @@ function fixture(options: Options = {}) {
 			});
 		},
 		sendUserMessage(c: string, options?: { deliverAs?: string }) {
-			sent.push({ content: c, deliverAs: options?.deliverAs });
+			sent.push(
+				options?.deliverAs === undefined
+					? { content: c }
+					: { content: c, deliverAs: options.deliverAs },
+			);
 		},
 		getThinkingLevel: () => "high",
 		setThinkingLevel: () => undefined,
@@ -173,12 +177,17 @@ const planEvent = {
 		},
 	],
 };
+const planMessage = planEvent.messages[0];
+async function completePlan(h: ReturnType<typeof fixture>): Promise<void> {
+	await emit(h, "message_end", { message: planMessage });
+	await emit(h, "agent_settled", {});
+}
 describe("Plan feature", () => {
 	test("saves artifact and refines via custom UI", async () => {
 		const h = fixture({ action: "refine" });
 		start(h);
 		await h.commands.get("plan")!("inspect", h.ctx);
-		await emit(h, "agent_end", planEvent);
+		await completePlan(h);
 		expect(h.entries.some((e) => e.customType === PLAN_MESSAGE_TYPE)).toBe(true);
 		expect(h.sent.at(-1)?.content).toContain("The user requests refine the plan.");
 		expect(h.sent.at(-1)?.deliverAs).toBe("followUp");
@@ -189,7 +198,7 @@ describe("Plan feature", () => {
 			const h = fixture({ action });
 			start(h);
 			await h.commands.get("plan")!("inspect", h.ctx);
-			await emit(h, "agent_end", planEvent);
+			await completePlan(h);
 			if (action === "compact") {
 				expect(h.compacted).toHaveLength(1);
 				h.compacted[0]!.onComplete?.();
@@ -207,17 +216,30 @@ describe("Plan feature", () => {
 		start(h);
 		await h.commands.get("plan")!("inspect", h.ctx);
 		const result = await h.handlers.get("message_end")![0]!(
-			(planEvent.messages[0] ? { message: planEvent.messages[0] } : undefined) as never,
+			{ message: planMessage } as never,
 			h.ctx,
 		);
 		expect(result).toMatchObject({ message: { content: [] } });
+	});
+
+	test("publishes and opens confirmation only after the agent settles", async () => {
+		const h = fixture();
+		start(h);
+		await h.commands.get("plan")!("inspect", h.ctx);
+		await emit(h, "message_end", { message: planMessage });
+		expect(h.entries.some((entry) => entry.customType === PLAN_MESSAGE_TYPE)).toBe(false);
+		expect(h.customCalls).toBe(0);
+
+		await emit(h, "agent_settled", {});
+		expect(h.entries.some((entry) => entry.customType === PLAN_MESSAGE_TYPE)).toBe(true);
+		expect(h.customCalls).toBe(1);
 	});
 
 	test("passes only authenticated models to confirmation", async () => {
 		const h = fixture();
 		start(h);
 		await h.commands.get("plan")!("inspect", h.ctx);
-		await emit(h, "agent_end", planEvent);
+		await completePlan(h);
 		expect(h.customRendered).toContain("configured/Model");
 		expect(h.customRendered).not.toContain("missing-auth");
 	});
@@ -231,7 +253,7 @@ describe("Plan feature", () => {
 			const h = fixture(o);
 			start(h);
 			await h.commands.get("plan")!("inspect", h.ctx);
-			await emit(h, "agent_end", planEvent);
+			await completePlan(h);
 			expect(h.statuses.get("plan")).toBe("plan-refine");
 		}
 	});
@@ -239,12 +261,12 @@ describe("Plan feature", () => {
 		const h = fixture({ custom: false });
 		start(h);
 		await h.commands.get("plan")!("inspect", h.ctx);
-		await emit(h, "agent_end", planEvent);
+		await completePlan(h);
 		expect(h.statuses.get("plan")).toBe("plan");
 		const n = fixture({ mode: "rpc" });
 		start(n);
 		await n.commands.get("plan")!("inspect", n.ctx);
-		await emit(n, "agent_end", planEvent);
+		await completePlan(n);
 		expect(n.notifications.at(-1)).toContain("Use /plan implement");
 	});
 	test("provides completions", () => {
@@ -257,6 +279,17 @@ describe("Plan feature", () => {
 			"implement",
 		]);
 	});
+	test("toggles off an empty Plan mode with bare /plan", async () => {
+		const h = fixture();
+		start(h);
+		await h.commands.get("plan")!("", h.ctx);
+		expect(h.statuses.get("plan")).toBe("plan");
+
+		await h.commands.get("plan")!("", h.ctx);
+		expect(h.statuses.get("plan")).toBeUndefined();
+		expect(h.notifications).toContain("※ Plan mode stopped");
+	});
+
 	test("stops Plan mode", async () => {
 		const h = fixture();
 		start(h);
