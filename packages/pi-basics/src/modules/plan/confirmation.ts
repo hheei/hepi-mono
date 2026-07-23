@@ -48,6 +48,11 @@ function finish(text: string, width: number): string {
 	return padToWidth(truncateToWidth(text, width, ""), width);
 }
 
+function defined<T>(value: T | undefined, message: string): T {
+	if (value === undefined) throw new Error(message);
+	return value;
+}
+
 export function createPlanConfirmationComponent(
 	options: PlanConfirmationComponentOptions,
 ): Component {
@@ -59,7 +64,10 @@ export function createPlanConfirmationComponent(
 				candidate.provider === options.model.provider && candidate.id === options.model.id,
 		),
 	);
-	let level = options.thinkingLevel ?? options.getThinkingLevel();
+	let level = defined(
+		options.thinkingLevel ?? options.getThinkingLevel(),
+		"Plan confirmation thinking level is unavailable",
+	);
 	let mode: PlanImplementationMode = "compact";
 	let focus: Focus = "model";
 	let width = 80;
@@ -77,7 +85,7 @@ export function createPlanConfirmationComponent(
 	function changeModel(delta: -1 | 1): void {
 		if (switching || models.length < 2) return;
 		const next = (modelIndex + delta + models.length) % models.length;
-		const candidate = models[next]!;
+		const candidate = defined(models[next], "Plan confirmation model is unavailable");
 		switching = true;
 		requestRender();
 		void Promise.resolve()
@@ -95,16 +103,21 @@ export function createPlanConfirmationComponent(
 	function changeLevel(delta: -1 | 1): void {
 		const current = levels.indexOf(level);
 		const next = (current < 0 ? 0 : current + delta + levels.length) % levels.length;
-		level = levels[next]!;
+		level = defined(levels[next], "Plan confirmation thinking level is unavailable");
 		options.setThinkingLevel(level);
 		requestRender();
 	}
 	function select(action: PlanConfirmationAction): void {
-		settle({ status: "selected", action, model: models[modelIndex]!, thinkingLevel: level });
+		settle({
+			status: "selected",
+			action,
+			model: defined(models[modelIndex], "Plan confirmation model is unavailable"),
+			thinkingLevel: level,
+		});
 	}
 	function description(): string[] {
 		if (focus === "model") {
-			const model = models[modelIndex]!;
+			const model = defined(models[modelIndex], "Plan confirmation model is unavailable");
 			return [
 				`${model.provider}/${model.id}`,
 				"Only models with configured authentication are shown.",
@@ -150,7 +163,7 @@ export function createPlanConfirmationComponent(
 		const controlsWidth = split.leftWidth;
 		const panelWidth = split.rightWidth;
 		const planLines = wrap(options.plan, Math.max(1, width)).slice(0, 8);
-		const model = models[modelIndex]!;
+		const model = defined(models[modelIndex], "Plan confirmation model is unavailable");
 		const row = (focusRow: Focus, label: string): string =>
 			renderSelectableRow({ width: controlsWidth, selected: focus === focusRow, label });
 		const controls = [
@@ -199,7 +212,10 @@ export function createPlanConfirmationComponent(
 		if (matchesKey(input, Key.up) || matchesKey(input, Key.down)) {
 			const order: readonly Focus[] = ["model", "implement", "refine"];
 			const index = order.indexOf(focus) + (matchesKey(input, Key.up) ? -1 : 1);
-			focus = order[Math.max(0, Math.min(order.length - 1, index))]!;
+			focus = defined(
+				order[Math.max(0, Math.min(order.length - 1, index))],
+				"Plan confirmation focus is unavailable",
+			);
 			requestRender();
 			return;
 		}
@@ -217,7 +233,10 @@ export function createPlanConfirmationComponent(
 		}
 		if (focus === "implement" && (matchesKey(input, Key.left) || matchesKey(input, Key.right))) {
 			const index = modes.indexOf(mode);
-			mode = modes[(index + (matchesKey(input, Key.left) ? -1 : 1) + modes.length) % modes.length]!;
+			mode = defined(
+				modes[(index + (matchesKey(input, Key.left) ? -1 : 1) + modes.length) % modes.length],
+				"Plan confirmation implementation mode is unavailable",
+			);
 			requestRender();
 			return;
 		}

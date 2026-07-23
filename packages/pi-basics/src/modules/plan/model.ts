@@ -12,9 +12,9 @@ export interface ActivePlan {
 	readonly sessionId: string;
 	readonly runtime: unknown;
 	phase: PlanPhase;
-	planEntryId?: string;
-	planUrl?: string;
-	requestedAction?: RequestedPlanAction;
+	planEntryId?: string | undefined;
+	planUrl?: string | undefined;
+	requestedAction?: RequestedPlanAction | undefined;
 	initialAskPending: boolean;
 	disposed: boolean;
 }
@@ -25,7 +25,7 @@ export function extractProposedPlan(text: unknown): string | undefined {
 	if (typeof text !== "string") return undefined;
 	const matches = [...text.matchAll(PROPOSED_PLAN_PATTERN)];
 	if (matches.length !== 1) return undefined;
-	const body = matches[0]![2]!.trim();
+	const body = matches[0]?.[2]?.trim();
 	if (!body || body.includes("<proposed_plan>") || body.includes("</proposed_plan>"))
 		return undefined;
 	return body;
