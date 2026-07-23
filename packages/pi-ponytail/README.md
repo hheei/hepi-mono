@@ -6,13 +6,13 @@ The extension owns persistent mode state and prompt injection. Five companion wo
 
 ## Install
 
-From this monorepo:
+Install the local package from this monorepo into your user Pi settings:
 
 ```bash
-bun run pi:dev -- ponytail -- --skill packages/pi-ponytail/skills
+pi install ./packages/pi-ponytail
 ```
 
-As a Pi package after publication:
+Use `pi install -l ./packages/pi-ponytail` for a project-local installation. Pi loads both the extension and companion skills from the package manifest. After publication, install it from npm:
 
 ```bash
 pi install npm:@hheei/pi-ponytail
@@ -29,7 +29,7 @@ pi install npm:@hheei/pi-ponytail
 /ponytail status
 ```
 
-`/ponytail` without an argument selects `full`. Pi autocomplete lists all modes, `off`, and `status`. The standalone phrases `stop ponytail` and `normal mode` disable it without matching incidental mentions inside a longer request.
+`/ponytail` without an argument selects `full`. Pi autocomplete lists all modes, `off`, and `status` with a detailed description. Mode changes print a one-line confirmation such as `※ Ponytail mode enabled: ultra.` without adding a persistent status indicator. The standalone phrases `stop ponytail` and `normal mode` disable it without matching incidental mentions inside a longer request.
 
 ## Companion Skills
 
@@ -54,9 +54,7 @@ With `@hheei/pi-basics` loaded, open `/hepi setting` and select **Ponytail defau
   "pi-ponytail": {
     "defaults": {
       "mainMode": "full",
-      "subagentMode": "full",
-      "hideStatus": false,
-      "quietStartup": false
+      "subagentMode": "full"
     }
   }
 }
@@ -69,9 +67,8 @@ Valid modes are `lite`, `full`, `ultra`, and `off`. `pi-basics` is optional; the
 - New sessions use the configured main-agent or subagent default.
 - Explicit mode changes are stored as Pi custom session entries.
 - Resume, fork, and `/tree` navigation restore the mode visible on the selected branch.
-- `off` removes prompt injection and the status indicator.
-- Session shutdown clears extension-owned UI state.
-- `hideStatus` affects only UI; it does not disable Ponytail.
+- `off` removes prompt injection.
+- Ponytail does not add passive status or startup UI.
 
 ## Compatibility
 

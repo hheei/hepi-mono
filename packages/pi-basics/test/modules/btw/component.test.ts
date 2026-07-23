@@ -3,6 +3,7 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { createBtwComponent } from "../../../src/modules/btw/component.js";
 import { createBtwTurn } from "../../../src/modules/btw/model.js";
+import { visibleWidth } from "../../../src/ui/text.js";
 import { assertVisibleWidth, fakeTheme, stripAnsi } from "../../helpers.js";
 
 const theme = fakeTheme() as unknown as Theme;
@@ -27,12 +28,12 @@ function assistant(text: string): AssistantMessage {
 	};
 }
 
-function harness(rows = 30) {
+function harness(rows = 30, question = "current question") {
 	let terminalRows = rows;
 	const history = [createBtwTurn("previous question", assistant("previous answer"), 1)];
 	const state = { renders: 0, clears: 0, done: 0 };
 	const component = createBtwComponent({
-		question: "current question",
+		question,
 		history,
 		theme,
 		host: {
@@ -72,6 +73,33 @@ describe("BTW component", () => {
 		const error = harness().component;
 		error.setError("provider failed");
 		expect(plain(error, 80)).toContain("Error: provider failed");
+	});
+
+	test("renders a responsive, stable-height rounded frame", () => {
+		const { component, setRows } = harness(30);
+		for (const width of [40, 80, 120]) {
+			const lines = component.render(width).map(stripAnsi);
+			expect(lines).toHaveLength(15);
+			expect(lines[0]?.startsWith("╭─ BTW ")).toBe(true);
+			expect(lines.at(-2)?.startsWith("│ ↕ scroll")).toBe(true);
+			expect(lines.at(-1)?.startsWith("╰")).toBe(true);
+			expect(lines.some((line) => line.startsWith("├"))).toBe(false);
+			for (const line of lines) expect(visibleWidth(line)).toBe(width);
+		}
+		setRows(20);
+		expect(component.render(80)).toHaveLength(12);
+		setRows(50);
+		expect(component.render(80)).toHaveLength(22);
+		setRows(10);
+		expect(component.render(80)).toHaveLength(8);
+	});
+
+	test("renders history without starting a question", () => {
+		const withHistory = harness(30, "").component;
+		expect(plain(withHistory, 80)).toContain("previous question");
+		expect(plain(withHistory, 80)).not.toContain("Waiting for the model...");
+		withHistory.handleInput?.("x");
+		expect(plain(withHistory, 80)).toContain("No BTW history yet.");
 	});
 
 	test("keeps every row within 40, 80, and 120 columns", () => {

@@ -10,9 +10,11 @@ import type {
 import piCavemanExtension from "../src/index.js";
 
 type CommandHandler = (args: string, ctx: ExtensionCommandContext) => Promise<void>;
-type Completions = (
-	prefix: string,
-) => ReadonlyArray<{ readonly value: string; readonly label: string }> | null;
+type Completions = (prefix: string) => ReadonlyArray<{
+	readonly value: string;
+	readonly label: string;
+	readonly description?: string;
+}> | null;
 type SessionHandler = (event: unknown, ctx: ExtensionContext) => unknown;
 type InputHandler = (
 	event: { readonly text: string; readonly source: "interactive" | "rpc" | "extension" },
@@ -111,16 +113,17 @@ function createContext(
 ): {
 	readonly ctx: ExtensionCommandContext;
 	readonly statuses: Array<string | undefined>;
-	readonly notifications: Array<{ readonly message: string; readonly level: string }>;
+	readonly notifications: Array<{ readonly message: string; readonly level?: string }>;
 } {
 	const statuses: Array<string | undefined> = [];
-	const notifications: Array<{ readonly message: string; readonly level: string }> = [];
+	const notifications: Array<{ readonly message: string; readonly level?: string }> = [];
 	const ctx = {
 		cwd,
 		sessionManager: { getBranch: () => branch },
 		ui: {
 			setStatus: (_id: string, value: string | undefined) => statuses.push(value),
-			notify: (message: string, level: string) => notifications.push({ message, level }),
+			notify: (message: string, level?: string) =>
+				notifications.push(level === undefined ? { message } : { message, level }),
 		},
 	} as unknown as ExtensionCommandContext;
 	return { ctx, statuses, notifications };
@@ -142,7 +145,13 @@ describe("pi-caveman extension", () => {
 		const harness = createHarness();
 		await piCavemanExtension(harness.pi);
 
-		expect(harness.completions?.("ult")).toEqual([{ value: "ultra", label: "ultra" }]);
+		expect(harness.completions?.("ult")).toEqual([
+			{
+				value: "ultra",
+				label: "ultra",
+				description: "Use the shortest Caveman response style with minimal prose.",
+			},
+		]);
 		expect(harness.completions?.("wenyan-")?.map((item) => item.value)).toEqual([
 			"wenyan-lite",
 			"wenyan-full",
@@ -160,7 +169,7 @@ describe("pi-caveman extension", () => {
 		const { ctx, statuses, notifications } = createContext(branch);
 
 		await harness.sessionStart?.({}, ctx);
-		expect(statuses.at(-1)).toBe("caveman:lite");
+		expect(statuses).toEqual([]);
 		expect(
 			harness.beforeAgentStart?.({ systemPrompt: "BASE", prompt: "task" }, ctx)?.systemPrompt,
 		).toContain("Current intensity: lite");
@@ -170,7 +179,7 @@ describe("pi-caveman extension", () => {
 			customType: "pi-caveman-state",
 			data: { version: 1, mode: "ultra" },
 		});
-		expect(notifications.at(-1)).toEqual({ message: "Caveman mode: ultra", level: "info" });
+		expect(notifications).toEqual([{ message: "※ Caveman mode enabled: ultra." }]);
 
 		await harness.sessionTree?.({}, ctx);
 		expect(
@@ -178,7 +187,7 @@ describe("pi-caveman extension", () => {
 		).toContain("Current intensity: lite");
 	});
 
-	test("natural-language deactivation removes prompt and clears status", async () => {
+	test("natural-language deactivation removes prompt without showing status", async () => {
 		const harness = createHarness();
 		await piCavemanExtension(harness.pi);
 		const { ctx, statuses } = createContext();
@@ -188,7 +197,7 @@ describe("pi-caveman extension", () => {
 		expect(
 			harness.beforeAgentStart?.({ systemPrompt: "BASE", prompt: "task" }, ctx),
 		).toBeUndefined();
-		expect(statuses.at(-1)).toBeUndefined();
+		expect(statuses).toEqual([]);
 		expect(harness.appended.at(-1)).toEqual({
 			customType: "pi-caveman-state",
 			data: { version: 1, mode: "off" },

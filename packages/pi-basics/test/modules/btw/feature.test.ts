@@ -240,12 +240,15 @@ function resolveExecution(
 }
 
 describe("BTW feature", () => {
-	test("empty question does not open custom UI or execute", async () => {
+	test("empty question opens the history panel without executing", async () => {
 		const h = fixture();
 		h.feature.start(h.runtime);
-		await first(h.commands).handler("   ", h.commandCtx);
-		expect(h.customOpened()).toBe(0);
+		const pending = first(h.commands).handler("   ", h.commandCtx);
+		await settle();
+		expect(h.customOpened()).toBe(1);
 		expect(h.executions).toHaveLength(0);
+		at(h.components, 0).component.close();
+		await pending;
 	});
 
 	test("non-TUI mode does not open custom UI or execute", async () => {

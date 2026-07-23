@@ -73,6 +73,10 @@ export function createBtwComponent(options: BtwComponentOptions): BtwComponentCo
 			);
 			rows.push(...wrap(extractAssistantText(turn.assistant), width), "");
 		}
+		if (!options.question) {
+			if (history.length === 0) rows.push(options.theme.fg("muted", "No BTW history yet."));
+			return rows;
+		}
 		rows.push(options.theme.fg("accent", "Question"));
 		rows.push(...wrap(options.question, width), "");
 		rows.push(options.theme.fg("accent", status.kind === "answer" ? "Answer" : "Status"));
@@ -82,32 +86,45 @@ export function createBtwComponent(options: BtwComponentOptions): BtwComponentCo
 
 	function render(width: number): string[] {
 		const safeWidth = Math.max(8, Math.floor(width));
-		const bodyWidth = Math.max(1, safeWidth - 2);
-		const allRows = contentRows(Math.max(1, bodyWidth - 2));
-		const terminalRows = Math.max(8, options.host.getTerminalRows());
-		const capacity = Math.max(3, Math.floor(terminalRows * 0.8) - 3);
+		const contentWidth = Math.max(1, safeWidth - 4);
+		const terminalRows = Math.max(8, Math.floor(options.host.getTerminalRows()));
+		const heightRatio = terminalRows >= 40 ? 0.45 : terminalRows < 24 ? 0.6 : 0.5;
+		const panelHeight = Math.max(8, Math.floor(terminalRows * heightRatio));
+		const capacity = panelHeight - 3;
+		let allRows = contentRows(contentWidth);
+		const showScrollbar = allRows.length > capacity;
+		if (showScrollbar) allRows = contentRows(Math.max(1, contentWidth - 2));
 		const maxScroll = Math.max(0, allRows.length - capacity);
 		const top = Math.min(scrollTop ?? maxScroll, maxScroll);
 		lastCapacity = capacity;
 		lastMaxScroll = maxScroll;
 		const visible = allRows.slice(top, top + capacity);
 		const scrollbar = renderScrollbar(allRows.length, capacity, top, visible.length, options.theme);
-		const title = options.theme.fg("accent", "BTW");
-		const header = padToWidth(` ${title}`, safeWidth);
-		const body = visible.map((row, index) => {
+		const border = (text: string): string => options.theme.fg("border", text);
+		const framedRow = (row: string, index: number): string => {
 			const bar = scrollbar[index] ?? "";
-			const content = truncateToWidth(row, bodyWidth - 2);
-			return padToWidth(` ${content}${bar}`, safeWidth);
-		});
+			const rowWidth = showScrollbar ? contentWidth - 2 : contentWidth;
+			const content = padToWidth(truncateToWidth(row, rowWidth, ""), rowWidth);
+			const scrollColumn = showScrollbar ? ` ${bar}` : "";
+			return `${border("│")} ${content}${scrollColumn} ${border("│")}`;
+		};
+		const body = Array.from({ length: capacity }, (_, index) =>
+			framedRow(visible[index] ?? "", index),
+		);
 		const keymap = formatKeymap(
 			[
 				{ key: keyGlyph.vertical, label: "scroll", priority: 1 },
 				{ key: "x", label: "clear history", priority: 0 },
 				{ key: keyGlyph.cancel, label: "close", priority: 2 },
 			],
-			{ width: safeWidth - 2 },
+			{ width: contentWidth },
 		);
-		return [header, ...body, padToWidth(` ${options.theme.fg("muted", keymap)}`, safeWidth)];
+		const title = ` ${options.theme.fg("accent", options.theme.bold("BTW"))} `;
+		const topRuleWidth = Math.max(0, safeWidth - 2 - 1 - 5);
+		const topRule = `${border("╭─")}${title}${border(`${"─".repeat(topRuleWidth)}╮`)}`;
+		const footer = `${border("│")} ${padToWidth(options.theme.fg("dim", keymap), contentWidth)} ${border("│")}`;
+		const bottomRule = border(`╰${"─".repeat(safeWidth - 2)}╯`);
+		return [topRule, ...body, footer, bottomRule];
 	}
 
 	function moveScroll(delta: number): void {

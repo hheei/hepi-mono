@@ -89,6 +89,18 @@ function terminalRows(): number {
 	return Math.max(8, process.stdout.rows ?? 24);
 }
 
+function btwOverlayOptions(): {
+	readonly width: "72%" | "82%" | "94%";
+	readonly maxHeight: "45%" | "50%" | "60%";
+	readonly margin: 1;
+} {
+	const columns = Math.max(8, process.stdout.columns ?? 80);
+	const rows = terminalRows();
+	if (columns < 100 || rows < 24) return { width: "94%", maxHeight: "60%", margin: 1 };
+	if (columns >= 120 && rows >= 40) return { width: "72%", maxHeight: "45%", margin: 1 };
+	return { width: "82%", maxHeight: "50%", margin: 1 };
+}
+
 export function createBtwFeature(pi: ExtensionAPI, options: BtwFeatureOptions = {}): BtwFeature {
 	const execute = options.execute ?? executeBtwTurn;
 	const createComponent = options.createComponent ?? createBtwComponent;
@@ -180,15 +192,11 @@ export function createBtwFeature(pi: ExtensionAPI, options: BtwFeatureOptions = 
 				ctx.ui.notify(error instanceof Error ? error.message : "Invalid BTW question", "warning");
 				return;
 			}
-			if (!question) {
-				ctx.ui.notify("Usage: /btw <question>", "warning");
-				return;
-			}
 			if (current.activeRequest) {
 				ctx.ui.notify("A BTW question is already open", "warning");
 				return;
 			}
-			if (!ctx.model) {
+			if (question && !ctx.model) {
 				ctx.ui.notify("/btw requires an active model", "error");
 				return;
 			}
@@ -217,10 +225,10 @@ export function createBtwFeature(pi: ExtensionAPI, options: BtwFeatureOptions = 
 							},
 						});
 						request.component = component;
-						void runRequest(current, request, question);
+						if (question) void runRequest(current, request, question);
 						return component;
 					},
-					{ overlay: true, overlayOptions: { width: "85%", maxHeight: "80%", margin: 1 } },
+					{ overlay: true, overlayOptions: btwOverlayOptions },
 				);
 			} finally {
 				if (current.activeRequest === request) {

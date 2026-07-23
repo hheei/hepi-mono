@@ -10,9 +10,11 @@ import type {
 import piPonytailExtension from "../src/index.js";
 
 type CommandHandler = (args: string, ctx: ExtensionCommandContext) => Promise<void>;
-type Completions = (
-	prefix: string,
-) => ReadonlyArray<{ readonly value: string; readonly label: string }> | null;
+type Completions = (prefix: string) => ReadonlyArray<{
+	readonly value: string;
+	readonly label: string;
+	readonly description?: string;
+}> | null;
 type Handler = (event: unknown, ctx: ExtensionContext) => unknown;
 type InputHandler = (
 	event: { readonly text: string; readonly source: "interactive" | "rpc" | "extension" },
@@ -107,13 +109,14 @@ function createHarness(
 
 function createContext(branch: ReadonlyArray<unknown> = [], cwd = process.cwd()) {
 	const statuses: Array<string | undefined> = [];
-	const notifications: Array<{ readonly message: string; readonly level: string }> = [];
+	const notifications: Array<{ readonly message: string; readonly level?: string }> = [];
 	const ctx = {
 		cwd,
 		sessionManager: { getBranch: () => branch },
 		ui: {
 			setStatus: (_id: string, value: string | undefined) => statuses.push(value),
-			notify: (message: string, level: string) => notifications.push({ message, level }),
+			notify: (message: string, level?: string) =>
+				notifications.push(level === undefined ? { message } : { message, level }),
 		},
 	} as unknown as ExtensionCommandContext;
 	return { ctx, statuses, notifications };
@@ -132,7 +135,13 @@ describe("pi-ponytail extension", () => {
 		const harness = createHarness();
 		await piPonytailExtension(harness.pi);
 		expect(harness.commands).toEqual(["ponytail"]);
-		expect(harness.completions?.("ult")).toEqual([{ value: "ultra", label: "ultra" }]);
+		expect(harness.completions?.("ult")).toEqual([
+			{
+				value: "ultra",
+				label: "ultra",
+				description: "Apply the strictest deletion-first and minimum-code guidance.",
+			},
+		]);
 		expect(harness.completions?.("review")).toBeNull();
 	});
 
@@ -142,9 +151,9 @@ describe("pi-ponytail extension", () => {
 		const branch = [
 			{ type: "custom", customType: "pi-ponytail-state", data: { version: 1, mode: "lite" } },
 		];
-		const { ctx, statuses } = createContext(branch);
+		const { ctx, statuses, notifications } = createContext(branch);
 		await harness.sessionStart?.({}, ctx);
-		expect(statuses.at(-1)).toBe("ponytail:lite");
+		expect(statuses).toEqual([]);
 		expect(
 			harness.beforeAgentStart?.({ systemPrompt: "BASE", prompt: "task" }, ctx)?.systemPrompt,
 		).toContain("Current level: lite");
@@ -154,6 +163,7 @@ describe("pi-ponytail extension", () => {
 			customType: "pi-ponytail-state",
 			data: { version: 1, mode: "ultra" },
 		});
+		expect(notifications).toEqual([{ message: "※ Ponytail mode enabled: ultra." }]);
 		await harness.sessionTree?.({}, ctx);
 		expect(
 			harness.beforeAgentStart?.({ systemPrompt: "BASE", prompt: "task" }, ctx)?.systemPrompt,
@@ -190,17 +200,15 @@ describe("pi-ponytail extension", () => {
 		expect(input.prompt).toContain("Current level: ultra");
 	});
 
-	test("honors presentation flags and clears status on shutdown", async () => {
+	test("shows no passive mode status or startup notification", async () => {
 		const cwd = await createProject({
-			"pi-ponytail": { defaults: { hideStatus: true, quietStartup: true } },
+			"pi-ponytail": { defaults: { hideStatus: false, quietStartup: false } },
 		});
 		const harness = createHarness();
 		await piPonytailExtension(harness.pi);
 		const { ctx, statuses, notifications } = createContext([], cwd);
 		await harness.sessionStart?.({}, ctx);
-		expect(statuses.at(-1)).toBeUndefined();
+		expect(statuses).toEqual([]);
 		expect(notifications).toEqual([]);
-		await harness.sessionShutdown?.({}, ctx);
-		expect(statuses.at(-1)).toBeUndefined();
 	});
 });

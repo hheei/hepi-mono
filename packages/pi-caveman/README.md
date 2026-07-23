@@ -2,17 +2,17 @@
 
 A session-scoped Pi extension that keeps responses concise using rules adapted from [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman).
 
-Unlike the upstream Agent Skill integration, this package owns real Pi runtime state. It registers a command, observes natural-language activation, injects the active rules through `before_agent_start`, and displays the mode in Pi's status area.
+Unlike the upstream Agent Skill integration, this package owns real Pi runtime state. It registers a command, observes natural-language activation, and injects the active rules through `before_agent_start`.
 
 ## Install
 
-From this monorepo:
+Install the local package from this monorepo into your user Pi settings:
 
 ```bash
-bun run pi:dev -- caveman
+pi install ./packages/pi-caveman
 ```
 
-As a Pi package after publication:
+Use `pi install -l ./packages/pi-caveman` for a project-local installation. After publication, install it from npm:
 
 ```bash
 pi install npm:@hheei/pi-caveman
@@ -33,7 +33,7 @@ pi install npm:@hheei/pi-caveman
 /caveman status
 ```
 
-`/caveman` without an argument selects `full`. `wenyan` is an alias for `wenyan-full`. Pi autocomplete lists every canonical mode, `off`, and `status`.
+`/caveman` without an argument selects `full`. `wenyan` is an alias for `wenyan-full`. Pi autocomplete lists every canonical mode, `off`, and `status` with a detailed description. Mode changes print a one-line confirmation such as `※ Caveman mode enabled: ultra.` without adding a persistent status indicator.
 
 The extension also recognizes explicit English activation phrases such as `talk like caveman`, `use ultra caveman mode`, `normal mode`, and `stop caveman`.
 
@@ -65,7 +65,7 @@ Valid values are `lite`, `full`, `ultra`, `wenyan-lite`, `wenyan-full`, `wenyan-
 - Mode changes are stored as Pi custom session entries, not global files.
 - Reloading or resuming restores the latest mode from the active session branch.
 - Forks and `/tree` navigation restore the mode visible at the selected branch point.
-- `off` removes the injected prompt and status indicator.
+- `off` removes the injected prompt.
 - Session shutdown clears extension-owned UI state.
 
 No tools, model providers, telemetry, or network calls are added. Filesystem writes occur only when the HEPI Settings provider saves `.pi/settings.json`.

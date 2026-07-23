@@ -79,7 +79,15 @@ Manual equivalent:
 pi --no-extensions --no-skills -e packages/pi-basics/src/index.ts
 ```
 
-Or install packages from the local repo with Pi's package installer once the package metadata is ready.
+Install local packages persistently with Pi's package installer:
+
+```bash
+pi install ./packages/pi-basics
+pi install ./packages/pi-caveman
+pi install ./packages/pi-ponytail
+```
+
+These commands update user settings. Add `-l` for project-local installation.
 
 ## Package Manifest Pattern
 
