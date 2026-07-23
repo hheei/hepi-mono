@@ -50,8 +50,8 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/src/index.ts": {
-    "mtime": 1784655159.5307515,
-    "ast_hash": "997106c9e2482889520ba1f671bbfaef",
+    "mtime": 1784659144.048003,
+    "ast_hash": "528a681961067f04e9496b869598f967",
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/loadout/component.ts": {
@@ -200,8 +200,8 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/test/integration/index.test.ts": {
-    "mtime": 1784655293.5565643,
-    "ast_hash": "63d75c8db17cd350e7af76c3f9e25b9b",
+    "mtime": 1784659144.0482008,
+    "ast_hash": "059831ac6cfa121105706ed7ebb6e424",
     "semantic_hash": ""
   },
   "packages/pi-basics/test/modules/loadout/controller.test.ts": {
@@ -530,8 +530,8 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/README.md": {
-    "mtime": 1784654181.424844,
-    "ast_hash": "3ea6e1ff831d9708a9b9c57a970c4182",
+    "mtime": 1784659445.9580183,
+    "ast_hash": "4f684845a0ff764cd0b22ad6f5641a9a",
     "semantic_hash": ""
   },
   "packages/pi-codex-dollar/README.md": {
@@ -9332,6 +9332,406 @@
   "docs/plans/todo/implementation.md": {
     "mtime": 1784653864.9712076,
     "ast_hash": "4a7723180f111f028247c4c319f8ddc3",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/command-rewriter.ts": {
+    "mtime": 1784657564.7802193,
+    "ast_hash": "c2ffd139f187a0b5ed9443c3cda47822",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/command.ts": {
+    "mtime": 1784658431.8807614,
+    "ast_hash": "82d1dadf1e771a76b48eb904df5ba3dd",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/config-store.ts": {
+    "mtime": 1784657564.7912586,
+    "ast_hash": "3e9faf267f9392a33fd072da52e32502",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/config.ts": {
+    "mtime": 1784657564.7815158,
+    "ast_hash": "ea2be295316c540506b381baab84334d",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/constants.ts": {
+    "mtime": 1784657564.7799003,
+    "ast_hash": "972a3c7c21eecf7e84a2cfc80b7f4471",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/feature.ts": {
+    "mtime": 1784659416.8870502,
+    "ast_hash": "99c73d0e26cd3f2d8a8ba78624a21145",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/lazy-module-loader.ts": {
+    "mtime": 1784656990.998318,
+    "ast_hash": "079605f6780f3bb3ccab614ea4ae3398",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/output-compactor.ts": {
+    "mtime": 1784657564.7998147,
+    "ast_hash": "0635d7b00377012e4b88ba32748f1ae8",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/output-metrics.ts": {
+    "mtime": 1784657564.7823837,
+    "ast_hash": "8df56dcadfceae3ca0e845afd1cf891e",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/record-utils.ts": {
+    "mtime": 1784656958.3724542,
+    "ast_hash": "82ddc2e6bec7d4dae4114ea494b97031",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/rewrite-pipeline-safety.ts": {
+    "mtime": 1784657564.7873085,
+    "ast_hash": "1a5f5fe583f3b5febeeadafc51e01ed0",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/rtk-command-environment.ts": {
+    "mtime": 1784657564.7857397,
+    "ast_hash": "80bc4163bd340d572451d95afe706ad0",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/rtk-executable-resolver.ts": {
+    "mtime": 1784657564.7857828,
+    "ast_hash": "06fa02d6125ffc9673e42383a317ea98",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/rtk-rewrite-provider.ts": {
+    "mtime": 1784657564.786304,
+    "ast_hash": "fcbf59e6a9dafe024b23ae298a160101",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/runtime-guard.ts": {
+    "mtime": 1784656958.3702316,
+    "ast_hash": "35a6a8c6d802280bfc8132ead9b95424",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/settings.ts": {
+    "mtime": 1784659390.4324808,
+    "ast_hash": "1e151873583fe189fc40b6f3b466779a",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/shell-env-prefix.ts": {
+    "mtime": 1784656958.371107,
+    "ast_hash": "39eeb2d683ffa6b76c04948065eb1458",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/shell-quote-state.ts": {
+    "mtime": 1784656958.3714857,
+    "ast_hash": "92a0b4b2eb25d4880207926d499c6279",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/techniques/ansi.ts": {
+    "mtime": 1784656990.9908013,
+    "ast_hash": "44715b38329e9835f29ca718685cfc9f",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/techniques/build.ts": {
+    "mtime": 1784657564.7941177,
+    "ast_hash": "1a6d4cab2284407dca898d7cf8242623",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/techniques/command-detection.ts": {
+    "mtime": 1784656990.9914901,
+    "ast_hash": "55644c44311ca9d7b57197590889f989",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/techniques/git.ts": {
+    "mtime": 1784657564.795439,
+    "ast_hash": "24586775e2ae0652f5cbbc3e82711613",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/techniques/index.ts": {
+    "mtime": 1784657564.7946641,
+    "ast_hash": "cc2f13851fc886a78d2422e9cc02eb8d",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/techniques/linter.ts": {
+    "mtime": 1784657564.7991168,
+    "ast_hash": "81d6a6e20e50af02a3d1f34f49683047",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/techniques/path-utils.ts": {
+    "mtime": 1784657564.7981815,
+    "ast_hash": "24baa2c610ba4542ac3e17801d18c085",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/techniques/search.ts": {
+    "mtime": 1784656990.9930298,
+    "ast_hash": "98010db84718f1333ad7b0aadd7fa8e0",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/techniques/source.ts": {
+    "mtime": 1784657564.8018901,
+    "ast_hash": "da22bac8fa9fa98076400031792c0cbc",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/techniques/test-output.ts": {
+    "mtime": 1784657564.7988503,
+    "ast_hash": "57116b83f401431750083f691bc902be",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/techniques/truncate.ts": {
+    "mtime": 1784656990.9945385,
+    "ast_hash": "64425fbf6a28a8499475099bd1ca7191",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/tool-execution-sanitizer.ts": {
+    "mtime": 1784656958.3721032,
+    "ast_hash": "de8c3788db4259c4562a9a99a2f2e70d",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/types.ts": {
+    "mtime": 1784657564.7945356,
+    "ast_hash": "1f3f4e9dcf83381a8e5c985f30fceecd",
+    "semantic_hash": ""
+  },
+  "packages/pi-basics/src/modules/rtk/windows-command-helpers.ts": {
+    "mtime": 1784657564.7852595,
+    "ast_hash": "21b6e7a2d000b2c81dd03fbd4129dc94",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/config/config.example.json": {
+    "mtime": 1784655760.5835943,
+    "ast_hash": "258780ec4c11f860965b5c8dda02af94",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/index.ts": {
+    "mtime": 1784655760.583772,
+    "ast_hash": "34b0cca66d4936e63d996d545a080d80",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/additional-coverage.test.ts": {
+    "mtime": 1784655760.5847728,
+    "ast_hash": "881b4245a4b32ea7ae2445dcf132894e",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/boolean-format.ts": {
+    "mtime": 1784655760.584987,
+    "ast_hash": "a5ec8a34cfa2fa98bc68cf3665c94581",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/command-completions.ts": {
+    "mtime": 1784655760.5851438,
+    "ast_hash": "15815acd9b7a09b61aa333a5f2c8413b",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/command-register.ts": {
+    "mtime": 1784655760.585308,
+    "ast_hash": "ba7e7705dfb55f0ce06700744d2e9504",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/command-rewriter.test.ts": {
+    "mtime": 1784655760.5855536,
+    "ast_hash": "d53522e98cdc8ce9e26d9eb28704b101",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/command-rewriter.ts": {
+    "mtime": 1784655760.5857322,
+    "ast_hash": "513aad5fbddfe692e24d2d43b0ba7d19",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/config-modal.test.ts": {
+    "mtime": 1784655760.585971,
+    "ast_hash": "e420b005163a5faf839e88eeaa0fd914",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/config-modal.ts": {
+    "mtime": 1784655760.5864573,
+    "ast_hash": "f1b2f688722baa05a1b184e8419cbabe",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/config-store.ts": {
+    "mtime": 1784655760.586864,
+    "ast_hash": "512f43e9b765ca249e85c3210477ebcb",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/constants.ts": {
+    "mtime": 1784655760.5870414,
+    "ast_hash": "da56a3cdfd1109b93586a57869bbb0fe",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/index.test.ts": {
+    "mtime": 1784655760.5872946,
+    "ast_hash": "42b1685307fda00eefeb12029781711b",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/index.ts": {
+    "mtime": 1784655760.5875196,
+    "ast_hash": "75b12485aa6f3395d6fa56e8fbce5cde",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/lazy-module-loader.ts": {
+    "mtime": 1784655760.5882432,
+    "ast_hash": "079605f6780f3bb3ccab614ea4ae3398",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/output-compactor.test.ts": {
+    "mtime": 1784655760.5886467,
+    "ast_hash": "c7c1db8e76bfb3cff4b7ba7eaa76df15",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/output-compactor.ts": {
+    "mtime": 1784655760.5889318,
+    "ast_hash": "5d949e7ff95d7443f83acc5b28f9dd5d",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/output-metrics.ts": {
+    "mtime": 1784655760.5891168,
+    "ast_hash": "1aa4bd9d07a0e32343dfba2407e7fb44",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/package-lock-integrity.test.ts": {
+    "mtime": 1784655760.5894473,
+    "ast_hash": "2013aac4d296bd6bf44e19e6884a9d0c",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/record-utils.ts": {
+    "mtime": 1784655760.5896401,
+    "ast_hash": "82ddc2e6bec7d4dae4114ea494b97031",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/rewrite-pipeline-safety.ts": {
+    "mtime": 1784655760.5898159,
+    "ast_hash": "d8d5dcc4e7c080f8fa7b179ee9220fca",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/rtk-command-environment.ts": {
+    "mtime": 1784655760.5899575,
+    "ast_hash": "c26a85365696a8deb0253989e570abbf",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/rtk-executable-resolver.ts": {
+    "mtime": 1784655760.5901423,
+    "ast_hash": "8f841a52edceffc9405b6cf129cdfecc",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/rtk-rewrite-provider.ts": {
+    "mtime": 1784655760.5903213,
+    "ast_hash": "41cf8d2372c24baa0709ecf28dccf155",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/runtime-guard.test.ts": {
+    "mtime": 1784655760.5904834,
+    "ast_hash": "0461396c510519e1732e392d7bdc7cfc",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/runtime-guard.ts": {
+    "mtime": 1784655760.590634,
+    "ast_hash": "35a6a8c6d802280bfc8132ead9b95424",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/shell-env-prefix.ts": {
+    "mtime": 1784655760.590796,
+    "ast_hash": "39eeb2d683ffa6b76c04948065eb1458",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/shell-quote-state.ts": {
+    "mtime": 1784655760.590958,
+    "ast_hash": "92a0b4b2eb25d4880207926d499c6279",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/techniques/ansi.ts": {
+    "mtime": 1784655760.591178,
+    "ast_hash": "44715b38329e9835f29ca718685cfc9f",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/techniques/build.ts": {
+    "mtime": 1784655760.5913439,
+    "ast_hash": "4698c780d815ae4a8a6efc2ea8c8ba4b",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/techniques/command-detection.ts": {
+    "mtime": 1784655760.5915031,
+    "ast_hash": "55644c44311ca9d7b57197590889f989",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/techniques/git.ts": {
+    "mtime": 1784655760.5917132,
+    "ast_hash": "3cf38bfd377651920fd436a73a0b3456",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/techniques/index.ts": {
+    "mtime": 1784655760.5918596,
+    "ast_hash": "975755fd52b05324479c581dbe74dbf5",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/techniques/linter.ts": {
+    "mtime": 1784655760.5919957,
+    "ast_hash": "fbdaae202ac69f23e9c35ec64943bfa8",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/techniques/path-utils.ts": {
+    "mtime": 1784655760.5921352,
+    "ast_hash": "3870f4308dbd2452f95068d2e23a3a63",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/techniques/search.ts": {
+    "mtime": 1784655760.5923,
+    "ast_hash": "98010db84718f1333ad7b0aadd7fa8e0",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/techniques/source.ts": {
+    "mtime": 1784655760.5924828,
+    "ast_hash": "97982faf79840bd1ffc7bc646105905e",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/techniques/test-output.ts": {
+    "mtime": 1784655760.5926645,
+    "ast_hash": "c6af6e186c8b9572d1da4275845da9d5",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/techniques/truncate.ts": {
+    "mtime": 1784655760.592809,
+    "ast_hash": "64425fbf6a28a8499475099bd1ca7191",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/test-helpers.test.ts": {
+    "mtime": 1784655760.5929482,
+    "ast_hash": "2ee6bd7e8551662665d19abd9d998cfd",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/tool-execution-sanitizer.ts": {
+    "mtime": 1784655760.593109,
+    "ast_hash": "de8c3788db4259c4562a9a99a2f2e70d",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/types-shims.d.ts": {
+    "mtime": 1784655760.5934315,
+    "ast_hash": "b4e9c6bcdcb89cf80ada01f50c355040",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/types.ts": {
+    "mtime": 1784655760.593619,
+    "ast_hash": "87d420c14cea993a0b1560bb38304319",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/windows-command-helpers.ts": {
+    "mtime": 1784655760.5938885,
+    "ast_hash": "90cb0908cd23cff43a76272e70751c57",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/src/zellij-modal.ts": {
+    "mtime": 1784655760.5940878,
+    "ast_hash": "3524451a6180eb0fbcc2fc2a75b47395",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/tsconfig.json": {
+    "mtime": 1784655760.594256,
+    "ast_hash": "6a608a151a1b3921105436b48a450f86",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/CHANGELOG.md": {
+    "mtime": 1784655760.582837,
+    "ast_hash": "046080b6e9568da25b2d3120cd357fa5",
+    "semantic_hash": ""
+  },
+  "references/pi-rtk-optimizer/README.md": {
+    "mtime": 1784655760.5833192,
+    "ast_hash": "033d81f47d40f8b13a8b3b8992e25a99",
     "semantic_hash": ""
   }
 }
