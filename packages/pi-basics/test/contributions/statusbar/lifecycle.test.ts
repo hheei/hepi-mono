@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { CURSOR_MARKER } from "@earendil-works/pi-tui";
 import { createStatusbarFeature } from "../../../src/contributions/statusbar/index.js";
 
 type EditorFactory = NonNullable<
@@ -167,6 +168,29 @@ describe("statusbar lifecycle", () => {
 		editor!.handleInput("x");
 		expect(editor!.getText()).toBe("previous-text");
 		expect(calls).toEqual(["previous:input:x"]);
+	});
+
+	test("renders the prompt cursor as a bar", () => {
+		const h = harness("a");
+		const previous = editorFactory("previous", []);
+		h.setEditor((...args) => {
+			const editor = previous(...args);
+			return {
+				...editor,
+				render: () => [
+					"previous-top",
+					`end${CURSOR_MARKER}\x1b[7m \x1b[0m`,
+					`middle${CURSOR_MARKER}\x1b[7m字\x1b[0mtext`,
+				],
+			};
+		});
+		const feature = createStatusbarFeature(h.pi);
+		feature.start(runtime(h.pi, h.ctx));
+		const editor = h.editorFactory?.({} as never, {} as never, {} as never);
+		expect(editor!.render(80).slice(1)).toEqual([
+			`end${CURSOR_MARKER}│`,
+			`middle${CURSOR_MARKER}│text`,
+		]);
 	});
 
 	test("stabilizes first-turn and post-compaction token transitions", () => {

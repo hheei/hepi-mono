@@ -102,7 +102,7 @@ function isPathUnderRoot(targetPath: string, rootPath: string): boolean {
 
 function isUnderAnyAncestorAgentsSkills(targetPath: string): boolean {
 	let currentDir = resolve(process.cwd());
-	while (true) {
+	for (;;) {
 		if (isPathUnderRoot(targetPath, join(currentDir, ".agents", "skills"))) {
 			return true;
 		}

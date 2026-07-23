@@ -111,7 +111,7 @@ async function collectQuestion(
 	const selected: number[] = [];
 	let custom: string | undefined;
 	const finish = "Finish selection";
-	while (true) {
+	for (;;) {
 		const choices = [...offered, finish];
 		const choice = await ui.select(
 			question.question,
@@ -164,7 +164,7 @@ export async function runAskFallback(
 	const questionnaire = normalizeAskParams(input);
 	if (!hasDialogUI(ui)) throw new Error("Ask dialog UI is unsupported");
 	let answers: AskAnswer[] = [];
-	while (true) {
+	for (;;) {
 		const early = checkAbort(signal, questionnaire);
 		if (early) return early;
 		answers = [];
