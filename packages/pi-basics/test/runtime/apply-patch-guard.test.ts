@@ -31,11 +31,23 @@ function harness(toolNames: readonly string[] = []) {
 		sendMessage: (content: unknown, options: unknown) => messages.push({ content, options }),
 	} as never);
 	const update = handlers.get("message_update");
-	if (update === undefined) throw new Error("Expected message_update handler");
+	const settle = handlers.get("agent_settled");
+	const shutdown = handlers.get("session_shutdown");
+	const beforeStart = handlers.get("before_agent_start");
+	if (
+		update === undefined ||
+		settle === undefined ||
+		shutdown === undefined ||
+		beforeStart === undefined
+	)
+		throw new Error("Expected apply_patch guard lifecycle handlers");
 	return {
 		guard,
 		messages,
 		update: (command: string) => update(streamEvent(command), { abort: () => aborts++ } as never),
+		settle: () => settle({} as never, {} as never),
+		shutdown: () => shutdown({} as never, {} as never),
+		startUserRun: () => beforeStart({} as never, {} as never),
 		aborts: () => aborts,
 	};
 }
@@ -71,23 +83,46 @@ describe("apply_patch guard", () => {
 		expect(disabled.aborts()).toBe(0);
 	});
 
-	test("aborts streamed bash generation and injects guidance once", () => {
+	test("aborts streamed bash generation and starts guidance after settlement", () => {
 		const h = harness();
 		h.update("mkdir -p docs/plans/advisor && apply_patch ");
 		h.update("mkdir -p docs/plans/advisor && apply_patch <<'PATCH'");
 
 		expect(h.aborts()).toBe(1);
+		expect(h.messages).toEqual([]);
+		h.settle();
+		h.settle();
 		expect(h.messages).toEqual([
 			{
 				content: {
 					customType: "apply-patch-guard",
 					content:
-						"`apply_patch` tool is unavailable. Use `edit` for precise changes or `write` for new files/complete rewrites.",
+						"The previous `bash` call was aborted before execution because `apply_patch` is unavailable in this Pi process. Do not retry `apply_patch`. Continue the same task now with `edit` for precise changes or `write` for new files/complete rewrites.",
 					display: true,
 				},
-				options: { deliverAs: "steer", triggerTurn: true },
+				options: { triggerTurn: true },
 			},
 		]);
+	});
+
+	test("guards once per user run and resets for the next request", () => {
+		const h = harness();
+		h.update("apply_patch ");
+		h.settle();
+		h.update("apply_patch ");
+		expect(h.aborts()).toBe(1);
+		h.startUserRun();
+		h.update("apply_patch ");
+		expect(h.aborts()).toBe(2);
+	});
+
+	test("drops pending guidance when the session shuts down", () => {
+		const h = harness();
+		h.update("apply_patch ");
+		h.shutdown();
+		h.settle();
+		expect(h.aborts()).toBe(1);
+		expect(h.messages).toEqual([]);
 	});
 
 	test("persists mode without discarding other Pi Basics settings", async () => {
