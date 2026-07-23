@@ -97,7 +97,7 @@ describe("apply_patch guard", () => {
 				content: {
 					customType: "apply-patch-guard",
 					content:
-						"The previous `bash` call was aborted before execution because `apply_patch` is unavailable in this Pi process. Do not retry `apply_patch`. Continue the same task now with `edit` for precise changes or `write` for new files/complete rewrites.",
+						"`apply_patch` is unavailable; the call was aborted. Continue with `edit` or `write`. Do not retry `apply_patch`.",
 					display: true,
 				},
 				options: { triggerTurn: true },
