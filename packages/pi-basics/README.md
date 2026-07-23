@@ -1,6 +1,10 @@
 # @hheei/pi-basics
 
-`pi-basics` provides session-scoped HEPI runtime coordination, Settings/Loadout UI, and integrated Todo, Ask, and SSHFS tools.
+`pi-basics` provides session-scoped HEPI runtime coordination, Settings/Loadout UI, and integrated Todo, Ask, SSHFS, and Advisor tools.
+
+## Advisor
+
+Use `/advisor on`, `/advisor off`, or `/advisor status` to control the session-scoped read-only reviewer. Advisor settings are available in `/hepi setting` under `pi-basics.advisor`; `model` uses `provider/model` and may be left empty to keep Advisor unconfigured. Advisor can submit structured advice and only uses `read`, `grep`, `find`, `ls`, and `advise`; it never receives `bash`, `edit`, or `write`.
 
 ## Load and use
 
@@ -9,6 +13,8 @@ Load package as a Pi extension. For local development, run `bun run pi:dev -- ba
 `Guard patch` in `/hepi setting` controls streamed `bash` interception with `auto`, `on`, and `off` modes. `auto` aborts generation when `apply_patch` appears in executable command position only when no configured `apply_patch` tool exists; `on` always guards and `off` disables the guard. An abort injects guidance to use Pi's `edit` or `write` tool instead. Commands that only mention `apply_patch` do not trigger it. The mode persists under `pi-basics.guardPatch` in `.pi/settings.json`.
 
 `/hepi setting` opens the Settings and Loadout tabs. Settings includes the built-in RTK provider alongside other Pi Basics settings. RTK rewrites bash commands through an installed external `rtk` executable and compacts `bash`, `read`, and `grep` results; it never installs the executable itself.
+
+The rewrite path preserves native `find` commands when they use predicates or actions unsupported by the installed RTK version, such as `-empty`, `-not`, `-exec`, or `-mtime`, preventing deterministic RTK failures and agent retry loops.
 
 The `OpenAI Responses compatibility` settings are disabled by default. `Strip assistant message status` removes `status` from replayed assistant `message` input items, while `Normalize assistant message IDs` rewrites their `item_` ID prefix to `msg_`. Enable them only for an OpenAI Responses gateway that rejects those fields. Reasoning and tool items are left unchanged. The settings persist under `pi-basics.openai-responses-compat` in `<cwd>/.pi/settings.json`; legacy configurations that enabled status stripping implicitly enable ID normalization until that setting is explicitly saved.
 

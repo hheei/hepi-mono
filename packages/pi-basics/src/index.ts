@@ -1,10 +1,16 @@
 import { join } from "node:path";
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { formatSkillsForPrompt } from "@earendil-works/pi-coding-agent";
 import type { HePiModule, HePiModuleRegistry } from "./api/modules.js";
 import { listHePiSettings } from "./api/settings.js";
 import { registerHePiCommand } from "./command/hepi-command.js";
 import { createStatusbarFeature } from "./contributions/statusbar/index.js";
+import { registerAdvisorCommand } from "./modules/advisor/command.js";
+import { createAdvisorFeature } from "./modules/advisor/feature.js";
+import { parseThinking } from "./modules/advisor/model.js";
+import { registerAdvisorRenderer } from "./modules/advisor/renderer.js";
+import { createAdvisorSettingsProvider } from "./modules/advisor/settings.js";
 import { createAskFeature } from "./modules/ask/index.js";
 import {
 	autoTitleModelOptions,
@@ -102,6 +108,9 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 	const todo = createTodoFeature(pi);
 	const sshfs = createSshfsFeature(pi);
 	const plan = createPlanFeature(pi);
+	const advisor = createAdvisorFeature();
+	registerAdvisorCommand(pi, advisor);
+	registerAdvisorRenderer(pi);
 	const dollarSkill = createDollarSkillFeature(pi, (command) => {
 		const source = command.sourceInfo?.source;
 		if (source === undefined) return true;
@@ -222,9 +231,31 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 					"error",
 				);
 			}
+			const advisorProvider = createAdvisorSettingsProvider({
+				path: join(runtime.ctx.cwd, ".pi", "settings.json"),
+				validatePersisted: async (model, thinking) => {
+					if (model === undefined) return;
+					const ref = parseModelRef(model);
+					if (ref === undefined) throw new Error("Advisor model must use provider/model format");
+					const selected = runtime.ctx.modelRegistry.find(ref.provider, ref.model);
+					if (selected === undefined) throw new Error("Advisor model is unavailable");
+					if (!runtime.ctx.modelRegistry.hasConfiguredAuth(selected))
+						throw new Error("Advisor model has no configured auth");
+					const level = parseThinking(thinking);
+					if (
+						selected.reasoning &&
+						level !== undefined &&
+						!getSupportedThinkingLevels(selected).includes(level)
+					)
+						throw new Error("Advisor thinking level is unsupported by this model");
+				},
+				onPersisted: (model, thinking) =>
+					advisor.configure(model, parseThinking(thinking) ?? "medium"),
+			});
 			const providers = () =>
 				combineSettingsProviders([
 					autoTitleProvider,
+					advisorProvider,
 					applyPatchGuardProvider,
 					createRtkSettingsProvider(rtk),
 					dollarSkillProvider,
@@ -236,6 +267,22 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 				sessionId: runtime.ctx.sessionManager.getSessionId(),
 				cwd: runtime.ctx.cwd,
 			};
+			let advisorModel: string | undefined;
+			let advisorThinking: ReturnType<typeof parseThinking> = "medium";
+			try {
+				const state = await advisorProvider.storage.load(settingsContext);
+				const values = state?.advisor;
+				advisorModel = typeof values?.model === "string" ? values.model : undefined;
+				advisorThinking =
+					typeof values?.thinking === "string"
+						? (parseThinking(values.thinking) ?? "medium")
+						: "medium";
+			} catch (error) {
+				runtime.ctx.ui.notify(
+					`Unable to load Advisor settings: ${error instanceof Error ? error.message : String(error)}`,
+					"warning",
+				);
+			}
 			try {
 				const state = await autoTitleProvider.storage.load(settingsContext);
 				await autoTitleProvider.onLoad?.(state ?? {}, settingsContext);
@@ -307,6 +354,15 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 				id: "ask",
 				cleanup: () => ask.dispose(askSessionId),
 			});
+			await advisor.start(runtime, {
+				...(advisorModel === undefined ? {} : { model: advisorModel }),
+				thinking: advisorThinking ?? "medium",
+			});
+			const advisorSessionId = runtime.ctx.sessionManager.getSessionId();
+			runtime.registry.registerLifecycle({
+				id: "advisor",
+				cleanup: () => advisor.dispose(advisorSessionId),
+			});
 			plan.start(runtime);
 			const planSessionId = runtime.ctx.sessionManager.getSessionId();
 			runtime.registry.registerLifecycle({
@@ -370,14 +426,15 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 			systemPrompt: event.systemPrompt.replace(block, replacement ? `\n${replacement}` : ""),
 		};
 	});
+	const currentRegistry = () => {
+		const runtime = lifecycle.current;
+		if (!runtime) throw new Error("HEPI module registration requires an active session");
+		return runtime.registry;
+	};
 	const commandRegistry: HePiModuleRegistry = {
-		register(module) {
-			const runtime = lifecycle.current;
-			if (!runtime) throw new Error("HEPI module registration requires an active session");
-			runtime.registry.registerModule(module);
-		},
-		list: () => lifecycle.current?.registry.listModules<HePiModule>() ?? [],
-		get: (id) => lifecycle.current?.registry.getModule<HePiModule>(id),
+		register: (module) => currentRegistry().registerModule(module),
+		list: () => currentRegistry().listModules<HePiModule>(),
+		get: (id) => currentRegistry().getModule<HePiModule>(id),
 	};
 	moduleRegistries.set(lifecycle, commandRegistry);
 	registerHePiCommand(pi, commandRegistry);
@@ -387,6 +444,7 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 	});
 }
 export * from "./api/index.js";
+export * from "./modules/advisor/index.js";
 export * from "./modules/dollar-skill/index.js";
 export * from "./modules/goal/index.js";
 export {

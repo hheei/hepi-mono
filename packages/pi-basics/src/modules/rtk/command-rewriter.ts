@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { shouldSkipUnsupportedFindRewrite } from "./find-rewrite-compat.js";
 import { type RtkRewriteProviderOptions, resolveRtkRewrite } from "./rtk-rewrite-provider.js";
 import { splitLeadingEnvAssignments } from "./shell-env-prefix.js";
 import type { RtkIntegrationConfig } from "./types.js";
@@ -7,20 +8,8 @@ export interface RewriteDecision {
 	changed: boolean;
 	originalCommand: string;
 	rewrittenCommand: string;
-	reason: "ok" | "empty" | "already_rtk" | "no_match";
+	reason: "ok" | "empty" | "already_rtk" | "no_match" | "unsupported_shape";
 	warning?: string | undefined;
-}
-
-const FIND_COMMAND_PATTERN = /^(?:(?:command|env)\s+)?(?:\/[^\s]+\/)?find(?:\s|$)/u;
-const UNSUPPORTED_RTK_FIND_TOKEN_PATTERN =
-	/(?:^|\s)(?:\\[()]|["'][()]["']|[(),]|!|-a(?:nd)?|-o(?:r)?|-not|-(?:delete|exec(?:dir)?|fls|f?print(?:0|f)?|fprintf|ls|ok(?:dir)?|prune|quit))(?=\s|[;&|]|$)/u;
-
-function shouldBypassRtkFindRewrite(command: string): boolean {
-	const effectiveCommand = splitLeadingEnvAssignments(command.trimStart()).command.trimStart();
-	return (
-		FIND_COMMAND_PATTERN.test(effectiveCommand) &&
-		UNSUPPORTED_RTK_FIND_TOKEN_PATTERN.test(effectiveCommand)
-	);
 }
 
 export async function computeRewriteDecision(
@@ -29,7 +18,7 @@ export async function computeRewriteDecision(
 	pi: ExtensionAPI,
 	rewriteOptions: RtkRewriteProviderOptions = {},
 ): Promise<RewriteDecision> {
-	if (!command?.trim()) {
+	if (!command.trim()) {
 		return { changed: false, originalCommand: command, rewrittenCommand: command, reason: "empty" };
 	}
 
@@ -44,18 +33,17 @@ export async function computeRewriteDecision(
 		};
 	}
 
-	if (shouldBypassRtkFindRewrite(command)) {
-		return {
-			changed: false,
-			originalCommand: command,
-			rewrittenCommand: command,
-			reason: "no_match",
-		};
-	}
-
 	const result = await resolveRtkRewrite(pi, command, rewriteOptions);
 
 	if (result.changed && result.rewrittenCommand) {
+		if (shouldSkipUnsupportedFindRewrite(command, result.rewrittenCommand)) {
+			return {
+				changed: false,
+				originalCommand: command,
+				rewrittenCommand: command,
+				reason: "unsupported_shape",
+			};
+		}
 		return {
 			changed: true,
 			originalCommand: command,
