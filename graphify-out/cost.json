@@ -21,8 +21,21 @@
       "input_tokens": 107600,
       "output_tokens": 0,
       "files": 263
+    },
+    {
+      "date": "2026-07-23T18:03:29.669282+00:00",
+      "input_tokens": 309400,
+      "output_tokens": 0,
+      "files": 597
+    },
+    {
+      "date": "2026-07-23T18:14:28.744965+00:00",
+      "input_tokens": 208000,
+      "output_tokens": 0,
+      "files": 74,
+      "mode": "deep"
     }
   ],
-  "total_input_tokens": 107600,
+  "total_input_tokens": 625000,
   "total_output_tokens": 0
 }

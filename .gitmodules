@@ -7,3 +7,6 @@
 [submodule "references/rpiv-mono"]
 	path = references/rpiv-mono
 	url = https://github.com/juicesharp/rpiv-mono.git
+[submodule "pi-agent"]
+	path = pi-agent
+	url = https://github.com/earendil-works/pi.git
