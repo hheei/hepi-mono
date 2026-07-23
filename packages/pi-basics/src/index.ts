@@ -1,7 +1,6 @@
 import { join } from "node:path";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { formatSkillsForPrompt } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, formatSkillsForPrompt } from "@earendil-works/pi-coding-agent";
 import type { HePiModule, HePiModuleRegistry } from "./api/modules.js";
 import { listHePiSettings } from "./api/settings.js";
 import { registerHePiCommand } from "./command/hepi-command.js";
@@ -18,6 +17,7 @@ import {
 	createAutoTitleSettingsProvider,
 	parseModelRef,
 } from "./modules/auto-title/index.js";
+import { createBtwFeature } from "./modules/btw/feature.js";
 import {
 	createDollarSkillFeature,
 	createDollarSkillSettingsProvider,
@@ -105,6 +105,7 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 	const statusbar = createStatusbarFeature(pi);
 	const goal = createGoalFeature(pi, coordinator);
 	const ask = createAskFeature(pi, coordinator);
+	const btw = createBtwFeature(pi);
 	const todo = createTodoFeature(pi);
 	const sshfs = createSshfsFeature(pi);
 	const plan = createPlanFeature(pi);
@@ -354,6 +355,12 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 				id: "ask",
 				cleanup: () => ask.dispose(askSessionId),
 			});
+			btw.start(runtime);
+			const btwSessionId = runtime.ctx.sessionManager.getSessionId();
+			runtime.registry.registerLifecycle({
+				id: "btw",
+				cleanup: () => btw.dispose(btwSessionId),
+			});
 			await advisor.start(runtime, {
 				...(advisorModel === undefined ? {} : { model: advisorModel }),
 				thinking: advisorThinking ?? "medium",
@@ -445,6 +452,7 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 }
 export * from "./api/index.js";
 export * from "./modules/advisor/index.js";
+export * from "./modules/btw/index.js";
 export * from "./modules/dollar-skill/index.js";
 export * from "./modules/goal/index.js";
 export {
