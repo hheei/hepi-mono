@@ -19,8 +19,26 @@ export const AUTO_TITLE_GROUP = "auto-title";
 export const AUTO_TITLE_FIELD = "autoTitle";
 export const AUTO_TITLE_MODEL_FIELD = "autoTitleModel";
 const SECTION = "pi-basics";
-const MAX_PROMPT = 2000;
+const MAX_PROMPT = 6000;
+const MAX_MESSAGE_TEXT = 500;
+const MIN_SESSION_CONTEXT_CHARACTERS = 500;
 const TIMEOUT_MS = 60_000;
+export const AUTO_TITLE_SYSTEM_PROMPT = `Create a succinct title for a coding session from the provided description.
+
+Requirements:
+- Clearly and accurately reflect the primary coding task.
+- Keep it short and simple: no more than 6 words.
+- Write the title in English only, even when the description uses another language.
+- Prefer plain language. Avoid jargon or overly technical terms unless needed for accuracy.
+- Use sentence case: capitalize only the first word and proper nouns, not every word.
+- Preserve exact proper nouns, package names, and code identifiers when they are essential.
+
+Return only the title as plain text. Do not use quotes, markdown, JSON, or explanation.
+
+Examples:
+Fix mobile login button
+Update README installation instructions
+Improve data processing performance`;
 
 type JsonObject = Record<string, unknown>;
 export interface AutoTitleStorageOptions {
@@ -281,28 +299,48 @@ function safeTitle(value: string): string | undefined {
 		.trim();
 	return title || undefined;
 }
-function latestUserText(ctx: ExtensionContext): string | undefined {
-	const entries = ctx.sessionManager.getEntries();
-	for (let i = entries.length - 1; i >= 0; i--) {
-		const entry = entries[i];
-		if (entry?.type !== "message") continue;
-		const message = entry.message;
-		if (message.role !== "user") continue;
-		const content = Array.isArray(message.content)
-			? message.content
-					.map((part) =>
-						typeof part === "object" &&
-						part !== null &&
-						"text" in part &&
-						typeof part.text === "string"
-							? part.text
-							: "",
-					)
-					.join(" ")
-			: String(message.content ?? "");
-		return content.slice(-MAX_PROMPT);
+function messageText(content: unknown): string {
+	const text = Array.isArray(content)
+		? content
+				.map((part) =>
+					typeof part === "object" &&
+					part !== null &&
+					"type" in part &&
+					part.type === "text" &&
+					"text" in part &&
+					typeof part.text === "string"
+						? part.text
+						: "",
+				)
+				.join(" ")
+		: typeof content === "string"
+			? content
+			: "";
+	return text.replace(/\s+/g, " ").trim();
+}
+
+function autoTitleDescription(ctx: ExtensionContext): string | undefined {
+	const transcript: string[] = [];
+	let contextCharacters = 0;
+	let userTurns = 0;
+	for (const entry of ctx.sessionManager.getEntries()) {
+		if (entry.type !== "message") continue;
+		const role = entry.message.role;
+		if (role !== "user" && role !== "assistant") continue;
+		const text = messageText(entry.message.content);
+		if (text === "") continue;
+		contextCharacters += Array.from(text).length;
+		if (role === "user") userTurns++;
+		transcript.push(
+			`${role === "user" ? "User" : "Assistant"}: ${text.slice(0, MAX_MESSAGE_TEXT)}`,
+		);
 	}
-	return undefined;
+	if (
+		(contextCharacters <= MIN_SESSION_CONTEXT_CHARACTERS && userTurns < 3) ||
+		transcript.length === 0
+	)
+		return undefined;
+	return `Session transcript:\n\n${transcript.join("\n\n").slice(-MAX_PROMPT)}`;
 }
 
 export interface AutoTitleAgentAdapter {
@@ -328,8 +366,7 @@ export function createCoreAutoTitleAgent(
 	const agent = new Agent({
 		sessionId: `pi-basics-auto-title:${runtime.ctx.sessionManager.getSessionId()}`,
 		initialState: {
-			systemPrompt:
-				"Return only one short, descriptive title for this session. No more than 5 words. No quotes, markdown, or explanation.",
+			systemPrompt: AUTO_TITLE_SYSTEM_PROMPT,
 			model,
 			thinkingLevel: "off",
 			tools: [],
@@ -410,7 +447,7 @@ export function createAutoTitleCoordinator(
 			!ctx.isIdle()
 		)
 			return;
-		const prompt = latestUserText(ctx);
+		const prompt = autoTitleDescription(ctx);
 		if (!prompt) return;
 		const sessionId = ctx.sessionManager.getSessionId();
 		const sessionRevision = revision;
