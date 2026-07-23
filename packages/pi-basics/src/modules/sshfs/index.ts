@@ -104,7 +104,7 @@ export function createSshfsFeature(
 		const deadline = Date.now() + HEALTH_TIMEOUT_MS;
 		let lastProbe: MountProbe = { state: "unmounted" };
 		let lastError: unknown;
-		do {
+		for (;;) {
 			try {
 				lastProbe = await probeMount(localPath, source, signal);
 				lastError = undefined;
@@ -115,7 +115,7 @@ export function createSshfsFeature(
 			}
 			if (Date.now() >= deadline) break;
 			await delay(HEALTH_RETRY_MS, undefined, signal ? { signal } : undefined);
-		} while (true);
+		}
 		if (lastError !== undefined) throw lastError;
 		return lastProbe;
 	};
