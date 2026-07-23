@@ -4,5 +4,5 @@
 # License texts are legal metadata, not project concepts.
 **/LICENSE
 
-# Separate repository; its graph is maintained at references/rpiv-mono/graphify-out/.
-references/rpiv-mono/
+# Research clones are outside the product architecture corpus.
+references/
