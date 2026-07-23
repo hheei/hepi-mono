@@ -2,6 +2,7 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 	isToolCallEventType,
+	type ToolResultEvent,
 } from "@earendil-works/pi-coding-agent";
 import { computeRewriteDecision } from "./command-rewriter.js";
 import { loadRtkConfig } from "./config.js";
@@ -112,9 +113,12 @@ export function createRtkFeature(): RtkFeature {
 								| "which",
 						}
 					: undefined;
-				const decision = await computeRewriteDecision(event.input.command, config, runtime.pi, {
-					executableResolution: resolution,
-				});
+				const decision = await computeRewriteDecision(
+					event.input.command,
+					config,
+					runtime.pi,
+					resolution ? { executableResolution: resolution } : {},
+				);
 				if (!decision.changed) {
 					if (decision.warning && ctx.hasUI)
 						ctx.ui.notify(`RTK rewrite skipped: ${decision.warning}`, "warning");
@@ -127,7 +131,11 @@ export function createRtkFeature(): RtkFeature {
 				} else if (ctx.hasUI) ctx.ui.notify(`RTK suggestion: ${decision.rewrittenCommand}`, "info");
 				return {};
 			});
-			(runtime.pi as any).on("tool_result", async (event: any, ctx: any) => {
+			const onUnsupportedToolResult = runtime.pi.on as unknown as (
+				event: "tool_result",
+				handler: (event: ToolResultEvent, ctx: ExtensionContext) => Promise<unknown>,
+			) => unknown;
+			onUnsupportedToolResult("tool_result", async (event, ctx) => {
 				if (!isCurrentSession(ctx) || !config.enabled || !config.outputCompaction.enabled)
 					return {};
 				try {
@@ -149,32 +157,49 @@ export function createRtkFeature(): RtkFeature {
 					return {};
 				}
 			});
-			(runtime.pi as any).on("tool_execution_start", async (event: any) => {
-				if (handlerSessionId !== sessionId) return;
-				if (
-					config.outputCompaction.enabled &&
-					event.toolName === "bash" &&
-					typeof event.toolCallId === "string"
-				)
-					active.set(event.toolCallId, String(toRecord(event.args).command ?? ""));
-			});
-			(runtime.pi as any).on("tool_execution_update", async (event: any) => {
-				if (handlerSessionId !== sessionId || event.toolName !== "bash") return;
-				const result = sanitizeStreamingBashExecutionResult(
-					event.partialResult,
-					active.get(event.toolCallId),
-				);
-				if (result.changed) event.partialResult = result.result;
-			});
-			(runtime.pi as any).on("tool_execution_end", async (event: any) => {
-				if (handlerSessionId !== sessionId || event.toolName !== "bash") return;
-				const result = sanitizeStreamingBashExecutionResult(
-					event.result,
-					active.get(event.toolCallId),
-				);
-				if (result.changed) event.result = result.result;
-				active.delete(event.toolCallId);
-			});
+			runtime.pi.on(
+				"tool_execution_start",
+				async (event: { toolName: string; toolCallId?: string; args?: unknown }) => {
+					if (handlerSessionId !== sessionId) return;
+					if (
+						config.outputCompaction.enabled &&
+						event.toolName === "bash" &&
+						typeof event.toolCallId === "string"
+					)
+						active.set(event.toolCallId, String(toRecord(event.args).command ?? ""));
+				},
+			);
+			runtime.pi.on(
+				"tool_execution_update",
+				async (event: {
+					toolName: string;
+					toolCallId: string;
+					partialResult: Parameters<typeof sanitizeStreamingBashExecutionResult>[0];
+				}) => {
+					if (handlerSessionId !== sessionId || event.toolName !== "bash") return;
+					const result = sanitizeStreamingBashExecutionResult(
+						event.partialResult,
+						active.get(event.toolCallId),
+					);
+					if (result.changed) event.partialResult = result.result;
+				},
+			);
+			runtime.pi.on(
+				"tool_execution_end",
+				async (event: {
+					toolName: string;
+					toolCallId: string;
+					result: Parameters<typeof sanitizeStreamingBashExecutionResult>[0];
+				}) => {
+					if (handlerSessionId !== sessionId || event.toolName !== "bash") return;
+					const result = sanitizeStreamingBashExecutionResult(
+						event.result,
+						active.get(event.toolCallId),
+					);
+					if (result.changed) event.result = result.result;
+					active.delete(event.toolCallId);
+				},
+			);
 		},
 		dispose(id) {
 			if (sessionId === id) {

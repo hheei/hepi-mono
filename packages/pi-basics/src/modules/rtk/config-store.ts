@@ -44,7 +44,7 @@ function toSourceFilterLevel(value: unknown, fallback: RtkSourceFilterLevel): Rt
 		: fallback;
 }
 
-function hasOwnProperty(source: Record<string, unknown>, key: string): boolean {
+function hasOwnKey(source: Record<string, unknown>, key: string): boolean {
 	return Object.hasOwn(source, key);
 }
 
@@ -54,7 +54,7 @@ export function normalizeRtkIntegrationConfig(raw: unknown): RtkIntegrationConfi
 	const readCompactionSource = toRecord(outputCompactionSource.readCompaction);
 	const truncateSource = toRecord(outputCompactionSource.truncate);
 	const smartTruncateSource = toRecord(outputCompactionSource.smartTruncate);
-	const hasReadCompaction = hasOwnProperty(outputCompactionSource, "readCompaction");
+	const hasReadCompaction = hasOwnKey(outputCompactionSource, "readCompaction");
 	const legacyReadCompactionFallback = !hasReadCompaction;
 	const sourceFilteringFallback = legacyReadCompactionFallback
 		? true

@@ -4,7 +4,7 @@ export type RtkExecutableResolverName = "where" | "which";
 
 export interface RtkExecutableResolution {
 	command: string;
-	resolvedPath?: string;
+	resolvedPath?: string | undefined;
 	resolver: RtkExecutableResolverName;
 	warning?: string;
 }

@@ -351,7 +351,9 @@ function remapTransformedContentToAnchorSafeLines(
 			continue;
 		}
 
-		remappedLines.push(sourceLines[matchedIndex]!);
+		const sourceLine = sourceLines[matchedIndex];
+		if (!sourceLine) continue;
+		remappedLines.push(sourceLine);
 		searchStartIndex = matchedIndex + 1;
 	}
 
@@ -372,7 +374,8 @@ function truncateAnchorSafeReadLines(
 	let charCount = 0;
 
 	for (let index = 0; index < lines.length; index += 1) {
-		const line = lines[index]!;
+		const line = lines[index];
+		if (!line) continue;
 		const separatorLength = truncatedLines.length > 0 ? 1 : 0;
 		const nextCharCount = charCount + separatorLength + line.text.length;
 		const remainingAfter = lines.length - index - 1;
