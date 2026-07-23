@@ -153,7 +153,7 @@ export class LoadoutController {
 			0,
 			items.findIndex((item) => item.key === this.selectedKey),
 		);
-		this.selectedKey = items[(index + delta + items.length) % items.length]?.key;
+		this.selectedKey = items[Math.min(items.length - 1, Math.max(0, index + delta))]?.key;
 	}
 	select(key: LoadoutKey | undefined): void {
 		this.ensureOpen();

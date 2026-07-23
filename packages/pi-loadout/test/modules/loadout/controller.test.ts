@@ -29,6 +29,20 @@ describe("loadout controller", () => {
 		expect(controller.state.selectedKey).toBe("tool:a");
 		expect(controller.state.resolved.map((item) => item.key)).toEqual(["tool:a", "tool:z"]);
 	});
+	test("keeps selection at the list boundaries", async () => {
+		const controller = createLoadoutController({
+			storage: storage(),
+			inventory: inventory(tool("tool:alpha"), tool("tool:beta")),
+		});
+		await controller.load();
+		controller.moveSelection(-1);
+		expect(controller.state.selectedKey).toBe("tool:alpha");
+		controller.moveSelection(1);
+		controller.moveSelection(1);
+		expect(controller.state.selectedKey).toBe("tool:beta");
+		await controller.close();
+	});
+
 	test("restores legacy selection when source identity changes after reopen", async () => {
 		const stored = { global: { "tool:/old/path:read": false }, project: {} };
 		const first = createLoadoutController({
