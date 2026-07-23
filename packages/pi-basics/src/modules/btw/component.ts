@@ -1,0 +1,167 @@
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { type Component, Key, matchesKey } from "@earendil-works/pi-tui";
+import { formatKeymap, keyGlyph } from "../../ui/keymap.js";
+import { renderScrollbar } from "../../ui/scrollbar.js";
+import { padToWidth, truncateToWidth, wrap } from "../../ui/text.js";
+import { type BtwTurn, extractAssistantText } from "./model.js";
+
+export type BtwComponentStatus =
+	| { readonly kind: "pending" }
+	| { readonly kind: "answer"; readonly text: string }
+	| { readonly kind: "error"; readonly message: string };
+
+export interface BtwComponentOptions {
+	readonly question: string;
+	readonly history: readonly BtwTurn[];
+	readonly theme: Theme;
+	readonly host: { requestRender(): void; getTerminalRows(): number };
+	readonly done: () => void;
+	readonly onClearHistory: () => void;
+}
+
+export interface BtwComponentController extends Component {
+	setAnswer(text: string): void;
+	setError(message: string): void;
+	close(): void;
+	dispose(): void;
+}
+
+export function createBtwComponent(options: BtwComponentOptions): BtwComponentController {
+	let status: BtwComponentStatus = { kind: "pending" };
+	let history = [...options.history];
+	let scrollTop: number | undefined;
+	let closed = false;
+	let lastMaxScroll = 0;
+	let lastCapacity = 1;
+
+	function requestRender(): void {
+		options.host.requestRender();
+	}
+
+	function close(): void {
+		if (closed) return;
+		closed = true;
+		options.done();
+	}
+
+	function statusLines(width: number): string[] {
+		switch (status.kind) {
+			case "pending":
+				return [options.theme.fg("muted", "Waiting for the model...")];
+			case "answer":
+				return wrap(status.text, width);
+			case "error":
+				return wrap(options.theme.fg("error", `Error: ${status.message}`), width);
+			default:
+				return status satisfies never;
+		}
+	}
+
+	function contentRows(width: number): string[] {
+		const rows: string[] = [];
+		for (const turn of history) {
+			rows.push(options.theme.fg("accent", "Previous question"));
+			rows.push(
+				...wrap(
+					typeof turn.user.content === "string"
+						? turn.user.content
+						: turn.user.content
+								.map((part) => (part.type === "text" ? part.text : "[image omitted]"))
+								.join("\n"),
+					width,
+				),
+			);
+			rows.push(...wrap(extractAssistantText(turn.assistant), width), "");
+		}
+		rows.push(options.theme.fg("accent", "Question"));
+		rows.push(...wrap(options.question, width), "");
+		rows.push(options.theme.fg("accent", status.kind === "answer" ? "Answer" : "Status"));
+		rows.push(...statusLines(width));
+		return rows;
+	}
+
+	function render(width: number): string[] {
+		const safeWidth = Math.max(8, Math.floor(width));
+		const bodyWidth = Math.max(1, safeWidth - 2);
+		const allRows = contentRows(Math.max(1, bodyWidth - 2));
+		const terminalRows = Math.max(8, options.host.getTerminalRows());
+		const capacity = Math.max(3, Math.floor(terminalRows * 0.8) - 3);
+		const maxScroll = Math.max(0, allRows.length - capacity);
+		const top = Math.min(scrollTop ?? maxScroll, maxScroll);
+		lastCapacity = capacity;
+		lastMaxScroll = maxScroll;
+		const visible = allRows.slice(top, top + capacity);
+		const scrollbar = renderScrollbar(allRows.length, capacity, top, visible.length, options.theme);
+		const title = options.theme.fg("accent", "BTW");
+		const header = padToWidth(` ${title}`, safeWidth);
+		const body = visible.map((row, index) => {
+			const bar = scrollbar[index] ?? "";
+			const content = truncateToWidth(row, bodyWidth - 2);
+			return padToWidth(` ${content}${bar}`, safeWidth);
+		});
+		const keymap = formatKeymap(
+			[
+				{ key: keyGlyph.vertical, label: "scroll", priority: 1 },
+				{ key: "x", label: "clear history", priority: 0 },
+				{ key: keyGlyph.cancel, label: "close", priority: 2 },
+			],
+			{ width: safeWidth - 2 },
+		);
+		return [header, ...body, padToWidth(` ${options.theme.fg("muted", keymap)}`, safeWidth)];
+	}
+
+	function moveScroll(delta: number): void {
+		const current = scrollTop ?? lastMaxScroll;
+		scrollTop = Math.max(0, Math.min(lastMaxScroll, current + delta));
+		requestRender();
+	}
+
+	function handleInput(data: string): void {
+		if (matchesKey(data, Key.escape)) {
+			close();
+			return;
+		}
+		if (matchesKey(data, Key.up)) {
+			moveScroll(-1);
+			return;
+		}
+		if (matchesKey(data, Key.down)) {
+			moveScroll(1);
+			return;
+		}
+		if (matchesKey(data, Key.pageUp)) {
+			moveScroll(-lastCapacity);
+			return;
+		}
+		if (matchesKey(data, Key.pageDown)) {
+			moveScroll(lastCapacity);
+			return;
+		}
+		if (data === "x") {
+			history = [];
+			options.onClearHistory();
+			scrollTop = undefined;
+			requestRender();
+		}
+	}
+
+	return {
+		render,
+		handleInput,
+		invalidate: requestRender,
+		setAnswer(text: string): void {
+			if (closed) return;
+			status = { kind: "answer", text };
+			scrollTop = undefined;
+			requestRender();
+		},
+		setError(message: string): void {
+			if (closed) return;
+			status = { kind: "error", message };
+			scrollTop = undefined;
+			requestRender();
+		},
+		close,
+		dispose: close,
+	};
+}

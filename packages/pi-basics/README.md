@@ -35,6 +35,10 @@ Objectives are limited to 2,000 characters and summaries to 4,000 characters. Ma
 
 The `ask` tool opens a focused questionnaire in TUI sessions, or uses dialog UI when available. It collects answers and submits only from the final Review screen; non-interactive sessions fail closed.
 
+## BTW
+
+`/btw <question>` 仅在 TUI 中可用，并使用当前 active model 发起无工具侧问。侧问请求的 tools 为空，因此不能执行工具或修改文件。成功的侧问历史只保存在当前 session 的内存中，不写入主 transcript 或磁盘。按 `Esc` 取消并关闭，使用上下键滚动，按 `x` 清除历史；一次只处理一个请求。
+
 ## SSHFS
 
 The `sshfs` tool accepts one OpenSSH host alias or destination, mounts that host's remote root (`<host>:/`) under `~/.cache/sshfs-addon/`, and returns the absolute local `Home path`. The agent can pass paths below it directly to `grep`, `edit`, `write`, `read`, `find`, and `ls` to inspect or change remote files.

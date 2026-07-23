@@ -11,6 +11,7 @@ This directory intentionally does not vendor external repositories. Clone public
 | Loadout and MCP inventory | [nicobailon/pi-mcp-adapter](https://github.com/nicobailon/pi-mcp-adapter) | MCP discovery, metadata, placeholder identity, and runtime boundaries |
 | Auto Title and Advisor agents | [pasky/pi-omplike-advisor](https://github.com/pasky/pi-omplike-advisor), [gabelul/bpx-mono](https://github.com/gabelul/bpx-mono) | Isolated `pi-agent-core` agents, model/auth resolution, abort, and result delivery |
 | RTK | [MasuRii/pi-rtk-optimizer](https://github.com/MasuRii/pi-rtk-optimizer) | Command rewriting, output compaction, resolver behavior, and migration compatibility |
+| BTW | [dbachelder/pi-btw](https://github.com/dbachelder/pi-btw), [narumiruna/pi-extensions](https://github.com/narumiruna/pi-extensions), [juicesharp/rpiv-mono](https://github.com/juicesharp/rpiv-mono), [Firstp1ck/npm-packages](https://github.com/Firstp1ck/npm-packages) | Side-thread execution, context projection, cancellation, transient overlays, streaming, and transfer boundaries. See [BTW research](../docs/pi-basics-btw-research.md). |
 | SSHFS | [libfuse/sshfs](https://github.com/libfuse/sshfs) | SSHFS invocation, mount semantics, reconnect options, and platform behavior |
 
 External code remains under its original license. A reference is not automatically a dependency or a behavior contract.
