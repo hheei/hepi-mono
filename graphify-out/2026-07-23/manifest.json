@@ -1265,8 +1265,8 @@
     "semantic_hash": ""
   },
   "packages/pi-basics/src/modules/sshfs/index.ts": {
-    "mtime": 1784773931.6984794,
-    "ast_hash": "a8b084cb4316163a08ad43ebb61fea1b",
+    "mtime": 1784736573.4974651,
+    "ast_hash": "e89f826f1110e39566a1077a95248537",
     "semantic_hash": ""
   },
   "packages/pi-basics/src/runtime/apply-patch-guard.ts": {
