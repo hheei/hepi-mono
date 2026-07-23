@@ -7,8 +7,8 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const aliases = new Map([
-	["basics", "packages/pi-basics/src/index.ts"],
-	["pi-basics", "packages/pi-basics/src/index.ts"],
+	["basics", "packages/pi-basics/src/extension.ts"],
+	["pi-basics", "packages/pi-basics/src/extension.ts"],
 ]);
 
 function usage() {
@@ -16,7 +16,7 @@ function usage() {
   bun run pi:dev                         # load pi-basics
   bun run pi:dev -- basics                # load pi-basics
   bun run pi:dev -- inturl                # load a specific extension
-  bun run pi:dev -- --all                 # load every active packages/pi-*/src entry
+  bun run pi:dev -- --all                 # load every packages/pi-* pi.extensions entry
   bun run pi:dev -- path/to/index.ts      # load explicit extension path
 
 Pass extra Pi flags after --, for example:
@@ -49,15 +49,20 @@ function resolveExtension(input) {
 }
 
 function allExtensionEntries() {
-	const packageGlob = new Bun.Glob("packages/pi-*/package.json");
-	const entries = [];
-	for (const packageJson of packageGlob.scanSync({ cwd: root })) {
-		const packageDir = path.dirname(packageJson);
-		const extension = path.join(packageDir, "src/extension.ts");
-		const index = path.join(packageDir, "src/index.ts");
-		entries.push(existsSync(path.join(root, extension)) ? extension : index);
-	}
-	return entries.sort((a, b) => a.localeCompare(b));
+	const glob = new Bun.Glob("packages/pi-*/package.json");
+	return [...glob.scanSync({ cwd: root })]
+		.flatMap((manifestPath) => {
+			try {
+				const manifest = JSON.parse(readFileSync(path.join(root, manifestPath), "utf8"));
+				if (!Array.isArray(manifest.pi?.extensions)) return [];
+				return manifest.pi.extensions
+					.filter((entry) => typeof entry === "string")
+					.map((entry) => path.join(path.dirname(manifestPath), entry));
+			} catch {
+				return [];
+			}
+		})
+		.sort((a, b) => a.localeCompare(b));
 }
 
 function projectSubagentsExtension() {

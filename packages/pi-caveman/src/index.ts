@@ -1,6 +1,10 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { type CavemanDefaults, DEFAULT_CAVEMAN_DEFAULTS, loadCavemanDefaults } from "./config.js";
-import { registerCavemanHePiSettings } from "./hepi-settings.js";
+import {
+	type CavemanDefaults,
+	createCavemanSettingsProvider,
+	DEFAULT_CAVEMAN_DEFAULTS,
+	loadCavemanDefaults,
+} from "./config.js";
 import {
 	CAVEMAN_STATE_ENTRY,
 	type CavemanMode,
@@ -41,7 +45,7 @@ const COMMAND_DESCRIPTIONS: Record<(typeof COMMAND_VALUES)[number], string> = {
 };
 
 export default async function piCavemanExtension(pi: ExtensionAPI): Promise<void> {
-	await registerCavemanHePiSettings();
+	pi.events.emit("hepi:settings:register", createCavemanSettingsProvider());
 	let defaults: CavemanDefaults = DEFAULT_CAVEMAN_DEFAULTS;
 	let mode: CavemanMode = DEFAULT_CAVEMAN_MODE;
 	let subagentSession = false;

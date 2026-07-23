@@ -97,6 +97,7 @@ function createHarness(options: HarnessOptions = {}): Harness {
 					break;
 			}
 		},
+		events: { emit() {}, on: () => () => {} },
 		appendEntry(customType: string, data: unknown) {
 			harness.appended.push({ customType, data });
 		},

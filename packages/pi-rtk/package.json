@@ -11,7 +11,7 @@
 	],
 	"pi": {
 		"extensions": [
-			"src/index.ts"
+			"src/extension.ts"
 		]
 	},
 	"keywords": [
