@@ -1,10 +1,10 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
+	createPonytailSettingsProvider,
 	DEFAULT_PONYTAIL_DEFAULTS,
 	loadPonytailDefaults,
 	type PonytailDefaults,
 } from "./config.js";
-import { registerPonytailHePiSettings } from "./hepi-settings.js";
 import {
 	DEFAULT_PONYTAIL_MODE,
 	detectPonytailDeactivation,
@@ -31,7 +31,7 @@ const COMMAND_DESCRIPTIONS: Record<(typeof COMMAND_VALUES)[number], string> = {
 };
 
 export default async function piPonytailExtension(pi: ExtensionAPI): Promise<void> {
-	await registerPonytailHePiSettings();
+	pi.events.emit("hepi:settings:register", createPonytailSettingsProvider());
 	let defaults: PonytailDefaults = DEFAULT_PONYTAIL_DEFAULTS;
 	let mode: PonytailMode = DEFAULT_PONYTAIL_MODE;
 	let subagentSession = false;

@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
-import type {
-	ExtensionAPI,
-	ExtensionCommandContext,
-	ExtensionContext,
+import {
+	createEventBus,
+	type ExtensionAPI,
+	type ExtensionCommandContext,
+	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 
 type EditorFactory = NonNullable<
@@ -11,8 +12,13 @@ type EditorFactory = NonNullable<
 type Editor = ReturnType<EditorFactory>;
 type FooterFactory = NonNullable<Parameters<NonNullable<ExtensionContext["ui"]["setFooter"]>>[0]>;
 
+import piCavemanExtension, { CAVEMAN_SETTINGS_PROVIDER_ID } from "../../../pi-caveman/src/index.js";
+import piPonytailExtension, {
+	PONYTAIL_SETTINGS_PROVIDER_ID,
+} from "../../../pi-ponytail/src/index.js";
 import piBasicsExtension, {
 	getHePiModule,
+	getHePiSettings,
 	type HePiModule,
 	type HePiSettingField,
 	type HePiSettingsProvider,
@@ -68,6 +74,7 @@ function harness(mode: "tui" | "json" = "tui") {
 	let editorFactory: EditorFactory | undefined;
 	let autocompleteProviders = 0;
 	const pi = {
+		events: createEventBus(),
 		registerTool(tool: { name: string }) {
 			tools.push(tool.name);
 		},
@@ -210,6 +217,29 @@ test("registers commands and lifecycle handlers", () => {
 	expect(host.messageRenderers).toEqual([]);
 	expect(host.events.get("session_start")).toHaveLength(1);
 	expect(host.events.get("session_shutdown")).toHaveLength(1);
+});
+
+test("registers settings providers through the extension event bus", async () => {
+	const host = harness();
+	piBasicsExtension(host.pi);
+	const eventProvider = provider("integration-event", () => undefined);
+	host.pi.events.emit("hepi:settings:register", eventProvider);
+	expect(getHePiSettings(eventProvider.id)).toBe(eventProvider);
+	host.pi.events.emit("hepi:settings:register", {});
+	await host.emit("session_start");
+	await host.emit("session_shutdown");
+	const lateProvider = provider("integration-event-late", () => undefined);
+	host.pi.events.emit("hepi:settings:register", lateProvider);
+	expect(getHePiSettings(lateProvider.id)).toBeUndefined();
+});
+
+test("accepts settings providers from mode extensions", async () => {
+	const host = harness();
+	piBasicsExtension(host.pi);
+	await piCavemanExtension(host.pi);
+	await piPonytailExtension(host.pi);
+	expect(getHePiSettings(CAVEMAN_SETTINGS_PROVIDER_ID)?.origin).toBe("@hheei/pi-caveman");
+	expect(getHePiSettings(PONYTAIL_SETTINGS_PROVIDER_ID)?.origin).toBe("@hheei/pi-ponytail");
 });
 
 test("installs and restores footer and editor seams for TUI session", async () => {
