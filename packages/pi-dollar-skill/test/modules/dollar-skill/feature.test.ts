@@ -1,11 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteProvider } from "@earendil-works/pi-tui";
-import {
-	createDollarSkillFeature,
-	type DollarSkillCommand,
-	registerDollarSkillInputTransform,
-} from "../../../src/index.js";
+import { createDollarSkillFeature, registerDollarSkillInputTransform } from "../../../src/index.js";
+import type { DollarSkillCommand } from "../../../src/model.js";
 
 type EditorFactory = NonNullable<
 	Parameters<NonNullable<ExtensionContext["ui"]["setEditorComponent"]>>[0]

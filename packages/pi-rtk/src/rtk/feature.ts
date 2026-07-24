@@ -44,16 +44,26 @@ export function createRtkFeature(): RtkFeature {
 	let piRef: ExtensionAPI | undefined;
 	let handlersRegistered = false;
 	let lastRefreshAt = 0;
+	let refreshRevision = 0;
+	let sessionOwner: AbortController | undefined;
 	const isCurrentSession = (
 		ctx: { sessionManager?: { getSessionId(): string } } | undefined,
 	): boolean => !ctx?.sessionManager || ctx.sessionManager.getSessionId() === sessionId;
 	const refresh = async (force = false): Promise<RuntimeStatus> => {
 		if (!force && lastRefreshAt > 0 && Date.now() - lastRefreshAt < 30_000) return status;
-		if (!piRef) return status;
+		const pi = piRef;
+		if (!pi) return status;
+		const revision = ++refreshRevision;
+		const owner = sessionOwner;
 		let resolution: RtkExecutableResolution | undefined;
 		try {
-			resolution = await resolveRtkExecutable(piRef);
-			const result = await piRef.exec(resolution.command, ["--version"], { timeout: 5000 });
+			resolution = await resolveRtkExecutable(pi, owner ? { signal: owner.signal } : {});
+			const result = await pi.exec(
+				resolution.command,
+				["--version"],
+				owner ? { timeout: 5000, signal: owner.signal } : { timeout: 5000 },
+			);
+			if (revision !== refreshRevision || piRef !== pi) return status;
 			lastRefreshAt = Date.now();
 			status = {
 				rtkAvailable: result.code === 0,
@@ -68,6 +78,7 @@ export function createRtkFeature(): RtkFeature {
 				rtkExecutableResolutionWarning: resolution.warning,
 			};
 		} catch (error) {
+			if (owner?.signal.aborted || revision !== refreshRevision || piRef !== pi) return status;
 			status = {
 				rtkAvailable: false,
 				lastCheckedAt: Date.now(),
@@ -81,6 +92,8 @@ export function createRtkFeature(): RtkFeature {
 	};
 	return {
 		async start(runtime) {
+			sessionOwner?.abort();
+			sessionOwner = new AbortController();
 			piRef = runtime.pi;
 			sessionId = runtime.ctx.sessionManager.getSessionId();
 			const loaded = await loadRtkConfig(runtime.ctx.cwd ?? process.cwd());
@@ -204,6 +217,9 @@ export function createRtkFeature(): RtkFeature {
 		},
 		dispose(id) {
 			if (sessionId === id) {
+				refreshRevision++;
+				sessionOwner?.abort();
+				sessionOwner = undefined;
 				sessionId = undefined;
 				active.clear();
 				outputMetrics.clear();

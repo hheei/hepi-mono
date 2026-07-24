@@ -1,1 +1,1 @@
-export { BTW_COMMAND_NAME, type BtwFeature, createBtwFeature } from "./feature.js";
+export { default } from "./extension.js";

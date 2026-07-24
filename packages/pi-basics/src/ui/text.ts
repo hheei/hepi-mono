@@ -20,8 +20,6 @@ export function wrap(text: string, width: number): string[] {
 	return wrapTextWithAnsi(text, width);
 }
 
-export const wrapText = wrap;
-
 export interface HorizontalViewport {
 	text: string;
 	offset: number;
@@ -42,8 +40,6 @@ export function horizontalViewport(
 	const result = sliceByColumn(text, offset, safeWidth, true);
 	return { text: result, offset, width: visibleWidth(result) };
 }
-
-export const createHorizontalViewport = horizontalViewport;
 
 export function padToWidth(text: string, width: number): string {
 	return `${text}${" ".repeat(Math.max(0, width - visibleWidth(text)))}`;

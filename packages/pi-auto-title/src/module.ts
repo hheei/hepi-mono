@@ -1,18 +1,18 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { Agent } from "@earendil-works/pi-agent-core";
 import {
 	convertToLlm,
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import type {
-	HePiContext,
-	HePiSettingField,
-	HePiSettingsProvider,
-	HePiSettingsState,
-	HePiSettingsStorage,
+import {
+	type HePiContext,
+	type HePiSettingField,
+	type HePiSettingsProvider,
+	type HePiSettingsState,
+	type HePiSettingsStorage,
+	updateJsonSettingsRoot,
 } from "@hheei/pi-basics";
 
 export const AUTO_TITLE_GROUP = "auto-title";
@@ -84,19 +84,6 @@ async function readRoot(path: string): Promise<JsonObject> {
 		throw new Error(`Expected ${SECTION} to be an object in ${path}`);
 	return value as JsonObject;
 }
-async function writeRoot(path: string, root: JsonObject): Promise<void> {
-	const dir = dirname(path);
-	await mkdir(dir, { recursive: true });
-	const tmp = join(dir, `.${basename(path)}.${randomUUID()}.tmp`);
-	try {
-		await writeFile(tmp, `${JSON.stringify(root, null, 2)}\n`, "utf8");
-		await rename(tmp, path);
-	} catch (error) {
-		await rm(tmp, { force: true }).catch(() => undefined);
-		throw error;
-	}
-}
-
 export function createAutoTitleStorage(options: AutoTitleStorageOptions = {}): HePiSettingsStorage {
 	const path = options.path;
 	const group = options.group ?? AUTO_TITLE_GROUP;
@@ -123,15 +110,15 @@ export function createAutoTitleStorage(options: AutoTitleStorageOptions = {}): H
 		},
 		async save(state: HePiSettingsState, ctx: { cwd?: string }): Promise<void> {
 			const target = path ?? join(ctx.cwd ?? process.cwd(), ".pi", "settings.json");
-			const root = await readRoot(target);
-			const prior = root[SECTION];
-			const section: JsonObject =
-				prior && typeof prior === "object" && !Array.isArray(prior)
-					? { ...(prior as JsonObject) }
-					: {};
-			section[group] = { ...(state[group] ?? {}) };
-			root[SECTION] = section;
-			await writeRoot(target, root);
+			await updateJsonSettingsRoot(target, (root) => {
+				const prior = root[SECTION];
+				const section: JsonObject =
+					prior && typeof prior === "object" && !Array.isArray(prior)
+						? { ...(prior as JsonObject) }
+						: {};
+				section[group] = { ...(state[group] ?? {}) };
+				root[SECTION] = section;
+			});
 		},
 	};
 }
@@ -477,7 +464,6 @@ export function createAutoTitleCoordinator(
 		forceRequested = false;
 		activeAgent = agent;
 		attempted = true;
-		pi.appendEntry("pi-basics-auto-title", { attempted: true });
 		startStatus();
 		let timedOut = false;
 		timer = setTimeout(() => {
@@ -503,6 +489,7 @@ export function createAutoTitleCoordinator(
 					return;
 				}
 				pi.setSessionName(title);
+				pi.appendEntry("pi-basics-auto-title", { completed: true });
 			} catch (error) {
 				if (!disposed && activeAgent === agent && sessionRevision === revision) {
 					attempted = false;

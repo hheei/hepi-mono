@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createJsonSectionSettingsStorage } from "@hheei/pi-basics";
 import {
 	convertInputText,
 	createTraditionalToSimplifiedFeature,
@@ -41,16 +45,65 @@ describe("traditional to simplified", () => {
 	});
 
 	test("persists the toggle without discarding other settings", async () => {
-		const path = `${process.env.TMPDIR ?? "/tmp"}/pi-basics-traditional-to-simplified-${Date.now()}.json`;
-		const provider = createTraditionalToSimplifiedSettingsProvider();
-		await provider.storage.save(
-			{ "traditional-to-simplified": { enabled: false } },
-			{ sessionId: "test", cwd: path.replace(/\/[^/]+$/, "") },
-		);
-		const loaded = await provider.storage.load({
-			sessionId: "test",
-			cwd: path.replace(/\/[^/]+$/, ""),
-		});
-		expect(loaded?.["traditional-to-simplified"]?.enabled).toBe(false);
+		const cwd = await mkdtemp(join(tmpdir(), "pi-t2s-"));
+		try {
+			const provider = createTraditionalToSimplifiedSettingsProvider();
+			await provider.storage.save(
+				{ "traditional-to-simplified": { mode: "off" } },
+				{ sessionId: "test", cwd },
+			);
+			const loaded = await provider.storage.load({ sessionId: "test", cwd });
+			expect(loaded?.["traditional-to-simplified"]?.mode).toBe("off");
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	test("shares the settings write queue with other Pi Basics providers", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-t2s-concurrent-"));
+		try {
+			const t2s = createTraditionalToSimplifiedSettingsProvider();
+			const other = createJsonSectionSettingsStorage({
+				section: "pi-basics",
+				group: "other",
+			});
+			await Promise.all([
+				t2s.storage.save(
+					{ "traditional-to-simplified": { mode: "off" } },
+					{ sessionId: "t2s", cwd },
+				),
+				other.save({ other: { enabled: true } }, { sessionId: "other", cwd }),
+			]);
+			const saved = JSON.parse(await readFile(join(cwd, ".pi", "settings.json"), "utf8"));
+			expect(saved["pi-basics"]).toEqual({
+				"traditional-to-simplified": { mode: "off" },
+				other: { enabled: true },
+			});
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	test("rejects invalid persisted settings", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-t2s-invalid-"));
+		try {
+			const settingsDirectory = join(cwd, ".pi");
+			await mkdir(settingsDirectory, { recursive: true });
+			const provider = createTraditionalToSimplifiedSettingsProvider();
+			for (const values of [
+				{ mode: "disabled" },
+				{ mode: "none" },
+				{ enabled: false },
+				{ mode: "t2s", enabled: true },
+			]) {
+				await Bun.write(
+					join(settingsDirectory, "settings.json"),
+					JSON.stringify({ "pi-basics": { "traditional-to-simplified": values } }),
+				);
+				await expect(provider.storage.load({ sessionId: "test", cwd })).rejects.toThrow();
+			}
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
 	});
 });

@@ -24,8 +24,8 @@ import piBasicsExtension, {
 	type HePiSettingsProvider,
 	registerHePiModule,
 	registerHePiSettings,
-	type SettingsModule,
 } from "../../src/index.js";
+import type { SettingsModule } from "../../src/ui/settings/index.js";
 
 function provider(
 	id: string,

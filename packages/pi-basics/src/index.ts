@@ -1,18 +1,45 @@
-export * from "./api/index.js";
-export * from "./errors.js";
+export type { HePiModule, HePiModuleView, HePiModuleViewContext } from "./api/modules.js";
+export {
+	getHePiRuntimeModuleRegistry,
+	registerHePiModule,
+} from "./api/modules.js";
+export type {
+	HePiContext,
+	HePiSettingField,
+	HePiSettingsProvider,
+	HePiSettingsState,
+	HePiSettingsStorage,
+	HePiSettingValue,
+} from "./api/settings.js";
+export {
+	getHePiRuntimeSettingsRegistry,
+	getHePiSettings,
+	registerHePiSettings,
+} from "./api/settings.js";
 export { default } from "./extension.js";
-export * from "./runtime/context.js";
-export * from "./runtime/json-settings.js";
-export * from "./runtime/lifecycle.js";
-export * from "./runtime/loadout-bridge.js";
-export * from "./runtime/registry.js";
-export * from "./runtime/tool-activation.js";
-export * from "./ui/border.js";
-export * from "./ui/keymap.js";
-export * from "./ui/layout.js";
-export * from "./ui/row.js";
-export * from "./ui/scrollbar.js";
-export * from "./ui/settings/index.js";
-export * from "./ui/shell/index.js";
-export * from "./ui/tabs.js";
-export * from "./ui/text.js";
+export type { HePiRuntimeContext } from "./runtime/context.js";
+export { createHePiRuntimeContext } from "./runtime/context.js";
+export {
+	createJsonSectionSettingsStorage,
+	updateJsonSettingsRoot,
+} from "./runtime/json-settings.js";
+export { HePiLifecycleController, registerHePiLifecycle } from "./runtime/lifecycle.js";
+export {
+	disableHePiTool,
+	hePiLoadoutKey,
+	isHePiSkillEnabled,
+	registerHePiToolDisableHandler,
+	setHePiDisabledSkillKeys,
+} from "./runtime/loadout-bridge.js";
+export type { ToolActivationCoordinator } from "./runtime/tool-activation.js";
+export {
+	createToolActivationCoordinator,
+	getToolActivationCoordinator,
+} from "./runtime/tool-activation.js";
+export { renderDetailPanel } from "./ui/border.js";
+export { formatKeymap, keyGlyph } from "./ui/keymap.js";
+export { createSplitLayout } from "./ui/layout.js";
+export { renderSelectableRow } from "./ui/row.js";
+export { renderScrollbar } from "./ui/scrollbar.js";
+export { renderTabs } from "./ui/tabs.js";
+export { padToWidth, truncateToWidth, visibleWidth, wrap } from "./ui/text.js";

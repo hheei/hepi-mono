@@ -49,28 +49,6 @@ describe("loadout storage", () => {
 		}
 	});
 
-	test("migrates source-scoped keys while updating stable identity", async () => {
-		const { directory, paths, storage } = await fixture();
-		try {
-			await writeFile(
-				paths.globalPath,
-				JSON.stringify({
-					"pi-basics-loadout": {
-						"tool:/old/path:read": false,
-						"tool:write": true,
-					},
-				}),
-			);
-			await storage.update("global", "tool:read", false, ["tool:/old/path:read"]);
-			expect((await storage.load()).global).toEqual({
-				"tool:read": false,
-				"tool:write": true,
-			});
-		} finally {
-			await cleanup(directory);
-		}
-	});
-
 	test("reads missing files as empty and undefined deletes keys", async () => {
 		const { directory, storage } = await fixture();
 		try {

@@ -1,3 +1,5 @@
+export { default } from "./extension.js";
+
 import { chmod, lstat, mkdir, readdir, realpath, rmdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";

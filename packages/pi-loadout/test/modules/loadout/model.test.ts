@@ -100,8 +100,8 @@ describe("loadout model", () => {
 		expect(maps.project["skill:local"]).toBe(true);
 	});
 
-	test("global-capable project toggle writes stable key and preserves legacy reads", () => {
-		const item = tool("tool:/old/path:read", { name: "read" });
+	test("global-capable project toggle uses the canonical persistence key", () => {
+		const item = tool("tool:extension:read", { name: "read" });
 		let maps: LoadoutStatusMaps = { global: {}, project: {} };
 		maps = toggleLoadoutState(item, "project", maps);
 		expect(maps.project["tool:read"]).toBe(true);
@@ -110,11 +110,11 @@ describe("loadout model", () => {
 		maps = toggleLoadoutState(item, "project", maps);
 		expect(Object.hasOwn(maps.project, "tool:read")).toBe(false);
 		expect(
-			resolveLoadoutItem({ ...item, key: "tool:/new/path:read" }, "global", {
-				global: { "tool:/old/path:read": false },
+			resolveLoadoutItem(item, "global", {
+				global: { "tool:extension:read": false },
 				project: {},
 			}).effectiveStatus,
-		).toBe("disabled");
+		).toBe("active");
 	});
 	test("locks lower-priority same-name tools behind selected winner", () => {
 		const builtin = {

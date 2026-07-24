@@ -4,6 +4,9 @@
 	"description": "RTK command rewriting and tool output compaction for Pi.",
 	"type": "module",
 	"main": "src/index.ts",
+	"exports": {
+		".": "./src/index.ts"
+	},
 	"files": [
 		"src",
 		"README.md",

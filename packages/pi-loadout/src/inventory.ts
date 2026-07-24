@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import type { ToolInfo } from "@earendil-works/pi-coding-agent";
 import {
-	getLoadoutDescriptionPanel,
 	type LoadoutDescriptionRegistry,
 	type LoadoutItem,
 	type LoadoutKey,
@@ -130,7 +129,7 @@ export function createLoadoutInventory(pi: LoadoutInventorySource): LoadoutInven
 	const getPromptSnippet = (name: string): string | undefined =>
 		pi.getToolDefinition?.(name)?.promptSnippet ?? BUILTIN_PROMPT_SNIPPETS[name];
 	const getDescriptionPanel = (item: Pick<LoadoutItem, "key" | "kind" | "name">) =>
-		descriptions?.get(item) ?? getLoadoutDescriptionPanel(item);
+		descriptions?.get(item);
 	const tools = typeof pi.getAllTools === "function" ? pi.getAllTools() : [];
 	for (const tool of tools) {
 		const item = toolItem(tool, getPromptSnippet, getDescriptionPanel);

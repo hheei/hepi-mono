@@ -6,6 +6,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { HePiRuntimeContext } from "@hheei/pi-basics";
 import { Value } from "typebox/value";
+import type { TodoSnapshot } from "../src/state.js";
 import {
 	createTodoFeature,
 	TODO_PARAMETERS,
@@ -13,8 +14,7 @@ import {
 	TODO_PROMPT_SNIPPET,
 	TODO_TOOL_DESCRIPTION,
 	TODO_TOOL_NAME,
-} from "../src/index.js";
-import type { TodoSnapshot } from "../src/state.js";
+} from "../src/todo.js";
 
 interface RegisteredTool {
 	readonly name: string;

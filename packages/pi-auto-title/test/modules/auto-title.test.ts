@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createJsonSectionSettingsStorage } from "@hheei/pi-basics";
 import {
 	AUTO_TITLE_SYSTEM_PROMPT,
 	autoTitleModelOptions,
@@ -30,6 +31,25 @@ describe("Pi Basics auto-title", () => {
 			const root = JSON.parse(await readFile(path, "utf8"));
 			expect(root.packages).toEqual(["npm:pi-subagents"]);
 			expect(root["pi-basics"]["auto-title"].autoTitle).toBe(true);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("shares the settings write queue with other Pi Basics providers", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "pi-basics-title-concurrent-"));
+		try {
+			const title = createAutoTitleStorage();
+			const other = createJsonSectionSettingsStorage({ section: "pi-basics", group: "other" });
+			await Promise.all([
+				title.save({ "auto-title": { autoTitle: true } }, context(dir)),
+				other.save({ other: { enabled: true } }, context(dir)),
+			]);
+			const root = JSON.parse(await readFile(join(dir, ".pi", "settings.json"), "utf8"));
+			expect(root["pi-basics"]).toEqual({
+				"auto-title": { autoTitle: true },
+				other: { enabled: true },
+			});
 		} finally {
 			await rm(dir, { recursive: true, force: true });
 		}
@@ -133,9 +153,10 @@ describe("Pi Basics auto-title", () => {
 		coordinator.dispose();
 	});
 
-	test("runs one isolated title agent and records the attempt", async () => {
+	test("runs one isolated title agent and records completion after setting title", async () => {
 		const handlers = new Map<string, (value: unknown) => void>();
 		let appended = 0;
+		const entries: Array<{ type: string; customType?: string }> = [];
 		let created = 0;
 		let aborted = 0;
 		let releasePrompt: (() => void) | undefined;
@@ -149,8 +170,9 @@ describe("Pi Basics auto-title", () => {
 					return () => handlers.delete(channel);
 				},
 			},
-			appendEntry: () => {
+			appendEntry: (customType: string) => {
 				appended++;
+				entries.push({ type: "custom", customType });
 			},
 			getSessionName: () => undefined,
 			setSessionName: () => undefined,
@@ -159,6 +181,7 @@ describe("Pi Basics auto-title", () => {
 			sessionManager: {
 				getEntries: () => [
 					{ type: "message", message: { role: "user", content: LONG_SESSION_CONTEXT } },
+					...entries,
 				],
 				getSessionId: () => "s",
 			},
@@ -182,7 +205,7 @@ describe("Pi Basics auto-title", () => {
 						aborted++;
 					},
 					waitForIdle: async () => undefined,
-					result: () => "unused",
+					result: () => "Generated title",
 				};
 			},
 		);
@@ -190,10 +213,18 @@ describe("Pi Basics auto-title", () => {
 		coordinator.trigger();
 		coordinator.trigger();
 		expect(created).toBe(1);
-		expect(appended).toBe(1);
+		expect(appended).toBe(0);
 		releasePrompt?.();
 		await Bun.sleep(0);
+		expect(appended).toBe(1);
 		coordinator.dispose();
+		const reloaded = createAutoTitleCoordinator({ pi, ctx } as never, "provider/model", () => {
+			created++;
+			throw new Error("should not retry completed title");
+		});
+		reloaded.trigger();
+		expect(created).toBe(1);
+		reloaded.dispose();
 		expect(aborted).toBe(0);
 	});
 
@@ -372,6 +403,58 @@ describe("Pi Basics auto-title", () => {
 		expect(widgets.some((entry) => String(entry.content).includes("Generating title"))).toBe(true);
 		expect(widgets.at(-1)).toEqual({ content: undefined, options: { placement: "aboveEditor" } });
 		coordinator.dispose();
+	});
+
+	test("retries after failure with a reloaded coordinator", async () => {
+		const entries: Array<{ type: string; customType?: string }> = [];
+		const handlers = new Map<string, (value: unknown) => void>();
+		let created = 0;
+		const pi = {
+			events: {
+				on: (channel: string, handler: (value: unknown) => void) => {
+					handlers.set(channel, handler);
+					return () => handlers.delete(channel);
+				},
+			},
+			appendEntry: (customType: string) => entries.push({ type: "custom", customType }),
+			getSessionName: () => undefined,
+			setSessionName: () => undefined,
+		};
+		const ctx = {
+			sessionManager: {
+				getEntries: () => [
+					{ type: "message", message: { role: "user", content: LONG_SESSION_CONTEXT } },
+					...entries,
+				],
+				getSessionId: () => "s",
+			},
+			isIdle: () => true,
+			ui: { notify: () => undefined },
+		};
+		const createAgent = () => {
+			created++;
+			return {
+				prompt: async () => {
+					throw new Error("failed");
+				},
+				abort: () => undefined,
+				waitForIdle: async () => undefined,
+				result: () => undefined,
+			};
+		};
+
+		const first = createAutoTitleCoordinator({ pi, ctx } as never, "provider/model", createAgent);
+		first.trigger();
+		await Bun.sleep(0);
+		first.dispose();
+		expect(created).toBe(1);
+		expect(entries).toEqual([]);
+
+		const second = createAutoTitleCoordinator({ pi, ctx } as never, "provider/model", createAgent);
+		second.trigger();
+		await Bun.sleep(0);
+		expect(created).toBe(2);
+		second.dispose();
 	});
 
 	test("retries after a title model returns an empty result", async () => {

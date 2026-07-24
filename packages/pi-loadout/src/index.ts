@@ -11,13 +11,6 @@ import {
 } from "./storage.js";
 
 export type LoadoutModule = HePiModule;
-export * from "./component.js";
-export * from "./controller.js";
-export * from "./inventory.js";
-export * from "./model.js";
-export * from "./render.js";
-export * from "./skill-prompt-filter.js";
-export * from "./storage.js";
 
 export function createLoadoutModule(
 	pi: ExtensionAPI,

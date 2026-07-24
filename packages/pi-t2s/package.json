@@ -4,6 +4,9 @@
 	"description": "Traditional Chinese to Simplified Chinese input conversion for Pi.",
 	"type": "module",
 	"main": "src/index.ts",
+	"exports": {
+		".": "./src/index.ts"
+	},
 	"files": [
 		"src",
 		"README.md",
