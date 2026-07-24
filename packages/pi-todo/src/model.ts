@@ -43,6 +43,7 @@ export type ApplyTodoResult =
 			readonly changed: boolean;
 			readonly state: TaskState;
 			readonly operations: readonly TodoOperationResult[];
+			readonly autoStartedId?: number;
 	  }
 	| {
 			readonly ok: false;
@@ -171,13 +172,17 @@ export function validateTaskState(value: unknown): TaskState | undefined {
 	return { tasks, nextId: value.nextId };
 }
 
+function incompleteBlocker(task: Task, tasks: readonly Task[]): Task | undefined {
+	return task.blockedBy
+		.map((id) => tasks.find((candidate) => candidate.id === id))
+		.find((candidate) => candidate?.status !== "completed");
+}
+
 function statusError(task: Task, tasks: readonly Task[]): string | undefined {
-	if (task.status === "completed") {
-		const blocker = task.blockedBy
-			.map((id) => tasks.find((candidate) => candidate.id === id))
-			.find((candidate) => candidate?.status !== "completed");
+	if (task.status === "completed" || task.status === "in_progress") {
+		const blocker = incompleteBlocker(task, tasks);
 		if (blocker)
-			return `Task #${task.id} cannot be completed while blocked by incomplete task #${blocker.id}`;
+			return `Task #${task.id} cannot be ${task.status === "completed" ? "completed" : "in progress"} while blocked by incomplete task #${blocker.id}`;
 	}
 	if (task.status === "in_progress") {
 		const active = tasks.find(
@@ -214,6 +219,12 @@ function validTransition(from: TaskStatus, to: TaskStatus): boolean {
 	return from !== "completed" || to === "completed";
 }
 
+function firstRunnablePending(tasks: readonly Task[]): Task | undefined {
+	return tasks
+		.filter((task) => task.status === "pending" && incompleteBlocker(task, tasks) === undefined)
+		.sort((left, right) => left.id - right.id)[0];
+}
+
 export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult {
 	if (!isRecord(params) || !Array.isArray(params.operations) || params.operations.length === 0) {
 		return { ok: false, state, error: "operations must be a non-empty array" };
@@ -222,6 +233,7 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 	const draft = cloneState(state);
 	const operations: TodoOperationResult[] = [];
 	let changed = false;
+	let suppressAutoStart = false;
 	const fail = (error: string, operationIndex: number): ApplyTodoResult => ({
 		ok: false,
 		state,
@@ -309,6 +321,7 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 		}
 		if (hasStatus && !STATUSES.includes(operation.status as TaskStatus))
 			return fail("Invalid status", index);
+		if (operation.status === "pending") suppressAutoStart = true;
 		const subject = hasSubject ? (operation.subject as string).trim() : current.subject;
 		const status = hasStatus ? (operation.status as TaskStatus) : current.status;
 		if (hasBlockedBy && !Array.isArray(operation.blockedBy))
@@ -336,5 +349,18 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 		}
 		operations.push({ index, action, changed: isChanged, id });
 	}
-	return { ok: true, changed, state: changed ? draft : state, operations };
+	let autoStartedId: number | undefined;
+	if (changed && !suppressAutoStart && !draft.tasks.some((task) => task.status === "in_progress")) {
+		const next = firstRunnablePending(draft.tasks);
+		if (next) {
+			draft.tasks = draft.tasks.map((task) =>
+				task.id === next.id ? { ...task, status: "in_progress" } : task,
+			);
+			autoStartedId = next.id;
+		}
+	}
+	if (!changed) return { ok: true, changed: false, state, operations };
+	return autoStartedId === undefined
+		? { ok: true, changed: true, state: draft, operations }
+		: { ok: true, changed: true, state: draft, operations, autoStartedId };
 }

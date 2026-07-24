@@ -28,6 +28,28 @@ describe("todo state snapshots", () => {
 		expect(replayed.tasks[0]!.blockedBy).toEqual([2]);
 	});
 
+	test("migrates legacy blocked active tasks without dropping the snapshot", () => {
+		const legacy = {
+			tasks: [
+				{ id: 1, subject: "blocker", status: "pending", blockedBy: [] },
+				{ id: 2, subject: "blocked", status: "in_progress", blockedBy: [1] },
+				{ id: 3, subject: "next", status: "pending", blockedBy: [2] },
+			],
+			nextId: 4,
+		};
+		expect(stateFromSnapshot(legacy)).toEqual({
+			tasks: [
+				task(1, "blocker"),
+				{ ...task(2, "blocked"), blockedBy: [1] },
+				{
+					...task(3, "next"),
+					blockedBy: [2],
+				},
+			],
+			nextId: 4,
+		});
+		expect(latestTodoSnapshot([result(legacy)])?.tasks.map(({ id }) => id)).toEqual([1, 2, 3]);
+	});
 	test("latest valid snapshot wins and malformed later entries fall back", () => {
 		const first = { tasks: [task(1)], nextId: 2 };
 		const second = { tasks: [task(1), task(2)], nextId: 3 };

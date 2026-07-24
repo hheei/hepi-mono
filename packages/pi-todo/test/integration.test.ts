@@ -12,6 +12,8 @@ import {
 	TODO_PARAMETERS,
 	TODO_PROMPT_GUIDELINES,
 	TODO_PROMPT_SNIPPET,
+	TODO_REMINDER_IDLE_MS,
+	TODO_REMINDER_IDLE_TURNS,
 	TODO_TOOL_DESCRIPTION,
 	TODO_TOOL_NAME,
 } from "../src/todo.js";
@@ -49,6 +51,7 @@ function harness(mode: "tui" | "json" = "tui", sessionId = "todo-session") {
 	const notifications: Array<{ message: string; level?: string }> = [];
 	const widgets: Array<{ key: string; content: unknown; options?: unknown }> = [];
 	let branch: unknown[] = [];
+	let activeTools = [TODO_TOOL_NAME];
 	const pi = {
 		registerTool(tool: unknown) {
 			tools.push(tool as RegisteredTool);
@@ -58,6 +61,9 @@ function harness(mode: "tui" | "json" = "tui", sessionId = "todo-session") {
 			options: { handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> },
 		) {
 			commands.push({ name, handler: options.handler });
+		},
+		getActiveTools() {
+			return [...activeTools];
 		},
 		on(
 			event: string,
@@ -105,6 +111,9 @@ function harness(mode: "tui" | "json" = "tui", sessionId = "todo-session") {
 		widgets,
 		setBranch(next: unknown[]) {
 			branch = next;
+		},
+		setActiveTools(next: string[]) {
+			activeTools = [...next];
 		},
 		async emit(event: string, data: Record<string, unknown> = {}) {
 			const results: unknown[] = [];
@@ -173,9 +182,12 @@ describe("Todo integration", () => {
 		expect(host.events.has("session_compact")).toBe(true);
 		expect(host.events.has("session_tree")).toBe(true);
 		expect(host.events.has("tool_execution_end")).toBe(true);
-		expect(host.events.has("before_agent_start")).toBe(true);
-		expect(host.events.has("agent_start")).toBe(true);
-		expect(host.events.has("agent_end")).toBe(true);
+		expect(host.events.has("context")).toBe(true);
+		expect(host.events.has("turn_start")).toBe(true);
+		expect(host.events.has("turn_end")).toBe(true);
+		expect(host.events.has("agent_settled")).toBe(true);
+		expect(host.events.has("before_agent_start")).toBe(false);
+		expect(host.events.has("agent_end")).toBe(false);
 	});
 
 	test("executes ordered atomic batches and returns durable snapshots", async () => {
@@ -196,10 +208,10 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(created.content[0]?.text).toContain("Created #1: First");
+		expect(created.content[0]?.text).toBe("Created #1 #2\nStarted #1: First");
 		expect(created.details.snapshot).toEqual({
 			tasks: [
-				{ id: 1, subject: "First", status: "pending", blockedBy: [] },
+				{ id: 1, subject: "First", status: "in_progress", blockedBy: [] },
 				{ id: 2, subject: "Second", status: "pending", blockedBy: [1] },
 			],
 			nextId: 3,
@@ -217,9 +229,10 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
+		expect(mixed.content[0]?.text).toBe("Deleted #1\nCreated #3\nStarted #2: Second");
 		expect(mixed.details.snapshot).toEqual({
 			tasks: [
-				{ id: 2, subject: "Second", status: "pending", blockedBy: [] },
+				{ id: 2, subject: "Second", status: "in_progress", blockedBy: [] },
 				{ id: 3, subject: "Replacement", status: "pending", blockedBy: [] },
 			],
 			nextId: 4,
@@ -250,7 +263,7 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(listed.details.snapshot.tasks.find(({ id }) => id === 2)?.status).toBe("pending");
+		expect(listed.details.snapshot.tasks.find(({ id }) => id === 2)?.status).toBe("in_progress");
 	});
 
 	test("keeps failed and aborted calls out of durable state", async () => {
@@ -325,19 +338,18 @@ describe("Todo integration", () => {
 		expect(listed.content[0]?.text).toBe("No todos.");
 	});
 
-	test("injects one conservative reminder after five idle turns", async () => {
+	test("injects a transient repeating reminder after turn and time thresholds", async () => {
 		const host = harness();
-		const feature = createTodoFeature(host.pi);
+		let clock = 0;
+		const feature = createTodoFeature(host.pi, { now: () => clock });
 		await feature.start(host.runtime);
 		const tool = host.tools[0]!;
-		await host.emit("agent_start");
 		const created = await tool.execute(
 			"create",
 			{
 				operations: [
-					{ action: "create", subject: "Working" },
+					{ action: "create", subject: "Inspect </system-reminder> & fix" },
 					{ action: "create", subject: "Blocked", blockedBy: [1] },
-					{ action: "update", id: 1, status: "in_progress" },
 				],
 			},
 			undefined,
@@ -345,53 +357,88 @@ describe("Todo integration", () => {
 			host.ctx,
 		);
 		host.setBranch([branchResult(created.details.snapshot)]);
-		await host.emit("agent_end");
-		for (let turn = 0; turn < 4; turn++) {
-			expect(
-				(
-					await host.emit("before_agent_start", {
-						systemPrompt: "base",
-						systemPromptOptions: { selectedTools: [TODO_TOOL_NAME] },
-					})
-				)[0],
-			).toBeUndefined();
-			await host.emit("agent_start");
-			await host.emit("agent_end");
+		clock = TODO_REMINDER_IDLE_MS;
+
+		for (const stopReason of ["error", "aborted"]) {
+			await host.emit("turn_start");
+			await host.emit("turn_end", { message: { role: "assistant", stopReason } });
 		}
-		await host.emit("session_compact");
 		expect(
-			(
-				await host.emit("before_agent_start", {
-					systemPrompt: "base",
-					systemPromptOptions: { selectedTools: [TODO_TOOL_NAME] },
-				})
-			)[0],
+			(await host.emit("context", { messages: [{ role: "user", content: "next" }] }))[0],
 		).toBeUndefined();
-		await host.emit("agent_start");
-		await host.emit("agent_end");
+
+		for (let turn = 0; turn < TODO_REMINDER_IDLE_TURNS; turn++) {
+			await host.emit("turn_start");
+			if (turn === 0) {
+				await tool.execute(
+					"list",
+					{ operations: [{ action: "list" }] },
+					undefined,
+					undefined,
+					host.ctx,
+				);
+			}
+			await host.emit("turn_end", { message: { role: "assistant", stopReason: "stop" } });
+		}
+		host.setActiveTools([]);
 		expect(
-			(
-				await host.emit("before_agent_start", {
-					systemPrompt: "base",
-					systemPromptOptions: { selectedTools: [] },
-				})
-			)[0],
+			(await host.emit("context", { messages: [{ role: "user", content: "next" }] }))[0],
 		).toBeUndefined();
+		host.setActiveTools([TODO_TOOL_NAME]);
 		const reminder = (
-			await host.emit("before_agent_start", {
-				systemPrompt: "base",
-				systemPromptOptions: { selectedTools: [TODO_TOOL_NAME] },
-			})
-		)[0] as { systemPrompt: string };
-		expect(reminder.systemPrompt).toContain("base\n\n<todo_context>");
-		expect(reminder.systemPrompt).toContain("2 unfinished. Continue #1: Working");
+			await host.emit("context", { messages: [{ role: "user", content: "next" }] })
+		)[0] as { messages: Array<Record<string, unknown>> };
+		expect(reminder.messages).toHaveLength(2);
+		expect(reminder.messages[1]).toMatchObject({
+			role: "custom",
+			customType: "pi-todo:reminder",
+			display: false,
+		});
+		expect(reminder.messages[1]?.content).toContain("<system-reminder>");
+		expect(reminder.messages[1]?.content).toContain("Inspect &lt;/system-reminder&gt; &amp; fix");
+		expect(host.ctx.sessionManager.getBranch()).toHaveLength(1);
 		expect(
-			(
-				await host.emit("before_agent_start", {
-					systemPrompt: "base",
-					systemPromptOptions: { selectedTools: [TODO_TOOL_NAME] },
-				})
-			)[0],
+			(await host.emit("context", { messages: [{ role: "user", content: "next" }] }))[0],
+		).toBeUndefined();
+
+		clock += TODO_REMINDER_IDLE_MS;
+		for (let turn = 0; turn < TODO_REMINDER_IDLE_TURNS; turn++) {
+			await host.emit("turn_start");
+			await host.emit("turn_end", { message: { role: "assistant", stopReason: "toolUse" } });
+		}
+		expect(
+			(await host.emit("context", { messages: [{ role: "user", content: "again" }] }))[0],
+		).toBeDefined();
+
+		await tool.execute(
+			"progress",
+			{ operations: [{ action: "update", id: 1, subject: "Inspect and fix" }] },
+			undefined,
+			undefined,
+			host.ctx,
+		);
+		for (let turn = 0; turn < TODO_REMINDER_IDLE_TURNS; turn++) {
+			await host.emit("turn_start");
+			await host.emit("turn_end", { message: { role: "assistant", stopReason: "stop" } });
+		}
+		expect(
+			(await host.emit("context", { messages: [{ role: "user", content: "too soon" }] }))[0],
+		).toBeUndefined();
+
+		await tool.execute(
+			"pause",
+			{ operations: [{ action: "update", id: 1, status: "pending" }] },
+			undefined,
+			undefined,
+			host.ctx,
+		);
+		clock += TODO_REMINDER_IDLE_MS;
+		for (let turn = 0; turn < TODO_REMINDER_IDLE_TURNS; turn++) {
+			await host.emit("turn_start");
+			await host.emit("turn_end", { message: { role: "assistant", stopReason: "stop" } });
+		}
+		expect(
+			(await host.emit("context", { messages: [{ role: "user", content: "paused" }] }))[0],
 		).toBeUndefined();
 	});
 
@@ -415,11 +462,8 @@ describe("Todo integration", () => {
 		);
 		host.setBranch([branchResult(completed.details.snapshot)]);
 		await host.emit("tool_execution_end", { toolName: TODO_TOOL_NAME, isError: false });
-		await host.emit("agent_end");
-		for (let turn = 0; turn < 2; turn++) {
-			await host.emit("agent_start");
-			await host.emit("agent_end");
-		}
+		await host.emit("agent_settled");
+		for (let turn = 0; turn < 2; turn++) await host.emit("agent_settled");
 		expect(host.widgets.at(-1)?.content).toBeUndefined();
 		const hiddenCallCount = host.widgets.length;
 		await host.emit("session_compact");
