@@ -74,7 +74,10 @@ describe("todo state", () => {
 			nextId: 5,
 		});
 		expect(latestTodoSnapshot([result(first), custom(suppressed)])).toEqual(suppressed);
-		expect(latestTodoSnapshot([result(later), custom(first)])).toEqual(later);
+		expect(latestTodoSnapshot([result(later), custom(first)])).toEqual({
+			tasks: [{ id: 4, subject: "task 4", status: "in_progress" }],
+			nextId: 5,
+		});
 	});
 
 	test("user suppression survives a later stale snapshot with the same next id", () => {
