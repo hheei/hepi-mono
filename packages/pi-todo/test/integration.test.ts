@@ -298,6 +298,7 @@ describe("Todo integration", () => {
 			host.ctx,
 		);
 		expect(listed.details.snapshot.tasks.find(({ id }) => id === 2)?.status).toBe("in_progress");
+		expect(listed.content[0]?.text).toContain("⊘ #1 First");
 	});
 
 	test("keeps failed and aborted calls out of durable state", async () => {
@@ -384,6 +385,8 @@ describe("Todo integration", () => {
 				operations: [
 					{ action: "create", subject: "Inspect </system-reminder> & fix" },
 					{ action: "create", subject: "Next" },
+					{ action: "create", subject: "Blocked" },
+					{ action: "update", id: 3, status: "blocked" },
 				],
 			},
 			undefined,
@@ -555,7 +558,7 @@ describe("Todo integration", () => {
 		await host.emit("session_tree");
 		await host.commands[0]!.handler("", host.ctx);
 		expect(host.notifications[3]?.message).toContain(
-			"── Suppressed ──\n⊘ #1 Working  user suppressed",
+			"── Suppressed ──\n× #1 Working  user suppressed",
 		);
 
 		let failure: unknown;
