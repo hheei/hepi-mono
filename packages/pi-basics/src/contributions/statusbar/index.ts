@@ -29,6 +29,7 @@ type Owner = {
 	installedEditorFactory: EditorFactory;
 	requestRender?: () => void;
 	usage?: StatusbarContextUsage | undefined;
+	awaitingAssistantUsage: boolean;
 	compacted: boolean;
 	dispose(): void;
 };
@@ -95,14 +96,39 @@ export function createStatusbarFeature(pi: ExtensionAPI): StatusbarFeature {
 	const invalidate = (_event?: unknown, eventCtx?: ExtensionContext) => {
 		if (ownsContext(eventCtx)) owner?.requestRender?.();
 	};
-	for (const event of [
-		"model_select",
-		"thinking_level_select",
-		"session_info_changed",
-		"message_end",
-		"session_tree",
-	] as const)
+	for (const event of ["model_select", "thinking_level_select", "session_info_changed"] as const)
 		pi.on(event as never, invalidate);
+	pi.on("message_start", (event, eventCtx) => {
+		if (!ownsContext(eventCtx) || owner === undefined || event.message.role !== "user") return;
+		owner.awaitingAssistantUsage = true;
+		owner.requestRender?.();
+	});
+	pi.on("turn_start", (_event, eventCtx) => {
+		if (!ownsContext(eventCtx) || owner === undefined) return;
+		owner.awaitingAssistantUsage = true;
+		owner.requestRender?.();
+	});
+	pi.on("message_end", (event, eventCtx) => {
+		if (!ownsContext(eventCtx) || owner === undefined) return;
+		if (
+			event.message.role === "assistant" &&
+			event.message.stopReason !== "error" &&
+			event.message.stopReason !== "aborted"
+		)
+			owner.awaitingAssistantUsage = false;
+		owner.requestRender?.();
+	});
+	pi.on("agent_settled", (_event, eventCtx) => {
+		if (!ownsContext(eventCtx) || owner === undefined) return;
+		owner.awaitingAssistantUsage = false;
+		owner.requestRender?.();
+	});
+	pi.on("session_tree", (_event, eventCtx) => {
+		if (!ownsContext(eventCtx) || owner === undefined) return;
+		owner.usage = undefined;
+		owner.awaitingAssistantUsage = false;
+		owner.requestRender?.();
+	});
 	pi.on("session_compact", (_event, eventCtx) => {
 		if (!ownsContext(eventCtx) || owner === undefined) return;
 		owner.usage = undefined;
@@ -151,6 +177,7 @@ export function createStatusbarFeature(pi: ExtensionAPI): StatusbarFeature {
 						currentUsage,
 						next.compacted ? undefined : next.usage,
 						fallback,
+						next.awaitingAssistantUsage,
 					);
 					if (usage?.tokens != null) {
 						next.usage = usage;
@@ -176,6 +203,7 @@ export function createStatusbarFeature(pi: ExtensionAPI): StatusbarFeature {
 			next = {
 				sessionId,
 				ctx,
+				awaitingAssistantUsage: false,
 				compacted: false,
 				previousEditorFactory,
 				installedEditorFactory,

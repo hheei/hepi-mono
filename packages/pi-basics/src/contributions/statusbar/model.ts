@@ -157,7 +157,9 @@ export function stabilizeContextUsage(
 	current: StatusbarContextUsage | undefined,
 	previous: StatusbarContextUsage | undefined,
 	fallback: StatusbarContextUsage | undefined,
+	awaitingAssistantUsage = false,
 ): StatusbarContextUsage | undefined {
+	if (awaitingAssistantUsage && previous?.tokens != null) return previous;
 	const tokens = current?.tokens;
 	if (typeof tokens === "number" && Number.isFinite(tokens) && tokens >= 0) {
 		if (

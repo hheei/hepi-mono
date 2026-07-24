@@ -97,6 +97,14 @@ describe("statusbar model", () => {
 				undefined,
 			),
 		).toBe(previous);
+		expect(
+			stabilizeContextUsage(
+				{ tokens: 24_000, contextWindow: 100_000, percent: 24 },
+				previous,
+				undefined,
+				true,
+			),
+		).toBe(previous);
 		const fallback = estimateContextUsage(
 			[{ role: "user", content: "x".repeat(400) }],
 			1_000,
