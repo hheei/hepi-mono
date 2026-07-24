@@ -68,9 +68,9 @@ describe("provider payload probe", () => {
 	});
 });
 
-describe("cache debug extension", () => {
+describe("debug extension", () => {
 	test("correlates request hashes with provider usage in JSONL", async () => {
-		const directory = await mkdtemp(join(tmpdir(), "pi-cache-debug-test-"));
+		const directory = await mkdtemp(join(tmpdir(), "pi-debug-test-"));
 		const logPath = join(directory, "requests.jsonl");
 		const handlers = new Map<
 			string,

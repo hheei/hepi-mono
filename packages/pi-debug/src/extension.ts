@@ -18,7 +18,7 @@ interface SessionState {
 }
 
 export const DEBUG_GUIDE_URL =
-	"https://github.com/hheei/hepi-mono/blob/main/packages/pi-cache-debug/DEBUGGING.md";
+	"https://github.com/hheei/hepi-mono/blob/main/packages/pi-debug/CACHE_DEBUG.md";
 
 export interface CacheDebugOptions {
 	readonly logPath?: string;
@@ -141,6 +141,6 @@ function resolveLogPath(sessionId: string, configuredPath?: string): string {
 	return join(tmpdir(), "pi", "cache-debug", `${safeSessionId}.jsonl`);
 }
 
-export default function piCacheDebugExtension(pi: ExtensionAPI): void {
+export default function piDebugExtension(pi: ExtensionAPI): void {
 	registerCacheDebug(pi);
 }

@@ -9,7 +9,7 @@ import {
 	createToolActivationCoordinator,
 	getToolActivationCoordinator,
 } from "@hheei/pi-basics";
-import { replayTui, stripAnsi } from "../../../scripts/tui-replay.js";
+import { replayTui, stripAnsi } from "@hheei/pi-debug/tui-replay";
 import { createGoalFeature } from "../src/feature.js";
 
 type TestHandler = (
