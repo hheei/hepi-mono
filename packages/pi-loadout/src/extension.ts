@@ -49,7 +49,7 @@ export default function piLoadoutExtension(pi: ExtensionAPI): void {
 			disabledSkillKeys = new Set(
 				items
 					.filter((item) => item.effectiveStatus === "disabled")
-					.map((item) => hePiLoadoutKey("skill", item.name, item.origin)),
+					.map((item) => hePiLoadoutKey("skill", item.name)),
 			);
 			signal?.throwIfAborted();
 			setHePiDisabledSkillKeys(pi, disabledSkillKeys);

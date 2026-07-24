@@ -59,7 +59,7 @@ function replaceSkillsSection(
 }
 
 function promptSkillKey(skill: PromptSkill): LoadoutKey {
-	return loadoutKey("skill", skill.name, skill.sourceInfo.source);
+	return loadoutKey("skill", skill.name);
 }
 
 export function filterLoadoutDisabledSkillsFromPrompt(

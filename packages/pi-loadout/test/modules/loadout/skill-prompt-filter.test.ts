@@ -40,7 +40,7 @@ function systemPrompt(skills: readonly ReturnType<typeof skill>[]): string {
 }
 
 describe("loadout skill prompt filtering", () => {
-	test("removes disabled skills from system prompt but keeps them in command metadata", () => {
+	test("removes a canonically disabled skill regardless of runtime source", () => {
 		const enabled = skill("enabled", "local");
 		const disabled = skill("disabled", "local");
 		const options: BuildSystemPromptOptions = {
@@ -52,7 +52,7 @@ describe("loadout skill prompt filtering", () => {
 		const filtered = filterLoadoutDisabledSkillsFromPrompt(
 			prompt,
 			options,
-			new Set(["skill:local:disabled"]),
+			new Set(["skill:disabled"]),
 		);
 
 		expect(filtered?.skills).toEqual([enabled]);
@@ -67,7 +67,7 @@ describe("loadout skill prompt filtering", () => {
 		const filtered = filterLoadoutDisabledSkillsFromPrompt(
 			systemPrompt([disabled]),
 			options,
-			new Set(["skill:local:disabled"]),
+			new Set(["skill:disabled"]),
 		);
 
 		expect(filtered?.skills).toEqual([]);
