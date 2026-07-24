@@ -214,7 +214,7 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 			const id = operation.id;
 			const task = findTask(draft.tasks, id);
 			if (!task) return fail(`Task #${id} does not exist`, index);
-			if (task.status === "suppressed") return fail(`The user suppressed #${id} before.`, index);
+			if (task.status === "suppressed") return fail(`Task #${id} is suppressed`, index);
 			draft.tasks = draft.tasks.filter((candidate) => candidate.id !== id);
 			changed = true;
 			operations.push({ index, action, changed: true, id });
@@ -228,7 +228,7 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 		const id = operation.id;
 		const current = findTask(draft.tasks, id);
 		if (!current) return fail(`Task #${id} does not exist`, index);
-		if (current.status === "suppressed") return fail(`The user suppressed #${id} before.`, index);
+		if (current.status === "suppressed") return fail(`Task #${id} is suppressed`, index);
 		const hasSubject = operation.subject !== undefined;
 		const hasStatus = operation.status !== undefined;
 		if (!hasSubject && !hasStatus) return fail("Update requires a mutable field", index);

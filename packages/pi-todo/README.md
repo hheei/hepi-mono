@@ -2,7 +2,7 @@
 
 Atomic task list for Pi. Requires `@hheei/pi-basics`.
 
-Use the `todo` tool with a batch of `create`, `update`, `list`, or `delete` operations. In TUI sessions `/todos` shows the current state and a read-only widget appears above the editor while work remains.
+Use the `todo` tool with a batch of `create`, `update`, `list`, or `delete` operations. If one operation is invalid, the entire batch is rejected and no state changes. In TUI sessions `/todos` shows the current state and a read-only widget appears above the editor while work remains.
 
 ## Automatic progress
 
@@ -20,7 +20,13 @@ Next: #1 Inspect code.
 When no runnable task remains but blocked work exists, Todo asks the agent to discuss it with the user:
 
 ```text
-Next: discuss blocked TODOs #2, #4 with the user and agree how to proceed.
+Only blocked todos #2 #4 left. Discuss to the user.
+```
+
+After all work finishes:
+
+```text
+Finished all todos.
 ```
 
 ## User suppression
@@ -31,7 +37,7 @@ The user can permanently suppress unfinished work from the TUI:
 /todos suppress #2
 ```
 
-A suppressed task is hidden from the widget and cannot be updated or deleted by the agent. Attempts return `The user suppressed #2 before.` The agent may create a new task instead. `/todos` still lists suppressed tasks for inspection.
+A suppressed task is hidden from the widget and cannot be updated or deleted by the agent. Attempts return `Task #2 is suppressed.` The agent may create a new task instead. `/todos` still lists suppressed tasks for inspection.
 
 Suppression is stored as a custom session entry. It does not enter LLM context and follows branch history.
 
