@@ -347,7 +347,7 @@ Changing model mode should not recolor the entire screen or the text being edite
 
 ### Footer and status
 
-Footer content is deliberately quiet. Working directory, branch, token statistics, model metadata, and extension statuses use `{colors.dim}`. Promote only actionable thresholds or failures to warning/error. Keep left-side statistics and right-side model information aligned and truncate safely when space is limited.
+Footer content is deliberately quiet. Working directory, branch, token statistics, model metadata, and extension statuses use `{colors.dim}`. Promote only actionable thresholds or failures to warning/error. Keep left-side statistics and right-side model information aligned and truncate safely when space is limited. Extension text registered through `ui.setStatus()` belongs on one dedicated footer row after the editor's closing rail; it must not be appended to the editor's top status rail. Use the compact grammar `spinner · ⛁ connected/total · PLAN · GOAL`; omit ambient Magic Context telemetry.
 
 ### Custom message
 

@@ -83,6 +83,18 @@ export function renderStatusbarLine(
 	return renderWithFill(beforeFill, afterFill, target, rail);
 }
 
+export function renderExtensionStatusFooter(
+	width: number,
+	statuses: readonly string[],
+	theme: Theme,
+): string[] {
+	const target = Math.max(0, Math.floor(width));
+	if (!target || statuses.length === 0) return [];
+	const separator = theme.fg("dim", " · ");
+	const line = truncateToWidth(statuses.join(separator), target);
+	return [padToWidth(line, target)];
+}
+
 export function renderStatusbar(
 	width: number,
 	snapshot: StatusbarSnapshot,

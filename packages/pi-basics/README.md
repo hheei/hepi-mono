@@ -8,6 +8,8 @@ Load this extension before any `@hheei/pi-*` feature package. Feature packages a
 
 `/ext-settings` and `/hepi setting` show registered settings providers. `/hepi loadout` becomes available when `@hheei/pi-loadout` is loaded. Compatibility settings such as `Guard patch` are provided by `@hheei/pi-fix`.
 
+The editor's top status rail contains only Pi Basics session context. The editor's closing rail remains intact, and text registered through `ui.setStatus()` is normalized into one compact footer row below it. Magic Context telemetry is omitted, MCP is rendered as `⛁ connected/total`, `receiving` becomes an animated Braille spinner, and Plan/Goal labels are uppercase.
+
 ## Public API
 
 Import from the package root only. It exports Settings and module registries, session lifecycle/context helpers, shared TUI primitives, JSON section storage, tool activation, and the Loadout bridge contracts used for cross-feature support.
