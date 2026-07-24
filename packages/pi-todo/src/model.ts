@@ -19,7 +19,7 @@ export type TodoOperation =
 			readonly action: "update";
 			readonly id: number;
 			readonly subject?: string;
-			readonly status?: Exclude<TaskStatus, "suppressed">;
+			readonly status?: "completed";
 	  }
 	| { readonly action: "list"; readonly status?: TaskStatus }
 	| { readonly action: "delete"; readonly id: number };
@@ -80,8 +80,8 @@ function isPositiveInteger(value: unknown): value is number {
 	return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
-function isMutableTaskStatus(value: unknown): value is Exclude<TaskStatus, "suppressed"> {
-	return value === "pending" || value === "in_progress" || value === "completed";
+function isCompletedStatus(value: unknown): value is "completed" {
+	return value === "completed";
 }
 
 function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
@@ -118,28 +118,26 @@ export function validateTaskState(value: unknown): TaskState | undefined {
 	return { tasks, nextId: value.nextId };
 }
 
-function statusError(task: Task, tasks: readonly Task[]): string | undefined {
-	if (task.status !== "in_progress") return undefined;
-	const active = tasks.find(
-		(candidate) => candidate.id !== task.id && candidate.status === "in_progress",
-	);
-	return active
-		? `Task #${task.id} cannot be in progress while Task #${active.id} is in progress`
-		: undefined;
-}
-
 function findTask(tasks: readonly Task[], id: number): Task | undefined {
 	return tasks.find((task) => task.id === id);
-}
-
-function validTransition(from: TaskStatus, to: TaskStatus): boolean {
-	return from !== "completed" || to === "completed";
 }
 
 function firstPending(tasks: readonly Task[]): Task | undefined {
 	return tasks
 		.filter((task) => task.status === "pending")
 		.sort((left, right) => left.id - right.id)[0];
+}
+
+export function activateFirstPending(state: TaskState): TaskState {
+	if (state.tasks.some((task) => task.status === "in_progress")) return state;
+	const next = firstPending(state.tasks);
+	if (!next) return state;
+	return {
+		tasks: state.tasks.map((task) =>
+			task.id === next.id ? { ...task, status: "in_progress" } : task,
+		),
+		nextId: state.nextId,
+	};
 }
 
 export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult {
@@ -150,7 +148,6 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 	const draft = cloneState(state);
 	const operations: TodoOperationResult[] = [];
 	let changed = false;
-	let suppressAutoStart = false;
 	const fail = (error: string, operationIndex: number): ApplyTodoResult => ({
 		ok: false,
 		state,
@@ -224,16 +221,11 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 			const subjectIssue = subjectError(operation.subject as string);
 			if (subjectIssue) return fail(subjectIssue, index);
 		}
-		if (hasStatus && !isMutableTaskStatus(operation.status)) return fail("Invalid status", index);
-		if (operation.status === "pending") suppressAutoStart = true;
+		if (hasStatus && !isCompletedStatus(operation.status)) return fail("Invalid status", index);
 		const subject = hasSubject ? (operation.subject as string).trim() : current.subject;
-		const status = isMutableTaskStatus(operation.status) ? operation.status : current.status;
-		if (!validTransition(current.status, status))
-			return fail(`Invalid status transition from ${current.status} to ${status}`, index);
+		const status = isCompletedStatus(operation.status) ? operation.status : current.status;
 		const next = { ...current, subject, status };
 		const candidateTasks = draft.tasks.map((task) => (task.id === id ? next : task));
-		const statusIssue = statusError(next, candidateTasks);
-		if (statusIssue) return fail(statusIssue, index);
 		const isChanged = current.subject !== subject || current.status !== status;
 		if (isChanged) {
 			draft.tasks = candidateTasks;
@@ -242,7 +234,7 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 		operations.push({ index, action, changed: isChanged, id });
 	}
 	let autoStartedId: number | undefined;
-	if (changed && !suppressAutoStart && !draft.tasks.some((task) => task.status === "in_progress")) {
+	if (changed && !draft.tasks.some((task) => task.status === "in_progress")) {
 		const next = firstPending(draft.tasks);
 		if (next) {
 			draft.tasks = draft.tasks.map((task) =>

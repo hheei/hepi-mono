@@ -1,4 +1,4 @@
-import { type Task, type TaskState, validateTaskState } from "./model.js";
+import { activateFirstPending, type Task, type TaskState, validateTaskState } from "./model.js";
 
 export const TODO_STATE_CUSTOM_TYPE = "pi-todo:state";
 
@@ -19,14 +19,21 @@ export function snapshotFromState(state: TaskState): TodoSnapshot {
 }
 
 export function stateFromSnapshot(value: unknown): TaskState | undefined {
-	return validateTaskState(value);
+	const state = validateTaskState(value);
+	return state ? activateFirstPending(state) : undefined;
 }
 
-function snapshotFromBranchEntry(entry: unknown): TaskState | undefined {
+interface BranchSnapshot {
+	readonly state: TaskState;
+	readonly userOwned: boolean;
+}
+
+function snapshotFromBranchEntry(entry: unknown): BranchSnapshot | undefined {
 	if (!entry || typeof entry !== "object") return undefined;
 	const record = entry as Record<string, unknown>;
 	if (record.type === "custom" && record.customType === TODO_STATE_CUSTOM_TYPE) {
-		return stateFromSnapshot(record.data);
+		const state = stateFromSnapshot(record.data);
+		return state ? { state, userOwned: true } : undefined;
 	}
 	if (record.type !== "message") return undefined;
 	const message = record.message;
@@ -35,14 +42,37 @@ function snapshotFromBranchEntry(entry: unknown): TaskState | undefined {
 	if (messageRecord.role !== "toolResult" || messageRecord.toolName !== "todo") return undefined;
 	const details = messageRecord.details;
 	if (!details || typeof details !== "object") return undefined;
-	return stateFromSnapshot((details as Record<string, unknown>).snapshot);
+	const state = stateFromSnapshot((details as Record<string, unknown>).snapshot);
+	return state ? { state, userOwned: false } : undefined;
+}
+
+function applyUserSuppressions(state: TaskState, suppressed: ReadonlyMap<number, Task>): TaskState {
+	if (suppressed.size === 0) return state;
+	const tasks = new Map(state.tasks.map((task) => [task.id, task]));
+	let nextId = state.nextId;
+	for (const [id, task] of suppressed) {
+		tasks.set(id, task);
+		nextId = Math.max(nextId, id + 1);
+	}
+	return activateFirstPending({
+		tasks: [...tasks.values()].sort((left, right) => left.id - right.id),
+		nextId,
+	});
 }
 
 export function latestTodoSnapshot(branch: readonly unknown[]): TaskState | undefined {
 	let latest: TaskState | undefined;
+	const suppressed = new Map<number, Task>();
 	for (const entry of branch) {
 		const snapshot = snapshotFromBranchEntry(entry);
-		if (snapshot && (!latest || snapshot.nextId >= latest.nextId)) latest = snapshot;
+		if (!snapshot) continue;
+		if (snapshot.userOwned) {
+			for (const task of snapshot.state.tasks) {
+				if (task.status === "suppressed") suppressed.set(task.id, task);
+			}
+		}
+		if (!latest || snapshot.state.nextId >= latest.nextId) latest = snapshot.state;
+		if (latest) latest = applyUserSuppressions(latest, suppressed);
 	}
 	return latest;
 }

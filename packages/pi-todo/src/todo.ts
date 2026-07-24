@@ -24,7 +24,6 @@ const TODO_COMPLETED_HIDE_TURNS = 2;
 const TODO_REMINDER_CUSTOM_TYPE = "pi-todo:reminder";
 
 const taskStatus = Type.String({ enum: ["pending", "in_progress", "completed", "suppressed"] });
-const mutableTaskStatus = Type.String({ enum: ["pending", "in_progress", "completed"] });
 const taskId = Type.Integer({ minimum: 1 });
 
 const todoOperation = Type.Union([
@@ -40,9 +39,9 @@ const todoOperation = Type.Union([
 			action: Type.Literal("update"),
 			id: taskId,
 			subject: Type.Optional(Type.String({ minLength: 1 })),
-			status: Type.Optional(mutableTaskStatus),
+			status: Type.Optional(Type.Literal("completed")),
 		},
-		{ additionalProperties: false },
+		{ additionalProperties: false, minProperties: 3 },
 	),
 	Type.Object(
 		{
