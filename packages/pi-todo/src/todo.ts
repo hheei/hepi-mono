@@ -74,12 +74,10 @@ export const TODO_PARAMETERS = Type.Object(
 );
 
 export const TODO_TOOL_DESCRIPTION =
-	"Maintain an atomic task list for the current coding session. The first pending task starts automatically, and completing or deleting it starts the next one. Submit ordered create, update, or delete operations atomically; list must be the only operation when used.";
+	"Maintain an atomic task list. Update only when state changes: use `blocked` when work cannot continue, `in_progress` when resuming, and `completed` after verification. Scheduling is automatic. Submit one `list` operation or an atomic batch of create, update, and delete operations. Follow the `Next` line returned by the tool.";
 export const TODO_PROMPT_SNIPPET = "Manage a task list to track multi-step progress";
 export const TODO_PROMPT_GUIDELINES = [
-	"Use `todo` for work with 3+ concrete steps or multiple user-requested tasks. Skip trivial or purely conversational requests.",
-	"Do not call `todo` only to start the next task; it starts automatically.",
-	"Update only when state changes: use `blocked` when work cannot continue, `in_progress` when resuming, and `completed` after verification; batch known changes.",
+	"Use `todo` for work with 3+ concrete steps or multiple user-requested tasks; skip trivial work.",
 ] as const;
 
 interface ActiveTodoRuntime {
@@ -142,6 +140,24 @@ function todoReminder(current: ActiveTodoRuntime): string | undefined {
 		.sort((left, right) => left.id - right.id)
 		.map((task) => `#${task.id}`);
 	return `<system-reminder>\nActive TODO: #${activeTask.id} ${escapeReminderText(activeTask.subject)}.\nPending TODOS: ${pending.length > 0 ? pending.join(", ") : "none"}\n</system-reminder>`;
+}
+
+function taskIds(state: TaskState, status: TaskStatus): string | undefined {
+	const ids = state.tasks
+		.filter((task) => task.status === status)
+		.sort((left, right) => left.id - right.id)
+		.map((task) => `#${task.id}`);
+	return ids.length > 0 ? ids.join(", ") : undefined;
+}
+
+function formatTodoGuidance(state: TaskState): string {
+	const active = activeTodoTask(state);
+	if (active) return `Next: #${active.id} ${active.subject}.`;
+	const blocked = taskIds(state, "blocked");
+	if (blocked) {
+		return `Next: discuss blocked TODOs ${blocked} with the user and agree how to proceed.`;
+	}
+	return "Next: no TODO action.";
 }
 
 function formatTaskLine(task: Task): string {
@@ -226,10 +242,7 @@ function formatTodoResult(
 		}
 		lines.push(formatTodoOperationResult(operation, operationResult, result.state));
 	}
-	if (result.autoStartedId !== undefined) {
-		const task = result.state.tasks.find(({ id }) => id === result.autoStartedId);
-		if (task) lines.push(`Started #${task.id}: ${task.subject}`);
-	}
+	lines.push(formatTodoGuidance(result.state));
 	return lines.join("\n");
 }
 
@@ -280,9 +293,16 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 			const todoParams = params as TodoParams;
 			const result = applyTodo(current.state, todoParams);
 			if (!result.ok) {
-				const prefix =
-					result.operationIndex === undefined ? "" : `Operation #${result.operationIndex + 1}: `;
-				throw new Error(`${prefix}${result.error}`);
+				const operationNumber =
+					result.operationIndex === undefined ? undefined : result.operationIndex + 1;
+				const prefix = operationNumber === undefined ? "" : `Operation #${operationNumber}: `;
+				const next = result.error.startsWith("The user suppressed #")
+					? "Create a new TODO if that work is still needed."
+					: operationNumber === undefined
+						? "Correct the request and retry."
+						: `Correct operation #${operationNumber} and retry the batch.`;
+				const message = result.error.endsWith(".") ? result.error : `${result.error}.`;
+				throw new Error(`${prefix}${message} No changes committed.\nNext: ${next}`);
 			}
 			if (result.changed) {
 				current.state = result.state;
@@ -348,11 +368,7 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 			current.completedIdleTurns = 0;
 			current.widgetHidden = false;
 			current.widget?.refresh(current.state);
-			const lines = [`Suppressed #${id}`];
-			if (result.autoStartedId !== undefined) {
-				const task = result.state.tasks.find(({ id: taskId }) => taskId === result.autoStartedId);
-				if (task) lines.push(`Started #${task.id}: ${task.subject}`);
-			}
+			const lines = [`Suppressed #${id}`, formatTodoGuidance(result.state)];
 			ctx.ui.notify(lines.join("\n"), "info");
 		},
 	});
