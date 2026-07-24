@@ -1,8 +1,4 @@
-import type {
-	BeforeAgentStartEvent,
-	ExtensionAPI,
-	ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { HePiRuntimeContext } from "@hheei/pi-basics";
 import { type Static, Type } from "typebox";
 import {
@@ -21,8 +17,10 @@ import { createTodoWidget, type TodoWidget } from "./widget.js";
 export const TODO_TOOL_NAME = "todo";
 export const TODO_COMMAND_NAME = "todos";
 
-const TODO_REMINDER_IDLE_TURNS = 5;
+export const TODO_REMINDER_IDLE_TURNS = 3;
+export const TODO_REMINDER_IDLE_MS = 3 * 60_000;
 const TODO_COMPLETED_HIDE_TURNS = 2;
+const TODO_REMINDER_CUSTOM_TYPE = "pi-todo:reminder";
 
 const taskStatus = Type.String({ enum: ["pending", "in_progress", "completed"] });
 const taskId = Type.Integer({ minimum: 1 });
@@ -79,7 +77,7 @@ export const TODO_TOOL_DESCRIPTION =
 export const TODO_PROMPT_SNIPPET = "Manage a task list to track multi-step progress";
 export const TODO_PROMPT_GUIDELINES = [
 	"Use `todo` for complex work with 3+ distinct steps, when the user provides multiple tasks, or after new instructions. Skip single trivial or purely conversational requests.",
-	"Mark a task `in_progress` before beginning work and `completed` immediately when done; keep exactly one task `in_progress` while work remains, and do not delay completions to batch them.",
+	"The first runnable task starts automatically, and completing or deleting it starts the next runnable task. Explicitly set a task to `pending` to pause; do not send a separate update solely to start the next task.",
 	"Never mark a task `completed` when work is partial, failing, or blocked; keep it `in_progress` and add a task for the blocker.",
 	"When several task changes are already known, submit them together in one `operations` batch to reduce tool calls; never infer deletion from omitted tasks.",
 ] as const;
@@ -89,8 +87,9 @@ interface ActiveTodoRuntime {
 	state: TaskState;
 	widget: TodoWidget | undefined;
 	idleTurns: number;
-	reminderSent: boolean;
-	toolUsedThisTurn: boolean;
+	reminderWindowStartedAtMs: number;
+	todoChangedThisTurn: boolean;
+	todoUsedSinceSettled: boolean;
 	completedIdleTurns: number;
 	widgetHidden: boolean;
 }
@@ -98,6 +97,14 @@ interface ActiveTodoRuntime {
 export interface TodoFeature {
 	start(runtime: HePiRuntimeContext): void | Promise<void>;
 	dispose(sessionId: string): void | Promise<void>;
+}
+
+export interface TodoFeatureOptions {
+	readonly now?: () => number;
+}
+
+function escapeReminderText(value: string): string {
+	return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
 function canonicalPositiveInteger(value: unknown): number | undefined {
@@ -133,24 +140,15 @@ function unresolvedBlockers(task: Task, state: TaskState): number[] {
 	return task.blockedBy.filter((id) => tasks.get(id)?.status !== "completed");
 }
 
-function nextTodoTask(state: TaskState): Task | undefined {
-	const incomplete = state.tasks
-		.filter((task) => task.status !== "completed")
-		.slice()
-		.sort((left, right) => left.id - right.id);
-	return (
-		incomplete.find((task) => task.status === "in_progress") ??
-		incomplete.find((task) => unresolvedBlockers(task, state).length === 0) ??
-		incomplete[0]
-	);
+function activeTodoTask(state: TaskState): Task | undefined {
+	return state.tasks.find((task) => task.status === "in_progress");
 }
 
 function todoReminder(current: ActiveTodoRuntime): string | undefined {
-	const next = nextTodoTask(current.state);
-	if (!next) return undefined;
+	const activeTask = activeTodoTask(current.state);
+	if (!activeTask) return undefined;
 	const unfinished = current.state.tasks.filter((task) => task.status !== "completed").length;
-	const blockers = unresolvedBlockers(next, current.state);
-	return `<todo_context>\nTodo reminder: ${unfinished} unfinished. Continue #${next.id}: ${next.subject}${blockers.length > 0 ? ` (blocked by ${blockers.map((id) => `#${id}`).join(", ")})` : ""}. Use \`todo\` when progress changes.\n</todo_context>`;
+	return `<system-reminder>\nActive TODO #${activeTask.id}: ${escapeReminderText(activeTask.subject)}.\n${unfinished} unfinished ${unfinished === 1 ? "task remains" : "tasks remain"}. Continue the active task. Use \`todo\` only when progress changes; do not call it merely to acknowledge this reminder.\n</system-reminder>`;
 }
 
 function formatTaskLine(task: Task, state: TaskState): string {
@@ -188,10 +186,8 @@ function formatTodoOperationResult(
 	state: TaskState,
 ): string {
 	switch (operation.action) {
-		case "create": {
-			const task = state.tasks.find((candidate) => candidate.id === result.id);
-			return task ? `Created #${task.id}: ${task.subject}` : "Created task";
-		}
+		case "create":
+			return result.id === undefined ? "Created task" : `Created #${result.id}`;
 		case "update":
 			return result.changed
 				? `Updated #${operation.id}`
@@ -208,9 +204,29 @@ function formatTodoResult(
 	result: Extract<ReturnType<typeof applyTodo>, { ok: true }>,
 ): string {
 	const lines: string[] = [];
+	const createdIds = result.operations
+		.filter((operation) => operation.action === "create" && operation.id !== undefined)
+		.flatMap((operation) => (operation.id === undefined ? [] : [operation.id]));
+	let createdReported = false;
 	for (const operationResult of result.operations) {
 		const operation = params.operations[operationResult.index];
-		if (operation) lines.push(formatTodoOperationResult(operation, operationResult, result.state));
+		if (!operation) continue;
+		if (operation.action === "create") {
+			if (!createdReported) {
+				lines.push(
+					createdIds.length === 0
+						? "Created task"
+						: `Created ${createdIds.map((id) => `#${id}`).join(" ")}`,
+				);
+				createdReported = true;
+			}
+			continue;
+		}
+		lines.push(formatTodoOperationResult(operation, operationResult, result.state));
+	}
+	if (result.autoStartedId !== undefined) {
+		const task = result.state.tasks.find(({ id }) => id === result.autoStartedId);
+		if (task) lines.push(`Started #${task.id}: ${task.subject}`);
 	}
 	return lines.join("\n");
 }
@@ -219,8 +235,9 @@ function isStaleSessionContextError(error: unknown): boolean {
 	return /stale after session replacement/.test(String(error));
 }
 
-export function createTodoFeature(pi: ExtensionAPI): TodoFeature {
+export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions = {}): TodoFeature {
 	let active: ActiveTodoRuntime | undefined;
+	const now = options.now ?? (() => performance.now());
 
 	const refreshFromBranch = (kind: "compact" | "tree", ctx: ExtensionContext): void => {
 		try {
@@ -231,8 +248,9 @@ export function createTodoFeature(pi: ExtensionAPI): TodoFeature {
 			else if (kind === "tree") current.state = freshTaskState();
 			if (kind === "tree") {
 				current.idleTurns = 0;
-				current.reminderSent = false;
-				current.toolUsedThisTurn = false;
+				current.reminderWindowStartedAtMs = now();
+				current.todoChangedThisTurn = false;
+				current.todoUsedSinceSettled = false;
 				current.completedIdleTurns = 0;
 				current.widgetHidden = false;
 			}
@@ -264,10 +282,13 @@ export function createTodoFeature(pi: ExtensionAPI): TodoFeature {
 					result.operationIndex === undefined ? "" : `Operation #${result.operationIndex + 1}: `;
 				throw new Error(`${prefix}${result.error}`);
 			}
-			if (result.changed) current.state = result.state;
-			current.idleTurns = 0;
-			current.reminderSent = false;
-			current.toolUsedThisTurn = true;
+			if (result.changed) {
+				current.state = result.state;
+				current.idleTurns = 0;
+				current.reminderWindowStartedAtMs = now();
+				current.todoChangedThisTurn = true;
+			}
+			current.todoUsedSinceSettled = true;
 			current.completedIdleTurns = 0;
 			current.widgetHidden = false;
 			return {
@@ -297,34 +318,69 @@ export function createTodoFeature(pi: ExtensionAPI): TodoFeature {
 		},
 	});
 
-	pi.on("before_agent_start", async (event: BeforeAgentStartEvent, ctx) => {
+	pi.on("context", async (event, ctx) => {
 		const current = active;
 		if (!current || current.sessionId !== ctx.sessionManager.getSessionId()) return;
-		if (!event.systemPromptOptions.selectedTools?.includes(TODO_TOOL_NAME)) return;
-		if (current.reminderSent || current.idleTurns < TODO_REMINDER_IDLE_TURNS) return;
+		if (!pi.getActiveTools().includes(TODO_TOOL_NAME)) return;
+		if (
+			current.idleTurns < TODO_REMINDER_IDLE_TURNS ||
+			now() - current.reminderWindowStartedAtMs < TODO_REMINDER_IDLE_MS
+		)
+			return;
 		const content = todoReminder(current);
 		if (!content) return;
-		current.reminderSent = true;
-		return { systemPrompt: `${event.systemPrompt}\n\n${content}` };
+		current.idleTurns = 0;
+		current.reminderWindowStartedAtMs = now();
+		return {
+			messages: [
+				...event.messages,
+				{
+					role: "custom" as const,
+					customType: TODO_REMINDER_CUSTOM_TYPE,
+					content,
+					display: false,
+					timestamp: Date.now(),
+				},
+			],
+		};
 	});
-	pi.on("agent_start", async (_event, ctx) => {
+	pi.on("turn_start", async (_event, ctx) => {
 		const current = active;
 		if (!current || current.sessionId !== ctx.sessionManager.getSessionId()) return;
-		current.toolUsedThisTurn = false;
+		current.todoChangedThisTurn = false;
 	});
-	pi.on("agent_end", async (_event, ctx) => {
+	pi.on("turn_end", async (event, ctx) => {
+		const current = active;
+		if (!current || current.sessionId !== ctx.sessionManager.getSessionId()) return;
+		if (current.todoChangedThisTurn) {
+			current.todoChangedThisTurn = false;
+			return;
+		}
+		if (!activeTodoTask(current.state)) {
+			current.idleTurns = 0;
+			current.reminderWindowStartedAtMs = now();
+			return;
+		}
+		if (
+			event.message.role !== "assistant" ||
+			event.message.stopReason === "error" ||
+			event.message.stopReason === "aborted"
+		)
+			return;
+		current.idleTurns++;
+	});
+	pi.on("agent_settled", async (_event, ctx) => {
 		const current = active;
 		if (!current || current.sessionId !== ctx.sessionManager.getSessionId()) return;
 		const incomplete = current.state.tasks.some((task) => task.status !== "completed");
 		if (incomplete) {
 			current.completedIdleTurns = 0;
-			if (!current.toolUsedThisTurn) current.idleTurns++;
+			current.todoUsedSinceSettled = false;
 			return;
 		}
-		current.idleTurns = 0;
-		current.reminderSent = false;
-		if (current.state.tasks.length === 0 || current.toolUsedThisTurn) {
+		if (current.state.tasks.length === 0 || current.todoUsedSinceSettled) {
 			current.completedIdleTurns = 0;
+			current.todoUsedSinceSettled = false;
 			return;
 		}
 		current.completedIdleTurns++;
@@ -332,6 +388,7 @@ export function createTodoFeature(pi: ExtensionAPI): TodoFeature {
 			current.widgetHidden = true;
 			current.widget?.hide();
 		}
+		current.todoUsedSinceSettled = false;
 	});
 
 	pi.on("session_compact", async (_event, ctx) => refreshFromBranch("compact", ctx));
@@ -354,8 +411,9 @@ export function createTodoFeature(pi: ExtensionAPI): TodoFeature {
 				sessionId: runtime.ctx.sessionManager.getSessionId(),
 				state,
 				idleTurns: 0,
-				reminderSent: false,
-				toolUsedThisTurn: false,
+				reminderWindowStartedAtMs: now(),
+				todoChangedThisTurn: false,
+				todoUsedSinceSettled: false,
 				completedIdleTurns: 0,
 				widget: undefined,
 				widgetHidden: false,

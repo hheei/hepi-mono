@@ -18,7 +18,20 @@ export function snapshotFromState(state: TaskState): TodoSnapshot {
 
 export function stateFromSnapshot(value: unknown): TaskState | undefined {
 	const state = validateTaskState(value);
-	return state ? snapshotFromState(state) : undefined;
+	if (!state) return undefined;
+	const byId = new Map(state.tasks.map((task) => [task.id, task]));
+	return {
+		tasks: state.tasks.map((task) => ({
+			...task,
+			status:
+				task.status === "in_progress" &&
+				task.blockedBy.some((id) => byId.get(id)?.status !== "completed")
+					? "pending"
+					: task.status,
+			blockedBy: [...task.blockedBy],
+		})),
+		nextId: state.nextId,
+	};
 }
 
 function snapshotFromBranchEntry(entry: unknown): TaskState | undefined {

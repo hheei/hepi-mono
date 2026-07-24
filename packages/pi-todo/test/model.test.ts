@@ -20,13 +20,14 @@ function stateOf(state: TaskState, operations: readonly unknown[]) {
 }
 
 describe("todo model", () => {
-	test("creates trimmed pending tasks and returns ids", () => {
+	test("creates trimmed tasks and auto-starts the first runnable task", () => {
 		const result = stateOf(freshTaskState(), [create("  first  ")]);
 		expect(result.state).toEqual({
-			tasks: [{ id: 1, subject: "first", status: "pending", blockedBy: [] }],
+			tasks: [{ id: 1, subject: "first", status: "in_progress", blockedBy: [] }],
 			nextId: 2,
 		});
 		expect(result.operations).toEqual([{ index: 0, action: "create", changed: true, id: 1 }]);
+		expect(result.autoStartedId).toBe(1);
 	});
 
 	test("rejects create when id space is exhausted", () => {
@@ -44,9 +45,10 @@ describe("todo model", () => {
 		const initial = stateOf(freshTaskState(), [create("one"), create("two", [1])]).state;
 		const result = stateOf(initial, [{ action: "delete", id: 1 }, create("three")]);
 		expect(result.state.tasks).toEqual([
-			{ id: 2, subject: "two", status: "pending", blockedBy: [] },
+			{ id: 2, subject: "two", status: "in_progress", blockedBy: [] },
 			{ id: 3, subject: "three", status: "pending", blockedBy: [] },
 		]);
+		expect(result.autoStartedId).toBe(2);
 		expect(result.state.nextId).toBe(4);
 	});
 
@@ -106,7 +108,11 @@ describe("todo model", () => {
 	});
 
 	test("validates dependencies and cycles", () => {
-		const initial = stateOf(freshTaskState(), [create("one"), create("two")]).state;
+		const initial = stateOf(freshTaskState(), [
+			create("one"),
+			create("two"),
+			update(1, { status: "pending" }),
+		]).state;
 		expect(
 			applyTodo(initial, { operations: [update(1, { blockedBy: [99] })] } as never),
 		).toMatchObject({ ok: false, operationIndex: 0 });
@@ -116,6 +122,37 @@ describe("todo model", () => {
 		expect(cyclic).toMatchObject({ ok: false, operationIndex: 1, state: initial });
 	});
 
+	test("auto-advances after completion and respects explicit pause", () => {
+		const initial = stateOf(freshTaskState(), [create("one"), create("two", [1])]).state;
+		const advanced = stateOf(initial, [update(1, { status: "completed" })]);
+		expect(advanced.state.tasks.map(({ status }) => status)).toEqual(["completed", "in_progress"]);
+		expect(advanced.autoStartedId).toBe(2);
+
+		const paused = stateOf(advanced.state, [update(2, { status: "pending" })]);
+		expect(paused.state.tasks[1]?.status).toBe("pending");
+		expect(paused.autoStartedId).toBeUndefined();
+		const listed = stateOf(paused.state, [{ action: "list" }]);
+		expect(listed.state).toBe(paused.state);
+		expect(listed.state.tasks[1]?.status).toBe("pending");
+	});
+
+	test("starts the first runnable task and rejects explicitly starting blocked work", () => {
+		const paused = stateOf(freshTaskState(), [
+			create("blocker"),
+			create("blocked", [1]),
+			update(1, { status: "pending" }),
+		]).state;
+		expect(paused.tasks.every(({ status }) => status === "pending")).toBe(true);
+		expect(
+			applyTodo(paused, { operations: [update(2, { status: "in_progress" })] } as never),
+		).toMatchObject({
+			ok: false,
+			error: "Task #2 cannot be in progress while blocked by incomplete task #1",
+		});
+		const resumed = stateOf(paused, [update(1, { subject: "updated blocker" })]);
+		expect(resumed.autoStartedId).toBe(1);
+		expect(resumed.state.tasks[0]?.status).toBe("in_progress");
+	});
 	test("rejects completing a task with incomplete blockers", () => {
 		const initial = stateOf(freshTaskState(), [create("blocker"), create("blocked", [1])]).state;
 		const result = applyTodo(initial, {
