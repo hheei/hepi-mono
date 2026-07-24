@@ -22,6 +22,20 @@ describe("loadout bridge", () => {
 		expect(isHePiSkillEnabled(skill, "other")).toBe(true);
 	});
 
+	test("shares skill state across independently evaluated module instances", async () => {
+		const loadoutBridgePath = "../../src/runtime/loadout-bridge.ts?instance=loadout";
+		const dollarSkillBridgePath = "../../src/runtime/loadout-bridge.ts?instance=dollar-skill";
+		const loadoutBridge: typeof import("../../src/runtime/loadout-bridge.js") =
+			await import(loadoutBridgePath);
+		const dollarSkillBridge: typeof import("../../src/runtime/loadout-bridge.js") =
+			await import(dollarSkillBridgePath);
+		const [loadout, dollarSkill] = apiPair();
+
+		loadoutBridge.setHePiDisabledSkillKeys(loadout, new Set(["skill:review"]));
+
+		expect(dollarSkillBridge.isHePiSkillEnabled(dollarSkill, "review")).toBe(false);
+	});
+
 	test("invokes and unregisters tool handlers across extension API facades", async () => {
 		const [loadout, goal] = apiPair();
 		let calls = 0;

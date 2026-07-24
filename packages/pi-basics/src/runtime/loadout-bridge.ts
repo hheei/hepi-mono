@@ -7,9 +7,16 @@ interface LoadoutBridgeState {
 	readonly toolDisableHandlers: Map<string, () => HePiMaybePromise<void>>;
 }
 
-const states = new WeakMap<object, LoadoutBridgeState>();
+declare global {
+	var __hepiLoadoutBridgeStatesByRuntime: WeakMap<object, LoadoutBridgeState> | undefined;
+}
 
 function stateFor(pi: ExtensionAPI): LoadoutBridgeState {
+	let states = globalThis.__hepiLoadoutBridgeStatesByRuntime;
+	if (states === undefined) {
+		states = new WeakMap();
+		globalThis.__hepiLoadoutBridgeStatesByRuntime = states;
+	}
 	const identity = extensionRuntimeIdentity(pi);
 	const existing = states.get(identity);
 	if (existing !== undefined) return existing;
