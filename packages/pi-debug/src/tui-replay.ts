@@ -1,8 +1,12 @@
 #!/usr/bin/env bun
 // biome-ignore-all lint/suspicious/noControlCharactersInRegex: ANSI parser intentionally matches terminal controls.
 // biome-ignore-all lint/suspicious/noUnnecessaryConditions: ReplayAction switch handles all runtime action variants.
-import { mkdir, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { parseArgs } from "node:util";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { lock } from "proper-lockfile";
 
 export const DEFAULT_REPLAY_COLUMNS = 50;
 export const DEFAULT_REPLAY_ROWS = 35;
@@ -98,6 +102,11 @@ export interface ReplayOptions {
 	readonly create: (host: ReplayHost) => ReplayComponent;
 }
 
+export interface TuiReplaySession {
+	apply(action: ReplayAction): Promise<ReplayFrame>;
+	result(): TuiReplayResult;
+}
+
 export interface FrameViewOptions {
 	/** Keep ANSI sequences. Defaults to false. */
 	readonly color?: boolean;
@@ -113,7 +122,21 @@ export interface FormatReplayOptions extends FrameViewOptions {
 
 export interface ReplayArtifactOptions {
 	readonly rootDir?: string;
-	readonly now?: Date;
+	/** Wrap final replay-NNNN publication with a caller-owned transaction guard. */
+	readonly publish?: (publish: () => Promise<string>) => Promise<string>;
+}
+
+export type ReplaySnapshotFormat = "svg" | "ans";
+
+export interface ReplaySnapshotOptions {
+	readonly format: ReplaySnapshotFormat;
+	readonly rootDir?: string;
+}
+
+export interface TextReplayFrameOptions {
+	readonly columns?: number;
+	readonly rows?: number;
+	readonly label?: string;
 }
 
 export interface ReplayArtifacts {
@@ -143,26 +166,88 @@ const KEY_INPUT: Readonly<Record<ReplayKey, string>> = {
 	"page-down": "\x1b[6~",
 };
 
-const OSC = /(?:\x1b\]|\x9d)[\s\S]*?(?:\x07|\x1b\\|\x9c)/gu;
-const STRING_CONTROL = /(?:\x1b(?:P|X|\^|_)|[\x90\x98\x9e\x9f])[\s\S]*?(?:\x1b\\|\x9c)/gu;
-const CSI = /(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]/gu;
-const ESCAPE = /\x1b[@-_]/gu;
-const NON_CSI_ESCAPE = /\x1b(?!\[)[@-_]/gu;
+export function isReplayKey(value: string): value is ReplayKey {
+	return Object.hasOwn(KEY_INPUT, value);
+}
+
+function consumeStringControl(value: string, start: number, bellTerminates: boolean): number {
+	for (let index = start; index < value.length; index++) {
+		const code = value.charCodeAt(index);
+		if ((bellTerminates && code === 0x07) || code === 0x9c) return index + 1;
+		if (code === 0x1b && value[index + 1] === "\\") return index + 2;
+	}
+	return value.length;
+}
+
+function consumeCsi(
+	value: string,
+	start: number,
+	preserveSgr: boolean,
+): { readonly next: number; readonly output: string } {
+	for (let index = start; index < value.length; index++) {
+		const code = value.charCodeAt(index);
+		if (code >= 0x40 && code <= 0x7e) {
+			const parameters = value.slice(start, index);
+			return {
+				next: index + 1,
+				output:
+					preserveSgr && value[index] === "m" && /^[0-9;:]*$/u.test(parameters)
+						? `\x1b[${parameters}m`
+						: "",
+			};
+		}
+		if (code > 0x7e) return { next: index, output: "" };
+	}
+	return { next: value.length, output: "" };
+}
+
+function sanitizeTerminal(value: string, preserveSgr: boolean): string {
+	let output = "";
+	for (let index = 0; index < value.length; ) {
+		const code = value.charCodeAt(index);
+		if (code === 0x1b) {
+			const next = value[index + 1];
+			if (next === "[") {
+				const csi = consumeCsi(value, index + 2, preserveSgr);
+				output += csi.output;
+				index = csi.next;
+			} else if (next === "]") index = consumeStringControl(value, index + 2, true);
+			else if (next === "P" || next === "X" || next === "^" || next === "_")
+				index = consumeStringControl(value, index + 2, false);
+			else index += next === undefined ? 1 : 2;
+			continue;
+		}
+		if (code === 0x9b) {
+			const csi = consumeCsi(value, index + 1, preserveSgr);
+			output += csi.output;
+			index = csi.next;
+			continue;
+		}
+		if (code === 0x9d) {
+			index = consumeStringControl(value, index + 1, true);
+			continue;
+		}
+		if (code === 0x90 || code === 0x98 || code === 0x9e || code === 0x9f) {
+			index = consumeStringControl(value, index + 1, false);
+			continue;
+		}
+		if (code === 0x09 || code === 0x0a) output += value[index];
+		else if (code >= 0x20 && code !== 0x7f && (code < 0x80 || code > 0x9f))
+			output += value[index];
+		index++;
+	}
+	return output;
+}
 
 export function stripAnsi(value: string): string {
-	return value.replace(OSC, "").replace(STRING_CONTROL, "").replace(CSI, "").replace(ESCAPE, "");
+	return sanitizeTerminal(value, false);
 }
 
-function staticAnsi(value: string): string {
-	return value
-		.replace(OSC, "")
-		.replace(STRING_CONTROL, "")
-		.replace(CSI, (sequence) => {
-			if (!sequence.endsWith("m")) return "";
-			return sequence.startsWith("\x9b") ? `\x1b[${sequence.slice(1)}` : sequence;
-		})
-		.replace(NON_CSI_ESCAPE, "");
+export function sanitizeAnsi(value: string): string {
+	return sanitizeTerminal(value, true);
 }
+
+const staticAnsi = sanitizeAnsi;
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
 	return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -262,7 +347,9 @@ function actionLabel(action: ReplayAction): string {
 	}
 }
 
-export async function replayTui(options: ReplayOptions): Promise<TuiReplayResult> {
+export function createTuiReplaySession(
+	options: Omit<ReplayOptions, "actions">,
+): TuiReplaySession {
 	let columns = positiveInteger(options.columns ?? DEFAULT_REPLAY_COLUMNS, "columns");
 	let rows = positiveInteger(options.rows ?? DEFAULT_REPLAY_ROWS, "rows");
 	let renderRequests = 0;
@@ -283,60 +370,72 @@ export async function replayTui(options: ReplayOptions): Promise<TuiReplayResult
 	const component = options.create(host);
 	const frames: ReplayFrame[] = [];
 	const modelResults: ReplayModelResult[] = [];
-	const capture = (label: string) => {
+	const capture = (label: string): ReplayFrame => {
 		const lines = component.render(columns);
 		if (!Array.isArray(lines) || lines.some((line) => typeof line !== "string"))
 			throw new Error("TUI component render() must return string[]");
-		frames.push({
+		const frame: ReplayFrame = {
 			index: frames.length,
 			label,
 			columns,
 			rows,
 			renderRequests,
 			lines: [...lines],
-		});
+		};
+		frames.push(frame);
+		return frame;
 	};
 
 	capture("initial");
-	for (const action of options.actions ?? []) {
-		switch (action.type) {
-			case "input":
-				await component.handleInput?.(action.data);
-				break;
-			case "key":
-				await component.handleInput?.(KEY_INPUT[action.key]);
-				break;
-			case "text":
-				await component.handleInput?.(action.text);
-				break;
-			case "resize":
-				if (action.columns !== undefined) columns = positiveInteger(action.columns, "columns");
-				if (action.rows !== undefined) rows = positiveInteger(action.rows, "rows");
-				break;
-			case "wait":
-				if (!Number.isFinite(action.ms) || action.ms < 0)
-					throw new Error("wait ms must be non-negative");
-				await Bun.sleep(action.ms);
-				break;
-			case "model": {
-				const request: ReplayModelRequest = {
-					prompt: action.prompt,
-					model: action.model ?? DEFAULT_REPLAY_MODEL,
-					thinking: action.thinking ?? DEFAULT_REPLAY_THINKING,
-					...(action.cwd === undefined ? {} : { cwd: action.cwd }),
-				};
-				const modelResult = await (options.runModel ?? runPiModel)(request);
-				modelResults.push(modelResult);
-				await component.handleModelResult?.(modelResult);
-				break;
+	return {
+		async apply(action) {
+			switch (action.type) {
+				case "input":
+					await component.handleInput?.(action.data);
+					break;
+				case "key":
+					await component.handleInput?.(KEY_INPUT[action.key]);
+					break;
+				case "text":
+					await component.handleInput?.(action.text);
+					break;
+				case "resize":
+					if (action.columns !== undefined)
+						columns = positiveInteger(action.columns, "columns");
+					if (action.rows !== undefined) rows = positiveInteger(action.rows, "rows");
+					break;
+				case "wait":
+					if (!Number.isFinite(action.ms) || action.ms < 0)
+						throw new Error("wait ms must be non-negative");
+					await Bun.sleep(action.ms);
+					break;
+				case "model": {
+					const request: ReplayModelRequest = {
+						prompt: action.prompt,
+						model: action.model ?? DEFAULT_REPLAY_MODEL,
+						thinking: action.thinking ?? DEFAULT_REPLAY_THINKING,
+						...(action.cwd === undefined ? {} : { cwd: action.cwd }),
+					};
+					const modelResult = await (options.runModel ?? runPiModel)(request);
+					modelResults.push(modelResult);
+					await component.handleModelResult?.(modelResult);
+					break;
+				}
 			}
-		}
-		capture(actionLabel(action));
-	}
+			return capture(actionLabel(action));
+		},
+		result() {
+			const last = frames.at(-1);
+			if (last === undefined) throw new Error("Replay produced no frames");
+			return { frames: [...frames], last, modelResults: [...modelResults] };
+		},
+	};
+}
 
-	const last = frames.at(-1);
-	if (!last) throw new Error("Replay produced no frames");
-	return { frames, last, modelResults };
+export async function replayTui(options: ReplayOptions): Promise<TuiReplayResult> {
+	const session = createTuiReplaySession(options);
+	for (const action of options.actions ?? []) await session.apply(action);
+	return session.result();
 }
 
 function outputLines(frame: ReplayFrame, color: boolean): readonly string[] {
@@ -357,6 +456,29 @@ export function scrollbackLines(frame: ReplayFrame, color = false): readonly str
 	return lines.slice(0, Math.max(0, lines.length - frame.rows));
 }
 
+export function createTextReplayFrame(
+	text: string,
+	options: TextReplayFrameOptions = {},
+): ReplayFrame {
+	const lines = text
+		.replaceAll("\r\n", "\n")
+		.replaceAll("\r", "\n")
+		.split("\n")
+		.map(staticAnsi);
+	if (lines.length > 1 && lines.at(-1) === "") lines.pop();
+	const naturalColumns = Math.max(1, ...lines.map((line) => visibleWidth(line)));
+	const columns = positiveInteger(options.columns ?? naturalColumns, "columns");
+	const fitted = lines.map((line) => truncateToWidth(line, columns, ""));
+	return {
+		index: 0,
+		label: options.label ?? "text capture",
+		columns,
+		rows: positiveInteger(options.rows ?? Math.max(1, fitted.length), "rows"),
+		renderRequests: 0,
+		lines: fitted,
+	};
+}
+
 export function formatReplay(result: TuiReplayResult, options: FormatReplayOptions = {}): string {
 	const frames = options.frames === "last" ? [result.last] : result.frames;
 	return frames
@@ -367,26 +489,55 @@ export function formatReplay(result: TuiReplayResult, options: FormatReplayOptio
 		.join("\n\n");
 }
 
-function replayTimestamp(now: Date): string {
-	if (Number.isNaN(now.getTime())) throw new Error("artifact timestamp must be a valid date");
-	return now.toISOString().replace(/[-:.TZ]/gu, "");
-}
-
 function hasErrorCode(error: unknown, code: string): boolean {
 	return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
 
-async function createArtifactDirectory(rootDir: string, timestamp: string): Promise<string> {
+const LEGACY_REPLAY_DIRECTORY = /^replay-\d{17}(?:-\d+)?$/u;
+const REPLAY_DIRECTORY = /^replay-(\d{4,})$/u;
+
+async function withArtifactRootLock<T>(rootDir: string, run: () => Promise<T>): Promise<T> {
 	await mkdir(rootDir, { recursive: true });
-	for (let suffix = 0; ; suffix++) {
-		const directory = join(rootDir, `replay-${timestamp}${suffix === 0 ? "" : `-${suffix + 1}`}`);
-		try {
-			await mkdir(directory);
-			return directory;
-		} catch (error) {
-			if (!hasErrorCode(error, "EEXIST")) throw error;
-		}
+	const release = await lock(join(rootDir, ".replay-publish"), {
+		realpath: false,
+		stale: 60_000,
+		update: 10_000,
+		retries: { retries: 100, minTimeout: 10, maxTimeout: 1_000 },
+	});
+	try {
+		return await run();
+	} finally {
+		await release();
 	}
+}
+
+async function nextArtifactId(rootDir: string): Promise<bigint> {
+	let nextId = 1n;
+	for (const name of await readdir(rootDir)) {
+		if (LEGACY_REPLAY_DIRECTORY.test(name)) continue;
+		const match = REPLAY_DIRECTORY.exec(name);
+		const value = match?.[1];
+		if (value === undefined) continue;
+		const candidate = BigInt(value) + 1n;
+		if (candidate > nextId) nextId = candidate;
+	}
+	return nextId;
+}
+
+async function publishArtifactDirectory(rootDir: string, temporary: string): Promise<string> {
+	return await withArtifactRootLock(rootDir, async () => {
+		let nextId = await nextArtifactId(rootDir);
+		for (;;) {
+			const directory = join(rootDir, `replay-${nextId.toString().padStart(4, "0")}`);
+			try {
+				await rename(temporary, directory);
+				return directory;
+			} catch (error) {
+				if (!hasErrorCode(error, "EEXIST") && !hasErrorCode(error, "ENOTEMPTY")) throw error;
+				nextId += 1n;
+			}
+		}
+	});
 }
 
 function escapeXml(value: string): string {
@@ -518,7 +669,7 @@ export function finalFrameSvg(frame: ReplayFrame): string {
 	const cellWidth = 8.4;
 	const lineHeight = 18;
 	const padding = 12;
-	const lines = [...viewFrame(frame, { color: true })];
+	const lines = [...viewFrame(frame, { color: true })].map(staticAnsi);
 	const style: AnsiSvgStyle = {
 		color: "#d8dee9",
 		bold: false,
@@ -546,16 +697,32 @@ ${content}
 `;
 }
 
-export async function writeReplayArtifacts(
-	result: TuiReplayResult,
-	options: ReplayArtifactOptions = {},
-): Promise<ReplayArtifacts> {
-	const now = options.now ?? new Date();
-	const directory = await createArtifactDirectory(
-		options.rootDir ?? join(process.cwd(), "outputs"),
-		replayTimestamp(now),
-	);
-	const artifacts: ReplayArtifacts = {
+export function finalFrameAnsi(frame: ReplayFrame): string {
+	return `${staticAnsi(viewFrame(frame, { color: true }).join("\n"))}\x1b[0m\n`;
+}
+
+export async function writeReplaySnapshot(
+	frame: ReplayFrame,
+	options: ReplaySnapshotOptions,
+): Promise<string> {
+	const extension = options.format;
+	const content = options.format === "svg" ? finalFrameSvg(frame) : finalFrameAnsi(frame);
+	const rootDir = options.rootDir ?? join(process.cwd(), "outputs");
+	await mkdir(rootDir, { recursive: true });
+	const temporary = join(rootDir, `.replay-${randomUUID()}.tmp`);
+	await mkdir(temporary);
+	try {
+		await writeFile(join(temporary, `final.${extension}`), content, "utf8");
+		const directory = await publishArtifactDirectory(rootDir, temporary);
+		return join(directory, `final.${extension}`);
+	} catch (error) {
+		await rm(temporary, { recursive: true, force: true });
+		throw error;
+	}
+}
+
+function replayArtifacts(directory: string): ReplayArtifacts {
+	return {
 		directory,
 		replayPlain: join(directory, "replay.txt"),
 		replayAnsi: join(directory, "replay.ans"),
@@ -564,82 +731,177 @@ export async function writeReplayArtifacts(
 		finalScreenshot: join(directory, "final.svg"),
 		metadata: join(directory, "metadata.json"),
 	};
-	await Promise.all([
-		writeFile(artifacts.replayPlain, `${formatReplay(result)}\n`, "utf8"),
-		writeFile(
-			artifacts.replayAnsi,
-			`${staticAnsi(formatReplay(result, { color: true }))}\x1b[0m\n`,
-			"utf8",
-		),
-		writeFile(artifacts.finalPlain, `${viewFrame(result.last).join("\n")}\n`, "utf8"),
-		writeFile(
-			artifacts.finalAnsi,
-			`${staticAnsi(viewFrame(result.last, { color: true }).join("\n"))}\x1b[0m\n`,
-			"utf8",
-		),
-		writeFile(artifacts.finalScreenshot, finalFrameSvg(result.last), "utf8"),
-		writeFile(
-			artifacts.metadata,
-			`${JSON.stringify(
-				{
-					createdAt: now.toISOString(),
-					buffer: "component.render viewport",
-					columns: result.last.columns,
-					rows: result.last.rows,
-					frames: result.frames.map(({ index, label, renderRequests }) => ({
-						index,
-						label,
-						renderRequests,
-					})),
-					modelCalls: result.modelResults.map(({ model, thinking }) => ({ model, thinking })),
-				},
-				null,
-				2,
-			)}\n`,
-			"utf8",
-		),
-	]);
-	return artifacts;
 }
 
-if (import.meta.main) {
-	const args = process.argv.slice(2);
-	if (args.includes("--help") || args.includes("-h")) {
-		console.log(`Usage:
-  bun run tui:replay
-  bun run tui:replay -- --prompt "Prompt sent to the real model"
-  bun run tui:replay -- --prompt "First" --prompt "Second" [--model cx/gpt-5.6-luna] [--thinking low] [--columns 50] [--rows 35]
+export async function writeReplayArtifacts(
+	result: TuiReplayResult,
+	options: ReplayArtifactOptions = {},
+): Promise<ReplayArtifacts> {
+	const now = new Date();
+	const replayPlain = `${formatReplay(result)}\n`;
+	const replayAnsi = `${staticAnsi(formatReplay(result, { color: true }))}\x1b[0m\n`;
+	const finalPlain = `${viewFrame(result.last).join("\n")}\n`;
+	const finalAnsi = finalFrameAnsi(result.last);
+	const finalScreenshot = finalFrameSvg(result.last);
+	const metadata = `${JSON.stringify(
+		{
+			createdAt: now.toISOString(),
+			buffer: "component.render viewport",
+			columns: result.last.columns,
+			rows: result.last.rows,
+			frames: result.frames.map(({ index, label, renderRequests }) => ({
+				index,
+				label,
+				renderRequests,
+			})),
+			modelCalls: result.modelResults.map(({ model, thinking }) => ({ model, thinking })),
+		},
+		null,
+		2,
+	)}\n`;
+	const rootDir = options.rootDir ?? join(process.cwd(), "outputs");
+	await mkdir(rootDir, { recursive: true });
+	const temporary = join(rootDir, `.replay-${randomUUID()}.tmp`);
+	await mkdir(temporary);
+	const pending = replayArtifacts(temporary);
+	try {
+		const writes = await Promise.allSettled([
+			writeFile(pending.replayPlain, replayPlain, "utf8"),
+			writeFile(pending.replayAnsi, replayAnsi, "utf8"),
+			writeFile(pending.finalPlain, finalPlain, "utf8"),
+			writeFile(pending.finalAnsi, finalAnsi, "utf8"),
+			writeFile(pending.finalScreenshot, finalScreenshot, "utf8"),
+			writeFile(pending.metadata, metadata, "utf8"),
+		]);
+		const failed = writes.find((result) => result.status === "rejected");
+		if (failed?.status === "rejected") throw failed.reason;
+		const publish = async (): Promise<string> =>
+			await publishArtifactDirectory(rootDir, temporary);
+		const directory =
+			options.publish === undefined ? await publish() : await options.publish(publish);
+		return replayArtifacts(directory);
+	} catch (error) {
+		await rm(temporary, { recursive: true, force: true });
+		throw error;
+	}
+}
 
-Without --prompt, runs a local two-round demo. With --prompt, invokes Pi once per prompt.
-Every replay writes outputs/replay-<time>/ with plain, ANSI, metadata, and final.svg files.`);
+export function parseReplayThinking(value: string | undefined): ReplayThinking {
+	switch (value) {
+		case undefined:
+			return DEFAULT_REPLAY_THINKING;
+		case "off":
+		case "minimal":
+		case "low":
+		case "medium":
+		case "high":
+		case "xhigh":
+		case "max":
+			return value;
+		default:
+			throw new Error(`Unsupported thinking level: ${value}`);
+	}
+}
+
+function singleCliValue(values: readonly string[] | undefined, name: string): string | undefined {
+	if (values !== undefined && values.length > 1)
+		throw new Error(`${name} may be provided only once`);
+	return values?.[0];
+}
+
+async function captureShellCommand(
+	command: string,
+): Promise<{ readonly text: string; readonly exitCode: number }> {
+	const subprocess = Bun.spawn(["/bin/sh", "-lc", command], {
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const [stdout, stderr, exitCode] = await Promise.all([
+		new Response(subprocess.stdout).text(),
+		new Response(subprocess.stderr).text(),
+		subprocess.exited,
+	]);
+	const separator = stdout !== "" && stderr !== "" && !stdout.endsWith("\n") ? "\n" : "";
+	return { text: `${stdout}${separator}${stderr}`, exitCode };
+}
+
+async function main(): Promise<void> {
+	const { values } = parseArgs({
+		args: process.argv.slice(2),
+		allowPositionals: false,
+		strict: true,
+		options: {
+			help: { type: "boolean", short: "h" },
+			command: { type: "string", multiple: true },
+			text: { type: "string", multiple: true },
+			format: { type: "string", multiple: true },
+			columns: { type: "string", multiple: true },
+			rows: { type: "string", multiple: true },
+			prompt: { type: "string", multiple: true },
+			model: { type: "string", multiple: true },
+			thinking: { type: "string", multiple: true },
+		},
+	});
+	if (values.help) {
+		console.log(`Usage:
+  pi-tui-replay --command "git status --short" [--format svg|ans] [--columns N] [--rows N]
+  pi-tui-replay --text "literal output" [--text "next line"] [--format svg|ans]
+  pi-tui-replay
+  pi-tui-replay --prompt "Prompt sent to the real model"
+  pi-tui-replay --prompt "First" --prompt "Second" [--model cx/gpt-5.6-luna] [--thinking low] [--columns 50] [--rows 35]
+
+--command and --text create a non-interactive shell-text snapshot. The default format is svg.
+Snapshots use outputs/replay-<ID>/final.<format>.
+Without capture or prompt options, runs a local two-round component demo.
+Every component replay writes a complete bundle under outputs/replay-<ID>/.`);
 		process.exit(0);
 	}
-	const values = (flag: string): string[] =>
-		args.flatMap((arg, index) => {
-			const next = args[index + 1];
-			return arg === flag && next !== undefined ? [next] : [];
+	const textValues = values.text ?? [];
+	const command = singleCliValue(values.command, "--command");
+	const promptValues = values.prompt ?? [];
+	const rawFormat = singleCliValue(values.format, "--format");
+	const rawColumns = singleCliValue(values.columns, "--columns");
+	const rawRows = singleCliValue(values.rows, "--rows");
+	const rawModel = singleCliValue(values.model, "--model");
+	const rawThinking = singleCliValue(values.thinking, "--thinking");
+	if (command !== undefined && command.trim() === "") throw new Error("--command must not be blank");
+	if (command !== undefined && textValues.length > 0)
+		throw new Error("--command and --text cannot be combined");
+	if ((command !== undefined || textValues.length > 0) && promptValues.length > 0)
+		throw new Error("shell/text capture cannot be combined with --prompt");
+	if (command !== undefined || textValues.length > 0) {
+		if (rawModel !== undefined || rawThinking !== undefined)
+			throw new Error("shell/text capture cannot use --model or --thinking");
+		let format: ReplaySnapshotFormat;
+		if (rawFormat === undefined || rawFormat === "svg") format = "svg";
+		else if (rawFormat === "ans") format = "ans";
+		else throw new Error(`Unsupported snapshot format: ${rawFormat}`);
+		const capture =
+			command === undefined
+				? { text: textValues.join("\n"), exitCode: 0 }
+				: await captureShellCommand(command);
+		const frame = createTextReplayFrame(capture.text, {
+			...(rawColumns === undefined
+				? {}
+				: { columns: positiveInteger(Number(rawColumns), "columns") }),
+			...(rawRows === undefined ? {} : { rows: positiveInteger(Number(rawRows), "rows") }),
 		});
-	const value = (flag: string, fallback: string): string => values(flag).at(-1) ?? fallback;
+		const outputPath = await writeReplaySnapshot(frame, { format });
+		console.log(stripAnsi(outputPath));
+		if (capture.exitCode !== 0) process.exit(capture.exitCode);
+		process.exit(0);
+	}
+	if (rawFormat !== undefined) throw new Error("--format requires --command or --text");
+	if (promptValues.length === 0 && (rawModel !== undefined || rawThinking !== undefined))
+		throw new Error("--model and --thinking require --prompt");
 	const columns = positiveInteger(
-		Number(value("--columns", String(DEFAULT_REPLAY_COLUMNS))),
+		Number(rawColumns ?? String(DEFAULT_REPLAY_COLUMNS)),
 		"columns",
 	);
-	const rows = positiveInteger(Number(value("--rows", String(DEFAULT_REPLAY_ROWS))), "rows");
-	const model = value("--model", DEFAULT_REPLAY_MODEL);
-	const rawThinking = value("--thinking", DEFAULT_REPLAY_THINKING);
-	const thinkingLevels: readonly ReplayThinking[] = [
-		"off",
-		"minimal",
-		"low",
-		"medium",
-		"high",
-		"xhigh",
-		"max",
-	];
-	if (!thinkingLevels.includes(rawThinking as ReplayThinking))
-		throw new Error(`Unsupported thinking level: ${rawThinking}`);
-	const thinking = rawThinking as ReplayThinking;
-	const prompts = values("--prompt");
+	const rows = positiveInteger(Number(rawRows ?? String(DEFAULT_REPLAY_ROWS)), "rows");
+	const model = rawModel ?? DEFAULT_REPLAY_MODEL;
+	const thinking = parseReplayThinking(rawThinking);
+	const prompts = promptValues;
 	const green = (text: string) => `\x1b[32m${text}\x1b[0m`;
 	const cyan = (text: string) => `\x1b[36m${text}\x1b[0m`;
 	let draft = "";
@@ -689,7 +951,7 @@ Every replay writes outputs/replay-<time>/ with plain, ANSI, metadata, and final
 	const artifacts = await writeReplayArtifacts(result);
 
 	console.log("ANSI viewport:\n");
-	console.log(viewFrame(result.last, { color: true }).join("\n"), "\x1b[0m");
+	process.stdout.write(finalFrameAnsi(result.last));
 	console.log("\nPlain viewport:\n");
 	console.log(viewFrame(result.last).join("\n"));
 	console.log("\nPlain scrollback:\n");
@@ -698,5 +960,17 @@ Every replay writes outputs/replay-<time>/ with plain, ANSI, metadata, and final
 	console.log(viewFrame(result.last, { scrollOffset: 2 }).join("\n"));
 	console.log("\nMulti-round replay:\n");
 	console.log(formatReplay(result));
-	console.log(`\nArtifacts:\n${artifacts.directory}`);
+	console.log(`\nArtifacts:\n${stripAnsi(artifacts.directory)}`);
+}
+
+if (import.meta.main) {
+	try {
+		await main();
+	} catch (error) {
+		const message = stripAnsi(
+			error instanceof Error ? (error.stack ?? error.message) : String(error),
+		);
+		process.stderr.write(`${message}\n`);
+		process.exitCode = 1;
+	}
 }

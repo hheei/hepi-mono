@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { formatReplay, replayTui, stripAnsi, viewFrame } from "../../../scripts/tui-replay.js";
+import {
+	formatReplay,
+	replayTui,
+	stripAnsi,
+	viewFrame,
+} from "@hheei/pi-debug/tui-replay";
 import { createAskComponent } from "../src/component.js";
 import { normalizeAskParams } from "../src/model.js";
 

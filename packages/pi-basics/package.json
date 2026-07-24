@@ -38,5 +38,8 @@
 		"@earendil-works/pi-ai": ">=0.80.10",
 		"@earendil-works/pi-coding-agent": ">=0.80.10",
 		"@earendil-works/pi-tui": "*"
+	},
+	"devDependencies": {
+		"@hheei/pi-debug": "workspace:*"
 	}
 }

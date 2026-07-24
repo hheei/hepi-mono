@@ -22,7 +22,8 @@
 		"typebox": "^1.1.38"
 	},
 	"devDependencies": {
-		"@hheei/pi-basics": "workspace:*"
+		"@hheei/pi-basics": "workspace:*",
+		"@hheei/pi-debug": "workspace:*"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": ">=0.80.10",

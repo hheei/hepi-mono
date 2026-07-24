@@ -3,6 +3,7 @@ import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import {
 	type ReplayKey,
 	replayTui,
@@ -10,11 +11,13 @@ import {
 	stripAnsi,
 	viewFrame,
 	writeReplayArtifacts,
-} from "../../../scripts/tui-replay.js";
+} from "@hheei/pi-debug/tui-replay";
+import { createStatusFeature } from "../src/contributions/status/index.js";
 import { createStatusbarFeature } from "../src/contributions/statusbar/index.js";
 
 const theme = {
-	fg: (color: string, text: string) => `\x1b[${color === "accent" ? 36 : 33}m${text}\x1b[0m`,
+	fg: (color: string, text: string) =>
+		`\x1b[${color === "accent" ? 36 : color === "dim" ? 90 : 33}m${text}\x1b[0m`,
 	bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
 	dim: (text: string) => `\x1b[2m${text}\x1b[22m`,
 	italic: (text: string) => `\x1b[3m${text}\x1b[23m`,
@@ -139,6 +142,92 @@ describe("tui replay", () => {
 		expect(stripAnsi(result.frames[7]!.lines[0]!)).toContain("?? ?");
 		expect(result.frames[1]!.lines[0]).toContain("\x1b[");
 	});
+	test("replays response metrics immediately after assistant output", async () => {
+		const handlers = new Map<string, Array<(event: unknown, ctx: ExtensionContext) => unknown>>();
+		let statusText: Text | undefined;
+		const pi = {
+			on(event: string, handler: (event: unknown, ctx: ExtensionContext) => unknown) {
+				handlers.set(event, [...(handlers.get(event) ?? []), handler]);
+			},
+		} as unknown as ExtensionAPI;
+		const ctx = {
+			mode: "tui",
+			sessionManager: { getSessionId: () => "status-replay" },
+			ui: {
+				notify(message: string) {
+					statusText = new Text(theme.fg("dim", message), 1, 0);
+				},
+			},
+		} as unknown as ExtensionContext;
+		const emit = (event: string, value: unknown): void => {
+			for (const handler of handlers.get(event) ?? []) void handler(value, ctx);
+		};
+		const message = {
+			role: "assistant",
+			usage: { input: 1_200, output: 50, cacheRead: 800, reasoning: 10 },
+		};
+		const feature = createStatusFeature(pi);
+		feature.start({
+			pi,
+			ctx,
+			registry: {} as never,
+			requestRender: () => undefined,
+			close: () => undefined,
+		});
+		const result = await replayTui({
+			columns: 100,
+			rows: 5,
+			create: (host) => ({
+				render(width) {
+					return [
+						"Assistant: implementation complete",
+						...(statusText === undefined ? [] : ["", ...statusText.render(width)]),
+						"PROMPT HERE",
+					];
+				},
+				handleInput(data) {
+					if (data === "start") {
+						emit("agent_start", { type: "agent_start" });
+						emit("turn_start", { type: "turn_start", turnIndex: 0, timestamp: Date.now() });
+					}
+					if (data === "token")
+						emit("message_update", {
+							type: "message_update",
+							message,
+							assistantMessageEvent: { type: "text_delta", delta: "x" },
+						});
+					if (data === "end") {
+						emit("message_end", { type: "message_end", message });
+						emit("agent_end", { type: "agent_end", messages: [message] });
+					}
+					if (data === "settled") emit("agent_settled", { type: "agent_settled" });
+					host.requestRender();
+				},
+				invalidate() {},
+			}),
+			actions: [
+				{ type: "input", data: "start", label: "response start" },
+				{ type: "wait", ms: 20, label: "response wait" },
+				{ type: "input", data: "token", label: "first token" },
+				{ type: "wait", ms: 40, label: "generation wait" },
+				{ type: "input", data: "end", label: "response end" },
+				{ type: "input", data: "settled", label: "response settled" },
+			],
+		});
+		const ended = result.frames.find((frame) => frame.label === "response end");
+		expect(stripAnsi(ended?.lines.join("\n") ?? "")).toContain("↱ 1.2K  ↳ 50  ⚇ 800  ⏱");
+		expect(result.last.lines[0]).toBe("Assistant: implementation complete");
+		expect(result.last.lines[1]).toBe("");
+		expect(stripAnsi(result.last.lines[2]!)).toContain("↱ 1.2K  ↳ 50  ⚇ 800  ⏱");
+		expect(result.last.lines[3]).toBe("PROMPT HERE");
+		const artifactRoot = process.env.PI_BASICS_STATUS_REPLAY_OUTPUT;
+		if (artifactRoot) {
+			const artifacts = await writeReplayArtifacts(result, { rootDir: artifactRoot });
+			console.log(`response status replay artifacts: ${artifacts.directory}`);
+		}
+		feature.dispose("status-replay");
+	});
+
 	test("keeps full scrollback and supports multi-round input and scrolling", async () => {
 		let draft = "";
 		const transcript = ["system"];
@@ -272,7 +361,7 @@ describe("tui replay", () => {
 		expect(result.last.lines).toEqual(["model answer"]);
 	});
 
-	test("writes unique timestamped buffers and final SVG screenshot", async () => {
+	test("writes sequentially numbered buffers and final SVG screenshot", async () => {
 		const root = await mkdtemp(join(tmpdir(), "tui-replay-"));
 		try {
 			const result = await replayTui({
@@ -287,12 +376,11 @@ describe("tui replay", () => {
 					invalidate() {},
 				}),
 			});
-			const now = new Date("2026-07-20T04:05:06.789Z");
-			const first = await writeReplayArtifacts(result, { rootDir: root, now });
-			const second = await writeReplayArtifacts(result, { rootDir: root, now });
+			const first = await writeReplayArtifacts(result, { rootDir: root });
+			const second = await writeReplayArtifacts(result, { rootDir: root });
 
-			expect(basename(first.directory)).toBe("replay-20260720040506789");
-			expect(basename(second.directory)).toBe("replay-20260720040506789-2");
+			expect(basename(first.directory)).toBe("replay-0001");
+			expect(basename(second.directory)).toBe("replay-0002");
 			expect((await readdir(first.directory)).sort()).toEqual([
 				"final.ans",
 				"final.svg",
