@@ -1,4 +1,5 @@
-export type TaskStatus = "pending" | "in_progress" | "completed" | "suppressed";
+export type TaskStatus = "pending" | "in_progress" | "blocked" | "completed" | "suppressed";
+export type AgentTaskStatus = "in_progress" | "blocked" | "completed";
 
 export type TodoAction = "create" | "update" | "list" | "delete";
 
@@ -19,7 +20,7 @@ export type TodoOperation =
 			readonly action: "update";
 			readonly id: number;
 			readonly subject?: string;
-			readonly status?: "completed";
+			readonly status?: AgentTaskStatus;
 	  }
 	| { readonly action: "list"; readonly status?: TaskStatus }
 	| { readonly action: "delete"; readonly id: number };
@@ -54,7 +55,13 @@ export function freshTaskState(): TaskState {
 	return { tasks: [], nextId: 1 };
 }
 
-const STATUSES: readonly TaskStatus[] = ["pending", "in_progress", "completed", "suppressed"];
+const STATUSES: readonly TaskStatus[] = [
+	"pending",
+	"in_progress",
+	"blocked",
+	"completed",
+	"suppressed",
+];
 const ACTIONS: readonly TodoAction[] = ["create", "update", "list", "delete"];
 
 function subjectError(subject: string): string | undefined {
@@ -80,8 +87,8 @@ function isPositiveInteger(value: unknown): value is number {
 	return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
-function isCompletedStatus(value: unknown): value is "completed" {
-	return value === "completed";
+function isAgentTaskStatus(value: unknown): value is AgentTaskStatus {
+	return value === "in_progress" || value === "blocked" || value === "completed";
 }
 
 function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
@@ -117,6 +124,16 @@ export function validateTaskState(value: unknown): TaskState | undefined {
 	if (value.nextId <= maxId || tasks.filter((task) => task.status === "in_progress").length > 1)
 		return undefined;
 	return { tasks, nextId: value.nextId };
+}
+
+function statusError(task: Task, tasks: readonly Task[]): string | undefined {
+	if (task.status !== "in_progress") return undefined;
+	const active = tasks.find(
+		(candidate) => candidate.id !== task.id && candidate.status === "in_progress",
+	);
+	return active
+		? `Task #${task.id} cannot be in progress while Task #${active.id} is in progress`
+		: undefined;
 }
 
 function findTask(tasks: readonly Task[], id: number): Task | undefined {
@@ -222,11 +239,16 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 			const subjectIssue = subjectError(operation.subject as string);
 			if (subjectIssue) return fail(subjectIssue, index);
 		}
-		if (hasStatus && !isCompletedStatus(operation.status)) return fail("Invalid status", index);
+		if (hasStatus && !isAgentTaskStatus(operation.status)) return fail("Invalid status", index);
 		const subject = hasSubject ? (operation.subject as string).trim() : current.subject;
-		const status = isCompletedStatus(operation.status) ? operation.status : current.status;
+		const status = isAgentTaskStatus(operation.status) ? operation.status : current.status;
+		if (current.status === "completed" && status !== "completed") {
+			return fail(`Invalid status transition from completed to ${status}`, index);
+		}
 		const next = { ...current, subject, status };
 		const candidateTasks = draft.tasks.map((task) => (task.id === id ? next : task));
+		const statusIssue = statusError(next, candidateTasks);
+		if (statusIssue) return fail(statusIssue, index);
 		const isChanged = current.subject !== subject || current.status !== status;
 		if (isChanged) {
 			draft.tasks = candidateTasks;

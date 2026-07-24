@@ -17,6 +17,12 @@ function hasVisibleTasks(state: TaskState): boolean {
 	return state.tasks.some((task) => task.status !== "suppressed");
 }
 
+function statusRank(status: TaskState["tasks"][number]["status"]): number {
+	if (status === "in_progress") return 0;
+	if (status === "pending") return 1;
+	return 2;
+}
+
 function renderTodo(state: TaskState, width: number, theme: Theme): string[] {
 	const visibleTasks = state.tasks.filter((task) => task.status !== "suppressed");
 	const total = visibleTasks.length;
@@ -34,10 +40,7 @@ function renderTodo(state: TaskState, width: number, theme: Theme): string[] {
 	const tasks = visibleTasks
 		.filter((task) => task.status !== "completed")
 		.slice()
-		.sort(
-			(a, b) =>
-				(a.status === "in_progress" ? 0 : 1) - (b.status === "in_progress" ? 0 : 1) || a.id - b.id,
-		);
+		.sort((a, b) => statusRank(a.status) - statusRank(b.status) || a.id - b.id);
 	const visible = tasks.slice(0, MAX_TASK_ROWS);
 	const lines = [
 		truncateToWidth(
@@ -51,8 +54,8 @@ function renderTodo(state: TaskState, width: number, theme: Theme): string[] {
 		if (!task) continue;
 		const last = index === visible.length - 1 && tasks.length <= MAX_TASK_ROWS;
 		const glyph = theme.fg(
-			task.status === "in_progress" ? "warning" : "muted",
-			task.status === "in_progress" ? "◐" : "○",
+			task.status === "in_progress" || task.status === "blocked" ? "warning" : "muted",
+			task.status === "in_progress" ? "◐" : task.status === "blocked" ? "⊘" : "○",
 		);
 		lines.push(
 			truncateToWidth(
