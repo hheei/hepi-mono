@@ -29,8 +29,9 @@ export function setHePiDisabledSkillKeys(pi: ExtensionAPI, keys: ReadonlySet<str
 	stateFor(pi).disabledSkillKeys = new Set(keys);
 }
 
-export function isHePiSkillEnabled(pi: ExtensionAPI, name: string, source?: string): boolean {
-	return !stateFor(pi).disabledSkillKeys.has(hePiLoadoutKey("skill", name, source));
+export function isHePiSkillEnabled(pi: ExtensionAPI, name: string): boolean {
+	const canonicalName = name.startsWith("skill:") ? name.slice("skill:".length) : name;
+	return !stateFor(pi).disabledSkillKeys.has(hePiLoadoutKey("skill", canonicalName));
 }
 
 export function registerHePiToolDisableHandler(
