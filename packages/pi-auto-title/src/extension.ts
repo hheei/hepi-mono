@@ -95,6 +95,15 @@ export default function piAutoTitleExtension(pi: ExtensionAPI): void {
 		},
 	});
 	registerHePiLifecycle(pi, lifecycle);
+	pi.on("session_info_changed", (event) => {
+		coordinator?.sessionInfoChanged(event.name);
+	});
+	pi.on("before_agent_start", () => {
+		coordinator?.beforeAgentStart();
+	});
+	pi.on("agent_settled", () => {
+		coordinator?.agentSettled();
+	});
 	pi.on("session_start", (event) => {
 		if (event.reason === "startup" || event.reason === "new") coordinator?.trigger();
 	});

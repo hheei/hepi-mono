@@ -154,4 +154,33 @@ describe("loadout controller", () => {
 		await Promise.all([toggle, closing]);
 		expect(() => controller.setQuery("a")).toThrow("closed");
 	});
+
+	test("close aborts pending storage work", async () => {
+		let aborted = false;
+		const controller = createLoadoutController({
+			storage: storage({}, async (_scope, _key, _value, _remove, signal) => {
+				await new Promise<void>((_resolve, reject) => {
+					if (signal?.aborted) {
+						aborted = true;
+						reject(signal.reason);
+						return;
+					}
+					signal?.addEventListener(
+						"abort",
+						() => {
+							aborted = true;
+							reject(signal.reason);
+						},
+						{ once: true },
+					);
+				});
+			}),
+			inventory: inventory(tool("tool:a")),
+		});
+		await controller.load();
+		const toggle = controller.toggleSelected();
+		await Bun.sleep(0);
+		await Promise.all([toggle, controller.close()]);
+		expect(aborted).toBe(true);
+	});
 });

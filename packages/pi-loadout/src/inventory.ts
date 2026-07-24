@@ -15,7 +15,7 @@ export interface LoadoutInventory {
 }
 export type LoadoutInventoryValue = LoadoutInventory | readonly LoadoutItem[];
 export interface LoadoutInventoryProvider {
-	load(): LoadoutInventoryValue | Promise<LoadoutInventoryValue>;
+	load(signal?: AbortSignal): LoadoutInventoryValue | Promise<LoadoutInventoryValue>;
 }
 export type ToolDefinitionLookup = { readonly promptSnippet?: string };
 export interface LoadoutCommandInfo {
@@ -158,7 +158,14 @@ export function createLoadoutInventory(pi: LoadoutInventorySource): LoadoutInven
 export function createLoadoutInventoryProvider(
 	pi: LoadoutInventorySource,
 ): LoadoutInventoryProvider {
-	return { load: () => createLoadoutInventory(pi) };
+	return {
+		load: (signal) => {
+			signal?.throwIfAborted();
+			const inventory = createLoadoutInventory(pi);
+			signal?.throwIfAborted();
+			return inventory;
+		},
+	};
 }
 
 export function createMcpPlaceholder(

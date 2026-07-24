@@ -205,11 +205,14 @@ export function createTraditionalToSimplifiedSettingsProvider(
 export function createTraditionalToSimplifiedFeature(): TraditionalToSimplifiedFeature {
 	let activeSessionId: string | undefined;
 	let enabled = true;
+	let handlerRegistered = false;
 	return {
 		start(runtime) {
 			activeSessionId = runtime.ctx.sessionManager.getSessionId();
-			runtime.pi.on("input", (event) => {
-				if (!enabled || activeSessionId !== runtime.ctx.sessionManager.getSessionId()) return;
+			if (handlerRegistered) return;
+			handlerRegistered = true;
+			runtime.pi.on("input", (event, ctx) => {
+				if (!enabled || activeSessionId !== ctx.sessionManager.getSessionId()) return;
 				const converted = convertInputText(event.text);
 				return converted === event.text ? undefined : { action: "transform", text: converted };
 			});

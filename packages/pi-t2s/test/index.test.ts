@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { convertInputText, createTraditionalToSimplifiedSettingsProvider } from "../src/index.js";
+import {
+	convertInputText,
+	createTraditionalToSimplifiedFeature,
+	createTraditionalToSimplifiedSettingsProvider,
+} from "../src/index.js";
 
 describe("traditional to simplified", () => {
 	test("converts prose and the missing 甚麼 term", () => {
@@ -9,6 +13,31 @@ describe("traditional to simplified", () => {
 	test("preserves inline and fenced code", () => {
 		const input = "請看 `甚麼`\n```ts\n甚麼設定\n```\n最後設定";
 		expect(convertInputText(input)).toBe("请看 `甚麼`\n```ts\n甚麼設定\n```\n最后设定");
+	});
+
+	test("registers one input handler across session restarts", () => {
+		const handlers: Array<(event: { text: string }, ctx: unknown) => unknown> = [];
+		let sessionId = "first";
+		const runtime = {
+			pi: {
+				on: (event: string, handler: (event: { text: string }, ctx: unknown) => unknown) => {
+					if (event === "input") handlers.push(handler);
+				},
+			},
+			ctx: { sessionManager: { getSessionId: () => sessionId } },
+		};
+		const feature = createTraditionalToSimplifiedFeature();
+		feature.start(runtime as never);
+		feature.dispose("first");
+		sessionId = "second";
+		feature.start(runtime as never);
+
+		expect(handlers).toHaveLength(1);
+		const result = handlers[0]?.(
+			{ text: "設定" },
+			{ sessionManager: { getSessionId: () => "second" } },
+		);
+		expect(result).toEqual({ action: "transform", text: "设定" });
 	});
 
 	test("persists the toggle without discarding other settings", async () => {

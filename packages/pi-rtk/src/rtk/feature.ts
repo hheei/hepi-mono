@@ -89,7 +89,6 @@ export function createRtkFeature(): RtkFeature {
 			await refresh(true);
 			if (handlersRegistered) return;
 			handlersRegistered = true;
-			const handlerSessionId = sessionId;
 			runtime.pi.on("tool_call", async (event, ctx) => {
 				if (!isCurrentSession(ctx) || !config.enabled || !isToolCallEventType("bash", event))
 					return {};
@@ -162,7 +161,7 @@ export function createRtkFeature(): RtkFeature {
 			runtime.pi.on(
 				"tool_execution_start",
 				async (event: { toolName: string; toolCallId?: string; args?: unknown }) => {
-					if (handlerSessionId !== sessionId) return;
+					if (sessionId === undefined) return;
 					if (
 						config.outputCompaction.enabled &&
 						event.toolName === "bash" &&
@@ -178,7 +177,7 @@ export function createRtkFeature(): RtkFeature {
 					toolCallId: string;
 					partialResult: Parameters<typeof sanitizeStreamingBashExecutionResult>[0];
 				}) => {
-					if (handlerSessionId !== sessionId || event.toolName !== "bash") return;
+					if (sessionId === undefined || event.toolName !== "bash") return;
 					const result = sanitizeStreamingBashExecutionResult(
 						event.partialResult,
 						active.get(event.toolCallId),
@@ -193,7 +192,7 @@ export function createRtkFeature(): RtkFeature {
 					toolCallId: string;
 					result: Parameters<typeof sanitizeStreamingBashExecutionResult>[0];
 				}) => {
-					if (handlerSessionId !== sessionId || event.toolName !== "bash") return;
+					if (sessionId === undefined || event.toolName !== "bash") return;
 					const result = sanitizeStreamingBashExecutionResult(
 						event.result,
 						active.get(event.toolCallId),
@@ -209,7 +208,6 @@ export function createRtkFeature(): RtkFeature {
 				active.clear();
 				outputMetrics.clear();
 				piRef = undefined;
-				handlersRegistered = false;
 				lastRefreshAt = 0;
 			}
 		},

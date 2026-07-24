@@ -28,6 +28,15 @@ describe("HePiRegistry", () => {
 		);
 	});
 
+	test("narrows command registrations at runtime", () => {
+		const registry = new HePiRegistry();
+		registry.registerModule({ id: "valid", commands: ["open"] });
+		registry.registerModule({ id: "invalid", commands: [1] });
+
+		expect(registry.findModuleForCommand("open")?.id).toBe("valid");
+		expect(registry.findModuleForCommand("1")).toBeUndefined();
+	});
+
 	test("cleans all resources in reverse order and isolates registries", async () => {
 		const first = new HePiRegistry();
 		const second = new HePiRegistry();

@@ -18,7 +18,10 @@ import {
 } from "./model.js";
 import type { LoadoutStorage } from "./storage.js";
 
-export type LoadoutRuntimeHandler = (items: readonly LoadoutResolvedItem[]) => Promise<void>;
+export type LoadoutRuntimeHandler = (
+	items: readonly LoadoutResolvedItem[],
+	signal?: AbortSignal,
+) => Promise<void>;
 export interface LoadoutRuntimeHandlers {
 	readonly mcp?: LoadoutRuntimeHandler;
 	readonly tool?: LoadoutRuntimeHandler;
@@ -66,6 +69,7 @@ export class LoadoutController {
 	private closed: boolean = false;
 	private queue: Promise<void> = Promise.resolve();
 	private readonly pending = new Set<Promise<void>>();
+	private readonly abortController = new AbortController();
 	constructor(options: LoadoutControllerOptions) {
 		this.options = options;
 		this.scope = options.scope ?? "global";
@@ -97,16 +101,25 @@ export class LoadoutController {
 		if (this.closed) throw new Error("Loadout controller is closed");
 	}
 	private getInventory(): Promise<readonly LoadoutItem[]> {
-		return Promise.resolve(this.options.inventory.load()).then(normalize);
+		const signal = this.abortController.signal;
+		return Promise.resolve(this.options.inventory.load(signal)).then((value) => {
+			signal.throwIfAborted();
+			return normalize(value);
+		});
 	}
 	private applyRuntime(): Promise<void> {
 		const runtime = this.options.runtime;
 		if (!runtime) return Promise.resolve();
+		const signal = this.abortController.signal;
+		signal.throwIfAborted();
 		return Promise.all(
 			(["mcp", "tool", "skill"] as const).map((kind) =>
-				runtime[kind]?.(this.resolved.filter((item) => item.kind === kind)),
+				runtime[kind]?.(
+					this.resolved.filter((item) => item.kind === kind),
+					signal,
+				),
 			),
-		).then(() => undefined);
+		).then(() => signal.throwIfAborted());
 	}
 	private track(operation: Promise<void>): Promise<void> {
 		this.queue = operation.catch(() => undefined);
@@ -117,9 +130,10 @@ export class LoadoutController {
 		this.ensureOpen();
 		try {
 			const [stored, inventory] = await Promise.all([
-				this.options.storage.load(),
+				this.options.storage.load(this.abortController.signal),
 				this.getInventory(),
 			]);
+			this.abortController.signal.throwIfAborted();
 			this.maps = copyMaps(stored);
 			this.inventory = inventory;
 			this.recompute();
@@ -180,7 +194,13 @@ export class LoadoutController {
 		const operation = this.queue
 			.then(async () => {
 				try {
-					await this.options.storage.update(this.scope, storageKey, value, legacyKeys);
+					await this.options.storage.update(
+						this.scope,
+						storageKey,
+						value,
+						legacyKeys,
+						this.abortController.signal,
+					);
 				} catch (error) {
 					this.maps = previousMaps;
 					this.recompute();
@@ -227,9 +247,10 @@ export class LoadoutController {
 		const operation = this.queue.then(async () => {
 			try {
 				const [stored, inventory] = await Promise.all([
-					this.options.storage.load(),
+					this.options.storage.load(this.abortController.signal),
 					replacement === undefined ? this.getInventory() : Promise.resolve(normalize(replacement)),
 				]);
+				this.abortController.signal.throwIfAborted();
 				this.maps = copyMaps(stored);
 				this.inventory = inventory;
 				this.recompute(previousItems, previousSelected);
@@ -245,6 +266,7 @@ export class LoadoutController {
 	async close(): Promise<void> {
 		if (this.closed) return;
 		this.closed = true;
+		this.abortController.abort();
 		await this.queue;
 		await Promise.all([...this.pending].map((operation) => operation.catch(() => undefined)));
 	}

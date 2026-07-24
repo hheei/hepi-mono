@@ -54,6 +54,9 @@ export interface AutoTitleModelOption {
 export interface AutoTitleCoordinator {
 	trigger(force?: boolean): void;
 	setModel(modelRef: string): void;
+	sessionInfoChanged(name: string | undefined): void;
+	beforeAgentStart(): void;
+	agentSettled(): void;
 	dispose(): void;
 }
 
@@ -520,39 +523,35 @@ export function createAutoTitleCoordinator(
 			}
 		})();
 	};
+	const sessionInfoChanged = (name: string | undefined): void => {
+		revision++;
+		if (name) {
+			clearStatus();
+			stop();
+		}
+	};
+	const beforeAgentStart = (): void => {
+		revision++;
+		clearStatus();
+		stop();
+	};
 	const lifecycleUnsubs =
 		typeof pi.on === "function"
 			? []
 			: [
 					pi.events.on("session_info_changed", (event) => {
-						revision++;
-						if (event && typeof event === "object" && "name" in event && event.name) {
-							clearStatus();
-							stop();
-						}
+						sessionInfoChanged(
+							event &&
+								typeof event === "object" &&
+								"name" in event &&
+								typeof event.name === "string"
+								? event.name
+								: undefined,
+						);
 					}),
-					pi.events.on("before_agent_start", () => {
-						revision++;
-						clearStatus();
-						stop();
-					}),
+					pi.events.on("before_agent_start", beforeAgentStart),
 					pi.events.on("agent_settled", launch),
 				];
-	if (typeof pi.on === "function") {
-		pi.on("session_info_changed", (event) => {
-			revision++;
-			if (event.name) {
-				clearStatus();
-				stop();
-			}
-		});
-		pi.on("before_agent_start", () => {
-			revision++;
-			clearStatus();
-			stop();
-		});
-		pi.on("agent_settled", launch);
-	}
 	return {
 		trigger: (force = false) => {
 			if (disposed) return;
@@ -571,6 +570,9 @@ export function createAutoTitleCoordinator(
 			clearStatus();
 			stop();
 		},
+		sessionInfoChanged,
+		beforeAgentStart,
+		agentSettled: launch,
 		dispose: () => {
 			disposed = true;
 			revision++;

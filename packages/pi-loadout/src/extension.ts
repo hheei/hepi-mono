@@ -30,22 +30,28 @@ export default function piLoadoutExtension(pi: ExtensionAPI): void {
 	let disabledSkillKeys: ReadonlySet<string> = new Set();
 	let startupController: LoadoutController | undefined;
 	const runtimeHandlers: LoadoutRuntimeHandlers = {
-		tool: async (items) => {
+		tool: async (items, signal) => {
+			signal?.throwIfAborted();
 			const activeNames = [
 				...new Set(
 					items.filter((item) => item.effectiveStatus === "active").map((item) => item.name),
 				),
 			];
 			coordinator.setLoadoutBaseline(activeNames);
-			for (const item of items)
+			for (const item of items) {
+				signal?.throwIfAborted();
 				if (item.effectiveStatus === "disabled") await disableHePiTool(pi, item.name);
+			}
+			signal?.throwIfAborted();
 		},
-		skill: async (items) => {
+		skill: async (items, signal) => {
+			signal?.throwIfAborted();
 			disabledSkillKeys = new Set(
 				items
 					.filter((item) => item.effectiveStatus === "disabled")
 					.map((item) => hePiLoadoutKey("skill", item.name, item.origin)),
 			);
+			signal?.throwIfAborted();
 			setHePiDisabledSkillKeys(pi, disabledSkillKeys);
 		},
 	};
