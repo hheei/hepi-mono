@@ -8,14 +8,8 @@ const state = (tasks: TaskState["tasks"]): TaskState => ({ tasks, nextId: 99 });
 const task = (
 	id: number,
 	subject: string,
-	status: "pending" | "in_progress" | "completed",
-	blockedBy: number[] = [],
-) => ({
-	id,
-	subject,
-	status,
-	blockedBy,
-});
+	status: "pending" | "in_progress" | "completed" | "suppressed",
+) => ({ id, subject, status });
 
 const identityTheme = { fg: (_color: string, text: string) => text };
 
@@ -126,11 +120,11 @@ describe("todo widget", () => {
 		]);
 	});
 
-	test("colors header, statuses, ids, blockers, and subjects", () => {
+	test("colors header, statuses, ids, and subjects", () => {
 		const h = harness();
 		createTodoWidget(
 			h.runtime,
-			state([task(1, "working", "in_progress"), task(2, "waiting", "pending", [1])]),
+			state([task(1, "working", "in_progress"), task(2, "waiting", "pending")]),
 		);
 		const theme = recordingTheme();
 		const lines = component(h, theme).render(200);
@@ -141,7 +135,6 @@ describe("todo widget", () => {
 		expect(lines[2]).toContain("<muted>○</muted>");
 		expect(lines[2]).toContain("<accent>#2</accent>");
 		expect(lines[2]).toContain("<text>waiting</text>");
-		expect(lines[2]).toContain("<warning>⊘</warning> <accent>#1</accent>");
 	});
 
 	test("limits rows and reports overflow", () => {
@@ -153,18 +146,17 @@ describe("todo widget", () => {
 		expect(lines.at(-1)).toBe("└─ +2 more");
 	});
 
-	test("shows only unresolved blockers", () => {
+	test("suppressed tasks are hidden and an all-suppressed state unregisters", () => {
 		const h = harness();
-		createTodoWidget(
+		const widget = createTodoWidget(
 			h.runtime,
-			state([
-				task(1, "done", "completed"),
-				task(2, "open", "pending", [1, 3, 99]),
-				task(3, "blocked", "in_progress"),
-			]),
-		);
+			state([task(1, "hidden", "suppressed"), task(2, "visible", "pending")]),
+		)!;
 		const lines = component(h).render(80);
-		expect(lines.find((line: string) => line.includes("#2"))).toContain("⊘ #3,#99");
+		expect(lines.some((line: string) => line.includes("#1"))).toBe(false);
+		expect(lines.some((line: string) => line.includes("#2"))).toBe(true);
+		widget.refresh(state([task(1, "hidden", "suppressed")]));
+		expect(h.calls.at(-1)?.content).toBeUndefined();
 	});
 
 	for (const width of [12, 20, 80]) {
