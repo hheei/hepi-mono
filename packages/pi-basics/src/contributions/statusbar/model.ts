@@ -92,6 +92,55 @@ export function normalizeStatuses(
 	return result;
 }
 
+export const RECEIVING_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
+
+export interface FooterStatusDisplay {
+	readonly values: readonly string[];
+	readonly receiving: boolean;
+	readonly mcpRatio?: string;
+}
+
+export function formatFooterStatuses(
+	statuses: ReadonlyMap<string, string> | Iterable<[string, string]> | undefined,
+	receivingFrame: string,
+	previousMcpRatio?: string,
+): FooterStatusDisplay {
+	if (!statuses) return { values: [], receiving: false };
+	let receiving = false;
+	let hasMcp = false;
+	let mcpRatio = previousMcpRatio;
+	const remaining: string[] = [];
+	for (const [key, value] of statuses) {
+		const normalized = normalizeDisplayFragment(value, "");
+		if (!normalized || key === "magic-context") continue;
+		if (key === "mcp") {
+			hasMcp = true;
+			const ratio = normalized.match(/MCP:\s*(\d+)\/(\d+)\s+servers/iu);
+			const connecting = normalized.match(/MCP:\s*connecting to\s+(\d+)\s+servers/iu);
+			const connected = ratio?.[1];
+			const total = ratio?.[2] ?? connecting?.[1];
+			if (connected !== undefined && total !== undefined) mcpRatio = `${connected}/${total}`;
+			else if (connecting !== null && total !== undefined) mcpRatio = `0/${total}`;
+			continue;
+		}
+		if (normalized === "receiving") {
+			receiving = true;
+			continue;
+		}
+		remaining.push(key === "plan" || key === "goal" ? normalized.toUpperCase() : normalized);
+	}
+	const activeMcpRatio = hasMcp ? mcpRatio : undefined;
+	return {
+		values: [
+			...(receiving ? [receivingFrame] : []),
+			...(activeMcpRatio === undefined ? [] : [`⛁ ${activeMcpRatio}`]),
+			...remaining,
+		],
+		receiving,
+		...(activeMcpRatio === undefined ? {} : { mcpRatio: activeMcpRatio }),
+	};
+}
+
 export function estimateContextUsage(
 	messages: readonly unknown[],
 	contextWindow: number | null | undefined,

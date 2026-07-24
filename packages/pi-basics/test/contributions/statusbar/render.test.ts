@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { buildStatusbarSnapshot } from "../../../src/contributions/statusbar/model.js";
-import { renderStatusbarLine } from "../../../src/contributions/statusbar/render.js";
+import {
+	renderExtensionStatusFooter,
+	renderStatusbarLine,
+} from "../../../src/contributions/statusbar/render.js";
 import { visibleWidth } from "../../../src/ui/text.js";
 
 const theme = { fg: (_role: string, text: string) => text } as never;
@@ -32,6 +35,21 @@ describe("statusbar renderer", () => {
 		const line = renderStatusbarLine(80, snapshotWithoutTitle, theme);
 		expect(line).not.toContain("Session title");
 		expect(line.endsWith("─")).toBe(true);
+	});
+	test("renders compact extension statuses as one cell-safe footer row", () => {
+		for (const width of [0, 1, 8, 40]) {
+			const lines = renderExtensionStatusFooter(width, ["⠧", "⛁ 0/3", "PLAN"], theme);
+			if (width === 0) {
+				expect(lines).toEqual([]);
+				continue;
+			}
+			expect(lines).toHaveLength(1);
+			expect(visibleWidth(lines[0] ?? "")).toBe(width);
+		}
+		expect(renderExtensionStatusFooter(80, [], theme)).toEqual([]);
+		expect(renderExtensionStatusFooter(80, ["⠧", "⛁ 0/3", "PLAN", "GOAL"], theme)[0]).toContain(
+			"⠧ · ⛁ 0/3 · PLAN · GOAL",
+		);
 	});
 });
 

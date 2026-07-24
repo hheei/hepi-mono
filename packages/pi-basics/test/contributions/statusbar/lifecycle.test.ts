@@ -30,6 +30,7 @@ function harness(id: string, mode: "tui" | "json" = "tui", hasEditorGetter = tru
 	};
 	let branch: unknown[] = [];
 	let factory: FooterFactory | undefined;
+	let footerComponent: { dispose?: () => void } | undefined;
 	let installs = 0;
 	let restored = 0;
 	let editorFactory: EditorFactory | undefined;
@@ -64,6 +65,8 @@ function harness(id: string, mode: "tui" | "json" = "tui", hasEditorGetter = tru
 				editorSets++;
 			},
 			setFooter: (next: FooterFactory | undefined) => {
+				footerComponent?.dispose?.();
+				footerComponent = undefined;
 				if (next) {
 					factory = next;
 					installs++;
@@ -119,7 +122,7 @@ function harness(id: string, mode: "tui" | "json" = "tui", hasEditorGetter = tru
 					requests++;
 				},
 			};
-			return factory(
+			const component = factory(
 				tui as never,
 				{ fg: (_role: string, text: string) => text } as never,
 				{
@@ -129,6 +132,8 @@ function harness(id: string, mode: "tui" | "json" = "tui", hasEditorGetter = tru
 					},
 				} as never,
 			);
+			footerComponent = component;
+			return component;
 		},
 	};
 }
@@ -164,10 +169,42 @@ describe("statusbar lifecycle", () => {
 		expect(lines).toHaveLength(4);
 		expect(lines[0]).not.toBe("previous-top");
 		expect(lines.slice(1)).toEqual(["PROMPT HERE", "previous-bottom", "previous-autocomplete"]);
-		expect(h.statusReads).toBe(1);
+		expect(h.statusReads).toBe(0);
 		editor!.handleInput("x");
 		expect(editor!.getText()).toBe("previous-text");
 		expect(calls).toEqual(["previous:input:x"]);
+	});
+
+	test("renders compact animated statuses after the editor closing rail", async () => {
+		const h = harness("a");
+		h.statusMap.set("mcp", "MCP: 0/3 servers");
+		h.statusMap.set("magic-context", "mc: 85.3K (23%) · idle");
+		h.statusMap.set("retry", "receiving");
+		h.statusMap.set("plan", "plan");
+		h.statusMap.set("goal", "Goal");
+		h.setEditor(editorFactory("previous", []));
+		const feature = createStatusbarFeature(h.pi);
+		feature.start(runtime(h.pi, h.ctx));
+		const footer = h.makeFooter();
+		const editor = h.editorFactory?.({} as never, {} as never, {} as never);
+		const editorLines = editor?.render(100) ?? [];
+		const header = editorLines[0] ?? "";
+		expect(header).not.toContain("MCP:");
+		expect(header).not.toContain("mc:");
+		expect(header).not.toContain("receiving");
+		expect(editorLines[2]).toBe("previous-bottom");
+		const footerLines = footer.render(100);
+		expect(footerLines).toHaveLength(1);
+		expect(footerLines[0]).toContain("⠋ · ⛁ 0/3 · PLAN · GOAL");
+		expect(footerLines[0]).not.toContain("mc:");
+		expect(h.statusReads).toBe(1);
+		const beforeAnimation = h.requests;
+		await Bun.sleep(120);
+		expect(h.requests).toBeGreaterThan(beforeAnimation);
+		feature.dispose("a");
+		const afterDispose = h.requests;
+		await Bun.sleep(120);
+		expect(h.requests).toBe(afterDispose);
 	});
 
 	test("renders the prompt cursor as a bar", () => {

@@ -4,6 +4,8 @@ import {
 	contextMeter,
 	estimateContextUsage,
 	formatContextLimit,
+	formatFooterStatuses,
+	RECEIVING_SPINNER_FRAMES,
 	stabilizeContextUsage,
 	thinkingGlyph,
 } from "../../../src/contributions/statusbar/model.js";
@@ -48,6 +50,32 @@ describe("statusbar model", () => {
 		expect(thinkingGlyph("high")).toBe("◕");
 		expect(thinkingGlyph("xhigh")).toBe("●");
 		expect(thinkingGlyph("max")).toBe("●");
+	});
+
+	test("formats compact MCP and animated receiving statuses for the footer", () => {
+		expect(RECEIVING_SPINNER_FRAMES).toEqual(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]);
+		const display = formatFooterStatuses(
+			new Map([
+				["mcp", "\x1b[36mMCP: 0/3 servers\x1b[0m"],
+				["magic-context", "mc: 85.3K (23%) · idle"],
+				["unknown-error-retry", "receiving"],
+				["plan", "plan"],
+				["goal", "Goal"],
+				["other", "retrying"],
+			]),
+			"⠧",
+		);
+		expect(display).toEqual({
+			values: ["⠧", "⛁ 0/3", "PLAN", "GOAL", "retrying"],
+			receiving: true,
+			mcpRatio: "0/3",
+		});
+		expect(
+			formatFooterStatuses(new Map([["mcp", "MCP: connecting to filesystem..."]]), "⠋", "2/3"),
+		).toEqual({ values: ["⛁ 2/3"], receiving: false, mcpRatio: "2/3" });
+		expect(
+			formatFooterStatuses(new Map([["mcp", "MCP: connecting to 3 servers..."]]), "⠋"),
+		).toEqual({ values: ["⛁ 0/3"], receiving: false, mcpRatio: "0/3" });
 	});
 
 	test("uses assembled system prompt tokens before first model response", () => {

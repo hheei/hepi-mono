@@ -11,10 +11,12 @@ import type { HePiRuntimeContext } from "../../runtime/context.js";
 import {
 	buildStatusbarSnapshot,
 	estimateContextUsage,
+	formatFooterStatuses,
+	RECEIVING_SPINNER_FRAMES,
 	type StatusbarContextUsage,
 	stabilizeContextUsage,
 } from "./model.js";
-import { renderStatusbarLine } from "./render.js";
+import { renderExtensionStatusFooter, renderStatusbarLine } from "./render.js";
 
 type EditorFactory = NonNullable<
 	Parameters<NonNullable<ExtensionContext["ui"]["setEditorComponent"]>>[0]
@@ -25,7 +27,6 @@ type Owner = {
 	ctx: ExtensionContext;
 	previousEditorFactory?: EditorFactory | undefined;
 	installedEditorFactory: EditorFactory;
-	footerData?: ReadonlyFooterDataProvider;
 	requestRender?: () => void;
 	usage?: StatusbarContextUsage | undefined;
 	compacted: boolean;
@@ -39,6 +40,39 @@ export interface StatusbarFeature {
 
 function emptyFooter(): Component {
 	return { render: () => [], invalidate: () => undefined };
+}
+
+function createExtensionStatusFooter(
+	tui: TUI,
+	footerData: ReadonlyFooterDataProvider,
+	getTheme: () => Theme,
+): Component & { dispose(): void } {
+	let frame = 0;
+	let timer: ReturnType<typeof setInterval> | undefined;
+	let mcpRatio: string | undefined;
+	const stop = (): void => {
+		if (timer !== undefined) clearInterval(timer);
+		timer = undefined;
+	};
+	return {
+		render(width: number): string[] {
+			const display = formatFooterStatuses(
+				footerData.getExtensionStatuses(),
+				RECEIVING_SPINNER_FRAMES[frame] ?? RECEIVING_SPINNER_FRAMES[0],
+				mcpRatio,
+			);
+			mcpRatio = display.mcpRatio;
+			if (display.receiving && timer === undefined) {
+				timer = setInterval(() => {
+					frame = (frame + 1) % RECEIVING_SPINNER_FRAMES.length;
+					tui.requestRender();
+				}, 80);
+			} else if (!display.receiving) stop();
+			return renderExtensionStatusFooter(width, display.values, getTheme());
+		},
+		invalidate: () => undefined,
+		dispose: stop,
+	};
 }
 
 function renderBarCursor(lines: readonly string[]): string[] {
@@ -122,7 +156,6 @@ export function createStatusbarFeature(pi: ExtensionAPI): StatusbarFeature {
 						next.usage = usage;
 						next.compacted = false;
 					}
-					const statuses = next.footerData?.getExtensionStatuses();
 					return [
 						renderStatusbarLine(
 							width,
@@ -132,7 +165,6 @@ export function createStatusbarFeature(pi: ExtensionAPI): StatusbarFeature {
 								...(usage === undefined ? {} : { usage }),
 								...(systemPrompt === undefined ? {} : { systemPrompt }),
 								...(sessionName === undefined ? {} : { sessionName }),
-								...(statuses === undefined ? {} : { statuses }),
 							}),
 							ctx.ui.theme,
 						),
@@ -158,9 +190,8 @@ export function createStatusbarFeature(pi: ExtensionAPI): StatusbarFeature {
 			owner = next;
 			ctx.ui.setFooter((tui: TUI, _theme: Theme, footerData: ReadonlyFooterDataProvider) => {
 				if (!next || owner !== next) return emptyFooter();
-				next.footerData = footerData;
 				next.requestRender = () => tui.requestRender();
-				return emptyFooter();
+				return createExtensionStatusFooter(tui, footerData, () => ctx.ui.theme);
 			});
 			ctx.ui.setEditorComponent(installedEditorFactory);
 		},
