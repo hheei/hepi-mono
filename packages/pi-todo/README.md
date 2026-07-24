@@ -42,4 +42,4 @@ The reminder is not rendered or written to the session. It repeats after another
 
 ## Persistence
 
-State is restored from the latest Todo tool-result or user-suppression snapshot in active branch history. Legacy `blockedBy` fields are ignored. No disk fallback exists.
+State is restored from the latest Todo tool-result or user-suppression snapshot in active branch history. Legacy `blockedBy` snapshot fields are ignored for migration compatibility; this compatibility is deprecated and will be removed in the next breaking snapshot revision. No disk fallback exists.
