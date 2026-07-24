@@ -95,12 +95,12 @@ describe("tui replay", () => {
 			create: (host) => {
 				const editor = baseFactory({} as never, {} as never, {} as never);
 				return {
-					render: (width: number) => editor.render(width),
+					render: (width: number) => [...editor.render(width), ...footer.render(width)],
 					handleInput(data: string) {
 						if (data === "model") modelName = "Claude";
 						if (data === "thinking") thinking = "xhigh";
 						if (data === "status") {
-							statuses = new Map([["goal", "active"]]);
+							statuses = new Map([["goal", "Goal"]]);
 							title = "Updated session";
 						}
 						if (data === "usage") usage = { percent: null, contextWindow: null };
@@ -120,8 +120,8 @@ describe("tui replay", () => {
 			],
 		});
 		expect(result.frames).toHaveLength(8);
-		for (const frame of result.frames) {
-			expect(frame.lines).toHaveLength(4);
+		for (const [index, frame] of result.frames.entries()) {
+			expect(frame.lines).toHaveLength(index < 4 ? 4 : 5);
 			expect(frame.lines[0]).not.toBe("previous-top");
 			expect(frame.lines[0]).not.toContain("\n");
 			expect(stripAnsi(frame.lines[0]!)).toHaveLength(frame.columns);
@@ -134,7 +134,8 @@ describe("tui replay", () => {
 		expect(stripAnsi(result.frames[0]!.lines[0]!)).toContain("Session");
 		expect(stripAnsi(result.frames[1]!.lines[0]!)).toContain("Claude");
 		expect(stripAnsi(result.frames[2]!.lines[0]!)).toContain("●");
-		expect(stripAnsi(result.frames[7]!.lines[0]!)).toContain("active");
+		expect(stripAnsi(result.frames[7]!.lines[0]!)).not.toContain("GOAL");
+		expect(stripAnsi(result.frames[7]!.lines[4]!)).toContain("GOAL");
 		expect(stripAnsi(result.frames[7]!.lines[0]!)).toContain("?? ?");
 		expect(result.frames[1]!.lines[0]).toContain("\x1b[");
 	});
