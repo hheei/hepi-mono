@@ -20,25 +20,21 @@ export const AUTO_TITLE_FIELD = "autoTitle";
 export const AUTO_TITLE_MODEL_FIELD = "autoTitleModel";
 const SECTION = "pi-basics";
 const MAX_PROMPT = 6000;
-const MAX_MESSAGE_TEXT = 500;
-const MIN_SESSION_CONTEXT_CHARACTERS = 500;
+const MAX_PRIMARY_REQUEST = 4000;
+const MAX_SUPPORTING_TEXT = 1000;
 const TIMEOUT_MS = 60_000;
-export const AUTO_TITLE_SYSTEM_PROMPT = `Create a succinct title for a coding session from the provided description.
+export const AUTO_TITLE_SYSTEM_PROMPT = `Create a concise, searchable title for a coding session.
 
 Requirements:
-- Clearly and accurately reflect the primary coding task.
-- Keep it short and simple: no more than 6 words.
-- Write the title in English only, even when the description uses another language.
-- Prefer plain language. Avoid jargon or overly technical terms unless needed for accuracy.
-- Use sentence case: capitalize only the first word and proper nouns, not every word.
-- Preserve exact proper nouns, package names, and code identifiers when they are essential.
+- Use the same language as the user's primary request.
+- Prefer 2 to 6 words when the language uses spaces; always stay under 60 characters.
+- Name the concrete task and subject: feature, bug, package, file, command, model, or error.
+- Preserve exact package names, file names, commands, and code identifiers when useful.
+- Summarize the user's intent. Do not describe the assistant's actions or completion status.
+- Avoid generic titles such as "Coding help", "Fix bug", "Update code", or "New session".
+- Use sentence case where applicable.
 
-Return only the title as plain text. Do not use quotes, markdown, JSON, or explanation.
-
-Examples:
-Fix mobile login button
-Update README installation instructions
-Improve data processing performance`;
+Return exactly one plain-text title. No quotes, markdown, labels, trailing punctuation, or explanation.`;
 
 type JsonObject = Record<string, unknown>;
 export interface AutoTitleStorageOptions {
@@ -254,12 +250,12 @@ export interface AutoTitleRuntime {
 }
 const ANSI_ESCAPE = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "g");
 
-function safeTitle(value: string): string | undefined {
+export function safeTitle(value: string): string | undefined {
 	let cleaned = "";
 	for (const character of value.replace(ANSI_ESCAPE, "")) {
 		const code = character.codePointAt(0) ?? 0;
 		if (
-			code <= 0x1f ||
+			(code <= 0x1f && code !== 0x0a && code !== 0x0d) ||
 			(code >= 0x7f && code <= 0x9f) ||
 			(code >= 0x200b && code <= 0x200f) ||
 			(code >= 0x202a && code <= 0x202e) ||
@@ -269,12 +265,21 @@ function safeTitle(value: string): string | undefined {
 			continue;
 		cleaned += character;
 	}
-	const title = cleaned
-		.replace(/```[\s\S]*?```/g, "")
-		.replace(/[\r\n]+/g, " ")
+	const firstLine = cleaned
+		.replace(/^```[a-z0-9_-]*\s*/i, "")
+		.replace(/```$/i, "")
+		.split(/[\r\n]+/)
+		.map((line) => line.trim())
+		.find((line) => line !== "");
+	if (firstLine === undefined) return undefined;
+	const title = firstLine
+		.replace(/^(title|session (?:name|title))\s*:\s*/i, "")
+		.replace(/^[-*]\s*/, "")
+		.replace(/[.?!:;,。！？：；，]+$/g, "")
 		.replace(/^[\s"'`]+|[\s"'`]+$/g, "")
+		.replace(/[.?!:;,。！？：；，]+$/g, "")
 		.replace(/\s+/g, " ")
-		.slice(0, 80)
+		.slice(0, 60)
 		.trim();
 	return title || undefined;
 }
@@ -298,26 +303,34 @@ function messageText(content: unknown): string {
 	return text.replace(/\s+/g, " ").trim();
 }
 
-function autoTitleDescription(ctx: ExtensionContext, force: boolean): string | undefined {
-	const transcript: string[] = [];
-	let contextCharacters = 0;
-	let userTurns = 0;
+function autoTitleDescription(ctx: ExtensionContext): string | undefined {
+	const messages: Array<{ readonly role: "user" | "assistant"; readonly text: string }> = [];
 	for (const entry of ctx.sessionManager.getEntries()) {
 		if (entry.type !== "message") continue;
 		const role = entry.message.role;
 		if (role !== "user" && role !== "assistant") continue;
 		const text = messageText(entry.message.content);
-		if (text === "") continue;
-		contextCharacters += Array.from(text).length;
-		if (role === "user") userTurns++;
-		transcript.push(
-			`${role === "user" ? "User" : "Assistant"}: ${text.slice(0, MAX_MESSAGE_TEXT)}`,
-		);
+		if (text !== "") messages.push({ role, text });
 	}
-	if (transcript.length === 0) return undefined;
-	if (!force && contextCharacters <= MIN_SESSION_CONTEXT_CHARACTERS && userTurns < 3)
-		return undefined;
-	return `Session transcript:\n\n${transcript.join("\n\n").slice(-MAX_PROMPT)}`;
+	const primaryIndex = messages.findIndex((message) => message.role === "user");
+	if (primaryIndex < 0) return undefined;
+	const primary = messages[primaryIndex];
+	if (primary === undefined) return undefined;
+	const firstResult = messages.slice(primaryIndex + 1).find((message) => message.role === "assistant");
+	let latestUser: (typeof messages)[number] | undefined;
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const message = messages[index];
+		if (message?.role === "user") {
+			latestUser = message;
+			break;
+		}
+	}
+	const sections = [`Primary user request:\n${primary.text.slice(0, MAX_PRIMARY_REQUEST)}`];
+	if (firstResult !== undefined)
+		sections.push(`First assistant result:\n${firstResult.text.slice(0, MAX_SUPPORTING_TEXT)}`);
+	if (latestUser !== undefined && latestUser !== primary)
+		sections.push(`Latest user clarification:\n${latestUser.text.slice(0, MAX_SUPPORTING_TEXT)}`);
+	return sections.join("\n\n").slice(0, MAX_PROMPT);
 }
 
 export interface AutoTitleAgentAdapter {
@@ -442,7 +455,7 @@ export function createAutoTitleCoordinator(
 			return;
 		}
 		const forced = forceRequested;
-		const prompt = autoTitleDescription(ctx, forced);
+		const prompt = autoTitleDescription(ctx);
 		if (!prompt) {
 			if (forced) ctx.ui.notify("Unable to generate title: no conversation content", "warning");
 			forceRequested = false;
