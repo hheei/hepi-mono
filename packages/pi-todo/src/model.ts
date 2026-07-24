@@ -1,4 +1,4 @@
-export type TaskStatus = "pending" | "in_progress" | "completed";
+export type TaskStatus = "pending" | "in_progress" | "completed" | "suppressed";
 
 export type TodoAction = "create" | "update" | "list" | "delete";
 
@@ -6,7 +6,6 @@ export interface Task {
 	readonly id: number;
 	readonly subject: string;
 	readonly status: TaskStatus;
-	readonly blockedBy: readonly number[];
 }
 
 export interface TaskState {
@@ -15,13 +14,12 @@ export interface TaskState {
 }
 
 export type TodoOperation =
-	| { readonly action: "create"; readonly subject: string; readonly blockedBy?: readonly number[] }
+	| { readonly action: "create"; readonly subject: string }
 	| {
 			readonly action: "update";
 			readonly id: number;
 			readonly subject?: string;
-			readonly status?: TaskStatus;
-			readonly blockedBy?: readonly number[];
+			readonly status?: Exclude<TaskStatus, "suppressed">;
 	  }
 	| { readonly action: "list"; readonly status?: TaskStatus }
 	| { readonly action: "delete"; readonly id: number };
@@ -56,7 +54,7 @@ export function freshTaskState(): TaskState {
 	return { tasks: [], nextId: 1 };
 }
 
-const STATUSES: readonly TaskStatus[] = ["pending", "in_progress", "completed"];
+const STATUSES: readonly TaskStatus[] = ["pending", "in_progress", "completed", "suppressed"];
 const ACTIONS: readonly TodoAction[] = ["create", "update", "list", "delete"];
 
 function subjectError(subject: string): string | undefined {
@@ -82,43 +80,17 @@ function isPositiveInteger(value: unknown): value is number {
 	return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
+function isMutableTaskStatus(value: unknown): value is Exclude<TaskStatus, "suppressed"> {
+	return value === "pending" || value === "in_progress" || value === "completed";
+}
+
 function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
 	return Object.keys(value).every((key) => keys.includes(key));
 }
 
-function hasCycle(tasks: readonly Task[]): boolean {
-	const byId = new Map(tasks.map((task) => [task.id, task]));
-	const states = new Map<number, "visiting" | "visited">();
-	for (const root of tasks) {
-		if (states.get(root.id) === "visited") continue;
-		const stack: Array<{ task: Task; dependencyIndex: number }> = [
-			{ task: root, dependencyIndex: 0 },
-		];
-		states.set(root.id, "visiting");
-		while (stack.length > 0) {
-			const frame = stack[stack.length - 1];
-			if (!frame) break;
-			const dependency = frame.task.blockedBy[frame.dependencyIndex++];
-			if (dependency === undefined) {
-				states.set(frame.task.id, "visited");
-				stack.pop();
-				continue;
-			}
-			const state = states.get(dependency);
-			if (state === "visiting") return true;
-			if (state === "visited") continue;
-			const task = byId.get(dependency);
-			if (!task) continue;
-			states.set(dependency, "visiting");
-			stack.push({ task, dependencyIndex: 0 });
-		}
-	}
-	return false;
-}
-
 function cloneState(state: TaskState): { tasks: Task[]; nextId: number } {
 	return {
-		tasks: state.tasks.map((task) => ({ ...task, blockedBy: [...task.blockedBy] })),
+		tasks: [...state.tasks],
 		nextId: state.nextId,
 	};
 }
@@ -132,83 +104,28 @@ export function validateTaskState(value: unknown): TaskState | undefined {
 		if (!isRecord(valueTask) || !isPositiveInteger(valueTask.id) || ids.has(valueTask.id))
 			return undefined;
 		if (typeof valueTask.subject !== "string" || subjectError(valueTask.subject)) return undefined;
-		if (!STATUSES.includes(valueTask.status as TaskStatus) || !Array.isArray(valueTask.blockedBy))
-			return undefined;
-		const blockedBy: number[] = [];
-		const dependencies = new Set<number>();
-		for (const dependency of valueTask.blockedBy) {
-			if (
-				!isPositiveInteger(dependency) ||
-				dependencies.has(dependency) ||
-				dependency === valueTask.id
-			)
-				return undefined;
-			dependencies.add(dependency);
-			blockedBy.push(dependency);
-		}
+		if (!STATUSES.includes(valueTask.status as TaskStatus)) return undefined;
 		ids.add(valueTask.id);
 		tasks.push({
 			id: valueTask.id,
 			subject: valueTask.subject,
 			status: valueTask.status as TaskStatus,
-			blockedBy,
 		});
 	}
 	const maxId = tasks.reduce((max, task) => Math.max(max, task.id), 0);
-	if (
-		value.nextId <= maxId ||
-		tasks.some((task) => task.blockedBy.some((id) => !ids.has(id))) ||
-		hasCycle(tasks) ||
-		tasks.some(
-			(task) =>
-				task.status === "completed" &&
-				task.blockedBy.some(
-					(id) => tasks.find((dependency) => dependency.id === id)?.status !== "completed",
-				),
-		) ||
-		tasks.filter((task) => task.status === "in_progress").length > 1
-	)
+	if (value.nextId <= maxId || tasks.filter((task) => task.status === "in_progress").length > 1)
 		return undefined;
 	return { tasks, nextId: value.nextId };
 }
 
-function incompleteBlocker(task: Task, tasks: readonly Task[]): Task | undefined {
-	return task.blockedBy
-		.map((id) => tasks.find((candidate) => candidate.id === id))
-		.find((candidate) => candidate?.status !== "completed");
-}
-
 function statusError(task: Task, tasks: readonly Task[]): string | undefined {
-	if (task.status === "completed" || task.status === "in_progress") {
-		const blocker = incompleteBlocker(task, tasks);
-		if (blocker)
-			return `Task #${task.id} cannot be ${task.status === "completed" ? "completed" : "in progress"} while blocked by incomplete task #${blocker.id}`;
-	}
-	if (task.status === "in_progress") {
-		const active = tasks.find(
-			(candidate) => candidate.id !== task.id && candidate.status === "in_progress",
-		);
-		if (active)
-			return `Task #${task.id} cannot be in progress while Task #${active.id} is in progress`;
-	}
-	return undefined;
-}
-
-function dependencyError(
-	task: Task,
-	blockedBy: readonly unknown[],
-	tasks: readonly Task[],
-): string | undefined {
-	if (!Array.isArray(blockedBy)) return "blockedBy must be an array";
-	const dependencies = new Set<number>();
-	for (const id of blockedBy) {
-		if (!isPositiveInteger(id)) return "blockedBy must contain positive integer ids";
-		if (dependencies.has(id)) return `Task #${task.id} has duplicate dependency #${id}`;
-		if (id === task.id) return `Task #${task.id} cannot block itself`;
-		if (!tasks.some((candidate) => candidate.id === id)) return `Dependency #${id} does not exist`;
-		dependencies.add(id);
-	}
-	return undefined;
+	if (task.status !== "in_progress") return undefined;
+	const active = tasks.find(
+		(candidate) => candidate.id !== task.id && candidate.status === "in_progress",
+	);
+	return active
+		? `Task #${task.id} cannot be in progress while Task #${active.id} is in progress`
+		: undefined;
 }
 
 function findTask(tasks: readonly Task[], id: number): Task | undefined {
@@ -219,9 +136,9 @@ function validTransition(from: TaskStatus, to: TaskStatus): boolean {
 	return from !== "completed" || to === "completed";
 }
 
-function firstRunnablePending(tasks: readonly Task[]): Task | undefined {
+function firstPending(tasks: readonly Task[]): Task | undefined {
 	return tasks
-		.filter((task) => task.status === "pending" && incompleteBlocker(task, tasks) === undefined)
+		.filter((task) => task.status === "pending")
 		.sort((left, right) => left.id - right.id)[0];
 }
 
@@ -260,25 +177,17 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 			continue;
 		}
 		if (action === "create") {
-			if (
-				!hasOnlyKeys(operation, ["action", "subject", "blockedBy"]) ||
-				typeof operation.subject !== "string"
-			)
+			if (!hasOnlyKeys(operation, ["action", "subject"]) || typeof operation.subject !== "string")
 				return fail("Invalid create fields", index);
 			const subjectIssue = subjectError(operation.subject);
 			if (subjectIssue) return fail(subjectIssue, index);
 			const subject = operation.subject.trim();
-			if (operation.blockedBy !== undefined && !Array.isArray(operation.blockedBy))
-				return fail("blockedBy must be an array", index);
 			if (draft.nextId >= Number.MAX_SAFE_INTEGER) return fail("Task id space exhausted", index);
 			const task: Task = {
 				id: draft.nextId,
 				subject,
 				status: "pending",
-				blockedBy: operation.blockedBy === undefined ? [] : [...operation.blockedBy],
 			};
-			const error = dependencyError(task, task.blockedBy, draft.tasks);
-			if (error) return fail(error, index);
 			draft.tasks = [...draft.tasks, task];
 			draft.nextId++;
 			changed = true;
@@ -289,60 +198,43 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 			if (!hasOnlyKeys(operation, ["action", "id"]) || !isPositiveInteger(operation.id))
 				return fail("Invalid delete fields", index);
 			const id = operation.id;
-			if (!findTask(draft.tasks, id)) return fail(`Task #${id} does not exist`, index);
-			draft.tasks = draft.tasks
-				.filter((task) => task.id !== id)
-				.map((task) => ({
-					...task,
-					blockedBy: task.blockedBy.filter((dependency) => dependency !== id),
-				}));
+			const task = findTask(draft.tasks, id);
+			if (!task) return fail(`Task #${id} does not exist`, index);
+			if (task.status === "suppressed") return fail(`The user suppressed #${id} before.`, index);
+			draft.tasks = draft.tasks.filter((candidate) => candidate.id !== id);
 			changed = true;
 			operations.push({ index, action, changed: true, id });
 			continue;
 		}
 		if (
-			!hasOnlyKeys(operation, ["action", "id", "subject", "status", "blockedBy"]) ||
+			!hasOnlyKeys(operation, ["action", "id", "subject", "status"]) ||
 			!isPositiveInteger(operation.id)
 		)
 			return fail("Invalid update fields", index);
 		const id = operation.id;
 		const current = findTask(draft.tasks, id);
 		if (!current) return fail(`Task #${id} does not exist`, index);
+		if (current.status === "suppressed") return fail(`The user suppressed #${id} before.`, index);
 		const hasSubject = operation.subject !== undefined;
 		const hasStatus = operation.status !== undefined;
-		const hasBlockedBy = operation.blockedBy !== undefined;
-		if (!hasSubject && !hasStatus && !hasBlockedBy)
-			return fail("Update requires a mutable field", index);
+		if (!hasSubject && !hasStatus) return fail("Update requires a mutable field", index);
 		if (hasSubject && typeof operation.subject !== "string")
 			return fail("Subject must not be empty", index);
 		if (hasSubject) {
 			const subjectIssue = subjectError(operation.subject as string);
 			if (subjectIssue) return fail(subjectIssue, index);
 		}
-		if (hasStatus && !STATUSES.includes(operation.status as TaskStatus))
-			return fail("Invalid status", index);
+		if (hasStatus && !isMutableTaskStatus(operation.status)) return fail("Invalid status", index);
 		if (operation.status === "pending") suppressAutoStart = true;
 		const subject = hasSubject ? (operation.subject as string).trim() : current.subject;
-		const status = hasStatus ? (operation.status as TaskStatus) : current.status;
-		if (hasBlockedBy && !Array.isArray(operation.blockedBy))
-			return fail("blockedBy must be an array", index);
-		const blockedBy = hasBlockedBy
-			? [...(operation.blockedBy as readonly number[])]
-			: [...current.blockedBy];
+		const status = isMutableTaskStatus(operation.status) ? operation.status : current.status;
 		if (!validTransition(current.status, status))
 			return fail(`Invalid status transition from ${current.status} to ${status}`, index);
-		const error = dependencyError(current, blockedBy, draft.tasks);
-		if (error) return fail(error, index);
-		const next = { ...current, subject, status, blockedBy };
+		const next = { ...current, subject, status };
 		const candidateTasks = draft.tasks.map((task) => (task.id === id ? next : task));
 		const statusIssue = statusError(next, candidateTasks);
 		if (statusIssue) return fail(statusIssue, index);
-		if (hasCycle(candidateTasks)) return fail("Task dependencies contain a cycle", index);
-		const isChanged =
-			current.subject !== subject ||
-			current.status !== status ||
-			current.blockedBy.length !== blockedBy.length ||
-			current.blockedBy.some((value, i) => value !== blockedBy[i]);
+		const isChanged = current.subject !== subject || current.status !== status;
 		if (isChanged) {
 			draft.tasks = candidateTasks;
 			changed = true;
@@ -351,7 +243,7 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 	}
 	let autoStartedId: number | undefined;
 	if (changed && !suppressAutoStart && !draft.tasks.some((task) => task.status === "in_progress")) {
-		const next = firstRunnablePending(draft.tasks);
+		const next = firstPending(draft.tasks);
 		if (next) {
 			draft.tasks = draft.tasks.map((task) =>
 				task.id === next.id ? { ...task, status: "in_progress" } : task,
@@ -363,4 +255,42 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 	return autoStartedId === undefined
 		? { ok: true, changed: true, state: draft, operations }
 		: { ok: true, changed: true, state: draft, operations, autoStartedId };
+}
+
+export type SuppressTodoResult =
+	| {
+			readonly ok: true;
+			readonly changed: boolean;
+			readonly state: TaskState;
+			readonly autoStartedId?: number;
+	  }
+	| { readonly ok: false; readonly state: TaskState; readonly error: string };
+
+export function suppressTodoByUser(state: TaskState, id: number): SuppressTodoResult {
+	if (!validateTaskState(state)) return { ok: false, state, error: "Invalid task state" };
+	if (!isPositiveInteger(id)) return { ok: false, state, error: "Task id must be positive" };
+	const current = findTask(state.tasks, id);
+	if (!current) return { ok: false, state, error: `Task #${id} does not exist` };
+	if (current.status === "completed") {
+		return { ok: false, state, error: `Task #${id} is already completed` };
+	}
+	if (current.status === "suppressed") return { ok: true, changed: false, state };
+
+	let tasks = state.tasks.map((task) =>
+		task.id === id ? { ...task, status: "suppressed" as const } : task,
+	);
+	let autoStartedId: number | undefined;
+	if (!tasks.some((task) => task.status === "in_progress")) {
+		const next = firstPending(tasks);
+		if (next) {
+			tasks = tasks.map((task) =>
+				task.id === next.id ? { ...task, status: "in_progress" as const } : task,
+			);
+			autoStartedId = next.id;
+		}
+	}
+	const nextState = { tasks, nextId: state.nextId };
+	return autoStartedId === undefined
+		? { ok: true, changed: true, state: nextState }
+		: { ok: true, changed: true, state: nextState, autoStartedId };
 }

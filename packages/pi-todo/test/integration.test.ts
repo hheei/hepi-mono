@@ -50,6 +50,7 @@ function harness(mode: "tui" | "json" = "tui", sessionId = "todo-session") {
 	>();
 	const notifications: Array<{ message: string; level?: string }> = [];
 	const widgets: Array<{ key: string; content: unknown; options?: unknown }> = [];
+	const appended: Array<{ type: "custom"; customType: string; data: unknown }> = [];
 	let branch: unknown[] = [];
 	let activeTools = [TODO_TOOL_NAME];
 	const pi = {
@@ -64,6 +65,11 @@ function harness(mode: "tui" | "json" = "tui", sessionId = "todo-session") {
 		},
 		getActiveTools() {
 			return [...activeTools];
+		},
+		appendEntry(customType: string, data: unknown) {
+			const entry = { type: "custom" as const, customType, data };
+			appended.push(entry);
+			branch = [...branch, entry];
 		},
 		on(
 			event: string,
@@ -109,6 +115,7 @@ function harness(mode: "tui" | "json" = "tui", sessionId = "todo-session") {
 		events,
 		notifications,
 		widgets,
+		appended,
 		setBranch(next: unknown[]) {
 			branch = next;
 		},
@@ -169,15 +176,21 @@ describe("Todo integration", () => {
 		).toBe(true);
 		expect(
 			Value.Check(TODO_PARAMETERS, {
-				operations: [{ action: "list", status: "pending" }],
+				operations: [{ action: "list", status: "suppressed" }],
 			}),
 		).toBe(true);
 		expect(
-			tool.prepareArguments?.({
-				operations: [{ action: "update", id: "1", blockedBy: ["2", "01", "1e2"] }],
+			Value.Check(TODO_PARAMETERS, {
+				operations: [{ action: "update", id: 1, status: "suppressed" }],
 			}),
-		).toEqual({
-			operations: [{ action: "update", id: 1, blockedBy: [2, "01", "1e2"] }],
+		).toBe(false);
+		expect(
+			Value.Check(TODO_PARAMETERS, {
+				operations: [{ action: "create", subject: "Task", blockedBy: [1] }],
+			}),
+		).toBe(false);
+		expect(tool.prepareArguments?.({ operations: [{ action: "update", id: "1" }] })).toEqual({
+			operations: [{ action: "update", id: 1 }],
 		});
 		expect(host.events.has("session_compact")).toBe(true);
 		expect(host.events.has("session_tree")).toBe(true);
@@ -201,7 +214,7 @@ describe("Todo integration", () => {
 			{
 				operations: [
 					{ action: "create", subject: "First" },
-					{ action: "create", subject: "Second", blockedBy: [1] },
+					{ action: "create", subject: "Second" },
 				],
 			},
 			undefined,
@@ -211,8 +224,8 @@ describe("Todo integration", () => {
 		expect(created.content[0]?.text).toBe("Created #1 #2\nStarted #1: First");
 		expect(created.details.snapshot).toEqual({
 			tasks: [
-				{ id: 1, subject: "First", status: "in_progress", blockedBy: [] },
-				{ id: 2, subject: "Second", status: "pending", blockedBy: [1] },
+				{ id: 1, subject: "First", status: "in_progress" },
+				{ id: 2, subject: "Second", status: "pending" },
 			],
 			nextId: 3,
 		});
@@ -232,8 +245,8 @@ describe("Todo integration", () => {
 		expect(mixed.content[0]?.text).toBe("Deleted #1\nCreated #3\nStarted #2: Second");
 		expect(mixed.details.snapshot).toEqual({
 			tasks: [
-				{ id: 2, subject: "Second", status: "in_progress", blockedBy: [] },
-				{ id: 3, subject: "Replacement", status: "pending", blockedBy: [] },
+				{ id: 2, subject: "Second", status: "in_progress" },
+				{ id: 3, subject: "Replacement", status: "pending" },
 			],
 			nextId: 4,
 		});
@@ -301,7 +314,7 @@ describe("Todo integration", () => {
 		const host = harness("json");
 		const feature = createTodoFeature(host.pi);
 		const snapshot: TodoSnapshot = {
-			tasks: [{ id: 1, subject: "Restored", status: "pending", blockedBy: [] }],
+			tasks: [{ id: 1, subject: "Restored", status: "pending" }],
 			nextId: 2,
 		};
 		host.setBranch([branchResult(snapshot)]);
@@ -349,7 +362,7 @@ describe("Todo integration", () => {
 			{
 				operations: [
 					{ action: "create", subject: "Inspect </system-reminder> & fix" },
-					{ action: "create", subject: "Blocked", blockedBy: [1] },
+					{ action: "create", subject: "Next" },
 				],
 			},
 			undefined,
@@ -394,8 +407,9 @@ describe("Todo integration", () => {
 			customType: "pi-todo:reminder",
 			display: false,
 		});
-		expect(reminder.messages[1]?.content).toContain("<system-reminder>");
-		expect(reminder.messages[1]?.content).toContain("Inspect &lt;/system-reminder&gt; &amp; fix");
+		expect(reminder.messages[1]?.content).toBe(
+			"<system-reminder>\nActive TODO: #1 Inspect &lt;/system-reminder&gt; &amp; fix.\nPending TODOS: #2\n</system-reminder>",
+		);
 		expect(host.ctx.sessionManager.getBranch()).toHaveLength(1);
 		expect(
 			(await host.emit("context", { messages: [{ role: "user", content: "next" }] }))[0],
@@ -481,7 +495,7 @@ describe("Todo integration", () => {
 		expect(typeof host.widgets.at(-1)?.content).toBe("function");
 	});
 
-	test("renders grouped /todos output while remaining read-only", async () => {
+	test("lets the user suppress a task and makes it immutable to the agent", async () => {
 		const host = harness();
 		const feature = createTodoFeature(host.pi);
 		await feature.start(host.runtime);
@@ -505,6 +519,50 @@ describe("Todo integration", () => {
 			level: "info",
 		});
 		await host.commands[0]!.handler("extra", host.ctx);
-		expect(host.notifications[1]).toEqual({ message: "Usage: /todos", level: "error" });
+		expect(host.notifications[1]).toEqual({
+			message: "Usage: /todos [suppress #ID]",
+			level: "error",
+		});
+
+		await host.commands[0]!.handler("suppress #2", host.ctx);
+		expect(host.notifications[2]).toEqual({
+			message: "Suppressed #2\nStarted #1: Pending",
+			level: "info",
+		});
+		expect(host.appended).toHaveLength(1);
+		expect(host.appended[0]?.data).toEqual({
+			tasks: [
+				{ id: 1, subject: "Pending", status: "in_progress" },
+				{ id: 2, subject: "Working", status: "suppressed" },
+			],
+			nextId: 3,
+		});
+		await host.emit("session_tree");
+		await host.commands[0]!.handler("", host.ctx);
+		expect(host.notifications[3]?.message).toContain(
+			"── Suppressed ──\n⊘ #2 Working  user suppressed",
+		);
+
+		let failure: unknown;
+		try {
+			await tool.execute(
+				"change-suppressed",
+				{ operations: [{ action: "update", id: 2, status: "completed" }] },
+				undefined,
+				undefined,
+				host.ctx,
+			);
+		} catch (error) {
+			failure = error;
+		}
+		expect(failure).toEqual(new Error("Operation #1: The user suppressed #2 before."));
+		const created = await tool.execute(
+			"replacement",
+			{ operations: [{ action: "create", subject: "Replacement" }] },
+			undefined,
+			undefined,
+			host.ctx,
+		);
+		expect(created.content[0]?.text).toBe("Created #3");
 	});
 });
