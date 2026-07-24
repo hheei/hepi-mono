@@ -311,8 +311,24 @@ describe("Todo integration", () => {
 		);
 		expect(noChange.content[0]?.text).toBe("#2 is already `Second`\nNo change made.");
 
-		const allBlocked = await tool.execute(
+		const changedWithNoOp = await tool.execute(
 			"call-6",
+			{
+				operations: [
+					{ action: "update", id: 2, subject: "Second" },
+					{ action: "update", id: 3, subject: "Renamed" },
+				],
+			},
+			undefined,
+			undefined,
+			host.ctx,
+		);
+		expect(changedWithNoOp.content[0]?.text).toBe(
+			"#2 is already `Second`\nUpdated #3\nNext: #2 Second.",
+		);
+
+		const allBlocked = await tool.execute(
+			"call-7",
 			{
 				operations: [
 					{ action: "update", id: 2, status: "blocked" },
@@ -602,6 +618,21 @@ describe("Todo integration", () => {
 			failure = error;
 		}
 		expect(failure).toEqual(new Error("Task #1 is suppressed.\nNo change made."));
+
+		let deleteFailure: unknown;
+		try {
+			await tool.execute(
+				"delete-suppressed",
+				{ operations: [{ action: "delete", id: 1 }] },
+				undefined,
+				undefined,
+				host.ctx,
+			);
+		} catch (error) {
+			deleteFailure = error;
+		}
+		expect(deleteFailure).toEqual(new Error("Task #1 is suppressed.\nNo change made."));
+
 		const created = await tool.execute(
 			"replacement",
 			{ operations: [{ action: "create", subject: "Replacement" }] },

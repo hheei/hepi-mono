@@ -10,7 +10,7 @@ After a changed batch commits, Todo starts the lowest-ID pending task when none 
 
 Agents may set tasks to `in_progress`, `blocked`, or `completed`. A blocked task is not auto-started; set it back to `in_progress` when work can resume. `pending` remains an internal scheduling state.
 
-Created IDs use one result line; the final line always guides the next action:
+Created IDs use one result line; successful changed/list calls end with current guidance:
 
 ```text
 Created #1 #2 #3
@@ -37,7 +37,14 @@ The user can permanently suppress unfinished work from the TUI:
 /todos suppress #2
 ```
 
-A suppressed task is hidden from the widget and cannot be updated or deleted by the agent. Attempts return `Task #2 is suppressed.` The agent may create a new task instead. `/todos` still lists suppressed tasks for inspection.
+A suppressed task is hidden from the widget and cannot be updated or deleted by the agent. Both operations return:
+
+```text
+Task #2 is suppressed.
+No change made.
+```
+
+The agent may create a new task instead. `/todos` still lists suppressed tasks for inspection. Unchanged updates and rejected atomic batches also end with `No change made.` instead of guidance.
 
 Suppression is stored as a custom session entry. It does not enter LLM context and follows branch history.
 
