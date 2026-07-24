@@ -18,6 +18,7 @@ describe("loadout bridge", () => {
 		const [loadout, skill] = apiPair();
 		setHePiDisabledSkillKeys(loadout, new Set(["skill:review"]));
 		expect(isHePiSkillEnabled(skill, "review")).toBe(false);
+		expect(isHePiSkillEnabled(skill, "skill:review")).toBe(false);
 		expect(isHePiSkillEnabled(skill, "other")).toBe(true);
 	});
 
