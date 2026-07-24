@@ -84,6 +84,13 @@
         "@hheei/pi-basics": ">=0.0.0",
       },
     },
+    "packages/pi-cache-debug": {
+      "name": "@hheei/pi-cache-debug",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": ">=0.80.10",
+      },
+    },
     "packages/pi-caveman": {
       "name": "@hheei/pi-caveman",
       "version": "0.0.0",
@@ -316,6 +323,8 @@
     "@hheei/pi-basics": ["@hheei/pi-basics@workspace:packages/pi-basics"],
 
     "@hheei/pi-btw": ["@hheei/pi-btw@workspace:packages/pi-btw"],
+
+    "@hheei/pi-cache-debug": ["@hheei/pi-cache-debug@workspace:packages/pi-cache-debug"],
 
     "@hheei/pi-caveman": ["@hheei/pi-caveman@workspace:packages/pi-caveman"],
 
