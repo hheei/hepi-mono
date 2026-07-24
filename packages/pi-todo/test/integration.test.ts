@@ -173,7 +173,17 @@ describe("Todo integration", () => {
 			Value.Check(TODO_PARAMETERS, {
 				operations: [{ action: "update", id: 1, status: "in_progress" }],
 			}),
+		).toBe(false);
+		expect(
+			Value.Check(TODO_PARAMETERS, {
+				operations: [{ action: "update", id: 1, status: "completed" }],
+			}),
 		).toBe(true);
+		expect(
+			Value.Check(TODO_PARAMETERS, {
+				operations: [{ action: "update", id: 1 }],
+			}),
+		).toBe(false);
 		expect(
 			Value.Check(TODO_PARAMETERS, {
 				operations: [{ action: "list", status: "suppressed" }],
@@ -257,7 +267,7 @@ describe("Todo integration", () => {
 				"call-3",
 				{
 					operations: [
-						{ action: "update", id: 2, status: "in_progress" },
+						{ action: "update", id: 2, subject: "Second" },
 						{ action: "delete", id: 99 },
 					],
 				},
@@ -439,13 +449,8 @@ describe("Todo integration", () => {
 			(await host.emit("context", { messages: [{ role: "user", content: "too soon" }] }))[0],
 		).toBeUndefined();
 
-		await tool.execute(
-			"pause",
-			{ operations: [{ action: "update", id: 1, status: "pending" }] },
-			undefined,
-			undefined,
-			host.ctx,
-		);
+		await host.commands[0]!.handler("suppress #1", host.ctx);
+		await host.commands[0]!.handler("suppress #2", host.ctx);
 		clock += TODO_REMINDER_IDLE_MS;
 		for (let turn = 0; turn < TODO_REMINDER_IDLE_TURNS; turn++) {
 			await host.emit("turn_start");
@@ -504,9 +509,8 @@ describe("Todo integration", () => {
 			"create",
 			{
 				operations: [
-					{ action: "create", subject: "Pending" },
 					{ action: "create", subject: "Working" },
-					{ action: "update", id: 2, status: "in_progress" },
+					{ action: "create", subject: "Pending" },
 				],
 			},
 			undefined,
@@ -515,7 +519,7 @@ describe("Todo integration", () => {
 		);
 		await host.commands[0]!.handler("", host.ctx);
 		expect(host.notifications[0]).toEqual({
-			message: "0/2 completed\n── In Progress ──\n◐ #2 Working\n── Pending ──\n○ #1 Pending",
+			message: "0/2 completed\n── In Progress ──\n◐ #1 Working\n── Pending ──\n○ #2 Pending",
 			level: "info",
 		});
 		await host.commands[0]!.handler("extra", host.ctx);
@@ -524,30 +528,30 @@ describe("Todo integration", () => {
 			level: "error",
 		});
 
-		await host.commands[0]!.handler("suppress #2", host.ctx);
+		await host.commands[0]!.handler("suppress #1", host.ctx);
 		expect(host.notifications[2]).toEqual({
-			message: "Suppressed #2\nStarted #1: Pending",
+			message: "Suppressed #1\nStarted #2: Pending",
 			level: "info",
 		});
 		expect(host.appended).toHaveLength(1);
 		expect(host.appended[0]?.data).toEqual({
 			tasks: [
-				{ id: 1, subject: "Pending", status: "in_progress" },
-				{ id: 2, subject: "Working", status: "suppressed" },
+				{ id: 1, subject: "Working", status: "suppressed" },
+				{ id: 2, subject: "Pending", status: "in_progress" },
 			],
 			nextId: 3,
 		});
 		await host.emit("session_tree");
 		await host.commands[0]!.handler("", host.ctx);
 		expect(host.notifications[3]?.message).toContain(
-			"── Suppressed ──\n⊘ #2 Working  user suppressed",
+			"── Suppressed ──\n⊘ #1 Working  user suppressed",
 		);
 
 		let failure: unknown;
 		try {
 			await tool.execute(
 				"change-suppressed",
-				{ operations: [{ action: "update", id: 2, status: "completed" }] },
+				{ operations: [{ action: "update", id: 1, status: "completed" }] },
 				undefined,
 				undefined,
 				host.ctx,
@@ -555,7 +559,7 @@ describe("Todo integration", () => {
 		} catch (error) {
 			failure = error;
 		}
-		expect(failure).toEqual(new Error("Operation #1: The user suppressed #2 before."));
+		expect(failure).toEqual(new Error("Operation #1: The user suppressed #1 before."));
 		const created = await tool.execute(
 			"replacement",
 			{ operations: [{ action: "create", subject: "Replacement" }] },

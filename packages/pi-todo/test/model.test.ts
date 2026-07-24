@@ -67,43 +67,28 @@ describe("todo model", () => {
 			[{ action: "create", subject: " " }],
 			[{ action: "create", subject: "bad\nline" }],
 			[{ action: "create", subject: "x", blockedBy: [] }],
+			[{ action: "update", id: 1 }],
 		] as const) {
 			expect(applyTodo(initial, { operations } as never).ok).toBe(false);
 		}
 	});
 
-	test("enforces completed and single-active transitions", () => {
+	test("only lets the agent complete tasks", () => {
 		const initial = stateOf(freshTaskState(), [create("one"), create("two")]).state;
-		expect(
-			applyTodo(initial, { operations: [update(2, { status: "in_progress" })] }),
-		).toMatchObject({
-			ok: false,
-			error: "Task #2 cannot be in progress while Task #1 is in progress",
-		});
-		const completed = stateOf(initial, [update(1, { status: "completed" })]).state;
-		expect(applyTodo(completed, { operations: [update(1, { status: "pending" })] })).toMatchObject({
-			ok: false,
-			operationIndex: 0,
-		});
+		for (const status of ["pending", "in_progress", "suppressed"]) {
+			expect(
+				applyTodo(initial, {
+					operations: [{ action: "update", id: 1, status }] as never,
+				}),
+			).toMatchObject({ ok: false, error: "Invalid status", state: initial });
+		}
 	});
 
-	test("auto-advances after completion and respects an agent pause batch", () => {
+	test("auto-advances after completion", () => {
 		const initial = stateOf(freshTaskState(), [create("one"), create("two")]).state;
 		const advanced = stateOf(initial, [update(1, { status: "completed" })]);
 		expect(advanced.autoStartedId).toBe(2);
 		expect(advanced.state.tasks.map(({ status }) => status)).toEqual(["completed", "in_progress"]);
-
-		const paused = stateOf(advanced.state, [update(2, { status: "pending" })]);
-		expect(paused.autoStartedId).toBeUndefined();
-		const changedWhilePaused = stateOf(paused.state, [
-			update(2, { subject: "updated two" }),
-			update(2, { status: "pending" }),
-		]);
-		expect(changedWhilePaused.autoStartedId).toBeUndefined();
-		expect(changedWhilePaused.state.tasks[1]).toMatchObject({
-			subject: "updated two",
-			status: "pending",
-		});
 	});
 
 	test("user suppression is immutable to the agent and starts the next task", () => {

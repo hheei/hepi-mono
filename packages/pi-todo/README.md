@@ -6,7 +6,7 @@ Use the `todo` tool with a batch of `create`, `update`, `list`, or `delete` oper
 
 ## Automatic progress
 
-After a changed batch commits, Todo starts the lowest-ID pending task when none is `in_progress`. Completing or deleting the active task starts the next one without another tool call.
+After a changed batch commits, Todo starts the lowest-ID pending task when none is `in_progress`. Completing or deleting the active task starts the next one without another tool call. Agents only edit subjects or mark tasks completed; Todo owns scheduling states.
 
 Created IDs use one result line:
 
