@@ -57,6 +57,28 @@ async function writeRoot(path: string, root: Readonly<Record<string, unknown>>):
 	}
 }
 
+const writeQueues = new Map<string, Promise<void>>();
+
+export async function updateJsonSettingsRoot(
+	path: string,
+	update: (root: Record<string, unknown>) => void,
+): Promise<void> {
+	const previous = writeQueues.get(path) ?? Promise.resolve();
+	const current = previous
+		.catch(() => undefined)
+		.then(async () => {
+			const root = await readRoot(path);
+			update(root);
+			await writeRoot(path, root);
+		});
+	writeQueues.set(path, current);
+	try {
+		await current;
+	} finally {
+		if (writeQueues.get(path) === current) writeQueues.delete(path);
+	}
+}
+
 export function createJsonSectionSettingsStorage(
 	options: JsonSectionSettingsStorageOptions,
 ): HePiSettingsStorage {
@@ -80,15 +102,15 @@ export function createJsonSectionSettingsStorage(
 		},
 		async save(state, ctx): Promise<void> {
 			const path = resolvePath(ctx);
-			const root = await readRoot(path);
-			const currentSection = root[options.section];
-			if (currentSection !== undefined && !isRecord(currentSection))
-				throw new Error(`Expected ${options.section} to be an object in ${path}`);
-			root[options.section] = {
-				...(currentSection ?? {}),
-				[options.group]: { ...(state[options.group] ?? {}) },
-			};
-			await writeRoot(path, root);
+			await updateJsonSettingsRoot(path, (root) => {
+				const currentSection = root[options.section];
+				if (currentSection !== undefined && !isRecord(currentSection))
+					throw new Error(`Expected ${options.section} to be an object in ${path}`);
+				root[options.section] = {
+					...(currentSection ?? {}),
+					[options.group]: { ...(state[options.group] ?? {}) },
+				};
+			});
 		},
 	};
 }

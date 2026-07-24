@@ -166,6 +166,62 @@ describe("OpenAI Responses compatibility", () => {
 		);
 	});
 
+	test("rejects invalid canonical and unknown group fields with paths", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-basics-responses-invalid-"));
+		await mkdir(join(cwd, ".pi"), { recursive: true });
+		await writeFile(
+			join(cwd, ".pi", "settings.json"),
+			JSON.stringify({
+				"pi-basics": { "openai-responses-compat": { stripAssistantMessageStatus: "true" } },
+			}),
+		);
+		const feature = createOpenAIResponsesCompatFeature({ on() {} } as never);
+		const provider = createOpenAIResponsesCompatSettingsProvider(feature);
+		const load = provider.storage.load;
+		if (load === undefined) throw new Error("Expected settings loader");
+		let invalidTypeError: unknown;
+		try {
+			await load({ cwd } as never);
+		} catch (error) {
+			invalidTypeError = error;
+		}
+		expect(String(invalidTypeError)).toContain(
+			"pi-basics.openai-responses-compat.stripAssistantMessageStatus",
+		);
+		await writeFile(
+			join(cwd, ".pi", "settings.json"),
+			JSON.stringify({ "pi-basics": { "openai-responses-compat": { unexpected: false } } }),
+		);
+		let unknownFieldError: unknown;
+		try {
+			await load({ cwd } as never);
+		} catch (error) {
+			unknownFieldError = error;
+		}
+		expect(String(unknownFieldError)).toContain("pi-basics.openai-responses-compat.unexpected");
+	});
+
+	test("serializes concurrent saves without losing unrelated updates", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-basics-responses-concurrent-"));
+		const feature = createOpenAIResponsesCompatFeature({ on() {} } as never);
+		const provider = createOpenAIResponsesCompatSettingsProvider(feature);
+		await Promise.all([
+			provider.storage.save(
+				{ "openai-responses-compat": { stripAssistantMessageStatus: true } },
+				{ cwd, sessionId: "session-1" },
+			),
+			provider.storage.save(
+				{ "openai-responses-compat": { normalizeAssistantMessageId: true } },
+				{ cwd, sessionId: "session-2" },
+			),
+		]);
+		const saved = JSON.parse(await readFile(join(cwd, ".pi", "settings.json"), "utf8"));
+		expect(saved["pi-basics"]["openai-responses-compat"]).toEqual({
+			stripAssistantMessageStatus: true,
+			normalizeAssistantMessageId: true,
+		});
+	});
+
 	test("preserves unrelated project settings when saving", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-basics-responses-save-"));
 		await mkdir(join(cwd, ".pi"), { recursive: true });

@@ -47,6 +47,71 @@ describe("plan persistence", () => {
 		});
 	});
 
+	test("restores durable plan after a none boundary", () => {
+		const entries = [
+			{ id: "p1", type: "custom_message", customType: "pi-basics-plan", content: "# Plan" },
+			{
+				type: "custom",
+				customType: "pi-basics-plan-mode",
+				data: {
+					version: 1,
+					phase: "none",
+					planEntryId: "p1",
+					planUrl: "file:///tmp/s#p1",
+					initialAskPending: false,
+				},
+			},
+		];
+		expect(restorePlan(entries)).toEqual({
+			boundary: {
+				version: 1,
+				phase: "plan-refine",
+				planEntryId: "p1",
+				planUrl: "file:///tmp/s#p1",
+				initialAskPending: false,
+			},
+			plan: "# Plan",
+		});
+	});
+
+	test("rejects malformed durable none boundaries", () => {
+		expect(decodePlanBoundary({ version: 1, phase: "none", planEntryId: "" })).toBeUndefined();
+		expect(
+			decodePlanBoundary({ version: 1, phase: "none", planUrl: "file:///tmp/s#p1" }),
+		).toBeUndefined();
+		expect(
+			decodePlanBoundary({
+				version: 1,
+				phase: "none",
+				planEntryId: "p1",
+				planUrl: "https://example.com/plan#p1",
+			}),
+		).toBeUndefined();
+		expect(
+			decodePlanBoundary({ version: 1, phase: "none", initialAskPending: "false" }),
+		).toBeUndefined();
+	});
+
+	test("rejects a durable none boundary whose URL targets another artifact", () => {
+		const entries = [
+			{ id: "p1", type: "custom_message", customType: "pi-basics-plan", content: "# Plan" },
+			{
+				type: "custom",
+				customType: "pi-basics-plan-mode",
+				data: {
+					version: 1,
+					phase: "none",
+					planEntryId: "p1",
+					planUrl: "file:///tmp/s#p2",
+				},
+			},
+		];
+		expect(restorePlan(entries)).toEqual({
+			boundary: { version: 1, phase: "none" },
+			warning: "plan URL does not match artifact",
+		});
+	});
+
 	test("malformed newest boundary fails closed", () => {
 		const entries = [
 			{

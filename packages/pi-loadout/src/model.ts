@@ -28,21 +28,8 @@ class DescriptionRegistry implements LoadoutDescriptionRegistry {
 	}
 }
 
-const defaultDescriptionRegistry = new DescriptionRegistry();
-
 export function createLoadoutDescriptionRegistry(): LoadoutDescriptionRegistry {
 	return new DescriptionRegistry();
-}
-export function registerLoadoutDescriptionPanel(key: string, panel: LoadoutDescriptionPanel): void {
-	defaultDescriptionRegistry.register(key, panel);
-}
-export function unregisterLoadoutDescriptionPanel(key: string): void {
-	defaultDescriptionRegistry.unregister(key);
-}
-export function getLoadoutDescriptionPanel(
-	item: Pick<LoadoutItem, "key" | "kind" | "name">,
-): LoadoutDescriptionPanel | undefined {
-	return defaultDescriptionRegistry.get(item);
 }
 
 export type LoadoutScope = "global" | "project";
@@ -97,20 +84,8 @@ export function loadoutKey(kind: LoadoutKind, name: string, source?: string): Lo
 export function loadoutPersistenceKey(item: LoadoutItem): LoadoutKey {
 	return `${item.kind}:${item.name}`;
 }
-export function loadoutLegacyKeys(map: LoadoutMap, item: LoadoutItem): readonly LoadoutKey[] {
-	const stableKey = loadoutPersistenceKey(item);
-	const prefix = `${item.kind}:`;
-	const suffix = `:${item.name}`;
-	return Object.keys(map).filter(
-		(key): key is LoadoutKey => key !== stableKey && key.startsWith(prefix) && key.endsWith(suffix),
-	);
-}
 function configuredValue(map: LoadoutMap, item: LoadoutItem): boolean | undefined {
-	const stableKey = loadoutPersistenceKey(item);
-	if (Object.hasOwn(map, stableKey)) return map[stableKey];
-	if (Object.hasOwn(map, item.key)) return map[item.key];
-	const legacyKey = loadoutLegacyKeys(map, item).at(-1);
-	return legacyKey === undefined ? undefined : map[legacyKey];
+	return map[loadoutPersistenceKey(item)];
 }
 
 function inheritsGlobalConfiguration(item: LoadoutItem, maps: LoadoutStatusMaps): boolean {

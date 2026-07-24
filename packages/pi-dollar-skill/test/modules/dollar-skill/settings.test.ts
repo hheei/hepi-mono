@@ -3,12 +3,11 @@ import { mkdtemp, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-	createDollarSkillFeature,
-	createDollarSkillSettingsProvider,
 	loadDollarSkillConfig,
 	normalizeDollarSkillConfig,
 	saveDollarSkillConfig,
-} from "../../../src/index.js";
+} from "../../../src/config.js";
+import { createDollarSkillFeature, createDollarSkillSettingsProvider } from "../../../src/index.js";
 
 describe("dollar skill settings", () => {
 	test("normalizes untrusted values", () => {

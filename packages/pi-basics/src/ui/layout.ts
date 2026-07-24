@@ -38,5 +38,3 @@ export function createSplitLayout(options: SplitLayoutOptions): SplitLayout {
 	const rightWidth = Math.min(rightMax, available - leftWidth);
 	return { width, mode: "split", leftWidth, rightWidth, gap };
 }
-
-export const responsiveSplit = createSplitLayout;

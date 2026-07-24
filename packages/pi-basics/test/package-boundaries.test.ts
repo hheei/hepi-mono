@@ -145,6 +145,18 @@ test("dependency scanner covers static and dynamic imports", () => {
 	]);
 });
 
+test("all Pi packages expose explicit root contracts", async () => {
+	for (const packagePath of await packagePaths()) {
+		const manifestPath = join(packagePath, "package.json");
+		const manifest: unknown = JSON.parse(await readFile(manifestPath, "utf8"));
+		if (!isRecord(manifest) || !isRecord(manifest.exports))
+			throw new Error(`Missing package exports: ${manifestPath}`);
+		expect(manifest.exports).toEqual({ ".": "./src/index.ts" });
+		const publicRoot = await readFile(join(packagePath, "src", "index.ts"), "utf8");
+		expect(publicRoot).not.toMatch(/export\s+\*\s+from/u);
+	}
+});
+
 test("declared Pi extension entries exist and export a loader", async () => {
 	for (const packagePath of await packagePaths()) {
 		const manifestPath = join(packagePath, "package.json");

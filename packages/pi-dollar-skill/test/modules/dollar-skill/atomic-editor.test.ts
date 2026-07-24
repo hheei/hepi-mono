@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Editor, type EditorComponent, getKeybindings } from "@earendil-works/pi-tui";
-import { createDollarSkillAtomicEditor, type DollarSkillCommand } from "../../../src/index.js";
+import { createDollarSkillAtomicEditor } from "../../../src/atomic-editor.js";
+import type { DollarSkillCommand } from "../../../src/model.js";
 
 const commands: readonly DollarSkillCommand[] = [
 	{ name: "skill:librarian", source: "skill" },

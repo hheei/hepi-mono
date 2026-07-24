@@ -17,6 +17,7 @@ interface ResolverCommand {
 export interface ResolveRtkExecutableOptions {
 	platform?: typeof process.platform;
 	timeoutMs?: number;
+	signal?: AbortSignal;
 }
 
 function trimResolutionDetail(value: string | undefined): string {
@@ -75,7 +76,11 @@ export async function resolveRtkExecutable(
 	const timeout = options.timeoutMs ?? 1000;
 
 	try {
-		const result = await pi.exec(resolver.command, resolver.args, { timeout });
+		const result = await pi.exec(
+			resolver.command,
+			resolver.args,
+			options.signal ? { timeout, signal: options.signal } : { timeout },
+		);
 		const resolvedPath = parseRtkExecutablePath(result.stdout ?? "");
 		if (result.code === 0 && resolvedPath) {
 			return {
@@ -91,6 +96,7 @@ export async function resolveRtkExecutable(
 			`rtk executable path resolution via ${resolver.command} failed${detail ? `: ${detail}` : ""}`,
 		);
 	} catch (error) {
+		if (options.signal?.aborted) throw error;
 		const message = error instanceof Error ? error.message : String(error);
 		return fallbackResolution(
 			resolver.command,

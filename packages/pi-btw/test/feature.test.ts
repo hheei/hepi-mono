@@ -6,7 +6,6 @@ import type {
 	ExtensionContext,
 	ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
-import type { HePiRegistry } from "@hheei/pi-basics";
 import { createHePiRuntimeContext, type HePiRuntimeContext } from "@hheei/pi-basics";
 import type { BtwComponentController, BtwComponentOptions } from "../src/component.js";
 import type { BtwExecutionResult, ExecuteBtwTurnOptions } from "../src/executor.js";
@@ -150,11 +149,7 @@ function fixture(options: FixtureOptions = {}) {
 		waitForIdle: async () => undefined,
 	};
 	const typedCtx = ctx as unknown as ExtensionCommandContext;
-	const runtime: HePiRuntimeContext = createHePiRuntimeContext(
-		typedPi,
-		typedCtx,
-		{} as unknown as HePiRegistry,
-	);
+	const runtime: HePiRuntimeContext = createHePiRuntimeContext(typedPi, typedCtx, {} as never);
 	const execute: NonNullable<BtwFeatureOptions["execute"]> = async (
 		options: ExecuteBtwTurnOptions,
 	) =>

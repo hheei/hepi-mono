@@ -116,6 +116,72 @@ describe("todo model", () => {
 		expect(cyclic).toMatchObject({ ok: false, operationIndex: 1, state: initial });
 	});
 
+	test("rejects completing a task with incomplete blockers", () => {
+		const initial = stateOf(freshTaskState(), [create("blocker"), create("blocked", [1])]).state;
+		const result = applyTodo(initial, {
+			operations: [update(2, { status: "completed" })],
+		} as never);
+		expect(result).toMatchObject({
+			ok: false,
+			error: "Task #2 cannot be completed while blocked by incomplete task #1",
+			operationIndex: 0,
+			state: initial,
+		});
+	});
+
+	test("allows blocker completion before dependent completion in one batch", () => {
+		const initial = stateOf(freshTaskState(), [create("blocker"), create("blocked", [1])]).state;
+		const result = stateOf(initial, [
+			update(1, { status: "completed" }),
+			update(2, { status: "completed" }),
+		]);
+		expect(result.state.tasks.every((task) => task.status === "completed")).toBe(true);
+	});
+
+	test("rejects multiple in-progress tasks within and across calls", () => {
+		const initial = stateOf(freshTaskState(), [create("one"), create("two")]).state;
+		expect(
+			applyTodo(initial, {
+				operations: [update(1, { status: "in_progress" }), update(2, { status: "in_progress" })],
+			} as never),
+		).toMatchObject({
+			ok: false,
+			error: "Task #2 cannot be in progress while Task #1 is in progress",
+			operationIndex: 1,
+			state: initial,
+		});
+		const active = stateOf(initial, [update(1, { status: "in_progress" })]).state;
+		expect(
+			applyTodo(active, { operations: [update(2, { status: "in_progress" })] } as never),
+		).toMatchObject({
+			ok: false,
+			error: "Task #2 cannot be in progress while Task #1 is in progress",
+			operationIndex: 0,
+			state: active,
+		});
+	});
+
+	test("rejects snapshots violating status invariants", () => {
+		expect(
+			validateTaskState({
+				nextId: 3,
+				tasks: [
+					{ id: 1, subject: "blocker", status: "pending", blockedBy: [] },
+					{ id: 2, subject: "blocked", status: "completed", blockedBy: [1] },
+				],
+			}),
+		).toBeUndefined();
+		expect(
+			validateTaskState({
+				nextId: 3,
+				tasks: [
+					{ id: 1, subject: "one", status: "in_progress", blockedBy: [] },
+					{ id: 2, subject: "two", status: "in_progress", blockedBy: [] },
+				],
+			}),
+		).toBeUndefined();
+	});
+
 	test("validates dependency chains beyond the call stack", () => {
 		const count = 50_000;
 		const tasks = Array.from({ length: count }, (_, index) => ({
@@ -153,7 +219,7 @@ describe("todo model", () => {
 		const input = {
 			nextId: 3,
 			tasks: [
-				{ id: 1, subject: "one", status: "pending" as const, blockedBy: [] },
+				{ id: 1, subject: "one", status: "completed" as const, blockedBy: [] },
 				{ id: 2, subject: "two", status: "completed" as const, blockedBy: [1] },
 			],
 		};

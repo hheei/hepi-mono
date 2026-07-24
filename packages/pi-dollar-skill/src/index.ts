@@ -1,3 +1,5 @@
+export { default } from "./extension.js";
+
 import {
 	CustomEditor,
 	type ExtensionAPI,
@@ -188,7 +190,3 @@ export function createDollarSkillSettingsProvider(
 		onChange: (change) => feature.setConfig(configFromState(change.state)),
 	};
 }
-
-export * from "./atomic-editor.js";
-export * from "./config.js";
-export * from "./model.js";

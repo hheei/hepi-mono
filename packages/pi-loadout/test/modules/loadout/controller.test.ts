@@ -43,39 +43,21 @@ describe("loadout controller", () => {
 		await controller.close();
 	});
 
-	test("restores legacy selection when source identity changes after reopen", async () => {
-		const stored = { global: { "tool:/old/path:read": false }, project: {} };
-		const first = createLoadoutController({
-			storage: { load: async () => stored, update: async () => undefined },
-			inventory: inventory({ ...tool("tool:/new/path:read"), name: "read" }),
-		});
-		await first.load();
-		expect(first.state.resolved[0]?.effectiveStatus).toBe("disabled");
-		await first.close();
-		const reopened = createLoadoutController({
-			storage: { load: async () => stored, update: async () => undefined },
-			inventory: inventory({ ...tool("tool:package-name:read"), name: "read" }),
-		});
-		await reopened.load();
-		expect(reopened.state.resolved[0]?.effectiveStatus).toBe("disabled");
-	});
-
-	test("persists stable identity and removes source-scoped legacy keys", async () => {
-		const writes: Array<{ key: string; value: boolean | undefined; remove: readonly string[] }> =
-			[];
-		const item = { ...tool("tool:/new/path:read"), name: "read" };
+	test("persists only the canonical identity", async () => {
+		const writes: Array<{ key: string; value: boolean | undefined }> = [];
+		const item = { ...tool("tool:extension:read"), name: "read" };
 		const controller = createLoadoutController({
 			storage: {
-				load: async () => ({ global: { "tool:/old/path:read": true }, project: {} }),
-				update: async (_scope, key, value, remove = []) => {
-					writes.push({ key, value, remove });
+				load: async () => ({ global: {}, project: {} }),
+				update: async (_scope, key, value) => {
+					writes.push({ key, value });
 				},
 			},
 			inventory: inventory(item),
 		});
 		await controller.load();
 		await controller.toggleSelected();
-		expect(writes).toEqual([{ key: "tool:read", value: false, remove: ["tool:/old/path:read"] }]);
+		expect(writes).toEqual([{ key: "tool:read", value: false }]);
 	});
 
 	test("storage failure rolls optimistic model back without runtime apply", async () => {
@@ -158,7 +140,7 @@ describe("loadout controller", () => {
 	test("close aborts pending storage work", async () => {
 		let aborted = false;
 		const controller = createLoadoutController({
-			storage: storage({}, async (_scope, _key, _value, _remove, signal) => {
+			storage: storage({}, async (_scope, _key, _value, signal) => {
 				await new Promise<void>((_resolve, reject) => {
 					if (signal?.aborted) {
 						aborted = true;
@@ -182,5 +164,52 @@ describe("loadout controller", () => {
 		await Bun.sleep(0);
 		await Promise.all([toggle, controller.close()]);
 		expect(aborted).toBe(true);
+	});
+
+	test("close propagates abort through rollback and recovery", async () => {
+		let loadCalls = 0;
+		let updateCalls = 0;
+		let rollbackSignal: AbortSignal | undefined;
+		let recoverySignal: AbortSignal | undefined;
+		let runtimeStarted: () => void = () => undefined;
+		const runtimeGate = new Promise<void>((resolve) => {
+			runtimeStarted = resolve;
+		});
+		const controller = createLoadoutController({
+			storage: {
+				load: async (signal) => {
+					loadCalls++;
+					if (loadCalls > 1) {
+						recoverySignal = signal;
+						signal?.throwIfAborted();
+					}
+					return { global: {}, project: {} };
+				},
+				update: async (_scope, _key, _value, signal) => {
+					updateCalls++;
+					if (updateCalls > 1) {
+						rollbackSignal = signal;
+						signal?.throwIfAborted();
+					}
+				},
+			},
+			inventory: inventory(tool("tool:a")),
+			runtime: {
+				tool: async (items, signal) => {
+					if (items[0]?.effectiveStatus !== "disabled") return;
+					runtimeStarted();
+					await new Promise<void>((_resolve, reject) => {
+						signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+					});
+				},
+			},
+		});
+		await controller.load();
+		const toggle = controller.toggleSelected();
+		await runtimeGate;
+		await Promise.all([toggle, controller.close()]);
+
+		expect(rollbackSignal?.aborted).toBe(true);
+		expect(recoverySignal?.aborted).toBe(true);
 	});
 });

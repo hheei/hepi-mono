@@ -9,7 +9,3 @@ export interface HePiPanel {
 }
 
 export type HePiSettingsSubpanel = HePiPanel;
-
-export function createHePiPanel(panel: HePiPanel): HePiPanel {
-	return panel;
-}

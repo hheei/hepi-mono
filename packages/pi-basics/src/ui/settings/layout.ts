@@ -84,5 +84,3 @@ export function createSettingsLayout(rawWidth: number, rawHeight?: number): Sett
 		valueStart: indicatorWidth + keyWidth + valueGap,
 	};
 }
-
-export const layoutSettings = createSettingsLayout;

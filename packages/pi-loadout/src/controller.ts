@@ -10,7 +10,6 @@ import {
 	type LoadoutResolvedItem,
 	type LoadoutScope,
 	type LoadoutStatusMaps,
-	loadoutLegacyKeys,
 	loadoutPersistenceKey,
 	reconcileLoadoutSelection,
 	resolveLoadoutItems,
@@ -187,7 +186,6 @@ export class LoadoutController {
 		const previousMaps = copyMaps(this.maps);
 		const nextMaps = toggleLoadoutState(item, this.scope, this.maps);
 		const value = nextMaps[this.scope][storageKey];
-		const legacyKeys = loadoutLegacyKeys(previousMaps[this.scope], item);
 		this.maps = nextMaps;
 		this.recompute();
 		this.pendingKey = key;
@@ -198,7 +196,6 @@ export class LoadoutController {
 						this.scope,
 						storageKey,
 						value,
-						legacyKeys,
 						this.abortController.signal,
 					);
 				} catch (error) {
@@ -218,6 +215,7 @@ export class LoadoutController {
 							this.scope,
 							storageKey,
 							previousMaps[this.scope][storageKey],
+							this.abortController.signal,
 						);
 						this.maps = copyMaps(previousMaps);
 						this.recompute();
@@ -225,7 +223,7 @@ export class LoadoutController {
 					} catch (rollback) {
 						rollbackError = readable(rollback);
 						try {
-							this.maps = copyMaps(await this.options.storage.load());
+							this.maps = copyMaps(await this.options.storage.load(this.abortController.signal));
 							this.recompute();
 							await this.applyRuntime();
 						} catch (reload) {

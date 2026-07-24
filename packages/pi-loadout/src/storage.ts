@@ -20,7 +20,6 @@ export interface LoadoutStorage {
 		scope: LoadoutScope,
 		key: LoadoutKey,
 		value: boolean | undefined,
-		removeKeys?: readonly LoadoutKey[],
 		signal?: AbortSignal,
 	): Promise<void>;
 }
@@ -115,7 +114,6 @@ export function createLoadoutStorage(
 		scope: LoadoutScope,
 		key: LoadoutKey,
 		value: boolean | undefined,
-		removeKeys: readonly LoadoutKey[] = [],
 		signal?: AbortSignal,
 	): Promise<void> => {
 		signal?.throwIfAborted();
@@ -127,7 +125,6 @@ export function createLoadoutStorage(
 			const section = root[loadoutSection];
 			if (section === undefined && value === undefined) return;
 			const nextSection: JsonObject = section === undefined ? {} : { ...(section as JsonObject) };
-			for (const removeKey of removeKeys) delete nextSection[removeKey];
 			if (value === undefined) delete nextSection[key];
 			else nextSection[key] = value;
 			root[loadoutSection] = nextSection;

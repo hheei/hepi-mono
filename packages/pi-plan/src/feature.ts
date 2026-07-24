@@ -68,7 +68,14 @@ function sameSession(
 }
 
 function boundary(current: ActivePlan): PlanBoundary {
-	if (current.phase === "none") return { version: 1, phase: "none" };
+	if (current.phase === "none")
+		return {
+			version: 1,
+			phase: "none",
+			...(current.planEntryId === undefined ? {} : { planEntryId: current.planEntryId }),
+			...(current.planUrl === undefined ? {} : { planUrl: current.planUrl }),
+			initialAskPending: current.initialAskPending,
+		};
 	return {
 		version: 1,
 		phase: current.phase,
@@ -255,8 +262,17 @@ export function createPlanFeature(pi: ExtensionAPI): PlanFeature {
 					"Preserve the active pi-basics plan and its implementation requirements.",
 				onComplete: () => {
 					if (settled) return;
-					settled = true;
-					pi.sendUserMessage(prompt, { deliverAs: "followUp" });
+					try {
+						pi.sendUserMessage(prompt, { deliverAs: "followUp" });
+						settled = true;
+					} catch {
+						settled = true;
+						restoreAfterFailure(
+							current,
+							ctx,
+							"Plan implementation could not start. Plan remains available for refinement.",
+						);
+					}
 				},
 				onError: () => {
 					if (settled) return;

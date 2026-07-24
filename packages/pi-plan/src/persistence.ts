@@ -9,7 +9,13 @@ import {
 export { PLAN_MESSAGE_TYPE, PLAN_MODE_CUSTOM_TYPE };
 
 export type PlanBoundary =
-	| { readonly version: 1; readonly phase: "none" }
+	| {
+			readonly version: 1;
+			readonly phase: "none";
+			readonly planEntryId?: string;
+			readonly planUrl?: string;
+			readonly initialAskPending?: boolean;
+	  }
 	| {
 			readonly version: 1;
 			readonly phase: "plan" | "plan-refine";
@@ -50,8 +56,24 @@ export function encodePlanBoundary(boundary: PlanBoundary): PlanBoundary | undef
 
 export function decodePlanBoundary(value: unknown): PlanBoundary | undefined {
 	if (!record(value) || value.version !== 1 || typeof value.phase !== "string") return undefined;
-	if (value.phase === "none")
-		return keys(value, ["version", "phase"]) ? { version: 1, phase: "none" } : undefined;
+	if (value.phase === "none") {
+		if (!keys(value, ["version", "phase", "planEntryId", "planUrl", "initialAskPending"]))
+			return undefined;
+		if (value.planEntryId !== undefined && !id(value.planEntryId)) return undefined;
+		if (value.planUrl !== undefined && !url(value.planUrl)) return undefined;
+		if (value.planUrl !== undefined && value.planEntryId === undefined) return undefined;
+		if (value.initialAskPending !== undefined && typeof value.initialAskPending !== "boolean")
+			return undefined;
+		return {
+			version: 1,
+			phase: "none",
+			...(value.planEntryId === undefined ? {} : { planEntryId: value.planEntryId }),
+			...(value.planUrl === undefined ? {} : { planUrl: value.planUrl }),
+			...(value.initialAskPending === undefined
+				? {}
+				: { initialAskPending: value.initialAskPending }),
+		};
+	}
 	if (value.phase !== "plan" && value.phase !== "plan-refine") return undefined;
 	if (
 		!keys(value, [
@@ -154,8 +176,27 @@ export function restorePlan(
 		onWarning?.(warning);
 		return { boundary: { version: 1, phase: "none" }, warning };
 	}
-	if (!latest || latest.phase === "none")
-		return { boundary: latest ?? { version: 1, phase: "none" } };
+	if (!latest) return { boundary: { version: 1, phase: "none" } };
+	if (latest.phase === "none") {
+		if (!latest.planEntryId) return { boundary: latest };
+		if (latest.planUrl && !latest.planUrl.endsWith(`#${encodeURIComponent(latest.planEntryId)}`)) {
+			const warning = "plan URL does not match artifact";
+			onWarning?.(warning);
+			return { boundary: { version: 1, phase: "none" }, warning };
+		}
+		const plan = findPlanArtifact(entries, latest.planEntryId);
+		if (!plan) return { boundary: { version: 1, phase: "none" }, warning: "plan artifact missing" };
+		return {
+			boundary: {
+				version: 1,
+				phase: "plan-refine",
+				planEntryId: latest.planEntryId,
+				...(latest.planUrl === undefined ? {} : { planUrl: latest.planUrl }),
+				initialAskPending: latest.initialAskPending ?? false,
+			},
+			plan,
+		};
+	}
 	if (!latest.planEntryId)
 		return {
 			boundary: { version: 1, phase: "plan", initialAskPending: latest.initialAskPending },

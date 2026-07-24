@@ -1,14 +1,25 @@
-export * from "./apply-patch-guard.js";
+export {
+	type ApplyPatchGuard,
+	createApplyPatchGuardSettingsProvider,
+	GUARD_PATCH_FIELD,
+	GUARD_PATCH_GROUP,
+	type GuardPatchMode,
+	hasStreamingApplyPatchCommand,
+	normalizeGuardPatchMode,
+	registerApplyPatchGuard,
+} from "./apply-patch-guard.js";
+export { default } from "./extension.js";
 
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type {
-	HePiContext,
-	HePiSettingField,
-	HePiSettingsProvider,
-	HePiSettingsState,
+import {
+	type HePiContext,
+	type HePiSettingField,
+	type HePiSettingsProvider,
+	type HePiSettingsState,
+	updateJsonSettingsRoot,
 } from "@hheei/pi-basics";
 
 export const OPENAI_RESPONSES_COMPAT_GROUP = "openai-responses-compat";
@@ -37,25 +48,37 @@ async function loadSettings(path: string): Promise<JsonObject> {
 	}
 }
 
-async function saveSettings(path: string, root: JsonObject): Promise<void> {
-	await mkdir(dirname(path), { recursive: true });
-	const temporaryPath = `${path}.openai-responses-compat.tmp`;
-	await writeFile(temporaryPath, `${JSON.stringify(root, null, 2)}\n`, "utf8");
-	await rename(temporaryPath, path);
-}
-
 export interface OpenAIResponsesCompatConfig {
 	readonly stripAssistantMessageStatus: boolean;
 	readonly normalizeAssistantMessageId: boolean;
 }
 
 function configFromValues(values: JsonObject | undefined): OpenAIResponsesCompatConfig {
-	const stripAssistantMessageStatus = values?.[OPENAI_RESPONSES_COMPAT_FIELD] === true;
-	const normalizeValue = values?.[OPENAI_RESPONSES_NORMALIZE_MESSAGE_ID_FIELD];
+	if (values === undefined) {
+		return { stripAssistantMessageStatus: false, normalizeAssistantMessageId: false };
+	}
+	for (const key of Object.keys(values)) {
+		if (
+			key !== OPENAI_RESPONSES_COMPAT_FIELD &&
+			key !== OPENAI_RESPONSES_NORMALIZE_MESSAGE_ID_FIELD
+		) {
+			throw new Error(
+				`Invalid settings at pi-basics.${OPENAI_RESPONSES_COMPAT_GROUP}.${key}: unknown field`,
+			);
+		}
+		if (typeof values[key] !== "boolean") {
+			throw new Error(
+				`Invalid settings at pi-basics.${OPENAI_RESPONSES_COMPAT_GROUP}.${key}: expected boolean`,
+			);
+		}
+	}
+	const stripValue = values[OPENAI_RESPONSES_COMPAT_FIELD];
+	const normalizeValue = values[OPENAI_RESPONSES_NORMALIZE_MESSAGE_ID_FIELD];
+	const stripAssistantMessageStatus = stripValue === true;
 	return {
 		stripAssistantMessageStatus,
 		normalizeAssistantMessageId:
-			normalizeValue === true || (normalizeValue === undefined && stripAssistantMessageStatus),
+			normalizeValue === undefined ? stripAssistantMessageStatus : normalizeValue === true,
 	};
 }
 
@@ -195,14 +218,28 @@ export function createOpenAIResponsesCompatSettingsProvider(
 			},
 			async save(state: HePiSettingsState, ctx: HePiContext) {
 				const path = settingsPath(ctx.cwd ?? process.cwd());
-				const root = await loadSettings(path);
-				const priorSection = isJsonObject(root["pi-basics"]) ? root["pi-basics"] : {};
-				const nextSection = { ...priorSection };
 				const config = configFromState(state);
-				nextSection[OPENAI_RESPONSES_COMPAT_GROUP] =
-					settingState(config)[OPENAI_RESPONSES_COMPAT_GROUP];
-				root["pi-basics"] = nextSection;
-				await saveSettings(path, root);
+				const stateValues = state[OPENAI_RESPONSES_COMPAT_GROUP] ?? {};
+				await updateJsonSettingsRoot(path, (root) => {
+					const priorSection = isJsonObject(root["pi-basics"]) ? root["pi-basics"] : {};
+					const priorValues = compatValues(root);
+					const nextValues = {
+						...(priorValues ?? {}),
+						...(OPENAI_RESPONSES_COMPAT_FIELD in stateValues
+							? { [OPENAI_RESPONSES_COMPAT_FIELD]: config.stripAssistantMessageStatus }
+							: {}),
+						...(OPENAI_RESPONSES_NORMALIZE_MESSAGE_ID_FIELD in stateValues ||
+						OPENAI_RESPONSES_COMPAT_FIELD in stateValues
+							? {
+									[OPENAI_RESPONSES_NORMALIZE_MESSAGE_ID_FIELD]: config.normalizeAssistantMessageId,
+								}
+							: {}),
+					};
+					root["pi-basics"] = {
+						...priorSection,
+						[OPENAI_RESPONSES_COMPAT_GROUP]: nextValues,
+					};
+				});
 				feature.setConfig(ctx.sessionId, config);
 			},
 		},

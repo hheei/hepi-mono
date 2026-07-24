@@ -9,7 +9,7 @@ import {
 	ASK_TOOL_LABEL,
 	ASK_TOOL_NAME,
 	createAskFeature,
-} from "../src/index.js";
+} from "../src/feature.js";
 
 interface RegisteredTool {
 	readonly name: string;

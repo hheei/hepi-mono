@@ -157,10 +157,36 @@ export function validateTaskState(value: unknown): TaskState | undefined {
 	if (
 		value.nextId <= maxId ||
 		tasks.some((task) => task.blockedBy.some((id) => !ids.has(id))) ||
-		hasCycle(tasks)
+		hasCycle(tasks) ||
+		tasks.some(
+			(task) =>
+				task.status === "completed" &&
+				task.blockedBy.some(
+					(id) => tasks.find((dependency) => dependency.id === id)?.status !== "completed",
+				),
+		) ||
+		tasks.filter((task) => task.status === "in_progress").length > 1
 	)
 		return undefined;
 	return { tasks, nextId: value.nextId };
+}
+
+function statusError(task: Task, tasks: readonly Task[]): string | undefined {
+	if (task.status === "completed") {
+		const blocker = task.blockedBy
+			.map((id) => tasks.find((candidate) => candidate.id === id))
+			.find((candidate) => candidate?.status !== "completed");
+		if (blocker)
+			return `Task #${task.id} cannot be completed while blocked by incomplete task #${blocker.id}`;
+	}
+	if (task.status === "in_progress") {
+		const active = tasks.find(
+			(candidate) => candidate.id !== task.id && candidate.status === "in_progress",
+		);
+		if (active)
+			return `Task #${task.id} cannot be in progress while Task #${active.id} is in progress`;
+	}
+	return undefined;
 }
 
 function dependencyError(
@@ -296,6 +322,8 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 		if (error) return fail(error, index);
 		const next = { ...current, subject, status, blockedBy };
 		const candidateTasks = draft.tasks.map((task) => (task.id === id ? next : task));
+		const statusIssue = statusError(next, candidateTasks);
+		if (statusIssue) return fail(statusIssue, index);
 		if (hasCycle(candidateTasks)) return fail("Task dependencies contain a cycle", index);
 		const isChanged =
 			current.subject !== subject ||

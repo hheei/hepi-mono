@@ -1,12 +1,14 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+export { default } from "./extension.js";
+
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type {
-	HePiContext,
-	HePiSettingField,
-	HePiSettingsProvider,
-	HePiSettingsState,
+import {
+	type HePiContext,
+	type HePiSettingField,
+	type HePiSettingsProvider,
+	type HePiSettingsState,
+	updateJsonSettingsRoot,
 } from "@hheei/pi-basics";
 import OpenCC from "opencc-js/t2cn";
 
@@ -96,7 +98,16 @@ export interface TraditionalToSimplifiedFeature {
 }
 
 type JsonObject = Record<string, unknown>;
+type TraditionalToSimplifiedMode = "t2s" | "off";
 const SETTINGS_SECTION = "pi-basics";
+
+function parseStoredMode(values: JsonObject): TraditionalToSimplifiedMode {
+	if (Object.keys(values).some((key) => key !== "mode"))
+		throw new Error(`Unexpected ${TRADITIONAL_TO_SIMPLIFIED_GROUP} setting`);
+	if (values.mode !== "t2s" && values.mode !== "off")
+		throw new Error(`Expected ${TRADITIONAL_TO_SIMPLIFIED_GROUP}.mode to be t2s or off`);
+	return values.mode;
+}
 
 async function loadSettings(path: string): Promise<JsonObject> {
 	try {
@@ -106,13 +117,6 @@ async function loadSettings(path: string): Promise<JsonObject> {
 		if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
 		throw error;
 	}
-}
-
-async function saveSettings(path: string, root: JsonObject): Promise<void> {
-	await mkdir(dirname(path), { recursive: true });
-	const temporary = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
-	await writeFile(temporary, `${JSON.stringify(root, null, 2)}\n`, "utf8");
-	await rename(temporary, path);
 }
 
 function settingsPath(ctx: HePiContext): string {
@@ -150,44 +154,38 @@ export function createTraditionalToSimplifiedSettingsProvider(
 			async load(ctx: HePiContext) {
 				const root = await loadSettings(settingsPath(ctx));
 				const section = root[SETTINGS_SECTION];
+				if (
+					section !== undefined &&
+					(typeof section !== "object" || section === null || Array.isArray(section))
+				)
+					throw new Error(`Expected ${SETTINGS_SECTION} settings to be an object`);
 				const values =
-					section && typeof section === "object" && !Array.isArray(section)
-						? (section as JsonObject)[TRADITIONAL_TO_SIMPLIFIED_GROUP]
-						: undefined;
-				return values && typeof values === "object" && !Array.isArray(values)
-					? {
-							[TRADITIONAL_TO_SIMPLIFIED_GROUP]: {
-								mode:
-									(values as JsonObject).mode === "off" ||
-									(values as JsonObject).mode === "none" ||
-									(values as JsonObject).enabled === false
-										? "off"
-										: "t2s",
-								enabled: !(
-									(values as JsonObject).mode === "off" ||
-									(values as JsonObject).mode === "none" ||
-									(values as JsonObject).enabled === false
-								),
-							},
-						}
-					: undefined;
+					section === undefined
+						? undefined
+						: (section as JsonObject)[TRADITIONAL_TO_SIMPLIFIED_GROUP];
+				if (values === undefined) return undefined;
+				if (typeof values !== "object" || values === null || Array.isArray(values))
+					throw new Error(`Expected ${TRADITIONAL_TO_SIMPLIFIED_GROUP} settings to be an object`);
+				return {
+					[TRADITIONAL_TO_SIMPLIFIED_GROUP]: { mode: parseStoredMode(values as JsonObject) },
+				};
 			},
 			async save(state: HePiSettingsState, ctx: HePiContext) {
 				const path = settingsPath(ctx);
-				const root = await loadSettings(path);
-				const section = root[SETTINGS_SECTION];
-				const nextSection =
-					section && typeof section === "object" && !Array.isArray(section)
-						? { ...(section as JsonObject) }
-						: {};
-				const values = state[TRADITIONAL_TO_SIMPLIFIED_GROUP] ?? {};
-				const mode = values.mode ?? (values.enabled === false ? "off" : "t2s");
-				nextSection[TRADITIONAL_TO_SIMPLIFIED_GROUP] = { mode };
-				root[SETTINGS_SECTION] = nextSection;
-				await saveSettings(path, root);
-				options.onPersisted?.(
-					state[TRADITIONAL_TO_SIMPLIFIED_GROUP]?.[TRADITIONAL_TO_SIMPLIFIED_FIELD] !== "off",
-				);
+				const mode = parseStoredMode(state[TRADITIONAL_TO_SIMPLIFIED_GROUP] ?? {});
+				await updateJsonSettingsRoot(path, (root) => {
+					const section = root[SETTINGS_SECTION];
+					if (
+						section !== undefined &&
+						(typeof section !== "object" || section === null || Array.isArray(section))
+					)
+						throw new Error(`Expected ${SETTINGS_SECTION} settings to be an object`);
+					root[SETTINGS_SECTION] = {
+						...(section === undefined ? {} : (section as JsonObject)),
+						[TRADITIONAL_TO_SIMPLIFIED_GROUP]: { mode },
+					};
+				});
+				options.onPersisted?.(mode !== "off");
 			},
 		},
 		onLoad: async (state) => {
