@@ -114,6 +114,9 @@ function harness(id: string, mode: "tui" | "json" = "tui", hasEditorGetter = tru
 		emit(event: string, eventCtx = ctx) {
 			for (const handler of handlers.get(event) ?? []) void handler({}, eventCtx);
 		},
+		emitValue(event: string, value: unknown, eventCtx = ctx) {
+			for (const handler of handlers.get(event) ?? []) void handler(value, eventCtx);
+		},
 		makeFooter() {
 			if (!factory) throw new Error("footer factory not installed");
 			const tui = {
@@ -255,6 +258,47 @@ describe("statusbar lifecycle", () => {
 		expect(compacted).not.toContain("12k/100k");
 	});
 
+	test("holds the last stable usage while a response is pending", () => {
+		const h = harness("a");
+		h.setEditor(editorFactory("previous", []));
+		const feature = createStatusbarFeature(h.pi);
+		feature.start(runtime(h.pi, h.ctx));
+		const editor = h.editorFactory?.({} as never, {} as never, {} as never);
+		expect(editor!.render(100)[0]).toContain("12k/100k");
+
+		h.setUsage({ tokens: 24_000, percent: 24, contextWindow: 100_000 });
+		h.emitValue("message_start", { message: { role: "user" } });
+		expect(editor!.render(100)[0]).toContain("12k/100k");
+		h.emitValue("turn_start", { turnIndex: 0, timestamp: Date.now() });
+		expect(editor!.render(100)[0]).toContain("12k/100k");
+
+		h.setUsage({ tokens: 12_500, percent: 12.5, contextWindow: 100_000 });
+		h.emitValue("message_end", { message: { role: "assistant" } });
+		expect(editor!.render(100)[0]).toContain("12.5k/100k");
+
+		h.setUsage({ tokens: 25_000, percent: 25, contextWindow: 100_000 });
+		h.emitValue("message_start", { message: { role: "user" } });
+		expect(editor!.render(100)[0]).toContain("12.5k/100k");
+		h.emitValue("message_end", { message: { role: "assistant", stopReason: "error" } });
+		expect(editor!.render(100)[0]).toContain("12.5k/100k");
+		h.emit("agent_end");
+		expect(editor!.render(100)[0]).toContain("12.5k/100k");
+		h.emit("agent_settled");
+		expect(editor!.render(100)[0]).toContain("25k/100k");
+	});
+
+	test("resets stable usage after tree navigation", () => {
+		const h = harness("a");
+		h.setEditor(editorFactory("previous", []));
+		const feature = createStatusbarFeature(h.pi);
+		feature.start(runtime(h.pi, h.ctx));
+		const editor = h.editorFactory?.({} as never, {} as never, {} as never);
+		expect(editor!.render(100)[0]).toContain("12k/100k");
+		h.setUsage({ tokens: 500, percent: 0.5, contextWindow: 100_000 });
+		h.emit("session_tree");
+		expect(editor!.render(100)[0]).toContain("500/100k");
+	});
+
 	test("redraws fresh contexts for the owned session and ignores other sessions", () => {
 		const h = harness("a");
 		const feature = createStatusbarFeature(h.pi);
@@ -264,11 +308,11 @@ describe("statusbar lifecycle", () => {
 			"model_select",
 			"thinking_level_select",
 			"session_info_changed",
-			"message_end",
 			"session_compact",
 			"session_tree",
 		])
 			h.emit(event);
+		h.emitValue("message_end", { message: { role: "assistant" } });
 		expect(h.requests).toBe(6);
 		h.emit("model_select", { ...h.ctx } as ExtensionContext);
 		expect(h.requests).toBe(7);
@@ -297,13 +341,13 @@ describe("statusbar lifecycle", () => {
 		staleFooter?.(
 			{
 				requestRender: () => {
-					h.emit("message_end");
+					h.emitValue("message_end", { message: { role: "assistant" } });
 				},
 			} as never,
 			{} as never,
 			{ getExtensionStatuses: () => h.statusMap } as never,
 		);
-		h.emit("message_end");
+		h.emitValue("message_end", { message: { role: "assistant" } });
 		expect(h.requests).toBe(before + 1);
 		feature.dispose("a");
 		expect(h.restored).toBe(1);
