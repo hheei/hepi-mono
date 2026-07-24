@@ -13,9 +13,14 @@ export interface TodoWidget {
 	dispose(): void | Promise<void>;
 }
 
+function hasVisibleTasks(state: TaskState): boolean {
+	return state.tasks.some((task) => task.status !== "suppressed");
+}
+
 function renderTodo(state: TaskState, width: number, theme: Theme): string[] {
-	const total = state.tasks.length;
-	const completed = state.tasks.filter((task) => task.status === "completed").length;
+	const visibleTasks = state.tasks.filter((task) => task.status !== "suppressed");
+	const total = visibleTasks.length;
+	const completed = visibleTasks.filter((task) => task.status === "completed").length;
 	if (total === completed) {
 		return [
 			truncateToWidth(
@@ -26,8 +31,7 @@ function renderTodo(state: TaskState, width: number, theme: Theme): string[] {
 		];
 	}
 
-	const unresolved = new Map(state.tasks.map((task) => [task.id, task]));
-	const tasks = state.tasks
+	const tasks = visibleTasks
 		.filter((task) => task.status !== "completed")
 		.slice()
 		.sort(
@@ -45,10 +49,6 @@ function renderTodo(state: TaskState, width: number, theme: Theme): string[] {
 	for (let index = 0; index < visible.length; index++) {
 		const task = visible[index];
 		if (!task) continue;
-		const blockers = task.blockedBy.filter((id) => unresolved.get(id)?.status !== "completed");
-		const suffix = blockers.length
-			? `  ${theme.fg("warning", "⊘")} ${blockers.map((id) => theme.fg("accent", `#${id}`)).join(",")}`
-			: "";
 		const last = index === visible.length - 1 && tasks.length <= MAX_TASK_ROWS;
 		const glyph = theme.fg(
 			task.status === "in_progress" ? "warning" : "muted",
@@ -56,7 +56,7 @@ function renderTodo(state: TaskState, width: number, theme: Theme): string[] {
 		);
 		lines.push(
 			truncateToWidth(
-				`${theme.fg("dim", `${last ? "└" : "├"}─`)} ${glyph} ${theme.fg("accent", `#${task.id}`)} ${theme.fg("text", task.subject)}${suffix}`,
+				`${theme.fg("dim", `${last ? "└" : "├"}─`)} ${glyph} ${theme.fg("accent", `#${task.id}`)} ${theme.fg("text", task.subject)}`,
 				width,
 				"...",
 			),
@@ -105,7 +105,7 @@ export function createTodoWidget(
 		currentTui = undefined;
 	};
 	const register = () => {
-		if (disposed || state.tasks.length === 0 || (registered && !invalidated)) return;
+		if (disposed || !hasVisibleTasks(state) || (registered && !invalidated)) return;
 		runtime.ctx.ui.setWidget(TODO_WIDGET_KEY, factory, { placement: "aboveEditor" });
 		registered = true;
 		invalidated = false;
@@ -116,9 +116,9 @@ export function createTodoWidget(
 		refresh(nextState) {
 			if (disposed) return;
 			state = nextState;
-			if (state.tasks.length === 0) unregister();
+			if (!hasVisibleTasks(state)) unregister();
 			else register();
-			if (state.tasks.length > 0) currentTui?.requestRender();
+			if (hasVisibleTasks(state)) currentTui?.requestRender();
 		},
 		hide() {
 			if (disposed) return;
