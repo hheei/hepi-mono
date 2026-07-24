@@ -349,6 +349,10 @@ Changing model mode should not recolor the entire screen or the text being edite
 
 Footer content is deliberately quiet. Working directory, branch, token statistics, model metadata, and extension statuses use `{colors.dim}`. Promote only actionable thresholds or failures to warning/error. Keep left-side statistics and right-side model information aligned and truncate safely when space is limited. Extension text registered through `ui.setStatus()` belongs on one dedicated footer row after the editor's closing rail; it must not be appended to the editor's top status rail. Use the compact grammar `spinner · ⛁ connected/total · PLAN · GOAL`; omit ambient Magic Context telemetry.
 
+### Response telemetry
+
+Append one dim output line after every successful assistant response using `↱ input  ↳ output  ⚇ cache-read  ⏱ duration  ⚡ rate/s`. Metrics are per provider response, not aggregated across an agent run. Duration spans `turn_start` through assistant `message_end`, excluding subsequent tool execution. Rate is non-reasoning output divided by that whole-response duration. Telemetry remains transient UI output and must not enter session or LLM context.
+
 ### Custom message
 
 Extension content uses one `{colors.custom-message-background}` block, a bold type label using a dedicated label color if available, and normal custom message text. A custom renderer may own its internal styling, but it must still follow the same semantic hierarchy and spacing rules.
