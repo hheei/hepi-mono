@@ -106,6 +106,7 @@ export function validateTaskState(value: unknown): TaskState | undefined {
 		if (typeof valueTask.subject !== "string" || subjectError(valueTask.subject)) return undefined;
 		if (!STATUSES.includes(valueTask.status as TaskStatus)) return undefined;
 		ids.add(valueTask.id);
+		// Deprecated compatibility: this projection drops legacy blockedBy until the next breaking snapshot revision.
 		tasks.push({
 			id: valueTask.id,
 			subject: valueTask.subject,

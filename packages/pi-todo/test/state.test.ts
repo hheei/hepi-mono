@@ -57,7 +57,7 @@ describe("todo state", () => {
 		});
 	});
 
-	test("latest valid tool or user snapshot wins in branch order", () => {
+	test("newer snapshots preserve permanent user suppression", () => {
 		const first = { tasks: [task(1)], nextId: 2 };
 		const suppressed: TaskState = {
 			tasks: [{ id: 1, subject: "task 1", status: "suppressed" }],
@@ -66,7 +66,13 @@ describe("todo state", () => {
 		const later = { tasks: [task(4)], nextId: 5 };
 		expect(
 			latestTodoSnapshot([result(first), custom(suppressed), custom({ bad: true }), result(later)]),
-		).toEqual(later);
+		).toEqual({
+			tasks: [
+				{ id: 1, subject: "task 1", status: "suppressed" },
+				{ id: 4, subject: "task 4", status: "in_progress" },
+			],
+			nextId: 5,
+		});
 		expect(latestTodoSnapshot([result(first), custom(suppressed)])).toEqual(suppressed);
 		expect(latestTodoSnapshot([result(later), custom(first)])).toEqual(later);
 	});
