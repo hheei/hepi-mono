@@ -1,4 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { CONFIG_DIR_NAME, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type {
@@ -144,9 +145,13 @@ export function createApplyPatchGuardSettingsProvider(
 				section[GUARD_PATCH_GROUP] = { mode };
 				root[SETTINGS_SECTION] = section;
 				await mkdir(dirname(path), { recursive: true });
-				const temporary = `${path}.guard-patch.tmp`;
-				await writeFile(temporary, `${JSON.stringify(root, null, 2)}\n`, "utf8");
-				await rename(temporary, path);
+				const temporary = `${path}.${randomUUID()}.tmp`;
+				try {
+					await writeFile(temporary, `${JSON.stringify(root, null, 2)}\n`, "utf8");
+					await rename(temporary, path);
+				} finally {
+					await rm(temporary, { force: true }).catch(() => undefined);
+				}
 				guard.setMode(mode);
 			},
 		},

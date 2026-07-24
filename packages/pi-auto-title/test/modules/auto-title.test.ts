@@ -108,6 +108,31 @@ describe("Pi Basics auto-title", () => {
 		).rejects.toThrow("unavailable");
 	});
 
+	test("leaves host handler ownership to the extension", () => {
+		let registrations = 0;
+		const coordinator = createAutoTitleCoordinator(
+			{
+				pi: {
+					on: () => {
+						registrations++;
+					},
+					appendEntry: () => undefined,
+					getSessionName: () => undefined,
+					setSessionName: () => undefined,
+				},
+				ctx: {
+					sessionManager: { getEntries: () => [], getSessionId: () => "s" },
+					isIdle: () => true,
+					ui: { notify: () => undefined },
+				},
+			} as never,
+			"provider/model",
+		);
+
+		expect(registrations).toBe(0);
+		coordinator.dispose();
+	});
+
 	test("runs one isolated title agent and records the attempt", async () => {
 		const handlers = new Map<string, (value: unknown) => void>();
 		let appended = 0;

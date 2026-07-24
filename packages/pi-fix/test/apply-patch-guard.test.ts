@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	createApplyPatchGuardSettingsProvider,
@@ -123,6 +123,20 @@ describe("apply_patch guard", () => {
 		h.settle();
 		expect(h.aborts()).toBe(1);
 		expect(h.messages).toEqual([]);
+	});
+
+	test("uses independent temporary files for concurrent saves", async () => {
+		const cwd = await mkdtemp(join(process.env.TMPDIR ?? "/tmp", "guard-patch-concurrent-"));
+		const h = harness();
+		const provider = createApplyPatchGuardSettingsProvider(h.guard);
+
+		await Promise.all([
+			provider.storage.save({ guardPatch: { mode: "on" } }, { sessionId: "a", cwd }),
+			provider.storage.save({ guardPatch: { mode: "off" } }, { sessionId: "b", cwd }),
+		]);
+
+		const entries = await readdir(join(cwd, ".pi"));
+		expect(entries.filter((entry) => entry.endsWith(".tmp"))).toEqual([]);
 	});
 
 	test("persists mode without discarding other Pi Basics settings", async () => {

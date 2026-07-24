@@ -38,29 +38,32 @@ export class HePiRegistry {
 		};
 	}
 
-	getModule<T extends HePiIdentified = HePiIdentified>(id: string): T | undefined {
-		return this.modules.get(id) as T | undefined;
+	getModule(id: string): HePiIdentified | undefined {
+		return this.modules.get(id);
 	}
 
-	getSettings<T extends HePiIdentified = HePiIdentified>(id: string): T | undefined {
-		return this.settings.get(id) as T | undefined;
+	getSettings(id: string): HePiIdentified | undefined {
+		return this.settings.get(id);
 	}
 
-	listModules<T extends HePiIdentified = HePiIdentified>(): readonly T[] {
-		return this.sorted(this.modules) as unknown as readonly T[];
+	listModules(): readonly HePiIdentified[] {
+		return this.sorted(this.modules);
 	}
 
-	listSettings<T extends HePiIdentified = HePiIdentified>(): readonly T[] {
-		return this.sorted(this.settings) as unknown as readonly T[];
+	listSettings(): readonly HePiIdentified[] {
+		return this.sorted(this.settings);
 	}
 
-	findModuleForCommand<T extends HePiIdentified & { readonly commands?: readonly string[] }>(
+	findModuleForCommand(
 		command: string,
-	): T | undefined {
+	): (HePiIdentified & { readonly commands: readonly string[] }) | undefined {
 		return this.sorted(this.modules).find(
-			(module) =>
-				Array.isArray((module as T).commands) && (module as T).commands?.includes(command),
-		) as unknown as T | undefined;
+			(module): module is HePiIdentified & { readonly commands: readonly string[] } =>
+				"commands" in module &&
+				Array.isArray(module.commands) &&
+				module.commands.every((value) => typeof value === "string") &&
+				module.commands.includes(command),
+		);
 	}
 	async cleanup(): Promise<readonly HePiCleanupFailure[]> {
 		const failures: HePiCleanupFailure[] = [];
