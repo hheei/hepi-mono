@@ -128,7 +128,7 @@ describe("todo model", () => {
 		]) {
 			expect(applyTodo(suppressed.state, { operations: [operation] })).toMatchObject({
 				ok: false,
-				error: "The user suppressed #1 before.",
+				error: "Task #1 is suppressed",
 				state: suppressed.state,
 			});
 		}

@@ -74,7 +74,7 @@ export const TODO_PARAMETERS = Type.Object(
 );
 
 export const TODO_TOOL_DESCRIPTION =
-	"Maintain an atomic task list. Update only when state changes: use `blocked` when work cannot continue, `in_progress` when resuming, and `completed` after verification. Scheduling is automatic. Submit one `list` operation or an atomic batch of create, update, and delete operations. Follow the `Next` line returned by the tool.";
+	"Maintain an atomic task list. Update only when state changes: use `blocked` when work cannot continue, `in_progress` when resuming, and `completed` after verification. Scheduling is automatic. Submit one `list` operation or an atomic batch of create, update, and delete operations. Follow the final guidance line returned by the tool.";
 export const TODO_PROMPT_SNIPPET = "Manage a task list to track multi-step progress";
 export const TODO_PROMPT_GUIDELINES = [
 	"Use `todo` for work with 3+ concrete steps or multiple user-requested tasks; skip trivial work.",
@@ -147,17 +147,15 @@ function taskIds(state: TaskState, status: TaskStatus): string | undefined {
 		.filter((task) => task.status === status)
 		.sort((left, right) => left.id - right.id)
 		.map((task) => `#${task.id}`);
-	return ids.length > 0 ? ids.join(", ") : undefined;
+	return ids.length > 0 ? ids.join(" ") : undefined;
 }
 
 function formatTodoGuidance(state: TaskState): string {
 	const active = activeTodoTask(state);
 	if (active) return `Next: #${active.id} ${active.subject}.`;
 	const blocked = taskIds(state, "blocked");
-	if (blocked) {
-		return `Next: discuss blocked TODOs ${blocked} with the user and agree how to proceed.`;
-	}
-	return "Next: no TODO action.";
+	if (blocked) return `Only blocked todos ${blocked} left. Discuss to the user.`;
+	return "Finished all todos.";
 }
 
 function formatTaskLine(task: Task): string {
@@ -206,10 +204,11 @@ function formatTodoOperationResult(
 	switch (operation.action) {
 		case "create":
 			return result.id === undefined ? "Created task" : `Created #${result.id}`;
-		case "update":
-			return result.changed
-				? `Updated #${operation.id}`
-				: `No change: #${operation.id} already matches the requested values`;
+		case "update": {
+			if (result.changed) return `Updated #${operation.id}`;
+			const value = operation.status ?? operation.subject?.trim();
+			return `#${operation.id} is already \`${value ?? "unchanged"}\``;
+		}
 		case "delete":
 			return `Deleted #${operation.id}`;
 		case "list":
@@ -241,6 +240,10 @@ function formatTodoResult(
 			continue;
 		}
 		lines.push(formatTodoOperationResult(operation, operationResult, result.state));
+	}
+	if (!result.changed && params.operations[0]?.action !== "list") {
+		lines.push("No change made.");
+		return lines.join("\n");
 	}
 	lines.push(formatTodoGuidance(result.state));
 	return lines.join("\n");
@@ -293,16 +296,8 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 			const todoParams = params as TodoParams;
 			const result = applyTodo(current.state, todoParams);
 			if (!result.ok) {
-				const operationNumber =
-					result.operationIndex === undefined ? undefined : result.operationIndex + 1;
-				const prefix = operationNumber === undefined ? "" : `Operation #${operationNumber}: `;
-				const next = result.error.startsWith("The user suppressed #")
-					? "Create a new TODO if that work is still needed."
-					: operationNumber === undefined
-						? "Correct the request and retry."
-						: `Correct operation #${operationNumber} and retry the batch.`;
 				const message = result.error.endsWith(".") ? result.error : `${result.error}.`;
-				throw new Error(`${prefix}${message} No changes committed.\nNext: ${next}`);
+				throw new Error(`${message}\nNo change made.`);
 			}
 			if (result.changed) {
 				current.state = result.state;
