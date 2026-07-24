@@ -134,6 +134,17 @@ describe("todo model", () => {
 		const listed = stateOf(paused.state, [{ action: "list" }]);
 		expect(listed.state).toBe(paused.state);
 		expect(listed.state.tasks[1]?.status).toBe("pending");
+
+		const changedWhilePaused = stateOf(paused.state, [
+			update(2, { subject: "updated two" }),
+			update(2, { status: "pending" }),
+		]);
+		expect(changedWhilePaused.changed).toBe(true);
+		expect(changedWhilePaused.autoStartedId).toBeUndefined();
+		expect(changedWhilePaused.state.tasks[1]).toMatchObject({
+			subject: "updated two",
+			status: "pending",
+		});
 	});
 
 	test("starts the first runnable task and rejects explicitly starting blocked work", () => {
