@@ -10,6 +10,8 @@ Load this extension before any `@hheei/pi-*` feature package. Feature packages a
 
 The editor's top status rail contains only Pi Basics session context. The editor's closing rail remains intact, and text registered through `ui.setStatus()` is normalized into one compact footer row below it. Magic Context telemetry is omitted, MCP is rendered as `⛁ connected/total`, `receiving` becomes an animated Braille spinner, and Plan/Goal labels are uppercase.
 
+After every successful assistant response, Pi Basics appends one dim output line such as `↱ 654  ↳ 213  ⚇ 83K  ⏱ 7.1s  ⚡ 21.0/s`. The fields are uncached input, total output, cache-read tokens, whole-response duration, and visible-output throughput. Throughput is `(output - reasoning) / duration`; tool waits are outside the duration. Each provider response in a tool loop gets its own line. These metrics do not enter session or LLM context.
+
 ## Public API
 
 Import from the package root only. It exports Settings and module registries, session lifecycle/context helpers, shared TUI primitives, JSON section storage, tool activation, and the Loadout bridge contracts used for cross-feature support.

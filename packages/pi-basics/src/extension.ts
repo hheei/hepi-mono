@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getHePiRuntimeModuleRegistry } from "./api/modules.js";
 import { getHePiRuntimeSettingsRegistry } from "./api/settings.js";
 import { registerHePiCommand } from "./command/hepi-command.js";
+import { createStatusFeature } from "./contributions/status/index.js";
 import { createStatusbarFeature } from "./contributions/statusbar/index.js";
 import { HePiLifecycleController, registerHePiLifecycle } from "./runtime/lifecycle.js";
 import { getToolActivationCoordinator } from "./runtime/tool-activation.js";
@@ -18,6 +19,7 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 	});
 
 	const coordinator = getToolActivationCoordinator(pi);
+	const status = createStatusFeature(pi);
 	const statusbar = createStatusbarFeature(pi);
 	const lifecycle = new HePiLifecycleController({
 		onStart: async (runtime) => {
@@ -33,8 +35,13 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 				id: "tool-activation",
 				cleanup: () => coordinator.dispose(),
 			});
+			status.start(runtime);
 			statusbar.start(runtime);
 			const sessionId = runtime.ctx.sessionManager.getSessionId();
+			runtime.registry.registerLifecycle({
+				id: "status",
+				cleanup: () => status.dispose(sessionId),
+			});
 			runtime.registry.registerLifecycle({
 				id: "statusbar",
 				cleanup: () => statusbar.dispose(sessionId),
