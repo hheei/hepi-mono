@@ -10,6 +10,7 @@ import {
 	createAutoTitleSettingsProvider,
 	createAutoTitleStorage,
 	parseModelRef,
+	safeTitle,
 } from "../../src/module.js";
 
 const context = (cwd: string) => ({ sessionId: "s", cwd });
@@ -55,12 +56,22 @@ describe("Pi Basics auto-title", () => {
 		}
 	});
 
-	test("defines a concise plain-text title contract", () => {
-		expect(AUTO_TITLE_SYSTEM_PROMPT).toContain("no more than 6 words");
-		expect(AUTO_TITLE_SYSTEM_PROMPT).toContain("English only");
-		expect(AUTO_TITLE_SYSTEM_PROMPT).toContain("Use sentence case");
-		expect(AUTO_TITLE_SYSTEM_PROMPT).toContain("Return only the title as plain text");
-		expect(AUTO_TITLE_SYSTEM_PROMPT).not.toContain("branch");
+	test("defines a searchable same-language title contract", () => {
+		expect(AUTO_TITLE_SYSTEM_PROMPT).toContain("same language");
+		expect(AUTO_TITLE_SYSTEM_PROMPT).toContain("2 to 6 words");
+		expect(AUTO_TITLE_SYSTEM_PROMPT).toContain("searchable title");
+		expect(AUTO_TITLE_SYSTEM_PROMPT).toContain("code identifiers");
+		expect(AUTO_TITLE_SYSTEM_PROMPT).toContain("Return exactly one plain-text title");
+		expect(AUTO_TITLE_SYSTEM_PROMPT).not.toContain("English only");
+	});
+
+	test("sanitizes common model wrappers and enforces the title limit", () => {
+		expect(safeTitle('```text\nTitle: "修复 auto-title 策略。"\n```')).toBe(
+			"修复 auto-title 策略",
+		);
+		expect(safeTitle('Title: "Improve session search".')).toBe("Improve session search");
+		expect(safeTitle(`Session name: ${"x".repeat(80)}`)).toHaveLength(60);
+		expect(safeTitle("\n\n")).toBeUndefined();
 	});
 
 	test("lists available models as selectable provider/model options", () => {
@@ -181,6 +192,9 @@ describe("Pi Basics auto-title", () => {
 			sessionManager: {
 				getEntries: () => [
 					{ type: "message", message: { role: "user", content: LONG_SESSION_CONTEXT } },
+					{ type: "message", message: { role: "assistant", content: "Initial result" } },
+					{ type: "message", message: { role: "assistant", content: "noise".repeat(2000) } },
+					{ type: "message", message: { role: "user", content: "Use pi-auto-title" } },
 					...entries,
 				],
 				getSessionId: () => "s",
@@ -197,8 +211,9 @@ describe("Pi Basics auto-title", () => {
 				return {
 					prompt: async (prompt) => {
 						expect(prompt).toBe(
-							`Session transcript:\n\nUser: ${LONG_SESSION_CONTEXT.slice(0, 500)}`,
+							`Primary user request:\n${LONG_SESSION_CONTEXT}\n\nFirst assistant result:\nInitial result\n\nLatest user clarification:\nUse pi-auto-title`,
 						);
+						expect(prompt).not.toContain("noise");
 						await promptDone;
 					},
 					abort: () => {
@@ -228,26 +243,14 @@ describe("Pi Basics auto-title", () => {
 		expect(aborted).toBe(0);
 	});
 
-	test("requires more than 500 user and assistant characters", async () => {
+	test("generates after the first settled turn with short context", async () => {
 		const handlers = new Map<string, (value: unknown) => void>();
-		const userText = "u".repeat(250);
-		const assistantText = "a".repeat(250);
+		const userText = "Fix login";
+		const assistantText = "Updated button";
 		const entries: Array<{
 			type: "message";
 			message: { role: "user" | "assistant"; content: unknown };
-		}> = [
-			{ type: "message", message: { role: "user", content: userText } },
-			{
-				type: "message",
-				message: {
-					role: "assistant",
-					content: [
-						{ type: "thinking", thinking: "Internal analysis" },
-						{ type: "text", text: assistantText },
-					],
-				},
-			},
-		];
+		}> = [];
 		let created = 0;
 		let generatedPrompt: string | undefined;
 		let applied: string | undefined;
@@ -286,70 +289,27 @@ describe("Pi Basics auto-title", () => {
 
 		coordinator.trigger();
 		expect(created).toBe(0);
-		entries.push({ type: "message", message: { role: "assistant", content: "b" } });
-		handlers.get("agent_settled")?.({});
-		await Bun.sleep(0);
-
-		expect(created).toBe(1);
-		expect(generatedPrompt).toContain(`User: ${userText}`);
-		expect(generatedPrompt).toContain(`Assistant: ${assistantText}`);
-		expect(generatedPrompt).toContain("Assistant: b");
-		expect(generatedPrompt).not.toContain("Internal analysis");
-		expect(applied).toBe("Fix mobile login button");
-		coordinator.dispose();
-	});
-
-	test("triggers on the third user turn below 500 characters", async () => {
-		const handlers = new Map<string, (value: unknown) => void>();
-		const entries: Array<{
-			type: "message";
-			message: { role: "user" | "assistant"; content: string };
-		}> = [
-			{ type: "message", message: { role: "user", content: "First" } },
-			{ type: "message", message: { role: "assistant", content: "First response" } },
-			{ type: "message", message: { role: "user", content: "Second" } },
-			{ type: "message", message: { role: "assistant", content: "Second response" } },
-		];
-		let created = 0;
-		const pi = {
-			events: {
-				on: (channel: string, handler: (value: unknown) => void) => {
-					handlers.set(channel, handler);
-					return () => handlers.delete(channel);
+		entries.push(
+			{ type: "message", message: { role: "user", content: userText } },
+			{
+				type: "message",
+				message: {
+					role: "assistant",
+					content: [
+						{ type: "thinking", thinking: "Internal analysis" },
+						{ type: "text", text: assistantText },
+					],
 				},
 			},
-			appendEntry: () => undefined,
-			getSessionName: () => undefined,
-			setSessionName: () => undefined,
-		};
-		const ctx = {
-			sessionManager: {
-				getEntries: () => entries,
-				getSessionId: () => "s",
-			},
-			isIdle: () => true,
-			ui: { notify: () => undefined },
-		};
-		const coordinator = createAutoTitleCoordinator({ pi, ctx } as never, "provider/model", () => {
-			created++;
-			return {
-				prompt: async () => undefined,
-				abort: () => undefined,
-				waitForIdle: async () => undefined,
-				result: () => "Third turn title",
-			};
-		});
-
-		coordinator.trigger();
-		expect(created).toBe(0);
-		entries.push(
-			{ type: "message", message: { role: "user", content: "Third" } },
-			{ type: "message", message: { role: "assistant", content: "Third response" } },
 		);
 		handlers.get("agent_settled")?.({});
 		await Bun.sleep(0);
 
 		expect(created).toBe(1);
+		expect(generatedPrompt).toContain(`Primary user request:\n${userText}`);
+		expect(generatedPrompt).toContain(`First assistant result:\n${assistantText}`);
+		expect(generatedPrompt).not.toContain("Internal analysis");
+		expect(applied).toBe("Fix mobile login button");
 		coordinator.dispose();
 	});
 
