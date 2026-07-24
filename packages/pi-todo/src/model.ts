@@ -42,7 +42,6 @@ export type ApplyTodoResult =
 			readonly changed: boolean;
 			readonly state: TaskState;
 			readonly operations: readonly TodoOperationResult[];
-			readonly autoStartedId?: number;
 	  }
 	| {
 			readonly ok: false;
@@ -256,20 +255,16 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 		}
 		operations.push({ index, action, changed: isChanged, id });
 	}
-	let autoStartedId: number | undefined;
 	if (changed && !draft.tasks.some((task) => task.status === "in_progress")) {
 		const next = firstPending(draft.tasks);
 		if (next) {
 			draft.tasks = draft.tasks.map((task) =>
 				task.id === next.id ? { ...task, status: "in_progress" } : task,
 			);
-			autoStartedId = next.id;
 		}
 	}
 	if (!changed) return { ok: true, changed: false, state, operations };
-	return autoStartedId === undefined
-		? { ok: true, changed: true, state: draft, operations }
-		: { ok: true, changed: true, state: draft, operations, autoStartedId };
+	return { ok: true, changed: true, state: draft, operations };
 }
 
 export type SuppressTodoResult =
@@ -277,7 +272,6 @@ export type SuppressTodoResult =
 			readonly ok: true;
 			readonly changed: boolean;
 			readonly state: TaskState;
-			readonly autoStartedId?: number;
 	  }
 	| { readonly ok: false; readonly state: TaskState; readonly error: string };
 
@@ -294,18 +288,13 @@ export function suppressTodoByUser(state: TaskState, id: number): SuppressTodoRe
 	let tasks = state.tasks.map((task) =>
 		task.id === id ? { ...task, status: "suppressed" as const } : task,
 	);
-	let autoStartedId: number | undefined;
 	if (!tasks.some((task) => task.status === "in_progress")) {
 		const next = firstPending(tasks);
 		if (next) {
 			tasks = tasks.map((task) =>
 				task.id === next.id ? { ...task, status: "in_progress" as const } : task,
 			);
-			autoStartedId = next.id;
 		}
 	}
-	const nextState = { tasks, nextId: state.nextId };
-	return autoStartedId === undefined
-		? { ok: true, changed: true, state: nextState }
-		: { ok: true, changed: true, state: nextState, autoStartedId };
+	return { ok: true, changed: true, state: { tasks, nextId: state.nextId } };
 }

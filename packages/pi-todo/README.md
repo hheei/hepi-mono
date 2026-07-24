@@ -10,11 +10,17 @@ After a changed batch commits, Todo starts the lowest-ID pending task when none 
 
 Agents may set tasks to `in_progress`, `blocked`, or `completed`. A blocked task is not auto-started; set it back to `in_progress` when work can resume. `pending` remains an internal scheduling state.
 
-Created IDs use one result line:
+Created IDs use one result line; the final line always guides the next action:
 
 ```text
 Created #1 #2 #3
-Started #1: Inspect code
+Next: #1 Inspect code.
+```
+
+When no runnable task remains but blocked work exists, Todo asks the agent to discuss it with the user:
+
+```text
+Next: discuss blocked TODOs #2, #4 with the user and agree how to proceed.
 ```
 
 ## User suppression

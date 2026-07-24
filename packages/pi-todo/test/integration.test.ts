@@ -241,7 +241,7 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(created.content[0]?.text).toBe("Created #1 #2\nStarted #1: First");
+		expect(created.content[0]?.text).toBe("Created #1 #2\nNext: #1 First.");
 		expect(created.details.snapshot).toEqual({
 			tasks: [
 				{ id: 1, subject: "First", status: "in_progress" },
@@ -262,7 +262,7 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(mixed.content[0]?.text).toBe("Updated #1\nCreated #3\nStarted #2: Second");
+		expect(mixed.content[0]?.text).toBe("Updated #1\nCreated #3\nNext: #2 Second.");
 		expect(mixed.details.snapshot).toEqual({
 			tasks: [
 				{ id: 1, subject: "First", status: "blocked" },
@@ -289,7 +289,11 @@ describe("Todo integration", () => {
 		} catch (error) {
 			failure = error;
 		}
-		expect(failure).toEqual(new Error("Operation #2: Task #99 does not exist"));
+		expect(failure).toEqual(
+			new Error(
+				"Operation #2: Task #99 does not exist. No changes committed.\nNext: Correct operation #2 and retry the batch.",
+			),
+		);
 		const listed = await tool.execute(
 			"call-4",
 			{ operations: [{ action: "list" }] },
@@ -299,6 +303,34 @@ describe("Todo integration", () => {
 		);
 		expect(listed.details.snapshot.tasks.find(({ id }) => id === 2)?.status).toBe("in_progress");
 		expect(listed.content[0]?.text).toContain("⊘ #1 First");
+		expect(listed.content[0]?.text).toEndWith("Next: #2 Second.");
+
+		const noChange = await tool.execute(
+			"call-5",
+			{ operations: [{ action: "update", id: 2, subject: "Second" }] },
+			undefined,
+			undefined,
+			host.ctx,
+		);
+		expect(noChange.content[0]?.text).toBe(
+			"No change: #2 already matches the requested values\nNext: #2 Second.",
+		);
+
+		const allBlocked = await tool.execute(
+			"call-6",
+			{
+				operations: [
+					{ action: "update", id: 2, status: "blocked" },
+					{ action: "update", id: 3, status: "blocked" },
+				],
+			},
+			undefined,
+			undefined,
+			host.ctx,
+		);
+		expect(allBlocked.content[0]?.text).toBe(
+			"Updated #2\nUpdated #3\nNext: discuss blocked TODOs #1, #2, #3 with the user and agree how to proceed.",
+		);
 	});
 
 	test("keeps failed and aborted calls out of durable state", async () => {
@@ -329,6 +361,7 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
+		expect(listed.content[0]?.text).toBe("No todos.\nNext: no TODO action.");
 		expect(listed.details.snapshot).toEqual({ tasks: [], nextId: 1 });
 	});
 
@@ -370,7 +403,7 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(listed.content[0]?.text).toBe("No todos.");
+		expect(listed.content[0]?.text).toBe("No todos.\nNext: no TODO action.");
 	});
 
 	test("injects a transient repeating reminder after turn and time thresholds", async () => {
@@ -544,7 +577,7 @@ describe("Todo integration", () => {
 
 		await host.commands[0]!.handler("suppress #1", host.ctx);
 		expect(host.notifications[2]).toEqual({
-			message: "Suppressed #1\nStarted #2: Pending",
+			message: "Suppressed #1\nNext: #2 Pending.",
 			level: "info",
 		});
 		expect(host.appended).toHaveLength(1);
@@ -573,7 +606,11 @@ describe("Todo integration", () => {
 		} catch (error) {
 			failure = error;
 		}
-		expect(failure).toEqual(new Error("Operation #1: The user suppressed #1 before."));
+		expect(failure).toEqual(
+			new Error(
+				"Operation #1: The user suppressed #1 before. No changes committed.\nNext: Create a new TODO if that work is still needed.",
+			),
+		);
 		const created = await tool.execute(
 			"replacement",
 			{ operations: [{ action: "create", subject: "Replacement" }] },
@@ -581,6 +618,6 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(created.content[0]?.text).toBe("Created #3");
+		expect(created.content[0]?.text).toBe("Created #3\nNext: #2 Pending.");
 	});
 });

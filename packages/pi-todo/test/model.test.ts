@@ -34,7 +34,6 @@ describe("todo model", () => {
 			{ index: 0, action: "create", changed: true, id: 1 },
 			{ index: 1, action: "create", changed: true, id: 2 },
 		]);
-		expect(result.autoStartedId).toBe(1);
 	});
 
 	test("commits mixed delete and create atomically and advances", () => {
@@ -47,7 +46,6 @@ describe("todo model", () => {
 			],
 			nextId: 4,
 		});
-		expect(result.autoStartedId).toBe(2);
 	});
 
 	test("rolls back an invalid middle operation", () => {
@@ -76,7 +74,6 @@ describe("todo model", () => {
 	test("supports blocked tasks and explicit resume", () => {
 		const initial = stateOf(freshTaskState(), [create("one"), create("two")]).state;
 		const blocked = stateOf(initial, [update(1, { status: "blocked" })]);
-		expect(blocked.autoStartedId).toBe(2);
 		expect(blocked.state.tasks.map(({ status }) => status)).toEqual(["blocked", "in_progress"]);
 		expect(
 			applyTodo(blocked.state, { operations: [update(1, { status: "in_progress" })] }),
@@ -112,14 +109,13 @@ describe("todo model", () => {
 	test("auto-advances after completion", () => {
 		const initial = stateOf(freshTaskState(), [create("one"), create("two")]).state;
 		const advanced = stateOf(initial, [update(1, { status: "completed" })]);
-		expect(advanced.autoStartedId).toBe(2);
 		expect(advanced.state.tasks.map(({ status }) => status)).toEqual(["completed", "in_progress"]);
 	});
 
 	test("user suppression is immutable to the agent and starts the next task", () => {
 		const initial = stateOf(freshTaskState(), [create("one"), create("two")]).state;
 		const suppressed = suppressTodoByUser(initial, 1);
-		expect(suppressed).toMatchObject({ ok: true, changed: true, autoStartedId: 2 });
+		expect(suppressed).toMatchObject({ ok: true, changed: true });
 		if (!suppressed.ok) throw new Error(suppressed.error);
 		expect(suppressed.state.tasks).toEqual([
 			{ id: 1, subject: "one", status: "suppressed" },
