@@ -173,7 +173,12 @@ describe("Todo integration", () => {
 			Value.Check(TODO_PARAMETERS, {
 				operations: [{ action: "update", id: 1, status: "in_progress" }],
 			}),
-		).toBe(false);
+		).toBe(true);
+		expect(
+			Value.Check(TODO_PARAMETERS, {
+				operations: [{ action: "update", id: 1, status: "blocked" }],
+			}),
+		).toBe(true);
 		expect(
 			Value.Check(TODO_PARAMETERS, {
 				operations: [{ action: "update", id: 1, status: "completed" }],
@@ -189,6 +194,11 @@ describe("Todo integration", () => {
 				operations: [{ action: "list", status: "suppressed" }],
 			}),
 		).toBe(true);
+		expect(
+			Value.Check(TODO_PARAMETERS, {
+				operations: [{ action: "update", id: 1, status: "pending" }],
+			}),
+		).toBe(false);
 		expect(
 			Value.Check(TODO_PARAMETERS, {
 				operations: [{ action: "update", id: 1, status: "suppressed" }],
@@ -244,7 +254,7 @@ describe("Todo integration", () => {
 			"call-2",
 			{
 				operations: [
-					{ action: "delete", id: 1 },
+					{ action: "update", id: 1, status: "blocked" },
 					{ action: "create", subject: "Replacement" },
 				],
 			},
@@ -252,9 +262,10 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(mixed.content[0]?.text).toBe("Deleted #1\nCreated #3\nStarted #2: Second");
+		expect(mixed.content[0]?.text).toBe("Updated #1\nCreated #3\nStarted #2: Second");
 		expect(mixed.details.snapshot).toEqual({
 			tasks: [
+				{ id: 1, subject: "First", status: "blocked" },
 				{ id: 2, subject: "Second", status: "in_progress" },
 				{ id: 3, subject: "Replacement", status: "pending" },
 			],

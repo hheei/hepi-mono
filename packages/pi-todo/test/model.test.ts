@@ -73,9 +73,34 @@ describe("todo model", () => {
 		}
 	});
 
-	test("only lets the agent complete tasks", () => {
+	test("supports blocked tasks and explicit resume", () => {
 		const initial = stateOf(freshTaskState(), [create("one"), create("two")]).state;
-		for (const status of ["pending", "in_progress", "suppressed"]) {
+		const blocked = stateOf(initial, [update(1, { status: "blocked" })]);
+		expect(blocked.autoStartedId).toBe(2);
+		expect(blocked.state.tasks.map(({ status }) => status)).toEqual(["blocked", "in_progress"]);
+		expect(
+			applyTodo(blocked.state, { operations: [update(1, { status: "in_progress" })] }),
+		).toMatchObject({
+			ok: false,
+			error: "Task #1 cannot be in progress while Task #2 is in progress",
+		});
+		const resumed = stateOf(blocked.state, [
+			update(2, { status: "blocked" }),
+			update(1, { status: "in_progress" }),
+		]);
+		expect(resumed.state.tasks.map(({ status }) => status)).toEqual(["in_progress", "blocked"]);
+		const completed = stateOf(resumed.state, [update(1, { status: "completed" })]).state;
+		expect(
+			applyTodo(completed, { operations: [update(1, { status: "in_progress" })] }),
+		).toMatchObject({
+			ok: false,
+			error: "Invalid status transition from completed to in_progress",
+		});
+	});
+
+	test("rejects agent-only internal statuses", () => {
+		const initial = stateOf(freshTaskState(), [create("one")]).state;
+		for (const status of ["pending", "suppressed", "unknown"]) {
 			expect(
 				applyTodo(initial, {
 					operations: [{ action: "update", id: 1, status }] as never,
