@@ -6,7 +6,8 @@
 	"type": "module",
 	"packageManager": "bun@1.3.14",
 	"workspaces": [
-		"packages/*"
+		"packages/*",
+		"!packages/pi-subagents"
 	],
 	"scripts": {
 		"check": "biome check . && tsc --noEmit -p tsconfig.base.json && bun test --path-ignore-patterns='**/references/**'",
