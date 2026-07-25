@@ -16,7 +16,6 @@ import { createAdvisorSettingsProvider } from "./settings.js";
 export default function piAdvisorExtension(pi: ExtensionAPI): void {
 	const advisor = createAdvisorFeature();
 	const settingsRegistry = getHePiRuntimeSettingsRegistry(pi);
-	let settingsProvider: ReturnType<typeof createAdvisorSettingsProvider> | undefined;
 	registerAdvisorCommand(pi, advisor);
 	registerAdvisorRenderer(pi);
 	const lifecycle = new HePiLifecycleController({
@@ -27,11 +26,8 @@ export default function piAdvisorExtension(pi: ExtensionAPI): void {
 					configuredProviders.has(model.provider) &&
 					runtime.ctx.modelRegistry.hasConfiguredAuth(model),
 			);
-			const provider =
-				settingsProvider ??
-				createAdvisorSettingsProvider({
-					path: join(runtime.ctx.cwd, ".pi", "settings.json"),
-					modelOptions: [
+			const provider = createAdvisorSettingsProvider({
+				modelOptions: [
 						{ value: "", label: "Not set" },
 						...models.map((model) => ({
 							value: `${model.provider}/${model.id}`,
@@ -56,7 +52,6 @@ export default function piAdvisorExtension(pi: ExtensionAPI): void {
 						await advisor.configure(model, level);
 					},
 				});
-			if (settingsProvider === undefined) settingsProvider = provider;
 			const unregisterSettings = registerHePiSettings(provider, settingsRegistry);
 			runtime.registry.registerLifecycle({
 				id: "advisor-settings",

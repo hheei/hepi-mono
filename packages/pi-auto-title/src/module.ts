@@ -1,3 +1,4 @@
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Agent } from "@earendil-works/pi-agent-core";
@@ -81,7 +82,7 @@ async function readRoot(path: string): Promise<JsonObject> {
 	return value as JsonObject;
 }
 export function createAutoTitleStorage(options: AutoTitleStorageOptions = {}): HePiSettingsStorage {
-	const path = options.path;
+	const path = options.path ?? join(getAgentDir(), "settings.json");
 	const group = options.group ?? AUTO_TITLE_GROUP;
 	return {
 		async load(ctx: { cwd?: string }): Promise<HePiSettingsState | undefined> {

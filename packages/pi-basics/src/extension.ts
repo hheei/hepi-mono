@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getHePiRuntimeModuleRegistry } from "./api/modules.js";
 import { getHePiRuntimeSettingsRegistry, registerHePiSettings } from "./api/settings.js";
@@ -37,7 +36,6 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 			});
 			cursorOptions = DEFAULT_CURSOR_OPTIONS;
 			const provider = createCursorSettingsProvider({
-				path: join(runtime.ctx.cwd, ".pi", "settings.json"),
 				onPersisted: (next) => {
 					cursorOptions = next;
 				},
