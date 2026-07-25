@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+	advisorIndicatorFromStatuses,
 	buildStatusbarSnapshot,
 	contextMeter,
 	estimateContextUsage,
@@ -34,6 +35,7 @@ describe("statusbar model", () => {
 			sessionName: "  Session\nname ",
 			statuses: new Map([
 				["a", " active "],
+				["advisor", "ok"],
 				["b", "\n"],
 			]),
 		});
@@ -61,6 +63,7 @@ describe("statusbar model", () => {
 				["unknown-error-retry", "receiving"],
 				["plan", "plan"],
 				["goal", "Goal"],
+				["advisor", "concern"],
 				["other", "retrying"],
 			]),
 			"⠧",
@@ -76,6 +79,10 @@ describe("statusbar model", () => {
 		expect(
 			formatFooterStatuses(new Map([["mcp", "MCP: connecting to 3 servers..."]]), "⠋"),
 		).toEqual({ values: ["⛁ 0/3"], receiving: false, mcpRatio: "0/3" });
+		expect(advisorIndicatorFromStatuses(new Map([["advisor", "ok"]]))).toBe("ok");
+		expect(advisorIndicatorFromStatuses(new Map([["advisor", "concern"]]))).toBe("concern");
+		expect(advisorIndicatorFromStatuses(new Map([["advisor", "blocker"]]))).toBe("blocker");
+		expect(advisorIndicatorFromStatuses(new Map([["advisor", "Advisor"]]))).toBeUndefined();
 	});
 
 	test("uses assembled system prompt tokens before first model response", () => {

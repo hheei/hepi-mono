@@ -35,8 +35,11 @@ export type StatusbarThinkingLevel =
 	| "xhigh"
 	| "unknown";
 
+export type AdvisorIndicator = "ok" | "concern" | "blocker";
+
 export type StatusbarSnapshot = Readonly<{
 	model: string;
+	advisorIndicator?: AdvisorIndicator;
 	thinkingLevel: StatusbarThinkingLevel;
 	meter: string;
 	contextTokens: string;
@@ -74,12 +77,24 @@ export function contextMeter(percent: unknown): string {
 
 export const thinkingGlyph = hePiThinkingGlyph;
 
+export function advisorIndicatorFromStatuses(
+	statuses: ReadonlyMap<string, string> | Iterable<[string, string]> | undefined,
+): AdvisorIndicator | undefined {
+	if (!statuses) return undefined;
+	for (const [key, value] of statuses) {
+		if (key === "advisor" && (value === "ok" || value === "concern" || value === "blocker"))
+			return value;
+	}
+	return undefined;
+}
+
 export function normalizeStatuses(
 	statuses: ReadonlyMap<string, string> | Iterable<[string, string]> | undefined,
 ): readonly string[] {
 	if (!statuses) return [];
 	const result: string[] = [];
-	for (const [, value] of statuses) {
+	for (const [key, value] of statuses) {
+		if (key === "advisor") continue;
 		const normalized = normalizeDisplayFragment(value, "");
 		if (normalized) result.push(normalized);
 	}
@@ -106,7 +121,7 @@ export function formatFooterStatuses(
 	const remaining: string[] = [];
 	for (const [key, value] of statuses) {
 		const normalized = normalizeDisplayFragment(value, "");
-		if (!normalized || key === "magic-context") continue;
+		if (!normalized || key === "magic-context" || key === "advisor") continue;
 		if (key === "mcp") {
 			hasMcp = true;
 			const ratio = normalized.match(/MCP:\s*(\d+)\/(\d+)\s+servers/iu);
@@ -188,6 +203,7 @@ function usageWithSystemPrompt(
 export function buildStatusbarSnapshot(
 	input: Readonly<{
 		model?: { name?: string; id?: string };
+		advisorIndicator?: AdvisorIndicator;
 		thinkingLevel?: string;
 		usage?: StatusbarContextUsage;
 		systemPrompt?: string;
@@ -204,6 +220,7 @@ export function buildStatusbarSnapshot(
 		typeof usage?.percent === "number" && Number.isFinite(usage.percent) ? usage.percent : null;
 	return {
 		model,
+		...(input.advisorIndicator === undefined ? {} : { advisorIndicator: input.advisorIndicator }),
 		thinkingLevel:
 			input.thinkingLevel === "off" ||
 			input.thinkingLevel === "minimal" ||

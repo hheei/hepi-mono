@@ -10,6 +10,7 @@ import { type Component, CURSOR_MARKER, type TUI } from "@earendil-works/pi-tui"
 import type { HePiRuntimeContext } from "../../runtime/context.js";
 import { type CursorOptions, cursorEscape } from "./cursor.js";
 import {
+	advisorIndicatorFromStatuses,
 	buildStatusbarSnapshot,
 	estimateContextUsage,
 	formatFooterStatuses,
@@ -26,6 +27,7 @@ type Editor = ReturnType<EditorFactory>;
 type Owner = {
 	sessionId: string;
 	ctx: ExtensionContext;
+	footerData?: ReadonlyFooterDataProvider;
 	previousEditorFactory?: EditorFactory | undefined;
 	installedEditorFactory: EditorFactory;
 	requestRender?: () => void;
@@ -195,6 +197,9 @@ export function createStatusbarFeature(
 						fallback,
 						next.awaitingAssistantUsage,
 					);
+					const advisorIndicator = advisorIndicatorFromStatuses(
+						next.footerData?.getExtensionStatuses(),
+					);
 					if (usage?.tokens != null) {
 						next.usage = usage;
 						next.compacted = false;
@@ -205,6 +210,7 @@ export function createStatusbarFeature(
 							buildStatusbarSnapshot({
 								...(ctx.model ? { model: { name: ctx.model.name, id: ctx.model.id } } : {}),
 								thinkingLevel: pi.getThinkingLevel(),
+								...(advisorIndicator === undefined ? {} : { advisorIndicator }),
 								...(usage === undefined ? {} : { usage }),
 								...(systemPrompt === undefined ? {} : { systemPrompt }),
 								...(sessionName === undefined ? {} : { sessionName }),
@@ -240,6 +246,7 @@ export function createStatusbarFeature(
 			owner = next;
 			ctx.ui.setFooter((tui: TUI, _theme: Theme, footerData: ReadonlyFooterDataProvider) => {
 				if (!next || owner !== next) return emptyFooter();
+				next.footerData = footerData;
 				next.requestRender = () => tui.requestRender();
 				return createExtensionStatusFooter(tui, footerData, () => ctx.ui.theme);
 			});

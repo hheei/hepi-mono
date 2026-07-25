@@ -8,7 +8,12 @@ import {
 	markFeedbackDelivered,
 	reconfirmFeedback,
 } from "./feedback.js";
-import { type AdvisorPhase, type AdvisorStatus, DEFAULT_ADVISOR_USAGE } from "./model.js";
+import {
+	type AdvisorAdvice,
+	type AdvisorPhase,
+	type AdvisorStatus,
+	DEFAULT_ADVISOR_USAGE,
+} from "./model.js";
 import { appendAdvisorBoundary, restoreAdvisor } from "./persistence.js";
 import {
 	type AdvisorAdapterOptions,
@@ -43,6 +48,18 @@ interface Active {
 	thinking: import("./model.js").ThinkingLevel;
 }
 export type AdvisorAdapterFactory = (options: AdvisorAdapterOptions) => AdvisorAgentAdapter;
+
+type AdvisorIndicator = "ok" | "concern" | "blocker";
+
+function indicatorFor(notes: readonly AdvisorAdvice[]): AdvisorIndicator {
+	if (notes.some((note) => note.severity === "blocker")) return "blocker";
+	if (notes.some((note) => note.severity === "concern")) return "concern";
+	return "ok";
+}
+
+function publishIndicator(item: Active, notes: readonly AdvisorAdvice[]): void {
+	item.runtime.ctx.ui.setStatus("advisor", item.enabled ? indicatorFor(notes) : undefined);
+}
 
 function isAbortedAssistantMessage(message: unknown): boolean {
 	if (typeof message !== "object" || message === null) return false;
@@ -84,11 +101,7 @@ export function createAdvisorFeature(
 			...(item?.lastError === undefined ? {} : { lastError: item.lastError }),
 		};
 	};
-	const deliver = (
-		item: Active,
-		notes: readonly import("./model.js").AdvisorAdvice[],
-		triggerTurn: boolean,
-	): void => {
+	const deliver = (item: Active, notes: readonly AdvisorAdvice[], triggerTurn: boolean): void => {
 		const content = notes.map((note) => `[${note.severity}] ${note.note}`).join("\n");
 		if (triggerTurn) item.pendingAdvisoryPrompt = content;
 		item.runtime.pi.sendMessage(
@@ -123,6 +136,7 @@ export function createAdvisorFeature(
 					`Reconfirm only these unresolved Advisor notes. Re-raise a note with advise only if it still applies; otherwise stay silent.\n${item.feedback.held.map((note) => `[${note.severity}] ${note.note}`).join("\n")}`,
 				);
 				if (!isCurrent(item, epoch) || !item.enabled) return;
+				publishIndicator(item, raised);
 				item.feedback = reconfirmFeedback(item.feedback, raised);
 				const confirmed = item.feedback.deliverable.filter((note) => note.severity !== "nit");
 				if (confirmed.length > 0) {
@@ -150,6 +164,7 @@ export function createAdvisorFeature(
 				if (!isCurrent(item, epoch) || !item.enabled) return;
 				const advice = await item.adapter.review(prompt);
 				if (!isCurrent(item, epoch) || !item.enabled) return;
+				publishIndicator(item, advice);
 				item.feedback = collectFeedback(item.feedback, advice);
 				const notes = item.feedback.deliverable;
 				if (notes.length > 0) {
@@ -177,6 +192,7 @@ export function createAdvisorFeature(
 		item.pendingAdvisoryPrompt = "";
 		item.backlog = 0;
 		item.phase = item.enabled ? "idle" : "disabled";
+		publishIndicator(item, []);
 		if (!item.enabled) return Promise.resolve();
 		return enqueue(async () => {
 			if (!isCurrent(item) || !item.enabled) return;
@@ -202,6 +218,7 @@ export function createAdvisorFeature(
 				if (active !== item) return;
 				item.model = model;
 				item.thinking = thinking;
+				if (item.enabled) publishIndicator(item, []);
 				delete item.lastError;
 			} catch (error) {
 				if (active === item) item.lastError = errorMessage(error);
@@ -300,7 +317,7 @@ export function createAdvisorFeature(
 				const epoch = ++item.epoch;
 				item.enabled = restoredBranch.enabled;
 				item.phase = restoredBranch.enabled ? "starting" : "disabled";
-				if (!restoredBranch.enabled) item.runtime.ctx.ui.setStatus("advisor", undefined);
+				publishIndicator(item, []);
 				item.feedback = emptyFeedback();
 				item.reconfirming = false;
 				item.terminalPending = false;
@@ -316,10 +333,7 @@ export function createAdvisorFeature(
 						else await item.adapter.create();
 						if (!isCurrent(item, epoch)) return;
 						item.phase = restoredBranch.enabled ? "idle" : "disabled";
-						item.runtime.ctx.ui.setStatus(
-							"advisor",
-							restoredBranch.enabled ? "Advisor" : undefined,
-						);
+						publishIndicator(item, []);
 						delete item.lastError;
 					} catch (error) {
 						if (!isCurrent(item, epoch)) return;
@@ -339,7 +353,7 @@ export function createAdvisorFeature(
 						return;
 					}
 					item.phase = "idle";
-					runtime.ctx.ui.setStatus("advisor", "Advisor");
+					publishIndicator(item, []);
 				} catch (error) {
 					if (!isCurrent(item)) {
 						await adapter.dispose().catch(() => undefined);
@@ -415,7 +429,7 @@ export function createAdvisorFeature(
 					}
 					item.enabled = true;
 					item.phase = "idle";
-					item.runtime.ctx.ui.setStatus("advisor", "Advisor");
+					publishIndicator(item, []);
 				}
 			} else if (item.enabled) {
 				appendAdvisorBoundary(item.runtime.pi, { version: 1, enabled: false });
