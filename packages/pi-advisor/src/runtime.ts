@@ -11,7 +11,7 @@ import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { ContextBudget } from "./context.js";
+import { type ContextBudget, contextInputCharBudget } from "./context.js";
 import { parseAdvice } from "./feedback.js";
 import {
 	ADVISOR_TOOL_NAMES,
@@ -183,28 +183,90 @@ function toolCallIds(message: Message): ReadonlySet<string> {
 	);
 }
 
+function modelContextBudget(model: ReturnType<typeof resolveModel>): ContextBudget {
+	return {
+		contextWindow: model.contextWindow,
+		responseReserve: Math.min(model.maxTokens, ADVISOR_RESPONSE_CAP),
+	};
+}
+
 function trimIncompleteAssistant(
 	message: Message,
 	completed: ReadonlySet<string>,
 ): Message | undefined {
 	if (message.role !== "assistant" || !Array.isArray(message.content)) return message;
-	const content = message.content.filter(
-		(part) =>
-			typeof part !== "object" ||
-			part === null ||
-			part.type !== "toolCall" ||
-			(typeof part.id === "string" && completed.has(part.id)),
-	);
+	const content = message.content.filter((part) => {
+		if (typeof part !== "object" || part === null) return true;
+		if (part.type === "thinking") return false;
+		return part.type !== "toolCall" || (typeof part.id === "string" && completed.has(part.id));
+	});
 	if (content.length === 0) return undefined;
 	if (content.length === message.content.length) return message;
 	return { ...message, content };
 }
 
-export function buildAdvisorBootstrapMessages(options: AdvisorAdapterOptions): AgentMessage[] {
-	if (!hasResolvedContext(options.ctx.sessionManager)) return [];
-	const resolved = options.ctx.sessionManager.buildSessionContext();
-	const sourceMessages = resolved.messages.filter((message) => !isAdvisorMessage(message));
-	const messages = convertToLlm(sourceMessages);
+function fitBootstrapMessages(
+	messages: readonly Message[],
+	budget: ContextBudget,
+): readonly Message[] {
+	const units: Message[][] = [];
+	for (let index = 0; index < messages.length; index += 1) {
+		const message = messages[index];
+		if (message === undefined) continue;
+		const ids = toolCallIds(message);
+		const unit = [message];
+		while (ids.size > 0) {
+			const next = messages[index + 1];
+			if (next === undefined || next.role !== "toolResult" || !ids.has(next.toolCallId)) break;
+			unit.push(next);
+			index += 1;
+		}
+		units.push(unit);
+	}
+	const maxChars = contextInputCharBudget(budget);
+	const selected: Message[][] = [];
+	let chars = 0;
+	for (let index = units.length - 1; index >= 0; index -= 1) {
+		const unit = units[index];
+		if (unit === undefined) continue;
+		const unitChars = JSON.stringify(unit).length;
+		if (chars + unitChars > maxChars) break;
+		selected.unshift(unit);
+		chars += unitChars;
+	}
+	if (selected.length === units.length) return selected.flat();
+	if (selected.length === 0 && units.length > 0)
+		throw new Error("Advisor bootstrap context cannot fit the configured model");
+	const marker: Message = {
+		role: "user",
+		content: [{ type: "text", text: "[advisor bootstrap context truncated]" }],
+		timestamp: Date.now(),
+	};
+	const markerChars = JSON.stringify(marker).length;
+	while (selected.length > 0 && chars + markerChars > maxChars) {
+		const removed = selected.shift();
+		if (removed !== undefined) chars -= JSON.stringify(removed).length;
+	}
+	if (chars + markerChars > maxChars)
+		throw new Error("Advisor bootstrap context cannot fit the configured model");
+	return [marker, ...selected.flat()];
+}
+
+function stripToolResultDetails(message: Message): Message {
+	if (message.role !== "toolResult") return message;
+	if (message.details === undefined && message.addedToolNames === undefined) return message;
+	return {
+		role: "toolResult",
+		toolCallId: message.toolCallId,
+		toolName: message.toolName,
+		content: message.content,
+		isError: message.isError,
+		timestamp: message.timestamp,
+	};
+}
+
+function repairToolPairs(source: readonly Message[]): Message[] {
+	const messages = [...source];
 	const callIds = new Set<string>();
 	const completed = new Set<string>();
 	for (const message of messages) {
@@ -218,6 +280,7 @@ export function buildAdvisorBootstrapMessages(options: AdvisorAdapterOptions): A
 		if (message.role === "toolResult") {
 			const precedingCalls = messages.slice(0, index).flatMap((item) => [...toolCallIds(item)]);
 			if (!precedingCalls.includes(message.toolCallId)) messages.splice(index, 1);
+			else messages[index] = stripToolResultDetails(message);
 			continue;
 		}
 		if (message.role === "assistant") {
@@ -227,6 +290,17 @@ export function buildAdvisorBootstrapMessages(options: AdvisorAdapterOptions): A
 		}
 	}
 	return messages;
+}
+
+export function buildAdvisorBootstrapMessages(
+	options: AdvisorAdapterOptions,
+	budget?: ContextBudget,
+): AgentMessage[] {
+	if (!hasResolvedContext(options.ctx.sessionManager)) return [];
+	const resolved = options.ctx.sessionManager.buildSessionContext();
+	const sourceMessages = resolved.messages.filter((message) => !isAdvisorMessage(message));
+	const messages = repairToolPairs(convertToLlm(sourceMessages));
+	return budget === undefined ? messages : repairToolPairs(fitBootstrapMessages(messages, budget));
 }
 
 export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): AdvisorAgentAdapter {
@@ -284,7 +358,7 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 			getApiKey: (provider) => agentOptions.ctx.modelRegistry.getApiKeyForProvider(provider),
 			...(agentOptions.streamFn === undefined ? {} : { streamFn: agentOptions.streamFn }),
 		});
-		next.state.messages = buildAdvisorBootstrapMessages(agentOptions);
+		next.state.messages = buildAdvisorBootstrapMessages(agentOptions, modelContextBudget(model));
 		return next;
 	};
 	const create = async (): Promise<void> => {
@@ -310,10 +384,7 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 		activeTools: ADVISOR_TOOL_NAMES,
 		contextBudget: () => {
 			const model = agent?.state.model ?? resolveModel(options);
-			return {
-				contextWindow: model.contextWindow,
-				responseReserve: Math.min(model.maxTokens, ADVISOR_RESPONSE_CAP),
-			};
+			return modelContextBudget(model);
 		},
 		create,
 		async reset() {
@@ -353,7 +424,10 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 			if (shouldCompact(reviewAgent)) {
 				lastCompactedContextTokens = currentContextTokens(reviewAgent);
 				reviewAgent.reset();
-				reviewAgent.state.messages = buildAdvisorBootstrapMessages(reviewOptions);
+				reviewAgent.state.messages = buildAdvisorBootstrapMessages(
+					reviewOptions,
+					modelContextBudget(reviewAgent.state.model),
+				);
 			}
 			advice = [];
 			let timedOut = false;
@@ -391,7 +465,10 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 						if (replayedLength) return [];
 						replayedLength = true;
 						reviewAgent.reset();
-						reviewAgent.state.messages = buildAdvisorBootstrapMessages(reviewOptions);
+						reviewAgent.state.messages = buildAdvisorBootstrapMessages(
+							reviewOptions,
+							modelContextBudget(reviewAgent.state.model),
+						);
 						continue;
 					}
 					const stopReason = finalAssistantStopReason(reviewAgent.state.messages);
@@ -399,7 +476,10 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 						advice = [];
 						replayedLength = true;
 						reviewAgent.reset();
-						reviewAgent.state.messages = buildAdvisorBootstrapMessages(reviewOptions);
+						reviewAgent.state.messages = buildAdvisorBootstrapMessages(
+							reviewOptions,
+							modelContextBudget(reviewAgent.state.model),
+						);
 						continue;
 					}
 					if (stopReason !== "stop" && stopReason !== "toolUse") {
@@ -420,7 +500,10 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 			if (agent === undefined || disposed) return;
 			lastCompactedContextTokens = currentContextTokens();
 			agent.reset();
-			agent.state.messages = buildAdvisorBootstrapMessages(options);
+			agent.state.messages = buildAdvisorBootstrapMessages(
+				options,
+				modelContextBudget(agent.state.model),
+			);
 		},
 		async abort() {
 			inFlightAbort?.();
