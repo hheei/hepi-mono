@@ -44,6 +44,14 @@ export function renderStatusbarLine(
 					: "success";
 	const meterRole = snapshot.meter === "??" ? "dim" : levelRole;
 	const tokensRole = snapshot.contextTokens === "?" ? "muted" : levelRole;
+	const advisorRole =
+		snapshot.advisorIndicator === "blocker"
+			? "error"
+			: snapshot.advisorIndicator === "concern"
+				? "warning"
+				: "accent";
+	const advisorIndicator = snapshot.advisorIndicator === undefined ? "" : style(advisorRole, "✦");
+	const model = `${style("text", snapshot.model)}${advisorIndicator ? ` ${advisorIndicator}` : ""}`;
 	const prefix = `${rail("─")} ${style("accent", "π")} ${sep("·")} `;
 	const thinking = style("muted", thinkingGlyph(snapshot.thinkingLevel));
 	const context = ` ${sep("·")} ${style(meterRole, snapshot.meter)} ${style(tokensRole, `${snapshot.contextTokens}/${snapshot.contextLimit}`)}`;
@@ -53,7 +61,7 @@ export function renderStatusbarLine(
 		renderStatusbarFormat(DEFAULT_STATUSBAR_FORMAT_TOKENS, {
 			prefix,
 			thinking,
-			model: style("text", snapshot.model),
+			model,
 			context,
 			statuses: keptStatuses.length ? ` ${sep("·")} ${keptStatuses.join(` ${sep("·")} `)}` : "",
 			title: title ? ` ${style("muted", title)} ${rail("─")}` : rail("─"),
@@ -77,7 +85,19 @@ export function renderStatusbarLine(
 		const fixedBeforeModel = joinStatusbarFormat(output.beforeFill.slice(0, modelIndex));
 		const suffix = `${joinStatusbarFormat(output.beforeFill.slice(modelIndex + 1))}${afterFill}`;
 		const room = target - visibleWidth(fixedBeforeModel) - visibleWidth(suffix);
-		if (room > 0) return `${fixedBeforeModel}${truncateToWidth(snapshot.model, room)}${suffix}`;
+		if (room > 0) {
+			if (!advisorIndicator)
+				return `${fixedBeforeModel}${truncateToWidth(snapshot.model, room)}${suffix}`;
+			if (room === 1) return `${fixedBeforeModel}${advisorIndicator}${suffix}`;
+			return `${fixedBeforeModel}${truncateToWidth(snapshot.model, room - 2)} ${advisorIndicator}${suffix}`;
+		}
+		if (advisorIndicator)
+			return renderWithFill(
+				`${truncateToWidth(fixedBeforeModel, Math.max(0, target - 1))}${advisorIndicator}`,
+				"",
+				target,
+				rail,
+			);
 		return truncateToWidth(`${fixedBeforeModel}${snapshot.model}${suffix}`, target);
 	}
 	return renderWithFill(beforeFill, afterFill, target, rail);
