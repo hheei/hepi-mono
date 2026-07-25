@@ -8,6 +8,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { type Component, CURSOR_MARKER, type TUI } from "@earendil-works/pi-tui";
 import type { HePiRuntimeContext } from "../../runtime/context.js";
+import { type CursorOptions, cursorEscape } from "./cursor.js";
 import {
 	buildStatusbarSnapshot,
 	estimateContextUsage,
@@ -28,6 +29,8 @@ type Owner = {
 	previousEditorFactory?: EditorFactory | undefined;
 	installedEditorFactory: EditorFactory;
 	requestRender?: () => void;
+	tui?: TUI;
+	previousHardwareCursor?: boolean;
 	usage?: StatusbarContextUsage | undefined;
 	awaitingAssistantUsage: boolean;
 	compacted: boolean;
@@ -76,19 +79,15 @@ function createExtensionStatusFooter(
 	};
 }
 
-function renderBarCursor(lines: readonly string[]): string[] {
-	const startMarker = `${CURSOR_MARKER}\x1b[7m`;
-	const endMarker = "\x1b[0m";
-	return lines.map((line) => {
-		const start = line.indexOf(startMarker);
-		if (start < 0) return line;
-		const end = line.indexOf(endMarker, start + startMarker.length);
-		if (end < 0) return line;
-		return `${line.slice(0, start)}${CURSOR_MARKER}│${line.slice(end + endMarker.length)}`;
-	});
+function renderTerminalCursor(lines: readonly string[]): string[] {
+	const cursor = new RegExp(`${CURSOR_MARKER}\\x1b\\[7m([\\s\\S]*?)\\x1b\\[0m`, "g");
+	return lines.map((line) => line.replace(cursor, `${CURSOR_MARKER}$1`));
 }
 
-export function createStatusbarFeature(pi: ExtensionAPI): StatusbarFeature {
+export function createStatusbarFeature(
+	pi: ExtensionAPI,
+	getCursorOptions: () => CursorOptions = () => ({ shape: "block", blink: false }),
+): StatusbarFeature {
 	let owner: Owner | undefined;
 	const ownsContext = (eventCtx: ExtensionContext | undefined): boolean =>
 		owner !== undefined &&
@@ -154,9 +153,20 @@ export function createStatusbarFeature(pi: ExtensionAPI): StatusbarFeature {
 				const editor =
 					previousEditorFactory?.(tui, theme, keybindings) ??
 					new CustomEditor(tui, theme, keybindings);
+				const active = next;
+				if (
+					active !== undefined &&
+					active.tui === undefined &&
+					typeof tui.setShowHardwareCursor === "function"
+				) {
+					active.tui = tui;
+					active.previousHardwareCursor = tui.getShowHardwareCursor();
+					tui.setShowHardwareCursor(true);
+				}
 				const originalRender = editor.render.bind(editor);
 				(editor as Editor & { render: (width: number) => string[] }).render = (width: number) => {
-					const lines = renderBarCursor(originalRender(width));
+					const lines = renderTerminalCursor(originalRender(width));
+					if (tui.terminal?.write) tui.terminal.write(cursorEscape(getCursorOptions()));
 					if (!lines.length || !next || owner !== next) return lines;
 					const systemPrompt =
 						typeof ctx.getSystemPrompt === "function" ? ctx.getSystemPrompt() : undefined;
@@ -208,8 +218,14 @@ export function createStatusbarFeature(pi: ExtensionAPI): StatusbarFeature {
 				previousEditorFactory,
 				installedEditorFactory,
 				dispose() {
-					if (owner !== next) return;
+					const current = next;
+					if (current === undefined || owner !== current) return;
 					owner = undefined;
+					if (current.tui) {
+						current.tui.terminal.write("\x1b[0 q");
+						if (current.previousHardwareCursor !== undefined)
+							current.tui.setShowHardwareCursor(current.previousHardwareCursor);
+					}
 					if (ctx.ui.getEditorComponent() === installedEditorFactory)
 						ctx.ui.setEditorComponent(previousEditorFactory);
 					ctx.ui.setFooter(undefined);
