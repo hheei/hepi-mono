@@ -506,6 +506,36 @@ describe("Advisor feature lifecycle", () => {
 		expect(h.deliveries[0]?.options).toEqual({ deliverAs: "steer", triggerTurn: true });
 	});
 
+	test("attributes an Advisor-triggered correction turn to its advisory", async () => {
+		const h = fixture(true);
+		h.adapter.nextAdvice = [{ severity: "blocker", note: "division uses addition" }];
+		await h.feature.start(h.runtime);
+		await emit(h, "turn_end", {
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "Looks correct" }],
+				stopReason: "stop",
+			},
+		});
+		await waitFor(() => h.feature.status().backlog === 0, "initial review to complete");
+		h.adapter.nextAdvice = [{ severity: "blocker", note: "division uses addition" }];
+		await emit(h, "agent_settled");
+		await waitFor(() => h.deliveries.length === 1, "advisory delivery");
+
+		await emit(h, "before_agent_start", { prompt: "" });
+		h.adapter.nextAdvice = [];
+		await emit(h, "turn_end", {
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "Use a / b" }],
+				stopReason: "stop",
+			},
+		});
+		await waitFor(() => h.adapter.reviewPrompts.length === 3, "correction review to start");
+		expect(h.adapter.reviewPrompts[2]).toContain("USER:\n[blocker] division uses addition");
+		expect(h.adapter.reviewPrompts[2]).toContain("ASSISTANT:\nUse a / b");
+	});
+
 	test("later normal turn clears aborted primary state", async () => {
 		const h = fixture(true);
 		h.adapter.nextAdvice = [{ severity: "blocker", note: "first issue" }];

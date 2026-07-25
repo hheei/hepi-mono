@@ -36,6 +36,7 @@ interface Active {
 	feedback: FeedbackState;
 	reconfirming: boolean;
 	terminalPending: boolean;
+	pendingAdvisoryPrompt: string;
 	primaryAborted: boolean;
 	lastError?: string;
 	model: string | undefined;
@@ -88,10 +89,12 @@ export function createAdvisorFeature(
 		notes: readonly import("./model.js").AdvisorAdvice[],
 		triggerTurn: boolean,
 	): void => {
+		const content = notes.map((note) => `[${note.severity}] ${note.note}`).join("\n");
+		if (triggerTurn) item.pendingAdvisoryPrompt = content;
 		item.runtime.pi.sendMessage(
 			{
 				customType: "pi-basics-advisory",
-				content: notes.map((note) => `[${note.severity}] ${note.note}`).join("\n"),
+				content,
 				details: { notes },
 				display: true,
 			},
@@ -171,6 +174,7 @@ export function createAdvisorFeature(
 		item.feedback = emptyFeedback();
 		item.reconfirming = false;
 		item.terminalPending = false;
+		item.pendingAdvisoryPrompt = "";
 		item.backlog = 0;
 		item.phase = item.enabled ? "idle" : "disabled";
 		if (!item.enabled) return Promise.resolve();
@@ -226,6 +230,7 @@ export function createAdvisorFeature(
 				feedback: emptyFeedback(),
 				reconfirming: false,
 				terminalPending: false,
+				pendingAdvisoryPrompt: "",
 				primaryAborted: false,
 				model: config?.model,
 				thinking: config?.thinking ?? "medium",
@@ -234,11 +239,13 @@ export function createAdvisorFeature(
 			let currentUserPrompt = "";
 			runtime.pi.on("before_agent_start", (event, eventCtx) => {
 				if (!isCurrent(item, undefined, eventCtx)) return;
-				const prompt =
+				const eventPrompt =
 					typeof event === "object" && event !== null && "prompt" in event
 						? event.prompt
 						: undefined;
-				currentUserPrompt = typeof prompt === "string" ? prompt : "";
+				const prompt = typeof eventPrompt === "string" ? eventPrompt : "";
+				currentUserPrompt = prompt.length > 0 ? prompt : item.pendingAdvisoryPrompt;
+				item.pendingAdvisoryPrompt = "";
 			});
 			runtime.pi.on("turn_end", (event, eventCtx) => {
 				if (!isCurrent(item, undefined, eventCtx)) return;
@@ -289,6 +296,7 @@ export function createAdvisorFeature(
 				item.feedback = emptyFeedback();
 				item.reconfirming = false;
 				item.terminalPending = false;
+				item.pendingAdvisoryPrompt = "";
 				item.backlog = 0;
 				return enqueue(async () => {
 					if (!isCurrent(item, epoch)) return;
@@ -347,6 +355,7 @@ export function createAdvisorFeature(
 			item.feedback = emptyFeedback();
 			item.reconfirming = false;
 			item.terminalPending = false;
+			item.pendingAdvisoryPrompt = "";
 			item.backlog = 0;
 			item.runtime.ctx.ui.setStatus("advisor", undefined);
 			await item.adapter.abort();
@@ -409,6 +418,7 @@ export function createAdvisorFeature(
 				item.feedback = emptyFeedback();
 				item.reconfirming = false;
 				item.terminalPending = false;
+				item.pendingAdvisoryPrompt = "";
 				item.backlog = 0;
 				await item.adapter.abort();
 				await item.adapter.dispose();
