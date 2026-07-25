@@ -25,10 +25,12 @@ describe("loadout bridge", () => {
 	test("shares skill state across independently evaluated module instances", async () => {
 		const loadoutBridgePath = "../../src/runtime/loadout-bridge.ts?instance=loadout";
 		const dollarSkillBridgePath = "../../src/runtime/loadout-bridge.ts?instance=dollar-skill";
-		const loadoutBridge: typeof import("../../src/runtime/loadout-bridge.js") =
-			await import(loadoutBridgePath);
-		const dollarSkillBridge: typeof import("../../src/runtime/loadout-bridge.js") =
-			await import(dollarSkillBridgePath);
+		const loadoutBridge: typeof import("../../src/runtime/loadout-bridge.js") = await import(
+			loadoutBridgePath
+		);
+		const dollarSkillBridge: typeof import("../../src/runtime/loadout-bridge.js") = await import(
+			dollarSkillBridgePath
+		);
 		const [loadout, dollarSkill] = apiPair();
 
 		loadoutBridge.setHePiDisabledSkillKeys(loadout, new Set(["skill:review"]));

@@ -14,9 +14,7 @@ import {
 
 export default function piDollarSkillExtension(pi: ExtensionAPI): void {
 	const settingsRegistry = getHePiRuntimeSettingsRegistry(pi);
-	const feature = createDollarSkillFeature(pi, (command) =>
-		isHePiSkillEnabled(pi, command.name),
-	);
+	const feature = createDollarSkillFeature(pi, (command) => isHePiSkillEnabled(pi, command.name));
 	registerDollarSkillInputTransform(pi, feature);
 	const provider = createDollarSkillSettingsProvider(feature);
 	registerHePiLifecycle(
