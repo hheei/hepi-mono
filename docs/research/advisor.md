@@ -292,7 +292,7 @@ high-severity hold/reconfirm 不后置：异步 shadow review 天然会产生 st
 契约：
 
 - `model = ""` 表示未配置；
-- `/advisor on` 在未配置模型时失败并提示打开 `/hepi setting`；
+- `/advisor on` 在未配置模型时失败并提示打开 `/ext-settings`；
 - model 必须能由 `ctx.modelRegistry.find(provider, id)` 解析；
 - model 必须有 configured auth；
 - 非 reasoning model 的 effective thinking 永远为 `off`；

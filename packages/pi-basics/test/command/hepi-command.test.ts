@@ -33,8 +33,8 @@ function context(mode: string) {
 
 describe("/hepi command", () => {
 	test("parses subcommand and preserves trimmed remainder", () => {
-		expect(parseHePiCommand("  setting   provider-id  ")).toEqual({
-			subcommand: "setting",
+		expect(parseHePiCommand("  loadout   provider-id  ")).toEqual({
+			subcommand: "loadout",
 			args: "provider-id",
 		});
 		expect(parseHePiCommand("   ")).toEqual({ subcommand: "", args: "" });
@@ -46,14 +46,14 @@ describe("/hepi command", () => {
 		const module: HePiModule = {
 			id: "settings",
 			label: "Settings",
-			commands: ["setting"],
+			commands: ["loadout"],
 			open: async (args, ctx) => {
 				opened = { args, sessionId: ctx.sessionId };
 			},
 		};
 		registry.register(module);
 		const host = context("tui");
-		await dispatchHePiCommand(" setting provider-id ", host.ctx, registry);
+		await dispatchHePiCommand(" loadout provider-id ", host.ctx, registry);
 		expect(opened).toEqual({ args: "provider-id", sessionId: "session" });
 		expect(host.notifications).toEqual([]);
 	});
@@ -66,6 +66,9 @@ describe("/hepi command", () => {
 		const unknown = context("tui");
 		await dispatchHePiCommand("missing", unknown.ctx, registry);
 		expect(unknown.notifications[0]?.message).toContain("Unknown /hepi subcommand: missing");
+		const legacySettings = context("tui");
+		await dispatchHePiCommand("setting", legacySettings.ctx, registry);
+		expect(legacySettings.notifications[0]?.message).toContain("Unknown /hepi subcommand: setting");
 	});
 
 	test("guards non-TUI mode before module open", async () => {
@@ -74,17 +77,17 @@ describe("/hepi command", () => {
 		registry.register({
 			id: "settings",
 			label: "Settings",
-			commands: ["setting"],
+			commands: ["loadout"],
 			open: async () => {
 				opened = true;
 			},
 		});
 		const host = context("json");
-		await dispatchHePiCommand("setting provider-id", host.ctx, registry);
+		await dispatchHePiCommand("loadout provider-id", host.ctx, registry);
 		expect(opened).toBe(false);
 		expect(host.customCalls).toBe(0);
 		expect(host.notifications[0]).toEqual({
-			message: "/hepi setting requires TUI mode",
+			message: "/hepi loadout requires TUI mode",
 			level: "error",
 		});
 	});
@@ -103,15 +106,46 @@ describe("/hepi command", () => {
 		registry.register({
 			id: "settings",
 			label: "Settings",
-			commands: ["setting"],
+			commands: ["loadout"],
 			open: async () => {},
 		});
 		registerHePiCommand(pi, registry);
 		const hepi = registrations.find(({ options }) => options.getArgumentCompletions !== undefined);
-		const completions = hepi?.options.getArgumentCompletions?.("set") as Array<{
+		const completions = hepi?.options.getArgumentCompletions?.("loa") as Array<{
 			value: string;
 		}>;
-		expect(completions.map((item) => item.value)).toEqual(["setting"]);
+		expect(completions.map((item) => item.value)).toEqual(["loadout"]);
+	});
+
+	test("opens settings through /ext-settings without a legacy route", async () => {
+		const registrations: Array<{
+			name: string;
+			options: {
+				handler?: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
+			};
+		}> = [];
+		const pi = {
+			registerCommand: (
+				name: string,
+				options: {
+					handler?: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
+				},
+			) => registrations.push({ name, options }),
+		} as unknown as ExtensionAPI;
+		const registry = createHePiModuleRegistry();
+		let opened = false;
+		registry.register({
+			id: "setting",
+			label: "Settings",
+			commands: ["loadout"],
+			open: async (_args, ctx) => {
+				opened = ctx.command === "setting";
+			},
+		});
+		registerHePiCommand(pi, registry);
+		const extSettings = registrations.find(({ name }) => name === "ext-settings");
+		await extSettings?.options.handler?.("", context("tui").ctx);
+		expect(opened).toBe(true);
 	});
 
 	test("registers once per ExtensionAPI instance", async () => {
