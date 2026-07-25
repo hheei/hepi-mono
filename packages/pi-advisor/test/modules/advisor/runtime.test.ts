@@ -262,10 +262,10 @@ describe("advisor runtime outcomes", () => {
 	test("create rejects an unconfigured Advisor model even when the primary has one", async () => {
 		const base = options(streamScript([message("stop")]).streamFn);
 		const adapter = createCoreAdvisorAdapter({ ...base, model: "" });
-		await expect(adapter.create()).rejects.toThrow(/configure an Advisor model in \/hepi setting/i);
+		await expect(adapter.create()).rejects.toThrow(/configure an Advisor model in \/ext-settings/i);
 
 		const missing = createCoreAdvisorAdapter({ ...base, model: undefined });
-		await expect(missing.create()).rejects.toThrow(/configure an Advisor model in \/hepi setting/i);
+		await expect(missing.create()).rejects.toThrow(/configure an Advisor model in \/ext-settings/i);
 	});
 
 	test("create rejects an unavailable configured provider/model", async () => {
@@ -466,7 +466,7 @@ describe("advisor runtime outcomes", () => {
 		const adapter = createCoreAdvisorAdapter(options(scripted.streamFn));
 		await adapter.create();
 
-		expect(await adapter.review("review")).toEqual([]);
+		await expect(adapter.review("review")).rejects.toThrow(/unsupported stop reason: error/i);
 		expect(scripted.calls()).toBe(2);
 	});
 
@@ -487,7 +487,9 @@ describe("advisor runtime outcomes", () => {
 		const adapter = createCoreAdvisorAdapter(options(scripted.streamFn));
 		await adapter.create();
 
-		expect(await adapter.review("review")).toEqual([]);
+		await expect(adapter.review("review")).rejects.toThrow(
+			/exceeded the model context|unsupported stop reason: length/i,
+		);
 		expect(scripted.calls()).toBe(2);
 	});
 
@@ -499,6 +501,17 @@ describe("advisor runtime outcomes", () => {
 		await adapter.create();
 		await adapter.review("review");
 		expect(controls.delays).toEqual([30_000]);
+	});
+
+	test("timeout settles when the provider stream ignores abort", async () => {
+		const controls = controllableScheduler();
+		const adapter = createCoreAdvisorAdapter(
+			options(() => createAssistantMessageEventStream(), controls.scheduler),
+		);
+		await adapter.create();
+		const review = adapter.review("review");
+		controls.fire();
+		await expect(review).rejects.toThrow(/timed out/i);
 	});
 
 	test("timeout aborts, waits for idle, and discards earlier advice", async () => {

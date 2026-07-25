@@ -2,7 +2,7 @@
 
 Read-only turn reviewer for Pi. Requires `@hheei/pi-basics` and an authenticated model.
 
-Use `/advisor` or `/advisor status` to inspect the runtime. Use `/advisor on` and `/advisor off` to enable or disable it for the current session branch. Model and thinking level are configured through `/ext-settings` and stored under `pi-basics.advisor` in global `~/.pi/agent/settings.json`.
+Use `/advisor` or `/advisor status` to inspect the runtime. Use `/advisor on` and `/advisor off` to enable or disable it for the current session branch. Clearing the configured model disables Advisor; after selecting a model again, use `/advisor on` to recreate it. Model and thinking level are configured through `/ext-settings` and stored under `pi-basics.advisor` in global `~/.pi/agent/settings.json`.
 
 Advisor receives only read-only inspection tools and never edits files. It sends resolved session context, turn evidence, and files it reads to the selected model provider; read-only does not mean local-only. Primary assistant thinking and arbitrary tool-result metadata are excluded. Successful edit diffs may be included.
 
