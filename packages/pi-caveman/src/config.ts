@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type {
 	HePiContext,
 	HePiSettingField,
@@ -33,8 +33,10 @@ export const DEFAULT_CAVEMAN_DEFAULTS: CavemanDefaults = {
 const MODE_OPTIONS = [...CAVEMAN_INTENSITIES, "off"] as const;
 type JsonObject = Record<string, unknown>;
 
-export async function loadCavemanDefaults(cwd: string): Promise<CavemanDefaults> {
-	const path = settingsPath(cwd);
+export async function loadCavemanDefaults(
+	settingsFilePath: string = defaultSettingsPath(),
+): Promise<CavemanDefaults> {
+	const path = settingsFilePath;
 	try {
 		const root = parseJsonObject(await readFile(path, "utf8"));
 		return defaultsFromRoot(root);
@@ -45,7 +47,14 @@ export async function loadCavemanDefaults(cwd: string): Promise<CavemanDefaults>
 	}
 }
 
-export function createCavemanSettingsProvider(): HePiSettingsProvider {
+export interface CavemanSettingsProviderOptions {
+	readonly settingsFilePath?: string;
+}
+
+export function createCavemanSettingsProvider(
+	options: CavemanSettingsProviderOptions = {},
+): HePiSettingsProvider {
+	const settingsFilePath = options.settingsFilePath ?? defaultSettingsPath();
 	return {
 		id: CAVEMAN_SETTINGS_PROVIDER_ID,
 		title: "Caveman defaults",
@@ -72,10 +81,10 @@ export function createCavemanSettingsProvider(): HePiSettingsProvider {
 		],
 		storage: {
 			async load(ctx: HePiContext): Promise<HePiSettingsState> {
-				return defaultsToState(await loadCavemanDefaults(settingsCwd(ctx)));
+				return defaultsToState(await loadCavemanDefaults(settingsFilePath));
 			},
 			async save(state: HePiSettingsState, ctx: HePiContext): Promise<void> {
-				const path = settingsPath(settingsCwd(ctx));
+				const path = settingsFilePath;
 				const root = await readRootForUpdate(path);
 				const currentSection = asRecord(root[CAVEMAN_SETTINGS_PROVIDER_ID]);
 				const nextSection: JsonObject = currentSection === undefined ? {} : { ...currentSection };
@@ -129,12 +138,8 @@ function normalizeMode(value: unknown, fallback: CavemanMode): CavemanMode {
 	return value === "off" || isCavemanIntensity(value) ? value : fallback;
 }
 
-function settingsCwd(ctx: HePiContext): string {
-	return ctx.cwd ?? process.cwd();
-}
-
-function settingsPath(cwd: string): string {
-	return join(cwd, CONFIG_DIR_NAME, "settings.json");
+function defaultSettingsPath(): string {
+	return join(getAgentDir(), "settings.json");
 }
 
 async function readRootForUpdate(path: string): Promise<JsonObject> {

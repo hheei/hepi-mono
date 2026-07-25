@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type {
 	HePiContext,
 	HePiSettingField,
@@ -39,8 +39,10 @@ export const DEFAULT_PONYTAIL_DEFAULTS: PonytailDefaults = {
 const MODE_OPTIONS = [...PONYTAIL_INTENSITIES, "off"] as const;
 type JsonObject = Record<string, unknown>;
 
-export async function loadPonytailDefaults(cwd: string): Promise<PonytailDefaults> {
-	const path = settingsPath(cwd);
+export async function loadPonytailDefaults(
+	settingsFilePath: string = defaultSettingsPath(),
+): Promise<PonytailDefaults> {
+	const path = settingsFilePath;
 	try {
 		return defaultsFromRoot(parseJsonObject(await readFile(path, "utf8")));
 	} catch (error) {
@@ -50,7 +52,14 @@ export async function loadPonytailDefaults(cwd: string): Promise<PonytailDefault
 	}
 }
 
-export function createPonytailSettingsProvider(): HePiSettingsProvider {
+export interface PonytailSettingsProviderOptions {
+	readonly settingsFilePath?: string;
+}
+
+export function createPonytailSettingsProvider(
+	options: PonytailSettingsProviderOptions = {},
+): HePiSettingsProvider {
+	const settingsFilePath = options.settingsFilePath ?? defaultSettingsPath();
 	return {
 		id: PONYTAIL_SETTINGS_PROVIDER_ID,
 		title: "Ponytail defaults",
@@ -77,10 +86,10 @@ export function createPonytailSettingsProvider(): HePiSettingsProvider {
 		],
 		storage: {
 			async load(ctx: HePiContext): Promise<HePiSettingsState> {
-				return defaultsToState(await loadPonytailDefaults(settingsCwd(ctx)));
+				return defaultsToState(await loadPonytailDefaults(settingsFilePath));
 			},
 			async save(state: HePiSettingsState, ctx: HePiContext): Promise<void> {
-				const path = settingsPath(settingsCwd(ctx));
+				const path = settingsFilePath;
 				const root = await readRootForUpdate(path);
 				const currentSection = asRecord(root[PONYTAIL_SETTINGS_PROVIDER_ID]);
 				const nextSection: JsonObject = currentSection === undefined ? {} : { ...currentSection };
@@ -144,12 +153,8 @@ function normalizeBoolean(value: unknown, fallback: boolean): boolean {
 	return typeof value === "boolean" ? value : fallback;
 }
 
-function settingsCwd(ctx: HePiContext): string {
-	return ctx.cwd ?? process.cwd();
-}
-
-function settingsPath(cwd: string): string {
-	return join(cwd, CONFIG_DIR_NAME, "settings.json");
+function defaultSettingsPath(): string {
+	return join(getAgentDir(), "settings.json");
 }
 
 async function readRootForUpdate(path: string): Promise<JsonObject> {

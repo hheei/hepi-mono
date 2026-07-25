@@ -90,7 +90,7 @@ export default function piPonytailExtension(pi: ExtensionAPI): void {
 	pi.on("session_start", async (_event, ctx) => {
 		unregisterSettings?.();
 		unregisterSettings = await registerPonytailHePiSettings(pi);
-		defaults = await loadPonytailDefaults(ctx.cwd);
+		defaults = await loadPonytailDefaults();
 		subagentSession = isPiSubagentSession(pi);
 		restoreModeFromBranch(ctx);
 	});
@@ -112,7 +112,7 @@ export default function piPonytailExtension(pi: ExtensionAPI): void {
 
 	pi.on("tool_call", async (event, ctx) => {
 		if (event.toolName !== "Agent" || !isAgentToolInput(event.input)) return undefined;
-		defaults = await loadPonytailDefaults(ctx.cwd);
+		defaults = await loadPonytailDefaults();
 		event.input.prompt = injectSubagentPrompt(event.input.prompt, defaults.subagentMode);
 		return undefined;
 	});
