@@ -506,7 +506,7 @@ describe("Advisor feature lifecycle", () => {
 		expect(h.deliveries[0]?.options).toEqual({ deliverAs: "steer", triggerTurn: true });
 	});
 
-	test("attributes an Advisor-triggered correction turn to its advisory", async () => {
+	test("preserves Advisor attribution across repeated empty start events", async () => {
 		const h = fixture(true);
 		h.adapter.nextAdvice = [{ severity: "blocker", note: "division uses addition" }];
 		await h.feature.start(h.runtime);
@@ -522,6 +522,7 @@ describe("Advisor feature lifecycle", () => {
 		await emit(h, "agent_settled");
 		await waitFor(() => h.deliveries.length === 1, "advisory delivery");
 
+		await emit(h, "before_agent_start", { prompt: "" });
 		await emit(h, "before_agent_start", { prompt: "" });
 		h.adapter.nextAdvice = [];
 		await emit(h, "turn_end", {

@@ -244,8 +244,13 @@ export function createAdvisorFeature(
 						? event.prompt
 						: undefined;
 				const prompt = typeof eventPrompt === "string" ? eventPrompt : "";
-				currentUserPrompt = prompt.length > 0 ? prompt : item.pendingAdvisoryPrompt;
-				item.pendingAdvisoryPrompt = "";
+				if (prompt.length > 0) {
+					currentUserPrompt = prompt;
+					item.pendingAdvisoryPrompt = "";
+				} else if (item.pendingAdvisoryPrompt.length > 0) {
+					currentUserPrompt = item.pendingAdvisoryPrompt;
+					item.pendingAdvisoryPrompt = "";
+				}
 			});
 			runtime.pi.on("turn_end", (event, eventCtx) => {
 				if (!isCurrent(item, undefined, eventCtx)) return;
@@ -255,13 +260,16 @@ export function createAdvisorFeature(
 					message: event.message,
 					toolResults: Array.isArray(event.toolResults) ? event.toolResults : [],
 				});
+				const reviewUserPrompt =
+					currentUserPrompt.length > 0 ? currentUserPrompt : item.pendingAdvisoryPrompt;
+				item.pendingAdvisoryPrompt = "";
 				try {
 					if (evidence.assistant !== undefined || evidence.tools.length > 0)
 						review(
 							item,
 							buildSessionContext(
 								buildTurnDelta(
-									currentUserPrompt,
+									reviewUserPrompt,
 									evidence.assistant,
 									evidence.tools,
 									item.adapter.contextBudget(),
