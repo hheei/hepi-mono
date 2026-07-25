@@ -466,7 +466,7 @@ describe("advisor runtime outcomes", () => {
 		const adapter = createCoreAdvisorAdapter(options(scripted.streamFn));
 		await adapter.create();
 
-		expect(await adapter.review("review")).toEqual([]);
+		await expect(adapter.review("review")).rejects.toThrow(/unsupported stop reason: error/i);
 		expect(scripted.calls()).toBe(2);
 	});
 
@@ -487,7 +487,9 @@ describe("advisor runtime outcomes", () => {
 		const adapter = createCoreAdvisorAdapter(options(scripted.streamFn));
 		await adapter.create();
 
-		expect(await adapter.review("review")).toEqual([]);
+		await expect(adapter.review("review")).rejects.toThrow(
+			/exceeded the model context|unsupported stop reason: length/i,
+		);
 		expect(scripted.calls()).toBe(2);
 	});
 
@@ -499,6 +501,17 @@ describe("advisor runtime outcomes", () => {
 		await adapter.create();
 		await adapter.review("review");
 		expect(controls.delays).toEqual([30_000]);
+	});
+
+	test("timeout settles when the provider stream ignores abort", async () => {
+		const controls = controllableScheduler();
+		const adapter = createCoreAdvisorAdapter(
+			options(() => createAssistantMessageEventStream(), controls.scheduler),
+		);
+		await adapter.create();
+		const review = adapter.review("review");
+		controls.fire();
+		await expect(review).rejects.toThrow(/timed out/i);
 	});
 
 	test("timeout aborts, waits for idle, and discards earlier advice", async () => {
