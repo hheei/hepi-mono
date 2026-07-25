@@ -7,6 +7,7 @@ import ts from "typescript";
 const repositoryRoot = join(import.meta.dir, "../../..");
 const packagesDirectory = join(repositoryRoot, "packages");
 const allowedFeatureDependency = "@hheei/pi-basics";
+const piSubagentsSubmodule = "pi-subagents";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -83,7 +84,9 @@ async function sourceFiles(directory: string): Promise<readonly string[]> {
 
 async function packagePaths(): Promise<readonly string[]> {
 	const directories = await readdir(packagesDirectory, { withFileTypes: true });
-	const packageDirectories = directories.filter((entry) => entry.isDirectory());
+	const packageDirectories = directories.filter(
+		(entry) => entry.isDirectory() && entry.name !== piSubagentsSubmodule,
+	);
 	const unexpected = packageDirectories
 		.map((entry) => entry.name)
 		.filter((name) => !name.startsWith("pi-"));
@@ -97,7 +100,7 @@ test("workspace contains only HEPI-owned Pi packages", async () => {
 		await readFile(join(repositoryRoot, "package.json"), "utf8"),
 	);
 	if (!isRecord(rootManifest)) throw new Error("Expected object root package manifest");
-	expect(rootManifest.workspaces).toEqual(["packages/*"]);
+	expect(rootManifest.workspaces).toEqual(["packages/*", "!packages/pi-subagents"]);
 
 	for (const packagePath of await packagePaths()) {
 		const directory = relative(packagesDirectory, packagePath);
@@ -124,7 +127,10 @@ test("repository does not track external or generated trees", () => {
 		.trim()
 		.split("\n")
 		.filter((line) => line !== "");
-	for (const entry of entries) expect(entry.startsWith("160000 ")).toBe(false);
+	for (const entry of entries) {
+		if (entry.startsWith("160000 "))
+			expect(entry.slice(entry.indexOf("\t") + 1)).toBe("packages/pi-subagents");
+	}
 	const paths = entries.map((entry) => entry.slice(entry.indexOf("\t") + 1));
 	const excludedRoots = [
 		"graphify-out/",
