@@ -205,6 +205,46 @@ describe("settings component", () => {
 		expect(state.controller.state.mode).toBe("Navigation");
 	});
 
+	test("cycles model options vertically without switching the main tab", async () => {
+		const model = createHePiModelSelectionField({
+			id: "model",
+			label: "Advisor model",
+			description: "Select the model used by this settings rendering fixture.",
+			modelOptions: [
+				{ value: "provider/first", label: "provider/first" },
+				{ value: "provider/second", label: "provider/second" },
+			],
+			thinking: {
+				fieldId: "thinking",
+				label: "Thinking",
+				description: "Select the reasoning intensity used by this fixture.",
+				defaultValue: "medium",
+				options: [{ value: "medium" }],
+			},
+		});
+		const state = await setup([
+			{
+				id: "advisor",
+				title: "Advisor",
+				groups: [{ id: "advisor", title: "", fields: [model] }],
+				storage: fakeStorage({ initial: { advisor: { model: "provider/removed" } } }),
+			},
+		]);
+		state.component.handleInput?.("\x1b[C");
+		state.component.handleInput?.("\x1b[D");
+		expect(state.controller.state.mode).toBe("Navigation");
+		expect(state.controller.state.selection?.itemId).toBe("model");
+		state.component.handleInput?.("\x1b[B");
+		expect(state.controller.state.mode).toBe("Edit");
+		expect(state.controller.state.draftValue).toBe("provider/first");
+		state.component.handleInput?.("\x1b[A");
+		expect(state.controller.state.draftValue).toBe("provider/second");
+		state.component.handleInput?.("\x1b[C");
+		state.component.handleInput?.("\x1b[D");
+		expect(state.controller.state.mode).toBe("Edit");
+		expect(text(state.component)).not.toContain("Loadout shared tab is available.");
+	});
+
 	test("ignores printable input while editing enum settings", async () => {
 		const state = await setup();
 		state.component.handleInput?.("\x1b[B");
