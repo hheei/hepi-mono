@@ -238,12 +238,18 @@ function renderDescription(
 		field.groupId === controller.state.selection?.groupId;
 	const valuePrefix = field ? "Value: " : "";
 	const relatedSuffix = editing && field ? relatedDraftSuffix(controller, field) : "";
+	const selectionValue =
+		editing && field?.type === "enum" ? formatSettingValue(controller, field, "description") : "";
 	const valueWidth = Math.max(
 		0,
-		contentWidth - visibleWidth(valuePrefix) - visibleWidth(relatedSuffix),
+		contentWidth -
+			visibleWidth(valuePrefix) -
+			visibleWidth(editing && field?.type === "enum" ? selectionValue : relatedSuffix),
 	);
 	const value = editing
-		? `${theme.fg("text", valuePrefix)}${renderDraft(editor, controller.state.draftValue ?? "", valueWidth, theme)}${theme.fg("accent", relatedSuffix)}`
+		? field?.type === "enum"
+			? theme.fg("text", `${valuePrefix}${truncateToWidth(selectionValue, valueWidth, "")}`)
+			: `${theme.fg("text", valuePrefix)}${renderDraft(editor, controller.state.draftValue ?? "", valueWidth, theme)}${theme.fg("accent", relatedSuffix)}`
 		: theme.fg("text", `${valuePrefix}${truncateToWidth(committed, valueWidth, "")}`);
 	return renderDetailPanel({
 		width,
