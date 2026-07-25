@@ -1,3 +1,4 @@
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { normalizeRtkIntegrationConfig } from "./config-store.js";
@@ -17,14 +18,14 @@ async function readRoot(path: string): Promise<Json> {
 	}
 }
 
-export function settingsPath(cwd: string): string {
-	return join(cwd, ".pi", "settings.json");
+export function settingsPath(agentDir: string = getAgentDir()): string {
+	return join(agentDir, "settings.json");
 }
 export async function loadRtkConfig(
-	cwd: string,
+	agentDir: string = getAgentDir(),
 ): Promise<{ config: RtkIntegrationConfig; warning?: string }> {
 	try {
-		const root = await readRoot(settingsPath(cwd));
+		const root = await readRoot(settingsPath(agentDir));
 		const section = root[SECTION];
 		const value =
 			section && typeof section === "object" && !Array.isArray(section)
@@ -39,8 +40,11 @@ export async function loadRtkConfig(
 		};
 	}
 }
-export async function saveRtkConfig(cwd: string, config: RtkIntegrationConfig): Promise<void> {
-	const path = settingsPath(cwd);
+export async function saveRtkConfig(
+	agentDir: string = getAgentDir(),
+	config: RtkIntegrationConfig,
+): Promise<void> {
+	const path = settingsPath(agentDir);
 	const root = await readRoot(path);
 	const prior = root[SECTION];
 	const section =
