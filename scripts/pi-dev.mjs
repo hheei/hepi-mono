@@ -5,17 +5,19 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const basicsExtension = "packages/pi-basics/src/extension.ts";
 
 const aliases = new Map([
-	["basics", "packages/pi-basics/src/extension.ts"],
-	["pi-basics", "packages/pi-basics/src/extension.ts"],
+	["basics", basicsExtension],
+	["pi-basics", basicsExtension],
 ]);
 
 function usage() {
 	console.log(`Usage:
   bun run pi:dev                         # load pi-basics
   bun run pi:dev -- basics                # load pi-basics
-  bun run pi:dev -- inturl                # load a specific extension
+  bun run pi:dev -- todo                  # load a specific extension
+  bun run pi:dev -- basics todo           # load several extensions
   bun run pi:dev -- --all                 # load every packages/pi-* pi.extensions entry
   bun run pi:dev -- path/to/index.ts      # load explicit extension path
 
@@ -62,7 +64,11 @@ function allExtensionEntries() {
 				return [];
 			}
 		})
-		.sort((a, b) => a.localeCompare(b));
+		.sort((a, b) => {
+			if (a === basicsExtension) return -1;
+			if (b === basicsExtension) return 1;
+			return a.localeCompare(b);
+		});
 }
 
 function projectSubagentsExtension() {

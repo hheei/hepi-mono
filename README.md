@@ -1,32 +1,17 @@
 # hepi-mono
 
-Monorepo for HEPI Pi Coding Agent extensions.
+Bun monorepo for HEPI Pi Coding Agent extensions. Every publishable workspace under `packages/` is maintained under the `@hheei` scope.
 
-This layout follows the useful parts of `pix-mono` and `rpiv-mono`:
+## Documentation
 
-- one Bun workspace at the root
-- one package per Pi extension under `packages/*`
-- shared TypeScript, Biome, and Bun test config at the root
-- every publishable extension declares a `pi.extensions` entry in its `package.json`
-- Pi Basics owns session-scoped runtime coordination and Settings/Loadout UI
+- [Getting started](docs/user/getting-started.md)
+- [Package catalogue](docs/user/packages.md)
+- [Extension development](docs/development/extension-development.md)
+- [Documentation index](docs/README.md)
+- [TUI design](DESIGN.md)
+- [TypeScript design](DESIGN_TS.md)
 
-## Docs
-
-Start with [Extension Development Guide](docs/extension-development.md) when adding or changing extension packages.
-
-## Layout
-
-```text
-packages/
-  pi-basics/        Session runtime coordination and Settings/Loadout UI
-  pi-codex-dollar/  Dollar-triggered inline skill references
-  pi-inturl/        Internal URL and path shortcut helpers
-  pi-ssh/           SSH host discovery, exec, and sshfs mount tools
-templates/
-  extension/       Copy template for new extension modules
-scripts/
-  create-extension.mjs
-```
+Package-specific commands, settings, persistence, requirements, and incompatibilities live in each `packages/*/README.md` so the documentation ships with the package.
 
 ## Install
 
@@ -34,7 +19,16 @@ scripts/
 bun install
 ```
 
-## Checks
+Install local extensions through Pi:
+
+```bash
+pi install ./packages/pi-basics
+pi install ./packages/pi-todo
+```
+
+Use `-l` for project-local installation.
+
+## Development
 
 ```bash
 bun run typecheck
@@ -42,64 +36,41 @@ bun test
 bun run check
 ```
 
-## Create a New Extension Package
+Run Pi with automatic extension discovery disabled:
+
+```bash
+bun run pi:dev                         # pi-basics only
+bun run pi:dev -- basics todo          # selected workspaces
+bun run pi:dev -- --all                # every workspace extension
+bun run pi:dev -- basics -- --model openai/gpt-5
+```
+
+Load `pi-basics` before feature packages. Loadout must run after Pi Basics so both use the same tool-activation coordinator.
+
+Create a package from the extension template:
 
 ```bash
 bun run new:extension -- pi-my-extension
 ```
 
-This creates `packages/pi-my-extension` from `templates/extension` and rewrites the package name to `@hheei/pi-my-extension`.
+## Repository Layout
 
-If the argument does not start with `pi-`, the script adds the prefix automatically.
+```text
+packages/       HEPI-owned publishable workspaces
 
-## Local Pi Testing
+docs/
+  user/         Cross-package usage
+  development/  Contributor workflows
+  architecture/ Current architecture notes
+  research/     Evidence and prior design research
+  plans/        Completed implementation context
 
-Use the wrapper to start Pi with automatic extension discovery disabled and only mono extensions loaded:
+references/
+  README.md     Public source catalogue and pinned revisions
+  repos/        Ignored local clones
 
-```bash
-bun run pi:dev
+scripts/        Repository development commands
+templates/      Extension generator inputs
 ```
 
-By default this loads `pi-basics`. To test a specific package:
-
-```bash
-bun run pi:dev -- basics
-bun run pi:dev -- inturl
-bun run pi:dev -- --all
-```
-
-Pass extra Pi flags after a second `--`:
-```bash
-bun run pi:dev -- basics -- --model openai/gpt-5
-```
-
-Manual equivalent:
-
-```bash
-pi --no-extensions --no-skills -e packages/pi-basics/src/index.ts
-```
-
-Install local packages persistently with Pi's package installer:
-
-```bash
-pi install ./packages/pi-basics
-pi install ./packages/pi-caveman
-pi install ./packages/pi-ponytail
-```
-
-These commands update user settings. Add `-l` for project-local installation.
-
-## Package Manifest Pattern
-
-Each extension package should include:
-
-```json
-{
-	"main": "src/index.ts",
-	"pi": {
-		"extensions": ["src/index.ts"]
-	}
-}
-```
-
-Pi loads TypeScript extension modules through `jiti`, so the source entry can stay as `.ts`.
+`graphify-out/`, `outputs/`, `.pi/`, and `.pi-subagents/` are local generated state and are not versioned. External source clones are references only: they are not workspace packages, dependencies, or behavior contracts.

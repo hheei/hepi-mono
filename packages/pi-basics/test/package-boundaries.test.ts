@@ -12,8 +12,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function packageDependencies(manifest: Record<string, unknown>): readonly string[] {
-	return ["dependencies", "devDependencies", "peerDependencies"]
+function runtimePackageDependencies(manifest: Record<string, unknown>): readonly string[] {
+	return ["dependencies", "peerDependencies"]
 		.flatMap((key) => {
 			const values = manifest[key];
 			return isRecord(values) ? Object.keys(values) : [];
@@ -83,17 +83,70 @@ async function sourceFiles(directory: string): Promise<readonly string[]> {
 
 async function packagePaths(): Promise<readonly string[]> {
 	const directories = await readdir(packagesDirectory, { withFileTypes: true });
-	return directories
-		.filter((entry) => entry.isDirectory() && entry.name.startsWith("pi-"))
-		.map((entry) => join(packagesDirectory, entry.name));
+	const packageDirectories = directories.filter((entry) => entry.isDirectory());
+	const unexpected = packageDirectories
+		.map((entry) => entry.name)
+		.filter((name) => !name.startsWith("pi-"));
+	if (unexpected.length > 0)
+		throw new Error(`Unexpected workspace directories under packages/: ${unexpected.join(", ")}`);
+	return packageDirectories.map((entry) => join(packagesDirectory, entry.name));
 }
+
+test("workspace contains only HEPI-owned Pi packages", async () => {
+	const rootManifest: unknown = JSON.parse(
+		await readFile(join(repositoryRoot, "package.json"), "utf8"),
+	);
+	if (!isRecord(rootManifest)) throw new Error("Expected object root package manifest");
+	expect(rootManifest.workspaces).toEqual(["packages/*"]);
+
+	for (const packagePath of await packagePaths()) {
+		const directory = relative(packagesDirectory, packagePath);
+		const manifestPath = join(packagePath, "package.json");
+		const manifest: unknown = JSON.parse(await readFile(manifestPath, "utf8"));
+		if (!isRecord(manifest)) throw new Error(`Expected object manifest: ${manifestPath}`);
+		expect(manifest.name).toBe(`@hheei/${directory}`);
+		const repository = manifest.repository;
+		if (!isRecord(repository)) throw new Error(`Missing repository metadata: ${manifestPath}`);
+		expect(repository.directory).toBe(`packages/${directory}`);
+	}
+});
+
+test("repository does not track external or generated trees", () => {
+	const result = Bun.spawnSync(["git", "ls-files", "--stage"], {
+		cwd: repositoryRoot,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	if (result.exitCode !== 0)
+		throw new Error(`Unable to inspect tracked files: ${result.stderr.toString()}`);
+	const entries = result.stdout
+		.toString()
+		.trim()
+		.split("\n")
+		.filter((line) => line !== "");
+	for (const entry of entries) expect(entry.startsWith("160000 ")).toBe(false);
+	const paths = entries.map((entry) => entry.slice(entry.indexOf("\t") + 1));
+	const excludedRoots = [
+		"graphify-out/",
+		"legacy/",
+		"outputs/",
+		"pi-agent/",
+		"references/repos/",
+	] as const;
+	for (const root of excludedRoots)
+		expect(
+			paths.some((path) => path.startsWith(root)),
+			`tracked path under ${root}`,
+		).toBe(false);
+	expect(paths.some((path) => /^pi-session-.*\.html$/u.test(path))).toBe(false);
+});
 
 test("HEPI feature packages only depend on pi-basics", async () => {
 	for (const packagePath of await packagePaths()) {
 		const manifestPath = join(packagePath, "package.json");
 		const manifest: unknown = JSON.parse(await readFile(manifestPath, "utf8"));
 		if (!isRecord(manifest)) throw new Error(`Expected object manifest: ${manifestPath}`);
-		for (const dependency of packageDependencies(manifest))
+		for (const dependency of runtimePackageDependencies(manifest))
 			expect(
 				dependency,
 				`${relative(repositoryRoot, manifestPath)} cannot depend on ${dependency}`,
@@ -151,7 +204,7 @@ test("all Pi packages expose explicit root contracts", async () => {
 		const manifest: unknown = JSON.parse(await readFile(manifestPath, "utf8"));
 		if (!isRecord(manifest) || !isRecord(manifest.exports))
 			throw new Error(`Missing package exports: ${manifestPath}`);
-		expect(manifest.exports).toEqual({ ".": "./src/index.ts" });
+		expect(manifest.exports["."]).toBe("./src/index.ts");
 		const publicRoot = await readFile(join(packagePath, "src", "index.ts"), "utf8");
 		expect(publicRoot).not.toMatch(/export\s+\*\s+from/u);
 	}

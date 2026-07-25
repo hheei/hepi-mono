@@ -1,15 +1,43 @@
-# Package metadata is repository bookkeeping, not architecture.
+# Graph corpus allowlist: HEPI package code plus the selected upstream Pi source.
+/*
+!/packages/
+!/references/
+/references/*
+!/references/repos/
+/references/repos/*
+!/references/repos/earendil-works-pi/
+/references/repos/earendil-works-pi/*
+!/references/repos/earendil-works-pi/packages/
+
+# Upstream architecture core: source trees only, without provider adapters or
+# server/storage packages that do not participate in the local extension host.
+/references/repos/earendil-works-pi/packages/*/*
+!/references/repos/earendil-works-pi/packages/*/src/
+!/references/repos/earendil-works-pi/packages/*/src/**
+/references/repos/earendil-works-pi/packages/ai/src/providers/
+/references/repos/earendil-works-pi/packages/server/
+/references/repos/earendil-works-pi/packages/storage/
+
+# Architecture graph excludes prose, package metadata, generated declarations,
+# tests, fixtures, examples, and snapshots from both repositories.
+**/*.md
+**/*.html
+**/*.htm
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.gif
+**/*.webp
+**/docs/
 **/package.json
-
-# License texts are legal metadata, not project concepts.
 **/LICENSE
-
-# Research clones are outside the product architecture corpus.
-references/
-
-# Keep the pi-agent architecture corpus focused on production code and docs.
-pi-agent/.github/
-pi-agent/**/test/
-pi-agent/**/CHANGELOG.md
-pi-agent/**/examples/
-pi-agent/**/src/**/assets/
+**/*.generated.ts
+**/*.test.ts
+**/*.spec.ts
+**/*.bench.ts
+**/__tests__/
+**/test/
+**/tests/
+**/fixtures/
+**/examples/
+**/__snapshots__/
