@@ -14,7 +14,8 @@ npm-debug.log*
 .pi-subagents/
 .codex/
 outputs/
+graphify-out/
+pi-session-*.html
 
 # Public reference repositories are documented, not vendored.
-references/*
-!references/README.md
+references/repos/

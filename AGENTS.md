@@ -6,7 +6,13 @@ These instructions apply to the whole repository unless a subdirectory adds a mo
 
 ## Tooling
 
-Use Bun from the repository root. Prefer focused tests while iterating, then run the checks appropriate to the changed scope:
+Use Bun from the repository root. Let Biome handle mechanical formatting, import ordering, and safe lint fixes before editing those issues manually:
+
+```bash
+bunx biome check --write <changed paths...>
+```
+
+Use `bun run check:fix` only when the whole HEPI-owned tree is intentionally in scope; inspect its diff so unrelated user changes remain untouched. Prefer focused tests while iterating, then run the read-only checks appropriate to the changed scope:
 
 ```bash
 bun run typecheck
@@ -38,16 +44,16 @@ Do not introduce npm, Yarn, or pnpm lockfiles.
 
 ## Package Boundaries
 
-- Keep each Pi extension in its own `packages/pi-*` workspace and declare its entry under `pi.extensions`.
+- Keep each HEPI-owned Pi extension in its own `packages/pi-*` workspace and declare its entry under `pi.extensions`.
+- Do not place external repositories, source snapshots, or vendored reference code under `packages/`; keep ignored local clones under `references/repos/` and record their URL and revision in `references/README.md`.
 - Use package-root exports from `@hheei/pi-basics` for new HEPI integrations.
-- Use `@hheei/pi-extcore` only for packages that intentionally remain on its legacy-compatible settings stack.
 - Load `@hheei/pi-basics` before `@hheei/pi-loadout`; Loadout must coordinate the host active-tool list through the Pi Basics `ToolActivationCoordinator`.
 - Keep runtime state session-scoped and cleanup idempotent unless persistence is explicitly part of the feature contract.
 
 ## Documentation
 
 - Document user-visible commands, tools, settings, persistence, requirements, and incompatibilities in the affected package README.
-- Keep repository workflow and architecture guidance under `docs/`.
+- Keep repository workflow and architecture guidance under `docs/development/` and `docs/architecture/`; keep evidence and historical context under `docs/research/` and `docs/plans/`.
 - Treat `DESIGN.md` as the current Pi Basics TUI specification and `DESIGN_TS.md` as the repository TypeScript design specification.
 - Treat `docs/plans/` as historical context, not the current behavior contract.
 - Update documentation when public behavior, compatibility, or package entry points change.

@@ -1,11 +1,8 @@
-# Plans
+# Completed Plans
 
-## Active Work
+This directory keeps implementation context whose work has already landed. It does not contain active work queues or current behavior contracts.
 
-- [Advisor research](advisor/research.md): implementation research and current design direction. It remains a working document until the feature is finalized.
+- [Decision archive](archive.md): concise durable decisions from completed Pi Basics features.
+- [BTW implementation plan](completed/btw.md): original scope and acceptance contract for the first BTW implementation.
 
-## Completed Work
-
-[Completed Pi Basics plans](completed.md) is the concise archive for Ask, Goal, Plan Mode, Statusbar, and Todo. Detailed implementation plans are removed after their durable decisions are captured there.
-
-For current behavior, see [Pi Basics usage](../../packages/pi-basics/README.md), [Pi Basics development](../pi-basics-development.md), `DESIGN.md`, and the tests under `packages/pi-basics/test/`.
+For current behavior, use source code, tests, package READMEs, [Pi Basics development](../development/pi-basics.md), [DESIGN.md](../../DESIGN.md), and [DESIGN_TS.md](../../DESIGN_TS.md).
