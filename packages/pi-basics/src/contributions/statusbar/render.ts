@@ -87,9 +87,15 @@ export function renderStatusbarLine(
 		const room = target - visibleWidth(fixedBeforeModel) - visibleWidth(suffix);
 		if (room > 0) {
 			if (!advisorIndicator)
-				return `${fixedBeforeModel}${truncateToWidth(snapshot.model, room)}${suffix}`;
-			if (room === 1) return `${fixedBeforeModel}${advisorIndicator}${suffix}`;
-			return `${fixedBeforeModel}${truncateToWidth(snapshot.model, room - 2)} ${advisorIndicator}${suffix}`;
+				return padToWidth(
+					`${fixedBeforeModel}${truncateToWidth(snapshot.model, room)}${suffix}`,
+					target,
+				);
+			if (room === 1) return padToWidth(`${fixedBeforeModel}${advisorIndicator}${suffix}`, target);
+			return padToWidth(
+				`${fixedBeforeModel}${truncateToWidth(snapshot.model, room - 2)} ${advisorIndicator}${suffix}`,
+				target,
+			);
 		}
 		if (advisorIndicator)
 			return renderWithFill(
