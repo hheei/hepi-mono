@@ -3,8 +3,8 @@ import type { HePiRuntimeContext } from "@hheei/pi-basics";
 import { type Static, Type } from "typebox";
 import {
 	applyTodo,
-	suppressTodoByUser,
 	freshTaskState,
+	suppressTodoByUser,
 	type Task,
 	type TaskState,
 	type TaskStatus,
@@ -23,8 +23,10 @@ export const TODO_REMINDER_IDLE_MS = 3 * 60_000;
 const TODO_COMPLETED_HIDE_TURNS = 2;
 const TODO_REMINDER_CUSTOM_TYPE = "pi-todo:reminder";
 
-const taskStatus = Type.String({ enum: ["pending", "in_progress", "completed", "suppressed"] });
-const mutableTaskStatus = Type.String({ enum: ["pending", "in_progress", "completed"] });
+const taskStatus = Type.String({
+	enum: ["pending", "in_progress", "blocked", "completed", "suppressed"],
+});
+const agentTaskStatus = Type.String({ enum: ["in_progress", "blocked", "completed"] });
 const taskId = Type.Integer({ minimum: 1 });
 
 const todoOperation = Type.Union([
@@ -40,9 +42,9 @@ const todoOperation = Type.Union([
 			action: Type.Literal("update"),
 			id: taskId,
 			subject: Type.Optional(Type.String({ minLength: 1 })),
-			status: Type.Optional(mutableTaskStatus),
+			status: Type.Optional(agentTaskStatus),
 		},
-		{ additionalProperties: false },
+		{ additionalProperties: false, minProperties: 3 },
 	),
 	Type.Object(
 		{
@@ -72,12 +74,10 @@ export const TODO_PARAMETERS = Type.Object(
 );
 
 export const TODO_TOOL_DESCRIPTION =
-	"Maintain an atomic task list for the current coding session. The first pending task starts automatically, and completing or deleting it starts the next one. Submit ordered create, update, or delete operations atomically; list must be the only operation when used.";
+	"Maintain an atomic task list. Update only when state changes: use `blocked` when work cannot continue, `in_progress` when resuming, and `completed` after verification. Scheduling is automatic. Submit one `list` operation or an atomic batch of create, update, and delete operations. Follow the final guidance line returned by the tool.";
 export const TODO_PROMPT_SNIPPET = "Manage a task list to track multi-step progress";
 export const TODO_PROMPT_GUIDELINES = [
-	"Use `todo` for work with 3+ concrete steps or multiple user-requested tasks. Skip trivial or purely conversational requests.",
-	"Do not call `todo` only to start the next task; it starts automatically.",
-	"Update tasks only when state changes; mark verified work completed promptly and batch changes already known.",
+	"Use `todo` for work with 3+ concrete steps or multiple user-requested tasks; skip trivial work.",
 ] as const;
 
 interface ActiveTodoRuntime {
@@ -142,15 +142,33 @@ function todoReminder(current: ActiveTodoRuntime): string | undefined {
 	return `<system-reminder>\nActive TODO: #${activeTask.id} ${escapeReminderText(activeTask.subject)}.\nPending TODOS: ${pending.length > 0 ? pending.join(", ") : "none"}\n</system-reminder>`;
 }
 
+function taskIds(state: TaskState, status: TaskStatus): string | undefined {
+	const ids = state.tasks
+		.filter((task) => task.status === status)
+		.sort((left, right) => left.id - right.id)
+		.map((task) => `#${task.id}`);
+	return ids.length > 0 ? ids.join(" ") : undefined;
+}
+
+function formatTodoGuidance(state: TaskState): string {
+	const active = activeTodoTask(state);
+	if (active) return `Next: #${active.id} ${active.subject}.`;
+	const blocked = taskIds(state, "blocked");
+	if (blocked) return `Only blocked todos ${blocked} left. Discuss to the user.`;
+	return "Finished all todos.";
+}
+
 function formatTaskLine(task: Task): string {
 	const glyph =
 		task.status === "completed"
 			? "✓"
 			: task.status === "in_progress"
 				? "◐"
-				: task.status === "suppressed"
+				: task.status === "blocked"
 					? "⊘"
-					: "○";
+					: task.status === "suppressed"
+						? "×"
+						: "○";
 	return `${glyph} #${task.id} ${task.subject}${task.status === "suppressed" ? "  user suppressed" : ""}`;
 }
 
@@ -167,11 +185,11 @@ function formatTodosCommand(state: TaskState): string {
 	const visible = state.tasks.filter((task) => task.status !== "suppressed");
 	const completed = visible.filter((task) => task.status === "completed").length;
 	const lines = [`${completed}/${visible.length} completed`];
-	for (const status of ["in_progress", "pending", "completed", "suppressed"] as const) {
+	for (const status of ["in_progress", "pending", "blocked", "completed", "suppressed"] as const) {
 		const tasks = state.tasks.filter((task) => task.status === status).sort((a, b) => a.id - b.id);
 		if (tasks.length === 0) continue;
 		lines.push(
-			`── ${status === "in_progress" ? "In Progress" : status === "pending" ? "Pending" : status === "completed" ? "Completed" : "Suppressed"} ──`,
+			`── ${status === "in_progress" ? "In Progress" : status === "pending" ? "Pending" : status === "blocked" ? "Blocked" : status === "completed" ? "Completed" : "Suppressed"} ──`,
 		);
 		for (const task of tasks) lines.push(formatTaskLine(task));
 	}
@@ -186,10 +204,11 @@ function formatTodoOperationResult(
 	switch (operation.action) {
 		case "create":
 			return result.id === undefined ? "Created task" : `Created #${result.id}`;
-		case "update":
-			return result.changed
-				? `Updated #${operation.id}`
-				: `No change: #${operation.id} already matches the requested values`;
+		case "update": {
+			if (result.changed) return `Updated #${operation.id}`;
+			const value = operation.status ?? operation.subject?.trim();
+			return `#${operation.id} is already \`${value ?? "unchanged"}\``;
+		}
 		case "delete":
 			return `Deleted #${operation.id}`;
 		case "list":
@@ -222,10 +241,11 @@ function formatTodoResult(
 		}
 		lines.push(formatTodoOperationResult(operation, operationResult, result.state));
 	}
-	if (result.autoStartedId !== undefined) {
-		const task = result.state.tasks.find(({ id }) => id === result.autoStartedId);
-		if (task) lines.push(`Started #${task.id}: ${task.subject}`);
+	if (!result.changed && params.operations[0]?.action !== "list") {
+		lines.push("No change made.");
+		return lines.join("\n");
 	}
+	lines.push(formatTodoGuidance(result.state));
 	return lines.join("\n");
 }
 
@@ -276,9 +296,8 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 			const todoParams = params as TodoParams;
 			const result = applyTodo(current.state, todoParams);
 			if (!result.ok) {
-				const prefix =
-					result.operationIndex === undefined ? "" : `Operation #${result.operationIndex + 1}: `;
-				throw new Error(`${prefix}${result.error}`);
+				const message = result.error.endsWith(".") ? result.error : `${result.error}.`;
+				throw new Error(`${message}\nNo change made.`);
 			}
 			if (result.changed) {
 				current.state = result.state;
@@ -344,11 +363,7 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 			current.completedIdleTurns = 0;
 			current.widgetHidden = false;
 			current.widget?.refresh(current.state);
-			const lines = [`Suppressed #${id}`];
-			if (result.autoStartedId !== undefined) {
-				const task = result.state.tasks.find(({ id: taskId }) => taskId === result.autoStartedId);
-				if (task) lines.push(`Started #${task.id}: ${task.subject}`);
-			}
+			const lines = [`Suppressed #${id}`, formatTodoGuidance(result.state)];
 			ctx.ui.notify(lines.join("\n"), "info");
 		},
 	});
@@ -408,7 +423,8 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 		const current = active;
 		if (!current || current.sessionId !== ctx.sessionManager.getSessionId()) return;
 		const incomplete = current.state.tasks.some(
-			(task) => task.status === "pending" || task.status === "in_progress",
+			(task) =>
+				task.status === "pending" || task.status === "in_progress" || task.status === "blocked",
 		);
 		if (incomplete) {
 			current.completedIdleTurns = 0;

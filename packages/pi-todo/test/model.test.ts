@@ -34,7 +34,6 @@ describe("todo model", () => {
 			{ index: 0, action: "create", changed: true, id: 1 },
 			{ index: 1, action: "create", changed: true, id: 2 },
 		]);
-		expect(result.autoStartedId).toBe(1);
 	});
 
 	test("commits mixed delete and create atomically and advances", () => {
@@ -47,7 +46,6 @@ describe("todo model", () => {
 			],
 			nextId: 4,
 		});
-		expect(result.autoStartedId).toBe(2);
 	});
 
 	test("rolls back an invalid middle operation", () => {
@@ -67,49 +65,57 @@ describe("todo model", () => {
 			[{ action: "create", subject: " " }],
 			[{ action: "create", subject: "bad\nline" }],
 			[{ action: "create", subject: "x", blockedBy: [] }],
+			[{ action: "update", id: 1 }],
 		] as const) {
 			expect(applyTodo(initial, { operations } as never).ok).toBe(false);
 		}
 	});
 
-	test("enforces completed and single-active transitions", () => {
+	test("supports blocked tasks and explicit resume", () => {
 		const initial = stateOf(freshTaskState(), [create("one"), create("two")]).state;
+		const blocked = stateOf(initial, [update(1, { status: "blocked" })]);
+		expect(blocked.state.tasks.map(({ status }) => status)).toEqual(["blocked", "in_progress"]);
 		expect(
-			applyTodo(initial, { operations: [update(2, { status: "in_progress" })] }),
+			applyTodo(blocked.state, { operations: [update(1, { status: "in_progress" })] }),
 		).toMatchObject({
 			ok: false,
-			error: "Task #2 cannot be in progress while Task #1 is in progress",
+			error: "Task #1 cannot be in progress while Task #2 is in progress",
 		});
-		const completed = stateOf(initial, [update(1, { status: "completed" })]).state;
-		expect(applyTodo(completed, { operations: [update(1, { status: "pending" })] })).toMatchObject({
+		const resumed = stateOf(blocked.state, [
+			update(2, { status: "blocked" }),
+			update(1, { status: "in_progress" }),
+		]);
+		expect(resumed.state.tasks.map(({ status }) => status)).toEqual(["in_progress", "blocked"]);
+		const completed = stateOf(resumed.state, [update(1, { status: "completed" })]).state;
+		expect(
+			applyTodo(completed, { operations: [update(1, { status: "in_progress" })] }),
+		).toMatchObject({
 			ok: false,
-			operationIndex: 0,
+			error: "Invalid status transition from completed to in_progress",
 		});
 	});
 
-	test("auto-advances after completion and respects an agent pause batch", () => {
+	test("rejects agent-only internal statuses", () => {
+		const initial = stateOf(freshTaskState(), [create("one")]).state;
+		for (const status of ["pending", "suppressed", "unknown"]) {
+			expect(
+				applyTodo(initial, {
+					operations: [{ action: "update", id: 1, status }] as never,
+				}),
+			).toMatchObject({ ok: false, error: "Invalid status", state: initial });
+		}
+	});
+
+	test("auto-advances after completion", () => {
 		const initial = stateOf(freshTaskState(), [create("one"), create("two")]).state;
 		const advanced = stateOf(initial, [update(1, { status: "completed" })]);
-		expect(advanced.autoStartedId).toBe(2);
 		expect(advanced.state.tasks.map(({ status }) => status)).toEqual(["completed", "in_progress"]);
-
-		const paused = stateOf(advanced.state, [update(2, { status: "pending" })]);
-		expect(paused.autoStartedId).toBeUndefined();
-		const changedWhilePaused = stateOf(paused.state, [
-			update(2, { subject: "updated two" }),
-			update(2, { status: "pending" }),
-		]);
-		expect(changedWhilePaused.autoStartedId).toBeUndefined();
-		expect(changedWhilePaused.state.tasks[1]).toMatchObject({
-			subject: "updated two",
-			status: "pending",
-		});
 	});
 
 	test("user suppression is immutable to the agent and starts the next task", () => {
 		const initial = stateOf(freshTaskState(), [create("one"), create("two")]).state;
 		const suppressed = suppressTodoByUser(initial, 1);
-		expect(suppressed).toMatchObject({ ok: true, changed: true, autoStartedId: 2 });
+		expect(suppressed).toMatchObject({ ok: true, changed: true });
 		if (!suppressed.ok) throw new Error(suppressed.error);
 		expect(suppressed.state.tasks).toEqual([
 			{ id: 1, subject: "one", status: "suppressed" },
@@ -122,7 +128,7 @@ describe("todo model", () => {
 		]) {
 			expect(applyTodo(suppressed.state, { operations: [operation] })).toMatchObject({
 				ok: false,
-				error: "The user suppressed #1 before.",
+				error: "Task #1 is suppressed",
 				state: suppressed.state,
 			});
 		}

@@ -1,4 +1,5 @@
-export type TaskStatus = "pending" | "in_progress" | "completed" | "suppressed";
+export type TaskStatus = "pending" | "in_progress" | "blocked" | "completed" | "suppressed";
+export type AgentTaskStatus = "in_progress" | "blocked" | "completed";
 
 export type TodoAction = "create" | "update" | "list" | "delete";
 
@@ -19,7 +20,7 @@ export type TodoOperation =
 			readonly action: "update";
 			readonly id: number;
 			readonly subject?: string;
-			readonly status?: Exclude<TaskStatus, "suppressed">;
+			readonly status?: AgentTaskStatus;
 	  }
 	| { readonly action: "list"; readonly status?: TaskStatus }
 	| { readonly action: "delete"; readonly id: number };
@@ -41,7 +42,6 @@ export type ApplyTodoResult =
 			readonly changed: boolean;
 			readonly state: TaskState;
 			readonly operations: readonly TodoOperationResult[];
-			readonly autoStartedId?: number;
 	  }
 	| {
 			readonly ok: false;
@@ -54,7 +54,13 @@ export function freshTaskState(): TaskState {
 	return { tasks: [], nextId: 1 };
 }
 
-const STATUSES: readonly TaskStatus[] = ["pending", "in_progress", "completed", "suppressed"];
+const STATUSES: readonly TaskStatus[] = [
+	"pending",
+	"in_progress",
+	"blocked",
+	"completed",
+	"suppressed",
+];
 const ACTIONS: readonly TodoAction[] = ["create", "update", "list", "delete"];
 
 function subjectError(subject: string): string | undefined {
@@ -80,8 +86,8 @@ function isPositiveInteger(value: unknown): value is number {
 	return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
-function isMutableTaskStatus(value: unknown): value is Exclude<TaskStatus, "suppressed"> {
-	return value === "pending" || value === "in_progress" || value === "completed";
+function isAgentTaskStatus(value: unknown): value is AgentTaskStatus {
+	return value === "in_progress" || value === "blocked" || value === "completed";
 }
 
 function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
@@ -106,6 +112,7 @@ export function validateTaskState(value: unknown): TaskState | undefined {
 		if (typeof valueTask.subject !== "string" || subjectError(valueTask.subject)) return undefined;
 		if (!STATUSES.includes(valueTask.status as TaskStatus)) return undefined;
 		ids.add(valueTask.id);
+		// Deprecated compatibility: this projection drops legacy blockedBy until the next breaking snapshot revision.
 		tasks.push({
 			id: valueTask.id,
 			subject: valueTask.subject,
@@ -132,14 +139,22 @@ function findTask(tasks: readonly Task[], id: number): Task | undefined {
 	return tasks.find((task) => task.id === id);
 }
 
-function validTransition(from: TaskStatus, to: TaskStatus): boolean {
-	return from !== "completed" || to === "completed";
-}
-
 function firstPending(tasks: readonly Task[]): Task | undefined {
 	return tasks
 		.filter((task) => task.status === "pending")
 		.sort((left, right) => left.id - right.id)[0];
+}
+
+export function activateFirstPending(state: TaskState): TaskState {
+	if (state.tasks.some((task) => task.status === "in_progress")) return state;
+	const next = firstPending(state.tasks);
+	if (!next) return state;
+	return {
+		tasks: state.tasks.map((task) =>
+			task.id === next.id ? { ...task, status: "in_progress" } : task,
+		),
+		nextId: state.nextId,
+	};
 }
 
 export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult {
@@ -150,7 +165,6 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 	const draft = cloneState(state);
 	const operations: TodoOperationResult[] = [];
 	let changed = false;
-	let suppressAutoStart = false;
 	const fail = (error: string, operationIndex: number): ApplyTodoResult => ({
 		ok: false,
 		state,
@@ -200,7 +214,7 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 			const id = operation.id;
 			const task = findTask(draft.tasks, id);
 			if (!task) return fail(`Task #${id} does not exist`, index);
-			if (task.status === "suppressed") return fail(`The user suppressed #${id} before.`, index);
+			if (task.status === "suppressed") return fail(`Task #${id} is suppressed`, index);
 			draft.tasks = draft.tasks.filter((candidate) => candidate.id !== id);
 			changed = true;
 			operations.push({ index, action, changed: true, id });
@@ -214,7 +228,7 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 		const id = operation.id;
 		const current = findTask(draft.tasks, id);
 		if (!current) return fail(`Task #${id} does not exist`, index);
-		if (current.status === "suppressed") return fail(`The user suppressed #${id} before.`, index);
+		if (current.status === "suppressed") return fail(`Task #${id} is suppressed`, index);
 		const hasSubject = operation.subject !== undefined;
 		const hasStatus = operation.status !== undefined;
 		if (!hasSubject && !hasStatus) return fail("Update requires a mutable field", index);
@@ -224,12 +238,12 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 			const subjectIssue = subjectError(operation.subject as string);
 			if (subjectIssue) return fail(subjectIssue, index);
 		}
-		if (hasStatus && !isMutableTaskStatus(operation.status)) return fail("Invalid status", index);
-		if (operation.status === "pending") suppressAutoStart = true;
+		if (hasStatus && !isAgentTaskStatus(operation.status)) return fail("Invalid status", index);
 		const subject = hasSubject ? (operation.subject as string).trim() : current.subject;
-		const status = isMutableTaskStatus(operation.status) ? operation.status : current.status;
-		if (!validTransition(current.status, status))
-			return fail(`Invalid status transition from ${current.status} to ${status}`, index);
+		const status = isAgentTaskStatus(operation.status) ? operation.status : current.status;
+		if (current.status === "completed" && status !== "completed") {
+			return fail(`Invalid status transition from completed to ${status}`, index);
+		}
 		const next = { ...current, subject, status };
 		const candidateTasks = draft.tasks.map((task) => (task.id === id ? next : task));
 		const statusIssue = statusError(next, candidateTasks);
@@ -241,20 +255,16 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 		}
 		operations.push({ index, action, changed: isChanged, id });
 	}
-	let autoStartedId: number | undefined;
-	if (changed && !suppressAutoStart && !draft.tasks.some((task) => task.status === "in_progress")) {
+	if (changed && !draft.tasks.some((task) => task.status === "in_progress")) {
 		const next = firstPending(draft.tasks);
 		if (next) {
 			draft.tasks = draft.tasks.map((task) =>
 				task.id === next.id ? { ...task, status: "in_progress" } : task,
 			);
-			autoStartedId = next.id;
 		}
 	}
 	if (!changed) return { ok: true, changed: false, state, operations };
-	return autoStartedId === undefined
-		? { ok: true, changed: true, state: draft, operations }
-		: { ok: true, changed: true, state: draft, operations, autoStartedId };
+	return { ok: true, changed: true, state: draft, operations };
 }
 
 export type SuppressTodoResult =
@@ -262,7 +272,6 @@ export type SuppressTodoResult =
 			readonly ok: true;
 			readonly changed: boolean;
 			readonly state: TaskState;
-			readonly autoStartedId?: number;
 	  }
 	| { readonly ok: false; readonly state: TaskState; readonly error: string };
 
@@ -279,18 +288,13 @@ export function suppressTodoByUser(state: TaskState, id: number): SuppressTodoRe
 	let tasks = state.tasks.map((task) =>
 		task.id === id ? { ...task, status: "suppressed" as const } : task,
 	);
-	let autoStartedId: number | undefined;
 	if (!tasks.some((task) => task.status === "in_progress")) {
 		const next = firstPending(tasks);
 		if (next) {
 			tasks = tasks.map((task) =>
 				task.id === next.id ? { ...task, status: "in_progress" as const } : task,
 			);
-			autoStartedId = next.id;
 		}
 	}
-	const nextState = { tasks, nextId: state.nextId };
-	return autoStartedId === undefined
-		? { ok: true, changed: true, state: nextState }
-		: { ok: true, changed: true, state: nextState, autoStartedId };
+	return { ok: true, changed: true, state: { tasks, nextId: state.nextId } };
 }
