@@ -514,6 +514,26 @@ describe("advisor runtime outcomes", () => {
 		await expect(review).rejects.toThrow(/timed out/i);
 	});
 
+	test("does not mix late advice from a quarantined timeout into the next review", async () => {
+		const controls = controllableScheduler();
+		const first = createAssistantMessageEventStream();
+		const second = createAssistantMessageEventStream();
+		let calls = 0;
+		const streamFn: StreamFn = () => {
+			calls++;
+			return calls === 1 ? first : second;
+		};
+		const adapter = createCoreAdvisorAdapter(options(streamFn, controls.scheduler));
+		await adapter.create();
+		const timedOut = adapter.review("first");
+		controls.fire();
+		await expect(timedOut).rejects.toThrow(/timed out/i);
+		const next = adapter.review("second");
+		first.push({ type: "done", reason: "toolUse", message: message("toolUse", [adviseCall]) });
+		second.push({ type: "done", reason: "stop", message: message("stop") });
+		expect(await next).toEqual([]);
+	});
+
 	test("timeout aborts, waits for idle, and discards earlier advice", async () => {
 		const controls = controllableScheduler();
 		const first = createAssistantMessageEventStream();
@@ -540,7 +560,6 @@ describe("advisor runtime outcomes", () => {
 		await expect(review).rejects.toThrow(/timed out/i);
 		await expect(adapter.review("next")).resolves.toEqual([]);
 	});
-
 	test("a later review succeeds after timeout without another abort", async () => {
 		const controls = controllableScheduler();
 		let calls = 0;
