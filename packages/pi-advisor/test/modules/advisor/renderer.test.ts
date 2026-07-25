@@ -22,7 +22,7 @@ describe("Advisor message renderer", () => {
 
 		const lines = component.render(60);
 		expect(lines).toHaveLength(1);
-		expect(lines[0]).toStartWith("<bg> <fg>✦</fg><fg> [advisor blocker] division uses addition");
+		expect(lines[0]).toStartWith("<bg> <fg>✦</fg><fg> division uses addition");
 		expect(lines[0]).toEndWith("</fg> </bg>");
 		expect(lines[0]?.replaceAll(/<\/?(?:bg|fg)>/g, "")).toHaveLength(60);
 		expect(roles).toEqual(["fg:error", "fg:dim", "bg:customMessageBg"]);
@@ -40,8 +40,8 @@ describe("Advisor message renderer", () => {
 
 		expect(lines.length).toBeGreaterThan(1);
 		expect(lines.every((line) => line.length === 20)).toBe(true);
-		expect(lines[0]).toStartWith(" ✦ [advisor");
-		expect(lines.join(" ")).toContain("concern]");
+		expect(lines[0]).toStartWith(" ✦ a long note");
+		expect(lines.join(" ")).not.toContain("[advisor");
 	});
 
 	test("colors prefixes by severity", () => {
