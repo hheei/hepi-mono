@@ -1,6 +1,6 @@
 # Advisor 调度策略改进计划
 
-状态：部分实现。Phase 1、Phase 2 的 material signature、cooldown 内 material evidence 保留，以及 terminal/reconfirm 竞态修复已实现；Phase 3 的独立 single-flight admission lock 和之后功能未实现。
+状态：部分实现。Phase 1、Phase 2 的 material signature、cooldown 内 material evidence 保留，以及 context/terminal/reconfirm 稳定性修复已实现；Phase 3 的独立 single-flight admission lock 和之后功能未实现。
 
 当前行为仍以 `packages/pi-advisor/src/`、测试和 `packages/pi-advisor/README.md` 为准。本文件记录后续调度改进的范围、取舍和验收条件。
 
@@ -12,6 +12,8 @@ HEPI Advisor 当前已经具备以下能力：
 - Advisor runtime 串行 review，并支持 review completion flush。
 - `concern` / `blocker` 首次出现时立即打印到 UI，但不立即 steer 主模型。
 - 高严重度 advice 在下一次 review 中 reconfirm；沉默表示问题已解决。
+- 当前 primary user objective 跨 internal turns 保留；held concern/blocker 在后续 turn boundary 可 reconfirm，late nit 可在 primary idle 后触发 follow-up。
+- text-only Advisor 只过滤 image block，保留混合消息中的文字。
 - terminal turn 支持 catch-up。
 - review timeout 不依赖 provider 是否响应 abort。
 - delivered advice 按 normalized note 去重，并支持 severity escalation。

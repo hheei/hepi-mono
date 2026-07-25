@@ -298,15 +298,12 @@ function stripUnsupportedImages(
 	allowImages: boolean,
 ): AgentMessage[] {
 	if (allowImages) return [...messages];
-	return messages.filter(
-		(message) =>
-			!("content" in message) ||
-			!Array.isArray(message.content) ||
-			!message.content.some(
-				(part) =>
-					typeof part === "object" && part !== null && "type" in part && part.type === "image",
-			),
-	);
+	return messages.flatMap((message) => {
+		if (message.role !== "user" || !Array.isArray(message.content)) return [message];
+		const content = message.content.filter((part) => part.type !== "image");
+		if (content.length === message.content.length) return [message];
+		return content.length === 0 ? [] : [{ ...message, content }];
+	});
 }
 
 export function buildAdvisorBootstrapMessages(

@@ -409,6 +409,66 @@ describe("Advisor feature lifecycle", () => {
 		});
 		await waitFor(() => h.adapter.reviewPrompts.length === 2, "second user review");
 	});
+	test("keeps the original user objective across delayed review", async () => {
+		const h = fixture(true);
+		h.adapter.nextAdvice = [];
+		await h.feature.start(h.runtime);
+		await emit(h, "before_agent_start", { prompt: "Fix the authentication flow" });
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "first change" }] },
+		});
+		await waitFor(() => h.feature.status().backlog === 0, "initial review to settle");
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "follow-up change" }] },
+		});
+		h.advance(15_000);
+		await waitFor(() => h.adapter.reviewPrompts.length === 2, "delayed review");
+		expect(h.adapter.reviewPrompts[1]).toContain("Fix the authentication flow");
+	});
+
+	test("preserves a newer terminal boundary through reconfirmation", async () => {
+		const h = fixture(true);
+		h.adapter.nextAdvice = [{ severity: "blocker", note: "old blocker" }];
+		await h.feature.start(h.runtime);
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "first" }] },
+		});
+		await waitFor(() => h.feature.status().backlog === 0, "initial review to settle");
+		h.advance(40_000);
+
+		h.adapter.deferNextReview();
+		const reconfirm = emit(h, "agent_settled");
+		await waitFor(() => h.adapter.reviewPrompts.length === 2, "reconfirmation to start");
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "new terminal work" }] },
+		});
+		await emit(h, "agent_settled");
+		h.adapter.resolveReview([]);
+		await reconfirm;
+
+		h.adapter.nextAdvice = [{ severity: "blocker", note: "new blocker" }];
+		h.advance(15_000);
+		await waitFor(() => h.adapter.reviewPrompts.length === 3, "new terminal review");
+		await waitFor(() => h.feature.status().backlog === 0, "new terminal review to settle");
+		h.adapter.nextAdvice = [{ severity: "blocker", note: "new blocker" }];
+		h.advance(40_000);
+		await waitFor(() => h.deliveries.length === 1, "new terminal blocker delivery");
+	});
+
+	test("triggers a late nit when the primary agent is idle", async () => {
+		const h = fixture(true);
+		h.adapter.deferNextReview();
+		await h.feature.start(h.runtime);
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "done" }] },
+		});
+		await waitFor(() => h.adapter.reviewPrompts.length === 1, "deferred review to start");
+		await emit(h, "agent_settled");
+		h.adapter.resolveReview([{ severity: "nit", note: "small cleanup" }]);
+		await waitFor(() => h.deliveries.length === 1, "late nit delivery");
+		expect(h.deliveries[0]?.options).toEqual({ deliverAs: "steer", triggerTurn: true });
+	});
+
 	test("publishes the latest review severity for the header indicator", async () => {
 		const h = fixture(true);
 		await h.feature.start(h.runtime);
