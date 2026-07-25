@@ -236,7 +236,7 @@ describe("statusbar lifecycle", () => {
 		]);
 	});
 
-	test("writes the configured hardware cursor style", () => {
+	test("writes the configured hardware cursor style after rendering", async () => {
 		const h = harness("a");
 		h.setEditor(editorFactory("previous", []));
 		const writes: string[] = [];
@@ -259,6 +259,9 @@ describe("statusbar lifecycle", () => {
 		);
 		setShowHardwareCursor(false);
 		editor?.render(80);
+		expect(writes).toEqual([]);
+		await Promise.resolve();
+		expect(writes).toEqual(["\x1b[5 q"]);
 		feature.dispose("a");
 		expect(writes).toEqual(["\x1b[5 q", "\x1b[0 q"]);
 		expect(hardwareCursor).toEqual([true, false, true, false]);
