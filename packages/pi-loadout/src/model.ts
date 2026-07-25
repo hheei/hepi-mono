@@ -33,6 +33,7 @@ export function createLoadoutDescriptionRegistry(): LoadoutDescriptionRegistry {
 }
 
 export type LoadoutScope = "global" | "project";
+export type LoadoutView = "tools" | "skills";
 export type LoadoutKind = "mcp" | "tool" | "skill";
 export type LoadoutKey = `${LoadoutKind}:${string}`;
 export type LoadoutConfiguredStatus = "active" | "disabled" | "inherit";
@@ -217,16 +218,37 @@ export function toggleLoadoutState(
 	return { global, project };
 }
 
-export interface LoadoutGroup {
-	readonly kind: LoadoutKind;
+export interface LoadoutSourceGroup {
+	readonly origin: string;
 	readonly items: readonly LoadoutItem[];
 }
 
-export function groupLoadoutItems(items: readonly LoadoutItem[]): readonly LoadoutGroup[] {
-	const sorted = sortLoadoutItems(items);
-	return (["mcp", "tool", "skill"] as const)
-		.map((kind) => ({ kind, items: sorted.filter((item) => item.kind === kind) }))
-		.filter((group) => group.items.length > 0);
+function belongsToView(item: LoadoutItem, view: LoadoutView): boolean {
+	return view === "tools" ? item.kind === "tool" || item.kind === "mcp" : item.kind === "skill";
+}
+
+function loadoutOriginGroup(origin: string): string {
+	const normalized = origin.trim();
+	return loadoutPackageSortKey(normalized) === "" ? "built-in" : normalized;
+}
+
+export function groupLoadoutItemsByOrigin(
+	items: readonly LoadoutItem[],
+): readonly LoadoutSourceGroup[] {
+	const groups = new Map<string, LoadoutItem[]>();
+	for (const item of items) {
+		const origin = loadoutOriginGroup(item.origin);
+		const group = groups.get(origin);
+		if (group) group.push(item);
+		else groups.set(origin, [item]);
+	}
+	return [...groups]
+		.sort(([a], [b]) =>
+			loadoutPackageSortKey(a).localeCompare(loadoutPackageSortKey(b), undefined, {
+				sensitivity: "base",
+			}),
+		)
+		.map(([origin, groupedItems]) => ({ origin, items: sortLoadoutItems(groupedItems) }));
 }
 
 export function filterLoadoutItems(
@@ -242,16 +264,25 @@ export function filterLoadoutItems(
 	);
 }
 
+export function filterLoadoutItemsForView(
+	items: readonly LoadoutItem[],
+	view: LoadoutView,
+	query: string,
+): readonly LoadoutItem[] {
+	const visible = filterLoadoutItems(items, query).filter((item) => belongsToView(item, view));
+	return groupLoadoutItemsByOrigin(visible).flatMap((group) => group.items);
+}
+
 export function reconcileLoadoutSelection(
 	items: readonly LoadoutItem[],
 	selectedKey: LoadoutKey | undefined,
 	previousItems: readonly LoadoutItem[] = items,
 ): LoadoutKey | undefined {
-	const visible = sortLoadoutItems(items);
+	const visible = [...items];
 	if (visible.length === 0) return undefined;
 	if (!selectedKey || visible.some((item) => item.key === selectedKey))
 		return selectedKey ?? visible[0]?.key;
-	const previous = sortLoadoutItems(previousItems);
+	const previous = [...previousItems];
 	const selectedIndex = previous.findIndex((item) => item.key === selectedKey);
 	const selectedKind =
 		selectedIndex >= 0
