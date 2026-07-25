@@ -221,18 +221,7 @@ export class SettingsController {
 			readonly groupId: string;
 		};
 		const current = field.parse(this.state.draftValue ?? "");
-		const options = field.options;
-		if (!options?.length) throw new Error(`Setting has no options: ${field.id}`);
-		const index = options.findIndex((option) => Object.is(option.value, current));
-		const nextIndex =
-			index < 0
-				? direction < 0
-					? options.length - 1
-					: 0
-				: (index + direction + options.length) % options.length;
-		const option = options[nextIndex];
-		if (!option) throw new Error(`Invalid option for setting: ${field.id}`);
-		this.model.setDraftValue(String(option.value));
+		this.model.setDraftValue(String(cycleOption(field, current, direction)));
 	}
 	cycleTabDraft(direction = 1): void {
 		if (this.state.mode !== "Edit") throw new Error("Not editing a setting");
