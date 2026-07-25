@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { HePiRuntimeContext } from "@hheei/pi-basics";
 import { buildSessionContext, buildTurnDelta, extractPrimaryTurnEvidence } from "./context.js";
@@ -22,7 +23,7 @@ import {
 	createCoreAdvisorAdapter,
 } from "./runtime.js";
 
-const REVIEW_INTERVAL_MS = 20_000;
+const REVIEW_INTERVAL_MS = 15_000;
 const CONCERN_COOLDOWN_MS = 25_000;
 const BLOCKER_COOLDOWN_MS = 40_000;
 
@@ -57,8 +58,11 @@ interface Active {
 	pendingAdvisoryPrompt: string;
 	primaryAborted: boolean;
 	lastReviewAt?: number | undefined;
+	lastMaterialSignature?: string | undefined;
 	reviewCooldownUntil: number;
 	reviewCooldownTimer?: unknown;
+	pendingReviewTimer?: unknown;
+	pendingReviewPrompt: string;
 	notifiedHigh: Map<string, AdvisorAdvice["severity"]>;
 	lastError?: string;
 	model: string | undefined;
@@ -137,9 +141,13 @@ export function createAdvisorFeature(
 		item.lastReviewAt === undefined
 			? item.reviewCooldownUntil
 			: Math.max(item.reviewCooldownUntil, item.lastReviewAt + REVIEW_INTERVAL_MS);
+	const materialSignature = (prompt: string): string =>
+		createHash("sha256").update(prompt).digest("hex");
 	const clearReviewTimer = (item: Active): void => {
 		if (item.reviewCooldownTimer !== undefined) clearTimeout(item.reviewCooldownTimer);
+		if (item.pendingReviewTimer !== undefined) clearTimeout(item.pendingReviewTimer);
 		item.reviewCooldownTimer = undefined;
+		item.pendingReviewTimer = undefined;
 	};
 	const printHighValue = (item: Active, notes: readonly AdvisorAdvice[]): void => {
 		for (const note of notes) {
@@ -233,12 +241,7 @@ export function createAdvisorFeature(
 			}
 		});
 	};
-	const requestReview = (item: Active, prompt: string): void => {
-		if (!isCurrent(item) || !item.enabled || item.backlog > 0) return;
-		if (reviewAllowedAt(item) > now()) return;
-		review(item, prompt);
-	};
-	const review = (item: Active, prompt: string): void => {
+	const review = (item: Active, prompt: string, signature?: string): void => {
 		const epoch = item.epoch;
 		item.backlog++;
 		item.phase = "reviewing";
@@ -248,6 +251,7 @@ export function createAdvisorFeature(
 				item.lastReviewAt = now();
 				const advice = await item.adapter.review(prompt);
 				if (!isCurrent(item, epoch) || !item.enabled) return;
+				if (signature !== undefined) item.lastMaterialSignature = signature;
 				printHighValue(item, advice);
 				item.reviewCooldownUntil = Math.max(item.reviewCooldownUntil, now() + cooldownFor(advice));
 				publishIndicator(item, advice);
@@ -268,10 +272,45 @@ export function createAdvisorFeature(
 					item.backlog = Math.max(0, item.backlog - 1);
 					if (item.enabled && item.backlog === 0) item.phase = "idle";
 					else if (item.enabled) item.phase = "reviewing";
-					if (item.backlog === 0) scheduleReconfirm(item);
+					if (item.backlog === 0) {
+						schedulePendingReview(item);
+						scheduleReconfirm(item);
+					}
 				}
 			}
 		});
+	};
+	function schedulePendingReview(item: Active): void {
+		if (
+			!isCurrent(item) ||
+			!item.enabled ||
+			item.backlog > 0 ||
+			item.pendingReviewPrompt.length === 0
+		)
+			return;
+		const signature = materialSignature(item.pendingReviewPrompt);
+		if (item.lastMaterialSignature === signature) {
+			item.pendingReviewPrompt = "";
+			return;
+		}
+		const wait = reviewAllowedAt(item) - now();
+		if (wait > 0) {
+			if (item.pendingReviewTimer === undefined) {
+				item.pendingReviewTimer = setTimeout(() => {
+					item.pendingReviewTimer = undefined;
+					schedulePendingReview(item);
+				}, wait);
+			}
+			return;
+		}
+		const prompt = item.pendingReviewPrompt;
+		item.pendingReviewPrompt = "";
+		review(item, prompt, signature);
+	}
+	const requestReview = (item: Active, prompt: string): void => {
+		if (!isCurrent(item) || !item.enabled) return;
+		item.pendingReviewPrompt = prompt;
+		schedulePendingReview(item);
 	};
 	const reset = (item: Active): Promise<void> => {
 		if (!isCurrent(item)) return Promise.resolve();
@@ -280,9 +319,11 @@ export function createAdvisorFeature(
 		item.reconfirming = false;
 		item.terminalPending = false;
 		item.pendingAdvisoryPrompt = "";
+		item.pendingReviewPrompt = "";
 		item.backlog = 0;
 		clearReviewTimer(item);
 		item.lastReviewAt = undefined;
+		item.lastMaterialSignature = undefined;
 		item.reviewCooldownUntil = 0;
 		item.notifiedHigh.clear();
 		item.phase = item.enabled ? "idle" : "disabled";
@@ -322,6 +363,7 @@ export function createAdvisorFeature(
 					item.adapterActive = false;
 					clearReviewTimer(item);
 					item.lastReviewAt = undefined;
+					item.lastMaterialSignature = undefined;
 					item.reviewCooldownUntil = 0;
 					item.notifiedHigh.clear();
 					item.runtime.ctx.ui.setStatus("advisor", undefined);
@@ -358,6 +400,7 @@ export function createAdvisorFeature(
 				reconfirming: false,
 				terminalPending: false,
 				pendingAdvisoryPrompt: "",
+				pendingReviewPrompt: "",
 				primaryAborted: false,
 				reviewCooldownUntil: 0,
 				notifiedHigh: new Map(),
@@ -433,9 +476,11 @@ export function createAdvisorFeature(
 				item.reconfirming = false;
 				item.terminalPending = false;
 				item.pendingAdvisoryPrompt = "";
+				item.pendingReviewPrompt = "";
 				item.backlog = 0;
 				clearReviewTimer(item);
 				item.lastReviewAt = undefined;
+				item.lastMaterialSignature = undefined;
 				item.reviewCooldownUntil = 0;
 				item.notifiedHigh.clear();
 				return enqueue(async () => {
@@ -580,9 +625,11 @@ export function createAdvisorFeature(
 					item.reconfirming = false;
 					item.terminalPending = false;
 					item.pendingAdvisoryPrompt = "";
+					item.pendingReviewPrompt = "";
 					item.backlog = 0;
 					clearReviewTimer(item);
 					item.lastReviewAt = undefined;
+					item.lastMaterialSignature = undefined;
 					item.reviewCooldownUntil = 0;
 					item.notifiedHigh.clear();
 					const cleanup = enqueue(async () => {

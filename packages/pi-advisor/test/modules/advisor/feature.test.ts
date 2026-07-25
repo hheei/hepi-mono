@@ -235,6 +235,77 @@ describe("Advisor feature lifecycle", () => {
 		expect(h.notifications.some((item) => item.message.includes("review failed"))).toBe(false);
 	});
 
+	test("waits 15 seconds for new material and skips the same signature", async () => {
+		const h = fixture(true);
+		h.adapter.nextAdvice = [];
+		await h.feature.start(h.runtime);
+
+		const turn = async (text: string): Promise<void> => {
+			await emit(h, "turn_end", {
+				message: { role: "assistant", content: [{ type: "text", text }] },
+			});
+		};
+
+		await turn("first");
+		await waitFor(() => h.adapter.reviewPrompts.length === 1, "initial review");
+		await waitFor(() => h.feature.status().backlog === 0, "initial review to settle");
+
+		await turn("second");
+		h.adapter.nextAdvice = [];
+		h.advance(14_999);
+		await Promise.resolve();
+		expect(h.adapter.reviewPrompts).toHaveLength(1);
+		h.advance(1);
+		await waitFor(() => h.adapter.reviewPrompts.length === 2, "second review");
+		await waitFor(() => h.feature.status().backlog === 0, "second review to settle");
+
+		await turn("second");
+		h.adapter.nextAdvice = [];
+		h.advance(15_000);
+		await Promise.resolve();
+		expect(h.adapter.reviewPrompts).toHaveLength(2);
+	});
+
+	test("clears material signature after a session reset", async () => {
+		const h = fixture(true);
+		h.adapter.nextAdvice = [];
+		await h.feature.start(h.runtime);
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "same" }] },
+		});
+		await waitFor(() => h.adapter.reviewPrompts.length === 1, "initial review");
+		await waitFor(() => h.feature.status().backlog === 0, "initial review to settle");
+
+		await emit(h, "session_compact");
+		h.advance(15_000);
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "same" }] },
+		});
+		await waitFor(() => h.adapter.reviewPrompts.length === 2, "post-reset review");
+	});
+
+	test("updates pending material evidence while a review is cooling down", async () => {
+		const h = fixture(true);
+		h.adapter.nextAdvice = [];
+		await h.feature.start(h.runtime);
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "first" }] },
+		});
+		await waitFor(() => h.adapter.reviewPrompts.length === 1, "initial review");
+		await waitFor(() => h.feature.status().backlog === 0, "initial review to settle");
+
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "second" }] },
+		});
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "latest" }] },
+		});
+		h.advance(15_000);
+		await waitFor(() => h.adapter.reviewPrompts.length === 2, "latest pending review");
+		expect(h.adapter.reviewPrompts[1]).toContain("latest");
+		expect(h.adapter.reviewPrompts[1]).not.toContain("second");
+	});
+
 	test("publishes the latest review severity for the header indicator", async () => {
 		const h = fixture(true);
 		await h.feature.start(h.runtime);
