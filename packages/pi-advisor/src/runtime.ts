@@ -323,7 +323,7 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 	let agent: Agent | undefined;
 	let disposed = true;
 	let inFlightAbort: (() => void) | undefined;
-	let advice: AdvisorAdvice[] = [];
+	const adviceByAgent = new WeakMap<Agent, AdvisorAdvice[]>();
 	let lifetime: AdvisorUsage = DEFAULT_ADVISOR_USAGE;
 	let lastCompactedContextTokens = 0;
 	const scheduler = options.scheduler ?? createHostScheduler();
@@ -348,6 +348,7 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 		);
 	};
 	const createAgent = (agentOptions: AdvisorAdapterOptions): Agent => {
+		const collectedAdvice: AdvisorAdvice[] = [];
 		const adviseTool: AgentTool<typeof ADVISE_PARAMETERS> = {
 			name: "advise",
 			label: "Advisor feedback",
@@ -357,7 +358,7 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 				signal?.throwIfAborted();
 				const parsed = parseAdvice(params);
 				if (!parsed) throw new Error("Invalid advice");
-				advice.push(parsed);
+				collectedAdvice.push(parsed);
 				return { content: [{ type: "text", text: "Advice recorded." }], details: {} };
 			},
 		};
@@ -379,6 +380,7 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 			modelContextBudget(model),
 			model.input.includes("image"),
 		);
+		adviceByAgent.set(next, collectedAdvice);
 		return next;
 	};
 	const create = async (): Promise<void> => {
@@ -439,9 +441,16 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 			lastCompactedContextTokens = 0;
 		},
 		async review(prompt, signal) {
+			if (agent === undefined || disposed) {
+				if (options.model === undefined || options.model.trim().length === 0)
+					throw new Error("Advisor is not active");
+				await create();
+			}
 			const reviewAgent = agent;
 			const reviewOptions = options;
 			if (reviewAgent === undefined || disposed) throw new Error("Advisor is not active");
+			const reviewAdvice = adviceByAgent.get(reviewAgent);
+			if (reviewAdvice === undefined) throw new Error("Advisor state is not initialized");
 			signal?.throwIfAborted();
 			if (shouldCompact(reviewAgent)) {
 				lastCompactedContextTokens = currentContextTokens(reviewAgent);
@@ -452,7 +461,7 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 					reviewAgent.state.model.input.includes("image"),
 				);
 			}
-			advice = [];
+			reviewAdvice.length = 0;
 			let timedOut = false;
 			let timeoutError: Error | undefined;
 			let rejectTimeout: ((error: Error) => void) | undefined;
@@ -462,8 +471,12 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 			const abort = () => reviewAgent.abort();
 			const timeout = scheduler.setTimeout(() => {
 				timedOut = true;
-				advice = [];
+				reviewAdvice.length = 0;
 				timeoutError = new Error(`Advisor review timed out after ${ADVISOR_REVIEW_TIMEOUT_MS}ms`);
+				if (agent === reviewAgent) {
+					agent = undefined;
+					disposed = true;
+				}
 				abort();
 				rejectTimeout?.(timeoutError);
 			}, ADVISOR_REVIEW_TIMEOUT_MS);
@@ -489,11 +502,11 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 					}
 					signal?.throwIfAborted();
 					if (timedOut) {
-						advice = [];
+						reviewAdvice.length = 0;
 						throw new Error(`Advisor review timed out after ${ADVISOR_REVIEW_TIMEOUT_MS}ms`);
 					}
 					if (promptFailure !== undefined) {
-						advice = [];
+						reviewAdvice.length = 0;
 						if (!isLengthError(promptFailure.error)) throw promptFailure.error;
 						if (replayedLength)
 							throw new Error("Advisor review exceeded the model context after retry");
@@ -508,7 +521,7 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 					}
 					const stopReason = finalAssistantStopReason(reviewAgent.state.messages);
 					if (stopReason === "length" && !replayedLength) {
-						advice = [];
+						reviewAdvice.length = 0;
 						replayedLength = true;
 						reviewAgent.reset();
 						reviewAgent.state.messages = buildAdvisorBootstrapMessages(
@@ -519,17 +532,17 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 						continue;
 					}
 					if (stopReason !== "stop" && stopReason !== "toolUse") {
-						advice = [];
+						reviewAdvice.length = 0;
 						throw new Error(
 							`Advisor review ended with unsupported stop reason: ${stopReason ?? "unknown"}`,
 						);
 					}
 					break;
 				}
-				return advice;
+				return reviewAdvice;
 			} finally {
 				scheduler.clearTimeout(timeout);
-				if (timedOut) advice = [];
+				if (timedOut) reviewAdvice.length = 0;
 				signal?.removeEventListener("abort", abort);
 				if (inFlightAbort === abort) inFlightAbort = undefined;
 			}

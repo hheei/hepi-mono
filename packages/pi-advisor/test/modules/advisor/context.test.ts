@@ -122,6 +122,18 @@ describe("advisor turn evidence", () => {
 		expect(evidence.tools[0]).not.toContain("ARBITRARY_SECRET");
 	});
 
+	test("joins tool evidence before fitting so identities survive a small budget", () => {
+		const delta = buildTurnDelta(
+			"",
+			undefined,
+			["TOOL RESULT read (read-1) ERROR\nfailed", "TOOL RESULT edit (edit-1) OK\ndiff"],
+			{ contextWindow: 1100, responseReserve: 100 },
+		);
+		expect(delta.tools).toHaveLength(1);
+		expect(delta.tools?.[0]).toContain("TOOL RESULT");
+		expect(delta.tools?.[0]).toContain("ERROR");
+	});
+
 	test("truncates turn evidence within an explicit budget", () => {
 		const delta = buildTurnDelta(
 			"user",
