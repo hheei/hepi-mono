@@ -47,7 +47,7 @@ describe("traditional to simplified", () => {
 	test("persists the toggle without discarding other settings", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-t2s-"));
 		try {
-			const provider = createTraditionalToSimplifiedSettingsProvider();
+			const provider = createTraditionalToSimplifiedSettingsProvider({ settingsDirectory: cwd });
 			await provider.storage.save(
 				{ "traditional-to-simplified": { mode: "off" } },
 				{ sessionId: "test", cwd },
@@ -62,7 +62,7 @@ describe("traditional to simplified", () => {
 	test("shares the settings write queue with other Pi Basics providers", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-t2s-concurrent-"));
 		try {
-			const t2s = createTraditionalToSimplifiedSettingsProvider();
+			const t2s = createTraditionalToSimplifiedSettingsProvider({ settingsDirectory: cwd });
 			const other = createJsonSectionSettingsStorage({
 				section: "pi-basics",
 				group: "other",
@@ -74,7 +74,7 @@ describe("traditional to simplified", () => {
 				),
 				other.save({ other: { enabled: true } }, { sessionId: "other", cwd }),
 			]);
-			const saved = JSON.parse(await readFile(join(cwd, ".pi", "settings.json"), "utf8"));
+			const saved = JSON.parse(await readFile(join(cwd, "settings.json"), "utf8"));
 			expect(saved["pi-basics"]).toEqual({
 				"traditional-to-simplified": { mode: "off" },
 				other: { enabled: true },
@@ -87,7 +87,7 @@ describe("traditional to simplified", () => {
 	test("rejects invalid persisted settings", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-t2s-invalid-"));
 		try {
-			const settingsDirectory = join(cwd, ".pi");
+			const settingsDirectory = cwd;
 			await mkdir(settingsDirectory, { recursive: true });
 			const provider = createTraditionalToSimplifiedSettingsProvider();
 			for (const values of [

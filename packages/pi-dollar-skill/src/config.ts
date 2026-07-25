@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
 	DEFAULT_DOLLAR_SKILL_CONFIG,
 	type DollarSkillConfig,
@@ -41,20 +41,23 @@ async function readRoot(path: string): Promise<JsonObject> {
 	}
 }
 
-export function dollarSkillSettingsPath(cwd: string): string {
-	return join(cwd, CONFIG_DIR_NAME, "settings.json");
+export function dollarSkillSettingsPath(settingsDirectory = getAgentDir()): string {
+	return join(settingsDirectory, "settings.json");
 }
 
-export async function loadDollarSkillConfig(cwd: string): Promise<DollarSkillConfig> {
-	const root = await readRoot(dollarSkillSettingsPath(cwd));
+export async function loadDollarSkillConfig(settingsDirectory = getAgentDir()): Promise<DollarSkillConfig> {
+	const root = await readRoot(dollarSkillSettingsPath(settingsDirectory));
 	const section = root[SECTION];
 	return normalizeDollarSkillConfig(
 		isJsonObject(section) ? section[DOLLAR_SKILL_SETTINGS_GROUP] : undefined,
 	);
 }
 
-export async function saveDollarSkillConfig(cwd: string, config: DollarSkillConfig): Promise<void> {
-	const path = dollarSkillSettingsPath(cwd);
+export async function saveDollarSkillConfig(
+	settingsDirectory: string,
+	config: DollarSkillConfig,
+): Promise<void> {
+	const path = dollarSkillSettingsPath(settingsDirectory);
 	const root = await readRoot(path);
 	const existing = root[SECTION];
 	const section = isJsonObject(existing) ? { ...existing } : {};
