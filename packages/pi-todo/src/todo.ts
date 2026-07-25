@@ -1,4 +1,5 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import type { HePiRuntimeContext } from "@hheei/pi-basics";
 import { type Static, Type } from "typebox";
 import {
@@ -11,6 +12,7 @@ import {
 	type TodoOperation,
 	type TodoOperationResult,
 	type TodoParams,
+	validateTaskState,
 } from "./model.js";
 import { latestTodoSnapshot, snapshotFromState, TODO_STATE_CUSTOM_TYPE } from "./state.js";
 import { createTodoWidget, type TodoWidget } from "./widget.js";
@@ -20,7 +22,6 @@ export const TODO_COMMAND_NAME = "todos";
 
 export const TODO_REMINDER_IDLE_TURNS = 3;
 export const TODO_REMINDER_IDLE_MS = 3 * 60_000;
-const TODO_COMPLETED_HIDE_TURNS = 2;
 const TODO_REMINDER_CUSTOM_TYPE = "pi-todo:reminder";
 
 const taskStatus = Type.String({
@@ -74,10 +75,12 @@ export const TODO_PARAMETERS = Type.Object(
 );
 
 export const TODO_TOOL_DESCRIPTION =
-	"Maintain an atomic task list. Update only when state changes: use `blocked` when work cannot continue, `in_progress` when resuming, and `completed` after verification. Scheduling is automatic. Submit one `list` operation or an atomic batch of create, update, and delete operations. Follow the final guidance line returned by the tool.";
+	"Maintain an atomic task list. Scheduling is automatic. Create known tasks in one batch; update only when state changes; use `blocked` when work cannot continue, `in_progress` when resuming, and `completed` after verification. Submit one `list` operation or an atomic batch of create, update, and delete operations. Follow the final guidance line returned by the tool.";
 export const TODO_PROMPT_SNIPPET = "Manage a task list to track multi-step progress";
 export const TODO_PROMPT_GUIDELINES = [
 	"Use `todo` for work with 3+ concrete steps or multiple user-requested tasks; skip trivial work.",
+	"Create the full known task list in one atomic batch. Keep subjects short, imperative, and outcome-oriented; do not add bookkeeping tasks for routine commands.",
+	"Scheduling is automatic. Update only when state changes: use `completed` after verification, `blocked` only when work cannot continue, and `in_progress` only when resuming blocked work. Do not repeatedly list or restate current state.",
 ] as const;
 
 interface ActiveTodoRuntime {
@@ -87,9 +90,6 @@ interface ActiveTodoRuntime {
 	idleTurns: number;
 	reminderWindowStartedAtMs: number;
 	todoChangedThisTurn: boolean;
-	todoUsedSinceSettled: boolean;
-	completedIdleTurns: number;
-	widgetHidden: boolean;
 }
 
 export interface TodoFeature {
@@ -99,10 +99,6 @@ export interface TodoFeature {
 
 export interface TodoFeatureOptions {
 	readonly now?: () => number;
-}
-
-function escapeReminderText(value: string): string {
-	return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
 function canonicalPositiveInteger(value: unknown): number | undefined {
@@ -139,7 +135,10 @@ function todoReminder(current: ActiveTodoRuntime): string | undefined {
 		.filter((task) => task.status === "pending")
 		.sort((left, right) => left.id - right.id)
 		.map((task) => `#${task.id}`);
-	return `<system-reminder>\nActive TODO: #${activeTask.id} ${escapeReminderText(activeTask.subject)}.\nPending TODOS: ${pending.length > 0 ? pending.join(", ") : "none"}\n</system-reminder>`;
+	const lines = ["<system-reminder>", `Active TODO: #${activeTask.id}`];
+	if (pending.length > 0) lines.push(`Pending TODOs: ${pending.join(" ")}`);
+	lines.push("</system-reminder>");
+	return lines.join("\n");
 }
 
 function taskIds(state: TaskState, status: TaskStatus): string | undefined {
@@ -154,7 +153,7 @@ function formatTodoGuidance(state: TaskState): string {
 	const active = activeTodoTask(state);
 	if (active) return `Next: #${active.id} ${active.subject}.`;
 	const blocked = taskIds(state, "blocked");
-	if (blocked) return `Only blocked todos ${blocked} left. Discuss to the user.`;
+	if (blocked) return `Only blocked todos ${blocked} left. Agree next steps with the user.`;
 	return "Finished all todos.";
 }
 
@@ -249,6 +248,56 @@ function formatTodoResult(
 	return lines.join("\n");
 }
 
+function renderTodoCall(value: unknown, theme: Theme): Text {
+	const title = theme.fg("toolTitle", theme.bold("todo"));
+	if (!value || typeof value !== "object") return new Text(title, 0, 0);
+	const operations = (value as { readonly operations?: unknown }).operations;
+	if (!Array.isArray(operations) || operations.length === 0) return new Text(title, 0, 0);
+	const records = operations.filter(
+		(operation): operation is Record<string, unknown> =>
+			typeof operation === "object" && operation !== null,
+	);
+	const list = records[0];
+	let summary: string;
+	if (records.length === 1 && list?.action === "list") {
+		summary = `☰${typeof list.status === "string" ? ` ${list.status.replaceAll("_", " ")}` : ""}`;
+	} else {
+		const parts: string[] = [];
+		const creates = records.filter((operation) => operation.action === "create");
+		const updates = records.filter((operation) => operation.action === "update");
+		const deletes = records.filter((operation) => operation.action === "delete");
+		if (creates.length > 0) parts.push(`+${creates.length}`);
+		if (updates.length === 1) {
+			const id = updates[0]?.id;
+			parts.push(typeof id === "number" || typeof id === "string" ? `→ #${id}` : "→");
+		} else if (updates.length > 1) parts.push(`→${updates.length}`);
+		if (deletes.length === 1) {
+			const id = deletes[0]?.id;
+			parts.push(typeof id === "number" || typeof id === "string" ? `× #${id}` : "×");
+		} else if (deletes.length > 1) parts.push(`×${deletes.length}`);
+		summary = parts.join(" ");
+	}
+	return new Text(summary === "" ? title : `${title} ${theme.fg("muted", summary)}`, 0, 0);
+}
+
+function renderTodoResult(
+	result: { readonly details?: unknown },
+	theme: Theme,
+	isError: boolean,
+): Text {
+	if (isError) return new Text(theme.fg("error", "✗"), 0, 0);
+	const details = result.details;
+	if (!details || typeof details !== "object") return new Text(theme.fg("success", "✓"), 0, 0);
+	const snapshot = (details as { readonly snapshot?: unknown }).snapshot;
+	const state = validateTaskState(snapshot);
+	if (!state) return new Text(theme.fg("success", "✓"), 0, 0);
+	const active = activeTodoTask(state);
+	if (active) return new Text(theme.fg("warning", `◐ #${active.id}`), 0, 0);
+	const blocked = state.tasks.filter((task) => task.status === "blocked").length;
+	if (blocked > 0) return new Text(theme.fg("warning", `⊘ ${blocked} blocked`), 0, 0);
+	return new Text(theme.fg("success", "✓ complete"), 0, 0);
+}
+
 function isStaleSessionContextError(error: unknown): boolean {
 	return /stale after session replacement/.test(String(error));
 }
@@ -268,12 +317,9 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 				current.idleTurns = 0;
 				current.reminderWindowStartedAtMs = now();
 				current.todoChangedThisTurn = false;
-				current.todoUsedSinceSettled = false;
-				current.completedIdleTurns = 0;
-				current.widgetHidden = false;
 			}
-			if (current.widgetHidden) current.widget?.hide();
-			else current.widget?.refresh(current.state);
+			if (kind === "tree") current.widget?.hideCompleted();
+			current.widget?.refresh(current.state, false);
 		} catch (error) {
 			if (!isStaleSessionContextError(error)) throw error;
 		}
@@ -288,6 +334,12 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 		parameters: TODO_PARAMETERS,
 		prepareArguments: prepareTodoArguments,
 		executionMode: "sequential",
+		renderCall(args, theme) {
+			return renderTodoCall(args, theme);
+		},
+		renderResult(result, _options, theme, context) {
+			return renderTodoResult(result, theme, context.isError);
+		},
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			signal?.throwIfAborted();
 			const current = active;
@@ -305,9 +357,6 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 				current.reminderWindowStartedAtMs = now();
 				current.todoChangedThisTurn = true;
 			}
-			current.todoUsedSinceSettled = true;
-			current.completedIdleTurns = 0;
-			current.widgetHidden = false;
 			return {
 				content: [{ type: "text", text: formatTodoResult(todoParams, result) }],
 				details: { snapshot: snapshotFromState(current.state) },
@@ -360,8 +409,6 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 			current.idleTurns = 0;
 			current.reminderWindowStartedAtMs = now();
 			current.todoChangedThisTurn = true;
-			current.completedIdleTurns = 0;
-			current.widgetHidden = false;
 			current.widget?.refresh(current.state);
 			const lines = [`Suppressed #${id}`, formatTodoGuidance(result.state)];
 			ctx.ui.notify(lines.join("\n"), "info");
@@ -419,29 +466,10 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 			return;
 		current.idleTurns++;
 	});
-	pi.on("agent_settled", async (_event, ctx) => {
+	pi.on("agent_start", async (_event, ctx) => {
 		const current = active;
 		if (!current || current.sessionId !== ctx.sessionManager.getSessionId()) return;
-		const incomplete = current.state.tasks.some(
-			(task) =>
-				task.status === "pending" || task.status === "in_progress" || task.status === "blocked",
-		);
-		if (incomplete) {
-			current.completedIdleTurns = 0;
-			current.todoUsedSinceSettled = false;
-			return;
-		}
-		if (current.state.tasks.length === 0 || current.todoUsedSinceSettled) {
-			current.completedIdleTurns = 0;
-			current.todoUsedSinceSettled = false;
-			return;
-		}
-		current.completedIdleTurns++;
-		if (current.completedIdleTurns >= TODO_COMPLETED_HIDE_TURNS) {
-			current.widgetHidden = true;
-			current.widget?.hide();
-		}
-		current.todoUsedSinceSettled = false;
+		current.widget?.hideCompleted();
 	});
 
 	pi.on("session_compact", async (_event, ctx) => refreshFromBranch("compact", ctx));
@@ -466,10 +494,7 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 				idleTurns: 0,
 				reminderWindowStartedAtMs: now(),
 				todoChangedThisTurn: false,
-				todoUsedSinceSettled: false,
-				completedIdleTurns: 0,
 				widget: undefined,
-				widgetHidden: false,
 			};
 			current.widget = createTodoWidget(runtime, state);
 			active = current;
