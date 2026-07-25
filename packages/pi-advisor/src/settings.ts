@@ -24,7 +24,7 @@ export function createAdvisorSettingsProvider(options: {
 		id: "pi-basics-advisor",
 		title: "Advisor",
 		origin: "@hheei/pi-basics",
-		description: "Read-only turn review.",
+		description: "Read-only turn review using the selected external model provider.",
 		groups: [
 			{
 				id: "advisor",
@@ -34,7 +34,7 @@ export function createAdvisorSettingsProvider(options: {
 						id: "model",
 						label: "Advisor model",
 						description:
-							"Select the authenticated model used for read-only Advisor reviews after settled turns.",
+							"Select the authenticated model that receives resolved session context, turn evidence, and project files read during Advisor reviews.",
 						modelOptions: options.modelOptions ?? [{ value: "", label: "Not set" }],
 						thinking: {
 							fieldId: "thinking",
