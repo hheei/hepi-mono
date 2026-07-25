@@ -1,8 +1,12 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { saveRtkConfig } from "./config.js";
+import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { saveRtkConfig, settingsPath } from "./config.js";
 import type { RtkFeature } from "./feature.js";
 import { DEFAULT_RTK_INTEGRATION_CONFIG } from "./types.js";
-export function registerRtkCommand(pi: ExtensionAPI, feature: RtkFeature): void {
+export function registerRtkCommand(
+	pi: ExtensionAPI,
+	feature: RtkFeature,
+	agentDir: string = getAgentDir(),
+): void {
 	pi.registerCommand("rtk", {
 		description: "RTK status and output compaction",
 		handler: async (args, ctx) => {
@@ -33,12 +37,12 @@ export function registerRtkCommand(pi: ExtensionAPI, feature: RtkFeature): void 
 			}
 			if (command === "reset") {
 				feature.setConfig(DEFAULT_RTK_INTEGRATION_CONFIG);
-				await saveRtkConfig(ctx.cwd ?? process.cwd(), DEFAULT_RTK_INTEGRATION_CONFIG);
+				await saveRtkConfig(agentDir, DEFAULT_RTK_INTEGRATION_CONFIG);
 				ctx.ui.notify("RTK settings reset", "info");
 				return;
 			}
 			if (command === "path") {
-				ctx.ui.notify(`${ctx.cwd ?? process.cwd()}/.pi/settings.json`, "info");
+				ctx.ui.notify(settingsPath(agentDir), "info");
 				return;
 			}
 			ctx.ui.notify(`Unknown /rtk command: ${command}`, "error");

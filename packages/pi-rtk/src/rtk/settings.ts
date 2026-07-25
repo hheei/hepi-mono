@@ -1,5 +1,5 @@
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type {
-	HePiContext,
 	HePiSettingField,
 	HePiSettingsProvider,
 	HePiSettingsState,
@@ -42,7 +42,10 @@ const fields: readonly HePiSettingField[] = [
 	},
 ];
 
-export function createRtkSettingsProvider(feature: RtkFeature): HePiSettingsProvider {
+export function createRtkSettingsProvider(
+	feature: RtkFeature,
+	agentDir: string = getAgentDir(),
+): HePiSettingsProvider {
 	return {
 		id: "pi-basics-rtk",
 		title: "RTK",
@@ -51,7 +54,7 @@ export function createRtkSettingsProvider(feature: RtkFeature): HePiSettingsProv
 		groups: [{ id: GROUP, title: "", fields }],
 		storage: {
 			async load(ctx: HePiContext) {
-				const config = (await loadRtkConfig(ctx.cwd ?? process.cwd())).config;
+				const config = (await loadRtkConfig(agentDir)).config;
 				return {
 					[GROUP]: {
 						mode: config.enabled ? config.mode : "off",
@@ -80,7 +83,7 @@ export function createRtkSettingsProvider(feature: RtkFeature): HePiSettingsProv
 						},
 					};
 				feature.setConfig(config);
-				await saveRtkConfig(ctx.cwd ?? process.cwd(), config);
+				await saveRtkConfig(agentDir, config);
 			},
 		},
 	};

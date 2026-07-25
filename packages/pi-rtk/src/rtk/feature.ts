@@ -1,4 +1,5 @@
 import {
+	getAgentDir,
 	type ExtensionAPI,
 	type ExtensionContext,
 	isToolCallEventType,
@@ -35,7 +36,7 @@ function mergeDetails(
 	const nested = toRecord(details.metadata);
 	return { ...details, rtkCompaction: metadata, metadata: { ...nested, rtkCompaction: metadata } };
 }
-export function createRtkFeature(): RtkFeature {
+export function createRtkFeature(agentDir: string = getAgentDir()): RtkFeature {
 	let sessionId: string | undefined;
 	let config = normalizeRtkIntegrationConfig(undefined);
 	let status: RuntimeStatus = { rtkAvailable: false };
@@ -96,7 +97,7 @@ export function createRtkFeature(): RtkFeature {
 			sessionOwner = new AbortController();
 			piRef = runtime.pi;
 			sessionId = runtime.ctx.sessionManager.getSessionId();
-			const loaded = await loadRtkConfig(runtime.ctx.cwd ?? process.cwd());
+			const loaded = await loadRtkConfig(agentDir);
 			config = loaded.config;
 			if (loaded.warning && runtime.ctx.hasUI) runtime.ctx.ui.notify(loaded.warning, "warning");
 			await refresh(true);
