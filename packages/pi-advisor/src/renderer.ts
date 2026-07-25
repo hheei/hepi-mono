@@ -12,12 +12,20 @@ export function createAdvisorMessageComponent(
 			if (width <= 0) return [];
 			const padding = width >= 3 ? 1 : 0;
 			const innerWidth = Math.max(1, width - padding * 2);
-			return notes.flatMap((note) =>
-				new Text(`[advisor ${note.severity}] ${note.note}`, 0, 0).render(innerWidth).map((line) => {
-					const padded = `${" ".repeat(padding)}${line}${" ".repeat(padding)}`;
-					return theme.bg("customMessageBg", theme.fg("dim", padded));
-				}),
-			);
+			return notes.flatMap((note) => {
+				const prefixRole =
+					note.severity === "blocker" ? "error" : note.severity === "concern" ? "warning" : "dim";
+				return new Text(`✦ [advisor ${note.severity}] ${note.note}`, 0, 0)
+					.render(innerWidth)
+					.map((line, index) => {
+						const content =
+							index === 0
+								? `${theme.fg(prefixRole, line.slice(0, 1))}${theme.fg("dim", line.slice(1))}`
+								: theme.fg("dim", line);
+						const padded = `${" ".repeat(padding)}${content}${" ".repeat(padding)}`;
+						return theme.bg("customMessageBg", padded);
+					});
+			});
 		},
 	};
 }
