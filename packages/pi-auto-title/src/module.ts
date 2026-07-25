@@ -355,7 +355,12 @@ export function createCoreAutoTitleAgent(
 			for (let index = agent.state.messages.length - 1; index >= 0; index--) {
 				const message = agent.state.messages[index];
 				if (message?.role !== "assistant") continue;
-				if (message.stopReason !== "stop" && message.stopReason !== "toolUse") return undefined;
+				if (
+					message.stopReason !== "stop" &&
+					message.stopReason !== "length" &&
+					message.stopReason !== "toolUse"
+				)
+					return undefined;
 				return message.content
 					.filter((part) => part.type === "text")
 					.map((part) => part.text)
