@@ -99,6 +99,7 @@ function fixture(enabled: boolean, adapter = fakeAdapter()) {
 	const handlers = new Map<string, Handler[]>();
 	const messages: Array<Record<string, unknown>> = [];
 	const notifications: Array<{ message: string; level: string | undefined }> = [];
+	const statuses = new Map<string, string | undefined>();
 	const deliveries: Array<{
 		message: Record<string, unknown>;
 		options: Record<string, unknown> | undefined;
@@ -120,6 +121,9 @@ function fixture(enabled: boolean, adapter = fakeAdapter()) {
 			notify(message: string, level?: string) {
 				notifications.push({ message, level });
 			},
+			setStatus(key: string, value: string | undefined) {
+				statuses.set(key, value);
+			},
 		},
 		sessionManager: {
 			getSessionId: () => "advisor-session",
@@ -135,7 +139,18 @@ function fixture(enabled: boolean, adapter = fakeAdapter()) {
 	} as unknown as HePiRuntimeContext;
 	const factory: AdvisorAdapterFactory = (_options: AdvisorAdapterOptions) => adapter;
 	const feature = createAdvisorFeature(factory);
-	return { adapter, ctx, deliveries, entries, feature, handlers, messages, notifications, runtime };
+	return {
+		adapter,
+		ctx,
+		deliveries,
+		entries,
+		feature,
+		handlers,
+		messages,
+		notifications,
+		runtime,
+		statuses,
+	};
 }
 
 async function waitFor(predicate: () => boolean, description: string): Promise<void> {
@@ -155,6 +170,14 @@ async function emit(
 }
 
 describe("Advisor feature lifecycle", () => {
+	test("publishes Advisor status for the session lifecycle", async () => {
+		const h = fixture(false);
+		await h.feature.start(h.runtime);
+		expect(h.statuses.get("advisor")).toBe("Advisor");
+		await h.feature.dispose("advisor-session");
+		expect(h.statuses.get("advisor")).toBeUndefined();
+	});
+
 	test("configure failure keeps old status and records lastError", async () => {
 		const h = fixture(true);
 		await h.feature.start(h.runtime);
