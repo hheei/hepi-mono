@@ -5,7 +5,12 @@ import {
 	buildTurnDelta,
 	estimateTokens,
 } from "../../src/context.js";
-import { collectFeedback, emptyFeedback, reconfirmFeedback } from "../../src/feedback.js";
+import {
+	collectFeedback,
+	emptyFeedback,
+	markFeedbackDelivered,
+	reconfirmFeedback,
+} from "../../src/feedback.js";
 import { decodeAdvisorBoundary, restoreAdvisor } from "../../src/persistence.js";
 import { ADVISOR_SYSTEM_PROMPT } from "../../src/prompt.js";
 
@@ -42,6 +47,24 @@ describe("advisor contracts", () => {
 		expect(
 			reconfirmFeedback(state, [{ severity: "blocker", note: "check auth" }]).deliverable,
 		).toHaveLength(2);
+	});
+	test("reconfirmation preserves severity escalation", () => {
+		const state = collectFeedback(emptyFeedback(), [{ severity: "concern", note: "same note" }]);
+		const reconfirmed = reconfirmFeedback(state, [{ severity: "blocker", note: " Same   Note " }]);
+		expect(reconfirmed.held).toEqual([{ severity: "blocker", note: "same note" }]);
+		expect(reconfirmed.deliverable).toEqual([{ severity: "blocker", note: "same note" }]);
+	});
+	test("remembers delivered severity and permits only escalation", () => {
+		const delivered = markFeedbackDelivered(
+			collectFeedback(emptyFeedback(), [{ severity: "nit", note: "same note" }]),
+			[{ severity: "nit", note: "same note" }],
+		);
+		expect(
+			collectFeedback(delivered, [{ severity: "nit", note: " Same   Note " }]).deliverable,
+		).toHaveLength(0);
+		expect(collectFeedback(delivered, [{ severity: "concern", note: "same note" }]).held).toEqual([
+			{ severity: "concern", note: "same note" },
+		]);
 	});
 	test("keeps a bounded review history while retaining the latest turn", () => {
 		const history = Array.from({ length: 12 }, (_, index) =>

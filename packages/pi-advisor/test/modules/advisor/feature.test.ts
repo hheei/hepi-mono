@@ -14,6 +14,8 @@ type Handler = (event: unknown, ctx: ExtensionContext) => unknown;
 interface FakeAdapter extends AdvisorAgentAdapter {
 	createCalls: number;
 	resetCalls: number;
+	abortCalls: number;
+	disposeCalls: number;
 	reviewPrompts: string[];
 	createFailures: number;
 	resetFailures: number;
@@ -32,6 +34,8 @@ function fakeAdapter(): FakeAdapter {
 		contextBudget: () => ({ contextWindow: 32768, responseReserve: 4096 }),
 		createCalls: 0,
 		resetCalls: 0,
+		abortCalls: 0,
+		disposeCalls: 0,
 		reviewPrompts: [],
 		createFailures: 0,
 		resetFailures: 0,
@@ -71,8 +75,12 @@ function fakeAdapter(): FakeAdapter {
 			return advice ?? [{ severity: "blocker", note: "check auth" }];
 		},
 		async compact() {},
-		async abort() {},
-		async dispose() {},
+		async abort() {
+			adapter.abortCalls++;
+		},
+		async dispose() {
+			adapter.disposeCalls++;
+		},
 		usage: () => ({ input: 0, output: 0, total: 0, cost: 0 }),
 		deferNextReview() {
 			deferredReviews++;
@@ -170,10 +178,14 @@ async function emit(
 }
 
 describe("Advisor feature lifecycle", () => {
-	test("publishes Advisor status for the session lifecycle", async () => {
+	test("publishes Advisor status only while enabled", async () => {
 		const h = fixture(false);
 		await h.feature.start(h.runtime);
+		expect(h.statuses.get("advisor")).toBeUndefined();
+		await h.feature.command("on", h.ctx as unknown as ExtensionCommandContext);
 		expect(h.statuses.get("advisor")).toBe("Advisor");
+		await h.feature.command("off", h.ctx as unknown as ExtensionCommandContext);
+		expect(h.statuses.get("advisor")).toBeUndefined();
 		await h.feature.dispose("advisor-session");
 		expect(h.statuses.get("advisor")).toBeUndefined();
 	});
@@ -204,23 +216,31 @@ describe("Advisor feature lifecycle", () => {
 		expect(h.adapter.createCalls).toBe(1);
 	});
 
-	test("/advisor toggles while explicit on and off stay idempotent", async () => {
+	test("/advisor shows status while explicit on and off stay idempotent", async () => {
 		const h = fixture(false);
 		await h.feature.start(h.runtime);
 
 		await h.feature.command("", h.ctx as unknown as ExtensionCommandContext);
-		expect(h.feature.status()).toMatchObject({ enabled: true, phase: "idle" });
-		expect(h.adapter.createCalls).toBe(1);
-		expect(h.notifications.at(-1)).toEqual({ message: "※ Advisor on", level: "info" });
+		expect(h.feature.status()).toMatchObject({ enabled: false, phase: "disabled" });
+		expect(h.adapter.createCalls).toBe(0);
+		expect(h.notifications.at(-1)?.message).toContain("model=not configured");
+		expect(h.notifications.at(-1)?.message).toContain("thinking=medium");
+		expect(h.notifications.at(-1)?.message).toContain("tokens=0");
 
 		await h.feature.command("on", h.ctx as unknown as ExtensionCommandContext);
 		expect(h.adapter.createCalls).toBe(1);
-		await h.feature.command("", h.ctx as unknown as ExtensionCommandContext);
-		expect(h.feature.status()).toMatchObject({ enabled: false, phase: "disabled" });
-		expect(h.notifications.at(-1)).toEqual({ message: "※ Advisor off", level: "info" });
+		await h.feature.command("on", h.ctx as unknown as ExtensionCommandContext);
+		expect(h.adapter.createCalls).toBe(1);
 
 		await h.feature.command("off", h.ctx as unknown as ExtensionCommandContext);
-		expect(h.feature.status().enabled).toBe(false);
+		expect(h.feature.status()).toMatchObject({ enabled: false, phase: "disabled" });
+		expect(h.adapter.abortCalls).toBe(1);
+		expect(h.adapter.disposeCalls).toBe(1);
+		await h.feature.command("off", h.ctx as unknown as ExtensionCommandContext);
+		expect(h.adapter.disposeCalls).toBe(1);
+
+		await h.feature.command("on", h.ctx as unknown as ExtensionCommandContext);
+		expect(h.adapter.createCalls).toBe(2);
 	});
 
 	test("/advisor on create failure stays disabled without an enabled boundary", async () => {
@@ -248,10 +268,12 @@ describe("Advisor feature lifecycle", () => {
 			phase: "disabled",
 			lastError: "bootstrap failed",
 		});
+		expect(h.statuses.get("advisor")).toBeUndefined();
 
 		await h.feature.command("on", h.ctx as unknown as ExtensionCommandContext);
 		expect(h.adapter.createCalls).toBe(2);
 		expect(h.feature.status()).toMatchObject({ enabled: true, phase: "idle" });
+		expect(h.statuses.get("advisor")).toBe("Advisor");
 	});
 
 	test("drops a stale reconfirm after disabling without delivering it", async () => {
@@ -266,7 +288,7 @@ describe("Advisor feature lifecycle", () => {
 		);
 		h.adapter.deferNextReview();
 		const reconfirm = emit(h, "agent_settled");
-		await waitFor(() => h.adapter.reviewPrompts.length === 1, "deferred review to start");
+		await waitFor(() => h.adapter.reviewPrompts.length === 2, "deferred review to start");
 		await h.feature.command("off", h.ctx as unknown as ExtensionCommandContext);
 		h.adapter.resolveReview([{ severity: "blocker", note: "check auth" }]);
 		await reconfirm;
@@ -337,6 +359,92 @@ describe("Advisor feature lifecycle", () => {
 		expect(h.feature.status()).toMatchObject({ phase: "idle", backlog: 0 });
 	});
 
+	test("reconfirms feedback when the initial review finishes after agent_settled", async () => {
+		const h = fixture(true);
+		h.adapter.deferNextReview();
+		await h.feature.start(h.runtime);
+		await emit(h, "turn_end", {
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "done" }],
+				stopReason: "stop",
+			},
+		});
+		await waitFor(() => h.feature.status().backlog === 1, "initial review to start");
+		await emit(h, "agent_settled");
+		h.adapter.resolveReview([{ severity: "blocker", note: "check auth" }]);
+		await waitFor(() => h.deliveries.length === 1, "late blocker delivery");
+
+		expect(h.adapter.reviewPrompts).toHaveLength(2);
+		expect(h.deliveries[0]?.options).toEqual({ deliverAs: "steer", triggerTurn: true });
+	});
+
+	test("restores enabled state from the selected branch", async () => {
+		const h = fixture(true);
+		await h.feature.start(h.runtime);
+		h.entries.push({
+			type: "custom",
+			customType: "pi-basics-advisor-mode",
+			data: { version: 1, enabled: false },
+		});
+		await emit(h, "session_tree");
+		expect(h.feature.status()).toMatchObject({ enabled: false, phase: "disabled" });
+		expect(h.statuses.get("advisor")).toBeUndefined();
+		expect(h.adapter.disposeCalls).toBe(1);
+
+		h.entries.push({
+			type: "custom",
+			customType: "pi-basics-advisor-mode",
+			data: { version: 1, enabled: true },
+		});
+		await emit(h, "session_tree");
+		expect(h.feature.status()).toMatchObject({ enabled: true, phase: "idle" });
+		expect(h.statuses.get("advisor")).toBe("Advisor");
+		expect(h.adapter.createCalls).toBe(2);
+	});
+
+	test("delivers reconfirmed severity escalation and deduplicates it", async () => {
+		const h = fixture(true);
+		h.adapter.nextAdvice = [{ severity: "concern", note: "unsafe change" }];
+		await h.feature.start(h.runtime);
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "first" }] },
+		});
+		await waitFor(() => h.feature.status().backlog === 0, "concern review to complete");
+		h.adapter.nextAdvice = [{ severity: "blocker", note: "unsafe change" }];
+		await emit(h, "agent_settled");
+		await waitFor(() => h.deliveries.length === 1, "blocker delivery");
+		const delivery = h.deliveries[0];
+		if (delivery === undefined) throw new Error("Expected blocker delivery");
+		expect(
+			(delivery.message.details as { notes?: readonly AdvisorAdvice[] } | undefined)?.notes,
+		).toEqual([{ severity: "blocker", note: "unsafe change" }]);
+
+		h.adapter.nextAdvice = [{ severity: "concern", note: "unsafe change" }];
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "second" }] },
+		});
+		await waitFor(() => h.feature.status().backlog === 0, "downgraded review to complete");
+		expect(h.deliveries).toHaveLength(1);
+	});
+
+	test("does not redeliver the same nit", async () => {
+		const h = fixture(true);
+		h.adapter.nextAdvice = [{ severity: "nit", note: "minor cleanup" }];
+		await h.feature.start(h.runtime);
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "first" }] },
+		});
+		await waitFor(() => h.deliveries.length === 1, "first nit delivery");
+
+		h.adapter.nextAdvice = [{ severity: "nit", note: " Minor   Cleanup " }];
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "second" }] },
+		});
+		await waitFor(() => h.feature.status().backlog === 0, "second review to complete");
+		expect(h.deliveries).toHaveLength(1);
+	});
+
 	test("ordinary nits steer once without reconfirmation", async () => {
 		const h = fixture(true);
 		h.adapter.nextAdvice = [{ severity: "nit", note: "minor cleanup" }];
@@ -392,6 +500,7 @@ describe("Advisor feature lifecycle", () => {
 		});
 		await waitFor(() => h.adapter.reviewPrompts.length > 0, "review to start");
 		await emit(h, "agent_settled");
+		await waitFor(() => h.deliveries.length === 1, "normal delivery");
 
 		expect(h.deliveries).toHaveLength(1);
 		expect(h.deliveries[0]?.options).toEqual({ deliverAs: "steer", triggerTurn: true });
@@ -399,6 +508,7 @@ describe("Advisor feature lifecycle", () => {
 
 	test("later normal turn clears aborted primary state", async () => {
 		const h = fixture(true);
+		h.adapter.nextAdvice = [{ severity: "blocker", note: "first issue" }];
 		await h.feature.start(h.runtime);
 
 		await emit(h, "turn_end", {
@@ -408,9 +518,12 @@ describe("Advisor feature lifecycle", () => {
 				stopReason: "aborted",
 			},
 		});
-		await waitFor(() => h.adapter.reviewPrompts.length > 0, "review to start");
+		await waitFor(() => h.feature.status().backlog === 0, "first review to complete");
+		h.adapter.nextAdvice = [{ severity: "blocker", note: "first issue" }];
 		await emit(h, "agent_settled");
+		await waitFor(() => h.deliveries.length === 1, "first delivery");
 
+		h.adapter.nextAdvice = [{ severity: "blocker", note: "second issue" }];
 		await emit(h, "turn_end", {
 			message: {
 				role: "assistant",
@@ -418,10 +531,12 @@ describe("Advisor feature lifecycle", () => {
 				stopReason: "stop",
 			},
 		});
-		await waitFor(() => h.adapter.reviewPrompts.length > 0, "review to start");
+		await waitFor(() => h.feature.status().backlog === 0, "second review to complete");
+		h.adapter.nextAdvice = [{ severity: "blocker", note: "second issue" }];
 		await emit(h, "agent_settled");
+		await waitFor(() => h.deliveries.length === 2, "second delivery");
 
-		expect(h.deliveries).toHaveLength(2);
+		expect(h.deliveries[0]?.options).toEqual({ deliverAs: "steer", triggerTurn: false });
 		expect(h.deliveries[1]?.options).toEqual({ deliverAs: "steer", triggerTurn: true });
 	});
 
@@ -443,7 +558,7 @@ describe("Advisor feature lifecycle", () => {
 					toolCallId: "call-feature",
 					isError: false,
 					content: [{ type: "text", text: "result text" }],
-					details: "FEATURE_DIFF_MARKER",
+					details: { diff: "FEATURE_DIFF_MARKER" },
 				},
 			],
 		});
@@ -451,7 +566,7 @@ describe("Advisor feature lifecycle", () => {
 		const prompt = h.adapter.reviewPrompts.at(-1) ?? "";
 		expect(prompt).toContain("assistant visible");
 		expect(prompt).toContain("call-feature");
-		expect(prompt).toContain("result text");
+		expect(prompt).not.toContain("result text");
 		expect(prompt).toContain("FEATURE_DIFF_MARKER");
 		expect(prompt).not.toContain("FEATURE_THINKING_SECRET");
 	});
