@@ -1,6 +1,6 @@
 # Package Catalogue
 
-Every workspace under `packages/` is maintained by HEPI and published under the `@hheei` scope. Choose either the unified `@hheei/hepi-mono` package or individual feature packages. Do not enable both for the same feature.
+Every HEPI workspace under `packages/` is maintained and published under the `@hheei` scope. The optional `pi-magic-context` entry is an upstream git submodule, not a HEPI-owned workspace. Feature packages require `@hheei/pi-basics` unless noted otherwise.
 
 | Package | Purpose | HEPI prerequisite |
 | --- | --- | --- |
@@ -16,6 +16,7 @@ Every workspace under `packages/` is maintained by HEPI and published under the 
 | [`pi-fix`](../../packages/pi-fix/README.md) | Host and provider compatibility fixes | Pi Basics |
 | [`pi-goal`](../../packages/pi-goal/README.md) | Branch-local objective tracking | Pi Basics |
 | [`pi-loadout`](../../packages/pi-loadout/README.md) | Tool, skill, and MCP activation | Pi Basics |
+| [`pi-magic-context`](../../packages/pi-magic-context/packages/pi-plugin/README.md) | Upstream Magic Context Pi extension | Upstream submodule |
 | [`pi-plan`](../../packages/pi-plan/README.md) | Planning workflow | Pi Basics |
 | [`pi-ponytail`](../../packages/pi-ponytail/README.md) | Minimal engineering mode and companion skills | Pi Basics |
 | [`pi-rtk`](../../packages/pi-rtk/README.md) | Shell rewriting and output compaction | Pi Basics |

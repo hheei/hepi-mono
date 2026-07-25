@@ -15,5 +15,5 @@
 		"types": ["node", "bun"]
 	},
 	"include": ["packages/*/**/*.ts", "test/**/*.ts"],
-	"exclude": ["**/node_modules/**", "**/dist/**", "**/.pi/**"]
+	"exclude": ["packages/pi-magic-context/**", "**/node_modules/**", "**/dist/**", "**/.pi/**"]
 }
