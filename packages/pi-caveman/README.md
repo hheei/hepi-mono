@@ -39,7 +39,7 @@ The extension also recognizes explicit English activation phrases such as `talk 
 
 ## Defaults
 
-With `@hheei/pi-basics` loaded, open `/hepi setting` and select **Caveman defaults**. Two enum fields are available:
+With `@hheei/pi-basics` loaded, open `/ext-settings` and select **Caveman defaults**. Two enum fields are available:
 
 - `Main agent mode`: default for the interactive Pi session.
 - `Subagent mode`: default for agents launched through `pi-subagents`.

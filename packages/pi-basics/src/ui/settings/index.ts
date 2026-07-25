@@ -92,7 +92,7 @@ export function createSettingsModule(options: SettingsModuleOptions): SettingsMo
 	const module: SettingsModule = {
 		id: "setting",
 		label: "Settings",
-		commands: ["setting", "loadout"],
+		commands: ["loadout"],
 		get controller() {
 			return controller;
 		},
