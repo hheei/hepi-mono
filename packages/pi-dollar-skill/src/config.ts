@@ -1,7 +1,7 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { updateJsonSettingsRoot } from "@hheei/pi-basics";
 import {
 	DEFAULT_DOLLAR_SKILL_CONFIG,
 	type DollarSkillConfig,
@@ -45,7 +45,9 @@ export function dollarSkillSettingsPath(settingsDirectory = getAgentDir()): stri
 	return join(settingsDirectory, "settings.json");
 }
 
-export async function loadDollarSkillConfig(settingsDirectory = getAgentDir()): Promise<DollarSkillConfig> {
+export async function loadDollarSkillConfig(
+	settingsDirectory = getAgentDir(),
+): Promise<DollarSkillConfig> {
 	const root = await readRoot(dollarSkillSettingsPath(settingsDirectory));
 	const section = root[SECTION];
 	return normalizeDollarSkillConfig(
@@ -58,19 +60,10 @@ export async function saveDollarSkillConfig(
 	config: DollarSkillConfig,
 ): Promise<void> {
 	const path = dollarSkillSettingsPath(settingsDirectory);
-	const root = await readRoot(path);
-	const existing = root[SECTION];
-	const section = isJsonObject(existing) ? { ...existing } : {};
-	section[DOLLAR_SKILL_SETTINGS_GROUP] = normalizeDollarSkillConfig(config);
-	root[SECTION] = section;
-	const directory = dirname(path);
-	await mkdir(directory, { recursive: true });
-	const temporary = join(directory, `.${basename(path)}.${randomUUID()}.tmp`);
-	try {
-		await writeFile(temporary, `${JSON.stringify(root, null, 2)}\n`, "utf8");
-		await rename(temporary, path);
-	} catch (error) {
-		await rm(temporary, { force: true }).catch(() => undefined);
-		throw error;
-	}
+	await updateJsonSettingsRoot(path, (root) => {
+		const existing = root[SECTION];
+		const section = isJsonObject(existing) ? { ...existing } : {};
+		section[DOLLAR_SKILL_SETTINGS_GROUP] = normalizeDollarSkillConfig(config);
+		root[SECTION] = section;
+	});
 }

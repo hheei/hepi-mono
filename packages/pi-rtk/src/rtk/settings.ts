@@ -1,9 +1,5 @@
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import type {
-	HePiSettingField,
-	HePiSettingsProvider,
-	HePiSettingsState,
-} from "@hheei/pi-basics";
+import type { HePiSettingField, HePiSettingsProvider, HePiSettingsState } from "@hheei/pi-basics";
 import { loadRtkConfig, saveRtkConfig } from "./config.js";
 import type { RtkFeature } from "./feature.js";
 
@@ -53,7 +49,7 @@ export function createRtkSettingsProvider(
 		description: "RTK command rewriting and tool output compaction.",
 		groups: [{ id: GROUP, title: "", fields }],
 		storage: {
-			async load(ctx: HePiContext) {
+			async load() {
 				const config = (await loadRtkConfig(agentDir)).config;
 				return {
 					[GROUP]: {
@@ -62,7 +58,7 @@ export function createRtkSettingsProvider(
 					},
 				} as HePiSettingsState;
 			},
-			async save(state: HePiSettingsState, ctx: HePiContext) {
+			async save(state: HePiSettingsState) {
 				let config = feature.getConfig();
 				const mode = state[GROUP]?.mode as RtkModeSetting | undefined;
 				if (mode !== undefined) {
@@ -83,7 +79,7 @@ export function createRtkSettingsProvider(
 						},
 					};
 				feature.setConfig(config);
-				await saveRtkConfig(agentDir, config);
+				await saveRtkConfig(config, agentDir);
 			},
 		},
 	};

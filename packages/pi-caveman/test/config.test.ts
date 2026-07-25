@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventBus, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -48,7 +48,7 @@ describe("Caveman HEPI settings", () => {
 			"pi-caveman": { defaults: { mainMode: "lite", subagentMode: "wenyan-ultra" } },
 		});
 
-		expect(await loadCavemanDefaults(cwd)).toEqual({
+		expect(await loadCavemanDefaults(join(cwd, "settings.json"))).toEqual({
 			mainMode: "lite",
 			subagentMode: "wenyan-ultra",
 		});
@@ -59,7 +59,10 @@ describe("Caveman HEPI settings", () => {
 			"pi-caveman": { defaults: { mainMode: "verbose", subagentMode: "off" } },
 		});
 
-		expect(await loadCavemanDefaults(cwd)).toEqual({ mainMode: "full", subagentMode: "off" });
+		expect(await loadCavemanDefaults(join(cwd, "settings.json"))).toEqual({
+			mainMode: "full",
+			subagentMode: "off",
+		});
 	});
 
 	test("provider exposes enum fields and preserves unrelated settings", async () => {
@@ -67,7 +70,9 @@ describe("Caveman HEPI settings", () => {
 			"pi-basics": { goal: { enabled: true } },
 			other: { value: 42 },
 		});
-		const provider = createCavemanSettingsProvider({ settingsFilePath: join(cwd, "settings.json") });
+		const provider = createCavemanSettingsProvider({
+			settingsFilePath: join(cwd, "settings.json"),
+		});
 		const group = provider.groups[0];
 
 		expect(group?.fields.map((field) => field.id)).toEqual([

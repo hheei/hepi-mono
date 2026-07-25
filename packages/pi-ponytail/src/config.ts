@@ -1,13 +1,7 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import type {
-	HePiContext,
-	HePiSettingField,
-	HePiSettingsProvider,
-	HePiSettingsState,
-} from "@hheei/pi-basics";
+import type { HePiSettingField, HePiSettingsProvider, HePiSettingsState } from "@hheei/pi-basics";
 import {
 	DEFAULT_PONYTAIL_MODE,
 	isPonytailIntensity,
@@ -85,17 +79,17 @@ export function createPonytailSettingsProvider(
 			},
 		],
 		storage: {
-			async load(ctx: HePiContext): Promise<HePiSettingsState> {
+			async load(): Promise<HePiSettingsState> {
 				return defaultsToState(await loadPonytailDefaults(settingsFilePath));
 			},
-			async save(state: HePiSettingsState, ctx: HePiContext): Promise<void> {
-				const path = settingsFilePath;
-				const root = await readRootForUpdate(path);
-				const currentSection = asRecord(root[PONYTAIL_SETTINGS_PROVIDER_ID]);
-				const nextSection: JsonObject = currentSection === undefined ? {} : { ...currentSection };
-				nextSection[PONYTAIL_DEFAULTS_GROUP] = defaultsFromState(state);
-				root[PONYTAIL_SETTINGS_PROVIDER_ID] = nextSection;
-				await writeRoot(path, root);
+			async save(state: HePiSettingsState): Promise<void> {
+				const { updateJsonSettingsRoot } = await import("@hheei/pi-basics");
+				await updateJsonSettingsRoot(settingsFilePath, (root) => {
+					const currentSection = asRecord(root[PONYTAIL_SETTINGS_PROVIDER_ID]);
+					const nextSection: JsonObject = currentSection === undefined ? {} : { ...currentSection };
+					nextSection[PONYTAIL_DEFAULTS_GROUP] = defaultsFromState(state);
+					root[PONYTAIL_SETTINGS_PROVIDER_ID] = nextSection;
+				});
 			},
 		},
 	};
@@ -155,22 +149,6 @@ function normalizeBoolean(value: unknown, fallback: boolean): boolean {
 
 function defaultSettingsPath(): string {
 	return join(getAgentDir(), "settings.json");
-}
-
-async function readRootForUpdate(path: string): Promise<JsonObject> {
-	try {
-		return parseJsonObject(await readFile(path, "utf8"));
-	} catch (error) {
-		if (isMissingFile(error)) return {};
-		throw error;
-	}
-}
-
-async function writeRoot(path: string, root: JsonObject): Promise<void> {
-	await mkdir(dirname(path), { recursive: true });
-	const temporary = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
-	await writeFile(temporary, `${JSON.stringify(root, null, 2)}\n`, "utf8");
-	await rename(temporary, path);
 }
 
 function parseJsonObject(text: string): JsonObject {

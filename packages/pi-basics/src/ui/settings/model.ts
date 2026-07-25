@@ -125,7 +125,11 @@ export function cycleOption<T extends boolean | number | string>(
 ): T {
 	if (!field.options?.length) throw new Error(`Setting has no options: ${field.id}`);
 	const index = field.options.findIndex((option) => Object.is(option.value, value));
-	if (index < 0) return direction >= 0 ? field.options[0]!.value : field.options.at(-1)!.value;
+	if (index < 0) {
+		const fallback = direction >= 0 ? field.options[0] : field.options.at(-1);
+		if (!fallback) throw new Error(`Setting has no options: ${field.id}`);
+		return fallback.value;
+	}
 	const option = field.options[(index + direction + field.options.length) % field.options.length];
 	if (!option) throw new Error(`Invalid option for setting: ${field.id}`);
 	return option.value;

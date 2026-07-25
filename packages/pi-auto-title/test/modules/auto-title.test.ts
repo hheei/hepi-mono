@@ -17,12 +17,12 @@ const context = (cwd: string) => ({ sessionId: "s", cwd });
 const LONG_SESSION_CONTEXT = "x".repeat(501);
 
 describe("Pi Basics auto-title", () => {
-	test("parses exact provider/model and preserves project packages", async () => {
+	test("parses exact provider/model and preserves global settings", async () => {
 		expect(parseModelRef("provider/model")).toEqual({ provider: "provider", model: "model" });
 		expect(() => parseModelRef("provider/model/extra")).toThrow();
 		const dir = await mkdtemp(join(tmpdir(), "pi-basics-title-"));
 		try {
-			const path = join(dir, ".pi", "settings.json");
+			const path = join(dir, "settings.json");
 			await Bun.write(path, JSON.stringify({ packages: ["npm:pi-subagents"], other: true }));
 			const storage = createAutoTitleStorage({ path });
 			await storage.save(
@@ -40,13 +40,18 @@ describe("Pi Basics auto-title", () => {
 	test("shares the settings write queue with other Pi Basics providers", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "pi-basics-title-concurrent-"));
 		try {
-			const title = createAutoTitleStorage();
-			const other = createJsonSectionSettingsStorage({ section: "pi-basics", group: "other" });
+			const path = join(dir, "settings.json");
+			const title = createAutoTitleStorage({ path });
+			const other = createJsonSectionSettingsStorage({
+				path,
+				section: "pi-basics",
+				group: "other",
+			});
 			await Promise.all([
 				title.save({ "auto-title": { autoTitle: true } }, context(dir)),
 				other.save({ other: { enabled: true } }, context(dir)),
 			]);
-			const root = JSON.parse(await readFile(join(dir, ".pi", "settings.json"), "utf8"));
+			const root = JSON.parse(await readFile(path, "utf8"));
 			expect(root["pi-basics"]).toEqual({
 				"auto-title": { autoTitle: true },
 				other: { enabled: true },

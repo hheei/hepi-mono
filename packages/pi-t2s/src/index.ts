@@ -2,10 +2,9 @@ export { default } from "./extension.js";
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
-	type HePiContext,
 	type HePiSettingField,
 	type HePiSettingsProvider,
 	type HePiSettingsState,
@@ -156,7 +155,7 @@ export function createTraditionalToSimplifiedSettingsProvider(
 			},
 		],
 		storage: {
-			async load(ctx: HePiContext) {
+			async load() {
 				const root = await loadSettings(settingsPath(settingsDirectory));
 				const section = root[SETTINGS_SECTION];
 				if (
@@ -175,7 +174,7 @@ export function createTraditionalToSimplifiedSettingsProvider(
 					[TRADITIONAL_TO_SIMPLIFIED_GROUP]: { mode: parseStoredMode(values as JsonObject) },
 				};
 			},
-			async save(state: HePiSettingsState, ctx: HePiContext) {
+			async save(state: HePiSettingsState) {
 				const path = settingsPath(settingsDirectory);
 				const mode = parseStoredMode(state[TRADITIONAL_TO_SIMPLIFIED_GROUP] ?? {});
 				await updateJsonSettingsRoot(path, (root) => {

@@ -1,6 +1,7 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { updateJsonSettingsRoot } from "@hheei/pi-basics";
 import { normalizeRtkIntegrationConfig } from "./config-store.js";
 import { DEFAULT_RTK_INTEGRATION_CONFIG, type RtkIntegrationConfig } from "./types.js";
 
@@ -41,18 +42,15 @@ export async function loadRtkConfig(
 	}
 }
 export async function saveRtkConfig(
-	agentDir: string = getAgentDir(),
 	config: RtkIntegrationConfig,
+	agentDir: string = getAgentDir(),
 ): Promise<void> {
 	const path = settingsPath(agentDir);
-	const root = await readRoot(path);
-	const prior = root[SECTION];
-	const section =
-		prior && typeof prior === "object" && !Array.isArray(prior) ? { ...(prior as Json) } : {};
-	section[GROUP] = normalizeRtkIntegrationConfig(config);
-	root[SECTION] = section;
-	await mkdir(dirname(path), { recursive: true });
-	const tmp = `${path}.rtk.tmp`;
-	await writeFile(tmp, `${JSON.stringify(root, null, 2)}\n`, "utf8");
-	await rename(tmp, path);
+	await updateJsonSettingsRoot(path, (root) => {
+		const prior = root[SECTION];
+		const section =
+			prior && typeof prior === "object" && !Array.isArray(prior) ? { ...(prior as Json) } : {};
+		section[GROUP] = normalizeRtkIntegrationConfig(config);
+		root[SECTION] = section;
+	});
 }

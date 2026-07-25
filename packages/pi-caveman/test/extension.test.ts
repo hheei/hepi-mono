@@ -166,12 +166,15 @@ describe("pi-caveman extension", () => {
 	});
 
 	test("restores state, injects prompt, and persists command changes", async () => {
+		const cwd = await createSettingsProject("full", "full");
 		const harness = createHarness();
-		await piCavemanExtension(harness.pi);
+		await piCavemanExtension(harness.pi, {
+			settingsFilePath: join(cwd, ".pi", "settings.json"),
+		});
 		const branch = [
 			{ type: "custom", customType: "pi-caveman-state", data: { version: 1, mode: "lite" } },
 		];
-		const { ctx, statuses, notifications } = createContext(branch);
+		const { ctx, statuses, notifications } = createContext(branch, cwd);
 
 		await harness.sessionStart?.({}, ctx);
 		expect(statuses).toEqual([]);
@@ -193,9 +196,12 @@ describe("pi-caveman extension", () => {
 	});
 
 	test("natural-language deactivation removes prompt without showing status", async () => {
+		const cwd = await createSettingsProject("full", "full");
 		const harness = createHarness();
-		await piCavemanExtension(harness.pi);
-		const { ctx, statuses } = createContext();
+		await piCavemanExtension(harness.pi, {
+			settingsFilePath: join(cwd, ".pi", "settings.json"),
+		});
+		const { ctx, statuses } = createContext([], cwd);
 		await harness.sessionStart?.({}, ctx);
 
 		harness.input?.({ text: "normal mode", source: "interactive" }, ctx);
@@ -212,7 +218,9 @@ describe("pi-caveman extension", () => {
 	test("uses subagent default and avoids duplicate marker injection", async () => {
 		const cwd = await createSettingsProject("lite", "ultra");
 		const harness = createHarness({ sessionName: "Explore#deadbeef", toolNames: ["read"] });
-		await piCavemanExtension(harness.pi);
+		await piCavemanExtension(harness.pi, {
+			settingsFilePath: join(cwd, ".pi", "settings.json"),
+		});
 		const { ctx } = createContext([], cwd);
 		await harness.sessionStart?.({}, ctx);
 
@@ -230,7 +238,9 @@ describe("pi-caveman extension", () => {
 	test("injects configured mode into pi-subagents Agent tool prompts", async () => {
 		const cwd = await createSettingsProject("lite", "wenyan-full");
 		const harness = createHarness();
-		await piCavemanExtension(harness.pi);
+		await piCavemanExtension(harness.pi, {
+			settingsFilePath: join(cwd, ".pi", "settings.json"),
+		});
 		const { ctx } = createContext([], cwd);
 		await harness.sessionStart?.({}, ctx);
 		const input = { prompt: "Review the diff" };

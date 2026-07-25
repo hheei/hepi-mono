@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	createApplyPatchGuardSettingsProvider,
@@ -128,29 +128,28 @@ describe("apply_patch guard", () => {
 	test("uses independent temporary files for concurrent saves", async () => {
 		const cwd = await mkdtemp(join(process.env.TMPDIR ?? "/tmp", "guard-patch-concurrent-"));
 		const h = harness();
-		const provider = createApplyPatchGuardSettingsProvider(h.guard);
+		const provider = createApplyPatchGuardSettingsProvider(h.guard, { agentDir: cwd });
 
 		await Promise.all([
 			provider.storage.save({ guardPatch: { mode: "on" } }, { sessionId: "a", cwd }),
 			provider.storage.save({ guardPatch: { mode: "off" } }, { sessionId: "b", cwd }),
 		]);
 
-		const entries = await readdir(join(cwd, ".pi"));
+		const entries = await readdir(cwd);
 		expect(entries.filter((entry) => entry.endsWith(".tmp"))).toEqual([]);
 	});
 
 	test("persists mode without discarding other Pi Basics settings", async () => {
 		const cwd = await mkdtemp(join(process.env.TMPDIR ?? "/tmp", "guard-patch-"));
-		await mkdir(join(cwd, ".pi"));
 		await writeFile(
-			join(cwd, ".pi", "settings.json"),
+			join(cwd, "settings.json"),
 			JSON.stringify({ "pi-basics": { rtk: { mode: "suggest" } } }),
 		);
 		const h = harness();
-		const provider = createApplyPatchGuardSettingsProvider(h.guard);
+		const provider = createApplyPatchGuardSettingsProvider(h.guard, { agentDir: cwd });
 		await provider.storage.save({ guardPatch: { mode: "off" } }, { sessionId: "test", cwd });
 		const loaded = await provider.storage.load({ sessionId: "test", cwd });
-		const root: unknown = JSON.parse(await readFile(join(cwd, ".pi", "settings.json"), "utf8"));
+		const root: unknown = JSON.parse(await readFile(join(cwd, "settings.json"), "utf8"));
 
 		expect(loaded).toEqual({ guardPatch: { mode: "off" } });
 		expect(h.guard.getMode()).toBe("off");

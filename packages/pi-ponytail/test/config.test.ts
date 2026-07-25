@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventBus, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -21,8 +21,7 @@ afterEach(async () => {
 async function createProject(settings: unknown): Promise<string> {
 	const cwd = await mkdtemp(join(tmpdir(), "pi-ponytail-config-"));
 	temporaryDirectories.push(cwd);
-	await mkdir(join(cwd, ".pi"));
-	await writeFile(join(cwd, ".pi", "settings.json"), `${JSON.stringify(settings, null, 2)}\n`);
+	await writeFile(join(cwd, "settings.json"), `${JSON.stringify(settings, null, 2)}\n`);
 	return cwd;
 }
 
@@ -53,7 +52,7 @@ describe("Ponytail HEPI settings", () => {
 				},
 			},
 		});
-		expect(await loadPonytailDefaults(cwd)).toEqual({
+		expect(await loadPonytailDefaults(join(cwd, "settings.json"))).toEqual({
 			mainMode: "lite",
 			subagentMode: "ultra",
 			hideStatus: true,
@@ -61,9 +60,11 @@ describe("Ponytail HEPI settings", () => {
 		});
 	});
 
-	test("provider preserves unrelated project settings", async () => {
+	test("provider preserves unrelated global settings", async () => {
 		const cwd = await createProject({ "pi-basics": { goal: { enabled: true } }, other: 42 });
-		const provider = createPonytailSettingsProvider();
+		const provider = createPonytailSettingsProvider({
+			settingsFilePath: join(cwd, "settings.json"),
+		});
 		expect(provider.groups[0]?.fields.map((field) => field.id)).toEqual([
 			"mainMode",
 			"subagentMode",
@@ -81,7 +82,7 @@ describe("Ponytail HEPI settings", () => {
 			{ sessionId: "test", cwd },
 		);
 
-		const root: unknown = JSON.parse(await readFile(join(cwd, ".pi", "settings.json"), "utf8"));
+		const root: unknown = JSON.parse(await readFile(join(cwd, "settings.json"), "utf8"));
 		expect(root).toEqual({
 			"pi-basics": { goal: { enabled: true } },
 			other: 42,

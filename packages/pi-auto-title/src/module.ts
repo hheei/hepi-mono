@@ -1,4 +1,3 @@
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Agent } from "@earendil-works/pi-agent-core";
@@ -6,6 +5,7 @@ import {
 	convertToLlm,
 	type ExtensionAPI,
 	type ExtensionContext,
+	getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import {
 	type HePiContext,
@@ -85,8 +85,8 @@ export function createAutoTitleStorage(options: AutoTitleStorageOptions = {}): H
 	const path = options.path ?? join(getAgentDir(), "settings.json");
 	const group = options.group ?? AUTO_TITLE_GROUP;
 	return {
-		async load(ctx: { cwd?: string }): Promise<HePiSettingsState | undefined> {
-			const root = await readRoot(path ?? join(ctx.cwd ?? process.cwd(), ".pi", "settings.json"));
+		async load(): Promise<HePiSettingsState | undefined> {
+			const root = await readRoot(path);
 			const section = root[SECTION];
 			const values =
 				section && typeof section === "object" && !Array.isArray(section)
@@ -105,9 +105,8 @@ export function createAutoTitleStorage(options: AutoTitleStorageOptions = {}): H
 				),
 			};
 		},
-		async save(state: HePiSettingsState, ctx: { cwd?: string }): Promise<void> {
-			const target = path ?? join(ctx.cwd ?? process.cwd(), ".pi", "settings.json");
-			await updateJsonSettingsRoot(target, (root) => {
+		async save(state: HePiSettingsState): Promise<void> {
+			await updateJsonSettingsRoot(path, (root) => {
 				const prior = root[SECTION];
 				const section: JsonObject =
 					prior && typeof prior === "object" && !Array.isArray(prior)
