@@ -178,6 +178,7 @@ export function createAdvisorFeature(
 				thinking: config?.thinking ?? "medium",
 			};
 			active = item;
+			runtime.ctx.ui.setStatus("advisor", "Advisor");
 			let currentUserPrompt = "";
 			runtime.pi.on("before_agent_start", (event, eventCtx) => {
 				if (!isCurrent(item, undefined, eventCtx)) return;
@@ -287,6 +288,7 @@ export function createAdvisorFeature(
 			item.phase = "disabled";
 			item.feedback = emptyFeedback();
 			item.backlog = 0;
+			item.runtime.ctx.ui.setStatus("advisor", undefined);
 			await item.adapter.abort();
 			await item.adapter.dispose();
 		},
