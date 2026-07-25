@@ -239,24 +239,26 @@ describe("statusbar lifecycle", () => {
 		const writes: string[] = [];
 		const hardwareCursor: boolean[] = [];
 		let visible = false;
+		const setShowHardwareCursor = (value: boolean): void => {
+			visible = value;
+			hardwareCursor.push(value);
+		};
 		const feature = createStatusbarFeature(h.pi, () => ({ shape: "bar", blink: true }));
 		feature.start(runtime(h.pi, h.ctx));
 		const editor = h.editorFactory?.(
 			{
 				terminal: { write: (value: string) => writes.push(value) },
 				getShowHardwareCursor: () => visible,
-				setShowHardwareCursor: (value: boolean) => {
-					visible = value;
-					hardwareCursor.push(value);
-				},
+				setShowHardwareCursor,
 			} as never,
 			{} as never,
 			{} as never,
 		);
+		setShowHardwareCursor(false);
 		editor?.render(80);
 		feature.dispose("a");
 		expect(writes).toEqual(["\x1b[5 q", "\x1b[0 q"]);
-		expect(hardwareCursor).toEqual([true, false]);
+		expect(hardwareCursor).toEqual([true, false, true, false]);
 	});
 
 	test("stabilizes first-turn and post-compaction token transitions", () => {
