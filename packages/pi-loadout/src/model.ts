@@ -229,7 +229,10 @@ function belongsToView(item: LoadoutItem, view: LoadoutView): boolean {
 
 function loadoutOriginGroup(origin: string): string {
 	const normalized = origin.trim();
-	return loadoutPackageSortKey(normalized) === "" ? "built-in" : normalized;
+	if (loadoutPackageSortKey(normalized) === "") return "built-in";
+	if (!/^(?:\.{1,2}[\\/]|[\\/]|[A-Za-z]:[\\/])/.test(normalized)) return normalized;
+	const path = normalized.replace(/[\\/]+$/, "");
+	return path.split(/[\\/]/).at(-1) || normalized;
 }
 
 export function groupLoadoutItemsByOrigin(

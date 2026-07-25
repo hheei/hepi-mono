@@ -1,5 +1,12 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { padToWidth, truncateToWidth, visibleWidth, wrap } from "@hheei/pi-basics";
+import {
+	createSplitLayout,
+	padToWidth,
+	renderDetailPanel,
+	truncateToWidth,
+	visibleWidth,
+	wrap,
+} from "@hheei/pi-basics";
 import {
 	filterLoadoutItemsForView,
 	groupLoadoutItemsByOrigin,
@@ -61,20 +68,8 @@ function panelLines(
 	theme: LoadoutTheme,
 ): string[] {
 	if (width < 2 || height < 2) return [];
+	if (!item) return renderDetailPanel({ width, height });
 	const inner = Math.max(0, width - 4);
-	const title = truncateToWidth(
-		`─ ${item?.descriptionPanel?.title ?? "Description"} ─`,
-		Math.max(0, width - 2),
-		"",
-	);
-	const top = `╭${title}${"─".repeat(Math.max(0, width - 2 - visibleWidth(title)))}╮`;
-	const bottom = `╰${"─".repeat(Math.max(0, width - 2))}╯`;
-	if (!item)
-		return [
-			top,
-			...Array.from({ length: height - 2 }, () => `│ ${padToWidth("", inner)} │`),
-			bottom,
-		];
 	const summary = `${item.name} (${item.kind})${item.tokenCount === undefined ? "" : ` · ${item.tokenCount} tokens`}`;
 	const customLines = item.descriptionPanel?.render?.(inner) ?? item.descriptionPanel?.lines;
 	const content = customLines
@@ -89,14 +84,16 @@ function panelLines(
 					? ["", "Instruction:", ...shortDescription(item.instruction, inner, 4)]
 					: []),
 			];
-	const rows = content.slice(0, Math.max(0, height - 2)).map((line, index) => {
-		const text = truncateToWidth(line, inner, "");
-		const styled = index === 0 ? theme.fg("accent", text) : theme.fg("dim", text);
-		return `${theme.fg("dim", "│ ")}${padToWidth(styled, inner)}${theme.fg("dim", " │")}`;
+	return renderDetailPanel({
+		width,
+		height,
+		...(item.descriptionPanel?.title === undefined ? {} : { title: item.descriptionPanel.title }),
+		content,
+		theme: {
+			border: (text) => theme.fg("text", text),
+			content: (text, index) => (index === 0 ? theme.fg("accent", text) : theme.fg("dim", text)),
+		},
 	});
-	while (rows.length < height - 2)
-		rows.push(`${theme.fg("dim", "│ ")}${padToWidth("", inner)}${theme.fg("dim", " │")}`);
-	return [top, ...rows, bottom];
 }
 function footer(scope: LoadoutScope, view: LoadoutView, width: number): string {
 	const nextView = view === "tools" ? "skills" : "tools";
@@ -142,10 +139,17 @@ export function renderLoadout(options: RenderLoadoutOptions): string[] {
 		"dim",
 		`${icons[state.view]} ${labels[state.view]} · ${state.scope === "global" ? "Global" : "Project"} · ${path}`,
 	);
-	const wide = width >= 80;
-	const listWidth = Math.min(46, width);
-	const panelWidth = wide ? Math.min(100, Math.max(0, width - listWidth - 4)) : 0;
-	const gap = panelWidth ? 3 : 0;
+	const split = createSplitLayout({
+		width,
+		gap: 3,
+		leftMin: 24,
+		leftMax: 46,
+		rightMin: 32,
+		rightMax: 100,
+	});
+	const panelWidth = split.rightWidth;
+	const gap = split.gap;
+	const listWidth = panelWidth ? Math.max(1, split.leftWidth - 1) : width;
 	const selected = visible.find((item) => item.key === state.selectedKey);
 	const bodyHeight =
 		options.height === undefined

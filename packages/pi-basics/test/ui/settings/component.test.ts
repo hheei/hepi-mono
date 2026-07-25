@@ -330,7 +330,16 @@ describe("settings component", () => {
 		};
 		const { component, controller } = await setup([combined], 50);
 		component.render(100);
-		for (let index = 0; index < 29; index++) {
+		for (let index = 0; index < 6; index++) {
+			component.handleInput?.("\x1b[B");
+			component.render(100);
+		}
+		expect(controller.state.selection).toMatchObject({
+			itemId: "enabled-6",
+			groupId: "group-6",
+		});
+		expect(controller.state.scrollTop).toBe(7);
+		for (let index = 6; index < 29; index++) {
 			component.handleInput?.("\x1b[B");
 			component.render(100);
 		}
@@ -340,7 +349,7 @@ describe("settings component", () => {
 			itemId: "enabled-14",
 			groupId: "group-14",
 		});
-		expect(controller.state.scrollTop).toBe(17);
+		expect(controller.state.scrollTop).toBe(18);
 	});
 
 	test("renders and routes input to panels-only provider", async () => {

@@ -172,6 +172,13 @@ describe("loadout model", () => {
 		]);
 	});
 
+	test("uses the basename for filesystem source labels", () => {
+		const item = tool("tool:ask", {
+			origin: "../../Documents/dev/hepi-mono/packages/pi-ask",
+		});
+		expect(groupLoadoutItemsByOrigin([item]).map((group) => group.origin)).toEqual(["pi-ask"]);
+	});
+
 	test("reconciles selection by identity, then group successor, then first visible", () => {
 		const all = [tool("tool:a"), tool("tool:b"), tool("tool:c"), projectOnly("skill:x")];
 		expect(reconcileLoadoutSelection(all, "tool:b")).toBe("tool:b");
