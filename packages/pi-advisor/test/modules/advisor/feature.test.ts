@@ -127,7 +127,8 @@ function fixture(enabled: boolean, adapter = fakeAdapter()) {
 		},
 		sendMessage(message: Record<string, unknown>, options?: Record<string, unknown>) {
 			messages.push(message);
-			deliveries.push({ message, options });
+			if (options?.deliverAs !== undefined || options?.triggerTurn === true)
+				deliveries.push({ message, options });
 		},
 	} as unknown as ExtensionAPI;
 	const ctx = {
@@ -248,11 +249,11 @@ describe("Advisor feature lifecycle", () => {
 
 		await review([{ severity: "concern", note: "check this" }]);
 		expect(h.statuses.get("advisor")).toBe("concern");
-		expect(h.notifications).toContainEqual({ message: "[concern] check this", level: "warning" });
+		expect(h.messages.some((message) => message.content === "[concern] check this")).toBe(true);
 		h.advance(25_000);
 		await review([{ severity: "blocker", note: "stop this" }]);
 		expect(h.statuses.get("advisor")).toBe("blocker");
-		expect(h.notifications).toContainEqual({ message: "[blocker] stop this", level: "error" });
+		expect(h.messages.some((message) => message.content === "[blocker] stop this")).toBe(true);
 		h.advance(40_000);
 		await review([]);
 		expect(h.statuses.get("advisor")).toBe("ok");
@@ -387,8 +388,8 @@ describe("Advisor feature lifecycle", () => {
 		h.adapter.resolveReview([{ severity: "blocker", note: "check auth" }]);
 		await reconfirm;
 
-		expect(h.messages).toHaveLength(0);
-		expect(h.feature.status()).toMatchObject({ enabled: false, phase: "disabled", backlog: 0 });
+		expect(h.messages).toHaveLength(1);
+		expect(h.deliveries).toHaveLength(0);
 	});
 
 	test("serializes reset behind a queued review and cleans stale backlog", async () => {

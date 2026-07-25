@@ -141,21 +141,28 @@ export function createAdvisorFeature(
 		if (item.reviewCooldownTimer !== undefined) clearTimeout(item.reviewCooldownTimer);
 		item.reviewCooldownTimer = undefined;
 	};
-	const notifyHighValue = (item: Active, notes: readonly AdvisorAdvice[]): void => {
+	const printHighValue = (item: Active, notes: readonly AdvisorAdvice[]): void => {
 		for (const note of notes) {
 			if (note.severity === "nit") continue;
 			const key = adviceKey(note);
 			const previous = item.notifiedHigh.get(key);
 			if (previous !== undefined && severityRank(previous) >= severityRank(note.severity)) continue;
 			item.notifiedHigh.set(key, note.severity);
-			item.runtime.ctx.ui.notify(
-				`[${note.severity}] ${note.note}`,
-				note.severity === "blocker" ? "error" : "warning",
-			);
+			item.runtime.pi.sendMessage({
+				customType: "pi-basics-advisory",
+				content: `[${note.severity}] ${note.note}`,
+				details: { notes: [note] },
+				display: true,
+			});
 		}
 	};
 
-	const deliver = (item: Active, notes: readonly AdvisorAdvice[], triggerTurn: boolean): void => {
+	const deliver = (
+		item: Active,
+		notes: readonly AdvisorAdvice[],
+		triggerTurn: boolean,
+		display = true,
+	): void => {
 		const content = notes.map((note) => `[${note.severity}] ${note.note}`).join("\n");
 		if (triggerTurn) item.pendingAdvisoryPrompt = content;
 		item.runtime.pi.sendMessage(
@@ -163,7 +170,7 @@ export function createAdvisorFeature(
 				customType: "pi-basics-advisory",
 				content,
 				details: { notes },
-				display: true,
+				display,
 			},
 			{ deliverAs: "steer", triggerTurn },
 		);
@@ -201,14 +208,14 @@ export function createAdvisorFeature(
 					`Reconfirm only these unresolved Advisor notes. Re-raise a note with advise only if it still applies; otherwise stay silent.\n${item.feedback.held.map((note) => `[${note.severity}] ${note.note}`).join("\n")}`,
 				);
 				if (!isCurrent(item, epoch) || !item.enabled) return;
-				notifyHighValue(item, raised);
+				printHighValue(item, raised);
 				item.reviewCooldownUntil = Math.max(item.reviewCooldownUntil, now() + cooldownFor(raised));
 				publishIndicator(item, raised);
 				delete item.lastError;
 				item.feedback = reconfirmFeedback(item.feedback, raised);
 				const confirmed = item.feedback.deliverable.filter((note) => note.severity !== "nit");
 				if (confirmed.length > 0) {
-					deliver(item, confirmed, !item.primaryAborted);
+					deliver(item, confirmed, !item.primaryAborted, false);
 					item.feedback = markFeedbackDelivered(item.feedback, confirmed);
 				} else {
 					item.feedback = { ...item.feedback, deliverable: [] };
@@ -241,7 +248,7 @@ export function createAdvisorFeature(
 				item.lastReviewAt = now();
 				const advice = await item.adapter.review(prompt);
 				if (!isCurrent(item, epoch) || !item.enabled) return;
-				notifyHighValue(item, advice);
+				printHighValue(item, advice);
 				item.reviewCooldownUntil = Math.max(item.reviewCooldownUntil, now() + cooldownFor(advice));
 				publishIndicator(item, advice);
 				delete item.lastError;
