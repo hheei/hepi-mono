@@ -535,9 +535,10 @@ describe("Advisor feature lifecycle", () => {
 		await review([{ severity: "blocker", note: "stop this" }], "blocker");
 		expect(h.statuses.get("advisor")).toBe("blocker");
 		expect(h.messages.some((message) => message.content === "[blocker] stop this")).toBe(true);
+		h.adapter.nextAdvice = [];
 		h.advance(40_000);
-		await review([], "clear");
-		expect(h.statuses.get("advisor")).toBe("ok");
+		await waitFor(() => h.statuses.get("advisor") === "ok", "silent reconfirm");
+		h.advance(15_000);
 		await review([{ severity: "nit", note: "minor" }], "nit");
 		expect(h.statuses.get("advisor")).toBe("ok");
 	});
