@@ -22,10 +22,10 @@ describe("Advisor message renderer", () => {
 
 		const lines = component.render(60);
 		expect(lines).toHaveLength(1);
-		expect(lines[0]).toStartWith("<bg><fg> [advisor blocker] division uses addition");
-		expect(lines[0]).toEndWith(" </fg></bg>");
+		expect(lines[0]).toStartWith("<bg> <fg>✦</fg><fg> [advisor blocker] division uses addition");
+		expect(lines[0]).toEndWith("</fg> </bg>");
 		expect(lines[0]?.replaceAll(/<\/?(?:bg|fg)>/g, "")).toHaveLength(60);
-		expect(roles).toEqual(["fg:dim", "bg:customMessageBg"]);
+		expect(roles).toEqual(["fg:error", "fg:dim", "bg:customMessageBg"]);
 	});
 
 	test("keeps every narrow background row at the requested width", () => {
@@ -40,6 +40,29 @@ describe("Advisor message renderer", () => {
 
 		expect(lines.length).toBeGreaterThan(1);
 		expect(lines.every((line) => line.length === 20)).toBe(true);
-		expect(lines.join(" ")).toContain("[advisor concern]");
+		expect(lines[0]).toStartWith(" ✦ [advisor");
+		expect(lines.join(" ")).toContain("concern]");
+	});
+
+	test("colors prefixes by severity", () => {
+		const roles: string[] = [];
+		const theme = {
+			fg(role: string, text: string) {
+				roles.push(role);
+				return text;
+			},
+			bg: (_role: string, text: string) => text,
+		} as unknown as Theme;
+
+		createAdvisorMessageComponent(
+			[
+				{ severity: "blocker", note: "block" },
+				{ severity: "concern", note: "consider" },
+				{ severity: "nit", note: "minor" },
+			],
+			theme,
+		).render(80);
+
+		expect(roles).toEqual(["error", "dim", "warning", "dim", "dim", "dim"]);
 	});
 });
