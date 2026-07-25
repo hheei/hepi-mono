@@ -17,6 +17,7 @@
 			"templates/**/*.ts",
 			"templates/**/*.json",
 			"test/**/*.ts",
+			"!packages/pi-subagents",
 			"!**/node_modules",
 			"!**/dist",
 			"!**/.pi",
