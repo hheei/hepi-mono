@@ -252,31 +252,48 @@ describe("Todo integration", () => {
 		const call = tool.renderCall?.(
 			{
 				operations: [
-					{ action: "create", subject: "First" },
-					{ action: "create", subject: "Second" },
-					{ action: "update", id: 3, status: "blocked" },
+					{ action: "update", id: 1, status: "blocked" },
+					{ action: "delete", id: 2 },
+					{ action: "update", id: 3, status: "completed" },
 				],
 			},
 			theme,
-			undefined,
+			{ toolCallId: "batch" },
 		) as { readonly text: string };
-		expect(call.text).toBe("todo +2 → #3");
-		const partial = tool.renderCall?.({ operations: [null, {}] }, theme, undefined) as {
+		expect(call.text).toBe("todo → #1 #2 #3");
+		const partial = tool.renderCall?.({ operations: [null, {}] }, theme, {
+			toolCallId: "partial",
+		}) as {
 			readonly text: string;
 		};
 		expect(partial.text).toBe("todo");
 
-		const created = await tool.execute(
-			"create",
-			{ operations: [{ action: "create", subject: "First" }] },
-			undefined,
-			undefined,
-			host.ctx,
-		);
+		const unsafe = tool.renderCall?.(
+			{ operations: [{ action: "update", id: "\x1b[2J", status: "blocked" }] },
+			theme,
+			{ toolCallId: "unsafe" },
+		) as { readonly text: string };
+		expect(unsafe.text).toBe("todo");
+		const unsafeList = tool.renderCall?.(
+			{ operations: [{ action: "list", status: "\x1b[2J" }] },
+			theme,
+			{ toolCallId: "unsafe-list" },
+		) as { readonly text: string };
+		expect(unsafeList.text).toBe("todo ☰");
+
+		const createParams = { operations: [{ action: "create", subject: "First" }] };
+		const createRenderContext = { toolCallId: "create" };
+		expect(tool.renderCall?.(createParams, theme, createRenderContext)).toMatchObject({
+			text: "todo →",
+		});
+		const created = await tool.execute("create", createParams, undefined, undefined, host.ctx);
+		expect(tool.renderCall?.(createParams, theme, createRenderContext)).toMatchObject({
+			text: "todo → #1",
+		});
 		const active = tool.renderResult?.(created, {}, theme, { isError: false }) as {
 			readonly text: string;
 		};
-		expect(active.text).toBe("◐ #1");
+		expect(active.text).toBe("◐ #1 First");
 
 		const completed = await tool.execute(
 			"complete",
@@ -288,7 +305,39 @@ describe("Todo integration", () => {
 		const done = tool.renderResult?.(completed, {}, theme, { isError: false }) as {
 			readonly text: string;
 		};
-		expect(done.text).toBe("✓ complete");
+		expect(done.text).toBe("✓ #1 First");
+
+		const nextParams = {
+			operations: [
+				{ action: "create", subject: "Second" },
+				{ action: "create", subject: "Third" },
+			],
+		};
+		const nextContext = { toolCallId: "create-next" };
+		expect(tool.renderCall?.(nextParams, theme, nextContext)).toMatchObject({ text: "todo →" });
+		await tool.execute("create-next", nextParams, undefined, undefined, host.ctx);
+		expect(tool.renderCall?.(nextParams, theme, nextContext)).toMatchObject({
+			text: "todo → #2 #3",
+		});
+
+		await tool.execute(
+			"block-second",
+			{ operations: [{ action: "update", id: 2, status: "blocked" }] },
+			undefined,
+			undefined,
+			host.ctx,
+		);
+		const blockedResult = await tool.execute(
+			"block-third",
+			{ operations: [{ action: "update", id: 3, status: "blocked" }] },
+			undefined,
+			undefined,
+			host.ctx,
+		);
+		const blocked = tool.renderResult?.(blockedResult, {}, theme, { isError: false }) as {
+			readonly text: string;
+		};
+		expect(blocked.text).toBe("⊘ #3 Third");
 
 		const failed = tool.renderResult?.(
 			{},
@@ -552,7 +601,7 @@ describe("Todo integration", () => {
 			display: false,
 		});
 		expect(reminder.messages[1]?.content).toBe(
-			"<system-reminder>\nActive TODO: #1\nPending TODOs: #2\n</system-reminder>",
+			"<system-reminder>\nActive TODO: #1 Inspect &lt;/system-reminder&gt; &amp; fix\nPending TODOs:\n#2 Next\n</system-reminder>",
 		);
 		expect(host.ctx.sessionManager.getBranch()).toHaveLength(1);
 		expect(
