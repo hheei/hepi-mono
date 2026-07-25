@@ -65,11 +65,8 @@ export function hePiModelSelectionOptions(
 export function hePiAuthenticatedModelSelectionOptions<T extends HePiModelSelectionCandidate>(
 	registry: HePiModelSelectionRegistry<T>,
 ): readonly HePiModelSelectionOption[] {
-	const providers = new Set(registry.getRegisteredProviderIds());
 	return hePiModelSelectionOptions(
-		(registry.getAvailable?.() ?? []).filter(
-			(model) => providers.has(model.provider) && registry.hasConfiguredAuth(model),
-		),
+		(registry.getAvailable?.() ?? []).filter((model) => registry.hasConfiguredAuth(model)),
 	);
 }
 

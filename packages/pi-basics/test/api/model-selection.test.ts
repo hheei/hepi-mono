@@ -5,9 +5,9 @@ import {
 } from "../../src/index.js";
 
 describe("model selection settings", () => {
-	test("filters to authenticated registered providers and formats dynamic thinking", () => {
+	test("filters to authenticated available models across providers and formats dynamic thinking", () => {
 		const options = hePiAuthenticatedModelSelectionOptions({
-			getRegisteredProviderIds: () => ["cx"],
+			getRegisteredProviderIds: () => [],
 			getAvailable: () => [
 				{ provider: "cx", id: "gpt-5.6-luna", authenticated: true },
 				{ provider: "openai", id: "gpt-5.4", authenticated: true },
@@ -18,6 +18,7 @@ describe("model selection settings", () => {
 		expect(options).toEqual([
 			{ value: "", label: "Not set" },
 			{ value: "cx/gpt-5.6-luna", label: "cx/gpt-5.6-luna" },
+			{ value: "openai/gpt-5.4", label: "openai/gpt-5.4" },
 		]);
 		const field = createHePiModelSelectionField({
 			id: "model",
