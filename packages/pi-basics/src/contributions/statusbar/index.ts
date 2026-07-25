@@ -166,6 +166,7 @@ export function createStatusbarFeature(
 					tui.setShowHardwareCursor(true);
 				}
 				const originalRender = editor.render.bind(editor);
+				let cursorWriteScheduled = false;
 				(editor as Editor & { render: (width: number) => string[] }).render = (width: number) => {
 					if (
 						typeof tui.getShowHardwareCursor === "function" &&
@@ -174,7 +175,13 @@ export function createStatusbarFeature(
 					)
 						tui.setShowHardwareCursor(true);
 					const lines = renderTerminalCursor(originalRender(width));
-					if (tui.terminal?.write) tui.terminal.write(cursorEscape(getCursorOptions()));
+					if (tui.terminal?.write && !cursorWriteScheduled) {
+						cursorWriteScheduled = true;
+						queueMicrotask(() => {
+							cursorWriteScheduled = false;
+							if (next && owner === next) tui.terminal?.write(cursorEscape(getCursorOptions()));
+						});
+					}
 					if (!lines.length || !next || owner !== next) return lines;
 					const systemPrompt =
 						typeof ctx.getSystemPrompt === "function" ? ctx.getSystemPrompt() : undefined;
