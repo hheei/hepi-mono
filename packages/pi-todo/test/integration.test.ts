@@ -26,6 +26,17 @@ interface RegisteredTool {
 	readonly parameters: typeof TODO_PARAMETERS;
 	readonly executionMode?: string;
 	readonly prepareArguments?: (value: unknown) => unknown;
+	readonly renderCall?: (
+		args: Record<string, unknown>,
+		theme: unknown,
+		context: unknown,
+	) => unknown;
+	readonly renderResult?: (
+		result: { readonly details?: unknown },
+		options: unknown,
+		theme: unknown,
+		context: unknown,
+	) => unknown;
 	execute(
 		toolCallId: string,
 		params: Record<string, unknown>,
@@ -149,6 +160,11 @@ describe("Todo integration", () => {
 		expect(tool.description).toBe(TODO_TOOL_DESCRIPTION);
 		expect(tool.promptSnippet).toBe(TODO_PROMPT_SNIPPET);
 		expect(tool.promptGuidelines).toEqual([...TODO_PROMPT_GUIDELINES]);
+		expect(TODO_PROMPT_GUIDELINES).toEqual([
+			"Use `todo` for work with 3+ concrete steps or multiple user-requested tasks; skip trivial work.",
+			"Create the full known task list in one atomic batch. Keep subjects short, imperative, and outcome-oriented; do not add bookkeeping tasks for routine commands.",
+			"Scheduling is automatic. Update only when state changes: use `completed` after verification, `blocked` only when work cannot continue, and `in_progress` only when resuming blocked work. Do not repeatedly list or restate current state.",
+		]);
 		expect(Value.Check(TODO_PARAMETERS, { action: "list" })).toBe(false);
 		expect(Value.Check(TODO_PARAMETERS, { operations: [] })).toBe(false);
 		expect(
@@ -218,9 +234,69 @@ describe("Todo integration", () => {
 		expect(host.events.has("context")).toBe(true);
 		expect(host.events.has("turn_start")).toBe(true);
 		expect(host.events.has("turn_end")).toBe(true);
-		expect(host.events.has("agent_settled")).toBe(true);
+		expect(host.events.has("agent_start")).toBe(true);
+		expect(host.events.has("agent_settled")).toBe(false);
 		expect(host.events.has("before_agent_start")).toBe(false);
 		expect(host.events.has("agent_end")).toBe(false);
+	});
+
+	test("renders compact tool calls and current result state", async () => {
+		const host = harness("json");
+		const feature = createTodoFeature(host.pi);
+		await feature.start(host.runtime);
+		const tool = host.tools[0]!;
+		const theme = {
+			fg: (_color: string, text: string) => text,
+			bold: (text: string) => text,
+		};
+		const call = tool.renderCall?.(
+			{
+				operations: [
+					{ action: "create", subject: "First" },
+					{ action: "create", subject: "Second" },
+					{ action: "update", id: 3, status: "blocked" },
+				],
+			},
+			theme,
+			undefined,
+		) as { readonly text: string };
+		expect(call.text).toBe("todo +2 → #3");
+		const partial = tool.renderCall?.({ operations: [null, {}] }, theme, undefined) as {
+			readonly text: string;
+		};
+		expect(partial.text).toBe("todo");
+
+		const created = await tool.execute(
+			"create",
+			{ operations: [{ action: "create", subject: "First" }] },
+			undefined,
+			undefined,
+			host.ctx,
+		);
+		const active = tool.renderResult?.(created, {}, theme, { isError: false }) as {
+			readonly text: string;
+		};
+		expect(active.text).toBe("◐ #1");
+
+		const completed = await tool.execute(
+			"complete",
+			{ operations: [{ action: "update", id: 1, status: "completed" }] },
+			undefined,
+			undefined,
+			host.ctx,
+		);
+		const done = tool.renderResult?.(completed, {}, theme, { isError: false }) as {
+			readonly text: string;
+		};
+		expect(done.text).toBe("✓ complete");
+
+		const failed = tool.renderResult?.(
+			{},
+			{},
+			{ fg: (color: string, text: string) => `<${color}>${text}</${color}>` },
+			{ isError: true },
+		) as { readonly text: string };
+		expect(failed.text).toBe("<error>✗</error>");
 	});
 
 	test("executes ordered atomic batches and returns durable snapshots", async () => {
@@ -340,7 +416,7 @@ describe("Todo integration", () => {
 			host.ctx,
 		);
 		expect(allBlocked.content[0]?.text).toBe(
-			"Updated #2\nUpdated #3\nOnly blocked todos #1 #2 #3 left. Discuss to the user.",
+			"Updated #2\nUpdated #3\nOnly blocked todos #1 #2 #3 left. Agree next steps with the user.",
 		);
 	});
 
@@ -476,7 +552,7 @@ describe("Todo integration", () => {
 			display: false,
 		});
 		expect(reminder.messages[1]?.content).toBe(
-			"<system-reminder>\nActive TODO: #1 Inspect &lt;/system-reminder&gt; &amp; fix.\nPending TODOS: #2\n</system-reminder>",
+			"<system-reminder>\nActive TODO: #1\nPending TODOs: #2\n</system-reminder>",
 		);
 		expect(host.ctx.sessionManager.getBranch()).toHaveLength(1);
 		expect(
@@ -519,12 +595,11 @@ describe("Todo integration", () => {
 		).toBeUndefined();
 	});
 
-	test("auto-hides completed rendering without clearing state or ids", async () => {
+	test("shows completed rendering until the next agent start without clearing state or ids", async () => {
 		const host = harness();
 		const feature = createTodoFeature(host.pi);
 		await feature.start(host.runtime);
 		const tool = host.tools[0]!;
-		await host.emit("agent_start");
 		const completed = await tool.execute(
 			"complete",
 			{
@@ -539,8 +614,8 @@ describe("Todo integration", () => {
 		);
 		host.setBranch([branchResult(completed.details.snapshot)]);
 		await host.emit("tool_execution_end", { toolName: TODO_TOOL_NAME, isError: false });
-		await host.emit("agent_settled");
-		for (let turn = 0; turn < 2; turn++) await host.emit("agent_settled");
+		expect(typeof host.widgets.at(-1)?.content).toBe("function");
+		await host.emit("agent_start");
 		expect(host.widgets.at(-1)?.content).toBeUndefined();
 		const hiddenCallCount = host.widgets.length;
 		await host.emit("session_compact");
