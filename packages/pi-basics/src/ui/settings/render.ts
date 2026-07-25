@@ -409,9 +409,27 @@ export function renderSettings(options: RenderSettingsOptions): string[] {
 				const committed = field ? formatSettingValue(controller, field, "description") : "";
 				const editing = controller.state.mode === "Edit" && field;
 				const relatedSuffix = editing ? relatedDraftSuffix(controller, field) : "";
+				const selectionValue =
+					editing && field?.type === "enum"
+						? formatSettingValue(controller, field, "description")
+						: "";
+				const valueWidth = Math.max(
+					0,
+					layout.width -
+						2 -
+						visibleWidth(editing && field?.type === "enum" ? selectionValue : relatedSuffix),
+				);
+				const renderedValue =
+					editing && field?.type === "enum"
+						? truncateToWidth(selectionValue, valueWidth, "")
+						: editing
+							? `${renderDraft(options.editor, controller.state.draftValue ?? "", valueWidth, theme)}${theme.fg("accent", relatedSuffix)}`
+							: selected?.kind === "field"
+								? theme.fg("accent", theme.bold(truncateToWidth(committed, valueWidth, "")))
+								: truncateToWidth(committed, valueWidth, "");
 				content.push(theme.fg("muted", "Value:"));
 				content.push(
-					`${editing ? theme.fg("accent", theme.bold("> ")) : selected?.kind === "field" ? theme.fg("accent", theme.bold("> ")) : "> "}${editing ? `${renderDraft(options.editor, controller.state.draftValue ?? "", Math.max(0, layout.width - 2 - visibleWidth(relatedSuffix)), theme)}${theme.fg("accent", relatedSuffix)}` : selected?.kind === "field" ? theme.fg("accent", theme.bold(truncateToWidth(committed, Math.max(0, layout.width - 2), ""))) : truncateToWidth(committed, Math.max(0, layout.width - 2), "")}`,
+					`${editing || selected?.kind === "field" ? theme.fg("accent", theme.bold("> ")) : "> "}${renderedValue}`,
 				);
 			}
 		}
