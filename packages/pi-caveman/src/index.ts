@@ -100,7 +100,7 @@ export default function piCavemanExtension(pi: ExtensionAPI): void {
 	pi.on("session_start", async (_event, ctx) => {
 		unregisterSettings?.();
 		unregisterSettings = await registerCavemanHePiSettings(pi);
-		defaults = await loadCavemanDefaults(ctx.cwd);
+		defaults = await loadCavemanDefaults();
 		subagentSession = isPiSubagentSession(pi);
 		restoreModeFromBranch(ctx);
 	});
@@ -123,7 +123,7 @@ export default function piCavemanExtension(pi: ExtensionAPI): void {
 
 	pi.on("tool_call", async (event, ctx) => {
 		if (event.toolName !== "Agent" || !isAgentToolInput(event.input)) return undefined;
-		defaults = await loadCavemanDefaults(ctx.cwd);
+		defaults = await loadCavemanDefaults();
 		event.input.prompt = injectSubagentPrompt(event.input.prompt, defaults.subagentMode);
 		return undefined;
 	});

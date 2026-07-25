@@ -23,8 +23,7 @@ afterEach(async () => {
 async function createProject(settings: unknown): Promise<string> {
 	const cwd = await mkdtemp(join(tmpdir(), "pi-caveman-config-"));
 	temporaryDirectories.push(cwd);
-	await mkdir(join(cwd, ".pi"));
-	await writeFile(join(cwd, ".pi", "settings.json"), `${JSON.stringify(settings, null, 2)}\n`);
+	await writeFile(join(cwd, "settings.json"), `${JSON.stringify(settings, null, 2)}\n`);
 	return cwd;
 }
 
@@ -68,7 +67,7 @@ describe("Caveman HEPI settings", () => {
 			"pi-basics": { goal: { enabled: true } },
 			other: { value: 42 },
 		});
-		const provider = createCavemanSettingsProvider();
+		const provider = createCavemanSettingsProvider({ settingsFilePath: join(cwd, "settings.json") });
 		const group = provider.groups[0];
 
 		expect(group?.fields.map((field) => field.id)).toEqual([
@@ -87,7 +86,7 @@ describe("Caveman HEPI settings", () => {
 			{ sessionId: "test", cwd },
 		);
 
-		const root: unknown = JSON.parse(await readFile(join(cwd, ".pi", "settings.json"), "utf8"));
+		const root: unknown = JSON.parse(await readFile(join(cwd, "settings.json"), "utf8"));
 		expect(root).toEqual({
 			"pi-basics": { goal: { enabled: true } },
 			other: { value: 42 },
