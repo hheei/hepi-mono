@@ -46,7 +46,7 @@ export function cursorEscape(options: CursorOptions): string {
 }
 
 export function createCursorSettingsProvider(options: {
-	readonly path: string;
+	readonly path?: string;
 	readonly onPersisted?: (options: CursorOptions) => void;
 }): HePiSettingsProvider {
 	const storage = createJsonSectionSettingsStorage({

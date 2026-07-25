@@ -1,3 +1,4 @@
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
@@ -83,7 +84,7 @@ export function createJsonSectionSettingsStorage(
 	options: JsonSectionSettingsStorageOptions,
 ): HePiSettingsStorage {
 	const resolvePath = (ctx: HePiContext): string =>
-		options.path ?? join(ctx.cwd ?? process.cwd(), ".pi", "settings.json");
+		options.path ?? join(getAgentDir(), "settings.json");
 	return {
 		async load(ctx): Promise<HePiSettingsState | undefined> {
 			const root = await readRoot(resolvePath(ctx));

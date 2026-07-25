@@ -8,7 +8,7 @@ Load this extension before any `@hheei/pi-*` feature package. Feature packages a
 
 `/ext-settings` and `/hepi setting` show registered settings providers. `/hepi loadout` becomes available when `@hheei/pi-loadout` is loaded. Compatibility settings such as `Guard patch` are provided by `@hheei/pi-fix`.
 
-The editor uses Pi's hardware cursor marker and preserves the character under the cursor instead of replacing it with a drawn glyph. Cursor shape (`bar`, `block`, `hollow`, or `underline`) and blinking are configured through `/ext-settings` under Pi Basics > Cursor and stored in `<cwd>/.pi/settings.json`. The default is a steady block. Shape support follows the active terminal's DECSCUSR implementation; terminals without the hollow extension fall back to the matching block style.
+The editor uses Pi's hardware cursor marker and preserves the character under the cursor instead of replacing it with a drawn glyph. Cursor shape (`bar`, `block`, `hollow`, or `underline`) and blinking are configured through `/ext-settings` under Pi Basics > Cursor and stored in global `~/.pi/agent/settings.json`. The default is a steady block. Shape support follows the active terminal's DECSCUSR implementation; terminals without the hollow extension fall back to the matching block style.
 
 The editor's top status rail contains only Pi Basics session context. The editor's closing rail remains intact, and text registered through `ui.setStatus()` is normalized into one compact footer row below it. Magic Context telemetry is omitted, MCP is rendered as `⛁ connected/total`, `receiving` becomes an animated Braille spinner, and Plan/Goal labels are uppercase.
 

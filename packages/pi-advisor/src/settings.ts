@@ -5,7 +5,7 @@ import {
 } from "@hheei/pi-basics";
 import { parseModelRef, parseThinking } from "./model.js";
 export function createAdvisorSettingsProvider(options: {
-	readonly path: string;
+	readonly path?: string;
 	readonly modelOptions?: readonly { readonly value: string; readonly label: string }[];
 	readonly validatePersisted?: (
 		model: string | undefined,
@@ -14,7 +14,7 @@ export function createAdvisorSettingsProvider(options: {
 	readonly onPersisted?: (model: string | undefined, thinking: string) => void | Promise<void>;
 }): HePiSettingsProvider {
 	const storage = createJsonSectionSettingsStorage({
-		path: options.path,
+		options.path,
 		section: "pi-basics",
 		group: "advisor",
 	});
