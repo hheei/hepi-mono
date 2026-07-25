@@ -205,12 +205,13 @@ describe("settings component", () => {
 		expect(state.controller.state.mode).toBe("Navigation");
 	});
 
-	test("cycles model options vertically without switching the main tab", async () => {
+	test("cycles an empty model in edit mode without entering main-tab navigation", async () => {
 		const model = createHePiModelSelectionField({
 			id: "model",
 			label: "Advisor model",
 			description: "Select the model used by this settings rendering fixture.",
 			modelOptions: [
+				{ value: "", label: "Not set" },
 				{ value: "provider/first", label: "provider/first" },
 				{ value: "provider/second", label: "provider/second" },
 			],
@@ -227,18 +228,15 @@ describe("settings component", () => {
 				id: "advisor",
 				title: "Advisor",
 				groups: [{ id: "advisor", title: "", fields: [model] }],
-				storage: fakeStorage({ initial: { advisor: { model: "provider/removed" } } }),
+				storage: fakeStorage({ initial: { advisor: { model: "" } } }),
 			},
 		]);
-		state.component.handleInput?.("\x1b[C");
-		state.component.handleInput?.("\x1b[D");
-		expect(state.controller.state.mode).toBe("Navigation");
-		expect(state.controller.state.selection?.itemId).toBe("model");
-		state.component.handleInput?.("\x1b[B");
+		state.component.handleInput?.(" ");
 		expect(state.controller.state.mode).toBe("Edit");
+		state.component.handleInput?.("\x1b[B");
 		expect(state.controller.state.draftValue).toBe("provider/first");
 		state.component.handleInput?.("\x1b[A");
-		expect(state.controller.state.draftValue).toBe("provider/second");
+		expect(state.controller.state.draftValue).toBe("");
 		state.component.handleInput?.("\x1b[C");
 		state.component.handleInput?.("\x1b[D");
 		expect(state.controller.state.mode).toBe("Edit");
