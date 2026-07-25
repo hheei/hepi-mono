@@ -15,6 +15,32 @@
         "typescript": "^5.7.0",
       },
     },
+    "packages/hepi-mono": {
+      "name": "@hheei/hepi-mono",
+      "version": "0.0.0",
+      "dependencies": {
+        "@hheei/pi-advisor": "workspace:*",
+        "@hheei/pi-ask": "workspace:*",
+        "@hheei/pi-auto-title": "workspace:*",
+        "@hheei/pi-basics": "workspace:*",
+        "@hheei/pi-btw": "workspace:*",
+        "@hheei/pi-caveman": "workspace:*",
+        "@hheei/pi-dollar-skill": "workspace:*",
+        "@hheei/pi-fix": "workspace:*",
+        "@hheei/pi-goal": "workspace:*",
+        "@hheei/pi-loadout": "workspace:*",
+        "@hheei/pi-plan": "workspace:*",
+        "@hheei/pi-ponytail": "workspace:*",
+        "@hheei/pi-rtk": "workspace:*",
+        "@hheei/pi-sshfs": "workspace:*",
+        "@hheei/pi-t2s": "workspace:*",
+        "@hheei/pi-todo": "workspace:*",
+      },
+      "devDependencies": {
+        "@earendil-works/pi-coding-agent": "^0.80.10",
+        "@types/bun": "latest",
+      },
+    },
     "packages/pi-advisor": {
       "name": "@hheei/pi-advisor",
       "version": "0.0.0",
@@ -333,6 +359,8 @@
     "@earendil-works/pi-tui": ["@earendil-works/pi-tui@0.80.10", "", { "dependencies": { "get-east-asian-width": "1.6.0", "marked": "18.0.5" } }, "sha512-c2JO29PbhKPEQ6fgHQKAl0WhwuFqzWfzspMmP+8B5tpDuP+0mvarRbKKg8gq4b+pQx/QX+6aVS4ko7deoyjQjg=="],
 
     "@google/genai": ["@google/genai@1.52.0", "", { "dependencies": { "google-auth-library": "^10.3.0", "p-retry": "^4.6.2", "protobufjs": "^7.5.4", "ws": "^8.18.0" }, "peerDependencies": { "@modelcontextprotocol/sdk": "^1.25.2" }, "optionalPeers": ["@modelcontextprotocol/sdk"] }, "sha512-gwSvbpiN/17O9TbsqSsE/OzZcpv5Fo4RQjdngGgogtuB9RsyJ8ZHhX5KjHj1bp5N9snN2eK8LDGXSaWW2hof8Q=="],
+
+    "@hheei/hepi-mono": ["@hheei/hepi-mono@workspace:packages/hepi-mono"],
 
     "@hheei/pi-advisor": ["@hheei/pi-advisor@workspace:packages/pi-advisor"],
 

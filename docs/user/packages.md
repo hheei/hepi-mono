@@ -1,9 +1,10 @@
 # Package Catalogue
 
-Every workspace under `packages/` is maintained by HEPI and published under the `@hheei` scope. Feature packages require `@hheei/pi-basics` unless noted otherwise.
+Every workspace under `packages/` is maintained by HEPI and published under the `@hheei` scope. Choose either the unified `@hheei/hepi-mono` package or individual feature packages. Do not enable both for the same feature.
 
 | Package | Purpose | HEPI prerequisite |
 | --- | --- | --- |
+| [`hepi-mono`](../../packages/hepi-mono/README.md) | Unified loader for the current runtime modules | Includes Pi Basics |
 | [`pi-basics`](../../packages/pi-basics/README.md) | Session lifecycle, settings UI, status, shared TUI, and runtime coordination | None |
 | [`pi-advisor`](../../packages/pi-advisor/README.md) | Read-only turn review advisor | Pi Basics |
 | [`pi-ask`](../../packages/pi-ask/README.md) | Structured interactive questions | Pi Basics |

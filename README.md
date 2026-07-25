@@ -15,15 +15,26 @@ Package-specific commands, settings, persistence, requirements, and incompatibil
 
 ## Install
 
+Install all current runtime modules through the unified package:
+
 ```bash
-bun install
+pi install npm:@hheei/hepi-mono
 ```
 
-Install local extensions through Pi:
+Or install packages individually when you want a smaller selection:
 
 ```bash
-pi install ./packages/pi-basics
-pi install ./packages/pi-todo
+pi install npm:@hheei/pi-basics
+pi install npm:@hheei/pi-todo
+```
+
+Do not enable `@hheei/hepi-mono` together with the same individual packages. That can register duplicate commands, handlers, status entries, or Settings providers.
+
+For a local checkout:
+
+```bash
+bun install
+pi install ./packages/hepi-mono
 ```
 
 Use `-l` for project-local installation.
@@ -40,12 +51,13 @@ Run Pi with automatic extension discovery disabled:
 
 ```bash
 bun run pi:dev                         # pi-basics only
+bun run pi:dev -- hepi                 # unified HEPI loader
 bun run pi:dev -- basics todo          # selected workspaces
 bun run pi:dev -- --all                # every workspace extension
 bun run pi:dev -- basics -- --model openai/gpt-5
 ```
 
-Load `pi-basics` before feature packages. Loadout must run after Pi Basics so both use the same tool-activation coordinator.
+Load `@hheei/pi-basics` before feature packages. Loadout must run after Pi Basics so both use the same tool-activation coordinator. The unified `@hheei/hepi-mono` package preserves this order.
 
 Create a package from the extension template:
 
