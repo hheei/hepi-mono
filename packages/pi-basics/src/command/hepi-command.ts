@@ -62,6 +62,19 @@ export function routeHePiCommand(
 	return { module: matches[0] as HePiModule, args: parsed.args };
 }
 
+async function openHePiModule(
+	module: HePiModule,
+	args: string,
+	command: string,
+	ctx: CommandContext,
+): Promise<void> {
+	await module.open(args, {
+		...ctx,
+		sessionId: ctx.sessionManager.getSessionId(),
+		command,
+	});
+}
+
 export async function dispatchHePiCommand(
 	rawArgs: string,
 	ctx: CommandContext,
@@ -87,27 +100,32 @@ export async function dispatchHePiCommand(
 		return;
 	}
 
-	const moduleContext = {
-		...ctx,
-		sessionId: ctx.sessionManager.getSessionId(),
-		command: parsed.subcommand,
-	};
-	await (matches[0] as HePiModule).open(parsed.args, moduleContext);
+	await openHePiModule(matches[0] as HePiModule, parsed.args, parsed.subcommand, ctx);
 }
 
 export function registerHePiCommand(pi: ExtensionAPI, registry: HePiModuleRegistry): void {
 	if (registeredApis.has(pi)) return;
-	for (const command of [
-		{ name: "ext-settings", subcommand: "setting", description: "Open extension settings" },
-		{ name: "loadout", subcommand: "loadout", description: "Open HEPI Loadout" },
-	] as const) {
-		pi.registerCommand(command.name, {
-			description: command.description,
-			handler: async (_args, ctx) => {
-				await dispatchHePiCommand(command.subcommand, ctx, registry);
-			},
-		});
-	}
+	pi.registerCommand("ext-settings", {
+		description: "Open extension settings",
+		handler: async (_args, ctx) => {
+			if (ctx.mode !== "tui") {
+				ctx.ui.notify("/ext-settings requires TUI mode", "error");
+				return;
+			}
+			const settingsModule = registry.get("setting");
+			if (settingsModule === undefined) {
+				ctx.ui.notify("Extension settings are unavailable", "error");
+				return;
+			}
+			await openHePiModule(settingsModule, "", "setting", ctx);
+		},
+	});
+	pi.registerCommand("loadout", {
+		description: "Open HEPI Loadout",
+		handler: async (_args, ctx) => {
+			await dispatchHePiCommand("loadout", ctx, registry);
+		},
+	});
 	pi.registerCommand("hepi", {
 		description: "Open a HEPI module",
 		getArgumentCompletions: (prefix) => commandCompletions(registry, prefix),

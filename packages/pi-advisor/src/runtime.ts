@@ -90,7 +90,7 @@ export interface AdvisorAdapterOptions {
 function resolveModel(options: AdvisorAdapterOptions) {
 	const configuredModel = options.model?.trim();
 	if (configuredModel === undefined || configuredModel.length === 0)
-		throw new Error("Configure an Advisor model in /hepi setting");
+		throw new Error("Configure an Advisor model in /ext-settings");
 	const ref = configuredModel.split("/", 2);
 	if (ref[0] === undefined || ref[1] === undefined || ref[0].length === 0 || ref[1].length === 0)
 		throw new Error(`Unavailable Advisor model: ${configuredModel}`);
