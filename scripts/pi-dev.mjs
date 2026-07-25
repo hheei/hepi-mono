@@ -10,16 +10,21 @@ const basicsExtension = "packages/pi-basics/src/extension.ts";
 const aliases = new Map([
 	["basics", basicsExtension],
 	["pi-basics", basicsExtension],
+	["hepi", "packages/hepi-mono/src/extension.ts"],
+	["hepi-mono", "packages/hepi-mono/src/extension.ts"],
 ]);
 
 function usage() {
 	console.log(`Usage:
   bun run pi:dev                         # load pi-basics
   bun run pi:dev -- basics                # load pi-basics
+  bun run pi:dev -- hepi                 # load the unified HEPI package
   bun run pi:dev -- todo                  # load a specific extension
   bun run pi:dev -- basics todo           # load several extensions
-  bun run pi:dev -- --all                 # load every packages/pi-* pi.extensions entry
+  bun run pi:dev -- --all                 # load every individual packages/pi-* entry
   bun run pi:dev -- path/to/index.ts      # load explicit extension path
+
+The unified hepi entry is excluded from --all to prevent duplicate registration.
 
 Pass extra Pi flags after --, for example:
   bun run pi:dev -- basics -- --model openai/gpt-5
@@ -56,7 +61,8 @@ function allExtensionEntries() {
 		.flatMap((manifestPath) => {
 			try {
 				const manifest = JSON.parse(readFileSync(path.join(root, manifestPath), "utf8"));
-				if (!Array.isArray(manifest.pi?.extensions)) return [];
+				if (manifest.name === "@hheei/hepi-mono" || !Array.isArray(manifest.pi?.extensions))
+					return [];
 				return manifest.pi.extensions
 					.filter((entry) => typeof entry === "string")
 					.map((entry) => path.join(path.dirname(manifestPath), entry));

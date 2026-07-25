@@ -90,6 +90,7 @@ Use wrapper script for isolated local testing. It starts Pi with automatic exten
 
 ```bash
 bun run pi:dev
+bun run pi:dev -- hepi
 bun run pi:dev -- basics
 bun run pi:dev -- todo
 bun run pi:dev -- --all

@@ -68,3 +68,5 @@ export function createLoadoutModule(
 		},
 	};
 }
+
+export { default } from "./extension.js";

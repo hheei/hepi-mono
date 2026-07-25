@@ -1,0 +1,57 @@
+{
+	"name": "@hheei/hepi-mono",
+	"version": "0.0.0",
+	"description": "Unified HEPI extension loader for Pi.",
+	"type": "module",
+	"main": "src/index.ts",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"files": [
+		"src",
+		"README.md",
+		"LICENSE"
+	],
+	"pi": {
+		"extensions": [
+			"src/extension.ts"
+		]
+	},
+	"keywords": [
+		"pi",
+		"pi-package",
+		"pi-extension",
+		"hepi"
+	],
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/hheei/hepi-mono.git",
+		"directory": "packages/hepi-mono"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"dependencies": {
+		"@hheei/pi-advisor": "workspace:*",
+		"@hheei/pi-ask": "workspace:*",
+		"@hheei/pi-auto-title": "workspace:*",
+		"@hheei/pi-basics": "workspace:*",
+		"@hheei/pi-btw": "workspace:*",
+		"@hheei/pi-caveman": "workspace:*",
+		"@hheei/pi-dollar-skill": "workspace:*",
+		"@hheei/pi-fix": "workspace:*",
+		"@hheei/pi-goal": "workspace:*",
+		"@hheei/pi-loadout": "workspace:*",
+		"@hheei/pi-plan": "workspace:*",
+		"@hheei/pi-ponytail": "workspace:*",
+		"@hheei/pi-rtk": "workspace:*",
+		"@hheei/pi-sshfs": "workspace:*",
+		"@hheei/pi-t2s": "workspace:*",
+		"@hheei/pi-todo": "workspace:*"
+	},
+	"devDependencies": {
+		"@earendil-works/pi-coding-agent": "^0.80.10",
+		"@types/bun": "latest"
+	}
+}
