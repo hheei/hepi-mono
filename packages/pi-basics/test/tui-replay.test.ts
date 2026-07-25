@@ -103,7 +103,10 @@ describe("tui replay", () => {
 						if (data === "model") modelName = "Claude";
 						if (data === "thinking") thinking = "xhigh";
 						if (data === "status") {
-							statuses = new Map([["goal", "Goal"]]);
+							statuses = new Map([
+								["goal", "Goal"],
+								["advisor", "concern"],
+							]);
 							title = "Updated session";
 						}
 						if (data === "usage") usage = { percent: null, contextWindow: null };
@@ -138,7 +141,9 @@ describe("tui replay", () => {
 		expect(stripAnsi(result.frames[1]!.lines[0]!)).toContain("Claude");
 		expect(stripAnsi(result.frames[2]!.lines[0]!)).toContain("●");
 		expect(stripAnsi(result.frames[7]!.lines[0]!)).not.toContain("GOAL");
+		expect(stripAnsi(result.frames[7]!.lines[0]!)).toContain("Claude ✦ ·");
 		expect(stripAnsi(result.frames[7]!.lines[4]!)).toContain("GOAL");
+		expect(stripAnsi(result.frames[7]!.lines[4]!)).not.toContain("Advisor");
 		expect(stripAnsi(result.frames[7]!.lines[0]!)).toContain("?? ?");
 		expect(result.frames[1]!.lines[0]).toContain("\x1b[");
 	});

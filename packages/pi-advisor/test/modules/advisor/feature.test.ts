@@ -183,11 +183,33 @@ describe("Advisor feature lifecycle", () => {
 		await h.feature.start(h.runtime);
 		expect(h.statuses.get("advisor")).toBeUndefined();
 		await h.feature.command("on", h.ctx as unknown as ExtensionCommandContext);
-		expect(h.statuses.get("advisor")).toBe("Advisor");
+		expect(h.statuses.get("advisor")).toBe("ok");
 		await h.feature.command("off", h.ctx as unknown as ExtensionCommandContext);
 		expect(h.statuses.get("advisor")).toBeUndefined();
 		await h.feature.dispose("advisor-session");
 		expect(h.statuses.get("advisor")).toBeUndefined();
+	});
+
+	test("publishes the latest review severity for the header indicator", async () => {
+		const h = fixture(true);
+		await h.feature.start(h.runtime);
+		expect(h.statuses.get("advisor")).toBe("ok");
+		const review = async (advice: readonly AdvisorAdvice[]): Promise<void> => {
+			h.adapter.nextAdvice = advice;
+			await emit(h, "turn_end", {
+				message: { role: "assistant", content: [{ type: "text", text: "done" }] },
+			});
+			await waitFor(() => h.feature.status().backlog === 0, "review to complete");
+		};
+
+		await review([{ severity: "concern", note: "check this" }]);
+		expect(h.statuses.get("advisor")).toBe("concern");
+		await review([{ severity: "blocker", note: "stop this" }]);
+		expect(h.statuses.get("advisor")).toBe("blocker");
+		await review([]);
+		expect(h.statuses.get("advisor")).toBe("ok");
+		await review([{ severity: "nit", note: "minor" }]);
+		expect(h.statuses.get("advisor")).toBe("ok");
 	});
 
 	test("configure failure keeps old status and records lastError", async () => {
@@ -273,7 +295,7 @@ describe("Advisor feature lifecycle", () => {
 		await h.feature.command("on", h.ctx as unknown as ExtensionCommandContext);
 		expect(h.adapter.createCalls).toBe(2);
 		expect(h.feature.status()).toMatchObject({ enabled: true, phase: "idle" });
-		expect(h.statuses.get("advisor")).toBe("Advisor");
+		expect(h.statuses.get("advisor")).toBe("ok");
 	});
 
 	test("drops a stale reconfirm after disabling without delivering it", async () => {
@@ -399,7 +421,7 @@ describe("Advisor feature lifecycle", () => {
 		});
 		await emit(h, "session_tree");
 		expect(h.feature.status()).toMatchObject({ enabled: true, phase: "idle" });
-		expect(h.statuses.get("advisor")).toBe("Advisor");
+		expect(h.statuses.get("advisor")).toBe("ok");
 		expect(h.adapter.createCalls).toBe(2);
 	});
 
