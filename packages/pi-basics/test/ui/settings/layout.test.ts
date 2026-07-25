@@ -6,8 +6,8 @@ describe("settings layout", () => {
 		const baseline = createSettingsLayout(100);
 		const wider = createSettingsLayout(140);
 		expect(baseline.mode).toBe("wide");
-		expect(baseline.keyWidth).toBe(24);
-		expect(baseline.valueStart).toBe(27);
+		expect(baseline.keyWidth).toBe(20);
+		expect(baseline.valueStart).toBe(23);
 		expect(wider.keyWidth).toBe(baseline.keyWidth);
 		expect(wider.valueStart).toBe(baseline.valueStart);
 	});

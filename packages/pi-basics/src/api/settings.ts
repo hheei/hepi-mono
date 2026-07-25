@@ -31,6 +31,8 @@ export interface HePiSettingTabCycle {
 	readonly description: string;
 	readonly defaultValue: HePiSettingPrimitive;
 	readonly options: readonly HePiSettingOption[];
+	/** Separator used by the generic Settings value renderer. */
+	readonly separator?: string;
 }
 
 export interface HePiSettingField<T extends HePiSettingPrimitive = HePiSettingPrimitive> {
@@ -43,6 +45,10 @@ export interface HePiSettingField<T extends HePiSettingPrimitive = HePiSettingPr
 	/** A related persisted value cycled with Tab while this field is selected. */
 	readonly tabCycle?: HePiSettingTabCycle;
 	format?(value: T): string;
+	/** Format the compact list value, optionally using a related tab-cycle value. */
+	formatDisplay?(value: T, relatedValue?: HePiSettingPrimitive): string;
+	/** Format the Description panel value, optionally using a related tab-cycle value. */
+	formatDescription?(value: T, relatedValue?: HePiSettingPrimitive): string;
 	parse(draft: string): T;
 	validate?(value: T): string | undefined;
 	enabled?(state: HePiSettingsState): boolean;

@@ -1,3 +1,17 @@
+export type {
+	CreateHePiModelSelectionFieldOptions,
+	HePiModelSelectionOption,
+	HePiModelSelectionRegistry,
+	HePiModelThinkingCycle,
+	HePiModelThinkingLevel,
+} from "./api/model-selection.js";
+export {
+	createHePiModelSelectionField,
+	hePiAuthenticatedModelSelectionOptions,
+	hePiModelSelectionOptions,
+	hePiThinkingGlyph,
+} from "./api/model-selection.js";
+
 export type { HePiModule, HePiModuleView, HePiModuleViewContext } from "./api/modules.js";
 export {
 	getHePiRuntimeModuleRegistry,

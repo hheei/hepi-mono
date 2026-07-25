@@ -1,12 +1,14 @@
 import {
+	createHePiModelSelectionField,
 	createJsonSectionSettingsStorage,
+	type HePiModelSelectionOption,
 	type HePiSettingsProvider,
 	type HePiSettingValue,
 } from "@hheei/pi-basics";
-import { parseModelRef, parseThinking } from "./model.js";
+import { parseThinking } from "./model.js";
 export function createAdvisorSettingsProvider(options: {
 	readonly path: string;
-	readonly modelOptions?: readonly { readonly value: string; readonly label: string }[];
+	readonly modelOptions?: readonly HePiModelSelectionOption[];
 	readonly validatePersisted?: (
 		model: string | undefined,
 		thinking: string,
@@ -28,38 +30,28 @@ export function createAdvisorSettingsProvider(options: {
 				id: "advisor",
 				title: "",
 				fields: [
-					{
+					createHePiModelSelectionField({
 						id: "model",
 						label: "Advisor model",
-						type: "enum",
-						defaultValue: "",
 						description:
 							"Select the authenticated model used for read-only Advisor reviews after settled turns.",
-						options: options.modelOptions ?? [{ value: "", label: "Not set" }],
-						format: (value) => {
-							if (typeof value !== "string") return String(value);
-							return (
-								(options.modelOptions ?? []).find((option) => option.value === value)?.label ??
-								(value || "Not set")
-							);
-						},
-						parse: (value) => value,
-						validate: (value) =>
-							typeof value === "string" && value.length > 0 && !parseModelRef(value)
-								? "Use provider/model"
-								: undefined,
-						tabCycle: {
+						modelOptions: options.modelOptions ?? [{ value: "", label: "Not set" }],
+						thinking: {
 							fieldId: "thinking",
 							label: "Thinking",
 							description:
 								"Set the reasoning intensity used by the selected Advisor model during reviews.",
 							defaultValue: "medium",
-							options: ["off", "minimal", "low", "medium", "high", "xhigh"].map((value) => ({
-								value,
-								label: value,
-							})),
+							options: [
+								{ value: "off", label: "off" },
+								{ value: "minimal", label: "minimal" },
+								{ value: "low", label: "low" },
+								{ value: "medium", label: "medium" },
+								{ value: "high", label: "high" },
+								{ value: "xhigh", label: "xhigh" },
+							],
 						},
-					},
+					}),
 				],
 			},
 		],
