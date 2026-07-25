@@ -130,13 +130,16 @@ export function buildTurnDelta(
 	budget: ContextBudget = { contextWindow: 32768, responseReserve: 4096 },
 ): AdvisorDelta {
 	const available = contextInputCharBudget(budget);
-	const userChars = Math.floor(available * 0.4),
-		assistantChars = Math.floor(available * 0.4),
-		toolChars = Math.max(0, available - userChars - assistantChars);
+	const requestedUserChars = Math.floor(available * 0.4);
+	const requestedAssistantChars = Math.floor(available * 0.4);
+	const userChars = Math.min(user.length, requestedUserChars);
+	const assistantChars = Math.min(assistant?.length ?? 0, requestedAssistantChars);
+	const toolChars = Math.max(0, available - userChars - assistantChars);
+	const toolText = tools.join("\n");
 	return {
 		user: fit(user, userChars),
 		...(assistant === undefined ? {} : { assistant: fit(assistant, assistantChars) }),
-		tools: tools.map((item) => fit(item, Math.floor(toolChars / Math.max(1, tools.length)))),
+		...(toolText.length === 0 ? {} : { tools: [fit(toolText, toolChars)] }),
 	};
 }
 export function buildReviewContext(

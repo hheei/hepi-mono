@@ -1,6 +1,12 @@
+import { createHash } from "node:crypto";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { HePiRuntimeContext } from "@hheei/pi-basics";
-import { buildSessionContext, buildTurnDelta, extractPrimaryTurnEvidence } from "./context.js";
+import {
+	buildSessionContext,
+	buildTurnDelta,
+	contextInputCharBudget,
+	extractPrimaryTurnEvidence,
+} from "./context.js";
 import {
 	collectFeedback,
 	emptyFeedback,
@@ -22,7 +28,7 @@ import {
 	createCoreAdvisorAdapter,
 } from "./runtime.js";
 
-const REVIEW_INTERVAL_MS = 20_000;
+const REVIEW_INTERVAL_MS = 15_000;
 const CONCERN_COOLDOWN_MS = 25_000;
 const BLOCKER_COOLDOWN_MS = 40_000;
 
@@ -54,11 +60,18 @@ interface Active {
 	feedback: FeedbackState;
 	reconfirming: boolean;
 	terminalPending: boolean;
+	terminalGeneration: number;
 	pendingAdvisoryPrompt: string;
+	userPrompt: string;
 	primaryAborted: boolean;
 	lastReviewAt?: number | undefined;
+	lastMaterialSignature?: string | undefined;
 	reviewCooldownUntil: number;
 	reviewCooldownTimer?: unknown;
+	pendingReviewTimer?: unknown;
+	pendingReviewPrompt: string;
+	pendingReviewUserPromptGeneration: number;
+	pendingMaterialEvidence: string[];
 	notifiedHigh: Map<string, AdvisorAdvice["severity"]>;
 	lastError?: string;
 	model: string | undefined;
@@ -137,9 +150,41 @@ export function createAdvisorFeature(
 		item.lastReviewAt === undefined
 			? item.reviewCooldownUntil
 			: Math.max(item.reviewCooldownUntil, item.lastReviewAt + REVIEW_INTERVAL_MS);
+	const materialSignature = (prompt: string, userPromptGeneration: number): string =>
+		createHash("sha256").update(`${userPromptGeneration}\n${prompt}`).digest("hex");
+	const fitPendingText = (value: string, chars: number): string => {
+		const marker = "\n…[advisor pending evidence truncated]…\n";
+		if (value.length <= chars) return value;
+		if (chars <= marker.length) return marker.slice(0, Math.max(0, chars));
+		const contentChars = chars - marker.length;
+		const head = Math.ceil(contentChars / 2);
+		return value.slice(0, head) + marker + value.slice(value.length - Math.floor(contentChars / 2));
+	};
+	const addPendingMaterial = (item: Active, prompt: string): void => {
+		const toolsStart = prompt.indexOf("\n\nTOOLS:\n");
+		if (toolsStart < 0) return;
+		const material = prompt.slice(toolsStart + 2).trim();
+		if (material.length === 0 || item.pendingMaterialEvidence.includes(material)) return;
+		item.pendingMaterialEvidence.push(material);
+		if (item.pendingMaterialEvidence.length > 4) item.pendingMaterialEvidence.shift();
+	};
+	const pendingPrompt = (item: Active): string => {
+		const latest = item.pendingReviewPrompt;
+		const material = item.pendingMaterialEvidence.filter((value) => !latest.includes(value));
+		if (material.length === 0) return latest;
+		const separator = "\n\nEarlier material evidence:\n";
+		const materialText = material.join("\n\n");
+		const maxChars = contextInputCharBudget(item.adapter.contextBudget());
+		if (latest.length + separator.length + materialText.length <= maxChars)
+			return `${latest}${separator}${materialText}`;
+		const materialChars = Math.floor(maxChars * 0.3);
+		return `${fitPendingText(latest, Math.max(0, maxChars - separator.length - materialChars))}${separator}${fitPendingText(materialText, materialChars)}`;
+	};
 	const clearReviewTimer = (item: Active): void => {
 		if (item.reviewCooldownTimer !== undefined) clearTimeout(item.reviewCooldownTimer);
+		if (item.pendingReviewTimer !== undefined) clearTimeout(item.pendingReviewTimer);
 		item.reviewCooldownTimer = undefined;
+		item.pendingReviewTimer = undefined;
 	};
 	const printHighValue = (item: Active, notes: readonly AdvisorAdvice[]): void => {
 		for (const note of notes) {
@@ -163,7 +208,10 @@ export function createAdvisorFeature(
 		triggerTurn: boolean,
 		display = true,
 	): void => {
-		const content = notes.map((note) => `[${note.severity}] ${note.note}`).join("\n");
+		const content = [
+			"Advisor feedback: verify against the current state before acting.",
+			notes.map((note) => `[${note.severity}] ${note.note}`).join("\n"),
+		].join("\n");
 		if (triggerTurn) item.pendingAdvisoryPrompt = content;
 		item.runtime.pi.sendMessage(
 			{
@@ -185,7 +233,7 @@ export function createAdvisorFeature(
 		)
 			return;
 		if (item.feedback.held.length === 0) {
-			item.terminalPending = false;
+			if (item.pendingReviewPrompt.length === 0) item.terminalPending = false;
 			return;
 		}
 		const wait = reviewAllowedAt(item) - now();
@@ -200,6 +248,7 @@ export function createAdvisorFeature(
 		}
 		item.reconfirming = true;
 		const epoch = item.epoch;
+		const terminalGeneration = item.terminalGeneration;
 		void enqueue(async () => {
 			try {
 				if (!isCurrent(item, epoch) || !item.enabled) return;
@@ -208,6 +257,7 @@ export function createAdvisorFeature(
 					`Reconfirm only these unresolved Advisor notes. Re-raise a note with advise only if it still applies; otherwise stay silent.\n${item.feedback.held.map((note) => `[${note.severity}] ${note.note}`).join("\n")}`,
 				);
 				if (!isCurrent(item, epoch) || !item.enabled) return;
+				if (item.terminalGeneration !== terminalGeneration) return;
 				printHighValue(item, raised);
 				item.reviewCooldownUntil = Math.max(item.reviewCooldownUntil, now() + cooldownFor(raised));
 				publishIndicator(item, raised);
@@ -228,17 +278,19 @@ export function createAdvisorFeature(
 			} finally {
 				if (isCurrent(item, epoch)) {
 					item.reconfirming = false;
-					item.terminalPending = false;
+					if (item.terminalGeneration === terminalGeneration) item.terminalPending = false;
+					schedulePendingReview(item);
+					scheduleReconfirm(item);
 				}
 			}
 		});
 	};
-	const requestReview = (item: Active, prompt: string): void => {
-		if (!isCurrent(item) || !item.enabled || item.backlog > 0) return;
-		if (reviewAllowedAt(item) > now()) return;
-		review(item, prompt);
-	};
-	const review = (item: Active, prompt: string): void => {
+	const review = (
+		item: Active,
+		prompt: string,
+		signature: string | undefined,
+		userPromptGeneration: number,
+	): void => {
 		const epoch = item.epoch;
 		item.backlog++;
 		item.phase = "reviewing";
@@ -248,6 +300,7 @@ export function createAdvisorFeature(
 				item.lastReviewAt = now();
 				const advice = await item.adapter.review(prompt);
 				if (!isCurrent(item, epoch) || !item.enabled) return;
+				if (signature !== undefined) item.lastMaterialSignature = signature;
 				printHighValue(item, advice);
 				item.reviewCooldownUntil = Math.max(item.reviewCooldownUntil, now() + cooldownFor(advice));
 				publishIndicator(item, advice);
@@ -255,11 +308,17 @@ export function createAdvisorFeature(
 				item.feedback = collectFeedback(item.feedback, advice);
 				const notes = item.feedback.deliverable;
 				if (notes.length > 0) {
-					deliver(item, notes, false);
+					deliver(item, notes, item.terminalPending && !item.primaryAborted);
 					item.feedback = markFeedbackDelivered(item.feedback, notes);
 				}
 			} catch (error) {
 				if (isCurrent(item, epoch)) {
+					if (item.pendingReviewPrompt.length === 0) {
+						item.pendingReviewPrompt = prompt;
+						item.pendingReviewUserPromptGeneration = userPromptGeneration;
+					} else {
+						addPendingMaterial(item, prompt);
+					}
 					item.runtime.ctx.ui.setStatus("advisor", undefined);
 					item.lastError = errorMessage(error);
 				}
@@ -268,10 +327,50 @@ export function createAdvisorFeature(
 					item.backlog = Math.max(0, item.backlog - 1);
 					if (item.enabled && item.backlog === 0) item.phase = "idle";
 					else if (item.enabled) item.phase = "reviewing";
-					if (item.backlog === 0) scheduleReconfirm(item);
+					if (item.backlog === 0) {
+						schedulePendingReview(item);
+						scheduleReconfirm(item);
+					}
 				}
 			}
 		});
+	};
+	function schedulePendingReview(item: Active): void {
+		if (
+			!isCurrent(item) ||
+			!item.enabled ||
+			item.reconfirming ||
+			item.backlog > 0 ||
+			item.pendingReviewPrompt.length === 0
+		)
+			return;
+		const prompt = pendingPrompt(item);
+		const signature = materialSignature(prompt, item.pendingReviewUserPromptGeneration);
+		if (item.lastMaterialSignature === signature) {
+			item.pendingReviewPrompt = "";
+			item.pendingMaterialEvidence = [];
+			return;
+		}
+		const wait = reviewAllowedAt(item) - now();
+		if (wait > 0) {
+			if (item.pendingReviewTimer === undefined) {
+				item.pendingReviewTimer = setTimeout(() => {
+					item.pendingReviewTimer = undefined;
+					schedulePendingReview(item);
+				}, wait);
+			}
+			return;
+		}
+		item.pendingReviewPrompt = "";
+		item.pendingMaterialEvidence = [];
+		review(item, prompt, signature, item.pendingReviewUserPromptGeneration);
+	}
+	const requestReview = (item: Active, prompt: string, userPromptGeneration: number): void => {
+		if (!isCurrent(item) || !item.enabled) return;
+		if (item.pendingReviewPrompt.length > 0) addPendingMaterial(item, item.pendingReviewPrompt);
+		item.pendingReviewPrompt = prompt;
+		item.pendingReviewUserPromptGeneration = userPromptGeneration;
+		schedulePendingReview(item);
 	};
 	const reset = (item: Active): Promise<void> => {
 		if (!isCurrent(item)) return Promise.resolve();
@@ -279,10 +378,16 @@ export function createAdvisorFeature(
 		item.feedback = emptyFeedback();
 		item.reconfirming = false;
 		item.terminalPending = false;
+		item.terminalGeneration = 0;
 		item.pendingAdvisoryPrompt = "";
+		item.userPrompt = "";
+		item.pendingReviewPrompt = "";
+		item.pendingReviewUserPromptGeneration = 0;
+		item.pendingMaterialEvidence = [];
 		item.backlog = 0;
 		clearReviewTimer(item);
 		item.lastReviewAt = undefined;
+		item.lastMaterialSignature = undefined;
 		item.reviewCooldownUntil = 0;
 		item.notifiedHigh.clear();
 		item.phase = item.enabled ? "idle" : "disabled";
@@ -315,13 +420,19 @@ export function createAdvisorFeature(
 				if (active !== item) return;
 				item.model = model;
 				item.thinking = thinking;
+				item.lastMaterialSignature = undefined;
 				if (model === undefined || model.trim().length === 0) {
 					if (item.enabled) appendAdvisorBoundary(item.runtime.pi, { version: 1, enabled: false });
 					item.enabled = false;
 					item.phase = "disabled";
 					item.adapterActive = false;
 					clearReviewTimer(item);
+					item.pendingReviewPrompt = "";
+					item.pendingReviewUserPromptGeneration = 0;
+					item.pendingMaterialEvidence = [];
+					item.userPrompt = "";
 					item.lastReviewAt = undefined;
+					item.lastMaterialSignature = undefined;
 					item.reviewCooldownUntil = 0;
 					item.notifiedHigh.clear();
 					item.runtime.ctx.ui.setStatus("advisor", undefined);
@@ -357,7 +468,12 @@ export function createAdvisorFeature(
 				feedback: emptyFeedback(),
 				reconfirming: false,
 				terminalPending: false,
+				terminalGeneration: 0,
 				pendingAdvisoryPrompt: "",
+				userPrompt: "",
+				pendingReviewPrompt: "",
+				pendingReviewUserPromptGeneration: 0,
+				pendingMaterialEvidence: [],
 				primaryAborted: false,
 				reviewCooldownUntil: 0,
 				notifiedHigh: new Map(),
@@ -365,7 +481,7 @@ export function createAdvisorFeature(
 				thinking: config?.thinking ?? "medium",
 			};
 			active = item;
-			let currentUserPrompt = "";
+			let userPromptGeneration = 0;
 			runtime.pi.on("before_agent_start", (event, eventCtx) => {
 				if (!isCurrent(item, undefined, eventCtx)) return;
 				const eventPrompt =
@@ -374,10 +490,8 @@ export function createAdvisorFeature(
 						: undefined;
 				const prompt = typeof eventPrompt === "string" ? eventPrompt : "";
 				if (prompt.length > 0) {
-					currentUserPrompt = prompt;
-					item.pendingAdvisoryPrompt = "";
-				} else if (item.pendingAdvisoryPrompt.length > 0) {
-					currentUserPrompt = item.pendingAdvisoryPrompt;
+					item.userPrompt = prompt;
+					userPromptGeneration++;
 					item.pendingAdvisoryPrompt = "";
 				}
 			});
@@ -390,7 +504,8 @@ export function createAdvisorFeature(
 					toolResults: Array.isArray(event.toolResults) ? event.toolResults : [],
 				});
 				const reviewUserPrompt =
-					currentUserPrompt.length > 0 ? currentUserPrompt : item.pendingAdvisoryPrompt;
+					item.pendingAdvisoryPrompt.length > 0 ? item.pendingAdvisoryPrompt : item.userPrompt;
+				const reviewUserPromptGeneration = userPromptGeneration;
 				item.pendingAdvisoryPrompt = "";
 				try {
 					if (evidence.assistant !== undefined || evidence.tools.length > 0)
@@ -404,19 +519,27 @@ export function createAdvisorFeature(
 									item.adapter.contextBudget(),
 								),
 							),
+							reviewUserPromptGeneration,
 						);
 				} catch (error) {
 					item.lastError = errorMessage(error);
 				}
-				currentUserPrompt = "";
+				item.terminalGeneration++;
+				if (item.feedback.held.length > 0) {
+					item.terminalPending = true;
+					scheduleReconfirm(item);
+				}
 			});
 			runtime.pi.on("agent_settled", (_event, eventCtx) => {
 				if (!isCurrent(item, undefined, eventCtx) || !item.enabled) return;
+				item.terminalGeneration++;
 				item.terminalPending = true;
 				scheduleReconfirm(item);
 			});
 			runtime.pi.on("session_compact", (_event, eventCtx) => {
 				if (!isCurrent(item, undefined, eventCtx)) return;
+				userPromptGeneration = 0;
+				item.userPrompt = "";
 				return reset(item);
 			});
 			runtime.pi.on("session_tree", (_event, eventCtx) => {
@@ -426,16 +549,23 @@ export function createAdvisorFeature(
 					(message) => item.runtime.ctx.ui.notify(message, "warning"),
 				);
 				const epoch = ++item.epoch;
+				userPromptGeneration = 0;
+				item.userPrompt = "";
 				item.enabled = restoredBranch.enabled;
 				item.phase = restoredBranch.enabled ? "starting" : "disabled";
 				publishIndicator(item, []);
 				item.feedback = emptyFeedback();
 				item.reconfirming = false;
 				item.terminalPending = false;
+				item.terminalGeneration = 0;
 				item.pendingAdvisoryPrompt = "";
+				item.pendingReviewPrompt = "";
+				item.pendingReviewUserPromptGeneration = 0;
+				item.pendingMaterialEvidence = [];
 				item.backlog = 0;
 				clearReviewTimer(item);
 				item.lastReviewAt = undefined;
+				item.lastMaterialSignature = undefined;
 				item.reviewCooldownUntil = 0;
 				item.notifiedHigh.clear();
 				return enqueue(async () => {
@@ -500,7 +630,12 @@ export function createAdvisorFeature(
 			item.feedback = emptyFeedback();
 			item.reconfirming = false;
 			item.terminalPending = false;
+			item.terminalGeneration = 0;
 			item.pendingAdvisoryPrompt = "";
+			item.pendingReviewPrompt = "";
+			item.pendingReviewUserPromptGeneration = 0;
+			item.pendingMaterialEvidence = [];
+			item.userPrompt = "";
 			item.backlog = 0;
 			item.adapterActive = false;
 			clearReviewTimer(item);
@@ -580,9 +715,14 @@ export function createAdvisorFeature(
 					item.reconfirming = false;
 					item.terminalPending = false;
 					item.pendingAdvisoryPrompt = "";
+					item.pendingReviewPrompt = "";
+					item.pendingReviewUserPromptGeneration = 0;
+					item.pendingMaterialEvidence = [];
+					item.userPrompt = "";
 					item.backlog = 0;
 					clearReviewTimer(item);
 					item.lastReviewAt = undefined;
+					item.lastMaterialSignature = undefined;
 					item.reviewCooldownUntil = 0;
 					item.notifiedHigh.clear();
 					const cleanup = enqueue(async () => {
