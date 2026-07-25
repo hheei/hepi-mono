@@ -50,7 +50,14 @@ describe("todo state", () => {
 		});
 	});
 
-	test("latest valid tool or user snapshot wins in branch order", () => {
+	test("starts the first pending task while restoring legacy state", () => {
+		expect(stateFromSnapshot({ tasks: [task(2), task(1)], nextId: 3 })).toEqual({
+			tasks: [task(2), { ...task(1), status: "in_progress" }],
+			nextId: 3,
+		});
+	});
+
+	test("newer snapshots preserve permanent user suppression", () => {
 		const first = { tasks: [task(1)], nextId: 2 };
 		const suppressed: TaskState = {
 			tasks: [{ id: 1, subject: "task 1", status: "suppressed" }],
@@ -59,9 +66,38 @@ describe("todo state", () => {
 		const later = { tasks: [task(4)], nextId: 5 };
 		expect(
 			latestTodoSnapshot([result(first), custom(suppressed), custom({ bad: true }), result(later)]),
-		).toEqual(later);
+		).toEqual({
+			tasks: [
+				{ id: 1, subject: "task 1", status: "suppressed" },
+				{ id: 4, subject: "task 4", status: "in_progress" },
+			],
+			nextId: 5,
+		});
 		expect(latestTodoSnapshot([result(first), custom(suppressed)])).toEqual(suppressed);
-		expect(latestTodoSnapshot([result(later), custom(first)])).toEqual(later);
+		expect(latestTodoSnapshot([result(later), custom(first)])).toEqual({
+			tasks: [{ id: 4, subject: "task 4", status: "in_progress" }],
+			nextId: 5,
+		});
+	});
+
+	test("user suppression survives a later stale snapshot with the same next id", () => {
+		const before: TaskState = {
+			tasks: [
+				{ id: 1, subject: "one", status: "in_progress" },
+				{ id: 2, subject: "two", status: "pending" },
+			],
+			nextId: 3,
+		};
+		const userSnapshot: TaskState = {
+			tasks: [
+				{ id: 1, subject: "one", status: "suppressed" },
+				{ id: 2, subject: "two", status: "in_progress" },
+			],
+			nextId: 3,
+		};
+		expect(latestTodoSnapshot([result(before), custom(userSnapshot), result(before)])).toEqual(
+			userSnapshot,
+		);
 	});
 
 	test("ignores unrelated and malformed entries", () => {

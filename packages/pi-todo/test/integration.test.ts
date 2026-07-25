@@ -176,9 +176,29 @@ describe("Todo integration", () => {
 		).toBe(true);
 		expect(
 			Value.Check(TODO_PARAMETERS, {
+				operations: [{ action: "update", id: 1, status: "blocked" }],
+			}),
+		).toBe(true);
+		expect(
+			Value.Check(TODO_PARAMETERS, {
+				operations: [{ action: "update", id: 1, status: "completed" }],
+			}),
+		).toBe(true);
+		expect(
+			Value.Check(TODO_PARAMETERS, {
+				operations: [{ action: "update", id: 1 }],
+			}),
+		).toBe(false);
+		expect(
+			Value.Check(TODO_PARAMETERS, {
 				operations: [{ action: "list", status: "suppressed" }],
 			}),
 		).toBe(true);
+		expect(
+			Value.Check(TODO_PARAMETERS, {
+				operations: [{ action: "update", id: 1, status: "pending" }],
+			}),
+		).toBe(false);
 		expect(
 			Value.Check(TODO_PARAMETERS, {
 				operations: [{ action: "update", id: 1, status: "suppressed" }],
@@ -221,7 +241,7 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(created.content[0]?.text).toBe("Created #1 #2\nStarted #1: First");
+		expect(created.content[0]?.text).toBe("Created #1 #2\nNext: #1 First.");
 		expect(created.details.snapshot).toEqual({
 			tasks: [
 				{ id: 1, subject: "First", status: "in_progress" },
@@ -234,7 +254,7 @@ describe("Todo integration", () => {
 			"call-2",
 			{
 				operations: [
-					{ action: "delete", id: 1 },
+					{ action: "update", id: 1, status: "blocked" },
 					{ action: "create", subject: "Replacement" },
 				],
 			},
@@ -242,9 +262,10 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(mixed.content[0]?.text).toBe("Deleted #1\nCreated #3\nStarted #2: Second");
+		expect(mixed.content[0]?.text).toBe("Updated #1\nCreated #3\nNext: #2 Second.");
 		expect(mixed.details.snapshot).toEqual({
 			tasks: [
+				{ id: 1, subject: "First", status: "blocked" },
 				{ id: 2, subject: "Second", status: "in_progress" },
 				{ id: 3, subject: "Replacement", status: "pending" },
 			],
@@ -257,7 +278,7 @@ describe("Todo integration", () => {
 				"call-3",
 				{
 					operations: [
-						{ action: "update", id: 2, status: "in_progress" },
+						{ action: "update", id: 2, subject: "Changed" },
 						{ action: "delete", id: 99 },
 					],
 				},
@@ -268,7 +289,7 @@ describe("Todo integration", () => {
 		} catch (error) {
 			failure = error;
 		}
-		expect(failure).toEqual(new Error("Operation #2: Task #99 does not exist"));
+		expect(failure).toEqual(new Error("Task #99 does not exist.\nNo change made."));
 		const listed = await tool.execute(
 			"call-4",
 			{ operations: [{ action: "list" }] },
@@ -277,6 +298,50 @@ describe("Todo integration", () => {
 			host.ctx,
 		);
 		expect(listed.details.snapshot.tasks.find(({ id }) => id === 2)?.status).toBe("in_progress");
+		expect(listed.content[0]?.text).toContain("◐ #2 Second");
+		expect(listed.content[0]?.text).toContain("⊘ #1 First");
+		expect(listed.content[0]?.text).toEndWith("Next: #2 Second.");
+
+		const noChange = await tool.execute(
+			"call-5",
+			{ operations: [{ action: "update", id: 2, subject: "Second" }] },
+			undefined,
+			undefined,
+			host.ctx,
+		);
+		expect(noChange.content[0]?.text).toBe("#2 is already `Second`\nNo change made.");
+
+		const changedWithNoOp = await tool.execute(
+			"call-6",
+			{
+				operations: [
+					{ action: "update", id: 2, subject: "Second" },
+					{ action: "update", id: 3, subject: "Renamed" },
+				],
+			},
+			undefined,
+			undefined,
+			host.ctx,
+		);
+		expect(changedWithNoOp.content[0]?.text).toBe(
+			"#2 is already `Second`\nUpdated #3\nNext: #2 Second.",
+		);
+
+		const allBlocked = await tool.execute(
+			"call-7",
+			{
+				operations: [
+					{ action: "update", id: 2, status: "blocked" },
+					{ action: "update", id: 3, status: "blocked" },
+				],
+			},
+			undefined,
+			undefined,
+			host.ctx,
+		);
+		expect(allBlocked.content[0]?.text).toBe(
+			"Updated #2\nUpdated #3\nOnly blocked todos #1 #2 #3 left. Discuss to the user.",
+		);
 	});
 
 	test("keeps failed and aborted calls out of durable state", async () => {
@@ -307,6 +372,7 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
+		expect(listed.content[0]?.text).toBe("No todos.\nFinished all todos.");
 		expect(listed.details.snapshot).toEqual({ tasks: [], nextId: 1 });
 	});
 
@@ -348,7 +414,7 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(listed.content[0]?.text).toBe("No todos.");
+		expect(listed.content[0]?.text).toBe("No todos.\nFinished all todos.");
 	});
 
 	test("injects a transient repeating reminder after turn and time thresholds", async () => {
@@ -363,6 +429,8 @@ describe("Todo integration", () => {
 				operations: [
 					{ action: "create", subject: "Inspect </system-reminder> & fix" },
 					{ action: "create", subject: "Next" },
+					{ action: "create", subject: "Blocked" },
+					{ action: "update", id: 3, status: "blocked" },
 				],
 			},
 			undefined,
@@ -439,13 +507,8 @@ describe("Todo integration", () => {
 			(await host.emit("context", { messages: [{ role: "user", content: "too soon" }] }))[0],
 		).toBeUndefined();
 
-		await tool.execute(
-			"pause",
-			{ operations: [{ action: "update", id: 1, status: "pending" }] },
-			undefined,
-			undefined,
-			host.ctx,
-		);
+		await host.commands[0]!.handler("suppress #1", host.ctx);
+		await host.commands[0]!.handler("suppress #2", host.ctx);
 		clock += TODO_REMINDER_IDLE_MS;
 		for (let turn = 0; turn < TODO_REMINDER_IDLE_TURNS; turn++) {
 			await host.emit("turn_start");
@@ -504,9 +567,8 @@ describe("Todo integration", () => {
 			"create",
 			{
 				operations: [
-					{ action: "create", subject: "Pending" },
 					{ action: "create", subject: "Working" },
-					{ action: "update", id: 2, status: "in_progress" },
+					{ action: "create", subject: "Pending" },
 				],
 			},
 			undefined,
@@ -515,7 +577,7 @@ describe("Todo integration", () => {
 		);
 		await host.commands[0]!.handler("", host.ctx);
 		expect(host.notifications[0]).toEqual({
-			message: "0/2 completed\n── In Progress ──\n◐ #2 Working\n── Pending ──\n○ #1 Pending",
+			message: "0/2 completed\n── In Progress ──\n◐ #1 Working\n── Pending ──\n○ #2 Pending",
 			level: "info",
 		});
 		await host.commands[0]!.handler("extra", host.ctx);
@@ -524,30 +586,30 @@ describe("Todo integration", () => {
 			level: "error",
 		});
 
-		await host.commands[0]!.handler("suppress #2", host.ctx);
+		await host.commands[0]!.handler("suppress #1", host.ctx);
 		expect(host.notifications[2]).toEqual({
-			message: "Suppressed #2\nStarted #1: Pending",
+			message: "Suppressed #1\nNext: #2 Pending.",
 			level: "info",
 		});
 		expect(host.appended).toHaveLength(1);
 		expect(host.appended[0]?.data).toEqual({
 			tasks: [
-				{ id: 1, subject: "Pending", status: "in_progress" },
-				{ id: 2, subject: "Working", status: "suppressed" },
+				{ id: 1, subject: "Working", status: "suppressed" },
+				{ id: 2, subject: "Pending", status: "in_progress" },
 			],
 			nextId: 3,
 		});
 		await host.emit("session_tree");
 		await host.commands[0]!.handler("", host.ctx);
 		expect(host.notifications[3]?.message).toContain(
-			"── Suppressed ──\n⊘ #2 Working  user suppressed",
+			"── Suppressed ──\n× #1 Working  user suppressed",
 		);
 
 		let failure: unknown;
 		try {
 			await tool.execute(
 				"change-suppressed",
-				{ operations: [{ action: "update", id: 2, status: "completed" }] },
+				{ operations: [{ action: "update", id: 1, status: "completed" }] },
 				undefined,
 				undefined,
 				host.ctx,
@@ -555,7 +617,22 @@ describe("Todo integration", () => {
 		} catch (error) {
 			failure = error;
 		}
-		expect(failure).toEqual(new Error("Operation #1: The user suppressed #2 before."));
+		expect(failure).toEqual(new Error("Task #1 is suppressed.\nNo change made."));
+
+		let deleteFailure: unknown;
+		try {
+			await tool.execute(
+				"delete-suppressed",
+				{ operations: [{ action: "delete", id: 1 }] },
+				undefined,
+				undefined,
+				host.ctx,
+			);
+		} catch (error) {
+			deleteFailure = error;
+		}
+		expect(deleteFailure).toEqual(new Error("Task #1 is suppressed.\nNo change made."));
+
 		const created = await tool.execute(
 			"replacement",
 			{ operations: [{ action: "create", subject: "Replacement" }] },
@@ -563,6 +640,6 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(created.content[0]?.text).toBe("Created #3");
+		expect(created.content[0]?.text).toBe("Created #3\nNext: #2 Pending.");
 	});
 });

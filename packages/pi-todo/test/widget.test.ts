@@ -8,7 +8,7 @@ const state = (tasks: TaskState["tasks"]): TaskState => ({ tasks, nextId: 99 });
 const task = (
 	id: number,
 	subject: string,
-	status: "pending" | "in_progress" | "completed" | "suppressed",
+	status: "pending" | "in_progress" | "blocked" | "completed" | "suppressed",
 ) => ({ id, subject, status });
 
 const identityTheme = { fg: (_color: string, text: string) => text };
@@ -91,22 +91,25 @@ describe("todo widget", () => {
 		expect(h.calls).toHaveLength(2);
 	});
 
-	test("orders in-progress then pending by id", () => {
+	test("orders in-progress, pending, then blocked tasks", () => {
 		const h = harness();
 		createTodoWidget(
 			h.runtime,
 			state([
 				task(4, "pending", "pending"),
 				task(3, "working", "in_progress"),
-				task(2, "also pending", "pending"),
+				task(2, "blocked", "blocked"),
+				task(1, "also pending", "pending"),
 			]),
 		);
-		expect(
-			component(h)
-				.render(80)
-				.slice(1)
-				.map((line: string) => line.match(/#\d+/)?.[0]),
-		).toEqual(["#3", "#2", "#4"]);
+		const lines = component(h).render(80);
+		expect(lines.slice(1).map((line: string) => line.match(/#\d+/)?.[0])).toEqual([
+			"#3",
+			"#1",
+			"#4",
+			"#2",
+		]);
+		expect(lines.find((line: string) => line.includes("#2"))).toContain("⊘");
 	});
 
 	test("renders all-completed header in dim style", () => {
