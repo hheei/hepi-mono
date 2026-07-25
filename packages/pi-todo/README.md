@@ -2,7 +2,9 @@
 
 Atomic task list for Pi. Requires `@hheei/pi-basics`.
 
-Use the `todo` tool with a batch of `create`, `update`, `list`, or `delete` operations. If one operation is invalid, the entire batch is rejected and no state changes. In TUI sessions `/todos` shows the current state and a read-only widget appears above the editor while work remains.
+Use the `todo` tool with a batch of `create`, `update`, `list`, or `delete` operations. If one operation is invalid, the entire batch is rejected and no state changes. In TUI sessions `/todos` shows the current state and a compact widget appears above the editor while work remains.
+
+The widget orders tasks as in-progress, pending, blocked, then newly completed. A completed task remains visible with a success mark until the next agent run starts, then leaves the widget without leaving task history. Historical completed tasks do not reappear after reload, compaction, or branch changes. The widget shows at most six task rows, reports overflow as `+N more`, and keeps one blank line above the editor.
 
 ## Automatic progress
 
@@ -20,7 +22,7 @@ Next: #1 Inspect code.
 When no runnable task remains but blocked work exists, Todo asks the agent to discuss it with the user:
 
 ```text
-Only blocked todos #2 #4 left. Discuss to the user.
+Only blocked todos #2 #4 left. Agree next steps with the user.
 ```
 
 After all work finishes:
@@ -28,6 +30,10 @@ After all work finishes:
 ```text
 Finished all todos.
 ```
+
+The tool is intended for work with at least three concrete steps or multiple user-requested tasks. Create the full known list in one atomic batch with short, imperative subjects. Scheduling is automatic: update only when state changes, mark work completed only after verification, use blocked only when work cannot continue, and set in-progress only when resuming blocked work.
+
+Tool calls render compactly in the TUI, for example `todo +3`, `todo → #2`, and `todo ☰`. Result chrome shows the current active, blocked, or completed state; the full text result remains the behavioral contract.
 
 ## User suppression
 
@@ -54,8 +60,8 @@ After both three successful provider turns and three minutes without a Todo stat
 
 ```xml
 <system-reminder>
-Active TODO: #1 Inspect code.
-Pending TODOS: #2, #3, #4
+Active TODO: #1
+Pending TODOs: #2 #3 #4
 </system-reminder>
 ```
 
