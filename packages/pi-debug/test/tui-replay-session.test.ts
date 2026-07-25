@@ -3,8 +3,8 @@ import {
 	chmod,
 	mkdir,
 	mkdtemp,
-	readFile,
 	readdir,
+	readFile,
 	rm,
 	stat,
 	symlink,
@@ -68,15 +68,9 @@ describe("replay session CLI", () => {
 		const context = await fixture();
 		try {
 			expect(await context.run("send", "hello")).toEqual(["Replay session\n> hello"]);
-			expect(await context.run("key", "enter")).toEqual([
-				"Replay session\nUser: hello\n> ",
-			]);
-			expect(await context.run("send", "next")).toEqual([
-				"Replay session\nUser: hello\n> next",
-			]);
-			expect(await context.run("show")).toEqual([
-				"Replay session\nUser: hello\n> next",
-			]);
+			expect(await context.run("key", "enter")).toEqual(["Replay session\nUser: hello\n> "]);
+			expect(await context.run("send", "next")).toEqual(["Replay session\nUser: hello\n> next"]);
+			expect(await context.run("show")).toEqual(["Replay session\nUser: hello\n> next"]);
 
 			const status = await context.run("status");
 			expect(JSON.parse(status[0] ?? "{}")).toMatchObject({ actions: 3, session: "default" });
@@ -85,9 +79,9 @@ describe("replay session CLI", () => {
 			const second = await context.run("save", "shots");
 			expect(first[0]?.endsWith("shots/replay-0001")).toBe(true);
 			expect(second[0]?.endsWith("shots/replay-0002")).toBe(true);
-			expect(
-				await readFile(join(context.cwd, "shots", "replay-0001", "final.txt"), "utf8"),
-			).toBe("Replay session\nUser: hello\n> next\n");
+			expect(await readFile(join(context.cwd, "shots", "replay-0001", "final.txt"), "utf8")).toBe(
+				"Replay session\nUser: hello\n> next\n",
+			);
 
 			await context.run("reset");
 			expect(await readdir(context.stateDir)).toHaveLength(1);
@@ -320,16 +314,13 @@ export default function scenario() {
 			"utf8",
 		);
 		try {
-			const starting = Bun.spawn(
-				[process.execPath, SESSION_CLI, "start", "--module", modulePath],
-				{
-					cwd: context.cwd,
-					env: { ...process.env, PI_TUI_REPLAY_STATE_DIR: context.stateDir },
-					stdin: "ignore",
-					stdout: "pipe",
-					stderr: "pipe",
-				},
-			);
+			const starting = Bun.spawn([process.execPath, SESSION_CLI, "start", "--module", modulePath], {
+				cwd: context.cwd,
+				env: { ...process.env, PI_TUI_REPLAY_STATE_DIR: context.stateDir },
+				stdin: "ignore",
+				stdout: "pipe",
+				stderr: "pipe",
+			});
 			for (let attempt = 0; attempt < 200 && !(await Bun.file(marker).exists()); attempt++)
 				await Bun.sleep(10);
 			expect(await Bun.file(marker).exists()).toBe(true);
@@ -480,9 +471,7 @@ export default function scenario() {
 			await runReplaySessionCli(
 				[
 					"input",
-					JSON.stringify(
-						"\x1b[31mred\x1b[0m\x1b[2J\x1b]0;terminal-injection\x07",
-					),
+					JSON.stringify("\x1b[31mred\x1b[0m\x1b[2J\x1b]0;terminal-injection\x07"),
 					"--session",
 					"ansi",
 				],
@@ -499,14 +488,11 @@ export default function scenario() {
 			expect(reflected.stderr).not.toContain("\x1b]");
 			expect(reflected.stderr).not.toContain("\x07");
 			const successOutput: string[] = [];
-			await runReplaySessionCli(
-				["reset", "--session", "named\x1b]0;success-injection\x07"],
-				{
-					cwd: context.cwd,
-					stateDir: context.stateDir,
-					write: (text) => successOutput.push(text),
-				},
-			);
+			await runReplaySessionCli(["reset", "--session", "named\x1b]0;success-injection\x07"], {
+				cwd: context.cwd,
+				stateDir: context.stateDir,
+				write: (text) => successOutput.push(text),
+			});
 			expect(successOutput[0]).not.toContain("\x1b]");
 			expect(successOutput[0]).not.toContain("\x07");
 
@@ -528,12 +514,8 @@ export default function scenario() {
 		try {
 			await context.run("send", "one", "--session", "alpha");
 			await context.run("send", "two", "--session", "beta");
-			expect(await context.run("show", "--session", "alpha")).toEqual([
-				"Replay session\n> one",
-			]);
-			expect(await context.run("show", "--session", "beta")).toEqual([
-				"Replay session\n> two",
-			]);
+			expect(await context.run("show", "--session", "alpha")).toEqual(["Replay session\n> one"]);
+			expect(await context.run("show", "--session", "beta")).toEqual(["Replay session\n> two"]);
 			expect((await readdir(context.stateDir)).length).toBe(2);
 
 			await expect(context.run("key", "invalid")).rejects.toThrow("Unsupported replay key");
@@ -541,9 +523,9 @@ export default function scenario() {
 			await expect(context.run("show", "extra")).rejects.toThrow("does not accept");
 			await expect(context.run("--unknown")).rejects.toThrow();
 			await expect(context.run("show", "--session")).rejects.toThrow();
-			await expect(
-				context.run("show", "--session", "a", "--session", "b"),
-			).rejects.toThrow("only once");
+			await expect(context.run("show", "--session", "a", "--session", "b")).rejects.toThrow(
+				"only once",
+			);
 
 			const [status] = await context.run("status", "--session", "alpha");
 			const parsed: unknown = JSON.parse(status ?? "null");
@@ -554,10 +536,19 @@ export default function scenario() {
 				typeof parsed.statePath !== "string"
 			)
 				throw new Error("status did not return statePath");
+			const storedState: unknown = JSON.parse(await readFile(parsed.statePath, "utf8"));
+			if (typeof storedState !== "object" || storedState === null || Array.isArray(storedState))
+				throw new Error("journal did not contain an object state");
+			for (const type of ["toString", "constructor", "__proto__"]) {
+				await writeFile(
+					parsed.statePath,
+					`${JSON.stringify({ ...storedState, actions: [{ type }] })}\n`,
+					"utf8",
+				);
+				await expect(context.run("show", "--session", "alpha")).rejects.toThrow("state is invalid");
+			}
 			await writeFile(parsed.statePath, "{}\n", "utf8");
-			await expect(context.run("show", "--session", "alpha")).rejects.toThrow(
-				"state is invalid",
-			);
+			await expect(context.run("show", "--session", "alpha")).rejects.toThrow("state is invalid");
 		} finally {
 			await rm(context.root, { recursive: true, force: true });
 		}
