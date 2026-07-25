@@ -60,7 +60,9 @@ interface Active {
 	feedback: FeedbackState;
 	reconfirming: boolean;
 	terminalPending: boolean;
+	terminalGeneration: number;
 	pendingAdvisoryPrompt: string;
+	runUserPrompt: string;
 	primaryAborted: boolean;
 	lastReviewAt?: number | undefined;
 	lastMaterialSignature?: string | undefined;
@@ -206,7 +208,10 @@ export function createAdvisorFeature(
 		triggerTurn: boolean,
 		display = true,
 	): void => {
-		const content = notes.map((note) => `[${note.severity}] ${note.note}`).join("\n");
+		const content = [
+			"Advisor feedback: verify against the current state before acting.",
+			notes.map((note) => `[${note.severity}] ${note.note}`).join("\n"),
+		].join("\n");
 		if (triggerTurn) item.pendingAdvisoryPrompt = content;
 		item.runtime.pi.sendMessage(
 			{
@@ -243,6 +248,7 @@ export function createAdvisorFeature(
 		}
 		item.reconfirming = true;
 		const epoch = item.epoch;
+		const terminalGeneration = item.terminalGeneration;
 		void enqueue(async () => {
 			try {
 				if (!isCurrent(item, epoch) || !item.enabled) return;
@@ -271,8 +277,9 @@ export function createAdvisorFeature(
 			} finally {
 				if (isCurrent(item, epoch)) {
 					item.reconfirming = false;
-					item.terminalPending = false;
+					if (item.terminalGeneration === terminalGeneration) item.terminalPending = false;
 					schedulePendingReview(item);
+					scheduleReconfirm(item);
 				}
 			}
 		});
@@ -295,7 +302,7 @@ export function createAdvisorFeature(
 				item.feedback = collectFeedback(item.feedback, advice);
 				const notes = item.feedback.deliverable;
 				if (notes.length > 0) {
-					deliver(item, notes, false);
+					deliver(item, notes, item.terminalPending && !item.primaryAborted);
 					item.feedback = markFeedbackDelivered(item.feedback, notes);
 				}
 			} catch (error) {
@@ -359,7 +366,9 @@ export function createAdvisorFeature(
 		item.feedback = emptyFeedback();
 		item.reconfirming = false;
 		item.terminalPending = false;
+		item.terminalGeneration = 0;
 		item.pendingAdvisoryPrompt = "";
+		item.runUserPrompt = "";
 		item.pendingReviewPrompt = "";
 		item.pendingReviewUserPromptGeneration = 0;
 		item.pendingMaterialEvidence = [];
@@ -409,6 +418,7 @@ export function createAdvisorFeature(
 					item.pendingReviewPrompt = "";
 					item.pendingReviewUserPromptGeneration = 0;
 					item.pendingMaterialEvidence = [];
+					item.runUserPrompt = "";
 					item.lastReviewAt = undefined;
 					item.lastMaterialSignature = undefined;
 					item.reviewCooldownUntil = 0;
@@ -446,7 +456,9 @@ export function createAdvisorFeature(
 				feedback: emptyFeedback(),
 				reconfirming: false,
 				terminalPending: false,
+				terminalGeneration: 0,
 				pendingAdvisoryPrompt: "",
+				runUserPrompt: "",
 				pendingReviewPrompt: "",
 				pendingReviewUserPromptGeneration: 0,
 				pendingMaterialEvidence: [],
@@ -468,6 +480,7 @@ export function createAdvisorFeature(
 				const prompt = typeof eventPrompt === "string" ? eventPrompt : "";
 				if (prompt.length > 0) {
 					currentUserPrompt = prompt;
+					item.runUserPrompt = prompt;
 					userPromptGeneration++;
 					item.pendingAdvisoryPrompt = "";
 				} else if (item.pendingAdvisoryPrompt.length > 0) {
@@ -484,7 +497,11 @@ export function createAdvisorFeature(
 					toolResults: Array.isArray(event.toolResults) ? event.toolResults : [],
 				});
 				const reviewUserPrompt =
-					currentUserPrompt.length > 0 ? currentUserPrompt : item.pendingAdvisoryPrompt;
+					currentUserPrompt.length > 0
+						? currentUserPrompt
+						: item.pendingAdvisoryPrompt.length > 0
+							? item.pendingAdvisoryPrompt
+							: item.runUserPrompt;
 				const reviewUserPromptGeneration = userPromptGeneration;
 				item.pendingAdvisoryPrompt = "";
 				try {
@@ -504,16 +521,23 @@ export function createAdvisorFeature(
 				} catch (error) {
 					item.lastError = errorMessage(error);
 				}
+				item.terminalGeneration++;
+				if (item.feedback.held.length > 0) {
+					item.terminalPending = true;
+					scheduleReconfirm(item);
+				}
 				currentUserPrompt = "";
 			});
 			runtime.pi.on("agent_settled", (_event, eventCtx) => {
 				if (!isCurrent(item, undefined, eventCtx) || !item.enabled) return;
+				item.terminalGeneration++;
 				item.terminalPending = true;
 				scheduleReconfirm(item);
 			});
 			runtime.pi.on("session_compact", (_event, eventCtx) => {
 				if (!isCurrent(item, undefined, eventCtx)) return;
 				userPromptGeneration = 0;
+				item.runUserPrompt = "";
 				return reset(item);
 			});
 			runtime.pi.on("session_tree", (_event, eventCtx) => {
@@ -524,12 +548,14 @@ export function createAdvisorFeature(
 				);
 				const epoch = ++item.epoch;
 				userPromptGeneration = 0;
+				item.runUserPrompt = "";
 				item.enabled = restoredBranch.enabled;
 				item.phase = restoredBranch.enabled ? "starting" : "disabled";
 				publishIndicator(item, []);
 				item.feedback = emptyFeedback();
 				item.reconfirming = false;
 				item.terminalPending = false;
+				item.terminalGeneration = 0;
 				item.pendingAdvisoryPrompt = "";
 				item.pendingReviewPrompt = "";
 				item.pendingReviewUserPromptGeneration = 0;
@@ -602,10 +628,12 @@ export function createAdvisorFeature(
 			item.feedback = emptyFeedback();
 			item.reconfirming = false;
 			item.terminalPending = false;
+			item.terminalGeneration = 0;
 			item.pendingAdvisoryPrompt = "";
 			item.pendingReviewPrompt = "";
 			item.pendingReviewUserPromptGeneration = 0;
 			item.pendingMaterialEvidence = [];
+			item.runUserPrompt = "";
 			item.backlog = 0;
 			item.adapterActive = false;
 			clearReviewTimer(item);
@@ -688,6 +716,7 @@ export function createAdvisorFeature(
 					item.pendingReviewPrompt = "";
 					item.pendingReviewUserPromptGeneration = 0;
 					item.pendingMaterialEvidence = [];
+					item.runUserPrompt = "";
 					item.backlog = 0;
 					clearReviewTimer(item);
 					item.lastReviewAt = undefined;

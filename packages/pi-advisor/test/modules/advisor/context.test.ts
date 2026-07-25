@@ -206,6 +206,19 @@ describe("advisor bootstrap context", () => {
 		expect(bootstrap([imageMessage])).toEqual([]);
 	});
 
+	test("preserves text from mixed image messages for text-only models", () => {
+		const mixed = {
+			role: "user",
+			content: [
+				{ type: "text", text: "keep this task" },
+				{ type: "image", data: "IMAGE_SECRET", mimeType: "image/png" },
+			],
+		} as unknown as Message;
+		const output = bootstrap([mixed]);
+		expect(JSON.stringify(output)).toContain("keep this task");
+		expect(JSON.stringify(output)).not.toContain("IMAGE_SECRET");
+	});
+
 	test("preserves complete tool pairs and useful assistant text", () => {
 		const source = [text("user", "prompt"), call("c1"), result("c1"), text("assistant", "done")];
 		expect(bootstrap(source)).toEqual(source);
