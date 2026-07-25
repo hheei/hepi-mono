@@ -234,6 +234,7 @@ export function createSettingsComponent(options: SettingsComponentOptions): Comp
 		}
 		// Enum fields are selections, not text editors. Arrows cycle; printable input is ignored.
 		if (selected?.kind === "field" && selected.field.type === "enum") {
+			if (matchesKey(input, Key.left) || matchesKey(input, Key.right)) return;
 			if (matchesKey(input, Key.up) || matchesKey(input, Key.down)) {
 				if (selected.field.tabCycle) {
 					controller.cycleDraft(matchesKey(input, Key.up) ? -1 : 1);

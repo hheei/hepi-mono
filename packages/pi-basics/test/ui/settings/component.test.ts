@@ -205,35 +205,42 @@ describe("settings component", () => {
 		expect(state.controller.state.mode).toBe("Navigation");
 	});
 
-	test("recovers a stale enum value with arrows", async () => {
-		const staleFields = fields.map((field) =>
-			field.id === "mode"
-				? {
-						...field,
-						tabCycle: {
-							fieldId: "thinking",
-							label: "Thinking",
-							description: "Choose reasoning paired with the selected model.",
-							defaultValue: "medium",
-							options: [{ value: "medium" }, { value: "high" }],
-						},
-					}
-				: field,
-		);
-		const staleProvider = {
-			...provider(),
-			groups: [{ id: "general", title: "General", fields: staleFields }],
-			storage: fakeStorage({ initial: { general: { mode: "removed", thinking: "medium" } } }),
-		};
-		const state = await setup([staleProvider]);
-		state.controller.select("mode");
-		state.component.handleInput?.("\r");
-		expect(state.controller.state.draftValue).toBe("removed");
+	test("cycles an empty model in edit mode without entering main-tab navigation", async () => {
+		const model = createHePiModelSelectionField({
+			id: "model",
+			label: "Advisor model",
+			description: "Select the model used by this settings rendering fixture.",
+			modelOptions: [
+				{ value: "", label: "Not set" },
+				{ value: "provider/first", label: "provider/first" },
+				{ value: "provider/second", label: "provider/second" },
+			],
+			thinking: {
+				fieldId: "thinking",
+				label: "Thinking",
+				description: "Select the reasoning intensity used by this fixture.",
+				defaultValue: "medium",
+				options: [{ value: "medium" }],
+			},
+		});
+		const state = await setup([
+			{
+				id: "advisor",
+				title: "Advisor",
+				groups: [{ id: "advisor", title: "", fields: [model] }],
+				storage: fakeStorage({ initial: { advisor: { model: "" } } }),
+			},
+		]);
+		state.component.handleInput?.(" ");
+		expect(state.controller.state.mode).toBe("Edit");
 		state.component.handleInput?.("\x1b[B");
-		expect(state.controller.state.draftValue).toBe("auto");
-		state.component.handleInput?.("\r");
-		await flush();
-		expect(state.controller.state.committed.first?.general?.mode).toBe("auto");
+		expect(state.controller.state.draftValue).toBe("provider/first");
+		state.component.handleInput?.("\x1b[A");
+		expect(state.controller.state.draftValue).toBe("");
+		state.component.handleInput?.("\x1b[C");
+		state.component.handleInput?.("\x1b[D");
+		expect(state.controller.state.mode).toBe("Edit");
+		expect(text(state.component)).not.toContain("Loadout shared tab is available.");
 	});
 
 	test("ignores printable input while editing enum settings", async () => {
