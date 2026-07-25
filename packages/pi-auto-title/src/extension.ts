@@ -2,11 +2,11 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	getHePiRuntimeSettingsRegistry,
 	HePiLifecycleController,
+	hePiAuthenticatedModelSelectionOptions,
 	registerHePiLifecycle,
 	registerHePiSettings,
 } from "@hheei/pi-basics";
 import {
-	autoTitleModelOptions,
 	createAutoTitleCoordinator,
 	createAutoTitleSettingsProvider,
 	parseModelRef,
@@ -18,11 +18,9 @@ export default function piAutoTitleExtension(pi: ExtensionAPI): void {
 	let run: (() => void) | undefined;
 	const lifecycle = new HePiLifecycleController({
 		onStart: async (runtime) => {
-			const models = (runtime.ctx.modelRegistry.getAvailable?.() ?? []).filter((model) =>
-				runtime.ctx.modelRegistry.hasConfiguredAuth(model),
-			);
+			const modelOptions = hePiAuthenticatedModelSelectionOptions(runtime.ctx.modelRegistry);
 			const provider = createAutoTitleSettingsProvider({
-				modelOptions: autoTitleModelOptions(models),
+				modelOptions,
 				validate: async (value) => {
 					const ref = parseModelRef(value);
 					const model = runtime.ctx.modelRegistry.find(ref.provider, ref.model);
@@ -31,9 +29,7 @@ export default function piAutoTitleExtension(pi: ExtensionAPI): void {
 				},
 				onPersisted: (model) => {
 					coordinator?.dispose();
-					const selected =
-						model ??
-						(models[0] === undefined ? undefined : `${models[0].provider}/${models[0].id}`);
+					const selected = model ?? modelOptions.find((option) => option.value !== "")?.value;
 					coordinator =
 						selected === undefined ? undefined : createAutoTitleCoordinator(runtime, selected);
 				},

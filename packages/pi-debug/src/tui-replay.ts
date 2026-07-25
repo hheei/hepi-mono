@@ -630,16 +630,31 @@ function applySgr(style: AnsiSvgStyle, value: string): void {
 	}
 }
 
-function ansiSvgLine(line: string, style: AnsiSvgStyle): string {
+function svgNumber(value: number): string {
+	return Number(value.toFixed(3)).toString();
+}
+
+function ansiSvgLine(
+	line: string,
+	style: AnsiSvgStyle,
+	cellWidth: number,
+	padding: number,
+): string {
 	const spans: string[] = [];
 	let offset = 0;
+	let column = 0;
 	const append = (text: string) => {
 		const plain = stripAnsi(text);
 		if (!plain) return;
+		const cells = visibleWidth(plain);
+		if (cells <= 0) return;
 		const decorations = [style.underline ? "underline" : "", style.strike ? "line-through" : ""]
 			.filter(Boolean)
 			.join(" ");
 		const attributes = [
+			`x="${svgNumber(padding + column * cellWidth)}"`,
+			`textLength="${svgNumber(cells * cellWidth)}"`,
+			'lengthAdjust="spacingAndGlyphs"',
 			`fill="${style.color}"`,
 			...(style.bold ? ['font-weight="700"'] : []),
 			...(style.dim ? ['opacity="0.65"'] : []),
@@ -647,6 +662,7 @@ function ansiSvgLine(line: string, style: AnsiSvgStyle): string {
 			...(decorations ? [`text-decoration="${decorations}"`] : []),
 		].join(" ");
 		spans.push(`<tspan ${attributes}>${escapeXml(plain)}</tspan>`);
+		column += cells;
 	};
 	for (const match of line.matchAll(SGR)) {
 		append(line.slice(offset, match.index));
@@ -677,12 +693,12 @@ export function finalFrameSvg(frame: ReplayFrame): string {
 		.slice(0, frame.rows)
 		.map(
 			(line, index) =>
-				`  <text x="${padding}" y="${padding + 14 + index * lineHeight}" xml:space="preserve">${ansiSvgLine(line, style)}</text>`,
+				`  <text y="${padding + 14 + index * lineHeight}" xml:space="preserve">${ansiSvgLine(line, style, cellWidth, padding)}</text>`,
 		)
 		.join("\n");
 	return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
   <rect width="100%" height="100%" fill="#0b0f14"/>
-  <g font-family="Menlo, Monaco, 'Courier New', monospace" font-size="14">
+  <g font-family="'Maple Mono NF CN', Menlo, Monaco, 'Courier New', monospace" font-size="14">
 ${content}
   </g>
 </svg>

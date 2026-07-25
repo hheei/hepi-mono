@@ -53,10 +53,9 @@ export function createSettingsComponent(options: SettingsComponentOptions): Comp
 		);
 		if (index < 0) return;
 		const capacity = createSettingsLayout(lastWidth, options.height).itemCapacity;
-		let top = controller.state.scrollTop;
-		if (index < top) top = index;
-		else if (index >= top + capacity) top = index - capacity + 1;
-		controller.setScrollTop(Math.min(Math.max(0, items.length - capacity), top));
+		const maxTop = Math.max(0, items.length - capacity);
+		const top = Math.min(maxTop, Math.max(0, index - Math.floor(capacity / 2)));
+		controller.setScrollTop(top);
 	}
 
 	function run(operation: Promise<void>, onSuccess?: () => void): void {
