@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { HePiRuntimeContext } from "@hheei/pi-basics";
-import { buildSessionContext, buildTurnDelta, extractPrimaryTurnEvidence } from "./context.js";
+import {
+	buildSessionContext,
+	buildTurnDelta,
+	contextInputCharBudget,
+	extractPrimaryTurnEvidence,
+} from "./context.js";
 import {
 	collectFeedback,
 	emptyFeedback,
@@ -63,6 +68,8 @@ interface Active {
 	reviewCooldownTimer?: unknown;
 	pendingReviewTimer?: unknown;
 	pendingReviewPrompt: string;
+	pendingReviewUserPromptGeneration: number;
+	pendingMaterialEvidence: string[];
 	notifiedHigh: Map<string, AdvisorAdvice["severity"]>;
 	lastError?: string;
 	model: string | undefined;
@@ -141,8 +148,36 @@ export function createAdvisorFeature(
 		item.lastReviewAt === undefined
 			? item.reviewCooldownUntil
 			: Math.max(item.reviewCooldownUntil, item.lastReviewAt + REVIEW_INTERVAL_MS);
-	const materialSignature = (prompt: string): string =>
-		createHash("sha256").update(prompt).digest("hex");
+	const materialSignature = (prompt: string, userPromptGeneration: number): string =>
+		createHash("sha256").update(`${userPromptGeneration}\n${prompt}`).digest("hex");
+	const fitPendingText = (value: string, chars: number): string => {
+		const marker = "\n…[advisor pending evidence truncated]…\n";
+		if (value.length <= chars) return value;
+		if (chars <= marker.length) return marker.slice(0, Math.max(0, chars));
+		const contentChars = chars - marker.length;
+		const head = Math.ceil(contentChars / 2);
+		return value.slice(0, head) + marker + value.slice(value.length - Math.floor(contentChars / 2));
+	};
+	const addPendingMaterial = (item: Active, prompt: string): void => {
+		const toolsStart = prompt.indexOf("\n\nTOOLS:\n");
+		if (toolsStart < 0) return;
+		const material = prompt.slice(toolsStart + 2).trim();
+		if (material.length === 0 || item.pendingMaterialEvidence.includes(material)) return;
+		item.pendingMaterialEvidence.push(material);
+		if (item.pendingMaterialEvidence.length > 4) item.pendingMaterialEvidence.shift();
+	};
+	const pendingPrompt = (item: Active): string => {
+		const latest = item.pendingReviewPrompt;
+		const material = item.pendingMaterialEvidence.filter((value) => !latest.includes(value));
+		if (material.length === 0) return latest;
+		const separator = "\n\nEarlier material evidence:\n";
+		const materialText = material.join("\n\n");
+		const maxChars = contextInputCharBudget(item.adapter.contextBudget());
+		if (latest.length + separator.length + materialText.length <= maxChars)
+			return `${latest}${separator}${materialText}`;
+		const materialChars = Math.floor(maxChars * 0.3);
+		return `${fitPendingText(latest, Math.max(0, maxChars - separator.length - materialChars))}${separator}${fitPendingText(materialText, materialChars)}`;
+	};
 	const clearReviewTimer = (item: Active): void => {
 		if (item.reviewCooldownTimer !== undefined) clearTimeout(item.reviewCooldownTimer);
 		if (item.pendingReviewTimer !== undefined) clearTimeout(item.pendingReviewTimer);
@@ -193,7 +228,7 @@ export function createAdvisorFeature(
 		)
 			return;
 		if (item.feedback.held.length === 0) {
-			item.terminalPending = false;
+			if (item.pendingReviewPrompt.length === 0) item.terminalPending = false;
 			return;
 		}
 		const wait = reviewAllowedAt(item) - now();
@@ -237,6 +272,7 @@ export function createAdvisorFeature(
 				if (isCurrent(item, epoch)) {
 					item.reconfirming = false;
 					item.terminalPending = false;
+					schedulePendingReview(item);
 				}
 			}
 		});
@@ -284,13 +320,16 @@ export function createAdvisorFeature(
 		if (
 			!isCurrent(item) ||
 			!item.enabled ||
+			item.reconfirming ||
 			item.backlog > 0 ||
 			item.pendingReviewPrompt.length === 0
 		)
 			return;
-		const signature = materialSignature(item.pendingReviewPrompt);
+		const prompt = pendingPrompt(item);
+		const signature = materialSignature(prompt, item.pendingReviewUserPromptGeneration);
 		if (item.lastMaterialSignature === signature) {
 			item.pendingReviewPrompt = "";
+			item.pendingMaterialEvidence = [];
 			return;
 		}
 		const wait = reviewAllowedAt(item) - now();
@@ -303,13 +342,15 @@ export function createAdvisorFeature(
 			}
 			return;
 		}
-		const prompt = item.pendingReviewPrompt;
 		item.pendingReviewPrompt = "";
+		item.pendingMaterialEvidence = [];
 		review(item, prompt, signature);
 	}
-	const requestReview = (item: Active, prompt: string): void => {
+	const requestReview = (item: Active, prompt: string, userPromptGeneration: number): void => {
 		if (!isCurrent(item) || !item.enabled) return;
+		if (item.pendingReviewPrompt.length > 0) addPendingMaterial(item, item.pendingReviewPrompt);
 		item.pendingReviewPrompt = prompt;
+		item.pendingReviewUserPromptGeneration = userPromptGeneration;
 		schedulePendingReview(item);
 	};
 	const reset = (item: Active): Promise<void> => {
@@ -320,6 +361,8 @@ export function createAdvisorFeature(
 		item.terminalPending = false;
 		item.pendingAdvisoryPrompt = "";
 		item.pendingReviewPrompt = "";
+		item.pendingReviewUserPromptGeneration = 0;
+		item.pendingMaterialEvidence = [];
 		item.backlog = 0;
 		clearReviewTimer(item);
 		item.lastReviewAt = undefined;
@@ -356,12 +399,16 @@ export function createAdvisorFeature(
 				if (active !== item) return;
 				item.model = model;
 				item.thinking = thinking;
+				item.lastMaterialSignature = undefined;
 				if (model === undefined || model.trim().length === 0) {
 					if (item.enabled) appendAdvisorBoundary(item.runtime.pi, { version: 1, enabled: false });
 					item.enabled = false;
 					item.phase = "disabled";
 					item.adapterActive = false;
 					clearReviewTimer(item);
+					item.pendingReviewPrompt = "";
+					item.pendingReviewUserPromptGeneration = 0;
+					item.pendingMaterialEvidence = [];
 					item.lastReviewAt = undefined;
 					item.lastMaterialSignature = undefined;
 					item.reviewCooldownUntil = 0;
@@ -401,6 +448,8 @@ export function createAdvisorFeature(
 				terminalPending: false,
 				pendingAdvisoryPrompt: "",
 				pendingReviewPrompt: "",
+				pendingReviewUserPromptGeneration: 0,
+				pendingMaterialEvidence: [],
 				primaryAborted: false,
 				reviewCooldownUntil: 0,
 				notifiedHigh: new Map(),
@@ -409,6 +458,7 @@ export function createAdvisorFeature(
 			};
 			active = item;
 			let currentUserPrompt = "";
+			let userPromptGeneration = 0;
 			runtime.pi.on("before_agent_start", (event, eventCtx) => {
 				if (!isCurrent(item, undefined, eventCtx)) return;
 				const eventPrompt =
@@ -418,6 +468,7 @@ export function createAdvisorFeature(
 				const prompt = typeof eventPrompt === "string" ? eventPrompt : "";
 				if (prompt.length > 0) {
 					currentUserPrompt = prompt;
+					userPromptGeneration++;
 					item.pendingAdvisoryPrompt = "";
 				} else if (item.pendingAdvisoryPrompt.length > 0) {
 					currentUserPrompt = item.pendingAdvisoryPrompt;
@@ -434,6 +485,7 @@ export function createAdvisorFeature(
 				});
 				const reviewUserPrompt =
 					currentUserPrompt.length > 0 ? currentUserPrompt : item.pendingAdvisoryPrompt;
+				const reviewUserPromptGeneration = userPromptGeneration;
 				item.pendingAdvisoryPrompt = "";
 				try {
 					if (evidence.assistant !== undefined || evidence.tools.length > 0)
@@ -447,6 +499,7 @@ export function createAdvisorFeature(
 									item.adapter.contextBudget(),
 								),
 							),
+							reviewUserPromptGeneration,
 						);
 				} catch (error) {
 					item.lastError = errorMessage(error);
@@ -460,6 +513,7 @@ export function createAdvisorFeature(
 			});
 			runtime.pi.on("session_compact", (_event, eventCtx) => {
 				if (!isCurrent(item, undefined, eventCtx)) return;
+				userPromptGeneration = 0;
 				return reset(item);
 			});
 			runtime.pi.on("session_tree", (_event, eventCtx) => {
@@ -469,6 +523,7 @@ export function createAdvisorFeature(
 					(message) => item.runtime.ctx.ui.notify(message, "warning"),
 				);
 				const epoch = ++item.epoch;
+				userPromptGeneration = 0;
 				item.enabled = restoredBranch.enabled;
 				item.phase = restoredBranch.enabled ? "starting" : "disabled";
 				publishIndicator(item, []);
@@ -477,6 +532,8 @@ export function createAdvisorFeature(
 				item.terminalPending = false;
 				item.pendingAdvisoryPrompt = "";
 				item.pendingReviewPrompt = "";
+				item.pendingReviewUserPromptGeneration = 0;
+				item.pendingMaterialEvidence = [];
 				item.backlog = 0;
 				clearReviewTimer(item);
 				item.lastReviewAt = undefined;
@@ -546,6 +603,9 @@ export function createAdvisorFeature(
 			item.reconfirming = false;
 			item.terminalPending = false;
 			item.pendingAdvisoryPrompt = "";
+			item.pendingReviewPrompt = "";
+			item.pendingReviewUserPromptGeneration = 0;
+			item.pendingMaterialEvidence = [];
 			item.backlog = 0;
 			item.adapterActive = false;
 			clearReviewTimer(item);
@@ -626,6 +686,8 @@ export function createAdvisorFeature(
 					item.terminalPending = false;
 					item.pendingAdvisoryPrompt = "";
 					item.pendingReviewPrompt = "";
+					item.pendingReviewUserPromptGeneration = 0;
+					item.pendingMaterialEvidence = [];
 					item.backlog = 0;
 					clearReviewTimer(item);
 					item.lastReviewAt = undefined;

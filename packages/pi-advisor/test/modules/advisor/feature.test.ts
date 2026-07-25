@@ -306,6 +306,109 @@ describe("Advisor feature lifecycle", () => {
 		expect(h.adapter.reviewPrompts[1]).not.toContain("second");
 	});
 
+	test("reconfirms a terminal blocker that arrives after cooldown", async () => {
+		const h = fixture(true);
+		h.adapter.nextAdvice = [];
+		await h.feature.start(h.runtime);
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "first" }] },
+		});
+		await waitFor(() => h.feature.status().backlog === 0, "initial review to settle");
+
+		h.adapter.nextAdvice = [{ severity: "blocker", note: "late blocker" }];
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "late" }] },
+		});
+		await emit(h, "agent_settled");
+		expect(h.adapter.reviewPrompts).toHaveLength(1);
+
+		h.advance(15_000);
+		await waitFor(() => h.adapter.reviewPrompts.length === 2, "late terminal review");
+		await waitFor(() => h.feature.status().backlog === 0, "late terminal review to settle");
+		h.advance(40_000);
+		await waitFor(() => h.deliveries.length === 1, "terminal blocker delivery");
+	});
+
+	test("retains pending tool evidence behind a newer ordinary turn", async () => {
+		const h = fixture(true);
+		h.adapter.nextAdvice = [];
+		await h.feature.start(h.runtime);
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "first" }] },
+		});
+		await waitFor(() => h.feature.status().backlog === 0, "initial review to settle");
+
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "edited" }] },
+			toolResults: [
+				{
+					toolName: "edit",
+					toolCallId: "edit-pending",
+					isError: false,
+					content: [{ type: "text", text: "ok" }],
+					details: { diff: "PENDING_MATERIAL_DIFF" },
+				},
+			],
+		});
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "latest" }] },
+		});
+		h.adapter.nextAdvice = [];
+		h.advance(15_000);
+		await waitFor(() => h.adapter.reviewPrompts.length === 2, "merged pending review");
+		const prompt = h.adapter.reviewPrompts[1] ?? "";
+		expect(prompt).toContain("latest");
+		expect(prompt).toContain("PENDING_MATERIAL_DIFF");
+	});
+
+	test("does not start a normal review during reconfirmation", async () => {
+		const h = fixture(true);
+		h.adapter.nextAdvice = [{ severity: "blocker", note: "held blocker" }];
+		await h.feature.start(h.runtime);
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "first" }] },
+		});
+		await waitFor(() => h.feature.status().backlog === 0, "initial review to settle");
+		h.advance(40_000);
+
+		h.adapter.deferNextReview();
+		const reconfirm = emit(h, "agent_settled");
+		await waitFor(() => h.adapter.reviewPrompts.length === 2, "reconfirmation to start");
+		await emit(h, "turn_end", {
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "queued while reconfirming" }],
+			},
+		});
+		expect(h.adapter.reviewPrompts).toHaveLength(2);
+		h.adapter.resolveReview([{ severity: "blocker", note: "held blocker" }]);
+		await reconfirm;
+
+		h.advance(39_999);
+		await Promise.resolve();
+		expect(h.adapter.reviewPrompts).toHaveLength(2);
+		h.advance(1);
+		await waitFor(() => h.adapter.reviewPrompts.length === 3, "queued review after reconfirmation");
+	});
+
+	test("reviews identical evidence for distinct user prompts", async () => {
+		const h = fixture(true);
+		h.adapter.nextAdvice = [];
+		await h.feature.start(h.runtime);
+		await emit(h, "before_agent_start", { prompt: "same user request" });
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "same answer" }] },
+		});
+		await waitFor(() => h.feature.status().backlog === 0, "first user review to settle");
+
+		h.advance(15_000);
+		h.adapter.nextAdvice = [];
+		await emit(h, "before_agent_start", { prompt: "same user request" });
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "same answer" }] },
+		});
+		await waitFor(() => h.adapter.reviewPrompts.length === 2, "second user review");
+	});
 	test("publishes the latest review severity for the header indicator", async () => {
 		const h = fixture(true);
 		await h.feature.start(h.runtime);

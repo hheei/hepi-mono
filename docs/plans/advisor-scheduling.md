@@ -1,6 +1,6 @@
 # Advisor 调度策略改进计划
 
-状态：部分实现。Phase 1 和 Phase 2 的 material signature 已实现；Phase 3 及之后未实现。
+状态：部分实现。Phase 1、Phase 2 的 material signature、cooldown 内 material evidence 保留，以及 terminal/reconfirm 竞态修复已实现；Phase 3 的独立 single-flight admission lock 和之后功能未实现。
 
 当前行为仍以 `packages/pi-advisor/src/`、测试和 `packages/pi-advisor/README.md` 为准。本文件记录后续调度改进的范围、取舍和验收条件。
 
@@ -173,7 +173,7 @@ interface ReviewScheduleState {
 
 ### Phase 2：Material evidence 去重
 
-状态：已实现 material signature 和 cooldown 内最新 pending prompt；single-flight 的独立 admission lock 尚未实现。
+状态：已实现 material signature、cooldown 内 material evidence 保留，以及新 user prompt generation bypass；Phase 3 的独立 single-flight admission lock 尚未实现。
 
 复杂度：中。风险：低到中。
 
