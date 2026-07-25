@@ -7,7 +7,7 @@ import ts from "typescript";
 const repositoryRoot = join(import.meta.dir, "../../..");
 const packagesDirectory = join(repositoryRoot, "packages");
 const allowedFeatureDependency = "@hheei/pi-basics";
-const piMagicContextSubmodule = "pi-magic-context";
+const submodulePackages = new Set(["pi-magic-context", "pi-subagents"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -85,7 +85,7 @@ async function sourceFiles(directory: string): Promise<readonly string[]> {
 async function packagePaths(): Promise<readonly string[]> {
 	const directories = await readdir(packagesDirectory, { withFileTypes: true });
 	const packageDirectories = directories.filter(
-		(entry) => entry.isDirectory() && entry.name !== piMagicContextSubmodule,
+		(entry) => entry.isDirectory() && !submodulePackages.has(entry.name),
 	);
 	const unexpected = packageDirectories
 		.map((entry) => entry.name)
@@ -100,7 +100,11 @@ test("workspace contains only HEPI-owned Pi packages", async () => {
 		await readFile(join(repositoryRoot, "package.json"), "utf8"),
 	);
 	if (!isRecord(rootManifest)) throw new Error("Expected object root package manifest");
-	expect(rootManifest.workspaces).toEqual(["packages/*", "!packages/pi-magic-context"]);
+	expect(rootManifest.workspaces).toEqual([
+		"packages/*",
+		"!packages/pi-magic-context",
+		"!packages/pi-subagents",
+	]);
 
 	for (const packagePath of await packagePaths()) {
 		const directory = relative(packagesDirectory, packagePath);
@@ -128,8 +132,10 @@ test("repository does not track external or generated trees", () => {
 		.split("\n")
 		.filter((line) => line !== "");
 	for (const entry of entries) {
-		if (entry.startsWith("160000 "))
-			expect(entry.slice(entry.indexOf("\t") + 1)).toBe("packages/pi-magic-context");
+		if (entry.startsWith("160000 ")) {
+			const path = entry.slice(entry.indexOf("\t") + 1);
+			expect(submodulePackages).toContain(path.replace(/^packages\//u, ""));
+		}
 	}
 	const paths = entries.map((entry) => entry.slice(entry.indexOf("\t") + 1));
 	const excludedRoots = [

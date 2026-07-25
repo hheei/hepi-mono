@@ -7,7 +7,8 @@
 	"packageManager": "bun@1.3.14",
 	"workspaces": [
 		"packages/*",
-		"!packages/pi-magic-context"
+		"!packages/pi-magic-context",
+		"!packages/pi-subagents"
 	],
 	"scripts": {
 		"check": "biome check . && tsc --noEmit -p tsconfig.base.json && bun test --path-ignore-patterns='**/references/**' --path-ignore-patterns='packages/pi-magic-context/**'",
@@ -15,7 +16,7 @@
 		"format": "biome format --write .",
 		"format:check": "biome format .",
 		"lint": "biome lint .",
-		"test": "bun test --path-ignore-patterns='**/references/**' --path-ignore-patterns='packages/pi-magic-context/**'",
+		"test": "bun test --path-ignore-patterns='**/references/**' --path-ignore-patterns='packages/pi-magic-context/**' --path-ignore-patterns='packages/pi-subagents/**'",
 		"typecheck": "tsc --noEmit -p tsconfig.base.json",
 		"new:extension": "bun scripts/create-extension.mjs",
 		"pi:dev": "bun scripts/pi-dev.mjs",
