@@ -12,13 +12,13 @@ import {
 	DEFAULT_REPLAY_ROWS,
 	finalFrameAnsi,
 	isReplayKey,
-	replayTui,
-	sanitizeAnsi,
-	stripAnsi,
 	type ReplayAction,
 	type ReplayComponent,
 	type ReplayFrame,
 	type ReplayHost,
+	replayTui,
+	sanitizeAnsi,
+	stripAnsi,
 	writeReplayArtifacts,
 } from "./tui-replay.js";
 
@@ -84,26 +84,25 @@ function isPositiveInteger(value: unknown): value is number {
 	return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
+const journalActionValidators: Readonly<
+	Record<string, (value: Record<string, unknown>) => boolean>
+> = {
+	input: (value) => typeof value.data === "string",
+	key: (value) => typeof value.key === "string" && isReplayKey(value.key),
+	text: (value) => typeof value.text === "string",
+	resize: (value) =>
+		(value.columns === undefined || isPositiveInteger(value.columns)) &&
+		(value.rows === undefined || isPositiveInteger(value.rows)) &&
+		(value.columns !== undefined || value.rows !== undefined),
+	wait: (value) => typeof value.ms === "number" && Number.isFinite(value.ms) && value.ms >= 0,
+};
+
 function isJournalAction(value: unknown): value is JournalAction {
 	if (!isRecord(value) || typeof value.type !== "string") return false;
-	switch (value.type) {
-		case "input":
-			return typeof value.data === "string";
-		case "key":
-			return typeof value.key === "string" && isReplayKey(value.key);
-		case "text":
-			return typeof value.text === "string";
-		case "resize":
-			return (
-				(value.columns === undefined || isPositiveInteger(value.columns)) &&
-				(value.rows === undefined || isPositiveInteger(value.rows)) &&
-				(value.columns !== undefined || value.rows !== undefined)
-			);
-		case "wait":
-			return typeof value.ms === "number" && Number.isFinite(value.ms) && value.ms >= 0;
-		default:
-			return false;
-	}
+	const validator = Object.hasOwn(journalActionValidators, value.type)
+		? journalActionValidators[value.type]
+		: undefined;
+	return validator?.(value) ?? false;
 }
 
 function isReplaySessionState(value: unknown): value is ReplaySessionState {
@@ -220,8 +219,7 @@ async function assertSecureParentChain(path: string): Promise<void> {
 			throw new Error(`Replay state directory parent is not a directory: ${current}`);
 		const parentIsMutable = (parent.mode & 0o022) !== 0;
 		const parentIsSticky = (parent.mode & 0o1000) !== 0;
-		const trustedOwner =
-			getuid !== undefined && (parent.uid === 0 || parent.uid === getuid());
+		const trustedOwner = getuid !== undefined && (parent.uid === 0 || parent.uid === getuid());
 		if (!trustedOwner)
 			throw new Error(`Replay state directory ancestor has an untrusted owner: ${current}`);
 		if (parentIsMutable && !parentIsSticky)
@@ -247,10 +245,7 @@ async function ensureStateDirectory(path: string): Promise<StateDirectoryIdentit
 	return identity;
 }
 
-async function assertStateDirectory(
-	path: string,
-	expected: StateDirectoryIdentity,
-): Promise<void> {
+async function assertStateDirectory(path: string, expected: StateDirectoryIdentity): Promise<void> {
 	const current = stateDirectoryIdentity(path, await lstat(path));
 	if (current.device !== expected.device || current.inode !== expected.inode)
 		throw new Error(`Replay state directory changed while acquiring its lock: ${path}`);
@@ -544,16 +539,13 @@ export async function runReplaySessionCli(
 		let expectedGeneration: string | undefined;
 		for (let attempt = 0; attempt < 10; attempt++) {
 			const saved =
-				attempt === 0
-					? await initializeStoredState(statePath)
-					: await readLockedState(statePath);
+				attempt === 0 ? await initializeStoredState(statePath) : await readLockedState(statePath);
 			if (saved === undefined)
 				throw new Error("Replay session state disappeared while the command was running");
 			if (expectedGeneration === undefined) expectedGeneration = saved.generation;
 			else if (saved.generation !== expectedGeneration)
 				throw new Error("Replay session was reset or restarted while the command was running");
-			const state =
-				saved.kind === "session" ? saved : defaultState(cwd, saved.generation);
+			const state = saved.kind === "session" ? saved : defaultState(cwd, saved.generation);
 			const next: ReplaySessionState = { ...state, actions: [...state.actions, action] };
 			const result = await renderState(next);
 			if (await commitState(statePath, stateRevision(saved), next)) {
@@ -566,46 +558,43 @@ export async function runReplaySessionCli(
 
 	const saved = await initializeStoredState(statePath);
 	const state = saved.kind === "session" ? saved : defaultState(cwd, saved.generation);
-	switch (command) {
-		case "show": {
-			exactPositionals(positionals, 1, 1, "show does not accept arguments");
-			const result = await renderState(state);
-			await assertSessionGeneration(statePath, state.generation);
-			write(frameText(result.last));
-			return;
-		}
-		case "save": {
-			const [, outputRoot] = exactPositionals(positionals, 1, 2, "save accepts optional [root]");
-			const artifacts = await writeReplayArtifacts(await renderState(state), {
-				rootDir: outputRoot === undefined ? state.rootDir : resolve(cwd, outputRoot),
-				publish: async (publish) =>
-					await publishForGeneration(statePath, state.generation, publish),
-			});
-			write(artifacts.directory);
-			return;
-		}
-		case "status":
-			exactPositionals(positionals, 1, 1, "status does not accept arguments");
-			write(
-				JSON.stringify(
-					{
-						session: sessionName,
-						generation: state.generation,
-						active: saved.kind === "session",
-						statePath,
-						modulePath: state.modulePath ?? null,
-						columns: state.columns,
-						rows: state.rows,
-						actions: state.actions.length,
-					},
-					null,
-					2,
-				),
-			);
-			return;
-		default:
-			throw new Error(`Unknown replay command: ${command}`);
+	if (command === "show") {
+		exactPositionals(positionals, 1, 1, "show does not accept arguments");
+		const result = await renderState(state);
+		await assertSessionGeneration(statePath, state.generation);
+		write(frameText(result.last));
+		return;
 	}
+	if (command === "save") {
+		const [, outputRoot] = exactPositionals(positionals, 1, 2, "save accepts optional [root]");
+		const artifacts = await writeReplayArtifacts(await renderState(state), {
+			rootDir: outputRoot === undefined ? state.rootDir : resolve(cwd, outputRoot),
+			publish: async (publish) => await publishForGeneration(statePath, state.generation, publish),
+		});
+		write(artifacts.directory);
+		return;
+	}
+	if (command === "status") {
+		exactPositionals(positionals, 1, 1, "status does not accept arguments");
+		write(
+			JSON.stringify(
+				{
+					session: sessionName,
+					generation: state.generation,
+					active: saved.kind === "session",
+					statePath,
+					modulePath: state.modulePath ?? null,
+					columns: state.columns,
+					rows: state.rows,
+					actions: state.actions.length,
+				},
+				null,
+				2,
+			),
+		);
+		return;
+	}
+	throw new Error(`Unknown replay command: ${command}`);
 }
 
 if (import.meta.main) {
