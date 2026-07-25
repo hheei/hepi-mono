@@ -63,7 +63,7 @@ export function createSettingsLayout(rawWidth: number, rawHeight?: number): Sett
 		mode === "wide" ? wideKeyWidth : Math.max(0, availableAfterIndicator - valueWidth);
 	const panelHeight =
 		rawHeight === undefined ? 9 : Math.max(4, Math.floor(Math.max(0, rawHeight) * 0.3));
-	const listHeight = mode === "wide" ? panelHeight : Math.max(8, panelHeight);
+	const listHeight = mode === "wide" ? Math.max(3, panelHeight - 1) : Math.max(8, panelHeight);
 
 	return {
 		width,
