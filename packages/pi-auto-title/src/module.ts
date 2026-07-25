@@ -316,7 +316,9 @@ function autoTitleDescription(ctx: ExtensionContext): string | undefined {
 	if (primaryIndex < 0) return undefined;
 	const primary = messages[primaryIndex];
 	if (primary === undefined) return undefined;
-	const firstResult = messages.slice(primaryIndex + 1).find((message) => message.role === "assistant");
+	const firstResult = messages
+		.slice(primaryIndex + 1)
+		.find((message) => message.role === "assistant");
 	let latestUser: (typeof messages)[number] | undefined;
 	for (let index = messages.length - 1; index >= 0; index--) {
 		const message = messages[index];

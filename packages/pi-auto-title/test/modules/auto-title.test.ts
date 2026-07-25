@@ -66,10 +66,9 @@ describe("Pi Basics auto-title", () => {
 	});
 
 	test("sanitizes common model wrappers and enforces the title limit", () => {
-		expect(safeTitle('```text\nTitle: "修复 auto-title 策略。"\n```')).toBe(
-			"修复 auto-title 策略",
-		);
+		expect(safeTitle('```text\nTitle: "修复 auto-title 策略。"\n```')).toBe("修复 auto-title 策略");
 		expect(safeTitle('Title: "Improve session search".')).toBe("Improve session search");
+		expect(safeTitle("Title: Fix cache\nExplanation: concise title")).toBe("Fix cache");
 		expect(safeTitle(`Session name: ${"x".repeat(80)}`)).toHaveLength(60);
 		expect(safeTitle("\n\n")).toBeUndefined();
 	});
@@ -350,7 +349,7 @@ describe("Pi Basics auto-title", () => {
 			prompt: async () => undefined,
 			abort: () => undefined,
 			waitForIdle: async () => undefined,
-			result: () => "  My \n Session  ",
+			result: () => "  My   Session  ",
 		}));
 
 		handlers.get("agent_settled")?.({});
