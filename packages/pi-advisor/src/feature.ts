@@ -34,6 +34,7 @@ interface Active {
 	readonly sessionId: string;
 	readonly runtime: HePiRuntimeContext;
 	readonly adapter: AdvisorAgentAdapter;
+	adapterActive: boolean;
 	enabled: boolean;
 	phase: AdvisorPhase;
 	epoch: number;
@@ -137,6 +138,7 @@ export function createAdvisorFeature(
 				);
 				if (!isCurrent(item, epoch) || !item.enabled) return;
 				publishIndicator(item, raised);
+				delete item.lastError;
 				item.feedback = reconfirmFeedback(item.feedback, raised);
 				const confirmed = item.feedback.deliverable.filter((note) => note.severity !== "nit");
 				if (confirmed.length > 0) {
@@ -146,7 +148,10 @@ export function createAdvisorFeature(
 					item.feedback = { ...item.feedback, deliverable: [] };
 				}
 			} catch (error) {
-				if (isCurrent(item, epoch)) item.lastError = errorMessage(error);
+				if (isCurrent(item, epoch)) {
+					item.runtime.ctx.ui.setStatus("advisor", undefined);
+					item.lastError = errorMessage(error);
+				}
 			} finally {
 				if (isCurrent(item, epoch)) {
 					item.reconfirming = false;
@@ -165,6 +170,7 @@ export function createAdvisorFeature(
 				const advice = await item.adapter.review(prompt);
 				if (!isCurrent(item, epoch) || !item.enabled) return;
 				publishIndicator(item, advice);
+				delete item.lastError;
 				item.feedback = collectFeedback(item.feedback, advice);
 				const notes = item.feedback.deliverable;
 				if (notes.length > 0) {
@@ -172,7 +178,10 @@ export function createAdvisorFeature(
 					item.feedback = markFeedbackDelivered(item.feedback, notes);
 				}
 			} catch (error) {
-				if (isCurrent(item, epoch)) item.lastError = errorMessage(error);
+				if (isCurrent(item, epoch)) {
+					item.runtime.ctx.ui.setStatus("advisor", undefined);
+					item.lastError = errorMessage(error);
+				}
 			} finally {
 				if (isCurrent(item, epoch)) {
 					item.backlog = Math.max(0, item.backlog - 1);
@@ -192,12 +201,15 @@ export function createAdvisorFeature(
 		item.pendingAdvisoryPrompt = "";
 		item.backlog = 0;
 		item.phase = item.enabled ? "idle" : "disabled";
-		publishIndicator(item, []);
+		item.runtime.ctx.ui.setStatus("advisor", undefined);
 		if (!item.enabled) return Promise.resolve();
 		return enqueue(async () => {
 			if (!isCurrent(item) || !item.enabled) return;
 			try {
 				await item.adapter.reset();
+				if (!isCurrent(item, epoch) || !item.enabled) return;
+				publishIndicator(item, []);
+				delete item.lastError;
 			} catch (error) {
 				if (isCurrent(item, epoch) && item.enabled) {
 					item.lastError = errorMessage(error);
@@ -218,7 +230,15 @@ export function createAdvisorFeature(
 				if (active !== item) return;
 				item.model = model;
 				item.thinking = thinking;
-				if (item.enabled) publishIndicator(item, []);
+				if (model === undefined || model.trim().length === 0) {
+					if (item.enabled) appendAdvisorBoundary(item.runtime.pi, { version: 1, enabled: false });
+					item.enabled = false;
+					item.phase = "disabled";
+					item.adapterActive = false;
+					item.runtime.ctx.ui.setStatus("advisor", undefined);
+				} else if (item.enabled) {
+					publishIndicator(item, []);
+				}
 				delete item.lastError;
 			} catch (error) {
 				if (active === item) item.lastError = errorMessage(error);
@@ -240,6 +260,7 @@ export function createAdvisorFeature(
 				sessionId: runtime.ctx.sessionManager.getSessionId(),
 				runtime,
 				adapter,
+				adapterActive: false,
 				enabled: restored.enabled,
 				phase: restored.enabled ? "starting" : "disabled",
 				epoch: 0,
@@ -313,7 +334,6 @@ export function createAdvisorFeature(
 					item.runtime.ctx.sessionManager.getBranch(),
 					(message) => item.runtime.ctx.ui.notify(message, "warning"),
 				);
-				const wasEnabled = item.enabled;
 				const epoch = ++item.epoch;
 				item.enabled = restoredBranch.enabled;
 				item.phase = restoredBranch.enabled ? "starting" : "disabled";
@@ -329,8 +349,13 @@ export function createAdvisorFeature(
 						if (!restoredBranch.enabled) {
 							await item.adapter.abort();
 							await item.adapter.dispose();
-						} else if (wasEnabled) await item.adapter.reset();
-						else await item.adapter.create();
+							item.adapterActive = false;
+						} else if (item.adapterActive) {
+							await item.adapter.reset();
+						} else {
+							await item.adapter.create();
+							item.adapterActive = true;
+						}
 						if (!isCurrent(item, epoch)) return;
 						item.phase = restoredBranch.enabled ? "idle" : "disabled";
 						publishIndicator(item, []);
@@ -338,6 +363,7 @@ export function createAdvisorFeature(
 					} catch (error) {
 						if (!isCurrent(item, epoch)) return;
 						item.enabled = false;
+						item.adapterActive = false;
 						item.phase = "error";
 						item.runtime.ctx.ui.setStatus("advisor", undefined);
 						item.lastError = errorMessage(error);
@@ -353,6 +379,7 @@ export function createAdvisorFeature(
 						return;
 					}
 					item.phase = "idle";
+					item.adapterActive = true;
 					publishIndicator(item, []);
 				} catch (error) {
 					if (!isCurrent(item)) {
@@ -360,6 +387,7 @@ export function createAdvisorFeature(
 						return;
 					}
 					item.enabled = false;
+					item.adapterActive = false;
 					item.phase = "disabled";
 					runtime.ctx.ui.setStatus("advisor", undefined);
 					item.lastError = errorMessage(error);
@@ -379,9 +407,13 @@ export function createAdvisorFeature(
 			item.terminalPending = false;
 			item.pendingAdvisoryPrompt = "";
 			item.backlog = 0;
+			item.adapterActive = false;
 			item.runtime.ctx.ui.setStatus("advisor", undefined);
-			await item.adapter.abort();
-			await item.adapter.dispose();
+			try {
+				await item.adapter.abort();
+			} finally {
+				await item.adapter.dispose();
+			}
 		},
 		async command(args, ctx) {
 			const item = current(ctx);
@@ -412,38 +444,58 @@ export function createAdvisorFeature(
 				return;
 			}
 			if (action === "on") {
-				if (!item.enabled) {
+				await enqueue(async () => {
+					if (!isCurrent(item) || item.enabled) return;
 					const epoch = item.epoch;
 					try {
 						await item.adapter.create();
 						if (!isCurrent(item, epoch)) {
 							await item.adapter.dispose().catch(() => undefined);
+							item.adapterActive = false;
 							return;
 						}
 						appendAdvisorBoundary(item.runtime.pi, { version: 1, enabled: true });
+						item.adapterActive = true;
+						item.enabled = true;
+						item.phase = "idle";
+						publishIndicator(item, []);
 					} catch (error) {
-						await item.adapter.dispose().catch(() => undefined);
-						if (!isCurrent(item, epoch)) return;
-						item.lastError = errorMessage(error);
+						try {
+							await item.adapter.dispose();
+						} finally {
+							item.adapterActive = false;
+						}
+						if (isCurrent(item, epoch)) item.lastError = errorMessage(error);
 						throw error;
 					}
-					item.enabled = true;
-					item.phase = "idle";
-					publishIndicator(item, []);
+				});
+			} else {
+				if (item.enabled) {
+					const hadPendingReview = item.backlog > 0 || item.reconfirming;
+					appendAdvisorBoundary(item.runtime.pi, { version: 1, enabled: false });
+					item.epoch++;
+					item.enabled = false;
+					item.phase = "disabled";
+					item.runtime.ctx.ui.setStatus("advisor", undefined);
+					item.feedback = emptyFeedback();
+					item.reconfirming = false;
+					item.terminalPending = false;
+					item.pendingAdvisoryPrompt = "";
+					item.backlog = 0;
+					const cleanup = enqueue(async () => {
+						try {
+							await item.adapter.abort();
+						} finally {
+							try {
+								await item.adapter.dispose();
+							} finally {
+								item.adapterActive = false;
+							}
+						}
+					});
+					if (!hadPendingReview) await cleanup;
+					else void cleanup.catch(() => undefined);
 				}
-			} else if (item.enabled) {
-				appendAdvisorBoundary(item.runtime.pi, { version: 1, enabled: false });
-				item.epoch++;
-				item.enabled = false;
-				item.phase = "disabled";
-				item.runtime.ctx.ui.setStatus("advisor", undefined);
-				item.feedback = emptyFeedback();
-				item.reconfirming = false;
-				item.terminalPending = false;
-				item.pendingAdvisoryPrompt = "";
-				item.backlog = 0;
-				await item.adapter.abort();
-				await item.adapter.dispose();
 			}
 			ctx.ui.notify(`※ Advisor ${action}`, "info");
 		},

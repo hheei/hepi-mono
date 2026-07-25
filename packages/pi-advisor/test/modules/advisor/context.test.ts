@@ -198,9 +198,32 @@ describe("advisor bootstrap context", () => {
 		expect(bootstrap(source)).toEqual(source.filter((item) => item !== advisory));
 	});
 
+	test("drops image-bearing bootstrap messages for text-only Advisor models", () => {
+		const imageMessage = {
+			role: "user",
+			content: [{ type: "image", data: "IMAGE_SECRET", mimeType: "image/png" }],
+		} as unknown as Message;
+		expect(bootstrap([imageMessage])).toEqual([]);
+	});
+
 	test("preserves complete tool pairs and useful assistant text", () => {
 		const source = [text("user", "prompt"), call("c1"), result("c1"), text("assistant", "done")];
 		expect(bootstrap(source)).toEqual(source);
+	});
+
+	test("drops non-adjacent tool results instead of pairing across messages", () => {
+		const assistant = {
+			role: "assistant",
+			content: [
+				{ type: "text", text: "visible answer" },
+				{ type: "toolCall", id: "c1", name: "read", arguments: {} },
+			],
+		} as Message;
+		const output = bootstrap([assistant, text("user", "intervening"), result("c1")]);
+		expect(output).toHaveLength(2);
+		expect(output[0]).toMatchObject({ role: "assistant" });
+		expect(JSON.stringify(output)).toContain("visible answer");
+		expect(JSON.stringify(output)).not.toContain('"toolCallId":"c1"');
 	});
 
 	test("trims an incomplete trailing call but keeps assistant text", () => {

@@ -17,6 +17,7 @@ interface FakeAdapter extends AdvisorAgentAdapter {
 	abortCalls: number;
 	disposeCalls: number;
 	reviewPrompts: string[];
+	reviewFailures: number;
 	createFailures: number;
 	resetFailures: number;
 	reconfigureCalls: Array<{ model: string | undefined; thinking: string }>;
@@ -37,6 +38,7 @@ function fakeAdapter(): FakeAdapter {
 		abortCalls: 0,
 		disposeCalls: 0,
 		reviewPrompts: [],
+		reviewFailures: 0,
 		createFailures: 0,
 		resetFailures: 0,
 		reconfigureCalls: [],
@@ -65,6 +67,10 @@ function fakeAdapter(): FakeAdapter {
 		},
 		async review(prompt) {
 			adapter.reviewPrompts.push(prompt);
+			if (adapter.reviewFailures > 0) {
+				adapter.reviewFailures--;
+				throw new Error("review failed");
+			}
 			if (deferredReviews > 0)
 				return new Promise<readonly AdvisorAdvice[]>((resolve) => {
 					deferredReviews--;
@@ -190,6 +196,18 @@ describe("Advisor feature lifecycle", () => {
 		expect(h.statuses.get("advisor")).toBeUndefined();
 	});
 
+	test("clears the health marker when a review fails", async () => {
+		const h = fixture(true);
+		await h.feature.start(h.runtime);
+		h.adapter.reviewFailures = 1;
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "done" }] },
+		});
+		await waitFor(() => h.feature.status().backlog === 0, "failed review to settle");
+		expect(h.statuses.get("advisor")).toBeUndefined();
+		expect(h.feature.status()).toMatchObject({ lastError: "review failed" });
+	});
+
 	test("publishes the latest review severity for the header indicator", async () => {
 		const h = fixture(true);
 		await h.feature.start(h.runtime);
@@ -263,6 +281,29 @@ describe("Advisor feature lifecycle", () => {
 
 		await h.feature.command("on", h.ctx as unknown as ExtensionCommandContext);
 		expect(h.adapter.createCalls).toBe(2);
+	});
+
+	test("clearing and restoring the model requires a fresh on", async () => {
+		const h = fixture(true);
+		await h.feature.start(h.runtime);
+		await h.feature.configure(undefined, "medium");
+		expect(h.feature.status()).toMatchObject({ enabled: false, phase: "disabled" });
+		expect(h.statuses.get("advisor")).toBeUndefined();
+		await h.feature.configure("fake/fake", "medium");
+		await h.feature.command("on", h.ctx as unknown as ExtensionCommandContext);
+		expect(h.feature.status()).toMatchObject({ enabled: true, phase: "idle" });
+		expect(h.statuses.get("advisor")).toBe("ok");
+	});
+
+	test("clearing the model persists disabled state across tree restore", async () => {
+		const h = fixture(true);
+		await h.feature.start(h.runtime);
+		await h.feature.configure(undefined, "medium");
+		expect(h.entries.at(-1)?.data).toEqual({ version: 1, enabled: false });
+		await h.feature.configure("fake/fake", "medium");
+		await emit(h, "session_tree");
+		expect(h.feature.status()).toMatchObject({ enabled: false, phase: "disabled" });
+		expect(h.statuses.get("advisor")).toBeUndefined();
 	});
 
 	test("/advisor on create failure stays disabled without an enabled boundary", async () => {
@@ -348,6 +389,7 @@ describe("Advisor feature lifecycle", () => {
 		await emit(h, "session_tree");
 		expect(h.adapter.resetCalls).toBe(1);
 		expect(h.feature.status()).toMatchObject({ phase: "error", lastError: "reset failed" });
+		expect(h.statuses.get("advisor")).toBeUndefined();
 
 		await h.feature.command("off", h.ctx as unknown as ExtensionCommandContext);
 		await emit(h, "session_compact");
