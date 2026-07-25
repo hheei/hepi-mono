@@ -278,7 +278,7 @@ describe("settings component", () => {
 		state.component.handleInput?.("\t");
 		expect(state.controller.state.committed.first?.general?.thinking).toBe("medium");
 		expect(text(state.component)).toContain("auto · high");
-		expect(text(state.component, 100)).toContain("Value: auto high");
+		expect(text(state.component, 100)).toContain("Value: auto · high");
 		expect(text(state.component, 100)).not.toContain("Value: auto█ · high");
 		expect(text(state.component)).not.toContain("Loadout shared tab is available.");
 		state.component.handleInput?.("\r");
