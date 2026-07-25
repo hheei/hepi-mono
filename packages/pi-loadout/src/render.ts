@@ -1,11 +1,12 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { padToWidth, truncateToWidth, visibleWidth, wrap } from "@hheei/pi-basics";
 import {
-	filterLoadoutItems,
+	filterLoadoutItemsForView,
+	groupLoadoutItemsByOrigin,
 	type LoadoutItem,
-	type LoadoutKind,
 	type LoadoutResolvedItem,
 	type LoadoutScope,
+	type LoadoutView,
 } from "./model.js";
 
 export interface LoadoutTheme {
@@ -15,6 +16,7 @@ export interface LoadoutTheme {
 
 export interface LoadoutRenderSnapshot {
 	readonly scope: LoadoutScope;
+	readonly view: LoadoutView;
 	readonly query: string;
 	readonly selectedKey?: string | undefined;
 	readonly inventory: readonly LoadoutItem[];
@@ -32,9 +34,8 @@ export interface RenderLoadoutOptions {
 }
 
 const symbols = { active: "●", disabled: "○", inherit: "◎" } as const;
-const labels: Record<LoadoutKind, string> = { mcp: "MCP Servers", tool: "Tools", skill: "Skills" };
-const icons: Record<LoadoutKind, string> = { mcp: "⌘", tool: "⚒", skill: "✦" };
-const groupOrder: readonly LoadoutKind[] = ["mcp", "tool", "skill"];
+const labels: Record<LoadoutView, string> = { tools: "Tools", skills: "Skills" };
+const icons: Record<LoadoutView, string> = { tools: "⚒", skills: "✦" };
 
 function safeWidth(width: number): number {
 	return Math.max(1, Math.floor(width));
@@ -97,11 +98,12 @@ function panelLines(
 		rows.push(`${theme.fg("dim", "│ ")}${padToWidth("", inner)}${theme.fg("dim", " │")}`);
 	return [top, ...rows, bottom];
 }
-function footer(scope: LoadoutScope, width: number): string {
-	const target = scope === "global" ? "project" : "global";
-	const full = `↕ navigate · ↔ tab · ␣ toggle · ⇥ ${target} · ⎋ close`;
-	const short = `↕ nav · ↔ tab · ␣ toggle · ⇥ ${target} · ⎋ close`;
-	const minimal = `↕ · ↔ · ␣ · ⇥ ${target} · ⎋`;
+function footer(scope: LoadoutScope, view: LoadoutView, width: number): string {
+	const nextView = view === "tools" ? "skills" : "tools";
+	const nextScope = scope === "global" ? "project" : "global";
+	const full = `↕ navigate · ⇥ ${nextView} · ^⇥ ${nextScope} · ␣ toggle · ⎋ close`;
+	const short = `↕ nav · ⇥ ${nextView} · ^⇥ ${nextScope} · ␣ toggle · ⎋ close`;
+	const minimal = `↕ · ⇥ ${nextView} · ^⇥ ${nextScope} · ␣ · ⎋`;
 	return width >= visibleWidth(full) ? full : width >= visibleWidth(short) ? short : minimal;
 }
 
@@ -109,19 +111,25 @@ export function renderLoadout(options: RenderLoadoutOptions): string[] {
 	const width = safeWidth(options.width);
 	const { state, theme } = options;
 	const resolved = new Map(state.resolved.map((item) => [item.key, item] as const));
-	const visible = filterLoadoutItems(state.inventory, state.query)
+	const allItems = filterLoadoutItemsForView(state.inventory, state.view, "");
+	const visibleItems = filterLoadoutItemsForView(state.inventory, state.view, state.query);
+	const visible = visibleItems
 		.map((item) => resolved.get(item.key))
 		.filter((item): item is LoadoutResolvedItem => item !== undefined);
-	const groups = groupOrder.flatMap((kind) => {
-		const total = state.inventory.filter((item) => item.kind === kind).length;
-		const items = visible.filter((item) => item.kind === kind);
-		return items.length ? [{ kind, total, items }] : [];
-	});
+	const totals = new Map(
+		groupLoadoutItemsByOrigin(allItems).map((group) => [group.origin, group.items.length]),
+	);
+	const groups = groupLoadoutItemsByOrigin(visibleItems);
 	const groupRows: string[] = [];
 	for (const group of groups) {
-		const count = state.query ? ` (${group.items.length}/${group.total})` : ` (${group.total})`;
-		groupRows.push(theme.bold(`${icons[group.kind]} ${labels[group.kind]}${count}`));
-		for (const item of group.items) {
+		const items = group.items
+			.map((item) => resolved.get(item.key))
+			.filter((item): item is LoadoutResolvedItem => item !== undefined);
+		const total = totals.get(group.origin) ?? items.length;
+		const active = items.filter((item) => item.effectiveStatus === "active").length;
+		const count = state.query ? ` (${items.length}/${total})` : ` (${active}/${total})`;
+		groupRows.push(theme.bold(`⧉ ${group.origin}${count}`));
+		for (const item of items) {
 			const marker = item.key === state.selectedKey ? "→" : " ";
 			const row = `${marker} ${symbols[item.displayStatus]} ${item.name}`;
 			groupRows.push(item.key === state.selectedKey ? theme.fg("accent", row) : row);
@@ -132,7 +140,7 @@ export function renderLoadout(options: RenderLoadoutOptions): string[] {
 		options.path ?? (state.scope === "global" ? "~/.pi/agent/setting.json" : ".pi/setting.json");
 	const scopeLine = theme.fg(
 		"dim",
-		`✎ ${state.scope === "global" ? "Global" : "Project"} · ${path}`,
+		`${icons[state.view]} ${labels[state.view]} · ${state.scope === "global" ? "Global" : "Project"} · ${path}`,
 	);
 	const wide = width >= 80;
 	const listWidth = Math.min(46, width);
@@ -185,7 +193,7 @@ export function renderLoadout(options: RenderLoadoutOptions): string[] {
 		scopeLine,
 		...body,
 		...(state.error ? [theme.fg("error", `Error: ${state.error}`)] : []),
-		theme.fg("dim", footer(state.scope, width)),
+		theme.fg("dim", footer(state.scope, state.view, width)),
 		theme.fg("border", "─".repeat(width)),
 	];
 	return finish(tail, width);

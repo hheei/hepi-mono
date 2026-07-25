@@ -29,6 +29,46 @@ describe("loadout controller", () => {
 		expect(controller.state.selectedKey).toBe("tool:a");
 		expect(controller.state.resolved.map((item) => item.key)).toEqual(["tool:a", "tool:z"]);
 	});
+	test("selects the first source group before MCP entries", async () => {
+		const mcp: LoadoutItem = {
+			key: "mcp:docs",
+			name: "docs",
+			kind: "mcp",
+			sourceScope: "global",
+			hasGlobalDefinition: true,
+			origin: "docs-mcp",
+		};
+		const controller = createLoadoutController({
+			storage: storage(),
+			inventory: inventory(mcp, { ...tool("tool:bash"), origin: "builtin" }),
+		});
+		await controller.load();
+		expect(controller.state.selectedKey).toBe("tool:bash");
+		await controller.close();
+	});
+
+	test("limits selection to the active view", async () => {
+		const skill: LoadoutItem = {
+			key: "skill:docs",
+			name: "docs",
+			kind: "skill",
+			sourceScope: "global",
+			hasGlobalDefinition: true,
+			origin: "test",
+		};
+		const controller = createLoadoutController({
+			storage: storage(),
+			inventory: inventory(tool("tool:alpha"), skill),
+		});
+		await controller.load();
+		expect(controller.state.selectedKey).toBe("tool:alpha");
+		controller.setView("skills");
+		expect(controller.state.selectedKey).toBe("skill:docs");
+		controller.moveSelection(1);
+		expect(controller.state.selectedKey).toBe("skill:docs");
+		await controller.close();
+	});
+
 	test("keeps selection at the list boundaries", async () => {
 		const controller = createLoadoutController({
 			storage: storage(),
