@@ -21,13 +21,16 @@ describe("advisor settings provider", () => {
 		expect(provider.id).toBe("pi-basics-advisor");
 		expect(provider.groups[0]?.id).toBe("advisor");
 		expect(provider.groups[0]?.fields).toHaveLength(1);
-		expect(provider.groups[0]?.fields[0]).toMatchObject({
+		const field = provider.groups[0]?.fields[0];
+		expect(field).toMatchObject({
 			id: "model",
 			label: "Advisor model",
 			type: "enum",
 			options: [{ value: "openai/gpt-4.1", label: "GPT-4.1" }],
 			tabCycle: { fieldId: "thinking", defaultValue: "medium" },
 		});
+		expect(field?.formatDisplay?.("openai/gpt-4.1", "low")).toBe("◔ openai/gpt-4.1");
+		expect(field?.formatDescription?.("openai/gpt-4.1", "low")).toBe("openai/gpt-4.1 low");
 	});
 
 	test("normalizes blank model and passes it to persistence callback", async () => {

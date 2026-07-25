@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createJsonSectionSettingsStorage } from "@hheei/pi-basics";
 import {
+	AUTO_TITLE_MODEL_FIELD,
 	AUTO_TITLE_SYSTEM_PROMPT,
 	autoTitleModelOptions,
 	createAutoTitleCoordinator,
@@ -74,12 +75,32 @@ describe("Pi Basics auto-title", () => {
 	});
 
 	test("lists available models as selectable provider/model options", () => {
-		expect(
-			autoTitleModelOptions([
-				{ provider: "openai", id: "gpt-5", name: "GPT-5" },
-				{ provider: "anthropic", id: "claude-haiku", name: "Haiku" },
-			]).map((option) => option.value),
-		).toEqual(["", "anthropic/claude-haiku", "openai/gpt-5"]);
+		const options = autoTitleModelOptions([
+			{ provider: "openai", id: "gpt-5", name: "GPT-5" },
+			{ provider: "anthropic", id: "claude-haiku", name: "Haiku" },
+		]);
+		expect(options.map((option) => option.value)).toEqual([
+			"",
+			"anthropic/claude-haiku",
+			"openai/gpt-5",
+		]);
+		expect(options.map((option) => option.label)).toEqual([
+			"Not set",
+			"anthropic/claude-haiku",
+			"openai/gpt-5",
+		]);
+	});
+
+	test("uses the shared fixed-off title model selection", () => {
+		const provider = createAutoTitleSettingsProvider({
+			modelOptions: [{ value: "cx/gpt-5.6-luna", label: "cx/gpt-5.6-luna" }],
+		});
+		const field = provider.groups[0]?.fields.find(
+			(candidate) => candidate.id === AUTO_TITLE_MODEL_FIELD,
+		);
+		expect(field?.tabCycle).toBeUndefined();
+		expect(field?.formatDisplay?.("cx/gpt-5.6-luna")).toBe("○ cx/gpt-5.6-luna");
+		expect(field?.formatDescription?.("cx/gpt-5.6-luna")).toBe("cx/gpt-5.6-luna off");
 	});
 
 	test("allows automatic titles without a configured title model", async () => {

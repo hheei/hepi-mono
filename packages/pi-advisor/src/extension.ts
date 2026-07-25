@@ -4,6 +4,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	getHePiRuntimeSettingsRegistry,
 	HePiLifecycleController,
+	hePiAuthenticatedModelSelectionOptions,
 	registerHePiLifecycle,
 	registerHePiSettings,
 } from "@hheei/pi-basics";
@@ -21,23 +22,12 @@ export default function piAdvisorExtension(pi: ExtensionAPI): void {
 	registerAdvisorRenderer(pi);
 	const lifecycle = new HePiLifecycleController({
 		onStart: async (runtime) => {
-			const configuredProviders = new Set(runtime.ctx.modelRegistry.getRegisteredProviderIds());
-			const models = (runtime.ctx.modelRegistry.getAvailable?.() ?? []).filter(
-				(model) =>
-					configuredProviders.has(model.provider) &&
-					runtime.ctx.modelRegistry.hasConfiguredAuth(model),
-			);
+			const modelOptions = hePiAuthenticatedModelSelectionOptions(runtime.ctx.modelRegistry);
 			const provider =
 				settingsProvider ??
 				createAdvisorSettingsProvider({
 					path: join(runtime.ctx.cwd, ".pi", "settings.json"),
-					modelOptions: [
-						{ value: "", label: "Not set" },
-						...models.map((model) => ({
-							value: `${model.provider}/${model.id}`,
-							label: model.name ?? `${model.provider}/${model.id}`,
-						})),
-					],
+					modelOptions,
 					validatePersisted: (modelRef, thinking) => {
 						if (modelRef === undefined) return;
 						const ref = parseModelRef(modelRef);

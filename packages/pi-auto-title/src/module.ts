@@ -7,11 +7,14 @@ import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
+	createHePiModelSelectionField,
 	type HePiContext,
+	type HePiModelSelectionOption,
 	type HePiSettingField,
 	type HePiSettingsProvider,
 	type HePiSettingsState,
 	type HePiSettingsStorage,
+	hePiModelSelectionOptions,
 	updateJsonSettingsRoot,
 } from "@hheei/pi-basics";
 
@@ -42,10 +45,7 @@ export interface AutoTitleStorageOptions {
 	readonly group?: string;
 }
 
-export interface AutoTitleModelOption {
-	readonly value: string;
-	readonly label: string;
-}
+export type AutoTitleModelOption = HePiModelSelectionOption;
 
 export interface AutoTitleCoordinator {
 	trigger(force?: boolean): void;
@@ -129,19 +129,11 @@ export function parseModelRef(value: string): { provider: string; model: string 
 export function autoTitleModelOptions(
 	models: Iterable<{ readonly provider: string; readonly id: string; readonly name?: string }>,
 ): readonly AutoTitleModelOption[] {
-	const unique = new Map<string, { readonly value: string; readonly label: string }>();
-	for (const model of models) {
-		const value = `${model.provider}/${model.id}`;
-		unique.set(value, { value, label: model.name ?? value });
-	}
-	return [
-		{ value: "", label: "Not set" },
-		...[...unique.values()].sort((a, b) => a.value.localeCompare(b.value)),
-	];
+	return hePiModelSelectionOptions(models);
 }
 
 function autoTitleFields(
-	modelOptions: readonly { readonly value: string; readonly label: string }[],
+	modelOptions: readonly AutoTitleModelOption[],
 ): readonly HePiSettingField[] {
 	return [
 		{
@@ -156,34 +148,19 @@ function autoTitleFields(
 				throw new Error("Expected true or false");
 			},
 		},
-		{
+		createHePiModelSelectionField({
 			id: AUTO_TITLE_MODEL_FIELD,
 			label: "title model",
-			type: "enum",
-			defaultValue: "",
 			description: "Choose the model used for title generation.",
-			options: modelOptions,
-			format: (value) =>
-				modelOptions.find((option) => option.value === value)?.label ?? String(value),
-			parse: (draft) => draft,
-			enabled: () => true,
-			validate: (value) => {
-				if (!value) return undefined;
-				if (typeof value !== "string") return "Expected provider/model string";
-				try {
-					parseModelRef(value);
-					return undefined;
-				} catch (error) {
-					return error instanceof Error ? error.message : String(error);
-				}
-			},
-		},
+			modelOptions,
+			thinking: "off",
+		}),
 	];
 }
 
 export interface AutoTitleSettingsOptions {
 	readonly path?: string;
-	readonly modelOptions?: readonly { readonly value: string; readonly label: string }[];
+	readonly modelOptions?: readonly AutoTitleModelOption[];
 	readonly validate?: (value: string, ctx: HePiContext) => Promise<void> | void;
 	readonly prepareEnable?: (model?: string) => Promise<void> | void;
 	readonly onPersisted?: (model: string | undefined) => Promise<void> | void;

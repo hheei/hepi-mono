@@ -75,9 +75,12 @@ function fieldValue(
 	);
 }
 
+export type SettingsValueSurface = "display" | "description";
+
 export function formatSettingValue(
 	controller: SettingsController,
 	field: HePiSettingField & { readonly groupId: string },
+	surface: SettingsValueSurface = "display",
 ): string {
 	const editing =
 		controller.state.mode === "Edit" &&
@@ -88,18 +91,23 @@ export function formatSettingValue(
 		? (field.options?.find((option) => String(option.value) === (controller.state.draftValue ?? ""))
 				?.value ?? committedValue)
 		: committedValue;
-	const primary = field.format ? field.format(value as never) : value === null ? "" : String(value);
 	const tabCycle = field.tabCycle;
-	if (!tabCycle) return primary;
 	const providerId = controller.provider?.id;
-	const secondary = editing
-		? (controller.state.draftRelatedValue ?? tabCycle.defaultValue)
-		: providerId === undefined
-			? tabCycle.defaultValue
-			: (controller.state.committed[providerId]?.[field.groupId]?.[tabCycle.fieldId] ??
-				tabCycle.defaultValue);
+	const secondary =
+		tabCycle === undefined
+			? undefined
+			: editing
+				? (controller.state.draftRelatedValue ?? tabCycle.defaultValue)
+				: providerId === undefined
+					? tabCycle.defaultValue
+					: (controller.state.committed[providerId]?.[field.groupId]?.[tabCycle.fieldId] ??
+						tabCycle.defaultValue);
+	const custom = surface === "display" ? field.formatDisplay : field.formatDescription;
+	if (custom) return custom(value as never, secondary);
+	const primary = field.format ? field.format(value as never) : value === null ? "" : String(value);
+	if (!tabCycle) return primary;
 	const label = tabCycle.options.find((option) => Object.is(option.value, secondary))?.label;
-	return `${primary} · ${label ?? String(secondary)}`;
+	return `${primary}${tabCycle.separator ?? " · "}${label ?? String(secondary)}`;
 }
 
 export function settingsListItems(controller: SettingsController): readonly SettingsListItem[] {
@@ -201,7 +209,7 @@ function relatedDraftSuffix(
 	if (!tabCycle) return "";
 	const value = controller.state.draftRelatedValue ?? tabCycle.defaultValue;
 	const label = tabCycle.options.find((option) => Object.is(option.value, value))?.label;
-	return ` · ${label ?? String(value)}`;
+	return `${tabCycle.separator ?? " · "}${label ?? String(value)}`;
 }
 
 function renderDescription(
@@ -222,7 +230,7 @@ function renderDescription(
 		contentWidth,
 		Math.max(1, layout.descriptionHeight - 7),
 	).map((line) => theme.fg("text", line));
-	const committed = field ? formatSettingValue(controller, field) : "";
+	const committed = field ? formatSettingValue(controller, field, "description") : "";
 	const editing =
 		controller.state.mode === "Edit" &&
 		field !== undefined &&
@@ -259,7 +267,16 @@ function renderListRow(
 	theme: Theme,
 ): string {
 	const indicator = padToWidth(selected ? theme.fg("accent", "→") : "", layout.indicatorWidth);
-	const rawKey = item.kind === "group" ? `⧉ ${item.label}` : ` ${item.label}`;
+	if (item.kind === "group") {
+		const key = truncateToWidth(
+			`⧉ ${item.label}`,
+			layout.listContentWidth - layout.indicatorWidth,
+			"",
+		);
+		const styled = selected ? theme.fg("accent", theme.bold(key)) : theme.bold(key);
+		return `${indicator}${padToWidth(styled, layout.listContentWidth - layout.indicatorWidth)}`;
+	}
+	const rawKey = ` ${item.label}`;
 	const key =
 		selected && visibleWidth(rawKey) > layout.keyWidth
 			? horizontalViewport(rawKey, layout.keyWidth, visibleWidth(rawKey)).text
@@ -288,8 +305,6 @@ function renderListRow(
 	const row = `${indicator}${padToWidth(styledKey, layout.keyWidth)}${" ".repeat(layout.valueGap)}${padToWidth(styledValue, layout.valueWidth)}`;
 	if (controller.state.mode === "Edit")
 		return selected ? theme.fg("accent", theme.bold(row)) : theme.fg("dim", row);
-	if (item.kind === "group")
-		return selected ? theme.fg("accent", theme.bold(row)) : theme.bold(row);
 	return row;
 }
 
@@ -385,7 +400,7 @@ export function renderSettings(options: RenderSettingsOptions): string[] {
 				);
 			} else {
 				const field = selected?.kind === "field" ? selected.field : undefined;
-				const committed = field ? formatSettingValue(controller, field) : "";
+				const committed = field ? formatSettingValue(controller, field, "description") : "";
 				const editing = controller.state.mode === "Edit" && field;
 				const relatedSuffix = editing ? relatedDraftSuffix(controller, field) : "";
 				content.push(theme.fg("muted", "Value:"));
