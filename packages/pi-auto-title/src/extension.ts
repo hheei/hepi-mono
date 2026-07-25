@@ -22,23 +22,22 @@ export default function piAutoTitleExtension(pi: ExtensionAPI): void {
 				runtime.ctx.modelRegistry.hasConfiguredAuth(model),
 			);
 			const provider = createAutoTitleSettingsProvider({
-					path: join(runtime.ctx.cwd, ".pi", "settings.json"),
-					modelOptions: autoTitleModelOptions(models),
-					validate: async (value) => {
-						const ref = parseModelRef(value);
-						const model = runtime.ctx.modelRegistry.find(ref.provider, ref.model);
-						if (!model || !runtime.ctx.modelRegistry.hasConfiguredAuth(model))
-							throw new Error(`Unavailable title model: ${value}`);
-					},
-					onPersisted: (model) => {
-						coordinator?.dispose();
-						const selected =
-							model ??
-							(models[0] === undefined ? undefined : `${models[0].provider}/${models[0].id}`);
-						coordinator =
-							selected === undefined ? undefined : createAutoTitleCoordinator(runtime, selected);
-					},
-				});
+				modelOptions: autoTitleModelOptions(models),
+				validate: async (value) => {
+					const ref = parseModelRef(value);
+					const model = runtime.ctx.modelRegistry.find(ref.provider, ref.model);
+					if (!model || !runtime.ctx.modelRegistry.hasConfiguredAuth(model))
+						throw new Error(`Unavailable title model: ${value}`);
+				},
+				onPersisted: (model) => {
+					coordinator?.dispose();
+					const selected =
+						model ??
+						(models[0] === undefined ? undefined : `${models[0].provider}/${models[0].id}`);
+					coordinator =
+						selected === undefined ? undefined : createAutoTitleCoordinator(runtime, selected);
+				},
+			});
 			const unregisterSettings = registerHePiSettings(provider, settingsRegistry);
 			runtime.registry.registerLifecycle({
 				id: "auto-title-settings",

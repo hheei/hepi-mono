@@ -1,15 +1,16 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { createPonytailSettingsProvider } from "./config.js";
+import { createPonytailSettingsProvider, type PonytailSettingsProviderOptions } from "./config.js";
 
 export async function registerPonytailHePiSettings(
 	pi: ExtensionAPI,
+	options: PonytailSettingsProviderOptions = {},
 ): Promise<(() => void) | undefined> {
 	try {
 		const { getHePiRuntimeSettingsRegistry, registerHePiSettings } = await import(
 			"@hheei/pi-basics"
 		);
 		return registerHePiSettings(
-			createPonytailSettingsProvider(),
+			createPonytailSettingsProvider(options),
 			getHePiRuntimeSettingsRegistry(pi),
 		);
 	} catch (error) {

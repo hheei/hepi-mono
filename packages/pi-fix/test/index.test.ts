@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -104,7 +104,9 @@ describe("OpenAI Responses compatibility", () => {
 				handlers.set(event, handler);
 			},
 		};
-		const feature = createOpenAIResponsesCompatFeature(pi as never);
+		const feature = createOpenAIResponsesCompatFeature(pi as never, {
+			settingsDirectory: cwd,
+		});
 		const context = {
 			cwd,
 			model: { api: "openai-responses" },
@@ -116,7 +118,9 @@ describe("OpenAI Responses compatibility", () => {
 
 		expect(await hook({ payload }, context)).toBeUndefined();
 
-		const provider = createOpenAIResponsesCompatSettingsProvider(feature);
+		const provider = createOpenAIResponsesCompatSettingsProvider(feature, {
+			settingsDirectory: cwd,
+		});
 		await provider.storage.save(
 			{ "openai-responses-compat": { stripAssistantMessageStatus: true } },
 			{ cwd, sessionId: "session-1" },
@@ -126,16 +130,15 @@ describe("OpenAI Responses compatibility", () => {
 		expect(JSON.stringify(rewritten)).not.toContain('"id":"item_1897cee2cf04599211fdda0d"');
 		expect(JSON.stringify(rewritten)).toMatch(/"id":"msg_pi_[0-9a-f]{40}"/);
 
-		const saved = JSON.parse(await readFile(join(cwd, ".pi", "settings.json"), "utf8"));
+		const saved = JSON.parse(await readFile(join(cwd, "settings.json"), "utf8"));
 		expect(saved["pi-basics"]["openai-responses-compat"].stripAssistantMessageStatus).toBe(true);
 		expect(saved["pi-basics"]["openai-responses-compat"].normalizeAssistantMessageId).toBe(true);
 	});
 
 	test("lazy-loads an enabled toggle after extension reload in an active session", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-basics-responses-reload-"));
-		await mkdir(join(cwd, ".pi"), { recursive: true });
 		await writeFile(
-			join(cwd, ".pi", "settings.json"),
+			join(cwd, "settings.json"),
 			JSON.stringify({
 				"pi-basics": {
 					"openai-responses-compat": { stripAssistantMessageStatus: true },
@@ -143,11 +146,14 @@ describe("OpenAI Responses compatibility", () => {
 			}),
 		);
 		let hook: ((event: { payload: unknown }, context: unknown) => Promise<unknown>) | undefined;
-		createOpenAIResponsesCompatFeature({
-			on(event: string, handler: typeof hook) {
-				if (event === "before_provider_request") hook = handler;
-			},
-		} as never);
+		createOpenAIResponsesCompatFeature(
+			{
+				on(event: string, handler: typeof hook) {
+					if (event === "before_provider_request") hook = handler;
+				},
+			} as never,
+			{ settingsDirectory: cwd },
+		);
 		if (!hook) throw new Error("Expected before_provider_request hook");
 
 		const rewritten = await hook(
@@ -168,15 +174,18 @@ describe("OpenAI Responses compatibility", () => {
 
 	test("rejects invalid canonical and unknown group fields with paths", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-basics-responses-invalid-"));
-		await mkdir(join(cwd, ".pi"), { recursive: true });
 		await writeFile(
-			join(cwd, ".pi", "settings.json"),
+			join(cwd, "settings.json"),
 			JSON.stringify({
 				"pi-basics": { "openai-responses-compat": { stripAssistantMessageStatus: "true" } },
 			}),
 		);
-		const feature = createOpenAIResponsesCompatFeature({ on() {} } as never);
-		const provider = createOpenAIResponsesCompatSettingsProvider(feature);
+		const feature = createOpenAIResponsesCompatFeature({ on() {} } as never, {
+			settingsDirectory: cwd,
+		});
+		const provider = createOpenAIResponsesCompatSettingsProvider(feature, {
+			settingsDirectory: cwd,
+		});
 		const load = provider.storage.load;
 		if (load === undefined) throw new Error("Expected settings loader");
 		let invalidTypeError: unknown;
@@ -189,7 +198,7 @@ describe("OpenAI Responses compatibility", () => {
 			"pi-basics.openai-responses-compat.stripAssistantMessageStatus",
 		);
 		await writeFile(
-			join(cwd, ".pi", "settings.json"),
+			join(cwd, "settings.json"),
 			JSON.stringify({ "pi-basics": { "openai-responses-compat": { unexpected: false } } }),
 		);
 		let unknownFieldError: unknown;
@@ -203,8 +212,12 @@ describe("OpenAI Responses compatibility", () => {
 
 	test("serializes concurrent saves without losing unrelated updates", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-basics-responses-concurrent-"));
-		const feature = createOpenAIResponsesCompatFeature({ on() {} } as never);
-		const provider = createOpenAIResponsesCompatSettingsProvider(feature);
+		const feature = createOpenAIResponsesCompatFeature({ on() {} } as never, {
+			settingsDirectory: cwd,
+		});
+		const provider = createOpenAIResponsesCompatSettingsProvider(feature, {
+			settingsDirectory: cwd,
+		});
 		await Promise.all([
 			provider.storage.save(
 				{ "openai-responses-compat": { stripAssistantMessageStatus: true } },
@@ -215,28 +228,31 @@ describe("OpenAI Responses compatibility", () => {
 				{ cwd, sessionId: "session-2" },
 			),
 		]);
-		const saved = JSON.parse(await readFile(join(cwd, ".pi", "settings.json"), "utf8"));
+		const saved = JSON.parse(await readFile(join(cwd, "settings.json"), "utf8"));
 		expect(saved["pi-basics"]["openai-responses-compat"]).toEqual({
 			stripAssistantMessageStatus: true,
 			normalizeAssistantMessageId: true,
 		});
 	});
 
-	test("preserves unrelated project settings when saving", async () => {
+	test("preserves unrelated global settings when saving", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-basics-responses-save-"));
-		await mkdir(join(cwd, ".pi"), { recursive: true });
 		await writeFile(
-			join(cwd, ".pi", "settings.json"),
+			join(cwd, "settings.json"),
 			JSON.stringify({ theme: "dark", "pi-basics": { rtk: { enabled: true } } }),
 		);
-		const feature = createOpenAIResponsesCompatFeature({ on() {} } as never);
-		const provider = createOpenAIResponsesCompatSettingsProvider(feature);
+		const feature = createOpenAIResponsesCompatFeature({ on() {} } as never, {
+			settingsDirectory: cwd,
+		});
+		const provider = createOpenAIResponsesCompatSettingsProvider(feature, {
+			settingsDirectory: cwd,
+		});
 		await provider.storage.save(
 			{ "openai-responses-compat": { stripAssistantMessageStatus: true } },
 			{ cwd, sessionId: "session-1" },
 		);
 
-		const saved = JSON.parse(await readFile(join(cwd, ".pi", "settings.json"), "utf8"));
+		const saved = JSON.parse(await readFile(join(cwd, "settings.json"), "utf8"));
 		expect(saved.theme).toBe("dark");
 		expect(saved["pi-basics"].rtk).toEqual({ enabled: true });
 	});

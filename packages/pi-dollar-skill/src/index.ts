@@ -1,13 +1,12 @@
 export { default } from "./extension.js";
 
 import {
-	getAgentDir,
 	CustomEditor,
 	type ExtensionAPI,
 	type ExtensionContext,
+	getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import type {
-	HePiContext,
 	HePiRuntimeContext,
 	HePiSettingField,
 	HePiSettingsProvider,
@@ -174,7 +173,7 @@ export function createDollarSkillSettingsProvider(
 		description: "Skill autocomplete and prompt-time path references.",
 		groups: [{ id: DOLLAR_SKILL_SETTINGS_GROUP, title: "", fields }],
 		storage: {
-			async load(ctx: HePiContext) {
+			async load() {
 				const config = await loadDollarSkillConfig(settingsDirectory);
 				return {
 					[DOLLAR_SKILL_SETTINGS_GROUP]: {
@@ -183,7 +182,7 @@ export function createDollarSkillSettingsProvider(
 					},
 				};
 			},
-			async save(state: HePiSettingsState, ctx: HePiContext) {
+			async save(state: HePiSettingsState) {
 				const config = configFromState(state);
 				feature.setConfig(config);
 				await saveDollarSkillConfig(settingsDirectory, config);

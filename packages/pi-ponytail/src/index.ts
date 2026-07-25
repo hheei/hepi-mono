@@ -3,6 +3,7 @@ import {
 	DEFAULT_PONYTAIL_DEFAULTS,
 	loadPonytailDefaults,
 	type PonytailDefaults,
+	type PonytailSettingsProviderOptions,
 } from "./config.js";
 import { registerPonytailHePiSettings } from "./hepi-settings.js";
 import {
@@ -30,7 +31,12 @@ const COMMAND_DESCRIPTIONS: Record<(typeof COMMAND_VALUES)[number], string> = {
 	status: "Print the active Ponytail mode without changing it.",
 };
 
-export default function piPonytailExtension(pi: ExtensionAPI): void {
+export interface PonytailExtensionOptions extends PonytailSettingsProviderOptions {}
+
+export default function piPonytailExtension(
+	pi: ExtensionAPI,
+	options: PonytailExtensionOptions = {},
+): void {
 	let defaults: PonytailDefaults = DEFAULT_PONYTAIL_DEFAULTS;
 	let mode: PonytailMode = DEFAULT_PONYTAIL_MODE;
 	let subagentSession = false;
@@ -89,8 +95,8 @@ export default function piPonytailExtension(pi: ExtensionAPI): void {
 
 	pi.on("session_start", async (_event, ctx) => {
 		unregisterSettings?.();
-		unregisterSettings = await registerPonytailHePiSettings(pi);
-		defaults = await loadPonytailDefaults();
+		unregisterSettings = await registerPonytailHePiSettings(pi, options);
+		defaults = await loadPonytailDefaults(options.settingsFilePath);
 		subagentSession = isPiSubagentSession(pi);
 		restoreModeFromBranch(ctx);
 	});
@@ -110,9 +116,9 @@ export default function piPonytailExtension(pi: ExtensionAPI): void {
 		return { action: "continue" };
 	});
 
-	pi.on("tool_call", async (event, ctx) => {
+	pi.on("tool_call", async (event) => {
 		if (event.toolName !== "Agent" || !isAgentToolInput(event.input)) return undefined;
-		defaults = await loadPonytailDefaults();
+		defaults = await loadPonytailDefaults(options.settingsFilePath);
 		event.input.prompt = injectSubagentPrompt(event.input.prompt, defaults.subagentMode);
 		return undefined;
 	});

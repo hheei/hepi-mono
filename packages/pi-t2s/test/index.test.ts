@@ -64,6 +64,7 @@ describe("traditional to simplified", () => {
 		try {
 			const t2s = createTraditionalToSimplifiedSettingsProvider({ settingsDirectory: cwd });
 			const other = createJsonSectionSettingsStorage({
+				path: join(cwd, "settings.json"),
 				section: "pi-basics",
 				group: "other",
 			});
@@ -89,7 +90,7 @@ describe("traditional to simplified", () => {
 		try {
 			const settingsDirectory = cwd;
 			await mkdir(settingsDirectory, { recursive: true });
-			const provider = createTraditionalToSimplifiedSettingsProvider();
+			const provider = createTraditionalToSimplifiedSettingsProvider({ settingsDirectory });
 			for (const values of [
 				{ mode: "disabled" },
 				{ mode: "none" },

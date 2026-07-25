@@ -13,8 +13,8 @@ export { default } from "./extension.js";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
 	type HePiContext,
 	type HePiSettingField,
@@ -219,7 +219,7 @@ export function createOpenAIResponsesCompatSettingsProvider(
 		description: "Compatibility workarounds for incomplete OpenAI Responses gateways.",
 		groups: [{ id: OPENAI_RESPONSES_COMPAT_GROUP, title: "", fields }],
 		storage: {
-			async load(ctx: HePiContext) {
+			async load() {
 				const root = await loadSettings(settingsPath(settingsDirectory));
 				return settingState(configFromValues(compatValues(root)));
 			},

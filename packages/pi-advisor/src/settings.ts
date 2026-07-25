@@ -14,7 +14,7 @@ export function createAdvisorSettingsProvider(options: {
 	readonly onPersisted?: (model: string | undefined, thinking: string) => void | Promise<void>;
 }): HePiSettingsProvider {
 	const storage = createJsonSectionSettingsStorage({
-		options.path,
+		...(options.path === undefined ? {} : { path: options.path }),
 		section: "pi-basics",
 		group: "advisor",
 	});

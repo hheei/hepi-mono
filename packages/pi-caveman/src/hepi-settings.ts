@@ -1,15 +1,16 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { createCavemanSettingsProvider } from "./config.js";
+import { type CavemanSettingsProviderOptions, createCavemanSettingsProvider } from "./config.js";
 
 export async function registerCavemanHePiSettings(
 	pi: ExtensionAPI,
+	options: CavemanSettingsProviderOptions = {},
 ): Promise<(() => void) | undefined> {
 	try {
 		const { getHePiRuntimeSettingsRegistry, registerHePiSettings } = await import(
 			"@hheei/pi-basics"
 		);
 		return registerHePiSettings(
-			createCavemanSettingsProvider(),
+			createCavemanSettingsProvider(options),
 			getHePiRuntimeSettingsRegistry(pi),
 		);
 	} catch (error) {

@@ -1,4 +1,4 @@
-import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { saveRtkConfig, settingsPath } from "./config.js";
 import type { RtkFeature } from "./feature.js";
 import { DEFAULT_RTK_INTEGRATION_CONFIG } from "./types.js";
@@ -37,7 +37,7 @@ export function registerRtkCommand(
 			}
 			if (command === "reset") {
 				feature.setConfig(DEFAULT_RTK_INTEGRATION_CONFIG);
-				await saveRtkConfig(agentDir, DEFAULT_RTK_INTEGRATION_CONFIG);
+				await saveRtkConfig(DEFAULT_RTK_INTEGRATION_CONFIG, agentDir);
 				ctx.ui.notify("RTK settings reset", "info");
 				return;
 			}

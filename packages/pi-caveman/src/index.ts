@@ -1,5 +1,10 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { type CavemanDefaults, DEFAULT_CAVEMAN_DEFAULTS, loadCavemanDefaults } from "./config.js";
+import {
+	type CavemanDefaults,
+	type CavemanSettingsProviderOptions,
+	DEFAULT_CAVEMAN_DEFAULTS,
+	loadCavemanDefaults,
+} from "./config.js";
 import { registerCavemanHePiSettings } from "./hepi-settings.js";
 import {
 	CAVEMAN_STATE_ENTRY,
@@ -40,7 +45,12 @@ const COMMAND_DESCRIPTIONS: Record<(typeof COMMAND_VALUES)[number], string> = {
 	status: "Print the active Caveman mode without changing it.",
 };
 
-export default function piCavemanExtension(pi: ExtensionAPI): void {
+export interface CavemanExtensionOptions extends CavemanSettingsProviderOptions {}
+
+export default function piCavemanExtension(
+	pi: ExtensionAPI,
+	options: CavemanExtensionOptions = {},
+): void {
 	let defaults: CavemanDefaults = DEFAULT_CAVEMAN_DEFAULTS;
 	let mode: CavemanMode = DEFAULT_CAVEMAN_MODE;
 	let subagentSession = false;
@@ -99,8 +109,8 @@ export default function piCavemanExtension(pi: ExtensionAPI): void {
 
 	pi.on("session_start", async (_event, ctx) => {
 		unregisterSettings?.();
-		unregisterSettings = await registerCavemanHePiSettings(pi);
-		defaults = await loadCavemanDefaults();
+		unregisterSettings = await registerCavemanHePiSettings(pi, options);
+		defaults = await loadCavemanDefaults(options.settingsFilePath);
 		subagentSession = isPiSubagentSession(pi);
 		restoreModeFromBranch(ctx);
 	});
@@ -121,9 +131,9 @@ export default function piCavemanExtension(pi: ExtensionAPI): void {
 		return { action: "continue" };
 	});
 
-	pi.on("tool_call", async (event, ctx) => {
+	pi.on("tool_call", async (event) => {
 		if (event.toolName !== "Agent" || !isAgentToolInput(event.input)) return undefined;
-		defaults = await loadCavemanDefaults();
+		defaults = await loadCavemanDefaults(options.settingsFilePath);
 		event.input.prompt = injectSubagentPrompt(event.input.prompt, defaults.subagentMode);
 		return undefined;
 	});

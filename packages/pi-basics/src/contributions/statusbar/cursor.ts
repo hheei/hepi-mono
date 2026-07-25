@@ -50,7 +50,7 @@ export function createCursorSettingsProvider(options: {
 	readonly onPersisted?: (options: CursorOptions) => void;
 }): HePiSettingsProvider {
 	const storage = createJsonSectionSettingsStorage({
-		path: options.path,
+		...(options.path === undefined ? {} : { path: options.path }),
 		section: "pi-basics",
 		group: "cursor",
 	});

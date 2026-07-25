@@ -1,12 +1,11 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { CONFIG_DIR_NAME, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type {
-	HePiContext,
-	HePiSettingField,
-	HePiSettingsProvider,
-	HePiSettingsState,
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
+import {
+	type HePiSettingField,
+	type HePiSettingsProvider,
+	type HePiSettingsState,
+	updateJsonSettingsRoot,
 } from "@hheei/pi-basics";
 
 export const GUARD_PATCH_GROUP = "guardPatch";
@@ -41,8 +40,8 @@ async function readRoot(path: string): Promise<JsonObject> {
 	}
 }
 
-function settingsPath(cwd: string): string {
-	return join(cwd, CONFIG_DIR_NAME, "settings.json");
+function settingsPath(agentDir: string = getAgentDir()): string {
+	return join(agentDir, "settings.json");
 }
 
 export interface ApplyPatchGuard {
@@ -119,15 +118,17 @@ const modeField: HePiSettingField<GuardPatchMode> = {
 
 export function createApplyPatchGuardSettingsProvider(
 	guard: ApplyPatchGuard,
+	options: { readonly agentDir?: string } = {},
 ): HePiSettingsProvider {
+	const agentDir = options.agentDir ?? getAgentDir();
 	return {
 		id: "pi-fix-apply-patch-guard",
 		title: "Guard patch",
 		origin: "@hheei/pi-fix",
 		groups: [{ id: GUARD_PATCH_GROUP, title: "Compatibility", fields: [modeField] }],
 		storage: {
-			async load(ctx: HePiContext) {
-				const root = await readRoot(settingsPath(ctx.cwd ?? process.cwd()));
+			async load() {
+				const root = await readRoot(settingsPath(agentDir));
 				const section = root[SETTINGS_SECTION];
 				const group = isJsonObject(section) ? section[GUARD_PATCH_GROUP] : undefined;
 				return {
@@ -136,22 +137,15 @@ export function createApplyPatchGuardSettingsProvider(
 					},
 				};
 			},
-			async save(state: HePiSettingsState, ctx: HePiContext) {
-				const path = settingsPath(ctx.cwd ?? process.cwd());
-				const root = await readRoot(path);
-				const existing = root[SETTINGS_SECTION];
-				const section = isJsonObject(existing) ? { ...existing } : {};
+			async save(state: HePiSettingsState) {
+				const path = settingsPath(agentDir);
 				const mode = modeFromState(state);
-				section[GUARD_PATCH_GROUP] = { mode };
-				root[SETTINGS_SECTION] = section;
-				await mkdir(dirname(path), { recursive: true });
-				const temporary = `${path}.${randomUUID()}.tmp`;
-				try {
-					await writeFile(temporary, `${JSON.stringify(root, null, 2)}\n`, "utf8");
-					await rename(temporary, path);
-				} finally {
-					await rm(temporary, { force: true }).catch(() => undefined);
-				}
+				await updateJsonSettingsRoot(path, (root) => {
+					const existing = root[SETTINGS_SECTION];
+					const section = isJsonObject(existing) ? { ...existing } : {};
+					section[GUARD_PATCH_GROUP] = { mode };
+					root[SETTINGS_SECTION] = section;
+				});
 				guard.setMode(mode);
 			},
 		},

@@ -65,8 +65,12 @@
     "packages/pi-basics": {
       "name": "@hheei/pi-basics",
       "version": "0.0.0",
+      "dependencies": {
+        "proper-lockfile": "4.1.2",
+      },
       "devDependencies": {
         "@hheei/pi-debug": "workspace:*",
+        "@types/proper-lockfile": "4.1.4",
       },
       "peerDependencies": {
         "@earendil-works/pi-agent-core": ">=0.80.10",

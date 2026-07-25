@@ -50,8 +50,9 @@ describe("dollar skill settings", () => {
 	});
 
 	test("provider validates limits and updates feature state on load", async () => {
+		const settingsDirectory = await mkdtemp(join(tmpdir(), "pi-basics-dollar-provider-"));
 		const feature = createDollarSkillFeature({} as never);
-		const provider = createDollarSkillSettingsProvider(feature, { settingsDirectory: cwd });
+		const provider = createDollarSkillSettingsProvider(feature, { settingsDirectory });
 		const group = provider.groups[0];
 		const limit = group?.fields.find((field) => field.id === "maxSuggestions");
 		expect(limit?.validate?.(0)).toContain("1 to 50");

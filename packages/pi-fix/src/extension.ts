@@ -14,12 +14,23 @@ import {
 	createOpenAIResponsesCompatSettingsProvider,
 } from "./index.js";
 
-export default function piFixExtension(pi: ExtensionAPI): void {
+export default function piFixExtension(
+	pi: ExtensionAPI,
+	options: { readonly agentDir?: string } = {},
+): void {
 	const settingsRegistry = getHePiRuntimeSettingsRegistry(pi);
 	const applyPatchGuard = registerApplyPatchGuard(pi);
-	const applyPatchGuardProvider = createApplyPatchGuardSettingsProvider(applyPatchGuard);
-	const responsesCompat = createOpenAIResponsesCompatFeature(pi);
-	const responsesCompatProvider = createOpenAIResponsesCompatSettingsProvider(responsesCompat);
+	const providerOptions = options.agentDir === undefined ? {} : { agentDir: options.agentDir };
+	const applyPatchGuardProvider = createApplyPatchGuardSettingsProvider(
+		applyPatchGuard,
+		providerOptions,
+	);
+	const responsesCompat = createOpenAIResponsesCompatFeature(pi, {
+		...(options.agentDir === undefined ? {} : { settingsDirectory: options.agentDir }),
+	});
+	const responsesCompatProvider = createOpenAIResponsesCompatSettingsProvider(responsesCompat, {
+		...(options.agentDir === undefined ? {} : { settingsDirectory: options.agentDir }),
+	});
 
 	const lifecycle = new HePiLifecycleController({
 		onStart: async (runtime) => {

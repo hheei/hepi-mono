@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	createSettingsModel,
+	cycleOption,
 	fieldForSelection,
 	mergeSettingsState,
 	settingFieldItemId,
@@ -18,6 +19,20 @@ describe("settings model", () => {
 			advanced: { mode: "auto" },
 		});
 	});
+	test("recovers stale enum values in the requested direction", () => {
+		const field = {
+			id: "model",
+			label: "Model",
+			type: "enum" as const,
+			defaultValue: "first",
+			description: "Choose the model used by this stale-value recovery fixture.",
+			options: [{ value: "first" }, { value: "second" }],
+			parse: (value: string) => value,
+		};
+		expect(cycleOption(field, "removed", 1)).toBe("first");
+		expect(cycleOption(field, "removed", -1)).toBe("second");
+	});
+
 	test("keeps groups expanded while preserving selection identity", () => {
 		const model = createSettingsModel([createSettingsFixture()]);
 		model.select("mode");

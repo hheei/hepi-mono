@@ -151,12 +151,17 @@ describe("pi-ponytail extension", () => {
 	});
 
 	test("restores branch state, injects instructions, and persists changes", async () => {
+		const cwd = await createProject({
+			"pi-ponytail": { defaults: { mainMode: "full", subagentMode: "full" } },
+		});
 		const harness = createHarness();
-		await piPonytailExtension(harness.pi);
+		await piPonytailExtension(harness.pi, {
+			settingsFilePath: join(cwd, ".pi", "settings.json"),
+		});
 		const branch = [
 			{ type: "custom", customType: "pi-ponytail-state", data: { version: 1, mode: "lite" } },
 		];
-		const { ctx, statuses, notifications } = createContext(branch);
+		const { ctx, statuses, notifications } = createContext(branch, cwd);
 		await harness.sessionStart?.({}, ctx);
 		expect(statuses).toEqual([]);
 		expect(
@@ -180,7 +185,9 @@ describe("pi-ponytail extension", () => {
 			"pi-ponytail": { defaults: { mainMode: "lite", subagentMode: "ultra" } },
 		});
 		const harness = createHarness({ sessionName: "Explore#deadbeef", tools: ["read"] });
-		await piPonytailExtension(harness.pi);
+		await piPonytailExtension(harness.pi, {
+			settingsFilePath: join(cwd, ".pi", "settings.json"),
+		});
 		const { ctx } = createContext([], cwd);
 		await harness.sessionStart?.({}, ctx);
 		expect(
@@ -196,7 +203,9 @@ describe("pi-ponytail extension", () => {
 			"pi-ponytail": { defaults: { mainMode: "lite", subagentMode: "ultra" } },
 		});
 		const harness = createHarness();
-		await piPonytailExtension(harness.pi);
+		await piPonytailExtension(harness.pi, {
+			settingsFilePath: join(cwd, ".pi", "settings.json"),
+		});
 		const { ctx } = createContext([], cwd);
 		await harness.sessionStart?.({}, ctx);
 		const input = { prompt: "Review the diff" };
@@ -210,7 +219,9 @@ describe("pi-ponytail extension", () => {
 			"pi-ponytail": { defaults: { hideStatus: false, quietStartup: false } },
 		});
 		const harness = createHarness();
-		await piPonytailExtension(harness.pi);
+		await piPonytailExtension(harness.pi, {
+			settingsFilePath: join(cwd, ".pi", "settings.json"),
+		});
 		const { ctx, statuses, notifications } = createContext([], cwd);
 		await harness.sessionStart?.({}, ctx);
 		expect(statuses).toEqual([]);

@@ -1,7 +1,7 @@
 import {
-	getAgentDir,
 	type ExtensionAPI,
 	type ExtensionContext,
+	getAgentDir,
 	isToolCallEventType,
 	type ToolResultEvent,
 } from "@earendil-works/pi-coding-agent";

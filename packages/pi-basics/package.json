@@ -40,6 +40,10 @@
 		"@earendil-works/pi-tui": "*"
 	},
 	"devDependencies": {
-		"@hheei/pi-debug": "workspace:*"
+		"@hheei/pi-debug": "workspace:*",
+		"@types/proper-lockfile": "4.1.4"
+	},
+	"dependencies": {
+		"proper-lockfile": "4.1.2"
 	}
 }

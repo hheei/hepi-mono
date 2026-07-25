@@ -47,7 +47,7 @@ The core `ponytail` skill is intentionally omitted because the extension injects
 
 ## Defaults
 
-With `@hheei/pi-basics` loaded, open `/hepi setting` and select **Ponytail defaults**. Settings are project-scoped in `.pi/settings.json`:
+With `@hheei/pi-basics` loaded, open `/hepi setting` and select **Ponytail defaults**. Settings are global in `~/.pi/agent/settings.json` (or `$PI_CODING_AGENT_DIR/settings.json`):
 
 ```json
 {
@@ -76,7 +76,7 @@ Requires `@earendil-works/pi-coding-agent` 0.80.10 or newer. `@hheei/pi-basics` 
 
 For `pi-subagents`, child sessions that load extensions use `subagentMode`. The parent also marks prompts passed through the `Agent` tool, covering isolated agents and agents with extension inheritance disabled. A loaded child recognizes the marker and avoids duplicate injection.
 
-No tools, model providers, telemetry, or network calls are added. Filesystem writes occur only when the HEPI Settings provider saves `.pi/settings.json`.
+No tools, model providers, telemetry, or network calls are added. Filesystem writes occur only when the HEPI Settings provider saves the global Pi settings file.
 
 ## Development
 

@@ -44,7 +44,7 @@ With `@hheei/pi-basics` loaded, open `/hepi setting` and select **Caveman defaul
 - `Main agent mode`: default for the interactive Pi session.
 - `Subagent mode`: default for agents launched through `pi-subagents`.
 
-The provider stores project configuration in `.pi/settings.json` without replacing other settings:
+The provider stores global configuration in `~/.pi/agent/settings.json` (or `$PI_CODING_AGENT_DIR/settings.json`) without replacing other settings:
 
 ```json
 {
@@ -68,7 +68,7 @@ Valid values are `lite`, `full`, `ultra`, `wenyan-lite`, `wenyan-full`, `wenyan-
 - `off` removes the injected prompt.
 - Session shutdown clears extension-owned UI state.
 
-No tools, model providers, telemetry, or network calls are added. Filesystem writes occur only when the HEPI Settings provider saves `.pi/settings.json`.
+No tools, model providers, telemetry, or network calls are added. Filesystem writes occur only when the HEPI Settings provider saves the global Pi settings file.
 
 ## Compatibility
 

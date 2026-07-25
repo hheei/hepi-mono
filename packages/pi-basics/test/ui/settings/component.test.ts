@@ -172,6 +172,37 @@ describe("settings component", () => {
 		expect(state.controller.state.mode).toBe("Navigation");
 	});
 
+	test("recovers a stale enum value with arrows", async () => {
+		const staleFields = fields.map((field) =>
+			field.id === "mode"
+				? {
+						...field,
+						tabCycle: {
+							fieldId: "thinking",
+							label: "Thinking",
+							description: "Choose reasoning paired with the selected model.",
+							defaultValue: "medium",
+							options: [{ value: "medium" }, { value: "high" }],
+						},
+					}
+				: field,
+		);
+		const staleProvider = {
+			...provider(),
+			groups: [{ id: "general", title: "General", fields: staleFields }],
+			storage: fakeStorage({ initial: { general: { mode: "removed", thinking: "medium" } } }),
+		};
+		const state = await setup([staleProvider]);
+		state.controller.select("mode");
+		state.component.handleInput?.("\r");
+		expect(state.controller.state.draftValue).toBe("removed");
+		state.component.handleInput?.("\x1b[B");
+		expect(state.controller.state.draftValue).toBe("auto");
+		state.component.handleInput?.("\r");
+		await flush();
+		expect(state.controller.state.committed.first?.general?.mode).toBe("auto");
+	});
+
 	test("ignores printable input while editing enum settings", async () => {
 		const state = await setup();
 		state.component.handleInput?.("\x1b[B");
