@@ -5,6 +5,7 @@ import { basename, dirname, join } from "node:path";
 import {
 	createTextReplayFrame,
 	finalFrameAnsi,
+	finalFrameSvg,
 	formatReplay,
 	replayTui,
 	stripAnsi,
@@ -45,6 +46,32 @@ describe("TUI replay", () => {
 		expect(stripAnsi("before\x1b[12")).toBe("before");
 		expect(stripAnsi("before\x9dunterminated")).toBe("before");
 		expect(stripAnsi("before\x1bPunterminated")).toBe("before");
+	});
+
+	test("renders SVG with Maple Mono and ANSI foreground colors", () => {
+		const frame = createTextReplayFrame(
+			"\x1b[31mstandard\x1b[0m \x1b[38;5;42mindexed\x1b[0m \x1b[38;2;12;34;56mtruecolor\x1b[0m\n\x1b[1m界\x1b[22m│",
+		);
+		const svg = finalFrameSvg(frame);
+		expect(svg).toContain(
+			`font-family="'Maple Mono NF CN', Menlo, Monaco, 'Courier New', monospace"`,
+		);
+		expect(svg).toContain(
+			'<tspan x="12" textLength="67.2" lengthAdjust="spacingAndGlyphs" fill="#c50f1f">standard</tspan>',
+		);
+		expect(svg).toContain(
+			'<tspan x="87.6" textLength="58.8" lengthAdjust="spacingAndGlyphs" fill="rgb(0,215,135)">indexed</tspan>',
+		);
+		expect(svg).toContain(
+			'<tspan x="154.8" textLength="75.6" lengthAdjust="spacingAndGlyphs" fill="rgb(12,34,56)">truecolor</tspan>',
+		);
+		expect(svg).toContain(
+			'<tspan x="12" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#d8dee9" font-weight="700">界</tspan>',
+		);
+		expect(svg).toContain(
+			'<tspan x="28.8" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#d8dee9">│</tspan>',
+		);
+		expect(svg).not.toContain("\x1b");
 	});
 
 	test("writes only the selected shell-text snapshot format", async () => {
