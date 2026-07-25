@@ -9,6 +9,7 @@ export interface TodoSnapshot {
 
 export interface TodoToolDetails {
 	readonly snapshot: TodoSnapshot;
+	readonly focusTaskId?: number;
 }
 
 export function snapshotFromState(state: TaskState): TodoSnapshot {
