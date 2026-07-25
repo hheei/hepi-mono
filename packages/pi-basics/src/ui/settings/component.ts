@@ -273,6 +273,14 @@ export function createSettingsComponent(options: SettingsComponentOptions): Comp
 			});
 			return;
 		}
+		if (
+			showTabs &&
+			editor?.text === "" &&
+			(matchesKey(input, Key.left) || matchesKey(input, Key.right))
+		) {
+			switchMainTab();
+			return;
+		}
 		if (!editor) editor = createValueEditor(controller.state.draftValue ?? "");
 		let changed = true;
 		if (matchesKey(input, Key.left)) editor.move(-1);

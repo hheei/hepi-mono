@@ -210,7 +210,7 @@ describe("statusbar lifecycle", () => {
 		expect(h.requests).toBe(afterDispose);
 	});
 
-	test("renders the prompt cursor as a bar", () => {
+	test("keeps prompt text intact for the hardware cursor", () => {
 		const h = harness("a");
 		const previous = editorFactory("previous", []);
 		h.setEditor((...args) => {
@@ -228,9 +228,35 @@ describe("statusbar lifecycle", () => {
 		feature.start(runtime(h.pi, h.ctx));
 		const editor = h.editorFactory?.({} as never, {} as never, {} as never);
 		expect(editor!.render(80).slice(1)).toEqual([
-			`end${CURSOR_MARKER}│`,
-			`middle${CURSOR_MARKER}│text`,
+			`end${CURSOR_MARKER} `,
+			`middle${CURSOR_MARKER}字text`,
 		]);
+	});
+
+	test("writes the configured hardware cursor style", () => {
+		const h = harness("a");
+		h.setEditor(editorFactory("previous", []));
+		const writes: string[] = [];
+		const hardwareCursor: boolean[] = [];
+		let visible = false;
+		const feature = createStatusbarFeature(h.pi, () => ({ shape: "bar", blink: true }));
+		feature.start(runtime(h.pi, h.ctx));
+		const editor = h.editorFactory?.(
+			{
+				terminal: { write: (value: string) => writes.push(value) },
+				getShowHardwareCursor: () => visible,
+				setShowHardwareCursor: (value: boolean) => {
+					visible = value;
+					hardwareCursor.push(value);
+				},
+			} as never,
+			{} as never,
+			{} as never,
+		);
+		editor?.render(80);
+		feature.dispose("a");
+		expect(writes).toEqual(["\x1b[5 q", "\x1b[0 q"]);
+		expect(hardwareCursor).toEqual([true, false]);
 	});
 
 	test("stabilizes first-turn and post-compaction token transitions", () => {
