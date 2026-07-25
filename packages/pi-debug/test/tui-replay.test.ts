@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import {
@@ -36,9 +36,7 @@ describe("TUI replay", () => {
 		expect(result.last.lines).toEqual(["30x2", "> hello"]);
 		expect(formatReplay(result)).toContain("--- #2 resize 30x=");
 		expect(stripAnsi("\x1b[32mgreen\x1b[0m")).toBe("green");
-		const controls = createTextReplayFrame(
-			"\x07safe\x9b2J\x1b[31mred\x1b[0m\x9dtitle\x07end",
-		);
+		const controls = createTextReplayFrame("\x07safe\x9b2J\x1b[31mred\x1b[0m\x9dtitle\x07end");
 		const ansi = finalFrameAnsi(controls);
 		expect(ansi).toContain("safe\x1b[31mred\x1b[0mend");
 		expect(ansi).not.toContain("\x07");
@@ -55,9 +53,7 @@ describe("TUI replay", () => {
 			const frame = createTextReplayFrame("\x1b[32mgreen\x1b[0m\nlong line", {
 				columns: 6,
 			});
-			expect(createTextReplayFrame("界界x", { columns: 4 }).lines.map(stripAnsi)).toEqual([
-				"界界",
-			]);
+			expect(createTextReplayFrame("界界x", { columns: 4 }).lines.map(stripAnsi)).toEqual(["界界"]);
 			const ans = await writeReplaySnapshot(frame, { format: "ans", rootDir });
 			expect(basename(dirname(ans))).toBe("replay-0001");
 			expect(await readdir(dirname(ans))).toEqual(["final.ans"]);
@@ -76,10 +72,12 @@ describe("TUI replay", () => {
 		const cwd = join(root, "cwd\x1b]0;path-injection\x07");
 		await mkdir(cwd);
 		try {
-			const child = Bun.spawn(
-				[process.execPath, REPLAY_CLI, "--text", "ok", "--format", "ans"],
-				{ cwd, stdin: "ignore", stdout: "pipe", stderr: "pipe" },
-			);
+			const child = Bun.spawn([process.execPath, REPLAY_CLI, "--text", "ok", "--format", "ans"], {
+				cwd,
+				stdin: "ignore",
+				stdout: "pipe",
+				stderr: "pipe",
+			});
 			const [stdout, stderr, exitCode] = await Promise.all([
 				new Response(child.stdout).text(),
 				new Response(child.stderr).text(),
@@ -151,9 +149,7 @@ describe("TUI replay", () => {
 				],
 			};
 			const beforeFailure = (await readdir(rootDir)).sort();
-			await expect(writeReplayArtifacts(poisoned, { rootDir })).rejects.toThrow(
-				"metadata failed",
-			);
+			await expect(writeReplayArtifacts(poisoned, { rootDir })).rejects.toThrow("metadata failed");
 			expect((await readdir(rootDir)).sort()).toEqual(beforeFailure);
 			await expect(
 				writeReplayArtifacts(result, {

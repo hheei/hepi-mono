@@ -232,8 +232,7 @@ function sanitizeTerminal(value: string, preserveSgr: boolean): string {
 			continue;
 		}
 		if (code === 0x09 || code === 0x0a) output += value[index];
-		else if (code >= 0x20 && code !== 0x7f && (code < 0x80 || code > 0x9f))
-			output += value[index];
+		else if (code >= 0x20 && code !== 0x7f && (code < 0x80 || code > 0x9f)) output += value[index];
 		index++;
 	}
 	return output;
@@ -347,9 +346,7 @@ function actionLabel(action: ReplayAction): string {
 	}
 }
 
-export function createTuiReplaySession(
-	options: Omit<ReplayOptions, "actions">,
-): TuiReplaySession {
+export function createTuiReplaySession(options: Omit<ReplayOptions, "actions">): TuiReplaySession {
 	let columns = positiveInteger(options.columns ?? DEFAULT_REPLAY_COLUMNS, "columns");
 	let rows = positiveInteger(options.rows ?? DEFAULT_REPLAY_ROWS, "rows");
 	let renderRequests = 0;
@@ -400,8 +397,7 @@ export function createTuiReplaySession(
 					await component.handleInput?.(action.text);
 					break;
 				case "resize":
-					if (action.columns !== undefined)
-						columns = positiveInteger(action.columns, "columns");
+					if (action.columns !== undefined) columns = positiveInteger(action.columns, "columns");
 					if (action.rows !== undefined) rows = positiveInteger(action.rows, "rows");
 					break;
 				case "wait":
@@ -460,11 +456,7 @@ export function createTextReplayFrame(
 	text: string,
 	options: TextReplayFrameOptions = {},
 ): ReplayFrame {
-	const lines = text
-		.replaceAll("\r\n", "\n")
-		.replaceAll("\r", "\n")
-		.split("\n")
-		.map(staticAnsi);
+	const lines = text.replaceAll("\r\n", "\n").replaceAll("\r", "\n").split("\n").map(staticAnsi);
 	if (lines.length > 1 && lines.at(-1) === "") lines.pop();
 	const naturalColumns = Math.max(1, ...lines.map((line) => visibleWidth(line)));
 	const columns = positiveInteger(options.columns ?? naturalColumns, "columns");
@@ -775,8 +767,7 @@ export async function writeReplayArtifacts(
 		]);
 		const failed = writes.find((result) => result.status === "rejected");
 		if (failed?.status === "rejected") throw failed.reason;
-		const publish = async (): Promise<string> =>
-			await publishArtifactDirectory(rootDir, temporary);
+		const publish = async (): Promise<string> => await publishArtifactDirectory(rootDir, temporary);
 		const directory =
 			options.publish === undefined ? await publish() : await options.publish(publish);
 		return replayArtifacts(directory);
@@ -864,7 +855,8 @@ Every component replay writes a complete bundle under outputs/replay-<ID>/.`);
 	const rawRows = singleCliValue(values.rows, "--rows");
 	const rawModel = singleCliValue(values.model, "--model");
 	const rawThinking = singleCliValue(values.thinking, "--thinking");
-	if (command !== undefined && command.trim() === "") throw new Error("--command must not be blank");
+	if (command !== undefined && command.trim() === "")
+		throw new Error("--command must not be blank");
 	if (command !== undefined && textValues.length > 0)
 		throw new Error("--command and --text cannot be combined");
 	if ((command !== undefined || textValues.length > 0) && promptValues.length > 0)
@@ -894,10 +886,7 @@ Every component replay writes a complete bundle under outputs/replay-<ID>/.`);
 	if (rawFormat !== undefined) throw new Error("--format requires --command or --text");
 	if (promptValues.length === 0 && (rawModel !== undefined || rawThinking !== undefined))
 		throw new Error("--model and --thinking require --prompt");
-	const columns = positiveInteger(
-		Number(rawColumns ?? String(DEFAULT_REPLAY_COLUMNS)),
-		"columns",
-	);
+	const columns = positiveInteger(Number(rawColumns ?? String(DEFAULT_REPLAY_COLUMNS)), "columns");
 	const rows = positiveInteger(Number(rawRows ?? String(DEFAULT_REPLAY_ROWS)), "rows");
 	const model = rawModel ?? DEFAULT_REPLAY_MODEL;
 	const thinking = parseReplayThinking(rawThinking);
