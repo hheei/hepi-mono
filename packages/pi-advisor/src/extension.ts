@@ -21,8 +21,11 @@ export default function piAdvisorExtension(pi: ExtensionAPI): void {
 	registerAdvisorRenderer(pi);
 	const lifecycle = new HePiLifecycleController({
 		onStart: async (runtime) => {
-			const models = (runtime.ctx.modelRegistry.getAvailable?.() ?? []).filter((model) =>
-				runtime.ctx.modelRegistry.hasConfiguredAuth(model),
+			const configuredProviders = new Set(runtime.ctx.modelRegistry.getRegisteredProviderIds());
+			const models = (runtime.ctx.modelRegistry.getAvailable?.() ?? []).filter(
+				(model) =>
+					configuredProviders.has(model.provider) &&
+					runtime.ctx.modelRegistry.hasConfiguredAuth(model),
 			);
 			const provider =
 				settingsProvider ??
