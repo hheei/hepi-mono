@@ -135,6 +135,21 @@ describe("loadout renderer", () => {
 		expect(narrowLines.join("\n")).not.toContain("Description");
 	});
 
+	test("uses the shared split breakpoint", () => {
+		const all = [
+			{
+				...item("tool", "describe"),
+				configuredStatus: "active" as const,
+				effectiveStatus: "active" as const,
+				displayStatus: "active" as const,
+			},
+		];
+		const split = renderLoadout({ state: snapshot(all), theme, width: 75 }).join("\n");
+		const stacked = renderLoadout({ state: snapshot(all), theme, width: 74 }).join("\n");
+		expect(split).toContain("Description");
+		expect(stacked).not.toContain("Description");
+	});
+
 	test("renders error/footer and clamps every line", () => {
 		const all = [
 			{

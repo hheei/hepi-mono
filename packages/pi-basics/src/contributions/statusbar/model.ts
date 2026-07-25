@@ -1,4 +1,5 @@
 import { estimateTokens } from "@earendil-works/pi-coding-agent";
+import { hePiThinkingGlyph } from "../../api/model-selection.js";
 
 export interface StatusbarContextUsage {
 	readonly tokens?: number | null;
@@ -71,14 +72,7 @@ export function contextMeter(percent: unknown): string {
 	return glyph ?? METER_GLYPHS[0];
 }
 
-export function thinkingGlyph(level: unknown): string {
-	if (level === "off" || level === "minimal") return "○";
-	if (level === "low") return "◔";
-	if (level === "medium") return "◑";
-	if (level === "high") return "◕";
-	if (level === "xhigh" || level === "max") return "●";
-	return "?";
-}
+export const thinkingGlyph = hePiThinkingGlyph;
 
 export function normalizeStatuses(
 	statuses: ReadonlyMap<string, string> | Iterable<[string, string]> | undefined,

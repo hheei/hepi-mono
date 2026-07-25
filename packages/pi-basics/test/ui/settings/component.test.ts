@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { HePiSettingField, HePiSettingsProvider } from "../../../src/api/settings.js";
+import { createHePiModelSelectionField } from "../../../src/index.js";
 import { createSettingsComponent } from "../../../src/ui/settings/component.js";
 import { createSettingsController } from "../../../src/ui/settings/controller.js";
 import { fakeHost, fakeStorage, fakeTheme, stripAnsi, testContext } from "../../helpers.js";
@@ -97,6 +98,38 @@ function text(component: { render(width: number): string[] }, width = 48): strin
 }
 
 describe("settings component", () => {
+	test("separates model list and Description value formats", async () => {
+		const model = createHePiModelSelectionField({
+			id: "model",
+			label: "Advisor model",
+			description: "Select the model used by this settings rendering fixture.",
+			modelOptions: [{ value: "cx/gpt-5.6-luna", label: "cx/gpt-5.6-luna" }],
+			thinking: {
+				fieldId: "thinking",
+				label: "Thinking",
+				description: "Select the reasoning intensity used by this settings rendering fixture.",
+				defaultValue: "medium",
+				options: [
+					{ value: "low", label: "low" },
+					{ value: "medium", label: "medium" },
+				],
+			},
+		});
+		const state = await setup([
+			{
+				id: "model-provider",
+				title: "Model Provider",
+				groups: [{ id: "models", title: "", fields: [model] }],
+				storage: fakeStorage({
+					initial: { models: { model: "cx/gpt-5.6-luna", thinking: "low" } },
+				}),
+			},
+		]);
+		const screen = text(state.component, 100);
+		expect(screen).toContain("◔ cx/gpt-5.6-luna");
+		expect(screen).toContain("Value: cx/gpt-5.6-luna low");
+	});
+
 	test("renders plugin titles with the plugin glyph and indents child settings", async () => {
 		const state = await setup();
 		const lines = state.component.render(100).map(stripAnsi);
@@ -405,7 +438,16 @@ describe("settings component", () => {
 		};
 		const { component, controller } = await setup([combined], 50);
 		component.render(100);
-		for (let index = 0; index < 29; index++) {
+		for (let index = 0; index < 6; index++) {
+			component.handleInput?.("\x1b[B");
+			component.render(100);
+		}
+		expect(controller.state.selection).toMatchObject({
+			itemId: "enabled-6",
+			groupId: "group-6",
+		});
+		expect(controller.state.scrollTop).toBe(7);
+		for (let index = 6; index < 29; index++) {
 			component.handleInput?.("\x1b[B");
 			component.render(100);
 		}
@@ -415,7 +457,7 @@ describe("settings component", () => {
 			itemId: "enabled-14",
 			groupId: "group-14",
 		});
-		expect(controller.state.scrollTop).toBe(17);
+		expect(controller.state.scrollTop).toBe(18);
 	});
 
 	test("renders and routes input to panels-only provider", async () => {
