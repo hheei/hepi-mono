@@ -325,6 +325,7 @@ describe("Advisor feature lifecycle", () => {
 		h.advance(15_000);
 		await waitFor(() => h.adapter.reviewPrompts.length === 2, "late terminal review");
 		await waitFor(() => h.feature.status().backlog === 0, "late terminal review to settle");
+		h.adapter.nextAdvice = [{ severity: "blocker", note: "late blocker" }];
 		h.advance(40_000);
 		await waitFor(() => h.deliveries.length === 1, "terminal blocker delivery");
 	});
@@ -469,29 +470,75 @@ describe("Advisor feature lifecycle", () => {
 		expect(h.deliveries[0]?.options).toEqual({ deliverAs: "steer", triggerTurn: true });
 	});
 
+	test("retains failed review evidence for a later retry", async () => {
+		const h = fixture(true);
+		h.adapter.nextAdvice = [];
+		h.adapter.reviewFailures = 1;
+		await h.feature.start(h.runtime);
+		await emit(h, "turn_end", {
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "changed auth" }],
+			},
+			toolResults: [
+				{
+					toolName: "edit",
+					toolCallId: "edit-1",
+					isError: false,
+					content: [{ type: "text", text: "done" }],
+					details: { diff: "AUTH_DIFF" },
+				},
+			],
+		});
+		await waitFor(() => h.feature.status().backlog === 0, "failed review");
+		h.advance(15_000);
+		await waitFor(() => h.adapter.reviewPrompts.length === 2, "retry review");
+		expect(h.adapter.reviewPrompts[1]).toContain("AUTH_DIFF");
+	});
+
+	test("discards stale reconfirmation after newer primary evidence", async () => {
+		const h = fixture(true);
+		h.adapter.nextAdvice = [{ severity: "blocker", note: "old blocker" }];
+		await h.feature.start(h.runtime);
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "first" }] },
+		});
+		await waitFor(() => h.feature.status().backlog === 0, "initial review");
+		h.advance(40_000);
+		h.adapter.deferNextReview();
+		await emit(h, "agent_settled");
+		await waitFor(() => h.adapter.reviewPrompts.length === 2, "reconfirmation");
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "fixed" }] },
+		});
+		h.adapter.resolveReview([{ severity: "blocker", note: "old blocker" }]);
+		await waitFor(() => h.feature.status().backlog === 0, "stale reconfirmation");
+		expect(h.deliveries).toHaveLength(0);
+	});
+
 	test("publishes the latest review severity for the header indicator", async () => {
 		const h = fixture(true);
 		await h.feature.start(h.runtime);
 		expect(h.statuses.get("advisor")).toBe("ok");
-		const review = async (advice: readonly AdvisorAdvice[]): Promise<void> => {
+		const review = async (advice: readonly AdvisorAdvice[], text: string): Promise<void> => {
 			h.adapter.nextAdvice = advice;
 			await emit(h, "turn_end", {
-				message: { role: "assistant", content: [{ type: "text", text: "done" }] },
+				message: { role: "assistant", content: [{ type: "text", text }] },
 			});
 			await waitFor(() => h.feature.status().backlog === 0, "review to complete");
 		};
 
-		await review([{ severity: "concern", note: "check this" }]);
+		await review([{ severity: "concern", note: "check this" }], "concern");
 		expect(h.statuses.get("advisor")).toBe("concern");
 		expect(h.messages.some((message) => message.content === "[concern] check this")).toBe(true);
 		h.advance(25_000);
-		await review([{ severity: "blocker", note: "stop this" }]);
+		await review([{ severity: "blocker", note: "stop this" }], "blocker");
 		expect(h.statuses.get("advisor")).toBe("blocker");
 		expect(h.messages.some((message) => message.content === "[blocker] stop this")).toBe(true);
 		h.advance(40_000);
-		await review([]);
+		await review([], "clear");
 		expect(h.statuses.get("advisor")).toBe("ok");
-		await review([{ severity: "nit", note: "minor" }]);
+		await review([{ severity: "nit", note: "minor" }], "nit");
 		expect(h.statuses.get("advisor")).toBe("ok");
 	});
 
@@ -872,7 +919,9 @@ describe("Advisor feature lifecycle", () => {
 			},
 		});
 		await waitFor(() => h.adapter.reviewPrompts.length === 3, "correction review to start");
-		expect(h.adapter.reviewPrompts[2]).toContain("USER:\n[blocker] division uses addition");
+		expect(h.adapter.reviewPrompts[2]).toContain(
+			"USER:\nAdvisor feedback: verify against the current state before acting.\n[blocker] division uses addition",
+		);
 		expect(h.adapter.reviewPrompts[2]).toContain("ASSISTANT:\nUse a / b");
 	});
 
