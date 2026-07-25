@@ -128,15 +128,29 @@ function activeTodoTask(state: TaskState): Task | undefined {
 	return state.tasks.find((task) => task.status === "in_progress");
 }
 
+function escapeReminderText(value: string): string {
+	return value
+		.replaceAll("&", "&amp;")
+		.replaceAll("<", "&lt;")
+		.replaceAll(">", "&gt;")
+		.replaceAll('"', "&quot;")
+		.replaceAll("'", "&apos;");
+}
+
 function todoReminder(current: ActiveTodoRuntime): string | undefined {
 	const activeTask = activeTodoTask(current.state);
 	if (!activeTask) return undefined;
 	const pending = current.state.tasks
 		.filter((task) => task.status === "pending")
-		.sort((left, right) => left.id - right.id)
-		.map((task) => `#${task.id}`);
-	const lines = ["<system-reminder>", `Active TODO: #${activeTask.id}`];
-	if (pending.length > 0) lines.push(`Pending TODOs: ${pending.join(" ")}`);
+		.sort((left, right) => left.id - right.id);
+	const lines = [
+		"<system-reminder>",
+		`Active TODO: #${activeTask.id} ${escapeReminderText(activeTask.subject)}`,
+	];
+	if (pending.length > 0) {
+		lines.push("Pending TODOs:");
+		for (const task of pending) lines.push(`#${task.id} ${escapeReminderText(task.subject)}`);
+	}
 	lines.push("</system-reminder>");
 	return lines.join("\n");
 }
@@ -248,7 +262,21 @@ function formatTodoResult(
 	return lines.join("\n");
 }
 
-function renderTodoCall(value: unknown, theme: Theme): Text {
+function renderedTaskStatus(value: unknown): string | undefined {
+	return value === "pending" ||
+		value === "in_progress" ||
+		value === "blocked" ||
+		value === "completed" ||
+		value === "suppressed"
+		? value.replaceAll("_", " ")
+		: undefined;
+}
+
+function renderTodoCall(
+	value: unknown,
+	theme: Theme,
+	actualIds: readonly number[] | undefined,
+): Text {
 	const title = theme.fg("toolTitle", theme.bold("todo"));
 	if (!value || typeof value !== "object") return new Text(title, 0, 0);
 	const operations = (value as { readonly operations?: unknown }).operations;
@@ -260,22 +288,18 @@ function renderTodoCall(value: unknown, theme: Theme): Text {
 	const list = records[0];
 	let summary: string;
 	if (records.length === 1 && list?.action === "list") {
-		summary = `☰${typeof list.status === "string" ? ` ${list.status.replaceAll("_", " ")}` : ""}`;
+		const status = renderedTaskStatus(list.status);
+		summary = `☰${status === undefined ? "" : ` ${status}`}`;
 	} else {
-		const parts: string[] = [];
-		const creates = records.filter((operation) => operation.action === "create");
-		const updates = records.filter((operation) => operation.action === "update");
-		const deletes = records.filter((operation) => operation.action === "delete");
-		if (creates.length > 0) parts.push(`+${creates.length}`);
-		if (updates.length === 1) {
-			const id = updates[0]?.id;
-			parts.push(typeof id === "number" || typeof id === "string" ? `→ #${id}` : "→");
-		} else if (updates.length > 1) parts.push(`→${updates.length}`);
-		if (deletes.length === 1) {
-			const id = deletes[0]?.id;
-			parts.push(typeof id === "number" || typeof id === "string" ? `× #${id}` : "×");
-		} else if (deletes.length > 1) parts.push(`×${deletes.length}`);
-		summary = parts.join(" ");
+		const ids =
+			actualIds ??
+			records.flatMap((operation) => {
+				if (operation.action !== "update" && operation.action !== "delete") return [];
+				const id = canonicalPositiveInteger(operation.id);
+				return id === undefined ? [] : [id];
+			});
+		const hasCreate = records.some((operation) => operation.action === "create");
+		summary = ids.length > 0 ? `→ ${ids.map((id) => `#${id}`).join(" ")}` : hasCreate ? "→" : "";
 	}
 	return new Text(summary === "" ? title : `${title} ${theme.fg("muted", summary)}`, 0, 0);
 }
@@ -292,7 +316,16 @@ function renderTodoResult(
 	const state = validateTaskState(snapshot);
 	if (!state) return new Text(theme.fg("success", "✓"), 0, 0);
 	const active = activeTodoTask(state);
-	if (active) return new Text(theme.fg("warning", `◐ #${active.id}`), 0, 0);
+	if (active) return new Text(theme.fg("warning", `◐ #${active.id} ${active.subject}`), 0, 0);
+	const focusTaskId = (details as { readonly focusTaskId?: unknown }).focusTaskId;
+	const focusTask =
+		typeof focusTaskId === "number" && Number.isSafeInteger(focusTaskId)
+			? state.tasks.find((task) => task.id === focusTaskId)
+			: undefined;
+	if (focusTask?.status === "completed")
+		return new Text(theme.fg("success", `✓ #${focusTask.id} ${focusTask.subject}`), 0, 0);
+	if (focusTask?.status === "blocked")
+		return new Text(theme.fg("warning", `⊘ #${focusTask.id} ${focusTask.subject}`), 0, 0);
 	const blocked = state.tasks.filter((task) => task.status === "blocked").length;
 	if (blocked > 0) return new Text(theme.fg("warning", `⊘ ${blocked} blocked`), 0, 0);
 	return new Text(theme.fg("success", "✓ complete"), 0, 0);
@@ -304,6 +337,7 @@ function isStaleSessionContextError(error: unknown): boolean {
 
 export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions = {}): TodoFeature {
 	let active: ActiveTodoRuntime | undefined;
+	const renderedIdsByCall = new Map<string, readonly number[]>();
 	const now = options.now ?? (() => performance.now());
 
 	const refreshFromBranch = (kind: "compact" | "tree", ctx: ExtensionContext): void => {
@@ -334,8 +368,8 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 		parameters: TODO_PARAMETERS,
 		prepareArguments: prepareTodoArguments,
 		executionMode: "sequential",
-		renderCall(args, theme) {
-			return renderTodoCall(args, theme);
+		renderCall(args, theme, context) {
+			return renderTodoCall(args, theme, renderedIdsByCall.get(context.toolCallId));
 		},
 		renderResult(result, _options, theme, context) {
 			return renderTodoResult(result, theme, context.isError);
@@ -357,9 +391,27 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 				current.reminderWindowStartedAtMs = now();
 				current.todoChangedThisTurn = true;
 			}
+			const renderedIds = result.operations.flatMap((operation) =>
+				operation.id === undefined ? [] : [operation.id],
+			);
+			if (renderedIds.length > 0) renderedIdsByCall.set(_toolCallId, renderedIds);
+			const changedTaskIds = [
+				...new Set(
+					result.operations.flatMap((operation) =>
+						operation.changed &&
+						operation.id !== undefined &&
+						result.state.tasks.some((task) => task.id === operation.id)
+							? [operation.id]
+							: [],
+					),
+				),
+			];
 			return {
 				content: [{ type: "text", text: formatTodoResult(todoParams, result) }],
-				details: { snapshot: snapshotFromState(current.state) },
+				details: {
+					snapshot: snapshotFromState(current.state),
+					...(changedTaskIds.length === 1 ? { focusTaskId: changedTaskIds[0] } : {}),
+				},
 			};
 		},
 	});
@@ -487,6 +539,7 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 
 	return {
 		start(runtime) {
+			renderedIdsByCall.clear();
 			const state = latestTodoSnapshot(runtime.ctx.sessionManager.getBranch()) ?? freshTaskState();
 			const current: ActiveTodoRuntime = {
 				sessionId: runtime.ctx.sessionManager.getSessionId(),
@@ -505,6 +558,7 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 			try {
 				await current.widget?.dispose();
 			} finally {
+				renderedIdsByCall.clear();
 				if (active === current) active = undefined;
 			}
 		},

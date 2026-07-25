@@ -337,7 +337,7 @@ The setting name should remain easier to scan than its description. Avoid a diff
 
 ### Editor
 
-The editor text remains `{colors.text}`. Its border communicates mode:
+The editor text remains `{colors.text}`. Cursor rendering uses Pi's hardware cursor marker so the cursor sits on the terminal cell boundary without replacing the underlying character. Pi Basics exposes `bar`, `block`, `hollow`, and `underline` shapes plus a blink toggle; the default is a steady block. Shape support follows the active terminal's DECSCUSR implementation, with unsupported hollow cursors falling back to the matching block style. Its border communicates mode:
 
 - `thinking-off` through `thinking-max` indicate reasoning level;
 - `{colors.bash-mode}` indicates shell mode;

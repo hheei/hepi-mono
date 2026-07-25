@@ -27,6 +27,10 @@ import piBasicsExtension, {
 } from "../../src/index.js";
 import type { SettingsModule } from "../../src/ui/settings/index.js";
 
+async function waitFor(predicate: () => boolean): Promise<void> {
+	for (let attempt = 0; attempt < 100 && !predicate(); attempt++) await Bun.sleep(1);
+}
+
 function provider(
 	id: string,
 	closed: () => void,
@@ -308,7 +312,7 @@ test("opens Settings with providers registered through public API and closes sto
 		getHePiRuntimeSettingsRegistry(host.pi),
 	);
 	const opening = host.commands.find(({ name }) => name === "ext-settings")!.handler("", host.ctx);
-	await Bun.sleep(0);
+	await waitFor(() => host.rendered.length > 0);
 	expect(host.customCalls).toBe(1);
 	expect(host.rendered.length).toBeGreaterThan(0);
 	host.inputCustom("\x1b");
@@ -371,9 +375,9 @@ test("shutdown waits for an active Loadout close", async () => {
 	);
 	await host.emit("session_start");
 	const opening = host.commands.find(({ name }) => name === "ext-settings")!.handler("", host.ctx);
-	await Bun.sleep(0);
+	await waitFor(() => host.rendered.length > 0);
 	host.inputCustom("\x1b");
-	await Bun.sleep(0);
+	await waitFor(() => loadoutCloseStarted);
 	expect(loadoutCloseStarted).toBe(true);
 	let shutdownSettled = false;
 	const shutdown = host.emit("session_shutdown").finally(() => {

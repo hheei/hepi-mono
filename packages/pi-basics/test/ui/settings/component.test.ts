@@ -58,7 +58,11 @@ function provider(id = "first", title = "First Provider"): HePiSettingsProvider 
 	};
 }
 
-async function setup(providers: readonly HePiSettingsProvider[] = [provider()], height?: number) {
+async function setup(
+	providers: readonly HePiSettingsProvider[] = [provider()],
+	height?: number,
+	showTabs = true,
+) {
 	const controller = createSettingsController({ providers, context: testContext() });
 	await controller.load();
 	const host = fakeHost();
@@ -68,6 +72,7 @@ async function setup(providers: readonly HePiSettingsProvider[] = [provider()], 
 		host,
 		theme,
 		...(height === undefined ? {} : { height }),
+		showTabs,
 		close: () => {
 			closes++;
 		},
@@ -276,6 +281,45 @@ describe("settings component", () => {
 				.split("\n")
 				.some((line) => line.trim() === "_"),
 		).toBe(false);
+	});
+
+	test("switches main tabs with arrows while editing an empty text value", async () => {
+		const emptyField: HePiSettingField = {
+			id: "empty",
+			label: "Empty",
+			type: "text",
+			defaultValue: "",
+			description: "Edit an empty fixture value before switching between main tabs.",
+			parse: (draft) => draft,
+		};
+		const state = await setup([
+			{
+				...provider(),
+				groups: [{ id: "general", title: "General", fields: [emptyField] }],
+			},
+		]);
+		state.component.handleInput?.(" ");
+		expect(state.controller.state.mode).toBe("Edit");
+		state.component.handleInput?.("\x1b[C");
+		expect(text(state.component)).toContain("Loadout shared tab is available.");
+		state.component.handleInput?.("\x1b[D");
+		expect(text(state.component)).toContain("Empty");
+
+		const singlePage = await setup(
+			[
+				{
+					...provider(),
+					groups: [{ id: "general", title: "General", fields: [emptyField] }],
+				},
+			],
+			undefined,
+			false,
+		);
+		singlePage.component.handleInput?.(" ");
+		singlePage.component.handleInput?.("\x1b[C");
+		expect(singlePage.controller.state.mode).toBe("Edit");
+		expect(text(singlePage.component)).toContain("Empty");
+		expect(text(singlePage.component)).not.toContain("Loadout shared tab is available.");
 	});
 
 	test("retains committed value, draft, selection, and visible parse error", async () => {
