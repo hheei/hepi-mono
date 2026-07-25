@@ -13,6 +13,7 @@ import {
 	type AdvisorPhase,
 	type AdvisorStatus,
 	DEFAULT_ADVISOR_USAGE,
+	severityRank,
 } from "./model.js";
 import { appendAdvisorBoundary, restoreAdvisor } from "./persistence.js";
 import {
@@ -20,6 +21,17 @@ import {
 	type AdvisorAgentAdapter,
 	createCoreAdvisorAdapter,
 } from "./runtime.js";
+
+const REVIEW_INTERVAL_MS = 20_000;
+const CONCERN_COOLDOWN_MS = 25_000;
+const BLOCKER_COOLDOWN_MS = 40_000;
+
+interface AdvisorThrottleOptions {
+	readonly now?: () => number;
+	readonly setTimeout?: (callback: () => void, delay: number) => unknown;
+	readonly clearTimeout?: (timer: unknown) => void;
+}
+
 export interface AdvisorFeature {
 	start(
 		runtime: HePiRuntimeContext,
@@ -44,6 +56,10 @@ interface Active {
 	terminalPending: boolean;
 	pendingAdvisoryPrompt: string;
 	primaryAborted: boolean;
+	lastReviewAt?: number | undefined;
+	reviewCooldownUntil: number;
+	reviewCooldownTimer?: unknown;
+	notifiedHigh: Map<string, AdvisorAdvice["severity"]>;
 	lastError?: string;
 	model: string | undefined;
 	thinking: import("./model.js").ThinkingLevel;
@@ -70,7 +86,14 @@ function isAbortedAssistantMessage(message: unknown): boolean {
 
 export function createAdvisorFeature(
 	createAdapter: AdvisorAdapterFactory = createCoreAdvisorAdapter,
+	throttleOptions: AdvisorThrottleOptions = {},
 ): AdvisorFeature {
+	const now = throttleOptions.now ?? Date.now;
+	const setTimeout =
+		throttleOptions.setTimeout ??
+		((callback: () => void, delay: number) => globalThis.setTimeout(callback, delay));
+	const clearTimeout =
+		throttleOptions.clearTimeout ?? ((timer: unknown) => globalThis.clearTimeout(timer as never));
 	let active: Active | undefined;
 	let queue: Promise<void> = Promise.resolve();
 	const current = (ctx: { sessionManager: { getSessionId(): string } }): Active | undefined =>
@@ -102,6 +125,36 @@ export function createAdvisorFeature(
 			...(item?.lastError === undefined ? {} : { lastError: item.lastError }),
 		};
 	};
+	const adviceKey = (note: AdvisorAdvice): string =>
+		note.note.toLowerCase().replace(/\s+/g, " ").trim();
+	const cooldownFor = (notes: readonly AdvisorAdvice[]): number =>
+		notes.some((note) => note.severity === "blocker")
+			? BLOCKER_COOLDOWN_MS
+			: notes.some((note) => note.severity === "concern")
+				? CONCERN_COOLDOWN_MS
+				: REVIEW_INTERVAL_MS;
+	const reviewAllowedAt = (item: Active): number =>
+		item.lastReviewAt === undefined
+			? item.reviewCooldownUntil
+			: Math.max(item.reviewCooldownUntil, item.lastReviewAt + REVIEW_INTERVAL_MS);
+	const clearReviewTimer = (item: Active): void => {
+		if (item.reviewCooldownTimer !== undefined) clearTimeout(item.reviewCooldownTimer);
+		item.reviewCooldownTimer = undefined;
+	};
+	const notifyHighValue = (item: Active, notes: readonly AdvisorAdvice[]): void => {
+		for (const note of notes) {
+			if (note.severity === "nit") continue;
+			const key = adviceKey(note);
+			const previous = item.notifiedHigh.get(key);
+			if (previous !== undefined && severityRank(previous) >= severityRank(note.severity)) continue;
+			item.notifiedHigh.set(key, note.severity);
+			item.runtime.ctx.ui.notify(
+				`[${note.severity}] ${note.note}`,
+				note.severity === "blocker" ? "error" : "warning",
+			);
+		}
+	};
+
 	const deliver = (item: Active, notes: readonly AdvisorAdvice[], triggerTurn: boolean): void => {
 		const content = notes.map((note) => `[${note.severity}] ${note.note}`).join("\n");
 		if (triggerTurn) item.pendingAdvisoryPrompt = content;
@@ -128,15 +181,28 @@ export function createAdvisorFeature(
 			item.terminalPending = false;
 			return;
 		}
+		const wait = reviewAllowedAt(item) - now();
+		if (wait > 0) {
+			if (item.reviewCooldownTimer === undefined) {
+				item.reviewCooldownTimer = setTimeout(() => {
+					item.reviewCooldownTimer = undefined;
+					scheduleReconfirm(item);
+				}, wait);
+			}
+			return;
+		}
 		item.reconfirming = true;
 		const epoch = item.epoch;
 		void enqueue(async () => {
 			try {
 				if (!isCurrent(item, epoch) || !item.enabled) return;
+				item.lastReviewAt = now();
 				const raised = await item.adapter.review(
 					`Reconfirm only these unresolved Advisor notes. Re-raise a note with advise only if it still applies; otherwise stay silent.\n${item.feedback.held.map((note) => `[${note.severity}] ${note.note}`).join("\n")}`,
 				);
 				if (!isCurrent(item, epoch) || !item.enabled) return;
+				notifyHighValue(item, raised);
+				item.reviewCooldownUntil = Math.max(item.reviewCooldownUntil, now() + cooldownFor(raised));
 				publishIndicator(item, raised);
 				delete item.lastError;
 				item.feedback = reconfirmFeedback(item.feedback, raised);
@@ -160,6 +226,11 @@ export function createAdvisorFeature(
 			}
 		});
 	};
+	const requestReview = (item: Active, prompt: string): void => {
+		if (!isCurrent(item) || !item.enabled || item.backlog > 0) return;
+		if (reviewAllowedAt(item) > now()) return;
+		review(item, prompt);
+	};
 	const review = (item: Active, prompt: string): void => {
 		const epoch = item.epoch;
 		item.backlog++;
@@ -167,8 +238,11 @@ export function createAdvisorFeature(
 		void enqueue(async () => {
 			try {
 				if (!isCurrent(item, epoch) || !item.enabled) return;
+				item.lastReviewAt = now();
 				const advice = await item.adapter.review(prompt);
 				if (!isCurrent(item, epoch) || !item.enabled) return;
+				notifyHighValue(item, advice);
+				item.reviewCooldownUntil = Math.max(item.reviewCooldownUntil, now() + cooldownFor(advice));
 				publishIndicator(item, advice);
 				delete item.lastError;
 				item.feedback = collectFeedback(item.feedback, advice);
@@ -200,6 +274,10 @@ export function createAdvisorFeature(
 		item.terminalPending = false;
 		item.pendingAdvisoryPrompt = "";
 		item.backlog = 0;
+		clearReviewTimer(item);
+		item.lastReviewAt = undefined;
+		item.reviewCooldownUntil = 0;
+		item.notifiedHigh.clear();
 		item.phase = item.enabled ? "idle" : "disabled";
 		item.runtime.ctx.ui.setStatus("advisor", undefined);
 		if (!item.enabled) return Promise.resolve();
@@ -235,6 +313,10 @@ export function createAdvisorFeature(
 					item.enabled = false;
 					item.phase = "disabled";
 					item.adapterActive = false;
+					clearReviewTimer(item);
+					item.lastReviewAt = undefined;
+					item.reviewCooldownUntil = 0;
+					item.notifiedHigh.clear();
 					item.runtime.ctx.ui.setStatus("advisor", undefined);
 				} else if (item.enabled) {
 					publishIndicator(item, []);
@@ -270,6 +352,8 @@ export function createAdvisorFeature(
 				terminalPending: false,
 				pendingAdvisoryPrompt: "",
 				primaryAborted: false,
+				reviewCooldownUntil: 0,
+				notifiedHigh: new Map(),
 				model: config?.model,
 				thinking: config?.thinking ?? "medium",
 			};
@@ -303,7 +387,7 @@ export function createAdvisorFeature(
 				item.pendingAdvisoryPrompt = "";
 				try {
 					if (evidence.assistant !== undefined || evidence.tools.length > 0)
-						review(
+						requestReview(
 							item,
 							buildSessionContext(
 								buildTurnDelta(
@@ -343,6 +427,10 @@ export function createAdvisorFeature(
 				item.terminalPending = false;
 				item.pendingAdvisoryPrompt = "";
 				item.backlog = 0;
+				clearReviewTimer(item);
+				item.lastReviewAt = undefined;
+				item.reviewCooldownUntil = 0;
+				item.notifiedHigh.clear();
 				return enqueue(async () => {
 					if (!isCurrent(item, epoch)) return;
 					try {
@@ -408,6 +496,10 @@ export function createAdvisorFeature(
 			item.pendingAdvisoryPrompt = "";
 			item.backlog = 0;
 			item.adapterActive = false;
+			clearReviewTimer(item);
+			item.lastReviewAt = undefined;
+			item.reviewCooldownUntil = 0;
+			item.notifiedHigh.clear();
 			item.runtime.ctx.ui.setStatus("advisor", undefined);
 			try {
 				await item.adapter.abort();
@@ -482,6 +574,10 @@ export function createAdvisorFeature(
 					item.terminalPending = false;
 					item.pendingAdvisoryPrompt = "";
 					item.backlog = 0;
+					clearReviewTimer(item);
+					item.lastReviewAt = undefined;
+					item.reviewCooldownUntil = 0;
+					item.notifiedHigh.clear();
 					const cleanup = enqueue(async () => {
 						try {
 							await item.adapter.abort();
