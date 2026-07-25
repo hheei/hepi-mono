@@ -23,6 +23,45 @@ describe("statusbar renderer", () => {
 		expect(visibleWidth(line)).toBe(100);
 		expect(line).not.toContain("\n");
 	});
+	test("renders Advisor health after the model and keeps it on narrow rows", () => {
+		const calls: Array<{ role: string; text: string }> = [];
+		const recordingTheme = {
+			fg(role: string, text: string) {
+				calls.push({ role, text });
+				return text;
+			},
+		} as never;
+		for (const [advisorIndicator, role] of [
+			["ok", "accent"],
+			["concern", "warning"],
+			["blocker", "error"],
+		] as const) {
+			calls.length = 0;
+			const current = buildStatusbarSnapshot({
+				model: { name: "GPT-5.6 Sol" },
+				thinkingLevel: "medium",
+				usage: { tokens: 82_200, percent: 22, contextWindow: 372_000 },
+				advisorIndicator,
+			});
+			expect(renderStatusbarLine(80, current, recordingTheme)).toContain(
+				"◑ GPT-5.6 Sol ✦ · ⣀⣀ 82.2k/372k",
+			);
+			expect(calls.find((call) => call.text === "✦")?.role).toBe(role);
+			expect(renderStatusbarLine(20, current, recordingTheme)).toContain("✦");
+		}
+		const longModel = buildStatusbarSnapshot({
+			model: { name: "A model name too long for the narrow rail" },
+			thinkingLevel: "medium",
+			usage: { tokens: 82_200, percent: 22, contextWindow: 372_000 },
+			advisorIndicator: "ok",
+		});
+		for (const width of [1, 2, 3, 8, 20]) {
+			const line = renderStatusbarLine(width, longModel, recordingTheme);
+			expect(line).toContain("✦");
+			expect(visibleWidth(line)).toBe(width);
+		}
+	});
+
 	test("degrades narrow rows to one cell-safe line", () => {
 		for (const width of [1, 2, 3, 8, 20]) {
 			const line = renderStatusbarLine(width, snapshot, theme);

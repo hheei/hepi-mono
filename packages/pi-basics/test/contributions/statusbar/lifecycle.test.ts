@@ -172,7 +172,7 @@ describe("statusbar lifecycle", () => {
 		expect(lines).toHaveLength(4);
 		expect(lines[0]).not.toBe("previous-top");
 		expect(lines.slice(1)).toEqual(["PROMPT HERE", "previous-bottom", "previous-autocomplete"]);
-		expect(h.statusReads).toBe(0);
+		expect(h.statusReads).toBe(1);
 		editor!.handleInput("x");
 		expect(editor!.getText()).toBe("previous-text");
 		expect(calls).toEqual(["previous:input:x"]);
@@ -185,6 +185,7 @@ describe("statusbar lifecycle", () => {
 		h.statusMap.set("retry", "receiving");
 		h.statusMap.set("plan", "plan");
 		h.statusMap.set("goal", "Goal");
+		h.statusMap.set("advisor", "concern");
 		h.setEditor(editorFactory("previous", []));
 		const feature = createStatusbarFeature(h.pi);
 		feature.start(runtime(h.pi, h.ctx));
@@ -195,12 +196,14 @@ describe("statusbar lifecycle", () => {
 		expect(header).not.toContain("MCP:");
 		expect(header).not.toContain("mc:");
 		expect(header).not.toContain("receiving");
+		expect(header).toContain("Model ✦ ·");
 		expect(editorLines[2]).toBe("previous-bottom");
 		const footerLines = footer.render(100);
 		expect(footerLines).toHaveLength(1);
 		expect(footerLines[0]).toContain("⠋ · ⛁ 0/3 · PLAN · GOAL");
 		expect(footerLines[0]).not.toContain("mc:");
-		expect(h.statusReads).toBe(1);
+		expect(footerLines[0]).not.toContain("concern");
+		expect(h.statusReads).toBe(2);
 		const beforeAnimation = h.requests;
 		await Bun.sleep(120);
 		expect(h.requests).toBeGreaterThan(beforeAnimation);
