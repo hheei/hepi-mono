@@ -165,6 +165,12 @@ export function createStatusbarFeature(
 				}
 				const originalRender = editor.render.bind(editor);
 				(editor as Editor & { render: (width: number) => string[] }).render = (width: number) => {
+					if (
+						typeof tui.getShowHardwareCursor === "function" &&
+						typeof tui.setShowHardwareCursor === "function" &&
+						!tui.getShowHardwareCursor()
+					)
+						tui.setShowHardwareCursor(true);
 					const lines = renderTerminalCursor(originalRender(width));
 					if (tui.terminal?.write) tui.terminal.write(cursorEscape(getCursorOptions()));
 					if (!lines.length || !next || owner !== next) return lines;
