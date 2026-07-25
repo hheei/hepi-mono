@@ -23,7 +23,7 @@ describe("dollar skill settings", () => {
 
 	test("round-trips its section without overwriting sibling settings", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-basics-dollar-"));
-		const settingsPath = join(cwd, ".pi", "settings.json");
+		const settingsPath = join(cwd, "settings.json");
 		await Bun.write(
 			settingsPath,
 			JSON.stringify({ "pi-basics": { rtk: { mode: "suggest" } }, external: true }),
@@ -46,12 +46,12 @@ describe("dollar skill settings", () => {
 			saveDollarSkillConfig(cwd, { enabled: true, maxSuggestions: 3 }),
 			saveDollarSkillConfig(cwd, { enabled: false, maxSuggestions: 7 }),
 		]);
-		expect(await readdir(join(cwd, ".pi"))).toEqual(["settings.json"]);
+		expect(await readdir(cwd)).toEqual(["settings.json"]);
 	});
 
 	test("provider validates limits and updates feature state on load", async () => {
 		const feature = createDollarSkillFeature({} as never);
-		const provider = createDollarSkillSettingsProvider(feature);
+		const provider = createDollarSkillSettingsProvider(feature, { settingsDirectory: cwd });
 		const group = provider.groups[0];
 		const limit = group?.fields.find((field) => field.id === "maxSuggestions");
 		expect(limit?.validate?.(0)).toContain("1 to 50");

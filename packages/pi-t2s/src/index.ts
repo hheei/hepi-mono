@@ -2,6 +2,7 @@ export { default } from "./extension.js";
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	type HePiContext,
@@ -119,13 +120,17 @@ async function loadSettings(path: string): Promise<JsonObject> {
 	}
 }
 
-function settingsPath(ctx: HePiContext): string {
-	return join(ctx.cwd ?? process.cwd(), ".pi", "settings.json");
+function settingsPath(settingsDirectory = getAgentDir()): string {
+	return join(settingsDirectory, "settings.json");
 }
 
 export function createTraditionalToSimplifiedSettingsProvider(
-	options: { readonly onPersisted?: (enabled: boolean) => void } = {},
+	options: {
+		readonly onPersisted?: (enabled: boolean) => void;
+		readonly settingsDirectory?: string;
+	} = {},
 ): HePiSettingsProvider {
+	const settingsDirectory = options.settingsDirectory ?? getAgentDir();
 	return {
 		id: "pi-t2s",
 		title: "Traditional to simplified",
@@ -152,7 +157,7 @@ export function createTraditionalToSimplifiedSettingsProvider(
 		],
 		storage: {
 			async load(ctx: HePiContext) {
-				const root = await loadSettings(settingsPath(ctx));
+				const root = await loadSettings(settingsPath(settingsDirectory));
 				const section = root[SETTINGS_SECTION];
 				if (
 					section !== undefined &&
@@ -171,7 +176,7 @@ export function createTraditionalToSimplifiedSettingsProvider(
 				};
 			},
 			async save(state: HePiSettingsState, ctx: HePiContext) {
-				const path = settingsPath(ctx);
+				const path = settingsPath(settingsDirectory);
 				const mode = parseStoredMode(state[TRADITIONAL_TO_SIMPLIFIED_GROUP] ?? {});
 				await updateJsonSettingsRoot(path, (root) => {
 					const section = root[SETTINGS_SECTION];

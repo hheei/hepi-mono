@@ -1,6 +1,7 @@
 export { default } from "./extension.js";
 
 import {
+	getAgentDir,
 	CustomEditor,
 	type ExtensionAPI,
 	type ExtensionContext,
@@ -163,7 +164,9 @@ export function registerDollarSkillInputTransform(
 
 export function createDollarSkillSettingsProvider(
 	feature: DollarSkillFeature,
+	options: { readonly settingsDirectory?: string } = {},
 ): HePiSettingsProvider {
+	const settingsDirectory = options.settingsDirectory ?? getAgentDir();
 	return {
 		id: "pi-basics-dollar-skill",
 		title: "Dollar skill references",
@@ -172,7 +175,7 @@ export function createDollarSkillSettingsProvider(
 		groups: [{ id: DOLLAR_SKILL_SETTINGS_GROUP, title: "", fields }],
 		storage: {
 			async load(ctx: HePiContext) {
-				const config = await loadDollarSkillConfig(ctx.cwd ?? process.cwd());
+				const config = await loadDollarSkillConfig(settingsDirectory);
 				return {
 					[DOLLAR_SKILL_SETTINGS_GROUP]: {
 						enabled: config.enabled,
@@ -183,7 +186,7 @@ export function createDollarSkillSettingsProvider(
 			async save(state: HePiSettingsState, ctx: HePiContext) {
 				const config = configFromState(state);
 				feature.setConfig(config);
-				await saveDollarSkillConfig(ctx.cwd ?? process.cwd(), config);
+				await saveDollarSkillConfig(settingsDirectory, config);
 			},
 		},
 		onLoad: (state) => feature.setConfig(configFromState(state)),

@@ -13,6 +13,7 @@ export { default } from "./extension.js";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	type HePiContext,
@@ -34,8 +35,8 @@ function isJsonObject(value: unknown): value is JsonObject {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function settingsPath(cwd: string): string {
-	return join(cwd, ".pi", "settings.json");
+function settingsPath(settingsDirectory = getAgentDir()): string {
+	return join(settingsDirectory, "settings.json");
 }
 
 async function loadSettings(path: string): Promise<JsonObject> {
@@ -151,14 +152,18 @@ export interface OpenAIResponsesCompatFeature {
 	setConfig(sessionId: string, config: OpenAIResponsesCompatConfig): void;
 }
 
-export function createOpenAIResponsesCompatFeature(pi: ExtensionAPI): OpenAIResponsesCompatFeature {
+export function createOpenAIResponsesCompatFeature(
+	pi: ExtensionAPI,
+	options: { readonly settingsDirectory?: string } = {},
+): OpenAIResponsesCompatFeature {
+	const settingsDirectory = options.settingsDirectory ?? getAgentDir();
 	const configBySession = new Map<string, OpenAIResponsesCompatConfig>();
 	pi.on("before_provider_request", async (event, context) => {
 		if (context.model?.api !== "openai-responses") return undefined;
 		const sessionId = context.sessionManager.getSessionId();
 		let config = configBySession.get(sessionId);
 		if (config === undefined) {
-			const root = await loadSettings(settingsPath(context.cwd ?? process.cwd()));
+			const root = await loadSettings(settingsPath(settingsDirectory));
 			config = configFromValues(compatValues(root));
 			configBySession.set(sessionId, config);
 		}
@@ -170,7 +175,7 @@ export function createOpenAIResponsesCompatFeature(pi: ExtensionAPI): OpenAIResp
 	return {
 		async start(runtime) {
 			const sessionId = runtime.ctx.sessionManager.getSessionId();
-			const root = await loadSettings(settingsPath(runtime.ctx.cwd ?? process.cwd()));
+			const root = await loadSettings(settingsPath(settingsDirectory));
 			configBySession.set(sessionId, configFromValues(compatValues(root)));
 		},
 		dispose(sessionId) {
@@ -204,7 +209,9 @@ const fields: readonly HePiSettingField[] = [
 
 export function createOpenAIResponsesCompatSettingsProvider(
 	feature: OpenAIResponsesCompatFeature,
+	options: { readonly settingsDirectory?: string } = {},
 ): HePiSettingsProvider {
+	const settingsDirectory = options.settingsDirectory ?? getAgentDir();
 	return {
 		id: "pi-fix-openai-responses-compat",
 		title: "OpenAI Responses compatibility",
@@ -213,11 +220,11 @@ export function createOpenAIResponsesCompatSettingsProvider(
 		groups: [{ id: OPENAI_RESPONSES_COMPAT_GROUP, title: "", fields }],
 		storage: {
 			async load(ctx: HePiContext) {
-				const root = await loadSettings(settingsPath(ctx.cwd ?? process.cwd()));
+				const root = await loadSettings(settingsPath(settingsDirectory));
 				return settingState(configFromValues(compatValues(root)));
 			},
 			async save(state: HePiSettingsState, ctx: HePiContext) {
-				const path = settingsPath(ctx.cwd ?? process.cwd());
+				const path = settingsPath(settingsDirectory);
 				const config = configFromState(state);
 				const stateValues = state[OPENAI_RESPONSES_COMPAT_GROUP] ?? {};
 				await updateJsonSettingsRoot(path, (root) => {
