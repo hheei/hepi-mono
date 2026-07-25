@@ -6,15 +6,16 @@
 	"type": "module",
 	"packageManager": "bun@1.3.14",
 	"workspaces": [
-		"packages/*"
+		"packages/*",
+		"!packages/pi-magic-context"
 	],
 	"scripts": {
-		"check": "biome check . && tsc --noEmit -p tsconfig.base.json && bun test --path-ignore-patterns='**/references/**'",
+		"check": "biome check . && tsc --noEmit -p tsconfig.base.json && bun test --path-ignore-patterns='**/references/**' --path-ignore-patterns='packages/pi-magic-context/**'",
 		"check:fix": "biome check --write .",
 		"format": "biome format --write .",
 		"format:check": "biome format .",
 		"lint": "biome lint .",
-		"test": "bun test --path-ignore-patterns='**/references/**'",
+		"test": "bun test --path-ignore-patterns='**/references/**' --path-ignore-patterns='packages/pi-magic-context/**'",
 		"typecheck": "tsc --noEmit -p tsconfig.base.json",
 		"new:extension": "bun scripts/create-extension.mjs",
 		"pi:dev": "bun scripts/pi-dev.mjs",

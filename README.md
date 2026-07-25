@@ -11,7 +11,7 @@ Bun monorepo for HEPI Pi Coding Agent extensions. Every publishable workspace un
 - [TUI design](DESIGN.md)
 - [TypeScript design](DESIGN_TS.md)
 
-Package-specific commands, settings, persistence, requirements, and incompatibilities live in each `packages/*/README.md` so the documentation ships with the package.
+Package-specific commands, settings, persistence, requirements, and incompatibilities live in each `packages/*/README.md` so the documentation ships with the package. The optional `pi-magic-context` fork is a git submodule and is maintained upstream; HEPI only provides the repository compatibility wiring.
 
 ## Install
 
@@ -69,6 +69,7 @@ bun run new:extension -- pi-my-extension
 
 ```text
 packages/       HEPI-owned publishable workspaces
+  pi-magic-context/  upstream Magic Context git submodule
 
 docs/
   user/         Cross-package usage
