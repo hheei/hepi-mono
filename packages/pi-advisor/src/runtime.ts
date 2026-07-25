@@ -322,6 +322,7 @@ export function buildAdvisorBootstrapMessages(
 export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): AdvisorAgentAdapter {
 	let agent: Agent | undefined;
 	let disposed = true;
+	let recreateAfterTimeout = false;
 	let inFlightAbort: (() => void) | undefined;
 	const adviceByAgent = new WeakMap<Agent, AdvisorAdvice[]>();
 	let lifetime: AdvisorUsage = DEFAULT_ADVISOR_USAGE;
@@ -387,10 +388,12 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 		if (agent !== undefined) return;
 		agent = createAgent(options);
 		disposed = false;
+		recreateAfterTimeout = false;
 	};
 	const disposeAdapter = async (): Promise<void> => {
 		if (disposed) return;
 		disposed = true;
+		recreateAfterTimeout = false;
 		inFlightAbort?.();
 		const current = agent;
 		agent = undefined;
@@ -421,6 +424,7 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 				await previous?.waitForIdle().catch(() => undefined);
 				agent = undefined;
 				disposed = true;
+				recreateAfterTimeout = false;
 				options = nextOptions;
 				lifetime = DEFAULT_ADVISOR_USAGE;
 				lastCompactedContextTokens = 0;
@@ -431,6 +435,7 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 				replacement.abort();
 				await replacement.waitForIdle();
 				options = nextOptions;
+				recreateAfterTimeout = false;
 				return;
 			}
 			previous.abort();
@@ -442,7 +447,7 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 		},
 		async review(prompt, signal) {
 			if (agent === undefined || disposed) {
-				if (options.model === undefined || options.model.trim().length === 0)
+				if (!recreateAfterTimeout || options.model === undefined || options.model.trim().length === 0)
 					throw new Error("Advisor is not active");
 				await create();
 			}
@@ -476,6 +481,7 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 				if (agent === reviewAgent) {
 					agent = undefined;
 					disposed = true;
+					recreateAfterTimeout = true;
 				}
 				abort();
 				rejectTimeout?.(timeoutError);
