@@ -152,7 +152,31 @@ function fixture(enabled: boolean, adapter = fakeAdapter()) {
 		close() {},
 	} as unknown as HePiRuntimeContext;
 	const factory: AdvisorAdapterFactory = (_options: AdvisorAdapterOptions) => adapter;
-	const feature = createAdvisorFeature(factory);
+	const timers = new Map<number, { readonly due: number; readonly callback: () => void }>();
+	let clock = 0;
+	let nextTimer = 0;
+	const feature = createAdvisorFeature(factory, {
+		now: () => clock,
+		setTimeout(callback, delay) {
+			const id = ++nextTimer;
+			timers.set(id, { due: clock + delay, callback });
+			return id;
+		},
+		clearTimeout(timer) {
+			if (typeof timer === "number") timers.delete(timer);
+		},
+	});
+	const advance = (milliseconds: number): void => {
+		clock += milliseconds;
+		for (;;) {
+			const due = [...timers.entries()]
+				.filter(([, timer]) => timer.due <= clock)
+				.sort((left, right) => left[1].due - right[1].due)[0];
+			if (due === undefined) return;
+			timers.delete(due[0]);
+			due[1].callback();
+		}
+	};
 	return {
 		adapter,
 		ctx,
@@ -164,6 +188,7 @@ function fixture(enabled: boolean, adapter = fakeAdapter()) {
 		notifications,
 		runtime,
 		statuses,
+		advance,
 	};
 }
 
@@ -206,6 +231,7 @@ describe("Advisor feature lifecycle", () => {
 		await waitFor(() => h.feature.status().backlog === 0, "failed review to settle");
 		expect(h.statuses.get("advisor")).toBeUndefined();
 		expect(h.feature.status()).toMatchObject({ lastError: "review failed" });
+		expect(h.notifications.some((item) => item.message.includes("review failed"))).toBe(false);
 	});
 
 	test("publishes the latest review severity for the header indicator", async () => {
@@ -222,8 +248,12 @@ describe("Advisor feature lifecycle", () => {
 
 		await review([{ severity: "concern", note: "check this" }]);
 		expect(h.statuses.get("advisor")).toBe("concern");
+		expect(h.notifications).toContainEqual({ message: "[concern] check this", level: "warning" });
+		h.advance(25_000);
 		await review([{ severity: "blocker", note: "stop this" }]);
 		expect(h.statuses.get("advisor")).toBe("blocker");
+		expect(h.notifications).toContainEqual({ message: "[blocker] stop this", level: "error" });
+		h.advance(40_000);
 		await review([]);
 		expect(h.statuses.get("advisor")).toBe("ok");
 		await review([{ severity: "nit", note: "minor" }]);
@@ -349,6 +379,7 @@ describe("Advisor feature lifecycle", () => {
 			() => h.adapter.reviewPrompts.length === 1 && h.feature.status().backlog === 0,
 			"initial review to complete",
 		);
+		h.advance(40_000);
 		h.adapter.deferNextReview();
 		const reconfirm = emit(h, "agent_settled");
 		await waitFor(() => h.adapter.reviewPrompts.length === 2, "deferred review to start");
@@ -437,6 +468,8 @@ describe("Advisor feature lifecycle", () => {
 		await waitFor(() => h.feature.status().backlog === 1, "initial review to start");
 		await emit(h, "agent_settled");
 		h.adapter.resolveReview([{ severity: "blocker", note: "check auth" }]);
+		await waitFor(() => h.feature.status().backlog === 0, "initial review to settle");
+		h.advance(40_000);
 		await waitFor(() => h.deliveries.length === 1, "late blocker delivery");
 
 		expect(h.adapter.reviewPrompts).toHaveLength(2);
@@ -475,6 +508,7 @@ describe("Advisor feature lifecycle", () => {
 			message: { role: "assistant", content: [{ type: "text", text: "first" }] },
 		});
 		await waitFor(() => h.feature.status().backlog === 0, "concern review to complete");
+		h.advance(25_000);
 		h.adapter.nextAdvice = [{ severity: "blocker", note: "unsafe change" }];
 		await emit(h, "agent_settled");
 		await waitFor(() => h.deliveries.length === 1, "blocker delivery");
@@ -484,6 +518,7 @@ describe("Advisor feature lifecycle", () => {
 			(delivery.message.details as { notes?: readonly AdvisorAdvice[] } | undefined)?.notes,
 		).toEqual([{ severity: "blocker", note: "unsafe change" }]);
 
+		h.advance(40_000);
 		h.adapter.nextAdvice = [{ severity: "concern", note: "unsafe change" }];
 		await emit(h, "turn_end", {
 			message: { role: "assistant", content: [{ type: "text", text: "second" }] },
@@ -501,6 +536,7 @@ describe("Advisor feature lifecycle", () => {
 		});
 		await waitFor(() => h.deliveries.length === 1, "first nit delivery");
 
+		h.advance(20_000);
 		h.adapter.nextAdvice = [{ severity: "nit", note: " Minor   Cleanup " }];
 		await emit(h, "turn_end", {
 			message: { role: "assistant", content: [{ type: "text", text: "second" }] },
@@ -543,6 +579,7 @@ describe("Advisor feature lifecycle", () => {
 			},
 		});
 		await waitFor(() => h.adapter.reviewPrompts.length === 1, "held review to start");
+		h.advance(40_000);
 		await emit(h, "agent_settled");
 		await waitFor(() => h.deliveries.length === 1, "delivery");
 
@@ -563,6 +600,7 @@ describe("Advisor feature lifecycle", () => {
 			},
 		});
 		await waitFor(() => h.adapter.reviewPrompts.length > 0, "review to start");
+		h.advance(40_000);
 		await emit(h, "agent_settled");
 		await waitFor(() => h.deliveries.length === 1, "normal delivery");
 
@@ -582,9 +620,11 @@ describe("Advisor feature lifecycle", () => {
 			},
 		});
 		await waitFor(() => h.feature.status().backlog === 0, "initial review to complete");
+		h.advance(40_000);
 		h.adapter.nextAdvice = [{ severity: "blocker", note: "division uses addition" }];
 		await emit(h, "agent_settled");
 		await waitFor(() => h.deliveries.length === 1, "advisory delivery");
+		h.advance(40_000);
 
 		await emit(h, "before_agent_start", { prompt: "" });
 		await emit(h, "before_agent_start", { prompt: "" });
@@ -615,8 +655,10 @@ describe("Advisor feature lifecycle", () => {
 		});
 		await waitFor(() => h.feature.status().backlog === 0, "first review to complete");
 		h.adapter.nextAdvice = [{ severity: "blocker", note: "first issue" }];
+		h.advance(40_000);
 		await emit(h, "agent_settled");
 		await waitFor(() => h.deliveries.length === 1, "first delivery");
+		h.advance(40_000);
 
 		h.adapter.nextAdvice = [{ severity: "blocker", note: "second issue" }];
 		await emit(h, "turn_end", {
@@ -627,6 +669,7 @@ describe("Advisor feature lifecycle", () => {
 			},
 		});
 		await waitFor(() => h.feature.status().backlog === 0, "second review to complete");
+		h.advance(40_000);
 		h.adapter.nextAdvice = [{ severity: "blocker", note: "second issue" }];
 		await emit(h, "agent_settled");
 		await waitFor(() => h.deliveries.length === 2, "second delivery");
