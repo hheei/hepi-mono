@@ -24,7 +24,7 @@ export function createShellModule(options: ShellModuleOptions): ShellModule {
 	return {
 		id: "shell",
 		label: "HEPI",
-		commands: ["setting", "loadout"],
+		commands: ["loadout"],
 		open: async (_args, rawContext) => {
 			const context = rawContext as unknown as ExtensionCommandContext;
 			if (context.mode !== "tui") return;

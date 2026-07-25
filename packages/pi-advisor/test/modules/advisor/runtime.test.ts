@@ -262,10 +262,10 @@ describe("advisor runtime outcomes", () => {
 	test("create rejects an unconfigured Advisor model even when the primary has one", async () => {
 		const base = options(streamScript([message("stop")]).streamFn);
 		const adapter = createCoreAdvisorAdapter({ ...base, model: "" });
-		await expect(adapter.create()).rejects.toThrow(/configure an Advisor model in \/hepi setting/i);
+		await expect(adapter.create()).rejects.toThrow(/configure an Advisor model in \/ext-settings/i);
 
 		const missing = createCoreAdvisorAdapter({ ...base, model: undefined });
-		await expect(missing.create()).rejects.toThrow(/configure an Advisor model in \/hepi setting/i);
+		await expect(missing.create()).rejects.toThrow(/configure an Advisor model in \/ext-settings/i);
 	});
 
 	test("create rejects an unavailable configured provider/model", async () => {

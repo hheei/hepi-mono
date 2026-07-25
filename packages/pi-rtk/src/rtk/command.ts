@@ -13,7 +13,7 @@ export function registerRtkCommand(
 			const command = args.trim();
 			if (!command || command === "help") {
 				ctx.ui.notify(
-					"Use /hepi setting to configure RTK; /rtk show|verify|stats|clear-stats|reset|path",
+					"Use /ext-settings to configure RTK; /rtk show|verify|stats|clear-stats|reset|path",
 					"info",
 				);
 				return;

@@ -47,7 +47,7 @@ The core `ponytail` skill is intentionally omitted because the extension injects
 
 ## Defaults
 
-With `@hheei/pi-basics` loaded, open `/hepi setting` and select **Ponytail defaults**. Settings are global in `~/.pi/agent/settings.json` (or `$PI_CODING_AGENT_DIR/settings.json`):
+With `@hheei/pi-basics` loaded, open `/ext-settings` and select **Ponytail defaults**. Settings are global in `~/.pi/agent/settings.json` (or `$PI_CODING_AGENT_DIR/settings.json`):
 
 ```json
 {
