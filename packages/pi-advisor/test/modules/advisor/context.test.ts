@@ -27,11 +27,14 @@ function hasContent(
 	return typeof message === "object" && message !== null && "content" in message;
 }
 
-function bootstrap(source: readonly Message[]): AgentMessage[] {
+function bootstrap(
+	source: readonly Message[],
+	budget?: { contextWindow: number; responseReserve: number },
+): AgentMessage[] {
 	const ctx = {
 		sessionManager: { buildSessionContext: () => ({ messages: source }) },
 	} as unknown as ExtensionContext;
-	return buildAdvisorBootstrapMessages({ ctx, model: undefined, thinking: "off" });
+	return buildAdvisorBootstrapMessages({ ctx, model: undefined, thinking: "off" }, budget);
 }
 
 describe("advisor turn evidence", () => {
@@ -65,24 +68,58 @@ describe("advisor turn evidence", () => {
 		expect(evidence.assistant).not.toContain("THINKING_SECRET_MARKER");
 	});
 
-	test("extracts tool result status and details", () => {
+	test("extracts successful diff but omits arbitrary result details", () => {
 		const evidence = extractPrimaryTurnEvidence({
-			message: { role: "assistant", content: [] },
+			message: {
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						name: "edit",
+						id: "call-8",
+						arguments: { oldText: "secret old", newText: "secret new" },
+					},
+				],
+			},
 			toolResults: [
 				{
 					toolName: "edit",
 					toolCallId: "call-8",
-					isError: true,
-					content: [{ type: "text", text: "failed" }],
-					details: "EDIT_DIFF_MARKER",
+					isError: false,
+					content: [{ type: "text", text: "done" }],
+					details: { diff: "EDIT_DIFF_MARKER", token: "DETAIL_SECRET" },
 				},
 			],
 		});
+		expect(evidence.assistant).toContain("arguments omitted");
+		expect(evidence.assistant).not.toContain("secret old");
 		expect(evidence.tools[0]).toContain("edit");
 		expect(evidence.tools[0]).toContain("call-8");
-		expect(evidence.tools[0]).toContain("ERROR");
-		expect(evidence.tools[0]).toContain("failed");
+		expect(evidence.tools[0]).toContain("OK");
 		expect(evidence.tools[0]).toContain("EDIT_DIFF_MARKER");
+		expect(evidence.tools[0]).not.toContain("DETAIL_SECRET");
+	});
+
+	test("ignores diff metadata from non-edit tools", () => {
+		const evidence = extractPrimaryTurnEvidence({
+			message: {
+				role: "assistant",
+				content: [{ type: "toolCall", name: "custom", id: "call-custom", arguments: { value: 1 } }],
+			},
+			toolResults: [
+				{
+					toolName: "custom",
+					toolCallId: "call-custom",
+					isError: false,
+					content: [{ type: "text", text: "safe result" }],
+					details: { diff: "ARBITRARY_SECRET" },
+				},
+			],
+		});
+		expect(evidence.assistant).toContain('"value": 1');
+		expect(evidence.assistant).not.toContain("arguments omitted");
+		expect(evidence.tools[0]).toContain("safe result");
+		expect(evidence.tools[0]).not.toContain("ARBITRARY_SECRET");
 	});
 
 	test("truncates turn evidence within an explicit budget", () => {
@@ -104,6 +141,53 @@ describe("advisor turn evidence", () => {
 });
 
 describe("advisor bootstrap context", () => {
+	test("removes thinking from resolved bootstrap messages", () => {
+		const assistant = {
+			role: "assistant",
+			content: [
+				{ type: "thinking", thinking: "BOOTSTRAP_THINKING_SECRET" },
+				{ type: "text", text: "visible" },
+			],
+		} as unknown as Message;
+		const output = bootstrap([text("user", "prompt"), assistant]);
+		expect(JSON.stringify(output)).toContain("visible");
+		expect(JSON.stringify(output)).not.toContain("BOOTSTRAP_THINKING_SECRET");
+	});
+
+	test("removes arbitrary tool-result metadata from bootstrap", () => {
+		const resultWithDetails = {
+			...result("c1"),
+			details: { token: "BOOTSTRAP_DETAILS_SECRET", diff: "UNTRUSTED_DIFF" },
+		} as unknown as Message;
+		const output = bootstrap([call("c1"), resultWithDetails]);
+		expect(output).toHaveLength(2);
+		expect(JSON.stringify(output)).not.toContain("BOOTSTRAP_DETAILS_SECRET");
+		expect(JSON.stringify(output)).not.toContain("UNTRUSTED_DIFF");
+	});
+
+	test("fits bootstrap by complete tool-pair units", () => {
+		const source = [
+			text("user", "old ".repeat(2000)),
+			text("user", "recent"),
+			call("c1"),
+			result("c1"),
+		];
+		const output = bootstrap(source, { contextWindow: 4096, responseReserve: 512 });
+		expect(JSON.stringify(output)).toContain("advisor bootstrap context truncated");
+		expect(output.at(-2)).toBe(source.at(-2));
+		expect(output.at(-1)).toBe(source.at(-1));
+		expect(JSON.stringify(output)).not.toContain("old old old");
+	});
+
+	test("fails closed when the newest bootstrap unit cannot fit", () => {
+		expect(() =>
+			bootstrap([text("user", "latest ".repeat(2000))], {
+				contextWindow: 1024,
+				responseReserve: 256,
+			}),
+		).toThrow(/cannot fit/i);
+	});
+
 	test("filters advisory custom messages before conversion", () => {
 		const advisory = {
 			role: "custom",

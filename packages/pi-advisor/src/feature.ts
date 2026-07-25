@@ -5,6 +5,7 @@ import {
 	collectFeedback,
 	emptyFeedback,
 	type FeedbackState,
+	markFeedbackDelivered,
 	reconfirmFeedback,
 } from "./feedback.js";
 import { type AdvisorPhase, type AdvisorStatus, DEFAULT_ADVISOR_USAGE } from "./model.js";
@@ -34,6 +35,7 @@ interface Active {
 	backlog: number;
 	feedback: FeedbackState;
 	reconfirming: boolean;
+	terminalPending: boolean;
 	primaryAborted: boolean;
 	lastError?: string;
 	model: string | undefined;
@@ -81,6 +83,61 @@ export function createAdvisorFeature(
 			...(item?.lastError === undefined ? {} : { lastError: item.lastError }),
 		};
 	};
+	const deliver = (
+		item: Active,
+		notes: readonly import("./model.js").AdvisorAdvice[],
+		triggerTurn: boolean,
+	): void => {
+		item.runtime.pi.sendMessage(
+			{
+				customType: "pi-basics-advisory",
+				content: notes.map((note) => `[${note.severity}] ${note.note}`).join("\n"),
+				details: { notes },
+				display: true,
+			},
+			{ deliverAs: "steer", triggerTurn },
+		);
+	};
+	const scheduleReconfirm = (item: Active): void => {
+		if (
+			!isCurrent(item) ||
+			!item.enabled ||
+			!item.terminalPending ||
+			item.reconfirming ||
+			item.backlog > 0
+		)
+			return;
+		if (item.feedback.held.length === 0) {
+			item.terminalPending = false;
+			return;
+		}
+		item.reconfirming = true;
+		const epoch = item.epoch;
+		void enqueue(async () => {
+			try {
+				if (!isCurrent(item, epoch) || !item.enabled) return;
+				const raised = await item.adapter.review(
+					`Reconfirm only these unresolved Advisor notes. Re-raise a note with advise only if it still applies; otherwise stay silent.\n${item.feedback.held.map((note) => `[${note.severity}] ${note.note}`).join("\n")}`,
+				);
+				if (!isCurrent(item, epoch) || !item.enabled) return;
+				item.feedback = reconfirmFeedback(item.feedback, raised);
+				const confirmed = item.feedback.deliverable.filter((note) => note.severity !== "nit");
+				if (confirmed.length > 0) {
+					deliver(item, confirmed, !item.primaryAborted);
+					item.feedback = markFeedbackDelivered(item.feedback, confirmed);
+				} else {
+					item.feedback = { ...item.feedback, deliverable: [] };
+				}
+			} catch (error) {
+				if (isCurrent(item, epoch)) item.lastError = errorMessage(error);
+			} finally {
+				if (isCurrent(item, epoch)) {
+					item.reconfirming = false;
+					item.terminalPending = false;
+				}
+			}
+		});
+	};
 	const review = (item: Active, prompt: string): void => {
 		const epoch = item.epoch;
 		item.backlog++;
@@ -93,17 +150,9 @@ export function createAdvisorFeature(
 				item.feedback = collectFeedback(item.feedback, advice);
 				const notes = item.feedback.deliverable;
 				if (notes.length > 0) {
-					item.runtime.pi.sendMessage(
-						{
-							customType: "pi-basics-advisory",
-							content: notes.map((note) => `[${note.severity}] ${note.note}`).join("\n"),
-							details: { notes },
-							display: true,
-						},
-						{ deliverAs: "steer", triggerTurn: false },
-					);
+					deliver(item, notes, false);
+					item.feedback = markFeedbackDelivered(item.feedback, notes);
 				}
-				item.feedback = { held: item.feedback.held, deliverable: [] };
 			} catch (error) {
 				if (isCurrent(item, epoch)) item.lastError = errorMessage(error);
 			} finally {
@@ -111,6 +160,7 @@ export function createAdvisorFeature(
 					item.backlog = Math.max(0, item.backlog - 1);
 					if (item.enabled && item.backlog === 0) item.phase = "idle";
 					else if (item.enabled) item.phase = "reviewing";
+					if (item.backlog === 0) scheduleReconfirm(item);
 				}
 			}
 		});
@@ -119,6 +169,8 @@ export function createAdvisorFeature(
 		if (!isCurrent(item)) return Promise.resolve();
 		const epoch = ++item.epoch;
 		item.feedback = emptyFeedback();
+		item.reconfirming = false;
+		item.terminalPending = false;
 		item.backlog = 0;
 		item.phase = item.enabled ? "idle" : "disabled";
 		if (!item.enabled) return Promise.resolve();
@@ -173,12 +225,12 @@ export function createAdvisorFeature(
 				backlog: 0,
 				feedback: emptyFeedback(),
 				reconfirming: false,
+				terminalPending: false,
 				primaryAborted: false,
 				model: config?.model,
 				thinking: config?.thinking ?? "medium",
 			};
 			active = item;
-			runtime.ctx.ui.setStatus("advisor", "Advisor");
 			let currentUserPrompt = "";
 			runtime.pi.on("before_agent_start", (event, eventCtx) => {
 				if (!isCurrent(item, undefined, eventCtx)) return;
@@ -196,60 +248,28 @@ export function createAdvisorFeature(
 					message: event.message,
 					toolResults: Array.isArray(event.toolResults) ? event.toolResults : [],
 				});
-				if (evidence.assistant !== undefined || evidence.tools.length > 0)
-					review(
-						item,
-						buildSessionContext(
-							buildTurnDelta(
-								currentUserPrompt,
-								evidence.assistant,
-								evidence.tools,
-								item.adapter.contextBudget(),
+				try {
+					if (evidence.assistant !== undefined || evidence.tools.length > 0)
+						review(
+							item,
+							buildSessionContext(
+								buildTurnDelta(
+									currentUserPrompt,
+									evidence.assistant,
+									evidence.tools,
+									item.adapter.contextBudget(),
+								),
 							),
-						),
-					);
+						);
+				} catch (error) {
+					item.lastError = errorMessage(error);
+				}
 				currentUserPrompt = "";
 			});
-			runtime.pi.on("agent_settled", async (_event, eventCtx) => {
-				if (
-					!isCurrent(item, undefined, eventCtx) ||
-					item.reconfirming ||
-					!item.enabled ||
-					item.feedback.held.length === 0 ||
-					item.backlog > 0
-				)
-					return;
-				item.reconfirming = true;
-				const epoch = item.epoch;
-				await enqueue(async () => {
-					try {
-						if (!isCurrent(item, epoch) || !item.enabled) return;
-						const raised = await item.adapter.review(
-							`Reconfirm only these unresolved Advisor notes. Re-raise a note with advise only if it still applies; otherwise stay silent.\n${item.feedback.held.map((note) => `[${note.severity}] ${note.note}`).join("\n")}`,
-						);
-						if (!isCurrent(item, epoch) || !item.enabled) return;
-						item.feedback = reconfirmFeedback(item.feedback, raised);
-						const confirmed = item.feedback.deliverable.filter((note) => note.severity !== "nit");
-						if (confirmed.length > 0) {
-							if (!isCurrent(item, epoch) || !item.enabled) return;
-							item.runtime.pi.sendMessage(
-								{
-									customType: "pi-basics-advisory",
-									content: confirmed.map((note) => `[${note.severity}] ${note.note}`).join("\n"),
-									details: { notes: confirmed },
-									display: true,
-								},
-								{ deliverAs: "steer", triggerTurn: !item.primaryAborted },
-							);
-							if (!isCurrent(item, epoch) || !item.enabled) return;
-							item.feedback = { held: [], deliverable: [] };
-						}
-					} catch (error) {
-						if (isCurrent(item, epoch)) item.lastError = errorMessage(error);
-					} finally {
-						item.reconfirming = false;
-					}
-				});
+			runtime.pi.on("agent_settled", (_event, eventCtx) => {
+				if (!isCurrent(item, undefined, eventCtx) || !item.enabled) return;
+				item.terminalPending = true;
+				scheduleReconfirm(item);
 			});
 			runtime.pi.on("session_compact", (_event, eventCtx) => {
 				if (!isCurrent(item, undefined, eventCtx)) return;
@@ -257,7 +277,43 @@ export function createAdvisorFeature(
 			});
 			runtime.pi.on("session_tree", (_event, eventCtx) => {
 				if (!isCurrent(item, undefined, eventCtx)) return;
-				return reset(item);
+				const restoredBranch = restoreAdvisor(
+					item.runtime.ctx.sessionManager.getBranch(),
+					(message) => item.runtime.ctx.ui.notify(message, "warning"),
+				);
+				const wasEnabled = item.enabled;
+				const epoch = ++item.epoch;
+				item.enabled = restoredBranch.enabled;
+				item.phase = restoredBranch.enabled ? "starting" : "disabled";
+				if (!restoredBranch.enabled) item.runtime.ctx.ui.setStatus("advisor", undefined);
+				item.feedback = emptyFeedback();
+				item.reconfirming = false;
+				item.terminalPending = false;
+				item.backlog = 0;
+				return enqueue(async () => {
+					if (!isCurrent(item, epoch)) return;
+					try {
+						if (!restoredBranch.enabled) {
+							await item.adapter.abort();
+							await item.adapter.dispose();
+						} else if (wasEnabled) await item.adapter.reset();
+						else await item.adapter.create();
+						if (!isCurrent(item, epoch)) return;
+						item.phase = restoredBranch.enabled ? "idle" : "disabled";
+						item.runtime.ctx.ui.setStatus(
+							"advisor",
+							restoredBranch.enabled ? "Advisor" : undefined,
+						);
+						delete item.lastError;
+					} catch (error) {
+						if (!isCurrent(item, epoch)) return;
+						item.enabled = false;
+						item.phase = "error";
+						item.runtime.ctx.ui.setStatus("advisor", undefined);
+						item.lastError = errorMessage(error);
+						await item.adapter.dispose().catch(() => undefined);
+					}
+				});
 			});
 			if (restored.enabled) {
 				try {
@@ -267,6 +323,7 @@ export function createAdvisorFeature(
 						return;
 					}
 					item.phase = "idle";
+					runtime.ctx.ui.setStatus("advisor", "Advisor");
 				} catch (error) {
 					if (!isCurrent(item)) {
 						await adapter.dispose().catch(() => undefined);
@@ -274,6 +331,7 @@ export function createAdvisorFeature(
 					}
 					item.enabled = false;
 					item.phase = "disabled";
+					runtime.ctx.ui.setStatus("advisor", undefined);
 					item.lastError = errorMessage(error);
 					await adapter.dispose().catch(() => undefined);
 				}
@@ -287,6 +345,8 @@ export function createAdvisorFeature(
 			item.enabled = false;
 			item.phase = "disabled";
 			item.feedback = emptyFeedback();
+			item.reconfirming = false;
+			item.terminalPending = false;
 			item.backlog = 0;
 			item.runtime.ctx.ui.setStatus("advisor", undefined);
 			await item.adapter.abort();
@@ -298,11 +358,20 @@ export function createAdvisorFeature(
 				ctx.ui.notify("Advisor runtime is not active", "error");
 				return;
 			}
-			const action = args || (item.enabled ? "off" : "on");
+			const action = args || "status";
 			if (action === "status") {
 				const value = status();
 				ctx.ui.notify(
-					`Advisor ${value.enabled ? "on" : "off"}; phase=${value.phase}; backlog=${value.backlog}; cost=${value.usage.cost}`,
+					[
+						`Advisor ${value.enabled ? "on" : "off"}`,
+						`phase=${value.phase}`,
+						`model=${value.model ?? "not configured"}`,
+						`thinking=${value.thinking}`,
+						`backlog=${value.backlog}`,
+						`tokens=${value.usage.total}`,
+						`cost=${value.usage.cost}`,
+						...(value.lastError === undefined ? [] : [`error=${value.lastError}`]),
+					].join("; "),
 					"info",
 				);
 				return;
@@ -329,15 +398,20 @@ export function createAdvisorFeature(
 					}
 					item.enabled = true;
 					item.phase = "idle";
+					item.runtime.ctx.ui.setStatus("advisor", "Advisor");
 				}
 			} else if (item.enabled) {
 				appendAdvisorBoundary(item.runtime.pi, { version: 1, enabled: false });
 				item.epoch++;
 				item.enabled = false;
 				item.phase = "disabled";
+				item.runtime.ctx.ui.setStatus("advisor", undefined);
 				item.feedback = emptyFeedback();
+				item.reconfirming = false;
+				item.terminalPending = false;
 				item.backlog = 0;
 				await item.adapter.abort();
+				await item.adapter.dispose();
 			}
 			ctx.ui.notify(`※ Advisor ${action}`, "info");
 		},
