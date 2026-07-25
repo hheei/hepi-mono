@@ -15,6 +15,7 @@ const item: LoadoutItem = {
 
 const state = {
 	scope: "global" as const,
+	view: "tools" as const,
 	query: "",
 	inventory: [item],
 	resolved: [

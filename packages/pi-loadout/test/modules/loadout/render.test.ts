@@ -28,6 +28,7 @@ const snapshot = (
 	extra: Partial<LoadoutRenderSnapshot> = {},
 ): LoadoutRenderSnapshot => ({
 	scope: "project",
+	view: "tools",
 	query: "",
 	inventory: items,
 	resolved: items,
@@ -59,13 +60,14 @@ describe("loadout renderer", () => {
 		] as LoadoutResolvedItem[];
 		const lines = renderLoadout({ state: snapshot(all, { query: "compile" }), theme, width: 60 });
 		const output = lines.join("\n");
-		expect(output).toContain("Tools (1/2)");
+		expect(output).toContain("⚒ Tools");
+		expect(output).toContain("⧉ built-in (1/3)");
 		expect(output).toContain("build");
 		expect(output).not.toContain("MCP Servers");
 		expect(output).not.toContain("test");
 	});
 
-	test("renders group order, status symbols, selection, and disabled inherited status", () => {
+	test("renders one view, source count, status symbols, and selection", () => {
 		const all = [
 			{
 				...item("skill", "skill"),
@@ -86,17 +88,25 @@ describe("loadout renderer", () => {
 				displayStatus: "active",
 			},
 		] as LoadoutResolvedItem[];
-		const output = renderLoadout({
+		const tools = renderLoadout({
 			state: snapshot(all, { selectedKey: "tool:tool" }),
 			theme,
 			width: 40,
 		}).join("\n");
-		expect(output.indexOf("MCP Servers")).toBeLessThan(output.indexOf("Tools"));
-		expect(output.indexOf("Tools")).toBeLessThan(output.indexOf("Skills"));
-		expect(output).toContain("● server");
-		expect(output).toContain("◎ tool");
-		expect(output).toContain("→ ◎ tool");
-		expect(output).toContain("○ skill");
+		const skills = renderLoadout({
+			state: snapshot(all, { view: "skills" }),
+			theme,
+			width: 40,
+		}).join("\n");
+		expect(tools).toContain("⚒ Tools");
+		expect(tools).toContain("⧉ built-in (2/2)");
+		expect(tools).toContain("● server");
+		expect(tools).toContain("◎ tool");
+		expect(tools).toContain("→ ◎ tool");
+		expect(tools).not.toContain("○ skill");
+		expect(skills).toContain("✦ Skills");
+		expect(skills).toContain("○ skill");
+		expect(skills).not.toContain("◎ tool");
 	});
 
 	test("shows fixed wide description and hides it in narrow mode", () => {
@@ -151,7 +161,7 @@ describe("loadout renderer", () => {
 		}).join("\n");
 		expect(output).toContain("Project · /project/.pi/setting.json");
 		expect(output).toContain("Error: something failed");
-		expect(output).toContain("⇥ global");
+		expect(output).toContain("^⇥ global");
 	});
 	test("caps body height at thirty percent of terminal rows", () => {
 		const all = Array.from({ length: 10 }, (_, index) => ({
@@ -174,7 +184,7 @@ describe("loadout renderer", () => {
 		}));
 		const lines = renderLoadout({ state: snapshot(all), theme, width: 100, height: 30 });
 		expect(lines.find((line) => line.includes("> _"))).not.toContain("█");
-		const toolsLine = lines.find((line) => line.includes("⚒ Tools"));
-		expect(toolsLine).toContain("█");
+		const sourceLine = lines.find((line) => line.includes("⧉ built-in"));
+		expect(sourceLine).toContain("█");
 	});
 });

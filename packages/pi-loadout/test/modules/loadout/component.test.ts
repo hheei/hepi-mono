@@ -35,10 +35,13 @@ async function setup() {
 }
 
 describe("loadout component", () => {
-	test("delegates scope toggle and search to controller", async () => {
+	test("switches view with Tab, scope with Ctrl+Tab, and delegates search", async () => {
 		const { controller, component } = await setup();
 		component.handleInput?.("\t");
+		expect(controller.state.view).toBe("skills");
+		component.handleInput?.("\x1b[9;5u");
 		expect(controller.state.scope).toBe("project");
+		component.handleInput?.("\t");
 		component.handleInput?.("b");
 		expect(controller.state.query).toBe("b");
 		const output = component.render(80).join("\n");
@@ -72,7 +75,8 @@ describe("loadout component", () => {
 	test("renders selected status through grouped renderer", async () => {
 		const { component, controller } = await setup();
 		const output = component.render(40).join("\n");
-		expect(output).toContain("Tools (2)");
+		expect(output).toContain("⚒ Tools");
+		expect(output).toContain("⧉ test (2/2)");
 		expect(output).toContain("→ ● alpha");
 		await controller.close();
 	});

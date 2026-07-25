@@ -4,12 +4,13 @@ import type {
 	LoadoutInventoryValue,
 } from "./inventory.js";
 import {
-	filterLoadoutItems,
+	filterLoadoutItemsForView,
 	type LoadoutItem,
 	type LoadoutKey,
 	type LoadoutResolvedItem,
 	type LoadoutScope,
 	type LoadoutStatusMaps,
+	type LoadoutView,
 	loadoutPersistenceKey,
 	reconcileLoadoutSelection,
 	resolveLoadoutItems,
@@ -28,6 +29,7 @@ export interface LoadoutRuntimeHandlers {
 }
 export interface LoadoutControllerState {
 	readonly scope: LoadoutScope;
+	readonly view: LoadoutView;
 	readonly query: string;
 	readonly selectedKey?: LoadoutKey | undefined;
 	readonly scrollTop: number;
@@ -42,6 +44,7 @@ export interface LoadoutControllerOptions {
 	readonly inventory: LoadoutInventoryProvider;
 	readonly runtime?: LoadoutRuntimeHandlers;
 	readonly scope?: LoadoutScope;
+	readonly view?: LoadoutView;
 }
 function readable(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
@@ -57,6 +60,7 @@ function normalize(value: LoadoutInventoryValue): readonly LoadoutItem[] {
 export class LoadoutController {
 	private readonly options: LoadoutControllerOptions;
 	private scope: LoadoutScope;
+	private view: LoadoutView;
 	private query = "";
 	private selectedKey: LoadoutKey | undefined;
 	private scrollTop = 0;
@@ -72,10 +76,12 @@ export class LoadoutController {
 	constructor(options: LoadoutControllerOptions) {
 		this.options = options;
 		this.scope = options.scope ?? "global";
+		this.view = options.view ?? "tools";
 	}
 	get state(): LoadoutControllerState {
 		return {
 			scope: this.scope,
+			view: this.view,
 			query: this.query,
 			selectedKey: this.selectedKey,
 			scrollTop: this.scrollTop,
@@ -90,7 +96,7 @@ export class LoadoutController {
 		return this.state;
 	}
 	private visible(): readonly LoadoutItem[] {
-		return filterLoadoutItems(this.inventory, this.query);
+		return filterLoadoutItemsForView(this.inventory, this.view, this.query);
 	}
 	private recompute(previousItems = this.inventory, previousSelected = this.selectedKey): void {
 		this.resolved = resolveLoadoutItems(this.inventory, this.scope, this.maps);
@@ -146,6 +152,11 @@ export class LoadoutController {
 	setScope(scope: LoadoutScope): void {
 		this.ensureOpen();
 		this.scope = scope;
+		this.recompute();
+	}
+	setView(view: LoadoutView): void {
+		this.ensureOpen();
+		this.view = view;
 		this.recompute();
 	}
 	setQuery(query: string): void {

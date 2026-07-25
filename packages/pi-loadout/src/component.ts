@@ -29,10 +29,15 @@ export function createLoadoutView(options: LoadoutComponentOptions): Component {
 				options.close();
 				return;
 			}
-			if (matchesKey(input, Key.tab)) {
+			if (matchesKey(input, Key.ctrl("tab"))) {
 				options.controller.setScope(
 					options.controller.state.scope === "global" ? "project" : "global",
 				);
+				options.host.requestRender();
+				return;
+			}
+			if (matchesKey(input, Key.tab)) {
+				options.controller.setView(options.controller.state.view === "tools" ? "skills" : "tools");
 				options.host.requestRender();
 				return;
 			}

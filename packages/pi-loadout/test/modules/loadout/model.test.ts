@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
 	filterLoadoutItems,
-	groupLoadoutItems,
+	filterLoadoutItemsForView,
+	groupLoadoutItemsByOrigin,
 	type LoadoutItem,
 	type LoadoutStatusMaps,
 	nextConfiguredStatus,
@@ -151,7 +152,24 @@ describe("loadout model", () => {
 			"skill:docs",
 		]);
 		expect(filterLoadoutItems(items, "document").map((item) => item.key)).toEqual(["skill:docs"]);
-		expect(groupLoadoutItems(items).map((group) => group.kind)).toEqual(["tool", "skill"]);
+		expect(filterLoadoutItemsForView(items, "skills", "").map((item) => item.key)).toEqual([
+			"skill:docs",
+		]);
+		expect(filterLoadoutItemsForView(items, "tools", "").map((item) => item.key)).toEqual([
+			"tool:alpha",
+			"tool:bash",
+			"tool:beta",
+			"tool:zulu",
+			"tool:aardvark",
+			"tool:zeta",
+		]);
+		expect(groupLoadoutItemsByOrigin(items).map((group) => group.origin)).toEqual([
+			"built-in",
+			"package-a",
+			"package-b",
+			"package-z",
+			"project",
+		]);
 	});
 
 	test("reconciles selection by identity, then group successor, then first visible", () => {
