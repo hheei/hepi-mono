@@ -9,7 +9,7 @@ Document registered commands, tools, settings, persistence, host requirements, a
 For local testing:
 
 ```bash
-bun run pi:dev -- __PACKAGE_SLUG__
+pi --no-extensions --no-skills -e packages/__PACKAGE_SLUG__/src/index.ts
 ```
 
 ## Development

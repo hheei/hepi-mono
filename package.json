@@ -19,7 +19,6 @@
 		"test": "bun test --path-ignore-patterns='**/references/**' --path-ignore-patterns='packages/pi-magic-context/**' --path-ignore-patterns='packages/pi-subagents/**'",
 		"typecheck": "tsc --noEmit -p tsconfig.base.json",
 		"new:extension": "bun scripts/create-extension.mjs",
-		"pi:dev": "bun scripts/pi-dev.mjs",
 		"tui:replay": "bun packages/pi-debug/src/tui-replay.ts",
 		"tui:replay:session": "bun packages/pi-debug/src/tui-replay-session.ts"
 	},

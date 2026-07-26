@@ -86,20 +86,16 @@ Each extension package must declare the Pi entry in `package.json`:
 
 ## Local Testing in Pi
 
-Use wrapper script for isolated local testing. It starts Pi with automatic extension and skill discovery disabled, then loads only active mono extensions.
+Run an extension directly for isolated local testing:
 
 ```bash
-bun run pi:dev
-bun run pi:dev -- hepi
-bun run pi:dev -- basics
-bun run pi:dev -- todo
-bun run pi:dev -- --all
+pi --no-extensions --no-skills -e packages/pi-my-extension/src/index.ts
 ```
 
-Pass extra Pi flags after a second `--`:
+Pass extra Pi flags normally:
 
 ```bash
-bun run pi:dev -- basics -- --model openai/gpt-5
+pi --no-extensions --no-skills -e packages/pi-my-extension/src/index.ts --model openai/gpt-5
 ```
 
 ## TUI Guidelines
