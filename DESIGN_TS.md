@@ -76,8 +76,8 @@ export interface MutableFeatureCatalog extends FeatureCatalog {
 - 相对 ESM import 使用 `.js` specifier，匹配本仓库 Node16 配置。
 - 默认使用顶层静态 import。
 - `await import()` 只用于真实 optional dependency、延迟加载重依赖或运行时平台分支；不得用于绕过 package boundary。
-- feature 只从 `@hheei/pi-basics` package root import，不使用 `src/**` 深路径。
-- 不建立 feature-to-feature import。
+- feature code imports shared Basics contracts from `packages/hepi-basics/src/core`; no top-level `pi-*` feature package imports are supported.
+- Feature modules in one aggregate may import shared core contracts, but should not import another feature's private implementation.
 
 Pi 上游源码使用 `.ts` specifier，因为其 compiler 启用了 `allowImportingTsExtensions` 和 `rewriteRelativeImportExtensions`；HEPI 没有该配置，不照搬。
 

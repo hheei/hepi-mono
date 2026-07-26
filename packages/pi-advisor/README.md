@@ -1,9 +1,0 @@
-# @hheei/pi-advisor
-
-Read-only turn reviewer for Pi. Requires `@hheei/pi-basics` and an authenticated model.
-
-Use `/advisor` or `/advisor status` to inspect the runtime. Use `/advisor on` and `/advisor off` to enable or disable it for the current session branch. Clearing the configured model disables Advisor; after selecting a model again, use `/advisor on` to recreate it. Model and thinking level are configured through `/ext-settings` and stored under `pi-basics.advisor` in global `~/.pi/agent/settings.json`.
-
-Advisor receives only read-only inspection tools and never edits files. It sends resolved session context, turn evidence, and files it reads to the selected model provider; read-only does not mean local-only. Primary assistant thinking and arbitrary tool-result metadata are excluded. Successful edit diffs may be included.
-
-Runtime state is session-scoped and follows the selected branch's latest Advisor boundary. Turning Advisor off disposes its model context. Repeated advice is suppressed unless its severity increases. Advisor retains the current primary user objective across internal turns, reads new primary turn evidence at most once every 15 seconds, and reconfirms held concern/blocker findings at later turn boundaries before steering. Identical material evidence is skipped; cooldown retains bounded earlier tool/error evidence behind the latest turn; a concern adds a 25-second cooldown and a blocker adds a 40-second cooldown. Concern and blocker findings also appear as warning/error UI notifications when first raised. While Advisor is enabled, Pi Basics places `✦` after the model in the header: accent/blue means the latest review returned no concern or blocker, yellow means concern, and red means blocker. Advisor does not add a footer label.

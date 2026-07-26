@@ -5,7 +5,7 @@ import type {
 	HePiSettingField,
 	HePiSettingsProvider,
 	HePiSettingsState,
-} from "../hepi-basics/index.js";
+} from "../../../hepi-basics/src/core/index.js";
 import {
 	DEFAULT_PONYTAIL_MODE,
 	isPonytailIntensity,
@@ -61,7 +61,7 @@ export function createPonytailSettingsProvider(
 	return {
 		id: PONYTAIL_SETTINGS_PROVIDER_ID,
 		title: "Ponytail defaults",
-		origin: "@hheei/pi-ponytail",
+		origin: "@hheei/hepi-skills",
 		description: "Default engineering modes for main agents and pi-subagents.",
 		groups: [
 			{
@@ -87,7 +87,7 @@ export function createPonytailSettingsProvider(
 				return defaultsToState(await loadPonytailDefaults(settingsFilePath));
 			},
 			async save(state: HePiSettingsState): Promise<void> {
-				const { updateJsonSettingsRoot } = await import("../hepi-basics/index.js");
+				const { updateJsonSettingsRoot } = await import("../../../hepi-basics/src/core/index.js");
 				await updateJsonSettingsRoot(settingsFilePath, (root) => {
 					const currentSection = asRecord(root[PONYTAIL_SETTINGS_PROVIDER_ID]);
 					const nextSection: JsonObject = currentSection === undefined ? {} : { ...currentSection };

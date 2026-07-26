@@ -29,15 +29,11 @@ pi install npm:@hheei/hepi-tools
 pi install npm:@hheei/hepi-skills
 ```
 
-Each group is self-contained. Do not install a group together with the same
-individual packages:
+Each group is self-contained. Do not install a group together with
+`hepi-mono`; they contain overlapping implementations.
 
-```bash
-pi install npm:@hheei/pi-basics
-pi install npm:@hheei/pi-todo
-```
-
-Do not enable `@hheei/hepi-mono` together with the same individual packages. That can register duplicate commands, handlers, status entries, or Settings providers.
+The unified package includes all current runtime modules. The group packages
+are the supported smaller selections.
 
 For a local checkout:
 
@@ -67,13 +63,8 @@ pi --no-extensions --no-skills -e packages/hepi-tools/dist/extension.js
 pi --no-extensions --no-skills -e packages/hepi-skills/dist/extension.js
 ```
 
-Load `@hheei/pi-basics` before feature packages. Loadout must run after Pi Basics so both use the same tool-activation coordinator. The three group packages and unified `@hheei/hepi-mono` preserve this order. Each group has one Pi extension entry; `hepi-mono` remains the one-entry full profile.
-
-Create a package from the extension template:
-
-```bash
-bun run new:extension -- pi-my-extension
-```
+The supported packages are the four aggregate bundles and the development-only
+`@hheei/hepi-debug` package. Individual `@hheei/pi-*` packages are deprecated.
 
 ## Repository Layout
 

@@ -4,7 +4,7 @@ Self-contained HEPI tools bundle for Pi. Its published `dist` entry contains
 the included tools and their HEPI dependencies behind one extension entry and
 one JIT boundary.
 
-Included packages:
+Included modules:
 
 - `pi-ask`
 - `pi-goal`
@@ -31,4 +31,5 @@ pi install npm:@hheei/hepi-tools
 
 Build locally with `bun run build` from this package or
 `bun run build:aggregates` from the repository root. Do not install this
-package together with the same individual packages.
+package together with `@hheei/hepi-mono`; the unified bundle already contains
+these modules.

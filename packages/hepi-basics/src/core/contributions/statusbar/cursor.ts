@@ -57,7 +57,7 @@ export function createCursorSettingsProvider(options: {
 	return {
 		id: "pi-basics-cursor",
 		title: "Pi Basics",
-		origin: "@hheei/pi-basics",
+		origin: "@hheei/hepi-basics",
 		description: "Terminal cursor appearance.",
 		groups: [
 			{

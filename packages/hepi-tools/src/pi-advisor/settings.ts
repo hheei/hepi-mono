@@ -4,7 +4,7 @@ import {
 	type HePiModelSelectionOption,
 	type HePiSettingsProvider,
 	type HePiSettingValue,
-} from "../hepi-basics/index.js";
+} from "../../../hepi-basics/src/core/index.js";
 import { parseThinking } from "./model.js";
 export function createAdvisorSettingsProvider(options: {
 	readonly path?: string;
@@ -23,7 +23,7 @@ export function createAdvisorSettingsProvider(options: {
 	return {
 		id: "pi-basics-advisor",
 		title: "Advisor",
-		origin: "@hheei/pi-basics",
+		origin: "@hheei/hepi-basics",
 		description: "Read-only turn review using the selected external model provider.",
 		groups: [
 			{

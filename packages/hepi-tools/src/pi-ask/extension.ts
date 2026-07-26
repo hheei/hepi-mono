@@ -3,7 +3,7 @@ import {
 	getToolActivationCoordinator,
 	HePiLifecycleController,
 	registerHePiLifecycle,
-} from "../hepi-basics/index.js";
+} from "../../../hepi-basics/src/core/index.js";
 import { createAskFeature } from "./feature.js";
 
 export default function piAskExtension(pi: ExtensionAPI): void {

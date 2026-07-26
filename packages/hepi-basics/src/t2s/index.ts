@@ -133,7 +133,7 @@ export function createTraditionalToSimplifiedSettingsProvider(
 	return {
 		id: "pi-t2s",
 		title: "Traditional to simplified",
-		origin: "@hheei/pi-t2s",
+		origin: "@hheei/hepi-basics",
 		groups: [
 			{
 				id: TRADITIONAL_TO_SIMPLIFIED_GROUP,

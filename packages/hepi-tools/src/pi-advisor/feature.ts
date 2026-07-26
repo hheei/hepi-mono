@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { HePiRuntimeContext } from "../hepi-basics/index.js";
+import type { HePiRuntimeContext } from "../../../hepi-basics/src/core/index.js";
 import {
 	buildSessionContext,
 	buildTurnDelta,

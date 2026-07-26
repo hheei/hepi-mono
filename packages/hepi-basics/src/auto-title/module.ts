@@ -128,7 +128,7 @@ export function createAutoTitleSettingsProvider(
 	return {
 		id: SECTION,
 		title: "Pi Basics",
-		origin: "@pi-basics",
+		origin: "@hheei/hepi-basics",
 		groups: [
 			{
 				id: AUTO_TITLE_GROUP,

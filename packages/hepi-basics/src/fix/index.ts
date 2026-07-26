@@ -215,8 +215,8 @@ export function createOpenAIResponsesCompatSettingsProvider(
 	return {
 		id: "pi-fix-openai-responses-compat",
 		title: "OpenAI Responses compatibility",
-		origin: "@hheei/pi-fix",
-		description: "Compatibility workarounds for incomplete OpenAI Responses gateways.",
+		moduleName: "pi-fix",
+		origin: "@hheei/hepi-basics",
 		groups: [{ id: OPENAI_RESPONSES_COMPAT_GROUP, title: "", fields }],
 		storage: {
 			async load() {

@@ -1,7 +1,10 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type Component, Text } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
-import type { HePiRuntimeContext, ToolActivationCoordinator } from "../hepi-basics/index.js";
+import type {
+	HePiRuntimeContext,
+	ToolActivationCoordinator,
+} from "../../../hepi-basics/src/core/index.js";
 import { createAskComponent } from "./component.js";
 import { hasDialogUI, runAskFallback } from "./fallback.js";
 import {

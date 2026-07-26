@@ -1,7 +1,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { Component, TUI } from "@earendil-works/pi-tui";
-import type { HePiRuntimeContext } from "../hepi-basics/index.js";
-import { truncateToWidth } from "../hepi-basics/index.js";
+import type { HePiRuntimeContext } from "../../../hepi-basics/src/core/index.js";
+import { truncateToWidth } from "../../../hepi-basics/src/core/index.js";
 import type { TaskState } from "./model.js";
 
 const TODO_WIDGET_KEY = "pi-basics:todo";

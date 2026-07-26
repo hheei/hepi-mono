@@ -6,7 +6,7 @@ import {
 	hePiAuthenticatedModelSelectionOptions,
 	registerHePiLifecycle,
 	registerHePiSettings,
-} from "../hepi-basics/index.js";
+} from "../../../hepi-basics/src/core/index.js";
 import { registerAdvisorCommand } from "./command.js";
 import { createAdvisorFeature } from "./feature.js";
 import { parseModelRef, parseThinking } from "./model.js";

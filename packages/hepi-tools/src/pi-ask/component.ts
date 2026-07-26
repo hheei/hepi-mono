@@ -9,7 +9,7 @@ import {
 	renderTabs,
 	truncateToWidth,
 	wrap,
-} from "../hepi-basics/index.js";
+} from "../../../hepi-basics/src/core/index.js";
 import {
 	ASK_LIMITS,
 	ASK_OTHER_LABEL,

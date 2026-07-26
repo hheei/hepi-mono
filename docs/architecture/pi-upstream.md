@@ -219,19 +219,19 @@ session switch、fork 和 new 属于 session replacement：
 Pi host / upstream libraries
              ▲
              │
-       @hheei/pi-basics
+       @hheei/hepi-basics
              ▲
              │
-   independent pi-* features
+   aggregate feature modules
 ```
 
 已有边界：
 
-- `pi-basics` 是 foundation，不包含产品 feature。
-- 每个 feature 有独立 `pi.extensions` 入口。
-- feature 可以依赖 `pi-basics`，不能依赖其他 HEPI feature。
-- 跨 feature 协作必须经过 `pi-basics` contract。
-- [`package-boundaries.test.ts`](../../packages/pi-basics/test/package-boundaries.test.ts) 同时检查 manifest 依赖和源码 import。
+- `hepi-basics` owns the foundation under `src/core`; product modules remain separate inside their owning aggregate.
+- Each aggregate has one `pi.extensions` entry; internal feature modules do not publish separate entries.
+- Feature modules use the shared `core` contracts and do not import another feature's private implementation.
+- Cross-feature coordination goes through `core` contracts.
+- [`package-boundaries.test.ts`](../../packages/hepi-basics/test/package-boundaries.test.ts) checks the aggregate workspace and entry contracts.
 
 这些规则与上游方向一致。当前“乱”的主要来源不是包依赖图，而是四类责任还没有集中写清：
 
@@ -275,9 +275,9 @@ entry 不放 reducer、persistence parser、rendering algorithm 或 provider pay
 允许：
 
 ```text
-feature -> @hheei/pi-basics
-feature -> upstream Pi package（确实需要原始能力时）
-pi-basics -> upstream Pi package
+aggregate feature -> hepi-basics/src/core
+aggregate feature -> upstream Pi package（确实需要原始能力时）
+hepi-basics/src/core -> upstream Pi package
 ```
 
 禁止：
@@ -285,10 +285,10 @@ pi-basics -> upstream Pi package
 ```text
 feature A -> feature B
 pi-basics -> feature
-shared package -> concrete feature
+shared core -> concrete feature
 ```
 
-不要为了“复用两行代码”破坏方向。第二个真实消费者出现后，再把稳定、无 feature 语义的部分下沉到 `pi-basics`。
+第二个真实消费者出现后，再把稳定、无 feature 语义的部分下沉到 `hepi-basics/src/core`。
 
 ### 6.3 给 cross-feature contract 指定 owner
 
@@ -314,9 +314,9 @@ shared package -> concrete feature
 - cleanup 必须幂等；start 失败也必须清理已创建资源。
 - 不把 `ExtensionContext`、AbortController、component 或 session object 保存到 process-global state。
 
-### 6.5 把 `pi-basics` 根 export 当作稳定 API
+### 6.5 把 `hepi-basics/src/core` export 当作稳定 API
 
-feature 继续只从 `@hheei/pi-basics` package root import。新增 export 前检查：
+aggregate feature 继续只从 core 的公开入口导入。新增 export 前检查：
 
 1. 是否至少有一个明确 consumer；
 2. 是否不包含具体 feature 语义；
@@ -324,7 +324,7 @@ feature 继续只从 `@hheei/pi-basics` package root import。新增 export 前�
 4. 能否用上游 `ExtensionAPI` / `pi.events` / TUI primitive 直接完成；
 5. 是否需要 boundary test。
 
-内部目录结构不是 API。不要让 feature 通过深路径 import `pi-basics/src/**`。
+内部目录结构仍不是外部 API。aggregate feature 通过 `core/index.ts` 的公开入口导入，不使用 core 的深路径。
 
 ## 7. 推荐整理顺序
 

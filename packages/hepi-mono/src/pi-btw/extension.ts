@@ -1,5 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { HePiLifecycleController, registerHePiLifecycle } from "../hepi-basics/index.js";
+import {
+	HePiLifecycleController,
+	registerHePiLifecycle,
+} from "../../../hepi-basics/src/core/index.js";
 import { createBtwFeature } from "./feature.js";
 
 export * from "./feature.js";
