@@ -1,15 +1,13 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { Agent } from "@earendil-works/pi-agent-core";
 import { streamSimple } from "@earendil-works/pi-ai/compat";
 import {
 	convertToLlm,
 	type ExtensionAPI,
 	type ExtensionContext,
-	getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import {
 	createHePiModelSelectionField,
+	createJsonSectionSettingsStorage,
 	type HePiContext,
 	type HePiModelSelectionOption,
 	type HePiSettingField,
@@ -17,8 +15,7 @@ import {
 	type HePiSettingsState,
 	type HePiSettingsStorage,
 	hePiModelSelectionOptions,
-	updateJsonSettingsRoot,
-} from "../pi-basics/index.js";
+} from "../core/index.js";
 
 export const AUTO_TITLE_GROUP = "auto-title";
 export const AUTO_TITLE_FIELD = "autoTitle";
@@ -41,7 +38,6 @@ Requirements:
 
 Return exactly one plain-text title. No quotes, markdown, labels, trailing punctuation, or explanation.`;
 
-type JsonObject = Record<string, unknown>;
 export interface AutoTitleStorageOptions {
 	readonly path?: string;
 	readonly group?: string;
@@ -58,66 +54,12 @@ export interface AutoTitleCoordinator {
 	dispose(): void;
 }
 
-async function readRoot(path: string): Promise<JsonObject> {
-	let text: string;
-	try {
-		text = await readFile(path, "utf8");
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
-		throw error;
-	}
-	let value: unknown;
-	try {
-		value = JSON.parse(text);
-	} catch (error) {
-		throw new Error(`Invalid JSON in ${path}`, { cause: error });
-	}
-	if (value === null || typeof value !== "object" || Array.isArray(value))
-		throw new Error(`Expected JSON object root in ${path}`);
-	const section = (value as JsonObject)[SECTION];
-	if (
-		section !== undefined &&
-		(section === null || typeof section !== "object" || Array.isArray(section))
-	)
-		throw new Error(`Expected ${SECTION} to be an object in ${path}`);
-	return value as JsonObject;
-}
 export function createAutoTitleStorage(options: AutoTitleStorageOptions = {}): HePiSettingsStorage {
-	const path = options.path ?? join(getAgentDir(), "settings.json");
-	const group = options.group ?? AUTO_TITLE_GROUP;
-	return {
-		async load(): Promise<HePiSettingsState | undefined> {
-			const root = await readRoot(path);
-			const section = root[SECTION];
-			const values =
-				section && typeof section === "object" && !Array.isArray(section)
-					? (section as JsonObject)[group]
-					: undefined;
-			if (!values || typeof values !== "object" || Array.isArray(values)) return undefined;
-			return {
-				[group]: Object.fromEntries(
-					Object.entries(values).filter(
-						([, value]) =>
-							value === null ||
-							typeof value === "boolean" ||
-							typeof value === "number" ||
-							typeof value === "string",
-					),
-				),
-			};
-		},
-		async save(state: HePiSettingsState): Promise<void> {
-			await updateJsonSettingsRoot(path, (root) => {
-				const prior = root[SECTION];
-				const section: JsonObject =
-					prior && typeof prior === "object" && !Array.isArray(prior)
-						? { ...(prior as JsonObject) }
-						: {};
-				section[group] = { ...(state[group] ?? {}) };
-				root[SECTION] = section;
-			});
-		},
-	};
+	return createJsonSectionSettingsStorage({
+		...(options.path === undefined ? {} : { path: options.path }),
+		section: SECTION,
+		group: options.group ?? AUTO_TITLE_GROUP,
+	});
 }
 
 export function parseModelRef(value: string): { provider: string; model: string } {

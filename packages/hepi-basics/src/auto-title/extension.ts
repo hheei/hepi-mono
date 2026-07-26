@@ -5,7 +5,7 @@ import {
 	hePiAuthenticatedModelSelectionOptions,
 	registerHePiLifecycle,
 	registerHePiSettings,
-} from "../pi-basics/index.js";
+} from "../core/index.js";
 import {
 	createAutoTitleCoordinator,
 	createAutoTitleSettingsProvider,

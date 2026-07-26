@@ -208,6 +208,25 @@ test("HEPI composition packages expose one bundled extension entry", async () =>
 	}
 });
 
+test("hepi-basics keeps feature directories free of the package prefix", async () => {
+	const sourceDirectory = join(packagesDirectory, "hepi-basics", "src");
+	const entries = await readdir(sourceDirectory, { withFileTypes: true });
+	const directories = entries
+		.filter((entry) => entry.isDirectory())
+		.map((entry) => entry.name)
+		.sort();
+	expect(directories).toEqual([
+		"auto-title",
+		"core",
+		"dollar-skill",
+		"fix",
+		"loadout",
+		"rtk",
+		"t2s",
+	]);
+	expect(directories.filter((name) => name.startsWith("pi-"))).toEqual([]);
+});
+
 test("dependency scanner covers static and dynamic imports", () => {
 	const source = `
 		import { a } from "@hheei/pi-basics";

@@ -11,7 +11,7 @@ import type {
 	HePiSettingField,
 	HePiSettingsProvider,
 	HePiSettingsState,
-} from "../pi-basics/index.js";
+} from "../core/index.js";
 import { createDollarSkillAtomicEditor } from "./atomic-editor.js";
 import {
 	DOLLAR_SKILL_SETTINGS_GROUP,

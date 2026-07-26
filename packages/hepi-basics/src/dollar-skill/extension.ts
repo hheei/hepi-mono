@@ -5,7 +5,7 @@ import {
 	isHePiSkillEnabled,
 	registerHePiLifecycle,
 	registerHePiSettings,
-} from "../pi-basics/index.js";
+} from "../core/index.js";
 import {
 	createDollarSkillFeature,
 	createDollarSkillSettingsProvider,

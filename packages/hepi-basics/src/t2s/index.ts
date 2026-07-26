@@ -10,7 +10,7 @@ import {
 	type HePiSettingsProvider,
 	type HePiSettingsState,
 	updateJsonSettingsRoot,
-} from "../pi-basics/index.js";
+} from "../core/index.js";
 
 export const TRADITIONAL_TO_SIMPLIFIED_GROUP = "traditional-to-simplified";
 export const TRADITIONAL_TO_SIMPLIFIED_FIELD = "mode";

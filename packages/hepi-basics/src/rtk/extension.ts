@@ -4,7 +4,7 @@ import {
 	HePiLifecycleController,
 	registerHePiLifecycle,
 	registerHePiSettings,
-} from "../pi-basics/index.js";
+} from "../core/index.js";
 import { registerRtkCommand } from "./rtk/command.js";
 import { createRtkFeature } from "./rtk/feature.js";
 import { createRtkSettingsProvider } from "./rtk/settings.js";

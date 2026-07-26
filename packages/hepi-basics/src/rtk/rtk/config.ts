@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { updateJsonSettingsRoot } from "../../pi-basics/index.js";
+import { updateJsonSettingsRoot } from "../../core/index.js";
 import { normalizeRtkIntegrationConfig } from "./config-store.js";
 import { DEFAULT_RTK_INTEGRATION_CONFIG, type RtkIntegrationConfig } from "./types.js";
 

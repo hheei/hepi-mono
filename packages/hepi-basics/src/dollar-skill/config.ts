@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { updateJsonSettingsRoot } from "../pi-basics/index.js";
+import { updateJsonSettingsRoot } from "../core/index.js";
 import {
 	DEFAULT_DOLLAR_SKILL_CONFIG,
 	type DollarSkillConfig,

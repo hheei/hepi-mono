@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { HePiModule, HePiModuleView, HePiModuleViewContext } from "../pi-basics/index.js";
+import type { HePiModule, HePiModuleView, HePiModuleViewContext } from "../core/index.js";
 import { createLoadoutView } from "./component.js";
 import { createLoadoutController, type LoadoutRuntimeHandlers } from "./controller.js";
 import { createLoadoutInventoryProvider } from "./inventory.js";
