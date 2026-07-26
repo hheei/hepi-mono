@@ -5,6 +5,7 @@ import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent"
 import piFff from "pi-fff";
 import piWebAccess from "pi-web-access";
 import { hasConfiguredPackage } from "./external-compat.js";
+import { registerHePiToolsLoadoutGroups } from "./loadout-groups.js";
 import piAdvisor from "./pi-advisor/index.js";
 import piAsk from "./pi-ask/index.js";
 import piCodexTool from "./pi-codex-tool/index.js";
@@ -28,6 +29,7 @@ const hasMagicContext = hasConfiguredPackage(settings, ["@cortexkit/pi-magic-con
 const hasWebAccess = hasConfiguredPackage(settings, ["pi-web-access"]);
 
 export const hePiToolsExtensions: readonly HePiExtension[] = [
+	registerHePiToolsLoadoutGroups,
 	piAsk,
 	piGoal,
 	piSshfs,

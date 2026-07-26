@@ -115,4 +115,54 @@ describe("loadout inventory", () => {
 			"mcp:MCP placeholder:server",
 		]);
 	});
+
+	test("uses module-selected groups and keeps unselected tools on automatic groups", () => {
+		const inventory = createLoadoutInventory({
+			getLoadoutGroups: () => [
+				{ id: "module", label: "Module tools", items: ["selected", "tool:pkg:exact"] },
+			],
+			getAllTools: () => [
+				{
+					name: "selected",
+					description: "Selected",
+					parameters: {},
+					sourceInfo: { scope: "project", source: "pkg", path: "p", origin: "package" },
+				},
+				{
+					name: "other",
+					description: "Other",
+					parameters: {},
+					sourceInfo: { scope: "project", source: "pkg", path: "p", origin: "package" },
+				},
+			],
+		});
+
+		expect(inventory.items.find((item) => item.name === "selected")?.group).toBe("Module tools");
+		expect(inventory.items.find((item) => item.name === "other")?.group).toBeUndefined();
+	});
+
+	test("matches an exact Loadout key when tools share a name", () => {
+		const inventory = createLoadoutInventory({
+			getLoadoutGroups: () => [{ id: "module", label: "Module tools", items: ["tool:one:shared"] }],
+			getAllTools: () => [
+				{
+					name: "shared",
+					description: "One",
+					parameters: {},
+					sourceInfo: { scope: "user", source: "one", path: "one", origin: "package" },
+				},
+				{
+					name: "shared",
+					description: "Two",
+					parameters: {},
+					sourceInfo: { scope: "user", source: "two", path: "two", origin: "package" },
+				},
+			],
+		});
+
+		expect(inventory.items.find((item) => item.key === "tool:one:shared")?.group).toBe(
+			"Module tools",
+		);
+		expect(inventory.items.find((item) => item.key === "tool:two:shared")?.group).toBeUndefined();
+	});
 });
