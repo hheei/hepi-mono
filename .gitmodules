@@ -1,6 +1,3 @@
-[submodule "packages/pi-magic-context"]
-	path = packages/pi-magic-context
-	url = https://github.com/hheei/magic-context.git
 [submodule "packages/pi-subagents"]
 	path = packages/pi-subagents
 	url = https://github.com/hheei/pi-subagents.git
