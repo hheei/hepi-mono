@@ -1,6 +1,9 @@
 # Getting Started
 
-HEPI can be installed as one unified package or as independent Pi extensions. Use `@hheei/hepi-mono` to load the current runtime modules together. Install individual `@hheei/pi-*` packages when you want a smaller selection.
+HEPI can be installed as one unified package, three one-entry groups, or
+independent Pi extensions. Use `@hheei/hepi-mono` to load the current runtime
+modules together. Use the groups when you want fewer JIT entry traversals than
+individual packages while keeping a smaller selection.
 
 ## Unified Install
 
@@ -9,6 +12,19 @@ pi install npm:@hheei/hepi-mono
 ```
 
 The unified package loads Pi Basics first, then Loadout and the remaining runtime modules. It excludes the development-only `pi-debug` package.
+
+## Grouped Install
+
+```bash
+pi install npm:@hheei/hepi-basics
+pi install npm:@hheei/hepi-tools
+pi install npm:@hheei/hepi-skills
+```
+
+`hepi-basics` contains the foundational runtime. `hepi-tools` and
+`hepi-skills` require it to be loaded first. Each group exposes one Pi
+extension entry. Do not install a group together with its individual packages
+or with `hepi-mono`.
 
 ## Individual Install
 

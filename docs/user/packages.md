@@ -5,6 +5,9 @@ Every HEPI workspace under `packages/` is maintained and published under the `@h
 | Package | Purpose | HEPI prerequisite |
 | --- | --- | --- |
 | [`hepi-mono`](../../packages/hepi-mono/README.md) | Unified loader for the current runtime modules | Includes Pi Basics |
+| [`hepi-basics`](../../packages/hepi-basics/README.md) | One-entry foundational runtime group | None |
+| [`hepi-tools`](../../packages/hepi-tools/README.md) | One-entry tool and agent group | HEPI Basics |
+| [`hepi-skills`](../../packages/hepi-skills/README.md) | One-entry skills group | HEPI Basics |
 | [`pi-basics`](../../packages/pi-basics/README.md) | Session lifecycle, settings UI, status, shared TUI, and runtime coordination | None |
 | [`pi-advisor`](../../packages/pi-advisor/README.md) | Read-only turn review advisor | Pi Basics |
 | [`pi-ask`](../../packages/pi-ask/README.md) | Structured interactive questions | Pi Basics |

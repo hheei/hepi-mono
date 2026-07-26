@@ -21,7 +21,16 @@ Install all current runtime modules through the unified package:
 pi install npm:@hheei/hepi-mono
 ```
 
-Or install packages individually when you want a smaller selection:
+Or install one-entry groups when you want a smaller selection:
+
+```bash
+pi install npm:@hheei/hepi-basics
+pi install npm:@hheei/hepi-tools
+pi install npm:@hheei/hepi-skills
+```
+
+The tools and skills groups require `hepi-basics`. Do not install a group
+together with the same individual packages:
 
 ```bash
 pi install npm:@hheei/pi-basics
@@ -57,7 +66,7 @@ bun run pi:dev -- --all                # every workspace extension
 bun run pi:dev -- basics -- --model openai/gpt-5
 ```
 
-Load `@hheei/pi-basics` before feature packages. Loadout must run after Pi Basics so both use the same tool-activation coordinator. The unified `@hheei/hepi-mono` package preserves this order.
+Load `@hheei/pi-basics` before feature packages. Loadout must run after Pi Basics so both use the same tool-activation coordinator. The three group packages and unified `@hheei/hepi-mono` preserve this order. Each group has one Pi extension entry; `hepi-mono` remains the one-entry full profile.
 
 Create a package from the extension template:
 

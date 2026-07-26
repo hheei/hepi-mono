@@ -1,0 +1,56 @@
+{
+	"name": "@hheei/hepi-skills",
+	"version": "0.0.0",
+	"description": "HEPI communication and engineering skills group for Pi.",
+	"type": "module",
+	"main": "src/index.ts",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"files": [
+		"src",
+		"README.md",
+		"LICENSE"
+	],
+	"pi": {
+		"extensions": [
+			"src/extension.ts"
+		],
+		"skills": [
+			"node_modules/@hheei/pi-ponytail/skills"
+		]
+	},
+	"keywords": [
+		"pi",
+		"pi-package",
+		"pi-extension",
+		"hepi",
+		"skills"
+	],
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/hheei/hepi-mono.git",
+		"directory": "packages/hepi-skills"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"bundledDependencies": [
+		"@hheei/pi-caveman",
+		"@hheei/pi-ponytail"
+	],
+	"dependencies": {
+		"@hheei/pi-caveman": "workspace:*",
+		"@hheei/pi-ponytail": "workspace:*"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": ">=0.82.0",
+		"@hheei/pi-basics": ">=0.0.0"
+	},
+	"devDependencies": {
+		"@earendil-works/pi-coding-agent": "^0.82.0",
+		"@types/bun": "latest",
+		"@hheei/pi-basics": "workspace:*"
+	}
+}
