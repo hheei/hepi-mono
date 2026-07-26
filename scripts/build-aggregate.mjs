@@ -20,6 +20,9 @@ const external = [
 	"typebox",
 	"typebox/*",
 	"ffi-rs",
+	"@ff-labs/fff-bun",
+	"@ff-labs/fff-node",
+	"@ff-labs/fff-bin-*",
 ];
 const alias = {
 	"@mariozechner/pi-agent-core": "@earendil-works/pi-agent-core",
