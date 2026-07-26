@@ -1,8 +1,8 @@
 import { isAbsolute, relative } from "node:path";
 import { keyHint, renderDiff } from "@earendil-works/pi-coding-agent";
-import { openFileAtPath } from "../../patch/paths.ts";
-import { parsePatchActions } from "../../patch/parser.ts";
-import type { ParsedPatchAction } from "../../patch/types.ts";
+import { parsePatchActions } from "../../patch/parser.js";
+import { openFileAtPath } from "../../patch/paths.js";
+import type { ParsedPatchAction } from "../../patch/types.js";
 
 interface PreviewLine {
 	lineNumber: number;
@@ -45,15 +45,22 @@ export function formatApplyPatchSummary(patchText: string, cwd = process.cwd()):
 	const lines: string[] = [];
 
 	if (files.length === 1) {
-		const file = files[0]!;
-		lines.push(`${bulletHeader(file.verb, formatPatchTarget(file.path, file.movePath, cwd))} ${renderCounts(file.added, file.removed)}`);
+		const file = files[0];
+		if (file === undefined) return "";
+		lines.push(
+			`${bulletHeader(file.verb, formatPatchTarget(file.path, file.movePath, cwd))} ${renderCounts(file.added, file.removed)}`,
+		);
 		return lines.join("\n");
 	}
 
-	lines.push(`${bulletHeader("Edited", `${files.length} files`)} ${renderCounts(totalAdded, totalRemoved)}`);
+	lines.push(
+		`${bulletHeader("Edited", `${files.length} files`)} ${renderCounts(totalAdded, totalRemoved)}`,
+	);
 	for (const [index, file] of files.entries()) {
 		const prefix = index === 0 ? "  └ " : "    ";
-		lines.push(`${prefix}${formatPatchTarget(file.path, file.movePath, cwd)} ${renderCounts(file.added, file.removed)}`);
+		lines.push(
+			`${prefix}${formatPatchTarget(file.path, file.movePath, cwd)} ${renderCounts(file.added, file.removed)}`,
+		);
 	}
 
 	return lines.join("\n");
@@ -77,25 +84,36 @@ export function formatApplyPatchCall(patchText: string, cwd = process.cwd()): st
 	const lines: string[] = [];
 
 	if (files.length === 1) {
-		const file = files[0]!;
-		lines.push(`${bulletHeader(file.verb, formatPatchTarget(file.path, file.movePath, cwd))} ${renderCounts(file.added, file.removed)}`);
+		const file = files[0];
+		if (file === undefined) return "";
+		lines.push(
+			`${bulletHeader(file.verb, formatPatchTarget(file.path, file.movePath, cwd))} ${renderCounts(file.added, file.removed)}`,
+		);
 		lines.push(...file.lines.map((line) => formatPreviewLine(line, file.lines)));
 		return lines.join("\n");
 	}
 
-	lines.push(`${bulletHeader("Edited", `${files.length} files`)} ${renderCounts(totalAdded, totalRemoved)}`);
+	lines.push(
+		`${bulletHeader("Edited", `${files.length} files`)} ${renderCounts(totalAdded, totalRemoved)}`,
+	);
 	for (const [index, file] of files.entries()) {
 		if (index > 0) {
 			lines.push("");
 		}
-		lines.push(`  └ ${formatPatchTarget(file.path, file.movePath, cwd)} ${renderCounts(file.added, file.removed)}`);
+		lines.push(
+			`  └ ${formatPatchTarget(file.path, file.movePath, cwd)} ${renderCounts(file.added, file.removed)}`,
+		);
 		lines.push(...file.lines.map((line) => formatPreviewLine(line, file.lines)));
 	}
 
 	return lines.join("\n");
 }
 
-export function formatApplyPatchCollapsedDiff(patchText: string, cwd = process.cwd(), maxPreviewLines = 10): string {
+export function formatApplyPatchCollapsedDiff(
+	patchText: string,
+	cwd = process.cwd(),
+	maxPreviewLines = 10,
+): string {
 	const full = renderApplyPatchCall(patchText, cwd);
 	if (!full) return formatApplyPatchSummary(patchText, cwd);
 	const fullLines = full.split("\n");
@@ -126,18 +144,25 @@ export function renderApplyPatchCall(patchText: string, cwd = process.cwd()): st
 	const lines: string[] = [];
 
 	if (files.length === 1) {
-		const file = files[0]!;
-		lines.push(`${bulletHeader(file.verb, formatPatchTarget(file.path, file.movePath, cwd))} ${renderCounts(file.added, file.removed)}`);
+		const file = files[0];
+		if (file === undefined) return "";
+		lines.push(
+			`${bulletHeader(file.verb, formatPatchTarget(file.path, file.movePath, cwd))} ${renderCounts(file.added, file.removed)}`,
+		);
 		lines.push(...renderPreviewLines(file.lines));
 		return lines.join("\n");
 	}
 
-	lines.push(`${bulletHeader("Edited", `${files.length} files`)} ${renderCounts(totalAdded, totalRemoved)}`);
+	lines.push(
+		`${bulletHeader("Edited", `${files.length} files`)} ${renderCounts(totalAdded, totalRemoved)}`,
+	);
 	for (const [index, file] of files.entries()) {
 		if (index > 0) {
 			lines.push("");
 		}
-		lines.push(`  └ ${formatPatchTarget(file.path, file.movePath, cwd)} ${renderCounts(file.added, file.removed)}`);
+		lines.push(
+			`  └ ${formatPatchTarget(file.path, file.movePath, cwd)} ${renderCounts(file.added, file.removed)}`,
+		);
 		lines.push(...renderPreviewLines(file.lines));
 	}
 
@@ -178,7 +203,10 @@ function buildFilePreview(action: ParsedPatchAction, cwd: string): FilePreview {
 	};
 }
 
-function buildUpdatePreview(action: ParsedPatchAction, cwd: string): { added: number; removed: number; lines: PreviewLine[] } {
+function buildUpdatePreview(
+	action: ParsedPatchAction,
+	cwd: string,
+): { added: number; removed: number; lines: PreviewLine[] } {
 	if (!action.lines) {
 		return { added: 0, removed: 0, lines: [] };
 	}
@@ -192,8 +220,8 @@ function buildUpdatePreview(action: ParsedPatchAction, cwd: string): { added: nu
 	let index = 0;
 
 	while (index < action.lines.length) {
-		const line = action.lines[index]!;
-		if (line === "*** End of File") {
+		const line = action.lines[index];
+		if (line === undefined || line === "*** End of File") {
 			break;
 		}
 		if (!line.startsWith("@@")) {
@@ -203,8 +231,15 @@ function buildUpdatePreview(action: ParsedPatchAction, cwd: string): { added: nu
 
 		index += 1;
 		const sectionLines: string[] = [];
-		while (index < action.lines.length && !action.lines[index]!.startsWith("@@") && action.lines[index] !== "*** End of File") {
-			sectionLines.push(action.lines[index]!);
+		while (index < action.lines.length) {
+			const sectionLine = action.lines[index];
+			if (
+				sectionLine === undefined ||
+				sectionLine.startsWith("@@") ||
+				sectionLine === "*** End of File"
+			)
+				break;
+			sectionLines.push(sectionLine);
 			index += 1;
 		}
 
@@ -265,7 +300,9 @@ function renderPreviewLines(lines: PreviewLine[]): string[] {
 
 	const numberWidth = Math.max(1, ...lines.map((entry) => String(entry.lineNumber).length));
 	const diffText = lines
-		.map((line) => `${line.marker}${String(line.lineNumber).padStart(numberWidth, " ")} ${line.text}`)
+		.map(
+			(line) => `${line.marker}${String(line.lineNumber).padStart(numberWidth, " ")} ${line.text}`,
+		)
 		.join("\n");
 	try {
 		return renderDiff(diffText)
@@ -278,7 +315,7 @@ function renderPreviewLines(lines: PreviewLine[]): string[] {
 
 function normalizePatchLine(rawLine: string): PreviewLine {
 	const normalized = rawLine === "" ? " " : rawLine;
-	const marker = normalized[0]!;
+	const marker = normalized[0];
 	if (marker !== " " && marker !== "+" && marker !== "-") {
 		return { lineNumber: 0, marker: " ", text: rawLine };
 	}
@@ -308,11 +345,22 @@ function findMatchingSequence(lines: string[], context: string[], start: number)
 	return start;
 }
 
-function findSequence(lines: string[], context: string[], start: number, normalize: (value: string) => string): number {
+function findSequence(
+	lines: string[],
+	context: string[],
+	start: number,
+	normalize: (value: string) => string,
+): number {
 	for (let lineIndex = start; lineIndex <= lines.length - context.length; lineIndex += 1) {
 		let matches = true;
 		for (let contextIndex = 0; contextIndex < context.length; contextIndex += 1) {
-			if (normalize((lines[lineIndex + contextIndex])!) !== normalize(context[contextIndex]!)) {
+			const line = lines[lineIndex + contextIndex];
+			const contextLine = context[contextIndex];
+			if (
+				line === undefined ||
+				contextLine === undefined ||
+				normalize(line) !== normalize(contextLine)
+			) {
 				matches = false;
 				break;
 			}

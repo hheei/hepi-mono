@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
-import { DiffError } from "./types.ts";
+import { DiffError } from "./types.js";
 
 export function normalizePatchPath({ path }: { path: string }): string {
 	const trimmed = path.trim();
@@ -27,7 +27,15 @@ export function openFileAtPath({ cwd, path }: { cwd: string; path: string }): st
 	return readFileSync(absolutePath, "utf8");
 }
 
-export function writeFileAtPath({ cwd, path, content }: { cwd: string; path: string; content: string }): { created: boolean } {
+export function writeFileAtPath({
+	cwd,
+	path,
+	content,
+}: {
+	cwd: string;
+	path: string;
+	content: string;
+}): { created: boolean } {
 	const absolutePath = resolvePatchPath({ cwd, patchPath: path });
 	const created = !existsSync(absolutePath);
 	mkdirSync(dirname(absolutePath), { recursive: true });

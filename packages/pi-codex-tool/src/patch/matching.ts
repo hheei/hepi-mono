@@ -14,13 +14,22 @@ export function linesMatch(left: string, right: string): boolean {
 	return left === right || left.trimEnd() === right.trimEnd();
 }
 
-export function linesEqualFuzz({ left, right }: { left: string[]; right: string[] }): LinesMatchQuality | undefined {
+export function linesEqualFuzz({
+	left,
+	right,
+}: {
+	left: string[];
+	right: string[];
+}): LinesMatchQuality | undefined {
 	if (left.length !== right.length) return undefined;
 
 	let fuzz = 0;
 	let worstLineFuzz = 0;
 	for (let index = 0; index < left.length; index++) {
-		const lineFuzz = lineMatchFuzz(left[index]!, right[index]!);
+		const leftLine = left[index];
+		const rightLine = right[index];
+		if (leftLine === undefined || rightLine === undefined) return undefined;
+		const lineFuzz = lineMatchFuzz(leftLine, rightLine);
 		if (lineFuzz === undefined) return undefined;
 		fuzz += lineFuzz;
 		worstLineFuzz = Math.max(worstLineFuzz, lineFuzz);

@@ -1,10 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { mergeAdapterTools, restoreTools, stripAdapterTools } from "./adapter/activation/activation.ts";
-import { getCodexSkillPaths } from "./adapter/prompt/skills.ts";
-import { registerCodexConversion } from "./extension/register.ts";
+import { registerApplyPatchTool } from "./tools/apply-patch/tool.js";
 
-export default async function codexConversion(pi: ExtensionAPI): Promise<void> {
-	await registerCodexConversion(pi);
+export default function applyPatchExtension(pi: ExtensionAPI): void {
+	registerApplyPatchTool(pi);
 }
-
-export { getCodexSkillPaths, mergeAdapterTools, restoreTools, stripAdapterTools };

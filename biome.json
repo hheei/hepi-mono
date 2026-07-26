@@ -18,7 +18,6 @@
 			"templates/**/*.json",
 			"test/**/*.ts",
 			"!packages/pi-subagents",
-			"!packages/pi-codex-tool",
 			"!**/node_modules",
 			"!**/dist",
 			"!**/.pi",
