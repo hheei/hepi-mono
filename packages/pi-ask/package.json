@@ -26,7 +26,7 @@
 		"@hheei/pi-debug": "workspace:*"
 	},
 	"peerDependencies": {
-		"@earendil-works/pi-coding-agent": ">=0.80.10",
+		"@earendil-works/pi-coding-agent": ">=0.82.0",
 		"@earendil-works/pi-tui": "*",
 		"@hheei/pi-basics": ">=0.0.0"
 	},

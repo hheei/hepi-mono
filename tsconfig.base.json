@@ -18,6 +18,7 @@
 	"exclude": [
 		"packages/pi-magic-context/**",
 		"packages/pi-subagents/**",
+		"packages/pi-codex-tool/**",
 		"**/node_modules/**",
 		"**/dist/**",
 		"**/.pi/**"

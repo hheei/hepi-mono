@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Agent } from "@earendil-works/pi-agent-core";
+import { streamSimple } from "@earendil-works/pi-ai/compat";
 import {
 	convertToLlm,
 	type ExtensionAPI,
@@ -342,6 +343,7 @@ export function createCoreAutoTitleAgent(
 		},
 		convertToLlm,
 		getApiKey: (providerName) => runtime.ctx.modelRegistry.getApiKeyForProvider(providerName),
+		streamFn: streamSimple,
 	});
 	return {
 		prompt: async (prompt) => {
