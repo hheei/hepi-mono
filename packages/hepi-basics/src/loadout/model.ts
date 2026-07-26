@@ -54,6 +54,8 @@ export interface LoadoutItem {
 	readonly tokenCount?: number;
 	readonly parentMcpKey?: `mcp:${string}`;
 	readonly conflictGroup?: string;
+	/** Module-provided group label. Undefined means group by origin. */
+	readonly group?: string;
 }
 
 export interface LoadoutResolvedItem extends LoadoutItem {
@@ -235,12 +237,17 @@ function loadoutOriginGroup(origin: string): string {
 	return path.split(/[\\/]/).at(-1) || normalized;
 }
 
+function loadoutItemGroup(item: LoadoutItem): string {
+	const group = item.group?.trim();
+	return group || loadoutOriginGroup(item.origin);
+}
+
 export function groupLoadoutItemsByOrigin(
 	items: readonly LoadoutItem[],
 ): readonly LoadoutSourceGroup[] {
 	const groups = new Map<string, LoadoutItem[]>();
 	for (const item of items) {
-		const origin = loadoutOriginGroup(item.origin);
+		const origin = loadoutItemGroup(item);
 		const group = groups.get(origin);
 		if (group) group.push(item);
 		else groups.set(origin, [item]);
@@ -261,7 +268,7 @@ export function filterLoadoutItems(
 	const needle = query.trim().toLocaleLowerCase();
 	if (!needle) return sortLoadoutItems(items);
 	return sortLoadoutItems(items).filter((item) =>
-		[item.key, item.name, item.origin, item.description, item.instruction]
+		[item.key, item.name, item.origin, item.group, item.description, item.instruction]
 			.filter((value): value is string => value !== undefined)
 			.some((value) => value.toLocaleLowerCase().includes(needle)),
 	);

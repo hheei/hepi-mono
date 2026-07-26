@@ -179,6 +179,15 @@ describe("loadout model", () => {
 		expect(groupLoadoutItemsByOrigin([item]).map((group) => group.origin)).toEqual(["hepi-tools"]);
 	});
 
+	test("uses a module-provided group label before origin fallback", () => {
+		const selected = tool("tool:selected", { origin: "extension", group: "Selected tools" });
+		const automatic = tool("tool:automatic", { origin: "extension" });
+		expect(groupLoadoutItemsByOrigin([selected, automatic]).map((group) => group.origin)).toEqual([
+			"Selected tools",
+			"extension",
+		]);
+	});
+
 	test("reconciles selection by identity, then group successor, then first visible", () => {
 		const all = [tool("tool:a"), tool("tool:b"), tool("tool:c"), projectOnly("skill:x")];
 		expect(reconcileLoadoutSelection(all, "tool:b")).toBe("tool:b");
