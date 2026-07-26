@@ -4,7 +4,7 @@ import {
 	HePiLifecycleController,
 	registerHePiLifecycle,
 	registerHePiToolDisableHandler,
-} from "../hepi-basics/index.js";
+} from "../../../hepi-basics/src/core/index.js";
 import { createGoalFeature } from "./feature.js";
 
 export default function piGoalExtension(pi: ExtensionAPI): void {

@@ -5,7 +5,7 @@ import type {
 	HePiSettingField,
 	HePiSettingsProvider,
 	HePiSettingsState,
-} from "../hepi-basics/index.js";
+} from "../../../hepi-basics/src/core/index.js";
 import {
 	CAVEMAN_INTENSITIES,
 	type CavemanMode,
@@ -56,7 +56,7 @@ export function createCavemanSettingsProvider(
 	return {
 		id: CAVEMAN_SETTINGS_PROVIDER_ID,
 		title: "Caveman defaults",
-		origin: "@hheei/pi-caveman",
+		origin: "@hheei/hepi-skills",
 		description: "Default communication modes for main agents and pi-subagents.",
 		groups: [
 			{
@@ -82,7 +82,7 @@ export function createCavemanSettingsProvider(
 				return defaultsToState(await loadCavemanDefaults(settingsFilePath));
 			},
 			async save(state: HePiSettingsState): Promise<void> {
-				const { updateJsonSettingsRoot } = await import("../hepi-basics/index.js");
+				const { updateJsonSettingsRoot } = await import("../../../hepi-basics/src/core/index.js");
 				await updateJsonSettingsRoot(settingsFilePath, (root) => {
 					const currentSection = asRecord(root[CAVEMAN_SETTINGS_PROVIDER_ID]);
 					const nextSection: JsonObject = currentSection === undefined ? {} : { ...currentSection };

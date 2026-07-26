@@ -2,32 +2,22 @@
 
 This guide is the fast path for building Pi extensions in `hepi-mono`.
 
-## Start Here
+## Add a Module
 
-Use one package per extension:
+New HEPI functionality belongs inside one aggregate source tree:
 
 ```text
 packages/
-  pi-my-extension/
-    package.json
-    README.md
-    src/index.ts
+  hepi-basics/src/<module>/
+  hepi-tools/src/<module>/
+  hepi-skills/src/<module>/
+  hepi-mono/src/<module>/
 ```
 
-Package names must use the `@hheei/pi-xxxx` pattern. The package directory should use the matching unscoped name, for example `packages/pi-my-extension`.
-
-Create a new extension from the template:
-
-```bash
-bun run new:extension -- pi-my-extension
-```
-
-The script also accepts names without the prefix and adds it:
-
-```bash
-bun run new:extension -- my-extension
-# creates packages/pi-my-extension
-```
+Choose the smallest aggregate that owns the feature. Shared runtime contracts
+live in `packages/hepi-basics/src/core`; feature modules keep their own state
+and behavior. Top-level `packages/pi-*` workspaces are deprecated and are not
+created anymore.
 
 ## Development Commands
 
@@ -54,7 +44,9 @@ bun run check:fix
 
 ## Extension Entry Point
 
-Pi loads TypeScript extension entries through `jiti`, so extensions should normally expose `src/index.ts` directly.
+Pi loads the aggregate entry declared by `pi.extensions`. Add the module factory
+to the owning aggregate's `src/extension.ts` in registration order, then build
+the aggregate before testing it.
 
 A minimal extension looks like this:
 
@@ -71,31 +63,22 @@ export default function extension(pi: ExtensionAPI) {
 }
 ```
 
-Each extension package must declare the Pi entry in `package.json`:
-
-```json
-{
-	"name": "@hheei/pi-my-extension",
-	"type": "module",
-	"main": "src/index.ts",
-	"pi": {
-		"extensions": ["src/index.ts"]
-	}
-}
-```
+Do not create a second package manifest for an aggregate module. The aggregate
+manifest owns the published entry and the build script bundles its source tree.
 
 ## Local Testing in Pi
 
-Run an extension directly for isolated local testing:
+Build and run the aggregate entry directly:
 
 ```bash
-pi --no-extensions --no-skills -e packages/pi-my-extension/src/index.ts
+bun run build:aggregates
+pi --no-extensions --no-skills -e packages/hepi-tools/dist/extension.js
 ```
 
 Pass extra Pi flags normally:
 
 ```bash
-pi --no-extensions --no-skills -e packages/pi-my-extension/src/index.ts --model openai/gpt-5
+pi --no-extensions --no-skills -e packages/hepi-tools/dist/extension.js --model openai/gpt-5
 ```
 
 ## TUI Guidelines
@@ -117,12 +100,13 @@ When writing custom TUI components:
 
 ## Package Checklist
 
-Before considering an extension package ready:
+Before considering an aggregate module ready:
 
-- `package.json` has `name`, `main`, `files`, `pi.extensions`, `keywords`, and peer dependencies
+- the module is in the smallest owning aggregate
+- shared contracts come from `packages/hepi-basics/src/core`
 - command names are stable and start with `pi-` where practical
 - modules and settings use the `pi.events`-scoped runtime registries during `session_start`; their returned disposers are owned by the runtime lifecycle
-- README documents commands and local testing
+- the aggregate README documents user-visible behavior and local testing
 - `bun run check` passes
 
 ## Agent Workflow
@@ -130,7 +114,7 @@ Before considering an extension package ready:
 When an agent adds or changes an extension:
 
 1. Read `AGENTS.md` and this document.
-2. Create or update one package under `packages/*`.
+2. Add or update one module under the owning aggregate.
 3. Keep host UI ownership within the extension that renders it.
 4. Run focused verification.
 5. Report changed files and verification results.

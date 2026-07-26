@@ -5,7 +5,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
-import type { HePiRuntimeContext } from "../hepi-basics/index.js";
+import type { HePiRuntimeContext } from "../../../hepi-basics/src/core/index.js";
 import type { PlanConfirmationResult, PlanThinkingLevel } from "./confirmation.js";
 import { createPlanConfirmationComponent } from "./confirmation.js";
 import {

@@ -49,7 +49,7 @@ export function createRtkSettingsProvider(
 	return {
 		id: "pi-basics-rtk",
 		title: "RTK",
-		origin: "@pi-rtk",
+		origin: "@hheei/hepi-basics",
 		description: "RTK command rewriting and tool output compaction.",
 		groups: [{ id: GROUP, title: "", fields }],
 		storage: {

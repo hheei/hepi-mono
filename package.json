@@ -19,9 +19,8 @@
 		"build:aggregates": "bun scripts/build-aggregate.mjs --all",
 		"test": "bun run build:aggregates && bun test --path-ignore-patterns='**/references/**' --path-ignore-patterns='packages/pi-magic-context/**' --path-ignore-patterns='packages/pi-subagents/**'",
 		"typecheck": "bun run build:aggregates && tsc --noEmit -p tsconfig.base.json",
-		"new:extension": "bun scripts/create-extension.mjs",
-		"tui:replay": "bun packages/pi-debug/src/tui-replay.ts",
-		"tui:replay:session": "bun packages/pi-debug/src/tui-replay-session.ts"
+		"tui:replay": "bun packages/hepi-debug/src/tui-replay.ts",
+		"tui:replay:session": "bun packages/hepi-debug/src/tui-replay-session.ts"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.0",

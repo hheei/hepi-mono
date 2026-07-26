@@ -124,7 +124,8 @@ export function createApplyPatchGuardSettingsProvider(
 	return {
 		id: "pi-fix-apply-patch-guard",
 		title: "Guard patch",
-		origin: "@hheei/pi-fix",
+		origin: "@hheei/hepi-basics",
+		moduleName: "pi-fix",
 		groups: [{ id: GUARD_PATCH_GROUP, title: "Compatibility", fields: [modeField] }],
 		storage: {
 			async load() {

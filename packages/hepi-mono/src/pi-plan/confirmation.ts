@@ -9,7 +9,7 @@ import {
 	renderSelectableRow,
 	truncateToWidth,
 	wrap,
-} from "../hepi-basics/index.js";
+} from "../../../hepi-basics/src/core/index.js";
 
 export type PlanThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 export type PlanImplementationMode = "compact" | "new" | "continue";

@@ -44,10 +44,11 @@ Do not introduce npm, Yarn, or pnpm lockfiles.
 
 ## Package Boundaries
 
-- Keep each HEPI-owned Pi extension in its own `packages/pi-*` workspace and declare its entry under `pi.extensions`.
+- Keep each HEPI-owned Pi extension in an aggregate `packages/hepi-*` workspace and declare its entry under `pi.extensions`.
+- Deprecated top-level `packages/pi-*` feature workspaces are not part of the current source or publish layout.
 - Do not place external repositories, source snapshots, or vendored reference code under `packages/`; keep ignored local clones under `references/repos/` and record their URL and revision in `references/README.md`.
-- Use package-root exports from `@hheei/pi-basics` for new HEPI integrations.
-- Load `@hheei/pi-basics` before `@hheei/pi-loadout`; Loadout must coordinate the host active-tool list through the Pi Basics `ToolActivationCoordinator`.
+- Use package-local aggregate source imports for new HEPI integrations. Shared Basics contracts live under `packages/hepi-basics/src/core`.
+- Loadout must coordinate the host active-tool list through the Pi Basics `ToolActivationCoordinator`.
 - Keep runtime state session-scoped and cleanup idempotent unless persistence is explicitly part of the feature contract.
 
 ## Documentation
@@ -60,4 +61,4 @@ Do not introduce npm, Yarn, or pnpm lockfiles.
 
 ## Pi Basics TUI
 
-Follow `DESIGN.md` and reuse primitives under `packages/pi-basics/src/ui/`. Keep output ANSI- and cell-width-safe, request rendering after state changes, and add focused tests for changed narrow and wide layouts.
+Follow `DESIGN.md` and reuse primitives under `packages/hepi-basics/src/core/ui/`. Keep output ANSI- and cell-width-safe, request rendering after state changes, and add focused tests for changed narrow and wide layouts.

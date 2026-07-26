@@ -1,9 +1,8 @@
 # Getting Started
 
-HEPI can be installed as one unified package, three one-entry groups, or
-independent Pi extensions. Use `@hheei/hepi-mono` to load the current runtime
-modules together. Use the groups when you want fewer JIT entry traversals than
-individual packages while keeping a smaller selection.
+HEPI can be installed as one unified package or one of three one-entry
+aggregate groups. Use `@hheei/hepi-mono` to load all current runtime modules.
+Use a group when you want a smaller selection.
 
 ## Unified Install
 
@@ -11,7 +10,7 @@ individual packages while keeping a smaller selection.
 pi install npm:@hheei/hepi-mono
 ```
 
-The unified package loads Pi Basics first, then Loadout and the remaining runtime modules. It excludes the development-only `pi-debug` package.
+The unified package excludes the development-only `hepi-debug` package.
 
 ## Grouped Install
 
@@ -22,33 +21,17 @@ pi install npm:@hheei/hepi-skills
 ```
 
 Each group contains its own bundled implementation and exposes one Pi
-extension entry. Do not install a group together with its individual packages
-or with `hepi-mono`.
-
-## Individual Install
-
-```bash
-pi install npm:@hheei/pi-basics
-pi install npm:@hheei/pi-todo
-```
-
-Load `@hheei/pi-basics` before feature packages. Loadout must load after Pi Basics. Do not enable the unified package together with the same individual packages, or Pi may register duplicate commands, handlers, status entries, or Settings providers.
+extension entry. Do not install a group together with `hepi-mono`; their
+implementations overlap.
 
 ## Local Checkout
 
-From the repository root:
+Build the aggregate packages, then install the selected bundle:
 
 ```bash
 bun install
 bun run build:aggregates
 pi install ./packages/hepi-mono
-```
-
-Or install individual local packages:
-
-```bash
-pi install ./packages/pi-basics
-pi install ./packages/pi-todo
 ```
 
 Use `-l` with `pi install` for project-local installation.

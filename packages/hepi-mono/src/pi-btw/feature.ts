@@ -4,7 +4,7 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import type { HePiRuntimeContext } from "../hepi-basics/index.js";
+import type { HePiRuntimeContext } from "../../../hepi-basics/src/core/index.js";
 import { type BtwComponentController, createBtwComponent } from "./component.js";
 import { executeBtwTurn } from "./executor.js";
 import {

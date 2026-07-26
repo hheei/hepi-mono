@@ -169,7 +169,7 @@ export function createDollarSkillSettingsProvider(
 	return {
 		id: "pi-basics-dollar-skill",
 		title: "Dollar skill references",
-		origin: "@pi-basics",
+		origin: "@hheei/hepi-basics",
 		description: "Skill autocomplete and prompt-time path references.",
 		groups: [{ id: DOLLAR_SKILL_SETTINGS_GROUP, title: "", fields }],
 		storage: {

@@ -1,12 +1,15 @@
 # Pi Basics Development
 
-`@hheei/pi-basics` is the shared HEPI foundation. It does not bundle product features. Each feature lives in a separate `packages/pi-*` workspace and may depend on `@hheei/pi-basics` plus Pi/runtime libraries, but never on another HEPI feature package.
+`@hheei/hepi-basics` is the shared HEPI foundation inside the aggregate source
+layout. Its core lives at `packages/hepi-basics/src/core`; feature modules in
+the aggregate keep their own implementation and use core contracts for shared
+runtime behavior.
 
 ## Foundation Responsibilities
 
 - session lifecycle, registry, and context contracts
 - `/hepi` routing and shared Settings TUI
-- ANSI-safe terminal primitives in `src/ui/`
+- ANSI-safe terminal primitives in `src/core/ui/`
 - Settings/module registries and JSON section storage
 - statusbar, patch guard, active-tool coordination, and capability bridges
 
@@ -14,9 +17,9 @@
 
 ## Feature Integration
 
-Feature extensions load alongside `pi-basics`. Resolve their contribution registries with `getHePiRuntimeSettingsRegistry(pi)` and `getHePiRuntimeModuleRegistry(pi)`, then register Settings providers and command surfaces during `session_start`. Use `HePiLifecycleController` for session state and cleanup. Import only from the `@hheei/pi-basics` package root.
+Feature modules load in aggregate registration order. Resolve their contribution registries with `getHePiRuntimeSettingsRegistry(pi)` and `getHePiRuntimeModuleRegistry(pi)`, then register Settings providers and command surfaces during `session_start`. Use `HePiLifecycleController` for session state and cleanup. Import shared contracts from `packages/hepi-basics/src/core` during source development.
 
-Cross-feature support must use a `pi-basics` contract. Do not import another feature package. Runtime-shared contracts use `pi.events` as the Pi runtime identity because each loaded extension receives a different `ExtensionAPI` facade.
+Cross-feature support must use a core contract. Do not import another feature's private implementation. Runtime-shared contracts use `pi.events` as the Pi runtime identity because each loaded extension receives a different `ExtensionAPI` facade.
 
 ### Cross-Feature Contracts
 
@@ -30,7 +33,7 @@ Registration IDs must be non-empty. Duplicate tool disable handlers are programm
 
 Module and settings contributions follow the same ownership rule. Register them inside `session_start`, immediately add the returned disposer to `runtime.registry`, and let `session_shutdown` remove them. Registration disposers are idempotent and remove only their exact registration generation, even when the same object is registered again. Do not use `replace()` to hide duplicate IDs from the same active extension generation.
 
-Use `pi.events` directly only for namespaced notifications without shared state ownership. Use a `pi-basics` contract for coordinated state or request/response semantics. Do not add a generic registry until at least two concrete contracts need identical ownership and collision behavior.
+Use `pi.events` directly only for namespaced notifications without shared state ownership. Use a core contract for coordinated state or request/response semantics. Do not add a generic registry until at least two concrete contracts need identical ownership and collision behavior.
 
 ## TUI
 

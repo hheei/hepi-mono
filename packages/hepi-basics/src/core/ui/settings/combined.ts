@@ -71,7 +71,7 @@ export function combineSettingsProviders(
 	return {
 		id: "pi-basics-settings",
 		title: "Pi Basics",
-		origin: "@pi-basics",
+		origin: "@hheei/hepi-basics",
 		description: "Settings provided by Pi Basics modules.",
 		groups,
 		panels: providers.flatMap((provider) => provider.panels ?? []),

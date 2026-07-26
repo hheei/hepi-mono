@@ -206,7 +206,7 @@ Pi Basics is a focused terminal interface for repeated coding work. Its visual l
 
 The system follows the original pi interactive UI. Content remains the dominant layer. Backgrounds identify a small number of meaningful blocks, while accent and status colors communicate focus and state. Structure comes from full-width single-line borders, one-line spacing, and stable terminal-width rendering.
 
-This document is normative for new UI work in `packages/pi-basics`. When an existing component conflicts with it, preserve behavior first and migrate the visual treatment deliberately.
+This document is normative for new UI work in `packages/hepi-basics/src/core`. When an existing component conflicts with it, preserve behavior first and migrate the visual treatment deliberately.
 
 ## Colors
 

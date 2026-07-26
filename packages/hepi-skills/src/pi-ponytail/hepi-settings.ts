@@ -7,7 +7,7 @@ export async function registerPonytailHePiSettings(
 ): Promise<(() => void) | undefined> {
 	try {
 		const { getHePiRuntimeSettingsRegistry, registerHePiSettings } = await import(
-			"../hepi-basics/index.js"
+			"../../../hepi-basics/src/core/index.js"
 		);
 		return registerHePiSettings(
 			createPonytailSettingsProvider(options),
