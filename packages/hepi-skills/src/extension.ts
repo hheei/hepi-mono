@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import piCaveman from "@hheei/pi-caveman";
-import piPonytail from "@hheei/pi-ponytail";
+import piCaveman from "./pi-caveman/index.js";
+import piPonytail from "./pi-ponytail/index.js";
 
 export type HePiExtension = (pi: ExtensionAPI) => void;
 

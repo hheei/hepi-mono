@@ -75,7 +75,7 @@ for (const packageName of packageNames) {
 		`export { default, ${extensionArray} } from "./extension.js";\n`,
 	);
 	if (packageName === "hepi-skills") {
-		const skillsSource = path.join(root, "packages", "pi-ponytail", "skills");
+		const skillsSource = path.join(packageRoot, "src", "skills");
 		const skillsOutput = path.join(outputRoot, "skills");
 		cpSync(skillsSource, skillsOutput, { recursive: true });
 	}
