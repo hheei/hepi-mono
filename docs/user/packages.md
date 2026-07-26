@@ -1,13 +1,13 @@
 # Package Catalogue
 
-Every HEPI workspace under `packages/` is maintained and published under the `@hheei` scope. The optional `pi-magic-context` entry is an upstream git submodule, not a HEPI-owned workspace. Feature packages require `@hheei/pi-basics` unless noted otherwise.
+Every HEPI workspace under `packages/` is maintained and published under the `@hheei` scope. The optional `pi-magic-context` entry is an upstream git submodule, not a HEPI-owned workspace. Individual feature packages require `@hheei/pi-basics` unless noted otherwise; aggregate bundles do not.
 
 | Package | Purpose | HEPI prerequisite |
 | --- | --- | --- |
-| [`hepi-mono`](../../packages/hepi-mono/README.md) | Unified loader for the current runtime modules | Includes Pi Basics |
-| [`hepi-basics`](../../packages/hepi-basics/README.md) | One-entry foundational runtime group | None |
-| [`hepi-tools`](../../packages/hepi-tools/README.md) | One-entry tool and agent group | HEPI Basics |
-| [`hepi-skills`](../../packages/hepi-skills/README.md) | One-entry skills group | HEPI Basics |
+| [`hepi-mono`](../../packages/hepi-mono/README.md) | Unified self-contained bundle for the current runtime modules | Pi host, `ffi-rs` |
+| [`hepi-basics`](../../packages/hepi-basics/README.md) | Self-contained foundational runtime bundle | Pi host |
+| [`hepi-tools`](../../packages/hepi-tools/README.md) | Self-contained tool and agent bundle | None |
+| [`hepi-skills`](../../packages/hepi-skills/README.md) | Self-contained skills bundle | None |
 | [`pi-basics`](../../packages/pi-basics/README.md) | Session lifecycle, settings UI, status, shared TUI, and runtime coordination | None |
 | [`pi-advisor`](../../packages/pi-advisor/README.md) | Read-only turn review advisor | Pi Basics |
 | [`pi-ask`](../../packages/pi-ask/README.md) | Structured interactive questions | Pi Basics |

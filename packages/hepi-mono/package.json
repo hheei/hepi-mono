@@ -3,19 +3,24 @@
 	"version": "0.0.0",
 	"description": "Unified HEPI extension loader for Pi.",
 	"type": "module",
-	"main": "src/index.ts",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
 	"exports": {
-		".": "./src/index.ts"
+		".": "./dist/index.js"
 	},
 	"files": [
-		"src",
+		"dist",
 		"README.md",
 		"LICENSE"
 	],
 	"pi": {
 		"extensions": [
-			"src/extension.ts"
+			"dist/extension.js"
 		]
+	},
+	"scripts": {
+		"build": "bun ../../scripts/build-aggregate.mjs hepi-mono",
+		"prepack": "bun run build"
 	},
 	"keywords": [
 		"pi",
@@ -33,19 +38,8 @@
 		"access": "public"
 	},
 	"dependencies": {
-		"@hheei/hepi-basics": "workspace:*",
-		"@hheei/hepi-skills": "workspace:*",
-		"@hheei/hepi-tools": "workspace:*",
-		"@hheei/pi-btw": "workspace:*",
-		"@hheei/pi-plan": "workspace:*"
+		"ffi-rs": "^1.3.2"
 	},
-	"bundledDependencies": [
-		"@hheei/hepi-basics",
-		"@hheei/hepi-skills",
-		"@hheei/hepi-tools",
-		"@hheei/pi-btw",
-		"@hheei/pi-plan"
-	],
 	"devDependencies": {
 		"@earendil-works/pi-coding-agent": "^0.82.0",
 		"@types/bun": "latest"

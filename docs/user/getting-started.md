@@ -21,8 +21,7 @@ pi install npm:@hheei/hepi-tools
 pi install npm:@hheei/hepi-skills
 ```
 
-`hepi-basics` contains the foundational runtime. `hepi-tools` and
-`hepi-skills` require it to be loaded first. Each group exposes one Pi
+Each group contains its own bundled implementation and exposes one Pi
 extension entry. Do not install a group together with its individual packages
 or with `hepi-mono`.
 
@@ -41,6 +40,7 @@ From the repository root:
 
 ```bash
 bun install
+bun run build:aggregates
 pi install ./packages/hepi-mono
 ```
 
@@ -55,19 +55,20 @@ Use `-l` with `pi install` for project-local installation.
 
 ## Development Run
 
-Run a local aggregate entry directly with Pi:
+Build the aggregate entries, then run one directly with Pi:
 
 ```bash
-pi --no-extensions --no-skills -e packages/hepi-mono/src/extension.ts
-pi --no-extensions --no-skills -e packages/hepi-basics/src/extension.ts
-pi --no-extensions --no-skills -e packages/hepi-tools/src/extension.ts
-pi --no-extensions --no-skills -e packages/hepi-skills/src/extension.ts
+bun run build:aggregates
+pi --no-extensions --no-skills -e packages/hepi-mono/dist/extension.js
+pi --no-extensions --no-skills -e packages/hepi-basics/dist/extension.js
+pi --no-extensions --no-skills -e packages/hepi-tools/dist/extension.js
+pi --no-extensions --no-skills -e packages/hepi-skills/dist/extension.js
 ```
 
 Pass additional Pi arguments normally:
 
 ```bash
-pi --no-extensions --no-skills -e packages/hepi-mono/src/extension.ts --model openai/gpt-5
+pi --no-extensions --no-skills -e packages/hepi-mono/dist/extension.js --model openai/gpt-5
 ```
 
 ## Optional Magic Context Fork

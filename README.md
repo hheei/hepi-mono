@@ -29,8 +29,8 @@ pi install npm:@hheei/hepi-tools
 pi install npm:@hheei/hepi-skills
 ```
 
-The tools and skills groups require `hepi-basics`. Do not install a group
-together with the same individual packages:
+Each group is self-contained. Do not install a group together with the same
+individual packages:
 
 ```bash
 pi install npm:@hheei/pi-basics
@@ -54,15 +54,17 @@ Use `-l` for project-local installation.
 bun run typecheck
 bun test
 bun run check
+bun run build:aggregates
 ```
 
 Run a local aggregate entry directly with Pi:
 
 ```bash
-pi --no-extensions --no-skills -e packages/hepi-mono/src/extension.ts
-pi --no-extensions --no-skills -e packages/hepi-basics/src/extension.ts
-pi --no-extensions --no-skills -e packages/hepi-tools/src/extension.ts
-pi --no-extensions --no-skills -e packages/hepi-skills/src/extension.ts
+bun run build:aggregates
+pi --no-extensions --no-skills -e packages/hepi-mono/dist/extension.js
+pi --no-extensions --no-skills -e packages/hepi-basics/dist/extension.js
+pi --no-extensions --no-skills -e packages/hepi-tools/dist/extension.js
+pi --no-extensions --no-skills -e packages/hepi-skills/dist/extension.js
 ```
 
 Load `@hheei/pi-basics` before feature packages. Loadout must run after Pi Basics so both use the same tool-activation coordinator. The three group packages and unified `@hheei/hepi-mono` preserve this order. Each group has one Pi extension entry; `hepi-mono` remains the one-entry full profile.

@@ -3,19 +3,24 @@
 	"version": "0.0.0",
 	"description": "HEPI foundational runtime group for Pi.",
 	"type": "module",
-	"main": "src/index.ts",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
 	"exports": {
-		".": "./src/index.ts"
+		".": "./dist/index.js"
 	},
 	"files": [
-		"src",
+		"dist",
 		"README.md",
 		"LICENSE"
 	],
 	"pi": {
 		"extensions": [
-			"src/extension.ts"
+			"dist/extension.js"
 		]
+	},
+	"scripts": {
+		"build": "bun ../../scripts/build-aggregate.mjs hepi-basics",
+		"prepack": "bun run build"
 	},
 	"keywords": [
 		"pi",
@@ -32,24 +37,6 @@
 	},
 	"publishConfig": {
 		"access": "public"
-	},
-	"bundledDependencies": [
-		"@hheei/pi-auto-title",
-		"@hheei/pi-basics",
-		"@hheei/pi-dollar-skill",
-		"@hheei/pi-fix",
-		"@hheei/pi-loadout",
-		"@hheei/pi-rtk",
-		"@hheei/pi-t2s"
-	],
-	"dependencies": {
-		"@hheei/pi-auto-title": "workspace:*",
-		"@hheei/pi-basics": "workspace:*",
-		"@hheei/pi-dollar-skill": "workspace:*",
-		"@hheei/pi-fix": "workspace:*",
-		"@hheei/pi-loadout": "workspace:*",
-		"@hheei/pi-rtk": "workspace:*",
-		"@hheei/pi-t2s": "workspace:*"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-agent-core": ">=0.82.0",

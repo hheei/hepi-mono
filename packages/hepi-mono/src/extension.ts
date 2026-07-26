@@ -1,9 +1,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { hePiBasicsExtensions } from "@hheei/hepi-basics";
-import { hePiSkillsExtensions } from "@hheei/hepi-skills";
-import { hePiToolsExtensions } from "@hheei/hepi-tools";
 import piBtw from "@hheei/pi-btw";
 import piPlan from "@hheei/pi-plan";
+import { hePiBasicsExtensions } from "../../hepi-basics/src/index.js";
+import { hePiSkillsExtensions } from "../../hepi-skills/src/index.js";
+import { hePiToolsExtensions } from "../../hepi-tools/src/index.js";
 
 export type HePiExtension = (pi: ExtensionAPI) => void;
 
