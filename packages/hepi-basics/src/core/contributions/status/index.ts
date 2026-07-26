@@ -8,6 +8,7 @@ import {
 
 type TurnTiming = {
 	readonly startedAtMs: number;
+	readonly firstTokenAtMs: number | undefined;
 };
 
 type Owner = {
@@ -37,7 +38,21 @@ export function createStatusFeature(pi: ExtensionAPI): StatusFeature {
 
 	pi.on("turn_start", (event, ctx) => {
 		if (!ownsContext(ctx) || owner === undefined) return;
-		owner.turn = { startedAtMs: event.timestamp };
+		owner.turn = { startedAtMs: event.timestamp, firstTokenAtMs: undefined };
+	});
+
+	pi.on("message_update", (event, ctx) => {
+		if (
+			!ownsContext(ctx) ||
+			owner === undefined ||
+			owner.turn === undefined ||
+			event.message.role !== "assistant" ||
+			owner.turn.firstTokenAtMs !== undefined ||
+			event.assistantMessageEvent.type !== "text_delta" ||
+			event.assistantMessageEvent.delta.length === 0
+		)
+			return;
+		owner.turn = { ...owner.turn, firstTokenAtMs: Date.now() };
 	});
 
 	pi.on("message_end", (event, ctx) => {
@@ -45,14 +60,21 @@ export function createStatusFeature(pi: ExtensionAPI): StatusFeature {
 		const turn = owner.turn;
 		owner.turn = undefined;
 		if (event.message.stopReason === "error" || event.message.stopReason === "aborted") return;
-		const durationMs = turn === undefined ? null : responseDuration(turn.startedAtMs, Date.now());
+		const endedAtMs = Date.now();
+		const timeToFirstTokenMs =
+			turn?.firstTokenAtMs === undefined
+				? null
+				: responseDuration(turn.startedAtMs, turn.firstTokenAtMs);
+		const outputDurationMs =
+			turn?.firstTokenAtMs === undefined ? null : responseDuration(turn.firstTokenAtMs, endedAtMs);
 		const { usage } = event.message;
 		const metrics: ResponseStatusMetrics = {
 			input: usage.input,
 			output: usage.output,
 			cacheRead: usage.cacheRead,
-			durationMs,
-			tokensPerSecond: calculateResponseRate(usage.output, usage.reasoning, durationMs),
+			timeToFirstTokenMs,
+			outputDurationMs,
+			tokensPerSecond: calculateResponseRate(usage.output, usage.reasoning, outputDurationMs),
 		};
 		ctx.ui.notify(formatResponseStatus(metrics), "info");
 	});

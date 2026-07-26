@@ -36,9 +36,10 @@ describe("response status model", () => {
 				input: 654,
 				output: 213,
 				cacheRead: 83_000,
-				durationMs: 7_100,
+				timeToFirstTokenMs: 2_100,
+				outputDurationMs: 5_000,
 				tokensPerSecond: 21,
 			}),
-		).toBe("↱ 654  ↳ 213  ⚇ 83K  ⏱ 7.1s  ⚡ 21.0/s");
+		).toBe("↱ 654  ↳ 213  ⚇ 83K  ⏱ 2.1s  ⚡ 21.0/s");
 	});
 });

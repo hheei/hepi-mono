@@ -1,3 +1,11 @@
+export type { HePiLoadoutGroup, HePiLoadoutGroupRegistry } from "./api/loadout.js";
+export {
+	createHePiLoadoutGroupRegistry,
+	getHePiRuntimeLoadoutGroupRegistry,
+	registerHePiLoadoutGroup,
+	registerHePiRuntimeLoadoutGroup,
+	replaceHePiLoadoutGroup,
+} from "./api/loadout.js";
 export type {
 	CreateHePiModelSelectionFieldOptions,
 	HePiModelSelectionOption,
@@ -11,7 +19,6 @@ export {
 	hePiModelSelectionOptions,
 	hePiThinkingGlyph,
 } from "./api/model-selection.js";
-
 export type { HePiModule, HePiModuleView, HePiModuleViewContext } from "./api/modules.js";
 export {
 	getHePiRuntimeModuleRegistry,

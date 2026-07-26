@@ -2,7 +2,9 @@ export interface ResponseStatusMetrics {
 	readonly input: number;
 	readonly output: number;
 	readonly cacheRead: number;
-	readonly durationMs: number | null;
+	readonly timeToFirstTokenMs: number | null;
+	/** Time from the first visible token until the assistant response ends. */
+	readonly outputDurationMs: number | null;
 	readonly tokensPerSecond: number | null;
 }
 
@@ -52,7 +54,7 @@ export function formatResponseStatus(metrics: ResponseStatusMetrics): string {
 		`↱ ${formatStatusTokens(metrics.input)}`,
 		`↳ ${formatStatusTokens(metrics.output)}`,
 		`⚇ ${formatStatusTokens(metrics.cacheRead)}`,
-		`⏱ ${formatStatusDuration(metrics.durationMs)}`,
+		`⏱ ${formatStatusDuration(metrics.timeToFirstTokenMs)}`,
 		`⚡ ${formatStatusRate(metrics.tokensPerSecond)}/s`,
 	].join("  ");
 }
