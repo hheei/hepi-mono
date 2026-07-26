@@ -6,12 +6,20 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const basicsExtension = "packages/pi-basics/src/extension.ts";
+const hepiBasicsExtension = "packages/hepi-basics/src/extension.ts";
+const hepiToolsExtension = "packages/hepi-tools/src/extension.ts";
+const hepiSkillsExtension = "packages/hepi-skills/src/extension.ts";
 
 const aliases = new Map([
 	["basics", basicsExtension],
 	["pi-basics", basicsExtension],
 	["hepi", "packages/hepi-mono/src/extension.ts"],
 	["hepi-mono", "packages/hepi-mono/src/extension.ts"],
+	["hepi-basics", hepiBasicsExtension],
+	["hepi-tools", hepiToolsExtension],
+	["hepi-skills", hepiSkillsExtension],
+	["tools", hepiToolsExtension],
+	["skills", hepiSkillsExtension],
 ]);
 
 function usage() {
@@ -19,6 +27,9 @@ function usage() {
   bun run pi:dev                         # load pi-basics
   bun run pi:dev -- basics                # load pi-basics
   bun run pi:dev -- hepi                 # load the unified HEPI package
+  bun run pi:dev -- hepi-basics          # load the basics group
+  bun run pi:dev -- hepi-tools           # load the tools group
+  bun run pi:dev -- hepi-skills          # load the skills group
   bun run pi:dev -- todo                  # load a specific extension
   bun run pi:dev -- basics todo           # load several extensions
   bun run pi:dev -- --all                 # load every individual packages/pi-* entry

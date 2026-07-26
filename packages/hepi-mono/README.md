@@ -1,8 +1,14 @@
 # @hheei/hepi-mono
 
-Unified HEPI extension loader for Pi. It loads the current runtime extensions through one Pi entry, so Pi performs one JIT entry traversal instead of discovering each HEPI extension separately.
+Unified HEPI extension loader for Pi. It loads the basics, tools, and skills
+groups through one Pi entry, so Pi performs one JIT entry traversal instead of
+discovering each HEPI extension separately. It also keeps the existing BTW and
+Plan modules in the full profile.
 
-The loader keeps registration order: `pi-basics` first, then `pi-loadout`, followed by the remaining runtime modules. Development-only `pi-debug` is excluded. Individual `@hheei/pi-*` packages remain available for selective installs.
+The loader keeps registration order: `pi-basics` first, then `pi-loadout`, the
+remaining basics, tools, skills, BTW, and Plan modules. Development-only
+`pi-debug` is excluded. Individual `@hheei/pi-*` packages and the three group
+packages remain available for selective installs.
 
 Install the unified package globally:
 

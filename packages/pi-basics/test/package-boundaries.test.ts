@@ -7,6 +7,7 @@ import ts from "typescript";
 const repositoryRoot = join(import.meta.dir, "../../..");
 const packagesDirectory = join(repositoryRoot, "packages");
 const allowedFeatureDependency = "@hheei/pi-basics";
+const compositionPackages = new Set(["hepi-basics", "hepi-mono", "hepi-skills", "hepi-tools"]);
 const submodulePackages = new Set(["pi-magic-context", "pi-subagents"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -89,10 +90,16 @@ async function packagePaths(): Promise<readonly string[]> {
 	);
 	const unexpected = packageDirectories
 		.map((entry) => entry.name)
-		.filter((name) => !name.startsWith("pi-"));
+		.filter((name) => !name.startsWith("pi-") && !compositionPackages.has(name));
 	if (unexpected.length > 0)
 		throw new Error(`Unexpected workspace directories under packages/: ${unexpected.join(", ")}`);
 	return packageDirectories.map((entry) => join(packagesDirectory, entry.name));
+}
+
+async function featurePackagePaths(): Promise<readonly string[]> {
+	return (await packagePaths()).filter((packagePath) =>
+		relative(packagesDirectory, packagePath).startsWith("pi-"),
+	);
 }
 
 test("workspace contains only HEPI-owned Pi packages", async () => {
@@ -154,7 +161,7 @@ test("repository does not track external or generated trees", () => {
 });
 
 test("HEPI feature packages only depend on pi-basics", async () => {
-	for (const packagePath of await packagePaths()) {
+	for (const packagePath of await featurePackagePaths()) {
 		const manifestPath = join(packagePath, "package.json");
 		const manifest: unknown = JSON.parse(await readFile(manifestPath, "utf8"));
 		if (!isRecord(manifest)) throw new Error(`Expected object manifest: ${manifestPath}`);
@@ -186,6 +193,22 @@ test("HEPI feature packages only depend on pi-basics", async () => {
 					`${relative(repositoryRoot, sourcePath)} cannot import ${dependency.name}`,
 				).toBe(allowedFeatureDependency);
 		}
+	}
+});
+
+test("HEPI composition packages expose one bundled extension entry", async () => {
+	for (const packagePath of (await packagePaths()).filter((path) =>
+		compositionPackages.has(relative(packagesDirectory, path)),
+	)) {
+		const manifest: unknown = JSON.parse(await readFile(join(packagePath, "package.json"), "utf8"));
+		if (!isRecord(manifest)) throw new Error(`Expected object manifest: ${packagePath}`);
+		const entries = isRecord(manifest.pi) ? manifest.pi.extensions : undefined;
+		expect(entries).toEqual(["src/extension.ts"]);
+		const bundledDependencies = manifest.bundledDependencies;
+		expect(Array.isArray(bundledDependencies)).toBe(true);
+		if (!Array.isArray(bundledDependencies))
+			throw new Error(`Missing bundled dependencies: ${packagePath}`);
+		expect(bundledDependencies.length).toBeGreaterThan(0);
 	}
 });
 
