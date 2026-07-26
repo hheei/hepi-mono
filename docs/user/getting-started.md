@@ -53,14 +53,3 @@ Pass additional Pi arguments normally:
 ```bash
 pi --no-extensions --no-skills -e packages/hepi-mono/dist/extension.js --model openai/gpt-5
 ```
-
-## Optional Magic Context Fork
-
-`pi-magic-context` is kept as an upstream git submodule. Initialize it when needed, then install the Pi plugin from its nested package:
-
-```bash
-git submodule update --init packages/pi-magic-context
-pi install ./packages/pi-magic-context/packages/pi-plugin
-```
-
-HEPI does not modify the submodule source or merge it into `hepi-mono`; compatibility changes stay in the root repository.

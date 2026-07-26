@@ -8,7 +8,7 @@ const repositoryRoot = join(import.meta.dir, "../../..");
 const packagesDirectory = join(repositoryRoot, "packages");
 const compositionPackages = new Set(["hepi-basics", "hepi-mono", "hepi-skills", "hepi-tools"]);
 const workspacePackages = new Set([...compositionPackages, "hepi-debug"]);
-const submodulePackages = new Set(["pi-magic-context", "pi-subagents"]);
+const submodulePackages = new Set(["pi-subagents"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -89,11 +89,7 @@ test("workspace contains only HEPI-owned Pi packages", async () => {
 		await readFile(join(repositoryRoot, "package.json"), "utf8"),
 	);
 	if (!isRecord(rootManifest)) throw new Error("Expected object root package manifest");
-	expect(rootManifest.workspaces).toEqual([
-		"packages/*",
-		"!packages/pi-magic-context",
-		"!packages/pi-subagents",
-	]);
+	expect(rootManifest.workspaces).toEqual(["packages/*", "!packages/pi-subagents"]);
 
 	for (const packagePath of await packagePaths()) {
 		const directory = relative(packagesDirectory, packagePath);

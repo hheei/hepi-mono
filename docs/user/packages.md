@@ -1,9 +1,7 @@
 # Package Catalogue
 
-HEPI publishes aggregate bundles under the `@hheei` scope. The optional
-`pi-magic-context` entry is an upstream git submodule, not a HEPI-owned
-workspace. Top-level `pi-*` feature packages are deprecated and are no longer
-part of the workspace.
+HEPI publishes aggregate bundles under the `@hheei` scope. Top-level `pi-*`
+feature packages are deprecated and are no longer part of the workspace.
 
 | Package | Purpose | Requirements |
 | --- | --- | --- |
@@ -12,7 +10,6 @@ part of the workspace.
 | [`hepi-tools`](../../packages/hepi-tools/README.md) | Tool and agent bundle | Pi host, `ffi-rs` |
 | [`hepi-skills`](../../packages/hepi-skills/README.md) | Skills bundle | Pi host |
 | [`hepi-debug`](../../packages/hepi-debug/README.md) | Development diagnostics and deterministic TUI replay | Pi host |
-| [`pi-magic-context`](../../packages/pi-magic-context/packages/pi-plugin/README.md) | Upstream Magic Context Pi extension | Upstream submodule |
 
 The package README is the behavior contract for users. Cross-package
 architecture and contribution rules belong under `docs/development/` and

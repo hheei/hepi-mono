@@ -50,6 +50,7 @@
 		"@earendil-works/pi-tui": "*"
 	},
 	"devDependencies": {
+		"@cortexkit/pi-magic-context": "0.33.0",
 		"@earendil-works/pi-coding-agent": "^0.82.0",
 		"@types/bun": "latest",
 		"typebox": "^1.1.38"

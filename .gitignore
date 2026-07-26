@@ -12,7 +12,6 @@ package-lock.json
 npm-debug.log*
 .zed/
 .pi-subagents/
-packages/pi-magic-context/
 .codex/
 outputs/
 graphify-out/*
