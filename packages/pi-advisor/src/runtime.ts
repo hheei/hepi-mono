@@ -5,6 +5,7 @@ import {
 	type StreamFn,
 } from "@earendil-works/pi-agent-core";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
+import { streamSimple } from "@earendil-works/pi-ai/compat";
 import {
 	convertToLlm,
 	createReadOnlyTools,
@@ -374,7 +375,7 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 			},
 			convertToLlm,
 			getApiKey: (provider) => agentOptions.ctx.modelRegistry.getApiKeyForProvider(provider),
-			...(agentOptions.streamFn === undefined ? {} : { streamFn: agentOptions.streamFn }),
+			streamFn: agentOptions.streamFn ?? streamSimple,
 		});
 		next.state.messages = buildAdvisorBootstrapMessages(
 			agentOptions,
@@ -447,7 +448,11 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 		},
 		async review(prompt, signal) {
 			if (agent === undefined || disposed) {
-				if (!recreateAfterTimeout || options.model === undefined || options.model.trim().length === 0)
+				if (
+					!recreateAfterTimeout ||
+					options.model === undefined ||
+					options.model.trim().length === 0
+				)
 					throw new Error("Advisor is not active");
 				await create();
 			}
