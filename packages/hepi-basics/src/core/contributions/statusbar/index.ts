@@ -31,6 +31,7 @@ type Owner = {
 	previousEditorFactory?: EditorFactory | undefined;
 	installedEditorFactory: EditorFactory;
 	requestRender?: () => void;
+	renderScheduled: boolean;
 	tui?: TUI;
 	previousHardwareCursor?: boolean;
 	usage?: StatusbarContextUsage | undefined;
@@ -49,9 +50,9 @@ function emptyFooter(): Component {
 }
 
 function createExtensionStatusFooter(
-	tui: TUI,
 	footerData: ReadonlyFooterDataProvider,
 	getTheme: () => Theme,
+	requestRender: () => void,
 ): Component & { dispose(): void } {
 	let frame = 0;
 	let timer: ReturnType<typeof setInterval> | undefined;
@@ -71,7 +72,7 @@ function createExtensionStatusFooter(
 			if (display.receiving && timer === undefined) {
 				timer = setInterval(() => {
 					frame = (frame + 1) % RECEIVING_SPINNER_FRAMES.length;
-					tui.requestRender();
+					requestRender();
 				}, 80);
 			} else if (!display.receiving) stop();
 			return renderExtensionStatusFooter(width, display.values, getTheme());
@@ -91,23 +92,34 @@ export function createStatusbarFeature(
 	getCursorOptions: () => CursorOptions = () => ({ shape: "block", blink: false }),
 ): StatusbarFeature {
 	let owner: Owner | undefined;
+	const scheduleRender = (current: Owner): void => {
+		if (current.renderScheduled) return;
+		current.renderScheduled = true;
+		queueMicrotask(() => {
+			current.renderScheduled = false;
+			if (owner === current) current.requestRender?.();
+		});
+	};
+	const setAwaitingAssistantUsage = (current: Owner, value: boolean): void => {
+		if (current.awaitingAssistantUsage === value) return;
+		current.awaitingAssistantUsage = value;
+		scheduleRender(current);
+	};
 	const ownsContext = (eventCtx: ExtensionContext | undefined): boolean =>
 		owner !== undefined &&
 		(eventCtx === undefined || eventCtx.sessionManager.getSessionId() === owner.sessionId);
 	const invalidate = (_event?: unknown, eventCtx?: ExtensionContext) => {
-		if (ownsContext(eventCtx)) owner?.requestRender?.();
+		if (ownsContext(eventCtx) && owner !== undefined) scheduleRender(owner);
 	};
 	for (const event of ["model_select", "thinking_level_select", "session_info_changed"] as const)
 		pi.on(event as never, invalidate);
 	pi.on("message_start", (event, eventCtx) => {
 		if (!ownsContext(eventCtx) || owner === undefined || event.message.role !== "user") return;
-		owner.awaitingAssistantUsage = true;
-		owner.requestRender?.();
+		setAwaitingAssistantUsage(owner, true);
 	});
 	pi.on("turn_start", (_event, eventCtx) => {
 		if (!ownsContext(eventCtx) || owner === undefined) return;
-		owner.awaitingAssistantUsage = true;
-		owner.requestRender?.();
+		setAwaitingAssistantUsage(owner, true);
 	});
 	pi.on("message_end", (event, eventCtx) => {
 		if (!ownsContext(eventCtx) || owner === undefined) return;
@@ -116,25 +128,23 @@ export function createStatusbarFeature(
 			event.message.stopReason !== "error" &&
 			event.message.stopReason !== "aborted"
 		)
-			owner.awaitingAssistantUsage = false;
-		owner.requestRender?.();
+			setAwaitingAssistantUsage(owner, false);
 	});
 	pi.on("agent_settled", (_event, eventCtx) => {
 		if (!ownsContext(eventCtx) || owner === undefined) return;
-		owner.awaitingAssistantUsage = false;
-		owner.requestRender?.();
+		setAwaitingAssistantUsage(owner, false);
 	});
 	pi.on("session_tree", (_event, eventCtx) => {
 		if (!ownsContext(eventCtx) || owner === undefined) return;
 		owner.usage = undefined;
 		owner.awaitingAssistantUsage = false;
-		owner.requestRender?.();
+		scheduleRender(owner);
 	});
 	pi.on("session_compact", (_event, eventCtx) => {
 		if (!ownsContext(eventCtx) || owner === undefined) return;
 		owner.usage = undefined;
 		owner.compacted = true;
-		owner.requestRender?.();
+		scheduleRender(owner);
 	});
 	return {
 		start(runtime) {
@@ -234,6 +244,7 @@ export function createStatusbarFeature(
 				ctx,
 				awaitingAssistantUsage: false,
 				compacted: false,
+				renderScheduled: false,
 				previousEditorFactory,
 				installedEditorFactory,
 				dispose() {
@@ -255,7 +266,11 @@ export function createStatusbarFeature(
 				if (!next || owner !== next) return emptyFooter();
 				next.footerData = footerData;
 				next.requestRender = () => tui.requestRender();
-				return createExtensionStatusFooter(tui, footerData, () => ctx.ui.theme);
+				return createExtensionStatusFooter(
+					footerData,
+					() => ctx.ui.theme,
+					() => scheduleRender(next),
+				);
 			});
 			ctx.ui.setEditorComponent(installedEditorFactory);
 		},

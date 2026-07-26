@@ -333,7 +333,22 @@ describe("statusbar lifecycle", () => {
 		expect(editor!.render(100)[0]).toContain("500/100k");
 	});
 
-	test("redraws fresh contexts for the owned session and ignores other sessions", () => {
+	test("coalesces repeated render requests in one event burst", async () => {
+		const h = harness("a");
+		const feature = createStatusbarFeature(h.pi);
+		feature.start(runtime(h.pi, h.ctx));
+		h.makeFooter();
+
+		h.emitValue("message_start", { message: { role: "user" } });
+		h.emitValue("turn_start", { turnIndex: 0, timestamp: Date.now() });
+		h.emitValue("message_end", { message: { role: "assistant" } });
+
+		expect(h.requests).toBe(0);
+		await Promise.resolve();
+		expect(h.requests).toBe(1);
+	});
+
+	test("redraws fresh contexts for the owned session and ignores other sessions", async () => {
 		const h = harness("a");
 		const feature = createStatusbarFeature(h.pi);
 		feature.start(runtime(h.pi, h.ctx));
@@ -347,17 +362,21 @@ describe("statusbar lifecycle", () => {
 		])
 			h.emit(event);
 		h.emitValue("message_end", { message: { role: "assistant" } });
-		expect(h.requests).toBe(6);
+		expect(h.requests).toBe(0);
+		await Promise.resolve();
+		expect(h.requests).toBe(1);
 		h.emit("model_select", { ...h.ctx } as ExtensionContext);
-		expect(h.requests).toBe(7);
+		await Promise.resolve();
+		expect(h.requests).toBe(2);
 		h.emit("model_select", {
 			...h.ctx,
 			sessionManager: { getSessionId: () => "stale" },
 		} as ExtensionContext);
-		expect(h.requests).toBe(7);
+		await Promise.resolve();
+		expect(h.requests).toBe(2);
 	});
 
-	test("restores A before B and rejects stale A lifecycle actions", () => {
+	test("restores A before B and rejects stale A lifecycle actions", async () => {
 		const h = harness("a");
 		const feature = createStatusbarFeature(h.pi);
 		const a = editorFactory("A", []);
@@ -381,7 +400,8 @@ describe("statusbar lifecycle", () => {
 			{} as never,
 			{ getExtensionStatuses: () => h.statusMap } as never,
 		);
-		h.emitValue("message_end", { message: { role: "assistant" } });
+		h.emitValue("message_start", { message: { role: "user" } });
+		await Promise.resolve();
 		expect(h.requests).toBe(before + 1);
 		feature.dispose("a");
 		expect(h.restored).toBe(1);

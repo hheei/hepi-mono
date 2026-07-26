@@ -7,17 +7,16 @@
 	"packageManager": "bun@1.3.14",
 	"workspaces": [
 		"packages/*",
-		"!packages/pi-magic-context",
 		"!packages/pi-subagents"
 	],
 	"scripts": {
-		"check": "bun run build:aggregates && biome check . && tsc --noEmit -p tsconfig.base.json && bun test --path-ignore-patterns='**/references/**' --path-ignore-patterns='packages/pi-magic-context/**'",
+		"check": "bun run build:aggregates && biome check . && tsc --noEmit -p tsconfig.base.json && bun test --path-ignore-patterns='**/references/**'",
 		"check:fix": "biome check --write .",
 		"format": "biome format --write .",
 		"format:check": "biome format .",
 		"lint": "biome lint .",
 		"build:aggregates": "bun scripts/build-aggregate.mjs --all",
-		"test": "bun run build:aggregates && bun test --path-ignore-patterns='**/references/**' --path-ignore-patterns='packages/pi-magic-context/**' --path-ignore-patterns='packages/pi-subagents/**'",
+		"test": "bun run build:aggregates && bun test --path-ignore-patterns='**/references/**' --path-ignore-patterns='packages/pi-subagents/**'",
 		"typecheck": "bun run build:aggregates && tsc --noEmit -p tsconfig.base.json",
 		"tui:replay": "bun packages/hepi-debug/src/tui-replay.ts",
 		"tui:replay:session": "bun packages/hepi-debug/src/tui-replay-session.ts"

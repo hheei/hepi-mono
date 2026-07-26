@@ -17,11 +17,10 @@ Included modules:
 - `pi-web-access`
 
 The Magic Context package is bundled from its published `@cortexkit` package.
-The optional upstream submodule remains available for development and is not
-loaded automatically by this group. When `pi-fff`, `pi-web-access`, or
-`@cortexkit/pi-magic-context` is already listed in the global Pi package
-settings, this group reuses that separately installed extension and skips its
-bundled copy so the same tools are not registered twice.
+When `pi-fff`, `pi-web-access`, or `@cortexkit/pi-magic-context` is already
+listed in the global Pi package settings, this group reuses that separately
+installed extension and skips its bundled copy so the same tools are not
+registered twice.
 
 `pi-fff` keeps `ffi-rs` as a platform runtime dependency because its native
 binary cannot be embedded in a portable JavaScript bundle.
