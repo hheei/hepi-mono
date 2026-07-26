@@ -6,7 +6,7 @@ import {
 	type HePiSettingsProvider,
 	type HePiSettingsState,
 	updateJsonSettingsRoot,
-} from "../pi-basics/index.js";
+} from "../core/index.js";
 
 export const GUARD_PATCH_GROUP = "guardPatch";
 export const GUARD_PATCH_FIELD = "mode";

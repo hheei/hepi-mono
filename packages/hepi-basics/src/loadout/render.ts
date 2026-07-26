@@ -6,7 +6,7 @@ import {
 	truncateToWidth,
 	visibleWidth,
 	wrap,
-} from "../pi-basics/index.js";
+} from "../core/index.js";
 import {
 	filterLoadoutItemsForView,
 	groupLoadoutItemsByOrigin,

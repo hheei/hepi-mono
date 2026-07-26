@@ -4,7 +4,7 @@ import {
 	HePiLifecycleController,
 	registerHePiLifecycle,
 	registerHePiSettings,
-} from "../pi-basics/index.js";
+} from "../core/index.js";
 import {
 	createTraditionalToSimplifiedFeature,
 	createTraditionalToSimplifiedSettingsProvider,

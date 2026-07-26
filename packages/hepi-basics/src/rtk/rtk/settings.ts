@@ -3,7 +3,7 @@ import type {
 	HePiSettingField,
 	HePiSettingsProvider,
 	HePiSettingsState,
-} from "../../pi-basics/index.js";
+} from "../../core/index.js";
 import { loadRtkConfig, saveRtkConfig } from "./config.js";
 import type { RtkFeature } from "./feature.js";
 

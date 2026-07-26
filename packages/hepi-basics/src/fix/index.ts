@@ -21,7 +21,7 @@ import {
 	type HePiSettingsProvider,
 	type HePiSettingsState,
 	updateJsonSettingsRoot,
-} from "../pi-basics/index.js";
+} from "../core/index.js";
 
 export const OPENAI_RESPONSES_COMPAT_GROUP = "openai-responses-compat";
 export const OPENAI_RESPONSES_COMPAT_FIELD = "stripAssistantMessageStatus";

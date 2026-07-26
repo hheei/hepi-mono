@@ -9,7 +9,7 @@ import {
 	registerHePiLifecycle,
 	registerHePiModule,
 	setHePiDisabledSkillKeys,
-} from "../pi-basics/index.js";
+} from "../core/index.js";
 import {
 	createLoadoutController,
 	type LoadoutController,
