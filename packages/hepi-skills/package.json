@@ -3,22 +3,27 @@
 	"version": "0.0.0",
 	"description": "HEPI communication and engineering skills group for Pi.",
 	"type": "module",
-	"main": "src/index.ts",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
 	"exports": {
-		".": "./src/index.ts"
+		".": "./dist/index.js"
 	},
 	"files": [
-		"src",
+		"dist",
 		"README.md",
 		"LICENSE"
 	],
 	"pi": {
 		"extensions": [
-			"src/extension.ts"
+			"dist/extension.js"
 		],
 		"skills": [
-			"node_modules/@hheei/pi-ponytail/skills"
+			"dist/skills"
 		]
+	},
+	"scripts": {
+		"build": "bun ../../scripts/build-aggregate.mjs hepi-skills",
+		"prepack": "bun run build"
 	},
 	"keywords": [
 		"pi",
@@ -36,21 +41,11 @@
 	"publishConfig": {
 		"access": "public"
 	},
-	"bundledDependencies": [
-		"@hheei/pi-caveman",
-		"@hheei/pi-ponytail"
-	],
-	"dependencies": {
-		"@hheei/pi-caveman": "workspace:*",
-		"@hheei/pi-ponytail": "workspace:*"
-	},
 	"peerDependencies": {
-		"@earendil-works/pi-coding-agent": ">=0.82.0",
-		"@hheei/pi-basics": ">=0.0.0"
+		"@earendil-works/pi-coding-agent": ">=0.82.0"
 	},
 	"devDependencies": {
 		"@earendil-works/pi-coding-agent": "^0.82.0",
-		"@types/bun": "latest",
-		"@hheei/pi-basics": "workspace:*"
+		"@types/bun": "latest"
 	}
 }

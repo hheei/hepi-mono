@@ -1,8 +1,8 @@
 # @hheei/hepi-basics
 
-Single-entry foundational HEPI group for Pi. It loads `pi-basics` first, then
-Loadout and the remaining foundational runtime modules through one extension
-entry and one JIT boundary.
+Self-contained foundational HEPI bundle for Pi. Its published `dist` entry
+contains the implementation of `pi-basics`, Loadout, and the remaining
+foundational runtime modules behind one extension entry and one JIT boundary.
 
 Included packages:
 
@@ -19,6 +19,9 @@ Install it with:
 ```bash
 pi install npm:@hheei/hepi-basics
 ```
+
+Build locally with `bun run build` from this package or
+`bun run build:aggregates` from the repository root.
 
 Do not install it together with the same individual packages or with a full
 HEPI aggregate that already includes it.

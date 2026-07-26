@@ -1,8 +1,8 @@
 # @hheei/hepi-skills
 
-Single-entry HEPI skills group for Pi. It loads the Ponytail and Caveman
-extensions through one JIT boundary and exposes Ponytail's bundled skills to
-Pi resource discovery.
+Self-contained HEPI skills bundle for Pi. Its published `dist` entry contains
+Ponytail and Caveman behind one extension entry and one JIT boundary, and
+includes Ponytail's skills for Pi resource discovery.
 
 Included packages:
 
@@ -15,5 +15,6 @@ Install it with:
 pi install npm:@hheei/hepi-skills
 ```
 
-Load `@hheei/hepi-basics` before this group. Do not install this package
-together with the same individual packages.
+Build locally with `bun run build` from this package or
+`bun run build:aggregates` from the repository root. Do not install this
+package together with the same individual packages.

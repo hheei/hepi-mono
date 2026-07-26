@@ -203,12 +203,8 @@ test("HEPI composition packages expose one bundled extension entry", async () =>
 		const manifest: unknown = JSON.parse(await readFile(join(packagePath, "package.json"), "utf8"));
 		if (!isRecord(manifest)) throw new Error(`Expected object manifest: ${packagePath}`);
 		const entries = isRecord(manifest.pi) ? manifest.pi.extensions : undefined;
-		expect(entries).toEqual(["src/extension.ts"]);
-		const bundledDependencies = manifest.bundledDependencies;
-		expect(Array.isArray(bundledDependencies)).toBe(true);
-		if (!Array.isArray(bundledDependencies))
-			throw new Error(`Missing bundled dependencies: ${packagePath}`);
-		expect(bundledDependencies.length).toBeGreaterThan(0);
+		expect(entries).toEqual(["dist/extension.js"]);
+		expect(runtimePackageDependencies(manifest)).toEqual([]);
 	}
 });
 
@@ -239,7 +235,11 @@ test("all Pi packages expose explicit root contracts", async () => {
 		const manifest: unknown = JSON.parse(await readFile(manifestPath, "utf8"));
 		if (!isRecord(manifest) || !isRecord(manifest.exports))
 			throw new Error(`Missing package exports: ${manifestPath}`);
-		expect(manifest.exports["."]).toBe("./src/index.ts");
+		expect(manifest.exports["."]).toBe(
+			compositionPackages.has(relative(packagesDirectory, packagePath))
+				? "./dist/index.js"
+				: "./src/index.ts",
+		);
 		const publicRoot = await readFile(join(packagePath, "src", "index.ts"), "utf8");
 		expect(publicRoot).not.toMatch(/export\s+\*\s+from/u);
 	}

@@ -11,19 +11,21 @@
 		"!packages/pi-subagents"
 	],
 	"scripts": {
-		"check": "biome check . && tsc --noEmit -p tsconfig.base.json && bun test --path-ignore-patterns='**/references/**' --path-ignore-patterns='packages/pi-magic-context/**'",
+		"check": "bun run build:aggregates && biome check . && tsc --noEmit -p tsconfig.base.json && bun test --path-ignore-patterns='**/references/**' --path-ignore-patterns='packages/pi-magic-context/**'",
 		"check:fix": "biome check --write .",
 		"format": "biome format --write .",
 		"format:check": "biome format .",
 		"lint": "biome lint .",
-		"test": "bun test --path-ignore-patterns='**/references/**' --path-ignore-patterns='packages/pi-magic-context/**' --path-ignore-patterns='packages/pi-subagents/**'",
-		"typecheck": "tsc --noEmit -p tsconfig.base.json",
+		"build:aggregates": "bun scripts/build-aggregate.mjs --all",
+		"test": "bun run build:aggregates && bun test --path-ignore-patterns='**/references/**' --path-ignore-patterns='packages/pi-magic-context/**' --path-ignore-patterns='packages/pi-subagents/**'",
+		"typecheck": "bun run build:aggregates && tsc --noEmit -p tsconfig.base.json",
 		"new:extension": "bun scripts/create-extension.mjs",
 		"tui:replay": "bun packages/pi-debug/src/tui-replay.ts",
 		"tui:replay:session": "bun packages/pi-debug/src/tui-replay-session.ts"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.0",
+		"@earendil-works/pi-agent-core": "^0.82.0",
 		"@earendil-works/pi-ai": "^0.82.0",
 		"@earendil-works/pi-coding-agent": "^0.82.0",
 		"@earendil-works/pi-tui": "^0.82.0",
