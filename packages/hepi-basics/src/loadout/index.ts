@@ -1,6 +1,11 @@
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { HePiModule, HePiModuleView, HePiModuleViewContext } from "../core/index.js";
+import type {
+	HePiLoadoutGroup,
+	HePiModule,
+	HePiModuleView,
+	HePiModuleViewContext,
+} from "../core/index.js";
 import { createLoadoutView } from "./component.js";
 import { createLoadoutController, type LoadoutRuntimeHandlers } from "./controller.js";
 import { createLoadoutInventoryProvider } from "./inventory.js";
@@ -15,6 +20,7 @@ export type LoadoutModule = HePiModule;
 export function createLoadoutModule(
 	pi: ExtensionAPI,
 	runtime: LoadoutRuntimeHandlers,
+	getLoadoutGroups?: () => readonly HePiLoadoutGroup[],
 ): LoadoutModule {
 	async function createShellView(options: HePiModuleViewContext): Promise<HePiModuleView> {
 		const defaults = defaultLoadoutStoragePaths();
@@ -24,7 +30,7 @@ export function createLoadoutModule(
 				globalPath: defaults.globalPath,
 				projectPath: join(options.context.cwd ?? process.cwd(), ".pi", "setting.json"),
 			}),
-			inventory: createLoadoutInventoryProvider(pi),
+			inventory: createLoadoutInventoryProvider(pi, getLoadoutGroups),
 			runtime,
 		});
 		await controller.load();

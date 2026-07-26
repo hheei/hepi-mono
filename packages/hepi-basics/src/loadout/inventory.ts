@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import type { ToolInfo } from "@earendil-works/pi-coding-agent";
+import type { HePiLoadoutGroup } from "../core/index.js";
 import {
 	type LoadoutDescriptionRegistry,
 	type LoadoutItem,
@@ -33,6 +34,7 @@ export interface LoadoutInventorySource {
 	readonly getCommands?: () => readonly LoadoutCommandInfo[];
 	readonly getToolDefinition?: (name: string) => ToolDefinitionLookup | undefined;
 	readonly descriptionRegistry?: LoadoutDescriptionRegistry;
+	readonly getLoadoutGroups?: () => readonly HePiLoadoutGroup[];
 }
 const BUILTIN_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
 	bash: "Execute bash commands (ls, grep, find, etc.)",
@@ -96,6 +98,17 @@ function toolItem(
 	};
 }
 
+function belongsToGroup(item: LoadoutItem, group: HePiLoadoutGroup): boolean {
+	if (item.kind !== "tool") return false;
+	const selectors = group.items ?? [];
+	return selectors.some((selector) => selector === item.key || selector === item.name);
+}
+
+function applyLoadoutGroup(item: LoadoutItem, groups: readonly HePiLoadoutGroup[]): LoadoutItem {
+	const group = groups.find((candidate) => belongsToGroup(item, candidate));
+	return group === undefined ? item : { ...item, group: group.label };
+}
+
 function skillItem(
 	name: string,
 	description: string | undefined,
@@ -125,6 +138,7 @@ function skillItem(
 
 export function createLoadoutInventory(pi: LoadoutInventorySource): LoadoutInventory {
 	const items = new Map<LoadoutKey, LoadoutItem>();
+	const groups = pi.getLoadoutGroups?.() ?? [];
 	const descriptions = pi.descriptionRegistry;
 	const getPromptSnippet = (name: string): string | undefined =>
 		pi.getToolDefinition?.(name)?.promptSnippet ?? BUILTIN_PROMPT_SNIPPETS[name];
@@ -132,7 +146,7 @@ export function createLoadoutInventory(pi: LoadoutInventorySource): LoadoutInven
 		descriptions?.get(item);
 	const tools = typeof pi.getAllTools === "function" ? pi.getAllTools() : [];
 	for (const tool of tools) {
-		const item = toolItem(tool, getPromptSnippet, getDescriptionPanel);
+		const item = applyLoadoutGroup(toolItem(tool, getPromptSnippet, getDescriptionPanel), groups);
 		items.set(item.key, item);
 	}
 	const commands = typeof pi.getCommands === "function" ? pi.getCommands() : [];
@@ -141,26 +155,27 @@ export function createLoadoutInventory(pi: LoadoutInventorySource): LoadoutInven
 		const name = command.name.slice("skill:".length);
 		if (!name) continue;
 		const key = loadoutKey("skill", name, command.sourceInfo.source);
-		items.set(
-			key,
-			skillItem(
-				name,
-				command.description,
-				command.sourceInfo.source,
-				readSkillInstruction(command.sourceInfo.path),
-				getDescriptionPanel,
-			),
+		const item = skillItem(
+			name,
+			command.description,
+			command.sourceInfo.source,
+			readSkillInstruction(command.sourceInfo.path),
+			getDescriptionPanel,
 		);
+		items.set(key, applyLoadoutGroup(item, groups));
 	}
 	return { items: sortLoadoutItems([...items.values()]) };
 }
 export function createLoadoutInventoryProvider(
 	pi: LoadoutInventorySource,
+	getLoadoutGroups?: () => readonly HePiLoadoutGroup[],
 ): LoadoutInventoryProvider {
 	return {
 		load: (signal) => {
 			signal?.throwIfAborted();
-			const inventory = createLoadoutInventory(pi);
+			const inventory = createLoadoutInventory(
+				getLoadoutGroups === undefined ? pi : { ...pi, getLoadoutGroups },
+			);
 			signal?.throwIfAborted();
 			return inventory;
 		},
