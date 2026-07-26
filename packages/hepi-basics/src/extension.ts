@@ -1,11 +1,11 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import piAutoTitle from "@hheei/pi-auto-title";
-import piBasics from "@hheei/pi-basics";
-import piDollarSkill from "@hheei/pi-dollar-skill";
-import piFix from "@hheei/pi-fix";
-import piLoadout from "@hheei/pi-loadout";
-import piRtk from "@hheei/pi-rtk";
-import piT2s from "@hheei/pi-t2s";
+import piAutoTitle from "./pi-auto-title/index.js";
+import piBasics from "./pi-basics/index.js";
+import piDollarSkill from "./pi-dollar-skill/index.js";
+import piFix from "./pi-fix/index.js";
+import piLoadout from "./pi-loadout/index.js";
+import piRtk from "./pi-rtk/index.js";
+import piT2s from "./pi-t2s/index.js";
 
 export type HePiExtension = (pi: ExtensionAPI) => void;
 
