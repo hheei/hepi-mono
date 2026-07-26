@@ -55,21 +55,19 @@ Use `-l` with `pi install` for project-local installation.
 
 ## Development Run
 
-Run Pi with automatic extension discovery disabled and selected workspace extensions loaded:
+Run a local aggregate entry directly with Pi:
 
 ```bash
-bun run pi:dev -- hepi
-bun run pi:dev -- basics
-bun run pi:dev -- basics todo
-bun run pi:dev -- --all
+pi --no-extensions --no-skills -e packages/hepi-mono/src/extension.ts
+pi --no-extensions --no-skills -e packages/hepi-basics/src/extension.ts
+pi --no-extensions --no-skills -e packages/hepi-tools/src/extension.ts
+pi --no-extensions --no-skills -e packages/hepi-skills/src/extension.ts
 ```
 
-`--all` loads individual package entries and excludes the unified package to prevent duplicate registration.
-
-Pass Pi arguments after a second `--`:
+Pass additional Pi arguments normally:
 
 ```bash
-bun run pi:dev -- hepi -- --model openai/gpt-5
+pi --no-extensions --no-skills -e packages/hepi-mono/src/extension.ts --model openai/gpt-5
 ```
 
 ## Optional Magic Context Fork

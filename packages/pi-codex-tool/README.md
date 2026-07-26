@@ -7,7 +7,9 @@ The extension registers the structured `apply_patch` tool and its native cross-p
 ## Load from this workspace
 
 ```bash
-bun run pi:dev -- pi-codex-tool -- --model cx/gpt-5.6-luna --tools apply_patch
+pi --no-extensions \
+  -e packages/pi-codex-tool/src/index.ts \
+  --model cx/gpt-5.6-luna --tools apply_patch
 ```
 
 Or load the source entry directly:
