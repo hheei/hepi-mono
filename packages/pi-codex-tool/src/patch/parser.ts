@@ -1,12 +1,26 @@
-import { lineMatchFuzz, linesEqualFuzz } from "./matching.ts";
-import { normalizePatchPath } from "./paths.ts";
-import { DiffError, type Chunk, type ParseMode, type ParsedPatchAction, type ParserState, type PatchAction } from "./types.ts";
+import { lineMatchFuzz, linesEqualFuzz } from "./matching.js";
+import { normalizePatchPath } from "./paths.js";
+import {
+	type Chunk,
+	DiffError,
+	type ParsedPatchAction,
+	type ParseMode,
+	type ParserState,
+	type PatchAction,
+} from "./types.js";
 
-function parserIsDone({ state, prefixes }: { state: ParserState; prefixes?: string[] | undefined }): boolean {
+function parserIsDone({
+	state,
+	prefixes,
+}: {
+	state: ParserState;
+	prefixes?: string[] | undefined;
+}): boolean {
 	if (state.index >= state.lines.length) {
 		return true;
 	}
-	if (prefixes && prefixes.some((prefix) => state.lines[state.index]!.startsWith(prefix))) {
+	const currentLine = state.lines[state.index];
+	if (currentLine !== undefined && prefixes?.some((prefix) => currentLine.startsWith(prefix))) {
 		return true;
 	}
 	return false;
@@ -26,8 +40,9 @@ function parserReadStr({
 	}
 
 	const expectedPrefix = prefix ?? "";
-	if (state.lines[state.index]!.startsWith(expectedPrefix)) {
-		const text = returnEverything ? state.lines[state.index]! : state.lines[state.index]!.slice(expectedPrefix.length);
+	const currentLine = state.lines[state.index];
+	if (currentLine?.startsWith(expectedPrefix)) {
+		const text = returnEverything ? currentLine : currentLine.slice(expectedPrefix.length);
 		state.index += 1;
 		return text;
 	}
@@ -42,7 +57,15 @@ function splitFileLines(text: string): string[] {
 	return lines;
 }
 
-function findContextCore({ lines, context, start }: { lines: string[]; context: string[]; start: number }): {
+function findContextCore({
+	lines,
+	context,
+	start,
+}: {
+	lines: string[];
+	context: string[];
+	start: number;
+}): {
 	newIndex: number;
 	fuzz: number;
 } {
@@ -52,7 +75,10 @@ function findContextCore({ lines, context, start }: { lines: string[]; context: 
 
 	for (const tier of [0, 1, 100]) {
 		for (let index = start; index <= lines.length - context.length; index++) {
-			const quality = linesEqualFuzz({ left: lines.slice(index, index + context.length), right: context });
+			const quality = linesEqualFuzz({
+				left: lines.slice(index, index + context.length),
+				right: context,
+			});
 			if (quality?.worstLineFuzz === tier) {
 				return { newIndex: index, fuzz: quality.fuzz };
 			}
@@ -62,7 +88,15 @@ function findContextCore({ lines, context, start }: { lines: string[]; context: 
 	return { newIndex: -1, fuzz: 0 };
 }
 
-function findSectionAnchor({ lines, target, start }: { lines: string[]; target: string; start: number }): { newIndex: number; fuzz: number } {
+function findSectionAnchor({
+	lines,
+	target,
+	start,
+}: {
+	lines: string[];
+	target: string;
+	start: number;
+}): { newIndex: number; fuzz: number } {
 	for (const tier of [0, 1, 100]) {
 		const alreadySeen = lines.slice(0, start).some((line) => lineMatchFuzz(line, target) === tier);
 		if (alreadySeen) {
@@ -70,7 +104,9 @@ function findSectionAnchor({ lines, target, start }: { lines: string[]; target: 
 		}
 
 		for (let index = start; index < lines.length; index++) {
-			const fuzz = lineMatchFuzz(lines[index]!, target);
+			const line = lines[index];
+			if (line === undefined) continue;
+			const fuzz = lineMatchFuzz(line, target);
 			if (fuzz === tier) {
 				return { newIndex: index, fuzz };
 			}
@@ -117,7 +153,8 @@ function peekNextSection({ lines, index }: { lines: string[]; index: number }): 
 	const origIndex = index;
 
 	while (index < lines.length) {
-		const rawLine = lines[index]!;
+		const rawLine = lines[index];
+		if (rawLine === undefined) break;
 		if (
 			rawLine.startsWith("@@") ||
 			rawLine.startsWith("*** End Patch") ||
@@ -227,7 +264,15 @@ function parseAddFile({ state }: { state: ParserState }): PatchAction {
 	};
 }
 
-export function parseUpdateFile({ state, text, path }: { state: ParserState; text: string; path: string }): PatchAction {
+export function parseUpdateFile({
+	state,
+	text,
+	path,
+}: {
+	state: ParserState;
+	text: string;
+	path: string;
+}): PatchAction {
 	const action: PatchAction = {
 		type: "update",
 		chunks: [],
@@ -239,18 +284,24 @@ export function parseUpdateFile({ state, text, path }: { state: ParserState; tex
 	while (
 		!parserIsDone({
 			state,
-			prefixes: ["*** End Patch", "*** Update File:", "*** Delete File:", "*** Add File:", "*** End of File"],
+			prefixes: [
+				"*** End Patch",
+				"*** Update File:",
+				"*** Delete File:",
+				"*** Add File:",
+				"*** End of File",
+			],
 		})
 	) {
 		const defStr = parserReadStr({ state, prefix: "@@ " });
 		let sectionStr = "";
 		if (!defStr && state.index < state.lines.length && state.lines[state.index] === "@@") {
-			sectionStr = state.lines[state.index]!;
+			sectionStr = "@@";
 			state.index += 1;
 		}
 
 		if (!(defStr || sectionStr || index === 0)) {
-			throw new DiffError(`Invalid Line:\n${state.lines[state.index]!}`);
+			throw new DiffError(`Invalid Line:\n${state.lines[state.index] ?? ""}`);
 		}
 
 		if (defStr.trim().length > 0) {
@@ -261,7 +312,10 @@ export function parseUpdateFile({ state, text, path }: { state: ParserState; tex
 			}
 		}
 
-		const { nextChunkContext, chunks, endPatchIndex, eof } = peekNextSection({ lines: state.lines, index: state.index });
+		const { nextChunkContext, chunks, endPatchIndex, eof } = peekNextSection({
+			lines: state.lines,
+			index: state.index,
+		});
 		const nextChunkText = nextChunkContext.join("\n");
 		const { newIndex, fuzz } = findContext({
 			lines,
@@ -299,7 +353,13 @@ const VALID_HUNK_HEADERS = [
 
 export function parsePatchActions({ text }: { text: string }): ParsedPatchAction[] {
 	const lines = text.trim().split("\n");
-	if (lines.length < 2 || !lines[0]!.startsWith("*** Begin Patch") || lines[lines.length - 1] !== "*** End Patch") {
+	const firstLine = lines[0];
+	if (
+		lines.length < 2 ||
+		firstLine === undefined ||
+		!firstLine.startsWith("*** Begin Patch") ||
+		lines[lines.length - 1] !== "*** End Patch"
+	) {
 		throw new DiffError("Invalid patch text");
 	}
 
@@ -308,7 +368,8 @@ export function parsePatchActions({ text }: { text: string }): ParsedPatchAction
 	let index = 1;
 
 	while (index < lines.length - 1) {
-		const line = lines[index]!;
+		const line = lines[index];
+		if (line === undefined) throw new DiffError(`Invalid patch line ${index + 1}`);
 		const lineNumber = index + 1;
 
 		if (line.startsWith("*** Update File: ")) {
@@ -319,22 +380,32 @@ export function parsePatchActions({ text }: { text: string }): ParsedPatchAction
 			seenPaths.add(updatePath);
 			index += 1;
 			let movePath: string | undefined;
-			if (index < lines.length - 1 && lines[index]!.startsWith("*** Move to: ")) {
-				movePath = normalizePatchPath({ path: lines[index]!.slice("*** Move to: ".length) });
+			const moveLine = lines[index];
+			if (
+				moveLine !== undefined &&
+				index < lines.length - 1 &&
+				moveLine.startsWith("*** Move to: ")
+			) {
+				movePath = normalizePatchPath({ path: moveLine.slice("*** Move to: ".length) });
 				index += 1;
 			}
 			const bodyStart = index;
-			while (
-				index < lines.length - 1 &&
-				!lines[index]!.startsWith("*** Update File: ") &&
-				!lines[index]!.startsWith("*** Delete File: ") &&
-				!lines[index]!.startsWith("*** Add File: ")
-			) {
+			while (index < lines.length - 1) {
+				const bodyLine = lines[index];
+				if (
+					bodyLine === undefined ||
+					bodyLine.startsWith("*** Update File: ") ||
+					bodyLine.startsWith("*** Delete File: ") ||
+					bodyLine.startsWith("*** Add File: ")
+				)
+					break;
 				index += 1;
 			}
 			const bodyLines = lines.slice(bodyStart, index);
 			if (bodyLines.length === 0) {
-				throw new DiffError(`Invalid patch hunk on line ${lineNumber}: Update file hunk for path '${updatePath}' is empty`);
+				throw new DiffError(
+					`Invalid patch hunk on line ${lineNumber}: Update file hunk for path '${updatePath}' is empty`,
+				);
 			}
 			actions.push({
 				type: "update",

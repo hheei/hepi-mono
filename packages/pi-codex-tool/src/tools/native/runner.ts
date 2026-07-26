@@ -19,7 +19,16 @@ export interface BundledToolResult {
 
 const DEFAULT_MAX_BUFFER = 64 * 1024 * 1024;
 
-export function runBundledTool({ binary, args, stdin, cwd, env, maxBuffer, signal, label }: RunBundledToolOptions): Promise<BundledToolResult> {
+export function runBundledTool({
+	binary,
+	args,
+	stdin,
+	cwd,
+	env,
+	maxBuffer,
+	signal,
+	label,
+}: RunBundledToolOptions): Promise<BundledToolResult> {
 	return new Promise((resolve, reject) => {
 		const toolLabel = label ?? "tool";
 		if (signal?.aborted) {
@@ -81,10 +90,10 @@ export function runBundledTool({ binary, args, stdin, cwd, env, maxBuffer, signa
 }
 
 export function parseSingleJsonLine<T>(stdout: string, label: string): T {
-	const jsonLine = stdout
-		.trimEnd()
-		.split("\n")
-		.findLast((line) => line.trimStart().startsWith("{"));
-	if (!jsonLine) throw new Error(`${label} did not return structured JSON output`);
-	return JSON.parse(jsonLine) as T;
+	const lines = stdout.trimEnd().split("\n");
+	for (let index = lines.length - 1; index >= 0; index -= 1) {
+		const line = lines[index];
+		if (line?.trimStart().startsWith("{")) return JSON.parse(line) as T;
+	}
+	throw new Error(`${label} did not return structured JSON output`);
 }

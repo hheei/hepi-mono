@@ -1,23 +1,24 @@
-import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
-import { ExecutePatchError, type ExecutePatchResult } from "../../patch/types.ts";
-import { formatPatchTarget } from "./rendering.ts";
-import { executePatchWithRust } from "./executor.ts";
+import { Type } from "typebox";
+import { ExecutePatchError, type ExecutePatchResult } from "../../patch/types.js";
+import { executePatchWithRust } from "./executor.js";
 import {
+	type ApplyPatchPartialFailureDetails,
+	type ApplyPatchSuccessDetails,
 	clearApplyPatchRenderState,
 	isApplyPatchToolDetails,
 	markApplyPatchFailure,
 	markApplyPatchPartialFailure,
 	renderApplyPatchCallFromState,
 	setApplyPatchRenderState,
-	type ApplyPatchPartialFailureDetails,
-	type ApplyPatchSuccessDetails,
-} from "./render-state.ts";
+} from "./render-state.js";
+import { formatPatchTarget } from "./rendering.js";
 
 const APPLY_PATCH_PARAMETERS = Type.Object({
 	input: Type.String({
-		description: "Full patch text. Use *** Begin Patch / *** End Patch with Add/Update/Delete File sections. Order each file's hunks top-to-bottom; indentation is literal",
+		description:
+			"Full patch text. Use *** Begin Patch / *** End Patch with Add/Update/Delete File sections. Order each file's hunks top-to-bottom; indentation is literal",
 	}),
 });
 
@@ -34,7 +35,12 @@ interface ApplyPatchToolOptions {
 }
 
 function parseApplyPatchParams(params: unknown): { patchText: string } {
-	if (!params || typeof params !== "object" || !("input" in params) || typeof params.input !== "string") {
+	if (
+		!params ||
+		typeof params !== "object" ||
+		!("input" in params) ||
+		typeof params.input !== "string"
+	) {
 		throw new Error("apply_patch requires a string 'input' parameter");
 	}
 	return { patchText: params.input };
@@ -59,18 +65,31 @@ function summarizePatchCounts(result: ExecutePatchResult): string {
 }
 
 function uniqueStrings(values: Array<string | undefined>): string[] {
-	return Array.from(new Set(values.filter((value): value is string => typeof value === "string" && value.length > 0)));
+	return Array.from(
+		new Set(
+			values.filter((value): value is string => typeof value === "string" && value.length > 0),
+		),
+	);
 }
 
 function getFailedPaths(error: ExecutePatchError): string[] {
-	return uniqueStrings(error.failures.flatMap(({ action }) => [action.path, action.type === "update" ? action.movePath : undefined]));
+	return uniqueStrings(
+		error.failures.flatMap(({ action }) => [
+			action.path,
+			action.type === "update" ? action.movePath : undefined,
+		]),
+	);
 }
 
 function getAppliedPaths(result: ExecutePatchResult, failedFiles: string[]): string[] {
 	return result.changedFiles.filter((path) => !failedFiles.includes(path));
 }
 
-function buildPartialFailureMessage(message: string, failedFiles: string[], appliedFiles: string[]): string {
+function buildPartialFailureMessage(
+	message: string,
+	failedFiles: string[],
+	appliedFiles: string[],
+): string {
 	const lines = [message];
 	if (failedFiles.length > 0) {
 		lines.push(`Failed file${failedFiles.length === 1 ? "" : "s"}: ${failedFiles.join(", ")}`);
@@ -78,7 +97,9 @@ function buildPartialFailureMessage(message: string, failedFiles: string[], appl
 	}
 	if (appliedFiles.length > 0) {
 		lines.push("Earlier file actions in this patch were already applied");
-		lines.push("Recovery: MUST NOT reread other files from this patch unless a specific dependency requires it");
+		lines.push(
+			"Recovery: MUST NOT reread other files from this patch unless a specific dependency requires it",
+		);
 	}
 	return lines.join("\n");
 }
@@ -89,18 +110,32 @@ function addPatchRetryHint(message: string, cause: string): string {
 }
 
 function describeFailedActions(error: ExecutePatchError, cwd: string): string[] {
-	return uniqueStrings(error.failures.map(({ action }) => formatPatchTarget(action.path, action.type === "update" ? action.movePath : undefined, cwd)));
+	return uniqueStrings(
+		error.failures.map(({ action }) =>
+			formatPatchTarget(action.path, action.type === "update" ? action.movePath : undefined, cwd),
+		),
+	);
 }
 
-export type { ExecutePatchResult } from "../../patch/types.ts";
+export type { ExecutePatchResult } from "../../patch/types.js";
 export { clearApplyPatchRenderState };
 
 const renderApplyPatchCallWithOptionalContext = (
-	args: { input?: unknown | undefined },
+	args: unknown,
 	theme: { fg(role: string, text: string): string; bold(text: string): string },
 	context?: ApplyPatchRenderContextLike,
 	options: ApplyPatchToolOptions = {},
-) => new Text(renderApplyPatchCallFromState(args, theme, { ...context, showCollapsedDiff: options.showDiffWhenCollapsed }), 0, 0);
+) => {
+	const input = args && typeof args === "object" && "input" in args ? args.input : undefined;
+	return new Text(
+		renderApplyPatchCallFromState({ input }, theme, {
+			...context,
+			showCollapsedDiff: options.showDiffWhenCollapsed,
+		}),
+		0,
+		0,
+	);
+};
 
 export function createApplyPatchTool(options: ApplyPatchToolOptions = {}) {
 	return {
@@ -117,14 +152,22 @@ export function createApplyPatchTool(options: ApplyPatchToolOptions = {}) {
 			setApplyPatchRenderState(toolCallId, typedParams.patchText, ctx.cwd);
 			let result: ExecutePatchResult;
 			try {
-				result = await executePatchWithRust({ cwd: ctx.cwd, patchText: typedParams.patchText, signal });
+				result = await executePatchWithRust({
+					cwd: ctx.cwd,
+					patchText: typedParams.patchText,
+					signal,
+				});
 			} catch (error) {
 				if (error instanceof ExecutePatchError) {
 					const partial = error.hasPartialSuccess();
 					const failedTargets = describeFailedActions(error, ctx.cwd);
 					const failedTargetSummary = failedTargets.join(", ");
-					const prefix = partial ? `apply_patch partially failed after ${summarizePatchCounts(error.result)}` : "apply_patch failed";
-					const rawMessage = failedTargetSummary ? `${prefix} while patching ${failedTargetSummary}: ${error.message}` : `${prefix}: ${error.message}`;
+					const prefix = partial
+						? `apply_patch partially failed after ${summarizePatchCounts(error.result)}`
+						: "apply_patch failed";
+					const rawMessage = failedTargetSummary
+						? `${prefix} while patching ${failedTargetSummary}: ${error.message}`
+						: `${prefix}: ${error.message}`;
 					const message = addPatchRetryHint(rawMessage, error.message);
 					if (partial) {
 						const failedFiles = getFailedPaths(error);
@@ -140,7 +183,10 @@ export function createApplyPatchTool(options: ApplyPatchToolOptions = {}) {
 								failedTargets,
 								appliedFiles,
 								failedFiles,
-								recoveryInstructions: { mustReadFiles: [...failedFiles], mustNotReadFiles: [...appliedFiles] },
+								recoveryInstructions: {
+									mustReadFiles: [...failedFiles],
+									mustNotReadFiles: [...appliedFiles],
+								},
 							} satisfies ApplyPatchPartialFailureDetails,
 						};
 					}
@@ -159,9 +205,16 @@ export function createApplyPatchTool(options: ApplyPatchToolOptions = {}) {
 				`Fuzz: ${result.fuzz}`,
 			].join("\n");
 
-			return { content: [{ type: "text", text: summary }], details: { status: "success", result } satisfies ApplyPatchSuccessDetails };
+			return {
+				content: [{ type: "text", text: summary }],
+				details: { status: "success", result } satisfies ApplyPatchSuccessDetails,
+			};
 		},
-		renderCall: ((args: { input?: unknown | undefined }, theme: { fg(role: string, text: string): string; bold(text: string): string }, context?: ApplyPatchRenderContextLike) => renderApplyPatchCallWithOptionalContext(args, theme, context, options)) as any,
+		renderCall: (
+			args: unknown,
+			theme: { fg(role: string, text: string): string; bold(text: string): string },
+			context?: ApplyPatchRenderContextLike,
+		) => renderApplyPatchCallWithOptionalContext(args, theme, context, options),
 		renderResult(result, { isPartial }, theme) {
 			if (isPartial) return new Text(`${theme.fg("dim", "•")} ${theme.bold("Patching")}`, 0, 0);
 			if (!isApplyPatchToolDetails(result.details)) return new Container();
@@ -171,6 +224,9 @@ export function createApplyPatchTool(options: ApplyPatchToolOptions = {}) {
 	} satisfies Parameters<ExtensionAPI["registerTool"]>[0];
 }
 
-export function registerApplyPatchTool(pi: ExtensionAPI, options: ApplyPatchToolOptions = {}): void {
+export function registerApplyPatchTool(
+	pi: ExtensionAPI,
+	options: ApplyPatchToolOptions = {},
+): void {
 	pi.registerTool(createApplyPatchTool(options));
 }
