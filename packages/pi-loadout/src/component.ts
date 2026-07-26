@@ -29,7 +29,7 @@ export function createLoadoutView(options: LoadoutComponentOptions): Component {
 				options.close();
 				return;
 			}
-			if (matchesKey(input, Key.ctrl("tab"))) {
+			if (matchesKey(input, Key.ctrl("p"))) {
 				options.controller.setScope(
 					options.controller.state.scope === "global" ? "project" : "global",
 				);

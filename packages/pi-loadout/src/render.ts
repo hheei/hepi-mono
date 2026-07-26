@@ -98,9 +98,9 @@ function panelLines(
 function footer(scope: LoadoutScope, view: LoadoutView, width: number): string {
 	const nextView = view === "tools" ? "skills" : "tools";
 	const nextScope = scope === "global" ? "project" : "global";
-	const full = `↕ navigate · ⇥ ${nextView} · ^⇥ ${nextScope} · ␣ toggle · ⎋ close`;
-	const short = `↕ nav · ⇥ ${nextView} · ^⇥ ${nextScope} · ␣ toggle · ⎋ close`;
-	const minimal = `↕ · ⇥ ${nextView} · ^⇥ ${nextScope} · ␣ · ⎋`;
+	const full = `↕ navigate · ⇥ ${nextView} · ^p ${nextScope} · ␣ toggle · ⎋ close`;
+	const short = `↕ nav · ⇥ ${nextView} · ^p ${nextScope} · ␣ toggle · ⎋ close`;
+	const minimal = `↕ · ⇥ ${nextView} · ^p ${nextScope} · ␣ · ⎋`;
 	return width >= visibleWidth(full) ? full : width >= visibleWidth(short) ? short : minimal;
 }
 

@@ -35,11 +35,11 @@ async function setup() {
 }
 
 describe("loadout component", () => {
-	test("switches view with Tab, scope with Ctrl+Tab, and delegates search", async () => {
+	test("switches view with Tab, scope with Ctrl+P, and delegates search", async () => {
 		const { controller, component } = await setup();
 		component.handleInput?.("\t");
 		expect(controller.state.view).toBe("skills");
-		component.handleInput?.("\x1b[9;5u");
+		component.handleInput?.("\x10");
 		expect(controller.state.scope).toBe("project");
 		component.handleInput?.("\t");
 		component.handleInput?.("b");

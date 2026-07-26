@@ -176,7 +176,7 @@ describe("loadout renderer", () => {
 		}).join("\n");
 		expect(output).toContain("Project · /project/.pi/setting.json");
 		expect(output).toContain("Error: something failed");
-		expect(output).toContain("^⇥ global");
+		expect(output).toContain("^p global");
 	});
 	test("caps body height at thirty percent of terminal rows", () => {
 		const all = Array.from({ length: 10 }, (_, index) => ({
