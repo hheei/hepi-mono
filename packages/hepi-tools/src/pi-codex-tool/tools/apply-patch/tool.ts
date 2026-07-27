@@ -27,6 +27,7 @@ interface ApplyPatchRenderContextLike {
 	cwd?: string | undefined;
 	expanded?: boolean | undefined;
 	argsComplete?: boolean | undefined;
+	state?: unknown;
 }
 
 interface ApplyPatchToolOptions {

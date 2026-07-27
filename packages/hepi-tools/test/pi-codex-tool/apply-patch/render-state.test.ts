@@ -77,6 +77,106 @@ describe("apply_patch render state", () => {
 		expect(roles).toEqual(["accent", "dim", "success", "error", "accent"]);
 	});
 
+	test("incrementally renders complete streamed patch lines without executing the patch", () => {
+		const state = {};
+		const start = `*** Begin Patch
+*** Update File: one.ts
+@@
+-old
+`;
+		expect(
+			renderApplyPatchCallFromState({ input: start }, theme, {
+				argsComplete: false,
+				cwd: "/tmp",
+				state,
+			}),
+		).toBe("apply_patch\n\nEdited one.ts +0 -1");
+
+		const partialLine = `${start}+new`;
+		expect(
+			renderApplyPatchCallFromState({ input: partialLine }, theme, {
+				argsComplete: false,
+				cwd: "/tmp",
+				state,
+			}),
+		).toBe("apply_patch\n\nEdited one.ts +0 -1");
+
+		const nextAction = `${partialLine}
+*** Add File: two.ts
++content
+`;
+		expect(
+			renderApplyPatchCallFromState({ input: nextAction }, theme, {
+				argsComplete: false,
+				cwd: "/tmp",
+				state,
+			}),
+		).toBe("apply_patch\n\nEdited one.ts +1 -1\nCreated two.ts +1 -0");
+	});
+
+	test("resets a streamed preview after the model replaces its argument prefix", () => {
+		const state = {};
+		renderApplyPatchCallFromState(
+			{ input: "*** Begin Patch\n*** Update File: stale.ts\n@@\n-old\n" },
+			theme,
+			{ argsComplete: false, cwd: "/tmp", state },
+		);
+		expect(
+			renderApplyPatchCallFromState(
+				{ input: "*** Begin Patch\n*** Add File: replacement.ts\n+new\n" },
+				theme,
+				{ argsComplete: false, cwd: "/tmp", state },
+			),
+		).toBe("apply_patch\n\nCreated replacement.ts +1 -0");
+	});
+
+	test("does not invent a deleted line count from a streamed delete header", () => {
+		const rendered = renderApplyPatchCallFromState(
+			{ input: "*** Begin Patch\n*** Delete File: removed.ts\n" },
+			theme,
+			{ argsComplete: false, cwd: "/tmp", state: {} },
+		);
+		expect(rendered).toBe("apply_patch\n\nDeleted removed.ts");
+	});
+
+	test("uses final-summary semantic colors while streaming patch arguments", () => {
+		const styles: Array<readonly [string, string]> = [];
+		const rendered = renderApplyPatchCallFromState(
+			{
+				input: `*** Begin Patch
+*** Update File: changed.ts
+@@
+-old
++new
+*** Add File: created.ts
++content
+*** Delete File: removed.ts
+`,
+			},
+			{
+				...theme,
+				fg: (role, text) => {
+					styles.push([role, text]);
+					return text;
+				},
+			},
+			{ argsComplete: false, cwd: "/tmp", state: {} },
+		);
+		expect(rendered).toBe(
+			"apply_patch\n\nEdited changed.ts +1 -1\nCreated created.ts +1 -0\nDeleted removed.ts",
+		);
+		expect(styles).toContainEqual(["accent", "Edited"]);
+		expect(styles).toContainEqual(["dim", "changed.ts"]);
+		expect(styles).toContainEqual(["success", "+1"]);
+		expect(styles).toContainEqual(["error", "-1"]);
+		expect(styles).toContainEqual(["accent", "Created"]);
+		expect(styles).toContainEqual(["dim", "created.ts"]);
+		expect(styles).toContainEqual(["error", "-0"]);
+		expect(styles).toContainEqual(["accent", "Deleted"]);
+		expect(styles).toContainEqual(["dim", "removed.ts"]);
+		expect(styles).toContainEqual(["accent", "apply_patch"]);
+	});
+
 	test("renders a colored aggregate and every changed target", () => {
 		const patch = `*** Begin Patch
 *** Update File: one.ts
@@ -143,14 +243,62 @@ describe("apply_patch render state", () => {
 		expect(roles).toEqual([
 			"accent",
 			"error",
+			"success",
+			"error",
 			"dim",
 			"error",
 			"accent",
 			"accent",
 			"warning",
+			"success",
+			"error",
 			"dim",
 			"error",
 			"accent",
 		]);
+	});
+
+	test("keeps partial failure counts plain and colors its aggregate deltas", () => {
+		const patch = `*** Begin Patch
+*** Update File: one.ts
+@@
+-one
+-two
+-three
+-four
+-five
+-six
+-seven
++one
++two
++three
++four
++five
++six
++seven
+*** Update File: two.ts
+@@
+ context
+*** End Patch`;
+		setApplyPatchRenderState("partial-counts", patch, "/tmp");
+		markApplyPatchPartialFailure("partial-counts", ["one.ts"]);
+		const styles: Array<readonly [string, string]> = [];
+		const rendered = renderApplyPatchCallFromState(
+			{ input: patch },
+			{
+				...theme,
+				fg: (role, text) => {
+					styles.push([role, text]);
+					return text;
+				},
+			},
+			{ toolCallId: "partial-counts", cwd: "/tmp" },
+		);
+		expect(rendered).toContain("Edit partially failed 2 files +7 -7");
+		expect(styles).toContainEqual(["accent", "Edit"]);
+		expect(styles).toContainEqual(["warning", " partially failed"]);
+		expect(styles).toContainEqual(["success", "+7"]);
+		expect(styles).toContainEqual(["error", "-7"]);
+		expect(styles).not.toContainEqual(["warning", " 2 files "]);
 	});
 });
