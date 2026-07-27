@@ -139,6 +139,36 @@ describe("apply_patch render state", () => {
 		expect(rendered).toBe("apply_patch\n\nDeleted removed.ts");
 	});
 
+	test("stops the preview at End Patch and accepts strict-parser begin marker whitespace", () => {
+		const state = {};
+		expect(
+			renderApplyPatchCallFromState(
+				{
+					input: `  *** Begin Patch${"   "}
+*** Add File: kept.ts
++content
+*** End Patch
+*** Add File: ignored.ts
++content
+`,
+				},
+				theme,
+				{ argsComplete: false, cwd: "/tmp", state },
+			),
+		).toBe("apply_patch\n\nCreated kept.ts +1 -0");
+	});
+
+	test("falls back to Patching when streamed input exceeds the bounded preview limit", () => {
+		const rendered = renderApplyPatchCallFromState(
+			{
+				input: `*** Begin Patch\n*** Add File: large.ts\n+${"x".repeat(256 * 1024)}\n`,
+			},
+			theme,
+			{ argsComplete: false, cwd: "/tmp", state: {} },
+		);
+		expect(rendered).toBe("apply_patch\n\nPatching");
+	});
+
 	test("uses final-summary semantic colors while streaming patch arguments", () => {
 		const styles: Array<readonly [string, string]> = [];
 		const rendered = renderApplyPatchCallFromState(
