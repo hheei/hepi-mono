@@ -63,6 +63,7 @@ async function setup(
 	providers: readonly HepiSettingsProvider[] = [provider()],
 	height?: number,
 	showTabs = true,
+	componentTheme: Theme = theme,
 ) {
 	const controller = createSettingsController({ providers, context: testContext() });
 	await controller.load();
@@ -71,7 +72,7 @@ async function setup(
 	const component = createSettingsComponent({
 		controller,
 		host,
-		theme,
+		theme: componentTheme,
 		...(height === undefined ? {} : { height }),
 		showTabs,
 		close: () => {
@@ -135,9 +136,59 @@ describe("settings component", () => {
 		const lines = state.component.render(100).map(stripAnsi);
 		const title = lines.find((line) => line.includes("General"));
 		const child = lines.find((line) => line.includes("Enabled"));
-		expect(title?.trimStart()).toStartWith("⧉ General");
+		expect(title).toStartWith("⧉ General");
 		expect(title).not.toContain("▾");
-		expect(child?.indexOf("Enabled")).toBe((title?.indexOf("⧉") ?? 0) + 1);
+		expect(child?.indexOf("Enabled")).toBe(2);
+	});
+
+	test("uses the Loadout dim role for the action hint bar", async () => {
+		const calls: Array<{ readonly role: string; readonly text: string }> = [];
+		const recordingTheme = {
+			fg: (role: string, text: string) => {
+				calls.push({ role, text });
+				return text;
+			},
+			bold: (text: string) => text,
+		} as unknown as Theme;
+		const state = await setup([provider()], undefined, true, recordingTheme);
+		state.component.render(100);
+		expect(calls).toContainEqual({ role: "dim", text: toggleFooter });
+	});
+
+	test("keeps one cell between the selection arrow and key, then scrolls overflow left to right", async () => {
+		const longLabel = "A setting key that is deliberately much longer than the available column";
+		const state = await setup([
+			{
+				...provider(),
+				groups: [
+					{ id: "general", title: "General", fields: [{ ...fields[0]!, label: longLabel }] },
+				],
+			},
+		]);
+		const selected = (): string =>
+			state.component
+				.render(48)
+				.map(stripAnsi)
+				.find((line) => line.startsWith("→ ")) ?? "";
+		const initial = selected();
+		expect(initial).toContain("→ A setting");
+		await Bun.sleep(650);
+		expect(state.host.renderRequests).toBe(0);
+		await Bun.sleep(150);
+		const advanced = selected();
+		expect(advanced).not.toBe(initial);
+		expect(state.host.renderRequests).toBeGreaterThan(0);
+		state.component.handleInput?.("\x1b");
+		const requestsAfterClose = state.host.renderRequests;
+		await Bun.sleep(140);
+		expect(state.host.renderRequests).toBe(requestsAfterClose);
+	});
+
+	test("does not schedule marquee redraws for a key that fits", async () => {
+		const state = await setup();
+		state.component.render(48);
+		await Bun.sleep(800);
+		expect(state.host.renderRequests).toBe(0);
 	});
 
 	test("matches footer through toggle, edit, cancel, confirm, and close", async () => {
@@ -466,7 +517,7 @@ describe("settings component", () => {
 			itemId: "enabled-14",
 			groupId: "group-14",
 		});
-		expect(controller.state.scrollTop).toBe(18);
+		expect(controller.state.scrollTop).toBe(17);
 	});
 
 	test("renders and routes input to panels-only provider", async () => {

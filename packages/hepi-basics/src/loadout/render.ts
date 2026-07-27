@@ -1,6 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import {
-	createSplitLayout,
+	createSelectorPanelLayout,
 	padToWidth,
 	renderDetailPanel,
 	truncateToWidth,
@@ -139,22 +139,14 @@ export function renderLoadout(options: RenderLoadoutOptions): string[] {
 		"dim",
 		`${icons[state.view]} ${labels[state.view]} · ${state.scope === "global" ? "Global" : "Project"} · ${path}`,
 	);
-	const split = createSplitLayout({
-		width,
-		gap: 3,
-		leftMin: 24,
-		leftMax: 46,
-		rightMin: 32,
-		rightMax: 100,
-	});
+	const selected = visible.find((item) => item.key === state.selectedKey);
+	const fallbackBodyHeight =
+		options.height === undefined ? Math.max(groupRows.length + 3, selected ? 16 : 5) : 4;
+	const split = createSelectorPanelLayout(width, options.height, fallbackBodyHeight);
 	const panelWidth = split.rightWidth;
 	const gap = split.gap;
 	const listWidth = panelWidth ? Math.max(1, split.leftWidth - 1) : width;
-	const selected = visible.find((item) => item.key === state.selectedKey);
-	const bodyHeight =
-		options.height === undefined
-			? Math.max(groupRows.length + 3, selected ? 16 : 5)
-			: Math.max(4, Math.floor(options.height * 0.3));
+	const bodyHeight = split.panelHeight;
 	const groupViewportHeight = Math.max(1, bodyHeight - 3);
 	const selectedGroupIndex = Math.max(
 		0,

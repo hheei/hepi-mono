@@ -132,6 +132,7 @@ describe("loadout renderer", () => {
 		expect(wide).toContain("describe (tool) · 123 tokens");
 		expect(wide).toContain("Origin: plugin");
 		expect(wide).toContain("Instruction:");
+		expect(wideLines[1]?.indexOf("╭─ Description")).toBe(57);
 		expect(narrowLines.join("\n")).not.toContain("Description");
 	});
 

@@ -44,6 +44,7 @@ export interface RenderSettingsOptions {
 	readonly editor?: ValueEditor | undefined;
 	readonly activeTab?: SettingsMainTab;
 	readonly showTabs?: boolean;
+	readonly keyMarqueeOffset?: number;
 }
 
 function navigationHints(
@@ -271,21 +272,20 @@ function renderListRow(
 	selected: boolean,
 	layout: SettingsLayout,
 	theme: Theme,
+	keyMarqueeOffset: number,
 ): string {
-	const indicator = padToWidth(selected ? theme.fg("accent", "→") : "", layout.indicatorWidth);
 	if (item.kind === "group") {
-		const key = truncateToWidth(
-			`⧉ ${item.label}`,
-			layout.listContentWidth - layout.indicatorWidth,
-			"",
-		);
+		const key = truncateToWidth(`⧉ ${item.label}`, layout.listContentWidth, "");
 		const styled = selected ? theme.fg("accent", theme.bold(key)) : theme.bold(key);
-		return `${indicator}${padToWidth(styled, layout.listContentWidth - layout.indicatorWidth)}`;
+		return padToWidth(styled, layout.listContentWidth);
 	}
-	const rawKey = ` ${item.label}`;
+	const indicator = padToWidth(selected ? theme.fg("accent", "→") : "", layout.indicatorWidth);
+	const rawKey = item.label;
+	const keyOverflow = Math.max(0, visibleWidth(rawKey) - layout.keyWidth);
+	const marqueeOffset = keyOverflow ? keyMarqueeOffset % (keyOverflow + 1) : 0;
 	const key =
-		selected && visibleWidth(rawKey) > layout.keyWidth
-			? horizontalViewport(rawKey, layout.keyWidth, visibleWidth(rawKey)).text
+		selected && keyOverflow > 0
+			? horizontalViewport(rawKey, layout.keyWidth, marqueeOffset + layout.keyWidth - 1).text
 			: truncateToWidth(rawKey, layout.keyWidth, "");
 	const providerId = controller.provider?.id;
 	const committed = providerId === undefined ? {} : (controller.state.committed[providerId] ?? {});
@@ -318,6 +318,7 @@ function renderList(
 	controller: SettingsController,
 	layout: SettingsLayout,
 	theme: Theme,
+	keyMarqueeOffset: number,
 ): string[] {
 	const items = settingsListItems(controller);
 	const maxTop = Math.max(0, items.length - layout.itemCapacity);
@@ -337,7 +338,7 @@ function renderList(
 				item.kind === "field"
 					? item.field.id === selection?.itemId && item.groupId === selection.groupId
 					: item.id === selection?.itemId;
-			lines.push(renderListRow(controller, item, selected, layout, theme));
+			lines.push(renderListRow(controller, item, selected, layout, theme, keyMarqueeOffset));
 		}
 	}
 	while (lines.length < layout.listHeight) lines.push("");
@@ -381,7 +382,7 @@ export function renderSettings(options: RenderSettingsOptions): string[] {
 	} else {
 		const search = controller.state.search ? `> ${controller.state.search}` : "> _";
 		const styledSearch = controller.state.mode === "Edit" ? theme.fg("dim", search) : search;
-		const list = renderList(controller, layout, theme);
+		const list = renderList(controller, layout, theme, options.keyMarqueeOffset ?? 0);
 		if (layout.mode === "wide") {
 			const left = [styledSearch, ...list];
 			const detail =
@@ -444,18 +445,21 @@ export function renderSettings(options: RenderSettingsOptions): string[] {
 					? "select"
 					: "edit";
 	content.push(
-		formatKeymap(
-			controller.state.mode === "Edit" &&
-				selected?.kind === "field" &&
-				selected.field.type === "enum"
-				? editHints
-				: controller.state.mode === "Edit"
-					? [
-							{ key: "⏎", label: "confirm", priority: 2 },
-							{ key: "⎋", label: "cancel", priority: 1 },
-						]
-					: navigationHints(hintAction, Boolean(controller.state.search)),
-			{ width: layout.width },
+		theme.fg(
+			"dim",
+			formatKeymap(
+				controller.state.mode === "Edit" &&
+					selected?.kind === "field" &&
+					selected.field.type === "enum"
+					? editHints
+					: controller.state.mode === "Edit"
+						? [
+								{ key: "⏎", label: "confirm", priority: 2 },
+								{ key: "⎋", label: "cancel", priority: 1 },
+							]
+						: navigationHints(hintAction, Boolean(controller.state.search)),
+				{ width: layout.width },
+			),
 		),
 	);
 	content.push(theme.fg("border", "─".repeat(layout.width)));
