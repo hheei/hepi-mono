@@ -1,4 +1,5 @@
 export type StreamingPatchActionType = "add" | "delete" | "update";
+const STREAMING_PREVIEW_INPUT_LIMIT = 256 * 1024;
 
 export interface StreamingPatchPreviewAction {
 	type: StreamingPatchActionType;
@@ -12,6 +13,7 @@ export interface StreamingPatchPreviewState {
 	input: string;
 	lineBuffer: string;
 	inPatch: boolean;
+	truncated: boolean;
 	currentAction?: StreamingPatchPreviewAction | undefined;
 	actions: StreamingPatchPreviewAction[];
 }
@@ -21,6 +23,7 @@ export function createStreamingPatchPreviewState(): StreamingPatchPreviewState {
 		input: "",
 		lineBuffer: "",
 		inPatch: false,
+		truncated: false,
 		actions: [],
 	};
 }
@@ -45,13 +48,18 @@ function parseActionHeader(line: string):
 }
 
 function processPreviewLine(state: StreamingPatchPreviewState, line: string): void {
-	if (line === "*** Begin Patch") {
+	if (
+		!state.inPatch &&
+		state.actions.length === 0 &&
+		line.trimStart().startsWith("*** Begin Patch")
+	) {
 		state.inPatch = true;
 		state.currentAction = undefined;
 		return;
 	}
 	if (!state.inPatch) return;
 	if (line === "*** End Patch") {
+		state.inPatch = false;
 		state.currentAction = undefined;
 		return;
 	}
@@ -87,6 +95,7 @@ function resetStreamingPatchPreviewState(state: StreamingPatchPreviewState): voi
 	state.input = "";
 	state.lineBuffer = "";
 	state.inPatch = false;
+	state.truncated = false;
 	state.currentAction = undefined;
 	state.actions.length = 0;
 }
@@ -95,17 +104,25 @@ export function updateStreamingPatchPreview(
 	state: StreamingPatchPreviewState,
 	input: string,
 ): readonly StreamingPatchPreviewAction[] {
+	if (input.length > STREAMING_PREVIEW_INPUT_LIMIT) {
+		state.truncated = true;
+		state.actions.length = 0;
+		return state.actions;
+	}
+	if (state.truncated) resetStreamingPatchPreviewState(state);
 	if (!input.startsWith(state.input)) resetStreamingPatchPreviewState(state);
 	const appended = input.slice(state.input.length);
 	state.input = input;
 	state.lineBuffer += appended;
 
-	let lineEnd = state.lineBuffer.indexOf("\n");
+	let lineStart = 0;
+	let lineEnd = state.lineBuffer.indexOf("\n", lineStart);
 	while (lineEnd !== -1) {
-		const line = state.lineBuffer.slice(0, lineEnd).replace(/\r$/, "");
-		state.lineBuffer = state.lineBuffer.slice(lineEnd + 1);
+		const line = state.lineBuffer.slice(lineStart, lineEnd).replace(/\r$/, "");
 		processPreviewLine(state, line);
-		lineEnd = state.lineBuffer.indexOf("\n");
+		lineStart = lineEnd + 1;
+		lineEnd = state.lineBuffer.indexOf("\n", lineStart);
 	}
+	state.lineBuffer = state.lineBuffer.slice(lineStart);
 	return state.actions;
 }
