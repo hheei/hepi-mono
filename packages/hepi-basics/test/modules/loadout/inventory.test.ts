@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	createLoadoutInventory,
+	createLoadoutInventoryProvider,
 	createMcpPlaceholder,
 	mergeLoadoutInventory,
 } from "../../../src/loadout/inventory.js";
@@ -102,6 +103,34 @@ describe("loadout inventory", () => {
 			const item = inventory.items[0];
 			expect(item?.instruction).toBe("Do this carefully.");
 			expect(item?.tokenCount).toBeGreaterThan(2);
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	test("loads skill instructions asynchronously and refreshes a changed skill file", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "pi-basics-skill-cache-"));
+		const path = join(directory, "SKILL.md");
+		writeFileSync(path, "---\nname: demo\n---\n\nFirst instruction.\n");
+		try {
+			const provider = createLoadoutInventoryProvider({
+				getAllTools: () => [],
+				getCommands: () => [
+					{
+						name: "skill:demo",
+						description: "Demo",
+						source: "skill",
+						sourceInfo: { scope: "user", source: "builtin", path, origin: "top-level" },
+					},
+				],
+			});
+			const first = await provider.load();
+			writeFileSync(path, "---\nname: demo\n---\n\nChanged instruction.\n");
+			const second = await provider.load();
+			const firstItems = "items" in first ? first.items : first;
+			const secondItems = "items" in second ? second.items : second;
+			expect(firstItems[0]?.instruction).toBe("First instruction.");
+			expect(secondItems[0]?.instruction).toBe("Changed instruction.");
 		} finally {
 			rmSync(directory, { recursive: true, force: true });
 		}

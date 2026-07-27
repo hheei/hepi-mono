@@ -137,6 +137,12 @@ export function settingsListItems(controller: SettingsController): readonly Sett
 		}
 		return items;
 	}
+	const fieldsByGroup = new Map<string, (typeof snapshot.fields)[number][]>();
+	for (const field of snapshot.fields) {
+		const fields = fieldsByGroup.get(field.groupId);
+		if (fields) fields.push(field);
+		else fieldsByGroup.set(field.groupId, [field]);
+	}
 	for (const group of snapshot.groups) {
 		const collapsed = false;
 		if (group.title) {
@@ -149,16 +155,14 @@ export function settingsListItems(controller: SettingsController): readonly Sett
 				collapsed,
 			});
 		}
-		for (const field of snapshot.fields) {
-			if (field.groupId === group.id)
-				items.push({
-					kind: "field",
-					id: settingFieldItemId(group.id, field.id),
-					groupId: group.id,
-					label: field.label,
-					field,
-				});
-		}
+		for (const field of fieldsByGroup.get(group.id) ?? [])
+			items.push({
+				kind: "field",
+				id: settingFieldItemId(group.id, field.id),
+				groupId: group.id,
+				label: field.label,
+				field,
+			});
 	}
 	for (const panel of snapshot.panels)
 		items.push({

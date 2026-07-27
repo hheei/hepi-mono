@@ -34,6 +34,7 @@ export interface LoadoutControllerState {
 	readonly selectedKey?: LoadoutKey | undefined;
 	readonly scrollTop: number;
 	readonly inventory: readonly LoadoutItem[];
+	readonly visible: readonly LoadoutItem[];
 	readonly resolved: readonly LoadoutResolvedItem[];
 	readonly pendingKey?: LoadoutKey | undefined;
 	readonly error?: string | undefined;
@@ -65,6 +66,7 @@ export class LoadoutController {
 	private selectedKey: LoadoutKey | undefined;
 	private scrollTop = 0;
 	private inventory: readonly LoadoutItem[] = [];
+	private visibleItems: readonly LoadoutItem[] = [];
 	private resolved: readonly LoadoutResolvedItem[] = [];
 	private maps: LoadoutStatusMaps = { global: {}, project: {} };
 	private pendingKey: LoadoutKey | undefined;
@@ -86,6 +88,7 @@ export class LoadoutController {
 			selectedKey: this.selectedKey,
 			scrollTop: this.scrollTop,
 			inventory: this.inventory,
+			visible: this.visibleItems,
 			resolved: this.resolved,
 			pendingKey: this.pendingKey,
 			error: this.error,
@@ -96,10 +99,15 @@ export class LoadoutController {
 		return this.state;
 	}
 	private visible(): readonly LoadoutItem[] {
-		return filterLoadoutItemsForView(this.inventory, this.view, this.query);
+		return this.visibleItems;
 	}
-	private recompute(previousItems = this.inventory, previousSelected = this.selectedKey): void {
-		this.resolved = resolveLoadoutItems(this.inventory, this.scope, this.maps);
+	private recompute(
+		previousItems = this.inventory,
+		previousSelected = this.selectedKey,
+		resolveStatuses = true,
+	): void {
+		if (resolveStatuses) this.resolved = resolveLoadoutItems(this.inventory, this.scope, this.maps);
+		this.visibleItems = filterLoadoutItemsForView(this.inventory, this.view, this.query);
 		this.selectedKey = reconcileLoadoutSelection(this.visible(), previousSelected, previousItems);
 	}
 	private ensureOpen(): void {
@@ -157,12 +165,12 @@ export class LoadoutController {
 	setView(view: LoadoutView): void {
 		this.ensureOpen();
 		this.view = view;
-		this.recompute();
+		this.recompute(this.inventory, this.selectedKey, false);
 	}
 	setQuery(query: string): void {
 		this.ensureOpen();
 		this.query = query;
-		this.recompute();
+		this.recompute(this.inventory, this.selectedKey, false);
 	}
 	setScrollTop(scrollTop: number): void {
 		this.ensureOpen();
