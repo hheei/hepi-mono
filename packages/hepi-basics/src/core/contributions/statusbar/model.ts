@@ -1,5 +1,4 @@
 import { estimateTokens } from "@earendil-works/pi-coding-agent";
-import { fmtCompactNumber } from "../../ui/number.js";
 
 export interface StatusbarContextUsage {
 	readonly tokens?: number | null;
@@ -35,6 +34,7 @@ export type StatusbarThinkingLevel =
 	| "medium"
 	| "high"
 	| "xhigh"
+	| "max"
 	| "unknown";
 
 export type AdvisorIndicator = "ok" | "concern" | "blocker";
@@ -72,19 +72,6 @@ export function advisorIndicatorFromStatuses(
 			return value;
 	}
 	return undefined;
-}
-
-export function normalizeStatuses(
-	statuses: ReadonlyMap<string, string> | Iterable<[string, string]> | undefined,
-): readonly string[] {
-	if (!statuses) return [];
-	const result: string[] = [];
-	for (const [key, value] of statuses) {
-		if (key === "advisor") continue;
-		const normalized = normalizeDisplayFragment(value, "");
-		if (normalized) result.push(normalized);
-	}
-	return result;
 }
 
 export interface FooterStatusDisplay {
@@ -165,60 +152,4 @@ export function stabilizeContextUsage(
 		return current;
 	}
 	return fallback ?? previous ?? current;
-}
-
-function usageWithSystemPrompt(
-	usage: StatusbarContextUsage | undefined,
-	systemPrompt: string | undefined,
-) {
-	if (usage?.tokens !== 0 || !systemPrompt) return usage;
-	const tokens = estimateTokens({ role: "user", content: systemPrompt } as never);
-	const contextWindow = usage.contextWindow;
-	return {
-		...usage,
-		tokens,
-		percent:
-			typeof contextWindow === "number" && Number.isFinite(contextWindow) && contextWindow > 0
-				? (tokens / contextWindow) * 100
-				: usage.percent,
-	};
-}
-
-export function buildStatusbarSnapshot(
-	input: Readonly<{
-		model?: { name?: string; id?: string };
-		advisorIndicator?: AdvisorIndicator;
-		thinkingLevel?: string;
-		usage?: StatusbarContextUsage;
-		systemPrompt?: string;
-		sessionName?: string;
-		statuses?: ReadonlyMap<string, string> | Iterable<[string, string]>;
-	}>,
-): StatusbarSnapshot {
-	const usage = usageWithSystemPrompt(input.usage, input.systemPrompt);
-	const normalizedModelName = normalizeDisplayFragment(input.model?.name, "");
-	const model =
-		normalizedModelName !== "" ? normalizedModelName : normalizeDisplayFragment(input.model?.id);
-	const sessionName = normalizeDisplayFragment(input.sessionName, "");
-	const percent =
-		typeof usage?.percent === "number" && Number.isFinite(usage.percent) ? usage.percent : null;
-	return {
-		model,
-		...(input.advisorIndicator === undefined ? {} : { advisorIndicator: input.advisorIndicator }),
-		thinkingLevel:
-			input.thinkingLevel === "off" ||
-			input.thinkingLevel === "minimal" ||
-			input.thinkingLevel === "low" ||
-			input.thinkingLevel === "medium" ||
-			input.thinkingLevel === "high" ||
-			input.thinkingLevel === "xhigh"
-				? input.thinkingLevel
-				: "unknown",
-		meter: contextMeter(usage?.percent),
-		contextTokens: fmtCompactNumber(usage?.tokens, "lower"),
-		contextLimit: fmtCompactNumber(usage?.contextWindow, "lower"),
-		percent,
-		...(sessionName ? { sessionName } : {}),
-		statuses: normalizeStatuses(input.statuses),
-	};
 }

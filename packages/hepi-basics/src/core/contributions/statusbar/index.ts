@@ -3,19 +3,23 @@ import {
 	CustomEditor,
 	type ExtensionAPI,
 	type ExtensionContext,
+	estimateTokens,
 	type ReadonlyFooterDataProvider,
 	type Theme,
 } from "@earendil-works/pi-coding-agent";
 import { type Component, CURSOR_MARKER, type TUI } from "@earendil-works/pi-tui";
 import type { HepiRuntimeContext } from "../../runtime/context.js";
+import { fmtCompactNumber } from "../../ui/number.js";
 import { type CursorOptions, cursorEscape } from "./cursor.js";
 import {
 	advisorIndicatorFromStatuses,
-	buildStatusbarSnapshot,
+	contextMeter,
 	estimateContextUsage,
 	formatFooterStatuses,
+	normalizeDisplayFragment,
 	RECEIVING_SPINNER_FRAMES,
 	type StatusbarContextUsage,
+	type StatusbarSnapshot,
 	stabilizeContextUsage,
 } from "./model.js";
 import { renderExtensionStatusFooter, renderStatusbarLine } from "./render.js";
@@ -214,7 +218,6 @@ export function createStatusbarFeature(
 							fallback = undefined;
 						}
 					}
-					const sessionName = ctx.sessionManager.getSessionName();
 					const usage = stabilizeContextUsage(
 						currentUsage,
 						session.compacted ? undefined : session.usage,
@@ -228,21 +231,44 @@ export function createStatusbarFeature(
 						session.usage = usage;
 						session.compacted = false;
 					}
-					return [
-						renderStatusbarLine(
-							width,
-							buildStatusbarSnapshot({
-								...(ctx.model ? { model: { name: ctx.model.name, id: ctx.model.id } } : {}),
-								thinkingLevel: pi.getThinkingLevel(),
-								...(advisorIndicator === undefined ? {} : { advisorIndicator }),
-								...(usage === undefined ? {} : { usage }),
-								...(systemPrompt === undefined ? {} : { systemPrompt }),
-								...(sessionName === undefined ? {} : { sessionName }),
-							}),
-							ctx.ui.theme,
-						),
-						...lines.slice(1),
-					];
+					let displayUsage = usage;
+					if (displayUsage?.tokens === 0 && systemPrompt !== undefined) {
+						const tokens = estimateTokens({ role: "user", content: systemPrompt } as never);
+						const { contextWindow } = displayUsage;
+						const percent =
+							typeof contextWindow === "number" &&
+							Number.isFinite(contextWindow) &&
+							contextWindow > 0
+								? (tokens / contextWindow) * 100
+								: displayUsage.percent;
+						displayUsage = {
+							...displayUsage,
+							tokens,
+							...(percent === undefined ? {} : { percent }),
+						};
+					}
+					const normalizedModelName = normalizeDisplayFragment(ctx.model?.name, "");
+					const model =
+						normalizedModelName !== ""
+							? normalizedModelName
+							: normalizeDisplayFragment(ctx.model?.id);
+					const sessionName = normalizeDisplayFragment(ctx.sessionManager.getSessionName(), "");
+					const thinkingLevel = pi.getThinkingLevel();
+					const snapshot: StatusbarSnapshot = {
+						model,
+						...(advisorIndicator === undefined ? {} : { advisorIndicator }),
+						thinkingLevel,
+						meter: contextMeter(displayUsage?.percent),
+						contextTokens: fmtCompactNumber(displayUsage?.tokens, "lower"),
+						contextLimit: fmtCompactNumber(displayUsage?.contextWindow, "lower"),
+						percent:
+							typeof displayUsage?.percent === "number" && Number.isFinite(displayUsage.percent)
+								? displayUsage.percent
+								: null,
+						...(sessionName ? { sessionName } : {}),
+						statuses: [],
+					};
+					return [renderStatusbarLine(width, snapshot, ctx.ui.theme), ...lines.slice(1)];
 				};
 				return editor;
 			}) as EditorFactory;

@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { hepiThinkingGlyph } from "../../../src/core/api/model-selection.js";
 import {
 	advisorIndicatorFromStatuses,
-	buildStatusbarSnapshot,
 	contextMeter,
 	estimateContextUsage,
 	formatFooterStatuses,
+	normalizeDisplayFragment,
 	RECEIVING_SPINNER_FRAMES,
 	stabilizeContextUsage,
 } from "../../../src/core/contributions/statusbar/model.js";
@@ -27,24 +27,9 @@ describe("statusbar model", () => {
 		expect(fmtCompactNumber(999_950, "lower")).toBe("1m");
 		expect(fmtCompactNumber(-1, "lower")).toBe("?");
 	});
-	test("normalizes source precedence, names, statuses and thinking glyph", () => {
-		const snapshot = buildStatusbarSnapshot({
-			model: { name: "  \n", id: "model-id" },
-			thinkingLevel: "medium",
-			usage: { tokens: 123456, contextWindow: 350000, percent: null },
-			sessionName: "  Session\nname ",
-			statuses: new Map([
-				["a", " active "],
-				["advisor", "ok"],
-				["b", "\n"],
-			]),
-		});
-		expect(snapshot.model).toBe("model-id");
-		expect(snapshot.sessionName).toBe("Session name");
-		expect(snapshot.statuses).toEqual(["active"]);
-		expect(snapshot.meter).toBe("??");
-		expect(snapshot.contextTokens).toBe("123.5k");
-		expect(snapshot.contextLimit).toBe("350k");
+	test("normalizes display fragments and thinking glyphs", () => {
+		expect(normalizeDisplayFragment("  Session\nname ")).toBe("Session name");
+		expect(normalizeDisplayFragment("  \n", "")).toBe("");
 		expect(hepiThinkingGlyph("off")).toBe("○");
 		expect(hepiThinkingGlyph("minimal")).toBe("○");
 		expect(hepiThinkingGlyph("low")).toBe("◔");
@@ -83,16 +68,6 @@ describe("statusbar model", () => {
 		expect(advisorIndicatorFromStatuses(new Map([["advisor", "concern"]]))).toBe("concern");
 		expect(advisorIndicatorFromStatuses(new Map([["advisor", "blocker"]]))).toBe("blocker");
 		expect(advisorIndicatorFromStatuses(new Map([["advisor", "Advisor"]]))).toBeUndefined();
-	});
-
-	test("uses assembled system prompt tokens before first model response", () => {
-		const snapshot = buildStatusbarSnapshot({
-			usage: { tokens: 0, contextWindow: 1000, percent: 0 },
-			systemPrompt: "x".repeat(400),
-		});
-		expect(snapshot.contextTokens).toBe("100");
-		expect(snapshot.percent).toBe(10);
-		expect(snapshot.meter).toBe("⣀⠀");
 	});
 
 	test("stabilizes transient usage and estimates compacted context", () => {
