@@ -182,6 +182,21 @@ describe("statusbar lifecycle", () => {
 		expect(calls).toEqual(["previous:input:x"]);
 	});
 
+	test("renders the rail when the wrapped editor has no lines yet", () => {
+		const h = harness("a");
+		h.setEditor((..._args) => ({
+			render: () => [],
+			invalidate: () => undefined,
+			getText: () => "",
+			setText: () => undefined,
+			handleInput: () => undefined,
+		}));
+		const feature = createStatusbarFeature(h.pi);
+		feature.start(runtime(h.pi, h.ctx));
+		const editor = h.editorFactory?.({} as never, {} as never, {} as never);
+		expect(editor?.render(100)[0]).toContain("12k/100k");
+	});
+
 	test("renders compact animated statuses after the editor closing rail", async () => {
 		const h = harness("a");
 		h.statusMap.set("mcp", "MCP: 0/3 servers");

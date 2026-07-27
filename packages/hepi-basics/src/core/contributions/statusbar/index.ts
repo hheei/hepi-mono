@@ -203,7 +203,7 @@ export function createStatusbarFeature(
 								tui.terminal?.write(cursorEscape(getCursorOptions()));
 						});
 					}
-					if (!lines.length || !session || owner !== session) return lines;
+					if (!session || owner !== session) return lines;
 					const systemPrompt =
 						typeof ctx.getSystemPrompt === "function" ? ctx.getSystemPrompt() : undefined;
 					const currentUsage = ctx.getContextUsage();
