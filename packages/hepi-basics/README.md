@@ -22,6 +22,11 @@ full text does not fit.
 The tail rail always begins with the current working directory, followed by
 extension statuses when present.
 
+Included themes:
+
+- `catppuccin-latte`
+- `catppuccin-mocha`
+
 Install it with:
 
 ```bash
