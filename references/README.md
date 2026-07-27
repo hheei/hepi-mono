@@ -17,6 +17,7 @@ Use `<owner>-<repo>` directory names. Documentation must cite the public URL and
 | [narumiruna/pi-extensions](https://github.com/narumiruna/pi-extensions) | `c5dc930cd85a6f661c3fd530fa62e44109c86070` | Plan and BTW implementations |
 | [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) | `0d95a81d35a9f2d123a5e9430d1cfc43d55f1bb0` | Caveman prompt behavior |
 | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) | `16f29800fd2681bdf24f3eb4ccffe38be3baec6b` | Ponytail rules and companion workflows |
+| [ShpetimA/pi-fff](https://github.com/ShpetimA/pi-fff) | `694837d0644abc8527ebfa3ea50135e0f5d1ece4` | FFF runtime, tools, commands, formatting, and autocomplete behavior adapted for HEPI ownership |
 
 ## Other Design References
 

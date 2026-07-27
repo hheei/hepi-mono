@@ -26,5 +26,5 @@ export default function piGoalExtension(pi: ExtensionAPI): void {
 			});
 		},
 	});
-	registerHepiLifecycle(pi, lifecycle);
+	registerHepiLifecycle(pi, lifecycle, "pi-goal");
 }

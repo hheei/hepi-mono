@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { HepiLifecycleController } from "../src/core/runtime/lifecycle.js";
+import { HepiLifecycleController, registerHepiLifecycle } from "../src/core/runtime/lifecycle.js";
 import { HepiRegistry } from "../src/core/runtime/registry.js";
 
 const fakePi = {} as ExtensionAPI;
@@ -64,6 +64,83 @@ describe("HePiRegistry", () => {
 });
 
 describe("HePiLifecycleController", () => {
+	test("makes retained handlers from a reloaded lifecycle inert", async () => {
+		const handlers = new Map<
+			string,
+			Array<(event: unknown, ctx: ExtensionContext) => Promise<void>>
+		>();
+		const events = {};
+		const pi = {
+			events,
+			on: (event: string, handler: (event: unknown, ctx: ExtensionContext) => Promise<void>) => {
+				const registered = handlers.get(event) ?? [];
+				registered.push(handler);
+				handlers.set(event, registered);
+			},
+		} as unknown as ExtensionAPI;
+		const emit = async (event: "session_start" | "session_shutdown"): Promise<void> => {
+			for (const handler of handlers.get(event) ?? []) await handler({}, fakeContext("reload"));
+		};
+		const calls: string[] = [];
+		const first = new HepiLifecycleController({
+			onStart: () => {
+				calls.push("first:start");
+			},
+			onShutdown: () => {
+				calls.push("first:shutdown");
+			},
+		});
+		registerHepiLifecycle(pi, first, "test-lifecycle");
+		await emit("session_start");
+		await emit("session_shutdown");
+
+		const second = new HepiLifecycleController({
+			onStart: () => {
+				calls.push("second:start");
+			},
+			onShutdown: () => {
+				calls.push("second:shutdown");
+			},
+		});
+		registerHepiLifecycle(pi, second, "test-lifecycle");
+		await emit("session_start");
+		await emit("session_shutdown");
+
+		expect(calls).toEqual(["first:start", "first:shutdown", "second:start", "second:shutdown"]);
+	});
+
+	test("keeps distinct lifecycle keys active", async () => {
+		const handlers: Array<(event: unknown, ctx: ExtensionContext) => Promise<void>> = [];
+		const pi = {
+			events: {},
+			on: (event: string, handler: (event: unknown, ctx: ExtensionContext) => Promise<void>) => {
+				if (event === "session_start") handlers.push(handler);
+			},
+		} as unknown as ExtensionAPI;
+		const calls: string[] = [];
+		registerHepiLifecycle(
+			pi,
+			new HepiLifecycleController({
+				onStart: () => {
+					calls.push("first");
+				},
+			}),
+			"first",
+		);
+		registerHepiLifecycle(
+			pi,
+			new HepiLifecycleController({
+				onStart: () => {
+					calls.push("second");
+				},
+			}),
+			"second",
+		);
+
+		for (const handler of handlers) await handler({}, fakeContext("active"));
+		expect(calls).toEqual(["first", "second"]);
+	});
+
 	test("reports cleanup failures after running every cleanup", async () => {
 		const calls: string[] = [];
 		const controller = new HepiLifecycleController({

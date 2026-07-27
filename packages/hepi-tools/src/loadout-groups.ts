@@ -10,7 +10,7 @@ export const HEPI_TOOLS_LOADOUT_GROUPS = [
 	{
 		id: "magic-context",
 		label: "Magic Context",
-		items: ["ctx_search", "ctx_memory", "ctx_note"],
+		items: ["ctx_search", "ctx_expand", "ctx_memory", "ctx_note", "ctx_reduce", "todowrite"],
 	},
 	{
 		id: "web-search",
@@ -20,19 +20,7 @@ export const HEPI_TOOLS_LOADOUT_GROUPS = [
 	{
 		id: "fff",
 		label: "FFF",
-		items: [
-			"find",
-			"grep",
-			"multi_grep",
-			"fffind",
-			"ffgrep",
-			"fff-multi-grep",
-			"find_files",
-			"resolve_file",
-			"related_files",
-			"fff_grep",
-			"fff_multi_grep",
-		],
+		items: ["find", "grep", "read", "find_files", "fff_multi_grep"],
 	},
 ] as const satisfies readonly HepiLoadoutGroup[];
 
@@ -55,6 +43,7 @@ export function registerHepiToolsLoadoutGroups(
 export function withHepiToolLoadoutGroup(
 	extension: HepiToolExtension,
 	group: HepiLoadoutGroup,
+	additionalItems: readonly string[] = [],
 ): HepiToolExtension {
 	return (pi) => {
 		const toolNames = new Set<string>();
@@ -64,7 +53,8 @@ export function withHepiToolLoadoutGroup(
 		};
 		const groupedPi: ExtensionAPI = { ...pi, registerTool };
 		extension(groupedPi);
-		const items = toolNames.size > 0 ? [...toolNames] : group.items;
+		const items =
+			toolNames.size > 0 ? [...new Set([...additionalItems, ...toolNames])] : group.items;
 		registerHepiRuntimeLoadoutGroup(pi, items === undefined ? group : { ...group, items });
 	};
 }

@@ -28,5 +28,5 @@ export default function piRtkExtension(pi: ExtensionAPI): void {
 			});
 		},
 	});
-	registerHepiLifecycle(pi, lifecycle);
+	registerHepiLifecycle(pi, lifecycle, "pi-basics-rtk");
 }

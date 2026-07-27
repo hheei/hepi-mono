@@ -43,5 +43,5 @@ export default function piT2sExtension(pi: ExtensionAPI): void {
 			});
 		},
 	});
-	registerHepiLifecycle(pi, lifecycle);
+	registerHepiLifecycle(pi, lifecycle, "pi-basics-t2s");
 }

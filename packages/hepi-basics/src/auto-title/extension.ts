@@ -84,7 +84,7 @@ export default function piAutoTitleExtension(pi: ExtensionAPI): void {
 			run?.();
 		},
 	});
-	registerHepiLifecycle(pi, lifecycle);
+	registerHepiLifecycle(pi, lifecycle, "pi-basics-auto-title");
 	pi.on("session_info_changed", (event) => {
 		coordinator?.sessionInfoChanged(event.name);
 	});

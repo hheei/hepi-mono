@@ -26,6 +26,14 @@ describe("HEPI tools Loadout groups", () => {
 		expect(registry.list()).toEqual(
 			[...HEPI_TOOLS_LOADOUT_GROUPS].sort((a, b) => a.label.localeCompare(b.label)),
 		);
+		expect(registry.get("magic-context")?.items).toEqual([
+			"ctx_search",
+			"ctx_expand",
+			"ctx_memory",
+			"ctx_note",
+			"ctx_reduce",
+			"todowrite",
+		]);
 		expect(registry.list().find((group) => group.id === "fff")?.items).toContain("find");
 		for (const handler of shutdownHandlers) handler();
 		expect(registry.list()).toEqual([]);
@@ -63,5 +71,36 @@ describe("HEPI tools Loadout groups", () => {
 		expect(registered).toEqual(["find", "grep"]);
 		expect(getHepiRuntimeLoadoutGroupRegistry(pi).get("fff")?.items).toEqual(["find", "grep"]);
 		for (const handler of shutdownHandlers) handler();
+	});
+
+	test("includes explicitly related built-in tools with leaf registrations", () => {
+		const pi = {
+			events: createEventBus(),
+			on: () => undefined,
+			registerTool: () => undefined,
+		} as never;
+
+		withHepiToolLoadoutGroup(
+			(leaf) => {
+				leaf.registerTool(
+					defineTool({
+						name: "find_files",
+						label: "find_files",
+						description: "find_files",
+						parameters: Type.Object({}),
+						async execute() {
+							return { content: [], details: undefined };
+						},
+					}),
+				);
+			},
+			{ id: "fff", label: "FFF", items: ["find", "find_files"] },
+			["find"],
+		)(pi);
+
+		expect(getHepiRuntimeLoadoutGroupRegistry(pi).get("fff")?.items).toEqual([
+			"find",
+			"find_files",
+		]);
 	});
 });

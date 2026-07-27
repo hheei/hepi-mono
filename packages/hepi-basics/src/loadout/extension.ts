@@ -109,5 +109,6 @@ export default function piLoadoutExtension(pi: ExtensionAPI): void {
 				});
 			},
 		}),
+		"pi-basics-loadout",
 	);
 }

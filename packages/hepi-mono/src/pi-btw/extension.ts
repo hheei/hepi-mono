@@ -17,5 +17,5 @@ export default function piBtwExtension(pi: ExtensionAPI): void {
 			runtime.registry.registerLifecycle({ id: "btw", cleanup: () => feature.dispose(sessionId) });
 		},
 	});
-	registerHepiLifecycle(pi, lifecycle);
+	registerHepiLifecycle(pi, lifecycle, "pi-btw");
 }

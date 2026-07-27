@@ -17,5 +17,5 @@ export default function piPlanExtension(pi: ExtensionAPI): void {
 			runtime.registry.registerLifecycle({ id: "plan", cleanup: () => feature.dispose(sessionId) });
 		},
 	});
-	registerHepiLifecycle(pi, lifecycle);
+	registerHepiLifecycle(pi, lifecycle, "pi-plan");
 }

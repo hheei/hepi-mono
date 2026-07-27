@@ -47,5 +47,6 @@ export default function piDollarSkillExtension(pi: ExtensionAPI): void {
 				});
 			},
 		}),
+		"pi-basics-dollar-skill",
 	);
 }

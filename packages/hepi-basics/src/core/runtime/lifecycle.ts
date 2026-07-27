@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createHepiRuntimeContext, type HepiRuntimeContext } from "./context.js";
+import { extensionRuntimeIdentity } from "./identity.js";
 import { HepiRegistry } from "./registry.js";
 
 export interface HepiLifecycleOptions {
@@ -86,11 +87,49 @@ export class HepiLifecycleController {
 	}
 }
 
-export function registerHepiLifecycle(pi: ExtensionAPI, controller: HepiLifecycleController): void {
+interface HepiLifecycleRegistration {
+	readonly token: symbol;
+}
+
+declare global {
+	var __hepiLifecycleRegistrationsByRuntime:
+		| WeakMap<object, Map<string, HepiLifecycleRegistration>>
+		| undefined;
+}
+
+function getHepiLifecycleRegistrations(pi: ExtensionAPI): Map<string, HepiLifecycleRegistration> {
+	let registrations = globalThis.__hepiLifecycleRegistrationsByRuntime;
+	if (registrations === undefined) {
+		registrations = new WeakMap();
+		globalThis.__hepiLifecycleRegistrationsByRuntime = registrations;
+	}
+	const identity = extensionRuntimeIdentity(pi);
+	const existing = registrations.get(identity);
+	if (existing !== undefined) return existing;
+	const created = new Map<string, HepiLifecycleRegistration>();
+	registrations.set(identity, created);
+	return created;
+}
+
+/**
+ * Pi retains extension event handlers across reloads. A stable key lets the
+ * latest registration make retained handlers from earlier extension runners inert.
+ */
+export function registerHepiLifecycle(
+	pi: ExtensionAPI,
+	controller: HepiLifecycleController,
+	key: string,
+): void {
+	const registrations = getHepiLifecycleRegistrations(pi);
+	const registration: HepiLifecycleRegistration = { token: Symbol(key) };
+	registrations.set(key, registration);
+	const isCurrent = (): boolean => registrations.get(key)?.token === registration.token;
 	pi.on("session_start", async (_event, ctx) => {
+		if (!isCurrent()) return;
 		await controller.start(pi, ctx);
 	});
 	pi.on("session_shutdown", async () => {
+		if (!isCurrent()) return;
 		await controller.shutdown();
 	});
 }
