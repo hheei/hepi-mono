@@ -164,12 +164,12 @@ export function createStatusbarFeature(
 			if (owner !== undefined) disposeSession(owner.sessionId);
 			if (
 				ctx.mode !== "tui" ||
-				typeof ctx.ui.getEditorComponent !== "function" ||
 				typeof ctx.ui.setEditorComponent !== "function" ||
 				typeof ctx.ui.setFooter !== "function"
 			)
 				return;
-			const previousEditorFactory = ctx.ui.getEditorComponent();
+			const previousEditorFactory =
+				typeof ctx.ui.getEditorComponent === "function" ? ctx.ui.getEditorComponent() : undefined;
 			let session: StatusbarSession | undefined;
 			const installedEditorFactory = ((tui, theme, keybindings) => {
 				const editor =
