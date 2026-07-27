@@ -2,8 +2,14 @@ import type { ExecutePatchResult } from "../../patch/types.js";
 import {
 	formatApplyPatchCollapsedDiff,
 	formatApplyPatchCollapsedSummary,
+	formatPatchTarget,
 	renderApplyPatchCall,
 } from "./rendering.js";
+import {
+	createStreamingPatchPreviewState,
+	type StreamingPatchPreviewState,
+	updateStreamingPatchPreview,
+} from "./streaming-preview.js";
 
 interface ApplyPatchRenderState {
 	cwd: string;
@@ -37,6 +43,7 @@ export type ApplyPatchToolDetails = ApplyPatchSuccessDetails | ApplyPatchPartial
 
 const applyPatchRenderStates = new Map<string, ApplyPatchRenderState>();
 const APPLY_PATCH_RENDER_STATE_LIMIT = 50;
+const streamingPreviews = new WeakMap<object, StreamingPatchPreviewState>();
 
 function cacheRenderState(toolCallId: string, state: ApplyPatchRenderState): void {
 	applyPatchRenderStates.delete(toolCallId);
@@ -114,9 +121,10 @@ function renderFailureHeader(
 	theme: { fg(role: string, text: string): string },
 ): string {
 	const title = "Edit";
-	return line.startsWith(title)
-		? `${theme.fg("accent", title)}${theme.fg(role, line.slice(title.length))}`
-		: theme.fg(role, line);
+	const status = role === "warning" ? " partially failed" : " failed";
+	if (!line.startsWith(`${title}${status}`)) return theme.fg(role, line);
+	const suffix = line.slice(title.length + status.length);
+	return `${theme.fg("accent", title)}${theme.fg(role, status)}${renderSummaryDeltas(suffix, theme)}`;
 }
 
 function renderFailedTargetLine(
@@ -251,6 +259,41 @@ function withToolHeading(text: string, theme: { fg(role: string, text: string): 
 	return `${theme.fg("accent", "apply_patch")}\n\n${text}`;
 }
 
+function getStreamingPreviewState(context: { state?: unknown }): StreamingPatchPreviewState {
+	const stateOwner = context.state;
+	if (typeof stateOwner !== "object" || stateOwner === null)
+		return createStreamingPatchPreviewState();
+	const existing = streamingPreviews.get(stateOwner);
+	if (existing !== undefined) return existing;
+	const created = createStreamingPatchPreviewState();
+	streamingPreviews.set(stateOwner, created);
+	return created;
+}
+
+function renderStreamingPreview(
+	patchText: string,
+	theme: { fg(role: string, text: string): string; bold(text: string): string },
+	context: { cwd?: string | undefined; state?: unknown },
+): string {
+	const actions = updateStreamingPatchPreview(getStreamingPreviewState(context), patchText);
+	if (actions.length === 0) return withToolHeading(theme.fg("dim", "Patching"), theme);
+	return withToolHeading(
+		actions
+			.map((action) => {
+				const verb =
+					action.type === "add" ? "Created" : action.type === "delete" ? "Deleted" : "Edited";
+				const path = formatPatchTarget(action.path, action.movePath, context.cwd ?? process.cwd());
+				const deltas =
+					action.type === "delete"
+						? ""
+						: renderSummaryDeltas(` +${action.added} -${action.removed}`, theme);
+				return `${theme.fg("accent", verb)} ${theme.fg("dim", path)}${deltas}`;
+			})
+			.join("\n"),
+		theme,
+	);
+}
+
 export function renderApplyPatchCallFromState(
 	args: { input?: unknown | undefined },
 	theme: { fg(role: string, text: string): string; bold(text: string): string },
@@ -260,10 +303,12 @@ export function renderApplyPatchCallFromState(
 		expanded?: boolean | undefined;
 		argsComplete?: boolean | undefined;
 		showCollapsedDiff?: boolean | undefined;
+		state?: unknown;
 	},
 ): string {
-	if (context?.argsComplete === false) return withToolHeading(theme.bold("Patching"), theme);
 	const patchText = typeof args.input === "string" ? args.input : "";
+	if (context?.argsComplete === false)
+		return renderStreamingPreview(patchText, theme, context ?? {});
 	if (patchText.trim().length === 0) return withToolHeading(theme.bold("Patching"), theme);
 	const cached = getRenderState(context?.toolCallId);
 	const cwd = context?.cwd ?? cached?.cwd;
