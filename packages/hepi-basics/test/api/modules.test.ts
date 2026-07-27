@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { createEventBus } from "@earendil-works/pi-coding-agent";
 import {
-	createHePiModuleRegistry,
-	getHePiRuntimeModuleRegistry,
-	type HePiModule,
-	listHePiModules,
-	registerHePiModule,
-	replaceHePiModule,
+	createHepiModuleRegistry,
+	getHepiRuntimeModuleRegistry,
+	type HepiModule,
+	listHepiModules,
+	registerHepiModule,
+	replaceHepiModule,
 } from "../../src/core/api/index.js";
 
-const moduleFor = (id: string, label: string): HePiModule => ({
+const moduleFor = (id: string, label: string): HepiModule => ({
 	id,
 	label,
 	commands: [],
@@ -18,8 +18,8 @@ const moduleFor = (id: string, label: string): HePiModule => ({
 
 describe("HePi module registry", () => {
 	test("isolates live runtime registries", () => {
-		const first = getHePiRuntimeModuleRegistry({ events: createEventBus() });
-		const second = getHePiRuntimeModuleRegistry({ events: createEventBus() });
+		const first = getHepiRuntimeModuleRegistry({ events: createEventBus() });
+		const second = getHepiRuntimeModuleRegistry({ events: createEventBus() });
 		const unregisterFirst = first.register(moduleFor("shared", "First"));
 		second.register(moduleFor("shared", "Second"));
 
@@ -31,25 +31,25 @@ describe("HePi module registry", () => {
 	});
 
 	test("orders modules, rejects collisions, and disposes its registration", () => {
-		const registry = createHePiModuleRegistry();
-		registerHePiModule(moduleFor("z", "Same"), registry);
-		registerHePiModule(moduleFor("a", "Same"), registry);
+		const registry = createHepiModuleRegistry();
+		registerHepiModule(moduleFor("z", "Same"), registry);
+		registerHepiModule(moduleFor("a", "Same"), registry);
 		const owned = moduleFor("b", "First");
-		const unregister = registerHePiModule(owned, registry);
+		const unregister = registerHepiModule(owned, registry);
 
-		expect(listHePiModules(registry).map((module) => module.id)).toEqual(["b", "a", "z"]);
-		expect(() => registerHePiModule(moduleFor("a", "Other"), registry)).toThrow(
+		expect(listHepiModules(registry).map((module) => module.id)).toEqual(["b", "a", "z"]);
+		expect(() => registerHepiModule(moduleFor("a", "Other"), registry)).toThrow(
 			"HePi module id collision: a",
 		);
-		const unregisterReplacement = replaceHePiModule(moduleFor("a", "Replaced"), registry);
-		expect(listHePiModules(registry).find((module) => module.id === "a")?.label).toBe("Replaced");
+		const unregisterReplacement = replaceHepiModule(moduleFor("a", "Replaced"), registry);
+		expect(listHepiModules(registry).find((module) => module.id === "a")?.label).toBe("Replaced");
 		unregisterReplacement();
 		unregister();
-		const unregisterAgain = registerHePiModule(owned, registry);
+		const unregisterAgain = registerHepiModule(owned, registry);
 		unregister();
-		expect(listHePiModules(registry).map((module) => module.id)).toEqual(["b", "z"]);
+		expect(listHepiModules(registry).map((module) => module.id)).toEqual(["b", "z"]);
 		unregisterAgain();
 		unregisterAgain();
-		expect(listHePiModules(registry).map((module) => module.id)).toEqual(["z"]);
+		expect(listHepiModules(registry).map((module) => module.id)).toEqual(["z"]);
 	});
 });

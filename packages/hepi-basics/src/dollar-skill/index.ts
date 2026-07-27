@@ -7,10 +7,10 @@ import {
 	getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import type {
-	HePiRuntimeContext,
-	HePiSettingField,
-	HePiSettingsProvider,
-	HePiSettingsState,
+	HepiRuntimeContext,
+	HepiSettingField,
+	HepiSettingsProvider,
+	HepiSettingsState,
 } from "../core/index.js";
 import { createDollarSkillAtomicEditor } from "./atomic-editor.js";
 import {
@@ -40,7 +40,7 @@ interface AtomicEditorOwner {
 	dispose(): void;
 }
 
-const enabledField: HePiSettingField<boolean> = {
+const enabledField: HepiSettingField<boolean> = {
 	id: ENABLED_FIELD,
 	label: "Dollar skill references",
 	type: "boolean",
@@ -49,7 +49,7 @@ const enabledField: HePiSettingField<boolean> = {
 	parse: (draft) => draft === "true",
 };
 
-const maxSuggestionsField: HePiSettingField<number> = {
+const maxSuggestionsField: HepiSettingField<number> = {
 	id: MAX_SUGGESTIONS_FIELD,
 	label: "Dollar skill suggestions",
 	type: "number",
@@ -63,14 +63,14 @@ const maxSuggestionsField: HePiSettingField<number> = {
 	enabled: (state) => state[DOLLAR_SKILL_SETTINGS_GROUP]?.[ENABLED_FIELD] !== false,
 };
 
-const fields: readonly HePiSettingField[] = [enabledField, maxSuggestionsField];
+const fields: readonly HepiSettingField[] = [enabledField, maxSuggestionsField];
 
-function configFromState(state: HePiSettingsState): DollarSkillConfig {
+function configFromState(state: HepiSettingsState): DollarSkillConfig {
 	return normalizeDollarSkillConfig(state[DOLLAR_SKILL_SETTINGS_GROUP]);
 }
 
 export interface DollarSkillFeature {
-	start(runtime: HePiRuntimeContext): void;
+	start(runtime: HepiRuntimeContext): void;
 	dispose(sessionId: string): void;
 	isActive(): boolean;
 	isSkillEnabled(command: DollarSkillCommand): boolean;
@@ -164,7 +164,7 @@ export function registerDollarSkillInputTransform(
 export function createDollarSkillSettingsProvider(
 	feature: DollarSkillFeature,
 	options: { readonly settingsDirectory?: string } = {},
-): HePiSettingsProvider {
+): HepiSettingsProvider {
 	const settingsDirectory = options.settingsDirectory ?? getAgentDir();
 	return {
 		id: "pi-basics-dollar-skill",
@@ -182,7 +182,7 @@ export function createDollarSkillSettingsProvider(
 					},
 				};
 			},
-			async save(state: HePiSettingsState) {
+			async save(state: HepiSettingsState) {
 				const config = configFromState(state);
 				feature.setConfig(config);
 				await saveDollarSkillConfig(settingsDirectory, config);

@@ -2,24 +2,24 @@ import { describe, expect, test } from "bun:test";
 import { createEventBus } from "@earendil-works/pi-coding-agent";
 import {
 	createGlobalJsonStorage,
-	createHePiSettingsRegistry,
+	createHepiSettingsRegistry,
 	createSessionStorage,
-	getHePiRuntimeSettingsRegistry,
-	getHePiSettings,
-	type HePiContext,
-	type HePiSettingsProvider,
-	listHePiSettings,
-	registerHePiSettings,
-	replaceHePiSettings,
+	getHepiRuntimeSettingsRegistry,
+	getHepiSettings,
+	type HepiContext,
+	type HepiSettingsProvider,
+	listHepiSettings,
+	registerHepiSettings,
+	replaceHepiSettings,
 } from "../../src/core/api/index.js";
 
-const context = (sessionId: string): HePiContext => ({ sessionId });
+const context = (sessionId: string): HepiContext => ({ sessionId });
 const storage = createSessionStorage();
 const providerFor = (
 	id: string,
 	title: string,
-	groups: HePiSettingsProvider["groups"] = [],
-): HePiSettingsProvider => ({
+	groups: HepiSettingsProvider["groups"] = [],
+): HepiSettingsProvider => ({
 	id,
 	title,
 	groups,
@@ -28,8 +28,8 @@ const providerFor = (
 
 describe("HePi settings API", () => {
 	test("isolates live runtime registries", () => {
-		const first = getHePiRuntimeSettingsRegistry({ events: createEventBus() });
-		const second = getHePiRuntimeSettingsRegistry({ events: createEventBus() });
+		const first = getHepiRuntimeSettingsRegistry({ events: createEventBus() });
+		const second = getHepiRuntimeSettingsRegistry({ events: createEventBus() });
 		const unregisterFirst = first.register(providerFor("shared", "First"));
 		second.register(providerFor("shared", "Second"));
 
@@ -41,11 +41,11 @@ describe("HePi settings API", () => {
 	});
 
 	test("orders providers and filters groups without fields", () => {
-		const registry = createHePiSettingsRegistry();
-		registerHePiSettings(providerFor("empty", "Empty"), registry);
-		registerHePiSettings(providerFor("z", "Same", [{ id: "g", title: "G", fields: [] }]), registry);
-		registerHePiSettings(providerFor("a", "Same", [{ id: "g", title: "G", fields: [] }]), registry);
-		registerHePiSettings(
+		const registry = createHepiSettingsRegistry();
+		registerHepiSettings(providerFor("empty", "Empty"), registry);
+		registerHepiSettings(providerFor("z", "Same", [{ id: "g", title: "G", fields: [] }]), registry);
+		registerHepiSettings(providerFor("a", "Same", [{ id: "g", title: "G", fields: [] }]), registry);
+		registerHepiSettings(
 			{
 				...providerFor("panel", "Panel", [{ id: "g", title: "G", fields: [] }]),
 				panels: [{ id: "panel", label: "Panel", render: () => ["panel"] }],
@@ -53,34 +53,34 @@ describe("HePi settings API", () => {
 			registry,
 		);
 
-		expect(listHePiSettings(registry).map((provider) => provider.id)).toEqual(["panel"]);
+		expect(listHepiSettings(registry).map((provider) => provider.id)).toEqual(["panel"]);
 		expect(
-			listHePiSettings(registry, { includeEmpty: true }).map((provider) => provider.id),
+			listHepiSettings(registry, { includeEmpty: true }).map((provider) => provider.id),
 		).toEqual(["empty", "panel", "a", "z"]);
-		expect(() => registerHePiSettings(providerFor("a", "Again"), registry)).toThrow(
+		expect(() => registerHepiSettings(providerFor("a", "Again"), registry)).toThrow(
 			"HePi settings provider id collision: a",
 		);
 	});
 
 	test("disposers remove only their own provider", () => {
-		const registry = createHePiSettingsRegistry();
+		const registry = createHepiSettingsRegistry();
 		const first = providerFor("owned", "First");
 		const second = providerFor("owned", "Second");
-		const unregisterFirst = registerHePiSettings(first, registry);
-		const unregisterSecond = replaceHePiSettings(second, registry);
+		const unregisterFirst = registerHepiSettings(first, registry);
+		const unregisterSecond = replaceHepiSettings(second, registry);
 
 		unregisterFirst();
-		expect(getHePiSettings("owned", registry)).toBe(second);
-		const unregisterSameProviderAgain = replaceHePiSettings(second, registry);
+		expect(getHepiSettings("owned", registry)).toBe(second);
+		const unregisterSameProviderAgain = replaceHepiSettings(second, registry);
 		unregisterSecond();
-		expect(getHePiSettings("owned", registry)).toBe(second);
+		expect(getHepiSettings("owned", registry)).toBe(second);
 		unregisterSameProviderAgain();
 		unregisterSameProviderAgain();
-		expect(getHePiSettings("owned", registry)).toBeUndefined();
+		expect(getHepiSettings("owned", registry)).toBeUndefined();
 	});
 
 	test("rejects registered setting keys without detailed descriptions", () => {
-		const registry = createHePiSettingsRegistry();
+		const registry = createHepiSettingsRegistry();
 		const provider = providerFor("short-description", "Short description", [
 			{
 				id: "general",
@@ -97,7 +97,7 @@ describe("HePi settings API", () => {
 				],
 			},
 		]);
-		expect(() => registerHePiSettings(provider, registry)).toThrow(
+		expect(() => registerHepiSettings(provider, registry)).toThrow(
 			"requires a detailed description of at least 20 characters",
 		);
 	});

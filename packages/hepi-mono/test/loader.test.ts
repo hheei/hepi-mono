@@ -1,16 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { hePiExtensions } from "../src/index.js";
+import { hepiExtensions } from "../src/index.js";
 
 describe("unified HEPI loader", () => {
 	test("keeps foundational registration first and loads each runtime module once", async () => {
-		expect(hePiExtensions.length).toBeGreaterThanOrEqual(17);
-		expect(hePiExtensions.length).toBeLessThanOrEqual(20);
-		expect(new Set(hePiExtensions).size).toBe(hePiExtensions.length);
-		expect(hePiExtensions[0]?.name).toBe("piBasicsExtension");
-		expect(hePiExtensions[1]?.name).toBe("piLoadoutExtension");
-		expect(hePiExtensions.some((extension) => extension.name === "piDebugExtension")).toBe(false);
+		expect(hepiExtensions.length).toBeGreaterThanOrEqual(17);
+		expect(hepiExtensions.length).toBeLessThanOrEqual(20);
+		expect(new Set(hepiExtensions).size).toBe(hepiExtensions.length);
+		expect(hepiExtensions[0]?.name).toBe("piBasicsExtension");
+		expect(hepiExtensions[1]?.name).toBe("piLoadoutExtension");
+		expect(hepiExtensions.some((extension) => extension.name === "piDebugExtension")).toBe(false);
 	});
 
 	test("publishes one Pi extension entry", async () => {

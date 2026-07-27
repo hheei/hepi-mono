@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { HePiLifecycleController } from "../src/core/runtime/lifecycle.js";
-import { HePiRegistry } from "../src/core/runtime/registry.js";
+import { HepiLifecycleController } from "../src/core/runtime/lifecycle.js";
+import { HepiRegistry } from "../src/core/runtime/registry.js";
 
 const fakePi = {} as ExtensionAPI;
 const fakeContext = (sessionId: string) =>
@@ -19,7 +19,7 @@ function deferred<T>() {
 
 describe("HePiRegistry", () => {
 	test("sorts registrations and rejects collisions", () => {
-		const registry = new HePiRegistry();
+		const registry = new HepiRegistry();
 		registry.registerModule({ id: "zeta" });
 		registry.registerModule({ id: "alpha" });
 		expect(registry.listModules().map(({ id }) => id)).toEqual(["alpha", "zeta"]);
@@ -29,7 +29,7 @@ describe("HePiRegistry", () => {
 	});
 
 	test("narrows command registrations at runtime", () => {
-		const registry = new HePiRegistry();
+		const registry = new HepiRegistry();
 		registry.registerModule({ id: "valid", commands: ["open"] });
 		registry.registerModule({ id: "invalid", commands: [1] });
 
@@ -38,8 +38,8 @@ describe("HePiRegistry", () => {
 	});
 
 	test("cleans all resources in reverse order and isolates registries", async () => {
-		const first = new HePiRegistry();
-		const second = new HePiRegistry();
+		const first = new HepiRegistry();
+		const second = new HepiRegistry();
 		const calls: string[] = [];
 		first.registerLifecycle({
 			id: "first",
@@ -66,7 +66,7 @@ describe("HePiRegistry", () => {
 describe("HePiLifecycleController", () => {
 	test("reports cleanup failures after running every cleanup", async () => {
 		const calls: string[] = [];
-		const controller = new HePiLifecycleController({
+		const controller = new HepiLifecycleController({
 			onStart: (runtime) => {
 				runtime.registry.registerLifecycle({
 					id: "first",
@@ -93,7 +93,7 @@ describe("HePiLifecycleController", () => {
 
 	test("replaces active session and makes shutdown idempotent", async () => {
 		const started: string[] = [];
-		const controller = new HePiLifecycleController({
+		const controller = new HepiLifecycleController({
 			onStart: (runtime) => {
 				started.push(runtime.ctx.sessionManager.getSessionId());
 			},
@@ -112,7 +112,7 @@ describe("HePiLifecycleController", () => {
 		const entered = deferred<void>();
 		const release = deferred<void>();
 		const events: string[] = [];
-		const controller = new HePiLifecycleController({
+		const controller = new HepiLifecycleController({
 			onStart: async (runtime) => {
 				const sessionId = runtime.ctx.sessionManager.getSessionId();
 				events.push(`${sessionId}:start`);
@@ -150,7 +150,7 @@ describe("HePiLifecycleController", () => {
 		const entered = deferred<void>();
 		const release = deferred<void>();
 		const events: string[] = [];
-		const controller = new HePiLifecycleController({
+		const controller = new HepiLifecycleController({
 			onStart: async (runtime) => {
 				const sessionId = runtime.ctx.sessionManager.getSessionId();
 				events.push(`${sessionId}:start`);
@@ -185,7 +185,7 @@ describe("HePiLifecycleController", () => {
 		const rejectStart = deferred<void>();
 		const events: string[] = [];
 		let attempts = 0;
-		const controller = new HePiLifecycleController({
+		const controller = new HepiLifecycleController({
 			onStart: async (runtime) => {
 				attempts += 1;
 				const sessionId = runtime.ctx.sessionManager.getSessionId();

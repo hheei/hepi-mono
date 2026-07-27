@@ -1,44 +1,44 @@
 import type {
-	HePiContext,
-	HePiSettingField,
-	HePiSettingsProvider,
-	HePiSettingsRegistry,
-	HePiSettingsState,
-	HePiSettingValue,
+	HepiContext,
+	HepiSettingField,
+	HepiSettingsProvider,
+	HepiSettingsRegistry,
+	HepiSettingsState,
+	HepiSettingValue,
 } from "../../api/settings.js";
 import { cycleOption, mergeSettingsState, SettingsModel, visibleFields } from "./model.js";
 
 export interface SettingsControllerOptions {
-	readonly providers?: readonly HePiSettingsProvider[];
-	readonly registry?: HePiSettingsRegistry;
-	readonly context: HePiContext;
+	readonly providers?: readonly HepiSettingsProvider[];
+	readonly registry?: HepiSettingsRegistry;
+	readonly context: HepiContext;
 }
 
 function readableError(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
-function cloneState(state: HePiSettingsState): HePiSettingsState {
+function cloneState(state: HepiSettingsState): HepiSettingsState {
 	return Object.fromEntries(Object.entries(state).map(([g, values]) => [g, { ...values }]));
 }
 interface PendingChange {
 	readonly groupId: string;
 	readonly fieldId: string;
-	readonly value: HePiSettingValue;
+	readonly value: HepiSettingValue;
 }
-function applyChange(state: HePiSettingsState, change: PendingChange): HePiSettingsState {
+function applyChange(state: HepiSettingsState, change: PendingChange): HepiSettingsState {
 	const next = cloneState(state);
 	next[change.groupId] = { ...(next[change.groupId] ?? {}), [change.fieldId]: change.value };
 	return next;
 }
 function applyChanges(
-	state: HePiSettingsState,
+	state: HepiSettingsState,
 	changes: readonly PendingChange[],
-): HePiSettingsState {
+): HepiSettingsState {
 	return changes.reduce(applyChange, state);
 }
 function changedValues(
-	previous: HePiSettingsState,
-	next: HePiSettingsState,
+	previous: HepiSettingsState,
+	next: HepiSettingsState,
 ): readonly PendingChange[] {
 	return Object.entries(next).flatMap(([groupId, values]) =>
 		Object.entries(values).flatMap(([fieldId, value]) =>
@@ -53,8 +53,8 @@ export interface SettingsCloseOptions {
 
 export class SettingsController {
 	readonly model: SettingsModel;
-	readonly context: HePiContext;
-	readonly #committed = new Map<string, HePiSettingsState>();
+	readonly context: HepiContext;
+	readonly #committed = new Map<string, HepiSettingsState>();
 	readonly #dirty = new Set<string>();
 	#closed: boolean = false;
 	#loading: boolean = false;
@@ -74,7 +74,7 @@ export class SettingsController {
 	get state() {
 		return this.model.state;
 	}
-	get provider(): HePiSettingsProvider | undefined {
+	get provider(): HepiSettingsProvider | undefined {
 		return this.model.active?.provider;
 	}
 	get loading(): boolean {
@@ -129,7 +129,7 @@ export class SettingsController {
 		this.model.state = { ...this.state, scrollTop: Math.max(0, scrollTop) };
 	}
 
-	private field(fieldId?: string): HePiSettingField & { readonly groupId: string } {
+	private field(fieldId?: string): HepiSettingField & { readonly groupId: string } {
 		const selected = this.model.selectedField;
 		const field =
 			fieldId === undefined
@@ -140,17 +140,17 @@ export class SettingsController {
 		if (!field) throw new Error("No setting selected");
 		return field;
 	}
-	private currentValue(field: HePiSettingField & { readonly groupId: string }): HePiSettingValue {
+	private currentValue(field: HepiSettingField & { readonly groupId: string }): HepiSettingValue {
 		return (
 			this.state.committed[this.provider?.id ?? ""]?.[field.groupId]?.[field.id] ??
 			field.defaultValue
 		);
 	}
 	private updateOptimistic(
-		provider: HePiSettingsProvider,
+		provider: HepiSettingsProvider,
 		groupId: string,
 		fieldId: string,
-		value: HePiSettingValue,
+		value: HepiSettingValue,
 	): void {
 		this.model.setCommitted(
 			provider.id,
@@ -159,7 +159,7 @@ export class SettingsController {
 		this.#dirty.add(provider.id);
 	}
 
-	async change(value: HePiSettingValue, fieldId?: string): Promise<void> {
+	async change(value: HepiSettingValue, fieldId?: string): Promise<void> {
 		const provider = this.provider;
 		if (!provider) throw new Error("No settings provider selected");
 		if (this.#closed) throw new Error("Settings controller is closed");
@@ -178,7 +178,7 @@ export class SettingsController {
 		const field = this.field(fieldId);
 		await this.change(
 			cycleOption(
-				field as HePiSettingField<boolean | number | string>,
+				field as HepiSettingField<boolean | number | string>,
 				this.currentValue(field) as boolean | number | string,
 				direction,
 			),
@@ -191,7 +191,7 @@ export class SettingsController {
 		if (!tabCycle) throw new Error(`Setting has no Tab cycle: ${field.id}`);
 		const providerId = this.provider?.id ?? "";
 		const current = this.state.committed[providerId]?.[field.groupId]?.[tabCycle.fieldId];
-		const cycleField: HePiSettingField = {
+		const cycleField: HepiSettingField = {
 			...field,
 			id: tabCycle.fieldId,
 			options: tabCycle.options,
@@ -217,7 +217,7 @@ export class SettingsController {
 	}
 	cycleDraft(direction = 1): void {
 		if (this.state.mode !== "Edit") throw new Error("Not editing a setting");
-		const field = this.field() as HePiSettingField<boolean | number | string> & {
+		const field = this.field() as HepiSettingField<boolean | number | string> & {
 			readonly groupId: string;
 		};
 		const current = field.parse(this.state.draftValue ?? "");
@@ -228,7 +228,7 @@ export class SettingsController {
 		const field = this.field();
 		const tabCycle = field.tabCycle;
 		if (!tabCycle) throw new Error(`Setting has no Tab cycle: ${field.id}`);
-		const cycleField: HePiSettingField = {
+		const cycleField: HepiSettingField = {
 			...field,
 			id: tabCycle.fieldId,
 			options: tabCycle.options,
@@ -241,7 +241,7 @@ export class SettingsController {
 	async commitEdit(): Promise<void> {
 		if (this.state.mode !== "Edit") throw new Error("Not editing a setting");
 		const field = this.field();
-		let value: HePiSettingValue;
+		let value: HepiSettingValue;
 		let changes: readonly [PendingChange, ...PendingChange[]];
 		try {
 			value = field.parse(this.state.draftValue ?? "");

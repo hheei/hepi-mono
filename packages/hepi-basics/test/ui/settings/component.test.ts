@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { HePiSettingField, HePiSettingsProvider } from "../../../src/core/api/settings.js";
-import { createHePiModelSelectionField } from "../../../src/core/index.js";
+import type { HepiSettingField, HepiSettingsProvider } from "../../../src/core/api/settings.js";
+import { createHepiModelSelectionField } from "../../../src/core/index.js";
 import { createSettingsComponent } from "../../../src/core/ui/settings/component.js";
 import { createSettingsController } from "../../../src/core/ui/settings/controller.js";
 import { fakeHost, fakeStorage, fakeTheme, stripAnsi, testContext } from "../../helpers.js";
@@ -11,7 +11,7 @@ const toggleFooter = "↕ navigate · ↔ tab · ␣ toggle · ⎋ close";
 const editNavigationFooter = "↕ navigate · ↔ tab · ␣ select · ⎋ close";
 const textEditFooter = "⏎ confirm · ⎋ cancel";
 const enumEditFooter = "↕ select · ⏎ done · ⎋ close";
-const fields: readonly HePiSettingField[] = [
+const fields: readonly HepiSettingField[] = [
 	{
 		id: "enabled",
 		label: "Enabled",
@@ -50,7 +50,7 @@ const fields: readonly HePiSettingField[] = [
 	},
 ];
 
-function provider(id = "first", title = "First Provider"): HePiSettingsProvider {
+function provider(id = "first", title = "First Provider"): HepiSettingsProvider {
 	return {
 		id,
 		title,
@@ -60,7 +60,7 @@ function provider(id = "first", title = "First Provider"): HePiSettingsProvider 
 }
 
 async function setup(
-	providers: readonly HePiSettingsProvider[] = [provider()],
+	providers: readonly HepiSettingsProvider[] = [provider()],
 	height?: number,
 	showTabs = true,
 ) {
@@ -99,7 +99,7 @@ function text(component: { render(width: number): string[] }, width = 48): strin
 
 describe("settings component", () => {
 	test("separates model list and Description value formats", async () => {
-		const model = createHePiModelSelectionField({
+		const model = createHepiModelSelectionField({
 			id: "model",
 			label: "Advisor model",
 			description: "Select the model used by this settings rendering fixture.",
@@ -206,7 +206,7 @@ describe("settings component", () => {
 	});
 
 	test("cycles an empty model in edit mode without entering main-tab navigation", async () => {
-		const model = createHePiModelSelectionField({
+		const model = createHepiModelSelectionField({
 			id: "model",
 			label: "Advisor model",
 			description: "Select the model used by this settings rendering fixture.",
@@ -302,7 +302,7 @@ describe("settings component", () => {
 				: field,
 		);
 		const baseProvider = provider();
-		const invalidProvider: HePiSettingsProvider = {
+		const invalidProvider: HepiSettingsProvider = {
 			...baseProvider,
 			groups: [{ id: "general", title: "General", fields: tabFields }],
 			storage: {
@@ -357,7 +357,7 @@ describe("settings component", () => {
 	});
 
 	test("switches main tabs with arrows while editing an empty text value", async () => {
-		const emptyField: HePiSettingField = {
+		const emptyField: HepiSettingField = {
 			id: "empty",
 			label: "Empty",
 			type: "text",

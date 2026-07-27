@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { HePiSettingField, HePiSettingsProvider } from "../../src/core/api/settings.js";
+import type { HepiSettingField, HepiSettingsProvider } from "../../src/core/api/settings.js";
 import { createSettingsController } from "../../src/core/ui/settings/controller.js";
 import { createSettingsLayout } from "../../src/core/ui/settings/layout.js";
 import { renderSettings, settingsListItems } from "../../src/core/ui/settings/render.js";
@@ -32,7 +32,7 @@ function field(
 	id: string,
 	label = id,
 	description = `${label} description`,
-): HePiSettingField<string> {
+): HepiSettingField<string> {
 	return {
 		id,
 		label,
@@ -46,8 +46,8 @@ function field(
 function provider(
 	id: string,
 	title: string,
-	fields: readonly HePiSettingField[] = [field("name", "Name")],
-): HePiSettingsProvider {
+	fields: readonly HepiSettingField[] = [field("name", "Name")],
+): HepiSettingsProvider {
 	return {
 		id,
 		origin: "@pi-basics",
@@ -57,7 +57,7 @@ function provider(
 	};
 }
 
-async function setup(providers: readonly HePiSettingsProvider[]) {
+async function setup(providers: readonly HepiSettingsProvider[]) {
 	const controller = createSettingsController({ providers, context: testContext() });
 	await controller.load();
 	return controller;
@@ -292,7 +292,7 @@ describe("settings renderer", () => {
 	test("pads and clips custom panel output to fixed wide height", async () => {
 		const width = 100;
 		const layout = createSettingsLayout(width);
-		const customProvider = (id: string, output: readonly string[]): HePiSettingsProvider => ({
+		const customProvider = (id: string, output: readonly string[]): HepiSettingsProvider => ({
 			...provider(id, id),
 			groups: [],
 			panels: [{ id: "custom", label: "Custom", render: () => output }],

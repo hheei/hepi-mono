@@ -1,9 +1,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-	getHePiRuntimeSettingsRegistry,
-	HePiLifecycleController,
-	registerHePiLifecycle,
-	registerHePiSettings,
+	getHepiRuntimeSettingsRegistry,
+	HepiLifecycleController,
+	registerHepiLifecycle,
+	registerHepiSettings,
 } from "../core/index.js";
 import { registerRtkCommand } from "./rtk/command.js";
 import { createRtkFeature } from "./rtk/feature.js";
@@ -11,12 +11,12 @@ import { createRtkSettingsProvider } from "./rtk/settings.js";
 
 export default function piRtkExtension(pi: ExtensionAPI): void {
 	const feature = createRtkFeature();
-	const settingsRegistry = getHePiRuntimeSettingsRegistry(pi);
+	const settingsRegistry = getHepiRuntimeSettingsRegistry(pi);
 	const provider = createRtkSettingsProvider(feature);
 	registerRtkCommand(pi, feature);
-	const lifecycle = new HePiLifecycleController({
+	const lifecycle = new HepiLifecycleController({
 		onStart: async (runtime) => {
-			const unregisterSettings = registerHePiSettings(provider, settingsRegistry);
+			const unregisterSettings = registerHepiSettings(provider, settingsRegistry);
 			runtime.registry.registerLifecycle({
 				id: "rtk-settings",
 				cleanup: unregisterSettings,
@@ -28,5 +28,5 @@ export default function piRtkExtension(pi: ExtensionAPI): void {
 			});
 		},
 	});
-	registerHePiLifecycle(pi, lifecycle);
+	registerHepiLifecycle(pi, lifecycle);
 }

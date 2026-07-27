@@ -1,8 +1,8 @@
 import type {
-	HePiContext,
-	HePiSettingChange,
-	HePiSettingsProvider,
-	HePiSettingsState,
+	HepiContext,
+	HepiSettingChange,
+	HepiSettingsProvider,
+	HepiSettingsState,
 } from "../../api/settings.js";
 
 interface GroupMapping {
@@ -10,11 +10,11 @@ interface GroupMapping {
 	readonly originalId: string;
 	readonly moduleName: string;
 	readonly showModuleHeader: boolean;
-	readonly provider: HePiSettingsProvider;
-	readonly group: HePiSettingsProvider["groups"][number];
+	readonly provider: HepiSettingsProvider;
+	readonly group: HepiSettingsProvider["groups"][number];
 }
 
-function providerModuleName(provider: HePiSettingsProvider): string {
+function providerModuleName(provider: HepiSettingsProvider): string {
 	if (provider.moduleName !== undefined) return provider.moduleName;
 	const originName = provider.origin?.split("/").at(-1);
 	if (originName?.startsWith("pi-") && originName !== "pi-basics") return originName;
@@ -24,8 +24,8 @@ function providerModuleName(provider: HePiSettingsProvider): string {
 
 /** Presents module-owned settings as one Pi Basics settings tree while preserving each module's storage contract. */
 export function combineSettingsProviders(
-	providers: readonly HePiSettingsProvider[],
-): HePiSettingsProvider {
+	providers: readonly HepiSettingsProvider[],
+): HepiSettingsProvider {
 	const usedGroupIds = new Set<string>();
 	const seenModules = new Set<string>();
 	const mappings: readonly GroupMapping[] = providers.flatMap((provider) => {
@@ -46,7 +46,7 @@ export function combineSettingsProviders(
 			};
 		});
 	});
-	const providerState = (state: HePiSettingsState, provider: HePiSettingsProvider) =>
+	const providerState = (state: HepiSettingsState, provider: HepiSettingsProvider) =>
 		Object.fromEntries(
 			mappings
 				.filter((mapping) => mapping.provider === provider)
@@ -61,7 +61,7 @@ export function combineSettingsProviders(
 			return enabled
 				? {
 						...field,
-						enabled: (state: HePiSettingsState) => enabled(providerState(state, provider)),
+						enabled: (state: HepiSettingsState) => enabled(providerState(state, provider)),
 					}
 				: field;
 		}),
@@ -76,7 +76,7 @@ export function combineSettingsProviders(
 		groups,
 		panels: providers.flatMap((provider) => provider.panels ?? []),
 		storage: {
-			async load(ctx: HePiContext) {
+			async load(ctx: HepiContext) {
 				const entries = await Promise.all(
 					providers.map(async (provider) => [provider, await provider.storage.load(ctx)] as const),
 				);
@@ -91,11 +91,11 @@ export function combineSettingsProviders(
 					),
 				);
 			},
-			async save(state: HePiSettingsState, ctx: HePiContext) {
+			async save(state: HepiSettingsState, ctx: HepiContext) {
 				for (const provider of providers)
 					await provider.storage.save(providerState(state, provider), ctx);
 			},
-			async close(ctx: HePiContext) {
+			async close(ctx: HepiContext) {
 				for (const provider of providers) await provider.storage.close?.(ctx);
 			},
 		},
@@ -103,7 +103,7 @@ export function combineSettingsProviders(
 			for (const provider of providers)
 				await provider.onLoad?.(providerState(state, provider), ctx);
 		},
-		onChange: async (change: HePiSettingChange, ctx: HePiContext) => {
+		onChange: async (change: HepiSettingChange, ctx: HepiContext) => {
 			const mapping = owners.get(change.groupId);
 			if (!mapping?.provider.onChange) return;
 			await mapping.provider.onChange(

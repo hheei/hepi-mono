@@ -1,43 +1,43 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { type ExtensionRuntimeHost, extensionRuntimeIdentity } from "../runtime/identity.js";
-import type { HePiCommandContext } from "./settings.js";
+import type { HepiCommandContext } from "./settings.js";
 
-export type HePiMaybePromise<T> = T | Promise<T>;
+export type HepiMaybePromise<T> = T | Promise<T>;
 
-export interface HePiModuleViewContext {
-	readonly context: HePiCommandContext;
+export interface HepiModuleViewContext {
+	readonly context: HepiCommandContext;
 	readonly host: { requestRender(): void };
 	readonly theme: Theme;
 	readonly height: number;
 }
 
-export interface HePiModuleView {
+export interface HepiModuleView {
 	readonly component: Component;
-	close?(): HePiMaybePromise<void>;
+	close?(): HepiMaybePromise<void>;
 }
 
-export interface HePiModule {
+export interface HepiModule {
 	readonly id: string;
 	readonly label: string;
 	readonly icon?: string;
 	readonly commands: readonly string[];
-	readonly open: (args: string, ctx: HePiCommandContext) => HePiMaybePromise<void>;
-	readonly createShellView?: (options: HePiModuleViewContext) => HePiMaybePromise<HePiModuleView>;
+	readonly open: (args: string, ctx: HepiCommandContext) => HepiMaybePromise<void>;
+	readonly createShellView?: (options: HepiModuleViewContext) => HepiMaybePromise<HepiModuleView>;
 }
 
-export interface HePiModuleRegistry {
-	register(module: HePiModule): () => void;
-	replace(module: HePiModule): () => void;
-	list(): readonly HePiModule[];
-	get(id: string): HePiModule | undefined;
+export interface HepiModuleRegistry {
+	register(module: HepiModule): () => void;
+	replace(module: HepiModule): () => void;
+	list(): readonly HepiModule[];
+	get(id: string): HepiModule | undefined;
 }
 
-class ModuleRegistry implements HePiModuleRegistry {
-	readonly #modules = new Map<string, HePiModule>();
+class ModuleRegistry implements HepiModuleRegistry {
+	readonly #modules = new Map<string, HepiModule>();
 	readonly #registrations = new Map<string, symbol>();
 
-	register(module: HePiModule): () => void {
+	register(module: HepiModule): () => void {
 		if (this.#modules.has(module.id)) {
 			throw new Error(`HePi module id collision: ${module.id}`);
 		}
@@ -51,7 +51,7 @@ class ModuleRegistry implements HePiModuleRegistry {
 		};
 	}
 
-	replace(module: HePiModule): () => void {
+	replace(module: HepiModule): () => void {
 		const registration = Symbol(module.id);
 		this.#modules.set(module.id, module);
 		this.#registrations.set(module.id, registration);
@@ -62,22 +62,22 @@ class ModuleRegistry implements HePiModuleRegistry {
 		};
 	}
 
-	list(): readonly HePiModule[] {
+	list(): readonly HepiModule[] {
 		return [...this.#modules.values()].sort(
 			(a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id),
 		);
 	}
 
-	get(id: string): HePiModule | undefined {
+	get(id: string): HepiModule | undefined {
 		return this.#modules.get(id);
 	}
 }
 
 declare global {
-	var __hepiModuleRegistriesByRuntime: WeakMap<object, HePiModuleRegistry> | undefined;
+	var __hepiModuleRegistriesByRuntime: WeakMap<object, HepiModuleRegistry> | undefined;
 }
 
-export function getHePiRuntimeModuleRegistry(pi: ExtensionRuntimeHost): HePiModuleRegistry {
+export function getHepiRuntimeModuleRegistry(pi: ExtensionRuntimeHost): HepiModuleRegistry {
 	let registries = globalThis.__hepiModuleRegistriesByRuntime;
 	if (registries === undefined) {
 		registries = new WeakMap();
@@ -91,22 +91,22 @@ export function getHePiRuntimeModuleRegistry(pi: ExtensionRuntimeHost): HePiModu
 	return created;
 }
 
-export function createHePiModuleRegistry(): HePiModuleRegistry {
+export function createHepiModuleRegistry(): HepiModuleRegistry {
 	return new ModuleRegistry();
 }
 
-export function registerHePiModule(module: HePiModule, registry: HePiModuleRegistry): () => void {
+export function registerHepiModule(module: HepiModule, registry: HepiModuleRegistry): () => void {
 	return registry.register(module);
 }
 
-export function replaceHePiModule(module: HePiModule, registry: HePiModuleRegistry): () => void {
+export function replaceHepiModule(module: HepiModule, registry: HepiModuleRegistry): () => void {
 	return registry.replace(module);
 }
 
-export function listHePiModules(registry: HePiModuleRegistry): readonly HePiModule[] {
+export function listHepiModules(registry: HepiModuleRegistry): readonly HepiModule[] {
 	return registry.list();
 }
 
-export function getHePiModule(id: string, registry: HePiModuleRegistry): HePiModule | undefined {
+export function getHepiModule(id: string, registry: HepiModuleRegistry): HepiModule | undefined {
 	return registry.get(id);
 }

@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { createHePiModuleRegistry, type HePiModule } from "../../src/core/api/index.js";
+import { createHepiModuleRegistry, type HepiModule } from "../../src/core/api/index.js";
 import {
-	dispatchHePiCommand,
-	parseHePiCommand,
-	registerHePiCommand,
+	dispatchHepiCommand,
+	parseHepiCommand,
+	registerHepiCommand,
 } from "../../src/core/command/hepi-command.js";
 
 function context(mode: string) {
@@ -33,17 +33,17 @@ function context(mode: string) {
 
 describe("/hepi command", () => {
 	test("parses subcommand and preserves trimmed remainder", () => {
-		expect(parseHePiCommand("  loadout   provider-id  ")).toEqual({
+		expect(parseHepiCommand("  loadout   provider-id  ")).toEqual({
 			subcommand: "loadout",
 			args: "provider-id",
 		});
-		expect(parseHePiCommand("   ")).toEqual({ subcommand: "", args: "" });
+		expect(parseHepiCommand("   ")).toEqual({ subcommand: "", args: "" });
 	});
 
 	test("routes registered module and provider argument", async () => {
-		const registry = createHePiModuleRegistry();
+		const registry = createHepiModuleRegistry();
 		let opened: { args: string; sessionId: string } | undefined;
-		const module: HePiModule = {
+		const module: HepiModule = {
 			id: "settings",
 			label: "Settings",
 			commands: ["loadout"],
@@ -53,26 +53,26 @@ describe("/hepi command", () => {
 		};
 		registry.register(module);
 		const host = context("tui");
-		await dispatchHePiCommand(" loadout provider-id ", host.ctx, registry);
+		await dispatchHepiCommand(" loadout provider-id ", host.ctx, registry);
 		expect(opened).toEqual({ args: "provider-id", sessionId: "session" });
 		expect(host.notifications).toEqual([]);
 	});
 
 	test("reports empty and unknown subcommands", async () => {
-		const registry = createHePiModuleRegistry();
+		const registry = createHepiModuleRegistry();
 		const empty = context("tui");
-		await dispatchHePiCommand("", empty.ctx, registry);
+		await dispatchHepiCommand("", empty.ctx, registry);
 		expect(empty.notifications[0]?.message).toContain("Usage: /hepi");
 		const unknown = context("tui");
-		await dispatchHePiCommand("missing", unknown.ctx, registry);
+		await dispatchHepiCommand("missing", unknown.ctx, registry);
 		expect(unknown.notifications[0]?.message).toContain("Unknown /hepi subcommand: missing");
 		const legacySettings = context("tui");
-		await dispatchHePiCommand("setting", legacySettings.ctx, registry);
+		await dispatchHepiCommand("setting", legacySettings.ctx, registry);
 		expect(legacySettings.notifications[0]?.message).toContain("Unknown /hepi subcommand: setting");
 	});
 
 	test("guards non-TUI mode before module open", async () => {
-		const registry = createHePiModuleRegistry();
+		const registry = createHepiModuleRegistry();
 		let opened = false;
 		registry.register({
 			id: "settings",
@@ -83,7 +83,7 @@ describe("/hepi command", () => {
 			},
 		});
 		const host = context("json");
-		await dispatchHePiCommand("loadout provider-id", host.ctx, registry);
+		await dispatchHepiCommand("loadout provider-id", host.ctx, registry);
 		expect(opened).toBe(false);
 		expect(host.customCalls).toBe(0);
 		expect(host.notifications[0]).toEqual({
@@ -102,14 +102,14 @@ describe("/hepi command", () => {
 				options: { getArgumentCompletions?: (prefix: string) => unknown },
 			) => registrations.push({ options }),
 		} as unknown as ExtensionAPI;
-		const registry = createHePiModuleRegistry();
+		const registry = createHepiModuleRegistry();
 		registry.register({
 			id: "settings",
 			label: "Settings",
 			commands: ["loadout"],
 			open: async () => {},
 		});
-		registerHePiCommand(pi, registry);
+		registerHepiCommand(pi, registry);
 		const hepi = registrations.find(({ options }) => options.getArgumentCompletions !== undefined);
 		const completions = hepi?.options.getArgumentCompletions?.("loa") as Array<{
 			value: string;
@@ -132,7 +132,7 @@ describe("/hepi command", () => {
 				},
 			) => registrations.push({ name, options }),
 		} as unknown as ExtensionAPI;
-		const registry = createHePiModuleRegistry();
+		const registry = createHepiModuleRegistry();
 		let opened = false;
 		registry.register({
 			id: "setting",
@@ -142,7 +142,7 @@ describe("/hepi command", () => {
 				opened = ctx.command === "setting";
 			},
 		});
-		registerHePiCommand(pi, registry);
+		registerHepiCommand(pi, registry);
 		const extSettings = registrations.find(({ name }) => name === "ext-settings");
 		await extSettings?.options.handler?.("", context("tui").ctx);
 		expect(opened).toBe(true);
@@ -153,9 +153,9 @@ describe("/hepi command", () => {
 		const pi = {
 			registerCommand: (...args: unknown[]) => registrations.push(args),
 		} as unknown as ExtensionAPI;
-		const registry = createHePiModuleRegistry();
-		registerHePiCommand(pi, registry);
-		registerHePiCommand(pi, registry);
+		const registry = createHepiModuleRegistry();
+		registerHepiCommand(pi, registry);
+		registerHepiCommand(pi, registry);
 		expect(registrations).toHaveLength(3);
 	});
 });

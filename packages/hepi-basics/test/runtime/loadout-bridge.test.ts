@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-	disableHePiTool,
-	isHePiSkillEnabled,
-	registerHePiToolDisableHandler,
-	setHePiDisabledSkillKeys,
+	disableHepiTool,
+	isHepiSkillEnabled,
+	registerHepiToolDisableHandler,
+	setHepiDisabledSkillKeys,
 } from "../../src/core/runtime/loadout-bridge.js";
 
 function apiPair(
@@ -16,10 +16,10 @@ function apiPair(
 describe("loadout bridge", () => {
 	test("shares skill state across extension API facades", () => {
 		const [loadout, skill] = apiPair();
-		setHePiDisabledSkillKeys(loadout, new Set(["skill:review"]));
-		expect(isHePiSkillEnabled(skill, "review")).toBe(false);
-		expect(isHePiSkillEnabled(skill, "skill:review")).toBe(false);
-		expect(isHePiSkillEnabled(skill, "other")).toBe(true);
+		setHepiDisabledSkillKeys(loadout, new Set(["skill:review"]));
+		expect(isHepiSkillEnabled(skill, "review")).toBe(false);
+		expect(isHepiSkillEnabled(skill, "skill:review")).toBe(false);
+		expect(isHepiSkillEnabled(skill, "other")).toBe(true);
 	});
 
 	test("shares skill state across independently evaluated module instances", async () => {
@@ -32,31 +32,31 @@ describe("loadout bridge", () => {
 			await import(dollarSkillBridgePath);
 		const [loadout, dollarSkill] = apiPair();
 
-		loadoutBridge.setHePiDisabledSkillKeys(loadout, new Set(["skill:review"]));
+		loadoutBridge.setHepiDisabledSkillKeys(loadout, new Set(["skill:review"]));
 
-		expect(dollarSkillBridge.isHePiSkillEnabled(dollarSkill, "review")).toBe(false);
+		expect(dollarSkillBridge.isHepiSkillEnabled(dollarSkill, "review")).toBe(false);
 	});
 
 	test("invokes and unregisters tool handlers across extension API facades", async () => {
 		const [loadout, goal] = apiPair();
 		let calls = 0;
-		const unregister = registerHePiToolDisableHandler(goal, "goal", () => {
+		const unregister = registerHepiToolDisableHandler(goal, "goal", () => {
 			calls++;
 		});
-		await disableHePiTool(loadout, "goal");
+		await disableHepiTool(loadout, "goal");
 		expect(calls).toBe(1);
 		unregister();
-		await disableHePiTool(loadout, "goal");
+		await disableHepiTool(loadout, "goal");
 		expect(calls).toBe(1);
 	});
 
 	test("rejects empty and duplicate handler names", () => {
 		const [first, second] = apiPair();
-		expect(() => registerHePiToolDisableHandler(first, "", () => undefined)).toThrow(
+		expect(() => registerHepiToolDisableHandler(first, "", () => undefined)).toThrow(
 			"HEPI tool disable handler name must not be empty",
 		);
-		registerHePiToolDisableHandler(first, "goal", () => undefined);
-		expect(() => registerHePiToolDisableHandler(second, "goal", () => undefined)).toThrow(
+		registerHepiToolDisableHandler(first, "goal", () => undefined);
+		expect(() => registerHepiToolDisableHandler(second, "goal", () => undefined)).toThrow(
 			"HEPI tool disable handler already exists: goal",
 		);
 	});
@@ -64,29 +64,29 @@ describe("loadout bridge", () => {
 	test("allows clean registration after reload on the same event bus", async () => {
 		const events = { emit() {}, on: () => () => undefined };
 		const [oldLoadout, oldGoal] = apiPair(events);
-		setHePiDisabledSkillKeys(oldLoadout, new Set(["skill:review"]));
-		const unregister = registerHePiToolDisableHandler(oldGoal, "goal", () => undefined);
+		setHepiDisabledSkillKeys(oldLoadout, new Set(["skill:review"]));
+		const unregister = registerHepiToolDisableHandler(oldGoal, "goal", () => undefined);
 
 		unregister();
-		setHePiDisabledSkillKeys(oldLoadout, new Set());
+		setHepiDisabledSkillKeys(oldLoadout, new Set());
 		const [newLoadout, newGoal] = apiPair(events);
 		let calls = 0;
-		registerHePiToolDisableHandler(newGoal, "goal", () => {
+		registerHepiToolDisableHandler(newGoal, "goal", () => {
 			calls++;
 		});
-		await disableHePiTool(newLoadout, "goal");
+		await disableHepiTool(newLoadout, "goal");
 		expect(calls).toBe(1);
-		expect(isHePiSkillEnabled(newLoadout, "review")).toBe(true);
+		expect(isHepiSkillEnabled(newLoadout, "review")).toBe(true);
 	});
 
 	test("isolates different Pi runtimes", async () => {
 		const [first] = apiPair();
 		const [second] = apiPair();
 		let calls = 0;
-		registerHePiToolDisableHandler(first, "goal", () => {
+		registerHepiToolDisableHandler(first, "goal", () => {
 			calls++;
 		});
-		await disableHePiTool(second, "goal");
+		await disableHepiTool(second, "goal");
 		expect(calls).toBe(0);
 	});
 });

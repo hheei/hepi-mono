@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { lock } from "proper-lockfile";
-import type { HePiSettingsState, HePiSettingsStorage, HePiSettingValue } from "../api/settings.js";
+import type { HepiSettingsState, HepiSettingsStorage, HepiSettingValue } from "../api/settings.js";
 
 export interface JsonSectionSettingsStorageOptions {
 	readonly path?: string;
@@ -15,7 +15,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function isSettingValue(value: unknown): value is HePiSettingValue {
+function isSettingValue(value: unknown): value is HepiSettingValue {
 	return (
 		value === null ||
 		typeof value === "boolean" ||
@@ -98,10 +98,10 @@ export async function updateJsonSettingsRoot(
 
 export function createJsonSectionSettingsStorage(
 	options: JsonSectionSettingsStorageOptions,
-): HePiSettingsStorage {
+): HepiSettingsStorage {
 	const resolvePath = (): string => options.path ?? join(getAgentDir(), "settings.json");
 	return {
-		async load(): Promise<HePiSettingsState | undefined> {
+		async load(): Promise<HepiSettingsState | undefined> {
 			const root = await readRoot(resolvePath());
 			const section = root[options.section];
 			if (section !== undefined && !isRecord(section))
@@ -110,7 +110,7 @@ export function createJsonSectionSettingsStorage(
 			if (!isRecord(group)) return undefined;
 			return {
 				[options.group]: Object.fromEntries(
-					Object.entries(group).filter((entry): entry is [string, HePiSettingValue] =>
+					Object.entries(group).filter((entry): entry is [string, HepiSettingValue] =>
 						isSettingValue(entry[1]),
 					),
 				),

@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
-	createHePiModelSelectionField,
-	hePiAuthenticatedModelSelectionOptions,
+	createHepiModelSelectionField,
+	hepiAuthenticatedModelSelectionOptions,
 } from "../../src/core/index.js";
 
 describe("model selection settings", () => {
 	test("filters to authenticated available models across providers and formats dynamic thinking", () => {
-		const options = hePiAuthenticatedModelSelectionOptions({
+		const options = hepiAuthenticatedModelSelectionOptions({
 			getRegisteredProviderIds: () => [],
 			getAvailable: () => [
 				{ provider: "cx", id: "gpt-5.6-luna", authenticated: true },
@@ -20,7 +20,7 @@ describe("model selection settings", () => {
 			{ value: "cx/gpt-5.6-luna", label: "cx/gpt-5.6-luna" },
 			{ value: "openai/gpt-5.4", label: "openai/gpt-5.4" },
 		]);
-		const field = createHePiModelSelectionField({
+		const field = createHepiModelSelectionField({
 			id: "model",
 			label: "model",
 			description: "Select the model used by this shared settings fixture.",
@@ -41,7 +41,7 @@ describe("model selection settings", () => {
 	});
 
 	test("fixes title generation thinking to off without a Tab cycle", () => {
-		const field = createHePiModelSelectionField({
+		const field = createHepiModelSelectionField({
 			id: "titleModel",
 			label: "title model",
 			description: "Select the model used to generate automatic session titles.",

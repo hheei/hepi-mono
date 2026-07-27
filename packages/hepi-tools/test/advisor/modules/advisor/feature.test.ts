@@ -4,7 +4,7 @@ import type {
 	ExtensionCommandContext,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import type { HePiRuntimeContext } from "../../../../../hepi-basics/src/core/index.js";
+import type { HepiRuntimeContext } from "../../../../../hepi-basics/src/core/index.js";
 import {
 	type AdvisorAdapterFactory,
 	createAdvisorFeature,
@@ -157,7 +157,7 @@ function fixture(enabled: boolean, adapter = fakeAdapter()) {
 		registry: {},
 		requestRender() {},
 		close() {},
-	} as unknown as HePiRuntimeContext;
+	} as unknown as HepiRuntimeContext;
 	const factory: AdvisorAdapterFactory = (_options: AdvisorAdapterOptions) => adapter;
 	const timers = new Map<number, { readonly due: number; readonly callback: () => void }>();
 	let clock = 0;

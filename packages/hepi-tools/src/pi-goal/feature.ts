@@ -6,7 +6,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "typebox";
 import type {
-	HePiRuntimeContext,
+	HepiRuntimeContext,
 	ToolActivationCoordinator,
 } from "../../../hepi-basics/src/core/index.js";
 import {
@@ -54,7 +54,7 @@ const GOAL_MODE_ENABLED_MESSAGE = "※ Goal Mode enabled";
 const GOAL_MODE_STOPPED_MESSAGE = "※ Goal Mode stopped";
 
 export interface GoalFeature {
-	start(runtime: HePiRuntimeContext): void | Promise<void>;
+	start(runtime: HepiRuntimeContext): void | Promise<void>;
 	disableFromLoadout(): Promise<void>;
 	dispose(sessionId: string): void | Promise<void>;
 	getState(): GoalState;
@@ -77,7 +77,7 @@ interface ErrorCandidate {
 
 interface ActiveRuntime {
 	readonly sessionId: string;
-	readonly runtime: HePiRuntimeContext;
+	readonly runtime: HepiRuntimeContext;
 	state: GoalState;
 	awaitingObjective: boolean;
 	activeRun?: { goalId: string; runSequence: number } | undefined;

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { HePiRuntimeContext } from "../../../hepi-basics/src/core/index.js";
+import type { HepiRuntimeContext } from "../../../hepi-basics/src/core/index.js";
 import {
 	buildSessionContext,
 	buildTurnDelta,
@@ -40,7 +40,7 @@ interface AdvisorThrottleOptions {
 
 export interface AdvisorFeature {
 	start(
-		runtime: HePiRuntimeContext,
+		runtime: HepiRuntimeContext,
 		config?: { readonly model?: string; readonly thinking?: import("./model.js").ThinkingLevel },
 	): Promise<void>;
 	dispose(sessionId: string): Promise<void>;
@@ -50,7 +50,7 @@ export interface AdvisorFeature {
 }
 interface Active {
 	readonly sessionId: string;
-	readonly runtime: HePiRuntimeContext;
+	readonly runtime: HepiRuntimeContext;
 	readonly adapter: AdvisorAgentAdapter;
 	adapterActive: boolean;
 	enabled: boolean;

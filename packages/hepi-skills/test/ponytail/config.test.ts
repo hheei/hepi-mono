@@ -4,15 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventBus, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-	getHePiRuntimeSettingsRegistry,
-	getHePiSettings,
+	getHepiRuntimeSettingsRegistry,
+	getHepiSettings,
 } from "../../../hepi-basics/src/core/index.js";
 import {
 	createPonytailSettingsProvider,
 	loadPonytailDefaults,
 	PONYTAIL_DEFAULTS_GROUP,
 	PONYTAIL_SETTINGS_PROVIDER_ID,
-	registerPonytailHePiSettings,
+	registerPonytailHepiSettings,
 } from "../../src/pi-ponytail/index.js";
 
 const temporaryDirectories: string[] = [];
@@ -31,17 +31,17 @@ async function createProject(settings: unknown): Promise<string> {
 describe("Ponytail HEPI settings", () => {
 	test("registers once and disposes through the runtime registry", async () => {
 		const pi = { events: createEventBus() } as unknown as ExtensionAPI;
-		const registry = getHePiRuntimeSettingsRegistry(pi);
-		const unregister = await registerPonytailHePiSettings(pi);
+		const registry = getHepiRuntimeSettingsRegistry(pi);
+		const unregister = await registerPonytailHepiSettings(pi);
 		expect(unregister).toBeFunction();
-		await expect(registerPonytailHePiSettings(pi)).rejects.toThrow(
+		await expect(registerPonytailHepiSettings(pi)).rejects.toThrow(
 			"HePi settings provider id collision: pi-ponytail",
 		);
-		expect(getHePiSettings(PONYTAIL_SETTINGS_PROVIDER_ID, registry)?.origin).toBe(
+		expect(getHepiSettings(PONYTAIL_SETTINGS_PROVIDER_ID, registry)?.origin).toBe(
 			"@hheei/hepi-skills",
 		);
 		unregister?.();
-		expect(getHePiSettings(PONYTAIL_SETTINGS_PROVIDER_ID, registry)).toBeUndefined();
+		expect(getHepiSettings(PONYTAIL_SETTINGS_PROVIDER_ID, registry)).toBeUndefined();
 	});
 
 	test("loads validated modes and presentation flags", async () => {

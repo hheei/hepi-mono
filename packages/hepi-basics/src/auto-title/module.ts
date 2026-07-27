@@ -6,15 +6,15 @@ import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
-	createHePiModelSelectionField,
+	createHepiModelSelectionField,
 	createJsonSectionSettingsStorage,
-	type HePiContext,
-	type HePiModelSelectionOption,
-	type HePiSettingField,
-	type HePiSettingsProvider,
-	type HePiSettingsState,
-	type HePiSettingsStorage,
-	hePiModelSelectionOptions,
+	type HepiContext,
+	type HepiModelSelectionOption,
+	type HepiSettingField,
+	type HepiSettingsProvider,
+	type HepiSettingsState,
+	type HepiSettingsStorage,
+	hepiModelSelectionOptions,
 } from "../core/index.js";
 
 export const AUTO_TITLE_GROUP = "auto-title";
@@ -43,7 +43,7 @@ export interface AutoTitleStorageOptions {
 	readonly group?: string;
 }
 
-export type AutoTitleModelOption = HePiModelSelectionOption;
+export type AutoTitleModelOption = HepiModelSelectionOption;
 
 export interface AutoTitleCoordinator {
 	trigger(force?: boolean): void;
@@ -54,7 +54,7 @@ export interface AutoTitleCoordinator {
 	dispose(): void;
 }
 
-export function createAutoTitleStorage(options: AutoTitleStorageOptions = {}): HePiSettingsStorage {
+export function createAutoTitleStorage(options: AutoTitleStorageOptions = {}): HepiSettingsStorage {
 	return createJsonSectionSettingsStorage({
 		...(options.path === undefined ? {} : { path: options.path }),
 		section: SECTION,
@@ -72,12 +72,12 @@ export function parseModelRef(value: string): { provider: string; model: string 
 export function autoTitleModelOptions(
 	models: Iterable<{ readonly provider: string; readonly id: string; readonly name?: string }>,
 ): readonly AutoTitleModelOption[] {
-	return hePiModelSelectionOptions(models);
+	return hepiModelSelectionOptions(models);
 }
 
 function autoTitleFields(
 	modelOptions: readonly AutoTitleModelOption[],
-): readonly HePiSettingField[] {
+): readonly HepiSettingField[] {
 	return [
 		{
 			id: AUTO_TITLE_FIELD,
@@ -91,7 +91,7 @@ function autoTitleFields(
 				throw new Error("Expected true or false");
 			},
 		},
-		createHePiModelSelectionField({
+		createHepiModelSelectionField({
 			id: AUTO_TITLE_MODEL_FIELD,
 			label: "title model",
 			description: "Choose the model used for title generation.",
@@ -104,19 +104,19 @@ function autoTitleFields(
 export interface AutoTitleSettingsOptions {
 	readonly path?: string;
 	readonly modelOptions?: readonly AutoTitleModelOption[];
-	readonly validate?: (value: string, ctx: HePiContext) => Promise<void> | void;
+	readonly validate?: (value: string, ctx: HepiContext) => Promise<void> | void;
 	readonly prepareEnable?: (model?: string) => Promise<void> | void;
 	readonly onPersisted?: (model: string | undefined) => Promise<void> | void;
 }
 export function createAutoTitleSettingsProvider(
 	options: AutoTitleSettingsOptions = {},
-): HePiSettingsProvider {
+): HepiSettingsProvider {
 	const backingStorage = createAutoTitleStorage(
 		options.path === undefined ? {} : { path: options.path },
 	);
 	const storage = {
 		load: backingStorage.load,
-		save: async (state: HePiSettingsState, ctx: HePiContext) => {
+		save: async (state: HepiSettingsState, ctx: HepiContext) => {
 			await backingStorage.save(state, ctx);
 			const values = state[AUTO_TITLE_GROUP] ?? {};
 			const model = values[AUTO_TITLE_MODEL_FIELD];

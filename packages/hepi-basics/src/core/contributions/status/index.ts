@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { HePiRuntimeContext } from "../../runtime/context.js";
+import type { HepiRuntimeContext } from "../../runtime/context.js";
 import {
 	calculateResponseRate,
 	formatResponseStatus,
@@ -17,7 +17,7 @@ type Owner = {
 };
 
 export interface StatusFeature {
-	start(runtime: HePiRuntimeContext): void;
+	start(runtime: HepiRuntimeContext): void;
 	dispose(sessionId: string): void;
 }
 

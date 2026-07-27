@@ -1,10 +1,10 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-	getHePiRuntimeSettingsRegistry,
-	HePiLifecycleController,
-	isHePiSkillEnabled,
-	registerHePiLifecycle,
-	registerHePiSettings,
+	getHepiRuntimeSettingsRegistry,
+	HepiLifecycleController,
+	isHepiSkillEnabled,
+	registerHepiLifecycle,
+	registerHepiSettings,
 } from "../core/index.js";
 import {
 	createDollarSkillFeature,
@@ -13,15 +13,15 @@ import {
 } from "./index.js";
 
 export default function piDollarSkillExtension(pi: ExtensionAPI): void {
-	const settingsRegistry = getHePiRuntimeSettingsRegistry(pi);
-	const feature = createDollarSkillFeature(pi, (command) => isHePiSkillEnabled(pi, command.name));
+	const settingsRegistry = getHepiRuntimeSettingsRegistry(pi);
+	const feature = createDollarSkillFeature(pi, (command) => isHepiSkillEnabled(pi, command.name));
 	registerDollarSkillInputTransform(pi, feature);
 	const provider = createDollarSkillSettingsProvider(feature);
-	registerHePiLifecycle(
+	registerHepiLifecycle(
 		pi,
-		new HePiLifecycleController({
+		new HepiLifecycleController({
 			onStart: async (runtime) => {
-				const unregisterSettings = registerHePiSettings(provider, settingsRegistry);
+				const unregisterSettings = registerHepiSettings(provider, settingsRegistry);
 				runtime.registry.registerLifecycle({
 					id: "dollar-skill-settings",
 					cleanup: unregisterSettings,

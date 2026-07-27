@@ -1,25 +1,25 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { HePiRegistry } from "./registry.js";
+import type { HepiRegistry } from "./registry.js";
 
-export interface HePiRuntimeContext {
+export interface HepiRuntimeContext {
 	readonly pi: ExtensionAPI;
 	readonly ctx: ExtensionContext;
-	readonly registry: HePiRegistry;
+	readonly registry: HepiRegistry;
 	readonly requestRender: () => void;
 	readonly close: () => void;
 }
 
-export interface HePiRuntimeContextOptions {
+export interface HepiRuntimeContextOptions {
 	readonly requestRender?: () => void;
 	readonly close?: () => void;
 }
 
-export function createHePiRuntimeContext(
+export function createHepiRuntimeContext(
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
-	registry: HePiRegistry,
-	options: HePiRuntimeContextOptions = {},
-): HePiRuntimeContext {
+	registry: HepiRegistry,
+	options: HepiRuntimeContextOptions = {},
+): HepiRuntimeContext {
 	return {
 		pi,
 		ctx,

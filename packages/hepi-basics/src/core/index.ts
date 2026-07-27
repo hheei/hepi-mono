@@ -1,56 +1,56 @@
-export type { HePiLoadoutGroup, HePiLoadoutGroupRegistry } from "./api/loadout.js";
+export type { HepiLoadoutGroup, HepiLoadoutGroupRegistry } from "./api/loadout.js";
 export {
-	createHePiLoadoutGroupRegistry,
-	getHePiRuntimeLoadoutGroupRegistry,
-	registerHePiLoadoutGroup,
-	registerHePiRuntimeLoadoutGroup,
-	replaceHePiLoadoutGroup,
+	createHepiLoadoutGroupRegistry,
+	getHepiRuntimeLoadoutGroupRegistry,
+	registerHepiLoadoutGroup,
+	registerHepiRuntimeLoadoutGroup,
+	replaceHepiLoadoutGroup,
 } from "./api/loadout.js";
 export type {
-	CreateHePiModelSelectionFieldOptions,
-	HePiModelSelectionOption,
-	HePiModelSelectionRegistry,
-	HePiModelThinkingCycle,
-	HePiModelThinkingLevel,
+	CreateHepiModelSelectionFieldOptions,
+	HepiModelSelectionOption,
+	HepiModelSelectionRegistry,
+	HepiModelThinkingCycle,
+	HepiModelThinkingLevel,
 } from "./api/model-selection.js";
 export {
-	createHePiModelSelectionField,
-	hePiAuthenticatedModelSelectionOptions,
-	hePiModelSelectionOptions,
-	hePiThinkingGlyph,
+	createHepiModelSelectionField,
+	hepiAuthenticatedModelSelectionOptions,
+	hepiModelSelectionOptions,
+	hepiThinkingGlyph,
 } from "./api/model-selection.js";
-export type { HePiModule, HePiModuleView, HePiModuleViewContext } from "./api/modules.js";
+export type { HepiModule, HepiModuleView, HepiModuleViewContext } from "./api/modules.js";
 export {
-	getHePiRuntimeModuleRegistry,
-	registerHePiModule,
+	getHepiRuntimeModuleRegistry,
+	registerHepiModule,
 } from "./api/modules.js";
 export type {
-	HePiContext,
-	HePiSettingField,
-	HePiSettingsProvider,
-	HePiSettingsState,
-	HePiSettingsStorage,
-	HePiSettingValue,
+	HepiContext,
+	HepiSettingField,
+	HepiSettingsProvider,
+	HepiSettingsState,
+	HepiSettingsStorage,
+	HepiSettingValue,
 } from "./api/settings.js";
 export {
-	getHePiRuntimeSettingsRegistry,
-	getHePiSettings,
-	registerHePiSettings,
+	getHepiRuntimeSettingsRegistry,
+	getHepiSettings,
+	registerHepiSettings,
 } from "./api/settings.js";
 export { default } from "./extension.js";
-export type { HePiRuntimeContext } from "./runtime/context.js";
-export { createHePiRuntimeContext } from "./runtime/context.js";
+export type { HepiRuntimeContext } from "./runtime/context.js";
+export { createHepiRuntimeContext } from "./runtime/context.js";
 export {
 	createJsonSectionSettingsStorage,
 	updateJsonSettingsRoot,
 } from "./runtime/json-settings.js";
-export { HePiLifecycleController, registerHePiLifecycle } from "./runtime/lifecycle.js";
+export { HepiLifecycleController, registerHepiLifecycle } from "./runtime/lifecycle.js";
 export {
-	disableHePiTool,
-	hePiLoadoutKey,
-	isHePiSkillEnabled,
-	registerHePiToolDisableHandler,
-	setHePiDisabledSkillKeys,
+	disableHepiTool,
+	hepiLoadoutKey,
+	isHepiSkillEnabled,
+	registerHepiToolDisableHandler,
+	setHepiDisabledSkillKeys,
 } from "./runtime/loadout-bridge.js";
 export type { ToolActivationCoordinator } from "./runtime/tool-activation.js";
 export {

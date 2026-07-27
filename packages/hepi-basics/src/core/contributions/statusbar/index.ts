@@ -7,7 +7,7 @@ import {
 	type Theme,
 } from "@earendil-works/pi-coding-agent";
 import { type Component, CURSOR_MARKER, type TUI } from "@earendil-works/pi-tui";
-import type { HePiRuntimeContext } from "../../runtime/context.js";
+import type { HepiRuntimeContext } from "../../runtime/context.js";
 import { type CursorOptions, cursorEscape } from "./cursor.js";
 import {
 	advisorIndicatorFromStatuses,
@@ -41,7 +41,7 @@ type Owner = {
 };
 
 export interface StatusbarFeature {
-	start(runtime: HePiRuntimeContext): void;
+	start(runtime: HepiRuntimeContext): void;
 	dispose(sessionId: string): void;
 }
 

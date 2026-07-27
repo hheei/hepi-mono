@@ -1,19 +1,19 @@
-import type { HePiCommandContext, HePiModule } from "../api/index.js";
+import type { HepiCommandContext, HepiModule } from "../api/index.js";
 
-export type { HePiCommandContext, HePiModule };
+export type { HepiCommandContext, HepiModule };
 
-export interface HePiCommandRegistration {
+export interface HepiCommandRegistration {
 	readonly name: string;
 	readonly description: string;
-	readonly handler: (args: string, ctx: HePiCommandContext) => void | Promise<void>;
+	readonly handler: (args: string, ctx: HepiCommandContext) => void | Promise<void>;
 }
 
-export interface HePiCommandRoute {
-	readonly module: HePiModule;
+export interface HepiCommandRoute {
+	readonly module: HepiModule;
 	readonly args: string;
 }
 
-export interface ParsedHePiCommand {
+export interface ParsedHepiCommand {
 	readonly subcommand: string;
 	readonly args: string;
 }

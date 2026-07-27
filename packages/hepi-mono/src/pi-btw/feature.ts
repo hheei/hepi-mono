@@ -4,7 +4,7 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import type { HePiRuntimeContext } from "../../../hepi-basics/src/core/index.js";
+import type { HepiRuntimeContext } from "../../../hepi-basics/src/core/index.js";
 import { type BtwComponentController, createBtwComponent } from "./component.js";
 import { executeBtwTurn } from "./executor.js";
 import {
@@ -18,7 +18,7 @@ import {
 export const BTW_COMMAND_NAME = "btw";
 
 export interface BtwFeature {
-	start(runtime: HePiRuntimeContext): void;
+	start(runtime: HepiRuntimeContext): void;
 	dispose(sessionId: string): void;
 }
 
@@ -48,7 +48,7 @@ function hasResolvedContext(value: unknown): value is SessionContextSource {
 
 interface ActiveRuntime {
 	readonly sessionId: string;
-	readonly runtime: HePiRuntimeContext;
+	readonly runtime: HepiRuntimeContext;
 	readonly runtimeRevision: number;
 	turns: BtwTurn[];
 	contextRevision: number;

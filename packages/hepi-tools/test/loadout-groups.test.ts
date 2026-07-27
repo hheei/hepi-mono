@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { createEventBus, defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { getHePiRuntimeLoadoutGroupRegistry } from "../../hepi-basics/src/core/index.js";
+import { getHepiRuntimeLoadoutGroupRegistry } from "../../hepi-basics/src/core/index.js";
 import {
 	HEPI_TOOLS_LOADOUT_GROUPS,
-	registerHePiToolsLoadoutGroups,
-	withHePiToolLoadoutGroup,
+	registerHepiToolsLoadoutGroups,
+	withHepiToolLoadoutGroup,
 } from "../src/loadout-groups.js";
 
 describe("HEPI tools Loadout groups", () => {
@@ -16,8 +16,8 @@ describe("HEPI tools Loadout groups", () => {
 			on: (_event: "session_shutdown", handler: () => void) => shutdownHandlers.push(handler),
 		} as never;
 
-		registerHePiToolsLoadoutGroups(pi);
-		const registry = getHePiRuntimeLoadoutGroupRegistry(pi);
+		registerHepiToolsLoadoutGroups(pi);
+		const registry = getHepiRuntimeLoadoutGroupRegistry(pi);
 		expect(registry.list().map((group) => group.id)).toEqual([
 			"fff",
 			"magic-context",
@@ -40,7 +40,7 @@ describe("HEPI tools Loadout groups", () => {
 			registerTool: (tool: { name: string }) => registered.push(tool.name),
 		} as never;
 
-		const extension = withHePiToolLoadoutGroup(
+		const extension = withHepiToolLoadoutGroup(
 			(leaf) => {
 				for (const name of ["find", "grep"]) {
 					leaf.registerTool(
@@ -61,7 +61,7 @@ describe("HEPI tools Loadout groups", () => {
 		extension(pi);
 
 		expect(registered).toEqual(["find", "grep"]);
-		expect(getHePiRuntimeLoadoutGroupRegistry(pi).get("fff")?.items).toEqual(["find", "grep"]);
+		expect(getHepiRuntimeLoadoutGroupRegistry(pi).get("fff")?.items).toEqual(["find", "grep"]);
 		for (const handler of shutdownHandlers) handler();
 	});
 });

@@ -1,6 +1,6 @@
 export type UiErrorKind = "parse" | "storage" | "unknown";
 
-export class HePiUiError extends Error {
+export class HepiUiError extends Error {
 	readonly kind: UiErrorKind;
 	readonly cause?: unknown;
 	constructor(kind: UiErrorKind, message: string, cause?: unknown) {
@@ -11,14 +11,14 @@ export class HePiUiError extends Error {
 	}
 }
 
-export class HePiParseError extends HePiUiError {
+export class HepiParseError extends HepiUiError {
 	constructor(message: string, cause?: unknown) {
 		super("parse", message, cause);
 		this.name = "HePiParseError";
 	}
 }
 
-export class HePiStorageError extends HePiUiError {
+export class HepiStorageError extends HepiUiError {
 	constructor(message: string, cause?: unknown) {
 		super("storage", message, cause);
 		this.name = "HePiStorageError";
@@ -36,12 +36,12 @@ function messageOf(error: unknown): string {
 }
 
 /** Convert failures to stable UI messages; original failure remains available as cause. */
-export function toUiError(error: unknown, kind: UiErrorKind = "unknown"): HePiUiError {
-	if (error instanceof HePiUiError) return error;
+export function toUiError(error: unknown, kind: UiErrorKind = "unknown"): HepiUiError {
+	if (error instanceof HepiUiError) return error;
 	const message = messageOf(error);
-	if (kind === "parse") return new HePiParseError(`Invalid setting value: ${message}`, error);
-	if (kind === "storage") return new HePiStorageError(`Unable to save settings: ${message}`, error);
-	return new HePiUiError("unknown", message, error);
+	if (kind === "parse") return new HepiParseError(`Invalid setting value: ${message}`, error);
+	if (kind === "storage") return new HepiStorageError(`Unable to save settings: ${message}`, error);
+	return new HepiUiError("unknown", message, error);
 }
 
 export function formatUiError(error: unknown, kind?: UiErrorKind): string {

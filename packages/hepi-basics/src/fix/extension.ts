@@ -1,9 +1,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-	getHePiRuntimeSettingsRegistry,
-	HePiLifecycleController,
-	registerHePiLifecycle,
-	registerHePiSettings,
+	getHepiRuntimeSettingsRegistry,
+	HepiLifecycleController,
+	registerHepiLifecycle,
+	registerHepiSettings,
 } from "../core/index.js";
 import {
 	createApplyPatchGuardSettingsProvider,
@@ -18,7 +18,7 @@ export default function piFixExtension(
 	pi: ExtensionAPI,
 	options: { readonly agentDir?: string } = {},
 ): void {
-	const settingsRegistry = getHePiRuntimeSettingsRegistry(pi);
+	const settingsRegistry = getHepiRuntimeSettingsRegistry(pi);
 	const applyPatchGuard = registerApplyPatchGuard(pi);
 	const providerOptions = options.agentDir === undefined ? {} : { agentDir: options.agentDir };
 	const applyPatchGuardProvider = createApplyPatchGuardSettingsProvider(
@@ -32,9 +32,9 @@ export default function piFixExtension(
 		...(options.agentDir === undefined ? {} : { settingsDirectory: options.agentDir }),
 	});
 
-	const lifecycle = new HePiLifecycleController({
+	const lifecycle = new HepiLifecycleController({
 		onStart: async (runtime) => {
-			const unregisterApplyPatchSettings = registerHePiSettings(
+			const unregisterApplyPatchSettings = registerHepiSettings(
 				applyPatchGuardProvider,
 				settingsRegistry,
 			);
@@ -42,7 +42,7 @@ export default function piFixExtension(
 				id: "apply-patch-settings",
 				cleanup: unregisterApplyPatchSettings,
 			});
-			const unregisterResponsesSettings = registerHePiSettings(
+			const unregisterResponsesSettings = registerHepiSettings(
 				responsesCompatProvider,
 				settingsRegistry,
 			);
@@ -70,5 +70,5 @@ export default function piFixExtension(
 			});
 		},
 	});
-	registerHePiLifecycle(pi, lifecycle);
+	registerHepiLifecycle(pi, lifecycle);
 }

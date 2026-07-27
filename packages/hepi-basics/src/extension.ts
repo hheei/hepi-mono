@@ -7,9 +7,9 @@ import piLoadout from "./loadout/index.js";
 import piRtk from "./rtk/index.js";
 import piT2s from "./t2s/index.js";
 
-export type HePiExtension = (pi: ExtensionAPI) => void;
+export type HepiExtension = (pi: ExtensionAPI) => void;
 
-export const hePiBasicsExtensions: readonly HePiExtension[] = [
+export const hepiBasicsExtensions: readonly HepiExtension[] = [
 	piBasics,
 	piLoadout,
 	piRtk,
@@ -20,5 +20,5 @@ export const hePiBasicsExtensions: readonly HePiExtension[] = [
 ];
 
 export default function piHepiBasicsExtension(pi: ExtensionAPI): void {
-	for (const extension of hePiBasicsExtensions) extension(pi);
+	for (const extension of hepiBasicsExtensions) extension(pi);
 }

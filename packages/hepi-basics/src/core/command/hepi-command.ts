@@ -1,12 +1,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
-import type { HePiModule, HePiModuleRegistry } from "../api/modules.js";
-import type { HePiCommandRoute, ParsedHePiCommand } from "./command-types.js";
+import type { HepiModule, HepiModuleRegistry } from "../api/modules.js";
+import type { HepiCommandRoute, ParsedHepiCommand } from "./command-types.js";
 
 const registeredApis = new WeakSet<object>();
 
 function commandCompletions(
-	registry: HePiModuleRegistry,
+	registry: HepiModuleRegistry,
 	prefix: string,
 ): AutocompleteItem[] | null {
 	const normalized = prefix.trim().toLowerCase();
@@ -40,7 +40,7 @@ interface CommandContext {
 	};
 }
 
-export function parseHePiCommand(rawArgs: string): ParsedHePiCommand {
+export function parseHepiCommand(rawArgs: string): ParsedHepiCommand {
 	const input = rawArgs.trim();
 	if (!input) return { subcommand: "", args: "" };
 	const separator = input.search(/\s/);
@@ -51,19 +51,19 @@ export function parseHePiCommand(rawArgs: string): ParsedHePiCommand {
 	};
 }
 
-export function routeHePiCommand(
+export function routeHepiCommand(
 	rawArgs: string,
-	registry: HePiModuleRegistry,
-): HePiCommandRoute | undefined {
-	const parsed = parseHePiCommand(rawArgs);
+	registry: HepiModuleRegistry,
+): HepiCommandRoute | undefined {
+	const parsed = parseHepiCommand(rawArgs);
 	if (!parsed.subcommand) return undefined;
 	const matches = registry.list().filter((module) => module.commands.includes(parsed.subcommand));
 	if (matches.length !== 1) return undefined;
-	return { module: matches[0] as HePiModule, args: parsed.args };
+	return { module: matches[0] as HepiModule, args: parsed.args };
 }
 
-async function openHePiModule(
-	module: HePiModule,
+async function openHepiModule(
+	module: HepiModule,
 	args: string,
 	command: string,
 	ctx: CommandContext,
@@ -75,12 +75,12 @@ async function openHePiModule(
 	});
 }
 
-export async function dispatchHePiCommand(
+export async function dispatchHepiCommand(
 	rawArgs: string,
 	ctx: CommandContext,
-	registry: HePiModuleRegistry,
+	registry: HepiModuleRegistry,
 ): Promise<void> {
-	const parsed = parseHePiCommand(rawArgs);
+	const parsed = parseHepiCommand(rawArgs);
 	if (!parsed.subcommand) {
 		ctx.ui.notify("Usage: /hepi <subcommand> [args]", "info");
 		return;
@@ -100,10 +100,10 @@ export async function dispatchHePiCommand(
 		return;
 	}
 
-	await openHePiModule(matches[0] as HePiModule, parsed.args, parsed.subcommand, ctx);
+	await openHepiModule(matches[0] as HepiModule, parsed.args, parsed.subcommand, ctx);
 }
 
-export function registerHePiCommand(pi: ExtensionAPI, registry: HePiModuleRegistry): void {
+export function registerHepiCommand(pi: ExtensionAPI, registry: HepiModuleRegistry): void {
 	if (registeredApis.has(pi)) return;
 	pi.registerCommand("ext-settings", {
 		description: "Open extension settings",
@@ -117,20 +117,20 @@ export function registerHePiCommand(pi: ExtensionAPI, registry: HePiModuleRegist
 				ctx.ui.notify("Extension settings are unavailable", "error");
 				return;
 			}
-			await openHePiModule(settingsModule, "", "setting", ctx);
+			await openHepiModule(settingsModule, "", "setting", ctx);
 		},
 	});
 	pi.registerCommand("loadout", {
 		description: "Open HEPI Loadout",
 		handler: async (_args, ctx) => {
-			await dispatchHePiCommand("loadout", ctx, registry);
+			await dispatchHepiCommand("loadout", ctx, registry);
 		},
 	});
 	pi.registerCommand("hepi", {
 		description: "Open a HEPI module",
 		getArgumentCompletions: (prefix) => commandCompletions(registry, prefix),
 		handler: async (args, ctx) => {
-			await dispatchHePiCommand(args, ctx, registry);
+			await dispatchHepiCommand(args, ctx, registry);
 		},
 	});
 	registeredApis.add(pi);

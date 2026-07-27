@@ -5,7 +5,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Value } from "typebox/value";
-import type { HePiRuntimeContext } from "../../../hepi-basics/src/core/index.js";
+import type { HepiRuntimeContext } from "../../../hepi-basics/src/core/index.js";
 import type { TodoSnapshot } from "../../src/pi-todo/state.js";
 import {
 	createTodoFeature,
@@ -116,7 +116,7 @@ function harness(mode: "tui" | "json" = "tui", sessionId = "todo-session") {
 		registry: {},
 		requestRender: () => undefined,
 		close: () => undefined,
-	} as unknown as HePiRuntimeContext;
+	} as unknown as HepiRuntimeContext;
 	return {
 		pi,
 		ctx,

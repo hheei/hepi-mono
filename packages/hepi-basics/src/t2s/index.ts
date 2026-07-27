@@ -6,9 +6,9 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import OpenCC from "opencc-js/t2cn";
 import {
-	type HePiSettingField,
-	type HePiSettingsProvider,
-	type HePiSettingsState,
+	type HepiSettingField,
+	type HepiSettingsProvider,
+	type HepiSettingsState,
 	updateJsonSettingsRoot,
 } from "../core/index.js";
 
@@ -128,7 +128,7 @@ export function createTraditionalToSimplifiedSettingsProvider(
 		readonly onPersisted?: (enabled: boolean) => void;
 		readonly settingsDirectory?: string;
 	} = {},
-): HePiSettingsProvider {
+): HepiSettingsProvider {
 	const settingsDirectory = options.settingsDirectory ?? getAgentDir();
 	return {
 		id: "pi-t2s",
@@ -151,7 +151,7 @@ export function createTraditionalToSimplifiedSettingsProvider(
 						description: "Convert interactive Traditional Chinese input to Simplified Chinese.",
 						parse: (draft) => (draft === "off" ? "off" : "t2s"),
 					},
-				] satisfies readonly HePiSettingField[],
+				] satisfies readonly HepiSettingField[],
 			},
 		],
 		storage: {
@@ -174,7 +174,7 @@ export function createTraditionalToSimplifiedSettingsProvider(
 					[TRADITIONAL_TO_SIMPLIFIED_GROUP]: { mode: parseStoredMode(values as JsonObject) },
 				};
 			},
-			async save(state: HePiSettingsState) {
+			async save(state: HepiSettingsState) {
 				const path = settingsPath(settingsDirectory);
 				const mode = parseStoredMode(state[TRADITIONAL_TO_SIMPLIFIED_GROUP] ?? {});
 				await updateJsonSettingsRoot(path, (root) => {

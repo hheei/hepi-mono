@@ -5,7 +5,7 @@ import {
 	DEFAULT_CAVEMAN_DEFAULTS,
 	loadCavemanDefaults,
 } from "./config.js";
-import { registerCavemanHePiSettings } from "./hepi-settings.js";
+import { registerCavemanHepiSettings } from "./hepi-settings.js";
 import {
 	CAVEMAN_STATE_ENTRY,
 	type CavemanMode,
@@ -109,7 +109,7 @@ export default function piCavemanExtension(
 
 	pi.on("session_start", async (_event, ctx) => {
 		unregisterSettings?.();
-		unregisterSettings = await registerCavemanHePiSettings(pi, options);
+		unregisterSettings = await registerCavemanHepiSettings(pi, options);
 		defaults = await loadCavemanDefaults(options.settingsFilePath);
 		subagentSession = isPiSubagentSession(pi);
 		restoreModeFromBranch(ctx);
@@ -156,7 +156,7 @@ export {
 	DEFAULT_CAVEMAN_DEFAULTS,
 	loadCavemanDefaults,
 } from "./config.js";
-export { registerCavemanHePiSettings } from "./hepi-settings.js";
+export { registerCavemanHepiSettings } from "./hepi-settings.js";
 export {
 	CAVEMAN_INTENSITIES,
 	CAVEMAN_STATE_ENTRY,

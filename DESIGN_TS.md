@@ -303,7 +303,7 @@ cleanup：
 - unregister handle 只能删除自己注册的当前值；
 - start 部分失败也清理已创建资源。
 
-跨 session state 使用 `HePiLifecycleController` 和 runtime registry。extension factory 不启动长生命周期资源。
+跨 session state 使用 `HepiLifecycleController` 和 runtime registry。extension factory 不启动长生命周期资源。
 
 ## 9. 错误设计
 

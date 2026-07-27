@@ -1,6 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { Component, TUI } from "@earendil-works/pi-tui";
-import type { HePiRuntimeContext } from "../../../hepi-basics/src/core/index.js";
+import type { HepiRuntimeContext } from "../../../hepi-basics/src/core/index.js";
 import { truncateToWidth } from "../../../hepi-basics/src/core/index.js";
 import type { TaskState } from "./model.js";
 
@@ -96,7 +96,7 @@ function renderTodo(
 }
 
 export function createTodoWidget(
-	runtime: HePiRuntimeContext,
+	runtime: HepiRuntimeContext,
 	initialState: TaskState,
 ): TodoWidget | undefined {
 	if (runtime.ctx.mode !== "tui") return undefined;

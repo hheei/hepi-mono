@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import type { ToolInfo } from "@earendil-works/pi-coding-agent";
-import type { HePiLoadoutGroup } from "../core/index.js";
+import type { HepiLoadoutGroup } from "../core/index.js";
 import {
 	type LoadoutDescriptionRegistry,
 	type LoadoutItem,
@@ -34,7 +34,7 @@ export interface LoadoutInventorySource {
 	readonly getCommands?: () => readonly LoadoutCommandInfo[];
 	readonly getToolDefinition?: (name: string) => ToolDefinitionLookup | undefined;
 	readonly descriptionRegistry?: LoadoutDescriptionRegistry;
-	readonly getLoadoutGroups?: () => readonly HePiLoadoutGroup[];
+	readonly getLoadoutGroups?: () => readonly HepiLoadoutGroup[];
 }
 const BUILTIN_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
 	bash: "Execute bash commands (ls, grep, find, etc.)",
@@ -98,13 +98,13 @@ function toolItem(
 	};
 }
 
-function belongsToGroup(item: LoadoutItem, group: HePiLoadoutGroup): boolean {
+function belongsToGroup(item: LoadoutItem, group: HepiLoadoutGroup): boolean {
 	if (item.kind !== "tool") return false;
 	const selectors = group.items ?? [];
 	return selectors.some((selector) => selector === item.key || selector === item.name);
 }
 
-function applyLoadoutGroup(item: LoadoutItem, groups: readonly HePiLoadoutGroup[]): LoadoutItem {
+function applyLoadoutGroup(item: LoadoutItem, groups: readonly HepiLoadoutGroup[]): LoadoutItem {
 	const group = groups.find((candidate) => belongsToGroup(item, candidate));
 	return group === undefined ? item : { ...item, group: group.label };
 }
@@ -168,7 +168,7 @@ export function createLoadoutInventory(pi: LoadoutInventorySource): LoadoutInven
 }
 export function createLoadoutInventoryProvider(
 	pi: LoadoutInventorySource,
-	getLoadoutGroups?: () => readonly HePiLoadoutGroup[],
+	getLoadoutGroups?: () => readonly HepiLoadoutGroup[],
 ): LoadoutInventoryProvider {
 	return {
 		load: (signal) => {

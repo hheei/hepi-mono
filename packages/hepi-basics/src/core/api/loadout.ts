@@ -1,6 +1,6 @@
 import { type ExtensionRuntimeHost, extensionRuntimeIdentity } from "../runtime/identity.js";
 
-export interface HePiLoadoutGroup {
+export interface HepiLoadoutGroup {
 	/** Stable owner id. A group may be registered only once in one runtime. */
 	readonly id: string;
 	/** Label shown by Loadout. */
@@ -9,39 +9,39 @@ export interface HePiLoadoutGroup {
 	readonly items?: readonly string[];
 }
 
-export interface HePiLoadoutGroupRegistry {
-	register(group: HePiLoadoutGroup): () => void;
-	replace(group: HePiLoadoutGroup): () => void;
-	list(): readonly HePiLoadoutGroup[];
-	get(id: string): HePiLoadoutGroup | undefined;
+export interface HepiLoadoutGroupRegistry {
+	register(group: HepiLoadoutGroup): () => void;
+	replace(group: HepiLoadoutGroup): () => void;
+	list(): readonly HepiLoadoutGroup[];
+	get(id: string): HepiLoadoutGroup | undefined;
 }
 
-class LoadoutGroupRegistry implements HePiLoadoutGroupRegistry {
-	readonly #groups = new Map<string, HePiLoadoutGroup>();
+class LoadoutGroupRegistry implements HepiLoadoutGroupRegistry {
+	readonly #groups = new Map<string, HepiLoadoutGroup>();
 	readonly #registrations = new Map<string, symbol>();
 
-	register(group: HePiLoadoutGroup): () => void {
+	register(group: HepiLoadoutGroup): () => void {
 		validateGroup(group);
 		if (this.#groups.has(group.id)) throw new Error(`HePi Loadout group id collision: ${group.id}`);
 		return this.set(group);
 	}
 
-	replace(group: HePiLoadoutGroup): () => void {
+	replace(group: HepiLoadoutGroup): () => void {
 		validateGroup(group);
 		return this.set(group);
 	}
 
-	list(): readonly HePiLoadoutGroup[] {
+	list(): readonly HepiLoadoutGroup[] {
 		return [...this.#groups.values()].sort(
 			(a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id),
 		);
 	}
 
-	get(id: string): HePiLoadoutGroup | undefined {
+	get(id: string): HepiLoadoutGroup | undefined {
 		return this.#groups.get(id);
 	}
 
-	private set(group: HePiLoadoutGroup): () => void {
+	private set(group: HepiLoadoutGroup): () => void {
 		const registration = Symbol(group.id);
 		this.#groups.set(group.id, group);
 		this.#registrations.set(group.id, registration);
@@ -53,7 +53,7 @@ class LoadoutGroupRegistry implements HePiLoadoutGroupRegistry {
 	}
 }
 
-function validateGroup(group: HePiLoadoutGroup): void {
+function validateGroup(group: HepiLoadoutGroup): void {
 	if (!group.id.trim()) throw new Error("HePi Loadout group id must not be empty");
 	if (!group.label.trim())
 		throw new Error(`HePi Loadout group label must not be empty: ${group.id}`);
@@ -63,12 +63,12 @@ function validateGroup(group: HePiLoadoutGroup): void {
 }
 
 declare global {
-	var __hepiLoadoutGroupRegistriesByRuntime: WeakMap<object, HePiLoadoutGroupRegistry> | undefined;
+	var __hepiLoadoutGroupRegistriesByRuntime: WeakMap<object, HepiLoadoutGroupRegistry> | undefined;
 }
 
-export function getHePiRuntimeLoadoutGroupRegistry(
+export function getHepiRuntimeLoadoutGroupRegistry(
 	pi: ExtensionRuntimeHost,
-): HePiLoadoutGroupRegistry {
+): HepiLoadoutGroupRegistry {
 	let registries = globalThis.__hepiLoadoutGroupRegistriesByRuntime;
 	if (registries === undefined) {
 		registries = new WeakMap();
@@ -82,13 +82,13 @@ export function getHePiRuntimeLoadoutGroupRegistry(
 	return created;
 }
 
-export function createHePiLoadoutGroupRegistry(): HePiLoadoutGroupRegistry {
+export function createHepiLoadoutGroupRegistry(): HepiLoadoutGroupRegistry {
 	return new LoadoutGroupRegistry();
 }
 
-export function registerHePiLoadoutGroup(
-	group: HePiLoadoutGroup,
-	registry: HePiLoadoutGroupRegistry,
+export function registerHepiLoadoutGroup(
+	group: HepiLoadoutGroup,
+	registry: HepiLoadoutGroupRegistry,
 ): () => void {
 	return registry.register(group);
 }
@@ -98,20 +98,20 @@ export function registerHePiLoadoutGroup(
  * Factory-time registration is intentional: Loadout may load its inventory before
  * another feature's session_start handler runs.
  */
-export function registerHePiRuntimeLoadoutGroup(
+export function registerHepiRuntimeLoadoutGroup(
 	pi: ExtensionRuntimeHost & {
 		on(event: "session_shutdown", handler: () => void): void;
 	},
-	group: HePiLoadoutGroup,
+	group: HepiLoadoutGroup,
 ): () => void {
-	const unregister = registerHePiLoadoutGroup(group, getHePiRuntimeLoadoutGroupRegistry(pi));
+	const unregister = registerHepiLoadoutGroup(group, getHepiRuntimeLoadoutGroupRegistry(pi));
 	pi.on("session_shutdown", unregister);
 	return unregister;
 }
 
-export function replaceHePiLoadoutGroup(
-	group: HePiLoadoutGroup,
-	registry: HePiLoadoutGroupRegistry,
+export function replaceHepiLoadoutGroup(
+	group: HepiLoadoutGroup,
+	registry: HepiLoadoutGroupRegistry,
 ): () => void {
 	return registry.replace(group);
 }

@@ -1,11 +1,11 @@
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import type { HePiModule } from "../../api/modules.js";
-import type { HePiCommandContext } from "../../api/settings.js";
+import type { HepiModule } from "../../api/modules.js";
+import type { HepiCommandContext } from "../../api/settings.js";
 import { createShellComponent } from "./component.js";
 
 export interface ShellViewFactoryContext {
-	readonly context: HePiCommandContext;
+	readonly context: HepiCommandContext;
 	readonly host: { requestRender(): void };
 	readonly theme: Theme;
 	readonly height: number;
@@ -18,7 +18,7 @@ export interface ShellModuleOptions {
 	readonly loadout: ShellViewFactory;
 }
 
-export type ShellModule = HePiModule;
+export type ShellModule = HepiModule;
 
 export function createShellModule(options: ShellModuleOptions): ShellModule {
 	return {

@@ -1,6 +1,6 @@
-import type { HePiSettingField, HePiSettingOption, HePiSettingTabCycle } from "./settings.js";
+import type { HepiSettingField, HepiSettingOption, HepiSettingTabCycle } from "./settings.js";
 
-export type HePiModelThinkingLevel =
+export type HepiModelThinkingLevel =
 	| "off"
 	| "minimal"
 	| "low"
@@ -9,38 +9,38 @@ export type HePiModelThinkingLevel =
 	| "xhigh"
 	| "max";
 
-export interface HePiModelSelectionOption extends HePiSettingOption<string> {
+export interface HepiModelSelectionOption extends HepiSettingOption<string> {
 	readonly label: string;
 }
 
-export interface HePiModelSelectionCandidate {
+export interface HepiModelSelectionCandidate {
 	readonly provider: string;
 	readonly id: string;
 }
 
-export interface HePiModelSelectionRegistry<T extends HePiModelSelectionCandidate> {
+export interface HepiModelSelectionRegistry<T extends HepiModelSelectionCandidate> {
 	getAvailable?(): readonly T[];
 	getRegisteredProviderIds(): readonly string[];
 	hasConfiguredAuth(model: T): boolean;
 }
 
-export interface HePiModelThinkingCycle {
+export interface HepiModelThinkingCycle {
 	readonly fieldId: string;
 	readonly label: string;
 	readonly description: string;
-	readonly defaultValue: HePiModelThinkingLevel;
-	readonly options: readonly HePiSettingOption<HePiModelThinkingLevel>[];
+	readonly defaultValue: HepiModelThinkingLevel;
+	readonly options: readonly HepiSettingOption<HepiModelThinkingLevel>[];
 }
 
-export interface CreateHePiModelSelectionFieldOptions {
+export interface CreateHepiModelSelectionFieldOptions {
 	readonly id: string;
 	readonly label: string;
 	readonly description: string;
-	readonly modelOptions: readonly HePiModelSelectionOption[];
-	readonly thinking: HePiModelThinkingLevel | HePiModelThinkingCycle;
+	readonly modelOptions: readonly HepiModelSelectionOption[];
+	readonly thinking: HepiModelThinkingLevel | HepiModelThinkingCycle;
 }
 
-export function hePiThinkingGlyph(level: unknown): string {
+export function hepiThinkingGlyph(level: unknown): string {
 	if (level === "off" || level === "minimal") return "○";
 	if (level === "low") return "◔";
 	if (level === "medium") return "◑";
@@ -49,9 +49,9 @@ export function hePiThinkingGlyph(level: unknown): string {
 	return "?";
 }
 
-export function hePiModelSelectionOptions(
-	models: Iterable<HePiModelSelectionCandidate>,
-): readonly HePiModelSelectionOption[] {
+export function hepiModelSelectionOptions(
+	models: Iterable<HepiModelSelectionCandidate>,
+): readonly HepiModelSelectionOption[] {
 	const values = new Set<string>();
 	for (const model of models) values.add(`${model.provider}/${model.id}`);
 	return [
@@ -62,22 +62,22 @@ export function hePiModelSelectionOptions(
 	];
 }
 
-export function hePiAuthenticatedModelSelectionOptions<T extends HePiModelSelectionCandidate>(
-	registry: HePiModelSelectionRegistry<T>,
-): readonly HePiModelSelectionOption[] {
-	return hePiModelSelectionOptions(
+export function hepiAuthenticatedModelSelectionOptions<T extends HepiModelSelectionCandidate>(
+	registry: HepiModelSelectionRegistry<T>,
+): readonly HepiModelSelectionOption[] {
+	return hepiModelSelectionOptions(
 		(registry.getAvailable?.() ?? []).filter((model) => registry.hasConfiguredAuth(model)),
 	);
 }
 
-export function createHePiModelSelectionField(
-	options: CreateHePiModelSelectionFieldOptions,
-): HePiSettingField<string> {
-	const fixedThinking: HePiModelThinkingLevel | undefined =
+export function createHepiModelSelectionField(
+	options: CreateHepiModelSelectionFieldOptions,
+): HepiSettingField<string> {
+	const fixedThinking: HepiModelThinkingLevel | undefined =
 		typeof options.thinking === "string" ? options.thinking : undefined;
-	const cycle: HePiModelThinkingCycle | undefined =
+	const cycle: HepiModelThinkingCycle | undefined =
 		typeof options.thinking === "string" ? undefined : options.thinking;
-	const thinking = (related: unknown): HePiModelThinkingLevel =>
+	const thinking = (related: unknown): HepiModelThinkingLevel =>
 		related === "off" ||
 		related === "minimal" ||
 		related === "low" ||
@@ -90,7 +90,7 @@ export function createHePiModelSelectionField(
 				? cycle.defaultValue
 				: (fixedThinking ?? "off");
 	const modelText = (value: string): string => value.trim() || "Not set";
-	const tabCycle: HePiSettingTabCycle | undefined = cycle
+	const tabCycle: HepiSettingTabCycle | undefined = cycle
 		? { ...cycle, separator: " " }
 		: undefined;
 	return {
@@ -101,7 +101,7 @@ export function createHePiModelSelectionField(
 		description: options.description,
 		options: options.modelOptions,
 		formatDisplay: (value, related) =>
-			`${hePiThinkingGlyph(thinking(related))} ${modelText(value)}`,
+			`${hepiThinkingGlyph(thinking(related))} ${modelText(value)}`,
 		formatDescription: (value, related) => `${modelText(value)} ${thinking(related)}`,
 		parse: (draft) => draft,
 		validate: (value) =>

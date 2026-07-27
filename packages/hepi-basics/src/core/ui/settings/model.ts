@@ -1,9 +1,9 @@
 import type {
-	HePiSettingField,
-	HePiSettingGroup,
-	HePiSettingsProvider,
-	HePiSettingsState,
-	HePiSettingValue,
+	HepiSettingField,
+	HepiSettingGroup,
+	HepiSettingsProvider,
+	HepiSettingsState,
+	HepiSettingValue,
 } from "../../api/settings.js";
 
 export type SettingsMode = "Navigation" | "Edit";
@@ -14,19 +14,19 @@ export interface SettingsSelection {
 	readonly groupId?: string;
 }
 export interface SettingsProviderSnapshot {
-	readonly provider: HePiSettingsProvider;
-	readonly groups: readonly HePiSettingGroup[];
-	readonly fields: readonly (HePiSettingField & { readonly groupId: string })[];
-	readonly panels: readonly NonNullable<HePiSettingsProvider["panels"]>[number][];
+	readonly provider: HepiSettingsProvider;
+	readonly groups: readonly HepiSettingGroup[];
+	readonly fields: readonly (HepiSettingField & { readonly groupId: string })[];
+	readonly panels: readonly NonNullable<HepiSettingsProvider["panels"]>[number][];
 }
 export interface SettingsModelState {
 	readonly providers: readonly SettingsProviderSnapshot[];
 	readonly activeProviderId?: string | undefined;
 	readonly selection?: SettingsSelection | undefined;
 	readonly mode: SettingsMode;
-	readonly committed: Readonly<Record<string, HePiSettingsState>>;
+	readonly committed: Readonly<Record<string, HepiSettingsState>>;
 	readonly draftValue?: string | undefined;
-	readonly draftRelatedValue?: HePiSettingValue | undefined;
+	readonly draftRelatedValue?: HepiSettingValue | undefined;
 	readonly search: string;
 	readonly collapsedGroupIds: ReadonlySet<string>;
 	readonly scrollTop: number;
@@ -43,13 +43,13 @@ export function settingPanelItemId(panelId: string): string {
 	return `panel:${panelId}`;
 }
 
-export function providerHasContent(provider: HePiSettingsProvider): boolean {
+export function providerHasContent(provider: HepiSettingsProvider): boolean {
 	return (
 		provider.groups.some((group) => group.fields.length > 0) || (provider.panels?.length ?? 0) > 0
 	);
 }
 
-export function snapshotProvider(provider: HePiSettingsProvider): SettingsProviderSnapshot {
+export function snapshotProvider(provider: HepiSettingsProvider): SettingsProviderSnapshot {
 	const groups = provider.groups.filter((group) => group.fields.length > 0);
 	return {
 		provider,
@@ -62,14 +62,14 @@ export function snapshotProvider(provider: HePiSettingsProvider): SettingsProvid
 }
 
 export function mergeSettingsState(
-	provider: HePiSettingsProvider,
-	stored: HePiSettingsState | undefined,
-): HePiSettingsState {
-	const result: HePiSettingsState = {};
+	provider: HepiSettingsProvider,
+	stored: HepiSettingsState | undefined,
+): HepiSettingsState {
+	const result: HepiSettingsState = {};
 	const storedState = stored ?? {};
 	for (const group of provider.groups) {
 		const storedGroup = storedState[group.id] ?? {};
-		const fields: Record<string, HePiSettingValue> = {};
+		const fields: Record<string, HepiSettingValue> = {};
 		for (const field of group.fields) {
 			const storedValue = storedGroup[field.id];
 			fields[field.id] =
@@ -93,7 +93,7 @@ export function fieldForSelection(
 	snapshot: SettingsProviderSnapshot | undefined,
 	itemId: string | undefined,
 	groupId?: string,
-): (HePiSettingField & { readonly groupId: string }) | undefined {
+): (HepiSettingField & { readonly groupId: string }) | undefined {
 	if (!snapshot || itemId === undefined) return undefined;
 	return (
 		snapshot.fields.find(
@@ -106,7 +106,7 @@ export function visibleFields(
 	snapshot: SettingsProviderSnapshot | undefined,
 	search: string,
 	collapsedGroupIds: ReadonlySet<string>,
-): readonly (HePiSettingField & { readonly groupId: string })[] {
+): readonly (HepiSettingField & { readonly groupId: string })[] {
 	if (!snapshot) return [];
 	const query = search.trim().toLocaleLowerCase();
 	return snapshot.fields.filter((field) => {
@@ -119,7 +119,7 @@ export function visibleFields(
 }
 
 export function cycleOption<T extends boolean | number | string>(
-	field: HePiSettingField<T>,
+	field: HepiSettingField<T>,
 	value: T,
 	direction = 1,
 ): T {
@@ -137,7 +137,7 @@ export function cycleOption<T extends boolean | number | string>(
 
 export class SettingsModel {
 	state: SettingsModelState;
-	constructor(providers: readonly HePiSettingsProvider[] = []) {
+	constructor(providers: readonly HepiSettingsProvider[] = []) {
 		const snapshots = providers.filter(providerHasContent).map(snapshotProvider);
 		const first = snapshots[0];
 		const firstField = first?.fields[0];
@@ -168,7 +168,7 @@ export class SettingsModel {
 			this.state.selection?.groupId,
 		);
 	}
-	setCommitted(providerId: string, value: HePiSettingsState): void {
+	setCommitted(providerId: string, value: HepiSettingsState): void {
 		this.state = { ...this.state, committed: { ...this.state.committed, [providerId]: value } };
 	}
 	select(itemId: string): void {
@@ -218,7 +218,7 @@ export class SettingsModel {
 	toggleGroup(_groupId: string): void {
 		// Group headers are structural labels; fields remain permanently visible.
 	}
-	beginEdit(value: string, relatedValue?: HePiSettingValue): void {
+	beginEdit(value: string, relatedValue?: HepiSettingValue): void {
 		this.state = {
 			...this.state,
 			mode: "Edit",
@@ -239,7 +239,7 @@ export class SettingsModel {
 	setDraftValue(value: string): void {
 		this.state = { ...this.state, draftValue: value, error: undefined };
 	}
-	setDraftRelatedValue(value: HePiSettingValue): void {
+	setDraftRelatedValue(value: HepiSettingValue): void {
 		this.state = { ...this.state, draftRelatedValue: value, error: undefined };
 	}
 	setError(error: string | undefined): void {
@@ -273,7 +273,7 @@ export class SettingsModel {
 }
 
 export function createSettingsModel(
-	providers: readonly HePiSettingsProvider[] = [],
+	providers: readonly HepiSettingsProvider[] = [],
 ): SettingsModel {
 	return new SettingsModel(providers);
 }

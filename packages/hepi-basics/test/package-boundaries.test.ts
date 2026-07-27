@@ -23,7 +23,7 @@ function runtimePackageDependencies(manifest: Record<string, unknown>): readonly
 		.filter((name) => name.startsWith("@hheei/"));
 }
 
-interface HePiPackageImport {
+interface HepiPackageImport {
 	readonly name: string;
 	readonly runtimeStatic: boolean;
 }
@@ -37,8 +37,8 @@ function runtimeImportClause(clause: ts.ImportClause | undefined): boolean {
 	return bindings.elements.length === 0 || bindings.elements.some((element) => !element.isTypeOnly);
 }
 
-function hepiPackageImports(source: string): readonly HePiPackageImport[] {
-	const imports: HePiPackageImport[] = [];
+function hepiPackageImports(source: string): readonly HepiPackageImport[] {
+	const imports: HepiPackageImport[] = [];
 	const sourceFile = ts.createSourceFile("source.ts", source, ts.ScriptTarget.Latest, false);
 	const add = (name: string, runtimeStatic: boolean): void => {
 		if (name.startsWith("@hheei/pi-")) imports.push({ name, runtimeStatic });
