@@ -297,6 +297,16 @@ describe("statusbar lifecycle", () => {
 		expect(compacted).not.toContain("12k/100k");
 	});
 
+	test("includes the system prompt before Pi reports context usage", () => {
+		const h = harness("a");
+		h.setUsage({ tokens: 0, percent: 0, contextWindow: 1_000 });
+		h.setEditor(editorFactory("previous", []));
+		const feature = createStatusbarFeature(h.pi);
+		feature.start(runtime(h.pi, h.ctx));
+		const editor = h.editorFactory?.({} as never, {} as never, {} as never);
+		expect(editor!.render(100)[0]).toContain("100/1k");
+	});
+
 	test("holds the last stable usage while a response is pending", () => {
 		const h = harness("a");
 		h.setEditor(editorFactory("previous", []));
