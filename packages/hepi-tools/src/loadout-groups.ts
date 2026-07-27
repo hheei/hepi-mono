@@ -19,9 +19,9 @@ export const HEPI_TOOLS_LOADOUT_GROUPS = [
 		id: "fff",
 		label: "FFF",
 		items: [
-			"find",
-			"grep",
-			"multi_grep",
+			"tool:local:find",
+			"tool:local:grep",
+			"tool:local:multi_grep",
 			"fffind",
 			"ffgrep",
 			"fff-multi-grep",
