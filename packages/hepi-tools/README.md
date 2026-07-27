@@ -16,7 +16,9 @@ Included modules:
 - `@cortexkit/pi-magic-context`
 - `pi-web-access`
 
-Loadout groups are registered explicitly for the bundled external tools:
+Loadout groups are registered at each tool extension boundary, so an aggregate
+bundle keeps ownership with the extension that declared each tool. Already
+installed external packages use the following fallback names:
 
 - `Magic Context`: `ctx_search`, `ctx_memory`, `ctx_note`
 - `Web Search`: `web_search`, `fetch_content`, `get_search_content`, `source_check`

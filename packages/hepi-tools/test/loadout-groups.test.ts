@@ -1,13 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { createEventBus } from "@earendil-works/pi-coding-agent";
+import { createEventBus, defineTool } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { getHePiRuntimeLoadoutGroupRegistry } from "../../hepi-basics/src/core/index.js";
 import {
 	HEPI_TOOLS_LOADOUT_GROUPS,
 	registerHePiToolsLoadoutGroups,
+	withHePiToolLoadoutGroup,
 } from "../src/loadout-groups.js";
 
 describe("HEPI tools Loadout groups", () => {
-	test("registers the external tool groups with explicit items", () => {
+	test("registers the external tool groups with fallback items", () => {
 		const shutdownHandlers: Array<() => void> = [];
 		const pi = {
 			events: createEventBus(),
@@ -24,8 +26,42 @@ describe("HEPI tools Loadout groups", () => {
 		expect(registry.list()).toEqual(
 			[...HEPI_TOOLS_LOADOUT_GROUPS].sort((a, b) => a.label.localeCompare(b.label)),
 		);
-		expect(registry.list().find((group) => group.id === "fff")?.items).toContain("tool:local:find");
+		expect(registry.list().find((group) => group.id === "fff")?.items).toContain("find");
 		for (const handler of shutdownHandlers) handler();
 		expect(registry.list()).toEqual([]);
+	});
+
+	test("captures the tools declared by one leaf extension", () => {
+		const shutdownHandlers: Array<() => void> = [];
+		const registered: string[] = [];
+		const pi = {
+			events: createEventBus(),
+			on: (_event: "session_shutdown", handler: () => void) => shutdownHandlers.push(handler),
+			registerTool: (tool: { name: string }) => registered.push(tool.name),
+		} as never;
+
+		const extension = withHePiToolLoadoutGroup(
+			(leaf) => {
+				for (const name of ["find", "grep"]) {
+					leaf.registerTool(
+						defineTool({
+							name,
+							label: name,
+							description: name,
+							parameters: Type.Object({}),
+							async execute() {
+								return { content: [], details: undefined };
+							},
+						}),
+					);
+				}
+			},
+			{ id: "fff", label: "FFF", items: ["fallback"] },
+		);
+		extension(pi);
+
+		expect(registered).toEqual(["find", "grep"]);
+		expect(getHePiRuntimeLoadoutGroupRegistry(pi).get("fff")?.items).toEqual(["find", "grep"]);
+		for (const handler of shutdownHandlers) handler();
 	});
 });
