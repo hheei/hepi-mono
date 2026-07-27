@@ -73,7 +73,6 @@ export function latestTodoSnapshot(branch: readonly unknown[]): TaskState | unde
 			}
 		}
 		if (!latest || snapshot.state.nextId >= latest.nextId) latest = snapshot.state;
-		if (latest) latest = applyUserSuppressions(latest, suppressed);
 	}
-	return latest;
+	return latest ? applyUserSuppressions(latest, suppressed) : undefined;
 }

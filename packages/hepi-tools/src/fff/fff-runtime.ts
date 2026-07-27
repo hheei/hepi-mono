@@ -255,6 +255,7 @@ export class FffRuntime {
 	private finder: FileFinder | null = null;
 	private initPromise: Promise<AppResult<FileFinder, RuntimeInitializationError>> | null = null;
 	private loadError: RuntimeInitializationError | null = null;
+	private generation = 0;
 	private grepCursorCounter = 0;
 	private readonly grepContinuations = new Map<string, StoredGrepContinuation>();
 
@@ -268,8 +269,25 @@ export class FffRuntime {
 	async ensure(): Promise<AppResult<FileFinder, RuntimeInitializationError>> {
 		if (this.finder) return Result.ok(this.finder);
 		if (this.loadError) return errResult(this.loadError);
+		const generation = this.generation;
 		if (!this.initPromise) this.initPromise = this.initialize();
 		const initialized = await this.initPromise;
+		if (generation !== this.generation) {
+			if (initialized.isOk() && initialized.value !== this.options.finder) {
+				void Result.try({
+					try: () => initialized.value.destroy(),
+					catch: (cause) =>
+						finderFailure("destroy", cause instanceof Error ? cause.message : String(cause), cause),
+				});
+			}
+			return errResult(
+				new RuntimeInitializationError({
+					cwd: this.cwd,
+					step: "initialize file finder",
+					cause: new Error("FFF runtime was disposed during initialization"),
+				}),
+			);
+		}
 		if (initialized.isErr()) {
 			this.loadError = initialized.error;
 			return initialized;
@@ -280,6 +298,7 @@ export class FffRuntime {
 	}
 
 	dispose(): void {
+		this.generation++;
 		void Result.try({
 			try: () => {
 				if (this.finder && this.finder !== this.options.finder) this.finder.destroy();
