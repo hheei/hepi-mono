@@ -440,12 +440,12 @@ describe("statusbar lifecycle", () => {
 		expect(h.restored).toBe(0);
 	});
 
-	test("does not install when editor getter seam is unavailable", () => {
+	test("installs a base editor when the editor getter seam is unavailable", () => {
 		const h = harness("a", "tui", false);
 		const feature = createStatusbarFeature(h.pi);
 		feature.start(runtime(h.pi, h.ctx));
-		expect(h.installs).toBe(0);
-		expect(h.editorSets).toBe(0);
+		expect(h.installs).toBe(1);
+		expect(h.editorSets).toBe(1);
 		expect(h.restored).toBe(0);
 	});
 
