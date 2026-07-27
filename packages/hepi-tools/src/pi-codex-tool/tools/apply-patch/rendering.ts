@@ -19,6 +19,12 @@ interface FilePreview {
 	lines: PreviewLine[];
 }
 
+const COLLAPSED_SUMMARY_VERBS = {
+	Added: "Created",
+	Deleted: "Deleted",
+	Edited: "Edited",
+} as const satisfies Readonly<Record<FilePreview["verb"], string>>;
+
 function expandHint(): string {
 	try {
 		return keyHint("app.tools.expand", "to expand");
@@ -64,6 +70,46 @@ export function formatApplyPatchSummary(patchText: string, cwd = process.cwd()):
 	}
 
 	return lines.join("\n");
+}
+
+export function formatApplyPatchCollapsedSummary(
+	patchText: string,
+	cwd = process.cwd(),
+	preserveSingleFileRow = false,
+): string {
+	let actions: ParsedPatchAction[];
+	try {
+		actions = parsePatchActions({ text: patchText });
+	} catch {
+		return "";
+	}
+
+	const files = actions.map((action) => buildFilePreview(action, cwd));
+	if (files.length === 0) return "";
+	const totalAdded = files.reduce((sum, file) => sum + file.added, 0);
+	const totalRemoved = files.reduce((sum, file) => sum + file.removed, 0);
+	const verb = collapsedSummaryVerb(files);
+	const [file] = files;
+	if (!preserveSingleFileRow && files.length === 1 && file !== undefined) {
+		return `${verb} ${formatPatchTarget(file.path, file.movePath, cwd)} ${renderPlainCounts(file.added, file.removed)}`;
+	}
+	return [
+		`${verb} ${files.length} file${files.length === 1 ? "" : "s"} ${renderPlainCounts(totalAdded, totalRemoved)}`,
+		"",
+		...files.map(
+			(file) =>
+				`${formatPatchTarget(file.path, file.movePath, cwd)} ${renderPlainCounts(file.added, file.removed)}`,
+		),
+	].join("\n");
+}
+
+function collapsedSummaryVerb(
+	files: readonly FilePreview[],
+): "Created" | "Deleted" | "Edited" | "Changed" {
+	const verbs = new Set(files.map((file) => file.verb));
+	const [verb] = verbs;
+	if (verb === undefined || verbs.size !== 1) return "Changed";
+	return COLLAPSED_SUMMARY_VERBS[verb];
 }
 
 export function formatApplyPatchCall(patchText: string, cwd = process.cwd()): string {
@@ -413,9 +459,13 @@ function splitFileLines(text: string): string[] {
 }
 
 function bulletHeader(verb: string, label: string): string {
-	return `• ${verb} ${label}`;
+	return `${verb} ${label}`;
 }
 
 function renderCounts(added: number, removed: number): string {
 	return `(+${added} -${removed})`;
+}
+
+function renderPlainCounts(added: number, removed: number): string {
+	return `+${added} -${removed}`;
 }
