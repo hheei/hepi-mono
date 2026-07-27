@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test";
+import { hepiThinkingGlyph } from "../../../src/core/api/model-selection.js";
 import {
 	advisorIndicatorFromStatuses,
 	buildStatusbarSnapshot,
 	contextMeter,
 	estimateContextUsage,
-	formatContextLimit,
 	formatFooterStatuses,
 	RECEIVING_SPINNER_FRAMES,
 	stabilizeContextUsage,
-	thinkingGlyph,
 } from "../../../src/core/contributions/statusbar/model.js";
+import { fmtCompactNumber } from "../../../src/core/ui/number.js";
 
 describe("statusbar model", () => {
 	test("maps meter states and boundaries", () => {
@@ -20,12 +20,12 @@ describe("statusbar model", () => {
 		expect(contextMeter(undefined)).toBe("??");
 	});
 	test("formats compact token counts without rollover artifacts", () => {
-		expect(formatContextLimit(0)).toBe("0");
-		expect(formatContextLimit(999.4)).toBe("999");
-		expect(formatContextLimit(999.5)).toBe("1k");
-		expect(formatContextLimit(999_949)).toBe("999.9k");
-		expect(formatContextLimit(999_950)).toBe("1m");
-		expect(formatContextLimit(-1)).toBe("?");
+		expect(fmtCompactNumber(0, "lower")).toBe("0");
+		expect(fmtCompactNumber(999.4, "lower")).toBe("999");
+		expect(fmtCompactNumber(999.5, "lower")).toBe("1k");
+		expect(fmtCompactNumber(999_949, "lower")).toBe("999.9k");
+		expect(fmtCompactNumber(999_950, "lower")).toBe("1m");
+		expect(fmtCompactNumber(-1, "lower")).toBe("?");
 	});
 	test("normalizes source precedence, names, statuses and thinking glyph", () => {
 		const snapshot = buildStatusbarSnapshot({
@@ -45,13 +45,13 @@ describe("statusbar model", () => {
 		expect(snapshot.meter).toBe("??");
 		expect(snapshot.contextTokens).toBe("123.5k");
 		expect(snapshot.contextLimit).toBe("350k");
-		expect(thinkingGlyph("off")).toBe("○");
-		expect(thinkingGlyph("minimal")).toBe("○");
-		expect(thinkingGlyph("low")).toBe("◔");
-		expect(thinkingGlyph("medium")).toBe("◑");
-		expect(thinkingGlyph("high")).toBe("◕");
-		expect(thinkingGlyph("xhigh")).toBe("●");
-		expect(thinkingGlyph("max")).toBe("●");
+		expect(hepiThinkingGlyph("off")).toBe("○");
+		expect(hepiThinkingGlyph("minimal")).toBe("○");
+		expect(hepiThinkingGlyph("low")).toBe("◔");
+		expect(hepiThinkingGlyph("medium")).toBe("◑");
+		expect(hepiThinkingGlyph("high")).toBe("◕");
+		expect(hepiThinkingGlyph("xhigh")).toBe("●");
+		expect(hepiThinkingGlyph("max")).toBe("●");
 	});
 
 	test("formats compact MCP and animated receiving statuses for the footer", () => {
@@ -149,7 +149,7 @@ test("covers every approved meter glyph and boundary", () => {
 		[350000, "350k"],
 		[12345678, "12.3m"],
 	] as const)
-		expect(formatContextLimit(input)).toBe(output);
+		expect(fmtCompactNumber(input, "lower")).toBe(output);
 	glyphs.forEach((glyph, i) => {
 		expect(contextMeter(i * 6.25)).toBe(glyphs[Math.max(0, i - 1)] ?? glyph);
 	});
@@ -169,12 +169,12 @@ test("covers formatter examples and invalid values", () => {
 		[350000, "350k"],
 		[12345678, "12.3m"],
 	] as const)
-		expect(formatContextLimit(input)).toBe(output);
-	for (const value of [null, NaN, Infinity, -1]) expect(formatContextLimit(value)).toBe("?");
-	for (const level of ["off", "minimal"] as const) expect(thinkingGlyph(level)).toBe("○");
-	expect(thinkingGlyph("low")).toBe("◔");
-	expect(thinkingGlyph("medium")).toBe("◑");
-	expect(thinkingGlyph("high")).toBe("◕");
-	for (const level of ["xhigh", "max"] as const) expect(thinkingGlyph(level)).toBe("●");
-	expect(thinkingGlyph("bad")).toBe("?");
+		expect(fmtCompactNumber(input, "lower")).toBe(output);
+	for (const value of [null, NaN, Infinity, -1]) expect(fmtCompactNumber(value, "lower")).toBe("?");
+	for (const level of ["off", "minimal"] as const) expect(hepiThinkingGlyph(level)).toBe("○");
+	expect(hepiThinkingGlyph("low")).toBe("◔");
+	expect(hepiThinkingGlyph("medium")).toBe("◑");
+	expect(hepiThinkingGlyph("high")).toBe("◕");
+	for (const level of ["xhigh", "max"] as const) expect(hepiThinkingGlyph(level)).toBe("●");
+	expect(hepiThinkingGlyph("bad")).toBe("?");
 });

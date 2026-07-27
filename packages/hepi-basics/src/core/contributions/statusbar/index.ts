@@ -24,12 +24,9 @@ type EditorFactory = NonNullable<
 	Parameters<NonNullable<ExtensionContext["ui"]["setEditorComponent"]>>[0]
 >;
 type Editor = ReturnType<EditorFactory>;
-type Owner = {
-	sessionId: string;
-	ctx: ExtensionContext;
+type StatusbarSession = {
+	readonly sessionId: string;
 	footerData?: ReadonlyFooterDataProvider;
-	previousEditorFactory?: EditorFactory | undefined;
-	installedEditorFactory: EditorFactory;
 	requestRender?: () => void;
 	renderScheduled: boolean;
 	tui?: TUI;
@@ -37,7 +34,6 @@ type Owner = {
 	usage?: StatusbarContextUsage | undefined;
 	awaitingAssistantUsage: boolean;
 	compacted: boolean;
-	dispose(): void;
 };
 
 export interface StatusbarFeature {
@@ -91,8 +87,17 @@ export function createStatusbarFeature(
 	pi: ExtensionAPI,
 	getCursorOptions: () => CursorOptions = () => ({ shape: "block", blink: false }),
 ): StatusbarFeature {
-	let owner: Owner | undefined;
-	const scheduleRender = (current: Owner): void => {
+	let owner: StatusbarSession | undefined;
+	const disposeSession = (sessionId: string): void => {
+		const current = owner;
+		if (current?.sessionId !== sessionId) return;
+		owner = undefined;
+		if (!current.tui) return;
+		current.tui.terminal.write("\x1b[0 q");
+		if (current.previousHardwareCursor !== undefined)
+			current.tui.setShowHardwareCursor(current.previousHardwareCursor);
+	};
+	const scheduleRender = (current: StatusbarSession): void => {
 		if (owner !== current) return;
 		if (current.renderScheduled) return;
 		current.renderScheduled = true;
@@ -101,7 +106,7 @@ export function createStatusbarFeature(
 			current.renderScheduled = false;
 		});
 	};
-	const setAwaitingAssistantUsage = (current: Owner, value: boolean): void => {
+	const setAwaitingAssistantUsage = (current: StatusbarSession, value: boolean): void => {
 		if (current.awaitingAssistantUsage === value) return;
 		current.awaitingAssistantUsage = value;
 		scheduleRender(current);
@@ -152,7 +157,7 @@ export function createStatusbarFeature(
 			const ctx = runtime.ctx;
 			const sessionId = ctx.sessionManager.getSessionId();
 			if (owner?.sessionId === sessionId) return;
-			owner?.dispose();
+			if (owner !== undefined) disposeSession(owner.sessionId);
 			if (
 				ctx.mode !== "tui" ||
 				typeof ctx.ui.getEditorComponent !== "function" ||
@@ -161,12 +166,12 @@ export function createStatusbarFeature(
 			)
 				return;
 			const previousEditorFactory = ctx.ui.getEditorComponent();
-			let next: Owner | undefined;
+			let session: StatusbarSession | undefined;
 			const installedEditorFactory = ((tui, theme, keybindings) => {
 				const editor =
 					previousEditorFactory?.(tui, theme, keybindings) ??
 					new CustomEditor(tui, theme, keybindings);
-				const active = next;
+				const active = session;
 				if (
 					active !== undefined &&
 					active.tui === undefined &&
@@ -190,15 +195,16 @@ export function createStatusbarFeature(
 						cursorWriteScheduled = true;
 						queueMicrotask(() => {
 							cursorWriteScheduled = false;
-							if (next && owner === next) tui.terminal?.write(cursorEscape(getCursorOptions()));
+							if (session && owner === session)
+								tui.terminal?.write(cursorEscape(getCursorOptions()));
 						});
 					}
-					if (!lines.length || !next || owner !== next) return lines;
+					if (!lines.length || !session || owner !== session) return lines;
 					const systemPrompt =
 						typeof ctx.getSystemPrompt === "function" ? ctx.getSystemPrompt() : undefined;
 					const currentUsage = ctx.getContextUsage();
 					let fallback: StatusbarContextUsage | undefined;
-					if (currentUsage?.tokens == null || next.compacted) {
+					if (currentUsage?.tokens == null || session.compacted) {
 						try {
 							const messages = buildSessionContext([
 								...ctx.sessionManager.getBranch(),
@@ -211,16 +217,16 @@ export function createStatusbarFeature(
 					const sessionName = ctx.sessionManager.getSessionName();
 					const usage = stabilizeContextUsage(
 						currentUsage,
-						next.compacted ? undefined : next.usage,
+						session.compacted ? undefined : session.usage,
 						fallback,
-						next.awaitingAssistantUsage,
+						session.awaitingAssistantUsage,
 					);
 					const advisorIndicator = advisorIndicatorFromStatuses(
-						next.footerData?.getExtensionStatuses(),
+						session.footerData?.getExtensionStatuses(),
 					);
 					if (usage?.tokens != null) {
-						next.usage = usage;
-						next.compacted = false;
+						session.usage = usage;
+						session.compacted = false;
 					}
 					return [
 						renderStatusbarLine(
@@ -240,43 +246,27 @@ export function createStatusbarFeature(
 				};
 				return editor;
 			}) as EditorFactory;
-			next = {
+			session = {
 				sessionId,
-				ctx,
 				awaitingAssistantUsage: false,
 				compacted: false,
 				renderScheduled: false,
-				previousEditorFactory,
-				installedEditorFactory,
-				dispose() {
-					const current = next;
-					if (current === undefined || owner !== current) return;
-					owner = undefined;
-					if (current.tui) {
-						current.tui.terminal.write("\x1b[0 q");
-						if (current.previousHardwareCursor !== undefined)
-							current.tui.setShowHardwareCursor(current.previousHardwareCursor);
-					}
-					if (ctx.ui.getEditorComponent() === installedEditorFactory)
-						ctx.ui.setEditorComponent(previousEditorFactory);
-					ctx.ui.setFooter(undefined);
-				},
 			};
-			owner = next;
+			owner = session;
 			ctx.ui.setFooter((tui: TUI, _theme: Theme, footerData: ReadonlyFooterDataProvider) => {
-				if (!next || owner !== next) return emptyFooter();
-				next.footerData = footerData;
-				next.requestRender = () => tui.requestRender();
+				if (!session || owner !== session) return emptyFooter();
+				session.footerData = footerData;
+				session.requestRender = () => tui.requestRender();
 				return createExtensionStatusFooter(
 					footerData,
 					() => ctx.ui.theme,
-					() => scheduleRender(next),
+					() => scheduleRender(session),
 				);
 			});
 			ctx.ui.setEditorComponent(installedEditorFactory);
 		},
 		dispose(sessionId) {
-			if (owner?.sessionId === sessionId) owner.dispose();
+			disposeSession(sessionId);
 		},
 	};
 }

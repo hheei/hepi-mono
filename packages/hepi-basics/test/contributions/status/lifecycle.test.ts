@@ -63,7 +63,7 @@ function assistant(
 }
 
 describe("response status lifecycle", () => {
-	test("prints one line per response and excludes tool waits from duration", () => {
+	test("prints one line per response using total response duration", () => {
 		const h = harness();
 		const feature = createStatusFeature(h.pi);
 		feature.start(runtime(h.pi, h.ctx));
@@ -73,12 +73,6 @@ describe("response status lifecycle", () => {
 		try {
 			h.emit("agent_start", { type: "agent_start" });
 			h.emit("turn_start", { type: "turn_start", turnIndex: 0, timestamp: now });
-			now = 3_100;
-			h.emit("message_update", {
-				type: "message_update",
-				message: { role: "assistant" },
-				assistantMessageEvent: { type: "text_delta", delta: "first" },
-			});
 			now = 8_100;
 			h.emit("message_end", {
 				type: "message_end",
@@ -86,7 +80,7 @@ describe("response status lifecycle", () => {
 			});
 			expect(h.notifications).toEqual([
 				{
-					message: "↱ 654  ↳ 213  ⚇ 83K  ⏱ 2.1s  ⚡ 29.8/s",
+					message: "↱ 654  ↳ 213  ⚇ 83K  ⏱ 7.1s  ⚡ 30.0/s",
 					level: "info",
 				},
 			]);
@@ -94,19 +88,13 @@ describe("response status lifecycle", () => {
 			now = 50_000;
 			h.emit("message_end", { type: "message_end", message: { role: "toolResult" } });
 			h.emit("turn_start", { type: "turn_start", turnIndex: 1, timestamp: now });
-			now = 55_000;
-			h.emit("message_update", {
-				type: "message_update",
-				message: { role: "assistant" },
-				assistantMessageEvent: { type: "text_delta", delta: "first" },
-			});
 			now = 57_800;
 			h.emit("message_end", {
 				type: "message_end",
 				message: assistant(475, 71, 84_000, 11),
 			});
 			expect(h.notifications[1]).toEqual({
-				message: "↱ 475  ↳ 71  ⚇ 84K  ⏱ 5.0s  ⚡ 21.4/s",
+				message: "↱ 475  ↳ 71  ⚇ 84K  ⏱ 7.8s  ⚡ 9.1/s",
 				level: "info",
 			});
 
@@ -119,7 +107,7 @@ describe("response status lifecycle", () => {
 		}
 	});
 
-	test("prints unknown timing and zero visible-output throughput deliberately", () => {
+	test("prints total timing and zero-output throughput deliberately", () => {
 		const h = harness();
 		const feature = createStatusFeature(h.pi);
 		feature.start(runtime(h.pi, h.ctx));
@@ -132,14 +120,9 @@ describe("response status lifecycle", () => {
 		Date.now = () => now;
 		try {
 			h.emit("turn_start", { type: "turn_start", turnIndex: 1, timestamp: now });
-			h.emit("message_update", {
-				type: "message_update",
-				message: { role: "assistant" },
-				assistantMessageEvent: { type: "thinking_delta", delta: "thinking" },
-			});
 			now = 1_500;
 			h.emit("message_end", { type: "message_end", message: assistant(20, 0, 300, 0) });
-			expect(h.notifications[1]?.message).toBe("↱ 20  ↳ 0  ⚇ 300  ⏱ ?  ⚡ ?/s");
+			expect(h.notifications[1]?.message).toBe("↱ 20  ↳ 0  ⚇ 300  ⏱ 500ms  ⚡ 0.0/s");
 		} finally {
 			Date.now = originalNow;
 			feature.dispose("session");

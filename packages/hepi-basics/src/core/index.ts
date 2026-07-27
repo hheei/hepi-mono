@@ -60,6 +60,7 @@ export {
 export { renderDetailPanel } from "./ui/border.js";
 export { formatKeymap, keyGlyph } from "./ui/keymap.js";
 export { createSplitLayout } from "./ui/layout.js";
+export { fmtCompactNumber, fmtDuration, fmtRate } from "./ui/number.js";
 export { renderSelectableRow } from "./ui/row.js";
 export { renderScrollbar } from "./ui/scrollbar.js";
 export { renderTabs } from "./ui/tabs.js";
