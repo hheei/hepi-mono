@@ -24,6 +24,7 @@ describe("HEPI tools Loadout groups", () => {
 		expect(registry.list()).toEqual(
 			[...HEPI_TOOLS_LOADOUT_GROUPS].sort((a, b) => a.label.localeCompare(b.label)),
 		);
+		expect(registry.list().find((group) => group.id === "fff")?.items).toContain("find");
 		for (const handler of shutdownHandlers) handler();
 		expect(registry.list()).toEqual([]);
 	});
