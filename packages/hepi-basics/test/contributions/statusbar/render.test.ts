@@ -41,6 +41,27 @@ describe("statusbar renderer", () => {
 		expect(line).not.toContain("\n");
 	});
 
+	test("prefers title generation in the right rail and omits it instead of truncating", () => {
+		const generating = snapshot({
+			sessionName: "Previous title",
+			titleGeneration: "⠋ Generating title",
+		});
+		const wide = renderStatusbarLine(80, generating, theme);
+		expect(wide.endsWith("⠋ Generating title ─")).toBe(true);
+		const narrow = renderStatusbarLine(30, generating, theme);
+		expect(narrow).not.toContain("Generating");
+		expect(narrow).not.toContain("Previous title");
+		expect(visibleWidth(narrow)).toBe(30);
+	});
+
+	test("omits an oversized completed title without truncating the left rail", () => {
+		const completed = snapshot({ sessionName: "A completed title that cannot fit in this rail" });
+		const line = renderStatusbarLine(35, completed, theme);
+		expect(line).not.toContain("A completed");
+		expect(line).toContain("○ M · ⡀⠀ ?/0");
+		expect(visibleWidth(line)).toBe(35);
+	});
+
 	test("renders Advisor health after the model and keeps it on narrow rows", () => {
 		const calls: Array<{ role: string; text: string }> = [];
 		const recordingTheme = {
@@ -112,6 +133,7 @@ describe("statusbar renderer", () => {
 			expect(visibleWidth(lines[0] ?? "")).toBe(width);
 		}
 		expect(renderExtensionStatusFooter(80, [], theme)).toEqual([]);
+		expect(renderExtensionStatusFooter(80, ["/work/project"], theme)[0]).toContain("/work/project");
 		expect(renderExtensionStatusFooter(80, ["⠧", "⛁ 0/3", "PLAN", "GOAL"], theme)[0]).toContain(
 			"⠧ · ⛁ 0/3 · PLAN · GOAL",
 		);
@@ -154,7 +176,7 @@ test("maps every thinking level to muted glyph and records semantic roles", () =
 		calls.find((call) => call.text === text)?.role;
 	expect(roleOf("π")).toBe("accent");
 	expect(roleOf("M")).toBe("text");
-	expect(roleOf("T")).toBe("muted");
+	expect(roleOf("T")).toBe("dim");
 	expect(roleOf("·")).toBe("muted");
 	expect(roleOf("◫")).toBeUndefined();
 	expect(roleOf("─")).toBe("border");
@@ -215,7 +237,7 @@ test("implements exact bridge grammar for title/status combinations", () => {
 	}
 });
 
-test("keeps the title while dropping statuses from right to left", () => {
+test("hides the title before dropping left-side statuses", () => {
 	const styled = snapshot({
 		model: "模型🙂\x1b[31mX\x1b[0m",
 		meter: "⣤⣤",
@@ -234,7 +256,7 @@ test("keeps the title while dropping statuses from right to left", () => {
 	const narrow = renderStatusbarLine(48, styled, theme);
 	expect(narrow).not.toContain("third");
 	expect(narrow).toContain("first");
-	expect(narrow).toContain("標題🙂");
+	expect(narrow).not.toContain("標題🙂");
 });
 
 test("keeps exact ANSI output and leaves a narrow model unstyled", () => {

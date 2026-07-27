@@ -57,7 +57,12 @@ export function renderStatusbarLine(
 	const thinking = style("muted", hepiThinkingGlyph(snapshot.thinkingLevel));
 	const context = ` ${sep("·")} ${style(meterRole, snapshot.meter)} ${style(tokensRole, `${snapshot.contextTokens}/${snapshot.contextLimit}`)}`;
 	let keptStatuses = snapshot.statuses;
-	const title = snapshot.sessionName;
+	let rightRail: string | undefined;
+	const preferredRightRail = snapshot.titleGeneration ?? snapshot.sessionName;
+	const rightRailText = (): string =>
+		rightRail === undefined
+			? rail("─")
+			: ` ${snapshot.titleGeneration === undefined ? style("dim", rightRail) : rightRail} ${rail("─")}`;
 	const formatted = (): RenderedStatusbarFormat =>
 		renderStatusbarFormat(DEFAULT_STATUSBAR_FORMAT_TOKENS, {
 			prefix,
@@ -65,7 +70,7 @@ export function renderStatusbarLine(
 			model,
 			context,
 			statuses: keptStatuses.length ? ` ${sep("·")} ${keptStatuses.join(` ${sep("·")} `)}` : "",
-			title: title ? ` ${style("muted", title)} ${rail("─")}` : rail("─"),
+			title: rightRailText(),
 		});
 	let output = formatted();
 	let beforeFill = joinStatusbarFormat(output.beforeFill);
@@ -77,6 +82,20 @@ export function renderStatusbarLine(
 		beforeFill = joinStatusbarFormat(output.beforeFill);
 		afterFill = joinStatusbarFormat(output.afterFill);
 		mandatory = visibleWidth(`${beforeFill}${afterFill}`);
+	}
+	if (preferredRightRail) {
+		rightRail = preferredRightRail;
+		const withRightRail = formatted();
+		const withRightRailWidth = visibleWidth(
+			`${joinStatusbarFormat(withRightRail.beforeFill)}${joinStatusbarFormat(withRightRail.afterFill)}`,
+		);
+		if (withRightRailWidth > target) rightRail = undefined;
+		else {
+			output = withRightRail;
+			beforeFill = joinStatusbarFormat(output.beforeFill);
+			afterFill = joinStatusbarFormat(output.afterFill);
+			mandatory = withRightRailWidth;
+		}
 	}
 	if (mandatory > target) {
 		const modelIndex = output.beforeFill.findIndex(

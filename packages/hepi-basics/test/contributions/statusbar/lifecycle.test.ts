@@ -29,6 +29,7 @@ function harness(id: string, mode: "tui" | "json" = "tui", hasEditorGetter = tru
 		contextWindow: 100_000,
 	};
 	let branch: unknown[] = [];
+	let branchReads = 0;
 	let factory: FooterFactory | undefined;
 	let footerComponent: { dispose?: () => void } | undefined;
 	let installs = 0;
@@ -48,6 +49,7 @@ function harness(id: string, mode: "tui" | "json" = "tui", hasEditorGetter = tru
 		getThinkingLevel: () => "low" as const,
 	} as unknown as ExtensionAPI;
 	const ctx = {
+		cwd: "/work/project",
 		mode,
 		model: { id: "model", name: "Model" },
 		getContextUsage: () => usage,
@@ -55,7 +57,10 @@ function harness(id: string, mode: "tui" | "json" = "tui", hasEditorGetter = tru
 		sessionManager: {
 			getSessionId: () => currentId,
 			getSessionName: () => "Title",
-			getBranch: () => branch,
+			getBranch: () => {
+				branchReads++;
+				return branch;
+			},
 		},
 		ui: {
 			theme: { fg: (_role: string, text: string) => text },
@@ -111,6 +116,9 @@ function harness(id: string, mode: "tui" | "json" = "tui", hasEditorGetter = tru
 		get statusReads() {
 			return statusReads;
 		},
+		get branchReads() {
+			return branchReads;
+		},
 		emit(event: string, eventCtx = ctx) {
 			for (const handler of handlers.get(event) ?? []) void handler({}, eventCtx);
 		},
@@ -160,7 +168,7 @@ describe("statusbar lifecycle", () => {
 		feature.start(runtime(h.pi, h.ctx));
 		feature.start(runtime(h.pi, h.ctx));
 		expect(h.installs).toBe(1);
-		expect(h.makeFooter().render(100)).toEqual([]);
+		expect(h.makeFooter().render(100)[0]).toContain("/work/project");
 	});
 
 	test("editor rail replaces only first line and delegates editor behavior", () => {
@@ -197,11 +205,12 @@ describe("statusbar lifecycle", () => {
 		expect(editor?.render(100)[0]).toContain("12k/100k");
 	});
 
-	test("renders compact animated statuses after the editor closing rail", async () => {
+	test("renders compact statuses after the editor closing rail", () => {
 		const h = harness("a");
 		h.statusMap.set("mcp", "MCP: 0/3 servers");
 		h.statusMap.set("magic-context", "mc: 85.3K (23%) · idle");
 		h.statusMap.set("retry", "receiving");
+		h.statusMap.set("auto-title", "Generating title");
 		h.statusMap.set("plan", "plan");
 		h.statusMap.set("goal", "Goal");
 		h.statusMap.set("advisor", "concern");
@@ -215,22 +224,27 @@ describe("statusbar lifecycle", () => {
 		expect(header).not.toContain("MCP:");
 		expect(header).not.toContain("mc:");
 		expect(header).not.toContain("receiving");
+		expect(header).toContain("Generating title");
 		expect(header).toContain("Model ✦ ·");
 		expect(editorLines[2]).toBe("previous-bottom");
 		const footerLines = footer.render(100);
 		expect(footerLines).toHaveLength(1);
-		expect(footerLines[0]).toContain("⠋ · ⛁ 0/3 · PLAN · GOAL");
+		expect(footerLines[0]).toContain("/work/project · ⛁ 0/3 · PLAN · GOAL");
 		expect(footerLines[0]).not.toContain("mc:");
 		expect(footerLines[0]).not.toContain("concern");
+		expect(footerLines[0]).not.toContain("Generating title");
 		expect(h.statusReads).toBe(2);
-		const beforeAnimation = h.requests;
-		await Bun.sleep(120);
-		expect(h.requests).toBeGreaterThan(beforeAnimation);
-		feature.dispose("a");
-		h.resetExtensionUi();
-		const afterDispose = h.requests;
-		await Bun.sleep(120);
-		expect(h.requests).toBe(afterDispose);
+		expect(h.requests).toBe(0);
+	});
+
+	test("keeps the working directory in the tail rail without extension statuses", () => {
+		const h = harness("a");
+		const feature = createStatusbarFeature(h.pi);
+		feature.start(runtime(h.pi, h.ctx));
+		const footer = h.makeFooter();
+		const lines = footer.render(100);
+		expect(lines).toHaveLength(1);
+		expect(lines[0]).toContain("/work/project");
 	});
 
 	test("keeps prompt text intact for the hardware cursor", () => {
@@ -310,6 +324,32 @@ describe("statusbar lifecycle", () => {
 		const compacted = editor!.render(100)[0]!;
 		expect(compacted).not.toContain("??");
 		expect(compacted).not.toContain("12k/100k");
+	});
+
+	test("caches fallback context usage between renders", () => {
+		const h = harness("a");
+		h.setUsage({ tokens: null, percent: null, contextWindow: 100_000 });
+		h.setBranch([
+			{
+				id: "root",
+				parentId: null,
+				timestamp: new Date().toISOString(),
+				type: "message",
+				message: { role: "user", content: "x".repeat(400), timestamp: Date.now() },
+			},
+		]);
+		h.setEditor(editorFactory("previous", []));
+		const feature = createStatusbarFeature(h.pi);
+		feature.start(runtime(h.pi, h.ctx));
+		const editor = h.editorFactory?.({} as never, {} as never, {} as never);
+
+		editor?.render(100);
+		editor?.render(100);
+		expect(h.branchReads).toBe(1);
+
+		h.emit("session_tree");
+		editor?.render(100);
+		expect(h.branchReads).toBe(2);
 	});
 
 	test("includes the system prompt before Pi reports context usage", () => {

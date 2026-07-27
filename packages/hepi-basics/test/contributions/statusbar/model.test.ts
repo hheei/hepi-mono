@@ -2,11 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { hepiThinkingGlyph } from "../../../src/core/api/model-selection.js";
 import {
 	advisorIndicatorFromStatuses,
+	autoTitleStatus,
 	contextMeter,
 	estimateContextUsage,
 	formatFooterStatuses,
 	normalizeDisplayFragment,
-	RECEIVING_SPINNER_FRAMES,
 	stabilizeContextUsage,
 } from "../../../src/core/contributions/statusbar/model.js";
 import { fmtCompactNumber } from "../../../src/core/ui/number.js";
@@ -39,8 +39,7 @@ describe("statusbar model", () => {
 		expect(hepiThinkingGlyph("max")).toBe("●");
 	});
 
-	test("formats compact MCP and animated receiving statuses for the footer", () => {
-		expect(RECEIVING_SPINNER_FRAMES).toEqual(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]);
+	test("formats compact MCP statuses and omits transient receiving state", () => {
 		const display = formatFooterStatuses(
 			new Map([
 				["mcp", "\x1b[36mMCP: 0/3 servers\x1b[0m"],
@@ -51,23 +50,28 @@ describe("statusbar model", () => {
 				["advisor", "concern"],
 				["other", "retrying"],
 			]),
-			"⠧",
 		);
 		expect(display).toEqual({
-			values: ["⠧", "⛁ 0/3", "PLAN", "GOAL", "retrying"],
-			receiving: true,
+			values: ["⛁ 0/3", "PLAN", "GOAL", "retrying"],
 			mcpRatio: "0/3",
 		});
 		expect(
-			formatFooterStatuses(new Map([["mcp", "MCP: connecting to filesystem..."]]), "⠋", "2/3"),
-		).toEqual({ values: ["⛁ 2/3"], receiving: false, mcpRatio: "2/3" });
-		expect(
-			formatFooterStatuses(new Map([["mcp", "MCP: connecting to 3 servers..."]]), "⠋"),
-		).toEqual({ values: ["⛁ 0/3"], receiving: false, mcpRatio: "0/3" });
+			formatFooterStatuses(new Map([["mcp", "MCP: connecting to filesystem..."]]), "2/3"),
+		).toEqual({ values: ["⛁ 2/3"], mcpRatio: "2/3" });
+		expect(formatFooterStatuses(new Map([["mcp", "MCP: connecting to 3 servers..."]]))).toEqual({
+			values: ["⛁ 0/3"],
+			mcpRatio: "0/3",
+		});
 		expect(advisorIndicatorFromStatuses(new Map([["advisor", "ok"]]))).toBe("ok");
 		expect(advisorIndicatorFromStatuses(new Map([["advisor", "concern"]]))).toBe("concern");
 		expect(advisorIndicatorFromStatuses(new Map([["advisor", "blocker"]]))).toBe("blocker");
 		expect(advisorIndicatorFromStatuses(new Map([["advisor", "Advisor"]]))).toBeUndefined();
+		expect(autoTitleStatus(new Map([["auto-title", "⠋ Generating title"]]))).toBe(
+			"⠋ Generating title",
+		);
+		expect(autoTitleStatus(new Map([["auto-title", "  "]]))).toBeUndefined();
+		expect(autoTitleStatus(new Map([["other", "active"]]))).toBeUndefined();
+		expect(display.values).not.toContain("⠋ Generating title");
 	});
 
 	test("stabilizes transient usage and estimates compacted context", () => {
