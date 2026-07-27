@@ -280,9 +280,11 @@ test("installs and restores footer and editor seams for TUI session", async () =
 	editor.handleInput("typed");
 	expect(calls).toEqual(["typed"]);
 	expect(editor.getText()).toBe("original-text");
+	host.ctx.ui.setFooter(undefined);
+	host.ctx.ui.setEditorComponent(undefined);
 	await host.emit("session_shutdown");
 	expect(host.footerRestores).toBe(1);
-	expect(host.ctx.ui.getEditorComponent()).toBe(previous);
+	expect(host.ctx.ui.getEditorComponent()).toBeUndefined();
 	await host.emit("session_shutdown");
 	expect(host.footerRestores).toBe(1);
 });

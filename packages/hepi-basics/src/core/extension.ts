@@ -45,21 +45,6 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 				id: "cursor-settings",
 				cleanup: unregisterCursorSettings,
 			});
-			try {
-				const state = await provider.storage.load({
-					sessionId: runtime.ctx.sessionManager.getSessionId(),
-					cwd: runtime.ctx.cwd,
-				});
-				await provider.onLoad?.(state ?? {}, {
-					sessionId: runtime.ctx.sessionManager.getSessionId(),
-					cwd: runtime.ctx.cwd,
-				});
-			} catch (error) {
-				runtime.ctx.ui.notify(
-					`Unable to load cursor settings: ${error instanceof Error ? error.message : String(error)}`,
-					"warning",
-				);
-			}
 			coordinator.reset();
 			if (typeof runtime.pi.getActiveTools === "function")
 				coordinator.setLoadoutBaseline(runtime.pi.getActiveTools());
@@ -78,6 +63,21 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 				id: "statusbar",
 				cleanup: () => statusbar.dispose(sessionId),
 			});
+			try {
+				const state = await provider.storage.load({
+					sessionId: runtime.ctx.sessionManager.getSessionId(),
+					cwd: runtime.ctx.cwd,
+				});
+				await provider.onLoad?.(state ?? {}, {
+					sessionId: runtime.ctx.sessionManager.getSessionId(),
+					cwd: runtime.ctx.cwd,
+				});
+			} catch (error) {
+				runtime.ctx.ui.notify(
+					`Unable to load cursor settings: ${error instanceof Error ? error.message : String(error)}`,
+					"warning",
+				);
+			}
 			runtime.registry.registerLifecycle({
 				id: "settings",
 				cleanup: () => settingsModule.close(),
