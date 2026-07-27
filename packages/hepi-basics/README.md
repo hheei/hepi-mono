@@ -14,6 +14,14 @@ Included modules:
 - `pi-t2s`
 - `pi-auto-title`
 
+While `pi-auto-title` generates a session title, the editor top rail shows a
+grey-to-white shimmer over `Generating title` at its right edge. The completed
+title uses the dim theme color in the same position. Either is omitted when the
+full text does not fit.
+
+The tail rail always begins with the current working directory, followed by
+extension statuses when present.
+
 Install it with:
 
 ```bash

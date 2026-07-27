@@ -10,12 +10,19 @@ import {
 	createAutoTitleSettingsProvider,
 	createAutoTitleStorage,
 	parseModelRef,
+	renderTitleGenerationShimmer,
 	safeTitle,
+	TITLE_SHIMMER_FRAME_MS,
+	TITLE_SHIMMER_LOOP_MS,
+	TITLE_SHIMMER_STEP_CELLS,
+	TITLE_SHIMMER_TRAVEL_CELLS,
+	TITLE_SHIMMER_WINDOW_CELLS,
 } from "../../src/auto-title/module.js";
 import { createJsonSectionSettingsStorage } from "../../src/core/index.js";
 
 const context = (cwd: string) => ({ sessionId: "s", cwd });
 const LONG_SESSION_CONTEXT = "x".repeat(501);
+const ANSI_SGR = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "g");
 
 describe("Pi Basics auto-title", () => {
 	test("parses exact provider/model and preserves global settings", async () => {
@@ -77,6 +84,28 @@ describe("Pi Basics auto-title", () => {
 		expect(safeTitle("Title: Fix cache\nExplanation: concise title")).toBe("Fix cache");
 		expect(safeTitle(`Session name: ${"x".repeat(80)}`)).toHaveLength(60);
 		expect(safeTitle("\n\n")).toBeUndefined();
+	});
+
+	test("renders a two-second right-half greyscale shimmer for title generation", () => {
+		const initial = renderTitleGenerationShimmer(0);
+		const middle = renderTitleGenerationShimmer(1_500);
+		expect(initial).toContain("\x1b[38;2;");
+		expect(initial).toEndWith("\x1b[0m");
+		expect(initial).not.toBe(middle);
+		expect(initial.replace(ANSI_SGR, "")).toBe("Generating title");
+		expect(renderTitleGenerationShimmer(0)).toBe(renderTitleGenerationShimmer(2_000));
+		expect((TITLE_SHIMMER_LOOP_MS / TITLE_SHIMMER_FRAME_MS) * TITLE_SHIMMER_STEP_CELLS).toBe(
+			TITLE_SHIMMER_TRAVEL_CELLS,
+		);
+		expect(TITLE_SHIMMER_FRAME_MS).toBe(25);
+		expect(TITLE_SHIMMER_STEP_CELLS).toBeCloseTo(0.325, 3);
+		expect(TITLE_SHIMMER_WINDOW_CELLS).toBe(4);
+		const peakAtFourthCell = renderTitleGenerationShimmer(
+			((4 + 5) / TITLE_SHIMMER_TRAVEL_CELLS) * TITLE_SHIMMER_LOOP_MS,
+		);
+		expect(peakAtFourthCell).toContain("\x1b[38;2;110;110;110me");
+		expect(peakAtFourthCell).toContain("\x1b[38;2;255;255;255mr");
+		expect(peakAtFourthCell).toContain("\x1b[38;2;110;110;110mn");
 	});
 
 	test("lists available models as selectable provider/model options", () => {
@@ -342,7 +371,7 @@ describe("Pi Basics auto-title", () => {
 		const handlers = new Map<string, (value: unknown) => void>();
 		let applied: string | undefined = "Old title";
 		let idle = false;
-		const widgets: Array<{ readonly content: unknown; readonly options: unknown }> = [];
+		const statuses: Array<{ readonly key: string; readonly text: string | undefined }> = [];
 		const pi = {
 			events: {
 				on: (channel: string, handler: (value: unknown) => void) => {
@@ -366,8 +395,8 @@ describe("Pi Basics auto-title", () => {
 			isIdle: () => idle,
 			ui: {
 				notify: () => undefined,
-				setWidget: (_key: string, content: unknown, options: unknown) => {
-					widgets.push({ content, options });
+				setStatus: (key: string, text: string | undefined) => {
+					statuses.push({ key, text });
 				},
 			},
 		};
@@ -385,8 +414,10 @@ describe("Pi Basics auto-title", () => {
 		idle = true;
 		await Bun.sleep(200);
 		expect(applied).toBe("My Session");
-		expect(widgets.some((entry) => String(entry.content).includes("Generating title"))).toBe(true);
-		expect(widgets.at(-1)).toEqual({ content: undefined, options: { placement: "aboveEditor" } });
+		expect(
+			statuses.some((entry) => entry.text?.replace(ANSI_SGR, "").includes("Generating title")),
+		).toBe(true);
+		expect(statuses.at(-1)).toEqual({ key: "auto-title", text: undefined });
 		coordinator.dispose();
 	});
 

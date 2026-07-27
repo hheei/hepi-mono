@@ -13,11 +13,11 @@ import { fmtCompactNumber } from "../../ui/number.js";
 import { type CursorOptions, cursorEscape } from "./cursor.js";
 import {
 	advisorIndicatorFromStatuses,
+	autoTitleStatus,
 	contextMeter,
 	estimateContextUsage,
 	formatFooterStatuses,
 	normalizeDisplayFragment,
-	RECEIVING_SPINNER_FRAMES,
 	type StatusbarContextUsage,
 	type StatusbarSnapshot,
 	stabilizeContextUsage,
@@ -36,9 +36,12 @@ type StatusbarSession = {
 	tui?: TUI;
 	previousHardwareCursor?: boolean;
 	usage?: StatusbarContextUsage | undefined;
+	fallbackUsage?: StatusbarContextUsage | undefined;
 	awaitingAssistantUsage: boolean;
 	compacted: boolean;
 };
+
+const TERMINAL_CURSOR_PATTERN = new RegExp(`${CURSOR_MARKER}\\x1b\\[7m([\\s\\S]*?)\\x1b\\[0m`, "g");
 
 export interface StatusbarFeature {
 	start(runtime: HepiRuntimeContext): void;
@@ -50,41 +53,27 @@ function emptyFooter(): Component {
 }
 
 function createExtensionStatusFooter(
+	workingDirectory: string,
 	footerData: ReadonlyFooterDataProvider,
 	getTheme: () => Theme,
-	requestRender: () => void,
-): Component & { dispose(): void } {
-	let frame = 0;
-	let timer: ReturnType<typeof setInterval> | undefined;
+): Component {
 	let mcpRatio: string | undefined;
-	const stop = (): void => {
-		if (timer !== undefined) clearInterval(timer);
-		timer = undefined;
-	};
 	return {
 		render(width: number): string[] {
-			const display = formatFooterStatuses(
-				footerData.getExtensionStatuses(),
-				RECEIVING_SPINNER_FRAMES[frame] ?? RECEIVING_SPINNER_FRAMES[0],
-				mcpRatio,
-			);
+			const display = formatFooterStatuses(footerData.getExtensionStatuses(), mcpRatio);
 			mcpRatio = display.mcpRatio;
-			if (display.receiving && timer === undefined) {
-				timer = setInterval(() => {
-					frame = (frame + 1) % RECEIVING_SPINNER_FRAMES.length;
-					requestRender();
-				}, 80);
-			} else if (!display.receiving) stop();
-			return renderExtensionStatusFooter(width, display.values, getTheme());
+			return renderExtensionStatusFooter(
+				width,
+				[getTheme().fg("dim", workingDirectory), ...display.values],
+				getTheme(),
+			);
 		},
 		invalidate: () => undefined,
-		dispose: stop,
 	};
 }
 
 function renderTerminalCursor(lines: readonly string[]): string[] {
-	const cursor = new RegExp(`${CURSOR_MARKER}\\x1b\\[7m([\\s\\S]*?)\\x1b\\[0m`, "g");
-	return lines.map((line) => line.replace(cursor, `${CURSOR_MARKER}$1`));
+	return lines.map((line) => line.replace(TERMINAL_CURSOR_PATTERN, `${CURSOR_MARKER}$1`));
 }
 
 export function createStatusbarFeature(
@@ -115,11 +104,17 @@ export function createStatusbarFeature(
 		current.awaitingAssistantUsage = value;
 		scheduleRender(current);
 	};
+	const invalidateFallbackUsage = (current: StatusbarSession): void => {
+		current.fallbackUsage = undefined;
+	};
 	const ownsContext = (eventCtx: ExtensionContext | undefined): boolean =>
 		owner !== undefined &&
 		(eventCtx === undefined || eventCtx.sessionManager.getSessionId() === owner.sessionId);
 	const invalidate = (_event?: unknown, eventCtx?: ExtensionContext) => {
-		if (ownsContext(eventCtx) && owner !== undefined) scheduleRender(owner);
+		if (ownsContext(eventCtx) && owner !== undefined) {
+			invalidateFallbackUsage(owner);
+			scheduleRender(owner);
+		}
 	};
 	for (const event of ["model_select", "thinking_level_select", "session_info_changed"] as const)
 		pi.on(event as never, invalidate);
@@ -129,10 +124,12 @@ export function createStatusbarFeature(
 	});
 	pi.on("turn_start", (_event, eventCtx) => {
 		if (!ownsContext(eventCtx) || owner === undefined) return;
+		invalidateFallbackUsage(owner);
 		setAwaitingAssistantUsage(owner, true);
 	});
 	pi.on("message_end", (event, eventCtx) => {
 		if (!ownsContext(eventCtx) || owner === undefined) return;
+		invalidateFallbackUsage(owner);
 		if (
 			event.message.role === "assistant" &&
 			event.message.stopReason !== "error" &&
@@ -147,12 +144,14 @@ export function createStatusbarFeature(
 	pi.on("session_tree", (_event, eventCtx) => {
 		if (!ownsContext(eventCtx) || owner === undefined) return;
 		owner.usage = undefined;
+		invalidateFallbackUsage(owner);
 		owner.awaitingAssistantUsage = false;
 		scheduleRender(owner);
 	});
 	pi.on("session_compact", (_event, eventCtx) => {
 		if (!ownsContext(eventCtx) || owner === undefined) return;
 		owner.usage = undefined;
+		invalidateFallbackUsage(owner);
 		owner.compacted = true;
 		scheduleRender(owner);
 	});
@@ -208,17 +207,22 @@ export function createStatusbarFeature(
 						const currentUsage = ctx.getContextUsage();
 						let fallback: StatusbarContextUsage | undefined;
 						if (currentUsage?.tokens == null || session.compacted) {
-							try {
-								const messages = buildSessionContext([
-									...ctx.sessionManager.getBranch(),
-								] as never).messages;
-								fallback = estimateContextUsage(
-									messages,
-									currentUsage?.contextWindow,
-									systemPrompt,
-								);
-							} catch {
-								fallback = undefined;
+							if (session.fallbackUsage?.contextWindow === currentUsage?.contextWindow) {
+								fallback = session.fallbackUsage;
+							} else {
+								try {
+									const messages = buildSessionContext(
+										ctx.sessionManager.getBranch() as never,
+									).messages;
+									fallback = estimateContextUsage(
+										messages,
+										currentUsage?.contextWindow,
+										systemPrompt,
+									);
+								} catch {
+									fallback = undefined;
+								}
+								session.fallbackUsage = fallback;
 							}
 						}
 						const usage = stabilizeContextUsage(
@@ -227,9 +231,9 @@ export function createStatusbarFeature(
 							fallback,
 							session.awaitingAssistantUsage,
 						);
-						const advisorIndicator = advisorIndicatorFromStatuses(
-							session.footerData?.getExtensionStatuses(),
-						);
+						const statuses = session.footerData?.getExtensionStatuses();
+						const advisorIndicator = advisorIndicatorFromStatuses(statuses);
+						const titleGeneration = autoTitleStatus(statuses);
 						if (usage?.tokens != null) {
 							session.usage = usage;
 							session.compacted = false;
@@ -269,6 +273,7 @@ export function createStatusbarFeature(
 									? displayUsage.percent
 									: null,
 							...(sessionName ? { sessionName } : {}),
+							...(titleGeneration === undefined ? {} : { titleGeneration }),
 							statuses: [],
 						};
 						return [renderStatusbarLine(width, snapshot, ctx.ui.theme), ...lines.slice(1)];
@@ -288,11 +293,7 @@ export function createStatusbarFeature(
 				if (!session || owner !== session) return emptyFooter();
 				session.footerData = footerData;
 				session.requestRender = () => tui.requestRender();
-				return createExtensionStatusFooter(
-					footerData,
-					() => ctx.ui.theme,
-					() => scheduleRender(session),
-				);
+				return createExtensionStatusFooter(ctx.cwd, footerData, () => ctx.ui.theme);
 			});
 			installEditorFactory(
 				typeof ctx.ui.getEditorComponent === "function" ? ctx.ui.getEditorComponent() : undefined,

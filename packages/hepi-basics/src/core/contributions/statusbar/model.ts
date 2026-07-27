@@ -25,8 +25,6 @@ export const METER_GLYPHS = [
 	"⣿⣿",
 ] as const;
 
-export const RECEIVING_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
-
 export type StatusbarThinkingLevel =
 	| "off"
 	| "minimal"
@@ -48,6 +46,7 @@ export type StatusbarSnapshot = Readonly<{
 	contextLimit: string;
 	percent: number | null;
 	sessionName?: string;
+	titleGeneration?: string;
 	statuses: readonly string[];
 }>;
 
@@ -76,23 +75,33 @@ export function advisorIndicatorFromStatuses(
 
 export interface FooterStatusDisplay {
 	readonly values: readonly string[];
-	readonly receiving: boolean;
 	readonly mcpRatio?: string;
+}
+
+export function autoTitleStatus(
+	statuses: ReadonlyMap<string, string> | Iterable<[string, string]> | undefined,
+): string | undefined {
+	if (!statuses) return undefined;
+	for (const [key, value] of statuses) {
+		if (key !== "auto-title") continue;
+		const normalized = normalizeDisplayFragment(value, "");
+		return normalized || undefined;
+	}
+	return undefined;
 }
 
 export function formatFooterStatuses(
 	statuses: ReadonlyMap<string, string> | Iterable<[string, string]> | undefined,
-	receivingFrame: string,
 	previousMcpRatio?: string,
 ): FooterStatusDisplay {
-	if (!statuses) return { values: [], receiving: false };
-	let receiving = false;
+	if (!statuses) return { values: [] };
 	let hasMcp = false;
 	let mcpRatio = previousMcpRatio;
 	const remaining: string[] = [];
 	for (const [key, value] of statuses) {
 		const normalized = normalizeDisplayFragment(value, "");
-		if (!normalized || key === "magic-context" || key === "advisor") continue;
+		if (!normalized || key === "magic-context" || key === "advisor" || key === "auto-title")
+			continue;
 		if (key === "mcp") {
 			hasMcp = true;
 			const ratio = normalized.match(/MCP:\s*(\d+)\/(\d+)\s+servers/iu);
@@ -104,19 +113,13 @@ export function formatFooterStatuses(
 			continue;
 		}
 		if (normalized === "receiving") {
-			receiving = true;
 			continue;
 		}
 		remaining.push(key === "plan" || key === "goal" ? normalized.toUpperCase() : normalized);
 	}
 	const activeMcpRatio = hasMcp ? mcpRatio : undefined;
 	return {
-		values: [
-			...(receiving ? [receivingFrame] : []),
-			...(activeMcpRatio === undefined ? [] : [`⛁ ${activeMcpRatio}`]),
-			...remaining,
-		],
-		receiving,
+		values: [...(activeMcpRatio === undefined ? [] : [`⛁ ${activeMcpRatio}`]), ...remaining],
 		...(activeMcpRatio === undefined ? {} : { mcpRatio: activeMcpRatio }),
 	};
 }
