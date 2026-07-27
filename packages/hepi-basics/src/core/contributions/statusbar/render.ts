@@ -1,4 +1,5 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
+import { hepiThinkingGlyph } from "../../api/model-selection.js";
 import { padToWidth, truncateToWidth, visibleWidth } from "../../ui/text.js";
 import {
 	DEFAULT_STATUSBAR_FORMAT_TOKENS,
@@ -6,7 +7,7 @@ import {
 	type RenderedStatusbarFormat,
 	renderStatusbarFormat,
 } from "./format.js";
-import { type StatusbarSnapshot, thinkingGlyph } from "./model.js";
+import type { StatusbarSnapshot } from "./model.js";
 
 function renderWithFill(
 	beforeFill: string,
@@ -53,7 +54,7 @@ export function renderStatusbarLine(
 	const advisorIndicator = snapshot.advisorIndicator === undefined ? "" : style(advisorRole, "✦");
 	const model = `${style("text", snapshot.model)}${advisorIndicator ? ` ${advisorIndicator}` : ""}`;
 	const prefix = `${rail("─")} ${style("accent", "π")} ${sep("·")} `;
-	const thinking = style("muted", thinkingGlyph(snapshot.thinkingLevel));
+	const thinking = style("muted", hepiThinkingGlyph(snapshot.thinkingLevel));
 	const context = ` ${sep("·")} ${style(meterRole, snapshot.meter)} ${style(tokensRole, `${snapshot.contextTokens}/${snapshot.contextLimit}`)}`;
 	let keptStatuses = snapshot.statuses;
 	const title = snapshot.sessionName;

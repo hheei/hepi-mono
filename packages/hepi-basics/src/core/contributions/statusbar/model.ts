@@ -1,5 +1,5 @@
 import { estimateTokens } from "@earendil-works/pi-coding-agent";
-import { hepiThinkingGlyph } from "../../api/model-selection.js";
+import { fmtCompactNumber } from "../../ui/number.js";
 
 export interface StatusbarContextUsage {
 	readonly tokens?: number | null;
@@ -25,6 +25,8 @@ export const METER_GLYPHS = [
 	"⣿⣷",
 	"⣿⣿",
 ] as const;
+
+export const RECEIVING_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 
 export type StatusbarThinkingLevel =
 	| "off"
@@ -54,28 +56,12 @@ export function normalizeDisplayFragment(value: unknown, fallback = "?"): string
 	const normalized = value.replace(/[\r\n]+/g, " ").trim();
 	return normalized || fallback;
 }
-export function formatContextTokens(tokens: unknown): string {
-	return formatContextLimit(tokens);
-}
-export function formatContextLimit(tokens: unknown): string {
-	if (typeof tokens !== "number" || !Number.isFinite(tokens) || tokens < 0) return "?";
-	if (tokens < 999.5) return String(Math.round(tokens));
-	if (tokens < 999_950) return `${trimNumber(Math.round(tokens / 100) / 10)}k`;
-	return `${trimNumber(Math.round(tokens / 100_000) / 10)}m`;
-}
-
-function trimNumber(n: number): string {
-	return Number.isInteger(n) ? String(n) : n.toFixed(1);
-}
-
 export function contextMeter(percent: unknown): string {
 	if (typeof percent !== "number" || !Number.isFinite(percent)) return "??";
 	const p = Math.max(0, Math.min(100, percent));
 	const glyph = METER_GLYPHS[Math.max(0, Math.min(15, Math.ceil((p / 100) * 16) - 1))];
 	return glyph ?? METER_GLYPHS[0];
 }
-
-export const thinkingGlyph = hepiThinkingGlyph;
 
 export function advisorIndicatorFromStatuses(
 	statuses: ReadonlyMap<string, string> | Iterable<[string, string]> | undefined,
@@ -100,8 +86,6 @@ export function normalizeStatuses(
 	}
 	return result;
 }
-
-export const RECEIVING_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 
 export interface FooterStatusDisplay {
 	readonly values: readonly string[];
@@ -231,8 +215,8 @@ export function buildStatusbarSnapshot(
 				? input.thinkingLevel
 				: "unknown",
 		meter: contextMeter(usage?.percent),
-		contextTokens: formatContextTokens(usage?.tokens),
-		contextLimit: formatContextLimit(usage?.contextWindow),
+		contextTokens: fmtCompactNumber(usage?.tokens, "lower"),
+		contextLimit: fmtCompactNumber(usage?.contextWindow, "lower"),
 		percent,
 		...(sessionName ? { sessionName } : {}),
 		statuses: normalizeStatuses(input.statuses),

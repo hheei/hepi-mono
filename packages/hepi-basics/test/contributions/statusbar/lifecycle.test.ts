@@ -138,6 +138,10 @@ function harness(id: string, mode: "tui" | "json" = "tui", hasEditorGetter = tru
 			footerComponent = component;
 			return component;
 		},
+		resetExtensionUi() {
+			ctx.ui.setFooter(undefined);
+			ctx.ui.setEditorComponent(undefined);
+		},
 	};
 }
 
@@ -208,6 +212,7 @@ describe("statusbar lifecycle", () => {
 		await Bun.sleep(120);
 		expect(h.requests).toBeGreaterThan(beforeAnimation);
 		feature.dispose("a");
+		h.resetExtensionUi();
 		const afterDispose = h.requests;
 		await Bun.sleep(120);
 		expect(h.requests).toBe(afterDispose);
@@ -376,7 +381,7 @@ describe("statusbar lifecycle", () => {
 		expect(h.requests).toBe(2);
 	});
 
-	test("restores A before B and rejects stale A lifecycle actions", async () => {
+	test("accepts Pi reset before B and rejects stale A lifecycle actions", async () => {
 		const h = harness("a");
 		const feature = createStatusbarFeature(h.pi);
 		const a = editorFactory("A", []);
@@ -384,6 +389,7 @@ describe("statusbar lifecycle", () => {
 		feature.start(runtime(h.pi, h.ctx));
 		const staleFooter = h.factory;
 		h.setId("b");
+		h.resetExtensionUi();
 		const b = editorFactory("B", []);
 		h.setEditor(b);
 		feature.start(runtime(h.pi, h.ctx));
@@ -406,12 +412,14 @@ describe("statusbar lifecycle", () => {
 		feature.dispose("a");
 		expect(h.restored).toBe(1);
 		feature.dispose("b");
+		expect(h.restored).toBe(1);
+		h.resetExtensionUi();
 		expect(h.restored).toBe(2);
 		feature.dispose("b");
 		expect(h.restored).toBe(2);
 	});
 
-	test("preserves later editor replacement during cleanup", () => {
+	test("leaves later editor replacement for Pi to reset", () => {
 		const h = harness("a");
 		const feature = createStatusbarFeature(h.pi);
 		feature.start(runtime(h.pi, h.ctx));
@@ -419,7 +427,7 @@ describe("statusbar lifecycle", () => {
 		h.setEditor(replacement);
 		feature.dispose("a");
 		expect(h.editorFactory).toBe(replacement);
-		expect(h.restored).toBe(1);
+		expect(h.restored).toBe(0);
 	});
 
 	test("does not install when editor getter seam is unavailable", () => {
