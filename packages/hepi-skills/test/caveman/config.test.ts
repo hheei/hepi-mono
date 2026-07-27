@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventBus, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-	getHePiRuntimeSettingsRegistry,
-	getHePiSettings,
+	getHepiRuntimeSettingsRegistry,
+	getHepiSettings,
 } from "../../../hepi-basics/src/core/index.js";
 import {
 	CAVEMAN_DEFAULTS_GROUP,
@@ -14,7 +14,7 @@ import {
 	CAVEMAN_SUBAGENT_MODE_FIELD,
 	createCavemanSettingsProvider,
 	loadCavemanDefaults,
-	registerCavemanHePiSettings,
+	registerCavemanHepiSettings,
 } from "../../src/pi-caveman/index.js";
 
 const temporaryDirectories: string[] = [];
@@ -33,17 +33,17 @@ async function createProject(settings: unknown): Promise<string> {
 describe("Caveman HEPI settings", () => {
 	test("registers once and disposes through the runtime registry", async () => {
 		const pi = { events: createEventBus() } as unknown as ExtensionAPI;
-		const registry = getHePiRuntimeSettingsRegistry(pi);
-		const unregister = await registerCavemanHePiSettings(pi);
+		const registry = getHepiRuntimeSettingsRegistry(pi);
+		const unregister = await registerCavemanHepiSettings(pi);
 		expect(unregister).toBeFunction();
-		await expect(registerCavemanHePiSettings(pi)).rejects.toThrow(
+		await expect(registerCavemanHepiSettings(pi)).rejects.toThrow(
 			"HePi settings provider id collision: pi-caveman",
 		);
-		expect(getHePiSettings(CAVEMAN_SETTINGS_PROVIDER_ID, registry)?.origin).toBe(
+		expect(getHepiSettings(CAVEMAN_SETTINGS_PROVIDER_ID, registry)?.origin).toBe(
 			"@hheei/hepi-skills",
 		);
 		unregister?.();
-		expect(getHePiSettings(CAVEMAN_SETTINGS_PROVIDER_ID, registry)).toBeUndefined();
+		expect(getHepiSettings(CAVEMAN_SETTINGS_PROVIDER_ID, registry)).toBeUndefined();
 	});
 
 	test("loads validated main and subagent defaults", async () => {

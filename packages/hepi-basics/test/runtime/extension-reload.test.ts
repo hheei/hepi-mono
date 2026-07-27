@@ -6,8 +6,8 @@ import {
 	type EventBus,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { getHePiRuntimeModuleRegistry } from "../../src/core/api/modules.js";
-import { getHePiRuntimeSettingsRegistry } from "../../src/core/api/settings.js";
+import { getHepiRuntimeModuleRegistry } from "../../src/core/api/modules.js";
+import { getHepiRuntimeSettingsRegistry } from "../../src/core/api/settings.js";
 
 const repositoryRoot = join(import.meta.dir, "../../../..");
 type LoadedExtension = ReturnType<DefaultResourceLoader["getExtensions"]>["extensions"][number];
@@ -62,8 +62,8 @@ test("concurrent extension runtimes isolate contributions", async () => {
 
 	await emit(firstExtension, "session_start", context("first"));
 	await emit(secondExtension, "session_start", context("second"));
-	const firstRegistry = getHePiRuntimeModuleRegistry({ events: firstBus });
-	const secondRegistry = getHePiRuntimeModuleRegistry({ events: secondBus });
+	const firstRegistry = getHepiRuntimeModuleRegistry({ events: firstBus });
+	const secondRegistry = getHepiRuntimeModuleRegistry({ events: secondBus });
 	if (firstRegistry.get("setting") === undefined || secondRegistry.get("setting") === undefined)
 		throw new Error("Expected isolated Settings modules");
 	await emit(firstExtension, "session_shutdown", context("first"));
@@ -100,7 +100,7 @@ test("session shutdown removes a settings contribution before reload", async () 
 
 	const eventBus = createEventBus();
 	const resources = loader([path], eventBus);
-	const settingsRegistry = getHePiRuntimeSettingsRegistry({ events: eventBus });
+	const settingsRegistry = getHepiRuntimeSettingsRegistry({ events: eventBus });
 	await resources.reload();
 	const extension = resources.getExtensions().extensions[0];
 	if (extension === undefined) throw new Error("Expected T2S extension to load");

@@ -17,7 +17,7 @@ runtime behavior.
 
 ## Feature Integration
 
-Feature modules load in aggregate registration order. Resolve their contribution registries with `getHePiRuntimeSettingsRegistry(pi)` and `getHePiRuntimeModuleRegistry(pi)`, then register Settings providers and command surfaces during `session_start`. Use `HePiLifecycleController` for session state and cleanup. Import shared contracts from `packages/hepi-basics/src/core` during source development.
+Feature modules load in aggregate registration order. Resolve their contribution registries with `getHepiRuntimeSettingsRegistry(pi)` and `getHepiRuntimeModuleRegistry(pi)`, then register Settings providers and command surfaces during `session_start`. Use `HepiLifecycleController` for session state and cleanup. Import shared contracts from `packages/hepi-basics/src/core` during source development.
 
 Cross-feature support must use a core contract. Do not import another feature's private implementation. Runtime-shared contracts use `pi.events` as the Pi runtime identity because each loaded extension receives a different `ExtensionAPI` facade.
 

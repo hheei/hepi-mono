@@ -1,9 +1,9 @@
 import { expect } from "bun:test";
 import type {
-	HePiContext,
-	HePiSettingsProvider,
-	HePiSettingsState,
-	HePiSettingsStorage,
+	HepiContext,
+	HepiSettingsProvider,
+	HepiSettingsState,
+	HepiSettingsStorage,
 } from "../src/core/api/settings.js";
 import { visibleWidth } from "../src/core/ui/text.js";
 
@@ -57,25 +57,25 @@ export function fakeHost(): FakeHost {
 }
 
 export interface FakeStorageOptions {
-	initial?: HePiSettingsState;
+	initial?: HepiSettingsState;
 	delayMs?: number;
 	failLoad?: unknown;
 	failSave?: unknown;
 }
 
-export function fakeStorage(options: FakeStorageOptions = {}): HePiSettingsStorage & {
-	state: HePiSettingsState | undefined;
-	saves: HePiSettingsState[];
+export function fakeStorage(options: FakeStorageOptions = {}): HepiSettingsStorage & {
+	state: HepiSettingsState | undefined;
+	saves: HepiSettingsState[];
 } {
 	const storage = {
 		state: options.initial,
-		saves: [] as HePiSettingsState[],
-		async load(_ctx: HePiContext) {
+		saves: [] as HepiSettingsState[],
+		async load(_ctx: HepiContext) {
 			if (options.delayMs) await new Promise((resolve) => setTimeout(resolve, options.delayMs));
 			if (options.failLoad !== undefined) throw options.failLoad;
 			return storage.state;
 		},
-		async save(state: HePiSettingsState, _ctx: HePiContext) {
+		async save(state: HepiSettingsState, _ctx: HepiContext) {
 			if (options.delayMs) await new Promise((resolve) => setTimeout(resolve, options.delayMs));
 			if (options.failSave !== undefined) throw options.failSave;
 			storage.state = state;
@@ -85,10 +85,10 @@ export function fakeStorage(options: FakeStorageOptions = {}): HePiSettingsStora
 	return storage;
 }
 
-export function testContext(overrides: Partial<HePiContext> = {}): HePiContext {
+export function testContext(overrides: Partial<HepiContext> = {}): HepiContext {
 	return { sessionId: "test-session", cwd: "/tmp/pi-basics", ...overrides };
 }
 
-export function fakeProvider(overrides: Partial<HePiSettingsProvider> = {}): HePiSettingsProvider {
+export function fakeProvider(overrides: Partial<HepiSettingsProvider> = {}): HepiSettingsProvider {
 	return { id: "fake", title: "Fake Provider", groups: [], storage: fakeStorage(), ...overrides };
 }

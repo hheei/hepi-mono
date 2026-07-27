@@ -5,7 +5,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
-import type { HePiRuntimeContext } from "../../../hepi-basics/src/core/index.js";
+import type { HepiRuntimeContext } from "../../../hepi-basics/src/core/index.js";
 import type { PlanConfirmationResult, PlanThinkingLevel } from "./confirmation.js";
 import { createPlanConfirmationComponent } from "./confirmation.js";
 import {
@@ -44,7 +44,7 @@ interface PendingPlan {
 
 interface ActivePlan {
 	readonly sessionId: string;
-	readonly runtime: HePiRuntimeContext;
+	readonly runtime: HepiRuntimeContext;
 	phase: PlanPhase;
 	plan?: string | undefined;
 	planEntryId?: string | undefined;
@@ -56,7 +56,7 @@ interface ActivePlan {
 }
 
 export interface PlanFeature {
-	start(runtime: HePiRuntimeContext): void;
+	start(runtime: HepiRuntimeContext): void;
 	dispose(sessionId: string): void;
 }
 
@@ -94,7 +94,7 @@ function persist(current: ActivePlan): void {
 	appendPlanBoundary(current.runtime.pi, boundary(current));
 }
 
-function restored(runtime: HePiRuntimeContext): RestoredPlan {
+function restored(runtime: HepiRuntimeContext): RestoredPlan {
 	return restorePlan(runtime.ctx.sessionManager.getBranch(), (warning) =>
 		runtime.ctx.ui.notify(`Plan history ignored: ${warning}`, "warning"),
 	);

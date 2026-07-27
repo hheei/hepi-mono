@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
-import type { HePiRuntimeContext } from "../../../hepi-basics/src/core/index.js";
+import type { HepiRuntimeContext } from "../../../hepi-basics/src/core/index.js";
 import {
 	applyTodo,
 	freshTaskState,
@@ -93,7 +93,7 @@ interface ActiveTodoRuntime {
 }
 
 export interface TodoFeature {
-	start(runtime: HePiRuntimeContext): void | Promise<void>;
+	start(runtime: HepiRuntimeContext): void | Promise<void>;
 	dispose(sessionId: string): void | Promise<void>;
 }
 

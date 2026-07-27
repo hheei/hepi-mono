@@ -2,9 +2,9 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type {
-	HePiSettingField,
-	HePiSettingsProvider,
-	HePiSettingsState,
+	HepiSettingField,
+	HepiSettingsProvider,
+	HepiSettingsState,
 } from "../../../hepi-basics/src/core/index.js";
 import {
 	DEFAULT_PONYTAIL_MODE,
@@ -56,7 +56,7 @@ export interface PonytailSettingsProviderOptions {
 
 export function createPonytailSettingsProvider(
 	options: PonytailSettingsProviderOptions = {},
-): HePiSettingsProvider {
+): HepiSettingsProvider {
 	const settingsFilePath = options.settingsFilePath ?? defaultSettingsPath();
 	return {
 		id: PONYTAIL_SETTINGS_PROVIDER_ID,
@@ -83,10 +83,10 @@ export function createPonytailSettingsProvider(
 			},
 		],
 		storage: {
-			async load(): Promise<HePiSettingsState> {
+			async load(): Promise<HepiSettingsState> {
 				return defaultsToState(await loadPonytailDefaults(settingsFilePath));
 			},
-			async save(state: HePiSettingsState): Promise<void> {
+			async save(state: HepiSettingsState): Promise<void> {
 				const { updateJsonSettingsRoot } = await import("../../../hepi-basics/src/core/index.js");
 				await updateJsonSettingsRoot(settingsFilePath, (root) => {
 					const currentSection = asRecord(root[PONYTAIL_SETTINGS_PROVIDER_ID]);
@@ -99,7 +99,7 @@ export function createPonytailSettingsProvider(
 	};
 }
 
-function modeField(id: string, label: string, description: string): HePiSettingField<string> {
+function modeField(id: string, label: string, description: string): HepiSettingField<string> {
 	return {
 		id,
 		label,
@@ -117,7 +117,7 @@ function defaultsFromRoot(root: JsonObject): PonytailDefaults {
 	return defaultsFromValues(values);
 }
 
-function defaultsFromState(state: HePiSettingsState): PonytailDefaults {
+function defaultsFromState(state: HepiSettingsState): PonytailDefaults {
 	return defaultsFromValues(state[PONYTAIL_DEFAULTS_GROUP]);
 }
 
@@ -132,7 +132,7 @@ function defaultsFromValues(
 	};
 }
 
-function defaultsToState(defaults: PonytailDefaults): HePiSettingsState {
+function defaultsToState(defaults: PonytailDefaults): HepiSettingsState {
 	return {
 		[PONYTAIL_DEFAULTS_GROUP]: {
 			[PONYTAIL_MAIN_MODE_FIELD]: defaults.mainMode,

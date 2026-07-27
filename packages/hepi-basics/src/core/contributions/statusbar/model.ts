@@ -1,5 +1,5 @@
 import { estimateTokens } from "@earendil-works/pi-coding-agent";
-import { hePiThinkingGlyph } from "../../api/model-selection.js";
+import { hepiThinkingGlyph } from "../../api/model-selection.js";
 
 export interface StatusbarContextUsage {
 	readonly tokens?: number | null;
@@ -75,7 +75,7 @@ export function contextMeter(percent: unknown): string {
 	return glyph ?? METER_GLYPHS[0];
 }
 
-export const thinkingGlyph = hePiThinkingGlyph;
+export const thinkingGlyph = hepiThinkingGlyph;
 
 export function advisorIndicatorFromStatuses(
 	statuses: ReadonlyMap<string, string> | Iterable<[string, string]> | undefined,

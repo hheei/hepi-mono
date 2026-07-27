@@ -5,7 +5,7 @@ import {
 	type PonytailDefaults,
 	type PonytailSettingsProviderOptions,
 } from "./config.js";
-import { registerPonytailHePiSettings } from "./hepi-settings.js";
+import { registerPonytailHepiSettings } from "./hepi-settings.js";
 import {
 	DEFAULT_PONYTAIL_MODE,
 	detectPonytailDeactivation,
@@ -95,7 +95,7 @@ export default function piPonytailExtension(
 
 	pi.on("session_start", async (_event, ctx) => {
 		unregisterSettings?.();
-		unregisterSettings = await registerPonytailHePiSettings(pi, options);
+		unregisterSettings = await registerPonytailHepiSettings(pi, options);
 		defaults = await loadPonytailDefaults(options.settingsFilePath);
 		subagentSession = isPiSubagentSession(pi);
 		restoreModeFromBranch(ctx);
@@ -143,7 +143,7 @@ export {
 	PONYTAIL_SUBAGENT_MODE_FIELD,
 	type PonytailDefaults,
 } from "./config.js";
-export { registerPonytailHePiSettings } from "./hepi-settings.js";
+export { registerPonytailHepiSettings } from "./hepi-settings.js";
 export {
 	DEFAULT_PONYTAIL_MODE,
 	detectPonytailDeactivation,

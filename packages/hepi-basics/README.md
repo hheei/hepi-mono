@@ -26,7 +26,7 @@ Build locally with `bun run build` from this package or
 Do not install it together with `@hheei/hepi-mono`; the unified bundle already
 includes it.
 
-Feature extensions can expose Loadout grouping through the `HePiLoadoutGroup`
+Feature extensions can expose Loadout grouping through the `HepiLoadoutGroup`
 registry exported by the Basics core. A group supplies its own display label and
 may select tool names or stable `tool:*` keys. Stable keys should be used when
 multiple sources expose the same tool name. Tools without a matching group

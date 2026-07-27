@@ -1,10 +1,10 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-	getHePiRuntimeSettingsRegistry,
-	HePiLifecycleController,
-	hePiAuthenticatedModelSelectionOptions,
-	registerHePiLifecycle,
-	registerHePiSettings,
+	getHepiRuntimeSettingsRegistry,
+	HepiLifecycleController,
+	hepiAuthenticatedModelSelectionOptions,
+	registerHepiLifecycle,
+	registerHepiSettings,
 } from "../core/index.js";
 import {
 	createAutoTitleCoordinator,
@@ -13,12 +13,12 @@ import {
 } from "./module.js";
 
 export default function piAutoTitleExtension(pi: ExtensionAPI): void {
-	const settingsRegistry = getHePiRuntimeSettingsRegistry(pi);
+	const settingsRegistry = getHepiRuntimeSettingsRegistry(pi);
 	let coordinator: ReturnType<typeof createAutoTitleCoordinator> | undefined;
 	let run: (() => void) | undefined;
-	const lifecycle = new HePiLifecycleController({
+	const lifecycle = new HepiLifecycleController({
 		onStart: async (runtime) => {
-			const modelOptions = hePiAuthenticatedModelSelectionOptions(runtime.ctx.modelRegistry);
+			const modelOptions = hepiAuthenticatedModelSelectionOptions(runtime.ctx.modelRegistry);
 			const provider = createAutoTitleSettingsProvider({
 				modelOptions,
 				validate: async (value) => {
@@ -34,7 +34,7 @@ export default function piAutoTitleExtension(pi: ExtensionAPI): void {
 						selected === undefined ? undefined : createAutoTitleCoordinator(runtime, selected);
 				},
 			});
-			const unregisterSettings = registerHePiSettings(provider, settingsRegistry);
+			const unregisterSettings = registerHepiSettings(provider, settingsRegistry);
 			runtime.registry.registerLifecycle({
 				id: "auto-title-settings",
 				cleanup: unregisterSettings,
@@ -84,7 +84,7 @@ export default function piAutoTitleExtension(pi: ExtensionAPI): void {
 			run?.();
 		},
 	});
-	registerHePiLifecycle(pi, lifecycle);
+	registerHepiLifecycle(pi, lifecycle);
 	pi.on("session_info_changed", (event) => {
 		coordinator?.sessionInfoChanged(event.name);
 	});

@@ -1,16 +1,16 @@
-export interface HePiContribution {
+export interface HepiContribution {
 	readonly id: string;
 	readonly priority?: number;
 }
 
-export interface HePiEditorContribution extends HePiContribution {
+export interface HepiEditorContribution extends HepiContribution {
 	readonly kind: "editor";
 }
 
-export interface HePiFooterContribution extends HePiContribution {
+export interface HepiFooterContribution extends HepiContribution {
 	readonly kind: "footer";
 }
 
-export interface HePiStatusContribution extends HePiContribution {
+export interface HepiStatusContribution extends HepiContribution {
 	readonly kind: "status";
 }

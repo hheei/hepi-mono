@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type {
-	HePiContext,
-	HePiSettingsProvider,
-	HePiSettingsState,
+	HepiContext,
+	HepiSettingsProvider,
+	HepiSettingsState,
 } from "../../../src/core/api/settings.js";
 import { combineSettingsProviders } from "../../../src/core/ui/settings/combined.js";
 
-const context: HePiContext = { sessionId: "session", cwd: "/tmp" };
+const context: HepiContext = { sessionId: "session", cwd: "/tmp" };
 
 function provider(
 	id: string,
@@ -14,7 +14,7 @@ function provider(
 	fieldId: string,
 	initial: boolean,
 	calls: string[],
-): HePiSettingsProvider {
+): HepiSettingsProvider {
 	return {
 		id,
 		title: id,
@@ -101,7 +101,7 @@ describe("combineSettingsProviders", () => {
 				groupId: "rtk",
 				fieldId: "enabled",
 				value: false,
-				state: { ...state, rtk: { enabled: false } } as HePiSettingsState,
+				state: { ...state, rtk: { enabled: false } } as HepiSettingsState,
 			},
 			context,
 		);

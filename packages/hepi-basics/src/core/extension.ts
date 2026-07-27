@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { getHePiRuntimeModuleRegistry } from "./api/modules.js";
-import { getHePiRuntimeSettingsRegistry, registerHePiSettings } from "./api/settings.js";
-import { registerHePiCommand } from "./command/hepi-command.js";
+import { getHepiRuntimeModuleRegistry } from "./api/modules.js";
+import { getHepiRuntimeSettingsRegistry, registerHepiSettings } from "./api/settings.js";
+import { registerHepiCommand } from "./command/hepi-command.js";
 import { createStatusFeature } from "./contributions/status/index.js";
 import {
 	type CursorOptions,
@@ -9,14 +9,14 @@ import {
 	DEFAULT_CURSOR_OPTIONS,
 } from "./contributions/statusbar/cursor.js";
 import { createStatusbarFeature } from "./contributions/statusbar/index.js";
-import { HePiLifecycleController, registerHePiLifecycle } from "./runtime/lifecycle.js";
+import { HepiLifecycleController, registerHepiLifecycle } from "./runtime/lifecycle.js";
 import { getToolActivationCoordinator } from "./runtime/tool-activation.js";
 import { combineSettingsProviders } from "./ui/settings/combined.js";
 import { createSettingsModule } from "./ui/settings/index.js";
 
 export default function piBasicsExtension(pi: ExtensionAPI): void {
-	const moduleRegistry = getHePiRuntimeModuleRegistry(pi);
-	const settingsRegistry = getHePiRuntimeSettingsRegistry(pi);
+	const moduleRegistry = getHepiRuntimeModuleRegistry(pi);
+	const settingsRegistry = getHepiRuntimeSettingsRegistry(pi);
 	const settingsModule = createSettingsModule({
 		getProviders: () => [combineSettingsProviders(settingsRegistry.list())],
 		getLoadoutView: () => moduleRegistry.get("loadout")?.createShellView,
@@ -27,7 +27,7 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 	let cursorOptions: CursorOptions = DEFAULT_CURSOR_OPTIONS;
 	const status = createStatusFeature(pi);
 	const statusbar = createStatusbarFeature(pi, () => cursorOptions);
-	const lifecycle = new HePiLifecycleController({
+	const lifecycle = new HepiLifecycleController({
 		onStart: async (runtime) => {
 			const unregisterSettingsModule = moduleRegistry.register(settingsModule);
 			runtime.registry.registerLifecycle({
@@ -40,7 +40,7 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 					cursorOptions = next;
 				},
 			});
-			const unregisterCursorSettings = registerHePiSettings(provider, settingsRegistry);
+			const unregisterCursorSettings = registerHepiSettings(provider, settingsRegistry);
 			runtime.registry.registerLifecycle({
 				id: "cursor-settings",
 				cleanup: unregisterCursorSettings,
@@ -84,6 +84,6 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 			});
 		},
 	});
-	registerHePiCommand(pi, moduleRegistry);
-	registerHePiLifecycle(pi, lifecycle);
+	registerHepiCommand(pi, moduleRegistry);
+	registerHepiLifecycle(pi, lifecycle);
 }

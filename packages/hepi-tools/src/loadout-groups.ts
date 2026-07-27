@@ -1,10 +1,10 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-	type HePiLoadoutGroup,
-	registerHePiRuntimeLoadoutGroup,
+	type HepiLoadoutGroup,
+	registerHepiRuntimeLoadoutGroup,
 } from "../../hepi-basics/src/core/index.js";
 
-export type HePiToolExtension = (pi: ExtensionAPI) => void;
+export type HepiToolExtension = (pi: ExtensionAPI) => void;
 
 export const HEPI_TOOLS_LOADOUT_GROUPS = [
 	{
@@ -34,13 +34,13 @@ export const HEPI_TOOLS_LOADOUT_GROUPS = [
 			"fff_multi_grep",
 		],
 	},
-] as const satisfies readonly HePiLoadoutGroup[];
+] as const satisfies readonly HepiLoadoutGroup[];
 
-export function registerHePiToolsLoadoutGroups(
+export function registerHepiToolsLoadoutGroups(
 	pi: ExtensionAPI,
-	groups: readonly HePiLoadoutGroup[] = HEPI_TOOLS_LOADOUT_GROUPS,
+	groups: readonly HepiLoadoutGroup[] = HEPI_TOOLS_LOADOUT_GROUPS,
 ): void {
-	for (const group of groups) registerHePiRuntimeLoadoutGroup(pi, group);
+	for (const group of groups) registerHepiRuntimeLoadoutGroup(pi, group);
 }
 
 /**
@@ -52,10 +52,10 @@ export function registerHePiToolsLoadoutGroups(
  * without duplicating the tool definitions or depending on implementation
  * names in the aggregate package.
  */
-export function withHePiToolLoadoutGroup(
-	extension: HePiToolExtension,
-	group: HePiLoadoutGroup,
-): HePiToolExtension {
+export function withHepiToolLoadoutGroup(
+	extension: HepiToolExtension,
+	group: HepiLoadoutGroup,
+): HepiToolExtension {
 	return (pi) => {
 		const toolNames = new Set<string>();
 		const registerTool: ExtensionAPI["registerTool"] = (tool) => {
@@ -65,6 +65,6 @@ export function withHePiToolLoadoutGroup(
 		const groupedPi: ExtensionAPI = { ...pi, registerTool };
 		extension(groupedPi);
 		const items = toolNames.size > 0 ? [...toolNames] : group.items;
-		registerHePiRuntimeLoadoutGroup(pi, items === undefined ? group : { ...group, items });
+		registerHepiRuntimeLoadoutGroup(pi, items === undefined ? group : { ...group, items });
 	};
 }

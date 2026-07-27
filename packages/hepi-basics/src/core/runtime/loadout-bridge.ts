@@ -1,10 +1,10 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { HePiMaybePromise } from "../api/modules.js";
+import type { HepiMaybePromise } from "../api/modules.js";
 import { extensionRuntimeIdentity } from "./identity.js";
 
 interface LoadoutBridgeState {
 	disabledSkillKeys: ReadonlySet<string>;
-	readonly toolDisableHandlers: Map<string, () => HePiMaybePromise<void>>;
+	readonly toolDisableHandlers: Map<string, () => HepiMaybePromise<void>>;
 }
 
 declare global {
@@ -28,23 +28,23 @@ function stateFor(pi: ExtensionAPI): LoadoutBridgeState {
 	return state;
 }
 
-export function hePiLoadoutKey(kind: string, name: string, source?: string): string {
+export function hepiLoadoutKey(kind: string, name: string, source?: string): string {
 	return source === undefined ? `${kind}:${name}` : `${kind}:${source}:${name}`;
 }
 
-export function setHePiDisabledSkillKeys(pi: ExtensionAPI, keys: ReadonlySet<string>): void {
+export function setHepiDisabledSkillKeys(pi: ExtensionAPI, keys: ReadonlySet<string>): void {
 	stateFor(pi).disabledSkillKeys = new Set(keys);
 }
 
-export function isHePiSkillEnabled(pi: ExtensionAPI, name: string): boolean {
+export function isHepiSkillEnabled(pi: ExtensionAPI, name: string): boolean {
 	const canonicalName = name.startsWith("skill:") ? name.slice("skill:".length) : name;
-	return !stateFor(pi).disabledSkillKeys.has(hePiLoadoutKey("skill", canonicalName));
+	return !stateFor(pi).disabledSkillKeys.has(hepiLoadoutKey("skill", canonicalName));
 }
 
-export function registerHePiToolDisableHandler(
+export function registerHepiToolDisableHandler(
 	pi: ExtensionAPI,
 	toolName: string,
-	handler: () => HePiMaybePromise<void>,
+	handler: () => HepiMaybePromise<void>,
 ): () => void {
 	if (!toolName.trim()) throw new Error("HEPI tool disable handler name must not be empty");
 	const state = stateFor(pi);
@@ -57,6 +57,6 @@ export function registerHePiToolDisableHandler(
 	};
 }
 
-export async function disableHePiTool(pi: ExtensionAPI, toolName: string): Promise<void> {
+export async function disableHepiTool(pi: ExtensionAPI, toolName: string): Promise<void> {
 	await stateFor(pi).toolDisableHandlers.get(toolName)?.();
 }

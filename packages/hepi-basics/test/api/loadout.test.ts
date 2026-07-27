@@ -1,22 +1,22 @@
 import { describe, expect, test } from "bun:test";
 import { createEventBus } from "@earendil-works/pi-coding-agent";
 import {
-	createHePiLoadoutGroupRegistry,
-	getHePiRuntimeLoadoutGroupRegistry,
-	registerHePiLoadoutGroup,
-	registerHePiRuntimeLoadoutGroup,
-	replaceHePiLoadoutGroup,
+	createHepiLoadoutGroupRegistry,
+	getHepiRuntimeLoadoutGroupRegistry,
+	registerHepiLoadoutGroup,
+	registerHepiRuntimeLoadoutGroup,
+	replaceHepiLoadoutGroup,
 } from "../../src/core/api/index.js";
 
 const group = (id: string, label = id) => ({ id, label, items: [`tool:${id}`] });
 
 describe("HePi Loadout group registry", () => {
 	test("isolates runtime registries and validates owned registration cleanup", () => {
-		const first = getHePiRuntimeLoadoutGroupRegistry({ events: createEventBus() });
-		const second = getHePiRuntimeLoadoutGroupRegistry({ events: createEventBus() });
+		const first = getHepiRuntimeLoadoutGroupRegistry({ events: createEventBus() });
+		const second = getHepiRuntimeLoadoutGroupRegistry({ events: createEventBus() });
 		const firstGroup = group("first", "First");
-		const unregister = registerHePiLoadoutGroup(firstGroup, first);
-		registerHePiLoadoutGroup(group("first", "Second"), second);
+		const unregister = registerHepiLoadoutGroup(firstGroup, first);
+		registerHepiLoadoutGroup(group("first", "Second"), second);
 
 		expect(first.get("first")?.label).toBe("First");
 		expect(second.get("first")?.label).toBe("Second");
@@ -26,12 +26,12 @@ describe("HePi Loadout group registry", () => {
 	});
 
 	test("rejects collisions and keeps replacement disposal generation-safe", () => {
-		const registry = createHePiLoadoutGroupRegistry();
-		registerHePiLoadoutGroup(group("shared", "Original"), registry);
-		expect(() => registerHePiLoadoutGroup(group("shared"), registry)).toThrow(
+		const registry = createHepiLoadoutGroupRegistry();
+		registerHepiLoadoutGroup(group("shared", "Original"), registry);
+		expect(() => registerHepiLoadoutGroup(group("shared"), registry)).toThrow(
 			"HePi Loadout group id collision: shared",
 		);
-		const unregister = replaceHePiLoadoutGroup(group("shared", "Replacement"), registry);
+		const unregister = replaceHepiLoadoutGroup(group("shared", "Replacement"), registry);
 		unregister();
 		expect(registry.get("shared")?.label).toBe("Replacement");
 	});
@@ -44,8 +44,8 @@ describe("HePi Loadout group registry", () => {
 				events.push(handler);
 			},
 		};
-		const unregister = registerHePiRuntimeLoadoutGroup(pi, group("factory"));
-		const registry = getHePiRuntimeLoadoutGroupRegistry(pi);
+		const unregister = registerHepiRuntimeLoadoutGroup(pi, group("factory"));
+		const registry = getHepiRuntimeLoadoutGroupRegistry(pi);
 		expect(registry.get("factory")).toBeDefined();
 		events[0]?.();
 		expect(registry.get("factory")).toBeUndefined();

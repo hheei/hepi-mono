@@ -1,88 +1,88 @@
 import { type ExtensionRuntimeHost, extensionRuntimeIdentity } from "../runtime/identity.js";
-import type { HePiMaybePromise } from "./modules.js";
-import type { HePiPanel } from "./panels.js";
+import type { HepiMaybePromise } from "./modules.js";
+import type { HepiPanel } from "./panels.js";
 
-export type HePiSettingPrimitive = boolean | number | string;
-export type HePiSettingValue = HePiSettingPrimitive | null;
-export type HePiSettingsState = Record<string, Record<string, HePiSettingValue>>;
+export type HepiSettingPrimitive = boolean | number | string;
+export type HepiSettingValue = HepiSettingPrimitive | null;
+export type HepiSettingsState = Record<string, Record<string, HepiSettingValue>>;
 
-export interface HePiContext {
+export interface HepiContext {
 	readonly sessionId: string;
 	readonly signal?: AbortSignal;
 	readonly cwd?: string;
 	readonly [key: string]: unknown;
 }
 
-export interface HePiCommandContext extends HePiContext {
+export interface HepiCommandContext extends HepiContext {
 	readonly command?: string;
 }
 
-export type HePiSettingType = "boolean" | "enum" | "text" | "number" | "path";
+export type HepiSettingType = "boolean" | "enum" | "text" | "number" | "path";
 
-export interface HePiSettingOption<T extends HePiSettingPrimitive = HePiSettingPrimitive> {
+export interface HepiSettingOption<T extends HepiSettingPrimitive = HepiSettingPrimitive> {
 	readonly value: T;
 	readonly label?: string;
 	readonly description?: string;
 }
 
-export interface HePiSettingTabCycle {
+export interface HepiSettingTabCycle {
 	readonly fieldId: string;
 	readonly label: string;
 	readonly description: string;
-	readonly defaultValue: HePiSettingPrimitive;
-	readonly options: readonly HePiSettingOption[];
+	readonly defaultValue: HepiSettingPrimitive;
+	readonly options: readonly HepiSettingOption[];
 	/** Separator used by the generic Settings value renderer. */
 	readonly separator?: string;
 }
 
-export interface HePiSettingField<T extends HePiSettingPrimitive = HePiSettingPrimitive> {
+export interface HepiSettingField<T extends HepiSettingPrimitive = HepiSettingPrimitive> {
 	readonly id: string;
 	readonly label: string;
-	readonly type: HePiSettingType;
+	readonly type: HepiSettingType;
 	readonly defaultValue: T;
 	readonly description: string;
-	readonly options?: readonly HePiSettingOption<T>[];
+	readonly options?: readonly HepiSettingOption<T>[];
 	/** A related persisted value cycled with Tab while this field is selected. */
-	readonly tabCycle?: HePiSettingTabCycle;
+	readonly tabCycle?: HepiSettingTabCycle;
 	format?(value: T): string;
 	/** Format the compact list value, optionally using a related tab-cycle value. */
-	formatDisplay?(value: T, relatedValue?: HePiSettingPrimitive): string;
+	formatDisplay?(value: T, relatedValue?: HepiSettingPrimitive): string;
 	/** Format the Description panel value, optionally using a related tab-cycle value. */
-	formatDescription?(value: T, relatedValue?: HePiSettingPrimitive): string;
+	formatDescription?(value: T, relatedValue?: HepiSettingPrimitive): string;
 	parse(draft: string): T;
 	validate?(value: T): string | undefined;
-	enabled?(state: HePiSettingsState): boolean;
+	enabled?(state: HepiSettingsState): boolean;
 }
 
-export interface HePiSettingGroup {
+export interface HepiSettingGroup {
 	readonly id: string;
 	readonly title: string;
 	readonly description?: string;
-	readonly fields: readonly HePiSettingField[];
+	readonly fields: readonly HepiSettingField[];
 }
 
-export interface HePiSettingChange {
+export interface HepiSettingChange {
 	readonly groupId: string;
 	readonly fieldId: string;
-	readonly value: HePiSettingValue;
-	readonly previousValue?: HePiSettingValue;
-	readonly state: HePiSettingsState;
+	readonly value: HepiSettingValue;
+	readonly previousValue?: HepiSettingValue;
+	readonly state: HepiSettingsState;
 }
 
-export interface HePiSettingsStorage {
-	load(ctx: HePiContext): HePiMaybePromise<HePiSettingsState | undefined>;
+export interface HepiSettingsStorage {
+	load(ctx: HepiContext): HepiMaybePromise<HepiSettingsState | undefined>;
 	/** Validate a final state without persisting it. */
-	validate?(state: HePiSettingsState, ctx: HePiContext): HePiMaybePromise<void>;
-	save(state: HePiSettingsState, ctx: HePiContext): HePiMaybePromise<void>;
-	close?(ctx: HePiContext): HePiMaybePromise<void>;
+	validate?(state: HepiSettingsState, ctx: HepiContext): HepiMaybePromise<void>;
+	save(state: HepiSettingsState, ctx: HepiContext): HepiMaybePromise<void>;
+	close?(ctx: HepiContext): HepiMaybePromise<void>;
 }
 
-export interface HePiJsonStorageBackend {
-	load(ctx?: HePiContext): HePiMaybePromise<HePiSettingsState | undefined>;
-	save(state: HePiSettingsState, ctx?: HePiContext): HePiMaybePromise<void>;
+export interface HepiJsonStorageBackend {
+	load(ctx?: HepiContext): HepiMaybePromise<HepiSettingsState | undefined>;
+	save(state: HepiSettingsState, ctx?: HepiContext): HepiMaybePromise<void>;
 }
 
-export interface HePiSettingsProvider {
+export interface HepiSettingsProvider {
 	readonly id: string;
 	readonly title: string;
 	/** Stable package module name used to group Settings, such as pi-fix. */
@@ -90,24 +90,24 @@ export interface HePiSettingsProvider {
 	/** Module identifier shown in Settings Description panel. */
 	readonly origin?: string;
 	readonly description?: string;
-	readonly groups: readonly HePiSettingGroup[];
-	readonly panels?: readonly HePiPanel[];
-	readonly storage: HePiSettingsStorage;
-	readonly onLoad?: (state: HePiSettingsState, ctx: HePiContext) => HePiMaybePromise<void>;
-	readonly onChange?: (change: HePiSettingChange, ctx: HePiContext) => HePiMaybePromise<void>;
-	readonly onClose?: (state: HePiSettingsState, ctx: HePiContext) => HePiMaybePromise<void>;
+	readonly groups: readonly HepiSettingGroup[];
+	readonly panels?: readonly HepiPanel[];
+	readonly storage: HepiSettingsStorage;
+	readonly onLoad?: (state: HepiSettingsState, ctx: HepiContext) => HepiMaybePromise<void>;
+	readonly onChange?: (change: HepiSettingChange, ctx: HepiContext) => HepiMaybePromise<void>;
+	readonly onClose?: (state: HepiSettingsState, ctx: HepiContext) => HepiMaybePromise<void>;
 }
 
-export interface HePiSettingsRegistry {
-	register(provider: HePiSettingsProvider): () => void;
-	replace(provider: HePiSettingsProvider): () => void;
-	list(options?: { includeEmpty?: boolean }): readonly HePiSettingsProvider[];
-	get(id: string): HePiSettingsProvider | undefined;
+export interface HepiSettingsRegistry {
+	register(provider: HepiSettingsProvider): () => void;
+	replace(provider: HepiSettingsProvider): () => void;
+	list(options?: { includeEmpty?: boolean }): readonly HepiSettingsProvider[];
+	get(id: string): HepiSettingsProvider | undefined;
 }
 
 export const HEPI_SETTING_DESCRIPTION_MIN_LENGTH = 20;
 
-function validateSettingDescriptions(provider: HePiSettingsProvider): void {
+function validateSettingDescriptions(provider: HepiSettingsProvider): void {
 	for (const group of provider.groups) {
 		for (const field of group.fields) {
 			if (field.description.trim().length < HEPI_SETTING_DESCRIPTION_MIN_LENGTH)
@@ -126,11 +126,11 @@ function validateSettingDescriptions(provider: HePiSettingsProvider): void {
 	}
 }
 
-class SettingsRegistry implements HePiSettingsRegistry {
-	readonly #providers = new Map<string, HePiSettingsProvider>();
+class SettingsRegistry implements HepiSettingsRegistry {
+	readonly #providers = new Map<string, HepiSettingsProvider>();
 	readonly #registrations = new Map<string, symbol>();
 
-	register(provider: HePiSettingsProvider): () => void {
+	register(provider: HepiSettingsProvider): () => void {
 		validateSettingDescriptions(provider);
 		if (this.#providers.has(provider.id)) {
 			throw new Error(`HePi settings provider id collision: ${provider.id}`);
@@ -138,12 +138,12 @@ class SettingsRegistry implements HePiSettingsRegistry {
 		return this.set(provider);
 	}
 
-	replace(provider: HePiSettingsProvider): () => void {
+	replace(provider: HepiSettingsProvider): () => void {
 		validateSettingDescriptions(provider);
 		return this.set(provider);
 	}
 
-	list(options: { includeEmpty?: boolean } = {}): readonly HePiSettingsProvider[] {
+	list(options: { includeEmpty?: boolean } = {}): readonly HepiSettingsProvider[] {
 		return [...this.#providers.values()]
 			.filter(
 				(provider) =>
@@ -154,11 +154,11 @@ class SettingsRegistry implements HePiSettingsRegistry {
 			.sort((a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
 	}
 
-	get(id: string): HePiSettingsProvider | undefined {
+	get(id: string): HepiSettingsProvider | undefined {
 		return this.#providers.get(id);
 	}
 
-	private set(provider: HePiSettingsProvider): () => void {
+	private set(provider: HepiSettingsProvider): () => void {
 		const registration = Symbol(provider.id);
 		this.#providers.set(provider.id, provider);
 		this.#registrations.set(provider.id, registration);
@@ -171,10 +171,10 @@ class SettingsRegistry implements HePiSettingsRegistry {
 }
 
 declare global {
-	var __hepiSettingsRegistriesByRuntime: WeakMap<object, HePiSettingsRegistry> | undefined;
+	var __hepiSettingsRegistriesByRuntime: WeakMap<object, HepiSettingsRegistry> | undefined;
 }
 
-export function getHePiRuntimeSettingsRegistry(pi: ExtensionRuntimeHost): HePiSettingsRegistry {
+export function getHepiRuntimeSettingsRegistry(pi: ExtensionRuntimeHost): HepiSettingsRegistry {
 	let registries = globalThis.__hepiSettingsRegistriesByRuntime;
 	if (registries === undefined) {
 		registries = new WeakMap();
@@ -188,50 +188,50 @@ export function getHePiRuntimeSettingsRegistry(pi: ExtensionRuntimeHost): HePiSe
 	return created;
 }
 
-export function createHePiSettingsRegistry(): HePiSettingsRegistry {
+export function createHepiSettingsRegistry(): HepiSettingsRegistry {
 	return new SettingsRegistry();
 }
 
-export function registerHePiSettings(
-	provider: HePiSettingsProvider,
-	registry: HePiSettingsRegistry,
+export function registerHepiSettings(
+	provider: HepiSettingsProvider,
+	registry: HepiSettingsRegistry,
 ): () => void {
 	return registry.register(provider);
 }
 
-export function registerHePiSettingsIfAbsent(
-	provider: HePiSettingsProvider,
-	registry: HePiSettingsRegistry,
+export function registerHepiSettingsIfAbsent(
+	provider: HepiSettingsProvider,
+	registry: HepiSettingsRegistry,
 ): void {
 	if (registry.get(provider.id) === undefined) registry.register(provider);
 }
 
-export function replaceHePiSettings(
-	provider: HePiSettingsProvider,
-	registry: HePiSettingsRegistry,
+export function replaceHepiSettings(
+	provider: HepiSettingsProvider,
+	registry: HepiSettingsRegistry,
 ): () => void {
 	return registry.replace(provider);
 }
 
-export function listHePiSettings(
-	registry: HePiSettingsRegistry,
+export function listHepiSettings(
+	registry: HepiSettingsRegistry,
 	options?: { includeEmpty?: boolean },
-): readonly HePiSettingsProvider[] {
+): readonly HepiSettingsProvider[] {
 	return registry.list(options);
 }
 
-export function getHePiSettings(
+export function getHepiSettings(
 	id: string,
-	registry: HePiSettingsRegistry,
-): HePiSettingsProvider | undefined {
+	registry: HepiSettingsRegistry,
+): HepiSettingsProvider | undefined {
 	return registry.get(id);
 }
 
-export function createGlobalJsonStorage(backend: HePiJsonStorageBackend): HePiSettingsStorage {
+export function createGlobalJsonStorage(backend: HepiJsonStorageBackend): HepiSettingsStorage {
 	return { load: (ctx) => backend.load(ctx), save: (state, ctx) => backend.save(state, ctx) };
 }
 
-export function createProjectJsonStorage(backend: HePiJsonStorageBackend): HePiSettingsStorage {
+export function createProjectJsonStorage(backend: HepiJsonStorageBackend): HepiSettingsStorage {
 	return { load: (ctx) => backend.load(ctx), save: (state, ctx) => backend.save(state, ctx) };
 }
 
@@ -239,8 +239,8 @@ export const createGlobalJsonSettingsStorage = createGlobalJsonStorage;
 export const createProjectJsonSettingsStorage = createProjectJsonStorage;
 export const createSessionBackedStorage = createSessionStorage;
 
-export function createSessionStorage(): HePiSettingsStorage {
-	const states = new Map<string, HePiSettingsState>();
+export function createSessionStorage(): HepiSettingsStorage {
+	const states = new Map<string, HepiSettingsState>();
 	return {
 		load: (ctx) => states.get(ctx.sessionId),
 		save: (state, ctx) => {

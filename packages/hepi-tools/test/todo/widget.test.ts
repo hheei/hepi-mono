@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { HePiRuntimeContext } from "../../../hepi-basics/src/core/index.js";
+import type { HepiRuntimeContext } from "../../../hepi-basics/src/core/index.js";
 import { visibleWidth } from "../../../hepi-basics/src/core/index.js";
 import type { TaskState } from "../../src/pi-todo/model.js";
 import { createTodoWidget } from "../../src/pi-todo/widget.js";
@@ -29,7 +29,7 @@ function recordingTheme() {
 }
 
 interface Harness {
-	runtime: HePiRuntimeContext;
+	runtime: HepiRuntimeContext;
 	calls: Array<{ key: string; content: unknown; options: unknown }>;
 	tui: { requestRender(force?: boolean): void };
 	renders(): number;
@@ -49,7 +49,7 @@ function harness(mode = "tui") {
 			},
 		},
 		requestRender: () => renders++,
-	} as unknown as HePiRuntimeContext;
+	} as unknown as HepiRuntimeContext;
 	return { runtime, calls, tui, renders: () => renders, tuiRenders: () => tuiRenders };
 }
 

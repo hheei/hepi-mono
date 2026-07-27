@@ -1,7 +1,7 @@
 import type {
-	HePiSettingField,
-	HePiSettingGroup,
-	HePiSettingsProvider,
+	HepiSettingField,
+	HepiSettingGroup,
+	HepiSettingsProvider,
 } from "../../src/core/api/settings.js";
 import { fakeStorage } from "../helpers.js";
 
@@ -11,7 +11,7 @@ const parseBoolean = (draft: string) => {
 	throw new Error("expected true or false");
 };
 
-export const booleanField: HePiSettingField<boolean> = {
+export const booleanField: HepiSettingField<boolean> = {
 	id: "enabled",
 	label: "Enabled",
 	type: "boolean",
@@ -20,7 +20,7 @@ export const booleanField: HePiSettingField<boolean> = {
 	parse: parseBoolean,
 };
 
-export const enumField: HePiSettingField<string> = {
+export const enumField: HepiSettingField<string> = {
 	id: "mode",
 	label: "Mode",
 	type: "enum",
@@ -36,7 +36,7 @@ export const enumField: HePiSettingField<string> = {
 	},
 };
 
-export const textField: HePiSettingField<string> = {
+export const textField: HepiSettingField<string> = {
 	id: "name",
 	label: "Name",
 	type: "text",
@@ -45,7 +45,7 @@ export const textField: HePiSettingField<string> = {
 	parse: (draft) => draft,
 };
 
-export const numberField: HePiSettingField<number> = {
+export const numberField: HepiSettingField<number> = {
 	id: "count",
 	label: "Count",
 	type: "number",
@@ -58,7 +58,7 @@ export const numberField: HePiSettingField<number> = {
 	},
 };
 
-export const pathField: HePiSettingField<string> = {
+export const pathField: HepiSettingField<string> = {
 	id: "root",
 	label: "Root path",
 	type: "path",
@@ -69,14 +69,14 @@ export const pathField: HePiSettingField<string> = {
 
 export const settingsFields = [booleanField, enumField, textField, numberField, pathField] as const;
 
-export const generalGroup: HePiSettingGroup = {
+export const generalGroup: HepiSettingGroup = {
 	id: "general",
 	title: "General",
 	description: "General settings",
 	fields: settingsFields,
 };
 
-export const advancedGroup: HePiSettingGroup = {
+export const advancedGroup: HepiSettingGroup = {
 	id: "advanced",
 	title: "Advanced",
 	fields: [enumField, pathField],
@@ -89,8 +89,8 @@ export const panelFixture = {
 };
 
 export function createSettingsFixture(
-	overrides: Partial<HePiSettingsProvider> = {},
-): HePiSettingsProvider {
+	overrides: Partial<HepiSettingsProvider> = {},
+): HepiSettingsProvider {
 	return {
 		id: "fixture",
 		title: "Fixture Settings",

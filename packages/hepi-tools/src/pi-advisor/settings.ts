@@ -1,20 +1,20 @@
 import {
-	createHePiModelSelectionField,
+	createHepiModelSelectionField,
 	createJsonSectionSettingsStorage,
-	type HePiModelSelectionOption,
-	type HePiSettingsProvider,
-	type HePiSettingValue,
+	type HepiModelSelectionOption,
+	type HepiSettingsProvider,
+	type HepiSettingValue,
 } from "../../../hepi-basics/src/core/index.js";
 import { parseThinking } from "./model.js";
 export function createAdvisorSettingsProvider(options: {
 	readonly path?: string;
-	readonly modelOptions?: readonly HePiModelSelectionOption[];
+	readonly modelOptions?: readonly HepiModelSelectionOption[];
 	readonly validatePersisted?: (
 		model: string | undefined,
 		thinking: string,
 	) => void | Promise<void>;
 	readonly onPersisted?: (model: string | undefined, thinking: string) => void | Promise<void>;
-}): HePiSettingsProvider {
+}): HepiSettingsProvider {
 	const storage = createJsonSectionSettingsStorage({
 		...(options.path === undefined ? {} : { path: options.path }),
 		section: "pi-basics",
@@ -30,7 +30,7 @@ export function createAdvisorSettingsProvider(options: {
 				id: "advisor",
 				title: "",
 				fields: [
-					createHePiModelSelectionField({
+					createHepiModelSelectionField({
 						id: "model",
 						label: "Advisor model",
 						description:
@@ -77,7 +77,7 @@ export function createAdvisorSettingsProvider(options: {
 					typeof values?.thinking === "string" ? parseThinking(values.thinking) : undefined;
 				if (thinking === undefined) throw new Error("Invalid thinking level");
 				await options.validatePersisted?.(model, thinking);
-				const advisor: Record<string, HePiSettingValue> = { thinking };
+				const advisor: Record<string, HepiSettingValue> = { thinking };
 				for (const [key, value] of Object.entries(values ?? {})) {
 					if (key !== "model") advisor[key] = value;
 				}

@@ -2,9 +2,9 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
-	type HePiSettingField,
-	type HePiSettingsProvider,
-	type HePiSettingsState,
+	type HepiSettingField,
+	type HepiSettingsProvider,
+	type HepiSettingsState,
 	updateJsonSettingsRoot,
 } from "../core/index.js";
 
@@ -98,11 +98,11 @@ export function registerApplyPatchGuard(pi: ExtensionAPI): ApplyPatchGuard {
 	};
 }
 
-function modeFromState(state: HePiSettingsState): GuardPatchMode {
+function modeFromState(state: HepiSettingsState): GuardPatchMode {
 	return normalizeGuardPatchMode(state[GUARD_PATCH_GROUP]?.[GUARD_PATCH_FIELD]);
 }
 
-const modeField: HePiSettingField<GuardPatchMode> = {
+const modeField: HepiSettingField<GuardPatchMode> = {
 	id: GUARD_PATCH_FIELD,
 	label: "Guard patch",
 	type: "enum",
@@ -119,7 +119,7 @@ const modeField: HePiSettingField<GuardPatchMode> = {
 export function createApplyPatchGuardSettingsProvider(
 	guard: ApplyPatchGuard,
 	options: { readonly agentDir?: string } = {},
-): HePiSettingsProvider {
+): HepiSettingsProvider {
 	const agentDir = options.agentDir ?? getAgentDir();
 	return {
 		id: "pi-fix-apply-patch-guard",
@@ -138,7 +138,7 @@ export function createApplyPatchGuardSettingsProvider(
 					},
 				};
 			},
-			async save(state: HePiSettingsState) {
+			async save(state: HepiSettingsState) {
 				const path = settingsPath(agentDir);
 				const mode = modeFromState(state);
 				await updateJsonSettingsRoot(path, (root) => {

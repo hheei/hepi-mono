@@ -16,10 +16,10 @@ import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
-	type HePiContext,
-	type HePiSettingField,
-	type HePiSettingsProvider,
-	type HePiSettingsState,
+	type HepiContext,
+	type HepiSettingField,
+	type HepiSettingsProvider,
+	type HepiSettingsState,
 	updateJsonSettingsRoot,
 } from "../core/index.js";
 
@@ -83,12 +83,12 @@ function configFromValues(values: JsonObject | undefined): OpenAIResponsesCompat
 	};
 }
 
-function configFromState(state: HePiSettingsState): OpenAIResponsesCompatConfig {
+function configFromState(state: HepiSettingsState): OpenAIResponsesCompatConfig {
 	const values = state[OPENAI_RESPONSES_COMPAT_GROUP];
 	return configFromValues(values);
 }
 
-function settingState(config: OpenAIResponsesCompatConfig): HePiSettingsState {
+function settingState(config: OpenAIResponsesCompatConfig): HepiSettingsState {
 	return {
 		[OPENAI_RESPONSES_COMPAT_GROUP]: {
 			[OPENAI_RESPONSES_COMPAT_FIELD]: config.stripAssistantMessageStatus,
@@ -187,7 +187,7 @@ export function createOpenAIResponsesCompatFeature(
 	};
 }
 
-const fields: readonly HePiSettingField[] = [
+const fields: readonly HepiSettingField[] = [
 	{
 		id: OPENAI_RESPONSES_COMPAT_FIELD,
 		label: "Strip status",
@@ -210,7 +210,7 @@ const fields: readonly HePiSettingField[] = [
 export function createOpenAIResponsesCompatSettingsProvider(
 	feature: OpenAIResponsesCompatFeature,
 	options: { readonly settingsDirectory?: string } = {},
-): HePiSettingsProvider {
+): HepiSettingsProvider {
 	const settingsDirectory = options.settingsDirectory ?? getAgentDir();
 	return {
 		id: "pi-fix-openai-responses-compat",
@@ -223,7 +223,7 @@ export function createOpenAIResponsesCompatSettingsProvider(
 				const root = await loadSettings(settingsPath(settingsDirectory));
 				return settingState(configFromValues(compatValues(root)));
 			},
-			async save(state: HePiSettingsState, ctx: HePiContext) {
+			async save(state: HepiSettingsState, ctx: HepiContext) {
 				const path = settingsPath(settingsDirectory);
 				const config = configFromState(state);
 				const stateValues = state[OPENAI_RESPONSES_COMPAT_GROUP] ?? {};

@@ -1,4 +1,4 @@
-import type { HePiSettingsProvider, HePiSettingValue } from "../../api/settings.js";
+import type { HepiSettingsProvider, HepiSettingValue } from "../../api/settings.js";
 import { createJsonSectionSettingsStorage } from "../../runtime/json-settings.js";
 
 export const CURSOR_SHAPES = ["bar", "block", "hollow", "underline"] as const;
@@ -30,7 +30,7 @@ export function parseCursorShape(value: unknown): CursorShape | undefined {
 }
 
 export function cursorOptionsFromState(
-	state: Readonly<Record<string, HePiSettingValue>> | undefined,
+	state: Readonly<Record<string, HepiSettingValue>> | undefined,
 ): CursorOptions {
 	return {
 		shape: parseCursorShape(state?.shape) ?? DEFAULT_CURSOR_OPTIONS.shape,
@@ -48,7 +48,7 @@ export function cursorEscape(options: CursorOptions): string {
 export function createCursorSettingsProvider(options: {
 	readonly path?: string;
 	readonly onPersisted?: (options: CursorOptions) => void;
-}): HePiSettingsProvider {
+}): HepiSettingsProvider {
 	const storage = createJsonSectionSettingsStorage({
 		...(options.path === undefined ? {} : { path: options.path }),
 		section: "pi-basics",

@@ -1,11 +1,11 @@
-import type { HePiMaybePromise } from "./modules.js";
+import type { HepiMaybePromise } from "./modules.js";
 
-export interface HePiPanel {
+export interface HepiPanel {
 	readonly id: string;
 	readonly label?: string;
 	render(width: number): readonly string[];
-	handleInput?(input: string): HePiMaybePromise<boolean | undefined>;
+	handleInput?(input: string): HepiMaybePromise<boolean | undefined>;
 	invalidate?(): void;
 }
 
-export type HePiSettingsSubpanel = HePiPanel;
+export type HepiSettingsSubpanel = HepiPanel;

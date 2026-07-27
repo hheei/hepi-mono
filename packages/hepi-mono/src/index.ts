@@ -1,2 +1,2 @@
-export type { HePiExtension } from "./extension.js";
-export { default, hePiExtensions } from "./extension.js";
+export type { HepiExtension } from "./extension.js";
+export { default, hepiExtensions } from "./extension.js";

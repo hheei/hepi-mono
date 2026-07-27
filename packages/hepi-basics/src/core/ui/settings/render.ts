@@ -1,6 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { HePiPanel } from "../../api/panels.js";
-import type { HePiSettingField, HePiSettingValue } from "../../api/settings.js";
+import type { HepiPanel } from "../../api/panels.js";
+import type { HepiSettingField, HepiSettingValue } from "../../api/settings.js";
 import { renderDetailPanel } from "../border.js";
 import { formatKeymap, type KeyHint } from "../keymap.js";
 import { renderScrollbar } from "../scrollbar.js";
@@ -25,12 +25,12 @@ export type SettingsListItem =
 			readonly id: string;
 			readonly groupId: string;
 			readonly label: string;
-			readonly field: HePiSettingField & { readonly groupId: string };
+			readonly field: HepiSettingField & { readonly groupId: string };
 	  }
 	| {
 			readonly kind: "panel";
 			readonly id: string;
-			readonly panel: HePiPanel;
+			readonly panel: HepiPanel;
 			readonly label: string;
 	  };
 
@@ -65,8 +65,8 @@ const editHints: readonly KeyHint[] = [
 
 function fieldValue(
 	controller: SettingsController,
-	field: HePiSettingField & { readonly groupId: string },
-): HePiSettingValue {
+	field: HepiSettingField & { readonly groupId: string },
+): HepiSettingValue {
 	const providerId = controller.state.activeProviderId;
 	return (
 		(providerId
@@ -79,7 +79,7 @@ export type SettingsValueSurface = "display" | "description";
 
 export function formatSettingValue(
 	controller: SettingsController,
-	field: HePiSettingField & { readonly groupId: string },
+	field: HepiSettingField & { readonly groupId: string },
 	surface: SettingsValueSurface = "display",
 ): string {
 	const editing =
@@ -203,7 +203,7 @@ function ellipsizedDescription(
 
 function relatedDraftSuffix(
 	controller: SettingsController,
-	field: HePiSettingField & { readonly groupId: string },
+	field: HepiSettingField & { readonly groupId: string },
 ): string {
 	const tabCycle = field.tabCycle;
 	if (!tabCycle) return "";

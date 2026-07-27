@@ -1,27 +1,27 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import type { HePiModule, HePiModuleView, HePiModuleViewContext } from "../../api/modules.js";
-import type { HePiSettingsProvider, HePiSettingsRegistry } from "../../api/settings.js";
+import type { HepiModule, HepiModuleView, HepiModuleViewContext } from "../../api/modules.js";
+import type { HepiSettingsProvider, HepiSettingsRegistry } from "../../api/settings.js";
 import { createShellComponent } from "../shell/component.js";
 import { createSettingsComponent } from "./component.js";
 import { SettingsController, type SettingsControllerOptions } from "./controller.js";
 
 export interface SettingsModuleOptions
 	extends Omit<SettingsControllerOptions, "context" | "providers"> {
-	readonly providers?: readonly HePiSettingsProvider[];
+	readonly providers?: readonly HepiSettingsProvider[];
 	readonly showTabs?: boolean;
-	readonly providerRegistry?: HePiSettingsRegistry;
-	readonly getProviders?: () => readonly HePiSettingsProvider[];
-	readonly getLoadoutView?: () => HePiModule["createShellView"];
+	readonly providerRegistry?: HepiSettingsRegistry;
+	readonly getProviders?: () => readonly HepiSettingsProvider[];
+	readonly getLoadoutView?: () => HepiModule["createShellView"];
 }
 
-export interface SettingsModule extends HePiModule {
+export interface SettingsModule extends HepiModule {
 	readonly controller?: SettingsController | undefined;
-	readonly createShellView: (options: HePiModuleViewContext) => Promise<HePiModuleView>;
+	readonly createShellView: (options: HepiModuleViewContext) => Promise<HepiModuleView>;
 	close(): Promise<void>;
 }
 
-interface SettingsView extends HePiModuleView {
+interface SettingsView extends HepiModuleView {
 	readonly controller: SettingsController;
 	close(): Promise<void>;
 	forceClose(): Promise<void>;
@@ -42,7 +42,7 @@ export function createSettingsModule(options: SettingsModuleOptions): SettingsMo
 	let controller: SettingsController | undefined;
 	let closeActiveView: (() => Promise<void>) | undefined;
 
-	async function createView(viewOptions: HePiModuleViewContext): Promise<SettingsView> {
+	async function createView(viewOptions: HepiModuleViewContext): Promise<SettingsView> {
 		const providers =
 			options.getProviders?.() ?? options.providerRegistry?.list() ?? options.providers ?? [];
 		const visibleProviders = providers.filter(
@@ -144,7 +144,7 @@ export function createSettingsModule(options: SettingsModuleOptions): SettingsMo
 							throw error;
 						}
 					})();
-					const closeLoadout = (loadoutView: HePiModuleView | undefined): Promise<void> => {
+					const closeLoadout = (loadoutView: HepiModuleView | undefined): Promise<void> => {
 						loadoutCloseOperation ??= Promise.resolve().then(() => loadoutView?.close?.());
 						return loadoutCloseOperation;
 					};
@@ -169,7 +169,7 @@ export function createSettingsModule(options: SettingsModuleOptions): SettingsMo
 					closeActiveView = forceClose;
 
 					let settingsView: SettingsView;
-					let loadoutView: HePiModuleView | undefined;
+					let loadoutView: HepiModuleView | undefined;
 					try {
 						({ settingsView, loadoutView } = await construction);
 					} catch (error) {

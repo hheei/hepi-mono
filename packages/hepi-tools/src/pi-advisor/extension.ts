@@ -1,11 +1,11 @@
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-	getHePiRuntimeSettingsRegistry,
-	HePiLifecycleController,
-	hePiAuthenticatedModelSelectionOptions,
-	registerHePiLifecycle,
-	registerHePiSettings,
+	getHepiRuntimeSettingsRegistry,
+	HepiLifecycleController,
+	hepiAuthenticatedModelSelectionOptions,
+	registerHepiLifecycle,
+	registerHepiSettings,
 } from "../../../hepi-basics/src/core/index.js";
 import { registerAdvisorCommand } from "./command.js";
 import { createAdvisorFeature } from "./feature.js";
@@ -15,12 +15,12 @@ import { createAdvisorSettingsProvider } from "./settings.js";
 
 export default function piAdvisorExtension(pi: ExtensionAPI): void {
 	const advisor = createAdvisorFeature();
-	const settingsRegistry = getHePiRuntimeSettingsRegistry(pi);
+	const settingsRegistry = getHepiRuntimeSettingsRegistry(pi);
 	registerAdvisorCommand(pi, advisor);
 	registerAdvisorRenderer(pi);
-	const lifecycle = new HePiLifecycleController({
+	const lifecycle = new HepiLifecycleController({
 		onStart: async (runtime) => {
-			const modelOptions = hePiAuthenticatedModelSelectionOptions(runtime.ctx.modelRegistry);
+			const modelOptions = hepiAuthenticatedModelSelectionOptions(runtime.ctx.modelRegistry);
 			const provider = createAdvisorSettingsProvider({
 				modelOptions,
 				validatePersisted: (modelRef, thinking) => {
@@ -41,7 +41,7 @@ export default function piAdvisorExtension(pi: ExtensionAPI): void {
 					await advisor.configure(model, level);
 				},
 			});
-			const unregisterSettings = registerHePiSettings(provider, settingsRegistry);
+			const unregisterSettings = registerHepiSettings(provider, settingsRegistry);
 			runtime.registry.registerLifecycle({
 				id: "advisor-settings",
 				cleanup: unregisterSettings,
@@ -74,5 +74,5 @@ export default function piAdvisorExtension(pi: ExtensionAPI): void {
 			});
 		},
 	});
-	registerHePiLifecycle(pi, lifecycle);
+	registerHepiLifecycle(pi, lifecycle);
 }

@@ -1,36 +1,36 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { createHePiRuntimeContext, type HePiRuntimeContext } from "./context.js";
-import { HePiRegistry } from "./registry.js";
+import { createHepiRuntimeContext, type HepiRuntimeContext } from "./context.js";
+import { HepiRegistry } from "./registry.js";
 
-export interface HePiLifecycleOptions {
-	readonly createRegistry?: () => HePiRegistry;
-	readonly onStart?: (runtime: HePiRuntimeContext) => void | Promise<void>;
+export interface HepiLifecycleOptions {
+	readonly createRegistry?: () => HepiRegistry;
+	readonly onStart?: (runtime: HepiRuntimeContext) => void | Promise<void>;
 	readonly onShutdown?: (
-		runtime: HePiRuntimeContext,
+		runtime: HepiRuntimeContext,
 		failures: readonly { id: string; error: unknown }[],
 	) => void | Promise<void>;
 }
 
-export class HePiLifecycleController {
-	private readonly options: HePiLifecycleOptions;
-	private runtime: HePiRuntimeContext | undefined;
+export class HepiLifecycleController {
+	private readonly options: HepiLifecycleOptions;
+	private runtime: HepiRuntimeContext | undefined;
 	private transitionQueue: Promise<void> = Promise.resolve();
 
-	constructor(options: HePiLifecycleOptions = {}) {
+	constructor(options: HepiLifecycleOptions = {}) {
 		this.options = options;
 	}
 
-	get current(): HePiRuntimeContext | undefined {
+	get current(): HepiRuntimeContext | undefined {
 		return this.runtime;
 	}
 
-	async start(pi: ExtensionAPI, ctx: ExtensionContext): Promise<HePiRuntimeContext> {
+	async start(pi: ExtensionAPI, ctx: ExtensionContext): Promise<HepiRuntimeContext> {
 		return this.enqueue(async () => {
 			if (this.runtime) await this.shutdownUnlocked();
-			const runtime = createHePiRuntimeContext(
+			const runtime = createHepiRuntimeContext(
 				pi,
 				ctx,
-				this.options.createRegistry?.() ?? new HePiRegistry(),
+				this.options.createRegistry?.() ?? new HepiRegistry(),
 			);
 			this.runtime = runtime;
 			try {
@@ -86,7 +86,7 @@ export class HePiLifecycleController {
 	}
 }
 
-export function registerHePiLifecycle(pi: ExtensionAPI, controller: HePiLifecycleController): void {
+export function registerHepiLifecycle(pi: ExtensionAPI, controller: HepiLifecycleController): void {
 	pi.on("session_start", async (_event, ctx) => {
 		await controller.start(pi, ctx);
 	});

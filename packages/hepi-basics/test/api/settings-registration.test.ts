@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
-	createHePiSettingsRegistry,
-	type HePiSettingsProvider,
-	listHePiSettings,
-	registerHePiSettingsIfAbsent,
+	createHepiSettingsRegistry,
+	type HepiSettingsProvider,
+	listHepiSettings,
+	registerHepiSettingsIfAbsent,
 } from "../../src/core/api/index.js";
 
-function provider(id: string): HePiSettingsProvider {
+function provider(id: string): HepiSettingsProvider {
 	return {
 		id,
 		title: id,
@@ -20,12 +20,12 @@ function provider(id: string): HePiSettingsProvider {
 
 describe("HEPI settings registration", () => {
 	test("keeps all child providers and ignores repeated session registration", () => {
-		const registry = createHePiSettingsRegistry();
-		registerHePiSettingsIfAbsent(provider("advisor"), registry);
-		registerHePiSettingsIfAbsent(provider("auto-title"), registry);
-		registerHePiSettingsIfAbsent(provider("advisor"), registry);
+		const registry = createHepiSettingsRegistry();
+		registerHepiSettingsIfAbsent(provider("advisor"), registry);
+		registerHepiSettingsIfAbsent(provider("auto-title"), registry);
+		registerHepiSettingsIfAbsent(provider("advisor"), registry);
 
-		expect(listHePiSettings(registry, { includeEmpty: true }).map((item) => item.id)).toEqual([
+		expect(listHepiSettings(registry, { includeEmpty: true }).map((item) => item.id)).toEqual([
 			"advisor",
 			"auto-title",
 		]);

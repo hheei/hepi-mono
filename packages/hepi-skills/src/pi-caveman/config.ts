@@ -2,9 +2,9 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type {
-	HePiSettingField,
-	HePiSettingsProvider,
-	HePiSettingsState,
+	HepiSettingField,
+	HepiSettingsProvider,
+	HepiSettingsState,
 } from "../../../hepi-basics/src/core/index.js";
 import {
 	CAVEMAN_INTENSITIES,
@@ -51,7 +51,7 @@ export interface CavemanSettingsProviderOptions {
 
 export function createCavemanSettingsProvider(
 	options: CavemanSettingsProviderOptions = {},
-): HePiSettingsProvider {
+): HepiSettingsProvider {
 	const settingsFilePath = options.settingsFilePath ?? defaultSettingsPath();
 	return {
 		id: CAVEMAN_SETTINGS_PROVIDER_ID,
@@ -78,10 +78,10 @@ export function createCavemanSettingsProvider(
 			},
 		],
 		storage: {
-			async load(): Promise<HePiSettingsState> {
+			async load(): Promise<HepiSettingsState> {
 				return defaultsToState(await loadCavemanDefaults(settingsFilePath));
 			},
-			async save(state: HePiSettingsState): Promise<void> {
+			async save(state: HepiSettingsState): Promise<void> {
 				const { updateJsonSettingsRoot } = await import("../../../hepi-basics/src/core/index.js");
 				await updateJsonSettingsRoot(settingsFilePath, (root) => {
 					const currentSection = asRecord(root[CAVEMAN_SETTINGS_PROVIDER_ID]);
@@ -94,7 +94,7 @@ export function createCavemanSettingsProvider(
 	};
 }
 
-function modeField(id: string, label: string, description: string): HePiSettingField<string> {
+function modeField(id: string, label: string, description: string): HepiSettingField<string> {
 	return {
 		id,
 		label,
@@ -115,7 +115,7 @@ function defaultsFromRoot(root: JsonObject): CavemanDefaults {
 	};
 }
 
-function defaultsFromState(state: HePiSettingsState): CavemanDefaults {
+function defaultsFromState(state: HepiSettingsState): CavemanDefaults {
 	const values = state[CAVEMAN_DEFAULTS_GROUP];
 	return {
 		mainMode: normalizeMode(values?.[CAVEMAN_MAIN_MODE_FIELD], DEFAULT_CAVEMAN_MODE),
@@ -123,7 +123,7 @@ function defaultsFromState(state: HePiSettingsState): CavemanDefaults {
 	};
 }
 
-function defaultsToState(defaults: CavemanDefaults): HePiSettingsState {
+function defaultsToState(defaults: CavemanDefaults): HepiSettingsState {
 	return {
 		[CAVEMAN_DEFAULTS_GROUP]: {
 			[CAVEMAN_MAIN_MODE_FIELD]: defaults.mainMode,

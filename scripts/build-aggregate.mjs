@@ -6,10 +6,10 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const aggregatePackages = ["hepi-basics", "hepi-tools", "hepi-skills", "hepi-mono"];
 const publicContracts = {
-	"hepi-basics": "hePiBasicsExtensions",
-	"hepi-tools": "hePiToolsExtensions",
-	"hepi-skills": "hePiSkillsExtensions",
-	"hepi-mono": "hePiExtensions",
+	"hepi-basics": "hepiBasicsExtensions",
+	"hepi-tools": "hepiToolsExtensions",
+	"hepi-skills": "hepiSkillsExtensions",
+	"hepi-mono": "hepiExtensions",
 };
 const external = [
 	"@earendil-works/pi-agent-core",
@@ -100,8 +100,8 @@ for (const packageName of packageNames) {
 		[
 			'import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";',
 			"",
-			"export type HePiExtension = (pi: ExtensionAPI) => void;",
-			`export declare const ${extensionArray}: readonly HePiExtension[];`,
+			"export type HepiExtension = (pi: ExtensionAPI) => void;",
+			`export declare const ${extensionArray}: readonly HepiExtension[];`,
 			"export default function extension(pi: ExtensionAPI): void;",
 			"",
 		].join("\n"),

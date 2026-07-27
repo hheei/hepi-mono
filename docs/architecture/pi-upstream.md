@@ -310,7 +310,7 @@ shared core -> concrete feature
 使用边界：
 
 - 单次、无状态通知：可直接 `pi.on()`。
-- 创建 session state、UI、timer、watcher、process 或异步 operation：使用 `HePiLifecycleController`，并向 runtime registry 注册 cleanup。
+- 创建 session state、UI、timer、watcher、process 或异步 operation：使用 `HepiLifecycleController`，并向 runtime registry 注册 cleanup。
 - cleanup 必须幂等；start 失败也必须清理已创建资源。
 - 不把 `ExtensionContext`、AbortController、component 或 session object 保存到 process-global state。
 

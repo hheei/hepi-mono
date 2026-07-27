@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type Component, Text } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
 import type {
-	HePiRuntimeContext,
+	HepiRuntimeContext,
 	ToolActivationCoordinator,
 } from "../../../hepi-basics/src/core/index.js";
 import { createAskComponent } from "./component.js";
@@ -54,7 +54,7 @@ export const ASK_PROMPT_GUIDELINES = [
 ] as const;
 
 export interface AskFeature {
-	start(runtime: HePiRuntimeContext): void | Promise<void>;
+	start(runtime: HepiRuntimeContext): void | Promise<void>;
 	dispose(sessionId: string): void | Promise<void>;
 	requestAsk(questionnaire: AskQuestionnaire, signal?: AbortSignal): Promise<AskInteractionResult>;
 }
@@ -84,7 +84,7 @@ export function createAskFeature(
 	pi: ExtensionAPI,
 	coordinator: ToolActivationCoordinator,
 ): AskFeature {
-	let activeRuntime: HePiRuntimeContext | undefined;
+	let activeRuntime: HepiRuntimeContext | undefined;
 	let activeAsk: ActiveAsk | undefined;
 	const requestAsk = async (
 		questionnaire: AskQuestionnaire,

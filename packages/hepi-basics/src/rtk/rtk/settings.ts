@@ -1,8 +1,8 @@
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type {
-	HePiSettingField,
-	HePiSettingsProvider,
-	HePiSettingsState,
+	HepiSettingField,
+	HepiSettingsProvider,
+	HepiSettingsState,
 } from "../../core/index.js";
 import { loadRtkConfig, saveRtkConfig } from "./config.js";
 import type { RtkFeature } from "./feature.js";
@@ -11,7 +11,7 @@ const GROUP = "rtk";
 type RtkModeSetting = "off" | "rewrite" | "suggest";
 type RtkCompactionSetting = "out" | "read+out";
 
-const fields: readonly HePiSettingField[] = [
+const fields: readonly HepiSettingField[] = [
 	{
 		id: "mode",
 		label: "RTK Mode",
@@ -45,7 +45,7 @@ const fields: readonly HePiSettingField[] = [
 export function createRtkSettingsProvider(
 	feature: RtkFeature,
 	agentDir: string = getAgentDir(),
-): HePiSettingsProvider {
+): HepiSettingsProvider {
 	return {
 		id: "pi-basics-rtk",
 		title: "RTK",
@@ -60,9 +60,9 @@ export function createRtkSettingsProvider(
 						mode: config.enabled ? config.mode : "off",
 						compaction: config.outputCompaction.readCompaction.enabled ? "read+out" : "out",
 					},
-				} as HePiSettingsState;
+				} as HepiSettingsState;
 			},
-			async save(state: HePiSettingsState) {
+			async save(state: HepiSettingsState) {
 				let config = feature.getConfig();
 				const mode = state[GROUP]?.mode as RtkModeSetting | undefined;
 				if (mode !== undefined) {

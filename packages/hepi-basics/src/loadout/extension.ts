@@ -1,15 +1,15 @@
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-	disableHePiTool,
-	getHePiRuntimeLoadoutGroupRegistry,
-	getHePiRuntimeModuleRegistry,
+	disableHepiTool,
+	getHepiRuntimeLoadoutGroupRegistry,
+	getHepiRuntimeModuleRegistry,
 	getToolActivationCoordinator,
-	HePiLifecycleController,
-	hePiLoadoutKey,
-	registerHePiLifecycle,
-	registerHePiModule,
-	setHePiDisabledSkillKeys,
+	HepiLifecycleController,
+	hepiLoadoutKey,
+	registerHepiLifecycle,
+	registerHepiModule,
+	setHepiDisabledSkillKeys,
 } from "../core/index.js";
 import {
 	createLoadoutController,
@@ -27,8 +27,8 @@ import {
 
 export default function piLoadoutExtension(pi: ExtensionAPI): void {
 	const coordinator = getToolActivationCoordinator(pi);
-	const moduleRegistry = getHePiRuntimeModuleRegistry(pi);
-	const loadoutGroupRegistry = getHePiRuntimeLoadoutGroupRegistry(pi);
+	const moduleRegistry = getHepiRuntimeModuleRegistry(pi);
+	const loadoutGroupRegistry = getHepiRuntimeLoadoutGroupRegistry(pi);
 	let disabledSkillKeys: ReadonlySet<string> = new Set();
 	let startupController: LoadoutController | undefined;
 	const runtimeHandlers: LoadoutRuntimeHandlers = {
@@ -42,7 +42,7 @@ export default function piLoadoutExtension(pi: ExtensionAPI): void {
 			coordinator.setLoadoutBaseline(activeNames);
 			for (const item of items) {
 				signal?.throwIfAborted();
-				if (item.effectiveStatus === "disabled") await disableHePiTool(pi, item.name);
+				if (item.effectiveStatus === "disabled") await disableHepiTool(pi, item.name);
 			}
 			signal?.throwIfAborted();
 		},
@@ -51,10 +51,10 @@ export default function piLoadoutExtension(pi: ExtensionAPI): void {
 			disabledSkillKeys = new Set(
 				items
 					.filter((item) => item.effectiveStatus === "disabled")
-					.map((item) => hePiLoadoutKey("skill", item.name)),
+					.map((item) => hepiLoadoutKey("skill", item.name)),
 			);
 			signal?.throwIfAborted();
-			setHePiDisabledSkillKeys(pi, disabledSkillKeys);
+			setHepiDisabledSkillKeys(pi, disabledSkillKeys);
 		},
 	};
 
@@ -70,11 +70,11 @@ export default function piLoadoutExtension(pi: ExtensionAPI): void {
 			return { systemPrompt: filtered.systemPrompt };
 	});
 	const loadoutModule = createLoadoutModule(pi, runtimeHandlers, () => loadoutGroupRegistry.list());
-	registerHePiLifecycle(
+	registerHepiLifecycle(
 		pi,
-		new HePiLifecycleController({
+		new HepiLifecycleController({
 			onStart: async (runtime) => {
-				const unregisterModule = registerHePiModule(loadoutModule, moduleRegistry);
+				const unregisterModule = registerHepiModule(loadoutModule, moduleRegistry);
 				runtime.registry.registerLifecycle({
 					id: "loadout-module",
 					cleanup: unregisterModule,
@@ -103,7 +103,7 @@ export default function piLoadoutExtension(pi: ExtensionAPI): void {
 						} finally {
 							startupController = undefined;
 							disabledSkillKeys = new Set();
-							setHePiDisabledSkillKeys(pi, disabledSkillKeys);
+							setHepiDisabledSkillKeys(pi, disabledSkillKeys);
 						}
 					},
 				});

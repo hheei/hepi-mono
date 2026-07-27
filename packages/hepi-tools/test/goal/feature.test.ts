@@ -5,7 +5,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
-	createHePiRuntimeContext,
+	createHepiRuntimeContext,
 	createToolActivationCoordinator,
 	getToolActivationCoordinator,
 } from "../../../hepi-basics/src/core/index.js";
@@ -84,7 +84,7 @@ function fixture() {
 		...ctx,
 		waitForIdle: async () => undefined,
 	} as unknown as ExtensionCommandContext;
-	const runtime = createHePiRuntimeContext(pi as unknown as ExtensionAPI, ctx, {} as never);
+	const runtime = createHepiRuntimeContext(pi as unknown as ExtensionAPI, ctx, {} as never);
 	const coordinator = createToolActivationCoordinator(pi as unknown as ExtensionAPI);
 	coordinator.setLoadoutBaseline(["goal"]);
 	const feature = createGoalFeature(pi as unknown as ExtensionAPI, coordinator, {
@@ -167,7 +167,7 @@ describe("goal feature", () => {
 			waitForIdle: async () => undefined,
 		} as unknown as ExtensionCommandContext;
 		const feature = createGoalFeature(goalApi, getToolActivationCoordinator(goalApi));
-		await feature.start(createHePiRuntimeContext(goalApi, ctx, {} as never));
+		await feature.start(createHepiRuntimeContext(goalApi, ctx, {} as never));
 		const command = first(commands);
 		const replay = await replayTui({
 			create: () => ({
