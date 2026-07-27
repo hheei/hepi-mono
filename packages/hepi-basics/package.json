@@ -10,12 +10,17 @@
 	},
 	"files": [
 		"dist",
+		"themes",
 		"README.md",
+		"THIRD_PARTY_NOTICES.md",
 		"LICENSE"
 	],
 	"pi": {
 		"extensions": [
 			"dist/extension.js"
+		],
+		"themes": [
+			"themes"
 		]
 	},
 	"scripts": {

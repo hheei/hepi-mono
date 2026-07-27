@@ -150,6 +150,21 @@ test("HEPI composition packages expose one bundled extension entry", async () =>
 	}
 });
 
+test("hepi-basics publishes its bundled Catppuccin themes", async () => {
+	const packagePath = join(packagesDirectory, "hepi-basics");
+	const manifest: unknown = JSON.parse(await readFile(join(packagePath, "package.json"), "utf8"));
+	if (!isRecord(manifest) || !isRecord(manifest.pi))
+		throw new Error("Missing hepi-basics Pi manifest");
+	expect(manifest.pi.themes).toEqual(["themes"]);
+	for (const name of ["catppuccin-latte", "catppuccin-mocha"]) {
+		const theme: unknown = JSON.parse(
+			await readFile(join(packagePath, "themes", `${name}.json`), "utf8"),
+		);
+		if (!isRecord(theme)) throw new Error(`Invalid theme: ${name}`);
+		expect(theme.name).toBe(name);
+	}
+});
+
 test("hepi-basics keeps feature directories free of the package prefix", async () => {
 	const sourceDirectory = join(packagesDirectory, "hepi-basics", "src");
 	const entries = await readdir(sourceDirectory, { withFileTypes: true });
