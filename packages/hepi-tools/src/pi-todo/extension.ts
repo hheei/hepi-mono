@@ -14,5 +14,5 @@ export default function piTodoExtension(pi: ExtensionAPI): void {
 			runtime.registry.registerLifecycle({ id: "todo", cleanup: () => todo.dispose(sessionId) });
 		},
 	});
-	registerHepiLifecycle(pi, lifecycle);
+	registerHepiLifecycle(pi, lifecycle, "pi-todo");
 }

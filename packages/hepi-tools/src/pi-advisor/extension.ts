@@ -74,5 +74,5 @@ export default function piAdvisorExtension(pi: ExtensionAPI): void {
 			});
 		},
 	});
-	registerHepiLifecycle(pi, lifecycle);
+	registerHepiLifecycle(pi, lifecycle, "pi-basics-advisor");
 }

@@ -168,110 +168,115 @@ export function createStatusbarFeature(
 				typeof ctx.ui.setFooter !== "function"
 			)
 				return;
-			const previousEditorFactory =
-				typeof ctx.ui.getEditorComponent === "function" ? ctx.ui.getEditorComponent() : undefined;
 			let session: StatusbarSession | undefined;
-			const installedEditorFactory = ((tui, theme, keybindings) => {
-				const editor =
-					previousEditorFactory?.(tui, theme, keybindings) ??
-					new CustomEditor(tui, theme, keybindings);
-				const active = session;
-				if (
-					active !== undefined &&
-					active.tui === undefined &&
-					typeof tui.setShowHardwareCursor === "function"
-				) {
-					active.tui = tui;
-					active.previousHardwareCursor = tui.getShowHardwareCursor();
-					tui.setShowHardwareCursor(true);
-				}
-				const originalRender = editor.render.bind(editor);
-				let cursorWriteScheduled = false;
-				(editor as Editor & { render: (width: number) => string[] }).render = (width: number) => {
+			const installEditorFactory = (previousEditorFactory: EditorFactory | undefined): void => {
+				const nextEditorFactory = ((tui, theme, keybindings) => {
+					const editor =
+						previousEditorFactory?.(tui, theme, keybindings) ??
+						new CustomEditor(tui, theme, keybindings);
+					const active = session;
 					if (
-						typeof tui.getShowHardwareCursor === "function" &&
-						typeof tui.setShowHardwareCursor === "function" &&
-						!tui.getShowHardwareCursor()
-					)
+						active !== undefined &&
+						active.tui === undefined &&
+						typeof tui.setShowHardwareCursor === "function"
+					) {
+						active.tui = tui;
+						active.previousHardwareCursor = tui.getShowHardwareCursor();
 						tui.setShowHardwareCursor(true);
-					const lines = renderTerminalCursor(originalRender(width));
-					if (tui.terminal?.write && !cursorWriteScheduled) {
-						cursorWriteScheduled = true;
-						queueMicrotask(() => {
-							cursorWriteScheduled = false;
-							if (session && owner === session)
-								tui.terminal?.write(cursorEscape(getCursorOptions()));
-						});
 					}
-					if (!session || owner !== session) return lines;
-					const systemPrompt =
-						typeof ctx.getSystemPrompt === "function" ? ctx.getSystemPrompt() : undefined;
-					const currentUsage = ctx.getContextUsage();
-					let fallback: StatusbarContextUsage | undefined;
-					if (currentUsage?.tokens == null || session.compacted) {
-						try {
-							const messages = buildSessionContext([
-								...ctx.sessionManager.getBranch(),
-							] as never).messages;
-							fallback = estimateContextUsage(messages, currentUsage?.contextWindow, systemPrompt);
-						} catch {
-							fallback = undefined;
+					const originalRender = editor.render.bind(editor);
+					let cursorWriteScheduled = false;
+					(editor as Editor & { render: (width: number) => string[] }).render = (width: number) => {
+						if (
+							typeof tui.getShowHardwareCursor === "function" &&
+							typeof tui.setShowHardwareCursor === "function" &&
+							!tui.getShowHardwareCursor()
+						)
+							tui.setShowHardwareCursor(true);
+						const lines = renderTerminalCursor(originalRender(width));
+						if (tui.terminal?.write && !cursorWriteScheduled) {
+							cursorWriteScheduled = true;
+							queueMicrotask(() => {
+								cursorWriteScheduled = false;
+								if (session && owner === session)
+									tui.terminal?.write(cursorEscape(getCursorOptions()));
+							});
 						}
-					}
-					const usage = stabilizeContextUsage(
-						currentUsage,
-						session.compacted ? undefined : session.usage,
-						fallback,
-						session.awaitingAssistantUsage,
-					);
-					const advisorIndicator = advisorIndicatorFromStatuses(
-						session.footerData?.getExtensionStatuses(),
-					);
-					if (usage?.tokens != null) {
-						session.usage = usage;
-						session.compacted = false;
-					}
-					let displayUsage = usage;
-					if (displayUsage?.tokens === 0 && systemPrompt !== undefined) {
-						const tokens = estimateTokens({ role: "user", content: systemPrompt } as never);
-						const { contextWindow } = displayUsage;
-						const percent =
-							typeof contextWindow === "number" &&
-							Number.isFinite(contextWindow) &&
-							contextWindow > 0
-								? (tokens / contextWindow) * 100
-								: displayUsage.percent;
-						displayUsage = {
-							...displayUsage,
-							tokens,
-							...(percent === undefined ? {} : { percent }),
+						if (!session || owner !== session) return lines;
+						const systemPrompt =
+							typeof ctx.getSystemPrompt === "function" ? ctx.getSystemPrompt() : undefined;
+						const currentUsage = ctx.getContextUsage();
+						let fallback: StatusbarContextUsage | undefined;
+						if (currentUsage?.tokens == null || session.compacted) {
+							try {
+								const messages = buildSessionContext([
+									...ctx.sessionManager.getBranch(),
+								] as never).messages;
+								fallback = estimateContextUsage(
+									messages,
+									currentUsage?.contextWindow,
+									systemPrompt,
+								);
+							} catch {
+								fallback = undefined;
+							}
+						}
+						const usage = stabilizeContextUsage(
+							currentUsage,
+							session.compacted ? undefined : session.usage,
+							fallback,
+							session.awaitingAssistantUsage,
+						);
+						const advisorIndicator = advisorIndicatorFromStatuses(
+							session.footerData?.getExtensionStatuses(),
+						);
+						if (usage?.tokens != null) {
+							session.usage = usage;
+							session.compacted = false;
+						}
+						let displayUsage = usage;
+						if (displayUsage?.tokens === 0 && systemPrompt !== undefined) {
+							const tokens = estimateTokens({ role: "user", content: systemPrompt } as never);
+							const { contextWindow } = displayUsage;
+							const percent =
+								typeof contextWindow === "number" &&
+								Number.isFinite(contextWindow) &&
+								contextWindow > 0
+									? (tokens / contextWindow) * 100
+									: displayUsage.percent;
+							displayUsage = {
+								...displayUsage,
+								tokens,
+								...(percent === undefined ? {} : { percent }),
+							};
+						}
+						const normalizedModelName = normalizeDisplayFragment(ctx.model?.name, "");
+						const model =
+							normalizedModelName !== ""
+								? normalizedModelName
+								: normalizeDisplayFragment(ctx.model?.id);
+						const sessionName = normalizeDisplayFragment(ctx.sessionManager.getSessionName(), "");
+						const thinkingLevel = pi.getThinkingLevel();
+						const snapshot: StatusbarSnapshot = {
+							model,
+							...(advisorIndicator === undefined ? {} : { advisorIndicator }),
+							thinkingLevel,
+							meter: contextMeter(displayUsage?.percent),
+							contextTokens: fmtCompactNumber(displayUsage?.tokens, "lower"),
+							contextLimit: fmtCompactNumber(displayUsage?.contextWindow, "lower"),
+							percent:
+								typeof displayUsage?.percent === "number" && Number.isFinite(displayUsage.percent)
+									? displayUsage.percent
+									: null,
+							...(sessionName ? { sessionName } : {}),
+							statuses: [],
 						};
-					}
-					const normalizedModelName = normalizeDisplayFragment(ctx.model?.name, "");
-					const model =
-						normalizedModelName !== ""
-							? normalizedModelName
-							: normalizeDisplayFragment(ctx.model?.id);
-					const sessionName = normalizeDisplayFragment(ctx.sessionManager.getSessionName(), "");
-					const thinkingLevel = pi.getThinkingLevel();
-					const snapshot: StatusbarSnapshot = {
-						model,
-						...(advisorIndicator === undefined ? {} : { advisorIndicator }),
-						thinkingLevel,
-						meter: contextMeter(displayUsage?.percent),
-						contextTokens: fmtCompactNumber(displayUsage?.tokens, "lower"),
-						contextLimit: fmtCompactNumber(displayUsage?.contextWindow, "lower"),
-						percent:
-							typeof displayUsage?.percent === "number" && Number.isFinite(displayUsage.percent)
-								? displayUsage.percent
-								: null,
-						...(sessionName ? { sessionName } : {}),
-						statuses: [],
+						return [renderStatusbarLine(width, snapshot, ctx.ui.theme), ...lines.slice(1)];
 					};
-					return [renderStatusbarLine(width, snapshot, ctx.ui.theme), ...lines.slice(1)];
-				};
-				return editor;
-			}) as EditorFactory;
+					return editor;
+				}) as EditorFactory;
+				ctx.ui.setEditorComponent(nextEditorFactory);
+			};
 			session = {
 				sessionId,
 				awaitingAssistantUsage: false,
@@ -289,7 +294,9 @@ export function createStatusbarFeature(
 					() => scheduleRender(session),
 				);
 			});
-			ctx.ui.setEditorComponent(installedEditorFactory);
+			installEditorFactory(
+				typeof ctx.ui.getEditorComponent === "function" ? ctx.ui.getEditorComponent() : undefined,
+			);
 		},
 		dispose(sessionId) {
 			disposeSession(sessionId);

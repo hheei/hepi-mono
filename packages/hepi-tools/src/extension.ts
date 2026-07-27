@@ -2,9 +2,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import piMagicContext from "@cortexkit/pi-magic-context";
 import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
-import piFff from "pi-fff";
 import piWebAccess from "pi-web-access";
 import { hasConfiguredPackage } from "./external-compat.js";
+import registerHepiFff from "./fff/index.js";
 import {
 	HEPI_TOOLS_LOADOUT_GROUPS,
 	registerHepiToolsLoadoutGroups,
@@ -28,7 +28,6 @@ function loadSettings(): unknown {
 }
 
 const settings = loadSettings();
-const hasFff = hasConfiguredPackage(settings, ["@ff-labs/pi-fff", "pi-fff"]);
 const hasMagicContext = hasConfiguredPackage(settings, ["@cortexkit/pi-magic-context"]);
 const hasWebAccess = hasConfiguredPackage(settings, ["pi-web-access"]);
 
@@ -42,7 +41,9 @@ const fffLoadoutGroup = loadoutGroup("fff");
 const magicContextLoadoutGroup = loadoutGroup("magic-context");
 const webSearchLoadoutGroup = loadoutGroup("web-search");
 
-const registerBundledFff = withHepiToolLoadoutGroup(piFff, fffLoadoutGroup);
+const registerHepiFffWithLoadout = withHepiToolLoadoutGroup(registerHepiFff, fffLoadoutGroup, [
+	"find",
+]);
 const registerBundledMagicContext = withHepiToolLoadoutGroup(
 	piMagicContext,
 	magicContextLoadoutGroup,
@@ -51,7 +52,6 @@ const registerBundledWebAccess = withHepiToolLoadoutGroup(piWebAccess, webSearch
 
 const registerExternalToolLoadoutGroups: HepiExtension = (pi) => {
 	registerHepiToolsLoadoutGroups(pi, [
-		...(hasFff ? [fffLoadoutGroup] : []),
 		...(hasMagicContext ? [magicContextLoadoutGroup] : []),
 		...(hasWebAccess ? [webSearchLoadoutGroup] : []),
 	]);
@@ -62,7 +62,7 @@ export const hepiToolsExtensions: readonly HepiExtension[] = [
 	piAsk,
 	piGoal,
 	piSshfs,
-	...(hasFff ? [] : [registerBundledFff]),
+	registerHepiFffWithLoadout,
 	piCodexTool,
 	piAdvisor,
 	piTodo,

@@ -12,5 +12,5 @@ export default function piSshfsExtension(pi: ExtensionAPI): void {
 			runtime.registry.registerLifecycle({ id: "sshfs", cleanup: () => feature.dispose() });
 		},
 	});
-	registerHepiLifecycle(pi, lifecycle);
+	registerHepiLifecycle(pi, lifecycle, "pi-sshfs");
 }

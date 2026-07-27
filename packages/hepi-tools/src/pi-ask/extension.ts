@@ -15,5 +15,5 @@ export default function piAskExtension(pi: ExtensionAPI): void {
 			runtime.registry.registerLifecycle({ id: "ask", cleanup: () => feature.dispose(sessionId) });
 		},
 	});
-	registerHepiLifecycle(pi, lifecycle);
+	registerHepiLifecycle(pi, lifecycle, "pi-ask");
 }

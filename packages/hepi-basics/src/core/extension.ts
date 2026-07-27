@@ -85,5 +85,5 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 		},
 	});
 	registerHepiCommand(pi, moduleRegistry);
-	registerHepiLifecycle(pi, lifecycle);
+	registerHepiLifecycle(pi, lifecycle, "pi-basics-core");
 }

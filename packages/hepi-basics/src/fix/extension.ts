@@ -70,5 +70,5 @@ export default function piFixExtension(
 			});
 		},
 	});
-	registerHepiLifecycle(pi, lifecycle);
+	registerHepiLifecycle(pi, lifecycle, "pi-basics-fix");
 }
