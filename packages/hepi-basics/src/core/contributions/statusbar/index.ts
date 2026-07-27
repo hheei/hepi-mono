@@ -93,11 +93,12 @@ export function createStatusbarFeature(
 ): StatusbarFeature {
 	let owner: Owner | undefined;
 	const scheduleRender = (current: Owner): void => {
+		if (owner !== current) return;
 		if (current.renderScheduled) return;
 		current.renderScheduled = true;
+		current.requestRender?.();
 		queueMicrotask(() => {
 			current.renderScheduled = false;
-			if (owner === current) current.requestRender?.();
 		});
 	};
 	const setAwaitingAssistantUsage = (current: Owner, value: boolean): void => {

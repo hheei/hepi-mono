@@ -343,7 +343,7 @@ describe("statusbar lifecycle", () => {
 		h.emitValue("turn_start", { turnIndex: 0, timestamp: Date.now() });
 		h.emitValue("message_end", { message: { role: "assistant" } });
 
-		expect(h.requests).toBe(0);
+		expect(h.requests).toBe(1);
 		await Promise.resolve();
 		expect(h.requests).toBe(1);
 	});
@@ -362,7 +362,7 @@ describe("statusbar lifecycle", () => {
 		])
 			h.emit(event);
 		h.emitValue("message_end", { message: { role: "assistant" } });
-		expect(h.requests).toBe(0);
+		expect(h.requests).toBe(1);
 		await Promise.resolve();
 		expect(h.requests).toBe(1);
 		h.emit("model_select", { ...h.ctx } as ExtensionContext);
