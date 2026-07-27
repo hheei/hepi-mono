@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import type { ToolInfo } from "@earendil-works/pi-coding-agent";
 import type { HepiLoadoutGroup } from "../core/index.js";
 import {
@@ -46,6 +47,14 @@ const BUILTIN_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
 	write: "Create or overwrite files",
 };
 
+interface LoadoutInventorySnapshot {
+	readonly tools: readonly ToolInfo[];
+	readonly commands: readonly LoadoutCommandInfo[];
+	readonly groups: readonly HepiLoadoutGroup[];
+	readonly promptSnippets: ReadonlyMap<string, string | undefined>;
+	readonly descriptions: LoadoutDescriptionRegistry | undefined;
+}
+
 function sourceScope(scope: string, source: string): LoadoutSourceScope {
 	if (source === "builtin" || source === "core") return "global";
 	return scope === "project" || scope === "temporary" ? "project" : "global";
@@ -57,6 +66,16 @@ function estimateTokenCount(value: string): number {
 function readSkillInstruction(path: string): string | undefined {
 	try {
 		const text = readFileSync(path, "utf8");
+		const body = text.match(/^---\s*\n[\s\S]*?\n---\s*\n([\s\S]*)$/)?.[1] ?? text;
+		return body.trim() || undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+async function readSkillInstructionAsync(path: string): Promise<string | undefined> {
+	try {
+		const text = await readFile(path, "utf8");
 		const body = text.match(/^---\s*\n[\s\S]*?\n---\s*\n([\s\S]*)$/)?.[1] ?? text;
 		return body.trim() || undefined;
 	} catch {
@@ -136,22 +155,82 @@ function skillItem(
 	};
 }
 
-export function createLoadoutInventory(pi: LoadoutInventorySource): LoadoutInventory {
+function skillCommands(snapshot: LoadoutInventorySnapshot): readonly LoadoutCommandInfo[] {
+	return snapshot.commands.filter(
+		(command) => command.source === "skill" && command.name.startsWith("skill:"),
+	);
+}
+
+function captureLoadoutInventory(
+	pi: LoadoutInventorySource,
+	groupsOverride?: () => readonly HepiLoadoutGroup[],
+): LoadoutInventorySnapshot {
+	const tools = typeof pi.getAllTools === "function" ? pi.getAllTools() : [];
+	return {
+		tools,
+		commands: typeof pi.getCommands === "function" ? pi.getCommands() : [],
+		groups: groupsOverride?.() ?? pi.getLoadoutGroups?.() ?? [],
+		promptSnippets: new Map(
+			tools.map((tool) => [
+				tool.name,
+				pi.getToolDefinition?.(tool.name)?.promptSnippet ?? BUILTIN_PROMPT_SNIPPETS[tool.name],
+			]),
+		),
+		descriptions: pi.descriptionRegistry,
+	};
+}
+
+async function inventoryFingerprint(snapshot: LoadoutInventorySnapshot): Promise<string> {
+	const skillPaths = [
+		...new Set(skillCommands(snapshot).map((command) => command.sourceInfo.path)),
+	];
+	const skillVersions = await Promise.all(
+		skillPaths.map(async (path) => {
+			try {
+				const info = await stat(path);
+				return [path, info.mtimeMs, info.size];
+			} catch {
+				return [path, null, null];
+			}
+		}),
+	);
+	return JSON.stringify({
+		tools: snapshot.tools.map((tool) => [
+			tool.name,
+			tool.description,
+			tool.sourceInfo.scope,
+			tool.sourceInfo.source,
+			tool.sourceInfo.path,
+			tool.promptGuidelines,
+			snapshot.promptSnippets.get(tool.name),
+		]),
+		commands: snapshot.commands.map((command) => [
+			command.name,
+			command.description,
+			command.source,
+			command.sourceInfo.scope,
+			command.sourceInfo.source,
+			command.sourceInfo.path,
+		]),
+		groups: snapshot.groups.map((group) => [group.id, group.label, group.items]),
+		skillVersions,
+	});
+}
+
+function createLoadoutInventoryFromSnapshot(
+	snapshot: LoadoutInventorySnapshot,
+	getSkillInstruction: (path: string) => string | undefined,
+): LoadoutInventory {
 	const items = new Map<LoadoutKey, LoadoutItem>();
-	const groups = pi.getLoadoutGroups?.() ?? [];
-	const descriptions = pi.descriptionRegistry;
-	const getPromptSnippet = (name: string): string | undefined =>
-		pi.getToolDefinition?.(name)?.promptSnippet ?? BUILTIN_PROMPT_SNIPPETS[name];
+	const { groups, descriptions } = snapshot;
+	const getPromptSnippet = (name: string): string | undefined => snapshot.promptSnippets.get(name);
 	const getDescriptionPanel = (item: Pick<LoadoutItem, "key" | "kind" | "name">) =>
 		descriptions?.get(item);
-	const tools = typeof pi.getAllTools === "function" ? pi.getAllTools() : [];
-	for (const tool of tools) {
+	for (const tool of snapshot.tools) {
 		const item = applyLoadoutGroup(toolItem(tool, getPromptSnippet, getDescriptionPanel), groups);
 		items.set(item.key, item);
 	}
-	const commands = typeof pi.getCommands === "function" ? pi.getCommands() : [];
-	for (const command of commands) {
-		if (command.source !== "skill" || !command.name.startsWith("skill:")) continue;
+	for (const command of skillCommands(snapshot)) {
 		const name = command.name.slice("skill:".length);
 		if (!name) continue;
 		const key = loadoutKey("skill", name, command.sourceInfo.source);
@@ -159,23 +238,62 @@ export function createLoadoutInventory(pi: LoadoutInventorySource): LoadoutInven
 			name,
 			command.description,
 			command.sourceInfo.source,
-			readSkillInstruction(command.sourceInfo.path),
+			getSkillInstruction(command.sourceInfo.path),
 			getDescriptionPanel,
 		);
 		items.set(key, applyLoadoutGroup(item, groups));
 	}
 	return { items: sortLoadoutItems([...items.values()]) };
 }
+
+export function createLoadoutInventory(pi: LoadoutInventorySource): LoadoutInventory {
+	return createLoadoutInventoryFromSnapshot(captureLoadoutInventory(pi), readSkillInstruction);
+}
+
+async function createAsyncLoadoutInventory(
+	snapshot: LoadoutInventorySnapshot,
+): Promise<LoadoutInventory> {
+	const paths = [...new Set(skillCommands(snapshot).map((command) => command.sourceInfo.path))];
+	const instructions = new Map<string, string | undefined>();
+	let nextPath = 0;
+	const workers = Array.from({ length: Math.min(8, paths.length) }, async () => {
+		while (nextPath < paths.length) {
+			const path = paths[nextPath++];
+			if (path === undefined) continue;
+			instructions.set(path, await readSkillInstructionAsync(path));
+		}
+	});
+	await Promise.all(workers);
+	return createLoadoutInventoryFromSnapshot(snapshot, (path) => instructions.get(path));
+}
+
 export function createLoadoutInventoryProvider(
 	pi: LoadoutInventorySource,
 	getLoadoutGroups?: () => readonly HepiLoadoutGroup[],
 ): LoadoutInventoryProvider {
+	let cached: { readonly fingerprint: string; readonly inventory: LoadoutInventory } | undefined;
+	const pending = new Map<string, Promise<LoadoutInventory>>();
 	return {
-		load: (signal) => {
+		load: async (signal) => {
 			signal?.throwIfAborted();
-			const inventory = createLoadoutInventory(
-				getLoadoutGroups === undefined ? pi : { ...pi, getLoadoutGroups },
-			);
+			const snapshot = captureLoadoutInventory(pi, getLoadoutGroups);
+			const fingerprint = await inventoryFingerprint(snapshot);
+			const inventory =
+				cached?.fingerprint === fingerprint
+					? cached.inventory
+					: await (pending.get(fingerprint) ??
+							(() => {
+								const loading = createAsyncLoadoutInventory(snapshot).then((loaded) => {
+									cached = { fingerprint, inventory: loaded };
+									return loaded;
+								});
+								pending.set(fingerprint, loading);
+								void loading.then(
+									() => pending.delete(fingerprint),
+									() => pending.delete(fingerprint),
+								);
+								return loading;
+							})());
 			signal?.throwIfAborted();
 			return inventory;
 		},

@@ -245,20 +245,21 @@ function loadoutItemGroup(item: LoadoutItem): string {
 export function groupLoadoutItemsByOrigin(
 	items: readonly LoadoutItem[],
 ): readonly LoadoutSourceGroup[] {
-	const groups = new Map<string, LoadoutItem[]>();
+	const groups = new Map<string, { items: LoadoutItem[]; explicit: boolean }>();
 	for (const item of items) {
 		const origin = loadoutItemGroup(item);
 		const group = groups.get(origin);
-		if (group) group.push(item);
-		else groups.set(origin, [item]);
+		if (group) group.items.push(item);
+		else groups.set(origin, { items: [item], explicit: Boolean(item.group?.trim()) });
 	}
 	return [...groups]
-		.sort(([a], [b]) =>
-			loadoutPackageSortKey(a).localeCompare(loadoutPackageSortKey(b), undefined, {
+		.sort(([a, left], [b, right]) => {
+			if (left.explicit !== right.explicit) return left.explicit ? -1 : 1;
+			return loadoutPackageSortKey(a).localeCompare(loadoutPackageSortKey(b), undefined, {
 				sensitivity: "base",
-			}),
-		)
-		.map(([origin, groupedItems]) => ({ origin, items: sortLoadoutItems(groupedItems) }));
+			});
+		})
+		.map(([origin, group]) => ({ origin, items: sortLoadoutItems(group.items) }));
 }
 
 export function filterLoadoutItems(
@@ -279,8 +280,16 @@ export function filterLoadoutItemsForView(
 	view: LoadoutView,
 	query: string,
 ): readonly LoadoutItem[] {
+	return groupLoadoutItemsForView(items, view, query).flatMap((group) => group.items);
+}
+
+export function groupLoadoutItemsForView(
+	items: readonly LoadoutItem[],
+	view: LoadoutView,
+	query: string,
+): readonly LoadoutSourceGroup[] {
 	const visible = filterLoadoutItems(items, query).filter((item) => belongsToView(item, view));
-	return groupLoadoutItemsByOrigin(visible).flatMap((group) => group.items);
+	return groupLoadoutItemsByOrigin(visible);
 }
 
 export function reconcileLoadoutSelection(

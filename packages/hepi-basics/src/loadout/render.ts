@@ -10,6 +10,7 @@ import {
 import {
 	filterLoadoutItemsForView,
 	groupLoadoutItemsByOrigin,
+	groupLoadoutItemsForView,
 	type LoadoutItem,
 	type LoadoutResolvedItem,
 	type LoadoutScope,
@@ -27,6 +28,7 @@ export interface LoadoutRenderSnapshot {
 	readonly query: string;
 	readonly selectedKey?: string | undefined;
 	readonly inventory: readonly LoadoutItem[];
+	readonly visible?: readonly LoadoutItem[];
 	readonly resolved: readonly LoadoutResolvedItem[];
 	readonly pendingKey?: string | undefined;
 	readonly error?: string | undefined;
@@ -108,14 +110,13 @@ export function renderLoadout(options: RenderLoadoutOptions): string[] {
 	const width = safeWidth(options.width);
 	const { state, theme } = options;
 	const resolved = new Map(state.resolved.map((item) => [item.key, item] as const));
-	const allItems = filterLoadoutItemsForView(state.inventory, state.view, "");
-	const visibleItems = filterLoadoutItemsForView(state.inventory, state.view, state.query);
+	const allGroups = groupLoadoutItemsForView(state.inventory, state.view, "");
+	const visibleItems =
+		state.visible ?? filterLoadoutItemsForView(state.inventory, state.view, state.query);
 	const visible = visibleItems
 		.map((item) => resolved.get(item.key))
 		.filter((item): item is LoadoutResolvedItem => item !== undefined);
-	const totals = new Map(
-		groupLoadoutItemsByOrigin(allItems).map((group) => [group.origin, group.items.length]),
-	);
+	const totals = new Map(allGroups.map((group) => [group.origin, group.items.length]));
 	const groups = groupLoadoutItemsByOrigin(visibleItems);
 	const groupRows: string[] = [];
 	for (const group of groups) {

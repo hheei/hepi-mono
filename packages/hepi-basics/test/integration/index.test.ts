@@ -271,7 +271,7 @@ test("installs and restores footer and editor seams for TUI session", async () =
 		host.footerFactory!({ requestRender: () => undefined } as never, host.ctx.ui.theme, {
 			getExtensionStatuses: () => new Map(),
 		} as never).render(80),
-	).toEqual([]);
+	).toEqual([expect.stringContaining("/tmp/pi-basics")]);
 	const editor = host.ctx.ui.getEditorComponent()!({} as never, {} as never, {} as never);
 	const lines = editor.render(80);
 	expect(lines).toHaveLength(4);
@@ -507,7 +507,7 @@ test("sizes Settings from the terminal height", async () => {
 	piBasicsExtension(host.pi);
 	await host.emit("session_start");
 	await host.commands.find(({ name }) => name === "ext-settings")!.handler("", host.ctx);
-	expect(host.rendered).toHaveLength(17);
+	expect(host.rendered).toHaveLength(18);
 	await host.emit("session_shutdown");
 });
 

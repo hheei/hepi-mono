@@ -88,7 +88,7 @@ describe("settings renderer", () => {
 		const child = lines.find((line) => line.includes("Name"));
 		expect(title?.trimStart()).toStartWith("⧉ General");
 		expect(title).not.toContain("▾");
-		expect(child?.indexOf("Name")).toBe((title?.indexOf("⧉") ?? 0) + 1);
+		expect(child?.indexOf("Name")).toBe(2);
 	});
 
 	test("renders wide description and narrow fixed Value area within width", async () => {
@@ -112,7 +112,7 @@ describe("settings renderer", () => {
 			[72, 100, 140, 200].map((width) =>
 				descriptionStart(renderSettings({ controller, theme, width })),
 			),
-		).toEqual([undefined, 49, 49, 49]);
+		).toEqual([undefined, 57, 57, 57]);
 		expect(plain(wide)).toContain("─ Description");
 		expect(plain(wide)).toContain("│ Name description");
 		expect(plain(wide)).toContain("Origin: @pi-basics");
@@ -239,10 +239,12 @@ describe("settings renderer", () => {
 			"Value: short-id-value",
 			"",
 			"",
+			"",
 		]);
 		expect(longDetail.slice(1, -1).map(panelContent)).toEqual([
-			"one two three four five six seven eight nine",
-			"ten eleven twelve thirteen fourteen fifteen...",
+			"one two three four five six seven eight",
+			"nine ten eleven twelve thirteen",
+			"fourteen fifteen sixteen seventeen...",
 			"",
 			"Origin: @pi-basics",
 			"",
@@ -509,7 +511,7 @@ describe("settings renderer", () => {
 		);
 		expect(selectedRow).toBeDefined();
 		expect(selectedRow?.slice(0, listWidth)).toContain(`${ansi.accent}→${ansi.fgReset}`);
-		expect(selectedRow?.slice(0, listWidth)).toContain(accentBold(" First"));
+		expect(selectedRow?.slice(0, listWidth)).toContain(accentBold("First"));
 		expect(selectedRow).toContain(accentBold("first-value"));
 		expect(unselectedRow).toBeDefined();
 		expect(unselectedRow?.slice(0, listWidth)).not.toContain(ansi.accent);
@@ -538,14 +540,14 @@ describe("settings renderer", () => {
 		expect(editingUnselectedRow?.slice(0, listWidth)).toContain("Second");
 	});
 
-	test("reveals selected long key through fixed horizontal viewport", async () => {
+	test("starts selected long key at its left edge before marquee advances", async () => {
 		const long = field("long", "beginning-of-a-very-long-setting-key-ending");
 		const controller = await setup([provider("long", "Long", [long])]);
 		controller.select("long");
 		for (const width of [48, 100]) {
 			const text = plain(renderSettings({ controller, theme, width }));
 			const selectedRow = text.split("\n").find((line) => line.includes("long-value"));
-			expect(selectedRow).toContain("key-ending");
+			expect(selectedRow).toContain("beginning-of-a-very-long");
 			expect(selectedRow).not.toContain("beginning-of-a-very-long-setting-key-ending");
 		}
 	});
