@@ -100,6 +100,16 @@ describe("todo state", () => {
 		);
 	});
 
+	test("merges every user suppression after selecting the newest snapshot", () => {
+		const snapshots = Array.from({ length: 20 }, (_, index) =>
+			custom({ tasks: [{ ...task(index + 1), status: "suppressed" }], nextId: index + 2 }),
+		);
+		const latest = result({ tasks: [task(20), task(21)], nextId: 22 });
+		const restored = latestTodoSnapshot([...snapshots, latest]);
+		expect(restored?.tasks.filter((item) => item.status === "suppressed")).toHaveLength(20);
+		expect(restored?.tasks.find((item) => item.id === 21)?.status).toBe("in_progress");
+	});
+
 	test("ignores unrelated and malformed entries", () => {
 		const valid = { tasks: [task(1)], nextId: 2 };
 		for (const branch of [
