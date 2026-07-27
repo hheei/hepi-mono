@@ -18,7 +18,19 @@ export const HEPI_TOOLS_LOADOUT_GROUPS = [
 	{
 		id: "fff",
 		label: "FFF",
-		items: ["find_files", "resolve_file", "related_files", "fff_grep", "fff_multi_grep"],
+		items: [
+			"find",
+			"grep",
+			"multi_grep",
+			"fffind",
+			"ffgrep",
+			"fff-multi-grep",
+			"find_files",
+			"resolve_file",
+			"related_files",
+			"fff_grep",
+			"fff_multi_grep",
+		],
 	},
 ] as const satisfies readonly HePiLoadoutGroup[];
 

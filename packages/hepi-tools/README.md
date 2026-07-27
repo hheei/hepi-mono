@@ -20,7 +20,8 @@ Loadout groups are registered explicitly for the bundled external tools:
 
 - `Magic Context`: `ctx_search`, `ctx_memory`, `ctx_note`
 - `Web Search`: `web_search`, `fetch_content`, `get_search_content`, `source_check`
-- `FFF`: `find_files`, `resolve_file`, `related_files`, `fff_grep`, `fff_multi_grep`
+- `FFF`: `find`, `grep`, `multi_grep`, `fffind`, `ffgrep`, `fff-multi-grep`,
+  `find_files`, `resolve_file`, `related_files`, `fff_grep`, `fff_multi_grep`
 
 Other tools keep Loadout's automatic source-based grouping.
 
