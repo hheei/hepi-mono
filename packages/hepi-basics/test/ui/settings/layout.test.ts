@@ -9,8 +9,9 @@ describe("settings layout", () => {
 		const baseline = createSettingsLayout(100);
 		const wider = createSettingsLayout(140);
 		expect(baseline.mode).toBe("wide");
-		expect(baseline.keyWidth).toBe(20);
-		expect(baseline.valueStart).toBe(23);
+		expect(baseline.keyWidth).toBe(24);
+		expect(baseline.valueWidth).toBe(24);
+		expect(baseline.valueStart).toBe(27);
 		expect(wider.keyWidth).toBe(baseline.keyWidth);
 		expect(wider.valueStart).toBe(baseline.valueStart);
 	});
@@ -24,12 +25,12 @@ describe("settings layout", () => {
 			expect(layout.descriptionWidth).toBeGreaterThanOrEqual(32);
 			expect(layout.descriptionWidth).toBeLessThanOrEqual(100);
 			expect(layout.leftWidth).toBeGreaterThanOrEqual(24);
-			expect(layout.leftWidth).toBeLessThanOrEqual(46);
+			expect(layout.leftWidth).toBeLessThanOrEqual(54);
 			const compactWidth = layout.leftWidth + layout.gap + layout.descriptionWidth;
 			expect(compactWidth).toBeLessThanOrEqual(layout.width);
 		}
-		expect(layouts.map((layout) => layout.leftWidth + layout.gap)).toEqual([43, 49, 49, 49]);
-		expect(layouts.map((layout) => layout.descriptionWidth)).toEqual([32, 51, 91, 100]);
+		expect(layouts.map((layout) => layout.leftWidth + layout.gap)).toEqual([43, 57, 57, 57]);
+		expect(layouts.map((layout) => layout.descriptionWidth)).toEqual([32, 43, 83, 100]);
 	});
 
 	test("preserves wide list columns and description panel invariant", () => {
@@ -39,19 +40,19 @@ describe("settings layout", () => {
 			layout.listContentWidth,
 		);
 		expect(layout.valueStart).toBe(layout.indicatorWidth + layout.keyWidth + layout.valueGap);
-		expect(layout.descriptionHeight).toBe(9);
+		expect(layout.descriptionHeight).toBe(10);
 	});
 
 	test("reserves rows for search, spacer, and bottom padding", () => {
 		const layout = createSettingsLayout(100, 30);
-		expect(layout.listHeight).toBe(8);
-		expect(layout.itemCapacity).toBe(6);
+		expect(layout.listHeight).toBe(9);
+		expect(layout.itemCapacity).toBe(7);
 	});
 
 	test("aligns Settings content with Loadout's terminal-relative panel height", () => {
 		const layout = createSettingsLayout(120, 50);
-		expect(layout.descriptionHeight).toBe(15);
-		expect(layout.listHeight).toBe(14);
+		expect(layout.descriptionHeight).toBe(16);
+		expect(layout.listHeight).toBe(15);
 		expect(layout.descriptionWidth).toBeGreaterThan(44);
 	});
 
@@ -61,7 +62,7 @@ describe("settings layout", () => {
 		expect(layout.leftWidth).toBe(SETTINGS_WIDE_MIN_WIDTH - 1);
 		expect(layout.descriptionWidth).toBe(0);
 		expect(layout.gap).toBe(0);
-		expect(layout.listHeight).toBe(9);
+		expect(layout.listHeight).toBe(10);
 	});
 
 	test("never creates negative columns for tiny widths", () => {

@@ -63,5 +63,7 @@ export { createSplitLayout } from "./ui/layout.js";
 export { fmtCompactNumber, fmtDuration, fmtRate } from "./ui/number.js";
 export { renderSelectableRow } from "./ui/row.js";
 export { renderScrollbar } from "./ui/scrollbar.js";
+export type { SelectorPanelLayout } from "./ui/selector-panel-layout.js";
+export { createSelectorPanelLayout, SELECTOR_PANEL_MIN_WIDTH } from "./ui/selector-panel-layout.js";
 export { renderTabs } from "./ui/tabs.js";
 export { padToWidth, truncateToWidth, visibleWidth, wrap } from "./ui/text.js";

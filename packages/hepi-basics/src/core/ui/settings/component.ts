@@ -1,5 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Key, matchesKey } from "@earendil-works/pi-tui";
+import { visibleWidth } from "../text.js";
 import type { SettingsController } from "./controller.js";
 import { createSettingsLayout } from "./layout.js";
 import {
@@ -19,6 +20,10 @@ export interface SettingsComponentOptions {
 	readonly showTabs?: boolean;
 }
 
+const KEY_MARQUEE_FRAME_MS = 125;
+const KEY_MARQUEE_INITIAL_PAUSE_MS = 750;
+const KEY_MARQUEE_END_PAUSE_MS = 1_500;
+
 function printableInput(input: string): string | undefined {
 	return input && !input.startsWith("\x1b") && !/\p{Cc}/u.test(input) ? input : undefined;
 }
@@ -29,9 +34,17 @@ export function createSettingsComponent(options: SettingsComponentOptions): Comp
 	let lastWidth = 80;
 	let activeTab: SettingsMainTab = "settings";
 	let closing = false;
+	let marqueeIdentity: string | undefined;
+	let marqueeOffset = 0;
+	let marqueeTimer: ReturnType<typeof setTimeout> | undefined;
 	const showTabs = options.showTabs !== false;
 	function requestRender(): void {
 		host.requestRender();
+	}
+
+	function stopMarquee(): void {
+		if (marqueeTimer !== undefined) clearTimeout(marqueeTimer);
+		marqueeTimer = undefined;
 	}
 
 	function selectedItem(): SettingsListItem | undefined {
@@ -41,6 +54,38 @@ export function createSettingsComponent(options: SettingsComponentOptions): Comp
 				? item.field.id === selection?.itemId && item.groupId === selection.groupId
 				: item.id === selection?.itemId,
 		);
+	}
+
+	function syncKeyMarquee(width: number): void {
+		const item = selectedItem();
+		const layout = createSettingsLayout(width, options.height);
+		const maxOffset =
+			item?.kind === "field" ? Math.max(0, visibleWidth(item.label) - layout.keyWidth) : 0;
+		const nextIdentity =
+			activeTab === "settings" &&
+			controller.state.mode !== "Edit" &&
+			item?.kind === "field" &&
+			layout.keyWidth > 0 &&
+			visibleWidth(item.label) > layout.keyWidth
+				? `${item.id}:${layout.keyWidth}`
+				: undefined;
+		if (nextIdentity !== marqueeIdentity) {
+			stopMarquee();
+			marqueeIdentity = nextIdentity;
+			marqueeOffset = 0;
+		}
+		if (nextIdentity === undefined || marqueeTimer !== undefined) return;
+		const delay =
+			marqueeOffset === 0
+				? KEY_MARQUEE_INITIAL_PAUSE_MS
+				: marqueeOffset >= maxOffset
+					? KEY_MARQUEE_END_PAUSE_MS
+					: KEY_MARQUEE_FRAME_MS;
+		marqueeTimer = setTimeout(() => {
+			marqueeTimer = undefined;
+			marqueeOffset = marqueeOffset >= maxOffset ? 0 : marqueeOffset + 1;
+			requestRender();
+		}, delay);
 	}
 
 	function ensureSelectionVisible(): void {
@@ -118,6 +163,7 @@ export function createSettingsComponent(options: SettingsComponentOptions): Comp
 	function close(): void {
 		if (closing) return;
 		closing = true;
+		stopMarquee();
 		try {
 			void Promise.resolve(options.close()).catch(() => {
 				closing = false;
@@ -302,6 +348,7 @@ export function createSettingsComponent(options: SettingsComponentOptions): Comp
 	return {
 		render(width: number): string[] {
 			lastWidth = width;
+			syncKeyMarquee(width);
 			return renderSettings({
 				controller,
 				theme,
@@ -310,6 +357,7 @@ export function createSettingsComponent(options: SettingsComponentOptions): Comp
 				editor,
 				activeTab,
 				showTabs,
+				keyMarqueeOffset: marqueeOffset,
 			});
 		},
 		handleInput(input: string): void {
