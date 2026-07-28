@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { Component } from "@earendil-works/pi-tui";
 import { Result } from "better-result";
 import { ExternalGrepScopeError } from "../../src/fff/errors.js";
 import type { FffRuntime } from "../../src/fff/fff.js";
@@ -26,6 +27,8 @@ interface RegisteredTool {
 	readonly name: string;
 	readonly promptGuidelines?: readonly string[];
 	execute?: (...args: unknown[]) => Promise<unknown>;
+	renderCall?: (args: unknown, theme: Theme, context: unknown) => Component;
+	renderResult?: (result: unknown, options: unknown, theme: Theme, context: unknown) => Component;
 }
 
 function harness(): { readonly pi: ExtensionAPI; readonly tools: RegisteredTool[] } {
@@ -127,5 +130,115 @@ describe("FFF tool registration", () => {
 		)) as { readonly content: readonly { readonly type: string; readonly text?: string }[] };
 
 		expect(result.content.some((item) => item.text?.includes("outside needle"))).toBe(true);
+	});
+
+	test("renders grouped grep output with aligned dim line numbers", () => {
+		const host = harness();
+		registerTools(host.pi, {
+			getRuntime: () => null,
+			isFeatureEnabled: () => false,
+			agentToolsDisabledText: () => "disabled",
+		});
+		const grep = host.tools.find((tool) => tool.name === "grep");
+		if (grep?.renderCall === undefined || grep.renderResult === undefined)
+			throw new Error("FFF grep renderer was not registered");
+		const roles: string[] = [];
+		const theme = {
+			fg: (role: string, text: string) => {
+				roles.push(role);
+				return text;
+			},
+			bold: (text: string) => text,
+		} as unknown as Theme;
+		const call = grep.renderCall({ pattern: "aft_move", path: "/tmp/aft", limit: 50 }, theme, {
+			lastComponent: undefined,
+		});
+		const result = grep.renderResult(
+			{
+				content: [
+					{
+						type: "text",
+						text: "39 matches in 13 files:\n\n> bun.lock (15 matches):\n    9: first\n  123: second",
+					},
+				],
+			},
+			{},
+			theme,
+			{ isError: false, lastComponent: undefined },
+		);
+
+		const renderText = (component: Component): string =>
+			component
+				.render(120)
+				.map((line) => line.trimEnd())
+				.join("\n");
+		expect(renderText(call)).toBe("grep /aft_move/ in /tmp/aft (limit 50)");
+		expect(renderText(result)).toBe(
+			"39 matches in 13 files:\n\nbun.lock (15 matches)\n    9:  first\n  123:  second",
+		);
+		const narrowCall = grep.renderCall(
+			{
+				pattern: "aft_move",
+				path: "/tmp/pi-github-repos/cortexkit/aft@main/packages/pi-plugin",
+				limit: 50,
+			},
+			theme,
+			{ lastComponent: undefined },
+		);
+		expect(narrowCall.render(40).every((line) => line.length <= 40)).toBe(true);
+		expect(result.render(40).every((line) => line.length <= 40)).toBe(true);
+		expect(roles.filter((role) => role === "success")).toHaveLength(3);
+		expect(roles).toContain("accent");
+		expect(roles).toContain("dim");
+	});
+
+	test("renders find queries and file-match tags", () => {
+		const host = harness();
+		registerTools(host.pi, {
+			getRuntime: () => null,
+			isFeatureEnabled: () => false,
+			agentToolsDisabledText: () => "disabled",
+		});
+		const find = host.tools.find((tool) => tool.name === "find");
+		if (find?.renderCall === undefined || find.renderResult === undefined)
+			throw new Error("FFF find renderer was not registered");
+		const roles: string[] = [];
+		const theme = {
+			fg: (role: string, text: string) => {
+				roles.push(role);
+				return text;
+			},
+			bold: (text: string) => text,
+		} as unknown as Theme;
+		const call = find.renderCall({ query: "tools", limit: 30 }, theme, {
+			lastComponent: undefined,
+		});
+		const result = find.renderResult(
+			{
+				content: [
+					{
+						type: "text",
+						text: "2/527 matches\n1. packages/a.ts (fuzzy_filename) - frequent git:modified\n2. packages/b.ts (fuzzy_path)",
+					},
+				],
+				details: { totalMatched: 527 },
+			},
+			{},
+			theme,
+			{ isError: false, lastComponent: undefined },
+		);
+
+		const renderText = (component: Component): string =>
+			component
+				.render(120)
+				.map((line) => line.trimEnd())
+				.join("\n");
+		expect(renderText(call)).toBe("find tools (limit 30)");
+		expect(renderText(result)).toBe(
+			"2 matches in 527 files:\nFF packages/a.ts (frequent git:modified)\nFP packages/b.ts (fuzzy_path)",
+		);
+		expect(roles.filter((role) => role === "success")).toHaveLength(2);
+		expect(roles).toContain("accent");
+		expect(roles).toContain("dim");
 	});
 });
