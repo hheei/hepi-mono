@@ -335,7 +335,7 @@ describe("AFT tools", () => {
 		expect(roles).not.toContain("accent");
 	});
 
-	test("renders Bash titles as code and separates the prompt from its command", () => {
+	test("renders Bash descriptions as code and separates the prompt from its command", () => {
 		const tools = new Map<string, RegisteredTool>();
 		const pi = {
 			registerTool(tool: unknown) {
@@ -369,8 +369,8 @@ describe("AFT tools", () => {
 				.render(120)
 				.map((line) => line.trimEnd())
 				.join("\n"),
-		).toBe("bash Run focused test\n\n$ bun test");
-		expect(roles).toEqual(["toolTitle", "mdCode", "warning", "dim"]);
+		).toBe("Run focused test\n\n$ bun test");
+		expect(roles).toEqual(["mdCode", "accent", "mdCode"]);
 	});
 
 	test("serializes AFT file mutations", () => {

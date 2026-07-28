@@ -1334,8 +1334,8 @@ function renderBashCall(
 	const timeoutText =
 		timeout === undefined ? "" : theme.fg("muted", ` (timeout ${formatSeconds(timeout)})`);
 	text.setText(
-		`${theme.fg("toolTitle", theme.bold("bash"))} ${theme.fg("mdCode", display)}${timeoutText}${
-			command ? `\n\n${theme.fg("warning", "$")} ${theme.fg("dim", command)}` : ""
+		`${theme.fg("mdCode", display)}${timeoutText}${
+			command ? `\n\n${theme.fg("accent", "$")} ${theme.fg("mdCode", command)}` : ""
 		}`,
 	);
 	return text;
