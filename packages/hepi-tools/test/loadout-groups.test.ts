@@ -18,22 +18,10 @@ describe("HEPI tools Loadout groups", () => {
 
 		registerHepiToolsLoadoutGroups(pi);
 		const registry = getHepiRuntimeLoadoutGroupRegistry(pi);
-		expect(registry.list().map((group) => group.id)).toEqual([
-			"fff",
-			"magic-context",
-			"web-search",
-		]);
+		expect(registry.list().map((group) => group.id)).toEqual(["fff", "web-search"]);
 		expect(registry.list()).toEqual(
 			[...HEPI_TOOLS_LOADOUT_GROUPS].sort((a, b) => a.label.localeCompare(b.label)),
 		);
-		expect(registry.get("magic-context")?.items).toEqual([
-			"ctx_search",
-			"ctx_expand",
-			"ctx_memory",
-			"ctx_note",
-			"ctx_reduce",
-			"todowrite",
-		]);
 		expect(registry.list().find((group) => group.id === "fff")?.items).toContain("find");
 		for (const handler of shutdownHandlers) handler();
 		expect(registry.list()).toEqual([]);

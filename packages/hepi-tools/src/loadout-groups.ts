@@ -8,11 +8,6 @@ export type HepiToolExtension = (pi: ExtensionAPI) => void;
 
 export const HEPI_TOOLS_LOADOUT_GROUPS = [
 	{
-		id: "magic-context",
-		label: "Magic Context",
-		items: ["ctx_search", "ctx_expand", "ctx_memory", "ctx_note", "ctx_reduce", "todowrite"],
-	},
-	{
 		id: "web-search",
 		label: "Web Search",
 		items: ["web_search", "fetch_content", "get_search_content", "source_check"],

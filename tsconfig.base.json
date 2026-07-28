@@ -11,7 +11,7 @@
 		"resolveJsonModule": true,
 		"baseUrl": ".",
 		"paths": {
-			"@cortexkit/pi-magic-context": ["packages/hepi-tools/src/pi-magic-context.d.ts"],
+			"@hheei/pi-magic-context": ["packages/hepi-mctx/src/pi-magic-context.d.ts"],
 			"pi-fff": ["packages/hepi-tools/src/pi-fff.d.ts"],
 			"pi-web-access": ["packages/hepi-tools/src/pi-web-access.d.ts"]
 		},

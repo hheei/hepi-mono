@@ -8,6 +8,7 @@ feature packages are deprecated and are no longer part of the workspace.
 | [`hepi-mono`](../../packages/hepi-mono/README.md) | Unified self-contained bundle for all current runtime modules | Pi host, `ffi-rs` |
 | [`hepi-basics`](../../packages/hepi-basics/README.md) | Foundational runtime bundle | Pi host |
 | [`hepi-tools`](../../packages/hepi-tools/README.md) | Tool and agent bundle | Pi host, `ffi-rs` |
+| [`hepi-mctx`](../../packages/hepi-mctx/README.md) | Magic Context bundle | Pi host |
 | [`hepi-skills`](../../packages/hepi-skills/README.md) | Skills bundle | Pi host |
 | [`hepi-debug`](../../packages/hepi-debug/README.md) | Development diagnostics and deterministic TUI replay | Pi host |
 
