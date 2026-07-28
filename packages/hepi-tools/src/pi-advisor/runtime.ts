@@ -548,26 +548,3 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 		usage: () => lifetime,
 	};
 }
-
-export function createUnavailableAdvisorAdapter(): AdvisorAgentAdapter {
-	let disposed = false;
-	return {
-		activeTools: ADVISOR_TOOL_NAMES,
-		contextBudget: () => ({ contextWindow: 32768, responseReserve: ADVISOR_RESPONSE_CAP }),
-		async create() {
-			disposed = false;
-		},
-		async reset() {},
-		async review(_prompt, signal) {
-			if (disposed) throw new Error("Advisor is disposed");
-			signal?.throwIfAborted();
-			return [];
-		},
-		async compact() {},
-		async abort() {},
-		async dispose() {
-			disposed = true;
-		},
-		usage: () => DEFAULT_ADVISOR_USAGE,
-	};
-}
