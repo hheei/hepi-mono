@@ -253,7 +253,6 @@ describe("advisor runtime outcomes", () => {
 		await adapter.create();
 		await adapter.review("first");
 		await adapter.compact();
-		await adapter.reconfigure("fake/fake", "off");
 		await adapter.review("second");
 		expect(sessionIds).toEqual(["pi-basics-advisor:primary", "pi-basics-advisor:primary"]);
 		const other = createCoreAdvisorAdapter(options(streamFn, undefined, { sessionId: "other" }));
@@ -323,68 +322,6 @@ describe("advisor runtime outcomes", () => {
 		await expect(adapter.create()).rejects.toThrow(/unsupported/i);
 	});
 
-	test("failed reconfigure preserves the active agent and lifetime usage", async () => {
-		const scripted = streamScript([
-			message("stop", [], { input: 2, output: 1, totalTokens: 3, cost: 0.1 }),
-		]);
-		const adapter = createCoreAdvisorAdapter(options(scripted.streamFn));
-		await adapter.create();
-		await adapter.review("before");
-		const before = adapter.usage();
-		await expect(adapter.reconfigure("missing/model", "off")).rejects.toThrow();
-		expect(adapter.usage()).toEqual(before);
-		await expect(adapter.review("after")).resolves.toEqual([]);
-	});
-
-	test("clearing the model disables the active adapter without creating an agent", async () => {
-		const adapter = createCoreAdvisorAdapter(options(streamScript([message("stop")]).streamFn));
-		await adapter.create();
-		await adapter.reconfigure(undefined, "off");
-		await expect(adapter.review("unconfigured")).rejects.toThrow(/not active/i);
-		expect(adapter.usage()).toEqual({ input: 0, output: 0, total: 0, cost: 0 });
-	});
-
-	test("successful reconfigure resets usage and uses the replacement model", async () => {
-		const replacement = { ...model, id: "replacement" } as Model<Api>;
-		const scripted = streamScript([
-			message("stop", [], { input: 2, output: 1, totalTokens: 3, cost: 0.1 }),
-			message("stop"),
-		]);
-		const modelIds: string[] = [];
-		const base = options((modelArg, contextArg, streamOptions) => {
-			modelIds.push(modelArg.id);
-			return scripted.streamFn(modelArg, contextArg, streamOptions);
-		});
-		const ctx = {
-			...base.ctx,
-			modelRegistry: {
-				...base.ctx.modelRegistry,
-				find: (_provider: string, id: string) => (id === "replacement" ? replacement : model),
-			},
-		};
-		const adapter = createCoreAdvisorAdapter({ ...base, ctx } as unknown as AdvisorAdapterOptions);
-		await adapter.create();
-		await adapter.review("before");
-		await adapter.reconfigure("fake/replacement", "off");
-		expect(adapter.usage()).toEqual({ input: 0, output: 0, total: 0, cost: 0 });
-		await adapter.review("after");
-		expect(scripted.calls()).toBe(2);
-		expect(modelIds).toEqual(["fake", "replacement"]);
-	});
-
-	test("reconfigure while disabled validates pending options without activating", async () => {
-		const replacement = { ...model, id: "replacement" } as Model<Api>;
-		const base = options(streamScript([message("stop")]).streamFn);
-		const ctx = {
-			...base.ctx,
-			modelRegistry: { ...base.ctx.modelRegistry, find: () => replacement },
-		};
-		const adapter = createCoreAdvisorAdapter({ ...base, ctx } as unknown as AdvisorAdapterOptions);
-		await adapter.reconfigure("fake/replacement", "off");
-		await expect(adapter.review("inactive")).rejects.toThrow(/not active/i);
-		await adapter.create();
-		await expect(adapter.review("active")).resolves.toEqual([]);
-	});
 	test("does not proactively compact below the context threshold", async () => {
 		const scripted = streamScript([
 			message("stop", [], { input: 3276, output: 1, totalTokens: 3277, cost: 0.1 }),

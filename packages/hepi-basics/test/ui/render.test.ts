@@ -178,9 +178,10 @@ describe("settings renderer", () => {
 		expect(editingOutput).toContain(white("Name description"));
 		expect(editingOutput).toContain(white("Origin: @pi-basics"));
 		expect(editingOutput).toContain(white("Value: "));
-		expect(editingOutput).toContain(accentBold("draft-value\x1b[7m \x1b[27m"));
+		const draftPrefix = `${ansi.accent}${ansi.bold}draft-value\x1b[7m \x1b[27m`;
+		expect(editingOutput).toContain(draftPrefix);
 		const editingValueRow = editing.find((line) => stripAnsi(line).includes("Value: draft-value"));
-		expect(editingValueRow).toContain(accentBold("draft-value\x1b[7m \x1b[27m"));
+		expect(editingValueRow).toContain(draftPrefix);
 		expect(editingValueRow).not.toContain(dim("draft-value\x1b[7m \x1b[27m"));
 	});
 

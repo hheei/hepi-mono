@@ -7,6 +7,9 @@ import {
 	registerHepiSettings,
 } from "../core/index.js";
 import {
+	AUTO_TITLE_FIELD,
+	AUTO_TITLE_GROUP,
+	AUTO_TITLE_MODEL_FIELD,
 	createAutoTitleCoordinator,
 	createAutoTitleSettingsProvider,
 	parseModelRef,
@@ -27,12 +30,6 @@ export default function piAutoTitleExtension(pi: ExtensionAPI): void {
 					if (!model || !runtime.ctx.modelRegistry.hasConfiguredAuth(model))
 						throw new Error(`Unavailable title model: ${value}`);
 				},
-				onPersisted: (model) => {
-					coordinator?.dispose();
-					const selected = model ?? modelOptions.find((option) => option.value !== "")?.value;
-					coordinator =
-						selected === undefined ? undefined : createAutoTitleCoordinator(runtime, selected);
-				},
 			});
 			const unregisterSettings = registerHepiSettings(provider, settingsRegistry);
 			runtime.registry.registerLifecycle({
@@ -40,14 +37,20 @@ export default function piAutoTitleExtension(pi: ExtensionAPI): void {
 				cleanup: unregisterSettings,
 			});
 			try {
-				const state = await provider.storage.load({
+				const context = {
 					sessionId: runtime.ctx.sessionManager.getSessionId(),
 					cwd: runtime.ctx.cwd,
-				});
-				await provider.onLoad?.(state ?? {}, {
-					sessionId: runtime.ctx.sessionManager.getSessionId(),
-					cwd: runtime.ctx.cwd,
-				});
+				};
+				const state = await provider.storage.load(context);
+				const values = state?.[AUTO_TITLE_GROUP] ?? {};
+				if (values[AUTO_TITLE_FIELD] === true) {
+					const configured = values[AUTO_TITLE_MODEL_FIELD];
+					const model = typeof configured === "string" && configured ? configured : undefined;
+					if (model !== undefined) await provider.onLoad?.(state ?? {}, context);
+					const selected = model ?? modelOptions.find((option) => option.value !== "")?.value;
+					coordinator =
+						selected === undefined ? undefined : createAutoTitleCoordinator(runtime, selected);
+				}
 			} catch (error) {
 				runtime.ctx.ui.notify(
 					`Unable to load HEPI automatic title settings: ${error instanceof Error ? error.message : String(error)}`,

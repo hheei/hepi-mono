@@ -123,11 +123,12 @@ function settingsPath(settingsDirectory = getAgentDir()): string {
 	return join(settingsDirectory, "settings.json");
 }
 
+export function traditionalToSimplifiedEnabled(state: HepiSettingsState): boolean {
+	return state[TRADITIONAL_TO_SIMPLIFIED_GROUP]?.[TRADITIONAL_TO_SIMPLIFIED_FIELD] !== "off";
+}
+
 export function createTraditionalToSimplifiedSettingsProvider(
-	options: {
-		readonly onPersisted?: (enabled: boolean) => void;
-		readonly settingsDirectory?: string;
-	} = {},
+	options: { readonly settingsDirectory?: string } = {},
 ): HepiSettingsProvider {
 	const settingsDirectory = options.settingsDirectory ?? getAgentDir();
 	return {
@@ -189,17 +190,7 @@ export function createTraditionalToSimplifiedSettingsProvider(
 						[TRADITIONAL_TO_SIMPLIFIED_GROUP]: { mode },
 					};
 				});
-				options.onPersisted?.(mode !== "off");
 			},
-		},
-		onLoad: async (state) => {
-			options.onPersisted?.(
-				state[TRADITIONAL_TO_SIMPLIFIED_GROUP]?.[TRADITIONAL_TO_SIMPLIFIED_FIELD] !== "off",
-			);
-		},
-		onChange: async (change) => {
-			if (change.fieldId !== TRADITIONAL_TO_SIMPLIFIED_FIELD) return;
-			options.onPersisted?.(change.value !== "off");
 		},
 	};
 }

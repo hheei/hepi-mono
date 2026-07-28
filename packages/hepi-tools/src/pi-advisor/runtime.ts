@@ -41,7 +41,6 @@ export interface AdvisorAgentAdapter {
 	readonly activeTools: readonly string[];
 	create(): Promise<void>;
 	reset(): Promise<void>;
-	reconfigure(model: string | undefined, thinking: ThinkingLevel): Promise<void>;
 	review(prompt: string, signal?: AbortSignal): Promise<readonly AdvisorAdvice[]>;
 	compact(): Promise<void>;
 	abort(): Promise<void>;
@@ -417,35 +416,6 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 		async reset() {
 			await resetAdapter();
 		},
-		async reconfigure(model, thinking) {
-			const nextOptions = { ...options, model, thinking };
-			const previous = agent;
-			if (model === undefined || model.trim().length === 0) {
-				previous?.abort();
-				await previous?.waitForIdle().catch(() => undefined);
-				agent = undefined;
-				disposed = true;
-				recreateAfterTimeout = false;
-				options = nextOptions;
-				lifetime = DEFAULT_ADVISOR_USAGE;
-				lastCompactedContextTokens = 0;
-				return;
-			}
-			const replacement = createAgent(nextOptions);
-			if (previous === undefined || disposed) {
-				replacement.abort();
-				await replacement.waitForIdle();
-				options = nextOptions;
-				recreateAfterTimeout = false;
-				return;
-			}
-			previous.abort();
-			await previous.waitForIdle().catch(() => undefined);
-			agent = replacement;
-			options = nextOptions;
-			lifetime = DEFAULT_ADVISOR_USAGE;
-			lastCompactedContextTokens = 0;
-		},
 		async review(prompt, signal) {
 			if (agent === undefined || disposed) {
 				if (
@@ -588,7 +558,6 @@ export function createUnavailableAdvisorAdapter(): AdvisorAgentAdapter {
 			disposed = false;
 		},
 		async reset() {},
-		async reconfigure() {},
 		async review(_prompt, signal) {
 			if (disposed) throw new Error("Advisor is disposed");
 			signal?.throwIfAborted();

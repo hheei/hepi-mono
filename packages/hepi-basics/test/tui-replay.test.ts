@@ -60,6 +60,7 @@ describe("tui replay", () => {
 		} as unknown as ExtensionAPI;
 		const ctx = {
 			mode: "tui",
+			cwd: "/workspace/project",
 			model: {
 				id: "model",
 				get name() {
@@ -90,7 +91,7 @@ describe("tui replay", () => {
 		const footer = footerFactory!({ requestRender: () => undefined } as never, theme, {
 			getExtensionStatuses: () => statuses ?? new Map(),
 		} as never);
-		expect(footer.render(80)).toEqual([]);
+		expect(stripAnsi(footer.render(80)[0] ?? "")).toContain("/workspace/project");
 		const baseFactory = editorFactory!;
 		const result = await replayTui({
 			columns: 80,
@@ -146,6 +147,7 @@ describe("tui replay", () => {
 		expect(stripAnsi(result.frames[7]!.lines[4]!)).not.toContain("Advisor");
 		expect(stripAnsi(result.frames[7]!.lines[0]!)).toContain("?? ?");
 		expect(result.frames[1]!.lines[0]).toContain("\x1b[");
+		feature.dispose("replay");
 	});
 	test("replays response metrics immediately after assistant output", async () => {
 		const handlers = new Map<string, Array<(event: unknown, ctx: ExtensionContext) => unknown>>();

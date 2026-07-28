@@ -12,7 +12,6 @@ import {
 	type HepiModelSelectionOption,
 	type HepiSettingField,
 	type HepiSettingsProvider,
-	type HepiSettingsState,
 	type HepiSettingsStorage,
 	hepiModelSelectionOptions,
 } from "../core/index.js";
@@ -116,7 +115,6 @@ export interface AutoTitleSettingsOptions {
 	readonly modelOptions?: readonly AutoTitleModelOption[];
 	readonly validate?: (value: string, ctx: HepiContext) => Promise<void> | void;
 	readonly prepareEnable?: (model?: string) => Promise<void> | void;
-	readonly onPersisted?: (model: string | undefined) => Promise<void> | void;
 }
 export function createAutoTitleSettingsProvider(
 	options: AutoTitleSettingsOptions = {},
@@ -124,17 +122,6 @@ export function createAutoTitleSettingsProvider(
 	const backingStorage = createAutoTitleStorage(
 		options.path === undefined ? {} : { path: options.path },
 	);
-	const storage = {
-		load: backingStorage.load,
-		save: async (state: HepiSettingsState, ctx: HepiContext) => {
-			await backingStorage.save(state, ctx);
-			const values = state[AUTO_TITLE_GROUP] ?? {};
-			const model = values[AUTO_TITLE_MODEL_FIELD];
-			await options.onPersisted?.(
-				values[AUTO_TITLE_FIELD] === true && typeof model === "string" && model ? model : undefined,
-			);
-		},
-	};
 	return {
 		id: SECTION,
 		title: "Pi Basics",
@@ -146,7 +133,7 @@ export function createAutoTitleSettingsProvider(
 				fields: autoTitleFields(options.modelOptions ?? [{ value: "", label: "Not set" }]),
 			},
 		],
-		storage,
+		storage: backingStorage,
 		onLoad: async (state, ctx) => {
 			const values = state[AUTO_TITLE_GROUP] ?? {};
 			const model = values[AUTO_TITLE_MODEL_FIELD];
@@ -155,7 +142,6 @@ export function createAutoTitleSettingsProvider(
 				parseModelRef(model);
 				await options.validate?.(model, ctx);
 			}
-			await options.onPersisted?.(typeof model === "string" && model ? model : undefined);
 		},
 		onChange: async (change, ctx) => {
 			if (change.fieldId !== AUTO_TITLE_FIELD && change.fieldId !== AUTO_TITLE_MODEL_FIELD) return;
