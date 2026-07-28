@@ -2,10 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import {
 	AUTO_TITLE_MODEL_FIELD,
 	AUTO_TITLE_SYSTEM_PROMPT,
 	autoTitleModelOptions,
+	completedTitleText,
 	createAutoTitleCoordinator,
 	createAutoTitleSettingsProvider,
 	createAutoTitleStorage,
@@ -23,6 +25,13 @@ import { createJsonSectionSettingsStorage } from "../../src/core/index.js";
 const context = (cwd: string) => ({ sessionId: "s", cwd });
 const LONG_SESSION_CONTEXT = "x".repeat(501);
 const ANSI_SGR = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "g");
+const titleResponse = (title: string): string => JSON.stringify({ title });
+const titleMessage = (stopReason: AssistantMessage["stopReason"], text: string): AssistantMessage =>
+	({
+		role: "assistant",
+		content: [{ type: "text", text }],
+		stopReason,
+	}) as unknown as AssistantMessage;
 
 describe("Pi Basics auto-title", () => {
 	test("parses exact provider/model and preserves global settings", async () => {
@@ -74,16 +83,30 @@ describe("Pi Basics auto-title", () => {
 		expect(AUTO_TITLE_SYSTEM_PROMPT).toContain("2 to 6 words");
 		expect(AUTO_TITLE_SYSTEM_PROMPT).toContain("searchable title");
 		expect(AUTO_TITLE_SYSTEM_PROMPT).toContain("code identifiers");
-		expect(AUTO_TITLE_SYSTEM_PROMPT).toContain("Return exactly one plain-text title");
+		expect(AUTO_TITLE_SYSTEM_PROMPT).toContain('Return exactly one JSON object: {"title":"..."}');
 		expect(AUTO_TITLE_SYSTEM_PROMPT).not.toContain("English only");
 	});
 
-	test("sanitizes common model wrappers and enforces the title limit", () => {
-		expect(safeTitle('```text\nTitle: "修复 auto-title 策略。"\n```')).toBe("修复 auto-title 策略");
-		expect(safeTitle('Title: "Improve session search".')).toBe("Improve session search");
-		expect(safeTitle("Title: Fix cache\nExplanation: concise title")).toBe("Fix cache");
-		expect(safeTitle(`Session name: ${"x".repeat(80)}`)).toHaveLength(60);
+	test("accepts only a title JSON object and enforces the title limit", () => {
+		expect(safeTitle(titleResponse("修复 auto-title 策略。"))).toBe("修复 auto-title 策略");
+		expect(safeTitle(titleResponse("Improve session search"))).toBe("Improve session search");
+		expect(safeTitle(titleResponse("Fix cache"))).toBe("Fix cache");
+		expect(safeTitle(titleResponse("x".repeat(80)))).toHaveLength(60);
+		expect(safeTitle('Title: "Improve session search".')).toBeUndefined();
+		expect(safeTitle('{"title":"Fix cache","reason":"brief"}')).toBeUndefined();
 		expect(safeTitle("\n\n")).toBeUndefined();
+	});
+
+	test("uses title text only from a completed assistant message", () => {
+		expect(completedTitleText([titleMessage("stop", "Fix title extraction")])).toBe(
+			"Fix title extraction",
+		);
+		expect(
+			completedTitleText([
+				titleMessage("length", "We need answer title in Chinese. Need concise searchable 2-6"),
+			]),
+		).toBeUndefined();
+		expect(completedTitleText([titleMessage("toolUse", "Unexpected tool call")])).toBeUndefined();
 	});
 
 	test("renders a two-second right-half greyscale shimmer for title generation", () => {
@@ -268,7 +291,7 @@ describe("Pi Basics auto-title", () => {
 						aborted++;
 					},
 					waitForIdle: async () => undefined,
-					result: () => "Generated title",
+					result: () => titleResponse("Generated title"),
 				};
 			},
 		);
@@ -331,7 +354,7 @@ describe("Pi Basics auto-title", () => {
 				},
 				abort: () => undefined,
 				waitForIdle: async () => undefined,
-				result: () => "Fix mobile login button",
+				result: () => titleResponse("Fix mobile login button"),
 			};
 		});
 
@@ -398,7 +421,7 @@ describe("Pi Basics auto-title", () => {
 			prompt: async () => undefined,
 			abort: () => undefined,
 			waitForIdle: async () => undefined,
-			result: () => "  My   Session  ",
+			result: () => titleResponse("  My   Session  "),
 		}));
 
 		handlers.get("agent_settled")?.({});
@@ -467,7 +490,7 @@ describe("Pi Basics auto-title", () => {
 		second.dispose();
 	});
 
-	test("retries after a title model returns an empty result", async () => {
+	test("retries after a title model returns an unusable result", async () => {
 		const handlers = new Map<string, (value: unknown) => void>();
 		let created = 0;
 		let result: string | undefined;
@@ -500,13 +523,17 @@ describe("Pi Basics auto-title", () => {
 				prompt: async () => undefined,
 				abort: () => undefined,
 				waitForIdle: async () => undefined,
-				result: () => (created === 1 ? "" : "Retry title"),
+				result: () =>
+					created === 1
+						? "We need answer title in Chinese. Need concise searchable 2-6"
+						: titleResponse("Retry title"),
 			};
 		});
 
 		coordinator.trigger();
 		await Bun.sleep(0);
 		expect(created).toBe(1);
+		expect(result).toBeUndefined();
 		handlers.get("agent_settled")?.({});
 		await Bun.sleep(0);
 		expect(created).toBe(2);

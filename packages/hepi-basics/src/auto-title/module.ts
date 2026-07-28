@@ -1,4 +1,4 @@
-import { Agent } from "@earendil-works/pi-agent-core";
+import { Agent, type AgentMessage } from "@earendil-works/pi-agent-core";
 import { streamSimple } from "@earendil-works/pi-ai/compat";
 import {
 	convertToLlm,
@@ -45,7 +45,7 @@ Requirements:
 - Avoid generic titles such as "Coding help", "Fix bug", "Update code", or "New session".
 - Use sentence case where applicable.
 
-Return exactly one plain-text title. No quotes, markdown, labels, trailing punctuation, or explanation.`;
+Return exactly one JSON object: {"title":"..."}. No markdown, labels, other keys, or explanation.`;
 
 export interface AutoTitleStorageOptions {
 	readonly path?: string;
@@ -166,6 +166,12 @@ export interface AutoTitleRuntime {
 }
 const ANSI_ESCAPE = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "g");
 
+function isTitleResponse(value: unknown): value is { readonly title: string } {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+	const entries = Object.entries(value);
+	return entries.length === 1 && entries[0]?.[0] === "title" && typeof entries[0]?.[1] === "string";
+}
+
 export function safeTitle(value: string): string | undefined {
 	let cleaned = "";
 	for (const character of value.replace(ANSI_ESCAPE, "")) {
@@ -181,18 +187,15 @@ export function safeTitle(value: string): string | undefined {
 			continue;
 		cleaned += character;
 	}
-	const firstLine = cleaned
-		.replace(/^```[a-z0-9_-]*\s*/i, "")
-		.replace(/```$/i, "")
-		.split(/[\r\n]+/)
-		.map((line) => line.trim())
-		.find((line) => line !== "");
-	if (firstLine === undefined) return undefined;
-	const title = firstLine
-		.replace(/^(title|session (?:name|title))\s*:\s*/i, "")
-		.replace(/^[-*]\s*/, "")
+	let response: unknown;
+	try {
+		response = JSON.parse(cleaned);
+	} catch {
+		return undefined;
+	}
+	if (!isTitleResponse(response) || /[\r\n]/.test(response.title)) return undefined;
+	const title = response.title
 		.replace(/[.?!:;,。！？：；，]+$/g, "")
-		.replace(/^[\s"'`]+|[\s"'`]+$/g, "")
 		.replace(/[.?!:;,。！？：；，]+$/g, "")
 		.replace(/\s+/g, " ")
 		.slice(0, 60)
@@ -276,6 +279,19 @@ export interface AutoTitleAgentAdapter {
 	result(): string | undefined;
 }
 
+export function completedTitleText(messages: readonly AgentMessage[]): string | undefined {
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const message = messages[index];
+		if (message?.role !== "assistant") continue;
+		if (message.stopReason !== "stop") return undefined;
+		return message.content
+			.filter((part) => part.type === "text")
+			.map((part) => part.text)
+			.join(" ");
+	}
+	return undefined;
+}
+
 export type AutoTitleAgentFactory = (
 	runtime: AutoTitleRuntime,
 	modelRef: string,
@@ -309,23 +325,7 @@ export function createCoreAutoTitleAgent(
 		waitForIdle: async () => {
 			await agent.waitForIdle();
 		},
-		result: () => {
-			for (let index = agent.state.messages.length - 1; index >= 0; index--) {
-				const message = agent.state.messages[index];
-				if (message?.role !== "assistant") continue;
-				if (
-					message.stopReason !== "stop" &&
-					message.stopReason !== "length" &&
-					message.stopReason !== "toolUse"
-				)
-					return undefined;
-				return message.content
-					.filter((part) => part.type === "text")
-					.map((part) => part.text)
-					.join(" ");
-			}
-			return undefined;
-		},
+		result: () => completedTitleText(agent.state.messages),
 	};
 }
 
