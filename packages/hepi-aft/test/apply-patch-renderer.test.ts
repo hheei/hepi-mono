@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { replayTui, stripAnsi } from "../../hepi-debug/src/tui-replay.js";
 import { clearApplyPatchRenderState } from "../../hepi-tools/src/pi-codex-tool/tools/apply-patch/render-state.js";
 import {
+	formatAftApplyPatchTiming,
 	markAftApplyPatchFailure,
 	renderAftApplyPatchCall,
 	renderAftApplyPatchResult,
@@ -41,7 +42,7 @@ describe("AFT apply_patch renderer", () => {
 		).toContain("Patching");
 	});
 
-	test("keeps AFT recovery errors out of the TUI", () => {
+	test("keeps AFT recovery errors out of the TUI and shows successful timing", async () => {
 		const args = { patchText };
 		const preview = renderAftApplyPatchResult(
 			makeResult("preview", { phase: "preview", paths: ["src/example.ts"] }),
@@ -52,12 +53,24 @@ describe("AFT apply_patch renderer", () => {
 		expect(renderToString(preview)).toBe("");
 
 		const complete = renderAftApplyPatchResult(
-			makeResult("Applied", { phase: "applied", paths: ["src/example.ts", "src/new.ts"] }),
+			makeResult("Applied", {
+				phase: "applied",
+				paths: ["src/example.ts", "src/new.ts"],
+				timing: { previewMs: 1_200, permissionsMs: 12, applyMs: 3_400, totalMs: 4_700 },
+			}),
 			{},
 			mockTheme,
 			makeContext(args),
 		);
-		expect(renderToString(complete)).toBe("");
+		expect(renderToString(complete)).toBe(
+			"preview 1.2s | permissions 12ms | apply 3.4s | total 4.7s",
+		);
+		const timingFrame = await replayTui({
+			columns: 48,
+			rows: 4,
+			create: () => complete,
+		});
+		expect(stripAnsi(timingFrame.last.lines.join("\n"))).toContain("total 4.7s");
 
 		const error = renderAftApplyPatchResult(
 			makeResult("apply_patch partially completed\nRecovery: read affected paths"),
@@ -66,6 +79,10 @@ describe("AFT apply_patch renderer", () => {
 			makeContext(args, { isError: true }),
 		);
 		expect(renderToString(error)).toBe("");
+	});
+
+	test("formats partial timing without unavailable phases", () => {
+		expect(formatAftApplyPatchTiming({ previewMs: 240 })).toBe("preview 240ms");
 	});
 
 	test("marks the failed patch target in the call summary", async () => {

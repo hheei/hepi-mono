@@ -14,6 +14,14 @@ export type AftApplyPatchDetails = {
 	readonly phase: "preview" | "applied";
 	readonly paths: readonly string[];
 	readonly text?: string | undefined;
+	readonly timing?: AftApplyPatchTiming | undefined;
+};
+
+export type AftApplyPatchTiming = {
+	readonly previewMs: number;
+	readonly permissionsMs?: number | undefined;
+	readonly applyMs?: number | undefined;
+	readonly totalMs?: number | undefined;
 };
 
 type ApplyPatchArgs = { readonly patchText?: unknown } | undefined;
@@ -28,6 +36,40 @@ interface ApplyPatchRenderContext extends RenderContextLike<ApplyPatchArgs> {
 
 interface ApplyPatchRenderOptions {
 	readonly isPartial?: boolean | undefined;
+}
+
+function timingFromDetails(details: unknown): AftApplyPatchTiming | undefined {
+	if (details === null || typeof details !== "object") return undefined;
+	const timing = Reflect.get(details, "timing");
+	if (timing === null || typeof timing !== "object") return undefined;
+	const previewMs = Reflect.get(timing, "previewMs");
+	if (typeof previewMs !== "number" || !Number.isFinite(previewMs)) return undefined;
+	const permissionsMs = Reflect.get(timing, "permissionsMs");
+	const applyMs = Reflect.get(timing, "applyMs");
+	const totalMs = Reflect.get(timing, "totalMs");
+	return {
+		previewMs,
+		...(typeof permissionsMs === "number" && Number.isFinite(permissionsMs)
+			? { permissionsMs }
+			: {}),
+		...(typeof applyMs === "number" && Number.isFinite(applyMs) ? { applyMs } : {}),
+		...(typeof totalMs === "number" && Number.isFinite(totalMs) ? { totalMs } : {}),
+	};
+}
+
+function formatTimingDuration(milliseconds: number): string {
+	return milliseconds < 1_000
+		? `${Math.round(milliseconds)}ms`
+		: `${(milliseconds / 1_000).toFixed(1)}s`;
+}
+
+export function formatAftApplyPatchTiming(timing: AftApplyPatchTiming): string {
+	const parts = [`preview ${formatTimingDuration(timing.previewMs)}`];
+	if (timing.permissionsMs !== undefined)
+		parts.push(`permissions ${formatTimingDuration(timing.permissionsMs)}`);
+	if (timing.applyMs !== undefined) parts.push(`apply ${formatTimingDuration(timing.applyMs)}`);
+	if (timing.totalMs !== undefined) parts.push(`total ${formatTimingDuration(timing.totalMs)}`);
+	return parts.join(" | ");
 }
 
 function canonicalPatchEnvelope(patchText: string): string {
@@ -100,11 +142,14 @@ export function renderAftApplyPatchCall(
 }
 
 export function renderAftApplyPatchResult(
-	_result: AgentToolResult<unknown>,
+	result: AgentToolResult<unknown>,
 	_options: ApplyPatchRenderOptions,
-	_theme: Theme,
+	theme: Theme,
 	context: ApplyPatchRenderContext,
 ): Component {
 	if (context.isError) return new Container();
-	return new Container();
+	const timing = timingFromDetails(result.details);
+	return timing
+		? new Text(theme.fg("dim", formatAftApplyPatchTiming(timing)), 0, 0)
+		: new Container();
 }

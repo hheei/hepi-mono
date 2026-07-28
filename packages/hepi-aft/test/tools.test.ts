@@ -304,12 +304,16 @@ describe("AFT tools", () => {
 				preview: undefined,
 			},
 		]);
-		expect(updates).toEqual([
-			{
-				content: [{ type: "text", text: "preview" }],
-				details: { phase: "preview", paths: ["README.md"], text: "preview" },
+		expect(updates).toHaveLength(1);
+		expect(updates[0]).toMatchObject({
+			content: [{ type: "text", text: "preview" }],
+			details: {
+				phase: "preview",
+				paths: ["README.md"],
+				text: "preview",
+				timing: { previewMs: expect.any(Number), permissionsMs: expect.any(Number) },
 			},
-		]);
+		});
 	});
 
 	test("renders AFT read paths dim with the original warning line range", () => {

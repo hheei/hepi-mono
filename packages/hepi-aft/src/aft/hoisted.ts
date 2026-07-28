@@ -756,8 +756,10 @@ export function registerHoistedTools(
 				extCtx,
 			) {
 				if (params.patchText.trim().length === 0) throw new Error("'patchText' is required");
+				const startedAt = Date.now();
 				startAftApplyPatchRender(toolCallId, params.patchText, extCtx.cwd);
 				const bridge = bridgeFor(ctx, extCtx.cwd);
+				const previewStartedAt = Date.now();
 				const preview = await callToolCall(
 					bridge,
 					"apply_patch",
@@ -765,6 +767,7 @@ export function registerHoistedTools(
 					extCtx,
 					{ preview: true },
 				);
+				const previewMs = Date.now() - previewStartedAt;
 				if (preview.success === false) {
 					markAftApplyPatchFailure(toolCallId, params.patchText, extCtx.cwd, preview, false);
 					throw new Error(preview.text || preview.message || "apply_patch preview failed");
@@ -772,21 +775,35 @@ export function registerHoistedTools(
 				const affectedPaths = Array.isArray(preview.affected_paths)
 					? preview.affected_paths.filter((path): path is string => typeof path === "string")
 					: [];
+				const permissionsStartedAt = Date.now();
 				for (const path of new Set(affectedPaths)) {
 					await assertExternalDirectoryPermission(extCtx, path, {
 						restrictToProjectRoot: surface.restrictToProjectRoot,
 					});
 				}
+				const permissionsMs = Date.now() - permissionsStartedAt;
 				onUpdate?.({
 					content: [{ type: "text", text: preview.text }],
-					details: { phase: "preview", paths: affectedPaths, text: preview.text },
+					details: {
+						phase: "preview",
+						paths: affectedPaths,
+						text: preview.text,
+						timing: { previewMs, permissionsMs },
+					},
 				});
+				const applyStartedAt = Date.now();
 				const response = await callToolCall(
 					bridge,
 					"apply_patch",
 					{ patchText: params.patchText },
 					extCtx,
 				);
+				const timing = {
+					previewMs,
+					permissionsMs,
+					applyMs: Date.now() - applyStartedAt,
+					totalMs: Date.now() - startedAt,
+				};
 				if (response.success === false) {
 					markAftApplyPatchFailure(toolCallId, params.patchText, extCtx.cwd, response, false);
 					throw new Error(response.text || response.message || "apply_patch failed");
@@ -810,6 +827,7 @@ export function registerHoistedTools(
 					phase: "applied",
 					paths: affectedPaths,
 					text: response.text,
+					timing,
 				});
 			},
 			renderCall(args, theme, context) {
