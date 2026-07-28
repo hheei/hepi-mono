@@ -180,12 +180,12 @@ describe("loadout model", () => {
 	});
 
 	test("uses a module-provided group label before origin fallback", () => {
+		const builtIn = tool("tool:builtin", { origin: "builtin" });
 		const selected = tool("tool:selected", { origin: "extension", group: "Selected tools" });
 		const automatic = tool("tool:automatic", { origin: "extension" });
-		expect(groupLoadoutItemsByOrigin([selected, automatic]).map((group) => group.origin)).toEqual([
-			"Selected tools",
-			"extension",
-		]);
+		expect(
+			groupLoadoutItemsByOrigin([selected, automatic, builtIn]).map((group) => group.origin),
+		).toEqual(["built-in", "Selected tools", "extension"]);
 	});
 
 	test("reconciles selection by identity, then group successor, then first visible", () => {
