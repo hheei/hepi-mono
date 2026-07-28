@@ -9,6 +9,7 @@ Use `<owner>-<repo>` directory names. Documentation must cite the public URL and
 | Repository | Revision | What was studied |
 | --- | --- | --- |
 | [earendil-works/pi](https://github.com/earendil-works/pi) | `65ff8e7f6db447dcddb1a9c8fd05f081c5cda76a` | Pi extension lifecycle, model registry, TUI, tools, and agent runtime |
+| [earendil-works/pi](https://github.com/earendil-works/pi) | `b4f293684bba718d59cc1157679bcf6157b3a7f5` (`v0.82.1`) | Project-only `pi-development` skill source reference |
 | [gabelul/bpx-mono](https://github.com/gabelul/bpx-mono) | `64567efe1177739b2eb110a746fff7c736c9468b` | Isolated advisor agents and result delivery |
 | [pasky/pi-omplike-advisor](https://github.com/pasky/pi-omplike-advisor) | `43eb9a976d751c06016a62b5423e2c6ddaff43a1` | Read-only advisor behavior |
 | [dbachelder/pi-btw](https://github.com/dbachelder/pi-btw) | `4f858102706910ee9d520a9666832f3103631b61` | Side-agent orchestration and transcript handling |
@@ -19,6 +20,7 @@ Use `<owner>-<repo>` directory names. Documentation must cite the public URL and
 | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) | `16f29800fd2681bdf24f3eb4ccffe38be3baec6b` | Ponytail rules and companion workflows |
 | [ShpetimA/pi-fff](https://github.com/ShpetimA/pi-fff) | `694837d0644abc8527ebfa3ea50135e0f5d1ece4` | FFF runtime, tools, commands, formatting, and autocomplete behavior adapted for HEPI ownership |
 | [mattpocock/skills](https://github.com/mattpocock/skills) | `ed37663cc5fbef691ddfecd080dff42f7e7e350d` | Grill and domain-modeling skills adapted for the HEPI skills bundle |
+| [hheei/magic-context](https://github.com/hheei/magic-context) | `113f3e4824e0ea03a73f2c1e8a57a5ab0bbf7a09` | Original Magic Context Pi plugin source and its core workspace dependencies, evaluated for HEPI ownership |
 
 ## Other Design References
 

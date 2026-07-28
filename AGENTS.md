@@ -55,7 +55,7 @@ Do not introduce npm, Yarn, or pnpm lockfiles.
 
 - Document user-visible commands, tools, settings, persistence, requirements, and incompatibilities in the affected package README.
 - Keep repository workflow and architecture guidance under `docs/development/` and `docs/architecture/`; keep evidence and historical context under `docs/research/` and `docs/plans/`.
-- Treat `DESIGN.md` as the current Pi Basics TUI specification and `DESIGN_TS.md` as the repository TypeScript design specification.
+- Treat `DESIGN.md` as the current HEPI TUI specification. Pi source-code design taste and integration guidance live in `.pi/skills/pi-development/references/DESIGN.md`; load the `pi-development` skill before using that reference.
 - Treat `docs/plans/` as historical context, not the current behavior contract.
 - Update documentation when public behavior, compatibility, or package entry points change.
 

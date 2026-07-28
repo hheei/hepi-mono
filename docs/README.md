@@ -13,7 +13,7 @@ This directory contains current user and developer documentation, architecture n
 - [Extension development](development/extension-development.md): package conventions and repository workflow.
 - [Pi Basics development](development/pi-basics.md): architecture, public integration APIs, tests, and contribution rules.
 - [HEPI TUI design](../DESIGN.md): normative TUI design language.
-- [HEPI TypeScript design](../DESIGN_TS.md): normative TypeScript contracts and implementation rules.
+- [Pi source design](../.pi/skills/pi-development/references/DESIGN.md): Pi source-code design taste and integration guidance.
 
 ## Architecture
 
@@ -38,6 +38,6 @@ When documents disagree, use this order:
 
 1. Public behavior covered by source code and tests.
 2. Package README usage and compatibility notes.
-3. `DESIGN.md` and `DESIGN_TS.md` for normative design rules.
+3. `DESIGN.md` for HEPI TUI policy and the `pi-development` skill's `references/DESIGN.md` for Pi source design guidance.
 4. Current development and architecture guides.
 5. Research and completed plans.
