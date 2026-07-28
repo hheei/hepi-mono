@@ -16,6 +16,9 @@
 	"pi": {
 		"extensions": [
 			"dist/extension.js"
+		],
+		"skills": [
+			"dist/skills"
 		]
 	},
 	"scripts": {

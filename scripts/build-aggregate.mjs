@@ -99,8 +99,8 @@ for (const packageName of packageNames) {
 		);
 		cpSync(binarySource, path.join(outputRoot, "bin"), { recursive: true });
 	}
-	if (packageName === "hepi-skills") {
-		const skillsSource = path.join(packageRoot, "src", "skills");
+	if (packageName === "hepi-skills" || packageName === "hepi-mono") {
+		const skillsSource = path.join(root, "packages", "hepi-skills", "src", "skills");
 		const skillsOutput = path.join(outputRoot, "skills");
 		cpSync(skillsSource, skillsOutput, { recursive: true });
 	}
