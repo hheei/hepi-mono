@@ -36,8 +36,10 @@ import { type Component, Container, Spacer, Text } from "@earendil-works/pi-tui"
 import { type Static, Type } from "typebox";
 import {
 	type AftApplyPatchDetails,
+	markAftApplyPatchFailure,
 	renderAftApplyPatchCall,
 	renderAftApplyPatchResult,
+	startAftApplyPatchRender,
 } from "./apply-patch-renderer.js";
 import { formatDiffForPi } from "./diff-format.js";
 import { locationToReadParams } from "./fff-read-path-resolver.js";
@@ -747,13 +749,14 @@ export function registerHoistedTools(
 			parameters: ApplyPatchParams,
 			executionMode: "sequential",
 			async execute(
-				_toolCallId,
+				toolCallId,
 				params: Static<typeof ApplyPatchParams>,
 				_signal,
 				onUpdate,
 				extCtx,
 			) {
 				if (params.patchText.trim().length === 0) throw new Error("'patchText' is required");
+				startAftApplyPatchRender(toolCallId, params.patchText, extCtx.cwd);
 				const bridge = bridgeFor(ctx, extCtx.cwd);
 				const preview = await callToolCall(
 					bridge,
@@ -762,8 +765,10 @@ export function registerHoistedTools(
 					extCtx,
 					{ preview: true },
 				);
-				if (preview.success === false)
+				if (preview.success === false) {
+					markAftApplyPatchFailure(toolCallId, params.patchText, extCtx.cwd, preview, false);
 					throw new Error(preview.text || preview.message || "apply_patch preview failed");
+				}
 				const affectedPaths = Array.isArray(preview.affected_paths)
 					? preview.affected_paths.filter((path): path is string => typeof path === "string")
 					: [];
@@ -782,9 +787,12 @@ export function registerHoistedTools(
 					{ patchText: params.patchText },
 					extCtx,
 				);
-				if (response.success === false)
+				if (response.success === false) {
+					markAftApplyPatchFailure(toolCallId, params.patchText, extCtx.cwd, response, false);
 					throw new Error(response.text || response.message || "apply_patch failed");
+				}
 				if (response.complete === false) {
+					markAftApplyPatchFailure(toolCallId, params.patchText, extCtx.cwd, response, true);
 					const paths =
 						affectedPaths.length > 0 ? `Affected paths: ${affectedPaths.join(", ")}` : "";
 					throw new Error(

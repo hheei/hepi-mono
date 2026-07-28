@@ -46,4 +46,19 @@ describe("AFT tool-call timeout recovery", () => {
 
 		expect(calls).toBe(1);
 	});
+
+	test("sets a 10 second timeout for the apply_patch endpoint", async () => {
+		let timeoutMs: number | undefined;
+		await callToolCall(
+			bridge(async (_sessionId, _name, _args, options) => {
+				timeoutMs = options?.timeoutMs;
+				return { success: true, text: "applied" };
+			}),
+			"apply_patch",
+			{ patchText: "*** Begin Patch\n*** End Patch" },
+			context,
+		);
+
+		expect(timeoutMs).toBe(10_000);
+	});
 });

@@ -1,8 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { replayTui, stripAnsi } from "../../hepi-debug/src/tui-replay.js";
+import { clearApplyPatchRenderState } from "../../hepi-tools/src/pi-codex-tool/tools/apply-patch/render-state.js";
 import {
+	markAftApplyPatchFailure,
 	renderAftApplyPatchCall,
 	renderAftApplyPatchResult,
+	startAftApplyPatchRender,
 } from "../src/aft/apply-patch-renderer.js";
 import { makeContext, makeResult, mockTheme, renderToString } from "./render-test-helpers.js";
 
@@ -17,6 +20,8 @@ const patchText = [
 	"+export {};",
 	"*** End Patch",
 ].join("\n");
+
+afterEach(clearApplyPatchRenderState);
 
 describe("AFT apply_patch renderer", () => {
 	test("uses the Codex patch summary for complete and streaming arguments", () => {
@@ -61,6 +66,38 @@ describe("AFT apply_patch renderer", () => {
 			makeContext(args, { isError: true }),
 		);
 		expect(renderToString(error)).toBe("");
+	});
+
+	test("marks the failed patch target in the call summary", async () => {
+		startAftApplyPatchRender("failed-call", patchText, "/workspace");
+		markAftApplyPatchFailure(
+			"failed-call",
+			patchText,
+			"/workspace",
+			{ text: "src/new.ts: failed to apply" },
+			false,
+		);
+		const rendered = renderToString(
+			renderAftApplyPatchCall({ patchText }, mockTheme, {
+				...makeContext({ patchText }),
+				cwd: "/workspace",
+				toolCallId: "failed-call",
+			}),
+		);
+		expect(rendered).toContain("Edit failed");
+		expect(rendered).toContain("src/new.ts failed");
+
+		const result = await replayTui({
+			columns: 48,
+			rows: 10,
+			create: () =>
+				renderAftApplyPatchCall({ patchText }, mockTheme, {
+					...makeContext({ patchText }),
+					cwd: "/workspace",
+					toolCallId: "failed-call",
+				}),
+		});
+		expect(stripAnsi(result.last.lines.join("\n"))).toContain("src/new.ts failed");
 	});
 
 	test("replays the Codex summary in a narrow TUI frame", async () => {
