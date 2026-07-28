@@ -291,6 +291,7 @@ interface BashWatchDetails extends Record<string, unknown> {}
 
 /** Local shape for Pi's render context — mirrors hoisted.ts pattern. */
 interface RenderContextLike {
+	args: { command?: unknown } | undefined;
 	lastComponent: import("@earendil-works/pi-tui").Component | undefined;
 	isError: boolean;
 }
@@ -1360,11 +1361,18 @@ function renderBashResult(
 	const details = result.details;
 	const exitCode = details?.exit_code;
 	const bgCompletions = details?.bg_completions ?? [];
+	const command =
+		details?.command ??
+		(typeof context.args?.command === "string" ? context.args.command : undefined);
 
 	// Build result display
 	const container = reuseContainer(context.lastComponent);
 	container.clear();
-	container.addChild(new Spacer(1));
+	if (command) {
+		container.addChild(new Spacer(1));
+		container.addChild(new Text(theme.fg("accent", `$ ${command}`), 1, 0));
+		container.addChild(new Spacer(1));
+	}
 
 	// Output preview is already capped by Rust's coordinated bash-output policy.
 	const rawOutput = result.content
@@ -1372,17 +1380,18 @@ function renderBashResult(
 		.map((c) => (c as { text?: string }).text ?? "")
 		.join("\n")
 		.trim();
-	if (details?.command)
-		container.addChild(new Text(theme.fg("accent", `$ ${details.command}`), 1, 0));
 	if (rawOutput) {
 		const outputLines = rawOutput.split("\n");
 		const collapsed = outputLines.length > 10 && !expanded;
-		container.addChild(new Spacer(1));
 		container.addChild(new Text(theme.fg("muted", "Results"), 1, 0));
-		container.addChild(new Text(collapsed ? outputLines.slice(0, 10).join("\n") : rawOutput, 1, 0));
+		container.addChild(new Text(collapsed ? outputLines.slice(-10).join("\n") : rawOutput, 0, 0));
 		if (collapsed) {
 			container.addChild(
-				new Text(theme.fg("muted", `... ${outputLines.length - 10} more lines`), 1, 0),
+				new Text(
+					theme.fg("dim", `... (${outputLines.length - 10} earlier lines, ^o to expand)`),
+					1,
+					0,
+				),
 			);
 		}
 		container.addChild(new Spacer(1));
