@@ -339,7 +339,7 @@ describe("AFT tools", () => {
 		expect(roles).not.toContain("accent");
 	});
 
-	test("renders Bash descriptions as code and separates the prompt from its command", () => {
+	test("renders Bash commands in accent with a dim inline timeout", () => {
 		const tools = new Map<string, RegisteredTool>();
 		const pi = {
 			registerTool(tool: unknown) {
@@ -357,7 +357,7 @@ describe("AFT tools", () => {
 		if (bash?.renderCall === undefined) throw new Error("Expected Bash renderer");
 		const roles: string[] = [];
 		const component = bash.renderCall(
-			{ command: "bun test", description: "Run focused test" },
+			{ command: "bun test", description: "Run focused test", timeout: 10_000 },
 			{
 				fg: (role: string, text: string) => {
 					roles.push(role);
@@ -373,8 +373,8 @@ describe("AFT tools", () => {
 				.render(120)
 				.map((line) => line.trimEnd())
 				.join("\n"),
-		).toBe("Run focused test\n\n$ bun test");
-		expect(roles).toEqual(["mdCode", "accent", "mdCode"]);
+		).toBe("$ bun test (timeout 10.0s)");
+		expect(roles).toEqual(["accent", "dim"]);
 	});
 
 	test("serializes AFT file mutations", () => {

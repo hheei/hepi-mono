@@ -586,7 +586,6 @@ DO NOT use bash for code search or code exploration. If you are about to run gre
 		renderCall(args, theme, context) {
 			return renderBashCall(
 				args?.command,
-				args?.description,
 				typeof args?.timeout === "number" ? args.timeout : undefined,
 				theme,
 				context,
@@ -1324,20 +1323,14 @@ async function formatPtyStatus(
 
 function renderBashCall(
 	command: string | undefined,
-	description: string | undefined,
 	timeout: number | undefined,
 	theme: Theme,
 	context: RenderContextLike,
 ): Text {
 	const text = reuseText(context.lastComponent);
-	const display = description ?? (command ? shortenCommand(command) : "...");
 	const timeoutText =
-		timeout === undefined ? "" : theme.fg("muted", ` (timeout ${formatSeconds(timeout)})`);
-	text.setText(
-		`${theme.fg("mdCode", display)}${timeoutText}${
-			command ? `\n\n${theme.fg("accent", "$")} ${theme.fg("mdCode", command)}` : ""
-		}`,
-	);
+		timeout === undefined ? "" : theme.fg("dim", ` (timeout ${formatSeconds(timeout)})`);
+	text.setText(`${theme.fg("accent", `$ ${command ?? "..."}`)}${timeoutText}`);
 	return text;
 }
 
@@ -1430,10 +1423,4 @@ function renderBashResult(
 function formatSeconds(milliseconds: number): string {
 	const seconds = milliseconds / 1000;
 	return seconds > 100 ? `${Math.round(seconds)}s` : `${seconds.toFixed(1)}s`;
-}
-
-function shortenCommand(command: string): string {
-	// Truncate long commands for UI display
-	if (command.length <= 60) return command;
-	return `${command.slice(0, 57)}...`;
 }
