@@ -128,13 +128,14 @@ describe("tui replay", () => {
 		});
 		expect(result.frames).toHaveLength(8);
 		for (const [index, frame] of result.frames.entries()) {
-			expect(frame.lines).toHaveLength(index < 4 ? 4 : 5);
+			expect(frame.lines).toHaveLength(5);
 			expect(frame.lines[0]).not.toBe("previous-top");
 			expect(frame.lines[0]).not.toContain("\n");
 			expect(stripAnsi(frame.lines[0]!)).toHaveLength(frame.columns);
 			expect(stripAnsi(frame.lines[1]!)).toBe("PROMPT HERE");
 			expect(stripAnsi(frame.lines[2]!)).toBe("previous-bottom");
 			expect(stripAnsi(frame.lines[3]!)).toBe("previous-autocomplete");
+			if (index < 4) expect(stripAnsi(frame.lines[4]!)).toContain("/workspace/project");
 		}
 		expect(stripAnsi(result.frames[0]!.lines[0]!)).toContain("⣤⣤");
 		expect(stripAnsi(result.frames[0]!.lines[0]!)).toContain("1.2k");
