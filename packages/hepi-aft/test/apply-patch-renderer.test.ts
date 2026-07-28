@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { replayTui, stripAnsi } from "../../hepi-debug/src/tui-replay.js";
 import {
 	renderAftApplyPatchCall,
 	renderAftApplyPatchResult,
@@ -18,10 +19,13 @@ const patchText = [
 ].join("\n");
 
 describe("AFT apply_patch renderer", () => {
-	test("summarizes complete and streaming patch arguments", () => {
-		expect(
-			renderToString(renderAftApplyPatchCall({ patchText }, mockTheme, makeContext({ patchText }))),
-		).toContain("2 file actions");
+	test("uses the Codex patch summary for complete and streaming arguments", () => {
+		const complete = renderToString(
+			renderAftApplyPatchCall({ patchText }, mockTheme, makeContext({ patchText })),
+		);
+		expect(complete).toContain("Changed 2 files +2 -1");
+		expect(complete).toContain("src/example.ts +1 -1");
+		expect(complete).toContain("src/new.ts +1 -0");
 		expect(
 			renderToString(
 				renderAftApplyPatchCall({ patchText: "*** Begin" }, mockTheme, {
@@ -29,10 +33,10 @@ describe("AFT apply_patch renderer", () => {
 					argsComplete: false,
 				}),
 			),
-		).toContain("Patching...");
+		).toContain("Patching");
 	});
 
-	test("renders bridge preview, completion, and recovery errors", () => {
+	test("keeps the Codex progress and completion rows while rendering recovery errors", () => {
 		const args = { patchText };
 		const preview = renderAftApplyPatchResult(
 			makeResult("preview", { phase: "preview", paths: ["src/example.ts"] }),
@@ -40,8 +44,7 @@ describe("AFT apply_patch renderer", () => {
 			mockTheme,
 			makeContext(args),
 		);
-		expect(renderToString(preview)).toContain("patch validated");
-		expect(renderToString(preview)).toContain("src/example.ts");
+		expect(renderToString(preview)).toBe("• Patching");
 
 		const complete = renderAftApplyPatchResult(
 			makeResult("Applied", { phase: "applied", paths: ["src/example.ts", "src/new.ts"] }),
@@ -49,8 +52,7 @@ describe("AFT apply_patch renderer", () => {
 			mockTheme,
 			makeContext(args),
 		);
-		expect(renderToString(complete)).toContain("patch applied");
-		expect(renderToString(complete)).toContain("src/new.ts");
+		expect(renderToString(complete)).toBe("");
 
 		const error = renderAftApplyPatchResult(
 			makeResult("apply_patch partially completed\nRecovery: read affected paths"),
@@ -59,5 +61,18 @@ describe("AFT apply_patch renderer", () => {
 			makeContext(args, { isError: true }),
 		);
 		expect(renderToString(error)).toContain("Recovery: read affected paths");
+	});
+
+	test("replays the Codex summary in a narrow TUI frame", async () => {
+		const result = await replayTui({
+			columns: 48,
+			rows: 10,
+			create: () => renderAftApplyPatchCall({ patchText }, mockTheme, makeContext({ patchText })),
+		});
+
+		const frame = stripAnsi(result.last.lines.join("\n"));
+		expect(frame).toContain("Changed 2 files +2 -1");
+		expect(frame).toContain("src/example.ts +1 -1");
+		expect(frame).not.toContain("patch applied");
 	});
 });
