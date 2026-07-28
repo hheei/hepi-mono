@@ -206,7 +206,7 @@ Pi Basics is a focused terminal interface for repeated coding work. Its visual l
 
 The system follows the original pi interactive UI. Content remains the dominant layer. Backgrounds identify a small number of meaningful blocks, while accent and status colors communicate focus and state. Structure comes from full-width single-line borders, one-line spacing, and stable terminal-width rendering.
 
-This document is normative for new UI work in `packages/hepi-basics/src/core`. When an existing component conflicts with it, preserve behavior first and migrate the visual treatment deliberately.
+This document is normative for HEPI TUI work. `packages/hepi-basics/src/core/ui/` owns the shared structural primitives; Basics, Tools, Skills, and Mono features reuse their semantic roles and geometry. When an existing component conflicts with it, preserve behavior first and migrate the visual treatment deliberately.
 
 ## Colors
 
@@ -294,8 +294,8 @@ Pi Basics uses pi's semantic and terminal-native foundation, while HEPI owns a s
 
 - `PanelShell`-style composition keeps tabs, content, errors, hints, and the bottom rule in a predictable order. Individual surfaces may omit parts when their interaction model needs it.
 - `renderDetailPanel` is the shared description/detail panel. It owns the title frame, one-cell inner padding, fixed-height padding, wrapping, and safe clipping. Settings, Loadout, and Plan should not hand-write another Description frame.
-- `createSplitLayout` is the shared responsive rule. A split begins at 75 columns, with a three-cell gap and bounded left/right content widths. Below that threshold, the detail panel stacks or disappears according to the surface's purpose.
-- `renderSelectableRow` owns the two-cell cursor slot. A selected row begins with `→ ` and an unselected row reserves the same space, so selection never shifts the label or value column.
+- `createSelectorPanelLayout` is the shared Settings/Loadout outer geometry. A split begins at 75 columns, uses a three-cell gap, keeps the list between 24 and 54 cells, and keeps the detail panel between 32 and 100 cells. In a real terminal its body height is `floor(rows * 0.3) + 1`; standalone renderers may use an explicit fallback height. Below the breakpoint, the detail panel stacks or disappears according to the surface's purpose.
+- `renderSelectableRow` owns the two-cell cursor slot where a surface uses a selection cursor. A selected row begins with `→ ` and an unselected row reserves the same space, so selection never shifts the label or value column. Settings group rows are headers, not selectable field rows, and therefore start at column zero.
 - `keyGlyph` standardizes compact hints as `↕`, `↔`, `↵`, and `⎋`; `␣` and `⇥` are used only when Space or Tab is an actual distinct action. Labels should be short verbs: `navigate`, `switch`, `select`, `save`, `toggle`, `cancel`.
 
 These primitives unify structure, not product identity. Ask can remain a questionnaire with tabs and a sticky footer; Plan can remain a decision surface; Loadout can retain its grouped inventory. They should share framing, spacing, selection slots, responsive behavior, and interaction vocabulary without becoming visually identical.
@@ -333,7 +333,7 @@ Settings follow this hierarchy:
 - description and hint: dim;
 - cursor: accent `→ `.
 
-The setting name should remain easier to scan than its description. Avoid a different color for every setting type.
+The setting name should remain easier to scan than its description. Avoid a different color for every setting type. Group headers start at column zero; field rows retain the cursor and child indentation. The selected, non-editing field key may marquee only when it overflows: wait 750ms at the left edge, advance one terminal cell every 125ms, hold 1500ms at the right edge, then return to the start. Short keys, group rows, other tabs, editing state, and closed components must not schedule marquee rendering.
 
 ### Editor
 
@@ -345,13 +345,27 @@ The editor text remains `{colors.text}`. Cursor rendering uses Pi's hardware cur
 
 Changing model mode should not recolor the entire screen or the text being edited.
 
-### Footer and status
+### Editor top rail
 
-Footer content is deliberately quiet. Working directory, branch, token statistics, model metadata, and extension statuses use `{colors.dim}`. Promote only actionable thresholds or failures to warning/error. Keep left-side statistics and right-side model information aligned and truncate safely when space is limited. Extension text registered through `ui.setStatus()` belongs on one dedicated footer row after the editor's closing rail; it must not be appended to the editor's top status rail. The Advisor machine status is the single exception: while enabled, render `✦` immediately after the model using accent for a review with no concern or blocker, warning for concern, and error for blocker; omit it from the footer. Use the compact footer grammar `spinner · ⛁ connected/total · PLAN · GOAL`; omit ambient Magic Context telemetry.
+The statusbar wraps the first editor line; it is not a global header. Its left side carries model, Advisor indicator, thinking level, and context usage. The Advisor indicator appears immediately after the model: accent for clear, warning for concern, and error for blocker. Keep the left rail complete rather than truncating or compressing it to fit a title.
+
+The right-side slot is reserved for automatic session title state. A completed title uses `{colors.dim}` without a background. During title generation, show `Generating title` without a spinner glyph or background; a gray-to-white, one-sided four-cell shimmer travels left to right in a two-second loop, requesting a frame every 25ms only while generation is active. The entire right-side title state hides when it does not fit. It is never truncated and must not block normal interaction.
+
+### Tail rail and extension status
+
+The tail rail is one fixed row beneath the editor. It always starts with the current working directory in `{colors.dim}`. When extension status exists, append ` · ` followed by the compact status grammar `⛁ connected/total · PLAN · GOAL · other statuses` in registration order. Extension text registered through `ui.setStatus()` belongs here, except Advisor and auto-title state, which belong to the top rail; omit ambient Magic Context telemetry and receiving state. Do not run a receiving spinner or a timer merely to animate extension status.
 
 ### Response telemetry
 
 Append one dim output line after every successful assistant response using `↱ input  ↳ output  ⚇ cache-read  ⏱ duration  ⚡ rate/s`. Metrics are per provider response, not aggregated across an agent run. Duration spans `turn_start` through assistant `message_end`, excluding subsequent tool execution. Rate is non-reasoning output divided by that whole-response duration. Telemetry remains transient UI output and must not enter session or LLM context.
+
+### Apply Patch tool call
+
+`apply_patch` uses a compact, semantic tool-call summary instead of a diff card when collapsed. The first line is `apply_patch` in `{colors.accent}`, followed by one blank line. A normal single-file result is one line: action verb in accent, path in dim, additions in success, and removals in error. Multi-file results use an aggregate action line followed by one blank line and one dim-path delta line per target. `Created`, `Deleted`, `Edited`, and `Changed` all use accent.
+
+Failure summaries keep the same hierarchy. The combined `Edit failed` uses error and `Edit partially failed` uses warning; file count remains ordinary text and aggregate deltas remain success/error. A failed target is rendered as a dim path plus error `failed`, without an invented delta. Do not add bullet prefixes.
+
+While model tool-call arguments stream in, show the same semantic action/path/delta format as a preview of the proposed patch. It is not an execution result: it must perform no file I/O, no patch execution, and no disk mutation. Delete previews show no fabricated removed-line count. Once arguments are complete, the normal strict patch parser and final result renderer replace the preview.
 
 ### Custom message
 

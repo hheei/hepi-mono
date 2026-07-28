@@ -9,7 +9,7 @@ Bun monorepo for HEPI Pi Coding Agent extensions. Every publishable workspace un
 - [Extension development](docs/development/extension-development.md)
 - [Documentation index](docs/README.md)
 - [TUI design](DESIGN.md)
-- [TypeScript design](DESIGN_TS.md)
+- [Pi source design](.pi/skills/pi-development/references/DESIGN.md)
 
 Package-specific commands, settings, persistence, requirements, and incompatibilities live in each `packages/*/README.md` so the documentation ships with the package.
 
