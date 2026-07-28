@@ -27,13 +27,15 @@ describe("HePi Loadout group registry", () => {
 
 	test("rejects collisions and keeps replacement disposal generation-safe", () => {
 		const registry = createHepiLoadoutGroupRegistry();
-		registerHepiLoadoutGroup(group("shared", "Original"), registry);
+		const unregisterOriginal = registerHepiLoadoutGroup(group("shared", "Original"), registry);
 		expect(() => registerHepiLoadoutGroup(group("shared"), registry)).toThrow(
 			"HePi Loadout group id collision: shared",
 		);
-		const unregister = replaceHepiLoadoutGroup(group("shared", "Replacement"), registry);
-		unregister();
+		const unregisterReplacement = replaceHepiLoadoutGroup(group("shared", "Replacement"), registry);
+		unregisterOriginal();
 		expect(registry.get("shared")?.label).toBe("Replacement");
+		unregisterReplacement();
+		expect(registry.get("shared")).toBeUndefined();
 	});
 
 	test("removes factory-time groups on session shutdown", () => {

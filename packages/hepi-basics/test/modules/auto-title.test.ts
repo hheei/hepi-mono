@@ -138,17 +138,11 @@ describe("Pi Basics auto-title", () => {
 	});
 
 	test("allows automatic titles without a configured title model", async () => {
-		let persisted: string | undefined = "unexpected";
-		const provider = createAutoTitleSettingsProvider({
-			onPersisted: (model) => {
-				persisted = model;
-			},
-		});
+		const provider = createAutoTitleSettingsProvider();
 		await provider.onLoad?.(
 			{ "auto-title": { autoTitle: true, autoTitleModel: "" } },
 			context("/tmp"),
 		);
-		expect(persisted).toBeUndefined();
 		await provider.onChange?.(
 			{
 				groupId: "auto-title",

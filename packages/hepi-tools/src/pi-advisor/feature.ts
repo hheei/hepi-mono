@@ -45,7 +45,6 @@ export interface AdvisorFeature {
 	): Promise<void>;
 	dispose(sessionId: string): Promise<void>;
 	command(args: string, ctx: ExtensionCommandContext): Promise<void>;
-	configure(model: string | undefined, thinking: import("./model.js").ThinkingLevel): Promise<void>;
 	status(): AdvisorStatus;
 }
 interface Active {
@@ -410,42 +409,6 @@ export function createAdvisorFeature(
 	};
 	return {
 		status,
-		async configure(model, thinking) {
-			if (!active) return;
-			const item = active;
-			try {
-				await enqueue(async () => {
-					if (isCurrent(item)) await item.adapter.reconfigure(model, thinking);
-				});
-				if (active !== item) return;
-				item.model = model;
-				item.thinking = thinking;
-				item.lastMaterialSignature = undefined;
-				if (model === undefined || model.trim().length === 0) {
-					if (item.enabled) appendAdvisorBoundary(item.runtime.pi, { version: 1, enabled: false });
-					item.enabled = false;
-					item.phase = "disabled";
-					item.adapterActive = false;
-					clearReviewTimer(item);
-					item.pendingReviewPrompt = "";
-					item.pendingReviewUserPromptGeneration = 0;
-					item.pendingMaterialEvidence = [];
-					item.userPrompt = "";
-					item.lastReviewAt = undefined;
-					item.lastMaterialSignature = undefined;
-					item.reviewCooldownUntil = 0;
-					item.notifiedHigh.clear();
-					item.runtime.ctx.ui.setStatus("advisor", undefined);
-				} else if (item.enabled) {
-					publishIndicator(item, []);
-				}
-				delete item.lastError;
-			} catch (error) {
-				if (active === item) item.lastError = errorMessage(error);
-				throw error;
-			}
-		},
-
 		async start(runtime, config) {
 			if (active?.sessionId === runtime.ctx.sessionManager.getSessionId()) return;
 			const adapter = createAdapter({

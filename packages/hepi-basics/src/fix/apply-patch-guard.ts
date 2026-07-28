@@ -117,7 +117,6 @@ const modeField: HepiSettingField<GuardPatchMode> = {
 };
 
 export function createApplyPatchGuardSettingsProvider(
-	guard: ApplyPatchGuard,
 	options: { readonly agentDir?: string } = {},
 ): HepiSettingsProvider {
 	const agentDir = options.agentDir ?? getAgentDir();
@@ -147,10 +146,7 @@ export function createApplyPatchGuardSettingsProvider(
 					section[GUARD_PATCH_GROUP] = { mode };
 					root[SETTINGS_SECTION] = section;
 				});
-				guard.setMode(mode);
 			},
 		},
-		onLoad: (state) => guard.setMode(modeFromState(state)),
-		onChange: (change) => guard.setMode(modeFromState(change.state)),
 	};
 }

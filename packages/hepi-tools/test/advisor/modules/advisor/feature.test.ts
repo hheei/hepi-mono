@@ -26,8 +26,6 @@ interface FakeAdapter extends AdvisorAgentAdapter {
 	reviewFailures: number;
 	createFailures: number;
 	resetFailures: number;
-	reconfigureCalls: Array<{ model: string | undefined; thinking: string }>;
-	reconfigureFailures: number;
 	nextAdvice: readonly AdvisorAdvice[] | undefined;
 	deferNextReview(): void;
 	resolveReview(advice?: readonly AdvisorAdvice[]): void;
@@ -47,8 +45,6 @@ function fakeAdapter(): FakeAdapter {
 		reviewFailures: 0,
 		createFailures: 0,
 		resetFailures: 0,
-		reconfigureCalls: [],
-		reconfigureFailures: 0,
 		nextAdvice: undefined,
 		async create() {
 			adapter.createCalls++;
@@ -62,13 +58,6 @@ function fakeAdapter(): FakeAdapter {
 			if (adapter.resetFailures > 0) {
 				adapter.resetFailures--;
 				throw new Error("reset failed");
-			}
-		},
-		async reconfigure(model, thinking) {
-			adapter.reconfigureCalls.push({ model, thinking });
-			if (adapter.reconfigureFailures > 0) {
-				adapter.reconfigureFailures--;
-				throw new Error("reconfigure failed");
 			}
 		},
 		async review(prompt) {
@@ -549,32 +538,6 @@ describe("Advisor feature lifecycle", () => {
 		expect(h.statuses.get("advisor")).toBe("ok");
 	});
 
-	test("configure failure keeps old status and records lastError", async () => {
-		const h = fixture(true);
-		await h.feature.start(h.runtime);
-		h.adapter.reconfigureFailures = 1;
-		await expect(h.feature.configure("new/model", "high")).rejects.toThrow("reconfigure failed");
-		expect(h.feature.status()).toMatchObject({
-			enabled: true,
-			thinking: "medium",
-			lastError: "reconfigure failed",
-		});
-	});
-
-	test("configure success while disabled stores pending runtime configuration", async () => {
-		const h = fixture(false);
-		await h.feature.start(h.runtime);
-		await h.feature.configure("new/model", "off");
-		expect(h.adapter.reconfigureCalls).toEqual([{ model: "new/model", thinking: "off" }]);
-		expect(h.feature.status()).toMatchObject({
-			enabled: false,
-			model: "new/model",
-			thinking: "off",
-		});
-		await h.feature.command("on", h.ctx as unknown as ExtensionCommandContext);
-		expect(h.adapter.createCalls).toBe(1);
-	});
-
 	test("/advisor shows status while explicit on and off stay idempotent", async () => {
 		const h = fixture(false);
 		await h.feature.start(h.runtime);
@@ -600,29 +563,6 @@ describe("Advisor feature lifecycle", () => {
 
 		await h.feature.command("on", h.ctx as unknown as ExtensionCommandContext);
 		expect(h.adapter.createCalls).toBe(2);
-	});
-
-	test("clearing and restoring the model requires a fresh on", async () => {
-		const h = fixture(true);
-		await h.feature.start(h.runtime);
-		await h.feature.configure(undefined, "medium");
-		expect(h.feature.status()).toMatchObject({ enabled: false, phase: "disabled" });
-		expect(h.statuses.get("advisor")).toBeUndefined();
-		await h.feature.configure("fake/fake", "medium");
-		await h.feature.command("on", h.ctx as unknown as ExtensionCommandContext);
-		expect(h.feature.status()).toMatchObject({ enabled: true, phase: "idle" });
-		expect(h.statuses.get("advisor")).toBe("ok");
-	});
-
-	test("clearing the model persists disabled state across tree restore", async () => {
-		const h = fixture(true);
-		await h.feature.start(h.runtime);
-		await h.feature.configure(undefined, "medium");
-		expect(h.entries.at(-1)?.data).toEqual({ version: 1, enabled: false });
-		await h.feature.configure("fake/fake", "medium");
-		await emit(h, "session_tree");
-		expect(h.feature.status()).toMatchObject({ enabled: false, phase: "disabled" });
-		expect(h.statuses.get("advisor")).toBeUndefined();
 	});
 
 	test("/advisor on create failure stays disabled without an enabled boundary", async () => {

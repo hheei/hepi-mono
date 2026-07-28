@@ -8,7 +8,6 @@ import {
 	ALL_FEATURE_KEYS,
 	CUSTOM_TOOL_NAMES,
 	type FeatureKey,
-	loadGlobalFeatureState,
 	loadGlobalFeatureStateSync,
 	saveGlobalFeatureState,
 } from "./extension-common.js";
@@ -32,9 +31,6 @@ export default function registerHepiFff(pi: ExtensionAPI): void {
 	const isFeatureEnabled = (feature: FeatureKey): boolean => enabledFeatures.has(feature);
 	const getRuntime = (): FffRuntime | null => runtime ?? null;
 	const getEnabledFeatures = (): Set<FeatureKey> => new Set(enabledFeatures);
-	const setEnabledFeatures = (next: Set<FeatureKey>): void => {
-		enabledFeatures = new Set(next);
-	};
 	const syncCustomToolActivation = (): void => {
 		const activeTools = new Set(pi.getActiveTools());
 		for (const toolName of CUSTOM_TOOL_NAMES) {
@@ -44,7 +40,7 @@ export default function registerHepiFff(pi: ExtensionAPI): void {
 		pi.setActiveTools([...activeTools]);
 	};
 	const applyUiConfiguration = (ctx: ExtensionContext): void => {
-		if (!autocompleteContexts.has(ctx)) {
+		if (isFeatureEnabled("autocomplete") && !autocompleteContexts.has(ctx)) {
 			autocompleteContexts.add(ctx);
 			ctx.ui.addAutocompleteProvider((baseProvider) =>
 				createFffAutocompleteProvider(
@@ -56,18 +52,9 @@ export default function registerHepiFff(pi: ExtensionAPI): void {
 		}
 		syncCustomToolActivation();
 	};
-	const persistFeatures = async (): Promise<void> => {
-		const saved = await saveGlobalFeatureState(enabledFeatures);
+	const persistFeatures = async (next: Set<FeatureKey>): Promise<void> => {
+		const saved = await saveGlobalFeatureState(next);
 		if (saved.isErr()) console.error("Failed to save HEPI FFF feature state:", saved.error);
-	};
-	const restoreFeatures = async (): Promise<void> => {
-		const restored = await loadGlobalFeatureState();
-		if (restored.isOk()) enabledFeatures = new Set(restored.value ?? ALL_FEATURE_KEYS);
-		else {
-			console.warn("Failed to restore HEPI FFF feature state:", restored.error);
-			enabledFeatures = new Set(ALL_FEATURE_KEYS);
-		}
-		syncCustomToolActivation();
 	};
 	const agentToolsDisabledText = (): string =>
 		'HEPI FFF feature "agent tools" is disabled. Use /fff-features to re-enable it.';
@@ -81,9 +68,7 @@ export default function registerHepiFff(pi: ExtensionAPI): void {
 		getRuntime,
 		isFeatureEnabled,
 		getEnabledFeatures,
-		setEnabledFeatures,
 		persistFeatures,
-		applyUiConfiguration,
 	});
 
 	const lifecycle = new HepiLifecycleController({
@@ -98,7 +83,6 @@ export default function registerHepiFff(pi: ExtensionAPI): void {
 					if (runtime === activeRuntime) runtime = undefined;
 				},
 			});
-			await restoreFeatures();
 			applyUiConfiguration(session.ctx);
 			void (async (): Promise<void> => {
 				const warmed = await activeRuntime.warm(1500);

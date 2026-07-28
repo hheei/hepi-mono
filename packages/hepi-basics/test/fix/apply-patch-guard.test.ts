@@ -127,8 +127,7 @@ describe("apply_patch guard", () => {
 
 	test("uses independent temporary files for concurrent saves", async () => {
 		const cwd = await mkdtemp(join(process.env.TMPDIR ?? "/tmp", "guard-patch-concurrent-"));
-		const h = harness();
-		const provider = createApplyPatchGuardSettingsProvider(h.guard, { agentDir: cwd });
+		const provider = createApplyPatchGuardSettingsProvider({ agentDir: cwd });
 
 		await Promise.all([
 			provider.storage.save({ guardPatch: { mode: "on" } }, { sessionId: "a", cwd }),
@@ -146,13 +145,13 @@ describe("apply_patch guard", () => {
 			JSON.stringify({ "pi-basics": { rtk: { mode: "suggest" } } }),
 		);
 		const h = harness();
-		const provider = createApplyPatchGuardSettingsProvider(h.guard, { agentDir: cwd });
+		const provider = createApplyPatchGuardSettingsProvider({ agentDir: cwd });
 		await provider.storage.save({ guardPatch: { mode: "off" } }, { sessionId: "test", cwd });
 		const loaded = await provider.storage.load({ sessionId: "test", cwd });
 		const root: unknown = JSON.parse(await readFile(join(cwd, "settings.json"), "utf8"));
 
 		expect(loaded).toEqual({ guardPatch: { mode: "off" } });
-		expect(h.guard.getMode()).toBe("off");
+		expect(h.guard.getMode()).toBe("auto");
 		expect(root).toEqual({
 			"pi-basics": { rtk: { mode: "suggest" }, guardPatch: { mode: "off" } },
 		});

@@ -7,6 +7,7 @@ import {
 	convertInputText,
 	createTraditionalToSimplifiedFeature,
 	createTraditionalToSimplifiedSettingsProvider,
+	traditionalToSimplifiedEnabled,
 } from "../../src/t2s/index.js";
 
 describe("traditional to simplified", () => {
@@ -57,6 +58,15 @@ describe("traditional to simplified", () => {
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
+	});
+
+	test("derives the runtime value only from settings loaded at session start", () => {
+		expect(traditionalToSimplifiedEnabled({ "traditional-to-simplified": { mode: "off" } })).toBe(
+			false,
+		);
+		expect(traditionalToSimplifiedEnabled({ "traditional-to-simplified": { mode: "t2s" } })).toBe(
+			true,
+		);
 	});
 
 	test("shares the settings write queue with other Pi Basics providers", async () => {

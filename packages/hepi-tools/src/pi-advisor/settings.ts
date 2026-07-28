@@ -13,7 +13,6 @@ export function createAdvisorSettingsProvider(options: {
 		model: string | undefined,
 		thinking: string,
 	) => void | Promise<void>;
-	readonly onPersisted?: (model: string | undefined, thinking: string) => void | Promise<void>;
 }): HepiSettingsProvider {
 	const storage = createJsonSectionSettingsStorage({
 		...(options.path === undefined ? {} : { path: options.path }),
@@ -83,7 +82,6 @@ export function createAdvisorSettingsProvider(options: {
 				}
 				if (model !== undefined) advisor.model = model;
 				await storage.save({ advisor }, ctx);
-				await options.onPersisted?.(model, thinking);
 			},
 		},
 	};

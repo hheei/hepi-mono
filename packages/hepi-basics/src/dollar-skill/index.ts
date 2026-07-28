@@ -162,7 +162,6 @@ export function registerDollarSkillInputTransform(
 }
 
 export function createDollarSkillSettingsProvider(
-	feature: DollarSkillFeature,
 	options: { readonly settingsDirectory?: string } = {},
 ): HepiSettingsProvider {
 	const settingsDirectory = options.settingsDirectory ?? getAgentDir();
@@ -184,11 +183,8 @@ export function createDollarSkillSettingsProvider(
 			},
 			async save(state: HepiSettingsState) {
 				const config = configFromState(state);
-				feature.setConfig(config);
 				await saveDollarSkillConfig(settingsDirectory, config);
 			},
 		},
-		onLoad: (state) => feature.setConfig(configFromState(state)),
-		onChange: (change) => feature.setConfig(configFromState(change.state)),
 	};
 }

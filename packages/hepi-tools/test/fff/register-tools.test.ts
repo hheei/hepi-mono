@@ -66,12 +66,11 @@ describe("FFF tool registration", () => {
 		]);
 	});
 
-	test("uses FFF path resolution after enabling the feature without reload", async () => {
+	test("delegates read to Pi when the FFF enhancement is disabled", async () => {
 		const cwd = await temporaryDirectory();
 		const target = join(cwd, "target.txt");
 		await writeFile(target, "resolved\n", "utf8");
 		const host = harness();
-		let enabled = false;
 		const tracked: string[] = [];
 		const runtime = {
 			async resolvePath() {
@@ -84,21 +83,19 @@ describe("FFF tool registration", () => {
 		} as unknown as FffRuntime;
 		registerTools(host.pi, {
 			getRuntime: () => runtime,
-			isFeatureEnabled: (feature) => feature === "builtInReadEnhancement" && enabled,
+			isFeatureEnabled: () => false,
 			agentToolsDisabledText: () => "disabled",
 		});
 		const read = host.tools.find((tool) => tool.name === "read")?.execute;
 		if (read === undefined) throw new Error("FFF read wrapper was not registered");
 		const ctx = { cwd } as ExtensionContext;
 
-		await read("read-before", { path: "target.txt" }, undefined, undefined, ctx);
-		enabled = true;
-		const result = (await read("read-after", { path: "alias" }, undefined, undefined, ctx)) as {
+		const result = (await read("read", { path: "target.txt" }, undefined, undefined, ctx)) as {
 			readonly content: readonly { readonly type: string; readonly text?: string }[];
 		};
 
 		expect(result.content).toContainEqual({ type: "text", text: "resolved\n" });
-		expect(tracked).toEqual(["alias"]);
+		expect(tracked).toEqual([]);
 	});
 
 	test("falls back to Pi grep for a scope outside the FFF project root", async () => {
