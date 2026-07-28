@@ -47,6 +47,8 @@ function harness(id: string, mode: "tui" | "json" = "tui", hasEditorGetter = tru
 			handlers.set(event, list);
 		},
 		getThinkingLevel: () => "low" as const,
+		getActiveTools: () => [],
+		getAllTools: () => [],
 	} as unknown as ExtensionAPI;
 	const ctx = {
 		cwd: "/work/project",
@@ -360,6 +362,22 @@ describe("statusbar lifecycle", () => {
 		feature.start(runtime(h.pi, h.ctx));
 		const editor = h.editorFactory?.({} as never, {} as never, {} as never);
 		expect(editor!.render(100)[0]).toContain("100/1k");
+	});
+
+	test("includes active tool definitions before Pi reports context usage", () => {
+		const h = harness("a");
+		const pi = h.pi as unknown as {
+			getActiveTools: () => string[];
+			getAllTools: () => Array<{ name: string; description: string; parameters: object }>;
+		};
+		pi.getActiveTools = () => ["tool"];
+		pi.getAllTools = () => [{ name: "tool", description: "x".repeat(400), parameters: {} }];
+		h.setUsage({ tokens: 0, percent: 0, contextWindow: 1_000 });
+		h.setEditor(editorFactory("previous", []));
+		const feature = createStatusbarFeature(h.pi);
+		feature.start(runtime(h.pi, h.ctx));
+		const editor = h.editorFactory?.({} as never, {} as never, {} as never);
+		expect(editor!.render(100)[0]).not.toContain("100/1k");
 	});
 
 	test("holds the last stable usage while a response is pending", () => {
