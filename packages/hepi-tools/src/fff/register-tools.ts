@@ -74,7 +74,7 @@ function renderGrepCall(
 	const scope = args.path ? ` in ${theme.fg("dim", args.path)}` : "";
 	const limit = args.limit === undefined ? "" : ` (limit ${args.limit})`;
 	text.setText(
-		`${theme.fg("accent", "grep")} ${theme.fg("toolOutput", `\`/${args.pattern}/\``)}${scope}${limit}`,
+		`${theme.fg("accent", "grep")} ${theme.fg("mdCode", `/${args.pattern}/`)}${scope}${limit}`,
 	);
 	return text;
 }
@@ -156,7 +156,7 @@ function renderFindCall(
 ): Text {
 	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 	const limit = args.limit === undefined ? "" : ` (limit ${args.limit})`;
-	text.setText(`${theme.fg("accent", "find")}${theme.fg("dim", ` ${args.query}${limit}`)}`);
+	text.setText(`${theme.fg("accent", "find")} ${theme.fg("mdCode", args.query)}${limit}`);
 	return text;
 }
 

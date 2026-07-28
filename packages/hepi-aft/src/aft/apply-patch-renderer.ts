@@ -51,12 +51,10 @@ export function renderAftApplyPatchCall(
 
 export function renderAftApplyPatchResult(
 	_result: AgentToolResult<unknown>,
-	options: ApplyPatchRenderOptions,
-	theme: Theme,
+	_options: ApplyPatchRenderOptions,
+	_theme: Theme,
 	context: ApplyPatchRenderContext,
 ): Component {
 	if (context.isError) return new Container();
-	if (options.isPartial === true)
-		return new Text(`${theme.fg("dim", "•")} ${theme.bold("Patching")}`, 0, 0);
 	return new Container();
 }

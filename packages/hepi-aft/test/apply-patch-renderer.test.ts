@@ -44,7 +44,7 @@ describe("AFT apply_patch renderer", () => {
 			mockTheme,
 			makeContext(args),
 		);
-		expect(renderToString(preview)).toBe("• Patching");
+		expect(renderToString(preview)).toBe("");
 
 		const complete = renderAftApplyPatchResult(
 			makeResult("Applied", { phase: "applied", paths: ["src/example.ts", "src/new.ts"] }),

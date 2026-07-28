@@ -1265,10 +1265,10 @@ function mergeConfigs(base: AftConfig, override: AftConfig): AftConfig {
 }
 
 /** Defaults for bridge transport when omitted from config. */
-export const DEFAULT_BRIDGE_REQUEST_TIMEOUT_MS = 10_000;
+export const DEFAULT_BRIDGE_REQUEST_TIMEOUT_MS = 5_000;
 export const DEFAULT_BRIDGE_HANG_THRESHOLD = 1;
 
-/** Resolved pool/bridge options from `config.bridge` (defaults 10000 / 1). */
+/** Resolved pool/bridge options from `config.bridge` (defaults 5000 / 1). */
 export function resolveBridgePoolTransportOptions(config: AftConfig): {
 	timeoutMs: number;
 	hangThreshold: number;

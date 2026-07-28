@@ -182,7 +182,7 @@ describe("FFF tool registration", () => {
 				.render(120)
 				.map((line) => line.trimEnd())
 				.join("\n");
-		expect(renderText(call)).toBe("grep `/aft_move/` in /tmp/aft (limit 50)");
+		expect(renderText(call)).toBe("grep /aft_move/ in /tmp/aft (limit 50)");
 		expect(renderText(result)).toBe(
 			"\n39 matches in 13 files:\n\nbun.lock (15 matches)\n... (224 earlier lines, ^o to expand)\n  9:  first\n123:  second",
 		);
@@ -207,7 +207,7 @@ describe("FFF tool registration", () => {
 		expect(roles.filter((role) => role === "success")).toHaveLength(3);
 		expect(roles).toContain("accent");
 		expect(roles).toContain("dim");
-		expect(roles).toContain("toolOutput");
+		expect(roles).toContain("mdCode");
 		expect(roles).toContain("warning");
 	});
 
@@ -258,6 +258,7 @@ describe("FFF tool registration", () => {
 		);
 		expect(roles.filter((role) => role === "success")).toHaveLength(2);
 		expect(roles).toContain("accent");
+		expect(roles).toContain("mdCode");
 		expect(roles).toContain("dim");
 	});
 });
