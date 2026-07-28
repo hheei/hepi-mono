@@ -11,10 +11,12 @@ describe("unified HEPI loader", () => {
 		expect(hepiExtensions.some((extension) => extension.name === "piDebugExtension")).toBe(false);
 	});
 
-	test("publishes one Pi extension entry", async () => {
+	test("publishes one Pi extension entry and the bundled skills", async () => {
 		const manifest: unknown = JSON.parse(
 			await readFile(join(import.meta.dir, "..", "package.json"), "utf8"),
 		);
-		expect(manifest).toMatchObject({ pi: { extensions: ["dist/extension.js"] } });
+		expect(manifest).toMatchObject({
+			pi: { extensions: ["dist/extension.js"], skills: ["dist/skills"] },
+		});
 	});
 });
