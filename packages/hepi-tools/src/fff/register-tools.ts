@@ -1,5 +1,6 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { createGrepTool, createReadTool } from "@earendil-works/pi-coding-agent";
+import { type Component, Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import {
 	ExternalGrepScopeError,
@@ -34,7 +35,159 @@ function textResult<T>(text: string, details: T) {
 	};
 }
 
-export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): void {
+type GrepRenderArgs = {
+	readonly pattern: string;
+	readonly path?: string | undefined;
+	readonly limit?: number | undefined;
+};
+
+type GrepRenderContext = {
+	readonly isError: boolean;
+	readonly lastComponent: Component | undefined;
+};
+
+const GREP_SUMMARY = /^(\d+) matches in (\d+) files:$/;
+const GREP_FILE_HEADER = /^> (.+) \((\d+) matches\):$/;
+const GREP_MATCH_LINE = /^\s*(\d+):(.*)$/;
+const FIND_SUMMARY = /^\d+\/\d+ matches$/;
+const FIND_CANDIDATE = /^\d+\. (.+) \(([^)]+)\)(?: - (.+))?$/;
+
+function resultText(result: AgentToolResult<unknown>): string {
+	return result.content
+		.filter((part) => part.type === "text")
+		.map((part) => ("text" in part ? part.text : ""))
+		.join("\n");
+}
+
+function renderGrepCall(
+	args: GrepRenderArgs,
+	theme: Theme,
+	context: Pick<GrepRenderContext, "lastComponent">,
+): Text {
+	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+	const scope = args.path ? ` in ${args.path}` : "";
+	const limit = args.limit === undefined ? "" : ` (limit ${args.limit})`;
+	text.setText(
+		`${theme.fg("accent", "grep")}${theme.fg("dim", ` /${args.pattern}/${scope}${limit}`)}`,
+	);
+	return text;
+}
+
+function renderGrepText(text: string, theme: Theme): string {
+	const lines = text.split("\n");
+	const lineWidth = String(
+		lines.reduce((max, line) => {
+			const match = line.match(GREP_MATCH_LINE);
+			return match ? Math.max(max, Number(match[1])) : max;
+		}, 1),
+	).length;
+
+	return lines
+		.map((line) => {
+			const summary = line.match(GREP_SUMMARY);
+			if (summary) {
+				return `${theme.fg("success", summary[1] ?? "0")} matches in ${theme.fg("success", summary[2] ?? "0")} files:`;
+			}
+
+			const fileHeader = line.match(GREP_FILE_HEADER);
+			if (fileHeader) {
+				return `${theme.fg("dim", fileHeader[1] ?? "")} (${theme.fg("success", fileHeader[2] ?? "0")} matches)`;
+			}
+
+			const matchLine = line.match(GREP_MATCH_LINE);
+			if (!matchLine) return line;
+			const lineNumber = matchLine[1] ?? "";
+			const content = (matchLine[2] ?? "").replace(/^ /, "");
+			return `  ${theme.fg("dim", lineNumber.padStart(lineWidth, " "))}${theme.fg("dim", ":")}  ${content}`;
+		})
+		.join("\n");
+}
+
+function renderGrepResult(
+	result: AgentToolResult<unknown>,
+	_options: unknown,
+	theme: Theme,
+	context: GrepRenderContext,
+): Text {
+	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+	const content = resultText(result);
+	text.setText(context.isError ? theme.fg("error", content) : renderGrepText(content, theme));
+	return text;
+}
+
+type FindRenderArgs = {
+	readonly query: string;
+	readonly limit?: number | undefined;
+};
+
+function findTotalMatched(result: AgentToolResult<unknown>): number | undefined {
+	if (typeof result.details !== "object" || result.details === null) return undefined;
+	const totalMatched = Reflect.get(result.details, "totalMatched");
+	return typeof totalMatched === "number" ? totalMatched : undefined;
+}
+
+function findTag(reason: string): string {
+	return reason
+		.split("_")
+		.filter((part) => part.length > 0)
+		.map((part) => part[0]?.toUpperCase() ?? "")
+		.join("");
+}
+
+function renderFindCall(
+	args: FindRenderArgs,
+	theme: Theme,
+	context: Pick<GrepRenderContext, "lastComponent">,
+): Text {
+	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+	const limit = args.limit === undefined ? "" : ` (limit ${args.limit})`;
+	text.setText(`${theme.fg("accent", "find")}${theme.fg("dim", ` ${args.query}${limit}`)}`);
+	return text;
+}
+
+function renderFindText(result: AgentToolResult<unknown>, theme: Theme): string {
+	const lines = resultText(result).split("\n");
+	const candidates = lines.flatMap((line) => {
+		const match = line.match(FIND_CANDIDATE);
+		return match ? [match] : [];
+	});
+	const totalMatched = findTotalMatched(result);
+	const summary =
+		totalMatched === undefined || candidates.length === 0
+			? undefined
+			: `${theme.fg("success", String(candidates.length))} matches in ${theme.fg("success", String(totalMatched))} files:`;
+
+	return [
+		...(summary === undefined ? [] : [summary]),
+		...lines
+			.filter((line) => !FIND_SUMMARY.test(line))
+			.map((line) => {
+				const match = line.match(FIND_CANDIDATE);
+				if (!match) return line;
+				const path = match[1] ?? "";
+				const matchType = match[2] ?? "";
+				const reason = match[3] ?? matchType;
+				return `${findTag(matchType)} ${theme.fg("dim", path)} (${reason})`;
+			}),
+	].join("\n");
+}
+
+function renderFindResult(
+	result: AgentToolResult<unknown>,
+	_options: unknown,
+	theme: Theme,
+	context: GrepRenderContext,
+): Text {
+	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+	const content = resultText(result);
+	text.setText(context.isError ? theme.fg("error", content) : renderFindText(result, theme));
+	return text;
+}
+
+export function registerTools(
+	pi: ExtensionAPI,
+	deps: ToolRegistrationDeps,
+): void {
 	const readTemplate = createReadTool(process.cwd());
 	const grepTemplate = createGrepTool(process.cwd());
 
@@ -132,6 +285,8 @@ export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): voi
 			"After one or two good greps, read the best matching file.",
 		],
 		parameters: grepSchema,
+		renderCall: renderGrepCall,
+		renderResult: renderGrepResult,
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			const original = createGrepTool(ctx.cwd);
 			const runtime = deps.getRuntime();
@@ -203,6 +358,8 @@ export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): voi
 				Type.String({ description: "Cursor from a previous find_files result" }),
 			),
 		}),
+		renderCall: renderFindCall,
+		renderResult: renderFindResult,
 		async execute(_toolCallId, params) {
 			const guarded = getAgentRuntime(
 				buildFindFilesDetails(undefined, "agentTools"),
