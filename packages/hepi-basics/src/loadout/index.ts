@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type {
 	HepiLoadoutGroup,
@@ -23,13 +22,11 @@ export function createLoadoutModule(
 	getLoadoutGroups?: () => readonly HepiLoadoutGroup[],
 ): LoadoutModule {
 	async function createShellView(options: HepiModuleViewContext): Promise<HepiModuleView> {
-		const defaults = defaultLoadoutStoragePaths();
+		const cwd = options.context.cwd ?? process.cwd();
+		const defaults = defaultLoadoutStoragePaths(cwd);
 		const controller = createLoadoutController({
-			scope: await initialLoadoutScope(options.context.cwd ?? process.cwd()),
-			storage: createLoadoutStorage({
-				globalPath: defaults.globalPath,
-				projectPath: join(options.context.cwd ?? process.cwd(), ".pi", "setting.json"),
-			}),
+			scope: await initialLoadoutScope(cwd),
+			storage: createLoadoutStorage(defaults),
 			inventory: createLoadoutInventoryProvider(pi, getLoadoutGroups),
 			runtime,
 		});

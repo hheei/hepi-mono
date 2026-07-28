@@ -24,10 +24,6 @@ const KEY_MARQUEE_FRAME_MS = 125;
 const KEY_MARQUEE_INITIAL_PAUSE_MS = 750;
 const KEY_MARQUEE_END_PAUSE_MS = 1_500;
 
-function printableInput(input: string): string | undefined {
-	return input && !input.startsWith("\x1b") && !/\p{Cc}/u.test(input) ? input : undefined;
-}
-
 export function createSettingsComponent(options: SettingsComponentOptions): Component {
 	const { controller, host, theme } = options;
 	let editor: ValueEditor | undefined;
@@ -254,9 +250,8 @@ export function createSettingsComponent(options: SettingsComponentOptions): Comp
 			requestRender();
 			return;
 		}
-		const printable = printableInput(input);
-		if (printable !== undefined) {
-			controller.setSearch(`${controller.state.search}${printable}`);
+		if (input && !input.startsWith("\x1b") && !/\p{Cc}/u.test(input)) {
+			controller.setSearch(`${controller.state.search}${input}`);
 			requestRender();
 		}
 	}
@@ -328,19 +323,7 @@ export function createSettingsComponent(options: SettingsComponentOptions): Comp
 			return;
 		}
 		if (!editor) editor = createValueEditor(controller.state.draftValue ?? "");
-		let changed = true;
-		if (matchesKey(input, Key.left)) editor.move(-1);
-		else if (matchesKey(input, Key.right)) editor.move(1);
-		else if (matchesKey(input, Key.home)) editor.home();
-		else if (matchesKey(input, Key.end)) editor.end();
-		else if (matchesKey(input, Key.backspace)) editor.backspace();
-		else if (matchesKey(input, Key.delete)) editor.delete();
-		else {
-			const printable = printableInput(input);
-			if (printable === undefined) changed = false;
-			else editor.insert(printable);
-		}
-		if (!changed) return;
+		editor.handleInput(input);
 		controller.setDraft(editor.text);
 		requestRender();
 	}

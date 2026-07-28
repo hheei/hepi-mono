@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { type OutputMetrics, trackOutputSavings } from "./output-metrics.js";
 import { mapTextContentBlocks, toRecord } from "./record-utils.js";
 import {
@@ -100,8 +100,8 @@ function isPathUnderRoot(targetPath: string, rootPath: string): boolean {
 	return normalizedTarget.startsWith(rootWithSeparator);
 }
 
-function isUnderAnyAncestorAgentsSkills(targetPath: string): boolean {
-	let currentDir = resolve(process.cwd());
+function isUnderAnyAncestorAgentsSkills(targetPath: string, cwd: string): boolean {
+	let currentDir = resolve(cwd);
 	for (;;) {
 		if (isPathUnderRoot(targetPath, join(currentDir, ".agents", "skills"))) {
 			return true;
@@ -116,7 +116,7 @@ function isUnderAnyAncestorAgentsSkills(targetPath: string): boolean {
 	}
 }
 
-function isSkillReadPath(filePath: string): boolean {
+function isSkillReadPath(filePath: string, cwd: string): boolean {
 	if (!filePath.trim()) {
 		return false;
 	}
@@ -126,11 +126,11 @@ function isSkillReadPath(filePath: string): boolean {
 		return true;
 	}
 
-	if (isPathUnderRoot(resolvedPath, join(process.cwd(), ".pi", "skills"))) {
+	if (isPathUnderRoot(resolvedPath, join(cwd, CONFIG_DIR_NAME, "skills"))) {
 		return true;
 	}
 
-	return isUnderAnyAncestorAgentsSkills(resolvedPath);
+	return isUnderAnyAncestorAgentsSkills(resolvedPath, cwd);
 }
 
 function toArray(value: unknown): unknown[] {
@@ -245,6 +245,7 @@ function shouldPreserveExactReadOutput(
 	text: string,
 	input: Record<string, unknown>,
 	config: RtkIntegrationConfig,
+	cwd: string,
 ): boolean {
 	if (!config.outputCompaction.readCompaction.enabled) {
 		return true;
@@ -254,7 +255,10 @@ function shouldPreserveExactReadOutput(
 		return true;
 	}
 
-	if (config.outputCompaction.preserveExactSkillReads && isSkillReadPath(normalizePath(input))) {
+	if (
+		config.outputCompaction.preserveExactSkillReads &&
+		isSkillReadPath(normalizePath(input), cwd)
+	) {
 		return true;
 	}
 
@@ -669,12 +673,14 @@ export function compactToolResult(
 	event: ToolResultLikeEvent,
 	config: RtkIntegrationConfig,
 	metrics?: OutputMetrics,
+	options: { readonly cwd?: string } = {},
 ): ToolResultCompactionOutcome {
 	if (!config.outputCompaction.enabled) {
 		return { changed: false, techniques: [] };
 	}
 
 	const input = toRecord(event.input);
+	const cwd = options.cwd ?? process.cwd();
 	const sourceContent = toArray(event.content);
 	if (sourceContent.length === 0) {
 		return { changed: false, techniques: [] };
@@ -694,7 +700,7 @@ export function compactToolResult(
 				contentBlock.text,
 				normalizedPath,
 				config,
-				shouldPreserveExactReadOutput(contentBlock.text, input, config),
+				shouldPreserveExactReadOutput(contentBlock.text, input, config, cwd),
 			);
 		} else if (event.toolName === "grep") {
 			transformed = compactGrepText(contentBlock.text, config);

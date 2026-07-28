@@ -186,10 +186,7 @@ function renderDraft(
 ): string {
 	if (width <= 0) return "";
 	if (!editor) return theme.fg("accent", theme.bold(truncateToWidth(fallback, width, "")));
-	const before = editor.text.slice(0, editor.cursor);
-	const withCursor = `${before}█${editor.text.slice(editor.cursor)}`;
-	const viewport = horizontalViewport(withCursor, width, visibleWidth(before) + 1);
-	return theme.fg("accent", theme.bold(viewport.text));
+	return theme.fg("accent", theme.bold(editor.render(width)));
 }
 
 function ellipsizedDescription(
