@@ -237,6 +237,7 @@ const BashWriteParams = Type.Object({
 interface BashDetails {
 	exit_code?: number;
 	duration_ms?: number;
+	command?: string;
 	truncated?: boolean;
 	output_path?: string;
 	task_id?: string;
@@ -549,7 +550,7 @@ DO NOT use bash for code search or code exploration. If you are about to run gre
 						streamed += text;
 						// Stream truncated output to avoid overwhelming the UI
 						const displayText = truncateToVisualLines(streamed, 100);
-						onUpdate?.(bashResult(displayText, { streaming: true }));
+						onUpdate?.(bashResult(displayText, { command: bridgeCommand, streaming: true }));
 					},
 				},
 			);
@@ -561,12 +562,16 @@ DO NOT use bash for code search or code exploration. If you are about to run gre
 			const taskId = response.task_id as string | undefined;
 			if (response.status === "running" && taskId) {
 				trackBgTask(resolveSessionId(extCtx), taskId);
-				return bashResult((response.output as string | undefined) ?? "", { task_id: taskId });
+				return bashResult((response.output as string | undefined) ?? "", {
+					command: bridgeCommand,
+					task_id: taskId,
+				});
 			}
 
 			const details: BashDetails = {
 				...(typeof response.exit_code === "number" ? { exit_code: response.exit_code } : {}),
 				...(typeof response.duration_ms === "number" ? { duration_ms: response.duration_ms } : {}),
+				command: bridgeCommand,
 				...(typeof response.truncated === "boolean" ? { truncated: response.truncated } : {}),
 				...(typeof response.output_path === "string" ? { output_path: response.output_path } : {}),
 				...(taskId === undefined ? {} : { task_id: taskId }),
@@ -579,10 +584,16 @@ DO NOT use bash for code search or code exploration. If you are about to run gre
 			);
 		},
 		renderCall(args, theme, context) {
-			return renderBashCall(args?.command, args?.description, theme, context);
+			return renderBashCall(
+				args?.command,
+				args?.description,
+				typeof args?.timeout === "number" ? args.timeout : undefined,
+				theme,
+				context,
+			);
 		},
-		renderResult(result, _options, theme, context) {
-			return renderBashResult(result, theme, context);
+		renderResult(result, options, theme, context) {
+			return renderBashResult(result, options.expanded, theme, context);
 		},
 	});
 
@@ -867,6 +878,7 @@ function bashResult(
 		details: {
 			exit_code: details.exit_code,
 			duration_ms: details.duration_ms,
+			command: details.command,
 			truncated: details.truncated,
 			output_path: details.output_path,
 			task_id: details.task_id,
@@ -1313,17 +1325,23 @@ async function formatPtyStatus(
 function renderBashCall(
 	command: string | undefined,
 	description: string | undefined,
+	timeout: number | undefined,
 	theme: Theme,
 	context: RenderContextLike,
 ): Text {
 	const text = reuseText(context.lastComponent);
 	const display = description ?? (command ? shortenCommand(command) : "...");
-	text.setText(`${theme.fg("toolTitle", theme.bold("bash"))} ${theme.fg("accent", display)}`);
+	const timeoutText =
+		timeout === undefined ? "" : theme.fg("muted", ` (timeout ${formatSeconds(timeout)})`);
+	text.setText(
+		`${theme.fg("toolTitle", theme.bold("bash"))} ${theme.fg("accent", display)}${timeoutText}`,
+	);
 	return text;
 }
 
 function renderBashResult(
 	result: AgentToolResult<BashDetails>,
+	expanded: boolean,
 	theme: Theme,
 	context: RenderContextLike,
 ): import("@earendil-works/pi-tui").Component {
@@ -1354,15 +1372,30 @@ function renderBashResult(
 		.map((c) => (c as { text?: string }).text ?? "")
 		.join("\n")
 		.trim();
+	if (details?.command)
+		container.addChild(new Text(theme.fg("accent", `$ ${details.command}`), 1, 0));
 	if (rawOutput) {
-		container.addChild(new Text(rawOutput, 1, 0));
+		const outputLines = rawOutput.split("\n");
+		const collapsed = outputLines.length > 10 && !expanded;
+		container.addChild(new Spacer(1));
+		container.addChild(new Text(theme.fg("muted", "Results"), 1, 0));
+		container.addChild(new Text(collapsed ? outputLines.slice(0, 10).join("\n") : rawOutput, 1, 0));
+		if (collapsed) {
+			container.addChild(
+				new Text(theme.fg("muted", `... ${outputLines.length - 10} more lines`), 1, 0),
+			);
+		}
 		container.addChild(new Spacer(1));
 	}
 
 	// Exit code indicator
 	if (exitCode !== undefined) {
 		const exitColor = exitCode === 0 ? "success" : "error";
-		const exitText = theme.fg(exitColor, `exit ${exitCode}`);
+		const duration =
+			details?.duration_ms === undefined
+				? ""
+				: theme.fg("muted", ` (took ${formatSeconds(details.duration_ms)})`);
+		const exitText = `${theme.fg(exitColor, `exit ${exitCode}`)}${duration}`;
 		container.addChild(new Text(exitText, 1, 0));
 	}
 
@@ -1382,13 +1415,6 @@ function renderBashResult(
 		}
 	}
 
-	// Duration info (muted)
-	if (details?.duration_ms !== undefined) {
-		container.addChild(new Spacer(1));
-		const durationText = theme.fg("muted", `${details.duration_ms}ms`);
-		container.addChild(new Text(durationText, 1, 0));
-	}
-
 	// Truncation notice
 	if (details?.truncated) {
 		container.addChild(new Spacer(1));
@@ -1397,6 +1423,11 @@ function renderBashResult(
 	}
 
 	return container;
+}
+
+function formatSeconds(milliseconds: number): string {
+	const seconds = milliseconds / 1000;
+	return seconds > 100 ? `${Math.round(seconds)}s` : `${seconds.toFixed(1)}s`;
 }
 
 function shortenCommand(command: string): string {
