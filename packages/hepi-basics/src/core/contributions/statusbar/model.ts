@@ -128,11 +128,16 @@ export function estimateContextUsage(
 	messages: readonly unknown[],
 	contextWindow: number | null | undefined,
 	systemPrompt?: string,
+	toolDefinitions?: readonly unknown[],
 ): StatusbarContextUsage | undefined {
 	if (typeof contextWindow !== "number" || !Number.isFinite(contextWindow) || contextWindow <= 0)
 		return undefined;
 	let tokens = systemPrompt ? estimateTokens({ role: "user", content: systemPrompt } as never) : 0;
 	for (const message of messages) tokens += estimateTokens(message as never);
+	if (toolDefinitions && toolDefinitions.length > 0) {
+		const serialized = JSON.stringify(toolDefinitions);
+		if (serialized) tokens += estimateTokens({ role: "user", content: serialized } as never);
+	}
 	return { tokens, contextWindow, percent: (tokens / contextWindow) * 100 };
 }
 

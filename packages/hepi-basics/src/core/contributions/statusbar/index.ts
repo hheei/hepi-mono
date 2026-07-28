@@ -81,6 +81,13 @@ export function createStatusbarFeature(
 	getCursorOptions: () => CursorOptions = () => ({ shape: "block", blink: false }),
 ): StatusbarFeature {
 	let owner: StatusbarSession | undefined;
+	const activeToolDefinitions = (): readonly unknown[] => {
+		const activeTools = new Set(pi.getActiveTools());
+		return pi
+			.getAllTools()
+			.filter((tool) => activeTools.has(tool.name))
+			.map(({ name, description, parameters }) => ({ name, description, parameters }));
+	};
 	const disposeSession = (sessionId: string): void => {
 		const current = owner;
 		if (current?.sessionId !== sessionId) return;
@@ -218,6 +225,7 @@ export function createStatusbarFeature(
 										messages,
 										currentUsage?.contextWindow,
 										systemPrompt,
+										activeToolDefinitions(),
 									);
 								} catch {
 									fallback = undefined;
@@ -240,7 +248,13 @@ export function createStatusbarFeature(
 						}
 						let displayUsage = usage;
 						if (displayUsage?.tokens === 0 && systemPrompt !== undefined) {
-							const tokens = estimateTokens({ role: "user", content: systemPrompt } as never);
+							const tokens =
+								estimateContextUsage(
+									[],
+									displayUsage.contextWindow,
+									systemPrompt,
+									activeToolDefinitions(),
+								)?.tokens ?? estimateTokens({ role: "user", content: systemPrompt } as never);
 							const { contextWindow } = displayUsage;
 							const percent =
 								typeof contextWindow === "number" &&
