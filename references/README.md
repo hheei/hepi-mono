@@ -20,7 +20,7 @@ Use `<owner>-<repo>` directory names. Documentation must cite the public URL and
 | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) | `16f29800fd2681bdf24f3eb4ccffe38be3baec6b` | Ponytail rules and companion workflows |
 | [ShpetimA/pi-fff](https://github.com/ShpetimA/pi-fff) | `694837d0644abc8527ebfa3ea50135e0f5d1ece4` | FFF runtime, tools, commands, formatting, and autocomplete behavior adapted for HEPI ownership |
 | [mattpocock/skills](https://github.com/mattpocock/skills) | `ed37663cc5fbef691ddfecd080dff42f7e7e350d` | Grill and domain-modeling skills adapted for the HEPI skills bundle |
-| [hheei/magic-context](https://github.com/hheei/magic-context) | `113f3e4824e0ea03a73f2c1e8a57a5ab0bbf7a09` | Original Magic Context Pi plugin source and its core workspace dependencies, evaluated for HEPI ownership |
+| [hheei/magic-context](https://github.com/hheei/magic-context) | `ad058b7857c6f50dfb7967ab63af72506150e12e` | Fixed Magic Context Pi plugin/core source, including external Pi subagent accounting API |
 
 ## Other Design References
 
