@@ -35,11 +35,6 @@ export default function piAdvisorExtension(pi: ExtensionAPI): void {
 					if (level !== undefined && !getSupportedThinkingLevels(model).includes(level))
 						throw new Error("Advisor thinking level is unsupported by this model");
 				},
-				onPersisted: async (model, thinking) => {
-					const level = parseThinking(thinking);
-					if (level === undefined) throw new Error("Invalid Advisor thinking level");
-					await advisor.configure(model, level);
-				},
 			});
 			const unregisterSettings = registerHepiSettings(provider, settingsRegistry);
 			runtime.registry.registerLifecycle({

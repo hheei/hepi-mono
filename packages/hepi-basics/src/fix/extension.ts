@@ -7,6 +7,7 @@ import {
 } from "../core/index.js";
 import {
 	createApplyPatchGuardSettingsProvider,
+	normalizeGuardPatchMode,
 	registerApplyPatchGuard,
 } from "./apply-patch-guard.js";
 import {
@@ -21,14 +22,11 @@ export default function piFixExtension(
 	const settingsRegistry = getHepiRuntimeSettingsRegistry(pi);
 	const applyPatchGuard = registerApplyPatchGuard(pi);
 	const providerOptions = options.agentDir === undefined ? {} : { agentDir: options.agentDir };
-	const applyPatchGuardProvider = createApplyPatchGuardSettingsProvider(
-		applyPatchGuard,
-		providerOptions,
-	);
+	const applyPatchGuardProvider = createApplyPatchGuardSettingsProvider(providerOptions);
 	const responsesCompat = createOpenAIResponsesCompatFeature(pi, {
 		...(options.agentDir === undefined ? {} : { settingsDirectory: options.agentDir }),
 	});
-	const responsesCompatProvider = createOpenAIResponsesCompatSettingsProvider(responsesCompat, {
+	const responsesCompatProvider = createOpenAIResponsesCompatSettingsProvider({
 		...(options.agentDir === undefined ? {} : { settingsDirectory: options.agentDir }),
 	});
 
@@ -56,7 +54,7 @@ export default function piFixExtension(
 			};
 			try {
 				const state = await applyPatchGuardProvider.storage.load(context);
-				await applyPatchGuardProvider.onLoad?.(state ?? {}, context);
+				applyPatchGuard.setMode(normalizeGuardPatchMode(state?.guardPatch?.mode));
 			} catch (error) {
 				runtime.ctx.ui.notify(
 					`Unable to load Guard patch settings: ${error instanceof Error ? error.message : String(error)}`,

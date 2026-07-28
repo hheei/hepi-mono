@@ -96,7 +96,7 @@ describe("OpenAI Responses compatibility", () => {
 		});
 	});
 
-	test("hook is disabled by default and applies after the persisted toggle is enabled", async () => {
+	test("applies a persisted toggle after the next feature start", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-basics-responses-"));
 		const handlers = new Map<string, (event: { payload: unknown }, context: unknown) => unknown>();
 		const pi = {
@@ -118,13 +118,15 @@ describe("OpenAI Responses compatibility", () => {
 
 		expect(await hook({ payload }, context)).toBeUndefined();
 
-		const provider = createOpenAIResponsesCompatSettingsProvider(feature, {
+		const provider = createOpenAIResponsesCompatSettingsProvider({
 			settingsDirectory: cwd,
 		});
 		await provider.storage.save(
 			{ "openai-responses-compat": { stripAssistantMessageStatus: true } },
 			{ cwd, sessionId: "session-1" },
 		);
+		expect(await hook({ payload }, context)).toBeUndefined();
+		await feature.start({ ctx: context as never });
 		const rewritten = await hook({ payload }, context);
 		expect(rewritten).not.toBeUndefined();
 		expect(JSON.stringify(rewritten)).not.toContain('"id":"item_1897cee2cf04599211fdda0d"');
@@ -180,10 +182,7 @@ describe("OpenAI Responses compatibility", () => {
 				"pi-basics": { "openai-responses-compat": { stripAssistantMessageStatus: "true" } },
 			}),
 		);
-		const feature = createOpenAIResponsesCompatFeature({ on() {} } as never, {
-			settingsDirectory: cwd,
-		});
-		const provider = createOpenAIResponsesCompatSettingsProvider(feature, {
+		const provider = createOpenAIResponsesCompatSettingsProvider({
 			settingsDirectory: cwd,
 		});
 		const load = provider.storage.load;
@@ -212,10 +211,7 @@ describe("OpenAI Responses compatibility", () => {
 
 	test("serializes concurrent saves without losing unrelated updates", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-basics-responses-concurrent-"));
-		const feature = createOpenAIResponsesCompatFeature({ on() {} } as never, {
-			settingsDirectory: cwd,
-		});
-		const provider = createOpenAIResponsesCompatSettingsProvider(feature, {
+		const provider = createOpenAIResponsesCompatSettingsProvider({
 			settingsDirectory: cwd,
 		});
 		await Promise.all([
@@ -241,10 +237,7 @@ describe("OpenAI Responses compatibility", () => {
 			join(cwd, "settings.json"),
 			JSON.stringify({ theme: "dark", "pi-basics": { rtk: { enabled: true } } }),
 		);
-		const feature = createOpenAIResponsesCompatFeature({ on() {} } as never, {
-			settingsDirectory: cwd,
-		});
-		const provider = createOpenAIResponsesCompatSettingsProvider(feature, {
+		const provider = createOpenAIResponsesCompatSettingsProvider({
 			settingsDirectory: cwd,
 		});
 		await provider.storage.save(

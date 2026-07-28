@@ -157,6 +157,7 @@ export function createRtkFeature(agentDir: string = getAgentDir()): RtkFeature {
 						{ toolName: event.toolName, input: event.input, content: event.content },
 						config,
 						outputMetrics,
+						{ cwd: ctx.cwd },
 					);
 					if (!outcome.changed) return {};
 					return {

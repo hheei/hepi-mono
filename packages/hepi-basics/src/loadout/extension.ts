@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	disableHepiTool,
@@ -65,7 +64,6 @@ export default function piLoadoutExtension(pi: ExtensionAPI): void {
 			disabledSkillKeys,
 		);
 		if (filtered === undefined) return;
-		event.systemPromptOptions.skills = filtered.skills;
 		if (filtered.systemPrompt !== event.systemPrompt)
 			return { systemPrompt: filtered.systemPrompt };
 	});
@@ -79,12 +77,9 @@ export default function piLoadoutExtension(pi: ExtensionAPI): void {
 					id: "loadout-module",
 					cleanup: unregisterModule,
 				});
-				const defaults = defaultLoadoutStoragePaths();
+				const defaults = defaultLoadoutStoragePaths(runtime.ctx.cwd);
 				startupController = createLoadoutController({
-					storage: createLoadoutStorage({
-						globalPath: defaults.globalPath,
-						projectPath: join(runtime.ctx.cwd, ".pi", "setting.json"),
-					}),
+					storage: createLoadoutStorage(defaults),
 					scope: await initialLoadoutScope(runtime.ctx.cwd),
 					inventory: createLoadoutInventoryProvider(pi, () => loadoutGroupRegistry.list()),
 					runtime: runtimeHandlers,

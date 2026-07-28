@@ -82,7 +82,6 @@ export function createRtkSettingsProvider(
 							},
 						},
 					};
-				feature.setConfig(config);
 				await saveRtkConfig(config, agentDir);
 			},
 		},

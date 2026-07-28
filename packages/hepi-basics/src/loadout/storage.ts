@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { LoadoutKey, LoadoutScope } from "./model.js";
 
 export interface LoadoutStoragePaths {
@@ -24,16 +24,19 @@ export interface LoadoutStorage {
 	): Promise<void>;
 }
 
-export function defaultLoadoutStoragePaths(): LoadoutStoragePaths {
+export function defaultLoadoutStoragePaths(
+	cwd: string = process.cwd(),
+	agentDir: string = getAgentDir(),
+): LoadoutStoragePaths {
 	return {
-		globalPath: join(homedir(), ".pi", "agent", "setting.json"),
-		projectPath: join(process.cwd(), ".pi", "setting.json"),
+		globalPath: join(agentDir, "settings.json"),
+		projectPath: join(cwd, CONFIG_DIR_NAME, "settings.json"),
 	};
 }
 
 export async function initialLoadoutScope(cwd: string): Promise<LoadoutScope> {
 	try {
-		return (await stat(join(cwd, ".pi"))).isDirectory() ? "project" : "global";
+		return (await stat(join(cwd, CONFIG_DIR_NAME))).isDirectory() ? "project" : "global";
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === "ENOENT") return "global";
 		throw error;
