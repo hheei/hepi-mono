@@ -9,6 +9,7 @@ import {
 	AmbiguousPathError,
 	EmptyFileQueryError,
 	EmptyPathQueryError,
+	ExternalGrepScopeError,
 	FinderOperationError,
 	GrepCursorMismatchError,
 	InvalidFindFilesCursorError,
@@ -94,6 +95,11 @@ function normalizePathQuery(value: string): string {
 function relativeFrom(basePath: string, targetPath: string): string {
 	const rel = normalizeSlashes(relative(basePath, targetPath));
 	return rel === "" ? "." : rel;
+}
+
+function isWithinBasePath(basePath: string, targetPath: string): boolean {
+	const relativePath = normalizeSlashes(relative(basePath, targetPath));
+	return relativePath !== ".." && !relativePath.startsWith("../") && !isAbsolute(relativePath);
 }
 
 function normalizeCandidate(item: FileItem, score: Score | undefined): FffFileCandidate {
@@ -885,6 +891,17 @@ export class FffRuntime {
 		}
 
 		const resolvedScope = scopeResult?.isOk() ? scopeResult.value : undefined;
+		if (
+			resolvedScope !== undefined &&
+			!isWithinBasePath(this.basePath, resolvedScope.absolutePath)
+		) {
+			return errResult(
+				new ExternalGrepScopeError({
+					path: resolvedScope.absolutePath,
+					projectRoot: this.basePath,
+				}),
+			);
+		}
 		const constraintQuery = combineConstraints(
 			nativeConstraintForScope(resolvedScope),
 			nativeConstraintForGlob(request.glob),

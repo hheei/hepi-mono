@@ -31,6 +31,7 @@ export function formatGrepError(error: GrepSearchError, pathQuery?: string): str
 			formatPathResolutionError("grep scope", pathQuery ?? "", pathError),
 		RuntimeInitializationError: (runtimeError) => runtimeError.message,
 		FinderOperationError: (finderError) => finderError.message,
+		ExternalGrepScopeError: (scopeError) => scopeError.message,
 		InvalidGrepCursorError: (cursorError) => cursorError.message,
 		GrepCursorMismatchError: (cursorError) => cursorError.message,
 	});

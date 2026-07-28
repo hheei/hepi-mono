@@ -1,7 +1,11 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createGrepTool, createReadTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { FinderOperationError, RuntimeInitializationError } from "./errors.js";
+import {
+	ExternalGrepScopeError,
+	FinderOperationError,
+	RuntimeInitializationError,
+} from "./errors.js";
 import {
 	buildFindFilesDetails,
 	buildGrepDetails,
@@ -170,7 +174,11 @@ export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): voi
 				...(outputMode === undefined ? {} : { outputMode }),
 			});
 			if (result.isErr()) {
-				if (RuntimeInitializationError.is(result.error) || FinderOperationError.is(result.error))
+				if (
+					RuntimeInitializationError.is(result.error) ||
+					FinderOperationError.is(result.error) ||
+					ExternalGrepScopeError.is(result.error)
+				)
 					return original.execute(toolCallId, builtinParams, signal, onUpdate);
 				throw new Error(buildGrepFailureMessage(result.error, params.path));
 			}
