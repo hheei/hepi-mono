@@ -6,11 +6,15 @@ import {
 	ensureStorageMigrated,
 	findBinary,
 	resolveCortexKitStorageRoot,
+	setActiveLogger,
 	type ToolCallResult,
 } from "@cortexkit/aft-bridge";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { bridgeLogger } from "./logger.js";
 
 const AFT_VERSION = "0.49.0";
+
+setActiveLogger(bridgeLogger);
 
 export interface HepiAftRuntimeStartOptions {
 	readonly poolOptions?: Pick<
@@ -36,7 +40,7 @@ export class HepiAftRuntime {
 		this.pool = await createAftTransportPool({
 			harness: "pi",
 			binaryPath,
-			poolOptions: options.poolOptions ?? {},
+			poolOptions: { logger: bridgeLogger, ...options.poolOptions },
 			configOverrides: aftConfigureOverrides(),
 			...(options.onBgEventsNudge === undefined
 				? {}
