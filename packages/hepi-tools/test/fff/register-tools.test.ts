@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Result } from "better-result";
+import { ExternalGrepScopeError } from "../../src/fff/errors.js";
 import type { FffRuntime } from "../../src/fff/fff.js";
 import { registerTools } from "../../src/fff/register-tools.js";
 
@@ -57,6 +58,12 @@ describe("FFF tool registration", () => {
 		expect(host.tools.find((tool) => tool.name === "find_files")?.promptGuidelines).toEqual([
 			"Use `find_files` when exploring a topic, looking for a file, or needing paginated ranked candidates before reading.",
 		]);
+		expect(host.tools.find((tool) => tool.name === "grep")?.promptGuidelines).toEqual([
+			"Prefer simple literal patterns over complex regex when possible.",
+			"Use path/glob/constraints to narrow scope before trying another grep.",
+			"Use outputMode=files_with_matches when content output is too noisy.",
+			"After one or two good greps, read the best matching file.",
+		]);
 	});
 
 	test("uses FFF path resolution after enabling the feature without reload", async () => {
@@ -92,5 +99,36 @@ describe("FFF tool registration", () => {
 
 		expect(result.content).toContainEqual({ type: "text", text: "resolved\n" });
 		expect(tracked).toEqual(["alias"]);
+	});
+
+	test("falls back to Pi grep for a scope outside the FFF project root", async () => {
+		const cwd = await temporaryDirectory();
+		const externalRoot = await temporaryDirectory();
+		const externalPath = join(externalRoot, "outside.txt");
+		await writeFile(externalPath, "outside needle\n", "utf8");
+		const host = harness();
+		const runtime = {
+			async grepSearch() {
+				return Result.err(new ExternalGrepScopeError({ path: externalPath, projectRoot: cwd }));
+			},
+		} as unknown as FffRuntime;
+		registerTools(host.pi, {
+			getRuntime: () => runtime,
+			isFeatureEnabled: (feature) => feature === "builtInGrepEnhancement",
+			agentToolsDisabledText: () => "disabled",
+		});
+		const grep = host.tools.find((tool) => tool.name === "grep")?.execute;
+		if (grep === undefined) throw new Error("FFF grep wrapper was not registered");
+		const ctx = { cwd } as ExtensionContext;
+
+		const result = (await grep(
+			"grep-external",
+			{ pattern: "needle", path: externalPath },
+			undefined,
+			undefined,
+			ctx,
+		)) as { readonly content: readonly { readonly type: string; readonly text?: string }[] };
+
+		expect(result.content.some((item) => item.text?.includes("outside needle"))).toBe(true);
 	});
 });

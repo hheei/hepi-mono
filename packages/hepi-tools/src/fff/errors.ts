@@ -141,6 +141,19 @@ export class GrepCursorMismatchError extends TaggedError("GrepCursorMismatchErro
 	}
 }
 
+export class ExternalGrepScopeError extends TaggedError("ExternalGrepScopeError")<{
+	path: string;
+	projectRoot: string;
+	message: string;
+}>() {
+	constructor(args: { path: string; projectRoot: string }) {
+		super({
+			...args,
+			message: `Path is outside the FFF project root: ${args.path}`,
+		});
+	}
+}
+
 export type FeatureStateLoadError = FeatureStateReadError | FeatureStateParseError;
 export type PathResolutionError =
 	| EmptyPathQueryError
@@ -157,5 +170,6 @@ export type RelatedFilesError = PathResolutionError | FinderOperationError;
 export type GrepSearchError =
 	| InvalidGrepCursorError
 	| GrepCursorMismatchError
+	| ExternalGrepScopeError
 	| PathResolutionError
 	| FinderOperationError;
