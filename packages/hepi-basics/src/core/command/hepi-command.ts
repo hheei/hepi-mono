@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import type { HepiModule, HepiModuleRegistry } from "../api/modules.js";
+import type { HepiCommandContext } from "../api/settings.js";
 import type { HepiCommandRoute, ParsedHepiCommand } from "./command-types.js";
 
 const registeredApis = new WeakSet<object>();
@@ -68,11 +69,12 @@ async function openHepiModule(
 	command: string,
 	ctx: CommandContext,
 ): Promise<void> {
-	await module.open(args, {
-		...ctx,
-		sessionId: ctx.sessionManager.getSessionId(),
-		command,
-	});
+	// Keep Pi's guarded context getters lazy across module-owned async UI work.
+	const moduleContext = Object.create(ctx, {
+		command: { value: command, enumerable: true },
+		sessionId: { value: ctx.sessionManager.getSessionId(), enumerable: true },
+	}) as HepiCommandContext;
+	await module.open(args, moduleContext);
 }
 
 export async function dispatchHepiCommand(

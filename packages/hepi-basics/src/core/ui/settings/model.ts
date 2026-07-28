@@ -73,12 +73,18 @@ export function mergeSettingsState(
 		for (const field of group.fields) {
 			const storedValue = storedGroup[field.id];
 			fields[field.id] =
-				Object.hasOwn(storedGroup, field.id) && storedValue !== undefined
+				Object.hasOwn(storedGroup, field.id) && isValidStoredValue(field, storedValue)
 					? storedValue
 					: field.defaultValue;
 			const tabCycle = field.tabCycle;
-			if (tabCycle && !Object.hasOwn(storedGroup, tabCycle.fieldId))
-				fields[tabCycle.fieldId] = tabCycle.defaultValue;
+			if (tabCycle) {
+				const storedTabValue = storedGroup[tabCycle.fieldId];
+				fields[tabCycle.fieldId] =
+					Object.hasOwn(storedGroup, tabCycle.fieldId) &&
+					isValidStoredValue(tabCycle, storedTabValue)
+						? storedTabValue
+						: tabCycle.defaultValue;
+			}
 		}
 		// Preserve unknown fields from storage; domain state owns them.
 		result[group.id] = { ...storedGroup, ...fields };
@@ -87,6 +93,15 @@ export function mergeSettingsState(
 		if (!(groupId in result)) result[groupId] = { ...values };
 	}
 	return result;
+}
+
+function isValidStoredValue(
+	field: Pick<HepiSettingField, "defaultValue" | "options">,
+	value: unknown,
+): value is HepiSettingValue {
+	if (typeof value !== typeof field.defaultValue) return false;
+	if (typeof value === "number" && !Number.isFinite(value)) return false;
+	return !field.options || field.options.some((option) => Object.is(option.value, value));
 }
 
 export function fieldForSelection(
