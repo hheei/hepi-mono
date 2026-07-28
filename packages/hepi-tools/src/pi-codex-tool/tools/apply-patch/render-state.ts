@@ -124,7 +124,7 @@ function renderFailureHeader(
 	const status = role === "warning" ? " partially failed" : " failed";
 	if (!line.startsWith(`${title}${status}`)) return theme.fg(role, line);
 	const suffix = line.slice(title.length + status.length);
-	return `${theme.fg("accent", title)}${theme.fg(role, status)}${renderSummaryDeltas(suffix, theme)}`;
+	return `${theme.fg(role, `${title}${status}`)}${renderSummaryDeltas(suffix, theme)}`;
 }
 
 function renderFailedTargetLine(

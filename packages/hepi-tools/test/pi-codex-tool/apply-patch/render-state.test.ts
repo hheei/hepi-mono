@@ -271,13 +271,11 @@ describe("apply_patch render state", () => {
 			}),
 		).toBe("apply_patch\n\nEdit partially failed 1 file +1 -0\n\nexample.txt failed");
 		expect(roles).toEqual([
-			"accent",
 			"error",
 			"success",
 			"error",
 			"dim",
 			"error",
-			"accent",
 			"accent",
 			"warning",
 			"success",
@@ -286,6 +284,35 @@ describe("apply_patch render state", () => {
 			"error",
 			"accent",
 		]);
+	});
+
+	test("leaves failed file counts unstyled while coloring aggregate deltas", () => {
+		const patch = `*** Begin Patch
+*** Update File: example.txt
+@@
+-old
++new
+*** End Patch`;
+		setApplyPatchRenderState("failed-counts", patch, "/tmp");
+		markApplyPatchFailure("failed-counts", "failed", ["example.txt"]);
+		const styles: Array<readonly [string, string]> = [];
+		const rendered = renderApplyPatchCallFromState(
+			{ input: patch },
+			{
+				...theme,
+				fg: (role, text) => {
+					styles.push([role, text]);
+					return text;
+				},
+			},
+			{ toolCallId: "failed-counts", cwd: "/tmp" },
+		);
+		expect(rendered).toContain("Edit failed 1 file +1 -1");
+		expect(styles).toContainEqual(["error", "Edit failed"]);
+		expect(styles).toContainEqual(["success", "+1"]);
+		expect(styles).toContainEqual(["error", "-1"]);
+		expect(styles).not.toContainEqual(["error", " 1 file "]);
+		expect(styles).not.toContainEqual(["warning", " 1 file "]);
 	});
 
 	test("keeps partial failure counts plain and colors its aggregate deltas", () => {
@@ -325,8 +352,7 @@ describe("apply_patch render state", () => {
 			{ toolCallId: "partial-counts", cwd: "/tmp" },
 		);
 		expect(rendered).toContain("Edit partially failed 2 files +7 -7");
-		expect(styles).toContainEqual(["accent", "Edit"]);
-		expect(styles).toContainEqual(["warning", " partially failed"]);
+		expect(styles).toContainEqual(["warning", "Edit partially failed"]);
 		expect(styles).toContainEqual(["success", "+7"]);
 		expect(styles).toContainEqual(["error", "-7"]);
 		expect(styles).not.toContainEqual(["warning", " 2 files "]);
