@@ -26,21 +26,6 @@ export interface ApplyPatchSuccessDetails {
 	result: ExecutePatchResult;
 }
 
-export interface ApplyPatchPartialFailureDetails {
-	status: "partial_failure";
-	result: ExecutePatchResult;
-	error: string;
-	failedTargets?: string[] | undefined;
-	appliedFiles: string[];
-	failedFiles: string[];
-	recoveryInstructions: {
-		mustReadFiles: string[];
-		mustNotReadFiles: string[];
-	};
-}
-
-export type ApplyPatchToolDetails = ApplyPatchSuccessDetails | ApplyPatchPartialFailureDetails;
-
 const applyPatchRenderStates = new Map<string, ApplyPatchRenderState>();
 const APPLY_PATCH_RENDER_STATE_LIMIT = 50;
 const streamingPreviews = new WeakMap<object, StreamingPatchPreviewState>();
@@ -61,12 +46,6 @@ function getRenderState(toolCallId: string | undefined): ApplyPatchRenderState |
 	if (state === undefined) return undefined;
 	cacheRenderState(toolCallId, state);
 	return state;
-}
-
-export function isApplyPatchToolDetails(details: unknown): details is ApplyPatchToolDetails {
-	return (
-		typeof details === "object" && details !== null && "status" in details && "result" in details
-	);
 }
 
 export function clearApplyPatchRenderState(): void {

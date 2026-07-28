@@ -4,10 +4,8 @@ import { Type } from "typebox";
 import { ExecutePatchError, type ExecutePatchResult } from "../../patch/types.js";
 import { executePatchWithRust } from "./executor.js";
 import {
-	type ApplyPatchPartialFailureDetails,
 	type ApplyPatchSuccessDetails,
 	clearApplyPatchRenderState,
-	isApplyPatchToolDetails,
 	markApplyPatchFailure,
 	markApplyPatchPartialFailure,
 	renderApplyPatchCallFromState,
@@ -146,6 +144,7 @@ export function createApplyPatchTool(options: ApplyPatchToolOptions = {}) {
 		...(options.promptSnippet === false ? {} : { promptSnippet: "Edit files with patch" }),
 		parameters: APPLY_PATCH_PARAMETERS,
 		prepareArguments: prepareApplyPatchArguments,
+		executionMode: "sequential",
 		async execute(toolCallId, params, signal, _onUpdate, ctx) {
 			if (signal?.aborted) throw new Error("apply_patch aborted");
 
@@ -175,21 +174,7 @@ export function createApplyPatchTool(options: ApplyPatchToolOptions = {}) {
 						const appliedFiles = getAppliedPaths(error.result, failedFiles);
 						const recoveryMessage = buildPartialFailureMessage(message, failedFiles, appliedFiles);
 						markApplyPatchPartialFailure(toolCallId, failedTargets);
-						return {
-							content: [{ type: "text", text: recoveryMessage }],
-							details: {
-								status: "partial_failure",
-								result: error.result,
-								error: recoveryMessage,
-								failedTargets,
-								appliedFiles,
-								failedFiles,
-								recoveryInstructions: {
-									mustReadFiles: [...failedFiles],
-									mustNotReadFiles: [...appliedFiles],
-								},
-							} satisfies ApplyPatchPartialFailureDetails,
-						};
+						throw new Error(recoveryMessage);
 					}
 					markApplyPatchFailure(toolCallId, "failed", failedTargets);
 					throw new Error(message);
@@ -216,10 +201,8 @@ export function createApplyPatchTool(options: ApplyPatchToolOptions = {}) {
 			theme: { fg(role: string, text: string): string; bold(text: string): string },
 			context?: ApplyPatchRenderContextLike,
 		) => renderApplyPatchCallWithOptionalContext(args, theme, context, options),
-		renderResult(result, { isPartial }, theme) {
+		renderResult(_result, { isPartial }, theme) {
 			if (isPartial) return new Text(`${theme.fg("dim", "•")} ${theme.bold("Patching")}`, 0, 0);
-			if (!isApplyPatchToolDetails(result.details)) return new Container();
-			if (result.details.status === "partial_failure") return new Container();
 			return new Container();
 		},
 	} satisfies Parameters<ExtensionAPI["registerTool"]>[0];
