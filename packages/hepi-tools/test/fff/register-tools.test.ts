@@ -208,7 +208,7 @@ describe("FFF tool registration", () => {
 			isFeatureEnabled: () => false,
 			agentToolsDisabledText: () => "disabled",
 		});
-		const find = host.tools.find((tool) => tool.name === "find");
+		const find = host.tools.find((tool) => tool.name === "find_files");
 		if (find?.renderCall === undefined || find.renderResult === undefined)
 			throw new Error("FFF find renderer was not registered");
 		const roles: string[] = [];
