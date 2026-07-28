@@ -79,6 +79,28 @@ describe("RTK command rewriting", () => {
 		expect(execCalls).toBe(0);
 	});
 
+	test("bypasses native find path predicates", async () => {
+		let execCalls = 0;
+		const pi = {
+			exec: async () => {
+				execCalls += 1;
+				return { code: 3, stdout: "rtk find . -path '*/node_modules/*'" };
+			},
+		} as unknown as ExtensionAPI;
+		const command = "find . -path '*/node_modules/*'";
+
+		const decision = await computeRewriteDecision(
+			command,
+			DEFAULT_RTK_INTEGRATION_CONFIG,
+			pi,
+			rewriteOptions,
+		);
+
+		expect(decision.reason).toBe("unsupported_shape");
+		expect(decision.rewrittenCommand).toBe(command);
+		expect(execCalls).toBe(0);
+	});
+
 	test("still delegates simple find predicates to RTK", async () => {
 		let execCalls = 0;
 		const pi = {

@@ -15,6 +15,7 @@ const UNSUPPORTED_FIND_ARGUMENTS = new Set([
 	"-okdir",
 	"-prune",
 	"-delete",
+	"-path",
 	"-print",
 	"-print0",
 	"-newer",
