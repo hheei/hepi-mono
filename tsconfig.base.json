@@ -21,5 +21,5 @@
 		"types": ["node", "bun"]
 	},
 	"include": ["packages/*/**/*.ts", "test/**/*.ts"],
-	"exclude": ["packages/pi-subagents/**", "**/node_modules/**", "**/dist/**", "**/.pi/**"]
+	"exclude": ["packages/hepi-subagents/**", "**/node_modules/**", "**/dist/**", "**/.pi/**"]
 }
