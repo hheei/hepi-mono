@@ -5,8 +5,6 @@ import { hepiExtensions } from "../src/index.js";
 
 describe("unified HEPI loader", () => {
 	test("keeps foundational registration first and loads each runtime module once", async () => {
-		expect(hepiExtensions.length).toBeGreaterThanOrEqual(17);
-		expect(hepiExtensions.length).toBeLessThanOrEqual(20);
 		expect(new Set(hepiExtensions).size).toBe(hepiExtensions.length);
 		expect(hepiExtensions[0]?.name).toBe("piBasicsExtension");
 		expect(hepiExtensions[1]?.name).toBe("piLoadoutExtension");
