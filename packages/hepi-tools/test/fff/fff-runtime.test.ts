@@ -17,7 +17,12 @@ describe("FFF runtime", () => {
 		const ensuring = runtime.ensure();
 		runtime.dispose();
 		const destroyed: string[] = [];
-		resolveInitialization(Result.ok({ destroy: () => destroyed.push("destroyed") } as never));
+		resolveInitialization(
+			Result.ok({
+				finder: {} as never,
+				release: () => destroyed.push("destroyed"),
+			}),
+		);
 		const result = await ensuring;
 		expect(result.isErr()).toBe(true);
 		expect(destroyed).toEqual(["destroyed"]);

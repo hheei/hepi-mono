@@ -52,6 +52,8 @@ export {
 	registerHepiToolDisableHandler,
 	setHepiDisabledSkillKeys,
 } from "./runtime/loadout-bridge.js";
+export type { SharedFffFinderLease } from "./runtime/shared-fff-finder.js";
+export { acquireSharedFffFinder } from "./runtime/shared-fff-finder.js";
 export type { ToolActivationCoordinator } from "./runtime/tool-activation.js";
 export {
 	createToolActivationCoordinator,

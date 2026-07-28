@@ -4,6 +4,10 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { FileFinder, type Location, type Score, type SearchResult } from "@ff-labs/fff-node";
+import {
+	acquireSharedFffFinder,
+	type SharedFffFinderLease,
+} from "../../../hepi-basics/src/core/index.js";
 
 const CANDIDATE_LIMIT = 8;
 
@@ -121,6 +125,9 @@ function databasePaths(projectRoot: string): { frecencyDbPath: string; historyDb
 
 export class FffReadPathResolver {
 	private finder: FffReadFinder | undefined;
+	private finderLease: SharedFffFinderLease<FileFinder> | undefined;
+	private finderPromise: Promise<FffReadFinder> | undefined;
+	private generation = 0;
 	private projectRoot: string | undefined;
 
 	constructor(
@@ -132,7 +139,12 @@ export class FffReadPathResolver {
 	}
 
 	dispose(): void {
-		this.finder?.destroy();
+		this.generation += 1;
+		const lease = this.finderLease;
+		this.finderLease = undefined;
+		this.finderPromise = undefined;
+		if (lease) lease.release();
+		else this.finder?.destroy();
 		this.finder = undefined;
 	}
 
@@ -198,14 +210,37 @@ export class FffReadPathResolver {
 
 	private async getFinder(): Promise<FffReadFinder> {
 		if (this.finder !== undefined) return this.finder;
-		const projectRoot = await this.getProjectRoot();
-		const paths = databasePaths(projectRoot);
-		await mkdir(dirname(paths.frecencyDbPath), { recursive: true });
-		const created = FileFinder.create({ basePath: projectRoot, aiMode: true, ...paths });
-		if (!created.ok) throw new Error(`FFF file finder initialization failed: ${created.error}`);
-		this.finder = created.value;
-		void this.finder.waitForScan(500);
-		return this.finder;
+		if (this.finderPromise !== undefined) return await this.finderPromise;
+		const generation = this.generation;
+		const initialize = async (): Promise<FffReadFinder> => {
+			const projectRoot = await this.getProjectRoot();
+			const paths = databasePaths(projectRoot);
+			await mkdir(dirname(paths.frecencyDbPath), { recursive: true });
+			const lease = acquireSharedFffFinder(
+				paths.frecencyDbPath,
+				(): FileFinder => {
+					const finder = FileFinder.create({ basePath: projectRoot, aiMode: true, ...paths });
+					if (!finder.ok) throw new Error(`FFF file finder initialization failed: ${finder.error}`);
+					return finder.value;
+				},
+				(finder) => finder.destroy(),
+			);
+			if (generation !== this.generation) {
+				lease.release();
+				throw new Error("FFF read path resolver was disposed during initialization.");
+			}
+			this.finderLease = lease;
+			this.finder = lease.finder;
+			void this.finder.waitForScan(500);
+			return this.finder;
+		};
+		const promise = initialize();
+		this.finderPromise = promise;
+		try {
+			return await promise;
+		} finally {
+			if (this.finderPromise === promise) this.finderPromise = undefined;
+		}
 	}
 
 	private fileCandidates(search: SearchResult): FileCandidate[] {

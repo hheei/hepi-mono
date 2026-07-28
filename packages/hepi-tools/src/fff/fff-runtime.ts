@@ -4,6 +4,10 @@ import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { FileFinder } from "@ff-labs/fff-node";
 import { Result } from "better-result";
+import {
+	acquireSharedFffFinder,
+	type SharedFffFinderLease,
+} from "../../../hepi-basics/src/core/index.js";
 import { formatPathResolutionError } from "./error-format.js";
 import {
 	AmbiguousPathError,
@@ -259,7 +263,10 @@ export class FffRuntime {
 	private readonly options: RuntimeOptions;
 	private basePath: string;
 	private finder: FileFinder | null = null;
-	private initPromise: Promise<AppResult<FileFinder, RuntimeInitializationError>> | null = null;
+	private finderRelease: (() => void) | undefined;
+	private initPromise: Promise<
+		AppResult<{ finder: FileFinder; release: () => void }, RuntimeInitializationError>
+	> | null = null;
 	private loadError: RuntimeInitializationError | null = null;
 	private generation = 0;
 	private grepCursorCounter = 0;
@@ -279,9 +286,9 @@ export class FffRuntime {
 		if (!this.initPromise) this.initPromise = this.initialize();
 		const initialized = await this.initPromise;
 		if (generation !== this.generation) {
-			if (initialized.isOk() && initialized.value !== this.options.finder) {
+			if (initialized.isOk()) {
 				void Result.try({
-					try: () => initialized.value.destroy(),
+					try: () => initialized.value.release(),
 					catch: (cause) =>
 						finderFailure("destroy", cause instanceof Error ? cause.message : String(cause), cause),
 				});
@@ -296,18 +303,22 @@ export class FffRuntime {
 		}
 		if (initialized.isErr()) {
 			this.loadError = initialized.error;
-			return initialized;
+			return errResult(initialized.error);
 		}
 		this.loadError = null;
-		this.finder = initialized.value;
-		return initialized;
+		this.finder = initialized.value.finder;
+		this.finderRelease = initialized.value.release;
+		return Result.ok(initialized.value.finder);
 	}
 
 	dispose(): void {
 		this.generation++;
+		const release = this.finderRelease;
+		this.finderRelease = undefined;
 		void Result.try({
 			try: () => {
-				if (this.finder && this.finder !== this.options.finder) this.finder.destroy();
+				if (release) release();
+				else if (this.finder && this.finder !== this.options.finder) this.finder.destroy();
 			},
 			catch: (cause) =>
 				finderFailure("destroy", cause instanceof Error ? cause.message : String(cause), cause),
@@ -1025,7 +1036,9 @@ export class FffRuntime {
 		return null;
 	}
 
-	private async initialize(): Promise<AppResult<FileFinder, RuntimeInitializationError>> {
+	private async initialize(): Promise<
+		AppResult<{ finder: FileFinder; release: () => void }, RuntimeInitializationError>
+	> {
 		const root = resolve(getAgentDir(), "pi-fff");
 		const rootResult = await Result.tryPromise({
 			try: () => mkdir(root, { recursive: true }),
@@ -1047,32 +1060,31 @@ export class FffRuntime {
 
 		const created = Result.try({
 			try: () =>
-				FileFinder.create({
-					basePath: projectRoot,
-					aiMode: true,
-					frecencyDbPath: paths.frecencyDbPath,
-					historyDbPath: paths.historyDbPath,
-				}),
+				acquireSharedFffFinder(
+					paths.frecencyDbPath,
+					(): FileFinder => {
+						const finder = FileFinder.create({
+							basePath: projectRoot,
+							aiMode: true,
+							frecencyDbPath: paths.frecencyDbPath,
+							historyDbPath: paths.historyDbPath,
+						});
+						if (!finder.ok) throw finder.error;
+						return finder.value;
+					},
+					(finder) => finder.destroy(),
+				),
 			catch: (cause) =>
 				new RuntimeInitializationError({ cwd: this.cwd, step: "create file finder", cause }),
 		});
 		if (created.isErr()) return propagateError(created);
-		if (!created.value.ok) {
-			return errResult(
-				new RuntimeInitializationError({
-					cwd: this.cwd,
-					step: "create file finder",
-					cause: created.value.error,
-				}),
-			);
-		}
-
-		const finder = created.value.value;
+		const lease: SharedFffFinderLease<FileFinder> = created.value;
+		const finder = lease.finder;
 		void (await Result.tryPromise({
 			try: () => finder.waitForScan(500),
 			catch: (cause) =>
 				finderFailure("waitForScan", cause instanceof Error ? cause.message : String(cause), cause),
 		}));
-		return Result.ok(finder);
+		return Result.ok({ finder, release: lease.release });
 	}
 }

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { FffRuntime } from "../../hepi-tools/src/fff/fff.js";
 import { FffReadPathResolver, locationToReadParams } from "../src/aft/fff-read-path-resolver.js";
 
 const temporaryPaths: string[] = [];
@@ -77,5 +78,28 @@ describe("AFT FFF read path resolver", () => {
 			limit: 80,
 		});
 		expect(locationToReadParams({ type: "line", line: 42 }, 5, 3)).toEqual({ offset: 5, limit: 3 });
+	});
+
+	test("shares a finder with the FFF runtime for the same project", async () => {
+		const root = await temporaryDirectory();
+		const runtime = new FffRuntime(root, { projectRoot: root });
+		const resolver = new FffReadPathResolver(root, { projectRoot: root });
+		try {
+			const runtimeFinder = await runtime.ensure();
+			expect(runtimeFinder.isOk()).toBe(true);
+			if (runtimeFinder.isErr()) return;
+			const getFinder = (resolver as unknown as { getFinder(): Promise<unknown> }).getFinder.bind(
+				resolver,
+			);
+			const [firstResolverFinder, secondResolverFinder] = await Promise.all([
+				getFinder(),
+				getFinder(),
+			]);
+			expect(firstResolverFinder).toBe(runtimeFinder.value);
+			expect(secondResolverFinder).toBe(runtimeFinder.value);
+		} finally {
+			resolver.dispose();
+			runtime.dispose();
+		}
 	});
 });
