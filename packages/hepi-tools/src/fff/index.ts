@@ -1,4 +1,8 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import {
+	HepiLifecycleController,
+	registerHepiLifecycle,
+} from "../../../hepi-basics/src/core/index.js";
 import { createFffAutocompleteProvider } from "./autocomplete.js";
 import {
 	ALL_FEATURE_KEYS,
@@ -72,8 +76,6 @@ export default function registerHepiFff(pi: ExtensionAPI): void {
 		getRuntime,
 		isFeatureEnabled,
 		agentToolsDisabledText,
-		registerBuiltInReadEnhancement: isFeatureEnabled("builtInReadEnhancement"),
-		registerBuiltInGrepEnhancement: isFeatureEnabled("builtInGrepEnhancement"),
 	});
 	registerCommands(pi, {
 		getRuntime,
@@ -84,28 +86,34 @@ export default function registerHepiFff(pi: ExtensionAPI): void {
 		applyUiConfiguration,
 	});
 
-	pi.on("session_start", async (_event, ctx) => {
-		runtime?.dispose();
-		runtime = new FffRuntime(ctx.cwd);
-		await restoreFeatures();
-		applyUiConfiguration(ctx);
-		const activeRuntime = runtime;
-		void (async (): Promise<void> => {
-			const warmed = await activeRuntime.warm(1500);
-			if (runtime !== activeRuntime) return;
-			if (warmed.isErr()) {
-				if (isFeatureEnabled("statusUI"))
-					ctx.ui.notify(`fff unavailable: ${warmed.error.message}`, "warning");
-				return;
-			}
-			if (isFeatureEnabled("statusUI")) {
-				const indexed = warmed.value.indexedFiles ? ` (${warmed.value.indexedFiles} files)` : "";
-				ctx.ui.notify(`fff path + grep mode enabled${indexed}`, "info");
-			}
-		})();
+	const lifecycle = new HepiLifecycleController({
+		onStart: async (session) => {
+			runtime?.dispose();
+			runtime = new FffRuntime(session.ctx.cwd);
+			const activeRuntime = runtime;
+			session.registry.registerLifecycle({
+				id: "fff-runtime",
+				cleanup: () => {
+					activeRuntime.dispose();
+					if (runtime === activeRuntime) runtime = undefined;
+				},
+			});
+			await restoreFeatures();
+			applyUiConfiguration(session.ctx);
+			void (async (): Promise<void> => {
+				const warmed = await activeRuntime.warm(1500);
+				if (runtime !== activeRuntime) return;
+				if (warmed.isErr()) {
+					if (isFeatureEnabled("statusUI"))
+						session.ctx.ui.notify(`fff unavailable: ${warmed.error.message}`, "warning");
+					return;
+				}
+				if (isFeatureEnabled("statusUI")) {
+					const indexed = warmed.value.indexedFiles ? ` (${warmed.value.indexedFiles} files)` : "";
+					session.ctx.ui.notify(`fff path + grep mode enabled${indexed}`, "info");
+				}
+			})();
+		},
 	});
-	pi.on("session_shutdown", () => {
-		runtime?.dispose();
-		runtime = undefined;
-	});
+	registerHepiLifecycle(pi, lifecycle, "pi-fff");
 }
