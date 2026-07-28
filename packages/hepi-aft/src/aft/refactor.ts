@@ -122,7 +122,7 @@ export function registerRefactorTool(pi: ExtensionAPI, ctx: PluginContext): void
 			label: "refactor",
 			executionMode: "sequential",
 			description:
-				"Workspace-wide refactoring that updates imports and references across files. `move` relocates a top-level symbol (not nested functions or class methods) to another file, rewriting imports workspace-wide; a checkpoint is created first. To move or rename a whole file, use apply_patch. `extract` pulls a line range into a new function (TS/JS/TSX, Python). `inline` replaces a call with the function's body.",
+				"Workspace-wide refactoring that updates imports and references across files. `move` relocates a top-level symbol (not nested functions or class methods) to another file, rewriting imports workspace-wide; a checkpoint is created first. `extract` pulls a line range into a new function (TS/JS/TSX, Python). `inline` replaces a call with the function's body.",
 			parameters: RefactorParams,
 			async execute(
 				_toolCallId: string,
