@@ -1,0 +1,62 @@
+{
+	"name": "@hheei/hepi-aft",
+	"version": "0.0.0",
+	"description": "HEPI-owned Pi adapter for Agent File Tools.",
+	"type": "module",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"exports": {
+		".": "./dist/index.js"
+	},
+	"files": [
+		"dist",
+		"README.md",
+		"THIRD_PARTY_NOTICES.md",
+		"LICENSE"
+	],
+	"pi": {
+		"extensions": [
+			"dist/extension.js"
+		]
+	},
+	"scripts": {
+		"build": "bun ../../scripts/build-aggregate.mjs hepi-aft",
+		"prepack": "bun run build"
+	},
+	"keywords": [
+		"pi",
+		"pi-package",
+		"pi-extension",
+		"hepi",
+		"aft"
+	],
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/hheei/hepi-mono.git",
+		"directory": "packages/hepi-aft"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"dependencies": {
+		"@cortexkit/aft-bridge": "0.49.0"
+	},
+	"optionalDependencies": {
+		"@cortexkit/aft-darwin-arm64": "0.49.0",
+		"@cortexkit/aft-darwin-x64": "0.49.0",
+		"@cortexkit/aft-linux-arm64": "0.49.0",
+		"@cortexkit/aft-linux-x64": "0.49.0",
+		"@cortexkit/aft-win32-arm64": "0.49.0",
+		"@cortexkit/aft-win32-x64": "0.49.0"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": ">=0.82.0"
+	},
+	"devDependencies": {
+		"@earendil-works/pi-coding-agent": "^0.82.0",
+		"@hheei/hepi-basics": "workspace:*",
+		"@types/bun": "latest",
+		"typebox": "^1.1.38"
+	}
+}

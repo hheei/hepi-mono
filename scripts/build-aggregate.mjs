@@ -4,8 +4,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const aggregatePackages = ["hepi-basics", "hepi-tools", "hepi-mctx", "hepi-skills", "hepi-mono"];
+const aggregatePackages = [
+	"hepi-aft",
+	"hepi-basics",
+	"hepi-tools",
+	"hepi-mctx",
+	"hepi-skills",
+	"hepi-mono",
+];
 const publicContracts = {
+	"hepi-aft": "hepiAftExtensions",
 	"hepi-basics": "hepiBasicsExtensions",
 	"hepi-tools": "hepiToolsExtensions",
 	"hepi-mctx": "hepiMctxExtensions",

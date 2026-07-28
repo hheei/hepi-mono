@@ -21,6 +21,7 @@ Use `<owner>-<repo>` directory names. Documentation must cite the public URL and
 | [ShpetimA/pi-fff](https://github.com/ShpetimA/pi-fff) | `694837d0644abc8527ebfa3ea50135e0f5d1ece4` | FFF runtime, tools, commands, formatting, and autocomplete behavior adapted for HEPI ownership |
 | [mattpocock/skills](https://github.com/mattpocock/skills) | `ed37663cc5fbef691ddfecd080dff42f7e7e350d` | Grill and domain-modeling skills adapted for the HEPI skills bundle |
 | [hheei/magic-context](https://github.com/hheei/magic-context) | `f9c964da0c5cc53d1ef0658af588b46acd2e740d` | Fixed Magic Context Pi plugin/core source, including external Pi subagent accounting API |
+| [cortexkit/aft](https://github.com/cortexkit/aft) | `566bcde25cbb2c24f09fdc5e4840a58a65a97677` | AFT Pi adapter tool contracts and public bridge API, adapted into the HEPI-owned AFT aggregate |
 
 ## Other Design References
 

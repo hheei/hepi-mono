@@ -7,6 +7,7 @@ import ts from "typescript";
 const repositoryRoot = join(import.meta.dir, "../../..");
 const packagesDirectory = join(repositoryRoot, "packages");
 const compositionPackages = new Set([
+	"hepi-aft",
 	"hepi-basics",
 	"hepi-mctx",
 	"hepi-mono",
