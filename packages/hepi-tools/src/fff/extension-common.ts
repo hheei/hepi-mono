@@ -21,7 +21,7 @@ import type {
 } from "./fff.js";
 
 const GLOBAL_FEATURES_PATH = join(getAgentDir(), "extensions", "pi-fff.json");
-export const CUSTOM_TOOL_NAMES = ["find_files", "fff_multi_grep"] as const;
+export const CUSTOM_TOOL_NAMES = ["find", "fff_multi_grep"] as const;
 export const FFF_RUNTIME_NOT_READY_TEXT = "FFF runtime is not ready.";
 
 export type FeatureKey =
@@ -55,7 +55,7 @@ export const FEATURE_DEFINITIONS: FeatureDefinition[] = [
 		label: "Built-in grep enhancement",
 		description: "Use FFF-backed content search for built-in grep",
 	},
-	{ id: "agentTools", label: "Agent tools", description: "Enable find_files / fff_multi_grep" },
+	{ id: "agentTools", label: "Agent tools", description: "Enable find / fff_multi_grep" },
 	{ id: "statusUI", label: "Status UI", description: "Show startup notices" },
 ];
 export const ALL_FEATURE_KEYS = FEATURE_DEFINITIONS.map((feature) => feature.id);

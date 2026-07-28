@@ -1,5 +1,11 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "typebox";
+import {
+	renderOutlineCall,
+	renderOutlineResult,
+	renderZoomCall,
+	renderZoomResult,
+} from "./reading-renderers.js";
 import type { HepiAftRuntime } from "./runtime.js";
 
 const outlineParameters = Type.Object({
@@ -128,23 +134,41 @@ async function zoom(
 	return textResult(response);
 }
 
-export function registerAftTools(pi: ExtensionAPI, getRuntime: RuntimeGetter): void {
-	pi.registerTool({
-		name: "aft_outline",
-		label: "outline",
-		description:
-			"Structural outline of source code, documentation files, or remote URLs. Use it to map symbols before reading focused sections with aft_zoom.",
-		parameters: outlineParameters,
-		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
-			await outline(requireRuntime(getRuntime), ctx, params),
-	});
-	pi.registerTool({
-		name: "aft_zoom",
-		label: "zoom",
-		description:
-			"Inspect source symbols or documentation sections. Use path plus symbols, URL plus symbols, or cross-file targets.",
-		parameters: zoomParameters,
-		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
-			await zoom(requireRuntime(getRuntime), ctx, params),
-	});
+export function registerAftTools(
+	pi: ExtensionAPI,
+	getRuntime: RuntimeGetter,
+	options: { readonly outline: boolean; readonly zoom: boolean },
+): void {
+	if (options.outline)
+		pi.registerTool({
+			name: "aft_outline",
+			label: "outline",
+			description:
+				"Structural outline of source code, documentation files, or remote URLs. Use it to map symbols before reading focused sections with aft_zoom.",
+			parameters: outlineParameters,
+			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
+				await outline(requireRuntime(getRuntime), ctx, params),
+			renderCall(args, theme, context) {
+				return renderOutlineCall(args, theme, context);
+			},
+			renderResult(result, _options, theme, context) {
+				return renderOutlineResult(result, theme, context);
+			},
+		});
+	if (options.zoom)
+		pi.registerTool({
+			name: "aft_zoom",
+			label: "zoom",
+			description:
+				"Inspect source symbols or documentation sections. Use path plus symbols, URL plus symbols, or cross-file targets.",
+			parameters: zoomParameters,
+			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
+				await zoom(requireRuntime(getRuntime), ctx, params),
+			renderCall(args, theme, context) {
+				return renderZoomCall(args, theme, context);
+			},
+			renderResult(result, _options, theme, context) {
+				return renderZoomResult(result, context.args, theme, context);
+			},
+		});
 }

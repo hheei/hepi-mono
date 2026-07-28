@@ -40,7 +40,12 @@
 		"access": "public"
 	},
 	"dependencies": {
-		"@cortexkit/aft-bridge": "0.49.0"
+		"@cortexkit/aft-bridge": "0.49.0",
+		"@ff-labs/fff-node": "^0.9.6",
+		"comment-json": "^5.0.0",
+		"diff": "^9.0.0",
+		"typebox": "1.1.38",
+		"zod": "^4.4.3"
 	},
 	"optionalDependencies": {
 		"@cortexkit/aft-darwin-arm64": "0.49.0",
@@ -51,12 +56,13 @@
 		"@cortexkit/aft-win32-x64": "0.49.0"
 	},
 	"peerDependencies": {
+		"@earendil-works/pi-ai": ">=0.82.0",
+		"@earendil-works/pi-tui": "*",
 		"@earendil-works/pi-coding-agent": ">=0.82.0"
 	},
 	"devDependencies": {
 		"@earendil-works/pi-coding-agent": "^0.82.0",
 		"@hheei/hepi-basics": "workspace:*",
-		"@types/bun": "latest",
-		"typebox": "^1.1.38"
+		"@types/bun": "latest"
 	}
 }

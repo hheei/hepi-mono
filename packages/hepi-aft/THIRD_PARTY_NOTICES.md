@@ -2,7 +2,10 @@
 
 ## Agent File Tools
 
-`src/aft/` adapts the `aft_outline` and `aft_zoom` Pi tool contracts from
+`src/aft/` adapts the AFT Pi and OpenCode tool contracts, including the
+`read`, `write`, `edit`, `grep`, `bash`, `apply_patch`, `aft_outline`,
+`aft_zoom`, `aft_callgraph`, `aft_refactor`, `aft_import`, and `aft_inspect`
+surfaces, from
 [cortexkit/aft](https://github.com/cortexkit/aft) revision
 `566bcde25cbb2c24f09fdc5e4840a58a65a97677`.
 

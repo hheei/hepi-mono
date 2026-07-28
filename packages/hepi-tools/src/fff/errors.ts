@@ -116,7 +116,7 @@ export class InvalidFindFilesCursorError extends TaggedError("InvalidFindFilesCu
 	message: string;
 }>() {
 	constructor(args: { query: string; cursor: string }) {
-		super({ ...args, message: "Invalid or expired find_files cursor." });
+		super({ ...args, message: "Invalid or expired find cursor." });
 	}
 }
 

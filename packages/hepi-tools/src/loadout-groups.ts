@@ -12,11 +12,7 @@ export const HEPI_TOOLS_LOADOUT_GROUPS = [
 		label: "Web Search",
 		items: ["web_search", "fetch_content", "get_search_content", "source_check"],
 	},
-	{
-		id: "fff",
-		label: "FFF",
-		items: ["find", "grep", "read", "find_files", "fff_multi_grep"],
-	},
+	{ id: "builtin-overrides", label: "built-in", items: ["find", "grep", "read"] },
 ] as const satisfies readonly HepiLoadoutGroup[];
 
 export function registerHepiToolsLoadoutGroups(

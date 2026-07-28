@@ -44,6 +44,7 @@
 	},
 	"devDependencies": {
 		"@earendil-works/pi-coding-agent": "^0.82.0",
+		"@hheei/hepi-aft": "workspace:*",
 		"@types/bun": "latest"
 	}
 }

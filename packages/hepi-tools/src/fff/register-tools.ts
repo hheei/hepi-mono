@@ -27,6 +27,10 @@ export type ToolRegistrationDeps = {
 	agentToolsDisabledText(): string;
 };
 
+export type ToolRegistrationOptions = {
+	readonly registerRead?: boolean;
+};
+
 function textResult<T>(text: string, details: T) {
 	return {
 		content: [{ type: "text" as const, text }],
@@ -34,7 +38,11 @@ function textResult<T>(text: string, details: T) {
 	};
 }
 
-export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): void {
+export function registerTools(
+	pi: ExtensionAPI,
+	deps: ToolRegistrationDeps,
+	options: ToolRegistrationOptions = {},
+): void {
 	const readTemplate = createReadTool(process.cwd());
 	const grepTemplate = createGrepTool(process.cwd());
 
@@ -55,44 +63,45 @@ export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): voi
 		return { kind: "ready" as const, runtime };
 	};
 
-	pi.registerTool({
-		name: "read",
-		label: "read",
-		description: `${readTemplate.description} Accepts approximate file paths and resolves them with fff before reading.`,
-		parameters: readTemplate.parameters,
-		async execute(toolCallId, params, signal, onUpdate, ctx) {
-			const original = createReadTool(ctx.cwd);
-			const runtime = deps.getRuntime();
-			if (!runtime || !deps.isFeatureEnabled("builtInReadEnhancement")) {
-				return original.execute(toolCallId, params, signal, onUpdate);
-			}
+	if (options.registerRead !== false)
+		pi.registerTool({
+			name: "read",
+			label: "read",
+			description: `${readTemplate.description} Accepts approximate file paths and resolves them with fff before reading.`,
+			parameters: readTemplate.parameters,
+			async execute(toolCallId, params, signal, onUpdate, ctx) {
+				const original = createReadTool(ctx.cwd);
+				const runtime = deps.getRuntime();
+				if (!runtime || !deps.isFeatureEnabled("builtInReadEnhancement")) {
+					return original.execute(toolCallId, params, signal, onUpdate);
+				}
 
-			const resolution = await runtime.resolvePath(params.path, {
-				allowDirectory: false,
-				limit: 8,
-			});
-			return resolution.match({
-				err: async (error) => {
-					throw new Error(buildReadFailureMessage("read", params.path, error));
-				},
-				ok: async (resolved) => {
-					void runtime.trackQuery(params.path, resolved.absolutePath);
-					const locationParams = locationToReadParams(resolved, params.offset, params.limit);
-					return original.execute(
-						toolCallId,
-						{
-							...params,
-							path: resolved.absolutePath,
-							...(locationParams.offset === undefined ? {} : { offset: locationParams.offset }),
-							...(locationParams.limit === undefined ? {} : { limit: locationParams.limit }),
-						},
-						signal,
-						onUpdate,
-					);
-				},
-			});
-		},
-	});
+				const resolution = await runtime.resolvePath(params.path, {
+					allowDirectory: false,
+					limit: 8,
+				});
+				return resolution.match({
+					err: async (error) => {
+						throw new Error(buildReadFailureMessage("read", params.path, error));
+					},
+					ok: async (resolved) => {
+						void runtime.trackQuery(params.path, resolved.absolutePath);
+						const locationParams = locationToReadParams(resolved, params.offset, params.limit);
+						return original.execute(
+							toolCallId,
+							{
+								...params,
+								path: resolved.absolutePath,
+								...(locationParams.offset === undefined ? {} : { offset: locationParams.offset }),
+								...(locationParams.limit === undefined ? {} : { limit: locationParams.limit }),
+							},
+							signal,
+							onUpdate,
+						);
+					},
+				});
+			},
+		});
 
 	const grepSchema = Type.Object({
 		pattern: Type.String({ description: "Search pattern" }),
@@ -187,21 +196,19 @@ export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): voi
 	});
 
 	pi.registerTool({
-		name: "find_files",
-		label: "Find Files",
+		name: "find",
+		label: "find",
 		description: "Browse ranked file candidates for a fuzzy query using fff.",
 		promptSnippet: "Explore which files exist for a topic before reading one.",
 		promptGuidelines: [
-			"Use `find_files` when exploring a topic, looking for a file, or needing paginated ranked candidates before reading.",
+			"Use `find` when exploring a topic, looking for a file, or needing paginated ranked candidates before reading.",
 		],
 		parameters: Type.Object({
 			query: Type.String({ description: "Fuzzy file query" }),
 			limit: Type.Optional(
 				Type.Number({ description: "Maximum number of results to return (default: 20)" }),
 			),
-			cursor: Type.Optional(
-				Type.String({ description: "Cursor from a previous find_files result" }),
-			),
+			cursor: Type.Optional(Type.String({ description: "Cursor from a previous find result" })),
 		}),
 		async execute(_toolCallId, params) {
 			const guarded = getAgentRuntime(

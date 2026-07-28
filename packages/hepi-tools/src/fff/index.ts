@@ -6,7 +6,6 @@ import {
 import { createFffAutocompleteProvider } from "./autocomplete.js";
 import {
 	ALL_FEATURE_KEYS,
-	CUSTOM_TOOL_NAMES,
 	type FeatureKey,
 	loadGlobalFeatureStateSync,
 	saveGlobalFeatureState,
@@ -15,7 +14,14 @@ import { FffRuntime } from "./fff.js";
 import { registerCommands } from "./register-commands.js";
 import { registerTools } from "./register-tools.js";
 
-export default function registerHepiFff(pi: ExtensionAPI): void {
+export type FffRegistrationOptions = {
+	readonly registerRead?: boolean;
+};
+
+export default function registerHepiFff(
+	pi: ExtensionAPI,
+	options: FffRegistrationOptions = {},
+): void {
 	let runtime: FffRuntime | undefined;
 	let enabledFeatures = new Set<FeatureKey>(ALL_FEATURE_KEYS);
 	const autocompleteContexts = new WeakSet<object>();
@@ -31,14 +37,6 @@ export default function registerHepiFff(pi: ExtensionAPI): void {
 	const isFeatureEnabled = (feature: FeatureKey): boolean => enabledFeatures.has(feature);
 	const getRuntime = (): FffRuntime | null => runtime ?? null;
 	const getEnabledFeatures = (): Set<FeatureKey> => new Set(enabledFeatures);
-	const syncCustomToolActivation = (): void => {
-		const activeTools = new Set(pi.getActiveTools());
-		for (const toolName of CUSTOM_TOOL_NAMES) {
-			if (isFeatureEnabled("agentTools")) activeTools.add(toolName);
-			else activeTools.delete(toolName);
-		}
-		pi.setActiveTools([...activeTools]);
-	};
 	const applyUiConfiguration = (ctx: ExtensionContext): void => {
 		if (isFeatureEnabled("autocomplete") && !autocompleteContexts.has(ctx)) {
 			autocompleteContexts.add(ctx);
@@ -50,7 +48,6 @@ export default function registerHepiFff(pi: ExtensionAPI): void {
 				),
 			);
 		}
-		syncCustomToolActivation();
 	};
 	const persistFeatures = async (next: Set<FeatureKey>): Promise<void> => {
 		const saved = await saveGlobalFeatureState(next);
@@ -59,11 +56,15 @@ export default function registerHepiFff(pi: ExtensionAPI): void {
 	const agentToolsDisabledText = (): string =>
 		'HEPI FFF feature "agent tools" is disabled. Use /fff-features to re-enable it.';
 
-	registerTools(pi, {
-		getRuntime,
-		isFeatureEnabled,
-		agentToolsDisabledText,
-	});
+	registerTools(
+		pi,
+		{
+			getRuntime,
+			isFeatureEnabled,
+			agentToolsDisabledText,
+		},
+		options,
+	);
 	registerCommands(pi, {
 		getRuntime,
 		isFeatureEnabled,

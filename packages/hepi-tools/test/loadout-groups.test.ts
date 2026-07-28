@@ -18,11 +18,13 @@ describe("HEPI tools Loadout groups", () => {
 
 		registerHepiToolsLoadoutGroups(pi);
 		const registry = getHepiRuntimeLoadoutGroupRegistry(pi);
-		expect(registry.list().map((group) => group.id)).toEqual(["fff", "web-search"]);
+		expect(registry.list().map((group) => group.id)).toEqual(["builtin-overrides", "web-search"]);
 		expect(registry.list()).toEqual(
 			[...HEPI_TOOLS_LOADOUT_GROUPS].sort((a, b) => a.label.localeCompare(b.label)),
 		);
-		expect(registry.list().find((group) => group.id === "fff")?.items).toContain("find");
+		expect(registry.list().find((group) => group.id === "builtin-overrides")?.items).toContain(
+			"find",
+		);
 		for (const handler of shutdownHandlers) handler();
 		expect(registry.list()).toEqual([]);
 	});
@@ -52,12 +54,15 @@ describe("HEPI tools Loadout groups", () => {
 					);
 				}
 			},
-			{ id: "fff", label: "FFF", items: ["fallback"] },
+			{ id: "builtin-overrides", label: "built-in", items: ["fallback"] },
 		);
 		extension(pi);
 
 		expect(registered).toEqual(["find", "grep"]);
-		expect(getHepiRuntimeLoadoutGroupRegistry(pi).get("fff")?.items).toEqual(["find", "grep"]);
+		expect(getHepiRuntimeLoadoutGroupRegistry(pi).get("builtin-overrides")?.items).toEqual([
+			"find",
+			"grep",
+		]);
 		for (const handler of shutdownHandlers) handler();
 	});
 
@@ -72,9 +77,9 @@ describe("HEPI tools Loadout groups", () => {
 			(leaf) => {
 				leaf.registerTool(
 					defineTool({
-						name: "find_files",
-						label: "find_files",
-						description: "find_files",
+						name: "find",
+						label: "find",
+						description: "find",
 						parameters: Type.Object({}),
 						async execute() {
 							return { content: [], details: undefined };
@@ -82,13 +87,12 @@ describe("HEPI tools Loadout groups", () => {
 					}),
 				);
 			},
-			{ id: "fff", label: "FFF", items: ["find", "find_files"] },
+			{ id: "builtin-overrides", label: "built-in", items: ["find"] },
 			["find"],
 		)(pi);
 
-		expect(getHepiRuntimeLoadoutGroupRegistry(pi).get("fff")?.items).toEqual([
+		expect(getHepiRuntimeLoadoutGroupRegistry(pi).get("builtin-overrides")?.items).toEqual([
 			"find",
-			"find_files",
 		]);
 	});
 });

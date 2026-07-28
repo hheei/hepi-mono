@@ -49,14 +49,9 @@ describe("FFF tool registration", () => {
 			agentToolsDisabledText: () => "disabled",
 		});
 
-		expect(host.tools.map((tool) => tool.name)).toEqual([
-			"read",
-			"grep",
-			"find_files",
-			"fff_multi_grep",
-		]);
-		expect(host.tools.find((tool) => tool.name === "find_files")?.promptGuidelines).toEqual([
-			"Use `find_files` when exploring a topic, looking for a file, or needing paginated ranked candidates before reading.",
+		expect(host.tools.map((tool) => tool.name)).toEqual(["read", "grep", "find", "fff_multi_grep"]);
+		expect(host.tools.find((tool) => tool.name === "find")?.promptGuidelines).toEqual([
+			"Use `find` when exploring a topic, looking for a file, or needing paginated ranked candidates before reading.",
 		]);
 		expect(host.tools.find((tool) => tool.name === "grep")?.promptGuidelines).toEqual([
 			"Prefer simple literal patterns over complex regex when possible.",
@@ -64,6 +59,21 @@ describe("FFF tool registration", () => {
 			"Use outputMode=files_with_matches when content output is too noisy.",
 			"After one or two good greps, read the best matching file.",
 		]);
+	});
+
+	test("omits read when AFT owns the read slot", () => {
+		const host = harness();
+		registerTools(
+			host.pi,
+			{
+				getRuntime: () => null,
+				isFeatureEnabled: () => false,
+				agentToolsDisabledText: () => "disabled",
+			},
+			{ registerRead: false },
+		);
+
+		expect(host.tools.map((tool) => tool.name)).toEqual(["grep", "find", "fff_multi_grep"]);
 	});
 
 	test("delegates read to Pi when the FFF enhancement is disabled", async () => {

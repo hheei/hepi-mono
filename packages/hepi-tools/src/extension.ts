@@ -18,6 +18,11 @@ import piTodo from "./pi-todo/index.js";
 
 export type HepiExtension = (pi: ExtensionAPI) => void;
 
+export type HepiToolsCompositionOptions = {
+	readonly fff?: Parameters<typeof registerHepiFff>[1];
+	readonly includeCodexApplyPatch?: boolean;
+};
+
 function loadSettings(): unknown {
 	try {
 		return JSON.parse(readFileSync(join(getAgentDir(), "settings.json"), "utf8"));
@@ -35,29 +40,40 @@ function loadoutGroup(id: string) {
 	return group;
 }
 
-const fffLoadoutGroup = loadoutGroup("fff");
 const webSearchLoadoutGroup = loadoutGroup("web-search");
-
-const registerHepiFffWithLoadout = withHepiToolLoadoutGroup(registerHepiFff, fffLoadoutGroup, [
-	"find",
-]);
 const registerBundledWebAccess = withHepiToolLoadoutGroup(piWebAccess, webSearchLoadoutGroup);
 
 const registerExternalToolLoadoutGroups: HepiExtension = (pi) => {
-	registerHepiToolsLoadoutGroups(pi, [...(hasWebAccess ? [webSearchLoadoutGroup] : [])]);
+	registerHepiToolsLoadoutGroups(
+		pi,
+		HEPI_TOOLS_LOADOUT_GROUPS.filter(
+			(group) => group.id === "builtin-overrides" || (hasWebAccess && group.id === "web-search"),
+		),
+	);
 };
 
-export const hepiToolsExtensions: readonly HepiExtension[] = [
-	registerExternalToolLoadoutGroups,
-	piAsk,
-	piGoal,
-	piSshfs,
-	registerHepiFffWithLoadout,
-	piCodexTool,
-	piAdvisor,
-	piTodo,
-	...(hasWebAccess ? [] : [registerBundledWebAccess]),
-];
+export function createHepiToolsExtensions(
+	options: HepiToolsCompositionOptions = {},
+): readonly HepiExtension[] {
+	return [
+		registerExternalToolLoadoutGroups,
+		piAsk,
+		piGoal,
+		piSshfs,
+		(pi) => registerHepiFff(pi, options.fff),
+		...(options.includeCodexApplyPatch === false ? [] : [piCodexTool]),
+		piAdvisor,
+		piTodo,
+		...(hasWebAccess ? [] : [registerBundledWebAccess]),
+	];
+}
+
+export const hepiToolsExtensions = createHepiToolsExtensions();
+
+export const hepiToolsExtensionsWithAft = createHepiToolsExtensions({
+	fff: { registerRead: false },
+	includeCodexApplyPatch: false,
+});
 
 export default function piHepiToolsExtension(pi: ExtensionAPI): void {
 	for (const extension of hepiToolsExtensions) extension(pi);
