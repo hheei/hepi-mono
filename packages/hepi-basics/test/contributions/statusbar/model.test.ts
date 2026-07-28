@@ -101,6 +101,13 @@ describe("statusbar model", () => {
 			fallback,
 		);
 	});
+
+	test("includes tool definitions in fallback context usage", () => {
+		const usage = estimateContextUsage([], 1_000, undefined, [
+			{ name: "tool", description: "x".repeat(400), parameters: {} },
+		]);
+		expect(usage?.tokens).toBeGreaterThan(100);
+	});
 });
 
 test("covers every approved meter glyph and boundary", () => {
