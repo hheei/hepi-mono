@@ -254,6 +254,9 @@ export function groupLoadoutItemsByOrigin(
 	}
 	return [...groups]
 		.sort(([a, left], [b, right]) => {
+			const builtInOrder =
+				Number(loadoutPackageSortKey(a) !== "") - Number(loadoutPackageSortKey(b) !== "");
+			if (builtInOrder !== 0) return builtInOrder;
 			if (left.explicit !== right.explicit) return left.explicit ? -1 : 1;
 			return loadoutPackageSortKey(a).localeCompare(loadoutPackageSortKey(b), undefined, {
 				sensitivity: "base",
