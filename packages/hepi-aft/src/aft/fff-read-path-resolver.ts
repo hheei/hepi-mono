@@ -6,6 +6,7 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { FileFinder, type Location, type Score, type SearchResult } from "@ff-labs/fff-node";
 import {
 	acquireSharedFffFinder,
+	resolveHepiProjectRoot,
 	type SharedFffFinderLease,
 } from "../../../hepi-basics/src/core/index.js";
 
@@ -104,16 +105,6 @@ async function getPathType(path: string): Promise<"file" | "directory" | null> {
 	}
 }
 
-async function resolveProjectRoot(cwd: string): Promise<string> {
-	let current = resolve(cwd);
-	for (;;) {
-		if ((await getPathType(resolve(current, ".git"))) === "directory") return current;
-		const parent = dirname(current);
-		if (parent === current) return resolve(cwd);
-		current = parent;
-	}
-}
-
 function databasePaths(projectRoot: string): { frecencyDbPath: string; historyDbPath: string } {
 	const key = createHash("sha1").update(projectRoot).digest("hex").slice(0, 12);
 	const dbDir = resolve(getAgentDir(), "pi-fff", key);
@@ -204,7 +195,7 @@ export class FffReadPathResolver {
 	}
 
 	private async getProjectRoot(): Promise<string> {
-		if (this.projectRoot === undefined) this.projectRoot = await resolveProjectRoot(this.cwd);
+		if (this.projectRoot === undefined) this.projectRoot = await resolveHepiProjectRoot(this.cwd);
 		return this.projectRoot;
 	}
 

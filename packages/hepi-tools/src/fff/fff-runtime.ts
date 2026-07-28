@@ -6,6 +6,7 @@ import { FileFinder } from "@ff-labs/fff-node";
 import { Result } from "better-result";
 import {
 	acquireSharedFffFinder,
+	resolveHepiProjectRoot,
 	type SharedFffFinderLease,
 } from "../../../hepi-basics/src/core/index.js";
 import { formatPathResolutionError } from "./error-format.js";
@@ -57,7 +58,7 @@ import {
 	type StoredGrepContinuation,
 } from "./fff-types.js";
 import { type AppResult, errResult, propagateError, toVoidResult } from "./result-utils.js";
-import { getProjectDatabasePaths, resolveProjectRoot } from "./runtime-paths.js";
+import { getProjectDatabasePaths } from "./runtime-paths.js";
 
 async function getPathType(path: string): Promise<"file" | "directory" | null> {
 	try {
@@ -331,7 +332,7 @@ export class FffRuntime {
 	async getMetadata(): Promise<RuntimeMetadata> {
 		const projectRoot =
 			this.options.projectRoot ??
-			(this.basePath !== this.cwd ? this.basePath : await resolveProjectRoot(this.cwd));
+			(this.basePath !== this.cwd ? this.basePath : await resolveHepiProjectRoot(this.cwd));
 		this.basePath = projectRoot;
 		const root = resolve(getAgentDir(), "pi-fff");
 		const paths = getProjectDatabasePaths(root, projectRoot);
@@ -1047,7 +1048,7 @@ export class FffRuntime {
 		});
 		if (rootResult.isErr()) return propagateError(rootResult);
 
-		const projectRoot = this.options.projectRoot ?? (await resolveProjectRoot(this.cwd));
+		const projectRoot = this.options.projectRoot ?? (await resolveHepiProjectRoot(this.cwd));
 		this.basePath = projectRoot;
 		const paths = getProjectDatabasePaths(root, projectRoot);
 		const dbDir = paths.dbDir;
