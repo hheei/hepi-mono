@@ -70,6 +70,7 @@ The supported packages are the four aggregate bundles and the development-only
 
 ```text
 packages/       HEPI-owned publishable workspaces
+  hepi-subagents/  Pinned external fork submodule, excluded from workspaces
 
 docs/
   user/         Cross-package usage
@@ -86,4 +87,4 @@ scripts/        Repository development commands
 templates/      Extension generator inputs
 ```
 
-`graphify-out/`, `outputs/`, `.pi/`, and `.pi-subagents/` are local generated state and are not versioned. External source clones are references only: they are not workspace packages, dependencies, or behavior contracts.
+`graphify-out/`, `outputs/`, `.pi/`, and `.pi-subagents/` are local generated state and are not versioned. External source clones under `references/repos/` are references only: they are not workspace packages, dependencies, or behavior contracts.
