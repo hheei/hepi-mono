@@ -462,16 +462,24 @@ function validateBatchEdits(edits: unknown): void {
 }
 
 function renderReadCall(
-	args: { path?: unknown; filePath?: unknown } | undefined,
+	args: { path?: unknown; filePath?: unknown; offset?: unknown; limit?: unknown } | undefined,
 	theme: Theme,
 	context: RenderContextLike,
 ): Text {
 	const text = reuseText(context.lastComponent);
 	const filePath = args ? readPathArg(args) : undefined;
 	const pathDisplay = filePath
-		? theme.fg("accent", shortenPath(filePath))
+		? theme.fg("dim", shortenPath(filePath))
 		: theme.fg("toolOutput", "...");
-	text.setText(`${theme.fg("toolTitle", theme.bold("read"))} ${pathDisplay}`);
+	const offset = typeof args?.offset === "number" ? args.offset : undefined;
+	const limit = typeof args?.limit === "number" ? args.limit : undefined;
+	const startLine = offset ?? 1;
+	const endLine = limit === undefined ? "" : `-${startLine + limit - 1}`;
+	const lineRange =
+		offset === undefined && limit === undefined
+			? ""
+			: theme.fg("warning", `:${startLine}${endLine}`);
+	text.setText(`${theme.fg("toolTitle", theme.bold("read"))} ${pathDisplay}${lineRange}`);
 	return text;
 }
 

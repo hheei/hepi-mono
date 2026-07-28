@@ -1,7 +1,7 @@
 import type { AgentToolResult, Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Container, Text } from "@earendil-works/pi-tui";
 import { renderApplyPatchCallFromState } from "../../../hepi-tools/src/pi-codex-tool/tools/apply-patch/render-state.js";
-import { type RenderContextLike, renderErrorResult } from "./render-helpers.js";
+import type { RenderContextLike } from "./render-helpers.js";
 
 export type AftApplyPatchDetails = {
 	readonly phase: "preview" | "applied";
@@ -50,12 +50,12 @@ export function renderAftApplyPatchCall(
 }
 
 export function renderAftApplyPatchResult(
-	result: AgentToolResult<unknown>,
+	_result: AgentToolResult<unknown>,
 	options: ApplyPatchRenderOptions,
 	theme: Theme,
 	context: ApplyPatchRenderContext,
 ): Component {
-	if (context.isError) return renderErrorResult(result, "apply_patch failed", theme, context);
+	if (context.isError) return new Container();
 	if (options.isPartial === true)
 		return new Text(`${theme.fg("dim", "•")} ${theme.bold("Patching")}`, 0, 0);
 	return new Container();

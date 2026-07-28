@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ToolCallResult } from "@cortexkit/aft-bridge";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { Component } from "@earendil-works/pi-tui";
 import { registerHoistedTools } from "../src/aft/hoisted.js";
 import { aftConfigureOverrides, type HepiAftRuntime } from "../src/aft/runtime.js";
 import { registerAftTools } from "../src/aft/tools.js";
@@ -9,6 +10,7 @@ import type { PluginContext } from "../src/aft/types.js";
 type RegisteredTool = {
 	readonly name: string;
 	readonly executionMode?: string;
+	renderCall?: (args: unknown, theme: unknown, context: unknown) => Component;
 	execute(...args: readonly unknown[]): Promise<unknown>;
 };
 
@@ -307,6 +309,29 @@ describe("AFT tools", () => {
 				details: { phase: "preview", paths: ["README.md"], text: "preview" },
 			},
 		]);
+	});
+
+	test("renders AFT read paths dim with the original warning line range", () => {
+		const read = registerHoisted(async () => ({ success: true, text: "unused" })).get("read");
+		if (read?.renderCall === undefined) throw new Error("Expected AFT read renderer");
+		const roles: string[] = [];
+		const component = read.renderCall(
+			{ path: "src/example.ts", offset: 10, limit: 20 },
+			{
+				fg: (role: string, text: string) => {
+					roles.push(role);
+					return text;
+				},
+				bold: (text: string) => text,
+			},
+			{ lastComponent: undefined },
+		);
+
+		const rendered = component.render(120).join("\n");
+		expect(rendered).toContain("read src/example.ts:10-29");
+		expect(roles).toContain("dim");
+		expect(roles).toContain("warning");
+		expect(roles).not.toContain("accent");
 	});
 
 	test("serializes AFT file mutations", () => {

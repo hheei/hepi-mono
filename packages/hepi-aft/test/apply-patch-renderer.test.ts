@@ -36,7 +36,7 @@ describe("AFT apply_patch renderer", () => {
 		).toContain("Patching");
 	});
 
-	test("keeps the Codex progress and completion rows while rendering recovery errors", () => {
+	test("keeps AFT recovery errors out of the TUI", () => {
 		const args = { patchText };
 		const preview = renderAftApplyPatchResult(
 			makeResult("preview", { phase: "preview", paths: ["src/example.ts"] }),
@@ -60,7 +60,7 @@ describe("AFT apply_patch renderer", () => {
 			mockTheme,
 			makeContext(args, { isError: true }),
 		);
-		expect(renderToString(error)).toContain("Recovery: read affected paths");
+		expect(renderToString(error)).toBe("");
 	});
 
 	test("replays the Codex summary in a narrow TUI frame", async () => {
@@ -74,5 +74,21 @@ describe("AFT apply_patch renderer", () => {
 		expect(frame).toContain("Changed 2 files +2 -1");
 		expect(frame).toContain("src/example.ts +1 -1");
 		expect(frame).not.toContain("patch applied");
+	});
+
+	test("does not replay AFT recovery text", async () => {
+		const result = await replayTui({
+			columns: 48,
+			rows: 10,
+			create: () =>
+				renderAftApplyPatchResult(
+					makeResult("Recovery: re-read affected paths"),
+					{},
+					mockTheme,
+					makeContext({ patchText }, { isError: true }),
+				),
+		});
+
+		expect(stripAnsi(result.last.lines.join("\n"))).not.toContain("Recovery:");
 	});
 });
