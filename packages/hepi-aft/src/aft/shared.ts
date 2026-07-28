@@ -11,6 +11,7 @@ import type {
 } from "@cortexkit/aft-bridge";
 import {
 	formatBridgeErrorMessage,
+	isEmptyParam,
 	prepareCanonicalEditArguments,
 	prepareCanonicalPathArguments,
 	timeoutForCommand,
@@ -55,6 +56,29 @@ export {
 	timeoutForCommand,
 } from "@cortexkit/aft-bridge";
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasOptionalPathParameter(schema: TSchema): boolean {
+	const properties = Reflect.get(schema, "properties");
+	if (!isRecord(properties) || !Object.hasOwn(properties, "path")) return false;
+	const required = Reflect.get(schema, "required");
+	return !Array.isArray(required) || !required.includes("path");
+}
+
+function omitEmptyOptionalPathArguments(schema: TSchema, args: unknown): unknown {
+	if (!hasOptionalPathParameter(schema) || !isRecord(args)) return args;
+	const prepared = { ...args };
+	let changed = false;
+	for (const key of ["path", "filePath"]) {
+		if (!Object.hasOwn(prepared, key) || !isEmptyParam(prepared[key])) continue;
+		delete prepared[key];
+		changed = true;
+	}
+	return changed ? prepared : args;
+}
+
 /** Attach Pi's raw-argument preparation hook to a path-bearing tool. */
 export function withPathAliasPreparation<
 	TParams extends TSchema,
@@ -63,10 +87,11 @@ export function withPathAliasPreparation<
 >(tool: ToolDefinition<TParams, TDetails, TState>): ToolDefinition<TParams, TDetails, TState> {
 	const existing = tool.prepareArguments;
 	const prepare = (args: unknown): Static<TParams> => {
+		const pathReadyArgs = omitEmptyOptionalPathArguments(tool.parameters, args);
 		const prepared =
 			tool.name === "edit"
-				? prepareCanonicalEditArguments(tool.name, args)
-				: prepareCanonicalPathArguments(tool.name, args);
+				? prepareCanonicalEditArguments(tool.name, pathReadyArgs)
+				: prepareCanonicalPathArguments(tool.name, pathReadyArgs);
 		return (existing ? existing(prepared) : prepared) as Static<TParams>;
 	};
 	return {

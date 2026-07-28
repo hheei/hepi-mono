@@ -95,6 +95,23 @@ describe("aft_safety adapter", () => {
 		]);
 	});
 
+	test("treats an empty optional checkpoint path as omitted", async () => {
+		const calls: Call[] = [];
+		const tools = registerSafety(async (call) => {
+			calls.push(call);
+			return { success: true, text: "checkpoint created" };
+		});
+
+		await execute(tools, { op: "checkpoint", name: "all-tracked", path: "" });
+		expect(calls).toEqual([
+			{
+				kind: "tool",
+				name: "safety",
+				args: { op: "checkpoint", name: "all-tracked" },
+			},
+		]);
+	});
+
 	test("previews restore paths and forwards the canonical filePath payload", async () => {
 		const calls: Call[] = [];
 		const tools = registerSafety(async (call) => {
