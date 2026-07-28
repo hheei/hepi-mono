@@ -61,6 +61,16 @@ function nonEmptyString(value: string | undefined): value is string {
 	return value !== undefined && value.trim().length > 0;
 }
 
+function hasSymbols(symbols: ZoomParameters["symbols"]): boolean {
+	return typeof symbols === "string" ? nonEmptyString(symbols) : (symbols?.length ?? 0) > 0;
+}
+
+function hasTargets(targets: ZoomParameters["targets"]): boolean {
+	if (targets === undefined) return false;
+	const entries = Array.isArray(targets) ? targets : [targets];
+	return entries.some((target) => target.path.length > 0 || target.symbol.length > 0);
+}
+
 function textResult(response: { readonly text: string; readonly [key: string]: unknown }) {
 	return { content: [{ type: "text" as const, text: response.text }], details: response };
 }
@@ -107,10 +117,10 @@ async function zoom(
 ): Promise<ReturnType<typeof textResult>> {
 	const hasPath = nonEmptyString(params.path);
 	const hasUrl = nonEmptyString(params.url);
-	const hasTargets = params.targets !== undefined;
-	const hasSymbols = params.symbols !== undefined;
-	if (hasTargets) {
-		if (hasPath || hasUrl || hasSymbols)
+	const includesTargets = hasTargets(params.targets);
+	const includesSymbols = hasSymbols(params.symbols);
+	if (includesTargets) {
+		if (hasPath || hasUrl || includesSymbols)
 			throw new Error("'targets' is mutually exclusive with 'path', 'url', and 'symbols'");
 		const targets = validateTargets(params.targets);
 		const response = await runtime.toolCall(ctx, "zoom", {
@@ -125,7 +135,7 @@ async function zoom(
 	if (hasPath === hasUrl) throw new Error("Provide exactly one of 'path', 'url', or 'targets'");
 	const response = await runtime.toolCall(ctx, "zoom", {
 		...(hasPath ? { filePath: params.path } : { url: params.url }),
-		...(hasSymbols ? { symbols: params.symbols } : {}),
+		...(includesSymbols ? { symbols: params.symbols } : {}),
 		...(params.contextLines !== undefined ? { contextLines: params.contextLines } : {}),
 		...(params.callgraph === true ? { callgraph: true } : {}),
 	});

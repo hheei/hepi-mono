@@ -77,6 +77,10 @@ const ImportParams = Type.Object({
 	),
 });
 
+function hasImportValue(value: string | ReadonlyArray<string> | undefined): boolean {
+	return typeof value === "string" ? value.trim().length > 0 : (value?.length ?? 0) > 0;
+}
+
 /** Exported for renderer unit tests. */
 export function buildImportSections(
 	args: Static<typeof ImportParams>,
@@ -184,15 +188,15 @@ export function registerImportTools(pi: ExtensionAPI, ctx: PluginContext): void 
 				});
 				const bridge = bridgeFor(ctx, extCtx.cwd);
 				const rawArgs: Record<string, unknown> = { op: params.op, filePath };
-				if (params.module !== undefined) rawArgs.module = params.module;
-				if (params.names !== undefined) rawArgs.names = params.names;
-				if (params.defaultImport !== undefined) rawArgs.defaultImport = params.defaultImport;
-				if (params.namespace !== undefined) rawArgs.namespace = params.namespace;
-				if (params.alias !== undefined) rawArgs.alias = params.alias;
-				if (params.modifiers !== undefined) rawArgs.modifiers = params.modifiers;
-				if (params.importKind !== undefined) rawArgs.importKind = params.importKind;
-				if (params.removeName !== undefined) rawArgs.removeName = params.removeName;
-				if (params.typeOnly !== undefined) rawArgs.typeOnly = params.typeOnly;
+				if (hasImportValue(params.module)) rawArgs.module = params.module;
+				if (hasImportValue(params.names)) rawArgs.names = params.names;
+				if (hasImportValue(params.defaultImport)) rawArgs.defaultImport = params.defaultImport;
+				if (hasImportValue(params.namespace)) rawArgs.namespace = params.namespace;
+				if (hasImportValue(params.alias)) rawArgs.alias = params.alias;
+				if (hasImportValue(params.modifiers)) rawArgs.modifiers = params.modifiers;
+				if (hasImportValue(params.importKind)) rawArgs.importKind = params.importKind;
+				if (hasImportValue(params.removeName)) rawArgs.removeName = params.removeName;
+				if (params.typeOnly === true) rawArgs.typeOnly = true;
 				if (params.validate !== undefined) rawArgs.validate = params.validate;
 
 				const response = await callToolCall(bridge, "import", rawArgs, extCtx);

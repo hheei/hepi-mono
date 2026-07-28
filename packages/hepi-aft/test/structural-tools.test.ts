@@ -152,6 +152,34 @@ describe("AFT structural tools", () => {
 		expect(tools.get("aft_import")?.executionMode).toBe("sequential");
 	});
 
+	test("omits empty optional import fields before bridge dispatch", async () => {
+		const { tools, calls } = registerTools();
+		await execute(tools.get("aft_import"), {
+			op: "remove",
+			path: "src/app.ts",
+			module: "node:path",
+			names: [],
+			defaultImport: "",
+			namespace: "",
+			alias: "",
+			modifiers: [],
+			importKind: "",
+			removeName: "",
+			typeOnly: false,
+			validate: "syntax",
+		});
+
+		expect(calls).toContainEqual({
+			name: "import",
+			arguments_: {
+				op: "remove",
+				filePath: "src/app.ts",
+				module: "node:path",
+				validate: "syntax",
+			},
+		});
+	});
+
 	test("returns callgraph indexing as a readable soft result", async () => {
 		const { tools } = registerTools((name) =>
 			name === "callgraph"

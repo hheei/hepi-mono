@@ -172,6 +172,44 @@ describe("AFT tools", () => {
 		]);
 	});
 
+	test("ignores empty fields injected for another zoom mode", async () => {
+		const calls: Array<{ name: string; arguments_: Record<string, unknown> }> = [];
+		const runtime = {
+			toolCall: async (
+				_ctx: ExtensionContext,
+				name: string,
+				arguments_: Record<string, unknown>,
+			) => {
+				calls.push({ name, arguments_ });
+				return response("zoom result");
+			},
+		} as unknown as HepiAftRuntime;
+		const zoom = registerTools(runtime).get("aft_zoom");
+		if (zoom === undefined) throw new Error("Expected aft_zoom to register");
+
+		await zoom.execute(
+			"call-3",
+			{
+				path: "src/one.ts",
+				url: "",
+				symbols: "one",
+				targets: { path: "", symbol: "" },
+				contextLines: 2,
+				callgraph: false,
+			},
+			AbortSignal.abort(),
+			() => {},
+			createContext(),
+		);
+
+		expect(calls).toEqual([
+			{
+				name: "zoom",
+				arguments_: { filePath: "src/one.ts", symbols: "one", contextLines: 2 },
+			},
+		]);
+	});
+
 	test("rejects conflicting zoom modes before making a bridge call", async () => {
 		const runtime = {
 			toolCall: async () => response("unexpected"),
@@ -181,7 +219,7 @@ describe("AFT tools", () => {
 
 		await expect(
 			zoom.execute(
-				"call-3",
+				"call-4",
 				{ path: "src/one.ts", symbols: "one", targets: { path: "src/two.ts", symbol: "two" } },
 				AbortSignal.abort(),
 				() => {},
@@ -195,7 +233,7 @@ describe("AFT tools", () => {
 		if (outline === undefined) throw new Error("Expected aft_outline to register");
 
 		await expect(
-			outline.execute("call-4", { target: "src" }, AbortSignal.abort(), () => {}, createContext()),
+			outline.execute("call-5", { target: "src" }, AbortSignal.abort(), () => {}, createContext()),
 		).rejects.toThrow("AFT is unavailable");
 	});
 
