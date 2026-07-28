@@ -48,13 +48,12 @@ export const FEATURE_DEFINITIONS: FeatureDefinition[] = [
 	{
 		id: "builtInReadEnhancement",
 		label: "Built-in read enhancement",
-		description: "Resolve approximate paths before built-in read (requires /reload after enabling)",
+		description: "Resolve approximate paths before built-in read",
 	},
 	{
 		id: "builtInGrepEnhancement",
 		label: "Built-in grep enhancement",
-		description:
-			"Use FFF-backed content search for built-in grep (requires /reload after enabling)",
+		description: "Use FFF-backed content search for built-in grep",
 	},
 	{ id: "agentTools", label: "Agent tools", description: "Enable find_files / fff_multi_grep" },
 	{ id: "statusUI", label: "Status UI", description: "Show startup notices" },
