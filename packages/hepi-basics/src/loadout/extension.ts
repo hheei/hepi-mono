@@ -64,7 +64,6 @@ export default function piLoadoutExtension(pi: ExtensionAPI): void {
 			disabledSkillKeys,
 		);
 		if (filtered === undefined) return;
-		event.systemPromptOptions.skills = filtered.skills;
 		if (filtered.systemPrompt !== event.systemPrompt)
 			return { systemPrompt: filtered.systemPrompt };
 	});
