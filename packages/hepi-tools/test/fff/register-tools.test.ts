@@ -184,7 +184,7 @@ describe("FFF tool registration", () => {
 				.join("\n");
 		expect(renderText(call)).toBe("grep `/aft_move/` in /tmp/aft (limit 50)");
 		expect(renderText(result)).toBe(
-			"\n39 matches in 13 files:\n\nbun.lock (15 matches)\n... (224 earlier lines, ^o to expand)\n    9:  first\n  123:  second",
+			"\n39 matches in 13 files:\n\nbun.lock (15 matches)\n... (224 earlier lines, ^o to expand)\n  9:  first\n123:  second",
 		);
 		const noMatches = grep.renderResult(
 			{ content: [{ type: "text", text: 'No files matched "references/repos/pi"' }] },
@@ -254,7 +254,7 @@ describe("FFF tool registration", () => {
 				.join("\n");
 		expect(renderText(call)).toBe("find tools (limit 30)");
 		expect(renderText(result)).toBe(
-			"2 matches in 527 files:\nFF packages/a.ts (frequent git:modified)\nFP packages/b.ts (fuzzy_path)",
+			"2 matches in 527 files:\nFF packages/a.ts (frequent git:modified)\nFP packages/b.ts",
 		);
 		expect(roles.filter((role) => role === "success")).toHaveLength(2);
 		expect(roles).toContain("accent");

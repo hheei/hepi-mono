@@ -110,7 +110,7 @@ function renderGrepText(text: string, theme: Theme): string {
 			if (!matchLine) return line;
 			const lineNumber = matchLine[1] ?? "";
 			const content = (matchLine[2] ?? "").replace(/^ /, "");
-			return `  ${theme.fg("dim", lineNumber.padStart(lineWidth, " "))}${theme.fg("dim", ":")}  ${content}`;
+			return `${theme.fg("dim", lineNumber.padStart(lineWidth, " "))}${theme.fg("dim", ":")}  ${content}`;
 		})
 		.join("\n");
 	return lines.some((line) => GREP_SUMMARY.test(line) || GREP_NO_MATCHES.test(line))
@@ -181,8 +181,8 @@ function renderFindText(result: AgentToolResult<unknown>, theme: Theme): string 
 				if (!match) return line;
 				const path = match[1] ?? "";
 				const matchType = match[2] ?? "";
-				const reason = match[3] ?? matchType;
-				return `${findTag(matchType)} ${theme.fg("dim", path)} (${reason})`;
+				const reason = match[3];
+				return `${findTag(matchType)} ${theme.fg("dim", path)}${reason ? ` (${reason})` : ""}`;
 			}),
 	].join("\n");
 }
