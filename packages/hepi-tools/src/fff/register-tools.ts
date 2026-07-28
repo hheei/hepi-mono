@@ -54,6 +54,7 @@ const GREP_SUMMARY = /^(\d+) matches in (\d+) files:$/;
 const GREP_FILE_HEADER = /^> (.+) \((\d+) matches\):$/;
 const GREP_MATCH_LINE = /^\s*(\d+):(.*)$/;
 const GREP_TRUNCATION = /^\.\.\. \((\d+) more lines, ctrl\+o to expand\)$/i;
+const GREP_NO_MATCHES = /^(?:No files matched\b.*|No matches found\.?)$/i;
 const FIND_SUMMARY = /^\d+\/\d+ matches$/;
 const FIND_CANDIDATE = /^\d+\. (.+) \(([^)]+)\)(?: - (.+))?$/;
 
@@ -87,8 +88,10 @@ function renderGrepText(text: string, theme: Theme): string {
 		}, 1),
 	).length;
 
-	return lines
+	const rendered = lines
 		.map((line) => {
+			if (GREP_NO_MATCHES.test(line)) return theme.fg("warning", line);
+
 			const truncation = line.match(GREP_TRUNCATION);
 			if (truncation)
 				return theme.fg("dim", `... (${truncation[1] ?? "0"} earlier lines, ^o to expand)`);
@@ -110,6 +113,9 @@ function renderGrepText(text: string, theme: Theme): string {
 			return `  ${theme.fg("dim", lineNumber.padStart(lineWidth, " "))}${theme.fg("dim", ":")}  ${content}`;
 		})
 		.join("\n");
+	return lines.some((line) => GREP_SUMMARY.test(line) || GREP_NO_MATCHES.test(line))
+		? `\n${rendered}`
+		: rendered;
 }
 
 function renderGrepResult(

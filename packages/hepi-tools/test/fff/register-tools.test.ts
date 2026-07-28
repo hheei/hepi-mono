@@ -184,8 +184,15 @@ describe("FFF tool registration", () => {
 				.join("\n");
 		expect(renderText(call)).toBe("grep `/aft_move/` in /tmp/aft (limit 50)");
 		expect(renderText(result)).toBe(
-			"39 matches in 13 files:\n\nbun.lock (15 matches)\n... (224 earlier lines, ^o to expand)\n    9:  first\n  123:  second",
+			"\n39 matches in 13 files:\n\nbun.lock (15 matches)\n... (224 earlier lines, ^o to expand)\n    9:  first\n  123:  second",
 		);
+		const noMatches = grep.renderResult(
+			{ content: [{ type: "text", text: 'No files matched "references/repos/pi"' }] },
+			{},
+			theme,
+			{ isError: false, lastComponent: undefined },
+		);
+		expect(renderText(noMatches)).toBe('\nNo files matched "references/repos/pi"');
 		const narrowCall = grep.renderCall(
 			{
 				pattern: "aft_move",
@@ -201,6 +208,7 @@ describe("FFF tool registration", () => {
 		expect(roles).toContain("accent");
 		expect(roles).toContain("dim");
 		expect(roles).toContain("toolOutput");
+		expect(roles).toContain("warning");
 	});
 
 	test("renders find queries and file-match tags", () => {
