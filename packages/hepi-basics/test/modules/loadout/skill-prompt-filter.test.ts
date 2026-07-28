@@ -61,6 +61,30 @@ describe("loadout skill prompt filtering", () => {
 		expect(filtered?.systemPrompt).toContain("<available_skills>");
 	});
 
+	test("returns a replacement without mutating options reused by later turns", () => {
+		const enabled = skill("enabled", "local");
+		const disabled = skill("disabled", "local");
+		const options: BuildSystemPromptOptions = {
+			cwd: "/tmp",
+			skills: [enabled, disabled],
+		};
+		const prompt = systemPrompt([enabled, disabled]);
+
+		const first = filterLoadoutDisabledSkillsFromPrompt(
+			prompt,
+			options,
+			new Set(["skill:disabled"]),
+		);
+		const second = filterLoadoutDisabledSkillsFromPrompt(
+			prompt,
+			options,
+			new Set(["skill:disabled"]),
+		);
+
+		expect(options.skills).toEqual([enabled, disabled]);
+		expect(first?.systemPrompt).toBe(second?.systemPrompt);
+	});
+
 	test("removes the whole empty skills section when every visible skill is disabled", () => {
 		const disabled = skill("disabled", "local");
 		const options: BuildSystemPromptOptions = { cwd: "/tmp", skills: [disabled] };
