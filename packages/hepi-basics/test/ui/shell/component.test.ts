@@ -68,8 +68,12 @@ describe("shared shell", () => {
 			expect(calls.find((call) => call.text.includes(activeLabel))?.color).toBe("accent");
 			expect(calls.find((call) => call.text.includes(inactiveLabel))?.color).toBe("text");
 			expect(calls.filter((call) => call.text.startsWith("╭")).map((call) => call.color)).toEqual(
-				activeLabel === "Settings" ? ["accent", "text"] : ["text", "accent"],
+				activeLabel === "Settings" ? ["accent", "border"] : ["border", "accent"],
 			);
+			expect(calls.filter((call) => call.text === "│").map((call) => call.color)).toEqual([
+				"border",
+				"border",
+			]);
 			expect(calls.find((call) => call.text.startsWith("╯"))?.color).toBe("accent");
 			expect(calls.find((call) => call.text.startsWith("┴"))?.color).toBe("border");
 		};

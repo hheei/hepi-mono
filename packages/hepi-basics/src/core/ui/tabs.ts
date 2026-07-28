@@ -23,9 +23,12 @@ export function renderTabs(
 		const content = ` ${padToWidth(label, innerWidth - 2)} `;
 		const active = index === activeIndex;
 		const tabRole = active ? "accent" : "text";
+		const borderRole = active ? "accent" : "border";
 		return {
-			top: theme.fg(tabRole, `╭${"─".repeat(innerWidth)}╮`),
-			middle: theme.fg(tabRole, `│${active ? theme.bold(content) : content}│`),
+			top: theme.fg(borderRole, `╭${"─".repeat(innerWidth)}╮`),
+			middle: active
+				? theme.fg("accent", `│${theme.bold(content)}│`)
+				: `${theme.fg("border", "│")}${theme.fg(tabRole, content)}${theme.fg("border", "│")}`,
 			bottom: active
 				? theme.fg("accent", `╯${" ".repeat(innerWidth)}╰`)
 				: theme.fg("border", `┴${"─".repeat(innerWidth)}┴`),
