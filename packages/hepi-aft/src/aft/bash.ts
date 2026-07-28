@@ -105,12 +105,6 @@ const BashBaseParams = {
 				"Working directory for command execution. Relative paths resolve against the project root. Defaults to the current session's working directory.",
 		}),
 	),
-	description: Type.Optional(
-		Type.String({
-			description:
-				"Human-readable description shown in UI logs. Helps users understand what the command does without reading shell syntax.",
-		}),
-	),
 	wait: Type.Optional(
 		Type.Boolean({
 			description:
@@ -1328,9 +1322,10 @@ function renderBashCall(
 	context: RenderContextLike,
 ): Text {
 	const text = reuseText(context.lastComponent);
+	const commandText = theme.fg("accent", `$ ${command ?? "..."}`);
 	const timeoutText =
 		timeout === undefined ? "" : theme.fg("dim", ` (timeout ${formatSeconds(timeout)})`);
-	text.setText(`${theme.fg("accent", `$ ${command ?? "..."}`)}${timeoutText}`);
+	text.setText(`${commandText}${timeoutText}`);
 	return text;
 }
 

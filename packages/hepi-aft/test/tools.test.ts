@@ -357,7 +357,7 @@ describe("AFT tools", () => {
 		if (bash?.renderCall === undefined) throw new Error("Expected Bash renderer");
 		const roles: string[] = [];
 		const component = bash.renderCall(
-			{ command: "bun test", description: "Run focused test", timeout: 10_000 },
+			{ command: "bun test", timeout: 10_000 },
 			{
 				fg: (role: string, text: string) => {
 					roles.push(role);
