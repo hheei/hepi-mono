@@ -51,6 +51,19 @@
         "@earendil-works/pi-tui": "*",
       },
     },
+    "packages/hepi-mctx": {
+      "name": "@hheei/hepi-mctx",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@earendil-works/pi-coding-agent": "^0.82.0",
+        "@hheei/hepi-basics": "workspace:*",
+        "@hheei/pi-magic-context": "0.33.1-hepi.0",
+        "@types/bun": "latest",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": ">=0.82.0",
+      },
+    },
     "packages/hepi-mono": {
       "name": "@hheei/hepi-mono",
       "version": "0.0.0",
@@ -87,7 +100,6 @@
         "pi-web-access": "^0.14.0",
       },
       "devDependencies": {
-        "@cortexkit/pi-magic-context": "0.33.0",
         "@earendil-works/pi-coding-agent": "^0.82.0",
         "@types/bun": "latest",
         "typebox": "^1.1.38",
@@ -171,8 +183,6 @@
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.5.2", "", { "os": "win32", "cpu": "x64" }, "sha512-4InchVpdVmdkkkgjQqKpgvyu+VPnoF/7RPSw5YATgEVpt2j72wcCAeV5TwaE9ZGJUZWZn7v2CwSAj6CrMJEx8A=="],
 
-    "@cortexkit/pi-magic-context": ["@cortexkit/pi-magic-context@0.33.0", "", { "dependencies": { "@huggingface/transformers": "^4.1.0", "@jitl/quickjs-singlefile-cjs-release-asyncify": "0.32.0", "ai-tokenizer": "^1.0.6", "comment-json": "^5.0.0", "quickjs-emscripten": "^0.32.0", "typebox": "^1.3.1", "zod": "^4.1.8" }, "peerDependencies": { "@earendil-works/pi-coding-agent": "^0.80.2", "@earendil-works/pi-tui": "^0.80.2" } }, "sha512-jURbXoErpeHzwLEpxsRJlYUOETRnYlMA0NsX4VlTtg99ICltfQYc/262IFV1ctMsH4x72iJeBsA4NFpUoklifw=="],
-
     "@earendil-works/pi-agent-core": ["@earendil-works/pi-agent-core@0.82.1", "", { "dependencies": { "@earendil-works/pi-ai": "^0.82.1", "diff": "8.0.4", "ignore": "7.0.5", "typebox": "1.1.38", "yaml": "2.9.0" } }, "sha512-Z3kloziJIE2dmrisRckZX8zDca/gIv9/YdFAzeoqpHiLV2wsni6bL4hInNSjVKLbqT+4kqLIkph2JQLKvSepjg=="],
 
     "@earendil-works/pi-ai": ["@earendil-works/pi-ai@0.82.1", "", { "dependencies": { "@anthropic-ai/sdk": "0.91.1", "@aws-sdk/client-bedrock-runtime": "3.1048.0", "@google/genai": "1.52.0", "@mistralai/mistralai": "2.2.6", "@opentelemetry/api": "1.9.0", "@smithy/node-http-handler": "4.7.3", "http-proxy-agent": "7.0.2", "https-proxy-agent": "7.0.6", "openai": "6.26.0", "partial-json": "0.1.7", "typebox": "1.1.38" }, "bin": { "pi-ai": "dist/cli.js" } }, "sha512-3WFYRhEp3lQB3444EhPMBcM7zSaEUE3eJgHOR7s4081NLqbw/FsWilIKWXSua0Gv3sRr7m9xMidR3pPDE7jI/A=="],
@@ -211,11 +221,15 @@
 
     "@hheei/hepi-debug": ["@hheei/hepi-debug@workspace:packages/hepi-debug"],
 
+    "@hheei/hepi-mctx": ["@hheei/hepi-mctx@workspace:packages/hepi-mctx"],
+
     "@hheei/hepi-mono": ["@hheei/hepi-mono@workspace:packages/hepi-mono"],
 
     "@hheei/hepi-skills": ["@hheei/hepi-skills@workspace:packages/hepi-skills"],
 
     "@hheei/hepi-tools": ["@hheei/hepi-tools@workspace:packages/hepi-tools"],
+
+    "@hheei/pi-magic-context": ["@hheei/pi-magic-context@0.33.1-hepi.0", "", { "dependencies": { "@huggingface/transformers": "^4.1.0", "@jitl/quickjs-singlefile-cjs-release-asyncify": "0.32.0", "ai-tokenizer": "^1.0.6", "comment-json": "^5.0.0", "quickjs-emscripten": "^0.32.0", "typebox": "^1.3.1", "zod": "^4.1.8" }, "peerDependencies": { "@earendil-works/pi-coding-agent": "^0.80.2", "@earendil-works/pi-tui": "^0.80.2" } }, "sha512-BJbUsynYE2hQm2PgTvUJ4CMQF+Id5upZNfOFvk3ZrybKaA3XzA/OFNQd9pawFQc94ejTiJrbeJ7mfXo1V3jvTw=="],
 
     "@huggingface/jinja": ["@huggingface/jinja@0.5.9", "", {}, "sha512-uWTG+l3VJRsl7EXxYizuL3P+cCPoc3cRqbWWRcQN0FhejRfbdq0RNhCmbY/YDtnTcz9icdLYuLDjsnz4d8JMuw=="],
 

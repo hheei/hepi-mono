@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { hepiBasicsExtensions } from "../../hepi-basics/src/index.js";
+import { hepiMctxExtensions } from "../../hepi-mctx/src/index.js";
 import { hepiSkillsExtensions } from "../../hepi-skills/src/index.js";
 import { hepiToolsExtensions } from "../../hepi-tools/src/index.js";
 import piBtw from "./pi-btw/index.js";
@@ -10,6 +11,7 @@ export type HepiExtension = (pi: ExtensionAPI) => void;
 export const hepiExtensions: readonly HepiExtension[] = [
 	...hepiBasicsExtensions,
 	...hepiToolsExtensions,
+	...hepiMctxExtensions,
 	...hepiSkillsExtensions,
 	piBtw,
 	piPlan,

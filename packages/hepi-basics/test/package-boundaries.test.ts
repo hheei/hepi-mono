@@ -6,7 +6,13 @@ import ts from "typescript";
 
 const repositoryRoot = join(import.meta.dir, "../../..");
 const packagesDirectory = join(repositoryRoot, "packages");
-const compositionPackages = new Set(["hepi-basics", "hepi-mono", "hepi-skills", "hepi-tools"]);
+const compositionPackages = new Set([
+	"hepi-basics",
+	"hepi-mctx",
+	"hepi-mono",
+	"hepi-skills",
+	"hepi-tools",
+]);
 const workspacePackages = new Set([...compositionPackages, "hepi-debug"]);
 const submodulePackages = new Set(["hepi-subagents"]);
 

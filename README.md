@@ -26,6 +26,7 @@ Or install one-entry groups when you want a smaller selection:
 ```bash
 pi install npm:@hheei/hepi-basics
 pi install npm:@hheei/hepi-tools
+pi install npm:@hheei/hepi-mctx
 pi install npm:@hheei/hepi-skills
 ```
 
@@ -60,10 +61,11 @@ bun run build:aggregates
 pi --no-extensions --no-skills -e packages/hepi-mono/dist/extension.js
 pi --no-extensions --no-skills -e packages/hepi-basics/dist/extension.js
 pi --no-extensions --no-skills -e packages/hepi-tools/dist/extension.js
+pi --no-extensions --no-skills -e packages/hepi-mctx/dist/extension.js
 pi --no-extensions --no-skills -e packages/hepi-skills/dist/extension.js
 ```
 
-The supported packages are the four aggregate bundles and the development-only
+The supported packages are the five aggregate bundles and the development-only
 `@hheei/hepi-debug` package. Individual `@hheei/pi-*` packages are deprecated.
 
 ## Repository Layout
