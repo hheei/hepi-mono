@@ -11,6 +11,7 @@ import {
 } from "@cortexkit/aft-bridge";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { bridgeLogger } from "./logger.js";
+import { callToolCall } from "./shared.js";
 
 const AFT_VERSION = "0.49.0";
 
@@ -19,7 +20,7 @@ setActiveLogger(bridgeLogger);
 export interface HepiAftRuntimeStartOptions {
 	readonly poolOptions?: Pick<
 		BridgeOptions,
-		"onBashCompletion" | "onBashLongRunning" | "onBashPatternMatch"
+		"hangThreshold" | "onBashCompletion" | "onBashLongRunning" | "onBashPatternMatch" | "timeoutMs"
 	>;
 	readonly onBgEventsNudge?: (projectRoot: string, session: string) => void;
 }
@@ -55,9 +56,7 @@ export class HepiAftRuntime {
 	): Promise<ToolCallResult> {
 		const pool = this.pool;
 		if (pool === undefined) throw new Error("AFT runtime is unavailable in this session");
-		return await pool
-			.getBridge(ctx.cwd)
-			.toolCall(ctx.sessionManager.getSessionId(), name, arguments_);
+		return await callToolCall(pool.getBridge(ctx.cwd), name, arguments_, ctx);
 	}
 
 	getBridge(cwd: string): AftProjectTransport {

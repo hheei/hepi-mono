@@ -15,7 +15,7 @@ import {
 	handleSubcBgEventsNudge,
 	handleTurnEndBgCompletions,
 } from "./aft/bg-notifications.js";
-import { loadAftConfig } from "./aft/config.js";
+import { loadAftConfig, resolveBridgePoolTransportOptions } from "./aft/config.js";
 import { FffReadPathResolver } from "./aft/fff-read-path-resolver.js";
 import { registerHoistedTools } from "./aft/hoisted.js";
 import { registerImportTools } from "./aft/imports.js";
@@ -86,6 +86,7 @@ export function registerHepiAft(pi: ExtensionAPI): void {
 	let runtime: HepiAftRuntime | undefined;
 	let readPathResolver: FffReadPathResolver | undefined;
 	const config = loadAftConfig(process.cwd());
+	const bridgeTransport = resolveBridgePoolTransportOptions(config);
 	const surface = resolveHepiAftToolSurface(config);
 	if (!surface.enabled) return;
 	const groups = loadoutGroups(surface);
@@ -153,6 +154,7 @@ export function registerHepiAft(pi: ExtensionAPI): void {
 			try {
 				await activeRuntime.start({
 					poolOptions: {
+						hangThreshold: bridgeTransport.hangThreshold,
 						onBashCompletion: (completion) => {
 							void handlePushedBgCompletion(
 								{
@@ -186,6 +188,7 @@ export function registerHepiAft(pi: ExtensionAPI): void {
 								frame,
 							);
 						},
+						timeoutMs: bridgeTransport.timeoutMs,
 					},
 					onBgEventsNudge: (directory, sessionID) => {
 						void handleSubcBgEventsNudge({

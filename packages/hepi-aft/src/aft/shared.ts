@@ -29,6 +29,16 @@ type TextContent = { type: "text"; text: string; textSignature?: string };
 type ImageContent = { type: "image"; data: string; mimeType: string };
 type ContentBlock = TextContent | ImageContent;
 
+const RETRY_SAFE_AFT_TOOLS = new Set(["read", "grep", "outline", "zoom", "callgraph", "inspect"]);
+
+function isBridgeRequestTimeout(error: unknown): boolean {
+	return (
+		error instanceof Error &&
+		error.message.startsWith("[aft-bridge]") &&
+		error.message.includes("timed out after")
+	);
+}
+
 /**
  * Optional integer field schema for Pi tool parameters.
  *
@@ -207,12 +217,20 @@ export async function callToolCall(
 		configureWarningClient: extCtx,
 		...options,
 	};
-	const response = await bridge.toolCall(
-		sessionId,
-		name,
-		rawArgs,
-		Object.keys(sendOptions).length > 0 ? sendOptions : undefined,
-	);
+	const send = async (): Promise<ToolCallResult> =>
+		await bridge.toolCall(
+			sessionId,
+			name,
+			rawArgs,
+			Object.keys(sendOptions).length > 0 ? sendOptions : undefined,
+		);
+	let response: ToolCallResult;
+	try {
+		response = await send();
+	} catch (error) {
+		if (!RETRY_SAFE_AFT_TOOLS.has(name) || !isBridgeRequestTimeout(error)) throw error;
+		response = await send();
+	}
 	ingestBgCompletions(sessionId, response.bg_completions);
 	return response;
 }
