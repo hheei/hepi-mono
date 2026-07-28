@@ -277,6 +277,7 @@ describe("apply_patch render state", () => {
 			"dim",
 			"error",
 			"accent",
+			"accent",
 			"warning",
 			"success",
 			"error",
@@ -352,7 +353,8 @@ describe("apply_patch render state", () => {
 			{ toolCallId: "partial-counts", cwd: "/tmp" },
 		);
 		expect(rendered).toContain("Edit partially failed 2 files +7 -7");
-		expect(styles).toContainEqual(["warning", "Edit partially failed"]);
+		expect(styles).toContainEqual(["accent", "Edit"]);
+		expect(styles).toContainEqual(["warning", " partially failed"]);
 		expect(styles).toContainEqual(["success", "+7"]);
 		expect(styles).toContainEqual(["error", "-7"]);
 		expect(styles).not.toContainEqual(["warning", " 2 files "]);
