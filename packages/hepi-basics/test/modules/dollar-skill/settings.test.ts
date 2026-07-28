@@ -7,10 +7,7 @@ import {
 	normalizeDollarSkillConfig,
 	saveDollarSkillConfig,
 } from "../../../src/dollar-skill/config.js";
-import {
-	createDollarSkillFeature,
-	createDollarSkillSettingsProvider,
-} from "../../../src/dollar-skill/index.js";
+import { createDollarSkillSettingsProvider } from "../../../src/dollar-skill/index.js";
 
 describe("dollar skill settings", () => {
 	test("normalizes untrusted values", () => {
@@ -52,18 +49,20 @@ describe("dollar skill settings", () => {
 		expect(await readdir(cwd)).toEqual(["settings.json"]);
 	});
 
-	test("provider validates limits and updates feature state on load", async () => {
+	test("provider validates limits without changing a live feature", async () => {
 		const settingsDirectory = await mkdtemp(join(tmpdir(), "pi-basics-dollar-provider-"));
-		const feature = createDollarSkillFeature({} as never);
-		const provider = createDollarSkillSettingsProvider(feature, { settingsDirectory });
+		const provider = createDollarSkillSettingsProvider({ settingsDirectory });
 		const group = provider.groups[0];
 		const limit = group?.fields.find((field) => field.id === "maxSuggestions");
 		expect(limit?.validate?.(0)).toContain("1 to 50");
 		expect(limit?.validate?.(10)).toBeUndefined();
-		await provider.onLoad?.(
+		await provider.storage.save(
 			{ dollarSkillReferences: { enabled: false, maxSuggestions: 3 } },
-			{ sessionId: "test" },
+			{ sessionId: "test", cwd: settingsDirectory },
 		);
-		expect(feature.getConfig()).toEqual({ enabled: false, maxSuggestions: 3 });
+		expect(await loadDollarSkillConfig(settingsDirectory)).toEqual({
+			enabled: false,
+			maxSuggestions: 3,
+		});
 	});
 });

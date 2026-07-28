@@ -137,7 +137,12 @@ function cursorLeftInput(keybindings: KeybindingsLike): string | undefined {
 	return undefined;
 }
 
-function deleteAtomically(editor: CursorEditor, cursorLine: number, span: AtomicSpan): boolean {
+function deleteAtomically(
+	editor: CursorEditor,
+	cursorLine: number,
+	span: AtomicSpan,
+	handleInput: (data: string) => void,
+): boolean {
 	if (!(editor instanceof Editor) || editor.getText().includes(PASTE_MARKER_PREFIX)) return false;
 	const lines = editor.getLines();
 	const line = lines[cursorLine];
@@ -156,7 +161,7 @@ function deleteAtomically(editor: CursorEditor, cursorLine: number, span: Atomic
 	for (let move = 0; move <= maxMoves; move += 1) {
 		const cursor = editor.getCursor();
 		if (cursor.line === cursorLine && cursor.col === span.start) return true;
-		Editor.prototype.handleInput.call(editor, leftInput);
+		handleInput(leftInput);
 	}
 	return true;
 }
@@ -178,7 +183,7 @@ export function createDollarSkillAtomicEditor(
 			if (span !== undefined) {
 				if (
 					(action === "backspace" || action === "delete") &&
-					deleteAtomically(editor, cursor.line, span)
+					deleteAtomically(editor, cursor.line, span, handleInput)
 				)
 					return;
 				const isDeleteEdge =

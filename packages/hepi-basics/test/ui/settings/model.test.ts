@@ -19,6 +19,18 @@ describe("settings model", () => {
 			advanced: { mode: "auto" },
 		});
 	});
+	test("falls back for invalid persisted field values", () => {
+		const provider = createSettingsFixture();
+		expect(
+			mergeSettingsState(provider, {
+				general: { enabled: "true", mode: "removed" },
+				advanced: { mode: Number.NaN },
+			}),
+		).toMatchObject({
+			general: { enabled: true, mode: "auto" },
+			advanced: { mode: "auto" },
+		});
+	});
 	test("recovers stale enum values in the requested direction", () => {
 		const field = {
 			id: "model",

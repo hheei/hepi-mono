@@ -16,7 +16,6 @@ import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
-	type HepiContext,
 	type HepiSettingField,
 	type HepiSettingsProvider,
 	type HepiSettingsState,
@@ -149,7 +148,6 @@ export function stripAssistantMessageStatus(payload: unknown): unknown {
 export interface OpenAIResponsesCompatFeature {
 	start(runtime: { readonly ctx: ExtensionContext }): Promise<void>;
 	dispose(sessionId: string): void;
-	setConfig(sessionId: string, config: OpenAIResponsesCompatConfig): void;
 }
 
 export function createOpenAIResponsesCompatFeature(
@@ -181,9 +179,6 @@ export function createOpenAIResponsesCompatFeature(
 		dispose(sessionId) {
 			configBySession.delete(sessionId);
 		},
-		setConfig(sessionId, config) {
-			configBySession.set(sessionId, config);
-		},
 	};
 }
 
@@ -208,7 +203,6 @@ const fields: readonly HepiSettingField[] = [
 ];
 
 export function createOpenAIResponsesCompatSettingsProvider(
-	feature: OpenAIResponsesCompatFeature,
 	options: { readonly settingsDirectory?: string } = {},
 ): HepiSettingsProvider {
 	const settingsDirectory = options.settingsDirectory ?? getAgentDir();
@@ -223,7 +217,7 @@ export function createOpenAIResponsesCompatSettingsProvider(
 				const root = await loadSettings(settingsPath(settingsDirectory));
 				return settingState(configFromValues(compatValues(root)));
 			},
-			async save(state: HepiSettingsState, ctx: HepiContext) {
+			async save(state: HepiSettingsState) {
 				const path = settingsPath(settingsDirectory);
 				const config = configFromState(state);
 				const stateValues = state[OPENAI_RESPONSES_COMPAT_GROUP] ?? {};
@@ -247,18 +241,7 @@ export function createOpenAIResponsesCompatSettingsProvider(
 						[OPENAI_RESPONSES_COMPAT_GROUP]: nextValues,
 					};
 				});
-				feature.setConfig(ctx.sessionId, config);
 			},
-		},
-		onLoad: (state, ctx) => {
-			feature.setConfig(ctx.sessionId, configFromState(state));
-		},
-		onChange: (change, ctx) => {
-			if (
-				change.fieldId === OPENAI_RESPONSES_COMPAT_FIELD ||
-				change.fieldId === OPENAI_RESPONSES_NORMALIZE_MESSAGE_ID_FIELD
-			)
-				feature.setConfig(ctx.sessionId, configFromState(change.state));
 		},
 	};
 }

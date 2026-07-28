@@ -8,14 +8,13 @@ import {
 import {
 	createTraditionalToSimplifiedFeature,
 	createTraditionalToSimplifiedSettingsProvider,
+	traditionalToSimplifiedEnabled,
 } from "./index.js";
 
 export default function piT2sExtension(pi: ExtensionAPI): void {
 	const feature = createTraditionalToSimplifiedFeature();
 	const settingsRegistry = getHepiRuntimeSettingsRegistry(pi);
-	const provider = createTraditionalToSimplifiedSettingsProvider({
-		onPersisted: (enabled) => feature.setEnabled(enabled),
-	});
+	const provider = createTraditionalToSimplifiedSettingsProvider();
 	const lifecycle = new HepiLifecycleController({
 		onStart: async (runtime) => {
 			const unregisterSettings = registerHepiSettings(provider, settingsRegistry);
@@ -29,7 +28,7 @@ export default function piT2sExtension(pi: ExtensionAPI): void {
 			};
 			try {
 				const state = await provider.storage.load(context);
-				await provider.onLoad?.(state ?? {}, context);
+				feature.setEnabled(traditionalToSimplifiedEnabled(state ?? {}));
 			} catch (error) {
 				runtime.ctx.ui.notify(
 					`Unable to load T2S settings: ${error instanceof Error ? error.message : String(error)}`,

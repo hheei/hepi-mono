@@ -220,7 +220,7 @@ describe("settings component", () => {
 		expect(text(state.component, 100).split("\n").at(-2)).toBe(textEditFooter);
 		state.component.handleInput?.("!");
 		expect(text(state.component)).toContain("Alice");
-		expect(text(state.component)).toContain("> Alice!█");
+		expect(text(state.component)).toContain("> Alice!");
 		state.component.handleInput?.("\x1b");
 		expect(state.controller.state.mode).toBe("Navigation");
 		expect(state.controller.state.committed.first!.general!.name).toBe("Alice");
@@ -461,7 +461,7 @@ describe("settings component", () => {
 		expect(state.controller.state.committed.first!.general!.strict).toBe("ok");
 		expect(state.controller.state.selection?.itemId).toBe("strict");
 		expect(text(state.component)).toContain("Error: invalid draft");
-		expect(text(state.component)).toContain("> bad█");
+		expect(text(state.component)).toContain("> bad");
 		state.component.handleInput?.("\x1b");
 		expect(state.controller.state.mode).toBe("Navigation");
 		expect(state.controller.state.committed.first!.general!.strict).toBe("ok");

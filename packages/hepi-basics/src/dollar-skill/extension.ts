@@ -6,6 +6,7 @@ import {
 	registerHepiLifecycle,
 	registerHepiSettings,
 } from "../core/index.js";
+import { loadDollarSkillConfig } from "./config.js";
 import {
 	createDollarSkillFeature,
 	createDollarSkillSettingsProvider,
@@ -16,7 +17,7 @@ export default function piDollarSkillExtension(pi: ExtensionAPI): void {
 	const settingsRegistry = getHepiRuntimeSettingsRegistry(pi);
 	const feature = createDollarSkillFeature(pi, (command) => isHepiSkillEnabled(pi, command.name));
 	registerDollarSkillInputTransform(pi, feature);
-	const provider = createDollarSkillSettingsProvider(feature);
+	const provider = createDollarSkillSettingsProvider();
 	registerHepiLifecycle(
 		pi,
 		new HepiLifecycleController({
@@ -26,13 +27,8 @@ export default function piDollarSkillExtension(pi: ExtensionAPI): void {
 					id: "dollar-skill-settings",
 					cleanup: unregisterSettings,
 				});
-				const context = {
-					sessionId: runtime.ctx.sessionManager.getSessionId(),
-					cwd: runtime.ctx.cwd,
-				};
 				try {
-					const state = await provider.storage.load(context);
-					await provider.onLoad?.(state ?? {}, context);
+					feature.setConfig(await loadDollarSkillConfig());
 				} catch (error) {
 					runtime.ctx.ui.notify(
 						`Unable to load dollar skill settings: ${error instanceof Error ? error.message : String(error)}`,

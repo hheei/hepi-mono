@@ -58,6 +58,30 @@ describe("/hepi command", () => {
 		expect(host.notifications).toEqual([]);
 	});
 
+	test("does not eagerly read guarded command-context properties", async () => {
+		const registry = createHepiModuleRegistry();
+		let reads = 0;
+		let received: object | undefined;
+		registry.register({
+			id: "settings",
+			label: "Settings",
+			commands: ["loadout"],
+			open: async (_args, ctx) => {
+				received = ctx;
+			},
+		});
+		const host = context("tui");
+		Object.defineProperty(host.ctx, "model", {
+			get: () => {
+				reads++;
+				return "model";
+			},
+		});
+		await dispatchHepiCommand("loadout", host.ctx, registry);
+		expect(reads).toBe(0);
+		expect(Object.getPrototypeOf(received)).toBe(host.ctx);
+	});
+
 	test("reports empty and unknown subcommands", async () => {
 		const registry = createHepiModuleRegistry();
 		const empty = context("tui");

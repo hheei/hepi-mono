@@ -3,32 +3,21 @@ import { ValueEditor } from "../../../src/core/ui/settings/value-editor.js";
 import { visibleWidth } from "../../../src/core/ui/text.js";
 
 describe("value editor", () => {
-	test("edits text and tracks cursor", () => {
+	test("uses Pi input editing", () => {
 		const editor = new ValueEditor("abc");
-		editor.home();
-		editor.insert("X");
-		editor.move(1);
-		editor.backspace();
+		editor.handleInput("\x1b[H");
+		editor.handleInput("X");
+		editor.handleInput("\x1b[C");
+		editor.handleInput("\x7f");
 		expect(editor.text).toBe("Xbc");
-		expect(editor.cursor).toBe(1);
 	});
-	test("keeps visible viewport near cursor", () => {
+	test("renders a cell-safe input viewport", () => {
 		const editor = new ValueEditor("0123456789");
-		editor.end();
-		expect(editor.visible(4)).toBe("6789");
-		expect(editor.viewport).toBe(6);
+		expect(visibleWidth(editor.render(4))).toBeLessThanOrEqual(4);
 	});
-	test("keeps wide, combining, and tab text cell-safe while moving by grapheme", () => {
+	test("accepts bracketed paste through Pi input", () => {
 		const editor = new ValueEditor("界e\u0301\tZ");
-		editor.home();
-		editor.move(1);
-		expect(editor.cursor).toBe("界".length);
-		editor.move(1);
-		expect(editor.cursor).toBe("界e\u0301".length);
-		expect(visibleWidth(editor.visible(3))).toBeLessThanOrEqual(3);
-		editor.backspace();
-		expect(editor.text).toBe("界\tZ");
-		editor.delete();
-		expect(editor.text).toBe("界Z");
+		editor.handleInput("\x1b[200~ pasted \x1b[201~");
+		expect(editor.text).toBe("界e\u0301\tZ pasted ");
 	});
 });

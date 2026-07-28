@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Result, TaggedError } from "better-result";
@@ -48,13 +48,12 @@ export const FEATURE_DEFINITIONS: FeatureDefinition[] = [
 	{
 		id: "builtInReadEnhancement",
 		label: "Built-in read enhancement",
-		description: "Resolve approximate paths before built-in read (requires /reload after enabling)",
+		description: "Resolve approximate paths before built-in read",
 	},
 	{
 		id: "builtInGrepEnhancement",
 		label: "Built-in grep enhancement",
-		description:
-			"Use FFF-backed content search for built-in grep (requires /reload after enabling)",
+		description: "Use FFF-backed content search for built-in grep",
 	},
 	{ id: "agentTools", label: "Agent tools", description: "Enable find_files / fff_multi_grep" },
 	{ id: "statusUI", label: "Status UI", description: "Show startup notices" },
@@ -227,23 +226,6 @@ function parseFeatureState(content: string): FeatureKey[] | undefined {
 export function loadGlobalFeatureStateSync() {
 	const contentResult = Result.try<string, FeatureStateReadError>({
 		try: () => readFileSync(GLOBAL_FEATURES_PATH, "utf8"),
-		catch: (cause) => new FeatureStateReadError({ path: GLOBAL_FEATURES_PATH, cause }),
-	});
-	if (contentResult.isErr()) {
-		if (isMissingFileError(contentResult.error.cause))
-			return Result.ok<FeatureKey[] | undefined>(undefined);
-		return contentResult;
-	}
-
-	return Result.try<FeatureKey[] | undefined, FeatureStateLoadError>({
-		try: () => parseFeatureState(contentResult.value),
-		catch: (cause) => new FeatureStateParseError({ path: GLOBAL_FEATURES_PATH, cause }),
-	});
-}
-
-export async function loadGlobalFeatureState() {
-	const contentResult = await Result.tryPromise({
-		try: () => readFile(GLOBAL_FEATURES_PATH, "utf8"),
 		catch: (cause) => new FeatureStateReadError({ path: GLOBAL_FEATURES_PATH, cause }),
 	});
 	if (contentResult.isErr()) {

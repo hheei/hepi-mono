@@ -178,10 +178,11 @@ describe("settings renderer", () => {
 		expect(editingOutput).toContain(white("Name description"));
 		expect(editingOutput).toContain(white("Origin: @pi-basics"));
 		expect(editingOutput).toContain(white("Value: "));
-		expect(editingOutput).toContain(accentBold("draft-value█"));
-		const editingValueRow = editing.find((line) => stripAnsi(line).includes("Value: draft-value█"));
-		expect(editingValueRow).toContain(accentBold("draft-value█"));
-		expect(editingValueRow).not.toContain(dim("draft-value█"));
+		const draftPrefix = `${ansi.accent}${ansi.bold}draft-value\x1b[7m \x1b[27m`;
+		expect(editingOutput).toContain(draftPrefix);
+		const editingValueRow = editing.find((line) => stripAnsi(line).includes("Value: draft-value"));
+		expect(editingValueRow).toContain(draftPrefix);
+		expect(editingValueRow).not.toContain(dim("draft-value\x1b[7m \x1b[27m"));
 	});
 
 	test("keeps wide Description rows and footer stable across content and edit state", async () => {
@@ -486,9 +487,9 @@ describe("settings renderer", () => {
 		const wide = plain(renderSettings({ controller, theme, width: 100, editor }));
 		const narrow = plain(renderSettings({ controller, theme, width: 48, editor }));
 		expect(wide).toContain("name-value");
-		expect(wide).toContain("Value: draft-value█");
+		expect(wide).toContain("Value: draft-value");
 		expect(narrow).toContain("name-value");
-		expect(narrow).toContain("> draft-value█");
+		expect(narrow).toContain("> draft-value");
 		expect(narrow).toContain("⏎ confirm · ⎋ cancel");
 	});
 

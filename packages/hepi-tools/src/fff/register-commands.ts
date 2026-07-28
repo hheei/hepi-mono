@@ -12,9 +12,7 @@ export type CommandRegistrationDeps = {
 	getRuntime(): FffRuntime | null;
 	isFeatureEnabled(feature: FeatureKey): boolean;
 	getEnabledFeatures(): Set<FeatureKey>;
-	setEnabledFeatures(next: Set<FeatureKey>): void;
-	persistFeatures(): Promise<void>;
-	applyUiConfiguration(ctx: ExtensionContext): void;
+	persistFeatures(next: Set<FeatureKey>): Promise<void>;
 };
 
 export function registerCommands(pi: ExtensionAPI, deps: CommandRegistrationDeps): void {
@@ -105,10 +103,21 @@ export function registerCommands(pi: ExtensionAPI, deps: CommandRegistrationDeps
 							return;
 						}
 						if (matchesKey(data, Key.enter)) {
-							deps.setEnabledFeatures(new Set(draft));
-							void deps.persistFeatures();
-							deps.applyUiConfiguration(ctx);
-							ctx.ui.notify(`pi-fff features saved (${Array.from(draft).length} enabled)`, "info");
+							const enabledCount = draft.size;
+							void deps.persistFeatures(new Set(draft)).then(
+								() => {
+									ctx.ui.notify(
+										`pi-fff features saved (${enabledCount} enabled). Run /reload to apply them.`,
+										"info",
+									);
+								},
+								(error: unknown) => {
+									ctx.ui.notify(
+										`Unable to save pi-fff features: ${error instanceof Error ? error.message : String(error)}`,
+										"error",
+									);
+								},
+							);
 							done(undefined);
 							return;
 						}
