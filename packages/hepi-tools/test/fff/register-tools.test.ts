@@ -158,7 +158,7 @@ describe("FFF tool registration", () => {
 				content: [
 					{
 						type: "text",
-						text: "39 matches in 13 files:\n\n> bun.lock (15 matches):\n    9: first\n  123: second",
+						text: "39 matches in 13 files:\n\n> bun.lock (15 matches):\n... (224 more lines, ctrl+o to expand)\n    9: first\n  123: second\n\n",
 					},
 				],
 			},
@@ -172,9 +172,9 @@ describe("FFF tool registration", () => {
 				.render(120)
 				.map((line) => line.trimEnd())
 				.join("\n");
-		expect(renderText(call)).toBe("grep /aft_move/ in /tmp/aft (limit 50)");
+		expect(renderText(call)).toBe("grep `/aft_move/` in /tmp/aft (limit 50)");
 		expect(renderText(result)).toBe(
-			"39 matches in 13 files:\n\nbun.lock (15 matches)\n    9:  first\n  123:  second",
+			"39 matches in 13 files:\n\nbun.lock (15 matches)\n... (224 earlier lines, ^o to expand)\n    9:  first\n  123:  second",
 		);
 		const narrowCall = grep.renderCall(
 			{
@@ -190,6 +190,7 @@ describe("FFF tool registration", () => {
 		expect(roles.filter((role) => role === "success")).toHaveLength(3);
 		expect(roles).toContain("accent");
 		expect(roles).toContain("dim");
+		expect(roles).toContain("toolOutput");
 	});
 
 	test("renders find queries and file-match tags", () => {

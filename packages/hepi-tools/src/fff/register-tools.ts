@@ -49,6 +49,7 @@ type GrepRenderContext = {
 const GREP_SUMMARY = /^(\d+) matches in (\d+) files:$/;
 const GREP_FILE_HEADER = /^> (.+) \((\d+) matches\):$/;
 const GREP_MATCH_LINE = /^\s*(\d+):(.*)$/;
+const GREP_TRUNCATION = /^\.\.\. \((\d+) more lines, ctrl\+o to expand\)$/i;
 const FIND_SUMMARY = /^\d+\/\d+ matches$/;
 const FIND_CANDIDATE = /^\d+\. (.+) \(([^)]+)\)(?: - (.+))?$/;
 
@@ -65,10 +66,10 @@ function renderGrepCall(
 	context: Pick<GrepRenderContext, "lastComponent">,
 ): Text {
 	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-	const scope = args.path ? ` in ${args.path}` : "";
+	const scope = args.path ? ` in ${theme.fg("dim", args.path)}` : "";
 	const limit = args.limit === undefined ? "" : ` (limit ${args.limit})`;
 	text.setText(
-		`${theme.fg("accent", "grep")}${theme.fg("dim", ` /${args.pattern}/${scope}${limit}`)}`,
+		`${theme.fg("accent", "grep")} ${theme.fg("toolOutput", `\`/${args.pattern}/\``)}${scope}${limit}`,
 	);
 	return text;
 }
@@ -84,6 +85,10 @@ function renderGrepText(text: string, theme: Theme): string {
 
 	return lines
 		.map((line) => {
+			const truncation = line.match(GREP_TRUNCATION);
+			if (truncation)
+				return theme.fg("dim", `... (${truncation[1] ?? "0"} earlier lines, ^o to expand)`);
+
 			const summary = line.match(GREP_SUMMARY);
 			if (summary) {
 				return `${theme.fg("success", summary[1] ?? "0")} matches in ${theme.fg("success", summary[2] ?? "0")} files:`;
@@ -110,7 +115,7 @@ function renderGrepResult(
 	context: GrepRenderContext,
 ): Text {
 	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-	const content = resultText(result);
+	const content = resultText(result).replace(/(?:\r?\n)+$/, "");
 	text.setText(context.isError ? theme.fg("error", content) : renderGrepText(content, theme));
 	return text;
 }
