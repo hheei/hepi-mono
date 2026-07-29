@@ -11,7 +11,9 @@ import {
 
 interface RegisteredSshfsTool {
 	readonly name: string;
+	readonly description?: string;
 	readonly executionMode?: "sequential" | "parallel";
+	readonly promptSnippet?: string;
 	readonly promptGuidelines?: readonly string[];
 	execute(
 		toolCallId: string,

@@ -3,7 +3,7 @@ import type { ToolCallResult } from "@cortexkit/aft-bridge";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { replayTui, stripAnsi } from "../../hepi-debug/src/tui-replay.js";
-import { registerBashTool } from "../src/aft/bash.js";
+import { appendBashStreamingOutput, registerBashTool } from "../src/aft/bash.js";
 import { registerHoistedTools } from "../src/aft/hoisted.js";
 import { aftConfigureOverrides, type HepiAftRuntime } from "../src/aft/runtime.js";
 import { registerAftTools } from "../src/aft/tools.js";
@@ -88,6 +88,16 @@ function response(text: string): ToolCallResult {
 }
 
 describe("AFT tools", () => {
+	test("bounds streamed Bash output to the UI tail", () => {
+		const output = appendBashStreamingOutput("", "x".repeat(70_000) + "\nlast line");
+		expect(output.length).toBeLessThanOrEqual(64 * 1024);
+		expect(output).toEndWith("last line");
+		const lines = Array.from({ length: 120 }, (_, index) => `line-${index}`).join("\n");
+		expect(appendBashStreamingOutput("", lines).split("\n")).toEqual(
+			Array.from({ length: 100 }, (_, index) => `line-${index + 20}`),
+		);
+	});
+
 	test("configures the standalone bridge for the Pi harness", () => {
 		expect(aftConfigureOverrides()).toMatchObject({ harness: "pi" });
 	});

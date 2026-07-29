@@ -43,6 +43,8 @@ const BASH_WAIT_POLL_INTERVAL_MS = 100;
 const DEFAULT_BASH_STATUS_WAIT_TIMEOUT_MS = 30_000;
 const MAX_BASH_STATUS_WAIT_TIMEOUT_MS = 30 * 60 * 1000;
 const REGEX_WAIT_SCAN_WINDOW_BYTES = 64 * 1024;
+const MAX_STREAMED_OUTPUT_LINES = 100;
+const MAX_STREAMED_OUTPUT_CHARS = 64 * 1024;
 
 // Test-only override for the foreground wait window. Production resolves the
 // window from config (floored at 5000ms), but bun caps each test at 5000ms, so
@@ -387,6 +389,13 @@ function truncateToVisualLines(text: string, maxLines: number): string {
 	return lines.slice(-maxLines).join("\n");
 }
 
+export function appendBashStreamingOutput(current: string, chunk: string): string {
+	const lines = truncateToVisualLines(`${current}${chunk}`, MAX_STREAMED_OUTPUT_LINES);
+	return lines.length <= MAX_STREAMED_OUTPUT_CHARS
+		? lines
+		: lines.slice(-MAX_STREAMED_OUTPUT_CHARS);
+}
+
 /** Reuse a compatible Text component from last render, or create fresh. */
 function reuseText(last: import("@earendil-works/pi-tui").Component | undefined): Text {
 	return last instanceof Text ? last : new Text("", 0, 0);
@@ -520,10 +529,8 @@ DO NOT use bash for code search or code exploration. If you are about to run gre
 			const startedAt = Date.now();
 			let streamed = "";
 			const publishProgress = () => {
-				// Stream truncated output to avoid overwhelming the UI.
-				const displayText = truncateToVisualLines(streamed, 100);
 				onUpdate?.(
-					bashResult(displayText, {
+					bashResult(streamed, {
 						command: bridgeCommand,
 						duration_ms: Date.now() - startedAt,
 						streaming: true,
@@ -562,7 +569,7 @@ DO NOT use bash for code search or code exploration. If you are about to run gre
 							foregroundWaitMs,
 						),
 						onProgress: ({ text }) => {
-							streamed += text;
+							streamed = appendBashStreamingOutput(streamed, text);
 							publishProgress();
 						},
 					},
