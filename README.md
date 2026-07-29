@@ -78,7 +78,7 @@ bun run pack:check
 packages/       HEPI-owned publishable workspaces
 
 third_party/     Pinned external fork submodules, excluded from workspaces
-  magic-context/  Pi-native Magic Context fork built before HEPI aggregates
+  magic-context/  Shared Magic Context core bundled by hepi-mctx
   pi-subagents/   Optional external Pi extension source
 
 docs/

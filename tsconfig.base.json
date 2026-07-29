@@ -22,5 +22,11 @@
 		"types": ["node", "bun"]
 	},
 	"include": ["packages/*/**/*.ts", "test/**/*.ts"],
-	"exclude": ["third_party/**", "**/node_modules/**", "**/dist/**", "**/.pi/**"]
+	"exclude": [
+		"third_party/**",
+		"packages/hepi-mctx/**",
+		"**/node_modules/**",
+		"**/dist/**",
+		"**/.pi/**"
+	]
 }

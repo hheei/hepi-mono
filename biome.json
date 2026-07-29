@@ -12,6 +12,7 @@
 			"*.md",
 			"packages/*/**/*.ts",
 			"packages/*/**/*.json",
+			"!packages/hepi-mctx",
 			"scripts/**/*.mjs",
 			"scripts/**/*.ts",
 			"templates/**/*.ts",

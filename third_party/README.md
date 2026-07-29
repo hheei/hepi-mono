@@ -12,26 +12,20 @@ git submodule update --init --recursive
 
 ## Magic Context
 
-`magic-context` builds and owns the complete `@hheei/pi-magic-context` Pi
-extension, including runtime bridges and subagent accounting. Run the normal
-HEPI aggregate build; it builds this public package first:
+`magic-context` contains the source-only shared core used by the HEPI-owned
+`packages/hepi-mctx` Pi extension. Runtime bridges and subagent accounting live
+in that HEPI package. Build the Pi package from the parent repository:
 
 ```bash
-bun run build:aggregates
+bun run check:mctx
 ```
 
 ## AFT
 
 `aft` is the source fork behind HEPI's AFT integration. `hepi-aft` uses only
 the public `@cortexkit/aft-bridge` API and the matching platform binary package.
-The unified Git package declares the bridge plus all platform optional binaries;
-Pi installs the binary for the current platform during `pi install`.
-
-Install the unified HEPI Git release with a pinned tag:
-
-```bash
-pi install git:github.com/hheei/hepi-mono@<tag>
-```
+The published HEPI packages declare the bridge plus all platform optional
+binaries; npm installs the binary for the current platform.
 
 Start a Pi session after installing. If AFT cannot resolve its platform binary,
 the AFT tools report the startup error without taking ownership from Pi's native

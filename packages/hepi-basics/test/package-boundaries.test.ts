@@ -13,7 +13,8 @@ const compositionPackages = new Set([
 	"hepi-skills",
 	"hepi-tools",
 ]);
-const workspacePackages = new Set([...compositionPackages, "hepi-debug"]);
+const workspacePackages = new Set([...compositionPackages, "hepi-debug", "hepi-mctx"]);
+const publishedPackages = new Set([...compositionPackages, "hepi-mctx"]);
 const thirdPartySubmodules = new Set([
 	"third_party/aft",
 	"third_party/magic-context",
@@ -214,7 +215,7 @@ test("all Pi packages expose explicit root contracts", async () => {
 		if (!isRecord(manifest) || !isRecord(manifest.exports))
 			throw new Error(`Missing package exports: ${manifestPath}`);
 		expect(manifest.exports["."]).toBe(
-			compositionPackages.has(relative(packagesDirectory, packagePath))
+			publishedPackages.has(relative(packagesDirectory, packagePath))
 				? "./dist/index.js"
 				: "./src/index.ts",
 		);

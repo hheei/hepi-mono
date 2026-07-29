@@ -32,13 +32,7 @@ const alias = {
 	"@mariozechner/pi-tui": "@earendil-works/pi-tui",
 };
 
-const magicContextPackage = path.join(
-	root,
-	"third_party",
-	"magic-context",
-	"packages",
-	"pi-plugin",
-);
+const magicContextPackage = path.join(root, "packages", "hepi-mctx");
 const magicContextLink = path.join(root, "node_modules", "@hheei", "hepi-mctx");
 mkdirSync(path.dirname(magicContextLink), { recursive: true });
 rmSync(magicContextLink, { force: true, recursive: true });

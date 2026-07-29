@@ -9,7 +9,7 @@ const packages = [
 	["packages/hepi-tools", "dist/extension.js"],
 	["packages/hepi-skills", "dist/extension.js"],
 	["packages/hepi-aft", "dist/extension.js"],
-	["third_party/magic-context/packages/pi-plugin", "dist/index.js"],
+	["packages/hepi-mctx", "dist/index.js"],
 	["packages/hepi-mono", "dist/extension.js"],
 ];
 
