@@ -22,6 +22,10 @@ bun run check
 
 Do not introduce npm, Yarn, or pnpm lockfiles.
 
+Keep tool dependencies current. Update a dependency after its focused checks pass;
+use a warning only for a verified upstream lint false positive, never to hide a
+TypeScript, runtime, or test failure.
+
 ## TypeScript
 
 - Keep the root TypeScript project fully strict, including `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`; do not weaken compiler options to land a change.
@@ -46,7 +50,8 @@ Do not introduce npm, Yarn, or pnpm lockfiles.
 
 - Keep each HEPI-owned Pi extension in an aggregate `packages/hepi-*` workspace and declare its entry under `pi.extensions`.
 - Deprecated top-level `packages/pi-*` feature workspaces are not part of the current source or publish layout.
-- Do not place external repositories, source snapshots, or vendored reference code under `packages/`; keep ignored local clones under `references/repos/` and record their URL and revision in `references/README.md`.
+- Keep HEPI-owned source only under `packages/`. External forks used by the build live as pinned Git submodules under `third_party/<repo>`; do not add them to Bun workspaces. Research-only clones remain ignored under `references/repos/` and are recorded in `references/README.md`.
+- A `third_party` fork owns its implementation and exposes only deliberate public package exports. HEPI packages compose those exports through their package root; they must not import fork-private files, patch fork internals, or duplicate fork behavior. Add or evolve the fork's narrow public API first, commit it in that fork, then advance the parent submodule pointer.
 - Use package-local aggregate source imports for new HEPI integrations. Shared Basics contracts live under `packages/hepi-basics/src/core`.
 - Loadout must coordinate the host active-tool list through the Pi Basics `ToolActivationCoordinator`.
 - Keep runtime state session-scoped and cleanup idempotent unless persistence is explicitly part of the feature contract.
@@ -58,6 +63,8 @@ Do not introduce npm, Yarn, or pnpm lockfiles.
 - Treat `DESIGN.md` as the current HEPI TUI specification. Pi source-code design taste and integration guidance live in `.pi/skills/pi-development/references/DESIGN.md`; load the `pi-development` skill before using that reference.
 - Treat `docs/plans/` as historical context, not the current behavior contract.
 - Update documentation when public behavior, compatibility, or package entry points change.
+- Git tags are the primary distribution channel: `pi install git:github.com/hheei/hepi-mono@<tag>`. Before tagging, build and commit `packages/hepi-mono/dist`; Pi installs Git packages with production dependencies only and does not build TypeScript or initialize submodules.
+- Declare Pi host packages and `typebox` as peers when an extension imports them. Keep non-Pi runtime dependencies in `dependencies`; never rely on root devDependencies or workspace hoisting after a Git install.
 
 ## Pi Basics TUI
 

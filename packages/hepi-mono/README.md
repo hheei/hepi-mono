@@ -8,10 +8,10 @@ The bundle keeps registration order: `pi-basics` first, then `pi-loadout`, the
 remaining basics, tools, skills, BTW, and Plan modules. `hepi-debug` is excluded. The aggregate bundles are the supported runtime
 installation units; top-level `pi-*` feature packages are deprecated.
 
-Install the unified package globally:
+Install the unified package from a pinned Git tag:
 
 ```bash
-pi install npm:@hheei/hepi-mono
+pi install git:github.com/hheei/hepi-mono@<tag>
 ```
 
 For local development:

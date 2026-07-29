@@ -42,7 +42,7 @@
 	},
 	"dependencies": {
 		"@ff-labs/fff-bun": "^0.10.1",
-		"@ff-labs/fff-node": "^0.9.6",
+		"@ff-labs/fff-node": "^0.10.1",
 		"ffi-rs": "^1.3.2"
 	},
 	"devDependencies": {

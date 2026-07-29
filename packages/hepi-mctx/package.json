@@ -45,7 +45,6 @@
 	"devDependencies": {
 		"@earendil-works/pi-coding-agent": "^0.82.0",
 		"@hheei/hepi-basics": "workspace:*",
-		"@hheei/pi-magic-context": "0.33.1-hepi.0",
 		"@types/bun": "latest"
 	}
 }

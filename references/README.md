@@ -1,6 +1,12 @@
 # Public Reference Repositories
 
-External source used for research lives locally under `references/repos/`. That directory is ignored by Git and is never part of the Bun workspace, build, tests, lint, or published packages.
+External source used only for research lives locally under `references/repos/`. That directory is ignored by Git and is never part of the Bun workspace, build, tests, lint, or published packages.
+
+Build-time forks are pinned Git submodules under `third_party/`. They are not Bun
+workspaces or Pi resources. `third_party/magic-context` is bundled into the
+unified release artifact; `third_party/aft` supplies the public bridge and
+platform binary contract; `third_party/pi-subagents` remains an optional external
+extension source.
 
 Use `<owner>-<repo>` directory names. Documentation must cite the public URL and exact revision; a local clone path is optional and must not be required by a clean checkout.
 
@@ -22,7 +28,7 @@ Use `<owner>-<repo>` directory names. Documentation must cite the public URL and
 | [mattpocock/skills](https://github.com/mattpocock/skills) | `ed37663cc5fbef691ddfecd080dff42f7e7e350d` | Grill and domain-modeling skills adapted for the HEPI skills bundle |
 | [hheei/magic-context](https://github.com/hheei/magic-context) | `f9c964da0c5cc53d1ef0658af588b46acd2e740d` | Fixed Magic Context Pi plugin/core source, including external Pi subagent accounting API |
 | [cortexkit/aft](https://github.com/cortexkit/aft) | `566bcde25cbb2c24f09fdc5e4840a58a65a97677` | AFT Pi adapter tool contracts and public bridge API, adapted into the HEPI-owned AFT aggregate |
-| [hheei/aft](https://github.com/hheei/aft) | `0904eee860eb7587f73749badf936639d7e31484` (`fix/pending-response-flush`) | Local development patches for [cortexkit/aft#172](https://github.com/cortexkit/aft/issues/172) and nonblocking post-mutation LSP notifications. Not an HEPI runtime dependency. |
+| [hheei/aft](https://github.com/hheei/aft) | `0904eee860eb7587f73749badf936639d7e31484` (`fix/pending-response-flush`) | Fork used by `third_party/aft`; HEPI uses its public bridge and platform binary contract. |
 
 ## Other Design References
 

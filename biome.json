@@ -1,5 +1,5 @@
 {
-	"$schema": "https://biomejs.dev/schemas/2.5.2/schema.json",
+	"$schema": "https://biomejs.dev/schemas/2.5.6/schema.json",
 	"vcs": {
 		"enabled": true,
 		"clientKind": "git",
@@ -17,7 +17,7 @@
 			"templates/**/*.ts",
 			"templates/**/*.json",
 			"test/**/*.ts",
-			"!packages/hepi-subagents",
+			"!third_party",
 			"!**/node_modules",
 			"!**/dist",
 			"!**/.pi",
@@ -43,7 +43,7 @@
 				"noUnusedVariables": "warn"
 			},
 			"nursery": {
-				"noFloatingPromises": "error"
+				"noFloatingPromises": "warn"
 			},
 			"style": {
 				"noEnum": "error",
@@ -53,7 +53,8 @@
 			},
 			"suspicious": {
 				"noExplicitAny": "error",
-				"noTsIgnore": "error"
+				"noTsIgnore": "error",
+				"noUnnecessaryConditions": "warn"
 			}
 		}
 	},

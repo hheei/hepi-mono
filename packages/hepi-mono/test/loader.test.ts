@@ -25,24 +25,27 @@ describe("unified HEPI loader", () => {
 
 	test("assigns each combined FFF and AFT tool slot to one owner", () => {
 		const toolNames: string[] = [];
-		const pi = new Proxy({
-			events: new EventEmitter(),
-			on: () => {},
-			registerTool: (tool: { readonly name: string }) => toolNames.push(tool.name),
-			registerCommand: () => {},
-			registerShortcut: () => {},
-			registerFlag: () => {},
-			registerProvider: () => () => {},
-			getActiveTools: () => [],
-			setActiveTools: () => {},
-			getCommands: () => [],
-			getFlags: () => [],
-			getTools: () => [],
-		}, {
-			get(target, key) {
-				return key in target ? target[key as keyof typeof target] : () => {};
+		const pi = new Proxy(
+			{
+				events: new EventEmitter(),
+				on: () => {},
+				registerTool: (tool: { readonly name: string }) => toolNames.push(tool.name),
+				registerCommand: () => {},
+				registerShortcut: () => {},
+				registerFlag: () => {},
+				registerProvider: () => () => {},
+				getActiveTools: () => [],
+				setActiveTools: () => {},
+				getCommands: () => [],
+				getFlags: () => [],
+				getTools: () => [],
 			},
-		}) as unknown as ExtensionAPI;
+			{
+				get(target, key) {
+					return key in target ? target[key as keyof typeof target] : () => {};
+				},
+			},
+		) as unknown as ExtensionAPI;
 		for (const extension of hepiExtensions) extension(pi);
 
 		const slots = ["find", "grep", "read", "write", "edit", "apply_patch", "bash"];

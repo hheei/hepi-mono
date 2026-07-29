@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { cpSync, existsSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -39,6 +39,25 @@ const alias = {
 	"@mariozechner/pi-coding-agent": "@earendil-works/pi-coding-agent",
 	"@mariozechner/pi-tui": "@earendil-works/pi-tui",
 };
+
+const magicContextPackage = path.join(
+	root,
+	"third_party",
+	"magic-context",
+	"packages",
+	"pi-plugin",
+);
+const magicContextLink = path.join(
+	root,
+	"packages",
+	"hepi-mctx",
+	"node_modules",
+	"@hheei",
+	"pi-magic-context",
+);
+mkdirSync(path.dirname(magicContextLink), { recursive: true });
+rmSync(magicContextLink, { force: true, recursive: true });
+symlinkSync(magicContextPackage, magicContextLink, "dir");
 
 const requested = process.argv.slice(2);
 const packageNames = requested.includes("--all")

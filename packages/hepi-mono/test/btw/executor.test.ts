@@ -115,21 +115,19 @@ describe("BTW executor", () => {
 		]);
 	});
 
-	test.each([
-		"aborted",
-		"error",
-		"length",
-		"toolUse",
-	] as const)("normalizes stop reason %s", async (stopReason) => {
-		const result = await executeBtwTurn({
-			model,
-			messages,
-			signal: new AbortController().signal,
-			modelRegistry: registry({ ok: true }),
-			complete: async () => response(stopReason),
-		});
-		expect(result.status).toBe(stopReason === "aborted" ? "aborted" : "error");
-	});
+	test.each(["aborted", "error", "length", "toolUse"] as const)(
+		"normalizes stop reason %s",
+		async (stopReason) => {
+			const result = await executeBtwTurn({
+				model,
+				messages,
+				signal: new AbortController().signal,
+				modelRegistry: registry({ ok: true }),
+				complete: async () => response(stopReason),
+			});
+			expect(result.status).toBe(stopReason === "aborted" ? "aborted" : "error");
+		},
+	);
 
 	test("rejects empty text and normalizes throws, including abort", async () => {
 		const base = {

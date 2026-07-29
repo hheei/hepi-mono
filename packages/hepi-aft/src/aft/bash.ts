@@ -520,7 +520,6 @@ DO NOT use bash for code search or code exploration. If you are about to run gre
 					timeout: effectiveTimeout,
 					workdir: spawnContext.cwd ?? params.workdir,
 					env: spawnContext.env,
-					description: params.description,
 					background: effectiveBackground,
 					notify_on_completion: effectiveBackground,
 					compressed,

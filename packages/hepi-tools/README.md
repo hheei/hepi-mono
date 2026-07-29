@@ -41,10 +41,10 @@ HEPI FFF keeps `ffi-rs` as a platform runtime dependency because its native
 binary cannot be embedded in a portable JavaScript bundle. Its adapted upstream
 attribution is in `THIRD_PARTY_NOTICES.md`.
 
-Install it with:
+Git releases include this bundle through `hepi-mono`:
 
 ```bash
-pi install npm:@hheei/hepi-tools
+pi install git:github.com/hheei/hepi-mono@<tag>
 ```
 
 Build locally with `bun run build` from this package or

@@ -15,10 +15,10 @@ tool surface:
 - `aft_import`: language-aware import add, remove, and organization.
 - `aft_inspect`: codebase health and structural analysis snapshot.
 
-Install it as a separate Pi package:
+Git releases include this bundle through `hepi-mono`:
 
 ```bash
-pi install npm:@hheei/hepi-aft
+pi install git:github.com/hheei/hepi-mono@<tag>
 ```
 
 On session start, the adapter resolves AFT `0.49.0`, migrates AFT storage when

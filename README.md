@@ -15,26 +15,15 @@ Package-specific commands, settings, persistence, requirements, and incompatibil
 
 ## Install
 
-Install all current runtime modules through the unified package:
+Install all current runtime modules from a pinned Git tag:
 
 ```bash
-pi install npm:@hheei/hepi-mono
+pi install git:github.com/hheei/hepi-mono@<tag>
 ```
 
-Or install one-entry groups when you want a smaller selection:
-
-```bash
-pi install npm:@hheei/hepi-basics
-pi install npm:@hheei/hepi-tools
-pi install npm:@hheei/hepi-mctx
-pi install npm:@hheei/hepi-skills
-```
-
-Each group is self-contained. Do not install a group together with
-`hepi-mono`; they contain overlapping implementations.
-
-The unified package includes all current runtime modules. The group packages
-are the supported smaller selections.
+Git distribution exposes the unified package only. The group packages are
+source-level composition boundaries for local development; do not install one
+with `hepi-mono`, because their implementations overlap.
 
 For a local checkout:
 
@@ -65,14 +54,18 @@ pi --no-extensions --no-skills -e packages/hepi-mctx/dist/extension.js
 pi --no-extensions --no-skills -e packages/hepi-skills/dist/extension.js
 ```
 
-The supported packages are the five aggregate bundles and the development-only
-`@hheei/hepi-debug` package. Individual `@hheei/pi-*` packages are deprecated.
+The Git release is `hepi-mono`; the aggregate packages and development-only
+`hepi-debug` remain local development boundaries. Individual `@hheei/pi-*`
+packages are deprecated.
 
 ## Repository Layout
 
 ```text
 packages/       HEPI-owned publishable workspaces
-  hepi-subagents/  Pinned external fork submodule, excluded from workspaces
+
+third_party/     Pinned external fork submodules, excluded from workspaces
+  magic-context/  Public API consumed by hepi-mctx during the release build
+  pi-subagents/   Optional external Pi extension source
 
 docs/
   user/         Cross-package usage

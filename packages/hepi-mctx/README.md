@@ -13,10 +13,10 @@ When `@hheei/pi-magic-context` or the legacy `@cortexkit/pi-magic-context` is
 already listed in global Pi package settings, this package reuses that separate
 extension and skips its bundled copy so the same tools are not registered twice.
 
-Install it with:
+Git releases include this bundle through `hepi-mono`:
 
 ```bash
-pi install npm:@hheei/hepi-mctx
+pi install git:github.com/hheei/hepi-mono@<tag>
 ```
 
 Do not install it together with `@hheei/hepi-mono`; the unified bundle already

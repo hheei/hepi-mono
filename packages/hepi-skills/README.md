@@ -22,10 +22,10 @@ them explicitly as `/skill:grill-me <plan>` or `/skill:grill-with-docs <plan>`.
 Basics Loadout sees every included skill as a `skill:<name>` item; disabling one
 removes it from the model prompt for the active branch.
 
-Install it with:
+Git releases include this bundle through `hepi-mono`:
 
 ```bash
-pi install npm:@hheei/hepi-skills
+pi install git:github.com/hheei/hepi-mono@<tag>
 ```
 
 Build locally with `bun run build` from this package or

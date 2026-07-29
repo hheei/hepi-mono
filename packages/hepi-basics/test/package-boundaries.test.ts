@@ -15,7 +15,11 @@ const compositionPackages = new Set([
 	"hepi-tools",
 ]);
 const workspacePackages = new Set([...compositionPackages, "hepi-debug"]);
-const submodulePackages = new Set(["hepi-subagents"]);
+const thirdPartySubmodules = new Set([
+	"third_party/aft",
+	"third_party/magic-context",
+	"third_party/pi-subagents",
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -80,9 +84,7 @@ function hepiPackageImports(source: string): readonly HepiPackageImport[] {
 
 async function packagePaths(): Promise<readonly string[]> {
 	const directories = await readdir(packagesDirectory, { withFileTypes: true });
-	const packageDirectories = directories.filter(
-		(entry) => entry.isDirectory() && !submodulePackages.has(entry.name),
-	);
+	const packageDirectories = directories.filter((entry) => entry.isDirectory());
 	const unexpected = packageDirectories
 		.map((entry) => entry.name)
 		.filter((name) => !workspacePackages.has(name));
@@ -96,7 +98,7 @@ test("workspace contains only HEPI-owned Pi packages", async () => {
 		await readFile(join(repositoryRoot, "package.json"), "utf8"),
 	);
 	if (!isRecord(rootManifest)) throw new Error("Expected object root package manifest");
-	expect(rootManifest.workspaces).toEqual(["packages/*", "!packages/hepi-subagents"]);
+	expect(rootManifest.workspaces).toEqual(["packages/*"]);
 
 	for (const packagePath of await packagePaths()) {
 		const directory = relative(packagesDirectory, packagePath);
@@ -126,7 +128,7 @@ test("repository does not track external or generated trees", () => {
 	for (const entry of entries) {
 		if (entry.startsWith("160000 ")) {
 			const path = entry.slice(entry.indexOf("\t") + 1);
-			expect(submodulePackages).toContain(path.replace(/^packages\//u, ""));
+			expect(thirdPartySubmodules).toContain(path);
 		}
 	}
 	const paths = entries.map((entry) => entry.slice(entry.indexOf("\t") + 1));

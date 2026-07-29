@@ -1,29 +1,15 @@
 # Getting Started
 
-HEPI can be installed as one unified package or one of four one-entry
-aggregate groups. Use `@hheei/hepi-mono` to load all current runtime modules.
-Use a group when you want a smaller selection.
+HEPI is distributed as one unified Git package. Use a pinned tag so each
+project gets a reproducible extension set.
 
 ## Unified Install
 
 ```bash
-pi install npm:@hheei/hepi-mono
+pi install git:github.com/hheei/hepi-mono@<tag>
 ```
 
 The unified package excludes the development-only `hepi-debug` package.
-
-## Grouped Install
-
-```bash
-pi install npm:@hheei/hepi-basics
-pi install npm:@hheei/hepi-tools
-pi install npm:@hheei/hepi-mctx
-pi install npm:@hheei/hepi-skills
-```
-
-Each group contains its own bundled implementation and exposes one Pi
-extension entry. Do not install a group together with `hepi-mono`; their
-implementations overlap.
 
 ## Local Checkout
 

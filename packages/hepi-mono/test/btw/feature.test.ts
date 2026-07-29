@@ -350,29 +350,29 @@ describe("BTW feature", () => {
 		await nextRequest;
 	});
 
-	test.each([
-		"session_before_tree",
-		"session_before_compact",
-	] as const)("%s aborts and closes the overlay, and ignores late results", async (eventName) => {
-		const h = fixture();
-		h.feature.start(h.runtime);
-		const request = first(h.commands).handler("question", h.commandCtx);
-		await settle();
-		await emit(h, eventName);
-		const component = h.components[0];
-		if (component === undefined) throw new Error("Expected component");
-		expect(at(h.executions, 0).options.signal.aborted).toBe(true);
-		expect(h.aborted()).toBe(0);
-		expect(component.closeCount).toBe(1);
-		resolveExecution(h, 0, {
-			status: "success",
-			response: assistant("stale answer"),
-			text: "stale answer",
-		});
-		await settle();
-		expect(component.answer).toBeUndefined();
-		await request;
-	});
+	test.each(["session_before_tree", "session_before_compact"] as const)(
+		"%s aborts and closes the overlay, and ignores late results",
+		async (eventName) => {
+			const h = fixture();
+			h.feature.start(h.runtime);
+			const request = first(h.commands).handler("question", h.commandCtx);
+			await settle();
+			await emit(h, eventName);
+			const component = h.components[0];
+			if (component === undefined) throw new Error("Expected component");
+			expect(at(h.executions, 0).options.signal.aborted).toBe(true);
+			expect(h.aborted()).toBe(0);
+			expect(component.closeCount).toBe(1);
+			resolveExecution(h, 0, {
+				status: "success",
+				response: assistant("stale answer"),
+				text: "stale answer",
+			});
+			await settle();
+			expect(component.answer).toBeUndefined();
+			await request;
+		},
+	);
 
 	test("dispose aborts, closes custom UI, and isolates the old callback", async () => {
 		const h = fixture({ sessionId: "old-session" });
