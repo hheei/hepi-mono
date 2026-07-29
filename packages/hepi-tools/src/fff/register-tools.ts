@@ -57,6 +57,7 @@ const GREP_TRUNCATION = /^\.\.\. \((\d+) more lines, ctrl\+o to expand\)$/i;
 const GREP_NO_MATCHES = /^(?:No files matched\b.*|No matches found\.?)$/i;
 const FIND_SUMMARY = /^\d+\/\d+ matches$/;
 const FIND_CANDIDATE = /^\d+\. (.+) \(([^)]+)\)(?: - (.+))?$/;
+const FIND_CURSOR = /^cursor:\s+/;
 const MAX_COLLAPSED_GREP_CONTENT_LINES = 14;
 const DEFAULT_GREP_TIMEOUT_SECONDS = DEFAULT_GREP_TIMEOUT_MS / 1_000;
 
@@ -207,7 +208,7 @@ function renderFindText(result: AgentToolResult<unknown>, theme: Theme): string 
 	return [
 		...(summary === undefined ? [] : [summary]),
 		...lines
-			.filter((line) => !FIND_SUMMARY.test(line))
+			.filter((line) => !FIND_SUMMARY.test(line) && !FIND_CURSOR.test(line))
 			.map((line) => {
 				const match = line.match(FIND_CANDIDATE);
 				if (!match) return line;
