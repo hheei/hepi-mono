@@ -348500,6 +348500,191 @@ function recordExternalPiSubagentInvocation(input) {
     error: isNonEmptyString(value.error) ? value.error : null
   });
 }
+var MAGIC_CONTEXT_PI_SUBAGENT_ENV2 = "MAGIC_CONTEXT_PI_SUBAGENT";
+var CHANNEL1_REMINDER_MARKERS = [
+  "tokens of tool output you have not reduced",
+  "tokens of unreduced tool output"
+];
+function getReminderState(events) {
+  let states = globalThis.__magicContextPiReminderStates;
+  if (states === undefined) {
+    states = new WeakMap;
+    globalThis.__magicContextPiReminderStates = states;
+  }
+  const existing = states.get(events);
+  if (existing !== undefined)
+    return existing;
+  const created = {
+    current: undefined,
+    pendingBySessionId: new Map
+  };
+  states.set(events, created);
+  return created;
+}
+function getAccountingState(events) {
+  let states = globalThis.__magicContextPiAccountingStates;
+  if (states === undefined) {
+    states = new WeakMap;
+    globalThis.__magicContextPiAccountingStates = states;
+  }
+  const existing = states.get(events);
+  if (existing !== undefined)
+    return existing;
+  const created = {
+    current: undefined,
+    sessionId: undefined,
+    startedAtByAgentId: new Map
+  };
+  states.set(events, created);
+  return created;
+}
+function textFromContentPart(part) {
+  if (typeof part === "string")
+    return part;
+  if (part !== null && typeof part === "object" && "type" in part && part.type === "text" && "text" in part && typeof part.text === "string") {
+    return part.text;
+  }
+  return;
+}
+function isChannel1Reminder(part) {
+  const text = textFromContentPart(part);
+  return text?.includes("<system-reminder>") === true && text.includes("ctx_reduce") && CHANNEL1_REMINDER_MARKERS.some((marker) => text.includes(marker));
+}
+function isObject3(value) {
+  return typeof value === "object" && value !== null;
+}
+function isNonEmptyString2(value) {
+  return typeof value === "string" && value.length > 0;
+}
+function finiteNonNegative(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
+}
+function parseStartedEvent(value) {
+  if (!isObject3(value) || !isNonEmptyString2(value.id))
+    return;
+  return { id: value.id };
+}
+function parseTerminalEvent(value, failed) {
+  if (!isObject3(value) || !isNonEmptyString2(value.id) || !isNonEmptyString2(value.type)) {
+    return;
+  }
+  const status = value.status === "aborted" || value.status === "stopped" ? "aborted" : failed || value.status === "error" ? "failed" : "completed";
+  const tokens = isObject3(value.tokens) ? value.tokens : undefined;
+  return {
+    id: value.id,
+    type: value.type,
+    status,
+    durationMs: finiteNonNegative(value.durationMs),
+    inputTokens: finiteNonNegative(tokens?.input),
+    outputTokens: finiteNonNegative(tokens?.output)
+  };
+}
+function registerReminderBridge(pi) {
+  const events = pi.events;
+  const state = getReminderState(events !== null && typeof events === "object" ? events : pi);
+  const token = Symbol("magic-context-pi-reminder-bridge");
+  state.current = token;
+  const isCurrent = () => state.current === token;
+  pi.on("tool_result", async (event, ctx) => {
+    if (!isCurrent())
+      return;
+    const sessionId = ctx.sessionManager.getSessionId();
+    const reminders = event.content.filter(isChannel1Reminder).map((part) => textFromContentPart(part)).filter((text) => text !== undefined);
+    if (reminders.length === 0)
+      return;
+    const pending = state.pendingBySessionId.get(sessionId) ?? [];
+    pending.push(...reminders);
+    state.pendingBySessionId.set(sessionId, pending);
+    return { content: event.content.filter((part) => !isChannel1Reminder(part)) };
+  });
+  pi.on("context", async (event, ctx) => {
+    if (!isCurrent())
+      return;
+    const sessionId = ctx.sessionManager.getSessionId();
+    const reminders = state.pendingBySessionId.get(sessionId);
+    if (reminders === undefined || reminders.length === 0)
+      return;
+    state.pendingBySessionId.delete(sessionId);
+    return {
+      messages: [
+        ...event.messages,
+        {
+          role: "custom",
+          customType: "magic-context-context-reminder",
+          content: reminders.join(`
+
+`),
+          display: false,
+          timestamp: Date.now()
+        }
+      ]
+    };
+  });
+  pi.on("session_shutdown", async (_event, ctx) => {
+    if (isCurrent())
+      state.pendingBySessionId.delete(ctx.sessionManager.getSessionId());
+  });
+}
+function registerSubagentAccounting(pi, recordInvocation5 = recordExternalPiSubagentInvocation) {
+  if (process.env[MAGIC_CONTEXT_PI_SUBAGENT_ENV2] === "1")
+    return;
+  const events = pi.events;
+  const state = getAccountingState(events);
+  const token = Symbol("magic-context-pi-subagent-accounting");
+  state.current = token;
+  const isCurrent = () => state.current === token;
+  pi.on("session_start", async (_event, ctx) => {
+    if (!isCurrent())
+      return;
+    state.sessionId = ctx.sessionManager.getSessionId();
+    state.startedAtByAgentId.clear();
+  });
+  pi.on("session_shutdown", async (_event, ctx) => {
+    if (!isCurrent())
+      return;
+    if (state.sessionId === ctx.sessionManager.getSessionId()) {
+      state.sessionId = undefined;
+      state.startedAtByAgentId.clear();
+    }
+  });
+  events.on("subagents:started", (event) => {
+    if (!isCurrent() || state.sessionId === undefined)
+      return;
+    const started = parseStartedEvent(event);
+    if (started !== undefined)
+      state.startedAtByAgentId.set(started.id, Date.now());
+  });
+  const recordTerminal = (event, failed) => {
+    if (!isCurrent() || state.sessionId === undefined)
+      return;
+    const terminal = parseTerminalEvent(event, failed);
+    if (terminal === undefined)
+      return;
+    const endedAt = Date.now();
+    const startedAt = state.startedAtByAgentId.get(terminal.id) ?? endedAt - terminal.durationMs;
+    state.startedAtByAgentId.delete(terminal.id);
+    try {
+      recordInvocation5({
+        parentSessionId: state.sessionId,
+        type: terminal.type,
+        startedAt,
+        endedAt,
+        status: terminal.status,
+        inputTokens: terminal.inputTokens,
+        outputTokens: terminal.outputTokens
+      });
+    } catch {}
+  };
+  events.on("subagents:completed", (event) => recordTerminal(event, false));
+  events.on("subagents:failed", (event) => recordTerminal(event, true));
+}
+function registerPiRuntimeBridges(pi, recordInvocation5) {
+  registerReminderBridge(pi);
+  const events = pi.events;
+  if (events === null || typeof events !== "object")
+    return;
+  registerSubagentAccounting(pi, recordInvocation5);
+}
 var PREFIX2 = "[magic-context][pi]";
 function resolveCurrentProject(ctx) {
   const projectDir = ctx.cwd;
@@ -348746,6 +348931,7 @@ async function src_default5(pi) {
     log3(`${PREFIX2} subagent child detected (${MAGIC_CONTEXT_PI_SUBAGENT_ENV}=1); skipping full extension registration`);
     return;
   }
+  registerPiRuntimeBridges(pi);
   beginBootQuietPeriod();
   const storageDir = getMagicContextStorageDir();
   const dbPath = join63(storageDir, "context.db");
@@ -349524,194 +349710,11 @@ function formatExecuteThresholdForLog(value) {
 
 // packages/hepi-mctx/src/extension.ts
 init_core();
-
-// packages/hepi-mctx/src/subagent-accounting.ts
-init_core();
-var MAGIC_CONTEXT_PI_SUBAGENT_ENV2 = "MAGIC_CONTEXT_PI_SUBAGENT";
-function getState(events) {
-  let states = globalThis.__hepiMagicContextSubagentAccountingStates;
-  if (states === undefined) {
-    states = new WeakMap;
-    globalThis.__hepiMagicContextSubagentAccountingStates = states;
-  }
-  const existing = states.get(events);
-  if (existing !== undefined)
-    return existing;
-  const created = {
-    current: undefined,
-    sessionId: undefined,
-    startedAtByAgentId: new Map
-  };
-  states.set(events, created);
-  return created;
-}
-function isObject3(value) {
-  return typeof value === "object" && value !== null;
-}
-function isNonEmptyString2(value) {
-  return typeof value === "string" && value.length > 0;
-}
-function finiteNonNegative(value) {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
-}
-function parseStartedEvent(value) {
-  if (!isObject3(value) || !isNonEmptyString2(value.id))
-    return;
-  return { id: value.id };
-}
-function parseTerminalEvent(value, failed) {
-  if (!isObject3(value) || !isNonEmptyString2(value.id) || !isNonEmptyString2(value.type)) {
-    return;
-  }
-  const status = value.status === "aborted" || value.status === "stopped" ? "aborted" : failed || value.status === "error" ? "failed" : "completed";
-  const tokens = isObject3(value.tokens) ? value.tokens : undefined;
-  return {
-    id: value.id,
-    type: value.type,
-    status,
-    durationMs: finiteNonNegative(value.durationMs),
-    inputTokens: finiteNonNegative(tokens?.input),
-    outputTokens: finiteNonNegative(tokens?.output)
-  };
-}
-function registerMagicContextSubagentAccounting(pi, recordInvocation5 = recordExternalPiSubagentInvocation) {
-  if (process.env[MAGIC_CONTEXT_PI_SUBAGENT_ENV2] === "1")
-    return;
-  const events = pi.events;
-  const state = getState(events);
-  const token = Symbol("magic-context-subagent-accounting");
-  state.current = token;
-  const isCurrent = () => state.current === token;
-  const lifecycle = new HepiLifecycleController({
-    onStart: (runtime) => {
-      if (!isCurrent())
-        return;
-      state.sessionId = runtime.ctx.sessionManager.getSessionId();
-      state.startedAtByAgentId.clear();
-    },
-    onShutdown: () => {
-      if (!isCurrent())
-        return;
-      state.sessionId = undefined;
-      state.startedAtByAgentId.clear();
-    }
-  });
-  registerHepiLifecycle(pi, lifecycle, "pi-mctx-subagent-accounting");
-  events.on("subagents:started", (event) => {
-    if (!isCurrent() || state.sessionId === undefined)
-      return;
-    const started = parseStartedEvent(event);
-    if (started !== undefined)
-      state.startedAtByAgentId.set(started.id, Date.now());
-  });
-  const recordTerminal = (event, failed) => {
-    if (!isCurrent() || state.sessionId === undefined)
-      return;
-    const terminal = parseTerminalEvent(event, failed);
-    if (terminal === undefined)
-      return;
-    const endedAt = Date.now();
-    const startedAt = state.startedAtByAgentId.get(terminal.id) ?? endedAt - terminal.durationMs;
-    state.startedAtByAgentId.delete(terminal.id);
-    try {
-      recordInvocation5({
-        parentSessionId: state.sessionId,
-        type: terminal.type,
-        startedAt,
-        endedAt,
-        status: terminal.status,
-        inputTokens: terminal.inputTokens,
-        outputTokens: terminal.outputTokens
-      });
-    } catch {}
-  };
-  events.on("subagents:completed", (event) => recordTerminal(event, false));
-  events.on("subagents:failed", (event) => recordTerminal(event, true));
-}
-
-// packages/hepi-mctx/src/extension.ts
 var MAGIC_CONTEXT_LOADOUT_GROUP = {
   id: "magic-context",
   label: "Magic Context",
   items: ["ctx_search", "ctx_expand", "ctx_memory", "ctx_note", "ctx_reduce", "todowrite"]
 };
-var CHANNEL1_REMINDER_MARKERS = [
-  "tokens of tool output you have not reduced",
-  "tokens of unreduced tool output"
-];
-function getReminderBridgeState(events) {
-  let states = globalThis.__hepiMagicContextReminderBridgeStates;
-  if (states === undefined) {
-    states = new WeakMap;
-    globalThis.__hepiMagicContextReminderBridgeStates = states;
-  }
-  const existing = states.get(events);
-  if (existing !== undefined)
-    return existing;
-  const created = {
-    current: undefined,
-    pendingBySessionId: new Map
-  };
-  states.set(events, created);
-  return created;
-}
-function textFromContentPart(part) {
-  if (typeof part === "string")
-    return part;
-  if (part !== null && typeof part === "object" && "type" in part && part.type === "text" && "text" in part && typeof part.text === "string") {
-    return part.text;
-  }
-  return;
-}
-function isChannel1Reminder(part) {
-  const text = textFromContentPart(part);
-  return text?.includes("<system-reminder>") === true && text.includes("ctx_reduce") && CHANNEL1_REMINDER_MARKERS.some((marker) => text.includes(marker));
-}
-function registerMagicContextReminderBridge(pi) {
-  const state = getReminderBridgeState(pi.events);
-  const token = Symbol("magic-context-reminder-bridge");
-  state.current = token;
-  const isCurrent = () => state.current === token;
-  pi.on("tool_result", async (event, ctx) => {
-    if (!isCurrent())
-      return;
-    const sessionId = ctx.sessionManager.getSessionId();
-    const reminders = event.content.filter(isChannel1Reminder).map((part) => textFromContentPart(part)).filter((text) => text !== undefined);
-    if (reminders.length === 0)
-      return;
-    const pending = state.pendingBySessionId.get(sessionId) ?? [];
-    pending.push(...reminders);
-    state.pendingBySessionId.set(sessionId, pending);
-    return { content: event.content.filter((part) => !isChannel1Reminder(part)) };
-  });
-  pi.on("context", async (event, ctx) => {
-    if (!isCurrent())
-      return;
-    const sessionId = ctx.sessionManager.getSessionId();
-    const reminders = state.pendingBySessionId.get(sessionId);
-    if (reminders === undefined || reminders.length === 0)
-      return;
-    state.pendingBySessionId.delete(sessionId);
-    return {
-      messages: [
-        ...event.messages,
-        {
-          role: "custom",
-          customType: "hepi-mctx-context-reminder",
-          content: reminders.join(`
-
-`),
-          display: false,
-          timestamp: Date.now()
-        }
-      ]
-    };
-  });
-  pi.on("session_shutdown", async (_event, ctx) => {
-    if (isCurrent())
-      state.pendingBySessionId.delete(ctx.sessionManager.getSessionId());
-  });
-}
 function hasConfiguredMagicContext() {
   try {
     const settings2 = JSON.parse(readFileSync9(join21(getAgentDir14(), "settings.json"), "utf8"));
@@ -349751,9 +349754,7 @@ var registerExternalMagicContextLoadout = (pi) => {
 };
 var hepiMctxExtensions = [
   registerExternalMagicContextLoadout,
-  ...hasExternalMagicContext ? [] : [registerBundledMagicContext],
-  registerMagicContextReminderBridge,
-  registerMagicContextSubagentAccounting
+  ...hasExternalMagicContext ? [] : [registerBundledMagicContext]
 ];
 // packages/hepi-skills/src/pi-caveman/config.ts
 import { readFile as readFile10 } from "node:fs/promises";
