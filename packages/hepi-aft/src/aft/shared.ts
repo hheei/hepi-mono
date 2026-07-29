@@ -30,7 +30,6 @@ type ImageContent = { type: "image"; data: string; mimeType: string };
 type ContentBlock = TextContent | ImageContent;
 
 const RETRY_SAFE_AFT_TOOLS = new Set(["read", "grep", "outline", "zoom", "callgraph", "inspect"]);
-const APPLY_PATCH_TIMEOUT_MS = 10_000;
 
 function isBridgeRequestTimeout(error: unknown): boolean {
 	return (
@@ -211,7 +210,7 @@ export async function callToolCall(
 	extCtx?: ExtensionContext,
 	options?: ToolCallOptions,
 ): Promise<ToolCallResult> {
-	const timeoutMs = name === "apply_patch" ? APPLY_PATCH_TIMEOUT_MS : timeoutForCommand(name);
+	const timeoutMs = timeoutForCommand(name);
 	const sessionId = extCtx ? resolveSessionId(extCtx) : undefined;
 	const sendOptions = {
 		...(timeoutMs !== undefined ? { timeoutMs } : {}),

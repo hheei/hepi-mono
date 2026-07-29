@@ -47,7 +47,7 @@ describe("AFT tool-call timeout recovery", () => {
 		expect(calls).toBe(1);
 	});
 
-	test("sets a 10 second timeout for the apply_patch endpoint", async () => {
+	test("uses the bridge default timeout for apply_patch", async () => {
 		let timeoutMs: number | undefined;
 		await callToolCall(
 			bridge(async (_sessionId, _name, _args, options) => {
@@ -59,6 +59,6 @@ describe("AFT tool-call timeout recovery", () => {
 			context,
 		);
 
-		expect(timeoutMs).toBe(10_000);
+		expect(timeoutMs).toBeUndefined();
 	});
 });

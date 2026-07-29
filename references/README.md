@@ -22,7 +22,7 @@ Use `<owner>-<repo>` directory names. Documentation must cite the public URL and
 | [mattpocock/skills](https://github.com/mattpocock/skills) | `ed37663cc5fbef691ddfecd080dff42f7e7e350d` | Grill and domain-modeling skills adapted for the HEPI skills bundle |
 | [hheei/magic-context](https://github.com/hheei/magic-context) | `f9c964da0c5cc53d1ef0658af588b46acd2e740d` | Fixed Magic Context Pi plugin/core source, including external Pi subagent accounting API |
 | [cortexkit/aft](https://github.com/cortexkit/aft) | `566bcde25cbb2c24f09fdc5e4840a58a65a97677` | AFT Pi adapter tool contracts and public bridge API, adapted into the HEPI-owned AFT aggregate |
-| [hheei/aft](https://github.com/hheei/aft) | `f957d38d45db63d69b47f2b8ba22651e11285b30` (`fix/pending-response-flush`) | Local development patch for [cortexkit/aft#172](https://github.com/cortexkit/aft/issues/172): flush ready deferred responses before and after runtime maintenance. Tracked upstream by [PR #173](https://github.com/cortexkit/aft/pull/173); not an HEPI runtime dependency. |
+| [hheei/aft](https://github.com/hheei/aft) | `0904eee860eb7587f73749badf936639d7e31484` (`fix/pending-response-flush`) | Local development patches for [cortexkit/aft#172](https://github.com/cortexkit/aft/issues/172) and nonblocking post-mutation LSP notifications. Not an HEPI runtime dependency. |
 
 ## Other Design References
 
