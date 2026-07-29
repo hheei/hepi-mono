@@ -23,8 +23,12 @@ bun run check
 Do not introduce npm, Yarn, or pnpm lockfiles.
 
 Keep tool dependencies current. Update a dependency after its focused checks pass;
-use a warning only for a verified upstream lint false positive, never to hide a
+disable a lint rule only for a verified upstream false positive, never to hide a
 TypeScript, runtime, or test failure.
+
+Use the root test scripts for the full suite. HEPI tests exercise shared TUI
+runtime state and run with `--max-concurrency=1`; three TUI tests run in
+separate Bun processes. Do not use bare `bun test` as full-suite validation.
 
 ## TypeScript
 

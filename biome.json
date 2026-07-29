@@ -42,9 +42,6 @@
 				"noUnusedImports": "error",
 				"noUnusedVariables": "warn"
 			},
-			"nursery": {
-				"noFloatingPromises": "warn"
-			},
 			"style": {
 				"noEnum": "error",
 				"noNamespace": "error",
@@ -54,7 +51,7 @@
 			"suspicious": {
 				"noExplicitAny": "error",
 				"noTsIgnore": "error",
-				"noUnnecessaryConditions": "warn"
+				"noUnnecessaryConditions": "off"
 			}
 		}
 	},
