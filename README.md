@@ -1,6 +1,6 @@
 # hepi-mono
 
-Bun monorepo for HEPI Pi Coding Agent extensions. Every publishable workspace under `packages/` is maintained under the `@hheei` scope.
+Bun monorepo for HEPI Pi Coding Agent extensions. HEPI packages live under `packages/`; Magic Context is a Pi-only fork submodule at `packages/hepi-mctx`.
 
 ## Documentation
 
@@ -29,6 +29,12 @@ pi install npm:@hheei/hepi-tools
 pi install npm:@hheei/hepi-skills
 pi install npm:@hheei/hepi-aft
 pi install npm:@hheei/hepi-mctx
+```
+
+Install Subagents separately; it is intentionally not part of `hepi-mono`:
+
+```bash
+pi install npm:@hheei/hepi-subagents
 ```
 
 Do not install an individual package with `hepi-mono`, because their
@@ -79,7 +85,7 @@ packages/       HEPI-owned publishable workspaces
 
 third_party/     Pinned external fork submodules, excluded from workspaces
   magic-context/  Shared Magic Context core bundled by hepi-mctx
-  pi-subagents/   Optional external Pi extension source
+  pi-subagents/   Optional @hheei/hepi-subagents npm package source
 
 docs/
   user/         Cross-package usage

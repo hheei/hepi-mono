@@ -54,8 +54,8 @@ separate Bun processes. Do not use bare `bun test` as full-suite validation.
 
 - Keep each HEPI-owned Pi extension in an aggregate `packages/hepi-*` workspace and declare its entry under `pi.extensions`.
 - Deprecated top-level `packages/pi-*` feature workspaces are not part of the current source or publish layout.
-- Keep HEPI-owned source only under `packages/`. External forks used by the build live as pinned Git submodules under `third_party/<repo>`; do not add them to Bun workspaces.
-- A `third_party` fork owns its implementation and exposes only deliberate public package exports. HEPI packages compose those exports through their package root; they must not import fork-private files, patch fork internals, or duplicate fork behavior. `hepi-mctx` is the explicit exception: its Pi adapter is HEPI-owned under `packages/hepi-mctx`, while the Magic Context shared core remains source-only under `third_party/magic-context/packages/plugin/src` and is bundled at release build time.
+- Keep HEPI-owned source under `packages/`. External forks used by the build live as pinned Git submodules under `third_party/<repo>`; do not add them to Bun workspaces. Magic Context is the explicit exception: its Pi-only fork is the `packages/hepi-mctx` submodule, and its published package is `packages/hepi-mctx/packages/pi-plugin`.
+- A fork owns its implementation and exposes only deliberate public package exports. HEPI packages compose those exports through their package root; they must not import fork-private files, patch fork internals, or duplicate fork behavior.
 - Use package-local aggregate source imports for new HEPI integrations. Shared Basics contracts live under `packages/hepi-basics/src/core`.
 - Loadout must coordinate the host active-tool list through the Pi Basics `ToolActivationCoordinator`.
 - Keep runtime state session-scoped and cleanup idempotent unless persistence is explicitly part of the feature contract.
@@ -67,7 +67,7 @@ separate Bun processes. Do not use bare `bun test` as full-suite validation.
 - Treat `DESIGN.md` as the current HEPI TUI specification. Pi source-code design taste and integration guidance live in `.pi/skills/pi-development/references/DESIGN.md`; load the `pi-development` skill before using that reference.
 - Treat `docs/plans/` as historical context, not the current behavior contract.
 - Update documentation when public behavior, compatibility, or package entry points change.
-- npm packages are the distribution channel. Build artifacts belong in each package tarball, never in Git: run `bun run pack:check` before publishing to verify every tarball's `prepack` build and allowlist. `hepi-mono` is the full-install entry; `hepi-basics`, `hepi-tools`, `hepi-skills`, `hepi-aft`, and `hepi-mctx` support explicit selective installs.
+- npm packages are the distribution channel. Build artifacts belong in each package tarball, never in Git: run `bun run pack:check` before publishing to verify every tarball's `prepack` build and allowlist. `hepi-mono` is the full-install entry; `hepi-basics`, `hepi-tools`, `hepi-skills`, `hepi-aft`, and `hepi-mctx` support explicit selective installs. `third_party/pi-subagents` is the independent `@hheei/hepi-subagents` submodule package and must not be bundled into `hepi-mono`.
 - Declare Pi host packages and `typebox` as peers when an extension imports them. Keep non-Pi runtime dependencies in `dependencies`; never rely on root devDependencies or workspace hoisting after an npm install.
 
 ## Pi Basics TUI

@@ -1,8 +1,8 @@
 [submodule "third_party/pi-subagents"]
 	path = third_party/pi-subagents
 	url = https://github.com/hheei/pi-subagents.git
-[submodule "third_party/magic-context"]
-	path = third_party/magic-context
+[submodule "packages/hepi-mctx"]
+	path = packages/hepi-mctx
 	url = https://github.com/hheei/magic-context.git
 [submodule "third_party/aft"]
 	path = third_party/aft

@@ -10,15 +10,9 @@ Initialize them after cloning HEPI:
 git submodule update --init --recursive
 ```
 
-## Magic Context
-
-`magic-context` contains the source-only shared core used by the HEPI-owned
-`packages/hepi-mctx` Pi extension. Runtime bridges and subagent accounting live
-in that HEPI package. Build the Pi package from the parent repository:
-
-```bash
-bun run check:mctx
-```
+Magic Context is the exception: its Pi-only fork is managed as the
+`packages/hepi-mctx` submodule so the complete upstream-shaped repository is
+maintained together.
 
 ## AFT
 
@@ -34,6 +28,10 @@ advance the HEPI submodule pointer after its public bridge contract is verified.
 
 ## Pi Subagents
 
-`pi-subagents` is an optional external extension source. HEPI does not bundle or
-import it. It can cooperate with HEPI only through its public Pi events and the
-Magic Context public accounting API.
+`pi-subagents` remains an optional Git submodule and publishes independently as
+`@hheei/hepi-subagents`. HEPI does not bundle or import it. It can cooperate with
+HEPI only through public Pi events and the Magic Context public accounting API.
+
+```bash
+pi install npm:@hheei/hepi-subagents
+```

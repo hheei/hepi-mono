@@ -10,7 +10,8 @@ the remaining packages support selective installation.
 | [`hepi-tools`](../../packages/hepi-tools/README.md) | Tool and agent local composition bundle | Pi host, `ffi-rs` |
 | [`hepi-skills`](../../packages/hepi-skills/README.md) | Skills local composition bundle | Pi host |
 | [`hepi-aft`](../../packages/hepi-aft/README.md) | AFT file tools and renderer | Pi host, AFT platform binary |
-| [`hepi-mctx`](../../packages/hepi-mctx/README.md) | Magic Context memory and compaction | Pi host |
+| [`hepi-mctx`](../../packages/hepi-mctx/packages/pi-plugin/README.md) | Magic Context memory and compaction | Pi host |
+| [`hepi-subagents`](../../third_party/pi-subagents/README.md) | Standalone subagent orchestration | Pi host |
 | [`hepi-debug`](../../packages/hepi-debug/README.md) | Development diagnostics and deterministic TUI replay | Pi host |
 
 Install `hepi-mono` with `pi install npm:@hheei/hepi-mono`.

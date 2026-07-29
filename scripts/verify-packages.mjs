@@ -9,8 +9,9 @@ const packages = [
 	["packages/hepi-tools", "dist/extension.js"],
 	["packages/hepi-skills", "dist/extension.js"],
 	["packages/hepi-aft", "dist/extension.js"],
-	["packages/hepi-mctx", "dist/index.js"],
+	["packages/hepi-mctx/packages/pi-plugin", "dist/index.js"],
 	["packages/hepi-mono", "dist/extension.js"],
+	["third_party/pi-subagents", "dist/index.js"],
 ];
 
 for (const [packagePath, entrypoint] of packages) {

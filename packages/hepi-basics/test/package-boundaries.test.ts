@@ -13,11 +13,12 @@ const compositionPackages = new Set([
 	"hepi-skills",
 	"hepi-tools",
 ]);
-const workspacePackages = new Set([...compositionPackages, "hepi-debug", "hepi-mctx"]);
-const publishedPackages = new Set([...compositionPackages, "hepi-mctx"]);
-const thirdPartySubmodules = new Set([
+const workspacePackages = new Set([...compositionPackages, "hepi-debug"]);
+const externalPackageDirectories = new Set(["hepi-mctx"]);
+const publishedPackages = new Set(compositionPackages);
+const externalSubmodules = new Set([
+	"packages/hepi-mctx",
 	"third_party/aft",
-	"third_party/magic-context",
 	"third_party/pi-subagents",
 ]);
 
@@ -84,7 +85,9 @@ function hepiPackageImports(source: string): readonly HepiPackageImport[] {
 
 async function packagePaths(): Promise<readonly string[]> {
 	const directories = await readdir(packagesDirectory, { withFileTypes: true });
-	const packageDirectories = directories.filter((entry) => entry.isDirectory());
+	const packageDirectories = directories.filter(
+		(entry) => entry.isDirectory() && !externalPackageDirectories.has(entry.name),
+	);
 	const unexpected = packageDirectories
 		.map((entry) => entry.name)
 		.filter((name) => !workspacePackages.has(name));
@@ -98,7 +101,14 @@ test("workspace contains only HEPI-owned Pi packages", async () => {
 		await readFile(join(repositoryRoot, "package.json"), "utf8"),
 	);
 	if (!isRecord(rootManifest)) throw new Error("Expected object root package manifest");
-	expect(rootManifest.workspaces).toEqual(["packages/*"]);
+	expect(rootManifest.workspaces).toEqual([
+		"packages/hepi-aft",
+		"packages/hepi-basics",
+		"packages/hepi-debug",
+		"packages/hepi-mono",
+		"packages/hepi-skills",
+		"packages/hepi-tools",
+	]);
 
 	for (const packagePath of await packagePaths()) {
 		const directory = relative(packagesDirectory, packagePath);
@@ -128,7 +138,7 @@ test("repository does not track external or generated trees", () => {
 	for (const entry of entries) {
 		if (entry.startsWith("160000 ")) {
 			const path = entry.slice(entry.indexOf("\t") + 1);
-			expect(thirdPartySubmodules).toContain(path);
+			expect(externalSubmodules).toContain(path);
 		}
 	}
 	const paths = entries.map((entry) => entry.slice(entry.indexOf("\t") + 1));

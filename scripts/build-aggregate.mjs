@@ -1,5 +1,13 @@
 #!/usr/bin/env bun
-import { cpSync, existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+	cpSync,
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -32,11 +40,32 @@ const alias = {
 	"@mariozechner/pi-tui": "@earendil-works/pi-tui",
 };
 
-const magicContextPackage = path.join(root, "packages", "hepi-mctx");
+const magicContextPackage = path.join(root, "packages", "hepi-mctx", "packages", "pi-plugin");
 const magicContextLink = path.join(root, "node_modules", "@hheei", "hepi-mctx");
 mkdirSync(path.dirname(magicContextLink), { recursive: true });
 rmSync(magicContextLink, { force: true, recursive: true });
 symlinkSync(magicContextPackage, magicContextLink, "dir");
+
+const magicContextCoreModules = path.join(
+	root,
+	"packages",
+	"hepi-mctx",
+	"packages",
+	"plugin",
+	"node_modules",
+);
+const magicContextPackageModules = path.join(magicContextPackage, "node_modules");
+let createdMagicContextCoreLink = false;
+if (existsSync(magicContextPackageModules)) {
+	if (existsSync(magicContextCoreModules)) {
+		if (!lstatSync(magicContextCoreModules).isSymbolicLink()) {
+			throw new Error("Magic Context shared core has its own node_modules");
+		}
+		rmSync(magicContextCoreModules);
+	}
+	symlinkSync(magicContextPackageModules, magicContextCoreModules, "dir");
+	createdMagicContextCoreLink = true;
+}
 
 const aftPiPackage = path.join(root, "third_party", "aft", "packages", "pi-plugin");
 const aftPiLink = path.join(root, "node_modules", "@cortexkit", "aft-pi");
@@ -51,60 +80,68 @@ const packageNames = requested.includes("--all")
 		? requested
 		: aggregatePackages;
 
-for (const packageName of packageNames) {
-	if (!aggregatePackages.includes(packageName)) {
-		console.error(`Unknown aggregate package: ${packageName}`);
-		process.exitCode = 1;
-		continue;
-	}
+try {
+	for (const packageName of packageNames) {
+		if (!aggregatePackages.includes(packageName)) {
+			console.error(`Unknown aggregate package: ${packageName}`);
+			process.exitCode = 1;
+			continue;
+		}
 
-	const packageRoot = path.join(root, "packages", packageName);
-	const sourceRoot = path.join(packageRoot, "src");
-	const outputRoot = path.join(packageRoot, "dist");
-	if (!existsSync(path.join(sourceRoot, "extension.ts"))) {
-		console.error(`Aggregate entry not found: ${packageName}`);
-		process.exitCode = 1;
-		continue;
-	}
+		const packageRoot = path.join(root, "packages", packageName);
+		const sourceRoot = path.join(packageRoot, "src");
+		const outputRoot = path.join(packageRoot, "dist");
+		if (!existsSync(path.join(sourceRoot, "extension.ts"))) {
+			console.error(`Aggregate entry not found: ${packageName}`);
+			process.exitCode = 1;
+			continue;
+		}
 
-	rmSync(outputRoot, { force: true, recursive: true });
-	const result = await Bun.build({
-		entrypoints: [path.join(sourceRoot, "extension.ts")],
-		outdir: outputRoot,
-		naming: "[name].js",
-		bundle: true,
-		format: "esm",
-		target: "node",
-		sourcemap: "none",
-		external,
-		alias,
-	});
-	if (!result.success) {
-		for (const log of result.logs) console.error(log);
-		process.exitCode = 1;
-		continue;
-	}
+		rmSync(outputRoot, { force: true, recursive: true });
+		const entrypoints = [path.join(sourceRoot, "extension.ts")];
+		if (packageName === "hepi-mono") {
+			entrypoints.push(path.join(magicContextPackage, "src", "subagent-entry.ts"));
+		}
+		const result = await Bun.build({
+			entrypoints,
+			outdir: outputRoot,
+			naming: "[name].js",
+			bundle: true,
+			format: "esm",
+			target: "node",
+			sourcemap: "none",
+			external,
+			alias,
+		});
+		if (!result.success) {
+			for (const log of result.logs) console.error(log);
+			process.exitCode = 1;
+			continue;
+		}
 
-	const extensionArray = publicContracts[packageName];
-	writeFileSync(
-		path.join(outputRoot, "index.js"),
-		`export { default, ${extensionArray} } from "./extension.js";\n`,
-	);
-	if (packageName === "hepi-skills" || packageName === "hepi-mono") {
-		const skillsSource = path.join(root, "packages", "hepi-skills", "src", "skills");
-		const skillsOutput = path.join(outputRoot, "skills");
-		cpSync(skillsSource, skillsOutput, { recursive: true });
+		const extensionArray = publicContracts[packageName];
+		writeFileSync(
+			path.join(outputRoot, "index.js"),
+			`export { default, ${extensionArray} } from "./extension.js";\n`,
+		);
+		if (packageName === "hepi-skills" || packageName === "hepi-mono") {
+			const skillsSource = path.join(root, "packages", "hepi-skills", "src", "skills");
+			const skillsOutput = path.join(outputRoot, "skills");
+			cpSync(skillsSource, skillsOutput, { recursive: true });
+		}
+		writeFileSync(
+			path.join(outputRoot, "index.d.ts"),
+			[
+				'import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";',
+				"",
+				"export type HepiExtension = (pi: ExtensionAPI) => void;",
+				`export declare const ${extensionArray}: readonly HepiExtension[];`,
+				"export default function extension(pi: ExtensionAPI): void;",
+				"",
+			].join("\n"),
+		);
+		console.log(`Built @hheei/${packageName}`);
 	}
-	writeFileSync(
-		path.join(outputRoot, "index.d.ts"),
-		[
-			'import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";',
-			"",
-			"export type HepiExtension = (pi: ExtensionAPI) => void;",
-			`export declare const ${extensionArray}: readonly HepiExtension[];`,
-			"export default function extension(pi: ExtensionAPI): void;",
-			"",
-		].join("\n"),
-	);
-	console.log(`Built @hheei/${packageName}`);
+} finally {
+	if (createdMagicContextCoreLink) rmSync(magicContextCoreModules, { force: true });
 }
