@@ -46,12 +46,14 @@ describe("Ponytail HEPI settings", () => {
 
 	test("loads validated modes and presentation flags", async () => {
 		const cwd = await createProject({
-			"pi-ponytail": {
-				defaults: {
-					mainMode: "lite",
-					subagentMode: "ultra",
-					hideStatus: true,
-					quietStartup: true,
+			hepi: {
+				ponytail: {
+					defaults: {
+						mainMode: "lite",
+						subagentMode: "ultra",
+						hideStatus: true,
+						quietStartup: true,
+					},
 				},
 			},
 		});
@@ -64,7 +66,7 @@ describe("Ponytail HEPI settings", () => {
 	});
 
 	test("provider preserves unrelated global settings", async () => {
-		const cwd = await createProject({ "pi-basics": { goal: { enabled: true } }, other: 42 });
+		const cwd = await createProject({ hepi: { goal: { enabled: true } }, other: 42 });
 		const provider = createPonytailSettingsProvider({
 			settingsFilePath: join(cwd, "settings.json"),
 		});
@@ -87,16 +89,18 @@ describe("Ponytail HEPI settings", () => {
 
 		const root: unknown = JSON.parse(await readFile(join(cwd, "settings.json"), "utf8"));
 		expect(root).toEqual({
-			"pi-basics": { goal: { enabled: true } },
-			other: 42,
-			"pi-ponytail": {
-				defaults: {
-					mainMode: "off",
-					subagentMode: "ultra",
-					hideStatus: false,
-					quietStartup: true,
+			hepi: {
+				goal: { enabled: true },
+				ponytail: {
+					defaults: {
+						mainMode: "off",
+						subagentMode: "ultra",
+						hideStatus: false,
+						quietStartup: true,
+					},
 				},
 			},
+			other: 42,
 		});
 	});
 });

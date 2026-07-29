@@ -140,7 +140,7 @@ async function createSettingsProject(mainMode: string, subagentMode: string): Pr
 	await mkdir(join(cwd, ".pi"));
 	await writeFile(
 		join(cwd, ".pi", "settings.json"),
-		JSON.stringify({ "pi-caveman": { defaults: { mainMode, subagentMode } } }),
+		JSON.stringify({ hepi: { caveman: { defaults: { mainMode, subagentMode } } } }),
 	);
 	return cwd;
 }

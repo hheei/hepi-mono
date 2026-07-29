@@ -26,13 +26,13 @@ describe("dollar skill settings", () => {
 		const settingsPath = join(cwd, "settings.json");
 		await Bun.write(
 			settingsPath,
-			JSON.stringify({ "pi-basics": { rtk: { mode: "suggest" } }, external: true }),
+			JSON.stringify({ hepi: { rtk: { mode: "suggest" } }, external: true }),
 		);
 		await saveDollarSkillConfig(cwd, { enabled: false, maxSuggestions: 7 });
 		expect(await loadDollarSkillConfig(cwd)).toEqual({ enabled: false, maxSuggestions: 7 });
 		const parsed: unknown = JSON.parse(await readFile(settingsPath, "utf8"));
 		expect(parsed).toEqual({
-			"pi-basics": {
+			hepi: {
 				rtk: { mode: "suggest" },
 				dollarSkillReferences: { enabled: false, maxSuggestions: 7 },
 			},

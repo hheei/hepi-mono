@@ -51,7 +51,7 @@ export function createCursorSettingsProvider(options: {
 }): HepiSettingsProvider {
 	const storage = createJsonSectionSettingsStorage({
 		...(options.path === undefined ? {} : { path: options.path }),
-		section: "pi-basics",
+		section: "hepi",
 		group: "cursor",
 	});
 	return {

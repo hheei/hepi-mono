@@ -48,7 +48,7 @@ describe("Caveman HEPI settings", () => {
 
 	test("loads validated main and subagent defaults", async () => {
 		const cwd = await createProject({
-			"pi-caveman": { defaults: { mainMode: "lite", subagentMode: "wenyan-ultra" } },
+			hepi: { caveman: { defaults: { mainMode: "lite", subagentMode: "wenyan-ultra" } } },
 		});
 
 		expect(await loadCavemanDefaults(join(cwd, "settings.json"))).toEqual({
@@ -59,7 +59,7 @@ describe("Caveman HEPI settings", () => {
 
 	test("falls back per invalid field", async () => {
 		const cwd = await createProject({
-			"pi-caveman": { defaults: { mainMode: "verbose", subagentMode: "off" } },
+			hepi: { caveman: { defaults: { mainMode: "verbose", subagentMode: "off" } } },
 		});
 
 		expect(await loadCavemanDefaults(join(cwd, "settings.json"))).toEqual({
@@ -70,7 +70,7 @@ describe("Caveman HEPI settings", () => {
 
 	test("provider exposes enum fields and preserves unrelated settings", async () => {
 		const cwd = await createProject({
-			"pi-basics": { goal: { enabled: true } },
+			hepi: { goal: { enabled: true } },
 			other: { value: 42 },
 		});
 		const provider = createCavemanSettingsProvider({
@@ -96,11 +96,13 @@ describe("Caveman HEPI settings", () => {
 
 		const root: unknown = JSON.parse(await readFile(join(cwd, "settings.json"), "utf8"));
 		expect(root).toEqual({
-			"pi-basics": { goal: { enabled: true } },
-			other: { value: 42 },
-			"pi-caveman": {
-				defaults: { mainMode: "ultra", subagentMode: "wenyan-full" },
+			hepi: {
+				goal: { enabled: true },
+				caveman: {
+					defaults: { mainMode: "ultra", subagentMode: "wenyan-full" },
+				},
 			},
+			other: { value: 42 },
 		});
 		expect(await provider.storage.load({ sessionId: "test", cwd })).toEqual({
 			defaults: { mainMode: "ultra", subagentMode: "wenyan-full" },

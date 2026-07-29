@@ -201,6 +201,7 @@ test("hepi-basics keeps feature directories free of the package prefix", async (
 		"dollar-skill",
 		"fix",
 		"loadout",
+		"retry",
 		"rtk",
 		"t2s",
 	]);

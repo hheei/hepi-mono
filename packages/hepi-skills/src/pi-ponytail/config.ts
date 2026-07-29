@@ -19,6 +19,8 @@ export const PONYTAIL_MAIN_MODE_FIELD = "mainMode";
 export const PONYTAIL_SUBAGENT_MODE_FIELD = "subagentMode";
 export const PONYTAIL_HIDE_STATUS_FIELD = "hideStatus";
 export const PONYTAIL_QUIET_STARTUP_FIELD = "quietStartup";
+const SETTINGS_SECTION = "hepi";
+const SETTINGS_KEY = "ponytail";
 
 export interface PonytailDefaults {
 	readonly mainMode: PonytailMode;
@@ -89,10 +91,12 @@ export function createPonytailSettingsProvider(
 			async save(state: HepiSettingsState): Promise<void> {
 				const { updateJsonSettingsRoot } = await import("../../../hepi-basics/src/core/index.js");
 				await updateJsonSettingsRoot(settingsFilePath, (root) => {
-					const currentSection = asRecord(root[PONYTAIL_SETTINGS_PROVIDER_ID]);
+					const currentRoot = asRecord(root[SETTINGS_SECTION]);
+					const currentSection =
+						currentRoot === undefined ? undefined : asRecord(currentRoot[SETTINGS_KEY]);
 					const nextSection: JsonObject = currentSection === undefined ? {} : { ...currentSection };
 					nextSection[PONYTAIL_DEFAULTS_GROUP] = defaultsFromState(state);
-					root[PONYTAIL_SETTINGS_PROVIDER_ID] = nextSection;
+					root[SETTINGS_SECTION] = { ...(currentRoot ?? {}), [SETTINGS_KEY]: nextSection };
 				});
 			},
 		},
@@ -112,7 +116,8 @@ function modeField(id: string, label: string, description: string): HepiSettingF
 }
 
 function defaultsFromRoot(root: JsonObject): PonytailDefaults {
-	const section = asRecord(root[PONYTAIL_SETTINGS_PROVIDER_ID]);
+	const settings = asRecord(root[SETTINGS_SECTION]);
+	const section = settings === undefined ? undefined : asRecord(settings[SETTINGS_KEY]);
 	const values = section === undefined ? undefined : asRecord(section[PONYTAIL_DEFAULTS_GROUP]);
 	return defaultsFromValues(values);
 }

@@ -16,7 +16,7 @@ export function createAdvisorSettingsProvider(options: {
 }): HepiSettingsProvider {
 	const storage = createJsonSectionSettingsStorage({
 		...(options.path === undefined ? {} : { path: options.path }),
-		section: "pi-basics",
+		section: "hepi",
 		group: "advisor",
 	});
 	return {

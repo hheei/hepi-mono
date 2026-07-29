@@ -51,13 +51,13 @@ describe("loadout storage", () => {
 				paths.globalPath,
 				JSON.stringify({
 					general: { mode: "auto" },
-					"pi-basics-loadout": { "unknown:item": true, "tool:read": false },
+					hepi: { loadout: { "unknown:item": true, "tool:read": false } },
 				}),
 			);
 			await storage.update("global", "tool:read", true);
 			expect(JSON.parse(await readFile(paths.globalPath, "utf8"))).toEqual({
 				general: { mode: "auto" },
-				"pi-basics-loadout": { "unknown:item": true, "tool:read": true },
+				hepi: { loadout: { "unknown:item": true, "tool:read": true } },
 			});
 		} finally {
 			await cleanup(directory);
@@ -83,11 +83,11 @@ describe("loadout storage", () => {
 		try {
 			await writeFile(paths.globalPath, "{");
 			await expect(storage.load()).rejects.toThrow("Invalid JSON");
-			await writeFile(paths.globalPath, JSON.stringify({ "pi-basics-loadout": [] }));
+			await writeFile(paths.globalPath, JSON.stringify({ hepi: { loadout: [] } }));
 			await expect(storage.load()).rejects.toThrow("object");
 			await writeFile(
 				paths.globalPath,
-				JSON.stringify({ "pi-basics-loadout": { "tool:read": "yes" } }),
+				JSON.stringify({ hepi: { loadout: { "tool:read": "yes" } } }),
 			);
 			await expect(storage.load()).rejects.toThrow("tool:read");
 			await expect(storage.update("global", "tool:read", undefined)).rejects.toThrow("boolean");

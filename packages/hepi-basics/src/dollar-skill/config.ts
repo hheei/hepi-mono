@@ -8,7 +8,7 @@ import {
 	MAX_DOLLAR_SKILL_SUGGESTIONS,
 } from "./model.js";
 
-const SECTION = "pi-basics";
+const SECTION = "hepi";
 export const DOLLAR_SKILL_SETTINGS_GROUP = "dollarSkillReferences";
 type JsonObject = Record<string, unknown>;
 

@@ -43,7 +43,8 @@ export async function initialLoadoutScope(cwd: string): Promise<LoadoutScope> {
 	}
 }
 
-const loadoutSection = "pi-basics-loadout";
+const settingsSection = "hepi";
+const loadoutSection = "loadout";
 const queues = new Map<string, Promise<void>>();
 type JsonObject = Record<string, unknown>;
 
@@ -64,7 +65,12 @@ async function readRoot(path: string, signal?: AbortSignal): Promise<JsonObject>
 	if (root === null || typeof root !== "object" || Array.isArray(root)) {
 		throw new Error(`Expected JSON object root in ${path}`);
 	}
-	const section = (root as JsonObject)[loadoutSection];
+	const settings = (root as JsonObject)[settingsSection];
+	if (settings === undefined) return root as JsonObject;
+	if (settings === null || typeof settings !== "object" || Array.isArray(settings)) {
+		throw new Error(`Expected ${settingsSection} to be an object in ${path}`);
+	}
+	const section = (settings as JsonObject)[loadoutSection];
 	if (section === undefined) return root as JsonObject;
 	if (section === null || typeof section !== "object" || Array.isArray(section)) {
 		throw new Error(`Expected ${loadoutSection} to be an object in ${path}`);
@@ -78,7 +84,9 @@ async function readRoot(path: string, signal?: AbortSignal): Promise<JsonObject>
 }
 
 function readState(root: JsonObject): Record<LoadoutKey, boolean> {
-	const section = root[loadoutSection];
+	const settings = root[settingsSection];
+	if (settings === undefined) return {};
+	const section = (settings as JsonObject)[loadoutSection];
 	if (section === undefined) return {};
 	return { ...(section as Record<LoadoutKey, boolean>) };
 }
@@ -125,12 +133,16 @@ export function createLoadoutStorage(
 		const operation = async () => {
 			signal?.throwIfAborted();
 			const root = await readRoot(path, signal);
-			const section = root[loadoutSection];
+			const settings = root[settingsSection];
+			const section = settings === undefined ? undefined : (settings as JsonObject)[loadoutSection];
 			if (section === undefined && value === undefined) return;
 			const nextSection: JsonObject = section === undefined ? {} : { ...(section as JsonObject) };
 			if (value === undefined) delete nextSection[key];
 			else nextSection[key] = value;
-			root[loadoutSection] = nextSection;
+			root[settingsSection] = {
+				...(settings as JsonObject | undefined),
+				[loadoutSection]: nextSection,
+			};
 			await writeRoot(path, root, signal);
 		};
 		const next = previous.then(operation, operation);

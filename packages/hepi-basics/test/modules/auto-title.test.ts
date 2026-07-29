@@ -48,7 +48,7 @@ describe("Pi Basics auto-title", () => {
 			);
 			const root = JSON.parse(await readFile(path, "utf8"));
 			expect(root.packages).toEqual(["npm:pi-subagents"]);
-			expect(root["pi-basics"]["auto-title"].autoTitle).toBe(true);
+			expect(root.hepi["auto-title"].autoTitle).toBe(true);
 		} finally {
 			await rm(dir, { recursive: true, force: true });
 		}
@@ -61,7 +61,7 @@ describe("Pi Basics auto-title", () => {
 			const title = createAutoTitleStorage({ path });
 			const other = createJsonSectionSettingsStorage({
 				path,
-				section: "pi-basics",
+				section: "hepi",
 				group: "other",
 			});
 			await Promise.all([
@@ -69,7 +69,7 @@ describe("Pi Basics auto-title", () => {
 				other.save({ other: { enabled: true } }, context(dir)),
 			]);
 			const root = JSON.parse(await readFile(path, "utf8"));
-			expect(root["pi-basics"]).toEqual({
+			expect(root.hepi).toEqual({
 				"auto-title": { autoTitle: true },
 				other: { enabled: true },
 			});

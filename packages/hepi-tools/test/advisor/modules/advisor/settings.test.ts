@@ -55,7 +55,7 @@ describe("advisor settings provider", () => {
 
 	test("does not mutate the file or callback when validation fails", async () => {
 		const path = await target();
-		await Bun.write(path, '{"pi-basics":{"advisor":{"model":"old/model"}}}\n');
+		await Bun.write(path, '{"hepi":{"advisor":{"model":"old/model"}}}\n');
 		const provider = createAdvisorSettingsProvider({
 			path,
 			validatePersisted: () => {
@@ -65,7 +65,7 @@ describe("advisor settings provider", () => {
 		await expect(
 			provider.storage.save({ advisor: { model: "new/model", thinking: "medium" } }, context),
 		).rejects.toThrow("invalid");
-		expect(await readFile(path, "utf8")).toBe('{"pi-basics":{"advisor":{"model":"old/model"}}}\n');
+		expect(await readFile(path, "utf8")).toBe('{"hepi":{"advisor":{"model":"old/model"}}}\n');
 	});
 
 	test("does not write when persistence fails", async () => {

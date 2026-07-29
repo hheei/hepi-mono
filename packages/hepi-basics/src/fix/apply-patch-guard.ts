@@ -15,7 +15,7 @@ export type GuardPatchMode = "auto" | "on" | "off";
 const APPLY_PATCH_COMMAND = /(?:^|[\n;&|()])\s*(?:command\s+)?apply_patch\s/;
 const BLOCK_REASON =
 	"`apply_patch` is unavailable; the call was aborted. Continue with `edit` or `write`. Do not retry `apply_patch`.";
-const SETTINGS_SECTION = "pi-basics";
+const SETTINGS_SECTION = "hepi";
 type JsonObject = Record<string, unknown>;
 
 function isJsonObject(value: unknown): value is JsonObject {

@@ -63,12 +63,12 @@ function configFromValues(values: JsonObject | undefined): OpenAIResponsesCompat
 			key !== OPENAI_RESPONSES_NORMALIZE_MESSAGE_ID_FIELD
 		) {
 			throw new Error(
-				`Invalid settings at pi-basics.${OPENAI_RESPONSES_COMPAT_GROUP}.${key}: unknown field`,
+				`Invalid settings at hepi.${OPENAI_RESPONSES_COMPAT_GROUP}.${key}: unknown field`,
 			);
 		}
 		if (typeof values[key] !== "boolean") {
 			throw new Error(
-				`Invalid settings at pi-basics.${OPENAI_RESPONSES_COMPAT_GROUP}.${key}: expected boolean`,
+				`Invalid settings at hepi.${OPENAI_RESPONSES_COMPAT_GROUP}.${key}: expected boolean`,
 			);
 		}
 	}
@@ -97,7 +97,7 @@ function settingState(config: OpenAIResponsesCompatConfig): HepiSettingsState {
 }
 
 function compatValues(root: JsonObject): JsonObject | undefined {
-	const section = isJsonObject(root["pi-basics"]) ? root["pi-basics"] : undefined;
+	const section = isJsonObject(root.hepi) ? root.hepi : undefined;
 	return section && isJsonObject(section[OPENAI_RESPONSES_COMPAT_GROUP])
 		? section[OPENAI_RESPONSES_COMPAT_GROUP]
 		: undefined;
@@ -222,7 +222,7 @@ export function createOpenAIResponsesCompatSettingsProvider(
 				const config = configFromState(state);
 				const stateValues = state[OPENAI_RESPONSES_COMPAT_GROUP] ?? {};
 				await updateJsonSettingsRoot(path, (root) => {
-					const priorSection = isJsonObject(root["pi-basics"]) ? root["pi-basics"] : {};
+					const priorSection = isJsonObject(root.hepi) ? root.hepi : {};
 					const priorValues = compatValues(root);
 					const nextValues = {
 						...(priorValues ?? {}),
@@ -236,7 +236,7 @@ export function createOpenAIResponsesCompatSettingsProvider(
 								}
 							: {}),
 					};
-					root["pi-basics"] = {
+					root.hepi = {
 						...priorSection,
 						[OPENAI_RESPONSES_COMPAT_GROUP]: nextValues,
 					};

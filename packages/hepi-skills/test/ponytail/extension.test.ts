@@ -152,7 +152,7 @@ describe("pi-ponytail extension", () => {
 
 	test("restores branch state, injects instructions, and persists changes", async () => {
 		const cwd = await createProject({
-			"pi-ponytail": { defaults: { mainMode: "full", subagentMode: "full" } },
+			hepi: { ponytail: { defaults: { mainMode: "full", subagentMode: "full" } } },
 		});
 		const harness = createHarness();
 		await piPonytailExtension(harness.pi, {
@@ -182,7 +182,7 @@ describe("pi-ponytail extension", () => {
 
 	test("uses configured subagent mode and suppresses duplicate injection", async () => {
 		const cwd = await createProject({
-			"pi-ponytail": { defaults: { mainMode: "lite", subagentMode: "ultra" } },
+			hepi: { ponytail: { defaults: { mainMode: "lite", subagentMode: "ultra" } } },
 		});
 		const harness = createHarness({ sessionName: "Explore#deadbeef", tools: ["read"] });
 		await piPonytailExtension(harness.pi, {
@@ -200,7 +200,7 @@ describe("pi-ponytail extension", () => {
 
 	test("injects subagent default into Agent prompts", async () => {
 		const cwd = await createProject({
-			"pi-ponytail": { defaults: { mainMode: "lite", subagentMode: "ultra" } },
+			hepi: { ponytail: { defaults: { mainMode: "lite", subagentMode: "ultra" } } },
 		});
 		const harness = createHarness();
 		await piPonytailExtension(harness.pi, {
@@ -216,7 +216,7 @@ describe("pi-ponytail extension", () => {
 
 	test("shows no passive mode status or startup notification", async () => {
 		const cwd = await createProject({
-			"pi-ponytail": { defaults: { hideStatus: false, quietStartup: false } },
+			hepi: { ponytail: { defaults: { hideStatus: false, quietStartup: false } } },
 		});
 		const harness = createHarness();
 		await piPonytailExtension(harness.pi, {

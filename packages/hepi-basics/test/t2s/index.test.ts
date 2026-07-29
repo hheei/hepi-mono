@@ -75,7 +75,7 @@ describe("traditional to simplified", () => {
 			const t2s = createTraditionalToSimplifiedSettingsProvider({ settingsDirectory: cwd });
 			const other = createJsonSectionSettingsStorage({
 				path: join(cwd, "settings.json"),
-				section: "pi-basics",
+				section: "hepi",
 				group: "other",
 			});
 			await Promise.all([
@@ -86,7 +86,7 @@ describe("traditional to simplified", () => {
 				other.save({ other: { enabled: true } }, { sessionId: "other", cwd }),
 			]);
 			const saved = JSON.parse(await readFile(join(cwd, "settings.json"), "utf8"));
-			expect(saved["pi-basics"]).toEqual({
+			expect(saved.hepi).toEqual({
 				"traditional-to-simplified": { mode: "off" },
 				other: { enabled: true },
 			});
@@ -109,7 +109,7 @@ describe("traditional to simplified", () => {
 			]) {
 				await Bun.write(
 					join(settingsDirectory, "settings.json"),
-					JSON.stringify({ "pi-basics": { "traditional-to-simplified": values } }),
+					JSON.stringify({ hepi: { "traditional-to-simplified": values } }),
 				);
 				await expect(provider.storage.load({ sessionId: "test", cwd })).rejects.toThrow();
 			}

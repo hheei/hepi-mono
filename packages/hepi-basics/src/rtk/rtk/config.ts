@@ -6,7 +6,7 @@ import { normalizeRtkIntegrationConfig } from "./config-store.js";
 import { DEFAULT_RTK_INTEGRATION_CONFIG, type RtkIntegrationConfig } from "./types.js";
 
 type Json = Record<string, unknown>;
-const SECTION = "pi-basics";
+const SECTION = "hepi";
 const GROUP = "rtk";
 
 async function readRoot(path: string): Promise<Json> {

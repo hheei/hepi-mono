@@ -17,6 +17,8 @@ export const CAVEMAN_SETTINGS_PROVIDER_ID = "pi-caveman";
 export const CAVEMAN_DEFAULTS_GROUP = "defaults";
 export const CAVEMAN_MAIN_MODE_FIELD = "mainMode";
 export const CAVEMAN_SUBAGENT_MODE_FIELD = "subagentMode";
+const SETTINGS_SECTION = "hepi";
+const SETTINGS_KEY = "caveman";
 
 export interface CavemanDefaults {
 	readonly mainMode: CavemanMode;
@@ -84,10 +86,12 @@ export function createCavemanSettingsProvider(
 			async save(state: HepiSettingsState): Promise<void> {
 				const { updateJsonSettingsRoot } = await import("../../../hepi-basics/src/core/index.js");
 				await updateJsonSettingsRoot(settingsFilePath, (root) => {
-					const currentSection = asRecord(root[CAVEMAN_SETTINGS_PROVIDER_ID]);
+					const currentRoot = asRecord(root[SETTINGS_SECTION]);
+					const currentSection =
+						currentRoot === undefined ? undefined : asRecord(currentRoot[SETTINGS_KEY]);
 					const nextSection: JsonObject = currentSection === undefined ? {} : { ...currentSection };
 					nextSection[CAVEMAN_DEFAULTS_GROUP] = defaultsFromState(state);
-					root[CAVEMAN_SETTINGS_PROVIDER_ID] = nextSection;
+					root[SETTINGS_SECTION] = { ...(currentRoot ?? {}), [SETTINGS_KEY]: nextSection };
 				});
 			},
 		},
@@ -107,7 +111,8 @@ function modeField(id: string, label: string, description: string): HepiSettingF
 }
 
 function defaultsFromRoot(root: JsonObject): CavemanDefaults {
-	const section = asRecord(root[CAVEMAN_SETTINGS_PROVIDER_ID]);
+	const settings = asRecord(root[SETTINGS_SECTION]);
+	const section = settings === undefined ? undefined : asRecord(settings[SETTINGS_KEY]);
 	const values = section === undefined ? undefined : asRecord(section[CAVEMAN_DEFAULTS_GROUP]);
 	return {
 		mainMode: normalizeMode(values?.[CAVEMAN_MAIN_MODE_FIELD], DEFAULT_CAVEMAN_MODE),

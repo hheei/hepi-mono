@@ -45,7 +45,7 @@ describe("JSON settings updates", () => {
 		).href;
 		const script = `
 			const { createJsonSectionSettingsStorage } = await import(process.env.HEPI_SETTINGS_MODULE);
-			const storage = createJsonSectionSettingsStorage({ section: "pi-basics", group: "test" });
+			const storage = createJsonSectionSettingsStorage({ section: "hepi", group: "test" });
 			await storage.save({ test: { enabled: true } }, { sessionId: "test", cwd: "/ignored" });
 		`;
 		const child = Bun.spawn([process.execPath, "-e", script], {
@@ -60,7 +60,7 @@ describe("JSON settings updates", () => {
 
 		expect(await child.exited).toBe(0);
 		const root: unknown = JSON.parse(await readFile(settingsPath, "utf8"));
-		expect(root).toEqual({ "pi-basics": { test: { enabled: true } } });
+		expect(root).toEqual({ hepi: { test: { enabled: true } } });
 		expect((await stat(settingsPath)).mode & 0o777).toBe(0o600);
 	});
 });

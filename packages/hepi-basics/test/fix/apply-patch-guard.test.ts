@@ -142,7 +142,7 @@ describe("apply_patch guard", () => {
 		const cwd = await mkdtemp(join(process.env.TMPDIR ?? "/tmp", "guard-patch-"));
 		await writeFile(
 			join(cwd, "settings.json"),
-			JSON.stringify({ "pi-basics": { rtk: { mode: "suggest" } } }),
+			JSON.stringify({ hepi: { rtk: { mode: "suggest" } } }),
 		);
 		const h = harness();
 		const provider = createApplyPatchGuardSettingsProvider({ agentDir: cwd });
@@ -153,7 +153,7 @@ describe("apply_patch guard", () => {
 		expect(loaded).toEqual({ guardPatch: { mode: "off" } });
 		expect(h.guard.getMode()).toBe("auto");
 		expect(root).toEqual({
-			"pi-basics": { rtk: { mode: "suggest" }, guardPatch: { mode: "off" } },
+			hepi: { rtk: { mode: "suggest" }, guardPatch: { mode: "off" } },
 		});
 	});
 });

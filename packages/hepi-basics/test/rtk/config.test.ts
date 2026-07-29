@@ -11,7 +11,7 @@ describe("RTK global settings", () => {
 		const path = join(agentDir, "settings.json");
 		await writeFile(
 			path,
-			JSON.stringify({ theme: "dark", "pi-basics": { advisor: { thinking: "high" } } }),
+			JSON.stringify({ theme: "dark", hepi: { advisor: { thinking: "high" } } }),
 		);
 		const config = { ...DEFAULT_RTK_INTEGRATION_CONFIG, mode: "suggest" as const };
 
@@ -22,7 +22,7 @@ describe("RTK global settings", () => {
 		const root: unknown = JSON.parse(await readFile(path, "utf8"));
 		expect(root).toMatchObject({
 			theme: "dark",
-			"pi-basics": {
+			hepi: {
 				advisor: { thinking: "high" },
 				rtk: { mode: "suggest" },
 			},

@@ -133,8 +133,8 @@ describe("OpenAI Responses compatibility", () => {
 		expect(JSON.stringify(rewritten)).toMatch(/"id":"msg_pi_[0-9a-f]{40}"/);
 
 		const saved = JSON.parse(await readFile(join(cwd, "settings.json"), "utf8"));
-		expect(saved["pi-basics"]["openai-responses-compat"].stripAssistantMessageStatus).toBe(true);
-		expect(saved["pi-basics"]["openai-responses-compat"].normalizeAssistantMessageId).toBe(true);
+		expect(saved.hepi["openai-responses-compat"].stripAssistantMessageStatus).toBe(true);
+		expect(saved.hepi["openai-responses-compat"].normalizeAssistantMessageId).toBe(true);
 	});
 
 	test("lazy-loads an enabled toggle after extension reload in an active session", async () => {
@@ -142,7 +142,7 @@ describe("OpenAI Responses compatibility", () => {
 		await writeFile(
 			join(cwd, "settings.json"),
 			JSON.stringify({
-				"pi-basics": {
+				hepi: {
 					"openai-responses-compat": { stripAssistantMessageStatus: true },
 				},
 			}),
@@ -179,7 +179,7 @@ describe("OpenAI Responses compatibility", () => {
 		await writeFile(
 			join(cwd, "settings.json"),
 			JSON.stringify({
-				"pi-basics": { "openai-responses-compat": { stripAssistantMessageStatus: "true" } },
+				hepi: { "openai-responses-compat": { stripAssistantMessageStatus: "true" } },
 			}),
 		);
 		const provider = createOpenAIResponsesCompatSettingsProvider({
@@ -194,11 +194,11 @@ describe("OpenAI Responses compatibility", () => {
 			invalidTypeError = error;
 		}
 		expect(String(invalidTypeError)).toContain(
-			"pi-basics.openai-responses-compat.stripAssistantMessageStatus",
+			"hepi.openai-responses-compat.stripAssistantMessageStatus",
 		);
 		await writeFile(
 			join(cwd, "settings.json"),
-			JSON.stringify({ "pi-basics": { "openai-responses-compat": { unexpected: false } } }),
+			JSON.stringify({ hepi: { "openai-responses-compat": { unexpected: false } } }),
 		);
 		let unknownFieldError: unknown;
 		try {
@@ -206,7 +206,7 @@ describe("OpenAI Responses compatibility", () => {
 		} catch (error) {
 			unknownFieldError = error;
 		}
-		expect(String(unknownFieldError)).toContain("pi-basics.openai-responses-compat.unexpected");
+		expect(String(unknownFieldError)).toContain("hepi.openai-responses-compat.unexpected");
 	});
 
 	test("serializes concurrent saves without losing unrelated updates", async () => {
@@ -225,7 +225,7 @@ describe("OpenAI Responses compatibility", () => {
 			),
 		]);
 		const saved = JSON.parse(await readFile(join(cwd, "settings.json"), "utf8"));
-		expect(saved["pi-basics"]["openai-responses-compat"]).toEqual({
+		expect(saved.hepi["openai-responses-compat"]).toEqual({
 			stripAssistantMessageStatus: true,
 			normalizeAssistantMessageId: true,
 		});
@@ -235,7 +235,7 @@ describe("OpenAI Responses compatibility", () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-basics-responses-save-"));
 		await writeFile(
 			join(cwd, "settings.json"),
-			JSON.stringify({ theme: "dark", "pi-basics": { rtk: { enabled: true } } }),
+			JSON.stringify({ theme: "dark", hepi: { rtk: { enabled: true } } }),
 		);
 		const provider = createOpenAIResponsesCompatSettingsProvider({
 			settingsDirectory: cwd,
@@ -247,6 +247,6 @@ describe("OpenAI Responses compatibility", () => {
 
 		const saved = JSON.parse(await readFile(join(cwd, "settings.json"), "utf8"));
 		expect(saved.theme).toBe("dark");
-		expect(saved["pi-basics"].rtk).toEqual({ enabled: true });
+		expect(saved.hepi.rtk).toEqual({ enabled: true });
 	});
 });

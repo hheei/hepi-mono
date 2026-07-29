@@ -99,7 +99,7 @@ export interface TraditionalToSimplifiedFeature {
 
 type JsonObject = Record<string, unknown>;
 type TraditionalToSimplifiedMode = "t2s" | "off";
-const SETTINGS_SECTION = "pi-basics";
+const SETTINGS_SECTION = "hepi";
 
 function parseStoredMode(values: JsonObject): TraditionalToSimplifiedMode {
 	if (Object.keys(values).some((key) => key !== "mode"))
