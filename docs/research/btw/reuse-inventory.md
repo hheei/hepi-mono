@@ -122,7 +122,7 @@ const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
 
 ## 3. narumiruna：逐函数沿用清单
 
-来源目录：`references/repos/narumiruna-pi-extensions/extensions/pi-btw/src/`。
+来源：`narumiruna/pi-extensions@c5dc930c`, `extensions/pi-btw/src/`。
 
 ### A：可近乎原样作为逻辑起点
 
@@ -157,7 +157,7 @@ const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
 
 ## 4. rpiv：只抽取的窄代码块
 
-来源目录：`references/repos/juicesharp-rpiv-mono/packages/rpiv-btw/`。
+来源：`juicesharp/rpiv-mono@700c2d37`, `packages/rpiv-btw/`。
 
 ### 可采用的逻辑
 
@@ -176,7 +176,7 @@ const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
 
 ## 5. Firstp1ck：只抽取的窄代码块
 
-来源目录：`references/repos/firstp1ck-npm-packages/pi-extension-btw/`。
+来源：`Firstp1ck/npm-packages@7ff59ae4`, `pi-extension-btw/`。
 
 ### 可采用的逻辑
 
@@ -193,7 +193,7 @@ const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
 
 ## 6. dbachelder：只作反例和未来参考
 
-来源：`references/repos/dbachelder-pi-btw/extensions/btw.ts`。
+来源：`dbachelder/pi-btw@4f858102`, `extensions/btw.ts`。
 
 ### 可以借鉴的局部思想
 

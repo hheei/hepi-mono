@@ -74,12 +74,8 @@ docs/
   research/     Evidence and prior design research
   plans/        Completed implementation context
 
-references/
-  README.md     Public source catalogue and pinned revisions
-  repos/        Ignored local clones
-
-scripts/        Repository development commands
+ scripts/        Repository development commands
 templates/      Extension generator inputs
 ```
 
-`graphify-out/`, `outputs/`, `.pi/`, and `.pi-subagents/` are local generated state and are not versioned. External source clones under `references/repos/` are references only: they are not workspace packages, dependencies, or behavior contracts.
+`graphify-out/`, `outputs/`, `.pi/`, and `.pi-subagents/` are local generated state and are not versioned.

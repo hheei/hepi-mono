@@ -1,6 +1,6 @@
 # Pi Documentation Routing
 
-All paths below are relative to `references/pi/packages/coding-agent/docs/`, pinned at Pi `v0.82.1`. Read the named document completely before making an API or behavior claim. Follow its direct links when the question crosses a boundary.
+All paths below are relative to `packages/coding-agent/docs/` in the public Pi `v0.82.1` tag. Read the named document completely before making an API or behavior claim. Follow its direct links when the question crosses a boundary.
 
 ## Start points
 

@@ -1,6 +1,6 @@
 # Pi v0.82.1 Architecture Conclusion
 
-This is a code-level orientation for the pinned source at `references/pi`. It is not a substitute for the exact document and declaration selected by [DOCS_ROUTING.md](DOCS_ROUTING.md).
+This is a code-level orientation for Pi `v0.82.1`. It is not a substitute for the exact document and declaration selected by [DOCS_ROUTING.md](DOCS_ROUTING.md).
 
 ## Overall model
 

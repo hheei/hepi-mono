@@ -1,7 +1,7 @@
 ---
 name: pi-development
-description: Use this project-only skill whenever a task involves developing, debugging, reviewing, or explaining Pi extensions, skills, packages, TUI components, tool renderers, session trees, lifecycle events, or the Pi SDK in this repository. Consult the pinned Pi source and versioned docs before relying on an upstream API, especially for streaming tools, reload behavior, extension context, or tree navigation.
-compatibility: Requires the HEPI repository, Bun, and the local Pi source reference at references/pi (Pi v0.82.1).
+description: Use this project-only skill whenever a task involves developing, debugging, reviewing, or explaining Pi extensions, skills, packages, TUI components, tool renderers, session trees, lifecycle events, or the Pi SDK in this repository. Consult installed Pi declarations and versioned public docs before relying on an upstream API, especially for streaming tools, reload behavior, extension context, or tree navigation.
+compatibility: Requires the HEPI repository and Bun; Pi contracts target v0.82.1.
 ---
 
 # Pi Development
@@ -14,10 +14,10 @@ Before making an API claim:
 
 1. Read `package.json`, the affected package manifest, and `AGENTS.md`.
 2. Check the runtime actually used by the task with `pi --version` and inspect the installed package declarations under `node_modules/@earendil-works/pi-coding-agent`.
-3. Use `references/pi` for source-level evidence. It is pinned to Pi `v0.82.1` at commit `b4f293684bba718d59cc1157679bcf6157b3a7f5`.
-4. If the installed version differs from the pin, treat the installed declarations and implementation as authoritative, record the difference, and avoid presenting the pinned source as current behavior.
+3. Use the public Pi `v0.82.1` tag for implementation evidence when declarations are insufficient.
+4. If the installed version differs from the tag, treat installed declarations as authoritative and record the difference.
 
-The local source is read-only reference material. Do not edit it, vendor it under `packages/`, or import from it at runtime.
+Do not vendor upstream Pi source under `packages/` or import from it at runtime.
 
 ## Route the investigation
 
@@ -77,7 +77,7 @@ bun run build:aggregates
 
 When reporting Pi findings, include:
 
-- the installed Pi version and pinned source revision;
+- the installed Pi version and public source revision;
 - the exact upstream and HEPI file/symbol locations inspected;
 - the public contract versus any private compatibility assumption;
 - lifecycle/cleanup and TUI-host verification status;

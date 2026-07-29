@@ -132,13 +132,7 @@ test("repository does not track external or generated trees", () => {
 		}
 	}
 	const paths = entries.map((entry) => entry.slice(entry.indexOf("\t") + 1));
-	const excludedRoots = [
-		"graphify-out/",
-		"legacy/",
-		"outputs/",
-		"pi-agent/",
-		"references/repos/",
-	] as const;
+	const excludedRoots = ["graphify-out/", "legacy/", "outputs/", "pi-agent/"] as const;
 	for (const root of excludedRoots)
 		expect(
 			paths.some((path) => path.startsWith(root)),

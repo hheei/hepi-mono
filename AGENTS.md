@@ -54,7 +54,7 @@ separate Bun processes. Do not use bare `bun test` as full-suite validation.
 
 - Keep each HEPI-owned Pi extension in an aggregate `packages/hepi-*` workspace and declare its entry under `pi.extensions`.
 - Deprecated top-level `packages/pi-*` feature workspaces are not part of the current source or publish layout.
-- Keep HEPI-owned source only under `packages/`. External forks used by the build live as pinned Git submodules under `third_party/<repo>`; do not add them to Bun workspaces. Research-only clones remain ignored under `references/repos/` and are recorded in `references/README.md`.
+- Keep HEPI-owned source only under `packages/`. External forks used by the build live as pinned Git submodules under `third_party/<repo>`; do not add them to Bun workspaces.
 - A `third_party` fork owns its implementation and exposes only deliberate public package exports. HEPI packages compose those exports through their package root; they must not import fork-private files, patch fork internals, or duplicate fork behavior. Add or evolve the fork's narrow public API first, commit it in that fork, then advance the parent submodule pointer.
 - Use package-local aggregate source imports for new HEPI integrations. Shared Basics contracts live under `packages/hepi-basics/src/core`.
 - Loadout must coordinate the host active-tool list through the Pi Basics `ToolActivationCoordinator`.

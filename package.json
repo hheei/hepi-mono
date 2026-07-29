@@ -25,7 +25,7 @@
 		"build:magic-context": "bun install --cwd third_party/magic-context --no-save && bun run --cwd third_party/magic-context/packages/pi-plugin build",
 		"build:aggregates": "bun run build:magic-context && bun scripts/build-aggregate.mjs --all",
 		"test": "bun run build:aggregates && bun run test:hepi",
-		"test:hepi": "bun test --max-concurrency=1 --path-ignore-patterns='**/references/**' --path-ignore-patterns='third_party/**' --path-ignore-patterns='packages/hepi-basics/test/tui-replay.test.ts' --path-ignore-patterns='packages/hepi-tools/test/ask/component.test.ts' --path-ignore-patterns='packages/hepi-basics/test/ui/render.test.ts' && bun test packages/hepi-basics/test/tui-replay.test.ts && bun test packages/hepi-tools/test/ask/component.test.ts && bun test packages/hepi-basics/test/ui/render.test.ts",
+		"test:hepi": "bun test --max-concurrency=1 --path-ignore-patterns='third_party/**' --path-ignore-patterns='packages/hepi-basics/test/tui-replay.test.ts' --path-ignore-patterns='packages/hepi-tools/test/ask/component.test.ts' --path-ignore-patterns='packages/hepi-basics/test/ui/render.test.ts' && bun test packages/hepi-basics/test/tui-replay.test.ts && bun test packages/hepi-tools/test/ask/component.test.ts && bun test packages/hepi-basics/test/ui/render.test.ts",
 		"typecheck": "bun run build:aggregates && tsc --noEmit -p tsconfig.base.json",
 		"tui:replay": "bun packages/hepi-debug/src/tui-replay.ts",
 		"tui:replay:session": "bun packages/hepi-debug/src/tui-replay-session.ts"

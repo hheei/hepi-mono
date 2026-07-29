@@ -21,7 +21,6 @@
 			"!**/node_modules",
 			"!**/dist",
 			"!**/.pi",
-			"!references",
 			"!legacy",
 			"!graphify-out"
 		]

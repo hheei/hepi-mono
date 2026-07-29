@@ -5,11 +5,10 @@ This directory is an HEPI-owned adaptation of
 
 - URL: `https://github.com/ShpetimA/pi-fff.git`
 - Revision: `694837d0644abc8527ebfa3ea50135e0f5d1ece4`
-- Local reference clone: `references/repos/ShpetimA-pi-fff`
 
 The source attribution and MIT license are in
-`packages/hepi-tools/THIRD_PARTY_NOTICES.md`. The reference clone is ignored;
-do not copy it into `packages/`.
+`packages/hepi-tools/THIRD_PARTY_NOTICES.md`. Do not copy upstream into
+`packages/`.
 
 ## Intentional Differences
 
@@ -33,26 +32,26 @@ the same names:
 
 ## Updating
 
-Fetch the upstream reference and inspect its changes before copying anything:
+Inspect upstream changes in a temporary clone before copying anything:
 
 ```bash
-git -C references/repos/ShpetimA-pi-fff fetch origin
-git -C references/repos/ShpetimA-pi-fff diff --stat \
+git clone https://github.com/ShpetimA/pi-fff.git /tmp/pi-fff
+git -C /tmp/pi-fff diff --stat \
   694837d0644abc8527ebfa3ea50135e0f5d1ece4..origin/main -- src
-git -C references/repos/ShpetimA-pi-fff diff \
+git -C /tmp/pi-fff diff \
   694837d0644abc8527ebfa3ea50135e0f5d1ece4..origin/main -- src/fff-runtime.ts
 ```
 
 Compare the current adaptation against the reference clone with:
 
 ```bash
-diff -ru references/repos/ShpetimA-pi-fff/src packages/hepi-tools/src/fff
+diff -ru /tmp/pi-fff/src packages/hepi-tools/src/fff
 ```
 
 Expected differences include upstream `editor.ts` being absent locally and
 local `autocomplete.ts` being absent upstream. Preserve the provider-based
-design when applying upstream changes. Afterwards, update this revision,
-`references/README.md`, and `THIRD_PARTY_NOTICES.md`, then run:
+design when applying upstream changes. Afterwards, update this revision and
+`THIRD_PARTY_NOTICES.md`, then run:
 
 ```bash
 bun run typecheck

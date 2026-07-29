@@ -9,9 +9,6 @@ coverage/
 .pi/*
 !.pi/skills/
 !.pi/skills/**
-# The project skill documentation is tracked, but this symlink points at a
-# machine-local upstream source worktree under references/repos/.
-.pi/skills/pi-development/references/pi
 .env
 .env.*
 !.env.example
@@ -31,5 +28,3 @@ pi-session-*.html
 !packages/hepi-mono/dist/
 !packages/hepi-mono/dist/**
 
-# Public reference repositories are documented, not vendored.
-references/repos/

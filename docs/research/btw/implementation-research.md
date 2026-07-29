@@ -2,14 +2,14 @@
 
 研究日期：2026-07-23
 
-本次只研究四个公开仓库的 BTW 实现，没有复制代码到 `packages/pi-btw`。可选浅克隆统一放在 ignored `references/repos/`；下表记录本次研究所依据的 revision。
+本次只研究四个公开仓库的 BTW 实现，没有复制代码到 `packages/pi-btw`；下表记录本次研究所依据的 revision。
 
-| Repository | Local reference | Revision | BTW implementation |
-| --- | --- | --- | --- |
-| [dbachelder/pi-btw](https://github.com/dbachelder/pi-btw) | `references/repos/dbachelder-pi-btw` | `4f858102706910ee9d520a9666832f3103631b61` | `extensions/btw.ts` |
-| [narumiruna/pi-extensions](https://github.com/narumiruna/pi-extensions) | `references/repos/narumiruna-pi-extensions` | `c5dc930cd85a6f661c3fd530fa62e44109c86070` | `extensions/pi-btw/src/` |
-| [juicesharp/rpiv-mono](https://github.com/juicesharp/rpiv-mono) | `references/repos/juicesharp-rpiv-mono` | `700c2d370353ca145d2658c61df1eee6297e8d80` | `packages/rpiv-btw/` |
-| [Firstp1ck/npm-packages](https://github.com/Firstp1ck/npm-packages) | `references/repos/firstp1ck-npm-packages` | `7ff59ae4baa303ccbb66212355ecc335bee3a4c1` | `pi-extension-btw/` |
+| Repository | Revision | BTW implementation |
+| --- | --- | --- |
+| [dbachelder/pi-btw](https://github.com/dbachelder/pi-btw) | `4f858102706910ee9d520a9666832f3103631b61` | `extensions/btw.ts` |
+| [narumiruna/pi-extensions](https://github.com/narumiruna/pi-extensions) | `c5dc930cd85a6f661c3fd530fa62e44109c86070` | `extensions/pi-btw/src/` |
+| [juicesharp/rpiv-mono](https://github.com/juicesharp/rpiv-mono) | `700c2d370353ca145d2658c61df1eee6297e8d80` | `packages/rpiv-btw/` |
+| [Firstp1ck/npm-packages](https://github.com/Firstp1ck/npm-packages) | `7ff59ae4baa303ccbb66212355ecc335bee3a4c1` | `pi-extension-btw/` |
 
 ## Executive comparison
 
@@ -29,7 +29,7 @@
 
 ### Shape
 
-This is a full side-agent workflow rather than a simple side question. The package manifest registers `extensions/btw.ts`; the extension registers `/btw`, `/btw:tangent`, `/btw:new`, `/btw:clear`, `/btw:inject`, `/btw:summarize`, `/btw:model`, and `/btw:thinking`, plus keyboard shortcuts and a BTW message renderer. See `references/repos/dbachelder-pi-btw/extensions/btw.ts:1590-1613` and `:2200-2309`.
+This is a full side-agent workflow rather than a simple side question. The package manifest registers `extensions/btw.ts`; the extension registers `/btw`, `/btw:tangent`, `/btw:new`, `/btw:clear`, `/btw:inject`, `/btw:summarize`, `/btw:model`, and `/btw:thinking`, plus keyboard shortcuts and a BTW message renderer. See `dbachelder/pi-btw@4f858102`, `extensions/btw.ts:1590-1613` and `:2200-2309`.
 
 ### Execution and context
 

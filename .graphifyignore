@@ -1,22 +1,6 @@
-# Graph corpus allowlist: HEPI package code plus the selected upstream Pi source.
+# Graph corpus allowlist: HEPI package code.
 /*
 !/packages/
-!/references/
-/references/*
-!/references/repos/
-/references/repos/*
-!/references/repos/earendil-works-pi/
-/references/repos/earendil-works-pi/*
-!/references/repos/earendil-works-pi/packages/
-
-# Upstream architecture core: source trees only, without provider adapters or
-# server/storage packages that do not participate in the local extension host.
-/references/repos/earendil-works-pi/packages/*/*
-!/references/repos/earendil-works-pi/packages/*/src/
-!/references/repos/earendil-works-pi/packages/*/src/**
-/references/repos/earendil-works-pi/packages/ai/src/providers/
-/references/repos/earendil-works-pi/packages/server/
-/references/repos/earendil-works-pi/packages/storage/
 
 # Architecture graph excludes prose, package metadata, generated declarations,
 # tests, fixtures, examples, and snapshots from both repositories.
