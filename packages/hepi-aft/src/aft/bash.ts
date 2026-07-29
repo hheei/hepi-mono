@@ -238,6 +238,11 @@ interface BashDetails {
 	bg_completions?: BgCompletion[];
 }
 
+interface BashRenderOptions {
+	readonly expanded: boolean;
+	readonly isPartial: boolean;
+}
+
 interface BashStatusWaited {
 	reason: "matched" | "exited" | "timeout" | "user_message" | "unavailable";
 	elapsed_ms: number;
@@ -512,41 +517,59 @@ DO NOT use bash for code search or code exploration. If you are about to run gre
 
 			const bridgeCommand = spawnContext.command;
 
+			const startedAt = Date.now();
 			let streamed = "";
-			const response = await callBashWithPermissionLoop(
-				bridge,
-				{
-					command: bridgeCommand,
-					timeout: effectiveTimeout,
-					workdir: spawnContext.cwd ?? params.workdir,
-					env: spawnContext.env,
-					background: effectiveBackground,
-					notify_on_completion: effectiveBackground,
-					compressed,
-					pty: requestedPty,
-					pty_rows: ptyRows,
-					pty_cols: ptyCols,
-					foreground_orchestrate: true,
-					block_to_completion: blockToCompletion,
-					wait: requestedWait,
-					sandbox: params.sandbox,
-				},
-				extCtx,
-				{
-					transportTimeoutMs: orchestratedTransportTimeoutMs(
-						blockToCompletion,
-						requestedWait,
-						effectiveTimeout,
-						foregroundWaitMs,
-					),
-					onProgress: ({ text }) => {
-						streamed += text;
-						// Stream truncated output to avoid overwhelming the UI
-						const displayText = truncateToVisualLines(streamed, 100);
-						onUpdate?.(bashResult(displayText, { command: bridgeCommand, streaming: true }));
+			const publishProgress = () => {
+				// Stream truncated output to avoid overwhelming the UI.
+				const displayText = truncateToVisualLines(streamed, 100);
+				onUpdate?.(
+					bashResult(displayText, {
+						command: bridgeCommand,
+						duration_ms: Date.now() - startedAt,
+						streaming: true,
+					}),
+				);
+			};
+			publishProgress();
+			const progressTimer =
+				onUpdate === undefined ? undefined : setInterval(publishProgress, 1_000);
+			let response: Record<string, unknown>;
+			try {
+				response = await callBashWithPermissionLoop(
+					bridge,
+					{
+						command: bridgeCommand,
+						timeout: effectiveTimeout,
+						workdir: spawnContext.cwd ?? params.workdir,
+						env: spawnContext.env,
+						background: effectiveBackground,
+						notify_on_completion: effectiveBackground,
+						compressed,
+						pty: requestedPty,
+						pty_rows: ptyRows,
+						pty_cols: ptyCols,
+						foreground_orchestrate: true,
+						block_to_completion: blockToCompletion,
+						wait: requestedWait,
+						sandbox: params.sandbox,
 					},
-				},
-			);
+					extCtx,
+					{
+						transportTimeoutMs: orchestratedTransportTimeoutMs(
+							blockToCompletion,
+							requestedWait,
+							effectiveTimeout,
+							foregroundWaitMs,
+						),
+						onProgress: ({ text }) => {
+							streamed += text;
+							publishProgress();
+						},
+					},
+				);
+			} finally {
+				if (progressTimer !== undefined) clearInterval(progressTimer);
+			}
 
 			if (response.success === false) {
 				throw new Error((response.message as string | undefined) ?? "bash failed");
@@ -585,7 +608,7 @@ DO NOT use bash for code search or code exploration. If you are about to run gre
 			);
 		},
 		renderResult(result, options, theme, context) {
-			return renderBashResult(result, options.expanded, theme, context);
+			return renderBashResult(result, options, theme, context);
 		},
 	});
 
@@ -1330,7 +1353,7 @@ function renderBashCall(
 
 function renderBashResult(
 	result: AgentToolResult<BashDetails>,
-	expanded: boolean,
+	options: BashRenderOptions,
 	theme: Theme,
 	context: RenderContextLike,
 ): import("@earendil-works/pi-tui").Component {
@@ -1363,7 +1386,7 @@ function renderBashResult(
 		.trim();
 	if (rawOutput) {
 		const outputLines = rawOutput.split("\n");
-		const collapsed = outputLines.length > 10 && !expanded;
+		const collapsed = outputLines.length > 10 && !options.expanded;
 		container.addChild(new Text(collapsed ? outputLines.slice(-10).join("\n") : rawOutput, 0, 0));
 		if (collapsed) {
 			container.addChild(
@@ -1375,6 +1398,12 @@ function renderBashResult(
 			);
 		}
 		container.addChild(new Spacer(1));
+	}
+	if (options.isPartial) {
+		container.addChild(
+			new Text(theme.fg("dim", `Elapsed ${formatElapsed(details?.duration_ms ?? 0)}`), 0, 0),
+		);
+		return container;
 	}
 
 	// Exit code indicator
@@ -1417,4 +1446,8 @@ function renderBashResult(
 function formatSeconds(milliseconds: number): string {
 	const seconds = milliseconds / 1000;
 	return seconds > 100 ? `${Math.round(seconds)}s` : `${seconds.toFixed(1)}s`;
+}
+
+function formatElapsed(milliseconds: number): string {
+	return `${Math.floor(milliseconds / 1000)}s`;
 }

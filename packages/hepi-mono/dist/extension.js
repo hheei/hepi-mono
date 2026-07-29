@@ -129009,30 +129009,46 @@ DO NOT use bash for code search or code exploration. If you are about to run gre
         }
       }
       const bridgeCommand = spawnContext.command;
+      const startedAt = Date.now();
       let streamed = "";
-      const response = await callBashWithPermissionLoop(bridge, {
-        command: bridgeCommand,
-        timeout: effectiveTimeout,
-        workdir: spawnContext.cwd ?? params.workdir,
-        env: spawnContext.env,
-        background: effectiveBackground,
-        notify_on_completion: effectiveBackground,
-        compressed,
-        pty: requestedPty,
-        pty_rows: ptyRows,
-        pty_cols: ptyCols,
-        foreground_orchestrate: true,
-        block_to_completion: blockToCompletion,
-        wait: requestedWait,
-        sandbox: params.sandbox
-      }, extCtx, {
-        transportTimeoutMs: orchestratedTransportTimeoutMs(blockToCompletion, requestedWait, effectiveTimeout, foregroundWaitMs),
-        onProgress: ({ text }) => {
-          streamed += text;
-          const displayText = truncateToVisualLines(streamed, 100);
-          onUpdate?.(bashResult(displayText, { command: bridgeCommand, streaming: true }));
-        }
-      });
+      const publishProgress = () => {
+        const displayText = truncateToVisualLines(streamed, 100);
+        onUpdate?.(bashResult(displayText, {
+          command: bridgeCommand,
+          duration_ms: Date.now() - startedAt,
+          streaming: true
+        }));
+      };
+      publishProgress();
+      const progressTimer = onUpdate === undefined ? undefined : setInterval(publishProgress, 1000);
+      let response;
+      try {
+        response = await callBashWithPermissionLoop(bridge, {
+          command: bridgeCommand,
+          timeout: effectiveTimeout,
+          workdir: spawnContext.cwd ?? params.workdir,
+          env: spawnContext.env,
+          background: effectiveBackground,
+          notify_on_completion: effectiveBackground,
+          compressed,
+          pty: requestedPty,
+          pty_rows: ptyRows,
+          pty_cols: ptyCols,
+          foreground_orchestrate: true,
+          block_to_completion: blockToCompletion,
+          wait: requestedWait,
+          sandbox: params.sandbox
+        }, extCtx, {
+          transportTimeoutMs: orchestratedTransportTimeoutMs(blockToCompletion, requestedWait, effectiveTimeout, foregroundWaitMs),
+          onProgress: ({ text }) => {
+            streamed += text;
+            publishProgress();
+          }
+        });
+      } finally {
+        if (progressTimer !== undefined)
+          clearInterval(progressTimer);
+      }
       if (response.success === false) {
         throw new Error(response.message ?? "bash failed");
       }
@@ -129059,7 +129075,7 @@ DO NOT use bash for code search or code exploration. If you are about to run gre
       return renderBashCall(args?.command, typeof args?.timeout === "number" ? args.timeout : undefined, theme, context);
     },
     renderResult(result, options, theme, context) {
-      return renderBashResult(result, options.expanded, theme, context);
+      return renderBashResult(result, options, theme, context);
     }
   });
   if (bashCfg.background) {
@@ -129506,7 +129522,7 @@ function renderBashCall(command, timeout, theme, context) {
   text.setText(`${commandText}${timeoutText}`);
   return text;
 }
-function renderBashResult(result, expanded, theme, context) {
+function renderBashResult(result, options, theme, context) {
   if (context.isError) {
     const errorText = result.content.filter((c) => c.type === "text").map((c) => c.text ?? "").join(`
 `).trim();
@@ -129526,13 +129542,17 @@ ${theme.fg("error", errorText || "bash failed")}`);
   if (rawOutput) {
     const outputLines = rawOutput.split(`
 `);
-    const collapsed = outputLines.length > 10 && !expanded;
+    const collapsed = outputLines.length > 10 && !options.expanded;
     container.addChild(new Text(collapsed ? outputLines.slice(-10).join(`
 `) : rawOutput, 0, 0));
     if (collapsed) {
       container.addChild(new Text(theme.fg("dim", `... (${outputLines.length - 10} earlier lines, ^o to expand)`), 0, 0));
     }
     container.addChild(new Spacer(1));
+  }
+  if (options.isPartial) {
+    container.addChild(new Text(theme.fg("dim", `Elapsed ${formatElapsed(details?.duration_ms ?? 0)}`), 0, 0));
+    return container;
   }
   if (exitCode !== undefined) {
     const exitColor = exitCode === 0 ? "success" : "error";
@@ -129561,6 +129581,9 @@ ${theme.fg("error", errorText || "bash failed")}`);
 function formatSeconds2(milliseconds) {
   const seconds = milliseconds / 1000;
   return seconds > 100 ? `${Math.round(seconds)}s` : `${seconds.toFixed(1)}s`;
+}
+function formatElapsed(milliseconds) {
+  return `${Math.floor(milliseconds / 1000)}s`;
 }
 
 // packages/hepi-aft/src/aft/fff-read-path-resolver.ts

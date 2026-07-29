@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ToolCallResult } from "@cortexkit/aft-bridge";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
+import { replayTui, stripAnsi } from "../../hepi-debug/src/tui-replay.js";
 import { registerBashTool } from "../src/aft/bash.js";
 import { registerHoistedTools } from "../src/aft/hoisted.js";
 import { aftConfigureOverrides, type HepiAftRuntime } from "../src/aft/runtime.js";
@@ -12,6 +13,7 @@ type RegisteredTool = {
 	readonly name: string;
 	readonly executionMode?: string;
 	renderCall?: (args: unknown, theme: unknown, context: unknown) => Component;
+	renderResult?: (result: unknown, options: unknown, theme: unknown, context: unknown) => Component;
 	execute(...args: readonly unknown[]): Promise<unknown>;
 };
 
@@ -375,6 +377,50 @@ describe("AFT tools", () => {
 				.join("\n"),
 		).toBe("$ bun test (timeout 10.0s)");
 		expect(roles).toEqual(["accent", "dim"]);
+	});
+
+	test("renders streaming Bash output with a dim elapsed footer", async () => {
+		const tools = new Map<string, RegisteredTool>();
+		const pi = {
+			registerTool(tool: unknown) {
+				const registered = tool as RegisteredTool;
+				tools.set(registered.name, registered);
+			},
+		} as unknown as ExtensionAPI;
+		registerBashTool(pi, {
+			getRuntime: () => ({}) as HepiAftRuntime,
+			getReadPathResolver: () => ({}) as never,
+			config: {},
+			storageDir: "",
+		});
+		const bash = tools.get("bash");
+		if (bash?.renderResult === undefined) throw new Error("Expected Bash renderer");
+		const roles: string[] = [];
+		const component = bash.renderResult(
+			{
+				content: [{ type: "text", text: "streamed output" }],
+				details: { duration_ms: 2_900 },
+			},
+			{ expanded: false, isPartial: true },
+			{
+				fg: (role: string, text: string) => {
+					roles.push(role);
+					return text;
+				},
+				bold: (text: string) => text,
+			},
+			{ lastComponent: undefined, isError: false },
+		);
+
+		expect(
+			component
+				.render(120)
+				.map((line) => line.trimEnd())
+				.join("\n"),
+		).toContain("streamed output\n\nElapsed 2s");
+		expect(roles).toContain("dim");
+		const replay = await replayTui({ columns: 48, rows: 5, create: () => component });
+		expect(stripAnsi(replay.last.lines.join("\n"))).toContain("Elapsed 2s");
 	});
 
 	test("serializes AFT file mutations", () => {
