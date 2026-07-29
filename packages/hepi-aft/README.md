@@ -25,6 +25,14 @@ On session start, the adapter resolves AFT `0.49.0`, migrates AFT storage when
 needed, and starts an AFT bridge pool. A startup failure leaves the tools
 registered but unavailable with an actionable tool error.
 
+For local AFT development, set `HEPI_AFT_BINARY` to an absolute path for a
+native AFT executable before starting Pi. It overrides npm binary resolution
+for that Pi process only; leave it unset for normal installs.
+
+```bash
+HEPI_AFT_BINARY=/path/to/aft pi
+```
+
 This package owns the same-name Pi slots. `grep`, `find`, and `ls` remain
 outside AFT's surface; AFT grep integration is deferred.
 

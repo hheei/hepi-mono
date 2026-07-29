@@ -5,6 +5,7 @@ import {
 	createAftTransportPool,
 	ensureStorageMigrated,
 	findBinary,
+	isNativeExecutable,
 	resolveCortexKitStorageRoot,
 	setActiveLogger,
 	type ToolCallResult,
@@ -14,6 +15,7 @@ import { bridgeLogger } from "./logger.js";
 import { callToolCall } from "./shared.js";
 
 const AFT_VERSION = "0.49.0";
+const HEPI_AFT_BINARY_ENV = "HEPI_AFT_BINARY";
 
 setActiveLogger(bridgeLogger);
 
@@ -32,11 +34,22 @@ export function aftConfigureOverrides(): Record<string, unknown> {
 	};
 }
 
+export function resolveHepiAftBinaryOverride(
+	env: Readonly<Record<string, string | undefined>> = process.env,
+): string | undefined {
+	const binaryPath = env[HEPI_AFT_BINARY_ENV]?.trim();
+	if (binaryPath === undefined || binaryPath.length === 0) return undefined;
+	if (!isNativeExecutable(binaryPath)) {
+		throw new Error(`${HEPI_AFT_BINARY_ENV} must point to a native AFT executable: ${binaryPath}`);
+	}
+	return binaryPath;
+}
+
 export class HepiAftRuntime {
 	private pool: AftTransportPool | undefined;
 
 	async start(options: HepiAftRuntimeStartOptions = {}): Promise<void> {
-		const binaryPath = await findBinary(AFT_VERSION);
+		const binaryPath = resolveHepiAftBinaryOverride() ?? (await findBinary(AFT_VERSION));
 		await ensureStorageMigrated({ harness: "pi", binaryPath });
 		this.pool = await createAftTransportPool({
 			harness: "pi",
