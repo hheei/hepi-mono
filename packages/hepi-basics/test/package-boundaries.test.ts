@@ -178,6 +178,16 @@ test("hepi-basics publishes its bundled Catppuccin themes", async () => {
 	}
 });
 
+test("hepi-mono publishes the bundled Catppuccin themes", async () => {
+	const packagePath = join(packagesDirectory, "hepi-mono");
+	const manifest: unknown = JSON.parse(await readFile(join(packagePath, "package.json"), "utf8"));
+	if (!isRecord(manifest) || !isRecord(manifest.pi))
+		throw new Error("Missing hepi-mono Pi manifest");
+	expect(manifest.pi.themes).toEqual(["./dist/themes"]);
+	for (const name of ["catppuccin-latte", "catppuccin-mocha"])
+		await access(join(packagePath, "dist", "themes", `${name}.json`));
+});
+
 test("hepi-basics keeps feature directories free of the package prefix", async () => {
 	const sourceDirectory = join(packagesDirectory, "hepi-basics", "src");
 	const entries = await readdir(sourceDirectory, { withFileTypes: true });
