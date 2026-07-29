@@ -21,6 +21,7 @@ import {
 	normalizeOutputMode,
 } from "./extension-common.js";
 import type { FffRuntime } from "./fff.js";
+import { DEFAULT_GREP_LIMIT, DEFAULT_GREP_TIMEOUT_MS } from "./fff-types.js";
 
 export type ToolRegistrationDeps = {
 	getRuntime(): FffRuntime | null;
@@ -43,11 +44,16 @@ type GrepRenderArgs = {
 	readonly pattern: string;
 	readonly path?: string | undefined;
 	readonly limit?: number | undefined;
+	readonly timeout?: number | undefined;
 };
 
 type GrepRenderContext = {
 	readonly isError: boolean;
 	readonly lastComponent: Component | undefined;
+};
+
+type GrepRenderOptions = {
+	readonly expanded?: boolean;
 };
 
 const GREP_SUMMARY = /^(\d+) matches in (\d+) files:$/;
@@ -57,6 +63,12 @@ const GREP_TRUNCATION = /^\.\.\. \((\d+) more lines, ctrl\+o to expand\)$/i;
 const GREP_NO_MATCHES = /^(?:No files matched\b.*|No matches found\.?)$/i;
 const FIND_SUMMARY = /^\d+\/\d+ matches$/;
 const FIND_CANDIDATE = /^\d+\. (.+) \(([^)]+)\)(?: - (.+))?$/;
+const MAX_COLLAPSED_GREP_CONTENT_LINES = 14;
+const DEFAULT_GREP_TIMEOUT_SECONDS = DEFAULT_GREP_TIMEOUT_MS / 1_000;
+
+function grepTimeoutMs(timeout: number | undefined): number {
+	return Math.round((timeout ?? DEFAULT_GREP_TIMEOUT_SECONDS) * 1_000);
+}
 
 function resultText(result: AgentToolResult<unknown>): string {
 	return result.content
@@ -72,14 +84,20 @@ function renderGrepCall(
 ): Text {
 	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 	const scope = args.path ? ` in ${theme.fg("dim", args.path)}` : "";
-	const limit = args.limit === undefined ? "" : ` (limit ${args.limit})`;
+	const timeout = theme.fg("dim", ` (timeout ${args.timeout ?? DEFAULT_GREP_TIMEOUT_SECONDS}s)`);
 	text.setText(
-		`${theme.fg("accent", "grep")} ${theme.fg("mdCode", `/${args.pattern}/`)}${scope}${limit}`,
+		`${theme.fg("accent", "grep")} ${theme.fg("mdCode", `/${args.pattern}/`)}${scope}${timeout}`,
 	);
 	return text;
 }
 
-function renderGrepText(text: string, theme: Theme): string {
+function requestedGrepLimit(result: AgentToolResult<unknown>): number | undefined {
+	if (typeof result.details !== "object" || result.details === null) return undefined;
+	const requestedLimit = Reflect.get(result.details, "requestedLimit");
+	return typeof requestedLimit === "number" ? requestedLimit : undefined;
+}
+
+function renderGrepText(text: string, theme: Theme, limit: number | undefined): string {
 	const lines = text.split("\n");
 	const lineWidth = String(
 		lines.reduce((max, line) => {
@@ -98,7 +116,9 @@ function renderGrepText(text: string, theme: Theme): string {
 
 			const summary = line.match(GREP_SUMMARY);
 			if (summary) {
-				return `${theme.fg("success", summary[1] ?? "0")} matches in ${theme.fg("success", summary[2] ?? "0")} files:`;
+				const actualMatches = Number(summary[1] ?? "0");
+				const shownMatches = Math.min(limit ?? actualMatches, actualMatches);
+				return `${theme.fg("mdCode", `${shownMatches}/${actualMatches}`)} matches in ${theme.fg("success", summary[2] ?? "0")} files:`;
 			}
 
 			const fileHeader = line.match(GREP_FILE_HEADER);
@@ -118,15 +138,33 @@ function renderGrepText(text: string, theme: Theme): string {
 		: rendered;
 }
 
+function collapseGrepText(text: string, expanded: boolean): string {
+	const lines = text.split("\n");
+	if (expanded || lines.length <= MAX_COLLAPSED_GREP_CONTENT_LINES) return text;
+	const visibleLineCount = MAX_COLLAPSED_GREP_CONTENT_LINES - 1;
+	return [
+		...lines.slice(0, visibleLineCount),
+		`... (${lines.length - visibleLineCount} more lines, ctrl+o to expand)`,
+	].join("\n");
+}
+
 function renderGrepResult(
 	result: AgentToolResult<unknown>,
-	_options: unknown,
+	options: GrepRenderOptions,
 	theme: Theme,
 	context: GrepRenderContext,
 ): Text {
 	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 	const content = resultText(result).replace(/(?:\r?\n)+$/, "");
-	text.setText(context.isError ? theme.fg("error", content) : renderGrepText(content, theme));
+	text.setText(
+		context.isError
+			? theme.fg("error", content)
+			: renderGrepText(
+					collapseGrepText(content, options.expanded === true),
+					theme,
+					requestedGrepLimit(result),
+				),
+	);
 	return text;
 }
 
@@ -284,6 +322,9 @@ export function registerTools(
 		limit: Type.Optional(
 			Type.Number({ description: "Maximum number of matches to return (default: 100)" }),
 		),
+		timeout: Type.Optional(
+			Type.Number({ minimum: 1, description: "Timeout in seconds (default: 30)" }),
+		),
 		cursor: Type.Optional(Type.String({ description: "Cursor from a previous grep result" })),
 		outputMode: Type.Optional(
 			Type.String({ description: "Output mode: content, files_with_matches, count, or usage" }),
@@ -307,6 +348,7 @@ export function registerTools(
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			const original = createGrepTool(ctx.cwd);
 			const runtime = deps.getRuntime();
+			const timeoutMs = grepTimeoutMs(params.timeout);
 			const builtinParams = {
 				pattern: params.pattern,
 				...(params.path === undefined ? {} : { path: params.path }),
@@ -315,6 +357,11 @@ export function registerTools(
 				...(params.literal === undefined ? {} : { literal: params.literal }),
 				...(params.context === undefined ? {} : { context: params.context }),
 				...(params.limit === undefined ? {} : { limit: params.limit }),
+			};
+			const executeBuiltinGrep = () => {
+				const timeoutSignal = AbortSignal.timeout(timeoutMs);
+				const operationSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+				return original.execute(toolCallId, builtinParams, operationSignal, onUpdate);
 			};
 			const explicitMode = normalizeMode(params.mode);
 			const fallbackLiteral =
@@ -328,7 +375,7 @@ export function registerTools(
 					...(fallbackLiteral === undefined ? {} : { literal: fallbackLiteral }),
 				})
 			) {
-				return original.execute(toolCallId, builtinParams, signal, onUpdate);
+				return executeBuiltinGrep();
 			}
 
 			const pattern = params.ignoreCase === true ? params.pattern.toLowerCase() : params.pattern;
@@ -341,6 +388,7 @@ export function registerTools(
 				...(params.constraints === undefined ? {} : { constraints: params.constraints }),
 				...(params.context === undefined ? {} : { context: params.context }),
 				...(params.limit === undefined ? {} : { limit: params.limit }),
+				timeBudgetMs: timeoutMs,
 				...(params.cursor === undefined ? {} : { cursor: params.cursor }),
 				includeCursorHint: false,
 				...(outputMode === undefined ? {} : { outputMode }),
@@ -351,10 +399,13 @@ export function registerTools(
 					FinderOperationError.is(result.error) ||
 					ExternalGrepScopeError.is(result.error)
 				)
-					return original.execute(toolCallId, builtinParams, signal, onUpdate);
+					return executeBuiltinGrep();
 				throw new Error(buildGrepFailureMessage(result.error, params.path));
 			}
-			return textResult(result.value.formatted, buildGrepDetails(result.value));
+			return textResult(
+				result.value.formatted,
+				buildGrepDetails(result.value, undefined, undefined, params.limit ?? DEFAULT_GREP_LIMIT),
+			);
 		},
 	});
 

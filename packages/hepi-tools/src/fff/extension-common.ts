@@ -147,6 +147,7 @@ export function buildGrepDetails(
 	result?: GrepSearchResponse,
 	disabledFeature?: FeatureKey,
 	error?: { message: string } | null,
+	requestedLimit?: number,
 ) {
 	return {
 		truncation: result?.truncation,
@@ -157,6 +158,7 @@ export function buildGrepDetails(
 		nextCursor: result?.nextCursor ?? null,
 		constraints: result?.constraintQuery ?? null,
 		suggestedReadPath: result?.suggestedReadPath ?? null,
+		requestedLimit: requestedLimit ?? null,
 		...buildErrorDetails(error),
 		disabled: disabledFeature !== undefined,
 		feature: disabledFeature ?? null,

@@ -142,6 +142,31 @@ describe("FFF tool registration", () => {
 		expect(result.content.some((item) => item.text?.includes("outside needle"))).toBe(true);
 	});
 
+	test("passes the default and requested grep timeout to FFF", async () => {
+		const cwd = await temporaryDirectory();
+		const timeBudgets: number[] = [];
+		const runtime = {
+			async grepSearch(request: { readonly timeBudgetMs?: number }) {
+				if (request.timeBudgetMs !== undefined) timeBudgets.push(request.timeBudgetMs);
+				return Result.ok({ items: [], formatted: "No matches found.", linesTruncated: false });
+			},
+		} as unknown as FffRuntime;
+		const host = harness();
+		registerTools(host.pi, {
+			getRuntime: () => runtime,
+			isFeatureEnabled: (feature) => feature === "builtInGrepEnhancement",
+			agentToolsDisabledText: () => "disabled",
+		});
+		const grep = host.tools.find((tool) => tool.name === "grep")?.execute;
+		if (grep === undefined) throw new Error("FFF grep wrapper was not registered");
+		const ctx = { cwd } as ExtensionContext;
+
+		await grep("grep-default-timeout", { pattern: "needle" }, undefined, undefined, ctx);
+		await grep("grep-custom-timeout", { pattern: "needle", timeout: 7 }, undefined, undefined, ctx);
+
+		expect(timeBudgets).toEqual([30_000, 7_000]);
+	});
+
 	test("renders grouped grep output with aligned dim line numbers", () => {
 		const host = harness();
 		registerTools(host.pi, {
@@ -182,10 +207,39 @@ describe("FFF tool registration", () => {
 				.render(120)
 				.map((line) => line.trimEnd())
 				.join("\n");
-		expect(renderText(call)).toBe("grep /aft_move/ in /tmp/aft (limit 50)");
+		expect(renderText(call)).toBe("grep /aft_move/ in /tmp/aft (timeout 30s)");
 		expect(renderText(result)).toBe(
-			"\n39 matches in 13 files:\n\nbun.lock (15 matches)\n... (224 earlier lines, ^o to expand)\n  9:  first\n123:  second",
+			"\n39/39 matches in 13 files:\n\nbun.lock (15 matches)\n... (224 earlier lines, ^o to expand)\n  9:  first\n123:  second",
 		);
+		const limitedSummary = grep.renderResult(
+			{
+				content: [{ type: "text", text: "39 matches in 13 files:" }],
+				details: { requestedLimit: 20 },
+			},
+			{},
+			theme,
+			{ isError: false, lastComponent: undefined },
+		);
+		expect(renderText(limitedSummary)).toBe("\n20/39 matches in 13 files:");
+		const longResult = {
+			content: [
+				{
+					type: "text" as const,
+					text: Array.from({ length: 20 }, (_, index) => `  ${index + 1}: match`).join("\n"),
+				},
+			],
+		};
+		const collapsed = grep.renderResult(longResult, {}, theme, {
+			isError: false,
+			lastComponent: undefined,
+		});
+		expect(collapsed.render(120).length).toBeLessThanOrEqual(15);
+		expect(renderText(collapsed)).toContain("... (7 earlier lines, ^o to expand)");
+		const expanded = grep.renderResult(longResult, { expanded: true }, theme, {
+			isError: false,
+			lastComponent: undefined,
+		});
+		expect(expanded.render(120)).toHaveLength(20);
 		const noMatches = grep.renderResult(
 			{ content: [{ type: "text", text: 'No files matched "references/repos/pi"' }] },
 			{},

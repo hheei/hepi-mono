@@ -31,6 +31,7 @@ does not install a custom editor, so it remains compatible with Pi Basics
 statusbar and `$skill` input behavior. Configure its feature flags with
 `/fff-features`. A composition that loads AFT must register FFF with its read
 slot disabled, leaving FFF to own `find` and `grep` while AFT owns `read`.
+`grep` accepts `timeout` in seconds; it defaults to 30 seconds.
 
 Do not also configure the standalone `pi-fff` package. Pi cannot unregister
 extension registrations, and its custom editor conflicts with HEPI FFF's

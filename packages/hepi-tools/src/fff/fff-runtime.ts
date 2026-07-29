@@ -28,6 +28,7 @@ import {
 	DEFAULT_FILE_CANDIDATE_LIMIT,
 	DEFAULT_FIND_FILES_LIMIT,
 	DEFAULT_GREP_LIMIT,
+	DEFAULT_GREP_TIMEOUT_MS,
 	type EngineResult,
 	type FffFileCandidate,
 	FIND_FILES_CURSOR_PREFIX,
@@ -621,6 +622,7 @@ export class FffRuntime {
 			...(request.constraints === undefined ? {} : { constraints: request.constraints }),
 			context: request.context ?? 0,
 			limit: request.limit ?? DEFAULT_GREP_LIMIT,
+			timeBudgetMs: request.timeBudgetMs ?? DEFAULT_GREP_TIMEOUT_MS,
 			...(request.cursor === undefined ? {} : { cursor: request.cursor }),
 			...(request.includeCursorHint === undefined
 				? {}
@@ -648,6 +650,7 @@ export class FffRuntime {
 			...(request.constraints === undefined ? {} : { constraints: request.constraints }),
 			context: request.context ?? 0,
 			limit: request.limit ?? DEFAULT_GREP_LIMIT,
+			timeBudgetMs: DEFAULT_GREP_TIMEOUT_MS,
 			...(request.cursor === undefined ? {} : { cursor: request.cursor }),
 			...(request.includeCursorHint === undefined
 				? {}
@@ -686,6 +689,7 @@ export class FffRuntime {
 		request: SingleGrepRequest | MultiGrepRequest,
 		constraintQuery: string | undefined,
 		engineCursor: GrepCursor | null,
+		timeBudgetMs = request.timeBudgetMs,
 	): AppResult<GrepResult, FinderOperationError> {
 		if (request.kind === "single") {
 			if (request.mode === "plain") {
@@ -698,6 +702,7 @@ export class FffRuntime {
 						beforeContext: request.context,
 						afterContext: request.context > 0 ? request.context : AUTO_EXPAND_AFTER_CONTEXT,
 						maxMatchesPerFile: MAX_MATCHES_PER_FILE,
+						timeBudgetMs,
 					}),
 				);
 			}
@@ -708,6 +713,7 @@ export class FffRuntime {
 					beforeContext: request.context,
 					afterContext: request.context > 0 ? request.context : AUTO_EXPAND_AFTER_CONTEXT,
 					maxMatchesPerFile: MAX_MATCHES_PER_FILE,
+					timeBudgetMs,
 				}),
 			);
 		}
@@ -719,6 +725,7 @@ export class FffRuntime {
 				beforeContext: request.context,
 				afterContext: request.context > 0 ? request.context : AUTO_EXPAND_AFTER_CONTEXT,
 				maxMatchesPerFile: MAX_MATCHES_PER_FILE,
+				timeBudgetMs,
 			}),
 		);
 	}
@@ -833,6 +840,7 @@ export class FffRuntime {
 					...(request.constraints === undefined ? {} : { constraints: request.constraints }),
 					context: request.context,
 					limit: request.limit,
+					timeBudgetMs: request.timeBudgetMs,
 					includeCursorHint: false,
 					...(request.outputMode === undefined ? {} : { outputMode: request.outputMode }),
 				},
@@ -933,6 +941,7 @@ export class FffRuntime {
 		const remainingItems = continuation ? [...continuation.remainingItems] : [];
 		const items: GrepMatch[] = [];
 		let regexFallbackError = continuation?.regexFallbackError;
+		const deadline = Date.now() + request.timeBudgetMs;
 
 		const takeFromRemaining = () => {
 			while (remainingItems.length > 0 && items.length < request.limit) {
@@ -946,8 +955,16 @@ export class FffRuntime {
 		while (items.length < request.limit) {
 			if (items.length > 0 && engineCursor === null && remainingItems.length === 0) break;
 			if (continuation && engineCursor === null && remainingItems.length === 0) break;
+			const remainingTimeBudgetMs = deadline - Date.now();
+			if (remainingTimeBudgetMs <= 0) break;
 
-			const result = this.runFinderGrep(finder, request, constraintQuery, engineCursor);
+			const result = this.runFinderGrep(
+				finder,
+				request,
+				constraintQuery,
+				engineCursor,
+				remainingTimeBudgetMs,
+			);
 			if (result.isErr()) return propagateError(result);
 
 			regexFallbackError = result.value.regexFallbackError ?? regexFallbackError;
@@ -957,7 +974,7 @@ export class FffRuntime {
 			if (!engineCursor && remainingItems.length === 0) break;
 		}
 
-		if (items.length === 0 && !request.cursor) {
+		if (items.length === 0 && !request.cursor && Date.now() < deadline) {
 			if (request.kind === "single") {
 				const fallback = await this.buildNoMatchFallback(
 					finder,
