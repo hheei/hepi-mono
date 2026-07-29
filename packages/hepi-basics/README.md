@@ -27,10 +27,10 @@ Included themes:
 - `catppuccin-latte`
 - `catppuccin-mocha`
 
-Git releases include this bundle through `hepi-mono`:
+Install this bundle directly:
 
 ```bash
-pi install git:github.com/hheei/hepi-mono@<tag>
+pi install npm:@hheei/hepi-basics
 ```
 
 Build locally with `bun run build` from this package or

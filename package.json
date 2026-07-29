@@ -1,6 +1,6 @@
 {
 	"name": "hepi-mono",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"private": true,
 	"description": "Monorepo for HEPI Pi Coding Agent extensions.",
 	"type": "module",
@@ -8,14 +8,6 @@
 	"workspaces": [
 		"packages/*"
 	],
-	"pi": {
-		"extensions": [
-			"packages/hepi-mono/dist/extension.js"
-		],
-		"skills": [
-			"packages/hepi-mono/dist/skills"
-		]
-	},
 	"scripts": {
 		"check": "bun run build:aggregates && biome check . && tsc --noEmit -p tsconfig.base.json && bun run test:hepi",
 		"check:fix": "biome check --write .",
@@ -25,6 +17,8 @@
 		"build:aft-pi": "bun install --cwd third_party/aft --no-save && bun run --cwd third_party/aft/packages/pi-plugin build",
 		"build:magic-context": "bun install --cwd third_party/magic-context --no-save && bun run --cwd third_party/magic-context/packages/pi-plugin build",
 		"build:aggregates": "bun run build:aft-pi && bun run build:magic-context && bun scripts/build-aggregate.mjs --all",
+		"clean": "rm -rf packages/hepi-aft/dist packages/hepi-basics/dist packages/hepi-tools/dist packages/hepi-skills/dist packages/hepi-mono/dist third_party/magic-context/packages/pi-plugin/dist",
+		"pack:check": "bun scripts/verify-packages.mjs",
 		"test": "bun run build:aggregates && bun run test:hepi",
 		"test:hepi": "bun test --max-concurrency=1 --path-ignore-patterns='third_party/**' --path-ignore-patterns='packages/hepi-basics/test/tui-replay.test.ts' --path-ignore-patterns='packages/hepi-tools/test/ask/component.test.ts' --path-ignore-patterns='packages/hepi-basics/test/ui/render.test.ts' && bun test packages/hepi-basics/test/tui-replay.test.ts && bun test packages/hepi-tools/test/ask/component.test.ts && bun test packages/hepi-basics/test/ui/render.test.ts",
 		"typecheck": "bun run build:aggregates && tsc --noEmit -p tsconfig.base.json",

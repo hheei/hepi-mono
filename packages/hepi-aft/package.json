@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/hepi-aft",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "HEPI-owned Pi adapter for Agent File Tools.",
 	"type": "module",
 	"main": "dist/index.js",
@@ -16,11 +16,11 @@
 	],
 	"pi": {
 		"extensions": [
-			"dist/extension.js"
+			"./dist/extension.js"
 		]
 	},
 	"scripts": {
-		"build": "bun ../../scripts/build-aggregate.mjs hepi-aft",
+		"build": "bun ../../scripts/build-package.mjs hepi-aft",
 		"prepack": "bun run build"
 	},
 	"keywords": [

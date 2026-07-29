@@ -8,7 +8,7 @@ describe("HEPI skills package", () => {
 	test("publishes one extension and its Loadout-discoverable auxiliary skills", async () => {
 		const manifest: unknown = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
 		expect(manifest).toMatchObject({
-			pi: { extensions: ["dist/extension.js"], skills: ["dist/skills"] },
+			pi: { extensions: ["./dist/extension.js"], skills: ["./dist/skills"] },
 		});
 		expect((await readdir(join(packageRoot, "src", "skills"))).sort()).toEqual([
 			"domain-modeling",

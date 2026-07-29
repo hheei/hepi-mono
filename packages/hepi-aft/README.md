@@ -15,20 +15,18 @@ tool surface:
 - `aft_import`: language-aware import add, remove, and organization.
 - `aft_inspect`: codebase health and structural analysis snapshot.
 
-Git releases include this bundle through `hepi-mono`:
+Install this bundle directly:
 
 ```bash
-pi install git:github.com/hheei/hepi-mono@<tag>
+pi install npm:@hheei/hepi-aft
 ```
 
 On session start, the adapter resolves AFT `0.49.0`, migrates AFT storage when
 needed, and starts an AFT bridge pool. A startup failure leaves the tools
 registered but unavailable with an actionable tool error.
 
-This package owns the same-name Pi slots. Do not combine it with the Codex
-apply-patch tool: Pi has no tool unregister API, and registration order
-otherwise decides the executor. `grep`, `find`, and `ls` remain outside AFT's
-surface; AFT grep integration is deferred.
+This package owns the same-name Pi slots. `grep`, `find`, and `ls` remain
+outside AFT's surface; AFT grep integration is deferred.
 
 Tool parameters follow AFT, not Pi's legacy compatibility surface. In
 particular, `read` keeps Pi's `path`, `offset`, and `limit`, and uses FFF path
@@ -58,9 +56,8 @@ and whole-operation undo preview their affected paths before mutating files.
 
 AFT reads its normal CortexKit `aft.jsonc` configuration tiers. The HEPI
 adapter exposes `read`, `write`, `edit`, `apply_patch`, and `bash`; settings
-which change registration ownership take effect on `/reload`. When composed
-with HEPI FFF, FFF must skip its `read` registration so AFT remains the sole
-owner of that slot.
+which change registration ownership take effect on `/reload`. FFF no longer
+registers `read`, so AFT is the sole owner of that slot.
 
 Loadout keeps the Pi replacement slots `read`, `write`, `edit`, and `bash` in
 the `built-in` group. AFT-only tools, including background bash controls,

@@ -39,7 +39,7 @@ const magicContextPackage = path.join(
 	"packages",
 	"pi-plugin",
 );
-const magicContextLink = path.join(root, "node_modules", "@hheei", "pi-magic-context");
+const magicContextLink = path.join(root, "node_modules", "@hheei", "hepi-mctx");
 mkdirSync(path.dirname(magicContextLink), { recursive: true });
 rmSync(magicContextLink, { force: true, recursive: true });
 symlinkSync(magicContextPackage, magicContextLink, "dir");

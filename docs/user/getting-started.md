@@ -1,15 +1,27 @@
 # Getting Started
 
-HEPI is distributed as one unified Git package. Use a pinned tag so each
-project gets a reproducible extension set.
+HEPI is distributed as npm packages. Package versions provide reproducible
+extension sets.
 
 ## Unified Install
 
 ```bash
-pi install git:github.com/hheei/hepi-mono@<tag>
+pi install npm:@hheei/hepi-mono
 ```
 
 The unified package excludes the development-only `hepi-debug` package.
+
+## Selective Install
+
+```bash
+pi install npm:@hheei/hepi-basics
+pi install npm:@hheei/hepi-tools
+pi install npm:@hheei/hepi-skills
+pi install npm:@hheei/hepi-aft
+pi install npm:@hheei/hepi-mctx
+```
+
+Do not install any of these packages alongside `@hheei/hepi-mono`.
 
 ## Local Checkout
 

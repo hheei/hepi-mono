@@ -1,7 +1,7 @@
 # Package Catalogue
 
-HEPI distributes its unified package from pinned Git tags. Top-level `pi-*`
-feature packages are deprecated and are no longer part of the workspace.
+HEPI publishes its runtime packages to npm. `hepi-mono` is the full bundle;
+the remaining packages support selective installation.
 
 | Package | Purpose | Requirements |
 | --- | --- | --- |
@@ -9,9 +9,11 @@ feature packages are deprecated and are no longer part of the workspace.
 | [`hepi-basics`](../../packages/hepi-basics/README.md) | Foundational local composition bundle | Pi host |
 | [`hepi-tools`](../../packages/hepi-tools/README.md) | Tool and agent local composition bundle | Pi host, `ffi-rs` |
 | [`hepi-skills`](../../packages/hepi-skills/README.md) | Skills local composition bundle | Pi host |
+| [`hepi-aft`](../../packages/hepi-aft/README.md) | AFT file tools and renderer | Pi host, AFT platform binary |
+| [`hepi-mctx`](../../third_party/magic-context/packages/pi-plugin/README.md) | Magic Context memory and compaction | Pi host |
 | [`hepi-debug`](../../packages/hepi-debug/README.md) | Development diagnostics and deterministic TUI replay | Pi host |
 
-Install `hepi-mono` with `pi install git:github.com/hheei/hepi-mono@<tag>`.
+Install `hepi-mono` with `pi install npm:@hheei/hepi-mono`.
 The package README is the behavior contract for users. Cross-package
 architecture and contribution rules belong under `docs/development/` and
 `docs/architecture/`.

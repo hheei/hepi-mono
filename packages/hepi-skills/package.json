@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/hepi-skills",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "HEPI communication and engineering skills group for Pi.",
 	"type": "module",
 	"main": "dist/index.js",
@@ -15,14 +15,14 @@
 	],
 	"pi": {
 		"extensions": [
-			"dist/extension.js"
+			"./dist/extension.js"
 		],
 		"skills": [
-			"dist/skills"
+			"./dist/skills"
 		]
 	},
 	"scripts": {
-		"build": "bun ../../scripts/build-aggregate.mjs hepi-skills",
+		"build": "bun ../../scripts/build-package.mjs hepi-skills",
 		"prepack": "bun run build"
 	},
 	"keywords": [

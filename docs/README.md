@@ -11,6 +11,7 @@ This directory contains current user and developer documentation, architecture n
 ## Development
 
 - [Extension development](development/extension-development.md): package conventions and repository workflow.
+- [Publishing packages](development/releasing.md): tarball release verification and order.
 - [Pi Basics development](development/pi-basics.md): architecture, public integration APIs, tests, and contribution rules.
 - [HEPI TUI design](../DESIGN.md): normative TUI design language.
 - [Pi source design](../.pi/skills/pi-development/references/DESIGN.md): Pi source-code design taste and integration guidance.

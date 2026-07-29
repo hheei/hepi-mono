@@ -12,7 +12,7 @@
 		"baseUrl": ".",
 		"paths": {
 			"@cortexkit/aft-pi": ["packages/hepi-mono/src/pi-aft.d.ts"],
-			"@hheei/pi-magic-context": ["packages/hepi-mono/src/pi-magic-context.d.ts"],
+			"@hheei/hepi-mctx": ["packages/hepi-mono/src/pi-magic-context.d.ts"],
 			"pi-fff": ["packages/hepi-tools/src/pi-fff.d.ts"],
 			"pi-web-access": ["packages/hepi-tools/src/pi-web-access.d.ts"]
 		},

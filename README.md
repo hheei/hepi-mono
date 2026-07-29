@@ -15,15 +15,24 @@ Package-specific commands, settings, persistence, requirements, and incompatibil
 
 ## Install
 
-Install all current runtime modules from a pinned Git tag:
+Install all current runtime modules:
 
 ```bash
-pi install git:github.com/hheei/hepi-mono@<tag>
+pi install npm:@hheei/hepi-mono
 ```
 
-Git distribution exposes the unified package only. The group packages are
-source-level composition boundaries for local development; do not install one
-with `hepi-mono`, because their implementations overlap.
+Install individual packages when you need a selective composition:
+
+```bash
+pi install npm:@hheei/hepi-basics
+pi install npm:@hheei/hepi-tools
+pi install npm:@hheei/hepi-skills
+pi install npm:@hheei/hepi-aft
+pi install npm:@hheei/hepi-mctx
+```
+
+Do not install an individual package with `hepi-mono`, because their
+implementations overlap.
 
 For a local checkout:
 
@@ -53,9 +62,15 @@ pi --no-extensions --no-skills -e packages/hepi-tools/dist/extension.js
 pi --no-extensions --no-skills -e packages/hepi-skills/dist/extension.js
 ```
 
-The Git release is `hepi-mono`; the aggregate packages and development-only
-`hepi-debug` remain local development boundaries. Individual `@hheei/pi-*`
-packages are deprecated.
+`hepi-mono` is the full runtime bundle. `hepi-debug` remains development-only.
+
+## Release
+
+Published npm tarballs contain generated `dist` output. Git tracks source only.
+
+```bash
+bun run pack:check
+```
 
 ## Repository Layout
 

@@ -67,8 +67,8 @@ separate Bun processes. Do not use bare `bun test` as full-suite validation.
 - Treat `DESIGN.md` as the current HEPI TUI specification. Pi source-code design taste and integration guidance live in `.pi/skills/pi-development/references/DESIGN.md`; load the `pi-development` skill before using that reference.
 - Treat `docs/plans/` as historical context, not the current behavior contract.
 - Update documentation when public behavior, compatibility, or package entry points change.
-- Git tags are the primary distribution channel: `pi install git:github.com/hheei/hepi-mono@<tag>`. Before tagging, build and commit `packages/hepi-mono/dist`; Pi installs Git packages with production dependencies only and does not build TypeScript or initialize submodules.
-- Declare Pi host packages and `typebox` as peers when an extension imports them. Keep non-Pi runtime dependencies in `dependencies`; never rely on root devDependencies or workspace hoisting after a Git install.
+- npm packages are the distribution channel. Build artifacts belong in each package tarball, never in Git: run `bun run pack:check` before publishing to verify every tarball's `prepack` build and allowlist. `hepi-mono` is the full-install entry; `hepi-basics`, `hepi-tools`, `hepi-skills`, `hepi-aft`, and `hepi-mctx` support explicit selective installs.
+- Declare Pi host packages and `typebox` as peers when an extension imports them. Keep non-Pi runtime dependencies in `dependencies`; never rely on root devDependencies or workspace hoisting after an npm install.
 
 ## Pi Basics TUI
 

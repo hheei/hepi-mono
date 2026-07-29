@@ -22,9 +22,5 @@ graphify-out/*
 !graphify-out/graph.json
 pi-session-*.html
 
-# Release tags retain the unified Git-installable Pi bundle. Other dist output
-# remains generated.
-!packages/hepi-mono/
-!packages/hepi-mono/dist/
-!packages/hepi-mono/dist/**
+# Package tarballs contain generated dist output; Git does not.
 

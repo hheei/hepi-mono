@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import piMagicContext from "@hheei/pi-magic-context";
+import piMagicContext from "@hheei/hepi-mctx";
 import { hepiAftExtensions } from "../../hepi-aft/src/index.js";
 import {
 	type HepiLoadoutGroup,

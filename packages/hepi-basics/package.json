@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/hepi-basics",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "HEPI foundational runtime group for Pi.",
 	"type": "module",
 	"main": "dist/index.js",
@@ -17,14 +17,14 @@
 	],
 	"pi": {
 		"extensions": [
-			"dist/extension.js"
+			"./dist/extension.js"
 		],
 		"themes": [
-			"themes"
+			"./themes"
 		]
 	},
 	"scripts": {
-		"build": "bun ../../scripts/build-aggregate.mjs hepi-basics",
+		"build": "bun ../../scripts/build-package.mjs hepi-basics",
 		"prepack": "bun run build"
 	},
 	"keywords": [

@@ -19,7 +19,7 @@ describe("unified HEPI loader", () => {
 			await readFile(join(import.meta.dir, "..", "package.json"), "utf8"),
 		);
 		expect(manifest).toMatchObject({
-			pi: { extensions: ["dist/extension.js"], skills: ["dist/skills"] },
+			pi: { extensions: ["./dist/extension.js"], skills: ["./dist/skills"] },
 		});
 	});
 
