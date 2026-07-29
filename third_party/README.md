@@ -10,9 +10,9 @@ Initialize them after cloning HEPI:
 git submodule update --init --recursive
 ```
 
-Magic Context is the exception: its Pi-only fork is managed as the
-`packages/hepi-mctx` submodule so the complete upstream-shaped repository is
-maintained together.
+Magic Context and Pi Subagents are exceptions: their Pi-only forks are managed
+as the `packages/hepi-mctx` and `packages/hepi-subagents` submodules so their
+complete upstream-shaped repositories are maintained together.
 
 ## AFT
 
@@ -26,12 +26,3 @@ the AFT tools report the startup error without taking ownership from Pi's native
 tools. Develop or update the fork in `third_party/aft`, commit it there, then
 advance the HEPI submodule pointer after its public bridge contract is verified.
 
-## Pi Subagents
-
-`pi-subagents` remains an optional Git submodule and publishes independently as
-`@hheei/hepi-subagents`. HEPI does not bundle or import it. It can cooperate with
-HEPI only through public Pi events and the Magic Context public accounting API.
-
-```bash
-pi install npm:@hheei/hepi-subagents
-```

@@ -1,5 +1,5 @@
-[submodule "third_party/pi-subagents"]
-	path = third_party/pi-subagents
+[submodule "packages/hepi-subagents"]
+	path = packages/hepi-subagents
 	url = https://github.com/hheei/pi-subagents.git
 [submodule "packages/hepi-mctx"]
 	path = packages/hepi-mctx

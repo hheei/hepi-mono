@@ -11,7 +11,7 @@ const packages = [
 	["packages/hepi-aft", "dist/extension.js"],
 	["packages/hepi-mctx/packages/pi-plugin", "dist/index.js"],
 	["packages/hepi-mono", "dist/extension.js"],
-	["third_party/pi-subagents", "dist/index.js"],
+	["packages/hepi-subagents", "dist/index.js"],
 ];
 
 for (const [packagePath, entrypoint] of packages) {

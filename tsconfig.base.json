@@ -25,6 +25,7 @@
 	"exclude": [
 		"third_party/**",
 		"packages/hepi-mctx/**",
+		"packages/hepi-subagents/**",
 		"**/node_modules/**",
 		"**/dist/**",
 		"**/.pi/**"

@@ -14,12 +14,12 @@ const compositionPackages = new Set([
 	"hepi-tools",
 ]);
 const workspacePackages = new Set([...compositionPackages, "hepi-debug"]);
-const externalPackageDirectories = new Set(["hepi-mctx"]);
+const externalPackageDirectories = new Set(["hepi-mctx", "hepi-subagents"]);
 const publishedPackages = new Set(compositionPackages);
 const externalSubmodules = new Set([
 	"packages/hepi-mctx",
+	"packages/hepi-subagents",
 	"third_party/aft",
-	"third_party/pi-subagents",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
