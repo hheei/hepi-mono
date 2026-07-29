@@ -1,17 +1,45 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import piMagicContext from "@hheei/pi-magic-context";
 import {
 	hepiAftExtensions,
 	loadAftConfig,
 	resolveHepiAftToolSurface,
 } from "../../hepi-aft/src/index.js";
+import {
+	type HepiLoadoutGroup,
+	registerHepiRuntimeLoadoutGroup,
+} from "../../hepi-basics/src/core/index.js";
 import { hepiBasicsExtensions } from "../../hepi-basics/src/index.js";
-import { hepiMctxExtensions } from "../../hepi-mctx/src/index.js";
 import { hepiSkillsExtensions } from "../../hepi-skills/src/index.js";
 import { createHepiToolsExtensions } from "../../hepi-tools/src/index.js";
 import piBtw from "./pi-btw/index.js";
 import piPlan from "./pi-plan/index.js";
 
 export type HepiExtension = (pi: ExtensionAPI) => void;
+
+const MAGIC_CONTEXT_LOADOUT_GROUP = {
+	id: "magic-context",
+	label: "Magic Context",
+	items: ["ctx_search", "ctx_expand", "ctx_memory", "ctx_note", "ctx_reduce", "todowrite"],
+} as const satisfies HepiLoadoutGroup;
+
+function registerMagicContext(pi: ExtensionAPI): void {
+	const toolNames = new Set<string>();
+	const groupedPi: ExtensionAPI = {
+		...pi,
+		registerTool: (tool) => {
+			pi.registerTool(tool);
+			toolNames.add(tool.name);
+		},
+	};
+	piMagicContext(groupedPi);
+	registerHepiRuntimeLoadoutGroup(
+		pi,
+		toolNames.size === 0
+			? MAGIC_CONTEXT_LOADOUT_GROUP
+			: { ...MAGIC_CONTEXT_LOADOUT_GROUP, items: [...toolNames] },
+	);
+}
 
 const aftSurface = resolveHepiAftToolSurface(loadAftConfig(process.cwd()));
 
@@ -22,7 +50,7 @@ export const hepiExtensions: readonly HepiExtension[] = [
 		includeCodexApplyPatch: !aftSurface.applyPatch,
 	}),
 	...hepiAftExtensions,
-	...hepiMctxExtensions,
+	registerMagicContext,
 	...hepiSkillsExtensions,
 	piBtw,
 	piPlan,

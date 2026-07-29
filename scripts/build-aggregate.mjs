@@ -4,19 +4,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const aggregatePackages = [
-	"hepi-aft",
-	"hepi-basics",
-	"hepi-tools",
-	"hepi-mctx",
-	"hepi-skills",
-	"hepi-mono",
-];
+const aggregatePackages = ["hepi-aft", "hepi-basics", "hepi-tools", "hepi-skills", "hepi-mono"];
 const publicContracts = {
 	"hepi-aft": "hepiAftExtensions",
 	"hepi-basics": "hepiBasicsExtensions",
 	"hepi-tools": "hepiToolsExtensions",
-	"hepi-mctx": "hepiMctxExtensions",
 	"hepi-skills": "hepiSkillsExtensions",
 	"hepi-mono": "hepiExtensions",
 };
@@ -47,14 +39,7 @@ const magicContextPackage = path.join(
 	"packages",
 	"pi-plugin",
 );
-const magicContextLink = path.join(
-	root,
-	"packages",
-	"hepi-mctx",
-	"node_modules",
-	"@hheei",
-	"pi-magic-context",
-);
+const magicContextLink = path.join(root, "node_modules", "@hheei", "pi-magic-context");
 mkdirSync(path.dirname(magicContextLink), { recursive: true });
 rmSync(magicContextLink, { force: true, recursive: true });
 symlinkSync(magicContextPackage, magicContextLink, "dir");

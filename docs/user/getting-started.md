@@ -32,7 +32,6 @@ bun run build:aggregates
 pi --no-extensions --no-skills -e packages/hepi-mono/dist/extension.js
 pi --no-extensions --no-skills -e packages/hepi-basics/dist/extension.js
 pi --no-extensions --no-skills -e packages/hepi-tools/dist/extension.js
-pi --no-extensions --no-skills -e packages/hepi-mctx/dist/extension.js
 pi --no-extensions --no-skills -e packages/hepi-skills/dist/extension.js
 ```
 

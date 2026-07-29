@@ -12,8 +12,8 @@ git submodule update --init --recursive
 
 ## Magic Context
 
-`magic-context` builds `@hheei/pi-magic-context`. `hepi-mctx` composes its
-default Pi extension and the public subagent-accounting export. Run the normal
+`magic-context` builds and owns the complete `@hheei/pi-magic-context` Pi
+extension, including runtime bridges and subagent accounting. Run the normal
 HEPI aggregate build; it builds this public package first:
 
 ```bash

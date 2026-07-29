@@ -50,7 +50,6 @@ bun run build:aggregates
 pi --no-extensions --no-skills -e packages/hepi-mono/dist/extension.js
 pi --no-extensions --no-skills -e packages/hepi-basics/dist/extension.js
 pi --no-extensions --no-skills -e packages/hepi-tools/dist/extension.js
-pi --no-extensions --no-skills -e packages/hepi-mctx/dist/extension.js
 pi --no-extensions --no-skills -e packages/hepi-skills/dist/extension.js
 ```
 
@@ -64,7 +63,7 @@ packages are deprecated.
 packages/       HEPI-owned publishable workspaces
 
 third_party/     Pinned external fork submodules, excluded from workspaces
-  magic-context/  Public API consumed by hepi-mctx during the release build
+  magic-context/  Pi-native Magic Context fork built before HEPI aggregates
   pi-subagents/   Optional external Pi extension source
 
 docs/

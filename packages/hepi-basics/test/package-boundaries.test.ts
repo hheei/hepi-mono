@@ -9,7 +9,6 @@ const packagesDirectory = join(repositoryRoot, "packages");
 const compositionPackages = new Set([
 	"hepi-aft",
 	"hepi-basics",
-	"hepi-mctx",
 	"hepi-mono",
 	"hepi-skills",
 	"hepi-tools",

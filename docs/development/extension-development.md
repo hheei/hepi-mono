@@ -10,7 +10,6 @@ New HEPI functionality belongs inside one aggregate source tree:
 packages/
   hepi-basics/src/<module>/
   hepi-tools/src/<module>/
-  hepi-mctx/src/<module>/
   hepi-skills/src/<module>/
   hepi-mono/src/<module>/
 ```
@@ -74,7 +73,6 @@ Build and run the aggregate entry directly:
 ```bash
 bun run build:aggregates
 pi --no-extensions --no-skills -e packages/hepi-tools/dist/extension.js
-pi --no-extensions --no-skills -e packages/hepi-mctx/dist/extension.js
 ```
 
 Pass extra Pi flags normally:

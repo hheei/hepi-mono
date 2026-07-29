@@ -102,18 +102,6 @@
         "@earendil-works/pi-tui": "*",
       },
     },
-    "packages/hepi-mctx": {
-      "name": "@hheei/hepi-mctx",
-      "version": "0.0.0",
-      "devDependencies": {
-        "@earendil-works/pi-coding-agent": "^0.82.0",
-        "@hheei/hepi-basics": "workspace:*",
-        "@types/bun": "latest",
-      },
-      "peerDependencies": {
-        "@earendil-works/pi-coding-agent": ">=0.82.0",
-      },
-    },
     "packages/hepi-mono": {
       "name": "@hheei/hepi-mono",
       "version": "0.0.0",
@@ -288,8 +276,6 @@
     "@hheei/hepi-basics": ["@hheei/hepi-basics@workspace:packages/hepi-basics"],
 
     "@hheei/hepi-debug": ["@hheei/hepi-debug@workspace:packages/hepi-debug"],
-
-    "@hheei/hepi-mctx": ["@hheei/hepi-mctx@workspace:packages/hepi-mctx"],
 
     "@hheei/hepi-mono": ["@hheei/hepi-mono@workspace:packages/hepi-mono"],
 

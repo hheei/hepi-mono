@@ -23,7 +23,7 @@ Do not vendor upstream Pi source under `packages/` or import from it at runtime.
 
 Read [DOCS_ROUTING.md](references/DOCS_ROUTING.md) first. It routes every Pi `coding-agent/docs/` document by problem type and names the matching source entry points and HEPI overlays. Then read the selected upstream document completely before inspecting the smallest source locations that implement its contract.
 
-For HEPI behavior, then read the owning module under `packages/hepi-basics/src`, `packages/hepi-tools/src`, `packages/hepi-mctx/src`, `packages/hepi-skills/src`, or `packages/hepi-mono/src`. Shared contracts belong in Basics `core`; feature state machines and parsers stay in their feature module.
+For HEPI behavior, then read the owning module under `packages/hepi-basics/src`, `packages/hepi-tools/src`, `packages/hepi-skills/src`, `packages/hepi-mono/src`, or the relevant `third_party` fork. Shared contracts belong in Basics `core`; feature state machines and parsers stay in their owning module.
 
 Read [ARCHITECTURE.md](references/ARCHITECTURE.md) when the task needs an overall Pi model, crosses package boundaries, or depends on whether a behavior is public API versus interactive-mode implementation detail.
 
@@ -33,7 +33,7 @@ Read [ARCHITECTURE.md](references/ARCHITECTURE.md) when the task needs an overal
 - Treat event registration as persistent across reload when Pi exposes no unregister API. HEPI lifecycle registration must use a stable key and runtime-scoped current-owner state so stale handlers become inert.
 - Keep runtime state session-scoped and cleanup idempotent. A timer, process, UI component, watcher, or handler must have an owner and a cleanup path.
 - Validate JSON, file, environment, extension payload, and third-party data at the boundary with `unknown` narrowing or the repository TypeBox contracts.
-- Keep aggregate boundaries intact: `hepi-basics`, `hepi-tools`, `hepi-mctx`, `hepi-skills`, and `hepi-mono` publish bundled `dist/extension.js`; static skills and themes are package resources, not runtime imports.
+- Keep aggregate boundaries intact: `hepi-basics`, `hepi-tools`, `hepi-skills`, and `hepi-mono` publish bundled `dist/extension.js`; Magic Context is maintained and built from `third_party/magic-context`; static skills and themes are package resources, not runtime imports.
 
 ## Tool and TUI work
 
