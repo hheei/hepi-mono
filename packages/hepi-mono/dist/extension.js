@@ -347468,14 +347468,15 @@ var package_default = {
     build: "rm -f dist/index.js dist/subagent-entry.js dist/*-*.js && bun build src/index.ts src/subagent-entry.ts --outdir dist --target node --format esm --splitting --external @earendil-works/pi-coding-agent --external @earendil-works/pi-tui --external @huggingface/transformers --external node:sqlite",
     typecheck: "tsc --noEmit",
     test: "bun test",
-    lint: "biome check src",
-    "lint:fix": "biome check --write src",
+    lint: "biome lint --config-path biome.json src",
+    "lint:fix": "biome lint --config-path biome.json --write src",
     format: "biome format --write src",
     "format:check": "biome format src",
     clean: "rm -rf dist",
     prepublishOnly: "bun run build"
   },
   dependencies: {
+    "@cortexkit/subc-client": "0.4.1",
     "@huggingface/transformers": "^4.1.0",
     "@jitl/quickjs-singlefile-cjs-release-asyncify": "0.32.0",
     "ai-tokenizer": "^1.0.6",
