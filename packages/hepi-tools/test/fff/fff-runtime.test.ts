@@ -7,6 +7,52 @@ import { ExternalGrepScopeError } from "../../src/fff/errors.js";
 import { FffRuntime } from "../../src/fff/fff.js";
 
 describe("FFF runtime", () => {
+	test("continues grep pages after the runtime is recreated", async () => {
+		const seenOffsets: Array<number | null> = [];
+		const page = (options: { cursor?: { _offset: number } | null }) => {
+			seenOffsets.push(options.cursor?._offset ?? null);
+			const secondPage = options.cursor?._offset === 1;
+			return {
+				ok: true as const,
+				value: {
+					items: [
+						{
+							relativePath: secondPage ? "second.ts" : "first.ts",
+							lineNumber: 1,
+							lineContent: "needle",
+							matchRanges: [],
+						},
+					],
+					nextCursor: secondPage ? null : { __brand: "GrepCursor", _offset: 1 },
+				},
+			};
+		};
+		const finder = {
+			grep: (_query: string, options: { cursor?: { _offset: number } | null }) => page(options),
+			multiGrep: (options: { cursor?: { _offset: number } | null }) => {
+				return page(options);
+			},
+		};
+		const firstRuntime = new FffRuntime("/tmp", { finder: finder as never });
+		const first = await firstRuntime.grepSearch({ pattern: "needle", limit: 1 });
+		if (first.isErr()) throw first.error;
+		expect(first.isOk()).toBe(true);
+		const cursor = first.value.nextCursor;
+		expect(cursor).toStartWith("grep:");
+		if (!cursor) throw new Error("Expected a continuation cursor");
+
+		const secondRuntime = new FffRuntime("/tmp", { finder: finder as never });
+		const second = await secondRuntime.grepSearch({
+			pattern: "needle",
+			limit: 1,
+			cursor,
+		});
+		expect(second.isOk()).toBe(true);
+		if (second.isErr()) throw second.error;
+		expect(second.value.items[0]?.relativePath).toBe("second.ts");
+		expect(seenOffsets).toEqual([null, 1]);
+	});
+
 	test("destroys a finder that finishes initialization after disposal", async () => {
 		const runtime = new FffRuntime("/tmp");
 		let resolveInitialization: (result: unknown) => void = () => undefined;

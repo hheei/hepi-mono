@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
@@ -45,7 +46,6 @@ import {
 	type GrepSearchResponse,
 	type GrepSearchResult,
 	type HealthCheck,
-	MAX_GREP_CURSOR_STATES,
 	MAX_MATCHES_PER_FILE,
 	type MultiGrepRequest,
 	type PathResolution,
@@ -56,7 +56,6 @@ import {
 	type RuntimeOptions,
 	type Score,
 	type SingleGrepRequest,
-	type StoredGrepContinuation,
 } from "./fff-types.js";
 import { type AppResult, errResult, propagateError, toVoidResult } from "./result-utils.js";
 import { getProjectDatabasePaths } from "./runtime-paths.js";
@@ -201,12 +200,28 @@ function decodeJsonCursor<T>(cursor: string | undefined, prefix: string): T | nu
 	}
 }
 
-function trimCursorStore(map: Map<string, StoredGrepContinuation>) {
-	while (map.size > MAX_GREP_CURSOR_STATES) {
-		const firstKey = map.keys().next().value;
-		if (!firstKey) break;
-		map.delete(firstKey);
+type GrepCursorPayload = {
+	requestHash: string;
+	engineOffset: number;
+};
+
+function decodeGrepCursor(cursor: string | undefined): GrepCursorPayload | null {
+	const payload = decodeJsonCursor<Partial<GrepCursorPayload>>(cursor, GREP_CURSOR_PREFIX);
+	const engineOffset = payload?.engineOffset;
+	if (
+		!payload ||
+		typeof payload.requestHash !== "string" ||
+		typeof engineOffset !== "number" ||
+		!Number.isSafeInteger(engineOffset) ||
+		engineOffset < 0
+	) {
+		return null;
 	}
+	return { requestHash: payload.requestHash, engineOffset };
+}
+
+function grepCursorAt(offset: number): GrepCursor {
+	return { __brand: "GrepCursor", _offset: offset };
 }
 
 function buildSingleGrepQuery(pattern: string, constraintQuery: string | undefined): string {
@@ -241,6 +256,13 @@ function grepRequestKey(
 	});
 }
 
+function grepRequestHash(
+	request: SingleGrepRequest | MultiGrepRequest,
+	constraintQuery: string | undefined,
+): string {
+	return createHash("sha256").update(grepRequestKey(request, constraintQuery)).digest("base64url");
+}
+
 function finderFailure(operation: string, reason: string, cause?: unknown): FinderOperationError {
 	return new FinderOperationError({ operation, reason, cause });
 }
@@ -271,8 +293,6 @@ export class FffRuntime {
 	> | null = null;
 	private loadError: RuntimeInitializationError | null = null;
 	private generation = 0;
-	private grepCursorCounter = 0;
-	private readonly grepContinuations = new Map<string, StoredGrepContinuation>();
 
 	constructor(cwd: string, options: RuntimeOptions = {}) {
 		this.cwd = cwd;
@@ -327,7 +347,6 @@ export class FffRuntime {
 		});
 		this.finder = this.options.finder ?? null;
 		this.initPromise = null;
-		this.grepContinuations.clear();
 	}
 
 	async getMetadata(): Promise<RuntimeMetadata> {
@@ -659,18 +678,6 @@ export class FffRuntime {
 		});
 	}
 
-	private storeGrepContinuation(state: StoredGrepContinuation): string {
-		const cursor = `${GREP_CURSOR_PREFIX}${++this.grepCursorCounter}`;
-		this.grepContinuations.set(cursor, state);
-		trimCursorStore(this.grepContinuations);
-		return cursor;
-	}
-
-	private getGrepContinuation(cursor: string | undefined): StoredGrepContinuation | null {
-		if (!cursor?.startsWith(GREP_CURSOR_PREFIX)) return null;
-		return this.grepContinuations.get(cursor) ?? null;
-	}
-
 	private buildApproximateMatchText(items: GrepMatch[]): string {
 		const lines = [`0 exact matches. ${items.length} approximate:`];
 		let currentFile = "";
@@ -689,6 +696,7 @@ export class FffRuntime {
 		request: SingleGrepRequest | MultiGrepRequest,
 		constraintQuery: string | undefined,
 		engineCursor: GrepCursor | null,
+		pageSize = request.limit,
 		timeBudgetMs = request.timeBudgetMs,
 	): AppResult<GrepResult, FinderOperationError> {
 		if (request.kind === "single") {
@@ -701,6 +709,7 @@ export class FffRuntime {
 						cursor: engineCursor,
 						beforeContext: request.context,
 						afterContext: request.context > 0 ? request.context : AUTO_EXPAND_AFTER_CONTEXT,
+						pageSize,
 						maxMatchesPerFile: MAX_MATCHES_PER_FILE,
 						timeBudgetMs,
 					}),
@@ -712,6 +721,7 @@ export class FffRuntime {
 					cursor: engineCursor,
 					beforeContext: request.context,
 					afterContext: request.context > 0 ? request.context : AUTO_EXPAND_AFTER_CONTEXT,
+					pageSize,
 					maxMatchesPerFile: MAX_MATCHES_PER_FILE,
 					timeBudgetMs,
 				}),
@@ -724,6 +734,7 @@ export class FffRuntime {
 				cursor: engineCursor,
 				beforeContext: request.context,
 				afterContext: request.context > 0 ? request.context : AUTO_EXPAND_AFTER_CONTEXT,
+				pageSize,
 				maxMatchesPerFile: MAX_MATCHES_PER_FILE,
 				timeBudgetMs,
 			}),
@@ -927,34 +938,22 @@ export class FffRuntime {
 			nativeConstraintForGlob(request.glob),
 			request.constraints?.trim() ? request.constraints.trim() : undefined,
 		);
-		const requestKey = grepRequestKey(request, constraintQuery);
-
-		const continuation = this.getGrepContinuation(request.cursor);
-		if (request.cursor && !continuation && request.cursor.startsWith(GREP_CURSOR_PREFIX)) {
+		const requestHash = grepRequestHash(request, constraintQuery);
+		const cursor = decodeGrepCursor(request.cursor);
+		if (request.cursor && !cursor) {
 			return errResult(new InvalidGrepCursorError({ cursor: request.cursor }));
 		}
-		if (continuation && continuation.requestKey !== requestKey) {
+		if (cursor && cursor.requestHash !== requestHash) {
 			return errResult(new GrepCursorMismatchError({ cursor: request.cursor ?? "" }));
 		}
 
-		let engineCursor = continuation?.engineCursor ?? null;
-		const remainingItems = continuation ? [...continuation.remainingItems] : [];
+		let engineCursor = cursor ? grepCursorAt(cursor.engineOffset) : null;
 		const items: GrepMatch[] = [];
-		let regexFallbackError = continuation?.regexFallbackError;
+		let regexFallbackError: string | undefined;
 		const deadline = Date.now() + request.timeBudgetMs;
 
-		const takeFromRemaining = () => {
-			while (remainingItems.length > 0 && items.length < request.limit) {
-				const item = remainingItems.shift();
-				if (!item) continue;
-				items.push(item);
-			}
-		};
-		takeFromRemaining();
-
 		while (items.length < request.limit) {
-			if (items.length > 0 && engineCursor === null && remainingItems.length === 0) break;
-			if (continuation && engineCursor === null && remainingItems.length === 0) break;
+			if (items.length > 0 && engineCursor === null) break;
 			const remainingTimeBudgetMs = deadline - Date.now();
 			if (remainingTimeBudgetMs <= 0) break;
 
@@ -963,15 +962,15 @@ export class FffRuntime {
 				request,
 				constraintQuery,
 				engineCursor,
+				request.limit - items.length,
 				remainingTimeBudgetMs,
 			);
 			if (result.isErr()) return propagateError(result);
 
 			regexFallbackError = result.value.regexFallbackError ?? regexFallbackError;
 			engineCursor = result.value.nextCursor;
-			remainingItems.push(...result.value.items);
-			takeFromRemaining();
-			if (!engineCursor && remainingItems.length === 0) break;
+			items.push(...result.value.items);
+			if (!engineCursor) break;
 		}
 
 		if (items.length === 0 && !request.cursor && Date.now() < deadline) {
@@ -994,15 +993,13 @@ export class FffRuntime {
 			}
 		}
 
-		const hasMore = remainingItems.length > 0 || engineCursor !== null;
-		const nextCursor = hasMore
-			? this.storeGrepContinuation({
-					requestKey,
-					remainingItems,
-					engineCursor,
-					...(regexFallbackError === undefined ? {} : { regexFallbackError }),
-				})
-			: undefined;
+		const nextCursor =
+			engineCursor === null
+				? undefined
+				: encodeJsonCursor(GREP_CURSOR_PREFIX, {
+						requestHash,
+						engineOffset: engineCursor._offset,
+					} satisfies GrepCursorPayload);
 
 		const built = buildGrepText(items.slice(0, request.limit), {
 			limit: request.limit,

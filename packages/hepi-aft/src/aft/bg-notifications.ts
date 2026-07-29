@@ -110,8 +110,11 @@ const DELIVERED_AWAITING_ACK_CAP = 4096;
 type TextContent = { type: "text"; text: string; textSignature?: string };
 type ImageContent = { type: "image"; data: string; mimeType: string };
 type ContentBlock = TextContent | ImageContent;
-type SendUserMessageRuntime = {
-	sendUserMessage: (content: string, options?: { deliverAs?: "steer" | "followUp" }) => void;
+type SendReminderRuntime = {
+	sendMessage: (
+		message: { customType: string; content: string; display: boolean },
+		options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
+	) => void;
 };
 
 export const sessionBgStates: Map<string, SessionBgState> = new Map();
@@ -296,7 +299,7 @@ function routeExplicitControlCompletions(state: SessionBgState): void {
 }
 
 export async function handlePushedPatternMatch(
-	drainContext: DrainContext & { runtime: SendUserMessageRuntime },
+	drainContext: DrainContext & { runtime: SendReminderRuntime },
 	frame: PatternMatchEntry,
 ): Promise<void> {
 	const state = stateFor(drainContext.sessionID);
@@ -350,7 +353,7 @@ export function ingestBgCompletions(
 }
 
 export async function handlePushedBgCompletion(
-	drainContext: DrainContext & { runtime: SendUserMessageRuntime },
+	drainContext: DrainContext & { runtime: SendReminderRuntime },
 	completion: unknown,
 ): Promise<void> {
 	ingestBgCompletions(drainContext.sessionID, [completion]);
@@ -358,7 +361,7 @@ export async function handlePushedBgCompletion(
 }
 
 export async function handlePushedBgLongRunning(
-	drainContext: DrainContext & { runtime: SendUserMessageRuntime },
+	drainContext: DrainContext & { runtime: SendReminderRuntime },
 	reminder: BgLongRunningReminder,
 ): Promise<void> {
 	stateFor(drainContext.sessionID).pendingLongRunning.push(reminder);
@@ -428,7 +431,7 @@ export async function appendToolResultBgCompletions(
 }
 
 export async function handleTurnEndBgCompletions(
-	drainContext: DrainContext & { runtime: SendUserMessageRuntime },
+	drainContext: DrainContext & { runtime: SendReminderRuntime },
 ): Promise<void> {
 	stateFor(drainContext.sessionID).wakeDeferredTaskIds.clear();
 	await triggerWakeIfPending(drainContext, false, true);
@@ -444,14 +447,14 @@ export async function handleTurnEndBgCompletions(
  * rationale.
  */
 export async function handleSubcBgEventsNudge(
-	drainContext: DrainContext & { runtime: SendUserMessageRuntime },
+	drainContext: DrainContext & { runtime: SendReminderRuntime },
 ): Promise<void> {
 	stateFor(drainContext.sessionID).wakeDeferredTaskIds.clear();
 	await triggerWakeIfPending(drainContext, false, true, true);
 }
 
 async function triggerWakeIfPending(
-	drainContext: DrainContext & { runtime: SendUserMessageRuntime },
+	drainContext: DrainContext & { runtime: SendReminderRuntime },
 	skipDrain: boolean,
 	includeDeferredCompletions = true,
 	forceDrain = false,
@@ -460,7 +463,7 @@ async function triggerWakeIfPending(
 	// to defer wakes until the bridge was idle. That was wrong: the bridge
 	// is busy for any non-agent traffic (status polls, configure work),
 	// which orphaned completions when no other trigger fired. Pi's
-	// `sendUserMessage` with `deliverAs: "steer"` handles ordinary mid-turn
+	// `sendMessage` with `triggerTurn` handles ordinary mid-turn
 	// delivery cleanly. For tasks spawned in the current assistant turn,
 	// wakeDeferredTaskIds still suppresses immediate push wakes until an
 	// in-turn append consumes the completion or turn end clears the deferral.
@@ -479,8 +482,7 @@ async function triggerWakeIfPending(
 	scheduleWake(
 		state,
 		async (reminder, deliveredCompletions) => {
-			// Pi rejects sendUserMessage with "Agent is already processing" when
-			// the agent is mid-turn unless we pass `deliverAs`. Use `steer`:
+			// Use a hidden custom message with `steer` delivery:
 			// Pi delivers steering messages after the current tool batch finishes
 			// and BEFORE the next LLM call (see agent-session.ts steer() docs:
 			// "Delivered after the current assistant turn finishes executing its
@@ -494,12 +496,11 @@ async function triggerWakeIfPending(
 			// late for tool-loop scenarios where the agent is actively working
 			// on a problem that depends on the bash result.
 			//
-			// Unlike OpenCode, Pi's `sendUserMessage` does not accept any model
-			// or variant fields — it just queues a content string. The next
-			// turn uses Pi's currently-selected model, so there is no per-message
-			// override for us to thread through.
-			drainContext.runtime.sendUserMessage(reminder, { deliverAs: "steer" });
-			// C-#1 site 2: delivery (sendUserMessage) is synchronous and cannot fail
+			drainContext.runtime.sendMessage(
+				{ customType: "hepi-aft-bg-reminder", content: reminder, display: false },
+				{ triggerTurn: true, deliverAs: "steer" },
+			);
+			// C-#1 site 2: delivery (sendMessage) is synchronous and cannot fail
 			// here, so move ack-target ids to awaiting-ack before acking; a forced
 			// drain racing the ack round-trip re-acks instead of re-delivering. On ack
 			// success stop tracking; on failure keep for the C-#3 re-ack-on-drain close.
