@@ -1,5 +1,5 @@
 import type { AgentToolResult, ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
-import { createGrepTool, createReadTool } from "@earendil-works/pi-coding-agent";
+import { createGrepTool } from "@earendil-works/pi-coding-agent";
 import { type Component, Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import {
@@ -11,12 +11,10 @@ import {
 	buildFindFilesDetails,
 	buildGrepDetails,
 	buildGrepFailureMessage,
-	buildReadFailureMessage,
 	type FeatureKey,
 	FFF_RUNTIME_NOT_READY_TEXT,
 	grepNeedsBuiltinFallback,
 	inferFffGrepMode,
-	locationToReadParams,
 	normalizeMode,
 	normalizeOutputMode,
 } from "./extension-common.js";
@@ -27,10 +25,6 @@ export type ToolRegistrationDeps = {
 	getRuntime(): FffRuntime | null;
 	isFeatureEnabled(feature: FeatureKey): boolean;
 	agentToolsDisabledText(): string;
-};
-
-export type ToolRegistrationOptions = {
-	readonly registerRead?: boolean;
 };
 
 function textResult<T>(text: string, details: T) {
@@ -237,12 +231,7 @@ function renderFindResult(
 	return text;
 }
 
-export function registerTools(
-	pi: ExtensionAPI,
-	deps: ToolRegistrationDeps,
-	options: ToolRegistrationOptions = {},
-): void {
-	const readTemplate = createReadTool(process.cwd());
+export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): void {
 	const grepTemplate = createGrepTool(process.cwd());
 
 	const getAgentRuntime = <T>(disabledDetails: T, unavailableDetails: T) => {
@@ -261,46 +250,6 @@ export function registerTools(
 		}
 		return { kind: "ready" as const, runtime };
 	};
-
-	if (options.registerRead !== false)
-		pi.registerTool({
-			name: "read",
-			label: "read",
-			description: `${readTemplate.description} Accepts approximate file paths and resolves them with fff before reading.`,
-			parameters: readTemplate.parameters,
-			async execute(toolCallId, params, signal, onUpdate, ctx) {
-				const original = createReadTool(ctx.cwd);
-				const runtime = deps.getRuntime();
-				if (!runtime || !deps.isFeatureEnabled("builtInReadEnhancement")) {
-					return original.execute(toolCallId, params, signal, onUpdate);
-				}
-
-				const resolution = await runtime.resolvePath(params.path, {
-					allowDirectory: false,
-					limit: 8,
-				});
-				return resolution.match({
-					err: async (error) => {
-						throw new Error(buildReadFailureMessage("read", params.path, error));
-					},
-					ok: async (resolved) => {
-						void runtime.trackQuery(params.path, resolved.absolutePath);
-						const locationParams = locationToReadParams(resolved, params.offset, params.limit);
-						return original.execute(
-							toolCallId,
-							{
-								...params,
-								path: resolved.absolutePath,
-								...(locationParams.offset === undefined ? {} : { offset: locationParams.offset }),
-								...(locationParams.limit === undefined ? {} : { limit: locationParams.limit }),
-							},
-							signal,
-							onUpdate,
-						);
-					},
-				});
-			},
-		});
 
 	const grepSchema = Type.Object({
 		pattern: Type.String({ description: "Search pattern" }),

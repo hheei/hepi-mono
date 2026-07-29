@@ -52,7 +52,7 @@ describe("FFF tool registration", () => {
 			agentToolsDisabledText: () => "disabled",
 		});
 
-		expect(host.tools.map((tool) => tool.name)).toEqual(["read", "grep", "find", "fff_multi_grep"]);
+		expect(host.tools.map((tool) => tool.name)).toEqual(["grep", "find", "fff_multi_grep"]);
 		expect(host.tools.find((tool) => tool.name === "find")?.promptGuidelines).toEqual([
 			"Use `find` when exploring a topic, looking for a file, or needing paginated ranked candidates before reading.",
 		]);
@@ -62,53 +62,6 @@ describe("FFF tool registration", () => {
 			"Use outputMode=files_with_matches when content output is too noisy.",
 			"After one or two good greps, read the best matching file.",
 		]);
-	});
-
-	test("omits read when AFT owns the read slot", () => {
-		const host = harness();
-		registerTools(
-			host.pi,
-			{
-				getRuntime: () => null,
-				isFeatureEnabled: () => false,
-				agentToolsDisabledText: () => "disabled",
-			},
-			{ registerRead: false },
-		);
-
-		expect(host.tools.map((tool) => tool.name)).toEqual(["grep", "find", "fff_multi_grep"]);
-	});
-
-	test("delegates read to Pi when the FFF enhancement is disabled", async () => {
-		const cwd = await temporaryDirectory();
-		const target = join(cwd, "target.txt");
-		await writeFile(target, "resolved\n", "utf8");
-		const host = harness();
-		const tracked: string[] = [];
-		const runtime = {
-			async resolvePath() {
-				return Result.ok({ absolutePath: target });
-			},
-			async trackQuery(query: string) {
-				tracked.push(query);
-				return Result.ok(undefined);
-			},
-		} as unknown as FffRuntime;
-		registerTools(host.pi, {
-			getRuntime: () => runtime,
-			isFeatureEnabled: () => false,
-			agentToolsDisabledText: () => "disabled",
-		});
-		const read = host.tools.find((tool) => tool.name === "read")?.execute;
-		if (read === undefined) throw new Error("FFF read wrapper was not registered");
-		const ctx = { cwd } as ExtensionContext;
-
-		const result = (await read("read", { path: "target.txt" }, undefined, undefined, ctx)) as {
-			readonly content: readonly { readonly type: string; readonly text?: string }[];
-		};
-
-		expect(result.content).toContainEqual({ type: "text", text: "resolved\n" });
-		expect(tracked).toEqual([]);
 	});
 
 	test("falls back to Pi grep for a scope outside the FFF project root", async () => {

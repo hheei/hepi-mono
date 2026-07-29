@@ -1,10 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import piMagicContext from "@hheei/pi-magic-context";
-import {
-	hepiAftExtensions,
-	loadAftConfig,
-	resolveHepiAftToolSurface,
-} from "../../hepi-aft/src/index.js";
+import { hepiAftExtensions } from "../../hepi-aft/src/index.js";
 import {
 	type HepiLoadoutGroup,
 	registerHepiRuntimeLoadoutGroup,
@@ -41,14 +37,9 @@ function registerMagicContext(pi: ExtensionAPI): void {
 	);
 }
 
-const aftSurface = resolveHepiAftToolSurface(loadAftConfig(process.cwd()));
-
 export const hepiExtensions: readonly HepiExtension[] = [
 	...hepiBasicsExtensions,
-	...createHepiToolsExtensions({
-		fff: { registerRead: !aftSurface.read },
-		includeCodexApplyPatch: !aftSurface.applyPatch,
-	}),
+	...createHepiToolsExtensions(),
 	...hepiAftExtensions,
 	registerMagicContext,
 	...hepiSkillsExtensions,

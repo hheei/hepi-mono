@@ -44,6 +44,12 @@ mkdirSync(path.dirname(magicContextLink), { recursive: true });
 rmSync(magicContextLink, { force: true, recursive: true });
 symlinkSync(magicContextPackage, magicContextLink, "dir");
 
+const aftPiPackage = path.join(root, "third_party", "aft", "packages", "pi-plugin");
+const aftPiLink = path.join(root, "node_modules", "@cortexkit", "aft-pi");
+mkdirSync(path.dirname(aftPiLink), { recursive: true });
+rmSync(aftPiLink, { force: true, recursive: true });
+symlinkSync(aftPiPackage, aftPiLink, "dir");
+
 const requested = process.argv.slice(2);
 const packageNames = requested.includes("--all")
 	? aggregatePackages
@@ -90,19 +96,6 @@ for (const packageName of packageNames) {
 		path.join(outputRoot, "index.js"),
 		`export { default, ${extensionArray} } from "./extension.js";\n`,
 	);
-	if (packageName === "hepi-tools" || packageName === "hepi-mono") {
-		const binarySource = path.join(
-			root,
-			"packages",
-			"hepi-tools",
-			"src",
-			"pi-codex-tool",
-			"tools",
-			"apply-patch",
-			"bin",
-		);
-		cpSync(binarySource, path.join(outputRoot, "bin"), { recursive: true });
-	}
 	if (packageName === "hepi-skills" || packageName === "hepi-mono") {
 		const skillsSource = path.join(root, "packages", "hepi-skills", "src", "skills");
 		const skillsOutput = path.join(outputRoot, "skills");

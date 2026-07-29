@@ -1,6 +1,5 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { replayTui, stripAnsi } from "../../hepi-debug/src/tui-replay.js";
-import { clearApplyPatchRenderState } from "../../hepi-tools/src/pi-codex-tool/tools/apply-patch/render-state.js";
 import {
 	formatAftApplyPatchTiming,
 	markAftApplyPatchFailure,
@@ -21,8 +20,6 @@ const patchText = [
 	"+export {};",
 	"*** End Patch",
 ].join("\n");
-
-afterEach(clearApplyPatchRenderState);
 
 describe("AFT apply_patch renderer", () => {
 	test("uses the Codex patch summary for complete and streaming arguments", () => {

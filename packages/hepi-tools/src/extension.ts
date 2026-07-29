@@ -11,17 +11,11 @@ import {
 } from "./loadout-groups.js";
 import piAdvisor from "./pi-advisor/index.js";
 import piAsk from "./pi-ask/index.js";
-import piCodexTool from "./pi-codex-tool/index.js";
 import piGoal from "./pi-goal/index.js";
 import piSshfs from "./pi-sshfs/index.js";
 import piTodo from "./pi-todo/index.js";
 
 export type HepiExtension = (pi: ExtensionAPI) => void;
-
-export type HepiToolsCompositionOptions = {
-	readonly fff?: Parameters<typeof registerHepiFff>[1];
-	readonly includeCodexApplyPatch?: boolean;
-};
 
 function loadSettings(): unknown {
 	try {
@@ -52,16 +46,13 @@ const registerExternalToolLoadoutGroups: HepiExtension = (pi) => {
 	);
 };
 
-export function createHepiToolsExtensions(
-	options: HepiToolsCompositionOptions = {},
-): readonly HepiExtension[] {
+export function createHepiToolsExtensions(): readonly HepiExtension[] {
 	return [
 		registerExternalToolLoadoutGroups,
 		piAsk,
 		piGoal,
 		piSshfs,
-		(pi) => registerHepiFff(pi, options.fff),
-		...(options.includeCodexApplyPatch === false ? [] : [piCodexTool]),
+		registerHepiFff,
 		piAdvisor,
 		piTodo,
 		...(hasWebAccess ? [] : [registerBundledWebAccess]),
@@ -69,11 +60,6 @@ export function createHepiToolsExtensions(
 }
 
 export const hepiToolsExtensions = createHepiToolsExtensions();
-
-export const hepiToolsExtensionsWithAft = createHepiToolsExtensions({
-	fff: { registerRead: false },
-	includeCodexApplyPatch: false,
-});
 
 export default function piHepiToolsExtension(pi: ExtensionAPI): void {
 	for (const extension of hepiToolsExtensions) extension(pi);

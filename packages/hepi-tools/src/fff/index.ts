@@ -14,14 +14,7 @@ import { FffRuntime } from "./fff.js";
 import { registerCommands } from "./register-commands.js";
 import { registerTools } from "./register-tools.js";
 
-export type FffRegistrationOptions = {
-	readonly registerRead?: boolean;
-};
-
-export default function registerHepiFff(
-	pi: ExtensionAPI,
-	options: FffRegistrationOptions = {},
-): void {
+export default function registerHepiFff(pi: ExtensionAPI): void {
 	let runtime: FffRuntime | undefined;
 	let enabledFeatures = new Set<FeatureKey>(ALL_FEATURE_KEYS);
 	const autocompleteContexts = new WeakSet<object>();
@@ -56,15 +49,11 @@ export default function registerHepiFff(
 	const agentToolsDisabledText = (): string =>
 		'HEPI FFF feature "agent tools" is disabled. Use /fff-features to re-enable it.';
 
-	registerTools(
-		pi,
-		{
-			getRuntime,
-			isFeatureEnabled,
-			agentToolsDisabledText,
-		},
-		options,
-	);
+	registerTools(pi, {
+		getRuntime,
+		isFeatureEnabled,
+		agentToolsDisabledText,
+	});
 	registerCommands(pi, {
 		getRuntime,
 		isFeatureEnabled,

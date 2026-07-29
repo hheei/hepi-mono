@@ -3,33 +3,21 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Result, TaggedError } from "better-result";
-import { formatGrepError, formatPathResolutionError } from "./error-format.js";
+import { formatGrepError } from "./error-format.js";
 import {
 	type FeatureStateLoadError,
 	FeatureStateParseError,
 	FeatureStateReadError,
 	FeatureStateWriteError,
 	type GrepSearchError,
-	type PathResolutionError,
 } from "./errors.js";
-import type {
-	FindFilesResponse,
-	GrepSearchResponse,
-	HealthCheck,
-	ResolvedPath,
-	RuntimeMetadata,
-} from "./fff.js";
+import type { FindFilesResponse, GrepSearchResponse, HealthCheck, RuntimeMetadata } from "./fff.js";
 
 const GLOBAL_FEATURES_PATH = join(getAgentDir(), "extensions", "pi-fff.json");
 export const CUSTOM_TOOL_NAMES = ["find", "fff_multi_grep"] as const;
 export const FFF_RUNTIME_NOT_READY_TEXT = "FFF runtime is not ready.";
 
-export type FeatureKey =
-	| "autocomplete"
-	| "builtInReadEnhancement"
-	| "builtInGrepEnhancement"
-	| "agentTools"
-	| "statusUI";
+export type FeatureKey = "autocomplete" | "builtInGrepEnhancement" | "agentTools" | "statusUI";
 
 const LEGACY_BUILT_IN_TOOL_ENHANCEMENTS_KEY = "builtInToolEnhancements";
 
@@ -44,11 +32,6 @@ export const FEATURE_DEFINITIONS: FeatureDefinition[] = [
 		id: "autocomplete",
 		label: "Autocomplete",
 		description: "Use FFF for @... editor autocomplete",
-	},
-	{
-		id: "builtInReadEnhancement",
-		label: "Built-in read enhancement",
-		description: "Resolve approximate paths before built-in read",
 	},
 	{
 		id: "builtInGrepEnhancement",
@@ -69,32 +52,8 @@ function isMissingFileError(value: unknown): value is NodeJS.ErrnoException {
 	);
 }
 
-export function buildReadFailureMessage(
-	action: string,
-	query: string,
-	error: PathResolutionError,
-): string {
-	return formatPathResolutionError(action, query, error);
-}
-
 export function buildGrepFailureMessage(error: GrepSearchError, pathQuery?: string): string {
 	return formatGrepError(error, pathQuery);
-}
-
-export function locationToReadParams(
-	resolution: ResolvedPath,
-	offset: number | undefined,
-	limit: number | undefined,
-) {
-	if (offset !== undefined || !resolution.location) return { offset, limit };
-	if (resolution.location.type === "line") {
-		return { offset: resolution.location.line, limit: limit ?? 80 };
-	}
-	if (resolution.location.type === "position") {
-		return { offset: resolution.location.line, limit: limit ?? 80 };
-	}
-	const rangeSize = Math.max(1, resolution.location.end.line - resolution.location.start.line + 1);
-	return { offset: resolution.location.start.line, limit: limit ?? Math.max(rangeSize, 20) };
 }
 
 export function grepNeedsBuiltinFallback(params: {
@@ -219,7 +178,6 @@ function parseFeatureState(content: string): FeatureKey[] | undefined {
 	);
 	const enabled = savedFeatures.filter(isFeatureKey);
 	if (savedFeatures.includes(LEGACY_BUILT_IN_TOOL_ENHANCEMENTS_KEY)) {
-		if (!enabled.includes("builtInReadEnhancement")) enabled.push("builtInReadEnhancement");
 		if (!enabled.includes("builtInGrepEnhancement")) enabled.push("builtInGrepEnhancement");
 	}
 	return enabled.length > 0 ? enabled : [];

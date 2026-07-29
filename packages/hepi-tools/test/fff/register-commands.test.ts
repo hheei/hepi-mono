@@ -57,6 +57,6 @@ describe("FFF commands", () => {
 		expect(saved).toEqual([
 			new Set(ALL_FEATURE_KEYS.filter((feature) => feature !== "autocomplete")),
 		]);
-		expect(notices).toEqual(["pi-fff features saved (4 enabled). Run /reload to apply them."]);
+		expect(notices).toEqual(["pi-fff features saved (3 enabled). Run /reload to apply them."]);
 	});
 });

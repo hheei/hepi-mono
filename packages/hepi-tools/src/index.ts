@@ -1,7 +1,2 @@
-export type { HepiExtension, HepiToolsCompositionOptions } from "./extension.js";
-export {
-	createHepiToolsExtensions,
-	default,
-	hepiToolsExtensions,
-	hepiToolsExtensionsWithAft,
-} from "./extension.js";
+export type { HepiExtension } from "./extension.js";
+export { createHepiToolsExtensions, default, hepiToolsExtensions } from "./extension.js";
