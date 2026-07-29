@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/hepi-mono",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "Unified HEPI extension loader for Pi.",
 	"type": "module",
 	"main": "dist/index.js",
