@@ -27,7 +27,7 @@ const payload = {
 };
 
 describe("OpenAI Responses compatibility", () => {
-	test("strips status only from assistant message input items without mutating payload", () => {
+	test("strips status from replayed assistant and reasoning input items without mutating payload", () => {
 		const rewritten = stripAssistantMessageStatus(payload);
 
 		expect(rewritten).not.toBe(payload);
@@ -41,7 +41,7 @@ describe("OpenAI Responses compatibility", () => {
 					id: "item_1897cee2cf04599211fdda0d",
 					content: [{ type: "output_text", text: "answer", annotations: [] }],
 				},
-				payload.input[2],
+				{ type: "reasoning", id: "item_reasoning" },
 				payload.input[3],
 			],
 		});
@@ -91,9 +91,7 @@ describe("OpenAI Responses compatibility", () => {
 		expect(stripAssistantMessageStatus(chatPayload)).toBe(chatPayload);
 		expect(
 			stripAssistantMessageStatus({ input: [{ type: "reasoning", status: "completed" }] }),
-		).toEqual({
-			input: [{ type: "reasoning", status: "completed" }],
-		});
+		).toEqual({ input: [{ type: "reasoning" }] });
 	});
 
 	test("applies a persisted toggle after the next feature start", async () => {

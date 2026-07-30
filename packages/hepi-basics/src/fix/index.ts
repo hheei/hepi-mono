@@ -117,7 +117,11 @@ export function applyOpenAIResponsesCompat(
 
 	let changed = false;
 	const input = payload.input.map((item: unknown) => {
-		if (!isJsonObject(item) || item.type !== "message" || item.role !== "assistant") return item;
+		if (
+			!isJsonObject(item) ||
+			(item.type !== "reasoning" && (item.type !== "message" || item.role !== "assistant"))
+		)
+			return item;
 
 		let rewritten = item;
 		if (config.stripAssistantMessageStatus && "status" in rewritten) {
@@ -137,7 +141,7 @@ export function applyOpenAIResponsesCompat(
 	return changed ? { ...payload, input } : payload;
 }
 
-/** Remove only the unsupported status field from replayed assistant messages. */
+/** Remove unsupported status fields from replayed Responses input items. */
 export function stripAssistantMessageStatus(payload: unknown): unknown {
 	return applyOpenAIResponsesCompat(payload, {
 		stripAssistantMessageStatus: true,
