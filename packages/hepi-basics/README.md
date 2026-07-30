@@ -8,6 +8,7 @@ Included modules:
 
 - `pi-basics`
 - `pi-loadout`
+- `pi-retry`
 - `pi-rtk`
 - `pi-dollar-skill`
 - `pi-fix`
@@ -21,6 +22,13 @@ full text does not fit.
 
 The tail rail always begins with the current working directory, followed by
 extension statuses when present.
+
+`pi-retry` classifies empty-detail provider failures and known retryable Codex
+errors for Pi's native retry path. `/ext-settings` provides its helper switch
+and stalled-stream timeout (default 90 seconds; zero disables the watchdog).
+`--retry-stall-timeout-ms <ms>` and `PI_RETRY_STALL_TIMEOUT_MS=<ms>` override
+that timeout. Pi's `retry.enabled` setting remains the switch for retries and
+retry backoff. The provider persists values at `hepi.retry`.
 
 Included themes:
 
