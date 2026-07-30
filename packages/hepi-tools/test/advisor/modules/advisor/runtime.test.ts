@@ -67,6 +67,8 @@ function streamScript(messages: readonly AssistantMessage[]): {
 			if (current === undefined) throw new Error("missing fake stream message");
 			if (current.stopReason === "error" || current.stopReason === "aborted")
 				stream.push({ type: "error", reason: current.stopReason, error: current });
+			else if (current.stopReason === "pending")
+				throw new Error("pending is not a terminal fake stream message");
 			else stream.push({ type: "done", reason: current.stopReason, message: current });
 			return stream;
 		},
