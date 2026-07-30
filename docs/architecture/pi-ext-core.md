@@ -35,10 +35,12 @@ runtime 的性能或界面。
 
 这些能力只有在至少两个独立 extension 有明确的同类需求时，才以单独提案考虑。
 
-已批准两个限定例外：core 公开 Loadout tool registration contract，且提供 global Extension page
-router。它们的边界分别由 [ADR 0002](../adr/0002-core-loadout-contract.md) 与
-[ADR 0001](../adr/0001-core-extension-page-shell.md) 限制；core 不接管 Loadout policy、page content
-或 Settings persistence。
+已批准三个限定例外：core 公开 Loadout tool registration contract、提供 global Extension page router，
+并拥有 root-session-scoped subagent execution contract。它们的边界分别由
+[ADR 0002](../adr/0002-core-loadout-contract.md)、
+[ADR 0001](../adr/0001-core-extension-page-shell.md) 与
+[ADR 0004](../adr/0004-core-subagent-execution.md) 限制；core 不接管 Loadout policy、page content、
+Settings persistence 或 agent/config/UI/delivery policy。
 
 ## Pi 集成边界
 
@@ -59,6 +61,7 @@ Pi 没有为大部分 extension 注册面提供公开 unregister。core 的 life
 根入口 `@hheei/pi-ext-core` 只导出实际 consumer 需要的类型与函数，不允许 deep
 import。已实现 v1 包含 lifecycle、Service、ExtensionPoint 和 cleanup API；下一阶段将在相同入口
 添加 Loadout registration 与 Extension page router 的最小公开 contract，详见 [Loadout 架构](loadout.md)。
+subagent execution contract 的 implementation 前提见 [Subagent 执行架构](subagents.md)。
 
 ### Lifecycle
 
