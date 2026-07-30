@@ -49,8 +49,9 @@ describe("OpenAI Responses compatibility", () => {
 		expect(originalAssistant.status).toBe("completed");
 	});
 
-	test("normalizes only item-prefixed assistant message IDs", () => {
+	test("normalizes item-prefixed assistant and reasoning message IDs", () => {
 		const normalizedId = normalizeAssistantMessageId("item_1897cee2cf04599211fdda0d");
+		const normalizedReasoningId = normalizeAssistantMessageId("item_reasoning");
 		expect(normalizedId).toMatch(/^msg_pi_[0-9a-f]{40}$/);
 		expect(normalizeAssistantMessageId("item_1897cee2cf04599211fdda0d")).toBe(normalizedId);
 		expect(normalizeAssistantMessageId("msg_existing")).toBe("msg_existing");
@@ -69,12 +70,16 @@ describe("OpenAI Responses compatibility", () => {
 					id: normalizedId,
 					content: [{ type: "output_text", text: "answer", annotations: [] }],
 				},
-				payload.input[2],
+				{
+					type: "reasoning",
+					id: normalizedReasoningId,
+				},
 				payload.input[3],
 			],
 		});
 		expect(payload.input[1]!.id).toBe("item_1897cee2cf04599211fdda0d");
 		expect(payload.input[2]!.id).toBe("item_reasoning");
+		expect(payload.input[2]!.status).toBe("completed");
 		expect(
 			applyOpenAIResponsesCompat(rewritten, {
 				stripAssistantMessageStatus: true,
