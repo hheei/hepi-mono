@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { hepiAftExtensions } from "@hheei/hepi-aft";
 import piMagicContext from "@hheei/hepi-mctx";
-import { hepiAftExtensions } from "../../hepi-aft/src/index.js";
+import piSubagents from "@hheei/hepi-subagents";
 import {
 	type HepiLoadoutGroup,
 	registerHepiRuntimeLoadoutGroup,
@@ -42,6 +43,7 @@ export const hepiExtensions: readonly HepiExtension[] = [
 	...createHepiToolsExtensions(),
 	...hepiAftExtensions,
 	registerMagicContext,
+	piSubagents,
 	...hepiSkillsExtensions,
 	piBtw,
 	piPlan,

@@ -32,6 +32,9 @@ const external = [
 	"@ff-labs/fff-bun",
 	"@ff-labs/fff-node",
 	"@ff-labs/fff-bin-*",
+	"@hheei/hepi-aft",
+	"@hheei/hepi-mctx",
+	"@hheei/hepi-subagents",
 ];
 const alias = {
 	"@mariozechner/pi-agent-core": "@earendil-works/pi-agent-core",
@@ -45,6 +48,11 @@ const magicContextLink = path.join(root, "node_modules", "@hheei", "hepi-mctx");
 mkdirSync(path.dirname(magicContextLink), { recursive: true });
 rmSync(magicContextLink, { force: true, recursive: true });
 symlinkSync(magicContextPackage, magicContextLink, "dir");
+
+const subagentsPackage = path.join(root, "packages", "hepi-subagents");
+const subagentsLink = path.join(root, "node_modules", "@hheei", "hepi-subagents");
+rmSync(subagentsLink, { force: true, recursive: true });
+symlinkSync(subagentsPackage, subagentsLink, "dir");
 
 const magicContextCoreModules = path.join(
 	root,

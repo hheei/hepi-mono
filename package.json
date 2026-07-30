@@ -23,7 +23,7 @@
 		"build:aft-pi": "bun install --cwd third_party/aft --no-save && bun run --cwd third_party/aft/packages/pi-plugin build",
 		"build:magic-context": "bun install --cwd packages/hepi-mctx --frozen-lockfile && bun run --cwd packages/hepi-mctx build",
 		"build:subagents": "bun install --cwd packages/hepi-subagents --frozen-lockfile && bun run --cwd packages/hepi-subagents build",
-		"build:aggregates": "bun run build:aft-pi && bun run build:magic-context && bun scripts/build-aggregate.mjs --all",
+		"build:aggregates": "bun run build:aft-pi && bun run build:magic-context && bun run build:subagents && bun scripts/build-aggregate.mjs --all",
 		"clean": "rm -rf packages/hepi-aft/dist packages/hepi-basics/dist packages/hepi-mctx/packages/pi-plugin/dist packages/hepi-subagents/dist packages/hepi-tools/dist packages/hepi-skills/dist packages/hepi-mono/dist",
 		"check:mctx": "bun install --cwd packages/hepi-mctx --frozen-lockfile && bun run --cwd packages/hepi-mctx check",
 		"check:subagents": "bun install --cwd packages/hepi-subagents --frozen-lockfile && bun run --cwd packages/hepi-subagents check",

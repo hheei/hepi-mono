@@ -24,4 +24,5 @@ function run(args) {
 
 if (packageName === "hepi-aft" || packageName === "hepi-mono") run(["bun", "run", "build:aft-pi"]);
 if (packageName === "hepi-mono") run(["bun", "run", "build:magic-context"]);
+if (packageName === "hepi-mono") run(["bun", "run", "build:subagents"]);
 run(["bun", "scripts/build-aggregate.mjs", packageName]);

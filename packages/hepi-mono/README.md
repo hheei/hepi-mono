@@ -1,12 +1,13 @@
 # @hheei/hepi-mono
 
-Self-contained unified HEPI bundle for Pi. Its published `dist` entry contains
-the basics, tools, skills, BTW, and Plan implementations, so Pi performs one
-JIT entry traversal instead of discovering each HEPI extension separately.
+Unified HEPI package for Pi. Its published `dist` entry contains the Basics,
+Tools, Skills, BTW, and Plan implementations, and composes the AFT, Magic
+Context, and Subagents package entries at runtime.
 
 The bundle keeps registration order: `pi-basics` first, then `pi-loadout`, the
-remaining basics, tools, skills, BTW, and Plan modules. `hepi-debug` is excluded. The aggregate bundles are the supported runtime
-installation units; top-level `pi-*` feature packages are deprecated.
+remaining Basics and Tools modules, AFT, Magic Context, Subagents, Skills, BTW,
+and Plan. This includes `Agent`, `get_subagent_result`, and `steer_subagent`.
+`hepi-debug` is excluded.
 
 Install the unified package:
 
@@ -23,8 +24,10 @@ pi install -l ./packages/hepi-mono
 Build first with `bun run build` from this package or
 `bun run build:aggregates` from the repository root.
 
-The full bundle keeps `ffi-rs` as a platform runtime dependency for `pi-fff`;
-its native binary cannot be embedded in a portable JavaScript bundle.
+The package requires `@hheei/hepi-aft`, `@hheei/hepi-mctx`, and
+`@hheei/hepi-subagents` at runtime. It also keeps `ffi-rs` as a platform runtime
+dependency for `pi-fff`; its native binary cannot be embedded in a portable
+JavaScript bundle.
 
 Included themes:
 
