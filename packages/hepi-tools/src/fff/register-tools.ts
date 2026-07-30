@@ -53,6 +53,7 @@ const GREP_TRUNCATION = /^\.\.\. \((\d+) more lines, ctrl\+o to expand\)$/i;
 const GREP_NO_MATCHES = /^(?:No files matched\b.*|No matches found\.?)$/i;
 const FIND_SUMMARY = /^\d+\/\d+ matches$/;
 const FIND_CANDIDATE = /^\d+\. (.+) \(([^)]+)\)(?: - (.+))?$/;
+const FIND_CURSOR = /^cursor:\s+/;
 
 function resultText(result: AgentToolResult<unknown>): string {
 	return result.content
@@ -171,7 +172,7 @@ function renderFindText(result: AgentToolResult<unknown>, theme: Theme): string 
 	return [
 		...(summary === undefined ? [] : [summary]),
 		...lines
-			.filter((line) => !FIND_SUMMARY.test(line))
+			.filter((line) => !FIND_SUMMARY.test(line) && !FIND_CURSOR.test(line))
 			.map((line) => {
 				const match = line.match(FIND_CANDIDATE);
 				if (!match) return line;
@@ -195,10 +196,7 @@ function renderFindResult(
 	return text;
 }
 
-export function registerTools(
-	pi: ExtensionAPI,
-	deps: ToolRegistrationDeps,
-): void {
+export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): void {
 	const readTemplate = createReadTool(process.cwd());
 	const grepTemplate = createGrepTool(process.cwd());
 
