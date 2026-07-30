@@ -66,6 +66,8 @@ export {
 export { resolveHepiProjectRoot } from "./runtime/project-root.js";
 export type { SharedFffFinderLease } from "./runtime/shared-fff-finder.js";
 export { acquireSharedFffFinder } from "./runtime/shared-fff-finder.js";
+export type { PiSubagentSessionBridge } from "./runtime/subagent-session.js";
+export { isHepiSubagentSession } from "./runtime/subagent-session.js";
 export type { ToolActivationCoordinator } from "./runtime/tool-activation.js";
 export {
 	createToolActivationCoordinator,
