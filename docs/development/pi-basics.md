@@ -1,9 +1,9 @@
-# Pi Basics Development
+# Pi Basics Development (Transitional)
 
-`@hheei/hepi-basics` is the shared HEPI foundation inside the aggregate source
-layout. Its core lives at `packages/hepi-basics/src/core`; feature modules in
-the aggregate keep their own implementation and use core contracts for shared
-runtime behavior.
+`@hheei/hepi-basics` is a transitional aggregate package. This document records
+its current integration boundaries while existing features migrate. New features
+must follow the [Extension Reference Architecture](../architecture/extension-reference.md)
+and target `@hheei/pi-ext-core`, not this package.
 
 ## Foundation Responsibilities
 
@@ -38,14 +38,8 @@ Use `pi.events` directly only for namespaced notifications without shared state 
 
 ## TUI
 
-Follow [DESIGN.md](../../DESIGN.md). Reuse `renderDetailPanel`, `createSplitLayout`, `renderSelectableRow`, `keyGlyph`, and text helpers. Every rendered line must fit its width; request rendering after state changes.
+Follow [DESIGN.md](../../DESIGN.md); every Pi Basics UI or UX change must reference it in its plan and implementation notes. Reuse `renderDetailPanel`, `createSplitLayout`, `renderSelectableRow`, `keyGlyph`, and text helpers. Every rendered line must fit its width; request rendering after state changes.
 
 ## Verification
 
-```bash
-bun run typecheck
-bun test
-bun run check
-```
-
-Run focused package tests first. Update the package README whenever commands, settings, persistence, requirements, or compatibility changes.
+Run only the focused package tests and checks that cover the changed behavior. Update high-level documentation when package installation or compatibility changes; document TypeScript API usage and implementation details beside the code.

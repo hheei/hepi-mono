@@ -1,6 +1,8 @@
 # Pi 上游模块化与扩展架构研究
 
-本文研究 `earendil-works/pi`（原 `badlogic/pi-mono`）在 `v0.80.10` 的模块边界与扩展机制，并据此给出 `hepi-mono` 的整理方向。
+本文研究 `earendil-works/pi`（原 `badlogic/pi-mono`）在 `v0.80.10` 的模块边界与扩展机制，并保留当时的 HEPI aggregate proposal 作为历史研究。
+
+> 当前 HEPI 目标架构以 [Extension Reference Architecture](../architecture/extension-reference.md) 为准；本文不定义当前 package 边界或发布策略。
 
 > 版本基线：`v0.80.10`，commit [`8dc7883`](https://github.com/earendil-works/pi/tree/8dc78834cde4e329284cf505f9e3f99763df5529)。本仓库依赖同版本。上游实际包名是 `pi-agent-core`，不是 `pi-core`；下文统一写 `pi-agent-core`。
 
