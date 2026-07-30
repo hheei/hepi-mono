@@ -350,8 +350,7 @@ describe("settings renderer", () => {
 		expect(settingsTabs.map(stripAnsi)[1]).toMatch(/│.*│/);
 		expect(settingsTabs.join("\n")).not.toContain(ansi.dim);
 		expect(settingsTabs[1]).toContain(`${ansi.accent}│${ansi.bold} ⚙ Settings`);
-		expect(settingsTabs[1]).toContain("│ ◈ Loadout");
-		expect(settingsTabs[1]).toContain(`${ansi.other}│ ◈ Loadout`);
+		expect(settingsTabs[1]).toContain(`${ansi.other} ◈ Loadout`);
 
 		const loadoutLines = renderSettings({
 			controller,
@@ -366,9 +365,8 @@ describe("settings renderer", () => {
 		expect(loadoutTabs.map(stripAnsi)[0]).toMatch(/╭─+╮/);
 		expect(loadoutTabs.map(stripAnsi)[1]).toMatch(/│.*│/);
 		expect(loadoutTabs.join("\n")).not.toContain(ansi.dim);
-		expect(loadoutTabs[1]!).toContain("│ ⚙ Settings");
 		expect(loadoutTabs[1]!).toContain(`${ansi.bold} ◈ Loadout`);
-		expect(loadoutTabs[1]!).toContain(`${ansi.other}│ ⚙ Settings`);
+		expect(loadoutTabs[1]!).toContain(`${ansi.other} ⚙ Settings`);
 		expect(stripAnsi(settingsTabs[1]!)).toBe(stripAnsi(loadoutTabs[1]!));
 		expect(loadoutLines.map(stripAnsi)).toContain("↕ navigate · ↔ tab · ␣ edit · ⎋ close");
 		const narrowFooter = renderSettings({ controller, theme, width: 30 }).map(stripAnsi);
