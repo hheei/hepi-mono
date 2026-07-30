@@ -22,12 +22,15 @@ package when they share installation, lifecycle, and public API ownership. Split
 only when one of those boundaries differs. `pi-ext-core` is the one naming
 exception because it is not a Pi extension.
 
-`@hheei/pi-ext-core` owns generic coordination mechanisms only:
+`@hheei/pi-ext-core` owns generic coordination mechanisms, plus the explicit Loadout and page-router
+contracts recorded in its ADRs:
 
 - runtime-scoped lifecycle and cleanup support;
 - capability-contract registration and discovery;
 - cancellation, revision, and async ownership helpers;
 - shared TUI primitives governed by [DESIGN.md](../../DESIGN.md).
+- Loadout tool registration transport and metadata, never Loadout policy;
+- Extension page routing and shell lifecycle, never page content or policy.
 
 It does not contain feature policy, register a Pi extension, or import a
 concrete extension. Its imports are side-effect free: it creates no Pi handler,
@@ -85,7 +88,8 @@ Public contracts must:
 
 Do not export a class hierarchy, a generic registry, or an adapter layer for a
 single consumer. Add a core mechanism only after a second concrete extension
-needs the same feature-neutral behavior.
+needs the same feature-neutral behavior. The documented Loadout contract and Extension page router
+are approved, bounded exceptions; do not use them to justify another single-consumer abstraction.
 
 ## Cross-Extension Cooperation
 

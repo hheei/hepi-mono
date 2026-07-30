@@ -2,8 +2,10 @@
 
 ## 状态
 
-已实现 v1：`@hheei/pi-ext-core` package、focused tests 与下列公开接口均已建立。本文件
-记录已确认的边界和组合语义，后续扩展必须先更新本提案并重新达成共识。
+已实现 v1：`@hheei/pi-ext-core` package、focused tests 与 lifecycle、Service、ExtensionPoint
+公开接口均已建立。已确认但尚未实现的 Loadout contract 与 Extension page router 见
+[Loadout 架构](loadout.md)；它们的 interface framework 已建立，必须先完成 focused tests 和用户确认，
+才可实现行为。
 
 维护者与 consumers 的开发约定见 [pi-ext-core 开发约定](../development/pi-ext-core.md)。
 
@@ -24,14 +26,19 @@ runtime 的性能或界面。
 
 ## 非目标
 
-第一阶段不迁移或提供下列 HEPI 专属行为：
+已实现 v1 不迁移或提供下列 HEPI 专属行为：
 
-- Settings、`/hepi` command、Loadout、model selection；
+- Settings persistence、`/hepi` command、model selection；
 - 具体 feature 的业务状态、持久化和 UI；
 - 通用 event bus、RPC 框架或自动 discovery；
 - 对旧 `hepi-basics` API 的兼容 adapter。
 
 这些能力只有在至少两个独立 extension 有明确的同类需求时，才以单独提案考虑。
+
+已批准两个限定例外：core 公开 Loadout tool registration contract，且提供 global Extension page
+router。它们的边界分别由 [ADR 0002](../adr/0002-core-loadout-contract.md) 与
+[ADR 0001](../adr/0001-core-extension-page-shell.md) 限制；core 不接管 Loadout policy、page content
+或 Settings persistence。
 
 ## Pi 集成边界
 
@@ -50,7 +57,8 @@ Pi 没有为大部分 extension 注册面提供公开 unregister。core 的 life
 ## 第一阶段公开接口
 
 根入口 `@hheei/pi-ext-core` 只导出实际 consumer 需要的类型与函数，不允许 deep
-import。第一阶段包含 lifecycle、Service、ExtensionPoint 和 cleanup API。
+import。已实现 v1 包含 lifecycle、Service、ExtensionPoint 和 cleanup API；下一阶段将在相同入口
+添加 Loadout registration 与 Extension page router 的最小公开 contract，详见 [Loadout 架构](loadout.md)。
 
 ### Lifecycle
 
@@ -223,7 +231,7 @@ singleton。
 
 ## 包和测试布局
 
-确认后建立：
+已建立：
 
 ```text
 packages/pi-ext-core/
@@ -243,15 +251,8 @@ packages/pi-ext-core/
     disposer-registry.test.ts
 ```
 
-先建立公开类型与函数签名，再写 focused tests，最后实现。测试覆盖 runtime isolation、
-重复 lifecycle registration、shutdown、startup failure、async late result、disposer
-ownership、Service duplicate provider、waiter abort/resolve/shutdown，以及 ExtensionPoint
-owner/hook registration、动态 add/remove、callback error 的 `ready` propagation，以及 error
-后仍可 `dispose`；不为尚未存在的 UI 或 settings 建测试。首个高吞吐工具在自身 package 测试 topic
-index、late hook、固定 context shape 和共享 context reference；不做微基准替代行为测试。
-另测试 rejected `ready` 在 caller 未处理时不会造成 unhandled rejection，以及 Pi reload 的
-shutdown/start 边界清除旧 Service provider；并测试早启动 consumer 的非阻塞 Service wait
-不会阻塞晚启动 provider。
+已实现 API 先建立公开类型与函数签名，再写 focused tests，最后实现。下一阶段 Loadout tests 的
+具体范围由 [Loadout 架构](loadout.md) 定义；不为尚未存在的 UI 或 settings behavior 预建测试。
 
 ## 已确认决策
 
