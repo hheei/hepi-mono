@@ -24,6 +24,7 @@ export type GrepMatch = EngineGrepMatch & { path?: string };
 
 export const DEFAULT_FILE_CANDIDATE_LIMIT = 8;
 export const DEFAULT_GREP_LIMIT = 100;
+export const DEFAULT_GREP_TIMEOUT_MS = 30_000;
 export const DEFAULT_FIND_FILES_LIMIT = 20;
 export const MAX_MATCHES_PER_FILE = 200;
 export const AUTO_EXPAND_AFTER_CONTEXT = 6;
@@ -60,6 +61,7 @@ export type GrepSearchRequest = {
 	constraints?: string;
 	context?: number;
 	limit?: number;
+	timeBudgetMs?: number;
 	cursor?: string;
 	includeCursorHint?: boolean;
 	outputMode?: GrepOutputMode;
@@ -107,6 +109,7 @@ export type GrepBaseRequest = {
 	constraints?: string;
 	context: number;
 	limit: number;
+	timeBudgetMs: number;
 	cursor?: string;
 	includeCursorHint?: boolean;
 	outputMode?: GrepOutputMode;

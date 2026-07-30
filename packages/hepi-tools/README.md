@@ -31,6 +31,7 @@ built-in `find` beside those four tools, though HEPI FFF does not replace its
 execution. It composes through Pi's autocomplete-provider chain and does not
 install a custom editor, so it remains compatible with Pi Basics statusbar and
 `$skill` input behavior. Configure its feature flags with `/fff-features`.
+The built-in `grep` wrapper accepts `timeout` in seconds and defaults to 30.
 
 Do not also configure the standalone `pi-fff` package. Pi cannot unregister
 extension registrations, and its custom editor conflicts with HEPI FFF's
