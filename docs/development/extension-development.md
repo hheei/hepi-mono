@@ -23,10 +23,12 @@ upstream Pi packages, but never on another concrete extension.
 
 Before a user-requested feature is implemented:
 
-1. Inspect existing repository implementations and the relevant Pi API, then create a high-level plan in the same architectural style where it fits.
-2. Create the module boundary, public interfaces, and test seam. Explain that framework to the user.
+1. Inspect existing repository implementations and the relevant Pi API.
+2. Write or update the matching high-level `docs/<topic>/` document in Simplified Chinese. Describe the user-facing intent, module boundary, and public interface.
 3. Use `grill-me` to resolve the design with the user. Use `grill-with-docs` when the decision also needs ADRs or a shared glossary. Obtain explicit agreement.
-4. Implement the detailed behavior after agreement.
+4. Create the actual code files and interface framework without detailed behavior.
+5. Write focused tests for the affected behavior.
+6. Implement the detailed behavior, then run focused verification.
 
 For UI or UX work, every plan and implementation must reference [DESIGN.md](../../DESIGN.md). Reuse `@hheei/pi-ext-core` UI primitives when they exist; do not copy aggregate UI into a new extension.
 
@@ -105,9 +107,10 @@ Before considering an extension ready:
 When an agent adds or changes an extension:
 
 1. Read `AGENTS.md` and this document.
-2. Plan, grill the request with the user, and agree on the high-level framework before detailed implementation.
-3. Add or update the owning independent extension.
-4. Keep host UI ownership within the extension that renders it. For UI or UX, cite and follow [DESIGN.md](../../DESIGN.md).
-5. Run focused verification.
-6. Commit the independent feature or cohesive feature addition without unrelated user changes.
-7. Report changed files, commit, and verification results.
+2. Write or update the relevant Simplified Chinese high-level document, grill the request with the user, and reach agreement.
+3. Create the extension's files and interface framework.
+4. Write focused tests, then implement detailed behavior.
+5. Keep host UI ownership within the extension that renders it. For UI or UX, cite and follow [DESIGN.md](../../DESIGN.md).
+6. Run focused verification.
+7. Commit the independent feature or cohesive feature addition without unrelated user changes.
+8. Report changed files, commit, and verification results.

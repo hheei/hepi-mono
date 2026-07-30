@@ -140,8 +140,16 @@ feature verification.
 ## Development Flow
 
 Before new feature work, inspect existing repository implementations and the
-relevant Pi API. Reuse their established architecture and naming where it fits;
-do not introduce an unrelated pattern without a concrete reason.
+relevant Pi API. Then write or update the matching high-level `docs/<topic>/`
+document in Simplified Chinese before creating code files. It records
+user-facing intent, package boundary, public interface, and agreed decisions.
+Reuse established architecture and naming where it fits; do not introduce an
+unrelated pattern without a concrete reason.
+
+After the user agrees through `grill-me` or `grill-with-docs`, create code files
+and the interface framework, write focused tests, then implement detailed
+behavior. This order is mandatory: documentation, framework, tests,
+implementation.
 
 Each independent feature or cohesive feature addition is one commit after its
 focused verification. Complete development only after committing every completed
