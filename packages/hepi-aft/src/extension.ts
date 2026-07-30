@@ -3,6 +3,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	HepiLifecycleController,
 	type HepiLoadoutGroup,
+	loadAftBinarySettings,
 	registerHepiLifecycle,
 	registerHepiRuntimeLoadoutGroup,
 } from "../../hepi-basics/src/core/index.js";
@@ -152,7 +153,12 @@ export function registerHepiAft(pi: ExtensionAPI): void {
 				? new FffReadPathResolver(session.ctx.cwd)
 				: undefined;
 			try {
+				const binarySettings = await loadAftBinarySettings({
+					sessionId: session.ctx.sessionManager.getSessionId(),
+					cwd: session.ctx.cwd,
+				});
 				await activeRuntime.start({
+					...(binarySettings.binaryPath === "" ? {} : { binaryPath: binarySettings.binaryPath }),
 					poolOptions: {
 						hangThreshold: bridgeTransport.hangThreshold,
 						onBashCompletion: (completion) => {

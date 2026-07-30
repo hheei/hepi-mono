@@ -37,6 +37,17 @@ export {
 	getHepiSettings,
 	registerHepiSettings,
 } from "./api/settings.js";
+export type { AftBinarySettings, AftBinarySettingsStorageOptions } from "./config/aft-binary.js";
+export {
+	AFT_BINARY_PATH_FIELD,
+	AFT_BINARY_SETTINGS_GROUP,
+	aftBinarySettings,
+	createAftBinarySettingsStorage,
+	DEFAULT_AFT_BINARY_SETTINGS,
+	loadAftBinarySettings,
+	validateAftBinarySettings,
+} from "./config/aft-binary.js";
+export { createAftBinarySettingsProvider } from "./contributions/aft-binary.js";
 export { default } from "./extension.js";
 export type { HepiRuntimeContext } from "./runtime/context.js";
 export { createHepiRuntimeContext } from "./runtime/context.js";

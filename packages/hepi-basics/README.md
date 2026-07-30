@@ -31,16 +31,14 @@ and stalled-stream timeout (default 90 seconds; zero disables the watchdog).
 that timeout. Pi's `retry.enabled` setting remains the switch for retries and
 retry backoff. The provider persists values at `hepi.retry`.
 
-`/ext-settings` includes **AFT** binary selection. It defaults to **Official**
-and uses the normal AFT npm platform binary. Select **Local** only for a local
-AFT build and provide its absolute native executable path; the next session or
-`/reload` applies the change.
+`/ext-settings` includes **AFT binary path**. Leave it empty for the normal
+AFT npm platform binary, or provide an absolute native executable path for a
+local AFT build; the next session or `/reload` applies the change.
 
 ```json
 {
   "hepi": {
     "aft": {
-      "source": "local",
       "binaryPath": "/absolute/path/to/aft"
     }
   }

@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getHepiRuntimeModuleRegistry } from "./api/modules.js";
 import { getHepiRuntimeSettingsRegistry, registerHepiSettings } from "./api/settings.js";
 import { registerHepiCommand } from "./command/hepi-command.js";
+import { createAftBinarySettingsProvider } from "./contributions/aft-binary.js";
 import { createStatusFeature } from "./contributions/status/index.js";
 import {
 	type CursorOptions,
@@ -44,6 +45,14 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 			runtime.registry.registerLifecycle({
 				id: "cursor-settings",
 				cleanup: unregisterCursorSettings,
+			});
+			const unregisterAftSettings = registerHepiSettings(
+				createAftBinarySettingsProvider(),
+				settingsRegistry,
+			);
+			runtime.registry.registerLifecycle({
+				id: "aft-settings",
+				cleanup: unregisterAftSettings,
 			});
 			coordinator.reset();
 			if (typeof runtime.pi.getActiveTools === "function")
