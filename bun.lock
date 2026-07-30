@@ -104,14 +104,14 @@
     },
     "packages/hepi-mono": {
       "name": "@hheei/hepi-mono",
-      "version": "0.1.3",
+      "version": "0.1.6",
       "dependencies": {
         "@cortexkit/aft-bridge": "0.49.0",
         "@ff-labs/fff-bun": "^0.10.1",
         "@ff-labs/fff-node": "^0.10.1",
         "@hheei/hepi-aft": "0.1.1",
-        "@hheei/hepi-mctx": "0.1.2",
-        "@hheei/hepi-subagents": "0.1.0",
+        "@hheei/hepi-mctx": "0.1.5",
+        "@hheei/hepi-subagents": "0.1.2",
         "ffi-rs": "^1.3.2",
       },
       "devDependencies": {
@@ -298,13 +298,13 @@
 
     "@hheei/hepi-debug": ["@hheei/hepi-debug@workspace:packages/hepi-debug"],
 
-    "@hheei/hepi-mctx": ["@hheei/hepi-mctx@0.1.2", "", { "dependencies": { "@cortexkit/subc-client": "0.4.1", "@huggingface/transformers": "^4.1.0", "@jitl/quickjs-singlefile-cjs-release-asyncify": "0.32.0", "ai-tokenizer": "^1.0.6", "comment-json": "^5.0.0", "quickjs-emscripten": "^0.32.0", "typebox": "^1.3.1", "zod": "^4.1.8" }, "peerDependencies": { "@earendil-works/pi-coding-agent": ">=0.82.0", "@earendil-works/pi-tui": ">=0.82.0" } }, "sha512-uYcnbo8SXR665zJdmN+S6L1GdV+M/fN3NcSBsAtQbN853iAxOQkqJYLqpSXOyiQJRGVri3DgmY02VKw4V3arwA=="],
+    "@hheei/hepi-mctx": ["@hheei/hepi-mctx@0.1.5", "", { "dependencies": { "@cortexkit/subc-client": "0.4.1", "@hheei/hepi-subagents": "0.1.2", "@huggingface/transformers": "^4.1.0", "@jitl/quickjs-singlefile-cjs-release-asyncify": "0.32.0", "ai-tokenizer": "^1.0.6", "comment-json": "^5.0.0", "quickjs-emscripten": "^0.32.0", "typebox": "1.3.7", "zod": "^4.1.8" }, "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*" } }, "sha512-BLHArvbKV6Fcda/A6sIQ5ywVRoUnLD+/U6CYHpUW4dZW9G8eO7q8nCw3KMwj/svLGs7JSnfVYuqet2Lst4mpGA=="],
 
     "@hheei/hepi-mono": ["@hheei/hepi-mono@workspace:packages/hepi-mono"],
 
     "@hheei/hepi-skills": ["@hheei/hepi-skills@workspace:packages/hepi-skills"],
 
-    "@hheei/hepi-subagents": ["@hheei/hepi-subagents@0.1.0", "", { "dependencies": { "@sinclair/typebox": "^0.34.49", "croner": "^10.0.1", "nanoid": "^5.0.0" }, "peerDependencies": { "@earendil-works/pi-ai": ">=0.82.0", "@earendil-works/pi-coding-agent": ">=0.82.0", "@earendil-works/pi-tui": ">=0.82.0" } }, "sha512-4h90a+dJBwrFIhHS4jst6pegppJP6gpPwTJUby83MMHrXUeT1iFQihfNWtZVYWIplwXwMNP19ijFRgrO5MY76Q=="],
+    "@hheei/hepi-subagents": ["@hheei/hepi-subagents@0.1.2", "", { "dependencies": { "@sinclair/typebox": "^0.34.49", "croner": "^10.0.1", "nanoid": "^5.0.0" }, "peerDependencies": { "@earendil-works/pi-ai": "*", "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*" } }, "sha512-5qK+SsfFL+9BkuZfk89AmOz3K4HqLVsxL6MudLEkERbr5gJuMnbIHTDgs4QisfkgAxr5e0TmCIAZJw1isZQd4g=="],
 
     "@hheei/hepi-tools": ["@hheei/hepi-tools@workspace:packages/hepi-tools"],
 
