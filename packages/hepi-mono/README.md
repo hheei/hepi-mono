@@ -26,5 +26,10 @@ Build first with `bun run build` from this package or
 The full bundle keeps `ffi-rs` as a platform runtime dependency for `pi-fff`;
 its native binary cannot be embedded in a portable JavaScript bundle.
 
+Included themes:
+
+- `catppuccin-latte`
+- `catppuccin-mocha`
+
 Do not install both `@hheei/hepi-mono` and a group package in one Pi runtime;
 duplicate registration can cause duplicate commands, handlers, or status entries.
