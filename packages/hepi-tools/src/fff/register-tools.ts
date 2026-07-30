@@ -21,6 +21,7 @@ import {
 	normalizeOutputMode,
 } from "./extension-common.js";
 import type { FffRuntime } from "./fff.js";
+import { DEFAULT_GREP_TIMEOUT_MS } from "./fff-types.js";
 
 export type ToolRegistrationDeps = {
 	getRuntime(): FffRuntime | null;
@@ -40,6 +41,12 @@ type GrepRenderArgs = {
 	readonly path?: string | undefined;
 	readonly limit?: number | undefined;
 };
+
+const DEFAULT_GREP_TIMEOUT_SECONDS = DEFAULT_GREP_TIMEOUT_MS / 1_000;
+
+function grepTimeoutMs(timeout: number | undefined): number {
+	return Math.round((timeout ?? DEFAULT_GREP_TIMEOUT_SECONDS) * 1_000);
+}
 
 type GrepRenderContext = {
 	readonly isError: boolean;
@@ -276,6 +283,9 @@ export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): voi
 		limit: Type.Optional(
 			Type.Number({ description: "Maximum number of matches to return (default: 100)" }),
 		),
+		timeout: Type.Optional(
+			Type.Number({ minimum: 1, description: "Timeout in seconds (default: 30)" }),
+		),
 		cursor: Type.Optional(Type.String({ description: "Cursor from a previous grep result" })),
 		outputMode: Type.Optional(
 			Type.String({ description: "Output mode: content, files_with_matches, count, or usage" }),
@@ -299,6 +309,7 @@ export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): voi
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			const original = createGrepTool(ctx.cwd);
 			const runtime = deps.getRuntime();
+			const timeoutMs = grepTimeoutMs(params.timeout);
 			const builtinParams = {
 				pattern: params.pattern,
 				...(params.path === undefined ? {} : { path: params.path }),
@@ -307,6 +318,11 @@ export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): voi
 				...(params.literal === undefined ? {} : { literal: params.literal }),
 				...(params.context === undefined ? {} : { context: params.context }),
 				...(params.limit === undefined ? {} : { limit: params.limit }),
+			};
+			const executeBuiltinGrep = () => {
+				const timeoutSignal = AbortSignal.timeout(timeoutMs);
+				const operationSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+				return original.execute(toolCallId, builtinParams, operationSignal, onUpdate);
 			};
 			const explicitMode = normalizeMode(params.mode);
 			const fallbackLiteral =
@@ -320,7 +336,7 @@ export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): voi
 					...(fallbackLiteral === undefined ? {} : { literal: fallbackLiteral }),
 				})
 			) {
-				return original.execute(toolCallId, builtinParams, signal, onUpdate);
+				return executeBuiltinGrep();
 			}
 
 			const pattern = params.ignoreCase === true ? params.pattern.toLowerCase() : params.pattern;
@@ -333,6 +349,7 @@ export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): voi
 				...(params.constraints === undefined ? {} : { constraints: params.constraints }),
 				...(params.context === undefined ? {} : { context: params.context }),
 				...(params.limit === undefined ? {} : { limit: params.limit }),
+				timeBudgetMs: timeoutMs,
 				...(params.cursor === undefined ? {} : { cursor: params.cursor }),
 				includeCursorHint: false,
 				...(outputMode === undefined ? {} : { outputMode }),
@@ -343,7 +360,7 @@ export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): voi
 					FinderOperationError.is(result.error) ||
 					ExternalGrepScopeError.is(result.error)
 				)
-					return original.execute(toolCallId, builtinParams, signal, onUpdate);
+					return executeBuiltinGrep();
 				throw new Error(buildGrepFailureMessage(result.error, params.path));
 			}
 			return textResult(result.value.formatted, buildGrepDetails(result.value));

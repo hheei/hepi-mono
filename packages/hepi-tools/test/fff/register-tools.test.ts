@@ -132,6 +132,31 @@ describe("FFF tool registration", () => {
 		expect(result.content.some((item) => item.text?.includes("outside needle"))).toBe(true);
 	});
 
+	test("passes default and requested grep timeouts to FFF", async () => {
+		const cwd = await temporaryDirectory();
+		const timeBudgets: number[] = [];
+		const runtime = {
+			async grepSearch(request: { readonly timeBudgetMs?: number }) {
+				if (request.timeBudgetMs !== undefined) timeBudgets.push(request.timeBudgetMs);
+				return Result.ok({ items: [], formatted: "No matches found.", linesTruncated: false });
+			},
+		} as unknown as FffRuntime;
+		const host = harness();
+		registerTools(host.pi, {
+			getRuntime: () => runtime,
+			isFeatureEnabled: (feature) => feature === "builtInGrepEnhancement",
+			agentToolsDisabledText: () => "disabled",
+		});
+		const grep = host.tools.find((tool) => tool.name === "grep")?.execute;
+		if (grep === undefined) throw new Error("FFF grep wrapper was not registered");
+		const ctx = { cwd } as ExtensionContext;
+
+		await grep("grep-default-timeout", { pattern: "needle" }, undefined, undefined, ctx);
+		await grep("grep-custom-timeout", { pattern: "needle", timeout: 7 }, undefined, undefined, ctx);
+
+		expect(timeBudgets).toEqual([30_000, 7_000]);
+	});
+
 	test("falls back to Pi find when the FFF runtime is unavailable", async () => {
 		const cwd = await temporaryDirectory();
 		await writeFile(join(cwd, "fallback-target.txt"), "", "utf8");
