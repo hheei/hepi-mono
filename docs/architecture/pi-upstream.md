@@ -231,7 +231,6 @@ Pi host / upstream libraries
 - Each aggregate has one `pi.extensions` entry; internal feature modules do not publish separate entries.
 - Feature modules use the shared `core` contracts and do not import another feature's private implementation.
 - Cross-feature coordination goes through `core` contracts.
-- [`package-boundaries.test.ts`](../../packages/hepi-basics/test/package-boundaries.test.ts) checks the aggregate workspace and entry contracts.
 
 这些规则与上游方向一致。当前“乱”的主要来源不是包依赖图，而是四类责任还没有集中写清：
 
