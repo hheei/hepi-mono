@@ -159,6 +159,9 @@ export function registerHepiAft(pi: ExtensionAPI): void {
 				});
 				await activeRuntime.start({
 					...(binarySettings.binaryPath === "" ? {} : { binaryPath: binarySettings.binaryPath }),
+					...(config.subc?.connection_file === undefined
+						? {}
+						: { subcConnectionFile: config.subc.connection_file }),
 					poolOptions: {
 						hangThreshold: bridgeTransport.hangThreshold,
 						onBashCompletion: (completion) => {

@@ -25,6 +25,7 @@ export interface HepiAftRuntimeStartOptions {
 		BridgeOptions,
 		"hangThreshold" | "onBashCompletion" | "onBashLongRunning" | "onBashPatternMatch" | "timeoutMs"
 	>;
+	readonly subcConnectionFile?: string;
 	readonly onBgEventsNudge?: (projectRoot: string, session: string) => void;
 }
 
@@ -55,6 +56,9 @@ export class HepiAftRuntime {
 			binaryPath,
 			poolOptions: { logger: bridgeLogger, ...options.poolOptions },
 			configOverrides: aftConfigureOverrides(),
+			...(options.subcConnectionFile === undefined
+				? {}
+				: { subcConnectionFile: options.subcConnectionFile }),
 			...(options.onBgEventsNudge === undefined
 				? {}
 				: { onBgEventsNudge: options.onBgEventsNudge }),
