@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/hepi-mono",
-	"version": "0.1.3",
+	"version": "0.1.4",
 	"description": "Unified HEPI extension loader for Pi.",
 	"type": "module",
 	"main": "dist/index.js",
@@ -45,8 +45,8 @@
 	},
 	"dependencies": {
 		"@hheei/hepi-aft": "0.1.1",
-		"@hheei/hepi-mctx": "0.1.2",
-		"@hheei/hepi-subagents": "0.1.0",
+		"@hheei/hepi-mctx": "0.1.3",
+		"@hheei/hepi-subagents": "0.1.1",
 		"@cortexkit/aft-bridge": "0.49.0",
 		"@ff-labs/fff-bun": "^0.10.1",
 		"@ff-labs/fff-node": "^0.10.1",
