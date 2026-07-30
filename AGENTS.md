@@ -55,6 +55,7 @@ Do not introduce npm, Yarn, or pnpm lockfiles.
 ## Documentation
 
 - Keep `docs/` high-level: developer and user concepts, architecture boundaries, prerequisites, and entry points. Keep repository workflow and architecture guidance under `docs/development/` and `docs/architecture/`; keep evidence and historical context under `docs/research/` and `docs/plans/`.
+- For new feature work, write or update the matching high-level `docs/<topic>/` document in Simplified Chinese before creating code files. Record the user-facing intent, boundary, public interface, and decisions there; keep detailed behavior beside TypeScript code.
 - Put implementation detail, public TypeScript API contracts, and function usage in concise TypeScript comments or JSDoc beside the code. Keep package READMEs limited to package-level installation and compatibility information.
 - Follow `docs/architecture/extension-reference.md` when designing a new extension.
 - Treat [DESIGN.md](DESIGN.md) as the required specification for every UI or UX decision. Agent proposals, plans, and implementation notes for UI work must cite it. When an agreed UI or UX decision changes the product design, update `DESIGN.md` in the same commit using Pi theme token names, not color values. Pi source-code design taste and integration guidance live in `.pi/skills/pi-development/references/DESIGN.md`; load the `pi-development` skill before using that reference.
@@ -65,10 +66,12 @@ Do not introduce npm, Yarn, or pnpm lockfiles.
 
 Before implementing a user-requested feature:
 
-1. Inspect existing repository implementations and the relevant Pi API, then write a high-level plan that follows their established shape.
-2. Establish the module boundary, public interfaces, and test seam. Explain the high-level design to the user.
-3. Run `grill-me` for a bounded design discussion, or `grill-with-docs` when the decision needs ADRs or a shared glossary. Reach explicit agreement with the user before implementation.
-4. Implement the details only after that agreement.
-5. Commit each independent feature or cohesive feature addition separately after its focused verification. Before completing development, commit all completed feature work; never include unrelated user changes.
+1. Inspect existing repository implementations and the relevant Pi API.
+2. Write or update the matching high-level `docs/<topic>/` document in Simplified Chinese. Explain the proposed boundary and public interface to the user.
+3. Run `grill-me` for a bounded design discussion, or `grill-with-docs` when the decision needs ADRs or a shared glossary. Reach explicit agreement with the user.
+4. Create the actual code files and interface framework without detailed behavior.
+5. Write focused tests for the affected behavior.
+6. Implement the details, then run focused verification.
+7. Commit each independent feature or cohesive feature addition separately. Before completing development, commit all completed feature work; never include unrelated user changes.
 
 For UI work, follow [DESIGN.md](DESIGN.md), reuse `@hheei/pi-ext-core` primitives once available, keep output ANSI- and cell-width-safe, request rendering after state changes, and test only affected narrow and wide layouts.
