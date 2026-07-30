@@ -14,6 +14,7 @@ Included modules:
 - `pi-fix`
 - `pi-t2s`
 - `pi-auto-title`
+- `pi-integrations` (environment-gated Orca and Herdr adapters)
 
 While `pi-auto-title` generates a session title, the editor top rail shows a
 grey-to-white shimmer over `Generating title` at its right edge. The completed
@@ -29,6 +30,30 @@ and stalled-stream timeout (default 90 seconds; zero disables the watchdog).
 `--retry-stall-timeout-ms <ms>` and `PI_RETRY_STALL_TIMEOUT_MS=<ms>` override
 that timeout. Pi's `retry.enabled` setting remains the switch for retries and
 retry backoff. The provider persists values at `hepi.retry`.
+
+`/ext-settings` includes **AFT** binary selection. It defaults to **Official**
+and uses the normal AFT npm platform binary. Select **Local** only for a local
+AFT build and provide its absolute native executable path; the next session or
+`/reload` applies the change.
+
+```json
+{
+  "hepi": {
+    "aft": {
+      "source": "local",
+      "binaryPath": "/absolute/path/to/aft"
+    }
+  }
+}
+
+`pi-integrations` is inert unless its host variables are present. Orca adapters
+use `ORCA_PANE_KEY` and optional `ORCA_AGENT_HOOK_*` coordinates; the Herdr
+adapter requires `HERDR_ENV=1`, `HERDR_SOCKET_PATH`, and `HERDR_PANE_ID`.
+
+`/handoff` compacts the active context, starts a new child session, and injects
+the resulting summary as hidden context. When Magic Context is active, it uses
+Magic Context's historian and m[0]/m[1] materialization; otherwise it uses Pi's
+native compaction.
 
 Included themes:
 
