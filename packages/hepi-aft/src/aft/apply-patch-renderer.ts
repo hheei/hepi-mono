@@ -1,6 +1,5 @@
-export type { AftApplyPatchDetails, AftApplyPatchTiming } from "@cortexkit/aft-pi";
+export type { AftApplyPatchDetails } from "@cortexkit/aft-pi";
 export {
-	formatAftApplyPatchTiming,
 	markAftApplyPatchFailure,
 	renderAftApplyPatchCall,
 	renderAftApplyPatchResult,

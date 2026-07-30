@@ -38,7 +38,7 @@ describe("AFT apply_patch renderer", () => {
 		).toContain("Patching");
 	});
 
-	test("keeps AFT recovery errors and timing out of the TUI", () => {
+	test("keeps AFT recovery errors out of the TUI", () => {
 		const args = { patchText };
 		const preview = renderAftApplyPatchResult(
 			makeResult("preview", { phase: "preview", paths: ["src/example.ts"] }),
@@ -52,7 +52,6 @@ describe("AFT apply_patch renderer", () => {
 			makeResult("Applied", {
 				phase: "applied",
 				paths: ["src/example.ts", "src/new.ts"],
-				timing: { previewMs: 1_200, permissionsMs: 12, applyMs: 3_400, totalMs: 4_700 },
 			}),
 			{},
 			mockTheme,

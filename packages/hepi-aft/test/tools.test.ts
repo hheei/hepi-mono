@@ -324,7 +324,6 @@ describe("AFT tools", () => {
 				phase: "preview",
 				paths: ["README.md"],
 				text: "preview",
-				timing: { previewMs: expect.any(Number), permissionsMs: expect.any(Number) },
 			},
 		});
 	});
