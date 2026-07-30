@@ -16,7 +16,11 @@ import {
 	handleSubcBgEventsNudge,
 	handleTurnEndBgCompletions,
 } from "./aft/bg-notifications.js";
-import { loadAftConfig, resolveBridgePoolTransportOptions } from "./aft/config.js";
+import {
+	loadAftConfig,
+	resolveBridgePoolTransportOptions,
+	resolveSubcConnectionFile,
+} from "./aft/config.js";
 import { FffReadPathResolver } from "./aft/fff-read-path-resolver.js";
 import { registerHoistedTools } from "./aft/hoisted.js";
 import { registerImportTools } from "./aft/imports.js";
@@ -92,6 +96,8 @@ export function registerHepiAft(pi: ExtensionAPI): void {
 	if (!surface.enabled) return;
 	const groups = loadoutGroups(surface);
 	if (groups.length === 0) return;
+	const aftToolNames = new Set(groups.flatMap((group) => group.items));
+	let ensureRuntime: (() => Promise<void>) | undefined;
 	const context: PluginContext = {
 		getRuntime: (): HepiAftRuntime => {
 			if (runtime === undefined)
@@ -145,6 +151,17 @@ export function registerHepiAft(pi: ExtensionAPI): void {
 	pi.on("input", (_event, eventCtx) => {
 		signalSyncWatchAbort(resolveSessionId(eventCtx));
 	});
+	pi.on("tool_call", async (event) => {
+		if (!aftToolNames.has(event.toolName)) return;
+		const start = ensureRuntime;
+		if (start === undefined)
+			return { block: true, reason: "AFT is unavailable. Start a new session or reload." };
+		try {
+			await start();
+		} catch (error) {
+			return { block: true, reason: `AFT unavailable: ${errorMessage(error)}` };
+		}
+	});
 
 	const lifecycle = new HepiLifecycleController({
 		onStart: async (session) => {
@@ -152,69 +169,70 @@ export function registerHepiAft(pi: ExtensionAPI): void {
 			const activeReadPathResolver = surface.read
 				? new FffReadPathResolver(session.ctx.cwd)
 				: undefined;
-			try {
-				const binarySettings = await loadAftBinarySettings({
-					sessionId: session.ctx.sessionManager.getSessionId(),
-					cwd: session.ctx.cwd,
-				});
-				await activeRuntime.start({
-					...(binarySettings.binaryPath === "" ? {} : { binaryPath: binarySettings.binaryPath }),
-					...(config.subc?.connection_file === undefined
-						? {}
-						: { subcConnectionFile: config.subc.connection_file }),
-					poolOptions: {
-						hangThreshold: bridgeTransport.hangThreshold,
-						onBashCompletion: (completion) => {
-							void handlePushedBgCompletion(
-								{
-									ctx: context,
-									directory: session.ctx.cwd,
-									sessionID: completion.session_id,
-									runtime: pi,
-								},
-								completion,
-							);
+			let startPromise: Promise<void> | undefined;
+			const startActiveRuntime = (): Promise<void> => {
+				if (startPromise !== undefined) return startPromise;
+				startPromise = (async (): Promise<void> => {
+					const binarySettings = await loadAftBinarySettings({
+						sessionId: session.ctx.sessionManager.getSessionId(),
+						cwd: session.ctx.cwd,
+					});
+					const subcConnectionFile = resolveSubcConnectionFile(config);
+					await activeRuntime.start({
+						...(binarySettings.binaryPath === "" ? {} : { binaryPath: binarySettings.binaryPath }),
+						...(subcConnectionFile === undefined ? {} : { subcConnectionFile }),
+						poolOptions: {
+							hangThreshold: bridgeTransport.hangThreshold,
+							onBashCompletion: (completion) => {
+								void handlePushedBgCompletion(
+									{
+										ctx: context,
+										directory: session.ctx.cwd,
+										sessionID: completion.session_id,
+										runtime: pi,
+									},
+									completion,
+								);
+							},
+							onBashLongRunning: (reminder) => {
+								void handlePushedBgLongRunning(
+									{
+										ctx: context,
+										directory: session.ctx.cwd,
+										sessionID: reminder.session_id,
+										runtime: pi,
+									},
+									reminder,
+								);
+							},
+							onBashPatternMatch: (frame) => {
+								void handlePushedPatternMatch(
+									{
+										ctx: context,
+										directory: session.ctx.cwd,
+										sessionID: frame.session_id,
+										runtime: pi,
+									},
+									frame,
+								);
+							},
+							timeoutMs: bridgeTransport.timeoutMs,
 						},
-						onBashLongRunning: (reminder) => {
-							void handlePushedBgLongRunning(
-								{
-									ctx: context,
-									directory: session.ctx.cwd,
-									sessionID: reminder.session_id,
-									runtime: pi,
-								},
-								reminder,
-							);
+						onBgEventsNudge: (directory, sessionID) => {
+							void handleSubcBgEventsNudge({
+								ctx: context,
+								directory,
+								sessionID,
+								runtime: pi,
+							});
 						},
-						onBashPatternMatch: (frame) => {
-							void handlePushedPatternMatch(
-								{
-									ctx: context,
-									directory: session.ctx.cwd,
-									sessionID: frame.session_id,
-									runtime: pi,
-								},
-								frame,
-							);
-						},
-						timeoutMs: bridgeTransport.timeoutMs,
-					},
-					onBgEventsNudge: (directory, sessionID) => {
-						void handleSubcBgEventsNudge({
-							ctx: context,
-							directory,
-							sessionID,
-							runtime: pi,
-						});
-					},
-				});
-			} catch (error) {
-				if (session.ctx.hasUI)
-					session.ctx.ui.notify(`AFT unavailable: ${errorMessage(error)}`, "warning");
-				return;
-			}
+					});
+				})();
+				return startPromise;
+			};
 			runtime = activeRuntime;
 			readPathResolver = activeReadPathResolver;
+			ensureRuntime = startActiveRuntime;
 			session.registry.registerLifecycle({
 				id: "aft-runtime",
 				cleanup: async () => {
@@ -222,6 +240,7 @@ export function registerHepiAft(pi: ExtensionAPI): void {
 					await activeRuntime.dispose();
 					if (runtime === activeRuntime) runtime = undefined;
 					if (readPathResolver === activeReadPathResolver) readPathResolver = undefined;
+					if (ensureRuntime === startActiveRuntime) ensureRuntime = undefined;
 				},
 			});
 		},

@@ -74,19 +74,6 @@ export default function registerHepiFff(pi: ExtensionAPI): void {
 				},
 			});
 			applyUiConfiguration(session.ctx);
-			void (async (): Promise<void> => {
-				const warmed = await activeRuntime.warm(1500);
-				if (runtime !== activeRuntime) return;
-				if (warmed.isErr()) {
-					if (isFeatureEnabled("statusUI"))
-						session.ctx.ui.notify(`fff unavailable: ${warmed.error.message}`, "warning");
-					return;
-				}
-				if (isFeatureEnabled("statusUI")) {
-					const indexed = warmed.value.indexedFiles ? ` (${warmed.value.indexedFiles} files)` : "";
-					session.ctx.ui.notify(`fff path + grep mode enabled${indexed}`, "info");
-				}
-			})();
 		},
 	});
 	registerHepiLifecycle(pi, lifecycle, "pi-fff");

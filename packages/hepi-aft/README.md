@@ -21,9 +21,15 @@ Install this bundle directly:
 pi install npm:@hheei/hepi-aft
 ```
 
-On session start, the adapter resolves AFT `0.49.0`, migrates AFT storage when
-needed, and starts an AFT bridge pool. A startup failure leaves the tools
-registered but unavailable with an actionable tool error.
+The adapter starts AFT lazily on its first tool call: it resolves AFT `0.49.0`,
+migrates storage when needed, and starts a bridge pool. A startup failure blocks
+that tool with an actionable error; unused AFT sessions create no bridge pool.
+
+For multiple Pi processes, point them at one running Subconscious daemon to
+share AFT indexes and language-server state. Set `subc.connection_file` in
+user-tier `aft.jsonc`, or set `CORTEXKIT_SUBC_CONNECTION_FILE` in Pi's
+environment. The explicit config setting takes precedence; an absent or empty
+value uses the standalone bridge.
 
 With Pi Basics installed, `/ext-settings` includes **AFT binary path**. Leave
 it empty to use the normal npm platform binary resolver. Enter an absolute

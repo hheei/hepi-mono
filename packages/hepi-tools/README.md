@@ -34,6 +34,8 @@ does not install a custom editor, so it remains compatible with Pi Basics
 statusbar and `$skill` input behavior. Configure its feature flags with
 `/fff-features`. AFT owns `read`; FFF owns `find` and `grep`.
 `grep` accepts `timeout` in seconds; it defaults to 30 seconds.
+FFF initializes and scans on its first search or autocomplete request, not on
+every Pi session start.
 
 `sshfs` is required before reading or writing files on a remote SSH host; it
 mounts the remote root under `~/.cache/sshfs-addon/`. Use `read`, then

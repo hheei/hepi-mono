@@ -232,6 +232,13 @@ export interface AftConfig {
 	subc?: SubcConfig | undefined;
 }
 
+export function resolveSubcConnectionFile(
+	config: AftConfig,
+	environment: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+	return config.subc?.connection_file ?? environment.CORTEXKIT_SUBC_CONNECTION_FILE;
+}
+
 /**
  * Resolved bash config: every flag has an explicit boolean.
  */
