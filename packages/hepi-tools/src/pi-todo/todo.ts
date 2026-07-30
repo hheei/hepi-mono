@@ -1,7 +1,11 @@
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
-import type { HepiRuntimeContext } from "../../../hepi-basics/src/core/index.js";
+import type {
+	HepiRuntimeContext,
+	ToolActivationCoordinator,
+} from "../../../hepi-basics/src/core/index.js";
+import { getToolActivationCoordinator } from "../../../hepi-basics/src/core/index.js";
 import {
 	applyTodo,
 	freshTaskState,
@@ -95,6 +99,7 @@ interface ActiveTodoRuntime {
 export interface TodoFeature {
 	start(runtime: HepiRuntimeContext): void | Promise<void>;
 	dispose(sessionId: string): void | Promise<void>;
+	disableFromLoadout(sessionId: string): void | Promise<void>;
 }
 
 export interface TodoFeatureOptions {
@@ -335,7 +340,14 @@ function isStaleSessionContextError(error: unknown): boolean {
 	return /stale after session replacement/.test(String(error));
 }
 
-export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions = {}): TodoFeature {
+export function createTodoFeature(
+	pi: ExtensionAPI,
+	coordinatorOrOptions: ToolActivationCoordinator | TodoFeatureOptions = {},
+	providedOptions: TodoFeatureOptions = {},
+): TodoFeature {
+	const hasCoordinator = "isEffective" in coordinatorOrOptions;
+	const coordinator = hasCoordinator ? coordinatorOrOptions : getToolActivationCoordinator(pi);
+	const options = hasCoordinator ? providedOptions : coordinatorOrOptions;
 	let active: ActiveTodoRuntime | undefined;
 	const renderedIdsByCall = new Map<string, readonly number[]>();
 	const now = options.now ?? (() => performance.now());
@@ -376,6 +388,8 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 		},
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			signal?.throwIfAborted();
+			if (hasCoordinator && !coordinator.isEffective(TODO_TOOL_NAME))
+				throw new Error("Todo tool is not available");
 			const current = active;
 			if (!current || current.sessionId !== ctx.sessionManager.getSessionId())
 				throw new Error("Todo runtime is not active");
@@ -553,6 +567,16 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 			active = current;
 		},
 		async dispose(sessionId) {
+			const current = active;
+			if (!current || current.sessionId !== sessionId) return;
+			try {
+				await current.widget?.dispose();
+			} finally {
+				renderedIdsByCall.clear();
+				if (active === current) active = undefined;
+			}
+		},
+		async disableFromLoadout(sessionId) {
 			const current = active;
 			if (!current || current.sessionId !== sessionId) return;
 			try {

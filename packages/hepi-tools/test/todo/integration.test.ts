@@ -5,7 +5,10 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Value } from "typebox/value";
-import type { HepiRuntimeContext } from "../../../hepi-basics/src/core/index.js";
+import {
+	createToolActivationCoordinator,
+	type HepiRuntimeContext,
+} from "../../../hepi-basics/src/core/index.js";
 import type { TodoSnapshot } from "../../src/pi-todo/state.js";
 import {
 	createTodoFeature,
@@ -149,6 +152,25 @@ function branchResult(snapshot: TodoSnapshot) {
 }
 
 describe("Todo integration", () => {
+	test("Loadout disable deactivates Todo and rejects stale calls", async () => {
+		const host = harness();
+		const coordinator = createToolActivationCoordinator(host.pi);
+		coordinator.setLoadoutBaseline([TODO_TOOL_NAME]);
+		const feature = createTodoFeature(host.pi, coordinator);
+		await feature.start(host.runtime);
+		coordinator.setLoadoutBaseline([]);
+		await feature.disableFromLoadout("todo-session");
+		await expect(
+			host.tools[0]?.execute(
+				"todo-1",
+				{ operations: [{ action: "list" }] },
+				undefined,
+				undefined,
+				host.ctx,
+			),
+		).rejects.toThrow("Todo tool is not available");
+	});
+
 	test("registers sourced batch schema, prompt, command, and lifecycle hooks", () => {
 		const host = harness();
 		createTodoFeature(host.pi);
