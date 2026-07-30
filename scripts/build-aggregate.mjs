@@ -147,9 +147,9 @@ try {
 			[
 				'import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";',
 				"",
-				"export type HepiExtension = (pi: ExtensionAPI) => void;",
+				"export type HepiExtension = (pi: ExtensionAPI) => void | Promise<void>;",
 				`export declare const ${extensionArray}: readonly HepiExtension[];`,
-				"export default function extension(pi: ExtensionAPI): void;",
+				"export default function extension(pi: ExtensionAPI): void | Promise<void>;",
 				"",
 			].join("\n"),
 		);

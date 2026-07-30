@@ -23,7 +23,7 @@ describe("unified HEPI loader", () => {
 		});
 	});
 
-	test("assigns each combined FFF and AFT tool slot to one owner", () => {
+	test("assigns each combined FFF and AFT tool slot to one owner", async () => {
 		const toolNames: string[] = [];
 		const pi = new Proxy(
 			{
@@ -46,7 +46,7 @@ describe("unified HEPI loader", () => {
 				},
 			},
 		) as unknown as ExtensionAPI;
-		for (const extension of hepiExtensions) extension(pi);
+		for (const extension of hepiExtensions) await extension(pi);
 
 		const slots = ["find", "grep", "read", "write", "edit", "apply_patch", "bash"];
 		for (const slot of slots) {

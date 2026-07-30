@@ -12,7 +12,7 @@ import { createHepiToolsExtensions } from "../../hepi-tools/src/index.js";
 import piBtw from "./pi-btw/index.js";
 import piPlan from "./pi-plan/index.js";
 
-export type HepiExtension = (pi: ExtensionAPI) => void;
+export type HepiExtension = (pi: ExtensionAPI) => void | Promise<void>;
 
 const MAGIC_CONTEXT_LOADOUT_GROUP = {
 	id: "magic-context",
@@ -20,16 +20,21 @@ const MAGIC_CONTEXT_LOADOUT_GROUP = {
 	items: ["ctx_search", "ctx_expand", "ctx_memory", "ctx_note", "ctx_reduce", "todowrite"],
 } as const satisfies HepiLoadoutGroup;
 
-function registerMagicContext(pi: ExtensionAPI): void {
+async function registerMagicContext(pi: ExtensionAPI): Promise<void> {
 	const toolNames = new Set<string>();
-	const groupedPi: ExtensionAPI = {
-		...pi,
-		registerTool: (tool) => {
-			pi.registerTool(tool);
-			toolNames.add(tool.name);
+	const groupedPi = new Proxy(pi, {
+		get(target, property, receiver) {
+			if (property === "registerTool") {
+				return (tool: Parameters<ExtensionAPI["registerTool"]>[0]) => {
+					target.registerTool(tool);
+					toolNames.add(tool.name);
+				};
+			}
+			const value = Reflect.get(target, property, receiver);
+			return typeof value === "function" ? value.bind(target) : value;
 		},
-	};
-	piMagicContext(groupedPi);
+	}) as ExtensionAPI;
+	await piMagicContext(groupedPi);
 	registerHepiRuntimeLoadoutGroup(
 		pi,
 		toolNames.size === 0
@@ -49,6 +54,6 @@ export const hepiExtensions: readonly HepiExtension[] = [
 	piPlan,
 ];
 
-export default function piHepiExtension(pi: ExtensionAPI): void {
-	for (const extension of hepiExtensions) extension(pi);
+export default async function piHepiExtension(pi: ExtensionAPI): Promise<void> {
+	for (const extension of hepiExtensions) await extension(pi);
 }
