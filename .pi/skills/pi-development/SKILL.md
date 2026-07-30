@@ -66,14 +66,16 @@ When changing a skill:
 
 ## Verification and report
 
-Prefer focused checks first, then the read-only checks for the affected scope:
+For a change and before committing, run only changed-path static checks and
+tests affected by that change:
 
 ```bash
-bun test <focused-test-path>
-bun run typecheck
-bun run check
-bun run build:aggregates
+bunx biome check <changed paths...>
+bun test <affected-test-paths...>
 ```
+
+Do not run `bun run check` or a full test suite as routine validation. Use a
+full suite only when the user explicitly requests it or CI requires it.
 
 When reporting Pi findings, include:
 

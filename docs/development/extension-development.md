@@ -27,13 +27,16 @@ Install dependencies:
 bun install
 ```
 
-Run checks:
+Run checks for the files and behavior changed:
 
 ```bash
-bun run typecheck
-bun test
-bun run check
+bunx biome check packages/hepi-tools/src/my-feature.ts packages/hepi-tools/test/my-feature.test.ts
+bun test packages/hepi-tools/test/my-feature.test.ts
 ```
+
+Before committing, repeat only the affected checks. Do not run the full test
+suite or `bun run check` unless the user explicitly requests it or CI requires
+it.
 
 Format or apply safe lint fixes:
 
@@ -107,7 +110,7 @@ Before considering an aggregate module ready:
 - command names are stable and start with `pi-` where practical
 - modules and settings use the `pi.events`-scoped runtime registries during `session_start`; their returned disposers are owned by the runtime lifecycle
 - the aggregate README documents user-visible behavior and local testing
-- `bun run check` passes
+- changed-path Biome and affected tests pass
 
 ## Agent Workflow
 

@@ -42,10 +42,13 @@ Follow [DESIGN.md](../../DESIGN.md). Reuse `renderDetailPanel`, `createSplitLayo
 
 ## Verification
 
+Run Biome on changed paths and only the tests affected by the Basics change:
+
 ```bash
-bun run typecheck
-bun test
-bun run check
+bunx biome check packages/hepi-basics/src/<feature>.ts packages/hepi-basics/test/<feature>.test.ts
+bun test packages/hepi-basics/test/<feature>.test.ts
 ```
 
-Run focused package tests first. Update the package README whenever commands, settings, persistence, requirements, or compatibility changes.
+Repeat those checks before committing. Run the full suite only on explicit user
+request or in CI. Update the package README whenever commands, settings,
+persistence, requirements, or compatibility changes.

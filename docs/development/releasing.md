@@ -8,9 +8,13 @@ Update every package version being released, then run:
 
 ```bash
 bun run clean
-bun run check
+bun test <affected-test-paths...>
 bun run pack:check
 ```
+
+Run only tests affected by the release changes. `pack:check` remains mandatory
+because it runs each tarball's real `prepack` build and verifies its Pi entry.
+Run the full suite only when explicitly requested or required by CI.
 
 `pack:check` executes every package `prepack` hook and checks that its Pi entry
 exists. It covers `@hheei/hepi-basics`, `@hheei/hepi-tools`,

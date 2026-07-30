@@ -51,10 +51,17 @@ Use `-l` for project-local installation.
 
 ## Development
 
+For a code change, run Biome on changed paths and only its affected tests:
+
 ```bash
-bun run typecheck
-bun test
-bun run check
+bunx biome check packages/<package>/src/<file>.ts packages/<package>/test/<file>.test.ts
+bun test packages/<package>/test/<file>.test.ts
+```
+
+Repeat those checks before committing. Run the full suite only when explicitly
+requested or in CI. Build aggregates when testing an extension entry locally:
+
+```bash
 bun run build:aggregates
 ```
 

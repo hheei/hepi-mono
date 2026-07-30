@@ -12,13 +12,17 @@ Use Bun from the repository root. Let Biome handle mechanical formatting, import
 bunx biome check --write <changed paths...>
 ```
 
-Use `bun run check:fix` only when the whole HEPI-owned tree is intentionally in scope; inspect its diff so unrelated user changes remain untouched. Prefer focused tests while iterating, then run the read-only checks appropriate to the changed scope:
+Use `bun run check:fix` only when the whole HEPI-owned tree is intentionally in scope; inspect its diff so unrelated user changes remain untouched. For every change and before committing, run Biome only on changed paths and only the tests affected by those paths:
 
 ```bash
-bun run typecheck
-bun test
-bun run check
+bunx biome check <changed paths...>
+bun test <affected-test-paths...>
 ```
+
+Do not run `bun test`, `bun run test`, `bun run test:hepi`, or `bun run check`
+as routine change or pre-commit validation. Run a full suite only when the user
+explicitly requests it or CI requires it. Publishing still requires `bun run
+pack:check`; run focused tests for the packages being published.
 
 Do not introduce npm, Yarn, or pnpm lockfiles.
 
@@ -26,9 +30,10 @@ Keep tool dependencies current. Update a dependency after its focused checks pas
 disable a lint rule only for a verified upstream false positive, never to hide a
 TypeScript, runtime, or test failure.
 
-Use the root test scripts for the full suite. HEPI tests exercise shared TUI
-runtime state and run with `--max-concurrency=1`; three TUI tests run in
-separate Bun processes. Do not use bare `bun test` as full-suite validation.
+When a full suite is explicitly requested, use the root test scripts. HEPI tests
+exercise shared TUI runtime state and run with `--max-concurrency=1`; three TUI
+tests run in separate Bun processes. Do not use bare `bun test` as full-suite
+validation.
 
 ## TypeScript
 
