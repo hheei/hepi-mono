@@ -127,8 +127,8 @@ describe("tui replay", () => {
 			],
 		});
 		expect(result.frames).toHaveLength(8);
-		for (const [index, frame] of result.frames.entries()) {
-			expect(frame.lines).toHaveLength(index < 4 ? 4 : 5);
+		for (const frame of result.frames) {
+			expect(frame.lines).toHaveLength(5);
 			expect(frame.lines[0]).not.toBe("previous-top");
 			expect(frame.lines[0]).not.toContain("\n");
 			expect(stripAnsi(frame.lines[0]!)).toHaveLength(frame.columns);
