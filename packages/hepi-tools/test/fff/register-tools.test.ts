@@ -132,6 +132,29 @@ describe("FFF tool registration", () => {
 		expect(result.content.some((item) => item.text?.includes("outside needle"))).toBe(true);
 	});
 
+	test("falls back to Pi find when the FFF runtime is unavailable", async () => {
+		const cwd = await temporaryDirectory();
+		await writeFile(join(cwd, "fallback-target.txt"), "", "utf8");
+		const host = harness();
+		registerTools(host.pi, {
+			getRuntime: () => null,
+			isFeatureEnabled: () => true,
+			agentToolsDisabledText: () => "disabled",
+		});
+		const find = host.tools.find((tool) => tool.name === "find_files")?.execute;
+		if (find === undefined) throw new Error("FFF find wrapper was not registered");
+
+		const result = (await find(
+			"find-fallback",
+			{ query: "fallback-target" },
+			undefined,
+			undefined,
+			{ cwd } as ExtensionContext,
+		)) as { readonly content: readonly { readonly type: string; readonly text?: string }[] };
+
+		expect(result.content.some((item) => item.text?.includes("fallback-target.txt"))).toBe(true);
+	});
+
 	test("renders grouped grep output with aligned dim line numbers", () => {
 		const host = harness();
 		registerTools(host.pi, {

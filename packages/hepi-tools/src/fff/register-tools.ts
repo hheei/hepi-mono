@@ -1,5 +1,5 @@
 import type { AgentToolResult, ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
-import { createGrepTool, createReadTool } from "@earendil-works/pi-coding-agent";
+import { createFindTool, createGrepTool, createReadTool } from "@earendil-works/pi-coding-agent";
 import { type Component, Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import {
@@ -371,11 +371,23 @@ export function registerTools(
 		}),
 		renderCall: renderFindCall,
 		renderResult: renderFindResult,
-		async execute(_toolCallId, params) {
+		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			const guarded = getAgentRuntime(
 				buildFindFilesDetails(undefined, "agentTools"),
 				buildFindFilesDetails(),
 			);
+			if (guarded.kind === "unavailable") {
+				const original = createFindTool(ctx.cwd);
+				return original.execute(
+					toolCallId,
+					{
+						pattern: `*${params.query}*`,
+						...(params.limit === undefined ? {} : { limit: params.limit }),
+					},
+					signal,
+					onUpdate,
+				);
+			}
 			if (guarded.kind !== "ready") return guarded.result;
 			const result = await guarded.runtime.findFiles({
 				query: params.query,
