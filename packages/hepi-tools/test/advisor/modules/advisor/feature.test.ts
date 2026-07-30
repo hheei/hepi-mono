@@ -230,6 +230,29 @@ describe("Advisor feature lifecycle", () => {
 		expect(h.notifications.some((item) => item.message.includes("review failed"))).toBe(false);
 	});
 
+	test("bounds high-value notification deduplication", async () => {
+		const h = fixture(true);
+		await h.feature.start(h.runtime);
+		const oldest = { severity: "blocker" as const, note: "advice-0" };
+		h.adapter.nextAdvice = Array.from({ length: 1025 }, (_, index) => ({
+			severity: "blocker" as const,
+			note: `advice-${index}`,
+		}));
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "first" }] },
+		});
+		await waitFor(() => h.feature.status().backlog === 0, "initial review to settle");
+		h.advance(40_000);
+		h.adapter.nextAdvice = [oldest];
+		await emit(h, "turn_end", {
+			message: { role: "assistant", content: [{ type: "text", text: "second" }] },
+		});
+		await waitFor(
+			() => h.messages.filter((message) => message.content === "[blocker] advice-0").length === 2,
+			"evicted advice to be notified again",
+		);
+	});
+
 	test("waits 15 seconds for new material and skips the same signature", async () => {
 		const h = fixture(true);
 		h.adapter.nextAdvice = [];
