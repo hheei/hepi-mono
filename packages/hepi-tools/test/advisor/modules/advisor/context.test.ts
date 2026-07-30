@@ -134,6 +134,23 @@ describe("advisor turn evidence", () => {
 		expect(delta.tools?.[0]).toContain("ERROR");
 	});
 
+	test("bounds large tool evidence during extraction", () => {
+		const evidence = extractPrimaryTurnEvidence({
+			message: { role: "assistant", content: [] },
+			toolResults: [
+				{
+					toolName: "read",
+					toolCallId: "large",
+					isError: false,
+					content: [{ type: "text", text: "x".repeat(100_000) }],
+				},
+			],
+		});
+		expect(evidence.tools).toHaveLength(1);
+		expect(evidence.tools[0]?.length).toBeLessThan(12_100);
+		expect(evidence.tools[0]).toContain("advisor context truncated");
+	});
+
 	test("truncates turn evidence within an explicit budget", () => {
 		const delta = buildTurnDelta(
 			"user",

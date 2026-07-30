@@ -31,6 +31,7 @@ import {
 const REVIEW_INTERVAL_MS = 15_000;
 const CONCERN_COOLDOWN_MS = 25_000;
 const BLOCKER_COOLDOWN_MS = 40_000;
+const NOTIFIED_HIGH_CAP = 1024;
 
 interface AdvisorThrottleOptions {
 	readonly now?: () => number;
@@ -191,6 +192,10 @@ export function createAdvisorFeature(
 			const key = adviceKey(note);
 			const previous = item.notifiedHigh.get(key);
 			if (previous !== undefined && severityRank(previous) >= severityRank(note.severity)) continue;
+			if (previous === undefined && item.notifiedHigh.size >= NOTIFIED_HIGH_CAP) {
+				const oldestKey = item.notifiedHigh.keys().next().value;
+				if (oldestKey !== undefined) item.notifiedHigh.delete(oldestKey);
+			}
 			item.notifiedHigh.set(key, note.severity);
 			item.runtime.pi.sendMessage({
 				customType: "pi-basics-advisory",

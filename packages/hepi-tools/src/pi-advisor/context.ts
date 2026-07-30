@@ -12,6 +12,8 @@ export interface ContextBudget {
 	readonly responseReserve: number;
 }
 const marker = "\n…[advisor context truncated]…\n";
+const MAX_TOOL_RESULT_EVIDENCE_CHARS = 12_000;
+const MAX_TOOL_EVIDENCE_CHARS = 48_000;
 function fit(value: string, chars: number): string {
 	if (value.length <= chars) return value;
 	if (chars <= marker.length) return marker.slice(0, Math.max(0, chars));
@@ -58,24 +60,33 @@ function successfulDiff(result: unknown): string | undefined {
 	return typeof diff === "string" && diff.trim().length > 0 ? diff : undefined;
 }
 
+function toolResultContent(content: unknown): string {
+	if (typeof content === "string") return fit(content, MAX_TOOL_RESULT_EVIDENCE_CHARS);
+	if (!Array.isArray(content)) return "";
+	let evidence = "";
+	for (const part of content) {
+		const text = partText(part);
+		if (text.length === 0) continue;
+		const separator = evidence.length === 0 ? "" : "\n";
+		const available = MAX_TOOL_RESULT_EVIDENCE_CHARS - evidence.length - separator.length;
+		if (available <= 0) return `${evidence}${marker}`;
+		if (text.length > available) return `${evidence}${separator}${fit(text, available)}`;
+		evidence += `${separator}${text}`;
+	}
+	return evidence;
+}
+
 function toolResultEvidence(result: unknown): string {
-	if (typeof result !== "object" || result === null) return json(result);
+	if (typeof result !== "object" || result === null)
+		return fit(json(result), MAX_TOOL_RESULT_EVIDENCE_CHARS);
 	const name =
 		"toolName" in result && typeof result.toolName === "string" ? result.toolName : "unknown";
 	const id =
 		"toolCallId" in result && typeof result.toolCallId === "string" ? result.toolCallId : "unknown";
 	const error = "isError" in result && result.isError === true ? "ERROR" : "OK";
 	const diff = successfulDiff(result);
-	const body =
-		diff ??
-		("content" in result && Array.isArray(result.content)
-			? result.content
-					.map((part) => partText(part))
-					.filter((part) => part.length > 0)
-					.join("\n")
-			: "content" in result && typeof result.content === "string"
-				? result.content
-				: "");
+	const content = "content" in result ? result.content : undefined;
+	const body = diff ? fit(diff, MAX_TOOL_RESULT_EVIDENCE_CHARS) : toolResultContent(content);
 	return `TOOL RESULT ${name} (${id}) ${error}\n${body}`;
 }
 
@@ -108,10 +119,19 @@ export function extractPrimaryTurnEvidence(event: PrimaryTurnEvent): {
 			: "";
 		if (content.length > 0) assistant = content;
 	}
-	return {
-		...(assistant === undefined ? {} : { assistant }),
-		tools: (event.toolResults ?? []).map(toolResultEvidence),
-	};
+	const tools: string[] = [];
+	let remainingToolChars = MAX_TOOL_EVIDENCE_CHARS;
+	for (const result of event.toolResults ?? []) {
+		if (remainingToolChars <= 0) break;
+		const evidence = toolResultEvidence(result);
+		if (evidence.length > remainingToolChars) {
+			tools.push(fit(evidence, remainingToolChars));
+			break;
+		}
+		tools.push(evidence);
+		remainingToolChars -= evidence.length;
+	}
+	return { ...(assistant === undefined ? {} : { assistant }), tools };
 }
 
 export function estimateTokens(value: string): number {

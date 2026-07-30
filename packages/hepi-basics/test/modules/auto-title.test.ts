@@ -120,8 +120,8 @@ describe("Pi Basics auto-title", () => {
 		expect((TITLE_SHIMMER_LOOP_MS / TITLE_SHIMMER_FRAME_MS) * TITLE_SHIMMER_STEP_CELLS).toBe(
 			TITLE_SHIMMER_TRAVEL_CELLS,
 		);
-		expect(TITLE_SHIMMER_FRAME_MS).toBe(25);
-		expect(TITLE_SHIMMER_STEP_CELLS).toBeCloseTo(0.325, 3);
+		expect(TITLE_SHIMMER_FRAME_MS).toBe(100);
+		expect(TITLE_SHIMMER_STEP_CELLS).toBeCloseTo(1.3, 3);
 		expect(TITLE_SHIMMER_WINDOW_CELLS).toBe(4);
 		const peakAtFourthCell = renderTitleGenerationShimmer(
 			((4 + 5) / TITLE_SHIMMER_TRAVEL_CELLS) * TITLE_SHIMMER_LOOP_MS,
