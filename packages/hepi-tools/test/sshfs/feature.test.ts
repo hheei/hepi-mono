@@ -197,10 +197,18 @@ describe("sshfs feature", () => {
 		});
 		expect(second.details?.status).toBe("reused");
 		const output = textOf(first);
+		expect(tool.description).toContain("Before reading or writing files on a remote SSH host");
+		expect(tool.promptSnippet).toContain("Required first step");
 		expect(output).toContain(`Home path: ${join(mountRoot, "prod")}`);
-		for (const name of ["grep", "edit", "write", "read", "find", "ls"])
+		for (const name of ["read", "edit", "write", "apply_patch"])
 			expect(output).toContain(`\`${name}\``);
+		expect(output).toContain("ssh prod -- find ...");
+		expect(output).toContain("ssh prod -- grep ...");
+		expect(output).not.toContain("`find` directly");
+		expect(output).not.toContain("`grep` directly");
 		expect(tool.promptGuidelines?.join("\n")).toContain("returned local path");
+		expect(tool.promptGuidelines?.join("\n")).toContain("call `sshfs`");
+		expect(tool.promptGuidelines?.join("\n")).toContain("project-indexed `find` or `grep`");
 
 		await feature.dispose();
 		expect(host.mounted()).toBeUndefined();

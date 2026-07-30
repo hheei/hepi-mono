@@ -219,7 +219,7 @@ export function createSshfsFeature(
 		);
 		await ensureDirectory(mountRoot);
 		const realMountRoot = await realpath(mountRoot);
-		await ensureDirectory(localPath);
+		await ensureMountpointDirectory(localPath);
 		await assertDirectChildDirectory(localPath, realMountRoot);
 
 		const current = await probeMount(localPath, source, operationSignal);
@@ -240,6 +240,7 @@ export function createSshfsFeature(
 			ownedMounts.delete(localPath);
 		}
 		operationSignal.throwIfAborted();
+		await chmod(localPath, 0o700);
 		await assertDirectChildDirectory(localPath, realMountRoot);
 		if ((await readdir(localPath)).length > 0)
 			throw new Error(`sshfs mount path is not empty: ${localPath}`);
@@ -292,11 +293,14 @@ export function createSshfsFeature(
 	pi.registerTool({
 		name: SSHFS_TOOL_NAME,
 		label: "SSHFS",
-		description: "Mount a remote root filesystem locally through sshfs and return its local path.",
+		description:
+			"Before reading or writing files on a remote SSH host, mount its filesystem with this tool. It returns the local path for subsequent file operations.",
 		promptSnippet:
-			"Mount a remote root filesystem locally, then use local file tools on the returned path.",
+			"Required first step before reading or writing remote SSH host files: mount the host filesystem locally.",
 		promptGuidelines: [
-			"After mounting, use `grep`, `edit`, `write`, `read`, `find`, and `ls` directly on paths under the returned local path.",
+			"Before reading or writing files on a remote SSH host, call `sshfs` and use its returned local path; do not operate on remote paths directly.",
+			"After mounting, use `read` on paths under the returned local path; use `edit`, `write`, or `apply_patch` when registered to make changes.",
+			"Do not use project-indexed `find` or `grep` on the mount. Search the remote host with `bash` and `ssh <host> -- find ...` or `ssh <host> -- grep ...` instead.",
 		],
 		parameters: SSHFS_PARAMETERS,
 		executionMode: "sequential",
@@ -365,6 +369,13 @@ async function ensureDirectory(path: string): Promise<void> {
 	await chmod(path, 0o700);
 }
 
+async function ensureMountpointDirectory(path: string): Promise<void> {
+	await mkdir(path, { recursive: true, mode: 0o700 });
+	const info = await lstat(path);
+	if (info.isSymbolicLink() || !info.isDirectory())
+		throw new Error(`sshfs mount path must be a real directory: ${path}`);
+}
+
 async function assertDirectChildDirectory(path: string, realParent: string): Promise<void> {
 	const info = await lstat(path);
 	if (info.isSymbolicLink() || !info.isDirectory())
@@ -386,7 +397,8 @@ function mountResult(
 				text: [
 					"Remote root mounted.",
 					`Home path: ${localPath}`,
-					"Use `grep`, `edit`, `write`, `read`, `find`, and `ls` directly under this path to access remote files.",
+					"Use `read`, then `edit`, `write`, or `apply_patch` when available, on paths under this mount.",
+					`For remote search, use \`bash\` with \`ssh ${host} -- find ...\` or \`ssh ${host} -- grep ...\`; do not use project-indexed \`find\` or \`grep\` on this mount.`,
 				].join("\n"),
 			},
 		],

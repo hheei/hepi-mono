@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/hepi-aft",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "HEPI-owned Pi adapter for Agent File Tools.",
 	"type": "module",
 	"main": "dist/index.js",

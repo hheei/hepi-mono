@@ -80,6 +80,7 @@ test("extension factories remain reloadable", async () => {
 		"packages/hepi-basics/src/retry/extension.ts",
 		"packages/hepi-basics/src/dollar-skill/extension.ts",
 		"packages/hepi-basics/src/fix/extension.ts",
+		"packages/hepi-basics/src/integrations/extension.ts",
 		"packages/hepi-basics/src/rtk/index.ts",
 		"packages/hepi-basics/src/t2s/extension.ts",
 	].map((path) => join(repositoryRoot, path));

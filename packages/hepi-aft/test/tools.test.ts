@@ -11,6 +11,7 @@ import type { PluginContext } from "../src/aft/types.js";
 
 type RegisteredTool = {
 	readonly name: string;
+	readonly description?: string;
 	readonly executionMode?: string;
 	renderCall?: (args: unknown, theme: unknown, context: unknown) => Component;
 	renderResult?: (result: unknown, options: unknown, theme: unknown, context: unknown) => Component;
@@ -89,7 +90,7 @@ function response(text: string): ToolCallResult {
 
 describe("AFT tools", () => {
 	test("bounds streamed Bash output to the UI tail", () => {
-		const output = appendBashStreamingOutput("", "x".repeat(70_000) + "\nlast line");
+		const output = appendBashStreamingOutput("", `${"x".repeat(70_000)}\nlast line`);
 		expect(output.length).toBeLessThanOrEqual(64 * 1024);
 		expect(output).toEndWith("last line");
 		const lines = Array.from({ length: 120 }, (_, index) => `line-${index}`).join("\n");
@@ -431,6 +432,27 @@ describe("AFT tools", () => {
 		expect(roles).toContain("dim");
 		const replay = await replayTui({ columns: 48, rows: 5, create: () => component });
 		expect(stripAnsi(replay.last.lines.join("\n"))).toContain("Elapsed 2s");
+	});
+
+	test("allows bash remote search for an SSHFS mount", () => {
+		const tools = new Map<string, RegisteredTool>();
+		const pi = {
+			registerTool(tool: unknown) {
+				const registered = tool as RegisteredTool;
+				tools.set(registered.name, registered);
+			},
+		} as unknown as ExtensionAPI;
+		registerBashTool(pi, {
+			getRuntime: () => ({}) as HepiAftRuntime,
+			getReadPathResolver: () => ({}) as never,
+			config: {},
+			storageDir: "",
+		});
+
+		const bash = tools.get("bash");
+		expect(bash?.description).toContain("SSHFS-mounted remote host");
+		expect(bash?.description).toContain("ssh <host> -- find");
+		expect(bash?.description).toContain("ssh <host> -- grep");
 	});
 
 	test("serializes AFT file mutations", () => {

@@ -31,6 +31,12 @@ statusbar and `$skill` input behavior. Configure its feature flags with
 `/fff-features`. AFT owns `read`; FFF owns `find` and `grep`.
 `grep` accepts `timeout` in seconds; it defaults to 30 seconds.
 
+`sshfs` is required before reading or writing files on a remote SSH host; it
+mounts the remote root under `~/.cache/sshfs-addon/`. Use `read`, then
+`edit`, `write`, or `apply_patch` when available on the returned mount path.
+`find` and `grep` are project-indexed, so search a mounted host through its SSH
+shell instead, for example `ssh host -- find ...` or `ssh host -- grep ...`.
+
 Do not also configure the standalone `pi-fff` package. Pi cannot unregister
 extension registrations, and its custom editor conflicts with HEPI FFF's
 provider-based integration.

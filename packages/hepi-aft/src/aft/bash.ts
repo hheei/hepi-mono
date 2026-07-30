@@ -436,6 +436,8 @@ export function registerBashTool(
 	const searchSteer = aftSearchRegistered
 		? "use `aft_search` (concepts, identifiers, regex, literals), `read`, `aft_outline`, or `aft_zoom` instead"
 		: "use the `grep` tool, `read`, `aft_outline`, or `aft_zoom` instead";
+	const remoteSearchException =
+		" For an SSHFS-mounted remote host, use `bash` with `ssh <host> -- find ...` or `ssh <host> -- grep ...`; local `find` and `grep` are project-indexed.";
 	const bashCfg = resolveBashConfig(ctx.config);
 	const compressionSentence = bashCfg.compress
 		? " Output is compressed by default; pass `compressed: false` for raw output. Piped commands run verbatim and show the pipeline's output; for AFT's test/build summary, run the runner without `| head`, `| tail`, or `| grep`."
@@ -448,12 +450,13 @@ export function registerBashTool(
 		label: "bash",
 		description: `Execute shell commands.${compressionSentence}${tasksSentence}
 
-DO NOT use bash for code search or code exploration. If you are about to run grep, rg, sed, awk, find, or cat through bash to locate or read code: STOP — ${searchSteer}.`,
+DO NOT use bash for code search or code exploration. If you are about to run grep, rg, sed, awk, find, or cat through bash to locate or read code: STOP — ${searchSteer}.${remoteSearchException}`,
 		promptSnippet: bashCfg.background
 			? "Run shell commands (timeout in milliseconds; supports workdir, background tasks, compressed output, PTY mode)"
 			: "Run shell commands (timeout in milliseconds; supports workdir and compressed output)",
 		promptGuidelines: [
 			`DO NOT use bash for code search or exploration — ${searchSteer}.`,
+			remoteSearchException.trim(),
 			"Set compressed: false when you need ANSI color codes in the output.",
 			"Piped commands run verbatim and show the pipeline's output; run test/build tools without pipes when you need AFT's summary.",
 		],
