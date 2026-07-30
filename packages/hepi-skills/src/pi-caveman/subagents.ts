@@ -6,7 +6,7 @@ export const CAVEMAN_SUBAGENT_MARKER = "<pi-caveman-subagent>";
 const CAVEMAN_SUBAGENT_END_MARKER = "</pi-caveman-subagent>";
 const PI_SUBAGENT_SESSION_SUFFIX = /#[0-9a-f]{8}$/i;
 const PI_SUBAGENT_TOOL_NAMES: ReadonlySet<string> = new Set([
-	"Agent",
+	"agent",
 	"get_subagent_result",
 	"steer_subagent",
 ]);

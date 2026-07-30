@@ -117,7 +117,7 @@ export default function piPonytailExtension(
 	});
 
 	pi.on("tool_call", async (event) => {
-		if (event.toolName !== "Agent" || !isAgentToolInput(event.input)) return undefined;
+		if (event.toolName !== "agent" || !isAgentToolInput(event.input)) return undefined;
 		defaults = await loadPonytailDefaults(options.settingsFilePath);
 		event.input.prompt = injectSubagentPrompt(event.input.prompt, defaults.subagentMode);
 		return undefined;

@@ -20,6 +20,12 @@ const MAGIC_CONTEXT_LOADOUT_GROUP = {
 	items: ["ctx_search", "ctx_expand", "ctx_memory", "ctx_note", "ctx_reduce", "todowrite"],
 } as const satisfies HepiLoadoutGroup;
 
+const SUBAGENTS_LOADOUT_GROUP = {
+	id: "subagents",
+	label: "Subagents",
+	items: ["agent", "get_subagent_result", "steer_subagent"],
+} as const satisfies HepiLoadoutGroup;
+
 async function registerMagicContext(pi: ExtensionAPI): Promise<void> {
 	const toolNames = new Set<string>();
 	const groupedPi = new Proxy(pi, {
@@ -43,12 +49,17 @@ async function registerMagicContext(pi: ExtensionAPI): Promise<void> {
 	);
 }
 
+function registerSubagents(pi: ExtensionAPI): void {
+	registerHepiSubagents(pi);
+	registerHepiRuntimeLoadoutGroup(pi, SUBAGENTS_LOADOUT_GROUP);
+}
+
 export const hepiExtensions: readonly HepiExtension[] = [
 	...hepiBasicsExtensions,
 	...createHepiToolsExtensions(),
 	...hepiAftExtensions,
 	registerMagicContext,
-	registerHepiSubagents,
+	registerSubagents,
 	...hepiSkillsExtensions,
 	piBtw,
 	piPlan,

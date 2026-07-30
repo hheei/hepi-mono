@@ -105,7 +105,7 @@ function createHarness(
 			harness.appended.push({ customType, data });
 		},
 		getSessionName: () => options.sessionName,
-		getAllTools: () => (options.tools ?? ["Agent"]).map((name) => ({ name })),
+		getAllTools: () => (options.tools ?? ["agent"]).map((name) => ({ name })),
 	} as unknown as ExtensionAPI;
 	Object.assign(harness, { pi });
 	harnesses.push(harness);
@@ -209,7 +209,7 @@ describe("pi-ponytail extension", () => {
 		const { ctx } = createContext([], cwd);
 		await harness.sessionStart?.({}, ctx);
 		const input = { prompt: "Review the diff" };
-		await harness.toolCall?.({ toolName: "Agent", input }, ctx);
+		await harness.toolCall?.({ toolName: "agent", input }, ctx);
 		expect(input.prompt).toContain("<pi-ponytail-subagent>");
 		expect(input.prompt).toContain("Current level: ultra");
 	});

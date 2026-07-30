@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getHepiRuntimeLoadoutGroupRegistry } from "../../hepi-basics/src/core/index.js";
 import { hepiExtensions } from "../src/index.js";
 
 describe("unified HEPI loader", () => {
@@ -52,5 +53,10 @@ describe("unified HEPI loader", () => {
 		for (const slot of slots) {
 			expect(toolNames.filter((name) => name === slot)).toHaveLength(1);
 		}
+		expect(getHepiRuntimeLoadoutGroupRegistry(pi).get("subagents")).toEqual({
+			id: "subagents",
+			label: "Subagents",
+			items: ["agent", "get_subagent_result", "steer_subagent"],
+		});
 	});
 });

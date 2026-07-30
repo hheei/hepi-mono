@@ -105,7 +105,7 @@ function createHarness(options: HarnessOptions = {}): Harness {
 			harness.appended.push({ customType, data });
 		},
 		getSessionName: () => options.sessionName,
-		getAllTools: () => (options.toolNames ?? ["Agent"]).map((name) => ({ name })),
+		getAllTools: () => (options.toolNames ?? ["agent"]).map((name) => ({ name })),
 	} as unknown as ExtensionAPI;
 	Object.assign(harness, { pi });
 	harnesses.push(harness);
@@ -245,7 +245,7 @@ describe("pi-caveman extension", () => {
 		await harness.sessionStart?.({}, ctx);
 		const input = { prompt: "Review the diff" };
 
-		await harness.toolCall?.({ toolName: "Agent", input }, ctx);
+		await harness.toolCall?.({ toolName: "agent", input }, ctx);
 		expect(input.prompt).toContain("<pi-caveman-subagent>");
 		expect(input.prompt).toContain("Current intensity: wenyan-full");
 	});
