@@ -96,6 +96,11 @@ for (const packageName of packageNames) {
 		const skillsOutput = path.join(outputRoot, "skills");
 		cpSync(skillsSource, skillsOutput, { recursive: true });
 	}
+	if (packageName === "hepi-mono") {
+		const themesSource = path.join(root, "packages", "hepi-basics", "themes");
+		const themesOutput = path.join(outputRoot, "themes");
+		cpSync(themesSource, themesOutput, { recursive: true });
+	}
 	writeFileSync(
 		path.join(outputRoot, "index.d.ts"),
 		[
