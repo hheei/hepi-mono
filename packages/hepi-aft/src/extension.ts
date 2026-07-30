@@ -89,6 +89,7 @@ function errorMessage(error: unknown): string {
 
 export function registerHepiAft(pi: ExtensionAPI): void {
 	let runtime: HepiAftRuntime | undefined;
+	let runtimeStarted = false;
 	let readPathResolver: FffReadPathResolver | undefined;
 	const config = loadAftConfig(process.cwd());
 	const bridgeTransport = resolveBridgePoolTransportOptions(config);
@@ -129,7 +130,7 @@ export function registerHepiAft(pi: ExtensionAPI): void {
 	if (surface.inspect) registerInspectTool(pi, context);
 	for (const group of groups) registerHepiRuntimeLoadoutGroup(pi, group);
 	pi.on("tool_result", async (event, eventCtx) => {
-		if (runtime === undefined) return;
+		if (!runtimeStarted) return;
 		const sessionID = resolveSessionId(eventCtx);
 		const content = await appendToolResultBgCompletions(
 			{ ctx: context, directory: eventCtx.cwd, ...(sessionID === undefined ? {} : { sessionID }) },
@@ -139,7 +140,7 @@ export function registerHepiAft(pi: ExtensionAPI): void {
 		return { content, details: event.details, isError: event.isError };
 	});
 	pi.on("turn_end", async (_event, eventCtx) => {
-		if (runtime === undefined) return;
+		if (!runtimeStarted) return;
 		const sessionID = resolveSessionId(eventCtx);
 		await handleTurnEndBgCompletions({
 			ctx: context,
@@ -169,10 +170,12 @@ export function registerHepiAft(pi: ExtensionAPI): void {
 			const activeReadPathResolver = surface.read
 				? new FffReadPathResolver(session.ctx.cwd)
 				: undefined;
+			let disposed = false;
 			let startPromise: Promise<void> | undefined;
 			const startActiveRuntime = (): Promise<void> => {
 				if (startPromise !== undefined) return startPromise;
 				startPromise = (async (): Promise<void> => {
+					if (disposed) throw new Error("AFT session is no longer active");
 					const binarySettings = await loadAftBinarySettings({
 						sessionId: session.ctx.sessionManager.getSessionId(),
 						cwd: session.ctx.cwd,
@@ -227,6 +230,11 @@ export function registerHepiAft(pi: ExtensionAPI): void {
 							});
 						},
 					});
+					if (disposed) {
+						await activeRuntime.dispose();
+						throw new Error("AFT session is no longer active");
+					}
+					runtimeStarted = true;
 				})();
 				return startPromise;
 			};
@@ -236,6 +244,8 @@ export function registerHepiAft(pi: ExtensionAPI): void {
 			session.registry.registerLifecycle({
 				id: "aft-runtime",
 				cleanup: async () => {
+					disposed = true;
+					if (runtime === activeRuntime) runtimeStarted = false;
 					activeReadPathResolver?.dispose();
 					await activeRuntime.dispose();
 					if (runtime === activeRuntime) runtime = undefined;
