@@ -5,6 +5,8 @@
 已实现 v1：`@hheei/pi-ext-core` package、focused tests 与下列公开接口均已建立。本文件
 记录已确认的边界和组合语义，后续扩展必须先更新本提案并重新达成共识。
 
+维护者与 consumers 的开发约定见 [pi-ext-core 开发约定](../development/pi-ext-core.md)。
+
 ## 目标
 
 `@hheei/pi-ext-core` 是独立 `pi-<name>` extension 的最小协调依赖。它提供：
