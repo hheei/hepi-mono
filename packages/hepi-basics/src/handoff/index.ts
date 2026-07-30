@@ -3,6 +3,7 @@ import type {
 	ExtensionCommandContext,
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
+import { isHepiSubagentSession } from "../core/runtime/subagent-session.js";
 
 interface MagicContextHandoffBridge {
 	handoff(ctx: ExtensionCommandContext): Promise<
@@ -59,6 +60,7 @@ export function registerHandoffCommand(pi: ExtensionAPI): void {
 	pi.registerCommand("handoff", {
 		description: "Compact the current context and continue in a new session",
 		handler: async (args, ctx) => {
+			if (isHepiSubagentSession(pi)) return;
 			if (args.trim() !== "") {
 				ctx.ui.notify("Usage: /handoff", "error");
 				return;

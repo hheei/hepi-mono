@@ -14,6 +14,10 @@ Included modules:
 - `pi-todo`
 - `pi-web-access`
 
+When `@hheei/hepi-subagents` creates a child session, Tools automatically
+disables `ask`, `goal`, `todo`, and Advisor. SSHFS, FFF search, and Web Access
+remain available so a child can still inspect, research, and modify its task.
+
 Loadout groups are registered at each tool extension boundary, so an aggregate
 bundle keeps ownership with the extension that declared each tool. HEPI FFF
 replaces the built-in `find` and `grep` slots; Loadout keeps those

@@ -6,6 +6,7 @@ import {
 	getToolActivationCoordinator,
 	HepiLifecycleController,
 	hepiLoadoutKey,
+	isHepiSubagentSession,
 	registerHepiLifecycle,
 	registerHepiModule,
 	setHepiDisabledSkillKeys,
@@ -72,6 +73,7 @@ export default function piLoadoutExtension(pi: ExtensionAPI): void {
 		pi,
 		new HepiLifecycleController({
 			onStart: async (runtime) => {
+				if (isHepiSubagentSession(pi)) return;
 				const unregisterModule = registerHepiModule(loadoutModule, moduleRegistry);
 				runtime.registry.registerLifecycle({
 					id: "loadout-module",

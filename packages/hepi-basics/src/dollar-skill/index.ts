@@ -12,6 +12,7 @@ import type {
 	HepiSettingsProvider,
 	HepiSettingsState,
 } from "../core/index.js";
+import { isHepiSubagentSession } from "../core/runtime/subagent-session.js";
 import { createDollarSkillAtomicEditor } from "./atomic-editor.js";
 import {
 	DOLLAR_SKILL_SETTINGS_GROUP,
@@ -150,7 +151,13 @@ export function registerDollarSkillInputTransform(
 	feature: DollarSkillFeature,
 ): void {
 	pi.on("input", (event) => {
-		if (event.source === "extension" || !feature.isActive() || !feature.getConfig().enabled) return;
+		if (
+			isHepiSubagentSession(pi) ||
+			event.source === "extension" ||
+			!feature.isActive() ||
+			!feature.getConfig().enabled
+		)
+			return;
 		const text = expandDollarSkillReferences(event.text, pi.getCommands(), feature.isSkillEnabled);
 		if (text === undefined) return;
 		return {

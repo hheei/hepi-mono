@@ -3,6 +3,7 @@ import {
 	getHepiRuntimeSettingsRegistry,
 	HepiLifecycleController,
 	hepiAuthenticatedModelSelectionOptions,
+	isHepiSubagentSession,
 	registerHepiLifecycle,
 	registerHepiSettings,
 } from "../core/index.js";
@@ -21,6 +22,7 @@ export default function piAutoTitleExtension(pi: ExtensionAPI): void {
 	let run: (() => void) | undefined;
 	const lifecycle = new HepiLifecycleController({
 		onStart: async (runtime) => {
+			if (isHepiSubagentSession(pi)) return;
 			const modelOptions = hepiAuthenticatedModelSelectionOptions(runtime.ctx.modelRegistry);
 			const provider = createAutoTitleSettingsProvider({
 				modelOptions,
@@ -84,6 +86,7 @@ export default function piAutoTitleExtension(pi: ExtensionAPI): void {
 				ctx.ui.notify("/auto-title requires TUI mode", "error");
 				return;
 			}
+			if (isHepiSubagentSession(pi)) return;
 			run?.();
 		},
 	});

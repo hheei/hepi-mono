@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { extensionRuntimeIdentity } from "../core/runtime/identity.js";
+import { isHepiSubagentSession } from "../core/runtime/subagent-session.js";
 
 type IntegrationRegistration = {
 	readonly token: symbol;
@@ -31,6 +32,7 @@ export function registerHepiIntegration(
 	runtime.get(key)?.cleanup?.();
 	const registration: IntegrationRegistration = { token: Symbol(key) };
 	runtime.set(key, registration);
-	const isCurrent = (): boolean => runtime?.get(key)?.token === registration.token;
+	const isCurrent = (): boolean =>
+		runtime?.get(key)?.token === registration.token && !isHepiSubagentSession(pi);
 	registration.cleanup = setup(isCurrent);
 }

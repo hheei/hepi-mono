@@ -16,6 +16,11 @@ Included modules:
 - `pi-auto-title`
 - `pi-integrations` (environment-gated Orca and Herdr adapters)
 
+When `@hheei/hepi-subagents` creates a child session, Basics automatically
+disables Loadout, `$skill` input expansion, T2S, automatic titles, host
+integrations, and `/handoff`. Core tool activation, retry, RTK, and patch
+safety remain available to the child.
+
 While `pi-auto-title` generates a session title, the editor top rail shows a
 grey-to-white shimmer over `Generating title` at its right edge. The completed
 title uses the dim theme color in the same position. Either is omitted when the

@@ -22,6 +22,7 @@ const bridges = new WeakMap<
 
 afterEach(() => {
 	globalThis.__hepiMagicContextHandoffByRuntime = undefined;
+	globalThis.__piSubagentSessionBridgesByRuntime = undefined;
 });
 
 function harness(): {
@@ -126,4 +127,18 @@ test("handoff runs Magic Context migration before injecting the tail", async () 
 
 	expect(migratedSession).toBe("destination");
 	expect(state.injected[0]?.content).toBe("<handoff-tail>reduced</handoff-tail>");
+});
+
+test("handoff does nothing in a Pi Subagents child session", async () => {
+	const host = harness();
+	const state = context();
+	const subagents = new WeakMap<object, { isSubagentSession(): boolean }>();
+	subagents.set(host.pi.events, { isSubagentSession: () => true });
+	globalThis.__piSubagentSessionBridgesByRuntime = subagents;
+	registerHandoffCommand(host.pi);
+
+	await host.commands[0]?.handler("", state.ctx);
+
+	expect(state.compactCalls).toHaveLength(0);
+	expect(state.injected).toEqual([]);
 });

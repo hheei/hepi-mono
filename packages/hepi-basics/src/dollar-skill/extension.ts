@@ -3,6 +3,7 @@ import {
 	getHepiRuntimeSettingsRegistry,
 	HepiLifecycleController,
 	isHepiSkillEnabled,
+	isHepiSubagentSession,
 	registerHepiLifecycle,
 	registerHepiSettings,
 } from "../core/index.js";
@@ -22,6 +23,7 @@ export default function piDollarSkillExtension(pi: ExtensionAPI): void {
 		pi,
 		new HepiLifecycleController({
 			onStart: async (runtime) => {
+				if (isHepiSubagentSession(pi)) return;
 				const unregisterSettings = registerHepiSettings(provider, settingsRegistry);
 				runtime.registry.registerLifecycle({
 					id: "dollar-skill-settings",

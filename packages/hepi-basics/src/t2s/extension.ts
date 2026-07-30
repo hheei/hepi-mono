@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	getHepiRuntimeSettingsRegistry,
 	HepiLifecycleController,
+	isHepiSubagentSession,
 	registerHepiLifecycle,
 	registerHepiSettings,
 } from "../core/index.js";
@@ -17,6 +18,7 @@ export default function piT2sExtension(pi: ExtensionAPI): void {
 	const provider = createTraditionalToSimplifiedSettingsProvider();
 	const lifecycle = new HepiLifecycleController({
 		onStart: async (runtime) => {
+			if (isHepiSubagentSession(pi)) return;
 			const unregisterSettings = registerHepiSettings(provider, settingsRegistry);
 			runtime.registry.registerLifecycle({
 				id: "t2s-settings",

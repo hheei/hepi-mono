@@ -4,6 +4,7 @@ import {
 	getHepiRuntimeSettingsRegistry,
 	HepiLifecycleController,
 	hepiAuthenticatedModelSelectionOptions,
+	isHepiSubagentSession,
 	registerHepiLifecycle,
 	registerHepiSettings,
 } from "../../../hepi-basics/src/core/index.js";
@@ -14,12 +15,13 @@ import { registerAdvisorRenderer } from "./renderer.js";
 import { createAdvisorSettingsProvider } from "./settings.js";
 
 export default function piAdvisorExtension(pi: ExtensionAPI): void {
-	const advisor = createAdvisorFeature();
 	const settingsRegistry = getHepiRuntimeSettingsRegistry(pi);
-	registerAdvisorCommand(pi, advisor);
-	registerAdvisorRenderer(pi);
 	const lifecycle = new HepiLifecycleController({
 		onStart: async (runtime) => {
+			if (isHepiSubagentSession(pi)) return;
+			const advisor = createAdvisorFeature();
+			registerAdvisorCommand(pi, advisor);
+			registerAdvisorRenderer(pi);
 			const modelOptions = hepiAuthenticatedModelSelectionOptions(runtime.ctx.modelRegistry);
 			const provider = createAdvisorSettingsProvider({
 				modelOptions,
