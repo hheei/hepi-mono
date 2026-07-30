@@ -29,7 +29,6 @@ export const DEFAULT_FIND_FILES_LIMIT = 20;
 export const MAX_MATCHES_PER_FILE = 200;
 export const AUTO_EXPAND_AFTER_CONTEXT = 6;
 export const MAX_AUTO_EXPAND_LINES = 5;
-export const MAX_GREP_CURSOR_STATES = 64;
 export const CROPPED_MATCH_LINE_WIDTH = 180;
 export const GREP_CURSOR_PREFIX = "grep:";
 export const FIND_FILES_CURSOR_PREFIX = "find:";
@@ -131,13 +130,6 @@ export type FileCursorPayload = {
 	searchQuery?: string;
 	pageIndex: number;
 	pageSize: number;
-};
-
-export type StoredGrepContinuation = {
-	requestKey: string;
-	remainingItems: GrepMatch[];
-	engineCursor: GrepCursor | null;
-	regexFallbackError?: string;
 };
 
 export type RuntimeOptions = {
