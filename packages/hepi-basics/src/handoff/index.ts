@@ -9,7 +9,7 @@ interface MagicContextHandoffBridge {
 		| {
 				context: string;
 				setup?: (sessionManager: Pick<SessionManager, "getSessionId">) => Promise<void>;
-			}
+		  }
 		| undefined
 	>;
 }

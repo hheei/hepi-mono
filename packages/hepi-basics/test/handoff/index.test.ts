@@ -14,7 +14,7 @@ const bridges = new WeakMap<
 			| {
 					context: string;
 					setup?: (session: { getSessionId(): string }) => Promise<void>;
-				}
+			  }
 			| undefined
 		>;
 	}
