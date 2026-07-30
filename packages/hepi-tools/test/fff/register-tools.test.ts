@@ -250,7 +250,7 @@ describe("FFF tool registration", () => {
 				content: [
 					{
 						type: "text",
-						text: "2/527 matches\n1. packages/a.ts (fuzzy_filename) - frequent git:modified\n2. packages/b.ts (fuzzy_path)",
+						text: "2/527 matches\n1. packages/a.ts (fuzzy_filename) - frequent git:modified\n2. packages/b.ts (fuzzy_path) - frequent\ncursor: find:next-page",
 					},
 				],
 				details: { totalMatched: 527 },
@@ -267,7 +267,7 @@ describe("FFF tool registration", () => {
 				.join("\n");
 		expect(renderText(call)).toBe("find tools (limit 30)");
 		expect(renderText(result)).toBe(
-			"2 matches in 527 files:\nFF packages/a.ts (frequent git:modified)\nFP packages/b.ts",
+			"2 matches in 527 files:\nFF packages/a.ts (frequent git:modified)\nFP packages/b.ts (frequent)",
 		);
 		expect(roles.filter((role) => role === "success")).toHaveLength(2);
 		expect(roles).toContain("accent");
