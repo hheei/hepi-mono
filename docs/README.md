@@ -12,12 +12,14 @@ This directory records high-level information for users and developers. Detailed
 
 - [Extension development](development/extension-development.md): feature workflow, package conventions, and focused verification.
 - [Pi Basics development](development/pi-basics.md): foundation boundaries and integration contracts.
+- [pi-ext-core development](development/pi-ext-core.md): core and consumer-specific development rules.
 - [HEPI TUI design](../DESIGN.md): required specification for UI and UX work.
 - [Pi source design](../.pi/skills/pi-development/references/DESIGN.md): Pi source-code design taste and integration guidance.
 
 ## Architecture
 
 - [Extension reference architecture](architecture/extension-reference.md): target package layout, public API, lifecycle, concurrency, and test boundaries.
+- [Loadout architecture](architecture/loadout.md): planned tool registration, activation policy, Settings host, and Extension page router boundaries.
 
 ## Research
 
