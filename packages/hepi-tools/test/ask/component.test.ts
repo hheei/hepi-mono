@@ -150,10 +150,10 @@ describe("Ask component", () => {
 		expect(output).toContain("<dim>#1 Deployment?</dim>");
 		expect(output).toContain("<borderAccent>☑</borderAccent> <border>Yes</border>");
 		expect(output).toContain("<dim>↕ scroll · ↔ switch · ↵ submit · ⎋ cancel</dim>");
-		expect(output).toContain("<text>╭");
+		expect(output).toContain("<border>╭");
 		expect(output).toContain("<accent>╭");
 		expect(output).toContain("<accent>╯");
-		expect(output).toContain("<text>│ ☑ #1 │</text>");
+		expect(output).toContain("<border>│</border><text> ☑ #1 </text><border>│</border>");
 		expect(output).toContain("<accent>│ ≡ Review │</accent>");
 	});
 
