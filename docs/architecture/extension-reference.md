@@ -31,6 +31,7 @@ contracts recorded in its ADRs:
 - shared TUI primitives governed by [DESIGN.md](../../DESIGN.md).
 - Loadout tool registration transport and metadata, never Loadout policy;
 - Extension page routing and shell lifecycle, never page content or policy.
+- root-session-scoped subagent execution, never agent/config/UI/delivery policy.
 
 It does not contain feature policy, register a Pi extension, or import a
 concrete extension. Its imports are side-effect free: it creates no Pi handler,
@@ -88,8 +89,9 @@ Public contracts must:
 
 Do not export a class hierarchy, a generic registry, or an adapter layer for a
 single consumer. Add a core mechanism only after a second concrete extension
-needs the same feature-neutral behavior. The documented Loadout contract and Extension page router
-are approved, bounded exceptions; do not use them to justify another single-consumer abstraction.
+needs the same feature-neutral behavior. The documented Loadout contract, Extension page router and
+Subagent execution contract are approved, bounded exceptions; do not use them to justify another
+single-consumer abstraction.
 
 ## Cross-Extension Cooperation
 

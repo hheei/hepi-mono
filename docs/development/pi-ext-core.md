@@ -42,9 +42,11 @@ core 的目标是以最小协调原语支持独立 extension 组合。未安装�
 - 根入口是唯一 public import surface；consumer 不得 deep import `src/` 模块。
 - core 不导入 concrete extension，也不承载 feature-specific business state、event bus 或 RPC。
   [ADR 0001](../adr/0001-core-extension-page-shell.md) 与
-  [ADR 0002](../adr/0002-core-loadout-contract.md) 是唯一已批准例外：Extension page router 和
-  Loadout tool registration contract；它们不得扩张为 page content、Loadout policy、Settings
-  persistence 或 schema-driven framework。
+  [ADR 0002](../adr/0002-core-loadout-contract.md) 与
+  [ADR 0004](../adr/0004-core-subagent-execution.md) 是唯一已批准例外：Extension page router、
+  Loadout tool registration contract 和 root-session-scoped subagent execution contract；它们不得
+  扩张为 page content、Loadout policy、Settings persistence、agent/config/UI/delivery policy 或
+  schema-driven framework。
 - extension 将 core 作为 direct production dependency，并 externalize bundle；runtime state
   必须以 `pi.events` 为 identity，通过稳定 `Symbol.for` slot 跨重复 core module instance 共享。
 - process-global state 只能保存 lazy registry；不得保留 `ExtensionContext`、component 或 session
@@ -98,9 +100,9 @@ factory、dependency 或 generic framework。
 单一 consumer 的专属优化保留在它自己的 package。出现真实重复后再提案；不以预测复用为理由
 扩大 core。
 
-已批准 ADR 的范围外仍适用该门槛。Loadout contract 与 Extension page router 是记录在 ADR 中的
-单 consumer 例外；第二个 consumer 出现前，不得在它们上继续抽取 generic policy、content model
-或 shared dependency。
+已批准 ADR 的范围外仍适用该门槛。Loadout contract、Extension page router 与 Subagent execution
+contract 是记录在 ADR 中的单 consumer 例外；第二个 consumer 出现前，不得在它们上继续抽取
+generic policy、content model、worker framework 或 shared dependency。
 
 ## Loadout Contributor
 
@@ -111,6 +113,18 @@ Loadout registration，禁止直接调用 Pi tool registration API。`pi-loadout
 所有 tool registration 与 page registration 的 ID 必须稳定且 runtime 内唯一；重复 ID 是 programmer
 error。每个 tool/page 的 priority、conflict、ownership、cancellation、cleanup 与 lazy cost 必须在
 紧邻 TypeScript 注释中说明。完整 Loadout contract 见 [Loadout 架构](../architecture/loadout.md)。
+
+## Subagent Consumer
+
+subagent execution 只经 core public contract 启动。consumer 负责在调用前解析 agent/model/prompt/tool
+policy，为每个 task 提供 finite `maxTurns`，并为 detached task 提供幂等 terminal delivery sink；不得
+把 `pi.events` 当作 core RPC 或直接管理 child `AgentSession`。sink 必须接受 abort 后不写旧 parent
+state；conversation subscriber 必须声明 event kinds、接受 fixed-cap snapshot coalescing，且在其 lifecycle
+signal abort 后不得保留 handle reference。
+
+所有 execution adapter 的注释必须说明 parent session ownership、mode、shared-cap admission、
+cancellation、delivery/retry policy、event backpressure 与 retention cost。完整 contract 见
+[Subagent 执行架构](../architecture/subagents.md)。
 
 ## 变更清单
 

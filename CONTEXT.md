@@ -122,3 +122,53 @@ removed. It receives the active Pi theme, rebuilds theme-dependent content on no
 reports whether it consumed an input before the router handles tab navigation. A failed creation
 leaves the router usable and retries when the user selects that page again.
 _Avoid_: eagerly initialized tab, persistent router state
+
+**Subagent handle**:
+A root-session-scoped, cancellable record for one subagent operation. It owns stable identity,
+terminal result, status and cleanup regardless of whether its caller awaits, receives a delivery,
+or subscribes to events.
+_Avoid_: raw child session, background job
+
+**Completion**:
+A lightweight, no-tools, single model response. It has no child AgentSession, transcript or
+interactive input channel.
+_Avoid_: bounded task, one-agent conversation
+
+**Task**:
+A bounded, tool-capable, multi-turn subagent operation that reaches one terminal result. A caller
+may await it; every task declares a finite maximum turn count, and a detached task must declare a
+terminal delivery sink.
+_Avoid_: background mode, scheduled job
+
+**Conversation**:
+A durable, root-session-scoped child AgentSession. It accepts ordered messages and may publish
+selected outbound events to explicit subscribers; it is not a transport protocol or a terminal
+task notification.
+_Avoid_: IRC transport, task with a steer button
+
+**Queued message**:
+A FIFO conversation input that starts only after the current child response reaches a boundary.
+It is the default conversation send mode.
+_Avoid_: steer, interruption
+
+**Steer message**:
+An explicit conversation input that redirects an active child after its current tool execution.
+It is never inferred from send timing.
+_Avoid_: normal chat message, cancellation
+
+**Terminal delivery sink**:
+The caller-owned, mandatory delivery callback for a detached Task result. A sink failure marks
+delivery failed without changing the task result; core never retries it automatically. The sink
+receives a cancellation signal and must not write parent state after it aborts.
+_Avoid_: core notification, exactly-once delivery
+
+**Root subagent coordinator**:
+The single parent-session owner of a shared active-turn concurrency cap, all handles, cancellation
+and shutdown cleanup. Child sessions cannot create subagents.
+_Avoid_: per-extension pool, durable supervisor
+
+**Subagent event subscription**:
+A subscriber-owned, fixed-cap snapshot stream for selected child output. Text, tool activity and
+turn state may coalesce; terminal state evicts coalescible entries and is never dropped. The stream
+preserves only delivered-event order, not every intermediate state.
+_Avoid_: lossless event log, blocking callback
