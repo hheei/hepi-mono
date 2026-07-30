@@ -57,7 +57,7 @@ Do not introduce npm, Yarn, or pnpm lockfiles.
 - Keep `docs/` high-level: developer and user concepts, architecture boundaries, prerequisites, and entry points. Keep repository workflow and architecture guidance under `docs/development/` and `docs/architecture/`; keep evidence and historical context under `docs/research/` and `docs/plans/`.
 - Put implementation detail, public TypeScript API contracts, and function usage in concise TypeScript comments or JSDoc beside the code. Keep package READMEs limited to package-level installation and compatibility information.
 - Follow `docs/architecture/extension-reference.md` when designing a new extension.
-- Treat [DESIGN.md](DESIGN.md) as the required specification for every UI or UX decision. Agent proposals, plans, and implementation notes for UI work must cite it. Pi source-code design taste and integration guidance live in `.pi/skills/pi-development/references/DESIGN.md`; load the `pi-development` skill before using that reference.
+- Treat [DESIGN.md](DESIGN.md) as the required specification for every UI or UX decision. Agent proposals, plans, and implementation notes for UI work must cite it. When an agreed UI or UX decision changes the product design, update `DESIGN.md` in the same commit using Pi theme token names, not color values. Pi source-code design taste and integration guidance live in `.pi/skills/pi-development/references/DESIGN.md`; load the `pi-development` skill before using that reference.
 - Treat `docs/plans/` as historical context, not the current behavior contract.
 - Update documentation when public behavior, compatibility, or package entry points change.
 
