@@ -159,7 +159,11 @@ test("HEPI composition packages expose one bundled extension entry", async () =>
 		if (!isRecord(manifest)) throw new Error(`Expected object manifest: ${packagePath}`);
 		const entries = isRecord(manifest.pi) ? manifest.pi.extensions : undefined;
 		expect(entries).toEqual(["./dist/extension.js"]);
-		expect(runtimePackageDependencies(manifest)).toEqual([]);
+		expect(runtimePackageDependencies(manifest)).toEqual(
+			relative(packagesDirectory, packagePath) === "hepi-mono"
+				? ["@hheei/hepi-aft", "@hheei/hepi-mctx", "@hheei/hepi-subagents"]
+				: [],
+	);
 	}
 });
 

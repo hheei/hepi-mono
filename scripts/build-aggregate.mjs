@@ -54,6 +54,31 @@ const subagentsLink = path.join(root, "node_modules", "@hheei", "hepi-subagents"
 rmSync(subagentsLink, { force: true, recursive: true });
 symlinkSync(subagentsPackage, subagentsLink, "dir");
 
+const sourcePackageLinks = [
+	[
+		path.join(root, "packages", "hepi-mono"),
+		"@hheei",
+		"hepi-aft",
+		path.join(root, "packages", "hepi-aft"),
+	],
+	[path.join(root, "packages", "hepi-mono"), "@hheei", "hepi-mctx", magicContextPackage],
+	[path.join(root, "packages", "hepi-mono"), "@hheei", "hepi-subagents", subagentsPackage],
+	[magicContextPackage, "@hheei", "hepi-subagents", subagentsPackage],
+];
+
+for (const [packageRoot, scope, name, target] of sourcePackageLinks) {
+	const link = path.join(packageRoot, "node_modules", scope, name);
+	mkdirSync(path.dirname(link), { recursive: true });
+	const linkStat = lstatSync(link, { throwIfNoEntry: false });
+	if (linkStat) {
+		if (!linkStat.isSymbolicLink()) {
+			throw new Error(`Expected source package link, found a real directory: ${link}`);
+		}
+		rmSync(link);
+	}
+	symlinkSync(target, link, "dir");
+}
+
 const magicContextCoreModules = path.join(
 	root,
 	"packages",
