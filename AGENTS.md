@@ -48,6 +48,7 @@ Do not introduce npm, Yarn, or pnpm lockfiles.
 - `@hheei/hepi-mono` is deprecated. Existing aggregate packages are transitional only and receive no new features; migrate a touched feature to an independent extension instead.
 - The project is in active development. Do not preserve obsolete HEPI APIs or layouts unless the user explicitly requests compatibility. Prefer the smallest sound target abstraction over adapters for superseded shapes.
 - Do not place external repositories, source snapshots, or vendored reference code under `packages/`; keep ignored local clones under `references/repos/` and record their URL and revision in `references/README.md`.
+- The shared Pi upstream reference is `references/repos/earendil-works-pi`. Use it for Pi API and implementation research; it is ignored, read-only reference material, never a workspace dependency or import source. Update it intentionally and record its checked revision in `references/README.md`.
 - Extensions depend on `@hheei/pi-ext-core` and upstream Pi packages, never on another concrete extension. Cross-extension cooperation uses core-owned, runtime-scoped capability contracts; events remain notifications, not shared state or RPC.
 - Keep runtime state session-scoped and cleanup idempotent unless persistence is explicitly part of the feature contract.
 
