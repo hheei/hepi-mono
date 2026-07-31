@@ -145,6 +145,12 @@ Pi runtime。
 transform，呈现 config diagnostic 后保留 Pi native behavior。它不是 context-store failure；用户修正配置并
 reload 后才启用 pipeline。
 
+首个 runtime activation slice 在 `session_start` 读取 config，并用 Pi `modelRegistry.find()` 与
+`hasConfiguredAuth()` 解析显式 historian model。disabled config 保持静默 native behavior；invalid config、
+unavailable/unconfigured model 或 core Completion coordinator cap collision 显示 diagnostic 后保持 native
+behavior。只有解析成功时才配置/reuse `maxActiveTurns: 2` coordinator 并创建 session-scoped MCTX runtime holder；
+shutdown 会清除该 holder。此 slice 不打开 SQLite、不注册 `context` hook，也不调用 historian Completion。
+
 已激活的 compartment trigger budget 使用 model-aware percentage threshold、absolute-token fallback/guard 和
 hysteresis。具体 default 必须在 `pi-mctx` schema 与 focused tests 中固定；它不隐式追随会变化的 upstream
 default。
@@ -188,8 +194,7 @@ parent-to-child inheritance Service 与 `pi-subagents` integration 不属于首�
 
 ## 延后决策
 
-- historian model resolution、具体 schema default、token accounting source、stable project identity，以及
-  SQLite schema/migration 版本；
+- 具体 schema default、token accounting source、stable project identity，以及 SQLite schema/migration 版本；
 - memory、note、search、Dreamer、embedding、command、status 和 UI 的具体行为；
 - parent-to-child inheritance Service payload 和 `pi-subagents` integration；
 - child `mctx-lean` historian profile。只有 Pi 原生 compaction 在长任务中被证实不足时，才单独

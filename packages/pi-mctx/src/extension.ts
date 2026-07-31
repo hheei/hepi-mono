@@ -1,7 +1,15 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { registerExtensionLifecycle } from "@hheei/pi-ext-core";
+import { createMctxFeature } from "./feature.js";
 
 /**
- * Pi package entry. Context-pipeline resources are registered only when the
- * enabled feature exists; the skeleton intentionally leaves Pi unchanged.
+ * Pi package entry. Activation only resolves a session-owned historian runtime;
+ * context, storage, and completion behavior remain unregistered.
  */
-export default function piMctxExtension(_pi: ExtensionAPI): void {}
+export default function piMctxExtension(pi: ExtensionAPI): void {
+	const feature = createMctxFeature();
+	registerExtensionLifecycle(pi, {
+		key: "@hheei/pi-mctx",
+		start: feature.start,
+	});
+}

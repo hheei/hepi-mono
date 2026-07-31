@@ -1,15 +1,15 @@
 import { expect, test } from "bun:test";
 import piMctxExtension from "../src/extension.js";
 
-test("pi-mctx entry is inert", (): void => {
-	const pi = new Proxy(
-		{},
-		{
-			get(): never {
-				throw new Error("The package skeleton must not access Pi APIs");
-			},
+test("pi-mctx entry registers only session lifecycle handlers", (): void => {
+	const handlers: string[] = [];
+	const pi = {
+		events: {},
+		on(name: string): void {
+			handlers.push(name);
 		},
-	);
+	};
 
-	expect((): void => piMctxExtension(pi as never)).not.toThrow();
+	piMctxExtension(pi as never);
+	expect(handlers).toEqual(["session_start", "session_shutdown"]);
 });
