@@ -4,7 +4,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export const MCTX_STORE_APPLICATION_ID = 0x484d4354;
-export const MCTX_STORE_SCHEMA_VERSION = 3;
+export const MCTX_STORE_SCHEMA_VERSION = 4;
 export const MCTX_STORE_BUSY_TIMEOUT_MS = 5_000;
 
 export interface MctxStore {
@@ -23,6 +23,11 @@ export interface MctxStore {
 		nowMs?: number,
 	): MctxHistorianLease | undefined;
 	releaseHistorianLease(lease: MctxHistorianLease): void;
+	listCompartments(partition: MctxPartition): readonly MctxCompartment[];
+	publishCompartment(
+		partition: MctxPartition,
+		draft: MctxCompartmentDraft,
+	): MctxCompartmentPublication | undefined;
 	close(): void;
 }
 
@@ -36,6 +41,24 @@ export interface MctxHistorianLease {
 	readonly partition: MctxPartition;
 	readonly ownerToken: string;
 	readonly expiresAtMs: number;
+}
+
+export interface MctxCompartmentDraft {
+	readonly tier: "m0" | "m1";
+	readonly sourceStartEntryId: string;
+	readonly sourceEndEntryId: string;
+	readonly sourceFingerprint: string;
+	readonly renderedPayload: string;
+}
+
+export interface MctxCompartment extends MctxCompartmentDraft {
+	readonly sequence: number;
+	readonly publishedRevision: number;
+}
+
+export interface MctxCompartmentPublication {
+	readonly partition: MctxPartition;
+	readonly compartment: MctxCompartment;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -141,6 +164,26 @@ function migrateV3(database: DatabaseSync): void {
 	}
 }
 
+function migrateV4(database: DatabaseSync): void {
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		database.exec("ALTER TABLE mctx_metadata RENAME TO mctx_metadata_v3");
+		database.exec(
+			"CREATE TABLE mctx_metadata (schema_version INTEGER NOT NULL CHECK (schema_version = 4)) STRICT",
+		);
+		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(4);
+		database.exec("DROP TABLE mctx_metadata_v3");
+		database.exec(
+			"CREATE TABLE compartments (project_identity TEXT NOT NULL, session_id TEXT NOT NULL, tier TEXT NOT NULL CHECK (tier IN ('m0', 'm1')), sequence INTEGER NOT NULL CHECK (sequence >= 0), source_start_entry_id TEXT NOT NULL, source_end_entry_id TEXT NOT NULL, source_fingerprint TEXT NOT NULL, rendered_payload TEXT NOT NULL, published_revision INTEGER NOT NULL CHECK (published_revision > 0), PRIMARY KEY (project_identity, session_id, tier, sequence), FOREIGN KEY (project_identity, session_id) REFERENCES partitions(project_identity, session_id)) STRICT",
+		);
+		database.exec("PRAGMA user_version = 4");
+		database.exec("COMMIT");
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
 function validateSchema(database: DatabaseSync): void {
 	const applicationId = pragmaInteger(database, "PRAGMA application_id");
 	const version = pragmaInteger(database, "PRAGMA user_version");
@@ -160,6 +203,7 @@ function validateSchema(database: DatabaseSync): void {
 	}
 	if (pragmaInteger(database, "PRAGMA user_version") === 1) migrateV2(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 2) migrateV3(database);
+	if (pragmaInteger(database, "PRAGMA user_version") === 3) migrateV4(database);
 	if (pragmaInteger(database, "PRAGMA application_id") !== MCTX_STORE_APPLICATION_ID) {
 		throw new Error("Context store application identity is invalid");
 	}
@@ -170,7 +214,8 @@ function validateSchema(database: DatabaseSync): void {
 	if (
 		!hasTable(database, "projects") ||
 		!hasTable(database, "partitions") ||
-		!hasTable(database, "historian_leases")
+		!hasTable(database, "historian_leases") ||
+		!hasTable(database, "compartments")
 	) {
 		throw new Error("Context store partition tables are missing");
 	}
@@ -353,6 +398,119 @@ function releaseHistorianLease(database: DatabaseSync, lease: MctxHistorianLease
 		.run(lease.partition.projectIdentity, lease.partition.sessionId, lease.ownerToken);
 }
 
+function requireCompartmentDraft(draft: MctxCompartmentDraft): void {
+	if (draft.tier !== "m0" && draft.tier !== "m1")
+		throw new Error("Context store compartment tier is invalid");
+	if (
+		!draft.sourceStartEntryId.trim() ||
+		!draft.sourceEndEntryId.trim() ||
+		!draft.sourceFingerprint.trim() ||
+		!draft.renderedPayload.trim()
+	) {
+		throw new Error("Context store compartment fields must not be empty");
+	}
+}
+
+function compartmentFromRow(value: unknown): MctxCompartment {
+	if (
+		!isRecord(value) ||
+		(value.tier !== "m0" && value.tier !== "m1") ||
+		typeof value.sequence !== "number" ||
+		typeof value.source_start_entry_id !== "string" ||
+		typeof value.source_end_entry_id !== "string" ||
+		typeof value.source_fingerprint !== "string" ||
+		typeof value.rendered_payload !== "string" ||
+		typeof value.published_revision !== "number" ||
+		!Number.isSafeInteger(value.sequence) ||
+		!Number.isSafeInteger(value.published_revision) ||
+		value.sequence < 0 ||
+		value.published_revision <= 0
+	) {
+		throw new Error("Context store compartment row is invalid");
+	}
+	return {
+		tier: value.tier,
+		sequence: value.sequence,
+		sourceStartEntryId: value.source_start_entry_id,
+		sourceEndEntryId: value.source_end_entry_id,
+		sourceFingerprint: value.source_fingerprint,
+		renderedPayload: value.rendered_payload,
+		publishedRevision: value.published_revision,
+	};
+}
+
+function listCompartments(
+	database: DatabaseSync,
+	partition: MctxPartition,
+): readonly MctxCompartment[] {
+	requirePartitionKey(partition.projectIdentity, partition.sessionId);
+	const rows: unknown = database
+		.prepare(
+			"SELECT tier, sequence, source_start_entry_id, source_end_entry_id, source_fingerprint, rendered_payload, published_revision FROM compartments WHERE project_identity = ? AND session_id = ? ORDER BY published_revision ASC",
+		)
+		.all(partition.projectIdentity, partition.sessionId);
+	if (!Array.isArray(rows)) throw new Error("Context store compartment query is invalid");
+	return rows.map(compartmentFromRow);
+}
+
+function publishCompartment(
+	database: DatabaseSync,
+	partition: MctxPartition,
+	draft: MctxCompartmentDraft,
+): MctxCompartmentPublication | undefined {
+	requirePartitionKey(partition.projectIdentity, partition.sessionId);
+	requireCompartmentDraft(draft);
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		const changes = changedRows(
+			database
+				.prepare(
+					"UPDATE partitions SET revision = revision + 1 WHERE project_identity = ? AND session_id = ? AND revision = ?",
+				)
+				.run(partition.projectIdentity, partition.sessionId, partition.revision),
+		);
+		if (changes === 0) {
+			database.exec("ROLLBACK");
+			return undefined;
+		}
+		if (changes !== 1) throw new Error("Context store publication affected multiple partitions");
+		const sequence = integerValue(
+			database
+				.prepare(
+					"SELECT COALESCE(MAX(sequence) + 1, 0) AS value FROM compartments WHERE project_identity = ? AND session_id = ? AND tier = ?",
+				)
+				.get(partition.projectIdentity, partition.sessionId, draft.tier),
+			"compartment sequence",
+		);
+		const nextPartition = { ...partition, revision: partition.revision + 1 };
+		const compartment: MctxCompartment = {
+			...draft,
+			sequence,
+			publishedRevision: nextPartition.revision,
+		};
+		database
+			.prepare(
+				"INSERT INTO compartments (project_identity, session_id, tier, sequence, source_start_entry_id, source_end_entry_id, source_fingerprint, rendered_payload, published_revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			)
+			.run(
+				partition.projectIdentity,
+				partition.sessionId,
+				compartment.tier,
+				compartment.sequence,
+				compartment.sourceStartEntryId,
+				compartment.sourceEndEntryId,
+				compartment.sourceFingerprint,
+				compartment.renderedPayload,
+				compartment.publishedRevision,
+			);
+		database.exec("COMMIT");
+		return { partition: nextPartition, compartment };
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
 export function defaultMctxStorePath(agentDir: string = getAgentDir()): string {
 	return join(agentDir, "mctx", "context.db");
 }
@@ -399,6 +557,14 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 		releaseHistorianLease(lease): void {
 			if (database === undefined) throw new Error("Context store is closed");
 			releaseHistorianLease(database, lease);
+		},
+		listCompartments(partition): readonly MctxCompartment[] {
+			if (database === undefined) throw new Error("Context store is closed");
+			return listCompartments(database, partition);
+		},
+		publishCompartment(partition, draft): MctxCompartmentPublication | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return publishCompartment(database, partition, draft);
 		},
 		close(): void {
 			if (closed) return;

@@ -134,6 +134,8 @@ test("feature owns the active runtime for the session lifecycle", async (): Prom
 			acquireHistorianLease: () => undefined,
 			renewHistorianLease: () => undefined,
 			releaseHistorianLease: () => undefined,
+			listCompartments: () => [],
+			publishCompartment: () => undefined,
 			close: () => void closed++,
 		}),
 	});
@@ -190,6 +192,8 @@ test("feature owns the active runtime for the session lifecycle", async (): Prom
 			acquireHistorianLease: () => undefined,
 			renewHistorianLease: () => undefined,
 			releaseHistorianLease: () => undefined,
+			listCompartments: () => [],
+			publishCompartment: () => undefined,
 			close: () => void partitionStoreClosed++,
 		}),
 	});

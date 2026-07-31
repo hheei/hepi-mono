@@ -90,6 +90,11 @@ schema v3 增加每个 partition 一个 historian lease。worker 使用唯一 ow
 renew 或 release，错误 token 不能影响其他 worker。expired lease 可由新 worker 在短 transaction 中替换；未拿到 lease
 的 process 跳过本次 historian run。此 slice 只提供 store primitive，尚未启动 renewal timer 或 historian。
 
+schema v4 增加 immutable compartment records：partition、`m0`/`m1` tier、source entry range、source fingerprint、
+rendered payload 与 publication revision。`publishCompartment` 仅接受当前 partition snapshot，并在一个 transaction 内插入
+record 和推进 revision；stale snapshot 不写任何 record。read API 只返回当前 partition 的 revision-ordered records。
+结构/coverage/graph validation 与 historian output mapping 留给下一 slice。
+
 默认 compartment trigger 在 parent `turn_end` 检查 token usage 的 threshold 与 hysteresis。越过阈值后，
 `pi-mctx` 异步执行一次 compartment run；它只处理稳定 history snapshot，不能阻塞 prompt、改写 active turn，
 也不能在 parent session replacement 后发布旧结果。
