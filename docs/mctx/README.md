@@ -2,9 +2,9 @@
 
 ## 状态
 
-已创建独立、可安装的 `@hheei/pi-mctx` package skeleton。当前 entry 仍是 inert：它不压缩上下文、不注册
-tool、不写入持久化数据，也不改变 Pi session。configuration raw reader 与 active-field resolver 已完成；它们
-仍只在 session start/application slice 接入后影响 runtime。
+已创建独立、可安装的 `@hheei/pi-mctx` package。默认 disabled，保持 Pi native behavior；启用且 historian
+configuration 有效时，它在 `session_start` 解析 runtime、打开/migrate MCTX SQLite store，并绑定当前 project/session
+partition。当前仍不压缩上下文、不注册 tool、不调用 historian Completion，也不注册 `context` transform。
 
 ## 目的
 
