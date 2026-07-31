@@ -33,7 +33,7 @@ timing 猜测。
 | -------------- | ------------------------------------------------------------ | -------------------------------------------------- |
 | `completion`   | 单次、无 tool 的模型生成；不创建 child session、transcript 或 input channel | caller 等待受限 completion result；用于 auto-title、分类、短摘要 |
 | `task` | 有限、多轮、可使用已解析 tool policy 的 child execution；每项必填有限 soft `maxTurns` | 一个 terminal result；必须通过 delivery sink 自动交给 parent adapter |
-| `conversation` | durable child `AgentSession`，但只存活于 parent session；create 时必填有限 soft `maxTurnsPerReply` | 可持续送入 message，并选择同步 wait 或异步 delivery reply |
+| `conversation` | durable child `AgentSession`，但只存活于 parent session；create 时必填 initial message、reply consumption 与有限 soft `maxTurnsPerReply` | 可持续送入 message，并选择同步 wait 或异步 delivery reply |
 
 
 foreground/background 不是第四 mode，也没有主 agent `wait` 或 result-polling tool。task launch 后立即
@@ -67,17 +67,22 @@ turns；grace 内自然完成仍是正常 terminal result，但带 `softLimitRea
 
 ## Conversation
 
-conversation create 时必须声明有限 soft `maxTurnsPerReply`。每条 message reply 在 cap 时获得一次 wrap-up
-steer，固定 5 个 grace turns 后才 hard abort；其 `softLimitReached` 与 `limit_reached` terminal semantics
-与 task 相同。conversation handle 才有 `send(message, options)`；options 有两个正交选择：
+conversation create 时必须声明 initial message、其 reply consumption 与有限 soft `maxTurnsPerReply`；不会
+创建一个已自动执行但没有 reply owner 的 child prompt。每条 message reply 在 cap 时获得一次 wrap-up steer，
+固定 5 个 grace turns 后才 hard abort；其 `softLimitReached` 与 `limit_reached` terminal semantics 与 task
+相同。conversation handle 才有 `send(message, options)`；create 的 initial reply 与后续 send options 有同一
+个 reply contract，options 有两个正交选择：
 
 - `inputMode: "queue" | "steer"` 是 parent-to-child input。`queue` 是默认，message 进入 FIFO queue，
   当前 child response 到达边界后才开始下一次 prompt。`steer` 是显式打断，使用 Pi 的 steer semantics，
   在当前 tool execution 后重定向 active child。
-- `reply: { kind: "wait" } | { kind: "delivery", mode: "queue" | "steer" }` 是 child-to-parent reply
-  consumption。`wait` 绑定本次 send 的 message sequence，只返回该 message 的 reply，或 `steered`、
-  `cancelled`、`limit_reached` outcome。`delivery` 立即返回 acknowledgment，再由 `pi-subagents` adapter
-  以 queue 或 explicit steer policy 交给 parent。
+- `reply: { kind: "wait", signal } | { kind: "delivery", delivery }` 是 core 的 child-to-parent reply
+  consumption。`wait` 绑定本次 send 的 message sequence，并使用该 parent-turn observer signal，只返回该
+  message 的 reply，或 `steered`、`cancelled`、`limit_reached` outcome。`delivery` 立即返回 acceptance，
+  后续才执行 caller-owned delivery sink。
+
+`pi-subagents` 的 model-facing `agent` tool 可把 `{ kind: "delivery", mode: "queue" | "steer" }` 映射为
+上述 core delivery sink；`mode` 是 adapter policy，不是 core `ConversationReplyConsumption` 字段。
 
 core 必须为两种 input mode 分配同一 message sequence，禁止 concurrent sender 依赖 timing 重排。`wait`
 不是单独的 main-agent wait/polling tool：它只存在于本次 `send` tool call。若该 parent turn abort，wait
@@ -90,8 +95,9 @@ cap：text、tool activity 与 turn state 可合并为最新 snapshot；terminal
 queue，永不因背压丢失。只保证已交付 event 的顺序，不保证每个中间 transition 都被保留；慢 callback
 不得阻塞 child agent。subscriber signal abort 时立刻 detach，并释放其 queue。
 
-conversation 在自然 response 后保持 idle，直到 queue 中有下一条 message 或 caller cancel。它不是
-无限 autonomous loop；需要自主完成工作的场景使用 `task`。
+conversation 在自然 response 或单条 reply `limit_reached` 后保持 idle，直到 queue 中有下一条 message 或
+caller cancel。reply outcome 不是 durable conversation handle 的 terminal result；后者仅在显式取消、失败或
+parent lifecycle cleanup 时 settle。它不是无限 autonomous loop；需要自主完成工作的场景使用 `task`。
 
 ## 生命周期、取消与并发
 
@@ -105,6 +111,12 @@ late settlement 一律丢弃。没有跨 session 恢复、持久化 supervisor �
 turn** 使用同一个 root-session concurrency cap；queued work 保持 FIFO admission。此版本没有 per-mode
 quota、priority scheduler 或 caller-owned pool。child session 不能创建 subagent；root 是唯一 budget、
 cancellation tree 和 retention owner。
+
+`pi-subagents` 是 coordinator configuration 的唯一 lifecycle owner。它在每个 parent session start
+提供当前 `maxConcurrent`，值必须是 positive integer。core 只接受该 session 第一项 live configuration；
+另一 lifecycle owner 在前者仍 live 时配置是 collision error，不按 load order 替换或协商。owner signal
+abort 会释放配置，因此 `/reload` 的 shutdown/start 会建立新 coordinator 并重新读取 setting。cap 不属于
+每个 task spec，core 也不设 hidden default。
 
 每个 async continuation 都绑定 parent lifecycle signal 和 handle revision。terminal transition
 idempotent：只会建立一个 terminal result、自动 delivery sink 最多执行一次、至多发送一次 terminal

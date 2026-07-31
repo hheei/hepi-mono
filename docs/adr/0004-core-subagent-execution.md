@@ -20,5 +20,12 @@ input mode 与 reply consumption 分开，wait abort 后 reply fallback queue de
 shutdown/switch/reload 清理。terminal delivery sink 接收 abort signal，shutdown 不等待其 settle 或自动
 retry。`pi.events` 只可由上层 adapter 做 notification，不得成为 core RPC 或 message bus。
 
+conversation create 同时声明第一条 child message 与其 wait/delivery reply consumption；不允许无 owner 的
+自动 initial prompt。
+
+shared active-turn cap 由 `pi-subagents` 在每个 session start 配置：第一项 live lifecycle configuration
+获所有权，第二 owner 是 collision error，owner abort 才释放。core 没有 per-task cap、hidden default 或
+load-order replacement。
+
 完整 contract、failure 与 concurrency semantics 见
 [Subagent 执行架构](../architecture/subagents.md)。此 ADR 不授权再向 core 加入 generic worker、

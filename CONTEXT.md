@@ -144,7 +144,9 @@ _Avoid_: awaited task, background mode, scheduled job
 **Conversation**:
 A durable, root-session-scoped child AgentSession. It accepts ordered messages and may publish
 selected outbound events to explicit subscribers; it is not a transport protocol or a terminal
-task notification. It declares one finite maximum turn count for each message reply.
+task notification. Creation includes its first message and explicit reply consumption; it declares
+one finite maximum turn count for each message reply. It becomes idle after a natural reply; a
+reply reaching its limit is not itself the durable handle's terminal result.
 _Avoid_: IRC transport, task with a steer button
 
 **Queued message**:
@@ -159,8 +161,8 @@ _Avoid_: normal chat message, cancellation
 
 **Conversation reply consumption**:
 The explicit result path selected for one conversation send. `wait` binds to that send's message
-sequence and returns its reply or terminal outcome; `delivery` returns an acknowledgment and lets
-the parent delivery adapter publish the reply later.
+sequence and uses its observer AbortSignal to return the reply or terminal outcome; `delivery`
+returns an acceptance and lets the parent delivery adapter publish the reply later.
 _Avoid_: task terminal delivery, arbitrary next reply
 
 **Wait abort fallback**:
@@ -194,6 +196,12 @@ _Avoid_: core coordinator, task execution mode
 The single parent-session owner of a shared active-turn concurrency cap, all handles, cancellation
 and shutdown cleanup. Child sessions cannot create subagents.
 _Avoid_: per-extension pool, durable supervisor
+
+**Root subagent coordinator configuration**:
+The one live session-lifecycle owner that supplies the positive integer active-turn cap for a Pi
+runtime. `pi-subagents` owns it. A second live owner is a collision error; lifecycle abort releases
+the configuration, so `/reload` configures a new coordinator during its next session start.
+_Avoid_: cap per task, hidden core default, load-order replacement
 
 **Subagent event subscription**:
 A subscriber-owned, fixed-cap snapshot stream for selected child output. Text, tool activity and
