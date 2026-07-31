@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { verifyMctxCompartmentGraph } from "../src/compartment-graph.js";
+import {
+	planMctxCompartmentRecovery,
+	verifyMctxCompartmentGraph,
+} from "../src/compartment-graph.js";
 import { createMctxSourceSnapshot } from "../src/source-snapshot.js";
 import type { MctxCompartment } from "../src/store.js";
 
@@ -70,5 +73,36 @@ describe("verifyMctxCompartmentGraph", () => {
 			kind: "invalid",
 			reason: "compartment revisions are not strictly increasing",
 		});
+	});
+
+	test("plans a tail rebuild while retaining a verified ancestor", () => {
+		const first = compartment("m0", 1, 2, 1);
+		const divergent = { ...compartment("m1", 3, 4, 2), sourceFingerprint: "stale" };
+		expect(planMctxCompartmentRecovery(entries, [first, divergent])).toEqual({
+			kind: "rebuild",
+			graph: { m0: [first], m1: [], sourceStartIndex: 1, liveTailStartIndex: 3 },
+			discardFromRevision: 2,
+			rebuildStartIndex: 3,
+			reason: "compartment source fingerprint does not match the current branch",
+		});
+	});
+
+	test("plans full rebuild from a locatable divergent range but preserves structural corruption", () => {
+		expect(
+			planMctxCompartmentRecovery(entries, [
+				{ ...compartment("m0", 1, 2, 1), sourceFingerprint: "stale" },
+			]),
+		).toMatchObject({
+			kind: "rebuild",
+			graph: undefined,
+			discardFromRevision: 1,
+			rebuildStartIndex: 1,
+		});
+		expect(
+			planMctxCompartmentRecovery(entries, [
+				compartment("m0", 1, 1, 1),
+				compartment("m1", 3, 4, 2),
+			]),
+		).toMatchObject({ kind: "invalid", reason: "compartment ranges are not contiguous" });
 	});
 });

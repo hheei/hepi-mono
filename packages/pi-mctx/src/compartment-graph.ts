@@ -13,6 +13,18 @@ export type MctxCompartmentGraphResult =
 	| { readonly kind: "valid"; readonly graph: MctxVerifiedCompartmentGraph }
 	| { readonly kind: "invalid"; readonly reason: string };
 
+export type MctxCompartmentRecoveryPlan =
+	| { readonly kind: "empty" }
+	| { readonly kind: "valid"; readonly graph: MctxVerifiedCompartmentGraph }
+	| {
+			readonly kind: "rebuild";
+			readonly graph: MctxVerifiedCompartmentGraph | undefined;
+			readonly discardFromRevision: number;
+			readonly rebuildStartIndex: number;
+			readonly reason: string;
+	  }
+	| { readonly kind: "invalid"; readonly reason: string };
+
 function indexById(entries: readonly MctxSourceEntry[]): Map<string, number> | undefined {
 	const indexes = new Map<string, number>();
 	for (const [index, entry] of entries.entries()) {
@@ -82,4 +94,46 @@ export function verifyMctxCompartmentGraph(
 		kind: "valid",
 		graph: { m0, m1, sourceStartIndex, liveTailStartIndex: previousEnd + 1 },
 	};
+}
+
+function isRecoverableDivergence(reason: string): boolean {
+	return (
+		reason === "compartment range is not present in the current branch" ||
+		reason === "compartment source fingerprint does not match the current branch"
+	);
+}
+
+/**
+ * Keeps only the contiguous verified ancestor of a branch-diverged graph. Structural
+ * store corruption stays invalid because deleting records cannot safely repair it.
+ */
+export function planMctxCompartmentRecovery(
+	entries: readonly MctxSourceEntry[],
+	compartments: readonly MctxCompartment[],
+): MctxCompartmentRecoveryPlan {
+	if (compartments.length === 0) return { kind: "empty" };
+	let ancestor: MctxVerifiedCompartmentGraph | undefined;
+	for (let end = 1; end <= compartments.length; end++) {
+		const candidate = verifyMctxCompartmentGraph(entries, compartments.slice(0, end));
+		if (candidate.kind === "valid") {
+			ancestor = candidate.graph;
+			continue;
+		}
+		if (candidate.kind === "invalid" && isRecoverableDivergence(candidate.reason)) {
+			const divergent = compartments[end - 1];
+			if (divergent === undefined)
+				return { kind: "invalid", reason: "missing divergent compartment" };
+			const start = entries.findIndex((entry) => entry.id === divergent.sourceStartEntryId);
+			return {
+				kind: "rebuild",
+				graph: ancestor,
+				discardFromRevision: divergent.publishedRevision,
+				rebuildStartIndex:
+					ancestor === undefined ? (start < 0 ? 0 : start) : ancestor.liveTailStartIndex,
+				reason: candidate.reason,
+			};
+		}
+		return candidate;
+	}
+	return ancestor === undefined ? { kind: "empty" } : { kind: "valid", graph: ancestor };
 }
