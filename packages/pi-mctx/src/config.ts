@@ -159,10 +159,14 @@ function resolvePipeline(
 	project: Readonly<Record<string, unknown>>,
 	warnings: string[],
 ): MctxPipelineState {
+	// Global enablement is an explicit user opt-in. A repository may opt out, but
+	// cannot silently activate model use for another developer's machine.
 	if (global.enabled !== true || project.enabled === false) return { kind: "disabled" };
 	if (project.enabled === true)
 		warnings.push("Ignoring project enabled: only user config can enable pi-mctx");
 
+	// Model and failure policy are user-only because both select local credentials
+	// and alter whether a storage failure may block a parent session.
 	const historian = global.historian;
 	if (
 		!isRecord(historian) ||
@@ -185,6 +189,8 @@ function resolvePipeline(
 	if (typeof percentage === "string") {
 		return { kind: "invalid", reason: `execute_threshold_percentage ${percentage}` };
 	}
+	// Project thresholds are a one-way safety override. `projectThreshold` drops
+	// lower values rather than merging them as generic project-wins settings.
 	const projectPercentage = project.execute_threshold_percentage;
 	const raisedPercentage =
 		projectPercentage === undefined

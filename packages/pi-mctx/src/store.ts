@@ -276,6 +276,8 @@ function getOrCreatePartition(
 	sessionId: string,
 ): MctxPartition {
 	requirePartitionKey(projectIdentity, sessionId);
+	// The project parent row and session partition must appear together. A later
+	// concurrent opener observes this committed snapshot rather than a partial key.
 	database.exec("BEGIN IMMEDIATE");
 	try {
 		database
@@ -488,6 +490,8 @@ function discardCompartmentsFrom(
 	}
 	database.exec("BEGIN IMMEDIATE");
 	try {
+		// Fence first. A failed compare-and-swap rolls back before the destructive
+		// delete, so a stale recovery worker cannot prune a newer graph tail.
 		const revisionChanges = changedRows(
 			database
 				.prepare(
@@ -541,6 +545,8 @@ function publishCompartment(
 		}
 		if (changes !== 1) throw new Error("Context store publication affected multiple partitions");
 		const sequence = integerValue(
+			// Sequences are independent within each tier; revision is the global order
+			// used for validation and recovery.
 			database
 				.prepare(
 					"SELECT COALESCE(MAX(sequence) + 1, 0) AS value FROM compartments WHERE project_identity = ? AND session_id = ? AND tier = ?",

@@ -84,6 +84,8 @@ export async function runMctxHistorian(
 	);
 	if (lease === undefined) return { kind: "skipped", reason: "lease-held" };
 	try {
+		// Completion output is untrusted. It is mapped back through the immutable
+		// source snapshot before any store operation can publish it.
 		const first = await execute(request.context, {
 			model: request.model,
 			source: request.source,
@@ -95,6 +97,8 @@ export async function runMctxHistorian(
 		if (first.kind === "failed") return { kind: "failed", reason: first.reason };
 		const firstMapping = mappedDraft(first.output, request);
 		if (firstMapping.kind === "valid") {
+			// Publication repeats the original partition CAS. A concurrent branch
+			// update wins without overwriting its newer compartment graph.
 			const publication = request.store.publishCompartment(
 				request.partition,
 				firstMapping.value.draft,
@@ -124,6 +128,8 @@ export async function runMctxHistorian(
 			? { kind: "stale" }
 			: { kind: "published", publication, repaired: true };
 	} finally {
+		// Terminal paths, including cancellation and malformed output, must release
+		// the finite lease so another process can make forward progress.
 		request.store.releaseHistorianLease(lease);
 	}
 }
