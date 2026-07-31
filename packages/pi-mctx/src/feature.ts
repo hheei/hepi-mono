@@ -5,10 +5,17 @@ import {
 	loadMctxConfiguration,
 	type MctxConfiguration,
 } from "./config.js";
-import { defaultMctxStorePath, type MctxStore, openMctxStore } from "./store.js";
+import { createProjectIdentityResolver } from "./project-identity.js";
+import {
+	defaultMctxStorePath,
+	type MctxPartition,
+	type MctxStore,
+	openMctxStore,
+} from "./store.js";
 
 export interface MctxSessionRuntime extends MctxRuntime {
 	readonly store: MctxStore;
+	readonly partition: MctxPartition;
 }
 
 export interface MctxFeature {
@@ -22,12 +29,15 @@ export interface MctxFeatureOptions {
 		signal: AbortSignal,
 	) => Promise<MctxConfiguration>;
 	readonly openStore?: (path: string) => MctxStore | Promise<MctxStore>;
+	readonly resolveProjectIdentity?: (cwd: string, signal: AbortSignal) => Promise<string>;
 }
 
 /** Owns the session runtime holder; future store and context work attach here. */
 export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature {
 	const loadConfiguration = options.loadConfiguration ?? loadMctxConfiguration;
 	const openStore = options.openStore ?? openMctxStore;
+	const identityResolver = createProjectIdentityResolver();
+	const resolveProjectIdentity = options.resolveProjectIdentity ?? identityResolver.resolve;
 	let active: MctxSessionRuntime | undefined;
 	return {
 		async start(context): Promise<void> {
@@ -64,11 +74,25 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				);
 				throw error;
 			}
-			if (context.signal.aborted) {
+			let partition: MctxPartition;
+			try {
+				const projectIdentity = await resolveProjectIdentity(context.extension.cwd, context.signal);
+				if (context.signal.aborted) {
+					store.close();
+					return;
+				}
+				partition = store.getOrCreatePartition(projectIdentity, activation.runtime.sessionId);
+			} catch (error: unknown) {
 				store.close();
-				return;
+				if (!context.signal.aborted) {
+					context.extension.ui.notify(
+						`pi-mctx context partition unavailable: ${error instanceof Error ? error.message : String(error)}`,
+						"error",
+					);
+				}
+				throw error;
 			}
-			const runtime: MctxSessionRuntime = { ...activation.runtime, store };
+			const runtime: MctxSessionRuntime = { ...activation.runtime, store, partition };
 			active = runtime;
 			context.resources.add("mctx-runtime", () => {
 				store.close();

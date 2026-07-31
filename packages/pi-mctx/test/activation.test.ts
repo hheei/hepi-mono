@@ -122,6 +122,7 @@ test("feature owns the active runtime for the session lifecycle", async (): Prom
 	let closed = 0;
 	const feature = createMctxFeature({
 		loadConfiguration: async () => configuration(),
+		resolveProjectIdentity: async () => `git:${"a".repeat(40)}`,
 		openStore: () => ({
 			path: "/store",
 			getOrCreatePartition: () => ({
@@ -134,6 +135,11 @@ test("feature owns the active runtime for the session lifecycle", async (): Prom
 	});
 	await feature.start(fixture.context);
 	expect(feature.active()?.sessionId).toBe("session-1");
+	expect(feature.active()?.partition).toEqual({
+		projectIdentity: `git:${"a".repeat(40)}`,
+		sessionId: "session-1",
+		revision: 0,
+	});
 	const cleanup = fixture.cleanups[0];
 	if (!cleanup) throw new Error("Expected active MCTX runtime cleanup");
 	await cleanup();
@@ -162,5 +168,29 @@ test("feature owns the active runtime for the session lifecycle", async (): Prom
 	expect(failedFeature.active()).toBeUndefined();
 	expect(failedFixture.notifications).toEqual([
 		{ message: "pi-mctx context store unavailable: database is locked", level: "error" },
+	]);
+
+	const partitionFixture = runtime();
+	let partitionStoreClosed = 0;
+	const partitionFeature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		resolveProjectIdentity: async () => {
+			throw new Error("project permission denied");
+		},
+		openStore: () => ({
+			path: "/store",
+			getOrCreatePartition: () => {
+				throw new Error("must not create partition");
+			},
+			close: () => void partitionStoreClosed++,
+		}),
+	});
+	await expect(partitionFeature.start(partitionFixture.context)).rejects.toThrow(
+		"project permission denied",
+	);
+	expect(partitionFeature.active()).toBeUndefined();
+	expect(partitionStoreClosed).toBe(1);
+	expect(partitionFixture.notifications).toEqual([
+		{ message: "pi-mctx context partition unavailable: project permission denied", level: "error" },
 	]);
 });
