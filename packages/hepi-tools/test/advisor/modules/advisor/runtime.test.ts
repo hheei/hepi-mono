@@ -8,12 +8,12 @@ import {
 } from "@earendil-works/pi-ai";
 import type { AgentSession, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { convertToLlm, createReadOnlyTools } from "@earendil-works/pi-coding-agent";
+import type { ResolvedChildSessionFactory } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { ADVISOR_SYSTEM_PROMPT } from "../../../../src/pi-advisor/prompt.js";
 import {
 	type AdvisorAdapterOptions,
 	createCoreAdvisorAdapter,
-	type ResolvedChildSessionFactory,
 } from "../../../../src/pi-advisor/runtime.js";
 
 const model = {
@@ -210,6 +210,7 @@ describe("advisor runtime outcomes", () => {
 			...base,
 			ctx,
 			model: "fake/configured",
+			testSessionFactory: undefined,
 		} as unknown as AdvisorAdapterOptions);
 		await adapter.create();
 		expect(adapter.contextBudget()).toEqual({ contextWindow: 12000, responseReserve: 4096 });
@@ -219,6 +220,7 @@ describe("advisor runtime outcomes", () => {
 			...base,
 			ctx: { ...ctx, modelRegistry: { ...ctx.modelRegistry, find: () => smaller } },
 			model: "fake/configured",
+			testSessionFactory: undefined,
 		} as unknown as AdvisorAdapterOptions);
 		await smallAdapter.create();
 		expect(smallAdapter.contextBudget().responseReserve).toBe(300);
@@ -366,6 +368,7 @@ describe("advisor runtime outcomes", () => {
 			ctx,
 			model: "fake/fake",
 			thinking: "xhigh",
+			testSessionFactory: undefined,
 		} as unknown as AdvisorAdapterOptions);
 		await expect(adapter.create()).rejects.toThrow(/unsupported/i);
 	});
