@@ -126,6 +126,10 @@ core 不提供 main-agent wait 或 result-polling surface。`pi-subagents` 保�
 default queue、explicit steer 与 all-terminal Task delivery group 都是该 package 的 policy，不能下沉到
 core execution contract。
 
+conversation consumer 必须在 create 时指定 finite `maxTurnsPerReply`，并在 send 时明确区分
+parent-to-child `inputMode` 与 child-to-parent reply consumption。wait 只能观察本次 message sequence；
+wait signal abort 后，adapter 必须 queue-deliver eventual reply，不得静默丢弃或取消 conversation。
+
 所有 execution adapter 的注释必须说明 parent session ownership、mode、shared-cap admission、
 cancellation、delivery/retry policy、event backpressure 与 retention cost。完整 contract 见
 [Subagent 执行架构](../architecture/subagents.md)。

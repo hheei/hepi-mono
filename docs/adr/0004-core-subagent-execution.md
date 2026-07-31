@@ -12,10 +12,12 @@ subscription。task 必须有 finite `maxTurns`；它不拥有 agent catalog、f
 policy、settings、worktree、schedule、transcript、TUI、notification 或 parent context injection。
 
 统一 handle 使用 discriminated mode；task 一律 launch-and-deliver，不提供 main-agent wait 或 result
-polling tool。`pi-subagents` adapter 以 default queue/explicit steer policy 将 terminal result 交给
-parent，并拥有 all-terminal Task delivery group。child 不能嵌套 spawn，所有 handle 严格随 parent
-session shutdown/switch/reload 清理。terminal delivery sink 接收 abort signal，shutdown 不等待其
-settle 或自动 retry。`pi.events` 只可由上层 adapter 做 notification，不得成为 core RPC 或 message bus。
+polling tool。conversation create 必填 `maxTurnsPerReply`；其 send 将 child input mode 与 reply
+consumption 分开，wait abort 后 reply fallback queue delivery。`pi-subagents` adapter 以 default
+queue/explicit steer policy 将 task terminal result 或 conversation delivery reply 交给 parent，并拥有
+all-terminal Task delivery group。child 不能嵌套 spawn，所有 handle 严格随 parent session
+shutdown/switch/reload 清理。terminal delivery sink 接收 abort signal，shutdown 不等待其 settle 或
+自动 retry。`pi.events` 只可由上层 adapter 做 notification，不得成为 core RPC 或 message bus。
 
 完整 contract、failure 与 concurrency semantics 见
 [Subagent 执行架构](../architecture/subagents.md)。此 ADR 不授权再向 core 加入 generic worker、

@@ -33,7 +33,7 @@ timing 猜测。
 | -------------- | ------------------------------------------------------------ | -------------------------------------------------- |
 | `completion`   | 单次、无 tool 的模型生成；不创建 child session、transcript 或 input channel | caller 等待受限 completion result；用于 auto-title、分类、短摘要 |
 | `task` | 有限、多轮、可使用已解析 tool policy 的 child execution；每项必填有限 `maxTurns` | 一个 terminal result；必须通过 delivery sink 自动交给 parent adapter |
-| `conversation` | durable child `AgentSession`，但只存活于 parent session            | 可持续送入 message，并向明确 subscriber 发布选定 outbound events |
+| `conversation` | durable child `AgentSession`，但只存活于 parent session；create 时必填有限 `maxTurnsPerReply` | 可持续送入 message，并选择同步 wait 或异步 delivery reply |
 
 
 foreground/background 不是第四 mode，也没有主 agent `wait` 或 result-polling tool。task launch 后立即
@@ -65,11 +65,21 @@ parent session shutdown，之后 stable ID 不再有效，也不持久化到下�
 
 ## Conversation
 
-conversation handle 才有 `send(message, { mode })`：
+conversation create 时必须声明有限 `maxTurnsPerReply`。conversation handle 才有 `send(message, options)`；
+options 有两个正交选择：
 
-- `queue` 是默认。message 进入 FIFO queue，当前 child response 到达边界后才开始下一次 prompt。
-- `steer` 是显式打断。它使用 Pi 的 steer semantics，在当前 tool execution 后重定向 active child。
-- core 必须为两种 mode 分配同一 message sequence，禁止 concurrent sender 依赖 timing 重排。
+- `inputMode: "queue" | "steer"` 是 parent-to-child input。`queue` 是默认，message 进入 FIFO queue，
+  当前 child response 到达边界后才开始下一次 prompt。`steer` 是显式打断，使用 Pi 的 steer semantics，
+  在当前 tool execution 后重定向 active child。
+- `reply: { kind: "wait" } | { kind: "delivery", mode: "queue" | "steer" }` 是 child-to-parent reply
+  consumption。`wait` 绑定本次 send 的 message sequence，只返回该 message 的 reply，或 `steered`、
+  `cancelled`、`limit_reached` outcome。`delivery` 立即返回 acknowledgment，再由 `pi-subagents` adapter
+  以 queue 或 explicit steer policy 交给 parent。
+
+core 必须为两种 input mode 分配同一 message sequence，禁止 concurrent sender 依赖 timing 重排。`wait`
+不是单独的 main-agent wait/polling tool：它只存在于本次 `send` tool call。若该 parent turn abort，wait
+observer 立即结束，但不能取消 conversation 或 child message；child 最终 reply 必须 fallback 为 parent
+queue delivery，避免静默丢失。
 
 subscriber 显式选择 event kind，例如 text update、tool activity、turn state、terminal state。没有
 subscriber 时，child outbound 不进入 parent context。每个 subscriber 有固定、非配置的 internal queue
@@ -119,8 +129,9 @@ cancellation、delivery、retention、event loss、backpressure 与 cost。实�
 - completion 不创建 child session；
 - task required maxTurns、`limit_reached`、缺 sink reject、sink failure、shutdown abort、explicit
   redelivery 与单次 terminalization；
-- conversation queue/steer ordering、idle/restart、subscriber detach、fixed-cap snapshot coalescing、
-terminal eviction/delivery 和 callback non-blocking；
+- conversation required `maxTurnsPerReply`、queue/steer input ordering、wait sequence binding、wait abort
+  fallback queue、delivery reply、idle/restart、subscriber detach、fixed-cap snapshot coalescing、terminal
+  eviction/delivery 和 callback non-blocking；
 - root shared cap、FIFO admission、root-only rejection、parent shutdown/reload cleanup 与 late result guard；
 - duplicate core module instance 对同一 Pi runtime 共享 coordinator。
 
