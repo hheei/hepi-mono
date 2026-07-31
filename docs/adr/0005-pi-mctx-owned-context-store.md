@@ -54,6 +54,11 @@ historian executor 通过 ext-core `startSubagent` completion mode 执行 no-too
 text/snapshot，executor prompt 约束 ordered entry IDs 与 output schema，且只 normalize core terminal result。run-local abort
 cancel handle；executor 不引入 retry/repair/lease/publication，保留给后续 orchestrator slice。
 
+historian orchestrator 以 current partition snapshot 获取一次 finite lease，运行 primary completion；仅 mapper invalid 时运行一
+次 repair completion，将 stable diagnostic 附给模型。valid draft 用同一 partition snapshot atomic publish；lease miss 是
+skipped，CAS conflict 是 stale，均不重试。lease 在 `finally` release；trigger/renewal/transient retry/context rendering
+保持 deferred。
+
 schema v2 在 v1 application/metadata fence 上建立 `projects` 与 `partitions`。partition 以 stable project identity
 与 Pi session ID 唯一标识，revision 从 `0` 开始；get-or-create 使用短 `BEGIN IMMEDIATE` transaction，不能重复创建。
 此迁移仍不建立 lease、compartment 或 graph table。未知 nonempty database、foreign application ID 或 future schema

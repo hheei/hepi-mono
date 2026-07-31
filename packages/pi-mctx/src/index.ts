@@ -4,6 +4,7 @@ export * from "./config.js";
 export { default } from "./extension.js";
 export * from "./feature.js";
 export * from "./historian-executor.js";
+export * from "./historian-orchestrator.js";
 export * from "./historian-output.js";
 export * from "./project-identity.js";
 export * from "./source-snapshot.js";
