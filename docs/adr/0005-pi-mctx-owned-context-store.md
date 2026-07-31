@@ -59,6 +59,11 @@ historian orchestrator 以 current partition snapshot 获取一次 finite lease�
 skipped，CAS conflict 是 stale，均不重试。lease 在 `finally` release；trigger/renewal/transient retry/context rendering
 保持 deferred。
 
+source-history projection 使用 active `getBranch()` ordered `SessionEntry[]`，通过 Pi `sessionEntryToContextMessages()`
+生成 historian source。complete turn group 由 user message 至下一 user 前所有 entries 组成，且最后一条 message 必须是
+assistant；最新 complete groups 是 protected tail，不进入 eligible head。eligible entry IDs 建立 source snapshot，projected
+messages 以 JSON 输入 historian；MCTX 不重写 content/tool-result serialization。
+
 schema v2 在 v1 application/metadata fence 上建立 `projects` 与 `partitions`。partition 以 stable project identity
 与 Pi session ID 唯一标识，revision 从 `0` 开始；get-or-create 使用短 `BEGIN IMMEDIATE` transaction，不能重复创建。
 此迁移仍不建立 lease、compartment 或 graph table。未知 nonempty database、foreign application ID 或 future schema
