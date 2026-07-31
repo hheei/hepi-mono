@@ -136,9 +136,9 @@ _Avoid_: bounded task, one-agent conversation
 
 **Task**:
 A bounded, tool-capable, multi-turn subagent operation that reaches one terminal result. A caller
-may await it; every task declares a finite maximum turn count, and a detached task must declare a
-terminal delivery sink.
-_Avoid_: background mode, scheduled job
+does not await it through a main-agent tool; every task declares a finite maximum turn count and a
+mandatory terminal delivery sink.
+_Avoid_: awaited task, background mode, scheduled job
 
 **Conversation**:
 A durable, root-session-scoped child AgentSession. It accepts ordered messages and may publish
@@ -157,10 +157,20 @@ It is never inferred from send timing.
 _Avoid_: normal chat message, cancellation
 
 **Terminal delivery sink**:
-The caller-owned, mandatory delivery callback for a detached Task result. A sink failure marks
+The caller-owned, mandatory delivery callback for a Task result. A sink failure marks
 delivery failed without changing the task result; core never retries it automatically. The sink
 receives a cancellation signal and must not write parent state after it aborts.
 _Avoid_: core notification, exactly-once delivery
+
+**Parent delivery mode**:
+The `pi-subagents` adapter's explicit terminal-result policy: queue is the default Pi follow-up;
+steer is an opt-in parent-turn redirection. Core receives only the resulting sink, not this policy.
+_Avoid_: child conversation send mode, core follow-up API
+
+**Task delivery group**:
+A `pi-subagents`-owned barrier that collects a declared set of Task terminal results and delivers
+one complete aggregate only after every member reaches a terminal state. It has no partial timeout.
+_Avoid_: core coordinator, task execution mode
 
 **Root subagent coordinator**:
 The single parent-session owner of a shared active-turn concurrency cap, all handles, cancellation

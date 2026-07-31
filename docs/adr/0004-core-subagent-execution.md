@@ -11,10 +11,11 @@ cancellation、terminal result、parent-session retention/lookup/redelivery 和 
 subscription。task 必须有 finite `maxTurns`；它不拥有 agent catalog、frontmatter、prompt/model/tool
 policy、settings、worktree、schedule、transcript、TUI、notification 或 parent context injection。
 
-统一 handle 使用 discriminated mode；background 是 task consumption/delivery，不是第四 mode。child
-不能嵌套 spawn，所有 handle 严格随 parent session shutdown/switch/reload 清理。terminal delivery sink
-接收 abort signal，shutdown 不等待其 settle 或自动 retry。`pi.events` 只可由上层 adapter 做
-notification，不得成为 core RPC 或 message bus。
+统一 handle 使用 discriminated mode；task 一律 launch-and-deliver，不提供 main-agent wait 或 result
+polling tool。`pi-subagents` adapter 以 default queue/explicit steer policy 将 terminal result 交给
+parent，并拥有 all-terminal Task delivery group。child 不能嵌套 spawn，所有 handle 严格随 parent
+session shutdown/switch/reload 清理。terminal delivery sink 接收 abort signal，shutdown 不等待其
+settle 或自动 retry。`pi.events` 只可由上层 adapter 做 notification，不得成为 core RPC 或 message bus。
 
 完整 contract、failure 与 concurrency semantics 见
 [Subagent 执行架构](../architecture/subagents.md)。此 ADR 不授权再向 core 加入 generic worker、

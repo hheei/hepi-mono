@@ -28,29 +28,32 @@ settings、TUI、transcript、worktree、schedule trigger 与 terminal delivery 
 与 task redelivery。不同 capability 由 discriminated `mode` 表达，不以 optional method 或 runtime
 timing 猜测。
 
-| Mode | 执行边界 | 结果与交互 |
-| --- | --- | --- |
-| `completion` | 单次、无 tool 的模型生成；不创建 child session、transcript 或 input channel | caller 等待受限 completion result；用于 auto-title、分类、短摘要 |
-| `task` | 有限、多轮、可使用已解析 tool policy 的 child execution；每项必填有限 `maxTurns` | 一个 terminal result；可显式 awaited 或 detached delivery |
-| `conversation` | durable child `AgentSession`，但只存活于 parent session | 可持续送入 message，并向明确 subscriber 发布选定 outbound events |
 
-foreground/background 不是第四 mode。caller 选择 await `handle.result` 是 foreground consumption；
-detached task 通过 delivery sink 回到主 session。schedule/cron 是未来的 `task` trigger，不是新的
-执行 mode。
+| Mode           | 执行边界                                                         | 结果与交互                                              |
+| -------------- | ------------------------------------------------------------ | -------------------------------------------------- |
+| `completion`   | 单次、无 tool 的模型生成；不创建 child session、transcript 或 input channel | caller 等待受限 completion result；用于 auto-title、分类、短摘要 |
+| `task` | 有限、多轮、可使用已解析 tool policy 的 child execution；每项必填有限 `maxTurns` | 一个 terminal result；必须通过 delivery sink 自动交给 parent adapter |
+| `conversation` | durable child `AgentSession`，但只存活于 parent session            | 可持续送入 message，并向明确 subscriber 发布选定 outbound events |
 
-## Task Consumption 与 Delivery
 
-每个 `task` 在启动 spec 中必须显式声明 consumption：
+foreground/background 不是第四 mode，也没有主 agent `wait` 或 result-polling tool。task launch 后立即
+返回；parent 完成当前 turn 后空闲，terminal delivery 通过 event-driven follow-up 排入它的后续工作。
+schedule/cron 是未来的 `task` trigger，不是新的执行 mode。
 
-```ts
-{ kind: "awaited" }
-// 或
-{ kind: "detached", delivery: terminalDeliverySink }
-```
+## Task Delivery
 
-detached task 没有 delivery sink 不能启动。sink 是 caller/host owned callback：它可把 terminal result
+每个 `task` 在启动 spec 中必须声明 terminal delivery sink；没有 sink 不能启动。sink 是 caller/host
+owned callback：它可把 terminal result
 转换为下一轮 parent context、tool result、notification 或 UI；core 不规定内容格式，也不自动注入
 主 session。
+
+`pi-subagents` 是 parent delivery adapter。它默认以 Pi follow-up queue 追加 terminal result，使 parent
+在当前 turn 结束后进入下一轮；caller 明确选择时才使用 Pi steer 在 parent 活动时重定向。该 delivery
+mode 是 adapter policy，不是 core API，也不能与 parent-to-child conversation `send` mode 混用。
+
+`pi-subagents` 也拥有 Task delivery group：caller 显式建立 group 后，barrier 收集所有成员的 terminal
+result，仅在全部成员成功、失败、取消或达到 limit 后投递一次完整 aggregate。group 没有 partial timeout；
+它不是第四 execution mode，也不进入 core。
 
 sink reject 后，task 的 terminal result 不改变，只记录 `deliveryFailed`。core 不自动 retry，以免
 重复写入主 session；caller 可用 stable task ID lookup retained handle，再做明确、幂等的 redelivery。
@@ -114,12 +117,15 @@ event。explicit redelivery 是独立 caller operation；delivery failure 是 te
 cancellation、delivery、retention、event loss、backpressure 与 cost。实现前需写 focused tests，至少覆盖：
 
 - completion 不创建 child session；
-- task required maxTurns、`limit_reached`、awaited/detached union、缺 sink reject、sink failure、
-  shutdown abort、explicit redelivery 与单次 terminalization；
+- task required maxTurns、`limit_reached`、缺 sink reject、sink failure、shutdown abort、explicit
+  redelivery 与单次 terminalization；
 - conversation queue/steer ordering、idle/restart、subscriber detach、fixed-cap snapshot coalescing、
-  terminal eviction/delivery 和 callback non-blocking；
+terminal eviction/delivery 和 callback non-blocking；
 - root shared cap、FIFO admission、root-only rejection、parent shutdown/reload cleanup 与 late result guard；
 - duplicate core module instance 对同一 Pi runtime 共享 coordinator。
+
+`pi-subagents` 另测试 parent queue/explicit steer delivery 与 Task delivery group 的全 terminal barrier；
+这些 adapter policy test 不属于 core execution suite。
 
 所有 TUI 或 terminal delivery adapter 仍须由 owning extension 依据 `DESIGN.md` 做 focused narrow/wide
 验证和实际 Pi/TUI replay 验证。
