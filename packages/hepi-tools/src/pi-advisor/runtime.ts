@@ -1,6 +1,7 @@
 import {
 	Agent,
 	type AgentMessage,
+	type AgentTool,
 	type StreamFn,
 } from "@earendil-works/pi-agent-core";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
@@ -10,7 +11,9 @@ import {
 	createReadOnlyTools,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { type ContextBudget, contextInputCharBudget } from "./context.js";
+import { parseAdvice } from "./feedback.js";
 import {
 	ADVISOR_TOOL_NAMES,
 	type AdvisorAdvice,
@@ -28,6 +31,11 @@ const ADVISOR_RESPONSE_CAP = 4096;
 export function advisorSessionId(primarySessionId: string): string {
 	return `${ADVISOR_SESSION_PREFIX}${primarySessionId}`;
 }
+
+const ADVISE_PARAMETERS = Type.Object({
+	severity: Type.Union([Type.Literal("nit"), Type.Literal("concern"), Type.Literal("blocker")]),
+	note: Type.String({ minLength: 1, maxLength: 4000 }),
+});
 
 export interface AdvisorAgentAdapter {
 	readonly activeTools: readonly string[];
@@ -149,40 +157,6 @@ function finalAssistantStopReason(messages: readonly AgentMessage[]): string | u
 		if (message?.role === "assistant") return message.stopReason;
 	}
 	return undefined;
-}
-
-function advisorJsonOutput(messages: readonly AgentMessage[]): readonly AdvisorAdvice[] {
-	for (let index = messages.length - 1; index >= 0; index -= 1) {
-		const message = messages[index];
-		if (message?.role !== "assistant" || !Array.isArray(message.content)) continue;
-		const text = message.content
-			.filter((part): part is { readonly type: "text"; readonly text: string } =>
-				typeof part === "object" && part !== null && part.type === "text" && typeof part.text === "string",
-			)
-			.map((part) => part.text)
-			.join("")
-			.trim();
-		if (text.length === 0) continue;
-		let value: unknown;
-		try {
-			value = JSON.parse(text);
-		} catch {
-			throw new Error("Advisor response must be valid JSON");
-		}
-		if (!Array.isArray(value)) throw new Error("Advisor response must be a JSON array");
-		const advice: AdvisorAdvice[] = [];
-		for (const item of value) {
-			if (
-				typeof item !== "object" || item === null ||
-				(item.severity !== "nit" && item.severity !== "concern" && item.severity !== "blocker") ||
-				typeof item.note !== "string" || item.note.trim().length === 0 || item.note.length > 4000
-			)
-				throw new Error("Advisor response contains invalid advice");
-			advice.push({ severity: item.severity, note: item.note });
-		}
-		return advice;
-	}
-	throw new Error("Advisor response contained no JSON text");
 }
 
 function isLengthError(error: unknown): boolean {
@@ -350,6 +324,7 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 	let disposed = true;
 	let recreateAfterTimeout = false;
 	let inFlightAbort: (() => void) | undefined;
+	const adviceByAgent = new WeakMap<Agent, AdvisorAdvice[]>();
 	let lifetime: AdvisorUsage = DEFAULT_ADVISOR_USAGE;
 	let lastCompactedContextTokens = 0;
 	const scheduler = options.scheduler ?? createHostScheduler();
@@ -374,6 +349,20 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 		);
 	};
 	const createAgent = (agentOptions: AdvisorAdapterOptions): Agent => {
+		const collectedAdvice: AdvisorAdvice[] = [];
+		const adviseTool: AgentTool<typeof ADVISE_PARAMETERS> = {
+			name: "advise",
+			label: "Advisor feedback",
+			description: "Submit a structured review note to the primary agent.",
+			parameters: ADVISE_PARAMETERS,
+			execute: async (_id, params, signal) => {
+				signal?.throwIfAborted();
+				const parsed = parseAdvice(params);
+				if (!parsed) throw new Error("Invalid advice");
+				collectedAdvice.push(parsed);
+				return { content: [{ type: "text", text: "Advice recorded." }], details: {} };
+			},
+		};
 		const model = resolveModel(agentOptions);
 		const next = new Agent({
 			sessionId: advisorSessionId(agentOptions.ctx.sessionManager.getSessionId()),
@@ -381,7 +370,7 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 				systemPrompt: ADVISOR_SYSTEM_PROMPT,
 				model,
 				thinkingLevel: resolveThinking(agentOptions, model),
-				tools: createReadOnlyTools(agentOptions.ctx.cwd),
+				tools: [adviseTool, ...createReadOnlyTools(agentOptions.ctx.cwd)],
 			},
 			convertToLlm,
 			getApiKey: (provider) => agentOptions.ctx.modelRegistry.getApiKeyForProvider(provider),
@@ -392,6 +381,7 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 			modelContextBudget(model),
 			model.input.includes("image"),
 		);
+		adviceByAgent.set(next, collectedAdvice);
 		return next;
 	};
 	const create = async (): Promise<void> => {
@@ -439,6 +429,8 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 			const reviewAgent = agent;
 			const reviewOptions = options;
 			if (reviewAgent === undefined || disposed) throw new Error("Advisor is not active");
+			const reviewAdvice = adviceByAgent.get(reviewAgent);
+			if (reviewAdvice === undefined) throw new Error("Advisor state is not initialized");
 			signal?.throwIfAborted();
 			if (shouldCompact(reviewAgent)) {
 				lastCompactedContextTokens = currentContextTokens(reviewAgent);
@@ -449,6 +441,7 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 					reviewAgent.state.model.input.includes("image"),
 				);
 			}
+			reviewAdvice.length = 0;
 			let timedOut = false;
 			let timeoutError: Error | undefined;
 			let rejectTimeout: ((error: Error) => void) | undefined;
@@ -458,6 +451,7 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 			const abort = () => reviewAgent.abort();
 			const timeout = scheduler.setTimeout(() => {
 				timedOut = true;
+				reviewAdvice.length = 0;
 				timeoutError = new Error(`Advisor review timed out after ${ADVISOR_REVIEW_TIMEOUT_MS}ms`);
 				if (agent === reviewAgent) {
 					agent = undefined;
@@ -489,9 +483,11 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 					}
 					signal?.throwIfAborted();
 					if (timedOut) {
+						reviewAdvice.length = 0;
 						throw new Error(`Advisor review timed out after ${ADVISOR_REVIEW_TIMEOUT_MS}ms`);
 					}
 					if (promptFailure !== undefined) {
+						reviewAdvice.length = 0;
 						if (!isLengthError(promptFailure.error)) throw promptFailure.error;
 						if (replayedLength)
 							throw new Error("Advisor review exceeded the model context after retry");
@@ -506,6 +502,7 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 					}
 					const stopReason = finalAssistantStopReason(reviewAgent.state.messages);
 					if (stopReason === "length" && !replayedLength) {
+						reviewAdvice.length = 0;
 						replayedLength = true;
 						reviewAgent.reset();
 						reviewAgent.state.messages = buildAdvisorBootstrapMessages(
@@ -516,15 +513,17 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 						continue;
 					}
 					if (stopReason !== "stop" && stopReason !== "toolUse") {
+						reviewAdvice.length = 0;
 						throw new Error(
 							`Advisor review ended with unsupported stop reason: ${stopReason ?? "unknown"}`,
 						);
 					}
 					break;
 				}
-				return advisorJsonOutput(reviewAgent.state.messages);
+				return reviewAdvice;
 			} finally {
 				scheduler.clearTimeout(timeout);
+				if (timedOut) reviewAdvice.length = 0;
 				signal?.removeEventListener("abort", abort);
 				if (inFlightAbort === abort) inFlightAbort = undefined;
 			}
