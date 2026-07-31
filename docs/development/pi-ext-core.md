@@ -117,10 +117,14 @@ error。每个 tool/page 的 priority、conflict、ownership、cancellation、cl
 ## Subagent Consumer
 
 subagent execution 只经 core public contract 启动。consumer 负责在调用前解析 agent/model/prompt/tool
-policy，为每个 task 提供 finite `maxTurns`，并为 detached task 提供幂等 terminal delivery sink；不得
-把 `pi.events` 当作 core RPC 或直接管理 child `AgentSession`。sink 必须接受 abort 后不写旧 parent
-state；conversation subscriber 必须声明 event kinds、接受 fixed-cap snapshot coalescing，且在其 lifecycle
-signal abort 后不得保留 handle reference。
+policy，为每个 task 提供 finite `maxTurns` 与幂等 terminal delivery sink；不得把 `pi.events` 当作 core
+RPC 或直接管理 child `AgentSession`。sink 必须接受 abort 后不写旧 parent state；conversation subscriber
+必须声明 event kinds、接受 fixed-cap snapshot coalescing，且在其 lifecycle signal abort 后不得保留 handle
+reference。
+
+core 不提供 main-agent wait 或 result-polling surface。`pi-subagents` 保留 parent delivery adapter：
+default queue、explicit steer 与 all-terminal Task delivery group 都是该 package 的 policy，不能下沉到
+core execution contract。
 
 所有 execution adapter 的注释必须说明 parent session ownership、mode、shared-cap admission、
 cancellation、delivery/retry policy、event backpressure 与 retention cost。完整 contract 见
