@@ -1,16 +1,19 @@
 import { describe, expect, test } from "bun:test";
-import type { StreamFn } from "@earendil-works/pi-agent-core";
+import { Agent, type AgentTool, type StreamFn } from "@earendil-works/pi-agent-core";
 import {
 	type Api,
 	type AssistantMessage,
 	createAssistantMessageEventStream,
 	type Model,
 } from "@earendil-works/pi-ai";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { AgentSession, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { convertToLlm, createReadOnlyTools } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { ADVISOR_SYSTEM_PROMPT } from "../../../../src/pi-advisor/prompt.js";
 import {
 	type AdvisorAdapterOptions,
 	createCoreAdvisorAdapter,
+	type ResolvedChildSessionFactory,
 } from "../../../../src/pi-advisor/runtime.js";
 
 const model = {
@@ -25,6 +28,19 @@ const model = {
 	input: ["text"],
 	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 } as unknown as Model<Api>;
+
+const TEST_ADVISE_PARAMETERS = Type.Object({
+	severity: Type.Union([Type.Literal("nit"), Type.Literal("concern"), Type.Literal("blocker")]),
+	note: Type.String({ minLength: 1, maxLength: 4000 }),
+});
+
+const testAdviseTool: AgentTool<typeof TEST_ADVISE_PARAMETERS> = {
+	name: "advise",
+	label: "Advisor feedback",
+	description: "Record fake Advisor feedback.",
+	parameters: TEST_ADVISE_PARAMETERS,
+	execute: async () => ({ content: [{ type: "text", text: "Advice recorded." }], details: {} }),
+};
 
 function message(
 	stopReason: AssistantMessage["stopReason"],
@@ -98,14 +114,41 @@ function controllableScheduler(): {
 	};
 }
 
+function fakeAgentSessionFactory(
+	streamFn: StreamFn,
+	config: { readonly sessionId?: string; readonly agentModel?: Model<Api> } = {},
+): ResolvedChildSessionFactory {
+	return {
+		async create(_signal) {
+			const agent = new Agent({
+				sessionId: `pi-basics-advisor:${config.sessionId ?? "primary"}`,
+				initialState: {
+					systemPrompt: ADVISOR_SYSTEM_PROMPT,
+					model: config.agentModel ?? model,
+					thinkingLevel: "off",
+					tools: [testAdviseTool, ...createReadOnlyTools("/tmp")],
+				},
+				convertToLlm,
+				getApiKey: () => undefined,
+				streamFn,
+			});
+			return { agent } as unknown as AgentSession;
+		},
+	};
+}
+
 function options(
 	streamFn: StreamFn,
 	scheduler?: AdvisorAdapterOptions["scheduler"],
 	config: {
-		sessionId?: string;
-		bootstrap?: readonly unknown[];
-		sessionManager?: { buildSessionContext: () => { messages: readonly unknown[] } };
-		modelRegistry?: AdvisorAdapterOptions["ctx"]["modelRegistry"];
+		readonly sessionId?: string;
+		readonly bootstrap?: readonly unknown[];
+		readonly sessionManager?: {
+			readonly buildSessionContext: () => { readonly messages: readonly unknown[] };
+		};
+		readonly modelRegistry?: AdvisorAdapterOptions["ctx"]["modelRegistry"];
+		readonly agentModel?: Model<Api>;
+		readonly testSessionFactory?: ResolvedChildSessionFactory;
 	} = {},
 ): AdvisorAdapterOptions {
 	const sessionManager = {
@@ -128,7 +171,12 @@ function options(
 		} as unknown as ExtensionContext,
 		model: "fake/fake",
 		thinking: "off",
-		streamFn,
+		testSessionFactory:
+			config.testSessionFactory ??
+			fakeAgentSessionFactory(streamFn, {
+				...(config.sessionId === undefined ? {} : { sessionId: config.sessionId }),
+				...(config.agentModel === undefined ? {} : { agentModel: config.agentModel }),
+			}),
 		...(scheduler === undefined ? {} : { scheduler }),
 	};
 }
