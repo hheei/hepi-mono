@@ -257,6 +257,11 @@ ancestor compartments。复制失败 fail open，child 后续 compartment run �
 boundary。若不匹配，`pi-mctx` 原子失效 divergent compartments、保留可验证 ancestor，暂时传递 raw eligible
 history，之后由 historian rebuild；不会新建 leaf partition，也不会注入 stale summary。
 
+recovery planner 只把 range missing/reversed 或 fingerprint mismatch 视为可恢复 branch divergence：它从首个
+失效 `publishedRevision` 起标记 tail，保留此前连续 verified graph，并给出 rebuild source start。gap、overlap、tier
+regression 或 revision disorder 是 store corruption，不推测删除任何 record，继续 fail closed。无 verified ancestor
+时，rebuild 从失效 range 仍可定位的 start 开始；若 start 不在 branch，则从 index `0` 重新评估完整 raw branch。
+
 每个 context partition 使用 SQLite compartment lease 实现 historian single-flight。lease 有 finite TTL、
 run 中 renewal、abort/shutdown release；其他 process 在持有期跳过该 run，crash 后可以在 TTL expiry 后接管。
 lease 不替代 publication revision transaction。
