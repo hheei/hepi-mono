@@ -2,11 +2,11 @@ import { Agent, type AgentMessage, type AgentTool } from "@earendil-works/pi-age
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { streamSimple } from "@earendil-works/pi-ai/compat";
 import {
-	type AgentSession,
 	convertToLlm,
 	createReadOnlyTools,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import type { ResolvedChildSessionFactory } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { type ContextBudget, contextInputCharBudget } from "./context.js";
 import { parseAdvice } from "./feedback.js";
@@ -43,11 +43,6 @@ export interface AdvisorAgentAdapter {
 	dispose(): Promise<void>;
 	usage(): AdvisorUsage;
 	contextBudget(): ContextBudget;
-}
-
-/** Test-only consumer-owned child-session factory for Advisor runtime fixtures. */
-export interface ResolvedChildSessionFactory {
-	create(signal: AbortSignal): Promise<AgentSession>;
 }
 
 interface SessionContextSource {
