@@ -1,9 +1,10 @@
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { configureSubagentCoordinator, registerExtensionLifecycle } from "@hheei/pi-ext-core";
 import {
 	getHepiRuntimeSettingsRegistry,
+	HepiLifecycleController,
 	hepiAuthenticatedModelSelectionOptions,
+	registerHepiLifecycle,
 	registerHepiSettings,
 } from "../../../hepi-basics/src/core/index.js";
 import { registerAdvisorCommand } from "./command.js";
@@ -17,20 +18,18 @@ export default function piAdvisorExtension(pi: ExtensionAPI): void {
 	const settingsRegistry = getHepiRuntimeSettingsRegistry(pi);
 	registerAdvisorCommand(pi, advisor);
 	registerAdvisorRenderer(pi);
-	registerExtensionLifecycle(pi, {
-		key: "@hheei/hepi-tools-advisor",
-		start: async (runtime) => {
-			configureSubagentCoordinator(runtime, { maxActiveTurns: 2 });
-			const modelOptions = hepiAuthenticatedModelSelectionOptions(runtime.extension.modelRegistry);
+	const lifecycle = new HepiLifecycleController({
+		onStart: async (runtime) => {
+			const modelOptions = hepiAuthenticatedModelSelectionOptions(runtime.ctx.modelRegistry);
 			const provider = createAdvisorSettingsProvider({
 				modelOptions,
 				validatePersisted: (modelRef, thinking) => {
 					if (modelRef === undefined) return;
 					const ref = parseModelRef(modelRef);
 					if (ref === undefined) throw new Error("Advisor model must use provider/model format");
-					const model = runtime.extension.modelRegistry.find(ref.provider, ref.id);
+					const model = runtime.ctx.modelRegistry.find(ref.provider, ref.id);
 					if (model === undefined) throw new Error("Advisor model is unavailable");
-					if (!runtime.extension.modelRegistry.hasConfiguredAuth(model))
+					if (!runtime.ctx.modelRegistry.hasConfiguredAuth(model))
 						throw new Error("Advisor model has no configured auth");
 					const level = parseThinking(thinking);
 					if (level !== undefined && !getSupportedThinkingLevels(model).includes(level))
@@ -38,20 +37,23 @@ export default function piAdvisorExtension(pi: ExtensionAPI): void {
 				},
 			});
 			const unregisterSettings = registerHepiSettings(provider, settingsRegistry);
-			runtime.resources.add("advisor-settings", unregisterSettings);
+			runtime.registry.registerLifecycle({
+				id: "advisor-settings",
+				cleanup: unregisterSettings,
+			});
 
 			let model: string | undefined;
 			let thinking = parseThinking("medium");
 			try {
 				const state = await provider.storage.load({
-					sessionId: runtime.extension.sessionManager.getSessionId(),
-					cwd: runtime.extension.cwd,
+					sessionId: runtime.ctx.sessionManager.getSessionId(),
+					cwd: runtime.ctx.cwd,
 				});
 				const values = state?.advisor;
 				model = typeof values?.model === "string" ? values.model : undefined;
 				thinking = parseThinking(values?.thinking) ?? thinking;
 			} catch (error) {
-				runtime.extension.ui.notify(
+				runtime.ctx.ui.notify(
 					`Unable to load Advisor settings: ${error instanceof Error ? error.message : String(error)}`,
 					"warning",
 				);
@@ -60,8 +62,12 @@ export default function piAdvisorExtension(pi: ExtensionAPI): void {
 				...(model === undefined ? {} : { model }),
 				thinking: thinking ?? "medium",
 			});
-			const sessionId = runtime.extension.sessionManager.getSessionId();
-			runtime.resources.add("advisor", () => advisor.dispose(sessionId));
+			const sessionId = runtime.ctx.sessionManager.getSessionId();
+			runtime.registry.registerLifecycle({
+				id: "advisor",
+				cleanup: () => advisor.dispose(sessionId),
+			});
 		},
 	});
+	registerHepiLifecycle(pi, lifecycle, "pi-basics-advisor");
 }
