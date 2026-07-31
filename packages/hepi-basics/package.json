@@ -55,8 +55,6 @@
 	"devDependencies": {
 		"@earendil-works/pi-coding-agent": "^0.82.0",
 		"@types/bun": "latest",
-		"@types/proper-lockfile": "4.1.4",
-		"opencc-js": "^1.4.0",
-		"proper-lockfile": "4.1.2"
+		"opencc-js": "^1.4.0"
 	}
 }

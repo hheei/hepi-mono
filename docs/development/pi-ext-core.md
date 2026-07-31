@@ -46,7 +46,8 @@ core 的目标是以最小协调原语支持独立 extension 组合。未安装�
   [ADR 0004](../adr/0004-core-subagent-execution.md) 是唯一已批准例外：Extension page router、
   Loadout tool registration contract 和 root-session-scoped subagent execution contract；它们不得
   扩张为 page content、Loadout policy、Settings persistence、agent/config/UI/delivery policy 或
-  schema-driven framework。
+  schema-driven framework。JSON settings file transport 是 ADR-0007 的限定例外；它只读写 object root 与
+  named section，不能扩张为 schema、scope merge、provider 或 UI。
 - extension 将 core 作为 direct production dependency，并 externalize bundle；runtime state
   必须以 `pi.events` 为 identity，通过稳定 `Symbol.for` slot 跨重复 core module instance 共享。
 - process-global state 只能保存 lazy registry；不得保留 `ExtensionContext`、component 或 session
