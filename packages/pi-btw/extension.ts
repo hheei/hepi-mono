@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	HepiLifecycleController,
 	registerHepiLifecycle,
-} from "../../../hepi-basics/src/core/index.js";
+} from "@hheei/hepi-basics";
 import { createBtwFeature } from "./feature.js";
 
 export * from "./feature.js";
