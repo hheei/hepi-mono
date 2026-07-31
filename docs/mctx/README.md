@@ -264,6 +264,10 @@ regression 或 revision disorder 是 store corruption，不推测删除任何 re
 tail prune 与 partition revision compare-and-commit 在同一 SQLite transaction；stale snapshot 不删除任何 record，
 caller 必须 reread 并重新 plan。
 
+成功 prune 后，当前 context pass 保留 raw history，并立即安排一项 cancellable rebuild historian job，不等待普通
+token trigger。若旧 branch historian 仍运行，先 abort 它并保留唯一 pending rebuild；旧 job terminal 后才启动新 job。
+shutdown/reload 清除 pending rebuild 并 abort current job。
+
 每个 context partition 使用 SQLite compartment lease 实现 historian single-flight。lease 有 finite TTL、
 run 中 renewal、abort/shutdown release；其他 process 在持有期跳过该 run，crash 后可以在 TTL expiry 后接管。
 lease 不替代 publication revision transaction。

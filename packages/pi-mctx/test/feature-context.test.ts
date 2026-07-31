@@ -134,6 +134,7 @@ test("context hook atomically drops a recoverable divergent tail and leaves that
 		resources: { add: () => undefined, cleanup: async () => [] },
 	} as unknown as ExtensionLifecycleContext;
 	let discardedRevision: number | undefined;
+	let historianCalls = 0;
 	const feature = createMctxFeature({
 		loadConfiguration: async () => configuration(),
 		openStore: () => ({
@@ -145,6 +146,10 @@ test("context hook atomically drops a recoverable divergent tail and leaves that
 			},
 		}),
 		resolveProjectIdentity: async () => "git:project",
+		runHistorianForBranch: async () => {
+			historianCalls++;
+			return { kind: "cancelled" };
+		},
 	});
 	await feature.start(lifecycle);
 	const raw: AgentMessage[] = entries.flatMap((value) => sessionEntryToContextMessages(value));
@@ -153,6 +158,7 @@ test("context hook atomically drops a recoverable divergent tail and leaves that
 	} as unknown as ExtensionContext;
 	expect(feature.onContext(raw, context)).toBeUndefined();
 	expect(discardedRevision).toBe(1);
+	expect(historianCalls).toBe(1);
 	const active = feature.active();
 	if (active === undefined) throw new Error("Expected active runtime");
 	expect(active.partition.revision).toBe(1);

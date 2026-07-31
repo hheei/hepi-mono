@@ -1,5 +1,5 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
 import { type MctxRuntime, resolveMctxActivation } from "./activation.js";
 import { planMctxCompartmentRecovery } from "./compartment-graph.js";
@@ -49,6 +49,7 @@ interface ActiveMctxRuntime {
 	readonly lifecycle: ExtensionLifecycleContext;
 	cooling: boolean;
 	job?: AbortController | undefined;
+	rebuildEntries?: readonly SessionEntry[] | undefined;
 }
 
 function modelThreshold(
@@ -67,6 +68,53 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 	const resolveProjectIdentity = options.resolveProjectIdentity ?? identityResolver.resolve;
 	const runHistorianForBranch = options.runHistorianForBranch ?? runMctxHistorianForBranch;
 	let active: ActiveMctxRuntime | undefined;
+	function startHistorian(current: ActiveMctxRuntime, entries: readonly SessionEntry[]): void {
+		if (current.job !== undefined || current.lifecycle.signal.aborted) return;
+		const job = new AbortController();
+		current.job = job;
+		const abort = (): void => job.abort();
+		current.lifecycle.signal.addEventListener("abort", abort, { once: true });
+		void runHistorianForBranch({
+			context: current.lifecycle,
+			model: current.runtime.historian,
+			store: current.runtime.store,
+			partition: current.runtime.partition,
+			entries,
+			signal: job.signal,
+		})
+			.then((result) => {
+				if (
+					result.kind === "published" &&
+					active === current &&
+					current.job === job &&
+					!job.signal.aborted
+				) {
+					current.runtime = { ...current.runtime, partition: result.publication.partition };
+				}
+			})
+			.catch((error: unknown) => {
+				if (!job.signal.aborted) {
+					current.lifecycle.extension.ui.notify(
+						`pi-mctx historian failed: ${error instanceof Error ? error.message : String(error)}`,
+						"warning",
+					);
+				}
+			})
+			.finally(() => {
+				current.lifecycle.signal.removeEventListener("abort", abort);
+				if (current.job !== job) return;
+				current.job = undefined;
+				const rebuildEntries = current.rebuildEntries;
+				current.rebuildEntries = undefined;
+				if (
+					rebuildEntries !== undefined &&
+					active === current &&
+					!current.lifecycle.signal.aborted
+				) {
+					startHistorian(current, rebuildEntries);
+				}
+			});
+	}
 	return {
 		async start(context): Promise<void> {
 			let configuration: MctxConfiguration;
@@ -128,6 +176,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				if (active === current) active = undefined;
 			});
 			context.resources.add("mctx-historian", () => {
+				current.rebuildEntries = undefined;
 				current.job?.abort();
 				if (active === current) active = undefined;
 			});
@@ -161,40 +210,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			current.cooling = decision.cooling;
 			if (decision.kind !== "trigger" || current.job !== undefined) return;
 
-			const job = new AbortController();
-			current.job = job;
-			const abort = (): void => job.abort();
-			current.lifecycle.signal.addEventListener("abort", abort, { once: true });
-			void runHistorianForBranch({
-				context: current.lifecycle,
-				model: current.runtime.historian,
-				store: current.runtime.store,
-				partition: current.runtime.partition,
-				entries: context.sessionManager.getBranch(),
-				signal: job.signal,
-			})
-				.then((result) => {
-					if (
-						result.kind === "published" &&
-						active === current &&
-						current.job === job &&
-						!job.signal.aborted
-					) {
-						current.runtime = { ...current.runtime, partition: result.publication.partition };
-					}
-				})
-				.catch((error: unknown) => {
-					if (!job.signal.aborted) {
-						context.ui.notify(
-							`pi-mctx historian failed: ${error instanceof Error ? error.message : String(error)}`,
-							"warning",
-						);
-					}
-				})
-				.finally(() => {
-					current.lifecycle.signal.removeEventListener("abort", abort);
-					if (current.job === job) current.job = undefined;
-				});
+			startHistorian(current, context.sessionManager.getBranch());
 		},
 		onContext(messages, context): { readonly messages: readonly AgentMessage[] } | undefined {
 			const current = active;
@@ -208,6 +224,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			const compartments = current.runtime.store.listCompartments(current.runtime.partition);
 			const recovery = planMctxCompartmentRecovery(entries, compartments);
 			if (recovery.kind === "rebuild") {
+				const rebuildEntries = [...entries];
 				const nextPartition = current.runtime.store.discardCompartmentsFrom(
 					current.runtime.partition,
 					recovery.discardFromRevision,
@@ -217,7 +234,10 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					active === current &&
 					!current.lifecycle.signal.aborted
 				) {
-					active = { ...current, runtime: { ...current.runtime, partition: nextPartition } };
+					current.runtime = { ...current.runtime, partition: nextPartition };
+					current.rebuildEntries = rebuildEntries;
+					if (current.job === undefined) startHistorian(current, rebuildEntries);
+					else current.job.abort();
 				}
 				return undefined;
 			}
