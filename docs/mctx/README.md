@@ -229,6 +229,13 @@ context store 使用 upstream-aligned tiered graph：stable、cacheable `m[0]` h
 materialized `m[1]` tier，再接 compartment boundary 后的 live tail。context transform 将这三层组合为
 model history；它不使用单一 rolling summary。
 
+canonical tier graph 以 `publishedRevision` 严格递增排序。每个 record 的 source range 必须在 current
+branch 重新计算 fingerprint；相邻 record 的 range 必须连续、不可 overlap 或 gap，tier 只能从零或多个
+`m0` 进入零或多个 `m1`，不得在 `m1` 后回到 `m0`。第一个 range 可以位于 Pi initial metadata 之后；
+最后一个 verified range 的 end 是唯一 live boundary。任何不满足这些条件的 graph 不注入 model context，
+而是保留 raw Pi history，等待后续 rebuild。后续 historian publication 必须从该 verified boundary 后
+开始，不能再次覆盖已有 range。
+
 live tail 使用 token-budgeted recent complete parent turn groups。user input、其 assistant response 和关联
 tool/result 不能被 compartment boundary 切开；只有 boundary 前的 eligible head 可以交给 historian。
 

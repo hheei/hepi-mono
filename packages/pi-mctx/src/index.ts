@@ -1,4 +1,5 @@
 export * from "./activation.js";
+export * from "./compartment-graph.js";
 export * from "./compartment-validation.js";
 export * from "./config.js";
 export { default } from "./extension.js";
