@@ -40,7 +40,6 @@
 		"access": "public"
 	},
 	"dependencies": {
-		"@hheei/pi-ext-core": "workspace:*",
 		"@ff-labs/fff-bun": "^0.10.1",
 		"@ff-labs/fff-node": "^0.9.6",
 		"@sinclair/typebox": "^0.34.52",

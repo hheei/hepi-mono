@@ -7,11 +7,6 @@ import {
 	type Model,
 } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import {
-	configureSubagentCoordinator,
-	type ExtensionLifecycleContext,
-	registerExtensionLifecycle,
-} from "@hheei/pi-ext-core";
 import { ADVISOR_SYSTEM_PROMPT } from "../../../../src/pi-advisor/prompt.js";
 import {
 	type AdvisorAdapterOptions,
@@ -31,29 +26,9 @@ const model = {
 	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 } as unknown as Model<Api>;
 
-const lifecycleHandlers: Array<(event: unknown, context: ExtensionContext) => unknown> = [];
-const lifecyclePi = {
-	events: {},
-	on(event: string, handler: (event: unknown, context: ExtensionContext) => unknown) {
-		if (event === "session_start") lifecycleHandlers.push(handler);
-	},
-};
-let lifecycle: ExtensionLifecycleContext | undefined;
-registerExtensionLifecycle(lifecyclePi as never, {
-	key: "@hheei/hepi-tools-advisor-runtime-test",
-	start(context) {
-		configureSubagentCoordinator(context, { maxActiveTurns: 2 });
-		lifecycle = context;
-	},
-});
-for (const handler of lifecycleHandlers)
-	await handler({}, { sessionManager: { getSessionId: () => "advisor-test" } } as never);
-if (lifecycle === undefined) throw new Error("Advisor test lifecycle did not start");
-const testLifecycle = lifecycle;
-
 function message(
 	stopReason: AssistantMessage["stopReason"],
-	content: AssistantMessage["content"] = [{ type: "text", text: '{"advice":[]}' } as never],
+	content: AssistantMessage["content"] = [],
 	usage: { input: number; output: number; totalTokens: number; cost: number } = {
 		input: 0,
 		output: 0,
@@ -153,7 +128,6 @@ function options(
 		} as unknown as ExtensionContext,
 		model: "fake/fake",
 		thinking: "off",
-		lifecycle: testLifecycle,
 		streamFn,
 		...(scheduler === undefined ? {} : { scheduler }),
 	};
@@ -236,8 +210,8 @@ describe("advisor runtime outcomes", () => {
 		const contexts: Array<{ readonly messages: readonly unknown[] }> = [];
 		const bootstrap = [{ role: "user", content: [{ type: "text", text: "bootstrap" }] }];
 		const scripted = streamScript([
-			message("stop", [{ type: "text", text: '{"advice":[]}' } as never]),
-			message("stop", [{ type: "text", text: '{"advice":[]}' } as never]),
+			message("stop", [{ type: "text", text: "first response" } as never]),
+			message("stop", [{ type: "text", text: "second response" } as never]),
 		]);
 		const adapter = createCoreAdvisorAdapter(
 			options(

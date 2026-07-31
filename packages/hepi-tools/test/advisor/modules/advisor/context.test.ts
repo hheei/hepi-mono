@@ -34,10 +34,7 @@ function bootstrap(
 	const ctx = {
 		sessionManager: { buildSessionContext: () => ({ messages: source }) },
 	} as unknown as ExtensionContext;
-	return buildAdvisorBootstrapMessages(
-		{ ctx, lifecycle: {} as never, model: undefined, thinking: "off" },
-		budget,
-	);
+	return buildAdvisorBootstrapMessages({ ctx, model: undefined, thinking: "off" }, budget);
 }
 
 describe("advisor turn evidence", () => {

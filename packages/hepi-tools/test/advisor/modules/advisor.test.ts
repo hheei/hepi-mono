@@ -11,22 +11,14 @@ import {
 	markFeedbackDelivered,
 	reconfirmFeedback,
 } from "../../../src/pi-advisor/feedback.js";
-import { parseAdvisorReview } from "../../../src/pi-advisor/model.js";
 import { decodeAdvisorBoundary, restoreAdvisor } from "../../../src/pi-advisor/persistence.js";
 import { ADVISOR_SYSTEM_PROMPT } from "../../../src/pi-advisor/prompt.js";
 
 describe("advisor contracts", () => {
 	test("uses deterministic terse reviewer instructions", () => {
-		expect(ADVISOR_SYSTEM_PROMPT).toContain("Output exactly one JSON object");
-		expect(ADVISOR_SYSTEM_PROMPT).toContain('{"advice":[]}');
+		expect(ADVISOR_SYSTEM_PROMPT).toContain("Output terse");
+		expect(ADVISOR_SYSTEM_PROMPT).toContain("advise({severity,note})");
 		expect(ADVISOR_SYSTEM_PROMPT).not.toMatch(/timestamp|current date/i);
-	});
-	test("rejects malformed Advisor JSON text", () => {
-		expect(() => parseAdvisorReview("not json")).toThrow(/valid JSON/i);
-		expect(() => parseAdvisorReview('{"advice":[],"extra":true}')).toThrow(/match/i);
-		expect(() => parseAdvisorReview('{"advice":[{"severity":"bad","note":"x"}]}')).toThrow(
-			/invalid advice/i,
-		);
 	});
 	test("strictly decodes and fails closed on malformed latest boundary", () => {
 		expect(decodeAdvisorBoundary({ version: 1, enabled: true })).toEqual({

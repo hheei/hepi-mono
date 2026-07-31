@@ -4,7 +4,7 @@ import type {
 	ExtensionCommandContext,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
+import type { HepiRuntimeContext } from "../../../../../hepi-basics/src/core/index.js";
 import {
 	type AdvisorAdapterFactory,
 	createAdvisorFeature,
@@ -142,10 +142,11 @@ function fixture(enabled: boolean, adapter = fakeAdapter()) {
 	} as unknown as ExtensionContext;
 	const runtime = {
 		pi,
-		extension: ctx,
-		signal: new AbortController().signal,
-		resources: { add() {} },
-	} as unknown as ExtensionLifecycleContext;
+		ctx,
+		registry: {},
+		requestRender() {},
+		close() {},
+	} as unknown as HepiRuntimeContext;
 	const factory: AdvisorAdapterFactory = (_options: AdvisorAdapterOptions) => adapter;
 	const timers = new Map<number, { readonly due: number; readonly callback: () => void }>();
 	let clock = 0;
