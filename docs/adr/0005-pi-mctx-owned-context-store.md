@@ -38,6 +38,10 @@ schema v4 增加 append-only compartment record：partition、`m0`/`m1` tier、s
 不能留 partial record。read 只按 partition/revision 返回记录。output validation、tier graph invariants 与 payload mapping
 仍属于 historian publication slice，不能由 storage schema 猜测。
 
+draft validator 是 source-evidence boundary，不依赖 Pi message serialization：caller 传入 ordered entry IDs 和 immutable
+snapshot fingerprint，validator 确认 tier、fingerprint 与 inclusive start/end range。它不推断跨-tier graph topology，也不
+接受模型声明的未验证 coverage；historian output mapping/repair 在后续独立 slice 才能调用 storage publication。
+
 schema v2 在 v1 application/metadata fence 上建立 `projects` 与 `partitions`。partition 以 stable project identity
 与 Pi session ID 唯一标识，revision 从 `0` 开始；get-or-create 使用短 `BEGIN IMMEDIATE` transaction，不能重复创建。
 此迁移仍不建立 lease、compartment 或 graph table。未知 nonempty database、foreign application ID 或 future schema

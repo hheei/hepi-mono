@@ -95,6 +95,10 @@ rendered payload 与 publication revision。`publishCompartment` 仅接受当前
 record 和推进 revision；stale snapshot 不写任何 record。read API 只返回当前 partition 的 revision-ordered records。
 结构/coverage/graph validation 与 historian output mapping 留给下一 slice。
 
+draft validator 不序列化或猜测 Pi message。它只接收 ordered source entry IDs 与该 immutable snapshot 的 fingerprint：
+draft 必须使用 `m0`/`m1` tier、匹配 fingerprint，且 start/end ID 必须在同一 snapshot 内按 source order 形成 inclusive
+range。跨-tier merge topology、historian JSON mapping、repair prompt 与 publication policy 尚未启用。
+
 默认 compartment trigger 在 parent `turn_end` 检查 token usage 的 threshold 与 hysteresis。越过阈值后，
 `pi-mctx` 异步执行一次 compartment run；它只处理稳定 history snapshot，不能阻塞 prompt、改写 active turn，
 也不能在 parent session replacement 后发布旧结果。
