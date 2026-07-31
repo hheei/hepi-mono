@@ -7,6 +7,11 @@ export const MCTX_STORE_APPLICATION_ID = 0x484d4354;
 export const MCTX_STORE_SCHEMA_VERSION = 4;
 export const MCTX_STORE_BUSY_TIMEOUT_MS = 5_000;
 
+/**
+ * Session-owned handle for the shared MCTX database. Partition snapshots are
+ * optimistic-concurrency tokens, never mutable handles; callers replace them
+ * with the returned value after each successful write.
+ */
 export interface MctxStore {
 	readonly path: string;
 	getOrCreatePartition(projectIdentity: string, sessionId: string): MctxPartition;
@@ -35,18 +40,21 @@ export interface MctxStore {
 	close(): void;
 }
 
+/** Identifies one Pi parent session within a stable project and its CAS revision. */
 export interface MctxPartition {
 	readonly projectIdentity: string;
 	readonly sessionId: string;
 	readonly revision: number;
 }
 
+/** A finite, partition-local historian ownership claim. Only its owner may renew or release it. */
 export interface MctxHistorianLease {
 	readonly partition: MctxPartition;
 	readonly ownerToken: string;
 	readonly expiresAtMs: number;
 }
 
+/** Model-derived content fenced by immutable source IDs and their branch-order fingerprint. */
 export interface MctxCompartmentDraft {
 	readonly tier: "m0" | "m1";
 	readonly sourceStartEntryId: string;
@@ -60,6 +68,7 @@ export interface MctxCompartment extends MctxCompartmentDraft {
 	readonly publishedRevision: number;
 }
 
+/** One atomic payload insertion and partition revision advance. */
 export interface MctxCompartmentPublication {
 	readonly partition: MctxPartition;
 	readonly compartment: MctxCompartment;
@@ -188,6 +197,11 @@ function migrateV4(database: DatabaseSync): void {
 	}
 }
 
+/**
+ * Rejects foreign or unknown nonempty databases before migration. Each version
+ * upgrade commits independently, so an interrupted open can safely resume from
+ * its last completed schema fence.
+ */
 function validateSchema(database: DatabaseSync): void {
 	const applicationId = pragmaInteger(database, "PRAGMA application_id");
 	const version = pragmaInteger(database, "PRAGMA user_version");
@@ -345,6 +359,8 @@ function acquireHistorianLease(
 ): MctxHistorianLease | undefined {
 	requirePartitionKey(partition.projectIdentity, partition.sessionId);
 	const expiresAtMs = requireLeaseInput(ownerToken, ttlMs, nowMs);
+	// Expiry deletion and acquisition share one writer transaction: two workers
+	// cannot both observe an expired lease and publish the same source range.
 	database.exec("BEGIN IMMEDIATE");
 	try {
 		database
@@ -508,6 +524,8 @@ function publishCompartment(
 ): MctxCompartmentPublication | undefined {
 	requirePartitionKey(partition.projectIdentity, partition.sessionId);
 	requireCompartmentDraft(draft);
+	// Advance the revision before inserting. A stale snapshot rolls back before
+	// any visible payload write, preserving the caller's recompute boundary.
 	database.exec("BEGIN IMMEDIATE");
 	try {
 		const changes = changedRows(
@@ -563,7 +581,11 @@ export function defaultMctxStorePath(agentDir: string = getAgentDir()): string {
 	return join(agentDir, "mctx", "context.db");
 }
 
-/** Opens only the MCTX schema fence; callers own its session-lifecycle close. */
+/**
+ * Opens only the MCTX schema fence; callers own its session-lifecycle close.
+ * WAL and a bounded busy wait allow independent Pi processes to share the DB;
+ * semantic conflicts still resolve through partition revision CAS.
+ */
 export async function openMctxStore(path: string = defaultMctxStorePath()): Promise<MctxStore> {
 	mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
 	let database: DatabaseSync | undefined;

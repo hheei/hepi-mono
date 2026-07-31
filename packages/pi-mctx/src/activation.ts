@@ -2,6 +2,7 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import { configureSubagentCoordinator, type ExtensionLifecycleContext } from "@hheei/pi-ext-core";
 import type { MctxConfiguration, MctxPipelineSettings } from "./config.js";
 
+/** Resolved immutable inputs held for one active parent session. */
 export interface MctxRuntime {
 	readonly sessionId: string;
 	readonly historian: Model<Api>;
@@ -59,6 +60,8 @@ export function resolveMctxActivation(
 				};
 			}
 			try {
+				// Configure shared admission before opening MCTX resources. A cap conflict
+				// then preserves Pi-native behavior without partial activation.
 				configureSubagentCoordinator(context, { maxActiveTurns: 2 });
 			} catch (error: unknown) {
 				return {

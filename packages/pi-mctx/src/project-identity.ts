@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 export interface ProjectIdentityResolver {
+	/** Resolves a stable opaque key; neither raw paths nor remotes enter the store. */
 	resolve(cwd: string, signal?: AbortSignal): Promise<string>;
 }
 
@@ -71,6 +72,8 @@ export function createProjectIdentityResolver(
 				lastKnownGitIdentity.set(canonicalPath, identity);
 				return identity;
 			}
+			// A transient Git failure may reuse only this process's confirmed identity;
+			// otherwise hash the canonical directory instead of persisting its path.
 			return lastKnownGitIdentity.get(canonicalPath) ?? directoryIdentity(canonicalPath);
 		},
 	};

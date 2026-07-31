@@ -40,6 +40,10 @@ export type MctxPipelineState =
 	| { readonly kind: "invalid"; readonly reason: string }
 	| { readonly kind: "enabled"; readonly settings: MctxPipelineSettings };
 
+/**
+ * Raw settings are retained for diagnostics and future fields. `pipeline` is
+ * the only normalized, runtime-authorized subset used by this milestone.
+ */
 export interface MctxConfiguration {
 	readonly global: Readonly<Record<string, unknown>>;
 	readonly project: Readonly<Record<string, unknown>>;
@@ -114,6 +118,8 @@ function raiseThreshold(
 	base: MctxOptionalThreshold,
 	override: MctxOptionalThreshold,
 ): MctxOptionalThreshold {
+	// Project settings may reduce MCTX work, never make it trigger earlier than
+	// the user-level policy selected for this machine.
 	const defaultValue =
 		base.defaultValue === undefined || override.defaultValue === undefined
 			? base.defaultValue

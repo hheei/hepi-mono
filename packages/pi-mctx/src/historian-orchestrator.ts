@@ -9,6 +9,10 @@ import type { MctxCompartmentPublication, MctxPartition, MctxStore } from "./sto
 
 export const MCTX_HISTORIAN_LEASE_TTL_MS = 60_000;
 
+/**
+ * One bounded source publication attempt. The caller supplies a partition
+ * snapshot and owns retry policy; this function never recomputes stale input.
+ */
 export interface MctxHistorianRunRequest {
 	readonly context: ExtensionLifecycleContext;
 	readonly model: Model<Api>;
@@ -99,6 +103,8 @@ export async function runMctxHistorian(
 				? { kind: "stale" }
 				: { kind: "published", publication, repaired: false };
 		}
+		// A malformed first result gets exactly one diagnostic repair. Retrying
+		// again would turn a bounded turn-end job into an unowned retry loop.
 		const repair = await execute(request.context, {
 			model: request.model,
 			source: request.source,

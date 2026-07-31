@@ -19,11 +19,16 @@ import {
 } from "./store.js";
 import { evaluateMctxTriggerPolicy } from "./trigger-policy.js";
 
+/** Active session state. `partition` is replaced after each successful store CAS. */
 export interface MctxSessionRuntime extends MctxRuntime {
 	readonly store: MctxStore;
 	readonly partition: MctxPartition;
 }
 
+/**
+ * Pi-facing lifecycle seam. `onTurnEnd` only starts detached work; `onContext`
+ * is synchronous and fails open when its branch proof no longer matches.
+ */
 export interface MctxFeature {
 	start(context: ExtensionLifecycleContext): Promise<void>;
 	onTurnEnd(context: ExtensionContext): void;
@@ -34,6 +39,7 @@ export interface MctxFeature {
 	active(): MctxSessionRuntime | undefined;
 }
 
+/** Dependency seams for focused tests; production uses the MCTX-owned defaults. */
 export interface MctxFeatureOptions {
 	readonly loadConfiguration?: (
 		paths: ReturnType<typeof defaultMctxSettingsPaths>,
@@ -68,6 +74,11 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 	const resolveProjectIdentity = options.resolveProjectIdentity ?? identityResolver.resolve;
 	const runHistorianForBranch = options.runHistorianForBranch ?? runMctxHistorianForBranch;
 	let active: ActiveMctxRuntime | undefined;
+	/**
+	 * Serializes historian work per session. A replacement branch is retained as
+	 * `rebuildEntries` until the aborted job terminalizes, preventing overlapping
+	 * writers while allowing the latest branch to be rebuilt promptly.
+	 */
 	function startHistorian(current: ActiveMctxRuntime, entries: readonly SessionEntry[]): void {
 		if (current.job !== undefined || current.lifecycle.signal.aborted) return;
 		const job = new AbortController();
@@ -171,6 +182,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			const runtime: MctxSessionRuntime = { ...activation.runtime, store, partition };
 			const current: ActiveMctxRuntime = { runtime, lifecycle: context, cooling: false };
 			active = current;
+			// Resource cleanup is ordered: abort the historian before closing its store.
 			context.resources.add("mctx-runtime", () => {
 				store.close();
 				if (active === current) active = undefined;
@@ -224,6 +236,8 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			const compartments = current.runtime.store.listCompartments(current.runtime.partition);
 			const recovery = planMctxCompartmentRecovery(entries, compartments);
 			if (recovery.kind === "rebuild") {
+				// Branch edits invalidate only the divergent publication tail. Discard via
+				// CAS, then replay the newest stable entries after the job observes abort.
 				const rebuildEntries = [...entries];
 				const nextPartition = current.runtime.store.discardCompartmentsFrom(
 					current.runtime.partition,

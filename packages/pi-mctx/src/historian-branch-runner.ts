@@ -9,6 +9,10 @@ import {
 import { projectMctxSourceHistory } from "./source-history.js";
 import type { MctxStore } from "./store.js";
 
+/**
+ * Adapts a Pi branch to the historian without letting the model choose source
+ * boundaries. Existing verified compartments determine the next tier and tail.
+ */
 export interface MctxHistorianBranchRunRequest
 	extends Omit<MctxHistorianRunRequest, "source" | "sourceText" | "store"> {
 	readonly entries: readonly SessionEntry[];
