@@ -1,12 +1,8 @@
-import {
-	Agent,
-	type AgentMessage,
-	type AgentTool,
-	type StreamFn,
-} from "@earendil-works/pi-agent-core";
+import { Agent, type AgentMessage, type AgentTool } from "@earendil-works/pi-agent-core";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { streamSimple } from "@earendil-works/pi-ai/compat";
 import {
+	type AgentSession,
 	convertToLlm,
 	createReadOnlyTools,
 	type ExtensionContext,
@@ -49,6 +45,11 @@ export interface AdvisorAgentAdapter {
 	contextBudget(): ContextBudget;
 }
 
+/** Test-only consumer-owned child-session factory for Advisor runtime fixtures. */
+export interface ResolvedChildSessionFactory {
+	create(signal: AbortSignal): Promise<AgentSession>;
+}
+
 interface SessionContextSource {
 	buildSessionContext(): { readonly messages: Parameters<typeof convertToLlm>[0] };
 }
@@ -81,8 +82,8 @@ export interface AdvisorAdapterOptions {
 	readonly ctx: ExtensionContext;
 	readonly model: string | undefined;
 	readonly thinking: ThinkingLevel;
-	/** Test-only transport injection; production uses Agent's default stream. */
-	readonly streamFn?: StreamFn;
+	/** Test-only child-session injection; production retains legacy Agent construction. */
+	readonly testSessionFactory?: ResolvedChildSessionFactory;
 	/** Test-only timer injection; production uses the host timers. */
 	readonly scheduler?: AdvisorScheduler;
 }
@@ -348,7 +349,7 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 			tokens > lastCompactedContextTokens
 		);
 	};
-	const createAgent = (agentOptions: AdvisorAdapterOptions): Agent => {
+	const createAgent = async (agentOptions: AdvisorAdapterOptions): Promise<Agent> => {
 		const collectedAdvice: AdvisorAdvice[] = [];
 		const adviseTool: AgentTool<typeof ADVISE_PARAMETERS> = {
 			name: "advise",
@@ -364,18 +365,21 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 			},
 		};
 		const model = resolveModel(agentOptions);
-		const next = new Agent({
-			sessionId: advisorSessionId(agentOptions.ctx.sessionManager.getSessionId()),
-			initialState: {
-				systemPrompt: ADVISOR_SYSTEM_PROMPT,
-				model,
-				thinkingLevel: resolveThinking(agentOptions, model),
-				tools: [adviseTool, ...createReadOnlyTools(agentOptions.ctx.cwd)],
-			},
-			convertToLlm,
-			getApiKey: (provider) => agentOptions.ctx.modelRegistry.getApiKeyForProvider(provider),
-			streamFn: agentOptions.streamFn ?? streamSimple,
-		});
+		const next =
+			agentOptions.testSessionFactory === undefined
+				? new Agent({
+						sessionId: advisorSessionId(agentOptions.ctx.sessionManager.getSessionId()),
+						initialState: {
+							systemPrompt: ADVISOR_SYSTEM_PROMPT,
+							model,
+							thinkingLevel: resolveThinking(agentOptions, model),
+							tools: [adviseTool, ...createReadOnlyTools(agentOptions.ctx.cwd)],
+						},
+						convertToLlm,
+						getApiKey: (provider) => agentOptions.ctx.modelRegistry.getApiKeyForProvider(provider),
+						streamFn: streamSimple,
+					})
+				: (await agentOptions.testSessionFactory.create(new AbortController().signal)).agent;
 		next.state.messages = buildAdvisorBootstrapMessages(
 			agentOptions,
 			modelContextBudget(model),
@@ -386,7 +390,7 @@ export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): Adviso
 	};
 	const create = async (): Promise<void> => {
 		if (agent !== undefined) return;
-		agent = createAgent(options);
+		agent = await createAgent(options);
 		disposed = false;
 		recreateAfterTimeout = false;
 	};

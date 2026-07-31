@@ -26,6 +26,13 @@
    与 compaction tests 来获得通过。
 6. 运行 core 和 Advisor focused tests、Biome、实际 Pi host/replay smoke verification；完成后独立提交。
 
+## 测试 seam
+
+Pi 的公开 `createAgentSession` 不接受旧 `Agent` 测试使用的 `streamFn` transport override。第一 slice 因此在
+Advisor adapter 加入仅供测试注入的 `ResolvedChildSessionFactory`：生产路径仍保留 legacy `Agent` 与 `streamSimple`，
+测试路径提供受控 fake `AgentSession`。不得改写 `session.agent` 或任何未公开 Pi 字段。fixture 必须保留原有 context、
+usage、timeout、replay 与 compaction assertions，而不是以删除测试替代迁移。
+
 ## 不做
 
 本计划不拆 `pi-advisor` package、不提取 settings API、不新增 generic session inspection、telemetry、scheduler 或
