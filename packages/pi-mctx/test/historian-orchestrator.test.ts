@@ -1,0 +1,134 @@
+import { expect, test } from "bun:test";
+import type { Api, Model } from "@earendil-works/pi-ai";
+import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
+import {
+	MCTX_HISTORIAN_LEASE_TTL_MS,
+	type MctxHistorianExecutor,
+	runMctxHistorian,
+} from "../src/historian-orchestrator.js";
+import type {
+	MctxCompartmentDraft,
+	MctxCompartmentPublication,
+	MctxHistorianLease,
+	MctxPartition,
+} from "../src/store.js";
+
+const model = { api: "test", provider: "test", id: "historian" } as Model<Api>;
+const partition = { projectIdentity: "project", sessionId: "session", revision: 0 } as const;
+const source = { entryIds: ["entry-1", "entry-2"], fingerprint: "snapshot" } as const;
+const validOutput = JSON.stringify({
+	tier: "m0",
+	sourceStartEntryId: "entry-1",
+	sourceEndEntryId: "entry-2",
+	renderedPayload: "summary",
+});
+
+function publication(draft: MctxCompartmentDraft): MctxCompartmentPublication {
+	return {
+		partition: { ...partition, revision: 1 },
+		compartment: { ...draft, sequence: 0, publishedRevision: 1 },
+	};
+}
+
+function store(options: {
+	readonly lease?: MctxHistorianLease;
+	readonly publish?: MctxCompartmentPublication;
+}) {
+	let releases = 0;
+	const lease = options.lease ?? {
+		partition,
+		ownerToken: "owner",
+		expiresAtMs: 60_000,
+	};
+	return {
+		store: {
+			acquireHistorianLease: (current: MctxPartition, owner: string, ttlMs: number) => {
+				expect(current).toEqual(partition);
+				expect(owner).toBe("owner");
+				expect(ttlMs).toBe(MCTX_HISTORIAN_LEASE_TTL_MS);
+				return options.lease === undefined ? lease : options.lease;
+			},
+			publishCompartment: (_current: MctxPartition, draft: MctxCompartmentDraft) =>
+				options.publish === undefined ? undefined : publication(draft),
+			releaseHistorianLease: (released: MctxHistorianLease) => {
+				expect(released).toEqual(lease);
+				releases++;
+			},
+		},
+		releases: (): number => releases,
+	};
+}
+
+function executor(outputs: readonly string[]): MctxHistorianExecutor {
+	let index = 0;
+	return async () => {
+		const output = outputs[index++];
+		if (output === undefined) throw new Error("Unexpected historian execution");
+		return { kind: "completed", output };
+	};
+}
+
+function request(overrides: Record<string, unknown> = {}): Parameters<typeof runMctxHistorian>[0] {
+	return {
+		context: {} as ExtensionLifecycleContext,
+		model,
+		partition,
+		source,
+		sourceText: "history",
+		signal: new AbortController().signal,
+		leaseOwnerToken: "owner",
+		...overrides,
+	} as Parameters<typeof runMctxHistorian>[0];
+}
+
+test("skips an occupied partition without executing or releasing", async (): Promise<void> => {
+	const { store: heldStore, releases } = store({ lease: undefined });
+	const result = await runMctxHistorian(
+		request({ store: { ...heldStore, acquireHistorianLease: () => undefined } }),
+		async () => {
+			throw new Error("must not execute");
+		},
+	);
+	expect(result).toEqual({ kind: "skipped", reason: "lease-held" });
+	expect(releases()).toBe(0);
+});
+
+test("publishes valid primary output and releases its lease", async (): Promise<void> => {
+	const { store: activeStore, releases } = store({
+		publish: publication({
+			tier: "m0",
+			sourceStartEntryId: "entry-1",
+			sourceEndEntryId: "entry-2",
+			sourceFingerprint: "snapshot",
+			renderedPayload: "summary",
+		}),
+	});
+	const result = await runMctxHistorian(request({ store: activeStore }), executor([validOutput]));
+	expect(result).toMatchObject({ kind: "published", repaired: false });
+	expect(releases()).toBe(1);
+});
+
+test("repairs invalid primary output once before publication", async (): Promise<void> => {
+	const { store: activeStore, releases } = store({
+		publish: publication({
+			tier: "m0",
+			sourceStartEntryId: "entry-1",
+			sourceEndEntryId: "entry-2",
+			sourceFingerprint: "snapshot",
+			renderedPayload: "summary",
+		}),
+	});
+	const result = await runMctxHistorian(
+		request({ store: activeStore }),
+		executor(["not json", validOutput]),
+	);
+	expect(result).toMatchObject({ kind: "published", repaired: true });
+	expect(releases()).toBe(1);
+});
+
+test("returns stale when publication CAS loses and releases the lease", async (): Promise<void> => {
+	const { store: activeStore, releases } = store({});
+	const result = await runMctxHistorian(request({ store: activeStore }), executor([validOutput]));
+	expect(result).toEqual({ kind: "stale" });
+	expect(releases()).toBe(1);
+});

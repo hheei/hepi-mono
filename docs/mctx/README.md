@@ -113,6 +113,11 @@ caller 提供 source text 与 immutable snapshot；executor 将 ordered entry ID
 terminal result 规范为 completed/cancelled/failed。run-local abort 会 cancel handle；executor 不重试、不 repair、不获取 lease，
 也不 publish record。
 
+historian orchestrator 是显式 async function：以 current partition snapshot 获取一次 finite lease，运行 primary completion，
+mapper invalid 时仅以 diagnostic 运行一次 repair completion，然后用同一 snapshot 原子 publish。lease acquisition failure
+返回 skipped；CAS conflict 返回 stale，不重试；任意路径在 `finally` release lease。它不做 trigger、renewal、transient retry
+或 Pi context rendering。
+
 默认 compartment trigger 在 parent `turn_end` 检查 token usage 的 threshold 与 hysteresis。越过阈值后，
 `pi-mctx` 异步执行一次 compartment run；它只处理稳定 history snapshot，不能阻塞 prompt、改写 active turn，
 也不能在 parent session replacement 后发布旧结果。
