@@ -1,29 +1,23 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
-	convertToLlm,
-	type ExtensionAPI,
-	type ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import {
-	startSubagent,
 	type CompletionSubagentHandle,
-	type ExtensionLifecycleContext,
-} from "@hheei/pi-ext-core";
-import {
 	createHepiModelSelectionField,
 	createJsonSectionSettingsStorage,
+	type ExtensionLifecycleContext,
 	type HepiContext,
 	type HepiModelSelectionOption,
 	type HepiSettingField,
 	type HepiSettingsProvider,
 	type HepiSettingsStorage,
 	hepiModelSelectionOptions,
-} from "../core/index.js";
+	startSubagent,
+} from "@hheei/pi-ext-core";
 
 export const AUTO_TITLE_GROUP = "auto-title";
 export const AUTO_TITLE_FIELD = "autoTitle";
 export const AUTO_TITLE_MODEL_FIELD = "autoTitleModel";
-const SECTION = "pi-basics";
+const SECTION = "pi-auto-title";
 const MAX_PROMPT = 6000;
 const MAX_PRIMARY_REQUEST = 4000;
 const MAX_SUPPORTING_TEXT = 1000;
@@ -128,8 +122,8 @@ export function createAutoTitleSettingsProvider(
 	);
 	return {
 		id: SECTION,
-		title: "Pi Basics",
-		origin: "@hheei/hepi-basics",
+		title: "Pi Auto Title",
+		origin: "@hheei/pi-auto-title",
 		groups: [
 			{
 				id: AUTO_TITLE_GROUP,
@@ -314,7 +308,8 @@ export function createCoreAutoTitleAgent(
 	let output: string | undefined;
 	return {
 		prompt: async (prompt) => {
-			if (runtime.lifecycle === undefined) throw new Error("Auto-title completion lifecycle unavailable");
+			if (runtime.lifecycle === undefined)
+				throw new Error("Auto-title completion lifecycle unavailable");
 			handle = startSubagent(runtime.lifecycle, {
 				mode: "completion",
 				model,
