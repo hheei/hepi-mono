@@ -38,6 +38,8 @@ function completeGroups(entries: readonly SessionEntry[]): readonly MctxComplete
 	let current: SessionEntry[] | undefined;
 	for (const entry of entries) {
 		if (isUserEntry(entry)) {
+			// A new user entry closes the previous group only after its assistant
+			// response. Interrupted/tool-only work must remain in the live tail.
 			if (current !== undefined && endsWithAssistant(current)) {
 				groups.push({ entries: current });
 			}
@@ -73,6 +75,8 @@ export function projectMctxSourceHistory(
 	}
 	const groups = completeGroups(entries);
 	if (groups.length === 0) return { kind: "ineligible", reason: "no-complete-turn-groups" };
+	// Keep recent complete turns raw so the model retains immediate conversational
+	// detail even after older history becomes a compartment.
 	const eligibleGroups = groups.slice(0, Math.max(0, groups.length - protectedTurnGroups));
 	if (eligibleGroups.length === 0) return { kind: "ineligible", reason: "protected-tail" };
 	const eligibleEntries = eligibleGroups.flatMap((group) => group.entries);

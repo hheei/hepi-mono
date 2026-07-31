@@ -59,6 +59,8 @@ export function evaluateMctxTriggerPolicy(
 		contextWindow === null || contextWindow === undefined
 			? undefined
 			: Math.ceil((contextWindow * percentage) / 100);
+	// A known context window and explicit absolute floor combine conservatively:
+	// either source can delay work, but neither can cause an earlier trigger.
 	const thresholdTokens =
 		percentageThreshold === undefined
 			? absoluteThreshold
@@ -79,6 +81,8 @@ export function evaluateMctxTriggerPolicy(
 			: Math.floor((contextWindow * (percentage - HYSTERESIS_PERCENTAGE_POINTS)) / 100);
 	const absoluteRearmThreshold =
 		absoluteThreshold === undefined ? undefined : Math.floor(absoluteThreshold * 0.9);
+	// Rearm below both thresholds to avoid repeated historian starts while usage
+	// oscillates near the trigger boundary.
 	const rearmed =
 		(percentageRearmThreshold === undefined || input.usageTokens <= percentageRearmThreshold) &&
 		(absoluteRearmThreshold === undefined || input.usageTokens <= absoluteRearmThreshold);
