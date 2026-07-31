@@ -10,6 +10,7 @@ export const MCTX_STORE_BUSY_TIMEOUT_MS = 5_000;
 export interface MctxStore {
 	readonly path: string;
 	getOrCreatePartition(projectIdentity: string, sessionId: string): MctxPartition;
+	advancePartitionRevision(partition: MctxPartition): MctxPartition | undefined;
 	close(): void;
 }
 
@@ -194,6 +195,44 @@ function getOrCreatePartition(
 	}
 }
 
+function changedRows(value: unknown): number {
+	if (
+		!isRecord(value) ||
+		typeof value.changes !== "number" ||
+		!Number.isSafeInteger(value.changes)
+	) {
+		throw new Error("Expected SQLite mutation result");
+	}
+	return value.changes;
+}
+
+/**
+ * Advances a snapshot's revision only if it remains current. `undefined`
+ * means another writer won, so callers must reread/recompute before retrying.
+ */
+function advancePartitionRevision(
+	database: DatabaseSync,
+	partition: MctxPartition,
+): MctxPartition | undefined {
+	requirePartitionKey(partition.projectIdentity, partition.sessionId);
+	if (!Number.isSafeInteger(partition.revision) || partition.revision < 0) {
+		throw new Error("Context store partition revision is invalid");
+	}
+	if (partition.revision >= Number.MAX_SAFE_INTEGER) {
+		throw new Error("Context store partition revision is exhausted");
+	}
+	const changes = changedRows(
+		database
+			.prepare(
+				"UPDATE partitions SET revision = revision + 1 WHERE project_identity = ? AND session_id = ? AND revision = ?",
+			)
+			.run(partition.projectIdentity, partition.sessionId, partition.revision),
+	);
+	if (changes === 0) return undefined;
+	if (changes !== 1) throw new Error("Context store revision update affected multiple partitions");
+	return { ...partition, revision: partition.revision + 1 };
+}
+
 export function defaultMctxStorePath(agentDir: string = getAgentDir()): string {
 	return join(agentDir, "mctx", "context.db");
 }
@@ -219,6 +258,10 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 		getOrCreatePartition(projectIdentity, sessionId): MctxPartition {
 			if (database === undefined) throw new Error("Context store is closed");
 			return getOrCreatePartition(database, projectIdentity, sessionId);
+		},
+		advancePartitionRevision(partition): MctxPartition | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return advancePartitionRevision(database, partition);
 		},
 		close(): void {
 			if (closed) return;

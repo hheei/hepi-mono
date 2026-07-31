@@ -82,6 +82,10 @@ context store 位于 `<getAgentDir>/mctx/context.db`。它与 global settings fi
 store 使用 SQLite WAL、短事务和 busy timeout。每个 partition 维护 monotonic revision；写入必须比较预期
 revision，冲突时重读并重算，不能以 last-writer-wins 覆盖较新的 compartment。
 
+store 提供 revision CAS primitive：调用者提交当前 partition snapshot，成功时得到 revision 加一的新 snapshot；若
+conditional update 未命中则得到 `undefined`，必须重新读取/recompute。CAS 不写 compartment 内容，后续 publication
+会在同一 transaction 内组合 payload write 与该 revision fence。
+
 默认 compartment trigger 在 parent `turn_end` 检查 token usage 的 threshold 与 hysteresis。越过阈值后，
 `pi-mctx` 异步执行一次 compartment run；它只处理稳定 history snapshot，不能阻塞 prompt、改写 active turn，
 也不能在 parent session replacement 后发布旧结果。

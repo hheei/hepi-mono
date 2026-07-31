@@ -130,6 +130,7 @@ test("feature owns the active runtime for the session lifecycle", async (): Prom
 				sessionId: "session-1",
 				revision: 0,
 			}),
+			advancePartitionRevision: () => undefined,
 			close: () => void closed++,
 		}),
 	});
@@ -182,6 +183,7 @@ test("feature owns the active runtime for the session lifecycle", async (): Prom
 			getOrCreatePartition: () => {
 				throw new Error("must not create partition");
 			},
+			advancePartitionRevision: () => undefined,
 			close: () => void partitionStoreClosed++,
 		}),
 	});

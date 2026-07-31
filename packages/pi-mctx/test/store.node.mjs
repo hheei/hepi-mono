@@ -36,6 +36,10 @@ test("creates and fences an MCTX-owned store", async () => {
 			sessionId: "session-2",
 			revision: 0,
 		});
+		const advanced = store.advancePartitionRevision(first);
+		assert.deepEqual(advanced, { ...first, revision: 1 });
+		assert.equal(store.advancePartitionRevision(first), undefined);
+		assert.deepEqual(store.advancePartitionRevision(advanced), { ...first, revision: 2 });
 		store.close();
 		store.close();
 		const database = new DatabaseSync(path);
