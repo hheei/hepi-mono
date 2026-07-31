@@ -64,6 +64,10 @@ source-history projection 使用 active `getBranch()` ordered `SessionEntry[]`�
 assistant；最新 complete groups 是 protected tail，不进入 eligible head。eligible entry IDs 建立 source snapshot，projected
 messages 以 JSON 输入 historian；MCTX 不重写 content/tool-result serialization。
 
+branch runner 只组合 source-history projection 和 historian orchestrator：caller 传入 active branch entries 与 current
+runtime partition/model/store/signal；ineligible projection 不获取 lease或模型调用，eligible projection 进入 existing explicit
+orchestrator。它是未来 `turn_end` 的 seam，不注册 lifecycle event，也不含 pressure/threshold policy。
+
 schema v2 在 v1 application/metadata fence 上建立 `projects` 与 `partitions`。partition 以 stable project identity
 与 Pi session ID 唯一标识，revision 从 `0` 开始；get-or-create 使用短 `BEGIN IMMEDIATE` transaction，不能重复创建。
 此迁移仍不建立 lease、compartment 或 graph table。未知 nonempty database、foreign application ID 或 future schema
