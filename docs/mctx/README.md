@@ -118,6 +118,12 @@ mapper invalid 时仅以 diagnostic 运行一次 repair completion，然后用�
 返回 skipped；CAS conflict 返回 stale，不重试；任意路径在 `finally` release lease。它不做 trigger、renewal、transient retry
 或 Pi context rendering。
 
+source-history projection 从 `sessionManager.getBranch()` 的 ordered `SessionEntry[]` 工作，使用 Pi
+`sessionEntryToContextMessages()` 作为唯一 entry-to-message projection。一个 complete turn group 从 user message 开始，
+包含直到下一 user message 前的所有 entries，且必须以 assistant message 收尾；最新 complete groups 保留为 protected tail。
+eligible groups 的 entry IDs 建立 source snapshot，canonical projected messages 用 JSON source text 交给 historian；不自行猜测
+Pi content block 或 tool-result shape。
+
 默认 compartment trigger 在 parent `turn_end` 检查 token usage 的 threshold 与 hysteresis。越过阈值后，
 `pi-mctx` 异步执行一次 compartment run；它只处理稳定 history snapshot，不能阻塞 prompt、改写 active turn，
 也不能在 parent session replacement 后发布旧结果。
