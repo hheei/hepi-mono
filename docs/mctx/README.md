@@ -126,6 +126,10 @@ stable project identity resolver 独立于 SQLite：它先 canonicalize Pi `cwd`
 否则退回 directory identity；canonicalization permission failure 不能安全 fallback，拒绝 activation。resolver 本身不创建
 project 或 partition row。
 
+enabled session activation 在 store open 后解析 project identity，并以它和 Pi session ID get-or-create partition；
+runtime 持有该 partition。identity 或 partition 失败会关闭刚打开的 store、呈现 storage error 并失败 lifecycle start，
+不能留下未分区 runtime。此 wiring 不注册 context hook 或 historian Completion。
+
 `pi-mctx` 自己拥有 HEPI/Pi-native configuration：user-level `pi-mctx` namespace 加 optional project `.pi`
 override。保存配置不热改 active pipeline；extension 只在下一次 `session_start` 或 `/reload` 读取并应用。它不
 依赖 `hepi-basics` settings provider，也不读取 CortexKit config 路径。
@@ -162,7 +166,7 @@ reload 后才启用 pipeline。
 `hasConfiguredAuth()` 解析显式 historian model。disabled config 保持静默 native behavior；invalid config、
 unavailable/unconfigured model 或 core Completion coordinator cap collision 显示 diagnostic 后保持 native
 behavior。只有解析成功时才配置/reuse `maxActiveTurns: 2` coordinator 并创建 session-scoped MCTX runtime holder；
-shutdown 会清除该 holder。此 slice 不打开 SQLite、不注册 `context` hook，也不调用 historian Completion。
+shutdown 会清除该 holder。后续 store/partition wiring 已附加，但仍不注册 `context` hook 或调用 historian Completion。
 
 已激活的 compartment trigger budget 使用 model-aware percentage threshold、absolute-token fallback/guard 和
 hysteresis。具体 default 必须在 `pi-mctx` schema 与 focused tests 中固定；它不隐式追随会变化的 upstream
