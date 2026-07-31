@@ -65,6 +65,20 @@ import。已实现 v1 包含 lifecycle、Service、ExtensionPoint、cleanup 和 
 添加 Loadout registration 与 Extension page router 的最小公开 contract，详见 [Loadout 架构](loadout.md)。
 subagent execution contract 的 implementation 前提见 [Subagent 执行架构](subagents.md)。
 
+### JSON Settings
+
+`readMergedJsonSettingsSection()` 是 extension 的默认 configuration entry。它一次读取 Pi global 与
+project settings 文件的同名 object section，并同时返回未解释的 `global`、`project` 与递归合并后的 `merged`。
+plain object 按 key 递归合并；scalar、array、`null` 或类型不一致时 project value 覆盖 global value。
+
+调用 `sourceOf(["nested", "key"])` 可定位 effective value 的来源：`global`、`project`、`mixed` 或
+`undefined`。`mixed` 只表示该 object 的有效 descendants 来自两层；调用者应继续查询具体 leaf path。key path
+是 string array，不解析 dotted key，避免配置键名歧义。
+
+API 不验证 section fields，也不决定某个 project override 是否可信。需要 security/trust 限制的 consumer 必须
+读取返回的 raw layers 并自行应用 policy；例如 project 不得选择 user-paid model 时，consumer 不能直接把
+`merged` 当作 active configuration。
+
 ### Lifecycle
 
 extension 通过 stable key 注册 session-scoped feature。core 串行 start/shutdown，启动

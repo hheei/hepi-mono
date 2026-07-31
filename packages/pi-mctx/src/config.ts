@@ -1,4 +1,8 @@
-import { defaultPiSettingsPaths, readJsonSettingsSection } from "@hheei/pi-ext-core";
+import {
+	defaultPiSettingsPaths,
+	type JsonSettingsValueSource,
+	readMergedJsonSettingsSection,
+} from "@hheei/pi-ext-core";
 
 export const MCTX_SETTINGS_SECTION = "pi-mctx";
 export const DEFAULT_EXECUTE_THRESHOLD_PERCENTAGE = 65;
@@ -39,19 +43,14 @@ export type MctxPipelineState =
 export interface MctxConfiguration {
 	readonly global: Readonly<Record<string, unknown>>;
 	readonly project: Readonly<Record<string, unknown>>;
+	readonly merged: Readonly<Record<string, unknown>>;
+	sourceOf(path: readonly string[]): JsonSettingsValueSource | undefined;
 	readonly pipeline: MctxPipelineState;
 	readonly warnings: readonly string[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-async function readSection(
-	path: string,
-	signal?: AbortSignal,
-): Promise<Readonly<Record<string, unknown>>> {
-	return (await readJsonSettingsSection(path, MCTX_SETTINGS_SECTION, signal)) ?? {};
 }
 
 function validModelRef(value: string): boolean {
@@ -236,11 +235,19 @@ export async function loadMctxConfiguration(
 	paths: MctxSettingsPaths = defaultMctxSettingsPaths(),
 	signal?: AbortSignal,
 ): Promise<MctxConfiguration> {
-	const [global, project] = await Promise.all([
-		readSection(paths.globalPath, signal),
-		readSection(paths.projectPath, signal),
-	]);
-	signal?.throwIfAborted();
+	const settings = await readMergedJsonSettingsSection({
+		paths,
+		section: MCTX_SETTINGS_SECTION,
+		...(signal === undefined ? {} : { signal }),
+	});
+	const { global, project } = settings;
 	const warnings: string[] = [];
-	return { global, project, pipeline: resolvePipeline(global, project, warnings), warnings };
+	return {
+		global,
+		project,
+		merged: settings.merged,
+		sourceOf: settings.sourceOf,
+		pipeline: resolvePipeline(global, project, warnings),
+		warnings,
+	};
 }

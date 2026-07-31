@@ -9,11 +9,17 @@ export {
 	openExtensionPoint,
 	registerExtensionHook,
 } from "./extension-point.js";
-export type { PiSettingsPaths } from "./json-settings.js";
+export type {
+	JsonSettingsValueSource,
+	MergedJsonSettingsSection,
+	PiSettingsPaths,
+	ReadMergedJsonSettingsSectionOptions,
+} from "./json-settings.js";
 export {
 	defaultPiSettingsPaths,
 	readJsonSettingsRoot,
 	readJsonSettingsSection,
+	readMergedJsonSettingsSection,
 	updateJsonSettingsRoot,
 } from "./json-settings.js";
 export type { ExtensionLifecycleContext, ExtensionLifecycleOptions } from "./lifecycle.js";

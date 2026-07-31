@@ -6,6 +6,7 @@ import {
 	defaultPiSettingsPaths,
 	readJsonSettingsRoot,
 	readJsonSettingsSection,
+	readMergedJsonSettingsSection,
 	updateJsonSettingsRoot,
 } from "../src/index.js";
 
@@ -33,6 +34,64 @@ test("reads opaque named settings sections", async (): Promise<void> => {
 			nested: { future: true },
 		});
 		expect(await readJsonSettingsSection(path, "missing")).toBeUndefined();
+	});
+});
+
+test("merges project settings and reports effective value sources", async (): Promise<void> => {
+	await withDirectory(async (directory) => {
+		const globalPath = join(directory, "global.json");
+		const projectPath = join(directory, "project.json");
+		await writeFile(
+			globalPath,
+			JSON.stringify({
+				"pi-example": {
+					globalOnly: true,
+					scalar: "global",
+					list: ["global"],
+					replacedObject: { oldChild: true },
+					nested: { globalOnly: true, changed: "global", deeper: { globalOnly: true } },
+				},
+			}),
+			"utf8",
+		);
+		await writeFile(
+			projectPath,
+			JSON.stringify({
+				"pi-example": {
+					scalar: "project",
+					list: ["project"],
+					replacedObject: "project",
+					nested: { projectOnly: true, changed: "project", deeper: { projectOnly: true } },
+				},
+			}),
+			"utf8",
+		);
+
+		const settings = await readMergedJsonSettingsSection({
+			paths: { globalPath, projectPath },
+			section: "pi-example",
+		});
+		expect(settings.merged).toEqual({
+			globalOnly: true,
+			scalar: "project",
+			list: ["project"],
+			replacedObject: "project",
+			nested: {
+				globalOnly: true,
+				projectOnly: true,
+				changed: "project",
+				deeper: { globalOnly: true, projectOnly: true },
+			},
+		});
+		expect(settings.sourceOf([])).toBe("mixed");
+		expect(settings.sourceOf(["globalOnly"])).toBe("global");
+		expect(settings.sourceOf(["scalar"])).toBe("project");
+		expect(settings.sourceOf(["replacedObject"])).toBe("project");
+		expect(settings.sourceOf(["replacedObject", "oldChild"])).toBeUndefined();
+		expect(settings.sourceOf(["nested"])).toBe("mixed");
+		expect(settings.sourceOf(["nested", "deeper", "globalOnly"])).toBe("global");
+		expect(settings.sourceOf(["nested", "deeper", "projectOnly"])).toBe("project");
+		expect(settings.sourceOf(["missing"])).toBeUndefined();
 	});
 });
 

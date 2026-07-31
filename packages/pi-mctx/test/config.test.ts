@@ -68,6 +68,24 @@ test("project configuration cannot enable or select the historian", async (): Pr
 	expect(enabled.pipeline).toEqual({ kind: "disabled" });
 });
 
+test("exposes default merged provenance without weakening MCTX historian policy", async (): Promise<void> => {
+	const config = await withSettings(
+		{ "pi-mctx": { enabled: true, historian: { model: "anthropic/claude-haiku" } } },
+		{ "pi-mctx": { historian: { model: "openai/gpt-5" } } },
+		loadMctxConfiguration,
+	);
+	expect(config.merged).toMatchObject({ historian: { model: "openai/gpt-5" } });
+	expect(config.sourceOf(["historian", "model"])).toBe("project");
+	expect(config.pipeline).toEqual({
+		kind: "enabled",
+		settings: {
+			historianModel: "anthropic/claude-haiku",
+			failClosedBlocking: true,
+			executeThresholdPercentage: { defaultValue: 65, byModel: {} },
+		},
+	});
+});
+
 test("project configuration can only raise configured trigger thresholds", async (): Promise<void> => {
 	const config = await withSettings(
 		{
