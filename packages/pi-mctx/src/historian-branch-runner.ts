@@ -19,7 +19,11 @@ export interface MctxHistorianBranchRunRequest
 	readonly protectedTurnGroups?: number;
 	readonly store: Pick<
 		MctxStore,
-		"acquireHistorianLease" | "listCompartments" | "publishCompartment" | "releaseHistorianLease"
+		| "acquireHistorianLease"
+		| "renewHistorianLease"
+		| "listCompartments"
+		| "publishCompartment"
+		| "releaseHistorianLease"
 	>;
 }
 

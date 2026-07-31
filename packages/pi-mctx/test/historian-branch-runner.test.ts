@@ -37,6 +37,7 @@ function request(entries: readonly SessionEntry[]) {
 		leaseOwnerToken: "owner",
 		store: {
 			acquireHistorianLease: () => lease,
+			renewHistorianLease: (current: MctxHistorianLease) => current,
 			releaseHistorianLease: () => undefined,
 			listCompartments: () => [],
 			publishCompartment: (_partition: MctxPartition, draft: MctxCompartmentDraft) => ({
