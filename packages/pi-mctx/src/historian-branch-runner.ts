@@ -1,4 +1,5 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { verifyMctxCompartmentGraph } from "./compartment-graph.js";
 import {
 	type MctxHistorianExecutor,
 	type MctxHistorianRunRequest,
@@ -6,11 +7,16 @@ import {
 	runMctxHistorian,
 } from "./historian-orchestrator.js";
 import { projectMctxSourceHistory } from "./source-history.js";
+import type { MctxStore } from "./store.js";
 
 export interface MctxHistorianBranchRunRequest
-	extends Omit<MctxHistorianRunRequest, "source" | "sourceText"> {
+	extends Omit<MctxHistorianRunRequest, "source" | "sourceText" | "store"> {
 	readonly entries: readonly SessionEntry[];
 	readonly protectedTurnGroups?: number;
+	readonly store: Pick<
+		MctxStore,
+		"acquireHistorianLease" | "listCompartments" | "publishCompartment" | "releaseHistorianLease"
+	>;
 }
 
 export type MctxHistorianBranchRunResult =
@@ -25,7 +31,16 @@ export async function runMctxHistorianForBranch(
 	request: MctxHistorianBranchRunRequest,
 	execute?: MctxHistorianExecutor,
 ): Promise<MctxHistorianBranchRunResult> {
-	const projection = projectMctxSourceHistory(request.entries, request.protectedTurnGroups);
+	const graph = verifyMctxCompartmentGraph(
+		request.entries,
+		request.store.listCompartments(request.partition),
+	);
+	if (graph.kind === "invalid") return graph;
+	const sourceEntries =
+		graph.kind === "empty"
+			? request.entries
+			: request.entries.slice(graph.graph.liveTailStartIndex);
+	const projection = projectMctxSourceHistory(sourceEntries, request.protectedTurnGroups);
 	if (projection.kind === "ineligible") return projection;
 	if (projection.kind === "invalid") return projection;
 	return runMctxHistorian(
@@ -33,6 +48,7 @@ export async function runMctxHistorianForBranch(
 			...request,
 			source: projection.value.source,
 			sourceText: projection.value.sourceText,
+			expectedTier: graph.kind === "empty" ? "m0" : "m1",
 		},
 		execute,
 	);

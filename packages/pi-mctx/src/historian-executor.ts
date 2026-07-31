@@ -17,6 +17,7 @@ export interface MctxHistorianCompletionRequest {
 	readonly source: MctxCompartmentSourceSnapshot;
 	readonly sourceText: string;
 	readonly signal: AbortSignal;
+	readonly expectedTier?: "m0" | "m1";
 }
 
 export type MctxHistorianCompletionResult =
@@ -35,7 +36,8 @@ export type MctxHistorianCompletionStarter = (
 ) => MctxHistorianCompletionHandle;
 
 export function createMctxHistorianPrompt(request: MctxHistorianCompletionRequest): string {
-	return `Source fingerprint: ${request.source.fingerprint}
+	const tier = request.expectedTier === undefined ? "" : `Required tier: ${request.expectedTier}\n`;
+	return `${tier}Source fingerprint: ${request.source.fingerprint}
 Source entry IDs, in order: ${JSON.stringify(request.source.entryIds)}
 
 Source history:

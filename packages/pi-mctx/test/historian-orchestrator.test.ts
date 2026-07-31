@@ -126,6 +126,30 @@ test("repairs invalid primary output once before publication", async (): Promise
 	expect(releases()).toBe(1);
 });
 
+test("repairs a completion that violates the graph-required tier", async (): Promise<void> => {
+	const { store: activeStore, releases } = store({
+		publish: publication({
+			tier: "m1",
+			sourceStartEntryId: "entry-1",
+			sourceEndEntryId: "entry-2",
+			sourceFingerprint: "snapshot",
+			renderedPayload: "summary",
+		}),
+	});
+	const m1Output = JSON.stringify({
+		tier: "m1",
+		sourceStartEntryId: "entry-1",
+		sourceEndEntryId: "entry-2",
+		renderedPayload: "summary",
+	});
+	const result = await runMctxHistorian(
+		request({ store: activeStore, expectedTier: "m1" }),
+		executor([validOutput, m1Output]),
+	);
+	expect(result).toMatchObject({ kind: "published", repaired: true });
+	expect(releases()).toBe(1);
+});
+
 test("returns stale when publication CAS loses and releases the lease", async (): Promise<void> => {
 	const { store: activeStore, releases } = store({});
 	const result = await runMctxHistorian(request({ store: activeStore }), executor([validOutput]));

@@ -20,6 +20,7 @@ export interface MctxHistorianRunRequest {
 	readonly source: MctxCompartmentSourceSnapshot;
 	readonly sourceText: string;
 	readonly signal: AbortSignal;
+	readonly expectedTier?: "m0" | "m1";
 	readonly leaseOwnerToken?: string;
 	readonly nowMs?: number;
 }
@@ -43,11 +44,23 @@ export type MctxHistorianExecutor = (
 		readonly source: MctxCompartmentSourceSnapshot;
 		readonly sourceText: string;
 		readonly signal: AbortSignal;
+		readonly expectedTier?: "m0" | "m1";
 	},
 ) => Promise<MctxHistorianCompletionResult>;
 
 function repairSourceText(sourceText: string, reason: string): string {
 	return `${sourceText}\n\nPrevious output was invalid: ${reason}\nReturn a corrected exact JSON object only.`;
+}
+
+function mappedDraft(
+	output: string,
+	request: MctxHistorianRunRequest,
+): ReturnType<typeof mapMctxHistorianOutput> {
+	const mapped = mapMctxHistorianOutput(output, request.source);
+	if (mapped.kind === "invalid" || request.expectedTier === undefined) return mapped;
+	return mapped.value.draft.tier === request.expectedTier
+		? mapped
+		: { kind: "invalid", reason: `compartment tier must be ${request.expectedTier}` };
 }
 
 /**
@@ -72,10 +85,11 @@ export async function runMctxHistorian(
 			source: request.source,
 			sourceText: request.sourceText,
 			signal: request.signal,
+			...(request.expectedTier === undefined ? {} : { expectedTier: request.expectedTier }),
 		});
 		if (first.kind === "cancelled") return { kind: "cancelled" };
 		if (first.kind === "failed") return { kind: "failed", reason: first.reason };
-		const firstMapping = mapMctxHistorianOutput(first.output, request.source);
+		const firstMapping = mappedDraft(first.output, request);
 		if (firstMapping.kind === "valid") {
 			const publication = request.store.publishCompartment(
 				request.partition,
@@ -90,10 +104,11 @@ export async function runMctxHistorian(
 			source: request.source,
 			sourceText: repairSourceText(request.sourceText, firstMapping.reason),
 			signal: request.signal,
+			...(request.expectedTier === undefined ? {} : { expectedTier: request.expectedTier }),
 		});
 		if (repair.kind === "cancelled") return { kind: "cancelled" };
 		if (repair.kind === "failed") return { kind: "failed", reason: repair.reason };
-		const repairMapping = mapMctxHistorianOutput(repair.output, request.source);
+		const repairMapping = mappedDraft(repair.output, request);
 		if (repairMapping.kind === "invalid") return { kind: "invalid", reason: repairMapping.reason };
 		const publication = request.store.publishCompartment(
 			request.partition,

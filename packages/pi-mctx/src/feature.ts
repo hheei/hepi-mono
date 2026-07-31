@@ -38,7 +38,7 @@ export interface MctxFeatureOptions {
 }
 
 interface ActiveMctxRuntime {
-	readonly runtime: MctxSessionRuntime;
+	runtime: MctxSessionRuntime;
 	readonly lifecycle: ExtensionLifecycleContext;
 	cooling: boolean;
 	job?: AbortController | undefined;
@@ -166,6 +166,16 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				entries: context.sessionManager.getBranch(),
 				signal: job.signal,
 			})
+				.then((result) => {
+					if (
+						result.kind === "published" &&
+						active === current &&
+						current.job === job &&
+						!job.signal.aborted
+					) {
+						current.runtime = { ...current.runtime, partition: result.publication.partition };
+					}
+				})
 				.catch((error: unknown) => {
 					if (!job.signal.aborted) {
 						context.ui.notify(

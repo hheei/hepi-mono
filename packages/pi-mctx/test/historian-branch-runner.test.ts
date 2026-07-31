@@ -5,7 +5,13 @@ import {
 	type MctxHistorianExecutor,
 	runMctxHistorianForBranch,
 } from "../src/historian-branch-runner.js";
-import type { MctxCompartmentDraft, MctxHistorianLease, MctxPartition } from "../src/store.js";
+import { createMctxSourceSnapshot } from "../src/source-snapshot.js";
+import type {
+	MctxCompartment,
+	MctxCompartmentDraft,
+	MctxHistorianLease,
+	MctxPartition,
+} from "../src/store.js";
 
 const model = { api: "test", provider: "test", id: "historian" } as Model<Api>;
 const partition = { projectIdentity: "project", sessionId: "session", revision: 0 } as const;
@@ -32,11 +38,30 @@ function request(entries: readonly SessionEntry[]) {
 		store: {
 			acquireHistorianLease: () => lease,
 			releaseHistorianLease: () => undefined,
+			listCompartments: () => [],
 			publishCompartment: (_partition: MctxPartition, draft: MctxCompartmentDraft) => ({
 				partition: { ...partition, revision: 1 },
 				compartment: { ...draft, sequence: 0, publishedRevision: 1 },
 			}),
 		},
+	};
+}
+
+function storedCompartment(
+	entries: readonly SessionEntry[],
+	start: number,
+	end: number,
+): MctxCompartment {
+	const source = createMctxSourceSnapshot(entries.slice(start, end + 1));
+	if (source.kind !== "valid") throw new Error("Expected valid source");
+	return {
+		tier: "m0",
+		sequence: 0,
+		sourceStartEntryId: entries[start]?.id ?? "",
+		sourceEndEntryId: entries[end]?.id ?? "",
+		sourceFingerprint: source.snapshot.fingerprint,
+		renderedPayload: "old summary",
+		publishedRevision: 1,
 	};
 }
 
@@ -75,5 +100,43 @@ test("projects older branch turns into the lease-guarded historian", async (): P
 	);
 	expect(result).toMatchObject({ kind: "published", repaired: false });
 	expect(receivedSourceText).toContain("old request");
+	expect(receivedSourceText).not.toContain("new request");
+});
+
+test("continues after a verified graph boundary and requires m1", async (): Promise<void> => {
+	const entries = [
+		entry("user-1", "user", "old request"),
+		entry("assistant-1", "assistant", "old response"),
+		entry("user-2", "user", "middle request"),
+		entry("assistant-2", "assistant", "middle response"),
+		entry("user-3", "user", "new request"),
+		entry("assistant-3", "assistant", "new response"),
+	];
+	let receivedSourceText = "";
+	let expectedTier: "m0" | "m1" | undefined;
+	const input = request(entries);
+	const result = await runMctxHistorianForBranch(
+		{
+			...input,
+			store: { ...input.store, listCompartments: () => [storedCompartment(entries, 0, 1)] },
+		},
+		async (_context, completion) => {
+			receivedSourceText = completion.sourceText;
+			expectedTier = completion.expectedTier;
+			return {
+				kind: "completed",
+				output: JSON.stringify({
+					tier: "m1",
+					sourceStartEntryId: "user-2",
+					sourceEndEntryId: "assistant-2",
+					renderedPayload: "middle summary",
+				}),
+			};
+		},
+	);
+	expect(result).toMatchObject({ kind: "published", repaired: false });
+	expect(expectedTier).toBe("m1");
+	expect(receivedSourceText).toContain("middle request");
+	expect(receivedSourceText).not.toContain("old request");
 	expect(receivedSourceText).not.toContain("new request");
 });
