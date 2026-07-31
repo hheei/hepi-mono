@@ -120,6 +120,12 @@ timeout；migration 在短 `BEGIN IMMEDIATE` transaction 内执行。未知 none
 close；enabled pipeline 的 open/migration/schema failure 先显示 storage error，再让 lifecycle start fail，不能留下
 无 store 的 active runtime。
 
+stable project identity resolver 独立于 SQLite：它先 canonicalize Pi `cwd`，再读取 Git reachable root commit，得到
+`git:<commit>`，使 worktree/clone 对齐。non-Git directory 使用 `dir:<SHA-256(realpath)>`；raw path 不进入 identity
+或 database。Git command transient failure 只可重用本 process 同一 canonical directory 的 last-known Git identity，
+否则退回 directory identity；canonicalization permission failure 不能安全 fallback，拒绝 activation。resolver 本身不创建
+project 或 partition row。
+
 `pi-mctx` 自己拥有 HEPI/Pi-native configuration：user-level `pi-mctx` namespace 加 optional project `.pi`
 override。保存配置不热改 active pipeline；extension 只在下一次 `session_start` 或 `/reload` 读取并应用。它不
 依赖 `hepi-basics` settings provider，也不读取 CortexKit config 路径。

@@ -14,6 +14,11 @@ project identity 优先使用 `git:<root-commit>`，使同一 repository 的 wor
 directory fallback；permission-denied 不可靠地界定 project boundary，拒绝 activation 并呈现 diagnostic。identity
 不得来自 remote URL 或 development-machine absolute path。
 
+identity resolver 是 SQLite schema 之前的独立 runtime boundary：它只 canonicalize `cwd`、查找 reachable Git root
+commit 或产生 directory hash，不创建 database row。Git command failure 可使用同一 process/canonical directory 的
+last-known Git identity；没有该 cache 时才使用 directory fallback。canonical path permission failure 拒绝 activation，
+不能把一个无法可靠识别的 directory 混入另一个 partition。
+
 context store 位于 `<getAgentDir>/mctx/context.db`。它与 global settings file 分开，不能放入 project/worktree，
 也不能依赖开发机绝对路径。
 
