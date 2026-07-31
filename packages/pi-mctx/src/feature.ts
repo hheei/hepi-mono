@@ -130,6 +130,8 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 		async start(context): Promise<void> {
 			let configuration: MctxConfiguration;
 			try {
+				// Settings are activation-time input. Saving settings never mutates an
+				// already active pipeline; `/reload` creates the next runtime instead.
 				configuration = await loadConfiguration(
 					defaultMctxSettingsPaths(context.extension.cwd),
 					context.signal,
@@ -153,6 +155,8 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			}
 			let store: MctxStore;
 			try {
+				// Storage is opened only after config and model admission succeed. An
+				// unavailable optional historian must leave Pi's native session untouched.
 				store = await openStore(defaultMctxStorePath());
 			} catch (error: unknown) {
 				context.extension.ui.notify(
@@ -181,6 +185,8 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			}
 			const runtime: MctxSessionRuntime = { ...activation.runtime, store, partition };
 			const current: ActiveMctxRuntime = { runtime, lifecycle: context, cooling: false };
+			// Publish last: context/turn handlers can never observe a half-initialized
+			// runtime whose store or partition failed during activation.
 			active = current;
 			// Resource cleanup is ordered: abort the historian before closing its store.
 			context.resources.add("mctx-runtime", () => {
@@ -201,6 +207,8 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				current.runtime.sessionId !== context.sessionManager.getSessionId()
 			)
 				return;
+			// This handler is deliberately non-blocking. Historian completion happens
+			// after Pi has finished the turn and cannot delay its response lifecycle.
 			const usage = context.getContextUsage();
 			if (usage === undefined || typeof usage.tokens !== "number") return;
 			const percentage = modelThreshold(
@@ -232,6 +240,8 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				current.runtime.sessionId !== context.sessionManager.getSessionId()
 			)
 				return undefined;
+			// Re-evaluate against the active branch at every model invocation. A prior
+			// publication is not trusted after Pi navigation or branch replacement.
 			const entries = context.sessionManager.getBranch();
 			const compartments = current.runtime.store.listCompartments(current.runtime.partition);
 			const recovery = planMctxCompartmentRecovery(entries, compartments);
