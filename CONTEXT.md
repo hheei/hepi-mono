@@ -136,8 +136,9 @@ _Avoid_: bounded task, one-agent conversation
 
 **Task**:
 A bounded, tool-capable, multi-turn subagent operation that reaches one terminal result. A caller
-does not await it through a main-agent tool; every task declares a finite maximum turn count and a
-mandatory terminal delivery sink.
+does not await it through a main-agent tool; every task declares a finite soft request cap and a
+mandatory terminal delivery sink. Core steers once at the cap, permits five grace turns, then aborts
+at the hard ceiling.
 _Avoid_: awaited task, background mode, scheduled job
 
 **Conversation**:
@@ -166,6 +167,12 @@ _Avoid_: task terminal delivery, arbitrary next reply
 When a parent turn aborts while waiting for a conversation reply, only its wait observer ends. The
 child continues that message; its eventual reply is delivered through the parent queue.
 _Avoid_: silent reply loss, implicit conversation cancellation
+
+**Soft request cap**:
+The finite `maxTurns` or `maxTurnsPerReply` threshold where core sends one wrap-up steer. A reply
+that finishes in the fixed five-turn grace remains a normal terminal result with `softLimitReached`;
+only the subsequent hard abort produces `limit_reached` and retains partial output.
+_Avoid_: immediate hard turn limit, unlimited grace
 
 **Terminal delivery sink**:
 The caller-owned, mandatory delivery callback for a Task result. A sink failure marks
