@@ -3,6 +3,7 @@ export * from "./compartment-validation.js";
 export * from "./config.js";
 export { default } from "./extension.js";
 export * from "./feature.js";
+export * from "./historian-branch-runner.js";
 export * from "./historian-executor.js";
 export * from "./historian-orchestrator.js";
 export * from "./historian-output.js";

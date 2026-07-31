@@ -124,6 +124,10 @@ source-history projection 从 `sessionManager.getBranch()` 的 ordered `SessionE
 eligible groups 的 entry IDs 建立 source snapshot，canonical projected messages 用 JSON source text 交给 historian；不自行猜测
 Pi content block 或 tool-result shape。
 
+branch runner 只组合 source-history projection 和 historian orchestrator。caller 提供 active branch entries、current runtime
+partition/model/store 与 abort signal；ineligible projection 不取 lease、不调用 model，eligible projection 交给同一 explicit
+orchestrator。它是 `turn_end`-ready seam，但本 slice 不注册 event，也不计算 pressure/threshold。
+
 默认 compartment trigger 在 parent `turn_end` 检查 token usage 的 threshold 与 hysteresis。越过阈值后，
 `pi-mctx` 异步执行一次 compartment run；它只处理稳定 history snapshot，不能阻塞 prompt、改写 active turn，
 也不能在 parent session replacement 后发布旧结果。
