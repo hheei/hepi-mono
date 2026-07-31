@@ -1,13 +1,13 @@
 import type { Api, AssistantMessage, Model } from "@earendil-works/pi-ai";
-import { startSubagent, type CompletionSubagentHandle } from "@hheei/pi-ext-core";
 import {
 	convertToLlm,
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
+import { type CompletionSubagentHandle, openTuiSurface, startSubagent } from "@hheei/pi-ext-core";
 import { type BtwComponentController, createBtwComponent } from "./component.js";
-import { type BtwExecutionResult, executeBtwTurn } from "./executor.js";
+import type { BtwExecutionResult, executeBtwTurn } from "./executor.js";
 import {
 	type BtwRequestToken,
 	type BtwTurn,
@@ -106,7 +106,8 @@ async function executeCoreCompletion(
 	request.handle = handle;
 	const result = await handle.result;
 	if (result.status === "cancelled") return { status: "aborted" };
-	if (result.status !== "completed") return { status: "error", message: result.failure ?? "The BTW request failed" };
+	if (result.status !== "completed")
+		return { status: "error", message: result.failure ?? "The BTW request failed" };
 	const response: AssistantMessage = {
 		role: "assistant",
 		content: [{ type: "text", text: result.output }],
@@ -257,14 +258,19 @@ export function createBtwFeature(pi: ExtensionAPI, options: BtwFeatureOptions = 
 			};
 			current.activeRequest = request;
 			try {
-				await ctx.ui.custom<void>(
-					(tui, theme, _keybindings, done) => {
+				await openTuiSurface(pi, ctx, {
+					hostId: "@hheei/pi-btw/btw",
+					signal: request.controller.signal,
+					maxPending: 1,
+					overlay: true,
+					overlayOptions: btwOverlayOptions,
+					create: ({ tui, theme, close }) => {
 						const component = createComponent({
 							question,
 							history: current.turns,
 							theme,
 							host: { requestRender: () => tui.requestRender(), getTerminalRows: terminalRows },
-							done: () => done(undefined),
+							done: () => close(undefined),
 							onClearHistory: () => {
 								if (isCurrentRequest(current, request)) clearHistory(current);
 							},
@@ -273,8 +279,7 @@ export function createBtwFeature(pi: ExtensionAPI, options: BtwFeatureOptions = 
 						if (question) void runRequest(current, request, question);
 						return component;
 					},
-					{ overlay: true, overlayOptions: btwOverlayOptions },
-				);
+				});
 			} finally {
 				if (current.activeRequest === request) {
 					request.controller.abort();

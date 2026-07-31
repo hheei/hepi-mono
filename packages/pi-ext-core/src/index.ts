@@ -1,3 +1,9 @@
+export type {
+	OpenTuiSurfaceOptions,
+	TuiSurfaceContext,
+	TuiSurfaceResult,
+} from "./custom-surface.js";
+export { openTuiSurface, TuiSurfaceQueueFullError } from "./custom-surface.js";
 export type { Cleanup, CleanupFailure, DisposerRegistry } from "./disposer-registry.js";
 export type {
 	ExtensionPointHandle,

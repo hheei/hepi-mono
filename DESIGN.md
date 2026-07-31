@@ -111,6 +111,14 @@ existing semantic token expresses the role.
 - The tail rail is one fixed row below the editor. It begins with the working
   directory in `dim`, followed by compact extension status in registration
   order.
+- Persistent content above and below the editor uses unframed widget bands. A
+  band may split into left and right content, but must reserve the editor's
+  readable height and hide lower-priority complete blocks before clipping a
+  block. Content is status-oriented, uses `text`, `muted`, `dim`, or semantic
+  status tokens, and does not take editor keyboard focus.
+- The top and tail rails share one priority order for width pressure. Keep their
+  rows stable; truncate or hide lower-priority fragments before changing a
+  higher-priority fragment's position.
 - Response telemetry, when present, is one dim output line after an assistant
   response. It is secondary to the response content.
 

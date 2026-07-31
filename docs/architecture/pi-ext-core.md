@@ -3,9 +3,9 @@
 ## 状态
 
 已实现 v1：`@hheei/pi-ext-core` package、focused tests 与 lifecycle、Service、ExtensionPoint
-公开接口均已建立。已确认但尚未实现的 Loadout contract 与 Extension page router 见
-[Loadout 架构](loadout.md)；它们的 interface framework 已建立，必须先完成 focused tests 和用户确认，
-才可实现行为。
+公开接口均已建立。custom surface runtime、Extension page router 和 BTW popup consumer 已实现，边界见
+[TUI 宿主架构](tui.md)。`pi-settings` host、Loadout router page 与 editor rail compositor 仍未实现；
+它们必须先完成 focused tests 和用户确认，才可实现行为。
 
 维护者与 consumers 的开发约定见 [pi-ext-core 开发约定](../development/pi-ext-core.md)。
 
@@ -36,13 +36,14 @@ runtime 的性能或界面。
 
 这些能力只有在至少两个独立 extension 有明确的同类需求时，才以单独提案考虑。
 
-已批准四个限定例外：core 公开 Loadout tool registration contract、提供 global Extension page router、
-拥有 root-session-scoped subagent execution contract，并提供 JSON settings file transport。它们的边界分别由
+已批准五个限定例外：core 公开 Loadout tool registration contract、提供 global Extension page router 与
+feature-neutral TUI host、拥有 root-session-scoped subagent execution contract，并提供 JSON settings file transport。它们的边界分别由
 [ADR 0002](../adr/0002-core-loadout-contract.md)、
 [ADR 0001](../adr/0001-core-extension-page-shell.md) 与
+[TUI 宿主架构](tui.md)、
 [ADR 0004](../adr/0004-core-subagent-execution.md) 与
 [ADR 0007](../adr/0007-core-json-settings-substrate.md) 限制；core 不接管 Loadout policy、page content、
-Settings schema/provider/UI 或 agent/config/delivery policy。
+Settings schema/provider/UI content 或 agent/config/delivery policy。
 
 ## Pi 集成边界
 
@@ -61,9 +62,9 @@ Pi 没有为大部分 extension 注册面提供公开 unregister。core 的 life
 ## 第一阶段公开接口
 
 根入口 `@hheei/pi-ext-core` 只导出实际 consumer 需要的类型与函数，不允许 deep
-import。已实现 v1 包含 lifecycle、Service、ExtensionPoint、cleanup 和 JSON settings API；下一阶段将在相同入口
-添加 Loadout registration 与 Extension page router 的最小公开 contract，详见 [Loadout 架构](loadout.md)。
-subagent execution contract 的 implementation 前提见 [Subagent 执行架构](subagents.md)。
+import。已实现 v1 包含 lifecycle、Service、ExtensionPoint、cleanup、JSON settings、custom surface runtime
+与 Extension page router API。Loadout registration 与 subagent execution contract 的 implementation 前提分别见
+[Loadout 架构](loadout.md) 与 [Subagent 执行架构](subagents.md)。
 
 ### JSON Settings
 
