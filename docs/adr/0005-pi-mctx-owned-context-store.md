@@ -33,6 +33,11 @@ schema v3 增加 per-partition historian lease。lease 由 owner token、finite 
 清理该 partition 的 expired row 后条件插入，未获得者跳过本次 run。renew/release 必须匹配 token，不能干扰新 holder；
 crash 后只有 TTL expiry 允许接管。lease 不替代 revision CAS，后续 publication 仍必须比较 revision。
 
+schema v4 增加 append-only compartment record：partition、`m0`/`m1` tier、source range/fingerprint、rendered payload
+与 publication revision。publish 将 insert 和 partition revision fence 放进同一 transaction；stale snapshot rollback，
+不能留 partial record。read 只按 partition/revision 返回记录。output validation、tier graph invariants 与 payload mapping
+仍属于 historian publication slice，不能由 storage schema 猜测。
+
 schema v2 在 v1 application/metadata fence 上建立 `projects` 与 `partitions`。partition 以 stable project identity
 与 Pi session ID 唯一标识，revision 从 `0` 开始；get-or-create 使用短 `BEGIN IMMEDIATE` transaction，不能重复创建。
 此迁移仍不建立 lease、compartment 或 graph table。未知 nonempty database、foreign application ID 或 future schema

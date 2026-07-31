@@ -59,6 +59,35 @@ test("creates and fences an MCTX-owned store", async () => {
 			ownerToken: "worker-c",
 			expiresAtMs: 1_300,
 		});
+		const draft = {
+			tier: "m0",
+			sourceStartEntryId: "entry-1",
+			sourceEndEntryId: "entry-2",
+			sourceFingerprint: "fingerprint-1",
+			renderedPayload: "stable history",
+		};
+		const publication = store.publishCompartment({ ...first, revision: 2 }, draft);
+		assert.deepEqual(publication, {
+			partition: { ...first, revision: 3 },
+			compartment: { ...draft, sequence: 0, publishedRevision: 3 },
+		});
+		assert.equal(store.publishCompartment({ ...first, revision: 2 }, draft), undefined);
+		assert.deepEqual(store.listCompartments({ ...first, revision: 3 }), [
+			{ ...draft, sequence: 0, publishedRevision: 3 },
+		]);
+		assert.deepEqual(
+			store.publishCompartment({ ...first, revision: 3 }, { ...draft, tier: "m1", renderedPayload: "recent history" }),
+			{
+				partition: { ...first, revision: 4 },
+				compartment: {
+					...draft,
+					tier: "m1",
+					renderedPayload: "recent history",
+					sequence: 0,
+					publishedRevision: 4,
+				},
+			},
+		);
 		store.close();
 		store.close();
 		const database = new DatabaseSync(path);
