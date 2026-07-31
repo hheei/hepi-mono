@@ -124,16 +124,6 @@ export function validateTaskState(value: unknown): TaskState | undefined {
 	return { tasks, nextId: value.nextId };
 }
 
-function statusError(task: Task, tasks: readonly Task[]): string | undefined {
-	if (task.status !== "in_progress") return undefined;
-	const active = tasks.find(
-		(candidate) => candidate.id !== task.id && candidate.status === "in_progress",
-	);
-	return active
-		? `Task #${task.id} cannot be in progress while Task #${active.id} is in progress`
-		: undefined;
-}
-
 function findTask(tasks: readonly Task[], id: number): Task | undefined {
 	return tasks.find((task) => task.id === id);
 }
@@ -244,10 +234,17 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 			return fail(`Invalid status transition from completed to ${status}`, index);
 		}
 		const next = { ...current, subject, status };
-		const candidateTasks = draft.tasks.map((task) => (task.id === id ? next : task));
-		const statusIssue = statusError(next, candidateTasks);
-		if (statusIssue) return fail(statusIssue, index);
-		const isChanged = current.subject !== subject || current.status !== status;
+		const candidateTasks = draft.tasks.map((task) => {
+			if (task.id === id) return next;
+			if (status === "in_progress" && task.status === "in_progress") {
+				return { ...task, status: "pending" as const };
+			}
+			return task;
+		});
+		const isChanged = candidateTasks.some((task, taskIndex) => {
+			const previous = draft.tasks[taskIndex];
+			return previous?.subject !== task.subject || previous.status !== task.status;
+		});
 		if (isChanged) {
 			draft.tasks = candidateTasks;
 			changed = true;

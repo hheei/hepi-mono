@@ -156,7 +156,7 @@ describe("Todo integration", () => {
 		expect(TODO_PROMPT_GUIDELINES).toEqual([
 			"Use `todo` for work with 3+ concrete steps or multiple user-requested tasks; skip trivial work.",
 			"Create the full known task list in one atomic batch. Keep subjects short, imperative, and outcome-oriented; do not add bookkeeping tasks for routine commands.",
-			"Scheduling is automatic. Update only when state changes: use `completed` after verification, `blocked` only when work cannot continue, and `in_progress` only when resuming blocked work. Do not repeatedly list or restate current state.",
+			"Scheduling is automatic. Update only when state changes: use `completed` after verification, `blocked` only when work cannot continue, and `in_progress` to switch active work or resume blocked work. Do not repeatedly list or restate current state.",
 		]);
 		expect(Value.Check(TODO_PARAMETERS, { action: "list" })).toBe(false);
 		expect(Value.Check(TODO_PARAMETERS, { operations: [] })).toBe(false);
@@ -240,6 +240,7 @@ describe("Todo integration", () => {
 		const theme = {
 			fg: (_color: string, text: string) => text,
 			bold: (text: string) => text,
+			strikethrough: (text: string) => `~${text}~`,
 		};
 		const call = tool.renderCall?.(
 			{
@@ -329,7 +330,7 @@ describe("Todo integration", () => {
 		const blocked = tool.renderResult?.(blockedResult, {}, theme, { isError: false }) as {
 			readonly text: string;
 		};
-		expect(blocked.text).toBe("⊘ #3 Third");
+		expect(blocked.text).toBe("⊘ #3 ~Third~");
 
 		const failed = tool.renderResult?.(
 			{},
@@ -528,6 +529,37 @@ describe("Todo integration", () => {
 			host.ctx,
 		);
 		expect(listed.content[0]?.text).toBe("No todos.\nFinished all todos.");
+	});
+
+	test("hides blocked work after two later assistant turns without Todo changes", async () => {
+		const host = harness();
+		const feature = createTodoFeature(host.pi);
+		await feature.start(host.runtime);
+		const tool = host.tools[0]!;
+		await tool.execute(
+			"create",
+			{ operations: [{ action: "create", subject: "Blocked" }] },
+			undefined,
+			undefined,
+			host.ctx,
+		);
+		await host.emit("tool_execution_end", { toolName: TODO_TOOL_NAME, isError: false });
+		const blocked = await tool.execute(
+			"block",
+			{ operations: [{ action: "update", id: 1, status: "blocked" }] },
+			undefined,
+			undefined,
+			host.ctx,
+		);
+		await host.emit("tool_execution_end", { toolName: TODO_TOOL_NAME, isError: false });
+		expect(blocked.content[0]?.text).toBe("Updated #1\nFinished all todos.");
+		expect(typeof host.widgets.at(-1)?.content).toBe("function");
+
+		await host.emit("turn_end", { message: { role: "assistant", stopReason: "stop" } });
+		await host.emit("turn_end", { message: { role: "assistant", stopReason: "toolUse" } });
+		expect(typeof host.widgets.at(-1)?.content).toBe("function");
+		await host.emit("turn_end", { message: { role: "assistant", stopReason: "stop" } });
+		expect(host.widgets.at(-1)?.content).toBeUndefined();
 	});
 
 	test("injects a transient repeating reminder after turn and time thresholds", async () => {

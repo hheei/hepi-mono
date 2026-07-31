@@ -130,6 +130,10 @@ existing semantic token expresses the role.
   readable height and hide lower-priority complete blocks before clipping a
   block. Content is status-oriented, uses `text`, `muted`, `dim`, or semantic
   status tokens, and does not take editor keyboard focus.
+- Todo shows a newly blocked task as temporary retired work: glyph and subject
+  use `dim` and the subject is struck through. After two later assistant turns
+  without a Todo update, it hides the blocked row rather than reserving an
+  editor-adjacent line indefinitely.
 - The top and tail rails share one priority order for width pressure. Keep their
   rows stable; truncate or hide lower-priority fragments before changing a
   higher-priority fragment's position.

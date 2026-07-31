@@ -71,22 +71,15 @@ describe("todo model", () => {
 		}
 	});
 
-	test("supports blocked tasks and explicit resume", () => {
+	test("switches active work when resuming a blocked task", () => {
 		const initial = stateOf(freshTaskState(), [create("one"), create("two")]).state;
 		const blocked = stateOf(initial, [update(1, { status: "blocked" })]);
 		expect(blocked.state.tasks.map(({ status }) => status)).toEqual(["blocked", "in_progress"]);
-		expect(
-			applyTodo(blocked.state, { operations: [update(1, { status: "in_progress" })] }),
-		).toMatchObject({
-			ok: false,
-			error: "Task #1 cannot be in progress while Task #2 is in progress",
-		});
-		const resumed = stateOf(blocked.state, [
-			update(2, { status: "blocked" }),
-			update(1, { status: "in_progress" }),
-		]);
-		expect(resumed.state.tasks.map(({ status }) => status)).toEqual(["in_progress", "blocked"]);
-		const completed = stateOf(resumed.state, [update(1, { status: "completed" })]).state;
+		const resumed = stateOf(blocked.state, [update(1, { status: "in_progress" })]);
+		expect(resumed.state.tasks.map(({ status }) => status)).toEqual(["in_progress", "pending"]);
+		const switched = stateOf(resumed.state, [update(2, { status: "in_progress" })]);
+		expect(switched.state.tasks.map(({ status }) => status)).toEqual(["pending", "in_progress"]);
+		const completed = stateOf(switched.state, [update(1, { status: "completed" })]).state;
 		expect(
 			applyTodo(completed, { operations: [update(1, { status: "in_progress" })] }),
 		).toMatchObject({

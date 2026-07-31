@@ -8,6 +8,7 @@ const MAX_TASK_ROWS = 6;
 export interface TodoWidget {
 	refresh(state: TaskState, trackCompletions?: boolean): void;
 	hideCompleted(): void;
+	hideBlocked(ids: readonly number[]): void;
 	hide(): void;
 	dispose(): void | Promise<void>;
 }
@@ -15,11 +16,13 @@ export interface TodoWidget {
 function visibleTasks(
 	state: TaskState,
 	displayedCompleted: ReadonlySet<number>,
+	hiddenBlocked: ReadonlySet<number>,
 ): TaskState["tasks"] {
 	return state.tasks.filter(
 		(task) =>
 			task.status !== "suppressed" &&
-			(task.status !== "completed" || displayedCompleted.has(task.id)),
+			(task.status !== "completed" || displayedCompleted.has(task.id)) &&
+			(task.status !== "blocked" || !hiddenBlocked.has(task.id)),
 	);
 }
 
@@ -33,10 +36,11 @@ function statusRank(status: TaskState["tasks"][number]["status"]): number {
 function renderTodo(
 	state: TaskState,
 	displayedCompleted: ReadonlySet<number>,
+	hiddenBlocked: ReadonlySet<number>,
 	width: number,
 	theme: Theme,
 ): string[] {
-	const tasks = visibleTasks(state, displayedCompleted)
+	const tasks = visibleTasks(state, displayedCompleted, hiddenBlocked)
 		.slice()
 		.sort((a, b) => statusRank(a.status) - statusRank(b.status) || a.id - b.id);
 	const total = tasks.length;
@@ -51,17 +55,20 @@ function renderTodo(
 			? `${theme.fg("success", "✓")} ${theme.fg("dim", `Todos (${completed}/${total})`)}`
 			: hasRunnable
 				? `${theme.fg("accent", "●")} ${theme.fg("text", `Todos (${completed}/${total})`)}`
-				: `${theme.fg("warning", "⊘")} ${theme.fg("text", `Todos (${completed}/${total})`)}`;
+				: `${theme.fg("dim", "⊘")} ${theme.fg("text", `Todos (${completed}/${total})`)}`;
 	const lines = [truncateToWidth(heading, width, "...")];
 	const visible = tasks.slice(0, MAX_TASK_ROWS);
 	for (let index = 0; index < visible.length; index++) {
 		const task = visible[index];
 		if (!task) continue;
 		const last = index === visible.length - 1 && tasks.length <= MAX_TASK_ROWS;
+		const retired = task.status === "completed" || task.status === "blocked";
 		const glyph = theme.fg(
-			task.status === "completed"
-				? "success"
-				: task.status === "in_progress" || task.status === "blocked"
+			retired
+				? task.status === "completed"
+					? "success"
+					: "dim"
+				: task.status === "in_progress"
 					? "warning"
 					: "muted",
 			task.status === "completed"
@@ -73,8 +80,8 @@ function renderTodo(
 						: "○",
 		);
 		const subject = theme.fg(
-			task.status === "completed" ? "dim" : "text",
-			task.status === "completed" ? theme.strikethrough(task.subject) : task.subject,
+			retired ? "dim" : "text",
+			retired ? theme.strikethrough(task.subject) : task.subject,
 		);
 		lines.push(
 			truncateToWidth(
@@ -101,6 +108,7 @@ export function createTodoWidget(
 
 	let state = initialState;
 	const displayedCompleted = new Set<number>();
+	const hiddenBlocked = new Set<number>();
 	let registered = false;
 	let invalidated = false;
 	let currentTui: TUI | undefined;
@@ -109,7 +117,7 @@ export function createTodoWidget(
 	const factory = (tui: TUI, theme: Theme): Component & { dispose(): void } => {
 		currentTui = tui;
 		return {
-			render: (width) => renderTodo(state, displayedCompleted, width, theme),
+			render: (width) => renderTodo(state, displayedCompleted, hiddenBlocked, width, theme),
 			invalidate() {
 				invalidated = true;
 				currentTui = undefined;
@@ -121,7 +129,7 @@ export function createTodoWidget(
 		};
 	};
 
-	const hasTasks = () => visibleTasks(state, displayedCompleted).length > 0;
+	const hasTasks = () => visibleTasks(state, displayedCompleted, hiddenBlocked).length > 0;
 	const unregister = () => {
 		if (!registered) return;
 		context.ui.setWidget(TODO_WIDGET_KEY, undefined, { placement: "aboveEditor" });
@@ -153,6 +161,11 @@ export function createTodoWidget(
 					displayedCompleted.delete(id);
 				}
 			}
+			for (const id of hiddenBlocked) {
+				if (!nextState.tasks.some((task) => task.id === id && task.status === "blocked")) {
+					hiddenBlocked.delete(id);
+				}
+			}
 			state = nextState;
 			if (!hasTasks()) unregister();
 			else register();
@@ -161,6 +174,19 @@ export function createTodoWidget(
 		hideCompleted() {
 			if (disposed || displayedCompleted.size === 0) return;
 			displayedCompleted.clear();
+			if (!hasTasks()) unregister();
+			else currentTui?.requestRender(true);
+		},
+		hideBlocked(ids) {
+			if (disposed) return;
+			let changed = false;
+			for (const id of ids) {
+				if (state.tasks.some((task) => task.id === id && task.status === "blocked")) {
+					changed ||= !hiddenBlocked.has(id);
+					hiddenBlocked.add(id);
+				}
+			}
+			if (!changed) return;
 			if (!hasTasks()) unregister();
 			else currentTui?.requestRender(true);
 		},

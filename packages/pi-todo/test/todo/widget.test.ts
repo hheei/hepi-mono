@@ -92,7 +92,7 @@ describe("todo widget", () => {
 		expect(h.calls).toHaveLength(2);
 	});
 
-	test("orders in-progress, pending, then blocked tasks", () => {
+	test("orders in-progress, pending, then temporary blocked tasks", () => {
 		const h = harness();
 		createTodoWidget(
 			h.runtime,
@@ -110,7 +110,7 @@ describe("todo widget", () => {
 			"#4",
 			"#2",
 		]);
-		expect(lines.find((line: string) => line.includes("#2"))).toContain("⊘");
+		expect(lines.find((line: string) => line.includes("#2"))).toContain("⊘ #2 ~blocked~");
 	});
 
 	test("does not register historical completed tasks", () => {
@@ -207,11 +207,16 @@ describe("todo widget", () => {
 		expect(h.calls.at(-1)?.content).toBeUndefined();
 	});
 
-	test("uses warning heading when only blocked work remains", () => {
+	test("dims temporary blocked work and hides it on request", () => {
 		const h = harness();
 		const theme = recordingTheme();
-		createTodoWidget(h.runtime, state([task(1, "blocked", "blocked")]));
-		expect(component(h, theme).render(80)[0]).toBe("<warning>⊘</warning> <text>Todos (0/1)</text>");
+		const widget = createTodoWidget(h.runtime, state([task(1, "blocked", "blocked")]))!;
+		const lines = component(h, theme).render(80);
+		expect(lines[0]).toBe("<dim>⊘</dim> <text>Todos (0/1)</text>");
+		expect(lines[1]).toContain("<dim>⊘</dim>");
+		expect(lines[1]).toContain("<dim>~blocked~</dim>");
+		widget.hideBlocked([1]);
+		expect(h.calls.at(-1)?.content).toBeUndefined();
 	});
 
 	test("hide only unregisters rendering and refresh shows active state again", () => {
