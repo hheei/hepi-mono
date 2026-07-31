@@ -122,7 +122,15 @@ test("feature owns the active runtime for the session lifecycle", async (): Prom
 	let closed = 0;
 	const feature = createMctxFeature({
 		loadConfiguration: async () => configuration(),
-		openStore: () => ({ path: "/store", close: () => void closed++ }),
+		openStore: () => ({
+			path: "/store",
+			getOrCreatePartition: () => ({
+				projectIdentity: `git:${"a".repeat(40)}`,
+				sessionId: "session-1",
+				revision: 0,
+			}),
+			close: () => void closed++,
+		}),
 	});
 	await feature.start(fixture.context);
 	expect(feature.active()?.sessionId).toBe("session-1");
