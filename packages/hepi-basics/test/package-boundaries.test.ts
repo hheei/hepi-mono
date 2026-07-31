@@ -163,7 +163,7 @@ test("HEPI composition packages expose one bundled extension entry", async () =>
 			relative(packagesDirectory, packagePath) === "hepi-mono"
 				? ["@hheei/hepi-aft", "@hheei/hepi-mctx", "@hheei/hepi-subagents"]
 				: [],
-	);
+		);
 	}
 });
 
