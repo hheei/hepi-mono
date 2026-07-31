@@ -131,6 +131,9 @@ test("feature owns the active runtime for the session lifecycle", async (): Prom
 				revision: 0,
 			}),
 			advancePartitionRevision: () => undefined,
+			acquireHistorianLease: () => undefined,
+			renewHistorianLease: () => undefined,
+			releaseHistorianLease: () => undefined,
 			close: () => void closed++,
 		}),
 	});
@@ -184,6 +187,9 @@ test("feature owns the active runtime for the session lifecycle", async (): Prom
 				throw new Error("must not create partition");
 			},
 			advancePartitionRevision: () => undefined,
+			acquireHistorianLease: () => undefined,
+			renewHistorianLease: () => undefined,
+			releaseHistorianLease: () => undefined,
 			close: () => void partitionStoreClosed++,
 		}),
 	});
