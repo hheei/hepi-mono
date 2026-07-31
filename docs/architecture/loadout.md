@@ -2,9 +2,9 @@
 
 ## 状态
 
-本文记录已确认、尚未实现的 Loadout 重构目标。TypeScript interface framework 已建立，当前只导出
-`not implemented` stubs；行为实现顺序固定为：focused tests、用户确认、行为实现。当前 aggregate
-Loadout 仅是迁移参考，不是兼容目标。
+本文记录 Loadout 重构目标与当前 headless engine 阶段。core registration contract、独立
+`pi-loadout` policy engine 和 skill capability 按 focused tests、用户确认、行为实现的顺序落地；
+Settings UI 仍未实现。当前 aggregate Loadout 仅是迁移参考，不是兼容目标。
 
 ## 目标与包边界
 
@@ -17,9 +17,10 @@ Extension page router。
 registry 消费 registration，`pi-settings` 从 core router 打开页面。core 始终直接向 Pi 注册 managed
 executable tool，消除 extension load order 依赖。
 
-`pi-loadout` 是 managed-tool contributor 的强烈推荐 companion extension，但不是硬依赖。缺少它时，
+`pi-loadout` 是 managed-tool contributor 的推荐 companion extension，但不是硬依赖。缺少它时，
 core 仍注册 executable tool，保留 Pi 默认 activation；不应用 Loadout inventory、conflict、priority
-或 persisted override。
+或 persisted override。当前 `pi-loadout` 阶段无 UI 与 `/loadout` command，只读取新的
+`pi-loadout` global/project JSON sections；旧 `pi-basics-loadout` state 不迁移。
 
 ## Tool Registration
 
@@ -39,14 +40,14 @@ definition 和 handler。
 session 内动态新增或单独移除；变更需要完整 `/reload`。所有 HEPI-owned non-native tool 必须使用
 managed mode，feature package 不得直接调用 Pi tool registration API。
 
-`pi-loadout` 维护明确的 native tool catalog，并逐个将其中的 Pi native tool 作为 inventory item
-登记。catalog 外的 native 或 third-party tool 保持在 Preserved baseline，不被 Loadout 改写。
+`pi-loadout` 自动观察 Pi native 与 third-party tools；managed/native 是明确 inventory，未提供
+metadata 的 observed tool 以 session start 的 Pi active list 作为默认状态。同名 source 合并为
+一个 name-level item，Pi 仍决定实际 handler。
 
 ## Activation Policy
 
-Loadout 在 session start 读取 active、未登记的 Pi tools 作为 Preserved baseline。每次更新时，
-它只计算已登记 items 的 effective state，再与 baseline 合并后一次性写入 Pi active-tool list。
-未登记 tool 不因 Loadout registry 或配置变化被关闭。
+Loadout 在 session start 观察 Pi tools。每次更新时，它只计算 inventory items 的 effective state，
+再一次性写入 Pi active-tool list；无法安全识别的第三方 tool 保留在 Pi baseline，不被关闭。
 
 display group 只影响展示。一个 item 恰好属于一个 display group；group 移动不改变 activation。
 conflict set 是独立的命名集合，一个 item 可加入多个 set，任何 set 内至多一个 item active。
@@ -59,8 +60,11 @@ user explicit selection 优先于 priority。选择一个 item 是原子 Activat
 同一次更新中停用目标所有 conflict set 的成员。用户选择写入当前 global 或 project scope；project
 override 优先于 global。新 `pi-loadout` state 从空开始，不迁移 legacy `pi-basics-loadout` entries。
 
-skill enable/disable 暂留 `pi-loadout` 内部 policy。本次 core Loadout contract 只覆盖 tools；不得
-为 skills 预建 generic resource registration API。
+skill enable/disable 由 `pi-loadout` 自己管理；core 只提供 runtime-scoped disabled-skill capability
+供 Loadout 发布、dollar-skill 读取。不得为 skills 预建 generic resource registration API。
+
+MCP placeholder 不属于新 Loadout inventory。旧实现没有 MCP discovery 或 runtime activation，
+因此不迁移其无效状态。
 
 ## Extension Page Router
 

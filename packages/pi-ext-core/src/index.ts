@@ -33,11 +33,16 @@ export { registerExtensionLifecycle } from "./lifecycle.js";
 export type {
 	LoadoutInventoryObserver,
 	LoadoutInventoryRegistration,
+	LoadoutToolActivationObserver,
+	LoadoutToolActivationSnapshot,
 	LoadoutToolMetadata,
 	ManagedLoadoutToolRegistration,
 } from "./loadout.js";
 export {
+	clearLoadoutToolActivation,
 	observeLoadoutInventory,
+	observeLoadoutToolActivation,
+	publishLoadoutToolActivation,
 	registerLoadoutInventory,
 	registerManagedLoadoutTool,
 } from "./loadout.js";
@@ -86,6 +91,12 @@ export {
 	getHepiRuntimeSettingsRegistry,
 	registerHepiSettings,
 } from "./settings.js";
+export {
+	clearDisabledSkillKeys,
+	getDisabledSkillKeys,
+	isSkillEnabled,
+	setDisabledSkillKeys,
+} from "./skill-state.js";
 export type {
 	CompletionSubagentHandle,
 	CompletionSubagentResult,

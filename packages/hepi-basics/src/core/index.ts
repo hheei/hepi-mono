@@ -45,13 +45,6 @@ export {
 	updateJsonSettingsRoot,
 } from "./runtime/json-settings.js";
 export { HepiLifecycleController, registerHepiLifecycle } from "./runtime/lifecycle.js";
-export {
-	disableHepiTool,
-	hepiLoadoutKey,
-	isHepiSkillEnabled,
-	registerHepiToolDisableHandler,
-	setHepiDisabledSkillKeys,
-} from "./runtime/loadout-bridge.js";
 export type { ToolActivationCoordinator } from "./runtime/tool-activation.js";
 export {
 	createToolActivationCoordinator,

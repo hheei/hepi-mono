@@ -95,9 +95,9 @@ existing semantic token expresses the role.
   child indentation.
 - Long selected setting keys may marquee only while non-editing and selected;
   all other content remains static.
-- Loadout remains a Settings tab. Its tab frame may use a core Extension page shell, but Loadout
-  owns all tab rows, actions, state and policy; the core Extension page router owns only tab
-  navigation and shared page framing, never Loadout-visible content.
+- `pi-loadout` is headless until `pi-settings` exists. The future Settings page owns Loadout-visible
+  rows and actions; `pi-loadout` owns activation policy and state, while the core Extension page
+  router owns only tab navigation and shared page framing.
 - An Extension page router uses `←`/`→` to switch tabs only after the active page does not handle
   the key; `Esc` closes the router. Show the compact `↔` hint near the tabs. Do not add a separate
   tab-strip focus region.
