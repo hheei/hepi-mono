@@ -10,9 +10,9 @@ import {
 	createHepiRuntimeContext,
 	type HepiRuntimeContext,
 } from "../../../hepi-basics/src/core/index.js";
-import type { BtwComponentController, BtwComponentOptions } from "../../src/pi-btw/component.js";
-import type { BtwExecutionResult, ExecuteBtwTurnOptions } from "../../src/pi-btw/executor.js";
-import { type BtwFeatureOptions, createBtwFeature } from "../../src/pi-btw/feature.js";
+import type { BtwComponentController, BtwComponentOptions } from "../../component.js";
+import type { BtwExecutionResult, ExecuteBtwTurnOptions } from "../../executor.js";
+import { type BtwFeatureOptions, createBtwFeature } from "../../feature.js";
 
 type Command = {
 	readonly handler: (args: string, ctx: ExtensionCommandContext) => Promise<void>;

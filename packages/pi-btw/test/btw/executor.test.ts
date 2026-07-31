@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Api, AssistantMessage, Context, Model } from "@earendil-works/pi-ai";
-import { type BtwExecutionResult, executeBtwTurn } from "../../src/pi-btw/executor.js";
+import { type BtwExecutionResult, executeBtwTurn } from "../../executor.js";
 
 const model = { provider: "test", id: "model", api: "test" } as Model<Api>;
 const messages = [{ role: "user", content: "hello", timestamp: 1 }] as Context["messages"];
