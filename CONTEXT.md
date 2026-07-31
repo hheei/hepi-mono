@@ -87,6 +87,15 @@ The model-aware percentage threshold plus absolute-token fallback and guard used
 schedule a parent compartment run after turn end.
 _Avoid_: fixed token limit, context-window-only trigger
 
+**MCTX trigger policy**:
+A pure decision over usage, an optional context window, an optional absolute token threshold, and
+cooling state. The default percentage is `65` and valid percentages are `20..80`; a known window uses
+the greater of its rounded-up percentage threshold and absolute threshold, while an unknown window
+uses absolute only. Trigger enters cooling. Cooling re-arms only at ten percentage points below the
+percentage threshold and, when present, at or below 90% of the absolute threshold. It does not
+register lifecycle hooks or read configuration.
+_Avoid_: turn-end registration, config mutation, single-threshold cooldown
+
 **M0/M1 context tiers**:
 The stable cacheable `m[0]` history tier and newer materialized `m[1]` tier rendered before the
 compartment boundary's live tail; together they replace old model history from the source transcript.

@@ -218,6 +218,12 @@ shutdown 会清除该 holder。后续 store/partition wiring 已附加，但仍�
 hysteresis。具体 default 必须在 `pi-mctx` schema 与 focused tests 中固定；它不隐式追随会变化的 upstream
 default。
 
+trigger policy 是纯状态决策，尚不注册 `turn_end` 或改变配置读取。percentage 默认值为 `65`，并且必须在
+`20..80`；known context window 时 trigger token threshold 是 `max(ceil(window * percentage / 100), absolute)`，
+其中 absolute 可缺省。unknown context window 时只使用 absolute；两者都没有时结果为 unavailable。一次 trigger
+将状态设为 cooling；cooling 仅在 usage 不高于 percentage threshold 减少 `10` percentage points，且（若配置）
+不高于 absolute 的 `90%` 时 re-arm。usage、context window 和 absolute threshold 必须是正 safe integer。
+
 context store 使用 upstream-aligned tiered graph：stable、cacheable `m[0]` history tier 加 newer
 materialized `m[1]` tier，再接 compartment boundary 后的 live tail。context transform 将这三层组合为
 model history；它不使用单一 rolling summary。
