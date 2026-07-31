@@ -74,6 +74,7 @@ test("keeps one child session across sequential conversation messages", async ()
 	const host = createFakePiHost();
 	let conversation: ReturnType<typeof startSubagent> | undefined;
 	let created = 0;
+	let compacted = 0;
 	registerExtensionLifecycle(host.pi, {
 		key: "@hheei/pi-conversation-test",
 		start(context) {
@@ -88,10 +89,14 @@ test("keeps one child session across sequential conversation messages", async ()
 							subscribe: () => () => undefined,
 							abort: () => undefined,
 							dispose: () => undefined,
+							compact: async () => {
+								compacted += 1;
+							},
 							async prompt(message: string) {
 								this.messages.push({
 									role: "assistant",
 									content: [{ type: "text", text: `reply:${message}` }],
+									usage: { input: 2, output: 3, totalTokens: 5, cost: { total: 0.25 } },
 								} as never);
 							},
 						} as never;
@@ -118,5 +123,8 @@ test("keeps one child session across sequential conversation messages", async ()
 		}),
 	).toMatchObject({ status: "completed", output: "reply:second" });
 	expect(created).toBe(1);
+	expect(conversation.usage()).toEqual({ input: 4, output: 6, total: 10, cost: 0.5 });
+	await conversation.compact();
+	expect(compacted).toBe(1);
 	await host.emit("session_shutdown");
 });

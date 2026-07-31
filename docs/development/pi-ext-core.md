@@ -138,6 +138,11 @@ parent-to-child `inputMode` 与 child-to-parent reply consumption。wait 只能�
 wait signal abort 后，adapter 必须 queue-deliver eventual reply，不得静默丢弃或取消 conversation。
 create 同时提供 initial message 与同一 reply contract，不能启动没有 owner 的 initial prompt。
 
+需要长会话 context control 的 consumer 只能调用 conversation handle 的 `compact()` 与 `usage()`；不得保留或
+读取 raw `AgentSession`。`compact()` 仅在 handle idle 时可调用，consumer 负责决定 threshold；`usage()` 是
+core-normalized readonly snapshot，不能作为 provider billing source。为这些能力新增测试时必须覆盖 running/
+queued/terminal rejection、abort、usage 缺失字段归零和 parent shutdown 后不再发布 snapshot。
+
 host/human steer 只打断 active child，随后优先于 queue；queue 和 steer 各自 FIFO，steer 不得隐式删除已接受
 queue。sink 的同步 throw 与 rejected Promise 都必须由 core 捕捉、记录 `deliveryFailed` 并消化，不能成为
 host-level unhandled rejection。subscriber implementation 必须固定 memory cap：terminal event 挤掉最旧的

@@ -91,6 +91,14 @@ export interface ConversationReplyResult {
 	readonly failure?: string;
 }
 
+/** Provider-normalized usage accumulated from completed child assistant turns. */
+export interface ConversationUsage {
+	readonly input: number;
+	readonly output: number;
+	readonly total: number;
+	readonly cost: number;
+}
+
 /** Caller-owned parent delivery for one Conversation reply. */
 export type ConversationReplyDeliverySink = (
 	result: ConversationReplyResult,
@@ -213,6 +221,13 @@ export interface ConversationSubagentHandle
 	extends BaseSubagentHandle<"conversation", ConversationTerminalResult> {
 	/** Outcome of the required initial message; await only when initialReply.kind is `wait`. */
 	readonly initialReply: Promise<ConversationReplyResult>;
+	/**
+	 * Requests core-owned compaction while the child is idle. The raw child session
+	 * remains opaque; running, queued, and terminal conversations reject this call.
+	 */
+	compact(): Promise<void>;
+	/** Read-only cumulative usage from completed child assistant turns. */
+	usage(): ConversationUsage;
 	send(
 		message: string,
 		options: ConversationSendOptions & { readonly reply: { readonly kind: "wait" } },
@@ -415,6 +430,45 @@ function lastAssistantText(session: AgentSession, startIndex: number): string {
 	return "";
 }
 
+const EMPTY_CONVERSATION_USAGE: ConversationUsage = { input: 0, output: 0, total: 0, cost: 0 };
+
+function finiteUsage(value: unknown): number {
+	return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function usageFromMessages(
+	messages: readonly AgentSession["messages"][number][],
+): ConversationUsage {
+	let usage = EMPTY_CONVERSATION_USAGE;
+	for (const message of messages) {
+		if (message.role !== "assistant" || message.usage === undefined) continue;
+		const cost = message.usage.cost;
+		usage = {
+			input: usage.input + finiteUsage(message.usage.input),
+			output: usage.output + finiteUsage(message.usage.output),
+			total: usage.total + finiteUsage(message.usage.totalTokens),
+			cost:
+				usage.cost +
+				finiteUsage(
+					typeof cost === "object" && cost !== null && "total" in cost ? cost.total : undefined,
+				),
+		};
+	}
+	return usage;
+}
+
+function addConversationUsage(
+	left: ConversationUsage,
+	right: ConversationUsage,
+): ConversationUsage {
+	return {
+		input: left.input + right.input,
+		output: left.output + right.output,
+		total: left.total + right.total,
+		cost: left.cost + right.cost,
+	};
+}
+
 function emit(record: HandleRecord, event: SubagentEvent): void {
 	for (const subscriber of record.subscribers) {
 		if (subscriber.disposed || !subscriber.options.kinds.has(event.kind)) continue;
@@ -504,8 +558,9 @@ function startCompletion(
 					spec.model,
 					{
 						systemPrompt: spec.systemPrompt,
-						messages:
-							spec.messages ?? [{ role: "user", content: spec.prompt, timestamp: Date.now() }],
+						messages: spec.messages ?? [
+							{ role: "user", content: spec.prompt, timestamp: Date.now() },
+						],
 						tools: [],
 					},
 					{
@@ -589,12 +644,19 @@ function startTask(
 			);
 		} catch (error) {
 			terminal = controller.signal.aborted
-				? { id, status: "cancelled", output: "", softLimitReached: false }
+				? {
+						id,
+						status: "cancelled",
+						output: "",
+						softLimitReached: false,
+						usage: EMPTY_CONVERSATION_USAGE,
+					}
 				: {
 						id,
 						status: "failed",
 						output: "",
 						softLimitReached: false,
+						usage: EMPTY_CONVERSATION_USAGE,
 						failure: failureMessage(error),
 					};
 		} finally {
@@ -615,6 +677,7 @@ interface SessionTurnResult {
 	readonly status: "completed" | "failed" | "cancelled" | "limit_reached";
 	readonly output: string;
 	readonly softLimitReached: boolean;
+	readonly usage: ConversationUsage;
 	readonly failure?: string;
 }
 
@@ -636,7 +699,13 @@ async function runSessionTurn(
 		session = session ?? (await factory.create(controller.signal));
 		if (controller.signal.aborted) {
 			void session.abort();
-			return { id, status: "cancelled", output: "", softLimitReached: false };
+			return {
+				id,
+				status: "cancelled",
+				output: "",
+				softLimitReached: false,
+				usage: EMPTY_CONVERSATION_USAGE,
+			};
 		}
 		const activeSession = session;
 		const forwardAbort = (): void => void activeSession.abort();
@@ -668,14 +737,23 @@ async function runSessionTurn(
 		});
 		await activeSession.prompt(prompt);
 		const output = lastAssistantText(activeSession, startIndex);
-		if (controller.signal.aborted) return { id, status: "cancelled", output: "", softLimitReached };
+		const usage = usageFromMessages(activeSession.messages.slice(startIndex));
+		if (controller.signal.aborted)
+			return { id, status: "cancelled", output: "", softLimitReached, usage };
 		if (turns >= maxTurns + 5)
-			return { id, status: "limit_reached", output, softLimitReached: true };
-		return { id, status: "completed", output, softLimitReached };
+			return { id, status: "limit_reached", output, softLimitReached: true, usage };
+		return { id, status: "completed", output, softLimitReached, usage };
 	} catch (error) {
 		return controller.signal.aborted
-			? { id, status: "cancelled", output: "", softLimitReached }
-			: { id, status: "failed", output: "", softLimitReached, failure: failureMessage(error) };
+			? { id, status: "cancelled", output: "", softLimitReached, usage: EMPTY_CONVERSATION_USAGE }
+			: {
+					id,
+					status: "failed",
+					output: "",
+					softLimitReached,
+					usage: EMPTY_CONVERSATION_USAGE,
+					failure: failureMessage(error),
+				};
 	} finally {
 		unsubscribe();
 	}
@@ -702,6 +780,8 @@ function startConversation(
 	let sequence = 0;
 	let session: AgentSession | undefined;
 	let current: ConversationItem | undefined;
+	let compacting = false;
+	let usage = EMPTY_CONVERSATION_USAGE;
 	const pending: ConversationItem[] = [];
 	let settle: (result: ConversationTerminalResult) => void = () => undefined;
 	const result = new Promise<ConversationTerminalResult>((resolve) => {
@@ -730,7 +810,13 @@ function startConversation(
 		}
 	};
 	const schedule = (): void => {
-		if (current !== undefined || pending.length === 0 || record.terminal !== undefined) return;
+		if (
+			compacting ||
+			current !== undefined ||
+			pending.length === 0 ||
+			record.terminal !== undefined
+		)
+			return;
 		const item = pending.shift();
 		if (item === undefined) return;
 		current = item;
@@ -756,6 +842,7 @@ function startConversation(
 				session,
 			);
 			const reply: ConversationReplyResult = { ...turn, sequence: item.sequence };
+			usage = addConversationUsage(usage, turn.usage);
 			if (record.terminal === undefined) {
 				status = "idle";
 				emit(record, { kind: "turn", id, state: "idle" });
@@ -808,6 +895,7 @@ function startConversation(
 		options: ConversationSendOptions,
 	): Promise<ConversationReplyResult | ConversationDeliveryAcknowledgement> {
 		if (!message.trim()) return Promise.reject(new Error("Conversation message must not be empty"));
+		if (compacting) return Promise.reject(new Error("Conversation is compacting"));
 		if (options.inputMode === "steer" && current !== undefined && session !== undefined) {
 			void session.steer(message);
 		}
@@ -829,6 +917,22 @@ function startConversation(
 		},
 		result,
 		initialReply,
+		async compact(): Promise<void> {
+			if (record.terminal !== undefined) throw new Error("Conversation is terminal");
+			if (status !== "idle" || current !== undefined || pending.length > 0)
+				throw new Error("Conversation compaction requires an idle child");
+			if (session === undefined) throw new Error("Conversation child session has not started");
+			compacting = true;
+			try {
+				await session.compact();
+			} finally {
+				compacting = false;
+				schedule();
+			}
+		},
+		usage(): ConversationUsage {
+			return usage;
+		},
 		cancel(): void {
 			controller.abort();
 			if (session !== undefined) void session.abort();

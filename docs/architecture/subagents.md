@@ -120,6 +120,19 @@ conversation 在自然 response 或单条 reply `limit_reached` 后保持 idle�
 caller cancel。reply outcome 不是 durable conversation handle 的 terminal result；后者仅在显式取消、失败或
 parent lifecycle cleanup 时 settle。它不是无限 autonomous loop；需要自主完成工作的场景使用 `task`。
 
+conversation handle 另外提供两项 **core-owned** session control：
+
+- `compact()` 请求 core compact 它独占的 child session。它只可在 child idle 时运行；running、queued 或
+  terminal conversation 必须拒绝，不能同 prompt/abort 并发。consumer 不拿到 raw session、message array 或
+  Pi `CreateAgentSessionOptions`。compaction 的具体 Pi API、失败、取消和 session mutation 都由 core 处理。
+- `usage()` 返回 core 从该 child 已完成 assistant turn 归一化出的只读累计 usage snapshot：input、output、total
+  与 cost。缺失/无效 provider 数值归零。snapshot 是观测值，不是 billing ledger；terminal 后保留至 handle
+  retention 结束。
+
+这两项只服务于已存在的 long-lived conversation consumer，不能演化为任意 session inspection、message
+ mutation、streaming telemetry 或 agent-policy API。Advisor 使用 `compact()` 保持原有 context budget policy，
+ 使用 `usage()` 显示累计 review cost；阈值和何时请求 compact 仍是 Advisor policy。
+
 ## 生命周期、取消与并发
 
 每个 handle 严格绑定 parent session。`session_shutdown`、session switch、`/reload` 或 parent cancel
@@ -166,8 +179,9 @@ cancellation、delivery、retention、event loss、backpressure 与 cost。实�
   `limit_reached` partial output、缺 sink reject、sync throw/async sink failure 无 unhandled rejection、shutdown
   abort、explicit redelivery 与单次 terminalization；
 - conversation required soft `maxTurnsPerReply`、queue/steer input ordering、wait sequence binding、wait
-  abort fallback queue、delivery reply、idle/restart、host steer preserves queue、subscriber detach、fixed-cap
-  snapshot coalescing、terminal eviction/delivery 和 callback non-blocking；
+   abort fallback queue、delivery reply、idle/restart、host steer preserves queue、subscriber detach、fixed-cap
+   snapshot coalescing、terminal eviction/delivery、callback non-blocking、idle-only compaction rejection、
+   compact cancellation、usage normalization 和 terminal snapshot retention；
 - root shared cap、FIFO admission、root-only rejection、parent shutdown/reload cleanup 与 late result guard；
 - duplicate core module instance 对同一 Pi runtime 共享 coordinator。
 
