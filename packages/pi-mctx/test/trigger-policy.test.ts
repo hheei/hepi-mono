@@ -58,6 +58,44 @@ test("cools until both percentage and absolute rearm guards clear", (): void => 
 	).toEqual({ kind: "rearmed", cooling: false, thresholdTokens: 65_000 });
 });
 
+test("rearms at the percentage-only cooling boundary", (): void => {
+	expect(
+		evaluateMctxTriggerPolicy({
+			usageTokens: 55_001,
+			contextWindow: 100_000,
+			percentage: 65,
+			cooling: true,
+		}),
+	).toEqual({ kind: "wait", cooling: true, thresholdTokens: 65_000 });
+	expect(
+		evaluateMctxTriggerPolicy({
+			usageTokens: 55_000,
+			contextWindow: 100_000,
+			percentage: 65,
+			cooling: true,
+		}),
+	).toEqual({ kind: "rearmed", cooling: false, thresholdTokens: 65_000 });
+});
+
+test("rearms at the absolute-only cooling boundary without a context window", (): void => {
+	expect(
+		evaluateMctxTriggerPolicy({
+			usageTokens: 72_001,
+			contextWindow: undefined,
+			absoluteThreshold: 80_000,
+			cooling: true,
+		}),
+	).toEqual({ kind: "wait", cooling: true, thresholdTokens: 80_000 });
+	expect(
+		evaluateMctxTriggerPolicy({
+			usageTokens: 72_000,
+			contextWindow: undefined,
+			absoluteThreshold: 80_000,
+			cooling: true,
+		}),
+	).toEqual({ kind: "rearmed", cooling: false, thresholdTokens: 80_000 });
+});
+
 test("rejects invalid token and percentage inputs", (): void => {
 	expect(() =>
 		evaluateMctxTriggerPolicy({ usageTokens: 0, contextWindow: 100_000, cooling: false }),
