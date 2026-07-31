@@ -1,7 +1,6 @@
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
-import type { HepiRuntimeContext } from "../../../hepi-basics/src/core/index.js";
 import {
 	applyTodo,
 	freshTaskState,
@@ -12,9 +11,8 @@ import {
 	type TodoOperation,
 	type TodoOperationResult,
 	type TodoParams,
-	validateTaskState,
 } from "./model.js";
-import { latestTodoSnapshot, snapshotFromState, TODO_STATE_CUSTOM_TYPE } from "./state.js";
+import { snapshotFromState, stateFromSnapshot } from "./state.js";
 import { createTodoWidget, type TodoWidget } from "./widget.js";
 
 export const TODO_TOOL_NAME = "todo";
@@ -93,7 +91,7 @@ interface ActiveTodoRuntime {
 }
 
 export interface TodoFeature {
-	start(runtime: HepiRuntimeContext): void | Promise<void>;
+	start(context: ExtensionContext): void | Promise<void>;
 	dispose(sessionId: string): void | Promise<void>;
 }
 
@@ -313,7 +311,7 @@ function renderTodoResult(
 	const details = result.details;
 	if (!details || typeof details !== "object") return new Text(theme.fg("success", "✓"), 0, 0);
 	const snapshot = (details as { readonly snapshot?: unknown }).snapshot;
-	const state = validateTaskState(snapshot);
+	const state = stateFromSnapshot(snapshot);
 	if (!state) return new Text(theme.fg("success", "✓"), 0, 0);
 	const active = activeTodoTask(state);
 	if (active) return new Text(theme.fg("warning", `◐ #${active.id} ${active.subject}`), 0, 0);
@@ -331,33 +329,10 @@ function renderTodoResult(
 	return new Text(theme.fg("success", "✓ complete"), 0, 0);
 }
 
-function isStaleSessionContextError(error: unknown): boolean {
-	return /stale after session replacement/.test(String(error));
-}
-
 export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions = {}): TodoFeature {
 	let active: ActiveTodoRuntime | undefined;
 	const renderedIdsByCall = new Map<string, readonly number[]>();
 	const now = options.now ?? (() => performance.now());
-
-	const refreshFromBranch = (kind: "compact" | "tree", ctx: ExtensionContext): void => {
-		try {
-			const current = active;
-			if (!current || current.sessionId !== ctx.sessionManager.getSessionId()) return;
-			const restored = latestTodoSnapshot(ctx.sessionManager.getBranch());
-			if (restored) current.state = restored;
-			else if (kind === "tree") current.state = freshTaskState();
-			if (kind === "tree") {
-				current.idleTurns = 0;
-				current.reminderWindowStartedAtMs = now();
-				current.todoChangedThisTurn = false;
-			}
-			if (kind === "tree") current.widget?.hideCompleted();
-			current.widget?.refresh(current.state, false);
-		} catch (error) {
-			if (!isStaleSessionContextError(error)) throw error;
-		}
-	};
 
 	pi.registerTool({
 		name: TODO_TOOL_NAME,
@@ -448,15 +423,6 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 				ctx.ui.notify(`Todo #${id} is already suppressed`, "info");
 				return;
 			}
-			try {
-				pi.appendEntry(TODO_STATE_CUSTOM_TYPE, snapshotFromState(result.state));
-			} catch (error) {
-				ctx.ui.notify(
-					`Could not persist Todo suppression: ${error instanceof Error ? error.message : String(error)}`,
-					"error",
-				);
-				return;
-			}
 			current.state = result.state;
 			current.idleTurns = 0;
 			current.reminderWindowStartedAtMs = now();
@@ -524,8 +490,16 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 		current.widget?.hideCompleted();
 	});
 
-	pi.on("session_compact", async (_event, ctx) => refreshFromBranch("compact", ctx));
-	pi.on("session_tree", async (_event, ctx) => refreshFromBranch("tree", ctx));
+	pi.on("session_tree", async (_event, ctx) => {
+		const current = active;
+		if (!current || current.sessionId !== ctx.sessionManager.getSessionId()) return;
+		current.state = freshTaskState();
+		current.idleTurns = 0;
+		current.reminderWindowStartedAtMs = now();
+		current.todoChangedThisTurn = false;
+		current.widget?.hide();
+		current.widget?.refresh(current.state, false);
+	});
 	pi.on("tool_execution_end", async (event, ctx) => {
 		if (event.toolName !== TODO_TOOL_NAME || event.isError) return;
 		try {
@@ -533,23 +507,23 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 			if (!current || current.sessionId !== ctx.sessionManager.getSessionId()) return;
 			current.widget?.refresh(current.state);
 		} catch {
-			// Widget refresh is best-effort; the successful tool snapshot remains durable.
+			// Widget refresh is best-effort; the successful tool result remains renderable.
 		}
 	});
 
 	return {
-		start(runtime) {
+		start(context) {
 			renderedIdsByCall.clear();
-			const state = latestTodoSnapshot(runtime.ctx.sessionManager.getBranch()) ?? freshTaskState();
+			const state = freshTaskState();
 			const current: ActiveTodoRuntime = {
-				sessionId: runtime.ctx.sessionManager.getSessionId(),
+				sessionId: context.sessionManager.getSessionId(),
 				state,
 				idleTurns: 0,
 				reminderWindowStartedAtMs: now(),
 				todoChangedThisTurn: false,
 				widget: undefined,
 			};
-			current.widget = createTodoWidget(runtime, state);
+			current.widget = createTodoWidget(context, state);
 			active = current;
 		},
 		async dispose(sessionId) {

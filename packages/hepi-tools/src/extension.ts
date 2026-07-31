@@ -14,7 +14,6 @@ import piAsk from "./pi-ask/index.js";
 import piCodexTool from "./pi-codex-tool/index.js";
 import piGoal from "./pi-goal/index.js";
 import piSshfs from "./pi-sshfs/index.js";
-import piTodo from "./pi-todo/index.js";
 
 export type HepiExtension = (pi: ExtensionAPI) => void;
 
@@ -55,7 +54,6 @@ export const hepiToolsExtensions: readonly HepiExtension[] = [
 	registerHepiFffWithLoadout,
 	piCodexTool,
 	piAdvisor,
-	piTodo,
 	...(hasWebAccess ? [] : [registerBundledWebAccess]),
 ];
 

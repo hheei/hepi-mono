@@ -1,10 +1,8 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { Component, TUI } from "@earendil-works/pi-tui";
-import type { HepiRuntimeContext } from "../../../hepi-basics/src/core/index.js";
-import { truncateToWidth } from "../../../hepi-basics/src/core/index.js";
+import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { type Component, type TUI, truncateToWidth } from "@earendil-works/pi-tui";
 import type { TaskState } from "./model.js";
 
-const TODO_WIDGET_KEY = "pi-basics:todo";
+const TODO_WIDGET_KEY = "pi-todo:tasks";
 const MAX_TASK_ROWS = 6;
 
 export interface TodoWidget {
@@ -96,10 +94,10 @@ function renderTodo(
 }
 
 export function createTodoWidget(
-	runtime: HepiRuntimeContext,
+	context: ExtensionContext,
 	initialState: TaskState,
 ): TodoWidget | undefined {
-	if (runtime.ctx.mode !== "tui") return undefined;
+	if (context.mode !== "tui") return undefined;
 
 	let state = initialState;
 	const displayedCompleted = new Set<number>();
@@ -126,14 +124,14 @@ export function createTodoWidget(
 	const hasTasks = () => visibleTasks(state, displayedCompleted).length > 0;
 	const unregister = () => {
 		if (!registered) return;
-		runtime.ctx.ui.setWidget(TODO_WIDGET_KEY, undefined, { placement: "aboveEditor" });
+		context.ui.setWidget(TODO_WIDGET_KEY, undefined, { placement: "aboveEditor" });
 		registered = false;
 		invalidated = false;
 		currentTui = undefined;
 	};
 	const register = () => {
 		if (disposed || !hasTasks() || (registered && !invalidated)) return;
-		runtime.ctx.ui.setWidget(TODO_WIDGET_KEY, factory, { placement: "aboveEditor" });
+		context.ui.setWidget(TODO_WIDGET_KEY, factory, { placement: "aboveEditor" });
 		registered = true;
 		invalidated = false;
 	};

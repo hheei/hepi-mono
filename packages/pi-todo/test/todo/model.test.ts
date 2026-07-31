@@ -6,7 +6,7 @@ import {
 	type TaskState,
 	type TodoOperation,
 	validateTaskState,
-} from "../../src/pi-todo/model.js";
+} from "../../src/model.js";
 
 const create = (subject: string): TodoOperation => ({ action: "create", subject });
 const update = (
