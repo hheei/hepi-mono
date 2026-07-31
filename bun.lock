@@ -19,6 +19,9 @@
     "packages/hepi-basics": {
       "name": "@hheei/hepi-basics",
       "version": "0.0.0",
+      "dependencies": {
+        "@hheei/pi-ext-core": "workspace:*",
+      },
       "devDependencies": {
         "@earendil-works/pi-coding-agent": "^0.82.0",
         "@types/bun": "latest",
@@ -109,6 +112,39 @@
         "@earendil-works/pi-ai": ">=0.82.0",
         "@earendil-works/pi-coding-agent": ">=0.82.0",
         "@earendil-works/pi-tui": "*",
+      },
+    },
+    "packages/pi-btw": {
+      "name": "@hheei/pi-btw",
+      "version": "0.0.0",
+      "dependencies": {
+        "@hheei/pi-ext-core": "workspace:*",
+      },
+      "devDependencies": {
+        "@earendil-works/pi-coding-agent": "^0.82.0",
+        "@types/bun": "latest",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-agent-core": ">=0.82.0",
+        "@earendil-works/pi-ai": ">=0.82.0",
+        "@earendil-works/pi-coding-agent": ">=0.82.0",
+        "@earendil-works/pi-tui": ">=0.82.0",
+      },
+    },
+    "packages/pi-ext-core": {
+      "name": "@hheei/pi-ext-core",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@earendil-works/pi-agent-core": "^0.82.0",
+        "@earendil-works/pi-ai": "^0.82.0",
+        "@earendil-works/pi-coding-agent": "^0.82.0",
+        "@earendil-works/pi-tui": "^0.82.0",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-agent-core": ">=0.82.0",
+        "@earendil-works/pi-ai": ">=0.82.0",
+        "@earendil-works/pi-coding-agent": ">=0.82.0",
+        "@earendil-works/pi-tui": ">=0.82.0",
       },
     },
   },
@@ -228,6 +264,10 @@
     "@hheei/hepi-skills": ["@hheei/hepi-skills@workspace:packages/hepi-skills"],
 
     "@hheei/hepi-tools": ["@hheei/hepi-tools@workspace:packages/hepi-tools"],
+
+    "@hheei/pi-btw": ["@hheei/pi-btw@workspace:packages/pi-btw"],
+
+    "@hheei/pi-ext-core": ["@hheei/pi-ext-core@workspace:packages/pi-ext-core"],
 
     "@hheei/pi-magic-context": ["@hheei/pi-magic-context@0.33.1-hepi.0", "", { "dependencies": { "@huggingface/transformers": "^4.1.0", "@jitl/quickjs-singlefile-cjs-release-asyncify": "0.32.0", "ai-tokenizer": "^1.0.6", "comment-json": "^5.0.0", "quickjs-emscripten": "^0.32.0", "typebox": "^1.3.1", "zod": "^4.1.8" }, "peerDependencies": { "@earendil-works/pi-coding-agent": "^0.80.2", "@earendil-works/pi-tui": "^0.80.2" } }, "sha512-BJbUsynYE2hQm2PgTvUJ4CMQF+Id5upZNfOFvk3ZrybKaA3XzA/OFNQd9pawFQc94ejTiJrbeJ7mfXo1V3jvTw=="],
 

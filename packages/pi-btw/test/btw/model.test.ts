@@ -7,7 +7,7 @@ import {
 	extractAssistantText,
 	normalizeBtwQuestion,
 	serializeMainMessage,
-} from "../../model.js";
+} from "../../src/model.js";
 
 const message = (value: Message): Message => value;
 const assistant = (text: string): AssistantMessage => ({

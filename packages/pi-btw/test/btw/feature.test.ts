@@ -6,13 +6,10 @@ import type {
 	ExtensionContext,
 	ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
-import {
-	createHepiRuntimeContext,
-	type HepiRuntimeContext,
-} from "../../../hepi-basics/src/core/index.js";
-import type { BtwComponentController, BtwComponentOptions } from "../../component.js";
-import type { BtwExecutionResult, ExecuteBtwTurnOptions } from "../../executor.js";
-import { type BtwFeatureOptions, createBtwFeature } from "../../feature.js";
+import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
+import type { BtwComponentController, BtwComponentOptions } from "../../src/component.js";
+import type { BtwExecutionResult, ExecuteBtwTurnOptions } from "../../src/executor.js";
+import { type BtwFeatureOptions, createBtwFeature } from "../../src/feature.js";
 
 type Command = {
 	readonly handler: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
@@ -152,7 +149,12 @@ function fixture(options: FixtureOptions = {}) {
 		waitForIdle: async () => undefined,
 	};
 	const typedCtx = ctx as unknown as ExtensionCommandContext;
-	const runtime: HepiRuntimeContext = createHepiRuntimeContext(typedPi, typedCtx, {} as never);
+	const runtime = {
+		pi: typedPi,
+		extension: typedCtx,
+		signal: new AbortController().signal,
+		resources: { add: () => undefined, cleanup: async () => [] },
+	} as ExtensionLifecycleContext;
 	const execute: NonNullable<BtwFeatureOptions["execute"]> = async (
 		options: ExecuteBtwTurnOptions,
 	) =>
@@ -218,7 +220,7 @@ async function settle(): Promise<void> {
 }
 
 async function emit(harness: ReturnType<typeof fixture>, eventName: string): Promise<void> {
-	await harness.handlers.get(eventName)?.({}, harness.runtime.ctx);
+	await harness.handlers.get(eventName)?.({}, harness.runtime.extension);
 }
 
 function resolveExecution(
