@@ -143,7 +143,7 @@ _Avoid_: awaited task, background mode, scheduled job
 **Conversation**:
 A durable, root-session-scoped child AgentSession. It accepts ordered messages and may publish
 selected outbound events to explicit subscribers; it is not a transport protocol or a terminal
-task notification.
+task notification. It declares one finite maximum turn count for each message reply.
 _Avoid_: IRC transport, task with a steer button
 
 **Queued message**:
@@ -155,6 +155,17 @@ _Avoid_: steer, interruption
 An explicit conversation input that redirects an active child after its current tool execution.
 It is never inferred from send timing.
 _Avoid_: normal chat message, cancellation
+
+**Conversation reply consumption**:
+The explicit result path selected for one conversation send. `wait` binds to that send's message
+sequence and returns its reply or terminal outcome; `delivery` returns an acknowledgment and lets
+the parent delivery adapter publish the reply later.
+_Avoid_: task terminal delivery, arbitrary next reply
+
+**Wait abort fallback**:
+When a parent turn aborts while waiting for a conversation reply, only its wait observer ends. The
+child continues that message; its eventual reply is delivered through the parent queue.
+_Avoid_: silent reply loss, implicit conversation cancellation
 
 **Terminal delivery sink**:
 The caller-owned, mandatory delivery callback for a Task result. A sink failure marks
