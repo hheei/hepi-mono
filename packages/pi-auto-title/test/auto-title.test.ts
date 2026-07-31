@@ -54,6 +54,21 @@ describe("Pi Auto Title", () => {
 		}
 	});
 
+	test("reads legacy Pi Basics settings before saving under the new section", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "pi-auto-title-legacy-"));
+		try {
+			const path = join(dir, "settings.json");
+			await Bun.write(path, JSON.stringify({ "pi-basics": { "auto-title": { autoTitle: true } } }));
+			const storage = createAutoTitleStorage({ path });
+			expect(await storage.load(context(dir))).toEqual({ "auto-title": { autoTitle: true } });
+			await storage.save({ "auto-title": { autoTitle: true } }, context(dir));
+			const root = JSON.parse(await readFile(path, "utf8"));
+			expect(root["pi-auto-title"]["auto-title"]).toEqual({ autoTitle: true });
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
 	test("shares the settings write queue with other Pi Basics providers", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "pi-basics-title-concurrent-"));
 		try {
