@@ -133,3 +133,35 @@ test("turn_end ignores absent usage and another session", async (): Promise<void
 	feature.onTurnEnd(turnContext({ tokens: 65_000, contextWindow: 100_000 }, "other-session"));
 	expect(calls).toBe(0);
 });
+
+test("adopts a successful publication revision for the next historian run", async (): Promise<void> => {
+	const fixture = lifecycleFixture();
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => store(),
+		resolveProjectIdentity: async () => "git:project",
+		runHistorianForBranch: async () => ({
+			kind: "published",
+			repaired: false,
+			publication: {
+				partition: { projectIdentity: "git:project", sessionId: "session-1", revision: 1 },
+				compartment: {
+					tier: "m0",
+					sequence: 0,
+					sourceStartEntryId: "user-1",
+					sourceEndEntryId: "assistant-1",
+					sourceFingerprint: "fingerprint",
+					renderedPayload: "summary",
+					publishedRevision: 1,
+				},
+			},
+		}),
+	});
+	await feature.start(fixture.context);
+	feature.onTurnEnd(turnContext({ tokens: 65_000, contextWindow: 100_000 }));
+	await Promise.resolve();
+	await Promise.resolve();
+	const active = feature.active();
+	if (active === undefined) throw new Error("Expected active runtime");
+	expect(active.partition.revision).toBe(1);
+});

@@ -234,7 +234,9 @@ branch 重新计算 fingerprint；相邻 record 的 range 必须连续、不可 
 `m0` 进入零或多个 `m1`，不得在 `m1` 后回到 `m0`。第一个 range 可以位于 Pi initial metadata 之后；
 最后一个 verified range 的 end 是唯一 live boundary。任何不满足这些条件的 graph 不注入 model context，
 而是保留 raw Pi history，等待后续 rebuild。后续 historian publication 必须从该 verified boundary 后
-开始，不能再次覆盖已有 range。
+开始，不能再次覆盖已有 range。空 graph 的首个 publication 必须是 `m0`；已有 verified graph 的
+publication 必须是 `m1`。成功 publication 返回的新 partition revision 成为该 session runtime 的下一次
+compare-and-commit snapshot。
 
 live tail 使用 token-budgeted recent complete parent turn groups。user input、其 assistant response 和关联
 tool/result 不能被 compartment boundary 切开；只有 boundary 前的 eligible head 可以交给 historian。
