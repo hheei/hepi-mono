@@ -11,3 +11,4 @@ export * from "./project-identity.js";
 export * from "./source-history.js";
 export * from "./source-snapshot.js";
 export * from "./store.js";
+export * from "./trigger-policy.js";
