@@ -1,10 +1,14 @@
-import { Agent, type AgentMessage } from "@earendil-works/pi-agent-core";
-import { streamSimple } from "@earendil-works/pi-ai/compat";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
 	convertToLlm,
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import {
+	startSubagent,
+	type CompletionSubagentHandle,
+	type ExtensionLifecycleContext,
+} from "@hheei/pi-ext-core";
 import {
 	createHepiModelSelectionField,
 	createJsonSectionSettingsStorage,
@@ -163,6 +167,7 @@ export function createAutoTitleSettingsProvider(
 export interface AutoTitleRuntime {
 	readonly pi: ExtensionAPI;
 	readonly ctx: ExtensionContext;
+	readonly lifecycle?: ExtensionLifecycleContext;
 }
 const ANSI_ESCAPE = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "g");
 
@@ -305,27 +310,27 @@ export function createCoreAutoTitleAgent(
 	const model = runtime.ctx.modelRegistry.find(provider, modelId);
 	if (!model || !runtime.ctx.modelRegistry.hasConfiguredAuth(model))
 		throw new Error(`Unavailable title model: ${modelRef}`);
-	const agent = new Agent({
-		sessionId: `pi-basics-auto-title:${runtime.ctx.sessionManager.getSessionId()}`,
-		initialState: {
-			systemPrompt: AUTO_TITLE_SYSTEM_PROMPT,
-			model,
-			thinkingLevel: "off",
-			tools: [],
-		},
-		convertToLlm,
-		getApiKey: (providerName) => runtime.ctx.modelRegistry.getApiKeyForProvider(providerName),
-		streamFn: streamSimple,
-	});
+	let handle: CompletionSubagentHandle | undefined;
+	let output: string | undefined;
 	return {
 		prompt: async (prompt) => {
-			await agent.prompt(prompt);
+			if (runtime.lifecycle === undefined) throw new Error("Auto-title completion lifecycle unavailable");
+			handle = startSubagent(runtime.lifecycle, {
+				mode: "completion",
+				model,
+				prompt,
+				systemPrompt: AUTO_TITLE_SYSTEM_PROMPT,
+				thinkingLevel: "off",
+			});
+			const result = await handle.result;
+			if (result.status !== "completed") throw new Error(result.failure ?? result.status);
+			output = result.output;
 		},
-		abort: () => agent.abort(),
+		abort: () => handle?.cancel(),
 		waitForIdle: async () => {
-			await agent.waitForIdle();
+			await undefined;
 		},
-		result: () => completedTitleText(agent.state.messages),
+		result: () => output,
 	};
 }
 

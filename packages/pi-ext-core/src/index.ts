@@ -46,6 +46,7 @@ export type {
 	ConversationSubagentHandle,
 	ConversationSubagentSpec,
 	ConversationTerminalResult,
+	ResolvedChildSessionFactory,
 	SubagentEvent,
 	SubagentEventKind,
 	SubagentEventSubscription,

@@ -43,6 +43,9 @@
 	"publishConfig": {
 		"access": "public"
 	},
+	"dependencies": {
+		"@hheei/pi-ext-core": "workspace:*"
+	},
 	"peerDependencies": {
 		"@earendil-works/pi-agent-core": ">=0.82.0",
 		"@earendil-works/pi-ai": ">=0.82.0",

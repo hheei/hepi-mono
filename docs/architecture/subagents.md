@@ -9,13 +9,19 @@ TypeScript interface framework、focused tests、行为实现。现有 `pi-subag
 ## 目标与所有权
 
 `@hheei/pi-ext-core` 直接拥有统一的 root-session-scoped subagent execution runtime。它建立和清理
-operation、child `AgentSession`、shared concurrency admission、cancel、terminal result 与 event
-subscription；使用 core 的 extension 不能依赖 concrete `pi-subagents` package。
+operation、由 consumer 提供 factory 创建的 child `AgentSession`、shared concurrency admission、cancel、
+terminal result 与 event subscription；使用 core 的 extension 不能依赖 concrete `pi-subagents` package。
 
 `pi-subagents` 保留 agent catalog、custom-agent/config/prompt/model resolution、tool/extension scope、
 settings、TUI、transcript、worktree、schedule trigger 与 terminal delivery adapter。它在调用 core 前
-解析这些 feature policy，并将结果作为 immutable execution spec 交给 core。core 不解析 agent name
-或 frontmatter，不保存 settings，不注册 command/tool/UI，也不使用 `pi.events` 作为 RPC。
+解析这些 feature policy，并将结果作为 immutable execution spec 和 resolved child-session factory 交给
+core。core 不解析 agent name 或 frontmatter，不保存 settings，不注册 command/tool/UI，也不使用
+`pi.events` 作为 RPC。
+
+resolved child-session factory 是 consumer-owned 的 immutable boundary：它只创建已解析 policy 的
+`AgentSession`。consumer 拥有 agent/model/prompt/tool/worktree policy；core 取得 factory product 后独占
+admission、执行、取消、terminalization 与 dispose。公开 consumer API 不暴露 raw
+`CreateAgentSessionOptions`，core 也不把 factory 扩大为 agent-policy framework。
 
 这是 core 的显式单-consumer exception，原因见 [ADR 0004](../adr/0004-core-subagent-execution.md)。
 它不能成为 generic worker、event bus、durable job scheduler 或 cross-extension message framework 的
@@ -31,9 +37,9 @@ timing 猜测。
 
 | Mode           | 执行边界                                                         | 结果与交互                                              |
 | -------------- | ------------------------------------------------------------ | -------------------------------------------------- |
-| `completion`   | 单次、无 tool 的模型生成；不创建 child session、transcript 或 input channel | caller 等待受限 completion result；用于 auto-title、分类、短摘要 |
+| `completion`   | 单次、无 tool 的模型生成；不创建 child session、transcript 或 input channel | caller 等待受限 completion result；用于 `/btw`、auto-title、分类、短摘要 |
 | `task` | 有限、多轮、可使用已解析 tool policy 的 child execution；每项必填有限 soft `maxTurns` | 一个 terminal result；必须通过 delivery sink 自动交给 parent adapter |
-| `conversation` | durable child `AgentSession`，但只存活于 parent session；create 时必填 initial message、reply consumption 与有限 soft `maxTurnsPerReply` | 可持续送入 message，并选择同步 wait 或异步 delivery reply |
+| `conversation` | durable child `AgentSession`，但只存活于 parent session；create 时必填 initial message、reply consumption 与有限 soft `maxTurnsPerReply` | 可持续送入 message，并选择同步 wait 或异步 delivery reply；用于 Advisor 等保留 child review context 的 consumer |
 
 
 foreground/background 不是第四 mode，也没有主 agent `wait` 或 result-polling tool。task launch 后立即
@@ -127,11 +133,10 @@ turn** 使用同一个 root-session concurrency cap；queued work 保持 FIFO ad
 quota、priority scheduler 或 caller-owned pool。child session 不能创建 subagent；root 是唯一 budget、
 cancellation tree 和 retention owner。
 
-`pi-subagents` 是 coordinator configuration 的唯一 lifecycle owner。它在每个 parent session start
-提供当前 `maxConcurrent`，值必须是 positive integer。core 只接受该 session 第一项 live configuration；
-另一 lifecycle owner 在前者仍 live 时配置是 collision error，不按 load order 替换或协商。owner signal
-abort 会释放配置，因此 `/reload` 的 shutdown/start 会建立新 coordinator 并重新读取 setting。cap 不属于
-每个 task spec，core 也不设 hidden default。
+每个 direct consumer 可在 parent session start 提供当前 `maxConcurrent`，值必须是 positive integer。core
+接受该 session 第一项 live configuration；后续 consumer 只能声明相同值，不同值是 collision error，不按
+load order 替换或协商。首个 owner signal abort 会释放配置，因此 `/reload` 的 shutdown/start 会建立新
+coordinator 并重新读取 setting。cap 不属于每个 task spec，core 也不设 hidden default。
 
 每个 async continuation 都绑定 parent lifecycle signal 和 handle revision。terminal transition
 idempotent：只会建立一个 terminal result、自动 delivery sink 最多执行一次、至多发送一次 terminal

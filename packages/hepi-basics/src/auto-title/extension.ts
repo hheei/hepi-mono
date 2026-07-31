@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { configureSubagentCoordinator } from "@hheei/pi-ext-core";
 import {
 	getHepiRuntimeSettingsRegistry,
 	HepiLifecycleController,
@@ -21,6 +22,18 @@ export default function piAutoTitleExtension(pi: ExtensionAPI): void {
 	let run: (() => void) | undefined;
 	const lifecycle = new HepiLifecycleController({
 		onStart: async (runtime) => {
+			const completionController = new AbortController();
+			const completionLifecycle = {
+				pi,
+				extension: runtime.ctx,
+				signal: completionController.signal,
+				resources: { add: () => undefined, cleanup: async () => [] },
+			};
+			configureSubagentCoordinator(completionLifecycle, { maxActiveTurns: 2 });
+			runtime.registry.registerLifecycle({
+				id: "auto-title-completions",
+				cleanup: () => completionController.abort(),
+			});
 			const modelOptions = hepiAuthenticatedModelSelectionOptions(runtime.ctx.modelRegistry);
 			const provider = createAutoTitleSettingsProvider({
 				modelOptions,
@@ -49,7 +62,9 @@ export default function piAutoTitleExtension(pi: ExtensionAPI): void {
 					if (model !== undefined) await provider.onLoad?.(state ?? {}, context);
 					const selected = model ?? modelOptions.find((option) => option.value !== "")?.value;
 					coordinator =
-						selected === undefined ? undefined : createAutoTitleCoordinator(runtime, selected);
+					selected === undefined
+						? undefined
+						: createAutoTitleCoordinator({ ...runtime, lifecycle: completionLifecycle }, selected);
 				}
 			} catch (error) {
 				runtime.ctx.ui.notify(

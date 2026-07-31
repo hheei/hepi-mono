@@ -1,7 +1,10 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { Api, Model } from "@earendil-works/pi-ai";
-import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
+import type { Api, AssistantMessage, Context, Model } from "@earendil-works/pi-ai";
+import { completeSimple } from "@earendil-works/pi-ai/compat";
+import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import { getGlobalState } from "./global-state.js";
 import type { ExtensionLifecycleContext } from "./lifecycle.js";
+import { runtimeIdentity } from "./runtime-identity.js";
 
 declare const subagentIdBrand: unique symbol;
 declare const conversationMessageSequenceBrand: unique symbol;
@@ -35,8 +38,19 @@ export interface CompletionSubagentSpec {
 	/** Resolved model. Core reads its credential through the lifecycle model registry. */
 	readonly model: Model<Api>;
 	readonly prompt: string;
+	/** Pre-resolved messages for a one-shot completion; when absent core uses `prompt` as one user message. */
+	readonly messages?: Context["messages"];
 	readonly systemPrompt: string;
 	readonly thinkingLevel: ThinkingLevel;
+}
+
+/**
+ * Consumer-owned, immutable child-session policy resolved before execution.
+ * Core invokes this once after admission, then exclusively owns prompt, abort,
+ * terminalization, and disposal of the returned session.
+ */
+export interface ResolvedChildSessionFactory {
+	create(signal: AbortSignal): Promise<AgentSession>;
 }
 
 export interface TaskTerminalResult {
@@ -59,8 +73,7 @@ export type TaskTerminalDeliverySink = (
 
 export interface TaskSubagentSpec {
 	readonly mode: "task";
-	/** Fully resolved Pi child-session policy; core invokes `createAgentSession` with it. */
-	readonly session: CreateAgentSessionOptions;
+	readonly session: ResolvedChildSessionFactory;
 	readonly prompt: string;
 	/** Positive soft turn cap. Core gives one wrap-up steer and five fixed grace turns. */
 	readonly maxTurns: number;
@@ -95,8 +108,7 @@ export interface ConversationSendOptions {
 
 export interface ConversationSubagentSpec {
 	readonly mode: "conversation";
-	/** Fully resolved Pi child-session policy; core invokes `createAgentSession` with it. */
-	readonly session: CreateAgentSessionOptions;
+	readonly session: ResolvedChildSessionFactory;
 	/** First child message. Creation never starts an unowned prompt. */
 	readonly initialMessage: string;
 	readonly initialReply: ConversationReplyConsumption;
@@ -230,10 +242,28 @@ export type SubagentHandle =
  * A second live owner is a collision error; lifecycle abort releases ownership.
  */
 export function configureSubagentCoordinator(
-	_context: ExtensionLifecycleContext,
-	_options: ConfigureSubagentCoordinatorOptions,
+	context: ExtensionLifecycleContext,
+	options: ConfigureSubagentCoordinatorOptions,
 ): void {
-	throw new Error("@hheei/pi-ext-core subagent execution is not implemented");
+	if (!Number.isSafeInteger(options.maxActiveTurns) || options.maxActiveTurns < 1) {
+		throw new Error("maxActiveTurns must be a positive integer");
+	}
+	const coordinator = getCoordinator(context);
+	if (coordinator.maxActiveTurns !== undefined) {
+		if (coordinator.maxActiveTurns === options.maxActiveTurns) return;
+		throw new Error(
+			`Subagent coordinator cap collision: active cap is ${coordinator.maxActiveTurns}, requested ${options.maxActiveTurns}`,
+		);
+	}
+	coordinator.maxActiveTurns = options.maxActiveTurns;
+	const release = (): void => {
+		if (coordinator.ownerSignal === context.signal) {
+			coordinator.maxActiveTurns = undefined;
+			coordinator.ownerSignal = undefined;
+		}
+	};
+	coordinator.ownerSignal = context.signal;
+	context.signal.addEventListener("abort", release, { once: true });
 }
 
 /**
@@ -257,25 +287,560 @@ export function startSubagent(
 	_spec: SubagentSpec,
 ): SubagentHandle;
 export function startSubagent(
-	_context: ExtensionLifecycleContext,
-	_spec: SubagentSpec,
+	context: ExtensionLifecycleContext,
+	spec: SubagentSpec,
 ): SubagentHandle {
-	throw new Error("@hheei/pi-ext-core subagent execution is not implemented");
+	const coordinator = getCoordinator(context);
+	if (coordinator.maxActiveTurns === undefined) {
+		throw new Error("Subagent coordinator is not configured for this Pi runtime");
+	}
+	switch (spec.mode) {
+		case "completion":
+			return startCompletion(context, coordinator, spec);
+		case "task":
+			return startTask(context, coordinator, spec);
+		case "conversation":
+			return startConversation(context, coordinator, spec);
+	}
 }
 
 /** Returns a retained terminal handle for this parent lifecycle, if it still exists. */
 export function lookupSubagent(
-	_context: ExtensionLifecycleContext,
-	_id: SubagentId,
+	context: ExtensionLifecycleContext,
+	id: SubagentId,
 ): SubagentHandle | undefined {
-	throw new Error("@hheei/pi-ext-core subagent execution is not implemented");
+	return getCoordinator(context).handles.get(id)?.handle;
 }
 
 /** Explicitly retries delivery of one retained Task result without rerunning its execution. */
 export function redeliverTask(
-	_context: ExtensionLifecycleContext,
-	_id: SubagentId,
-	_delivery: TaskTerminalDeliverySink,
+	context: ExtensionLifecycleContext,
+	id: SubagentId,
+	delivery: TaskTerminalDeliverySink,
 ): Promise<void> {
-	throw new Error("@hheei/pi-ext-core subagent execution is not implemented");
+	const record = getCoordinator(context).handles.get(id);
+	if (record?.terminal === undefined || record.handle.mode !== "task") {
+		return Promise.reject(new Error(`No retained Task result exists for ${id}`));
+	}
+	return Promise.resolve(
+		delivery(record.terminal as TaskTerminalResult, record.controller.signal),
+	).catch(() => undefined);
+}
+
+interface Coordinator {
+	maxActiveTurns: number | undefined;
+	ownerSignal: AbortSignal | undefined;
+	activeTurns: number;
+	nextId: number;
+	readonly queue: Array<() => void>;
+	readonly handles: Map<SubagentId, HandleRecord>;
+}
+
+interface HandleRecord {
+	readonly controller: AbortController;
+	readonly handle: SubagentHandle;
+	readonly subscribers: Set<EventSubscriber>;
+	terminal: SubagentTerminalResult | undefined;
+}
+
+interface EventSubscriber {
+	readonly options: SubscribeSubagentEventsOptions;
+	readonly queue: SubagentEvent[];
+	running: boolean;
+	disposed: boolean;
+}
+
+function getCoordinator(context: ExtensionLifecycleContext): Coordinator {
+	const coordinators = getGlobalState(
+		"subagent-coordinators",
+		(): WeakMap<object, Coordinator> => new WeakMap(),
+	);
+	const identity = runtimeIdentity(context.pi);
+	const existing = coordinators.get(identity);
+	if (existing !== undefined) return existing;
+	const created: Coordinator = {
+		maxActiveTurns: undefined,
+		ownerSignal: undefined,
+		activeTurns: 0,
+		nextId: 0,
+		queue: [],
+		handles: new Map(),
+	};
+	coordinators.set(identity, created);
+	return created;
+}
+
+function nextId(coordinator: Coordinator): SubagentId {
+	coordinator.nextId += 1;
+	return `subagent-${coordinator.nextId}` as SubagentId;
+}
+
+function admit(coordinator: Coordinator, operation: () => Promise<void>): void {
+	const start = (): void => {
+		coordinator.activeTurns += 1;
+		void operation().finally(() => {
+			coordinator.activeTurns -= 1;
+			const queued = coordinator.queue.shift();
+			if (queued !== undefined) queued();
+		});
+	};
+	if (coordinator.activeTurns < (coordinator.maxActiveTurns ?? 0)) start();
+	else coordinator.queue.push(start);
+}
+
+function createController(signal: AbortSignal): AbortController {
+	const controller = new AbortController();
+	if (signal.aborted) controller.abort();
+	else signal.addEventListener("abort", () => controller.abort(), { once: true });
+	return controller;
+}
+
+function failureMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+function assistantText(message: AssistantMessage | undefined): string {
+	if (message === undefined) return "";
+	return message.content
+		.flatMap((part) => (part.type === "text" ? [part.text] : []))
+		.join("")
+		.trim();
+}
+
+function lastAssistantText(session: AgentSession, startIndex: number): string {
+	for (let index = session.messages.length - 1; index >= startIndex; index -= 1) {
+		const message = session.messages[index];
+		if (message?.role === "assistant") return assistantText(message);
+	}
+	return "";
+}
+
+function emit(record: HandleRecord, event: SubagentEvent): void {
+	for (const subscriber of record.subscribers) {
+		if (subscriber.disposed || !subscriber.options.kinds.has(event.kind)) continue;
+		if (event.kind === "terminal") subscriber.queue.push(event);
+		else if (subscriber.queue.length < 16) subscriber.queue.push(event);
+		else {
+			const prior = subscriber.queue.findIndex((candidate) => candidate.kind === event.kind);
+			if (prior >= 0) subscriber.queue[prior] = event;
+		}
+		pumpSubscriber(subscriber);
+	}
+}
+
+function pumpSubscriber(subscriber: EventSubscriber): void {
+	if (subscriber.running || subscriber.disposed) return;
+	subscriber.running = true;
+	void (async (): Promise<void> => {
+		while (!subscriber.disposed) {
+			const event = subscriber.queue.shift();
+			if (event === undefined) break;
+			try {
+				await subscriber.options.onEvent(event);
+			} catch {
+				// Observers are non-owning; a renderer failure cannot stop the child.
+			}
+		}
+		subscriber.running = false;
+	})();
+}
+
+function subscribe(
+	record: HandleRecord,
+	options: SubscribeSubagentEventsOptions,
+): SubagentEventSubscription {
+	const subscriber: EventSubscriber = { options, queue: [], running: false, disposed: false };
+	const dispose = (): void => {
+		if (subscriber.disposed) return;
+		subscriber.disposed = true;
+		subscriber.queue.length = 0;
+		record.subscribers.delete(subscriber);
+	};
+	if (options.signal.aborted) dispose();
+	else options.signal.addEventListener("abort", dispose, { once: true });
+	record.subscribers.add(subscriber);
+	return { dispose };
+}
+
+function startCompletion(
+	context: ExtensionLifecycleContext,
+	coordinator: Coordinator,
+	spec: CompletionSubagentSpec,
+): CompletionSubagentHandle {
+	const id = nextId(coordinator);
+	const controller = createController(context.signal);
+	let status: SubagentStatus = "queued";
+	let settle: (result: CompletionSubagentResult) => void = () => undefined;
+	const result = new Promise<CompletionSubagentResult>((resolve) => {
+		settle = resolve;
+	});
+	const handle: CompletionSubagentHandle = {
+		id,
+		mode: "completion",
+		get status(): SubagentStatus {
+			return status;
+		},
+		result,
+		cancel(): void {
+			controller.abort();
+		},
+		subscribe(options: SubscribeSubagentEventsOptions): SubagentEventSubscription {
+			return subscribe(record, options);
+		},
+	};
+	const record: HandleRecord = { controller, handle, subscribers: new Set(), terminal: undefined };
+	coordinator.handles.set(id, record);
+	admit(coordinator, async () => {
+		status = "running";
+		emit(record, { kind: "turn", id, state: "running" });
+		let terminal: CompletionSubagentResult;
+		try {
+			if (controller.signal.aborted)
+				terminal = { id, mode: "completion", status: "cancelled", output: "" };
+			else {
+				const auth = await context.extension.modelRegistry.getApiKeyAndHeaders(spec.model);
+				if (!auth.ok) throw new Error(auth.error);
+				const message = await completeSimple(
+					spec.model,
+					{
+						systemPrompt: spec.systemPrompt,
+						messages:
+							spec.messages ?? [{ role: "user", content: spec.prompt, timestamp: Date.now() }],
+						tools: [],
+					},
+					{
+						signal: controller.signal,
+						...(auth.apiKey === undefined ? {} : { apiKey: auth.apiKey }),
+						...(auth.headers === undefined ? {} : { headers: auth.headers }),
+						...(auth.env === undefined ? {} : { env: auth.env }),
+					},
+				);
+				const output = assistantText(message);
+				terminal = controller.signal.aborted
+					? { id, mode: "completion", status: "cancelled", output: "" }
+					: message.stopReason === "stop" && output
+						? { id, mode: "completion", status: "completed", output }
+						: {
+								id,
+								mode: "completion",
+								status: "failed",
+								output: "",
+								failure: "Completion produced no final text",
+							};
+			}
+		} catch (error) {
+			terminal = controller.signal.aborted
+				? { id, mode: "completion", status: "cancelled", output: "" }
+				: { id, mode: "completion", status: "failed", output: "", failure: failureMessage(error) };
+		}
+		status = terminal.status;
+		record.terminal = terminal;
+		settle(terminal);
+		emit(record, { kind: "terminal", id, result: terminal });
+	});
+	return handle;
+}
+
+function startTask(
+	context: ExtensionLifecycleContext,
+	coordinator: Coordinator,
+	spec: TaskSubagentSpec,
+): TaskSubagentHandle {
+	if (!Number.isSafeInteger(spec.maxTurns) || spec.maxTurns < 1)
+		throw new Error("Task maxTurns must be a positive integer");
+	const id = nextId(coordinator);
+	const controller = createController(context.signal);
+	let status: SubagentStatus = "queued";
+	let settle: (result: TaskTerminalResult) => void = () => undefined;
+	const result = new Promise<TaskTerminalResult>((resolve) => {
+		settle = resolve;
+	});
+	const handle: TaskSubagentHandle = {
+		id,
+		mode: "task",
+		get status(): SubagentStatus {
+			return status;
+		},
+		result,
+		cancel(): void {
+			controller.abort();
+		},
+		subscribe(options: SubscribeSubagentEventsOptions): SubagentEventSubscription {
+			return subscribe(record, options);
+		},
+	};
+	const record: HandleRecord = { controller, handle, subscribers: new Set(), terminal: undefined };
+	coordinator.handles.set(id, record);
+	admit(coordinator, async () => {
+		status = "running";
+		emit(record, { kind: "turn", id, state: "running" });
+		let terminal: SessionTurnResult;
+		let session: AgentSession | undefined;
+		try {
+			session = await spec.session.create(controller.signal);
+			terminal = await runSessionTurn(
+				id,
+				controller,
+				spec.session,
+				spec.prompt,
+				spec.maxTurns,
+				record,
+				session,
+			);
+		} catch (error) {
+			terminal = controller.signal.aborted
+				? { id, status: "cancelled", output: "", softLimitReached: false }
+				: {
+						id,
+						status: "failed",
+						output: "",
+						softLimitReached: false,
+						failure: failureMessage(error),
+					};
+		} finally {
+			session?.dispose();
+		}
+		const taskResult: TaskTerminalResult = { ...terminal, mode: "task" };
+		status = taskResult.status;
+		record.terminal = taskResult;
+		settle(taskResult);
+		emit(record, { kind: "terminal", id, result: taskResult });
+		void Promise.resolve(spec.delivery(taskResult, controller.signal)).catch(() => undefined);
+	});
+	return handle;
+}
+
+interface SessionTurnResult {
+	readonly id: SubagentId;
+	readonly status: "completed" | "failed" | "cancelled" | "limit_reached";
+	readonly output: string;
+	readonly softLimitReached: boolean;
+	readonly failure?: string;
+}
+
+async function runSessionTurn(
+	id: SubagentId,
+	controller: AbortController,
+	factory: ResolvedChildSessionFactory,
+	prompt: string,
+	maxTurns: number,
+	record: HandleRecord,
+	existingSession?: AgentSession,
+): Promise<SessionTurnResult> {
+	let session = existingSession;
+	let unsubscribe = (): void => undefined;
+	let startIndex = 0;
+	let turns = 0;
+	let softLimitReached = false;
+	try {
+		session = session ?? (await factory.create(controller.signal));
+		if (controller.signal.aborted) {
+			void session.abort();
+			return { id, status: "cancelled", output: "", softLimitReached: false };
+		}
+		const activeSession = session;
+		const forwardAbort = (): void => void activeSession.abort();
+		controller.signal.addEventListener("abort", forwardAbort, { once: true });
+		startIndex = activeSession.messages.length;
+		unsubscribe = activeSession.subscribe((event: AgentSessionEvent) => {
+			if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
+				emit(record, {
+					kind: "text",
+					id,
+					text: lastAssistantText(activeSession, startIndex) + event.assistantMessageEvent.delta,
+				});
+			}
+			if (event.type === "tool_execution_start")
+				emit(record, { kind: "tool", id, toolName: event.toolName, state: "start" });
+			if (event.type === "tool_execution_end")
+				emit(record, { kind: "tool", id, toolName: event.toolName, state: "end" });
+			if (event.type === "turn_end") {
+				turns += 1;
+				if (!softLimitReached && turns >= maxTurns) {
+					softLimitReached = true;
+					void activeSession.steer(
+						"You have reached your turn limit. Wrap up immediately with your final answer.",
+					);
+				} else if (softLimitReached && turns >= maxTurns + 5) {
+					void activeSession.abort();
+				}
+			}
+		});
+		await activeSession.prompt(prompt);
+		const output = lastAssistantText(activeSession, startIndex);
+		if (controller.signal.aborted) return { id, status: "cancelled", output: "", softLimitReached };
+		if (turns >= maxTurns + 5)
+			return { id, status: "limit_reached", output, softLimitReached: true };
+		return { id, status: "completed", output, softLimitReached };
+	} catch (error) {
+		return controller.signal.aborted
+			? { id, status: "cancelled", output: "", softLimitReached }
+			: { id, status: "failed", output: "", softLimitReached, failure: failureMessage(error) };
+	} finally {
+		unsubscribe();
+	}
+}
+
+interface ConversationItem {
+	readonly message: string;
+	readonly sequence: ConversationMessageSequence;
+	readonly reply: ConversationReplyConsumption;
+	resolve(result: ConversationReplyResult): void;
+}
+
+function startConversation(
+	context: ExtensionLifecycleContext,
+	coordinator: Coordinator,
+	spec: ConversationSubagentSpec,
+): ConversationSubagentHandle {
+	if (!Number.isSafeInteger(spec.maxTurnsPerReply) || spec.maxTurnsPerReply < 1) {
+		throw new Error("Conversation maxTurnsPerReply must be a positive integer");
+	}
+	const id = nextId(coordinator);
+	const controller = createController(context.signal);
+	let status: SubagentStatus = "queued";
+	let sequence = 0;
+	let session: AgentSession | undefined;
+	let current: ConversationItem | undefined;
+	const pending: ConversationItem[] = [];
+	let settle: (result: ConversationTerminalResult) => void = () => undefined;
+	const result = new Promise<ConversationTerminalResult>((resolve) => {
+		settle = resolve;
+	});
+	const terminal = (failure: string | undefined): void => {
+		if (record.terminal !== undefined) return;
+		const value: ConversationTerminalResult =
+			failure === undefined
+				? { id, mode: "conversation", status: "cancelled" }
+				: { id, mode: "conversation", status: "failed", failure };
+		status = value.status;
+		record.terminal = value;
+		session?.dispose();
+		settle(value);
+		emit(record, { kind: "terminal", id, result: value });
+		for (const item of pending.splice(0)) {
+			item.resolve({
+				id,
+				sequence: item.sequence,
+				status: value.status,
+				output: "",
+				softLimitReached: false,
+				...(failure === undefined ? {} : { failure }),
+			});
+		}
+	};
+	const schedule = (): void => {
+		if (current !== undefined || pending.length === 0 || record.terminal !== undefined) return;
+		const item = pending.shift();
+		if (item === undefined) return;
+		current = item;
+		admit(coordinator, async () => {
+			status = "running";
+			emit(record, { kind: "turn", id, state: "running" });
+			if (session === undefined) {
+				try {
+					session = await spec.session.create(controller.signal);
+				} catch (error) {
+					terminal(failureMessage(error));
+					current = undefined;
+					return;
+				}
+			}
+			const turn = await runSessionTurn(
+				id,
+				controller,
+				spec.session,
+				item.message,
+				spec.maxTurnsPerReply,
+				record,
+				session,
+			);
+			const reply: ConversationReplyResult = { ...turn, sequence: item.sequence };
+			if (record.terminal === undefined) {
+				status = "idle";
+				emit(record, { kind: "turn", id, state: "idle" });
+				item.resolve(reply);
+				if (item.reply.kind === "delivery")
+					void Promise.resolve(item.reply.delivery(reply, controller.signal)).catch(
+						() => undefined,
+					);
+			}
+			current = undefined;
+			if (controller.signal.aborted) terminal(undefined);
+			else schedule();
+		});
+	};
+	const accept = (
+		message: string,
+		reply: ConversationReplyConsumption,
+	): Promise<ConversationReplyResult> => {
+		sequence += 1;
+		const itemSequence = sequence as ConversationMessageSequence;
+		const promise = new Promise<ConversationReplyResult>((resolve) => {
+			pending.push({ message, sequence: itemSequence, reply, resolve });
+		});
+		schedule();
+		return promise;
+	};
+	let initialResolve: (value: ConversationReplyResult) => void = () => undefined;
+	const initialReply = new Promise<ConversationReplyResult>((resolve) => {
+		initialResolve = resolve;
+	});
+	function send(
+		message: string,
+		options: ConversationSendOptions & { readonly reply: { readonly kind: "wait" } },
+	): Promise<ConversationReplyResult>;
+	function send(
+		message: string,
+		options: ConversationSendOptions & {
+			readonly reply: {
+				readonly kind: "delivery";
+				readonly delivery: ConversationReplyDeliverySink;
+			};
+		},
+	): Promise<ConversationDeliveryAcknowledgement>;
+	function send(
+		message: string,
+		options: ConversationSendOptions,
+	): Promise<ConversationReplyResult | ConversationDeliveryAcknowledgement>;
+	function send(
+		message: string,
+		options: ConversationSendOptions,
+	): Promise<ConversationReplyResult | ConversationDeliveryAcknowledgement> {
+		if (!message.trim()) return Promise.reject(new Error("Conversation message must not be empty"));
+		if (options.inputMode === "steer" && current !== undefined && session !== undefined) {
+			void session.steer(message);
+		}
+		const reply = accept(message, options.reply);
+		if (options.reply.kind === "delivery") {
+			return Promise.resolve({
+				id,
+				sequence: sequence as ConversationMessageSequence,
+				accepted: true,
+			});
+		}
+		return reply;
+	}
+	const handle: ConversationSubagentHandle = {
+		id,
+		mode: "conversation",
+		get status(): SubagentStatus {
+			return status;
+		},
+		result,
+		initialReply,
+		cancel(): void {
+			controller.abort();
+			if (session !== undefined) void session.abort();
+		},
+		subscribe(options: SubscribeSubagentEventsOptions): SubagentEventSubscription {
+			return subscribe(record, options);
+		},
+		send,
+	};
+	const record: HandleRecord = { controller, handle, subscribers: new Set(), terminal: undefined };
+	coordinator.handles.set(id, record);
+	void accept(spec.initialMessage, spec.initialReply).then(initialResolve);
+	controller.signal.addEventListener("abort", () => terminal(undefined), { once: true });
+	return handle;
 }

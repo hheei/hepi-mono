@@ -8,8 +8,10 @@
 
 core 只拥有 completion、task、conversation handle 的 execution lifecycle、shared concurrency cap、
 cancellation、terminal result、parent-session retention/lookup/redelivery 和 bounded snapshot event
-subscription。task 必须有 finite `maxTurns`；它不拥有 agent catalog、frontmatter、prompt/model/tool
-policy、settings、worktree、schedule、transcript、TUI、notification 或 parent context injection。
+subscription。task 必须有 finite `maxTurns`；它通过 consumer-owned resolved child-session factory 创建
+child session，取得后独占其执行与释放。它不拥有 agent catalog、frontmatter、prompt/model/tool policy、
+settings、worktree、schedule、transcript、TUI、notification 或 parent context injection，也不向 consumer
+暴露 raw `CreateAgentSessionOptions`。
 
 统一 handle 使用 discriminated mode；task 一律 launch-and-deliver，不提供 main-agent wait 或 result
 polling tool。task `maxTurns` 与 conversation `maxTurnsPerReply` 都是 soft request cap：一次 wrap-up
@@ -23,9 +25,9 @@ retry。`pi.events` 只可由上层 adapter 做 notification，不得成为 core
 conversation create 同时声明第一条 child message 与其 wait/delivery reply consumption；不允许无 owner 的
 自动 initial prompt。
 
-shared active-turn cap 由 `pi-subagents` 在每个 session start 配置：第一项 live lifecycle configuration
-获所有权，第二 owner 是 collision error，owner abort 才释放。core 没有 per-task cap、hidden default 或
-load-order replacement。
+shared active-turn cap 由每个 direct consumer 在每个 session start 声明：第一项 live lifecycle
+configuration 获所有权，之后仅相同值可加入，不同值是 collision error，owner abort 才释放。core 没有
+per-task cap、hidden default 或 load-order replacement。
 
 完整 contract、failure 与 concurrency semantics 见
 [Subagent 执行架构](../architecture/subagents.md)。此 ADR 不授权再向 core 加入 generic worker、

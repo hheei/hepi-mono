@@ -3,8 +3,8 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "../../../hepi-basics/src/core/index.js";
 import { assertVisibleWidth, fakeTheme, stripAnsi } from "../../../hepi-basics/test/helpers.js";
-import { createBtwComponent } from "../../component.js";
-import { createBtwTurn } from "../../model.js";
+import { createBtwComponent } from "../../src/component.js";
+import { createBtwTurn } from "../../src/model.js";
 
 const theme = fakeTheme() as unknown as Theme;
 

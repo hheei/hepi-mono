@@ -1,12 +1,13 @@
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, Model } from "@earendil-works/pi-ai";
+import { startSubagent, type CompletionSubagentHandle } from "@hheei/pi-ext-core";
 import {
 	convertToLlm,
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import type { HepiRuntimeContext } from "@hheei/hepi-basics";
+import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
 import { type BtwComponentController, createBtwComponent } from "./component.js";
-import { executeBtwTurn } from "./executor.js";
+import { type BtwExecutionResult, executeBtwTurn } from "./executor.js";
 import {
 	type BtwRequestToken,
 	type BtwTurn,
@@ -14,11 +15,12 @@ import {
 	createBtwTurn,
 	normalizeBtwQuestion,
 } from "./model.js";
+import { BTW_SYSTEM_PROMPT } from "./prompt.js";
 
 export const BTW_COMMAND_NAME = "btw";
 
 export interface BtwFeature {
-	start(runtime: HepiRuntimeContext): void;
+	start(runtime: ExtensionLifecycleContext): void;
 	dispose(sessionId: string): void;
 }
 
@@ -30,6 +32,7 @@ export interface BtwFeatureOptions {
 interface ActiveRequest {
 	readonly token: BtwRequestToken;
 	readonly controller: AbortController;
+	handle?: CompletionSubagentHandle;
 	component?: BtwComponentController;
 }
 
@@ -48,7 +51,7 @@ function hasResolvedContext(value: unknown): value is SessionContextSource {
 
 interface ActiveRuntime {
 	readonly sessionId: string;
-	readonly runtime: HepiRuntimeContext;
+	readonly runtime: ExtensionLifecycleContext;
 	readonly runtimeRevision: number;
 	turns: BtwTurn[];
 	contextRevision: number;
@@ -82,7 +85,46 @@ function abortRequest(current: ActiveRuntime, closeOverlay: boolean): void {
 	const request = current.activeRequest;
 	if (!request) return;
 	request.controller.abort();
+	request.handle?.cancel();
 	if (closeOverlay) request.component?.close();
+}
+
+async function executeCoreCompletion(
+	runtime: ActiveRuntime,
+	request: ActiveRequest,
+	model: Model<Api>,
+	messages: ReturnType<typeof buildBtwMessages>,
+): Promise<BtwExecutionResult> {
+	const handle = startSubagent(runtime.runtime, {
+		mode: "completion",
+		model,
+		prompt: "",
+		messages: [...messages],
+		systemPrompt: BTW_SYSTEM_PROMPT,
+		thinkingLevel: "off",
+	});
+	request.handle = handle;
+	const result = await handle.result;
+	if (result.status === "cancelled") return { status: "aborted" };
+	if (result.status !== "completed") return { status: "error", message: result.failure ?? "The BTW request failed" };
+	const response: AssistantMessage = {
+		role: "assistant",
+		content: [{ type: "text", text: result.output }],
+		api: model.api,
+		provider: model.provider,
+		model: model.id,
+		usage: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 0,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
+		stopReason: "stop",
+		timestamp: Date.now(),
+	};
+	return { status: "success", response, text: result.output };
 }
 
 function terminalRows(): number {
@@ -102,7 +144,7 @@ function btwOverlayOptions(): {
 }
 
 export function createBtwFeature(pi: ExtensionAPI, options: BtwFeatureOptions = {}): BtwFeature {
-	const execute = options.execute ?? executeBtwTurn;
+	const execute = options.execute;
 	const createComponent = options.createComponent ?? createBtwComponent;
 	let active: ActiveRuntime | undefined;
 	let runtimeRevision = 0;
@@ -124,26 +166,29 @@ export function createBtwFeature(pi: ExtensionAPI, options: BtwFeatureOptions = 
 		question: string,
 	): Promise<void> => {
 		try {
-			const model = current.runtime.ctx.model;
+			const model = current.runtime.extension.model;
 			if (!model) {
 				if (isCurrentRequest(current, request)) request.component?.setError("No model is selected");
 				return;
 			}
-			if (!hasResolvedContext(current.runtime.ctx.sessionManager)) {
+			if (!hasResolvedContext(current.runtime.extension.sessionManager)) {
 				throw new Error("BTW session context API is unavailable");
 			}
-			const sessionContext = current.runtime.ctx.sessionManager.buildSessionContext();
+			const sessionContext = current.runtime.extension.sessionManager.buildSessionContext();
 			const messages = buildBtwMessages({
 				mainMessages: convertToLlm(sessionContext.messages),
 				turns: current.turns,
 				question,
 			});
-			const result = await execute({
-				model: model as Model<Api>,
-				modelRegistry: current.runtime.ctx.modelRegistry,
-				messages: [...messages],
-				signal: request.controller.signal,
-			});
+			const result =
+				execute === undefined
+					? await executeCoreCompletion(current, request, model as Model<Api>, [...messages])
+					: await execute({
+							model: model as Model<Api>,
+							modelRegistry: current.runtime.extension.modelRegistry,
+							messages: [...messages],
+							signal: request.controller.signal,
+						});
 			if (!isCurrentRequest(current, request)) return;
 			// biome-ignore-start lint/suspicious/noUnnecessaryConditions: Injected executors return the full result union at runtime.
 			switch (result.status) {
@@ -262,7 +307,7 @@ export function createBtwFeature(pi: ExtensionAPI, options: BtwFeatureOptions = 
 				abortRequest(previous, true);
 			}
 			active = {
-				sessionId: runtime.ctx.sessionManager.getSessionId(),
+				sessionId: runtime.extension.sessionManager.getSessionId(),
 				runtime,
 				runtimeRevision: ++runtimeRevision,
 				turns: [],

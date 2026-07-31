@@ -1,5 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Key, matchesKey } from "@earendil-works/pi-tui";
+import { type BtwTurn, extractAssistantText } from "./model.js";
 import {
 	formatKeymap,
 	keyGlyph,
@@ -7,8 +8,7 @@ import {
 	renderScrollbar,
 	truncateToWidth,
 	wrap,
-} from "@hheei/hepi-basics";
-import { type BtwTurn, extractAssistantText } from "./model.js";
+} from "./ui.js";
 
 export type BtwComponentStatus =
 	| { readonly kind: "pending" }
