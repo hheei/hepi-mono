@@ -29,6 +29,10 @@ store 的 revision CAS 接收 partition snapshot，使用单个 conditional `UPD
 表示提交者保有 fence；未命中返回 `undefined`，调用者必须重新读取/recompute。它不接受 last-writer-wins fallback；
 后续 compartment publication 会把 content write 与该 fence 置于同一 transaction。
 
+schema v3 增加 per-partition historian lease。lease 由 owner token、finite expiry 组成；acquire 在短 transaction
+清理该 partition 的 expired row 后条件插入，未获得者跳过本次 run。renew/release 必须匹配 token，不能干扰新 holder；
+crash 后只有 TTL expiry 允许接管。lease 不替代 revision CAS，后续 publication 仍必须比较 revision。
+
 schema v2 在 v1 application/metadata fence 上建立 `projects` 与 `partitions`。partition 以 stable project identity
 与 Pi session ID 唯一标识，revision 从 `0` 开始；get-or-create 使用短 `BEGIN IMMEDIATE` transaction，不能重复创建。
 此迁移仍不建立 lease、compartment 或 graph table。未知 nonempty database、foreign application ID 或 future schema

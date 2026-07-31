@@ -86,6 +86,10 @@ store 提供 revision CAS primitive：调用者提交当前 partition snapshot�
 conditional update 未命中则得到 `undefined`，必须重新读取/recompute。CAS 不写 compartment 内容，后续 publication
 会在同一 transaction 内组合 payload write 与该 revision fence。
 
+schema v3 增加每个 partition 一个 historian lease。worker 使用唯一 owner token 获取 finite TTL；持有者可在到期前
+renew 或 release，错误 token 不能影响其他 worker。expired lease 可由新 worker 在短 transaction 中替换；未拿到 lease
+的 process 跳过本次 historian run。此 slice 只提供 store primitive，尚未启动 renewal timer 或 historian。
+
 默认 compartment trigger 在 parent `turn_end` 检查 token usage 的 threshold 与 hysteresis。越过阈值后，
 `pi-mctx` 异步执行一次 compartment run；它只处理稳定 history snapshot，不能阻塞 prompt、改写 active turn，
 也不能在 parent session replacement 后发布旧结果。

@@ -4,13 +4,25 @@ import type { DatabaseSync } from "node:sqlite";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export const MCTX_STORE_APPLICATION_ID = 0x484d4354;
-export const MCTX_STORE_SCHEMA_VERSION = 2;
+export const MCTX_STORE_SCHEMA_VERSION = 3;
 export const MCTX_STORE_BUSY_TIMEOUT_MS = 5_000;
 
 export interface MctxStore {
 	readonly path: string;
 	getOrCreatePartition(projectIdentity: string, sessionId: string): MctxPartition;
 	advancePartitionRevision(partition: MctxPartition): MctxPartition | undefined;
+	acquireHistorianLease(
+		partition: MctxPartition,
+		ownerToken: string,
+		ttlMs: number,
+		nowMs?: number,
+	): MctxHistorianLease | undefined;
+	renewHistorianLease(
+		lease: MctxHistorianLease,
+		ttlMs: number,
+		nowMs?: number,
+	): MctxHistorianLease | undefined;
+	releaseHistorianLease(lease: MctxHistorianLease): void;
 	close(): void;
 }
 
@@ -18,6 +30,12 @@ export interface MctxPartition {
 	readonly projectIdentity: string;
 	readonly sessionId: string;
 	readonly revision: number;
+}
+
+export interface MctxHistorianLease {
+	readonly partition: MctxPartition;
+	readonly ownerToken: string;
+	readonly expiresAtMs: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -103,6 +121,26 @@ function migrateV2(database: DatabaseSync): void {
 	}
 }
 
+function migrateV3(database: DatabaseSync): void {
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		database.exec("ALTER TABLE mctx_metadata RENAME TO mctx_metadata_v2");
+		database.exec(
+			"CREATE TABLE mctx_metadata (schema_version INTEGER NOT NULL CHECK (schema_version = 3)) STRICT",
+		);
+		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(3);
+		database.exec("DROP TABLE mctx_metadata_v2");
+		database.exec(
+			"CREATE TABLE historian_leases (project_identity TEXT NOT NULL, session_id TEXT NOT NULL, owner_token TEXT NOT NULL, expires_at_ms INTEGER NOT NULL CHECK (expires_at_ms >= 0), PRIMARY KEY (project_identity, session_id), FOREIGN KEY (project_identity, session_id) REFERENCES partitions(project_identity, session_id)) STRICT",
+		);
+		database.exec("PRAGMA user_version = 3");
+		database.exec("COMMIT");
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
 function validateSchema(database: DatabaseSync): void {
 	const applicationId = pragmaInteger(database, "PRAGMA application_id");
 	const version = pragmaInteger(database, "PRAGMA user_version");
@@ -121,6 +159,7 @@ function validateSchema(database: DatabaseSync): void {
 		migrateV1(database);
 	}
 	if (pragmaInteger(database, "PRAGMA user_version") === 1) migrateV2(database);
+	if (pragmaInteger(database, "PRAGMA user_version") === 2) migrateV3(database);
 	if (pragmaInteger(database, "PRAGMA application_id") !== MCTX_STORE_APPLICATION_ID) {
 		throw new Error("Context store application identity is invalid");
 	}
@@ -128,7 +167,11 @@ function validateSchema(database: DatabaseSync): void {
 		throw new Error("Context store schema version is invalid");
 	}
 	if (!hasMetadataTable(database)) throw new Error("Context store metadata table is missing");
-	if (!hasTable(database, "projects") || !hasTable(database, "partitions")) {
+	if (
+		!hasTable(database, "projects") ||
+		!hasTable(database, "partitions") ||
+		!hasTable(database, "historian_leases")
+	) {
 		throw new Error("Context store partition tables are missing");
 	}
 	if (
@@ -233,6 +276,83 @@ function advancePartitionRevision(
 	return { ...partition, revision: partition.revision + 1 };
 }
 
+function requireLeaseInput(ownerToken: string, ttlMs: number, nowMs: number): number {
+	if (!ownerToken.trim()) throw new Error("Context store lease owner token must not be empty");
+	if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0) {
+		throw new Error("Context store lease TTL must be a positive integer");
+	}
+	if (!Number.isSafeInteger(nowMs) || nowMs < 0 || nowMs > Number.MAX_SAFE_INTEGER - ttlMs) {
+		throw new Error("Context store lease clock is invalid");
+	}
+	return nowMs + ttlMs;
+}
+
+function acquireHistorianLease(
+	database: DatabaseSync,
+	partition: MctxPartition,
+	ownerToken: string,
+	ttlMs: number,
+	nowMs: number,
+): MctxHistorianLease | undefined {
+	requirePartitionKey(partition.projectIdentity, partition.sessionId);
+	const expiresAtMs = requireLeaseInput(ownerToken, ttlMs, nowMs);
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		database
+			.prepare(
+				"DELETE FROM historian_leases WHERE project_identity = ? AND session_id = ? AND expires_at_ms <= ?",
+			)
+			.run(partition.projectIdentity, partition.sessionId, nowMs);
+		const changes = changedRows(
+			database
+				.prepare(
+					"INSERT INTO historian_leases (project_identity, session_id, owner_token, expires_at_ms) VALUES (?, ?, ?, ?) ON CONFLICT (project_identity, session_id) DO NOTHING",
+				)
+				.run(partition.projectIdentity, partition.sessionId, ownerToken, expiresAtMs),
+		);
+		database.exec("COMMIT");
+		return changes === 0 ? undefined : { partition, ownerToken, expiresAtMs };
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
+function renewHistorianLease(
+	database: DatabaseSync,
+	lease: MctxHistorianLease,
+	ttlMs: number,
+	nowMs: number,
+): MctxHistorianLease | undefined {
+	const expiresAtMs = requireLeaseInput(lease.ownerToken, ttlMs, nowMs);
+	const changes = changedRows(
+		database
+			.prepare(
+				"UPDATE historian_leases SET expires_at_ms = ? WHERE project_identity = ? AND session_id = ? AND owner_token = ? AND expires_at_ms > ?",
+			)
+			.run(
+				expiresAtMs,
+				lease.partition.projectIdentity,
+				lease.partition.sessionId,
+				lease.ownerToken,
+				nowMs,
+			),
+	);
+	if (changes === 0) return undefined;
+	if (changes !== 1) throw new Error("Context store lease renewal affected multiple partitions");
+	return { ...lease, expiresAtMs };
+}
+
+function releaseHistorianLease(database: DatabaseSync, lease: MctxHistorianLease): void {
+	if (!lease.ownerToken.trim())
+		throw new Error("Context store lease owner token must not be empty");
+	database
+		.prepare(
+			"DELETE FROM historian_leases WHERE project_identity = ? AND session_id = ? AND owner_token = ?",
+		)
+		.run(lease.partition.projectIdentity, lease.partition.sessionId, lease.ownerToken);
+}
+
 export function defaultMctxStorePath(agentDir: string = getAgentDir()): string {
 	return join(agentDir, "mctx", "context.db");
 }
@@ -262,6 +382,23 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 		advancePartitionRevision(partition): MctxPartition | undefined {
 			if (database === undefined) throw new Error("Context store is closed");
 			return advancePartitionRevision(database, partition);
+		},
+		acquireHistorianLease(
+			partition,
+			ownerToken,
+			ttlMs,
+			nowMs = Date.now(),
+		): MctxHistorianLease | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return acquireHistorianLease(database, partition, ownerToken, ttlMs, nowMs);
+		},
+		renewHistorianLease(lease, ttlMs, nowMs = Date.now()): MctxHistorianLease | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return renewHistorianLease(database, lease, ttlMs, nowMs);
+		},
+		releaseHistorianLease(lease): void {
+			if (database === undefined) throw new Error("Context store is closed");
+			releaseHistorianLease(database, lease);
 		},
 		close(): void {
 			if (closed) return;
