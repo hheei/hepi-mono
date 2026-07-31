@@ -1,7 +1,13 @@
-import type { AgentToolResult, ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
+import type {
+	AgentToolResult,
+	ExtensionAPI,
+	Theme,
+	ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import { createFindTool, createGrepTool, createReadTool } from "@earendil-works/pi-coding-agent";
 import { type Component, Text } from "@earendil-works/pi-tui";
-import { Type } from "@sinclair/typebox";
+import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
+import { type TSchema, Type } from "typebox";
 import {
 	ExternalGrepScopeError,
 	FinderOperationError,
@@ -12,7 +18,6 @@ import {
 	buildGrepDetails,
 	buildGrepFailureMessage,
 	buildReadFailureMessage,
-	type FeatureKey,
 	FFF_RUNTIME_NOT_READY_TEXT,
 	grepNeedsBuiltinFallback,
 	inferFffGrepMode,
@@ -22,11 +27,11 @@ import {
 } from "./extension-common.js";
 import type { FffRuntime } from "./fff.js";
 import { DEFAULT_GREP_TIMEOUT_MS } from "./fff-types.js";
+import type { FffSettings } from "./settings.js";
 
 export type ToolRegistrationDeps = {
 	getRuntime(): FffRuntime | null;
-	isFeatureEnabled(feature: FeatureKey): boolean;
-	agentToolsDisabledText(): string;
+	getSettings(): FffSettings;
 };
 
 function textResult<T>(text: string, details: T) {
@@ -203,17 +208,29 @@ function renderFindResult(
 	return text;
 }
 
+function registerFffTool<TParams extends TSchema, TDetails, TState>(
+	pi: ExtensionAPI,
+	tool: ToolDefinition<TParams, TDetails, TState>,
+): void {
+	registerManagedLoadoutTool(
+		pi,
+		{
+			id: tool.name,
+			owner: "@hheei/pi-fff",
+			group: "FFF",
+			priority: 100,
+			conflictSets: [],
+			defaultActive: true,
+		},
+		tool,
+	);
+}
+
 export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): void {
 	const readTemplate = createReadTool(process.cwd());
 	const grepTemplate = createGrepTool(process.cwd());
 
-	const getAgentRuntime = <T>(disabledDetails: T, unavailableDetails: T) => {
-		if (!deps.isFeatureEnabled("agentTools")) {
-			return {
-				kind: "disabled" as const,
-				result: textResult(deps.agentToolsDisabledText(), disabledDetails),
-			};
-		}
+	const getAgentRuntime = <T>(unavailableDetails: T) => {
 		const runtime = deps.getRuntime();
 		if (!runtime) {
 			return {
@@ -224,7 +241,7 @@ export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): voi
 		return { kind: "ready" as const, runtime };
 	};
 
-	pi.registerTool({
+	registerFffTool(pi, {
 		name: "read",
 		label: "read",
 		description: `${readTemplate.description} Accepts approximate file paths and resolves them with fff before reading.`,
@@ -232,7 +249,7 @@ export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): voi
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			const original = createReadTool(ctx.cwd);
 			const runtime = deps.getRuntime();
-			if (!runtime || !deps.isFeatureEnabled("builtInReadEnhancement")) {
+			if (!runtime || !deps.getSettings().readEnhancement) {
 				return original.execute(toolCallId, params, signal, onUpdate);
 			}
 
@@ -292,7 +309,7 @@ export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): voi
 		),
 	});
 
-	pi.registerTool({
+	registerFffTool(pi, {
 		name: "grep",
 		label: "grep",
 		description: `${grepTemplate.description} Uses fff for content search and can resolve approximate file or folder scopes.`,
@@ -329,7 +346,7 @@ export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): voi
 				params.literal ?? (params.mode ? explicitMode !== "regex" : undefined);
 			if (
 				!runtime ||
-				!deps.isFeatureEnabled("builtInGrepEnhancement") ||
+				!deps.getSettings().grepEnhancement ||
 				grepNeedsBuiltinFallback({
 					pattern: params.pattern,
 					...(params.ignoreCase === undefined ? {} : { ignoreCase: params.ignoreCase }),
@@ -367,7 +384,7 @@ export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): voi
 		},
 	});
 
-	pi.registerTool({
+	registerFffTool(pi, {
 		name: "find_files",
 		label: "Find Files",
 		description: "Browse ranked file candidates for a fuzzy query using fff.",
@@ -387,10 +404,7 @@ export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): voi
 		renderCall: renderFindCall,
 		renderResult: renderFindResult,
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
-			const guarded = getAgentRuntime(
-				buildFindFilesDetails(undefined, "agentTools"),
-				buildFindFilesDetails(),
-			);
+			const guarded = getAgentRuntime(buildFindFilesDetails());
 			if (guarded.kind === "unavailable") {
 				const original = createFindTool(ctx.cwd);
 				return original.execute(
@@ -403,7 +417,6 @@ export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): voi
 					onUpdate,
 				);
 			}
-			if (guarded.kind !== "ready") return guarded.result;
 			const result = await guarded.runtime.findFiles({
 				query: params.query,
 				...(params.limit === undefined ? {} : { limit: params.limit }),
@@ -418,7 +431,7 @@ export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): voi
 		},
 	});
 
-	pi.registerTool({
+	registerFffTool(pi, {
 		name: "fff_multi_grep",
 		label: "FFF Multi Grep",
 		description: "Search file contents for any of multiple literal patterns using fff multi-grep.",
@@ -449,10 +462,7 @@ export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): voi
 			),
 		}),
 		async execute(_toolCallId, params) {
-			const guarded = getAgentRuntime(
-				buildGrepDetails(undefined, "agentTools"),
-				buildGrepDetails(),
-			);
+			const guarded = getAgentRuntime(buildGrepDetails());
 			if (guarded.kind !== "ready") return guarded.result;
 			const result = await guarded.runtime.multiGrepSearch({
 				patterns: params.patterns,

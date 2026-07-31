@@ -18,11 +18,10 @@ describe("HEPI tools Loadout groups", () => {
 
 		registerHepiToolsLoadoutGroups(pi);
 		const registry = getHepiRuntimeLoadoutGroupRegistry(pi);
-		expect(registry.list().map((group) => group.id)).toEqual(["fff", "web-search"]);
+		expect(registry.list().map((group) => group.id)).toEqual(["web-search"]);
 		expect(registry.list()).toEqual(
 			[...HEPI_TOOLS_LOADOUT_GROUPS].sort((a, b) => a.label.localeCompare(b.label)),
 		);
-		expect(registry.list().find((group) => group.id === "fff")?.items).toContain("find");
 		for (const handler of shutdownHandlers) handler();
 		expect(registry.list()).toEqual([]);
 	});

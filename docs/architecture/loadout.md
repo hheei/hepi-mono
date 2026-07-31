@@ -35,10 +35,11 @@ core 提供两种独立 registration mode：
 conflict set 与 default activation。两个 mode 使用同一 metadata；managed mode 仅额外带 Pi tool
 definition 和 handler。
 
-同一 runtime 中，一个 tool ID 只能登记一次。任何 inventory/managed 混用或重复 registration 都
-立即报错，保留第一份 registration。managed tool 只能在 extension initialization 登记，不能在
-session 内动态新增或单独移除；变更需要完整 `/reload`。所有 HEPI-owned non-native tool 必须使用
-managed mode，feature package 不得直接调用 Pi tool registration API。
+同一 runtime 中，一个 tool ID 只能由一个 owner 登记。inventory/managed 混用、不同 owner 抢占或
+同一 Pi runner 内重复 registration 都立即报错；同一 managed owner 在完整 `/reload` 产生新 runner
+时可以替换自己的旧 registration。managed tool 只能在 extension initialization 登记，不能在 session
+内动态新增或单独移除；变更需要完整 `/reload`。所有 HEPI-owned non-native tool 必须使用 managed
+mode，feature package 不得直接调用 Pi tool registration API。
 
 `pi-loadout` 自动观察 Pi native 与 third-party tools；managed/native 是明确 inventory，未提供
 metadata 的 observed tool 以 session start 的 Pi active list 作为默认状态。同名 source 合并为

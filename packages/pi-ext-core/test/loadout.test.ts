@@ -14,9 +14,10 @@ import {
 	setDisabledSkillKeys,
 } from "../src/index.js";
 
-function metadata(id: string) {
+function metadata(id: string, owner = "@hheei/test-extension") {
 	return {
 		id,
+		owner,
 		group: "tools",
 		priority: 10,
 		conflictSets: [],
@@ -24,10 +25,10 @@ function metadata(id: string) {
 	} as const;
 }
 
-function host() {
+function host(events: object = {}) {
 	const registered: unknown[] = [];
 	const pi = {
-		events: {},
+		events,
 		registerTool(tool: unknown) {
 			registered.push(tool);
 		},
@@ -46,10 +47,13 @@ describe("Loadout core contract", () => {
 				snapshots.push(items.map((item) => item.id));
 			},
 		});
-		registerManagedLoadoutTool(h.pi, {
-			...metadata("find_files"),
-			tool: { name: "find_files" } as never,
-		});
+		registerManagedLoadoutTool(
+			h.pi,
+			{
+				...metadata("find_files"),
+			},
+			{ name: "find_files" } as never,
+		);
 		expect(h.registered).toHaveLength(1);
 		expect(snapshots).toEqual([[], ["find_files"]]);
 	});
@@ -62,6 +66,37 @@ describe("Loadout core contract", () => {
 		expect(() => registerLoadoutInventory(context, metadata("read"))).toThrow(
 			"Loadout tool id already registered: read",
 		);
+	});
+
+	test("requires managed metadata to match the Pi tool name", () => {
+		const h = host();
+		expect(() =>
+			registerManagedLoadoutTool(h.pi, metadata("read"), { name: "grep" } as never),
+		).toThrow("Loadout tool id must match the Pi tool name: read");
+		expect(h.registered).toHaveLength(0);
+	});
+
+	test("replaces a managed registration on a new runner for the same owner", () => {
+		const events = {};
+		const first = host(events);
+		const second = host(events);
+		registerManagedLoadoutTool(first.pi, metadata("read"), { name: "read" } as never);
+		registerManagedLoadoutTool(second.pi, metadata("read"), { name: "read" } as never);
+		expect(first.registered).toHaveLength(1);
+		expect(second.registered).toHaveLength(1);
+	});
+
+	test("rejects a different owner claiming a managed tool name", () => {
+		const events = {};
+		const first = host(events);
+		const second = host(events);
+		registerManagedLoadoutTool(first.pi, metadata("read"), { name: "read" } as never);
+		expect(() =>
+			registerManagedLoadoutTool(second.pi, metadata("read", "@hheei/other"), {
+				name: "read",
+			} as never),
+		).toThrow("Loadout tool id already registered: read");
+		expect(second.registered).toHaveLength(0);
 	});
 
 	test("removes lifecycle inventory and stops aborted observers", async () => {
@@ -79,7 +114,7 @@ describe("Loadout core contract", () => {
 		registerLoadoutInventory(context, metadata("grep"));
 		await resources.cleanup();
 		controller.abort();
-		registerManagedLoadoutTool(h.pi, { ...metadata("read"), tool: { name: "read" } as never });
+		registerManagedLoadoutTool(h.pi, metadata("read"), { name: "read" } as never);
 		expect(seen).toEqual([[], ["grep"], []]);
 	});
 
