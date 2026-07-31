@@ -126,11 +126,12 @@ Pi content block 或 tool-result shape。
 
 branch runner 只组合 source-history projection 和 historian orchestrator。caller 提供 active branch entries、current runtime
 partition/model/store 与 abort signal；ineligible projection 不取 lease、不调用 model，eligible projection 交给同一 explicit
-orchestrator。它是 `turn_end`-ready seam，但本 slice 不注册 event，也不计算 pressure/threshold。
+orchestrator。parent `turn_end` 使用已实现的 token-pressure policy 调用该 seam，但 handler 不 await background job。
 
 默认 compartment trigger 在 parent `turn_end` 检查 token usage 的 threshold 与 hysteresis。越过阈值后，
-`pi-mctx` 异步执行一次 compartment run；它只处理稳定 history snapshot，不能阻塞 prompt、改写 active turn，
-也不能在 parent session replacement 后发布旧结果。
+`pi-mctx` 异步执行一次 compartment run；handler 不 await historian。job 使用 session-local
+`AbortController`，`session_shutdown` 或 `/reload` 先 abort job、再 close store。它只处理稳定 history
+snapshot，不能阻塞 prompt、改写 active turn，也不能在 parent session replacement 后发布旧结果。
 
 每次 parent model invocation 在 `pi.on("context")` 从 context store 读取最后一个已 materialize 的
 cache-stable context block，替换即将发送的 Pi messages，并将 live tail 裁剪到 compartment boundary。in-flight
