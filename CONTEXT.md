@@ -155,9 +155,10 @@ It is the default conversation send mode.
 _Avoid_: steer, interruption
 
 **Steer message**:
-An explicit conversation input that redirects an active child after its current tool execution.
-It is never inferred from send timing.
-_Avoid_: normal chat message, cancellation
+An explicit host or human conversation input that redirects an active child after its current tool
+execution. It has priority over queued input but never discards it; queue and steer each retain FIFO
+order. It is never inferred from send timing and is not exposed to the model-facing `agent` tool.
+_Avoid_: normal chat message, implicit queue clearing, model-initiated interruption
 
 **Conversation reply consumption**:
 The explicit result path selected for one conversation send. `wait` binds to that send's message
@@ -178,14 +179,23 @@ _Avoid_: immediate hard turn limit, unlimited grace
 
 **Terminal delivery sink**:
 The caller-owned, mandatory delivery callback for a Task result. A sink failure marks
-delivery failed without changing the task result; core never retries it automatically. The sink
-receives a cancellation signal and must not write parent state after it aborts.
+delivery failed without changing the task result; core catches both synchronous throws and rejected
+promises, and never retries it automatically. The sink receives a cancellation signal and must not
+write parent state after it aborts.
 _Avoid_: core notification, exactly-once delivery
+
+**Delivery anchor**:
+The `pi-subagents` adapter's required parent-context wrapper for a Task or Conversation delivery. It
+identifies the originating operation and its purpose, terminal outcome and partial-output state,
+then asks the parent to assess relevance before reporting. Core receives only the delivery sink and
+does not define this prompt format.
+_Avoid_: raw delayed result, core-owned parent injection
 
 **Parent delivery mode**:
 The `pi-subagents` adapter's explicit terminal-result policy: queue is the default Pi follow-up;
-steer is an opt-in parent-turn redirection. Core receives only the resulting sink, not this policy.
-_Avoid_: child conversation send mode, core follow-up API
+steer is a human or host-only parent-turn redirection. The model-facing `agent` tool uses queue.
+Core receives only the resulting sink, not this policy.
+_Avoid_: model-selected steer, child conversation send mode, core follow-up API
 
 **Task delivery group**:
 A `pi-subagents`-owned barrier that collects a declared set of Task terminal results and delivers
@@ -205,6 +215,6 @@ _Avoid_: cap per task, hidden core default, load-order replacement
 
 **Subagent event subscription**:
 A subscriber-owned, fixed-cap snapshot stream for selected child output. Text, tool activity and
-turn state may coalesce; terminal state evicts coalescible entries and is never dropped. The stream
-preserves only delivered-event order, not every intermediate state.
-_Avoid_: lossless event log, blocking callback
+turn state may coalesce; terminal state evicts the oldest coalescible entry and is never dropped.
+The stream preserves delivered-event order, not every intermediate state or a lossless event log.
+_Avoid_: unbounded event queue, blocking callback

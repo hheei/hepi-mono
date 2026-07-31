@@ -128,13 +128,20 @@ lifecycle configuration，且 runtime 校验值为 positive integer；另一 own
 放进单 task spec、凭 load order 覆盖，或在 core 内加入 hidden default。
 
 core 不提供 main-agent wait 或 result-polling surface。`pi-subagents` 保留 parent delivery adapter：
-default queue、explicit steer 与 all-terminal Task delivery group 都是该 package 的 policy，不能下沉到
-core execution contract。
+default queue、human/host explicit steer 与 all-terminal Task delivery group 都是该 package 的 policy，不能
+下沉到 core execution contract。model-facing `agent` tool 只提供 conversation queue input，不能暴露 steer。
+所有 delivery 必须以 operation ID、任务目的、terminal/partial state 和「先评估相关性再报告」包裹 child output；
+不能直接注入 raw delayed result。
 
 conversation consumer 必须在 create 时指定 finite soft `maxTurnsPerReply`，并在 send 时明确区分
 parent-to-child `inputMode` 与 child-to-parent reply consumption。wait 只能观察本次 message sequence；
 wait signal abort 后，adapter 必须 queue-deliver eventual reply，不得静默丢弃或取消 conversation。
 create 同时提供 initial message 与同一 reply contract，不能启动没有 owner 的 initial prompt。
+
+host/human steer 只打断 active child，随后优先于 queue；queue 和 steer 各自 FIFO，steer 不得隐式删除已接受
+queue。sink 的同步 throw 与 rejected Promise 都必须由 core 捕捉、记录 `deliveryFailed` 并消化，不能成为
+host-level unhandled rejection。subscriber implementation 必须固定 memory cap：terminal event 挤掉最旧的
+coalescible snapshot，慢 callback 不得阻塞 child。
 
 所有 execution adapter 的注释必须说明 parent session ownership、mode、shared-cap admission、
 cancellation、delivery/retry policy、event backpressure 与 retention cost。完整 contract 见
