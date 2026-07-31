@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { HepiRuntimeContext } from "../../../hepi-basics/src/core/index.js";
+import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
 import {
 	buildSessionContext,
 	buildTurnDelta,
@@ -41,7 +41,7 @@ interface AdvisorThrottleOptions {
 
 export interface AdvisorFeature {
 	start(
-		runtime: HepiRuntimeContext,
+		runtime: ExtensionLifecycleContext,
 		config?: { readonly model?: string; readonly thinking?: import("./model.js").ThinkingLevel },
 	): Promise<void>;
 	dispose(sessionId: string): Promise<void>;
@@ -50,7 +50,7 @@ export interface AdvisorFeature {
 }
 interface Active {
 	readonly sessionId: string;
-	readonly runtime: HepiRuntimeContext;
+	readonly runtime: ExtensionLifecycleContext;
 	readonly adapter: AdvisorAgentAdapter;
 	adapterActive: boolean;
 	enabled: boolean;
@@ -88,7 +88,7 @@ function indicatorFor(notes: readonly AdvisorAdvice[]): AdvisorIndicator {
 }
 
 function publishIndicator(item: Active, notes: readonly AdvisorAdvice[]): void {
-	item.runtime.ctx.ui.setStatus("advisor", item.enabled ? indicatorFor(notes) : undefined);
+	item.runtime.extension.ui.setStatus("advisor", item.enabled ? indicatorFor(notes) : undefined);
 }
 
 function isAbortedAssistantMessage(message: unknown): boolean {
@@ -276,7 +276,7 @@ export function createAdvisorFeature(
 				}
 			} catch (error) {
 				if (isCurrent(item, epoch)) {
-					item.runtime.ctx.ui.setStatus("advisor", undefined);
+					item.runtime.extension.ui.setStatus("advisor", undefined);
 					item.lastError = errorMessage(error);
 				}
 			} finally {
@@ -323,7 +323,7 @@ export function createAdvisorFeature(
 					} else {
 						addPendingMaterial(item, prompt);
 					}
-					item.runtime.ctx.ui.setStatus("advisor", undefined);
+					item.runtime.extension.ui.setStatus("advisor", undefined);
 					item.lastError = errorMessage(error);
 				}
 			} finally {
@@ -395,7 +395,7 @@ export function createAdvisorFeature(
 		item.reviewCooldownUntil = 0;
 		item.notifiedHigh.clear();
 		item.phase = item.enabled ? "idle" : "disabled";
-		item.runtime.ctx.ui.setStatus("advisor", undefined);
+		item.runtime.extension.ui.setStatus("advisor", undefined);
 		if (!item.enabled) return Promise.resolve();
 		return enqueue(async () => {
 			if (!isCurrent(item) || !item.enabled) return;
@@ -415,17 +415,18 @@ export function createAdvisorFeature(
 	return {
 		status,
 		async start(runtime, config) {
-			if (active?.sessionId === runtime.ctx.sessionManager.getSessionId()) return;
+			if (active?.sessionId === runtime.extension.sessionManager.getSessionId()) return;
 			const adapter = createAdapter({
-				ctx: runtime.ctx,
+				ctx: runtime.extension,
+				lifecycle: runtime,
 				model: config?.model,
 				thinking: config?.thinking ?? "medium",
 			});
-			const restored = restoreAdvisor(runtime.ctx.sessionManager.getBranch(), (message) =>
-				runtime.ctx.ui.notify(message, "warning"),
+			const restored = restoreAdvisor(runtime.extension.sessionManager.getBranch(), (message) =>
+				runtime.extension.ui.notify(message, "warning"),
 			);
 			const item: Active = {
-				sessionId: runtime.ctx.sessionManager.getSessionId(),
+				sessionId: runtime.extension.sessionManager.getSessionId(),
 				runtime,
 				adapter,
 				adapterActive: false,
@@ -513,8 +514,8 @@ export function createAdvisorFeature(
 			runtime.pi.on("session_tree", (_event, eventCtx) => {
 				if (!isCurrent(item, undefined, eventCtx)) return;
 				const restoredBranch = restoreAdvisor(
-					item.runtime.ctx.sessionManager.getBranch(),
-					(message) => item.runtime.ctx.ui.notify(message, "warning"),
+					item.runtime.extension.sessionManager.getBranch(),
+					(message) => item.runtime.extension.ui.notify(message, "warning"),
 				);
 				const epoch = ++item.epoch;
 				userPromptGeneration = 0;
@@ -558,7 +559,7 @@ export function createAdvisorFeature(
 						item.enabled = false;
 						item.adapterActive = false;
 						item.phase = "error";
-						item.runtime.ctx.ui.setStatus("advisor", undefined);
+						item.runtime.extension.ui.setStatus("advisor", undefined);
 						item.lastError = errorMessage(error);
 						await item.adapter.dispose().catch(() => undefined);
 					}
@@ -582,7 +583,7 @@ export function createAdvisorFeature(
 					item.enabled = false;
 					item.adapterActive = false;
 					item.phase = "disabled";
-					runtime.ctx.ui.setStatus("advisor", undefined);
+					runtime.extension.ui.setStatus("advisor", undefined);
 					item.lastError = errorMessage(error);
 					await adapter.dispose().catch(() => undefined);
 				}
@@ -610,7 +611,7 @@ export function createAdvisorFeature(
 			item.lastReviewAt = undefined;
 			item.reviewCooldownUntil = 0;
 			item.notifiedHigh.clear();
-			item.runtime.ctx.ui.setStatus("advisor", undefined);
+			item.runtime.extension.ui.setStatus("advisor", undefined);
 			try {
 				await item.adapter.abort();
 			} finally {
@@ -678,7 +679,7 @@ export function createAdvisorFeature(
 					item.epoch++;
 					item.enabled = false;
 					item.phase = "disabled";
-					item.runtime.ctx.ui.setStatus("advisor", undefined);
+					item.runtime.extension.ui.setStatus("advisor", undefined);
 					item.feedback = emptyFeedback();
 					item.reconfirming = false;
 					item.terminalPending = false;
