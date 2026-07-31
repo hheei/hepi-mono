@@ -11,6 +11,12 @@ export {
 } from "./extension-point.js";
 export type { ExtensionLifecycleContext, ExtensionLifecycleOptions } from "./lifecycle.js";
 export { registerExtensionLifecycle } from "./lifecycle.js";
+export type { Context, SettingField, SettingGroup, SettingOption, SettingTabCycle, SettingsProvider, SettingsRegistry, SettingsState, SettingsStorage, SettingValue } from "./settings.js";
+export { createSettingsRegistry, createSessionStorage, getRuntimeSettingsRegistry, getSettings, listSettings, registerSettings, replaceSettings } from "./settings.js";
+export type { ModelSelectionCandidate, ModelSelectionOption, ModelSelectionRegistry, ModelThinkingCycle, ModelThinkingLevel, CreateModelSelectionFieldOptions } from "./model-selection.js";
+export { authenticatedModelSelectionOptions, createModelSelectionField, modelSelectionOptions, thinkingGlyph } from "./model-selection.js";
+export type { JsonSectionSettingsStorageOptions } from "./json-settings.js";
+export { createJsonSectionSettingsStorage, updateJsonSettingsRoot } from "./json-settings.js";
 export type {
 	LoadoutInventoryObserver,
 	LoadoutInventoryRegistration,
