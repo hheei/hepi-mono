@@ -8,7 +8,7 @@ This directory is an HEPI-owned adaptation of
 - Local reference clone: `references/repos/ShpetimA-pi-fff`
 
 The source attribution and MIT license are in
-`packages/hepi-tools/THIRD_PARTY_NOTICES.md`. The reference clone is ignored;
+`packages/pi-fff/THIRD_PARTY_NOTICES.md`. The reference clone is ignored;
 do not copy it into `packages/`.
 
 ## Intentional Differences
@@ -21,8 +21,9 @@ replace Pi Basics statusbar and dollar-skill's atomic editor wrapper.
 `autocomplete.ts` is HEPI-specific. It composes `@path` completion with the
 current Pi autocomplete provider through `ctx.ui.addAutocompleteProvider(...)`.
 Non-`@` input delegates to the prior provider, preserving `$skill` completion.
-`index.ts` is also HEPI-specific: it integrates feature lifecycle and Loadout
-without installing a custom editor.
+`extension.ts` and `settings.ts` are also HEPI-specific: they integrate the core
+lifecycle, core settings provider, and managed Loadout registration without
+installing a custom editor.
 
 Copied-and-adapted modules correspond directly to upstream `src/` files with
 the same names:
@@ -46,15 +47,15 @@ git -C references/repos/ShpetimA-pi-fff diff \
 Compare the current adaptation against the reference clone with:
 
 ```bash
-diff -ru references/repos/ShpetimA-pi-fff/src packages/hepi-tools/src/fff
+diff -ru references/repos/ShpetimA-pi-fff/src packages/pi-fff/src
 ```
 
 Expected differences include upstream `editor.ts` being absent locally and
 local `autocomplete.ts` being absent upstream. Preserve the provider-based
-design when applying upstream changes. Afterwards, update this revision,
-`references/README.md`, and `THIRD_PARTY_NOTICES.md`, then run:
+design when applying upstream changes. Afterwards, update this revision and
+`references/README.md`, then run:
 
 ```bash
 bun run typecheck
-bun test packages/hepi-tools/test/fff/autocomplete.test.ts
+bun test packages/pi-fff/test/autocomplete.test.ts
 ```

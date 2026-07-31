@@ -3,8 +3,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Result } from "better-result";
-import { ExternalGrepScopeError } from "../../src/fff/errors.js";
-import { FffRuntime } from "../../src/fff/fff.js";
+import { ExternalGrepScopeError } from "../src/errors.js";
+import { FffRuntime } from "../src/fff.js";
 
 describe("FFF runtime", () => {
 	test("continues grep pages after the runtime is recreated", async () => {

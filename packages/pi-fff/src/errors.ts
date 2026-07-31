@@ -5,45 +5,6 @@ function messageFromCause(cause: unknown): string {
 	return cause instanceof Error ? cause.message : String(cause);
 }
 
-export class FeatureStateReadError extends TaggedError("FeatureStateReadError")<{
-	path: string;
-	cause: unknown;
-	message: string;
-}>() {
-	constructor(args: { path: string; cause: unknown }) {
-		super({
-			...args,
-			message: `Failed to read pi-fff feature state at ${args.path}: ${messageFromCause(args.cause)}`,
-		});
-	}
-}
-
-export class FeatureStateParseError extends TaggedError("FeatureStateParseError")<{
-	path: string;
-	cause: unknown;
-	message: string;
-}>() {
-	constructor(args: { path: string; cause: unknown }) {
-		super({
-			...args,
-			message: `Failed to parse pi-fff feature state at ${args.path}: ${messageFromCause(args.cause)}`,
-		});
-	}
-}
-
-export class FeatureStateWriteError extends TaggedError("FeatureStateWriteError")<{
-	path: string;
-	cause: unknown;
-	message: string;
-}>() {
-	constructor(args: { path: string; cause: unknown }) {
-		super({
-			...args,
-			message: `Failed to save pi-fff feature state at ${args.path}: ${messageFromCause(args.cause)}`,
-		});
-	}
-}
-
 export class RuntimeInitializationError extends TaggedError("RuntimeInitializationError")<{
 	cwd: string;
 	step: string;
@@ -154,7 +115,6 @@ export class ExternalGrepScopeError extends TaggedError("ExternalGrepScopeError"
 	}
 }
 
-export type FeatureStateLoadError = FeatureStateReadError | FeatureStateParseError;
 export type PathResolutionError =
 	| EmptyPathQueryError
 	| MissingPathError

@@ -62,14 +62,18 @@ describe("headless Loadout engine", () => {
 			settings.projectPath,
 			JSON.stringify({ "pi-loadout": { tools: { "tool:custom": true } } }),
 		);
-		registerManagedLoadoutTool(h.pi, {
-			id: "custom",
-			group: "HEPI",
-			priority: 1,
-			conflictSets: [],
-			defaultActive: false,
-			tool: { name: "custom" } as never,
-		});
+		registerManagedLoadoutTool(
+			h.pi,
+			{
+				id: "custom",
+				owner: "@hheei/pi-loadout-test",
+				group: "HEPI",
+				priority: 1,
+				conflictSets: [],
+				defaultActive: false,
+			},
+			{ name: "custom" } as never,
+		);
 		const activeSnapshots: string[] = [];
 		const activationController = new AbortController();
 		observeLoadoutToolActivation(h.pi, {

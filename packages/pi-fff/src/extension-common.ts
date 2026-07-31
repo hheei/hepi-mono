@@ -1,17 +1,6 @@
-import { readFileSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { Result, TaggedError } from "better-result";
+import { TaggedError } from "better-result";
 import { formatGrepError, formatPathResolutionError } from "./error-format.js";
-import {
-	type FeatureStateLoadError,
-	FeatureStateParseError,
-	FeatureStateReadError,
-	FeatureStateWriteError,
-	type GrepSearchError,
-	type PathResolutionError,
-} from "./errors.js";
+import { type GrepSearchError, type PathResolutionError } from "./errors.js";
 import type {
 	FindFilesResponse,
 	GrepSearchResponse,
@@ -20,54 +9,8 @@ import type {
 	RuntimeMetadata,
 } from "./fff.js";
 
-const GLOBAL_FEATURES_PATH = join(getAgentDir(), "extensions", "pi-fff.json");
-export const CUSTOM_TOOL_NAMES = ["find_files", "fff_multi_grep"] as const;
 export const FFF_RUNTIME_NOT_READY_TEXT = "FFF runtime is not ready.";
 
-export type FeatureKey =
-	| "autocomplete"
-	| "builtInReadEnhancement"
-	| "builtInGrepEnhancement"
-	| "agentTools"
-	| "statusUI";
-
-const LEGACY_BUILT_IN_TOOL_ENHANCEMENTS_KEY = "builtInToolEnhancements";
-
-export type FeatureDefinition = {
-	id: FeatureKey;
-	label: string;
-	description: string;
-};
-
-export const FEATURE_DEFINITIONS: FeatureDefinition[] = [
-	{
-		id: "autocomplete",
-		label: "Autocomplete",
-		description: "Use FFF for @... editor autocomplete",
-	},
-	{
-		id: "builtInReadEnhancement",
-		label: "Built-in read enhancement",
-		description: "Resolve approximate paths before built-in read",
-	},
-	{
-		id: "builtInGrepEnhancement",
-		label: "Built-in grep enhancement",
-		description: "Use FFF-backed content search for built-in grep",
-	},
-	{ id: "agentTools", label: "Agent tools", description: "Enable find_files / fff_multi_grep" },
-	{ id: "statusUI", label: "Status UI", description: "Show startup notices" },
-];
-export const ALL_FEATURE_KEYS = FEATURE_DEFINITIONS.map((feature) => feature.id);
-
-function isMissingFileError(value: unknown): value is NodeJS.ErrnoException {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		"code" in value &&
-		(value as NodeJS.ErrnoException).code === "ENOENT"
-	);
-}
 
 export function buildReadFailureMessage(
 	action: string,
@@ -145,7 +88,6 @@ export function buildErrorDetails(error?: { message: string } | null) {
 
 export function buildGrepDetails(
 	result?: GrepSearchResponse,
-	disabledFeature?: FeatureKey,
 	error?: { message: string } | null,
 ) {
 	return {
@@ -158,14 +100,11 @@ export function buildGrepDetails(
 		constraints: result?.constraintQuery ?? null,
 		suggestedReadPath: result?.suggestedReadPath ?? null,
 		...buildErrorDetails(error),
-		disabled: disabledFeature !== undefined,
-		feature: disabledFeature ?? null,
 	};
 }
 
 export function buildFindFilesDetails(
 	result?: FindFilesResponse,
-	disabledFeature?: FeatureKey,
 	error?: { message: string } | null,
 ) {
 	return {
@@ -173,8 +112,6 @@ export function buildFindFilesDetails(
 		totalMatched: result?.totalMatched ?? null,
 		totalFiles: result?.totalFiles ?? null,
 		...buildErrorDetails(error),
-		disabled: disabledFeature !== undefined,
-		feature: disabledFeature ?? null,
 	};
 }
 
@@ -182,7 +119,6 @@ export function buildStatusReport(args: {
 	status: { state: string; indexedFiles?: number; error?: string };
 	health?: HealthCheck;
 	metadata: RuntimeMetadata;
-	features: Array<{ label: string; enabled: boolean }>;
 	healthError?: { message: string } | null;
 }) {
 	const lines = [
@@ -197,64 +133,8 @@ export function buildStatusReport(args: {
 		`frecency tracking: ${args.health?.frecency.initialized ? "on" : "off"}`,
 		`query history: ${args.health?.queryTracker.initialized ? "on" : "off"}`,
 		`definition classification: ${args.metadata.definitionClassification}`,
-		...args.features.map((feature) => `${feature.label}: ${feature.enabled ? "on" : "off"}`),
 	];
 	if (args.status.error) lines.push(`error: ${args.status.error}`);
 	if (args.healthError) lines.push(`health: ${args.healthError.message}`);
 	return lines.join("\n");
-}
-
-function isFeatureKey(value: string): value is FeatureKey {
-	return ALL_FEATURE_KEYS.includes(value as FeatureKey);
-}
-
-function parseFeatureState(content: string): FeatureKey[] | undefined {
-	const parsed = JSON.parse(content) as { enabledFeatures?: unknown[] } | undefined;
-	if (!Array.isArray(parsed?.enabledFeatures)) return undefined;
-
-	const savedFeatures = parsed.enabledFeatures.filter(
-		(feature): feature is string => typeof feature === "string",
-	);
-	const enabled = savedFeatures.filter(isFeatureKey);
-	if (savedFeatures.includes(LEGACY_BUILT_IN_TOOL_ENHANCEMENTS_KEY)) {
-		if (!enabled.includes("builtInReadEnhancement")) enabled.push("builtInReadEnhancement");
-		if (!enabled.includes("builtInGrepEnhancement")) enabled.push("builtInGrepEnhancement");
-	}
-	return enabled.length > 0 ? enabled : [];
-}
-
-export function loadGlobalFeatureStateSync() {
-	const contentResult = Result.try<string, FeatureStateReadError>({
-		try: () => readFileSync(GLOBAL_FEATURES_PATH, "utf8"),
-		catch: (cause) => new FeatureStateReadError({ path: GLOBAL_FEATURES_PATH, cause }),
-	});
-	if (contentResult.isErr()) {
-		if (isMissingFileError(contentResult.error.cause))
-			return Result.ok<FeatureKey[] | undefined>(undefined);
-		return contentResult;
-	}
-
-	return Result.try<FeatureKey[] | undefined, FeatureStateLoadError>({
-		try: () => parseFeatureState(contentResult.value),
-		catch: (cause) => new FeatureStateParseError({ path: GLOBAL_FEATURES_PATH, cause }),
-	});
-}
-
-export async function saveGlobalFeatureState(enabledFeatures: Set<FeatureKey>) {
-	const parentDir = join(getAgentDir(), "extensions");
-	const mkdirResult = await Result.tryPromise({
-		try: () => mkdir(parentDir, { recursive: true }),
-		catch: (cause) => new FeatureStateWriteError({ path: parentDir, cause }),
-	});
-	if (mkdirResult.isErr()) return mkdirResult;
-
-	return Result.tryPromise({
-		try: () =>
-			writeFile(
-				GLOBAL_FEATURES_PATH,
-				`${JSON.stringify({ enabledFeatures: Array.from(enabledFeatures) satisfies FeatureKey[] }, null, 2)}\n`,
-				"utf8",
-			),
-		catch: (cause) => new FeatureStateWriteError({ path: GLOBAL_FEATURES_PATH, cause }),
-	});
 }

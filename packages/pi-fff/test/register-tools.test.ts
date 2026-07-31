@@ -5,9 +5,10 @@ import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { Result } from "better-result";
-import { ExternalGrepScopeError } from "../../src/fff/errors.js";
-import type { FffRuntime } from "../../src/fff/fff.js";
-import { registerTools } from "../../src/fff/register-tools.js";
+import { ExternalGrepScopeError } from "../src/errors.js";
+import type { FffRuntime } from "../src/fff.js";
+import { registerTools } from "../src/register-tools.js";
+import { DEFAULT_FFF_SETTINGS } from "../src/settings.js";
 
 const temporaryPaths: string[] = [];
 
@@ -48,8 +49,7 @@ describe("FFF tool registration", () => {
 		const host = harness();
 		registerTools(host.pi, {
 			getRuntime: () => null,
-			isFeatureEnabled: () => false,
-			agentToolsDisabledText: () => "disabled",
+			getSettings: () => DEFAULT_FFF_SETTINGS,
 		});
 
 		expect(host.tools.map((tool) => tool.name)).toEqual([
@@ -86,8 +86,7 @@ describe("FFF tool registration", () => {
 		} as unknown as FffRuntime;
 		registerTools(host.pi, {
 			getRuntime: () => runtime,
-			isFeatureEnabled: () => false,
-			agentToolsDisabledText: () => "disabled",
+			getSettings: () => ({ ...DEFAULT_FFF_SETTINGS, readEnhancement: false }),
 		});
 		const read = host.tools.find((tool) => tool.name === "read")?.execute;
 		if (read === undefined) throw new Error("FFF read wrapper was not registered");
@@ -114,8 +113,7 @@ describe("FFF tool registration", () => {
 		} as unknown as FffRuntime;
 		registerTools(host.pi, {
 			getRuntime: () => runtime,
-			isFeatureEnabled: (feature) => feature === "builtInGrepEnhancement",
-			agentToolsDisabledText: () => "disabled",
+			getSettings: () => DEFAULT_FFF_SETTINGS,
 		});
 		const grep = host.tools.find((tool) => tool.name === "grep")?.execute;
 		if (grep === undefined) throw new Error("FFF grep wrapper was not registered");
@@ -144,8 +142,7 @@ describe("FFF tool registration", () => {
 		const host = harness();
 		registerTools(host.pi, {
 			getRuntime: () => runtime,
-			isFeatureEnabled: (feature) => feature === "builtInGrepEnhancement",
-			agentToolsDisabledText: () => "disabled",
+			getSettings: () => DEFAULT_FFF_SETTINGS,
 		});
 		const grep = host.tools.find((tool) => tool.name === "grep")?.execute;
 		if (grep === undefined) throw new Error("FFF grep wrapper was not registered");
@@ -163,8 +160,7 @@ describe("FFF tool registration", () => {
 		const host = harness();
 		registerTools(host.pi, {
 			getRuntime: () => null,
-			isFeatureEnabled: () => true,
-			agentToolsDisabledText: () => "disabled",
+			getSettings: () => DEFAULT_FFF_SETTINGS,
 		});
 		const find = host.tools.find((tool) => tool.name === "find_files")?.execute;
 		if (find === undefined) throw new Error("FFF find wrapper was not registered");
@@ -184,8 +180,7 @@ describe("FFF tool registration", () => {
 		const host = harness();
 		registerTools(host.pi, {
 			getRuntime: () => null,
-			isFeatureEnabled: () => false,
-			agentToolsDisabledText: () => "disabled",
+			getSettings: () => DEFAULT_FFF_SETTINGS,
 		});
 		const grep = host.tools.find((tool) => tool.name === "grep");
 		if (grep?.renderCall === undefined || grep.renderResult === undefined)
@@ -253,8 +248,7 @@ describe("FFF tool registration", () => {
 		const host = harness();
 		registerTools(host.pi, {
 			getRuntime: () => null,
-			isFeatureEnabled: () => false,
-			agentToolsDisabledText: () => "disabled",
+			getSettings: () => DEFAULT_FFF_SETTINGS,
 		});
 		const find = host.tools.find((tool) => tool.name === "find_files");
 		if (find?.renderCall === undefined || find.renderResult === undefined)

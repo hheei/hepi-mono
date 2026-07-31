@@ -1,4 +1,5 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { TSchema } from "typebox";
 import { getGlobalState } from "./global-state.js";
 import type { ExtensionLifecycleContext } from "./lifecycle.js";
 import { type RuntimeHost, runtimeIdentity } from "./runtime-identity.js";
@@ -24,9 +25,11 @@ export interface LoadoutInventoryRegistration extends LoadoutToolMetadata {}
 /**
  * A static HEPI tool declaration. Core owns the Pi registration transport so an
  * independently loaded contributor does not depend on pi-loadout load order.
+ * The owner stays stable across Pi reloads, allowing a new runner to replace the
+ * old registration without allowing a second extension to claim the same name.
  */
 export interface ManagedLoadoutToolRegistration extends LoadoutToolMetadata {
-	readonly tool: Parameters<ExtensionAPI["registerTool"]>[0];
+	readonly owner: string;
 }
 
 export interface LoadoutInventoryObserver {
@@ -47,6 +50,7 @@ export interface LoadoutToolActivationObserver {
 
 interface RuntimeLoadoutState {
 	readonly registrations: Map<string, LoadoutToolMetadata>;
+	readonly managed: Map<string, { readonly owner: string; readonly runner: object }>;
 	readonly observers: Set<LoadoutInventoryObserver>;
 	activation: LoadoutToolActivationSnapshot | undefined;
 	readonly activationObservers: Set<LoadoutToolActivationObserver>;
@@ -66,6 +70,7 @@ function stateFor(pi: RuntimeHost): RuntimeLoadoutState {
 	if (existing !== undefined) return existing;
 	const created: RuntimeLoadoutState = {
 		registrations: new Map(),
+		managed: new Map(),
 		observers: new Set(),
 		activation: undefined,
 		activationObservers: new Set(),
@@ -84,6 +89,10 @@ function validateMetadata(metadata: LoadoutToolMetadata): void {
 		if (!conflictSet.trim())
 			throw new Error(`Loadout conflict set must not be empty: ${metadata.id}`);
 	}
+}
+
+function validateManagedOwner(owner: string): void {
+	if (!owner.trim()) throw new Error("Loadout managed tool owner must not be empty");
 }
 
 function snapshot(state: RuntimeLoadoutState): readonly LoadoutToolMetadata[] {
@@ -130,15 +139,32 @@ export function registerLoadoutInventory(
 }
 
 /** Registers a HEPI-owned executable tool and its corresponding static inventory item. */
-export function registerManagedLoadoutTool(
+export function registerManagedLoadoutTool<TParams extends TSchema, TDetails, TState>(
 	pi: ExtensionAPI,
 	registration: ManagedLoadoutToolRegistration,
+	tool: ToolDefinition<TParams, TDetails, TState>,
 ): void {
 	validateMetadata(registration);
+	validateManagedOwner(registration.owner);
+	if (registration.id !== tool.name)
+		throw new Error(`Loadout tool id must match the Pi tool name: ${registration.id}`);
 	const state = stateFor(pi);
+	const current = state.managed.get(registration.id);
+	if (current !== undefined) {
+		if (current.owner !== registration.owner)
+			throw new Error(`Loadout tool id already registered: ${registration.id}`);
+		if (current.runner === pi)
+			throw new Error(`Loadout tool id already registered: ${registration.id}`);
+		pi.registerTool(tool);
+		state.managed.set(registration.id, { owner: registration.owner, runner: pi });
+		state.registrations.set(registration.id, registration);
+		notify(state);
+		return;
+	}
 	if (state.registrations.has(registration.id))
 		throw new Error(`Loadout tool id already registered: ${registration.id}`);
-	pi.registerTool(registration.tool);
+	pi.registerTool(tool);
+	state.managed.set(registration.id, { owner: registration.owner, runner: pi });
 	state.registrations.set(registration.id, registration);
 	notify(state);
 }

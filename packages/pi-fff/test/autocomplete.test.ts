@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AutocompleteProvider } from "@earendil-works/pi-tui";
 import { Result } from "better-result";
-import { createFffAutocompleteProvider } from "../../src/fff/autocomplete.js";
+import { createFffAutocompleteProvider } from "../src/autocomplete.js";
 
 const baseProvider: AutocompleteProvider = {
 	async getSuggestions() {
@@ -32,7 +32,7 @@ describe("HEPI FFF autocomplete", () => {
 				queries.push(query);
 				return Result.ok([
 					{
-						item: { relativePath: "packages/hepi-tools/src/fff/index.ts", fileName: "index.ts" },
+						item: { relativePath: "packages/pi-fff/src/extension.ts", fileName: "extension.ts" },
 						score: { matchType: "prefix" },
 					},
 				]);
@@ -51,24 +51,12 @@ describe("HEPI FFF autocomplete", () => {
 			prefix: "@fff",
 			items: [
 				{
-					value: "@packages/hepi-tools/src/fff/index.ts",
-					label: "index.ts",
-					description: "packages/hepi-tools/src/fff/index.ts · prefix",
+					value: "@packages/pi-fff/src/extension.ts",
+					label: "extension.ts",
+					description: "packages/pi-fff/src/extension.ts · prefix",
 				},
 			],
 		});
 		expect(queries).toEqual(["fff"]);
-	});
-
-	test("delegates when the FFF autocomplete feature is disabled", async () => {
-		const provider = createFffAutocompleteProvider(
-			baseProvider,
-			() => undefined,
-			() => false,
-		);
-
-		await expect(
-			provider.getSuggestions(["@ignored"], 0, 8, { signal: new AbortController().signal }),
-		).resolves.toEqual({ prefix: "$", items: [{ value: "$skill", label: "$skill" }] });
 	});
 });
