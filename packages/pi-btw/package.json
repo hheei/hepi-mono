@@ -1,0 +1,26 @@
+{
+  "name": "@hheei/pi-btw",
+  "version": "0.0.0",
+  "description": "Side questions about the current Pi session.",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "files": ["src", "README.md", "LICENSE"],
+  "pi": { "extensions": ["src/extension.ts"] },
+  "scripts": { "prepack": "bun run build", "build": "bunx tsc -p tsconfig.build.json" },
+  "keywords": ["pi", "pi-package", "pi-extension", "hepi", "btw"],
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/hheei/hepi-mono.git", "directory": "packages/pi-btw" },
+  "publishConfig": { "access": "public" },
+  "dependencies": {
+    "@hheei/hepi-basics": "workspace:*",
+    "@hheei/pi-ext-core": "workspace:*"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": ">=0.82.0",
+    "@earendil-works/pi-ai": ">=0.82.0",
+    "@earendil-works/pi-coding-agent": ">=0.82.0",
+    "@earendil-works/pi-tui": ">=0.82.0"
+  },
+  "devDependencies": { "@earendil-works/pi-coding-agent": "^0.82.0", "@types/bun": "latest" }
+}

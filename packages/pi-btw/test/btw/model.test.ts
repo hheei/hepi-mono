@@ -7,7 +7,7 @@ import {
 	extractAssistantText,
 	normalizeBtwQuestion,
 	serializeMainMessage,
-} from "../../src/pi-btw/model.js";
+} from "../../model.js";
 
 const message = (value: Message): Message => value;
 const assistant = (text: string): AssistantMessage => ({

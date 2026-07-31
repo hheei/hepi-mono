@@ -7,7 +7,7 @@ import {
 	renderScrollbar,
 	truncateToWidth,
 	wrap,
-} from "../../../hepi-basics/src/core/index.js";
+} from "@hheei/hepi-basics";
 import { type BtwTurn, extractAssistantText } from "./model.js";
 
 export type BtwComponentStatus =
