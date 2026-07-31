@@ -76,7 +76,6 @@ test("concurrent extension runtimes isolate contributions", async () => {
 test("extension factories remain reloadable", async () => {
 	const paths = [
 		"packages/hepi-basics/src/core/index.ts",
-		"packages/hepi-basics/src/loadout/extension.ts",
 		"packages/hepi-basics/src/retry/extension.ts",
 		"packages/hepi-basics/src/dollar-skill/extension.ts",
 		"packages/hepi-basics/src/fix/extension.ts",

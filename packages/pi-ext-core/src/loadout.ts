@@ -1,5 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getGlobalState } from "./global-state.js";
 import type { ExtensionLifecycleContext } from "./lifecycle.js";
+import { type RuntimeHost, runtimeIdentity } from "./runtime-identity.js";
 
 /**
  * Describes one Tool inventory item without assigning its effective active state.
@@ -32,26 +34,162 @@ export interface LoadoutInventoryObserver {
 	onChange(items: readonly LoadoutToolMetadata[]): void;
 }
 
+/** The resolved name-level activation state published by the Loadout policy owner. */
+export interface LoadoutToolActivationSnapshot {
+	readonly knownIds: ReadonlySet<string>;
+	readonly activeIds: ReadonlySet<string>;
+}
+
+export interface LoadoutToolActivationObserver {
+	readonly signal: AbortSignal;
+	onChange(snapshot: LoadoutToolActivationSnapshot | undefined): void;
+}
+
+interface RuntimeLoadoutState {
+	readonly registrations: Map<string, LoadoutToolMetadata>;
+	readonly observers: Set<LoadoutInventoryObserver>;
+	activation: LoadoutToolActivationSnapshot | undefined;
+	readonly activationObservers: Set<LoadoutToolActivationObserver>;
+}
+
+interface RuntimeLoadoutRegistries {
+	readonly byRuntime: WeakMap<object, RuntimeLoadoutState>;
+}
+
+function registries(): RuntimeLoadoutRegistries {
+	return getGlobalState("loadout-registries", () => ({ byRuntime: new WeakMap() }));
+}
+
+function stateFor(pi: RuntimeHost): RuntimeLoadoutState {
+	const identity = runtimeIdentity(pi);
+	const existing = registries().byRuntime.get(identity);
+	if (existing !== undefined) return existing;
+	const created: RuntimeLoadoutState = {
+		registrations: new Map(),
+		observers: new Set(),
+		activation: undefined,
+		activationObservers: new Set(),
+	};
+	registries().byRuntime.set(identity, created);
+	return created;
+}
+
+function validateMetadata(metadata: LoadoutToolMetadata): void {
+	if (!metadata.id.trim()) throw new Error("Loadout tool id must not be empty");
+	if (!metadata.group.trim())
+		throw new Error(`Loadout tool group must not be empty: ${metadata.id}`);
+	if (!Number.isSafeInteger(metadata.priority) || metadata.priority < 0)
+		throw new Error(`Loadout tool priority must be a non-negative integer: ${metadata.id}`);
+	for (const conflictSet of metadata.conflictSets) {
+		if (!conflictSet.trim())
+			throw new Error(`Loadout conflict set must not be empty: ${metadata.id}`);
+	}
+}
+
+function snapshot(state: RuntimeLoadoutState): readonly LoadoutToolMetadata[] {
+	return [...state.registrations.values()].sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function notify(state: RuntimeLoadoutState): void {
+	const items = snapshot(state);
+	for (const observer of state.observers) {
+		if (!observer.signal.aborted) observer.onChange(items);
+	}
+}
+
+function notifyActivation(state: RuntimeLoadoutState): void {
+	for (const observer of state.activationObservers) {
+		if (!observer.signal.aborted) observer.onChange(state.activation);
+	}
+}
+
+function registerMetadata(pi: RuntimeHost, metadata: LoadoutToolMetadata): void {
+	validateMetadata(metadata);
+	const state = stateFor(pi);
+	if (state.registrations.has(metadata.id))
+		throw new Error(`Loadout tool id already registered: ${metadata.id}`);
+	state.registrations.set(metadata.id, metadata);
+	notify(state);
+}
+
 /** Registers an existing tool as a Loadout inventory item for this lifecycle. */
 export function registerLoadoutInventory(
-	_context: ExtensionLifecycleContext,
-	_registration: LoadoutInventoryRegistration,
+	context: ExtensionLifecycleContext,
+	registration: LoadoutInventoryRegistration,
 ): void {
-	throw new Error("@hheei/pi-ext-core Loadout inventory is not implemented");
+	registerMetadata(context.pi, registration);
+	let active = true;
+	context.resources.add(`loadout:${registration.id}`, () => {
+		if (!active) return;
+		active = false;
+		const state = stateFor(context.pi);
+		if (state.registrations.get(registration.id) !== registration) return;
+		state.registrations.delete(registration.id);
+		notify(state);
+	});
 }
 
 /** Registers a HEPI-owned executable tool and its corresponding static inventory item. */
 export function registerManagedLoadoutTool(
-	_pi: ExtensionAPI,
-	_registration: ManagedLoadoutToolRegistration,
+	pi: ExtensionAPI,
+	registration: ManagedLoadoutToolRegistration,
 ): void {
-	throw new Error("@hheei/pi-ext-core managed Loadout tool is not implemented");
+	validateMetadata(registration);
+	const state = stateFor(pi);
+	if (state.registrations.has(registration.id))
+		throw new Error(`Loadout tool id already registered: ${registration.id}`);
+	pi.registerTool(registration.tool);
+	state.registrations.set(registration.id, registration);
+	notify(state);
 }
 
 /** Observes the current inventory and its lifecycle-bound dynamic registrations. */
 export function observeLoadoutInventory(
-	_pi: ExtensionAPI,
-	_observer: LoadoutInventoryObserver,
+	pi: ExtensionAPI,
+	observer: LoadoutInventoryObserver,
 ): void {
-	throw new Error("@hheei/pi-ext-core Loadout inventory observer is not implemented");
+	const state = stateFor(pi);
+	if (observer.signal.aborted) return;
+	state.observers.add(observer);
+	const remove = () => state.observers.delete(observer);
+	observer.signal.addEventListener("abort", remove, { once: true });
+	observer.onChange(snapshot(state));
+}
+
+/** Publishes policy-resolved activation without giving core policy ownership. */
+export function publishLoadoutToolActivation(
+	pi: ExtensionAPI,
+	snapshot: LoadoutToolActivationSnapshot,
+): void {
+	for (const id of snapshot.activeIds) {
+		if (!snapshot.knownIds.has(id)) throw new Error(`Loadout active tool is not known: ${id}`);
+	}
+	const state = stateFor(pi);
+	state.activation = {
+		knownIds: new Set(snapshot.knownIds),
+		activeIds: new Set(snapshot.activeIds),
+	};
+	notifyActivation(state);
+}
+
+/** Clears a policy snapshot during lifecycle teardown. */
+export function clearLoadoutToolActivation(pi: ExtensionAPI): void {
+	const state = stateFor(pi);
+	if (state.activation === undefined) return;
+	state.activation = undefined;
+	notifyActivation(state);
+}
+
+/** Observes resolved activation state, including future policy changes. */
+export function observeLoadoutToolActivation(
+	pi: ExtensionAPI,
+	observer: LoadoutToolActivationObserver,
+): void {
+	const state = stateFor(pi);
+	if (observer.signal.aborted) return;
+	state.activationObservers.add(observer);
+	observer.signal.addEventListener("abort", () => state.activationObservers.delete(observer), {
+		once: true,
+	});
+	observer.onChange(state.activation);
 }
