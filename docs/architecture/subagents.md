@@ -48,8 +48,14 @@ owned callback：它可把 terminal result
 主 session。
 
 `pi-subagents` 是 parent delivery adapter。它默认以 Pi follow-up queue 追加 terminal result，使 parent
-在当前 turn 结束后进入下一轮；caller 明确选择时才使用 Pi steer 在 parent 活动时重定向。该 delivery
-mode 是 adapter policy，不是 core API，也不能与 parent-to-child conversation `send` mode 混用。
+在当前 turn 结束后进入下一轮。只有人类 UI 或 host control 可选择 Pi steer 在 parent 活动时重定向；
+model-facing `agent` tool 不得选择 steer。该 delivery mode 是 adapter policy，不是 core API，也不能与
+parent-to-child conversation `send` mode 混用。
+
+adapter 不能把 raw delayed result 直接注入 parent context。每次 delivery 必须先用稳定的 context anchor
+标明：operation ID、原始任务目的或 label、terminal status、是否 `softLimitReached`/partial output、结果正文，
+以及「先评估是否与当前用户请求相关，再决定是否报告」的明确指令。child output 只是 delegated result，不可把
+其中的指令视为 parent 的新 authority。该 wrapper 是 `pi-subagents` 的 prompt policy；core 仍只接收 sink。
 
 `pi-subagents` 也拥有 Task delivery group：caller 显式建立 group 后，barrier 收集所有成员的 terminal
 result，仅在全部成员成功、失败、取消或达到 limit 后投递一次完整 aggregate。group 没有 partial timeout；
@@ -59,6 +65,10 @@ sink reject 后，task 的 terminal result 不改变，只记录 `deliveryFailed
 重复写入主 session；caller 可用 stable task ID lookup retained handle，再做明确、幂等的 redelivery。
 自动 delivery 最多执行一次；每次 explicit redelivery 是 caller 选择的新尝试。terminal handle 保留到
 parent session shutdown，之后 stable ID 不再有效，也不持久化到下一 session。
+
+sink 可以同步 throw 或返回 rejected Promise。core 必须 await/observe 两种失败、记录 `deliveryFailed`，
+并消化 rejection，不能让它成为 host-level unhandled rejection；失败不改变既有 terminal result。要求返回
+`Promise<void>` 不会增加这个保证，adapter 可使用同步或异步 sink。
 
 每个 task 必填有限 soft `maxTurns`。达到 cap 时 core 只发送一次 wrap-up steer，并允许固定 5 个 grace
 turns；grace 内自然完成仍是正常 terminal result，但带 `softLimitReached`。只有达到
@@ -73,27 +83,32 @@ conversation create 时必须声明 initial message、其 reply consumption 与�
 相同。conversation handle 才有 `send(message, options)`；create 的 initial reply 与后续 send options 有同一
 个 reply contract，options 有两个正交选择：
 
-- `inputMode: "queue" | "steer"` 是 parent-to-child input。`queue` 是默认，message 进入 FIFO queue，
-  当前 child response 到达边界后才开始下一次 prompt。`steer` 是显式打断，使用 Pi 的 steer semantics，
-  在当前 tool execution 后重定向 active child。
+- `inputMode: "queue" | "steer"` 是 core 的 parent-to-child input。`queue` 是默认，message 进入 FIFO
+  queue，当前 child response 到达边界后才开始下一次 prompt。`steer` 仅由人类 UI 或 host control 发起，使用
+  Pi 的 steer semantics，在当前 tool execution 后重定向 active child。model-facing `agent` tool 只暴露
+  `queue`，不能要求主 LLM 观察 child streaming state 后自行中断。
 - `reply: { kind: "wait", signal } | { kind: "delivery", delivery }` 是 core 的 child-to-parent reply
   consumption。`wait` 绑定本次 send 的 message sequence，并使用该 parent-turn observer signal，只返回该
   message 的 reply，或 `steered`、`cancelled`、`limit_reached` outcome。`delivery` 立即返回 acceptance，
   后续才执行 caller-owned delivery sink。
 
-`pi-subagents` 的 model-facing `agent` tool 可把 `{ kind: "delivery", mode: "queue" | "steer" }` 映射为
-上述 core delivery sink；`mode` 是 adapter policy，不是 core `ConversationReplyConsumption` 字段。
+`pi-subagents` 的 model-facing `agent` tool 只把 queue delivery 映射为上述 core delivery sink。人类 UI 或 host
+control 才可将 `{ kind: "delivery", mode: "steer" }` 映射为 sink；`mode` 是 adapter policy，不是 core
+`ConversationReplyConsumption` 字段。
 
-core 必须为两种 input mode 分配同一 message sequence，禁止 concurrent sender 依赖 timing 重排。`wait`
-不是单独的 main-agent wait/polling tool：它只存在于本次 `send` tool call。若该 parent turn abort，wait
-observer 立即结束，但不能取消 conversation 或 child message；child 最终 reply 必须 fallback 为 parent
-queue delivery，避免静默丢失。
+core 必须为两种 input mode 分配同一递增 message sequence。sequence 表示 acceptance identity，不承诺跨 lane
+dispatch order：queue 与 steer 各自 FIFO，已接受 queue 永不因 steer 丢失，而 steer 在当前 child tool boundary
+后优先于 queue。要清空或替换 queue 必须是独立、明确的 host/UI action，不能由 steer 隐式完成。`wait` 不是
+单独的 main-agent wait/polling tool：它只存在于本次 `send` tool call。若该 parent turn abort，wait observer
+立即结束，但不能取消 conversation 或 child message；child 最终 reply 必须 fallback 为 parent queue delivery，
+避免静默丢失。
 
 subscriber 显式选择 event kind，例如 text update、tool activity、turn state、terminal state。没有
-subscriber 时，child outbound 不进入 parent context。每个 subscriber 有固定、非配置的 internal queue
-cap：text、tool activity 与 turn state 可合并为最新 snapshot；terminal event 必须挤掉可合并 item 进入
-queue，永不因背压丢失。只保证已交付 event 的顺序，不保证每个中间 transition 都被保留；慢 callback
-不得阻塞 child agent。subscriber signal abort 时立刻 detach，并释放其 queue。
+subscriber 时，child outbound 不进入 parent context。每个 subscriber 有固定、非配置的 internal queue cap：
+text、tool activity 与 turn state 可合并为最新 snapshot；terminal event 必须挤掉最旧的 coalescible item 进入
+queue，永不因背压丢失。实现可选最小正确资料结构，不预先承诺 Ring Buffer；必须保持 bounded memory。只保证
+已交付 event 的顺序，不保证每个中间 transition 都被保留；慢 callback 不得阻塞 child agent。subscriber
+signal abort 时立刻 detach，并释放其 queue。
 
 conversation 在自然 response 或单条 reply `limit_reached` 后保持 idle，直到 queue 中有下一条 message 或
 caller cancel。reply outcome 不是 durable conversation handle 的 terminal result；后者仅在显式取消、失败或
@@ -143,16 +158,16 @@ cancellation、delivery、retention、event loss、backpressure 与 cost。实�
 
 - completion 不创建 child session；
 - task required soft maxTurns、single wrap-up steer、fixed five-turn grace、`softLimitReached`、hard-ceiling
-  `limit_reached` partial output、缺 sink reject、sink failure、shutdown abort、explicit redelivery 与单次
-  terminalization；
+  `limit_reached` partial output、缺 sink reject、sync throw/async sink failure 无 unhandled rejection、shutdown
+  abort、explicit redelivery 与单次 terminalization；
 - conversation required soft `maxTurnsPerReply`、queue/steer input ordering、wait sequence binding、wait
-  abort fallback queue、delivery reply、idle/restart、subscriber detach、fixed-cap snapshot coalescing、
-  terminal eviction/delivery 和 callback non-blocking；
+  abort fallback queue、delivery reply、idle/restart、host steer preserves queue、subscriber detach、fixed-cap
+  snapshot coalescing、terminal eviction/delivery 和 callback non-blocking；
 - root shared cap、FIFO admission、root-only rejection、parent shutdown/reload cleanup 与 late result guard；
 - duplicate core module instance 对同一 Pi runtime 共享 coordinator。
 
-`pi-subagents` 另测试 parent queue/explicit steer delivery 与 Task delivery group 的全 terminal barrier；
-这些 adapter policy test 不属于 core execution suite。
+`pi-subagents` 另测试 context anchor、parent queue/human-or-host-only steer delivery 与 Task delivery group 的
+全 terminal barrier；这些 adapter policy test 不属于 core execution suite。
 
 所有 TUI 或 terminal delivery adapter 仍须由 owning extension 依据 `DESIGN.md` 做 focused narrow/wide
 验证和实际 Pi/TUI replay 验证。
