@@ -50,6 +50,10 @@ historian output mapper 只接受 exact JSON object `{ tier, sourceStartEntryId,
 Markdown/extra key/错误 type/invalid JSON，不接受模型控制 `sourceFingerprint`；MCTX 从 immutable snapshot 注入 fingerprint
 后调用 source validator。invalid reason 是稳定 repair diagnostic，但 mapper 不执行 Completion 或 storage publication。
 
+historian executor 通过 ext-core `startSubagent` completion mode 执行 no-tools JSON-only request。caller 提供 source
+text/snapshot，executor prompt 约束 ordered entry IDs 与 output schema，且只 normalize core terminal result。run-local abort
+cancel handle；executor 不引入 retry/repair/lease/publication，保留给后续 orchestrator slice。
+
 schema v2 在 v1 application/metadata fence 上建立 `projects` 与 `partitions`。partition 以 stable project identity
 与 Pi session ID 唯一标识，revision 从 `0` 开始；get-or-create 使用短 `BEGIN IMMEDIATE` transaction，不能重复创建。
 此迁移仍不建立 lease、compartment 或 graph table。未知 nonempty database、foreign application ID 或 future schema

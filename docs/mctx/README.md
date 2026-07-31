@@ -108,6 +108,11 @@ historian output mapper 只接受 exact JSON object：`tier`、`sourceStartEntry
 snapshot 的 fingerprint，再调用 source validator。mapper 的 stable invalid reason 可直接进入一次 repair Completion；本 slice
 不调用 Completion 或 publish。
 
+historian executor 使用 ext-core `startSubagent(..., { mode: "completion" })`，只提供 no-tools JSON-only completion。
+caller 提供 source text 与 immutable snapshot；executor 将 ordered entry IDs 和 exact output schema 放入 prompt，并将 core
+terminal result 规范为 completed/cancelled/failed。run-local abort 会 cancel handle；executor 不重试、不 repair、不获取 lease，
+也不 publish record。
+
 默认 compartment trigger 在 parent `turn_end` 检查 token usage 的 threshold 与 hysteresis。越过阈值后，
 `pi-mctx` 异步执行一次 compartment run；它只处理稳定 history snapshot，不能阻塞 prompt、改写 active turn，
 也不能在 parent session replacement 后发布旧结果。
