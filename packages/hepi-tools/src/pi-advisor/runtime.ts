@@ -1,33 +1,41 @@
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import {
+	Agent,
+	type AgentMessage,
+	type AgentTool,
+	type StreamFn,
+} from "@earendil-works/pi-agent-core";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
+import { streamSimple } from "@earendil-works/pi-ai/compat";
 import {
 	convertToLlm,
-	createAgentSession,
-	DefaultResourceLoader,
+	createReadOnlyTools,
 	type ExtensionContext,
-	getAgentDir,
-	ModelRuntime,
-	SessionManager,
-	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import {
-	type ConversationSubagentHandle,
-	type ExtensionLifecycleContext,
-	type ResolvedChildSessionFactory,
-	startSubagent,
-} from "@hheei/pi-ext-core";
+import { Type } from "typebox";
 import { type ContextBudget, contextInputCharBudget } from "./context.js";
+import { parseAdvice } from "./feedback.js";
 import {
 	ADVISOR_TOOL_NAMES,
 	type AdvisorAdvice,
 	type AdvisorUsage,
 	DEFAULT_ADVISOR_USAGE,
-	parseAdvisorReview,
 	type ThinkingLevel,
 } from "./model.js";
 import { ADVISOR_SYSTEM_PROMPT } from "./prompt.js";
 
+const ADVISOR_REVIEW_TIMEOUT_MS = 30_000;
+const ADVISOR_COMPACT_THRESHOLD = 0.8;
+const ADVISOR_SESSION_PREFIX = "pi-basics-advisor:";
 const ADVISOR_RESPONSE_CAP = 4096;
+
+export function advisorSessionId(primarySessionId: string): string {
+	return `${ADVISOR_SESSION_PREFIX}${primarySessionId}`;
+}
+
+const ADVISE_PARAMETERS = Type.Object({
+	severity: Type.Union([Type.Literal("nit"), Type.Literal("concern"), Type.Literal("blocker")]),
+	note: Type.String({ minLength: 1, maxLength: 4000 }),
+});
 
 export interface AdvisorAgentAdapter {
 	readonly activeTools: readonly string[];
@@ -44,7 +52,6 @@ export interface AdvisorAgentAdapter {
 interface SessionContextSource {
 	buildSessionContext(): { readonly messages: Parameters<typeof convertToLlm>[0] };
 }
-
 function hasResolvedContext(value: unknown): value is SessionContextSource {
 	return (
 		typeof value === "object" &&
@@ -53,24 +60,44 @@ function hasResolvedContext(value: unknown): value is SessionContextSource {
 		typeof value.buildSessionContext === "function"
 	);
 }
+interface AdvisorScheduler {
+	readonly setTimeout: (callback: () => void, delay: number) => unknown;
+	readonly clearTimeout: (timer: unknown) => void;
+}
+
+function createHostScheduler(): AdvisorScheduler {
+	return {
+		setTimeout: (callback, delay) => {
+			const handle = globalThis.setTimeout(callback, delay);
+			return () => globalThis.clearTimeout(handle);
+		},
+		clearTimeout: (timer) => {
+			if (typeof timer === "function") timer();
+		},
+	};
+}
 
 export interface AdvisorAdapterOptions {
 	readonly ctx: ExtensionContext;
-	readonly lifecycle: ExtensionLifecycleContext;
 	readonly model: string | undefined;
 	readonly thinking: ThinkingLevel;
+	/** Test-only transport injection; production uses Agent's default stream. */
+	readonly streamFn?: StreamFn;
+	/** Test-only timer injection; production uses the host timers. */
+	readonly scheduler?: AdvisorScheduler;
 }
 
 function resolveModel(options: AdvisorAdapterOptions) {
-	const configured = options.model?.trim();
-	if (configured === undefined || configured.length === 0)
+	const configuredModel = options.model?.trim();
+	if (configuredModel === undefined || configuredModel.length === 0)
 		throw new Error("Configure an Advisor model in /ext-settings");
-	const [provider, id] = configured.split("/", 2);
-	if (provider === undefined || id === undefined || provider.length === 0 || id.length === 0)
-		throw new Error(`Unavailable Advisor model: ${configured}`);
-	const model = options.ctx.modelRegistry.find(provider, id);
-	if (model === undefined || model.provider !== provider || model.id !== id)
-		throw new Error(`Unavailable Advisor model: ${configured}`);
+	const ref = configuredModel.split("/", 2);
+	if (ref[0] === undefined || ref[1] === undefined || ref[0].length === 0 || ref[1].length === 0)
+		throw new Error(`Unavailable Advisor model: ${configuredModel}`);
+	const model = options.ctx.modelRegistry.find(ref[0], ref[1]);
+	if (model === undefined) throw new Error(`Unavailable Advisor model: ${configuredModel}`);
+	if (model.provider !== ref[0] || model.id !== ref[1])
+		throw new Error(`Unavailable Advisor model: ${configuredModel}`);
 	if (!options.ctx.modelRegistry.hasConfiguredAuth(model))
 		throw new Error(`Advisor model has no configured auth: ${model.provider}/${model.id}`);
 	return model;
@@ -80,24 +107,63 @@ function resolveThinking(
 	options: AdvisorAdapterOptions,
 	model: ReturnType<typeof resolveModel>,
 ): ThinkingLevel {
-	if (!model.reasoning || options.thinking === "off") return "off";
-	if (!getSupportedThinkingLevels(model).includes(options.thinking))
+	if (!model.reasoning) return "off";
+	if (options.thinking === "off") return "off";
+	const supported = getSupportedThinkingLevels(model);
+	if (!supported.includes(options.thinking))
 		throw new Error(`Unsupported Advisor thinking level: ${options.thinking}`);
 	return options.thinking;
 }
 
-function modelContextBudget(model: ReturnType<typeof resolveModel>): ContextBudget {
+function usageFromMessage(message: AgentMessage): AdvisorUsage {
+	if (typeof message !== "object" || message === null || !("usage" in message))
+		return DEFAULT_ADVISOR_USAGE;
+	const usage = message.usage;
+	if (typeof usage !== "object" || usage === null) return DEFAULT_ADVISOR_USAGE;
+	const numberAt = (value: unknown): number =>
+		typeof value === "number" && Number.isFinite(value) ? value : 0;
+	const input = numberAt("input" in usage ? usage.input : undefined);
+	const output = numberAt("output" in usage ? usage.output : undefined);
+	const total = numberAt("totalTokens" in usage ? usage.totalTokens : undefined);
+	const costValue = "cost" in usage ? usage.cost : undefined;
+	const cost =
+		typeof costValue === "object" && costValue !== null && "total" in costValue
+			? numberAt(costValue.total)
+			: 0;
+	return { input, output, total, cost };
+}
+
+function addUsage(left: AdvisorUsage, right: AdvisorUsage): AdvisorUsage {
 	return {
-		contextWindow: model.contextWindow,
-		responseReserve: Math.min(model.maxTokens, ADVISOR_RESPONSE_CAP),
+		input: left.input + right.input,
+		output: left.output + right.output,
+		total: left.total + right.total,
+		cost: left.cost + right.cost,
 	};
 }
 
-function inheritedModelRuntime(ctx: ExtensionContext): ModelRuntime | undefined {
-	const registry: unknown = ctx.modelRegistry;
-	if (typeof registry !== "object" || registry === null || !("runtime" in registry))
-		return undefined;
-	return registry.runtime instanceof ModelRuntime ? registry.runtime : undefined;
+function isAdvisorMessage(message: AgentMessage): boolean {
+	return (
+		typeof message === "object" &&
+		message !== null &&
+		"customType" in message &&
+		message.customType === "pi-basics-advisory"
+	);
+}
+
+function finalAssistantStopReason(messages: readonly AgentMessage[]): string | undefined {
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const message = messages[index];
+		if (message?.role === "assistant") return message.stopReason;
+	}
+	return undefined;
+}
+
+function isLengthError(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : String(error);
+	return /(?:maximum|limit|too\s+many)\s+(?:input\s+)?tokens?|(?:input|prompt|context)\s+(?:is\s+)?too\s+long|context\s+window|token\s+limit/i.test(
+		message,
+	);
 }
 
 function toolCallIds(message: AgentMessage): ReadonlySet<string> {
@@ -114,6 +180,13 @@ function toolCallIds(message: AgentMessage): ReadonlySet<string> {
 	);
 }
 
+function modelContextBudget(model: ReturnType<typeof resolveModel>): ContextBudget {
+	return {
+		contextWindow: model.contextWindow,
+		responseReserve: Math.min(model.maxTokens, ADVISOR_RESPONSE_CAP),
+	};
+}
+
 function trimIncompleteAssistant(
 	message: AgentMessage,
 	completed: ReadonlySet<string>,
@@ -125,7 +198,55 @@ function trimIncompleteAssistant(
 		return part.type !== "toolCall" || (typeof part.id === "string" && completed.has(part.id));
 	});
 	if (content.length === 0) return undefined;
-	return content.length === message.content.length ? message : { ...message, content };
+	if (content.length === message.content.length) return message;
+	return { ...message, content };
+}
+
+function fitBootstrapMessages(
+	messages: readonly AgentMessage[],
+	budget: ContextBudget,
+): readonly AgentMessage[] {
+	const units: AgentMessage[][] = [];
+	for (let index = 0; index < messages.length; index += 1) {
+		const message = messages[index];
+		if (message === undefined) continue;
+		const ids = toolCallIds(message);
+		const unit = [message];
+		while (ids.size > 0) {
+			const next = messages[index + 1];
+			if (next === undefined || next.role !== "toolResult" || !ids.has(next.toolCallId)) break;
+			unit.push(next);
+			index += 1;
+		}
+		units.push(unit);
+	}
+	const maxChars = contextInputCharBudget(budget);
+	const selected: AgentMessage[][] = [];
+	let chars = 0;
+	for (let index = units.length - 1; index >= 0; index -= 1) {
+		const unit = units[index];
+		if (unit === undefined) continue;
+		const unitChars = JSON.stringify(unit).length;
+		if (chars + unitChars > maxChars) break;
+		selected.unshift(unit);
+		chars += unitChars;
+	}
+	if (selected.length === units.length) return selected.flat();
+	if (selected.length === 0 && units.length > 0)
+		throw new Error("Advisor bootstrap context cannot fit the configured model");
+	const marker: AgentMessage = {
+		role: "user",
+		content: [{ type: "text", text: "[advisor bootstrap context truncated]" }],
+		timestamp: Date.now(),
+	};
+	const markerChars = JSON.stringify(marker).length;
+	while (selected.length > 0 && chars + markerChars > maxChars) {
+		const removed = selected.shift();
+		if (removed !== undefined) chars -= JSON.stringify(removed).length;
+	}
+	if (chars + markerChars > maxChars)
+		throw new Error("Advisor bootstrap context cannot fit the configured model");
+	return [marker, ...selected.flat()];
 }
 
 function stripToolResultDetails(message: AgentMessage): AgentMessage {
@@ -145,7 +266,8 @@ function repairToolPairs(source: readonly AgentMessage[]): AgentMessage[] {
 	const repaired: AgentMessage[] = [];
 	for (let index = 0; index < source.length; index += 1) {
 		const message = source[index];
-		if (message === undefined || message.role === "toolResult") continue;
+		if (message === undefined) continue;
+		if (message.role === "toolResult") continue;
 		if (message.role !== "assistant") {
 			repaired.push(message);
 			continue;
@@ -163,7 +285,9 @@ function repairToolPairs(source: readonly AgentMessage[]): AgentMessage[] {
 			nextIndex += 1;
 		}
 		const trimmed = trimIncompleteAssistant(message, completed);
-		if (trimmed !== undefined) repaired.push(trimmed, ...results);
+		if (trimmed !== undefined) {
+			repaired.push(trimmed, ...results);
+		}
 		index = nextIndex - 1;
 	}
 	return repaired;
@@ -177,44 +301,9 @@ function stripUnsupportedImages(
 	return messages.flatMap((message) => {
 		if (message.role !== "user" || !Array.isArray(message.content)) return [message];
 		const content = message.content.filter((part) => part.type !== "image");
-		return content.length === message.content.length
-			? [message]
-			: content.length === 0
-				? []
-				: [{ ...message, content }];
+		if (content.length === message.content.length) return [message];
+		return content.length === 0 ? [] : [{ ...message, content }];
 	});
-}
-
-function fitBootstrapMessages(
-	messages: readonly AgentMessage[],
-	budget: ContextBudget,
-): readonly AgentMessage[] {
-	const maxChars = contextInputCharBudget(budget);
-	const selected: AgentMessage[] = [];
-	let chars = 0;
-	for (let index = messages.length - 1; index >= 0; index -= 1) {
-		const message = messages[index];
-		if (message === undefined) continue;
-		const messageChars = JSON.stringify(message).length;
-		if (chars + messageChars > maxChars) break;
-		selected.unshift(message);
-		chars += messageChars;
-	}
-	if (selected.length === messages.length) return selected;
-	if (selected.length === 0 && messages.length > 0)
-		throw new Error("Advisor bootstrap context cannot fit the configured model");
-	const marker: AgentMessage = {
-		role: "user",
-		content: [{ type: "text", text: "[advisor bootstrap context truncated]" }],
-		timestamp: Date.now(),
-	};
-	if (chars + JSON.stringify(marker).length > maxChars)
-		throw new Error("Advisor bootstrap context cannot fit the configured model");
-	return [marker, ...selected];
-}
-
-function isAdvisorMessage(message: AgentMessage): boolean {
-	return "customType" in message && message.customType === "pi-basics-advisory";
 }
 
 export function buildAdvisorBootstrapMessages(
@@ -223,146 +312,239 @@ export function buildAdvisorBootstrapMessages(
 	allowImages = false,
 ): AgentMessage[] {
 	if (!hasResolvedContext(options.ctx.sessionManager)) return [];
-	const source = options.ctx.sessionManager.buildSessionContext().messages;
-	const sanitized = stripUnsupportedImages(
-		source.filter((message) => !isAdvisorMessage(message)),
-		allowImages,
-	);
-	const messages = repairToolPairs(convertToLlm(sanitized));
+	const resolved = options.ctx.sessionManager.buildSessionContext();
+	const sourceMessages = resolved.messages.filter((message) => !isAdvisorMessage(message));
+	const sanitizedSource = stripUnsupportedImages(sourceMessages, allowImages);
+	const messages = repairToolPairs(convertToLlm(sanitizedSource));
 	return budget === undefined ? messages : repairToolPairs(fitBootstrapMessages(messages, budget));
 }
 
-function createAdvisorSessionFactory(
-	options: AdvisorAdapterOptions,
-	model: ReturnType<typeof resolveModel>,
-	thinking: ThinkingLevel,
-): ResolvedChildSessionFactory {
-	const budget = modelContextBudget(model);
-	return {
-		async create(signal) {
-			signal.throwIfAborted();
-			const agentDir = getAgentDir();
-			const loader = new DefaultResourceLoader({
-				cwd: options.ctx.cwd,
-				agentDir,
-				systemPromptOverride: () => ADVISOR_SYSTEM_PROMPT,
-				appendSystemPromptOverride: () => [],
-				noContextFiles: true,
-				noPromptTemplates: true,
-				noThemes: true,
-			});
-			await loader.reload();
-			const modelRuntime = inheritedModelRuntime(options.ctx);
-			const { session } = await createAgentSession({
-				cwd: options.ctx.cwd,
-				agentDir,
-				model,
-				thinkingLevel: thinking,
-				tools: [...ADVISOR_TOOL_NAMES],
-				resourceLoader: loader,
-				sessionManager: SessionManager.inMemory(options.ctx.cwd),
-				settingsManager: SettingsManager.inMemory({
-					compaction: { enabled: false },
-					retry: { enabled: false },
-				}),
-				...(modelRuntime === undefined ? {} : { modelRuntime }),
-			});
-			if (signal.aborted) {
-				session.dispose();
-				signal.throwIfAborted();
-			}
-			session.state.messages.splice(
-				0,
-				session.state.messages.length,
-				...buildAdvisorBootstrapMessages(options, budget, model.input.includes("image")),
-			);
-			return session;
-		},
-	};
-}
-
-function abortError(): Error {
-	return new Error("Advisor review aborted");
-}
-
 export function createCoreAdvisorAdapter(options: AdvisorAdapterOptions): AdvisorAgentAdapter {
-	let model: ReturnType<typeof resolveModel> | undefined;
-	let factory: ResolvedChildSessionFactory | undefined;
-	let handle: ConversationSubagentHandle | undefined;
-	let disposed = false;
-	const ensureFactory = (): ResolvedChildSessionFactory => {
-		if (factory !== undefined) return factory;
-		const resolved = resolveModel(options);
-		model = resolved;
-		factory = createAdvisorSessionFactory(options, resolved, resolveThinking(options, resolved));
-		return factory;
+	let agent: Agent | undefined;
+	let disposed = true;
+	let recreateAfterTimeout = false;
+	let inFlightAbort: (() => void) | undefined;
+	const adviceByAgent = new WeakMap<Agent, AdvisorAdvice[]>();
+	let lifetime: AdvisorUsage = DEFAULT_ADVISOR_USAGE;
+	let lastCompactedContextTokens = 0;
+	const scheduler = options.scheduler ?? createHostScheduler();
+	const currentContextTokens = (target: Agent | undefined = agent): number => {
+		if (target === undefined) return 0;
+		for (let index = target.state.messages.length - 1; index >= 0; index -= 1) {
+			const message = target.state.messages[index];
+			if (message?.role !== "assistant" || !message.usage) continue;
+			const usage = message.usage;
+			return usage.input + usage.cacheRead + usage.cacheWrite;
+		}
+		return 0;
 	};
-	const cancel = (): void => handle?.cancel();
-	const withAbort = async <T>(
-		signal: AbortSignal | undefined,
-		operation: () => Promise<T>,
-	): Promise<T> => {
-		if (signal?.aborted === true) {
-			cancel();
-			throw abortError();
-		}
-		const abort = (): void => cancel();
-		signal?.addEventListener("abort", abort, { once: true });
-		try {
-			return await operation();
-		} finally {
-			signal?.removeEventListener("abort", abort);
-		}
-	};
-	const reply = async (prompt: string, signal: AbortSignal | undefined) => {
-		if (disposed) throw new Error("Advisor is not active");
-		if (handle === undefined) {
-			handle = startSubagent(options.lifecycle, {
-				mode: "conversation",
-				session: ensureFactory(),
-				initialMessage: prompt,
-				initialReply: { kind: "wait", signal: signal ?? new AbortController().signal },
-				fallbackDelivery: () => undefined,
-				maxTurnsPerReply: 8,
-			});
-			return await withAbort(signal, () => handle.initialReply);
-		}
-		return await withAbort(signal, () =>
-			handle.send(prompt, {
-				inputMode: "queue",
-				reply: { kind: "wait", signal: signal ?? new AbortController().signal },
-			}),
+	const shouldCompact = (target: Agent | undefined = agent): boolean => {
+		if (target === undefined) return false;
+		const window = target.state.model.contextWindow;
+		const tokens = currentContextTokens(target);
+		return (
+			window > 0 &&
+			tokens >= window * ADVISOR_COMPACT_THRESHOLD &&
+			tokens > lastCompactedContextTokens
 		);
+	};
+	const createAgent = (agentOptions: AdvisorAdapterOptions): Agent => {
+		const collectedAdvice: AdvisorAdvice[] = [];
+		const adviseTool: AgentTool<typeof ADVISE_PARAMETERS> = {
+			name: "advise",
+			label: "Advisor feedback",
+			description: "Submit a structured review note to the primary agent.",
+			parameters: ADVISE_PARAMETERS,
+			execute: async (_id, params, signal) => {
+				signal?.throwIfAborted();
+				const parsed = parseAdvice(params);
+				if (!parsed) throw new Error("Invalid advice");
+				collectedAdvice.push(parsed);
+				return { content: [{ type: "text", text: "Advice recorded." }], details: {} };
+			},
+		};
+		const model = resolveModel(agentOptions);
+		const next = new Agent({
+			sessionId: advisorSessionId(agentOptions.ctx.sessionManager.getSessionId()),
+			initialState: {
+				systemPrompt: ADVISOR_SYSTEM_PROMPT,
+				model,
+				thinkingLevel: resolveThinking(agentOptions, model),
+				tools: [adviseTool, ...createReadOnlyTools(agentOptions.ctx.cwd)],
+			},
+			convertToLlm,
+			getApiKey: (provider) => agentOptions.ctx.modelRegistry.getApiKeyForProvider(provider),
+			streamFn: agentOptions.streamFn ?? streamSimple,
+		});
+		next.state.messages = buildAdvisorBootstrapMessages(
+			agentOptions,
+			modelContextBudget(model),
+			model.input.includes("image"),
+		);
+		adviceByAgent.set(next, collectedAdvice);
+		return next;
+	};
+	const create = async (): Promise<void> => {
+		if (agent !== undefined) return;
+		agent = createAgent(options);
+		disposed = false;
+		recreateAfterTimeout = false;
+	};
+	const disposeAdapter = async (): Promise<void> => {
+		if (disposed) return;
+		disposed = true;
+		recreateAfterTimeout = false;
+		inFlightAbort?.();
+		const current = agent;
+		agent = undefined;
+		current?.abort();
+		if (current !== undefined) void current.waitForIdle().catch(() => undefined);
+	};
+	const resetAdapter = async (): Promise<void> => {
+		await disposeAdapter();
+		lifetime = DEFAULT_ADVISOR_USAGE;
+		lastCompactedContextTokens = 0;
+		await create();
 	};
 	return {
 		activeTools: ADVISOR_TOOL_NAMES,
-		async create() {
-			ensureFactory();
-			disposed = false;
+		contextBudget: () => {
+			const model = agent?.state.model ?? resolveModel(options);
+			return modelContextBudget(model);
 		},
+		create,
 		async reset() {
-			cancel();
-			handle = undefined;
-			disposed = false;
+			await resetAdapter();
 		},
 		async review(prompt, signal) {
-			const result = await reply(prompt, signal);
-			if (result.status !== "completed") {
-				if (result.status === "cancelled") throw abortError();
-				throw new Error(result.failure ?? `Advisor review ${result.status}`);
+			if (agent === undefined || disposed) {
+				if (
+					!recreateAfterTimeout ||
+					options.model === undefined ||
+					options.model.trim().length === 0
+				)
+					throw new Error("Advisor is not active");
+				await create();
 			}
-			return parseAdvisorReview(result.output);
+			const reviewAgent = agent;
+			const reviewOptions = options;
+			if (reviewAgent === undefined || disposed) throw new Error("Advisor is not active");
+			const reviewAdvice = adviceByAgent.get(reviewAgent);
+			if (reviewAdvice === undefined) throw new Error("Advisor state is not initialized");
+			signal?.throwIfAborted();
+			if (shouldCompact(reviewAgent)) {
+				lastCompactedContextTokens = currentContextTokens(reviewAgent);
+				reviewAgent.reset();
+				reviewAgent.state.messages = buildAdvisorBootstrapMessages(
+					reviewOptions,
+					modelContextBudget(reviewAgent.state.model),
+					reviewAgent.state.model.input.includes("image"),
+				);
+			}
+			reviewAdvice.length = 0;
+			let timedOut = false;
+			let timeoutError: Error | undefined;
+			let rejectTimeout: ((error: Error) => void) | undefined;
+			const timeoutFailure = new Promise<never>((_, reject) => {
+				rejectTimeout = reject;
+			});
+			const abort = () => reviewAgent.abort();
+			const timeout = scheduler.setTimeout(() => {
+				timedOut = true;
+				reviewAdvice.length = 0;
+				timeoutError = new Error(`Advisor review timed out after ${ADVISOR_REVIEW_TIMEOUT_MS}ms`);
+				if (agent === reviewAgent) {
+					agent = undefined;
+					disposed = true;
+					recreateAfterTimeout = true;
+				}
+				abort();
+				rejectTimeout?.(timeoutError);
+			}, ADVISOR_REVIEW_TIMEOUT_MS);
+			inFlightAbort = abort;
+			signal?.addEventListener("abort", abort, { once: true });
+			if (signal?.aborted === true) abort();
+			try {
+				let replayedLength = false;
+				for (;;) {
+					const attemptMessageCount = reviewAgent.state.messages.length;
+					let promptFailure: { readonly error: unknown } | undefined;
+					try {
+						await Promise.race([reviewAgent.prompt(prompt), timeoutFailure]);
+					} catch (error) {
+						if (timedOut) throw error;
+						promptFailure = { error };
+					} finally {
+						await Promise.race([reviewAgent.waitForIdle(), timeoutFailure]);
+						if (!timedOut) {
+							for (const message of reviewAgent.state.messages.slice(attemptMessageCount))
+								lifetime = addUsage(lifetime, usageFromMessage(message));
+						}
+					}
+					signal?.throwIfAborted();
+					if (timedOut) {
+						reviewAdvice.length = 0;
+						throw new Error(`Advisor review timed out after ${ADVISOR_REVIEW_TIMEOUT_MS}ms`);
+					}
+					if (promptFailure !== undefined) {
+						reviewAdvice.length = 0;
+						if (!isLengthError(promptFailure.error)) throw promptFailure.error;
+						if (replayedLength)
+							throw new Error("Advisor review exceeded the model context after retry");
+						replayedLength = true;
+						reviewAgent.reset();
+						reviewAgent.state.messages = buildAdvisorBootstrapMessages(
+							reviewOptions,
+							modelContextBudget(reviewAgent.state.model),
+							reviewAgent.state.model.input.includes("image"),
+						);
+						continue;
+					}
+					const stopReason = finalAssistantStopReason(reviewAgent.state.messages);
+					if (stopReason === "length" && !replayedLength) {
+						reviewAdvice.length = 0;
+						replayedLength = true;
+						reviewAgent.reset();
+						reviewAgent.state.messages = buildAdvisorBootstrapMessages(
+							reviewOptions,
+							modelContextBudget(reviewAgent.state.model),
+							reviewAgent.state.model.input.includes("image"),
+						);
+						continue;
+					}
+					if (stopReason !== "stop" && stopReason !== "toolUse") {
+						reviewAdvice.length = 0;
+						throw new Error(
+							`Advisor review ended with unsupported stop reason: ${stopReason ?? "unknown"}`,
+						);
+					}
+					break;
+				}
+				return reviewAdvice;
+			} finally {
+				scheduler.clearTimeout(timeout);
+				if (timedOut) reviewAdvice.length = 0;
+				signal?.removeEventListener("abort", abort);
+				if (inFlightAbort === abort) inFlightAbort = undefined;
+			}
 		},
-		async compact() {},
+		async compact() {
+			if (agent === undefined || disposed) return;
+			lastCompactedContextTokens = currentContextTokens();
+			agent.reset();
+			agent.state.messages = buildAdvisorBootstrapMessages(
+				options,
+				modelContextBudget(agent.state.model),
+				agent.state.model.input.includes("image"),
+			);
+		},
 		async abort() {
-			cancel();
+			inFlightAbort?.();
+			const current = agent;
+			current?.abort();
+			if (current !== undefined) void current.waitForIdle().catch(() => undefined);
 		},
-		async dispose() {
-			disposed = true;
-			cancel();
-			handle = undefined;
-		},
-		usage: () => DEFAULT_ADVISOR_USAGE,
-		contextBudget: () => modelContextBudget(model ?? resolveModel(options)),
+		dispose: disposeAdapter,
+		usage: () => lifetime,
 	};
 }
