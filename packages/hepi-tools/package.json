@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/hepi-tools",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "HEPI tool and agent group for Pi.",
 	"type": "module",
 	"main": "dist/index.js",

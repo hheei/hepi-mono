@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/hepi-skills",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "HEPI communication and engineering skills group for Pi.",
 	"type": "module",
 	"main": "dist/index.js",

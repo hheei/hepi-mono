@@ -6,7 +6,7 @@ Context, and Subagents package entries at runtime.
 
 The bundle keeps registration order: `pi-basics` first, then `pi-loadout`, the
 remaining Basics and Tools modules, AFT, Magic Context, Subagents, Skills, BTW,
-and Plan. This includes `Agent`, `get_subagent_result`, and `steer_subagent`.
+and Plan. This includes `agent`, `get_subagent_result`, and `steer_subagent`.
 `hepi-debug` is excluded.
 
 Install the unified package:
@@ -24,10 +24,10 @@ pi install -l ./packages/hepi-mono
 Build first with `bun run build` from this package or
 `bun run build:aggregates` from the repository root.
 
-The package requires `@hheei/hepi-aft`, `@hheei/hepi-mctx`, and
-`@hheei/hepi-subagents` at runtime. It also keeps `ffi-rs` as a platform runtime
-dependency for `pi-fff`; its native binary cannot be embedded in a portable
-JavaScript bundle.
+The package installs `@hheei/hepi-aft`, `@hheei/hepi-mctx`, and
+`@hheei/hepi-subagents` as runtime dependencies. It also keeps `ffi-rs` as a
+platform runtime dependency for `pi-fff`; its native binary cannot be embedded
+in a portable JavaScript bundle.
 
 Included themes:
 

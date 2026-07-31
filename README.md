@@ -31,12 +31,6 @@ pi install npm:@hheei/hepi-aft
 pi install npm:@hheei/hepi-mctx
 ```
 
-Install Subagents separately; it is intentionally not part of `hepi-mono`:
-
-```bash
-pi install npm:@hheei/hepi-subagents
-```
-
 Do not install an individual package with `hepi-mono`, because their
 implementations overlap.
 
@@ -92,7 +86,7 @@ packages/       HEPI-owned publishable workspaces
 
 third_party/     Pinned external fork submodules, excluded from workspaces
   magic-context/  Shared Magic Context core bundled by hepi-mctx
-  pi-subagents/   Optional @hheei/hepi-subagents npm package source
+  pi-subagents/   @hheei/hepi-subagents npm package source and Mono runtime dependency
 
 docs/
   user/         Cross-package usage
