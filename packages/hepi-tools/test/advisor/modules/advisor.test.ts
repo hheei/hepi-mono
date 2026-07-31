@@ -15,9 +15,9 @@ import { decodeAdvisorBoundary, restoreAdvisor } from "../../../src/pi-advisor/p
 import { ADVISOR_SYSTEM_PROMPT } from "../../../src/pi-advisor/prompt.js";
 
 describe("advisor contracts", () => {
-	test("uses deterministic terse reviewer instructions", () => {
-		expect(ADVISOR_SYSTEM_PROMPT).toContain("Output terse");
-		expect(ADVISOR_SYSTEM_PROMPT).toContain("advise({severity,note})");
+	test("uses deterministic JSON-only reviewer instructions", () => {
+		expect(ADVISOR_SYSTEM_PROMPT).toContain("Output exactly one JSON object and nothing else");
+		expect(ADVISOR_SYSTEM_PROMPT).toContain('{"advice":[]}');
 		expect(ADVISOR_SYSTEM_PROMPT).not.toMatch(/timestamp|current date/i);
 	});
 	test("strictly decodes and fails closed on malformed latest boundary", () => {
