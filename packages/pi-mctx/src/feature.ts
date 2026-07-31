@@ -1,3 +1,4 @@
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
 import { type MctxRuntime, resolveMctxActivation } from "./activation.js";
@@ -6,6 +7,7 @@ import {
 	loadMctxConfiguration,
 	type MctxConfiguration,
 } from "./config.js";
+import { projectMctxContext } from "./context-projection.js";
 import { runMctxHistorianForBranch } from "./historian-branch-runner.js";
 import { createProjectIdentityResolver } from "./project-identity.js";
 import {
@@ -24,6 +26,10 @@ export interface MctxSessionRuntime extends MctxRuntime {
 export interface MctxFeature {
 	start(context: ExtensionLifecycleContext): Promise<void>;
 	onTurnEnd(context: ExtensionContext): void;
+	onContext(
+		messages: readonly AgentMessage[],
+		context: ExtensionContext,
+	): { readonly messages: readonly AgentMessage[] } | undefined;
 	active(): MctxSessionRuntime | undefined;
 }
 
@@ -188,6 +194,21 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					current.lifecycle.signal.removeEventListener("abort", abort);
 					if (current.job === job) current.job = undefined;
 				});
+		},
+		onContext(messages, context): { readonly messages: readonly AgentMessage[] } | undefined {
+			const current = active;
+			if (
+				current === undefined ||
+				current.lifecycle.signal.aborted ||
+				current.runtime.sessionId !== context.sessionManager.getSessionId()
+			)
+				return undefined;
+			const projection = projectMctxContext(
+				messages,
+				context.sessionManager.getBranch(),
+				current.runtime.store.listCompartments(current.runtime.partition),
+			);
+			return projection.kind === "rendered" ? { messages: projection.messages } : undefined;
 		},
 		active: (): MctxSessionRuntime | undefined => active?.runtime,
 	};

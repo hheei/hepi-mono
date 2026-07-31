@@ -4,7 +4,8 @@
 
 已创建独立、可安装的 `@hheei/pi-mctx` package。默认 disabled，保持 Pi native behavior；启用且 historian
 configuration 有效时，它在 `session_start` 解析 runtime、打开/migrate MCTX SQLite store，并绑定当前 project/session
-partition。当前仍不压缩上下文、不注册 tool、不调用 historian Completion，也不注册 `context` transform。
+partition。已启用 pipeline 在 `turn_end` 可触发 historian Completion；已验证 compartment graph 在 `context`
+pass 替换其 covered raw history。它仍不注册 tool、command、status 或 child inheritance Service。
 
 ## 目的
 
@@ -175,7 +176,7 @@ project 或 partition row。
 
 enabled session activation 在 store open 后解析 project identity，并以它和 Pi session ID get-or-create partition；
 runtime 持有该 partition。identity 或 partition 失败会关闭刚打开的 store、呈现 storage error 并失败 lifecycle start，
-不能留下未分区 runtime。此 wiring 不注册 context hook 或 historian Completion。
+不能留下未分区 runtime。runtime 后续在 `turn_end` 执行 historian，并在 `context` pass 使用该 partition 的 verified graph。
 
 `pi-mctx` 自己拥有 HEPI/Pi-native configuration：user-level `pi-mctx` namespace 加 optional project `.pi`
 override。保存配置不热改 active pipeline；extension 只在下一次 `session_start` 或 `/reload` 读取并应用。它不
@@ -213,13 +214,13 @@ reload 后才启用 pipeline。
 `hasConfiguredAuth()` 解析显式 historian model。disabled config 保持静默 native behavior；invalid config、
 unavailable/unconfigured model 或 core Completion coordinator cap collision 显示 diagnostic 后保持 native
 behavior。只有解析成功时才配置/reuse `maxActiveTurns: 2` coordinator 并创建 session-scoped MCTX runtime holder；
-shutdown 会清除该 holder。后续 store/partition wiring 已附加，但仍不注册 `context` hook 或调用 historian Completion。
+shutdown 会清除该 holder。store/partition wiring、`turn_end` historian 和 verified `context` projection 已附加。
 
 已激活的 compartment trigger budget 使用 model-aware percentage threshold、absolute-token fallback/guard 和
 hysteresis。具体 default 必须在 `pi-mctx` schema 与 focused tests 中固定；它不隐式追随会变化的 upstream
 default。
 
-trigger policy 是纯状态决策，尚不注册 `turn_end` 或改变配置读取。percentage 默认值为 `65`，并且必须在
+trigger policy 是 pure state decision；parent `turn_end` 使用它但不改变配置读取。percentage 默认值为 `65`，并且必须在
 `20..80`；known context window 时 trigger token threshold 是 `max(ceil(window * percentage / 100), absolute)`，
 其中 absolute 可缺省。unknown context window 时只使用 absolute；两者都没有时结果为 unavailable。一次 trigger
 将状态设为 cooling；cooling 仅在 usage 不高于 percentage threshold 减少 `10` percentage points，且（若配置）
@@ -228,6 +229,13 @@ trigger policy 是纯状态决策，尚不注册 `turn_end` 或改变配置读�
 context store 使用 upstream-aligned tiered graph：stable、cacheable `m[0]` history tier 加 newer
 materialized `m[1]` tier，再接 compartment boundary 后的 live tail。context transform 将这三层组合为
 model history；它不使用单一 rolling summary。
+
+context transform 只处理已验证 graph。它使用 Pi `sessionEntryToContextMessages()` 重建 branch 的 raw
+message sequence，并只在该 sequence 以 object identity 连续存在于 imminent `context` event 时替换 covered
+segment；这样保留其他 extension 已注入的 messages。无法匹配时 fail open，不改 Pi context。replacement 使用两个
+model-visible、`display: false` custom messages（`pi-mctx:m0`、`pi-mctx:m1`）和 branch live tail；每个 tier
+payload 以稳定 order 拼接，timestamp 固定为 `0` 以保留 m0 cache stability。store read failure 仍遵守 enabled
+pipeline 的 fail-closed contract。
 
 canonical tier graph 以 `publishedRevision` 严格递增排序。每个 record 的 source range 必须在 current
 branch 重新计算 fingerprint；相邻 record 的 range 必须连续、不可 overlap 或 gap，tier 只能从零或多个
