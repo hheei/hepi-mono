@@ -32,8 +32,8 @@ timing 猜测。
 | Mode           | 执行边界                                                         | 结果与交互                                              |
 | -------------- | ------------------------------------------------------------ | -------------------------------------------------- |
 | `completion`   | 单次、无 tool 的模型生成；不创建 child session、transcript 或 input channel | caller 等待受限 completion result；用于 auto-title、分类、短摘要 |
-| `task` | 有限、多轮、可使用已解析 tool policy 的 child execution；每项必填有限 `maxTurns` | 一个 terminal result；必须通过 delivery sink 自动交给 parent adapter |
-| `conversation` | durable child `AgentSession`，但只存活于 parent session；create 时必填有限 `maxTurnsPerReply` | 可持续送入 message，并选择同步 wait 或异步 delivery reply |
+| `task` | 有限、多轮、可使用已解析 tool policy 的 child execution；每项必填有限 soft `maxTurns` | 一个 terminal result；必须通过 delivery sink 自动交给 parent adapter |
+| `conversation` | durable child `AgentSession`，但只存活于 parent session；create 时必填有限 soft `maxTurnsPerReply` | 可持续送入 message，并选择同步 wait 或异步 delivery reply |
 
 
 foreground/background 不是第四 mode，也没有主 agent `wait` 或 result-polling tool。task launch 后立即
@@ -60,13 +60,16 @@ sink reject 后，task 的 terminal result 不改变，只记录 `deliveryFailed
 自动 delivery 最多执行一次；每次 explicit redelivery 是 caller 选择的新尝试。terminal handle 保留到
 parent session shutdown，之后 stable ID 不再有效，也不持久化到下一 session。
 
-每个 task 必填有限 `maxTurns`。达到上限时 core 建立 `limit_reached` terminal state，并停止该 task；
-没有 unlimited task 或隐式 default budget。completion 的单次 response 是其固定执行上限。
+每个 task 必填有限 soft `maxTurns`。达到 cap 时 core 只发送一次 wrap-up steer，并允许固定 5 个 grace
+turns；grace 内自然完成仍是正常 terminal result，但带 `softLimitReached`。只有达到
+`maxTurns + 5` hard ceiling 时才 abort，建立 `limit_reached` terminal state，并保留已有 partial output。
+没有 unlimited task、隐式 default budget 或无限 grace。completion 的单次 response 是其固定执行上限。
 
 ## Conversation
 
-conversation create 时必须声明有限 `maxTurnsPerReply`。conversation handle 才有 `send(message, options)`；
-options 有两个正交选择：
+conversation create 时必须声明有限 soft `maxTurnsPerReply`。每条 message reply 在 cap 时获得一次 wrap-up
+steer，固定 5 个 grace turns 后才 hard abort；其 `softLimitReached` 与 `limit_reached` terminal semantics
+与 task 相同。conversation handle 才有 `send(message, options)`；options 有两个正交选择：
 
 - `inputMode: "queue" | "steer"` 是 parent-to-child input。`queue` 是默认，message 进入 FIFO queue，
   当前 child response 到达边界后才开始下一次 prompt。`steer` 是显式打断，使用 Pi 的 steer semantics，
@@ -127,11 +130,12 @@ event。explicit redelivery 是独立 caller operation；delivery failure 是 te
 cancellation、delivery、retention、event loss、backpressure 与 cost。实现前需写 focused tests，至少覆盖：
 
 - completion 不创建 child session；
-- task required maxTurns、`limit_reached`、缺 sink reject、sink failure、shutdown abort、explicit
-  redelivery 与单次 terminalization；
-- conversation required `maxTurnsPerReply`、queue/steer input ordering、wait sequence binding、wait abort
-  fallback queue、delivery reply、idle/restart、subscriber detach、fixed-cap snapshot coalescing、terminal
-  eviction/delivery 和 callback non-blocking；
+- task required soft maxTurns、single wrap-up steer、fixed five-turn grace、`softLimitReached`、hard-ceiling
+  `limit_reached` partial output、缺 sink reject、sink failure、shutdown abort、explicit redelivery 与单次
+  terminalization；
+- conversation required soft `maxTurnsPerReply`、queue/steer input ordering、wait sequence binding、wait
+  abort fallback queue、delivery reply、idle/restart、subscriber detach、fixed-cap snapshot coalescing、
+  terminal eviction/delivery 和 callback non-blocking；
 - root shared cap、FIFO admission、root-only rejection、parent shutdown/reload cleanup 与 late result guard；
 - duplicate core module instance 对同一 Pi runtime 共享 coordinator。
 
