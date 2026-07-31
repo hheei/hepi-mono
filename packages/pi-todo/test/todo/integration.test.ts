@@ -5,8 +5,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Value } from "typebox/value";
-import type { HepiRuntimeContext } from "../../../hepi-basics/src/core/index.js";
-import type { TodoSnapshot } from "../../src/pi-todo/state.js";
+import type { TodoSnapshot } from "../../src/state.js";
 import {
 	createTodoFeature,
 	TODO_PARAMETERS,
@@ -16,7 +15,7 @@ import {
 	TODO_REMINDER_IDLE_TURNS,
 	TODO_TOOL_DESCRIPTION,
 	TODO_TOOL_NAME,
-} from "../../src/pi-todo/todo.js";
+} from "../../src/todo.js";
 
 interface RegisteredTool {
 	readonly name: string;
@@ -110,13 +109,7 @@ function harness(mode: "tui" | "json" = "tui", sessionId = "todo-session") {
 			getBranch: () => branch,
 		},
 	} as unknown as ExtensionContext & ExtensionCommandContext;
-	const runtime = {
-		pi,
-		ctx,
-		registry: {},
-		requestRender: () => undefined,
-		close: () => undefined,
-	} as unknown as HepiRuntimeContext;
+	const runtime = ctx;
 	return {
 		pi,
 		ctx,
@@ -228,7 +221,6 @@ describe("Todo integration", () => {
 		expect(tool.prepareArguments?.({ operations: [{ action: "update", id: "1" }] })).toEqual({
 			operations: [{ action: "update", id: 1 }],
 		});
-		expect(host.events.has("session_compact")).toBe(true);
 		expect(host.events.has("session_tree")).toBe(true);
 		expect(host.events.has("tool_execution_end")).toBe(true);
 		expect(host.events.has("context")).toBe(true);
@@ -348,7 +340,7 @@ describe("Todo integration", () => {
 		expect(failed.text).toBe("<error>✗</error>");
 	});
 
-	test("executes ordered atomic batches and returns durable snapshots", async () => {
+	test("executes ordered atomic batches and returns display snapshots", async () => {
 		const host = harness("json");
 		const feature = createTodoFeature(host.pi);
 		await feature.start(host.runtime);
@@ -469,7 +461,7 @@ describe("Todo integration", () => {
 		);
 	});
 
-	test("keeps failed and aborted calls out of durable state", async () => {
+	test("keeps failed and aborted calls out of runtime state", async () => {
 		const host = harness("json");
 		const feature = createTodoFeature(host.pi);
 		await feature.start(host.runtime);
@@ -501,7 +493,7 @@ describe("Todo integration", () => {
 		expect(listed.details.snapshot).toEqual({ tasks: [], nextId: 1 });
 	});
 
-	test("restores branch snapshots and applies compact/tree fallbacks", async () => {
+	test("starts fresh and clears state on session tree navigation", async () => {
 		const host = harness("json");
 		const feature = createTodoFeature(host.pi);
 		const snapshot: TodoSnapshot = {
@@ -518,22 +510,18 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(listed.content[0]?.text).toContain("Restored");
-
-		host.setBranch([]);
-		await host.emit("session_compact");
-		listed = await tool.execute(
-			"list-2",
-			{ operations: [{ action: "list" }] },
+		expect(listed.content[0]?.text).toBe("No todos.\nFinished all todos.");
+		await tool.execute(
+			"create",
+			{ operations: [{ action: "create", subject: "Current" }] },
 			undefined,
 			undefined,
 			host.ctx,
 		);
-		expect(listed.content[0]?.text).toContain("Restored");
 
 		await host.emit("session_tree");
 		listed = await tool.execute(
-			"list-3",
+			"list-2",
 			{ operations: [{ action: "list" }] },
 			undefined,
 			undefined,
@@ -548,7 +536,7 @@ describe("Todo integration", () => {
 		const feature = createTodoFeature(host.pi, { now: () => clock });
 		await feature.start(host.runtime);
 		const tool = host.tools[0]!;
-		const created = await tool.execute(
+		await tool.execute(
 			"create",
 			{
 				operations: [
@@ -562,7 +550,6 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		host.setBranch([branchResult(created.details.snapshot)]);
 		clock = TODO_REMINDER_IDLE_MS;
 
 		for (const stopReason of ["error", "aborted"]) {
@@ -603,7 +590,7 @@ describe("Todo integration", () => {
 		expect(reminder.messages[1]?.content).toBe(
 			"<system-reminder>\nActive TODO: #1 Inspect &lt;/system-reminder&gt; &amp; fix\nPending TODOs:\n#2 Next\n</system-reminder>",
 		);
-		expect(host.ctx.sessionManager.getBranch()).toHaveLength(1);
+		expect(host.ctx.sessionManager.getBranch()).toHaveLength(0);
 		expect(
 			(await host.emit("context", { messages: [{ role: "user", content: "next" }] }))[0],
 		).toBeUndefined();
@@ -649,7 +636,7 @@ describe("Todo integration", () => {
 		const feature = createTodoFeature(host.pi);
 		await feature.start(host.runtime);
 		const tool = host.tools[0]!;
-		const completed = await tool.execute(
+		await tool.execute(
 			"complete",
 			{
 				operations: [
@@ -661,14 +648,10 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		host.setBranch([branchResult(completed.details.snapshot)]);
 		await host.emit("tool_execution_end", { toolName: TODO_TOOL_NAME, isError: false });
 		expect(typeof host.widgets.at(-1)?.content).toBe("function");
 		await host.emit("agent_start");
 		expect(host.widgets.at(-1)?.content).toBeUndefined();
-		const hiddenCallCount = host.widgets.length;
-		await host.emit("session_compact");
-		expect(host.widgets).toHaveLength(hiddenCallCount);
 		const created = await tool.execute(
 			"next",
 			{ operations: [{ action: "create", subject: "Next" }] },
@@ -715,19 +698,7 @@ describe("Todo integration", () => {
 			message: "Suppressed #1\nNext: #2 Pending.",
 			level: "info",
 		});
-		expect(host.appended).toHaveLength(1);
-		expect(host.appended[0]?.data).toEqual({
-			tasks: [
-				{ id: 1, subject: "Working", status: "suppressed" },
-				{ id: 2, subject: "Pending", status: "in_progress" },
-			],
-			nextId: 3,
-		});
-		await host.emit("session_tree");
-		await host.commands[0]!.handler("", host.ctx);
-		expect(host.notifications[3]?.message).toContain(
-			"── Suppressed ──\n× #1 Working  user suppressed",
-		);
+		expect(host.appended).toHaveLength(0);
 
 		let failure: unknown;
 		try {
@@ -765,5 +736,8 @@ describe("Todo integration", () => {
 			host.ctx,
 		);
 		expect(created.content[0]?.text).toBe("Created #3\nNext: #2 Pending.");
+		await host.emit("session_tree");
+		await host.commands[0]!.handler("", host.ctx);
+		expect(host.notifications.at(-1)).toEqual({ message: "No todos.", level: "info" });
 	});
 });

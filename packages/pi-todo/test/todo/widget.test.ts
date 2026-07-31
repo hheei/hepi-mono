@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { HepiRuntimeContext } from "../../../hepi-basics/src/core/index.js";
-import { visibleWidth } from "../../../hepi-basics/src/core/index.js";
-import type { TaskState } from "../../src/pi-todo/model.js";
-import { createTodoWidget } from "../../src/pi-todo/widget.js";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import type { TaskState } from "../../src/model.js";
+import { createTodoWidget } from "../../src/widget.js";
 
 const state = (tasks: TaskState["tasks"]): TaskState => ({ tasks, nextId: 99 });
 const task = (
@@ -29,7 +29,7 @@ function recordingTheme() {
 }
 
 interface Harness {
-	runtime: HepiRuntimeContext;
+	runtime: ExtensionContext;
 	calls: Array<{ key: string; content: unknown; options: unknown }>;
 	tui: { requestRender(force?: boolean): void };
 	renders(): number;
@@ -37,19 +37,16 @@ interface Harness {
 }
 function harness(mode = "tui") {
 	const calls: Array<{ key: string; content: unknown; options: unknown }> = [];
-	let renders = 0;
+	const renders = 0;
 	let tuiRenders = 0;
 	const tui = { requestRender: () => tuiRenders++ };
 	const runtime = {
-		ctx: {
-			mode,
-			ui: {
-				setWidget: (key: string, content: unknown, options: unknown) =>
-					calls.push({ key, content, options }),
-			},
+		mode,
+		ui: {
+			setWidget: (key: string, content: unknown, options: unknown) =>
+				calls.push({ key, content, options }),
 		},
-		requestRender: () => renders++,
-	} as unknown as HepiRuntimeContext;
+	} as unknown as ExtensionContext;
 	return { runtime, calls, tui, renders: () => renders, tuiRenders: () => tuiRenders };
 }
 
@@ -203,7 +200,7 @@ describe("todo widget", () => {
 		expect(h.calls).toHaveLength(callCount);
 	});
 
-	test("does not surface completed transitions during branch restore", () => {
+	test("does not surface completed transitions when tracking is disabled", () => {
 		const h = harness();
 		const widget = createTodoWidget(h.runtime, state([task(1, "work", "in_progress")]))!;
 		widget.refresh(state([task(1, "work", "completed")]), false);
