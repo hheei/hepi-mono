@@ -9,15 +9,17 @@ import {
 import { createTodoFeature } from "./todo.js";
 
 export default function piTodoExtension(pi: ExtensionAPI): void {
+	if (isHepiSubagentSession(pi)) return;
 	const coordinator = getToolActivationCoordinator(pi);
+	const todo = createTodoFeature(pi, coordinator);
 	const lifecycle = new HepiLifecycleController({
 		onStart: async (runtime) => {
-			if (isHepiSubagentSession(pi)) return;
-			const todo = createTodoFeature(pi, coordinator);
 			await todo.start(runtime);
 			const unregisterDisableHandler = registerHepiToolDisableHandler(pi, "todo", () =>
 				todo.disableFromLoadout(runtime.ctx.sessionManager.getSessionId()),
 			);
+			if (!coordinator.isEffective("todo"))
+				await todo.disableFromLoadout(runtime.ctx.sessionManager.getSessionId());
 			const sessionId = runtime.ctx.sessionManager.getSessionId();
 			runtime.registry.registerLifecycle({
 				id: "todo",

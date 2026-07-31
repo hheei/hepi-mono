@@ -51,6 +51,16 @@ async function expectChildFeatureDisabled(extension: HepiExtension): Promise<voi
 }
 
 describe("interactive tool subagent gates", () => {
+	test("interactive tools register before Loadout snapshots the parent session", () => {
+		const harness = childHarness();
+
+		piAskExtension(harness.pi);
+		piGoalExtension(harness.pi);
+		piTodoExtension(harness.pi);
+
+		expect(harness.tools).toEqual(["ask", "goal", "todo"]);
+	});
+
 	test("Ask is absent from Pi Subagents child sessions", () =>
 		expectChildFeatureDisabled(piAskExtension));
 	test("Goal is absent from Pi Subagents child sessions", () =>
