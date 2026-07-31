@@ -1,0 +1,43 @@
+{
+	"name": "@hheei/pi-mctx",
+	"version": "0.0.0",
+	"description": "Parent-session context management for Pi.",
+	"type": "module",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"exports": {
+		".": "./dist/index.js"
+	},
+	"files": ["dist", "README.md", "LICENSE"],
+	"pi": {
+		"extensions": ["dist/extension.js"]
+	},
+	"scripts": {
+		"build": "bunx tsc -p tsconfig.build.json",
+		"prepack": "bun run build"
+	},
+	"keywords": ["pi", "pi-package", "pi-extension", "hepi", "mctx"],
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/hheei/hepi-mono.git",
+		"directory": "packages/pi-mctx"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"dependencies": {
+		"@hheei/pi-ext-core": "workspace:*",
+		"proper-lockfile": "4.1.2"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-agent-core": ">=0.82.0",
+		"@earendil-works/pi-ai": ">=0.82.0",
+		"@earendil-works/pi-coding-agent": ">=0.82.0",
+		"@earendil-works/pi-tui": ">=0.82.0"
+	},
+	"devDependencies": {
+		"@earendil-works/pi-coding-agent": "^0.82.0",
+		"@types/bun": "latest"
+	}
+}
