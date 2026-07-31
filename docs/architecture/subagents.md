@@ -190,3 +190,10 @@ cancellation、delivery、retention、event loss、backpressure 与 cost。实�
 
 所有 TUI 或 terminal delivery adapter 仍须由 owning extension 依据 `DESIGN.md` 做 focused narrow/wide
 验证和实际 Pi/TUI replay 验证。
+
+## 测试入口
+
+`@hheei/pi-ext-core/testing` 提供 deterministic model、scripted completion 与 child-session fixture，供 `/btw`
+和 Advisor 等 direct consumer 测试 transport、取消与 terminal state，而不访问网络或 Pi 私有字段。它不包含
+agent catalog、tool policy、prompt、delivery、scheduler 或 feature state；这些业务语义仍由 consumer fixture
+明确声明。该入口由 `/btw` 和 Advisor 两个真实 consumer 驱动，不能扩张成通用 mock framework。

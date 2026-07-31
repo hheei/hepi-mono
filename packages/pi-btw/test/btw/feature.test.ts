@@ -7,6 +7,7 @@ import type {
 	ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
+import { createAssistantMessage, createTestModel } from "@hheei/pi-ext-core/testing";
 import type { BtwComponentController, BtwComponentOptions } from "../../src/component.js";
 import type { BtwExecutionResult, ExecuteBtwTurnOptions } from "../../src/executor.js";
 import { type BtwFeatureOptions, createBtwFeature } from "../../src/feature.js";
@@ -28,26 +29,14 @@ type PendingExecution = {
 };
 type TestModel = Model<Api>;
 
-const model = { provider: "test", id: "test-model", api: "test" } as TestModel;
+const model = createTestModel({
+	provider: "test",
+	id: "test-model",
+	api: "openai-completions",
+}) as TestModel;
 
 function assistant(text: string): AssistantMessage {
-	return {
-		role: "assistant",
-		content: [{ type: "text", text }],
-		api: "test",
-		provider: "test",
-		model: "test-model",
-		usage: {
-			input: 0,
-			output: 0,
-			cacheRead: 0,
-			cacheWrite: 0,
-			totalTokens: 0,
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-		},
-		stopReason: "stop",
-		timestamp: 1,
-	};
+	return createAssistantMessage({ model, text });
 }
 
 function at<T>(items: readonly T[], index: number): T {
