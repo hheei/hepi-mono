@@ -25,6 +25,10 @@ context store 位于 `<getAgentDir>/mctx/context.db`。它与 global settings fi
 store 使用 SQLite WAL、短事务和 busy timeout。每个 partition 有独立 monotonic revision；writer 只能在
 预期 revision 仍有效时发布 compartment。冲突 writer 必须重读和重算，不能采用 last-writer-wins。
 
+store 的 revision CAS 接收 partition snapshot，使用单个 conditional `UPDATE` 使 revision 加一。返回新 snapshot
+表示提交者保有 fence；未命中返回 `undefined`，调用者必须重新读取/recompute。它不接受 last-writer-wins fallback；
+后续 compartment publication 会把 content write 与该 fence 置于同一 transaction。
+
 schema v2 在 v1 application/metadata fence 上建立 `projects` 与 `partitions`。partition 以 stable project identity
 与 Pi session ID 唯一标识，revision 从 `0` 开始；get-or-create 使用短 `BEGIN IMMEDIATE` transaction，不能重复创建。
 此迁移仍不建立 lease、compartment 或 graph table。未知 nonempty database、foreign application ID 或 future schema
