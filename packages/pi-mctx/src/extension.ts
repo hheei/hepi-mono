@@ -3,8 +3,8 @@ import { registerExtensionLifecycle } from "@hheei/pi-ext-core";
 import { createMctxFeature } from "./feature.js";
 
 /**
- * Pi package entry. Activation only resolves a session-owned historian runtime;
- * context, storage, and completion behavior remain unregistered.
+ * Pi package entry. Activation owns runtime, store, and partition setup;
+ * historian execution and context transformation remain unregistered.
  */
 export default function piMctxExtension(pi: ExtensionAPI): void {
 	const feature = createMctxFeature();
