@@ -27,8 +27,7 @@
 		"access": "public"
 	},
 	"dependencies": {
-		"@hheei/pi-ext-core": "workspace:*",
-		"proper-lockfile": "4.1.2"
+		"@hheei/pi-ext-core": "workspace:*"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-agent-core": ">=0.82.0",

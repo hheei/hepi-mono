@@ -2,9 +2,9 @@
 
 ## 状态
 
-已确认 package 边界，尚未创建 package skeleton 或实现 Magic Context 行为。首版只建立独立、可安装的
-`@hheei/pi-mctx` Pi extension；它不压缩上下文、不注册 tool、不写入持久化数据，也不改变
-Pi session。
+已创建独立、可安装的 `@hheei/pi-mctx` package skeleton。当前 entry 仍是 inert：它不压缩上下文、不注册
+tool、不写入持久化数据，也不改变 Pi session。configuration raw reader 与 active-field resolver 已完成；它们
+仍只在 session start/application slice 接入后影响 runtime。
 
 ## 目的
 
@@ -46,8 +46,8 @@ provider 和 consumer 分别声明相同的 namespaced service ID，不互相 im
 ## Package 约定
 
 `packages/pi-mctx` 的首版只包含一个 Pi extension entry。它直接依赖
-`@hheei/pi-ext-core` 和 `proper-lockfile`，并以 Pi packages 为 peer dependency。SQLite 使用 Node 内建
-`node:sqlite`，不引入 SQLite npm dependency。它不得依赖：
+`@hheei/pi-ext-core`，并以 Pi packages 为 peer dependency。core 提供 Pi settings JSON 的 locked file transport；
+SQLite 使用 Node 内建 `node:sqlite`，不引入 SQLite npm dependency。它不得依赖：
 
 - `@hheei/hepi-mctx`；
 - `@hheei/pi-magic-context`；
