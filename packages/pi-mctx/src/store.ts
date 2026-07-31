@@ -24,6 +24,10 @@ export interface MctxStore {
 	): MctxHistorianLease | undefined;
 	releaseHistorianLease(lease: MctxHistorianLease): void;
 	listCompartments(partition: MctxPartition): readonly MctxCompartment[];
+	discardCompartmentsFrom(
+		partition: MctxPartition,
+		publishedRevision: number,
+	): MctxPartition | undefined;
 	publishCompartment(
 		partition: MctxPartition,
 		draft: MctxCompartmentDraft,
@@ -453,6 +457,50 @@ function listCompartments(
 	return rows.map(compartmentFromRow);
 }
 
+/**
+ * Atomically drops a branch-diverged tail only while the caller's partition
+ * snapshot is current. A stale caller must reread and re-plan recovery.
+ */
+function discardCompartmentsFrom(
+	database: DatabaseSync,
+	partition: MctxPartition,
+	publishedRevision: number,
+): MctxPartition | undefined {
+	requirePartitionKey(partition.projectIdentity, partition.sessionId);
+	if (!Number.isSafeInteger(publishedRevision) || publishedRevision <= 0) {
+		throw new Error("Context store discard revision is invalid");
+	}
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		const revisionChanges = changedRows(
+			database
+				.prepare(
+					"UPDATE partitions SET revision = revision + 1 WHERE project_identity = ? AND session_id = ? AND revision = ?",
+				)
+				.run(partition.projectIdentity, partition.sessionId, partition.revision),
+		);
+		if (revisionChanges === 0) {
+			database.exec("ROLLBACK");
+			return undefined;
+		}
+		if (revisionChanges !== 1)
+			throw new Error("Context store discard affected multiple partitions");
+		const deleted = changedRows(
+			database
+				.prepare(
+					"DELETE FROM compartments WHERE project_identity = ? AND session_id = ? AND published_revision >= ?",
+				)
+				.run(partition.projectIdentity, partition.sessionId, publishedRevision),
+		);
+		if (deleted === 0) throw new Error("Context store discard found no divergent compartments");
+		database.exec("COMMIT");
+		return { ...partition, revision: partition.revision + 1 };
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
 function publishCompartment(
 	database: DatabaseSync,
 	partition: MctxPartition,
@@ -561,6 +609,10 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 		listCompartments(partition): readonly MctxCompartment[] {
 			if (database === undefined) throw new Error("Context store is closed");
 			return listCompartments(database, partition);
+		},
+		discardCompartmentsFrom(partition, publishedRevision): MctxPartition | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return discardCompartmentsFrom(database, partition, publishedRevision);
 		},
 		publishCompartment(partition, draft): MctxCompartmentPublication | undefined {
 			if (database === undefined) throw new Error("Context store is closed");
