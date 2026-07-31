@@ -2,7 +2,7 @@ export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhi
 export const ADVISOR_MODE_CUSTOM_TYPE = "pi-basics-advisor-mode";
 export const ADVISORY_MESSAGE_TYPE = "pi-basics-advisory";
 export const ADVISOR_TOOL_NAME = "advise";
-export const ADVISOR_TOOL_NAMES = ["read", "grep", "find", "ls", ADVISOR_TOOL_NAME] as const;
+export const ADVISOR_TOOL_NAMES = ["read", "grep", "find", "ls"] as const;
 export type AdvisorSeverity = "nit" | "concern" | "blocker";
 export type AdvisorPhase = "disabled" | "starting" | "idle" | "reviewing" | "error";
 export interface AdvisorBoundary {
