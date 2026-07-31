@@ -9,6 +9,7 @@ import {
 import type { AgentSession, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { convertToLlm, createReadOnlyTools } from "@earendil-works/pi-coding-agent";
 import type { ResolvedChildSessionFactory } from "@hheei/pi-ext-core";
+import { createAssistantMessage, createTestModel } from "@hheei/pi-ext-core/testing";
 import { Type } from "typebox";
 import { ADVISOR_SYSTEM_PROMPT } from "../../../../src/pi-advisor/prompt.js";
 import {
@@ -16,18 +17,13 @@ import {
 	createCoreAdvisorAdapter,
 } from "../../../../src/pi-advisor/runtime.js";
 
-const model = {
-	api: "openai-completions",
+const model = createTestModel({
 	id: "fake",
-	name: "fake",
 	provider: "fake",
-	baseUrl: "http://fake.invalid",
+	name: "fake",
 	contextWindow: 4096,
 	maxTokens: 512,
-	reasoning: false,
-	input: ["text"],
-	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-} as unknown as Model<Api>;
+});
 
 const TEST_ADVISE_PARAMETERS = Type.Object({
 	severity: Type.Union([Type.Literal("nit"), Type.Literal("concern"), Type.Literal("blocker")]),
@@ -52,23 +48,15 @@ function message(
 		cost: 0,
 	},
 ): AssistantMessage {
-	return {
-		role: "assistant",
+	return createAssistantMessage({
+		model,
 		content,
-		api: model.api,
-		provider: model.provider,
-		model: model.id,
-		usage: {
-			input: usage.input,
-			output: usage.output,
-			cacheRead: 0,
-			cacheWrite: 0,
-			totalTokens: usage.totalTokens,
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: usage.cost },
-		},
 		stopReason,
-		timestamp: Date.now(),
-	} as unknown as AssistantMessage;
+		input: usage.input,
+		output: usage.output,
+		totalTokens: usage.totalTokens,
+		cost: usage.cost,
+	});
 }
 
 function streamScript(messages: readonly AssistantMessage[]): {
