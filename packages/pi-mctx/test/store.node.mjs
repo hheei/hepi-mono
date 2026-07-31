@@ -24,6 +24,18 @@ async function withPath(run) {
 test("creates and fences an MCTX-owned store", async () => {
 	await withPath(async (path) => {
 		const store = await openMctxStore(path);
+		const first = store.getOrCreatePartition(`git:${"a".repeat(40)}`, "session-1");
+		assert.deepEqual(first, {
+			projectIdentity: `git:${"a".repeat(40)}`,
+			sessionId: "session-1",
+			revision: 0,
+		});
+		assert.deepEqual(store.getOrCreatePartition(`git:${"a".repeat(40)}`, "session-1"), first);
+		assert.deepEqual(store.getOrCreatePartition(`git:${"a".repeat(40)}`, "session-2"), {
+			projectIdentity: `git:${"a".repeat(40)}`,
+			sessionId: "session-2",
+			revision: 0,
+		});
 		store.close();
 		store.close();
 		const database = new DatabaseSync(path);
@@ -40,6 +52,28 @@ test("creates and fences an MCTX-owned store", async () => {
 				database.prepare("SELECT schema_version FROM mctx_metadata").get().schema_version,
 				MCTX_STORE_SCHEMA_VERSION,
 			);
+		} finally {
+			database.close();
+		}
+	});
+});
+
+test("upgrades the v1 metadata fence before creating partitions", async () => {
+	await withPath(async (path) => {
+		const v1 = new DatabaseSync(path);
+		v1.exec(`PRAGMA application_id = ${MCTX_STORE_APPLICATION_ID}`);
+		v1.exec("CREATE TABLE mctx_metadata (schema_version INTEGER NOT NULL CHECK (schema_version = 1)) STRICT");
+		v1.exec("INSERT INTO mctx_metadata VALUES (1)");
+		v1.exec("PRAGMA user_version = 1");
+		v1.close();
+
+		const store = await openMctxStore(path);
+		assert.equal(store.getOrCreatePartition(`dir:${"b".repeat(64)}`, "session-1").revision, 0);
+		store.close();
+		const database = new DatabaseSync(path);
+		try {
+			assert.equal(database.prepare("PRAGMA user_version").get().user_version, MCTX_STORE_SCHEMA_VERSION);
+			assert.equal(database.prepare("SELECT COUNT(*) AS count FROM projects").get().count, 1);
 		} finally {
 			database.close();
 		}

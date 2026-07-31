@@ -113,12 +113,12 @@ pipeline 启用后，context store 无法 open、migrate 或通过 schema valida
 turn 并呈现可操作的 storage error。未来可通过显式 config opt out 回退 Pi native behavior。无 historian model
 config 属于可选能力缺席，不是 context-store failure。
 
-store foundation 使用 Node `node:sqlite`。v1 schema 只建立 MCTX application identity 与 metadata fence：没有
-project identity、partition、lease、compartment 或 context block table。open 设置 WAL、foreign keys 与固定 busy
-timeout；migration 在短 `BEGIN IMMEDIATE` transaction 内执行。未知 nonempty database、foreign application ID、
-或高于当前版本的 schema 均拒绝打开，避免误写其他数据。成功 store 是 session runtime resource，shutdown 必须
-close；enabled pipeline 的 open/migration/schema failure 先显示 storage error，再让 lifecycle start fail，不能留下
-无 store 的 active runtime。
+store foundation 使用 Node `node:sqlite`。schema v2 新增 `projects` 和 `partitions`：partition 以 stable project
+identity 与 Pi session ID 唯一标识，初始 revision 是 `0`。get-or-create 在短 `BEGIN IMMEDIATE` transaction 内保证
+同一 key 只得到一个 partition；不创建 lease、compartment 或 context block。migration 从 v1 metadata fence 原子升级；
+未知 nonempty database、foreign application ID 或高于当前版本的 schema 均拒绝打开。成功 store 是 session runtime
+resource，shutdown 必须 close；enabled pipeline 的 open/migration/schema failure 先显示 storage error，再让 lifecycle
+start fail，不能留下无 store 的 active runtime。
 
 stable project identity resolver 独立于 SQLite：它先 canonicalize Pi `cwd`，再读取 Git reachable root commit，得到
 `git:<commit>`，使 worktree/clone 对齐。non-Git directory 使用 `dir:<SHA-256(realpath)>`；raw path 不进入 identity

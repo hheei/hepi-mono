@@ -25,9 +25,10 @@ context store 位于 `<getAgentDir>/mctx/context.db`。它与 global settings fi
 store 使用 SQLite WAL、短事务和 busy timeout。每个 partition 有独立 monotonic revision；writer 只能在
 预期 revision 仍有效时发布 compartment。冲突 writer 必须重读和重算，不能采用 last-writer-wins。
 
-foundation schema v1 仅写入 MCTX application identity 与 metadata fence；它不提前创建 project identity、partition、
-lease 或 compartment graph。migration 使用短 `BEGIN IMMEDIATE` transaction；未知 nonempty database、foreign
-application ID 或 future schema version fail closed，不能以“version 0”覆盖可能属于其他程序的数据。
+schema v2 在 v1 application/metadata fence 上建立 `projects` 与 `partitions`。partition 以 stable project identity
+与 Pi session ID 唯一标识，revision 从 `0` 开始；get-or-create 使用短 `BEGIN IMMEDIATE` transaction，不能重复创建。
+此迁移仍不建立 lease、compartment 或 graph table。未知 nonempty database、foreign application ID 或 future schema
+version fail closed，不能以“version 0”覆盖可能属于其他程序的数据。
 
 每次 parent model invocation 通过 `pi.on("context")` 将最后一个已 materialize 的 cache-stable context block
 插入 transformed Pi messages，并将 live tail 裁剪到 compartment boundary。in-flight historian 不阻塞当前
