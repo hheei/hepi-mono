@@ -268,9 +268,11 @@ caller 必须 reread 并重新 plan。
 token trigger。若旧 branch historian 仍运行，先 abort 它并保留唯一 pending rebuild；旧 job terminal 后才启动新 job。
 shutdown/reload 清除 pending rebuild 并 abort current job。
 
-每个 context partition 使用 SQLite compartment lease 实现 historian single-flight。lease 有 finite TTL、
-run 中 renewal、abort/shutdown release；其他 process 在持有期跳过该 run，crash 后可以在 TTL expiry 后接管。
-lease 不替代 publication revision transaction。
+每个 context partition 使用 SQLite compartment lease 实现 historian single-flight。lease 有 finite TTL；run 每半个
+TTL renewal，abort/shutdown/terminal path 均 release 最新 owner lease；其他 process 在持有期跳过该 run，crash 后可以在
+TTL expiry 后接管。renewal 未命中代表 owner 已丢失 lease，orchestrator abort 当前 Completion、拒绝 publication，并在
+`finally` release；lease 不替代 publication revision transaction。production interval 固定由 lease TTL 推导；测试可仅通过
+historian request 的 private timing seam 缩短 interval，不能成为 user configuration。
 
 首个 pipeline milestone 不对 context partition 做 automatic semantic deletion。可以进行 non-destructive
 SQLite maintenance，但 TTL prune、shutdown deletion 和 user-facing data-management contract 都延后到独立 feature。

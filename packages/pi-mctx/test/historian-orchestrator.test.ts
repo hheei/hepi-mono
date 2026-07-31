@@ -48,6 +48,7 @@ function store(options: {
 				expect(ttlMs).toBe(MCTX_HISTORIAN_LEASE_TTL_MS);
 				return options.lease === undefined ? lease : options.lease;
 			},
+			renewHistorianLease: (current: MctxHistorianLease) => current,
 			publishCompartment: (_current: MctxPartition, draft: MctxCompartmentDraft) =>
 				options.publish === undefined ? undefined : publication(draft),
 			releaseHistorianLease: (released: MctxHistorianLease) => {
@@ -106,6 +107,71 @@ test("publishes valid primary output and releases its lease", async (): Promise<
 	const result = await runMctxHistorian(request({ store: activeStore }), executor([validOutput]));
 	expect(result).toMatchObject({ kind: "published", repaired: false });
 	expect(releases()).toBe(1);
+});
+
+test("renews an active lease and releases its latest snapshot", async (): Promise<void> => {
+	const initialLease: MctxHistorianLease = { partition, ownerToken: "owner", expiresAtMs: 60_000 };
+	let renewals = 0;
+	let released: MctxHistorianLease | undefined;
+	const result = await runMctxHistorian(
+		request({
+			leaseRenewalIntervalMs: 1,
+			store: {
+				acquireHistorianLease: () => initialLease,
+				renewHistorianLease: (current: MctxHistorianLease, ttlMs: number) => {
+					expect(ttlMs).toBe(MCTX_HISTORIAN_LEASE_TTL_MS);
+					renewals++;
+					return { ...current, expiresAtMs: current.expiresAtMs + ttlMs };
+				},
+				publishCompartment: (_current: MctxPartition, draft: MctxCompartmentDraft) =>
+					publication(draft),
+				releaseHistorianLease: (lease: MctxHistorianLease) => {
+					released = lease;
+				},
+			},
+		}),
+		async () => {
+			await new Promise<void>((resolve) => setTimeout(resolve, 5));
+			return { kind: "completed", output: validOutput };
+		},
+	);
+	expect(result).toMatchObject({ kind: "published", repaired: false });
+	expect(renewals).toBeGreaterThan(0);
+	expect(released?.expiresAtMs).toBeGreaterThan(initialLease.expiresAtMs);
+});
+
+test("cancels without publication when lease renewal loses ownership", async (): Promise<void> => {
+	let published = false;
+	let releases = 0;
+	const result = await runMctxHistorian(
+		request({
+			leaseRenewalIntervalMs: 1,
+			store: {
+				acquireHistorianLease: () => ({ partition, ownerToken: "owner", expiresAtMs: 60_000 }),
+				renewHistorianLease: () => undefined,
+				publishCompartment: () => {
+					published = true;
+					return publication({
+						tier: "m0",
+						sourceStartEntryId: "entry-1",
+						sourceEndEntryId: "entry-2",
+						sourceFingerprint: "snapshot",
+						renderedPayload: "summary",
+					});
+				},
+				releaseHistorianLease: () => void releases++,
+			},
+		}),
+		async (_context, completion) =>
+			await new Promise((resolve) => {
+				completion.signal.addEventListener("abort", () => resolve({ kind: "cancelled" }), {
+					once: true,
+				});
+			}),
+	);
+	expect(result).toEqual({ kind: "cancelled" });
+	expect(published).toBeFalse();
+	expect(releases).toBe(1);
 });
 
 test("repairs invalid primary output once before publication", async (): Promise<void> => {
