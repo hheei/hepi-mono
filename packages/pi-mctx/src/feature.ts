@@ -2,6 +2,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
 import { type MctxRuntime, resolveMctxActivation } from "./activation.js";
+import { planMctxCompartmentRecovery } from "./compartment-graph.js";
 import {
 	defaultMctxSettingsPaths,
 	loadMctxConfiguration,
@@ -203,11 +204,25 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				current.runtime.sessionId !== context.sessionManager.getSessionId()
 			)
 				return undefined;
-			const projection = projectMctxContext(
-				messages,
-				context.sessionManager.getBranch(),
-				current.runtime.store.listCompartments(current.runtime.partition),
-			);
+			const entries = context.sessionManager.getBranch();
+			const compartments = current.runtime.store.listCompartments(current.runtime.partition);
+			const recovery = planMctxCompartmentRecovery(entries, compartments);
+			if (recovery.kind === "rebuild") {
+				const nextPartition = current.runtime.store.discardCompartmentsFrom(
+					current.runtime.partition,
+					recovery.discardFromRevision,
+				);
+				if (
+					nextPartition !== undefined &&
+					active === current &&
+					!current.lifecycle.signal.aborted
+				) {
+					active = { ...current, runtime: { ...current.runtime, partition: nextPartition } };
+				}
+				return undefined;
+			}
+			if (recovery.kind !== "valid") return undefined;
+			const projection = projectMctxContext(messages, entries, compartments);
 			return projection.kind === "rendered" ? { messages: projection.messages } : undefined;
 		},
 		active: (): MctxSessionRuntime | undefined => active?.runtime,

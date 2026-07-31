@@ -74,6 +74,7 @@ function store(): MctxStore {
 		renewHistorianLease: () => undefined,
 		releaseHistorianLease: () => undefined,
 		listCompartments: () => [compartment()],
+		discardCompartmentsFrom: () => undefined,
 		publishCompartment: () => undefined,
 		close: () => undefined,
 	};
@@ -118,4 +119,41 @@ test("context hook renders only the active session's verified graph", async (): 
 			sessionManager: { ...context.sessionManager, getSessionId: () => "other" },
 		}),
 	).toBeUndefined();
+});
+
+test("context hook atomically drops a recoverable divergent tail and leaves that pass raw", async (): Promise<void> => {
+	const lifecycle = {
+		pi: { events: {} },
+		extension: {
+			cwd: "/project",
+			sessionManager: { getSessionId: () => "session-1" },
+			modelRegistry: { find: () => model, hasConfiguredAuth: () => true },
+			ui: { notify: () => undefined },
+		} as unknown as ExtensionContext,
+		signal: new AbortController().signal,
+		resources: { add: () => undefined, cleanup: async () => [] },
+	} as unknown as ExtensionLifecycleContext;
+	let discardedRevision: number | undefined;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => ({
+			...store(),
+			listCompartments: () => [{ ...compartment(), sourceFingerprint: "stale" }],
+			discardCompartmentsFrom: (_partition, revision) => {
+				discardedRevision = revision;
+				return { projectIdentity: "git:project", sessionId: "session-1", revision: 1 };
+			},
+		}),
+		resolveProjectIdentity: async () => "git:project",
+	});
+	await feature.start(lifecycle);
+	const raw: AgentMessage[] = entries.flatMap((value) => sessionEntryToContextMessages(value));
+	const context = {
+		sessionManager: { getSessionId: () => "session-1", getBranch: () => entries },
+	} as unknown as ExtensionContext;
+	expect(feature.onContext(raw, context)).toBeUndefined();
+	expect(discardedRevision).toBe(1);
+	const active = feature.active();
+	if (active === undefined) throw new Error("Expected active runtime");
+	expect(active.partition.revision).toBe(1);
 });
