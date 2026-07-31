@@ -46,6 +46,10 @@ source snapshot 从 Pi active `getBranch()` 的 ordered entry IDs 建立。每�
 fingerprint 是 SHA-256(JSON entry-ID array)。这只为 branch order/identity 提供 fence，不声称等价于 Pi message
 serialization；后续 historian mapper 必须同时持有原 branch snapshot，不能把 ID hash 当可压缩的 source content。
 
+historian output mapper 只接受 exact JSON object `{ tier, sourceStartEntryId, sourceEndEntryId, renderedPayload }`。它拒绝
+Markdown/extra key/错误 type/invalid JSON，不接受模型控制 `sourceFingerprint`；MCTX 从 immutable snapshot 注入 fingerprint
+后调用 source validator。invalid reason 是稳定 repair diagnostic，但 mapper 不执行 Completion 或 storage publication。
+
 schema v2 在 v1 application/metadata fence 上建立 `projects` 与 `partitions`。partition 以 stable project identity
 与 Pi session ID 唯一标识，revision 从 `0` 开始；get-or-create 使用短 `BEGIN IMMEDIATE` transaction，不能重复创建。
 此迁移仍不建立 lease、compartment 或 graph table。未知 nonempty database、foreign application ID 或 future schema

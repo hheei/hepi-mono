@@ -103,6 +103,11 @@ source snapshot 从 `sessionManager.getBranch()` 的 active branch 顺序读取 
 SHA-256(JSON entry-ID array) 生成 fingerprint。snapshot 不序列化 message content，避免在未确认 Pi entry shape 前把
 lossy projection 当 canonical source；后续 historian mapper 必须保留这份 source branch 与 snapshot fence。
 
+historian output mapper 只接受 exact JSON object：`tier`、`sourceStartEntryId`、`sourceEndEntryId`、`renderedPayload`。
+它拒绝 Markdown fence、extra key、错误 type 或 invalid JSON；不信任模型提供 fingerprint，而是注入 immutable source
+snapshot 的 fingerprint，再调用 source validator。mapper 的 stable invalid reason 可直接进入一次 repair Completion；本 slice
+不调用 Completion 或 publish。
+
 默认 compartment trigger 在 parent `turn_end` 检查 token usage 的 threshold 与 hysteresis。越过阈值后，
 `pi-mctx` 异步执行一次 compartment run；它只处理稳定 history snapshot，不能阻塞 prompt、改写 active turn，
 也不能在 parent session replacement 后发布旧结果。
