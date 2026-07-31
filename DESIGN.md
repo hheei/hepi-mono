@@ -47,8 +47,10 @@ existing semantic token expresses the role.
 - Use one terminal cell of padding inside user messages and tools. Inline
   content, metadata, and footer content normally use zero padding.
 - Use one blank line between adjacent semantic blocks when separation is needed.
-- Use full-width single-line borders for framed regions. Do not use shadows,
-  gradients, rounded panels, or nested cards.
+- Use full-width single-line borders for framed regions. A surface may explicitly
+  choose a rounded, square, or absent outer frame; frame shape is independent
+  from whether the surface has a background. Do not use shadows, gradients, or
+  nested cards.
 - Every rendered line must fit the available width. Wrap prose; ANSI-safely
   truncate metadata and status text.
 - Keep control and row dimensions stable. Selection, status, and label changes
@@ -99,6 +101,18 @@ existing semantic token expresses the role.
 - An Extension page router uses `←`/`→` to switch tabs only after the active page does not handle
   the key; `Esc` closes the router. Show the compact `↔` hint near the tabs. Do not add a separate
   tab-strip focus region.
+
+### Frames And Backgrounds
+
+- Each TUI component owns its outer frame, optional rectangular background,
+  title, padding, height, scrolling, and ANSI line filling together. Do not
+  extract those details into a shared wrapper without demonstrated common
+  behavior.
+- A background uses an existing Pi semantic token chosen by that component; do
+  not introduce a new theme token. Framed or background-filled surfaces keep
+  their rendered rectangle cell-width stable. A frame is structural, not
+  decorative; absent frame and absent background leave content visually
+  unframed.
 
 ### Editor And Status
 
