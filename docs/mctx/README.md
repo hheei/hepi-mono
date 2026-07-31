@@ -261,6 +261,8 @@ recovery planner 只把 range missing/reversed 或 fingerprint mismatch 视为�
 失效 `publishedRevision` 起标记 tail，保留此前连续 verified graph，并给出 rebuild source start。gap、overlap、tier
 regression 或 revision disorder 是 store corruption，不推测删除任何 record，继续 fail closed。无 verified ancestor
 时，rebuild 从失效 range 仍可定位的 start 开始；若 start 不在 branch，则从 index `0` 重新评估完整 raw branch。
+tail prune 与 partition revision compare-and-commit 在同一 SQLite transaction；stale snapshot 不删除任何 record，
+caller 必须 reread 并重新 plan。
 
 每个 context partition 使用 SQLite compartment lease 实现 historian single-flight。lease 有 finite TTL、
 run 中 renewal、abort/shutdown release；其他 process 在持有期跳过该 run，crash 后可以在 TTL expiry 后接管。

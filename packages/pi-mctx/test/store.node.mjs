@@ -88,6 +88,10 @@ test("creates and fences an MCTX-owned store", async () => {
 				},
 			},
 		);
+		const pruned = store.discardCompartmentsFrom({ ...first, revision: 4 }, 4);
+		assert.deepEqual(pruned, { ...first, revision: 5 });
+		assert.deepEqual(store.listCompartments(pruned), [{ ...draft, sequence: 0, publishedRevision: 3 }]);
+		assert.equal(store.discardCompartmentsFrom({ ...first, revision: 4 }, 4), undefined);
 		store.close();
 		store.close();
 		const database = new DatabaseSync(path);
