@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getHepiRuntimeSettingsRegistry, registerHepiSettings } from "@hheei/pi-ext-core";
 import { getHepiRuntimeModuleRegistry } from "./api/modules.js";
-import { getHepiRuntimeSettingsRegistry, registerHepiSettings } from "./api/settings.js";
 import { registerHepiCommand } from "./command/hepi-command.js";
 import { createStatusFeature } from "./contributions/status/index.js";
 import {

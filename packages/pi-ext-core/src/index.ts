@@ -36,6 +36,20 @@ export {
 	registerManagedLoadoutTool,
 } from "./loadout.js";
 export type {
+	CreateHepiModelSelectionFieldOptions,
+	HepiModelSelectionCandidate,
+	HepiModelSelectionOption,
+	HepiModelSelectionRegistry,
+	HepiModelThinkingCycle,
+	HepiModelThinkingLevel,
+} from "./model-selection.js";
+export {
+	createHepiModelSelectionField,
+	hepiAuthenticatedModelSelectionOptions,
+	hepiModelSelectionOptions,
+	hepiThinkingGlyph,
+} from "./model-selection.js";
+export type {
 	ExtensionPageRegistration,
 	ExtensionPageView,
 	ExtensionPageViewContext,
@@ -44,6 +58,28 @@ export type {
 export { openExtensionPageRouter, registerExtensionPage } from "./page-router.js";
 export type { ServiceKey, WaitForServiceOptions } from "./service.js";
 export { createServiceKey, getService, provideService, waitForService } from "./service.js";
+export type {
+	HepiContext,
+	HepiSettingChange,
+	HepiSettingField,
+	HepiSettingGroup,
+	HepiSettingOption,
+	HepiSettingPrimitive,
+	HepiSettingsPanel,
+	HepiSettingsProvider,
+	HepiSettingsRegistry,
+	HepiSettingsState,
+	HepiSettingsStorage,
+	HepiSettingTabCycle,
+	HepiSettingType,
+	HepiSettingValue,
+	JsonSectionSettingsStorageOptions,
+} from "./settings.js";
+export {
+	createJsonSectionSettingsStorage,
+	getHepiRuntimeSettingsRegistry,
+	registerHepiSettings,
+} from "./settings.js";
 export type {
 	CompletionSubagentHandle,
 	CompletionSubagentResult,

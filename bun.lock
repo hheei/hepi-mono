@@ -113,6 +113,23 @@
         "@earendil-works/pi-tui": "*",
       },
     },
+    "packages/pi-auto-title": {
+      "name": "@hheei/pi-auto-title",
+      "version": "0.0.0",
+      "dependencies": {
+        "@hheei/pi-ext-core": "workspace:*",
+      },
+      "devDependencies": {
+        "@earendil-works/pi-coding-agent": "^0.82.0",
+        "@types/bun": "latest",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-agent-core": ">=0.82.0",
+        "@earendil-works/pi-ai": ">=0.82.0",
+        "@earendil-works/pi-coding-agent": ">=0.82.0",
+        "@earendil-works/pi-tui": ">=0.82.0",
+      },
+    },
     "packages/pi-btw": {
       "name": "@hheei/pi-btw",
       "version": "0.0.0",
@@ -284,6 +301,8 @@
     "@hheei/hepi-skills": ["@hheei/hepi-skills@workspace:packages/hepi-skills"],
 
     "@hheei/hepi-tools": ["@hheei/hepi-tools@workspace:packages/hepi-tools"],
+
+    "@hheei/pi-auto-title": ["@hheei/pi-auto-title@workspace:packages/pi-auto-title"],
 
     "@hheei/pi-btw": ["@hheei/pi-btw@workspace:packages/pi-btw"],
 

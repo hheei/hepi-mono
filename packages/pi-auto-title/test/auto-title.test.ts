@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { createJsonSectionSettingsStorage } from "@hheei/pi-ext-core";
 import {
 	AUTO_TITLE_MODEL_FIELD,
 	AUTO_TITLE_SYSTEM_PROMPT,
@@ -19,8 +20,7 @@ import {
 	TITLE_SHIMMER_STEP_CELLS,
 	TITLE_SHIMMER_TRAVEL_CELLS,
 	TITLE_SHIMMER_WINDOW_CELLS,
-} from "../../src/auto-title/module.js";
-import { createJsonSectionSettingsStorage } from "../../src/core/index.js";
+} from "../src/module.js";
 
 const context = (cwd: string) => ({ sessionId: "s", cwd });
 const LONG_SESSION_CONTEXT = "x".repeat(501);
@@ -33,7 +33,7 @@ const titleMessage = (stopReason: AssistantMessage["stopReason"], text: string):
 		stopReason,
 	}) as unknown as AssistantMessage;
 
-describe("Pi Basics auto-title", () => {
+describe("Pi Auto Title", () => {
 	test("parses exact provider/model and preserves global settings", async () => {
 		expect(parseModelRef("provider/model")).toEqual({ provider: "provider", model: "model" });
 		expect(() => parseModelRef("provider/model/extra")).toThrow();
@@ -48,7 +48,7 @@ describe("Pi Basics auto-title", () => {
 			);
 			const root = JSON.parse(await readFile(path, "utf8"));
 			expect(root.packages).toEqual(["npm:pi-subagents"]);
-			expect(root["pi-basics"]["auto-title"].autoTitle).toBe(true);
+			expect(root["pi-auto-title"]["auto-title"].autoTitle).toBe(true);
 		} finally {
 			await rm(dir, { recursive: true, force: true });
 		}
@@ -61,7 +61,7 @@ describe("Pi Basics auto-title", () => {
 			const title = createAutoTitleStorage({ path });
 			const other = createJsonSectionSettingsStorage({
 				path,
-				section: "pi-basics",
+				section: "pi-auto-title",
 				group: "other",
 			});
 			await Promise.all([
@@ -69,7 +69,7 @@ describe("Pi Basics auto-title", () => {
 				other.save({ other: { enabled: true } }, context(dir)),
 			]);
 			const root = JSON.parse(await readFile(path, "utf8"));
-			expect(root["pi-basics"]).toEqual({
+			expect(root["pi-auto-title"]).toEqual({
 				"auto-title": { autoTitle: true },
 				other: { enabled: true },
 			});

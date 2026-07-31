@@ -1,5 +1,4 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import piAutoTitle from "./auto-title/index.js";
 import piBasics from "./core/index.js";
 import piDollarSkill from "./dollar-skill/index.js";
 import piFix from "./fix/index.js";
@@ -18,7 +17,6 @@ export const hepiBasicsExtensions: readonly HepiExtension[] = [
 	piDollarSkill,
 	piFix,
 	piT2s,
-	piAutoTitle,
 ];
 
 export default function piHepiBasicsExtension(pi: ExtensionAPI): void {
