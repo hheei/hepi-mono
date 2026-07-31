@@ -125,6 +125,10 @@ fail-closed policy 与 SQLite tuning 是 user-only；project 只能提高已由 
 它通过 atomic read-modify-write、process queue 和 file lock 更新，不能覆盖同一 settings file 的 sibling section；
 它不与 SQLite context store 混用。
 
+core 的 merged settings entry 同时提供 `global`、`project`、默认 project-wins `merged` 和 structured key path
+来源查询，供不需要额外 trust policy 的 consumer 使用。MCTX 保留 raw layers 执行上述 field-scoped merge；不能以
+默认 `merged` 允许 project 选择 historian 或改变 fail-closed policy。
+
 迁移期保留完整 upstream-shaped MCTX configuration schema。首个 pipeline milestone 只读取已实现的
 `enabled`、historian model、trigger budget 和 fail-closed policy；其余字段保存为 reserved/inactive，暂不产生
 行为。它们不是 backward-compatibility promise；未来每项 feature 启用其字段时，代码必须用 `ponytail:` 注释说明

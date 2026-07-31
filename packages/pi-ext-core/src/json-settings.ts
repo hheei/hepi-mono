@@ -9,6 +9,26 @@ export interface PiSettingsPaths {
 	readonly projectPath: string;
 }
 
+export type JsonSettingsValueSource = "global" | "project" | "mixed";
+
+export interface MergedJsonSettingsSection {
+	readonly global: Readonly<Record<string, unknown>>;
+	readonly project: Readonly<Record<string, unknown>>;
+	readonly merged: Readonly<Record<string, unknown>>;
+	sourceOf(path: readonly string[]): JsonSettingsValueSource | undefined;
+}
+
+export interface ReadMergedJsonSettingsSectionOptions {
+	readonly paths: PiSettingsPaths;
+	readonly section: string;
+	readonly signal?: AbortSignal;
+}
+
+interface LocatedSettingValue {
+	readonly found: boolean;
+	readonly value?: unknown;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -62,6 +82,82 @@ export async function readJsonSettingsSection(
 	if (value === undefined) return undefined;
 	if (!isRecord(value)) throw new Error(`Expected ${section} to be an object in ${path}`);
 	return value;
+}
+
+function childAt(value: unknown, key: string): LocatedSettingValue {
+	if (!isRecord(value) || !Object.hasOwn(value, key)) return { found: false };
+	return { found: true, value: value[key] };
+}
+
+function mergeSettingsObjects(
+	global: Readonly<Record<string, unknown>>,
+	project: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+	const merged: Record<string, unknown> = { ...global };
+	for (const [key, projectValue] of Object.entries(project)) {
+		const globalValue = global[key];
+		merged[key] =
+			isRecord(globalValue) && isRecord(projectValue)
+				? mergeSettingsObjects(globalValue, projectValue)
+				: projectValue;
+	}
+	return merged;
+}
+
+function sourceAt(
+	global: Readonly<Record<string, unknown>>,
+	project: Readonly<Record<string, unknown>>,
+	path: readonly string[],
+): JsonSettingsValueSource | undefined {
+	let globalValue: unknown = global;
+	let projectValue: unknown = project;
+	let hasGlobal = true;
+	let hasProject = true;
+	for (const key of path) {
+		if (hasGlobal && hasProject) {
+			if (!isRecord(globalValue) || !isRecord(projectValue)) return undefined;
+			const nextGlobal = childAt(globalValue, key);
+			const nextProject = childAt(projectValue, key);
+			hasGlobal = nextGlobal.found;
+			hasProject = nextProject.found;
+			globalValue = nextGlobal.value;
+			projectValue = nextProject.value;
+			continue;
+		}
+		if (hasGlobal) {
+			const nextGlobal = childAt(globalValue, key);
+			hasGlobal = nextGlobal.found;
+			globalValue = nextGlobal.value;
+			continue;
+		}
+		const nextProject = childAt(projectValue, key);
+		hasProject = nextProject.found;
+		projectValue = nextProject.value;
+	}
+	if (!hasGlobal && !hasProject) return undefined;
+	if (!hasGlobal) return "project";
+	if (!hasProject) return "global";
+	return isRecord(globalValue) && isRecord(projectValue) ? "mixed" : "project";
+}
+
+/**
+ * Loads both layers and a default project-wins recursive merge. Consumers that
+ * restrict project trust must use `global` and `project`, not `merged`.
+ */
+export async function readMergedJsonSettingsSection(
+	options: ReadMergedJsonSettingsSectionOptions,
+): Promise<MergedJsonSettingsSection> {
+	const [global = {}, project = {}] = await Promise.all([
+		readJsonSettingsSection(options.paths.globalPath, options.section, options.signal),
+		readJsonSettingsSection(options.paths.projectPath, options.section, options.signal),
+	]);
+	options.signal?.throwIfAborted();
+	return {
+		global,
+		project,
+		merged: mergeSettingsObjects(global, project),
+		sourceOf: (path): JsonSettingsValueSource | undefined => sourceAt(global, project, path),
+	};
 }
 
 async function writeJsonSettingsRoot(
