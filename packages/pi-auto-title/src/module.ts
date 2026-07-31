@@ -62,11 +62,20 @@ export interface AutoTitleCoordinator {
 }
 
 export function createAutoTitleStorage(options: AutoTitleStorageOptions = {}): HepiSettingsStorage {
-	return createJsonSectionSettingsStorage({
+	const primary = createJsonSectionSettingsStorage({
 		...(options.path === undefined ? {} : { path: options.path }),
 		section: SECTION,
 		group: options.group ?? AUTO_TITLE_GROUP,
 	});
+	const legacy = createJsonSectionSettingsStorage({
+		...(options.path === undefined ? {} : { path: options.path }),
+		section: "pi-basics",
+		group: options.group ?? AUTO_TITLE_GROUP,
+	});
+	return {
+		load: async (context) => (await primary.load(context)) ?? (await legacy.load(context)),
+		save: (state, context) => primary.save(state, context),
+	};
 }
 
 export function parseModelRef(value: string): { provider: string; model: string } {
