@@ -73,12 +73,12 @@ export const TODO_PARAMETERS = Type.Object(
 );
 
 export const TODO_TOOL_DESCRIPTION =
-	"Maintain an atomic task list. Scheduling is automatic. Create known tasks in one batch; update only when state changes; use `blocked` when work cannot continue, `in_progress` when resuming, and `completed` after verification. Submit one `list` operation or an atomic batch of create, update, and delete operations. Follow the final guidance line returned by the tool.";
+	"Maintain an atomic task list. Scheduling is automatic. Create known tasks in one batch; update only when state changes; use `blocked` when work cannot continue, `in_progress` to switch active work or resume blocked work, and `completed` after verification. Submit one `list` operation or an atomic batch of create, update, and delete operations. Follow the final guidance line returned by the tool.";
 export const TODO_PROMPT_SNIPPET = "Manage a task list to track multi-step progress";
 export const TODO_PROMPT_GUIDELINES = [
 	"Use `todo` for work with 3+ concrete steps or multiple user-requested tasks; skip trivial work.",
 	"Create the full known task list in one atomic batch. Keep subjects short, imperative, and outcome-oriented; do not add bookkeeping tasks for routine commands.",
-	"Scheduling is automatic. Update only when state changes: use `completed` after verification, `blocked` only when work cannot continue, and `in_progress` only when resuming blocked work. Do not repeatedly list or restate current state.",
+	"Scheduling is automatic. Update only when state changes: use `completed` after verification, `blocked` only when work cannot continue, and `in_progress` to switch active work or resume blocked work. Do not repeatedly list or restate current state.",
 ] as const;
 
 interface ActiveTodoRuntime {
@@ -88,6 +88,7 @@ interface ActiveTodoRuntime {
 	idleTurns: number;
 	reminderWindowStartedAtMs: number;
 	todoChangedThisTurn: boolean;
+	blockedQuietTurns: Map<number, number>;
 }
 
 export interface TodoFeature {
@@ -153,19 +154,9 @@ function todoReminder(current: ActiveTodoRuntime): string | undefined {
 	return lines.join("\n");
 }
 
-function taskIds(state: TaskState, status: TaskStatus): string | undefined {
-	const ids = state.tasks
-		.filter((task) => task.status === status)
-		.sort((left, right) => left.id - right.id)
-		.map((task) => `#${task.id}`);
-	return ids.length > 0 ? ids.join(" ") : undefined;
-}
-
 function formatTodoGuidance(state: TaskState): string {
 	const active = activeTodoTask(state);
 	if (active) return `Next: #${active.id} ${active.subject}.`;
-	const blocked = taskIds(state, "blocked");
-	if (blocked) return `Only blocked todos ${blocked} left. Agree next steps with the user.`;
 	return "Finished all todos.";
 }
 
@@ -323,10 +314,42 @@ function renderTodoResult(
 	if (focusTask?.status === "completed")
 		return new Text(theme.fg("success", `✓ #${focusTask.id} ${focusTask.subject}`), 0, 0);
 	if (focusTask?.status === "blocked")
-		return new Text(theme.fg("warning", `⊘ #${focusTask.id} ${focusTask.subject}`), 0, 0);
+		return new Text(
+			theme.fg("dim", `⊘ #${focusTask.id} ${theme.strikethrough(focusTask.subject)}`),
+			0,
+			0,
+		);
 	const blocked = state.tasks.filter((task) => task.status === "blocked").length;
-	if (blocked > 0) return new Text(theme.fg("warning", `⊘ ${blocked} blocked`), 0, 0);
+	if (blocked > 0) return new Text(theme.fg("dim", `⊘ ${blocked} blocked`), 0, 0);
 	return new Text(theme.fg("success", "✓ complete"), 0, 0);
+}
+
+function reconcileBlockedQuietTurns(current: ActiveTodoRuntime, nextState: TaskState): void {
+	for (const task of nextState.tasks) {
+		const previous = current.state.tasks.find((candidate) => candidate.id === task.id);
+		if (task.status === "blocked" && previous?.status !== "blocked") {
+			current.blockedQuietTurns.set(task.id, 0);
+		}
+		if (task.status !== "blocked") current.blockedQuietTurns.delete(task.id);
+	}
+	for (const id of current.blockedQuietTurns.keys()) {
+		if (!nextState.tasks.some((task) => task.id === id && task.status === "blocked")) {
+			current.blockedQuietTurns.delete(id);
+		}
+	}
+}
+
+function hideExpiredBlockedTasks(current: ActiveTodoRuntime): void {
+	const expired: number[] = [];
+	for (const [id, quietTurns] of current.blockedQuietTurns) {
+		if (quietTurns + 1 >= 2) {
+			current.blockedQuietTurns.delete(id);
+			expired.push(id);
+		} else {
+			current.blockedQuietTurns.set(id, quietTurns + 1);
+		}
+	}
+	if (expired.length > 0) current.widget?.hideBlocked(expired);
 }
 
 export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions = {}): TodoFeature {
@@ -361,6 +384,7 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 				throw new Error(`${message}\nNo change made.`);
 			}
 			if (result.changed) {
+				reconcileBlockedQuietTurns(current, result.state);
 				current.state = result.state;
 				current.idleTurns = 0;
 				current.reminderWindowStartedAtMs = now();
@@ -423,6 +447,7 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 				ctx.ui.notify(`Todo #${id} is already suppressed`, "info");
 				return;
 			}
+			reconcileBlockedQuietTurns(current, result.state);
 			current.state = result.state;
 			current.idleTurns = 0;
 			current.reminderWindowStartedAtMs = now();
@@ -467,21 +492,22 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 	pi.on("turn_end", async (event, ctx) => {
 		const current = active;
 		if (!current || current.sessionId !== ctx.sessionManager.getSessionId()) return;
-		if (current.todoChangedThisTurn) {
-			current.todoChangedThisTurn = false;
-			return;
-		}
-		if (!activeTodoTask(current.state)) {
-			current.idleTurns = 0;
-			current.reminderWindowStartedAtMs = now();
-			return;
-		}
 		if (
 			event.message.role !== "assistant" ||
 			event.message.stopReason === "error" ||
 			event.message.stopReason === "aborted"
 		)
 			return;
+		if (current.todoChangedThisTurn) {
+			current.todoChangedThisTurn = false;
+			return;
+		}
+		hideExpiredBlockedTasks(current);
+		if (!activeTodoTask(current.state)) {
+			current.idleTurns = 0;
+			current.reminderWindowStartedAtMs = now();
+			return;
+		}
 		current.idleTurns++;
 	});
 	pi.on("agent_start", async (_event, ctx) => {
@@ -494,6 +520,7 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 		const current = active;
 		if (!current || current.sessionId !== ctx.sessionManager.getSessionId()) return;
 		current.state = freshTaskState();
+		current.blockedQuietTurns.clear();
 		current.idleTurns = 0;
 		current.reminderWindowStartedAtMs = now();
 		current.todoChangedThisTurn = false;
@@ -521,6 +548,7 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 				idleTurns: 0,
 				reminderWindowStartedAtMs: now(),
 				todoChangedThisTurn: false,
+				blockedQuietTurns: new Map(),
 				widget: undefined,
 			};
 			current.widget = createTodoWidget(context, state);
