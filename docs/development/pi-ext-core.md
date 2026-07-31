@@ -123,6 +123,10 @@ abort；consumer 不得另加隐式 timeout/grace。sink 必须接受 abort 后�
 subscriber 必须声明 event kinds、接受 fixed-cap snapshot coalescing，且在其 lifecycle signal abort 后不得
 保留 handle reference。
 
+`pi-subagents` 也必须在每次 parent session start 配置 root active-turn cap。core 只接受一项 live
+lifecycle configuration，且 runtime 校验值为 positive integer；另一 owner 是 collision error。不得把 cap
+放进单 task spec、凭 load order 覆盖，或在 core 内加入 hidden default。
+
 core 不提供 main-agent wait 或 result-polling surface。`pi-subagents` 保留 parent delivery adapter：
 default queue、explicit steer 与 all-terminal Task delivery group 都是该 package 的 policy，不能下沉到
 core execution contract。
@@ -130,6 +134,7 @@ core execution contract。
 conversation consumer 必须在 create 时指定 finite soft `maxTurnsPerReply`，并在 send 时明确区分
 parent-to-child `inputMode` 与 child-to-parent reply consumption。wait 只能观察本次 message sequence；
 wait signal abort 后，adapter 必须 queue-deliver eventual reply，不得静默丢弃或取消 conversation。
+create 同时提供 initial message 与同一 reply contract，不能启动没有 owner 的 initial prompt。
 
 所有 execution adapter 的注释必须说明 parent session ownership、mode、shared-cap admission、
 cancellation、delivery/retry policy、event backpressure 与 retention cost。完整 contract 见

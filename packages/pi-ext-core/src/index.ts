@@ -31,3 +31,43 @@ export type {
 export { openExtensionPageRouter, registerExtensionPage } from "./page-router.js";
 export type { ServiceKey, WaitForServiceOptions } from "./service.js";
 export { createServiceKey, getService, provideService, waitForService } from "./service.js";
+export type {
+	CompletionSubagentHandle,
+	CompletionSubagentResult,
+	CompletionSubagentSpec,
+	ConfigureSubagentCoordinatorOptions,
+	ConversationDeliveryAcknowledgement,
+	ConversationInputMode,
+	ConversationMessageSequence,
+	ConversationReplyConsumption,
+	ConversationReplyDeliverySink,
+	ConversationReplyResult,
+	ConversationSendOptions,
+	ConversationSubagentHandle,
+	ConversationSubagentSpec,
+	ConversationTerminalResult,
+	SubagentEvent,
+	SubagentEventKind,
+	SubagentEventSubscription,
+	SubagentHandle,
+	SubagentId,
+	SubagentMode,
+	SubagentSpec,
+	SubagentStatus,
+	SubagentTerminalEvent,
+	SubagentTerminalResult,
+	SubagentTextEvent,
+	SubagentToolEvent,
+	SubagentTurnEvent,
+	SubscribeSubagentEventsOptions,
+	TaskSubagentHandle,
+	TaskSubagentSpec,
+	TaskTerminalDeliverySink,
+	TaskTerminalResult,
+} from "./subagents.js";
+export {
+	configureSubagentCoordinator,
+	lookupSubagent,
+	redeliverTask,
+	startSubagent,
+} from "./subagents.js";
