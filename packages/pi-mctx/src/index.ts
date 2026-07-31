@@ -2,6 +2,7 @@ export * from "./activation.js";
 export * from "./compartment-graph.js";
 export * from "./compartment-validation.js";
 export * from "./config.js";
+export * from "./context-projection.js";
 export { default } from "./extension.js";
 export * from "./feature.js";
 export * from "./historian-branch-runner.js";
