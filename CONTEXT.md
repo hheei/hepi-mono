@@ -3,6 +3,135 @@
 HEPI extension composition describes how independently installed Pi extensions expose and manage
 optional features within one Pi runtime.
 
+## Migration
+
+**Behavioral parity**:
+A replacement preserves materially equivalent user-visible outcomes without preserving package APIs,
+command names, configuration keys, storage formats, or persisted state.
+_Avoid_: backward compatibility, source compatibility
+
+**Context pipeline**:
+The parent-session process that turns eligible history into compartments and injects deterministic
+rendered context; it excludes memory, notes, search, Dreamer, embeddings, commands, and UI.
+_Avoid_: full MCTX stack, child compaction
+
+**Context store**:
+The MCTX-owned SQLite compartment graph that is canonical for a parent session's rendered context;
+the Pi session branch remains the source transcript, not the context-store summary.
+_Avoid_: Pi compaction entry, process cache
+
+**Context partition**:
+One context-store region keyed by stable project identity and Pi session identity; its compartments
+are readable only by that parent session even when multiple processes share the database.
+_Avoid_: cross-session context, per-worktree context
+
+**Project identity**:
+`git:<root-commit>` when Git is available, otherwise `dir:<SHA-256(realpath)>`; a transient failure may
+reuse a process-local known Git identity, while permission denial rejects pipeline activation.
+_Avoid_: remote URL, worktree path identity
+
+**Context revision**:
+The monotonic version of one context partition, compared transactionally before a writer publishes
+new compartments so a stale renderer must reread and recompute rather than overwrite newer state.
+_Avoid_: last writer wins, global database revision
+
+**Compartment run**:
+An asynchronous parent turn-end attempt that snapshots eligible history and publishes one context
+compartment; it never rewrites an active turn or blocks a prompt.
+_Avoid_: host compaction, pre-prompt rewrite
+
+**Context block**:
+The cache-stable rendered history from one context partition, inserted into transformed parent model
+messages while the source Pi session branch remains unchanged.
+_Avoid_: system-prompt adjunct, compaction entry, synthetic conversation message
+
+**Parent historian**:
+The explicitly configured model-backed MCTX completion that turns a parent history snapshot into a
+compartment; it is not a child agent and does not silently reuse the parent agent's model.
+_Avoid_: child historian, parent-model fallback
+
+**MCTX completion admission**:
+The `pi-mctx` lifecycle configures or reuses core's shared `maxActiveTurns: 2` coordinator before
+pipeline activation; a different live cap is an activation diagnostic, not a direct Pi-AI fallback.
+_Avoid_: direct completion, hidden core default
+
+**Context-store failure**:
+An inability to open, migrate, or validate the canonical context store after the pipeline is enabled;
+it blocks parent turns by default and is distinct from an unavailable optional historian model.
+_Avoid_: historian unavailable, silent native fallback
+
+**MCTX configuration**:
+The user-trusted historian and activation configuration plus field-scoped project overrides. A project
+may disable or delay an already user-enabled pipeline, but cannot select its model, lower its trigger,
+or change fail-closed and SQLite policy.
+_Avoid_: blanket project override, implicit historian model
+
+**Pipeline activation**:
+The explicit enabled MCTX configuration that opens the context store and registers the parent transform;
+it defaults to disabled and requires an explicitly configured parent historian to provide value.
+_Avoid_: install-time activation, inferred activation
+
+**Invalid pipeline configuration**:
+An enabled pipeline without a valid parent historian configuration; activation is refused and Pi runs
+natively after a diagnostic rather than opening the store or registering a no-op transform.
+_Avoid_: context-store failure, partially active pipeline
+
+**Reserved MCTX configuration**:
+An upstream-shaped MCTX configuration field preserved during migration but inactive until its feature
+is implemented. It is opaque JSON, not an active setting or compatibility promise; only an activated
+feature validates its own fields.
+_Avoid_: speculative full validator, silently active setting
+
+**Compartment trigger budget**:
+The model-aware percentage threshold plus absolute-token fallback and guard used with hysteresis to
+schedule a parent compartment run after turn end.
+_Avoid_: fixed token limit, context-window-only trigger
+
+**M0/M1 context tiers**:
+The stable cacheable `m[0]` history tier and newer materialized `m[1]` tier rendered before the
+compartment boundary's live tail; together they replace old model history from the source transcript.
+_Avoid_: rolling summary, raw transcript cache
+
+**Fork inheritance**:
+The creation of a new context partition by copying only ancestor compartments that remain valid for
+the forked Pi branch; a failed copy leaves the child to rebuild without sharing its parent's partition.
+_Avoid_: shared partition, unfiltered clone
+
+**Historian publication fence**:
+The structural, coverage, boundary, and graph-invariant validation that a parent historian output must
+pass before atomic publication; one repair completion follows its first validation failure.
+_Avoid_: nonempty-output publish, partial context publish
+
+**Historian transient retry**:
+At most two cancellable jittered retries for a transient parent historian provider failure; it excludes
+abort, authentication or 400 errors, configuration errors, and validation failures.
+_Avoid_: validation repair, unlimited retry
+
+**Protected live tail**:
+The token-budgeted recent complete parent turn groups kept verbatim after the compartment boundary;
+user input, its assistant response, and related tool/results are never split by that boundary.
+_Avoid_: fixed message window, summary-eligible head
+
+**Branch divergence**:
+A current Pi session branch whose source-range fingerprint no longer validates stored compartments;
+the partition atomically drops divergent state, keeps validated ancestors, and rebuilds from raw history.
+_Avoid_: shared fork partition, stale summary reuse
+
+**Compartment lease**:
+A finite SQLite per-partition single-flight lease for one historian run, renewed while active and
+released on abort or shutdown so another process can take over after TTL expiry.
+_Avoid_: process-local in-flight flag, publish revision
+
+**Context retention**:
+The first pipeline milestone preserves context partitions without automatic semantic deletion; future
+retention requires an explicit data-management design rather than TTL or shutdown loss.
+_Avoid_: implicit TTL prune, shutdown deletion
+
+**Pipeline diagnostic**:
+A model-invisible Pi native notification plus structured log explaining invalid configuration,
+context-store failure, or a cooldown-eligible historian failure without creating MCTX UI surfaces.
+_Avoid_: model message, statusbar, ctx command
+
 ## Loadout
 
 **Loadout**:
