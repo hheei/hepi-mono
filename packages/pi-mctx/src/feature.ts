@@ -5,10 +5,15 @@ import {
 	loadMctxConfiguration,
 	type MctxConfiguration,
 } from "./config.js";
+import { defaultMctxStorePath, type MctxStore, openMctxStore } from "./store.js";
+
+export interface MctxSessionRuntime extends MctxRuntime {
+	readonly store: MctxStore;
+}
 
 export interface MctxFeature {
 	start(context: ExtensionLifecycleContext): Promise<void>;
-	active(): MctxRuntime | undefined;
+	active(): MctxSessionRuntime | undefined;
 }
 
 export interface MctxFeatureOptions {
@@ -16,12 +21,14 @@ export interface MctxFeatureOptions {
 		paths: ReturnType<typeof defaultMctxSettingsPaths>,
 		signal: AbortSignal,
 	) => Promise<MctxConfiguration>;
+	readonly openStore?: (path: string) => MctxStore | Promise<MctxStore>;
 }
 
 /** Owns the session runtime holder; future store and context work attach here. */
 export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature {
 	const loadConfiguration = options.loadConfiguration ?? loadMctxConfiguration;
-	let active: MctxRuntime | undefined;
+	const openStore = options.openStore ?? openMctxStore;
+	let active: MctxSessionRuntime | undefined;
 	return {
 		async start(context): Promise<void> {
 			let configuration: MctxConfiguration;
@@ -47,11 +54,27 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					context.extension.ui.notify(activation.diagnostic, "warning");
 				return;
 			}
-			active = activation.runtime;
+			let store: MctxStore;
+			try {
+				store = await openStore(defaultMctxStorePath());
+			} catch (error: unknown) {
+				context.extension.ui.notify(
+					`pi-mctx context store unavailable: ${error instanceof Error ? error.message : String(error)}`,
+					"error",
+				);
+				throw error;
+			}
+			if (context.signal.aborted) {
+				store.close();
+				return;
+			}
+			const runtime: MctxSessionRuntime = { ...activation.runtime, store };
+			active = runtime;
 			context.resources.add("mctx-runtime", () => {
-				if (active === activation.runtime) active = undefined;
+				store.close();
+				if (active === runtime) active = undefined;
 			});
 		},
-		active: (): MctxRuntime | undefined => active,
+		active: (): MctxSessionRuntime | undefined => active,
 	};
 }

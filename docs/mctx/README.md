@@ -113,6 +113,13 @@ pipeline 启用后，context store 无法 open、migrate 或通过 schema valida
 turn 并呈现可操作的 storage error。未来可通过显式 config opt out 回退 Pi native behavior。无 historian model
 config 属于可选能力缺席，不是 context-store failure。
 
+store foundation 使用 Node `node:sqlite`。v1 schema 只建立 MCTX application identity 与 metadata fence：没有
+project identity、partition、lease、compartment 或 context block table。open 设置 WAL、foreign keys 与固定 busy
+timeout；migration 在短 `BEGIN IMMEDIATE` transaction 内执行。未知 nonempty database、foreign application ID、
+或高于当前版本的 schema 均拒绝打开，避免误写其他数据。成功 store 是 session runtime resource，shutdown 必须
+close；enabled pipeline 的 open/migration/schema failure 先显示 storage error，再让 lifecycle start fail，不能留下
+无 store 的 active runtime。
+
 `pi-mctx` 自己拥有 HEPI/Pi-native configuration：user-level `pi-mctx` namespace 加 optional project `.pi`
 override。保存配置不热改 active pipeline；extension 只在下一次 `session_start` 或 `/reload` 读取并应用。它不
 依赖 `hepi-basics` settings provider，也不读取 CortexKit config 路径。

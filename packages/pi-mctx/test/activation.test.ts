@@ -119,13 +119,18 @@ test("resolves historian and joins the shared completion coordinator", (): void 
 
 test("feature owns the active runtime for the session lifecycle", async (): Promise<void> => {
 	const fixture = runtime();
-	const feature = createMctxFeature({ loadConfiguration: async () => configuration() });
+	let closed = 0;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => ({ path: "/store", close: () => void closed++ }),
+	});
 	await feature.start(fixture.context);
 	expect(feature.active()?.sessionId).toBe("session-1");
 	const cleanup = fixture.cleanups[0];
 	if (!cleanup) throw new Error("Expected active MCTX runtime cleanup");
 	await cleanup();
 	expect(feature.active()).toBeUndefined();
+	expect(closed).toBe(1);
 
 	const inactiveFixture = runtime();
 	const inactiveFeature = createMctxFeature({
@@ -136,5 +141,18 @@ test("feature owns the active runtime for the session lifecycle", async (): Prom
 	expect(inactiveFixture.cleanups).toEqual([]);
 	expect(inactiveFixture.notifications).toEqual([
 		{ message: "pi-mctx configuration is invalid: broken historian", level: "warning" },
+	]);
+
+	const failedFixture = runtime();
+	const failedFeature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => {
+			throw new Error("database is locked");
+		},
+	});
+	await expect(failedFeature.start(failedFixture.context)).rejects.toThrow("database is locked");
+	expect(failedFeature.active()).toBeUndefined();
+	expect(failedFixture.notifications).toEqual([
+		{ message: "pi-mctx context store unavailable: database is locked", level: "error" },
 	]);
 });
