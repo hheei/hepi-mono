@@ -453,6 +453,7 @@ export async function createSettingsPage(
 	};
 
 	return {
+		minRows: 20,
 		component: {
 			render(width: number): string[] {
 				const all = items();

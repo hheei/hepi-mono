@@ -122,6 +122,9 @@ existing semantic token expresses the role.
   layout stacks those regions. Field label/value columns remain stable, disabled fields use `dim`,
   and only a selected non-editing long label may marquee. `Space` toggles booleans; Pi Input edits
   other fields; `Tab` only cycles a field's related `tabCycle` value.
+- Settings and Loadout each reserve at least 20 page-content rows below the shared router tab strip.
+  Their lists may remain shorter than that minimum; router-owned blank rows retain a stable custom
+  surface height instead of inventing empty list entries.
 
 ### Frames And Backgrounds
 
