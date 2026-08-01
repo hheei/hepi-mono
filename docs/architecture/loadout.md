@@ -20,7 +20,8 @@ executable tool，消除 extension load order 依赖。
 `pi-loadout` 是 managed-tool contributor 的推荐 companion extension，但不是硬依赖。缺少它时，
 core 仍注册 executable tool，保留 Pi 默认 activation；不应用 Loadout inventory、conflict、priority
 或 persisted override。当前 `pi-loadout` 阶段无 UI 与 `/loadout` command，只读取新的
-`pi-loadout` global/project JSON sections；旧 `pi-basics-loadout` state 不迁移。
+`pi-loadout` global/project JSON sections；旧 `pi-basics-loadout` state 与早期 `tools` / `skills`
+boolean map schema 不迁移。
 
 ## Tool Registration
 
@@ -50,6 +51,18 @@ metadata 的 observed tool 以 session start 的 Pi active list 作为默认状�
 Loadout 在 session start 观察 Pi tools。每次更新时，它只计算 inventory items 的 effective state，
 再一次性写入 Pi active-tool list；无法安全识别的第三方 tool 保留在 Pi baseline，不被关闭。
 
+配置不是 project-wins object merge，而是两个独立的 JSON delta layer。每层仅有
+`disabled: string[]` 与 `enabled: string[]`；key 为 canonical `tool:<name>` 或
+`skill:<bare-name>`。一个 resource 的 policy source 固定为
+`project disabled > project enabled > global disabled > global enabled > discovered default`。
+同层双写时 disabled 胜 enabled，写入 API 对被修改 key 清除另一侧条目。合法未发现 key 保留但
+暂时不参与 runtime；未知 schema field、无效 key 与早期 boolean-map schema fail-fast。
+
+global-visible resource 在 global 是 enabled/disabled 二态：选择等于 discovered default 时删除
+global delta。它在 project 是 enabled/disabled/inherit 三态；inherit 删除 project delta 并回退
+global effective state。project-private resource 不存在 global row，project 也没有 inherit；它选择
+discovered default 时删除 project delta。
+
 display group 只影响展示。一个 item 恰好属于一个 display group；group 移动不改变 activation。
 conflict set 是独立的命名集合，一个 item 可加入多个 set，任何 set 内至多一个 item active。
 
@@ -57,9 +70,10 @@ priority 是 non-negative rank，较小值更主：它决定 group 内展示顺�
 时决定自动 policy 胜者。若同一 conflict set 内有多个 default-active candidate，它们不得有相同
 priority；registration 必须 fail-fast，不能依赖 extension load order。
 
-user explicit selection 优先于 priority。选择一个 item 是原子 Activation update：启用目标，并在
-同一次更新中停用目标所有 conflict set 的成员。用户选择写入当前 global 或 project scope；project
-override 优先于 global。新 `pi-loadout` state 从空开始，不迁移 legacy `pi-basics-loadout` entries。
+conflict set 内多个 enabled item 的 winner 先按 delta source rank，再按 priority 和 name。resolver
+只锁定较低 item，不自动改写其 raw delta；Settings UI 禁止直接交换 locked item。用户先把 winner
+设为 inherit，或让 global winner 回到 discovered default，才可操作其它 conflict member。新
+`pi-loadout` state 从空开始，不迁移 legacy entries。
 
 skill enable/disable 由 `pi-loadout` 自己管理；core 只提供 runtime-scoped disabled-skill capability
 供 Loadout 发布、dollar-skill 读取。不得为 skills 预建 generic resource registration API。
