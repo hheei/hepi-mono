@@ -107,7 +107,8 @@ existing semantic token expresses the role.
 - Loadout uses one unframed selector page: Tools and Skills share its grouped resource list; the
   selected resource has one Description block, rather than inline descriptions on every row. A wide
   layout is list, conditional scrollbar, then Description; a narrow layout stacks list then
-  Description.
+  Description. Within each resource kind, Built-in resources come first; registered resources then
+  sort by display group and name.
 - Loadout status is textual and glyph-backed: `●` is effective enabled, `○` is effective disabled,
   and `⊘` is conflict-locked/inactive. The selected row retains the standard `→` slot. Display group
   is secondary metadata; the Description block uses the legacy selected-resource content: name and

@@ -249,11 +249,18 @@ export function createLoadoutPage(
 			.filter(
 				(item) => !query || `${item.name} ${item.displayGroup}`.toLocaleLowerCase().includes(query),
 			)
-			.sort(
-				(left, right) =>
-					(left.kind === "tool" ? 0 : 1) - (right.kind === "tool" ? 0 : 1) ||
-					left.name.localeCompare(right.name),
-			);
+			.sort((left, right) => {
+				// Preserve Tools/Skills sections, but make native resources discoverable before extensions.
+				const kindOrder = (left.kind === "tool" ? 0 : 1) - (right.kind === "tool" ? 0 : 1);
+				const builtInOrder =
+					Number(left.origin !== "Built-in") - Number(right.origin !== "Built-in");
+				return (
+					kindOrder ||
+					builtInOrder ||
+					left.displayGroup.localeCompare(right.displayGroup) ||
+					left.name.localeCompare(right.name)
+				);
+			});
 	};
 
 	const entries = (): readonly ListEntry[] => {
