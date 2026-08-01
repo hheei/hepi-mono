@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
 import type { ExtensionPageViewContext, PiSettingsPaths } from "@hheei/pi-ext-core";
+import { replayTui, viewFrame } from "../../hepi-debug/src/tui-replay.js";
 import type { LoadoutEngine } from "../src/engine.js";
 import { createLoadoutPage } from "../src/page.js";
 
@@ -90,10 +91,26 @@ function setup(): {
 }
 
 describe("Loadout Settings page", () => {
-	test("renders one selected-resource Description block and hides project-private rows globally", () => {
+	test("renders one selected-resource Description block and hides project-private rows globally", async () => {
 		const h = setup();
 		const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
 		const global = page.component.render(100).join("\n");
+		const resourceLine = global
+			.split("\n")
+			.find((line) => line.includes("●") && line.includes("Built-in"));
+		expect(resourceLine?.indexOf("Built-in")).toBeLessThan(20);
+		const replay = await replayTui({
+			columns: 100,
+			rows: 20,
+			create: () => page.component,
+			actions: [],
+		});
+		const frame = viewFrame(replay.last);
+		expect(frame).toHaveLength(20);
+		const replayResourceLine = frame.find(
+			(line) => line.includes("●") && line.includes("Built-in"),
+		);
+		expect(replayResourceLine?.indexOf("Built-in")).toBeLessThan(20);
 		expect(global).toContain("⚒ Tools");
 		expect(global).toContain("read (tool)");
 		expect(global).toContain("Read a file from the current workspace.");
@@ -104,12 +121,11 @@ describe("Loadout Settings page", () => {
 		expect(global).not.toContain("This scope:");
 		expect(global).not.toContain("Default:");
 		expect(global).not.toContain("project_check");
-		return page.handleInput("\u0010").then(() => {
-			const project = page.component.render(100).join("\n");
-			expect(project).toContain("Project · /workspace/.pi/settings.json");
-			expect(project).toContain("project_check");
-			expect(project.indexOf("read")).toBeLessThan(project.indexOf("project_check"));
-		});
+		await page.handleInput("\u0010");
+		const project = page.component.render(100).join("\n");
+		expect(project).toContain("Project · /workspace/.pi/settings.json");
+		expect(project).toContain("project_check");
+		expect(project.indexOf("read")).toBeLessThan(project.indexOf("project_check"));
 	});
 
 	test("flushes one scope before switching and prints reload info only after surface close", async () => {

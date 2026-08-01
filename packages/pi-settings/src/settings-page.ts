@@ -489,8 +489,18 @@ export async function createSettingsPage(
 				const scrollbarWidth = all.length > VISIBLE_ROWS ? 2 : 0;
 				const detailWidth = wide ? Math.max(0, width - listWidth - scrollbarWidth - 3) : width;
 				const visible = all.slice(scrollTop, scrollTop + VISIBLE_ROWS);
-				const valueWidth = Math.min(18, Math.max(8, Math.floor(listWidth * 0.32)));
-				const labelWidth = Math.max(8, listWidth - valueWidth - 5);
+				// Keep both columns stable while scrolling, without using spare width to push values right.
+				const widestLabel = Math.max(
+					8,
+					...all
+						.filter(
+							(item): item is Extract<ListItem, { readonly kind: "field" }> =>
+								item.kind === "field",
+						)
+						.map((item) => visibleWidth(item.row.field.label)),
+				);
+				const labelWidth = Math.min(widestLabel, Math.max(8, Math.floor(listWidth * 0.55)));
+				const valueWidth = Math.max(1, listWidth - labelWidth - 5);
 				syncMarquee(selected?.kind === "field" ? selected.row : undefined, labelWidth);
 				const list = [
 					// Reserve one cell after the query so a full search does not touch the list boundary.
