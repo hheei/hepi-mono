@@ -178,7 +178,12 @@ test("does not retry a non-transient completion failure", async (): Promise<void
 			return failed("invalid-request", "bad request");
 		},
 	);
-	expect(result).toEqual({ kind: "failed", reason: "bad request" });
+	expect(result).toEqual({
+		kind: "failed",
+		reason: "bad request",
+		failureKind: "invalid-request",
+		attempt: 1,
+	});
 	expect(calls).toBe(1);
 });
 
@@ -215,7 +220,12 @@ test("shares the retry budget with validation repair", async (): Promise<void> =
 			return outcome;
 		},
 	);
-	expect(result).toEqual({ kind: "failed", reason: "still rate limited" });
+	expect(result).toEqual({
+		kind: "failed",
+		reason: "still rate limited",
+		failureKind: "transient",
+		attempt: 4,
+	});
 	expect(calls).toBe(4);
 });
 

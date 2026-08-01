@@ -32,9 +32,10 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
   显式 Pi fork 可以跨 project copy，因为 child 已持有同一 raw branch。仅连续、通过 child branch range/fingerprint
   proof 的 records 可复制；missing source、source revision stale、invalid graph、destination 已存在或 SQLite error 都必须保留
   empty/existing child partition，不能阻止 session start 或读取 parent SQLite state。
-- [ ] **Pipeline diagnostics 与 host verification**：为 cooldown-eligible historian failure 提供 model-invisible
-  native notification 和 structured log；在真实 Pi host 或 `tui-replay` 验证 activation、transform、fork、reload 与
-  failure 的可见行为。
+- [x] **Pipeline diagnostics**：为 cooldown-eligible historian failure 提供 model-invisible native notification
+  和 structured log。
+- [ ] **Host verification**：在真实 Pi host 或 `tui-replay` 验证 activation、transform、fork、reload 与 failure 的
+  可见行为。
 - [ ] **Parent-to-child compressed-context Service**：`pi-mctx` 用 ext-core Service 发布 opaque、validated parent
   history projection；`pi-subagents` 消费它组装 child prompt。缺席/过期 fallback 为 Pi native inheritance，consumer
   不读取 MCTX SQLite。
@@ -55,6 +56,16 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
 
 完成 migration 前，不得宣称 `pi-mctx` 已替代 Magic Context。每个 checkbox 需要独立 commit；跨 package contract
 change 还必须更新 `docs/architecture/` 和相关 ADR。
+
+### Historian diagnostics
+
+Historian terminal `failed`/`invalid` 会产生无 source/context payload 的 structured event：partition identity、failure
+class、completion attempt 和 lease terminal outcome。默认 sink 使用 `console.warn` 写 JSON，安装者可将 stderr 接入其
+日志系统；测试可注入 sink。Pi native warning 只显示 failure class 和保留旧 context 的事实，不显示 provider error
+message。相同 class 在一次 session 内只通知一次，直到下一次 successful publication rearm；每次 terminal failure
+仍写 structured event。lease-held、lease-loss、caller cancellation、stale CAS 和 raw branch rebuild 属于预期并发/取消
+结果，不触发用户 warning。unexpected runner throw 记录为 `unknown`、attempt `0`，同样不输出异常文本。真实 Pi host
+或 `tui-replay` 的可见行为验证尚未完成。
 
 ## 目的
 

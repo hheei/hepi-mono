@@ -29,8 +29,10 @@ function configuration(): MctxConfiguration {
 function lifecycleFixture(): {
 	readonly context: ExtensionLifecycleContext;
 	readonly cleanups: Array<() => void | Promise<void>>;
+	readonly notifications: Array<{ readonly message: string; readonly level: string | undefined }>;
 } {
 	const cleanups: Array<() => void | Promise<void>> = [];
+	const notifications: Array<{ readonly message: string; readonly level: string | undefined }> = [];
 	const context = {
 		pi: { events: {} } as ExtensionAPI,
 		extension: {
@@ -40,7 +42,9 @@ function lifecycleFixture(): {
 				find: () => model,
 				hasConfiguredAuth: () => true,
 			},
-			ui: { notify: () => undefined },
+			ui: {
+				notify: (message: string, level?: string) => notifications.push({ message, level }),
+			},
 		} as unknown as ExtensionContext,
 		signal: new AbortController().signal,
 		resources: {
@@ -48,7 +52,7 @@ function lifecycleFixture(): {
 			cleanup: async () => [],
 		},
 	} as ExtensionLifecycleContext;
-	return { context, cleanups };
+	return { context, cleanups, notifications };
 }
 
 function store(): MctxStore {
@@ -59,11 +63,17 @@ function store(): MctxStore {
 			sessionId: "session-1",
 			revision: 0,
 		}),
+		findPartition: () => undefined,
+		initializeForkPartition: () => ({
+			kind: "copied",
+			partition: { projectIdentity: "git:project", sessionId: "session-1", revision: 0 },
+		}),
 		advancePartitionRevision: () => undefined,
 		acquireHistorianLease: () => undefined,
 		renewHistorianLease: () => undefined,
 		releaseHistorianLease: () => undefined,
 		listCompartments: () => [],
+		discardCompartmentsFrom: () => undefined,
 		publishCompartment: () => undefined,
 		close: () => undefined,
 	};
@@ -164,4 +174,107 @@ test("adopts a successful publication revision for the next historian run", asyn
 	const active = feature.active();
 	if (active === undefined) throw new Error("Expected active runtime");
 	expect(active.partition.revision).toBe(1);
+});
+
+test("logs every historian failure but notifies once until publication rearms it", async (): Promise<void> => {
+	const fixture = lifecycleFixture();
+	const diagnostics: unknown[] = [];
+	const outcomes = [
+		{ kind: "failed", reason: "temporary outage", failureKind: "transient", attempt: 3 },
+		{ kind: "failed", reason: "temporary outage", failureKind: "transient", attempt: 3 },
+		{
+			kind: "published",
+			repaired: false,
+			publication: {
+				partition: { projectIdentity: "git:project", sessionId: "session-1", revision: 1 },
+				compartment: {
+					tier: "m0",
+					sequence: 0,
+					sourceStartEntryId: "user-1",
+					sourceEndEntryId: "assistant-1",
+					sourceFingerprint: "fingerprint",
+					renderedPayload: "summary",
+					publishedRevision: 1,
+				},
+			},
+		},
+		{ kind: "failed", reason: "temporary outage", failureKind: "transient", attempt: 1 },
+	] as const;
+	let outcomeIndex = 0;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => store(),
+		resolveProjectIdentity: async () => "git:project",
+		logHistorianDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+		runHistorianForBranch: async () => {
+			const outcome = outcomes[outcomeIndex];
+			outcomeIndex++;
+			if (outcome === undefined) throw new Error("Expected historian outcome");
+			return outcome;
+		},
+	});
+	await feature.start(fixture.context);
+	const highUsage = { tokens: 65_000, contextWindow: 100_000 };
+	const lowUsage = { tokens: 50_000, contextWindow: 100_000 };
+	for (let index = 0; index < outcomes.length; index++) {
+		feature.onTurnEnd(turnContext(highUsage));
+		await new Promise<void>((resolve) => setTimeout(resolve, 0));
+		if (index < outcomes.length - 1) feature.onTurnEnd(turnContext(lowUsage));
+	}
+	expect(diagnostics).toEqual([
+		{
+			event: "pi-mctx.historian_failure",
+			partition: { projectIdentity: "git:project", sessionId: "session-1" },
+			failureClass: "transient",
+			attempt: 3,
+			leaseOutcome: "released",
+		},
+		{
+			event: "pi-mctx.historian_failure",
+			partition: { projectIdentity: "git:project", sessionId: "session-1" },
+			failureClass: "transient",
+			attempt: 3,
+			leaseOutcome: "released",
+		},
+		{
+			event: "pi-mctx.historian_failure",
+			partition: { projectIdentity: "git:project", sessionId: "session-1" },
+			failureClass: "transient",
+			attempt: 1,
+			leaseOutcome: "released",
+		},
+	]);
+	expect(fixture.notifications).toEqual([
+		{ message: "pi-mctx historian failed (transient); keeping existing context", level: "warning" },
+		{ message: "pi-mctx historian failed (transient); keeping existing context", level: "warning" },
+	]);
+});
+
+test("runner throws as an opaque unknown diagnostic without exposing its message", async (): Promise<void> => {
+	const fixture = lifecycleFixture();
+	const diagnostics: unknown[] = [];
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => store(),
+		resolveProjectIdentity: async () => "git:project",
+		logHistorianDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+		runHistorianForBranch: async () => {
+			throw new Error("provider error contains private data");
+		},
+	});
+	await feature.start(fixture.context);
+	feature.onTurnEnd(turnContext({ tokens: 65_000, contextWindow: 100_000 }));
+	await new Promise<void>((resolve) => setTimeout(resolve, 0));
+	expect(diagnostics).toEqual([
+		{
+			event: "pi-mctx.historian_failure",
+			partition: { projectIdentity: "git:project", sessionId: "session-1" },
+			failureClass: "unknown",
+			attempt: 0,
+			leaseOutcome: "released",
+		},
+	]);
+	expect(fixture.notifications).toEqual([
+		{ message: "pi-mctx historian failed (unknown); keeping existing context", level: "warning" },
+	]);
 });

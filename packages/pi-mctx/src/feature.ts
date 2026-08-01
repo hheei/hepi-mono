@@ -4,7 +4,7 @@ import {
 	type SessionEntry,
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
+import type { CompletionFailure, ExtensionLifecycleContext } from "@hheei/pi-ext-core";
 import { type MctxRuntime, resolveMctxActivation } from "./activation.js";
 import { planMctxCompartmentRecovery } from "./compartment-graph.js";
 import {
@@ -13,7 +13,10 @@ import {
 	type MctxConfiguration,
 } from "./config.js";
 import { projectMctxContext } from "./context-projection.js";
-import { runMctxHistorianForBranch } from "./historian-branch-runner.js";
+import {
+	type MctxHistorianBranchRunResult,
+	runMctxHistorianForBranch,
+} from "./historian-branch-runner.js";
 import { createProjectIdentityResolver } from "./project-identity.js";
 import {
 	defaultMctxStorePath,
@@ -49,6 +52,15 @@ export interface MctxForkSource {
 	readonly sessionId: string;
 }
 
+/** Model-invisible historian terminal evidence. It excludes source and provider prose. */
+export interface MctxHistorianFailureDiagnostic {
+	readonly event: "pi-mctx.historian_failure";
+	readonly partition: Pick<MctxPartition, "projectIdentity" | "sessionId">;
+	readonly failureClass: CompletionFailure["kind"] | "storage" | "validation";
+	readonly attempt: number;
+	readonly leaseOutcome: "released";
+}
+
 /** Dependency seams for focused tests; production uses the MCTX-owned defaults. */
 export interface MctxFeatureOptions {
 	readonly loadConfiguration?: (
@@ -59,6 +71,7 @@ export interface MctxFeatureOptions {
 	readonly resolveProjectIdentity?: (cwd: string, signal: AbortSignal) => Promise<string>;
 	readonly readForkSource?: (parentSessionPath: string) => MctxForkSource | Promise<MctxForkSource>;
 	readonly runHistorianForBranch?: typeof runMctxHistorianForBranch;
+	readonly logHistorianDiagnostic?: (diagnostic: MctxHistorianFailureDiagnostic) => void;
 }
 
 interface ActiveMctxRuntime {
@@ -67,6 +80,30 @@ interface ActiveMctxRuntime {
 	cooling: boolean;
 	job?: AbortController | undefined;
 	rebuildEntries?: readonly SessionEntry[] | undefined;
+	lastNotifiedFailureClass?: MctxHistorianFailureDiagnostic["failureClass"] | undefined;
+}
+
+function defaultLogHistorianDiagnostic(diagnostic: MctxHistorianFailureDiagnostic): void {
+	console.warn(JSON.stringify(diagnostic));
+}
+
+function historianFailureDiagnostic(
+	result: MctxHistorianBranchRunResult,
+	partition: MctxPartition,
+): MctxHistorianFailureDiagnostic | undefined {
+	if (
+		(result.kind !== "failed" && result.kind !== "invalid") ||
+		!("failureKind" in result) ||
+		!("attempt" in result)
+	)
+		return undefined;
+	return {
+		event: "pi-mctx.historian_failure",
+		partition: { projectIdentity: partition.projectIdentity, sessionId: partition.sessionId },
+		failureClass: result.failureKind,
+		attempt: result.attempt,
+		leaseOutcome: "released",
+	};
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
@@ -116,7 +153,25 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 	const resolveProjectIdentity = options.resolveProjectIdentity ?? identityResolver.resolve;
 	const readForkSource = options.readForkSource ?? defaultForkSource;
 	const runHistorianForBranch = options.runHistorianForBranch ?? runMctxHistorianForBranch;
+	const logHistorianDiagnostic = options.logHistorianDiagnostic ?? defaultLogHistorianDiagnostic;
 	let active: ActiveMctxRuntime | undefined;
+	function reportHistorianFailure(
+		current: ActiveMctxRuntime,
+		diagnostic: MctxHistorianFailureDiagnostic,
+	): void {
+		try {
+			logHistorianDiagnostic(diagnostic);
+		} catch {
+			// A diagnostic sink is best effort; it must not create another detached
+			// historian failure or interfere with lifecycle cleanup.
+		}
+		if (current.lastNotifiedFailureClass === diagnostic.failureClass) return;
+		current.lastNotifiedFailureClass = diagnostic.failureClass;
+		current.lifecycle.extension.ui.notify(
+			`pi-mctx historian failed (${diagnostic.failureClass}); keeping existing context`,
+			"warning",
+		);
+	}
 	async function createInitialPartition(
 		context: ExtensionLifecycleContext,
 		store: MctxStore,
@@ -175,22 +230,28 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			signal: job.signal,
 		})
 			.then((result) => {
-				if (
-					result.kind === "published" &&
-					active === current &&
-					current.job === job &&
-					!job.signal.aborted
-				) {
+				if (active !== current || current.job !== job || job.signal.aborted) return;
+				if (result.kind === "published") {
 					current.runtime = { ...current.runtime, partition: result.publication.partition };
+					current.lastNotifiedFailureClass = undefined;
+					return;
 				}
+				const diagnostic = historianFailureDiagnostic(result, current.runtime.partition);
+				if (diagnostic === undefined) return;
+				reportHistorianFailure(current, diagnostic);
 			})
-			.catch((error: unknown) => {
-				if (!job.signal.aborted) {
-					current.lifecycle.extension.ui.notify(
-						`pi-mctx historian failed: ${error instanceof Error ? error.message : String(error)}`,
-						"warning",
-					);
-				}
+			.catch(() => {
+				if (active !== current || current.job !== job || job.signal.aborted) return;
+				reportHistorianFailure(current, {
+					event: "pi-mctx.historian_failure",
+					partition: {
+						projectIdentity: current.runtime.partition.projectIdentity,
+						sessionId: current.runtime.partition.sessionId,
+					},
+					failureClass: "unknown",
+					attempt: 0,
+					leaseOutcome: "released",
+				});
 			})
 			.finally(() => {
 				current.lifecycle.signal.removeEventListener("abort", abort);
