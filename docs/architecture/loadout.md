@@ -103,7 +103,8 @@ content。factory failure 不关闭 router，保留当前可用 tab，并在用�
 
 router 的 `Esc` 关闭 surface。active page 先处理 Left/Right；只有它未消费时，router 才使用
 Left/Right 切换 tabs。page view 必须以 boolean 或 `Promise<boolean>` 表示是否消费 input。Loadout page
-消费 `Ctrl+P`、Space 与其 dirty-state 的 page-leave key：`Ctrl+P` 先 flush 当前 JSON root 再切 scope；
+消费 `Ctrl+P`、Space 与其 dirty-state 的 page-leave key：Space 只在 resource/scope 的可达选择集合中循环，
+不为 global 或 project-private resource 伪造 inherit；`Ctrl+P` 先 flush 当前 JSON root 再切 scope；
 离开 Loadout tab 或 close 时也 flush 当前 scope。flush failure 丢弃该 draft、允许正常离开并由 Pi warning
 报告；success 不 hot-apply，Settings host 只在整个 surface close 后聚合一次 reload info。页面需在 tabs
 附近显示 `↔` hint，并遵守 `DESIGN.md` 的 token、稳定尺寸、narrow/wide 验证和单一 focus 规则。

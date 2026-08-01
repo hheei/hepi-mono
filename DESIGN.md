@@ -112,9 +112,11 @@ existing semantic token expresses the role.
   and `⊘` is conflict-locked/inactive. The selected row retains the standard `→` slot. Display group
   is secondary metadata; the Description block explains scope source, inherited/default state, and
   any lock winner.
-- Loadout uses `Ctrl+P` to switch Global and Project scope, `Space` to change the selected scope
-  choice, and direct text input to filter resource name and display group. `Esc` clears a filter
-  before closing. Do not overload `←` or `→`, which remain router navigation.
+- Loadout uses `Ctrl+P` to switch Global and Project scope, `Space` to cycle only the selected
+  resource's reachable scope choices, and direct text input to filter resource name and display
+  group. Global and Project-private rows remain binary; only global-visible Project rows include
+  `inherit`. `Esc` clears a filter before closing. Do not overload `←` or `→`, which remain router
+  navigation.
 
 ### Frames And Backgrounds
 
