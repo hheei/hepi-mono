@@ -16,5 +16,5 @@ test("pi-mctx entry registers only session lifecycle handlers", (): void => {
 
 	piMctxExtension(pi as never);
 	expect(handlers).toEqual(["session_start", "session_shutdown", "context", "turn_end"]);
-	expect(tools).toEqual(["ctx_reduce", "ctx_expand"]);
+	expect(tools).toEqual(["ctx_reduce", "ctx_expand", "ctx_memory"]);
 });

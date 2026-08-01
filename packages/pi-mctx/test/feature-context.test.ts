@@ -99,6 +99,12 @@ function store(): MctxStore {
 		},
 		queueHistoryTagDrops: () => undefined,
 		markHistoryTagsDropped: () => undefined,
+		writeMemory: () => {
+			throw new Error("not used");
+		},
+		getMemories: () => [],
+		updateMemory: () => undefined,
+		archiveMemory: () => undefined,
 		close: () => undefined,
 	};
 }

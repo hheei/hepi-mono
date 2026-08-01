@@ -54,9 +54,9 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
   status tag、对 valid selector partial output，并明确列出 rejected selector。`offset`/`limit` 作用于 tag-order
   rendered result，default/max 均为 30,000 characters。它不读取别的 session/fork partition，不修改 tag status，也不把
   source 自动重新注入 model context。
-- [ ] **Durable memory**：迁移 `ctx_memory` 的 project/workspace scope、category、archive/delete/restore、privacy、
-  source provenance 与 cross-session visibility。它是 user-level durable state，不复用旧 SQLite schema，也不让 project
-  config 或 child session 取得写权限。
+- [x] **Durable memory**：迁移 `ctx_memory` 的 project scope、category、archive、privacy、source provenance 与
+  cross-session visibility。它是 user-level durable state，不复用旧 SQLite schema，也不让 project config 或 child session
+  取得写权限。
 - [ ] **Durable notes**：迁移 `ctx_note` 的 session anchor、read/dismiss/update、smart-condition ownership、surface
   trigger 与 stale cleanup。Dreamer-dependent smart note evaluation 必须等 Dreamer feature，不把 cron/polling 偷渡进 tool。
 - [ ] **Composite search**：最后迁移 `ctx_search`；它跨 memory、note、session history、git commit 与 primer，必须在
@@ -131,6 +131,19 @@ tool 的可选 `offset` 与 `limit` 作用于完整 rendered result，而不是�
 30,000 characters。truncated result 报告 next offset；它既不改 status，也不将 source 恢复到 active context。`ctx_expand`
 绝不读取另一 session/fork partition，也不让 retained source 提供给 background work、cross-extension Service 或 automatic prompt
 injection。
+
+### Durable memory
+
+`ctx_memory` 首版只在 active parent `pi-mctx` session 中工作；disabled runtime 和 child session 返回明确 tool error。memory
+属于一个 stable project identity，任何解析到同一 identity 的 parent session/worktree 可按 ID 读取；其他 project、fork 或
+child session 永不取得 read/write capability。它不是 automatic prompt injection：只有显式 tool call 返回 memory content，
+future `ctx_search`/Sidekick 必须另行定义自己的 privacy contract。
+
+首版 action 为 `write`、`get`、`update`、`archive`，category 固定为 `PROJECT_RULES`、`ARCHITECTURE`、`CONSTRAINTS`、
+`CONFIG_VALUES`、`NAMING`。`get` 仅接受 project-local ID，避免在 search/index contract 前提供 unbounded list；`archive`
+保留 source/provenance，不提供 delete/restore/merge。每条 record 保存 creator/last-writer session ID、timestamps 和 monotonic
+revision。`update`/`archive` 必须带 `expectedRevision`，stale revision 返回 tool error，绝不 last-writer-wins 覆盖另一
+session 的 edit。
 
 ## 目的
 
