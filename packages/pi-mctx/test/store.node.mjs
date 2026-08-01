@@ -114,6 +114,70 @@ test("creates and fences an MCTX-owned store", async () => {
 	});
 });
 
+test("copies verified fork ancestors into a fresh child revision timeline", async () => {
+	await withPath(async (path) => {
+		const store = await openMctxStore(path);
+		const project = `git:${"d".repeat(40)}`;
+		const source = store.getOrCreatePartition(project, "parent-session");
+		const first = store.publishCompartment(source, {
+			tier: "m0",
+			sourceStartEntryId: "user-1",
+			sourceEndEntryId: "assistant-1",
+			sourceFingerprint: "fingerprint-1",
+			renderedPayload: "old history",
+		});
+		assert.ok(first);
+		const second = store.publishCompartment(first.partition, {
+			tier: "m1",
+			sourceStartEntryId: "user-2",
+			sourceEndEntryId: "assistant-2",
+			sourceFingerprint: "fingerprint-2",
+			renderedPayload: "recent history",
+		});
+		assert.ok(second);
+		const sourceSnapshot = store.advancePartitionRevision(second.partition);
+		assert.ok(sourceSnapshot);
+		const copied = store.initializeForkPartition(
+			sourceSnapshot,
+			{ projectIdentity: `git:${"e".repeat(40)}`, sessionId: "child-session" },
+			store.listCompartments(sourceSnapshot),
+		);
+		assert.deepEqual(copied, {
+			kind: "copied",
+			partition: {
+				projectIdentity: `git:${"e".repeat(40)}`,
+				sessionId: "child-session",
+				revision: 2,
+			},
+		});
+		if (copied.kind !== "copied") throw new Error("Expected copied child partition");
+		assert.deepEqual(store.listCompartments(copied.partition), [
+			{ ...first.compartment, publishedRevision: 1 },
+			{ ...second.compartment, publishedRevision: 2 },
+		]);
+		assert.deepEqual(
+			store.initializeForkPartition(
+				sourceSnapshot,
+				{ projectIdentity: `git:${"e".repeat(40)}`, sessionId: "child-session" },
+				[],
+			),
+			{ kind: "existing", partition: copied.partition },
+		);
+		const staleSource = store.advancePartitionRevision(sourceSnapshot);
+		assert.ok(staleSource);
+		assert.deepEqual(
+			store.initializeForkPartition(
+				sourceSnapshot,
+				{ projectIdentity: `git:${"f".repeat(40)}`, sessionId: "stale-child" },
+				store.listCompartments(sourceSnapshot),
+			),
+			{ kind: "stale" },
+		);
+		assert.equal(store.findPartition(`git:${"f".repeat(40)}`, "stale-child"), undefined);
+		store.close();
+	});
+});
+
 test("upgrades the v1 metadata fence before creating partitions", async () => {
 	await withPath(async (path) => {
 		const v1 = new DatabaseSync(path);
