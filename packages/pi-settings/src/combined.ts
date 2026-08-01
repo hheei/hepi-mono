@@ -35,11 +35,16 @@ export function combineSettingsProviders(
 	const mappings: readonly GroupMapping[] = providers.flatMap((provider) => {
 		const moduleName = providerModuleName(provider);
 		return provider.groups.map((group, index) => {
-			let displayId = group.id;
-			if (usedGroupIds.has(displayId)) displayId = `${provider.id}:${group.id}`;
+			const baseId = usedGroupIds.has(group.id) ? `${provider.id}:${group.id}` : group.id;
+			let displayId = baseId;
+			let suffix = 2;
+			while (usedGroupIds.has(displayId)) displayId = `${baseId}:${suffix++}`;
 			usedGroupIds.add(displayId);
-			const showModuleHeader = index === 0 && !seenModules.has(moduleName);
-			seenModules.add(moduleName);
+			const firstVisibleGroup = provider.groups.findIndex(
+				(candidate) => candidate.fields.length > 0,
+			);
+			const showModuleHeader = index === firstVisibleGroup && !seenModules.has(moduleName);
+			if (showModuleHeader) seenModules.add(moduleName);
 			return { displayId, originalId: group.id, moduleName, showModuleHeader, provider, group };
 		});
 	});
@@ -94,6 +99,8 @@ export function combineSettingsProviders(
 				);
 			},
 			async save(state: HepiSettingsState, context: HepiContext): Promise<void> {
+				// Keep provider writes ordered. Individual storage implementations own their
+				// atomic root update; unrelated provider files are not a transaction.
 				for (const provider of providers)
 					await provider.storage.save(providerState(state, provider), context);
 			},

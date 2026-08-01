@@ -4,8 +4,8 @@ import { createLoadoutEngine } from "./engine.js";
 import { createLoadoutPage } from "./page.js";
 
 export default function piLoadoutExtension(pi: ExtensionAPI): void {
-	// This package intentionally has no command or UI. It is the policy owner that
-	// consumes core inventory and publishes resolved name-level activation state.
+	// This package intentionally has no standalone command. It owns policy and the
+	// Loadout router page, while pi-settings remains the only Settings surface host.
 	const engine = createLoadoutEngine(pi);
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-loadout",

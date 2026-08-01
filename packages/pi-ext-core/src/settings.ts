@@ -12,6 +12,7 @@ export type HepiSettingValue = HepiSettingPrimitive | null;
 export type HepiSettingsState = Record<string, Record<string, HepiSettingValue>>;
 
 export interface HepiContext {
+	/** Current Pi session identity supplied to provider callbacks; hosts must not fabricate it. */
 	readonly sessionId: string;
 	readonly signal?: AbortSignal;
 	readonly cwd?: string;
@@ -221,7 +222,11 @@ function isSettingValue(value: unknown): value is HepiSettingValue {
 	);
 }
 
-/** Atomic global JSON section storage shared by independently installed settings providers. */
+/**
+ * Atomic global JSON section storage shared by independently installed settings providers.
+ * It preserves sibling root sections through core's path lock, but providers still own
+ * schema validation and whether a saved value changes their live feature state.
+ */
 export function createJsonSectionSettingsStorage(
 	options: JsonSectionSettingsStorageOptions,
 ): HepiSettingsStorage {
