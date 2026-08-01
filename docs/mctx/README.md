@@ -67,8 +67,10 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
   当前 Todo owner 的 behavioral coverage 与 legacy migration boundary；Pi 的 first-registered tool rule 禁止以新 MCTX
   tool 覆盖旧 aggregate。
 - [ ] **Pipeline maintenance commands**：为 legacy `/ctx-flush`、`/ctx-recomp`、`/ctx-session-upgrade`、`/ctx-status`
-  与 `/ctx-wrapup` 分别定义 user need、owner 和 Pi lifecycle integration。没有明确用户 workflow 的 internal maintenance
-  action 保持不暴露。
+  与 `/ctx-wrapup` 分别定义 user need、owner 和 Pi lifecycle integration。fixed source 已确认 `/ctx-flush` 在 current
+  transform 下没有独立行为，`/ctx-recomp`/`ctx-session-upgrade` 是旧 ordinal/schema migration 而不迁移，`/ctx-wrapup`
+  属于 future `hepi-basics` handoff/compaction owner，`/ctx-status` 等待完整 metrics 与 UI owner；没有明确用户 workflow 的
+  internal maintenance action 保持不暴露。
 - [ ] **Sidekick augmentation**：legacy `/ctx-aug` 是独立 project-memory prompt augmentation，需单独定义 model/tool/
   privacy/cancellation contract；它不是 historian retry 或 context transform 的快捷入口。
 - [ ] **Dreamer 与 embedding commands**：legacy `/ctx-dream`、`/ctx-embed` 归入 historian-adjacent services；先完成
