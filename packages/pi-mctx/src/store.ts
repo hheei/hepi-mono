@@ -1,10 +1,11 @@
+import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export const MCTX_STORE_APPLICATION_ID = 0x484d4354;
-export const MCTX_STORE_SCHEMA_VERSION = 7;
+export const MCTX_STORE_SCHEMA_VERSION = 8;
 export const MCTX_STORE_BUSY_TIMEOUT_MS = 5_000;
 
 /**
@@ -61,6 +62,11 @@ export interface MctxStore {
 	getMemories(projectIdentity: string, memoryIds: readonly number[]): readonly MctxMemory[];
 	updateMemory(input: MctxMemoryUpdate): MctxMemory | undefined;
 	archiveMemory(input: MctxMemoryArchive): MctxMemory | undefined;
+	loadMemoryEmbeddingCandidate(
+		projectIdentity: string,
+		memoryId: number,
+	): MctxMemoryEmbeddingCandidate | undefined;
+	persistMemoryEmbedding(input: MctxMemoryEmbeddingWrite): boolean;
 	writeNote(input: MctxNoteWrite): MctxNote;
 	readNotes(
 		projectIdentity: string,
@@ -167,6 +173,27 @@ export interface MctxMemory {
 	readonly updatedSessionId: string;
 	readonly createdAtMs: number;
 	readonly updatedAtMs: number;
+}
+
+/** Active source snapshot passed to one detached embedding call. */
+export interface MctxMemoryEmbeddingCandidate {
+	readonly projectIdentity: string;
+	readonly memoryId: number;
+	readonly content: string;
+	readonly contentHash: string;
+	readonly revision: number;
+}
+
+/** Model identity and source fields fence a late provider result at SQLite commit time. */
+export interface MctxMemoryEmbeddingWrite {
+	readonly projectIdentity: string;
+	readonly memoryId: number;
+	readonly contentHash: string;
+	readonly revision: number;
+	readonly modelIdentity: string;
+	readonly providerGeneration: number;
+	readonly vector: Float32Array;
+	readonly nowMs?: number;
 }
 
 export interface MctxMemoryWrite {
@@ -433,6 +460,30 @@ function migrateV7(database: DatabaseSync): void {
 	}
 }
 
+function migrateV8(database: DatabaseSync): void {
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		database.exec("ALTER TABLE mctx_metadata RENAME TO mctx_metadata_v7");
+		database.exec(
+			"CREATE TABLE mctx_metadata (schema_version INTEGER NOT NULL CHECK (schema_version = 8)) STRICT",
+		);
+		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(8);
+		database.exec("DROP TABLE mctx_metadata_v7");
+		// One current source row makes a content/revision change an atomic publication fence.
+		database.exec(
+			"CREATE TABLE memory_embedding_sources (project_identity TEXT NOT NULL, memory_id INTEGER NOT NULL CHECK (memory_id > 0), content_hash TEXT NOT NULL CHECK (length(content_hash) = 64), memory_revision INTEGER NOT NULL CHECK (memory_revision > 0), PRIMARY KEY (project_identity, memory_id), UNIQUE (project_identity, memory_id, content_hash, memory_revision), FOREIGN KEY (project_identity, memory_id) REFERENCES memories(project_identity, memory_id)) STRICT",
+		);
+		database.exec(
+			"CREATE TABLE memory_embeddings (project_identity TEXT NOT NULL, memory_id INTEGER NOT NULL CHECK (memory_id > 0), model_identity TEXT NOT NULL, provider_generation INTEGER NOT NULL CHECK (provider_generation >= 0), source_content_hash TEXT NOT NULL CHECK (length(source_content_hash) = 64), source_memory_revision INTEGER NOT NULL CHECK (source_memory_revision > 0), dimensions INTEGER NOT NULL CHECK (dimensions > 0), vector BLOB NOT NULL, created_at_ms INTEGER NOT NULL CHECK (created_at_ms >= 0), PRIMARY KEY (project_identity, memory_id, model_identity, provider_generation), FOREIGN KEY (project_identity, memory_id, source_content_hash, source_memory_revision) REFERENCES memory_embedding_sources(project_identity, memory_id, content_hash, memory_revision)) STRICT",
+		);
+		database.exec("PRAGMA user_version = 8");
+		database.exec("COMMIT");
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
 /**
  * Rejects foreign or unknown nonempty databases before migration. Each version
  * upgrade commits independently, so an interrupted open can safely resume from
@@ -461,6 +512,7 @@ function validateSchema(database: DatabaseSync): void {
 	if (pragmaInteger(database, "PRAGMA user_version") === 4) migrateV5(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 5) migrateV6(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 6) migrateV7(database);
+	if (pragmaInteger(database, "PRAGMA user_version") === 7) migrateV8(database);
 	if (pragmaInteger(database, "PRAGMA application_id") !== MCTX_STORE_APPLICATION_ID) {
 		throw new Error("Context store application identity is invalid");
 	}
@@ -475,7 +527,9 @@ function validateSchema(database: DatabaseSync): void {
 		!hasTable(database, "compartments") ||
 		!hasTable(database, "history_tags") ||
 		!hasTable(database, "memories") ||
-		!hasTable(database, "notes")
+		!hasTable(database, "notes") ||
+		!hasTable(database, "memory_embedding_sources") ||
+		!hasTable(database, "memory_embeddings")
 	) {
 		throw new Error("Context store partition tables are missing");
 	}
@@ -1178,6 +1232,14 @@ function validMemoryCategory(value: unknown): value is MctxMemoryCategory {
 	return typeof value === "string" && MCTX_MEMORY_CATEGORIES.includes(value as MctxMemoryCategory);
 }
 
+function memoryContentHash(content: string): string {
+	return createHash("sha256").update(content, "utf8").digest("hex");
+}
+
+function validContentHash(value: unknown): value is string {
+	return typeof value === "string" && /^[0-9a-f]{64}$/i.test(value);
+}
+
 function memoryFromRow(value: unknown): MctxMemory {
 	if (
 		!isRecord(value) ||
@@ -1228,6 +1290,29 @@ function requireMemoryInput(projectIdentity: string, sessionId: string, content?
 		throw new Error("Context store memory content is invalid");
 }
 
+function requireMemoryId(memoryId: number): void {
+	if (!Number.isSafeInteger(memoryId) || memoryId < 1)
+		throw new Error("Context store memory ID is invalid");
+}
+
+function syncMemoryEmbeddingSource(database: DatabaseSync, memory: MctxMemory): void {
+	// Archived or superseded text must not remain a candidate. This mutation-time
+	// deletion is the privacy fence, not background retention or garbage collection.
+	database
+		.prepare("DELETE FROM memory_embeddings WHERE project_identity = ? AND memory_id = ?")
+		.run(memory.projectIdentity, memory.memoryId);
+	database
+		.prepare(
+			"INSERT INTO memory_embedding_sources (project_identity, memory_id, content_hash, memory_revision) VALUES (?, ?, ?, ?) ON CONFLICT(project_identity, memory_id) DO UPDATE SET content_hash = excluded.content_hash, memory_revision = excluded.memory_revision",
+		)
+		.run(
+			memory.projectIdentity,
+			memory.memoryId,
+			memoryContentHash(memory.content),
+			memory.revision,
+		);
+}
+
 function writeMemory(database: DatabaseSync, input: MctxMemoryWrite): MctxMemory {
 	requireMemoryInput(input.projectIdentity, input.sessionId, input.content);
 	if (!validMemoryCategory(input.category))
@@ -1260,8 +1345,10 @@ function writeMemory(database: DatabaseSync, input: MctxMemoryWrite): MctxMemory
 		const row = database
 			.prepare("SELECT * FROM memories WHERE project_identity = ? AND memory_id = ?")
 			.get(input.projectIdentity, memoryId);
+		const memory = memoryFromRow(row);
+		syncMemoryEmbeddingSource(database, memory);
 		database.exec("COMMIT");
-		return memoryFromRow(row);
+		return memory;
 	} catch (error) {
 		database.exec("ROLLBACK");
 		throw error;
@@ -1302,27 +1389,39 @@ function mutateMemory(
 	)
 		throw new Error("Context store memory revision is invalid");
 	const nowMs = input.nowMs ?? Date.now();
-	const changes = archive
-		? changedRows(
-				database
-					.prepare(
-						"UPDATE memories SET status = 'archived', revision = revision + 1, updated_session_id = ?, updated_at_ms = ? WHERE project_identity = ? AND memory_id = ? AND revision = ? AND status = 'active'",
-					)
-					.run(
-						input.sessionId,
-						nowMs,
-						input.projectIdentity,
-						input.memoryId,
-						input.expectedRevision,
-					),
-			)
-		: updateMemoryContent(database, input, content, nowMs);
-	if (changes === 0) return undefined;
-	return memoryFromRow(
-		database
-			.prepare("SELECT * FROM memories WHERE project_identity = ? AND memory_id = ?")
-			.get(input.projectIdentity, input.memoryId),
-	);
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		const changes = archive
+			? changedRows(
+					database
+						.prepare(
+							"UPDATE memories SET status = 'archived', revision = revision + 1, updated_session_id = ?, updated_at_ms = ? WHERE project_identity = ? AND memory_id = ? AND revision = ? AND status = 'active'",
+						)
+						.run(
+							input.sessionId,
+							nowMs,
+							input.projectIdentity,
+							input.memoryId,
+							input.expectedRevision,
+						),
+				)
+			: updateMemoryContent(database, input, content, nowMs);
+		if (changes === 0) {
+			database.exec("ROLLBACK");
+			return undefined;
+		}
+		const memory = memoryFromRow(
+			database
+				.prepare("SELECT * FROM memories WHERE project_identity = ? AND memory_id = ?")
+				.get(input.projectIdentity, input.memoryId),
+		);
+		syncMemoryEmbeddingSource(database, memory);
+		database.exec("COMMIT");
+		return memory;
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
 }
 
 function updateMemoryContent(
@@ -1346,6 +1445,113 @@ function updateMemoryContent(
 				input.expectedRevision,
 			),
 	);
+}
+
+function memoryEmbeddingCandidateFromRow(value: unknown): MctxMemoryEmbeddingCandidate {
+	if (!isRecord(value)) throw new Error("Context store memory embedding source row is invalid");
+	const memoryId = value.memory_id;
+	const revision = value.memory_revision;
+	if (
+		typeof value.project_identity !== "string" ||
+		typeof value.content !== "string" ||
+		!validContentHash(value.content_hash) ||
+		typeof memoryId !== "number" ||
+		!Number.isSafeInteger(memoryId) ||
+		memoryId < 1 ||
+		typeof revision !== "number" ||
+		!Number.isSafeInteger(revision) ||
+		revision < 1
+	)
+		throw new Error("Context store memory embedding source row is invalid");
+	return {
+		projectIdentity: value.project_identity,
+		memoryId,
+		content: value.content,
+		contentHash: value.content_hash,
+		revision,
+	};
+}
+
+function loadMemoryEmbeddingCandidate(
+	database: DatabaseSync,
+	projectIdentity: string,
+	memoryId: number,
+): MctxMemoryEmbeddingCandidate | undefined {
+	if (!projectIdentity.trim()) throw new Error("Context store project identity is invalid");
+	requireMemoryId(memoryId);
+	const row = database
+		.prepare(
+			"SELECT memories.project_identity, memories.memory_id, memories.content, memory_embedding_sources.content_hash, memory_embedding_sources.memory_revision FROM memories INNER JOIN memory_embedding_sources USING (project_identity, memory_id) WHERE memories.project_identity = ? AND memories.memory_id = ? AND memories.status = 'active' AND memories.revision = memory_embedding_sources.memory_revision",
+		)
+		.get(projectIdentity, memoryId);
+	return row === undefined ? undefined : memoryEmbeddingCandidateFromRow(row);
+}
+
+function vectorBlob(vector: Float32Array): Uint8Array {
+	if (!(vector instanceof Float32Array))
+		throw new Error("Context store embedding vector is invalid");
+	if (!Number.isSafeInteger(vector.length) || vector.length < 1)
+		throw new Error("Context store embedding vector is invalid");
+	const bytes = new Uint8Array(vector.length * Float32Array.BYTES_PER_ELEMENT);
+	const view = new DataView(bytes.buffer);
+	for (let index = 0; index < vector.length; index++) {
+		const value = vector[index];
+		if (typeof value !== "number" || !Number.isFinite(value))
+			throw new Error("Context store embedding vector is invalid");
+		view.setFloat32(index * Float32Array.BYTES_PER_ELEMENT, value, true);
+	}
+	return bytes;
+}
+
+function persistMemoryEmbedding(database: DatabaseSync, input: MctxMemoryEmbeddingWrite): boolean {
+	if (!input.projectIdentity.trim()) throw new Error("Context store project identity is invalid");
+	requireMemoryId(input.memoryId);
+	if (!validContentHash(input.contentHash))
+		throw new Error("Context store embedding content hash is invalid");
+	if (!Number.isSafeInteger(input.revision) || input.revision < 1)
+		throw new Error("Context store embedding revision is invalid");
+	if (!input.modelIdentity.trim())
+		throw new Error("Context store embedding model identity is invalid");
+	if (!Number.isSafeInteger(input.providerGeneration) || input.providerGeneration < 0)
+		throw new Error("Context store embedding provider generation is invalid");
+	const nowMs = input.nowMs ?? Date.now();
+	if (!Number.isSafeInteger(nowMs) || nowMs < 0)
+		throw new Error("Context store embedding timestamp is invalid");
+	const blob = vectorBlob(input.vector);
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		const candidate = loadMemoryEmbeddingCandidate(database, input.projectIdentity, input.memoryId);
+		if (
+			candidate === undefined ||
+			candidate.contentHash !== input.contentHash ||
+			candidate.revision !== input.revision
+		) {
+			database.exec("ROLLBACK");
+			return false;
+		}
+		// The model and generation are part of the primary key: one provider result
+		// cannot overwrite another model's vector for the same current source.
+		database
+			.prepare(
+				"INSERT INTO memory_embeddings (project_identity, memory_id, model_identity, provider_generation, source_content_hash, source_memory_revision, dimensions, vector, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(project_identity, memory_id, model_identity, provider_generation) DO UPDATE SET source_content_hash = excluded.source_content_hash, source_memory_revision = excluded.source_memory_revision, dimensions = excluded.dimensions, vector = excluded.vector, created_at_ms = excluded.created_at_ms",
+			)
+			.run(
+				input.projectIdentity,
+				input.memoryId,
+				input.modelIdentity,
+				input.providerGeneration,
+				input.contentHash,
+				input.revision,
+				input.vector.length,
+				blob,
+				nowMs,
+			);
+		database.exec("COMMIT");
+		return true;
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
 }
 
 function validHistoryTagKind(value: unknown): value is MctxHistoryTagKind {
@@ -1685,6 +1891,17 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 		archiveMemory(input): MctxMemory | undefined {
 			if (database === undefined) throw new Error("Context store is closed");
 			return mutateMemory(database, input, true);
+		},
+		loadMemoryEmbeddingCandidate(
+			projectIdentity,
+			memoryId,
+		): MctxMemoryEmbeddingCandidate | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return loadMemoryEmbeddingCandidate(database, projectIdentity, memoryId);
+		},
+		persistMemoryEmbedding(input): boolean {
+			if (database === undefined) throw new Error("Context store is closed");
+			return persistMemoryEmbedding(database, input);
 		},
 		writeNote(input): MctxNote {
 			if (database === undefined) throw new Error("Context store is closed");

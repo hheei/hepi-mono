@@ -220,6 +220,132 @@ test("stores project-wide memories with record revision CAS", async () => {
 	});
 });
 
+test("fences durable memory embeddings by active source revision and model identity", async () => {
+	await withPath(async (path) => {
+		const store = await openMctxStore(path);
+		const project = `git:${"6".repeat(40)}`;
+		store.getOrCreatePartition(project, "session-a");
+		const memory = store.writeMemory({
+			projectIdentity: project,
+			sessionId: "session-a",
+			category: "ARCHITECTURE",
+			content: "Use SQLite.",
+			nowMs: 10,
+		});
+		const candidate = store.loadMemoryEmbeddingCandidate(project, memory.memoryId);
+		assert.ok(candidate);
+		const firstVector = new Float32Array([1.25, -0.5]);
+		assert.equal(
+			store.persistMemoryEmbedding({
+				projectIdentity: project,
+				memoryId: memory.memoryId,
+				contentHash: candidate.contentHash,
+				revision: candidate.revision,
+				modelIdentity: "model-a",
+				providerGeneration: 1,
+				vector: firstVector,
+				nowMs: 20,
+			}),
+			true,
+		);
+		assert.equal(
+			store.persistMemoryEmbedding({
+				projectIdentity: project,
+				memoryId: memory.memoryId,
+				contentHash: candidate.contentHash,
+				revision: candidate.revision,
+				modelIdentity: "model-b",
+				providerGeneration: 1,
+				vector: new Float32Array([0.25, 0.75]),
+				nowMs: 21,
+			}),
+			true,
+		);
+		const persistedDatabase = new DatabaseSync(path);
+		try {
+			assert.equal(
+				persistedDatabase.prepare("SELECT COUNT(*) AS count FROM memory_embeddings").get().count,
+				2,
+			);
+			const row = persistedDatabase
+				.prepare("SELECT dimensions, vector FROM memory_embeddings WHERE model_identity = 'model-a'")
+				.get();
+			assert.equal(row.dimensions, 2);
+			assert.ok(row.vector instanceof Uint8Array);
+			const vectorView = new DataView(row.vector.buffer, row.vector.byteOffset, row.vector.byteLength);
+			assert.equal(vectorView.getFloat32(0, true), 1.25);
+			assert.equal(vectorView.getFloat32(4, true), -0.5);
+		} finally {
+			persistedDatabase.close();
+		}
+
+		const updated = store.updateMemory({
+			projectIdentity: project,
+			sessionId: "session-b",
+			memoryId: memory.memoryId,
+			expectedRevision: memory.revision,
+			content: "Use WAL SQLite.",
+			nowMs: 30,
+		});
+		assert.ok(updated);
+		assert.equal(
+			store.persistMemoryEmbedding({
+				projectIdentity: project,
+				memoryId: memory.memoryId,
+				contentHash: candidate.contentHash,
+				revision: candidate.revision,
+				modelIdentity: "model-a",
+				providerGeneration: 1,
+				vector: firstVector,
+			}),
+			false,
+		);
+		const current = store.loadMemoryEmbeddingCandidate(project, memory.memoryId);
+		assert.ok(current);
+		assert.equal(
+			store.persistMemoryEmbedding({
+				projectIdentity: project,
+				memoryId: memory.memoryId,
+				contentHash: current.contentHash,
+				revision: current.revision,
+				modelIdentity: "model-a",
+				providerGeneration: 2,
+				vector: firstVector,
+			}),
+			true,
+		);
+		const archived = store.archiveMemory({
+			projectIdentity: project,
+			sessionId: "session-b",
+			memoryId: memory.memoryId,
+			expectedRevision: updated.revision,
+			nowMs: 40,
+		});
+		assert.ok(archived);
+		assert.equal(store.loadMemoryEmbeddingCandidate(project, memory.memoryId), undefined);
+		assert.equal(
+			store.persistMemoryEmbedding({
+				projectIdentity: project,
+				memoryId: memory.memoryId,
+				contentHash: current.contentHash,
+				revision: current.revision,
+				modelIdentity: "model-a",
+				providerGeneration: 2,
+				vector: firstVector,
+			}),
+			false,
+		);
+		store.close();
+
+		const database = new DatabaseSync(path);
+		try {
+			assert.equal(database.prepare("SELECT COUNT(*) AS count FROM memory_embeddings").get().count, 0);
+		} finally {
+			database.close();
+		}
+	});
+});
+
 test("stores session notes with immutable anchors and record revision CAS", async () => {
 	await withPath(async (path) => {
 		const store = await openMctxStore(path);

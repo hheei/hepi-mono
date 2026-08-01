@@ -6,6 +6,16 @@ const HASH_A = "a".repeat(64);
 const HASH_B = "b".repeat(64);
 
 describe("EmbeddingRuntime local provider", () => {
+	test("qualifies local model identity", async () => {
+		const runtime = new EmbeddingRuntime({
+			loadLocal: async () => ({ embed: async () => new Float32Array([1]) }),
+		});
+		const lease = await runtime.acquire({ provider: "local", model: "shared-model" });
+		if (lease === undefined) throw new Error("Expected local lease");
+		expect(lease.provider.snapshot()?.modelIdentity).toBe("local:shared-model");
+		await lease.release();
+	});
+
 	test("merges local leases and disposes only after the final release", async () => {
 		let loads = 0;
 		let disposals = 0;
