@@ -85,7 +85,12 @@ export function createScriptedStream(messages: readonly AssistantMessage[]): Scr
 			const stream = createAssistantMessageEventStream();
 			if (message.stopReason === "error" || message.stopReason === "aborted")
 				stream.push({ type: "error", reason: message.stopReason, error: message });
-			else stream.push({ type: "done", reason: message.stopReason, message });
+			else {
+				if (message.stopReason === "pending") {
+					throw new Error("Scripted stream requires a terminal assistant message");
+				}
+				stream.push({ type: "done", reason: message.stopReason, message });
+			}
 			return stream;
 		},
 		calls: () => index,
@@ -121,7 +126,12 @@ export function createControlledStream(): ControlledStream {
 			current = undefined;
 			if (message.stopReason === "error" || message.stopReason === "aborted")
 				stream.push({ type: "error", reason: message.stopReason, error: message });
-			else stream.push({ type: "done", reason: message.stopReason, message });
+			else {
+				if (message.stopReason === "pending") {
+					throw new Error("Controlled stream requires a terminal assistant message");
+				}
+				stream.push({ type: "done", reason: message.stopReason, message });
+			}
 		},
 		fail(message) {
 			if (current === undefined) throw new Error("Controlled stream has no active call");
