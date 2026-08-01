@@ -115,7 +115,7 @@ interface ActiveTodoRuntime {
 
 export interface TodoFeature {
 	/** Starts fresh session-local task state and installs feature-owned hooks. */
-	start(context: ExtensionContext): void | Promise<void>;
+	start(context: ExtensionContext, signal?: AbortSignal): void | Promise<void>;
 	/** Idempotently clears widget, reminders, timers, and stale event state. */
 	dispose(sessionId: string): void | Promise<void>;
 }
@@ -577,7 +577,7 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 	});
 
 	return {
-		start(context) {
+		start(context, signal) {
 			// Fresh state is an intentional compatibility boundary. Result snapshots
 			// remain render data only; neither branch history nor suppression entries
 			// are restored into a newly started Todo runtime.
@@ -592,7 +592,7 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 				blockedQuietTurns: new Map(),
 				widget: undefined,
 			};
-			current.widget = createTodoWidget(context, state);
+			current.widget = createTodoWidget(pi, context, signal ?? new AbortController().signal, state);
 			active = current;
 		},
 		async dispose(sessionId) {

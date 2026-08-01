@@ -12,6 +12,13 @@ independently installable `pi-<name>` extensions under the `@hheei` scope.
 | [`hepi-skills`](../../packages/hepi-skills/README.md) | Transitional skills bundle | Pi host |
 | [`hepi-debug`](../../packages/hepi-debug/README.md) | Development diagnostics and deterministic TUI replay | Pi host |
 
+Independent extensions:
+
+| Package | Purpose | Requirements |
+| --- | --- | --- |
+| [`pi-settings`](../../packages/pi-settings/README.md) | `/ext-settings` host for registered provider and extension pages | Pi host, `pi-ext-core` |
+| [`pi-loadout`](../../packages/pi-loadout/README.md) | Tool and skill activation policy plus its Settings page | Pi host, `pi-ext-core`, `pi-settings` |
+
 Future features publish as independent extensions backed by `@hheei/pi-ext-core`.
 Package READMEs cover installation and compatibility. Cross-package concepts,
 architecture, and contribution rules belong under `docs/`; detailed TypeScript

@@ -19,11 +19,6 @@ export {
 	hepiModelSelectionOptions,
 	hepiThinkingGlyph,
 } from "./api/model-selection.js";
-export type { HepiModule, HepiModuleView, HepiModuleViewContext } from "./api/modules.js";
-export {
-	getHepiRuntimeModuleRegistry,
-	registerHepiModule,
-} from "./api/modules.js";
 export type {
 	HepiContext,
 	HepiSettingField,

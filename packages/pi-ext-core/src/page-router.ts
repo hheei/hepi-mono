@@ -6,14 +6,6 @@ import { getGlobalState } from "./global-state.js";
 import type { ExtensionLifecycleContext } from "./lifecycle.js";
 import { runtimeIdentity } from "./runtime-identity.js";
 
-/*
- * TODO(pi-settings migration): Move /ext-settings ownership from
- * packages/hepi-basics/src/core/command/hepi-command.ts and migrate the
- * Settings page in core/ui/settings/, its core/ui helpers, and its focused
- * tests into packages/pi-settings. See docs/architecture/tui.md; do not make
- * pi-settings depend on the transitional hepi-basics aggregate.
- */
-
 /** Context created for one lazily constructed page view. The signal ends with the router. */
 export interface ExtensionPageViewContext {
 	readonly command: ExtensionCommandContext;
@@ -21,6 +13,8 @@ export interface ExtensionPageViewContext {
 	readonly theme: Theme;
 	/** Requests host rendering after the contributor changes its own state. */
 	requestRender(): void;
+	/** Closes the Settings surface after the page finishes its own async cleanup or save. */
+	requestClose(): void;
 }
 
 /**
@@ -50,6 +44,8 @@ export interface OpenExtensionPageRouterOptions {
 	/** Explicit FIFO capacity; core does not choose an implicit global limit. */
 	readonly maxPending: number;
 	readonly initialPageId?: string;
+	/** Acquires host-owned resources only after this router owns Pi's custom surface slot. */
+	onSurfaceOpen?(): undefined | (() => void);
 }
 
 interface RouterState {
@@ -118,6 +114,7 @@ export async function openExtensionPageRouter(
 		signal: options.signal,
 		maxPending: options.maxPending,
 		create: ({ theme, requestRender, close }) => {
+			const releaseSurfaceResources = options.onSurfaceOpen?.();
 			const controller = new AbortController();
 			let currentTheme = theme;
 			let selectedId =
@@ -164,6 +161,7 @@ export async function openExtensionPageRouter(
 						signal: controller.signal,
 						theme: currentTheme,
 						requestRender,
+						requestClose: () => close(undefined),
 					});
 					if (
 						closed ||
@@ -222,10 +220,11 @@ export async function openExtensionPageRouter(
 							return page.id === selectedId ? currentTheme.bold(label) : label;
 						})
 						.join(currentTheme.fg("dim", "  "));
-					const lines = [truncateToWidth(`${tabs}  ${currentTheme.fg("dim", "↔")}`, width)];
+					const border = currentTheme.fg("border", "─".repeat(Math.max(0, width)));
+					const lines = [border, truncateToWidth(tabs, width), border];
 					const id = selectedId;
 					const view = id === undefined ? undefined : views.get(id);
-					if (view !== undefined) return [...lines, ...view.component.render(width)];
+					if (view !== undefined) return [...lines, ...view.component.render(width), border];
 					const failure = id === undefined ? undefined : failures.get(id);
 					return [
 						...lines,
@@ -233,6 +232,7 @@ export async function openExtensionPageRouter(
 							failure === undefined ? "muted" : "error",
 							failure ?? "Opening page...",
 						),
+						border,
 					];
 				},
 				handleInput(data: string): void {
@@ -262,7 +262,7 @@ export async function openExtensionPageRouter(
 					closed = true;
 					controller.abort();
 					if (state.active?.deref() === router) delete state.active;
-					void closeViews();
+					void closeViews().finally(releaseSurfaceResources);
 				},
 			};
 		},

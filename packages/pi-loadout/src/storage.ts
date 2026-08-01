@@ -28,6 +28,17 @@ export interface UpdateLoadoutSelectionOptions {
 	readonly signal?: AbortSignal;
 }
 
+export interface UpdateLoadoutSelectionsOptions {
+	readonly cwd: string;
+	readonly paths?: PiSettingsPaths;
+	readonly scope: LoadoutScope;
+	readonly selections: readonly Omit<
+		UpdateLoadoutSelectionOptions,
+		"cwd" | "paths" | "scope" | "signal"
+	>[];
+	readonly signal?: AbortSignal;
+}
+
 function isEmpty(delta: LoadoutDelta): boolean {
 	return delta.disabled.length === 0 && delta.enabled.length === 0;
 }
@@ -47,7 +58,9 @@ function withKey(entries: readonly string[], key: string): string[] {
 	return [...new Set([...entries, key])].sort((left, right) => left.localeCompare(right));
 }
 
-function shouldClear(options: UpdateLoadoutSelectionOptions): boolean {
+type ScopedSelection = Omit<UpdateLoadoutSelectionOptions, "cwd" | "paths" | "signal">;
+
+function shouldClear(options: ScopedSelection): boolean {
 	if (options.selection === "inherit") return true;
 	const selectedActive = options.selection === "enabled";
 	return (
@@ -56,7 +69,8 @@ function shouldClear(options: UpdateLoadoutSelectionOptions): boolean {
 	);
 }
 
-function applySelection(delta: LoadoutDelta, options: UpdateLoadoutSelectionOptions): LoadoutDelta {
+/** Applies one validated UI selection to an in-memory delta before persistence or preview. */
+export function applyLoadoutSelection(delta: LoadoutDelta, options: ScopedSelection): LoadoutDelta {
 	const disabled = without(delta.disabled, options.key);
 	const enabled = without(delta.enabled, options.key);
 	if (shouldClear(options)) return { disabled, enabled };
@@ -84,9 +98,7 @@ export async function loadLoadoutConfiguration(
  * rewrites unrelated conflict preferences; only this key is normalized across the
  * two arrays. Callers decide visibility and whether a resource is project-private.
  */
-export async function updateLoadoutSelection(
-	options: UpdateLoadoutSelectionOptions,
-): Promise<void> {
+function validateSelection(options: ScopedSelection): void {
 	assertCanonicalLoadoutKey(options.key);
 	if (options.scope === "global" && options.projectPrivate === true)
 		throw new Error("Project-private Loadout selection cannot use global scope");
@@ -98,16 +110,41 @@ export async function updateLoadoutSelection(
 		options.selection === "inherit"
 	)
 		throw new Error("Project-private Loadout selection cannot inherit");
+}
+
+/** Atomically writes all staged selection deltas for one settings root. */
+export async function updateLoadoutSelections(
+	options: UpdateLoadoutSelectionsOptions,
+): Promise<void> {
+	for (const selection of options.selections)
+		validateSelection({ ...selection, scope: options.scope });
+	if (options.selections.length === 0) return;
 	const paths = options.paths ?? defaultPiSettingsPaths(options.cwd);
 	const path = options.scope === "global" ? paths.globalPath : paths.projectPath;
 	await updateJsonSettingsRoot(
 		path,
 		(root) => {
 			const current = parseLoadoutDelta(root[LOADOUT_SETTINGS_SECTION]);
-			const next = applySelection(current, options);
+			const next = options.selections.reduce(
+				(delta, selection) => applyLoadoutSelection(delta, { ...selection, scope: options.scope }),
+				current,
+			);
 			if (isEmpty(next)) delete root[LOADOUT_SETTINGS_SECTION];
 			else root[LOADOUT_SETTINGS_SECTION] = jsonDelta(next);
 		},
 		options.signal,
 	);
+}
+
+/** Compatibility convenience for a single immediate selection. */
+export async function updateLoadoutSelection(
+	options: UpdateLoadoutSelectionOptions,
+): Promise<void> {
+	return updateLoadoutSelections({
+		cwd: options.cwd,
+		...(options.paths === undefined ? {} : { paths: options.paths }),
+		scope: options.scope,
+		selections: [options],
+		...(options.signal === undefined ? {} : { signal: options.signal }),
+	});
 }

@@ -6,7 +6,6 @@ import {
 	type EventBus,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { getHepiRuntimeModuleRegistry } from "../../src/core/api/modules.js";
 import { getHepiRuntimeSettingsRegistry } from "../../src/core/api/settings.js";
 
 const repositoryRoot = join(import.meta.dir, "../../../..");
@@ -36,42 +35,6 @@ async function emit(
 ): Promise<void> {
 	for (const handler of extension.handlers.get(type) ?? []) await handler({ type } as never, ctx);
 }
-
-test("concurrent extension runtimes isolate contributions", async () => {
-	const path = join(repositoryRoot, "packages/hepi-basics/src/core/index.ts");
-	const firstBus = createEventBus();
-	const secondBus = createEventBus();
-	const firstResources = loader([path], firstBus);
-	const secondResources = loader([path], secondBus);
-	await Promise.all([firstResources.reload(), secondResources.reload()]);
-	const firstExtension = firstResources.getExtensions().extensions[0];
-	const secondExtension = secondResources.getExtensions().extensions[0];
-	if (firstExtension === undefined || secondExtension === undefined)
-		throw new Error("Expected Basics extensions to load");
-	firstResources.getExtensions().runtime.getActiveTools = () => [];
-	firstResources.getExtensions().runtime.setActiveTools = () => undefined;
-	secondResources.getExtensions().runtime.getActiveTools = () => [];
-	secondResources.getExtensions().runtime.setActiveTools = () => undefined;
-	const context = (sessionId: string) =>
-		({
-			cwd: repositoryRoot,
-			mode: "json",
-			sessionManager: { getSessionId: () => sessionId },
-			ui: {},
-		}) as unknown as ExtensionContext;
-
-	await emit(firstExtension, "session_start", context("first"));
-	await emit(secondExtension, "session_start", context("second"));
-	const firstRegistry = getHepiRuntimeModuleRegistry({ events: firstBus });
-	const secondRegistry = getHepiRuntimeModuleRegistry({ events: secondBus });
-	if (firstRegistry.get("setting") === undefined || secondRegistry.get("setting") === undefined)
-		throw new Error("Expected isolated Settings modules");
-	await emit(firstExtension, "session_shutdown", context("first"));
-	if (firstRegistry.get("setting") !== undefined) throw new Error("Expected first module cleanup");
-	if (secondRegistry.get("setting") === undefined)
-		throw new Error("Expected second module to remain");
-	await emit(secondExtension, "session_shutdown", context("second"));
-});
 
 test("extension factories remain reloadable", async () => {
 	const paths = [

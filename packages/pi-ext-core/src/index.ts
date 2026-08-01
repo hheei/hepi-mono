@@ -145,3 +145,10 @@ export {
 	redeliverTask,
 	startSubagent,
 } from "./subagents.js";
+export type {
+	HepiWidgetHandle,
+	HepiWidgetPlacement,
+	HepiWidgetRegistration,
+	HepiWidgetSuspension,
+} from "./widgets.js";
+export { registerHepiWidget, suspendHepiWidgets } from "./widgets.js";

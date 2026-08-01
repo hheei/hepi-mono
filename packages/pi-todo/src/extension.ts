@@ -9,8 +9,8 @@ export default function piTodoExtension(pi: ExtensionAPI): void {
 	const todo = createTodoFeature(pi);
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-todo",
-		start: async ({ extension, resources }) => {
-			await todo.start(extension);
+		start: async ({ extension, resources, signal }) => {
+			await todo.start(extension, signal);
 			const sessionId = extension.sessionManager.getSessionId();
 			resources.add("todo", () => todo.dispose(sessionId));
 		},

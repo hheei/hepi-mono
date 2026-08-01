@@ -4,10 +4,10 @@
 
 第一阶段 core runtime、page router 与 BTW consumer 已实现。此文定义 `@hheei/pi-ext-core` 的 TUI 宿主边界；它不定义任何 extension 的页面内容、设置 schema、命令、业务状态或交互 policy。
 
-第一阶段实现并验证 custom surface runtime 与 BTW consumer，并完成 Extension page router 的 focused
-contract tests。`pi-settings` 尚未实现，但其独立 host、Loadout page 与 widget suspension 设计已确认；它是
-明确的后续迁移项，不是以 `hepi-basics` adapter 临时维持的兼容层。第二阶段另行实现 editor/footer rail
-compositor，并迁移现有 statusbar；TODO 和 subagent 仅在该 compositor 通过验证后接入。
+第一阶段实现并验证 custom surface runtime、page router 与 BTW consumer。`pi-settings` 已作为独立 host
+实现，并提供基础 Settings page；`pi-loadout` 作为 router page 注册，core-managed widget 会在 Settings
+surface 打开期间 suspend。第二阶段另行实现 editor/footer rail compositor，并迁移现有 statusbar；TODO 和
+subagent 仅在该 compositor 通过验证后接入。
 
 ## 目标
 
@@ -33,26 +33,15 @@ interaction 都属于注册该页面的 extension。
 popup host 是另一份公开 contract。BTW 是第一份 consumer；Ask 只复用其 TUI host，保留自己的
 non-TUI dialog fallback、问卷 model 和结果 policy。
 
-## 待迁移的 Settings Host
+## Settings Host
 
-ADR 0003 要求未来的 `packages/pi-settings` 独占 `/ext-settings [page-id]`，并调用 core router。
-当前 command 和 Settings host 仍在过渡性 aggregate `hepi-basics`，不得为迁移而让新 package
-依赖该 aggregate。迁移时必须一并处理：
+`packages/pi-settings` 独占 `/ext-settings [page-id]`，并调用 core router。它不 import concrete
+extensions；provider page 与 `pi-loadout` page 都经 runtime-scoped core registry 组合。过渡性
+`hepi-basics` 不再注册 `/ext-settings`、`/loadout` 或 `/hepi` module command，也不保留 legacy Settings
+shell。
 
-- `packages/hepi-basics/src/core/command/hepi-command.ts` 中 `/ext-settings` command ownership；
-- `packages/hepi-basics/src/core/extension.ts` 中 `settingsModule` construction、module registration
-  和 lifecycle close；
-- `packages/hepi-basics/src/core/ui/settings/` 整个 Settings page（`combined`、`component`、
-  `controller`、`index`、`layout`、`model`、`render`、`value-editor`）；
-- 它使用的 `packages/hepi-basics/src/core/ui/` helpers：`border`、`keymap`、`layout`、`number`、
-  `row`、`scrollbar`、`selector-panel-layout`、`tabs`、`text`；
-- 若保留当前 embedded Loadout tab，还包括 `core/ui/shell/component.ts` 及其 coordinated close
-  contract。不得让 `pi-settings` import concrete `pi-loadout`；应由 Loadout 作为 router page 注册；
-- 相应 command、integration 和 `test/ui/settings/` focused tests。
-
-迁移采用已确认的行为：Loadout 是独立 router page，Tools 与 Skills 同页；host 打开期间 suspend 所有
-core-managed editor widget；Loadout 持有 scope draft，切 scope/离开 page/close 时写入而不 hot-apply。旧
-embedded Loadout tab 不迁移。
+Loadout 是独立 router page，Tools 与 Skills 同页；host 打开期间 suspend 所有 core-managed editor widget；
+Loadout 持有 scope draft，切 scope/离开 page/close 时写入而不 hot-apply。旧 embedded Loadout tab 不迁移。
 
 ## Editor 邻接区域
 

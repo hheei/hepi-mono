@@ -36,6 +36,6 @@ These are Pi skills, not registered top-level commands.
 
 ## Defaults
 
-With `@hheei/hepi-basics` loaded, open `/ext-settings` and select **Ponytail defaults**. Main-agent and subagent modes are configured separately. The same values can be written under `pi-ponytail.defaults` in the project's `.pi/settings.json`.
+With `@hheei/pi-settings` loaded, open `/ext-settings` and select **Ponytail defaults**. Main-agent and subagent modes are configured separately. The same values can be written under `pi-ponytail.defaults` in the project's `.pi/settings.json`.
 
 Full upstream documentation: https://github.com/DietrichGebert/ponytail
