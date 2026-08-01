@@ -116,8 +116,9 @@ terminal result 规范为 completed/cancelled/failed。run-local abort 会 cance
 
 historian orchestrator 是显式 async function：以 current partition snapshot 获取一次 finite lease，运行 primary completion，
 mapper invalid 时仅以 diagnostic 运行一次 repair completion，然后用同一 snapshot 原子 publish。lease acquisition failure
-返回 skipped；CAS conflict 返回 stale，不重试；任意路径在 `finally` release lease。它不做 trigger、renewal、transient retry
-或 Pi context rendering。
+返回 skipped；CAS conflict 返回 stale，不重试；任意路径在 `finally` release lease。active run 续约 lease；仅 core
+结构化分类为 `transient` 的 provider failure 可在同一次 lease 内最多重试两次，retry delay 使用 cancellable jitter。
+它不做 trigger 或 Pi context rendering。
 
 source-history projection 从 `sessionManager.getBranch()` 的 ordered `SessionEntry[]` 工作，使用 Pi
 `sessionEntryToContextMessages()` 作为唯一 entry-to-message projection。一个 complete turn group 从 user message 开始，
@@ -281,8 +282,10 @@ parent historian output 必须通过 structural、chunk coverage、protected-tai
 validation 才能原子 publish。首次 validation failure 运行一次 repair Completion；repair 或任何 validation
 failure 都保留上次 committed context，不写 partial state。
 
-transient parent historian provider failure 最多进行两次 cancellable jittered retry。abort、authentication/400、
-configuration error 与 validation failure 不重试；validation repair 是独立的一次 Completion。
+transient parent historian provider failure 最多进行两次 cancellable jittered retry。core 只根据数值 HTTP
+`status`/`statusCode` 与标准 transport `code` 生成 retry classification；未能可靠分类的 error 不重试，不能从
+message 文本猜测。abort、authentication、HTTP 400 或其他 client error、configuration error 与 validation
+failure 不重试；validation repair 是独立的一次 Completion，且共享该 run 的总 retry budget。
 
 首个 pipeline milestone 使用 model-invisible Pi native notification 加 structured log 报告 invalid config、
 context-store failure 与 cooldown-eligible historian failure。它不注册 `/ctx-*` command、statusbar 或 custom
