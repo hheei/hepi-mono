@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, open, rm, stat, utimes } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -131,7 +132,8 @@ class LocalEntry implements PoolEntry {
 	private snapshot(): EmbeddingSnapshot {
 		return {
 			provider: "local",
-			modelIdentity: this.config.model,
+			// A persisted vector cannot be shared with a same-named remote model.
+			modelIdentity: `local:${this.config.model}`,
 			generation: this.generation,
 			...(this.dimensions === undefined ? {} : { dimensions: this.dimensions }),
 		};
@@ -274,7 +276,9 @@ class SynapseEntry implements PoolEntry {
 	private snapshot(): EmbeddingSnapshot {
 		return {
 			provider: "synapse",
-			modelIdentity: this.config.model,
+			// Connection identity is hashed rather than persisted as a local path. It
+			// distinguishes two Synapse tables that expose the same model name.
+			modelIdentity: `synapse:${this.config.model}:${configFingerprint(this.config.connectionKey)}`,
 			generation: this.generation,
 			...(this.model?.dimensions === undefined ? {} : { dimensions: this.model.dimensions }),
 		};
@@ -776,6 +780,10 @@ function stableMetadata(metadata: Readonly<Record<string, JsonScalar>> | undefin
 	return JSON.stringify(
 		Object.entries(metadata).sort(([left], [right]) => left.localeCompare(right)),
 	);
+}
+
+function configFingerprint(value: string): string {
+	return createHash("sha256").update(value, "utf8").digest("hex").slice(0, 16);
 }
 
 function assertKnownKeys(

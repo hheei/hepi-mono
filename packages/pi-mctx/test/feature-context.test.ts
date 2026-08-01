@@ -106,6 +106,8 @@ function store(): MctxStore {
 		getMemories: () => [],
 		updateMemory: () => undefined,
 		archiveMemory: () => undefined,
+		loadMemoryEmbeddingCandidate: () => undefined,
+		persistMemoryEmbedding: () => false,
 		writeNote: (input) => {
 			const note: MctxNote = {
 				projectIdentity: input.projectIdentity,

@@ -5,7 +5,11 @@ import {
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import type { CompletionFailure, ExtensionLifecycleContext } from "@hheei/pi-ext-core";
-import type { EmbeddingProvider, EmbeddingProviderLease } from "@hheei/pi-ext-embed";
+import type {
+	EmbeddingProvider,
+	EmbeddingProviderLease,
+	EmbeddingSnapshot,
+} from "@hheei/pi-ext-embed";
 import { type MctxRuntime, resolveMctxActivation } from "./activation.js";
 import { planMctxCompartmentRecovery } from "./compartment-graph.js";
 import {
@@ -138,6 +142,7 @@ interface ActiveMctxRuntime {
 	readonly lifecycle: ExtensionLifecycleContext;
 	cooling: boolean;
 	job?: AbortController | undefined;
+	readonly embeddingJobs: Set<AbortController>;
 	rebuildEntries?: readonly SessionEntry[] | undefined;
 	lastNotifiedFailureClass?: MctxHistorianFailureDiagnostic["failureClass"] | undefined;
 }
@@ -219,6 +224,13 @@ function noteAnchor(tag: MctxHistoryTag): MctxNoteAnchor {
 		kind: tag.kind,
 		...(tag.toolCallId === undefined ? {} : { toolCallId: tag.toolCallId }),
 	};
+}
+
+function sameEmbeddingSnapshot(
+	left: EmbeddingSnapshot | undefined,
+	right: EmbeddingSnapshot,
+): boolean {
+	return left?.modelIdentity === right.modelIdentity && left.generation === right.generation;
 }
 
 /** Owns the session runtime holder; future store and context work attach here. */
@@ -346,6 +358,56 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				}
 			});
 	}
+	function startMemoryEmbedding(current: ActiveMctxRuntime, memory: MctxMemory): void {
+		if (active !== current || current.lifecycle.signal.aborted) return;
+		const provider = current.runtime.embedding;
+		if (provider === undefined) return;
+		try {
+			const snapshot = provider.snapshot();
+			if (snapshot === undefined) return;
+			const candidate = current.runtime.store.loadMemoryEmbeddingCandidate(
+				memory.projectIdentity,
+				memory.memoryId,
+			);
+			if (candidate === undefined) return;
+			const controller = new AbortController();
+			const abort = (): void => controller.abort();
+			current.embeddingJobs.add(controller);
+			current.lifecycle.signal.addEventListener("abort", abort, { once: true });
+			const id = `memory:${candidate.memoryId}:${candidate.revision}:${candidate.contentHash}`;
+			void provider
+				.embedBatch(
+					[{ id, text: candidate.content, contentHash: candidate.contentHash }],
+					"passage",
+					controller.signal,
+				)
+				.then((vectors) => {
+					if (active !== current || controller.signal.aborted) return;
+					const vector = vectors?.get(id);
+					if (vector === undefined || !sameEmbeddingSnapshot(provider.snapshot(), snapshot)) return;
+					try {
+						current.runtime.store.persistMemoryEmbedding({
+							projectIdentity: candidate.projectIdentity,
+							memoryId: candidate.memoryId,
+							contentHash: candidate.contentHash,
+							revision: candidate.revision,
+							modelIdentity: snapshot.modelIdentity,
+							providerGeneration: snapshot.generation,
+							vector,
+						});
+					} catch {
+						// Embeddings are optional; invalid provider output cannot affect memory writes.
+					}
+				})
+				.catch(() => undefined)
+				.finally(() => {
+					current.lifecycle.signal.removeEventListener("abort", abort);
+					current.embeddingJobs.delete(controller);
+				});
+		} catch {
+			// A provider may be unavailable or fail before returning its detached promise.
+		}
+	}
 	return {
 		async start(context): Promise<void> {
 			let configuration: MctxConfiguration;
@@ -437,7 +499,12 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				partition,
 				...(embeddingLease === undefined ? {} : { embedding: embeddingLease.provider }),
 			};
-			const current: ActiveMctxRuntime = { runtime, lifecycle: context, cooling: false };
+			const current: ActiveMctxRuntime = {
+				runtime,
+				lifecycle: context,
+				cooling: false,
+				embeddingJobs: new Set(),
+			};
 			// Publish last: context/turn handlers can never observe a half-initialized
 			// runtime whose store or partition failed during activation.
 			active = current;
@@ -453,6 +520,10 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				current.rebuildEntries = undefined;
 				current.job?.abort();
 				if (active === current) active = undefined;
+			});
+			context.resources.add("mctx-memory-embeddings", () => {
+				for (const job of current.embeddingJobs) job.abort();
+				current.embeddingJobs.clear();
 			});
 		},
 		onTurnEnd(context): void {
@@ -584,24 +655,27 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 						kind: "memory",
 						memories: current.runtime.store.getMemories(projectIdentity, operation.memoryIds),
 					};
-				case "write":
+				case "write": {
+					const memory = current.runtime.store.writeMemory({
+						...operation,
+						projectIdentity,
+						sessionId,
+					});
+					startMemoryEmbedding(current, memory);
 					return {
 						kind: "memory",
-						memories: [
-							current.runtime.store.writeMemory({
-								...operation,
-								projectIdentity,
-								sessionId,
-							}),
-						],
+						memories: [memory],
 					};
+				}
 				case "update": {
 					const memory = current.runtime.store.updateMemory({
 						...operation,
 						projectIdentity,
 						sessionId,
 					});
-					return memory === undefined ? { kind: "stale" } : { kind: "memory", memories: [memory] };
+					if (memory === undefined) return { kind: "stale" };
+					startMemoryEmbedding(current, memory);
+					return { kind: "memory", memories: [memory] };
 				}
 				case "archive": {
 					const memory = current.runtime.store.archiveMemory({

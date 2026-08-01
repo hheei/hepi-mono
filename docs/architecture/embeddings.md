@@ -47,7 +47,7 @@ export interface EmbeddingProviderLease {
 }
 
 export function acquireEmbeddingProvider(
-  config: EmbeddingProviderConfig,
+  config: unknown,
 ): Promise<EmbeddingProviderLease | undefined>;
 ```
 
@@ -114,7 +114,8 @@ existing memories, retries a provider failure, creates a timer, or holds a proje
 memory write successful and simply produces no vector.
 
 The SQLite v8 ledger keeps active memory source content hash plus per-model vector rows. A vector write transaction rereads the
-memory's active status and content hash; stale write/update/archive results are discarded. Rows include model identity, provider
+memory's active status and content hash; stale write/update/archive results are discarded. Archive immediately deletes that
+memory's vectors, so an archived source cannot remain an active retrieval candidate. Rows include model identity, provider
 generation, vector dimensions and a Float32 BLOB. Multiple model identities coexist; no automatic retention/GC is introduced.
 Feature cleanup aborts outstanding explicit-memory jobs before releasing the provider lease and closing the store.
 
