@@ -27,6 +27,7 @@ export function createTestModel(overrides: Partial<Model<Api>> = {}): Model<Api>
 }
 
 export interface TestAssistantMessageOptions {
+	/** Optional fields override a deterministic terminal assistant fixture. */
 	readonly text?: string;
 	readonly content?: AssistantMessage["content"];
 	readonly stopReason?: AssistantMessage["stopReason"];
@@ -68,6 +69,7 @@ export function createAssistantMessage(
 }
 
 export interface ScriptedStream {
+	/** Provider transport callback and call count owned by the test. */
 	readonly streamFn: StreamFn;
 	readonly calls: () => number;
 }
@@ -91,6 +93,7 @@ export function createScriptedStream(messages: readonly AssistantMessage[]): Scr
 }
 
 export interface ControlledStream {
+	/** A single active call may be resolved or failed manually by the test. */
 	readonly streamFn: StreamFn;
 	readonly calls: () => number;
 	resolve(message: AssistantMessage): void;

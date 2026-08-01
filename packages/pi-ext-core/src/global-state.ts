@@ -1,4 +1,8 @@
-/** Stores lazy runtime registries across separately evaluated core bundles. */
+/**
+ * Stores lazy runtime registries across separately evaluated core bundles. The
+ * symbol is process-global, while each registry decides its own runtime identity
+ * and cleanup policy.
+ */
 export function getGlobalState<T>(name: string, create: () => T): T {
 	const key = Symbol.for(`@hheei/pi-ext-core/${name}`);
 	const current: unknown = Reflect.get(globalThis, key);

@@ -12,7 +12,7 @@ export interface ServiceKey<T> {
 }
 
 export interface WaitForServiceOptions {
-	/** Required cancellation boundary for a Service wait. */
+	/** Required cancellation boundary; the caller owns its timeout/deadline policy. */
 	readonly signal: AbortSignal;
 }
 
@@ -24,7 +24,8 @@ export function createServiceKey<T>(_id: string): ServiceKey<T> {
 
 /**
  * Provides a Service for the current lifecycle. The first provider wins; later
- * providers return false and must not replace the active Service.
+ * providers return false and must not replace the active Service. The registration
+ * is removed with the provider lifecycle and resolves current waiters once.
  */
 export function provideService<T>(
 	context: ExtensionLifecycleContext,
@@ -49,7 +50,11 @@ export function getService<T>(_pi: ExtensionAPI, _key: ServiceKey<T>): T | undef
 	return entry?.value as T | undefined;
 }
 
-/** Waits for a Service until the caller's required AbortSignal aborts. */
+/**
+ * Waits for a Service until the caller's signal aborts. This is a continuation,
+ * not a lifecycle dependency: consumers must not await it inside a serial
+ * `session_start` handler when the provider may register later.
+ */
 export function waitForService<T>(
 	_pi: ExtensionAPI,
 	_key: ServiceKey<T>,
@@ -93,6 +98,8 @@ export function waitForService<T>(
 }
 
 export function abortServiceWaiters(pi: ExtensionAPI): void {
+	// Lifecycle shutdown aborts unresolved waits so stale consumers cannot outlive
+	// the provider runtime or retain promises across a Pi reload.
 	const registry = getServiceRegistry(pi);
 	const waiters = [...registry.waiters.values()].flatMap((current) => [...current]);
 	for (const waiter of waiters) waiter.abort();
