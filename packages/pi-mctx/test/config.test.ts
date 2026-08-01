@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
 	DEFAULT_EXECUTE_THRESHOLD_PERCENTAGE,
 	DEFAULT_FAIL_CLOSED_BLOCKING,
+	DEFAULT_PROTECTED_TAGS,
 	loadMctxConfiguration,
 	type MctxSettingsPaths,
 } from "../src/config.js";
@@ -48,6 +49,7 @@ test("enabled user configuration resolves pipeline defaults", async (): Promise<
 				defaultValue: DEFAULT_EXECUTE_THRESHOLD_PERCENTAGE,
 				byModel: {},
 			},
+			protectedTags: DEFAULT_PROTECTED_TAGS,
 		},
 	});
 });
@@ -82,6 +84,7 @@ test("exposes default merged provenance without weakening MCTX historian policy"
 			historianModel: "anthropic/claude-haiku",
 			failClosedBlocking: true,
 			executeThresholdPercentage: { defaultValue: 65, byModel: {} },
+			protectedTags: DEFAULT_PROTECTED_TAGS,
 		},
 	});
 });
@@ -117,6 +120,7 @@ test("project configuration can only raise configured trigger thresholds", async
 				defaultValue: 12_000,
 				byModel: {},
 			},
+			protectedTags: DEFAULT_PROTECTED_TAGS,
 		},
 	});
 });

@@ -3,9 +3,38 @@ import type { AssistantMessage, ImageContent, TextContent } from "@earendil-work
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { MctxHistoryTag, MctxHistoryTagInput } from "./store.js";
 
+export const MAX_CTX_EXPAND_CHARS = 30_000;
+
 export interface MctxHistoryTagProjection {
 	readonly messages: readonly AgentMessage[];
 	readonly droppedTagNumbers: readonly number[];
+}
+
+export function renderMctxHistoryTagPage(
+	tags: readonly MctxHistoryTag[],
+	offset: unknown,
+	limit: unknown,
+): { readonly text: string; readonly nextOffset?: number } | undefined {
+	const requestedOffset = offset === undefined ? 0 : offset;
+	const requestedLimit = limit === undefined ? MAX_CTX_EXPAND_CHARS : limit;
+	if (
+		typeof requestedOffset !== "number" ||
+		!Number.isSafeInteger(requestedOffset) ||
+		requestedOffset < 0 ||
+		typeof requestedLimit !== "number" ||
+		!Number.isSafeInteger(requestedLimit) ||
+		requestedLimit < 1 ||
+		requestedLimit > MAX_CTX_EXPAND_CHARS
+	)
+		return undefined;
+	const rendered = tags
+		.map((tag) => `§${tag.tagNumber}§ (${tag.kind}, ${tag.status})\n${tag.source}`)
+		.join("\n\n");
+	const end = Math.min(requestedOffset + requestedLimit, rendered.length);
+	return {
+		text: rendered.slice(requestedOffset, end),
+		...(end < rendered.length ? { nextOffset: end } : {}),
+	};
 }
 
 function textSource(content: string | readonly (TextContent | ImageContent)[]): string {
@@ -34,6 +63,11 @@ function messageInput(
 		};
 	}
 	if (message.role === "assistant") {
+		if (typeof message.content === "string") {
+			return message.content
+				? { kind: "message", entryId: entry.id, source: message.content }
+				: undefined;
+		}
 		const text = message.content.filter((part) => part.type === "text");
 		return text.length === 0
 			? undefined
@@ -55,8 +89,10 @@ export function collectMctxHistoryTagInputs(
 		if (entry.type !== "message") continue;
 		const message = entry.message;
 		if (message.role === "assistant") {
-			for (const part of message.content) {
-				if (part.type === "toolCall") toolOwners.set(part.id, entry.id);
+			if (Array.isArray(message.content)) {
+				for (const part of message.content) {
+					if (part.type === "toolCall") toolOwners.set(part.id, entry.id);
+				}
 			}
 		}
 		if (message.role === "toolResult") {

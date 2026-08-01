@@ -22,6 +22,7 @@ import { createProjectIdentityResolver } from "./project-identity.js";
 import {
 	defaultMctxStorePath,
 	type MctxCompartment,
+	type MctxHistoryTag,
 	type MctxPartition,
 	type MctxStore,
 	openMctxStore,
@@ -47,6 +48,7 @@ export interface MctxFeature {
 	): { readonly messages: readonly AgentMessage[] } | undefined;
 	active(): MctxSessionRuntime | undefined;
 	reduce(tagNumbers: readonly number[], context: ExtensionContext): MctxReduceResult;
+	expand(tagNumbers: readonly number[], context: ExtensionContext): MctxExpandResult;
 }
 
 export interface MctxReduceResult {
@@ -54,6 +56,14 @@ export interface MctxReduceResult {
 	readonly queued?: readonly number[];
 	readonly rejected?: readonly number[];
 }
+
+export type MctxExpandResult =
+	| { readonly kind: "inactive" | "stale" }
+	| {
+			readonly kind: "expanded";
+			readonly tags: readonly MctxHistoryTag[];
+			readonly rejected: readonly number[];
+	  };
 
 export interface MctxForkSource {
 	readonly cwd: string;
@@ -448,6 +458,30 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			return { messages: tagged.messages };
 		},
 		active: (): MctxSessionRuntime | undefined => active?.runtime,
+		expand(tagNumbers, context): MctxExpandResult {
+			const current = active;
+			if (
+				current === undefined ||
+				current.lifecycle.signal.aborted ||
+				current.runtime.sessionId !== context.sessionManager.getSessionId()
+			)
+				return { kind: "inactive" };
+			const synced = current.runtime.store.syncHistoryTags(
+				current.runtime.partition,
+				collectMctxHistoryTagInputs(context.sessionManager.getBranch()),
+			);
+			if (synced === undefined) return { kind: "stale" };
+			current.runtime = { ...current.runtime, partition: synced.partition };
+			const available = new Map(synced.tags.map((tag) => [tag.tagNumber, tag]));
+			const tags: MctxHistoryTag[] = [];
+			const rejected: number[] = [];
+			for (const tagNumber of tagNumbers) {
+				const tag = available.get(tagNumber);
+				if (tag === undefined) rejected.push(tagNumber);
+				else tags.push(tag);
+			}
+			return { kind: "expanded", tags, rejected };
+		},
 		reduce(tagNumbers, context): MctxReduceResult {
 			const current = active;
 			if (

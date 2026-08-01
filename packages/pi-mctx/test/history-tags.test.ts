@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { collectMctxHistoryTagInputs, projectMctxHistoryTags } from "../src/history-tags.js";
+import {
+	collectMctxHistoryTagInputs,
+	MAX_CTX_EXPAND_CHARS,
+	projectMctxHistoryTags,
+	renderMctxHistoryTagPage,
+} from "../src/history-tags.js";
 import type { MctxHistoryTag } from "../src/store.js";
 
 const userEntry = {
@@ -31,5 +36,18 @@ describe("MCTX history tags", () => {
 		const projection = projectMctxHistoryTags([userEntry.message], [userEntry], [tag]);
 		expect(projection.messages[0]).toMatchObject({ content: "[dropped §7§]" });
 		expect(projection.droppedTagNumbers).toEqual([7]);
+	});
+
+	test("renders bounded source pages with deterministic continuation", () => {
+		const tag: MctxHistoryTag = {
+			kind: "message",
+			entryId: "user-entry",
+			source: "abcdef",
+			tagNumber: 7,
+			status: "dropped",
+		};
+		expect(renderMctxHistoryTagPage([tag], 0, 5)).toEqual({ text: "§7§ (", nextOffset: 5 });
+		expect(renderMctxHistoryTagPage([tag], 5, 5)).toEqual({ text: "messa", nextOffset: 10 });
+		expect(renderMctxHistoryTagPage([tag], 0, MAX_CTX_EXPAND_CHARS + 1)).toBeUndefined();
 	});
 });
