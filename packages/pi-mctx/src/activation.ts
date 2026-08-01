@@ -6,6 +6,7 @@ import {
 } from "@hheei/pi-ext-core";
 import type { MctxConfiguration, MctxPipelineSettings } from "./config.js";
 
+/** Resolved immutable inputs held for one active parent session. */
 export interface MctxRuntime {
 	readonly sessionId: string;
 	readonly historian: Model<Api>;

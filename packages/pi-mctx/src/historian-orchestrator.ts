@@ -1,20 +1,31 @@
 import { randomUUID } from "node:crypto";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
+import type { CompletionFailure, ExtensionLifecycleContext } from "@hheei/pi-ext-core";
 import type { MctxCompartmentSourceSnapshot } from "./compartment-validation.js";
 import type { MctxHistorianCompletionResult } from "./historian-executor.js";
 import { executeMctxHistorianCompletion } from "./historian-executor.js";
 import { mapMctxHistorianOutput } from "./historian-output.js";
-import type { MctxCompartmentPublication, MctxPartition, MctxStore } from "./store.js";
+import type {
+	MctxCompartmentPublication,
+	MctxHistorianLease,
+	MctxPartition,
+	MctxStore,
+} from "./store.js";
 
 export const MCTX_HISTORIAN_LEASE_TTL_MS = 60_000;
+export const MCTX_HISTORIAN_LEASE_RENEWAL_MS = MCTX_HISTORIAN_LEASE_TTL_MS / 2;
+export const MCTX_HISTORIAN_MAX_TRANSIENT_RETRIES = 2;
 
+/**
+ * One bounded source publication attempt. The caller supplies a partition
+ * snapshot and owns retry policy; this function never recomputes stale input.
+ */
 export interface MctxHistorianRunRequest {
 	readonly context: ExtensionLifecycleContext;
 	readonly model: Model<Api>;
 	readonly store: Pick<
 		MctxStore,
-		"acquireHistorianLease" | "publishCompartment" | "releaseHistorianLease"
+		"acquireHistorianLease" | "renewHistorianLease" | "publishCompartment" | "releaseHistorianLease"
 	>;
 	readonly partition: MctxPartition;
 	readonly source: MctxCompartmentSourceSnapshot;
@@ -23,6 +34,10 @@ export interface MctxHistorianRunRequest {
 	readonly expectedTier?: "m0" | "m1";
 	readonly leaseOwnerToken?: string;
 	readonly nowMs?: number;
+	/** Test-only timing seam. Production renews at half the lease TTL. */
+	readonly leaseRenewalIntervalMs?: number;
+	/** Test-only timing seam. Production uses bounded exponential jitter. */
+	readonly retryDelayMs?: (retryAttempt: number) => number;
 }
 
 export type MctxHistorianRunResult =
@@ -34,8 +49,18 @@ export type MctxHistorianRunResult =
 	| { readonly kind: "skipped"; readonly reason: "lease-held" }
 	| { readonly kind: "stale" }
 	| { readonly kind: "cancelled" }
-	| { readonly kind: "failed"; readonly reason: string }
-	| { readonly kind: "invalid"; readonly reason: string };
+	| {
+			readonly kind: "failed";
+			readonly reason: string;
+			readonly failureKind: CompletionFailure["kind"] | "storage";
+			readonly attempt: number;
+	  }
+	| {
+			readonly kind: "invalid";
+			readonly reason: string;
+			readonly failureKind: "validation";
+			readonly attempt: number;
+	  };
 
 export type MctxHistorianExecutor = (
 	context: ExtensionLifecycleContext,
@@ -63,15 +88,80 @@ function mappedDraft(
 		: { kind: "invalid", reason: `compartment tier must be ${request.expectedTier}` };
 }
 
+function leaseRenewalInterval(request: MctxHistorianRunRequest): number {
+	const interval = request.leaseRenewalIntervalMs ?? MCTX_HISTORIAN_LEASE_RENEWAL_MS;
+	if (!Number.isSafeInteger(interval) || interval <= 0) {
+		throw new Error("Historian lease renewal interval must be a positive safe integer");
+	}
+	return interval;
+}
+
+function errorReason(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+function retryDelay(request: MctxHistorianRunRequest, retryAttempt: number): number {
+	const baseMs = 250 * 2 ** (retryAttempt - 1);
+	const delay =
+		request.retryDelayMs === undefined
+			? baseMs + Math.floor(Math.random() * baseMs)
+			: request.retryDelayMs(retryAttempt);
+	if (!Number.isSafeInteger(delay) || delay < 0)
+		throw new Error("Historian retry delay must be a non-negative safe integer");
+	return delay;
+}
+
+function waitForRetry(delayMs: number, signal: AbortSignal): Promise<boolean> {
+	if (signal.aborted) return Promise.resolve(false);
+	return new Promise((resolve) => {
+		const timer = setTimeout(() => {
+			signal.removeEventListener("abort", abort);
+			resolve(true);
+		}, delayMs);
+		const abort = (): void => {
+			clearTimeout(timer);
+			resolve(false);
+		};
+		signal.addEventListener("abort", abort, { once: true });
+	});
+}
+
+async function executeWithTransientRetries(
+	request: MctxHistorianRunRequest,
+	execute: MctxHistorianExecutor,
+	controller: AbortController,
+	sourceText: string,
+	retries: { count: number },
+	attempts: { count: number },
+): Promise<MctxHistorianCompletionResult> {
+	for (;;) {
+		attempts.count++;
+		const result = await execute(request.context, {
+			model: request.model,
+			source: request.source,
+			sourceText,
+			signal: controller.signal,
+			...(request.expectedTier === undefined ? {} : { expectedTier: request.expectedTier }),
+		});
+		if (result.kind !== "failed" || result.failure.kind !== "transient") return result;
+		if (retries.count >= MCTX_HISTORIAN_MAX_TRANSIENT_RETRIES) return result;
+		retries.count++;
+		if (!(await waitForRetry(retryDelay(request, retries.count), controller.signal))) {
+			return { kind: "cancelled" };
+		}
+	}
+}
+
 /**
- * Runs one lease-guarded historian attempt. Retry, renewal, and triggering are
- * intentionally outside this bounded publication transaction.
+ * Runs one lease-guarded historian run. The active run renews its lease and has
+ * one shared finite transient-retry budget; triggering remains outside it.
  */
 export async function runMctxHistorian(
 	request: MctxHistorianRunRequest,
 	execute: MctxHistorianExecutor = executeMctxHistorianCompletion,
 ): Promise<MctxHistorianRunResult> {
 	if (request.signal.aborted) return { kind: "cancelled" };
+	const renewalIntervalMs = leaseRenewalInterval(request);
 	const lease = request.store.acquireHistorianLease(
 		request.partition,
 		request.leaseOwnerToken ?? randomUUID(),
@@ -79,18 +169,67 @@ export async function runMctxHistorian(
 		request.nowMs,
 	);
 	if (lease === undefined) return { kind: "skipped", reason: "lease-held" };
+	const controller = new AbortController();
+	const abortFromCaller = (): void => controller.abort();
+	request.signal.addEventListener("abort", abortFromCaller, { once: true });
+	if (request.signal.aborted) controller.abort();
+	let activeLease = lease;
+	let leaseLost = false;
+	let renewalFailure: string | undefined;
+	const retries = { count: 0 };
+	const attempts = { count: 0 };
+	const renewalTimer = setInterval(() => {
+		if (controller.signal.aborted) return;
+		let renewed: MctxHistorianLease | undefined;
+		try {
+			renewed = request.store.renewHistorianLease(activeLease, MCTX_HISTORIAN_LEASE_TTL_MS);
+		} catch (error: unknown) {
+			// Interval callbacks have no awaiting caller. Convert storage failures into
+			// the run's terminal result instead of leaking an unhandled exception.
+			renewalFailure = errorReason(error);
+			controller.abort();
+			return;
+		}
+		if (renewed === undefined) {
+			// Losing ownership means another process may run this partition now. Abort
+			// rather than publishing work that no longer has the single-flight lease.
+			leaseLost = true;
+			controller.abort();
+			return;
+		}
+		activeLease = renewed;
+	}, renewalIntervalMs);
 	try {
-		const first = await execute(request.context, {
-			model: request.model,
-			source: request.source,
-			sourceText: request.sourceText,
-			signal: request.signal,
-			...(request.expectedTier === undefined ? {} : { expectedTier: request.expectedTier }),
-		});
-		if (first.kind === "cancelled") return { kind: "cancelled" };
-		if (first.kind === "failed") return { kind: "failed", reason: first.reason };
+		// Completion output is untrusted. It is mapped back through the immutable
+		// source snapshot before any store operation can publish it.
+		const first = await executeWithTransientRetries(
+			request,
+			execute,
+			controller,
+			request.sourceText,
+			retries,
+			attempts,
+		);
+		if (renewalFailure !== undefined)
+			return {
+				kind: "failed",
+				reason: renewalFailure,
+				failureKind: "storage",
+				attempt: attempts.count,
+			};
+		if (leaseLost || controller.signal.aborted || first.kind === "cancelled")
+			return { kind: "cancelled" };
+		if (first.kind === "failed")
+			return {
+				kind: "failed",
+				reason: first.failure.message,
+				failureKind: first.failure.kind,
+				attempt: attempts.count,
+			};
 		const firstMapping = mappedDraft(first.output, request);
 		if (firstMapping.kind === "valid") {
+			// Publication repeats the original partition CAS. A concurrent branch
+			// update wins without overwriting its newer compartment graph.
 			const publication = request.store.publishCompartment(
 				request.partition,
 				firstMapping.value.draft,
@@ -99,17 +238,40 @@ export async function runMctxHistorian(
 				? { kind: "stale" }
 				: { kind: "published", publication, repaired: false };
 		}
-		const repair = await execute(request.context, {
-			model: request.model,
-			source: request.source,
-			sourceText: repairSourceText(request.sourceText, firstMapping.reason),
-			signal: request.signal,
-			...(request.expectedTier === undefined ? {} : { expectedTier: request.expectedTier }),
-		});
-		if (repair.kind === "cancelled") return { kind: "cancelled" };
-		if (repair.kind === "failed") return { kind: "failed", reason: repair.reason };
+		// A malformed first result gets exactly one diagnostic repair. Retrying
+		// again would turn a bounded turn-end job into an unowned retry loop.
+		const repair = await executeWithTransientRetries(
+			request,
+			execute,
+			controller,
+			repairSourceText(request.sourceText, firstMapping.reason),
+			retries,
+			attempts,
+		);
+		if (renewalFailure !== undefined)
+			return {
+				kind: "failed",
+				reason: renewalFailure,
+				failureKind: "storage",
+				attempt: attempts.count,
+			};
+		if (leaseLost || controller.signal.aborted || repair.kind === "cancelled")
+			return { kind: "cancelled" };
+		if (repair.kind === "failed")
+			return {
+				kind: "failed",
+				reason: repair.failure.message,
+				failureKind: repair.failure.kind,
+				attempt: attempts.count,
+			};
 		const repairMapping = mappedDraft(repair.output, request);
-		if (repairMapping.kind === "invalid") return { kind: "invalid", reason: repairMapping.reason };
+		if (repairMapping.kind === "invalid")
+			return {
+				kind: "invalid",
+				reason: repairMapping.reason,
+				failureKind: "validation",
+				attempt: attempts.count,
+			};
 		const publication = request.store.publishCompartment(
 			request.partition,
 			repairMapping.value.draft,
@@ -118,6 +280,10 @@ export async function runMctxHistorian(
 			? { kind: "stale" }
 			: { kind: "published", publication, repaired: true };
 	} finally {
-		request.store.releaseHistorianLease(lease);
+		clearInterval(renewalTimer);
+		request.signal.removeEventListener("abort", abortFromCaller);
+		// Terminal paths, including cancellation and malformed output, must release
+		// the finite lease so another process can make forward progress.
+		request.store.releaseHistorianLease(activeLease);
 	}
 }

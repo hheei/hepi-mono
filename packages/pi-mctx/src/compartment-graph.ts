@@ -55,6 +55,8 @@ export function verifyMctxCompartmentGraph(
 	const m0: MctxCompartment[] = [];
 	const m1: MctxCompartment[] = [];
 	for (const compartment of compartments) {
+		// Publication revision establishes the only canonical graph order. Per-tier
+		// sequence is display metadata and cannot prove cross-tier chronology.
 		if (
 			!Number.isSafeInteger(compartment.publishedRevision) ||
 			compartment.publishedRevision <= previousRevision
@@ -67,6 +69,8 @@ export function verifyMctxCompartmentGraph(
 		if (start === undefined || end === undefined || end < start) {
 			return { kind: "invalid", reason: "compartment range is not present in the current branch" };
 		}
+		// Recompute from the live branch rather than trusting persisted evidence:
+		// branch rebase/edit can preserve IDs while changing their covered order.
 		const snapshot = createMctxSourceSnapshot(entries.slice(start, end + 1));
 		if (
 			snapshot.kind === "invalid" ||
@@ -82,6 +86,8 @@ export function verifyMctxCompartmentGraph(
 		}
 		if (sourceStartIndex < 0) sourceStartIndex = start;
 		previousEnd = end;
+		// m0 is the stable prefix. Once m1 begins, later m0 would invalidate the
+		// cache-stable ordering expected by the context renderer.
 		if (compartment.tier === "m0") {
 			if (sawM1) return { kind: "invalid", reason: "m0 cannot follow m1" };
 			m0.push(compartment);
@@ -114,6 +120,8 @@ export function planMctxCompartmentRecovery(
 	if (compartments.length === 0) return { kind: "empty" };
 	let ancestor: MctxVerifiedCompartmentGraph | undefined;
 	for (let end = 1; end <= compartments.length; end++) {
+		// Test prefixes in publication order: the first divergent record defines
+		// the exact tail that can be deleted without losing verified history.
 		const candidate = verifyMctxCompartmentGraph(entries, compartments.slice(0, end));
 		if (candidate.kind === "valid") {
 			ancestor = candidate.graph;

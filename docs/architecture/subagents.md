@@ -46,6 +46,13 @@ foreground/background 不是第四 mode，也没有主 agent `wait` 或 result-p
 返回；parent 完成当前 turn 后空闲，terminal delivery 通过 event-driven follow-up 排入它的后续工作。
 schedule/cron 是未来的 `task` trigger，不是新的执行 mode。
 
+completion 的 failed terminal 保留用户可读 message，并携带 core-normalized failure kind。core 只从原始
+provider error 的数值 HTTP `status`/`statusCode` 与标准 transport `code` 提取结构化证据，未知 shape 必须
+标为 `unknown`，不能从 message 文本猜测。`authentication`、`invalid-request`、`configuration`、`transient`
+、`invalid-response` 和 `unknown` 是稳定分类；只有 consumer 自己拥有的有限 retry policy 才可对 `transient` 重试。core 不 retry，
+也不公开原始 Error object、provider response 或 credentials。这样 auto-title、BTW 与 MCTX 共享可靠 terminal
+diagnostic，而 MCTX 可避免误重试认证、400 和配置失败。
+
 ## Task Delivery
 
 每个 `task` 在启动 spec 中必须声明 terminal delivery sink；没有 sink 不能启动。sink 是 caller/host

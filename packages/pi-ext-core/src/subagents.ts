@@ -2,6 +2,11 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, AssistantMessage, Context, Model } from "@earendil-works/pi-ai";
 import { completeSimple } from "@earendil-works/pi-ai/compat";
 import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import {
+	classifyCompletionFailure,
+	configurationFailure,
+	invalidResponseFailure,
+} from "./completion-failure.js";
 import { getGlobalState } from "./global-state.js";
 import type { ExtensionLifecycleContext } from "./lifecycle.js";
 import { runtimeIdentity } from "./runtime-identity.js";
@@ -61,6 +66,24 @@ export interface CompletionSubagentSpec {
 	readonly messages?: Context["messages"];
 	readonly systemPrompt: string;
 	readonly thinkingLevel: ThinkingLevel;
+}
+
+/**
+ * Core-normalized terminal evidence for a no-tools completion. `status` and
+ * `code` are included only when extracted from an error object's own structure;
+ * callers must never infer retryability from the human-readable `message`.
+ */
+export interface CompletionFailure {
+	readonly kind:
+		| "authentication"
+		| "configuration"
+		| "invalid-request"
+		| "invalid-response"
+		| "transient"
+		| "unknown";
+	readonly message: string;
+	readonly status?: number;
+	readonly code?: string;
 }
 
 /**
@@ -149,13 +172,26 @@ export interface ConversationSubagentSpec {
 
 export type SubagentSpec = CompletionSubagentSpec | TaskSubagentSpec | ConversationSubagentSpec;
 
-export interface CompletionSubagentResult {
-	readonly id: SubagentId;
-	readonly mode: "completion";
-	readonly status: "completed" | "failed" | "cancelled";
-	readonly output: string;
-	readonly failure?: string;
-}
+export type CompletionSubagentResult =
+	| {
+			readonly id: SubagentId;
+			readonly mode: "completion";
+			readonly status: "completed";
+			readonly output: string;
+	  }
+	| {
+			readonly id: SubagentId;
+			readonly mode: "completion";
+			readonly status: "failed";
+			readonly output: "";
+			readonly failure: CompletionFailure;
+	  }
+	| {
+			readonly id: SubagentId;
+			readonly mode: "completion";
+			readonly status: "cancelled";
+			readonly output: "";
+	  };
 
 export interface ConversationDeliveryAcknowledgement {
 	readonly id: SubagentId;
@@ -689,35 +725,44 @@ function startCompletion(
 					terminal = { id, mode: "completion", status: "cancelled", output: "" };
 				else {
 					const auth = await context.extension.modelRegistry.getApiKeyAndHeaders(spec.model);
-					if (!auth.ok) throw new Error(auth.error);
-					const message = await completeSimple(
-						spec.model,
-						{
-							systemPrompt: spec.systemPrompt,
-							messages: spec.messages ?? [
-								{ role: "user", content: spec.prompt, timestamp: Date.now() },
-							],
-							tools: [],
-						},
-						{
-							signal: controller.signal,
-							...(auth.apiKey === undefined ? {} : { apiKey: auth.apiKey }),
-							...(auth.headers === undefined ? {} : { headers: auth.headers }),
-							...(auth.env === undefined ? {} : { env: auth.env }),
-						},
-					);
-					const output = assistantText(message);
-					terminal = controller.signal.aborted
-						? { id, mode: "completion", status: "cancelled", output: "" }
-						: message.stopReason === "stop" && output
-							? { id, mode: "completion", status: "completed", output }
-							: {
-									id,
-									mode: "completion",
-									status: "failed",
-									output: "",
-									failure: "Completion produced no final text",
-								};
+					if (!auth.ok) {
+						terminal = {
+							id,
+							mode: "completion",
+							status: "failed",
+							output: "",
+							failure: configurationFailure(auth.error),
+						};
+					} else {
+						const message = await completeSimple(
+							spec.model,
+							{
+								systemPrompt: spec.systemPrompt,
+								messages: spec.messages ?? [
+									{ role: "user", content: spec.prompt, timestamp: Date.now() },
+								],
+								tools: [],
+							},
+							{
+								signal: controller.signal,
+								...(auth.apiKey === undefined ? {} : { apiKey: auth.apiKey }),
+								...(auth.headers === undefined ? {} : { headers: auth.headers }),
+								...(auth.env === undefined ? {} : { env: auth.env }),
+							},
+						);
+						const output = assistantText(message);
+						terminal = controller.signal.aborted
+							? { id, mode: "completion", status: "cancelled", output: "" }
+							: message.stopReason === "stop" && output
+								? { id, mode: "completion", status: "completed", output }
+								: {
+										id,
+										mode: "completion",
+										status: "failed",
+										output: "",
+										failure: invalidResponseFailure("Completion produced no final text"),
+									};
+					}
 				}
 			} catch (error) {
 				terminal = controller.signal.aborted
@@ -727,7 +772,7 @@ function startCompletion(
 							mode: "completion",
 							status: "failed",
 							output: "",
-							failure: failureMessage(error),
+							failure: classifyCompletionFailure(error, failureMessage(error)),
 						};
 			}
 			status = terminal.status;

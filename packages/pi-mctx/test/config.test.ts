@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
 	DEFAULT_EXECUTE_THRESHOLD_PERCENTAGE,
 	DEFAULT_FAIL_CLOSED_BLOCKING,
+	DEFAULT_PROTECTED_TAGS,
 	loadMctxConfiguration,
 	type MctxSettingsPaths,
 } from "../src/config.js";
@@ -48,8 +49,27 @@ test("enabled user configuration resolves pipeline defaults", async (): Promise<
 				defaultValue: DEFAULT_EXECUTE_THRESHOLD_PERCENTAGE,
 				byModel: {},
 			},
+			protectedTags: DEFAULT_PROTECTED_TAGS,
 		},
 	});
+});
+
+test("accepts only user-level embedding provider configuration", async (): Promise<void> => {
+	const config = await withSettings(
+		{
+			"pi-mctx": {
+				enabled: true,
+				historian: { model: "anthropic/claude-haiku" },
+				embedding: { provider: "local", model: "Xenova/test" },
+			},
+		},
+		{ "pi-mctx": { embedding: { provider: "synapse" } } },
+		loadMctxConfiguration,
+	);
+	expect(config.embedding).toEqual({ provider: "local", model: "Xenova/test" });
+	expect(config.warnings).toContain(
+		"Ignoring project embedding: only user config may select embedding providers",
+	);
 });
 
 test("project configuration cannot enable or select the historian", async (): Promise<void> => {
@@ -82,6 +102,7 @@ test("exposes default merged provenance without weakening MCTX historian policy"
 			historianModel: "anthropic/claude-haiku",
 			failClosedBlocking: true,
 			executeThresholdPercentage: { defaultValue: 65, byModel: {} },
+			protectedTags: DEFAULT_PROTECTED_TAGS,
 		},
 	});
 });
@@ -117,6 +138,7 @@ test("project configuration can only raise configured trigger thresholds", async
 				defaultValue: 12_000,
 				byModel: {},
 			},
+			protectedTags: DEFAULT_PROTECTED_TAGS,
 		},
 	});
 });

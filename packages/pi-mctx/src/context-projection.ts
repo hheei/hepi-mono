@@ -15,6 +15,8 @@ function indexOfIdentitySequence(
 	messages: readonly AgentMessage[],
 	sequence: readonly AgentMessage[],
 ): number | undefined {
+	// Value equality could replace another extension's equal-looking messages.
+	// Identity proves this exact Pi branch segment still survived the hook chain.
 	if (sequence.length === 0) return undefined;
 	for (let start = 0; start <= messages.length - sequence.length; start++) {
 		let matches = true;
@@ -35,6 +37,7 @@ function tierMessage(tier: "m0" | "m1", compartments: readonly MctxCompartment[]
 		customType: `pi-mctx:${tier}`,
 		content: compartments.map((compartment) => compartment.renderedPayload).join("\n\n"),
 		display: false,
+		// Stable m0 metadata keeps provider prompt-prefix caches reusable.
 		timestamp: 0,
 	};
 }

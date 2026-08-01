@@ -114,7 +114,10 @@ async function executeCoreCompletion(
 	const result = await handle.result;
 	if (result.status === "cancelled") return { status: "aborted" };
 	if (result.status !== "completed")
-		return { status: "error", message: result.failure ?? "The BTW request failed" };
+		return {
+			status: "error",
+			message: result.status === "failed" ? result.failure.message : "The BTW request failed",
+		};
 	const response: AssistantMessage = {
 		role: "assistant",
 		content: [{ type: "text", text: result.output }],

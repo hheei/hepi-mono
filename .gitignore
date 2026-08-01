@@ -25,8 +25,5 @@ graphify-out/*
 !graphify-out/graph.json
 pi-session-*.html
 
-# The pi-subagents fork is a separately checked submodule with its own tooling.
-packages/pi-subagents/
-
 # Public reference repositories are documented, not vendored.
 references/repos/

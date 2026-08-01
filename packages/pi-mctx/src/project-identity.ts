@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 export interface ProjectIdentityResolver {
+	/** Resolves a stable opaque key; neither raw paths nor remotes enter the store. */
 	resolve(cwd: string, signal?: AbortSignal): Promise<string>;
 }
 

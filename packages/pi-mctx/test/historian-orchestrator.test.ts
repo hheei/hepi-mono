@@ -48,6 +48,7 @@ function store(options: {
 				expect(ttlMs).toBe(MCTX_HISTORIAN_LEASE_TTL_MS);
 				return options.lease === undefined ? lease : options.lease;
 			},
+			renewHistorianLease: (current: MctxHistorianLease) => current,
 			publishCompartment: (_current: MctxPartition, draft: MctxCompartmentDraft) =>
 				options.publish === undefined ? undefined : publication(draft),
 			releaseHistorianLease: (released: MctxHistorianLease) => {
@@ -66,6 +67,10 @@ function executor(outputs: readonly string[]): MctxHistorianExecutor {
 		if (output === undefined) throw new Error("Unexpected historian execution");
 		return { kind: "completed", output };
 	};
+}
+
+function failed(kind: "transient" | "invalid-request", message: string) {
+	return { kind: "failed" as const, failure: { kind, message } };
 }
 
 function request(overrides: Record<string, unknown> = {}): Parameters<typeof runMctxHistorian>[0] {
@@ -106,6 +111,156 @@ test("publishes valid primary output and releases its lease", async (): Promise<
 	const result = await runMctxHistorian(request({ store: activeStore }), executor([validOutput]));
 	expect(result).toMatchObject({ kind: "published", repaired: false });
 	expect(releases()).toBe(1);
+});
+
+test("renews an active lease and releases its latest snapshot", async (): Promise<void> => {
+	const initialLease: MctxHistorianLease = { partition, ownerToken: "owner", expiresAtMs: 60_000 };
+	let renewals = 0;
+	let released: MctxHistorianLease | undefined;
+	const result = await runMctxHistorian(
+		request({
+			leaseRenewalIntervalMs: 1,
+			store: {
+				acquireHistorianLease: () => initialLease,
+				renewHistorianLease: (current: MctxHistorianLease, ttlMs: number) => {
+					expect(ttlMs).toBe(MCTX_HISTORIAN_LEASE_TTL_MS);
+					renewals++;
+					return { ...current, expiresAtMs: current.expiresAtMs + ttlMs };
+				},
+				publishCompartment: (_current: MctxPartition, draft: MctxCompartmentDraft) =>
+					publication(draft),
+				releaseHistorianLease: (lease: MctxHistorianLease) => {
+					released = lease;
+				},
+			},
+		}),
+		async () => {
+			await new Promise<void>((resolve) => setTimeout(resolve, 5));
+			return { kind: "completed", output: validOutput };
+		},
+	);
+	expect(result).toMatchObject({ kind: "published", repaired: false });
+	expect(renewals).toBeGreaterThan(0);
+	expect(released?.expiresAtMs).toBeGreaterThan(initialLease.expiresAtMs);
+});
+
+test("retries a transient failure at most twice before publishing", async (): Promise<void> => {
+	const { store: activeStore } = store({
+		publish: publication({
+			tier: "m0",
+			sourceStartEntryId: "entry-1",
+			sourceEndEntryId: "entry-2",
+			sourceFingerprint: "snapshot",
+			renderedPayload: "summary",
+		}),
+	});
+	let calls = 0;
+	const result = await runMctxHistorian(
+		request({ store: activeStore, retryDelayMs: () => 0 }),
+		async () => {
+			calls++;
+			return calls < 3
+				? failed("transient", "rate limited")
+				: { kind: "completed", output: validOutput };
+		},
+	);
+	expect(result).toMatchObject({ kind: "published", repaired: false });
+	expect(calls).toBe(3);
+});
+
+test("does not retry a non-transient completion failure", async (): Promise<void> => {
+	const { store: activeStore } = store({});
+	let calls = 0;
+	const result = await runMctxHistorian(
+		request({ store: activeStore, retryDelayMs: () => 0 }),
+		async () => {
+			calls++;
+			return failed("invalid-request", "bad request");
+		},
+	);
+	expect(result).toEqual({
+		kind: "failed",
+		reason: "bad request",
+		failureKind: "invalid-request",
+		attempt: 1,
+	});
+	expect(calls).toBe(1);
+});
+
+test("cancels a pending transient retry without another completion", async (): Promise<void> => {
+	const controller = new AbortController();
+	const { store: activeStore } = store({});
+	let calls = 0;
+	const running = runMctxHistorian(
+		request({ store: activeStore, signal: controller.signal, retryDelayMs: () => 10_000 }),
+		async () => {
+			calls++;
+			queueMicrotask(() => controller.abort());
+			return failed("transient", "timed out");
+		},
+	);
+	expect(await running).toEqual({ kind: "cancelled" });
+	expect(calls).toBe(1);
+});
+
+test("shares the retry budget with validation repair", async (): Promise<void> => {
+	const { store: activeStore } = store({});
+	let calls = 0;
+	const outcomes = [
+		failed("transient", "rate limited"),
+		failed("transient", "rate limited"),
+		{ kind: "completed" as const, output: "not json" },
+		failed("transient", "still rate limited"),
+	];
+	const result = await runMctxHistorian(
+		request({ store: activeStore, retryDelayMs: () => 0 }),
+		async () => {
+			const outcome = outcomes[calls++];
+			if (outcome === undefined) throw new Error("Unexpected historian execution");
+			return outcome;
+		},
+	);
+	expect(result).toEqual({
+		kind: "failed",
+		reason: "still rate limited",
+		failureKind: "transient",
+		attempt: 4,
+	});
+	expect(calls).toBe(4);
+});
+
+test("cancels without publication when lease renewal loses ownership", async (): Promise<void> => {
+	let published = false;
+	let releases = 0;
+	const result = await runMctxHistorian(
+		request({
+			leaseRenewalIntervalMs: 1,
+			store: {
+				acquireHistorianLease: () => ({ partition, ownerToken: "owner", expiresAtMs: 60_000 }),
+				renewHistorianLease: () => undefined,
+				publishCompartment: () => {
+					published = true;
+					return publication({
+						tier: "m0",
+						sourceStartEntryId: "entry-1",
+						sourceEndEntryId: "entry-2",
+						sourceFingerprint: "snapshot",
+						renderedPayload: "summary",
+					});
+				},
+				releaseHistorianLease: () => void releases++,
+			},
+		}),
+		async (_context, completion) =>
+			await new Promise((resolve) => {
+				completion.signal.addEventListener("abort", () => resolve({ kind: "cancelled" }), {
+					once: true,
+				});
+			}),
+	);
+	expect(result).toEqual({ kind: "cancelled" });
+	expect(published).toBeFalse();
+	expect(releases).toBe(1);
 });
 
 test("repairs invalid primary output once before publication", async (): Promise<void> => {

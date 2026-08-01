@@ -1,20 +1,27 @@
+import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export const MCTX_STORE_APPLICATION_ID = 0x484d4354;
-export const MCTX_STORE_SCHEMA_VERSION = 4;
+export const MCTX_STORE_SCHEMA_VERSION = 8;
 export const MCTX_STORE_BUSY_TIMEOUT_MS = 5_000;
 
 /**
  * Canonical MCTX persistence boundary. The store owns schema/migration, partition
- * revisions, lease transactions, and compare-and-commit publication; callers own
- * when a session should read, rebuild, or close the store.
+ * revisions, leases, and compare-and-commit publication. Partition snapshots are
+ * immutable optimistic-concurrency tokens; callers replace them after each successful write.
  */
 export interface MctxStore {
 	readonly path: string;
 	getOrCreatePartition(projectIdentity: string, sessionId: string): MctxPartition;
+	findPartition(projectIdentity: string, sessionId: string): MctxPartition | undefined;
+	initializeForkPartition(
+		source: MctxPartition,
+		destination: MctxPartitionKey,
+		compartments: readonly MctxCompartment[],
+	): MctxForkPartitionInitialization;
 	advancePartitionRevision(partition: MctxPartition): MctxPartition | undefined;
 	acquireHistorianLease(
 		partition: MctxPartition,
@@ -37,9 +44,41 @@ export interface MctxStore {
 		partition: MctxPartition,
 		draft: MctxCompartmentDraft,
 	): MctxCompartmentPublication | undefined;
+	syncHistoryTags(
+		partition: MctxPartition,
+		inputs: readonly MctxHistoryTagInput[],
+	): MctxHistoryTagSync | undefined;
+	queueHistoryTagDrops(
+		partition: MctxPartition,
+		tagNumbers: readonly number[],
+		activeTagNumbers: readonly number[],
+		protectedTags: number,
+	): MctxHistoryTagDropQueue | undefined;
+	markHistoryTagsDropped(
+		partition: MctxPartition,
+		tagNumbers: readonly number[],
+	): MctxPartition | undefined;
+	writeMemory(input: MctxMemoryWrite): MctxMemory;
+	getMemories(projectIdentity: string, memoryIds: readonly number[]): readonly MctxMemory[];
+	updateMemory(input: MctxMemoryUpdate): MctxMemory | undefined;
+	archiveMemory(input: MctxMemoryArchive): MctxMemory | undefined;
+	loadMemoryEmbeddingCandidate(
+		projectIdentity: string,
+		memoryId: number,
+	): MctxMemoryEmbeddingCandidate | undefined;
+	persistMemoryEmbedding(input: MctxMemoryEmbeddingWrite): boolean;
+	writeNote(input: MctxNoteWrite): MctxNote;
+	readNotes(
+		projectIdentity: string,
+		sessionId: string,
+		status?: MctxNoteStatus,
+	): readonly MctxNote[];
+	updateNote(input: MctxNoteUpdate): MctxNote | undefined;
+	dismissNote(input: MctxNoteDismiss): MctxNote | undefined;
 	close(): void;
 }
 
+/** Identifies one Pi parent session within a stable project and its CAS revision. */
 export interface MctxPartition {
 	/** Stable project/session scope; no compartment may cross either identity. */
 	readonly projectIdentity: string;
@@ -47,6 +86,19 @@ export interface MctxPartition {
 	readonly revision: number;
 }
 
+/** Stable store key without a CAS revision, used only to create a fresh session partition. */
+export interface MctxPartitionKey {
+	readonly projectIdentity: string;
+	readonly sessionId: string;
+}
+
+/** Fork initialization never overwrites a partition that a previous start already owns. */
+export type MctxForkPartitionInitialization =
+	| { readonly kind: "copied"; readonly partition: MctxPartition }
+	| { readonly kind: "existing"; readonly partition: MctxPartition }
+	| { readonly kind: "stale" };
+
+/** A finite, partition-local historian ownership claim. Only its owner may renew or release it. */
 export interface MctxHistorianLease {
 	/** Lease token is single-owner and must be released by the historian attempt. */
 	readonly partition: MctxPartition;
@@ -54,6 +106,7 @@ export interface MctxHistorianLease {
 	readonly expiresAtMs: number;
 }
 
+/** Model-derived content fenced by immutable source IDs and their branch-order fingerprint. */
 export interface MctxCompartmentDraft {
 	/** Unpublished model output tied to a verifiable source range and tier. */
 	readonly tier: "m0" | "m1";
@@ -68,9 +121,160 @@ export interface MctxCompartment extends MctxCompartmentDraft {
 	readonly publishedRevision: number;
 }
 
+/** One atomic payload insertion and partition revision advance. */
 export interface MctxCompartmentPublication {
 	readonly partition: MctxPartition;
 	readonly compartment: MctxCompartment;
+}
+
+export type MctxHistoryTagKind = "message" | "tool" | "reference";
+export type MctxHistoryTagStatus = "active" | "pending" | "dropped";
+
+/** Immutable source binding for one model-visible history payload. */
+export interface MctxHistoryTagInput {
+	readonly kind: MctxHistoryTagKind;
+	readonly entryId: string;
+	readonly toolCallId?: string;
+	readonly source: string;
+}
+
+export interface MctxHistoryTag extends MctxHistoryTagInput {
+	readonly tagNumber: number;
+	readonly status: MctxHistoryTagStatus;
+}
+
+export interface MctxHistoryTagSync {
+	readonly partition: MctxPartition;
+	readonly tags: readonly MctxHistoryTag[];
+}
+
+/** Queue results distinguish protected/unknown selectors without exposing source text. */
+export interface MctxHistoryTagDropQueue {
+	readonly partition: MctxPartition;
+	readonly queued: readonly number[];
+	readonly rejected: readonly number[];
+}
+
+export const MCTX_MEMORY_CATEGORIES = [
+	"PROJECT_RULES",
+	"ARCHITECTURE",
+	"CONSTRAINTS",
+	"CONFIG_VALUES",
+	"NAMING",
+] as const;
+export type MctxMemoryCategory = (typeof MCTX_MEMORY_CATEGORIES)[number];
+export type MctxMemoryStatus = "active" | "archived";
+
+export interface MctxMemory {
+	readonly projectIdentity: string;
+	readonly memoryId: number;
+	readonly category: MctxMemoryCategory;
+	readonly content: string;
+	readonly status: MctxMemoryStatus;
+	readonly revision: number;
+	readonly createdSessionId: string;
+	readonly updatedSessionId: string;
+	readonly createdAtMs: number;
+	readonly updatedAtMs: number;
+}
+
+/** Active source snapshot passed to one detached embedding call. */
+export interface MctxMemoryEmbeddingCandidate {
+	readonly projectIdentity: string;
+	readonly memoryId: number;
+	readonly content: string;
+	readonly contentHash: string;
+	readonly revision: number;
+}
+
+/** Model identity and source fields fence a late provider result at SQLite commit time. */
+export interface MctxMemoryEmbeddingWrite {
+	readonly projectIdentity: string;
+	readonly memoryId: number;
+	readonly contentHash: string;
+	readonly revision: number;
+	readonly modelIdentity: string;
+	readonly providerGeneration: number;
+	readonly vector: Float32Array;
+	readonly nowMs?: number;
+}
+
+export interface MctxMemoryWrite {
+	readonly projectIdentity: string;
+	readonly sessionId: string;
+	readonly category: MctxMemoryCategory;
+	readonly content: string;
+	readonly nowMs?: number;
+}
+
+export interface MctxMemoryUpdate {
+	readonly projectIdentity: string;
+	readonly sessionId: string;
+	readonly memoryId: number;
+	readonly expectedRevision: number;
+	readonly content: string;
+	readonly nowMs?: number;
+}
+
+export interface MctxMemoryArchive {
+	readonly projectIdentity: string;
+	readonly sessionId: string;
+	readonly memoryId: number;
+	readonly expectedRevision: number;
+	readonly nowMs?: number;
+}
+
+/** Immutable tag evidence retained instead of a session-local ordinal. */
+export interface MctxNoteAnchor {
+	readonly entryId: string;
+	readonly kind: MctxHistoryTagKind;
+	readonly toolCallId?: string;
+}
+
+export type MctxNoteStatus = "active" | "dismissed";
+
+/** Session-local durable work state. Smart conditions are stored pending only. */
+export interface MctxNote {
+	readonly projectIdentity: string;
+	readonly sessionId: string;
+	readonly noteId: number;
+	readonly content: string;
+	readonly status: MctxNoteStatus;
+	readonly anchor?: MctxNoteAnchor;
+	readonly smartCondition?: string;
+	readonly revision: number;
+	readonly createdSessionId: string;
+	readonly updatedSessionId: string;
+	readonly createdAtMs: number;
+	readonly updatedAtMs: number;
+}
+
+export interface MctxNoteWrite {
+	readonly projectIdentity: string;
+	readonly sessionId: string;
+	readonly content: string;
+	readonly anchor?: MctxNoteAnchor;
+	readonly smartCondition?: string;
+	readonly nowMs?: number;
+}
+
+export interface MctxNoteUpdate {
+	readonly projectIdentity: string;
+	readonly sessionId: string;
+	readonly noteId: number;
+	readonly expectedRevision: number;
+	readonly content: string;
+	readonly anchor?: MctxNoteAnchor | null;
+	readonly smartCondition?: string | null;
+	readonly nowMs?: number;
+}
+
+export interface MctxNoteDismiss {
+	readonly projectIdentity: string;
+	readonly sessionId: string;
+	readonly noteId: number;
+	readonly expectedRevision: number;
+	readonly nowMs?: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -196,6 +400,98 @@ function migrateV4(database: DatabaseSync): void {
 	}
 }
 
+function migrateV5(database: DatabaseSync): void {
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		database.exec("ALTER TABLE mctx_metadata RENAME TO mctx_metadata_v4");
+		database.exec(
+			"CREATE TABLE mctx_metadata (schema_version INTEGER NOT NULL CHECK (schema_version = 5)) STRICT",
+		);
+		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(5);
+		database.exec("DROP TABLE mctx_metadata_v4");
+		// Source is retained once per session tag. It is never copied to a fork,
+		// injected automatically, or rewritten after a deferred drop is projected.
+		database.exec(
+			"CREATE TABLE history_tags (project_identity TEXT NOT NULL, session_id TEXT NOT NULL, tag_number INTEGER NOT NULL CHECK (tag_number > 0), kind TEXT NOT NULL CHECK (kind IN ('message', 'tool', 'reference')), entry_id TEXT NOT NULL, tool_call_id TEXT, source TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('active', 'pending', 'dropped')), PRIMARY KEY (project_identity, session_id, tag_number), UNIQUE (project_identity, session_id, entry_id, kind, tool_call_id), FOREIGN KEY (project_identity, session_id) REFERENCES partitions(project_identity, session_id)) STRICT",
+		);
+		database.exec("PRAGMA user_version = 5");
+		database.exec("COMMIT");
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
+function migrateV6(database: DatabaseSync): void {
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		database.exec("ALTER TABLE mctx_metadata RENAME TO mctx_metadata_v5");
+		database.exec(
+			"CREATE TABLE mctx_metadata (schema_version INTEGER NOT NULL CHECK (schema_version = 6)) STRICT",
+		);
+		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(6);
+		database.exec("DROP TABLE mctx_metadata_v5");
+		database.exec(
+			"CREATE TABLE memories (project_identity TEXT NOT NULL REFERENCES projects(identity), memory_id INTEGER NOT NULL CHECK (memory_id > 0), category TEXT NOT NULL CHECK (category IN ('PROJECT_RULES', 'ARCHITECTURE', 'CONSTRAINTS', 'CONFIG_VALUES', 'NAMING')), content TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('active', 'archived')), revision INTEGER NOT NULL CHECK (revision > 0), created_session_id TEXT NOT NULL, updated_session_id TEXT NOT NULL, created_at_ms INTEGER NOT NULL CHECK (created_at_ms >= 0), updated_at_ms INTEGER NOT NULL CHECK (updated_at_ms >= 0), PRIMARY KEY (project_identity, memory_id)) STRICT",
+		);
+		database.exec("PRAGMA user_version = 6");
+		database.exec("COMMIT");
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
+function migrateV7(database: DatabaseSync): void {
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		database.exec("ALTER TABLE mctx_metadata RENAME TO mctx_metadata_v6");
+		database.exec(
+			"CREATE TABLE mctx_metadata (schema_version INTEGER NOT NULL CHECK (schema_version = 7)) STRICT",
+		);
+		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(7);
+		database.exec("DROP TABLE mctx_metadata_v6");
+		// Anchors store immutable Pi identity, never a tag ordinal that can be reused in another session.
+		database.exec(
+			"CREATE TABLE notes (project_identity TEXT NOT NULL, session_id TEXT NOT NULL, note_id INTEGER NOT NULL CHECK (note_id > 0), content TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('active', 'dismissed')), anchor_entry_id TEXT, anchor_kind TEXT CHECK (anchor_kind IN ('message', 'tool', 'reference')), anchor_tool_call_id TEXT, smart_condition TEXT, revision INTEGER NOT NULL CHECK (revision > 0), created_session_id TEXT NOT NULL, updated_session_id TEXT NOT NULL, created_at_ms INTEGER NOT NULL CHECK (created_at_ms >= 0), updated_at_ms INTEGER NOT NULL CHECK (updated_at_ms >= 0), PRIMARY KEY (project_identity, session_id, note_id), FOREIGN KEY (project_identity, session_id) REFERENCES partitions(project_identity, session_id), CHECK ((anchor_entry_id IS NULL AND anchor_kind IS NULL AND anchor_tool_call_id IS NULL) OR (anchor_entry_id IS NOT NULL AND anchor_kind IS NOT NULL))) STRICT",
+		);
+		database.exec("PRAGMA user_version = 7");
+		database.exec("COMMIT");
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
+function migrateV8(database: DatabaseSync): void {
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		database.exec("ALTER TABLE mctx_metadata RENAME TO mctx_metadata_v7");
+		database.exec(
+			"CREATE TABLE mctx_metadata (schema_version INTEGER NOT NULL CHECK (schema_version = 8)) STRICT",
+		);
+		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(8);
+		database.exec("DROP TABLE mctx_metadata_v7");
+		// One current source row makes a content/revision change an atomic publication fence.
+		database.exec(
+			"CREATE TABLE memory_embedding_sources (project_identity TEXT NOT NULL, memory_id INTEGER NOT NULL CHECK (memory_id > 0), content_hash TEXT NOT NULL CHECK (length(content_hash) = 64), memory_revision INTEGER NOT NULL CHECK (memory_revision > 0), PRIMARY KEY (project_identity, memory_id), UNIQUE (project_identity, memory_id, content_hash, memory_revision), FOREIGN KEY (project_identity, memory_id) REFERENCES memories(project_identity, memory_id)) STRICT",
+		);
+		database.exec(
+			"CREATE TABLE memory_embeddings (project_identity TEXT NOT NULL, memory_id INTEGER NOT NULL CHECK (memory_id > 0), model_identity TEXT NOT NULL, provider_generation INTEGER NOT NULL CHECK (provider_generation >= 0), source_content_hash TEXT NOT NULL CHECK (length(source_content_hash) = 64), source_memory_revision INTEGER NOT NULL CHECK (source_memory_revision > 0), dimensions INTEGER NOT NULL CHECK (dimensions > 0), vector BLOB NOT NULL, created_at_ms INTEGER NOT NULL CHECK (created_at_ms >= 0), PRIMARY KEY (project_identity, memory_id, model_identity, provider_generation), FOREIGN KEY (project_identity, memory_id, source_content_hash, source_memory_revision) REFERENCES memory_embedding_sources(project_identity, memory_id, content_hash, memory_revision)) STRICT",
+		);
+		database.exec("PRAGMA user_version = 8");
+		database.exec("COMMIT");
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
+/**
+ * Rejects foreign or unknown nonempty databases before migration. Each version
+ * upgrade commits independently, so an interrupted open can safely resume from
+ * its last completed schema fence.
+ */
 function validateSchema(database: DatabaseSync): void {
 	const applicationId = pragmaInteger(database, "PRAGMA application_id");
 	const version = pragmaInteger(database, "PRAGMA user_version");
@@ -216,6 +512,10 @@ function validateSchema(database: DatabaseSync): void {
 	if (pragmaInteger(database, "PRAGMA user_version") === 1) migrateV2(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 2) migrateV3(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 3) migrateV4(database);
+	if (pragmaInteger(database, "PRAGMA user_version") === 4) migrateV5(database);
+	if (pragmaInteger(database, "PRAGMA user_version") === 5) migrateV6(database);
+	if (pragmaInteger(database, "PRAGMA user_version") === 6) migrateV7(database);
+	if (pragmaInteger(database, "PRAGMA user_version") === 7) migrateV8(database);
 	if (pragmaInteger(database, "PRAGMA application_id") !== MCTX_STORE_APPLICATION_ID) {
 		throw new Error("Context store application identity is invalid");
 	}
@@ -227,7 +527,12 @@ function validateSchema(database: DatabaseSync): void {
 		!hasTable(database, "projects") ||
 		!hasTable(database, "partitions") ||
 		!hasTable(database, "historian_leases") ||
-		!hasTable(database, "compartments")
+		!hasTable(database, "compartments") ||
+		!hasTable(database, "history_tags") ||
+		!hasTable(database, "memories") ||
+		!hasTable(database, "notes") ||
+		!hasTable(database, "memory_embedding_sources") ||
+		!hasTable(database, "memory_embeddings")
 	) {
 		throw new Error("Context store partition tables are missing");
 	}
@@ -270,6 +575,8 @@ function getOrCreatePartition(
 	sessionId: string,
 ): MctxPartition {
 	requirePartitionKey(projectIdentity, sessionId);
+	// The project parent row and session partition must appear together. A later
+	// concurrent opener observes this committed snapshot rather than a partial key.
 	database.exec("BEGIN IMMEDIATE");
 	try {
 		database
@@ -293,6 +600,20 @@ function getOrCreatePartition(
 		database.exec("ROLLBACK");
 		throw error;
 	}
+}
+
+function findPartition(
+	database: DatabaseSync,
+	projectIdentity: string,
+	sessionId: string,
+): MctxPartition | undefined {
+	requirePartitionKey(projectIdentity, sessionId);
+	const row = database
+		.prepare(
+			"SELECT project_identity, session_id, revision FROM partitions WHERE project_identity = ? AND session_id = ?",
+		)
+		.get(projectIdentity, sessionId);
+	return row === undefined ? undefined : partitionFromRow(row);
 }
 
 function changedRows(value: unknown): number {
@@ -353,6 +674,8 @@ function acquireHistorianLease(
 ): MctxHistorianLease | undefined {
 	requirePartitionKey(partition.projectIdentity, partition.sessionId);
 	const expiresAtMs = requireLeaseInput(ownerToken, ttlMs, nowMs);
+	// Expiry deletion and acquisition share one writer transaction: two workers
+	// cannot both observe an expired lease and publish the same source range.
 	database.exec("BEGIN IMMEDIATE");
 	try {
 		database
@@ -451,6 +774,99 @@ function compartmentFromRow(value: unknown): MctxCompartment {
 	};
 }
 
+function requireForkCompartments(compartments: readonly MctxCompartment[]): void {
+	let previousRevision = 0;
+	const sequences = new Set<string>();
+	for (const compartment of compartments) {
+		requireCompartmentDraft(compartment);
+		if (
+			!Number.isSafeInteger(compartment.sequence) ||
+			compartment.sequence < 0 ||
+			!Number.isSafeInteger(compartment.publishedRevision) ||
+			compartment.publishedRevision <= previousRevision
+		) {
+			throw new Error("Context store fork compartments are invalid");
+		}
+		const sequenceKey = `${compartment.tier}:${compartment.sequence}`;
+		if (sequences.has(sequenceKey))
+			throw new Error("Context store fork compartments have duplicates");
+		sequences.add(sequenceKey);
+		previousRevision = compartment.publishedRevision;
+	}
+}
+
+/**
+ * Creates a child partition once and copies caller-verified ancestors under the
+ * source revision fence. Store only preserves records; Pi branch proof stays in
+ * the feature because SQLite cannot inspect session-tree entry IDs.
+ */
+function initializeForkPartition(
+	database: DatabaseSync,
+	source: MctxPartition,
+	destination: MctxPartitionKey,
+	compartments: readonly MctxCompartment[],
+): MctxForkPartitionInitialization {
+	requirePartitionKey(source.projectIdentity, source.sessionId);
+	requirePartitionKey(destination.projectIdentity, destination.sessionId);
+	if (!Number.isSafeInteger(source.revision) || source.revision < 0) {
+		throw new Error("Context store source partition revision is invalid");
+	}
+	requireForkCompartments(compartments);
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		const existing = findPartition(database, destination.projectIdentity, destination.sessionId);
+		if (existing !== undefined) {
+			database.exec("COMMIT");
+			return { kind: "existing", partition: existing };
+		}
+		const currentSource = findPartition(database, source.projectIdentity, source.sessionId);
+		if (currentSource?.revision !== source.revision) {
+			database.exec("ROLLBACK");
+			return { kind: "stale" };
+		}
+		database
+			.prepare("INSERT INTO projects (identity) VALUES (?) ON CONFLICT (identity) DO NOTHING")
+			.run(destination.projectIdentity);
+		database
+			.prepare("INSERT INTO partitions (project_identity, session_id) VALUES (?, ?)")
+			.run(destination.projectIdentity, destination.sessionId);
+
+		// A child owns fresh revision numbers. Source publication revisions identify
+		// parent order only and must not become the child's CAS timeline.
+		let revision = 0;
+		for (const compartment of compartments) {
+			revision++;
+			database
+				.prepare(
+					"INSERT INTO compartments (project_identity, session_id, tier, sequence, source_start_entry_id, source_end_entry_id, source_fingerprint, rendered_payload, published_revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+				)
+				.run(
+					destination.projectIdentity,
+					destination.sessionId,
+					compartment.tier,
+					compartment.sequence,
+					compartment.sourceStartEntryId,
+					compartment.sourceEndEntryId,
+					compartment.sourceFingerprint,
+					compartment.renderedPayload,
+					revision,
+				);
+		}
+		if (revision > 0) {
+			database
+				.prepare("UPDATE partitions SET revision = ? WHERE project_identity = ? AND session_id = ?")
+				.run(revision, destination.projectIdentity, destination.sessionId);
+		}
+		const partition = findPartition(database, destination.projectIdentity, destination.sessionId);
+		if (partition === undefined) throw new Error("Context store fork partition was not created");
+		database.exec("COMMIT");
+		return { kind: "copied", partition };
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
 function listCompartments(
 	database: DatabaseSync,
 	partition: MctxPartition,
@@ -480,6 +896,8 @@ function discardCompartmentsFrom(
 	}
 	database.exec("BEGIN IMMEDIATE");
 	try {
+		// Fence first. A failed compare-and-swap rolls back before the destructive
+		// delete, so a stale recovery worker cannot prune a newer graph tail.
 		const revisionChanges = changedRows(
 			database
 				.prepare(
@@ -516,6 +934,8 @@ function publishCompartment(
 ): MctxCompartmentPublication | undefined {
 	requirePartitionKey(partition.projectIdentity, partition.sessionId);
 	requireCompartmentDraft(draft);
+	// Advance the revision before inserting. A stale snapshot rolls back before
+	// any visible payload write, preserving the caller's recompute boundary.
 	database.exec("BEGIN IMMEDIATE");
 	try {
 		const changes = changedRows(
@@ -531,6 +951,8 @@ function publishCompartment(
 		}
 		if (changes !== 1) throw new Error("Context store publication affected multiple partitions");
 		const sequence = integerValue(
+			// Sequences are independent within each tier; revision is the global order
+			// used for validation and recovery.
 			database
 				.prepare(
 					"SELECT COALESCE(MAX(sequence) + 1, 0) AS value FROM compartments WHERE project_identity = ? AND session_id = ? AND tier = ?",
@@ -567,11 +989,817 @@ function publishCompartment(
 	}
 }
 
+function requireHistoryTagInput(input: MctxHistoryTagInput): void {
+	if (input.kind !== "message" && input.kind !== "tool" && input.kind !== "reference") {
+		throw new Error("Context store history tag kind is invalid");
+	}
+	if (!input.entryId.trim() || !input.source) {
+		throw new Error("Context store history tag source binding is invalid");
+	}
+	if (input.kind === "tool") {
+		if (input.toolCallId === undefined || !input.toolCallId.trim()) {
+			throw new Error("Context store tool tag call ID is invalid");
+		}
+	} else if (input.toolCallId !== undefined) {
+		throw new Error("Context store non-tool tag cannot have a tool call ID");
+	}
+}
+
+function historyTagFromRow(value: unknown): MctxHistoryTag {
+	if (
+		!isRecord(value) ||
+		(value.kind !== "message" && value.kind !== "tool" && value.kind !== "reference") ||
+		(typeof value.tool_call_id !== "string" && value.tool_call_id !== null) ||
+		(value.status !== "active" && value.status !== "pending" && value.status !== "dropped") ||
+		typeof value.entry_id !== "string" ||
+		typeof value.source !== "string" ||
+		typeof value.tag_number !== "number" ||
+		!Number.isSafeInteger(value.tag_number) ||
+		value.tag_number <= 0
+	) {
+		throw new Error("Context store history tag row is invalid");
+	}
+	return {
+		kind: value.kind,
+		entryId: value.entry_id,
+		...(value.tool_call_id === null ? {} : { toolCallId: value.tool_call_id }),
+		source: value.source,
+		tagNumber: value.tag_number,
+		status: value.status,
+	};
+}
+
+function partitionCas(database: DatabaseSync, partition: MctxPartition): MctxPartition | undefined {
+	const changes = changedRows(
+		database
+			.prepare(
+				"UPDATE partitions SET revision = revision + 1 WHERE project_identity = ? AND session_id = ? AND revision = ?",
+			)
+			.run(partition.projectIdentity, partition.sessionId, partition.revision),
+	);
+	if (changes === 0) return undefined;
+	if (changes !== 1)
+		throw new Error("Context store partition revision update affected multiple partitions");
+	return { ...partition, revision: partition.revision + 1 };
+}
+
+function syncHistoryTags(
+	database: DatabaseSync,
+	partition: MctxPartition,
+	inputs: readonly MctxHistoryTagInput[],
+): MctxHistoryTagSync | undefined {
+	requirePartitionKey(partition.projectIdentity, partition.sessionId);
+	for (const input of inputs) requireHistoryTagInput(input);
+	if (inputs.length === 0) return { partition, tags: [] };
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		const current = findPartition(database, partition.projectIdentity, partition.sessionId);
+		if (current?.revision !== partition.revision) {
+			database.exec("ROLLBACK");
+			return undefined;
+		}
+		let nextTagNumber = integerValue(
+			database
+				.prepare(
+					"SELECT COALESCE(MAX(tag_number) + 1, 1) AS value FROM history_tags WHERE project_identity = ? AND session_id = ?",
+				)
+				.get(partition.projectIdentity, partition.sessionId),
+			"history tag sequence",
+		);
+		let inserted = false;
+		for (const input of inputs) {
+			const existing = database
+				.prepare(
+					"SELECT tag_number FROM history_tags WHERE project_identity = ? AND session_id = ? AND entry_id = ? AND kind = ? AND tool_call_id IS ?",
+				)
+				.get(
+					partition.projectIdentity,
+					partition.sessionId,
+					input.entryId,
+					input.kind,
+					input.toolCallId ?? null,
+				);
+			if (existing !== undefined) continue;
+			database
+				.prepare(
+					"INSERT INTO history_tags (project_identity, session_id, tag_number, kind, entry_id, tool_call_id, source, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'active')",
+				)
+				.run(
+					partition.projectIdentity,
+					partition.sessionId,
+					nextTagNumber,
+					input.kind,
+					input.entryId,
+					input.toolCallId ?? null,
+					input.source,
+				);
+			nextTagNumber++;
+			inserted = true;
+		}
+		const nextPartition = inserted ? partitionCas(database, partition) : partition;
+		if (nextPartition === undefined) {
+			database.exec("ROLLBACK");
+			return undefined;
+		}
+		const tags = inputs.map((input) =>
+			historyTagFromRow(
+				database
+					.prepare(
+						"SELECT tag_number, kind, entry_id, tool_call_id, source, status FROM history_tags WHERE project_identity = ? AND session_id = ? AND entry_id = ? AND kind = ? AND tool_call_id IS ?",
+					)
+					.get(
+						partition.projectIdentity,
+						partition.sessionId,
+						input.entryId,
+						input.kind,
+						input.toolCallId ?? null,
+					),
+			),
+		);
+		database.exec("COMMIT");
+		return { partition: nextPartition, tags };
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
+function validTagNumbers(values: readonly number[], name: string): void {
+	if (values.some((value) => !Number.isSafeInteger(value) || value <= 0)) {
+		throw new Error(`Context store ${name} contains an invalid tag number`);
+	}
+}
+
+function queueHistoryTagDrops(
+	database: DatabaseSync,
+	partition: MctxPartition,
+	tagNumbers: readonly number[],
+	activeTagNumbers: readonly number[],
+	protectedTags: number,
+): MctxHistoryTagDropQueue | undefined {
+	requirePartitionKey(partition.projectIdentity, partition.sessionId);
+	validTagNumbers(tagNumbers, "drop selectors");
+	validTagNumbers(activeTagNumbers, "active tags");
+	if (!Number.isSafeInteger(protectedTags) || protectedTags < 1 || protectedTags > 100) {
+		throw new Error("Context store protected tag count is invalid");
+	}
+	const active = new Set(activeTagNumbers);
+	const protectedSet = new Set([...active].sort((a, b) => b - a).slice(0, protectedTags));
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		const current = findPartition(database, partition.projectIdentity, partition.sessionId);
+		if (current?.revision !== partition.revision) {
+			database.exec("ROLLBACK");
+			return undefined;
+		}
+		const queued: number[] = [];
+		const rejected: number[] = [];
+		for (const tagNumber of [...new Set(tagNumbers)]) {
+			const row = database
+				.prepare(
+					"SELECT status FROM history_tags WHERE project_identity = ? AND session_id = ? AND tag_number = ?",
+				)
+				.get(partition.projectIdentity, partition.sessionId, tagNumber);
+			if (
+				!isRecord(row) ||
+				row.status !== "active" ||
+				!active.has(tagNumber) ||
+				protectedSet.has(tagNumber)
+			) {
+				rejected.push(tagNumber);
+				continue;
+			}
+			const changed = changedRows(
+				database
+					.prepare(
+						"UPDATE history_tags SET status = 'pending' WHERE project_identity = ? AND session_id = ? AND tag_number = ? AND status = 'active'",
+					)
+					.run(partition.projectIdentity, partition.sessionId, tagNumber),
+			);
+			if (changed === 1) queued.push(tagNumber);
+			else rejected.push(tagNumber);
+		}
+		const nextPartition = queued.length === 0 ? partition : partitionCas(database, partition);
+		if (nextPartition === undefined) {
+			database.exec("ROLLBACK");
+			return undefined;
+		}
+		database.exec("COMMIT");
+		return { partition: nextPartition, queued, rejected };
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
+function markHistoryTagsDropped(
+	database: DatabaseSync,
+	partition: MctxPartition,
+	tagNumbers: readonly number[],
+): MctxPartition | undefined {
+	requirePartitionKey(partition.projectIdentity, partition.sessionId);
+	validTagNumbers(tagNumbers, "dropped tags");
+	if (tagNumbers.length === 0) return partition;
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		const current = findPartition(database, partition.projectIdentity, partition.sessionId);
+		if (current?.revision !== partition.revision) {
+			database.exec("ROLLBACK");
+			return undefined;
+		}
+		let changed = false;
+		for (const tagNumber of new Set(tagNumbers)) {
+			const rows = changedRows(
+				database
+					.prepare(
+						"UPDATE history_tags SET status = 'dropped' WHERE project_identity = ? AND session_id = ? AND tag_number = ? AND status = 'pending'",
+					)
+					.run(partition.projectIdentity, partition.sessionId, tagNumber),
+			);
+			changed ||= rows === 1;
+		}
+		const nextPartition = changed ? partitionCas(database, partition) : partition;
+		if (nextPartition === undefined) {
+			database.exec("ROLLBACK");
+			return undefined;
+		}
+		database.exec("COMMIT");
+		return nextPartition;
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
+function validMemoryCategory(value: unknown): value is MctxMemoryCategory {
+	return typeof value === "string" && MCTX_MEMORY_CATEGORIES.includes(value as MctxMemoryCategory);
+}
+
+function memoryContentHash(content: string): string {
+	return createHash("sha256").update(content, "utf8").digest("hex");
+}
+
+function validContentHash(value: unknown): value is string {
+	return typeof value === "string" && /^[0-9a-f]{64}$/i.test(value);
+}
+
+function memoryFromRow(value: unknown): MctxMemory {
+	if (
+		!isRecord(value) ||
+		!validMemoryCategory(value.category) ||
+		(value.status !== "active" && value.status !== "archived")
+	)
+		throw new Error("Context store memory row is invalid");
+	const memoryId = value.memory_id;
+	const revision = value.revision;
+	const createdAtMs = value.created_at_ms;
+	const updatedAtMs = value.updated_at_ms;
+	if (
+		typeof memoryId !== "number" ||
+		!Number.isSafeInteger(memoryId) ||
+		memoryId < 1 ||
+		typeof revision !== "number" ||
+		!Number.isSafeInteger(revision) ||
+		revision < 1 ||
+		typeof createdAtMs !== "number" ||
+		!Number.isSafeInteger(createdAtMs) ||
+		createdAtMs < 0 ||
+		typeof updatedAtMs !== "number" ||
+		!Number.isSafeInteger(updatedAtMs) ||
+		updatedAtMs < 0 ||
+		typeof value.project_identity !== "string" ||
+		typeof value.content !== "string" ||
+		typeof value.created_session_id !== "string" ||
+		typeof value.updated_session_id !== "string"
+	)
+		throw new Error("Context store memory row is invalid");
+	return {
+		projectIdentity: value.project_identity,
+		memoryId,
+		category: value.category,
+		content: value.content,
+		status: value.status,
+		revision,
+		createdSessionId: value.created_session_id,
+		updatedSessionId: value.updated_session_id,
+		createdAtMs,
+		updatedAtMs,
+	};
+}
+
+function requireMemoryInput(projectIdentity: string, sessionId: string, content?: string): void {
+	requirePartitionKey(projectIdentity, sessionId);
+	if (content !== undefined && !content.trim())
+		throw new Error("Context store memory content is invalid");
+}
+
+function requireMemoryId(memoryId: number): void {
+	if (!Number.isSafeInteger(memoryId) || memoryId < 1)
+		throw new Error("Context store memory ID is invalid");
+}
+
+function syncMemoryEmbeddingSource(database: DatabaseSync, memory: MctxMemory): void {
+	// Archived or superseded text must not remain a candidate. This mutation-time
+	// deletion is the privacy fence, not background retention or garbage collection.
+	database
+		.prepare("DELETE FROM memory_embeddings WHERE project_identity = ? AND memory_id = ?")
+		.run(memory.projectIdentity, memory.memoryId);
+	database
+		.prepare(
+			"INSERT INTO memory_embedding_sources (project_identity, memory_id, content_hash, memory_revision) VALUES (?, ?, ?, ?) ON CONFLICT(project_identity, memory_id) DO UPDATE SET content_hash = excluded.content_hash, memory_revision = excluded.memory_revision",
+		)
+		.run(
+			memory.projectIdentity,
+			memory.memoryId,
+			memoryContentHash(memory.content),
+			memory.revision,
+		);
+}
+
+function writeMemory(database: DatabaseSync, input: MctxMemoryWrite): MctxMemory {
+	requireMemoryInput(input.projectIdentity, input.sessionId, input.content);
+	if (!validMemoryCategory(input.category))
+		throw new Error("Context store memory category is invalid");
+	const nowMs = input.nowMs ?? Date.now();
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		const memoryId = integerValue(
+			database
+				.prepare(
+					"SELECT COALESCE(MAX(memory_id) + 1, 1) AS value FROM memories WHERE project_identity = ?",
+				)
+				.get(input.projectIdentity),
+			"memory sequence",
+		);
+		database
+			.prepare(
+				"INSERT INTO memories (project_identity, memory_id, category, content, status, revision, created_session_id, updated_session_id, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, 'active', 1, ?, ?, ?, ?)",
+			)
+			.run(
+				input.projectIdentity,
+				memoryId,
+				input.category,
+				input.content,
+				input.sessionId,
+				input.sessionId,
+				nowMs,
+				nowMs,
+			);
+		const row = database
+			.prepare("SELECT * FROM memories WHERE project_identity = ? AND memory_id = ?")
+			.get(input.projectIdentity, memoryId);
+		const memory = memoryFromRow(row);
+		syncMemoryEmbeddingSource(database, memory);
+		database.exec("COMMIT");
+		return memory;
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
+function getMemories(
+	database: DatabaseSync,
+	projectIdentity: string,
+	memoryIds: readonly number[],
+): readonly MctxMemory[] {
+	if (!projectIdentity.trim()) throw new Error("Context store project identity is invalid");
+	validTagNumbers(memoryIds, "memory IDs");
+	return [...new Set(memoryIds)]
+		.sort((a, b) => a - b)
+		.flatMap((memoryId) => {
+			const row = database
+				.prepare("SELECT * FROM memories WHERE project_identity = ? AND memory_id = ?")
+				.get(projectIdentity, memoryId);
+			return row === undefined ? [] : [memoryFromRow(row)];
+		});
+}
+
+function mutateMemory(
+	database: DatabaseSync,
+	input: MctxMemoryUpdate | MctxMemoryArchive,
+	archive: boolean,
+): MctxMemory | undefined {
+	const content = "content" in input ? input.content : undefined;
+	requireMemoryInput(input.projectIdentity, input.sessionId, content);
+	if (!archive && typeof content !== "string")
+		throw new Error("Context store memory content is invalid");
+	if (
+		!Number.isSafeInteger(input.memoryId) ||
+		input.memoryId < 1 ||
+		!Number.isSafeInteger(input.expectedRevision) ||
+		input.expectedRevision < 1
+	)
+		throw new Error("Context store memory revision is invalid");
+	const nowMs = input.nowMs ?? Date.now();
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		const changes = archive
+			? changedRows(
+					database
+						.prepare(
+							"UPDATE memories SET status = 'archived', revision = revision + 1, updated_session_id = ?, updated_at_ms = ? WHERE project_identity = ? AND memory_id = ? AND revision = ? AND status = 'active'",
+						)
+						.run(
+							input.sessionId,
+							nowMs,
+							input.projectIdentity,
+							input.memoryId,
+							input.expectedRevision,
+						),
+				)
+			: updateMemoryContent(database, input, content, nowMs);
+		if (changes === 0) {
+			database.exec("ROLLBACK");
+			return undefined;
+		}
+		const memory = memoryFromRow(
+			database
+				.prepare("SELECT * FROM memories WHERE project_identity = ? AND memory_id = ?")
+				.get(input.projectIdentity, input.memoryId),
+		);
+		syncMemoryEmbeddingSource(database, memory);
+		database.exec("COMMIT");
+		return memory;
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
+function updateMemoryContent(
+	database: DatabaseSync,
+	input: MctxMemoryUpdate | MctxMemoryArchive,
+	content: string | undefined,
+	nowMs: number,
+): number {
+	if (typeof content !== "string") throw new Error("Context store memory content is invalid");
+	return changedRows(
+		database
+			.prepare(
+				"UPDATE memories SET content = ?, revision = revision + 1, updated_session_id = ?, updated_at_ms = ? WHERE project_identity = ? AND memory_id = ? AND revision = ? AND status = 'active'",
+			)
+			.run(
+				content,
+				input.sessionId,
+				nowMs,
+				input.projectIdentity,
+				input.memoryId,
+				input.expectedRevision,
+			),
+	);
+}
+
+function memoryEmbeddingCandidateFromRow(value: unknown): MctxMemoryEmbeddingCandidate {
+	if (!isRecord(value)) throw new Error("Context store memory embedding source row is invalid");
+	const memoryId = value.memory_id;
+	const revision = value.memory_revision;
+	if (
+		typeof value.project_identity !== "string" ||
+		typeof value.content !== "string" ||
+		!validContentHash(value.content_hash) ||
+		typeof memoryId !== "number" ||
+		!Number.isSafeInteger(memoryId) ||
+		memoryId < 1 ||
+		typeof revision !== "number" ||
+		!Number.isSafeInteger(revision) ||
+		revision < 1
+	)
+		throw new Error("Context store memory embedding source row is invalid");
+	return {
+		projectIdentity: value.project_identity,
+		memoryId,
+		content: value.content,
+		contentHash: value.content_hash,
+		revision,
+	};
+}
+
+function loadMemoryEmbeddingCandidate(
+	database: DatabaseSync,
+	projectIdentity: string,
+	memoryId: number,
+): MctxMemoryEmbeddingCandidate | undefined {
+	if (!projectIdentity.trim()) throw new Error("Context store project identity is invalid");
+	requireMemoryId(memoryId);
+	const row = database
+		.prepare(
+			"SELECT memories.project_identity, memories.memory_id, memories.content, memory_embedding_sources.content_hash, memory_embedding_sources.memory_revision FROM memories INNER JOIN memory_embedding_sources USING (project_identity, memory_id) WHERE memories.project_identity = ? AND memories.memory_id = ? AND memories.status = 'active' AND memories.revision = memory_embedding_sources.memory_revision",
+		)
+		.get(projectIdentity, memoryId);
+	return row === undefined ? undefined : memoryEmbeddingCandidateFromRow(row);
+}
+
+function vectorBlob(vector: Float32Array): Uint8Array {
+	if (!(vector instanceof Float32Array))
+		throw new Error("Context store embedding vector is invalid");
+	if (!Number.isSafeInteger(vector.length) || vector.length < 1)
+		throw new Error("Context store embedding vector is invalid");
+	const bytes = new Uint8Array(vector.length * Float32Array.BYTES_PER_ELEMENT);
+	const view = new DataView(bytes.buffer);
+	for (let index = 0; index < vector.length; index++) {
+		const value = vector[index];
+		if (typeof value !== "number" || !Number.isFinite(value))
+			throw new Error("Context store embedding vector is invalid");
+		view.setFloat32(index * Float32Array.BYTES_PER_ELEMENT, value, true);
+	}
+	return bytes;
+}
+
+function persistMemoryEmbedding(database: DatabaseSync, input: MctxMemoryEmbeddingWrite): boolean {
+	if (!input.projectIdentity.trim()) throw new Error("Context store project identity is invalid");
+	requireMemoryId(input.memoryId);
+	if (!validContentHash(input.contentHash))
+		throw new Error("Context store embedding content hash is invalid");
+	if (!Number.isSafeInteger(input.revision) || input.revision < 1)
+		throw new Error("Context store embedding revision is invalid");
+	if (!input.modelIdentity.trim())
+		throw new Error("Context store embedding model identity is invalid");
+	if (!Number.isSafeInteger(input.providerGeneration) || input.providerGeneration < 0)
+		throw new Error("Context store embedding provider generation is invalid");
+	const nowMs = input.nowMs ?? Date.now();
+	if (!Number.isSafeInteger(nowMs) || nowMs < 0)
+		throw new Error("Context store embedding timestamp is invalid");
+	const blob = vectorBlob(input.vector);
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		const candidate = loadMemoryEmbeddingCandidate(database, input.projectIdentity, input.memoryId);
+		if (
+			candidate === undefined ||
+			candidate.contentHash !== input.contentHash ||
+			candidate.revision !== input.revision
+		) {
+			database.exec("ROLLBACK");
+			return false;
+		}
+		// The model and generation are part of the primary key: one provider result
+		// cannot overwrite another model's vector for the same current source.
+		database
+			.prepare(
+				"INSERT INTO memory_embeddings (project_identity, memory_id, model_identity, provider_generation, source_content_hash, source_memory_revision, dimensions, vector, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(project_identity, memory_id, model_identity, provider_generation) DO UPDATE SET source_content_hash = excluded.source_content_hash, source_memory_revision = excluded.source_memory_revision, dimensions = excluded.dimensions, vector = excluded.vector, created_at_ms = excluded.created_at_ms",
+			)
+			.run(
+				input.projectIdentity,
+				input.memoryId,
+				input.modelIdentity,
+				input.providerGeneration,
+				input.contentHash,
+				input.revision,
+				input.vector.length,
+				blob,
+				nowMs,
+			);
+		database.exec("COMMIT");
+		return true;
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
+function validHistoryTagKind(value: unknown): value is MctxHistoryTagKind {
+	return value === "message" || value === "tool" || value === "reference";
+}
+
+function noteAnchorFromRow(value: Record<string, unknown>): MctxNoteAnchor | undefined {
+	const entryId = value.anchor_entry_id;
+	const kind = value.anchor_kind;
+	const toolCallId = value.anchor_tool_call_id;
+	if (entryId === null && kind === null && toolCallId === null) return undefined;
+	if (
+		typeof entryId !== "string" ||
+		!entryId.trim() ||
+		!validHistoryTagKind(kind) ||
+		(typeof toolCallId !== "string" && toolCallId !== null) ||
+		(kind === "tool" && (typeof toolCallId !== "string" || !toolCallId.trim())) ||
+		(kind !== "tool" && toolCallId !== null)
+	)
+		throw new Error("Context store note anchor row is invalid");
+	return { entryId, kind, ...(toolCallId === null ? {} : { toolCallId }) };
+}
+
+function noteFromRow(value: unknown): MctxNote {
+	if (
+		!isRecord(value) ||
+		(value.status !== "active" && value.status !== "dismissed") ||
+		typeof value.project_identity !== "string" ||
+		typeof value.session_id !== "string" ||
+		typeof value.content !== "string" ||
+		(typeof value.smart_condition !== "string" && value.smart_condition !== null) ||
+		typeof value.created_session_id !== "string" ||
+		typeof value.updated_session_id !== "string"
+	)
+		throw new Error("Context store note row is invalid");
+	const noteId = value.note_id;
+	const revision = value.revision;
+	const createdAtMs = value.created_at_ms;
+	const updatedAtMs = value.updated_at_ms;
+	if (
+		typeof noteId !== "number" ||
+		!Number.isSafeInteger(noteId) ||
+		noteId < 1 ||
+		typeof revision !== "number" ||
+		!Number.isSafeInteger(revision) ||
+		revision < 1 ||
+		typeof createdAtMs !== "number" ||
+		!Number.isSafeInteger(createdAtMs) ||
+		createdAtMs < 0 ||
+		typeof updatedAtMs !== "number" ||
+		!Number.isSafeInteger(updatedAtMs) ||
+		updatedAtMs < 0
+	)
+		throw new Error("Context store note row is invalid");
+	const anchor = noteAnchorFromRow(value);
+	return {
+		projectIdentity: value.project_identity,
+		sessionId: value.session_id,
+		noteId,
+		content: value.content,
+		status: value.status,
+		...(anchor === undefined ? {} : { anchor }),
+		...(value.smart_condition === null ? {} : { smartCondition: value.smart_condition }),
+		revision,
+		createdSessionId: value.created_session_id,
+		updatedSessionId: value.updated_session_id,
+		createdAtMs,
+		updatedAtMs,
+	};
+}
+
+function requireNoteAnchor(anchor: MctxNoteAnchor): void {
+	if (!anchor.entryId.trim() || !validHistoryTagKind(anchor.kind))
+		throw new Error("Context store note anchor is invalid");
+	if (anchor.kind === "tool") {
+		if (anchor.toolCallId === undefined || !anchor.toolCallId.trim())
+			throw new Error("Context store tool note anchor is invalid");
+	} else if (anchor.toolCallId !== undefined) {
+		throw new Error("Context store non-tool note anchor cannot have a tool call ID");
+	}
+}
+
+function requireNoteInput(
+	projectIdentity: string,
+	sessionId: string,
+	content: string,
+	nowMs: number,
+): void {
+	requirePartitionKey(projectIdentity, sessionId);
+	if (!content.trim()) throw new Error("Context store note content is invalid");
+	if (!Number.isSafeInteger(nowMs) || nowMs < 0)
+		throw new Error("Context store note timestamp is invalid");
+}
+
+function writeNote(database: DatabaseSync, input: MctxNoteWrite): MctxNote {
+	const nowMs = input.nowMs ?? Date.now();
+	requireNoteInput(input.projectIdentity, input.sessionId, input.content, nowMs);
+	if (input.anchor !== undefined) requireNoteAnchor(input.anchor);
+	if (input.smartCondition !== undefined && !input.smartCondition.trim())
+		throw new Error("Context store smart note condition is invalid");
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		const noteId = integerValue(
+			database
+				.prepare(
+					"SELECT COALESCE(MAX(note_id) + 1, 1) AS value FROM notes WHERE project_identity = ? AND session_id = ?",
+				)
+				.get(input.projectIdentity, input.sessionId),
+			"note sequence",
+		);
+		database
+			.prepare(
+				"INSERT INTO notes (project_identity, session_id, note_id, content, status, anchor_entry_id, anchor_kind, anchor_tool_call_id, smart_condition, revision, created_session_id, updated_session_id, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, 1, ?, ?, ?, ?)",
+			)
+			.run(
+				input.projectIdentity,
+				input.sessionId,
+				noteId,
+				input.content,
+				input.anchor?.entryId ?? null,
+				input.anchor?.kind ?? null,
+				input.anchor?.toolCallId ?? null,
+				input.smartCondition ?? null,
+				input.sessionId,
+				input.sessionId,
+				nowMs,
+				nowMs,
+			);
+		const row = database
+			.prepare("SELECT * FROM notes WHERE project_identity = ? AND session_id = ? AND note_id = ?")
+			.get(input.projectIdentity, input.sessionId, noteId);
+		database.exec("COMMIT");
+		return noteFromRow(row);
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
+function readNotes(
+	database: DatabaseSync,
+	projectIdentity: string,
+	sessionId: string,
+	status: MctxNoteStatus = "active",
+): readonly MctxNote[] {
+	requirePartitionKey(projectIdentity, sessionId);
+	if (status !== "active" && status !== "dismissed")
+		throw new Error("Context store note status is invalid");
+	return database
+		.prepare(
+			"SELECT * FROM notes WHERE project_identity = ? AND session_id = ? AND status = ? ORDER BY note_id ASC",
+		)
+		.all(projectIdentity, sessionId, status)
+		.map(noteFromRow);
+}
+
+function requireNoteMutation(input: MctxNoteUpdate | MctxNoteDismiss, nowMs: number): void {
+	requirePartitionKey(input.projectIdentity, input.sessionId);
+	if (
+		!Number.isSafeInteger(input.noteId) ||
+		input.noteId < 1 ||
+		!Number.isSafeInteger(input.expectedRevision) ||
+		input.expectedRevision < 1 ||
+		!Number.isSafeInteger(nowMs) ||
+		nowMs < 0
+	)
+		throw new Error("Context store note revision is invalid");
+}
+
+function updateNote(database: DatabaseSync, input: MctxNoteUpdate): MctxNote | undefined {
+	const nowMs = input.nowMs ?? Date.now();
+	requireNoteMutation(input, nowMs);
+	if (!input.content.trim()) throw new Error("Context store note content is invalid");
+	if (input.anchor !== undefined && input.anchor !== null) requireNoteAnchor(input.anchor);
+	if (
+		input.smartCondition !== undefined &&
+		input.smartCondition !== null &&
+		!input.smartCondition.trim()
+	)
+		throw new Error("Context store smart note condition is invalid");
+	const changes = changedRows(
+		database
+			.prepare(
+				"UPDATE notes SET content = ?, anchor_entry_id = CASE WHEN ? THEN ? ELSE anchor_entry_id END, anchor_kind = CASE WHEN ? THEN ? ELSE anchor_kind END, anchor_tool_call_id = CASE WHEN ? THEN ? ELSE anchor_tool_call_id END, smart_condition = CASE WHEN ? THEN ? ELSE smart_condition END, revision = revision + 1, updated_session_id = ?, updated_at_ms = ? WHERE project_identity = ? AND session_id = ? AND note_id = ? AND revision = ? AND status = 'active'",
+			)
+			.run(
+				input.content,
+				input.anchor === undefined ? 0 : 1,
+				input.anchor?.entryId ?? null,
+				input.anchor === undefined ? 0 : 1,
+				input.anchor?.kind ?? null,
+				input.anchor === undefined ? 0 : 1,
+				input.anchor?.toolCallId ?? null,
+				input.smartCondition === undefined ? 0 : 1,
+				input.smartCondition ?? null,
+				input.sessionId,
+				nowMs,
+				input.projectIdentity,
+				input.sessionId,
+				input.noteId,
+				input.expectedRevision,
+			),
+	);
+	if (changes === 0) return undefined;
+	return noteFromRow(
+		database
+			.prepare("SELECT * FROM notes WHERE project_identity = ? AND session_id = ? AND note_id = ?")
+			.get(input.projectIdentity, input.sessionId, input.noteId),
+	);
+}
+
+function dismissNote(database: DatabaseSync, input: MctxNoteDismiss): MctxNote | undefined {
+	const nowMs = input.nowMs ?? Date.now();
+	requireNoteMutation(input, nowMs);
+	const changes = changedRows(
+		database
+			.prepare(
+				"UPDATE notes SET status = 'dismissed', revision = revision + 1, updated_session_id = ?, updated_at_ms = ? WHERE project_identity = ? AND session_id = ? AND note_id = ? AND revision = ? AND status = 'active'",
+			)
+			.run(
+				input.sessionId,
+				nowMs,
+				input.projectIdentity,
+				input.sessionId,
+				input.noteId,
+				input.expectedRevision,
+			),
+	);
+	if (changes === 0) return undefined;
+	return noteFromRow(
+		database
+			.prepare("SELECT * FROM notes WHERE project_identity = ? AND session_id = ? AND note_id = ?")
+			.get(input.projectIdentity, input.sessionId, input.noteId),
+	);
+}
+
 export function defaultMctxStorePath(agentDir: string = getAgentDir()): string {
 	return join(agentDir, "mctx", "context.db");
 }
 
-/** Opens only the MCTX schema fence; callers own its session-lifecycle close. */
+/**
+ * Opens only the MCTX schema fence; callers own its session-lifecycle close.
+ * WAL and a bounded busy wait allow independent Pi processes to share the DB;
+ * semantic conflicts still resolve through partition revision CAS.
+ */
 export async function openMctxStore(path: string = defaultMctxStorePath()): Promise<MctxStore> {
 	mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
 	let database: DatabaseSync | undefined;
@@ -592,6 +1820,14 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 		getOrCreatePartition(projectIdentity, sessionId): MctxPartition {
 			if (database === undefined) throw new Error("Context store is closed");
 			return getOrCreatePartition(database, projectIdentity, sessionId);
+		},
+		findPartition(projectIdentity, sessionId): MctxPartition | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return findPartition(database, projectIdentity, sessionId);
+		},
+		initializeForkPartition(source, destination, compartments): MctxForkPartitionInitialization {
+			if (database === undefined) throw new Error("Context store is closed");
+			return initializeForkPartition(database, source, destination, compartments);
 		},
 		advancePartitionRevision(partition): MctxPartition | undefined {
 			if (database === undefined) throw new Error("Context store is closed");
@@ -625,6 +1861,66 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 		publishCompartment(partition, draft): MctxCompartmentPublication | undefined {
 			if (database === undefined) throw new Error("Context store is closed");
 			return publishCompartment(database, partition, draft);
+		},
+		syncHistoryTags(partition, inputs): MctxHistoryTagSync | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return syncHistoryTags(database, partition, inputs);
+		},
+		queueHistoryTagDrops(
+			partition,
+			tagNumbers,
+			activeTagNumbers,
+			protectedTags,
+		): MctxHistoryTagDropQueue | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return queueHistoryTagDrops(database, partition, tagNumbers, activeTagNumbers, protectedTags);
+		},
+		markHistoryTagsDropped(partition, tagNumbers): MctxPartition | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return markHistoryTagsDropped(database, partition, tagNumbers);
+		},
+		writeMemory(input): MctxMemory {
+			if (database === undefined) throw new Error("Context store is closed");
+			return writeMemory(database, input);
+		},
+		getMemories(projectIdentity, memoryIds): readonly MctxMemory[] {
+			if (database === undefined) throw new Error("Context store is closed");
+			return getMemories(database, projectIdentity, memoryIds);
+		},
+		updateMemory(input): MctxMemory | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return mutateMemory(database, input, false);
+		},
+		archiveMemory(input): MctxMemory | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return mutateMemory(database, input, true);
+		},
+		loadMemoryEmbeddingCandidate(
+			projectIdentity,
+			memoryId,
+		): MctxMemoryEmbeddingCandidate | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return loadMemoryEmbeddingCandidate(database, projectIdentity, memoryId);
+		},
+		persistMemoryEmbedding(input): boolean {
+			if (database === undefined) throw new Error("Context store is closed");
+			return persistMemoryEmbedding(database, input);
+		},
+		writeNote(input): MctxNote {
+			if (database === undefined) throw new Error("Context store is closed");
+			return writeNote(database, input);
+		},
+		readNotes(projectIdentity, sessionId, status): readonly MctxNote[] {
+			if (database === undefined) throw new Error("Context store is closed");
+			return readNotes(database, projectIdentity, sessionId, status);
+		},
+		updateNote(input): MctxNote | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return updateNote(database, input);
+		},
+		dismissNote(input): MctxNote | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return dismissNote(database, input);
 		},
 		close(): void {
 			if (closed) return;
