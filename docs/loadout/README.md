@@ -1,13 +1,13 @@
 # Loadout
 
-`@hheei/pi-loadout` 是无界面的 Pi 工具与技能激活策略扩展。它读取 global 和 project
-JSON delta，在每个 session 开始时解析可用资源并应用给 Pi；它不注册 `/loadout` 命令，也不
-渲染设置页面。
+`@hheei/pi-loadout` 是 Pi 工具与技能激活策略扩展。它读取 global 和 project JSON delta，在每个
+session 开始时解析可用资源并应用给 Pi；它注册 `/loadout`，以 Loadout 为 initial page 打开 shared
+Settings router，而不维护另一份 renderer。
 
 ## 用户意图
 
-Loadout 让用户在不改变扩展安装集合的前提下控制工具和技能是否可用。未来
-`pi-settings` 提供写入界面；本阶段只支持直接编辑配置文件。
+Loadout 让用户在不改变扩展安装集合的前提下控制工具和技能是否可用。`/loadout` 与
+`/ext-settings loadout` 都提供同一个 scoped-delta 写入界面；也可以直接编辑配置文件。
 
 ## 配置与作用域
 
@@ -58,6 +58,7 @@ winner inherit 或回到其 default，才可操作被锁定 member。
 
 ## 后续
 
-`pi-settings` 成为唯一的 `/ext-settings` host 后，Loadout 页面可写入相同 JSON schema。页面把 Tools 与
-Skills 放在一个列表，通过 Global/Project scope draft 修改这些 delta；它不 hot-apply，关闭 Settings 后提示
-用户 `/reload`。`pi-fff` 通过 core managed registration 接入该策略，不依赖已删除的 aggregate Loadout。
+`pi-settings` 独占 `/ext-settings` host，`pi-loadout` 独占 `/loadout` direct entry；二者打开同一 router。
+Loadout 页面把 Tools 与 Skills 放在一个列表，通过 Global/Project scope draft 修改这些 delta；它不 hot-apply，
+关闭 Settings router 后提示用户 `/reload`。`pi-fff` 通过 core managed registration 接入该策略，不依赖已删除的
+aggregate Loadout。
