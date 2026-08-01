@@ -330,6 +330,7 @@ export function createLoadoutPage(
 	};
 
 	return {
+		minRows: 20,
 		component: {
 			render(width: number): string[] {
 				const items = resources();

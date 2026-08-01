@@ -23,6 +23,8 @@ export interface ExtensionPageViewContext {
  */
 export interface ExtensionPageView {
 	readonly component: Component;
+	/** Minimum content rows retained by the router below its shared tab strip. */
+	readonly minRows?: number;
 	handleInput(input: string): boolean | Promise<boolean>;
 	onThemeChange?(theme: Theme): void;
 	close(): void | Promise<void>;
@@ -172,6 +174,10 @@ export async function openExtensionPageRouter(
 						await view.close();
 						return;
 					}
+					if (view.minRows !== undefined && (!Number.isInteger(view.minRows) || view.minRows < 0)) {
+						await view.close();
+						throw new Error(`Extension page ${id} minRows must be a non-negative integer`);
+					}
 					views.set(id, view);
 				} catch (error: unknown) {
 					if (!closed && selectedId === id)
@@ -224,7 +230,11 @@ export async function openExtensionPageRouter(
 					const lines = [border, truncateToWidth(tabs, width), border];
 					const id = selectedId;
 					const view = id === undefined ? undefined : views.get(id);
-					if (view !== undefined) return [...lines, ...view.component.render(width), border];
+					if (view !== undefined) {
+						const content = view.component.render(width);
+						const padding = Math.max(0, (view.minRows ?? 0) - content.length);
+						return [...lines, ...content, ...Array.from({ length: padding }, () => ""), border];
+					}
 					const failure = id === undefined ? undefined : failures.get(id);
 					return [
 						...lines,

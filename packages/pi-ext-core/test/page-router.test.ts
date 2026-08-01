@@ -59,6 +59,7 @@ test("lets the active page consume Left and only then falls back to tab routing"
 		order: id === "a" ? 0 : 1,
 		create: async () => ({
 			component: { render: () => [label], invalidate: () => undefined },
+			...(id === "a" ? { minRows: 20 } : {}),
 			handleInput: (input) => input === "\x1b[D" && consumeLeft,
 			close: () => undefined,
 		}),
@@ -75,7 +76,9 @@ test("lets the active page consume Left and only then falls back to tab routing"
 	if (component?.handleInput === undefined) throw new Error("Expected router component");
 	component.handleInput("\x1b[D");
 	await settle();
-	expect(component.render(80).join("\n")).toContain("A");
+	const initialRender = component.render(80);
+	expect(initialRender.join("\n")).toContain("A");
+	expect(initialRender).toHaveLength(24);
 	consumeLeft = false;
 	component.handleInput("\x1b[C");
 	await settle();
