@@ -6,14 +6,6 @@ export type {
 export { openTuiSurface, TuiSurfaceQueueFullError } from "./custom-surface.js";
 export type { Cleanup, CleanupFailure, DisposerRegistry } from "./disposer-registry.js";
 export type {
-	EmbeddingBatchItem,
-	EmbeddingProviderKind,
-	EmbeddingPurpose,
-	EmbeddingService,
-	EmbeddingSnapshot,
-} from "./embeddings.js";
-export { embeddingService } from "./embeddings.js";
-export type {
 	ExtensionPointHandle,
 	ExtensionPointKey,
 	OpenExtensionPointOptions,
