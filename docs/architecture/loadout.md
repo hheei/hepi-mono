@@ -56,7 +56,8 @@ Loadout 在 session start 观察 Pi tools。每次更新时，它只计算 inven
 `skill:<bare-name>`。一个 resource 的 policy source 固定为
 `project disabled > project enabled > global disabled > global enabled > discovered default`。
 同层双写时 disabled 胜 enabled，写入 API 对被修改 key 清除另一侧条目。合法未发现 key 保留但
-暂时不参与 runtime；未知 schema field、无效 key 与早期 boolean-map schema fail-fast。
+暂时不参与 runtime；未知 schema field、无效 key 与早期 boolean-map schema fail-fast。每层 array
+最多 4096 个 key，单个 key 最多 256 字符，避免 project settings 输入无限放大 session-start 资源。
 
 global-visible resource 在 global 是 enabled/disabled 二态：选择等于 discovered default 时删除
 global delta。它在 project 是 enabled/disabled/inherit 三态；inherit 删除 project delta 并回退

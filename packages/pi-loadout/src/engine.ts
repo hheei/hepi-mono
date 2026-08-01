@@ -96,6 +96,17 @@ export function createLoadoutEngine(
 		});
 		setDisabledSkillKeys(pi, disabledSkillKeys(skillNames(pi), configuration));
 	};
+	const dispose = (): void => {
+		// Clear cross-extension state before restoring Pi so consumers cannot observe
+		// an activation snapshot that no longer matches the host tool set.
+		if (!active) return;
+		active = false;
+		configuration = undefined;
+		clearDisabledSkillKeys(pi);
+		clearLoadoutToolActivation(pi);
+		pi.setActiveTools([...initialActive]);
+		initialActive = [];
+	};
 
 	return {
 		async start(context, signal): Promise<void> {
@@ -103,22 +114,27 @@ export function createLoadoutEngine(
 			// that baseline, so installing Loadout does not silently disable host tools.
 			if (active) throw new Error("Loadout engine is already active");
 			const paths = options.paths ?? defaultPiSettingsPaths(context.cwd);
-			configuration = await loadLoadoutConfiguration(context.cwd, signal, paths);
-			signal.throwIfAborted();
-			initialActive = [...pi.getActiveTools()];
-			active = true;
-			observeLoadoutInventory(pi, { signal, onChange: apply });
+			try {
+				configuration = await loadLoadoutConfiguration(context.cwd, signal, paths);
+				signal.throwIfAborted();
+				initialActive = [...pi.getActiveTools()];
+				active = true;
+				observeLoadoutInventory(pi, { signal, onChange: apply });
+			} catch (error) {
+				// The lifecycle registers this engine's disposer only after start resolves.
+				// Roll back locally so a synchronous first inventory delivery cannot leave
+				// Pi activation or core capability state half-published.
+				if (!active) throw error;
+				try {
+					dispose();
+				} catch (rollbackError) {
+					throw new AggregateError([error, rollbackError], "Loadout engine start rollback failed", {
+						cause: error,
+					});
+				}
+				throw error;
+			}
 		},
-		dispose(): void {
-			// Clear cross-extension state before restoring Pi so consumers cannot observe
-			// an activation snapshot that no longer matches the host tool set.
-			if (!active) return;
-			active = false;
-			configuration = undefined;
-			clearDisabledSkillKeys(pi);
-			clearLoadoutToolActivation(pi);
-			pi.setActiveTools([...initialActive]);
-			initialActive = [];
-		},
+		dispose,
 	};
 }

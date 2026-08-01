@@ -60,7 +60,7 @@ async function expectRejected(operation: () => Promise<void>, message: string): 
 }
 
 describe("headless Loadout engine", () => {
-	test("merges project overrides, preserves observed defaults, and clears on disposal", async () => {
+	test("resolves scoped deltas, preserves observed defaults, and clears on disposal", async () => {
 		const h = host();
 		const settings = await paths();
 		await writeFile(
@@ -103,6 +103,35 @@ describe("headless Loadout engine", () => {
 		expect(activeSnapshots).toEqual(["none", "custom,third_party", "none"]);
 		expect([...getDisabledSkillKeys(h.pi)]).toEqual([]);
 		activationController.abort();
+	});
+
+	test("rolls back a failed first inventory apply so the engine can retry", async () => {
+		const h = host();
+		const settings = await paths();
+		await writeFile(
+			settings.globalPath,
+			JSON.stringify({ "pi-loadout": { disabled: ["tool:find"] } }),
+		);
+		let failFirstSet = true;
+		const setActiveTools = h.pi.setActiveTools.bind(h.pi);
+		(h.pi as { setActiveTools(names: string[]): void }).setActiveTools = (names): void => {
+			setActiveTools(names);
+			if (!failFirstSet) return;
+			failFirstSet = false;
+			throw new Error("setActiveTools failed");
+		};
+		const engine = createLoadoutEngine(h.pi, { paths: settings });
+		const failedStart = new AbortController();
+		await expectRejected(
+			() => engine.start({ cwd: process.cwd() } as ExtensionContext, failedStart.signal),
+			"setActiveTools failed",
+		);
+		failedStart.abort();
+		expect(h.activeSets.slice(-2)).toEqual([["third_party"], ["find", "third_party"]]);
+		expect([...getDisabledSkillKeys(h.pi)]).toEqual([]);
+		await engine.start({ cwd: process.cwd() } as ExtensionContext, new AbortController().signal);
+		expect(h.activeSets.at(-1)).toEqual(["third_party"]);
+		engine.dispose();
 	});
 
 	test("writes scope deltas, clears fallback choices, and repairs the modified key", async () => {
