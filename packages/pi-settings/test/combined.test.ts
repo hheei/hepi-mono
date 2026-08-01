@@ -56,4 +56,30 @@ describe("combined Settings provider", () => {
 			"beta:save:true",
 		]);
 	});
+
+	test("never overwrites an existing display mapping when a provider repeats a group ID", () => {
+		const calls: string[] = [];
+		const repeated = provider("repeat", calls);
+		const combined = combineSettingsProviders([
+			provider("first", calls),
+			{ ...repeated, groups: [...repeated.groups, ...repeated.groups] },
+		]);
+		expect(combined.groups.map((group) => group.id)).toEqual([
+			"general",
+			"repeat:general",
+			"repeat:general:2",
+		]);
+	});
+
+	test("places a module header on its first visible group", () => {
+		const calls: string[] = [];
+		const visible = provider("visible", calls);
+		const combined = combineSettingsProviders([
+			{
+				...visible,
+				groups: [{ id: "empty", title: "", fields: [] }, ...visible.groups],
+			},
+		]);
+		expect(combined.groups.map((group) => group.title)).toEqual(["", "pi-visible"]);
+	});
 });

@@ -205,7 +205,9 @@ export async function createSettingsPage(
 ): Promise<ExtensionPageView> {
 	const provider = combineSettingsProviders(registry.list());
 	const hepiContext: HepiContext = {
-		sessionId: "settings",
+		// Provider callbacks receive the real session identity. A constant host label would
+		// silently collapse per-session provider behavior when Settings is opened twice.
+		sessionId: context.command.sessionManager.getSessionId(),
 		cwd: context.command.cwd,
 		signal: context.signal,
 	};
@@ -300,6 +302,8 @@ export async function createSettingsPage(
 	};
 	const persist = async (): Promise<void> => {
 		if (JSON.stringify(draft) === JSON.stringify(committed)) return;
+		// Validate the complete draft before any live callback. Providers may enforce a
+		// cross-field invariant that a single editor commit cannot see in isolation.
 		await provider.storage.validate?.(cloneState(draft), hepiContext);
 		for (const changed of allChangedFields(provider, committed, draft)) {
 			const previousValue = committed[changed.groupId]?.[changed.field.id];
@@ -314,6 +318,9 @@ export async function createSettingsPage(
 				hepiContext,
 			);
 		}
+		// Storage is deliberately serialized by provider. Several providers share Pi's
+		// settings root; core locks individual writes, while this order keeps callback and
+		// persistence observation deterministic. There is no cross-provider rollback.
 		await provider.storage.save(cloneState(draft), hepiContext);
 		committed = cloneState(draft);
 	};

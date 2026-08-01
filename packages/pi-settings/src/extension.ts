@@ -54,6 +54,8 @@ export default function piSettingsExtension(pi: ExtensionAPI): void {
 				maxPending: 1,
 				...(initialPageId === undefined ? {} : { initialPageId }),
 				onSurfaceOpen: () => {
+					// Acquire only after the FIFO host owns Pi's custom slot. Queueing an
+					// unopened Settings request must never hide editor-adjacent widgets.
 					const lease = suspendHepiWidgets(pi);
 					return () => lease.release();
 				},

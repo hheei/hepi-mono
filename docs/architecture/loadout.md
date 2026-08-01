@@ -2,9 +2,9 @@
 
 ## 状态
 
-本文记录 Loadout 重构目标与当前 headless engine 阶段。core registration contract、独立
-`pi-loadout` policy engine 和 skill capability 按 focused tests、用户确认、行为实现的顺序落地；
-Settings UI 仍未实现。当前 aggregate Loadout 仅是迁移参考，不是兼容目标。
+本文记录 Loadout 重构目标与已落地的 engine/page。core registration contract、独立
+`pi-loadout` policy engine、skill capability 与 Settings router page 按 focused tests、用户确认、行为实现的顺序落地；
+当前 aggregate Loadout 仅是迁移参考，不是兼容目标。
 
 ## 目标与包边界
 
@@ -19,7 +19,8 @@ executable tool，消除 extension load order 依赖。
 
 `pi-loadout` 是 managed-tool contributor 的推荐 companion extension，但不是硬依赖。缺少它时，
 core 仍注册 executable tool，保留 Pi 默认 activation；不应用 Loadout inventory、conflict、priority
-或 persisted override。当前 `pi-loadout` 阶段无 UI 与 `/loadout` command，只读取新的
+或 persisted override。`pi-loadout` 不提供 standalone UI 或 `/loadout` command；安装 `pi-settings` 时它注册
+Loadout router page，只读取新的
 `pi-loadout` global/project JSON sections；旧 `pi-basics-loadout` state 与早期 `tools` / `skills`
 boolean map schema 不迁移。
 
@@ -106,8 +107,9 @@ Left/Right 切换 tabs。page view 必须以 boolean 或 `Promise<boolean>` 表�
 消费 `Ctrl+P`、Space 与其 dirty-state 的 page-leave key：Space 只在 resource/scope 的可达选择集合中循环，
 不为 global 或 project-private resource 伪造 inherit；`Ctrl+P` 先 flush 当前 JSON root 再切 scope；
 离开 Loadout tab 或 close 时也 flush 当前 scope。flush failure 丢弃该 draft、允许正常离开并由 Pi warning
-报告；success 不 hot-apply，Settings host 只在整个 surface close 后聚合一次 reload info。页面需在 tabs
-附近显示 `↔` hint，并遵守 `DESIGN.md` 的 token、稳定尺寸、narrow/wide 验证和单一 focus 规则。
+报告；success 不 hot-apply，Settings host 只在整个 surface close 后聚合一次 reload info。页面在 shared tab strip
+下声明至少 20 行 content height，且只提示自身 `Ctrl+P`/toggle/close 操作；router tab strip 本身提供 active-page
+signal。页面遵守 `DESIGN.md` 的 token、稳定尺寸、narrow/wide 验证和单一 focus 规则。
 
 ## 开发要求
 

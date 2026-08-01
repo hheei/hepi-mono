@@ -9,7 +9,11 @@ function context(): {
 	const closes = { value: 0 };
 	return {
 		value: {
-			command: { cwd: "/workspace", ui: { notify: () => undefined } } as never,
+			command: {
+				cwd: "/workspace",
+				sessionManager: { getSessionId: () => "settings-test-session" },
+				ui: { notify: () => undefined },
+			} as never,
 			signal: new AbortController().signal,
 			theme: { fg: (_role: string, value: string) => value, bold: (value: string) => value },
 			requestRender: () => undefined,
@@ -23,6 +27,7 @@ describe("Settings provider page", () => {
 	test("loads a provider draft, saves on close, and delegates live change ownership", async () => {
 		const saved: unknown[] = [];
 		const changes: unknown[] = [];
+		const sessionIds: string[] = [];
 		const provider: HepiSettingsProvider = {
 			id: "example",
 			title: "Example",
@@ -43,7 +48,10 @@ describe("Settings provider page", () => {
 				},
 			],
 			storage: {
-				load: () => ({ display: { enabled: true } }),
+				load: (context) => {
+					sessionIds.push(context.sessionId);
+					return { display: { enabled: true } };
+				},
 				save: (state) => saved.push(state),
 			},
 			onChange: (change) => changes.push(change),
@@ -55,6 +63,7 @@ describe("Settings provider page", () => {
 		expect(await page.handleInput("\u001b")).toBe(true);
 		expect(changes).toHaveLength(1);
 		expect(saved).toEqual([{ display: { enabled: false } }]);
+		expect(sessionIds).toEqual(["settings-test-session"]);
 		expect(h.closes.value).toBe(1);
 	});
 

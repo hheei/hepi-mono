@@ -13,8 +13,8 @@ session hot-apply；用户在关闭 Settings 后自行 `/reload`。
 - `pi-settings` 打开 core Extension page router、拥有 `/ext-settings`、surface 生命周期和退出通知；
 - `pi-loadout` 注册 Loadout page，拥有 inventory projection、scope draft、conflict explanation 与 JSON
   delta writer；
-- `pi-ext-core` 只拥有 router tabs、page close coordination，以及 core-managed editor widget 的注册和
-  suspension；
+- `pi-ext-core` 只拥有 router tabs、page close coordination、page minimum height，以及 core-managed editor
+  widget 的注册和 suspension；
 - concrete extension 不互相 import。page 通过 core runtime registry 动态加入 router。
 
 Settings surface 打开期间，host 获取 core widget suspension lease。core 卸载所有已注册的
@@ -61,13 +61,18 @@ callback 始终映射回 provider 原始 group ID。
 field Description block。窄终端将 Description 放在列表之后。router 继续拥有 top tab strip 与 structural
 borders；Settings page 不绘制旧 shell tabs 或自己的外框。
 
+Settings 与 Loadout 都在 tab strip 下保留至少 20 行 page content。router 补的是 surface 空白，而不是
+field/resource 假行；短列表仍只显示真实项目。
+
 field row 维持原 Settings 的稳定 label/value columns、selected slot、disabled dim state、group header、以及仅在
 非编辑 selected field 上启用的 long-label marquee。Description 只显示 field description、Origin、Value、正在编辑
 的 value 或 validation error；它不显示 provider storage path、JSON raw state 或 feature policy。
 
 Settings 使用原 Settings transaction：load 时 merge default 并保留 provider-owned unknown fields；field edit 只
-修改内存 draft；关闭或 router tab handoff 时，按 provider 顺序执行 `validate -> onChange -> storage.save`。保存失败
-保留 draft、显示 error 并阻止离开，以便用户重试；不会套用 Loadout JSON delta 的 discard-and-warning 行为。
+修改内存 draft；provider callback 接收当前 Pi session ID，而不是 Settings host 的固定标识。关闭或 router tab
+handoff 时，按 provider 顺序执行 `validate -> onChange -> storage.save`。此顺序
+使 callback 与保存可预测，但不同 provider 不构成可回滚 transaction。保存失败保留 draft、显示 error 并阻止离开，
+以便用户重试；不会套用 Loadout JSON delta 的 discard-and-warning 行为。
 
 `Space` toggle boolean；enum、text、number 和 path 使用原 Pi `Input` editor。`Tab` 只服务 field 的 `tabCycle`；
 它不会切换 router page。编辑时 `Esc` cancel editor，非编辑时首个 `Esc` clear filter，随后才 close。
