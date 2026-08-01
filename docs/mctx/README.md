@@ -35,8 +35,9 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
   empty/existing child partition，不能阻止 session start 或读取 parent SQLite state。
 - [x] **Pipeline diagnostics**：为 cooldown-eligible historian failure 提供 model-invisible native notification
   和 structured log。
-- [ ] **Host verification**：在真实 Pi host 或 `tui-replay` 验证 activation、transform、fork、reload 与 failure 的
-  可见行为。
+- [ ] **Host verification**：已在真实 Pi print-mode host 用独立 agent/session state、explicit built extension 和 active
+  MCTX config 验证 activation、`ctx_memory` tool registration/dispatch 与 SQLite write。仍须验证 context transform、fork、
+  reload 与 historian failure 的可见行为；`tui-replay` 不能代替这些 host lifecycle cases。
 - [ ] **Parent-to-child compressed-context Service**：`pi-mctx` 用 ext-core Service 发布 opaque、validated parent
   history projection；`pi-subagents` 消费它组装 child prompt。缺席/过期 fallback 为 Pi native inheritance，consumer
   不读取 MCTX SQLite。当前被缺失的独立 `pi-subagents` consumer 阻塞；在 consumer 的 installable runtime、prompt
@@ -82,10 +83,9 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
   无 second consumer/provider owner，故不注册 partial `/ctx-embed`。
   共享 capability、multi-process fencing、provider lifetime 与公开 API proposal 见
   [`docs/architecture/embeddings.md`](../architecture/embeddings.md)。
-  当前仅完成 provider runtime 和 MCTX lifecycle adapter：user-level `pi-mctx.embedding` 存在时才 acquire provider，
-  不调用 embedding、不创建 vector/index state，也不注册 `/ctx-embed`。
-  下一 slice 只会在明确 `ctx_memory` write/update 后嵌入该记录，并由 content/model fence 写入 per-model ledger；它不做
-  historical backfill、timer、retry、`/ctx-embed` 或 semantic search。
+   当前已完成 provider runtime、MCTX lifecycle adapter 与 durable memory ledger：user-level `pi-mctx.embedding` 存在时才
+   acquire provider；`ctx_memory` 的明确 write/update 后只嵌入该 record，并由 content/model fence 写入 per-model ledger。
+   它不做 historical backfill、timer、retry、`/ctx-embed` 或 semantic search。
 - [ ] **Historian-adjacent services**：按已验证需求设计 Dreamer、embedding provider、background maintenance、search
   index 与 retention/data-management。自动 TTL prune、shutdown deletion 或语义删除在得到明确 retention contract 前保持禁止。
 - [ ] **Reserved configuration activation**：逐字段启用当前 opaque 的 upstream-shaped configuration，定义 user/project
