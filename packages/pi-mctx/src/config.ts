@@ -54,6 +54,8 @@ export interface MctxConfiguration {
 	readonly merged: Readonly<Record<string, unknown>>;
 	sourceOf(path: readonly string[]): JsonSettingsValueSource | undefined;
 	readonly pipeline: MctxPipelineState;
+	/** User-authorized opaque provider config, validated by pi-ext-embed on acquisition. */
+	readonly embedding?: Readonly<Record<string, unknown>>;
 	readonly warnings: readonly string[];
 }
 
@@ -272,12 +274,18 @@ export async function loadMctxConfiguration(
 	});
 	const { global, project } = settings;
 	const warnings: string[] = [];
+	const embedding = global.embedding;
+	if (project.embedding !== undefined)
+		warnings.push("Ignoring project embedding: only user config may select embedding providers");
+	if (embedding !== undefined && !isRecord(embedding))
+		warnings.push("Ignoring user embedding: must be an object");
 	return {
 		global,
 		project,
 		merged: settings.merged,
 		sourceOf: settings.sourceOf,
 		pipeline: resolvePipeline(global, project, warnings),
+		...(embedding !== undefined && isRecord(embedding) ? { embedding } : {}),
 		warnings,
 	};
 }

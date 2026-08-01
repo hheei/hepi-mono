@@ -197,6 +197,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@hheei/pi-ext-core": "workspace:*",
+        "@hheei/pi-ext-embed": "workspace:*",
       },
       "devDependencies": {
         "@earendil-works/pi-coding-agent": "^0.82.0",

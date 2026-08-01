@@ -5,6 +5,7 @@ import {
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import type { CompletionFailure, ExtensionLifecycleContext } from "@hheei/pi-ext-core";
+import type { EmbeddingProvider, EmbeddingProviderLease } from "@hheei/pi-ext-embed";
 import { type MctxRuntime, resolveMctxActivation } from "./activation.js";
 import { planMctxCompartmentRecovery } from "./compartment-graph.js";
 import {
@@ -43,6 +44,7 @@ import { evaluateMctxTriggerPolicy } from "./trigger-policy.js";
 export interface MctxSessionRuntime extends MctxRuntime {
 	readonly store: MctxStore;
 	readonly partition: MctxPartition;
+	readonly embedding?: EmbeddingProvider;
 }
 
 /**
@@ -126,6 +128,9 @@ export interface MctxFeatureOptions {
 	readonly readForkSource?: (parentSessionPath: string) => MctxForkSource | Promise<MctxForkSource>;
 	readonly runHistorianForBranch?: typeof runMctxHistorianForBranch;
 	readonly logHistorianDiagnostic?: (diagnostic: MctxHistorianFailureDiagnostic) => void;
+	readonly acquireEmbeddingProvider?: (
+		config: Readonly<Record<string, unknown>>,
+	) => Promise<EmbeddingProviderLease | undefined>;
 }
 
 interface ActiveMctxRuntime {
@@ -139,6 +144,15 @@ interface ActiveMctxRuntime {
 
 function defaultLogHistorianDiagnostic(diagnostic: MctxHistorianFailureDiagnostic): void {
 	console.warn(JSON.stringify(diagnostic));
+}
+
+async function defaultAcquireEmbeddingProvider(
+	config: Readonly<Record<string, unknown>>,
+): Promise<EmbeddingProviderLease | undefined> {
+	// Keep optional model runtime parse/JIT out of every MCTX startup. The package
+	// validates the opaque JSON config at its own trust boundary.
+	const embed = await import("@hheei/pi-ext-embed");
+	return embed.acquireEmbeddingProvider(config);
 }
 
 function historianFailureDiagnostic(
@@ -216,6 +230,8 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 	const readForkSource = options.readForkSource ?? defaultForkSource;
 	const runHistorianForBranch = options.runHistorianForBranch ?? runMctxHistorianForBranch;
 	const logHistorianDiagnostic = options.logHistorianDiagnostic ?? defaultLogHistorianDiagnostic;
+	const acquireEmbeddingProvider =
+		options.acquireEmbeddingProvider ?? defaultAcquireEmbeddingProvider;
 	let active: ActiveMctxRuntime | undefined;
 	function reportHistorianFailure(
 		current: ActiveMctxRuntime,
@@ -397,7 +413,30 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				}
 				throw error;
 			}
-			const runtime: MctxSessionRuntime = { ...activation.runtime, store, partition };
+			let embeddingLease: EmbeddingProviderLease | undefined;
+			if (configuration.embedding !== undefined) {
+				try {
+					embeddingLease = await acquireEmbeddingProvider(configuration.embedding);
+				} catch (error: unknown) {
+					if (!context.signal.aborted) {
+						context.extension.ui.notify(
+							`pi-mctx embedding unavailable: ${error instanceof Error ? error.message : String(error)}`,
+							"warning",
+						);
+					}
+				}
+			}
+			if (context.signal.aborted) {
+				await embeddingLease?.release();
+				store.close();
+				return;
+			}
+			const runtime: MctxSessionRuntime = {
+				...activation.runtime,
+				store,
+				partition,
+				...(embeddingLease === undefined ? {} : { embedding: embeddingLease.provider }),
+			};
 			const current: ActiveMctxRuntime = { runtime, lifecycle: context, cooling: false };
 			// Publish last: context/turn handlers can never observe a half-initialized
 			// runtime whose store or partition failed during activation.
@@ -407,6 +446,9 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				store.close();
 				if (active === current) active = undefined;
 			});
+			if (embeddingLease !== undefined) {
+				context.resources.add("mctx-embedding", () => embeddingLease?.release());
+			}
 			context.resources.add("mctx-historian", () => {
 				current.rebuildEntries = undefined;
 				current.job?.abort();

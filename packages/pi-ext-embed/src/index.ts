@@ -18,7 +18,7 @@ const runtime = new EmbeddingRuntime();
 
 /** Acquires a process-local provider lease. Unavailable or disabled providers resolve to undefined. */
 export function acquireEmbeddingProvider(
-	config: EmbeddingProviderConfig,
+	config: unknown,
 ): Promise<EmbeddingProviderLease | undefined> {
 	return runtime.acquire(config);
 }
