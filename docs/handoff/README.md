@@ -15,8 +15,8 @@
 3. 调用 Pi `ctx.compact()`，取得 native summary 后才创建 replacement session。
 4. new session 保留当前 session file 作为 `parentSession`，在 setup 期间追加不可见的
    `<handoff-summary>` payload，并提示完成状态。
-5. 用户取消只显示 cancellation notice；compact、session creation 或 setup error 显示 failure notice，原 session
-   保持可继续使用。
+5. 用户取消只显示 cancellation notice；compact、session creation 或 setup error 显示 failure notice。source session
+   仍可 resume，但 Pi public `newSession()` 会在 `setup` 前切换 replacement，setup failure 没有 public rollback。
 
 这保留已验证的旧用户工作流，但不兼容旧 bundle 的 runtime `globalThis` bridge。Pi native summary 是此 slice 唯一
 payload source；Handoff 不读取 MCTX SQLite、compartment graph、tags 或 retained source。
