@@ -14,6 +14,7 @@ import type {
 
 export const MCTX_HISTORIAN_LEASE_TTL_MS = 60_000;
 export const MCTX_HISTORIAN_LEASE_RENEWAL_MS = MCTX_HISTORIAN_LEASE_TTL_MS / 2;
+export const MCTX_HISTORIAN_MAX_TRANSIENT_RETRIES = 2;
 
 /**
  * One bounded source publication attempt. The caller supplies a partition
@@ -35,6 +36,8 @@ export interface MctxHistorianRunRequest {
 	readonly nowMs?: number;
 	/** Test-only timing seam. Production renews at half the lease TTL. */
 	readonly leaseRenewalIntervalMs?: number;
+	/** Test-only timing seam. Production uses bounded exponential jitter. */
+	readonly retryDelayMs?: (retryAttempt: number) => number;
 }
 
 export type MctxHistorianRunResult =
@@ -87,9 +90,59 @@ function errorReason(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
+function retryDelay(request: MctxHistorianRunRequest, retryAttempt: number): number {
+	const baseMs = 250 * 2 ** (retryAttempt - 1);
+	const delay =
+		request.retryDelayMs === undefined
+			? baseMs + Math.floor(Math.random() * baseMs)
+			: request.retryDelayMs(retryAttempt);
+	if (!Number.isSafeInteger(delay) || delay < 0)
+		throw new Error("Historian retry delay must be a non-negative safe integer");
+	return delay;
+}
+
+function waitForRetry(delayMs: number, signal: AbortSignal): Promise<boolean> {
+	if (signal.aborted) return Promise.resolve(false);
+	return new Promise((resolve) => {
+		const timer = setTimeout(() => {
+			signal.removeEventListener("abort", abort);
+			resolve(true);
+		}, delayMs);
+		const abort = (): void => {
+			clearTimeout(timer);
+			resolve(false);
+		};
+		signal.addEventListener("abort", abort, { once: true });
+	});
+}
+
+async function executeWithTransientRetries(
+	request: MctxHistorianRunRequest,
+	execute: MctxHistorianExecutor,
+	controller: AbortController,
+	sourceText: string,
+	retries: { count: number },
+): Promise<MctxHistorianCompletionResult> {
+	for (;;) {
+		const result = await execute(request.context, {
+			model: request.model,
+			source: request.source,
+			sourceText,
+			signal: controller.signal,
+			...(request.expectedTier === undefined ? {} : { expectedTier: request.expectedTier }),
+		});
+		if (result.kind !== "failed" || result.failure.kind !== "transient") return result;
+		if (retries.count >= MCTX_HISTORIAN_MAX_TRANSIENT_RETRIES) return result;
+		retries.count++;
+		if (!(await waitForRetry(retryDelay(request, retries.count), controller.signal))) {
+			return { kind: "cancelled" };
+		}
+	}
+}
+
 /**
- * Runs one lease-guarded historian attempt. The active attempt renews its lease;
- * retry and triggering remain outside this bounded publication transaction.
+ * Runs one lease-guarded historian run. The active run renews its lease and has
+ * one shared finite transient-retry budget; triggering remains outside it.
  */
 export async function runMctxHistorian(
 	request: MctxHistorianRunRequest,
@@ -111,6 +164,7 @@ export async function runMctxHistorian(
 	let activeLease = lease;
 	let leaseLost = false;
 	let renewalFailure: string | undefined;
+	const retries = { count: 0 };
 	const renewalTimer = setInterval(() => {
 		if (controller.signal.aborted) return;
 		let renewed: MctxHistorianLease | undefined;
@@ -135,17 +189,17 @@ export async function runMctxHistorian(
 	try {
 		// Completion output is untrusted. It is mapped back through the immutable
 		// source snapshot before any store operation can publish it.
-		const first = await execute(request.context, {
-			model: request.model,
-			source: request.source,
-			sourceText: request.sourceText,
-			signal: controller.signal,
-			...(request.expectedTier === undefined ? {} : { expectedTier: request.expectedTier }),
-		});
+		const first = await executeWithTransientRetries(
+			request,
+			execute,
+			controller,
+			request.sourceText,
+			retries,
+		);
 		if (renewalFailure !== undefined) return { kind: "failed", reason: renewalFailure };
 		if (leaseLost || controller.signal.aborted || first.kind === "cancelled")
 			return { kind: "cancelled" };
-		if (first.kind === "failed") return { kind: "failed", reason: first.reason };
+		if (first.kind === "failed") return { kind: "failed", reason: first.failure.message };
 		const firstMapping = mappedDraft(first.output, request);
 		if (firstMapping.kind === "valid") {
 			// Publication repeats the original partition CAS. A concurrent branch
@@ -160,17 +214,17 @@ export async function runMctxHistorian(
 		}
 		// A malformed first result gets exactly one diagnostic repair. Retrying
 		// again would turn a bounded turn-end job into an unowned retry loop.
-		const repair = await execute(request.context, {
-			model: request.model,
-			source: request.source,
-			sourceText: repairSourceText(request.sourceText, firstMapping.reason),
-			signal: controller.signal,
-			...(request.expectedTier === undefined ? {} : { expectedTier: request.expectedTier }),
-		});
+		const repair = await executeWithTransientRetries(
+			request,
+			execute,
+			controller,
+			repairSourceText(request.sourceText, firstMapping.reason),
+			retries,
+		);
 		if (renewalFailure !== undefined) return { kind: "failed", reason: renewalFailure };
 		if (leaseLost || controller.signal.aborted || repair.kind === "cancelled")
 			return { kind: "cancelled" };
-		if (repair.kind === "failed") return { kind: "failed", reason: repair.reason };
+		if (repair.kind === "failed") return { kind: "failed", reason: repair.failure.message };
 		const repairMapping = mappedDraft(repair.output, request);
 		if (repairMapping.kind === "invalid") return { kind: "invalid", reason: repairMapping.reason };
 		const publication = request.store.publishCompartment(

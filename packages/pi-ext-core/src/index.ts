@@ -98,6 +98,7 @@ export {
 	setDisabledSkillKeys,
 } from "./skill-state.js";
 export type {
+	CompletionFailure,
 	CompletionSubagentHandle,
 	CompletionSubagentResult,
 	CompletionSubagentSpec,
