@@ -73,8 +73,11 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
   transform 下没有独立行为，`/ctx-recomp`/`ctx-session-upgrade` 是旧 ordinal/schema migration 而不迁移，`/ctx-wrapup`
   属于 future `hepi-basics` handoff/compaction owner，`/ctx-status` 等待完整 metrics 与 UI owner；没有明确用户 workflow 的
   internal maintenance action 保持不暴露。
-- [ ] **Sidekick augmentation**：legacy `/ctx-aug` 是独立 project-memory prompt augmentation，需单独定义 model/tool/
-  privacy/cancellation contract；它不是 historian retry 或 context transform 的快捷入口。
+- [ ] **Sidekick augmentation**：fixed legacy `/ctx-aug` 是手动 command，但同步运行具有 `read`、`grep`、`find`、`ls` 与
+  `ctx_search` allowlist 的 child，并把 retrieval augmentation 后的 prompt 发回 parent。它依赖 unified search 的 memory、
+  session history、Git、primer、note privacy filtering；当前既无 `pi-subagents` child runtime，也无 `ctx_search` source
+  contract，故不以 completion-only helper 或 prompt resend 伪迁移。先完成独立 subagents runtime 与 search contract，再按原
+  configured/unconfigured/empty/failure/abort/timeout/fallback behavior 设计该 command。
 - [ ] **Dreamer 与 embedding commands**：legacy `/ctx-dream`、`/ctx-embed` 归入 historian-adjacent services；先完成
   Dreamer/embedding storage、leases、cost/cancellation 与 retention，再决定是否保留 command。Dreamer fixed baseline 是
   free-text smart-condition compiler、capability sandbox、per-project lease/schedule task runner，不是 file-only checker；它
