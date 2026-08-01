@@ -38,12 +38,33 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
   可见行为。
 - [ ] **Parent-to-child compressed-context Service**：`pi-mctx` 用 ext-core Service 发布 opaque、validated parent
   history projection；`pi-subagents` 消费它组装 child prompt。缺席/过期 fallback 为 Pi native inheritance，consumer
-  不读取 MCTX SQLite。
+  不读取 MCTX SQLite。当前被缺失的独立 `pi-subagents` consumer 阻塞；在 consumer 的 installable runtime、prompt
+  assembly 与 fallback test 存在前，不发布无可见行为的 provider-only Service。
 - [ ] **Handoff/compaction integration**：定义 parent handoff 如何使用 compartment graph、protected tail、pending
   reductions 与 failure fallback；它必须和 Pi native compact 共存，不能把 MCTX summary 当 Pi session canonical source。
-- [ ] **Context tools 与 durable user state**：先 inventory legacy fork 的实际 public tools，再逐项迁移 history
-  search/expand/reduce、memory、notes 及其删除/恢复语义。每个 tool 都要独立定义 owner、storage partition、privacy、
-  cancellation、concurrency 和 package boundary；不按旧工具名或内部 SQLite schema 猜测实现。
+  当前被缺失的 `hepi-basics` `/handoff` command owner 阻塞；不得由 `pi-mctx` 越界注册 command。恢复并验证 Pi-native
+  owner 后再设计 MCTX bridge。
+- [ ] **Session-history tools**：迁移 `ctx_expand` 与 `ctx_reduce` 的可恢复历史与 deferred-drop semantics。`pi-mctx`
+  owner 必须定义 session partition、protected-tail、branch/fork、handoff/reload 与 compaction interaction；不能用 raw
+  message dump 或即时删除替代。
+- [ ] **Durable memory**：迁移 `ctx_memory` 的 project/workspace scope、category、archive/delete/restore、privacy、
+  source provenance 与 cross-session visibility。它是 user-level durable state，不复用旧 SQLite schema，也不让 project
+  config 或 child session 取得写权限。
+- [ ] **Durable notes**：迁移 `ctx_note` 的 session anchor、read/dismiss/update、smart-condition ownership、surface
+  trigger 与 stale cleanup。Dreamer-dependent smart note evaluation 必须等 Dreamer feature，不把 cron/polling 偷渡进 tool。
+- [ ] **Composite search**：最后迁移 `ctx_search`；它跨 memory、note、session history、git commit 与 primer，必须在
+  各 source 有验证过的 index/privacy/retention contract 后才暴露。没有某 source 时返回明确 partial scope，不伪造
+  complete search。
+- [ ] **Todo ownership decision**：legacy `todowrite`/`/todos` 是 session task UI，不迁入 `pi-mctx` 或重复注册。确认
+  当前 Todo owner 的 behavioral coverage 与 legacy migration boundary；Pi 的 first-registered tool rule 禁止以新 MCTX
+  tool 覆盖旧 aggregate。
+- [ ] **Pipeline maintenance commands**：为 legacy `/ctx-flush`、`/ctx-recomp`、`/ctx-session-upgrade`、`/ctx-status`
+  与 `/ctx-wrapup` 分别定义 user need、owner 和 Pi lifecycle integration。没有明确用户 workflow 的 internal maintenance
+  action 保持不暴露。
+- [ ] **Sidekick augmentation**：legacy `/ctx-aug` 是独立 project-memory prompt augmentation，需单独定义 model/tool/
+  privacy/cancellation contract；它不是 historian retry 或 context transform 的快捷入口。
+- [ ] **Dreamer 与 embedding commands**：legacy `/ctx-dream`、`/ctx-embed` 归入 historian-adjacent services；先完成
+  Dreamer/embedding storage、leases、cost/cancellation 与 retention，再决定是否保留 command。
 - [ ] **Legacy wrapper bridge exit**：为现有 wrapper 的 Loadout group、housekeeping reminder bridge 和 subagent
   invocation accounting 分别决定新 owner 或明确 retirement；在替代方案通过 install/reload verification 前不得删除。
 - [ ] **Historian-adjacent services**：按已验证需求设计 Dreamer、embedding provider、background maintenance、search
@@ -56,6 +77,10 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
 
 完成 migration 前，不得宣称 `pi-mctx` 已替代 Magic Context。每个 checkbox 需要独立 commit；跨 package contract
 change 还必须更新 `docs/architecture/` 和相关 ADR。
+
+Legacy `@hheei/pi-magic-context@0.33.1-hepi.0` 的首次 public-surface inventory 见
+[研究记录](../research/pi-magic-context-0.33.1-inventory.md)。它是已发布 bundle 的证据索引，不是旧 API compatibility
+承诺；后续 feature 只能以其确认的用户行为为输入，不能从内部 SQLite table 或 bundle private helper 推导新 contract。
 
 ### Historian diagnostics
 
@@ -103,6 +128,56 @@ tool/command 名称、配置键、存储格式或已持久化 state。
 跨 package 的 future inheritance provider 使用 `@hheei/pi-ext-core` 既有 Service 发现机制。
 provider 和 consumer 分别声明相同的 namespaced service ID，不互相 import。provider 负责从
 当前 parent branch 取得自身所需的压缩前缀与 tail；`pi-subagents` 只把结果放入自己的 child prompt。
+
+### 预留的跨扩展 projection API
+
+`/handoff` 是 `hepi-basics` 的未来独立 command，不属于 `pi-mctx`。为避免每个 consumer 读取 MCTX SQLite 或
+解析 compartment XML，`pi-mctx` 将来只发布一个窄的 runtime-scoped projection capability。它服务两个已定义的
+consumer：`hepi-basics` 的 handoff 与独立 `pi-subagents` 的 inheritance；memory、notes、search 或任意第三方
+extension 不得借此取得 MCTX state，未来各自需要独立 capability。
+
+实际 implementation 出现两个 installable consumer 前，不创建 Service key 或 provider-only runtime。届时两个
+package 通过 `pi-ext-core` 的 Service 使用同一预留 ID `@hheei/pi-mctx/context-projection@1`；MCTX runtime 是唯一
+provider，first-provider-wins，生命周期 cleanup 自动撤销。以下是 contract 的设计基线，不是当前可 import API：
+
+```ts
+import type { SessionManager } from "@earendil-works/pi-coding-agent";
+
+interface MctxContextProjectionService {
+	prepare(input: {
+		readonly purpose: "handoff" | "inheritance";
+		readonly signal: AbortSignal;
+	}): Promise<MctxContextProjection | undefined>;
+}
+
+type MctxContextProjection =
+	| {
+			readonly purpose: "inheritance";
+			/** Opaque content; consumer appends it verbatim in its own child prompt boundary. */
+			readonly payload: string;
+	  }
+	| {
+			readonly purpose: "handoff";
+			/** Installs the opaque hidden entry and atomically binds destination state. */
+			install(
+				destination: Pick<SessionManager, "getSessionId" | "appendCustomMessageEntry">,
+				signal: AbortSignal,
+			): Promise<void>;
+	  };
+```
+
+`prepare()` snapshots only committed, graph-validated compartments plus the MCTX-owned protected tail. It never exposes
+SQLite rows, source branch entries, revision internals or an editable summary. `handoff.install()` is idempotent for the
+same destination session; it owns hidden-entry ordering and the destination marker that prevents fork projection from
+duplicating the already materialized parent graph. It must not leave a durable destination marker when installation fails
+or its signal aborts. Each operation is tied to the caller signal and parent lifecycle; concurrent handoff preparation for
+one parent partition is rejected rather than publishing competing destination mappings.
+
+No provider, disabled MCTX, no eligible committed projection, or an explicitly stale artifact resolve to `undefined` and
+make the consumer use its Pi-native fallback. Once an enabled provider returns a plan, malformed payload, store failure,
+or installation rejection is an operation error: consumer must surface it and must not silently switch to native fallback,
+because doing so can lose an already chosen MCTX projection. Consumers never await `waitForService()` inside `session_start`;
+they own cancellable continuation and fallback policy.
 
 ## Package 约定
 
