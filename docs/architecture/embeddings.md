@@ -106,6 +106,18 @@ Package owns provider configuration's detailed runtime validation. Import/acquir
 leaves the Context pipeline active with no semantic capability. Lifecycle shutdown/reload awaits `lease.release()` before MCTX
 store cleanup. A later semantic consumer owns calling `embed()` and persistent vector publication fences.
 
+## Durable Memory Ledger
+
+The first actual MCTX embedding consumer is an explicit `ctx_memory` write or update. When its active parent runtime has a provider,
+MCTX starts one detached, abortable passage embedding for that changed memory. This is not a historical backfill: it never scans
+existing memories, retries a provider failure, creates a timer, or holds a project lease. A missing/failed provider leaves the
+memory write successful and simply produces no vector.
+
+The SQLite v8 ledger keeps active memory source content hash plus per-model vector rows. A vector write transaction rereads the
+memory's active status and content hash; stale write/update/archive results are discarded. Rows include model identity, provider
+generation, vector dimensions and a Float32 BLOB. Multiple model identities coexist; no automatic retention/GC is introduced.
+Feature cleanup aborts outstanding explicit-memory jobs before releasing the provider lease and closing the store.
+
 ## 当前实现
 
 `@hheei/pi-ext-embed` 是纯运行时包，唯一公开入口为 `src/index.ts`。它不含 Pi extension entry，也不注册工具、命令、
