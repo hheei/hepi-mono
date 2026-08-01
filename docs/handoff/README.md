@@ -2,7 +2,7 @@
 
 ## 目的
 
-`/handoff` 由 `@hheei/hepi-basics` 拥有。它在用户主动请求时压缩当前 parent session，创建一个带
+`/handoff` 由 `@hheei/pi-handoff` 独立 extension 拥有。它在用户主动请求时压缩当前 parent session，创建一个带
 `parentSession` link 的新 Pi session，并把可继续工作的 context 写为隐藏 `hepi-handoff` message。它不是
 `pi-mctx` command，也不是自动 compaction 或 session-history rewrite。
 

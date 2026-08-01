@@ -175,6 +175,23 @@
         "@huggingface/transformers": "^4.2.0",
       },
     },
+    "packages/pi-handoff": {
+      "name": "@hheei/pi-handoff",
+      "version": "0.0.0",
+      "dependencies": {
+        "@hheei/pi-ext-core": "workspace:*",
+      },
+      "devDependencies": {
+        "@earendil-works/pi-coding-agent": "^0.82.0",
+        "@types/bun": "latest",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-agent-core": ">=0.82.0",
+        "@earendil-works/pi-ai": ">=0.82.0",
+        "@earendil-works/pi-coding-agent": ">=0.82.0",
+        "@earendil-works/pi-tui": ">=0.82.0",
+      },
+    },
     "packages/pi-loadout": {
       "name": "@hheei/pi-loadout",
       "version": "0.0.0",
@@ -372,6 +389,8 @@
     "@hheei/pi-ext-core": ["@hheei/pi-ext-core@workspace:packages/pi-ext-core"],
 
     "@hheei/pi-ext-embed": ["@hheei/pi-ext-embed@workspace:packages/pi-ext-embed"],
+
+    "@hheei/pi-handoff": ["@hheei/pi-handoff@workspace:packages/pi-handoff"],
 
     "@hheei/pi-loadout": ["@hheei/pi-loadout@workspace:packages/pi-loadout"],
 

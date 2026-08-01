@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { registerHandoffCommand } from "../../src/handoff/index.js";
+import { registerHandoffCommand } from "../src/handoff.js";
 
 interface RegisteredCommand {
 	readonly name: string;
