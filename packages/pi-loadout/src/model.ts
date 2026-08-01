@@ -33,11 +33,15 @@ export interface ToolPolicy {
 	readonly conflictSets: readonly string[];
 }
 
+const MAX_LOADOUT_DELTA_KEYS = 4096;
+const MAX_LOADOUT_KEY_LENGTH = 256;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function isCanonicalLoadoutKey(value: string): boolean {
+	if (value.length > MAX_LOADOUT_KEY_LENGTH) return false;
 	const separator = value.indexOf(":");
 	if (separator <= 0 || separator === value.length - 1 || value.trim() !== value) return false;
 	const kind = value.slice(0, separator);
@@ -53,6 +57,8 @@ export function assertCanonicalLoadoutKey(value: string): void {
 function keyList(value: unknown, path: string): readonly string[] {
 	if (value === undefined) return [];
 	if (!Array.isArray(value)) throw new Error(`Expected ${path} to be an array`);
+	if (value.length > MAX_LOADOUT_DELTA_KEYS)
+		throw new Error(`Expected ${path} to contain at most ${MAX_LOADOUT_DELTA_KEYS} keys`);
 	const keys = new Set<string>();
 	for (const entry of value) {
 		if (typeof entry !== "string" || !isCanonicalLoadoutKey(entry))

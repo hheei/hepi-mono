@@ -31,7 +31,8 @@ inventory。配置解析顺序固定为：
 同一 scope 中意外同时出现在两个数组的 key 按 `disabled` 处理。写入 API 会归一化被修改的
 key，移除另一数组的同名项。合法但尚未发现的 key 保留在 JSON 中，在资源被发现前没有运行时
 效果；Settings UI 静默隐藏它们。格式错误、旧 `tools` / `skills` boolean map 或其它未知字段是
-schema error，不读取也不迁移。
+schema error，不读取也不迁移。为限制 project JSON 的 startup 资源消耗，每层数组最多 4096 个
+key，每个 key 最多 256 个字符。
 
 global-visible resource 的 global 选择只有 `enabled` / `disabled`：选择等于 discovered default
 时不会写入 delta。它在 project 有 `enabled` / `disabled` / `inherit` 三态；`inherit` 同时移除

@@ -23,6 +23,15 @@ describe("Loadout policy", () => {
 		expect(() => parseLoadoutConfiguration({ global: { enabled: ["find"] }, project: {} })).toThrow(
 			"Expected pi-loadout.enabled to contain canonical tool:<name> or skill:<name> keys",
 		);
+		expect(() =>
+			parseLoadoutConfiguration({
+				global: { enabled: Array.from({ length: 4097 }, (_, index) => `tool:future-${index}`) },
+				project: {},
+			}),
+		).toThrow("Expected pi-loadout.enabled to contain at most 4096 keys");
+		expect(() =>
+			parseLoadoutConfiguration({ global: { enabled: [`tool:${"x".repeat(252)}`] }, project: {} }),
+		).toThrow("Expected pi-loadout.enabled to contain canonical tool:<name> or skill:<name> keys");
 	});
 
 	test("applies the ordered delta layers and lets same-layer disabled win", () => {
