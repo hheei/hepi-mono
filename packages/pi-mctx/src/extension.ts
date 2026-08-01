@@ -18,13 +18,15 @@ function registerContextHook(
 	feature: ReturnType<typeof createMctxFeature>,
 ): void {
 	// Pi exposes this runtime hook, but the installed public extension declaration omits it.
+	// The projection remains MCTX-owned because it validates its own branch graph;
+	// core only supplies lifecycle cancellation and does not interpret context history.
 	const hooks = pi as unknown as PiContextHook;
 	hooks.on("context", (event, context) => feature.onContext(event.messages, context));
 }
 
 /**
- * Pi package entry. `turn_end` schedules historian work in the background;
- * context transformation remains unregistered.
+ * Pi package entry. `turn_end` schedules historian work in the background and the
+ * private context hook applies only a validated MCTX projection to the live branch.
  */
 export default function piMctxExtension(pi: ExtensionAPI): void {
 	const feature = createMctxFeature();

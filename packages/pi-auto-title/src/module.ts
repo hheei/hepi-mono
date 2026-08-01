@@ -53,11 +53,20 @@ export interface AutoTitleStorageOptions {
 export type AutoTitleModelOption = HepiModelSelectionOption;
 
 export interface AutoTitleCoordinator {
+	/**
+	 * Owns at most one title-generation job for the current session. `force` ignores
+	 * the once-per-session guard, while disposal aborts the child and clears timers.
+	 */
 	trigger(force?: boolean): void;
+	/** Changes the model for future jobs and invalidates the current generation. */
 	setModel(modelRef: string): void;
+	/** Invalidates work after Pi changes the session title or branch context. */
 	sessionInfoChanged(name: string | undefined): void;
+	/** Cancels title work before the host starts another agent turn. */
 	beforeAgentStart(): void;
+	/** Attempts a deferred launch after the host becomes idle. */
 	agentSettled(): void;
+	/** Idempotently aborts work and releases timers owned by this coordinator. */
 	dispose(): void;
 }
 
@@ -158,6 +167,7 @@ export function createAutoTitleSettingsProvider(
 	};
 }
 
+/** Pi host handles supplied by the extension entry; the coordinator never owns them. */
 export interface AutoTitleRuntime {
 	readonly pi: ExtensionAPI;
 	readonly ctx: ExtensionContext;
@@ -322,9 +332,9 @@ export function createCoreAutoTitleAgent(
 			output = result.output;
 		},
 		abort: () => handle?.cancel(),
-		waitForIdle: async () => {
-			await undefined;
-		},
+		// `prompt` already awaits the core completion handle; there is no second
+		// host queue to drain for this adapter.
+		waitForIdle: async () => {},
 		result: () => output,
 	};
 }
@@ -353,6 +363,8 @@ export function createAutoTitleCoordinator(
 		statusTimer = undefined;
 		setStatus(undefined);
 	};
+	// Status rendering is a feature concern. Core supplies the child-session
+	// execution primitive, but it does not own this transient UI or its cadence.
 	const startStatus = () => {
 		clearStatus();
 		const startedAt = Date.now();
@@ -380,6 +392,8 @@ export function createAutoTitleCoordinator(
 			launch();
 		}, 50);
 	};
+	// A revision snapshot guards the async completion against session switches,
+	// model changes, and a newer forced request before it writes the title.
 	const launch = () => {
 		if (
 			disposed ||

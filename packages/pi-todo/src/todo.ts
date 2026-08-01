@@ -114,7 +114,9 @@ interface ActiveTodoRuntime {
 }
 
 export interface TodoFeature {
+	/** Starts fresh session-local task state and installs feature-owned hooks. */
 	start(context: ExtensionContext): void | Promise<void>;
+	/** Idempotently clears widget, reminders, timers, and stale event state. */
 	dispose(sessionId: string): void | Promise<void>;
 }
 

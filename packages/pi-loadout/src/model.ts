@@ -1,8 +1,13 @@
+/**
+ * Fresh-state policy input. Keys are name-level `tool:<name>` and `skill:<name>`
+ * identifiers; absence means the engine uses discovered defaults.
+ */
 export interface LoadoutConfiguration {
 	readonly tools: Readonly<Record<string, boolean>>;
 	readonly skills: Readonly<Record<string, boolean>>;
 }
 
+/** Core inventory metadata projected into Loadout's policy model. */
 export interface ToolPolicy {
 	readonly name: string;
 	readonly defaultActive: boolean;

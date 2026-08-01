@@ -6,10 +6,15 @@ const TODO_WIDGET_KEY = "pi-todo:tasks";
 const MAX_TASK_ROWS = 6;
 
 export interface TodoWidget {
+	/** Refreshes presentation from model state; model mutation remains feature-owned. */
 	refresh(state: TaskState, trackCompletions?: boolean): void;
+	/** Retires completed rows from the widget without removing them from Todo state. */
 	hideCompleted(): void;
+	/** Retires blocked rows after their grace window without changing audit state. */
 	hideBlocked(ids: readonly number[]): void;
+	/** Removes the native above-editor widget from the host. */
 	hide(): void;
+	/** Idempotently releases widget-local host resources. */
 	dispose(): void | Promise<void>;
 }
 

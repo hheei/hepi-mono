@@ -11,6 +11,7 @@ export interface FffSettingsProviderOptions {
 }
 
 export interface FffSettings {
+	/** FFF behavior toggles only; tool activation belongs to pi-loadout. */
 	readonly autocomplete: boolean;
 	readonly readEnhancement: boolean;
 	readonly grepEnhancement: boolean;

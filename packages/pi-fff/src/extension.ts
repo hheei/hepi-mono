@@ -21,11 +21,15 @@ export default function piFffExtension(pi: ExtensionAPI): void {
 	const getRuntime = (): FffRuntime | null => runtime ?? null;
 	const provider = createFffSettingsProvider();
 
+	// Registration is static and core-mediated; Loadout may later change whether
+	// the name-level tools are active, without changing FFF's implementation.
 	registerTools(pi, { getRuntime, getSettings: () => settings });
 	registerCommands(pi, { getRuntime });
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-fff",
 		start: async ({ extension, resources }) => {
+			// Settings are a lifecycle snapshot. Saving through the future settings host
+			// does not mutate this running runtime until session_start or /reload.
 			resources.add(
 				"fff-settings",
 				registerHepiSettings(provider, getHepiRuntimeSettingsRegistry(pi)),
@@ -50,6 +54,9 @@ export default function piFffExtension(pi: ExtensionAPI): void {
 				activeRuntime.dispose();
 				if (runtime === activeRuntime) runtime = undefined;
 			});
+			// Pi cannot unregister autocomplete providers. Old reload closures observe
+			// their disposed runtime, while this WeakSet avoids duplicate registration
+			// if the same host object is initialized more than once.
 			if (!autocompleteContexts.has(extension)) {
 				autocompleteContexts.add(extension);
 				extension.ui.addAutocompleteProvider((baseProvider) =>

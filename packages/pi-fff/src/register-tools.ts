@@ -30,7 +30,9 @@ import { DEFAULT_GREP_TIMEOUT_MS } from "./fff-types.js";
 import type { FffSettings } from "./settings.js";
 
 export type ToolRegistrationDeps = {
+	/** Null before session_start or after shutdown; tools must report that state. */
 	getRuntime(): FffRuntime | null;
+	/** Snapshot loaded by the lifecycle owner; changes apply on the next lifecycle. */
 	getSettings(): FffSettings;
 };
 

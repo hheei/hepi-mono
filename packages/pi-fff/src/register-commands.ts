@@ -3,6 +3,7 @@ import { buildStatusReport, FFF_RUNTIME_NOT_READY_TEXT } from "./extension-commo
 import type { FffRuntime } from "./fff.js";
 
 export interface CommandRegistrationDeps {
+	/** Commands remain registered for the host lifetime; runtime availability is session-scoped. */
 	getRuntime(): FffRuntime | null;
 }
 

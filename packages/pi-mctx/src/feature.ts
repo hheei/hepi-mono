@@ -24,6 +24,11 @@ export interface MctxSessionRuntime extends MctxRuntime {
 	readonly partition: MctxPartition;
 }
 
+/**
+ * Session feature contract. Core owns lifecycle cancellation and resource cleanup;
+ * MCTX owns activation policy, SQLite state, historian scheduling, and branch-safe
+ * context projection. `onContext` returns undefined to leave Pi's messages untouched.
+ */
 export interface MctxFeature {
 	start(context: ExtensionLifecycleContext): Promise<void>;
 	onTurnEnd(context: ExtensionContext): void;
@@ -35,6 +40,7 @@ export interface MctxFeature {
 }
 
 export interface MctxFeatureOptions {
+	/** Test/host seams; production defaults remain package-owned implementations. */
 	readonly loadConfiguration?: (
 		paths: ReturnType<typeof defaultMctxSettingsPaths>,
 		signal: AbortSignal,
@@ -69,6 +75,8 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 	const runHistorianForBranch = options.runHistorianForBranch ?? runMctxHistorianForBranch;
 	let active: ActiveMctxRuntime | undefined;
 	function startHistorian(current: ActiveMctxRuntime, entries: readonly SessionEntry[]): void {
+		// At most one historian runs per session. A newer branch snapshot is retained
+		// in `rebuildEntries` and starts after the current lease/job settles.
 		if (current.job !== undefined || current.lifecycle.signal.aborted) return;
 		const job = new AbortController();
 		current.job = job;
@@ -117,6 +125,8 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 	}
 	return {
 		async start(context): Promise<void> {
+			// Fail closed at every boundary: invalid settings, identity, or store setup
+			// never installs a partial context pipeline in the live Pi session.
 			let configuration: MctxConfiguration;
 			try {
 				configuration = await loadConfiguration(
@@ -171,6 +181,8 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			const runtime: MctxSessionRuntime = { ...activation.runtime, store, partition };
 			const current: ActiveMctxRuntime = { runtime, lifecycle: context, cooling: false };
 			active = current;
+			// Runtime storage and historian work have separate cleanup responsibilities;
+			// both are lifecycle-owned, while the feature retains policy ownership.
 			context.resources.add("mctx-runtime", () => {
 				store.close();
 				if (active === current) active = undefined;
@@ -182,6 +194,8 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			});
 		},
 		onTurnEnd(context): void {
+			// Turn-end work is deliberately non-blocking. This hook only evaluates the
+			// trigger and schedules a background historian; Pi's turn remains independent.
 			const current = active;
 			if (
 				current === undefined ||
@@ -213,6 +227,8 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			startHistorian(current, context.sessionManager.getBranch());
 		},
 		onContext(messages, context): { readonly messages: readonly AgentMessage[] } | undefined {
+			// The context hook is synchronous. Any stale/invalid branch graph leaves the
+			// host context untouched instead of risking a lossy or cross-branch rewrite.
 			const current = active;
 			if (
 				current === undefined ||

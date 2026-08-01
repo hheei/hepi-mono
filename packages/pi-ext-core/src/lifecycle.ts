@@ -4,6 +4,11 @@ import { getGlobalState } from "./global-state.js";
 import { runtimeIdentity } from "./runtime-identity.js";
 import { abortServiceWaiters } from "./service.js";
 
+/**
+ * One session-scoped owner view. The signal is aborted before resource cleanup;
+ * consumers must treat it as the authority for cancelling async work created from
+ * this context rather than retaining the Pi context after shutdown or reload.
+ */
 export interface ExtensionLifecycleContext {
 	readonly pi: ExtensionAPI;
 	readonly extension: ExtensionContext;
@@ -30,6 +35,8 @@ export function registerExtensionLifecycle(
 	const controller = createLifecycleController(pi, options);
 	const isCurrent = (): boolean => registrations.get(options.key)?.token === registration.token;
 
+	// Pi does not unregister old handlers on /reload. The runtime-scoped token
+	// makes stale handlers inert while the newest registration owns the session.
 	pi.on("session_start", async (_event, context) => {
 		if (!isCurrent()) return;
 		await controller.start(context);
@@ -72,6 +79,8 @@ function createLifecycleController(
 	let active: ActiveLifecycle | undefined;
 	let transition = Promise.resolve();
 
+	// Pi awaits lifecycle handlers serially, so start/shutdown must share one
+	// queue. This also prevents an old shutdown from closing a newly started scope.
 	const enqueue = <T>(operation: () => Promise<T>): Promise<T> => {
 		const result = transition.then(operation);
 		transition = result.then(

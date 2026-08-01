@@ -277,6 +277,11 @@ function safeFinderCall<T>(
 		: errResult(finderFailure(operation, attempted.value.error));
 }
 
+/**
+ * Owns one project's FFF finder and its initialization generation. The extension
+ * lifecycle owns disposal; callers may observe an initialization failure but must
+ * not retain the finder after `dispose()` or a Pi reload.
+ */
 export class FffRuntime {
 	public readonly cwd: string;
 	private readonly options: RuntimeOptions;
@@ -294,6 +299,8 @@ export class FffRuntime {
 	}
 
 	async ensure(): Promise<AppResult<FileFinder, RuntimeInitializationError>> {
+		// One initialization promise deduplicates concurrent tool/command calls;
+		// the generation check prevents a late finder from escaping after disposal.
 		if (this.finder) return Result.ok(this.finder);
 		if (this.loadError) return errResult(this.loadError);
 		const generation = this.generation;
@@ -325,6 +332,8 @@ export class FffRuntime {
 	}
 
 	dispose(): void {
+		// Invalidate first so an in-flight initialization cannot publish into the
+		// next lifecycle. Injected finders remain caller-owned and are not destroyed.
 		this.generation++;
 		void Result.try({
 			try: () => {

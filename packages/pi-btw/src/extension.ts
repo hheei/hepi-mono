@@ -6,6 +6,8 @@ export * from "./feature.js";
 export * from "./index.js";
 
 export default function piBtwExtension(pi: ExtensionAPI): void {
+	// The entry only wires the feature to core's session lifecycle. BTW owns its
+	// command, history, overlay geometry, and request cancellation policy.
 	const feature = createBtwFeature(pi);
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-btw",
