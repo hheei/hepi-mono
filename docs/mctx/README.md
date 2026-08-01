@@ -57,8 +57,9 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
 - [x] **Durable memory**：迁移 `ctx_memory` 的 project scope、category、archive、privacy、source provenance 与
   cross-session visibility。它是 user-level durable state，不复用旧 SQLite schema，也不让 project config 或 child session
   取得写权限。
-- [ ] **Durable notes**：迁移 `ctx_note` 的 session anchor、read/dismiss/update、smart-condition ownership。Dreamer-dependent
-  smart note evaluation、surface trigger 与 stale cleanup 必须等 Dreamer feature，不把 cron/polling 偷渡进 tool。
+- [x] **Durable notes**：`ctx_note` 以 session-local record CAS 保存 anchor、read/update/dismiss 与 provenance；smart
+	condition 仅持久化为 pending text。Dreamer-dependent evaluation、surface trigger 与 stale cleanup 必须等 Dreamer
+	feature，不把 cron/polling 偷渡进 tool。
 - [ ] **Composite search**：最后迁移 `ctx_search`；它跨 memory、note、session history、git commit 与 primer，必须在
   各 source 有验证过的 index/privacy/retention contract 后才暴露。没有某 source 时返回明确 partial scope，不伪造
   complete search。
@@ -147,14 +148,17 @@ session 的 edit。
 
 ### Durable notes
 
-`ctx_note` 首版只在 active parent `pi-mctx` session 中工作，note 只属于当前 project/session partition；fork、child 和
-other session 都不能 read/write。`write` 可带一个 optional `anchorTag`，它必须是 current active branch 的 `§N§` tag，store
-保存该 tag 的 immutable entry/tool identity 而不是 ordinal。无 anchor note 仍是合法的 session workflow record。
+`ctx_note` 只在 active parent `pi-mctx` session 中工作。notes 属于 stable project identity 下的单一 parent session，
+不能由其他 session、fork 或 child read/write；它们也不自动进入 model context。首版 action 为 `write`、`read`、`update`
+和 `dismiss`。`read` 默认返回 active notes，可显式读取 dismissed notes；dismiss 保留 note、anchor、condition 与 provenance，
+不提供 delete 或 restore。
 
-首版 action 为 `write`、`read`、`update`、`dismiss`。read 默认返回 active notes，调用方可显式请求 dismissed status；每条
-note 保存 creator/last-writer session ID、timestamps 与 revision，`update`/`dismiss` 均要求 `expectedRevision`。dismiss 保留
-record/provenance，不提供 delete/restore。可选 smart condition 被保存为 `pending` 并在 read 中可见；首版绝不 evaluation、poll、
-auto-surface 或 stale cleanup，直到 Dreamer 明确拥有这些资源和 cancellation policy。
+可选 `anchorTag` 只能引用 current active branch 的 MCTX history tag。runtime 先将该 session-local ordinal 解析为 immutable
+Pi entry ID、kind 与 tool-call ID，再写入 note；未知、旧 branch 或其他 session tag 明确失败，绝不把 ordinal 直接持久化。
+每条 note 记录创建/更新 session ID、timestamps 和 record revision；`update`/`dismiss` 必须带 `expectedRevision`，避免静默覆盖。
+
+可选 `smartCondition` 仅作为 pending text 保存。首版不 evaluate、poll、auto-surface、expire 或 cleanup smart notes；这些行为
+属于未来 Dreamer ownership，不能在 tool mutation 中隐式启动后台工作。
 
 ## 目的
 
