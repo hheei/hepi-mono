@@ -33,7 +33,7 @@ Loadout 是单页 selector，不是二级 tab：Tools 与 Skills 共享同一个
 
 列表 row 的 `display group` 是第二列；它不是不稳定的 extension source ID。`●` 表示 effective enabled，
 `○` 表示 effective disabled，`⊘` 表示 conflict locked/inactive，`→` 表示 selected row。所有 locked row
-在 Description 中说明 winner、来源和解除方式。
+在 Description 中说明 winner 与解除方式。
 
 页面顶部显示当前 scope 与实际文件路径：Global 为 `<agentDir>/settings.json`，Project 为
 `<cwd>/.pi/settings.json`。`Ctrl+P` 在 scope 之间切换，并在切换前 flush 正在离开的 scope；因此不会发生
@@ -43,7 +43,8 @@ global/project 两个 JSON root 的部分提交。直接文字输入过滤 name 
 `Space` 只在当前 resource/scope 实际可达的选择集合中循环，绝不补出不存在的 inherit 状态：Global resource
 循环 `enabled <-> disabled`；Project global-visible resource 循环
 `inherit -> enabled -> disabled -> inherit`；Project-private resource 循环 `enabled <-> disabled`。左侧圆点永远
-显示 effective state，scope raw delta、inherited/default source 与 conflict policy 属于 Description。
+显示 effective state。Description 沿用原 Loadout 的 selected-resource 内容：名称与类型、description、origin、status；
+只有 conflict locked 时追加 winner 与解除方式，不显示 raw delta、inherited/default 或 policy 调试信息。
 
 页面把修改保存在当前 scope draft 中，只有 `Ctrl+P`、离开 Loadout tab 或关闭 Settings 时才 flush。flush
 失败时丢弃未写 draft、允许正常离开并输出 Pi warning。任何一次成功 flush 都使 host 在整个 Settings surface

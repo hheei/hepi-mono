@@ -16,7 +16,6 @@ import { type LoadoutEngine, loadoutToolPolicies } from "./engine.js";
 import {
 	type LoadoutConfiguration,
 	type LoadoutDelta,
-	type LoadoutPolicySource,
 	type LoadoutScope,
 	type LoadoutSelection,
 	resolveActiveToolNames,
@@ -34,9 +33,9 @@ interface ResourceItem {
 	readonly kind: "tool" | "skill";
 	readonly description: string;
 	readonly displayGroup: string;
+	readonly origin: string;
 	readonly defaultActive: boolean;
 	readonly projectPrivate: boolean;
-	readonly source: LoadoutPolicySource;
 	readonly enabled: boolean;
 	readonly lockedBy?: string;
 }
@@ -69,7 +68,7 @@ function cloneConfiguration(configuration: LoadoutConfiguration): LoadoutConfigu
 	return { global: cloneDelta(configuration.global), project: cloneDelta(configuration.project) };
 }
 
-function sourceLabel(source: ToolInfo["sourceInfo"]["source"]): string {
+function sourceLabel(source: string): string {
 	if (source === "builtin") return "Built-in";
 	if (source === "extension") return "Extension";
 	return "Third-party";
@@ -165,9 +164,9 @@ function toolItem(
 		kind: "tool",
 		description: tool.description,
 		displayGroup: metadata?.group ?? sourceLabel(tool.sourceInfo.source),
+		origin: sourceLabel(tool.sourceInfo.source),
 		defaultActive,
 		projectPrivate: tool.sourceInfo.scope === "project",
-		source: state.source,
 		enabled: state.enabled && lockedBy === undefined,
 		...(lockedBy === undefined ? {} : { lockedBy }),
 	};
@@ -182,20 +181,11 @@ function skillItem(skill: SlashCommandInfo, configuration: LoadoutConfiguration)
 		kind: "skill",
 		description: skill.description ?? "Skill prompt available to the current Pi session.",
 		displayGroup: "",
+		origin: sourceLabel(skill.sourceInfo.source),
 		defaultActive: true,
 		projectPrivate: skill.sourceInfo.scope === "project",
-		source: state.source,
 		enabled: state.enabled,
 	};
-}
-
-function selectionDescription(selection: LoadoutSelection): string {
-	if (selection === "inherit") return "Inherit lower scope";
-	return selection === "enabled" ? "Enabled" : "Disabled";
-}
-
-function sourceDescription(source: LoadoutPolicySource): string {
-	return source.replace("-", " ");
 }
 
 /** Owns only the Loadout page draft and rendering; engine remains the activation-policy owner. */
@@ -385,34 +375,30 @@ export function createLoadoutPage(
 					),
 				];
 				const selectedResource = selectedItem();
-				const selection =
-					selectedResource === undefined
-						? undefined
-						: rawSelection(selectedResource, scope, configuration);
 				const description =
 					selectedResource === undefined
 						? [theme.fg("muted", search ? "No matching resources." : "No resources in this scope.")]
 						: [
-								theme.bold(truncateToWidth(selectedResource.name, descriptionWidth)),
+								theme.bold(
+									truncateToWidth(
+										`${selectedResource.name} (${selectedResource.kind})`,
+										descriptionWidth,
+									),
+								),
 								"",
 								...wrapDescription(selectedResource.description, descriptionWidth),
 								"",
+								theme.fg("muted", `Origin: ${selectedResource.origin}`),
 								theme.fg(
 									"muted",
-									`Effective: ${selectedResource.enabled ? "enabled" : "disabled"}`,
-								),
-								theme.fg("muted", `Policy: ${sourceDescription(selectedResource.source)}`),
-								theme.fg("muted", `This scope: ${selectionDescription(selection ?? "inherit")}`),
-								theme.fg(
-									"muted",
-									`Default: ${selectedResource.defaultActive ? "enabled" : "disabled"}`,
+									`Status: ${selectedResource.lockedBy === undefined ? (selectedResource.enabled ? "● active" : "○ disabled") : "⊘ locked"}`,
 								),
 								...(selectedResource.lockedBy === undefined
 									? []
 									: [
 											theme.fg(
 												"dim",
-												`Locked by ${selectedResource.lockedBy}. Set it to inherit first.`,
+												`Locked by ${selectedResource.lockedBy}. Change its winning override first.`,
 											),
 										]),
 							];
