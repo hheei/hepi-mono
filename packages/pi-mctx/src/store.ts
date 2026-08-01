@@ -15,6 +15,12 @@ export const MCTX_STORE_BUSY_TIMEOUT_MS = 5_000;
 export interface MctxStore {
 	readonly path: string;
 	getOrCreatePartition(projectIdentity: string, sessionId: string): MctxPartition;
+	findPartition(projectIdentity: string, sessionId: string): MctxPartition | undefined;
+	initializeForkPartition(
+		source: MctxPartition,
+		destination: MctxPartitionKey,
+		compartments: readonly MctxCompartment[],
+	): MctxForkPartitionInitialization;
 	advancePartitionRevision(partition: MctxPartition): MctxPartition | undefined;
 	acquireHistorianLease(
 		partition: MctxPartition,
@@ -46,6 +52,18 @@ export interface MctxPartition {
 	readonly sessionId: string;
 	readonly revision: number;
 }
+
+/** Stable store key without a CAS revision, used only to create a fresh session partition. */
+export interface MctxPartitionKey {
+	readonly projectIdentity: string;
+	readonly sessionId: string;
+}
+
+/** Fork initialization never overwrites a partition that a previous start already owns. */
+export type MctxForkPartitionInitialization =
+	| { readonly kind: "copied"; readonly partition: MctxPartition }
+	| { readonly kind: "existing"; readonly partition: MctxPartition }
+	| { readonly kind: "stale" };
 
 /** A finite, partition-local historian ownership claim. Only its owner may renew or release it. */
 export interface MctxHistorianLease {
@@ -303,6 +321,20 @@ function getOrCreatePartition(
 	}
 }
 
+function findPartition(
+	database: DatabaseSync,
+	projectIdentity: string,
+	sessionId: string,
+): MctxPartition | undefined {
+	requirePartitionKey(projectIdentity, sessionId);
+	const row = database
+		.prepare(
+			"SELECT project_identity, session_id, revision FROM partitions WHERE project_identity = ? AND session_id = ?",
+		)
+		.get(projectIdentity, sessionId);
+	return row === undefined ? undefined : partitionFromRow(row);
+}
+
 function changedRows(value: unknown): number {
 	if (
 		!isRecord(value) ||
@@ -461,6 +493,99 @@ function compartmentFromRow(value: unknown): MctxCompartment {
 	};
 }
 
+function requireForkCompartments(compartments: readonly MctxCompartment[]): void {
+	let previousRevision = 0;
+	const sequences = new Set<string>();
+	for (const compartment of compartments) {
+		requireCompartmentDraft(compartment);
+		if (
+			!Number.isSafeInteger(compartment.sequence) ||
+			compartment.sequence < 0 ||
+			!Number.isSafeInteger(compartment.publishedRevision) ||
+			compartment.publishedRevision <= previousRevision
+		) {
+			throw new Error("Context store fork compartments are invalid");
+		}
+		const sequenceKey = `${compartment.tier}:${compartment.sequence}`;
+		if (sequences.has(sequenceKey))
+			throw new Error("Context store fork compartments have duplicates");
+		sequences.add(sequenceKey);
+		previousRevision = compartment.publishedRevision;
+	}
+}
+
+/**
+ * Creates a child partition once and copies caller-verified ancestors under the
+ * source revision fence. Store only preserves records; Pi branch proof stays in
+ * the feature because SQLite cannot inspect session-tree entry IDs.
+ */
+function initializeForkPartition(
+	database: DatabaseSync,
+	source: MctxPartition,
+	destination: MctxPartitionKey,
+	compartments: readonly MctxCompartment[],
+): MctxForkPartitionInitialization {
+	requirePartitionKey(source.projectIdentity, source.sessionId);
+	requirePartitionKey(destination.projectIdentity, destination.sessionId);
+	if (!Number.isSafeInteger(source.revision) || source.revision < 0) {
+		throw new Error("Context store source partition revision is invalid");
+	}
+	requireForkCompartments(compartments);
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		const existing = findPartition(database, destination.projectIdentity, destination.sessionId);
+		if (existing !== undefined) {
+			database.exec("COMMIT");
+			return { kind: "existing", partition: existing };
+		}
+		const currentSource = findPartition(database, source.projectIdentity, source.sessionId);
+		if (currentSource?.revision !== source.revision) {
+			database.exec("ROLLBACK");
+			return { kind: "stale" };
+		}
+		database
+			.prepare("INSERT INTO projects (identity) VALUES (?) ON CONFLICT (identity) DO NOTHING")
+			.run(destination.projectIdentity);
+		database
+			.prepare("INSERT INTO partitions (project_identity, session_id) VALUES (?, ?)")
+			.run(destination.projectIdentity, destination.sessionId);
+
+		// A child owns fresh revision numbers. Source publication revisions identify
+		// parent order only and must not become the child's CAS timeline.
+		let revision = 0;
+		for (const compartment of compartments) {
+			revision++;
+			database
+				.prepare(
+					"INSERT INTO compartments (project_identity, session_id, tier, sequence, source_start_entry_id, source_end_entry_id, source_fingerprint, rendered_payload, published_revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+				)
+				.run(
+					destination.projectIdentity,
+					destination.sessionId,
+					compartment.tier,
+					compartment.sequence,
+					compartment.sourceStartEntryId,
+					compartment.sourceEndEntryId,
+					compartment.sourceFingerprint,
+					compartment.renderedPayload,
+					revision,
+				);
+		}
+		if (revision > 0) {
+			database
+				.prepare("UPDATE partitions SET revision = ? WHERE project_identity = ? AND session_id = ?")
+				.run(revision, destination.projectIdentity, destination.sessionId);
+		}
+		const partition = findPartition(database, destination.projectIdentity, destination.sessionId);
+		if (partition === undefined) throw new Error("Context store fork partition was not created");
+		database.exec("COMMIT");
+		return { kind: "copied", partition };
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
 function listCompartments(
 	database: DatabaseSync,
 	partition: MctxPartition,
@@ -612,6 +737,14 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 		getOrCreatePartition(projectIdentity, sessionId): MctxPartition {
 			if (database === undefined) throw new Error("Context store is closed");
 			return getOrCreatePartition(database, projectIdentity, sessionId);
+		},
+		findPartition(projectIdentity, sessionId): MctxPartition | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return findPartition(database, projectIdentity, sessionId);
+		},
+		initializeForkPartition(source, destination, compartments): MctxForkPartitionInitialization {
+			if (database === undefined) throw new Error("Context store is closed");
+			return initializeForkPartition(database, source, destination, compartments);
 		},
 		advancePartitionRevision(partition): MctxPartition | undefined {
 			if (database === undefined) throw new Error("Context store is closed");

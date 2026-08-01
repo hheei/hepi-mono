@@ -24,7 +24,7 @@ function registerContextHook(
 
 /**
  * Pi package entry. `turn_end` schedules historian work in the background;
- * context transformation remains unregistered.
+ * `context` applies only already-verified compartments and never waits for it.
  */
 export default function piMctxExtension(pi: ExtensionAPI): void {
 	const feature = createMctxFeature();

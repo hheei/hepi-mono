@@ -26,8 +26,12 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
 - [x] 独立 `@hheei/pi-mctx` package、显式 enable/model admission、user-level SQLite context store、project/session
   partition、revision CAS、lease、compartment graph、parent historian、repair/retry、trigger、context transform 与
   same-session branch divergence rebuild。
-- [ ] **Fork partition projection**：在 Pi fork 的 `session_start` 识别 source partition，验证并复制 child branch
-  可见 ancestor compartments 到新的 partition；copy failure fail open，child 后续 rebuild，绝不共享 parent state。
+- [x] **Fork partition projection**：在 Pi fork 的 `session_start` 识别 source partition，验证并复制 child branch
+  可见 ancestor compartments 到新的 partition；copy failure fail open，child 后续 rebuild，绝不共享 parent state。source
+  session 从 child header 的 `parentSession` 经 Pi `SessionManager.open()` 读取 ID/cwd，再解析 source project identity；
+  显式 Pi fork 可以跨 project copy，因为 child 已持有同一 raw branch。仅连续、通过 child branch range/fingerprint
+  proof 的 records 可复制；missing source、source revision stale、invalid graph、destination 已存在或 SQLite error 都必须保留
+  empty/existing child partition，不能阻止 session start 或读取 parent SQLite state。
 - [ ] **Pipeline diagnostics 与 host verification**：为 cooldown-eligible historian failure 提供 model-invisible
   native notification 和 structured log；在真实 Pi host 或 `tui-replay` 验证 activation、transform、fork、reload 与
   failure 的可见行为。

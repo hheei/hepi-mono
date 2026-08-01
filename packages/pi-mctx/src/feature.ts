@@ -1,5 +1,9 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
+import {
+	type ExtensionContext,
+	type SessionEntry,
+	SessionManager,
+} from "@earendil-works/pi-coding-agent";
 import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
 import { type MctxRuntime, resolveMctxActivation } from "./activation.js";
 import { planMctxCompartmentRecovery } from "./compartment-graph.js";
@@ -13,6 +17,7 @@ import { runMctxHistorianForBranch } from "./historian-branch-runner.js";
 import { createProjectIdentityResolver } from "./project-identity.js";
 import {
 	defaultMctxStorePath,
+	type MctxCompartment,
 	type MctxPartition,
 	type MctxStore,
 	openMctxStore,
@@ -39,6 +44,11 @@ export interface MctxFeature {
 	active(): MctxSessionRuntime | undefined;
 }
 
+export interface MctxForkSource {
+	readonly cwd: string;
+	readonly sessionId: string;
+}
+
 /** Dependency seams for focused tests; production uses the MCTX-owned defaults. */
 export interface MctxFeatureOptions {
 	readonly loadConfiguration?: (
@@ -47,6 +57,7 @@ export interface MctxFeatureOptions {
 	) => Promise<MctxConfiguration>;
 	readonly openStore?: (path: string) => MctxStore | Promise<MctxStore>;
 	readonly resolveProjectIdentity?: (cwd: string, signal: AbortSignal) => Promise<string>;
+	readonly readForkSource?: (parentSessionPath: string) => MctxForkSource | Promise<MctxForkSource>;
 	readonly runHistorianForBranch?: typeof runMctxHistorianForBranch;
 }
 
@@ -56,6 +67,37 @@ interface ActiveMctxRuntime {
 	cooling: boolean;
 	job?: AbortController | undefined;
 	rebuildEntries?: readonly SessionEntry[] | undefined;
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+	return typeof value === "object" && value !== null;
+}
+
+function forkParentSessionPath(context: ExtensionLifecycleContext): string | undefined {
+	const manager = context.extension.sessionManager as unknown as {
+		readonly getHeader?: () => unknown;
+	};
+	const header = manager.getHeader?.();
+	return isRecord(header) && typeof header.parentSession === "string" && header.parentSession.trim()
+		? header.parentSession
+		: undefined;
+}
+
+function defaultForkSource(parentSessionPath: string): MctxForkSource {
+	const source = SessionManager.open(parentSessionPath);
+	return { cwd: source.getCwd(), sessionId: source.getSessionId() };
+}
+
+function verifiedForkCompartments(
+	entries: readonly SessionEntry[],
+	compartments: readonly MctxCompartment[],
+): readonly MctxCompartment[] | undefined {
+	const plan = planMctxCompartmentRecovery(entries, compartments);
+	if (plan.kind === "empty") return undefined;
+	if (plan.kind === "valid") return [...plan.graph.m0, ...plan.graph.m1];
+	if (plan.kind === "rebuild")
+		return plan.graph === undefined ? undefined : [...plan.graph.m0, ...plan.graph.m1];
+	return undefined;
 }
 
 function modelThreshold(
@@ -72,8 +114,47 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 	const openStore = options.openStore ?? openMctxStore;
 	const identityResolver = createProjectIdentityResolver();
 	const resolveProjectIdentity = options.resolveProjectIdentity ?? identityResolver.resolve;
+	const readForkSource = options.readForkSource ?? defaultForkSource;
 	const runHistorianForBranch = options.runHistorianForBranch ?? runMctxHistorianForBranch;
 	let active: ActiveMctxRuntime | undefined;
+	async function createInitialPartition(
+		context: ExtensionLifecycleContext,
+		store: MctxStore,
+		projectIdentity: string,
+		sessionId: string,
+	): Promise<MctxPartition | undefined> {
+		if (context.signal.aborted) return undefined;
+		const parentSessionPath = forkParentSessionPath(context);
+		if (parentSessionPath === undefined)
+			return store.getOrCreatePartition(projectIdentity, sessionId);
+		try {
+			const source = await readForkSource(parentSessionPath);
+			if (context.signal.aborted) return undefined;
+			const sourceProjectIdentity = await resolveProjectIdentity(source.cwd, context.signal);
+			if (context.signal.aborted) return undefined;
+			const sourcePartition = store.findPartition(sourceProjectIdentity, source.sessionId);
+			if (sourcePartition === undefined)
+				return store.getOrCreatePartition(projectIdentity, sessionId);
+			const compartments = verifiedForkCompartments(
+				context.extension.sessionManager.getBranch(),
+				store.listCompartments(sourcePartition),
+			);
+			if (compartments === undefined) return store.getOrCreatePartition(projectIdentity, sessionId);
+			const initialized = store.initializeForkPartition(
+				sourcePartition,
+				{ projectIdentity, sessionId },
+				compartments,
+			);
+			return initialized.kind === "stale"
+				? store.getOrCreatePartition(projectIdentity, sessionId)
+				: initialized.partition;
+		} catch {
+			if (context.signal.aborted) return undefined;
+			// Parent path lookup, identity resolution, graph proof, and copy are optional
+			// fork acceleration. A child must still start with raw Pi history on failure.
+			return store.getOrCreatePartition(projectIdentity, sessionId);
+		}
+	}
 	/**
 	 * Serializes historian work per session. A replacement branch is retained as
 	 * `rebuildEntries` until the aborted job terminalizes, preventing overlapping
@@ -172,7 +253,17 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					store.close();
 					return;
 				}
-				partition = store.getOrCreatePartition(projectIdentity, activation.runtime.sessionId);
+				const initialPartition = await createInitialPartition(
+					context,
+					store,
+					projectIdentity,
+					activation.runtime.sessionId,
+				);
+				if (initialPartition === undefined || context.signal.aborted) {
+					store.close();
+					return;
+				}
+				partition = initialPartition;
 			} catch (error: unknown) {
 				store.close();
 				if (!context.signal.aborted) {

@@ -69,6 +69,11 @@ function store(): MctxStore {
 			sessionId: "session-1",
 			revision: 0,
 		}),
+		findPartition: () => undefined,
+		initializeForkPartition: () => ({
+			kind: "copied",
+			partition: { projectIdentity: "git:project", sessionId: "session-1", revision: 0 },
+		}),
 		advancePartitionRevision: () => undefined,
 		acquireHistorianLease: () => undefined,
 		renewHistorianLease: () => undefined,
@@ -162,4 +167,104 @@ test("context hook atomically drops a recoverable divergent tail and leaves that
 	const active = feature.active();
 	if (active === undefined) throw new Error("Expected active runtime");
 	expect(active.partition.revision).toBe(1);
+});
+
+test("fork activation copies cross-project ancestors only after child-branch proof", async (): Promise<void> => {
+	const parentProject = `git:${"a".repeat(40)}`;
+	const childProject = `git:${"b".repeat(40)}`;
+	let initialized = false;
+	const lifecycle = {
+		pi: { events: {} },
+		extension: {
+			cwd: "/child-project",
+			sessionManager: {
+				getSessionId: () => "child-session",
+				getHeader: () => ({ parentSession: "/parent-session.jsonl" }),
+				getBranch: () => entries,
+			},
+			modelRegistry: { find: () => model, hasConfiguredAuth: () => true },
+			ui: { notify: () => undefined },
+		} as unknown as ExtensionContext,
+		signal: new AbortController().signal,
+		resources: { add: () => undefined, cleanup: async () => [] },
+	} as unknown as ExtensionLifecycleContext;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => ({
+			...store(),
+			findPartition: () => ({
+				projectIdentity: parentProject,
+				sessionId: "parent-session",
+				revision: 1,
+			}),
+			initializeForkPartition: (source, destination, compartments) => {
+				initialized = true;
+				expect(source).toEqual({
+					projectIdentity: parentProject,
+					sessionId: "parent-session",
+					revision: 1,
+				});
+				expect(destination).toEqual({ projectIdentity: childProject, sessionId: "child-session" });
+				expect(compartments).toEqual([compartment()]);
+				return {
+					kind: "copied",
+					partition: { ...destination, revision: compartments.length },
+				};
+			},
+		}),
+		resolveProjectIdentity: async (cwd) =>
+			cwd === "/parent-project" ? parentProject : childProject,
+		readForkSource: () => ({ cwd: "/parent-project", sessionId: "parent-session" }),
+	});
+	await feature.start(lifecycle);
+	expect(initialized).toBeTrue();
+	expect(feature.active()?.partition).toEqual({
+		projectIdentity: childProject,
+		sessionId: "child-session",
+		revision: 1,
+	});
+});
+
+test("fork activation leaves invalid parent graph unmaterialized", async (): Promise<void> => {
+	let initialized = false;
+	const lifecycle = {
+		pi: { events: {} },
+		extension: {
+			cwd: "/child-project",
+			sessionManager: {
+				getSessionId: () => "child-session",
+				getHeader: () => ({ parentSession: "/parent-session.jsonl" }),
+				getBranch: () => entries,
+			},
+			modelRegistry: { find: () => model, hasConfiguredAuth: () => true },
+			ui: { notify: () => undefined },
+		} as unknown as ExtensionContext,
+		signal: new AbortController().signal,
+		resources: { add: () => undefined, cleanup: async () => [] },
+	} as unknown as ExtensionLifecycleContext;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => ({
+			...store(),
+			findPartition: () => ({
+				projectIdentity: "git:parent",
+				sessionId: "parent-session",
+				revision: 1,
+			}),
+			listCompartments: () => [{ ...compartment(), sourceFingerprint: "not-child-proof" }],
+			initializeForkPartition: () => {
+				initialized = true;
+				throw new Error("Invalid graph must not copy");
+			},
+		}),
+		resolveProjectIdentity: async () => "git:child",
+		readForkSource: () => ({ cwd: "/parent-project", sessionId: "parent-session" }),
+	});
+	await feature.start(lifecycle);
+	expect(initialized).toBeFalse();
+	expect(feature.active()?.partition).toEqual({
+		projectIdentity: "git:project",
+		sessionId: "session-1",
+		revision: 0,
+	});
 });
