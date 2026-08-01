@@ -94,3 +94,18 @@ Provider implementation needs credential/config schemas and focused tests for ca
 config-generation discard, two-process SQLite write race, provider-off fallback and remote idempotency ledger. `/ctx-embed`,
 automatic backfill, vector-store schema, semantic `ctx_search`, and Dreamer evaluation are later slices, not part of registering
 the capability.
+
+## 当前实现
+
+`@hheei/pi-ext-embed` 是纯运行时包，唯一公开入口为 `src/index.ts`。它不含 Pi extension entry，也不注册工具、命令、
+lifecycle、scheduler 或任何持久化向量能力。
+
+- `acquireEmbeddingProvider(config)` 默认请求本地 provider；`off`、运行时未安装或不可用时返回 `undefined`。
+- 本地 provider 只在首次实际 acquire 时动态导入 Transformers，按标准化 provider/model 配置在单一进程内复用 pipeline。
+  模型缓存锁只协调不同进程的下载和加载初始化，绝不表示跨进程共享内存模型。
+- `synapse` 必须显式提供连接文件、项目根目录和 session。client 只按本进程内的连接标识复用；远端失败或调用取消返回
+  `undefined`，不会泄漏 client 或凭据。
+- 首版拒绝 `openai-compatible` 配置，避免在未定义的凭据、网络和数据外发策略下隐式启用远端服务。
+
+调用方拥有 `AbortSignal` 与 lease 生命周期。release 后包会等待当前调用结束再释放本进程资源；输入、配置、batch ID 和
+内容 hash 的不变量在任何 provider I/O 前校验。
