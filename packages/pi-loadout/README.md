@@ -2,6 +2,7 @@
 
 Loadout activation policy and Settings page for Pi.
 
-Install with `@hheei/pi-ext-core` and `@hheei/pi-settings`. The package resolves global/project
-`pi-loadout` JSON deltas and contributes the `Loadout` page to `/ext-settings`; `pi-settings` owns
-the command and surface host. Saved Loadout selections take effect after Pi `/reload`.
+Install with `@hheei/pi-ext-core`. The package resolves global/project `pi-loadout` JSON deltas and
+provides `/loadout`, opening the shared router at the `Loadout` page. When `@hheei/pi-settings` is
+also installed, `/ext-settings loadout` opens the same page with other registered Settings tabs.
+Saved Loadout selections take effect after Pi `/reload`.

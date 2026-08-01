@@ -19,8 +19,8 @@ executable tool，消除 extension load order 依赖。
 
 `pi-loadout` 是 managed-tool contributor 的推荐 companion extension，但不是硬依赖。缺少它时，
 core 仍注册 executable tool，保留 Pi 默认 activation；不应用 Loadout inventory、conflict、priority
-或 persisted override。`pi-loadout` 不提供 standalone UI 或 `/loadout` command；安装 `pi-settings` 时它注册
-Loadout router page，只读取新的
+或 persisted override。`pi-loadout` 不提供 standalone renderer，但提供 `/loadout` command；它打开 shared router
+并初始选中 Loadout page。安装 `pi-settings` 时同一 router 也能显示其它页面。它只读取新的
 `pi-loadout` global/project JSON sections；旧 `pi-basics-loadout` state 与早期 `tools` / `skills`
 boolean map schema 不迁移。
 
@@ -89,9 +89,9 @@ core 提供一个 global Extension page router。它维护 dynamic page registry
 layout、focus、key routing、render host 和 page lifecycle；page contributor 只提供 page metadata、
 controller 和 visible content。router 不拥有 page data、actions、persistence 或 feature policy。
 
-`pi-settings` 是唯一 router host，注册 `/ext-settings [page-id]`。host 每次打开时传入 initial page
-ID；core 不持久化 selected tab，找不到 requested page 时选择稳定 fallback。`pi-loadout` 只贡献
-Loadout Settings tab，不注册 `/loadout` 或竞争的 Settings command。
+`pi-settings` 注册 `/ext-settings [page-id]`，`pi-loadout` 注册 `/loadout`。两个 command host 都调用同一
+router；前者接受 page ID，后者固定传入 `loadout`。core 不持久化 selected tab，找不到 requested page 时选择稳定
+fallback。`pi-loadout` 不复制 Settings renderer 或竞争 `/ext-settings` command。
 
 page registration 是 lifecycle-bound：tab 可在 router 已打开时动态加入或移除。移除 active tab 时，
 router 原子选择下一个 tab；没有剩余 tab 时关闭 router。page ID 在 runtime 内唯一，重复 registration
