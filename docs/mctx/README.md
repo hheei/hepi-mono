@@ -7,6 +7,51 @@ configuration 有效时，它在 `session_start` 解析 runtime、打开/migrate
 partition。已启用 pipeline 在 `turn_end` 可触发 historian Completion；已验证 compartment graph 在 `context`
 pass 替换其 covered raw history。它仍不注册 tool、command、status 或 child inheritance Service。
 
+## 完整迁移目标
+
+`pi-mctx` 的最终目标不是停在首个 context pipeline，而是替代 `@hheei/hepi-mctx` 所加载的固定
+`@hheei/pi-magic-context@0.33.1-hepi.0` baseline。完成定义是：所有仍被 HEPI 用户依赖的 MCTX
+行为都有独立 owner、明确的持久化/取消/并发 contract、focused tests 和可安装 package entry；旧 aggregate
+wrapper 不再是运行时依赖，也不会再注册重复的 MCTX tools 或 lifecycle。
+
+迁移追求 behavioral parity，不追求旧 package API、tool 名称、settings key、SQLite schema 或 persisted state 的
+binary compatibility。需要导入旧数据时，另立带 backup、validation、rollback 规则的数据迁移 feature；不能在
+新 runtime 中隐式读取旧 state。
+
+## 完整迁移 TODO
+
+以下 checklist 是当前唯一 migration roadmap。`[x]` 表示实现和 focused verification 已完成；`[ ]` 表示尚未
+开始或尚未达到完整 contract。每个未完成项开始前都必须更新本文、完成 focused design discussion、先写测试，再实现。
+
+- [x] 独立 `@hheei/pi-mctx` package、显式 enable/model admission、user-level SQLite context store、project/session
+  partition、revision CAS、lease、compartment graph、parent historian、repair/retry、trigger、context transform 与
+  same-session branch divergence rebuild。
+- [ ] **Fork partition projection**：在 Pi fork 的 `session_start` 识别 source partition，验证并复制 child branch
+  可见 ancestor compartments 到新的 partition；copy failure fail open，child 后续 rebuild，绝不共享 parent state。
+- [ ] **Pipeline diagnostics 与 host verification**：为 cooldown-eligible historian failure 提供 model-invisible
+  native notification 和 structured log；在真实 Pi host 或 `tui-replay` 验证 activation、transform、fork、reload 与
+  failure 的可见行为。
+- [ ] **Parent-to-child compressed-context Service**：`pi-mctx` 用 ext-core Service 发布 opaque、validated parent
+  history projection；`pi-subagents` 消费它组装 child prompt。缺席/过期 fallback 为 Pi native inheritance，consumer
+  不读取 MCTX SQLite。
+- [ ] **Handoff/compaction integration**：定义 parent handoff 如何使用 compartment graph、protected tail、pending
+  reductions 与 failure fallback；它必须和 Pi native compact 共存，不能把 MCTX summary 当 Pi session canonical source。
+- [ ] **Context tools 与 durable user state**：先 inventory legacy fork 的实际 public tools，再逐项迁移 history
+  search/expand/reduce、memory、notes 及其删除/恢复语义。每个 tool 都要独立定义 owner、storage partition、privacy、
+  cancellation、concurrency 和 package boundary；不按旧工具名或内部 SQLite schema 猜测实现。
+- [ ] **Legacy wrapper bridge exit**：为现有 wrapper 的 Loadout group、housekeeping reminder bridge 和 subagent
+  invocation accounting 分别决定新 owner 或明确 retirement；在替代方案通过 install/reload verification 前不得删除。
+- [ ] **Historian-adjacent services**：按已验证需求设计 Dreamer、embedding provider、background maintenance、search
+  index 与 retention/data-management。自动 TTL prune、shutdown deletion 或语义删除在得到明确 retention contract 前保持禁止。
+- [ ] **Reserved configuration activation**：逐字段启用当前 opaque 的 upstream-shaped configuration，定义 user/project
+  scope、runtime validation、default、reload semantics 和 invalid-value fallback；不得因保存过某字段而隐式开启 feature。
+- [ ] **Installer migration 与旧 wrapper retirement**：发布独立 package entry、迁移安装文档和 Loadout ownership、验证
+  clean tarball/install entrypoint；确认没有用户需要的 legacy surface 后，弃用并最终移除 `@hheei/hepi-mctx` 与 aggregate
+  bundle 中的重复注册。
+
+完成 migration 前，不得宣称 `pi-mctx` 已替代 Magic Context。每个 checkbox 需要独立 commit；跨 package contract
+change 还必须更新 `docs/architecture/` 和相关 ADR。
+
 ## 目的
 
 `@hheei/pi-mctx` 将成为 HEPI 对父 Pi 会话进行上下文管理的唯一 owner。未来它可以维护摘要、
@@ -89,16 +134,17 @@ conditional update 未命中则得到 `undefined`，必须重新读取/recompute
 
 schema v3 增加每个 partition 一个 historian lease。worker 使用唯一 owner token 获取 finite TTL；持有者可在到期前
 renew 或 release，错误 token 不能影响其他 worker。expired lease 可由新 worker 在短 transaction 中替换；未拿到 lease
-的 process 跳过本次 historian run。此 slice 只提供 store primitive，尚未启动 renewal timer 或 historian。
+的 process 跳过本次 historian run。当前 historian run 会在 active 时续约 lease；具体 terminal semantics 见后文。
 
 schema v4 增加 immutable compartment records：partition、`m0`/`m1` tier、source entry range、source fingerprint、
 rendered payload 与 publication revision。`publishCompartment` 仅接受当前 partition snapshot，并在一个 transaction 内插入
 record 和推进 revision；stale snapshot 不写任何 record。read API 只返回当前 partition 的 revision-ordered records。
-结构/coverage/graph validation 与 historian output mapping 留给下一 slice。
+结构、coverage、graph validation 与 historian output mapping 是当前 publication fence 的组成部分。
 
 draft validator 不序列化或猜测 Pi message。它只接收 ordered source entry IDs 与该 immutable snapshot 的 fingerprint：
 draft 必须使用 `m0`/`m1` tier、匹配 fingerprint，且 start/end ID 必须在同一 snapshot 内按 source order 形成 inclusive
-range。跨-tier merge topology、historian JSON mapping、repair prompt 与 publication policy 尚未启用。
+range。跨-tier merge topology、historian JSON mapping、repair prompt 与 publication policy 由 historian publication
+path 执行，不能由 store schema 推断。
 
 source snapshot 从 `sessionManager.getBranch()` 的 active branch 顺序读取 entry IDs；它验证 nonempty/unique ID，并以
 SHA-256(JSON entry-ID array) 生成 fingerprint。snapshot 不序列化 message content，避免在未确认 Pi entry shape 前把
@@ -106,8 +152,8 @@ lossy projection 当 canonical source；后续 historian mapper 必须保留这�
 
 historian output mapper 只接受 exact JSON object：`tier`、`sourceStartEntryId`、`sourceEndEntryId`、`renderedPayload`。
 它拒绝 Markdown fence、extra key、错误 type 或 invalid JSON；不信任模型提供 fingerprint，而是注入 immutable source
-snapshot 的 fingerprint，再调用 source validator。mapper 的 stable invalid reason 可直接进入一次 repair Completion；本 slice
-不调用 Completion 或 publish。
+snapshot 的 fingerprint，再调用 source validator。mapper 的 stable invalid reason 可直接进入一次 repair Completion；
+mapper 本身仍不调用 Completion 或 publish。
 
 historian executor 使用 ext-core `startSubagent(..., { mode: "completion" })`，只提供 no-tools JSON-only completion。
 caller 提供 source text 与 immutable snapshot；executor 将 ordered entry IDs 和 exact output schema 放入 prompt，并将 core
