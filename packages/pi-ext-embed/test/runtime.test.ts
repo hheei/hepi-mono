@@ -115,7 +115,7 @@ describe("EmbeddingRuntime Synapse provider", () => {
 						requests.push({ method, params });
 						if (method === "models.list") {
 							return {
-								models: [{ model: "shared-model", fingerprint: "fixed", epoch: 4, dimensions: 2 }],
+								models: [{ model: "shared-model", fingerprint: "fixed", table_epoch: 4, dims: 2 }],
 							};
 						}
 						return {
@@ -155,8 +155,10 @@ describe("EmbeddingRuntime Synapse provider", () => {
 		const batch = requests.find((request) => request.method === "embed.batch");
 		expect(batch?.params).toEqual({
 			model: "shared-model",
-			fingerprint: "fixed",
-			epoch: 4,
+			required_fingerprint: "fixed",
+			required_epoch: 4,
+			allow_equivalent: false,
+			accept_declared: false,
 			purpose: "passage",
 			metadata: { source: "test" },
 			items: [
@@ -168,6 +170,40 @@ describe("EmbeddingRuntime Synapse provider", () => {
 		expect(closes).toBe(0);
 		await second.release();
 		expect(closes).toBe(1);
+	});
+
+	test("shares one Synapse client across session identities on one connection file", async () => {
+		let connections = 0;
+		const runtime = new EmbeddingRuntime({
+			connectSynapse: async () => {
+				connections += 1;
+				return {
+					call: async () => ({ models: [] }),
+					close: () => {},
+				};
+			},
+		});
+		const first = await runtime.acquire({
+			provider: "synapse",
+			connectionFile: "/tmp/subc.json",
+			projectRoot: "/tmp/project-a",
+			session: "session-a",
+			model: "model-a",
+		});
+		const second = await runtime.acquire({
+			provider: "synapse",
+			connectionFile: "/tmp/subc.json",
+			projectRoot: "/tmp/project-b",
+			session: "session-b",
+			model: "model-b",
+		});
+		if (first === undefined || second === undefined) throw new Error("Expected Synapse leases");
+
+		await first.provider.embed("one", "query", new AbortController().signal);
+		await second.provider.embed("two", "query", new AbortController().signal);
+		expect(connections).toBe(1);
+		await first.release();
+		await second.release();
 	});
 
 	test("drops malformed Synapse batch results and validates caller batch IDs", async () => {
