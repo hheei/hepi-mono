@@ -37,7 +37,7 @@
 		"@earendil-works/pi-tui": ">=0.83.0"
 	},
 	"devDependencies": {
-		"@earendil-works/pi-coding-agent": "0.83.0",
+		"@earendil-works/pi-coding-agent": ">=0.83.0",
 		"@types/bun": "latest"
 	}
 }
