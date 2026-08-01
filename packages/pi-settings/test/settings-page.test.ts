@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ExtensionPageViewContext, HepiSettingsProvider } from "@hheei/pi-ext-core";
+import { replayTui, viewFrame } from "../../hepi-debug/src/tui-replay.js";
 import { createSettingsPage } from "../src/settings-page.js";
 
 function context(): {
@@ -145,8 +146,8 @@ describe("Settings provider page", () => {
 		expect(h.closes.value).toBe(0);
 	});
 
-	test("shows a scrollbar only for an overflowing field list", async () => {
-		const fields = Array.from({ length: 12 }, (_, index) => ({
+	test("keeps a fixed panel, separate scrollbar, and centered selected row", async () => {
+		const fields = Array.from({ length: 20 }, (_, index) => ({
 			id: `field-${index}`,
 			label: `Field ${index}`,
 			type: "boolean" as const,
@@ -162,7 +163,20 @@ describe("Settings provider page", () => {
 		};
 		const h = context();
 		const page = await createSettingsPage({ list: () => [provider] } as never, h.value);
-		expect(page.component.render(100).join("\n")).toContain("█");
+		const initial = page.component.render(100);
+		expect(initial).toHaveLength(20);
+		expect(initial[19]).toContain("↕ navigate");
+		expect(initial.some((line) => line[56] === "█" || line[56] === "│")).toBe(true);
+		for (let index = 0; index < 12; index++) await page.handleInput("\u001b[B");
+		expect(page.component.render(100)[10]).toContain("→ Field 12");
+		const replay = await replayTui({
+			columns: 100,
+			rows: 20,
+			create: () => page.component,
+			actions: [],
+		});
+		expect(viewFrame(replay.last)).toHaveLength(20);
+		expect(viewFrame(replay.last)[19]).toContain("↕ navigate");
 		expect(page.component.render(60).join("\n")).toContain("Origin: @hheei/pi-settings");
 	});
 

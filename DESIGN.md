@@ -107,7 +107,8 @@ existing semantic token expresses the role.
 - Loadout uses one unframed selector page: Tools and Skills share its grouped resource list; the
   selected resource has one Description block, rather than inline descriptions on every row. A wide
   layout is list, conditional scrollbar, then Description; a narrow layout stacks list then
-  Description.
+  Description. Within each resource kind, Built-in resources come first; registered resources then
+  sort by display group and name.
 - Loadout status is textual and glyph-backed: `●` is effective enabled, `○` is effective disabled,
   and `⊘` is conflict-locked/inactive. The selected row retains the standard `→` slot. Display group
   is secondary metadata; the Description block uses the legacy selected-resource content: name and
@@ -125,6 +126,13 @@ existing semantic token expresses the role.
 - Settings and Loadout each reserve at least 20 page-content rows below the shared router tab strip.
   Their lists may remain shorter than that minimum; router-owned blank rows retain a stable custom
   surface height instead of inventing empty list entries.
+- Settings and Loadout render exactly 20 content rows in their wide layouts. Their list metadata
+  occupies the first rows, key hints occupy the last row, and a conditional scrollbar occupies its
+  own vertical column between the list and Description. It is never appended to list values.
+  Selected rows remain near the center of the list viewport until either scroll boundary is reached;
+  Description content clips within the fixed panel instead of changing its height.
+- Settings and Loadout filter inputs retain one trailing cell after their visible query so the cursor
+  does not visually touch the list boundary.
 
 ### Frames And Backgrounds
 
