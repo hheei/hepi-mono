@@ -8,10 +8,14 @@ editor 上方 widget。它依赖 `@hheei/pi-ext-core` 的 session lifecycle，�
 
 ## 边界
 
-- package 注册 `todo` tool 与 `/todos` command；task model、调度、suppression、提醒和 widget 都由
-  `pi-todo` 自己持有；
-- core 只提供 lifecycle cleanup。widget 继续直接使用 Pi 原生 `setWidget(..., { placement:
-  "aboveEditor" })`，不等待尚未实现的 widget layout；
+- package 拥有 `todo` tool definition 与 `/todos` command；task model、调度、suppression、提醒和
+  widget 都由 `pi-todo` 自己持有；
+- core 在 extension initialization 代为向 Pi 注册 `todo` executable tool，并发布同名 Loadout
+  inventory item。metadata 固定为 owner `@hheei/pi-todo`、group `Tasks`、priority `100`、无
+  conflict、default active。没有 `pi-loadout` 时，core 保留 Pi 默认 activation；安装
+  `pi-loadout` 后才由其 policy 决定是否启用；
+- core 还提供 session lifecycle cleanup。widget 继续直接使用 Pi 原生
+  `setWidget(..., { placement: "aboveEditor" })`，不等待尚未实现的 widget layout；
 - 不新增 shared TUI frame/background API。widget 的行布局、主题 token 和宽度裁剪仍属于 Todo；
 - `hepi-tools` 移除 Todo 注册，不提供 aggregate adapter 或重复 command/tool。
 
@@ -42,6 +46,19 @@ widget key 改为 `pi-todo:tasks`，使 runtime ownership 与 package 名称一�
 
 `pi-todo` 与移除 Todo 的新 `hepi-tools` 必须在同一 release 发布。旧发布版 aggregate 与新 package
 混装不受支持，因为 Pi 对同名 tool/command 的注册顺序没有可靠的升级语义。
+
+## 实现注释
+
+Todo 的关键注释必须说明实际约束，而不是复述类型或语句：
+
+- managed tool registration 必须记录 owner、Loadout default、无 policy host 时的 fallback，以及
+  为什么 registration 只能在 extension initialization 发生；
+- tool batch 必须说明先在候选 state 上验证、成功后才提交，避免任何 invalid operation 部分写入；
+- Pi event handler 必须说明它只读取当前 session runtime，并在 lifecycle disposal 后成为 no-op，避免
+  Pi 无 unregister API 在 `/reload` 后调用 stale closure；
+- result `details.snapshot` 仅用于当前 tool-result renderer，不能被描述为 session 或 branch persistence；
+- widget 注释必须说明它为何继续使用 native above-editor mount，以及 completed/blocked 可见性集合的
+  ownership 和 reset 时机。
 
 ## 验证
 

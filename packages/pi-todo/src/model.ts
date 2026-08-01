@@ -146,6 +146,11 @@ export function activateFirstPending(state: TaskState): TaskState {
 	};
 }
 
+/**
+ * Applies a tool batch as one transaction. Every operation mutates only `draft`;
+ * any validation or transition failure returns the original state, so callers
+ * can safely render "No change made" without compensating partial writes.
+ */
 export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult {
 	if (!isRecord(params) || !Array.isArray(params.operations) || params.operations.length === 0) {
 		return { ok: false, state, error: "operations must be a non-empty array" };
@@ -234,6 +239,9 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 			return fail(`Invalid status transition from completed to ${status}`, index);
 		}
 		const next = { ...current, subject, status };
+		// Pi permits exactly one active task. Starting a pending or blocked task is
+		// an explicit switch, not an error: demote the previous active task inside
+		// this same draft so the invariant never leaks between batch operations.
 		const candidateTasks = draft.tasks.map((task) => {
 			if (task.id === id) return next;
 			if (status === "in_progress" && task.status === "in_progress") {

@@ -4,6 +4,7 @@ import type {
 	ExtensionCommandContext,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { type LoadoutToolMetadata, observeLoadoutInventory } from "@hheei/pi-ext-core";
 import { Value } from "typebox/value";
 import type { TodoSnapshot } from "../../src/state.js";
 import {
@@ -144,11 +145,42 @@ function branchResult(snapshot: TodoSnapshot) {
 describe("Todo integration", () => {
 	test("registers sourced batch schema, prompt, command, and lifecycle hooks", () => {
 		const host = harness();
+		const controller = new AbortController();
+		const inventory: Array<readonly LoadoutToolMetadata[]> = [];
+		observeLoadoutInventory(host.pi, {
+			signal: controller.signal,
+			onChange(items) {
+				inventory.push(items);
+			},
+		});
 		createTodoFeature(host.pi);
 		const tool = host.tools[0]!;
 
 		expect(host.commands.map(({ name }) => name)).toEqual(["todos"]);
 		expect(host.tools.map(({ name }) => name)).toEqual(["todo"]);
+		expect(
+			inventory.map((items) =>
+				items.map(({ id, group, priority, conflictSets, defaultActive }) => ({
+					id,
+					group,
+					priority,
+					conflictSets,
+					defaultActive,
+				})),
+			),
+		).toEqual([
+			[],
+			[
+				{
+					id: "todo",
+					group: "Tasks",
+					priority: 100,
+					conflictSets: [],
+					defaultActive: true,
+				},
+			],
+		]);
+		controller.abort();
 		expect(tool.executionMode).toBe("sequential");
 		expect(tool.description).toBe(TODO_TOOL_DESCRIPTION);
 		expect(tool.promptSnippet).toBe(TODO_PROMPT_SNIPPET);
@@ -457,9 +489,7 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(allBlocked.content[0]?.text).toBe(
-			"Updated #2\nUpdated #3\nOnly blocked todos #1 #2 #3 left. Agree next steps with the user.",
-		);
+		expect(allBlocked.content[0]?.text).toBe("Updated #2\nUpdated #3\nFinished all todos.");
 	});
 
 	test("keeps failed and aborted calls out of runtime state", async () => {
