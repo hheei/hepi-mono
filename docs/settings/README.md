@@ -50,6 +50,28 @@ global/project 两个 JSON root 的部分提交。直接文字输入过滤 name 
 失败时丢弃未写 draft、允许正常离开并输出 Pi warning。任何一次成功 flush 都使 host 在整个 Settings surface
 实际关闭后只输出一次：`※ Reload to apply Loadout changes.`；无 change 不输出，成功保存不 hot-apply。
 
+## Settings 页面
+
+Settings page 沿用原 `hepi-basics` Settings 的单棵组合树，而不是为每个 provider 创建 router page。
+`pi-settings` 将 core registry 的 provider groups 映射到一个 display tree：每个 extension/module 只显示一次
+header，之后列出其 group 和 field；发生 group ID collision 时只在 display tree 使用 namespaced ID，保存和
+callback 始终映射回 provider 原始 group ID。
+
+宽终端布局与 Loadout 一致：左侧可滚动的 group/field list、中间仅溢出时显示的 scrollbar、右侧单一 selected
+field Description block。窄终端将 Description 放在列表之后。router 继续拥有 top tab strip 与 structural
+borders；Settings page 不绘制旧 shell tabs 或自己的外框。
+
+field row 维持原 Settings 的稳定 label/value columns、selected slot、disabled dim state、group header、以及仅在
+非编辑 selected field 上启用的 long-label marquee。Description 只显示 field description、Origin、Value、正在编辑
+的 value 或 validation error；它不显示 provider storage path、JSON raw state 或 feature policy。
+
+Settings 使用原 Settings transaction：load 时 merge default 并保留 provider-owned unknown fields；field edit 只
+修改内存 draft；关闭或 router tab handoff 时，按 provider 顺序执行 `validate -> onChange -> storage.save`。保存失败
+保留 draft、显示 error 并阻止离开，以便用户重试；不会套用 Loadout JSON delta 的 discard-and-warning 行为。
+
+`Space` toggle boolean；enum、text、number 和 path 使用原 Pi `Input` editor。`Tab` 只服务 field 的 `tabCycle`；
+它不会切换 router page。编辑时 `Esc` cancel editor，非编辑时首个 `Esc` clear filter，随后才 close。
+
 ## 验证
 
 实现必须覆盖 draft scope switch、flush failure、reload-notice aggregation、router key fallback、widget

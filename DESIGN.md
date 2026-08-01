@@ -95,9 +95,9 @@ existing semantic token expresses the role.
   child indentation.
 - Long selected setting keys may marquee only while non-editing and selected;
   all other content remains static.
-- `pi-loadout` is headless until `pi-settings` exists. The future Settings page owns Loadout-visible
-  rows and actions; `pi-loadout` owns activation policy and state, while the core Extension page
-  router owns only tab navigation and shared page framing.
+- `pi-settings` owns the generic Settings page and exposes `pi-loadout` as a router page. Settings
+  owns generic field rendering and editing; `pi-loadout` owns activation policy and state; the core
+  Extension page router owns only tab navigation and shared page framing.
 - An Extension page router uses `←`/`→` to switch tabs only after the active page does not handle
   the key; `Esc` closes the router. Show the compact `↔` hint near the tabs. Do not add a separate
   tab-strip focus region.
@@ -110,13 +110,18 @@ existing semantic token expresses the role.
   Description.
 - Loadout status is textual and glyph-backed: `●` is effective enabled, `○` is effective disabled,
   and `⊘` is conflict-locked/inactive. The selected row retains the standard `→` slot. Display group
-  is secondary metadata; the Description block explains scope source, inherited/default state, and
-  any lock winner.
+  is secondary metadata; the Description block uses the legacy selected-resource content: name and
+  kind, description, origin, and status. It adds a lock winner only for a conflict-locked resource.
 - Loadout uses `Ctrl+P` to switch Global and Project scope, `Space` to cycle only the selected
   resource's reachable scope choices, and direct text input to filter resource name and display
   group. Global and Project-private rows remain binary; only global-visible Project rows include
   `inherit`. `Esc` clears a filter before closing. Do not overload `←` or `→`, which remain router
   navigation.
+- Settings uses the legacy combined provider tree, not one page per provider. Its wide layout is
+  grouped field list, conditional scrollbar, then one unframed field Description block; narrow
+  layout stacks those regions. Field label/value columns remain stable, disabled fields use `dim`,
+  and only a selected non-editing long label may marquee. `Space` toggles booleans; Pi Input edits
+  other fields; `Tab` only cycles a field's related `tabCycle` value.
 
 ### Frames And Backgrounds
 
