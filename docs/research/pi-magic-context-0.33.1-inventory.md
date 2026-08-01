@@ -94,5 +94,18 @@ full-text/semantic index、cross-session retained history contract、git/primer 
 exclusion。不能注册同名 partial `ctx_search`，否则既误导 agent，又会因 Pi first-registration rule 阻止 future full tool。
 它等待 source/index/privacy/retention design，而非一个简单 SQL `LIKE` query。
 
+## Embedding/index 源码证据
+
+`/ctx-embed` 是 project-level compartment backfill/status/pause command（`dist/index.js:11057-11278`），不是一次性
+vector API call。它有 session cancellation、per-project busy state、coverage/progress、auto-drain 和 retryable stalled
+outcome。其 provider registration 保留 project generation/runtime fingerprint；每次 embedding 返回前后都检查 generation，
+防止 config/model 切换后的 stale write（`dist/index-3452y8q2.js:171899-172364`）。storage 按 model identity 与
+content hash fenced，且有 stale model GC、batch ledger 与 optional Synapse shadow migration。
+
+current workspace 没有 reusable embedding/vector/provider owner。把 legacy provider stack 或 `/ctx-embed` 复制进
+`pi-mctx` 会在 `ctx_search` 尚未消费它时创建只有一个 speculative consumer 的 shared infrastructure，违反 core
+two-real-consumer rule。embedding/index 必须先有独立 provider/config/credential, storage/retention, cancellation/cost,
+and query privacy proposal；在此之前不注册 `/ctx-embed`。
+
 未确认：旧数据库的 exact tables/schema、`todowrite` 的完整 persistence、`ctx-flush`/`ctx-recomp`/`ctx-wrapup`
 的 complete behavior、任何 Handoff bridge，以及 private helpers 是否具有用户可见承诺。它们不能作为兼容性目标。
