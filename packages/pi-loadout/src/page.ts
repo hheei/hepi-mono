@@ -443,7 +443,8 @@ export function createLoadoutPage(
 			},
 		},
 		async handleInput(input: string): Promise<boolean> {
-			if (input === "\u0010") {
+			// matchesKey accepts both legacy control bytes and terminals' CSI-u Ctrl+P sequence.
+			if (matchesKey(input, "ctrl+p")) {
 				await leave(scope === "global" ? "project" : "global");
 				return true;
 			}
