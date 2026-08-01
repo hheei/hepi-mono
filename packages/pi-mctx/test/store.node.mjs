@@ -220,6 +220,84 @@ test("stores project-wide memories with record revision CAS", async () => {
 	});
 });
 
+test("stores session notes with immutable anchors and record revision CAS", async () => {
+	await withPath(async (path) => {
+		const store = await openMctxStore(path);
+		const project = `git:${"7".repeat(40)}`;
+		store.getOrCreatePartition(project, "session-a");
+		store.getOrCreatePartition(project, "session-b");
+		const note = store.writeNote({
+			projectIdentity: project,
+			sessionId: "session-a",
+			content: "Verify session scope.",
+			anchor: { entryId: "assistant-1", kind: "tool", toolCallId: "call-1" },
+			smartCondition: "When Dreamer exists",
+			nowMs: 10,
+		});
+		assert.deepEqual(note, {
+			projectIdentity: project,
+			sessionId: "session-a",
+			noteId: 1,
+			content: "Verify session scope.",
+			status: "active",
+			anchor: { entryId: "assistant-1", kind: "tool", toolCallId: "call-1" },
+			smartCondition: "When Dreamer exists",
+			revision: 1,
+			createdSessionId: "session-a",
+			updatedSessionId: "session-a",
+			createdAtMs: 10,
+			updatedAtMs: 10,
+		});
+		assert.deepEqual(store.readNotes(project, "session-b"), []);
+		const updated = store.updateNote({
+			projectIdentity: project,
+			sessionId: "session-a",
+			noteId: 1,
+			expectedRevision: 1,
+			content: "Verify record CAS.",
+			anchor: null,
+			smartCondition: null,
+			nowMs: 20,
+		});
+		assert.deepEqual(updated, {
+			projectIdentity: project,
+			sessionId: "session-a",
+			noteId: 1,
+			content: "Verify record CAS.",
+			status: "active",
+			revision: 2,
+			createdSessionId: "session-a",
+			updatedSessionId: "session-a",
+			createdAtMs: 10,
+			updatedAtMs: 20,
+		});
+		assert.equal(
+			store.updateNote({
+				projectIdentity: project,
+				sessionId: "session-a",
+				noteId: 1,
+				expectedRevision: 1,
+				content: "stale",
+				nowMs: 30,
+			}),
+			undefined,
+		);
+		assert.equal(
+			store.dismissNote({
+				projectIdentity: project,
+				sessionId: "session-a",
+				noteId: 1,
+				expectedRevision: 2,
+				nowMs: 30,
+			})?.status,
+			"dismissed",
+		);
+		assert.equal(store.readNotes(project, "session-a").length, 0);
+		assert.equal(store.readNotes(project, "session-a", "dismissed")[0]?.content, "Verify record CAS.");
+		store.close();
+	});
+});
+
 test("upgrades the v1 metadata fence before creating partitions", async () => {
 	await withPath(async (path) => {
 		const v1 = new DatabaseSync(path);

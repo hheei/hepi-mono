@@ -10,7 +10,7 @@ import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
 import type { MctxConfiguration } from "../src/config.js";
 import { createMctxFeature } from "../src/feature.js";
 import { createMctxSourceSnapshot } from "../src/source-snapshot.js";
-import type { MctxCompartment, MctxHistoryTag, MctxStore } from "../src/store.js";
+import type { MctxCompartment, MctxHistoryTag, MctxNote, MctxStore } from "../src/store.js";
 
 const model = { api: "test", provider: "anthropic", id: "claude-haiku" } as Model<Api>;
 
@@ -63,6 +63,7 @@ function compartment(): MctxCompartment {
 
 function store(): MctxStore {
 	const historyTags: MctxHistoryTag[] = [];
+	const notes: MctxNote[] = [];
 	return {
 		path: "/store",
 		getOrCreatePartition: () => ({
@@ -105,6 +106,73 @@ function store(): MctxStore {
 		getMemories: () => [],
 		updateMemory: () => undefined,
 		archiveMemory: () => undefined,
+		writeNote: (input) => {
+			const note: MctxNote = {
+				projectIdentity: input.projectIdentity,
+				sessionId: input.sessionId,
+				noteId: notes.length + 1,
+				content: input.content,
+				status: "active",
+				...(input.anchor === undefined ? {} : { anchor: input.anchor }),
+				...(input.smartCondition === undefined ? {} : { smartCondition: input.smartCondition }),
+				revision: 1,
+				createdSessionId: input.sessionId,
+				updatedSessionId: input.sessionId,
+				createdAtMs: 0,
+				updatedAtMs: 0,
+			};
+			notes.push(note);
+			return note;
+		},
+		readNotes: (_projectIdentity, sessionId, status = "active") =>
+			notes.filter((note) => note.sessionId === sessionId && note.status === status),
+		updateNote: (input) => {
+			const index = notes.findIndex(
+				(note) =>
+					note.sessionId === input.sessionId &&
+					note.noteId === input.noteId &&
+					note.status === "active" &&
+					note.revision === input.expectedRevision,
+			);
+			const current = notes[index];
+			if (current === undefined) return undefined;
+			const updated: MctxNote = {
+				...current,
+				content: input.content,
+				...(input.anchor === undefined
+					? {}
+					: input.anchor === null
+						? { anchor: undefined }
+						: { anchor: input.anchor }),
+				...(input.smartCondition === undefined
+					? {}
+					: input.smartCondition === null
+						? { smartCondition: undefined }
+						: { smartCondition: input.smartCondition }),
+				revision: current.revision + 1,
+				updatedSessionId: input.sessionId,
+			};
+			notes[index] = updated;
+			return updated;
+		},
+		dismissNote: (input) => {
+			const index = notes.findIndex(
+				(note) =>
+					note.sessionId === input.sessionId &&
+					note.noteId === input.noteId &&
+					note.status === "active" &&
+					note.revision === input.expectedRevision,
+			);
+			const current = notes[index];
+			if (current === undefined) return undefined;
+			const dismissed: MctxNote = {
+				...current,
+				status: "dismissed",
+				revision: current.revision + 1,
+			};
+			notes[index] = dismissed;
+			return dismissed;
+		},
 		close: () => undefined,
 	};
 }
@@ -144,6 +212,59 @@ test("expand reads only current-branch retained tags and reports gaps", async ()
 			sessionManager: { ...context.sessionManager, getBranch: () => [entries[0]!] },
 		}),
 	).toMatchObject({ kind: "expanded", tags: [{ tagNumber: 1 }], rejected: [] });
+});
+
+test("notes persist resolved current-branch tag identity and stay session-local", async (): Promise<void> => {
+	const lifecycle = {
+		pi: { events: {} },
+		extension: {
+			cwd: "/project",
+			sessionManager: { getSessionId: () => "session-1" },
+			modelRegistry: { find: () => model, hasConfiguredAuth: () => true },
+			ui: { notify: () => undefined },
+		} as unknown as ExtensionContext,
+		signal: new AbortController().signal,
+		resources: { add: () => undefined, cleanup: async () => [] },
+	} as unknown as ExtensionLifecycleContext;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => store(),
+		resolveProjectIdentity: async () => "git:project",
+	});
+	await feature.start(lifecycle);
+	const context = {
+		sessionManager: { getSessionId: () => "session-1", getBranch: () => entries },
+	} as unknown as ExtensionContext;
+	const written = feature.note(
+		{ action: "write", content: "Check migration.", anchorTag: 2, smartCondition: "When v7 opens" },
+		context,
+	);
+	expect(written).toMatchObject({
+		kind: "notes",
+		notes: [
+			{
+				noteId: 1,
+				anchor: { entryId: "assistant", kind: "message" },
+				smartCondition: "When v7 opens",
+			},
+		],
+	});
+	expect(feature.note({ action: "read" }, context)).toMatchObject({
+		kind: "notes",
+		notes: [{ noteId: 1 }],
+	});
+	expect(feature.note({ action: "write", content: "bad", anchorTag: 99 }, context)).toEqual({
+		kind: "invalid-anchor",
+	});
+	expect(
+		feature.note(
+			{ action: "read" },
+			{
+				...context,
+				sessionManager: { ...context.sessionManager, getSessionId: () => "other-session" },
+			},
+		),
+	).toEqual({ kind: "inactive" });
 });
 
 test("context hook renders only the active session's verified graph", async (): Promise<void> => {
