@@ -45,13 +45,15 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
   reductions 与 failure fallback；它必须和 Pi native compact 共存，不能把 MCTX summary 当 Pi session canonical source。
   当前被缺失的 `hepi-basics` `/handoff` command owner 阻塞；不得由 `pi-mctx` 越界注册 command。恢复并验证 Pi-native
   owner 后再设计 MCTX bridge。
-- [ ] **Session-history tag ledger 与 transform**：建立 `N -> immutable Pi identity` 的 session-local ledger、immutable
+- [x] **Session-history tag ledger 与 transform**：建立 `N -> immutable Pi identity` 的 session-local ledger、immutable
   source retention、protected tail、pending/deferred drop、branch/reload/fork proof 和 marker projection；不能用 raw message
   dump 或即时删除替代。
-- [ ] **`ctx_reduce`**：`pi-mctx` 直接注册此 tool，写入 tag-ledger pending operation；只接受 current active branch 的非保护
+- [x] **`ctx_reduce`**：`pi-mctx` 直接注册此 tool，写入 tag-ledger pending operation；只接受 current active branch 的非保护
   tag，下一 context transform 才投影 marker。disabled runtime 或不合法 selector 返回明确 tool error，不修改 Pi JSONL。
-- [ ] **`ctx_expand`**：从 session-local retained source 恢复一个或多个 tag 的受界限内容；它不读取别的 session/fork
-  partition，也不把 source 自动重新注入 model context。
+- [x] **`ctx_expand`**：从 current partition retained source 读取一个或多个 `N`/`N-M` tag 的受界限内容；它接受 all
+  status tag、对 valid selector partial output，并明确列出 rejected selector。`offset`/`limit` 作用于 tag-order
+  rendered result，default/max 均为 30,000 characters。它不读取别的 session/fork partition，不修改 tag status，也不把
+  source 自动重新注入 model context。
 - [ ] **Durable memory**：迁移 `ctx_memory` 的 project/workspace scope、category、archive/delete/restore、privacy、
   source provenance 与 cross-session visibility。它是 user-level durable state，不复用旧 SQLite schema，也不让 project
   config 或 child session 取得写权限。
@@ -117,6 +119,18 @@ ledger 为每项保留 immutable source copy，供 future `ctx_expand` 在 reloa
 
 首 slice 不迁移 legacy 的 tool-specific skeleton/truncate heuristics、automatic/smart drops 或 reasoning compression。它们
 需要各自可测的 reclaim policy，不能混入用户明确请求的 manual deferred drop。
+
+### `ctx_expand`
+
+`ctx_expand` 只接受同一 selector grammar 的 `N`/`N-M` range。它读取 current active MCTX partition ledger 中 immutable
+source copy，允许 `active`、`pending` 和 `dropped` status；source 除显式 tool result 外绝不重新进入 model context。unknown、
+other-partition 或 malformed selector 绝不按 entry position 猜测：malformed selector 返回 tool error，valid selector 仍按
+tag-number order 返回，ineligible selector 单独报告。
+
+tool 的可选 `offset` 与 `limit` 作用于完整 rendered result，而不是逐 tag pagination。`limit` 的 default 和 maximum 都是
+30,000 characters。truncated result 报告 next offset；它既不改 status，也不将 source 恢复到 active context。`ctx_expand`
+绝不读取另一 session/fork partition，也不让 retained source 提供给 background work、cross-extension Service 或 automatic prompt
+injection。
 
 ## 目的
 

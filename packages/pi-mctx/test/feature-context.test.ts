@@ -10,7 +10,7 @@ import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
 import type { MctxConfiguration } from "../src/config.js";
 import { createMctxFeature } from "../src/feature.js";
 import { createMctxSourceSnapshot } from "../src/source-snapshot.js";
-import type { MctxCompartment, MctxStore } from "../src/store.js";
+import type { MctxCompartment, MctxHistoryTag, MctxStore } from "../src/store.js";
 
 const model = { api: "test", provider: "anthropic", id: "claude-haiku" } as Model<Api>;
 
@@ -62,6 +62,7 @@ function compartment(): MctxCompartment {
 }
 
 function store(): MctxStore {
+	const historyTags: MctxHistoryTag[] = [];
 	return {
 		path: "/store",
 		getOrCreatePartition: () => ({
@@ -81,9 +82,63 @@ function store(): MctxStore {
 		listCompartments: () => [compartment()],
 		discardCompartmentsFrom: () => undefined,
 		publishCompartment: () => undefined,
+		syncHistoryTags: (partition, inputs) => {
+			for (const input of inputs) {
+				if (
+					historyTags.some(
+						(tag) =>
+							tag.kind === input.kind &&
+							tag.entryId === input.entryId &&
+							tag.toolCallId === input.toolCallId,
+					)
+				)
+					continue;
+				historyTags.push({ ...input, tagNumber: historyTags.length + 1, status: "active" });
+			}
+			return { partition, tags: historyTags };
+		},
+		queueHistoryTagDrops: () => undefined,
+		markHistoryTagsDropped: () => undefined,
 		close: () => undefined,
 	};
 }
+
+test("expand reads only current-branch retained tags and reports gaps", async (): Promise<void> => {
+	const lifecycle = {
+		pi: { events: {} },
+		extension: {
+			cwd: "/project",
+			sessionManager: { getSessionId: () => "session-1" },
+			modelRegistry: { find: () => model, hasConfiguredAuth: () => true },
+			ui: { notify: () => undefined },
+		} as unknown as ExtensionContext,
+		signal: new AbortController().signal,
+		resources: { add: () => undefined, cleanup: async () => [] },
+	} as unknown as ExtensionLifecycleContext;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => store(),
+		resolveProjectIdentity: async () => "git:project",
+	});
+	await feature.start(lifecycle);
+	const context = {
+		sessionManager: { getSessionId: () => "session-1", getBranch: () => entries },
+	} as unknown as ExtensionContext;
+	expect(feature.expand([1, 2, 99], context)).toMatchObject({
+		kind: "expanded",
+		tags: [
+			{ tagNumber: 1, status: "active", source: "old request" },
+			{ tagNumber: 2, status: "active" },
+		],
+		rejected: [99],
+	});
+	expect(
+		feature.expand([1], {
+			...context,
+			sessionManager: { ...context.sessionManager, getBranch: () => [entries[0]!] },
+		}),
+	).toMatchObject({ kind: "expanded", tags: [{ tagNumber: 1 }], rejected: [] });
+});
 
 test("context hook renders only the active session's verified graph", async (): Promise<void> => {
 	const lifecycle = {

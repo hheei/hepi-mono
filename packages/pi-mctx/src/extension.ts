@@ -7,6 +7,7 @@ import {
 import { registerExtensionLifecycle } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { createMctxFeature } from "./feature.js";
+import { MAX_CTX_EXPAND_CHARS, renderMctxHistoryTagPage } from "./history-tags.js";
 
 interface PiContextHook {
 	on(
@@ -42,7 +43,7 @@ function parseTagSelectors(value: string): readonly number[] | undefined {
 			numbers.add(number);
 		}
 	}
-	return numbers.size === 0 ? undefined : [...numbers];
+	return numbers.size === 0 ? undefined : [...numbers].sort((left, right) => left - right);
 }
 
 function registerHistoryTools(
@@ -86,6 +87,61 @@ function registerHistoryTools(
 						{
 							type: "text",
 							text: `Queued drops: ${result.queued?.join(", ") || "none"}. Rejected: ${result.rejected?.join(", ") || "none"}.`,
+						},
+					],
+					details: undefined,
+				};
+			},
+		}),
+	);
+	pi.registerTool(
+		defineTool({
+			name: "ctx_expand",
+			label: "Expand context",
+			description: "Read retained source for current-session context tags without reinjecting it.",
+			parameters: Type.Object({
+				tags: Type.String(),
+				offset: Type.Optional(Type.Integer({ minimum: 0 })),
+				limit: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_CTX_EXPAND_CHARS })),
+			}),
+			async execute(_toolCallId, args, _signal, _onUpdate, context) {
+				const tags = parseTagSelectors(args.tags);
+				if (tags === undefined) {
+					return {
+						content: [{ type: "text", text: "Invalid tag selector; use N, N-M, comma-separated." }],
+						details: undefined,
+						isError: true,
+					};
+				}
+				const result = feature.expand(tags, context);
+				if (result.kind !== "expanded") {
+					return {
+						content: [
+							{
+								type: "text",
+								text:
+									result.kind === "inactive"
+										? "pi-mctx is not active for this session."
+										: "Context changed; retry ctx_expand.",
+							},
+						],
+						details: undefined,
+						isError: true,
+					};
+				}
+				const page = renderMctxHistoryTagPage(result.tags, args.offset, args.limit);
+				if (page === undefined) {
+					return {
+						content: [{ type: "text", text: "offset or limit is invalid." }],
+						details: undefined,
+						isError: true,
+					};
+				}
+				return {
+					content: [
+						{
+							type: "text",
+							text: `${page.text || "No current-session tags matched."}${page.nextOffset === undefined ? "" : `\n\nNext offset: ${page.nextOffset}`}${result.rejected.length === 0 ? "" : `\n\nRejected tags: ${result.rejected.join(", ")}`}`,
 						},
 					],
 					details: undefined,
