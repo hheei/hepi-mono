@@ -70,7 +70,8 @@ result，仅在全部成员成功、失败、取消或达到 limit 后投递一�
 sink reject 后，task 的 terminal result 不改变，只记录 `deliveryFailed`。core 不自动 retry，以免
 重复写入主 session；caller 可用 stable task ID lookup retained handle，再做明确、幂等的 redelivery。
 自动 delivery 最多执行一次；每次 explicit redelivery 是 caller 选择的新尝试。terminal handle 保留到
-parent session shutdown，之后 stable ID 不再有效，也不持久化到下一 session。
+parent session shutdown，或达到 coordinator 的公开 retention budget；超出上限时最早 terminal handle 被淘汰，
+之后 stable ID 不再有效，也不持久化到下一 session。consumer 不能把 lookup/redelivery 当作 durable storage。
 
 sink 可以同步 throw 或返回 rejected Promise。core 必须 await/observe 两种失败、记录 `deliveryFailed`，
 并消化 rejection，不能让它成为 host-level unhandled rejection；失败不改变既有 terminal result。要求返回
@@ -142,16 +143,17 @@ dedicated abort signal；shutdown 不等待其 settlement，sink 必须在 signa
 late settlement 一律丢弃。没有跨 session 恢复、持久化 supervisor 或 orphan execution。
 
 一个 runtime 只有一个 Root subagent coordinator。它对 completion、task 与 conversation 的 **active
-turn** 使用同一个 root-session concurrency cap；queued work 保持 FIFO admission。此版本没有 per-mode
-quota、priority scheduler 或 caller-owned pool。child session 不能创建 subagent；root 是唯一 budget、
-cancellation tree 和 retention owner。
+turn** 使用同一个 root-session concurrency cap；queued work 保持 FIFO admission。canonical budget 是
+`active: 2`、`pending: 16`、`retained terminal: 32`：pending 满时拒绝新 operation，不以无界队列换取吞吐；
+terminal 满时淘汰最早结果。child session 不能创建 subagent；root 是唯一 budget、cancellation tree 和 retention owner。
 
-每个 direct consumer 可在 parent session start 提供当前 `maxConcurrent`，值必须是 positive integer。core
-接受该 session 第一项 live configuration；后续 consumer 只能声明相同值，不同值是 collision error，不按
-load order 替换或协商。首个 owner signal abort 会释放配置，因此 `/reload` 的 shutdown/start 会建立新
-coordinator 并重新读取 setting。cap 不属于每个 task spec，core 也不设 hidden default。
+core 导出 canonical coordinator budget，所有 direct consumer 在 parent session start 引用同一对象。core
+接受该 session 第一项 live configuration；后续 consumer 只能声明相同 budget，不同值是 collision error，
+不按 load order 替换或协商。首个 owner signal abort 会释放配置，因此 `/reload` 的 shutdown/start 会建立新
+coordinator。budget 不属于每个 task spec；公开常量是唯一默认值，不能由 consumer 私自复制或改写。
 
-每个 async continuation 都绑定 parent lifecycle signal 和 handle revision。terminal transition
+每个 async continuation 都绑定 parent lifecycle signal 和 handle revision。caller cancel 会立即从 pending
+FIFO 移除，且 queued task/conversation 不得为已取消请求创建 child session。terminal transition
 idempotent：只会建立一个 terminal result、自动 delivery sink 最多执行一次、至多发送一次 terminal
 event。explicit redelivery 是独立 caller operation；delivery failure 是 terminal result 后的独立状态，
 不会重跑 task。

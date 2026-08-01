@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
 import {
 	configureSubagentCoordinator,
+	DEFAULT_SUBAGENT_COORDINATOR_BUDGET,
 	type ExtensionLifecycleContext,
+	lookupSubagent,
 	registerExtensionLifecycle,
 	startSubagent,
 } from "../src/index.js";
@@ -14,16 +16,19 @@ test("shares an equal first-live turn cap and rejects a conflicting cap", async 
 		key: "@hheei/pi-first",
 		start(context) {
 			first = context;
-			configureSubagentCoordinator(context, { maxActiveTurns: 2 });
+			configureSubagentCoordinator(context, DEFAULT_SUBAGENT_COORDINATOR_BUDGET);
 		},
 	});
 	registerExtensionLifecycle(host.pi, {
 		key: "@hheei/pi-same",
 		start(context) {
-			configureSubagentCoordinator(context, { maxActiveTurns: 2 });
-			expect(() => configureSubagentCoordinator(context, { maxActiveTurns: 3 })).toThrow(
-				"collision",
-			);
+			configureSubagentCoordinator(context, DEFAULT_SUBAGENT_COORDINATOR_BUDGET);
+			expect(() =>
+				configureSubagentCoordinator(context, {
+					...DEFAULT_SUBAGENT_COORDINATOR_BUDGET,
+					maxActiveTurns: 3,
+				}),
+			).toThrow("collision");
 		},
 	});
 
@@ -35,10 +40,16 @@ test("shares an equal first-live turn cap and rejects a conflicting cap", async 
 test("runs a task through the consumer-resolved child-session factory", async () => {
 	const host = createFakePiHost();
 	let taskResult: Promise<unknown> | undefined;
+	let lifecycle: ExtensionLifecycleContext | undefined;
+	let taskId: ReturnType<typeof startSubagent>["id"] | undefined;
 	registerExtensionLifecycle(host.pi, {
 		key: "@hheei/pi-task-test",
 		start(context) {
-			configureSubagentCoordinator(context, { maxActiveTurns: 1 });
+			lifecycle = context;
+			configureSubagentCoordinator(context, {
+				...DEFAULT_SUBAGENT_COORDINATOR_BUDGET,
+				maxActiveTurns: 1,
+			});
 			const task = startSubagent(context, {
 				mode: "task",
 				session: {
@@ -62,12 +73,16 @@ test("runs a task through the consumer-resolved child-session factory", async ()
 				delivery: () => undefined,
 			});
 			taskResult = task.result;
+			taskId = task.id;
 		},
 	});
 
 	await host.emit("session_start");
 	expect(await taskResult).toMatchObject({ status: "completed", output: "done" });
+	if (lifecycle === undefined || taskId === undefined) throw new Error("Missing task lifecycle");
+	expect(lookupSubagent(lifecycle, taskId)).toBeDefined();
 	await host.emit("session_shutdown");
+	expect(lookupSubagent(lifecycle, taskId)).toBeUndefined();
 });
 
 test("keeps one child session across sequential conversation messages", async () => {
@@ -78,7 +93,10 @@ test("keeps one child session across sequential conversation messages", async ()
 	registerExtensionLifecycle(host.pi, {
 		key: "@hheei/pi-conversation-test",
 		start(context) {
-			configureSubagentCoordinator(context, { maxActiveTurns: 1 });
+			configureSubagentCoordinator(context, {
+				...DEFAULT_SUBAGENT_COORDINATOR_BUDGET,
+				maxActiveTurns: 1,
+			});
 			conversation = startSubagent(context, {
 				mode: "conversation",
 				session: {

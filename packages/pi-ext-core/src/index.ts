@@ -140,6 +140,7 @@ export type {
 } from "./subagents.js";
 export {
 	configureSubagentCoordinator,
+	DEFAULT_SUBAGENT_COORDINATOR_BUDGET,
 	lookupSubagent,
 	redeliverTask,
 	startSubagent,

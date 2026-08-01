@@ -30,9 +30,25 @@ export type SubagentStatus =
 	| "cancelled"
 	| "limit_reached";
 
+/**
+ * One root-session resource budget shared by every direct core subagent consumer.
+ * Core exports this value rather than creating a runtime implicitly: the first
+ * consumer still installs it during lifecycle start, while every later consumer
+ * verifies the same CPU, queue-memory, and result-retention limit.
+ */
+export const DEFAULT_SUBAGENT_COORDINATOR_BUDGET = {
+	maxActiveTurns: 2,
+	maxPending: 16,
+	maxRetainedTerminal: 32,
+} as const;
+
 export interface ConfigureSubagentCoordinatorOptions {
 	/** Positive integer cap shared by all active child turns in this Pi runtime. */
 	readonly maxActiveTurns: number;
+	/** Maximum FIFO operations waiting for an active-turn slot. */
+	readonly maxPending: number;
+	/** Maximum terminal handles retained for lookup/redelivery in this parent lifecycle. */
+	readonly maxRetainedTerminal: number;
 }
 
 export interface CompletionSubagentSpec {
@@ -266,20 +282,24 @@ export function configureSubagentCoordinator(
 	context: ExtensionLifecycleContext,
 	options: ConfigureSubagentCoordinatorOptions,
 ): void {
-	if (!Number.isSafeInteger(options.maxActiveTurns) || options.maxActiveTurns < 1) {
-		throw new Error("maxActiveTurns must be a positive integer");
+	for (const [name, value] of Object.entries(options)) {
+		if (!Number.isSafeInteger(value) || value < 1)
+			throw new Error(`${name} must be a positive integer`);
 	}
 	const coordinator = getCoordinator(context);
-	if (coordinator.maxActiveTurns !== undefined) {
-		if (coordinator.maxActiveTurns === options.maxActiveTurns) return;
-		throw new Error(
-			`Subagent coordinator cap collision: active cap is ${coordinator.maxActiveTurns}, requested ${options.maxActiveTurns}`,
-		);
+	if (coordinator.budget !== undefined) {
+		if (
+			coordinator.budget.maxActiveTurns === options.maxActiveTurns &&
+			coordinator.budget.maxPending === options.maxPending &&
+			coordinator.budget.maxRetainedTerminal === options.maxRetainedTerminal
+		)
+			return;
+		throw new Error("Subagent coordinator budget collision");
 	}
-	coordinator.maxActiveTurns = options.maxActiveTurns;
+	coordinator.budget = options;
 	const release = (): void => {
 		if (coordinator.ownerSignal === context.signal) {
-			coordinator.maxActiveTurns = undefined;
+			coordinator.budget = undefined;
 			coordinator.ownerSignal = undefined;
 		}
 	};
@@ -313,7 +333,7 @@ export function startSubagent(
 	spec: SubagentSpec,
 ): SubagentHandle {
 	const coordinator = getCoordinator(context);
-	if (coordinator.maxActiveTurns === undefined) {
+	if (coordinator.budget === undefined) {
 		throw new Error("Subagent coordinator is not configured for this Pi runtime");
 	}
 	switch (spec.mode) {
@@ -355,19 +375,27 @@ export function redeliverTask(
 }
 
 interface Coordinator {
-	maxActiveTurns: number | undefined;
+	budget: ConfigureSubagentCoordinatorOptions | undefined;
 	ownerSignal: AbortSignal | undefined;
 	activeTurns: number;
 	nextId: number;
-	readonly queue: Array<() => void>;
+	readonly queue: QueuedOperation[];
 	readonly handles: Map<SubagentId, HandleRecord>;
+	readonly terminalIds: SubagentId[];
 }
 
 interface HandleRecord {
 	readonly controller: AbortController;
 	readonly handle: SubagentHandle;
 	readonly subscribers: Set<EventSubscriber>;
+	started: boolean;
+	cancelQueued: (() => void) | undefined;
 	terminal: SubagentTerminalResult | undefined;
+}
+
+interface QueuedOperation {
+	readonly record: HandleRecord;
+	readonly start: () => void;
 }
 
 interface EventSubscriber {
@@ -386,12 +414,13 @@ function getCoordinator(context: ExtensionLifecycleContext): Coordinator {
 	const existing = coordinators.get(identity);
 	if (existing !== undefined) return existing;
 	const created: Coordinator = {
-		maxActiveTurns: undefined,
+		budget: undefined,
 		ownerSignal: undefined,
 		activeTurns: 0,
 		nextId: 0,
 		queue: [],
 		handles: new Map(),
+		terminalIds: [],
 	};
 	coordinators.set(identity, created);
 	return created;
@@ -402,17 +431,90 @@ function nextId(coordinator: Coordinator): SubagentId {
 	return `subagent-${coordinator.nextId}` as SubagentId;
 }
 
-function admit(coordinator: Coordinator, operation: () => Promise<void>): void {
+function removeQueuedOperation(coordinator: Coordinator, record: HandleRecord): void {
+	const index = coordinator.queue.findIndex((queued) => queued.record === record);
+	if (index >= 0) coordinator.queue.splice(index, 1);
+}
+
+function disposeSubscribers(record: HandleRecord): void {
+	for (const subscriber of record.subscribers) {
+		subscriber.disposed = true;
+		subscriber.queue.length = 0;
+	}
+	record.subscribers.clear();
+}
+
+function releaseRecord(coordinator: Coordinator, record: HandleRecord, abort: boolean): void {
+	removeQueuedOperation(coordinator, record);
+	if (abort) record.controller.abort();
+	disposeSubscribers(record);
+	if (coordinator.handles.get(record.handle.id) === record) {
+		coordinator.handles.delete(record.handle.id);
+		const terminalIndex = coordinator.terminalIds.indexOf(record.handle.id);
+		if (terminalIndex >= 0) coordinator.terminalIds.splice(terminalIndex, 1);
+	}
+}
+
+function cancelRecord(coordinator: Coordinator, record: HandleRecord): void {
+	record.controller.abort();
+	if (record.started || record.terminal !== undefined) return;
+	removeQueuedOperation(coordinator, record);
+	record.cancelQueued?.();
+}
+
+function retainTerminal(coordinator: Coordinator, record: HandleRecord): void {
+	if (coordinator.handles.get(record.handle.id) !== record) return;
+	coordinator.terminalIds.push(record.handle.id);
+	const budget = coordinator.budget;
+	if (budget === undefined) return;
+	while (coordinator.terminalIds.length > budget.maxRetainedTerminal) {
+		const oldestId = coordinator.terminalIds.shift();
+		if (oldestId === undefined) return;
+		const oldest = coordinator.handles.get(oldestId);
+		if (oldest !== undefined) releaseRecord(coordinator, oldest, false);
+	}
+}
+
+function registerRecord(
+	context: ExtensionLifecycleContext,
+	coordinator: Coordinator,
+	record: HandleRecord,
+): void {
+	coordinator.handles.set(record.handle.id, record);
+	context.signal.addEventListener(
+		"abort",
+		() => {
+			if (!record.started && record.terminal === undefined) record.cancelQueued?.();
+			releaseRecord(coordinator, record, true);
+		},
+		{ once: true },
+	);
+}
+
+function admit(
+	coordinator: Coordinator,
+	record: HandleRecord,
+	operation: () => Promise<void>,
+): boolean {
 	const start = (): void => {
+		if (record.terminal !== undefined) return;
+		record.started = true;
 		coordinator.activeTurns += 1;
 		void operation().finally(() => {
 			coordinator.activeTurns -= 1;
 			const queued = coordinator.queue.shift();
-			if (queued !== undefined) queued();
+			queued?.start();
 		});
 	};
-	if (coordinator.activeTurns < (coordinator.maxActiveTurns ?? 0)) start();
-	else coordinator.queue.push(start);
+	const budget = coordinator.budget;
+	if (budget === undefined) return false;
+	if (coordinator.activeTurns < budget.maxActiveTurns) {
+		start();
+		return true;
+	}
+	if (coordinator.queue.length >= budget.maxPending) return false;
+	coordinator.queue.push({ record, start });
+	return true;
 }
 
 function createController(signal: AbortSignal): AbortController {
@@ -548,63 +650,96 @@ function startCompletion(
 		},
 		result,
 		cancel(): void {
-			controller.abort();
+			cancelRecord(coordinator, record);
 		},
 		subscribe(options: SubscribeSubagentEventsOptions): SubagentEventSubscription {
 			return subscribe(record, options);
 		},
 	};
-	const record: HandleRecord = { controller, handle, subscribers: new Set(), terminal: undefined };
-	coordinator.handles.set(id, record);
-	admit(coordinator, async () => {
-		status = "running";
-		emit(record, { kind: "turn", id, state: "running" });
-		let terminal: CompletionSubagentResult;
-		try {
-			if (controller.signal.aborted)
-				terminal = { id, mode: "completion", status: "cancelled", output: "" };
-			else {
-				const auth = await context.extension.modelRegistry.getApiKeyAndHeaders(spec.model);
-				if (!auth.ok) throw new Error(auth.error);
-				const message = await completeSimple(
-					spec.model,
-					{
-						systemPrompt: spec.systemPrompt,
-						messages: spec.messages ?? [
-							{ role: "user", content: spec.prompt, timestamp: Date.now() },
-						],
-						tools: [],
-					},
-					{
-						signal: controller.signal,
-						...(auth.apiKey === undefined ? {} : { apiKey: auth.apiKey }),
-						...(auth.headers === undefined ? {} : { headers: auth.headers }),
-						...(auth.env === undefined ? {} : { env: auth.env }),
-					},
-				);
-				const output = assistantText(message);
-				terminal = controller.signal.aborted
-					? { id, mode: "completion", status: "cancelled", output: "" }
-					: message.stopReason === "stop" && output
-						? { id, mode: "completion", status: "completed", output }
-						: {
-								id,
-								mode: "completion",
-								status: "failed",
-								output: "",
-								failure: "Completion produced no final text",
-							};
-			}
-		} catch (error) {
-			terminal = controller.signal.aborted
-				? { id, mode: "completion", status: "cancelled", output: "" }
-				: { id, mode: "completion", status: "failed", output: "", failure: failureMessage(error) };
-		}
+	const record: HandleRecord = {
+		controller,
+		handle,
+		subscribers: new Set(),
+		started: false,
+		cancelQueued: undefined,
+		terminal: undefined,
+	};
+	record.cancelQueued = () => {
+		if (record.terminal !== undefined) return;
+		const terminal: CompletionSubagentResult = {
+			id,
+			mode: "completion",
+			status: "cancelled",
+			output: "",
+		};
 		status = terminal.status;
 		record.terminal = terminal;
 		settle(terminal);
 		emit(record, { kind: "terminal", id, result: terminal });
-	});
+		retainTerminal(coordinator, record);
+	};
+	registerRecord(context, coordinator, record);
+	if (
+		!admit(coordinator, record, async () => {
+			status = "running";
+			emit(record, { kind: "turn", id, state: "running" });
+			let terminal: CompletionSubagentResult;
+			try {
+				if (controller.signal.aborted)
+					terminal = { id, mode: "completion", status: "cancelled", output: "" };
+				else {
+					const auth = await context.extension.modelRegistry.getApiKeyAndHeaders(spec.model);
+					if (!auth.ok) throw new Error(auth.error);
+					const message = await completeSimple(
+						spec.model,
+						{
+							systemPrompt: spec.systemPrompt,
+							messages: spec.messages ?? [
+								{ role: "user", content: spec.prompt, timestamp: Date.now() },
+							],
+							tools: [],
+						},
+						{
+							signal: controller.signal,
+							...(auth.apiKey === undefined ? {} : { apiKey: auth.apiKey }),
+							...(auth.headers === undefined ? {} : { headers: auth.headers }),
+							...(auth.env === undefined ? {} : { env: auth.env }),
+						},
+					);
+					const output = assistantText(message);
+					terminal = controller.signal.aborted
+						? { id, mode: "completion", status: "cancelled", output: "" }
+						: message.stopReason === "stop" && output
+							? { id, mode: "completion", status: "completed", output }
+							: {
+									id,
+									mode: "completion",
+									status: "failed",
+									output: "",
+									failure: "Completion produced no final text",
+								};
+				}
+			} catch (error) {
+				terminal = controller.signal.aborted
+					? { id, mode: "completion", status: "cancelled", output: "" }
+					: {
+							id,
+							mode: "completion",
+							status: "failed",
+							output: "",
+							failure: failureMessage(error),
+						};
+			}
+			status = terminal.status;
+			record.terminal = terminal;
+			settle(terminal);
+			emit(record, { kind: "terminal", id, result: terminal });
+			retainTerminal(coordinator, record);
+		})
+	) {
+		releaseRecord(coordinator, record, false);
+		throw new Error("Subagent pending queue is full");
+	}
 	return handle;
 }
 
@@ -630,57 +765,95 @@ function startTask(
 		},
 		result,
 		cancel(): void {
-			controller.abort();
+			cancelRecord(coordinator, record);
 		},
 		subscribe(options: SubscribeSubagentEventsOptions): SubagentEventSubscription {
 			return subscribe(record, options);
 		},
 	};
-	const record: HandleRecord = { controller, handle, subscribers: new Set(), terminal: undefined };
-	coordinator.handles.set(id, record);
-	admit(coordinator, async () => {
-		status = "running";
-		emit(record, { kind: "turn", id, state: "running" });
-		let terminal: SessionTurnResult;
-		let session: AgentSession | undefined;
-		try {
-			session = await spec.session.create(controller.signal);
-			terminal = await runSessionTurn(
-				id,
-				controller,
-				spec.session,
-				spec.prompt,
-				spec.maxTurns,
-				record,
-				session,
-			);
-		} catch (error) {
-			terminal = controller.signal.aborted
-				? {
+	const record: HandleRecord = {
+		controller,
+		handle,
+		subscribers: new Set(),
+		started: false,
+		cancelQueued: undefined,
+		terminal: undefined,
+	};
+	record.cancelQueued = () => {
+		if (record.terminal !== undefined) return;
+		const terminal: TaskTerminalResult = {
+			id,
+			mode: "task",
+			status: "cancelled",
+			output: "",
+			softLimitReached: false,
+		};
+		status = terminal.status;
+		record.terminal = terminal;
+		settle(terminal);
+		emit(record, { kind: "terminal", id, result: terminal });
+		retainTerminal(coordinator, record);
+	};
+	registerRecord(context, coordinator, record);
+	if (
+		!admit(coordinator, record, async () => {
+			status = "running";
+			emit(record, { kind: "turn", id, state: "running" });
+			let terminal: SessionTurnResult;
+			let session: AgentSession | undefined;
+			try {
+				if (controller.signal.aborted) {
+					terminal = {
 						id,
 						status: "cancelled",
 						output: "",
 						softLimitReached: false,
 						usage: EMPTY_CONVERSATION_USAGE,
-					}
-				: {
-						id,
-						status: "failed",
-						output: "",
-						softLimitReached: false,
-						usage: EMPTY_CONVERSATION_USAGE,
-						failure: failureMessage(error),
 					};
-		} finally {
-			session?.dispose();
-		}
-		const taskResult: TaskTerminalResult = { ...terminal, mode: "task" };
-		status = taskResult.status;
-		record.terminal = taskResult;
-		settle(taskResult);
-		emit(record, { kind: "terminal", id, result: taskResult });
-		void Promise.resolve(spec.delivery(taskResult, controller.signal)).catch(() => undefined);
-	});
+				} else {
+					session = await spec.session.create(controller.signal);
+					terminal = await runSessionTurn(
+						id,
+						controller,
+						spec.session,
+						spec.prompt,
+						spec.maxTurns,
+						record,
+						session,
+					);
+				}
+			} catch (error) {
+				terminal = controller.signal.aborted
+					? {
+							id,
+							status: "cancelled",
+							output: "",
+							softLimitReached: false,
+							usage: EMPTY_CONVERSATION_USAGE,
+						}
+					: {
+							id,
+							status: "failed",
+							output: "",
+							softLimitReached: false,
+							usage: EMPTY_CONVERSATION_USAGE,
+							failure: failureMessage(error),
+						};
+			} finally {
+				session?.dispose();
+			}
+			const taskResult: TaskTerminalResult = { ...terminal, mode: "task" };
+			status = taskResult.status;
+			record.terminal = taskResult;
+			settle(taskResult);
+			emit(record, { kind: "terminal", id, result: taskResult });
+			retainTerminal(coordinator, record);
+			void Promise.resolve(spec.delivery(taskResult, controller.signal)).catch(() => undefined);
+		})
+	) {
+		releaseRecord(coordinator, record, false);
+		throw new Error("Subagent pending queue is full");
+	}
 	return handle;
 }
 
@@ -810,6 +983,7 @@ function startConversation(
 		session?.dispose();
 		settle(value);
 		emit(record, { kind: "terminal", id, result: value });
+		retainTerminal(coordinator, record);
 		for (const item of pending.splice(0)) {
 			item.resolve({
 				id,
@@ -832,7 +1006,7 @@ function startConversation(
 		const item = pending.shift();
 		if (item === undefined) return;
 		current = item;
-		admit(coordinator, async () => {
+		const accepted = admit(coordinator, record, async () => {
 			status = "running";
 			emit(record, { kind: "turn", id, state: "running" });
 			if (session === undefined) {
@@ -868,6 +1042,10 @@ function startConversation(
 			if (controller.signal.aborted) terminal(undefined);
 			else schedule();
 		});
+		if (!accepted) {
+			current = undefined;
+			terminal("Subagent pending queue is full");
+		}
 	};
 	const accept = (
 		message: string,
@@ -946,7 +1124,7 @@ function startConversation(
 			return usage;
 		},
 		cancel(): void {
-			controller.abort();
+			cancelRecord(coordinator, record);
 			if (session !== undefined) void session.abort();
 		},
 		subscribe(options: SubscribeSubagentEventsOptions): SubagentEventSubscription {
@@ -954,8 +1132,16 @@ function startConversation(
 		},
 		send,
 	};
-	const record: HandleRecord = { controller, handle, subscribers: new Set(), terminal: undefined };
-	coordinator.handles.set(id, record);
+	const record: HandleRecord = {
+		controller,
+		handle,
+		subscribers: new Set(),
+		started: false,
+		cancelQueued: undefined,
+		terminal: undefined,
+	};
+	record.cancelQueued = () => terminal(undefined);
+	registerRecord(context, coordinator, record);
 	void accept(spec.initialMessage, spec.initialReply).then(initialResolve);
 	controller.signal.addEventListener("abort", () => terminal(undefined), { once: true });
 	return handle;

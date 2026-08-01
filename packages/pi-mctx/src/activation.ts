@@ -1,5 +1,9 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { configureSubagentCoordinator, type ExtensionLifecycleContext } from "@hheei/pi-ext-core";
+import {
+	configureSubagentCoordinator,
+	DEFAULT_SUBAGENT_COORDINATOR_BUDGET,
+	type ExtensionLifecycleContext,
+} from "@hheei/pi-ext-core";
 import type { MctxConfiguration, MctxPipelineSettings } from "./config.js";
 
 export interface MctxRuntime {
@@ -59,7 +63,7 @@ export function resolveMctxActivation(
 				};
 			}
 			try {
-				configureSubagentCoordinator(context, { maxActiveTurns: 2 });
+				configureSubagentCoordinator(context, DEFAULT_SUBAGENT_COORDINATOR_BUDGET);
 			} catch (error: unknown) {
 				return {
 					kind: "inactive",

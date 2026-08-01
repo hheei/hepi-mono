@@ -152,9 +152,9 @@ parent historian 是 `@hheei/pi-ext-core` 的 Completion consumer。`pi-mctx` �
 model 与 prompt policy；core 负责 completion 的 admission、execution、timeout/abort、terminalization 和
 dispose。`pi-mctx` 不直接调用 Pi AI，也不启动 `pi-subagents` child。
 
-在 DB/transform activation 前，`pi-mctx` lifecycle 配置或复用 core shared coordinator 的
-`maxActiveTurns: 2`，与现有 core Completion consumers 对齐；SQLite lease 仍将 historian 限为每个 context
-partition 一次。若已有 coordinator 使用不同 cap，activation 拒绝并产生 diagnostic，Pi native behavior 继续；
+在 DB/transform activation 前，`pi-mctx` lifecycle 配置或复用 core exported canonical coordinator budget
+（active `2`、pending `16`、retained terminal `32`），与现有 core Completion consumers 对齐；SQLite lease
+仍将 historian 限为每个 context partition 一次。若已有 coordinator 使用不同 budget，activation 拒绝并产生 diagnostic，Pi native behavior 继续；
 不直接调用 Pi AI，也不向 core 引入 implicit default。
 
 pipeline 启用后，context store 无法 open、migrate 或通过 schema validation 时默认 fail closed：阻止 parent
@@ -170,8 +170,8 @@ start fail，不能留下无 store 的 active runtime。
 
 stable project identity resolver 独立于 SQLite：它先 canonicalize Pi `cwd`，再读取 Git reachable root commit，得到
 `git:<commit>`，使 worktree/clone 对齐。non-Git directory 使用 `dir:<SHA-256(realpath)>`；raw path 不进入 identity
-或 database。Git command transient failure 只可重用本 process 同一 canonical directory 的 last-known Git identity，
-否则退回 directory identity；canonicalization permission failure 不能安全 fallback，拒绝 activation。resolver 本身不创建
+或 database。Git command transient failure 只可重用本 process 同一 canonical directory 的 last-known Git identity；
+该 LRU cache 最多保留 64 个 canonical directory，淘汰后退回 directory identity；canonicalization permission failure 不能安全 fallback，拒绝 activation。resolver 本身不创建
 project 或 partition row。
 
 enabled session activation 在 store open 后解析 project identity，并以它和 Pi session ID get-or-create partition；
@@ -212,8 +212,8 @@ reload 后才启用 pipeline。
 
 首个 runtime activation slice 在 `session_start` 读取 config，并用 Pi `modelRegistry.find()` 与
 `hasConfiguredAuth()` 解析显式 historian model。disabled config 保持静默 native behavior；invalid config、
-unavailable/unconfigured model 或 core Completion coordinator cap collision 显示 diagnostic 后保持 native
-behavior。只有解析成功时才配置/reuse `maxActiveTurns: 2` coordinator 并创建 session-scoped MCTX runtime holder；
+unavailable/unconfigured model 或 core Completion coordinator budget collision 显示 diagnostic 后保持 native
+behavior。只有解析成功时才配置/reuse canonical coordinator budget 并创建 session-scoped MCTX runtime holder；
 shutdown 会清除该 holder。store/partition wiring、`turn_end` historian 和 verified `context` projection 已附加。
 
 已激活的 compartment trigger budget 使用 model-aware percentage threshold、absolute-token fallback/guard 和

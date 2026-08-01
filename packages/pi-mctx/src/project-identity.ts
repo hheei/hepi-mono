@@ -19,9 +19,30 @@ declare global {
 	var __hepiMctxLastKnownGitIdentities: Map<string, string> | undefined;
 }
 
+export const MCTX_LAST_KNOWN_GIT_IDENTITY_CACHE_SIZE = 64;
+
 function defaultLastKnownGitIdentities(): Map<string, string> {
 	globalThis.__hepiMctxLastKnownGitIdentities ??= new Map();
 	return globalThis.__hepiMctxLastKnownGitIdentities;
+}
+
+/** Refreshes a Map entry's insertion order and evicts the least-recently-used path. */
+function rememberGitIdentity(cache: Map<string, string>, path: string, identity: string): void {
+	cache.delete(path);
+	cache.set(path, identity);
+	while (cache.size > MCTX_LAST_KNOWN_GIT_IDENTITY_CACHE_SIZE) {
+		const oldest = cache.keys().next().value;
+		if (oldest === undefined) return;
+		cache.delete(oldest);
+	}
+}
+
+function cachedGitIdentity(cache: Map<string, string>, path: string): string | undefined {
+	const identity = cache.get(path);
+	if (identity === undefined) return undefined;
+	cache.delete(path);
+	cache.set(path, identity);
+	return identity;
 }
 
 function directoryIdentity(canonicalPath: string): string {
@@ -68,10 +89,12 @@ export function createProjectIdentityResolver(
 			signal?.throwIfAborted();
 			if (commit !== undefined) {
 				const identity = `git:${commit}`;
-				lastKnownGitIdentity.set(canonicalPath, identity);
+				rememberGitIdentity(lastKnownGitIdentity, canonicalPath, identity);
 				return identity;
 			}
-			return lastKnownGitIdentity.get(canonicalPath) ?? directoryIdentity(canonicalPath);
+			return (
+				cachedGitIdentity(lastKnownGitIdentity, canonicalPath) ?? directoryIdentity(canonicalPath)
+			);
 		},
 	};
 }
