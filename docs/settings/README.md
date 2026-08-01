@@ -40,9 +40,10 @@ Loadout 是单页 selector，不是二级 tab：Tools 与 Skills 共享同一个
 global/project 两个 JSON root 的部分提交。直接文字输入过滤 name 与 display group；有 filter 时第一次
 `Esc` 清 filter，第二次才关闭页面。
 
-Global resource 是 enabled/disabled 两态。Project global-visible resource 用 `Space` 循环
-`inherit -> enabled -> disabled -> inherit`；Project-private resource 只有 enabled/disabled 两态。左侧圆点
-永远显示 effective state，scope raw delta、inherited/default source 与 conflict policy 属于 Description。
+`Space` 只在当前 resource/scope 实际可达的选择集合中循环，绝不补出不存在的 inherit 状态：Global resource
+循环 `enabled <-> disabled`；Project global-visible resource 循环
+`inherit -> enabled -> disabled -> inherit`；Project-private resource 循环 `enabled <-> disabled`。左侧圆点永远
+显示 effective state，scope raw delta、inherited/default source 与 conflict policy 属于 Description。
 
 页面把修改保存在当前 scope draft 中，只有 `Ctrl+P`、离开 Loadout tab 或关闭 Settings 时才 flush。flush
 失败时丢弃未写 draft、允许正常离开并输出 Pi warning。任何一次成功 flush 都使 host 在整个 Settings surface
