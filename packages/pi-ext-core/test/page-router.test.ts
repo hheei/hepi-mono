@@ -85,3 +85,137 @@ test("lets the active page consume Left and only then falls back to tab routing"
 	await opening;
 	for (const cleanup of resources) await cleanup();
 });
+
+test("lets a page close the host after its own asynchronous work", async () => {
+	const events = {};
+	const pi = { events } as unknown as ExtensionAPI;
+	let component: Component | undefined;
+	let finish: (() => void) | undefined;
+	let requestClose: (() => void) | undefined;
+	const theme = { fg: (_role: string, text: string) => text, bold: (text: string) => text };
+	const command = {
+		mode: "tui",
+		ui: {
+			theme,
+			custom<T>(
+				factory: (
+					tui: never,
+					theme: never,
+					keybindings: never,
+					done: (value: T) => void,
+				) => Component,
+			): Promise<T> {
+				component = factory(
+					{ requestRender: () => undefined } as never,
+					theme as never,
+					undefined as never,
+					() => finish?.(),
+				);
+				return new Promise<T>((resolve) => {
+					finish = () => resolve(undefined as T);
+				});
+			},
+		},
+	} as unknown as ExtensionCommandContext;
+	const resources: Array<() => void | Promise<void>> = [];
+	const lifecycle = {
+		pi,
+		extension: command,
+		signal: new AbortController().signal,
+		resources: {
+			add: (_id: string, cleanup: () => void | Promise<void>) => resources.push(cleanup),
+		},
+	} as never;
+	registerExtensionPage(lifecycle, {
+		id: "page",
+		label: "Page",
+		order: 0,
+		create: async (context) => {
+			requestClose = context.requestClose;
+			return {
+				component: { render: () => ["Page"], invalidate: () => undefined },
+				handleInput: () => false,
+				close: () => undefined,
+			};
+		},
+	});
+
+	const opening = openExtensionPageRouter(pi, command, {
+		hostId: "test-router",
+		signal: new AbortController().signal,
+		maxPending: 0,
+	});
+	await settle();
+	if (component === undefined || requestClose === undefined) throw new Error("Expected page view");
+	requestClose();
+	await opening;
+	for (const cleanup of resources) await cleanup();
+});
+
+test("acquires host resources only while the custom surface is open", async () => {
+	const events = {};
+	const pi = { events } as unknown as ExtensionAPI;
+	let component: Component | undefined;
+	let finish: (() => void) | undefined;
+	let opens = 0;
+	let releases = 0;
+	const theme = { fg: (_role: string, text: string) => text, bold: (text: string) => text };
+	const command = {
+		mode: "tui",
+		ui: {
+			theme,
+			custom<T>(
+				factory: (
+					tui: never,
+					theme: never,
+					keybindings: never,
+					done: (value: T) => void,
+				) => Component,
+			): Promise<T> {
+				component = factory(
+					{ requestRender: () => undefined } as never,
+					theme as never,
+					undefined as never,
+					() => finish?.(),
+				);
+				return new Promise<T>((resolve) => {
+					finish = () => resolve(undefined as T);
+				});
+			},
+		},
+	} as unknown as ExtensionCommandContext;
+	const lifecycle = {
+		pi,
+		extension: command,
+		signal: new AbortController().signal,
+		resources: { add: () => undefined },
+	} as never;
+	registerExtensionPage(lifecycle, {
+		id: "page",
+		label: "Page",
+		order: 0,
+		create: async () => ({
+			component: { render: () => ["Page"], invalidate: () => undefined },
+			handleInput: () => false,
+			close: () => undefined,
+		}),
+	});
+
+	const opening = openExtensionPageRouter(pi, command, {
+		hostId: "test-router",
+		signal: new AbortController().signal,
+		maxPending: 0,
+		onSurfaceOpen: () => {
+			opens++;
+			return () => releases++;
+		},
+	});
+	await settle();
+	expect(opens).toBe(1);
+	if (finish === undefined || component === undefined) throw new Error("Expected router component");
+	finish();
+	component.dispose?.();
+	await opening;
+	await settle();
+	expect(releases).toBe(1);
+});

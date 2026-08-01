@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerExtensionLifecycle } from "@hheei/pi-ext-core";
+import { registerExtensionLifecycle, registerExtensionPage } from "@hheei/pi-ext-core";
 import { createLoadoutEngine } from "./engine.js";
+import { createLoadoutPage } from "./page.js";
 
 export default function piLoadoutExtension(pi: ExtensionAPI): void {
 	// This package intentionally has no command or UI. It is the policy owner that
@@ -11,6 +12,15 @@ export default function piLoadoutExtension(pi: ExtensionAPI): void {
 		start: async ({ extension, signal, resources }) => {
 			await engine.start(extension, signal);
 			resources.add("loadout-engine", () => engine.dispose());
+			registerExtensionPage(
+				{ pi, extension, signal, resources },
+				{
+					id: "loadout",
+					label: "Loadout",
+					order: 100,
+					create: async (context) => createLoadoutPage(pi, engine, context),
+				},
+			);
 		},
 	});
 }

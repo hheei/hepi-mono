@@ -37,6 +37,13 @@ export interface LoadoutEngine {
 	start(context: ExtensionContext, signal: AbortSignal): Promise<void>;
 	/** Idempotently restores host activation and clears core-owned snapshots. */
 	dispose(): void;
+	/** Returns this session's immutable baseline and loaded delta layers for its Settings page. */
+	snapshot(): LoadoutEngineSnapshot | undefined;
+}
+
+export interface LoadoutEngineSnapshot {
+	readonly configuration: LoadoutConfiguration;
+	readonly initialActiveToolNames: readonly string[];
 }
 
 function toolNames(tools: readonly ToolInfo[]): readonly string[] {
@@ -56,7 +63,8 @@ function skillNames(pi: ExtensionAPI): readonly string[] {
 	].sort((left, right) => left.localeCompare(right));
 }
 
-function toolPolicies(
+/** Projects Pi tools and core inventory into the policy inputs shared by engine and Settings page. */
+export function loadoutToolPolicies(
 	tools: readonly ToolInfo[],
 	initialActive: ReadonlySet<string>,
 	metadata: readonly LoadoutToolMetadata[],
@@ -85,7 +93,7 @@ export function createLoadoutEngine(
 	const apply = (metadata: readonly LoadoutToolMetadata[]): void => {
 		if (!active || configuration === undefined) return;
 		const tools = pi.getAllTools();
-		const policies = toolPolicies(tools, new Set(initialActive), metadata);
+		const policies = loadoutToolPolicies(tools, new Set(initialActive), metadata);
 		const policyNames = new Set(policies.map((tool) => tool.name));
 		const preserved = initialActive.filter((name) => !policyNames.has(name));
 		const selected = resolveActiveToolNames(policies, configuration);
@@ -136,5 +144,21 @@ export function createLoadoutEngine(
 			}
 		},
 		dispose,
+		snapshot(): LoadoutEngineSnapshot | undefined {
+			if (!active || configuration === undefined) return undefined;
+			return {
+				configuration: {
+					global: {
+						disabled: [...configuration.global.disabled],
+						enabled: [...configuration.global.enabled],
+					},
+					project: {
+						disabled: [...configuration.project.disabled],
+						enabled: [...configuration.project.enabled],
+					},
+				},
+				initialActiveToolNames: [...initialActive],
+			};
+		},
 	};
 }

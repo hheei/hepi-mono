@@ -1,5 +1,6 @@
-import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { type Component, type TUI, truncateToWidth } from "@earendil-works/pi-tui";
+import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
+import { type HepiWidgetHandle, registerHepiWidget } from "@hheei/pi-ext-core";
 import type { TaskState } from "./model.js";
 
 const TODO_WIDGET_KEY = "pi-todo:tasks";
@@ -111,7 +112,9 @@ function renderTodo(
 }
 
 export function createTodoWidget(
+	pi: ExtensionAPI,
 	context: ExtensionContext,
+	signal: AbortSignal,
 	initialState: TaskState,
 ): TodoWidget | undefined {
 	if (context.mode !== "tui") return undefined;
@@ -119,45 +122,25 @@ export function createTodoWidget(
 	let state = initialState;
 	const displayedCompleted = new Set<number>();
 	const hiddenBlocked = new Set<number>();
-	let registered = false;
-	let invalidated = false;
-	let currentTui: TUI | undefined;
 	let disposed = false;
 
-	// Native above-editor mounting avoids editor cursor/input interference. Core
-	// has no widget compositor yet, so this feature owns its key, visibility sets,
-	// invalidation and exact unregister lifecycle.
-	const factory = (tui: TUI, theme: Theme): Component & { dispose(): void } => {
-		currentTui = tui;
-		return {
-			render: (width) => renderTodo(state, displayedCompleted, hiddenBlocked, width, theme),
-			invalidate() {
-				invalidated = true;
-				currentTui = undefined;
-			},
-			dispose() {
-				invalidated = true;
-				currentTui = undefined;
-			},
-		};
-	};
-
 	const hasTasks = () => visibleTasks(state, displayedCompleted, hiddenBlocked).length > 0;
-	const unregister = () => {
-		if (!registered) return;
-		context.ui.setWidget(TODO_WIDGET_KEY, undefined, { placement: "aboveEditor" });
-		registered = false;
-		invalidated = false;
-		currentTui = undefined;
-	};
-	const register = () => {
-		if (disposed || !hasTasks() || (registered && !invalidated)) return;
-		context.ui.setWidget(TODO_WIDGET_KEY, factory, { placement: "aboveEditor" });
-		registered = true;
-		invalidated = false;
-	};
-
-	register();
+	// Core owns Pi's widget transport so Settings can suspend every registered
+	// editor-adjacent contributor without knowing Todo's task visibility policy.
+	const widget: HepiWidgetHandle = registerHepiWidget(pi, context, signal, {
+		id: TODO_WIDGET_KEY,
+		placement: "aboveEditor",
+		visible: hasTasks(),
+		create: (_tui, theme): Component & { dispose(): void } => {
+			return {
+				render: (width) => renderTodo(state, displayedCompleted, hiddenBlocked, width, theme),
+				invalidate: () => undefined,
+				dispose: () => undefined,
+			};
+		},
+	});
+	const unregister = () => widget.setVisible(false);
+	const register = () => widget.setVisible(true);
 	return {
 		refresh(nextState, trackCompletions = true) {
 			if (disposed) return;
@@ -182,13 +165,13 @@ export function createTodoWidget(
 			state = nextState;
 			if (!hasTasks()) unregister();
 			else register();
-			if (hasTasks()) currentTui?.requestRender();
+			if (hasTasks()) widget.requestRender();
 		},
 		hideCompleted() {
 			if (disposed || displayedCompleted.size === 0) return;
 			displayedCompleted.clear();
 			if (!hasTasks()) unregister();
-			else currentTui?.requestRender(true);
+			else widget.requestRender(true);
 		},
 		hideBlocked(ids) {
 			if (disposed) return;
@@ -201,7 +184,7 @@ export function createTodoWidget(
 			}
 			if (!changed) return;
 			if (!hasTasks()) unregister();
-			else currentTui?.requestRender(true);
+			else widget.requestRender(true);
 		},
 		hide() {
 			if (disposed) return;
@@ -210,8 +193,7 @@ export function createTodoWidget(
 		dispose() {
 			if (disposed) return;
 			disposed = true;
-			currentTui = undefined;
-			unregister();
+			widget.dispose();
 		},
 	};
 }

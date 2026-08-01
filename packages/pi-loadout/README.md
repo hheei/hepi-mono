@@ -1,6 +1,7 @@
 # @hheei/pi-loadout
 
-Headless Loadout activation policy for Pi.
+Loadout activation policy and Settings page for Pi.
 
-Install with `@hheei/pi-ext-core`. This first release reads `pi-loadout` global and project JSON
-overrides but provides no Settings UI; use `pi-settings` when that package is available.
+Install with `@hheei/pi-ext-core` and `@hheei/pi-settings`. The package resolves global/project
+`pi-loadout` JSON deltas and contributes the `Loadout` page to `/ext-settings`; `pi-settings` owns
+the command and surface host. Saved Loadout selections take effect after Pi `/reload`.
