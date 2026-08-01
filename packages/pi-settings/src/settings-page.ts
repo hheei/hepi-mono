@@ -13,7 +13,11 @@ import type {
 } from "@hheei/pi-ext-core";
 import { combineSettingsProviders } from "./combined.js";
 
-const VISIBLE_ROWS = 10;
+// The router guarantees this many rows; keeping it fixed prevents Description length from moving hints.
+const PANEL_ROWS = 20;
+const LIST_HEADER_ROWS = 2;
+const LIST_HINT_ROWS = 1;
+const VISIBLE_ROWS = PANEL_ROWS - LIST_HEADER_ROWS - LIST_HINT_ROWS;
 const MARQUEE_FRAME_MS = 125;
 const MARQUEE_INITIAL_PAUSE_MS = 750;
 const MARQUEE_END_PAUSE_MS = 1_500;
@@ -142,13 +146,21 @@ function horizontalViewport(text: string, width: number, offset: number): string
 	return truncateToWidth(result, width);
 }
 
-function scrollMarker(index: number, total: number, top: number): string {
-	if (total <= VISIBLE_ROWS) return "";
-	const track = Math.max(1, VISIBLE_ROWS - 1);
-	const thumb = Math.min(track, Math.max(1, Math.ceil((VISIBLE_ROWS / total) * track)));
+function scrollbar(total: number, top: number, theme: Theme): readonly string[] {
+	if (total <= VISIBLE_ROWS) return Array.from({ length: PANEL_ROWS }, () => "");
+	const track = VISIBLE_ROWS;
+	const thumbHeight = Math.max(1, Math.round((track * VISIBLE_ROWS) / total));
 	const maxTop = Math.max(1, total - VISIBLE_ROWS);
-	const thumbTop = Math.round((top / maxTop) * Math.max(0, track - thumb));
-	return index >= thumbTop && index < thumbTop + thumb ? "█" : "│";
+	const thumbTop = Math.round(((track - thumbHeight) * top) / maxTop);
+	// Header and hint rows have no rail; only the list viewport receives the vertical indicator.
+	return Array.from({ length: PANEL_ROWS }, (_, index) => {
+		const trackIndex = index - LIST_HEADER_ROWS;
+		return trackIndex >= thumbTop && trackIndex < thumbTop + thumbHeight
+			? theme.fg("text", "█")
+			: trackIndex >= 0 && trackIndex < track
+				? theme.fg("muted", "│")
+				: "";
+	});
 }
 
 function formattedValue(
@@ -467,9 +479,9 @@ export async function createSettingsPage(
 				const selected = selectedItem();
 				const selectedIndex = all.findIndex((item) => item.id === selected?.id);
 				if (selectedIndex >= 0) {
-					if (selectedIndex < scrollTop) scrollTop = selectedIndex;
-					else if (selectedIndex >= scrollTop + VISIBLE_ROWS)
-						scrollTop = selectedIndex - VISIBLE_ROWS + 1;
+					// Keep keyboard navigation centered until the viewport reaches either list boundary.
+					const maxTop = Math.max(0, all.length - VISIBLE_ROWS);
+					scrollTop = Math.min(maxTop, Math.max(0, selectedIndex - Math.floor(VISIBLE_ROWS / 2)));
 				}
 				scrollTop = Math.min(scrollTop, Math.max(0, all.length - VISIBLE_ROWS));
 				const wide = width >= 76;
@@ -481,8 +493,9 @@ export async function createSettingsPage(
 				const labelWidth = Math.max(8, listWidth - valueWidth - 5);
 				syncMarquee(selected?.kind === "field" ? selected.row : undefined, labelWidth);
 				const list = [
-					`> ${search || "_"}`,
-					...visible.map((item, index) => {
+					// Reserve one cell after the query so a full search does not touch the list boundary.
+					`> ${truncateToWidth(search || "_", Math.max(0, listWidth - 3))} `,
+					...visible.map((item) => {
 						if (item.kind === "group")
 							return theme.bold(truncateToWidth(`⧉ ${item.label}`, listWidth));
 						if (item.kind === "panel") {
@@ -500,14 +513,17 @@ export async function createSettingsPage(
 							: item.id === selected?.id
 								? theme.fg("accent", theme.bold(row))
 								: row;
-						const marker = scrollMarker(index + scrollTop, all.length, scrollTop);
-						return `${truncateToWidth(styled, listWidth)}${marker ? ` ${theme.fg("dim", marker)}` : ""}`;
+						return truncateToWidth(styled, listWidth);
 					}),
+				];
+				// Fill the viewport, then pin interaction hints to the final panel row.
+				while (list.length < PANEL_ROWS - LIST_HINT_ROWS) list.push("");
+				list.push(
 					theme.fg(
 						"dim",
 						`↕ navigate · ␣ change · ⎋ ${editing === undefined ? (search ? "clear" : "close") : "cancel"}`,
 					),
-				];
+				);
 				const detail =
 					selected?.kind === "panel"
 						? [...selected.panel.render(detailWidth)]
@@ -532,10 +548,11 @@ export async function createSettingsPage(
 									),
 								];
 				if (!wide) return [...list, "", ...detail].map((line) => truncateToWidth(line, width));
-				const count = Math.max(list.length, detail.length);
-				return Array.from({ length: count }, (_, index) => {
+				// The Description is intentionally read only within the fixed panel height.
+				const rail = scrollbar(all.length, scrollTop, theme);
+				return Array.from({ length: PANEL_ROWS }, (_, index) => {
 					const left = pad(truncateToWidth(list[index] ?? "", listWidth), listWidth);
-					return `${left}${" ".repeat(scrollbarWidth)}   ${truncateToWidth(detail[index] ?? "", detailWidth)}`;
+					return `${left}${pad(rail[index] ?? "", scrollbarWidth)}   ${truncateToWidth(detail[index] ?? "", detailWidth)}`;
 				});
 			},
 			handleInput(): void {},

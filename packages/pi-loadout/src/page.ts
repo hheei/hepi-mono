@@ -25,7 +25,11 @@ import {
 } from "./model.js";
 import { applyLoadoutSelection, updateLoadoutSelections } from "./storage.js";
 
-const VISIBLE_ROWS = 10;
+// The router guarantees this many rows; keeping it fixed prevents Description length from moving hints.
+const PANEL_ROWS = 20;
+const LIST_HEADER_ROWS = 2;
+const LIST_HINT_ROWS = 1;
+const VISIBLE_ROWS = PANEL_ROWS - LIST_HEADER_ROWS - LIST_HINT_ROWS;
 
 interface ResourceItem {
 	readonly key: string;
@@ -129,13 +133,21 @@ function wrapDescription(text: string, width: number): readonly string[] {
 	return lines;
 }
 
-function scrollMarker(index: number, total: number, top: number): string {
-	if (total <= VISIBLE_ROWS) return "";
-	const track = Math.max(1, VISIBLE_ROWS - 1);
-	const thumb = Math.min(track, Math.max(1, Math.ceil((VISIBLE_ROWS / total) * track)));
+function scrollbar(total: number, top: number, theme: Theme): readonly string[] {
+	if (total <= VISIBLE_ROWS) return Array.from({ length: PANEL_ROWS }, () => "");
+	const track = VISIBLE_ROWS;
+	const thumbHeight = Math.max(1, Math.round((track * VISIBLE_ROWS) / total));
 	const maxTop = Math.max(1, total - VISIBLE_ROWS);
-	const thumbTop = Math.round((top / maxTop) * Math.max(0, track - thumb));
-	return index >= thumbTop && index < thumbTop + thumb ? "█" : "│";
+	const thumbTop = Math.round(((track - thumbHeight) * top) / maxTop);
+	// Header and hint rows have no rail; only the list viewport receives the vertical indicator.
+	return Array.from({ length: PANEL_ROWS }, (_, index) => {
+		const trackIndex = index - LIST_HEADER_ROWS;
+		return trackIndex >= thumbTop && trackIndex < thumbTop + thumbHeight
+			? theme.fg("text", "█")
+			: trackIndex >= 0 && trackIndex < track
+				? theme.fg("muted", "│")
+				: "";
+	});
 }
 
 function toolItem(
@@ -340,9 +352,9 @@ export function createLoadoutPage(
 					(entry) => entry.kind === "item" && entry.item.key === selectedItem()?.key,
 				);
 				if (selectedEntry >= 0) {
-					if (selectedEntry < scrollTop) scrollTop = selectedEntry;
-					else if (selectedEntry >= scrollTop + VISIBLE_ROWS)
-						scrollTop = selectedEntry - VISIBLE_ROWS + 1;
+					// Keep keyboard navigation centered until the viewport reaches either list boundary.
+					const maxTop = Math.max(0, allEntries.length - VISIBLE_ROWS);
+					scrollTop = Math.min(maxTop, Math.max(0, selectedEntry - Math.floor(VISIBLE_ROWS / 2)));
 				}
 				const maxTop = Math.max(0, allEntries.length - VISIBLE_ROWS);
 				scrollTop = Math.min(scrollTop, maxTop);
@@ -354,8 +366,9 @@ export function createLoadoutPage(
 				const visibleEntries = allEntries.slice(scrollTop, scrollTop + VISIBLE_ROWS);
 				const list = [
 					theme.fg("muted", truncateToWidth(scopeLabel(scope, context.command.cwd), listWidth)),
-					`> ${search || "_"}`,
-					...visibleEntries.map((entry, index) => {
+					// Reserve one cell after the query so a full search does not touch the list boundary.
+					`> ${truncateToWidth(search || "_", Math.max(0, listWidth - 3))} `,
+					...visibleEntries.map((entry) => {
 						if (entry.kind === "group") return theme.bold(truncateToWidth(entry.label, listWidth));
 						const item = entry.item;
 						const status = item.lockedBy !== undefined ? "⊘" : item.enabled ? "●" : "○";
@@ -367,14 +380,17 @@ export function createLoadoutPage(
 								: selectedRow
 									? theme.fg("accent", theme.bold(plain))
 									: plain;
-						const marker = scrollMarker(index + scrollTop, allEntries.length, scrollTop);
-						return `${truncateToWidth(styled, listWidth)}${marker ? ` ${theme.fg("dim", marker)}` : ""}`;
+						return truncateToWidth(styled, listWidth);
 					}),
+				];
+				// Fill the viewport, then pin interaction hints to the final panel row.
+				while (list.length < PANEL_ROWS - LIST_HINT_ROWS) list.push("");
+				list.push(
 					theme.fg(
 						"dim",
 						`↕ navigate · ^p ${scope === "global" ? "project" : "global"} · ␣ change · ⎋ ${search ? "clear" : "close"}`,
 					),
-				];
+				);
 				const selectedResource = selectedItem();
 				const description =
 					selectedResource === undefined
@@ -404,10 +420,11 @@ export function createLoadoutPage(
 										]),
 							];
 				if (!wide) return [...list, "", ...description].map((line) => truncateToWidth(line, width));
-				const count = Math.max(list.length, description.length);
-				return Array.from({ length: count }, (_, index) => {
+				// The Description is intentionally read only within the fixed panel height.
+				const rail = scrollbar(allEntries.length, scrollTop, theme);
+				return Array.from({ length: PANEL_ROWS }, (_, index) => {
 					const left = pad(truncateToWidth(list[index] ?? "", listWidth), listWidth);
-					return `${left}${" ".repeat(scrollbarWidth)}   ${truncateToWidth(description[index] ?? "", descriptionWidth)}`;
+					return `${left}${pad(rail[index] ?? "", scrollbarWidth)}   ${truncateToWidth(description[index] ?? "", descriptionWidth)}`;
 				});
 			},
 			handleInput(): void {},
