@@ -108,6 +108,7 @@ describe("Loadout Settings page", () => {
 			const project = page.component.render(100).join("\n");
 			expect(project).toContain("Project · /workspace/.pi/settings.json");
 			expect(project).toContain("project_check");
+			expect(project.indexOf("read")).toBeLessThan(project.indexOf("project_check"));
 		});
 	});
 
