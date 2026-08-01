@@ -8,6 +8,8 @@ ExtensionPoint、Subagent execution contract 和 cleanup primitives。它不是 
 [`docs/architecture/pi-ext-core.md`](../../docs/architecture/pi-ext-core.md)；维护与 consumer
 开发约定见 [`docs/development/pi-ext-core.md`](../../docs/development/pi-ext-core.md)。
 
-Subagent API 目前只有 TypeScript interface framework：`configureSubagentCoordinator`、
-`startSubagent`、`lookupSubagent` 与 `redeliverTask` 均会抛出 not implemented，不能用于 production
-execution。完整设计见 [`docs/architecture/subagents.md`](../../docs/architecture/subagents.md)。
+Subagent API 已实现 root-session-scoped 的 completion、task 与 conversation execution：
+`configureSubagentCoordinator`、`startSubagent`、`lookupSubagent` 与 `redeliverTask` 通过
+consumer-owned resolved child-session factory 协调 admission、取消、terminal retention、steer、idle
+compaction、usage 与 bounded transcript snapshot。完整 ownership、failure 与 concurrency 语义见
+[`docs/architecture/subagents.md`](../../docs/architecture/subagents.md)。

@@ -142,6 +142,36 @@ export interface ConversationUsage {
 	readonly cost: number;
 }
 
+/**
+ * A read-only child-history entry. Core exposes normalized evidence instead of
+ * the host AgentSession message union so consumers cannot mutate or retain the
+ * host session object.
+ */
+export type SubagentTranscriptEntry =
+	| {
+			readonly role: "user";
+			readonly text: string;
+	  }
+	| {
+			readonly role: "assistant";
+			readonly text: string;
+			readonly toolCalls: readonly string[];
+	  }
+	| {
+			readonly role: "toolResult";
+			readonly toolName: string;
+			readonly text: string;
+	  };
+
+export interface SubagentTranscriptSnapshot {
+	readonly id: SubagentId;
+	readonly entries: readonly SubagentTranscriptEntry[];
+	readonly truncated: boolean;
+}
+
+/** Fixed bound for consumer-visible child transcript evidence. */
+export const MAX_SUBAGENT_TRANSCRIPT_CHARS = 24_000;
+
 /** Caller-owned parent delivery for one Conversation reply. */
 export type ConversationReplyDeliverySink = (
 	result: ConversationReplyResult,
@@ -285,6 +315,10 @@ export interface ConversationSubagentHandle
 	compact(): Promise<void>;
 	/** Read-only cumulative usage from completed child assistant turns. */
 	usage(): ConversationUsage;
+	/** Interrupts the active child after its current tool execution without enqueueing a duplicate prompt. */
+	steer(message: string): Promise<void>;
+	/** Returns a bounded normalized snapshot while the retained child record exists. */
+	transcript(): SubagentTranscriptSnapshot;
 	send(
 		message: string,
 		options: ConversationSendOptions & { readonly reply: { readonly kind: "wait" } },
@@ -426,6 +460,7 @@ interface HandleRecord {
 	readonly subscribers: Set<EventSubscriber>;
 	started: boolean;
 	cancelQueued: (() => void) | undefined;
+	readonly pendingSteers: string[];
 	terminal: SubagentTerminalResult | undefined;
 }
 
@@ -572,6 +607,84 @@ function assistantText(message: AssistantMessage | undefined): string {
 		.trim();
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function contentText(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.flatMap((part): string[] => {
+			if (!isRecord(part) || typeof part.text !== "string") return [];
+			return [part.text];
+		})
+		.join("");
+}
+
+function transcriptEntryText(entry: SubagentTranscriptEntry): string {
+	switch (entry.role) {
+		case "user":
+			return entry.text;
+		case "assistant":
+			return `${entry.text}\n${entry.toolCalls.join("\n")}`;
+		case "toolResult":
+			return `${entry.toolName}\n${entry.text}`;
+	}
+}
+
+function transcriptSnapshot(
+	id: SubagentId,
+	messages: readonly AgentSession["messages"][number][],
+): SubagentTranscriptSnapshot {
+	const entries: SubagentTranscriptEntry[] = [];
+	let used = 0;
+	let truncated = false;
+	for (const message of messages) {
+		let entry: SubagentTranscriptEntry | undefined;
+		if (message.role === "user") {
+			const text = contentText(message.content).trim();
+			if (text) entry = { role: "user", text };
+		} else if (message.role === "assistant") {
+			const textParts: string[] = [];
+			const toolCalls: string[] = [];
+			for (const part of message.content) {
+				if (part.type === "text" && part.text) textParts.push(part.text);
+				else if (part.type === "toolCall") toolCalls.push(part.name);
+			}
+			if (textParts.length > 0 || toolCalls.length > 0)
+				entry = { role: "assistant", text: textParts.join("\n"), toolCalls };
+		} else if (message.role === "toolResult") {
+			const text = contentText(message.content).trim();
+			if (text) entry = { role: "toolResult", toolName: message.toolName, text };
+		}
+		if (entry === undefined) continue;
+		const fullText = transcriptEntryText(entry);
+		const remaining = MAX_SUBAGENT_TRANSCRIPT_CHARS - used;
+		if (fullText.length <= remaining) {
+			entries.push(entry);
+			used += fullText.length;
+			continue;
+		}
+		if (remaining > 0) {
+			entries.push(
+				entry.role === "assistant"
+					? { role: "assistant", text: fullText.slice(0, remaining), toolCalls: [] }
+					: entry.role === "user"
+						? { role: "user", text: fullText.slice(0, remaining) }
+						: {
+								role: "toolResult",
+								toolName: entry.toolName,
+								text: fullText.slice(0, remaining),
+							},
+			);
+		}
+		truncated = true;
+		break;
+	}
+	return { id, entries, truncated };
+}
+
 function lastAssistantText(session: AgentSession, startIndex: number): string {
 	for (let index = session.messages.length - 1; index >= startIndex; index -= 1) {
 		const message = session.messages[index];
@@ -698,6 +811,7 @@ function startCompletion(
 		subscribers: new Set(),
 		started: false,
 		cancelQueued: undefined,
+		pendingSteers: [],
 		terminal: undefined,
 	};
 	record.cancelQueued = () => {
@@ -822,6 +936,7 @@ function startTask(
 		subscribers: new Set(),
 		started: false,
 		cancelQueued: undefined,
+		pendingSteers: [],
 		terminal: undefined,
 	};
 	record.cancelQueued = () => {
@@ -965,7 +1080,9 @@ async function runSessionTurn(
 				}
 			}
 		});
-		await activeSession.prompt(prompt);
+		const promptOperation = activeSession.prompt(prompt);
+		for (const steer of record.pendingSteers.splice(0)) await activeSession.steer(steer);
+		await promptOperation;
 		const output = lastAssistantText(activeSession, startIndex);
 		const usage = usageFromMessages(activeSession.messages.slice(startIndex));
 		if (controller.signal.aborted)
@@ -974,14 +1091,19 @@ async function runSessionTurn(
 			return { id, status: "limit_reached", output, softLimitReached: true, usage };
 		return { id, status: "completed", output, softLimitReached, usage };
 	} catch (error) {
+		const output = session === undefined ? "" : lastAssistantText(session, startIndex);
+		const usage =
+			session === undefined
+				? EMPTY_CONVERSATION_USAGE
+				: usageFromMessages(session.messages.slice(startIndex));
 		return controller.signal.aborted
-			? { id, status: "cancelled", output: "", softLimitReached, usage: EMPTY_CONVERSATION_USAGE }
+			? { id, status: "cancelled", output, softLimitReached, usage }
 			: {
 					id,
 					status: "failed",
-					output: "",
+					output,
 					softLimitReached,
-					usage: EMPTY_CONVERSATION_USAGE,
+					usage,
 					failure: failureMessage(error),
 				};
 	} finally {
@@ -1029,6 +1151,16 @@ function startConversation(
 		settle(value);
 		emit(record, { kind: "terminal", id, result: value });
 		retainTerminal(coordinator, record);
+		if (current !== undefined) {
+			current.resolve({
+				id,
+				sequence: current.sequence,
+				status: value.status,
+				output: "",
+				softLimitReached: false,
+				...(failure === undefined ? {} : { failure }),
+			});
+		}
 		for (const item of pending.splice(0)) {
 			item.resolve({
 				id,
@@ -1108,6 +1240,19 @@ function startConversation(
 	const initialReply = new Promise<ConversationReplyResult>((resolve) => {
 		initialResolve = resolve;
 	});
+	const steer = async (message: string): Promise<void> => {
+		if (!message.trim()) throw new Error("Conversation steer message must not be empty");
+		if (record.terminal !== undefined) throw new Error("Conversation is terminal");
+		if (status !== "queued" && status !== "running")
+			throw new Error("Conversation steer requires a queued or running child");
+		if (current === undefined) throw new Error("Conversation steer requires an active child turn");
+		if (session === undefined) {
+			if (record.pendingSteers.length >= 8) throw new Error("Conversation steer queue is full");
+			record.pendingSteers.push(message);
+			return;
+		}
+		await session.steer(message);
+	};
 	function send(
 		message: string,
 		options: ConversationSendOptions & { readonly reply: { readonly kind: "wait" } },
@@ -1131,8 +1276,19 @@ function startConversation(
 	): Promise<ConversationReplyResult | ConversationDeliveryAcknowledgement> {
 		if (!message.trim()) return Promise.reject(new Error("Conversation message must not be empty"));
 		if (compacting) return Promise.reject(new Error("Conversation is compacting"));
-		if (options.inputMode === "steer" && current !== undefined && session !== undefined) {
-			void session.steer(message);
+		if (options.inputMode === "steer") {
+			const steeringSequence = ++sequence as ConversationMessageSequence;
+			const steering = steer(message);
+			if (options.reply.kind === "delivery") {
+				return steering.then(() => ({ id, sequence: steeringSequence, accepted: true }));
+			}
+			return steering.then(() => ({
+				id,
+				sequence: steeringSequence,
+				status: "steered" as const,
+				output: "",
+				softLimitReached: false,
+			}));
 		}
 		const reply = accept(message, options.reply);
 		if (options.reply.kind === "delivery") {
@@ -1168,6 +1324,10 @@ function startConversation(
 		usage(): ConversationUsage {
 			return usage;
 		},
+		steer,
+		transcript(): SubagentTranscriptSnapshot {
+			return transcriptSnapshot(id, session?.messages ?? []);
+		},
 		cancel(): void {
 			cancelRecord(coordinator, record);
 			if (session !== undefined) void session.abort();
@@ -1183,6 +1343,7 @@ function startConversation(
 		subscribers: new Set(),
 		started: false,
 		cancelQueued: undefined,
+		pendingSteers: [],
 		terminal: undefined,
 	};
 	record.cancelQueued = () => terminal(undefined);

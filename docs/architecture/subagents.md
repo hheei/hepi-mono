@@ -2,9 +2,8 @@
 
 ## 状态
 
-本文记录已确认、尚未实现的 subagent execution contract。实现顺序固定为：本文与关联 ADR、
-TypeScript interface framework、focused tests、行为实现。现有 `pi-subagents` 是迁移参考，
-不是 API 兼容目标。
+本文记录已实现的 subagent execution contract。`pi-ext-core` 持有 execution lifecycle；现有
+`pi-subagents` 是使用该 contract 的 agent/config/UI/delivery adapter，不是另一个 runner。
 
 ## 目标与所有权
 
@@ -128,7 +127,11 @@ conversation 在自然 response 或单条 reply `limit_reached` 后保持 idle�
 caller cancel。reply outcome 不是 durable conversation handle 的 terminal result；后者仅在显式取消、失败或
 parent lifecycle cleanup 时 settle。它不是无限 autonomous loop；需要自主完成工作的场景使用 `task`。
 
-conversation handle 另外提供两项 **core-owned** session control：
+conversation handle 另外提供三项 **core-owned** session control：
+
+- `steer(message)` 只可用于当前 active child turn。它调用 child session 的 steer path，不创建新的
+  queued message；child session 尚未创建时，core 只保留 bounded pending steer queue。terminal、idle 或
+  compaction 状态拒绝 steer。
 
 - `compact()` 请求 core compact 它独占的 child session。它只可在 child idle 时运行；running、queued 或
   terminal conversation 必须拒绝，不能同 prompt/abort 并发。consumer 不拿到 raw session、message array 或
@@ -136,6 +139,10 @@ conversation handle 另外提供两项 **core-owned** session control：
 - `usage()` 返回 core 从该 child 已完成 assistant turn 归一化出的只读累计 usage snapshot：input、output、total
   与 cost。缺失/无效 provider 数值归零。snapshot 是观测值，不是 billing ledger；terminal 后保留至 handle
   retention 结束。
+
+- `transcript()` 返回 core 归一化的只读 transcript snapshot。它只包含 user、assistant/tool-call 与 tool-result
+  文本，最多保留 `MAX_SUBAGENT_TRANSCRIPT_CHARS`（当前 24,000）字符，并以 `truncated` 标记截断；不暴露
+  raw `AgentSession`、Pi message union 或可变数组。
 
 这两项只服务于已存在的 long-lived conversation consumer，不能演化为任意 session inspection、message
  mutation、streaming telemetry 或 agent-policy API。Advisor 使用 `compact()` 保持原有 context budget policy，
