@@ -57,8 +57,8 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
 - [x] **Durable memory**：迁移 `ctx_memory` 的 project scope、category、archive、privacy、source provenance 与
   cross-session visibility。它是 user-level durable state，不复用旧 SQLite schema，也不让 project config 或 child session
   取得写权限。
-- [ ] **Durable notes**：迁移 `ctx_note` 的 session anchor、read/dismiss/update、smart-condition ownership、surface
-  trigger 与 stale cleanup。Dreamer-dependent smart note evaluation 必须等 Dreamer feature，不把 cron/polling 偷渡进 tool。
+- [ ] **Durable notes**：迁移 `ctx_note` 的 session anchor、read/dismiss/update、smart-condition ownership。Dreamer-dependent
+  smart note evaluation、surface trigger 与 stale cleanup 必须等 Dreamer feature，不把 cron/polling 偷渡进 tool。
 - [ ] **Composite search**：最后迁移 `ctx_search`；它跨 memory、note、session history、git commit 与 primer，必须在
   各 source 有验证过的 index/privacy/retention contract 后才暴露。没有某 source 时返回明确 partial scope，不伪造
   complete search。
@@ -144,6 +144,17 @@ future `ctx_search`/Sidekick 必须另行定义自己的 privacy contract。
 保留 source/provenance，不提供 delete/restore/merge。每条 record 保存 creator/last-writer session ID、timestamps 和 monotonic
 revision。`update`/`archive` 必须带 `expectedRevision`，stale revision 返回 tool error，绝不 last-writer-wins 覆盖另一
 session 的 edit。
+
+### Durable notes
+
+`ctx_note` 首版只在 active parent `pi-mctx` session 中工作，note 只属于当前 project/session partition；fork、child 和
+other session 都不能 read/write。`write` 可带一个 optional `anchorTag`，它必须是 current active branch 的 `§N§` tag，store
+保存该 tag 的 immutable entry/tool identity 而不是 ordinal。无 anchor note 仍是合法的 session workflow record。
+
+首版 action 为 `write`、`read`、`update`、`dismiss`。read 默认返回 active notes，调用方可显式请求 dismissed status；每条
+note 保存 creator/last-writer session ID、timestamps 与 revision，`update`/`dismiss` 均要求 `expectedRevision`。dismiss 保留
+record/provenance，不提供 delete/restore。可选 smart condition 被保存为 `pending` 并在 read 中可见；首版绝不 evaluation、poll、
+auto-surface 或 stale cleanup，直到 Dreamer 明确拥有这些资源和 cancellation policy。
 
 ## 目的
 
