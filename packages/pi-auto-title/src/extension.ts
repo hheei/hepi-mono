@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	configureSubagentCoordinator,
+	DEFAULT_SUBAGENT_COORDINATOR_BUDGET,
 	type ExtensionLifecycleContext,
 	getHepiRuntimeSettingsRegistry,
 	hepiAuthenticatedModelSelectionOptions,
@@ -22,7 +23,7 @@ export default function piAutoTitleExtension(pi: ExtensionAPI): void {
 	const start = async (runtime: ExtensionLifecycleContext): Promise<void> => {
 		// Core owns lifecycle ordering and settings registration; this package owns
 		// model selection, title policy, and the coordinator's transient job state.
-		configureSubagentCoordinator(runtime, { maxActiveTurns: 2 });
+		configureSubagentCoordinator(runtime, DEFAULT_SUBAGENT_COORDINATOR_BUDGET);
 		const modelOptions = hepiAuthenticatedModelSelectionOptions(runtime.extension.modelRegistry);
 		const provider = createAutoTitleSettingsProvider({
 			modelOptions,

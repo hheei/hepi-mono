@@ -1,7 +1,11 @@
 import { expect, test } from "bun:test";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { configureSubagentCoordinator, type ExtensionLifecycleContext } from "@hheei/pi-ext-core";
+import {
+	configureSubagentCoordinator,
+	DEFAULT_SUBAGENT_COORDINATOR_BUDGET,
+	type ExtensionLifecycleContext,
+} from "@hheei/pi-ext-core";
 import { resolveMctxActivation } from "../src/activation.js";
 import type { MctxConfiguration } from "../src/config.js";
 import { createMctxFeature } from "../src/feature.js";
@@ -93,7 +97,10 @@ test("requires an available authenticated historian", (): void => {
 
 test("does not replace a conflicting completion coordinator", (): void => {
 	const { context } = runtime();
-	configureSubagentCoordinator(context, { maxActiveTurns: 1 });
+	configureSubagentCoordinator(context, {
+		...DEFAULT_SUBAGENT_COORDINATOR_BUDGET,
+		maxActiveTurns: 1,
+	});
 	expect(resolveMctxActivation(context, configuration())).toMatchObject({
 		kind: "inactive",
 		reason: "collision",
