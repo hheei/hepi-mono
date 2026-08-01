@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
+import type { CompletionFailure, ExtensionLifecycleContext } from "@hheei/pi-ext-core";
 import type { MctxCompartmentSourceSnapshot } from "./compartment-validation.js";
 import type { MctxHistorianCompletionResult } from "./historian-executor.js";
 import { executeMctxHistorianCompletion } from "./historian-executor.js";
@@ -49,8 +49,18 @@ export type MctxHistorianRunResult =
 	| { readonly kind: "skipped"; readonly reason: "lease-held" }
 	| { readonly kind: "stale" }
 	| { readonly kind: "cancelled" }
-	| { readonly kind: "failed"; readonly reason: string }
-	| { readonly kind: "invalid"; readonly reason: string };
+	| {
+			readonly kind: "failed";
+			readonly reason: string;
+			readonly failureKind: CompletionFailure["kind"] | "storage";
+			readonly attempt: number;
+	  }
+	| {
+			readonly kind: "invalid";
+			readonly reason: string;
+			readonly failureKind: "validation";
+			readonly attempt: number;
+	  };
 
 export type MctxHistorianExecutor = (
 	context: ExtensionLifecycleContext,
@@ -122,8 +132,10 @@ async function executeWithTransientRetries(
 	controller: AbortController,
 	sourceText: string,
 	retries: { count: number },
+	attempts: { count: number },
 ): Promise<MctxHistorianCompletionResult> {
 	for (;;) {
+		attempts.count++;
 		const result = await execute(request.context, {
 			model: request.model,
 			source: request.source,
@@ -165,6 +177,7 @@ export async function runMctxHistorian(
 	let leaseLost = false;
 	let renewalFailure: string | undefined;
 	const retries = { count: 0 };
+	const attempts = { count: 0 };
 	const renewalTimer = setInterval(() => {
 		if (controller.signal.aborted) return;
 		let renewed: MctxHistorianLease | undefined;
@@ -195,11 +208,24 @@ export async function runMctxHistorian(
 			controller,
 			request.sourceText,
 			retries,
+			attempts,
 		);
-		if (renewalFailure !== undefined) return { kind: "failed", reason: renewalFailure };
+		if (renewalFailure !== undefined)
+			return {
+				kind: "failed",
+				reason: renewalFailure,
+				failureKind: "storage",
+				attempt: attempts.count,
+			};
 		if (leaseLost || controller.signal.aborted || first.kind === "cancelled")
 			return { kind: "cancelled" };
-		if (first.kind === "failed") return { kind: "failed", reason: first.failure.message };
+		if (first.kind === "failed")
+			return {
+				kind: "failed",
+				reason: first.failure.message,
+				failureKind: first.failure.kind,
+				attempt: attempts.count,
+			};
 		const firstMapping = mappedDraft(first.output, request);
 		if (firstMapping.kind === "valid") {
 			// Publication repeats the original partition CAS. A concurrent branch
@@ -220,13 +246,32 @@ export async function runMctxHistorian(
 			controller,
 			repairSourceText(request.sourceText, firstMapping.reason),
 			retries,
+			attempts,
 		);
-		if (renewalFailure !== undefined) return { kind: "failed", reason: renewalFailure };
+		if (renewalFailure !== undefined)
+			return {
+				kind: "failed",
+				reason: renewalFailure,
+				failureKind: "storage",
+				attempt: attempts.count,
+			};
 		if (leaseLost || controller.signal.aborted || repair.kind === "cancelled")
 			return { kind: "cancelled" };
-		if (repair.kind === "failed") return { kind: "failed", reason: repair.failure.message };
+		if (repair.kind === "failed")
+			return {
+				kind: "failed",
+				reason: repair.failure.message,
+				failureKind: repair.failure.kind,
+				attempt: attempts.count,
+			};
 		const repairMapping = mappedDraft(repair.output, request);
-		if (repairMapping.kind === "invalid") return { kind: "invalid", reason: repairMapping.reason };
+		if (repairMapping.kind === "invalid")
+			return {
+				kind: "invalid",
+				reason: repairMapping.reason,
+				failureKind: "validation",
+				attempt: attempts.count,
+			};
 		const publication = request.store.publishCompartment(
 			request.partition,
 			repairMapping.value.draft,

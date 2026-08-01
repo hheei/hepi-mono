@@ -29,7 +29,8 @@ export interface MctxHistorianBranchRunRequest
 
 export type MctxHistorianBranchRunResult =
 	| MctxHistorianRunResult
-	| { readonly kind: "ineligible"; readonly reason: "no-complete-turn-groups" | "protected-tail" };
+	| { readonly kind: "ineligible"; readonly reason: "no-complete-turn-groups" | "protected-tail" }
+	| { readonly kind: "invalid"; readonly reason: string };
 
 /**
  * Projects one stable active branch then delegates its eligible head to the
