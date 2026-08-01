@@ -11,6 +11,7 @@ export type {
 } from "./types.js";
 
 import { EmbeddingRuntime } from "./runtime.js";
+import type { EmbeddingProviderLease } from "./types.js";
 
 const runtime = new EmbeddingRuntime();
 
