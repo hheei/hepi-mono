@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import {
 	applyTodo,
@@ -17,6 +18,21 @@ import { createTodoWidget, type TodoWidget } from "./widget.js";
 
 export const TODO_TOOL_NAME = "todo";
 export const TODO_COMMAND_NAME = "todos";
+
+/**
+ * Core owns the Pi registration transport for every HEPI executable tool. This
+ * stable owner permits a new Pi runner to replace this declaration on /reload
+ * without allowing a different extension to claim `todo`. Loadout is optional:
+ * absent its policy engine, Pi keeps this default-active tool available.
+ */
+const TODO_LOADOUT_REGISTRATION = {
+	id: TODO_TOOL_NAME,
+	owner: "@hheei/pi-todo",
+	group: "Tasks",
+	priority: 100,
+	conflictSets: [],
+	defaultActive: true,
+} as const;
 
 export const TODO_REMINDER_IDLE_TURNS = 3;
 export const TODO_REMINDER_IDLE_MS = 3 * 60_000;
@@ -81,6 +97,12 @@ export const TODO_PROMPT_GUIDELINES = [
 	"Scheduling is automatic. Update only when state changes: use `completed` after verification, `blocked` only when work cannot continue, and `in_progress` to switch active work or resume blocked work. Do not repeatedly list or restate current state.",
 ] as const;
 
+/**
+ * Mutable task, widget, and timer state belongs to one live Pi session. Pi
+ * cannot unregister event handlers, so every handler below reads this reference
+ * and validates the session ID; lifecycle disposal clears it and turns stale
+ * closures into no-ops.
+ */
 interface ActiveTodoRuntime {
 	readonly sessionId: string;
 	state: TaskState;
@@ -100,6 +122,11 @@ export interface TodoFeatureOptions {
 	readonly now?: () => number;
 }
 
+/**
+ * Pi may pass numeric IDs as strings at the tool boundary. Normalize only that
+ * compatibility form here; TypeBox and the model still validate the complete
+ * operation so this helper cannot make an invalid batch partially acceptable.
+ */
 function canonicalPositiveInteger(value: unknown): number | undefined {
 	if (typeof value === "number") return Number.isInteger(value) && value > 0 ? value : undefined;
 	if (typeof value !== "string" || !/^[1-9]\d*$/.test(value)) return undefined;
@@ -301,6 +328,8 @@ function renderTodoResult(
 	if (isError) return new Text(theme.fg("error", "✗"), 0, 0);
 	const details = result.details;
 	if (!details || typeof details !== "object") return new Text(theme.fg("success", "✓"), 0, 0);
+	// This snapshot belongs only to this rendered tool result. Startup and tree
+	// changes deliberately begin from fresh runtime state and never restore it.
 	const snapshot = (details as { readonly snapshot?: unknown }).snapshot;
 	const state = stateFromSnapshot(snapshot);
 	if (!state) return new Text(theme.fg("success", "✓"), 0, 0);
@@ -339,6 +368,7 @@ function reconcileBlockedQuietTurns(current: ActiveTodoRuntime, nextState: TaskS
 	}
 }
 
+/** Advances independent retirement clocks only after effective non-Todo assistant turns. */
 function hideExpiredBlockedTasks(current: ActiveTodoRuntime): void {
 	const expired: number[] = [];
 	for (const [id, quietTurns] of current.blockedQuietTurns) {
@@ -357,7 +387,7 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 	const renderedIdsByCall = new Map<string, readonly number[]>();
 	const now = options.now ?? (() => performance.now());
 
-	pi.registerTool({
+	registerManagedLoadoutTool(pi, TODO_LOADOUT_REGISTRATION, {
 		name: TODO_TOOL_NAME,
 		label: "Todo",
 		description: TODO_TOOL_DESCRIPTION,
@@ -377,6 +407,8 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 			const current = active;
 			if (!current || current.sessionId !== ctx.sessionManager.getSessionId())
 				throw new Error("Todo runtime is not active");
+			// applyTodo validates the entire candidate batch before returning a new
+			// state. Keep the live state untouched on every error to preserve atomicity.
 			const todoParams = params as TodoParams;
 			const result = applyTodo(current.state, todoParams);
 			if (!result.ok) {
@@ -458,6 +490,10 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 		},
 	});
 
+	// These subscriptions intentionally remain feature-owned: reminder timing,
+	// widget retirement, and session-tree semantics are Todo policy, not core
+	// coordination. The ActiveTodoRuntime guard above makes retained Pi handlers
+	// harmless after lifecycle cleanup or /reload.
 	pi.on("context", async (event, ctx) => {
 		const current = active;
 		if (!current || current.sessionId !== ctx.sessionManager.getSessionId()) return;
@@ -540,6 +576,9 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 
 	return {
 		start(context) {
+			// Fresh state is an intentional compatibility boundary. Result snapshots
+			// remain render data only; neither branch history nor suppression entries
+			// are restored into a newly started Todo runtime.
 			renderedIdsByCall.clear();
 			const state = freshTaskState();
 			const current: ActiveTodoRuntime = {
@@ -560,6 +599,8 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 			try {
 				await current.widget?.dispose();
 			} finally {
+				// Clear the shared pointer last so in-flight handlers either finish against
+				// their matching session or observe no active runtime on their next event.
 				renderedIdsByCall.clear();
 				if (active === current) active = undefined;
 			}

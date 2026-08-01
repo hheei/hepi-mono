@@ -13,6 +13,11 @@ export interface TodoWidget {
 	dispose(): void | Promise<void>;
 }
 
+/**
+ * Visibility is widget-local presentation state. Suppressed tasks never render;
+ * completed and blocked IDs stay visible only for their documented grace window.
+ * The Todo model keeps all of them for audit and tool-result rendering.
+ */
 function visibleTasks(
 	state: TaskState,
 	displayedCompleted: ReadonlySet<number>,
@@ -114,6 +119,9 @@ export function createTodoWidget(
 	let currentTui: TUI | undefined;
 	let disposed = false;
 
+	// Native above-editor mounting avoids editor cursor/input interference. Core
+	// has no widget compositor yet, so this feature owns its key, visibility sets,
+	// invalidation and exact unregister lifecycle.
 	const factory = (tui: TUI, theme: Theme): Component & { dispose(): void } => {
 		currentTui = tui;
 		return {
