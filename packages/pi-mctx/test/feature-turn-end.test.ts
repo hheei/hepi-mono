@@ -75,6 +75,21 @@ function store(): MctxStore {
 		listCompartments: () => [],
 		discardCompartmentsFrom: () => undefined,
 		publishCompartment: () => undefined,
+		syncHistoryTags: (partition) => ({ partition, tags: [] }),
+		queueHistoryTagDrops: () => undefined,
+		markHistoryTagsDropped: () => undefined,
+		writeMemory: () => {
+			throw new Error("not used");
+		},
+		getMemories: () => [],
+		updateMemory: () => undefined,
+		archiveMemory: () => undefined,
+		writeNote: () => {
+			throw new Error("not used");
+		},
+		readNotes: () => [],
+		updateNote: () => undefined,
+		dismissNote: () => undefined,
 		close: () => undefined,
 	};
 }
