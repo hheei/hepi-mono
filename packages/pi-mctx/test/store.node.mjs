@@ -204,6 +204,22 @@ test("queues only active unprotected history tags and marks projected drops", as
 	});
 });
 
+test("stores project-wide memories with record revision CAS", async () => {
+	await withPath(async (path) => {
+		const store = await openMctxStore(path);
+		const project = `git:${"8".repeat(40)}`;
+		store.getOrCreatePartition(project, "session-a");
+		const memory = store.writeMemory({ projectIdentity: project, sessionId: "session-a", category: "ARCHITECTURE", content: "Use SQLite.", nowMs: 10 });
+		assert.deepEqual(memory, { projectIdentity: project, memoryId: 1, category: "ARCHITECTURE", content: "Use SQLite.", status: "active", revision: 1, createdSessionId: "session-a", updatedSessionId: "session-a", createdAtMs: 10, updatedAtMs: 10 });
+		const updated = store.updateMemory({ projectIdentity: project, sessionId: "session-b", memoryId: 1, expectedRevision: 1, content: "Use WAL SQLite.", nowMs: 20 });
+		assert.equal(updated?.revision, 2);
+		assert.equal(store.updateMemory({ projectIdentity: project, sessionId: "session-a", memoryId: 1, expectedRevision: 1, content: "stale", nowMs: 30 }), undefined);
+		assert.equal(store.archiveMemory({ projectIdentity: project, sessionId: "session-a", memoryId: 1, expectedRevision: 2, nowMs: 30 })?.status, "archived");
+		assert.equal(store.getMemories(project, [1])[0]?.content, "Use WAL SQLite.");
+		store.close();
+	});
+});
+
 test("upgrades the v1 metadata fence before creating partitions", async () => {
 	await withPath(async (path) => {
 		const v1 = new DatabaseSync(path);

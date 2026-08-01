@@ -23,6 +23,10 @@ import {
 	defaultMctxStorePath,
 	type MctxCompartment,
 	type MctxHistoryTag,
+	type MctxMemory,
+	type MctxMemoryArchive,
+	type MctxMemoryUpdate,
+	type MctxMemoryWrite,
 	type MctxPartition,
 	type MctxStore,
 	openMctxStore,
@@ -49,6 +53,7 @@ export interface MctxFeature {
 	active(): MctxSessionRuntime | undefined;
 	reduce(tagNumbers: readonly number[], context: ExtensionContext): MctxReduceResult;
 	expand(tagNumbers: readonly number[], context: ExtensionContext): MctxExpandResult;
+	memory(operation: MctxMemoryOperation, context: ExtensionContext): MctxMemoryResult;
 }
 
 export interface MctxReduceResult {
@@ -64,6 +69,15 @@ export type MctxExpandResult =
 			readonly tags: readonly MctxHistoryTag[];
 			readonly rejected: readonly number[];
 	  };
+
+export type MctxMemoryOperation =
+	| ({ readonly action: "write" } & Omit<MctxMemoryWrite, "projectIdentity" | "sessionId">)
+	| ({ readonly action: "update" } & Omit<MctxMemoryUpdate, "projectIdentity" | "sessionId">)
+	| ({ readonly action: "archive" } & Omit<MctxMemoryArchive, "projectIdentity" | "sessionId">)
+	| { readonly action: "get"; readonly memoryIds: readonly number[] };
+export type MctxMemoryResult =
+	| { readonly kind: "inactive" | "stale" }
+	| { readonly kind: "memory"; readonly memories: readonly MctxMemory[] };
 
 export interface MctxForkSource {
 	readonly cwd: string;
@@ -481,6 +495,51 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				else tags.push(tag);
 			}
 			return { kind: "expanded", tags, rejected };
+		},
+		memory(operation, context): MctxMemoryResult {
+			const current = active;
+			if (
+				current === undefined ||
+				current.lifecycle.signal.aborted ||
+				current.runtime.sessionId !== context.sessionManager.getSessionId()
+			)
+				return { kind: "inactive" };
+			const projectIdentity = current.runtime.partition.projectIdentity;
+			const sessionId = current.runtime.sessionId;
+			switch (operation.action) {
+				case "get":
+					return {
+						kind: "memory",
+						memories: current.runtime.store.getMemories(projectIdentity, operation.memoryIds),
+					};
+				case "write":
+					return {
+						kind: "memory",
+						memories: [
+							current.runtime.store.writeMemory({
+								...operation,
+								projectIdentity,
+								sessionId,
+							}),
+						],
+					};
+				case "update": {
+					const memory = current.runtime.store.updateMemory({
+						...operation,
+						projectIdentity,
+						sessionId,
+					});
+					return memory === undefined ? { kind: "stale" } : { kind: "memory", memories: [memory] };
+				}
+				case "archive": {
+					const memory = current.runtime.store.archiveMemory({
+						...operation,
+						projectIdentity,
+						sessionId,
+					});
+					return memory === undefined ? { kind: "stale" } : { kind: "memory", memories: [memory] };
+				}
+			}
 		},
 		reduce(tagNumbers, context): MctxReduceResult {
 			const current = active;

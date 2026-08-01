@@ -6,8 +6,9 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { registerExtensionLifecycle } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
-import { createMctxFeature } from "./feature.js";
+import { createMctxFeature, type MctxMemoryOperation } from "./feature.js";
 import { MAX_CTX_EXPAND_CHARS, renderMctxHistoryTagPage } from "./history-tags.js";
+import { MCTX_MEMORY_CATEGORIES } from "./store.js";
 
 interface PiContextHook {
 	on(
@@ -44,6 +45,47 @@ function parseTagSelectors(value: string): readonly number[] | undefined {
 		}
 	}
 	return numbers.size === 0 ? undefined : [...numbers].sort((left, right) => left - right);
+}
+
+function memoryOperation(args: Record<string, unknown>): MctxMemoryOperation | undefined {
+	const action = args.action;
+	const ids = args.ids;
+	const id = args.id;
+	const expectedRevision = args.expectedRevision;
+	const category = args.category;
+	const content = args.content;
+	if (
+		action === "get" &&
+		Array.isArray(ids) &&
+		ids.every((value): value is number => Number.isSafeInteger(value) && value > 0)
+	)
+		return { action, memoryIds: ids };
+	if (action === "write" && typeof category === "string" && typeof content === "string") {
+		const matchedCategory = MCTX_MEMORY_CATEGORIES.find((value) => value === category);
+		if (matchedCategory !== undefined) return { action, category: matchedCategory, content };
+	}
+	if (
+		action === "update" &&
+		typeof id === "number" &&
+		Number.isSafeInteger(id) &&
+		id > 0 &&
+		typeof expectedRevision === "number" &&
+		Number.isSafeInteger(expectedRevision) &&
+		expectedRevision > 0 &&
+		typeof content === "string"
+	)
+		return { action, memoryId: id, expectedRevision, content };
+	if (
+		action === "archive" &&
+		typeof id === "number" &&
+		Number.isSafeInteger(id) &&
+		id > 0 &&
+		typeof expectedRevision === "number" &&
+		Number.isSafeInteger(expectedRevision) &&
+		expectedRevision > 0
+	)
+		return { action, memoryId: id, expectedRevision };
+	return undefined;
 }
 
 function registerHistoryTools(
@@ -144,6 +186,54 @@ function registerHistoryTools(
 							text: `${page.text || "No current-session tags matched."}${page.nextOffset === undefined ? "" : `\n\nNext offset: ${page.nextOffset}`}${result.rejected.length === 0 ? "" : `\n\nRejected tags: ${result.rejected.join(", ")}`}`,
 						},
 					],
+					details: undefined,
+				};
+			},
+		}),
+	);
+	pi.registerTool(
+		defineTool({
+			name: "ctx_memory",
+			label: "Manage memory",
+			description: "Read and manage durable project memories.",
+			parameters: Type.Object({
+				action: Type.Union([
+					Type.Literal("write"),
+					Type.Literal("get"),
+					Type.Literal("update"),
+					Type.Literal("archive"),
+				]),
+				ids: Type.Optional(Type.Array(Type.Integer({ minimum: 1 }))),
+				id: Type.Optional(Type.Integer({ minimum: 1 })),
+				expectedRevision: Type.Optional(Type.Integer({ minimum: 1 })),
+				category: Type.Optional(Type.String()),
+				content: Type.Optional(Type.String()),
+			}),
+			async execute(_toolCallId, args, _signal, _onUpdate, context) {
+				const operation = memoryOperation(args);
+				if (operation === undefined)
+					return {
+						content: [{ type: "text", text: "Invalid ctx_memory parameters." }],
+						details: undefined,
+						isError: true,
+					};
+				const result = feature.memory(operation, context);
+				if (result.kind !== "memory")
+					return {
+						content: [
+							{
+								type: "text",
+								text:
+									result.kind === "inactive"
+										? "pi-mctx is not active for this session."
+										: "Memory changed; retry with a current revision.",
+							},
+						],
+						details: undefined,
+						isError: true,
+					};
+				return {
+					content: [{ type: "text", text: JSON.stringify(result.memories) }],
 					details: undefined,
 				};
 			},

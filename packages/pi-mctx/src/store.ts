@@ -4,7 +4,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export const MCTX_STORE_APPLICATION_ID = 0x484d4354;
-export const MCTX_STORE_SCHEMA_VERSION = 5;
+export const MCTX_STORE_SCHEMA_VERSION = 6;
 export const MCTX_STORE_BUSY_TIMEOUT_MS = 5_000;
 
 /**
@@ -57,6 +57,10 @@ export interface MctxStore {
 		partition: MctxPartition,
 		tagNumbers: readonly number[],
 	): MctxPartition | undefined;
+	writeMemory(input: MctxMemoryWrite): MctxMemory;
+	getMemories(projectIdentity: string, memoryIds: readonly number[]): readonly MctxMemory[];
+	updateMemory(input: MctxMemoryUpdate): MctxMemory | undefined;
+	archiveMemory(input: MctxMemoryArchive): MctxMemory | undefined;
 	close(): void;
 }
 
@@ -132,6 +136,54 @@ export interface MctxHistoryTagDropQueue {
 	readonly partition: MctxPartition;
 	readonly queued: readonly number[];
 	readonly rejected: readonly number[];
+}
+
+export const MCTX_MEMORY_CATEGORIES = [
+	"PROJECT_RULES",
+	"ARCHITECTURE",
+	"CONSTRAINTS",
+	"CONFIG_VALUES",
+	"NAMING",
+] as const;
+export type MctxMemoryCategory = (typeof MCTX_MEMORY_CATEGORIES)[number];
+export type MctxMemoryStatus = "active" | "archived";
+
+export interface MctxMemory {
+	readonly projectIdentity: string;
+	readonly memoryId: number;
+	readonly category: MctxMemoryCategory;
+	readonly content: string;
+	readonly status: MctxMemoryStatus;
+	readonly revision: number;
+	readonly createdSessionId: string;
+	readonly updatedSessionId: string;
+	readonly createdAtMs: number;
+	readonly updatedAtMs: number;
+}
+
+export interface MctxMemoryWrite {
+	readonly projectIdentity: string;
+	readonly sessionId: string;
+	readonly category: MctxMemoryCategory;
+	readonly content: string;
+	readonly nowMs?: number;
+}
+
+export interface MctxMemoryUpdate {
+	readonly projectIdentity: string;
+	readonly sessionId: string;
+	readonly memoryId: number;
+	readonly expectedRevision: number;
+	readonly content: string;
+	readonly nowMs?: number;
+}
+
+export interface MctxMemoryArchive {
+	readonly projectIdentity: string;
+	readonly sessionId: string;
+	readonly memoryId: number;
+	readonly expectedRevision: number;
+	readonly nowMs?: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -279,6 +331,26 @@ function migrateV5(database: DatabaseSync): void {
 	}
 }
 
+function migrateV6(database: DatabaseSync): void {
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		database.exec("ALTER TABLE mctx_metadata RENAME TO mctx_metadata_v5");
+		database.exec(
+			"CREATE TABLE mctx_metadata (schema_version INTEGER NOT NULL CHECK (schema_version = 6)) STRICT",
+		);
+		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(6);
+		database.exec("DROP TABLE mctx_metadata_v5");
+		database.exec(
+			"CREATE TABLE memories (project_identity TEXT NOT NULL REFERENCES projects(identity), memory_id INTEGER NOT NULL CHECK (memory_id > 0), category TEXT NOT NULL CHECK (category IN ('PROJECT_RULES', 'ARCHITECTURE', 'CONSTRAINTS', 'CONFIG_VALUES', 'NAMING')), content TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('active', 'archived')), revision INTEGER NOT NULL CHECK (revision > 0), created_session_id TEXT NOT NULL, updated_session_id TEXT NOT NULL, created_at_ms INTEGER NOT NULL CHECK (created_at_ms >= 0), updated_at_ms INTEGER NOT NULL CHECK (updated_at_ms >= 0), PRIMARY KEY (project_identity, memory_id)) STRICT",
+		);
+		database.exec("PRAGMA user_version = 6");
+		database.exec("COMMIT");
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
 /**
  * Rejects foreign or unknown nonempty databases before migration. Each version
  * upgrade commits independently, so an interrupted open can safely resume from
@@ -305,6 +377,7 @@ function validateSchema(database: DatabaseSync): void {
 	if (pragmaInteger(database, "PRAGMA user_version") === 2) migrateV3(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 3) migrateV4(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 4) migrateV5(database);
+	if (pragmaInteger(database, "PRAGMA user_version") === 5) migrateV6(database);
 	if (pragmaInteger(database, "PRAGMA application_id") !== MCTX_STORE_APPLICATION_ID) {
 		throw new Error("Context store application identity is invalid");
 	}
@@ -317,7 +390,8 @@ function validateSchema(database: DatabaseSync): void {
 		!hasTable(database, "partitions") ||
 		!hasTable(database, "historian_leases") ||
 		!hasTable(database, "compartments") ||
-		!hasTable(database, "history_tags")
+		!hasTable(database, "history_tags") ||
+		!hasTable(database, "memories")
 	) {
 		throw new Error("Context store partition tables are missing");
 	}
@@ -1016,6 +1090,180 @@ function markHistoryTagsDropped(
 	}
 }
 
+function validMemoryCategory(value: unknown): value is MctxMemoryCategory {
+	return typeof value === "string" && MCTX_MEMORY_CATEGORIES.includes(value as MctxMemoryCategory);
+}
+
+function memoryFromRow(value: unknown): MctxMemory {
+	if (
+		!isRecord(value) ||
+		!validMemoryCategory(value.category) ||
+		(value.status !== "active" && value.status !== "archived")
+	)
+		throw new Error("Context store memory row is invalid");
+	const memoryId = value.memory_id;
+	const revision = value.revision;
+	const createdAtMs = value.created_at_ms;
+	const updatedAtMs = value.updated_at_ms;
+	if (
+		typeof memoryId !== "number" ||
+		!Number.isSafeInteger(memoryId) ||
+		memoryId < 1 ||
+		typeof revision !== "number" ||
+		!Number.isSafeInteger(revision) ||
+		revision < 1 ||
+		typeof createdAtMs !== "number" ||
+		!Number.isSafeInteger(createdAtMs) ||
+		createdAtMs < 0 ||
+		typeof updatedAtMs !== "number" ||
+		!Number.isSafeInteger(updatedAtMs) ||
+		updatedAtMs < 0 ||
+		typeof value.project_identity !== "string" ||
+		typeof value.content !== "string" ||
+		typeof value.created_session_id !== "string" ||
+		typeof value.updated_session_id !== "string"
+	)
+		throw new Error("Context store memory row is invalid");
+	return {
+		projectIdentity: value.project_identity,
+		memoryId,
+		category: value.category,
+		content: value.content,
+		status: value.status,
+		revision,
+		createdSessionId: value.created_session_id,
+		updatedSessionId: value.updated_session_id,
+		createdAtMs,
+		updatedAtMs,
+	};
+}
+
+function requireMemoryInput(projectIdentity: string, sessionId: string, content?: string): void {
+	requirePartitionKey(projectIdentity, sessionId);
+	if (content !== undefined && !content.trim())
+		throw new Error("Context store memory content is invalid");
+}
+
+function writeMemory(database: DatabaseSync, input: MctxMemoryWrite): MctxMemory {
+	requireMemoryInput(input.projectIdentity, input.sessionId, input.content);
+	if (!validMemoryCategory(input.category))
+		throw new Error("Context store memory category is invalid");
+	const nowMs = input.nowMs ?? Date.now();
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		const memoryId = integerValue(
+			database
+				.prepare(
+					"SELECT COALESCE(MAX(memory_id) + 1, 1) AS value FROM memories WHERE project_identity = ?",
+				)
+				.get(input.projectIdentity),
+			"memory sequence",
+		);
+		database
+			.prepare(
+				"INSERT INTO memories (project_identity, memory_id, category, content, status, revision, created_session_id, updated_session_id, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, 'active', 1, ?, ?, ?, ?)",
+			)
+			.run(
+				input.projectIdentity,
+				memoryId,
+				input.category,
+				input.content,
+				input.sessionId,
+				input.sessionId,
+				nowMs,
+				nowMs,
+			);
+		const row = database
+			.prepare("SELECT * FROM memories WHERE project_identity = ? AND memory_id = ?")
+			.get(input.projectIdentity, memoryId);
+		database.exec("COMMIT");
+		return memoryFromRow(row);
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
+function getMemories(
+	database: DatabaseSync,
+	projectIdentity: string,
+	memoryIds: readonly number[],
+): readonly MctxMemory[] {
+	if (!projectIdentity.trim()) throw new Error("Context store project identity is invalid");
+	validTagNumbers(memoryIds, "memory IDs");
+	return [...new Set(memoryIds)]
+		.sort((a, b) => a - b)
+		.flatMap((memoryId) => {
+			const row = database
+				.prepare("SELECT * FROM memories WHERE project_identity = ? AND memory_id = ?")
+				.get(projectIdentity, memoryId);
+			return row === undefined ? [] : [memoryFromRow(row)];
+		});
+}
+
+function mutateMemory(
+	database: DatabaseSync,
+	input: MctxMemoryUpdate | MctxMemoryArchive,
+	archive: boolean,
+): MctxMemory | undefined {
+	const content = "content" in input ? input.content : undefined;
+	requireMemoryInput(input.projectIdentity, input.sessionId, content);
+	if (!archive && typeof content !== "string")
+		throw new Error("Context store memory content is invalid");
+	if (
+		!Number.isSafeInteger(input.memoryId) ||
+		input.memoryId < 1 ||
+		!Number.isSafeInteger(input.expectedRevision) ||
+		input.expectedRevision < 1
+	)
+		throw new Error("Context store memory revision is invalid");
+	const nowMs = input.nowMs ?? Date.now();
+	const changes = archive
+		? changedRows(
+				database
+					.prepare(
+						"UPDATE memories SET status = 'archived', revision = revision + 1, updated_session_id = ?, updated_at_ms = ? WHERE project_identity = ? AND memory_id = ? AND revision = ? AND status = 'active'",
+					)
+					.run(
+						input.sessionId,
+						nowMs,
+						input.projectIdentity,
+						input.memoryId,
+						input.expectedRevision,
+					),
+			)
+		: updateMemoryContent(database, input, content, nowMs);
+	if (changes === 0) return undefined;
+	return memoryFromRow(
+		database
+			.prepare("SELECT * FROM memories WHERE project_identity = ? AND memory_id = ?")
+			.get(input.projectIdentity, input.memoryId),
+	);
+}
+
+function updateMemoryContent(
+	database: DatabaseSync,
+	input: MctxMemoryUpdate | MctxMemoryArchive,
+	content: string | undefined,
+	nowMs: number,
+): number {
+	if (typeof content !== "string") throw new Error("Context store memory content is invalid");
+	return changedRows(
+		database
+			.prepare(
+				"UPDATE memories SET content = ?, revision = revision + 1, updated_session_id = ?, updated_at_ms = ? WHERE project_identity = ? AND memory_id = ? AND revision = ? AND status = 'active'",
+			)
+			.run(
+				content,
+				input.sessionId,
+				nowMs,
+				input.projectIdentity,
+				input.memoryId,
+				input.expectedRevision,
+			),
+	);
+}
+
 export function defaultMctxStorePath(agentDir: string = getAgentDir()): string {
 	return join(agentDir, "mctx", "context.db");
 }
@@ -1103,6 +1351,22 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 		markHistoryTagsDropped(partition, tagNumbers): MctxPartition | undefined {
 			if (database === undefined) throw new Error("Context store is closed");
 			return markHistoryTagsDropped(database, partition, tagNumbers);
+		},
+		writeMemory(input): MctxMemory {
+			if (database === undefined) throw new Error("Context store is closed");
+			return writeMemory(database, input);
+		},
+		getMemories(projectIdentity, memoryIds): readonly MctxMemory[] {
+			if (database === undefined) throw new Error("Context store is closed");
+			return getMemories(database, projectIdentity, memoryIds);
+		},
+		updateMemory(input): MctxMemory | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return mutateMemory(database, input, false);
+		},
+		archiveMemory(input): MctxMemory | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return mutateMemory(database, input, true);
 		},
 		close(): void {
 			if (closed) return;
