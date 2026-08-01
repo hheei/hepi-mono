@@ -95,6 +95,17 @@ config-generation discard, two-process SQLite write race, provider-off fallback 
 automatic backfill, vector-store schema, semantic `ctx_search`, and Dreamer evaluation are later slices, not part of registering
 the capability.
 
+## MCTX Adapter
+
+`pi-mctx` 是第一个 consumer，但本 slice 不调用 `embed()`、不创建 vector rows。它仅在 user-level
+`pi-mctx.embedding` 是 object 时动态 import `@hheei/pi-ext-embed`，调用 `acquireEmbeddingProvider()`，并把 lease
+绑定到 parent MCTX lifecycle。字段缺省时不 import package、不 acquire provider；这使现有 MCTX-only startup 保持
+Transformers-free。project settings 中的 `embedding` 一律忽略，因为它可能选择本地 cache 或外部 Synapse connection。
+
+Package owns provider configuration's detailed runtime validation. Import/acquire failure is an optional-capability warning and
+leaves the Context pipeline active with no semantic capability. Lifecycle shutdown/reload awaits `lease.release()` before MCTX
+store cleanup. A later semantic consumer owns calling `embed()` and persistent vector publication fences.
+
 ## 当前实现
 
 `@hheei/pi-ext-embed` 是纯运行时包，唯一公开入口为 `src/index.ts`。它不含 Pi extension entry，也不注册工具、命令、

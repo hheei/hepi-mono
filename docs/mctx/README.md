@@ -82,6 +82,8 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
   无 second consumer/provider owner，故不注册 partial `/ctx-embed`。
   共享 capability、multi-process fencing、provider lifetime 与公开 API proposal 见
   [`docs/architecture/embeddings.md`](../architecture/embeddings.md)。
+  当前仅完成 provider runtime 和 MCTX lifecycle adapter：user-level `pi-mctx.embedding` 存在时才 acquire provider，
+  不调用 embedding、不创建 vector/index state，也不注册 `/ctx-embed`。
 - [ ] **Historian-adjacent services**：按已验证需求设计 Dreamer、embedding provider、background maintenance、search
   index 与 retention/data-management。自动 TTL prune、shutdown deletion 或语义删除在得到明确 retention contract 前保持禁止。
 - [ ] **Reserved configuration activation**：逐字段启用当前 opaque 的 upstream-shaped configuration，定义 user/project

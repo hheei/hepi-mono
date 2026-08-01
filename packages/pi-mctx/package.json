@@ -27,7 +27,8 @@
 		"access": "public"
 	},
 	"dependencies": {
-		"@hheei/pi-ext-core": "workspace:*"
+		"@hheei/pi-ext-core": "workspace:*",
+		"@hheei/pi-ext-embed": "workspace:*"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-agent-core": ">=0.82.0",
