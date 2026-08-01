@@ -22,6 +22,9 @@ anchor message 交给 parent 后续 turn。
 - profile/model/prompt/tool scope 的 deterministic resolution；
 - core-required `ResolvedChildSessionFactory`，child session 的 create/dispose 不泄露给 callers；
 - default queue delivery、parent lifecycle cancellation、root active-turn cap；
+- child factory 只使用 Pi public `createAgentSession` 与同一 agent directory 的 configured auth/model state；Pi 没有公开
+  parent `ModelRuntime` transfer，因此只在 parent dynamically registered provider 中存在的 profile/model 明确拒绝，绝不
+  private cast 或静默切换模型；
 - `inherit_context` 通过 MCTX's runtime-scoped opaque boundary，并在 unavailable/stale 时 fallback 到 Pi native branch
   inheritance；
 - focused tests for profile resolution、scope、factory ownership、delivery anchor、fallback and lifecycle cleanup。
