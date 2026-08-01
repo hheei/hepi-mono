@@ -1,0 +1,21 @@
+# 隔离的本仓库 Pi 开发启动
+
+`scripts/pi-dev` 用仓库根目录安装的
+`@earendil-works/pi-coding-agent` 启动 Pi，并把 `PI_CODING_AGENT_DIR`
+指向仓库内的隔离配置目录。因此它不读取用户的 `~/.pi/agent` 配置、已安装
+Pi 包、扩展、技能或主题，也不加载项目 `.pi/` 中自动发现的资源。
+
+脚本只在隔离 `settings.json` 中登记本仓库已构建包目录。Pi 依照每个包
+`package.json` 的 `pi` 字段加载其声明的扩展、技能和主题；脚本不维护第二份
+资源清单。
+
+## 边界和接口
+
+- 入口：`scripts/pi-dev [Pi 参数...]`。
+- 包来源：仓库 `packages/` 下选定的本地 Pi 包，使用其原有 `pi` manifest。
+- 隔离状态：配置、认证、会话和包设置都保存于 `.pi-dev/`，不会修改用户 Pi
+  的配置目录。
+- 启动前构建所选本地包，构建失败时不启动 Pi。
+
+默认集为 `packages/pi-*` 下的独立包。脚本不加载已弃用的 `hepi-*` 聚合包或
+`hepi-debug`；它们会与独立包重复注册工具，而 Pi 对同名工具只保留先注册的定义。

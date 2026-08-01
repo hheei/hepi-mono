@@ -1,0 +1,61 @@
+#!/usr/bin/env bun
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const packageRoot = path.join(root, "packages");
+const agentDir = path.resolve(process.env.PI_DEV_AGENT_DIR ?? path.join(root, ".pi-dev", "agent"));
+const piCli = path.join(root, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js");
+const buildDirectories = [
+	path.join(packageRoot, "pi-ext-core"),
+	path.join(packageRoot, "pi-ext-embed"),
+];
+
+if (!existsSync(piCli)) {
+	console.error("Missing local Pi. Run bun install from the repository root.");
+	process.exit(1);
+}
+
+const packageDirs = readdirSync(packageRoot, { withFileTypes: true })
+	.filter((entry) => entry.isDirectory() && entry.name.startsWith("pi-"))
+	.map((entry) => path.join(packageRoot, entry.name))
+	.filter((directory) => {
+		const manifestPath = path.join(directory, "package.json");
+		if (!existsSync(manifestPath)) return false;
+		const manifest: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
+		return typeof manifest === "object" && manifest !== null && "pi" in manifest;
+	})
+	.sort();
+
+for (const directory of [...buildDirectories, ...packageDirs]) {
+	const result = spawnSync(process.execPath, ["run", "build"], {
+		cwd: directory,
+		stdio: "inherit",
+	});
+	if (result.status !== 0) process.exit(result.status ?? 1);
+}
+
+mkdirSync(agentDir, { recursive: true });
+const settingsPath = path.join(agentDir, "settings.json");
+let settings: Record<string, unknown> = {};
+if (existsSync(settingsPath)) {
+	const parsed: unknown = JSON.parse(readFileSync(settingsPath, "utf8"));
+	if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+		settings = parsed as Record<string, unknown>;
+	}
+}
+settings.packages = packageDirs;
+delete settings.extensions;
+delete settings.skills;
+delete settings.prompts;
+delete settings.themes;
+writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+
+const result = spawnSync(process.execPath, [piCli, "--no-approve", ...process.argv.slice(2)], {
+	cwd: process.cwd(),
+	env: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
+	stdio: "inherit",
+});
+process.exit(result.status ?? 1);
