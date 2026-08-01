@@ -49,5 +49,23 @@ history 与 tags。可安全得出的分类是：session history/tag state、pro
 notes、search/index state，以及 Dreamer/embedding state。每类未来实现必须独立指定 owner、partition、read/write
 capability、retention、privacy、cancel 与 concurrent writer policy。
 
+## Dreamer 与 smart notes 源码证据
+
+固定 artifact 的 `src/commands/ctx-dream.ts`（`dist/index.js:10914-11010`）表明 `/ctx-dream` 是已注册 project
+Dreamer task runner 的 manual entry，不是独立的 note checker。它可选择 canonical task；未带 task 时运行 enabled task 集合。
+`evaluate-smart-notes` 是独立 lease domain（`dist/index.js:414-460`），manual 与 scheduled execution 共用 task runner。
+
+smart note 保留 free-text `surfaceCondition`。`smart-note-compiler` subagent 将条件编译成 bounded synchronous
+`check(cap)`，并输出 manifest/capability declaration 与 cron（`dist/index.js:6115-6320`）。runtime 以 lease heartbeat、
+deadline 和 source-revision expectation 调用受限 capability sandbox；已 met 的 check 才可 atomically mark note ready
+（`dist/index.js:6544-6659`）。baseline capability surface 包括 `readFile`、Git facts 和 guarded HTTPS；HTTPS 有 dedicated
+DNS/private-address/response-size guard（`dist/index.js:5342-5777`）。
+
+这不是可直接复制的 Pi implementation。它依赖 consumer-owned child agent/session policy、task runner、sandbox、network
+guard、per-project lease/schedule state 和 retention。当前 `pi-mctx` 只有 Completion consumers；`pi-ext-core` 的 task API
+要求 caller 提供 `ResolvedChildSessionFactory`，而该 factory 的 agent/tool/worktree policy 属于尚未迁移的 `pi-subagents`
+owner。故不能让 `pi-mctx` 越界创建 Dreamer child session，也不能以 file-only DSL 代替 baseline free-text compiler。
+在 `pi-subagents` 作为 real consumer 可提供受限 Dreamer factory 前，`ctx_note.smartCondition` 必须继续只保存为 pending text。
+
 未确认：旧数据库的 exact tables/schema、`todowrite` 的完整 persistence、`ctx-flush`/`ctx-recomp`/`ctx-wrapup`
 的 complete behavior、任何 Handoff bridge，以及 private helpers 是否具有用户可见承诺。它们不能作为兼容性目标。

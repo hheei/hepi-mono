@@ -72,7 +72,9 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
 - [ ] **Sidekick augmentation**：legacy `/ctx-aug` 是独立 project-memory prompt augmentation，需单独定义 model/tool/
   privacy/cancellation contract；它不是 historian retry 或 context transform 的快捷入口。
 - [ ] **Dreamer 与 embedding commands**：legacy `/ctx-dream`、`/ctx-embed` 归入 historian-adjacent services；先完成
-  Dreamer/embedding storage、leases、cost/cancellation 与 retention，再决定是否保留 command。
+  Dreamer/embedding storage、leases、cost/cancellation 与 retention，再决定是否保留 command。Dreamer fixed baseline 是
+  free-text smart-condition compiler、capability sandbox、per-project lease/schedule task runner，不是 file-only checker；它
+  等待 `pi-subagents` 提供受限 child-session factory，`pi-mctx` 不越界创建 child agent。
 - [ ] **Historian-adjacent services**：按已验证需求设计 Dreamer、embedding provider、background maintenance、search
   index 与 retention/data-management。自动 TTL prune、shutdown deletion 或语义删除在得到明确 retention contract 前保持禁止。
 - [ ] **Reserved configuration activation**：逐字段启用当前 opaque 的 upstream-shaped configuration，定义 user/project
