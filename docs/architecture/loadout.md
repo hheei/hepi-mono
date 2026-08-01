@@ -98,12 +98,15 @@ router 原子选择下一个 tab；没有剩余 tab 时关闭 router。page ID �
 
 page view 在首次选择 tab 时 lazy 创建，router open 期间缓存；router close 或 registration 移除时
 清理。factory 接收 active Pi theme；theme 改变时，router 通知 cached view 重建其 theme-dependent
-content。factory failure 不关闭 router，保留当前可用 tab，并在用户下次选择失败页时重试。
+content。factory failure 不关闭 router，保留当前可用 tab，并在用户下次选择失败页时重试。page 可在完成
+自己的异步 flush 后请求 router close，router 不解释 page save policy。
 
 router 的 `Esc` 关闭 surface。active page 先处理 Left/Right；只有它未消费时，router 才使用
-Left/Right 切换 tabs。page view 必须以 boolean 或 `Promise<boolean>` 表示是否消费 input。页面需在
-tabs 附近显示 `↔` hint，并遵守 `DESIGN.md` 的 token、稳定尺寸、narrow/wide 验证和单一 focus
-规则。
+Left/Right 切换 tabs。page view 必须以 boolean 或 `Promise<boolean>` 表示是否消费 input。Loadout page
+消费 `Ctrl+P`、Space 与其 dirty-state 的 page-leave key：`Ctrl+P` 先 flush 当前 JSON root 再切 scope；
+离开 Loadout tab 或 close 时也 flush 当前 scope。flush failure 丢弃该 draft、允许正常离开并由 Pi warning
+报告；success 不 hot-apply，Settings host 只在整个 surface close 后聚合一次 reload info。页面需在 tabs
+附近显示 `↔` hint，并遵守 `DESIGN.md` 的 token、稳定尺寸、narrow/wide 验证和单一 focus 规则。
 
 ## 开发要求
 

@@ -5,9 +5,9 @@
 第一阶段 core runtime、page router 与 BTW consumer 已实现。此文定义 `@hheei/pi-ext-core` 的 TUI 宿主边界；它不定义任何 extension 的页面内容、设置 schema、命令、业务状态或交互 policy。
 
 第一阶段实现并验证 custom surface runtime 与 BTW consumer，并完成 Extension page router 的 focused
-contract tests。`pi-settings` 尚未存在，因此不在此阶段迁移 `/ext-settings`；它是明确的后续迁移项，
-不是以 `hepi-basics` adapter 临时维持的兼容层。第二阶段另行实现 editor/footer rail compositor，并
-迁移现有 statusbar；TODO 和 subagent 仅在该 compositor 通过验证后接入。
+contract tests。`pi-settings` 尚未实现，但其独立 host、Loadout page 与 widget suspension 设计已确认；它是
+明确的后续迁移项，不是以 `hepi-basics` adapter 临时维持的兼容层。第二阶段另行实现 editor/footer rail
+compositor，并迁移现有 statusbar；TODO 和 subagent 仅在该 compositor 通过验证后接入。
 
 ## 目标
 
@@ -25,7 +25,10 @@ contract tests。`pi-settings` 尚未存在，因此不在此阶段迁移 `/ext-
 - caller 必须提供 `AbortSignal`；abort、session shutdown、factory failure 或 close 都从队列和 active slot 清理；
 - core 负责 exactly-once close、theme/render forwarding 与 cleanup。caller 负责其 result、notification、fallback 和业务 cancellation policy。
 
-Extension page router 是 page host：它只拥有 tabs、lazy view lifecycle、theme、render host 和 key fallback。active page 先处理 input；只有未消费的 Left/Right 才由 router 切换 tabs。所有 page visible content、state、actions 和 page-local interaction 都属于注册该页面的 extension。
+Extension page router 是 page host：它只拥有 tabs、lazy view lifecycle、theme、render host、page-close
+coordination 和 key fallback。active page 先处理 input；只有未消费的 Left/Right 才由 router 切换 tabs。
+page 可以在完成自己的异步 flush 后请求 host close。所有 page visible content、state、actions 和 page-local
+interaction 都属于注册该页面的 extension。
 
 popup host 是另一份公开 contract。BTW 是第一份 consumer；Ask 只复用其 TUI host，保留自己的
 non-TUI dialog fallback、问卷 model 和结果 policy。
@@ -47,18 +50,26 @@ ADR 0003 要求未来的 `packages/pi-settings` 独占 `/ext-settings [page-id]`
   contract。不得让 `pi-settings` import concrete `pi-loadout`；应由 Loadout 作为 router page 注册；
 - 相应 command、integration 和 `test/ui/settings/` focused tests。
 
-迁移前必须重新确认 Loadout 从 embedded tab 改为独立 router page 的可见行为，不得在未确认时静默
-移除该 tab。
+迁移采用已确认的行为：Loadout 是独立 router page，Tools 与 Skills 同页；host 打开期间 suspend 所有
+core-managed editor widget；Loadout 持有 scope draft，切 scope/离开 page/close 时写入而不 hot-apply。旧
+embedded Loadout tab 不迁移。
 
 ## Editor 邻接区域
 
-Pi 原生 `setWidget()` 是 editor 上方和下方内容区的唯一底座。core 的 widget layout 只封装：
+Pi 原生 `setWidget()` 是 editor 上方和下方内容区的唯一底座。core 是 core-managed widget 的唯一 Pi
+transport owner；contributor 注册稳定 key、placement、factory 与 lifecycle signal，不能直接接管 transport。
+core 的 widget layout 只封装：
 
 - `aboveEditor` 与 `belowEditor` placement；
 - 每个 placement 的 left/right contributor；
 - contributor priority 和显式 `maxRows`；
 - editor 最小高度保护，按 priority 分配余量；不能完整容纳的低优先级 block 整体隐藏；
 - lifecycle-bound registration、theme invalidation、ANSI/cell-width safety 与 cleanup。
+
+Settings host 可取得 runtime-scoped suspension lease。任一 lease 存在时 core 卸载全部 core-managed
+widget；最后一个 lease release 才重新执行仍有效 contributor factory。lease、registration、surface abort、
+reload 和 session shutdown 都必须幂等 cleanup。core 不能且不承诺隐藏没有迁移到这个 registration contract
+的 third-party/direct Pi widget。
 
 这些内容区第一版只展示状态，绝不接管 editor 键盘输入。用户动作由 extension 的 command 或 custom popup 完成。
 

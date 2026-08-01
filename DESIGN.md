@@ -101,6 +101,20 @@ existing semantic token expresses the role.
 - An Extension page router uses `←`/`→` to switch tabs only after the active page does not handle
   the key; `Esc` closes the router. Show the compact `↔` hint near the tabs. Do not add a separate
   tab-strip focus region.
+- The Settings host hides core-managed editor-adjacent widgets for the lifetime of its custom
+  surface, then restores them when it closes. This applies only to widgets registered through the
+  core contract; do not claim control over unknown direct Pi widgets.
+- Loadout uses one unframed selector page: Tools and Skills share its grouped resource list; the
+  selected resource has one Description block, rather than inline descriptions on every row. A wide
+  layout is list, conditional scrollbar, then Description; a narrow layout stacks list then
+  Description.
+- Loadout status is textual and glyph-backed: `●` is effective enabled, `○` is effective disabled,
+  and `⊘` is conflict-locked/inactive. The selected row retains the standard `→` slot. Display group
+  is secondary metadata; the Description block explains scope source, inherited/default state, and
+  any lock winner.
+- Loadout uses `Ctrl+P` to switch Global and Project scope, `Space` to change the selected scope
+  choice, and direct text input to filter resource name and display group. `Esc` clears a filter
+  before closing. Do not overload `←` or `→`, which remain router navigation.
 
 ### Frames And Backgrounds
 

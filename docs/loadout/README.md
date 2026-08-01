@@ -58,5 +58,6 @@ winner inherit 或回到其 default，才可操作被锁定 member。
 
 ## 后续
 
-`pi-settings` 成为唯一的 `/ext-settings` host 后，Loadout 页面可写入相同 JSON schema。
-`pi-fff` 通过 core managed registration 接入该策略，不依赖已删除的 aggregate Loadout。
+`pi-settings` 成为唯一的 `/ext-settings` host 后，Loadout 页面可写入相同 JSON schema。页面把 Tools 与
+Skills 放在一个列表，通过 Global/Project scope draft 修改这些 delta；它不 hot-apply，关闭 Settings 后提示
+用户 `/reload`。`pi-fff` 通过 core managed registration 接入该策略，不依赖已删除的 aggregate Loadout。
