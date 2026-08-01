@@ -67,5 +67,20 @@ guard、per-project lease/schedule state 和 retention。当前 `pi-mctx` 只有
 owner。故不能让 `pi-mctx` 越界创建 Dreamer child session，也不能以 file-only DSL 代替 baseline free-text compiler。
 在 `pi-subagents` 作为 real consumer 可提供受限 Dreamer factory 前，`ctx_note.smartCondition` 必须继续只保存为 pending text。
 
+## Maintenance command 源码证据
+
+`/ctx-flush` 只执行旧 host 的 `signalPiHistoryRefresh`、pending materialization 和 system-prompt refresh（`dist/index.js:24653-24688`）。
+Pi MCTX 的 pending tag drop 已在下一次 `context` transform 重新验证并 materialize，故没有可独立迁移的 command behavior。
+
+`/ctx-recomp` 以旧 raw-message ordinal/full-or-partial range 重建旧 compartments/facts，并写 compaction marker
+（`dist/index.js:26311-26566`）。它不能转换到 MCTX current immutable entry/fingerprint graph；新的 rebuild 只能由现有
+branch-divergence recovery owner 触发。`/ctx-session-upgrade` 同样只迁移 legacy v1/v2 compartment/memory schema
+（`dist/index.js:26787-26987`），而新 store 明确不兼容旧 schema，故两者不迁移。
+
+`/ctx-wrapup` 是 primary-session-only manual compaction，持有独立 progress lease、循环跑 historian chunks，并修改
+old compaction marker（`dist/index.js:27742+`）。它与 future `hepi-basics` handoff/compaction owner 重叠，不能由
+`pi-mctx` 单独重新注册。`/ctx-status` 读取 legacy tag/compartment/fact/memory/note/Dreamer metrics，并在有 UI 时打开
+legacy dialog（`dist/index.js:27658-27740`）；当前没有完整 metric set 或 UI owner，不能注册 misleading status command。
+
 未确认：旧数据库的 exact tables/schema、`todowrite` 的完整 persistence、`ctx-flush`/`ctx-recomp`/`ctx-wrapup`
 的 complete behavior、任何 Handoff bridge，以及 private helpers 是否具有用户可见承诺。它们不能作为兼容性目标。
