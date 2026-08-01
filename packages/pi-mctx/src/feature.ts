@@ -27,6 +27,12 @@ import {
 	type MctxMemoryArchive,
 	type MctxMemoryUpdate,
 	type MctxMemoryWrite,
+	type MctxNote,
+	type MctxNoteAnchor,
+	type MctxNoteDismiss,
+	type MctxNoteStatus,
+	type MctxNoteUpdate,
+	type MctxNoteWrite,
 	type MctxPartition,
 	type MctxStore,
 	openMctxStore,
@@ -54,6 +60,7 @@ export interface MctxFeature {
 	reduce(tagNumbers: readonly number[], context: ExtensionContext): MctxReduceResult;
 	expand(tagNumbers: readonly number[], context: ExtensionContext): MctxExpandResult;
 	memory(operation: MctxMemoryOperation, context: ExtensionContext): MctxMemoryResult;
+	note(operation: MctxNoteOperation, context: ExtensionContext): MctxNoteResult;
 }
 
 export interface MctxReduceResult {
@@ -78,6 +85,21 @@ export type MctxMemoryOperation =
 export type MctxMemoryResult =
 	| { readonly kind: "inactive" | "stale" }
 	| { readonly kind: "memory"; readonly memories: readonly MctxMemory[] };
+
+export type MctxNoteOperation =
+	| ({ readonly action: "write"; readonly anchorTag?: number } & Omit<
+			MctxNoteWrite,
+			"projectIdentity" | "sessionId" | "anchor"
+	  >)
+	| ({ readonly action: "update"; readonly anchorTag?: number | null } & Omit<
+			MctxNoteUpdate,
+			"projectIdentity" | "sessionId" | "anchor"
+	  >)
+	| ({ readonly action: "dismiss" } & Omit<MctxNoteDismiss, "projectIdentity" | "sessionId">)
+	| { readonly action: "read"; readonly status?: MctxNoteStatus };
+export type MctxNoteResult =
+	| { readonly kind: "inactive" | "stale" | "invalid-anchor" }
+	| { readonly kind: "notes"; readonly notes: readonly MctxNote[] };
 
 export interface MctxForkSource {
 	readonly cwd: string;
@@ -175,6 +197,14 @@ function modelThreshold(
 ): number | undefined {
 	if (model === undefined) return threshold.defaultValue;
 	return threshold.byModel[`${model.provider}/${model.id}`] ?? threshold.defaultValue;
+}
+
+function noteAnchor(tag: MctxHistoryTag): MctxNoteAnchor {
+	return {
+		entryId: tag.entryId,
+		kind: tag.kind,
+		...(tag.toolCallId === undefined ? {} : { toolCallId: tag.toolCallId }),
+	};
 }
 
 /** Owns the session runtime holder; future store and context work attach here. */
@@ -540,6 +570,77 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					return memory === undefined ? { kind: "stale" } : { kind: "memory", memories: [memory] };
 				}
 			}
+		},
+		note(operation, context): MctxNoteResult {
+			const current = active;
+			if (
+				current === undefined ||
+				current.lifecycle.signal.aborted ||
+				current.runtime.sessionId !== context.sessionManager.getSessionId()
+			)
+				return { kind: "inactive" };
+			const projectIdentity = current.runtime.partition.projectIdentity;
+			const sessionId = current.runtime.sessionId;
+			if (operation.action === "read") {
+				return {
+					kind: "notes",
+					notes: current.runtime.store.readNotes(projectIdentity, sessionId, operation.status),
+				};
+			}
+			if (operation.action === "dismiss") {
+				const note = current.runtime.store.dismissNote({
+					...operation,
+					projectIdentity,
+					sessionId,
+				});
+				return note === undefined ? { kind: "stale" } : { kind: "notes", notes: [note] };
+			}
+			const anchorTag = operation.anchorTag;
+			let anchor: MctxNoteAnchor | null | undefined;
+			if (anchorTag !== undefined) {
+				if (anchorTag === null) anchor = null;
+				else {
+					// A numeric tag is only a session-local selector. Resolve it against this
+					// branch before persisting the immutable Pi identity it represents.
+					const synced = current.runtime.store.syncHistoryTags(
+						current.runtime.partition,
+						collectMctxHistoryTagInputs(context.sessionManager.getBranch()),
+					);
+					if (synced === undefined) return { kind: "stale" };
+					current.runtime = { ...current.runtime, partition: synced.partition };
+					const tag = synced.tags.find((value) => value.tagNumber === anchorTag);
+					if (tag === undefined) return { kind: "invalid-anchor" };
+					anchor = noteAnchor(tag);
+				}
+			}
+			if (operation.action === "write") {
+				return {
+					kind: "notes",
+					notes: [
+						current.runtime.store.writeNote({
+							content: operation.content,
+							...(anchor === undefined || anchor === null ? {} : { anchor }),
+							...(operation.smartCondition === undefined
+								? {}
+								: { smartCondition: operation.smartCondition }),
+							projectIdentity,
+							sessionId,
+						}),
+					],
+				};
+			}
+			const note = current.runtime.store.updateNote({
+				content: operation.content,
+				noteId: operation.noteId,
+				expectedRevision: operation.expectedRevision,
+				...(anchor === undefined ? {} : { anchor }),
+				...(operation.smartCondition === undefined
+					? {}
+					: { smartCondition: operation.smartCondition }),
+				projectIdentity,
+				sessionId,
+			});
+			return note === undefined ? { kind: "stale" } : { kind: "notes", notes: [note] };
 		},
 		reduce(tagNumbers, context): MctxReduceResult {
 			const current = active;

@@ -4,7 +4,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export const MCTX_STORE_APPLICATION_ID = 0x484d4354;
-export const MCTX_STORE_SCHEMA_VERSION = 6;
+export const MCTX_STORE_SCHEMA_VERSION = 7;
 export const MCTX_STORE_BUSY_TIMEOUT_MS = 5_000;
 
 /**
@@ -61,6 +61,14 @@ export interface MctxStore {
 	getMemories(projectIdentity: string, memoryIds: readonly number[]): readonly MctxMemory[];
 	updateMemory(input: MctxMemoryUpdate): MctxMemory | undefined;
 	archiveMemory(input: MctxMemoryArchive): MctxMemory | undefined;
+	writeNote(input: MctxNoteWrite): MctxNote;
+	readNotes(
+		projectIdentity: string,
+		sessionId: string,
+		status?: MctxNoteStatus,
+	): readonly MctxNote[];
+	updateNote(input: MctxNoteUpdate): MctxNote | undefined;
+	dismissNote(input: MctxNoteDismiss): MctxNote | undefined;
 	close(): void;
 }
 
@@ -182,6 +190,59 @@ export interface MctxMemoryArchive {
 	readonly projectIdentity: string;
 	readonly sessionId: string;
 	readonly memoryId: number;
+	readonly expectedRevision: number;
+	readonly nowMs?: number;
+}
+
+/** Immutable tag evidence retained instead of a session-local ordinal. */
+export interface MctxNoteAnchor {
+	readonly entryId: string;
+	readonly kind: MctxHistoryTagKind;
+	readonly toolCallId?: string;
+}
+
+export type MctxNoteStatus = "active" | "dismissed";
+
+/** Session-local durable work state. Smart conditions are stored pending only. */
+export interface MctxNote {
+	readonly projectIdentity: string;
+	readonly sessionId: string;
+	readonly noteId: number;
+	readonly content: string;
+	readonly status: MctxNoteStatus;
+	readonly anchor?: MctxNoteAnchor;
+	readonly smartCondition?: string;
+	readonly revision: number;
+	readonly createdSessionId: string;
+	readonly updatedSessionId: string;
+	readonly createdAtMs: number;
+	readonly updatedAtMs: number;
+}
+
+export interface MctxNoteWrite {
+	readonly projectIdentity: string;
+	readonly sessionId: string;
+	readonly content: string;
+	readonly anchor?: MctxNoteAnchor;
+	readonly smartCondition?: string;
+	readonly nowMs?: number;
+}
+
+export interface MctxNoteUpdate {
+	readonly projectIdentity: string;
+	readonly sessionId: string;
+	readonly noteId: number;
+	readonly expectedRevision: number;
+	readonly content: string;
+	readonly anchor?: MctxNoteAnchor | null;
+	readonly smartCondition?: string | null;
+	readonly nowMs?: number;
+}
+
+export interface MctxNoteDismiss {
+	readonly projectIdentity: string;
+	readonly sessionId: string;
+	readonly noteId: number;
 	readonly expectedRevision: number;
 	readonly nowMs?: number;
 }
@@ -351,6 +412,27 @@ function migrateV6(database: DatabaseSync): void {
 	}
 }
 
+function migrateV7(database: DatabaseSync): void {
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		database.exec("ALTER TABLE mctx_metadata RENAME TO mctx_metadata_v6");
+		database.exec(
+			"CREATE TABLE mctx_metadata (schema_version INTEGER NOT NULL CHECK (schema_version = 7)) STRICT",
+		);
+		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(7);
+		database.exec("DROP TABLE mctx_metadata_v6");
+		// Anchors store immutable Pi identity, never a tag ordinal that can be reused in another session.
+		database.exec(
+			"CREATE TABLE notes (project_identity TEXT NOT NULL, session_id TEXT NOT NULL, note_id INTEGER NOT NULL CHECK (note_id > 0), content TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('active', 'dismissed')), anchor_entry_id TEXT, anchor_kind TEXT CHECK (anchor_kind IN ('message', 'tool', 'reference')), anchor_tool_call_id TEXT, smart_condition TEXT, revision INTEGER NOT NULL CHECK (revision > 0), created_session_id TEXT NOT NULL, updated_session_id TEXT NOT NULL, created_at_ms INTEGER NOT NULL CHECK (created_at_ms >= 0), updated_at_ms INTEGER NOT NULL CHECK (updated_at_ms >= 0), PRIMARY KEY (project_identity, session_id, note_id), FOREIGN KEY (project_identity, session_id) REFERENCES partitions(project_identity, session_id), CHECK ((anchor_entry_id IS NULL AND anchor_kind IS NULL AND anchor_tool_call_id IS NULL) OR (anchor_entry_id IS NOT NULL AND anchor_kind IS NOT NULL))) STRICT",
+		);
+		database.exec("PRAGMA user_version = 7");
+		database.exec("COMMIT");
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
 /**
  * Rejects foreign or unknown nonempty databases before migration. Each version
  * upgrade commits independently, so an interrupted open can safely resume from
@@ -378,6 +460,7 @@ function validateSchema(database: DatabaseSync): void {
 	if (pragmaInteger(database, "PRAGMA user_version") === 3) migrateV4(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 4) migrateV5(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 5) migrateV6(database);
+	if (pragmaInteger(database, "PRAGMA user_version") === 6) migrateV7(database);
 	if (pragmaInteger(database, "PRAGMA application_id") !== MCTX_STORE_APPLICATION_ID) {
 		throw new Error("Context store application identity is invalid");
 	}
@@ -391,7 +474,8 @@ function validateSchema(database: DatabaseSync): void {
 		!hasTable(database, "historian_leases") ||
 		!hasTable(database, "compartments") ||
 		!hasTable(database, "history_tags") ||
-		!hasTable(database, "memories")
+		!hasTable(database, "memories") ||
+		!hasTable(database, "notes")
 	) {
 		throw new Error("Context store partition tables are missing");
 	}
@@ -1264,6 +1348,240 @@ function updateMemoryContent(
 	);
 }
 
+function validHistoryTagKind(value: unknown): value is MctxHistoryTagKind {
+	return value === "message" || value === "tool" || value === "reference";
+}
+
+function noteAnchorFromRow(value: Record<string, unknown>): MctxNoteAnchor | undefined {
+	const entryId = value.anchor_entry_id;
+	const kind = value.anchor_kind;
+	const toolCallId = value.anchor_tool_call_id;
+	if (entryId === null && kind === null && toolCallId === null) return undefined;
+	if (
+		typeof entryId !== "string" ||
+		!entryId.trim() ||
+		!validHistoryTagKind(kind) ||
+		(typeof toolCallId !== "string" && toolCallId !== null) ||
+		(kind === "tool" && (typeof toolCallId !== "string" || !toolCallId.trim())) ||
+		(kind !== "tool" && toolCallId !== null)
+	)
+		throw new Error("Context store note anchor row is invalid");
+	return { entryId, kind, ...(toolCallId === null ? {} : { toolCallId }) };
+}
+
+function noteFromRow(value: unknown): MctxNote {
+	if (
+		!isRecord(value) ||
+		(value.status !== "active" && value.status !== "dismissed") ||
+		typeof value.project_identity !== "string" ||
+		typeof value.session_id !== "string" ||
+		typeof value.content !== "string" ||
+		(typeof value.smart_condition !== "string" && value.smart_condition !== null) ||
+		typeof value.created_session_id !== "string" ||
+		typeof value.updated_session_id !== "string"
+	)
+		throw new Error("Context store note row is invalid");
+	const noteId = value.note_id;
+	const revision = value.revision;
+	const createdAtMs = value.created_at_ms;
+	const updatedAtMs = value.updated_at_ms;
+	if (
+		typeof noteId !== "number" ||
+		!Number.isSafeInteger(noteId) ||
+		noteId < 1 ||
+		typeof revision !== "number" ||
+		!Number.isSafeInteger(revision) ||
+		revision < 1 ||
+		typeof createdAtMs !== "number" ||
+		!Number.isSafeInteger(createdAtMs) ||
+		createdAtMs < 0 ||
+		typeof updatedAtMs !== "number" ||
+		!Number.isSafeInteger(updatedAtMs) ||
+		updatedAtMs < 0
+	)
+		throw new Error("Context store note row is invalid");
+	const anchor = noteAnchorFromRow(value);
+	return {
+		projectIdentity: value.project_identity,
+		sessionId: value.session_id,
+		noteId,
+		content: value.content,
+		status: value.status,
+		...(anchor === undefined ? {} : { anchor }),
+		...(value.smart_condition === null ? {} : { smartCondition: value.smart_condition }),
+		revision,
+		createdSessionId: value.created_session_id,
+		updatedSessionId: value.updated_session_id,
+		createdAtMs,
+		updatedAtMs,
+	};
+}
+
+function requireNoteAnchor(anchor: MctxNoteAnchor): void {
+	if (!anchor.entryId.trim() || !validHistoryTagKind(anchor.kind))
+		throw new Error("Context store note anchor is invalid");
+	if (anchor.kind === "tool") {
+		if (anchor.toolCallId === undefined || !anchor.toolCallId.trim())
+			throw new Error("Context store tool note anchor is invalid");
+	} else if (anchor.toolCallId !== undefined) {
+		throw new Error("Context store non-tool note anchor cannot have a tool call ID");
+	}
+}
+
+function requireNoteInput(
+	projectIdentity: string,
+	sessionId: string,
+	content: string,
+	nowMs: number,
+): void {
+	requirePartitionKey(projectIdentity, sessionId);
+	if (!content.trim()) throw new Error("Context store note content is invalid");
+	if (!Number.isSafeInteger(nowMs) || nowMs < 0)
+		throw new Error("Context store note timestamp is invalid");
+}
+
+function writeNote(database: DatabaseSync, input: MctxNoteWrite): MctxNote {
+	const nowMs = input.nowMs ?? Date.now();
+	requireNoteInput(input.projectIdentity, input.sessionId, input.content, nowMs);
+	if (input.anchor !== undefined) requireNoteAnchor(input.anchor);
+	if (input.smartCondition !== undefined && !input.smartCondition.trim())
+		throw new Error("Context store smart note condition is invalid");
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		const noteId = integerValue(
+			database
+				.prepare(
+					"SELECT COALESCE(MAX(note_id) + 1, 1) AS value FROM notes WHERE project_identity = ? AND session_id = ?",
+				)
+				.get(input.projectIdentity, input.sessionId),
+			"note sequence",
+		);
+		database
+			.prepare(
+				"INSERT INTO notes (project_identity, session_id, note_id, content, status, anchor_entry_id, anchor_kind, anchor_tool_call_id, smart_condition, revision, created_session_id, updated_session_id, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, 1, ?, ?, ?, ?)",
+			)
+			.run(
+				input.projectIdentity,
+				input.sessionId,
+				noteId,
+				input.content,
+				input.anchor?.entryId ?? null,
+				input.anchor?.kind ?? null,
+				input.anchor?.toolCallId ?? null,
+				input.smartCondition ?? null,
+				input.sessionId,
+				input.sessionId,
+				nowMs,
+				nowMs,
+			);
+		const row = database
+			.prepare("SELECT * FROM notes WHERE project_identity = ? AND session_id = ? AND note_id = ?")
+			.get(input.projectIdentity, input.sessionId, noteId);
+		database.exec("COMMIT");
+		return noteFromRow(row);
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
+function readNotes(
+	database: DatabaseSync,
+	projectIdentity: string,
+	sessionId: string,
+	status: MctxNoteStatus = "active",
+): readonly MctxNote[] {
+	requirePartitionKey(projectIdentity, sessionId);
+	if (status !== "active" && status !== "dismissed")
+		throw new Error("Context store note status is invalid");
+	return database
+		.prepare(
+			"SELECT * FROM notes WHERE project_identity = ? AND session_id = ? AND status = ? ORDER BY note_id ASC",
+		)
+		.all(projectIdentity, sessionId, status)
+		.map(noteFromRow);
+}
+
+function requireNoteMutation(input: MctxNoteUpdate | MctxNoteDismiss, nowMs: number): void {
+	requirePartitionKey(input.projectIdentity, input.sessionId);
+	if (
+		!Number.isSafeInteger(input.noteId) ||
+		input.noteId < 1 ||
+		!Number.isSafeInteger(input.expectedRevision) ||
+		input.expectedRevision < 1 ||
+		!Number.isSafeInteger(nowMs) ||
+		nowMs < 0
+	)
+		throw new Error("Context store note revision is invalid");
+}
+
+function updateNote(database: DatabaseSync, input: MctxNoteUpdate): MctxNote | undefined {
+	const nowMs = input.nowMs ?? Date.now();
+	requireNoteMutation(input, nowMs);
+	if (!input.content.trim()) throw new Error("Context store note content is invalid");
+	if (input.anchor !== undefined && input.anchor !== null) requireNoteAnchor(input.anchor);
+	if (
+		input.smartCondition !== undefined &&
+		input.smartCondition !== null &&
+		!input.smartCondition.trim()
+	)
+		throw new Error("Context store smart note condition is invalid");
+	const changes = changedRows(
+		database
+			.prepare(
+				"UPDATE notes SET content = ?, anchor_entry_id = CASE WHEN ? THEN ? ELSE anchor_entry_id END, anchor_kind = CASE WHEN ? THEN ? ELSE anchor_kind END, anchor_tool_call_id = CASE WHEN ? THEN ? ELSE anchor_tool_call_id END, smart_condition = CASE WHEN ? THEN ? ELSE smart_condition END, revision = revision + 1, updated_session_id = ?, updated_at_ms = ? WHERE project_identity = ? AND session_id = ? AND note_id = ? AND revision = ? AND status = 'active'",
+			)
+			.run(
+				input.content,
+				input.anchor === undefined ? 0 : 1,
+				input.anchor?.entryId ?? null,
+				input.anchor === undefined ? 0 : 1,
+				input.anchor?.kind ?? null,
+				input.anchor === undefined ? 0 : 1,
+				input.anchor?.toolCallId ?? null,
+				input.smartCondition === undefined ? 0 : 1,
+				input.smartCondition ?? null,
+				input.sessionId,
+				nowMs,
+				input.projectIdentity,
+				input.sessionId,
+				input.noteId,
+				input.expectedRevision,
+			),
+	);
+	if (changes === 0) return undefined;
+	return noteFromRow(
+		database
+			.prepare("SELECT * FROM notes WHERE project_identity = ? AND session_id = ? AND note_id = ?")
+			.get(input.projectIdentity, input.sessionId, input.noteId),
+	);
+}
+
+function dismissNote(database: DatabaseSync, input: MctxNoteDismiss): MctxNote | undefined {
+	const nowMs = input.nowMs ?? Date.now();
+	requireNoteMutation(input, nowMs);
+	const changes = changedRows(
+		database
+			.prepare(
+				"UPDATE notes SET status = 'dismissed', revision = revision + 1, updated_session_id = ?, updated_at_ms = ? WHERE project_identity = ? AND session_id = ? AND note_id = ? AND revision = ? AND status = 'active'",
+			)
+			.run(
+				input.sessionId,
+				nowMs,
+				input.projectIdentity,
+				input.sessionId,
+				input.noteId,
+				input.expectedRevision,
+			),
+	);
+	if (changes === 0) return undefined;
+	return noteFromRow(
+		database
+			.prepare("SELECT * FROM notes WHERE project_identity = ? AND session_id = ? AND note_id = ?")
+			.get(input.projectIdentity, input.sessionId, input.noteId),
+	);
+}
+
 export function defaultMctxStorePath(agentDir: string = getAgentDir()): string {
 	return join(agentDir, "mctx", "context.db");
 }
@@ -1367,6 +1685,22 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 		archiveMemory(input): MctxMemory | undefined {
 			if (database === undefined) throw new Error("Context store is closed");
 			return mutateMemory(database, input, true);
+		},
+		writeNote(input): MctxNote {
+			if (database === undefined) throw new Error("Context store is closed");
+			return writeNote(database, input);
+		},
+		readNotes(projectIdentity, sessionId, status): readonly MctxNote[] {
+			if (database === undefined) throw new Error("Context store is closed");
+			return readNotes(database, projectIdentity, sessionId, status);
+		},
+		updateNote(input): MctxNote | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return updateNote(database, input);
+		},
+		dismissNote(input): MctxNote | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return dismissNote(database, input);
 		},
 		close(): void {
 			if (closed) return;
