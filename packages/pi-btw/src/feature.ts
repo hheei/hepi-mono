@@ -19,6 +19,11 @@ import { BTW_SYSTEM_PROMPT } from "./prompt.js";
 
 export const BTW_COMMAND_NAME = "btw";
 
+/**
+ * Owns one session's BTW history and at most one active request. Core supplies
+ * child execution and serialized custom-surface access; this feature decides what
+ * history means, when requests are invalidated, and how results reach the view.
+ */
 export interface BtwFeature {
 	start(runtime: ExtensionLifecycleContext): void;
 	dispose(sessionId: string): void;
@@ -82,6 +87,8 @@ function isCurrentRequest(current: ActiveRuntime, request: ActiveRequest): boole
 }
 
 function abortRequest(current: ActiveRuntime, closeOverlay: boolean): void {
+	// Abort both layers: the local controller stops injected executors while the
+	// core handle stops a real child session. Closing the overlay is policy-driven.
 	const request = current.activeRequest;
 	if (!request) return;
 	request.controller.abort();
@@ -258,6 +265,8 @@ export function createBtwFeature(pi: ExtensionAPI, options: BtwFeatureOptions = 
 			};
 			current.activeRequest = request;
 			try {
+				// The core surface owns admission/close. The feature factory creates its
+				// own component only after admission, so queued requests retain no stale UI.
 				await openTuiSurface(pi, ctx, {
 					hostId: "@hheei/pi-btw/btw",
 					signal: request.controller.signal,
@@ -298,6 +307,8 @@ export function createBtwFeature(pi: ExtensionAPI, options: BtwFeatureOptions = 
 		"session_compact",
 		"session_shutdown",
 	] as const) {
+		// Pi keeps these handlers across reload. `isSameSession` and the active
+		// runtime token turn old handlers into no-ops after lifecycle disposal.
 		pi.on(eventName as never, async (_event: unknown, ctx: ExtensionContext) => {
 			const current = active;
 			if (isSameSession(current, ctx)) invalidateContext(current, true);

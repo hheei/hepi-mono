@@ -7,6 +7,11 @@ export const MCTX_STORE_APPLICATION_ID = 0x484d4354;
 export const MCTX_STORE_SCHEMA_VERSION = 4;
 export const MCTX_STORE_BUSY_TIMEOUT_MS = 5_000;
 
+/**
+ * Canonical MCTX persistence boundary. The store owns schema/migration, partition
+ * revisions, lease transactions, and compare-and-commit publication; callers own
+ * when a session should read, rebuild, or close the store.
+ */
 export interface MctxStore {
 	readonly path: string;
 	getOrCreatePartition(projectIdentity: string, sessionId: string): MctxPartition;
@@ -36,18 +41,21 @@ export interface MctxStore {
 }
 
 export interface MctxPartition {
+	/** Stable project/session scope; no compartment may cross either identity. */
 	readonly projectIdentity: string;
 	readonly sessionId: string;
 	readonly revision: number;
 }
 
 export interface MctxHistorianLease {
+	/** Lease token is single-owner and must be released by the historian attempt. */
 	readonly partition: MctxPartition;
 	readonly ownerToken: string;
 	readonly expiresAtMs: number;
 }
 
 export interface MctxCompartmentDraft {
+	/** Unpublished model output tied to a verifiable source range and tier. */
 	readonly tier: "m0" | "m1";
 	readonly sourceStartEntryId: string;
 	readonly sourceEndEntryId: string;

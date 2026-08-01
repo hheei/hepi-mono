@@ -48,6 +48,8 @@ export function projectMctxContext(
 	entries: readonly SessionEntry[],
 	compartments: readonly MctxCompartment[],
 ): MctxContextProjection {
+	// Verify the persisted graph before matching host messages. Projection is a
+	// best-effort transformation: any mismatch returns the original context.
 	const graph = verifyMctxCompartmentGraph(entries, compartments);
 	if (graph.kind === "empty") return { kind: "unchanged", reason: "empty" };
 	if (graph.kind === "invalid") return { kind: "unchanged", reason: "invalid" };

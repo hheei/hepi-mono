@@ -14,10 +14,13 @@ const MIN_EXECUTE_THRESHOLD_TOKENS = 5_000;
 const MAX_EXECUTE_THRESHOLD_TOKENS = 2_000_000;
 
 export interface MctxSettingsPaths {
+	/** Global settings are the base; project settings may only apply the documented overrides. */
 	readonly globalPath: string;
+	/** Project settings are intentionally read fresh for each lifecycle start. */
 	readonly projectPath: string;
 }
 
+/** Threshold values after model-specific selection, before trigger evaluation. */
 export interface MctxThreshold {
 	readonly defaultValue: number;
 	readonly byModel: Readonly<Record<string, number>>;
@@ -41,6 +44,7 @@ export type MctxPipelineState =
 	| { readonly kind: "enabled"; readonly settings: MctxPipelineSettings };
 
 export interface MctxConfiguration {
+	/** Raw scopes remain available for diagnostics; `pipeline` is the validated runtime view. */
 	readonly global: Readonly<Record<string, unknown>>;
 	readonly project: Readonly<Record<string, unknown>>;
 	readonly merged: Readonly<Record<string, unknown>>;
@@ -235,6 +239,8 @@ export async function loadMctxConfiguration(
 	paths: MctxSettingsPaths = defaultMctxSettingsPaths(),
 	signal?: AbortSignal,
 ): Promise<MctxConfiguration> {
+	// Read/merge is a configuration boundary only. The feature decides whether a
+	// valid pipeline can open a store; loading settings never mutates live runtime state.
 	const settings = await readMergedJsonSettingsSection({
 		paths,
 		section: MCTX_SETTINGS_SECTION,

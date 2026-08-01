@@ -52,6 +52,7 @@ export type PathResolution = AppResult<ResolvedPath, PathResolutionError>;
 
 export type GrepOutputMode = "content" | "files_with_matches" | "count" | "usage";
 
+/** User-facing grep request. Limits and cursor semantics are normalized by the FFF tool layer. */
 export type GrepSearchRequest = {
 	pattern: string;
 	mode?: GrepMode;
@@ -133,10 +134,13 @@ export type FileCursorPayload = {
 };
 
 export type RuntimeOptions = {
+	/** Optional injected finder for tests or an embedding host; FFF owns created finders. */
 	finder?: FileFinder;
+	/** Project root used for indexing and database partitioning; defaults to the current directory. */
 	projectRoot?: string;
 };
 
+/** Diagnostic paths exposed by commands; these are not part of the tool result contract. */
 export type RuntimeMetadata = {
 	cwd: string;
 	projectRoot: string;

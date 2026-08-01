@@ -15,6 +15,10 @@ export type BtwComponentStatus =
 	| { readonly kind: "answer"; readonly text: string }
 	| { readonly kind: "error"; readonly message: string };
 
+/**
+ * Feature-owned view state plus the minimal host callbacks needed for rendering.
+ * The component never starts a model request and never owns the custom-surface lease.
+ */
 export interface BtwComponentOptions {
 	readonly question: string;
 	readonly history: readonly BtwTurn[];
@@ -25,9 +29,12 @@ export interface BtwComponentOptions {
 }
 
 export interface BtwComponentController extends Component {
+	/** Updates are ignored after `close`; each accepted update requests a render. */
 	setAnswer(text: string): void;
 	setError(message: string): void;
+	/** Signals the custom-surface host to close; safe to call more than once. */
 	close(): void;
+	/** Releases view-local state without changing feature history. */
 	dispose(): void;
 }
 

@@ -33,6 +33,7 @@ export interface ManagedLoadoutToolRegistration extends LoadoutToolMetadata {
 }
 
 export interface LoadoutInventoryObserver {
+	/** Aborting the signal removes this observer; `onChange` receives an immediate snapshot. */
 	readonly signal: AbortSignal;
 	onChange(items: readonly LoadoutToolMetadata[]): void;
 }
@@ -44,6 +45,7 @@ export interface LoadoutToolActivationSnapshot {
 }
 
 export interface LoadoutToolActivationObserver {
+	/** Aborting the signal removes this observer; the latest snapshot is delivered immediately. */
 	readonly signal: AbortSignal;
 	onChange(snapshot: LoadoutToolActivationSnapshot | undefined): void;
 }
@@ -138,7 +140,11 @@ export function registerLoadoutInventory(
 	});
 }
 
-/** Registers a HEPI-owned executable tool and its corresponding static inventory item. */
+/**
+ * Registers a HEPI-owned executable tool and its corresponding static inventory item.
+ * Registration happens during extension construction because Pi has no unregister API;
+ * the stable owner permits only the same package to replace its declaration on /reload.
+ */
 export function registerManagedLoadoutTool<TParams extends TSchema, TDetails, TState>(
 	pi: ExtensionAPI,
 	registration: ManagedLoadoutToolRegistration,

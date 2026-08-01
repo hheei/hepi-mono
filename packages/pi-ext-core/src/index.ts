@@ -1,3 +1,8 @@
+/**
+ * Side-effect-free coordination contracts for independently installed Pi extensions.
+ * Concrete packages own commands, state, policy, and rendering; core only owns
+ * shared registration, lifecycle, cancellation, and cross-package coordination.
+ */
 export type {
 	OpenTuiSurfaceOptions,
 	TuiSurfaceContext,

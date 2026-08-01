@@ -20,6 +20,8 @@ export default function piAutoTitleExtension(pi: ExtensionAPI): void {
 	let coordinator: ReturnType<typeof createAutoTitleCoordinator> | undefined;
 	let run: (() => void) | undefined;
 	const start = async (runtime: ExtensionLifecycleContext): Promise<void> => {
+		// Core owns lifecycle ordering and settings registration; this package owns
+		// model selection, title policy, and the coordinator's transient job state.
 		configureSubagentCoordinator(runtime, { maxActiveTurns: 2 });
 		const modelOptions = hepiAuthenticatedModelSelectionOptions(runtime.extension.modelRegistry);
 		const provider = createAutoTitleSettingsProvider({
@@ -86,7 +88,12 @@ export default function piAutoTitleExtension(pi: ExtensionAPI): void {
 			run?.();
 		},
 	});
+	// Keep the historical key stable: changing it would leave a previous key's
+	// lifecycle handler live during an in-process /reload.
 	registerExtensionLifecycle(pi, { key: "pi-auto-title", start });
+	// Pi has no public unregister for these feature hooks. They remain harmless
+	// after /reload because the current coordinator is lifecycle-scoped and dispose
+	// clears its timers, agent, and session revision.
 	pi.on("session_info_changed", (event) => coordinator?.sessionInfoChanged(event.name));
 	pi.on("before_agent_start", () => coordinator?.beforeAgentStart());
 	pi.on("agent_settled", () => coordinator?.agentSettled());

@@ -66,6 +66,10 @@ export interface HepiSettingChange {
 	readonly state: HepiSettingsState;
 }
 
+/**
+ * Persistence boundary for one settings provider. Loading and saving JSON is core's
+ * responsibility; applying a loaded value to live feature state remains provider-owned.
+ */
 export interface HepiSettingsStorage {
 	load(
 		context: HepiContext,
@@ -84,6 +88,11 @@ export interface HepiSettingsPanel {
 	invalidate?(): void;
 }
 
+/**
+ * Describes one package's settings without owning a settings UI. A future host invokes
+ * the provider callbacks; extensions decide whether a change affects live state now or
+ * only on the next session start/reload.
+ */
 export interface HepiSettingsProvider {
 	readonly id: string;
 	readonly title: string;
@@ -98,6 +107,7 @@ export interface HepiSettingsProvider {
 	onClose?(state: HepiSettingsState, context: HepiContext): void | Promise<void>;
 }
 
+/** Runtime-scoped provider registry; it stores no settings values and renders no UI. */
 export interface HepiSettingsRegistry {
 	register(provider: HepiSettingsProvider): () => void;
 	replace(provider: HepiSettingsProvider): () => void;

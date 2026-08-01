@@ -23,11 +23,19 @@ interface SkillCommand {
 }
 
 export interface LoadoutEngineOptions {
+	/** Override both global/project settings paths for tests or an embedding host. */
 	readonly paths?: PiSettingsPaths;
 }
 
+/**
+ * Headless session policy owner. Core reports inventory and transports the resolved
+ * activation snapshot; this engine owns configuration loading, conflict resolution,
+ * skill filtering, and restoration of Pi's initial active-tool baseline.
+ */
 export interface LoadoutEngine {
+	/** Loads fresh configuration, then begins observing core inventory immediately. */
 	start(context: ExtensionContext, signal: AbortSignal): Promise<void>;
+	/** Idempotently restores host activation and clears core-owned snapshots. */
 	dispose(): void;
 }
 
@@ -91,6 +99,8 @@ export function createLoadoutEngine(
 
 	return {
 		async start(context, signal): Promise<void> {
+			// Capture Pi's baseline before policy takes effect. Unmanaged tools retain
+			// that baseline, so installing Loadout does not silently disable host tools.
 			if (active) throw new Error("Loadout engine is already active");
 			const paths = options.paths ?? defaultPiSettingsPaths(context.cwd);
 			configuration = await loadLoadoutConfiguration(context.cwd, signal, paths);
@@ -100,6 +110,8 @@ export function createLoadoutEngine(
 			observeLoadoutInventory(pi, { signal, onChange: apply });
 		},
 		dispose(): void {
+			// Clear cross-extension state before restoring Pi so consumers cannot observe
+			// an activation snapshot that no longer matches the host tool set.
 			if (!active) return;
 			active = false;
 			configuration = undefined;
