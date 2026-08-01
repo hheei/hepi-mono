@@ -4,7 +4,7 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { registerExtensionLifecycle } from "@hheei/pi-ext-core";
+import { registerExtensionLifecycle, registerManagedLoadoutTool } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { createMctxFeature, type MctxMemoryOperation, type MctxNoteOperation } from "./feature.js";
 import { MAX_CTX_EXPAND_CHARS, renderMctxHistoryTagPage } from "./history-tags.js";
@@ -19,6 +19,15 @@ interface PiContextHook {
 		) => { readonly messages: readonly AgentMessage[] } | undefined,
 	): void;
 }
+
+// Core owns Pi's static registration and Loadout inventory; MCTX owns every tool's runtime behavior.
+const MCTX_MANAGED_TOOL = {
+	owner: "@hheei/pi-mctx",
+	group: "Magic Context",
+	priority: 0,
+	conflictSets: [],
+	defaultActive: true,
+} as const;
 
 function registerContextHook(
 	pi: ExtensionAPI,
@@ -163,7 +172,9 @@ function registerHistoryTools(
 	pi: ExtensionAPI,
 	feature: ReturnType<typeof createMctxFeature>,
 ): void {
-	pi.registerTool(
+	registerManagedLoadoutTool(
+		pi,
+		{ id: "ctx_reduce", ...MCTX_MANAGED_TOOL },
 		defineTool({
 			name: "ctx_reduce",
 			label: "Reduce context",
@@ -207,7 +218,9 @@ function registerHistoryTools(
 			},
 		}),
 	);
-	pi.registerTool(
+	registerManagedLoadoutTool(
+		pi,
+		{ id: "ctx_expand", ...MCTX_MANAGED_TOOL },
 		defineTool({
 			name: "ctx_expand",
 			label: "Expand context",
@@ -262,7 +275,9 @@ function registerHistoryTools(
 			},
 		}),
 	);
-	pi.registerTool(
+	registerManagedLoadoutTool(
+		pi,
+		{ id: "ctx_memory", ...MCTX_MANAGED_TOOL },
 		defineTool({
 			name: "ctx_memory",
 			label: "Manage memory",
@@ -310,7 +325,9 @@ function registerHistoryTools(
 			},
 		}),
 	);
-	pi.registerTool(
+	registerManagedLoadoutTool(
+		pi,
+		{ id: "ctx_note", ...MCTX_MANAGED_TOOL },
 		defineTool({
 			name: "ctx_note",
 			label: "Manage notes",

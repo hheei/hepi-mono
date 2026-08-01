@@ -369,7 +369,10 @@ export function createLoadoutPage(
 				const listWidth = wide ? Math.max(34, Math.floor(width * 0.56)) : width;
 				const scrollbarWidth = allEntries.length > VISIBLE_ROWS ? 2 : 0;
 				const descriptionWidth = wide ? Math.max(0, width - listWidth - scrollbarWidth - 3) : 0;
-				const nameWidth = Math.max(8, listWidth - 16);
+				// Keep both columns stable while scrolling, without using spare width to push groups right.
+				const widestName = Math.max(8, ...items.map((item) => visibleWidth(item.name)));
+				const nameWidth = Math.min(widestName, Math.max(8, Math.floor(listWidth * 0.55)));
+				const groupWidth = Math.max(1, listWidth - nameWidth - 5);
 				const visibleEntries = allEntries.slice(scrollTop, scrollTop + VISIBLE_ROWS);
 				const list = [
 					theme.fg("muted", truncateToWidth(scopeLabel(scope, context.command.cwd), listWidth)),
@@ -380,7 +383,7 @@ export function createLoadoutPage(
 						const item = entry.item;
 						const status = item.lockedBy !== undefined ? "⊘" : item.enabled ? "●" : "○";
 						const selectedRow = item.key === selectedItem()?.key;
-						const plain = `${selectedRow ? "→" : " "} ${status} ${pad(truncateToWidth(item.name, nameWidth), nameWidth)}  ${truncateToWidth(item.displayGroup, 12)}`;
+						const plain = `${selectedRow ? "→" : " "} ${status} ${pad(truncateToWidth(item.name, nameWidth), nameWidth)} ${truncateToWidth(item.displayGroup, groupWidth)}`;
 						const styled =
 							item.lockedBy !== undefined
 								? theme.fg("dim", plain)
@@ -440,7 +443,8 @@ export function createLoadoutPage(
 			},
 		},
 		async handleInput(input: string): Promise<boolean> {
-			if (input === "\u0010") {
+			// matchesKey accepts both legacy control bytes and terminals' CSI-u Ctrl+P sequence.
+			if (matchesKey(input, "ctrl+p")) {
 				await leave(scope === "global" ? "project" : "global");
 				return true;
 			}
