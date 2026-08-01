@@ -27,8 +27,8 @@ anchor message 交给 parent 后续 turn。
 - child factory 只使用 Pi public `createAgentSession` 与同一 agent directory 的 configured auth/model state；Pi 没有公开
   parent `ModelRuntime` transfer，因此只在 parent dynamically registered provider 中存在的 profile/model 明确拒绝，绝不
   private cast 或静默切换模型；
-- `inherit_context` 通过 MCTX's runtime-scoped opaque boundary，并在 unavailable/stale 时 fallback 到 Pi native branch
-  inheritance；
+- child 初始为空，不继承 parent context。未来 `inherit_context` 只能在 MCTX projection Service 与其 Pi-native
+  fallback 均已实现后加入，不能由当前 in-memory session 假称支持；
 - focused tests for profile resolution、scope、factory ownership、delivery anchor、fallback and lifecycle cleanup。
 
 ## 明确不做
@@ -44,7 +44,8 @@ target。
 ## 依赖与验证
 
 `pi-ext-core` owns execution admission、turn cap、terminalization、delivery failure handling、cancel 和 retention；
-Subagents 不建立第二个 manager 或 queue。`pi-mctx` 可缺席：`inherit_context` 必须 fallback，不等待 Service。
+Subagents 不建立第二个 manager 或 queue。当前 `pi-mctx` 不参与 task slice；future `inherit_context` 需要 MCTX
+projection provider 与 Pi-native fallback，且不得在 `session_start` 等待 Service。
 
 本 extension 的 implementation 需先完成 profile/factory/test framework，再实现细节。每个独立 slice 运行 changed-path
 Biome、affected tests 和 package build。tool delivery 或 TUI 行为只有经过 real Pi host/tui-replay 才能标记已验证。
