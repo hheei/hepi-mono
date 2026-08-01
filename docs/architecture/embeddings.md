@@ -49,16 +49,20 @@ deep-import it.
 
 Supported provider shapes follow fixed Magic Context evidence:
 
-- `local`: default provider and process-local model runtime; pooled by normalized provider/model fingerprint and reference-counted.
+- `local`: default provider. It uses `@huggingface/transformers` feature-extraction with mean pooling and normalization,
+  in a process-local model runtime pooled by normalized provider/model fingerprint and reference-counted. Its shared model-cache
+  directory uses a cross-process file lock plus heartbeat only to serialize downloads/load initialization; it does not claim to
+  share an in-memory pipeline between Pi processes.
 - `openai-compatible`: HTTP provider; credentials live in user-level configuration, never project configuration or SQLite.
 - `synapse`: external local/shared service; a process shares one client per connection identity, while distinct Pi processes connect
   independently to the same service.
 - `off`: no service and no background work.
 
 Provider selection is user-level and defaults to `local`. `synapse` and `openai-compatible` are explicit opt-in; no `auto`
-selection is part of the first implementation, so project content never silently leaves the local process. A provider registration
-owns a monotonic generation and normalized model identity. Configuration reload retires its pool reference only after current calls
-settle or abort; late result from an old generation is discarded.
+selection is part of the first implementation, so project content never silently leaves the local process. `synapse` is the
+fixed-baseline route for an externally shared model runtime when an installation later needs cross-process inference sharing.
+A provider registration owns a monotonic generation and normalized model identity. Configuration reload retires its pool reference
+only after current calls settle or abort; late result from an old generation is discarded.
 
 ## Cross-Process Safety
 
