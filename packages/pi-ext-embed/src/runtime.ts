@@ -525,7 +525,10 @@ function parseConfig(value: unknown): ParsedConfig {
 	const projectRoot = resolve(readRequiredString(value, "projectRoot"));
 	const session = readRequiredString(value, "session");
 	const metadata = readMetadata(value.metadata);
-	const connectionKey = `${connectionFile}\u0000${projectRoot}\u0000${session}`;
+	// Subc routes are identity-scoped per call, so one socket can serve every
+	// project/session using this connection file. Pooling by session duplicates
+	// transport state without isolating the shared Synapse model runtime.
+	const connectionKey = connectionFile;
 	return {
 		provider: "synapse",
 		connectionFile,
@@ -643,8 +646,12 @@ function requestConstraints(
 ): Readonly<Record<string, unknown>> {
 	return {
 		model: model.model,
-		fingerprint: model.fingerprint,
-		epoch: model.epoch,
+		required_fingerprint: model.fingerprint,
+		required_epoch: model.epoch,
+		allow_equivalent: false,
+		accept_declared: false,
+		// Synapse accepts an optional role hint, but identity constraints remain
+		// the authority for model/lane selection.
 		purpose,
 		...(metadata === undefined ? {} : { metadata }),
 	};
@@ -658,8 +665,8 @@ function modelFromList(response: unknown, requestedModel: string): SynapseModel 
 		const model = firstString(value, ["model", "id", "name"]);
 		if (model !== requestedModel) continue;
 		const fingerprint = readOptionalString(value, "fingerprint");
-		const epoch = numberProperty(value, "epoch");
-		const dimensions = numberProperty(value, "dimensions");
+		const epoch = numberProperty(value, "table_epoch") ?? numberProperty(value, "epoch");
+		const dimensions = numberProperty(value, "dims") ?? numberProperty(value, "dimensions");
 		if (
 			fingerprint === undefined ||
 			epoch === undefined ||
@@ -694,7 +701,9 @@ function batchVectorsFromResponse(
 		if (!isRecord(value)) return undefined;
 		const id = readOptionalString(value, "id");
 		const contentHash =
-			readOptionalString(value, "contentHash") ?? readOptionalString(value, "content_hash");
+			readOptionalString(value, "contentHash") ??
+			readOptionalString(value, "content_hash") ??
+			readOptionalString(value, "content_sha256");
 		if (id === undefined || contentHash === undefined) return undefined;
 		const expectedItem = expected.get(id);
 		if (expectedItem === undefined || expectedItem.contentHash !== contentHash || result.has(id))
