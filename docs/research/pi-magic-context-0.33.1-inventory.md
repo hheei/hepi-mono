@@ -82,5 +82,17 @@ old compaction marker（`dist/index.js:27742+`）。它与 future `hepi-basics` 
 `pi-mctx` 单独重新注册。`/ctx-status` 读取 legacy tag/compartment/fact/memory/note/Dreamer metrics，并在有 UI 时打开
 legacy dialog（`dist/index.js:27658-27740`）；当前没有完整 metric set 或 UI owner，不能注册 misleading status command。
 
+## `ctx_search` 源码证据
+
+fixed `ctx_search` 是 unified search，不是 memory/note/history table scan（`dist/index-3452y8q2.js:182921-183139`）。它搜索
+memory、compacted message/compartment、note、git commit 和 primer；query 可由 embeddings 驱动，并按 current injected
+memory IDs、live-tail/last-compartment boundary 过滤，以免重复暴露已经在 context 的内容。message hit 提供 raw ordinal
+供 legacy `ctx_expand`，note anchor 只在同 session 才显示。
+
+current Pi MCTX 只有 project-memory exact-ID `get`、session-note read 和 active-branch retained tag source；没有 unified
+full-text/semantic index、cross-session retained history contract、git/primer source、visible-memory filtering 或 injected-tail
+exclusion。不能注册同名 partial `ctx_search`，否则既误导 agent，又会因 Pi first-registration rule 阻止 future full tool。
+它等待 source/index/privacy/retention design，而非一个简单 SQL `LIKE` query。
+
 未确认：旧数据库的 exact tables/schema、`todowrite` 的完整 persistence、`ctx-flush`/`ctx-recomp`/`ctx-wrapup`
 的 complete behavior、任何 Handoff bridge，以及 private helpers 是否具有用户可见承诺。它们不能作为兼容性目标。
