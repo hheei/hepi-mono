@@ -61,8 +61,9 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
 	condition 仅持久化为 pending text。Dreamer-dependent evaluation、surface trigger 与 stale cleanup 必须等 Dreamer
 	feature，不把 cron/polling 偷渡进 tool。
 - [ ] **Composite search**：最后迁移 `ctx_search`；它跨 memory、note、session history、git commit 与 primer，必须在
-  各 source 有验证过的 index/privacy/retention contract 后才暴露。没有某 source 时返回明确 partial scope，不伪造
-  complete search。
+  各 source 有验证过的 index/privacy/retention contract 后才暴露。fixed baseline 使用 unified semantic search，并过滤
+  injected memory/live tail；current MCTX 没有 source index、cross-session history、Git/primer、privacy/retention/ranking
+  contract，故不注册 partial 同名 tool。
 - [ ] **Todo ownership decision**：legacy `todowrite`/`/todos` 是 session task UI，不迁入 `pi-mctx` 或重复注册。确认
   当前 Todo owner 的 behavioral coverage 与 legacy migration boundary；Pi 的 first-registered tool rule 禁止以新 MCTX
   tool 覆盖旧 aggregate。
