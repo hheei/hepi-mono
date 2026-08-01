@@ -178,6 +178,32 @@ test("copies verified fork ancestors into a fresh child revision timeline", asyn
 	});
 });
 
+test("queues only active unprotected history tags and marks projected drops", async () => {
+	await withPath(async (path) => {
+		const store = await openMctxStore(path);
+		const initial = store.getOrCreatePartition(`git:${"9".repeat(40)}`, "session-tags");
+		const synced = store.syncHistoryTags(initial, [
+			{ kind: "message", entryId: "entry-1", source: "first" },
+			{ kind: "message", entryId: "entry-2", source: "second" },
+		]);
+		assert.ok(synced);
+		assert.equal(synced.partition.revision, 1);
+		const queued = store.queueHistoryTagDrops(
+			synced.partition,
+			[1, 2, 99],
+			synced.tags.map((tag) => tag.tagNumber),
+			1,
+		);
+		assert.ok(queued);
+		assert.deepEqual(queued.queued, [1]);
+		assert.deepEqual(queued.rejected, [2, 99]);
+		const dropped = store.markHistoryTagsDropped(queued.partition, queued.queued);
+		assert.deepEqual(dropped, { ...initial, revision: 3 });
+		assert.equal(store.queueHistoryTagDrops(dropped, [1], [1, 2], 1)?.rejected[0], 1);
+		store.close();
+	});
+});
+
 test("upgrades the v1 metadata fence before creating partitions", async () => {
 	await withPath(async (path) => {
 		const v1 = new DatabaseSync(path);

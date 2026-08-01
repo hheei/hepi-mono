@@ -7,11 +7,14 @@ import {
 export const MCTX_SETTINGS_SECTION = "pi-mctx";
 export const DEFAULT_EXECUTE_THRESHOLD_PERCENTAGE = 65;
 export const DEFAULT_FAIL_CLOSED_BLOCKING = true;
+export const DEFAULT_PROTECTED_TAGS = 20;
 
 const MIN_EXECUTE_THRESHOLD_PERCENTAGE = 20;
 const MAX_EXECUTE_THRESHOLD_PERCENTAGE = 80;
 const MIN_EXECUTE_THRESHOLD_TOKENS = 5_000;
 const MAX_EXECUTE_THRESHOLD_TOKENS = 2_000_000;
+const MIN_PROTECTED_TAGS = 1;
+const MAX_PROTECTED_TAGS = 100;
 
 export interface MctxSettingsPaths {
 	readonly globalPath: string;
@@ -33,6 +36,7 @@ export interface MctxPipelineSettings {
 	readonly failClosedBlocking: boolean;
 	readonly executeThresholdPercentage: MctxThreshold;
 	readonly executeThresholdTokens?: MctxOptionalThreshold;
+	readonly protectedTags: number;
 }
 
 export type MctxPipelineState =
@@ -214,6 +218,19 @@ function resolvePipeline(
 		tokens === undefined
 			? undefined
 			: projectThreshold(project, "execute_threshold_tokens", parseTokens, tokens, warnings);
+	const rawProtectedTags = global.protected_tags;
+	const protectedTags = rawProtectedTags === undefined ? DEFAULT_PROTECTED_TAGS : rawProtectedTags;
+	if (
+		typeof protectedTags !== "number" ||
+		!Number.isSafeInteger(protectedTags) ||
+		protectedTags < MIN_PROTECTED_TAGS ||
+		protectedTags > MAX_PROTECTED_TAGS
+	) {
+		return { kind: "invalid", reason: "protected_tags must be an integer between 1 and 100" };
+	}
+	if (project.protected_tags !== undefined) {
+		warnings.push("Ignoring project protected_tags: only user config controls history protection");
+	}
 
 	return {
 		kind: "enabled",
@@ -226,6 +243,7 @@ function resolvePipeline(
 				byModel: raisedPercentage.byModel,
 			},
 			...(raisedTokens === undefined ? {} : { executeThresholdTokens: raisedTokens }),
+			protectedTags,
 		},
 	};
 }

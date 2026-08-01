@@ -5,14 +5,15 @@
 已创建独立、可安装的 `@hheei/pi-mctx` package。默认 disabled，保持 Pi native behavior；启用且 historian
 configuration 有效时，它在 `session_start` 解析 runtime、打开/migrate MCTX SQLite store，并绑定当前 project/session
 partition。已启用 pipeline 在 `turn_end` 可触发 historian Completion；已验证 compartment graph 在 `context`
-pass 替换其 covered raw history。它仍不注册 tool、command、status 或 child inheritance Service。
+pass 替换其 covered raw history。它直接注册 `ctx_reduce`，但只能在 active MCTX session 中排队 deferred drop；inactive
+session 返回明确 tool error。它仍不注册 command、status 或 child inheritance Service。
 
 ## 完整迁移目标
 
-`pi-mctx` 的最终目标不是停在首个 context pipeline，而是替代 `@hheei/hepi-mctx` 所加载的固定
-`@hheei/pi-magic-context@0.33.1-hepi.0` baseline。完成定义是：所有仍被 HEPI 用户依赖的 MCTX
-行为都有独立 owner、明确的持久化/取消/并发 contract、focused tests 和可安装 package entry；旧 aggregate
-wrapper 不再是运行时依赖，也不会再注册重复的 MCTX tools 或 lifecycle。
+`pi-mctx` 的最终目标不是停在首个 context pipeline，而是替代 `@hheei/pi-magic-context@0.33.1-hepi.0`
+baseline。完成定义是：所有仍被 HEPI 用户依赖的 MCTX 行为都有独立 owner、明确的持久化/取消/并发 contract、
+focused tests 和可安装 package entry。deprecated `@hheei/hepi-mctx` wrapper 不是 compatibility target；它的
+Loadout、reminder、subagent accounting bridge 不构成 MCTX migration scope，之后可直接移除。
 
 迁移追求 behavioral parity，不追求旧 package API、tool 名称、settings key、SQLite schema 或 persisted state 的
 binary compatibility。需要导入旧数据时，另立带 backup、validation、rollback 规则的数据迁移 feature；不能在
@@ -44,9 +45,13 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
   reductions 与 failure fallback；它必须和 Pi native compact 共存，不能把 MCTX summary 当 Pi session canonical source。
   当前被缺失的 `hepi-basics` `/handoff` command owner 阻塞；不得由 `pi-mctx` 越界注册 command。恢复并验证 Pi-native
   owner 后再设计 MCTX bridge。
-- [ ] **Session-history tools**：迁移 `ctx_expand` 与 `ctx_reduce` 的可恢复历史与 deferred-drop semantics。`pi-mctx`
-  owner 必须定义 session partition、protected-tail、branch/fork、handoff/reload 与 compaction interaction；不能用 raw
-  message dump 或即时删除替代。
+- [ ] **Session-history tag ledger 与 transform**：建立 `N -> immutable Pi identity` 的 session-local ledger、immutable
+  source retention、protected tail、pending/deferred drop、branch/reload/fork proof 和 marker projection；不能用 raw message
+  dump 或即时删除替代。
+- [ ] **`ctx_reduce`**：`pi-mctx` 直接注册此 tool，写入 tag-ledger pending operation；只接受 current active branch 的非保护
+  tag，下一 context transform 才投影 marker。disabled runtime 或不合法 selector 返回明确 tool error，不修改 Pi JSONL。
+- [ ] **`ctx_expand`**：从 session-local retained source 恢复一个或多个 tag 的受界限内容；它不读取别的 session/fork
+  partition，也不把 source 自动重新注入 model context。
 - [ ] **Durable memory**：迁移 `ctx_memory` 的 project/workspace scope、category、archive/delete/restore、privacy、
   source provenance 与 cross-session visibility。它是 user-level durable state，不复用旧 SQLite schema，也不让 project
   config 或 child session 取得写权限。
@@ -65,15 +70,13 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
   privacy/cancellation contract；它不是 historian retry 或 context transform 的快捷入口。
 - [ ] **Dreamer 与 embedding commands**：legacy `/ctx-dream`、`/ctx-embed` 归入 historian-adjacent services；先完成
   Dreamer/embedding storage、leases、cost/cancellation 与 retention，再决定是否保留 command。
-- [ ] **Legacy wrapper bridge exit**：为现有 wrapper 的 Loadout group、housekeeping reminder bridge 和 subagent
-  invocation accounting 分别决定新 owner 或明确 retirement；在替代方案通过 install/reload verification 前不得删除。
 - [ ] **Historian-adjacent services**：按已验证需求设计 Dreamer、embedding provider、background maintenance、search
   index 与 retention/data-management。自动 TTL prune、shutdown deletion 或语义删除在得到明确 retention contract 前保持禁止。
 - [ ] **Reserved configuration activation**：逐字段启用当前 opaque 的 upstream-shaped configuration，定义 user/project
   scope、runtime validation、default、reload semantics 和 invalid-value fallback；不得因保存过某字段而隐式开启 feature。
 - [ ] **Installer migration 与旧 wrapper retirement**：发布独立 package entry、迁移安装文档和 Loadout ownership、验证
-  clean tarball/install entrypoint；确认没有用户需要的 legacy surface 后，弃用并最终移除 `@hheei/hepi-mctx` 与 aggregate
-  bundle 中的重复注册。
+  clean tarball/install entrypoint；然后移除 deprecated `@hheei/hepi-mctx` 与 aggregate bundle 中的重复注册。wrapper
+  bridge 不迁移，不能阻止 removal。
 
 完成 migration 前，不得宣称 `pi-mctx` 已替代 Magic Context。每个 checkbox 需要独立 commit；跨 package contract
 change 还必须更新 `docs/architecture/` 和相关 ADR。
@@ -91,6 +94,29 @@ message。相同 class 在一次 session 内只通知一次，直到下一次 su
 仍写 structured event。lease-held、lease-loss、caller cancellation、stale CAS 和 raw branch rebuild 属于预期并发/取消
 结果，不触发用户 warning。unexpected runner throw 记录为 `unknown`、attempt `0`，同样不输出异常文本。真实 Pi host
 或 `tui-replay` 的可见行为验证尚未完成。
+
+### Session-history tag ledger
+
+`ctx_reduce` 与后续 `ctx_expand` 共用一个 session-local ledger。用户和模型引用短 selector，例如 `` 或 `8`；
+SQLite 永久绑定到 immutable Pi identity，不能以 tag number、文本值或 entry position 定位 source。tag number 仅在一个
+MCTX partition 内递增，不能跨 session、fork 或 project 使用。
+
+每个可投影 payload 获得一个 tag：message text、tool call/result aggregate、以及 file/reference descriptor。text 和
+可展示 tool output 在 model-visible content 中使用严格 legacy 前缀 `§N§ `；file/reference 的 retained source 只保存
+可序列化 descriptor（例如 URL、media type 与 name），绝不复制 binary attachment。tool aggregate 的 immutable binding
+包含 owner assistant entry ID 与 tool-call ID，避免不同 assistant turn 的相同 call ID 发生碰撞。
+
+ledger 为每项保留 immutable source copy，供 future `ctx_expand` 在 reload、Pi compaction 或 source branch 不再暴露原 entry
+后恢复。source copy 不自动注入、不能跨 partition 读取，且在独立 retention/data-management contract 出现前不会自动过期或
+删除。
+
+`ctx_reduce` 只把 validated selector 写为 pending operation。下一次 MCTX `context` transform 在当前 Pi active branch
+重新验证 entry/tool identity、tag status 与 protected tail 后才将目标内容替换为严格 marker `[dropped §N§]`；raw Pi JSONL
+永远不被改写。默认 `protected_tags` 为 20，user-level setting 只接受 1–100，project settings 无权改变它，reload 后生效。
+受保护、已 dropped、未知、别的 branch/fork 或无法证明 identity 的 tag 必须拒绝或保持 pending，绝不按 position 猜测删除。
+
+首 slice 不迁移 legacy 的 tool-specific skeleton/truncate heuristics、automatic/smart drops 或 reasoning compression。它们
+需要各自可测的 reclaim policy，不能混入用户明确请求的 manual deferred drop。
 
 ## 目的
 

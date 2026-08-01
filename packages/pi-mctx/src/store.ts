@@ -4,7 +4,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export const MCTX_STORE_APPLICATION_ID = 0x484d4354;
-export const MCTX_STORE_SCHEMA_VERSION = 4;
+export const MCTX_STORE_SCHEMA_VERSION = 5;
 export const MCTX_STORE_BUSY_TIMEOUT_MS = 5_000;
 
 /**
@@ -43,6 +43,20 @@ export interface MctxStore {
 		partition: MctxPartition,
 		draft: MctxCompartmentDraft,
 	): MctxCompartmentPublication | undefined;
+	syncHistoryTags(
+		partition: MctxPartition,
+		inputs: readonly MctxHistoryTagInput[],
+	): MctxHistoryTagSync | undefined;
+	queueHistoryTagDrops(
+		partition: MctxPartition,
+		tagNumbers: readonly number[],
+		activeTagNumbers: readonly number[],
+		protectedTags: number,
+	): MctxHistoryTagDropQueue | undefined;
+	markHistoryTagsDropped(
+		partition: MctxPartition,
+		tagNumbers: readonly number[],
+	): MctxPartition | undefined;
 	close(): void;
 }
 
@@ -90,6 +104,34 @@ export interface MctxCompartment extends MctxCompartmentDraft {
 export interface MctxCompartmentPublication {
 	readonly partition: MctxPartition;
 	readonly compartment: MctxCompartment;
+}
+
+export type MctxHistoryTagKind = "message" | "tool" | "reference";
+export type MctxHistoryTagStatus = "active" | "pending" | "dropped";
+
+/** Immutable source binding for one model-visible history payload. */
+export interface MctxHistoryTagInput {
+	readonly kind: MctxHistoryTagKind;
+	readonly entryId: string;
+	readonly toolCallId?: string;
+	readonly source: string;
+}
+
+export interface MctxHistoryTag extends MctxHistoryTagInput {
+	readonly tagNumber: number;
+	readonly status: MctxHistoryTagStatus;
+}
+
+export interface MctxHistoryTagSync {
+	readonly partition: MctxPartition;
+	readonly tags: readonly MctxHistoryTag[];
+}
+
+/** Queue results distinguish protected/unknown selectors without exposing source text. */
+export interface MctxHistoryTagDropQueue {
+	readonly partition: MctxPartition;
+	readonly queued: readonly number[];
+	readonly rejected: readonly number[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -215,6 +257,28 @@ function migrateV4(database: DatabaseSync): void {
 	}
 }
 
+function migrateV5(database: DatabaseSync): void {
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		database.exec("ALTER TABLE mctx_metadata RENAME TO mctx_metadata_v4");
+		database.exec(
+			"CREATE TABLE mctx_metadata (schema_version INTEGER NOT NULL CHECK (schema_version = 5)) STRICT",
+		);
+		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(5);
+		database.exec("DROP TABLE mctx_metadata_v4");
+		// Source is retained once per session tag. It is never copied to a fork,
+		// injected automatically, or rewritten after a deferred drop is projected.
+		database.exec(
+			"CREATE TABLE history_tags (project_identity TEXT NOT NULL, session_id TEXT NOT NULL, tag_number INTEGER NOT NULL CHECK (tag_number > 0), kind TEXT NOT NULL CHECK (kind IN ('message', 'tool', 'reference')), entry_id TEXT NOT NULL, tool_call_id TEXT, source TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('active', 'pending', 'dropped')), PRIMARY KEY (project_identity, session_id, tag_number), UNIQUE (project_identity, session_id, entry_id, kind, tool_call_id), FOREIGN KEY (project_identity, session_id) REFERENCES partitions(project_identity, session_id)) STRICT",
+		);
+		database.exec("PRAGMA user_version = 5");
+		database.exec("COMMIT");
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
 /**
  * Rejects foreign or unknown nonempty databases before migration. Each version
  * upgrade commits independently, so an interrupted open can safely resume from
@@ -240,6 +304,7 @@ function validateSchema(database: DatabaseSync): void {
 	if (pragmaInteger(database, "PRAGMA user_version") === 1) migrateV2(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 2) migrateV3(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 3) migrateV4(database);
+	if (pragmaInteger(database, "PRAGMA user_version") === 4) migrateV5(database);
 	if (pragmaInteger(database, "PRAGMA application_id") !== MCTX_STORE_APPLICATION_ID) {
 		throw new Error("Context store application identity is invalid");
 	}
@@ -251,7 +316,8 @@ function validateSchema(database: DatabaseSync): void {
 		!hasTable(database, "projects") ||
 		!hasTable(database, "partitions") ||
 		!hasTable(database, "historian_leases") ||
-		!hasTable(database, "compartments")
+		!hasTable(database, "compartments") ||
+		!hasTable(database, "history_tags")
 	) {
 		throw new Error("Context store partition tables are missing");
 	}
@@ -708,6 +774,248 @@ function publishCompartment(
 	}
 }
 
+function requireHistoryTagInput(input: MctxHistoryTagInput): void {
+	if (input.kind !== "message" && input.kind !== "tool" && input.kind !== "reference") {
+		throw new Error("Context store history tag kind is invalid");
+	}
+	if (!input.entryId.trim() || !input.source) {
+		throw new Error("Context store history tag source binding is invalid");
+	}
+	if (input.kind === "tool") {
+		if (input.toolCallId === undefined || !input.toolCallId.trim()) {
+			throw new Error("Context store tool tag call ID is invalid");
+		}
+	} else if (input.toolCallId !== undefined) {
+		throw new Error("Context store non-tool tag cannot have a tool call ID");
+	}
+}
+
+function historyTagFromRow(value: unknown): MctxHistoryTag {
+	if (
+		!isRecord(value) ||
+		(value.kind !== "message" && value.kind !== "tool" && value.kind !== "reference") ||
+		(typeof value.tool_call_id !== "string" && value.tool_call_id !== null) ||
+		(value.status !== "active" && value.status !== "pending" && value.status !== "dropped") ||
+		typeof value.entry_id !== "string" ||
+		typeof value.source !== "string" ||
+		typeof value.tag_number !== "number" ||
+		!Number.isSafeInteger(value.tag_number) ||
+		value.tag_number <= 0
+	) {
+		throw new Error("Context store history tag row is invalid");
+	}
+	return {
+		kind: value.kind,
+		entryId: value.entry_id,
+		...(value.tool_call_id === null ? {} : { toolCallId: value.tool_call_id }),
+		source: value.source,
+		tagNumber: value.tag_number,
+		status: value.status,
+	};
+}
+
+function partitionCas(database: DatabaseSync, partition: MctxPartition): MctxPartition | undefined {
+	const changes = changedRows(
+		database
+			.prepare(
+				"UPDATE partitions SET revision = revision + 1 WHERE project_identity = ? AND session_id = ? AND revision = ?",
+			)
+			.run(partition.projectIdentity, partition.sessionId, partition.revision),
+	);
+	if (changes === 0) return undefined;
+	if (changes !== 1)
+		throw new Error("Context store partition revision update affected multiple partitions");
+	return { ...partition, revision: partition.revision + 1 };
+}
+
+function syncHistoryTags(
+	database: DatabaseSync,
+	partition: MctxPartition,
+	inputs: readonly MctxHistoryTagInput[],
+): MctxHistoryTagSync | undefined {
+	requirePartitionKey(partition.projectIdentity, partition.sessionId);
+	for (const input of inputs) requireHistoryTagInput(input);
+	if (inputs.length === 0) return { partition, tags: [] };
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		const current = findPartition(database, partition.projectIdentity, partition.sessionId);
+		if (current?.revision !== partition.revision) {
+			database.exec("ROLLBACK");
+			return undefined;
+		}
+		let nextTagNumber = integerValue(
+			database
+				.prepare(
+					"SELECT COALESCE(MAX(tag_number) + 1, 1) AS value FROM history_tags WHERE project_identity = ? AND session_id = ?",
+				)
+				.get(partition.projectIdentity, partition.sessionId),
+			"history tag sequence",
+		);
+		let inserted = false;
+		for (const input of inputs) {
+			const existing = database
+				.prepare(
+					"SELECT tag_number FROM history_tags WHERE project_identity = ? AND session_id = ? AND entry_id = ? AND kind = ? AND tool_call_id IS ?",
+				)
+				.get(
+					partition.projectIdentity,
+					partition.sessionId,
+					input.entryId,
+					input.kind,
+					input.toolCallId ?? null,
+				);
+			if (existing !== undefined) continue;
+			database
+				.prepare(
+					"INSERT INTO history_tags (project_identity, session_id, tag_number, kind, entry_id, tool_call_id, source, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'active')",
+				)
+				.run(
+					partition.projectIdentity,
+					partition.sessionId,
+					nextTagNumber,
+					input.kind,
+					input.entryId,
+					input.toolCallId ?? null,
+					input.source,
+				);
+			nextTagNumber++;
+			inserted = true;
+		}
+		const nextPartition = inserted ? partitionCas(database, partition) : partition;
+		if (nextPartition === undefined) {
+			database.exec("ROLLBACK");
+			return undefined;
+		}
+		const tags = inputs.map((input) =>
+			historyTagFromRow(
+				database
+					.prepare(
+						"SELECT tag_number, kind, entry_id, tool_call_id, source, status FROM history_tags WHERE project_identity = ? AND session_id = ? AND entry_id = ? AND kind = ? AND tool_call_id IS ?",
+					)
+					.get(
+						partition.projectIdentity,
+						partition.sessionId,
+						input.entryId,
+						input.kind,
+						input.toolCallId ?? null,
+					),
+			),
+		);
+		database.exec("COMMIT");
+		return { partition: nextPartition, tags };
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
+function validTagNumbers(values: readonly number[], name: string): void {
+	if (values.some((value) => !Number.isSafeInteger(value) || value <= 0)) {
+		throw new Error(`Context store ${name} contains an invalid tag number`);
+	}
+}
+
+function queueHistoryTagDrops(
+	database: DatabaseSync,
+	partition: MctxPartition,
+	tagNumbers: readonly number[],
+	activeTagNumbers: readonly number[],
+	protectedTags: number,
+): MctxHistoryTagDropQueue | undefined {
+	requirePartitionKey(partition.projectIdentity, partition.sessionId);
+	validTagNumbers(tagNumbers, "drop selectors");
+	validTagNumbers(activeTagNumbers, "active tags");
+	if (!Number.isSafeInteger(protectedTags) || protectedTags < 1 || protectedTags > 100) {
+		throw new Error("Context store protected tag count is invalid");
+	}
+	const active = new Set(activeTagNumbers);
+	const protectedSet = new Set([...active].sort((a, b) => b - a).slice(0, protectedTags));
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		const current = findPartition(database, partition.projectIdentity, partition.sessionId);
+		if (current?.revision !== partition.revision) {
+			database.exec("ROLLBACK");
+			return undefined;
+		}
+		const queued: number[] = [];
+		const rejected: number[] = [];
+		for (const tagNumber of [...new Set(tagNumbers)]) {
+			const row = database
+				.prepare(
+					"SELECT status FROM history_tags WHERE project_identity = ? AND session_id = ? AND tag_number = ?",
+				)
+				.get(partition.projectIdentity, partition.sessionId, tagNumber);
+			if (
+				!isRecord(row) ||
+				row.status !== "active" ||
+				!active.has(tagNumber) ||
+				protectedSet.has(tagNumber)
+			) {
+				rejected.push(tagNumber);
+				continue;
+			}
+			const changed = changedRows(
+				database
+					.prepare(
+						"UPDATE history_tags SET status = 'pending' WHERE project_identity = ? AND session_id = ? AND tag_number = ? AND status = 'active'",
+					)
+					.run(partition.projectIdentity, partition.sessionId, tagNumber),
+			);
+			if (changed === 1) queued.push(tagNumber);
+			else rejected.push(tagNumber);
+		}
+		const nextPartition = queued.length === 0 ? partition : partitionCas(database, partition);
+		if (nextPartition === undefined) {
+			database.exec("ROLLBACK");
+			return undefined;
+		}
+		database.exec("COMMIT");
+		return { partition: nextPartition, queued, rejected };
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
+function markHistoryTagsDropped(
+	database: DatabaseSync,
+	partition: MctxPartition,
+	tagNumbers: readonly number[],
+): MctxPartition | undefined {
+	requirePartitionKey(partition.projectIdentity, partition.sessionId);
+	validTagNumbers(tagNumbers, "dropped tags");
+	if (tagNumbers.length === 0) return partition;
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		const current = findPartition(database, partition.projectIdentity, partition.sessionId);
+		if (current?.revision !== partition.revision) {
+			database.exec("ROLLBACK");
+			return undefined;
+		}
+		let changed = false;
+		for (const tagNumber of new Set(tagNumbers)) {
+			const rows = changedRows(
+				database
+					.prepare(
+						"UPDATE history_tags SET status = 'dropped' WHERE project_identity = ? AND session_id = ? AND tag_number = ? AND status = 'pending'",
+					)
+					.run(partition.projectIdentity, partition.sessionId, tagNumber),
+			);
+			changed ||= rows === 1;
+		}
+		const nextPartition = changed ? partitionCas(database, partition) : partition;
+		if (nextPartition === undefined) {
+			database.exec("ROLLBACK");
+			return undefined;
+		}
+		database.exec("COMMIT");
+		return nextPartition;
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
 export function defaultMctxStorePath(agentDir: string = getAgentDir()): string {
 	return join(agentDir, "mctx", "context.db");
 }
@@ -778,6 +1086,23 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 		publishCompartment(partition, draft): MctxCompartmentPublication | undefined {
 			if (database === undefined) throw new Error("Context store is closed");
 			return publishCompartment(database, partition, draft);
+		},
+		syncHistoryTags(partition, inputs): MctxHistoryTagSync | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return syncHistoryTags(database, partition, inputs);
+		},
+		queueHistoryTagDrops(
+			partition,
+			tagNumbers,
+			activeTagNumbers,
+			protectedTags,
+		): MctxHistoryTagDropQueue | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return queueHistoryTagDrops(database, partition, tagNumbers, activeTagNumbers, protectedTags);
+		},
+		markHistoryTagsDropped(partition, tagNumbers): MctxPartition | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return markHistoryTagsDropped(database, partition, tagNumbers);
 		},
 		close(): void {
 			if (closed) return;

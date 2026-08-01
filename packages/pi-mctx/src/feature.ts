@@ -17,6 +17,7 @@ import {
 	type MctxHistorianBranchRunResult,
 	runMctxHistorianForBranch,
 } from "./historian-branch-runner.js";
+import { collectMctxHistoryTagInputs, projectMctxHistoryTags } from "./history-tags.js";
 import { createProjectIdentityResolver } from "./project-identity.js";
 import {
 	defaultMctxStorePath,
@@ -45,6 +46,13 @@ export interface MctxFeature {
 		context: ExtensionContext,
 	): { readonly messages: readonly AgentMessage[] } | undefined;
 	active(): MctxSessionRuntime | undefined;
+	reduce(tagNumbers: readonly number[], context: ExtensionContext): MctxReduceResult;
+}
+
+export interface MctxReduceResult {
+	readonly kind: "inactive" | "stale" | "queued";
+	readonly queued?: readonly number[];
+	readonly rejected?: readonly number[];
 }
 
 export interface MctxForkSource {
@@ -395,6 +403,12 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			// Re-evaluate against the active branch at every model invocation. A prior
 			// publication is not trusted after Pi navigation or branch replacement.
 			const entries = context.sessionManager.getBranch();
+			const tagSync = current.runtime.store.syncHistoryTags(
+				current.runtime.partition,
+				collectMctxHistoryTagInputs(entries),
+			);
+			if (tagSync === undefined) return undefined;
+			current.runtime = { ...current.runtime, partition: tagSync.partition };
 			const compartments = current.runtime.store.listCompartments(current.runtime.partition);
 			const recovery = planMctxCompartmentRecovery(entries, compartments);
 			if (recovery.kind === "rebuild") {
@@ -417,10 +431,43 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				}
 				return undefined;
 			}
-			if (recovery.kind !== "valid") return undefined;
-			const projection = projectMctxContext(messages, entries, compartments);
-			return projection.kind === "rendered" ? { messages: projection.messages } : undefined;
+			const projection =
+				recovery.kind === "valid"
+					? projectMctxContext(messages, entries, compartments)
+					: { kind: "unchanged" as const, messages };
+			const baseMessages = projection.kind === "rendered" ? projection.messages : messages;
+			const tagged = projectMctxHistoryTags(baseMessages, entries, tagSync.tags);
+			if (tagged.droppedTagNumbers.length > 0) {
+				const nextPartition = current.runtime.store.markHistoryTagsDropped(
+					current.runtime.partition,
+					tagged.droppedTagNumbers,
+				);
+				if (nextPartition !== undefined)
+					current.runtime = { ...current.runtime, partition: nextPartition };
+			}
+			return { messages: tagged.messages };
 		},
 		active: (): MctxSessionRuntime | undefined => active?.runtime,
+		reduce(tagNumbers, context): MctxReduceResult {
+			const current = active;
+			if (
+				current === undefined ||
+				current.lifecycle.signal.aborted ||
+				current.runtime.sessionId !== context.sessionManager.getSessionId()
+			)
+				return { kind: "inactive" };
+			const inputs = collectMctxHistoryTagInputs(context.sessionManager.getBranch());
+			const synced = current.runtime.store.syncHistoryTags(current.runtime.partition, inputs);
+			if (synced === undefined) return { kind: "stale" };
+			const queued = current.runtime.store.queueHistoryTagDrops(
+				synced.partition,
+				tagNumbers,
+				synced.tags.map((tag) => tag.tagNumber),
+				current.runtime.settings.protectedTags,
+			);
+			if (queued === undefined) return { kind: "stale" };
+			current.runtime = { ...current.runtime, partition: queued.partition };
+			return { kind: "queued", queued: queued.queued, rejected: queued.rejected };
+		},
 	};
 }
