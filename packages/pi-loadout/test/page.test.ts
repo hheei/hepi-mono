@@ -95,7 +95,14 @@ describe("Loadout Settings page", () => {
 		const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
 		const global = page.component.render(100).join("\n");
 		expect(global).toContain("⚒ Tools");
+		expect(global).toContain("read (tool)");
 		expect(global).toContain("Read a file from the current workspace.");
+		expect(global).toContain("Origin: Built-in");
+		expect(global).toContain("Status: ● active");
+		expect(global).not.toContain("Effective:");
+		expect(global).not.toContain("Policy:");
+		expect(global).not.toContain("This scope:");
+		expect(global).not.toContain("Default:");
 		expect(global).not.toContain("project_check");
 		return page.handleInput("\u0010").then(() => {
 			const project = page.component.render(100).join("\n");
