@@ -121,7 +121,7 @@ describe("Loadout Settings page", () => {
 		expect(global).not.toContain("This scope:");
 		expect(global).not.toContain("Default:");
 		expect(global).not.toContain("project_check");
-		await page.handleInput("\u0010");
+		await page.handleInput("\u001b[112;5u");
 		const project = page.component.render(100).join("\n");
 		expect(project).toContain("Project · /workspace/.pi/settings.json");
 		expect(project).toContain("project_check");
