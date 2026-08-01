@@ -77,7 +77,9 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
 - [ ] **Dreamer 与 embedding commands**：legacy `/ctx-dream`、`/ctx-embed` 归入 historian-adjacent services；先完成
   Dreamer/embedding storage、leases、cost/cancellation 与 retention，再决定是否保留 command。Dreamer fixed baseline 是
   free-text smart-condition compiler、capability sandbox、per-project lease/schedule task runner，不是 file-only checker；它
-  等待 `pi-subagents` 提供受限 child-session factory，`pi-mctx` 不越界创建 child agent。
+  等待 `pi-subagents` 提供受限 child-session factory，`pi-mctx` 不越界创建 child agent。Embedding fixed baseline 是
+  project provider generation、model/content-hash fencing、batch ledger、coverage/backfill/GC，不是 one-shot vector API；当前
+  无 second consumer/provider owner，故不注册 partial `/ctx-embed`。
 - [ ] **Historian-adjacent services**：按已验证需求设计 Dreamer、embedding provider、background maintenance、search
   index 与 retention/data-management。自动 TTL prune、shutdown deletion 或语义删除在得到明确 retention contract 前保持禁止。
 - [ ] **Reserved configuration activation**：逐字段启用当前 opaque 的 upstream-shaped configuration，定义 user/project
