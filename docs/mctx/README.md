@@ -5,8 +5,15 @@
 已创建独立、可安装的 `@hheei/pi-mctx` package。默认 disabled，保持 Pi native behavior；启用且 historian
 configuration 有效时，它在 `session_start` 解析 runtime、打开/migrate MCTX SQLite store，并绑定当前 project/session
 partition。已启用 pipeline 在 `turn_end` 可触发 historian Completion；已验证 compartment graph 在 `context`
-pass 替换其 covered raw history。它直接注册 `ctx_reduce`，但只能在 active MCTX session 中排队 deferred drop；inactive
-session 返回明确 tool error。它仍不注册 command、status 或 child inheritance Service。
+pass 替换其 covered raw history。`ctx_reduce` 等 MCTX tool 只能在 active MCTX session 中执行；inactive session 返回
+明确 tool error。它仍不注册 command、status 或 child inheritance Service。
+
+### Loadout tool registration
+
+`ctx_reduce`、`ctx_expand`、`ctx_memory` 和 `ctx_note` 是 `@hheei/pi-mctx` 所有的 executable tools。它们通过
+`pi-ext-core` 的 managed Loadout registration 以 `Magic Context` group 发布：core 负责 Pi static registration、Loadout
+inventory 和 reload 时同 owner replacement；`pi-mctx` 保留参数校验、MCTX runtime dispatch、inactive fallback 与所有
+session/store ownership。缺少 `pi-loadout` 时工具仍可用；Loadout 只消费 inventory 并在安装时展示这些工具。
 
 ## 完整迁移目标
 

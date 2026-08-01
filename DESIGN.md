@@ -133,6 +133,9 @@ existing semantic token expresses the role.
   Description content clips within the fixed panel instead of changing its height.
 - Settings and Loadout filter inputs retain one trailing cell after their visible query so the cursor
   does not visually touch the list boundary.
+- Settings label/value columns and Loadout name/group columns size from the complete filtered list,
+  remain stable while scrolling, and align from the left with at least one cell between them. Do not
+  spend surplus list width to right-align a value or group.
 
 ### Frames And Backgrounds
 
