@@ -132,6 +132,8 @@ export type {
 	SubagentTerminalResult,
 	SubagentTextEvent,
 	SubagentToolEvent,
+	SubagentTranscriptEntry,
+	SubagentTranscriptSnapshot,
 	SubagentTurnEvent,
 	SubscribeSubagentEventsOptions,
 	TaskSubagentHandle,
@@ -143,6 +145,7 @@ export {
 	configureSubagentCoordinator,
 	DEFAULT_SUBAGENT_COORDINATOR_BUDGET,
 	lookupSubagent,
+	MAX_SUBAGENT_TRANSCRIPT_CHARS,
 	redeliverTask,
 	startSubagent,
 } from "./subagents.js";

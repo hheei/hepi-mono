@@ -25,10 +25,11 @@ retry。`pi.events` 只可由上层 adapter 做 notification，不得成为 core
 conversation create 同时声明第一条 child message 与其 wait/delivery reply consumption；不允许无 owner 的
 自动 initial prompt。
 
-conversation handle 可请求 core-owned idle compaction，并读取 core-normalized 的累计 usage snapshot。这是
-opaque session boundary 的受限观察/控制能力：consumer 仍不接收 raw child session、messages 或
-`CreateAgentSessionOptions`。context budget、compact threshold 与展示/计费 policy 留在 consumer；core 只序列化
-并执行 session mutation、归一化 usage、处理 abort 与 terminal retention。
+conversation handle 可请求 core-owned idle compaction，执行当前 active turn 的 standalone `steer()`，
+并读取 core-normalized 的累计 usage snapshot 与 bounded read-only transcript snapshot。这是 opaque session
+boundary 的受限观察/控制能力：consumer 仍不接收 raw child session、messages 或 `CreateAgentSessionOptions`。
+context budget、compact threshold 与展示/计费 policy 留在 consumer；core 只序列化 session mutation、
+归一化 usage/transcript、处理 abort 与 terminal retention。
 
 shared active-turn cap 由每个 direct consumer 在每个 session start 声明：第一项 live lifecycle
 configuration 获所有权，之后仅相同值可加入，不同值是 collision error，owner abort 才释放。core 没有
