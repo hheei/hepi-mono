@@ -6,8 +6,10 @@ Embedding 是可选 semantic retrieval capability，供 `pi-mctx` 的 composite 
 复用。它不改变 historian/context transform，也不能使 MCTX activation 因 provider unavailable 而失败。没有 service
 时，consumer 必须走自己的 lexical/no-semantic fallback；不得等待 provider load。
 
-`pi-mctx` 不拥有 provider、credential、model process pool 或通用 vector API。计划中的 `@hheei/pi-embeddings`
-extension 拥有 provider policy、configuration、process-local pool 与 runtime lifecycle；它不导入 concrete consumer。
+`pi-mctx` 不拥有 provider、credential、model process pool 或通用 vector API。`@hheei/pi-embeddings` 是独立
+headless Pi extension：它通过 lifecycle 提供 capability，但不注册 tool、command、UI 或 scheduler。它拥有 provider
+policy、configuration、process-local pool 与 runtime lifecycle，且不导入 concrete consumer。未安装该 extension 时，
+不应安装 Transformers/native runtime、创建模型缓存或启动任何 embedding 资源。
 
 ## Public Contract
 
