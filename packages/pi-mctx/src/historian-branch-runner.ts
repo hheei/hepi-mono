@@ -9,19 +9,28 @@ import {
 import { projectMctxSourceHistory } from "./source-history.js";
 import type { MctxStore } from "./store.js";
 
+/**
+ * Adapts a Pi branch to the historian without letting the model choose source
+ * boundaries. Existing verified compartments determine the next tier and tail.
+ */
 export interface MctxHistorianBranchRunRequest
 	extends Omit<MctxHistorianRunRequest, "source" | "sourceText" | "store"> {
 	readonly entries: readonly SessionEntry[];
 	readonly protectedTurnGroups?: number;
 	readonly store: Pick<
 		MctxStore,
-		"acquireHistorianLease" | "listCompartments" | "publishCompartment" | "releaseHistorianLease"
+		| "acquireHistorianLease"
+		| "renewHistorianLease"
+		| "listCompartments"
+		| "publishCompartment"
+		| "releaseHistorianLease"
 	>;
 }
 
 export type MctxHistorianBranchRunResult =
 	| MctxHistorianRunResult
-	| { readonly kind: "ineligible"; readonly reason: "no-complete-turn-groups" | "protected-tail" };
+	| { readonly kind: "ineligible"; readonly reason: "no-complete-turn-groups" | "protected-tail" }
+	| { readonly kind: "invalid"; readonly reason: string };
 
 /**
  * Projects one stable active branch then delegates its eligible head to the

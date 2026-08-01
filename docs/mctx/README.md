@@ -5,7 +5,176 @@
 已创建独立、可安装的 `@hheei/pi-mctx` package。默认 disabled，保持 Pi native behavior；启用且 historian
 configuration 有效时，它在 `session_start` 解析 runtime、打开/migrate MCTX SQLite store，并绑定当前 project/session
 partition。已启用 pipeline 在 `turn_end` 可触发 historian Completion；已验证 compartment graph 在 `context`
-pass 替换其 covered raw history。它仍不注册 tool、command、status 或 child inheritance Service。
+pass 替换其 covered raw history。它直接注册 `ctx_reduce`，但只能在 active MCTX session 中排队 deferred drop；inactive
+session 返回明确 tool error。它仍不注册 command、status 或 child inheritance Service。
+
+## 完整迁移目标
+
+`pi-mctx` 的最终目标不是停在首个 context pipeline，而是替代 `@hheei/pi-magic-context@0.33.1-hepi.0`
+baseline。完成定义是：所有仍被 HEPI 用户依赖的 MCTX 行为都有独立 owner、明确的持久化/取消/并发 contract、
+focused tests 和可安装 package entry。deprecated `@hheei/hepi-mctx` wrapper 不是 compatibility target；它的
+Loadout、reminder、subagent accounting bridge 不构成 MCTX migration scope，之后可直接移除。
+
+迁移追求 behavioral parity，不追求旧 package API、tool 名称、settings key、SQLite schema 或 persisted state 的
+binary compatibility。需要导入旧数据时，另立带 backup、validation、rollback 规则的数据迁移 feature；不能在
+新 runtime 中隐式读取旧 state。
+
+## 完整迁移 TODO
+
+以下 checklist 是当前唯一 migration roadmap。`[x]` 表示实现和 focused verification 已完成；`[ ]` 表示尚未
+开始或尚未达到完整 contract。每个未完成项开始前都必须更新本文、完成 focused design discussion、先写测试，再实现。
+
+- [x] 独立 `@hheei/pi-mctx` package、显式 enable/model admission、user-level SQLite context store、project/session
+  partition、revision CAS、lease、compartment graph、parent historian、repair/retry、trigger、context transform 与
+  same-session branch divergence rebuild。
+- [x] **Fork partition projection**：在 Pi fork 的 `session_start` 识别 source partition，验证并复制 child branch
+  可见 ancestor compartments 到新的 partition；copy failure fail open，child 后续 rebuild，绝不共享 parent state。source
+  session 从 child header 的 `parentSession` 经 Pi `SessionManager.open()` 读取 ID/cwd，再解析 source project identity；
+  显式 Pi fork 可以跨 project copy，因为 child 已持有同一 raw branch。仅连续、通过 child branch range/fingerprint
+  proof 的 records 可复制；missing source、source revision stale、invalid graph、destination 已存在或 SQLite error 都必须保留
+  empty/existing child partition，不能阻止 session start 或读取 parent SQLite state。
+- [x] **Pipeline diagnostics**：为 cooldown-eligible historian failure 提供 model-invisible native notification
+  和 structured log。
+- [ ] **Host verification**：已在真实 Pi print-mode host 用独立 agent/session state、explicit built extension 和 active
+  MCTX config 验证 activation、`ctx_memory` tool registration/dispatch 与 SQLite write。仍须验证 context transform、fork、
+  reload 与 historian failure 的可见行为；`tui-replay` 不能代替这些 host lifecycle cases。
+- [ ] **Parent-to-child compressed-context Service**：`pi-mctx` 用 ext-core Service 发布 opaque、validated parent
+  history projection；`pi-subagents` 消费它组装 child prompt。缺席/过期 fallback 为 Pi native inheritance，consumer
+  不读取 MCTX SQLite。当前被缺失的独立 `pi-subagents` consumer 阻塞；在 consumer 的 installable runtime、prompt
+  assembly 与 fallback test 存在前，不发布无可见行为的 provider-only Service。
+- [ ] **Handoff/compaction integration**：定义 parent handoff 如何使用 compartment graph、protected tail、pending
+  reductions 与 failure fallback；它必须和 Pi native compact 共存，不能把 MCTX summary 当 Pi session canonical source。
+  当前被缺失的 `hepi-basics` `/handoff` command owner 阻塞；不得由 `pi-mctx` 越界注册 command。恢复并验证 Pi-native
+  owner 后再设计 MCTX bridge。
+- [x] **Session-history tag ledger 与 transform**：建立 `N -> immutable Pi identity` 的 session-local ledger、immutable
+  source retention、protected tail、pending/deferred drop、branch/reload/fork proof 和 marker projection；不能用 raw message
+  dump 或即时删除替代。
+- [x] **`ctx_reduce`**：`pi-mctx` 直接注册此 tool，写入 tag-ledger pending operation；只接受 current active branch 的非保护
+  tag，下一 context transform 才投影 marker。disabled runtime 或不合法 selector 返回明确 tool error，不修改 Pi JSONL。
+- [x] **`ctx_expand`**：从 current partition retained source 读取一个或多个 `N`/`N-M` tag 的受界限内容；它接受 all
+  status tag、对 valid selector partial output，并明确列出 rejected selector。`offset`/`limit` 作用于 tag-order
+  rendered result，default/max 均为 30,000 characters。它不读取别的 session/fork partition，不修改 tag status，也不把
+  source 自动重新注入 model context。
+- [x] **Durable memory**：迁移 `ctx_memory` 的 project scope、category、archive、privacy、source provenance 与
+  cross-session visibility。它是 user-level durable state，不复用旧 SQLite schema，也不让 project config 或 child session
+  取得写权限。
+- [x] **Durable notes**：`ctx_note` 以 session-local record CAS 保存 anchor、read/update/dismiss 与 provenance；smart
+	condition 仅持久化为 pending text。Dreamer-dependent evaluation、surface trigger 与 stale cleanup 必须等 Dreamer
+	feature，不把 cron/polling 偷渡进 tool。
+- [ ] **Composite search**：最后迁移 `ctx_search`；它跨 memory、note、session history、git commit 与 primer，必须在
+  各 source 有验证过的 index/privacy/retention contract 后才暴露。fixed baseline 使用 unified semantic search，并过滤
+  injected memory/live tail；current MCTX 没有 source index、cross-session history、Git/primer、privacy/retention/ranking
+  contract，故不注册 partial 同名 tool。
+- [ ] **Todo ownership decision**：legacy `todowrite`/`/todos` 是 session task UI，不迁入 `pi-mctx` 或重复注册。确认
+  当前 Todo owner 的 behavioral coverage 与 legacy migration boundary；Pi 的 first-registered tool rule 禁止以新 MCTX
+  tool 覆盖旧 aggregate。
+- [ ] **Pipeline maintenance commands**：为 legacy `/ctx-flush`、`/ctx-recomp`、`/ctx-session-upgrade`、`/ctx-status`
+  与 `/ctx-wrapup` 分别定义 user need、owner 和 Pi lifecycle integration。fixed source 已确认 `/ctx-flush` 在 current
+  transform 下没有独立行为，`/ctx-recomp`/`ctx-session-upgrade` 是旧 ordinal/schema migration 而不迁移，`/ctx-wrapup`
+  属于 future `hepi-basics` handoff/compaction owner，`/ctx-status` 等待完整 metrics 与 UI owner；没有明确用户 workflow 的
+  internal maintenance action 保持不暴露。
+- [ ] **Sidekick augmentation**：fixed legacy `/ctx-aug` 是手动 command，但同步运行具有 `read`、`grep`、`find`、`ls` 与
+  `ctx_search` allowlist 的 child，并把 retrieval augmentation 后的 prompt 发回 parent。它依赖 unified search 的 memory、
+  session history、Git、primer、note privacy filtering；当前既无 `pi-subagents` child runtime，也无 `ctx_search` source
+  contract，故不以 completion-only helper 或 prompt resend 伪迁移。先完成独立 subagents runtime 与 search contract，再按原
+  configured/unconfigured/empty/failure/abort/timeout/fallback behavior 设计该 command。
+- [ ] **Dreamer 与 embedding commands**：legacy `/ctx-dream`、`/ctx-embed` 归入 historian-adjacent services；先完成
+  Dreamer/embedding storage、leases、cost/cancellation 与 retention，再决定是否保留 command。Dreamer fixed baseline 是
+  free-text smart-condition compiler、capability sandbox、per-project lease/schedule task runner，不是 file-only checker；它
+  等待 `pi-subagents` 提供受限 child-session factory，`pi-mctx` 不越界创建 child agent。Embedding fixed baseline 是
+  project provider generation、model/content-hash fencing、batch ledger、coverage/backfill/GC，不是 one-shot vector API；当前
+  无 second consumer/provider owner，故不注册 partial `/ctx-embed`。
+  共享 capability、multi-process fencing、provider lifetime 与公开 API proposal 见
+  [`docs/architecture/embeddings.md`](../architecture/embeddings.md)。
+   当前已完成 provider runtime、MCTX lifecycle adapter 与 durable memory ledger：user-level `pi-mctx.embedding` 存在时才
+   acquire provider；`ctx_memory` 的明确 write/update 后只嵌入该 record，并由 content/model fence 写入 per-model ledger。
+   它不做 historical backfill、timer、retry、`/ctx-embed` 或 semantic search。
+- [ ] **Historian-adjacent services**：按已验证需求设计 Dreamer、embedding provider、background maintenance、search
+  index 与 retention/data-management。自动 TTL prune、shutdown deletion 或语义删除在得到明确 retention contract 前保持禁止。
+- [ ] **Reserved configuration activation**：逐字段启用当前 opaque 的 upstream-shaped configuration，定义 user/project
+  scope、runtime validation、default、reload semantics 和 invalid-value fallback；不得因保存过某字段而隐式开启 feature。
+- [ ] **Installer migration 与旧 wrapper retirement**：发布独立 package entry、迁移安装文档和 Loadout ownership、验证
+  clean tarball/install entrypoint；然后移除 deprecated `@hheei/hepi-mctx` 与 aggregate bundle 中的重复注册。wrapper
+  bridge 不迁移，不能阻止 removal。
+
+完成 migration 前，不得宣称 `pi-mctx` 已替代 Magic Context。每个 checkbox 需要独立 commit；跨 package contract
+change 还必须更新 `docs/architecture/` 和相关 ADR。
+
+Legacy `@hheei/pi-magic-context@0.33.1-hepi.0` 的首次 public-surface inventory 见
+[研究记录](../research/pi-magic-context-0.33.1-inventory.md)。它是已发布 bundle 的证据索引，不是旧 API compatibility
+承诺；后续 feature 只能以其确认的用户行为为输入，不能从内部 SQLite table 或 bundle private helper 推导新 contract。
+
+### Historian diagnostics
+
+Historian terminal `failed`/`invalid` 会产生无 source/context payload 的 structured event：partition identity、failure
+class、completion attempt 和 lease terminal outcome。默认 sink 使用 `console.warn` 写 JSON，安装者可将 stderr 接入其
+日志系统；测试可注入 sink。Pi native warning 只显示 failure class 和保留旧 context 的事实，不显示 provider error
+message。相同 class 在一次 session 内只通知一次，直到下一次 successful publication rearm；每次 terminal failure
+仍写 structured event。lease-held、lease-loss、caller cancellation、stale CAS 和 raw branch rebuild 属于预期并发/取消
+结果，不触发用户 warning。unexpected runner throw 记录为 `unknown`、attempt `0`，同样不输出异常文本。真实 Pi host
+或 `tui-replay` 的可见行为验证尚未完成。
+
+### Session-history tag ledger
+
+`ctx_reduce` 与后续 `ctx_expand` 共用一个 session-local ledger。用户和模型引用短 selector，例如 `` 或 `8`；
+SQLite 永久绑定到 immutable Pi identity，不能以 tag number、文本值或 entry position 定位 source。tag number 仅在一个
+MCTX partition 内递增，不能跨 session、fork 或 project 使用。
+
+每个可投影 payload 获得一个 tag：message text、tool call/result aggregate、以及 file/reference descriptor。text 和
+可展示 tool output 在 model-visible content 中使用严格 legacy 前缀 `§N§ `；file/reference 的 retained source 只保存
+可序列化 descriptor（例如 URL、media type 与 name），绝不复制 binary attachment。tool aggregate 的 immutable binding
+包含 owner assistant entry ID 与 tool-call ID，避免不同 assistant turn 的相同 call ID 发生碰撞。
+
+ledger 为每项保留 immutable source copy，供 future `ctx_expand` 在 reload、Pi compaction 或 source branch 不再暴露原 entry
+后恢复。source copy 不自动注入、不能跨 partition 读取，且在独立 retention/data-management contract 出现前不会自动过期或
+删除。
+
+`ctx_reduce` 只把 validated selector 写为 pending operation。下一次 MCTX `context` transform 在当前 Pi active branch
+重新验证 entry/tool identity、tag status 与 protected tail 后才将目标内容替换为严格 marker `[dropped §N§]`；raw Pi JSONL
+永远不被改写。默认 `protected_tags` 为 20，user-level setting 只接受 1–100，project settings 无权改变它，reload 后生效。
+受保护、已 dropped、未知、别的 branch/fork 或无法证明 identity 的 tag 必须拒绝或保持 pending，绝不按 position 猜测删除。
+
+首 slice 不迁移 legacy 的 tool-specific skeleton/truncate heuristics、automatic/smart drops 或 reasoning compression。它们
+需要各自可测的 reclaim policy，不能混入用户明确请求的 manual deferred drop。
+
+### `ctx_expand`
+
+`ctx_expand` 只接受同一 selector grammar 的 `N`/`N-M` range。它读取 current active MCTX partition ledger 中 immutable
+source copy，允许 `active`、`pending` 和 `dropped` status；source 除显式 tool result 外绝不重新进入 model context。unknown、
+other-partition 或 malformed selector 绝不按 entry position 猜测：malformed selector 返回 tool error，valid selector 仍按
+tag-number order 返回，ineligible selector 单独报告。
+
+tool 的可选 `offset` 与 `limit` 作用于完整 rendered result，而不是逐 tag pagination。`limit` 的 default 和 maximum 都是
+30,000 characters。truncated result 报告 next offset；它既不改 status，也不将 source 恢复到 active context。`ctx_expand`
+绝不读取另一 session/fork partition，也不让 retained source 提供给 background work、cross-extension Service 或 automatic prompt
+injection。
+
+### Durable memory
+
+`ctx_memory` 首版只在 active parent `pi-mctx` session 中工作；disabled runtime 和 child session 返回明确 tool error。memory
+属于一个 stable project identity，任何解析到同一 identity 的 parent session/worktree 可按 ID 读取；其他 project、fork 或
+child session 永不取得 read/write capability。它不是 automatic prompt injection：只有显式 tool call 返回 memory content，
+future `ctx_search`/Sidekick 必须另行定义自己的 privacy contract。
+
+首版 action 为 `write`、`get`、`update`、`archive`，category 固定为 `PROJECT_RULES`、`ARCHITECTURE`、`CONSTRAINTS`、
+`CONFIG_VALUES`、`NAMING`。`get` 仅接受 project-local ID，避免在 search/index contract 前提供 unbounded list；`archive`
+保留 source/provenance，不提供 delete/restore/merge。每条 record 保存 creator/last-writer session ID、timestamps 和 monotonic
+revision。`update`/`archive` 必须带 `expectedRevision`，stale revision 返回 tool error，绝不 last-writer-wins 覆盖另一
+session 的 edit。
+
+### Durable notes
+
+`ctx_note` 只在 active parent `pi-mctx` session 中工作。notes 属于 stable project identity 下的单一 parent session，
+不能由其他 session、fork 或 child read/write；它们也不自动进入 model context。首版 action 为 `write`、`read`、`update`
+和 `dismiss`。`read` 默认返回 active notes，可显式读取 dismissed notes；dismiss 保留 note、anchor、condition 与 provenance，
+不提供 delete 或 restore。
+
+可选 `anchorTag` 只能引用 current active branch 的 MCTX history tag。runtime 先将该 session-local ordinal 解析为 immutable
+Pi entry ID、kind 与 tool-call ID，再写入 note；未知、旧 branch 或其他 session tag 明确失败，绝不把 ordinal 直接持久化。
+每条 note 记录创建/更新 session ID、timestamps 和 record revision；`update`/`dismiss` 必须带 `expectedRevision`，避免静默覆盖。
+
+可选 `smartCondition` 仅作为 pending text 保存。首版不 evaluate、poll、auto-surface、expire 或 cleanup smart notes；这些行为
+属于未来 Dreamer ownership，不能在 tool mutation 中隐式启动后台工作。
 
 ## 目的
 
@@ -43,6 +212,56 @@ tool/command 名称、配置键、存储格式或已持久化 state。
 跨 package 的 future inheritance provider 使用 `@hheei/pi-ext-core` 既有 Service 发现机制。
 provider 和 consumer 分别声明相同的 namespaced service ID，不互相 import。provider 负责从
 当前 parent branch 取得自身所需的压缩前缀与 tail；`pi-subagents` 只把结果放入自己的 child prompt。
+
+### 预留的跨扩展 projection API
+
+`/handoff` 是 `hepi-basics` 的未来独立 command，不属于 `pi-mctx`。为避免每个 consumer 读取 MCTX SQLite 或
+解析 compartment XML，`pi-mctx` 将来只发布一个窄的 runtime-scoped projection capability。它服务两个已定义的
+consumer：`hepi-basics` 的 handoff 与独立 `pi-subagents` 的 inheritance；memory、notes、search 或任意第三方
+extension 不得借此取得 MCTX state，未来各自需要独立 capability。
+
+实际 implementation 出现两个 installable consumer 前，不创建 Service key 或 provider-only runtime。届时两个
+package 通过 `pi-ext-core` 的 Service 使用同一预留 ID `@hheei/pi-mctx/context-projection@1`；MCTX runtime 是唯一
+provider，first-provider-wins，生命周期 cleanup 自动撤销。以下是 contract 的设计基线，不是当前可 import API：
+
+```ts
+import type { SessionManager } from "@earendil-works/pi-coding-agent";
+
+interface MctxContextProjectionService {
+	prepare(input: {
+		readonly purpose: "handoff" | "inheritance";
+		readonly signal: AbortSignal;
+	}): Promise<MctxContextProjection | undefined>;
+}
+
+type MctxContextProjection =
+	| {
+			readonly purpose: "inheritance";
+			/** Opaque content; consumer appends it verbatim in its own child prompt boundary. */
+			readonly payload: string;
+	  }
+	| {
+			readonly purpose: "handoff";
+			/** Installs the opaque hidden entry and atomically binds destination state. */
+			install(
+				destination: Pick<SessionManager, "getSessionId" | "appendCustomMessageEntry">,
+				signal: AbortSignal,
+			): Promise<void>;
+	  };
+```
+
+`prepare()` snapshots only committed, graph-validated compartments plus the MCTX-owned protected tail. It never exposes
+SQLite rows, source branch entries, revision internals or an editable summary. `handoff.install()` is idempotent for the
+same destination session; it owns hidden-entry ordering and the destination marker that prevents fork projection from
+duplicating the already materialized parent graph. It must not leave a durable destination marker when installation fails
+or its signal aborts. Each operation is tied to the caller signal and parent lifecycle; concurrent handoff preparation for
+one parent partition is rejected rather than publishing competing destination mappings.
+
+No provider, disabled MCTX, no eligible committed projection, or an explicitly stale artifact resolve to `undefined` and
+make the consumer use its Pi-native fallback. Once an enabled provider returns a plan, malformed payload, store failure,
+or installation rejection is an operation error: consumer must surface it and must not silently switch to native fallback,
+because doing so can lose an already chosen MCTX projection. Consumers never await `waitForService()` inside `session_start`;
+they own cancellable continuation and fallback policy.
 
 ## Package 约定
 
@@ -89,16 +308,17 @@ conditional update 未命中则得到 `undefined`，必须重新读取/recompute
 
 schema v3 增加每个 partition 一个 historian lease。worker 使用唯一 owner token 获取 finite TTL；持有者可在到期前
 renew 或 release，错误 token 不能影响其他 worker。expired lease 可由新 worker 在短 transaction 中替换；未拿到 lease
-的 process 跳过本次 historian run。此 slice 只提供 store primitive，尚未启动 renewal timer 或 historian。
+的 process 跳过本次 historian run。当前 historian run 会在 active 时续约 lease；具体 terminal semantics 见后文。
 
 schema v4 增加 immutable compartment records：partition、`m0`/`m1` tier、source entry range、source fingerprint、
 rendered payload 与 publication revision。`publishCompartment` 仅接受当前 partition snapshot，并在一个 transaction 内插入
 record 和推进 revision；stale snapshot 不写任何 record。read API 只返回当前 partition 的 revision-ordered records。
-结构/coverage/graph validation 与 historian output mapping 留给下一 slice。
+结构、coverage、graph validation 与 historian output mapping 是当前 publication fence 的组成部分。
 
 draft validator 不序列化或猜测 Pi message。它只接收 ordered source entry IDs 与该 immutable snapshot 的 fingerprint：
 draft 必须使用 `m0`/`m1` tier、匹配 fingerprint，且 start/end ID 必须在同一 snapshot 内按 source order 形成 inclusive
-range。跨-tier merge topology、historian JSON mapping、repair prompt 与 publication policy 尚未启用。
+range。跨-tier merge topology、historian JSON mapping、repair prompt 与 publication policy 由 historian publication
+path 执行，不能由 store schema 推断。
 
 source snapshot 从 `sessionManager.getBranch()` 的 active branch 顺序读取 entry IDs；它验证 nonempty/unique ID，并以
 SHA-256(JSON entry-ID array) 生成 fingerprint。snapshot 不序列化 message content，避免在未确认 Pi entry shape 前把
@@ -106,8 +326,8 @@ lossy projection 当 canonical source；后续 historian mapper 必须保留这�
 
 historian output mapper 只接受 exact JSON object：`tier`、`sourceStartEntryId`、`sourceEndEntryId`、`renderedPayload`。
 它拒绝 Markdown fence、extra key、错误 type 或 invalid JSON；不信任模型提供 fingerprint，而是注入 immutable source
-snapshot 的 fingerprint，再调用 source validator。mapper 的 stable invalid reason 可直接进入一次 repair Completion；本 slice
-不调用 Completion 或 publish。
+snapshot 的 fingerprint，再调用 source validator。mapper 的 stable invalid reason 可直接进入一次 repair Completion；
+mapper 本身仍不调用 Completion 或 publish。
 
 historian executor 使用 ext-core `startSubagent(..., { mode: "completion" })`，只提供 no-tools JSON-only completion。
 caller 提供 source text 与 immutable snapshot；executor 将 ordered entry IDs 和 exact output schema 放入 prompt，并将 core
@@ -116,8 +336,9 @@ terminal result 规范为 completed/cancelled/failed。run-local abort 会 cance
 
 historian orchestrator 是显式 async function：以 current partition snapshot 获取一次 finite lease，运行 primary completion，
 mapper invalid 时仅以 diagnostic 运行一次 repair completion，然后用同一 snapshot 原子 publish。lease acquisition failure
-返回 skipped；CAS conflict 返回 stale，不重试；任意路径在 `finally` release lease。它不做 trigger、renewal、transient retry
-或 Pi context rendering。
+返回 skipped；CAS conflict 返回 stale，不重试；任意路径在 `finally` release lease。active run 续约 lease；仅 core
+结构化分类为 `transient` 的 provider failure 可在同一次 lease 内最多重试两次，retry delay 使用 cancellable jitter。
+它不做 trigger 或 Pi context rendering。
 
 source-history projection 从 `sessionManager.getBranch()` 的 ordered `SessionEntry[]` 工作，使用 Pi
 `sessionEntryToContextMessages()` 作为唯一 entry-to-message projection。一个 complete turn group 从 user message 开始，
@@ -268,9 +489,11 @@ caller 必须 reread 并重新 plan。
 token trigger。若旧 branch historian 仍运行，先 abort 它并保留唯一 pending rebuild；旧 job terminal 后才启动新 job。
 shutdown/reload 清除 pending rebuild 并 abort current job。
 
-每个 context partition 使用 SQLite compartment lease 实现 historian single-flight。lease 有 finite TTL、
-run 中 renewal、abort/shutdown release；其他 process 在持有期跳过该 run，crash 后可以在 TTL expiry 后接管。
-lease 不替代 publication revision transaction。
+每个 context partition 使用 SQLite compartment lease 实现 historian single-flight。lease 有 finite TTL；run 每半个
+TTL renewal，abort/shutdown/terminal path 均 release 最新 owner lease；其他 process 在持有期跳过该 run，crash 后可以在
+TTL expiry 后接管。renewal 未命中代表 owner 已丢失 lease，orchestrator abort 当前 Completion、拒绝 publication，并在
+`finally` release；lease 不替代 publication revision transaction。production interval 固定由 lease TTL 推导；测试可仅通过
+historian request 的 private timing seam 缩短 interval，不能成为 user configuration。
 
 首个 pipeline milestone 不对 context partition 做 automatic semantic deletion。可以进行 non-destructive
 SQLite maintenance，但 TTL prune、shutdown deletion 和 user-facing data-management contract 都延后到独立 feature。
@@ -279,8 +502,10 @@ parent historian output 必须通过 structural、chunk coverage、protected-tai
 validation 才能原子 publish。首次 validation failure 运行一次 repair Completion；repair 或任何 validation
 failure 都保留上次 committed context，不写 partial state。
 
-transient parent historian provider failure 最多进行两次 cancellable jittered retry。abort、authentication/400、
-configuration error 与 validation failure 不重试；validation repair 是独立的一次 Completion。
+transient parent historian provider failure 最多进行两次 cancellable jittered retry。core 只根据数值 HTTP
+`status`/`statusCode` 与标准 transport `code` 生成 retry classification；未能可靠分类的 error 不重试，不能从
+message 文本猜测。abort、authentication、HTTP 400 或其他 client error、configuration error 与 validation
+failure 不重试；validation repair 是独立的一次 Completion，且共享该 run 的总 retry budget。
 
 首个 pipeline milestone 使用 model-invisible Pi native notification 加 structured log 报告 invalid config、
 context-store failure 与 cooldown-eligible historian failure。它不注册 `/ctx-*` command、statusbar 或 custom

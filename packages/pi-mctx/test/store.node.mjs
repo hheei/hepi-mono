@@ -114,6 +114,316 @@ test("creates and fences an MCTX-owned store", async () => {
 	});
 });
 
+test("copies verified fork ancestors into a fresh child revision timeline", async () => {
+	await withPath(async (path) => {
+		const store = await openMctxStore(path);
+		const project = `git:${"d".repeat(40)}`;
+		const source = store.getOrCreatePartition(project, "parent-session");
+		const first = store.publishCompartment(source, {
+			tier: "m0",
+			sourceStartEntryId: "user-1",
+			sourceEndEntryId: "assistant-1",
+			sourceFingerprint: "fingerprint-1",
+			renderedPayload: "old history",
+		});
+		assert.ok(first);
+		const second = store.publishCompartment(first.partition, {
+			tier: "m1",
+			sourceStartEntryId: "user-2",
+			sourceEndEntryId: "assistant-2",
+			sourceFingerprint: "fingerprint-2",
+			renderedPayload: "recent history",
+		});
+		assert.ok(second);
+		const sourceSnapshot = store.advancePartitionRevision(second.partition);
+		assert.ok(sourceSnapshot);
+		const copied = store.initializeForkPartition(
+			sourceSnapshot,
+			{ projectIdentity: `git:${"e".repeat(40)}`, sessionId: "child-session" },
+			store.listCompartments(sourceSnapshot),
+		);
+		assert.deepEqual(copied, {
+			kind: "copied",
+			partition: {
+				projectIdentity: `git:${"e".repeat(40)}`,
+				sessionId: "child-session",
+				revision: 2,
+			},
+		});
+		if (copied.kind !== "copied") throw new Error("Expected copied child partition");
+		assert.deepEqual(store.listCompartments(copied.partition), [
+			{ ...first.compartment, publishedRevision: 1 },
+			{ ...second.compartment, publishedRevision: 2 },
+		]);
+		assert.deepEqual(
+			store.initializeForkPartition(
+				sourceSnapshot,
+				{ projectIdentity: `git:${"e".repeat(40)}`, sessionId: "child-session" },
+				[],
+			),
+			{ kind: "existing", partition: copied.partition },
+		);
+		const staleSource = store.advancePartitionRevision(sourceSnapshot);
+		assert.ok(staleSource);
+		assert.deepEqual(
+			store.initializeForkPartition(
+				sourceSnapshot,
+				{ projectIdentity: `git:${"f".repeat(40)}`, sessionId: "stale-child" },
+				store.listCompartments(sourceSnapshot),
+			),
+			{ kind: "stale" },
+		);
+		assert.equal(store.findPartition(`git:${"f".repeat(40)}`, "stale-child"), undefined);
+		store.close();
+	});
+});
+
+test("queues only active unprotected history tags and marks projected drops", async () => {
+	await withPath(async (path) => {
+		const store = await openMctxStore(path);
+		const initial = store.getOrCreatePartition(`git:${"9".repeat(40)}`, "session-tags");
+		const synced = store.syncHistoryTags(initial, [
+			{ kind: "message", entryId: "entry-1", source: "first" },
+			{ kind: "message", entryId: "entry-2", source: "second" },
+		]);
+		assert.ok(synced);
+		assert.equal(synced.partition.revision, 1);
+		const queued = store.queueHistoryTagDrops(
+			synced.partition,
+			[1, 2, 99],
+			synced.tags.map((tag) => tag.tagNumber),
+			1,
+		);
+		assert.ok(queued);
+		assert.deepEqual(queued.queued, [1]);
+		assert.deepEqual(queued.rejected, [2, 99]);
+		const dropped = store.markHistoryTagsDropped(queued.partition, queued.queued);
+		assert.deepEqual(dropped, { ...initial, revision: 3 });
+		assert.equal(store.queueHistoryTagDrops(dropped, [1], [1, 2], 1)?.rejected[0], 1);
+		store.close();
+	});
+});
+
+test("stores project-wide memories with record revision CAS", async () => {
+	await withPath(async (path) => {
+		const store = await openMctxStore(path);
+		const project = `git:${"8".repeat(40)}`;
+		store.getOrCreatePartition(project, "session-a");
+		const memory = store.writeMemory({ projectIdentity: project, sessionId: "session-a", category: "ARCHITECTURE", content: "Use SQLite.", nowMs: 10 });
+		assert.deepEqual(memory, { projectIdentity: project, memoryId: 1, category: "ARCHITECTURE", content: "Use SQLite.", status: "active", revision: 1, createdSessionId: "session-a", updatedSessionId: "session-a", createdAtMs: 10, updatedAtMs: 10 });
+		const updated = store.updateMemory({ projectIdentity: project, sessionId: "session-b", memoryId: 1, expectedRevision: 1, content: "Use WAL SQLite.", nowMs: 20 });
+		assert.equal(updated?.revision, 2);
+		assert.equal(store.updateMemory({ projectIdentity: project, sessionId: "session-a", memoryId: 1, expectedRevision: 1, content: "stale", nowMs: 30 }), undefined);
+		assert.equal(store.archiveMemory({ projectIdentity: project, sessionId: "session-a", memoryId: 1, expectedRevision: 2, nowMs: 30 })?.status, "archived");
+		assert.equal(store.getMemories(project, [1])[0]?.content, "Use WAL SQLite.");
+		store.close();
+	});
+});
+
+test("fences durable memory embeddings by active source revision and model identity", async () => {
+	await withPath(async (path) => {
+		const store = await openMctxStore(path);
+		const project = `git:${"6".repeat(40)}`;
+		store.getOrCreatePartition(project, "session-a");
+		const memory = store.writeMemory({
+			projectIdentity: project,
+			sessionId: "session-a",
+			category: "ARCHITECTURE",
+			content: "Use SQLite.",
+			nowMs: 10,
+		});
+		const candidate = store.loadMemoryEmbeddingCandidate(project, memory.memoryId);
+		assert.ok(candidate);
+		const firstVector = new Float32Array([1.25, -0.5]);
+		assert.equal(
+			store.persistMemoryEmbedding({
+				projectIdentity: project,
+				memoryId: memory.memoryId,
+				contentHash: candidate.contentHash,
+				revision: candidate.revision,
+				modelIdentity: "model-a",
+				providerGeneration: 1,
+				vector: firstVector,
+				nowMs: 20,
+			}),
+			true,
+		);
+		assert.equal(
+			store.persistMemoryEmbedding({
+				projectIdentity: project,
+				memoryId: memory.memoryId,
+				contentHash: candidate.contentHash,
+				revision: candidate.revision,
+				modelIdentity: "model-b",
+				providerGeneration: 1,
+				vector: new Float32Array([0.25, 0.75]),
+				nowMs: 21,
+			}),
+			true,
+		);
+		const persistedDatabase = new DatabaseSync(path);
+		try {
+			assert.equal(
+				persistedDatabase.prepare("SELECT COUNT(*) AS count FROM memory_embeddings").get().count,
+				2,
+			);
+			const row = persistedDatabase
+				.prepare("SELECT dimensions, vector FROM memory_embeddings WHERE model_identity = 'model-a'")
+				.get();
+			assert.equal(row.dimensions, 2);
+			assert.ok(row.vector instanceof Uint8Array);
+			const vectorView = new DataView(row.vector.buffer, row.vector.byteOffset, row.vector.byteLength);
+			assert.equal(vectorView.getFloat32(0, true), 1.25);
+			assert.equal(vectorView.getFloat32(4, true), -0.5);
+		} finally {
+			persistedDatabase.close();
+		}
+
+		const updated = store.updateMemory({
+			projectIdentity: project,
+			sessionId: "session-b",
+			memoryId: memory.memoryId,
+			expectedRevision: memory.revision,
+			content: "Use WAL SQLite.",
+			nowMs: 30,
+		});
+		assert.ok(updated);
+		assert.equal(
+			store.persistMemoryEmbedding({
+				projectIdentity: project,
+				memoryId: memory.memoryId,
+				contentHash: candidate.contentHash,
+				revision: candidate.revision,
+				modelIdentity: "model-a",
+				providerGeneration: 1,
+				vector: firstVector,
+			}),
+			false,
+		);
+		const current = store.loadMemoryEmbeddingCandidate(project, memory.memoryId);
+		assert.ok(current);
+		assert.equal(
+			store.persistMemoryEmbedding({
+				projectIdentity: project,
+				memoryId: memory.memoryId,
+				contentHash: current.contentHash,
+				revision: current.revision,
+				modelIdentity: "model-a",
+				providerGeneration: 2,
+				vector: firstVector,
+			}),
+			true,
+		);
+		const archived = store.archiveMemory({
+			projectIdentity: project,
+			sessionId: "session-b",
+			memoryId: memory.memoryId,
+			expectedRevision: updated.revision,
+			nowMs: 40,
+		});
+		assert.ok(archived);
+		assert.equal(store.loadMemoryEmbeddingCandidate(project, memory.memoryId), undefined);
+		assert.equal(
+			store.persistMemoryEmbedding({
+				projectIdentity: project,
+				memoryId: memory.memoryId,
+				contentHash: current.contentHash,
+				revision: current.revision,
+				modelIdentity: "model-a",
+				providerGeneration: 2,
+				vector: firstVector,
+			}),
+			false,
+		);
+		store.close();
+
+		const database = new DatabaseSync(path);
+		try {
+			assert.equal(database.prepare("SELECT COUNT(*) AS count FROM memory_embeddings").get().count, 0);
+		} finally {
+			database.close();
+		}
+	});
+});
+
+test("stores session notes with immutable anchors and record revision CAS", async () => {
+	await withPath(async (path) => {
+		const store = await openMctxStore(path);
+		const project = `git:${"7".repeat(40)}`;
+		store.getOrCreatePartition(project, "session-a");
+		store.getOrCreatePartition(project, "session-b");
+		const note = store.writeNote({
+			projectIdentity: project,
+			sessionId: "session-a",
+			content: "Verify session scope.",
+			anchor: { entryId: "assistant-1", kind: "tool", toolCallId: "call-1" },
+			smartCondition: "When Dreamer exists",
+			nowMs: 10,
+		});
+		assert.deepEqual(note, {
+			projectIdentity: project,
+			sessionId: "session-a",
+			noteId: 1,
+			content: "Verify session scope.",
+			status: "active",
+			anchor: { entryId: "assistant-1", kind: "tool", toolCallId: "call-1" },
+			smartCondition: "When Dreamer exists",
+			revision: 1,
+			createdSessionId: "session-a",
+			updatedSessionId: "session-a",
+			createdAtMs: 10,
+			updatedAtMs: 10,
+		});
+		assert.deepEqual(store.readNotes(project, "session-b"), []);
+		const updated = store.updateNote({
+			projectIdentity: project,
+			sessionId: "session-a",
+			noteId: 1,
+			expectedRevision: 1,
+			content: "Verify record CAS.",
+			anchor: null,
+			smartCondition: null,
+			nowMs: 20,
+		});
+		assert.deepEqual(updated, {
+			projectIdentity: project,
+			sessionId: "session-a",
+			noteId: 1,
+			content: "Verify record CAS.",
+			status: "active",
+			revision: 2,
+			createdSessionId: "session-a",
+			updatedSessionId: "session-a",
+			createdAtMs: 10,
+			updatedAtMs: 20,
+		});
+		assert.equal(
+			store.updateNote({
+				projectIdentity: project,
+				sessionId: "session-a",
+				noteId: 1,
+				expectedRevision: 1,
+				content: "stale",
+				nowMs: 30,
+			}),
+			undefined,
+		);
+		assert.equal(
+			store.dismissNote({
+				projectIdentity: project,
+				sessionId: "session-a",
+				noteId: 1,
+				expectedRevision: 2,
+				nowMs: 30,
+			})?.status,
+			"dismissed",
+		);
+		assert.equal(store.readNotes(project, "session-a").length, 0);
+		assert.equal(store.readNotes(project, "session-a", "dismissed")[0]?.content, "Verify record CAS.");
+		store.close();
+	});
+});
+
 test("upgrades the v1 metadata fence before creating partitions", async () => {
 	await withPath(async (path) => {
 		const v1 = new DatabaseSync(path);

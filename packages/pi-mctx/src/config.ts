@@ -7,11 +7,14 @@ import {
 export const MCTX_SETTINGS_SECTION = "pi-mctx";
 export const DEFAULT_EXECUTE_THRESHOLD_PERCENTAGE = 65;
 export const DEFAULT_FAIL_CLOSED_BLOCKING = true;
+export const DEFAULT_PROTECTED_TAGS = 20;
 
 const MIN_EXECUTE_THRESHOLD_PERCENTAGE = 20;
 const MAX_EXECUTE_THRESHOLD_PERCENTAGE = 80;
 const MIN_EXECUTE_THRESHOLD_TOKENS = 5_000;
 const MAX_EXECUTE_THRESHOLD_TOKENS = 2_000_000;
+const MIN_PROTECTED_TAGS = 1;
+const MAX_PROTECTED_TAGS = 100;
 
 export interface MctxSettingsPaths {
 	/** Global settings are the base; project settings may only apply the documented overrides. */
@@ -36,6 +39,7 @@ export interface MctxPipelineSettings {
 	readonly failClosedBlocking: boolean;
 	readonly executeThresholdPercentage: MctxThreshold;
 	readonly executeThresholdTokens?: MctxOptionalThreshold;
+	readonly protectedTags: number;
 }
 
 export type MctxPipelineState =
@@ -43,6 +47,10 @@ export type MctxPipelineState =
 	| { readonly kind: "invalid"; readonly reason: string }
 	| { readonly kind: "enabled"; readonly settings: MctxPipelineSettings };
 
+/**
+ * Raw settings are retained for diagnostics and future fields. `pipeline` is
+ * the only normalized, runtime-authorized subset used by this milestone.
+ */
 export interface MctxConfiguration {
 	/** Raw scopes remain available for diagnostics; `pipeline` is the validated runtime view. */
 	readonly global: Readonly<Record<string, unknown>>;
@@ -50,6 +58,8 @@ export interface MctxConfiguration {
 	readonly merged: Readonly<Record<string, unknown>>;
 	sourceOf(path: readonly string[]): JsonSettingsValueSource | undefined;
 	readonly pipeline: MctxPipelineState;
+	/** User-authorized opaque provider config, validated by pi-ext-embed on acquisition. */
+	readonly embedding?: Readonly<Record<string, unknown>>;
 	readonly warnings: readonly string[];
 }
 
@@ -118,6 +128,8 @@ function raiseThreshold(
 	base: MctxOptionalThreshold,
 	override: MctxOptionalThreshold,
 ): MctxOptionalThreshold {
+	// Project settings may reduce MCTX work, never make it trigger earlier than
+	// the user-level policy selected for this machine.
 	const defaultValue =
 		base.defaultValue === undefined || override.defaultValue === undefined
 			? base.defaultValue
@@ -157,10 +169,14 @@ function resolvePipeline(
 	project: Readonly<Record<string, unknown>>,
 	warnings: string[],
 ): MctxPipelineState {
+	// Global enablement is an explicit user opt-in. A repository may opt out, but
+	// cannot silently activate model use for another developer's machine.
 	if (global.enabled !== true || project.enabled === false) return { kind: "disabled" };
 	if (project.enabled === true)
 		warnings.push("Ignoring project enabled: only user config can enable pi-mctx");
 
+	// Model and failure policy are user-only because both select local credentials
+	// and alter whether a storage failure may block a parent session.
 	const historian = global.historian;
 	if (
 		!isRecord(historian) ||
@@ -183,6 +199,8 @@ function resolvePipeline(
 	if (typeof percentage === "string") {
 		return { kind: "invalid", reason: `execute_threshold_percentage ${percentage}` };
 	}
+	// Project thresholds are a one-way safety override. `projectThreshold` drops
+	// lower values rather than merging them as generic project-wins settings.
 	const projectPercentage = project.execute_threshold_percentage;
 	const raisedPercentage =
 		projectPercentage === undefined
@@ -206,6 +224,19 @@ function resolvePipeline(
 		tokens === undefined
 			? undefined
 			: projectThreshold(project, "execute_threshold_tokens", parseTokens, tokens, warnings);
+	const rawProtectedTags = global.protected_tags;
+	const protectedTags = rawProtectedTags === undefined ? DEFAULT_PROTECTED_TAGS : rawProtectedTags;
+	if (
+		typeof protectedTags !== "number" ||
+		!Number.isSafeInteger(protectedTags) ||
+		protectedTags < MIN_PROTECTED_TAGS ||
+		protectedTags > MAX_PROTECTED_TAGS
+	) {
+		return { kind: "invalid", reason: "protected_tags must be an integer between 1 and 100" };
+	}
+	if (project.protected_tags !== undefined) {
+		warnings.push("Ignoring project protected_tags: only user config controls history protection");
+	}
 
 	return {
 		kind: "enabled",
@@ -218,6 +249,7 @@ function resolvePipeline(
 				byModel: raisedPercentage.byModel,
 			},
 			...(raisedTokens === undefined ? {} : { executeThresholdTokens: raisedTokens }),
+			protectedTags,
 		},
 	};
 }
@@ -248,12 +280,18 @@ export async function loadMctxConfiguration(
 	});
 	const { global, project } = settings;
 	const warnings: string[] = [];
+	const embedding = global.embedding;
+	if (project.embedding !== undefined)
+		warnings.push("Ignoring project embedding: only user config may select embedding providers");
+	if (embedding !== undefined && !isRecord(embedding))
+		warnings.push("Ignoring user embedding: must be an object");
 	return {
 		global,
 		project,
 		merged: settings.merged,
 		sourceOf: settings.sourceOf,
 		pipeline: resolvePipeline(global, project, warnings),
+		...(embedding !== undefined && isRecord(embedding) ? { embedding } : {}),
 		warnings,
 	};
 }

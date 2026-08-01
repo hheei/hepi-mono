@@ -1,5 +1,6 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
+	type CompletionFailure,
 	type CompletionSubagentResult,
 	type CompletionSubagentSpec,
 	type ExtensionLifecycleContext,
@@ -23,7 +24,7 @@ export interface MctxHistorianCompletionRequest {
 export type MctxHistorianCompletionResult =
 	| { readonly kind: "completed"; readonly output: string }
 	| { readonly kind: "cancelled" }
-	| { readonly kind: "failed"; readonly reason: string };
+	| { readonly kind: "failed"; readonly failure: CompletionFailure };
 
 export interface MctxHistorianCompletionHandle {
 	readonly result: Promise<CompletionSubagentResult>;
@@ -64,7 +65,7 @@ export async function executeMctxHistorianCompletion(
 		const result = await handle.result;
 		if (request.signal.aborted || result.status === "cancelled") return { kind: "cancelled" };
 		if (result.status === "completed") return { kind: "completed", output: result.output };
-		return { kind: "failed", reason: result.failure ?? "Historian completion failed" };
+		return { kind: "failed", failure: result.failure };
 	} finally {
 		request.signal.removeEventListener("abort", cancel);
 	}

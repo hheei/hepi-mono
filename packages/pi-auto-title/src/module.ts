@@ -328,7 +328,8 @@ export function createCoreAutoTitleAgent(
 				thinkingLevel: "off",
 			});
 			const result = await handle.result;
-			if (result.status !== "completed") throw new Error(result.failure ?? result.status);
+			if (result.status !== "completed")
+				throw new Error(result.status === "failed" ? result.failure.message : result.status);
 			output = result.output;
 		},
 		abort: () => handle?.cancel(),

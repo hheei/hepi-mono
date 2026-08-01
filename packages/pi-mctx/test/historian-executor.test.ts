@@ -15,7 +15,13 @@ function completed(output: string): CompletionSubagentResult {
 }
 
 function failed(reason: string): CompletionSubagentResult {
-	return { id: "test" as never, mode: "completion", status: "failed", output: "", failure: reason };
+	return {
+		id: "test" as never,
+		mode: "completion",
+		status: "failed",
+		output: "",
+		failure: { kind: "transient", message: reason, status: 429 },
+	};
 }
 
 test("constructs a JSON-only no-tools historian completion", async (): Promise<void> => {
@@ -46,7 +52,10 @@ test("normalizes failed terminals", async (): Promise<void> => {
 		{ model, source, sourceText: "history", signal: new AbortController().signal },
 		() => ({ result: Promise.resolve(failed("overloaded")), cancel: () => undefined }),
 	);
-	expect(result).toEqual({ kind: "failed", reason: "overloaded" });
+	expect(result).toEqual({
+		kind: "failed",
+		failure: { kind: "transient", message: "overloaded", status: 429 },
+	});
 });
 
 test("cancels the core handle when the run signal aborts", async (): Promise<void> => {
