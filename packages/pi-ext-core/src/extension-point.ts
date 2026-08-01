@@ -13,13 +13,14 @@ export interface ExtensionPointKey<Hook> {
 export interface ExtensionPointHandle {
 	/** Resolves after initial hook delivery; rejects when an owner callback fails. */
 	readonly ready: Promise<void>;
-	/** Removes this owner or hook registration generation. */
+	/** Removes this owner or hook registration generation; repeated disposal is safe. */
 	dispose(): Promise<void>;
 }
 
 export interface OpenExtensionPointOptions<Hook> {
 	/** Required cancellation boundary for dynamic hook delivery. */
 	readonly signal: AbortSignal;
+	/** Owner callbacks are serialized per point and may perform async setup/teardown. */
 	readonly onAdd: (hook: Hook) => void | Promise<void>;
 	readonly onRemove: (hook: Hook) => void | Promise<void>;
 }
@@ -30,7 +31,11 @@ export function createExtensionPointKey<Hook>(_id: string): ExtensionPointKey<Ho
 	return { id: _id } as ExtensionPointKey<Hook>;
 }
 
-/** Opens the single owner registration and starts dynamic hook delivery. */
+/**
+ * Opens the single owner registration and starts dynamic hook delivery. Existing
+ * hooks are delivered in registration order; a later owner collides until the
+ * current owner is disposed or its signal aborts.
+ */
 export function openExtensionPoint<Hook>(
 	_pi: ExtensionAPI,
 	_key: ExtensionPointKey<Hook>,
@@ -51,6 +56,8 @@ export function openExtensionPoint<Hook>(
 	};
 	registry.owners.set(_key.id, owner);
 	const existing = registry.hooks.get(_key.id) ?? [];
+	// `deliverAdd` queues on one owner chain, so Promise.all here starts delivery
+	// eagerly without allowing callbacks for the same owner to overlap.
 	const ready = observeRejection(
 		Promise.all(existing.map((registration) => deliverAdd(owner, registration))).then(
 			() => undefined,
@@ -73,7 +80,10 @@ export function openExtensionPoint<Hook>(
 	return { ready, dispose };
 }
 
-/** Registers a hook and returns its cleanup handle immediately. */
+/**
+ * Registers a hook and returns its cleanup handle immediately. If an owner is
+ * already open, `ready` represents that hook's initial onAdd delivery.
+ */
 export function registerExtensionHook<Hook>(
 	_pi: ExtensionAPI,
 	_key: ExtensionPointKey<Hook>,
@@ -149,6 +159,8 @@ function enqueueOwnerCallback(
 	owner: ExtensionPointOwner,
 	callback: () => void | Promise<void>,
 ): Promise<void> {
+	// Preserve callback order while resetting the chain after rejection; one bad
+	// hook must not permanently block later add/remove deliveries.
 	const delivery = owner.pending.then(async () => {
 		if (!owner.active) return;
 		await callback();

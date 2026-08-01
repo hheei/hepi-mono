@@ -15,7 +15,10 @@ function canonicalSkillKey(name: string): string {
 	return `skill:${bareName}`;
 }
 
-/** Publishes the current disabled skill set; the caller owns policy and cleanup. */
+/**
+ * Publishes the current disabled skill set, replacing the previous snapshot.
+ * The caller owns policy and must clear it during lifecycle teardown.
+ */
 export function setDisabledSkillKeys(pi: RuntimeHost, names: Iterable<string>): void {
 	const disabled = new Set<string>();
 	for (const name of names) disabled.add(canonicalSkillKey(name));
@@ -32,7 +35,7 @@ export function getDisabledSkillKeys(pi: RuntimeHost): ReadonlySet<string> {
 	return states().get(runtimeIdentity(pi))?.disabled ?? new Set();
 }
 
-/** Checks a bare skill name or canonical `skill:<name>` against the runtime state. */
+/** Checks a bare skill name or canonical `skill:<name>`; unknown skills are enabled. */
 export function isSkillEnabled(pi: RuntimeHost, name: string): boolean {
 	return !getDisabledSkillKeys(pi).has(canonicalSkillKey(name));
 }

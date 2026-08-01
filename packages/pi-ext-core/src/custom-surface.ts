@@ -10,6 +10,7 @@ import { runtimeIdentity } from "./runtime-identity.js";
 
 type SurfaceComponent = Component & { dispose?(): void };
 
+/** Result resolved by the surface owner when its component closes or is aborted. */
 export type TuiSurfaceResult<T> =
 	| { readonly status: "closed"; readonly value: T }
 	| { readonly status: "aborted" };
@@ -21,6 +22,7 @@ export interface TuiSurfaceContext<T> {
 	readonly keybindings: KeybindingsManager;
 	readonly signal: AbortSignal;
 	requestRender(): void;
+	/** Resolves the caller's promise as `closed`; the host then disposes the component. */
 	close(value: T): void;
 }
 
@@ -43,6 +45,7 @@ export interface OpenTuiSurfaceOptions<T> {
 	create(context: TuiSurfaceContext<T>): SurfaceComponent | Promise<SurfaceComponent>;
 }
 
+/** Explicit per-host capacity failure; callers decide whether to notify or fallback. */
 export class TuiSurfaceQueueFullError extends Error {
 	constructor(maxPending: number) {
 		super(`TUI surface queue is full (maxPending: ${maxPending})`);

@@ -17,8 +17,10 @@ export type ConversationMessageSequence = number & {
 	readonly [conversationMessageSequenceBrand]: true;
 };
 
+/** Execution contracts: one-shot text, terminal child task, or reusable conversation. */
 export type SubagentMode = "completion" | "task" | "conversation";
 
+/** Lifecycle state visible on a handle; terminal states never become active again. */
 export type SubagentStatus =
 	| "queued"
 	| "running"
@@ -34,6 +36,7 @@ export interface ConfigureSubagentCoordinatorOptions {
 }
 
 export interface CompletionSubagentSpec {
+	/** One model completion owned by core after admission. */
 	readonly mode: "completion";
 	/** Resolved model. Core reads its credential through the lifecycle model registry. */
 	readonly model: Model<Api>;
@@ -72,6 +75,7 @@ export type TaskTerminalDeliverySink = (
 ) => void | Promise<void>;
 
 export interface TaskSubagentSpec {
+	/** Child-session task whose terminal output is delivered to the caller's sink. */
 	readonly mode: "task";
 	readonly session: ResolvedChildSessionFactory;
 	readonly prompt: string;
@@ -115,6 +119,7 @@ export interface ConversationSendOptions {
 }
 
 export interface ConversationSubagentSpec {
+	/** Root-only child conversation; the raw child session remains opaque to consumers. */
 	readonly mode: "conversation";
 	readonly session: ResolvedChildSessionFactory;
 	/** First child message. Creation never starts an unowned prompt. */
@@ -247,6 +252,7 @@ export interface ConversationSubagentHandle
 	): Promise<ConversationReplyResult | ConversationDeliveryAcknowledgement>;
 }
 
+/** Mode-specific control and result surface retained for this parent lifecycle. */
 export type SubagentHandle =
 	| CompletionSubagentHandle
 	| TaskSubagentHandle
@@ -283,7 +289,8 @@ export function configureSubagentCoordinator(
 
 /**
  * Starts one root-session-scoped completion, task, or conversation. The shared
- * coordinator must already be configured by its lifecycle owner.
+ * coordinator must already be configured by its lifecycle owner; admission is
+ * bounded by the common active-turn cap and the caller owns result delivery.
  */
 export function startSubagent(
 	_context: ExtensionLifecycleContext,
@@ -319,7 +326,7 @@ export function startSubagent(
 	}
 }
 
-/** Returns a retained terminal handle for this parent lifecycle, if it still exists. */
+/** Returns a retained handle for this parent lifecycle, if its bounded record still exists. */
 export function lookupSubagent(
 	context: ExtensionLifecycleContext,
 	id: SubagentId,
@@ -327,7 +334,7 @@ export function lookupSubagent(
 	return getCoordinator(context).handles.get(id)?.handle;
 }
 
-/** Explicitly retries delivery of one retained Task result without rerunning its execution. */
+/** Explicitly retries delivery of one retained Task result without rerunning execution. */
 export function redeliverTask(
 	context: ExtensionLifecycleContext,
 	id: SubagentId,
@@ -337,9 +344,14 @@ export function redeliverTask(
 	if (record?.terminal === undefined || record.handle.mode !== "task") {
 		return Promise.reject(new Error(`No retained Task result exists for ${id}`));
 	}
-	return Promise.resolve(
-		delivery(record.terminal as TaskTerminalResult, record.controller.signal),
-	).catch(() => undefined);
+	const delivered = delivery(record.terminal as TaskTerminalResult, record.controller.signal);
+	if (delivered === undefined) return Promise.resolve();
+	// Redelivery failure belongs to the caller's sink; the retained terminal
+	// execution result remains available for another explicit attempt.
+	return delivered.then(
+		() => undefined,
+		() => undefined,
+	);
 }
 
 interface Coordinator {

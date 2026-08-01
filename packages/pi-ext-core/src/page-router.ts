@@ -14,15 +14,19 @@ import { runtimeIdentity } from "./runtime-identity.js";
  * pi-settings depend on the transitional hepi-basics aggregate.
  */
 
-/** Context created for one lazily constructed page view. */
+/** Context created for one lazily constructed page view. The signal ends with the router. */
 export interface ExtensionPageViewContext {
 	readonly command: ExtensionCommandContext;
 	readonly signal: AbortSignal;
 	readonly theme: Theme;
+	/** Requests host rendering after the contributor changes its own state. */
 	requestRender(): void;
 }
 
-/** A contributor-owned component and its cleanup for one open router surface. */
+/**
+ * A contributor-owned component and its cleanup for one open router surface.
+ * `handleInput` gets first refusal; returning true prevents router tab/close keys.
+ */
 export interface ExtensionPageView {
 	readonly component: Component;
 	handleInput(input: string): boolean | Promise<boolean>;
@@ -35,12 +39,15 @@ export interface ExtensionPageRegistration {
 	readonly id: string;
 	readonly label: string;
 	readonly order: number;
+	/** Lazily creates a view only when this page becomes selected. */
 	create(context: ExtensionPageViewContext): Promise<ExtensionPageView>;
 }
 
 export interface OpenExtensionPageRouterOptions {
+	/** Stable custom-surface host identity used for this command's pending bound. */
 	readonly hostId: string;
 	readonly signal: AbortSignal;
+	/** Explicit FIFO capacity; core does not choose an implicit global limit. */
 	readonly maxPending: number;
 	readonly initialPageId?: string;
 }
@@ -94,7 +101,11 @@ export function registerExtensionPage(
 	});
 }
 
-/** Opens the global page router from the single Settings host command. */
+/**
+ * Opens the global page router from the single Settings host command. Core owns
+ * tab navigation and view lifecycle; page contributors own content, business state,
+ * and input semantics that they consume before router navigation.
+ */
 export async function openExtensionPageRouter(
 	pi: ExtensionAPI,
 	command: ExtensionCommandContext,
@@ -140,6 +151,8 @@ export async function openExtensionPageRouter(
 				selectedId = pages[0]?.id;
 			};
 			const createSelected = async (): Promise<void> => {
+				// A page may be removed or selection may change while create() awaits;
+				// close that late view instead of attaching it to a stale router state.
 				selectFallback();
 				const id = selectedId;
 				if (id === undefined || views.has(id) || failures.has(id) || closed) return;
@@ -227,6 +240,8 @@ export async function openExtensionPageRouter(
 						.then(async () => {
 							const id = selectedId;
 							const view = id === undefined ? undefined : views.get(id);
+							// Contributor input has first refusal by contract. Router keys are
+							// considered only when the selected page declines the event.
 							if (view !== undefined && (await view.handleInput(data))) return;
 							if (matchesKey(data, Key.escape)) {
 								close(undefined);

@@ -5,22 +5,27 @@ import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { lock } from "proper-lockfile";
 
 export interface PiSettingsPaths {
+	/** User-wide settings base, normally `<agent-dir>/settings.json`. */
 	readonly globalPath: string;
+	/** Project-local override, normally `<cwd>/.pi/settings.json`. */
 	readonly projectPath: string;
 }
 
 export type JsonSettingsValueSource = "global" | "project" | "mixed";
 
 export interface MergedJsonSettingsSection {
+	/** Raw layers are exposed so consumers can apply stricter trust rules than project-wins merge. */
 	readonly global: Readonly<Record<string, unknown>>;
 	readonly project: Readonly<Record<string, unknown>>;
 	readonly merged: Readonly<Record<string, unknown>>;
+	/** Reports which raw layer contributed the value at a nested path. */
 	sourceOf(path: readonly string[]): JsonSettingsValueSource | undefined;
 }
 
 export interface ReadMergedJsonSettingsSectionOptions {
 	readonly paths: PiSettingsPaths;
 	readonly section: string;
+	/** Optional caller-owned cancellation for both reads and the final merge boundary. */
 	readonly signal?: AbortSignal;
 }
 
@@ -48,7 +53,7 @@ export function defaultPiSettingsPaths(
 	};
 }
 
-/** Reads one settings root without applying feature schema or scope policy. */
+/** Reads one settings root without applying feature schema or scope policy. Missing files are empty. */
 export async function readJsonSettingsRoot(
 	path: string,
 	signal?: AbortSignal,
@@ -71,7 +76,7 @@ export async function readJsonSettingsRoot(
 	return value;
 }
 
-/** Reads one named object section without interpreting its fields. */
+/** Reads one named object section without interpreting its fields. Missing sections are undefined. */
 export async function readJsonSettingsSection(
 	path: string,
 	section: string,
@@ -142,7 +147,8 @@ function sourceAt(
 
 /**
  * Loads both layers and a default project-wins recursive merge. Consumers that
- * restrict project trust must use `global` and `project`, not `merged`.
+ * restrict project trust must use `global` and `project`, not `merged`; core does
+ * not decide whether project values are safe for a feature's policy.
  */
 export async function readMergedJsonSettingsSection(
 	options: ReadMergedJsonSettingsSectionOptions,
@@ -195,7 +201,8 @@ function settingsWriteQueues(): Map<string, Promise<void>> {
 
 /**
  * Serializes in-process writers and locks across processes before atomically
- * replacing a settings root. Consumers own section/schema merge semantics.
+ * replacing a settings root. Consumers own section/schema merge semantics; the
+ * updater must mutate the supplied root synchronously before this function writes it.
  */
 export async function updateJsonSettingsRoot(
 	path: string,
@@ -215,6 +222,8 @@ export async function updateJsonSettingsRoot(
 				retries: { retries: 100, minTimeout: 20, maxTimeout: 20 },
 			});
 			try {
+				// Read-modify-write occurs under the process lock and the per-path queue,
+				// preventing sibling settings providers from losing each other's sections.
 				signal?.throwIfAborted();
 				const root = await readJsonSettingsRoot(path, signal);
 				update(root);
