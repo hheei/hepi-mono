@@ -17,7 +17,7 @@ test("publishes the embedding capability only for its active lifecycle", async (
 	};
 
 	registerExtensionLifecycle(host.pi, {
-		key: "@hheei/pi-embeddings",
+		key: "@hheei/pi-ext-embed",
 		start: (context) => {
 			expect(provideService(context, embeddingService, service)).toBe(true);
 		},

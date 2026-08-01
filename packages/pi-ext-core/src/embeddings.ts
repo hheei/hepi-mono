@@ -42,8 +42,8 @@ export interface EmbeddingService {
 }
 
 /**
- * Explicit single-consumer exception: pi-embeddings provides this stable
+ * Explicit single-consumer exception: pi-ext-embed provides this stable
  * capability before MCTX Search and Dreamer are both implemented. Service
  * absence must remain a non-blocking semantic-retrieval fallback.
  */
-export const embeddingService = createServiceKey<EmbeddingService>("@hheei/pi-embeddings/service");
+export const embeddingService = createServiceKey<EmbeddingService>("@hheei/pi-ext-embed/service");
