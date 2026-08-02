@@ -66,6 +66,15 @@ export {
 	hepiThinkingGlyph,
 } from "./model-selection.js";
 export type {
+	MouseRegion,
+	MouseSupport,
+	SelectableRegion,
+	TerminalMouseEvent,
+	TextPosition,
+	TextRange,
+} from "./mouse.js";
+export { installMouseSupport } from "./mouse.js";
+export type {
 	ExtensionPageRegistration,
 	ExtensionPageView,
 	ExtensionPageViewContext,
