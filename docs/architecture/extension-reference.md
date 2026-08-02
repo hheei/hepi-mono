@@ -35,6 +35,9 @@ contracts recorded in its ADRs:
 - terminal mouse tracking and local text selection transport, with temporary terminal
   mouse ownership during the tracking lease; never page content, clipboard policy,
   cross-component selection, or a generic layout tree.
+- the opt-in Runtime host bridge exception for Pi `0.83.x` Editor and HEPI-managed tool
+  Host surfaces; it centralizes version-bound private runtime compatibility, never exposes
+  raw Pi internals or owns selection/copy policy.
 
 It does not contain feature policy, register a Pi extension, or import a
 concrete extension. Its imports are side-effect free: it creates no Pi handler,
@@ -93,8 +96,8 @@ Public contracts must:
 Do not export a class hierarchy, a generic registry, or an adapter layer for a
 single consumer. Add a core mechanism only after a second concrete extension
 needs the same feature-neutral behavior. The documented Loadout contract, Extension page router,
-Subagent execution contract, JSON settings transport, and mouse/local selection contract are approved,
-bounded exceptions; do not use them to justify another single-consumer abstraction.
+Subagent execution contract, JSON settings transport, mouse/local selection contract, and Runtime host
+bridge contract are approved, bounded exceptions; do not use them to justify another single-consumer abstraction.
 
 ## Cross-Extension Cooperation
 

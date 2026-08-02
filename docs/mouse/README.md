@@ -82,6 +82,10 @@ function installMouseSupport(
 
 core 只驱动 `setSelection()`；页面保留逻辑文本读取、复制动作及其安全和兼容性 policy。`up` 不自动读 selection、不写 OSC 52、不访问系统 clipboard。
 
+需要 Pi 当前 Editor 或 HEPI-managed tool output 的真实 geometry/lifecycle 时，已确认但尚未实现的
+[Runtime host bridge](../bridge/README.md) 只提供 Host surface snapshot；它不改变本 contract 的 surface-owned
+text mapping、selection 或 clipboard boundary。
+
 ## 实现注释约定
 
 实现 mouse/selection 时，设计理由必须与对应代码同步写入 TypeScript 注释，不在实现完成后另行补一份脱离代码的说明。注释解释 **why**、不变量、违反后的后果和成本，不逐行复述 **what**：
