@@ -60,9 +60,9 @@ widget；最后一个 lease release 才重新执行仍有效 contributor factory
 reload 和 session shutdown 都必须幂等 cleanup。core 不能且不承诺隐藏没有迁移到这个 registration contract
 的 third-party/direct Pi widget。
 
-它尚未实现 rail priority、左右布局、`maxRows` 或最小 editor 高度 compositor。若两个真实 contributor
-需要组合，再定义这些 policy；不能预先把它们伪装成已实现能力。内容区不接管 editor 键盘输入，用户动作由
-extension command 或 custom popup 完成。
+它尚未实现 rail priority、左右布局、`maxRows` 或最小 editor 高度 compositor。只有这些能力形成明确、
+feature-neutral 的组合中间层时才定义其 policy；不能因预测复用把它们伪装成已实现能力。内容区不接管 editor
+键盘输入，用户动作由 extension command 或 custom popup 完成。
 
 上下两条 rail 与 widget 区不同：它们由一个唯一 editor/footer compositor 生成单行结构，所有 rail contributor 使用同一 priority order，宽度不足时以该 order 裁剪或隐藏。compositor 保存并恢复前一个 editor/footer factory，避免与 Pi editor、hardware cursor 及其他包装器产生 ownership 冲突。
 

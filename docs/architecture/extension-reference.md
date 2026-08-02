@@ -87,11 +87,12 @@ Public contracts must:
   behavior with concise JSDoc when it is not obvious from the type;
 - omit extension-specific behavior from `pi-ext-core`.
 
-Do not export a class hierarchy, a generic registry, or an adapter layer for a
-single consumer. Add a core mechanism only after a second concrete extension
-needs the same feature-neutral behavior. The documented Loadout contract, Extension page router and
-Subagent execution contract are approved, bounded exceptions; do not use them to justify another
-single-consumer abstraction.
+Do not export a class hierarchy, a generic registry, or an adapter layer merely
+because one feature might reuse it later. A valuable, feature-neutral core
+mechanism may be introduced before a second concrete extension consumes it when
+its bounded middle-layer scope is explicit. Do not use the documented Loadout
+contract, Extension page router, or Subagent execution contract to justify
+feature policy, content, state, or another speculative abstraction.
 
 ## Cross-Extension Cooperation
 

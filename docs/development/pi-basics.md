@@ -34,7 +34,7 @@ Registration IDs must be non-empty. Duplicate tool disable handlers are programm
 
 Module and settings contributions follow the same ownership rule. Register them inside `session_start`, immediately add the returned disposer to `runtime.registry`, and let `session_shutdown` remove them. Registration disposers are idempotent and remove only their exact registration generation, even when the same object is registered again. Do not use `replace()` to hide duplicate IDs from the same active extension generation.
 
-Use `pi.events` directly only for namespaced notifications without shared state ownership. Use a core contract for coordinated state or request/response semantics. Do not add a generic registry until at least two concrete contracts need identical ownership and collision behavior.
+Use `pi.events` directly only for namespaced notifications without shared state ownership. Use a core contract for coordinated state or request/response semantics. Add a generic registry only when it has a clear, feature-neutral middle-layer scope with identical ownership and collision behavior; consumer count alone is not the gate.
 
 ## TUI
 
