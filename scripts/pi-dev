@@ -8,28 +8,44 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageRoot = path.join(root, "packages");
 const agentDir = path.resolve(process.env.PI_DEV_AGENT_DIR ?? path.join(root, ".pi-dev", "agent"));
 const piCli = path.join(root, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js");
-const buildDirectories = [
+const requiredBuildDirectories = [
 	path.join(packageRoot, "pi-ext-core"),
 	path.join(packageRoot, "pi-ext-embed"),
-];
+].filter(existsSync);
 
 if (!existsSync(piCli)) {
 	console.error("Missing local Pi. Run bun install from the repository root.");
 	process.exit(1);
 }
 
-const packageDirs = readdirSync(packageRoot, { withFileTypes: true })
-	.filter((entry) => entry.isDirectory() && entry.name.startsWith("pi-"))
-	.map((entry) => path.join(packageRoot, entry.name))
-	.filter((directory) => {
-		const manifestPath = path.join(directory, "package.json");
-		if (!existsSync(manifestPath)) return false;
-		const manifest: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
-		return typeof manifest === "object" && manifest !== null && "pi" in manifest;
-	})
-	.sort();
+const packageDirsForPrefix = (prefix: string): string[] =>
+	readdirSync(packageRoot, { withFileTypes: true })
+		.filter((entry) => entry.isDirectory() && entry.name.startsWith(prefix))
+		.map((entry) => path.join(packageRoot, entry.name))
+		.filter((directory) => {
+			const manifestPath = path.join(directory, "package.json");
+			if (!existsSync(manifestPath)) return false;
+			const manifest: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
+			return (
+				typeof manifest === "object" &&
+				manifest !== null &&
+				"pi" in manifest &&
+				"name" in manifest &&
+				typeof manifest.name === "string" &&
+				manifest.name.startsWith("@hheei/")
+			);
+		})
+		.sort();
 
-for (const directory of [...buildDirectories, ...packageDirs]) {
+const independentPackageDirs = packageDirsForPrefix("pi-");
+const packageDirs =
+	independentPackageDirs.length > 0
+		? independentPackageDirs
+		: packageDirsForPrefix("hepi-").filter(
+			(directory) => !["hepi-debug", "hepi-subagents"].includes(path.basename(directory)),
+		);
+
+for (const directory of [...requiredBuildDirectories, ...packageDirs]) {
 	const result = spawnSync(process.execPath, ["run", "build"], {
 		cwd: directory,
 		stdio: "inherit",
