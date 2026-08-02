@@ -356,3 +356,40 @@ A subscriber-owned, fixed-cap snapshot stream for selected child output. Text, t
 turn state may coalesce; terminal state evicts the oldest coalescible entry and is never dropped.
 The stream preserves delivered-event order, not every intermediate state or a lossless event log.
 _Avoid_: unbounded event queue, blocking callback
+# HEPI Terminal Interaction
+
+This context defines shared terminal interaction vocabulary for HEPI extensions. It distinguishes terminal input transport from page-owned interaction semantics.
+
+## Language
+
+**MouseRegion**:
+A page-owned, current-layout terminal-cell region that may receive normalized mouse events.
+_Avoid_: MouseComponent, clickable component
+
+**Mouse dispatcher**:
+A session-scoped service that normalizes terminal mouse input and routes it to registered MouseRegions.
+_Avoid_: mouse component tree, global mouse handler
+
+**Mouse tracking lease**:
+The active lifetime created by registered MouseRegions during which the dispatcher enables terminal mouse reporting and consumes recognized mouse sequences.
+_Avoid_: permanent mouse mode, raw mouse passthrough
+
+**Mouse capture**:
+The temporary routing of a selection gesture's drag and up events to the MouseRegion that received its down event.
+_Avoid_: cross-region selection, retargeted drag
+
+**Selection gesture**:
+A normalized sequence of unmodified primary-button down, drag, and up events within a MouseRegion.
+_Avoid_: click, hover
+
+**Selection content model**:
+The page-owned logical text representation from which selected text is derived, independent of ANSI-rendered borders and styles.
+_Avoid_: rendered selection, terminal string selection
+
+**TextPosition**:
+A zero-based position in a selection content model, expressed as a line and grapheme offset.
+_Avoid_: UTF-16 offset, terminal cell coordinate
+
+**TextRange**:
+A half-open interval between two TextPositions in one selection content model.
+_Avoid_: inclusive selection range
