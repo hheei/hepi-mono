@@ -75,7 +75,7 @@ input，因此 terminal emulator 的 native selection 可能被抑制或改变�
 获得 owner-scoped `MouseSupport`；页面负责注册当前布局的 `MouseRegion`、边框排除、滚动偏移、cell 到内容位置的
 转换和 selection state。
 
-core 只负责 SGR tracking、规范化 `down`/`drag`/`up`、重叠 region 的后注册优先、down-region capture
+core 只负责 SGR tracking、规范化 `down`/`drag`/`up`、重叠 region 的后注册优先（`down` 返回 `"ignored"` 时继续下一层）、down-region capture
 以及幂等 cleanup。没有 region 时不启用 tracking；tracking active 时已识别 mouse input 不进入 focused
 component 的 keyboard handler。region registration 只在 layout snapshot 更新时发生，不得作为 `render(width)` 的
 副作用；`pi-tui` 已处理 stdin chunk 分片，core 只解码完整 input sequence。第一版不定义 hover、click、跨组件 selection 或 clipboard action；

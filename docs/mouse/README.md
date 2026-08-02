@@ -62,7 +62,7 @@ function installMouseSupport(
 - 同一个 `TUI` 共用一个内部 dispatcher；每个 install handle 只拥有自己注册的 region，dispose 幂等。
 - 第一个 region 注册时启用 SGR button-motion tracking；最后一个 region 移除时关闭。没有 active region 时不保留 tracking。
 - tracking active 期间，所有已识别的 mouse sequence 都由 dispatcher 消费；未命中的事件不会进入 focused component 的 keyboard `handleInput()`。未识别的普通输入保持原样。
-- 区域重叠时，后注册者优先。region 不要求来自可遍历的 component tree。
+- 区域重叠时，后注册者优先；`down` 命中的 region 若从 `onMouseEvent()` 返回 `"ignored"`，继续尝试更早注册的匹配 region，其他返回值都在当前 region 停止。region 不要求来自可遍历的 component tree。
 - region registration 是 layout snapshot 的更新操作，只在 layout、resize、scroll 或可见性改变时进行；不得在
   `render(width)` 中注册或移除 region。hit test 读取当前 snapshot，不写 registry。
 - `registerSelectableRegion()` 使用 region 的 `hitTest()` 选择目标，并用 `hitTestText()` 把
@@ -72,7 +72,7 @@ function installMouseSupport(
 - 第一版只定义 `down`、`drag`、`up`，不定义 hover `move` 或派生 `click`。默认 selectable gesture 只响应无修饰左键；其他按钮与 modifier 仍交给自定义 region。
 - `pi-tui` 的 `StdinBuffer` 已在 TUI input boundary 处理 stdin chunk 分片；core decoder 只接收一个完整
   input sequence，不创建第二个 buffer、不设置第二个 flush timeout，也不向 consumer 承诺 raw parser 语义。
-- 普通键盘 input 走无分配的快速非 mouse 路径；mouse dispatch 对 active regions 倒序扫描并在命中后停止。
+- 普通键盘 input 走无分配的快速非 mouse 路径；mouse dispatch 对 active regions 倒序扫描，在处理或明确接受后停止，`down` 的 `"ignored"` 才继续向下一层尝试。
   core 不在每个 mouse event 上写 terminal、创建 Promise 或执行 I/O。
 
 ## Selection 与 clipboard
