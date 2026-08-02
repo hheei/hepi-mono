@@ -1,5 +1,14 @@
 #!/usr/bin/env bun
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	symlinkSync,
+	unlinkSync,
+	writeFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -7,29 +16,72 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageRoot = path.join(root, "packages");
 const agentDir = path.resolve(process.env.PI_DEV_AGENT_DIR ?? path.join(root, ".pi-dev", "agent"));
+const sourceAgentDir = path.join(homedir(), ".pi", "agent");
+const sourceAuthPath = path.resolve(
+	process.env.PI_DEV_AUTH_FILE ?? path.join(sourceAgentDir, "auth.json"),
+);
+const sourceModelsPath = path.resolve(
+	process.env.PI_DEV_MODELS_FILE ?? path.join(sourceAgentDir, "models.json"),
+);
 const piCli = path.join(root, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js");
-const buildDirectories = [
+const requiredBuildDirectories = [
 	path.join(packageRoot, "pi-ext-core"),
 	path.join(packageRoot, "pi-ext-embed"),
-];
+].filter(existsSync);
 
 if (!existsSync(piCli)) {
 	console.error("Missing local Pi. Run bun install from the repository root.");
 	process.exit(1);
 }
 
-const packageDirs = readdirSync(packageRoot, { withFileTypes: true })
-	.filter((entry) => entry.isDirectory() && entry.name.startsWith("pi-"))
-	.map((entry) => path.join(packageRoot, entry.name))
-	.filter((directory) => {
-		const manifestPath = path.join(directory, "package.json");
-		if (!existsSync(manifestPath)) return false;
-		const manifest: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
-		return typeof manifest === "object" && manifest !== null && "pi" in manifest;
-	})
-	.sort();
+const packageDirsForPrefix = (prefix: string): string[] =>
+	readdirSync(packageRoot, { withFileTypes: true })
+		.filter((entry) => entry.isDirectory() && entry.name.startsWith(prefix))
+		.map((entry) => path.join(packageRoot, entry.name))
+		.filter((directory) => {
+			const manifestPath = path.join(directory, "package.json");
+			if (!existsSync(manifestPath)) return false;
+			const manifest: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
+			return (
+				typeof manifest === "object" &&
+				manifest !== null &&
+				"pi" in manifest &&
+				"name" in manifest &&
+				typeof manifest.name === "string" &&
+				manifest.name.startsWith("@hheei/")
+			);
+		})
+		.sort();
 
-for (const directory of [...buildDirectories, ...packageDirs]) {
+const independentPackageDirs = packageDirsForPrefix("pi-");
+const packageDirs = independentPackageDirs;
+
+function isEmptyJsonObject(filePath: string): boolean {
+	try {
+		const parsed: unknown = JSON.parse(readFileSync(filePath, "utf8"));
+		return (
+			typeof parsed === "object" &&
+			parsed !== null &&
+			!Array.isArray(parsed) &&
+			Object.keys(parsed).length === 0
+		);
+	} catch {
+		return false;
+	}
+}
+
+function linkSourceFile(sourcePath: string, targetPath: string): void {
+	if (
+		sourcePath === targetPath ||
+		!existsSync(sourcePath) ||
+		(existsSync(targetPath) && !isEmptyJsonObject(targetPath))
+	)
+		return;
+	if (existsSync(targetPath)) unlinkSync(targetPath);
+	symlinkSync(sourcePath, targetPath);
+}
+
+for (const directory of [...requiredBuildDirectories, ...packageDirs]) {
 	const result = spawnSync(process.execPath, ["run", "build"], {
 		cwd: directory,
 		stdio: "inherit",
@@ -39,6 +91,8 @@ for (const directory of [...buildDirectories, ...packageDirs]) {
 
 mkdirSync(agentDir, { recursive: true });
 const settingsPath = path.join(agentDir, "settings.json");
+const authPath = path.join(agentDir, "auth.json");
+const modelsPath = path.join(agentDir, "models.json");
 let settings: Record<string, unknown> = {};
 if (existsSync(settingsPath)) {
 	const parsed: unknown = JSON.parse(readFileSync(settingsPath, "utf8"));
@@ -47,11 +101,17 @@ if (existsSync(settingsPath)) {
 	}
 }
 settings.packages = packageDirs;
+settings.defaultProvider = "cx";
+settings.defaultModel = "gpt-5.6-luna";
+settings.defaultThinkingLevel = "low";
+settings.enabledModels = ["cx/gpt-5.6-luna"];
 delete settings.extensions;
 delete settings.skills;
 delete settings.prompts;
 delete settings.themes;
 writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+linkSourceFile(sourceAuthPath, authPath);
+linkSourceFile(sourceModelsPath, modelsPath);
 
 const result = spawnSync(process.execPath, [piCli, "--no-approve", ...process.argv.slice(2)], {
 	cwd: process.cwd(),
