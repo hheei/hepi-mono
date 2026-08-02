@@ -12,10 +12,11 @@ export function buildGrepFailureMessage(error: GrepSearchError, pathQuery?: stri
 export function grepNeedsBuiltinFallback(params: {
 	pattern: string;
 	ignoreCase?: boolean;
-	literal?: boolean;
 }): boolean {
+	// FFF's request contract has no case-insensitive option; lowercasing only the
+	// pattern cannot make matching file content case-insensitive.
+	if (params.ignoreCase === true) return true;
 	if (params.ignoreCase === false && params.pattern.toLowerCase() === params.pattern) return true;
-	if (params.ignoreCase === true && !params.literal) return true;
 	return false;
 }
 
