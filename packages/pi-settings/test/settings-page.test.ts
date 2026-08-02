@@ -16,9 +16,14 @@ function context(): {
 				ui: { notify: () => undefined },
 			} as never,
 			signal: new AbortController().signal,
-			theme: { fg: (_role: string, value: string) => value, bold: (value: string) => value },
+			theme: {
+				fg: (_role: string, value: string) => value,
+				bold: (value: string) => value,
+			} as never,
 			requestRender: () => undefined,
-			requestClose: () => closes.value++,
+			requestClose: () => {
+				closes.value++;
+			},
 		},
 		closes,
 	};
@@ -53,9 +58,13 @@ describe("Settings provider page", () => {
 					sessionIds.push(context.sessionId);
 					return { display: { enabled: true } };
 				},
-				save: (state) => saved.push(state),
+				save: (state) => {
+					saved.push(state);
+				},
 			},
-			onChange: (change) => changes.push(change),
+			onChange: (change) => {
+				changes.push(change);
+			},
 		};
 		const h = context();
 		const page = await createSettingsPage({ list: () => [provider] } as never, h.value);
@@ -90,7 +99,12 @@ describe("Settings provider page", () => {
 					],
 				},
 			],
-			storage: { load: () => undefined, save: (state) => saves.push({ title, state }) },
+			storage: {
+				load: () => undefined,
+				save: (state) => {
+					saves.push({ title, state });
+				},
+			},
 		}));
 		const h = context();
 		const page = await createSettingsPage({ list: () => providers } as never, h.value);
@@ -209,7 +223,12 @@ describe("Settings provider page", () => {
 					],
 				},
 			],
-			storage: { load: () => undefined, save: (state) => saved.push(state) },
+			storage: {
+				load: () => undefined,
+				save: (state) => {
+					saved.push(state);
+				},
+			},
 		};
 		const page = await createSettingsPage({ list: () => [provider] } as never, context().value);
 		await page.handleInput(" ");

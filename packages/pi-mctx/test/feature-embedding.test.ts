@@ -58,7 +58,10 @@ function lifecycle(cleanup: Array<() => void | Promise<void>>): ExtensionLifecyc
 			ui: { notify: () => undefined },
 		},
 		signal: new AbortController().signal,
-		resources: { add: (_name, dispose) => cleanup.push(dispose), cleanup: async () => [] },
+		resources: {
+			add: (_name: string, dispose: () => void | Promise<void>) => cleanup.push(dispose),
+			cleanup: async () => [],
+		},
 	} as unknown as ExtensionLifecycleContext;
 }
 

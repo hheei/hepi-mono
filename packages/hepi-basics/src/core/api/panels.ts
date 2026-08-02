@@ -1,4 +1,4 @@
-import type { HepiMaybePromise } from "./modules.js";
+export type HepiMaybePromise<T> = T | Promise<T>;
 
 export interface HepiPanel {
 	readonly id: string;

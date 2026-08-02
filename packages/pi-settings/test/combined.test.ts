@@ -24,10 +24,16 @@ function provider(id: string, calls: string[]): HepiSettingsProvider {
 		],
 		storage: {
 			load: () => ({ general: { enabled: true } }),
-			save: (state) => calls.push(`${id}:save:${String(state.general?.enabled)}`),
-			validate: (state) => calls.push(`${id}:validate:${String(state.general?.enabled)}`),
+			save: (state) => {
+				calls.push(`${id}:save:${String(state.general?.enabled)}`);
+			},
+			validate: (state) => {
+				calls.push(`${id}:validate:${String(state.general?.enabled)}`);
+			},
 		},
-		onChange: (change) => calls.push(`${id}:change:${change.groupId}:${change.fieldId}`),
+		onChange: (change) => {
+			calls.push(`${id}:change:${change.groupId}:${change.fieldId}`);
+		},
 	};
 }
 

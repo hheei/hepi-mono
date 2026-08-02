@@ -217,7 +217,6 @@ test("acquires host resources only while the custom surface is open", async () =
 	expect(opens).toBe(1);
 	if (finish === undefined || component === undefined) throw new Error("Expected router component");
 	finish();
-	component.dispose?.();
 	await opening;
 	await settle();
 	expect(releases).toBe(1);

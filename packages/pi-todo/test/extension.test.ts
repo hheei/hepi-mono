@@ -4,6 +4,7 @@ import {
 	createEventBus,
 	DefaultResourceLoader,
 	type EventBus,
+	type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import { observeLoadoutInventory } from "@hheei/pi-ext-core";
 
@@ -33,15 +34,12 @@ test("entrypoint reload keeps Todo owned by its managed Loadout registration", a
 	const eventBus = createEventBus();
 	const abort = new AbortController();
 	const snapshots: string[][] = [];
-	observeLoadoutInventory(
-		{ events: eventBus },
-		{
-			signal: abort.signal,
-			onChange(items) {
-				snapshots.push(items.map((item) => item.id));
-			},
+	observeLoadoutInventory({ events: eventBus } as unknown as ExtensionAPI, {
+		signal: abort.signal,
+		onChange(items) {
+			snapshots.push(items.map((item) => item.id));
 		},
-	);
+	});
 
 	const resources = loader(eventBus);
 	await resources.reload();

@@ -73,7 +73,10 @@ function setup(): {
 			},
 		],
 	} as unknown as ExtensionAPI;
-	const theme = { fg: (_role: string, value: string) => value, bold: (value: string) => value };
+	const theme = {
+		fg: (_role: string, value: string) => value,
+		bold: (value: string) => value,
+	} as never;
 	const context = {
 		command: {
 			cwd: "/workspace",
@@ -85,7 +88,9 @@ function setup(): {
 		signal: new AbortController().signal,
 		theme,
 		requestRender: () => undefined,
-		requestClose: () => closes.value++,
+		requestClose: () => {
+			closes.value++;
+		},
 	} as ExtensionPageViewContext;
 	return { pi, context, notifications, closes };
 }

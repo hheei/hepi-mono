@@ -32,9 +32,10 @@ test("falls back to the absolute threshold without a context window", (): void =
 			cooling: false,
 		}),
 	).toEqual({ kind: "trigger", cooling: true, thresholdTokens: 12_000 });
-	expect(
-		evaluateMctxTriggerPolicy({ usageTokens: 12_000, contextWindow: undefined, cooling: true }),
-	).toEqual({ kind: "unavailable", cooling: true });
+	expect(evaluateMctxTriggerPolicy({ usageTokens: 12_000, cooling: true })).toEqual({
+		kind: "unavailable",
+		cooling: true,
+	});
 });
 
 test("cools until both percentage and absolute rearm guards clear", (): void => {
@@ -81,7 +82,6 @@ test("rearms at the absolute-only cooling boundary without a context window", ()
 	expect(
 		evaluateMctxTriggerPolicy({
 			usageTokens: 72_001,
-			contextWindow: undefined,
 			absoluteThreshold: 80_000,
 			cooling: true,
 		}),
@@ -89,7 +89,6 @@ test("rearms at the absolute-only cooling boundary without a context window", ()
 	expect(
 		evaluateMctxTriggerPolicy({
 			usageTokens: 72_000,
-			contextWindow: undefined,
 			absoluteThreshold: 80_000,
 			cooling: true,
 		}),

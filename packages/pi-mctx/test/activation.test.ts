@@ -19,6 +19,7 @@ function configuration(
 			historianModel: "anthropic/claude-haiku",
 			failClosedBlocking: true,
 			executeThresholdPercentage: { defaultValue: 65, byModel: {} },
+			protectedTags: 20,
 		},
 	},
 ): MctxConfiguration {
@@ -118,6 +119,7 @@ test("resolves historian and joins the shared completion coordinator", (): void 
 				historianModel: "anthropic/claude-haiku",
 				failClosedBlocking: true,
 				executeThresholdPercentage: { defaultValue: 65, byModel: {} },
+				protectedTags: 20,
 			},
 		},
 	});
@@ -130,21 +132,22 @@ test("feature owns the active runtime for the session lifecycle", async (): Prom
 	const feature = createMctxFeature({
 		loadConfiguration: async () => configuration(),
 		resolveProjectIdentity: async () => `git:${"a".repeat(40)}`,
-		openStore: () => ({
-			path: "/store",
-			getOrCreatePartition: () => ({
-				projectIdentity: `git:${"a".repeat(40)}`,
-				sessionId: "session-1",
-				revision: 0,
-			}),
-			advancePartitionRevision: () => undefined,
-			acquireHistorianLease: () => undefined,
-			renewHistorianLease: () => undefined,
-			releaseHistorianLease: () => undefined,
-			listCompartments: () => [],
-			publishCompartment: () => undefined,
-			close: () => void closed++,
-		}),
+		openStore: () =>
+			({
+				path: "/store",
+				getOrCreatePartition: () => ({
+					projectIdentity: `git:${"a".repeat(40)}`,
+					sessionId: "session-1",
+					revision: 0,
+				}),
+				advancePartitionRevision: () => undefined,
+				acquireHistorianLease: () => undefined,
+				renewHistorianLease: () => undefined,
+				releaseHistorianLease: () => undefined,
+				listCompartments: () => [],
+				publishCompartment: () => undefined,
+				close: () => void closed++,
+			}) as unknown as import("../src/store.js").MctxStore,
 	});
 	await feature.start(fixture.context);
 	expect(feature.active()?.sessionId).toBe("session-1");
@@ -190,19 +193,20 @@ test("feature owns the active runtime for the session lifecycle", async (): Prom
 		resolveProjectIdentity: async () => {
 			throw new Error("project permission denied");
 		},
-		openStore: () => ({
-			path: "/store",
-			getOrCreatePartition: () => {
-				throw new Error("must not create partition");
-			},
-			advancePartitionRevision: () => undefined,
-			acquireHistorianLease: () => undefined,
-			renewHistorianLease: () => undefined,
-			releaseHistorianLease: () => undefined,
-			listCompartments: () => [],
-			publishCompartment: () => undefined,
-			close: () => void partitionStoreClosed++,
-		}),
+		openStore: () =>
+			({
+				path: "/store",
+				getOrCreatePartition: () => {
+					throw new Error("must not create partition");
+				},
+				advancePartitionRevision: () => undefined,
+				acquireHistorianLease: () => undefined,
+				renewHistorianLease: () => undefined,
+				releaseHistorianLease: () => undefined,
+				listCompartments: () => [],
+				publishCompartment: () => undefined,
+				close: () => void partitionStoreClosed++,
+			}) as unknown as import("../src/store.js").MctxStore,
 	});
 	await expect(partitionFeature.start(partitionFixture.context)).rejects.toThrow(
 		"project permission denied",
