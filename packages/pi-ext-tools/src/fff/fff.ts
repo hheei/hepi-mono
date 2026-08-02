@@ -8,8 +8,6 @@ export {
 export { FffRuntime } from "./fff-runtime.js";
 export type {
 	FffFileCandidate,
-	FindFilesRequest,
-	FindFilesResponse,
 	GrepMatch,
 	GrepOutputMode,
 	GrepSearchRequest,

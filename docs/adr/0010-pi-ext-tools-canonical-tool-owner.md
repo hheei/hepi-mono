@@ -12,6 +12,6 @@ renderer 与可选 selection；不建立 priority-based duplicate registration �
 
 ## 后果
 
-`pi-ext-tools` 是 catalog name 的唯一 owner；其他 concrete extension 不得竞争注册。第一阶段将 `pi-fff` 拆分为
-`pi-ext-tools` 的 `read` 与仍由 `pi-fff` 提供的 grep/find/FFF runtime，旧 `pi-fff` 与新 `pi-ext-tools` 不兼容。
-`read` 的 auto-copy selection 是 concrete tool policy；core 保持 clipboard-neutral。
+`pi-ext-tools` 是 catalog name 的唯一 owner；其他 concrete extension 不得竞争注册。后续迁移已将 FFF runtime、
+autocomplete、commands 与 settings 一并纳入 `pi-ext-tools`，并退休 standalone `pi-fff` package。`read` 的 local
+selection 是 concrete tool policy；core 保持 clipboard-neutral。

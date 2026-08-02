@@ -42,15 +42,6 @@ export class EmptyPathQueryError extends TaggedError("EmptyPathQueryError")<{
 	}
 }
 
-export class EmptyFileQueryError extends TaggedError("EmptyFileQueryError")<{
-	query: string;
-	message: string;
-}>() {
-	constructor(args: { query: string }) {
-		super({ ...args, message: "File query is empty." });
-	}
-}
-
 export class MissingPathError extends TaggedError("MissingPathError")<{
 	query: string;
 	reason: string;
@@ -68,16 +59,6 @@ export class AmbiguousPathError extends TaggedError("AmbiguousPathError")<{
 }>() {
 	constructor(args: { query: string; candidates: FffFileCandidate[] }) {
 		super({ ...args, message: `Ambiguous path query: ${args.query}` });
-	}
-}
-
-export class InvalidFindFilesCursorError extends TaggedError("InvalidFindFilesCursorError")<{
-	query: string;
-	cursor: string;
-	message: string;
-}>() {
-	constructor(args: { query: string; cursor: string }) {
-		super({ ...args, message: "Invalid or expired find_files cursor." });
 	}
 }
 
@@ -119,11 +100,6 @@ export type PathResolutionError =
 	| EmptyPathQueryError
 	| MissingPathError
 	| AmbiguousPathError
-	| RuntimeInitializationError
-	| FinderOperationError;
-export type FindFilesError =
-	| EmptyFileQueryError
-	| InvalidFindFilesCursorError
 	| RuntimeInitializationError
 	| FinderOperationError;
 export type RelatedFilesError = PathResolutionError | FinderOperationError;

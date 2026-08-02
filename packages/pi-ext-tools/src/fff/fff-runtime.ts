@@ -8,30 +8,23 @@ import { Result } from "better-result";
 import { formatPathResolutionError } from "./error-format.js";
 import {
 	AmbiguousPathError,
-	EmptyFileQueryError,
 	EmptyPathQueryError,
 	ExternalGrepScopeError,
 	FinderOperationError,
 	GrepCursorMismatchError,
-	InvalidFindFilesCursorError,
 	InvalidGrepCursorError,
 	MissingPathError,
 	RuntimeInitializationError,
 } from "./errors.js";
-import { buildGrepText, cropMatchLine, formatFindFilesText } from "./fff-format.js";
+import { buildGrepText, cropMatchLine } from "./fff-format.js";
 import {
 	AUTO_EXPAND_AFTER_CONTEXT,
 	DEFAULT_FILE_CANDIDATE_LIMIT,
-	DEFAULT_FIND_FILES_LIMIT,
 	DEFAULT_GREP_LIMIT,
 	DEFAULT_GREP_TIMEOUT_MS,
 	type EngineResult,
 	type FffFileCandidate,
-	FIND_FILES_CURSOR_PREFIX,
-	type FileCursorPayload,
 	type FileItem,
-	type FindFilesRequest,
-	type FindFilesResult,
 	GREP_CURSOR_PREFIX,
 	type GrepCursor,
 	type GrepMatch,
@@ -125,12 +118,6 @@ function stripPathLocation(query: string): string {
 		.replace(/:(\d+):(\d+)-(\d+):(\d+)$/, "")
 		.replace(/:(\d+):(\d+)$/, "")
 		.replace(/:(\d+)$/, "");
-}
-
-function shortenWaterfallQuery(query: string): string | null {
-	const words = query.split(/\s+/).filter((word) => word.length > 0);
-	if (words.length < 3) return null;
-	return words.slice(0, 2).join(" ");
 }
 
 function broadenGrepPattern(pattern: string): string | null {
@@ -351,7 +338,7 @@ export class FffRuntime {
 			this.options.projectRoot ??
 			(this.basePath !== this.cwd ? this.basePath : await resolveProjectRoot(this.cwd));
 		this.basePath = projectRoot;
-		const root = resolve(getAgentDir(), "pi-fff");
+		const root = resolve(getAgentDir(), "pi-ext-tools");
 		const paths = getProjectDatabasePaths(root, projectRoot);
 		return {
 			cwd: this.cwd,
@@ -452,71 +439,6 @@ export class FffRuntime {
 				.slice(0, limit)
 				.map((item, index) => normalizeCandidate(item, search.value.scores[index])),
 		);
-	}
-
-	async findFiles(request: FindFilesRequest): Promise<FindFilesResult> {
-		const finderResult = await this.ensure();
-		if (finderResult.isErr()) return propagateError(finderResult);
-		const normalizedQuery = normalizePathQuery(request.query);
-		if (!normalizedQuery) {
-			return errResult(new EmptyFileQueryError({ query: request.query }));
-		}
-
-		const pageSize = Math.max(1, request.limit ?? DEFAULT_FIND_FILES_LIMIT);
-		let pageIndex = 0;
-		let searchQuery = normalizedQuery;
-		if (request.cursor) {
-			const payload = decodeJsonCursor<FileCursorPayload>(request.cursor, FIND_FILES_CURSOR_PREFIX);
-			if (!payload || payload.query !== normalizedQuery || payload.pageSize !== pageSize) {
-				return errResult(
-					new InvalidFindFilesCursorError({ query: normalizedQuery, cursor: request.cursor }),
-				);
-			}
-			pageIndex = payload.pageIndex;
-			searchQuery = payload.searchQuery ?? payload.query;
-		}
-
-		let search = safeFinderCall("fileSearch", () =>
-			finderResult.value.fileSearch(searchQuery, { pageIndex, pageSize }),
-		);
-		if (pageIndex === 0 && search.isOk() && search.value.items.length === 0) {
-			const shorterQuery = shortenWaterfallQuery(normalizedQuery);
-			if (shorterQuery) {
-				searchQuery = shorterQuery;
-				search = safeFinderCall("fileSearch", () =>
-					finderResult.value.fileSearch(searchQuery, { pageIndex, pageSize }),
-				);
-			}
-		}
-		if (search.isErr()) return propagateError(search);
-
-		const items = search.value.items.map((item, index) =>
-			normalizeCandidate(item, search.value.scores[index]),
-		);
-		const nextOffset = (pageIndex + 1) * pageSize;
-		const nextCursor =
-			nextOffset < search.value.totalMatched
-				? encodeJsonCursor(FIND_FILES_CURSOR_PREFIX, {
-						query: normalizedQuery,
-						searchQuery,
-						pageIndex: pageIndex + 1,
-						pageSize,
-					} satisfies FileCursorPayload)
-				: undefined;
-
-		return Result.ok({
-			items,
-			formatted: formatFindFilesText(normalizedQuery, items, {
-				totalMatched: search.value.totalMatched,
-				totalFiles: search.value.totalFiles,
-				...(nextCursor === undefined ? {} : { nextCursor }),
-				pageIndex,
-				pageSize,
-			}),
-			...(nextCursor === undefined ? {} : { nextCursor }),
-			totalMatched: search.value.totalMatched,
-			totalFiles: search.value.totalFiles,
-		});
 	}
 
 	async resolvePath(
@@ -1050,7 +972,7 @@ export class FffRuntime {
 	}
 
 	private async initialize(): Promise<AppResult<FileFinder, RuntimeInitializationError>> {
-		const root = resolve(getAgentDir(), "pi-fff");
+		const root = resolve(getAgentDir(), "pi-ext-tools");
 		const rootResult = await Result.tryPromise({
 			try: () => mkdir(root, { recursive: true }),
 			catch: (cause) =>

@@ -7,6 +7,10 @@ import {
 import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
 import type { TSchema } from "typebox";
 import { registerBashTool } from "./bash.js";
+import { createFffRuntimeState, type FffRuntimeState } from "./fff/lifecycle.js";
+import { registerMultiGrepTool } from "./fff/multi-grep.js";
+import { registerFindTool } from "./find.js";
+import { registerGrepTool } from "./grep.js";
 import { registerReadTool } from "./read.js";
 
 const OWNER = "@hheei/pi-ext-tools";
@@ -42,8 +46,14 @@ function registerCanonicalTool<TParams extends TSchema, TDetails, TState>(
 }
 
 /** Statically registers the explicitly approved canonical tool catalog. */
-export function registerTools(pi: ExtensionAPI): void {
-	registerReadTool(pi);
+export function registerTools(
+	pi: ExtensionAPI,
+	state: FffRuntimeState = createFffRuntimeState(),
+): void {
+	registerReadTool(pi, state);
+	registerGrepTool(pi, state);
+	registerFindTool(pi, state);
+	registerMultiGrepTool(pi, state);
 	registerCanonicalTool(pi, createEditToolDefinition);
 	registerCanonicalTool(pi, createWriteToolDefinition);
 	registerBashTool(pi);

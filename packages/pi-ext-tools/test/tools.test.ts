@@ -40,7 +40,15 @@ describe("pi-ext-tools catalog", () => {
 	test("registers each approved name exactly once through managed Loadout ownership", (): void => {
 		const host = harness();
 		registerTools(host.pi);
-		expect(host.tools.map((tool) => tool.name)).toEqual(["read", "edit", "write", "bash"]);
+		expect(host.tools.map((tool) => tool.name)).toEqual([
+			"read",
+			"grep",
+			"find",
+			"fff_multi_grep",
+			"edit",
+			"write",
+			"bash",
+		]);
 		expect(() => registerTools(host.pi)).toThrow("Loadout tool id already registered: read");
 	});
 
@@ -49,6 +57,8 @@ describe("pi-ext-tools catalog", () => {
 		registerTools(host.pi);
 		for (const [name, renderShell] of [
 			["read", undefined],
+			["grep", undefined],
+			["find", undefined],
 			["edit", "self"],
 			["write", undefined],
 			["bash", undefined],

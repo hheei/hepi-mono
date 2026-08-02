@@ -1,7 +1,7 @@
 import { TaggedError } from "better-result";
 import { formatGrepError } from "./error-format.js";
 import type { GrepSearchError } from "./errors.js";
-import type { FindFilesResponse, GrepSearchResponse, HealthCheck, RuntimeMetadata } from "./fff.js";
+import type { GrepSearchResponse, HealthCheck, RuntimeMetadata } from "./fff.js";
 
 export const FFF_RUNTIME_NOT_READY_TEXT = "FFF runtime is not ready.";
 
@@ -65,18 +65,6 @@ export function buildGrepDetails(result?: GrepSearchResponse, error?: { message:
 		nextCursor: result?.nextCursor ?? null,
 		constraints: result?.constraintQuery ?? null,
 		suggestedReadPath: result?.suggestedReadPath ?? null,
-		...buildErrorDetails(error),
-	};
-}
-
-export function buildFindFilesDetails(
-	result?: FindFilesResponse,
-	error?: { message: string } | null,
-) {
-	return {
-		nextCursor: result?.nextCursor ?? null,
-		totalMatched: result?.totalMatched ?? null,
-		totalFiles: result?.totalFiles ?? null,
 		...buildErrorDetails(error),
 	};
 }

@@ -11,12 +11,7 @@ import type {
 	Location,
 	Score,
 } from "@ff-labs/fff-node";
-import type {
-	FindFilesError,
-	GrepSearchError,
-	PathResolutionError,
-	RelatedFilesError,
-} from "./errors.js";
+import type { GrepSearchError, PathResolutionError, RelatedFilesError } from "./errors.js";
 import type { AppResult } from "./result-utils.js";
 
 export type FileItem = EngineFileItem & { path?: string };
@@ -25,13 +20,11 @@ export type GrepMatch = EngineGrepMatch & { path?: string };
 export const DEFAULT_FILE_CANDIDATE_LIMIT = 8;
 export const DEFAULT_GREP_LIMIT = 100;
 export const DEFAULT_GREP_TIMEOUT_MS = 30_000;
-export const DEFAULT_FIND_FILES_LIMIT = 20;
 export const MAX_MATCHES_PER_FILE = 200;
 export const AUTO_EXPAND_AFTER_CONTEXT = 6;
 export const MAX_AUTO_EXPAND_LINES = 5;
 export const CROPPED_MATCH_LINE_WIDTH = 180;
 export const GREP_CURSOR_PREFIX = "grep:";
-export const FIND_FILES_CURSOR_PREFIX = "find:";
 
 export type FffFileCandidate = {
 	item: FileItem;
@@ -80,26 +73,11 @@ export type GrepSearchResponse = {
 	suggestedReadPath?: string;
 };
 
-export type FindFilesRequest = {
-	query: string;
-	limit?: number;
-	cursor?: string;
-};
-
-export type FindFilesResponse = {
-	items: FffFileCandidate[];
-	formatted: string;
-	nextCursor?: string;
-	totalMatched?: number;
-	totalFiles?: number;
-};
-
 export type RelatedFilesResponse = {
 	base: ResolvedPath;
 	items: FffFileCandidate[];
 };
 
-export type FindFilesResult = AppResult<FindFilesResponse, FindFilesError>;
 export type RelatedFilesResult = AppResult<RelatedFilesResponse, RelatedFilesError>;
 export type GrepSearchResult = AppResult<GrepSearchResponse, GrepSearchError>;
 
@@ -124,13 +102,6 @@ export type SingleGrepRequest = GrepBaseRequest & {
 export type MultiGrepRequest = GrepBaseRequest & {
 	kind: "multi";
 	patterns: string[];
-};
-
-export type FileCursorPayload = {
-	query: string;
-	searchQuery?: string;
-	pageIndex: number;
-	pageSize: number;
 };
 
 export type RuntimeOptions = {
