@@ -72,8 +72,9 @@ extension command 或 custom popup 完成。
 `Component`，不递归遍历 component tree。tracking lease active 期间，surface 暂时拥有 terminal mouse
 input，因此 terminal emulator 的 native selection 可能被抑制或改变；不能承诺两种 selection 同时工作。
 没有 active region 时恢复 Pi 原生 input 行为。surface owner 把当前 `TUI` 与生命周期 `AbortSignal` 交给 core，
-获得 owner-scoped `MouseSupport`；页面负责注册当前布局的 `MouseRegion`、边框排除、滚动偏移、cell 到内容位置的
-转换和 selection state。
+得到 owner-scoped `MouseSupport`；页面负责注册当前布局的 `MouseRegion`、边框排除、滚动偏移、cell 到内容位置的
+转换和 selection state。core 在 `SelectableRegion.setSelection()` 后请求 render；普通 region callback 的 state
+变化仍由页面自己请求 render。
 
 core 只负责 SGR tracking、规范化 `down`/`drag`/`up`、重叠 region 的后注册优先（`down` 返回 `"ignored"` 时继续下一层）、down-region capture
 以及幂等 cleanup。没有 region 时不启用 tracking；tracking active 时已识别 mouse input 不进入 focused
