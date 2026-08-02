@@ -38,12 +38,7 @@ const packageDirsForPrefix = (prefix: string): string[] =>
 		.sort();
 
 const independentPackageDirs = packageDirsForPrefix("pi-");
-const packageDirs =
-	independentPackageDirs.length > 0
-		? independentPackageDirs
-		: packageDirsForPrefix("hepi-").filter(
-			(directory) => !["hepi-debug", "hepi-subagents"].includes(path.basename(directory)),
-		);
+const packageDirs = independentPackageDirs;
 
 for (const directory of [...requiredBuildDirectories, ...packageDirs]) {
 	const result = spawnSync(process.execPath, ["run", "build"], {
