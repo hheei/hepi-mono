@@ -89,7 +89,6 @@ test("routes fragmented input through real TUI and redraws selection", async ():
 		setSelection: (selection) => {
 			selected = selection !== null;
 		},
-		getSelectedText: () => "selected",
 	});
 
 	try {

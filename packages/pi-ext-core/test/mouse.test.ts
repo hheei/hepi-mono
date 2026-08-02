@@ -173,7 +173,6 @@ test("drives plain-left selection without deriving copy or click behavior", (): 
 		hitTest: () => true,
 		hitTestText: (x) => ({ line: 0, grapheme: x }),
 		setSelection: (selection) => void selections.push(selection),
-		getSelectedText: () => "unused",
 		onMouseEvent: (event) => void custom.push(event),
 	});
 
@@ -223,7 +222,6 @@ test("does not capture a selectable region disposed by setSelection", (): void =
 			selections++;
 			support.dispose();
 		},
-		getSelectedText: () => "unused",
 	});
 
 	h.input("\x1b[<0;1;1M");

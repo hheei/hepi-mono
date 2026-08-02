@@ -5,7 +5,7 @@ const ENABLE_MOUSE_TRACKING = "\x1b[?1002h\x1b[?1006h";
 const DISABLE_MOUSE_TRACKING = "\x1b[?1002l\x1b[?1006l";
 
 // biome-ignore lint/suspicious/noConfusingVoidType: observers may intentionally return no result
-type MouseEventResult = "handled" | "ignored" | void;
+type MouseEventResult = "ignored" | void;
 
 /**
  * Normalized SGR mouse input in viewport cell coordinates. `button` is the
@@ -39,9 +39,9 @@ export interface MouseRegion {
 	/** Update this registration only when the page's layout snapshot changes, not while rendering. */
 	hitTest(x: number, y: number): boolean;
 	/**
-	 * Handles non-default gestures. Returning `"ignored"` from `down` lets
-	 * dispatch continue to the next matching layer; `"handled"` or no result
-	 * captures this region. Generic callbacks own their `tui.requestRender()`.
+	 * Handles non-default gestures. Returning "ignored" from `down` lets
+	 * dispatch continue to the next matching layer; no result captures this
+	 * region. Generic callbacks own their `tui.requestRender()`.
 	 */
 	onMouseEvent?(event: TerminalMouseEvent): MouseEventResult;
 }
@@ -54,7 +54,6 @@ export interface MouseRegion {
 export interface SelectableRegion extends MouseRegion {
 	hitTestText(x: number, y: number): TextPosition | null;
 	setSelection(selection: TextRange | null): void;
-	getSelectedText(selection: TextRange): string;
 }
 
 /**
