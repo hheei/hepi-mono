@@ -10,10 +10,12 @@
 
 ## 所有权边界
 
-- `pi-ext-core` 拥有 SGR mouse tracking 的启停、raw input listener、协议解码、规范化事件、region dispatch、capture 和 cleanup。
+- `pi-ext-core` 拥有 SGR mouse tracking 的启停、TUI input listener、单 sequence 协议解码、规范化事件、region dispatch、capture 和 cleanup；它不读取 `process.stdin`。
 - surface owner 提供当前的 `TUI`、生命周期 `AbortSignal` 和 owner-scoped install handle；页面负责注册和移除自己的 region。
 - 页面负责布局、滚动偏移、边框排除、cell 到内容位置的映射、selection 状态和 selected text。
 - core 不修改 upstream `Component`，不递归遍历 component tree，不拥有页面内容、业务 selection policy 或 clipboard。
+- tracking lease active 期间，当前 surface 暂时拥有 terminal mouse input；terminal emulator 的 native selection
+  可能被抑制或改变，不能承诺两种 selection 同时工作。没有 active region 时恢复 Pi 原生 input 行为。
 
 ## Public Contract
 
@@ -61,12 +63,17 @@ function installMouseSupport(
 - 第一个 region 注册时启用 SGR button-motion tracking；最后一个 region 移除时关闭。没有 active region 时不保留 tracking。
 - tracking active 期间，所有已识别的 mouse sequence 都由 dispatcher 消费；未命中的事件不会进入 focused component 的 keyboard `handleInput()`。未识别的普通输入保持原样。
 - 区域重叠时，后注册者优先。region 不要求来自可遍历的 component tree。
+- region registration 是 layout snapshot 的更新操作，只在 layout、resize、scroll 或可见性改变时进行；不得在
+  `render(width)` 中注册或移除 region。hit test 读取当前 snapshot，不写 registry。
 - `registerSelectableRegion()` 使用 region 的 `hitTest()` 选择目标，并用 `hitTestText()` 把
   terminal cell 转成内容位置；普通左键 gesture 驱动 `setSelection()`。其他按钮和 modifier
   仍只交给 region 的可选 `onMouseEvent()`。
 - `down` 命中的 region 捕获同一次手势的 `drag/up`。指针离开该 region 后不改派给其他 region；页面保留最后一个有效的 text position，`up` 只结束 capture。
 - 第一版只定义 `down`、`drag`、`up`，不定义 hover `move` 或派生 `click`。默认 selectable gesture 只响应无修饰左键；其他按钮与 modifier 仍交给自定义 region。
-- SGR parser 是内部实现，不成为 public API。它必须处理 input chunk 分片和 mixed keyboard/mouse input，但不向 consumer 承诺 raw parser 语义。
+- `pi-tui` 的 `StdinBuffer` 已在 TUI input boundary 处理 stdin chunk 分片；core decoder 只接收一个完整
+  input sequence，不创建第二个 buffer、不设置第二个 flush timeout，也不向 consumer 承诺 raw parser 语义。
+- 普通键盘 input 走无分配的快速非 mouse 路径；mouse dispatch 对 active regions 倒序扫描并在命中后停止。
+  core 不在每个 mouse event 上写 terminal、创建 Promise 或执行 I/O。
 
 ## Selection 与 clipboard
 
@@ -76,4 +83,4 @@ core 只驱动 `setSelection()` 并允许页面通过 `getSelectedText()` 读取
 
 未安装 support 时沿用 Pi 原生 input 行为；没有 region 时不启用 tracking。`AbortSignal`、owner disposer、surface close、Pi session shutdown 和 reload 都必须到达同一幂等 cleanup 路径。
 
-focused tests 放在 `packages/pi-ext-core/test/`，覆盖 fragmented/mixed input、tracking reference count、owner isolation、overlap order、capture、abort、shutdown 和 stale disposer。可见 TUI 行为另用 `tui-replay` 在窄和宽 terminal 验证；现有 debug replay 只作测试 fixture，不是产品 consumer。
+focused tests 放在 `packages/pi-ext-core/test/`，覆盖完整 SGR sequence、普通 input passthrough、tracking reference count、owner isolation、overlap order、capture、abort、shutdown 和 stale disposer。Pi input boundary 的 fragmented stdin 另用真实 host/PTY 验证。可见 TUI 行为另用 `tui-replay` 在窄和宽 terminal 验证；现有 debug replay 只作测试 fixture，不是产品 consumer。

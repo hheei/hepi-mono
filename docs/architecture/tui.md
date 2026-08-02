@@ -69,13 +69,16 @@ extension command 或 custom popup 完成。
 ### Mouse 与局部文本选择
 
 `@hheei/pi-ext-core` 提供一个 opt-in 的 TUI mouse/local-selection contract。它不修改 upstream
-`Component`，不递归遍历 component tree，也不接管 terminal emulator 的原生 selection。surface owner
-把当前 `TUI` 与生命周期 `AbortSignal` 交给 core，获得 owner-scoped `MouseSupport`；页面负责注册当前布局的
-`MouseRegion`、边框排除、滚动偏移、cell 到内容位置的转换和 selection state。
+`Component`，不递归遍历 component tree。tracking lease active 期间，surface 暂时拥有 terminal mouse
+input，因此 terminal emulator 的 native selection 可能被抑制或改变；不能承诺两种 selection 同时工作。
+没有 active region 时恢复 Pi 原生 input 行为。surface owner 把当前 `TUI` 与生命周期 `AbortSignal` 交给 core，
+获得 owner-scoped `MouseSupport`；页面负责注册当前布局的 `MouseRegion`、边框排除、滚动偏移、cell 到内容位置的
+转换和 selection state。
 
 core 只负责 SGR tracking、规范化 `down`/`drag`/`up`、重叠 region 的后注册优先、down-region capture
 以及幂等 cleanup。没有 region 时不启用 tracking；tracking active 时已识别 mouse input 不进入 focused
-component 的 keyboard handler。第一版不定义 hover、click、跨组件 selection 或 clipboard action；
+component 的 keyboard handler。region registration 只在 layout snapshot 更新时发生，不得作为 `render(width)` 的
+副作用；`pi-tui` 已处理 stdin chunk 分片，core 只解码完整 input sequence。第一版不定义 hover、click、跨组件 selection 或 clipboard action；
 `TextPosition` 是零基 line/grapheme，`TextRange` 是半开区间。完整 contract 见
 [鼠标与局部文本选择](../mouse/README.md)。
 

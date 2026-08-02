@@ -308,4 +308,7 @@ packages/pi-ext-core/
 16. Pi 串行 session start 下，consumer 不得 await `waitForService()`；改以自行处理的
     non-blocking continuation 等待 provider。
 17. Mouse/selection contract 是第六个受限 core 例外；其测试使用 pi-ext-core focused fixtures 与
-    `tui-replay`，不把 frozen `hepi-debug` 当作产品 consumer。
+    `tui-replay`，不把 frozen `hepi-debug` 当作产品 consumer。tracking lease 期间 surface 暂时拥有
+    terminal mouse input，native selection 可能受影响；core 依赖 Pi TUI 已完成的 input sequence boundary，
+    不读取 `process.stdin` 或建立第二个 stdin buffer。region registry 只在 layout snapshot 更新时改变，
+    不得由 `render(width)` 隐式修改。
