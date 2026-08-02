@@ -31,3 +31,10 @@ settings provider，提供路径解析、grep 增强、autocomplete 与 startup 
 - FFF 不接管 editor component，避免干扰 statusbar 与 dollar-skill editor wrapper。
 - 本次与 `hepi-tools` 删除 FFF registration 必须同 release 发布；混用新 `pi-fff` 与旧
   aggregate 会产生同名 tool/command 冲突，明确不支持。
+
+## 已确认迁移
+
+`pi-ext-tools` 将成为 `read`、`edit`、`write` 和 `bash` 的 Canonical tool owner。第一阶段 `pi-fff`
+移除 `read` registration，继续提供 `grep`、`find_files`、`fff_multi_grep`、FFF runtime/settings 与 autocomplete；
+此阶段 `pi-ext-tools/read` 不提供 FFF approximate-path resolution。仍注册 `read` 的旧 `pi-fff` release 不能与
+`pi-ext-tools` 同装。完整 migration contract 见 [pi-ext-tools 基础工具替换](../ext-tools/README.md)。

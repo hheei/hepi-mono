@@ -74,7 +74,8 @@ surface 或不可恢复 patch 都 fail-closed，保留 Pi 原行为并每 runtim
 
 bridge 只发布 Editor 与 HEPI-managed tool 的 Host surface identity、lifecycle 与 layout snapshot；surface
 owner 继续负责文本模型、selection、render 和 copy。没有 bridge 或没有 adapter 的 Managed tool 保持现有 Pi
-行为。完整 contract 见 [Pi Runtime Host Bridge](../bridge/README.md)。
+行为。第一个已确认的 managed-tool consumer 是 `pi-ext-tools/read`；其 selection-aware renderer 与 release
+auto-copy 都是 concrete tool policy。完整 contract 见 [Pi Runtime Host Bridge](../bridge/README.md)。
 
 ## 第一阶段公开接口
 
