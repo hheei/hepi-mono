@@ -56,10 +56,15 @@ function installMouseSupport(
 
 ### Tool Row Layout Hook
 
-HEPI 对 Pi `TUI` 维护最小 vendored patch：完成一轮 layout 后，`TUI` 发布指定 `Component` 的 viewport
-`{ x, y, width, height }`，并允许该 component 订阅后续 layout。Pi `ToolRenderContext` 再把当前 tool result body
-bounds 及订阅入口交给 renderer。extension 不遍历 chat tree、不读取 `ToolExecutionComponent` private fields。patch 必须
-记录 upstream revision 与 MIT attribution，并由 Pi TUI focused test、tool selection E2E 和 PTY smoke 锁定。
+`@hheei/pi-ext-core` 的 `getToolResultLayout(context)` 是可选 runtime host bridge：它只验证 host 已提供的
+`resultLayout` capability，并返回当前 tool result body 的 viewport `{ x, y, width, height }` 及 layout subscription。
+它不修改 Pi、遍历 chat tree 或读取 `ToolExecutionComponent` private fields，也不把 vendored patch 变成 published
+package dependency。没有 capability（包括干净的 upstream Pi install）时返回 `undefined`；consumer 必须保留 upstream
+renderer，且不得注册 mouse region。
+
+HEPI 本地可选的 Pi `TUI` patch 可以在一轮 layout 后发布这个 capability。patch 必须记录 upstream revision 与 MIT
+attribution，并由 Pi TUI focused test、tool selection E2E 和 PTY smoke 锁定；它只是 enhancement，不是 extension
+运行或发布的前提。
 
 `x/y` 是零基 viewport cell 坐标；`button` 保留 SGR 低两位编码（`0/1/2` 为 primary/middle/secondary，`3` 通常表示 release）。wheel sequence 会被消费，但第一版不产生 event。
 

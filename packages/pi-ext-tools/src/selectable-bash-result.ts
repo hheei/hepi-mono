@@ -1,5 +1,6 @@
-import type { Theme, ToolRenderContext } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
+import type { ToolResultLayout } from "@hheei/pi-ext-core";
 import { SelectableReadResult } from "./selectable-read-result.js";
 
 /**
@@ -11,10 +12,10 @@ export class SelectableBashResult implements Component {
 	private readonly body = new SelectableReadResult();
 	private upstream: Component | undefined;
 
-	set(upstream: Component, output: string, theme: Theme, context: ToolRenderContext): void {
+	set(upstream: Component, output: string, theme: Theme, layout: ToolResultLayout): void {
 		this.upstream = upstream;
 		this.body.setResult(output, theme);
-		this.body.bindLayout(context, 1);
+		this.body.bindLayout(layout, 1);
 	}
 
 	render(width: number): string[] {

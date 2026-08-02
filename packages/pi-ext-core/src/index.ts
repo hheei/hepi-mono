@@ -155,6 +155,8 @@ export {
 	redeliverTask,
 	startSubagent,
 } from "./subagents.js";
+export type { ToolResultBounds, ToolResultLayout } from "./tool-result-layout.js";
+export { getToolResultLayout } from "./tool-result-layout.js";
 export type {
 	HepiWidgetHandle,
 	HepiWidgetPlacement,

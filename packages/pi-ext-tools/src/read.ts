@@ -1,5 +1,5 @@
 import { createReadToolDefinition, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
+import { getToolResultLayout, registerManagedLoadoutTool } from "@hheei/pi-ext-core";
 import { SelectableReadResult } from "./selectable-read-result.js";
 
 const OWNER = "@hheei/pi-ext-tools";
@@ -10,7 +10,8 @@ export function registerReadTool(pi: ExtensionAPI): void {
 	const tool: typeof template = {
 		...template,
 		renderResult: (result, options, theme, context) => {
-			if (context.resultLayout === undefined) {
+			const layout = getToolResultLayout(context);
+			if (layout === undefined) {
 				const renderUpstream = template.renderResult;
 				if (renderUpstream === undefined) throw new Error("Pi read renderer unavailable");
 				return renderUpstream(result, options, theme, context);
@@ -24,7 +25,7 @@ export function registerReadTool(pi: ExtensionAPI): void {
 				.map((part) => ("text" in part ? part.text : ""))
 				.join("\n");
 			component.setResult(options.expanded || context.isError ? output : "", theme);
-			component.bindLayout(context);
+			component.bindLayout(layout);
 			return component;
 		},
 		async execute(toolCallId, params, signal, onUpdate, context) {
