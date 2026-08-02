@@ -21,7 +21,9 @@ Pi 包、扩展、技能或主题，也不加载项目 `.pi/` 中自动发现的
 - 启动前构建所选本地包，构建失败时不启动 Pi。
 
 默认使用 `cx/gpt-5.6-luna` 和 `low` thinking。命令行传入的 Pi 模型与
-thinking 参数仍可覆盖此默认值。
+thinking 参数仍可覆盖此默认值。启动器不会向子进程继承父进程的
+`OPENAI_API_KEY`，避免旧 OpenAI 凭证覆盖隔离 `cx` 认证；需要 OpenAI 时用
+Pi 的 `--api-key` 参数显式提供。
 
 默认集为 `packages/pi-*` 下的本仓库 `@hheei` 独立包。脚本不加载已弃用的
 `hepi-*` 聚合包、开发诊断包 `hepi-debug` 或独立子模块 `hepi-subagents`。
