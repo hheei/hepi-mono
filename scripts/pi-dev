@@ -8,6 +8,7 @@ import {
 	unlinkSync,
 	writeFileSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -91,15 +92,69 @@ function linkSourceFile(sourcePath: string, targetPath: string): void {
 	symlinkSync(sourcePath, targetPath);
 }
 
-for (const directory of [...requiredBuildDirectories, ...packageDirs]) {
-	const result = spawnSync(process.execPath, ["run", "build", "--", "--noEmit", "false"], {
-		cwd: directory,
-		stdio: "inherit",
-	});
-	if (result.status !== 0) process.exit(result.status ?? 1);
+function updateSourceHash(hash: ReturnType<typeof createHash>, directory: string): void {
+	for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) =>
+		a.name.localeCompare(b.name),
+	)) {
+		const filePath = path.join(directory, entry.name);
+		if (entry.isDirectory()) {
+			updateSourceHash(hash, filePath);
+		} else if (entry.isFile() && filePath.endsWith(".ts")) {
+			hash.update(filePath);
+			hash.update(readFileSync(filePath));
+		}
+	}
+}
+
+function buildFingerprint(directories: readonly string[]): string {
+	const hash = createHash("sha256");
+	for (const filePath of [path.join(root, "bun.lock"), path.join(root, "tsconfig.base.json")]) {
+		hash.update(filePath);
+		hash.update(readFileSync(filePath));
+	}
+	for (const directory of directories) {
+		for (const fileName of ["package.json", "tsconfig.json", "tsconfig.build.json"]) {
+			const filePath = path.join(directory, fileName);
+			if (!existsSync(filePath)) continue;
+			hash.update(filePath);
+			hash.update(readFileSync(filePath));
+		}
+		const sourceDir = path.join(directory, "src");
+		if (existsSync(sourceDir)) updateSourceHash(hash, sourceDir);
+	}
+	return hash.digest("hex");
 }
 
 mkdirSync(agentDir, { recursive: true });
+const buildStatePath = path.join(agentDir, "build.json");
+const buildDirectories = [...new Set([...requiredBuildDirectories, ...packageDirs])];
+const fingerprint = buildFingerprint(buildDirectories);
+let cachedFingerprint: string | undefined;
+try {
+	const cached: unknown = JSON.parse(readFileSync(buildStatePath, "utf8"));
+	if (
+		typeof cached === "object" &&
+		cached !== null &&
+		"fingerprint" in cached &&
+		typeof cached.fingerprint === "string"
+	) {
+		cachedFingerprint = cached.fingerprint;
+	}
+} catch {
+	// No cached build state requires a fresh build.
+}
+
+if (cachedFingerprint !== fingerprint || buildDirectories.some((directory) => !existsSync(path.join(directory, "dist")))) {
+	for (const directory of buildDirectories) {
+		const result = spawnSync(process.execPath, ["run", "build", "--", "--noEmit", "false"], {
+			cwd: directory,
+			stdio: "inherit",
+		});
+		if (result.status !== 0) process.exit(result.status ?? 1);
+	}
+	writeFileSync(buildStatePath, `${JSON.stringify({ fingerprint })}\n`);
+}
+
 const settingsPath = path.join(agentDir, "settings.json");
 const authPath = path.join(agentDir, "auth.json");
 const modelsPath = path.join(agentDir, "models.json");
