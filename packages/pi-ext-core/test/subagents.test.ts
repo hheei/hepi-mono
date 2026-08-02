@@ -3,6 +3,7 @@ import {
 	configureSubagentCoordinator,
 	DEFAULT_SUBAGENT_COORDINATOR_BUDGET,
 	type ExtensionLifecycleContext,
+	ensureSubagentCoordinator,
 	lookupSubagent,
 	MAX_SUBAGENT_TRANSCRIPT_CHARS,
 	registerExtensionLifecycle,
@@ -35,6 +36,28 @@ test("shares an equal first-live turn cap and rejects a conflicting cap", async 
 
 	await host.emit("session_start");
 	expect(first).toBeDefined();
+	await host.emit("session_shutdown");
+});
+
+test("allows a policy owner to replace a fallback budget", async () => {
+	const host = createFakePiHost();
+	registerExtensionLifecycle(host.pi, {
+		key: "@hheei/pi-fallback",
+		start(context) {
+			ensureSubagentCoordinator(context);
+		},
+	});
+	registerExtensionLifecycle(host.pi, {
+		key: "@hheei/pi-policy",
+		start(context) {
+			configureSubagentCoordinator(context, {
+				...DEFAULT_SUBAGENT_COORDINATOR_BUDGET,
+				maxActiveTurns: 3,
+			});
+		},
+	});
+
+	await host.emit("session_start");
 	await host.emit("session_shutdown");
 });
 

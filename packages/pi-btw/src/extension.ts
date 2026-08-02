@@ -1,9 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-	configureSubagentCoordinator,
-	DEFAULT_SUBAGENT_COORDINATOR_BUDGET,
-	registerExtensionLifecycle,
-} from "@hheei/pi-ext-core";
+import { ensureSubagentCoordinator, registerExtensionLifecycle } from "@hheei/pi-ext-core";
 import { createBtwFeature } from "./feature.js";
 
 export * from "./feature.js";
@@ -16,7 +12,7 @@ export default function piBtwExtension(pi: ExtensionAPI): void {
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-btw",
 		start(context): void {
-			configureSubagentCoordinator(context, DEFAULT_SUBAGENT_COORDINATOR_BUDGET);
+			ensureSubagentCoordinator(context);
 			feature.start(context);
 			const sessionId = context.extension.sessionManager.getSessionId();
 			context.resources.add("btw", () => feature.dispose(sessionId));

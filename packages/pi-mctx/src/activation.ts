@@ -1,9 +1,5 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
-import {
-	configureSubagentCoordinator,
-	DEFAULT_SUBAGENT_COORDINATOR_BUDGET,
-	type ExtensionLifecycleContext,
-} from "@hheei/pi-ext-core";
+import { type ExtensionLifecycleContext, ensureSubagentCoordinator } from "@hheei/pi-ext-core";
 import type { MctxConfiguration, MctxPipelineSettings } from "./config.js";
 
 /** Resolved immutable inputs held for one active parent session. */
@@ -63,15 +59,7 @@ export function resolveMctxActivation(
 					diagnostic: `pi-mctx historian model is unavailable: ${configuration.pipeline.settings.historianModel}`,
 				};
 			}
-			try {
-				configureSubagentCoordinator(context, DEFAULT_SUBAGENT_COORDINATOR_BUDGET);
-			} catch (error: unknown) {
-				return {
-					kind: "inactive",
-					reason: "collision",
-					diagnostic: `pi-mctx activation blocked: ${error instanceof Error ? error.message : String(error)}`,
-				};
-			}
+			ensureSubagentCoordinator(context);
 			return {
 				kind: "active",
 				runtime: {

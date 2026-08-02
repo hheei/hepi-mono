@@ -358,6 +358,19 @@ export function configureSubagentCoordinator(
 	}
 	const coordinator = getCoordinator(context);
 	if (coordinator.budget !== undefined) {
+		if (coordinator.fallback) {
+			coordinator.budget = options;
+			coordinator.fallback = false;
+			coordinator.ownerSignal = context.signal;
+			const release = (): void => {
+				if (coordinator.ownerSignal === context.signal) {
+					coordinator.budget = undefined;
+					coordinator.ownerSignal = undefined;
+				}
+			};
+			context.signal.addEventListener("abort", release, { once: true });
+			return;
+		}
 		if (
 			coordinator.budget.maxActiveTurns === options.maxActiveTurns &&
 			coordinator.budget.maxPending === options.maxPending &&
@@ -367,6 +380,7 @@ export function configureSubagentCoordinator(
 		throw new Error("Subagent coordinator budget collision");
 	}
 	coordinator.budget = options;
+	coordinator.fallback = false;
 	const release = (): void => {
 		if (coordinator.ownerSignal === context.signal) {
 			coordinator.budget = undefined;
@@ -375,6 +389,17 @@ export function configureSubagentCoordinator(
 	};
 	coordinator.ownerSignal = context.signal;
 	context.signal.addEventListener("abort", release, { once: true });
+}
+
+/**
+ * Installs the default budget only when no feature has selected one. Consumers
+ * with no budget UI use this so a later policy owner may replace the fallback.
+ */
+export function ensureSubagentCoordinator(context: ExtensionLifecycleContext): void {
+	const coordinator = getCoordinator(context);
+	if (coordinator.budget !== undefined) return;
+	coordinator.budget = DEFAULT_SUBAGENT_COORDINATOR_BUDGET;
+	coordinator.fallback = true;
 }
 
 /**
@@ -446,6 +471,7 @@ export function redeliverTask(
 
 interface Coordinator {
 	budget: ConfigureSubagentCoordinatorOptions | undefined;
+	fallback: boolean;
 	ownerSignal: AbortSignal | undefined;
 	activeTurns: number;
 	nextId: number;
@@ -486,6 +512,7 @@ function getCoordinator(context: ExtensionLifecycleContext): Coordinator {
 	if (existing !== undefined) return existing;
 	const created: Coordinator = {
 		budget: undefined,
+		fallback: false,
 		ownerSignal: undefined,
 		activeTurns: 0,
 		nextId: 0,

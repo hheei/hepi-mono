@@ -63,7 +63,7 @@ const selectedPackageNames = new Set(
 const packageDirs = independentPackageDirs.filter((directory) =>
 	selectedPackageNames.size > 0
 		? selectedPackageNames.has(path.basename(directory))
-		: !["pi-auto-title", "pi-btw"].includes(path.basename(directory)),
+		: true,
 );
 
 function isEmptyJsonObject(filePath: string): boolean {
@@ -92,7 +92,7 @@ function linkSourceFile(sourcePath: string, targetPath: string): void {
 }
 
 for (const directory of [...requiredBuildDirectories, ...packageDirs]) {
-	const result = spawnSync(process.execPath, ["run", "build"], {
+	const result = spawnSync(process.execPath, ["run", "build", "--", "--noEmit", "false"], {
 		cwd: directory,
 		stdio: "inherit",
 	});
