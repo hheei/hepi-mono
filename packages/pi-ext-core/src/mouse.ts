@@ -195,7 +195,8 @@ function dispatchCapturedEvent(captured: CapturedGesture, event: TerminalMouseEv
 
 function dispatchMouseEvent(dispatcher: MouseDispatcher, event: TerminalMouseEvent): void {
 	// Registry order is the layout snapshot order. Reverse scanning gives the
-	// newest owner precedence while capture prevents later hit tests mid-gesture.
+	// newest owner precedence; an explicitly ignored down exposes the next
+	// matching layer, while capture prevents later hit tests mid-gesture.
 	if (event.kind !== "down") {
 		const captured = dispatcher.captured;
 		if (captured === undefined) return;
@@ -208,12 +209,18 @@ function dispatchMouseEvent(dispatcher: MouseDispatcher, event: TerminalMouseEve
 	for (let index = dispatcher.entries.length - 1; index >= 0; index--) {
 		const entry = dispatcher.entries[index];
 		if (entry === undefined || !entry.active || !entry.region.hitTest(event.x, event.y)) continue;
-		const selection =
-			entry.selectable === undefined
-				? undefined
-				: dispatchSelectableEvent(entry.selectable, event, undefined);
+		if (entry.selectable === undefined) {
+			if (entry.region.onMouseEvent?.(event) === "ignored") continue;
+			dispatcher.captured = { entry, selection: undefined };
+			return;
+		}
+		if (!isPlainLeftButton(event)) {
+			if (entry.selectable.onMouseEvent?.(event) === "ignored") continue;
+			dispatcher.captured = { entry, selection: undefined };
+			return;
+		}
+		const selection = dispatchSelectableEvent(entry.selectable, event, undefined);
 		dispatcher.captured = { entry, selection };
-		if (entry.selectable === undefined) entry.region.onMouseEvent?.(event);
 		return;
 	}
 }

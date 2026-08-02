@@ -85,6 +85,29 @@ test("dispatches latest matching region and preserves down-region capture", (): 
 	expect(calls).toEqual(["new:down", "new:drag", "new:up"]);
 });
 
+test("lets an ignored down fall through to the next matching region", (): void => {
+	const h = fixture();
+	const calls: string[] = [];
+	const support = installMouseSupport(h.tui, { signal: new AbortController().signal });
+	support.registerRegion({
+		hitTest: () => true,
+		onMouseEvent: (event) => void calls.push(`old:${event.kind}`),
+	});
+	support.registerRegion({
+		hitTest: () => true,
+		onMouseEvent: (event) => {
+			calls.push(`new:${event.kind}`);
+			return "ignored";
+		},
+	});
+
+	h.input("\x1b[<0;1;1M");
+	h.input("\x1b[<32;20;20M");
+	h.input("\x1b[<0;20;20m");
+
+	expect(calls).toEqual(["new:down", "old:down", "old:drag", "old:up"]);
+});
+
 test("drives plain-left selection without deriving copy or click behavior", (): void => {
 	const h = fixture();
 	const selections: (TextRange | null)[] = [];
