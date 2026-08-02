@@ -54,6 +54,13 @@ function installMouseSupport(
 ): MouseSupport;
 ```
 
+### Tool Row Layout Hook
+
+HEPI 对 Pi `TUI` 维护最小 vendored patch：完成一轮 layout 后，`TUI` 发布指定 `Component` 的 viewport
+`{ x, y, width, height }`，并允许该 component 订阅后续 layout。Pi `ToolRenderContext` 再把当前 tool result body
+bounds 及订阅入口交给 renderer。extension 不遍历 chat tree、不读取 `ToolExecutionComponent` private fields。patch 必须
+记录 upstream revision 与 MIT attribution，并由 Pi TUI focused test、tool selection E2E 和 PTY smoke 锁定。
+
 `x/y` 是零基 viewport cell 坐标；`button` 保留 SGR 低两位编码（`0/1/2` 为 primary/middle/secondary，`3` 通常表示 release）。wheel sequence 会被消费，但第一版不产生 event。
 
 `onMouseEvent()` 返回 `"ignored"` 只对 `down` 有 fallback 语义：dispatcher 继续尝试更早注册的匹配 region；省略返回值会建立 capture。`drag/up` 始终留在 down-region，不因 callback 返回值重新命中。普通 region 的 callback 自己负责 `tui.requestRender()`；core 在每次 `setSelection()` 后请求一次 render。
@@ -81,14 +88,6 @@ function installMouseSupport(
 ## Selection 与 clipboard
 
 core 只驱动 `setSelection()`；页面保留逻辑文本读取、复制动作及其安全和兼容性 policy。`up` 不自动读 selection、不写 OSC 52、不访问系统 clipboard。
-
-需要 Pi 当前 Editor 或 HEPI-managed tool output 的真实 geometry/lifecycle 时，已确认但尚未实现的
-[Runtime host bridge](../bridge/README.md) 只提供 Host surface snapshot；它不改变本 contract 的 surface-owned
-text mapping、selection 或 clipboard boundary。
-
-`pi-ext-tools/read` 已确认将把 primary-button `up` auto-copy 作为 concrete tool policy；该行为、logical
-text extraction 与 clipboard failure handling 由 [pi-ext-tools 基础工具替换](../ext-tools/README.md) 定义，不能
-被误读为 core 的默认 selectable-region 行为。
 
 ## 实现注释约定
 
