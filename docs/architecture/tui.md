@@ -66,7 +66,18 @@ extension command 或 custom popup 完成。
 
 上下两条 rail 与 widget 区不同：它们由一个唯一 editor/footer compositor 生成单行结构，所有 rail contributor 使用同一 priority order，宽度不足时以该 order 裁剪或隐藏。compositor 保存并恢复前一个 editor/footer factory，避免与 Pi editor、hardware cursor 及其他包装器产生 ownership 冲突。
 
-鼠标拖选不属于此 contract。终端 emulator 决定原生 selection；Pi 当前 extension API 没有公开 mouse-selection surface。contributor 仍应避免无意义的尾随填充，并始终输出可安全复制的文本。
+### Mouse 与局部文本选择
+
+`@hheei/pi-ext-core` 提供一个 opt-in 的 TUI mouse/local-selection contract。它不修改 upstream
+`Component`，不递归遍历 component tree，也不接管 terminal emulator 的原生 selection。surface owner
+把当前 `TUI` 与生命周期 `AbortSignal` 交给 core，获得 owner-scoped `MouseSupport`；页面负责注册当前布局的
+`MouseRegion`、边框排除、滚动偏移、cell 到内容位置的转换和 selection state。
+
+core 只负责 SGR tracking、规范化 `down`/`drag`/`up`、重叠 region 的后注册优先、down-region capture
+以及幂等 cleanup。没有 region 时不启用 tracking；tracking active 时已识别 mouse input 不进入 focused
+component 的 keyboard handler。第一版不定义 hover、click、跨组件 selection 或 clipboard action；
+`TextPosition` 是零基 line/grapheme，`TextRange` 是半开区间。完整 contract 见
+[鼠标与局部文本选择](../mouse/README.md)。
 
 ## Ownership、并发与验证
 
