@@ -11,12 +11,44 @@ export interface WrappedLine {
 	readonly endGrapheme: number;
 }
 
-const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "g");
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/** Mirrors Pi's supported CSI, OSC, and APC parser used by `visibleWidth()`. */
+function terminalControlLength(text: string, start: number): number {
+	if (text.charCodeAt(start) !== 27) return 0;
+	const next = text[start + 1];
+	if (next === "[") {
+		let end = start + 2;
+		while (end < text.length && !"mGKHJ".includes(text[end] ?? "")) end++;
+		return end < text.length ? end + 1 - start : 0;
+	}
+	if (next !== "]" && next !== "_") return 0;
+	for (let end = start + 2; end < text.length; end++) {
+		if (text[end] === "\x07") return end + 1 - start;
+		if (text[end] === "\x1b" && text[end + 1] === "\\") return end + 2 - start;
+	}
+	return 0;
+}
+
+/** Matches Pi's width model so terminal controls cannot enter the logical selection model. */
+function stripTerminalControls(text: string): string {
+	if (!text.includes("\x1b")) return text;
+	let plain = "";
+	for (let index = 0; index < text.length; ) {
+		const length = terminalControlLength(text, index);
+		if (length > 0) {
+			index += length;
+			continue;
+		}
+		plain += text[index] ?? "";
+		index++;
+	}
+	return plain;
+}
 
 /** Converts renderer-owned plain text into copy-safe logical lines. */
 export function logicalText(text: string): LogicalText {
-	const plain = text.replace(ANSI, "");
+	const plain = stripTerminalControls(text);
 	return { lines: plain === "" ? [] : plain.split("\n") };
 }
 
