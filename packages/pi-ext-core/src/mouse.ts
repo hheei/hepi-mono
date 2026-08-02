@@ -332,7 +332,8 @@ function releaseIdleDispatcher(
 	if (dispatcher.owners.size > 0) return;
 	dispatcher.removeInputListener?.();
 	dispatcher.removeInputListener = undefined;
-	if (!dispatcher.pendingDisable) states.delete(dispatcher.tui);
+	if (!dispatcher.pendingDisable && states.get(dispatcher.tui) === dispatcher)
+		states.delete(dispatcher.tui);
 }
 
 function retryPendingDisable(dispatcher: MouseDispatcher): void {
