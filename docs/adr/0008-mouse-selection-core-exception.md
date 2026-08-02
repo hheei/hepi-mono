@@ -9,4 +9,4 @@
 
 ## 后果
 
-这项例外只批准 feature-neutral 的 terminal input、region dispatch 与 local selection contract，不批准页面内容、clipboard policy、跨组件 selection、hover/click 手势或新的 TUI layout tree。未来扩大 contract 仍需新的设计决定。
+这项例外只批准 feature-neutral 的 terminal input、region dispatch 与 local selection contract，不批准页面内容、clipboard policy、跨组件 selection、hover/click 手势或新的 TUI layout tree。tracking lease 期间，surface 暂时拥有 terminal mouse input，native selection 可能被抑制或改变；没有 active region 时恢复 Pi 默认行为。实现依赖 Pi TUI 已完成的 input sequence boundary，不读取 `process.stdin` 或建立第二个 buffer；region registry 只在 layout snapshot 更新时改变，不得由 `render(width)` 隐式修改。未来扩大 contract 仍需新的设计决定。

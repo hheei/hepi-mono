@@ -72,6 +72,9 @@ existing semantic token expresses the role.
   mouse-specific token or rely on color as the only selection signal.
 - A page owns the visible selection range and its cell-to-text mapping. Core
   dispatches input and capture but does not render a generic selection overlay.
+- Enabling mouse tracking gives the active surface temporary terminal mouse
+  ownership; native terminal selection may be suppressed or changed. With no
+  active mouse region, Pi's default terminal input behavior remains unchanged.
 - Mouse selection has no implicit hover, click, or clipboard affordance. Copying
   is an explicit page or command action.
 

@@ -32,8 +32,9 @@ contracts recorded in its ADRs:
 - Loadout tool registration transport and metadata, never Loadout policy;
 - Extension page routing and shell lifecycle, never page content or policy.
 - root-session-scoped subagent execution, never agent/config/UI/delivery policy.
-- terminal mouse tracking and local text selection transport, never page content,
-  clipboard policy, cross-component selection, or a generic layout tree.
+- terminal mouse tracking and local text selection transport, with temporary terminal
+  mouse ownership during the tracking lease; never page content, clipboard policy,
+  cross-component selection, or a generic layout tree.
 
 It does not contain feature policy, register a Pi extension, or import a
 concrete extension. Its imports are side-effect free: it creates no Pi handler,

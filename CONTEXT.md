@@ -371,8 +371,10 @@ A TUI-scoped service that normalizes terminal mouse input and routes it to regis
 _Avoid_: mouse component tree, global mouse handler
 
 **Mouse tracking lease**:
-The active lifetime created by registered MouseRegions during which the dispatcher enables terminal mouse reporting and consumes recognized mouse sequences.
-_Avoid_: permanent mouse mode, raw mouse passthrough
+The active lifetime created by registered MouseRegions during which the dispatcher enables terminal mouse reporting,
+temporarily gives the surface mouse ownership, and consumes recognized mouse sequences. Terminal native selection may
+be suppressed or changed during this lease; no active lease preserves Pi's default input behavior.
+_Avoid_: permanent mouse mode, raw stdin ownership
 
 **Mouse capture**:
 The temporary routing of a selection gesture's drag and up events to the MouseRegion that received its down event.
