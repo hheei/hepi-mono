@@ -49,13 +49,14 @@ policy，不能用于决定哪个 implementation 执行。
 ## 本地文本选择
 
 `pi-ext-tools` 只在本 package 内共享纯文本 selection substrate：logical lines、grapheme/cell mapping、visual
-soft-wrap map、half-open `TextRange` slicing 与 copy normalization。copy 会保留真实 logical newline 与行首缩进，
-并逐行移除 trailing spaces/tabs；ANSI、padding、border、call header 与 expand hint 都不进入 logical text。
+soft-wrap map 与 half-open `TextRange` slicing。ANSI、padding、border、call header 与 expand hint 都不进入 logical
+text。v1 只显示 local selection，不读取 selected text、不自动 copy、不访问 clipboard；用户通过 terminal emulator 的
+手动复制快捷键复制（macOS 通常为 `Command+C`，Windows 通常为 `Ctrl+C`）。
 
 它不是通用 Component framework 或 tool decorator。每个 renderer 自己决定 result body、selection state、highlight
-和 clipboard policy。local tool-surface binding 只识别本 package 产生的 result component；它通过 core 的 optional
-runtime host bridge 取得 Pi TUI/layout。capability 缺席或格式无效时 fail closed：保留 upstream renderer，且不注册 mouse
-region 或尝试 copy。
+和 clipboard policy。v1 clipboard policy 明确为空。local tool-surface binding 只识别本 package 产生的 result
+component；它通过 core 的 optional runtime host bridge 取得 Pi TUI/layout。capability 缺席或格式无效时 fail closed：
+保留 upstream renderer，且不注册 mouse region。
 
 `edit`、`write` 保留 upstream renderer 的 padded status shell、diff、partial/expanded output、error 与 timer lifecycle。
 `read` 与 `bash` expanded output 通过 Pi 的 vendored `ToolRenderContext.resultLayout` 接收 result body viewport bounds，并注册
@@ -64,7 +65,7 @@ local mouse region；extension 不遍历 `Container.children`，不读取 `ToolE
 行为后才能接入。
 
 未来的 region snapshot 必须在 layout/content revision 改变后异步更新，绝不从 `render(width)` 注册或移除；mouse callback
-只读取 selection，系统 clipboard work 必须延后到 dispatch 后，避免在高频 input path 中创建 Promise 或执行 I/O。
+只读取 selection，不创建 Promise、不执行 I/O，也不接管 `Command+C` / `Ctrl+C`。
 
 ## pi-fff 过渡
 
