@@ -42,6 +42,7 @@ function configuration(): MctxConfiguration {
 				historianModel: "anthropic/claude-haiku",
 				failClosedBlocking: true,
 				executeThresholdPercentage: { defaultValue: 65, byModel: {} },
+				protectedTags: 20,
 			},
 		},
 	};
@@ -144,12 +145,12 @@ function store(): MctxStore {
 				...(input.anchor === undefined
 					? {}
 					: input.anchor === null
-						? { anchor: undefined }
+						? {}
 						: { anchor: input.anchor }),
 				...(input.smartCondition === undefined
 					? {}
 					: input.smartCondition === null
-						? { smartCondition: undefined }
+						? {}
 						: { smartCondition: input.smartCondition }),
 				revision: current.revision + 1,
 				updatedSessionId: input.sessionId,

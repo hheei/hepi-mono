@@ -71,7 +71,8 @@ function streamScript(messages: readonly AssistantMessage[]): {
 			if (current === undefined) throw new Error("missing fake stream message");
 			if (current.stopReason === "error" || current.stopReason === "aborted")
 				stream.push({ type: "error", reason: current.stopReason, error: current });
-			else stream.push({ type: "done", reason: current.stopReason, message: current });
+			else if (current.stopReason !== "pending")
+				stream.push({ type: "done", reason: current.stopReason, message: current });
 			return stream;
 		},
 		calls: () => index,

@@ -50,17 +50,18 @@ test("runs a task through the consumer-resolved child-session factory", async ()
 				...DEFAULT_SUBAGENT_COORDINATOR_BUDGET,
 				maxActiveTurns: 1,
 			});
+			const messages: unknown[] = [];
 			const task = startSubagent(context, {
 				mode: "task",
 				session: {
 					async create() {
 						return {
-							messages: [],
+							messages,
 							subscribe: () => () => undefined,
 							abort: () => undefined,
 							dispose: () => undefined,
 							async prompt() {
-								this.messages.push({
+								messages.push({
 									role: "assistant",
 									content: [{ type: "text", text: "done" }],
 								} as never);
@@ -97,13 +98,14 @@ test("keeps one child session across sequential conversation messages", async ()
 				...DEFAULT_SUBAGENT_COORDINATOR_BUDGET,
 				maxActiveTurns: 1,
 			});
+			const messages: unknown[] = [];
 			conversation = startSubagent(context, {
 				mode: "conversation",
 				session: {
 					async create() {
 						created += 1;
 						return {
-							messages: [],
+							messages,
 							subscribe: () => () => undefined,
 							abort: () => undefined,
 							dispose: () => undefined,
@@ -111,7 +113,7 @@ test("keeps one child session across sequential conversation messages", async ()
 								compacted += 1;
 							},
 							async prompt(message: string) {
-								this.messages.push({
+								messages.push({
 									role: "assistant",
 									content: [{ type: "text", text: `reply:${message}` }],
 									usage: { input: 2, output: 3, totalTokens: 5, cost: { total: 0.25 } },

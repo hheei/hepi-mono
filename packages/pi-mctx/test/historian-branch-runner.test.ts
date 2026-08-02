@@ -1,10 +1,9 @@
 import { expect, test } from "bun:test";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import type { ExtensionLifecycleContext, SessionEntry } from "@earendil-works/pi-coding-agent";
-import {
-	type MctxHistorianExecutor,
-	runMctxHistorianForBranch,
-} from "../src/historian-branch-runner.js";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
+import { runMctxHistorianForBranch } from "../src/historian-branch-runner.js";
+import type { MctxHistorianExecutor } from "../src/historian-orchestrator.js";
 import { createMctxSourceSnapshot } from "../src/source-snapshot.js";
 import type {
 	MctxCompartment,

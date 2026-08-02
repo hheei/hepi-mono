@@ -20,6 +20,7 @@ function configuration(): MctxConfiguration {
 				historianModel: "anthropic/claude-haiku",
 				failClosedBlocking: true,
 				executeThresholdPercentage: { defaultValue: 65, byModel: {} },
+				protectedTags: 20,
 			},
 		},
 		warnings: [],

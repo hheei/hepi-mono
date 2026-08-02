@@ -8,12 +8,13 @@ import {
 } from "../src/history-tags.js";
 import type { MctxHistoryTag } from "../src/store.js";
 
+const userMessage = { role: "user" as const, content: "keep this", timestamp: 0 };
 const userEntry = {
 	type: "message",
 	id: "user-entry",
 	parentId: null,
 	timestamp: "2026-01-01T00:00:00.000Z",
-	message: { role: "user", content: "keep this", timestamp: 0 },
+	message: userMessage,
 } as SessionEntry;
 
 describe("MCTX history tags", () => {
@@ -21,7 +22,7 @@ describe("MCTX history tags", () => {
 		const inputs = collectMctxHistoryTagInputs([userEntry]);
 		expect(inputs).toEqual([{ kind: "message", entryId: "user-entry", source: "keep this" }]);
 		const tag: MctxHistoryTag = { ...inputs[0]!, tagNumber: 7, status: "active" };
-		const projection = projectMctxHistoryTags([userEntry.message], [userEntry], [tag]);
+		const projection = projectMctxHistoryTags([userMessage], [userEntry], [tag]);
 		expect(projection.messages[0]).toMatchObject({ content: "§7§ keep this" });
 	});
 
@@ -33,7 +34,7 @@ describe("MCTX history tags", () => {
 			tagNumber: 7,
 			status: "pending",
 		};
-		const projection = projectMctxHistoryTags([userEntry.message], [userEntry], [tag]);
+		const projection = projectMctxHistoryTags([userMessage], [userEntry], [tag]);
 		expect(projection.messages[0]).toMatchObject({ content: "[dropped §7§]" });
 		expect(projection.droppedTagNumbers).toEqual([7]);
 	});

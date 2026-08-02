@@ -83,11 +83,11 @@ function request(overrides: Record<string, unknown> = {}): Parameters<typeof run
 		signal: new AbortController().signal,
 		leaseOwnerToken: "owner",
 		...overrides,
-	} as Parameters<typeof runMctxHistorian>[0];
+	} as unknown as Parameters<typeof runMctxHistorian>[0];
 }
 
 test("skips an occupied partition without executing or releasing", async (): Promise<void> => {
-	const { store: heldStore, releases } = store({ lease: undefined });
+	const { store: heldStore, releases } = store({});
 	const result = await runMctxHistorian(
 		request({ store: { ...heldStore, acquireHistorianLease: () => undefined } }),
 		async () => {
