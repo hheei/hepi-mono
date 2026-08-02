@@ -79,6 +79,19 @@ function installMouseSupport(
 
 core 只驱动 `setSelection()` 并允许页面通过 `getSelectedText()` 读取逻辑文本。`up` 不自动读 selection、不写 OSC 52、不访问系统 clipboard。页面或显式命令拥有复制动作及其安全和兼容性 policy。
 
+## 实现注释约定
+
+实现 mouse/selection 时，设计理由必须与对应代码同步写入 TypeScript 注释，不在实现完成后另行补一份脱离代码的说明。注释解释 **why**、不变量、违反后的后果和成本，不逐行复述 **what**：
+
+- `installMouseSupport()` 与公开类型：说明 surface owner、consumer、缺席 fallback、`AbortSignal`、dispose 和重复安装语义。
+- TUI input boundary：说明为什么使用 `TUI.addInputListener()`、依赖 `StdinBuffer` 的完整 sequence，以及为什么不能读取 `process.stdin` 或建立第二个 buffer。
+- tracking lease：说明 terminal mouse ownership、native selection 可能受影响、reference count 和 cleanup 顺序。
+- dispatch/capture：说明后注册优先、down-region capture、指针离开后的不改派和 stale disposer 防护。
+- region snapshot：说明为什么 registry 只能在 layout/resize/scroll/visibility 更新时改变，`render(width)` 必须保持无副作用。
+- 高频路径：说明普通 input 的快速路径、region 扫描成本，以及为什么事件处理中禁止 terminal write、Promise 和 I/O。
+
+设计取舍、ownership 或性能边界改变时，必须在同一变更中更新邻近注释、本文件和 focused tests；过期注释视为实现缺陷。
+
 ## 缺席、取消与验证
 
 未安装 support 时沿用 Pi 原生 input 行为；没有 region 时不启用 tracking。`AbortSignal`、owner disposer、surface close、Pi session shutdown 和 reload 都必须到达同一幂等 cleanup 路径。

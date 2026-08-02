@@ -37,6 +37,11 @@ core 的目标是以最小协调原语支持独立 extension 组合。未安装�
 没有注释会导致误读时添加。实现改变设计理由、成本或 ownership 时，必须同步更新注释；过期
 注释与错误实现同等对待。
 
+Mouse/local-selection 实现还必须遵守
+[鼠标与局部文本选择](../mouse/README.md#实现注释约定)中的详细注释清单。注释要在对应代码编写时同步完成，
+尤其覆盖 TUI input boundary、tracking lease、capture、region snapshot 与 event hot path；不得把设计理由
+推迟到后续文档补写。
+
 ## Core 边界
 
 - 根入口是唯一 public import surface；consumer 不得 deep import `src/` 模块。
