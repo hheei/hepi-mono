@@ -368,3 +368,28 @@ test("isolates owners and cleans a region once across abort and stale disposers"
 	second.dispose();
 	expect(h.listenerCount()).toBe(0);
 });
+
+test("does not let an old handle delete a newer dispatcher state", (): void => {
+	const h = fixture();
+	const old = installMouseSupport(h.tui, { signal: new AbortController().signal });
+	old.registerRegion({ hitTest: () => false });
+	old.dispose();
+
+	const calls: string[] = [];
+	const live = installMouseSupport(h.tui, { signal: new AbortController().signal });
+	live.registerRegion({ hitTest: () => true, onMouseEvent: () => void calls.push("live") });
+	old.dispose();
+	const replacement = installMouseSupport(h.tui, { signal: new AbortController().signal });
+	replacement.registerRegion({ hitTest: () => false });
+	h.input("\x1b[<0;1;1M");
+
+	expect(h.listenerCount()).toBe(1);
+	expect(calls).toEqual(["live"]);
+	expect(h.writes).toEqual([
+		"\x1b[?1002h\x1b[?1006h",
+		"\x1b[?1002l\x1b[?1006l",
+		"\x1b[?1002h\x1b[?1006h",
+	]);
+	live.dispose();
+	replacement.dispose();
+});
