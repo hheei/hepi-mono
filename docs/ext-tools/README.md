@@ -50,8 +50,10 @@ policy，不能用于决定哪个 implementation 执行。
 
 `pi-ext-tools` 只在本 package 内共享纯文本 selection substrate：logical lines、grapheme/cell mapping、visual
 soft-wrap map 与 half-open `TextRange` slicing。ANSI、padding、border、call header 与 expand hint 都不进入 logical
-text。v1 只显示 local selection，不读取 selected text、不自动 copy、不访问 clipboard；用户通过 terminal emulator 的
-手动复制快捷键复制（macOS 通常为 `Command+C`，Windows 通常为 `Ctrl+C`）。
+text。v1 只显示 local selection，不读取 selected text、不自动 copy、不访问 clipboard。这个 `TextRange` 高亮不是
+terminal emulator 的 native selection，不能用 `Command+C` / `Ctrl+C` 直接复制；用户需要先用各 emulator 自己的
+mouse-reporting bypass 修饰键拖出 native terminal selection，再使用该 emulator 的复制快捷键。修饰键和快捷键均因
+emulator 配置而异，且此流程与 local selection 无关。
 
 它不是通用 Component framework 或 tool decorator。每个 renderer 自己决定 result body、selection state、highlight
 和 clipboard policy。v1 clipboard policy 明确为空。local tool-surface binding 只识别本 package 产生的 result
