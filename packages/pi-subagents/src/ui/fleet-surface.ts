@@ -37,6 +37,7 @@ interface SchedulesEntry {
 	readonly kind: "schedules";
 	readonly key: string;
 	readonly count: number;
+	readonly deferred: boolean;
 }
 
 type Entry = ActiveEntry | DefinitionEntry | SchedulesEntry;
@@ -50,6 +51,7 @@ export interface FleetSurfaceOptions {
 	readonly getDefinition: (name: string) => AgentConfig | undefined;
 	readonly getModelLabel: (name: string) => string;
 	readonly scheduleCount: () => number;
+	readonly scheduleDeferred: () => boolean;
 	readonly initialSelection?: string;
 	readonly onAction: (action: FleetAction) => void;
 }
@@ -137,7 +139,12 @@ export class FleetSurface {
 	private entries(): readonly Entry[] {
 		const active = this.options.manager
 			.listAgents()
-			.filter((record) => record.status === "queued" || record.status === "running")
+			.filter(
+				(record) =>
+					record.status === "queued" ||
+					record.status === "running" ||
+					record.completedAt !== undefined,
+			)
 			.map((record) => ({ kind: "active" as const, key: `active:${record.id}`, record }));
 		const definitions = this.options.listDefinitions().flatMap((name) => {
 			const config = this.options.getDefinition(name);
@@ -148,7 +155,12 @@ export class FleetSurface {
 		return [
 			...active,
 			...definitions,
-			{ kind: "schedules", key: "schedules", count: this.options.scheduleCount() },
+			{
+				kind: "schedules",
+				key: "schedules",
+				count: this.options.scheduleCount(),
+				deferred: this.options.scheduleDeferred(),
+			},
 		];
 	}
 
@@ -180,7 +192,8 @@ export class FleetSurface {
 	private renderWide(width: number, entries: readonly Entry[]): string[] {
 		const listWidth = Math.max(30, Math.floor(width * 0.46));
 		const detailWidth = Math.max(20, width - listWidth - 3);
-		const list = this.listLines(listWidth, entries);
+		const window = this.entryWindow(entries, 8);
+		const list = this.listLines(listWidth, window.entries, window.start, entries.length);
 		const detail = this.detailLines(detailWidth, entries[this.selectedIndex]);
 		return Array.from({ length: PANEL_ROWS }, (_, index) => {
 			const left = list[index] ?? "";
@@ -194,7 +207,11 @@ export class FleetSurface {
 
 	private renderNarrow(width: number, entries: readonly Entry[]): string[] {
 		const listRows = Math.min(10, Math.max(5, Math.floor(PANEL_ROWS / 2)));
-		const list = this.listLines(width, entries).slice(0, listRows);
+		const window = this.entryWindow(entries, Math.max(1, listRows - 3));
+		const list = this.listLines(width, window.entries, window.start, entries.length).slice(
+			0,
+			listRows,
+		);
 		const detail = this.detailLines(width, entries[this.selectedIndex]);
 		return [
 			...list,
@@ -203,10 +220,33 @@ export class FleetSurface {
 		].slice(0, PANEL_ROWS);
 	}
 
-	private listLines(width: number, entries: readonly Entry[]): string[] {
-		const lines = [this.options.theme.bold("Agent Fleet")];
+	private entryWindow(
+		entries: readonly Entry[],
+		capacity: number,
+	): { start: number; entries: readonly Entry[] } {
+		if (entries.length <= capacity) return { start: 0, entries };
+		const start = Math.min(
+			Math.max(0, this.selectedIndex - capacity + 1),
+			entries.length - capacity,
+		);
+		return { start, entries: entries.slice(start, start + capacity) };
+	}
+
+	private listLines(
+		width: number,
+		entries: readonly Entry[],
+		start: number,
+		total: number,
+	): string[] {
+		const lines = [
+			this.options.theme.bold("Agent Fleet"),
+			...(total > entries.length
+				? [this.options.theme.fg("dim", `scroll ${start + 1}-${start + entries.length}/${total}`)]
+				: []),
+		];
 		let group: Entry["kind"] | undefined;
-		for (const [index, entry] of entries.entries()) {
+		for (const [localIndex, entry] of entries.entries()) {
+			const index = start + localIndex;
 			if (entry.kind !== group) {
 				group = entry.kind;
 				lines.push(
@@ -250,7 +290,7 @@ export class FleetSurface {
 					: this.options.theme.fg("success", "✓");
 			return `${status} ${entry.name} ${this.options.theme.fg("dim", entry.config.source ?? "built-in")}`;
 		}
-		return `${this.options.theme.fg("dim", "○")} ${entry.count} scheduled jobs`;
+		return `${this.options.theme.fg("dim", "○")} ${entry.count} scheduled jobs${entry.deferred ? " (deferred)" : ""}`;
 	}
 
 	private detailLines(width: number, entry: Entry | undefined): string[] {
@@ -266,7 +306,10 @@ export class FleetSurface {
 		if (entry.kind === "schedules") {
 			return [
 				this.options.theme.bold("Schedules"),
-				this.options.theme.fg("muted", `${entry.count} configured jobs`),
+				this.options.theme.fg(
+					"muted",
+					`${entry.count} configured jobs${entry.deferred ? " (deferred)" : ""}`,
+				),
 				this.options.theme.fg("dim", "Schedule management is not in this Fleet slice."),
 			];
 		}
