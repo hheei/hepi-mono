@@ -92,10 +92,10 @@ attribution，并由 Pi TUI focused test、tool selection E2E 和 PTY smoke 锁�
 
 ## Selection 与 clipboard
 
-v1 core 只驱动 `setSelection()`；不在 `up` 自动读取 selection、不写 OSC 52，也不访问系统 clipboard。页面不实现
-自动 copy policy；用户需要复制时，使用 terminal emulator 自己的手动复制快捷键（macOS 通常为 `Command+C`，Windows
-通常为 `Ctrl+C`）。tracking lease 可能抑制 native selection，因此具体 emulator 是否可复制仍由其配置决定，extension
-不承诺或模拟该行为。
+v1 core 只驱动 `setSelection()`；不在 `up` 自动读取 selection、不写 OSC 52，也不访问系统 clipboard。页面的
+`TextRange` 高亮不是 terminal emulator 的 native selection，`Command+C` / `Ctrl+C` 不能复制它。需要复制时，用户必须
+使用其 emulator 的 mouse-reporting bypass 修饰键拖出 native terminal selection，再使用该 emulator 的复制快捷键；bypass
+修饰键和复制快捷键均因 emulator 配置而异。这个原生选择流程与页面 local selection 无关，extension 不承诺或模拟它。
 
 ## 实现注释约定
 
