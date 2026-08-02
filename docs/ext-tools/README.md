@@ -53,8 +53,9 @@ soft-wrap map、half-open `TextRange` slicing 与 copy normalization。copy 会�
 并逐行移除 trailing spaces/tabs；ANSI、padding、border、call header 与 expand hint 都不进入 logical text。
 
 它不是通用 Component framework 或 tool decorator。每个 renderer 自己决定 result body、selection state、highlight
-和 clipboard policy。local tool-surface binding 只识别本 package 产生的 result component；无法取得 Pi TUI/layout
-时 fail closed：保留 renderer，且不注册 mouse region 或尝试 copy。
+和 clipboard policy。local tool-surface binding 只识别本 package 产生的 result component；它通过 core 的 optional
+runtime host bridge 取得 Pi TUI/layout。capability 缺席或格式无效时 fail closed：保留 upstream renderer，且不注册 mouse
+region 或尝试 copy。
 
 `edit`、`write` 保留 upstream renderer 的 padded status shell、diff、partial/expanded output、error 与 timer lifecycle。
 `read` 与 `bash` expanded output 通过 Pi 的 vendored `ToolRenderContext.resultLayout` 接收 result body viewport bounds，并注册

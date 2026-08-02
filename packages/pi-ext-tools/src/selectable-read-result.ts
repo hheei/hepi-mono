@@ -1,6 +1,6 @@
-import type { Theme, ToolRenderContext } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { installMouseSupport, type TextRange } from "@hheei/pi-ext-core";
+import { installMouseSupport, type TextRange, type ToolResultLayout } from "@hheei/pi-ext-core";
 import { type LogicalText, logicalText, positionAt, sliceLine, softWrap } from "./selection.js";
 
 /** Pi-layout-bound read result; never discovers component positions itself. */
@@ -17,12 +17,11 @@ export class SelectableReadResult implements Component {
 		this.selection = null;
 	}
 
-	bindLayout(context: ToolRenderContext, offsetY = 0): void {
+	bindLayout(resultLayout: ToolResultLayout | undefined, offsetY = 0): void {
 		this.removeLayout?.();
 		this.removeLayout = undefined;
 		this.removeRegion?.();
 		this.removeRegion = undefined;
-		const resultLayout = context.resultLayout;
 		if (resultLayout === undefined) return;
 		this.removeLayout = resultLayout.onChange((bounds) => {
 			this.removeRegion?.();

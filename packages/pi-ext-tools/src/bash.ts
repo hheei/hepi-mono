@@ -1,6 +1,6 @@
 import { createBashToolDefinition, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
+import { getToolResultLayout, registerManagedLoadoutTool } from "@hheei/pi-ext-core";
 import { SelectableBashResult } from "./selectable-bash-result.js";
 
 const OWNER = "@hheei/pi-ext-tools";
@@ -21,7 +21,8 @@ export function registerBashTool(pi: ExtensionAPI): void {
 			});
 			if (upstream === undefined) throw new Error("Pi bash renderer unavailable");
 			upstreamComponents.set(state, upstream);
-			if (!options.expanded) {
+			const layout = getToolResultLayout(context);
+			if (!options.expanded || layout === undefined) {
 				components.get(state)?.dispose();
 				return upstream;
 			}
@@ -44,7 +45,7 @@ export function registerBashTool(pi: ExtensionAPI): void {
 				if (footerStart >= 0 && output.slice(footerStart).includes(fullOutputPath))
 					output = output.slice(0, footerStart).trimEnd();
 			}
-			component.set(upstream, output, theme, context);
+			component.set(upstream, output, theme, layout);
 			return component;
 		},
 		async execute(toolCallId, params, signal, onUpdate, context) {

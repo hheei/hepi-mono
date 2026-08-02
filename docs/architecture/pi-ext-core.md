@@ -34,11 +34,11 @@ runtime 的性能或界面。
 - 通用 event bus、RPC 框架或自动 discovery；
 - 对旧 `hepi-basics` API 的兼容 adapter。
 
-这些能力只有在至少两个独立 extension 有明确的同类需求时，才以单独提案考虑。鼠标与局部文本选择是明确记录的第六个受限例外；它只提供 feature-neutral 的 terminal input、region dispatch 与 local selection contract，不提供页面内容、clipboard policy 或新的 TUI layout tree。Runtime host bridge 是第七个受限例外；它只集中未修改 Pi runtime 的版本受限 Host surface compatibility，不提供 Pi private API facade 或 selection policy。
+这些能力只有在至少两个独立 extension 有明确的同类需求时，才以单独提案考虑。鼠标与局部文本选择是明确记录的第六个受限例外；它只提供 feature-neutral 的 terminal input、region dispatch 与 local selection contract，不提供页面内容、clipboard policy 或新的 TUI layout tree。
 
-已批准七个限定例外：core 公开 Loadout tool registration contract、提供 global Extension page router 与
+已批准六个限定例外：core 公开 Loadout tool registration contract、提供 global Extension page router 与
 feature-neutral TUI host、拥有 root-session-scoped subagent execution contract，并提供 JSON settings file
-transport 与 provider registry，并提供 terminal mouse 与 local selection contract，以及 Runtime host bridge。
+transport 与 provider registry，并提供 terminal mouse 与 local selection contract。
 它们的边界分别由
 [ADR 0002](../adr/0002-core-loadout-contract.md)、
 [ADR 0001](../adr/0001-core-extension-page-shell.md) 与
@@ -46,9 +46,7 @@ transport 与 provider registry，并提供 terminal mouse 与 local selection c
 [ADR 0004](../adr/0004-core-subagent-execution.md)、
 [ADR 0007](../adr/0007-core-json-settings-substrate.md)、
 [ADR 0008](../adr/0008-mouse-selection-core-exception.md) 与
-[ADR 0009](../adr/0009-runtime-host-bridge-core-exception.md) 及
-[鼠标与局部文本选择 contract](../mouse/README.md) 和
-[Runtime host bridge contract](../bridge/README.md) 限制；core 不接管 Loadout policy、page content、
+[鼠标与局部文本选择 contract](../mouse/README.md) 限制；core 不接管 Loadout policy、page content、
 Settings policy、feature-owned schema/content、agent/config/delivery policy 或 clipboard policy。
 
 ## Pi 集成边界
@@ -65,23 +63,11 @@ Pi 没有为大部分 extension 注册面提供公开 unregister。core 的 life
 `runtime identity + stable feature key` 淘汰旧 generation，而不是假设旧 listener 能被
 移除。
 
-### Runtime Host Bridge
-
-已确认、尚未实现的 Runtime host bridge 是 core 内唯一可访问 Pi private runtime 的 opt-in compatibility
-module。consumer-owned lease 在第一个实际 consumer 请求时才安装，最后一个 lease 才撤销 capability 并恢复
-仍由 bridge 持有的 patch。它只支持 Pi `0.83.x` 加完整 shape probe；未知 wrapper、无法 late attach 当前
-surface 或不可恢复 patch 都 fail-closed，保留 Pi 原行为并每 runtime 警告一次。
-
-bridge 只发布 Editor 与 HEPI-managed tool 的 Host surface identity、lifecycle 与 layout snapshot；surface
-owner 继续负责文本模型、selection、render 和 copy。没有 bridge 或没有 adapter 的 Managed tool 保持现有 Pi
-行为。第一个已确认的 managed-tool consumer 是 `pi-ext-tools/read`；其 selection-aware renderer 与 release
-auto-copy 都是 concrete tool policy。完整 contract 见 [Pi Runtime Host Bridge](../bridge/README.md)。
-
 ## 第一阶段公开接口
 
 根入口 `@hheei/pi-ext-core` 只导出实际 consumer 需要的类型与函数，不允许 deep
 import。已实现 v1 包含 lifecycle、Service、ExtensionPoint、cleanup、JSON settings/provider registry、
-Loadout registration、custom surface runtime、Extension page router API 与 mouse/local-selection transport。Mouse/selection
+Loadout registration、custom surface runtime、Extension page router API、optional runtime host bridge 与 mouse/local-selection transport。Mouse/selection
 边界见 [鼠标与局部文本选择](../mouse/README.md)。Subagent execution contract 的边界见
 [Subagent 执行架构](subagents.md)，Loadout 细节见 [Loadout 架构](loadout.md)。
 
@@ -327,7 +313,3 @@ packages/pi-ext-core/
      terminal mouse input，native selection 可能受影响；core 依赖 Pi TUI 已完成的 input sequence boundary，
      不读取 `process.stdin` 或建立第二个 stdin buffer。region registry 只在 layout snapshot 更新时改变，
      不得由 `render(width)` 隐式修改。
-18. Runtime host bridge 是第七个受限 core 例外；它只在 consumer-owned lease 存在时，以 Pi `0.83.x`
-    shape probe 和可恢复 private patch 发布 Editor 与 HEPI-managed tool Host surface。没有 lease、adapter 或
-    完整 probe 时保持 Pi 原行为；bridge 不拥有 text/selection/copy policy，也不支持 native tool、assistant
-    output 或 generic component tree。
