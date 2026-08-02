@@ -97,9 +97,10 @@ interface CapturedGesture {
 interface MouseDispatcher {
 	readonly tui: TUI;
 	readonly owners: Set<Owner>;
-	readonly entries: RegisteredRegion[];
-	removeInputListener: () => void;
+	entries: readonly RegisteredRegion[];
+	removeInputListener: (() => void) | undefined;
 	tracking: boolean;
+	pendingDisable: boolean;
 	captured: CapturedGesture | undefined;
 }
 
@@ -114,6 +115,7 @@ function setTracking(dispatcher: MouseDispatcher, enabled: boolean): void {
 	// default behavior as soon as its final region disappears.
 	dispatcher.tui.terminal.write(enabled ? ENABLE_MOUSE_TRACKING : DISABLE_MOUSE_TRACKING);
 	dispatcher.tracking = enabled;
+	if (!enabled) dispatcher.pendingDisable = false;
 }
 
 function updateTracking(dispatcher: MouseDispatcher): void {
@@ -240,8 +242,12 @@ function dispatchMouseEvent(dispatcher: MouseDispatcher, event: TerminalMouseEve
 	}
 
 	dispatcher.captured = undefined;
-	for (let index = dispatcher.entries.length - 1; index >= 0; index--) {
-		const entry = dispatcher.entries[index];
+	// Registration changes publish a new array only at layout boundaries. Keep
+	// this snapshot stable while callbacks synchronously dispose other regions,
+	// otherwise an in-place splice can visit the same newer entry twice.
+	const entries = dispatcher.entries;
+	for (let index = entries.length - 1; index >= 0; index--) {
+		const entry = entries[index];
 		if (entry === undefined || !entry.active || !entry.region.hitTest(event.x, event.y)) continue;
 		if (entry.selectable === undefined) {
 			const result = entry.region.onMouseEvent?.(event);
@@ -266,6 +272,17 @@ function dispatchMouseEvent(dispatcher: MouseDispatcher, event: TerminalMouseEve
 	}
 }
 
+function attachInputListener(dispatcher: MouseDispatcher): void {
+	if (dispatcher.removeInputListener !== undefined) return;
+	dispatcher.removeInputListener = dispatcher.tui.addInputListener((data) => {
+		if (dispatcher.entries.length === 0) return undefined;
+		const parsed = parseSgrMouseInput(data);
+		if (parsed === undefined) return undefined;
+		if (parsed.kind === "event") dispatchMouseEvent(dispatcher, parsed.event);
+		return { consume: true };
+	});
+}
+
 function createDispatcher(tui: TUI): MouseDispatcher {
 	/**
 	 * TUI is the input boundary: its StdinBuffer has already joined fragmented
@@ -276,27 +293,24 @@ function createDispatcher(tui: TUI): MouseDispatcher {
 		tui,
 		owners: new Set<Owner>(),
 		entries: [],
-		removeInputListener: () => undefined,
+		removeInputListener: undefined,
 		tracking: false,
+		pendingDisable: false,
 		captured: undefined,
 	};
-	dispatcher.removeInputListener = tui.addInputListener((data) => {
-		if (dispatcher.entries.length === 0) return undefined;
-		const parsed = parseSgrMouseInput(data);
-		if (parsed === undefined) return undefined;
-		if (parsed.kind === "event") dispatchMouseEvent(dispatcher, parsed.event);
-		return { consume: true };
-	});
+	attachInputListener(dispatcher);
 	return dispatcher;
 }
 
 function removeRegion(dispatcher: MouseDispatcher, entry: RegisteredRegion): void {
 	if (!entry.active) return;
-	const index = dispatcher.entries.indexOf(entry);
+	const previousEntries = dispatcher.entries;
+	const index = previousEntries.indexOf(entry);
 	const previousCapture = dispatcher.captured?.entry === entry ? dispatcher.captured : undefined;
 	entry.active = false;
 	entry.owner.entries.delete(entry);
-	if (index >= 0) dispatcher.entries.splice(index, 1);
+	if (index >= 0)
+		dispatcher.entries = [...previousEntries.slice(0, index), ...previousEntries.slice(index + 1)];
 	if (previousCapture !== undefined) dispatcher.captured = undefined;
 	try {
 		updateTracking(dispatcher);
@@ -305,10 +319,54 @@ function removeRegion(dispatcher: MouseDispatcher, entry: RegisteredRegion): voi
 		// caller can retry the same idempotent disposer after the terminal recovers.
 		entry.active = true;
 		entry.owner.entries.add(entry);
-		if (index >= 0) dispatcher.entries.splice(index, 0, entry);
+		dispatcher.entries = previousEntries;
 		if (previousCapture !== undefined) dispatcher.captured = previousCapture;
 		throw error;
 	}
+}
+
+function releaseIdleDispatcher(
+	dispatcher: MouseDispatcher,
+	states: WeakMap<TUI, MouseDispatcher>,
+): void {
+	if (dispatcher.owners.size > 0) return;
+	dispatcher.removeInputListener?.();
+	dispatcher.removeInputListener = undefined;
+	if (!dispatcher.pendingDisable) states.delete(dispatcher.tui);
+}
+
+function retryPendingDisable(dispatcher: MouseDispatcher): void {
+	if (!dispatcher.pendingDisable) return;
+	dispatcher.tui.terminal.write(DISABLE_MOUSE_TRACKING);
+	dispatcher.tracking = false;
+	dispatcher.pendingDisable = false;
+}
+
+function forceAbortCleanup(
+	dispatcher: MouseDispatcher,
+	owner: Owner,
+	states: WeakMap<TUI, MouseDispatcher>,
+): void {
+	// Abort fires once, so a failed terminal disable cannot wait for a second
+	// abort event. Detach this owner, but retain a pending reset obligation.
+	for (const entry of owner.entries) entry.active = false;
+	owner.entries.clear();
+	dispatcher.entries = dispatcher.entries.filter((entry) => entry.owner !== owner);
+	const captured = dispatcher.captured;
+	if (captured !== undefined && captured.entry.owner === owner) dispatcher.captured = undefined;
+	if (dispatcher.entries.length === 0 && dispatcher.tracking) {
+		try {
+			setTracking(dispatcher, false);
+		} catch {
+			// Abort fires once. Keep reset ownership in dispatcher state so a later
+			// explicit dispose or install must retry before enabling mouse again.
+			dispatcher.pendingDisable = true;
+		}
+	}
+	owner.disposed = true;
+	owner.signal.removeEventListener("abort", owner.onAbort);
+	dispatcher.owners.delete(owner);
+	releaseIdleDispatcher(dispatcher, states);
 }
 
 /**
@@ -317,7 +375,9 @@ function removeRegion(dispatcher: MouseDispatcher, entry: RegisteredRegion): voi
  * Without an explicit install the TUI input path is untouched. Repeated installs
  * share one dispatcher while retaining owner isolation. Abort, owner disposal,
  * reload, and surface close converge on idempotent cleanup, so an obsolete
- * disposer cannot remove another owner's newer registration.
+ * disposer cannot remove another owner's newer registration. If terminal reset
+ * fails during abort, core detaches the owner but retains a pending reset and
+ * retries it from later `dispose()` or install before enabling mouse again.
  */
 export function installMouseSupport(
 	tui: TUI,
@@ -333,24 +393,40 @@ export function installMouseSupport(
 	if (dispatcher === undefined) {
 		dispatcher = createDispatcher(tui);
 		state.set(tui, dispatcher);
+	} else {
+		retryPendingDisable(dispatcher);
+		// A pending reset may have left another owner's live snapshot while the
+		// transport state is off. Reconcile lease state before exposing listener.
+		updateTracking(dispatcher);
+		attachInputListener(dispatcher);
 	}
 
 	let owner: Owner;
 	const dispose = (): void => {
-		if (owner.disposed) return;
+		if (owner.disposed) {
+			retryPendingDisable(dispatcher);
+			updateTracking(dispatcher);
+			releaseIdleDispatcher(dispatcher, state);
+			return;
+		}
 		for (const entry of [...owner.entries]) removeRegion(dispatcher, entry);
 		owner.disposed = true;
 		owner.signal.removeEventListener("abort", owner.onAbort);
 		dispatcher.owners.delete(owner);
-		if (dispatcher.owners.size > 0) return;
-		dispatcher.removeInputListener();
-		state.delete(tui);
+		releaseIdleDispatcher(dispatcher, state);
+	};
+	const onAbort = (): void => {
+		try {
+			dispose();
+		} catch {
+			forceAbortCleanup(dispatcher, owner, state);
+		}
 	};
 	owner = {
 		disposed: false,
 		entries: new Set<RegisteredRegion>(),
 		signal: options.signal,
-		onAbort: dispose,
+		onAbort,
 	};
 	dispatcher.owners.add(owner);
 	options.signal.addEventListener("abort", owner.onAbort, { once: true });
@@ -361,15 +437,15 @@ export function installMouseSupport(
 	): (() => void) => {
 		if (owner.disposed) throw new Error("Mouse support is disposed");
 		const entry: RegisteredRegion = { active: true, owner, region, selectable };
+		const previousEntries = dispatcher.entries;
 		owner.entries.add(entry);
-		dispatcher.entries.push(entry);
+		dispatcher.entries = [...previousEntries, entry];
 		try {
 			updateTracking(dispatcher);
 		} catch (error) {
 			entry.active = false;
 			owner.entries.delete(entry);
-			const index = dispatcher.entries.indexOf(entry);
-			if (index >= 0) dispatcher.entries.splice(index, 1);
+			dispatcher.entries = previousEntries;
 			throw error;
 		}
 		return (): void => removeRegion(dispatcher, entry);
