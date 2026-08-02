@@ -86,6 +86,10 @@ core 只驱动 `setSelection()`；页面保留逻辑文本读取、复制动作�
 [Runtime host bridge](../bridge/README.md) 只提供 Host surface snapshot；它不改变本 contract 的 surface-owned
 text mapping、selection 或 clipboard boundary。
 
+`pi-ext-tools/read` 已确认将把 primary-button `up` auto-copy 作为 concrete tool policy；该行为、logical
+text extraction 与 clipboard failure handling 由 [pi-ext-tools 基础工具替换](../ext-tools/README.md) 定义，不能
+被误读为 core 的默认 selectable-region 行为。
+
 ## 实现注释约定
 
 实现 mouse/selection 时，设计理由必须与对应代码同步写入 TypeScript 注释，不在实现完成后另行补一份脱离代码的说明。注释解释 **why**、不变量、违反后的后果和成本，不逐行复述 **what**：

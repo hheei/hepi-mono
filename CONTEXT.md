@@ -435,3 +435,15 @@ _Avoid_: unbounded upstream compatibility, version-only support
 **Recoverable bridge patch**:
 A Runtime host bridge wrapper whose original target and installed identity are recorded so release can restore it only while bridge still owns that target. Unknown existing wrappers or lost ownership make the bridge unavailable rather than composed.
 _Avoid_: permanent patch, automatic third-party wrapper composition
+
+**Canonical tool owner**:
+The single extension that statically registers one Pi-visible tool name and owns its upstream compatibility, renderer and lifecycle. Other packages do not register a competing definition for that name.
+_Avoid_: priority-based tool override, duplicate tool registration
+
+**Tool replacement catalog**:
+The explicit, version-bound list of upstream tool names for which a Canonical tool owner supplies a replacement. Names are added one at a time with compatibility tests; it is not inferred from Pi's active-tool inventory.
+_Avoid_: automatic native-tool discovery, all-tools proxy
+
+**Read selection**:
+The `pi-ext-tools`-owned local selection behavior for its canonical `read` renderer: a primary-button gesture produces a TextRange and release attempts system clipboard copy without changing core clipboard policy.
+_Avoid_: terminal-native selection, core-owned copy policy

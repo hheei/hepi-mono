@@ -19,6 +19,10 @@ feature -> pi-ext-core public capability -> bridge -> Pi runtime internals
 v1 只覆盖当前 Editor 与 HEPI-managed tool output。它不覆盖 Pi native tool、assistant/model output、任意
 third-party Component 或通用 component tree。
 
+第一个已确认的 managed-tool consumer 是 `pi-ext-tools/read`。它以自有 logical text model 和 renderer 提供
+selection、highlight 与 release auto-copy；bridge 只提供该 renderer 的 Host surface snapshot。完整 tool policy
+见 [pi-ext-tools 基础工具替换](../ext-tools/README.md)。
+
 ## 所有权边界
 
 - `pi-ext-core/bridge` 是唯一可以访问或 wrapper Pi internal runtime shape 的模块；private path、prototype

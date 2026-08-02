@@ -22,6 +22,11 @@ package when they share installation, lifecycle, and public API ownership. Split
 only when one of those boundaries differs. `pi-ext-core` is the one naming
 exception because it is not a Pi extension.
 
+`pi-ext-tools` is the planned Canonical tool owner for an explicit catalog of Pi upstream/basic
+tool replacements. It is a concrete extension, not a core module: it owns each catalog tool's
+upstream compatibility, renderer and selection policy, while core only transports registration and
+host capabilities. The catalog and `pi-fff` transition are defined in [pi-ext-tools 基础工具替换](../ext-tools/README.md).
+
 `@hheei/pi-ext-core` owns generic coordination mechanisms, plus the explicit Loadout and page-router
 contracts recorded in its ADRs:
 
