@@ -22,6 +22,22 @@ describe("local tool selection substrate", () => {
 		).toBe("bcde");
 	});
 
+	test("treats empty output as zero visual rows", (): void => {
+		expect(softWrap(logicalText(""), 80)).toEqual([]);
+	});
+
+	test("matches Pi tab width when wrapping and mapping cells", (): void => {
+		const text = logicalText("a\tb");
+		const rows = softWrap(text, 4);
+		expect(rows).toEqual([
+			{ logicalLine: 0, startGrapheme: 0, endGrapheme: 2 },
+			{ logicalLine: 0, startGrapheme: 2, endGrapheme: 3 },
+		]);
+		expect(positionAt(text, rows, 0, 1)).toEqual({ line: 0, grapheme: 1 });
+		expect(positionAt(text, rows, 0, 3)).toEqual({ line: 0, grapheme: 1 });
+		expect(positionAt(text, rows, 1, 0)).toEqual({ line: 0, grapheme: 2 });
+	});
+
 	test("maps wide, combining, and emoji graphemes by terminal cells", (): void => {
 		const text = logicalText("a界e\u0301🙂");
 		const rows = softWrap(text, 20);

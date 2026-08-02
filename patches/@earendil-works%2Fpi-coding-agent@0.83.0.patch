@@ -51,8 +51,20 @@ index e91e38f8bedfabb6e67305f9739277d1ebacde22..9549acd84faf9f67db1d765ab851cb04
  export type { AgentEndEvent, AgentSettledEvent, AgentStartEvent, AgentToolResult, AgentToolUpdateCallback, AppKeybinding, AutocompleteProviderFactory, BashToolCallEvent, BeforeAgentStartEvent, BeforeAgentStartEventResult, BeforeProviderHeadersEvent, BeforeProviderRequestEvent, BeforeProviderRequestEventResult, BuildSystemPromptOptions, CompactOptions, ContextEvent, ContextUsage, CustomToolCallEvent, EditToolCallEvent, EntryRenderer, EntryRenderOptions, ExecOptions, ExecResult, Extension, ExtensionActions, ExtensionAPI, ExtensionCommandContext, ExtensionCommandContextActions, ExtensionContext, ExtensionContextActions, ExtensionError, ExtensionEvent, ExtensionFactory, ExtensionFlag, ExtensionHandler, ExtensionRuntime, ExtensionShortcut, ExtensionUIContext, ExtensionUIDialogOptions, ExtensionWidgetOptions, FindToolCallEvent, GrepToolCallEvent, InlineExtension, InputEvent, InputEventResult, InputSource, KeybindingsManager, LoadExtensionsResult, LsToolCallEvent, MessageEndEvent, MessageRenderer, MessageRenderOptions, MessageStartEvent, MessageUpdateEvent, ProjectTrustContext, ProjectTrustEvent, ProjectTrustEventDecision, ProjectTrustEventResult, ProjectTrustHandler, ProviderConfig, ProviderModelConfig, ReadToolCallEvent, RegisteredCommand, RegisteredTool, ResolvedCommand, SessionBeforeCompactEvent, SessionBeforeForkEvent, SessionBeforeSwitchEvent, SessionBeforeTreeEvent, SessionCompactEvent, SessionInfoChangedEvent, SessionShutdownEvent, SessionStartEvent, SessionTreeEvent, SlashCommandInfo, SlashCommandSource, SourceInfo, TerminalInputHandler, ToolCallEvent, ToolCallEventResult, ToolDefinition, ToolExecutionEndEvent, ToolExecutionMode, ToolExecutionStartEvent, ToolExecutionUpdateEvent, ToolInfo, ToolRenderResultOptions, ToolResultEvent, TurnEndEvent, TurnStartEvent, UserBashEvent, UserBashEventResult, WidgetPlacement, WorkingIndicatorOptions, WriteToolCallEvent, } from "./core/extensions/index.ts";
  export { createExtensionRuntime, defineTool, discoverAndLoadExtensions, ExtensionRunner, isBashToolResult, isEditToolResult, isFindToolResult, isGrepToolResult, isLsToolResult, isReadToolResult, isToolCallEventType, isWriteToolResult, wrapRegisteredTool, wrapRegisteredTools, } from "./core/extensions/index.ts";
  export type { ReadonlyFooterDataProvider } from "./core/footer-data-provider.ts";
+diff --git a/dist/modes/interactive/components/tool-execution.d.ts b/dist/modes/interactive/components/tool-execution.d.ts
+index 4a22d5c5159d72c18f4be5b607572238fdedd7cb..c1020257ddcc0197509f83c72daa03b318de20c2 100644
+--- a/dist/modes/interactive/components/tool-execution.d.ts
++++ b/dist/modes/interactive/components/tool-execution.d.ts
+@@ -35,6 +35,7 @@ export declare class ToolExecutionComponent extends Container {
+     private hasRendererDefinition;
+     private getRenderShell;
+     private getRenderContext;
++    dispose(): void;
+     private createCallFallback;
+     private createResultFallback;
+     updateArgs(args: any): void;
 diff --git a/dist/modes/interactive/components/tool-execution.js b/dist/modes/interactive/components/tool-execution.js
-index 3f93cc6c5665f603d29b3d6ac3dabfa560d6bb32..c030c9f7e0a6be4eca0c043e25d6749ffad02c20 100644
+index 3f93cc6c5665f603d29b3d6ac3dabfa560d6bb32..5d3b3a9335819ffc03a6e57be51193678c8210a2 100644
 --- a/dist/modes/interactive/components/tool-execution.js
 +++ b/dist/modes/interactive/components/tool-execution.js
 @@ -28,6 +28,8 @@ export class ToolExecutionComponent extends Container {
@@ -72,7 +84,7 @@ index 3f93cc6c5665f603d29b3d6ac3dabfa560d6bb32..c030c9f7e0a6be4eca0c043e25d6749f
          this.addChild(new Spacer(1));
          // Always create all shell variants. contentBox is used for default renderer-based composition.
          // selfRenderContainer is used when the tool renders its own framing.
-@@ -101,8 +104,34 @@ export class ToolExecutionComponent extends Container {
+@@ -101,8 +104,40 @@ export class ToolExecutionComponent extends Container {
              expanded: this.expanded,
              showImages: this.showImages,
              isError: this.result?.isError ?? false,
@@ -104,6 +116,89 @@ index 3f93cc6c5665f603d29b3d6ac3dabfa560d6bb32..c030c9f7e0a6be4eca0c043e25d6749f
 +        for (const listener of this.resultLayoutListeners)
 +            listener(bounds);
 +    }
++    dispose() {
++        this.removeComponentLayoutListener?.();
++        this.removeComponentLayoutListener = undefined;
++        this.resultLayoutListeners.clear();
++        this.resultRendererComponent?.dispose?.();
++    }
      createCallFallback() {
          return new Text(theme.fg("toolTitle", theme.bold(this.toolName)), 0, 0);
      }
+diff --git a/dist/modes/interactive/interactive-mode.js b/dist/modes/interactive/interactive-mode.js
+index 462e240c591ec86e57cf5d03ce41110d2e484fc4..deec18370d41896f22ffed8e9eb61db60feaaaf7 100644
+--- a/dist/modes/interactive/interactive-mode.js
++++ b/dist/modes/interactive/interactive-mode.js
+@@ -1255,6 +1255,7 @@ export class InteractiveMode {
+                     if (result.cancelled) {
+                         return { cancelled: true };
+                     }
++                    this.disposeChatComponents();
+                     this.chatContainer.clear();
+                     this.renderInitialMessages();
+                     if (result.editorText && !this.editor.getText().trim()) {
+@@ -1339,6 +1340,7 @@ export class InteractiveMode {
+     }
+     renderCurrentSessionState() {
+         this.loadedResourcesContainer.clear();
++        this.disposeChatComponents();
+         this.chatContainer.clear();
+         this.pendingMessagesContainer.clear();
+         this.compactionQueuedMessages = [];
+@@ -2500,6 +2502,7 @@ export class InteractiveMode {
+                     }
+                 }
+                 else if (event.result) {
++                    this.disposeChatComponents();
+                     this.chatContainer.clear();
+                     this.rebuildChatFromMessages();
+                     this.addMessageToChat(createCompactionSummaryMessage(event.result.summary, event.result.tokensBefore, new Date().toISOString()));
+@@ -2848,9 +2851,16 @@ export class InteractiveMode {
+         });
+     }
+     rebuildChatFromMessages() {
++        this.disposeChatComponents();
+         this.chatContainer.clear();
+         this.renderSessionEntries(this.sessionManager.buildContextEntries());
+     }
++    disposeChatComponents() {
++        for (const child of this.chatContainer.children) {
++            if (child instanceof ToolExecutionComponent)
++                child.dispose();
++        }
++    }
+     // =========================================================================
+     // Key handlers
+     // =========================================================================
+@@ -3133,6 +3143,7 @@ export class InteractiveMode {
+         this.hideThinkingBlock = !this.hideThinkingBlock;
+         this.settingsManager.setHideThinkingBlock(this.hideThinkingBlock);
+         // Rebuild chat from session messages
++        this.disposeChatComponents();
+         this.chatContainer.clear();
+         this.rebuildChatFromMessages();
+         // If streaming, re-add the streaming component with updated visibility and re-render
+@@ -3493,6 +3504,7 @@ export class InteractiveMode {
+                             child.setHideThinkingBlock(hidden);
+                         }
+                     }
++                    this.disposeChatComponents();
+                     this.chatContainer.clear();
+                     this.rebuildChatFromMessages();
+                 },
+@@ -3920,6 +3932,7 @@ export class InteractiveMode {
+                         return;
+                     }
+                     // Update UI
++                    this.disposeChatComponents();
+                     this.chatContainer.clear();
+                     this.renderInitialMessages();
+                     if (result.editorText && !this.editor.getText().trim()) {
+@@ -5056,6 +5069,7 @@ export class InteractiveMode {
+         this.clearStatusIndicator();
+         this.themeController.disableAutoSync();
+         this.clearExtensionTerminalInputListeners();
++        this.disposeChatComponents();
+         this.footer.dispose();
+         this.footerDataProvider.dispose();
+         if (this.unsubscribe) {

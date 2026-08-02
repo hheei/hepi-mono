@@ -1,3 +1,4 @@
+import { visibleWidth } from "@earendil-works/pi-tui";
 import type { TextPosition, TextRange } from "@hheei/pi-ext-core";
 
 export interface LogicalText {
@@ -15,7 +16,8 @@ const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
 /** Converts renderer-owned plain text into copy-safe logical lines. */
 export function logicalText(text: string): LogicalText {
-	return { lines: text.replace(ANSI, "").split("\n") };
+	const plain = text.replace(ANSI, "");
+	return { lines: plain === "" ? [] : plain.split("\n") };
 }
 
 export function graphemes(line: string): readonly string[] {
@@ -23,16 +25,7 @@ export function graphemes(line: string): readonly string[] {
 }
 
 function cellWidth(grapheme: string): number {
-	if (
-		/^\p{Mark}+$/u.test(grapheme) ||
-		grapheme === "\u200d" ||
-		grapheme === "\ufe0e" ||
-		grapheme === "\ufe0f"
-	)
-		return 0;
-	if (/\p{Extended_Pictographic}/u.test(grapheme)) return 2;
-	const code = grapheme.codePointAt(0) ?? 0;
-	return code >= 0x1100 && (code <= 0x115f || code >= 0x2e80) ? 2 : 1;
+	return visibleWidth(grapheme);
 }
 
 /** Maps one rendered cell column to the nearest logical grapheme insertion point. */
@@ -50,6 +43,7 @@ export function graphemeAtCell(line: string, cell: number): number {
 /** Builds visual rows without manufacturing logical newlines at soft-wrap boundaries. */
 export function softWrap(text: LogicalText, width: number): readonly WrappedLine[] {
 	if (!Number.isSafeInteger(width) || width < 1) return [];
+	if (text.lines.length === 1 && text.lines[0] === "") return [];
 	const rows: WrappedLine[] = [];
 	for (let line = 0; line < text.lines.length; line++) {
 		const parts = graphemes(text.lines[line] ?? "");
