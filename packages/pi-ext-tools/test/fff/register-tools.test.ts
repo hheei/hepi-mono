@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { inferFffGrepMode } from "../../src/fff/extension-common.js";
 import { createFffRuntimeState } from "../../src/fff/lifecycle.js";
 import { registerMultiGrepTool } from "../../src/fff/multi-grep.js";
 import { registerFindTool } from "../../src/find.js";
@@ -19,6 +20,12 @@ function harness(): { readonly pi: ExtensionAPI; readonly tools: ToolDefinition[
 }
 
 describe("FFF tool registration", () => {
+	test("preserves Pi grep literal and regex mode semantics", () => {
+		expect(inferFffGrepMode()).toBe("regex");
+		expect(inferFffGrepMode(false)).toBe("regex");
+		expect(inferFffGrepMode(true)).toBe("plain");
+	});
+
 	test("does not register retired find_files name", () => {
 		const host = harness();
 		registerMultiGrepTool(host.pi, createFffRuntimeState());

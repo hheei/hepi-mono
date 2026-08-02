@@ -33,7 +33,8 @@ export function normalizeOutputMode(
 }
 
 export function inferFffGrepMode(literal?: boolean): "plain" | "regex" {
-	return literal === false ? "regex" : "plain";
+	// Pi grep treats an omitted `literal` as false, so its default is regex.
+	return literal === true ? "plain" : "regex";
 }
 
 export function buildErrorDetails(error?: { message: string } | null) {
