@@ -12,20 +12,18 @@ export function registerGrepTool(pi: ExtensionAPI, state: FffRuntimeState): void
 			const original = createGrepToolDefinition(context.cwd);
 			const native = () => original.execute(id, params, signal, onUpdate, context);
 			const runtime = state.getRuntime();
-			const literal = params.literal;
 			if (
 				!runtime ||
 				!state.getSettings().grepEnhancement ||
 				grepNeedsBuiltinFallback({
 					pattern: params.pattern,
 					...(params.ignoreCase === undefined ? {} : { ignoreCase: params.ignoreCase }),
-					...(literal === undefined ? {} : { literal }),
 				})
 			)
 				return native();
 			try {
 				const result = await runtime.grepSearch({
-					pattern: params.ignoreCase === true ? params.pattern.toLowerCase() : params.pattern,
+					pattern: params.pattern,
 					mode: inferFffGrepMode(params.literal),
 					...(params.path === undefined ? {} : { pathQuery: params.path }),
 					...(params.glob === undefined ? {} : { glob: params.glob }),

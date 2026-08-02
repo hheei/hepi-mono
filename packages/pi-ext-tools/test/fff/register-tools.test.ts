@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { inferFffGrepMode } from "../../src/fff/extension-common.js";
+import { grepNeedsBuiltinFallback, inferFffGrepMode } from "../../src/fff/extension-common.js";
 import { createFffRuntimeState } from "../../src/fff/lifecycle.js";
 import { registerMultiGrepTool } from "../../src/fff/multi-grep.js";
 import { registerFindTool } from "../../src/find.js";
@@ -24,6 +24,11 @@ describe("FFF tool registration", () => {
 		expect(inferFffGrepMode()).toBe("regex");
 		expect(inferFffGrepMode(false)).toBe("regex");
 		expect(inferFffGrepMode(true)).toBe("plain");
+	});
+
+	test("delegates every case-insensitive grep request to Pi", () => {
+		expect(grepNeedsBuiltinFallback({ pattern: "needle", ignoreCase: true })).toBe(true);
+		expect(grepNeedsBuiltinFallback({ pattern: "NEEDLE", ignoreCase: true })).toBe(true);
 	});
 
 	test("does not register retired find_files name", () => {
