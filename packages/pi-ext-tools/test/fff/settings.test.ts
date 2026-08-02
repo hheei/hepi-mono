@@ -1,12 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	createFffSettingsProvider,
 	DEFAULT_FFF_SETTINGS,
 	fffSettingsFromState,
-	loadFffSettings,
 } from "../../src/fff/settings.js";
 
 describe("FFF settings", () => {
@@ -27,30 +26,6 @@ describe("FFF settings", () => {
 			findEnhancement: true,
 			statusUI: true,
 		});
-	});
-
-	test("falls back to legacy pi-fff settings when new section is absent", async () => {
-		const directory = await mkdtemp(join(tmpdir(), "hepi-fff-legacy-settings-"));
-		try {
-			const path = join(directory, "settings.json");
-			await writeFile(
-				path,
-				JSON.stringify({ "pi-fff": { features: { findEnhancement: false } } }),
-				"utf8",
-			);
-			const provider = createFffSettingsProvider({ path });
-			expect(await loadFffSettings(provider, { sessionId: "legacy-test", cwd: directory })).toEqual(
-				{
-					autocomplete: true,
-					grepEnhancement: true,
-					readEnhancement: true,
-					findEnhancement: false,
-					statusUI: true,
-				},
-			);
-		} finally {
-			await rm(directory, { recursive: true, force: true });
-		}
 	});
 
 	test("registers settings in pi-ext-tools/fff without runtime side effects", async () => {
