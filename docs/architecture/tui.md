@@ -83,6 +83,23 @@ component 的 keyboard handler。region registration 只在 layout snapshot 更�
 `TextPosition` 是零基 line/grapheme，`TextRange` 是半开区间。完整 contract 见
 [鼠标与局部文本选择](../mouse/README.md)。
 
+### Runtime Host Bridge
+
+已确认、尚未实现的 Runtime host bridge 留在 `pi-ext-core` 的 opt-in bridge module，不修改 Pi 源码，也不创建
+单独的 `pi-select` package。它是唯一可 wrapper Pi private runtime 的位置，使用 Pi `0.83.x` compatibility fence
+和完整 shape probe，为当前 Editor 与 HEPI-managed tool output 发布 Host surface identity、lifecycle 与 layout
+snapshot。feature 不得获得或 deep-import `InteractiveMode`、container、renderer 或其他 raw Pi private object。
+
+consumer 以自己的 lifecycle signal 获取 Bridge lease；第一个 lease 安装 bridge，最后一个 lease 撤销 capability
+并恢复仍由 bridge 持有的 patch。首次 lease 同时发现已经显示和后续出现的 surface。无法安全发现任一类 surface、
+probe 不通过、出现未知 wrapper 或 patch 不可恢复时，bridge fail-closed：不启用 host-bound selection、保留 Pi
+原行为、每 runtime 只产生一次 native warning。
+
+bridge 不替代本节 Mouse contract。它只为需要 Pi host geometry 的 owner 提供 layout snapshot；owner 继续使用
+`MouseSupport`、负责 text mapping、selection state、highlight 与 copy。Managed tool 可在静态 core registration
+中声明 optional selection adapter；没有 adapter 时 tool execution 与 renderer 完全不变。完整开发 contract 见
+[Pi Runtime Host Bridge](../bridge/README.md)。
+
 ## Ownership、并发与验证
 
 每个公开 TUI API 的 TypeScript 注释必须说明 owner、consumer、缺席 fallback、cleanup、cancellation 和并发语义。runtime state 以 `pi.events` identity 作用域化，跨重复 core module instance 共享；它不得长期保留 ExtensionContext 或 component。

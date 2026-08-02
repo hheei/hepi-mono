@@ -42,6 +42,10 @@ Mouse/local-selection 实现还必须遵守
 尤其覆盖 TUI input boundary、tracking lease、capture、region snapshot 与 event hot path；不得把设计理由
 推迟到后续文档补写。
 
+Runtime host bridge 实现还必须遵守 [Pi Runtime Host Bridge](../bridge/README.md)。private runtime probe、
+wrapper 安装/恢复、late attach、surface snapshot 与 warning deduplication 的注释必须解释 ownership、version fence、
+fail-closed 原因和 release 后果；不得让 private import、prototype access 或 raw host object 越过 bridge 模块。
+
 ## Core 边界
 
 - 根入口是唯一 public import surface；consumer 不得 deep import `src/` 模块。
@@ -49,11 +53,13 @@ Mouse/local-selection 实现还必须遵守
   已批准的受限例外由 [ADR 0001](../adr/0001-core-extension-page-shell.md)、
   [ADR 0002](../adr/0002-core-loadout-contract.md)、
   [ADR 0004](../adr/0004-core-subagent-execution.md)、
-  [ADR 0007](../adr/0007-core-json-settings-substrate.md) 与
-  [ADR 0008](../adr/0008-mouse-selection-core-exception.md) 明确限定：分别是 Extension page router、
+  [ADR 0007](../adr/0007-core-json-settings-substrate.md)、
+  [ADR 0008](../adr/0008-mouse-selection-core-exception.md) 与
+  [ADR 0009](../adr/0009-runtime-host-bridge-core-exception.md) 明确限定：分别是 Extension page router、
   Loadout tool registration contract、root-session-scoped subagent execution contract、JSON settings
-  file transport，以及 terminal mouse/local selection contract。它们不得扩张为 page content、Loadout
-  policy、Settings persistence、agent/config/UI/delivery policy、clipboard policy 或 schema-driven framework。
+  file transport、terminal mouse/local selection contract，以及 Pi `0.83.x` Editor/Managed-tool Runtime host
+  bridge。它们不得扩张为 page content、Loadout policy、Settings persistence、agent/config/UI/delivery policy、
+  clipboard policy、Pi private API facade 或 schema-driven framework。
 - extension 将 core 作为 direct production dependency，并 externalize bundle；runtime state
   必须以 `pi.events` 为 identity，通过稳定 `Symbol.for` slot 跨重复 core module instance 共享。
 - process-global state 只能保存 lazy registry；不得保留 `ExtensionContext`、component 或 session
@@ -108,7 +114,7 @@ factory、dependency 或 generic framework。
 扩大 core。
 
 已批准 ADR 的范围外仍适用该门槛。Loadout contract、Extension page router、Subagent execution、JSON
-settings transport 与 mouse/local selection contract 是记录在 ADR 中的 bounded exceptions；第二个
+settings transport、mouse/local selection contract 与 Runtime host bridge 是记录在 ADR 中的 bounded exceptions；第二个
 consumer 出现前，不得在它们上继续抽取 generic policy、content model、worker framework 或 shared dependency。
 
 ## Loadout Contributor
