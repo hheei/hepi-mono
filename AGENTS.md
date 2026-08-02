@@ -58,6 +58,25 @@ Do not introduce npm, Yarn, or pnpm lockfiles.
 - Extensions depend on `@hheei/pi-ext-core` and upstream Pi packages, never on another concrete extension. Cross-extension cooperation uses core-owned, runtime-scoped capability contracts; events remain notifications, not shared state or RPC.
 - Keep runtime state session-scoped and cleanup idempotent unless persistence is explicitly part of the feature contract.
 
+## Architecture Vocabulary
+
+Use the following names consistently in design discussions and implementation notes:
+
+- **Pi host** means `@earendil-works/pi-coding-agent`: the process that loads extensions and owns the extension runner, Pi session lifecycle, editor, terminal, `ExtensionContext`, and native UI primitives such as `input`, `confirm`, and `editor`.
+- **ext-core** means `@hheei/pi-ext-core`: the publishable, non-extension foundation between the Pi host and concrete extensions. It owns reusable mechanisms such as lifecycle registration, admission, cancellation, cleanup, `openTuiSurface()`, `registerHepiWidget()`, and opaque Subagent handles. It does not own a concrete feature's records, policy, files, labels, or page content.
+- **Concrete extension** means an independently installable `packages/pi-<name>/` package. It owns domain state, public commands/tools, schemas, policy, and rendering, and registers the ext-core capabilities it consumes.
+- **Surface** means one ext-core-managed custom TUI lifetime. The concrete extension supplies the component and its domain state; ext-core owns queueing, abort, disposal, and host mounting.
+- **Widget** means editor-adjacent, usually read-only presentation. The extension owns the rendered content; ext-core owns mounting, suspension, remounting, and cleanup. A widget is not a surface and must not use private Pi focus/input APIs.
+
+When explaining or proposing architecture, use this order:
+
+1. **Core intuition and goal:** state the user-visible problem and the main data/control-flow change in one or two sentences.
+2. **Boundary mapping:** define Pi host, ext-core, concrete extension, surface, widget, and any feature-specific names. State owner, consumers, fallback, cleanup, cancellation, and concurrency semantics where relevant.
+3. **Control-flow visualization:** include a small ASCII flow or state machine for the old and new paths.
+4. **Implementation seam:** name the smallest public contract and the focused tests before discussing individual files.
+
+Do not use “core” as an unqualified owner name in new design text. Say **Pi host**, **ext-core**, or the concrete extension instead.
+
 ## Documentation
 
 - Keep `docs/` high-level: developer and user concepts, architecture boundaries, prerequisites, and entry points. Keep repository workflow and architecture guidance under `docs/development/` and `docs/architecture/`; keep evidence and historical context under `docs/research/` and `docs/plans/`.

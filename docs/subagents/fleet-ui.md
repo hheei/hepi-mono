@@ -44,6 +44,40 @@ Fleet 是一个 custom surface，内部状态为 `fleet` 或 `conversation`：
 editor-adjacent summary 是 core-managed read-only widget。它不接管方向键或 terminal focus；进入 Fleet 的
 稳定入口是 `/agents`。当前不注册默认 shortcut，待 user-facing binding 决定后再单独添加。
 
+## Widget 移植计划
+
+Widget 的控制流保持单向：
+
+```text
+AgentManager / AgentActivity
+        ↓
+pi-subagents AgentWidget 计算可见内容
+        ↓
+registerHepiWidget()
+        ↓
+ext-core 负责 setWidget、挂载、重挂载、暂停和清理
+        ↓
+Pi host 在 editor 上方显示
+```
+
+`AgentWidget` 仍拥有 finished linger、spinner、usage、activity 和 `widgetMode` 业务规则，但不再直接调用
+`ctx.ui.setWidget()`，也不再保存 Pi `TUI` 作为自己的生命周期 owner。它暴露一个 core registration factory 和一个
+有限的 render invalidation seam；`HepiWidgetHandle` 负责 visible 状态与 render request。
+
+Widget 只在有 active/queued/短暂 finished 内容时 visible；没有内容时由 handle 隐藏。Settings 通过
+`suspendHepiWidgets()` 暂停全部 core-managed widgets，surface abort、session replacement、reload 和 shutdown
+都必须使 registration handle 幂等释放。旧的 FleetList 与任何 `focusedComponent`/`onTerminalInput` 路径在这一步删除。
+
+实现顺序：
+
+1. 将 `AgentWidget` 的 Pi widget factory 改为纯 `Component` factory，并抽出 `visible` 与 `requestRender` 的最小适配。
+2. 在 `session_start` 的 active runtime 中注册 `registerHepiWidget(pi, runtime.extension, runtime.signal, ...)`，将 handle
+   放入 runtime resource cleanup；禁止在 extension factory 或 child session 中产生 widget。
+3. 将 `update()`、`dispose()`、`setWidgetMode()` 接到 handle，保持现有 statusbar 行为和 finished retention 不变。
+4. 删除旧 `UICtx.setWidget` 类型、FleetList runtime wiring 和 undocumented terminal input/focus code。
+5. 增加 focused tests：无内容隐藏、首次出现挂载、内容变化 requestRender、theme invalidation remount、settings suspension、
+   abort/dispose idempotency，以及 80/120/216 列宽度的 cell-width 检查。
+
 ## 生命周期和验证
 
 surface 的 AbortSignal 终止时必须 detach conversation subscriptions、丢弃 late actions，并释放 widget/surface
