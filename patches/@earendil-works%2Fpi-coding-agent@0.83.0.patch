@@ -1,0 +1,109 @@
+diff --git a/node_modules/@earendil-works/pi-coding-agent/.bun-tag-1fb0900b0c5ddc1b b/.bun-tag-1fb0900b0c5ddc1b
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/node_modules/@earendil-works/pi-coding-agent/.bun-tag-ebf2528ef08b3827 b/.bun-tag-ebf2528ef08b3827
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/dist/core/extensions/types.d.ts b/dist/core/extensions/types.d.ts
+index 1a06f40b215da8bba3abfb76d28f9cc8ce17d3e7..40192d7d8d6bdd5a796d0090c21f83fe1bae0dc8 100644
+--- a/dist/core/extensions/types.d.ts
++++ b/dist/core/extensions/types.d.ts
+@@ -9,7 +9,7 @@
+  */
+ import type { AgentMessage, AgentToolResult, AgentToolUpdateCallback, ThinkingLevel, ToolExecutionMode } from "@earendil-works/pi-agent-core";
+ import type { Api, AssistantMessageEvent, AssistantMessageEventStream, ConstrainedSamplingConfig, Context, ImageContent, Model, OAuthCredentials, OAuthLoginCallbacks, Provider, ProviderHeaders, RefreshModelsContext, SimpleStreamOptions, TextContent, ToolResultMessage, Usage } from "@earendil-works/pi-ai";
+-import type { AutocompleteItem, AutocompleteProvider, Component, EditorComponent, EditorTheme, KeyId, OverlayHandle, OverlayOptions, TUI } from "@earendil-works/pi-tui";
++import type { AutocompleteItem, AutocompleteProvider, Component, ComponentBounds, EditorComponent, EditorTheme, KeyId, OverlayHandle, OverlayOptions, TUI } from "@earendil-works/pi-tui";
+ import type { Static, TSchema } from "typebox";
+ import type { Theme } from "../../modes/interactive/theme/theme.ts";
+ import type { BashResult } from "../bash-executor.ts";
+@@ -310,6 +310,12 @@ export interface ToolRenderResultOptions {
+     /** Whether this is a partial/streaming result */
+     isPartial: boolean;
+ }
++/** Viewport geometry owned by Pi for the current tool result renderer. */
++export interface ToolResultLayout {
++    readonly tui: TUI;
++    readonly bounds: ComponentBounds | undefined;
++    onChange(listener: (bounds: ComponentBounds | undefined) => void): () => void;
++}
+ /** Context passed to tool renderers. */
+ export interface ToolRenderContext<TState = any, TArgs = any> {
+     /** Current tool call arguments. Shared across call/result renders for the same tool call. */
+@@ -336,6 +342,8 @@ export interface ToolRenderContext<TState = any, TArgs = any> {
+     showImages: boolean;
+     /** Whether the current result is an error. */
+     isError: boolean;
++    /** Pi-owned viewport geometry for this result slot, if it is currently laid out. */
++    resultLayout: ToolResultLayout;
+ }
+ /**
+  * Tool definition for registerTool().
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index e91e38f8bedfabb6e67305f9739277d1ebacde22..9549acd84faf9f67db1d765ab851cb04dddee7c6 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -4,6 +4,7 @@ export { AgentSession, type AgentSessionConfig, type AgentSessionEvent, type Age
+ export { readStoredCredential } from "./core/auth-storage.ts";
+ export { type BranchPreparation, type BranchSummaryResult, type CollectEntriesResult, type CompactionResult, type CutPointResult, calculateContextTokens, collectEntriesForBranchSummary, compact, DEFAULT_COMPACTION_SETTINGS, estimateTokens, type FileOperations, findCutPoint, findTurnStartIndex, type GenerateBranchSummaryOptions, generateBranchSummary, generateSummary, generateSummaryWithUsage, getLastAssistantUsage, prepareBranchEntries, serializeConversation, shouldCompact, } from "./core/compaction/index.ts";
+ export { createEventBus, type EventBus, type EventBusController } from "./core/event-bus.ts";
++export type { ToolRenderContext, ToolResultLayout } from "./core/extensions/types.ts";
+ export type { AgentEndEvent, AgentSettledEvent, AgentStartEvent, AgentToolResult, AgentToolUpdateCallback, AppKeybinding, AutocompleteProviderFactory, BashToolCallEvent, BeforeAgentStartEvent, BeforeAgentStartEventResult, BeforeProviderHeadersEvent, BeforeProviderRequestEvent, BeforeProviderRequestEventResult, BuildSystemPromptOptions, CompactOptions, ContextEvent, ContextUsage, CustomToolCallEvent, EditToolCallEvent, EntryRenderer, EntryRenderOptions, ExecOptions, ExecResult, Extension, ExtensionActions, ExtensionAPI, ExtensionCommandContext, ExtensionCommandContextActions, ExtensionContext, ExtensionContextActions, ExtensionError, ExtensionEvent, ExtensionFactory, ExtensionFlag, ExtensionHandler, ExtensionRuntime, ExtensionShortcut, ExtensionUIContext, ExtensionUIDialogOptions, ExtensionWidgetOptions, FindToolCallEvent, GrepToolCallEvent, InlineExtension, InputEvent, InputEventResult, InputSource, KeybindingsManager, LoadExtensionsResult, LsToolCallEvent, MessageEndEvent, MessageRenderer, MessageRenderOptions, MessageStartEvent, MessageUpdateEvent, ProjectTrustContext, ProjectTrustEvent, ProjectTrustEventDecision, ProjectTrustEventResult, ProjectTrustHandler, ProviderConfig, ProviderModelConfig, ReadToolCallEvent, RegisteredCommand, RegisteredTool, ResolvedCommand, SessionBeforeCompactEvent, SessionBeforeForkEvent, SessionBeforeSwitchEvent, SessionBeforeTreeEvent, SessionCompactEvent, SessionInfoChangedEvent, SessionShutdownEvent, SessionStartEvent, SessionTreeEvent, SlashCommandInfo, SlashCommandSource, SourceInfo, TerminalInputHandler, ToolCallEvent, ToolCallEventResult, ToolDefinition, ToolExecutionEndEvent, ToolExecutionMode, ToolExecutionStartEvent, ToolExecutionUpdateEvent, ToolInfo, ToolRenderResultOptions, ToolResultEvent, TurnEndEvent, TurnStartEvent, UserBashEvent, UserBashEventResult, WidgetPlacement, WorkingIndicatorOptions, WriteToolCallEvent, } from "./core/extensions/index.ts";
+ export { createExtensionRuntime, defineTool, discoverAndLoadExtensions, ExtensionRunner, isBashToolResult, isEditToolResult, isFindToolResult, isGrepToolResult, isLsToolResult, isReadToolResult, isToolCallEventType, isWriteToolResult, wrapRegisteredTool, wrapRegisteredTools, } from "./core/extensions/index.ts";
+ export type { ReadonlyFooterDataProvider } from "./core/footer-data-provider.ts";
+diff --git a/dist/modes/interactive/components/tool-execution.js b/dist/modes/interactive/components/tool-execution.js
+index 3f93cc6c5665f603d29b3d6ac3dabfa560d6bb32..c030c9f7e0a6be4eca0c043e25d6749ffad02c20 100644
+--- a/dist/modes/interactive/components/tool-execution.js
++++ b/dist/modes/interactive/components/tool-execution.js
+@@ -28,6 +28,8 @@ export class ToolExecutionComponent extends Container {
+     result;
+     convertedImages = new Map();
+     hideComponent = false;
++    resultLayoutListeners = new Set();
++    removeComponentLayoutListener;
+     constructor(toolName, toolCallId, args, options = {}, toolDefinition, ui, cwd) {
+         super();
+         this.toolName = toolName;
+@@ -39,6 +41,7 @@ export class ToolExecutionComponent extends Container {
+         this.imageWidthCells = options.imageWidthCells ?? 60;
+         this.ui = ui;
+         this.cwd = cwd;
++        this.removeComponentLayoutListener = ui.onComponentLayout(this, () => this.publishResultLayout());
+         this.addChild(new Spacer(1));
+         // Always create all shell variants. contentBox is used for default renderer-based composition.
+         // selfRenderContainer is used when the tool renders its own framing.
+@@ -101,8 +104,34 @@ export class ToolExecutionComponent extends Container {
+             expanded: this.expanded,
+             showImages: this.showImages,
+             isError: this.result?.isError ?? false,
++            resultLayout: {
++                tui: this.ui,
++                bounds: this.getResultBounds(),
++                onChange: (listener) => {
++                    this.resultLayoutListeners.add(listener);
++                    listener(this.getResultBounds());
++                    return () => this.resultLayoutListeners.delete(listener);
++                },
++            },
+         };
+     }
++    getResultBounds() {
++        const row = this.ui.getComponentBounds(this);
++        const result = this.resultRendererComponent;
++        if (!row || !result)
++            return undefined;
++        const self = this.hasRendererDefinition() && this.getRenderShell() === "self";
++        const x = self ? row.x : row.x + 1;
++        const width = Math.max(0, row.width - (self ? 0 : 2));
++        const callHeight = this.callRendererComponent?.render(width).length ?? 0;
++        const y = row.y + (self ? 1 : 2) + callHeight;
++        return { x, y, width, height: result.render(width).length };
++    }
++    publishResultLayout() {
++        const bounds = this.getResultBounds();
++        for (const listener of this.resultLayoutListeners)
++            listener(bounds);
++    }
+     createCallFallback() {
+         return new Text(theme.fg("toolTitle", theme.bold(this.toolName)), 0, 0);
+     }

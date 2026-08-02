@@ -2,9 +2,9 @@
 
 ## 状态
 
-这是已确认、尚未实现的 `@hheei/pi-ext-tools` 独立 Pi extension 设计。它不修改 Pi 源码，不引入
-`pi-select`，也不让 `pi-ext-core` 解释具体 tool 语义。实现顺序必须是 package framework、focused tests、
-tool modules，再实现行为。
+`@hheei/pi-ext-tools` 已实现 Canonical catalog 与 `pi-fff` split migration。它不修改 Pi 源码，不引入
+`pi-select`，也不让 `pi-ext-core` 解释具体 tool 语义。每个 catalog module 复用 upstream definition，并在
+执行时以 tool call 的 `cwd` 重新创建 definition，避免 extension construction cwd 泄漏。
 
 ## 目标
 
@@ -16,8 +16,8 @@ Pi upstream tool 的同名 replacement 由一个 Canonical tool owner 静态注�
 Pi upstream factory -> pi-ext-tools tool module -> one managed registration -> Pi-visible tool
 ```
 
-每个 tool module 自己决定如何复用 upstream factory、如何 render、是否支持 selection，以及如何处理特定
-feature policy。`pi-ext-core` 仅提供 managed registration、mouse transport 和可缺席的 Host surface bridge。
+每个 tool module 自己决定如何复用 upstream factory、如何 render，以及如何处理特定 feature policy。
+`pi-ext-core` 仅提供 managed registration 与 mouse transport。
 
 ## v1 Catalog
 
@@ -42,37 +42,28 @@ policy，不能用于决定哪个 implementation 执行。
 - `pi-ext-tools` 是 catalog 中每个名称的唯一 Canonical tool owner，负责 upstream parameter/execute compatibility、
   renderer、ToolRenderContext state、abort、streaming 与 cleanup。
 - 每个 module 可以调用对应 upstream `create...Tool()`；这用于复用运行行为，不表示必须复用 upstream renderer。
-- `read` 使用 upstream `createReadTool()` 的参数与 execute 语义，但拥有 selection-aware result renderer 和逻辑
-  text model。
-- `edit`、`write`、`bash` 第一版保留 upstream-compatible 行为，不支持 custom mouse selection。diff、streaming、
-  ANSI 或 command-output selection 另行逐项设计，不从 `read` 泛化。
+- `read`、`edit`、`write`、`bash` 保留 upstream-compatible 参数、execute 与 renderer 语义。
 - 其他 extension 不得为 catalog 名称直接 `pi.registerTool()` 或 managed-register competing definition。它们不能
   import `pi-ext-tools`；跨包协作若确有需求，另行定义 narrow core capability。
 
-## Read Selection 与 Copy
+## 本地文本选择
 
-`read` 是第一份 selection consumer。它与 `MouseSupport` 和 Runtime host bridge 的关系是：
+`pi-ext-tools` 只在本 package 内共享纯文本 selection substrate：logical lines、grapheme/cell mapping、visual
+soft-wrap map、half-open `TextRange` slicing 与 copy normalization。copy 会保留真实 logical newline 与行首缩进，
+并逐行移除 trailing spaces/tabs；ANSI、padding、border、call header 与 expand hint 都不进入 logical text。
 
-```text
-read logical text model + bridge Host surface snapshot
-  -> read-owned SelectableRegion
-  -> MouseSupport down / drag / up
-  -> TextRange + selection highlight
-  -> primary-button up auto-copy
-```
+它不是通用 Component framework 或 tool decorator。每个 renderer 自己决定 result body、selection state、highlight
+和 clipboard policy。local tool-surface binding 只识别本 package 产生的 result component；无法取得 Pi TUI/layout
+时 fail closed：保留 renderer，且不注册 mouse region 或尝试 copy。
 
-- selection 基于 logical text，不反解析 ANSI 或 terminal output。
-- visual soft wrap 不生成复制换行；真实 logical newline 保留；每个复制行移除 trailing spaces/tabs，行首空白
-  保持不变。
-- 无修饰 primary-button `up` 后，`read` 尝试通过系统 clipboard 写入当前 selection。写入异步且不得阻塞 mouse
-  dispatch；selection/highlight 无论成功与否保留。
-- clipboard 失败时，`read` 每个 surface/session 最多报告一次 Pi native warning，后续 selection release 仍继续
-  尝试 copy。rejected Promise 必须被处理。
-- bridge 未安装或 unavailable 时，`read` 正常执行和 render，但不注册 host-bound selectable region、不启用 mouse
-  tracking，也不伪造成功 copy。
+`edit`、`write` 保留 upstream renderer 的 padded status shell、diff、partial/expanded output、error 与 timer lifecycle。
+`read` 与 `bash` expanded output 通过 Pi 的 vendored `ToolRenderContext.resultLayout` 接收 result body viewport bounds，并注册
+local mouse region；extension 不遍历 `Container.children`，不读取 `ToolExecutionComponent` private fields。`bash` collapsed preview
+继续由 upstream renderer 处理，不创建 selection region；其他 tool 的 selection 必须分别复制并测试其完整 upstream renderer
+行为后才能接入。
 
-自动 copy 是 `pi-ext-tools/read` policy，不扩张 `pi-ext-core` 的 clipboard boundary；core 仍不在 `up` 时读取
-selection、写 clipboard 或发出 copy notification。
+未来的 region snapshot 必须在 layout/content revision 改变后异步更新，绝不从 `render(width)` 注册或移除；mouse callback
+只读取 selection，系统 clipboard work 必须延后到 dispatch 后，避免在高频 input path 中创建 Promise 或执行 I/O。
 
 ## pi-fff 过渡
 
@@ -93,9 +84,5 @@ pi-fff:       grep, find_files, fff_multi_grep, FFF runtime/settings/autocomplet
 
 - 每个 catalog tool：upstream schema/execute compatibility、managed registration singleton、abort、streaming（如适用）
   和 Loadout activation tests。
-- `read`：logical line extraction、wide/combining glyph mapping、soft wrap、trailing whitespace copy、release auto-copy、
-  clipboard failure warning deduplication、bridge absence 与 lifecycle cleanup。
-- 真实 Pi/TUI replay：`read` 的已有和后续 tool surface、窄宽 viewport、scroll、selection highlight、copy 与
-  bridge fail-closed fallback。
 - split release：验证新 `pi-fff` 不再注册 `read`，新 `pi-ext-tools` 是唯一 `read` owner；旧 `pi-fff` 与
   `pi-ext-tools` 的不兼容性写入两个 package README 和 release notes。

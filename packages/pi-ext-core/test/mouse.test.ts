@@ -164,7 +164,7 @@ test("keeps down dispatch stable when ignored callback removes an earlier region
 	expect(calls).toEqual(["new:down"]);
 });
 
-test("drives plain-left selection without deriving copy or click behavior", (): void => {
+test("delivers captured plain-left release without changing selection", (): void => {
 	const h = fixture();
 	const selections: (TextRange | null)[] = [];
 	const custom: TerminalMouseEvent[] = [];
@@ -186,6 +186,7 @@ test("drives plain-left selection without deriving copy or click behavior", (): 
 		{ start: { line: 0, grapheme: 1 }, end: { line: 0, grapheme: 4 } },
 	]);
 	expect(custom).toEqual([
+		{ kind: "up", x: 4, y: 0, button: 3, shift: false, ctrl: false, alt: false },
 		{ kind: "down", x: 4, y: 0, button: 0, shift: true, ctrl: false, alt: false },
 	]);
 	expect(h.renderRequests).toBe(2);

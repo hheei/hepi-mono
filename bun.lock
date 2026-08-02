@@ -173,6 +173,23 @@
         "@huggingface/transformers": "^4.2.0",
       },
     },
+    "packages/pi-ext-tools": {
+      "name": "@hheei/pi-ext-tools",
+      "version": "0.0.0",
+      "dependencies": {
+        "@hheei/pi-ext-core": "workspace:*",
+      },
+      "devDependencies": {
+        "@earendil-works/pi-coding-agent": ">=0.83.0",
+        "@types/bun": "latest",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-agent-core": ">=0.83.0",
+        "@earendil-works/pi-ai": ">=0.83.0",
+        "@earendil-works/pi-coding-agent": ">=0.83.0",
+        "@earendil-works/pi-tui": ">=0.83.0",
+      },
+    },
     "packages/pi-fff": {
       "name": "@hheei/pi-fff",
       "version": "0.0.0",
@@ -297,6 +314,10 @@
         "@earendil-works/pi-tui": ">=0.83.0",
       },
     },
+  },
+  "patchedDependencies": {
+    "@earendil-works/pi-coding-agent@0.83.0": "patches/@earendil-works%2Fpi-coding-agent@0.83.0.patch",
+    "@earendil-works/pi-tui@0.83.0": "patches/@earendil-works%2Fpi-tui@0.83.0.patch",
   },
   "packages": {
     "@anthropic-ai/sdk": ["@anthropic-ai/sdk@0.91.1", "", { "dependencies": { "json-schema-to-ts": "^3.1.1" }, "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" }, "optionalPeers": ["zod"], "bin": { "anthropic-ai-sdk": "bin/cli" } }, "sha512-LAmu761tSN9r66ixvmciswUj/ZC+1Q4iAfpedTfSVLeswRwnY3n2Nb6Tsk+cLPP28aLOPWeMgIuTuCcMC6W/iw=="],
@@ -424,6 +445,8 @@
     "@hheei/pi-ext-core": ["@hheei/pi-ext-core@workspace:packages/pi-ext-core"],
 
     "@hheei/pi-ext-embed": ["@hheei/pi-ext-embed@workspace:packages/pi-ext-embed"],
+
+    "@hheei/pi-ext-tools": ["@hheei/pi-ext-tools@workspace:packages/pi-ext-tools"],
 
     "@hheei/pi-fff": ["@hheei/pi-fff@workspace:packages/pi-fff"],
 

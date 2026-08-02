@@ -195,9 +195,12 @@ function dispatchSelectableEvent(
 	event: TerminalMouseEvent,
 	selection: SelectionGesture | undefined,
 ): SelectionGesture | undefined {
-	// SGR release commonly reports button 3. A plain-left capture must end
-	// without invoking the custom callback or changing its last valid position.
-	if (event.kind === "up" && selection !== undefined) return selection;
+	// SGR release commonly reports button 3. Preserve the last range, but notify
+	// the surface so its own copy/click policy can consume the completed gesture.
+	if (event.kind === "up" && selection !== undefined) {
+		selectable.onMouseEvent?.(event);
+		return selection;
+	}
 	if (!isPlainLeftButton(event)) {
 		selectable.onMouseEvent?.(event);
 		return undefined;
