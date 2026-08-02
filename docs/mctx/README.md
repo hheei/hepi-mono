@@ -227,9 +227,10 @@ provider 和 consumer 分别声明相同的 namespaced service ID，不互相 im
 consumer：`hepi-basics` 的 handoff 与独立 `pi-subagents` 的 inheritance；memory、notes、search 或任意第三方
 extension 不得借此取得 MCTX state，未来各自需要独立 capability。
 
-实际 implementation 出现两个 installable consumer 前，不创建 Service key 或 provider-only runtime。届时两个
-package 通过 `pi-ext-core` 的 Service 使用同一预留 ID `@hheei/pi-mctx/context-projection@1`；MCTX runtime 是唯一
-provider，first-provider-wins，生命周期 cleanup 自动撤销。以下是 contract 的设计基线，不是当前可 import API：
+projection 有明确的 feature-neutral 中间层价值时，可以在第二个 installable consumer 出现前创建窄 Service key
+或 provider-only runtime；不得因此扩大为 MCTX state 的通用读取入口。届时相关 package 通过 `pi-ext-core` 的
+Service 使用同一预留 ID `@hheei/pi-mctx/context-projection@1`；MCTX runtime 是唯一 provider，first-provider-wins，
+生命周期 cleanup 自动撤销。以下是 contract 的设计基线，不是当前可 import API：
 
 ```ts
 import type { SessionManager } from "@earendil-works/pi-coding-agent";

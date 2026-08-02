@@ -34,7 +34,9 @@ runtime 的性能或界面。
 - 通用 event bus、RPC 框架或自动 discovery；
 - 对旧 `hepi-basics` API 的兼容 adapter。
 
-这些能力只有在至少两个独立 extension 有明确的同类需求时，才以单独提案考虑。
+这些能力只有在能形成有明确价值、feature-neutral 的中间层 API 时，才以单独提案考虑；consumer
+数量不是硬门槛。提案必须限定使用范围，不能把某个 extension 的 policy、业务 state、schema 或 UI
+下沉到 core。
 
 已批准五个限定例外：core 公开 Loadout tool registration contract、提供 global Extension page router 与
 feature-neutral TUI host、拥有 root-session-scoped subagent execution contract，并提供 JSON settings file

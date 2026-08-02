@@ -23,8 +23,9 @@ payload source；Handoff 不读取 MCTX SQLite、compartment graph、tags 或 re
 
 ## Future MCTX Projection
 
-当 `pi-subagents` 真实实现 `inherit_context` 后，它与 Handoff 才构成两个 installable consumer。届时两者通过
+当 `pi-subagents` 真实实现 `inherit_context` 后，它与 Handoff 都可通过
 `@hheei/pi-ext-core` existing Service key `@hheei/pi-mctx/context-projection@1` 发现 optional MCTX projection。
+该窄、feature-neutral 的 capability 可以先于第二个 installable consumer 创建，但不能暴露通用 MCTX state 读取。
 MCTX provider 缺席、disabled 或返回 `undefined` 时，Handoff 继续上述 native path；provider 返回已选择的 projection
 后，payload/setup error 必须显示 operation error，不能静默改用 native compact，以免遗失 chosen projection。
 

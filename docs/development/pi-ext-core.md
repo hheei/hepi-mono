@@ -42,9 +42,10 @@ core 的目标是以最小协调原语支持独立 extension 组合。未安装�
 - 根入口是唯一 public import surface；consumer 不得 deep import `src/` 模块。
 - core 不导入 concrete extension，也不承载 feature-specific business state、event bus 或 RPC。
   [ADR 0001](../adr/0001-core-extension-page-shell.md) 与
-  [ADR 0002](../adr/0002-core-loadout-contract.md) 与
+  [ADR 0002](../adr/0002-core-loadout-contract.md)、
+  [ADR 0008](../adr/0008-loadout-agent-resources.md) 与
   [ADR 0004](../adr/0004-core-subagent-execution.md) 是唯一已批准例外：Extension page router、
-  Loadout tool registration contract 和 root-session-scoped subagent execution contract；它们不得
+  Loadout resource registration contract 和 root-session-scoped subagent execution contract；它们不得
   扩张为 page content、Loadout policy、Settings persistence、agent/config/UI/delivery policy 或
   schema-driven framework。JSON settings file transport 是 ADR-0007 的限定例外；它只读写 object root 与
   named section，不能扩张为 schema、scope merge、provider 或 UI。
@@ -94,25 +95,28 @@ factory、dependency 或 generic framework。
 
 要向 core 提升新 primitive、shared abstraction 或 shared dependency，必须同时满足：
 
-1. 至少两个独立真实 consumers 已有相同需求；
+1. 它提供明确的跨 extension 价值，且 API 保持 feature-neutral；不得把某个 concrete
+   extension 的 policy、业务 state、schema 或 UI 下沉到 core；
 2. 说明现有 API 为什么不足，以及新接口的生命周期、ownership、并发和性能成本；
-3. 在实现前与用户达成明确共识，并更新架构提案。
+3. 在实现前与用户达成明确共识，并更新架构提案，记录它为中间层提供的使用范围。
 
-单一 consumer 的专属优化保留在它自己的 package。出现真实重复后再提案；不以预测复用为理由
-扩大 core。
+consumer 数量不是硬门槛：一个有实际中间层价值、可由其他 extension 直接消费的中性 API 可以
+先于第二个 consumer 提升。单一 feature 的专属优化、预测复用、业务 policy 或 content model 仍保留在
+该 feature package；不以“未来可能共享”为理由扩大 core。
 
-已批准 ADR 的范围外仍适用该门槛。Loadout contract、Extension page router 与 Subagent execution
-contract 是记录在 ADR 中的单 consumer 例外；第二个 consumer 出现前，不得在它们上继续抽取
-generic policy、content model、worker framework 或 shared dependency。
+已批准 ADR 的范围外仍适用上述价值与中性边界。Loadout contract、Extension page router 与 Subagent
+execution contract 不能借此继续抽取 generic policy、content model、worker framework 或 shared dependency。
 
 ## Loadout Contributor
 
 所有 HEPI-owned non-native executable tool 必须在 extension composition root 使用 core 的 managed
-Loadout registration，禁止直接调用 Pi tool registration API。`pi-loadout` 是强烈推荐 companion；
+Loadout registration，禁止直接调用 Pi tool registration API。非-tool resource 使用 lifecycle-bound
+Loadout resource registration；例如 `pi-subagents` profile 使用 `agent:<name>`，不得伪装为 Pi tool。
+`pi-loadout` 是强烈推荐 companion；
 缺席时 core fallback 仅保留 Pi 默认 activation，不提供 inventory、conflict 或 persisted policy。
 
-所有 tool registration 与 page registration 的 ID 必须稳定且 runtime 内唯一；重复 ID 是 programmer
-error。每个 tool/page 的 priority、conflict、ownership、cancellation、cleanup 与 lazy cost 必须在
+所有 Loadout resource registration 与 page registration 的 ID 必须稳定且 runtime 内唯一；重复 ID 是
+programmer error。每个 resource/page 的 priority、conflict、ownership、cancellation、cleanup 与 lazy cost 必须在
 紧邻 TypeScript 注释中说明。完整 Loadout contract 见 [Loadout 架构](../architecture/loadout.md)。
 
 ## Subagent Consumer
@@ -160,5 +164,5 @@ cancellation、delivery/retry policy、event backpressure 与 retention cost。�
 1. 架构提案是否仍覆盖该行为；若否，先更新提案并达成共识。
 2. ownership、cleanup、cancellation 和 late async result 是否在类型、注释与 focused test 中明确。
 3. 高频路径是否记录成本模型；需要 benchmark 时是否具有可重复基线。
-4. 新 abstraction 或 dependency 是否达到两个真实 consumers 与用户共识门槛。
+4. 新 abstraction 或 dependency 是否有明确中间层价值、保持 feature-neutral，并已取得用户共识。
 5. 公开行为或安装方式改变时，是否更新 package README；本约定只在开发规则改变时更新。
