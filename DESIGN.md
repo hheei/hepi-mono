@@ -66,6 +66,15 @@ existing semantic token expresses the role.
 - Shortcuts that are not self-evident remain visible near their control.
 - Empty states use `muted` or `dim` unless they represent a failed operation.
 
+### Mouse Selection
+
+- Mouse text selection reuses `accent` and `selectedBg`; it does not introduce a
+  mouse-specific token or rely on color as the only selection signal.
+- A page owns the visible selection range and its cell-to-text mapping. Core
+  dispatches input and capture but does not render a generic selection overlay.
+- Mouse selection has no implicit hover, click, or clipboard affordance. Copying
+  is an explicit page or command action.
+
 ## Surfaces
 
 ### Messages And Tools

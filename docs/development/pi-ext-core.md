@@ -41,13 +41,14 @@ core 的目标是以最小协调原语支持独立 extension 组合。未安装�
 
 - 根入口是唯一 public import surface；consumer 不得 deep import `src/` 模块。
 - core 不导入 concrete extension，也不承载 feature-specific business state、event bus 或 RPC。
-  [ADR 0001](../adr/0001-core-extension-page-shell.md) 与
-  [ADR 0002](../adr/0002-core-loadout-contract.md) 与
-  [ADR 0004](../adr/0004-core-subagent-execution.md) 是唯一已批准例外：Extension page router、
-  Loadout tool registration contract 和 root-session-scoped subagent execution contract；它们不得
-  扩张为 page content、Loadout policy、Settings persistence、agent/config/UI/delivery policy 或
-  schema-driven framework。JSON settings file transport 是 ADR-0007 的限定例外；它只读写 object root 与
-  named section，不能扩张为 schema、scope merge、provider 或 UI。
+  已批准的受限例外由 [ADR 0001](../adr/0001-core-extension-page-shell.md)、
+  [ADR 0002](../adr/0002-core-loadout-contract.md)、
+  [ADR 0004](../adr/0004-core-subagent-execution.md)、
+  [ADR 0007](../adr/0007-core-json-settings-substrate.md) 与
+  [ADR 0008](../adr/0008-mouse-selection-core-exception.md) 明确限定：分别是 Extension page router、
+  Loadout tool registration contract、root-session-scoped subagent execution contract、JSON settings
+  file transport，以及 terminal mouse/local selection contract。它们不得扩张为 page content、Loadout
+  policy、Settings persistence、agent/config/UI/delivery policy、clipboard policy 或 schema-driven framework。
 - extension 将 core 作为 direct production dependency，并 externalize bundle；runtime state
   必须以 `pi.events` 为 identity，通过稳定 `Symbol.for` slot 跨重复 core module instance 共享。
 - process-global state 只能保存 lazy registry；不得保留 `ExtensionContext`、component 或 session
@@ -101,9 +102,9 @@ factory、dependency 或 generic framework。
 单一 consumer 的专属优化保留在它自己的 package。出现真实重复后再提案；不以预测复用为理由
 扩大 core。
 
-已批准 ADR 的范围外仍适用该门槛。Loadout contract、Extension page router 与 Subagent execution
-contract 是记录在 ADR 中的单 consumer 例外；第二个 consumer 出现前，不得在它们上继续抽取
-generic policy、content model、worker framework 或 shared dependency。
+已批准 ADR 的范围外仍适用该门槛。Loadout contract、Extension page router、Subagent execution、JSON
+settings transport 与 mouse/local selection contract 是记录在 ADR 中的 bounded exceptions；第二个
+consumer 出现前，不得在它们上继续抽取 generic policy、content model、worker framework 或 shared dependency。
 
 ## Loadout Contributor
 

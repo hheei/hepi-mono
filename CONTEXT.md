@@ -367,7 +367,7 @@ A page-owned, current-layout terminal-cell region that may receive normalized mo
 _Avoid_: MouseComponent, clickable component
 
 **Mouse dispatcher**:
-A session-scoped service that normalizes terminal mouse input and routes it to registered MouseRegions.
+A TUI-scoped service that normalizes terminal mouse input and routes it to registered MouseRegions for one active surface.
 _Avoid_: mouse component tree, global mouse handler
 
 **Mouse tracking lease**:
@@ -379,7 +379,7 @@ The temporary routing of a selection gesture's drag and up events to the MouseRe
 _Avoid_: cross-region selection, retargeted drag
 
 **Selection gesture**:
-A normalized sequence of unmodified primary-button down, drag, and up events within a MouseRegion.
+A normalized sequence of unmodified primary-button down, drag, and up events beginning in a MouseRegion and continuing under Mouse capture.
 _Avoid_: click, hover
 
 **Selection content model**:
