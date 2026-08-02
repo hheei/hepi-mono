@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerCommands } from "../src/register-commands.js";
+import { registerCommands } from "../../src/fff/register-commands.js";
 
 describe("FFF commands", () => {
 	test("registers status and reindex commands without a feature toggle command", () => {

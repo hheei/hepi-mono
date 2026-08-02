@@ -177,23 +177,6 @@
       "name": "@hheei/pi-ext-tools",
       "version": "0.0.0",
       "dependencies": {
-        "@hheei/pi-ext-core": "workspace:*",
-      },
-      "devDependencies": {
-        "@earendil-works/pi-coding-agent": ">=0.83.0",
-        "@types/bun": "latest",
-      },
-      "peerDependencies": {
-        "@earendil-works/pi-agent-core": ">=0.83.0",
-        "@earendil-works/pi-ai": ">=0.83.0",
-        "@earendil-works/pi-coding-agent": ">=0.83.0",
-        "@earendil-works/pi-tui": ">=0.83.0",
-      },
-    },
-    "packages/pi-fff": {
-      "name": "@hheei/pi-fff",
-      "version": "0.0.0",
-      "dependencies": {
         "@ff-labs/fff-node": "^0.9.6",
         "@hheei/pi-ext-core": "workspace:*",
         "better-result": "^2.10.0",
@@ -447,8 +430,6 @@
     "@hheei/pi-ext-embed": ["@hheei/pi-ext-embed@workspace:packages/pi-ext-embed"],
 
     "@hheei/pi-ext-tools": ["@hheei/pi-ext-tools@workspace:packages/pi-ext-tools"],
-
-    "@hheei/pi-fff": ["@hheei/pi-fff@workspace:packages/pi-fff"],
 
     "@hheei/pi-handoff": ["@hheei/pi-handoff@workspace:packages/pi-handoff"],
 

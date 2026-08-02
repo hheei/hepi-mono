@@ -2,9 +2,9 @@
 
 ## 状态
 
-`@hheei/pi-ext-tools` 已实现 Canonical catalog 与 `pi-fff` split migration。它不修改 Pi 源码，不引入
-`pi-select`，也不让 `pi-ext-core` 解释具体 tool 语义。每个 catalog module 复用 upstream definition，并在
-执行时以 tool call 的 `cwd` 重新创建 definition，避免 extension construction cwd 泄漏。
+`@hheei/pi-ext-tools` 是 Canonical catalog 与 FFF enhancement 的唯一 extension owner。它不修改 Pi 源码，不引入
+`pi-select`，也不让 `pi-ext-core` 解释具体 tool 语义。每个 catalog module 复用 upstream definition，并在执行时以
+tool call 的 `cwd` 重新创建 definition，避免 extension construction cwd 泄漏。
 
 ## 目标
 
@@ -25,15 +25,18 @@ v1 的显式 catalog 是：
 
 ```text
 read
+grep
+find
 edit
 write
 bash
+fff_multi_grep
 ```
 
 catalog 不从 `pi.getAllTools()` 或 active-tool inventory 自动推断。新增名称必须单独确认 upstream compatibility、
 tool schema、rendering、lifecycle、Loadout metadata 与 focused tests。
 
-`read`、`edit`、`write`、`bash` 每个名称只通过一次 `registerManagedLoadoutTool()` 静态注册。不存在 tool-definition
+`read`、`grep`、`find`、`edit`、`write`、`bash`、`fff_multi_grep` 每个名称只通过一次 `registerManagedLoadoutTool()` 静态注册。不存在 tool-definition
 priority、同名 fallback registration 或运行时 provider arbitration。Loadout priority 仍只属于 activation/inventory
 policy，不能用于决定哪个 implementation 执行。
 
@@ -42,7 +45,8 @@ policy，不能用于决定哪个 implementation 执行。
 - `pi-ext-tools` 是 catalog 中每个名称的唯一 Canonical tool owner，负责 upstream parameter/execute compatibility、
   renderer、ToolRenderContext state、abort、streaming 与 cleanup。
 - 每个 module 可以调用对应 upstream `create...Tool()`；这用于复用运行行为，不表示必须复用 upstream renderer。
-- `read`、`edit`、`write`、`bash` 保留 upstream-compatible 参数、execute 与 renderer 语义。
+- `read`、`grep`、`find`、`edit`、`write`、`bash` 保留 upstream-compatible 参数、execute 与 renderer 语义。
+- `fff_multi_grep` 是唯一 FFF-only tool；FFF runtime 不可用时明确报告 unavailable，不伪装成 native grep。
 - 其他 extension 不得为 catalog 名称直接 `pi.registerTool()` 或 managed-register competing definition。它们不能
   import `pi-ext-tools`；跨包协作若确有需求，另行定义 narrow core capability。
 
@@ -69,24 +73,21 @@ local mouse region；extension 不遍历 `Container.children`，不读取 `ToolE
 未来的 region snapshot 必须在 layout/content revision 改变后异步更新，绝不从 `render(width)` 注册或移除；mouse callback
 只读取 selection，不创建 Promise、不执行 I/O，也不接管 `Command+C` / `Ctrl+C`。
 
-## pi-fff 过渡
+## FFF enhancement
 
-`pi-ext-tools` 最终取代 `pi-fff`，但第一阶段采取 split migration：
+FFF runtime、commands、autocomplete 与 settings 都在本 package 的 `src/fff/`。session start 读取 settings snapshot、
+创建 session-scoped runtime、注册 settings/autocomplete，并异步 warm index；shutdown/reload 通过 lifecycle resources
+dispose runtime。settings 写入在下一 session 或 `/reload` 生效。
 
-```text
-pi-ext-tools: read, edit, write, bash
-pi-fff:       grep, find_files, fff_multi_grep, FFF runtime/settings/autocomplete
-```
-
-第一阶段的 `pi-ext-tools/read` 不使用 FFF approximate-path resolution，保持 upstream read behavior。`pi-fff`
-必须移除自己的 `read` registration；保留它的三个 FFF tool。旧的、仍注册 `read` 的 `pi-fff` release 与
-`pi-ext-tools` 不兼容，必须在 release documentation 中明确并同 release 发布 split migration。
-
-当 grep/find/FFF runtime 全部迁入后，`pi-fff` 才能被废弃。过渡期两个 package 不得互相 import。
+`readEnhancement`、`grepEnhancement`、`findEnhancement`、`autocomplete` 与 `statusUI` 默认开启。read/grep 的 toggle
+只控制对应 Pi native tool 的 FFF acceleration/resolution：关闭、runtime unavailable、FFF error 或请求语义不兼容时都完整委托
+upstream factory；selection renderer 不受 read enhancement 影响。当前 FFF fuzzy/ranked `findFiles` 不能保真 Pi native
+find 的 glob/path/result contract，因此 `find` 始终 native fallback；`findEnhancement` 仅为未来出现保真 mapping 保留。
+旧 `pi-fff.features` 只作迁移读取 fallback，写入只使用 `pi-ext-tools.fff`。不注册 `find_files`，也不保留其 cursor/query schema。
 
 ## 验证与发布
 
 - 每个 catalog tool：upstream schema/execute compatibility、managed registration singleton、abort、streaming（如适用）
   和 Loadout activation tests。
-- split release：验证新 `pi-fff` 不再注册 `read`，新 `pi-ext-tools` 是唯一 `read` owner；旧 `pi-fff` 与
-  `pi-ext-tools` 的不兼容性写入两个 package README 和 release notes。
+- FFF enhancement：验证三个 toggle 关闭、runtime unavailable、FFF error、语义不兼容时均完整回退 upstream；验证
+  `fff_multi_grep` runtime unavailable 时明确失败；验证 autocomplete reload 只保留 live runtime closure。

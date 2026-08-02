@@ -320,51 +320,6 @@ export function buildGrepText(
 	};
 }
 
-export function formatFindFilesText(
-	query: string,
-	items: FffFileCandidate[],
-	options: {
-		totalMatched?: number;
-		totalFiles?: number;
-		nextCursor?: string;
-		pageIndex: number;
-		pageSize: number;
-	},
-): string {
-	if (items.length === 0) {
-		return options.pageIndex > 0
-			? `0 more results for "${query}".`
-			: `0 results for "${query}"${options.totalFiles ? ` (${options.totalFiles} indexed)` : ""}`;
-	}
-
-	const lines: string[] = [];
-	const top = items[0];
-	const second = items[1];
-	if (top && options.pageIndex === 0) {
-		if (top.score?.exactMatch || top.score?.matchType === "exact") {
-			lines.push(`→ Read ${top.item.relativePath} (exact match!)`);
-		} else if (
-			!second ||
-			(top.score?.total ?? Number.NEGATIVE_INFINITY) >
-				(second.score?.total ?? Number.NEGATIVE_INFINITY) * 2
-		) {
-			lines.push(`→ Read ${top.item.relativePath} (best match — Read this file directly)`);
-		}
-	}
-
-	if ((options.totalMatched ?? 0) > items.length + options.pageIndex * options.pageSize) {
-		lines.push(`${items.length}/${options.totalMatched} matches`);
-	} else if (options.totalMatched && options.pageIndex > 0) {
-		lines.push(
-			`${Math.min(options.totalMatched, options.pageIndex * options.pageSize + items.length)}/${options.totalMatched} matches`,
-		);
-	}
-
-	lines.push(...formatCandidateLines(items, items.length));
-	if (options.nextCursor) lines.push(`cursor: ${options.nextCursor}`);
-	return lines.join("\n");
-}
-
 export function resolutionSummary(resolution: ResolvedPath): string {
 	return `Resolved ${resolution.query} -> ${resolution.relativePath}`;
 }

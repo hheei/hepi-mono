@@ -2,7 +2,7 @@
 
 ## HEPI FFF
 
-`src/` was initially adapted from [ShpetimA/pi-fff](https://github.com/ShpetimA/pi-fff)
+`src/fff/` was initially adapted from [ShpetimA/pi-fff](https://github.com/ShpetimA/pi-fff)
 at revision `694837d0644abc8527ebfa3ea50135e0f5d1ece4`.
 
 Copyright (c) 2026 Shpetim Alimi
