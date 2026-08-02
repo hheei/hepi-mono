@@ -54,7 +54,17 @@ const packageDirsForPrefix = (prefix: string): string[] =>
 		.sort();
 
 const independentPackageDirs = packageDirsForPrefix("pi-");
-const packageDirs = independentPackageDirs;
+const selectedPackageNames = new Set(
+	(process.env.PI_DEV_PACKAGES ?? "")
+		.split(",")
+		.map((name) => name.trim())
+		.filter((name) => name.length > 0),
+);
+const packageDirs = independentPackageDirs.filter((directory) =>
+	selectedPackageNames.size > 0
+		? selectedPackageNames.has(path.basename(directory))
+		: !["pi-auto-title", "pi-btw"].includes(path.basename(directory)),
+);
 
 function isEmptyJsonObject(filePath: string): boolean {
 	try {
