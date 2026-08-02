@@ -55,6 +55,10 @@ function installMouseSupport(
 ): MouseSupport;
 ```
 
+`x/y` 是零基 viewport cell 坐标；`button` 保留 SGR 低两位编码（`0/1/2` 为 primary/middle/secondary，`3` 通常表示 release）。wheel sequence 会被消费，但第一版不产生 event。
+
+`onMouseEvent()` 返回 `"ignored"` 只对 `down` 有 fallback 语义：dispatcher 继续尝试更早注册的匹配 region；`"handled"` 或省略返回值都会建立 capture。`drag/up` 始终留在 down-region，不因 callback 返回值重新命中。普通 region 的 callback 自己负责 `tui.requestRender()`；core 在每次 `setSelection()` 后请求一次 render。
+
 `TextPosition` 是单一 selection content model 内的零基 `{ line, grapheme }`；`TextRange` 是半开 `[start, end)` 区间。terminal event 的 `x/y` 是当前 viewport 的零基 terminal cell 坐标，不是内容位置。
 
 ## 输入与 dispatch 语义
@@ -66,7 +70,7 @@ function installMouseSupport(
 - region registration 是 layout snapshot 的更新操作，只在 layout、resize、scroll 或可见性改变时进行；不得在
   `render(width)` 中注册或移除 region。hit test 读取当前 snapshot，不写 registry。
 - `registerSelectableRegion()` 使用 region 的 `hitTest()` 选择目标，并用 `hitTestText()` 把
-  terminal cell 转成内容位置；普通左键 gesture 驱动 `setSelection()`。其他按钮和 modifier
+  terminal cell 转成内容位置；普通左键 gesture 驱动 `setSelection()` 并请求重绘。其他按钮和 modifier
   仍只交给 region 的可选 `onMouseEvent()`。
 - `down` 命中的 region 捕获同一次手势的 `drag/up`。指针离开该 region 后不改派给其他 region；页面保留最后一个有效的 text position，`up` 只结束 capture。
 - 第一版只定义 `down`、`drag`、`up`，不定义 hover `move` 或派生 `click`。默认 selectable gesture 只响应无修饰左键；其他按钮与 modifier 仍交给自定义 region。

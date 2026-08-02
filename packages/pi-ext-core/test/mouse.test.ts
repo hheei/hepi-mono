@@ -8,13 +8,25 @@ type InputListener = (
 function fixture(): {
 	readonly tui: TUI;
 	readonly writes: string[];
+	readonly renderRequests: number;
 	readonly listenerCount: () => number;
+	readonly setWriteFailure: (enabled: boolean) => void;
 	input(data: string): { readonly consumed: boolean; readonly data: string };
 } {
 	const listeners = new Set<InputListener>();
 	const writes: string[] = [];
+	let renderRequests = 0;
+	let writeFailure = false;
 	const tui = {
-		terminal: { write: (data: string): void => void writes.push(data) },
+		terminal: {
+			write: (data: string): void => {
+				if (writeFailure) throw new Error("terminal write failed");
+				writes.push(data);
+			},
+		},
+		requestRender: (): void => {
+			renderRequests++;
+		},
 		addInputListener(listener: InputListener): () => void {
 			listeners.add(listener);
 			return (): void => void listeners.delete(listener);
@@ -23,7 +35,13 @@ function fixture(): {
 	return {
 		tui: tui as unknown as TUI,
 		writes,
+		get renderRequests(): number {
+			return renderRequests;
+		},
 		listenerCount: () => listeners.size,
+		setWriteFailure: (enabled): void => {
+			writeFailure = enabled;
+		},
 		input(data: string): { readonly consumed: boolean; readonly data: string } {
 			let current = data;
 			for (const listener of listeners) {
@@ -133,6 +151,70 @@ test("drives plain-left selection without deriving copy or click behavior", (): 
 	expect(custom).toEqual([
 		{ kind: "down", x: 4, y: 0, button: 0, shift: true, ctrl: false, alt: false },
 	]);
+	expect(h.renderRequests).toBe(2);
+});
+
+test("does not capture a region disposed synchronously by down", (): void => {
+	const h = fixture();
+	const support = installMouseSupport(h.tui, { signal: new AbortController().signal });
+	const calls: string[] = [];
+	support.registerRegion({
+		hitTest: () => true,
+		onMouseEvent: (event) => {
+			calls.push(event.kind);
+			if (event.kind === "down") support.dispose();
+		},
+	});
+
+	h.input("\x1b[<0;1;1M");
+	h.input("\x1b[<32;2;2M");
+	h.input("\x1b[<0;2;2m");
+
+	expect(calls).toEqual(["down"]);
+	expect(h.listenerCount()).toBe(0);
+});
+
+test("does not capture a selectable region disposed by setSelection", (): void => {
+	const h = fixture();
+	const support = installMouseSupport(h.tui, { signal: new AbortController().signal });
+	let selections = 0;
+	support.registerSelectableRegion({
+		hitTest: () => true,
+		hitTestText: () => ({ line: 0, grapheme: 0 }),
+		setSelection: () => {
+			selections++;
+			support.dispose();
+		},
+		getSelectedText: () => "unused",
+	});
+
+	h.input("\x1b[<0;1;1M");
+	h.input("\x1b[<32;2;2M");
+	h.input("\x1b[<0;2;2m");
+
+	expect(selections).toBe(1);
+	expect(h.renderRequests).toBe(1);
+	expect(h.listenerCount()).toBe(0);
+});
+
+test("rolls back tracking state when terminal writes fail", (): void => {
+	const h = fixture();
+	const support = installMouseSupport(h.tui, { signal: new AbortController().signal });
+	const region = { hitTest: () => false };
+
+	h.setWriteFailure(true);
+	expect(() => support.registerRegion(region)).toThrow("terminal write failed");
+	expect(h.writes).toEqual([]);
+	h.setWriteFailure(false);
+	const remove = support.registerRegion(region);
+	expect(h.writes).toEqual(["\x1b[?1002h\x1b[?1006h"]);
+
+	h.setWriteFailure(true);
+	expect(() => remove()).toThrow("terminal write failed");
+	h.setWriteFailure(false);
+	remove();
+	expect(h.writes).toEqual(["\x1b[?1002h\x1b[?1006h", "\x1b[?1002l\x1b[?1006l"]);
+	support.dispose();
 });
 
 test("isolates owners and cleans a region once across abort and stale disposers", (): void => {

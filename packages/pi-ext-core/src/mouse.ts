@@ -7,6 +7,12 @@ const DISABLE_MOUSE_TRACKING = "\x1b[?1002l\x1b[?1006l";
 // biome-ignore lint/suspicious/noConfusingVoidType: observers may intentionally return no result
 type MouseEventResult = "handled" | "ignored" | void;
 
+/**
+ * Normalized SGR mouse input in viewport cell coordinates. `button` is the
+ * SGR low-two-bit button code: 0/1/2 are primary/middle/secondary and 3 is
+ * the terminal's release code, commonly used on `up`; wheel reports are
+ * consumed but intentionally have no public event kind in v1.
+ */
 export interface TerminalMouseEvent {
 	readonly kind: "down" | "drag" | "up";
 	readonly x: number;
@@ -32,18 +38,36 @@ export interface TextRange {
 export interface MouseRegion {
 	/** Update this registration only when the page's layout snapshot changes, not while rendering. */
 	hitTest(x: number, y: number): boolean;
+	/**
+	 * Handles non-default gestures. Returning `"ignored"` from `down` lets
+	 * dispatch continue to the next matching layer; `"handled"` or no result
+	 * captures this region. Generic callbacks own their `tui.requestRender()`.
+	 */
 	onMouseEvent?(event: TerminalMouseEvent): MouseEventResult;
 }
 
+/**
+ * Page-owned mapping and selection state for one logical text surface. Core
+ * requests a render after each `setSelection()` call; the page owns content,
+ * clipping, and selected-text extraction.
+ */
 export interface SelectableRegion extends MouseRegion {
 	hitTestText(x: number, y: number): TextPosition | null;
 	setSelection(selection: TextRange | null): void;
 	getSelectedText(selection: TextRange): string;
 }
 
+/**
+ * Owner-scoped mouse lease. Registration disposers, abort, and `dispose()` are
+ * idempotent; registrations belong to layout snapshots and capture ends with
+ * the owning region or its gesture.
+ */
 export interface MouseSupport {
+	/** Registers a layout-snapshot region; disposer removes it and any capture. */
 	registerRegion(region: MouseRegion): () => void;
+	/** Registers a page-owned text mapping; core drives selection and render requests. */
 	registerSelectableRegion(region: SelectableRegion): () => void;
+	/** Releases this owner's regions, listener lease, and abort subscription. */
 	dispose(): void;
 }
 
@@ -88,8 +112,8 @@ function setTracking(dispatcher: MouseDispatcher, enabled: boolean): void {
 	// The lease temporarily gives this surface terminal mouse ownership, so
 	// native terminal selection may change. Reference counting restores Pi's
 	// default behavior as soon as its final region disappears.
-	dispatcher.tracking = enabled;
 	dispatcher.tui.terminal.write(enabled ? ENABLE_MOUSE_TRACKING : DISABLE_MOUSE_TRACKING);
+	dispatcher.tracking = enabled;
 }
 
 function updateTracking(dispatcher: MouseDispatcher): void {
@@ -165,6 +189,7 @@ function isPlainLeftButton(event: TerminalMouseEvent): boolean {
 }
 
 function dispatchSelectableEvent(
+	tui: TUI,
 	selectable: SelectableRegion,
 	event: TerminalMouseEvent,
 	selection: SelectionGesture | undefined,
@@ -180,17 +205,26 @@ function dispatchSelectableEvent(
 	if (event.kind === "down") {
 		if (position === null) return { anchor: undefined };
 		selectable.setSelection({ start: position, end: position });
+		// TUI consumes mouse input before its focused component's automatic
+		// render request; selection changes therefore request rendering here.
+		tui.requestRender();
 		return { anchor: position };
 	}
-	if (position !== null && selection?.anchor !== undefined)
+	if (position !== null && selection?.anchor !== undefined) {
 		selectable.setSelection(selectionRange(selection.anchor, position));
+		tui.requestRender();
+	}
 	return selection;
 }
 
-function dispatchCapturedEvent(captured: CapturedGesture, event: TerminalMouseEvent): void {
+function dispatchCapturedEvent(
+	dispatcher: MouseDispatcher,
+	captured: CapturedGesture,
+	event: TerminalMouseEvent,
+): void {
 	const selectable = captured.entry.selectable;
 	if (selectable === undefined) captured.entry.region.onMouseEvent?.(event);
-	else dispatchSelectableEvent(selectable, event, captured.selection);
+	else dispatchSelectableEvent(dispatcher.tui, selectable, event, captured.selection);
 }
 
 function dispatchMouseEvent(dispatcher: MouseDispatcher, event: TerminalMouseEvent): void {
@@ -200,7 +234,7 @@ function dispatchMouseEvent(dispatcher: MouseDispatcher, event: TerminalMouseEve
 	if (event.kind !== "down") {
 		const captured = dispatcher.captured;
 		if (captured === undefined) return;
-		dispatchCapturedEvent(captured, event);
+		dispatchCapturedEvent(dispatcher, captured, event);
 		if (event.kind === "up") dispatcher.captured = undefined;
 		return;
 	}
@@ -210,16 +244,23 @@ function dispatchMouseEvent(dispatcher: MouseDispatcher, event: TerminalMouseEve
 		const entry = dispatcher.entries[index];
 		if (entry === undefined || !entry.active || !entry.region.hitTest(event.x, event.y)) continue;
 		if (entry.selectable === undefined) {
-			if (entry.region.onMouseEvent?.(event) === "ignored") continue;
+			const result = entry.region.onMouseEvent?.(event);
+			// Callback may synchronously abort/dispose this owner or its region.
+			// Never resurrect capture for an entry removed during that callback.
+			if (!entry.active || entry.owner.disposed) continue;
+			if (result === "ignored") continue;
 			dispatcher.captured = { entry, selection: undefined };
 			return;
 		}
 		if (!isPlainLeftButton(event)) {
-			if (entry.selectable.onMouseEvent?.(event) === "ignored") continue;
+			const result = entry.selectable.onMouseEvent?.(event);
+			if (!entry.active || entry.owner.disposed) continue;
+			if (result === "ignored") continue;
 			dispatcher.captured = { entry, selection: undefined };
 			return;
 		}
-		const selection = dispatchSelectableEvent(entry.selectable, event, undefined);
+		const selection = dispatchSelectableEvent(dispatcher.tui, entry.selectable, event, undefined);
+		if (!entry.active || entry.owner.disposed) continue;
 		dispatcher.captured = { entry, selection };
 		return;
 	}
@@ -251,12 +292,23 @@ function createDispatcher(tui: TUI): MouseDispatcher {
 
 function removeRegion(dispatcher: MouseDispatcher, entry: RegisteredRegion): void {
 	if (!entry.active) return;
+	const index = dispatcher.entries.indexOf(entry);
+	const previousCapture = dispatcher.captured?.entry === entry ? dispatcher.captured : undefined;
 	entry.active = false;
 	entry.owner.entries.delete(entry);
-	const index = dispatcher.entries.indexOf(entry);
 	if (index >= 0) dispatcher.entries.splice(index, 1);
-	if (dispatcher.captured?.entry === entry) dispatcher.captured = undefined;
-	updateTracking(dispatcher);
+	if (previousCapture !== undefined) dispatcher.captured = undefined;
+	try {
+		updateTracking(dispatcher);
+	} catch (error) {
+		// Keep lease ownership and capture intact when terminal cleanup fails;
+		// caller can retry the same idempotent disposer after the terminal recovers.
+		entry.active = true;
+		entry.owner.entries.add(entry);
+		if (index >= 0) dispatcher.entries.splice(index, 0, entry);
+		if (previousCapture !== undefined) dispatcher.captured = previousCapture;
+		throw error;
+	}
 }
 
 /**
@@ -286,9 +338,9 @@ export function installMouseSupport(
 	let owner: Owner;
 	const dispose = (): void => {
 		if (owner.disposed) return;
+		for (const entry of [...owner.entries]) removeRegion(dispatcher, entry);
 		owner.disposed = true;
 		owner.signal.removeEventListener("abort", owner.onAbort);
-		for (const entry of [...owner.entries]) removeRegion(dispatcher, entry);
 		dispatcher.owners.delete(owner);
 		if (dispatcher.owners.size > 0) return;
 		dispatcher.removeInputListener();
@@ -311,7 +363,15 @@ export function installMouseSupport(
 		const entry: RegisteredRegion = { active: true, owner, region, selectable };
 		owner.entries.add(entry);
 		dispatcher.entries.push(entry);
-		updateTracking(dispatcher);
+		try {
+			updateTracking(dispatcher);
+		} catch (error) {
+			entry.active = false;
+			owner.entries.delete(entry);
+			const index = dispatcher.entries.indexOf(entry);
+			if (index >= 0) dispatcher.entries.splice(index, 1);
+			throw error;
+		}
 		return (): void => removeRegion(dispatcher, entry);
 	};
 
