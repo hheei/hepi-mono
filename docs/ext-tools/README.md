@@ -83,7 +83,7 @@ dispose runtime。settings 写入在下一 session 或 `/reload` 生效。
 只控制对应 Pi native tool 的 FFF acceleration/resolution：关闭、runtime unavailable、FFF error 或请求语义不兼容时都完整委托
 upstream factory；selection renderer 不受 read enhancement 影响。当前 FFF fuzzy/ranked `findFiles` 不能保真 Pi native
 find 的 glob/path/result contract，因此 `find` 始终 native fallback；`findEnhancement` 仅为未来出现保真 mapping 保留。
-旧 `pi-fff.features` 只作迁移读取 fallback，写入只使用 `pi-ext-tools.fff`。不注册 `find_files`，也不保留其 cursor/query schema。
+settings 只读取和写入 `pi-ext-tools.fff`。不注册 `find_files`，也不保留其 cursor/query schema。
 
 ## 验证与发布
 

@@ -7,8 +7,6 @@ import {
 
 const SECTION = "pi-ext-tools";
 const GROUP = "fff";
-const LEGACY_SECTION = "pi-fff";
-const LEGACY_GROUP = "features";
 
 export interface FffSettingsProviderOptions {
 	readonly path?: string;
@@ -50,36 +48,11 @@ export function fffSettingsFromState(state: HepiSettingsState | undefined): FffS
 	};
 }
 
-function fffSettingsFromLegacyState(state: HepiSettingsState | undefined): FffSettings {
-	const legacyGroup = state?.[LEGACY_GROUP];
-	if (legacyGroup === undefined) return DEFAULT_FFF_SETTINGS;
-	const legacyBoolean = (key: keyof FffSettings): boolean =>
-		typeof legacyGroup[key] === "boolean" ? legacyGroup[key] : DEFAULT_FFF_SETTINGS[key];
-	return {
-		autocomplete: legacyBoolean("autocomplete"),
-		grepEnhancement: legacyBoolean("grepEnhancement"),
-		readEnhancement: legacyBoolean("readEnhancement"),
-		findEnhancement: legacyBoolean("findEnhancement"),
-		statusUI: legacyBoolean("statusUI"),
-	};
-}
-
-/** Read new settings first, then one-time fallback to legacy pi-fff settings. */
 export async function loadFffSettings(
 	provider: HepiSettingsProvider,
 	context: HepiContext,
-	legacyPath?: string,
 ): Promise<FffSettings> {
-	const state = await provider.storage.load(context);
-	if (state?.[GROUP] !== undefined) return fffSettingsFromState(state);
-	if (state?.[LEGACY_GROUP] !== undefined) return fffSettingsFromLegacyState(state);
-	const legacy = createJsonSectionSettingsStorage({
-		...(legacyPath === undefined ? {} : { path: legacyPath }),
-		section: LEGACY_SECTION,
-		group: LEGACY_GROUP,
-	});
-	const legacyState = await legacy.load(context);
-	return fffSettingsFromLegacyState(legacyState);
+	return fffSettingsFromState(await provider.storage.load(context));
 }
 
 export function createFffSettingsProvider(
@@ -89,11 +62,6 @@ export function createFffSettingsProvider(
 		...(options.path === undefined ? {} : { path: options.path }),
 		section: SECTION,
 		group: GROUP,
-	});
-	const legacyStorage = createJsonSectionSettingsStorage({
-		...(options.path === undefined ? {} : { path: options.path }),
-		section: LEGACY_SECTION,
-		group: LEGACY_GROUP,
 	});
 	return {
 		id: "pi-ext-tools.fff",
@@ -152,12 +120,6 @@ export function createFffSettingsProvider(
 				],
 			},
 		],
-		storage: {
-			...storage,
-			async load(context) {
-				const current = await storage.load(context);
-				return current ?? (await legacyStorage.load(context));
-			},
-		},
+		storage,
 	};
 }
