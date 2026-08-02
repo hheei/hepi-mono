@@ -18,17 +18,15 @@ Pi 包、扩展、技能或主题，也不加载项目 `.pi/` 中自动发现的
 - 认证和模型来源：当隔离 `auth.json` 或 `models.json` 不存在或为空时，启动器
   链接当前 Pi 的对应文件，不复制密钥或 provider 定义；可用
   `PI_DEV_AUTH_FILE`、`PI_DEV_MODELS_FILE` 指定来源。
-- 启动前构建所选本地包，构建失败时不启动 Pi。
+- 启动前构建所选本地包并强制 TypeScript 产出 `dist`，构建失败时不启动 Pi。
 
 默认使用 `cx/gpt-5.6-luna` 和 `low` thinking。命令行传入的 Pi 模型与
 thinking 参数仍可覆盖此默认值。启动器不会向子进程继承父进程的
 `OPENAI_API_KEY`，避免旧 OpenAI 凭证覆盖隔离 `cx` 认证；需要 OpenAI 时用
 Pi 的 `--api-key` 参数显式提供。
 
-`pi-ext-core` 分支默认排除 `pi-auto-title` 与 `pi-btw`，因为它们与该分支的
-`pi-subagents` 共享 coordinator 时会产生预算冲突。用
-`PI_DEV_PACKAGES=pi-auto-title` 或 `PI_DEV_PACKAGES=pi-btw` 单独测试，或传入
-以逗号分隔的包目录名测试任意局部组合。
+默认加载全部本仓库 `pi-*` 包。可用 `PI_DEV_PACKAGES` 传入以逗号分隔的包目录名
+测试局部组合，例如 `PI_DEV_PACKAGES=pi-auto-title,pi-subagents`。
 
 默认集为 `packages/pi-*` 下的本仓库 `@hheei` 独立包。脚本不加载已弃用的
 `hepi-*` 聚合包、开发诊断包 `hepi-debug` 或独立子模块 `hepi-subagents`。

@@ -144,6 +144,7 @@ export type {
 export {
 	configureSubagentCoordinator,
 	DEFAULT_SUBAGENT_COORDINATOR_BUDGET,
+	ensureSubagentCoordinator,
 	lookupSubagent,
 	MAX_SUBAGENT_TRANSCRIPT_CHARS,
 	redeliverTask,
