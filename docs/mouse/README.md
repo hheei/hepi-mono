@@ -34,13 +34,12 @@ interface TerminalMouseEvent {
 
 interface MouseRegion {
   hitTest(x: number, y: number): boolean;
-  onMouseEvent?(event: TerminalMouseEvent): "handled" | "ignored" | void;
+  onMouseEvent?(event: TerminalMouseEvent): "ignored" | void;
 }
 
 interface SelectableRegion extends MouseRegion {
   hitTestText(x: number, y: number): TextPosition | null;
   setSelection(selection: TextRange | null): void;
-  getSelectedText(selection: TextRange): string;
 }
 
 interface MouseSupport {
@@ -57,7 +56,7 @@ function installMouseSupport(
 
 `x/y` 是零基 viewport cell 坐标；`button` 保留 SGR 低两位编码（`0/1/2` 为 primary/middle/secondary，`3` 通常表示 release）。wheel sequence 会被消费，但第一版不产生 event。
 
-`onMouseEvent()` 返回 `"ignored"` 只对 `down` 有 fallback 语义：dispatcher 继续尝试更早注册的匹配 region；`"handled"` 或省略返回值都会建立 capture。`drag/up` 始终留在 down-region，不因 callback 返回值重新命中。普通 region 的 callback 自己负责 `tui.requestRender()`；core 在每次 `setSelection()` 后请求一次 render。
+`onMouseEvent()` 返回 `"ignored"` 只对 `down` 有 fallback 语义：dispatcher 继续尝试更早注册的匹配 region；省略返回值会建立 capture。`drag/up` 始终留在 down-region，不因 callback 返回值重新命中。普通 region 的 callback 自己负责 `tui.requestRender()`；core 在每次 `setSelection()` 后请求一次 render。
 
 `TextPosition` 是单一 selection content model 内的零基 `{ line, grapheme }`；`TextRange` 是半开 `[start, end)` 区间。terminal event 的 `x/y` 是当前 viewport 的零基 terminal cell 坐标，不是内容位置。
 
@@ -81,7 +80,7 @@ function installMouseSupport(
 
 ## Selection 与 clipboard
 
-core 只驱动 `setSelection()` 并允许页面通过 `getSelectedText()` 读取逻辑文本。`up` 不自动读 selection、不写 OSC 52、不访问系统 clipboard。页面或显式命令拥有复制动作及其安全和兼容性 policy。
+core 只驱动 `setSelection()`；页面保留逻辑文本读取、复制动作及其安全和兼容性 policy。`up` 不自动读 selection、不写 OSC 52、不访问系统 clipboard。
 
 ## 实现注释约定
 
