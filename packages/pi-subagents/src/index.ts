@@ -35,6 +35,7 @@ import {
 	DEFAULT_SUBAGENT_COORDINATOR_BUDGET,
 	getHepiRuntimeSettingsRegistry,
 	type HepiContext,
+	openTuiSurface,
 	registerExtensionLifecycle,
 } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
@@ -101,7 +102,7 @@ import {
 	type Theme,
 	type UICtx,
 } from "./ui/agent-widget.js";
-import { FleetList, type FleetUICtx } from "./ui/fleet-list.js";
+import { type FleetAction, FleetSurface } from "./ui/fleet-surface.js";
 import { showSchedulesMenu } from "./ui/schedule-menu.js";
 import { addUsage, getLifetimeTotal, type LifetimeUsage } from "./usage.js";
 
@@ -462,7 +463,6 @@ export default function (pi: ExtensionAPI) {
 	function sendIndividualNudge(record: AgentRecord) {
 		agentActivity.delete(record.id);
 		widget.markFinished(record.id);
-		fleet.onAgentFinished(record.id);
 		scheduleNudge(record.id, () => emitIndividualNudge(record));
 		widget.update();
 	}
@@ -472,7 +472,6 @@ export default function (pi: ExtensionAPI) {
 		for (const r of records) {
 			agentActivity.delete(r.id);
 			widget.markFinished(r.id);
-			fleet.onAgentFinished(r.id);
 		}
 
 		const groupKey = `group:${records.map((r) => r.id).join(",")}`;
@@ -562,7 +561,6 @@ export default function (pi: ExtensionAPI) {
 			if (record.resultConsumed) {
 				agentActivity.delete(record.id);
 				widget.markFinished(record.id);
-				fleet.onAgentFinished(record.id);
 				widget.update();
 				return;
 			}
@@ -657,6 +655,7 @@ export default function (pi: ExtensionAPI) {
 
 	// --- Cross-extension RPC via pi.events ---
 	let currentCtx: ExtensionContext | undefined;
+	let fleetSurfaceController = new AbortController();
 	// RPC handlers + the `subagents:ready` broadcast are wired on `session_start`
 	// (a bound lifecycle event), not at factory time. pi runs every extension
 	// factory before the `extensions:` filter and only fires lifecycle events for
@@ -691,6 +690,8 @@ export default function (pi: ExtensionAPI) {
 	// This also wires the RPC handlers and broadcasts readiness — on the first
 	// bound session_start, so a filtered-out activation never advertises (#142).
 	pi.on("session_start", async (_event, ctx) => {
+		fleetSurfaceController.abort();
+		fleetSurfaceController = new AbortController();
 		currentCtx = ctx;
 		manager.clearCompleted(true);
 		// Guard mirrors the `!scheduler.isActive()` pattern below: session_start
@@ -718,6 +719,7 @@ export default function (pi: ExtensionAPI) {
 	// On shutdown, abort all agents immediately and clean up.
 	// If the session is going down, there's nothing left to consume agent results.
 	pi.on("session_shutdown", async () => {
+		fleetSurfaceController.abort();
 		rpcHandle?.unsubSpawn();
 		rpcHandle?.unsubStop();
 		rpcHandle?.unsubPing();
@@ -732,7 +734,6 @@ export default function (pi: ExtensionAPI) {
 		manager.abortAll();
 		for (const timer of pendingNudges.values()) clearTimeout(timer);
 		pendingNudges.clear();
-		fleet.dispose();
 		manager.dispose();
 	});
 
@@ -752,14 +753,12 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	// Claude Code-style FleetView: navigable list of main + subagents below the editor.
-	const fleet = new FleetList(manager, agentActivity);
 	let fleetViewEnabled = true;
 	function isFleetViewEnabled(): boolean {
 		return fleetViewEnabled;
 	}
 	function setFleetViewEnabled(b: boolean): void {
 		fleetViewEnabled = b;
-		fleet.setEnabled(b);
 	}
 
 	// Project/global default for writing the subagent .output transcript. A custom
@@ -881,7 +880,6 @@ export default function (pi: ExtensionAPI) {
 	// Grab UI context from first tool execution + clear lingering widget on new turn
 	pi.on("tool_execution_start", async (_event, ctx) => {
 		widget.setUICtx(ctx.ui as UICtx);
-		fleet.setUICtx(ctx.ui as unknown as FleetUICtx);
 		widget.onTurnStart();
 	});
 
@@ -1487,8 +1485,6 @@ Terse command-style prompts produce shallow, generic work.
 				agentActivity.set(id, bgState);
 				widget.ensureTimer();
 				widget.update();
-				fleet.ensureTimer();
-				fleet.update();
 
 				// Emit created event
 				pi.events.emit("subagents:created", {
@@ -1559,8 +1555,6 @@ Terse command-style prompts produce shallow, generic work.
 						fgId = a.id;
 						agentActivity.set(a.id, fgState);
 						widget.ensureTimer();
-						fleet.ensureTimer();
-						fleet.update();
 						break;
 					}
 				}
@@ -1619,7 +1613,6 @@ Terse command-style prompts produce shallow, generic work.
 			if (fgId) {
 				agentActivity.delete(fgId);
 				widget.markFinished(fgId);
-				fleet.onAgentFinished(fgId);
 			}
 
 			// Get final token count
@@ -2680,10 +2673,134 @@ ${systemPrompt}
 		ctx.ui.notify(message, level);
 	}
 
+	async function chooseAgentDirectory(ctx: ExtensionCommandContext): Promise<string | undefined> {
+		const location = await ctx.ui.select("Choose location", [
+			"Project (.pi/agents/)",
+			`Personal (${personalAgentsDir()})`,
+		]);
+		if (!location) return undefined;
+		return location.startsWith("Project") ? projectAgentsDir() : personalAgentsDir();
+	}
+
+	async function editAgentDefinition(ctx: ExtensionCommandContext, name: string): Promise<void> {
+		const file = findAgentFile(name);
+		if (!file) {
+			const config = getAgentConfig(name);
+			if (config?.isDefault) await ejectAgent(ctx, name, config);
+			else ctx.ui.notify(`No editable definition found for ${name}.`, "warning");
+			return;
+		}
+		const content = readFileSync(file.path, "utf-8");
+		const edited = await ctx.ui.editor(`Edit ${name}`, content);
+		if (edited === undefined || edited === content) return;
+		const { writeFileSync } = await import("node:fs");
+		writeFileSync(file.path, edited, "utf-8");
+		reloadCustomAgents();
+		ctx.ui.notify(`Updated ${file.path}`, "info");
+	}
+
+	async function deleteAgentDefinition(ctx: ExtensionCommandContext, name: string): Promise<void> {
+		const file = findAgentFile(name);
+		if (!file) {
+			ctx.ui.notify(`${name} is a built-in definition. Eject it before deleting.`, "info");
+			return;
+		}
+		if (
+			!(await ctx.ui.confirm(
+				"Delete agent",
+				`Delete ${name} from ${file.location} (${file.path})?`,
+			))
+		)
+			return;
+		unlinkSync(file.path);
+		reloadCustomAgents();
+		ctx.ui.notify(`Deleted ${file.path}`, "info");
+	}
+
+	async function resetAgentDefinition(ctx: ExtensionCommandContext, name: string): Promise<void> {
+		const config = getAgentConfig(name);
+		const file = findAgentFile(name);
+		if (!config?.isDefault || !file) {
+			ctx.ui.notify(`${name} has no default definition to restore.`, "info");
+			return;
+		}
+		if (!(await ctx.ui.confirm("Reset to default", `Delete override ${file.path}?`))) return;
+		unlinkSync(file.path);
+		reloadCustomAgents();
+		ctx.ui.notify(`Restored default ${name}`, "info");
+	}
+
+	async function runFleetAction(
+		ctx: ExtensionCommandContext,
+		action: FleetAction,
+	): Promise<boolean> {
+		switch (action.kind) {
+			case "close":
+				return false;
+			case "create-manual": {
+				const targetDir = await chooseAgentDirectory(ctx);
+				if (targetDir) await showManualWizard(ctx, targetDir);
+				return true;
+			}
+			case "create-generated": {
+				const targetDir = await chooseAgentDirectory(ctx);
+				if (targetDir) await showGenerateWizard(ctx, targetDir);
+				return true;
+			}
+			case "edit":
+				await editAgentDefinition(ctx, action.name);
+				return true;
+			case "toggle-enabled": {
+				const config = getAgentConfig(action.name);
+				if (config?.enabled === false) await enableAgent(ctx, action.name);
+				else await disableAgent(ctx, action.name);
+				return true;
+			}
+			case "delete":
+				await deleteAgentDefinition(ctx, action.name);
+				return true;
+			case "reset":
+				await resetAgentDefinition(ctx, action.name);
+				return true;
+			case "eject": {
+				const config = getAgentConfig(action.name);
+				if (config) await ejectAgent(ctx, action.name, config);
+				return true;
+			}
+		}
+	}
+
+	async function showFleetSurface(ctx: ExtensionCommandContext): Promise<void> {
+		let selection: string | undefined;
+		while (!fleetSurfaceController.signal.aborted) {
+			const result = await openTuiSurface<FleetAction>(pi, ctx, {
+				hostId: "pi-subagents:fleet",
+				signal: fleetSurfaceController.signal,
+				maxPending: 0,
+				create: ({ tui, theme, close }) =>
+					new FleetSurface({
+						tui,
+						theme,
+						manager,
+						activity: agentActivity,
+						listDefinitions: getAllTypes,
+						getDefinition: getAgentConfig,
+						getModelLabel: (name) => getModelLabel(name, ctx.modelRegistry),
+						scheduleCount: () => scheduler.list().length,
+						initialSelection: selection,
+						onAction: close,
+					}),
+			});
+			if (result.status === "aborted" || !result.value || result.value.kind === "close") return;
+			selection = result.value.kind === "edit" ? `definition:${result.value.name}` : selection;
+			if (!(await runFleetAction(ctx, result.value))) return;
+		}
+	}
+
 	pi.registerCommand("agents", {
 		description: "Manage agents",
 		handler: async (_args, ctx) => {
-			await showAgentsMenu(ctx);
+			await showFleetSurface(ctx);
 		},
 	});
 }
