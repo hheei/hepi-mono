@@ -4,7 +4,7 @@ import type {
 	Theme,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { createFindTool, createGrepTool, createReadTool } from "@earendil-works/pi-coding-agent";
+import { createFindTool, createGrepTool } from "@earendil-works/pi-coding-agent";
 import { type Component, Text } from "@earendil-works/pi-tui";
 import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
 import { type TSchema, Type } from "typebox";
@@ -17,11 +17,9 @@ import {
 	buildFindFilesDetails,
 	buildGrepDetails,
 	buildGrepFailureMessage,
-	buildReadFailureMessage,
 	FFF_RUNTIME_NOT_READY_TEXT,
 	grepNeedsBuiltinFallback,
 	inferFffGrepMode,
-	locationToReadParams,
 	normalizeMode,
 	normalizeOutputMode,
 } from "./extension-common.js";
@@ -229,7 +227,6 @@ function registerFffTool<TParams extends TSchema, TDetails, TState>(
 }
 
 export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): void {
-	const readTemplate = createReadTool(process.cwd());
 	const grepTemplate = createGrepTool(process.cwd());
 
 	const getAgentRuntime = <T>(unavailableDetails: T) => {
@@ -242,45 +239,6 @@ export function registerTools(pi: ExtensionAPI, deps: ToolRegistrationDeps): voi
 		}
 		return { kind: "ready" as const, runtime };
 	};
-
-	registerFffTool(pi, {
-		name: "read",
-		label: "read",
-		description: `${readTemplate.description} Accepts approximate file paths and resolves them with fff before reading.`,
-		parameters: readTemplate.parameters,
-		async execute(toolCallId, params, signal, onUpdate, ctx) {
-			const original = createReadTool(ctx.cwd);
-			const runtime = deps.getRuntime();
-			if (!runtime || !deps.getSettings().readEnhancement) {
-				return original.execute(toolCallId, params, signal, onUpdate);
-			}
-
-			const resolution = await runtime.resolvePath(params.path, {
-				allowDirectory: false,
-				limit: 8,
-			});
-			return resolution.match({
-				err: async (error) => {
-					throw new Error(buildReadFailureMessage("read", params.path, error));
-				},
-				ok: async (resolved) => {
-					void runtime.trackQuery(params.path, resolved.absolutePath);
-					const locationParams = locationToReadParams(resolved, params.offset, params.limit);
-					return original.execute(
-						toolCallId,
-						{
-							...params,
-							path: resolved.absolutePath,
-							...(locationParams.offset === undefined ? {} : { offset: locationParams.offset }),
-							...(locationParams.limit === undefined ? {} : { limit: locationParams.limit }),
-						},
-						signal,
-						onUpdate,
-					);
-				},
-			});
-		},
-	});
 
 	const grepSchema = Type.Object({
 		pattern: Type.String({ description: "Search pattern" }),

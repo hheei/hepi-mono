@@ -1,43 +1,12 @@
 import { TaggedError } from "better-result";
-import { formatGrepError, formatPathResolutionError } from "./error-format.js";
-import { type GrepSearchError, type PathResolutionError } from "./errors.js";
-import type {
-	FindFilesResponse,
-	GrepSearchResponse,
-	HealthCheck,
-	ResolvedPath,
-	RuntimeMetadata,
-} from "./fff.js";
+import { formatGrepError } from "./error-format.js";
+import type { GrepSearchError } from "./errors.js";
+import type { FindFilesResponse, GrepSearchResponse, HealthCheck, RuntimeMetadata } from "./fff.js";
 
 export const FFF_RUNTIME_NOT_READY_TEXT = "FFF runtime is not ready.";
 
-
-export function buildReadFailureMessage(
-	action: string,
-	query: string,
-	error: PathResolutionError,
-): string {
-	return formatPathResolutionError(action, query, error);
-}
-
 export function buildGrepFailureMessage(error: GrepSearchError, pathQuery?: string): string {
 	return formatGrepError(error, pathQuery);
-}
-
-export function locationToReadParams(
-	resolution: ResolvedPath,
-	offset: number | undefined,
-	limit: number | undefined,
-) {
-	if (offset !== undefined || !resolution.location) return { offset, limit };
-	if (resolution.location.type === "line") {
-		return { offset: resolution.location.line, limit: limit ?? 80 };
-	}
-	if (resolution.location.type === "position") {
-		return { offset: resolution.location.line, limit: limit ?? 80 };
-	}
-	const rangeSize = Math.max(1, resolution.location.end.line - resolution.location.start.line + 1);
-	return { offset: resolution.location.start.line, limit: limit ?? Math.max(rangeSize, 20) };
 }
 
 export function grepNeedsBuiltinFallback(params: {
@@ -86,10 +55,7 @@ export function buildErrorDetails(error?: { message: string } | null) {
 	};
 }
 
-export function buildGrepDetails(
-	result?: GrepSearchResponse,
-	error?: { message: string } | null,
-) {
+export function buildGrepDetails(result?: GrepSearchResponse, error?: { message: string } | null) {
 	return {
 		truncation: result?.truncation,
 		matchLimitReached: result?.matchLimitReached,

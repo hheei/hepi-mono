@@ -13,14 +13,12 @@ export interface FffSettingsProviderOptions {
 export interface FffSettings {
 	/** FFF behavior toggles only; tool activation belongs to pi-loadout. */
 	readonly autocomplete: boolean;
-	readonly readEnhancement: boolean;
 	readonly grepEnhancement: boolean;
 	readonly statusUI: boolean;
 }
 
 export const DEFAULT_FFF_SETTINGS: FffSettings = {
 	autocomplete: true,
-	readEnhancement: true,
 	grepEnhancement: true,
 	statusUI: true,
 };
@@ -33,7 +31,6 @@ function booleanAt(state: HepiSettingsState | undefined, key: keyof FffSettings)
 export function fffSettingsFromState(state: HepiSettingsState | undefined): FffSettings {
 	return {
 		autocomplete: booleanAt(state, "autocomplete"),
-		readEnhancement: booleanAt(state, "readEnhancement"),
 		grepEnhancement: booleanAt(state, "grepEnhancement"),
 		statusUI: booleanAt(state, "statusUI"),
 	};
@@ -64,15 +61,6 @@ export function createFffSettingsProvider(
 						defaultValue: true,
 						description:
 							"Use the FFF index for @path autocomplete while preserving other autocomplete providers.",
-						parse: (value) => value === "true",
-					},
-					{
-						id: "readEnhancement",
-						label: "Read enhancement",
-						type: "boolean",
-						defaultValue: true,
-						description:
-							"Resolve approximate file paths with FFF before delegating the read operation to Pi.",
 						parse: (value) => value === "true",
 					},
 					{
