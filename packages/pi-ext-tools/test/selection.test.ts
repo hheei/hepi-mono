@@ -38,6 +38,17 @@ describe("local tool selection substrate", () => {
 		expect(positionAt(text, rows, 1, 0)).toEqual({ line: 0, grapheme: 2 });
 	});
 
+	test("removes OSC hyperlinks before wrapping and mapping cells", (): void => {
+		const text = logicalText("\x1b]8;;https://example.test\x1b\\link\x1b]8;;\x1b\\");
+		const rows = softWrap(text, 3);
+		expect(text.lines).toEqual(["link"]);
+		expect(rows).toEqual([
+			{ logicalLine: 0, startGrapheme: 0, endGrapheme: 3 },
+			{ logicalLine: 0, startGrapheme: 3, endGrapheme: 4 },
+		]);
+		expect(positionAt(text, rows, 1, 0)).toEqual({ line: 0, grapheme: 3 });
+	});
+
 	test("maps wide, combining, and emoji graphemes by terminal cells", (): void => {
 		const text = logicalText("a界e\u0301🙂");
 		const rows = softWrap(text, 20);
