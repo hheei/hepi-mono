@@ -1,9 +1,25 @@
 import type { TUI } from "@earendil-works/pi-tui";
+import { getGlobalState } from "../src/global-state.js";
 import { installMouseSupport, type TerminalMouseEvent, type TextRange } from "../src/index.js";
 
 type InputListener = (
 	data: string,
 ) => { readonly consume?: boolean; readonly data?: string } | undefined;
+
+interface DispatcherState {
+	tracking: boolean;
+	pendingDisable: boolean;
+}
+
+function dispatcherState(tui: TUI): DispatcherState {
+	const states = getGlobalState(
+		"mouse-dispatchers",
+		(): WeakMap<TUI, DispatcherState> => new WeakMap(),
+	);
+	const state = states.get(tui);
+	if (state === undefined) throw new Error("Expected mouse dispatcher");
+	return state;
+}
 
 function fixture(): {
 	readonly tui: TUI;
@@ -126,6 +142,28 @@ test("lets an ignored down fall through to the next matching region", (): void =
 	expect(calls).toEqual(["new:down", "old:down", "old:drag", "old:up"]);
 });
 
+test("keeps down dispatch stable when ignored callback removes an earlier region", (): void => {
+	const h = fixture();
+	const support = installMouseSupport(h.tui, { signal: new AbortController().signal });
+	const calls: string[] = [];
+	const removeOld = support.registerRegion({
+		hitTest: () => true,
+		onMouseEvent: (event) => void calls.push(`old:${event.kind}`),
+	});
+	support.registerRegion({
+		hitTest: () => true,
+		onMouseEvent: (event) => {
+			calls.push(`new:${event.kind}`);
+			removeOld();
+			return "ignored";
+		},
+	});
+
+	h.input("\x1b[<0;1;1M");
+
+	expect(calls).toEqual(["new:down"]);
+});
+
 test("drives plain-left selection without deriving copy or click behavior", (): void => {
 	const h = fixture();
 	const selections: (TextRange | null)[] = [];
@@ -215,6 +253,85 @@ test("rolls back tracking state when terminal writes fail", (): void => {
 	remove();
 	expect(h.writes).toEqual(["\x1b[?1002h\x1b[?1006h", "\x1b[?1002l\x1b[?1006l"]);
 	support.dispose();
+});
+
+test("forces terminal cleanup after abort disables tracking unsuccessfully", (): void => {
+	const h = fixture();
+	const controller = new AbortController();
+	const support = installMouseSupport(h.tui, { signal: controller.signal });
+	support.registerRegion({ hitTest: () => false });
+
+	h.setWriteFailure(true);
+	expect(() => controller.abort()).not.toThrow();
+	expect(h.listenerCount()).toBe(0);
+	expect(() => support.registerRegion({ hitTest: () => false })).toThrow(
+		"Mouse support is disposed",
+	);
+	expect(() => support.dispose()).toThrow("terminal write failed");
+
+	h.setWriteFailure(false);
+	const replacement = installMouseSupport(h.tui, { signal: new AbortController().signal });
+	expect(h.writes).toEqual(["\x1b[?1002h\x1b[?1006h", "\x1b[?1002l\x1b[?1006l"]);
+	const remove = replacement.registerRegion({ hitTest: () => false });
+	expect(h.writes).toEqual([
+		"\x1b[?1002h\x1b[?1006h",
+		"\x1b[?1002l\x1b[?1006l",
+		"\x1b[?1002h\x1b[?1006h",
+	]);
+	remove();
+	replacement.dispose();
+});
+
+test("keeps live owner tracking when another owner aborts before install", (): void => {
+	const h = fixture();
+	const firstController = new AbortController();
+	const first = installMouseSupport(h.tui, { signal: firstController.signal });
+	const second = installMouseSupport(h.tui, { signal: new AbortController().signal });
+	const calls: string[] = [];
+	first.registerRegion({ hitTest: () => true, onMouseEvent: () => void calls.push("first") });
+	second.registerRegion({ hitTest: () => true, onMouseEvent: () => void calls.push("second") });
+
+	h.setWriteFailure(true);
+	firstController.abort();
+	h.setWriteFailure(false);
+	const third = installMouseSupport(h.tui, { signal: new AbortController().signal });
+	third.registerRegion({ hitTest: () => false });
+	h.input("\x1b[<0;1;1M");
+
+	expect(calls).toEqual(["second"]);
+	expect(h.writes).toEqual(["\x1b[?1002h\x1b[?1006h"]);
+	second.dispose();
+	third.dispose();
+});
+
+test("resets pending transport before exposing a new owner beside a live region", (): void => {
+	const h = fixture();
+	const firstController = new AbortController();
+	const first = installMouseSupport(h.tui, { signal: firstController.signal });
+	const second = installMouseSupport(h.tui, { signal: new AbortController().signal });
+	const calls: string[] = [];
+	first.registerRegion({ hitTest: () => false });
+	second.registerRegion({ hitTest: () => true, onMouseEvent: () => void calls.push("second") });
+	firstController.abort();
+
+	// This is the retained reset obligation from a failed transport cleanup. The
+	// neighboring live region models the state an install must reconcile safely.
+	const state = dispatcherState(h.tui);
+	state.tracking = false;
+	state.pendingDisable = true;
+	first.dispose();
+	const third = installMouseSupport(h.tui, { signal: new AbortController().signal });
+	third.registerRegion({ hitTest: () => false });
+	h.input("\x1b[<0;1;1M");
+
+	expect(h.writes).toEqual([
+		"\x1b[?1002h\x1b[?1006h",
+		"\x1b[?1002l\x1b[?1006l",
+		"\x1b[?1002h\x1b[?1006h",
+	]);
+	expect(calls).toEqual(["second"]);
+	second.dispose();
+	third.dispose();
 });
 
 test("isolates owners and cleans a region once across abort and stale disposers", (): void => {

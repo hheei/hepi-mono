@@ -66,8 +66,8 @@ Pi 没有为大部分 extension 注册面提供公开 unregister。core 的 life
 
 根入口 `@hheei/pi-ext-core` 只导出实际 consumer 需要的类型与函数，不允许 deep
 import。已实现 v1 包含 lifecycle、Service、ExtensionPoint、cleanup、JSON settings/provider registry、
-Loadout registration、custom surface runtime 与 Extension page router API。Mouse/selection 是已批准但尚未实现的
-下一阶段 contract，边界见 [鼠标与局部文本选择](../mouse/README.md)。Subagent execution contract 的边界见
+Loadout registration、custom surface runtime、Extension page router API 与 mouse/local-selection transport。Mouse/selection
+边界见 [鼠标与局部文本选择](../mouse/README.md)。Subagent execution contract 的边界见
 [Subagent 执行架构](subagents.md)，Loadout 细节见 [Loadout 架构](loadout.md)。
 
 ### JSON Settings

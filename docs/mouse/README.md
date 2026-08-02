@@ -2,7 +2,7 @@
 
 ## 状态
 
-这是已达成设计共识、尚未实现的 `@hheei/pi-ext-core` contract。它是 core promotion threshold 之外的受限例外，边界记录在 [ADR 0008](../adr/0008-mouse-selection-core-exception.md)。
+这是已实现并由 focused tests 与 PTY smoke 验证的 `@hheei/pi-ext-core` contract。它是 core promotion threshold 之外的受限例外，边界记录在 [ADR 0008](../adr/0008-mouse-selection-core-exception.md)。
 
 ## 目标
 
@@ -99,5 +99,6 @@ core 只驱动 `setSelection()` 并允许页面通过 `getSelectedText()` 读取
 ## 缺席、取消与验证
 
 未安装 support 时沿用 Pi 原生 input 行为；没有 region 时不启用 tracking。`AbortSignal`、owner disposer、surface close、Pi session shutdown 和 reload 都必须到达同一幂等 cleanup 路径。
+若 abort 时 terminal disable write 失败，core 会先 detach owner/listener，但保留 pending reset；后续 `dispose()` 或新的 install 会先重试 reset，成功前不会重新 enable tracking。
 
 focused tests 放在 `packages/pi-ext-core/test/`，覆盖完整 SGR sequence、普通 input passthrough、tracking reference count、owner isolation、overlap order、capture、abort、shutdown 和 stale disposer。Pi input boundary 的 fragmented stdin 另用真实 host/PTY 验证。可见 TUI 行为另用 `tui-replay` 在窄和宽 terminal 验证；现有 debug replay 只作测试 fixture，不是产品 consumer。
