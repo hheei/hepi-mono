@@ -19,13 +19,18 @@ export class SelectableReadResult implements Component {
 
 	bindLayout(context: ToolRenderContext, offsetY = 0): void {
 		this.removeLayout?.();
-		this.removeLayout = context.resultLayout.onChange((bounds) => {
+		this.removeLayout = undefined;
+		this.removeRegion?.();
+		this.removeRegion = undefined;
+		const resultLayout = context.resultLayout;
+		if (resultLayout === undefined) return;
+		this.removeLayout = resultLayout.onChange((bounds) => {
 			this.removeRegion?.();
 			this.removeRegion = undefined;
 			if (bounds === undefined || bounds.width < 1 || bounds.height <= offsetY) return;
 			const rows = softWrap(this.text, bounds.width);
 			if (rows.length === 0) return;
-			const support = installMouseSupport(context.resultLayout.tui, {
+			const support = installMouseSupport(resultLayout.tui, {
 				signal: new AbortController().signal,
 			});
 			const remove = support.registerSelectableRegion({

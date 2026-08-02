@@ -8,6 +8,7 @@ import { SelectableReadResult } from "../src/selectable-read-result.js";
 
 class InputTerminal implements Terminal {
 	private input: ((data: string) => void) | undefined;
+	readonly writes: string[] = [];
 
 	get columns(): number {
 		return 80;
@@ -25,7 +26,9 @@ class InputTerminal implements Terminal {
 	drainInput(): Promise<void> {
 		return Promise.resolve();
 	}
-	write(_data: string): void {}
+	write(data: string): void {
+		this.writes.push(data);
+	}
 	moveBy(_lines: number): void {}
 	hideCursor(): void {}
 	showCursor(): void {}
@@ -86,5 +89,35 @@ test("dragging a read body uses Pi-owned result viewport bounds", async (): Prom
 	terminal.emit(`\x1b[<0;${x + 1};${row + 1}M`);
 	terminal.emit(`\x1b[<32;${x + 2};${row + 1}M`);
 	expect(result.render(terminal.columns)).not.toEqual(before);
+	tui.stop();
+});
+
+test("collapsed read output leaves terminal mouse tracking disabled", async (): Promise<void> => {
+	initTheme();
+	const tools: ToolDefinition[] = [];
+	const pi = {
+		events: {},
+		registerTool: (tool: ToolDefinition): void => void tools.push(tool),
+	} as unknown as ExtensionAPI;
+	registerReadTool(pi);
+	const definition = tools[0];
+	if (definition === undefined) throw new Error("Expected read definition");
+	const terminal = new InputTerminal();
+	const tui = new TUI(terminal);
+	const execution = new ToolExecutionComponent(
+		"read",
+		"read-1",
+		{ path: "value.txt" },
+		{},
+		definition,
+		tui,
+		process.cwd(),
+	);
+	tui.addChild(execution);
+	execution.setArgsComplete();
+	execution.updateResult({ content: [{ type: "text", text: "alpha" }], details: undefined });
+	tui.start();
+	await new Promise((resolve) => setTimeout(resolve, 25));
+	expect(terminal.writes).not.toContain("\x1b[?1002h\x1b[?1006h");
 	tui.stop();
 });

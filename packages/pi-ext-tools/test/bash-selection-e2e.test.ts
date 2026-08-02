@@ -8,6 +8,7 @@ import { registerTools } from "../src/tools.js";
 
 class InputTerminal implements Terminal {
 	private input: ((data: string) => void) | undefined;
+	readonly writes: string[] = [];
 	get columns(): number {
 		return 80;
 	}
@@ -24,7 +25,9 @@ class InputTerminal implements Terminal {
 	drainInput(): Promise<void> {
 		return Promise.resolve();
 	}
-	write(_data: string): void {}
+	write(data: string): void {
+		this.writes.push(data);
+	}
 	moveBy(_lines: number): void {}
 	hideCursor(): void {}
 	showCursor(): void {}
@@ -95,5 +98,7 @@ test("dragging expanded truncated bash output preserves upstream warning rows", 
 	const selected = result.render(terminal.columns);
 	expect(selected).not.toEqual(before);
 	expect(selected.some((line) => line.includes("Full output: /tmp/full-output"))).toBe(true);
+	execution.dispose();
+	expect(terminal.writes).toContain("\x1b[?1002l\x1b[?1006l");
 	tui.stop();
 });
