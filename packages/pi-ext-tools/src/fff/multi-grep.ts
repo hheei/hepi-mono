@@ -9,6 +9,10 @@ import {
 } from "./extension-common.js";
 import type { FffRuntimeState } from "./lifecycle.js";
 
+/**
+ * ponytail: dormant FFF-only implementation; keep it unregistered until a
+ * translated unified grep contract has a product consumer and focused tests.
+ */
 export function registerMultiGrepTool(pi: ExtensionAPI, state: FffRuntimeState): void {
 	const tool = {
 		name: "fff_multi_grep",

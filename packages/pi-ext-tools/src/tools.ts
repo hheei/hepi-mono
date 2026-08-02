@@ -8,7 +8,6 @@ import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
 import type { TSchema } from "typebox";
 import { registerBashTool } from "./bash.js";
 import { createFffRuntimeState, type FffRuntimeState } from "./fff/lifecycle.js";
-import { registerMultiGrepTool } from "./fff/multi-grep.js";
 import { registerFindTool } from "./find.js";
 import { registerGrepTool } from "./grep.js";
 import { registerReadTool } from "./read.js";
@@ -53,7 +52,6 @@ export function registerTools(
 	registerReadTool(pi, state);
 	registerGrepTool(pi, state);
 	registerFindTool(pi, state);
-	registerMultiGrepTool(pi, state);
 	registerCanonicalTool(pi, createEditToolDefinition);
 	registerCanonicalTool(pi, createWriteToolDefinition);
 	registerBashTool(pi);
