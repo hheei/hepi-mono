@@ -2,10 +2,11 @@
  * agent-widget.ts — Persistent widget showing running/completed agents above the editor.
  *
  * Displays a tree of agents with animated spinners, live stats, and activity descriptions.
- * Uses the callback form of setWidget for themed rendering.
+ * Uses a core-managed component registration for themed rendering.
  */
 
-import { truncateToWidth } from "@earendil-works/pi-tui";
+import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
+import type { HepiWidgetHandle } from "@hheei/pi-ext-core";
 import type { AgentManager } from "../agent-manager.js";
 import { getConfig } from "../agent-types.js";
 import type { AgentInvocation, SubagentType, WidgetMode } from "../types.js";
@@ -40,14 +41,9 @@ export type Theme = {
 	bold(text: string): string;
 };
 
-export type UICtx = {
-	setStatus(key: string, text: string | undefined): void;
-	setWidget(
-		key: string,
-		content: undefined | ((tui: any, theme: Theme) => { render(): string[]; invalidate(): void }),
-		options?: { placement?: "aboveEditor" | "belowEditor" },
-	): void;
-};
+// ANSI SGR reset sequence; control character is intentional for terminal styling.
+// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape sequence is intentional.
+const ANSI_RESET_PATTERN = /\x1b\[(?:0|39)m/g;
 
 /** Per-agent live activity state. */
 export interface AgentActivity {
@@ -100,10 +96,10 @@ export interface AgentDetails {
 /** Apply foreground styling while restoring it after nested foreground/full ANSI resets. */
 export function fgPreservingNestedStyles(theme: Theme, color: string, text: string): string {
 	const styledEmpty = theme.fg(color, "");
-	const styleStart = styledEmpty.replace(/\u001b\[(?:0|39)m/g, "");
+	const styleStart = styledEmpty.replace(ANSI_RESET_PATTERN, "");
 	return theme.fg(
 		color,
-		text.replace(/\u001b\[(?:0|39)m/g, (reset) => `${reset}${styleStart}`),
+		text.replace(ANSI_RESET_PATTERN, (reset) => `${reset}${styleStart}`),
 	);
 }
 
@@ -194,7 +190,7 @@ function truncateLine(text: string, len = 60): string {
 			.find((l) => l.trim())
 			?.trim() ?? "";
 	if (line.length <= len) return line;
-	return line.slice(0, len) + "…";
+	return `${line.slice(0, len)}…`;
 }
 
 /** Build a human-readable activity string from currently-running tools or response text. */
@@ -214,7 +210,7 @@ export function describeActivity(activeTools: Map<string, string>, responseText?
 				parts.push(action);
 			}
 		}
-		return parts.join(", ") + "…";
+		return `${parts.join(", ")}…`;
 	}
 
 	// No tools active — show truncated response text if available
@@ -228,7 +224,8 @@ export function describeActivity(activeTools: Map<string, string>, responseText?
 // ---- Widget manager ----
 
 export class AgentWidget {
-	private uiCtx: UICtx | undefined;
+	private setStatus: ((text: string | undefined) => void) | undefined;
+	private handle: HepiWidgetHandle | undefined;
 	private widgetFrame = 0;
 	private widgetInterval: ReturnType<typeof setInterval> | undefined;
 	/** Tracks how many turns each finished agent has survived. Key: agent ID, Value: turns since finished. */
@@ -236,10 +233,6 @@ export class AgentWidget {
 	/** How many extra turns errors/aborted agents linger (completed agents clear after 1 turn). */
 	private static readonly ERROR_LINGER_TURNS = 2;
 
-	/** Whether the widget callback is currently registered with the TUI. */
-	private widgetRegistered = false;
-	/** Cached TUI reference from widget factory callback, used for requestRender(). */
-	private tui: any | undefined;
 	/** Last status bar text, used to avoid redundant setStatus calls. */
 	private lastStatusText: string | undefined;
 
@@ -277,16 +270,22 @@ export class AgentWidget {
 		}
 	}
 
-	/** Set the UI context (grabbed from first tool execution). */
-	setUICtx(ctx: UICtx) {
-		if (ctx !== this.uiCtx) {
-			// UICtx changed — the widget registered on the old context is gone.
-			// Force re-registration on next update().
-			this.uiCtx = ctx;
-			this.widgetRegistered = false;
-			this.tui = undefined;
-			this.lastStatusText = undefined;
-		}
+	/** Set lifecycle-owned statusbar callback. */
+	setStatusCallback(callback: (text: string | undefined) => void): void {
+		this.setStatus = callback;
+		this.lastStatusText = undefined;
+	}
+
+	setRegistration(handle: HepiWidgetHandle): void {
+		this.handle = handle;
+		this.update();
+	}
+
+	createComponent(theme: Theme): Component {
+		return {
+			render: (width: number) => this.renderWidget(width, theme),
+			invalidate: () => undefined,
+		};
 	}
 
 	/**
@@ -304,7 +303,7 @@ export class AgentWidget {
 
 	/** Ensure the widget update timer is running. */
 	ensureTimer() {
-		if (!this.widgetInterval) {
+		if (this.handle && !this.widgetInterval) {
 			this.widgetInterval = setInterval(() => this.update(), 80);
 		}
 	}
@@ -376,7 +375,7 @@ export class AgentWidget {
 	 * Render the widget content. Called from the registered widget's render() callback,
 	 * reading live state each time instead of capturing it in a closure.
 	 */
-	private renderWidget(tui: any, theme: Theme): string[] {
+	private renderWidget(columns: number, theme: Theme): string[] {
 		const allAgents = this.widgetAgents();
 		const running = allAgents.filter((a) => a.status === "running");
 		const queued = allAgents.filter((a) => a.status === "queued");
@@ -394,7 +393,7 @@ export class AgentWidget {
 		// Nothing to show — return empty (widget will be unregistered by update())
 		if (!hasActive && !hasFinished) return [];
 
-		const w = tui.terminal.columns;
+		const w = columns;
 		const truncate = (line: string) => truncateToWidth(line, w);
 		const headingColor = hasActive ? "accent" : "dim";
 		const headingIcon = hasActive ? "●" : "○";
@@ -405,7 +404,7 @@ export class AgentWidget {
 
 		const finishedLines: string[] = [];
 		for (const a of finished) {
-			finishedLines.push(truncate(theme.fg("dim", "├─") + " " + this.renderFinishedLine(a, theme)));
+			finishedLines.push(truncate(`${theme.fg("dim", "├─")} ${this.renderFinishedLine(a, theme)}`));
 		}
 
 		const runningLines: string[][] = []; // each entry is [header, activity]
@@ -443,8 +442,7 @@ export class AgentWidget {
 		const queuedLine =
 			queued.length > 0
 				? truncate(
-						theme.fg("dim", "├─") +
-							` ${theme.fg("muted", "◦")} ${theme.fg("dim", `${queued.length} queued`)}`,
+						`${theme.fg("dim", "├─")} ${theme.fg("muted", "◦")} ${theme.fg("dim", `${queued.length} queued`)}`,
 					)
 				: undefined;
 
@@ -453,7 +451,7 @@ export class AgentWidget {
 		const totalBody = finishedLines.length + runningLines.length * 2 + (queuedLine ? 1 : 0);
 
 		const lines: string[] = [
-			truncate(theme.fg(headingColor, headingIcon) + " " + theme.fg(headingColor, "Agents")),
+			truncate(`${theme.fg(headingColor, headingIcon)} ${theme.fg(headingColor, "Agents")}`),
 		];
 
 		if (totalBody <= maxBody) {
@@ -527,7 +525,7 @@ export class AgentWidget {
 
 	/** Force an immediate widget update. */
 	update() {
-		if (!this.uiCtx) return;
+		if (!this.handle) return;
 		const allAgents = this.widgetAgents();
 
 		// Lightweight existence checks — full categorization happens in renderWidget()
@@ -545,15 +543,11 @@ export class AgentWidget {
 		}
 		const hasActive = runningCount > 0 || queuedCount > 0;
 
-		// Nothing to show — clear widget
+		// Nothing to show — hide widget through core.
 		if (!hasActive && !hasFinished) {
-			if (this.widgetRegistered) {
-				this.uiCtx.setWidget("agents", undefined);
-				this.widgetRegistered = false;
-				this.tui = undefined;
-			}
-			if (this.lastStatusText !== undefined) {
-				this.uiCtx.setStatus("subagents", undefined);
+			this.handle.setVisible(false);
+			if (this.setStatus && this.lastStatusText !== undefined) {
+				this.setStatus(undefined);
 				this.lastStatusText = undefined;
 			}
 			if (this.widgetInterval) {
@@ -576,36 +570,14 @@ export class AgentWidget {
 			const total = runningCount + queuedCount;
 			newStatusText = `${statusParts.join(", ")} agent${total === 1 ? "" : "s"}`;
 		}
-		if (newStatusText !== this.lastStatusText) {
-			this.uiCtx.setStatus("subagents", newStatusText);
+		if (this.setStatus && newStatusText !== this.lastStatusText) {
+			this.setStatus(newStatusText);
 			this.lastStatusText = newStatusText;
 		}
 
 		this.widgetFrame++;
-
-		// Register widget callback once; subsequent updates use requestRender()
-		// which re-invokes render() without replacing the component (avoids layout thrashing).
-		if (!this.widgetRegistered) {
-			this.uiCtx.setWidget(
-				"agents",
-				(tui, theme) => {
-					this.tui = tui;
-					return {
-						render: () => this.renderWidget(tui, theme),
-						invalidate: () => {
-							// Theme changed — force re-registration so factory captures fresh theme.
-							this.widgetRegistered = false;
-							this.tui = undefined;
-						},
-					};
-				},
-				{ placement: "aboveEditor" },
-			);
-			this.widgetRegistered = true;
-		} else {
-			// Widget already registered — just request a re-render of existing components.
-			this.tui?.requestRender();
-		}
+		this.handle.setVisible(true);
+		this.handle.requestRender();
 	}
 
 	dispose() {
@@ -613,12 +585,11 @@ export class AgentWidget {
 			clearInterval(this.widgetInterval);
 			this.widgetInterval = undefined;
 		}
-		if (this.uiCtx) {
-			this.uiCtx.setWidget("agents", undefined);
-			this.uiCtx.setStatus("subagents", undefined);
+		if (this.setStatus) {
+			this.setStatus(undefined);
 		}
-		this.widgetRegistered = false;
-		this.tui = undefined;
+		this.handle?.dispose();
+		this.handle = undefined;
 		this.lastStatusText = undefined;
 	}
 }

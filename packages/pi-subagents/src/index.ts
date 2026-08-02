@@ -37,6 +37,7 @@ import {
 	type HepiContext,
 	openTuiSurface,
 	registerExtensionLifecycle,
+	registerHepiWidget,
 } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { AgentManager, type SpawnOptions } from "./agent-manager.js";
@@ -100,7 +101,6 @@ import {
 	getPromptModeLabel,
 	SPINNER,
 	type Theme,
-	type UICtx,
 } from "./ui/agent-widget.js";
 import { type FleetAction, FleetSurface } from "./ui/fleet-surface.js";
 import { showSchedulesMenu } from "./ui/schedule-menu.js";
@@ -588,6 +588,10 @@ export default function (pi: ExtensionAPI) {
 				type: record.type,
 				description: record.description,
 			});
+			refreshWidget();
+		},
+		() => {
+			refreshWidget();
 		},
 	);
 
@@ -598,6 +602,22 @@ export default function (pi: ExtensionAPI) {
 			const sessionId = runtime.extension.sessionManager?.getSessionId?.();
 			if (sessionId === undefined)
 				throw new Error("Pi session id is required for subagent settings");
+			// Only the activation that claimed the process-wide manager registry is
+			// allowed to own editor-adjacent UI. Child activations share the same
+			// process but deliberately leave this registry slot untouched.
+			if (ownsManagerRegistry && runtime.extension.mode === "tui") {
+				const widgetHandle = registerHepiWidget(pi, runtime.extension, runtime.signal, {
+					id: "pi-subagents:agents",
+					placement: "aboveEditor",
+					visible: false,
+					create: (_tui, theme) => widget.createComponent(theme),
+				});
+				widget.setStatusCallback((text) => runtime.extension.ui.setStatus("subagents", text));
+				widget.setRegistration(widgetHandle);
+				runtime.resources.add("pi-subagents-widget", () => {
+					widget.dispose();
+				});
+			}
 			await applyAndEmitLoaded(
 				{
 					setMaxConcurrent: (value) => manager.setMaxConcurrent(value),
@@ -652,6 +672,10 @@ export default function (pi: ExtensionAPI) {
 	if (ownsManagerRegistry) {
 		runtimeGlobal[MANAGER_KEY] = registryEntry;
 	}
+	const refreshWidget = (): void => {
+		widget.ensureTimer();
+		widget.update();
+	};
 
 	// --- Cross-extension RPC via pi.events ---
 	let currentCtx: ExtensionContext | undefined;
@@ -877,9 +901,8 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
-	// Grab UI context from first tool execution + clear lingering widget on new turn
+	// Clear lingering widget state on new turn.
 	pi.on("tool_execution_start", async (_event, ctx) => {
-		widget.setUICtx(ctx.ui as UICtx);
 		widget.onTurnStart();
 	});
 
@@ -1239,9 +1262,6 @@ Terse command-style prompts produce shallow, generic work.
 		// ---- Execute ----
 
 		execute: async (toolCallId, params, signal, onUpdate, ctx) => {
-			// Ensure we have UI context for widget rendering
-			widget.setUICtx(ctx.ui as UICtx);
-
 			// Reload custom agents so new project/global .md files are picked up without restart
 			reloadCustomAgents();
 
@@ -1483,8 +1503,7 @@ Terse command-style prompts produce shallow, generic work.
 				}
 
 				agentActivity.set(id, bgState);
-				widget.ensureTimer();
-				widget.update();
+				refreshWidget();
 
 				// Emit created event
 				pi.events.emit("subagents:created", {
@@ -1554,7 +1573,7 @@ Terse command-style prompts produce shallow, generic work.
 					if (a.handle === session) {
 						fgId = a.id;
 						agentActivity.set(a.id, fgState);
-						widget.ensureTimer();
+						refreshWidget();
 						break;
 					}
 				}
@@ -2787,6 +2806,7 @@ ${systemPrompt}
 						getDefinition: getAgentConfig,
 						getModelLabel: (name) => getModelLabel(name, ctx.modelRegistry),
 						scheduleCount: () => scheduler.list().length,
+						scheduleDeferred: () => scheduler.list().length > 0 && !scheduler.isActive(),
 						initialSelection: selection,
 						onAction: close,
 					}),

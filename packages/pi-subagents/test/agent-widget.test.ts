@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import { describe, expect, it, vi } from "vitest";
+import type { AgentManager } from "../src/agent-manager.js";
 import { renderRunningAgentStatus } from "../src/index.js";
 import type { WidgetMode } from "../src/types.js";
 import {
@@ -97,20 +99,75 @@ describe("AgentWidget", () => {
 
 	/** Render the widget for a manager and return the produced lines ("" if nothing rendered). */
 	function renderLines(manager: unknown, activityId: string, mode?: () => WidgetMode): string {
-		const widget = new AgentWidget(manager as any, new Map([[activityId, makeActivity()]]), mode);
-		let factory: any;
-		widget.setUICtx({
-			setStatus: () => {},
-			setWidget: (_key, content) => {
-				factory = content;
-			},
+		const widget = new AgentWidget(
+			manager as unknown as AgentManager,
+			new Map([[activityId, makeActivity()]]),
+			mode,
+		);
+		widget.setStatusCallback(() => {});
+		widget.setRegistration({
+			setVisible: () => {},
+			requestRender: () => {},
+			dispose: () => {},
 		});
 		widget.update();
-		if (!factory) return "";
-		return factory({ terminal: { columns: 120 }, requestRender: () => {} }, theme)
-			.render()
-			.join("\n");
+		return widget.createComponent(theme).render(120).join("\n");
 	}
+
+	it.each([80, 120, 216])("keeps rows within %d columns", (width) => {
+		const manager = { listAgents: () => [makeRecord("width-check")] };
+		const widget = new AgentWidget(
+			manager as unknown as AgentManager,
+			new Map([["width-check", makeActivity()]]),
+		);
+		widget.setStatusCallback(() => {});
+		widget.setRegistration({ setVisible: () => {}, requestRender: () => {}, dispose: () => {} });
+		widget.update();
+		const rows = widget.createComponent(theme).render(width);
+		expect(rows.every((row) => visibleWidth(row) <= width)).toBe(true);
+	});
+
+	it("hands active, empty, and off states to core handle", () => {
+		let records = [makeRecord("handle-check")];
+		let mode: WidgetMode = "all";
+		const visibleCalls: boolean[] = [];
+		let renderRequests = 0;
+		const widget = new AgentWidget(
+			{ listAgents: () => records } as unknown as AgentManager,
+			new Map(),
+			() => mode,
+		);
+		widget.setRegistration({
+			setVisible: (visible) => visibleCalls.push(visible),
+			requestRender: () => {
+				renderRequests++;
+			},
+			dispose: () => {},
+		});
+		widget.update();
+		records = [];
+		widget.update();
+		mode = "off";
+		records = [makeRecord("off-check")];
+		widget.update();
+
+		expect(visibleCalls).toEqual([true, true, false, false]);
+		expect(renderRequests).toBe(2);
+	});
+
+	it("does not start a timer without a registration handle", () => {
+		const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+		try {
+			const widget = new AgentWidget(
+				{ listAgents: () => [makeRecord("child-runtime")] } as unknown as AgentManager,
+				new Map(),
+			);
+			widget.ensureTimer();
+			expect(setIntervalSpy).not.toHaveBeenCalled();
+		} finally {
+			setIntervalSpy.mockRestore();
+		}
+	});
 
 	// "all" (and the no-policy constructor default) shows every agent.
 	it("shows foreground agents in 'all' mode (and by default)", () => {

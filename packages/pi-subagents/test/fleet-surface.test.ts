@@ -23,7 +23,11 @@ function theme(): Theme {
 	} as unknown as Theme;
 }
 
-function surface(actions: FleetAction[] = [], records: readonly AgentRecord[] = []): FleetSurface {
+function surface(
+	actions: FleetAction[] = [],
+	records: readonly AgentRecord[] = [],
+	definitions: readonly string[] = ["reviewer"],
+): FleetSurface {
 	const tui = { requestRender: vi.fn(), terminal: { rows: 40, columns: 120 } } as unknown as TUI;
 	const manager = {
 		listAgents: () => records,
@@ -35,10 +39,11 @@ function surface(actions: FleetAction[] = [], records: readonly AgentRecord[] = 
 		theme: theme(),
 		manager,
 		activity: new Map(),
-		listDefinitions: () => ["reviewer"],
-		getDefinition: (name) => (name === "reviewer" ? config : undefined),
+		listDefinitions: () => definitions,
+		getDefinition: (name) => (definitions.includes(name) ? { ...config, name } : undefined),
 		getModelLabel: () => "inherit",
 		scheduleCount: () => 2,
+		scheduleDeferred: () => true,
 		onAction: (action) => actions.push(action),
 	});
 }
@@ -72,5 +77,38 @@ describe("FleetSurface", () => {
 			{ kind: "create-generated" },
 			{ kind: "edit", name: "reviewer" },
 		]);
+	});
+
+	it("keeps the selected entry in the fixed list window", () => {
+		const definitions = Array.from({ length: 14 }, (_, index) => `agent-${index}`);
+		const fleet = surface([], [], definitions);
+		for (let index = 0; index < definitions.length; index++) fleet.handleInput("\x1b[B");
+		const wide = fleet.render(120).join("\n");
+		expect(wide).toContain("agent-13");
+		expect(wide).toContain("scroll");
+		assertFits(wide.split("\n"), 120);
+
+		const narrow = fleet.render(72).join("\n");
+		expect(narrow).toContain("agent-13");
+		expect(narrow).toContain("scroll");
+		assertFits(narrow.split("\n"), 72);
+	});
+
+	it("shows retained terminal records and deferred schedules", () => {
+		const terminal = {
+			id: "completed-1",
+			type: "reviewer",
+			description: "retained terminal child",
+			status: "completed",
+			toolUses: 1,
+			startedAt: 1,
+			completedAt: 2,
+			lifetimeUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			compactionCount: 0,
+		} as unknown as AgentRecord;
+		const fleet = surface([], [terminal]);
+		const output = fleet.render(120).join("\n");
+		expect(output).toContain("retained terminal child");
+		expect(output).toContain("deferred");
 	});
 });

@@ -24,6 +24,7 @@ import { cleanupWorktree, createWorktree, type WorktreeInfo } from "./worktree.j
 
 export type OnAgentComplete = (record: AgentRecord) => void;
 export type OnAgentStart = (record: AgentRecord) => void;
+export type OnAgentChange = () => void;
 export type CompactionInfo = { reason: "manual" | "threshold" | "overflow"; tokensBefore: number };
 
 const DEFAULT_MAX_CONCURRENT = 2;
@@ -109,16 +110,19 @@ export class AgentManager {
 	private maxConcurrent: number;
 	private readonly onComplete?: OnAgentComplete;
 	private readonly onStart?: OnAgentStart;
+	private readonly onChange?: OnAgentChange;
 	private runtime: ExtensionLifecycleContext | undefined;
 
 	constructor(
 		onComplete?: OnAgentComplete,
 		maxConcurrent = DEFAULT_MAX_CONCURRENT,
 		onStart?: OnAgentStart,
+		onChange?: OnAgentChange,
 	) {
 		this.onComplete = onComplete;
 		this.maxConcurrent = Math.max(1, maxConcurrent);
 		this.onStart = onStart;
+		this.onChange = onChange;
 	}
 
 	/** Bind the current core lifecycle. A manager never outlives this scope. */
@@ -157,10 +161,12 @@ export class AgentManager {
 			invocation: options.invocation,
 		};
 		this.agents.set(id, record);
+		this.onChange?.();
 		try {
 			this.startAgent(id, record, { pi, ctx, type, prompt, options });
 		} catch (error: unknown) {
 			this.agents.delete(id);
+			this.onChange?.();
 			throw error;
 		}
 		return id;
