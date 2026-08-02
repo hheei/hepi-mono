@@ -113,9 +113,11 @@ writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
 linkSourceFile(sourceAuthPath, authPath);
 linkSourceFile(sourceModelsPath, modelsPath);
 
+const childEnv = { ...process.env, PI_CODING_AGENT_DIR: agentDir };
+delete childEnv.OPENAI_API_KEY;
 const result = spawnSync(process.execPath, [piCli, "--no-approve", ...process.argv.slice(2)], {
 	cwd: process.cwd(),
-	env: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
+	env: childEnv,
 	stdio: "inherit",
 });
 process.exit(result.status ?? 1);
