@@ -30,13 +30,24 @@ find
 edit
 write
 bash
-fff_multi_grep
 ```
 
 catalog 不从 `pi.getAllTools()` 或 active-tool inventory 自动推断。新增名称必须单独确认 upstream compatibility、
 tool schema、rendering、lifecycle、Loadout metadata 与 focused tests。
 
-`read`、`grep`、`find`、`edit`、`write`、`bash`、`fff_multi_grep` 每个名称只通过一次 `registerManagedLoadoutTool()` 静态注册。不存在 tool-definition
+## Bundled mpatch runtime
+
+`pi-ext-tools` 内置 mpatch CLI `v1.6.4` 的 macOS ARM64/x64、Linux ARM64/x64 与 Windows
+ARM64/x64 executable。它是未来 `apply_patch` 的私有 fuzzy worker，不是独立 Pi tool，也不从
+用户的 `PATH`、`MPATCH_BIN` 或网络下载取得 executable。运行时只按 `process.platform` 与
+`process.arch` 选择匹配文件；不删除 package 内其它平台文件。
+
+mpatch 只接受 unified diff，不能替代 Codex V4A parser。未来 tool 仍须在 TypeScript 中严格解析
+V4A、校验 workspace path、管理 staging 与并发提交；mpatch 只能在隔离 staging root 中执行。
+每次升级 mpatch 必须固定 release、验证每个 archive 的 SHA-256，并更新 package 的 upstream
+record 与 MIT notice。
+
+`read`、`grep`、`find`、`edit`、`write`、`bash` 每个名称只通过一次 `registerManagedLoadoutTool()` 静态注册。不存在 tool-definition
 priority、同名 fallback registration 或运行时 provider arbitration。Loadout priority 仍只属于 activation/inventory
 policy，不能用于决定哪个 implementation 执行。
 
@@ -46,7 +57,6 @@ policy，不能用于决定哪个 implementation 执行。
   renderer、ToolRenderContext state、abort、streaming 与 cleanup。
 - 每个 module 可以调用对应 upstream `create...Tool()`；这用于复用运行行为，不表示必须复用 upstream renderer。
 - `read`、`grep`、`find`、`edit`、`write`、`bash` 保留 upstream-compatible 参数、execute 与 renderer 语义。
-- `fff_multi_grep` 是唯一 FFF-only tool；FFF runtime 不可用时明确报告 unavailable，不伪装成 native grep。
 - 其他 extension 不得为 catalog 名称直接 `pi.registerTool()` 或 managed-register competing definition。它们不能
   import `pi-ext-tools`；跨包协作若确有需求，另行定义 narrow core capability。
 
@@ -83,11 +93,12 @@ dispose runtime。settings 写入在下一 session 或 `/reload` 生效。
 只控制对应 Pi native tool 的 FFF acceleration/resolution：关闭、runtime unavailable、FFF error 或请求语义不兼容时都完整委托
 upstream factory；selection renderer 不受 read enhancement 影响。当前 FFF fuzzy/ranked `findFiles` 不能保真 Pi native
 find 的 glob/path/result contract，因此 `find` 始终 native fallback；`findEnhancement` 仅为未来出现保真 mapping 保留。
-settings 只读取和写入 `pi-ext-tools.fff`。不注册 `find_files`，也不保留其 cursor/query schema。
+settings 只读取和写入 `pi-ext-tools.fff`。不注册 `find_files`，也不保留其 cursor/query schema。`src/fff/multi-grep.ts`
+保留为未注册的 future implementation；只有形成 translated unified `grep` contract 且出现 product consumer 后才能接入 catalog。
 
 ## 验证与发布
 
 - 每个 catalog tool：upstream schema/execute compatibility、managed registration singleton、abort、streaming（如适用）
   和 Loadout activation tests。
-- FFF enhancement：验证三个 toggle 关闭、runtime unavailable、FFF error、语义不兼容时均完整回退 upstream；验证
-  `fff_multi_grep` runtime unavailable 时明确失败；验证 autocomplete reload 只保留 live runtime closure。
+- FFF enhancement：验证三个 toggle 关闭、runtime unavailable、FFF error、语义不兼容时均完整回退 upstream；验证 autocomplete
+  reload 只保留 live runtime closure。dormant multi-grep implementation 的 tests 不构成 catalog contract。

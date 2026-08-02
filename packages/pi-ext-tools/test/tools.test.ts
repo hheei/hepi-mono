@@ -44,7 +44,6 @@ describe("pi-ext-tools catalog", () => {
 			"read",
 			"grep",
 			"find",
-			"fff_multi_grep",
 			"edit",
 			"write",
 			"bash",
