@@ -15,14 +15,12 @@ describe("FFF settings", () => {
 			fffSettingsFromState({
 				features: {
 					autocomplete: false,
-					readEnhancement: "false",
 					grepEnhancement: true,
 					statusUI: null,
 				},
 			}),
 		).toEqual({
 			autocomplete: false,
-			readEnhancement: true,
 			grepEnhancement: true,
 			statusUI: true,
 		});
@@ -44,7 +42,6 @@ describe("FFF settings", () => {
 				fffSettingsFromState(await provider.storage.load({ sessionId: "settings-test" })),
 			).toEqual({
 				autocomplete: false,
-				readEnhancement: true,
 				grepEnhancement: true,
 				statusUI: false,
 			});

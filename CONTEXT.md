@@ -396,46 +396,6 @@ _Avoid_: UTF-16 offset, terminal cell coordinate
 A half-open interval between two TextPositions in one selection content model.
 _Avoid_: inclusive selection range
 
-**Runtime host bridge**:
-An opt-in, core-owned compatibility boundary that obtains narrow host-surface facts from an unmodified Pi runtime and publishes them as capabilities without exposing Pi private objects to feature packages.
-_Avoid_: Pi fork, raw private API access, generic host framework
-
-**Host surface**:
-A live Editor or HEPI-managed tool output surface with a stable identity, lifecycle and current layout snapshot; its owner retains text semantics and selection behavior.
-_Avoid_: generic Component, global selection target
-
-**Surface layout snapshot**:
-The current viewport geometry and revision of one Host surface, published when layout-relevant state changes and read without mutation during mouse dispatch.
-_Avoid_: render side effect, inferred terminal output position
-
-**Bridge unavailability**:
-The fail-closed state in which a Runtime host bridge does not recognize the active Pi runtime; it leaves Pi behavior unchanged, exposes no host-surface capability and reports one native warning per runtime.
-_Avoid_: best-effort patch, partial bridge success
-
-**Bridge lease**:
-A lifecycle-owned request for Runtime host bridge capabilities. The first active lease installs the bridge for one Pi runtime; the final release withdraws its capabilities and restores every recoverable patch.
-_Avoid_: import-time bridge, permanent feature-owned patch
-
-**Late bridge attach**:
-The first Bridge lease binds both the currently displayed Host surfaces and later surfaces; failure to discover either category makes the bridge unavailable rather than partially active.
-_Avoid_: future-only selection, reload-required selection
-
-**Managed tool selection adapter**:
-An optional, static part of one Managed tool registration through which the Tool contributor supplies that tool's own selection semantics. Its absence preserves Pi's existing execution and rendering behavior.
-_Avoid_: post-hoc tool decorator, inferred renderer text
-
-**Editor surface capability**:
-A Runtime host bridge capability that exposes an Editor as a Host surface without imposing selection, selected-text or clipboard policy.
-_Avoid_: core-owned Editor copy feature, implicit pi-select dependency
-
-**Bridge compatibility fence**:
-The Pi `0.83.x` runtime range plus the complete private-shape probe required before a Runtime host bridge becomes available.
-_Avoid_: unbounded upstream compatibility, version-only support
-
-**Recoverable bridge patch**:
-A Runtime host bridge wrapper whose original target and installed identity are recorded so release can restore it only while bridge still owns that target. Unknown existing wrappers or lost ownership make the bridge unavailable rather than composed.
-_Avoid_: permanent patch, automatic third-party wrapper composition
-
 **Canonical tool owner**:
 The single extension that statically registers one Pi-visible tool name and owns its upstream compatibility, renderer and lifecycle. Other packages do not register a competing definition for that name.
 _Avoid_: priority-based tool override, duplicate tool registration
