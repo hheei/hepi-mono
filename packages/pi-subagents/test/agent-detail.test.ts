@@ -188,23 +188,21 @@ describe("createAgentDetail", () => {
 		expect(existsSync(path)).toBe(false);
 		// A built-in agent's Identity is read-only; edit the description instead.
 		await detail.handleInput(DOWN); // identity → description
-		await detail.handleInput("Custom description");
-		await detail.handleInput(ENTER);
+		await detail.handleInput(ENTER, { openEditor: async () => "Custom description" });
 		expect(existsSync(path)).toBe(false); // buffered until the page closes
 		detail.flush();
 		expect(existsSync(path)).toBe(true);
 		const content = readContent(path);
-		expect(content).toContain('description: "Read-only explorer.Custom description"');
+		expect(content).toContain('description: "Custom description"');
 		expect(content).not.toContain("enabled:"); // activation is Loadout policy, not Markdown
 		expect(content).toContain('prompt_mode: "replace"');
 		expect(content).toContain("You are a read-only explorer."); // built-in body preserved
 		expect(notifications).toEqual([]);
 		expect(changed).toEqual(["reload"]);
 		// A second edit rewrites the now-existing file without losing the body.
-		await detail.handleInput("x"); // description append
-		await detail.handleInput(ENTER);
+		await detail.handleInput(ENTER, { openEditor: async () => "Custom description x" });
 		detail.flush();
-		expect(readContent(path)).toContain('description: "Read-only explorer.Custom descriptionx"');
+		expect(readContent(path)).toContain('description: "Custom description x"');
 		expect(readContent(path)).toContain("You are a read-only explorer.");
 		expect(changed).toEqual(["reload", "reload"]);
 	});
@@ -213,8 +211,7 @@ describe("createAgentDetail", () => {
 		const { detail, root } = setupDefault("Explore");
 		const path = join(root, ".pi", "agents", "Explore.md");
 		await detail.handleInput(DOWN); // identity → description
-		await detail.handleInput("d");
-		await detail.handleInput(ENTER);
+		await detail.handleInput(ENTER, { openEditor: async () => "d" });
 		detail.flush();
 		expect(readContent(path)).toContain('tools: "read, bash, grep, find, ls"');
 		// A reload parses the clone back with the same allowlist, not the
@@ -426,6 +423,29 @@ describe("createAgentDetail", () => {
 		expect(lines.join("\n")).not.toContain("↑/↓");
 		// Labels share one left column: "Description" is the widest.
 		expect(lines[1]).toMatch(/^ {2}Description {2}/);
+		expect(lines[1]).toMatch(/Description\s+edit\s+↵$/);
+	});
+
+	it("opens native editor for Description and buffers submit or cancel", async () => {
+		const { detail, path } = setup();
+		const calls: Array<{ title: string; prefill: string | undefined }> = [];
+		await detail.handleInput(DOWN);
+		await detail.handleInput(ENTER, {
+			openEditor: async (title, prefill) => {
+				calls.push({ title, prefill });
+				return "Edited description.";
+			},
+		});
+		expect(calls).toEqual([{ title: "Edit auditor description", prefill: "A test agent." }]);
+		expect(readContent(path)).toContain("A test agent.");
+		detail.flush();
+		expect(readContent(path)).toContain('description: "Edited description."');
+
+		const cancelled = setup("cancel-description");
+		await cancelled.detail.handleInput(DOWN);
+		await cancelled.detail.handleInput(ENTER, { openEditor: async () => undefined });
+		cancelled.detail.flush();
+		expect(readContent(cancelled.path)).toContain("description: A test agent.");
 	});
 
 	it("applies the accent theme to the focused row", async () => {

@@ -46,8 +46,9 @@ glyph 仅在已 pin 级别时出现），按 `Enter` 打开单一选择器，`�
 `Tab` 循环顺序：`off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`。
 
 detail 表单按 Settings 字段列表的样式渲染为左右两列（label 列对齐、值列在右），聚焦行
-使用 accent 高亮；`Body` action 显示 `open in editor`，并把多行编辑委托给 Pi host 原生
-`ui.editor()`。内置默认 agent 的 `Identity` 行只读（dim 渲染，编辑被丢弃）。`Default agent`/`Markdown`
+使用 accent 高亮；`Description` action 的 value 固定显示 `edit`，值列最右固定显示 `↵`，按
+`Enter` 后用当前 description 作为 prefill 打开 Pi host 原生 `ui.editor()`。`Body` action 仍显示
+`open in editor` 并委托同一个原生 editor。内置默认 agent 的 `Identity` 行只读（dim 渲染，编辑被丢弃）。`Default agent`/`Markdown`
 信息行与按键提示行不渲染（操作与资源列表一致，不重复提示）；实际文件路径以 `Path:` 行显示
 在 header 的 `Status:` 之后（project scope 显示 `<cwd>/.pi/agents/<name>.md`，即 project
 override 的保存位置；过长时按目录段从头部截断为 `…/段/文件名.md`（单个 `…`），只丢完整目录、绝不切开
@@ -57,8 +58,9 @@ header title 之后（与工具行一致），浏览时全量；detail 打开时
 `Esc` 的消费顺序：detail 激活时先交给 detail（选择器打开时取消选择器），detail 未消费才
 退回列表。
 
-所有编辑（文本、cycler、`Body`）都是 buffered：detail 打开期间不写文件。共享 router 以 overlay
-运行；打开 `Body` 时 ext-core 先用 `OverlayHandle.setHidden(true)` 隐藏 overlay 并让出 focus，
+所有编辑（文本、cycler、`Description`、`Body`）都是 buffered：detail 打开期间不写文件。
+`/loadout` 与 `/ext-settings` 打开的共享 router 都以 overlay 运行；打开原生 editor 时 ext-core
+先用 `OverlayHandle.setHidden(true)` 隐藏 overlay 并让出 focus，
 等待 `ui.editor()` 结束后以 `setHidden(false)` 恢复同一个 overlay、router state、scope、selection
 和 draft，不关闭或重建 surface。`Esc` 取消 editor 时 body 不变；session abort 或 surface 已关闭时
 不恢复失效 handle。退出 Loadout（`close`）时才一次性 flush——每个 dirty scope 先写盘、再统一
