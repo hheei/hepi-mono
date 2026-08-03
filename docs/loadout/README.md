@@ -26,7 +26,8 @@ Description lane 切换为该 detail；窄终端把同一 detail 堆叠在列表
 不复制 JSON 格式或把 feature state 下沉到 Loadout。`pi-auto-title` 不注册 `agent` resource，始终经
 `/ext-settings` 显示自己的 settings；`Agents` group 的行只来自 `pi-subagents` 的 subagent profiles。
 `pi-subagents` 的所有 agent（含内置默认）都提供 detail：内置 agent 没有 backing 文件，首次保存时
-自动 clone 到 `<cwd>/.pi/agents/`，body 保留内置 system prompt。
+按当前 scope clone；Global 落到 Pi agent 目录的 `agents/`，Project 落到 `<cwd>/.pi/agents/`，body
+保留内置 system prompt。这样 Global 编辑不会把原本全局可见的行变成只在 Project 显示的 private resource。
 
 编辑入口只对显式 enabled 的行开放：选中一个贡献 detail 且处于 enabled 状态的 agent 时，右侧
 `Enter` 打开可编辑 detail；inherit（project scope 未显式选择、跟随 global effective state）与
@@ -64,10 +65,10 @@ header title 之后（与工具行一致），浏览时全量；detail 打开时
 等待 `ui.editor()` 结束后以 `setHidden(false)` 恢复同一个 overlay、router state、scope、selection
 和 draft，不关闭或重建 surface。`Esc` 取消 editor 时 body 不变；session abort 或 surface 已关闭时
 不恢复失效 handle。退出 Loadout（`close`）时才一次性 flush——每个 dirty scope 先写盘、再统一
-reload。project scope
-的修改总是落到 `<cwd>/.pi/agents/<name>.md`（不存在则
-materialize 一个保留 system prompt 的 clone），global scope 修改落到 agent 自己的 backing
-文件；两个 scope 分别缓冲，同一 agent 在 global 与 project 分别编辑后各自落盘，互不覆盖。
+reload。project scope 的修改总是落到 `<cwd>/.pi/agents/<name>.md`（不存在则 materialize 一个保留
+system prompt 的 clone）；global scope 修改落到 agent 自己的 backing 文件，内置 agent 缺 backing
+时在 Pi agent 目录 materialize。两个 scope 分别缓冲，同一 agent 在 global 与 project 分别编辑后
+各自落盘，互不覆盖。
 
 `𖠌 Agents` 的每一行显示 effective activation、profile 名和 profile 的 effective model：
 

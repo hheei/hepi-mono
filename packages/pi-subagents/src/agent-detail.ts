@@ -13,7 +13,8 @@
  * its result with the other fields; this detail does not implement editor behavior.
  * Project-scope edits always target `<cwd>/.pi/agents/<name>.md`
  * (materializing a clone when missing); Global-scope edits target the agent's
- * own backing file. Agent activation is owned by the Loadout policy under
+ * own backing file, or the Pi agent directory for a backingless built-in.
+ * Agent activation is owned by the Loadout policy under
  * `agent:<name>`, never by this Markdown, so there is no enabled field here.
  * The caller owns the catalog reload; this module only reports it through
  * `onChanged` and surfaces failures through `notify`.
@@ -355,11 +356,11 @@ export function createAgentDetail(
 		}
 		if (path === undefined && draft.isDefault) {
 			// A built-in agent has no backing file; the first save materializes
-			// one in the project agents dir so it becomes an editable override.
+			// one in the selected scope so a Global edit remains globally visible.
 			// The clone carries the built-in system prompt as the body plus the
 			// current editable values and the tool allowlist, so nothing is
 			// silently dropped or widened.
-			const dir = join(process.cwd(), ".pi", "agents");
+			const dir = join(getAgentDir(), "agents");
 			mkdirSync(dir, { recursive: true });
 			path = join(dir, `${name}.md`);
 			cloned = true;
@@ -416,8 +417,8 @@ export function createAgentDetail(
 			? join(process.cwd(), ".pi", "agents", `${name}.md`)
 			: (agentMarkdownPath(name, base.source) ??
 				// A built-in agent has no file yet; report where a first save would
-				// clone it (the project agents dir), not a dead "unavailable".
-				join(process.cwd(), ".pi", "agents", `${name}.md`));
+				// clone it (the global Pi agents dir), not a dead "unavailable".
+				join(getAgentDir(), "agents", `${name}.md`));
 	const detail: AgentDetail = {
 		render(width: number): readonly string[] {
 			const rendered = rows();

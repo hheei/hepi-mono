@@ -154,9 +154,9 @@ existing semantic token expresses the role.
   an overlay; ext-core temporarily hides it while `ui.editor()` owns focus, then shows and refocuses
   the same overlay without closing or rebuilding its page state. Editor cancel leaves the draft
   unchanged; session abort or surface close never refocuses a disposed overlay. A per-scope target
-  lets the same contributor serve Global and
-  Project scope (e.g. Project edits materialize a project override without rewriting the global
-  backing); the `Status:` header line is followed by a read-only `Path:` line showing the current
+  lets the same contributor serve Global and Project scope. A backingless built-in materializes in
+  the selected scope: Global writes the Pi agent directory, while Project writes `.pi/agents/`;
+  Project edits never rewrite the global backing. The `Status:` header line is followed by a read-only `Path:` line showing the current
   scope's target, truncated from the head at directory boundaries (one leading `…`, then whole
   segments only) so the file name and the longest complete suffix survive narrow widths.
 - A detail form keeps the resource description visible: it wraps after the title at full length
