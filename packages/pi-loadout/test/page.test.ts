@@ -129,7 +129,7 @@ describe("Loadout Settings page", () => {
 		expect(global).toContain("read (tool)");
 		expect(global).toContain("Read a file from the current workspace.");
 		expect(global).toContain("Origin: Pi built-in");
-		expect(global).toContain("Status: ● enabled");
+		expect(global).toContain("Status: ● Active");
 		expect(global).not.toContain("Effective:");
 		expect(global).not.toContain("Policy:");
 		expect(global).not.toContain("This scope:");
@@ -223,7 +223,7 @@ describe("Loadout Settings page", () => {
 			const opened = page.component.render(100).join("\n");
 			expect(opened).toContain("Detail (agent)");
 			expect(opened).toContain("Origin: test");
-			expect(opened).toContain("Status: ● enabled");
+			expect(opened).toContain("Status: ● Active");
 			expect(opened).toContain("Detail panel");
 			expect(opened).toContain("↵ Edit config");
 			await page.handleInput("x");
@@ -366,14 +366,14 @@ describe("Loadout Settings page", () => {
 			await enabled.handleInput("\u001b[B");
 			const enabledView = enabled.component.render(100).join("\n");
 			expect(enabledView).toContain("● Detail");
-			expect(enabledView).toContain("Status: ● enabled");
+			expect(enabledView).toContain("Status: ● Active");
 			// Disabled: a global delta disables the row.
 			const disabled = createLoadoutPage(h.pi, engineFor(["agent:Detail"]), h.context);
 			await disabled.handleInput("\u001b[B");
 			await disabled.handleInput("\u001b[B");
 			const disabledView = disabled.component.render(100).join("\n");
 			expect(disabledView).toContain("○ Detail");
-			expect(disabledView).toContain("Status: ○ disabled");
+			expect(disabledView).toContain("Status: ○ Disabled");
 			// Inherit: project scope, no project delta, global-visible row.
 			const inherited = createLoadoutPage(h.pi, engineFor([]), h.context);
 			await inherited.handleInput("\u001b[112;5u"); // ctrl+p → project
@@ -381,7 +381,7 @@ describe("Loadout Settings page", () => {
 			await inherited.handleInput("\u001b[B");
 			const inheritedView = inherited.component.render(100).join("\n");
 			expect(inheritedView).toContain("◌ Detail");
-			expect(inheritedView).toContain("Status: ◌ inherit");
+			expect(inheritedView).toContain("Status: ◌ Inherit");
 		} finally {
 			dispose();
 		}
@@ -439,7 +439,7 @@ describe("Loadout Settings page", () => {
 			const before = page.component.render(100).join("\n");
 			expect(before).toContain("Explore (agent)");
 			expect(before).toContain("Origin: @hheei/pi-subagents");
-			expect(before).toContain("Status: ● enabled");
+			expect(before).toContain("Status: ● Active");
 			expect(page.component.render(100).at(-1)).toContain("↵ Edit config");
 			await page.handleInput("\r");
 			const openedLines = page.component.render(100);
