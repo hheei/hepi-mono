@@ -10,8 +10,9 @@
  * cancels. The form renders as two aligned columns (label / value) like the
  * Settings field list, the focused row gets the accent treatment, and the Body
  * action row advertises the external editor as its value ("open in editor").
- * The Body row edits a temporary file and stores the result in the buffered
- * draft — nothing touches the target file until flush. Project-scope edits
+ * The Body row opens the Pi host's native multi-line editor (`ui.editor`), which
+ * returns the edited text or `undefined` on cancel; the result is stored in the
+ * buffered draft — nothing touches the target file until flush. Project-scope edits
  * always target `<cwd>/.pi/agents/<name>.md` (materializing a clone when
  * missing); Global-scope edits target the agent's own backing file. Agent
  * activation is owned by the Loadout policy under `agent:<name>`, never by
@@ -20,16 +21,10 @@
  * failures through `notify`.
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
-import {
-	type ExtensionAPI,
-	getAgentDir,
-	parseFrontmatter,
-	type Theme,
-} from "@earendil-works/pi-coding-agent";
+import { getAgentDir, parseFrontmatter, type Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import {
 	type HepiModelSelectionRegistry,
@@ -214,10 +209,10 @@ export interface AgentDetail extends LoadoutResourceDetail {
  * an open Loadout panel keeps its selection while the list metadata is refreshed.
  */
 export function createAgentDetail(
-	pi: ExtensionAPI,
 	name: string,
 	initial: AgentConfig,
 	modelRegistry: HepiModelSelectionRegistry<ModelCandidate> | undefined,
+	openBodyEditor: (title: string, prefill: string) => Promise<string | undefined>,
 	onChanged: () => void,
 	notify: (message: string) => void,
 ): AgentDetail {
@@ -490,33 +485,25 @@ export function createAgentDetail(
 				if (field().kind === "select") {
 					openSelector();
 				} else if (field().kind === "action") {
-					// The editor works on a temporary copy; the result is stored
-					// in the buffered draft, so nothing touches the target file
-					// until the Loadout page closes with flush().
+					// The Pi host's native editor returns the edited text (or
+					// undefined when cancelled); the result goes into the buffered
+					// draft, so nothing touches the target file until flush().
 					const entry = current();
-					const temp = join(tmpdir(), `pi-agent-${name}-${Date.now()}.md`);
-					writeFileSync(temp, entry.draft.systemPrompt, "utf8");
-					const editor = process.env.VISUAL ?? process.env.EDITOR ?? "vi";
 					try {
-						const result = await pi.exec(editor, [temp]);
-						if (result.code === 0) {
-							const content = readFileSync(temp, "utf8");
-							entry.draft = { ...entry.draft, systemPrompt: content };
+						const edited = await openBodyEditor(`${name} — agent body`, entry.draft.systemPrompt);
+						if (edited !== undefined) {
+							entry.draft = { ...entry.draft, systemPrompt: edited };
 							entry.dirty = true;
 							entry.bodyEdited = true;
-						} else {
-							notify(`Editor exited with status ${result.code}; the body may be unchanged.`);
 						}
 					} catch (error) {
-						// No usable editor (missing binary, spawn failure): drop
-						// the temp copy and tell the user instead of hanging.
+						// No usable editor surface: tell the user instead of hanging.
 						notify(
 							`Could not open the editor: ${
 								error instanceof Error ? error.message : String(error)
 							}`,
 						);
 					}
-					rmSync(temp, { force: true });
 				}
 				return true;
 			}

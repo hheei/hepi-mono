@@ -147,13 +147,14 @@ existing semantic token expresses the role.
   (external editor) shows its affordance as the value, e.g. `open in editor`.
 - A contributor detail buffers edits until the Loadout page closes: nothing is written while the
   panel is open, and `close()` flushes every registered detail (not just the currently open one),
-  each scope writing all its dirty snapshots before one catalog reload. An external-editor action
-  edits a temporary copy and stores the result in the buffer, never the target file directly. A
-  per-scope target lets the same contributor serve Global and Project scope (e.g. Project edits
-  materialize a project override without rewriting the global backing); the `Status:` header line
-  is followed by a read-only `Path:` line showing the current scope's target, truncated from the
-  head at directory boundaries (one leading `…`, then whole segments only) so the file name and
-  the longest complete suffix survive narrow widths.
+  each scope writing all its dirty snapshots before one catalog reload. A body/action row opens
+  the Pi host's native multi-line editor (`ui.editor`), buffers the returned text, and treats
+  `undefined` as cancel — never a subprocess, which would capture stdio and hang on an
+  interactive editor. A per-scope target lets the same contributor serve Global and Project scope
+  (e.g. Project edits materialize a project override without rewriting the global backing); the
+  `Status:` header line is followed by a read-only `Path:` line showing the current scope's
+  target, truncated from the head at directory boundaries (one leading `…`, then whole segments
+  only) so the file name and the longest complete suffix survive narrow widths.
 - A detail form keeps the resource description visible: it wraps after the title at full length
   while browsing, and is clamped to three lines only while the detail is actually open so the
   form below keeps its rows. There is no `↵ Edit config` footer hint — row activation is already

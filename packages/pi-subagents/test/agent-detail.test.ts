@@ -1,7 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -75,17 +74,16 @@ function setup(
 	vi.spyOn(process, "cwd").mockReturnValue(root);
 	const notifications: string[] = [];
 	const changed: string[] = [];
-	const exec = vi.fn(async () => ({ stdout: "", stderr: "", code: 0 }));
-	const pi = { exec } as unknown as ExtensionAPI;
+	const editor = vi.fn(async (_title: string, _prefill: string) => undefined);
 	const detail = createAgentDetail(
-		pi,
 		name,
 		config,
 		registry,
+		editor,
 		() => changed.push("reload"),
 		(message) => notifications.push(message),
 	);
-	return { detail, notifications, changed, exec, registry, path };
+	return { detail, notifications, changed, editor, registry, path };
 }
 
 function setupDefault(name = "Explore") {
@@ -95,8 +93,7 @@ function setupDefault(name = "Explore") {
 	vi.spyOn(process, "cwd").mockReturnValue(root);
 	const notifications: string[] = [];
 	const changed: string[] = [];
-	const exec = vi.fn(async () => ({ stdout: "", stderr: "", code: 0 }));
-	const pi = { exec } as unknown as ExtensionAPI;
+	const editor = vi.fn(async (_title: string, _prefill: string) => undefined);
 	const config: AgentConfig = {
 		name,
 		description: "Read-only explorer.",
@@ -108,14 +105,14 @@ function setupDefault(name = "Explore") {
 		isDefault: true,
 	};
 	const detail = createAgentDetail(
-		pi,
 		name,
 		config,
 		AUTH_REGISTRY,
+		editor,
 		() => changed.push("reload"),
 		(message) => notifications.push(message),
 	);
-	return { detail, root, notifications, changed, exec };
+	return { detail, root, notifications, changed, editor };
 }
 
 function defaultContent(): string {
@@ -462,18 +459,13 @@ describe("createAgentDetail", () => {
 		expect(readContent(path)).toContain('display_name: "中"');
 	});
 
-	it("edits the body through a temp file into the buffered draft, applied only on flush", async () => {
-		const { detail, changed, exec, path } = setup();
+	it("buffers the host editor's returned text and applies it only on flush", async () => {
+		const { detail, changed, editor, path } = setup();
 		await detail.handleInput("draft");
 		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN); // identity → body
-		exec.mockImplementation(async (_editor: string, [temp]: string[]) => {
-			writeFileSync(temp, "New body.\n", "utf8");
-			return { stdout: "", stderr: "", code: 0 };
-		});
+		editor.mockResolvedValue("New body.\n");
 		await detail.handleInput(ENTER);
-		expect(exec).toHaveBeenCalledTimes(1);
-		const temp = exec.mock.calls[0]?.[1]?.[0] as string;
-		expect(temp).not.toBe(path); // never the target file directly
+		expect(editor).toHaveBeenCalledWith("auditor — agent body", "You are a test agent.");
 		// The body edit is buffered: the target file is untouched until close.
 		expect(readContent(path)).not.toContain("New body.");
 		expect(readContent(path)).not.toContain('display_name: "draft"');
@@ -483,24 +475,23 @@ describe("createAgentDetail", () => {
 		expect(changed).toEqual(["reload"]);
 	});
 
-	it("notifies when the editor exits non-zero", async () => {
-		const { detail, exec, notifications, path } = setup();
-		exec.mockResolvedValue({ stdout: "", stderr: "", code: 1 });
+	it("treats a cancelled editor as no body change", async () => {
+		const { detail, editor, path } = setup();
 		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN);
+		editor.mockResolvedValue(undefined); // cancel
 		await detail.handleInput(ENTER);
-		expect(notifications).toEqual(["Editor exited with status 1; the body may be unchanged."]);
 		detail.flush();
-		expect(readContent(path)).not.toContain("You are a test agent.\nNew");
+		expect(readContent(path)).toContain("You are a test agent.");
 	});
 
-	it("does not hang and notifies when the editor cannot start", async () => {
-		const { detail, exec, notifications, path } = setup();
-		exec.mockRejectedValue(new Error("spawn vi ENOENT"));
+	it("does not hang and notifies when the editor surface fails", async () => {
+		const { detail, editor, notifications, path } = setup();
+		editor.mockRejectedValue(new Error("editor unavailable"));
 		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN);
 		await detail.handleInput(ENTER); // must resolve, never hang
-		expect(notifications).toEqual(["Could not open the editor: spawn vi ENOENT"]);
+		expect(notifications).toEqual(["Could not open the editor: editor unavailable"]);
 		detail.flush();
-		expect(readContent(path)).not.toContain("New body.");
+		expect(readContent(path)).toContain("You are a test agent.");
 	});
 
 	it("clamps selection and truncates rendered lines to the panel width", async () => {
@@ -567,10 +558,10 @@ describe("createAgentDetail", () => {
 			source: "global",
 		};
 		const detail = createAgentDetail(
-			{ exec: vi.fn(async () => ({ stdout: "", stderr: "", code: 0 })) } as unknown as ExtensionAPI,
 			"auditor",
 			config,
 			AUTH_REGISTRY,
+			async () => undefined,
 			() => undefined,
 			() => undefined,
 		);
@@ -606,10 +597,10 @@ describe("createAgentDetail", () => {
 			source: "global",
 		};
 		const detail = createAgentDetail(
-			{ exec: vi.fn(async () => ({ stdout: "", stderr: "", code: 0 })) } as unknown as ExtensionAPI,
 			"auditor",
 			config,
 			AUTH_REGISTRY,
+			async () => undefined,
 			() => undefined,
 			() => undefined,
 		);
