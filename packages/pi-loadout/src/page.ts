@@ -163,19 +163,23 @@ function wrapDescription(text: string, width: number): readonly string[] {
 }
 
 /**
- * Truncates from the head, keeping the shortest `…/tail`: the file name of a
- * long backing path survives while the leading directories collapse.
+ * Clips a long path from the head at directory boundaries: whole segments are
+ * dropped (never sliced mid-name) until `…/seg/…/file` fits, so the longest
+ * complete suffix — including the file name — survives the width budget.
  */
-function truncateHead(value: string, width: number): string {
+function truncateHeadPath(value: string, width: number): string {
 	if (width <= 3) return "…".repeat(Math.max(0, width));
 	if (visibleWidth(value) <= width) return value;
-	const budget = width - 3;
-	let tail = "";
-	for (const char of Array.from(value).reverse()) {
-		if (visibleWidth(`${char}${tail}`) > budget) break;
-		tail = `${char}${tail}`;
+	const segments = value.split("/");
+	let kept = segments.at(-1) ?? value;
+	for (let index = segments.length - 2; index >= 0; index--) {
+		const segment = segments[index];
+		if (segment === "") continue; // leading slash / empty runs
+		const candidate = `${segment}/${kept}`;
+		if (visibleWidth(`…/${candidate}`) > width) break;
+		kept = candidate;
 	}
-	return `…${tail}`;
+	return `…/${kept}`;
 }
 
 function scrollbar(total: number, top: number, theme: Theme): readonly string[] {
@@ -518,7 +522,7 @@ export function createLoadoutPage(
 				const hasDetail =
 					selectedResource?.detail !== undefined &&
 					rawSelection(selectedResource, scope, configuration) === "enabled";
-				// The Description wraps before the title in both states, like any
+				// The Description wraps after the title in both states, like any
 				// tool row; while the detail is open it is clamped to three lines
 				// so the form below keeps its rows.
 				const descriptionLines =
@@ -529,14 +533,17 @@ export function createLoadoutPage(
 					selectedResource === undefined
 						? [theme.fg("muted", search ? "No matching resources." : "No resources in this scope.")]
 						: [
-								...(hasDetail ? descriptionLines.slice(0, 3) : descriptionLines),
-								...(descriptionLines.length === 0 ? [] : [""]),
 								theme.bold(
 									truncateToWidth(
 										`${selectedResource.name} (${selectedResource.kind})`,
 										descriptionWidth,
 									),
 								),
+								// Full wrap while browsing; three-line clamp only
+								// while the detail is actually open, so the form
+								// below keeps its rows.
+								...(activeDetail !== undefined ? descriptionLines.slice(0, 3) : descriptionLines),
+								...(descriptionLines.length === 0 ? [] : [""]),
 								theme.fg("muted", `Origin: ${selectedResource.origin}`),
 								theme.fg(
 									"muted",
@@ -551,7 +558,7 @@ export function createLoadoutPage(
 									: [
 											theme.fg(
 												"muted",
-												`Path: ${truncateHead(activeDetail.path, Math.max(0, descriptionWidth - 6))}`,
+												`Path: ${truncateHeadPath(activeDetail.path, Math.max(0, descriptionWidth - 6))}`,
 											),
 										]),
 								...(selectedResource.lockedBy === undefined
@@ -624,6 +631,9 @@ export function createLoadoutPage(
 					selected?.detail !== undefined &&
 					rawSelection(selected, scope, configuration) === "enabled"
 				) {
+					// The detail may have been created before this page's theme
+					// arrived, so push the current theme when it opens.
+					selected.detail.onThemeChange?.(theme);
 					selected.detail.onScopeChange?.(scope);
 					detailKey = selected.key;
 					context.requestRender();
