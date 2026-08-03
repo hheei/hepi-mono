@@ -46,9 +46,12 @@ key），spawn 时回退到父会话或 profile 默认。
 独立选项保留，格式校验与宽容解析仍只在 spawn 时由 `resolveModel()` 负责。`thinking` 的
 `Tab` 循环顺序：`inherit`、`off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`。
 
-选择器打开时行数保持不变（固定 7 行）：`Model` 行就地显示当前选中的选项，`Thinking` 行值随
-`Tab` 即时更新，hint 行切换为选择器说明。`Esc` 的消费顺序：detail 激活时先交给 detail
-（选择器打开时取消选择器），detail 未消费才退回列表。
+detail 表单按 Settings 字段列表的样式渲染为左右两列（label 列对齐、值列在右），聚焦行
+使用 accent 高亮；`Body` 行的值显示 `open in editor`，提示 `Enter` 打开外部编辑器。
+`Default agent` 信息行与按键提示行不渲染（操作与资源列表一致，不重复提示）。选择器打开时
+行数保持不变（固定 6 行）：`Model` 行就地显示当前选中的选项，`Thinking` 行值随 `Tab` 即时
+更新。`Esc` 的消费顺序：detail 激活时先交给 detail（选择器打开时取消选择器），detail 未
+消费才退回列表。
 
 `𖠌 Agents` 的每一行显示 effective activation、profile 名和 profile 的 effective model：
 

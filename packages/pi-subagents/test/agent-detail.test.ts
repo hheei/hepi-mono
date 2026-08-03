@@ -289,7 +289,7 @@ describe("createAgentDetail", () => {
 		});
 		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN);
 		await detail.handleInput(ENTER);
-		expect(detail.render(60).join("\n")).toContain("Model: haiku");
+		expect(detail.render(60).join("\n")).toMatch(/Model\s+haiku/);
 	});
 
 	it("excludes models without configured auth from the cycler options", async () => {
@@ -303,10 +303,10 @@ describe("createAgentDetail", () => {
 		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN);
 		await detail.handleInput(ENTER);
 		await detail.handleInput(DOWN); // inherit → anthropic/haiku
-		expect(detail.render(60).join("\n")).toContain("Model: anthropic/claude-haiku-4-5");
+		expect(detail.render(60).join("\n")).toMatch(/Model\s+anthropic\/claude-haiku-4-5/);
 		await detail.handleInput(DOWN); // wraps back to inherit (modulo)
-		expect(detail.render(60).join("\n")).toContain("Model: inherit");
-		expect(detail.render(60).join("\n")).not.toContain("Model: cx/gpt-5.6-luna");
+		expect(detail.render(60).join("\n")).toMatch(/Model\s+inherit/);
+		expect(detail.render(60).join("\n")).not.toMatch(/Model\s+cx\/gpt-5\.6-luna/);
 	});
 
 	it("preserves a configured unauthenticated model as the current option", async () => {
@@ -324,11 +324,11 @@ describe("createAgentDetail", () => {
 		);
 		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN);
 		await detail.handleInput(ENTER);
-		expect(detail.render(60).join("\n")).toContain("Model: cx/gpt-5.6-luna"); // current option
+		expect(detail.render(60).join("\n")).toMatch(/Model\s+cx\/gpt-5\.6-luna/); // current option
 		await detail.handleInput(DOWN); // → anthropic/claude-haiku-4-5
-		expect(detail.render(60).join("\n")).toContain("Model: anthropic/claude-haiku-4-5");
+		expect(detail.render(60).join("\n")).toMatch(/Model\s+anthropic\/claude-haiku-4-5/);
 		await detail.handleInput(DOWN); // wraps back to inherit
-		expect(detail.render(60).join("\n")).toContain("Model: inherit");
+		expect(detail.render(60).join("\n")).toMatch(/Model\s+inherit/);
 		await detail.handleInput(DOWN); // → the preserved current value
 		await detail.handleInput(ENTER);
 		expect(readContent(path)).toContain('model: "cx/gpt-5.6-luna"');
@@ -339,9 +339,9 @@ describe("createAgentDetail", () => {
 		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN);
 		await detail.handleInput(ENTER);
 		await detail.handleInput(UP); // inherit wraps up to the last option
-		expect(detail.render(60).join("\n")).toContain("Model: cx/gpt-5.6-luna");
+		expect(detail.render(60).join("\n")).toMatch(/Model\s+cx\/gpt-5\.6-luna/);
 		await detail.handleInput(DOWN); // wraps back to inherit
-		expect(detail.render(60).join("\n")).toContain("Model: inherit");
+		expect(detail.render(60).join("\n")).toMatch(/Model\s+inherit/);
 	});
 
 	it("Shift+Tab cycles thinking backward", async () => {
@@ -362,9 +362,9 @@ describe("createAgentDetail", () => {
 		});
 		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN);
 		await detail.handleInput(ENTER);
-		expect(detail.render(60).join("\n")).toContain("Model: anthropic/claude-haiku-4-5");
+		expect(detail.render(60).join("\n")).toMatch(/Model\s+anthropic\/claude-haiku-4-5/);
 		await detail.handleInput(DOWN); // alphabetic order: anthropic… then cx…
-		expect(detail.render(60).join("\n")).toContain("Model: cx/gpt-5.6-luna");
+		expect(detail.render(60).join("\n")).toMatch(/Model\s+cx\/gpt-5\.6-luna/);
 		await detail.handleInput(UP); // back to the current value
 		await detail.handleInput(ENTER);
 		expect(readContent(path)).toContain('model: "anthropic/claude-haiku-4-5"');
@@ -377,20 +377,48 @@ describe("createAgentDetail", () => {
 		await detail.handleInput(TAB); // thinking → off in the draft only
 		await detail.handleInput(ESCAPE);
 		expect(readContent(path)).not.toContain("thinking:");
-		expect(detail.render(60).join("\n")).toContain("Thinking: inherit");
+		expect(detail.render(60).join("\n")).toMatch(/Thinking\s+inherit/);
 	});
 
-	it("shows the current model option in place and keeps a fixed row count", async () => {
+	it("shows the current model option in place with a fixed row count and no hints", async () => {
 		const { detail } = setup();
 		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN);
 		await detail.handleInput(ENTER);
 		const lines = detail.render(18);
-		expect(lines).toHaveLength(7);
-		expect(lines.join("\n")).toContain("Model: inherit");
-		expect(detail.render(60).join("\n")).toContain("↑/↓ choose · Tab cycle thinking");
-		await detail.handleInput(DOWN);
-		expect(detail.render(60).join("\n")).toContain("Model: anthropic/claude-haiku-4-5");
+		expect(lines).toHaveLength(6);
 		for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(18);
+		// The open selector shows the current option in place, without hints.
+		expect(detail.render(60).join("\n")).toMatch(/Model\s+inherit/);
+		expect(detail.render(60).join("\n")).not.toContain("↑/↓");
+		await detail.handleInput(DOWN);
+		expect(detail.render(60).join("\n")).toMatch(/Model\s+anthropic\/claude-haiku-4-5/);
+	});
+
+	it("renders aligned label/value columns with Body 'open in editor' and no informational extras", async () => {
+		const { detail } = setup();
+		const lines = detail.render(80);
+		expect(lines).toHaveLength(6);
+		expect(lines.join("\n")).not.toContain("Default agent");
+		expect(lines.join("\n")).not.toContain("↑/↓");
+		expect(lines.join("\n")).toContain("open in editor");
+		// Labels share one left column: "Description" is the widest.
+		expect(lines[1]).toMatch(/^ {2}Description {2}/);
+	});
+
+	it("applies the accent theme to the focused row", async () => {
+		const { detail } = setup();
+		const theme = {
+			fg: (role: string, value: string) => `[${role}:${value}]`,
+			bold: (value: string) => `<${value}>`,
+		} as never;
+		detail.onThemeChange?.(theme);
+		const lines = detail.render(80);
+		expect(lines[0]).toContain("[accent:<"); // focused identity row
+		expect(lines[1]).not.toContain("[accent:");
+		await detail.handleInput(DOWN);
+		const moved = detail.render(80);
+		expect(moved[1]).toContain("[accent:<");
+		expect(moved[0]).not.toContain("[accent:");
 	});
 
 	it("removes whole code points with backspace", async () => {
@@ -430,11 +458,11 @@ describe("createAgentDetail", () => {
 
 	it("refresh replaces the snapshot after an external catalog reload", () => {
 		const { detail } = setup();
-		expect(detail.render(60).join("\n")).toContain("Identity: auditor");
+		expect(detail.render(60).join("\n")).toMatch(/Identity\s+auditor/);
 		const next = { ...configFor("auditor"), displayName: "Renamed", model: "cx/gpt-5.6-luna" };
 		(detail as AgentDetail).refresh(next);
 		const rendered = detail.render(60).join("\n");
-		expect(rendered).toContain("Identity: Renamed");
-		expect(rendered).toContain("Model: cx/gpt-5.6-luna");
+		expect(rendered).toMatch(/Identity\s+Renamed/);
+		expect(rendered).toMatch(/Model\s+cx\/gpt-5\.6-luna/);
 	});
 });

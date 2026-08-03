@@ -140,6 +140,10 @@ existing semantic token expresses the role.
   detail keeps a fixed row count while selecting: the field row shows the current option in place
   and no option list is expanded. While a detail is open, `Esc` is offered to the detail first; the
   detail only exits to the list when the detail declines it.
+- A detail form renders like the Settings field list: one aligned label/value pair per row, the
+  focused row in accent (with the standard `→` slot), and no key-hint row (its navigation matches
+  the list, so the hint would be noise). Pure informational rows are not focusable; an action row
+  (external editor) shows its affordance as the value, e.g. `open in editor`.
 - A Loadout row that contributes a detail shows an `↵ Edit config` hint as the last Description
   lane line, so the `Enter` affordance is visible before the detail opens.
 - A resource detail is reachable only while its row is explicitly `enabled`: inherited and
