@@ -7,21 +7,30 @@
  * the catalog. The model/thinking pair reuses the Settings cycler (`tabCycle`
  * semantics): Enter opens a single selector on the model options, Up/Down move
  * between them, Tab cycles the thinking value in place, Enter applies both and
- * saves, Esc cancels. Both lists lead with `inherit` (unset). Agent activation
- * is owned by the Loadout policy under `agent:<name>`, never by this Markdown,
- * so there is no enabled field here. The Body row first flushes pending edits,
- * then opens the external editor and reloads after it exits. The caller owns
- * the catalog reload; this module only reports it through `onChanged` and
- * surfaces failures through `notify`. A built-in (default) agent has no backing
- * file: its first save clones a Markdown file into `<cwd>/.pi/agents/` so the
+ * saves, Esc cancels. Both lists lead with `inherit` (unset). The form renders
+ * as two aligned columns (label / value) like the Settings field list, the
+ * focused row gets the accent treatment, and the Body action row advertises
+ * the external editor as its value ("open in editor"); informational rows are
+ * not focusable and there is no key-hint row. Agent activation is owned by the
+ * Loadout policy under `agent:<name>`, never by this Markdown, so there is no
+ * enabled field here. The Body row first flushes pending edits, then opens the
+ * external editor and reloads after it exits. The caller owns the catalog
+ * reload; this module only reports it through `onChanged` and surfaces
+ * failures through `notify`. A built-in (default) agent has no backing file:
+ * its first save clones a Markdown file into `<cwd>/.pi/agents/` so the
  * override becomes a normal custom agent (and therefore editable).
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
-import { type ExtensionAPI, getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
-import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
+import {
+	type ExtensionAPI,
+	getAgentDir,
+	parseFrontmatter,
+	type Theme,
+} from "@earendil-works/pi-coding-agent";
+import { Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import {
 	type HepiModelSelectionRegistry,
 	hepiAuthenticatedModelSelectionOptions,
@@ -143,6 +152,10 @@ function yamlValue(value: string | boolean | undefined): string | undefined {
 	return typeof value === "boolean" ? String(value) : JSON.stringify(value);
 }
 
+function pad(value: string, width: number): string {
+	return `${value}${" ".repeat(Math.max(0, width - visibleWidth(value)))}`;
+}
+
 /**
  * Serializes the editable values back into the agent file's YAML frontmatter.
  * Unknown frontmatter keys and the body (including its trailing newline) survive
@@ -202,6 +215,7 @@ export function createAgentDetail(
 ): AgentDetail {
 	let draft = draftFromConfig(initial);
 	let selected = 0;
+	let theme: Theme | undefined;
 	// The cycler state: while `selectingModel` is true, Up/Down move through the
 	// model options, Tab cycles `thinkingDraft` in place, and Enter applies both
 	// through `save()`. `thinkingDraft` is separate from `draft` so Esc can
@@ -210,6 +224,29 @@ export function createAgentDetail(
 	let selectIndex = 0;
 	let thinkingDraft: ModelThinkingLevel | undefined;
 	const field = (): DetailField => DETAIL_FIELDS[selected] ?? FIRST_FIELD;
+	/**
+	 * The rendered form mirrors the Settings field list: a left label column and
+	 * a right value column. The Body action row advertises the external editor
+	 * as its value ("open in editor"); informational rows (Markdown) are not
+	 * focusable. The focused row gets the accent treatment like Settings.
+	 */
+	const rows = (): ReadonlyArray<{ readonly label: string; readonly value: string }> => {
+		const path = agentMarkdownPath(name, draft.source);
+		return [
+			{ label: "Identity", value: draft.displayName ?? name },
+			{ label: "Description", value: draft.description },
+			{
+				label: "Model",
+				value: selectingModel ? (modelChoices()[selectIndex] ?? INHERIT) : (draft.model ?? INHERIT),
+			},
+			{
+				label: "Thinking",
+				value: (selectingModel ? thinkingDraft : draft.thinking) ?? INHERIT,
+			},
+			{ label: "Body", value: "open in editor" },
+			{ label: "Markdown", value: path ?? "unavailable" },
+		];
+	};
 	const textValue = (): string => {
 		const id = field().id;
 		if (id === "identity") return draft.displayName ?? "";
@@ -304,24 +341,19 @@ export function createAgentDetail(
 	};
 	return {
 		render(width: number): readonly string[] {
-			const path = agentMarkdownPath(name, draft.source);
-			const currentModel = selectingModel
-				? (modelChoices()[selectIndex] ?? INHERIT)
-				: (draft.model ?? INHERIT);
-			const lines = [
-				`Identity: ${draft.displayName ?? name}`,
-				`Description: ${draft.description}`,
-				`Model: ${currentModel}`,
-				`Thinking: ${(selectingModel ? thinkingDraft : draft.thinking) ?? INHERIT}`,
-				`Default agent: ${draft.isDefault ? "yes" : "no"}`,
-				`Markdown: ${path ?? "unavailable"}`,
-				selectingModel
-					? "↑/↓ choose · Tab cycle thinking · Enter save · Esc cancel"
-					: "↑/↓ select · Enter edit/save · Esc back",
-			];
-			return lines.map((line, index) =>
-				truncateToWidth(`${index === selected ? "→ " : "  "}${line}`, Math.max(0, width)),
-			);
+			const rendered = rows();
+			// Mirror the Settings field list: the label column never exceeds 55%
+			// of the panel width so the value column keeps room at narrow sizes.
+			const widest = Math.max(...rendered.map((row) => visibleWidth(row.label)));
+			const labelWidth = Math.min(widest, Math.max(8, Math.floor(Math.max(0, width) * 0.55)));
+			const valueWidth = Math.max(1, Math.max(0, width) - labelWidth - 4);
+			return rendered.map((row, index) => {
+				const focused = index === selected && index < DETAIL_FIELDS.length;
+				const line = `${focused ? "→ " : "  "}${pad(row.label, labelWidth)}  ${truncateToWidth(row.value, valueWidth)}`;
+				const truncated = truncateToWidth(line, Math.max(0, width));
+				if (!focused || theme === undefined) return truncated;
+				return theme.fg("accent", theme.bold(truncated));
+			});
 		},
 		async handleInput(input: string): Promise<boolean> {
 			if (selectingModel) {
@@ -394,6 +426,9 @@ export function createAgentDetail(
 		},
 		refresh(next: AgentConfig): void {
 			draft = draftFromConfig(next);
+		},
+		onThemeChange(nextTheme: Theme): void {
+			theme = nextTheme;
 		},
 	};
 }

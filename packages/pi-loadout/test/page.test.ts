@@ -457,9 +457,9 @@ describe("Loadout Settings page", () => {
 			expect(opened.indexOf("Origin:")).toBeLessThan(opened.indexOf("Status:"));
 			expect(opened.indexOf("Status:")).toBeLessThan(opened.indexOf("Read-only explorer."));
 			expect(opened.indexOf("Read-only explorer.")).toBeLessThan(opened.indexOf("↵ Edit config"));
-			expect(opened).toContain("Identity: Explore");
-			expect(opened).toContain("Model: inherit");
-			expect(opened).toContain("Markdown:");
+			expect(opened).toMatch(/Identity\s+Explore/);
+			expect(opened).toMatch(/Model\s+inherit/);
+			expect(opened).toMatch(/Markdown\s+\S/);
 			expect(opened).not.toContain("Agent Explore");
 		} finally {
 			dispose();
