@@ -143,13 +143,13 @@ function selectionGlyph(selection: LoadoutSelection): string {
 	return selection === "enabled" ? "●" : selection === "disabled" ? "○" : "◌";
 }
 
-/** Textual status label mirroring the row glyph: enabled / disabled / inherit. */
+/** Textual status label mirroring the row glyph: Active / Disabled / Inherit. */
 function selectionStatusLabel(selection: LoadoutSelection): string {
 	return selection === "enabled"
-		? "● enabled"
+		? "● Active"
 		: selection === "disabled"
-			? "○ disabled"
-			: "◌ inherit";
+			? "○ Disabled"
+			: "◌ Inherit";
 }
 
 function wrapDescription(text: string, width: number): readonly string[] {
@@ -524,7 +524,7 @@ export function createLoadoutPage(
 									`Status: ${
 										selectedResource.lockedBy === undefined
 											? selectionStatusLabel(rawSelection(selectedResource, scope, configuration))
-											: "⊘ locked"
+											: "⊘ Locked"
 									}`,
 								),
 								...(selectedResource.lockedBy === undefined
