@@ -483,7 +483,7 @@ describe("createAgentDetail", () => {
 			},
 		};
 		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN);
-		expect(detail.render(80).join("\n")).toContain("open in editor");
+		expect(detail.render(80)[3]).toMatch(/Body\s+edit\s+↵$/);
 		await detail.handleInput(ENTER, context);
 		expect(calls).toEqual([{ title: "Edit auditor body", prefill: "You are a test agent." }]);
 		expect(readContent(path)).toContain("You are a test agent.");

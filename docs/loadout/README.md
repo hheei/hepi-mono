@@ -47,9 +47,9 @@ glyph 仅在已 pin 级别时出现），按 `Enter` 打开单一选择器，`�
 `Tab` 循环顺序：`off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`。
 
 detail 表单按 Settings 字段列表的样式渲染为左右两列（label 列对齐、值列在右），聚焦行
-使用 accent 高亮；`Description` action 的 value 固定显示 `edit`，值列最右固定显示 `↵`，按
-`Enter` 后用当前 description 作为 prefill 打开 Pi host 原生 `ui.editor()`。`Body` action 仍显示
-`open in editor` 并委托同一个原生 editor。内置默认 agent 的 `Identity` 行只读（dim 渲染，编辑被丢弃）。`Default agent`/`Markdown`
+使用 accent 高亮；`Description` 与 `Body` action 的 value 都固定显示 `edit`，值列最右固定显示 `↵`，
+按 `Enter` 后用当前字段值作为 prefill 打开 Pi host 原生 `ui.editor()`。内置默认 agent 的 `Identity`
+行只读（dim 渲染，编辑被丢弃）。`Default agent`/`Markdown`
 信息行与按键提示行不渲染（操作与资源列表一致，不重复提示）；实际文件路径以 `Path:` 行显示
 在 header 的 `Status:` 之后（project scope 显示 `<cwd>/.pi/agents/<name>.md`，即 project
 override 的保存位置；过长时按目录段从头部截断为 `…/段/文件名.md`（单个 `…`），只丢完整目录、绝不切开

@@ -274,7 +274,7 @@ export function createAgentDetail(
 			{ label: "Identity", value: draft.displayName ?? name },
 			{ label: "Description", value: "edit", enterHint: true },
 			{ label: "Model", value: `${glyph}${model}` },
-			{ label: "Body", value: "open in editor" },
+			{ label: "Body", value: "edit", enterHint: true },
 		];
 	};
 	const textValue = (): string => {
