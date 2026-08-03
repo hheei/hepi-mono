@@ -522,6 +522,35 @@ describe("createAgentDetail", () => {
 		expect(rendered).not.toContain("line-0");
 	});
 
+	it("clamps Left at the document start and Right at the end", async () => {
+		const { detail, path } = setup();
+		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN);
+		await detail.handleInput(ENTER); // cursor at the end
+		await detail.handleInput("\u001b[H"); // Home → line start (offset 0)
+		for (let i = 0; i < 2; i++) await detail.handleInput("\u001b[D"); // Left stays at 0
+		await detail.handleInput("X");
+		await detail.handleInput("\u001b[F"); // End → line end
+		for (let i = 0; i < 2; i++) await detail.handleInput("\u001b[C"); // Right stays put
+		await detail.handleInput("Y");
+		await detail.handleInput(ENTER); // submit
+		detail.flush();
+		expect(readContent(path)).toContain("XYou are a test agent.Y");
+	});
+
+	it("edits around an emoji as a single code-point unit", async () => {
+		const { detail, path } = setup("auditor", undefined, {
+			...configFor("auditor"),
+			systemPrompt: "a😀b",
+		});
+		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN);
+		await detail.handleInput(ENTER); // cursor after "b" (code-point index 3)
+		await detail.handleInput("\u001b[D"); // between 😀 and b
+		await detail.handleInput("X");
+		await detail.handleInput(ENTER); // submit
+		detail.flush();
+		expect(readContent(path)).toContain("a😀Xb");
+	});
+
 	it("clamps selection and truncates rendered lines to the panel width", async () => {
 		const { detail } = setup();
 		await detail.handleInput(UP);

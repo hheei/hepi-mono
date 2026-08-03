@@ -268,18 +268,33 @@ export function createAgentDetail(
 	let cursor = 0;
 	let bodyViewport = 0;
 	const bodyLines = (): readonly string[] => bodyDraft.split("\n");
+	// All cursor coordinates are code-point indexes (matching Array.from), so
+	// emoji and other non-BMP characters navigate as single units instead of
+	// corrupting on UTF-16 halves.
 	const lineColAt = (offset: number): { readonly line: number; readonly col: number } => {
-		const before = bodyDraft.slice(0, offset);
-		const parts = before.split("\n");
-		return { line: parts.length - 1, col: Array.from(parts.at(-1) ?? "").length };
+		const chars = Array.from(bodyDraft);
+		let line = 0;
+		let col = 0;
+		for (let index = 0; index < offset; index++) {
+			if (chars[index] === "\n") {
+				line += 1;
+				col = 0;
+			} else {
+				col += 1;
+			}
+		}
+		return { line, col };
 	};
 	const offsetAt = (line: number, col: number): number => {
 		const parts = bodyLines();
+		const clampedLine = Math.max(0, Math.min(line, parts.length - 1));
+		const length = Array.from(parts[clampedLine] ?? "").length;
+		const clampedCol = Math.max(0, Math.min(col, length));
 		let offset = 0;
-		for (let index = 0; index < line; index++) {
+		for (let index = 0; index < clampedLine; index++) {
 			offset += Array.from(parts[index] ?? "").length + 1;
 		}
-		return Math.min(bodyDraft.length, offset + col);
+		return Math.min(Array.from(bodyDraft).length, offset + clampedCol);
 	};
 	const insertAt = (text: string): void => {
 		const chars = Array.from(bodyDraft);
@@ -299,9 +314,9 @@ export function createAgentDetail(
 	};
 	const moveCursor = (deltaLine: number, deltaCol: number): void => {
 		const { line, col } = lineColAt(cursor);
-		const target = Math.max(0, line + deltaLine);
-		const length = Array.from(bodyLines()[target] ?? "").length;
-		cursor = offsetAt(target, deltaLine === 0 ? col + deltaCol : Math.min(col, length));
+		const total = bodyLines().length;
+		const target = Math.max(0, Math.min(line + deltaLine, total - 1));
+		cursor = offsetAt(target, deltaLine === 0 ? col + deltaCol : col);
 	};
 	const field = (): DetailField => DETAIL_FIELDS[selected] ?? FIRST_FIELD;
 	/**
@@ -624,7 +639,7 @@ export function createAgentDetail(
 					openSelector();
 				} else if (field().kind === "action") {
 					bodyDraft = current().draft.systemPrompt;
-					cursor = bodyDraft.length;
+					cursor = Array.from(bodyDraft).length;
 					bodyViewport = Math.max(0, bodyLines().length - (BODY_EDIT_ROWS - 2));
 					editingBody = true;
 				}
