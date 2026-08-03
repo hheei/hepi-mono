@@ -97,27 +97,35 @@ the capability.
 
 ## MCTX Adapter
 
-`pi-mctx` 是第一个 consumer，但本 slice 不调用 `embed()`、不创建 vector rows。它仅在 user-level
-`pi-mctx.embedding` 是 object 时动态 import `@hheei/pi-ext-embed`，调用 `acquireEmbeddingProvider()`，并把 lease
-绑定到 parent MCTX lifecycle。字段缺省时不 import package、不 acquire provider；这使现有 MCTX-only startup 保持
-Transformers-free。project settings 中的 `embedding` 一律忽略，因为它可能选择本地 cache 或外部 Synapse connection。
+`pi-mctx` 是第一个 consumer。它仅在 user-level `pi-mctx.embedding` 是 object 时动态 import
+`@hheei/pi-ext-embed`，调用 `acquireEmbeddingProvider()`，并把 lease 绑定到 parent MCTX lifecycle。字段缺省时不
+import package、不 acquire provider；这使现有 MCTX-only startup 保持 Transformers-free。project settings 中的
+`embedding` 一律忽略，因为它可能选择本地 cache 或外部 Synapse connection。
 
 Package owns provider configuration's detailed runtime validation. Import/acquire failure is an optional-capability warning and
-leaves the Context pipeline active with no semantic capability. Lifecycle shutdown/reload awaits `lease.release()` before MCTX
-store cleanup. A later semantic consumer owns calling `embed()` and persistent vector publication fences.
+leaves the Context pipeline active with no semantic capability. Lifecycle shutdown/reload aborts outstanding embedding jobs,
+awaits `lease.release()` before MCTX store cleanup. Provider availability 永不参与 `fail_closed_blocking` 决策。
 
 ## Durable Memory Ledger
 
 The first actual MCTX embedding consumer is an explicit `ctx_memory` write or update. When its active parent runtime has a provider,
 MCTX starts one detached, abortable passage embedding for that changed memory. This is not a historical backfill: it never scans
 existing memories, retries a provider failure, creates a timer, or holds a project lease. A missing/failed provider leaves the
-memory write successful and simply produces no vector.
+memory write successful and simply produces no vector. The embed job 与 memory write 结果解耦：`ctx_memory` tool 保持同步
+返回，embedding 在后台完成。
 
 The SQLite v8 ledger keeps active memory source content hash plus per-model vector rows. A vector write transaction rereads the
 memory's active status and content hash; stale write/update/archive results are discarded. Archive immediately deletes that
 memory's vectors, so an archived source cannot remain an active retrieval candidate. Rows include model identity, provider
 generation, vector dimensions and a Float32 BLOB. Multiple model identities coexist; no automatic retention/GC is introduced.
 Feature cleanup aborts outstanding explicit-memory jobs before releasing the provider lease and closing the store.
+
+写路径完整 fence：embedding 开始时记录 provider snapshot（`modelIdentity`/`generation`）与内容 hash、memory revision；
+完成时 provider snapshot 已切换则丢弃；store 写 ledger 的单事务内重读 memory 的 active status、content hash 与 revision，
+任一不匹配则丢弃。同一 model/generation 的重写是幂等 upsert；不同 model identity 的行共存。
+
+当前不做：historical backfill、timer、retry、`/ctx-embed` command、semantic `ctx_search` rerank、vector 读取方法
+（retrieval consumer 出现前不暴露查询 API）。
 
 ## 当前实现
 
@@ -133,3 +141,7 @@ lifecycle、scheduler 或任何持久化向量能力。
 
 调用方拥有 `AbortSignal` 与 lease 生命周期。release 后包会等待当前调用结束再释放本进程资源；输入、配置、batch ID 和
 内容 hash 的不变量在任何 provider I/O 前校验。
+
+`pi-mctx` 已实现 MCTX Adapter 与 Durable Memory Ledger consumer：activation 时 acquire lease，`ctx_memory`
+write/update 后启动 detached embedding 并写入 per-model ledger，archive 删除 vector，cleanup 先 abort 再 release 再关
+store。语义检索、backfill 与 `/ctx-embed` command 仍未实现，不得宣称 semantic search 已迁移。
