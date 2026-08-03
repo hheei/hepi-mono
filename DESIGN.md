@@ -175,6 +175,30 @@ existing semantic token expresses the role.
 - Response telemetry, when present, is one dim output line after an assistant
   response. It is secondary to the response content.
 
+### Context Status Overlay
+
+- `/ctx-status` is one centered, single-page read-only overlay, not a page-router
+  page or a widget. It uses only existing Pi semantic theme tokens; never add
+  hard-coded colors or module-specific accents.
+- Keep structure status-first: active/inactive reason and context usage lead;
+  project/session identity and partition revision follow; compartment counts,
+  tag counts, historian state, failure class, effective trigger thresholds,
+  protected tags, and pending sidekick augmentation follow in that priority
+  order. Labels, values, and status changes retain stable row positions.
+- At narrow widths, hide lower-priority project/session identity before hiding
+  health state or usage. At wide widths, show complete identity when it fits.
+  Every line fits available width; wrap or truncate lower-priority text without
+  moving higher-priority rows.
+- Show a compact close hint for `⎋ Esc`, `↵ Enter`, and `Ctrl+C`. These keys close
+  overlay; it has no page-router navigation or editing focus.
+- Refresh once per second only after surface admission. Refresh must not cause
+  row displacement; reserve stable rows for changing values and truncate within
+  their existing cells.
+- Validate layout at 48x20 and 100x24. Pi host owns usage/theme/custom UI;
+  ext-core owns `openTuiSurface` admission, FIFO, abort, and cleanup; status
+  rendering consumes the MCTX snapshot and does not define another lifecycle
+  abstraction.
+
 ### Patch Presentation
 
 - A collapsed `apply_patch` call uses a compact semantic summary, not a diff

@@ -70,6 +70,7 @@ import {
 	type MctxPartition,
 	type MctxRetainedHistoryTag,
 	type MctxStore,
+	type MctxStoreStatusMetrics,
 	mctxHandoffBindingId,
 	openMctxStore,
 } from "./store.js";
@@ -90,6 +91,7 @@ export interface MctxSessionRuntime extends MctxRuntime {
  */
 export interface MctxFeature {
 	start(context: ExtensionLifecycleContext): Promise<void>;
+	status(context: ExtensionContext): MctxStatusResult;
 	onTurnEnd(context: ExtensionContext): void;
 	onContext(
 		messages: readonly AgentMessage[],
@@ -114,6 +116,51 @@ export interface MctxFeature {
 	dream(query: string, context: ExtensionContext): Promise<MctxDreamResult>;
 	embedBackfill(context: ExtensionContext): Promise<MctxEmbedBackfillResult>;
 }
+
+export interface MctxStatusUsage {
+	readonly tokens: number;
+	readonly contextWindow: number;
+	readonly percentage: number;
+}
+
+export type MctxStatusInactiveReason =
+	| "not-started"
+	| "disabled"
+	| "invalid"
+	| "unavailable"
+	| "collision"
+	| "store"
+	| "partition"
+	| "disposed";
+
+export type MctxStatusResult =
+	| {
+			readonly kind: "active";
+			readonly projectIdentity: string;
+			readonly sessionId: string;
+			readonly partitionRevision: number;
+			readonly usage?: MctxStatusUsage;
+			readonly compartments: MctxStoreStatusMetrics["compartments"];
+			readonly tags: MctxStoreStatusMetrics["tags"];
+			readonly historian: {
+				readonly phase: "idle" | "running" | "cooling" | "rebuild-pending";
+				readonly model: string;
+				readonly lastFailureClass?: MctxHistorianFailureDiagnostic["failureClass"];
+			};
+			readonly trigger: {
+				readonly percentage?: number;
+				readonly tokens?: number;
+				readonly protectedTags: number;
+			};
+			readonly pendingAugmentation: boolean;
+	  }
+	| {
+			readonly kind: "inactive";
+			readonly reason: MctxStatusInactiveReason;
+			readonly diagnostic?: string;
+	  }
+	| { readonly kind: "stale" }
+	| { readonly kind: "failed"; readonly reason: string };
 
 function entryText(entry: SessionEntry): string | undefined {
 	if (entry.type === "compaction") return entry.summary?.trim() || undefined;
@@ -607,6 +654,10 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 	const startSidekickTask = options.startSidekickTask ?? startSubagent;
 	const startDreamTask = options.startDreamTask ?? startSubagent;
 	let active: ActiveMctxRuntime | undefined;
+	// Feature owns read-only status lifecycle; inactive state never exposes store data.
+	let inactive: { readonly reason: MctxStatusInactiveReason; readonly diagnostic?: string } = {
+		reason: "not-started",
+	};
 	const handoffPreparations = new Set<string>();
 	function reportHistorianFailure(
 		current: ActiveMctxRuntime,
@@ -971,6 +1022,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					context.signal,
 				);
 			} catch (error: unknown) {
+				inactive = { reason: "unavailable", diagnostic: String(error) };
 				if (!context.signal.aborted) {
 					context.extension.ui.notify(
 						`pi-mctx configuration unavailable: ${error instanceof Error ? error.message : String(error)}`,
@@ -983,6 +1035,10 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 
 			const activation = resolveMctxActivation(context, configuration);
 			if (activation.kind === "inactive") {
+				inactive = {
+					reason: activation.reason,
+					...("diagnostic" in activation ? { diagnostic: activation.diagnostic } : {}),
+				};
 				if (activation.reason !== "disabled")
 					context.extension.ui.notify(activation.diagnostic, "warning");
 				return;
@@ -993,6 +1049,10 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				// explicit opt-out keeps a storage outage from changing Pi's native path.
 				store = await openStore(defaultMctxStorePath());
 			} catch (error: unknown) {
+				inactive = {
+					reason: "store",
+					diagnostic: error instanceof Error ? error.message : String(error),
+				};
 				const message = error instanceof Error ? error.message : String(error);
 				if (!activation.runtime.settings.failClosedBlocking) {
 					context.extension.ui.notify(
@@ -1023,6 +1083,10 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				}
 				partition = initialPartition;
 			} catch (error: unknown) {
+				inactive = {
+					reason: "partition",
+					diagnostic: error instanceof Error ? error.message : String(error),
+				};
 				store.close();
 				if (!context.signal.aborted) {
 					const message = error instanceof Error ? error.message : String(error);
@@ -1084,6 +1148,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				// Embedding jobs settle before the provider lease releases and the
 				// store closes; a detached embed may still be writing its fenced row.
 				if (active === current) active = undefined;
+				inactive = { reason: "disposed" };
 				current.embeddingJob?.abort();
 				await current.embeddingCompletion;
 				await current.embeddingLease?.release();
@@ -1093,8 +1158,77 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				current.rebuildEntries = undefined;
 				current.job?.abort();
 				await current.jobCompletion;
-				if (active === current) active = undefined;
+				if (active === current) {
+					active = undefined;
+					inactive = { reason: "disposed" };
+				}
 			});
+		},
+		status(context): MctxStatusResult {
+			const current = active;
+			if (current === undefined) return { kind: "inactive", ...inactive };
+			if (current.lifecycle.signal.aborted) return { kind: "inactive", reason: "disposed" };
+			if (current.runtime.sessionId !== context.sessionManager.getSessionId())
+				return { kind: "stale" };
+			const rawUsage = context.getContextUsage();
+			const usageTokens = rawUsage?.tokens;
+			const usageWindow = rawUsage?.contextWindow;
+			const usage =
+				typeof usageTokens === "number" &&
+				Number.isSafeInteger(usageTokens) &&
+				usageTokens >= 0 &&
+				typeof usageWindow === "number" &&
+				Number.isSafeInteger(usageWindow) &&
+				usageWindow > 0
+					? {
+							tokens: usageTokens,
+							contextWindow: usageWindow,
+							percentage: (usageTokens / usageWindow) * 100,
+						}
+					: undefined;
+			const percentage = modelThreshold(
+				current.runtime.settings.executeThresholdPercentage,
+				context.model,
+			);
+			const tokens =
+				current.runtime.settings.executeThresholdTokens === undefined
+					? undefined
+					: modelThreshold(current.runtime.settings.executeThresholdTokens, context.model);
+			const phase =
+				current.rebuildEntries !== undefined
+					? "rebuild-pending"
+					: current.job !== undefined
+						? "running"
+						: current.cooling
+							? "cooling"
+							: "idle";
+			try {
+				const metrics = current.runtime.store.readStatusMetrics(current.runtime.partition);
+				return {
+					kind: "active",
+					projectIdentity: current.runtime.partition.projectIdentity,
+					sessionId: current.runtime.sessionId,
+					partitionRevision: current.runtime.partition.revision,
+					...(usage === undefined ? {} : { usage }),
+					compartments: metrics.compartments,
+					tags: metrics.tags,
+					historian: {
+						phase,
+						model: `${current.runtime.historian.provider}/${current.runtime.historian.id}`,
+						...(current.lastNotifiedFailureClass === undefined
+							? {}
+							: { lastFailureClass: current.lastNotifiedFailureClass }),
+					},
+					trigger: {
+						...(percentage === undefined ? {} : { percentage }),
+						...(tokens === undefined ? {} : { tokens }),
+						protectedTags: current.runtime.settings.protectedTags,
+					},
+					pendingAugmentation: current.pendingAugmentation !== undefined,
+				};
+			} catch (error: unknown) {
+				return { kind: "failed", reason: error instanceof Error ? error.message : String(error) };
+			}
 		},
 		onTurnEnd(context): void {
 			// Turn-end work is deliberately non-blocking. This hook only evaluates the

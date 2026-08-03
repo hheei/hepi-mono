@@ -24,6 +24,7 @@ import {
 	// type MctxNoteOperation,
 } from "./feature.js";
 import { MAX_CTX_EXPAND_CHARS, renderMctxHistoryTagPage } from "./history-tags.js";
+import { openMctxStatusSurface } from "./status-surface.js";
 
 const DEFAULT_CTX_HISTORY_LIMIT = 50;
 const MAX_CTX_HISTORY_LIMIT = 100;
@@ -653,12 +654,31 @@ function registerHistoryTools(pi: ExtensionAPI, feature: MctxFeature): void {
  */
 export default function piMctxExtension(pi: ExtensionAPI): void {
 	const feature = createMctxFeature();
+	let lifecycleSignal: AbortSignal | undefined;
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-mctx",
 		start: async (context) => {
+			lifecycleSignal = context.signal;
+			context.resources.add("ctx-status-signal", () => {
+				if (lifecycleSignal === context.signal) lifecycleSignal = undefined;
+			});
 			await feature.start(context);
 			if (feature.active() !== undefined)
 				provideService(context, PARENT_CONTEXT_PROJECTION_SERVICE, feature);
+		},
+	});
+	pi.registerCommand("ctx-status", {
+		description: "Show read-only Magic Context status",
+		handler: async (_args, context) => {
+			if (context.mode !== "tui") {
+				context.ui.notify("/ctx-status is available only in the TUI", "warning");
+				return;
+			}
+			if (lifecycleSignal === undefined || lifecycleSignal.aborted) {
+				context.ui.notify("pi-mctx lifecycle is not active", "warning");
+				return;
+			}
+			await openMctxStatusSurface(pi, context, feature, context, lifecycleSignal);
 		},
 	});
 	registerHistoryTools(pi, feature);

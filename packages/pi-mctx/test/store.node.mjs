@@ -205,6 +205,75 @@ test("queues only active unprotected history tags and marks projected drops", as
 	});
 });
 
+test("reads scoped status metrics without advancing or mutating a partition", async () => {
+	await withPath(async (path) => {
+		const store = await openMctxStore(path);
+		const project = `git:${"7".repeat(40)}`;
+		const empty = store.getOrCreatePartition(project, "session-empty");
+		assert.deepEqual(store.readStatusMetrics(empty), {
+			compartments: { total: 0, m0: 0, m1: 0 },
+			tags: { total: 0, active: 0, pending: 0, dropped: 0 },
+		});
+
+		const initial = store.getOrCreatePartition(project, "session-a");
+		const first = store.publishCompartment(initial, {
+			tier: "m0",
+			sourceStartEntryId: "entry-1",
+			sourceEndEntryId: "entry-2",
+			sourceFingerprint: "fingerprint-1",
+			renderedPayload: "stable",
+		});
+		assert.ok(first);
+		const second = store.publishCompartment(first.partition, {
+			tier: "m1",
+			sourceStartEntryId: "entry-3",
+			sourceEndEntryId: "entry-4",
+			sourceFingerprint: "fingerprint-2",
+			renderedPayload: "recent",
+		});
+		assert.ok(second);
+		const third = store.publishCompartment(second.partition, {
+			tier: "m1",
+			sourceStartEntryId: "entry-5",
+			sourceEndEntryId: "entry-6",
+			sourceFingerprint: "fingerprint-3",
+			renderedPayload: "latest",
+		});
+		assert.ok(third);
+		const synced = store.syncHistoryTags(third.partition, [
+			{ kind: "message", entryId: "entry-1", source: "first" },
+			{ kind: "tool", entryId: "entry-2", toolCallId: "call-2", source: "second" },
+			{ kind: "reference", entryId: "entry-3", source: "third" },
+		]);
+		assert.ok(synced);
+		const queued = store.queueHistoryTagDrops(synced.partition, [1, 2], [1, 2, 3], 1);
+		assert.ok(queued);
+		const dropped = store.markHistoryTagsDropped(queued.partition, [1]);
+		assert.ok(dropped);
+		const before = store.findPartition(project, "session-a");
+		assert.ok(before);
+		const metrics = store.readStatusMetrics(before);
+		assert.deepEqual(metrics, {
+			compartments: { total: 3, m0: 1, m1: 2, latestSequence: 1, latestPublishedRevision: 3 },
+			tags: { total: 3, active: 1, pending: 1, dropped: 1 },
+		});
+		assert.deepEqual(store.readStatusMetrics(before), metrics);
+		assert.deepEqual(store.findPartition(project, "session-a"), before);
+
+		const other = store.getOrCreatePartition(project, "session-b");
+		const otherPublication = store.publishCompartment(other, {
+			tier: "m0",
+			sourceStartEntryId: "other-1",
+			sourceEndEntryId: "other-2",
+			sourceFingerprint: "other-fingerprint",
+			renderedPayload: "other",
+		});
+		assert.ok(otherPublication);
+		assert.deepEqual(store.readStatusMetrics(before), metrics);
+		store.close();
+	});
+});
+
 test("stores project-wide memories with record revision CAS", async () => {
 	await withPath(async (path) => {
 		const store = await openMctxStore(path);

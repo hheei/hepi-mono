@@ -11,6 +11,7 @@ import {
 	type ExtensionLifecycleContext,
 	MCTX_MEMORY_EXCLUSION_SERVICE,
 	provideService,
+	type SubagentId,
 	type TaskSubagentHandle,
 	type TaskTerminalResult,
 } from "@hheei/pi-ext-core";
@@ -46,6 +47,10 @@ const entries = [
 	entry("user", "user", "old request"),
 	entry("assistant", "assistant", "old response"),
 ];
+
+function subagentId(value: string): SubagentId {
+	return value as SubagentId;
+}
 
 function configuration(failClosedBlocking = true): MctxConfiguration {
 	return {
@@ -116,6 +121,10 @@ function store(overrides: Partial<MctxStore> = {}): MctxStore {
 		renewHistorianLease: () => undefined,
 		releaseHistorianLease: () => undefined,
 		listCompartments: () => [compartment()],
+		readStatusMetrics: () => ({
+			compartments: { total: 1, m0: 1, m1: 0 },
+			tags: { total: historyTags.length, active: historyTags.length, pending: 0, dropped: 0 },
+		}),
 		discardCompartmentsFrom: () => undefined,
 		publishCompartment: () => undefined,
 		syncHistoryTags: (partition, inputs) => {
@@ -1549,7 +1558,7 @@ test("lifecycle cleanup aborts in-flight embeddings before releasing lease and s
 
 function taskHandle(result: TaskTerminalResult): TaskSubagentHandle {
 	return {
-		id: "task-1",
+		id: subagentId("task-1"),
 		mode: "task",
 		status: result.status,
 		result: Promise.resolve(result),
@@ -1570,14 +1579,14 @@ function deferredTaskHandle(): {
 	});
 	return {
 		handle: {
-			id: "task-1",
+			id: subagentId("task-1"),
 			mode: "task",
 			status: "running",
 			result,
 			cancel: () => {
 				cancelCount += 1;
 				resolveResult({
-					id: "task-1",
+					id: subagentId("task-1"),
 					mode: "task",
 					status: "cancelled",
 					output: "",
@@ -1591,10 +1600,22 @@ function deferredTaskHandle(): {
 	};
 }
 
+type AgentMessageWithContent = Extract<AgentMessage, { content: unknown }>;
+type AgentMessageContent = AgentMessageWithContent["content"];
+type AgentMessageContentBlock = Extract<AgentMessageContent, readonly unknown[]>[number];
+
+function hasContent(message: AgentMessage): message is AgentMessageWithContent {
+	return "content" in message;
+}
+
 function messageText(message: AgentMessage): string {
-	return typeof message.content === "string"
-		? message.content
-		: message.content.map((block) => (block.type === "text" ? block.text : "")).join("\n");
+	if (!hasContent(message)) return "";
+	const content: AgentMessageContent = message.content;
+	return typeof content === "string"
+		? content
+		: content
+				.map((block: AgentMessageContentBlock) => (block.type === "text" ? block.text : ""))
+				.join("\n");
 }
 
 const sidekickContext = {
@@ -1618,7 +1639,7 @@ test("sidekick augment injects the bounded wrapper once before the last user pro
 		resolveProjectIdentity: async () => "git:project",
 		startSidekickTask: (_context, _spec) =>
 			taskHandle({
-				id: "task-1",
+				id: subagentId("task-1"),
 				mode: "task",
 				status: "completed",
 				output: "augmented summary",
@@ -1653,7 +1674,7 @@ test("sidekick augment keeps the injected wrapper clear of compartment projectio
 		resolveProjectIdentity: async () => "git:project",
 		startSidekickTask: (_context, _spec) =>
 			taskHandle({
-				id: "task-1",
+				id: subagentId("task-1"),
 				mode: "task",
 				status: "completed",
 				output: "summary",
@@ -1680,7 +1701,7 @@ test("sidekick augment empty output does not inject", async (): Promise<void> =>
 		resolveProjectIdentity: async () => "git:project",
 		startSidekickTask: (_context, _spec) =>
 			taskHandle({
-				id: "task-1",
+				id: subagentId("task-1"),
 				mode: "task",
 				status: "completed",
 				output: "   ",
@@ -1707,7 +1728,7 @@ test("sidekick augment failure reports the reason without injecting", async (): 
 		resolveProjectIdentity: async () => "git:project",
 		startSidekickTask: (_context, _spec) =>
 			taskHandle({
-				id: "task-1",
+				id: subagentId("task-1"),
 				mode: "task",
 				status: "failed",
 				output: "",
@@ -1737,7 +1758,7 @@ test("sidekick augment partial limit output injects with the partial flag", asyn
 		resolveProjectIdentity: async () => "git:project",
 		startSidekickTask: (_context, _spec) =>
 			taskHandle({
-				id: "task-1",
+				id: subagentId("task-1"),
 				mode: "task",
 				status: "limit_reached",
 				output: "partial summary",
@@ -1764,7 +1785,7 @@ test("sidekick augment is inactive outside the bound session", async (): Promise
 		startSidekickTask: (_context, _spec) => {
 			spawned += 1;
 			return taskHandle({
-				id: "task-1",
+				id: subagentId("task-1"),
 				mode: "task",
 				status: "completed",
 				output: "x",
@@ -1900,17 +1921,23 @@ test("dreamer evaluates smart-condition notes and reports without mutating them"
 			dreamerStore([
 				smartNote,
 				{
-					...smartNote,
+					projectIdentity: smartNote.projectIdentity,
+					sessionId: smartNote.sessionId,
 					noteId: 2,
 					content: "Plain note without a condition.",
-					smartCondition: undefined,
+					status: smartNote.status,
+					revision: smartNote.revision,
+					createdSessionId: smartNote.createdSessionId,
+					updatedSessionId: smartNote.updatedSessionId,
+					createdAtMs: smartNote.createdAtMs,
+					updatedAtMs: smartNote.updatedAtMs,
 				},
 			]),
 		resolveProjectIdentity: async () => "git:project",
 		startDreamTask: (_context, spec) => {
 			capturedPrompt = spec.prompt;
 			return taskHandle({
-				id: "task-1",
+				id: subagentId("task-1"),
 				mode: "task",
 				status: "completed",
 				output: "#1 SATISFIED: CI is green on main",
@@ -1946,7 +1973,7 @@ test("dreamer returns empty without smart notes or a query and does not spawn", 
 		startDreamTask: () => {
 			spawned = true;
 			return taskHandle({
-				id: "task-1",
+				id: subagentId("task-1"),
 				mode: "task",
 				status: "completed",
 				output: "x",
@@ -1974,7 +2001,7 @@ test("dreamer appends a user query to the child prompt", async (): Promise<void>
 		startDreamTask: (_context, spec) => {
 			capturedPrompt = spec.prompt;
 			return taskHandle({
-				id: "task-1",
+				id: subagentId("task-1"),
 				mode: "task",
 				status: "completed",
 				output: "report",
@@ -2043,7 +2070,7 @@ test("dreamer fails loudly when an explicit model is unavailable", async (): Pro
 		startDreamTask: () => {
 			spawned = true;
 			return taskHandle({
-				id: "task-1",
+				id: subagentId("task-1"),
 				mode: "task",
 				status: "completed",
 				output: "x",
@@ -2069,7 +2096,7 @@ test("dreamer truncates an oversized report", async (): Promise<void> => {
 		resolveProjectIdentity: async () => "git:project",
 		startDreamTask: () =>
 			taskHandle({
-				id: "task-1",
+				id: subagentId("task-1"),
 				mode: "task",
 				status: "completed",
 				output: "y".repeat(5_000),
