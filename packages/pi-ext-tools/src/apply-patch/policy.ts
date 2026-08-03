@@ -8,9 +8,7 @@ const SECTION = "pi-ext-tools";
 const GROUP = "applyPatch";
 
 export interface FuzzyApplyPatchPolicy {
-	readonly enabled: boolean;
 	readonly minSimilarity: number;
-	readonly allowFuzzy: boolean;
 	readonly maxConcurrentWorkers: number;
 	readonly maxQueueDepth: number;
 	readonly cacheMiB: number;
@@ -22,9 +20,7 @@ export interface LoadFuzzyApplyPatchPolicyOptions {
 }
 
 export const DEFAULT_FUZZY_APPLY_PATCH_POLICY: FuzzyApplyPatchPolicy = {
-	enabled: true,
-	minSimilarity: 0.85,
-	allowFuzzy: true,
+	minSimilarity: 0.7,
 	maxConcurrentWorkers: 2,
 	maxQueueDepth: 32,
 	cacheMiB: 64,
@@ -32,9 +28,7 @@ export const DEFAULT_FUZZY_APPLY_PATCH_POLICY: FuzzyApplyPatchPolicy = {
 
 type PolicyKey = keyof FuzzyApplyPatchPolicy;
 const POLICY_KEYS: readonly PolicyKey[] = [
-	"enabled",
 	"minSimilarity",
-	"allowFuzzy",
 	"maxConcurrentWorkers",
 	"maxQueueDepth",
 	"cacheMiB",
@@ -59,11 +53,6 @@ function readLayer(layer: string, value: unknown): Partial<FuzzyApplyPatchPolicy
 	for (const key of POLICY_KEYS) {
 		if (!Object.hasOwn(value, key)) continue;
 		const item = value[key];
-		if (key === "enabled" || key === "allowFuzzy") {
-			if (typeof item !== "boolean") invalid(layer, key, "must be a boolean");
-			Object.assign(result, { [key]: item });
-			continue;
-		}
 		if (typeof item !== "number" || !Number.isFinite(item))
 			invalid(layer, key, "must be a finite number");
 		if (key === "minSimilarity") {
@@ -91,10 +80,8 @@ function mergedPolicy(
 		const value = project[key];
 		if (value === undefined) continue;
 		const baseline = global[key] ?? DEFAULT_FUZZY_APPLY_PATCH_POLICY[key];
-		if (key === "enabled" || key === "allowFuzzy") {
-			if (value !== false) invalid("project", key, "may only be set to false");
-		} else if (typeof value === "number" && typeof baseline === "number") {
-			if (key === "minSimilarity" && value < baseline)
+		if (typeof value === "number" && typeof baseline === "number") {
+			if (key === "minSimilarity" && value !== 0 && value < baseline)
 				invalid("project", key, `must be at least global value ${baseline}`);
 			if (
 				(key === "maxConcurrentWorkers" || key === "maxQueueDepth" || key === "cacheMiB") &&
@@ -104,13 +91,10 @@ function mergedPolicy(
 		}
 	}
 	return {
-		enabled: project.enabled ?? global.enabled ?? DEFAULT_FUZZY_APPLY_PATCH_POLICY.enabled,
 		minSimilarity:
 			project.minSimilarity ??
 			global.minSimilarity ??
 			DEFAULT_FUZZY_APPLY_PATCH_POLICY.minSimilarity,
-		allowFuzzy:
-			project.allowFuzzy ?? global.allowFuzzy ?? DEFAULT_FUZZY_APPLY_PATCH_POLICY.allowFuzzy,
 		maxConcurrentWorkers:
 			project.maxConcurrentWorkers ??
 			global.maxConcurrentWorkers ??

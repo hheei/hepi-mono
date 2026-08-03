@@ -54,10 +54,11 @@ Update 先以 exact policy dry-run，再按固定 fuzzy policy dry-run/apply。�
 hash 未变化时替换，失败、取消、无效 grammar、dry-run failure 与 stale baseline 都不写入真实文件。
 同 path job 会串行；无交集 path job 可在共享 worker limit 内并发。
 
-fuzzy policy 只读取 `pi-ext-tools.applyPatch` settings。默认值为 `enabled: true`、
-`minSimilarity: 0.85`、`allowFuzzy: true`、`maxConcurrentWorkers: 2`、`maxQueueDepth: 32`、
-`cacheMiB: 64`。user-global settings 可配置完整 policy；project settings 只能收紧 policy：关闭
-enabled/fuzzy、提高 minSimilarity、降低 resource limit，不能放宽写入匹配条件。
+fuzzy policy 只读取 `pi-ext-tools.applyPatch` settings。默认值为 `minSimilarity: 0.7`、
+`maxConcurrentWorkers: 2`、`maxQueueDepth: 32`、`cacheMiB: 64`。`minSimilarity: 0` 关闭 fuzzy，
+只允许 exact apply；`1` 只接受 score 为 `1` 的 fuzzy candidate。user-global settings 可配置完整
+policy；project settings 只能收紧 policy：设为 `0` 关闭 fuzzy、提高 minSimilarity、降低 resource
+limit，不能放宽写入匹配条件。
 
 每次升级 mpatch 必须固定 release、验证每个 archive 的 SHA-256，并更新 package 的 upstream
 record 与 MIT notice。
