@@ -168,3 +168,53 @@ test("accepts only user-owned project-relative primer configuration", async (): 
 		"Ignoring user search.primer_path: must be a project-relative path",
 	);
 });
+
+test("accepts only user-level embedding provider configuration", async (): Promise<void> => {
+	const config = await withSettings(
+		{
+			"pi-mctx": {
+				enabled: true,
+				historian: { model: "anthropic/claude-haiku" },
+				embedding: { provider: "local", model: "Xenova/all-MiniLM-L6-v2" },
+			},
+		},
+		{
+			"pi-mctx": {
+				embedding: { provider: "synapse", connectionFile: "/tmp/mctx.sock" },
+			},
+		},
+		loadMctxConfiguration,
+	);
+	expect(config.embedding).toEqual({
+		config: { provider: "local", model: "Xenova/all-MiniLM-L6-v2" },
+	});
+	expect(config.warnings).toContain(
+		"Ignoring project embedding: provider selection is user-level only",
+	);
+
+	const invalid = await withSettings(
+		{
+			"pi-mctx": {
+				enabled: true,
+				historian: { model: "anthropic/claude-haiku" },
+				embedding: "local",
+			},
+		},
+		{},
+		loadMctxConfiguration,
+	);
+	expect(invalid.embedding).toBeUndefined();
+	expect(invalid.warnings).toContain("Ignoring user embedding: must be an object");
+
+	const absent = await withSettings(
+		{
+			"pi-mctx": {
+				enabled: true,
+				historian: { model: "anthropic/claude-haiku" },
+			},
+		},
+		{},
+		loadMctxConfiguration,
+	);
+	expect(absent.embedding).toBeUndefined();
+});

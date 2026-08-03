@@ -8,7 +8,7 @@ import type { MctxStore } from "../src/store.js";
 
 const model = { api: "test", provider: "anthropic", id: "claude-haiku" } as Model<Api>;
 
-function configuration(): MctxConfiguration {
+function configuration(failClosedBlocking = true): MctxConfiguration {
 	return {
 		global: {},
 		project: {},
@@ -18,7 +18,7 @@ function configuration(): MctxConfiguration {
 			kind: "enabled",
 			settings: {
 				historianModel: "anthropic/claude-haiku",
-				failClosedBlocking: true,
+				failClosedBlocking,
 				executeThresholdPercentage: { defaultValue: 65, byModel: {} },
 				protectedTags: 20,
 			},
@@ -159,6 +159,74 @@ test("turn_end starts one background historian and cleanup aborts it", async ():
 	if (storeCleanup === undefined) throw new Error("Expected store cleanup");
 	await storeCleanup();
 	expect(storeClosed).toBe(true);
+});
+
+test("storage open failure blocks activation by default", async (): Promise<void> => {
+	const fixture = lifecycleFixture();
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: async () => {
+			throw new Error("database is unavailable");
+		},
+	});
+
+	await expect(feature.start(fixture.context)).rejects.toThrow("database is unavailable");
+	expect(feature.active()).toBeUndefined();
+	expect(fixture.notifications).toEqual([
+		{
+			message: "pi-mctx context store unavailable: database is unavailable",
+			level: "error",
+		},
+	]);
+});
+
+test("storage open failure keeps Pi-native behavior when blocking is disabled", async (): Promise<void> => {
+	const fixture = lifecycleFixture();
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(false),
+		openStore: async () => {
+			throw new Error("database is unavailable");
+		},
+	});
+
+	await feature.start(fixture.context);
+	expect(feature.active()).toBeUndefined();
+	expect(fixture.notifications).toEqual([
+		{
+			message:
+				"pi-mctx context store unavailable; continuing with Pi native behavior: database is unavailable",
+			level: "warning",
+		},
+	]);
+});
+
+test("partition failure follows disabled blocking policy after closing the store", async (): Promise<void> => {
+	const fixture = lifecycleFixture();
+	let closed = false;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(false),
+		openStore: () => ({
+			...store(),
+			getOrCreatePartition: () => {
+				throw new Error("partition is unavailable");
+			},
+			close: () => {
+				closed = true;
+			},
+		}),
+		resolveProjectIdentity: async () => "git:project",
+	});
+
+	await feature.start(fixture.context);
+	expect(closed).toBe(true);
+	expect(feature.active()).toBeUndefined();
+	expect(fixture.notifications).toEqual([
+		{
+			message:
+				"pi-mctx context partition unavailable; continuing with Pi native behavior: partition is unavailable",
+			level: "warning",
+		},
+	]);
 });
 
 test("turn_end ignores absent usage and another session", async (): Promise<void> => {
