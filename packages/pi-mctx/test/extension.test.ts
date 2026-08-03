@@ -5,6 +5,7 @@ import piMctxExtension from "../src/extension.js";
 test("pi-mctx entry registers lifecycle handlers and managed Magic Context tools", (): void => {
 	const handlers: string[] = [];
 	const tools: string[] = [];
+	const commands: string[] = [];
 	const pi = {
 		events: {},
 		on(name: string): void {
@@ -12,6 +13,9 @@ test("pi-mctx entry registers lifecycle handlers and managed Magic Context tools
 		},
 		registerTool(tool: { readonly name: string }): void {
 			tools.push(tool.name);
+		},
+		registerCommand(name: string): void {
+			commands.push(name);
 		},
 	};
 	const controller = new AbortController();
@@ -33,6 +37,7 @@ test("pi-mctx entry registers lifecycle handlers and managed Magic Context tools
 		"ctx_memory",
 		"ctx_note",
 	]);
+	expect(commands).toEqual(["ctx-aug"]);
 	expect(inventories.at(-1)).toEqual([
 		"ctx_expand:Magic Context",
 		"ctx_history:Magic Context",

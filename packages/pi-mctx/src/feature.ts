@@ -10,7 +10,14 @@ import type {
 	MemorySearchExclusionService,
 	ParentContextProjectionResult,
 } from "@hheei/pi-ext-core";
-import { getService, MCTX_MEMORY_EXCLUSION_SERVICE } from "@hheei/pi-ext-core";
+import {
+	getService,
+	MCTX_MEMORY_EXCLUSION_SERVICE,
+	startSubagent,
+	type TaskSubagentHandle,
+	type TaskSubagentSpec,
+	type TaskTerminalResult,
+} from "@hheei/pi-ext-core";
 import type { EmbeddingProviderLease } from "@hheei/pi-ext-embed";
 import { type MctxRuntime, resolveMctxActivation } from "./activation.js";
 import { planMctxCompartmentRecovery, verifyMctxCompartmentGraph } from "./compartment-graph.js";
@@ -36,6 +43,13 @@ import {
 	mctxSearchContentHash,
 	rankMctxSearchCandidates,
 } from "./search.js";
+import {
+	buildSidekickAugmentation,
+	buildSidekickPrompt,
+	createSidekickChildFactory,
+	SIDEKICK_MAX_TURNS,
+	SIDEKICK_TASK_TIMEOUT_MS,
+} from "./sidekick.js";
 import {
 	defaultMctxStorePath,
 	type MctxCompartment,
@@ -93,6 +107,7 @@ export interface MctxFeature {
 		context: ExtensionContext,
 		signal: AbortSignal,
 	): Promise<MctxSearchResult>;
+	augment(query: string, context: ExtensionContext): Promise<MctxAugmentResult>;
 }
 
 function entryText(entry: SessionEntry): string | undefined {
@@ -215,6 +230,110 @@ export type MctxSearchResult =
 	| { readonly kind: "invalid-exclusions" }
 	| { readonly kind: "hits"; readonly hits: readonly MctxSearchHit[] };
 
+export type MctxAugmentResult =
+	| { readonly kind: "inactive" }
+	| { readonly kind: "cancelled" }
+	| { readonly kind: "empty" }
+	| { readonly kind: "failed"; readonly reason: string }
+	| { readonly kind: "injected" };
+
+/**
+ * Runs one bounded search against the current active runtime. Shared by the
+ * registered `ctx_search` tool and the sidekick child's injected `ctx_search`
+ * custom tool, so both see the same parent partition and privacy semantics.
+ */
+async function executeMctxSearch(
+	current: ActiveMctxRuntime,
+	operation: MctxSearchOperation,
+	context: ExtensionContext,
+	signal: AbortSignal,
+	isCurrent: () => boolean,
+	collectExternal: typeof collectMctxExternalSearchCandidates,
+): Promise<MctxSearchResult> {
+	if (
+		current.lifecycle.signal.aborted ||
+		signal.aborted ||
+		current.runtime.sessionId !== context.sessionManager.getSessionId()
+	)
+		return { kind: "inactive" };
+	const sources = operation.sources ?? MCTX_SEARCH_SOURCES;
+	const projectIdentity = current.runtime.partition.projectIdentity;
+	const sessionId = current.runtime.sessionId;
+	const candidates: MctxSearchCandidate[] = [];
+	if (sources.includes("memory")) {
+		const exclusionSignal = AbortSignal.any([signal, current.lifecycle.signal]);
+		const excluded = await excludedMemoryIds(
+			getService(current.lifecycle.pi, MCTX_MEMORY_EXCLUSION_SERVICE),
+			{ projectIdentity, sessionId, signal: exclusionSignal },
+		);
+		if (
+			!isCurrent() ||
+			current.lifecycle.signal.aborted ||
+			signal.aborted ||
+			current.runtime.sessionId !== context.sessionManager.getSessionId()
+		)
+			return { kind: "stale" };
+		if (excluded === undefined) return { kind: "invalid-exclusions" };
+		for (const memory of current.runtime.store.listActiveMemories(projectIdentity, 100)) {
+			if (excluded.has(memory.memoryId)) continue;
+			candidates.push({
+				source: "memory",
+				id: `memory:${projectIdentity}:${memory.memoryId}:${memory.revision}:${mctxSearchContentHash(memory.content)}`,
+				title: `Memory #${memory.memoryId} (${memory.category})`,
+				text: boundedMctxSearchText(memory.content),
+			});
+		}
+	}
+	if (sources.includes("note")) {
+		for (const note of current.runtime.store.listActiveNotes(projectIdentity, sessionId, 100)) {
+			const anchor =
+				note.anchor === undefined
+					? ""
+					: ` @${note.anchor.kind}:${note.anchor.entryId}${note.anchor.toolCallId === undefined ? "" : `:${note.anchor.toolCallId}`}`;
+			candidates.push({
+				source: "note",
+				id: `note:${projectIdentity}:${sessionId}:${note.noteId}:${note.revision}:${mctxSearchContentHash(note.content)}`,
+				title: `Note #${note.noteId}${anchor}`,
+				text: boundedMctxSearchText(note.content),
+			});
+		}
+	}
+	if (sources.includes("history")) {
+		for (const tag of current.runtime.store.listRetainedHistoryTags({
+			projectIdentity,
+			activeSessionId: sessionId,
+			limit: 100,
+		})) {
+			candidates.push({
+				source: "history",
+				id: `history:${tag.projectIdentity}:${tag.sessionId}:${tag.tagNumber}:${tag.entryId}:${tag.toolCallId ?? ""}:${mctxSearchContentHash(tag.source)}`,
+				title: `History ${tag.sessionId} §${tag.tagNumber}§ (${tag.kind})`,
+				text: boundedMctxSearchText(tag.source),
+			});
+		}
+	}
+	const external = await collectExternal({
+		cwd: current.runtime.cwd,
+		...(current.runtime.search.primerPath === undefined
+			? {}
+			: { primerPath: current.runtime.search.primerPath }),
+		sources,
+		signal: AbortSignal.any([signal, current.lifecycle.signal]),
+	});
+	if (
+		!isCurrent() ||
+		current.lifecycle.signal.aborted ||
+		signal.aborted ||
+		current.runtime.sessionId !== context.sessionManager.getSessionId()
+	)
+		return { kind: "stale" };
+	candidates.push(...external);
+	return {
+		kind: "hits",
+		hits: rankMctxSearchCandidates(operation.query, candidates, operation.limit),
+	};
+}
+
 function validExcludedMemoryIds(value: readonly number[]): boolean {
 	return value.every((memoryId) => Number.isSafeInteger(memoryId) && memoryId > 0);
 }
@@ -267,6 +386,11 @@ export interface MctxFeatureOptions {
 	readonly acquireEmbeddingProvider?: (
 		config: unknown,
 	) => Promise<EmbeddingProviderLease | undefined>;
+	/** Test seam for the sidekick child task; production uses `startSubagent`. */
+	readonly startSidekickTask?: (
+		context: ExtensionLifecycleContext,
+		spec: TaskSubagentSpec,
+	) => TaskSubagentHandle;
 }
 
 interface ActiveMctxRuntime {
@@ -282,6 +406,8 @@ interface ActiveMctxRuntime {
 	embeddingJob?: AbortController | undefined;
 	embeddingCompletion?: Promise<void> | undefined;
 	pendingEmbedMemory?: MctxMemory | undefined;
+	/** One-shot augmentation text injected by the next successful onContext projection. */
+	pendingAugmentation?: string | undefined;
 }
 
 function defaultLogHistorianDiagnostic(diagnostic: MctxHistorianFailureDiagnostic): void {
@@ -371,6 +497,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			const module = await import("@hheei/pi-ext-embed");
 			return module.acquireEmbeddingProvider(config);
 		});
+	const startSidekickTask = options.startSidekickTask ?? startSubagent;
 	let active: ActiveMctxRuntime | undefined;
 	const handoffPreparations = new Set<string>();
 	function reportHistorianFailure(
@@ -723,7 +850,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			},
 		};
 	}
-	return {
+	const feature: MctxFeature = {
 		async start(context): Promise<void> {
 			// Invalid configuration and unavailable optional models keep Pi-native behavior;
 			// storage failures follow the user-owned fail-closed policy below.
@@ -963,6 +1090,39 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			// A successful projection re-arms the read-failure notification for the
 			// next failure epoch, matching the historian notification pattern.
 			current.notifiedStoreReadFailure = false;
+			// One-shot /ctx-aug augmentation: injected once after a successful
+			// projection, then cleared. Projection failures keep it pending.
+			// The bounded wrapper is inserted before the last real user prompt so
+			// the model still sees the authoritative request as its final message.
+			const pendingAugmentation = current.pendingAugmentation;
+			if (pendingAugmentation !== undefined) {
+				current.pendingAugmentation = undefined;
+				const augmentationMessage: AgentMessage = {
+					role: "user",
+					content: [{ type: "text", text: pendingAugmentation }],
+					// Stable timestamp keeps the message shape consistent with
+					// synthetic projection messages.
+					timestamp: 0,
+				};
+				let lastUserIndex = -1;
+				for (let index = tagged.messages.length - 1; index >= 0; index--) {
+					if (tagged.messages[index]?.role === "user") {
+						lastUserIndex = index;
+						break;
+					}
+				}
+				const messages =
+					lastUserIndex >= 0
+						? [
+								...tagged.messages.slice(0, lastUserIndex),
+								augmentationMessage,
+								...tagged.messages.slice(lastUserIndex),
+							]
+						: [...tagged.messages, augmentationMessage];
+				return {
+					messages,
+				};
+			}
 			return { messages: tagged.messages };
 		},
 		prepare,
@@ -1151,82 +1311,77 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				current.runtime.sessionId !== context.sessionManager.getSessionId()
 			)
 				return { kind: "inactive" };
-			const sources = operation.sources ?? MCTX_SEARCH_SOURCES;
-			const projectIdentity = current.runtime.partition.projectIdentity;
-			const sessionId = current.runtime.sessionId;
-			const candidates: MctxSearchCandidate[] = [];
-			if (sources.includes("memory")) {
-				const exclusionSignal = AbortSignal.any([signal, current.lifecycle.signal]);
-				const excluded = await excludedMemoryIds(
-					getService(current.lifecycle.pi, MCTX_MEMORY_EXCLUSION_SERVICE),
-					{ projectIdentity, sessionId, signal: exclusionSignal },
-				);
+			return executeMctxSearch(
+				current,
+				operation,
+				context,
+				signal,
+				() => active === current,
+				collectExternalSearchCandidates,
+			);
+		},
+		async augment(query, context): Promise<MctxAugmentResult> {
+			const current = active;
+			if (
+				current === undefined ||
+				current.lifecycle.signal.aborted ||
+				current.runtime.sessionId !== context.sessionManager.getSessionId()
+			)
+				return { kind: "inactive" };
+			// The task's maxTurns cannot bound a hung tool call, so a deadline
+			// signal joins the lifecycle and caller signals. Any abort cancels the
+			// child; a deadline expiry reports a distinct timed-out failure.
+			const timeoutSignal = AbortSignal.timeout(SIDEKICK_TASK_TIMEOUT_MS);
+			const signal = AbortSignal.any([
+				current.lifecycle.signal,
+				timeoutSignal,
+				...(context.signal === undefined ? [] : [context.signal]),
+			]);
+			if (signal.aborted)
+				return timeoutSignal.aborted
+					? { kind: "failed", reason: "sidekick timed out" }
+					: { kind: "cancelled" };
+			const handle: TaskSubagentHandle = startSidekickTask(current.lifecycle, {
+				mode: "task",
+				session: createSidekickChildFactory(context, feature, { model: context.model }),
+				prompt: buildSidekickPrompt(query),
+				maxTurns: SIDEKICK_MAX_TURNS,
+				// The command awaits handle.result directly; the sink is a no-op
+				// because nothing else may deliver this terminal result.
+				delivery: () => undefined,
+			});
+			const onAbort = (): void => handle.cancel();
+			signal.addEventListener("abort", onAbort, { once: true });
+			try {
+				const result: TaskTerminalResult = await handle.result;
 				if (
 					active !== current ||
 					current.lifecycle.signal.aborted ||
 					signal.aborted ||
 					current.runtime.sessionId !== context.sessionManager.getSessionId()
 				)
-					return { kind: "stale" };
-				if (excluded === undefined) return { kind: "invalid-exclusions" };
-				for (const memory of current.runtime.store.listActiveMemories(projectIdentity, 100)) {
-					if (excluded.has(memory.memoryId)) continue;
-					candidates.push({
-						source: "memory",
-						id: `memory:${projectIdentity}:${memory.memoryId}:${memory.revision}:${mctxSearchContentHash(memory.content)}`,
-						title: `Memory #${memory.memoryId} (${memory.category})`,
-						text: boundedMctxSearchText(memory.content),
-					});
+					return timeoutSignal.aborted
+						? { kind: "failed", reason: "sidekick timed out" }
+						: { kind: "cancelled" };
+				const output = result.output.trim();
+				if (result.status !== "completed" && result.status !== "limit_reached") {
+					return {
+						kind: "failed",
+						reason: result.failure ?? `sidekick task ${result.status}`,
+					};
 				}
+				if (output.length === 0) return { kind: "empty" };
+				current.pendingAugmentation = buildSidekickAugmentation({
+					query,
+					operationId: handle.id,
+					status: result.status,
+					partial: result.softLimitReached,
+					output,
+				});
+				return { kind: "injected" };
+			} finally {
+				signal.removeEventListener("abort", onAbort);
 			}
-			if (sources.includes("note")) {
-				for (const note of current.runtime.store.listActiveNotes(projectIdentity, sessionId, 100)) {
-					const anchor =
-						note.anchor === undefined
-							? ""
-							: ` @${note.anchor.kind}:${note.anchor.entryId}${note.anchor.toolCallId === undefined ? "" : `:${note.anchor.toolCallId}`}`;
-					candidates.push({
-						source: "note",
-						id: `note:${projectIdentity}:${sessionId}:${note.noteId}:${note.revision}:${mctxSearchContentHash(note.content)}`,
-						title: `Note #${note.noteId}${anchor}`,
-						text: boundedMctxSearchText(note.content),
-					});
-				}
-			}
-			if (sources.includes("history")) {
-				for (const tag of current.runtime.store.listRetainedHistoryTags({
-					projectIdentity,
-					activeSessionId: sessionId,
-					limit: 100,
-				})) {
-					candidates.push({
-						source: "history",
-						id: `history:${tag.projectIdentity}:${tag.sessionId}:${tag.tagNumber}:${tag.entryId}:${tag.toolCallId ?? ""}:${mctxSearchContentHash(tag.source)}`,
-						title: `History ${tag.sessionId} §${tag.tagNumber}§ (${tag.kind})`,
-						text: boundedMctxSearchText(tag.source),
-					});
-				}
-			}
-			const external = await collectExternalSearchCandidates({
-				cwd: current.runtime.cwd,
-				...(current.runtime.search.primerPath === undefined
-					? {}
-					: { primerPath: current.runtime.search.primerPath }),
-				sources,
-				signal: AbortSignal.any([signal, current.lifecycle.signal]),
-			});
-			if (
-				active !== current ||
-				current.lifecycle.signal.aborted ||
-				signal.aborted ||
-				current.runtime.sessionId !== context.sessionManager.getSessionId()
-			)
-				return { kind: "stale" };
-			candidates.push(...external);
-			return {
-				kind: "hits",
-				hits: rankMctxSearchCandidates(operation.query, candidates, operation.limit),
-			};
 		},
 		reduce(tagNumbers, context): MctxReduceResult {
 			const current = active;
@@ -1250,4 +1405,5 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			return { kind: "queued", queued: queued.queued, rejected: queued.rejected };
 		},
 	};
+	return feature;
 }

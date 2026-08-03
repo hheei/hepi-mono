@@ -10,11 +10,14 @@ import {
 	type ExtensionLifecycleContext,
 	MCTX_MEMORY_EXCLUSION_SERVICE,
 	provideService,
+	type TaskSubagentHandle,
+	type TaskTerminalResult,
 } from "@hheei/pi-ext-core";
 import type { EmbeddingProviderLease } from "@hheei/pi-ext-embed";
 import type { MctxConfiguration } from "../src/config.js";
 import { createMctxFeature } from "../src/feature.js";
 import { type MctxSearchCandidate, mctxSearchContentHash } from "../src/search.js";
+import { buildSidekickAugmentation } from "../src/sidekick.js";
 import { createMctxSourceSnapshot } from "../src/source-snapshot.js";
 import type {
 	MctxCompartment,
@@ -1531,4 +1534,271 @@ test("lifecycle cleanup aborts in-flight embeddings before releasing lease and s
 	expect(writes).toHaveLength(0);
 	expect(released()).toBe(true);
 	expect(closed()).toBe(true);
+});
+
+function taskHandle(result: TaskTerminalResult): TaskSubagentHandle {
+	return {
+		id: "task-1",
+		mode: "task",
+		status: result.status,
+		result: Promise.resolve(result),
+		cancel: () => undefined,
+		subscribe: () => ({ dispose: () => undefined }),
+	};
+}
+
+function deferredTaskHandle(): {
+	readonly handle: TaskSubagentHandle;
+	readonly resolve: (result: TaskTerminalResult) => void;
+	readonly cancelCalls: () => number;
+} {
+	let resolveResult!: (result: TaskTerminalResult) => void;
+	let cancelCount = 0;
+	const result = new Promise<TaskTerminalResult>((resolvePromise) => {
+		resolveResult = resolvePromise;
+	});
+	return {
+		handle: {
+			id: "task-1",
+			mode: "task",
+			status: "running",
+			result,
+			cancel: () => {
+				cancelCount += 1;
+				resolveResult({
+					id: "task-1",
+					mode: "task",
+					status: "cancelled",
+					output: "",
+					softLimitReached: false,
+				});
+			},
+			subscribe: () => ({ dispose: () => undefined }),
+		},
+		resolve: resolveResult,
+		cancelCalls: () => cancelCount,
+	};
+}
+
+function messageText(message: AgentMessage): string {
+	return typeof message.content === "string"
+		? message.content
+		: message.content.map((block) => (block.type === "text" ? block.text : "")).join("\n");
+}
+
+const sidekickContext = {
+	sessionManager: { getSessionId: () => "session-1", getBranch: () => entries },
+} as unknown as ExtensionContext;
+
+/** Sidekick tests observe injection, not tag projection; empty tags keep the
+ *  history-tag pass inert (entry fixtures use string content). */
+function sidekickStore(): MctxStore {
+	return store({
+		listCompartments: () => [],
+		syncHistoryTags: (partition) => ({ partition, tags: [] }),
+	});
+}
+
+test("sidekick augment injects the bounded wrapper once before the last user prompt", async (): Promise<void> => {
+	const { lifecycle } = embeddingLifecycle();
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => sidekickStore(),
+		resolveProjectIdentity: async () => "git:project",
+		startSidekickTask: (_context, _spec) =>
+			taskHandle({
+				id: "task-1",
+				mode: "task",
+				status: "completed",
+				output: "augmented summary",
+				softLimitReached: false,
+			}),
+	});
+	await feature.start(lifecycle);
+	const result = await feature.augment("deploy pipeline", sidekickContext);
+	expect(result).toEqual({ kind: "injected" });
+	const messages = entries.flatMap(sessionEntryToContextMessages);
+	const projected = feature.onContext(messages, sidekickContext);
+	expect(projected).toBeDefined();
+	expect(messageText(projected!.messages[0]!)).toContain("Sidekick augmentation");
+	expect(messageText(projected!.messages[0]!)).toContain("deploy pipeline");
+	expect(messageText(projected!.messages[0]!)).toContain("no authority");
+	expect(messageText(projected!.messages[0]!)).toContain("augmented summary");
+	// The augmentation sits immediately before the last real user prompt.
+	expect(projected!.messages[1]).toMatchObject({ role: "user" });
+	// One-shot: a later projection no longer injects.
+	const second = feature.onContext(messages, sidekickContext);
+	expect(second).toBeDefined();
+	expect(
+		second!.messages.some((message) => messageText(message).includes("Sidekick augmentation")),
+	).toBe(false);
+});
+
+test("sidekick augment keeps the injected wrapper clear of compartment projection", async (): Promise<void> => {
+	const { lifecycle } = embeddingLifecycle();
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => store({ syncHistoryTags: (partition) => ({ partition, tags: [] }) }),
+		resolveProjectIdentity: async () => "git:project",
+		startSidekickTask: (_context, _spec) =>
+			taskHandle({
+				id: "task-1",
+				mode: "task",
+				status: "completed",
+				output: "summary",
+				softLimitReached: false,
+			}),
+	});
+	await feature.start(lifecycle);
+	await feature.augment("query", sidekickContext);
+	const messages = entries.flatMap(sessionEntryToContextMessages);
+	const projected = feature.onContext(messages, sidekickContext);
+	expect(projected).toBeDefined();
+	// The projection still rendered the m0 compartment alongside the augmentation.
+	expect(projected!.messages.some((message) => message.role === "custom")).toBe(true);
+	expect(
+		projected!.messages.some((message) => messageText(message).includes("Sidekick augmentation")),
+	).toBe(true);
+});
+
+test("sidekick augment empty output does not inject", async (): Promise<void> => {
+	const { lifecycle } = embeddingLifecycle();
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => sidekickStore(),
+		resolveProjectIdentity: async () => "git:project",
+		startSidekickTask: (_context, _spec) =>
+			taskHandle({
+				id: "task-1",
+				mode: "task",
+				status: "completed",
+				output: "   ",
+				softLimitReached: false,
+			}),
+	});
+	await feature.start(lifecycle);
+	expect(await feature.augment("query", sidekickContext)).toEqual({ kind: "empty" });
+	const projected = feature.onContext(
+		entries.flatMap(sessionEntryToContextMessages),
+		sidekickContext,
+	);
+	expect(projected).toBeDefined();
+	expect(
+		projected!.messages.some((message) => messageText(message).includes("Sidekick augmentation")),
+	).toBe(false);
+});
+
+test("sidekick augment failure reports the reason without injecting", async (): Promise<void> => {
+	const { lifecycle } = embeddingLifecycle();
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => sidekickStore(),
+		resolveProjectIdentity: async () => "git:project",
+		startSidekickTask: (_context, _spec) =>
+			taskHandle({
+				id: "task-1",
+				mode: "task",
+				status: "failed",
+				output: "",
+				softLimitReached: false,
+				failure: "model exploded",
+			}),
+	});
+	await feature.start(lifecycle);
+	expect(await feature.augment("query", sidekickContext)).toEqual({
+		kind: "failed",
+		reason: "model exploded",
+	});
+	const projected = feature.onContext(
+		entries.flatMap(sessionEntryToContextMessages),
+		sidekickContext,
+	);
+	expect(
+		projected!.messages.some((message) => messageText(message).includes("Sidekick augmentation")),
+	).toBe(false);
+});
+
+test("sidekick augment partial limit output injects with the partial flag", async (): Promise<void> => {
+	const { lifecycle } = embeddingLifecycle();
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => sidekickStore(),
+		resolveProjectIdentity: async () => "git:project",
+		startSidekickTask: (_context, _spec) =>
+			taskHandle({
+				id: "task-1",
+				mode: "task",
+				status: "limit_reached",
+				output: "partial summary",
+				softLimitReached: true,
+			}),
+	});
+	await feature.start(lifecycle);
+	expect(await feature.augment("query", sidekickContext)).toEqual({ kind: "injected" });
+	const projected = feature.onContext(
+		entries.flatMap(sessionEntryToContextMessages),
+		sidekickContext,
+	);
+	expect(messageText(projected!.messages[0]!)).toContain("partial output");
+	expect(messageText(projected!.messages[0]!)).toContain("partial summary");
+});
+
+test("sidekick augment is inactive outside the bound session", async (): Promise<void> => {
+	const { lifecycle } = embeddingLifecycle();
+	let spawned = 0;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => store(),
+		resolveProjectIdentity: async () => "git:project",
+		startSidekickTask: (_context, _spec) => {
+			spawned += 1;
+			return taskHandle({
+				id: "task-1",
+				mode: "task",
+				status: "completed",
+				output: "x",
+				softLimitReached: false,
+			});
+		},
+	});
+	await feature.start(lifecycle);
+	const otherSession = {
+		sessionManager: { getSessionId: () => "session-other", getBranch: () => entries },
+	} as unknown as ExtensionContext;
+	expect(await feature.augment("query", otherSession)).toEqual({ kind: "inactive" });
+	expect(spawned).toBe(0);
+});
+
+test("sidekick augment cancels the child when the caller signal aborts", async (): Promise<void> => {
+	const { lifecycle } = embeddingLifecycle();
+	const task = deferredTaskHandle();
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => store(),
+		resolveProjectIdentity: async () => "git:project",
+		startSidekickTask: () => task.handle,
+	});
+	await feature.start(lifecycle);
+	const controller = new AbortController();
+	const abortingContext = {
+		sessionManager: { getSessionId: () => "session-1", getBranch: () => entries },
+		signal: controller.signal,
+	} as unknown as ExtensionContext;
+	const pending = feature.augment("query", abortingContext);
+	expect(task.cancelCalls()).toBe(0);
+	controller.abort();
+	expect(await pending).toEqual({ kind: "cancelled" });
+	expect(task.cancelCalls()).toBe(1);
+});
+
+test("buildSidekickAugmentation truncates oversized child output", (): void => {
+	const wrapper = buildSidekickAugmentation({
+		query: "q",
+		operationId: "task-1",
+		status: "completed",
+		partial: false,
+		output: "x".repeat(25_000),
+	});
+	expect(wrapper).toContain("sidekick output truncated");
+	expect(wrapper.length).toBeLessThan(25_000);
 });
