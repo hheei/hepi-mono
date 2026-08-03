@@ -29,17 +29,13 @@ describe("fuzzy apply-patch policy", () => {
 		const paths = await settingsPaths();
 		try {
 			await save(paths.globalPath, {
-				enabled: false,
 				minSimilarity: 0.9,
-				allowFuzzy: false,
 				maxConcurrentWorkers: 4,
 				maxQueueDepth: 100,
 				cacheMiB: 128,
 			});
 			expect(await loadFuzzyApplyPatchPolicy({ paths })).toEqual({
-				enabled: false,
 				minSimilarity: 0.9,
-				allowFuzzy: false,
 				maxConcurrentWorkers: 4,
 				maxQueueDepth: 100,
 				cacheMiB: 128,
@@ -58,21 +54,27 @@ describe("fuzzy apply-patch policy", () => {
 				cacheMiB: 128,
 			});
 			await save(paths.projectPath, {
-				enabled: false,
-				allowFuzzy: false,
 				minSimilarity: 0.9,
 				maxConcurrentWorkers: 2,
 				maxQueueDepth: 20,
 				cacheMiB: 64,
 			});
 			expect(await loadFuzzyApplyPatchPolicy({ paths })).toEqual({
-				enabled: false,
 				minSimilarity: 0.9,
-				allowFuzzy: false,
 				maxConcurrentWorkers: 2,
 				maxQueueDepth: 20,
 				cacheMiB: 64,
 			});
+		} finally {
+			await rm(paths.root, { recursive: true, force: true });
+		}
+	});
+	test("allows a project to disable fuzzy matching with zero", async () => {
+		const paths = await settingsPaths();
+		try {
+			await save(paths.globalPath, { minSimilarity: 0.9 });
+			await save(paths.projectPath, { minSimilarity: 0 });
+			expect(await loadFuzzyApplyPatchPolicy({ paths })).toMatchObject({ minSimilarity: 0 });
 		} finally {
 			await rm(paths.root, { recursive: true, force: true });
 		}
@@ -99,6 +101,10 @@ describe("fuzzy apply-patch policy", () => {
 			await save(paths.globalPath, { maxConcurrentWorkers: 0 });
 			await expect(loadFuzzyApplyPatchPolicy({ paths })).rejects.toThrow(
 				"global setting pi-ext-tools.applyPatch.maxConcurrentWorkers",
+			);
+			await save(paths.globalPath, { allowFuzzy: false });
+			await expect(loadFuzzyApplyPatchPolicy({ paths })).rejects.toThrow(
+				"global setting pi-ext-tools.applyPatch.allowFuzzy is not supported",
 			);
 		} finally {
 			await rm(paths.root, { recursive: true, force: true });

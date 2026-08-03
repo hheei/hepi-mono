@@ -173,7 +173,7 @@ async function stageUpdate(
 	signal?: AbortSignal,
 ): Promise<"exact" | "fuzzy"> {
 	if (await checkedMpatch(stagingRoot, operation, 0, signal)) return "exact";
-	if (!policy.enabled || !policy.allowFuzzy)
+	if (policy.minSimilarity === 0)
 		throw new Error(`Patch update failed exactly and fuzzy is disabled: ${operation.path}`);
 	if (await checkedMpatch(stagingRoot, operation, policy.minSimilarity, signal)) return "fuzzy";
 	throw new Error(`Patch update failed: ${operation.path}`);

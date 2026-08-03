@@ -12,13 +12,10 @@ import {
 const temporaryPaths: string[] = [];
 const noFuzzy: FuzzyApplyPatchPolicy = {
 	...DEFAULT_FUZZY_APPLY_PATCH_POLICY,
-	enabled: false,
-	allowFuzzy: false,
+	minSimilarity: 0,
 };
 const fuzzy: FuzzyApplyPatchPolicy = {
 	...DEFAULT_FUZZY_APPLY_PATCH_POLICY,
-	enabled: true,
-	allowFuzzy: true,
 	minSimilarity: 0.5,
 };
 
