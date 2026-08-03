@@ -1,12 +1,28 @@
 import { describe, expect, test } from "bun:test";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { visibleWidth } from "../../../hepi-basics/src/core/index.js";
-import { assertVisibleWidth, fakeTheme, stripAnsi } from "../../../hepi-basics/test/helpers.js";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { createBtwComponent } from "../../src/component.js";
 import { createBtwTurn } from "../../src/model.js";
 
-const theme = fakeTheme() as unknown as Theme;
+function stripAnsi(text: string): string {
+	return text.replace(/\p{Cc}\[[0-?]*[ -/]*[@-~]/gu, (sequence) => {
+		const control = sequence.codePointAt(0);
+		return control === 0x1b || control === 0x9b ? "" : sequence;
+	});
+}
+
+function assertVisibleWidth(lines: readonly string[], width: number): void {
+	for (const line of lines) expect(visibleWidth(stripAnsi(line))).toBeLessThanOrEqual(width);
+}
+
+const theme = {
+	fg: (_color: string, text: string) => text,
+	bold: (text: string) => text,
+	dim: (text: string) => text,
+	italic: (text: string) => text,
+	strikethrough: (text: string) => text,
+} as unknown as Theme;
 
 function assistant(text: string): AssistantMessage {
 	return {
