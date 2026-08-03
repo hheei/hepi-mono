@@ -15,13 +15,32 @@
  *     `subagent-notification` followUp path. No new delivery code.
  */
 
+import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Cron } from "croner";
 import { nanoid } from "nanoid";
-import type { AgentManager } from "./agent-manager.js";
+import type { AgentManager, SpawnOptions } from "./agent-manager.js";
 import { resolveModel } from "./model-resolver.js";
 import type { ScheduleStore } from "./schedule-store.js";
-import type { IsolationMode, ScheduledSubagent, SubagentType, ThinkingLevel } from "./types.js";
+import type {
+	AgentRecord,
+	IsolationMode,
+	ScheduledSubagent,
+	SubagentType,
+	ThinkingLevel,
+} from "./types.js";
+
+/** Scheduler consumes only spawning and terminal-record observation, allowing faithful test doubles. */
+type SchedulerAgentManager = Pick<AgentManager, "spawn" | "getRecord"> & {
+	spawn(
+		pi: ExtensionAPI,
+		ctx: ExtensionContext,
+		type: SubagentType,
+		prompt: string,
+		options: SpawnOptions,
+	): string;
+	getRecord(id: string): Pick<AgentRecord, "promise" | "status"> | undefined;
+};
 
 /** Event emitted on `pi.events` for cross-extension consumers. */
 export type ScheduleChangeEvent =
@@ -51,13 +70,13 @@ export class SubagentScheduler {
 	private store: ScheduleStore | undefined;
 	private pi: ExtensionAPI | undefined;
 	private ctx: ExtensionContext | undefined;
-	private manager: AgentManager | undefined;
+	private manager: SchedulerAgentManager | undefined;
 
 	/** Start the scheduler: bind to a session's store and arm enabled jobs. */
 	start(
 		pi: ExtensionAPI,
 		ctx: ExtensionContext,
-		manager: AgentManager,
+		manager: SchedulerAgentManager,
 		store: ScheduleStore,
 	): void {
 		this.pi = pi;
@@ -103,14 +122,14 @@ export class SubagentScheduler {
 			description: input.description,
 			schedule: detected.normalized,
 			scheduleType: detected.type,
-			intervalMs: detected.intervalMs,
 			subagent_type: input.subagent_type,
 			prompt: input.prompt,
-			model: input.model,
-			thinking: input.thinking,
-			max_turns: input.max_turns,
-			isolated: input.isolated,
-			isolation: input.isolation,
+			...(detected.intervalMs === undefined ? {} : { intervalMs: detected.intervalMs }),
+			...(input.model === undefined ? {} : { model: input.model }),
+			...(input.thinking === undefined ? {} : { thinking: input.thinking }),
+			...(input.max_turns === undefined ? {} : { max_turns: input.max_turns }),
+			...(input.isolated === undefined ? {} : { isolated: input.isolated }),
+			...(input.isolation === undefined ? {} : { isolation: input.isolation }),
 			enabled: true,
 			createdAt: new Date().toISOString(),
 			runCount: 0,
@@ -243,7 +262,7 @@ export class SubagentScheduler {
 		// Resolve model at fire time — registry contents may have changed since the
 		// job was created (auth added/removed). Fall back silently to spawn-default
 		// if resolution fails; the spawn path handles undefined model gracefully.
-		let resolvedModel: any | undefined;
+		let resolvedModel: Model<Api> | undefined;
 		if (job.model) {
 			const r = resolveModel(job.model, ctx.modelRegistry);
 			if (typeof r !== "string") resolvedModel = r;
@@ -255,11 +274,11 @@ export class SubagentScheduler {
 				description: job.description,
 				isBackground: true,
 				bypassQueue: true,
-				model: resolvedModel,
-				maxTurns: job.max_turns,
-				isolated: job.isolated,
-				thinkingLevel: job.thinking,
-				isolation: job.isolation,
+				...(resolvedModel === undefined ? {} : { model: resolvedModel }),
+				...(job.max_turns === undefined ? {} : { maxTurns: job.max_turns }),
+				...(job.isolated === undefined ? {} : { isolated: job.isolated }),
+				...(job.thinking === undefined ? {} : { thinkingLevel: job.thinking }),
+				...(job.isolation === undefined ? {} : { isolation: job.isolation }),
 			});
 		} catch (err) {
 			const error = err instanceof Error ? err.message : String(err);
@@ -278,7 +297,7 @@ export class SubagentScheduler {
 				lastRun: new Date().toISOString(),
 				lastStatus: status,
 				runCount: (current?.runCount ?? 0) + 1,
-				nextRun: next,
+				...(next === undefined ? {} : { nextRun: next }),
 			});
 		};
 
@@ -370,9 +389,10 @@ export class SubagentScheduler {
 	static parseRelativeTime(s: string): string | null {
 		const m = s.match(/^\+(\d+)(s|m|h|d)$/);
 		if (!m) return null;
-		const ms =
-			parseInt(m[1], 10) *
-			{ s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }[m[2] as "s" | "m" | "h" | "d"];
+		const amount = m[1];
+		const unit = m[2] as "s" | "m" | "h" | "d" | undefined;
+		if (amount === undefined || unit === undefined) return null;
+		const ms = parseInt(amount, 10) * { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }[unit];
 		return new Date(Date.now() + ms).toISOString();
 	}
 
@@ -380,9 +400,9 @@ export class SubagentScheduler {
 	static parseInterval(s: string): number | null {
 		const m = s.match(/^(\d+)(s|m|h|d)$/);
 		if (!m) return null;
-		return (
-			parseInt(m[1], 10) *
-			{ s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }[m[2] as "s" | "m" | "h" | "d"]
-		);
+		const amount = m[1];
+		const unit = m[2] as "s" | "m" | "h" | "d" | undefined;
+		if (amount === undefined || unit === undefined) return null;
+		return parseInt(amount, 10) * { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }[unit];
 	}
 }

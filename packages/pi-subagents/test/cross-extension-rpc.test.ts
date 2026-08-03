@@ -316,7 +316,9 @@ describe("cross-extension RPC", () => {
 			});
 
 			await vi.waitFor(() => expect(reply).toHaveBeenCalled());
-			const call = (reply as ReturnType<typeof vi.fn>).mock.calls[0][0];
+			const replyCall = (reply as ReturnType<typeof vi.fn>).mock.calls[0];
+			if (replyCall === undefined) throw new Error("reply fixture missing");
+			const call = replyCall[0];
 			expect(call.success).toBe(false);
 			expect(call.error).toMatch(/Model not found/);
 			expect(manager.spawn).not.toHaveBeenCalled();
@@ -335,7 +337,9 @@ describe("cross-extension RPC", () => {
 			});
 
 			await vi.waitFor(() => expect(reply).toHaveBeenCalled());
-			const call = (reply as ReturnType<typeof vi.fn>).mock.calls[0][0];
+			const replyCall = (reply as ReturnType<typeof vi.fn>).mock.calls[0];
+			if (replyCall === undefined) throw new Error("reply fixture missing");
+			const call = replyCall[0];
 			expect(call.success).toBe(false);
 			expect(call.error).toMatch(/modelRegistry is unavailable/);
 			expect(manager.spawn).not.toHaveBeenCalled();

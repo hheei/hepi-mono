@@ -79,7 +79,7 @@ describe("AgentWidget", () => {
 			toolUses: 0,
 			responseText: "",
 			turnCount: 1,
-			lifetimeUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			lifetimeUsage: { input: 0, output: 0, cacheWrite: 0 },
 		};
 	}
 
@@ -91,7 +91,7 @@ describe("AgentWidget", () => {
 			status: "running",
 			toolUses: 0,
 			startedAt: Date.now(),
-			lifetimeUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			lifetimeUsage: { input: 0, output: 0, cacheWrite: 0 },
 			compactionCount: 0,
 			isBackground: opts.isBackground,
 		};

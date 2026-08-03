@@ -98,7 +98,6 @@ describe("pi-subagents settings provider", () => {
 			setScopeModels: () => undefined,
 			setDisableDefaultAgents: () => undefined,
 			setToolDescriptionMode: () => undefined,
-			setFleetView: () => undefined,
 			setWidgetMode: () => undefined,
 			setOutputTranscript: () => undefined,
 		};
@@ -142,7 +141,6 @@ describe("pi-subagents settings provider", () => {
 				setScopeModels: () => values.push("scope"),
 				setDisableDefaultAgents: () => values.push("defaults"),
 				setToolDescriptionMode: () => values.push("description"),
-				setFleetView: () => values.push("fleet"),
 				setWidgetMode: () => values.push("widget"),
 				setOutputTranscript: () => values.push("transcript"),
 			},

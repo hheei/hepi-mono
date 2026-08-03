@@ -1,48 +1,55 @@
-# Agent Fleet UI
+# Agent Runtime UI
+
+## 状态
+
+本文记录已批准的目标边界。当前 `FleetSurface` 的 profile、schedule 与 setting 管理能力是待删除的旧 UI，
+不能作为新功能的扩展点。
 
 ## 目的
 
-`/agents` 是 `@hheei/pi-subagents` 的 domain-owned Agent Fleet surface。它让用户查看 root session 中的
-active/queued child agent、管理 agent definition，并进入 live conversation。它不属于 `/ext-settings`：
-`pi-settings` 只承载通用设置字段，Fleet 自己拥有 agent catalog、profile 文件和 task record 的业务操作。
+agent profile configuration 必须只通过 Loadout/Settings 的 shared router 进入。`pi-subagents` 不拥有
+`/agents` configuration GUI；它仅在未来提供 root-session-scoped Runtime popup，用于查看运行中的 child、
+live conversation、steer 与 stop。
 
 ## 所有权
 
-`@hheei/pi-ext-core` 的 `openTuiSurface()` 只拥有 runtime-wide custom UI slot、FIFO admission、abort、
-theme 和 component disposal。它不知道 Agent、profile、schedule 或 file mutation。
+`@hheei/pi-ext-core` 的 Loadout resource registry 传输 lifecycle-bound `agent:<name>` registration 与
+detail controller capability；它不读取 agent profile、持久化配置或决定 activation policy。其 shared router
+拥有 surface lifecycle、theme、focus、key routing 与 cleanup。
 
-`pi-subagents` 拥有 Fleet component、列表内容、selected detail、操作可用性、child transcript 呈现，以及
-profile mutation policy。每个 child execution、steer、stop 和 transcript read 仍只能通过 core conversation
-handle，Fleet 不保存或暴露 raw `AgentSession`。
+`pi-loadout` 拥有 scope selection、effective activation、`Agents` group 和同一 surface 内的 detail 入口。
+`pi-subagents` 拥有 agent profile fields、validation、profile-file mutation 与未来 Runtime popup 的内容。每个
+child execution、steer、stop 和 transcript read 仍只能通过 core conversation handle；任何 UI 不保存或暴露
+raw `AgentSession`。
 
 ## 信息架构
 
-Fleet 首屏有三个分组：
+Loadout 在存在 `pi-subagents` resource registration 时显示一个 **`𖠌 Agents`** group；同一列表的
+其它固定 headings 是 **`⚒ Tools`** 与 **`✦ Skills`**：
 
-- **Active**：root session 的 queued、running 与 retained terminal child records；选中行显示 operation
-  status、purpose、duration 和 usage，Enter 进入 conversation view。
-- **Agent definitions**：built-in 与 project/global custom definitions；Detail 显示来源、enabled state、model、
-  tool scope、turn budget 和 description。
-- **Schedules**：此 slice 只显示 schedule count 和 deferred state，不实现 schedule CRUD。
+- 每个 profile 以 `agent:<name>` 表示 effective activation；Global/Project scope 复用 Loadout 的
+  enabled、disabled、inherit 语义。
+- list row 固定为 `● <agent-name>  <thinking glyph> provider/model-name`；effective disabled 使用
+  `○`。thinking glyph 与 activation glyph 分列，model 未指定显示 `inherit`。
+- `Enter` 留在同一 router surface，打开该 profile 的 model、thinking、tool scope、memory、isolation、turn
+  budget 与来源详情；保存与校验由 `pi-subagents` 提供的 detail controller 完成。
+- schedule 和 extension-wide preference 同样是 Settings/Loadout concern；不再出现在 agent runtime UI。
 
-宽布局是 grouped list、conditional scrollbar、Detail。窄布局改为 list 在上、Detail 在下。两种布局都固定
-content row budget，selected marker 固定为 `→ `，description 在 Detail 区 wrap/clip，不能因状态或长文本改变列表
-行高。具体 token、truncation 和 keyboard hint 服从根 `DESIGN.md`。
+Loadout 宽/窄布局、scope 切换、filter、fixed 20-row content budget、`→ ` selected marker、token、truncation
+与 keyboard hint 服从 `DESIGN.md`。`Agents` detail 必须复用这些约束，不创建第二套 `/agents` settings GUI。
 
 ## 交互和文件操作
 
-Fleet 是一个 custom surface，内部状态为 `fleet` 或 `conversation`：
+未来 Runtime popup 是一个只读为主的 custom surface，内部状态为 `runs` 或 `conversation`：
 
-- `Enter` 在 active record 上切到同一 surface 内的 live conversation；viewer 支持 scrolling、steer 和
+- `Enter` 在 active record 上切到同一 popup 内的 live conversation；viewer 支持 scrolling、steer 和
   two-press stop，`Esc` 返回原 selected row。
-- definition actions 产生 typed intent，而非从 Fleet 内嵌套 Pi dialog。surface 先关闭，command handler 再用
-  Pi native `editor`、`input` 或 `confirm` 完成 manual create、generate、edit、enable/disable、eject、reset 或
-  delete，然后以相同 selection 重开 Fleet。
-- Generate 通过 core-backed child conversation 创建已选 scope 的 definition；它必须使用有限 budget，不能产生
-  unlimited turn configuration。
+- popup 不管理 profile、schedule 或 activation configuration；这些操作必须返回 Loadout/Settings。
+- popup 的运行态不影响 Loadout resource persistence；profile activation 的下一次 runtime application 遵循
+  Loadout 的现有 reload semantics。
 
-editor-adjacent summary 是 core-managed read-only widget。它不接管方向键或 terminal focus；进入 Fleet 的
-稳定入口是 `/agents`。当前不注册默认 shortcut，待 user-facing binding 决定后再单独添加。
+editor-adjacent summary 是 core-managed read-only widget。它不接管方向键或 terminal focus；Runtime popup
+的稳定入口待 user-facing binding 决定后注册，不能复活 `/agents` configuration command。
 
 ## Widget 移植计划
 
@@ -80,9 +87,11 @@ Widget 只在有 active/queued/短暂 finished 内容时 visible；没有内容�
 
 ## 生命周期和验证
 
-surface 的 AbortSignal 终止时必须 detach conversation subscriptions、丢弃 late actions，并释放 widget/surface
-resources。session shutdown、reload 与 session replacement 关闭 Fleet，不恢复旧 record 或 component。
+Runtime popup 的 AbortSignal 终止时必须 detach conversation subscriptions、丢弃 late actions，并释放
+widget/surface resources。session shutdown、reload 与 session replacement 关闭 Runtime popup，不恢复旧
+record 或 component。
 
-验证覆盖：wide/narrow render、ANSI cell-width、fixed rows、group navigation、viewer back/steer/stop、typed action
-handoff、abort/reload cleanup，以及 widget mount/suspend/restore。完成前用 tui-replay 和实际 Pi host 验证 `/agents`、
-Esc、viewer 与 editor-return 行为。
+验证覆盖：Loadout `Agents` group 的 wide/narrow render、ANSI cell-width、fixed rows、scope persistence、
+detail Enter/Esc/save；Runtime popup 另覆盖 runs navigation、viewer back/steer/stop、abort/reload cleanup，
+以及 widget mount/suspend/restore。完成前用 tui-replay 和实际 Pi host 验证 `/loadout`、Esc、profile detail
+与 Runtime popup 的 editor-return 行为。

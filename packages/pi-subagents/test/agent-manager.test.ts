@@ -4,13 +4,15 @@ import type {
 	ExtensionLifecycleContext,
 	SubagentEvent,
 } from "@hheei/pi-ext-core";
+import { PARENT_CONTEXT_PROJECTION_SERVICE } from "@hheei/pi-ext-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const startSubagent = vi.hoisted(() => vi.fn());
+const getService = vi.hoisted(() => vi.fn());
 
 vi.mock("@hheei/pi-ext-core", async () => {
 	const actual = await vi.importActual<typeof import("@hheei/pi-ext-core")>("@hheei/pi-ext-core");
-	return { ...actual, startSubagent };
+	return { ...actual, getService, startSubagent };
 });
 
 vi.mock("../src/worktree.js", () => ({
@@ -90,10 +92,11 @@ describe("AgentManager core adapter", () => {
 
 	beforeEach(() => {
 		startSubagent.mockReset();
+		getService.mockReset();
 	});
 
 	afterEach(() => {
-		manager?.dispose();
+		manager.dispose();
 	});
 
 	it("routes child creation through the opaque core conversation handle", async () => {
@@ -124,6 +127,91 @@ describe("AgentManager core adapter", () => {
 		});
 		await expect(record?.promise).resolves.toBe("done");
 		expect(record?.status).toBe("completed");
+	});
+
+	it("uses the active parent-context projection for inherited child prompts", async () => {
+		const fake = fakeHandle();
+		startSubagent.mockReturnValue(fake.handle);
+		const service = {
+			prepare: vi.fn(async () => ({
+				kind: "result" as const,
+				purpose: "inheritance" as const,
+				payload: "projected preamble\n# Your Task (below)\n",
+			})),
+		};
+		getService.mockReturnValue(service);
+		manager = new AgentManager();
+		manager.setRuntime(runtime());
+		const pi = {} as never;
+		const sessionManager = { getBranch: vi.fn() };
+		const ctx = { cwd: "/tmp", sessionManager } as never;
+
+		manager.spawn(pi, ctx, "general-purpose", "inspect", {
+			description: "Inspect files",
+			inheritContext: true,
+		});
+		await Promise.resolve();
+
+		expect(getService).toHaveBeenCalledWith(pi, PARENT_CONTEXT_PROJECTION_SERVICE);
+		expect(service.prepare).toHaveBeenCalledWith(
+			expect.objectContaining({ purpose: "inheritance", signal: expect.any(AbortSignal) }),
+		);
+		expect(startSubagent.mock.calls[0]?.[1]).toMatchObject({
+			initialMessage: "projected preamble\n# Your Task (below)\ninspect",
+		});
+	});
+
+	it.each([
+		["missing provider", undefined],
+		["undefined projection", { prepare: vi.fn(async () => ({ kind: "unavailable" as const })) }],
+	])("preserves native parent-context fallback with %s", async (_case, service) => {
+		const fake = fakeHandle();
+		startSubagent.mockReturnValue(fake.handle);
+		getService.mockReturnValue(service);
+		manager = new AgentManager();
+		manager.setRuntime(runtime());
+		const pi = {} as never;
+		const ctx = {
+			cwd: "/tmp",
+			sessionManager: {
+				getBranch: () => [
+					{ type: "message", message: { role: "user", content: "parent question" } },
+				],
+			},
+		} as never;
+
+		manager.spawn(pi, ctx, "general-purpose", "inspect", {
+			description: "Inspect files",
+			inheritContext: true,
+		});
+		await vi.waitFor(() => expect(startSubagent).toHaveBeenCalledOnce());
+
+		expect(startSubagent.mock.calls[0]?.[1]).toMatchObject({
+			initialMessage:
+				"# Parent Conversation Context\n" +
+				"The following is the conversation history from the parent session that spawned you.\n" +
+				"Use this context to understand what has been discussed and decided so far.\n\n" +
+				"[User]: parent question\n\n---\n# Your Task (below)\ninspect",
+		});
+	});
+
+	it("does not retrieve parent projection when context inheritance is disabled", () => {
+		const fake = fakeHandle();
+		startSubagent.mockReturnValue(fake.handle);
+		manager = new AgentManager();
+		manager.setRuntime(runtime());
+		const pi = {} as never;
+		const sessionManager = { getBranch: vi.fn() };
+		const ctx = { cwd: "/tmp", sessionManager } as never;
+
+		manager.spawn(pi, ctx, "general-purpose", "inspect", {
+			description: "Inspect files",
+			inheritContext: false,
+		});
+
+		expect(getService).not.toHaveBeenCalled();
+		expect(sessionManager.getBranch).not.toHaveBeenCalled();
+		expect(startSubagent.mock.calls[0]?.[1]).toMatchObject({ initialMessage: "inspect" });
 	});
 
 	it("marks records started only when core admits their turn", () => {
@@ -213,7 +301,9 @@ describe("AgentManager core adapter", () => {
 		await manager.getRecord(id)?.promise;
 		expect(manager.steer(id, "focus on tests")).toBe(true);
 		await expect(manager.resume(id, "continue")).resolves.toMatchObject({ result: "resumed" });
-		expect(manager.getRecord(id)).toMatchObject({ status: "completed", error: undefined });
+		const record = manager.getRecord(id);
+		expect(record).toMatchObject({ status: "completed" });
+		expect(record).not.toHaveProperty("error");
 		expect(fake.steer).toHaveBeenCalledWith("focus on tests");
 		expect(fake.send).toHaveBeenCalledWith(
 			"continue",

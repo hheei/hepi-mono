@@ -18,12 +18,16 @@ const MODELS = [
 ];
 
 function makeRegistry(models = MODELS, available?: typeof MODELS): ModelRegistryRef {
-	return {
+	const registry: ModelRegistryRef = {
 		getAll() {
 			return models;
 		},
-		getAvailable: available ? () => available : undefined,
 	};
+	if (available !== undefined) {
+		const availableModels = available;
+		registry.getAvailable = () => availableModels;
+	}
+	return registry;
 }
 
 describe("readEnabledModels", () => {
@@ -202,7 +206,7 @@ describe("resolveEnabledModels", () => {
 
 	describe("getAvailable filtering", () => {
 		it("resolves only against available models when getAvailable present", () => {
-			const available = [MODELS[0], MODELS[3]]; // google + haiku only
+			const available = [MODELS[0], MODELS[3]].filter((model) => model !== undefined); // google + haiku only
 			const result = resolveEnabledModels(
 				["anthropic/claude-haiku-4-5", "anthropic/claude-sonnet-4-6", "google/gemma-4-31b-it"],
 				makeRegistry(MODELS, available),

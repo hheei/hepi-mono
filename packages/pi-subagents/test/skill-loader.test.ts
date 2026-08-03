@@ -2,7 +2,21 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { preloadSkills } from "../src/skill-loader.js";
+import type { PreloadedSkill } from "../src/skill-loader.js";
+import { preloadSkills as loadSkills } from "../src/skill-loader.js";
+
+function preloadSkills(names: [], cwd: string): PreloadedSkill[];
+function preloadSkills(
+	names: [string, string, ...string[]],
+	cwd: string,
+): [PreloadedSkill, PreloadedSkill, ...PreloadedSkill[]];
+function preloadSkills(
+	names: [string, ...string[]],
+	cwd: string,
+): [PreloadedSkill, ...PreloadedSkill[]];
+function preloadSkills(names: string[], cwd: string): PreloadedSkill[] {
+	return loadSkills(names, cwd);
+}
 
 describe("preloadSkills", () => {
 	let tmpDir: string;

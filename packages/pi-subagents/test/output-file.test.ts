@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
 	ConversationSubagentHandle,
+	SubagentId,
 	SubscribeSubagentEventsOptions,
 } from "@hheei/pi-ext-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -24,6 +25,7 @@ describe("encodeCwd", () => {
 
 describe("streamToOutputFile", () => {
 	const directories: string[] = [];
+	const subagentId = "subagent-1" as SubagentId;
 
 	afterEach(() => {
 		for (const directory of directories.splice(0))
@@ -32,14 +34,18 @@ describe("streamToOutputFile", () => {
 
 	function fixture(): {
 		path: string;
-		emit: (event: unknown) => void;
+		emit: (event: Parameters<NonNullable<SubscribeSubagentEventsOptions["onEvent"]>>[0]) => void;
 		dispose: ReturnType<typeof vi.fn>;
 	} {
 		const directory = mkdtempSync(join(tmpdir(), "pi-subagents-output-"));
 		directories.push(directory);
 		const path = join(directory, "nested", "run.output");
 		mkdirSync(join(directory, "nested"), { recursive: true });
-		let callback: ((event: unknown) => void | Promise<void>) | undefined;
+		let callback:
+			| ((
+					event: Parameters<NonNullable<SubscribeSubagentEventsOptions["onEvent"]>>[0],
+			  ) => void | Promise<void>)
+			| undefined;
 		const dispose = vi.fn();
 		const handle = {
 			subscribe: (options: SubscribeSubagentEventsOptions) => {
@@ -53,9 +59,9 @@ describe("streamToOutputFile", () => {
 
 	it("writes bounded core text and tool events as JSONL", () => {
 		const { path, emit } = fixture();
-		emit({ kind: "text", id: "subagent-1", text: "hello" });
-		emit({ kind: "text", id: "subagent-1", text: "hello world" });
-		emit({ kind: "tool", id: "subagent-1", toolName: "read", state: "end" });
+		emit({ kind: "text", id: subagentId, text: "hello" });
+		emit({ kind: "text", id: subagentId, text: "hello world" });
+		emit({ kind: "tool", id: subagentId, toolName: "read", state: "end" });
 
 		const entries = readFileSync(path, "utf8")
 			.trim()
@@ -71,8 +77,8 @@ describe("streamToOutputFile", () => {
 
 	it("does not duplicate identical text snapshots", () => {
 		const { path, emit } = fixture();
-		emit({ kind: "text", id: "subagent-1", text: "same" });
-		emit({ kind: "text", id: "subagent-1", text: "same" });
+		emit({ kind: "text", id: subagentId, text: "same" });
+		emit({ kind: "text", id: subagentId, text: "same" });
 
 		expect(readFileSync(path, "utf8").trim().split("\n")).toHaveLength(1);
 	});

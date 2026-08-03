@@ -13,6 +13,8 @@ import {
 	type ConversationReplyResult,
 	type ConversationSubagentHandle,
 	type ExtensionLifecycleContext,
+	getService,
+	PARENT_CONTEXT_PROJECTION_SERVICE,
 	type SubagentEvent,
 	startSubagent,
 } from "@hheei/pi-ext-core";
@@ -108,9 +110,9 @@ function abortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
 export class AgentManager {
 	private readonly agents = new Map<string, AgentRecord>();
 	private maxConcurrent: number;
-	private readonly onComplete?: OnAgentComplete;
-	private readonly onStart?: OnAgentStart;
-	private readonly onChange?: OnAgentChange;
+	private readonly onComplete: OnAgentComplete | undefined;
+	private readonly onStart: OnAgentStart | undefined;
+	private readonly onChange: OnAgentChange | undefined;
 	private runtime: ExtensionLifecycleContext | undefined;
 
 	constructor(
@@ -157,13 +159,17 @@ export class AgentManager {
 			abortController,
 			lifetimeUsage: { input: 0, output: 0, cacheWrite: 0 },
 			compactionCount: 0,
-			isBackground: options.isBackground,
-			invocation: options.invocation,
+			...(options.isBackground === undefined ? {} : { isBackground: options.isBackground }),
+			...(options.invocation === undefined ? {} : { invocation: options.invocation }),
 		};
 		this.agents.set(id, record);
 		this.onChange?.();
 		try {
-			this.startAgent(id, record, { pi, ctx, type, prompt, options });
+			const startup = this.startAgent(id, record, { pi, ctx, type, prompt, options });
+			record.promise = startup.catch((error: unknown) => {
+				const baseCwd = options.cwd ?? ctx.cwd;
+				return this.fail(record, error, options, baseCwd);
+			});
 		} catch (error: unknown) {
 			this.agents.delete(id);
 			this.onChange?.();
@@ -172,10 +178,30 @@ export class AgentManager {
 		return id;
 	}
 
-	private startAgent(id: string, record: AgentRecord, args: SpawnArgs): void {
+	private async startAgent(id: string, record: AgentRecord, args: SpawnArgs): Promise<string> {
 		const runtime = this.runtime;
 		if (runtime === undefined) throw new Error("Subagent runtime is not active");
 		const { pi, ctx, type, prompt, options } = args;
+		let initialMessage = prompt;
+		if (options.inheritContext) {
+			const service = getService(pi, PARENT_CONTEXT_PROJECTION_SERVICE);
+			if (service === undefined) {
+				initialMessage = buildParentContext(ctx) + prompt;
+			} else {
+				const result = await service.prepare({
+					purpose: "inheritance",
+					signal: options.signal ?? runtime.signal,
+				});
+				if (result.kind === "result") {
+					if (result.purpose !== "inheritance" || typeof result.payload !== "string") {
+						throw new Error("Invalid parent context projection result");
+					}
+					initialMessage = result.payload + prompt;
+				} else {
+					initialMessage = buildParentContext(ctx) + prompt;
+				}
+			}
+		}
 		const baseCwd = options.cwd ?? ctx.cwd;
 		let worktree: WorktreeInfo | undefined;
 		if (options.isolation === "worktree") {
@@ -188,18 +214,19 @@ export class AgentManager {
 			record.worktree = worktree;
 		}
 
-		const childCwd = worktree?.workPath ?? options.cwd;
+		const childCwd = worktree === undefined ? options.cwd : worktree.workPath;
+		const { cwd: _cwd, ...restOptions } = options;
 		const childOptions = {
-			...options,
+			...restOptions,
 			pi,
 			agentId: id,
-			cwd: childCwd === null ? undefined : childCwd,
+			...(childCwd === null || childCwd === undefined ? {} : { cwd: childCwd }),
 			configCwd: options.configCwd ?? ctx.cwd,
 		};
 		const handle = startSubagent(runtime, {
 			mode: "conversation",
 			session: createCoreSessionFactory(ctx, type, childOptions),
-			initialMessage: options.inheritContext ? buildParentContext(ctx) + prompt : prompt,
+			initialMessage,
 			initialReply: { kind: "wait", signal: new AbortController().signal },
 			fallbackDelivery: async () => undefined,
 			maxTurnsPerReply: Math.max(1, Math.floor(options.maxTurns ?? DEFAULT_MAX_TURNS)),
@@ -244,7 +271,7 @@ export class AgentManager {
 		};
 
 		const initial = handle.initialReply;
-		record.promise = initial.then(
+		return await initial.then(
 			(reply) => this.finish(record, reply, options, baseCwd),
 			(error: unknown) => this.fail(record, error, options, baseCwd),
 		);
@@ -275,7 +302,8 @@ export class AgentManager {
 	): string {
 		record.result = reply.output;
 		record.status = statusForReply(record, reply);
-		record.error = reply.failure;
+		if (reply.failure === undefined) delete record.error;
+		else record.error = reply.failure;
 		record.completedAt = Date.now();
 		this.updateUsage(record, options);
 		this.cleanup(record, baseCwd);
@@ -312,7 +340,7 @@ export class AgentManager {
 
 	private cleanup(record: AgentRecord, baseCwd: string): void {
 		record.outputCleanup?.();
-		record.outputCleanup = undefined;
+		delete record.outputCleanup;
 		if (record.worktree !== undefined) {
 			record.worktreeResult = cleanupWorktree(baseCwd, record.worktree, record.description);
 		}
@@ -370,9 +398,9 @@ export class AgentManager {
 		const handle = record.handle;
 		record.status = "running";
 		record.startedAt = Date.now();
-		record.completedAt = undefined;
-		record.result = undefined;
-		record.error = undefined;
+		delete record.completedAt;
+		delete record.result;
+		delete record.error;
 		const usageBefore = handle.usage();
 		const subscription = handle.subscribe({
 			kinds: new Set(["text", "tool"]),
@@ -394,7 +422,8 @@ export class AgentManager {
 			);
 			if (result.output) record.result = result.output;
 			record.status = statusForReply(record, result);
-			record.error = result.failure;
+			if (result.failure === undefined) delete record.error;
+			else record.error = result.failure;
 		} catch (error: unknown) {
 			record.status = signal?.aborted === true ? "aborted" : "error";
 			record.error = error instanceof Error ? error.message : String(error);

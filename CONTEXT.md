@@ -267,6 +267,12 @@ terminal result, status and cleanup regardless of whether its caller awaits, rec
 or subscribes to events.
 _Avoid_: raw child session, background job
 
+**Resolved child-session factory**:
+A consumer-owned, immutable factory that creates a fully policy-resolved child AgentSession for one
+Task or Conversation. The consumer owns agent/model/prompt/tool/worktree policy; core owns the
+factory product's admission, execution, cancellation, terminalization and disposal.
+_Avoid_: raw CreateAgentSessionOptions in public consumer APIs, core-owned agent-policy framework
+
 **Completion**:
 A lightweight, no-tools, single model response. It has no child AgentSession, transcript or
 interactive input channel.
@@ -346,9 +352,10 @@ and shutdown cleanup. Child sessions cannot create subagents.
 _Avoid_: per-extension pool, durable supervisor
 
 **Root subagent coordinator configuration**:
-The one live session-lifecycle owner that supplies the positive integer active-turn cap for a Pi
-runtime. `pi-subagents` owns it. A second live owner is a collision error; lifecycle abort releases
-the configuration, so `/reload` configures a new coordinator during its next session start.
+The first live consumer in a parent session that supplies the positive integer active-turn cap for a
+Pi runtime. Later consumers may join only by declaring the same cap; a different value is a collision
+error. Lifecycle abort releases ownership, so `/reload` configures a new coordinator during its next
+session start.
 _Avoid_: cap per task, hidden core default, load-order replacement
 
 **Subagent event subscription**:

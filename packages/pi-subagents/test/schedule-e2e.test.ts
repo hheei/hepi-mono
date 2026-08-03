@@ -14,11 +14,24 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AgentManager } from "../src/agent-manager.js";
 import { SubagentScheduler } from "../src/schedule.js";
 import { ScheduleStore } from "../src/schedule-store.js";
 
 type FakeRecord = { status: string; promise: Promise<string>; resolve: () => void };
+type FaithfulManager = Omit<AgentManager, "spawn" | "getRecord"> & {
+	records: Map<string, FakeRecord>;
+	initialStatus: string;
+	spawn: AgentManager["spawn"] & { mock: { calls: unknown[][] } };
+	getRecord: AgentManager["getRecord"] & { mock: { calls: unknown[][] } };
+};
+type FaithfulPi = ExtensionAPI & {
+	events: ExtensionAPI["events"] & {
+		emit: ExtensionAPI["events"]["emit"] & { mock: { calls: unknown[][] } };
+	};
+};
 
 /**
  * Faithful AgentManager mock: spawn returns an id, getRecord returns a
@@ -30,8 +43,8 @@ function makeFaithfulManager(initialStatus = "completed") {
 	return {
 		records,
 		initialStatus,
-		spawn: vi.fn(function (this: any) {
-			const id = "agent-" + Math.random().toString(36).slice(2, 10);
+		spawn: vi.fn(() => {
+			const id = `agent-${Math.random().toString(36).slice(2, 10)}`;
 			let resolve!: () => void;
 			const promise = new Promise<string>((r) => {
 				resolve = () => r("");
@@ -41,14 +54,12 @@ function makeFaithfulManager(initialStatus = "completed") {
 			queueMicrotask(() => records.get(id)?.resolve());
 			return id;
 		}),
-		getRecord: vi.fn(function (this: any, id: string) {
-			return records.get(id);
-		}),
-	} as any;
+		getRecord: vi.fn((id: string) => records.get(id)),
+	} as unknown as FaithfulManager;
 }
 
 function makePi() {
-	return { events: { emit: vi.fn() } } as any;
+	return { events: { emit: vi.fn() } } as unknown as FaithfulPi;
 }
 
 function makeCtx() {
@@ -56,7 +67,18 @@ function makeCtx() {
 		cwd: "/tmp",
 		modelRegistry: { find: vi.fn(), getAll: () => [], getAvailable: () => [] },
 		sessionManager: { getSessionId: () => "sess-e2e" },
-	} as any;
+	} as unknown as ExtensionContext;
+}
+
+function isScheduledEventCall(call: unknown[]): call is [string, { type: string }] {
+	const event = call[1];
+	return (
+		call[0] === "subagents:scheduled" &&
+		typeof event === "object" &&
+		event !== null &&
+		"type" in event &&
+		typeof event.type === "string"
+	);
 }
 
 /** Wait for a predicate, polling at 5ms intervals, with a deadline. */
@@ -181,8 +203,10 @@ describe("SubagentScheduler — end-to-end with real timers", () => {
 		scheduler.stop();
 		const reloadedStore = new ScheduleStore(join(tmp, "schedules.json"));
 		expect(reloadedStore.list()).toHaveLength(1);
-		expect(reloadedStore.list()[0].id).toBe(job.id);
-		expect(reloadedStore.list()[0].name).toBe("persistent");
+		const persisted = reloadedStore.list()[0];
+		if (persisted === undefined) throw new Error("persisted fixture missing");
+		expect(persisted.id).toBe(job.id);
+		expect(persisted.name).toBe("persistent");
 	});
 
 	it("on-disk file shape: version=1 plus jobs array", async () => {
@@ -226,17 +250,13 @@ describe("SubagentScheduler — end-to-end with real timers", () => {
 
 		await waitFor(() => manager.spawn.mock.calls.length === 1);
 
-		const eventTypes = pi.events.emit.mock.calls
-			.filter((c: any[]) => c[0] === "subagents:scheduled")
-			.map((c: any[]) => c[1].type);
+		const eventTypes = pi.events.emit.mock.calls.filter(isScheduledEventCall).map((c) => c[1].type);
 
 		expect(eventTypes).toContain("added");
 		expect(eventTypes).toContain("fired");
 
 		scheduler.removeJob(job.id);
-		const after = pi.events.emit.mock.calls
-			.filter((c: any[]) => c[0] === "subagents:scheduled")
-			.map((c: any[]) => c[1].type);
+		const after = pi.events.emit.mock.calls.filter(isScheduledEventCall).map((c) => c[1].type);
 		expect(after).toContain("removed");
 	});
 });
