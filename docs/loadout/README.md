@@ -57,8 +57,9 @@ key），spawn 时回退到父会话或 profile 默认。
 ○ Plan           ○ anthropic/claude-haiku-4-5
 ```
 
-第一 glyph 是 effective activation (`●` enabled / `○` disabled，由 Loadout policy 决定，与 agent
-Markdown 无关)；第二 glyph 是 thinking level，只在 profile 配置了
+第一 glyph 是 raw activation selection（`●` enabled / `○` disabled / `◌` inherit，由 Loadout policy
+在 `agent:<name>` key 下决定，与 agent Markdown 无关；inherit 表示 project scope 未做本地决策，
+effective 状态跟随 global/default)；第二 glyph 是 thinking level，只在 profile 配置了
 thinking（frontmatter 含 `thinking`）时显示——未配置（继承）时不显示 glyph。缺少 model
 configuration 时显示 `inherit`，不猜测 provider。
 

@@ -121,10 +121,13 @@ existing semantic token expresses the role.
   layout is list, conditional scrollbar, then Description; a narrow layout stacks list then
   Description. Within each resource kind, Built-in resources come first; registered resources then
   sort by display group and name.
-- Loadout status is textual and glyph-backed: `●` is effective enabled, `○` is effective disabled,
-  and `⊘` is conflict-locked/inactive. The selected row retains the standard `→` slot. Display group
-  is secondary metadata; the Description block uses the legacy selected-resource content: name and
-  kind, description, origin, and status. It adds a lock winner only for a conflict-locked resource.
+- Loadout status is textual and glyph-backed, and shows the raw selection, not just the effective
+  state: `●` is explicitly enabled, `○` is explicitly disabled, `◌` is inherited (no local decision;
+  the effective state follows the default or the other scope), and `⊘` is conflict-locked/inactive.
+  The Description block's Status line mirrors the row glyph with a text label. The selected row
+  retains the standard `→` slot. Display group is secondary metadata; the Description block uses the
+  legacy selected-resource content: name and kind, description, origin, and status. It adds a lock
+  winner only for a conflict-locked resource.
 - Loadout uses `Ctrl+P` to switch Global and Project scope, `Space` to cycle only the selected
   resource's reachable scope choices, and direct text input to filter resource name and display
   group. Global and Project-private rows remain binary; only global-visible Project rows include
