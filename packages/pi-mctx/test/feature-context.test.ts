@@ -517,6 +517,45 @@ test("search excludes runtime-injected active memory IDs", async (): Promise<voi
 	).toEqual({ kind: "invalid-exclusions" });
 });
 
+test("search reports stale when an exclusion provider rejects after request abort", async (): Promise<void> => {
+	const controller = new AbortController();
+	const lifecycle = {
+		pi: { events: {} },
+		extension: {
+			cwd: "/project",
+			sessionManager: { getSessionId: () => "session-1" },
+			modelRegistry: { find: () => model, hasConfiguredAuth: () => true },
+			ui: { notify: () => undefined },
+		} as unknown as ExtensionContext,
+		signal: new AbortController().signal,
+		resources: { add: () => undefined, cleanup: async () => [] },
+	} as unknown as ExtensionLifecycleContext;
+	expect(
+		provideService(lifecycle, MCTX_MEMORY_EXCLUSION_SERVICE, {
+			excludeMemoryIds: async (input) => {
+				await new Promise<void>((_resolve, reject) => {
+					input.signal.addEventListener("abort", () => reject(new Error("aborted")), {
+						once: true,
+					});
+				});
+				return [];
+			},
+		}),
+	).toBeTrue();
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => store(),
+		resolveProjectIdentity: async () => "git:project",
+	});
+	await feature.start(lifecycle);
+	const context = {
+		sessionManager: { getSessionId: () => "session-1", getBranch: () => entries },
+	} as unknown as ExtensionContext;
+	const search = feature.search({ query: "target", limit: 10 }, context, controller.signal);
+	controller.abort();
+	expect(await search).toEqual({ kind: "stale" });
+});
+
 test("context hook renders only the active session's verified graph", async (): Promise<void> => {
 	const lifecycle = {
 		pi: { events: {} },

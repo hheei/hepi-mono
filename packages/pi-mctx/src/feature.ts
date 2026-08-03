@@ -984,6 +984,13 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					getService(current.lifecycle.pi, MCTX_MEMORY_EXCLUSION_SERVICE),
 					{ projectIdentity, sessionId, signal },
 				);
+				if (
+					active !== current ||
+					current.lifecycle.signal.aborted ||
+					signal.aborted ||
+					current.runtime.sessionId !== context.sessionManager.getSessionId()
+				)
+					return { kind: "stale" };
 				if (excluded === undefined) return { kind: "invalid-exclusions" };
 				for (const memory of current.runtime.store.listActiveMemories(projectIdentity, 100)) {
 					if (excluded.has(memory.memoryId)) continue;
