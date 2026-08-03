@@ -31,6 +31,7 @@ export interface ToolPolicy {
 	readonly defaultActive: boolean;
 	readonly priority: number;
 	readonly conflictSets: readonly string[];
+	readonly conflictsWith: readonly string[];
 }
 
 const MAX_LOADOUT_DELTA_KEYS = 4096;
@@ -133,6 +134,15 @@ function sourceRank(source: LoadoutPolicySource): number {
 	}
 }
 
+/** Reports whether either policy declares incompatibility with the other. */
+export function toolsConflict(left: ToolPolicy, right: ToolPolicy): boolean {
+	return (
+		left.conflictSets.some((set) => right.conflictSets.includes(set)) ||
+		left.conflictsWith.includes(right.name) ||
+		right.conflictsWith.includes(left.name)
+	);
+}
+
 /** Resolves delta precedence first, then locks lower-ranked enabled conflict members. */
 export function resolveActiveToolNames(
 	tools: readonly ToolPolicy[],
@@ -154,14 +164,12 @@ export function resolveActiveToolNames(
 				left.priority - right.priority ||
 				left.name.localeCompare(right.name),
 		);
-	const claimedConflicts = new Set<string>();
-	const active: string[] = [];
+	const active: typeof candidates = [];
 	for (const tool of candidates) {
-		if (tool.conflictSets.some((conflictSet) => claimedConflicts.has(conflictSet))) continue;
-		active.push(tool.name);
-		for (const conflictSet of tool.conflictSets) claimedConflicts.add(conflictSet);
+		if (active.some((candidate) => toolsConflict(tool, candidate))) continue;
+		active.push(tool);
 	}
-	return active.sort((left, right) => left.localeCompare(right));
+	return active.map((tool) => tool.name).sort((left, right) => left.localeCompare(right));
 }
 
 /** Publishes only discovered skills whose resolved state is disabled. */

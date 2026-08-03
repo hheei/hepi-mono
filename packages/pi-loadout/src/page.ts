@@ -22,6 +22,7 @@ import {
 	resolveLoadoutState,
 	skillConfigurationKey,
 	toolConfigurationKey,
+	toolsConflict,
 } from "./model.js";
 import { applyLoadoutSelection, updateLoadoutSelections } from "./storage.js";
 
@@ -167,7 +168,8 @@ function toolItem(
 			? allPolicies.find(
 					(candidate) =>
 						activeToolNames.has(candidate.name) &&
-						candidate.conflictSets.some((set) => policy?.conflictSets.includes(set)),
+						policy !== undefined &&
+						toolsConflict(candidate, policy),
 				)?.name
 			: undefined;
 	return {
