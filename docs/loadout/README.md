@@ -28,6 +28,22 @@ state 下沉到 Loadout。Auto-Title 作为一个 `agent` resource 贡献其既�
 profile 贡献 detail、以及 Loadout presence 时是否仍在 `/ext-settings` 显示，由实现前 design agreement
 限定。
 
+`pi-subagents` 的 agent detail 对 `model` 与 `thinking` 两个字段复用 Settings 的 cycler 交互
+（与 `HepiSettingTabCycle` 语义一致）：在 `model` 或 `thinking` 行按 `Enter` 打开单一选择器，
+`↑`/`↓` 在 model 选项间循环移动（到头回绕，与 Settings enum 编辑器一致），`Tab`/`Shift+Tab`
+就地正向/反向循环 thinking 值（不产生第二个焦点），`Enter` 同时应用两者并立即保存，`Esc`
+取消并保留原值。两者都提供 `inherit` 选项：选择 `inherit` 等价于未设置（省略 frontmatter
+key），spawn 时回退到父会话或 profile 默认。
+
+`model` 选择器选项顺序：`inherit`、当前已配置值（若不在下列列表中）、已认证可用模型
+（`provider/model`，按字母序）。当前值可以是任意 fuzzy 模型名（如 `haiku`），选择器把它作为
+独立选项保留，格式校验与宽容解析仍只在 spawn 时由 `resolveModel()` 负责。`thinking` 的
+`Tab` 循环顺序：`inherit`、`off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`。
+
+选择器打开时行数保持不变（固定 9 行）：`Model` 行就地显示当前选中的选项，`Thinking` 行值随
+`Tab` 即时更新，hint 行切换为选择器说明。`Esc` 的消费顺序：detail 激活时先交给 detail
+（选择器打开时取消选择器），detail 未消费才退回列表。
+
 `𖠌 Agents` 的每一行显示 effective activation、profile 名和 profile 的 effective model：
 
 ```text

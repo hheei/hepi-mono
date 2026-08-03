@@ -15,8 +15,11 @@ import type { AgentConfig } from "../src/types.js";
 const ENTER = "\r";
 const UP = "\x1b[A";
 const DOWN = "\x1b[B";
+const TAB = "\t";
+const SHIFT_TAB = "\x1b[Z";
 const SPACE = " ";
 const BACKSPACE = "\x7f";
+const ESCAPE = "\x1b";
 
 const roots: string[] = [];
 
@@ -53,7 +56,18 @@ function configFor(name: string): AgentConfig {
 	};
 }
 
-function setup(name = "auditor", content?: string) {
+function setup(
+	name = "auditor",
+	content?: string,
+	config = configFor(name),
+	registry = {
+		getAvailable: () => [
+			{ provider: "anthropic", id: "claude-haiku-4-5", name: "Haiku" },
+			{ provider: "cx", id: "gpt-5.6-luna", name: "Luna" },
+		],
+		hasConfiguredAuth: () => true,
+	},
+) {
 	const { root, path } = makeAgent(name, content ?? defaultContent());
 	vi.spyOn(process, "cwd").mockReturnValue(root);
 	const notifications: string[] = [];
@@ -63,11 +77,12 @@ function setup(name = "auditor", content?: string) {
 	const detail = createAgentDetail(
 		pi,
 		name,
-		configFor(name),
+		config,
+		registry,
 		() => changed.push("reload"),
 		(message) => notifications.push(message),
 	);
-	return { detail, notifications, changed, exec, path };
+	return { detail, notifications, changed, exec, registry, path };
 }
 
 function defaultContent(): string {
@@ -157,29 +172,146 @@ describe("createAgentDetail", () => {
 		expect(readContent(path)).toContain("enabled: false");
 	});
 
-	it("cycles thinking levels and persists immediately", async () => {
+	it("cycles thinking with Tab inside the selector and saves both on Enter", async () => {
 		const { detail, path } = setup();
-		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN); // identity → thinking
-		await detail.handleInput(SPACE);
-		expect(readContent(path)).toContain('thinking: "off"');
-		await detail.handleInput(SPACE);
+		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN); // identity → model
+		await detail.handleInput(ENTER); // open selector
+		await detail.handleInput(TAB); // inherit → off
+		await detail.handleInput(TAB); // off → minimal
+		await detail.handleInput(ENTER); // apply + save
 		expect(readContent(path)).toContain('thinking: "minimal"');
+		expect(readContent(path)).not.toContain("model:");
 	});
 
-	it("persists fuzzy and provider/model model edits on Enter", async () => {
-		const { detail, notifications, path } = setup();
-		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN); // identity → model
-		await detail.handleInput("haiku");
+	it("wraps the thinking cycle back to inherit and omits the key", async () => {
+		const { detail, path } = setup();
+		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN); // identity → thinking
 		await detail.handleInput(ENTER);
-		expect(readContent(path)).toContain('model: "haiku"');
-		expect(notifications).toEqual([]);
-		for (let i = 0; i < "haiku".length; i++) await detail.handleInput(BACKSPACE);
-		await detail.handleInput("cx/gpt-5.6-luna");
+		// 8 Tab presses walk inherit → off → … → max → inherit.
+		for (let i = 0; i < 8; i++) await detail.handleInput(TAB);
+		await detail.handleInput(ENTER);
+		expect(readContent(path)).not.toContain("thinking:");
+	});
+
+	it("selects a provider/model from the cycler and inherits on the leading option", async () => {
+		const { detail, path } = setup();
+		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN); // identity → model
+		await detail.handleInput(ENTER); // open selector
+		await detail.handleInput(DOWN);
+		await detail.handleInput(DOWN); // inherit → anthropic/haiku → cx/gpt-5.6-luna
 		await detail.handleInput(ENTER);
 		expect(readContent(path)).toContain('model: "cx/gpt-5.6-luna"');
-		for (let i = 0; i < "cx/gpt-5.6-luna".length; i++) await detail.handleInput(BACKSPACE);
+		await detail.handleInput(ENTER); // reopen; current option selected
+		await detail.handleInput(UP);
+		await detail.handleInput(UP); // back to inherit
 		await detail.handleInput(ENTER);
 		expect(readContent(path)).not.toContain("model:");
+	});
+
+	it("keeps a configured fuzzy model as the leading non-inherit cycler option", async () => {
+		const { detail } = setup("auditor", undefined, {
+			...configFor("auditor"),
+			model: "haiku",
+		});
+		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN);
+		await detail.handleInput(ENTER);
+		expect(detail.render(60).join("\n")).toContain("Model: haiku");
+	});
+
+	it("excludes models without configured auth from the cycler options", async () => {
+		const { detail } = setup("auditor", undefined, configFor("auditor"), {
+			getAvailable: () => [
+				{ provider: "anthropic", id: "claude-haiku-4-5" },
+				{ provider: "cx", id: "gpt-5.6-luna" },
+			],
+			hasConfiguredAuth: (model) => model.provider === "anthropic",
+		});
+		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN);
+		await detail.handleInput(ENTER);
+		await detail.handleInput(DOWN); // inherit → anthropic/haiku
+		expect(detail.render(60).join("\n")).toContain("Model: anthropic/claude-haiku-4-5");
+		await detail.handleInput(DOWN); // wraps back to inherit (modulo)
+		expect(detail.render(60).join("\n")).toContain("Model: inherit");
+		expect(detail.render(60).join("\n")).not.toContain("Model: cx/gpt-5.6-luna");
+	});
+
+	it("preserves a configured unauthenticated model as the current option", async () => {
+		const { detail, path } = setup("auditor", undefined, {
+			...configFor("auditor"),
+			model: "cx/gpt-5.6-luna",
+		}, {
+			getAvailable: () => [{ provider: "anthropic", id: "claude-haiku-4-5" }],
+			hasConfiguredAuth: (model) => model.provider === "anthropic",
+		});
+		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN);
+		await detail.handleInput(ENTER);
+		expect(detail.render(60).join("\n")).toContain("Model: cx/gpt-5.6-luna"); // current option
+		await detail.handleInput(DOWN); // → anthropic/claude-haiku-4-5
+		expect(detail.render(60).join("\n")).toContain("Model: anthropic/claude-haiku-4-5");
+		await detail.handleInput(DOWN); // wraps back to inherit
+		expect(detail.render(60).join("\n")).toContain("Model: inherit");
+		await detail.handleInput(DOWN); // → the preserved current value
+		await detail.handleInput(ENTER);
+		expect(readContent(path)).toContain('model: "cx/gpt-5.6-luna"');
+	});
+
+	it("wraps the model cycler at both ends", async () => {
+		const { detail } = setup();
+		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN);
+		await detail.handleInput(ENTER);
+		await detail.handleInput(UP); // inherit wraps up to the last option
+		expect(detail.render(60).join("\n")).toContain("Model: cx/gpt-5.6-luna");
+		await detail.handleInput(DOWN); // wraps back to inherit
+		expect(detail.render(60).join("\n")).toContain("Model: inherit");
+	});
+
+	it("Shift+Tab cycles thinking backward", async () => {
+		const { detail, path } = setup();
+		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN);
+		await detail.handleInput(ENTER);
+		await detail.handleInput(TAB); // inherit → off
+		await detail.handleInput(SHIFT_TAB); // back to inherit
+		await detail.handleInput(SHIFT_TAB); // wraps backward to max
+		await detail.handleInput(ENTER);
+		expect(readContent(path)).toContain('thinking: "max"');
+	});
+
+	it("keeps an authenticated current model in alphabetical order", async () => {
+		const { detail, path } = setup("auditor", undefined, {
+			...configFor("auditor"),
+			model: "anthropic/claude-haiku-4-5",
+		});
+		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN);
+		await detail.handleInput(ENTER);
+		expect(detail.render(60).join("\n")).toContain("Model: anthropic/claude-haiku-4-5");
+		await detail.handleInput(DOWN); // alphabetic order: anthropic… then cx…
+		expect(detail.render(60).join("\n")).toContain("Model: cx/gpt-5.6-luna");
+		await detail.handleInput(UP); // back to the current value
+		await detail.handleInput(ENTER);
+		expect(readContent(path)).toContain('model: "anthropic/claude-haiku-4-5"');
+	});
+
+	it("Esc cancels the selector without saving the cycled thinking value", async () => {
+		const { detail, path } = setup();
+		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN);
+		await detail.handleInput(ENTER);
+		await detail.handleInput(TAB); // thinking → off in the draft only
+		await detail.handleInput(ESCAPE);
+		expect(readContent(path)).not.toContain("thinking:");
+		expect(detail.render(60).join("\n")).toContain("Thinking: inherit");
+	});
+
+	it("shows the current model option in place and keeps a fixed row count", async () => {
+		const { detail } = setup();
+		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN);
+		await detail.handleInput(ENTER);
+		const lines = detail.render(18);
+		expect(lines).toHaveLength(9);
+		expect(lines.join("\n")).toContain("Model: inherit");
+		expect(detail.render(60).join("\n")).toContain("↑/↓ choose · Tab cycle thinking");
+		await detail.handleInput(DOWN);
+		expect(detail.render(60).join("\n")).toContain("Model: anthropic/claude-haiku-4-5");
+		for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(18);
 	});
 
 	it("removes whole code points with backspace", async () => {

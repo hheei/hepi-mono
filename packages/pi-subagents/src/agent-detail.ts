@@ -2,12 +2,16 @@
  * agent-detail.ts — Contributor-owned Loadout detail editor for custom Markdown agents.
  *
  * The detail is a small inline form over the agent's YAML frontmatter. Text fields
- * (identity, description, model) edit in memory; Enter persists all pending edits by
+ * (identity, description) edit in memory; Enter persists all pending edits by
  * rewriting the frontmatter while preserving the body and unknown keys, then reloads
- * the catalog. Toggle fields (enabled, thinking) persist immediately on Space. The
- * Body row first flushes pending edits, then opens the external editor and reloads
- * after it exits. The caller owns the catalog reload; this module only reports it
- * through `onChanged` and surfaces failures through `notify`.
+ * the catalog. The model/thinking pair reuses the Settings cycler (`tabCycle`
+ * semantics): Enter opens a single selector on the model options, Up/Down move
+ * between them, Tab cycles the thinking value in place, Enter applies both and
+ * saves, Esc cancels. Both lists lead with `inherit` (unset). Toggle fields
+ * (enabled) persist immediately on Space. The Body row first flushes pending
+ * edits, then opens the external editor and reloads after it exits. The caller
+ * owns the catalog reload; this module only reports it through `onChanged` and
+ * surfaces failures through `notify`.
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -15,7 +19,11 @@ import { join } from "node:path";
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
-import type { LoadoutResourceDetail } from "@hheei/pi-ext-core";
+import {
+	type HepiModelSelectionRegistry,
+	hepiAuthenticatedModelSelectionOptions,
+	type LoadoutResourceDetail,
+} from "@hheei/pi-ext-core";
 import type { AgentConfig } from "./types.js";
 
 /** Frontmatter keys the detail may rewrite; all other keys are preserved untouched. */
@@ -42,18 +50,27 @@ const FIRST_FIELD: DetailField = { id: "identity", kind: "text" };
 const DETAIL_FIELDS: readonly DetailField[] = [
 	FIRST_FIELD,
 	{ id: "description", kind: "text" },
-	{ id: "model", kind: "text" },
-	{ id: "thinking", kind: "cycle" },
+	{ id: "model", kind: "select" },
+	{ id: "thinking", kind: "select" },
 	{ id: "enabled", kind: "toggle" },
 	{ id: "body", kind: "action" },
 ];
 
 type FieldId = "identity" | "description" | "model" | "thinking" | "enabled" | "body";
-type FieldKind = "text" | "cycle" | "toggle" | "action";
+type FieldKind = "text" | "select" | "toggle" | "action";
 
 interface DetailField {
 	readonly id: FieldId;
 	readonly kind: FieldKind;
+}
+
+/** The selector's sentinel for an unset value; saves as an omitted key. */
+const INHERIT = "inherit";
+
+/** Minimal model identity needed to build the cycler option list. */
+interface ModelCandidate {
+	readonly provider: string;
+	readonly id: string;
 }
 
 /**
@@ -155,23 +172,65 @@ export function createAgentDetail(
 	pi: ExtensionAPI,
 	name: string,
 	initial: AgentConfig,
+	modelRegistry: HepiModelSelectionRegistry<ModelCandidate> | undefined,
 	onChanged: () => void,
 	notify: (message: string) => void,
 ): AgentDetail {
 	let draft = draftFromConfig(initial);
 	let selected = 0;
+	// The cycler state: while `selectingModel` is true, Up/Down move through the
+	// model options, Tab cycles `thinkingDraft` in place, and Enter applies both
+	// through `save()`. `thinkingDraft` is separate from `draft` so Esc can
+	// discard the in-progress cycle without touching the persisted snapshot.
+	let selectingModel = false;
+	let selectIndex = 0;
+	let thinkingDraft: ModelThinkingLevel | undefined;
 	const field = (): DetailField => DETAIL_FIELDS[selected] ?? FIRST_FIELD;
 	const textValue = (): string => {
 		const id = field().id;
 		if (id === "identity") return draft.displayName ?? "";
-		if (id === "description") return draft.description;
-		return draft.model ?? "";
+		return draft.description;
 	};
 	const setText = (value: string): void => {
 		const id = field().id;
 		if (id === "identity") draft = { ...draft, displayName: value };
-		else if (id === "description") draft = { ...draft, description: value };
-		else draft = { ...draft, model: value };
+		else draft = { ...draft, description: value };
+	};
+	/**
+	 * Model cycler options: `inherit` first, then the `provider/model` list
+	 * filtered through `hasConfiguredAuth` — only authenticated models are
+	 * offered, kept in alphabetical order including an authenticated current
+	 * value. A current value absent from that list (fuzzy names such as
+	 * "haiku", or an unauthenticated provider) is preserved and prepended.
+	 */
+	const modelChoices = (): readonly string[] => {
+		const current = draft.model?.trim() ?? "";
+		const available = hepiAuthenticatedModelSelectionOptions(
+			modelRegistry ?? { hasConfiguredAuth: () => false },
+		)
+			.map((option) => option.value)
+			.filter((ref) => ref !== "")
+			.sort((left, right) => left.localeCompare(right));
+		if (current !== "" && !available.includes(current)) {
+			return [INHERIT, current, ...available];
+		}
+		return [INHERIT, ...available];
+	};
+	/** Thinking cycle order; `inherit` is index 0, so one Tab per wrap. */
+	const thinkingChoices = (): readonly string[] => [INHERIT, ...THINKING_LEVELS];
+	const openSelector = (): void => {
+		selectingModel = true;
+		thinkingDraft = draft.thinking;
+		const idx = modelChoices().indexOf(draft.model ?? INHERIT);
+		selectIndex = idx >= 0 ? idx : 0;
+	};
+	/** Cycles the thinking value; mirrors the Settings cycler's modulo wrap. */
+	const cycleThinking = (direction: number): void => {
+		const choices = thinkingChoices();
+		const idx = choices.indexOf(thinkingDraft ?? INHERIT);
+		const next =
+			choices[(Math.max(0, idx) + direction + choices.length) % choices.length] ?? INHERIT;
+		thinkingDraft = next === INHERIT ? undefined : (next as ModelThinkingLevel);
 	};
 	/** Persists the current snapshot; returns false (with a notification) on failure. */
 	const save = (): boolean => {
@@ -209,22 +268,58 @@ export function createAgentDetail(
 	return {
 		render(width: number): readonly string[] {
 			const path = agentMarkdownPath(name, draft.source);
+			const currentModel = selectingModel
+				? (modelChoices()[selectIndex] ?? INHERIT)
+				: (draft.model ?? INHERIT);
 			const lines = [
 				`Agent ${name}`,
 				`Identity: ${draft.displayName ?? name}`,
 				`Description: ${draft.description}`,
-				`Model: ${draft.model ?? "inherit"}`,
-				`Thinking: ${draft.thinking ?? "inherit"}`,
+				`Model: ${currentModel}`,
+				`Thinking: ${(selectingModel ? thinkingDraft : draft.thinking) ?? INHERIT}`,
 				`Enabled: ${draft.enabled ? "yes" : "no"}`,
 				`Default agent: ${draft.isDefault ? "yes" : "no"}`,
 				`Markdown: ${path ?? "unavailable"}`,
-				"↑/↓ select · Space toggle · Enter edit/save · Esc back",
+				selectingModel
+					? "↑/↓ choose · Tab cycle thinking · Enter save · Esc cancel"
+					: "↑/↓ select · Enter edit/save · Space toggle · Esc back",
 			];
 			return lines.map((line, index) =>
 				truncateToWidth(`${index === selected + 1 ? "→ " : "  "}${line}`, Math.max(0, width)),
 			);
 		},
 		async handleInput(input: string): Promise<boolean> {
+			if (selectingModel) {
+				if (matchesKey(input, Key.up)) {
+					selectIndex = (selectIndex - 1 + modelChoices().length) % modelChoices().length;
+					return true;
+				}
+				if (matchesKey(input, Key.down)) {
+					selectIndex = (selectIndex + 1) % modelChoices().length;
+					return true;
+				}
+				if (matchesKey(input, Key.tab) || matchesKey(input, Key.shift("tab"))) {
+					cycleThinking(matchesKey(input, Key.tab) ? 1 : -1);
+					return true;
+				}
+				if (matchesKey(input, Key.enter)) {
+					selectingModel = false;
+					const value = modelChoices()[selectIndex] ?? INHERIT;
+					draft = {
+						...draft,
+						model: value === INHERIT ? undefined : value,
+						thinking: thinkingDraft,
+					};
+					save();
+					return true;
+				}
+				if (matchesKey(input, Key.escape)) {
+					selectingModel = false;
+					return true;
+				}
+				// Everything else is consumed while the selector is open.
+				return true;
+			}
 			if (matchesKey(input, Key.up)) {
 				selected = Math.max(0, selected - 1);
 				return true;
@@ -237,16 +332,13 @@ export function createAgentDetail(
 				if (field().kind === "toggle") {
 					draft = { ...draft, enabled: !draft.enabled };
 					save();
-				} else if (field().kind === "cycle") {
-					const index = draft.thinking === undefined ? -1 : THINKING_LEVELS.indexOf(draft.thinking);
-					const next = THINKING_LEVELS[(index + 1) % THINKING_LEVELS.length] ?? "off";
-					draft = { ...draft, thinking: next };
-					save();
 				}
 				return true;
 			}
 			if (matchesKey(input, Key.enter)) {
-				if (field().kind === "action") {
+				if (field().kind === "select") {
+					openSelector();
+				} else if (field().kind === "action") {
 					// Pending text edits must reach the file before the editor opens,
 					// otherwise opening the body discards them.
 					if (!save()) return true;

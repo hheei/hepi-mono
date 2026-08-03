@@ -428,8 +428,13 @@ export default function (pi: ExtensionAPI) {
 				config.isDefault === true
 					? undefined
 					: (existing?.detail ??
-						createAgentDetail(pi, name, config, reloadCustomAgents, (message) =>
-							loadoutRuntime?.extension.ui.notify(message, "warning"),
+						createAgentDetail(
+							pi,
+							name,
+							config,
+							loadoutRuntime?.extension.modelRegistry,
+							reloadCustomAgents,
+							(message) => loadoutRuntime?.extension.ui.notify(message, "warning"),
 						));
 			const dispose = registerLoadoutResource(pi, {
 				id: `agent:${name}`,
