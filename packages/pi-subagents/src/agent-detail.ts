@@ -11,10 +11,12 @@
  * (enabled) persist immediately on Space. The Body row first flushes pending
  * edits, then opens the external editor and reloads after it exits. The caller
  * owns the catalog reload; this module only reports it through `onChanged` and
- * surfaces failures through `notify`.
+ * surfaces failures through `notify`. A built-in (default) agent has no backing
+ * file: its first save clones a Markdown file into `<cwd>/.pi/agents/` so the
+ * override becomes a normal custom agent (and therefore editable).
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
@@ -84,6 +86,8 @@ interface AgentDraft {
 	readonly thinking: ModelThinkingLevel | undefined;
 	readonly enabled: boolean;
 	readonly promptMode: AgentConfig["promptMode"];
+	readonly builtinToolNames: readonly string[] | undefined;
+	readonly systemPrompt: string;
 	readonly source: AgentConfig["source"];
 	readonly isDefault: boolean;
 }
@@ -96,9 +100,30 @@ function draftFromConfig(config: AgentConfig): AgentDraft {
 		thinking: config.thinking,
 		enabled: config.enabled !== false,
 		promptMode: config.promptMode,
+		builtinToolNames: config.builtinToolNames,
+		systemPrompt: config.systemPrompt ?? "",
 		source: config.source,
 		isDefault: config.isDefault === true,
 	};
+}
+
+/**
+ * Writes a full agent Markdown file (managed frontmatter keys plus the body).
+ * Used to clone a built-in agent into the project agents dir on first save;
+ * `rewriteAgentMarkdown` is for files that already exist. `tools` is included
+ * because omitting it would silently widen a built-in agent's allowlist to all
+ * tools (e.g. a read-only Explore clone would gain write tools).
+ */
+export function writeAgentMarkdown(
+	path: string,
+	values: Readonly<Record<string, string | boolean | undefined>>,
+	body: string,
+): void {
+	const lines = [...EDITABLE_AGENT_KEYS, "tools"].map((key) => {
+		const value = yamlValue(values[key]);
+		return value === undefined ? undefined : `${key}: ${value}`;
+	}).filter((line): line is string => line !== undefined);
+	writeFileSync(path, `---\n${lines.join("\n")}\n---\n${body}`, "utf8");
 }
 
 /** Resolves the `.md` file backing a custom agent, honoring the loader's dir order. */
@@ -234,7 +259,19 @@ export function createAgentDetail(
 	};
 	/** Persists the current snapshot; returns false (with a notification) on failure. */
 	const save = (): boolean => {
-		const path = agentMarkdownPath(name, draft.source);
+		let path = agentMarkdownPath(name, draft.source);
+		let cloned = false;
+		if (path === undefined && draft.isDefault) {
+			// A built-in agent has no backing file; the first save materializes
+			// one in the project agents dir so it becomes an editable override.
+			// The clone carries the built-in system prompt as the body plus the
+			// current editable values and the tool allowlist, so nothing is
+			// silently dropped or widened.
+			const dir = join(process.cwd(), ".pi", "agents");
+			mkdirSync(dir, { recursive: true });
+			path = join(dir, `${name}.md`);
+			cloned = true;
+		}
 		if (path === undefined) return false;
 		// Model values are resolved tolerantly at spawn time (fuzzy names such as
 		// "haiku", dotted/dashed versions, provider fallback), so the editor only
@@ -248,9 +285,11 @@ export function createAgentDetail(
 			thinking: draft.thinking,
 			enabled: draft.enabled,
 			prompt_mode: draft.promptMode,
+			tools: draft.builtinToolNames?.join(", "),
 		};
 		try {
-			rewriteAgentMarkdown(path, values);
+			if (cloned) writeAgentMarkdown(path, values, draft.systemPrompt);
+			else rewriteAgentMarkdown(path, values);
 		} catch (error) {
 			notify(
 				`Agent changes were not saved: ${error instanceof Error ? error.message : String(error)}`,
