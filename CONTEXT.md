@@ -363,3 +363,54 @@ A subscriber-owned, fixed-cap snapshot stream for selected child output. Text, t
 turn state may coalesce; terminal state evicts the oldest coalescible entry and is never dropped.
 The stream preserves delivered-event order, not every intermediate state or a lossless event log.
 _Avoid_: unbounded event queue, blocking callback
+# HEPI Terminal Interaction
+
+This context defines shared terminal interaction vocabulary for HEPI extensions. It distinguishes terminal input transport from page-owned interaction semantics.
+
+## Language
+
+**MouseRegion**:
+A page-owned, current-layout terminal-cell region that may receive normalized mouse events.
+_Avoid_: MouseComponent, clickable component
+
+**Mouse dispatcher**:
+A TUI-scoped service that normalizes terminal mouse input and routes it to registered MouseRegions for one active surface.
+_Avoid_: mouse component tree, global mouse handler
+
+**Mouse tracking lease**:
+The active lifetime created by registered MouseRegions during which the dispatcher enables terminal mouse reporting,
+temporarily gives the surface mouse ownership, and consumes recognized mouse sequences. Terminal native selection may
+be suppressed or changed during this lease; no active lease preserves Pi's default input behavior.
+_Avoid_: permanent mouse mode, raw stdin ownership
+
+**Mouse capture**:
+The temporary routing of a selection gesture's drag and up events to the MouseRegion that received its down event.
+_Avoid_: cross-region selection, retargeted drag
+
+**Selection gesture**:
+A normalized sequence of unmodified primary-button down, drag, and up events beginning in a MouseRegion and continuing under Mouse capture.
+_Avoid_: click, hover
+
+**Selection content model**:
+The page-owned logical text representation from which selected text is derived, independent of ANSI-rendered borders and styles.
+_Avoid_: rendered selection, terminal string selection
+
+**TextPosition**:
+A zero-based position in a selection content model, expressed as a line and grapheme offset.
+_Avoid_: UTF-16 offset, terminal cell coordinate
+
+**TextRange**:
+A half-open interval between two TextPositions in one selection content model.
+_Avoid_: inclusive selection range
+
+**Canonical tool owner**:
+The single extension that statically registers one Pi-visible tool name and owns its upstream compatibility, renderer and lifecycle. Other packages do not register a competing definition for that name.
+_Avoid_: priority-based tool override, duplicate tool registration
+
+**Tool replacement catalog**:
+The explicit, version-bound list of upstream tool names for which a Canonical tool owner supplies a replacement. Names are added one at a time with compatibility tests; it is not inferred from Pi's active-tool inventory.
+_Avoid_: automatic native-tool discovery, all-tools proxy
+
+**Read selection**:
+The `pi-ext-tools`-owned local selection behavior for its canonical `read` renderer: a primary-button gesture produces a TextRange and release attempts system clipboard copy without changing core clipboard policy.
+_Avoid_: terminal-native selection, core-owned copy policy

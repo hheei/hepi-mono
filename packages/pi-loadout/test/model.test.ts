@@ -51,9 +51,21 @@ describe("Loadout policy", () => {
 
 	test("locks lower-ranked enabled conflict members without rewriting their deltas", () => {
 		const tools = [
-			{ name: "find", defaultActive: true, priority: 10, conflictSets: ["search"] },
-			{ name: "find_files", defaultActive: true, priority: 20, conflictSets: ["search"] },
-			{ name: "read", defaultActive: true, priority: 0, conflictSets: [] },
+			{
+				name: "find",
+				defaultActive: true,
+				priority: 10,
+				conflictSets: ["search"],
+				conflictsWith: [],
+			},
+			{
+				name: "find_files",
+				defaultActive: true,
+				priority: 20,
+				conflictSets: ["search"],
+				conflictsWith: [],
+			},
+			{ name: "read", defaultActive: true, priority: 0, conflictSets: [], conflictsWith: [] },
 		] as const;
 		expect(
 			resolveActiveToolNames(
@@ -73,6 +85,40 @@ describe("Loadout policy", () => {
 				}),
 			),
 		).toEqual(["find", "read"]);
+	});
+
+	test("keeps related edit and write tools active while replacing them with apply_patch", () => {
+		const tools = [
+			{
+				name: "apply_patch",
+				defaultActive: true,
+				priority: 100,
+				conflictSets: [],
+				conflictsWith: ["edit", "write"],
+			},
+			{ name: "edit", defaultActive: true, priority: 100, conflictSets: [], conflictsWith: [] },
+			{ name: "write", defaultActive: true, priority: 100, conflictSets: [], conflictsWith: [] },
+		] as const;
+		const defaults = parseLoadoutConfiguration({ global: {}, project: {} });
+		expect(resolveActiveToolNames(tools, defaults)).toEqual(["apply_patch"]);
+		expect(
+			resolveActiveToolNames(
+				tools,
+				parseLoadoutConfiguration({
+					global: { disabled: ["tool:apply_patch"] },
+					project: {},
+				}),
+			),
+		).toEqual(["edit", "write"]);
+		expect(
+			resolveActiveToolNames(
+				tools,
+				parseLoadoutConfiguration({
+					global: { enabled: ["tool:edit"] },
+					project: {},
+				}),
+			),
+		).toEqual(["edit", "write"]);
 	});
 
 	test("publishes only discovered skills whose resolved policy is disabled", () => {

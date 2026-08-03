@@ -30,6 +30,5 @@ Pi 的 `--api-key` 参数显式提供。
 
 默认加载全部本仓库 `pi-*` 包。可用 `PI_DEV_PACKAGES` 传入以逗号分隔的包目录名
 测试局部组合，例如 `PI_DEV_PACKAGES=pi-auto-title,pi-subagents`。
-
 默认集为 `packages/pi-*` 下的本仓库 `@hheei` 独立包。脚本不加载已弃用的
 `hepi-*` 聚合包、开发诊断包 `hepi-debug` 或独立子模块 `hepi-subagents`。

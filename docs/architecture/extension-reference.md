@@ -22,6 +22,11 @@ package when they share installation, lifecycle, and public API ownership. Split
 only when one of those boundaries differs. `pi-ext-core` is the one naming
 exception because it is not a Pi extension.
 
+`pi-ext-tools` is the planned Canonical tool owner for an explicit catalog of Pi upstream/basic
+tool replacements. It is a concrete extension, not a core module: it owns each catalog tool's
+upstream compatibility, renderer and selection policy, while core only transports registration and
+host capabilities. The catalog and integrated FFF enhancement boundary are defined in [pi-ext-tools 基础工具替换](../ext-tools/README.md).
+
 `@hheei/pi-ext-core` owns generic coordination mechanisms, plus the explicit Loadout and page-router
 contracts recorded in its ADRs:
 
@@ -32,6 +37,9 @@ contracts recorded in its ADRs:
 - Loadout tool registration transport and metadata, never Loadout policy;
 - Extension page routing and shell lifecycle, never page content or policy.
 - root-session-scoped subagent execution, never agent/config/UI/delivery policy.
+- terminal mouse tracking and local text selection transport, with temporary terminal
+  mouse ownership during the tracking lease; never page content, clipboard policy,
+  cross-component selection, or a generic layout tree.
 
 It does not contain feature policy, register a Pi extension, or import a
 concrete extension. Its imports are side-effect free: it creates no Pi handler,
@@ -90,9 +98,10 @@ Public contracts must:
 Do not export a class hierarchy, a generic registry, or an adapter layer merely
 because one feature might reuse it later. A valuable, feature-neutral core
 mechanism may be introduced before a second concrete extension consumes it when
-its bounded middle-layer scope is explicit. Do not use the documented Loadout
-contract, Extension page router, or Subagent execution contract to justify
-feature policy, content, state, or another speculative abstraction.
+its bounded middle-layer scope is explicit. The documented Loadout contract,
+Extension page router, Subagent execution contract, JSON settings transport,
+and mouse/local selection contract are bounded exceptions; do not use them to
+justify feature policy, content, state, or another speculative abstraction.
 
 ## Cross-Extension Cooperation
 

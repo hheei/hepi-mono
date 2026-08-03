@@ -24,6 +24,7 @@ import {
 	resolveLoadoutState,
 	skillConfigurationKey,
 	toolConfigurationKey,
+	toolsConflict,
 } from "./model.js";
 import { applyLoadoutSelection, updateLoadoutSelections } from "./storage.js";
 
@@ -78,6 +79,12 @@ function sourceLabel(source: string): string {
 	if (source === "builtin") return "Built-in";
 	if (source === "extension") return "Extension";
 	return "Third-party";
+}
+
+function toolOrigin(tool: ToolInfo, metadata: LoadoutToolMetadata | undefined): string {
+	if (metadata?.origin !== undefined) return metadata.origin;
+	if (tool.sourceInfo.source === "builtin") return "Pi built-in";
+	return tool.sourceInfo.path || sourceLabel(tool.sourceInfo.source);
 }
 
 function scopeLabel(scope: LoadoutScope, cwd: string): string {
@@ -169,7 +176,8 @@ function toolItem(
 			? allPolicies.find(
 					(candidate) =>
 						activeToolNames.has(candidate.name) &&
-						candidate.conflictSets.some((set) => policy?.conflictSets.includes(set)),
+						policy !== undefined &&
+						toolsConflict(candidate, policy),
 				)?.name
 			: undefined;
 	return {
@@ -178,7 +186,7 @@ function toolItem(
 		kind: "tool",
 		description: tool.description,
 		displayGroup: metadata?.group ?? sourceLabel(tool.sourceInfo.source),
-		origin: sourceLabel(tool.sourceInfo.source),
+		origin: toolOrigin(tool, metadata),
 		defaultActive,
 		projectPrivate: tool.sourceInfo.scope === "project",
 		enabled: state.enabled && lockedBy === undefined,

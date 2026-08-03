@@ -40,7 +40,6 @@
 	},
 	"dependencies": {
 		"@hheei/pi-ext-core": "workspace:*",
-		"@sinclair/typebox": "^0.34.52",
 		"better-result": "^2.10.0",
 		"pi-web-access": "^0.14.0"
 	},

@@ -94,7 +94,6 @@
       "version": "0.0.0",
       "dependencies": {
         "@hheei/pi-ext-core": "workspace:*",
-        "@sinclair/typebox": "^0.34.52",
         "better-result": "^2.10.0",
         "pi-web-access": "^0.14.0",
       },
@@ -144,6 +143,22 @@
         "@earendil-works/pi-tui": ">=0.83.0",
       },
     },
+    "packages/pi-ext-addon": {
+      "name": "@hheei/pi-ext-addon",
+      "version": "0.0.0",
+      "dependencies": {
+        "@hheei/pi-ext-core": "workspace:*",
+      },
+      "devDependencies": {
+        "@earendil-works/pi-coding-agent": ">=0.83.0",
+        "@types/bun": "latest",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-ai": ">=0.83.0",
+        "@earendil-works/pi-coding-agent": ">=0.83.0",
+        "@earendil-works/pi-tui": ">=0.83.0",
+      },
+    },
     "packages/pi-ext-core": {
       "name": "@hheei/pi-ext-core",
       "version": "0.0.0",
@@ -173,8 +188,8 @@
         "@huggingface/transformers": "^4.2.0",
       },
     },
-    "packages/pi-fff": {
-      "name": "@hheei/pi-fff",
+    "packages/pi-ext-tools": {
+      "name": "@hheei/pi-ext-tools",
       "version": "0.0.0",
       "dependencies": {
         "@ff-labs/fff-node": "^0.9.6",
@@ -305,6 +320,10 @@
       },
     },
   },
+  "patchedDependencies": {
+    "@earendil-works/pi-coding-agent@0.83.0": "patches/@earendil-works%2Fpi-coding-agent@0.83.0.patch",
+    "@earendil-works/pi-tui@0.83.0": "patches/@earendil-works%2Fpi-tui@0.83.0.patch",
+  },
   "packages": {
     "@anthropic-ai/sdk": ["@anthropic-ai/sdk@0.91.1", "", { "dependencies": { "json-schema-to-ts": "^3.1.1" }, "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" }, "optionalPeers": ["zod"], "bin": { "anthropic-ai-sdk": "bin/cli" } }, "sha512-LAmu761tSN9r66ixvmciswUj/ZC+1Q4iAfpedTfSVLeswRwnY3n2Nb6Tsk+cLPP28aLOPWeMgIuTuCcMC6W/iw=="],
 
@@ -432,11 +451,13 @@
 
     "@hheei/pi-btw": ["@hheei/pi-btw@workspace:packages/pi-btw"],
 
+    "@hheei/pi-ext-addon": ["@hheei/pi-ext-addon@workspace:packages/pi-ext-addon"],
+
     "@hheei/pi-ext-core": ["@hheei/pi-ext-core@workspace:packages/pi-ext-core"],
 
     "@hheei/pi-ext-embed": ["@hheei/pi-ext-embed@workspace:packages/pi-ext-embed"],
 
-    "@hheei/pi-fff": ["@hheei/pi-fff@workspace:packages/pi-fff"],
+    "@hheei/pi-ext-tools": ["@hheei/pi-ext-tools@workspace:packages/pi-ext-tools"],
 
     "@hheei/pi-handoff": ["@hheei/pi-handoff@workspace:packages/pi-handoff"],
 
@@ -609,8 +630,6 @@
     "@rolldown/pluginutils": ["@rolldown/pluginutils@1.0.1", "", {}, "sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw=="],
 
     "@silvia-odwyer/photon-node": ["@silvia-odwyer/photon-node@0.3.4", "", {}, "sha512-bnly4BKB3KDTFxrUIcgCLbaeVVS8lrAkri1pEzskpmxu9MdfGQTy8b8EgcD83ywD3RPMsIulY8xJH5Awa+t9fA=="],
-
-    "@sinclair/typebox": ["@sinclair/typebox@0.34.52", "", {}, "sha512-XiMQh7qqVlxZzcVD+kkGMNGMzcTrDMLWI7S4x7z1MkCkbDPrekpZXEUK0eZqZFMuHQg2a2DZOcDIh9o5v3Gonw=="],
 
     "@smithy/core": ["@smithy/core@3.29.1", "", { "dependencies": { "@smithy/types": "^4.15.1", "tslib": "^2.6.2" } }, "sha512-qoiY4nrk5OCu1+eIR1VB8l5DmON/oKiqrd5zZFAhXJXjJlLWQusKEW/SkBDAtGDcPaz86m9kfcE1lngU0GlM6A=="],
 

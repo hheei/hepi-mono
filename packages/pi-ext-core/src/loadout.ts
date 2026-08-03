@@ -14,8 +14,12 @@ import { type RuntimeHost, runtimeIdentity } from "./runtime-identity.js";
 export interface LoadoutToolMetadata {
 	readonly id: string;
 	readonly group: string;
+	/** Exact registration provider shown by Loadout instead of Pi's broad source category. */
+	readonly origin?: string;
 	readonly priority: number;
 	readonly conflictSets: readonly string[];
+	/** Tool names that cannot be active with this tool. The relation is symmetric. */
+	readonly conflictsWith?: readonly string[];
 	readonly defaultActive: boolean;
 }
 
@@ -102,11 +106,17 @@ function validateMetadata(metadata: LoadoutToolMetadata): void {
 	if (!metadata.id.trim()) throw new Error("Loadout tool id must not be empty");
 	if (!metadata.group.trim())
 		throw new Error(`Loadout tool group must not be empty: ${metadata.id}`);
+	if (metadata.origin !== undefined && !metadata.origin.trim())
+		throw new Error(`Loadout tool origin must not be empty: ${metadata.id}`);
 	if (!Number.isSafeInteger(metadata.priority) || metadata.priority < 0)
 		throw new Error(`Loadout tool priority must be a non-negative integer: ${metadata.id}`);
 	for (const conflictSet of metadata.conflictSets) {
 		if (!conflictSet.trim())
 			throw new Error(`Loadout conflict set must not be empty: ${metadata.id}`);
+	}
+	for (const toolId of metadata.conflictsWith ?? []) {
+		if (!toolId.trim() || toolId === metadata.id)
+			throw new Error(`Loadout conflicting tool id must name another tool: ${metadata.id}`);
 	}
 }
 

@@ -74,6 +74,15 @@ export {
 	hepiThinkingGlyph,
 } from "./model-selection.js";
 export type {
+	MouseRegion,
+	MouseSupport,
+	SelectableRegion,
+	TerminalMouseEvent,
+	TextPosition,
+	TextRange,
+} from "./mouse.js";
+export { installMouseSupport } from "./mouse.js";
+export type {
 	ExtensionPageRegistration,
 	ExtensionPageView,
 	ExtensionPageViewContext,
@@ -169,6 +178,8 @@ export {
 	redeliverTask,
 	startSubagent,
 } from "./subagents.js";
+export type { ToolResultBounds, ToolResultLayout } from "./tool-result-layout.js";
+export { getToolResultLayout } from "./tool-result-layout.js";
 export type {
 	HepiWidgetHandle,
 	HepiWidgetPlacement,

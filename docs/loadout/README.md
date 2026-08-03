@@ -85,5 +85,5 @@ winner inherit 或回到其 default，才可操作被锁定 member。
 
 `pi-settings` 独占 `/ext-settings` host，`pi-loadout` 独占 `/loadout` direct entry；二者打开同一 router。
 Loadout 页面把 Tools、Skills 与按需出现的 resource groups 放在一个列表，通过 Global/Project scope draft 修改这些 delta；它不 hot-apply，
-关闭 Settings router 后提示用户 `/reload`。`pi-fff` 通过 core managed registration 接入该策略，不依赖已删除的
+关闭 Settings router 后提示用户 `/reload`。`pi-ext-tools` 的 integrated FFF tools 通过 core managed registration 接入该策略，不依赖已删除的
 aggregate Loadout。

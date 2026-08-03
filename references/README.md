@@ -9,6 +9,7 @@ Use `<owner>-<repo>` directory names. Documentation must cite the public URL and
 | Repository | Revision | What was studied |
 | --- | --- | --- |
 | [earendil-works/pi](https://github.com/earendil-works/pi) | `c13ffe1877c3a47ce9f2fc98d9880447d64a0e87` | Shared upstream reference clone for Pi extension lifecycle, model registry, TUI, tools, and agent runtime |
+| [earendil-works/pi](https://github.com/earendil-works/pi) | `c13ffe1877c3a47ce9f2fc98d9880447d64a0e87` (MIT) | Adapted `TUI` component-layout and `ToolRenderContext` result-layout contract in Bun patches for mouse selection |
 | [earendil-works/pi](https://github.com/earendil-works/pi) | `b4f293684bba718d59cc1157679bcf6157b3a7f5` (`v0.82.1`) | Project-only `pi-development` skill source reference |
 | [gabelul/bpx-mono](https://github.com/gabelul/bpx-mono) | `64567efe1177739b2eb110a746fff7c736c9468b` | Isolated advisor agents and result delivery |
 | [pasky/pi-omplike-advisor](https://github.com/pasky/pi-omplike-advisor) | `43eb9a976d751c06016a62b5423e2c6ddaff43a1` | Read-only advisor behavior |
