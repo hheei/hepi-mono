@@ -48,9 +48,6 @@ const DETAIL_FIELDS: readonly DetailField[] = [
 	{ id: "body", kind: "action" },
 ];
 
-/** A non-empty model reference must be `provider/model`. */
-const MODEL_REF = /^[^/\\]+[\\/][^/\\]+$/u;
-
 type FieldId = "identity" | "description" | "model" | "thinking" | "enabled" | "body";
 type FieldKind = "text" | "cycle" | "toggle" | "action";
 
@@ -180,11 +177,10 @@ export function createAgentDetail(
 	const save = (): boolean => {
 		const path = agentMarkdownPath(name, draft.source);
 		if (path === undefined) return false;
+		// Model values are resolved tolerantly at spawn time (fuzzy names such as
+		// "haiku", dotted/dashed versions, provider fallback), so the editor only
+		// normalizes whitespace and must not second-guess valid configurations.
 		const model = (draft.model ?? "").trim();
-		if (model !== "" && !MODEL_REF.test(model)) {
-			notify("Agent model must be provider/model; leave empty to inherit");
-			return false;
-		}
 		const displayName = (draft.displayName ?? "").trim();
 		const values: Record<string, string | boolean | undefined> = {
 			display_name: displayName === "" ? undefined : displayName,
