@@ -13,21 +13,24 @@ import {
 import { Type } from "typebox";
 import {
 	createMctxFeature,
+	type MctxAugmentResult,
+	type MctxFeature,
 	type MctxHistoryOperation,
 	type MctxHistoryResult,
 	type MctxMemoryOperation,
 	type MctxNoteOperation,
-	type MctxSearchOperation,
-	type MctxSearchResult,
 } from "./feature.js";
 import { MAX_CTX_EXPAND_CHARS, renderMctxHistoryTagPage } from "./history-tags.js";
-import { MCTX_SEARCH_SOURCES, type MctxSearchSource } from "./search.js";
+import {
+	MAX_CTX_SEARCH_LIMIT,
+	MCTX_SEARCH_SOURCES,
+	renderSearchToolResult,
+	searchOperation,
+} from "./search.js";
 import { MCTX_MEMORY_CATEGORIES } from "./store.js";
 
 const DEFAULT_CTX_HISTORY_LIMIT = 50;
 const MAX_CTX_HISTORY_LIMIT = 100;
-const DEFAULT_CTX_SEARCH_LIMIT = 20;
-const MAX_CTX_SEARCH_LIMIT = 50;
 
 interface PiContextHook {
 	on(
@@ -48,15 +51,47 @@ const MCTX_MANAGED_TOOL = {
 	defaultActive: true,
 } as const;
 
-function registerContextHook(
-	pi: ExtensionAPI,
-	feature: ReturnType<typeof createMctxFeature>,
-): void {
+function registerContextHook(pi: ExtensionAPI, feature: MctxFeature): void {
 	// Pi exposes this runtime hook, but the installed public extension declaration omits it.
 	// The projection remains MCTX-owned because it validates its own branch graph;
 	// core only supplies lifecycle cancellation and does not interpret context history.
 	const hooks = pi as unknown as PiContextHook;
 	hooks.on("context", (event, context) => feature.onContext(event.messages, context));
+}
+
+function registerSidekickCommand(pi: ExtensionAPI, feature: MctxFeature): void {
+	pi.registerCommand("ctx-aug", {
+		description: "Run a read-only sidekick child and inject the retrieved augmentation once",
+		handler: async (args, ctx) => {
+			if (ctx.mode !== "tui") {
+				ctx.ui.notify("/ctx-aug requires interactive mode", "error");
+				return;
+			}
+			const query = args.trim();
+			if (query.length === 0 || query.length > 500) {
+				ctx.ui.notify("Usage: /ctx-aug <query up to 500 characters>", "error");
+				return;
+			}
+			const result: MctxAugmentResult = await feature.augment(query, ctx);
+			switch (result.kind) {
+				case "injected":
+					ctx.ui.notify("Sidekick augmentation injected into the next context turn.", "info");
+					break;
+				case "inactive":
+					ctx.ui.notify("pi-mctx is not active for this session.", "error");
+					break;
+				case "cancelled":
+					ctx.ui.notify("Sidekick augmentation cancelled.", "warning");
+					break;
+				case "empty":
+					ctx.ui.notify("Sidekick found nothing to augment; context unchanged.", "warning");
+					break;
+				case "failed":
+					ctx.ui.notify(`Sidekick augmentation failed: ${result.reason}`, "error");
+					break;
+			}
+		},
+	});
 }
 
 function parseTagSelectors(value: string): readonly number[] | undefined {
@@ -217,38 +252,6 @@ function historyOperation(args: Record<string, unknown>): MctxHistoryOperation |
 	return undefined;
 }
 
-function searchOperation(args: Record<string, unknown>): MctxSearchOperation | undefined {
-	const query = args.query;
-	const requestedLimit = args.limit;
-	const limit = requestedLimit === undefined ? DEFAULT_CTX_SEARCH_LIMIT : requestedLimit;
-	const sources = args.sources;
-	if (
-		typeof query !== "string" ||
-		!query.trim() ||
-		query.length > 500 ||
-		typeof limit !== "number" ||
-		!Number.isSafeInteger(limit) ||
-		limit < 1 ||
-		limit > MAX_CTX_SEARCH_LIMIT
-	)
-		return undefined;
-	if (sources === undefined) return { query: query.trim(), limit };
-	if (
-		!Array.isArray(sources) ||
-		sources.length === 0 ||
-		sources.length > MCTX_SEARCH_SOURCES.length
-	)
-		return undefined;
-	const selected: MctxSearchSource[] = [];
-	for (const source of sources) {
-		const matched = MCTX_SEARCH_SOURCES.find((candidate) => candidate === source);
-		if (matched === undefined) return undefined;
-		selected.push(matched);
-	}
-	if (new Set(selected).size !== selected.length) return undefined;
-	return { query: query.trim(), limit, sources: selected };
-}
-
 function renderHistoryToolResult(result: MctxHistoryResult) {
 	switch (result.kind) {
 		case "history":
@@ -290,47 +293,7 @@ function renderHistoryToolResult(result: MctxHistoryResult) {
 	}
 }
 
-function renderSearchToolResult(result: MctxSearchResult) {
-	switch (result.kind) {
-		case "hits":
-			return {
-				content: [{ type: "text" as const, text: JSON.stringify({ hits: result.hits }) }],
-				details: undefined,
-			};
-		case "inactive":
-			return {
-				content: [{ type: "text" as const, text: "pi-mctx is not active for this session." }],
-				details: undefined,
-				isError: true,
-			};
-		case "stale":
-			return {
-				content: [{ type: "text" as const, text: "Context changed; retry ctx_search." }],
-				details: undefined,
-				isError: true,
-			};
-		case "invalid-exclusions":
-			return {
-				content: [
-					{
-						type: "text" as const,
-						text: "Memory exclusion provider failed validation; retry ctx_search after fixing it.",
-					},
-				],
-				details: undefined,
-				isError: true,
-			};
-		default: {
-			const exhaustive: never = result;
-			return exhaustive;
-		}
-	}
-}
-
-function registerHistoryTools(
-	pi: ExtensionAPI,
-	feature: ReturnType<typeof createMctxFeature>,
-): void {
+function registerHistoryTools(pi: ExtensionAPI, feature: MctxFeature): void {
 	registerManagedLoadoutTool(
 		pi,
 		{ id: "ctx_reduce", ...MCTX_MANAGED_TOOL },
@@ -617,6 +580,7 @@ export default function piMctxExtension(pi: ExtensionAPI): void {
 		},
 	});
 	registerHistoryTools(pi, feature);
+	registerSidekickCommand(pi, feature);
 	registerContextHook(pi, feature);
 	pi.on("turn_end", (_event, context) => feature.onTurnEnd(context));
 }
