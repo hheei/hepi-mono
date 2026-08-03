@@ -74,16 +74,14 @@ function setup(
 	vi.spyOn(process, "cwd").mockReturnValue(root);
 	const notifications: string[] = [];
 	const changed: string[] = [];
-	const editor = vi.fn(async (_title: string, _prefill: string) => undefined);
 	const detail = createAgentDetail(
 		name,
 		config,
 		registry,
-		editor,
 		() => changed.push("reload"),
 		(message) => notifications.push(message),
 	);
-	return { detail, notifications, changed, editor, registry, path };
+	return { detail, notifications, changed, registry, path };
 }
 
 function setupDefault(name = "Explore") {
@@ -93,7 +91,6 @@ function setupDefault(name = "Explore") {
 	vi.spyOn(process, "cwd").mockReturnValue(root);
 	const notifications: string[] = [];
 	const changed: string[] = [];
-	const editor = vi.fn(async (_title: string, _prefill: string) => undefined);
 	const config: AgentConfig = {
 		name,
 		description: "Read-only explorer.",
@@ -108,11 +105,10 @@ function setupDefault(name = "Explore") {
 		name,
 		config,
 		AUTH_REGISTRY,
-		editor,
 		() => changed.push("reload"),
 		(message) => notifications.push(message),
 	);
-	return { detail, root, notifications, changed, editor };
+	return { detail, root, notifications, changed };
 }
 
 function defaultContent(): string {
@@ -459,39 +455,71 @@ describe("createAgentDetail", () => {
 		expect(readContent(path)).toContain('display_name: "中"');
 	});
 
-	it("buffers the host editor's returned text and applies it only on flush", async () => {
-		const { detail, changed, editor, path } = setup();
+	it("edits the body in the embedded editor and applies it only on flush", async () => {
+		const { detail, changed, path } = setup();
 		await detail.handleInput("draft");
 		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN); // identity → body
-		editor.mockResolvedValue("New body.\n");
-		await detail.handleInput(ENTER);
-		expect(editor).toHaveBeenCalledWith("auditor — agent body", "You are a test agent.");
+		await detail.handleInput(ENTER); // enter body edit mode
+		expect(detail.render(80)[0]).toContain("Body");
+		await detail.handleInput("N");
+		await detail.handleInput("e");
+		await detail.handleInput("w");
+		await detail.handleInput(ENTER); // submit
 		// The body edit is buffered: the target file is untouched until close.
-		expect(readContent(path)).not.toContain("New body.");
+		expect(readContent(path)).not.toContain("You are a test agent.New");
 		expect(readContent(path)).not.toContain('display_name: "draft"');
 		detail.flush();
-		expect(readContent(path)).toContain("New body.");
+		expect(readContent(path)).toContain("You are a test agent.New");
 		expect(readContent(path)).toContain('display_name: "draft"');
 		expect(changed).toEqual(["reload"]);
 	});
 
-	it("treats a cancelled editor as no body change", async () => {
-		const { detail, editor, path } = setup();
+	it("inserts a newline with Shift+Enter in the body editor", async () => {
+		const { detail, path } = setup();
 		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN);
-		editor.mockResolvedValue(undefined); // cancel
-		await detail.handleInput(ENTER);
+		await detail.handleInput(ENTER); // enter body edit mode
+		await detail.handleInput("a");
+		await detail.handleInput("\u001b[13;2u"); // Shift+Enter
+		await detail.handleInput("b");
+		await detail.handleInput(ENTER); // submit
 		detail.flush();
-		expect(readContent(path)).toContain("You are a test agent.");
+		expect(readContent(path)).toContain("You are a test agent.a\nb");
 	});
 
-	it("does not hang and notifies when the editor surface fails", async () => {
-		const { detail, editor, notifications, path } = setup();
-		editor.mockRejectedValue(new Error("editor unavailable"));
+	it("cancels the body editor with Esc without changing the body", async () => {
+		const { detail, path } = setup();
 		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN);
-		await detail.handleInput(ENTER); // must resolve, never hang
-		expect(notifications).toEqual(["Could not open the editor: editor unavailable"]);
+		await detail.handleInput(ENTER); // enter body edit mode
+		await detail.handleInput("discarded");
+		await detail.handleInput(ESCAPE); // cancel
 		detail.flush();
 		expect(readContent(path)).toContain("You are a test agent.");
+		expect(readContent(path)).not.toContain("discarded");
+	});
+
+	it("navigates and edits existing body text at the cursor", async () => {
+		const { detail, path } = setup();
+		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN);
+		await detail.handleInput(ENTER); // enter body edit mode
+		await detail.handleInput("\u001b[D"); // left
+		await detail.handleInput("\u001b[D");
+		await detail.handleInput("X"); // insert before the trailing period
+		await detail.handleInput(ENTER); // submit
+		detail.flush();
+		expect(readContent(path)).toContain("You are a test agenXt.");
+	});
+
+	it("scrolls the body viewport to follow the cursor", async () => {
+		const longBody = Array.from({ length: 12 }, (_, index) => `line-${index}`).join("\n");
+		const { detail } = setup("auditor", undefined, {
+			...configFor("auditor"),
+			systemPrompt: longBody,
+		});
+		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN);
+		await detail.handleInput(ENTER); // cursor starts at the end (line-11)
+		const rendered = detail.render(80).join("\n");
+		expect(rendered).toContain("line-11");
+		expect(rendered).not.toContain("line-0");
 	});
 
 	it("clamps selection and truncates rendered lines to the panel width", async () => {

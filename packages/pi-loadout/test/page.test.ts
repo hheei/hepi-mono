@@ -411,7 +411,6 @@ describe("Loadout Settings page", () => {
 				getAvailable: () => [{ provider: "cx", id: "gpt-5.6-luna" }],
 				hasConfiguredAuth: () => true,
 			},
-			async () => undefined,
 			() => undefined,
 			() => undefined,
 		);
@@ -495,7 +494,6 @@ describe("Loadout Settings page", () => {
 			"Explore",
 			config,
 			{ getAvailable: () => [], hasConfiguredAuth: () => false },
-			async () => undefined,
 			() => undefined,
 			() => undefined,
 		);
@@ -560,7 +558,6 @@ describe("Loadout Settings page", () => {
 			"Explore",
 			config,
 			{ getAvailable: () => [], hasConfiguredAuth: () => false },
-			async () => undefined,
 			() => undefined,
 			() => undefined,
 		);
@@ -626,7 +623,6 @@ describe("Loadout Settings page", () => {
 					source: "project",
 				},
 				registry,
-				async () => undefined,
 				() => undefined,
 				() => undefined,
 			);

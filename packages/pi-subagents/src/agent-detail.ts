@@ -10,9 +10,12 @@
  * cancels. The form renders as two aligned columns (label / value) like the
  * Settings field list, the focused row gets the accent treatment, and the Body
  * action row advertises the external editor as its value ("open in editor").
- * The Body row opens the Pi host's native multi-line editor (`ui.editor`), which
- * returns the edited text or `undefined` on cancel; the result is stored in the
- * buffered draft — nothing touches the target file until flush. Project-scope edits
+ * The Body row switches the form into an embedded edit mode (Enter submits,
+ * Shift+Enter inserts a newline, Esc cancels); the result is stored in the
+ * buffered draft — nothing touches the target file until flush. It deliberately
+ * does not call `ui.editor()`: nesting that host dialog inside the active Loadout
+ * custom surface would let Esc escape to the TUI and leave the surface
+ * unreopenable (`maxPending: 1`). Project-scope edits
  * always target `<cwd>/.pi/agents/<name>.md` (materializing a clone when
  * missing); Global-scope edits target the agent's own backing file. Agent
  * activation is owned by the Loadout policy under `agent:<name>`, never by
@@ -54,6 +57,8 @@ const THINKING_LEVELS: readonly ModelThinkingLevel[] = [
 ];
 
 const FIRST_FIELD: DetailField = { id: "identity", kind: "text" };
+/** Max rows of the embedded body editor, including its label and hint rows. */
+const BODY_EDIT_ROWS = 10;
 const DETAIL_FIELDS: readonly DetailField[] = [
 	FIRST_FIELD,
 	{ id: "description", kind: "text" },
@@ -212,7 +217,6 @@ export function createAgentDetail(
 	name: string,
 	initial: AgentConfig,
 	modelRegistry: HepiModelSelectionRegistry<ModelCandidate> | undefined,
-	openBodyEditor: (title: string, prefill: string) => Promise<string | undefined>,
 	onChanged: () => void,
 	notify: (message: string) => void,
 ): AgentDetail {
@@ -255,6 +259,50 @@ export function createAgentDetail(
 	let selectingModel = false;
 	let selectIndex = 0;
 	let thinkingDraft: ModelThinkingLevel | undefined;
+	// Embedded body editor: while `editingBody` is true the form renders the
+	// body as multi-line text with a real cursor (←/→ move, ↑/↓ move lines,
+	// Backspace/Delete edit, Shift+Enter newline, Enter submits, Esc cancels).
+	// The viewport follows the cursor so long prompts stay editable in place.
+	let editingBody = false;
+	let bodyDraft = "";
+	let cursor = 0;
+	let bodyViewport = 0;
+	const bodyLines = (): readonly string[] => bodyDraft.split("\n");
+	const lineColAt = (offset: number): { readonly line: number; readonly col: number } => {
+		const before = bodyDraft.slice(0, offset);
+		const parts = before.split("\n");
+		return { line: parts.length - 1, col: Array.from(parts.at(-1) ?? "").length };
+	};
+	const offsetAt = (line: number, col: number): number => {
+		const parts = bodyLines();
+		let offset = 0;
+		for (let index = 0; index < line; index++) {
+			offset += Array.from(parts[index] ?? "").length + 1;
+		}
+		return Math.min(bodyDraft.length, offset + col);
+	};
+	const insertAt = (text: string): void => {
+		const chars = Array.from(bodyDraft);
+		bodyDraft = `${chars.slice(0, cursor).join("")}${text}${chars.slice(cursor).join("")}`;
+		cursor += Array.from(text).length;
+	};
+	const deleteBackward = (): void => {
+		if (cursor <= 0) return;
+		const chars = Array.from(bodyDraft);
+		cursor -= 1;
+		bodyDraft = chars.filter((_, index) => index !== cursor).join("");
+	};
+	const deleteForward = (): void => {
+		const chars = Array.from(bodyDraft);
+		if (cursor >= chars.length) return;
+		bodyDraft = chars.filter((_, index) => index !== cursor).join("");
+	};
+	const moveCursor = (deltaLine: number, deltaCol: number): void => {
+		const { line, col } = lineColAt(cursor);
+		const target = Math.max(0, line + deltaLine);
+		const length = Array.from(bodyLines()[target] ?? "").length;
+		cursor = offsetAt(target, deltaLine === 0 ? col + deltaCol : Math.min(col, length));
+	};
 	const field = (): DetailField => DETAIL_FIELDS[selected] ?? FIRST_FIELD;
 	/**
 	 * The rendered form mirrors the Settings field list: a left label column and
@@ -422,6 +470,38 @@ export function createAgentDetail(
 				join(process.cwd(), ".pi", "agents", `${name}.md`));
 	const detail: AgentDetail = {
 		render(width: number): readonly string[] {
+			if (editingBody) {
+				const lines = bodyLines();
+				const { line } = lineColAt(cursor);
+				const visible = BODY_EDIT_ROWS - 2; // label + hint rows
+				// Keep the cursor line centered in the viewport.
+				bodyViewport = Math.min(
+					Math.max(0, lines.length - visible),
+					Math.max(0, line - Math.floor(visible / 2)),
+				);
+				const rows: string[] = [theme?.fg("accent", theme.bold("→ Body")) ?? "→ Body"];
+				for (const content of lines.slice(bodyViewport, bodyViewport + visible)) {
+					const lineIndex = bodyViewport + rows.length - 1;
+					if (lineIndex !== line) {
+						rows.push(truncateToWidth(`  ${content}`, Math.max(0, width)));
+						continue;
+					}
+					const chars = Array.from(content);
+					const { col } = lineColAt(cursor);
+					const head = truncateToWidth(`  ${chars.slice(0, col).join("")}`, Math.max(0, width - 1));
+					const at = chars[col];
+					const marker = at === undefined ? "▏" : (theme?.fg("accent", theme.bold(at)) ?? at);
+					rows.push(
+						truncateToWidth(`${head}${marker}${chars.slice(col + 1).join("")}`, Math.max(0, width)),
+					);
+				}
+				while (rows.length < visible + 1) rows.push("  ");
+				rows.push(
+					theme?.fg("dim", "Enter save · ⇧Enter newline · ↑↓←→ move · Esc cancel") ??
+						"Enter save · ⇧Enter newline · ↑↓←→ move · Esc cancel",
+				);
+				return rows;
+			}
 			const rendered = rows();
 			// Mirror the Settings field list: the label column never exceeds 55%
 			// of the panel width so the value column keeps room at narrow sizes.
@@ -441,6 +521,64 @@ export function createAgentDetail(
 			});
 		},
 		async handleInput(input: string): Promise<boolean> {
+			if (editingBody) {
+				if (matchesKey(input, Key.enter)) {
+					const entry = current();
+					entry.draft = { ...entry.draft, systemPrompt: bodyDraft };
+					entry.dirty = true;
+					entry.bodyEdited = true;
+					editingBody = false;
+					return true;
+				}
+				if (matchesKey(input, Key.shift("enter"))) {
+					insertAt("\n");
+					return true;
+				}
+				if (matchesKey(input, Key.escape)) {
+					editingBody = false;
+					return true;
+				}
+				if (matchesKey(input, Key.left)) {
+					moveCursor(0, -1);
+					return true;
+				}
+				if (matchesKey(input, Key.right)) {
+					moveCursor(0, 1);
+					return true;
+				}
+				if (matchesKey(input, Key.up)) {
+					moveCursor(-1, 0);
+					return true;
+				}
+				if (matchesKey(input, Key.down)) {
+					moveCursor(1, 0);
+					return true;
+				}
+				if (matchesKey(input, Key.home)) {
+					const { line } = lineColAt(cursor);
+					cursor = offsetAt(line, 0);
+					return true;
+				}
+				if (matchesKey(input, Key.end)) {
+					const { line } = lineColAt(cursor);
+					cursor = offsetAt(line, Array.from(bodyLines()[line] ?? "").length);
+					return true;
+				}
+				if (matchesKey(input, Key.backspace)) {
+					deleteBackward();
+					return true;
+				}
+				if (matchesKey(input, Key.delete)) {
+					deleteForward();
+					return true;
+				}
+				if (input && !input.startsWith("\x1b") && !/\p{Cc}/u.test(input)) {
+					insertAt(input);
+					return true;
+				}
+				// Everything else is consumed while editing the body.
+				return true;
+			}
 			if (selectingModel) {
 				if (matchesKey(input, Key.up)) {
 					selectIndex = (selectIndex - 1 + modelChoices().length) % modelChoices().length;
@@ -485,25 +623,10 @@ export function createAgentDetail(
 				if (field().kind === "select") {
 					openSelector();
 				} else if (field().kind === "action") {
-					// The Pi host's native editor returns the edited text (or
-					// undefined when cancelled); the result goes into the buffered
-					// draft, so nothing touches the target file until flush().
-					const entry = current();
-					try {
-						const edited = await openBodyEditor(`${name} — agent body`, entry.draft.systemPrompt);
-						if (edited !== undefined) {
-							entry.draft = { ...entry.draft, systemPrompt: edited };
-							entry.dirty = true;
-							entry.bodyEdited = true;
-						}
-					} catch (error) {
-						// No usable editor surface: tell the user instead of hanging.
-						notify(
-							`Could not open the editor: ${
-								error instanceof Error ? error.message : String(error)
-							}`,
-						);
-					}
+					bodyDraft = current().draft.systemPrompt;
+					cursor = bodyDraft.length;
+					bodyViewport = Math.max(0, bodyLines().length - (BODY_EDIT_ROWS - 2));
+					editingBody = true;
 				}
 				return true;
 			}
