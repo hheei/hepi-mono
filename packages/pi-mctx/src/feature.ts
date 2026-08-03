@@ -596,10 +596,14 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 	const logHistorianDiagnostic = options.logHistorianDiagnostic ?? defaultLogHistorianDiagnostic;
 	const acquireEmbeddingProvider =
 		options.acquireEmbeddingProvider ??
-		(async (config: unknown): Promise<EmbeddingProviderLease | undefined> => {
-			const module = await import("@hheei/pi-ext-embed");
-			return module.acquireEmbeddingProvider(config);
-		});
+		// Memory-system embedding is disabled in production behind this hook;
+		// tests inject the seam. Original production acquisition kept verbatim
+		// for revival (see docs/mctx/README.md):
+		// (async (config: unknown): Promise<EmbeddingProviderLease | undefined> => {
+		// 	const module = await import("@hheei/pi-ext-embed");
+		// 	return module.acquireEmbeddingProvider(config);
+		// })
+		(async (_config: unknown): Promise<EmbeddingProviderLease | undefined> => undefined);
 	const startSidekickTask = options.startSidekickTask ?? startSubagent;
 	const startDreamTask = options.startDreamTask ?? startSubagent;
 	let active: ActiveMctxRuntime | undefined;
@@ -1440,7 +1444,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				(lifecycle) =>
 					startSidekickTask(lifecycle, {
 						mode: "task",
-						session: createMctxChildFactory(context, feature, {
+						session: createMctxChildFactory(context, {
 							model: context.model,
 							systemPrompt: SIDEKICK_SYSTEM_PROMPT,
 						}),
@@ -1512,7 +1516,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				(lifecycle) =>
 					startDreamTask(lifecycle, {
 						mode: "task",
-						session: createMctxChildFactory(context, feature, {
+						session: createMctxChildFactory(context, {
 							model,
 							systemPrompt: DREAMER_SYSTEM_PROMPT,
 						}),

@@ -34,9 +34,8 @@ export const MAX_SIDEKICK_AUGMENTATION_CHARS = 20_000;
 export const SIDEKICK_SYSTEM_PROMPT = `You are a read-only Sidekick research agent for the parent session.
 Your job: gather focused project background for one query, then return a single concise augmentation prompt.
 Rules:
-- Use only these tools: read, grep, find, ls, ctx_search.
-- ctx_search searches bounded project memories, notes, retained history, Git commits, and optional primer text. Use it first.
-- read/grep/find/ls explore repository files only when the query needs facts the search does not cover.
+- Use only these tools: read, grep, find, ls.
+- read/grep/find/ls explore repository files and project context.
 - Never modify anything. Never use any other tool.
 - Output only the augmentation prompt text: a short, self-contained summary the parent model can use as background.
 - Do not include instructions, commands to run, or anything that reads as a directive to the parent.`;
@@ -113,14 +112,16 @@ export function createSidekickContextSearchTool(
 /**
  * Consumer-owned read-only child-session policy shared by the Sidekick and
  * Dreamer commands. The child runs with no extensions (no pi-mctx lifecycle,
- * store, transform, historian or embedding side effects) and exactly five
- * tools: read/grep/find/ls plus the injected `ctx_search` custom tool. The
- * `tools` allowlist must name `ctx_search` itself — the SDK only enables
- * listed names, and customTools registration does not bypass it.
+ * store, transform, historian or embedding side effects) and exactly the four
+ * built-in exploration tools. The `ctx_search` custom-tool injection is
+ * disabled with the memory system (see docs/mctx/README.md) and kept here for
+ * revival; the `tools` allowlist would need `ctx_search` named again.
  */
 export function createMctxChildFactory(
 	context: ExtensionContext,
-	feature: Pick<MctxFeature, "search">,
+	// Original memory-system seam, kept verbatim for revival: the injected
+	// `ctx_search` custom tool delegates to the parent feature.search.
+	// feature: Pick<MctxFeature, "search">,
 	options: {
 		readonly model: Model<Api> | undefined;
 		readonly systemPrompt: string;
@@ -148,8 +149,10 @@ export function createMctxChildFactory(
 				agentDir,
 				sessionManager: SessionManager.inMemory(cwd),
 				resourceLoader,
-				tools: [...MCTX_CHILD_BUILTIN_TOOLS, "ctx_search"],
-				customTools: [createSidekickContextSearchTool(feature, context)],
+				// Original memory-system allowlist, kept verbatim for revival:
+				// tools: [...MCTX_CHILD_BUILTIN_TOOLS, "ctx_search"],
+				// customTools: [createSidekickContextSearchTool(feature, context)],
+				tools: [...MCTX_CHILD_BUILTIN_TOOLS],
 				...(options.model === undefined ? {} : { model: options.model }),
 				thinkingLevel: "off",
 			});
@@ -162,6 +165,6 @@ export function createMctxChildFactory(
 export function buildSidekickPrompt(query: string): string {
 	return `Research the current project context for: ${query}
 
-Use ctx_search first, then read/grep/find/ls if the query needs repository facts the search does not cover.
+Use read/grep/find/ls to explore repository files and project context.
 Return one augmentation prompt (the short background summary for the parent model). No preamble, no markdown fences.`;
 }
