@@ -10,11 +10,11 @@ describe("Loadout policy", () => {
 	test("validates raw delta layers and preserves undiscovered canonical keys", () => {
 		expect(
 			parseLoadoutConfiguration({
-				global: { disabled: ["tool:find", "skill:future"] },
+				global: { disabled: ["tool:find", "skill:future", "agent:reviewer"] },
 				project: { enabled: ["tool:future"] },
 			}),
 		).toEqual({
-			global: { disabled: ["skill:future", "tool:find"], enabled: [] },
+			global: { disabled: ["agent:reviewer", "skill:future", "tool:find"], enabled: [] },
 			project: { disabled: [], enabled: ["tool:future"] },
 		});
 		expect(() =>

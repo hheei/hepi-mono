@@ -45,7 +45,10 @@ function isCanonicalLoadoutKey(value: string): boolean {
 	const separator = value.indexOf(":");
 	if (separator <= 0 || separator === value.length - 1 || value.trim() !== value) return false;
 	const kind = value.slice(0, separator);
-	return (kind === "tool" || kind === "skill") && !/\s/u.test(value.slice(separator + 1));
+	return (
+		(kind === "tool" || kind === "skill" || kind === "agent") &&
+		!/\s/u.test(value.slice(separator + 1))
+	);
 }
 
 /** Rejects malformed resource identifiers at both persisted and UI write boundaries. */

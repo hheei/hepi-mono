@@ -8,6 +8,8 @@ import { Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/
 import {
 	type ExtensionPageView,
 	type ExtensionPageViewContext,
+	type LoadoutInventoryItem,
+	type LoadoutResourceMetadata,
 	type LoadoutToolMetadata,
 	observeLoadoutInventory,
 	type PiSettingsPaths,
@@ -34,7 +36,7 @@ const VISIBLE_ROWS = PANEL_ROWS - LIST_HEADER_ROWS - LIST_HINT_ROWS;
 interface ResourceItem {
 	readonly key: string;
 	readonly name: string;
-	readonly kind: "tool" | "skill";
+	readonly kind: string;
 	readonly description: string;
 	readonly displayGroup: string;
 	readonly origin: string;
@@ -200,6 +202,24 @@ function skillItem(skill: SlashCommandInfo, configuration: LoadoutConfiguration)
 	};
 }
 
+function resourceItem(
+	resource: LoadoutResourceMetadata,
+	configuration: LoadoutConfiguration,
+): ResourceItem {
+	const state = resolveLoadoutState(resource.id, resource.defaultActive, configuration);
+	return {
+		key: resource.id,
+		name: resource.label,
+		kind: resource.kind,
+		description: resource.description,
+		displayGroup: resource.summary,
+		origin: resource.owner,
+		defaultActive: resource.defaultActive,
+		projectPrivate: resource.projectPrivate,
+		enabled: state.enabled,
+	};
+}
+
 /** Owns only the Loadout page draft and rendering; engine remains the activation-policy owner. */
 export function createLoadoutPage(
 	pi: ExtensionAPI,
@@ -212,7 +232,7 @@ export function createLoadoutPage(
 	let theme = context.theme;
 	let scope: LoadoutScope = "global";
 	let configuration = cloneConfiguration(snapshot.configuration);
-	let metadata: readonly LoadoutToolMetadata[] = [];
+	let metadata: readonly LoadoutInventoryItem[] = [];
 	let search = "";
 	let selected = 0;
 	let scrollTop = 0;
@@ -230,14 +250,25 @@ export function createLoadoutPage(
 	});
 
 	const resources = (): readonly ResourceItem[] => {
-		const metadataById = new Map(metadata.map((item) => [item.id, item]));
 		const tools = pi.getAllTools();
-		const policies = loadoutToolPolicies(tools, initialActive, metadata);
+		const toolMetadata = metadata.filter((item): item is LoadoutToolMetadata => !("kind" in item));
+		const toolMetadataById = new Map(toolMetadata.map((item) => [item.id, item]));
+		const policies = loadoutToolPolicies(tools, initialActive, toolMetadata);
 		const active = new Set(resolveActiveToolNames(policies, configuration));
 		const items = [
 			...tools.map((tool) =>
-				toolItem(tool, metadataById.get(tool.name), initialActive, configuration, active, policies),
+				toolItem(
+					tool,
+					toolMetadataById.get(tool.name),
+					initialActive,
+					configuration,
+					active,
+					policies,
+				),
 			),
+			...metadata
+				.filter((item): item is LoadoutResourceMetadata => "kind" in item)
+				.map((item) => resourceItem(item, configuration)),
 			...pi
 				.getCommands()
 				.filter((command) => command.source === "skill" && command.name.startsWith("skill:"))
@@ -251,11 +282,16 @@ export function createLoadoutPage(
 			)
 			.sort((left, right) => {
 				// Preserve Tools/Skills sections, but make native resources discoverable before extensions.
-				const kindOrder = (left.kind === "tool" ? 0 : 1) - (right.kind === "tool" ? 0 : 1);
+				const kindOrder =
+					(left.kind === "tool" ? 0 : left.kind === "skill" ? 1 : 2) -
+					(right.kind === "tool" ? 0 : right.kind === "skill" ? 1 : 2);
 				const builtInOrder =
 					Number(left.origin !== "Built-in") - Number(right.origin !== "Built-in");
 				return (
 					kindOrder ||
+					(left.kind !== "tool" && left.kind !== "skill"
+						? left.name.localeCompare(right.name)
+						: 0) ||
 					builtInOrder ||
 					left.displayGroup.localeCompare(right.displayGroup) ||
 					left.name.localeCompare(right.name)
@@ -267,6 +303,7 @@ export function createLoadoutPage(
 		const items = resources();
 		const tools = items.filter((item) => item.kind === "tool");
 		const skills = items.filter((item) => item.kind === "skill");
+		const agents = items.filter((item) => item.kind !== "tool" && item.kind !== "skill");
 		return [
 			...(tools.length === 0
 				? []
@@ -279,6 +316,12 @@ export function createLoadoutPage(
 				: [
 						{ kind: "group" as const, label: "✦ Skills" },
 						...skills.map((item) => ({ kind: "item" as const, item })),
+					]),
+			...(agents.length === 0
+				? []
+				: [
+						{ kind: "group" as const, label: "𖠌 Agents" },
+						...agents.map((item) => ({ kind: "item" as const, item })),
 					]),
 		];
 	};

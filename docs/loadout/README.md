@@ -1,13 +1,34 @@
 # Loadout
 
-`@hheei/pi-loadout` 是 Pi 工具与技能激活策略扩展。它读取 global 和 project JSON delta，在每个
+`@hheei/pi-loadout` 是 Pi 工具、技能与 extension resource 激活策略扩展。它读取 global 和 project JSON delta，在每个
 session 开始时解析可用资源并应用给 Pi；它注册 `/loadout`，以 Loadout 为 initial page 打开 shared
 Settings router，而不维护另一份 renderer。
 
 ## 用户意图
 
-Loadout 让用户在不改变扩展安装集合的前提下控制工具和技能是否可用。`/loadout` 与
+Loadout 让用户在不改变扩展安装集合的前提下控制工具、技能和已登记 resource 是否可用。`/loadout` 与
 `/ext-settings loadout` 都提供同一个 scoped-delta 写入界面；也可以直接编辑配置文件。
+
+资源按固定语义分组显示：
+
+```text
+⚒ Tools
+✦ Skills
+𖠌 Agents
+```
+
+`Agents` 只有安装的 extension 登记至少一个 agent resource 时才出现。图标只标识分组；每行仍以文字及
+`✓` / `○` 表达启用状态。
+
+`𖠌 Agents` 的每一行显示 effective activation、profile 名和 profile 的 effective model：
+
+```text
+● Explore        ◔ cx/gpt-5.6-luna
+○ Plan           ○ anthropic/claude-haiku-4-5
+```
+
+第一 glyph 是 enabled (`●`) 或 disabled (`○`)；第二 glyph 是 thinking level。缺少 model configuration
+时显示 `inherit`，不猜测 provider。
 
 ## 配置与作用域
 
@@ -17,13 +38,14 @@ Loadout 让用户在不改变扩展安装集合的前提下控制工具和技能
 ```json
 {
   "pi-loadout": {
-    "disabled": ["tool:grep", "skill:review"],
-    "enabled": ["tool:find"]
+    "disabled": ["tool:grep", "skill:review", "agent:Plan"],
+    "enabled": ["tool:find", "agent:Explore"]
   }
 }
 ```
 
-数组成员为 canonical `tool:<name>` 或 `skill:<bare-name>`。它们记录显式 delta，不是完整
+数组成员为 canonical `tool:<name>`、`skill:<bare-name>` 或 contributor 登记的 resource ID，例如
+`agent:<name>`。它们记录显式 delta，不是完整
 inventory。配置解析顺序固定为：
 
 `project disabled > project enabled > global disabled > global enabled > discovered default`。
@@ -45,13 +67,16 @@ winner inherit 或回到其 default，才可操作被锁定 member。
 
 ## 边界
 
-- `pi-ext-core` 提供 runtime-scoped tool inventory、已解析 activation snapshot 与
+- `pi-ext-core` 提供 runtime-scoped resource inventory、已解析 activation snapshot 与
   disabled-skill capability；它不持有策略、存储或 UI。
 - `pi-loadout` 发现 Pi 中的 native、HEPI 与第三方工具。同名工具合并为一个 name-level
   项，因为 Pi 的 active set 和 handler 选择同样按 name 工作。
 - 未配置的已发现工具保留 session-start Pi active set；HEPI managed tool 可声明自身默认值。
 - skill disable 只过滤 HEPI prompt 与 dollar-skill autocomplete/input expansion，不卸载 Pi
   skill。
+- 安装 `pi-subagents` 后，Loadout 才显示 `Agents` group。`agent:<name>` 不传给
+  Pi host `setActiveTools()`；core 将 effective activation 发布给 profile owner。`Enter` 在同一
+  Loadout surface 打开 contributor 提供的 profile detail。
 - 不迁移无运行时效果的旧 MCP placeholder。
 - 被 policy 关闭的工具 UI 由该工具扩展订阅 core activation snapshot 自行清理；Loadout
   不直接调用具体扩展。
@@ -59,6 +84,6 @@ winner inherit 或回到其 default，才可操作被锁定 member。
 ## 后续
 
 `pi-settings` 独占 `/ext-settings` host，`pi-loadout` 独占 `/loadout` direct entry；二者打开同一 router。
-Loadout 页面把 Tools 与 Skills 放在一个列表，通过 Global/Project scope draft 修改这些 delta；它不 hot-apply，
+Loadout 页面把 Tools、Skills 与按需出现的 resource groups 放在一个列表，通过 Global/Project scope draft 修改这些 delta；它不 hot-apply，
 关闭 Settings router 后提示用户 `/reload`。`pi-fff` 通过 core managed registration 接入该策略，不依赖已删除的
 aggregate Loadout。
