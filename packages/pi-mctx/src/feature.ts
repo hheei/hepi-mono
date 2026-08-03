@@ -1364,6 +1364,10 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			}
 			const onAbort = (): void => handle.cancel();
 			signal.addEventListener("abort", onAbort, { once: true });
+			// The signal can abort between the precheck and this registration (e.g.
+			// synchronously inside startSidekickTask). Cancel is idempotent, so a
+			// recheck covers that window; a later abort still hits the listener.
+			if (signal.aborted) onAbort();
 			try {
 				const result: TaskTerminalResult = await handle.result;
 				if (
