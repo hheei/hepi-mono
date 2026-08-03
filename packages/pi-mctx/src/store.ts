@@ -5,7 +5,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export const MCTX_STORE_APPLICATION_ID = 0x484d4354;
-export const MCTX_STORE_SCHEMA_VERSION = 10;
+export const MCTX_STORE_SCHEMA_VERSION = 11;
 export const MCTX_STORE_BUSY_TIMEOUT_MS = 5_000;
 
 /**
@@ -559,6 +559,38 @@ function migrateV9(database: DatabaseSync): void {
 	}
 }
 
+function migrateV11(database: DatabaseSync): void {
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		database.exec("ALTER TABLE mctx_metadata RENAME TO mctx_metadata_v10");
+		database.exec(
+			"CREATE TABLE mctx_metadata (schema_version INTEGER NOT NULL CHECK (schema_version = 11)) STRICT",
+		);
+		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(11);
+		database.exec("DROP TABLE mctx_metadata_v10");
+		// v8's composite foreign key (project_identity, memory_id,
+		// source_content_hash, source_memory_revision) referenced the single-row
+		// memory_embedding_sources, which made refreshing source metadata
+		// impossible once an embedding row existed (the updated sources row no
+		// longer matched the old embedding row, violating the statement-level FK).
+		// Rebuild with a memory-scoped key; hash/revision consistency is owned by
+		// the single write transaction that updates sources before embeddings.
+		database.exec("ALTER TABLE memory_embeddings RENAME TO memory_embeddings_v10");
+		database.exec(
+			"CREATE TABLE memory_embeddings (project_identity TEXT NOT NULL, memory_id INTEGER NOT NULL CHECK (memory_id > 0), model_identity TEXT NOT NULL, provider_generation INTEGER NOT NULL CHECK (provider_generation >= 0), source_content_hash TEXT NOT NULL CHECK (length(source_content_hash) = 64), source_memory_revision INTEGER NOT NULL CHECK (source_memory_revision > 0), dimensions INTEGER NOT NULL CHECK (dimensions > 0), vector BLOB NOT NULL, created_at_ms INTEGER NOT NULL CHECK (created_at_ms >= 0), PRIMARY KEY (project_identity, memory_id, model_identity, provider_generation), FOREIGN KEY (project_identity, memory_id) REFERENCES memory_embedding_sources(project_identity, memory_id)) STRICT",
+		);
+		database.exec(
+			"INSERT INTO memory_embeddings (project_identity, memory_id, model_identity, provider_generation, source_content_hash, source_memory_revision, dimensions, vector, created_at_ms) SELECT project_identity, memory_id, model_identity, provider_generation, source_content_hash, source_memory_revision, dimensions, vector, created_at_ms FROM memory_embeddings_v10",
+		);
+		database.exec("DROP TABLE memory_embeddings_v10");
+		database.exec("PRAGMA user_version = 11");
+		database.exec("COMMIT");
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
 export function mctxHandoffBindingId(
 	parent: MctxPartitionKey,
 	destinationSessionId: string,
@@ -648,6 +680,7 @@ function validateSchema(database: DatabaseSync): void {
 	if (pragmaInteger(database, "PRAGMA user_version") === 7) migrateV8(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 8) migrateV9(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 9) migrateV10(database);
+	if (pragmaInteger(database, "PRAGMA user_version") === 10) migrateV11(database);
 	if (pragmaInteger(database, "PRAGMA application_id") !== MCTX_STORE_APPLICATION_ID) {
 		throw new Error("Context store application identity is invalid");
 	}
@@ -1765,7 +1798,7 @@ function writeMemoryEmbedding(database: DatabaseSync, input: MctxMemoryEmbedding
 			);
 		database
 			.prepare(
-				"INSERT INTO memory_embeddings (project_identity, memory_id, model_identity, provider_generation, source_content_hash, source_memory_revision, dimensions, vector, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (project_identity, memory_id, model_identity, provider_generation) DO UPDATE SET vector = excluded.vector, dimensions = excluded.dimensions, created_at_ms = excluded.created_at_ms",
+				"INSERT INTO memory_embeddings (project_identity, memory_id, model_identity, provider_generation, source_content_hash, source_memory_revision, dimensions, vector, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (project_identity, memory_id, model_identity, provider_generation) DO UPDATE SET vector = excluded.vector, dimensions = excluded.dimensions, source_content_hash = excluded.source_content_hash, source_memory_revision = excluded.source_memory_revision, created_at_ms = excluded.created_at_ms",
 			)
 			.run(
 				input.projectIdentity,
@@ -1787,9 +1820,11 @@ function writeMemoryEmbedding(database: DatabaseSync, input: MctxMemoryEmbedding
 }
 
 /**
- * Read-only coverage snapshot for one model identity. Returns the embedded
- * source content hash per memory; the backfill pass compares it against each
- * active memory's current hash to skip already-embedded rows.
+ * Read-only coverage snapshot for one model identity. Returns the newest
+ * embedded source content hash per memory (latest created_at_ms, generation
+ * tie-break); the backfill pass compares it against each active memory's
+ * current hash to skip already-embedded rows. A stale older-generation row
+ * must never shadow the newest one.
  */
 function listMemoryEmbeddingCoverage(
 	database: DatabaseSync,
@@ -1800,7 +1835,7 @@ function listMemoryEmbeddingCoverage(
 		throw new Error("Context store memory embedding coverage is invalid");
 	const rows = database
 		.prepare(
-			"SELECT memory_id, source_content_hash FROM memory_embeddings WHERE project_identity = ? AND model_identity = ?",
+			"SELECT memory_id, source_content_hash FROM (SELECT memory_id, source_content_hash, ROW_NUMBER() OVER (PARTITION BY memory_id ORDER BY created_at_ms DESC, provider_generation DESC) AS row_number FROM memory_embeddings WHERE project_identity = ? AND model_identity = ?) WHERE row_number = 1",
 		)
 		.all(projectIdentity, modelIdentity);
 	const coverage = new Map<number, string>();
