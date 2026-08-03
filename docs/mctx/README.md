@@ -29,6 +29,60 @@ Sidekick augmentation（四工具 child：`read`/`grep`/`find`/`ls`）保持 act
 inventory 和 reload 时同 owner replacement；`pi-mctx` 保留参数校验、MCTX runtime dispatch、inactive fallback 与所有
 session/store ownership。缺少 `pi-loadout` 时工具仍可用；Loadout 只消费 inventory 并在安装时展示这些工具。
 
+## Historian Settings registration
+
+### 核心直觉与目标
+
+Historian 是 MCTX pipeline policy，不是 model-callable tool，也不是 Loadout resource。`pi-mctx` 把 historian
+启用与模型配置注册进统一 Settings provider tree，使用户无需手改 JSON 即可启动 pipeline；保存后在
+下一次 Pi `/reload` 或新 session 生效，不热切换正在运行的 historian。
+
+### 边界与生命周期
+
+- **Pi host** 提供当前 session identity、Settings command context 与 model registry；不解释 MCTX 配置。
+- **ext-core** 已有 runtime-scoped `HepiSettingsRegistry`、provider contract 与原子 JSON root update，API 足够，无需新增
+  Historian-specific abstraction。
+- **pi-settings concrete extension** 继续拥有统一 Settings page、field editing、validation flush 与 router surface；不 import
+  `pi-mctx`。
+- **pi-mctx concrete extension** 在 lifecycle start 注册 `HepiSettingsProvider`，即使 pipeline 当前 disabled/invalid 也注册，
+  否则用户无法从 Settings 修复配置。provider 拥有字段 schema、现有 `pi-mctx` global JSON 映射和 reload-only 语义；
+  lifecycle cleanup 注销 provider。
+- **Surface** 复用 Settings page；无新 page、widget、timer 或 background work。project settings 仍只能手动做 opt-out/提高阈值，
+  Settings provider 只写 user-level `~/.pi/agent/settings.json`。
+
+```text
+/ext-settings
+      ↓
+pi-settings combined tree ──► pi-mctx Historian provider draft
+      ↓ validate + atomic save
+~/.pi/agent/settings.json["pi-mctx"]
+      ↓ next /reload or session_start
+loadMctxConfiguration() ──► resolve historian ──► active / inactive
+```
+
+### 字段与存储
+
+Settings 的 `pi-mctx` group 首版只显示：
+
+- `enabled`：boolean，默认 `false`；关闭时其余字段变 dim 且不可编辑。
+- `historian model`：text，保存前要求 exact `provider/model`；认证/可用性仍由下一次 activation 通过 Pi host model registry 检查。
+
+provider 用一个 MCTX-owned custom storage adapter 把 flat Settings state 映射到现有 public JSON keys，不改配置格式：
+`enabled` 与 `historian.model`。保存必须保留 trigger、protected tags、failure policy、`search`、`embedding`、`dreamer`
+等所有 sibling；关闭 enabled 不删除 model 或其余配置，便于稍后恢复。高级 threshold/protection/failure policy 继续由
+现有 JSON contract 管理，不在首版 Settings 中激活第二套编辑面。
+
+### 最小实现 seam 与 focused tests
+
+新增 `createMctxHistorianSettingsProvider()`，在现有 `registerExtensionLifecycle()` 的 start 中通过
+`getHepiRuntimeSettingsRegistry()`/`registerHepiSettings()` 注册；provider storage 直接复用 ext-core 的
+`readJsonSettingsRoot()`/`updateJsonSettingsRoot()`。`feature.start()` 继续只消费 `loadMctxConfiguration()`，不引入第二套 live
+configuration path。
+
+focused tests 覆盖：disabled runtime 仍注册 provider；shutdown 注销；字段 defaults、dependent enabled state 和
+cross-field model validation；flat state 与现有 nested JSON 双向映射；全部 sibling 不丢失；并发 settings writer 不覆盖
+sibling；provider 不提供 live `onChange` callback；真实 Settings registry smoke test 可发现 `pi-mctx` provider。
+
 ## Parent compressed-context Service
 
 ### 目标

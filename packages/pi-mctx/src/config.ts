@@ -4,6 +4,7 @@ import {
 	type JsonSettingsValueSource,
 	readMergedJsonSettingsSection,
 } from "@hheei/pi-ext-core";
+import { validModelRef } from "./model-ref.js";
 
 export const MCTX_SETTINGS_SECTION = "pi-mctx";
 export const DEFAULT_EXECUTE_THRESHOLD_PERCENTAGE = 65;
@@ -151,11 +152,6 @@ function parseDreamerSettings(
 		return undefined;
 	}
 	return typeof model === "string" ? { model: model.trim() } : {};
-}
-
-function validModelRef(value: string): boolean {
-	const parts = value.trim().split("/");
-	return parts.length === 2 && parts[0] !== "" && parts[1] !== "" && !value.includes("\\");
 }
 
 function thresholdValue(value: unknown, minimum: number, maximum: number): value is number {

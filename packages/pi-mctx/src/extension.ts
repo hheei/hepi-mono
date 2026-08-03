@@ -5,9 +5,11 @@ import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
+	getHepiRuntimeSettingsRegistry,
 	PARENT_CONTEXT_PROJECTION_SERVICE,
 	provideService,
 	registerExtensionLifecycle,
+	registerHepiSettings,
 	registerManagedLoadoutTool,
 } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
@@ -24,6 +26,7 @@ import {
 	// type MctxNoteOperation,
 } from "./feature.js";
 import { MAX_CTX_EXPAND_CHARS, renderMctxHistoryTagPage } from "./history-tags.js";
+import { createMctxHistorianSettingsProvider } from "./settings.js";
 import { openMctxStatusSurface } from "./status-surface.js";
 
 const DEFAULT_CTX_HISTORY_LIMIT = 50;
@@ -706,10 +709,14 @@ function registerHistoryTools(pi: ExtensionAPI, feature: MctxFeature): void {
  */
 export default function piMctxExtension(pi: ExtensionAPI): void {
 	const feature = createMctxFeature();
+	const settingsRegistry = getHepiRuntimeSettingsRegistry(pi);
+	const settingsProvider = createMctxHistorianSettingsProvider();
 	let lifecycleSignal: AbortSignal | undefined;
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-mctx",
 		start: async (context) => {
+			const unregisterSettings = registerHepiSettings(settingsProvider, settingsRegistry);
+			context.resources.add("mctx-historian-settings", unregisterSettings);
 			lifecycleSignal = context.signal;
 			context.resources.add("ctx-status-signal", () => {
 				if (lifecycleSignal === context.signal) lifecycleSignal = undefined;
