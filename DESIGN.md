@@ -147,6 +147,10 @@ existing semantic token expresses the role.
   detail, fields appear in `Identity`, `Model`, `Description`, `Body` order. `Description` and
   `Body` are external-editor actions: each value is exactly `edit ↵`, with one space before `↵`;
   `Enter` opens Pi's native editor with the current field value.
+- Agent model rows keep the compact thinking glyph while unfocused. Focusing `Model` expands a
+  pinned level in place as `<model> • <level>` so keyboard cycling is legible. A contributor detail's
+  buffered model summary is authoritative for its Loadout list row, so returning from the detail
+  reflects confirmed model/thinking picks before the deferred file flush.
 - A contributor detail buffers edits until the Loadout page closes: nothing is written while the
   panel is open, and `close()` flushes every registered detail (not just the currently open one),
   each scope writing all its dirty snapshots before one catalog reload. The Description and Body

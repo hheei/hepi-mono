@@ -56,7 +56,9 @@ detail 表单按 `Identity`、`Model`、`Description`、`Body` 顺序，以 Sett
 override 的保存位置；过长时按目录段从头部截断为 `…/段/文件名.md`（单个 `…`），只丢完整目录、绝不切开
 段名）。聚焦行始终 accent（只读行仅在未聚焦时 dim）。资源 description 以 wrap 形式显示在
 header title 之后（与工具行一致），浏览时全量；detail 打开时才截断为 3 行。选择器打开时
-行数保持不变（固定 4 行）：`Model` 行就地显示当前选项。
+行数保持不变（固定 4 行）：`Model` 行就地显示当前选项。未聚焦时 thinking 使用紧凑 glyph；聚焦
+`Model` 后展开为 `<model> • <level>` 文本。确认 model/thinking 并退出右侧 detail 后，左侧资源行立即读取当前 scope 的
+buffered summary，不等待退出 Loadout 后的文件 flush。
 `Esc` 的消费顺序：detail 激活时先交给 detail（选择器打开时取消选择器），detail 未消费才
 退回列表。
 

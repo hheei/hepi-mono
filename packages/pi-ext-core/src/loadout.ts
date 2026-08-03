@@ -40,6 +40,8 @@ export interface LoadoutResourceDetailContext {
 export interface LoadoutResourceDetail {
 	render(width: number): readonly string[];
 	handleInput(input: string, context: LoadoutResourceDetailContext): Promise<boolean> | boolean;
+	/** Current buffered list-row summary; overrides static metadata while this detail is registered. */
+	summary?(): string;
 	onThemeChange?(theme: Theme): void;
 	onScopeChange?(scope: "global" | "project"): void;
 	/** Persist any pending edits; called once when the Loadout page closes. */

@@ -279,6 +279,20 @@ describe("createAgentDetail", () => {
 		expect(readContent(path)).not.toContain("model:");
 	});
 
+	it("expands the thinking glyph after the Model row receives focus", async () => {
+		const { detail } = setup("auditor", undefined, {
+			...configFor("auditor"),
+			model: "cx/gpt-5.6-luna",
+			thinking: "low",
+		});
+		expect(detail.render(80)[1]).toMatch(/Model\s+◔ cx\/gpt-5\.6-luna$/);
+		await sendInput(detail, DOWN);
+		expect(detail.render(80)[1]).toMatch(/Model\s+cx\/gpt-5\.6-luna • low$/);
+		await sendInput(detail, ENTER);
+		await sendInput(detail, TAB);
+		expect(detail.render(80)[1]).toMatch(/Model\s+cx\/gpt-5\.6-luna • medium$/);
+	});
+
 	it("cycles thinking within off…max and never offers inherit", async () => {
 		const { detail, path } = setup();
 		await sendInput(detail, DOWN); // identity → model

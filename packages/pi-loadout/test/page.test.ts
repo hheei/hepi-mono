@@ -452,7 +452,8 @@ describe("Loadout Settings page", () => {
 			skills: true,
 			systemPrompt: "You are read-only.",
 			promptMode: "replace",
-			source: "project",
+			isDefault: true,
+			source: "default",
 		};
 		const detail = createAgentDetail(
 			"Explore",
@@ -474,7 +475,7 @@ describe("Loadout Settings page", () => {
 			defaultActive: true,
 			label: "Explore",
 			description: "Read-only explorer.",
-			summary: "cx/gpt-5.6-luna",
+			summary: "inherit",
 			projectPrivate: false,
 			owner: "@hheei/pi-subagents",
 			detail,
@@ -506,6 +507,12 @@ describe("Loadout Settings page", () => {
 			expect(opened).toMatch(/Model\s+inherit/);
 			expect(opened).toMatch(/Path:\s+\S/);
 			expect(opened).not.toContain("Agent Explore");
+			await page.handleInput("\u001b[B"); // Identity → Model
+			await page.handleInput("\r"); // open selector
+			await page.handleInput("\u001b[B"); // inherit → cx/gpt-5.6-luna
+			await page.handleInput("\r"); // confirm buffered selection
+			await page.handleInput("\u001b"); // return to resource list
+			expect(page.component.render(100).join("\n")).toContain("cx/gpt-5.6-luna");
 		} finally {
 			dispose();
 			vi.restoreAllMocks();
