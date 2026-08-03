@@ -6,6 +6,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
 import type { TSchema } from "typebox";
+import { registerApplyPatchTool } from "./apply-patch-tool.js";
 import { registerBashTool } from "./bash.js";
 import { createFffRuntimeState, type FffRuntimeState } from "./fff/lifecycle.js";
 import { registerFindTool } from "./find.js";
@@ -55,4 +56,5 @@ export function registerTools(
 	registerCanonicalTool(pi, createEditToolDefinition);
 	registerCanonicalTool(pi, createWriteToolDefinition);
 	registerBashTool(pi);
+	registerApplyPatchTool(pi);
 }

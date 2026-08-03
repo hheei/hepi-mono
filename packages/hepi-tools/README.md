@@ -9,7 +9,6 @@ Included modules:
 - `pi-ask`
 - `pi-goal`
 - `pi-sshfs`
-- `pi-codex-tool`
 - `pi-advisor`
 - `pi-todo`
 - `pi-web-access`

@@ -30,24 +30,39 @@ find
 edit
 write
 bash
+apply_patch
 ```
 
 catalog 不从 `pi.getAllTools()` 或 active-tool inventory 自动推断。新增名称必须单独确认 upstream compatibility、
 tool schema、rendering、lifecycle、Loadout metadata 与 focused tests。
 
-## Bundled mpatch runtime
+## apply_patch 与 bundled mpatch runtime
 
 `pi-ext-tools` 内置 mpatch CLI `v1.6.4` 的 macOS ARM64/x64、Linux ARM64/x64 与 Windows
-ARM64/x64 executable。它是未来 `apply_patch` 的私有 fuzzy worker，不是独立 Pi tool，也不从
+ARM64/x64 executable。`apply_patch` 是 catalog 中唯一公开的 patch tool；其 JSON 参数固定为
+`{ "patch": "<Codex V4A text>" }`。它只接受 `*** Begin Patch` / `*** End Patch`、`Add File`、
+`Update File`、`Delete File` 与 `Move to` 组成的 Codex V4A grammar；不接受 raw Git diff、参数别名、
+per-call fuzzy option 或绝对 path。
+
+mpatch 是 `apply_patch` 的私有 fuzzy worker，不是独立 Pi tool，也不从
 用户的 `PATH`、`MPATCH_BIN` 或网络下载取得 executable。运行时只按 `process.platform` 与
 `process.arch` 选择匹配文件；不删除 package 内其它平台文件。
 
-mpatch 只接受 unified diff，不能替代 Codex V4A parser。未来 tool 仍须在 TypeScript 中严格解析
-V4A、校验 workspace path、管理 staging 与并发提交；mpatch 只能在隔离 staging root 中执行。
+mpatch 只接受 unified diff，不能替代 Codex V4A parser。tool 在 TypeScript 中严格解析
+V4A，拒绝 workspace 外 path 与 symlink escape；所有操作先在隔离 staging root 中完成。每个
+Update 先以 exact policy dry-run，再按固定 fuzzy policy dry-run/apply。真实 workspace 只在 source
+hash 未变化时替换，失败、取消、无效 grammar、dry-run failure 与 stale baseline 都不写入真实文件。
+同 path job 会串行；无交集 path job 可在共享 worker limit 内并发。
+
+fuzzy policy 只读取 `pi-ext-tools.applyPatch` settings。默认值为 `enabled: true`、
+`minSimilarity: 0.85`、`allowFuzzy: true`、`maxConcurrentWorkers: 2`、`maxQueueDepth: 32`、
+`cacheMiB: 64`。user-global settings 可配置完整 policy；project settings 只能收紧 policy：关闭
+enabled/fuzzy、提高 minSimilarity、降低 resource limit，不能放宽写入匹配条件。
+
 每次升级 mpatch 必须固定 release、验证每个 archive 的 SHA-256，并更新 package 的 upstream
 record 与 MIT notice。
 
-`read`、`grep`、`find`、`edit`、`write`、`bash` 每个名称只通过一次 `registerManagedLoadoutTool()` 静态注册。不存在 tool-definition
+`read`、`grep`、`find`、`edit`、`write`、`bash`、`apply_patch` 每个名称只通过一次 `registerManagedLoadoutTool()` 静态注册。不存在 tool-definition
 priority、同名 fallback registration 或运行时 provider arbitration。Loadout priority 仍只属于 activation/inventory
 policy，不能用于决定哪个 implementation 执行。
 
@@ -57,6 +72,7 @@ policy，不能用于决定哪个 implementation 执行。
   renderer、ToolRenderContext state、abort、streaming 与 cleanup。
 - 每个 module 可以调用对应 upstream `create...Tool()`；这用于复用运行行为，不表示必须复用 upstream renderer。
 - `read`、`grep`、`find`、`edit`、`write`、`bash` 保留 upstream-compatible 参数、execute 与 renderer 语义。
+- `apply_patch` 是 `pi-ext-tools` owner 的 Canonical V4A-only tool；public JSON transport 只接受 `{ "patch": string }`，并委托 package 内 patch coordinator 执行。
 - 其他 extension 不得为 catalog 名称直接 `pi.registerTool()` 或 managed-register competing definition。它们不能
   import `pi-ext-tools`；跨包协作若确有需求，另行定义 narrow core capability。
 
