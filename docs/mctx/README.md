@@ -110,6 +110,55 @@ rerank 是后续独立 slice：它只能重排同一已 admitted candidate set�
 session 的 live history 永不作为 history source；当前 MCTX 不自动注入 memory，未来 injection owner 必须在自己的
 runtime 中提供 `MCTX_MEMORY_EXCLUSION_SERVICE`，不能把该 policy 交给 model 参数。
 
+## Sidekick augmentation（/ctx-aug）
+
+### 目标
+
+手动 command：用户输入 `/ctx-aug <query>` 时，`pi-mctx` 同步运行一个受限 child session（builtin
+`read`/`grep`/`find`/`ls` + extension `ctx_search` allowlist），child 探索并检索当前 project 上下文后返回一段
+augmentation prompt；`pi-mctx` 把它作为一次性 preamble 注入后续 model context。这是 fixed legacy `/ctx-aug` 的
+现代等价：保留 child 语义与 retrieval augmentation 形态，不以 completion-only helper 或 prompt resend 伪迁移。
+
+### 边界
+
+- **Pi host**：command dispatch；child `AgentSession` 由 consumer-owned factory 创建。
+- **ext-core**：subagent execution contract（`startSubagent` task mode、shared coordinator budget、terminal
+  delivery、parent-session 清理）。`pi.events` 只做 notification，不做 RPC。
+- **pi-mctx**：注册 `/ctx-aug` command；拥有受限 child factory（builtin tool allowlist + 同名 `ctx_search`
+  custom tool）与 augmentation 注入时机；不 import `pi-subagents`、不注册 agent type、不读其 registry。
+- **pi-subagents**：不参与本次 child 执行；agent catalog/UI/delivery 与 Sidekick 无关。
+
+### child factory（consumer-owned policy）
+
+- builtin tools 固定为 `read`/`grep`/`find`/`ls`（`createReadOnlyTools` 子集，不含 `bash`/`write`/`edit`）；
+  `noExtensions: true`，不绑定任何 extension，因此 child 不激活 pi-mctx lifecycle（无 store/transform/
+  historian/embedding 副作用），也没有自己的 session partition。
+- `ctx_search` 以 `customTools` 注入同名 `ToolDefinition`（参数 schema 与注册的 `ctx_search` 一致），execute
+  闭包委托 parent runtime 的 `feature.search(operation, parentContext, signal)`：搜索基于 parent 的 project
+  partition、privacy/retention/exclusion contract 与 active-history 语义，child 只看到严格 5 个工具
+  （`read`/`grep`/`find`/`ls`/`ctx_search`）。
+- `maxTurns` 有限且必填（默认 3，soft cap，core 的 wrap-up/grace/ceiling 语义不变）；terminal result 经
+  delivery sink 回到 command；child 不继承 parent session runtime 或 lease，随 parent lifecycle 清理。
+
+### 注入语义
+
+child 成功后，terminal output 作为 augmentation preamble 存入 runtime 的 pending 槽；下一次 onContext 在
+compartment/history-tag projection 完成后、return 前 prepend 为独立 message，随后清除。一次性，不持续注入、
+不自动重触发。失败/abort/limit/no-hit 不注入：notify 明确状态，不改 context、不改 store。
+
+### 公开行为
+
+`/ctx-aug <query>`：未启用 pi-mctx、inactive session 或非 tui → notify error；无参数 → usage notify；否则同步
+等待 child 完成，成功注入一次。configured/unconfigured 在无 provider 选择形态下不适用：无 allowlist 配置、无
+provider 配置，仅依赖 pi-mctx 自身启用状态。
+
+### 最小公开 seam 与测试
+
+- feature 暴露 `augment(query, context)` → `{ kind: "injected" | "empty" | "inactive" }` 一类同步/异步结果；
+  command handler 薄封装，复用 `/todos` 的 notify 模式。
+- focused tests：injected 只注入一次且注入后清除；empty/failure/abort/limit 不注入；inactive 返回明确错误；
+  pending 随 runtime 清理；注入不干扰 compartment/history-tag projection；child 工具面只含允许集合。
+
 ## 完整迁移目标
 
 `pi-mctx` 的最终目标不是停在首个 context pipeline，而是替代 `@hheei/pi-magic-context@0.33.1-hepi.0`
@@ -173,16 +222,16 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
 - [x] **Todo ownership decision**：legacy `todowrite`/`/todos` 不迁入 `pi-mctx`，由独立 `@hheei/pi-todo` 拥有
   `todo` tool、`/todos` command、task state、reminder 和 widget。MCTX 不重复注册 Todo；旧 aggregate 的 removal 与
   `pi-todo` release 配套处理，避免 Pi first-registered tool collision。
-- [ ] **Pipeline maintenance commands**：为 legacy `/ctx-flush`、`/ctx-recomp`、`/ctx-session-upgrade`、`/ctx-status`
-  与 `/ctx-wrapup` 分别定义 user need、owner 和 Pi lifecycle integration。fixed source 已确认 `/ctx-flush` 在 current
-  transform 下没有独立行为，`/ctx-recomp`/`ctx-session-upgrade` 是旧 ordinal/schema migration 而不迁移，`/ctx-wrapup`
-  属于 future `hepi-basics` handoff/compaction owner，`/ctx-status` 等待完整 metrics 与 UI owner；没有明确用户 workflow 的
-  internal maintenance action 保持不暴露。
-- [ ] **Sidekick augmentation**：fixed legacy `/ctx-aug` 是手动 command，但同步运行具有 `read`、`grep`、`find`、`ls` 与
-  `ctx_search` allowlist 的 child，并把 retrieval augmentation 后的 prompt 发回 parent。它依赖 unified search 的 memory、
-  session history、Git、primer、note privacy filtering；当前既无 `pi-subagents` child runtime，也无 `ctx_search` source
-  contract，故不以 completion-only helper 或 prompt resend 伪迁移。先完成独立 subagents runtime 与 search contract，再按原
-  configured/unconfigured/empty/failure/abort/timeout/fallback behavior 设计该 command。
+- [x] **Pipeline maintenance commands**：已决策 legacy `/ctx-flush` 在 current transform 下没有独立行为，
+  `/ctx-recomp`/`ctx-session-upgrade` 是旧 ordinal/schema migration 而不迁移，`/ctx-wrapup` 属于 future
+  `hepi-basics` handoff/compaction owner，`/ctx-status` 等待完整 metrics 与 UI owner；没有明确用户 workflow 的
+  internal maintenance action 保持不暴露，不注册任何 maintenance command。
+- [ ] **Sidekick augmentation**：fixed legacy `/ctx-aug` 是手动 command，同步运行具有 `read`、`grep`、`find`、`ls` 与
+  `ctx_search` allowlist 的 child，并把 retrieval augmentation 后的 prompt 发回 parent。child 语义保留：现代形态复用
+  ext-core subagent execution contract（`startSubagent` task mode + consumer-owned resolved child-session factory），
+  `pi-mctx` 拥有受限 child factory 与一次性注入时机，不 import `pi-subagents`、不扩展 `pi.events` RPC、不以
+  completion-only helper 或 prompt resend 伪迁移。设计见下方
+  [Sidekick augmentation section](#sidekick-augmentationctx-aug)。
 - [ ] **Dreamer 与 embedding commands**：legacy `/ctx-dream`、`/ctx-embed` 归入 historian-adjacent services；先完成
   Dreamer/embedding storage、leases、cost/cancellation 与 retention，再决定是否保留 command。Dreamer fixed baseline 是
   free-text smart-condition compiler、capability sandbox、per-project lease/schedule task runner，不是 file-only checker；它
