@@ -521,7 +521,9 @@ export function createLoadoutPage(
 			if (detailKey !== undefined && activeDetail === undefined) detailKey = undefined;
 			else if (activeDetail !== undefined) {
 				if (matchesKey(input, Key.escape)) {
-					detailKey = undefined;
+					// The detail declines Esc unless it has an open selector to
+					// cancel; only then does the page back out to the list.
+					if (!(await activeDetail.handleInput(input))) detailKey = undefined;
 					context.requestRender();
 					return true;
 				}

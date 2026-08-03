@@ -130,6 +130,13 @@ existing semantic token expresses the role.
   group. Global and Project-private rows remain binary; only global-visible Project rows include
   `inherit`. `Esc` clears a filter before closing. Do not overload `←` or `→`, which remain router
   navigation.
+- A resource detail (nested settings surface) may reuse the Settings model cycler: `Enter` opens a
+  single selector on the field, `↑`/`↓` wrap through that field's options modulo the list (same as
+  the Settings enum editor), `Tab`/`Shift+Tab` cycle the related `tabCycle` field's value forward
+  and backward in place (no second focus), `Enter` applies both and saves, `Esc` cancels. The
+  detail keeps a fixed row count while selecting: the field row shows the current option in place
+  and no option list is expanded. While a detail is open, `Esc` is offered to the detail first; the
+  detail only exits to the list when the detail declines it.
 - Settings uses the legacy combined provider tree, not one page per provider. Its wide layout is
   grouped field list, conditional scrollbar, then one unframed field Description block; narrow
   layout stacks those regions. Field label/value columns remain stable, disabled fields use `dim`,

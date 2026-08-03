@@ -204,7 +204,7 @@ describe("Loadout Settings page", () => {
 				render: (width) => [`Detail panel ${width}`],
 				handleInput: (input) => {
 					inputs.push(input);
-					return true;
+					return input !== "\u001b"; // decline Esc so the page backs out
 				},
 			},
 		});
@@ -218,7 +218,40 @@ describe("Loadout Settings page", () => {
 			await page.handleInput("x");
 			expect(inputs).toEqual(["x"]);
 			await page.handleInput("\u001b");
+			expect(inputs).toEqual(["x", "\u001b"]);
 			expect(page.component.render(100).join("\n")).toContain("Has a settings detail.");
+		} finally {
+			dispose();
+		}
+	});
+
+	test("keeps the detail open while the detail consumes Escape", async () => {
+		const h = setup();
+		const dispose = registerLoadoutResource(h.pi, {
+			id: "agent:Detail",
+			kind: "agent",
+			group: "𖠌 Agents",
+			priority: 0,
+			conflictSets: [],
+			defaultActive: true,
+			label: "Detail",
+			description: "Has a settings detail.",
+			summary: "settings",
+			projectPrivate: false,
+			owner: "test",
+			detail: {
+				render: () => ["Detail panel"],
+				handleInput: () => true,
+			},
+		});
+		try {
+			const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
+			await page.handleInput("\u001b[B");
+			await page.handleInput("\u001b[B");
+			await page.handleInput("\r");
+			expect(page.component.render(100).join("\n")).toContain("Detail panel");
+			await page.handleInput("\u001b");
+			expect(page.component.render(100).join("\n")).toContain("Detail panel");
 		} finally {
 			dispose();
 		}
