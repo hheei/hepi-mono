@@ -40,7 +40,8 @@ UI。这些属于独立 capability；尤其 task execution 必须 launch-and-del
 可编辑的 custom agent profile（`.pi/agents/`、`.agents/agents/` 与 global agents 目录中的 `.md`）在
 Loadout 的 `Agents` group 里贡献 contributor-owned detail：`Enter` 打开该 profile 的 inline frontmatter
 editor，编辑 identity、description 与合并的 model/thinking 行（cycler：`↑`/`↓` 选 model、
-`Tab` 循环 thinking），`Body` 行在临时文件中打开外部编辑器并把结果存入 buffered draft。
+`Tab` 循环 thinking），`Body` 行打开 Pi host 原生多行编辑器并把返回的文本存入 buffered draft
+（取消则不改）。
 所有编辑在退出 Loadout 时一次性 flush 到 YAML（保留 body 与未知 key），detail 打开期间不写
 文件。detail 只负责 profile 文件的就地编辑，不改变 spawn、factory 或 policy 所有权。
 agent 的启停不是 frontmatter 字段：activation 由 Loadout 在 `agent:<name>` key 下管理（inherit /

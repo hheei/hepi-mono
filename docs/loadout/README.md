@@ -57,9 +57,10 @@ header title 之后（与工具行一致），浏览时全量；detail 打开时
 `Esc` 的消费顺序：detail 激活时先交给 detail（选择器打开时取消选择器），detail 未消费才
 退回列表。
 
-所有编辑（文本、cycler、`Body`）都是 buffered：detail 打开期间不写文件，`Body` 在临时文件
-中编辑并把结果存入 draft；退出 Loadout（`close`）时才一次性 flush——每个 dirty scope 先写
-盘、再统一 reload。project scope 的修改总是落到 `<cwd>/.pi/agents/<name>.md`（不存在则
+所有编辑（文本、cycler、`Body`）都是 buffered：detail 打开期间不写文件，`Body` 打开 Pi host
+原生多行编辑器（`ui.editor`），返回的文本存入 draft、取消（`undefined`）则不保存；退出
+Loadout（`close`）时才一次性 flush——每个 dirty scope 先写盘、再统一 reload。project scope
+的修改总是落到 `<cwd>/.pi/agents/<name>.md`（不存在则
 materialize 一个保留 system prompt 的 clone），global scope 修改落到 agent 自己的 backing
 文件；两个 scope 分别缓冲，同一 agent 在 global 与 project 分别编辑后各自落盘，互不覆盖。
 

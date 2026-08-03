@@ -405,13 +405,13 @@ describe("Loadout Settings page", () => {
 			source: "project",
 		};
 		const detail = createAgentDetail(
-			h.pi,
 			"Explore",
 			config,
 			{
 				getAvailable: () => [{ provider: "cx", id: "gpt-5.6-luna" }],
 				hasConfiguredAuth: () => true,
 			},
+			async () => undefined,
 			() => undefined,
 			() => undefined,
 		);
@@ -492,10 +492,10 @@ describe("Loadout Settings page", () => {
 			source: "project",
 		};
 		const detail = createAgentDetail(
-			h.pi,
 			"Explore",
 			config,
 			{ getAvailable: () => [], hasConfiguredAuth: () => false },
+			async () => undefined,
 			() => undefined,
 			() => undefined,
 		);
@@ -557,10 +557,10 @@ describe("Loadout Settings page", () => {
 			source: "project",
 		};
 		const detail = createAgentDetail(
-			h.pi,
 			"Explore",
 			config,
 			{ getAvailable: () => [], hasConfiguredAuth: () => false },
+			async () => undefined,
 			() => undefined,
 			() => undefined,
 		);
@@ -615,7 +615,6 @@ describe("Loadout Settings page", () => {
 		};
 		const make = (name: string, description: string): AgentDetail =>
 			createAgentDetail(
-				h.pi,
 				name,
 				{
 					name,
@@ -627,6 +626,7 @@ describe("Loadout Settings page", () => {
 					source: "project",
 				},
 				registry,
+				async () => undefined,
 				() => undefined,
 				() => undefined,
 			);
