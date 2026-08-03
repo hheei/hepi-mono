@@ -110,6 +110,15 @@ describe("Loadout policy", () => {
 				}),
 			),
 		).toEqual(["edit", "write"]);
+		expect(
+			resolveActiveToolNames(
+				tools,
+				parseLoadoutConfiguration({
+					global: { enabled: ["tool:edit"] },
+					project: {},
+				}),
+			),
+		).toEqual(["edit", "write"]);
 	});
 
 	test("publishes only discovered skills whose resolved policy is disabled", () => {

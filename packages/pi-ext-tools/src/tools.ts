@@ -14,6 +14,7 @@ import { registerGrepTool } from "./grep.js";
 import { registerReadTool } from "./read.js";
 
 const OWNER = "@hheei/pi-ext-tools";
+const BUILT_IN_GROUP = "Built-in";
 
 /**
  * Register each catalog name once, while creating execution definitions from the
@@ -23,6 +24,7 @@ const OWNER = "@hheei/pi-ext-tools";
 function registerCanonicalTool<TParams extends TSchema, TDetails, TState>(
 	pi: ExtensionAPI,
 	factory: (cwd: string) => ToolDefinition<TParams, TDetails, TState>,
+	conflictsWith: readonly string[] = [],
 ): void {
 	const template = factory(process.cwd());
 	const tool: ToolDefinition<TParams, TDetails, TState> = {
@@ -36,9 +38,11 @@ function registerCanonicalTool<TParams extends TSchema, TDetails, TState>(
 		{
 			id: tool.name,
 			owner: OWNER,
-			group: "Tools",
+			group: BUILT_IN_GROUP,
+			origin: OWNER,
 			priority: 100,
 			conflictSets: [],
+			conflictsWith,
 			defaultActive: true,
 		},
 		tool,
@@ -53,8 +57,8 @@ export function registerTools(
 	registerReadTool(pi, state);
 	registerGrepTool(pi, state);
 	registerFindTool(pi, state);
-	registerCanonicalTool(pi, createEditToolDefinition);
-	registerCanonicalTool(pi, createWriteToolDefinition);
+	registerCanonicalTool(pi, createEditToolDefinition, ["apply_patch"]);
+	registerCanonicalTool(pi, createWriteToolDefinition, ["apply_patch"]);
 	registerBashTool(pi);
 	registerApplyPatchTool(pi);
 }

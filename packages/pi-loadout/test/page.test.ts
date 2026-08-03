@@ -3,7 +3,11 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
-import type { ExtensionPageViewContext, PiSettingsPaths } from "@hheei/pi-ext-core";
+import {
+	type ExtensionPageViewContext,
+	type PiSettingsPaths,
+	registerManagedLoadoutTool,
+} from "@hheei/pi-ext-core";
 import { replayTui, viewFrame } from "../../hepi-debug/src/tui-replay.js";
 import type { LoadoutEngine } from "../src/engine.js";
 import { createLoadoutPage } from "../src/page.js";
@@ -46,6 +50,7 @@ function setup(): {
 	const closes = { value: 0 };
 	const pi = {
 		events: {},
+		registerTool: () => undefined,
 		getAllTools: () =>
 			[
 				{
@@ -114,7 +119,7 @@ describe("Loadout Settings page", () => {
 		expect(global).toContain("⚒ Tools");
 		expect(global).toContain("read (tool)");
 		expect(global).toContain("Read a file from the current workspace.");
-		expect(global).toContain("Origin: Built-in");
+		expect(global).toContain("Origin: Pi built-in");
 		expect(global).toContain("Status: ● active");
 		expect(global).not.toContain("Effective:");
 		expect(global).not.toContain("Policy:");
@@ -126,6 +131,26 @@ describe("Loadout Settings page", () => {
 		expect(project).toContain("Project · /workspace/.pi/settings.json");
 		expect(project).toContain("project_check");
 		expect(project.indexOf("read")).toBeLessThan(project.indexOf("project_check"));
+	});
+
+	test("prefers a tool owner's precise origin over host source categories", () => {
+		const h = setup();
+		registerManagedLoadoutTool(
+			h.pi,
+			{
+				id: "read",
+				owner: "@hheei/pi-ext-tools",
+				group: "Built-in",
+				origin: "@hheei/pi-ext-tools",
+				priority: 100,
+				conflictSets: [],
+				defaultActive: true,
+			},
+			{ name: "read" } as never,
+		);
+		const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
+		const output = page.component.render(100).join("\n");
+		expect(output).toContain("Origin: @hheei/pi-ext-tools");
 	});
 
 	test("flushes one scope before switching and prints reload info only after surface close", async () => {

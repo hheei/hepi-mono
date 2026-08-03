@@ -4,6 +4,8 @@ import { getToolResultLayout, registerManagedLoadoutTool } from "@hheei/pi-ext-c
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import { SelectableToolTextResult, selectableToolText } from "./selectable-tool-text-result.js";
 
+const OWNER = "@hheei/pi-ext-tools";
+
 /** ponytail: keep native find until FFF can preserve glob/path/result contract. */
 export function registerFindTool(pi: ExtensionAPI, _state: FffRuntimeState): void {
 	const template = createFindToolDefinition(process.cwd());
@@ -43,8 +45,9 @@ export function registerFindTool(pi: ExtensionAPI, _state: FffRuntimeState): voi
 		pi,
 		{
 			id: "find",
-			owner: "@hheei/pi-ext-tools",
-			group: "Tools",
+			owner: OWNER,
+			group: "Built-in",
+			origin: OWNER,
 			priority: 100,
 			conflictSets: [],
 			defaultActive: true,

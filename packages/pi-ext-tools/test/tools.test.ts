@@ -47,11 +47,15 @@ describe("pi-ext-tools catalog", () => {
 		expect(() => registerTools(host.pi)).toThrow("Loadout tool id already registered: read");
 	});
 
-	test("makes apply_patch exclusive with edit and write without splitting edit from write", (): void => {
+	test("registers Built-in provenance and bidirectional mutator locks", (): void => {
 		const host = harness();
 		const controller = new AbortController();
-		let inventory: readonly { readonly id: string; readonly conflictsWith?: readonly string[] }[] =
-			[];
+		let inventory: readonly {
+			readonly id: string;
+			readonly group: string;
+			readonly origin?: string;
+			readonly conflictsWith?: readonly string[];
+		}[] = [];
 		observeLoadoutInventory(host.pi, {
 			signal: controller.signal,
 			onChange(items) {
@@ -61,10 +65,21 @@ describe("pi-ext-tools catalog", () => {
 
 		registerTools(host.pi);
 		expect(inventory.find((tool) => tool.id === "apply_patch")).toMatchObject({
+			group: "Built-in",
+			origin: "@hheei/pi-ext-tools",
 			conflictsWith: ["edit", "write"],
 		});
-		expect(inventory.find((tool) => tool.id === "edit")?.conflictsWith).toBeUndefined();
-		expect(inventory.find((tool) => tool.id === "write")?.conflictsWith).toBeUndefined();
+		expect(inventory.find((tool) => tool.id === "edit")).toMatchObject({
+			group: "Built-in",
+			origin: "@hheei/pi-ext-tools",
+			conflictsWith: ["apply_patch"],
+		});
+		expect(inventory.find((tool) => tool.id === "write")).toMatchObject({
+			group: "Built-in",
+			origin: "@hheei/pi-ext-tools",
+			conflictsWith: ["apply_patch"],
+		});
+		expect(inventory.every((tool) => tool.group === "Built-in")).toBe(true);
 		controller.abort();
 	});
 

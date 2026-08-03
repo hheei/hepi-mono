@@ -67,6 +67,10 @@ record 与 MIT notice。
 priority、同名 fallback registration 或运行时 provider arbitration。Loadout priority 仍只属于 activation/inventory
 policy，不能用于决定哪个 implementation 执行。
 
+catalog 注册项在 Loadout 中归入 `Built-in`，并显式声明 origin 为 `@hheei/pi-ext-tools`；这说明它们是由该 package
+提供的 Pi core-tool replacement，而不是把 host 的宽泛 source type 显示为 `Third-party`。未提供 origin 的工具使用 Pi
+`sourceInfo.path` 作为精确 fallback；只有 builtin path 才显示 `Pi built-in`。
+
 ## 写入工具选择与兼容 guard
 
 Loadout 将 `apply_patch` 视为 `edit` 与 `write` 这组工具的互斥替代：启用 `apply_patch` 时不会同时暴露

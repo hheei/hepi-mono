@@ -73,7 +73,8 @@ export function registerGrepTool(pi: ExtensionAPI, state: FffRuntimeState): void
 		{
 			id: "grep",
 			owner: OWNER,
-			group: "Tools",
+			group: "Built-in",
+			origin: OWNER,
 			priority: 100,
 			conflictSets: [],
 			defaultActive: true,

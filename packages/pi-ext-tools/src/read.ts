@@ -59,7 +59,8 @@ export function registerReadTool(
 		{
 			id: "read",
 			owner: OWNER,
-			group: "Tools",
+			group: "Built-in",
+			origin: OWNER,
 			priority: 100,
 			conflictSets: [],
 			defaultActive: true,

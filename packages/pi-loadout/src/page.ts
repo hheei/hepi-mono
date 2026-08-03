@@ -79,6 +79,12 @@ function sourceLabel(source: string): string {
 	return "Third-party";
 }
 
+function toolOrigin(tool: ToolInfo, metadata: LoadoutToolMetadata | undefined): string {
+	if (metadata?.origin !== undefined) return metadata.origin;
+	if (tool.sourceInfo.source === "builtin") return "Pi built-in";
+	return tool.sourceInfo.path || sourceLabel(tool.sourceInfo.source);
+}
+
 function scopeLabel(scope: LoadoutScope, cwd: string): string {
 	return scope === "global"
 		? "Global · ~/.pi/agent/settings.json"
@@ -178,7 +184,7 @@ function toolItem(
 		kind: "tool",
 		description: tool.description,
 		displayGroup: metadata?.group ?? sourceLabel(tool.sourceInfo.source),
-		origin: sourceLabel(tool.sourceInfo.source),
+		origin: toolOrigin(tool, metadata),
 		defaultActive,
 		projectPrivate: tool.sourceInfo.scope === "project",
 		enabled: state.enabled && lockedBy === undefined,

@@ -9,3 +9,5 @@ Saved Loadout selections take effect after Pi `/reload`.
 
 Tool owners can declare named `conflictSets` or symmetric name-level `conflictsWith` metadata.
 Loadout resolves explicit project/global selections before defaults, then exposes only compatible tools.
+Owners may also provide a precise display `origin`; otherwise Loadout displays Pi's registered source path
+(or `Pi built-in` for native tools) instead of a generic third-party label.
