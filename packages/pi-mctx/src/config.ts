@@ -4,6 +4,7 @@ import {
 	type JsonSettingsValueSource,
 	readMergedJsonSettingsSection,
 } from "@hheei/pi-ext-core";
+import { validModelRef } from "./model-ref.js";
 
 export const MCTX_SETTINGS_SECTION = "pi-mctx";
 export const DEFAULT_EXECUTE_THRESHOLD_PERCENTAGE = 65;
@@ -48,6 +49,21 @@ export interface MctxSearchSettings {
 	readonly primerPath?: string;
 }
 
+/**
+ * User-owned embedding provider selection. Project settings cannot choose a
+ * provider because it may point at a local model cache or an external
+ * connection file; detailed runtime validation belongs to `pi-ext-embed`.
+ */
+export interface MctxEmbeddingSettings {
+	/** Raw user-level config forwarded to `acquireEmbeddingProvider`. */
+	readonly config: Readonly<Record<string, unknown>>;
+}
+
+export interface MctxDreamerSettings {
+	/** User-owned Dreamer child model ref (exact provider/model). */
+	readonly model?: string;
+}
+
 export type MctxPipelineState =
 	| { readonly kind: "disabled" }
 	| { readonly kind: "invalid"; readonly reason: string }
@@ -65,6 +81,8 @@ export interface MctxConfiguration {
 	sourceOf(path: readonly string[]): JsonSettingsValueSource | undefined;
 	readonly pipeline: MctxPipelineState;
 	readonly search?: MctxSearchSettings;
+	readonly embedding?: MctxEmbeddingSettings;
+	readonly dreamer?: MctxDreamerSettings;
 	readonly warnings: readonly string[];
 }
 
@@ -99,9 +117,41 @@ function parseSearchSettings(
 	return { primerPath };
 }
 
-function validModelRef(value: string): boolean {
-	const parts = value.trim().split("/");
-	return parts.length === 2 && parts[0] !== "" && parts[1] !== "" && !value.includes("\\");
+function parseEmbeddingSettings(
+	global: Readonly<Record<string, unknown>>,
+	project: Readonly<Record<string, unknown>>,
+	warnings: string[],
+): MctxEmbeddingSettings | undefined {
+	if (project.embedding !== undefined)
+		warnings.push("Ignoring project embedding: provider selection is user-level only");
+	const embedding = global.embedding;
+	if (embedding === undefined) return undefined;
+	if (!isRecord(embedding)) {
+		warnings.push("Ignoring user embedding: must be an object");
+		return undefined;
+	}
+	return { config: embedding };
+}
+
+function parseDreamerSettings(
+	global: Readonly<Record<string, unknown>>,
+	project: Readonly<Record<string, unknown>>,
+	warnings: string[],
+): MctxDreamerSettings | undefined {
+	if (project.dreamer !== undefined)
+		warnings.push("Ignoring project dreamer: model selection is user-level only");
+	const dreamer = global.dreamer;
+	if (dreamer === undefined) return undefined;
+	if (!isRecord(dreamer)) {
+		warnings.push("Ignoring user dreamer: must be an object");
+		return undefined;
+	}
+	const model = dreamer.model;
+	if (model !== undefined && (typeof model !== "string" || !validModelRef(model))) {
+		warnings.push("Ignoring user dreamer.model: must be exact provider/model");
+		return undefined;
+	}
+	return typeof model === "string" ? { model: model.trim() } : {};
 }
 
 function thresholdValue(value: unknown, minimum: number, maximum: number): value is number {
@@ -313,6 +363,8 @@ export async function loadMctxConfiguration(
 	const { global, project } = settings;
 	const warnings: string[] = [];
 	const search = parseSearchSettings(global, project, warnings);
+	const embedding = parseEmbeddingSettings(global, project, warnings);
+	const dreamer = parseDreamerSettings(global, project, warnings);
 	return {
 		global,
 		project,
@@ -320,6 +372,8 @@ export async function loadMctxConfiguration(
 		sourceOf: settings.sourceOf,
 		pipeline: resolvePipeline(global, project, warnings),
 		...(search === undefined ? {} : { search }),
+		...(embedding === undefined ? {} : { embedding }),
+		...(dreamer === undefined ? {} : { dreamer }),
 		warnings,
 	};
 }

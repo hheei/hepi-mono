@@ -1,4 +1,5 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import {
 	type ExtensionContext,
 	type SessionEntry,
@@ -10,7 +11,15 @@ import type {
 	MemorySearchExclusionService,
 	ParentContextProjectionResult,
 } from "@hheei/pi-ext-core";
-import { getService, MCTX_MEMORY_EXCLUSION_SERVICE } from "@hheei/pi-ext-core";
+import {
+	getService,
+	MCTX_MEMORY_EXCLUSION_SERVICE,
+	startSubagent,
+	type TaskSubagentHandle,
+	type TaskSubagentSpec,
+	type TaskTerminalResult,
+} from "@hheei/pi-ext-core";
+import type { EmbeddingProviderLease } from "@hheei/pi-ext-embed";
 import { type MctxRuntime, resolveMctxActivation } from "./activation.js";
 import { planMctxCompartmentRecovery, verifyMctxCompartmentGraph } from "./compartment-graph.js";
 import {
@@ -19,6 +28,7 @@ import {
 	type MctxConfiguration,
 } from "./config.js";
 import { projectMctxContext } from "./context-projection.js";
+import { buildDreamerPrompt, DREAMER_REPORT_CHARS, DREAMER_SYSTEM_PROMPT } from "./dreamer.js";
 import {
 	type MctxHistorianBranchRunResult,
 	runMctxHistorianForBranch,
@@ -36,6 +46,14 @@ import {
 	rankMctxSearchCandidates,
 } from "./search.js";
 import {
+	buildSidekickAugmentation,
+	buildSidekickPrompt,
+	createMctxChildFactory,
+	MCTX_CHILD_MAX_TURNS,
+	MCTX_CHILD_TASK_TIMEOUT_MS,
+	SIDEKICK_SYSTEM_PROMPT,
+} from "./sidekick.js";
+import {
 	defaultMctxStorePath,
 	type MctxCompartment,
 	type MctxHistoryTag,
@@ -52,6 +70,7 @@ import {
 	type MctxPartition,
 	type MctxRetainedHistoryTag,
 	type MctxStore,
+	type MctxStoreStatusMetrics,
 	mctxHandoffBindingId,
 	openMctxStore,
 } from "./store.js";
@@ -66,10 +85,13 @@ export interface MctxSessionRuntime extends MctxRuntime {
 /**
  * Pi-facing lifecycle seam. Core owns lifecycle cancellation and resource cleanup;
  * MCTX owns activation policy, SQLite state, historian scheduling, and branch-safe
- * projection. `onTurnEnd` starts detached work; `onContext` is synchronous and fails open.
+ * projection. `onTurnEnd` starts detached work; `onContext` is synchronous and, on
+ * store read failure, follows the user-owned fail-closed policy: rethrow by default,
+ * otherwise warn and pass Pi-native messages through.
  */
 export interface MctxFeature {
 	start(context: ExtensionLifecycleContext): Promise<void>;
+	status(context: ExtensionContext): MctxStatusResult;
 	onTurnEnd(context: ExtensionContext): void;
 	onContext(
 		messages: readonly AgentMessage[],
@@ -90,7 +112,55 @@ export interface MctxFeature {
 		context: ExtensionContext,
 		signal: AbortSignal,
 	): Promise<MctxSearchResult>;
+	augment(query: string, context: ExtensionContext): Promise<MctxAugmentResult>;
+	dream(query: string, context: ExtensionContext): Promise<MctxDreamResult>;
+	embedBackfill(context: ExtensionContext): Promise<MctxEmbedBackfillResult>;
 }
+
+export interface MctxStatusUsage {
+	readonly tokens: number;
+	readonly contextWindow: number;
+	readonly percentage: number;
+}
+
+export type MctxStatusInactiveReason =
+	| "not-started"
+	| "disabled"
+	| "invalid"
+	| "unavailable"
+	| "collision"
+	| "store"
+	| "partition"
+	| "disposed";
+
+export type MctxStatusResult =
+	| {
+			readonly kind: "active";
+			readonly projectIdentity: string;
+			readonly sessionId: string;
+			readonly partitionRevision: number;
+			readonly usage?: MctxStatusUsage;
+			readonly compartments: MctxStoreStatusMetrics["compartments"];
+			readonly tags: MctxStoreStatusMetrics["tags"];
+			readonly historian: {
+				readonly phase: "idle" | "running" | "cooling" | "rebuild-pending";
+				readonly model: string;
+				readonly lastFailureClass?: MctxHistorianFailureDiagnostic["failureClass"];
+			};
+			readonly trigger: {
+				readonly percentage?: number;
+				readonly tokens?: number;
+				readonly protectedTags: number;
+			};
+			readonly pendingAugmentation: boolean;
+	  }
+	| {
+			readonly kind: "inactive";
+			readonly reason: MctxStatusInactiveReason;
+			readonly diagnostic?: string;
+	  }
+	| { readonly kind: "stale" }
+	| { readonly kind: "failed"; readonly reason: string };
 
 function entryText(entry: SessionEntry): string | undefined {
 	if (entry.type === "compaction") return entry.summary?.trim() || undefined;
@@ -212,6 +282,201 @@ export type MctxSearchResult =
 	| { readonly kind: "invalid-exclusions" }
 	| { readonly kind: "hits"; readonly hits: readonly MctxSearchHit[] };
 
+export type MctxAugmentResult =
+	| { readonly kind: "inactive" }
+	| { readonly kind: "cancelled" }
+	| { readonly kind: "empty" }
+	| { readonly kind: "failed"; readonly reason: string }
+	| { readonly kind: "injected" };
+
+export type MctxDreamResult =
+	| { readonly kind: "inactive" }
+	| { readonly kind: "cancelled" }
+	| { readonly kind: "empty" }
+	| { readonly kind: "failed"; readonly reason: string }
+	| { readonly kind: "reported"; readonly summary: string };
+
+export type MctxEmbedBackfillResult =
+	| { readonly kind: "inactive" }
+	| { readonly kind: "busy" }
+	| { readonly kind: "cancelled" }
+	| { readonly kind: "failed"; readonly reason: string }
+	| {
+			readonly kind: "done";
+			readonly embedded: number;
+			readonly skipped: number;
+			readonly failed: number;
+	  };
+
+/** Wall-clock deadline for one read-only MCTX child task. */
+const MCTX_CHILD_TIMEOUT_REASON = "child task timed out";
+
+/** Batch size for the project memory embedding backfill loop. */
+const EMBED_BACKFILL_BATCH_SIZE = 16;
+
+/**
+ * Runs one bounded search against the current active runtime. Shared by the
+ * registered `ctx_search` tool and the sidekick child's injected `ctx_search`
+ * custom tool, so both see the same parent partition and privacy semantics.
+ */
+async function executeMctxSearch(
+	current: ActiveMctxRuntime,
+	operation: MctxSearchOperation,
+	context: ExtensionContext,
+	signal: AbortSignal,
+	isCurrent: () => boolean,
+	collectExternal: typeof collectMctxExternalSearchCandidates,
+): Promise<MctxSearchResult> {
+	if (
+		current.lifecycle.signal.aborted ||
+		signal.aborted ||
+		current.runtime.sessionId !== context.sessionManager.getSessionId()
+	)
+		return { kind: "inactive" };
+	const sources = operation.sources ?? MCTX_SEARCH_SOURCES;
+	const projectIdentity = current.runtime.partition.projectIdentity;
+	const sessionId = current.runtime.sessionId;
+	const candidates: MctxSearchCandidate[] = [];
+	if (sources.includes("memory")) {
+		const exclusionSignal = AbortSignal.any([signal, current.lifecycle.signal]);
+		const excluded = await excludedMemoryIds(
+			getService(current.lifecycle.pi, MCTX_MEMORY_EXCLUSION_SERVICE),
+			{ projectIdentity, sessionId, signal: exclusionSignal },
+		);
+		if (
+			!isCurrent() ||
+			current.lifecycle.signal.aborted ||
+			signal.aborted ||
+			current.runtime.sessionId !== context.sessionManager.getSessionId()
+		)
+			return { kind: "stale" };
+		if (excluded === undefined) return { kind: "invalid-exclusions" };
+		for (const memory of current.runtime.store.listActiveMemories(projectIdentity, 100)) {
+			if (excluded.has(memory.memoryId)) continue;
+			candidates.push({
+				source: "memory",
+				id: `memory:${projectIdentity}:${memory.memoryId}:${memory.revision}:${mctxSearchContentHash(memory.content)}`,
+				title: `Memory #${memory.memoryId} (${memory.category})`,
+				text: boundedMctxSearchText(memory.content),
+			});
+		}
+	}
+	if (sources.includes("note")) {
+		for (const note of current.runtime.store.listActiveNotes(projectIdentity, sessionId, 100)) {
+			const anchor =
+				note.anchor === undefined
+					? ""
+					: ` @${note.anchor.kind}:${note.anchor.entryId}${note.anchor.toolCallId === undefined ? "" : `:${note.anchor.toolCallId}`}`;
+			candidates.push({
+				source: "note",
+				id: `note:${projectIdentity}:${sessionId}:${note.noteId}:${note.revision}:${mctxSearchContentHash(note.content)}`,
+				title: `Note #${note.noteId}${anchor}`,
+				text: boundedMctxSearchText(note.content),
+			});
+		}
+	}
+	if (sources.includes("history")) {
+		for (const tag of current.runtime.store.listRetainedHistoryTags({
+			projectIdentity,
+			activeSessionId: sessionId,
+			limit: 100,
+		})) {
+			candidates.push({
+				source: "history",
+				id: `history:${tag.projectIdentity}:${tag.sessionId}:${tag.tagNumber}:${tag.entryId}:${tag.toolCallId ?? ""}:${mctxSearchContentHash(tag.source)}`,
+				title: `History ${tag.sessionId} §${tag.tagNumber}§ (${tag.kind})`,
+				text: boundedMctxSearchText(tag.source),
+			});
+		}
+	}
+	const external = await collectExternal({
+		cwd: current.runtime.cwd,
+		...(current.runtime.search.primerPath === undefined
+			? {}
+			: { primerPath: current.runtime.search.primerPath }),
+		sources,
+		signal: AbortSignal.any([signal, current.lifecycle.signal]),
+	});
+	if (
+		!isCurrent() ||
+		current.lifecycle.signal.aborted ||
+		signal.aborted ||
+		current.runtime.sessionId !== context.sessionManager.getSessionId()
+	)
+		return { kind: "stale" };
+	candidates.push(...external);
+	return {
+		kind: "hits",
+		hits: rankMctxSearchCandidates(operation.query, candidates, operation.limit),
+	};
+}
+
+type MctxChildTaskOutcome =
+	| {
+			readonly kind: "terminal";
+			readonly handle: TaskSubagentHandle;
+			readonly result: TaskTerminalResult;
+	  }
+	| { readonly kind: "cancelled" }
+	| { readonly kind: "failed"; readonly reason: string };
+
+/**
+ * Shared skeleton for the Sidekick and Dreamer child tasks: deadline + caller +
+ * lifecycle signals all cancel the child handle, a synchronous admission
+ * rejection becomes a failure result, and the terminal result is accepted only
+ * while the runtime is still the active one. The launch seam runs inside the
+ * abort window so a synchronous abort (e.g. inside the factory) still cancels.
+ */
+async function runMctxChildTask(
+	current: ActiveMctxRuntime,
+	context: ExtensionContext,
+	timeoutMs: number,
+	isCurrent: () => boolean,
+	launch: (lifecycle: ExtensionLifecycleContext) => TaskSubagentHandle,
+): Promise<MctxChildTaskOutcome> {
+	const timeoutSignal = AbortSignal.timeout(timeoutMs);
+	const signal = AbortSignal.any([
+		current.lifecycle.signal,
+		timeoutSignal,
+		...(context.signal === undefined ? [] : [context.signal]),
+	]);
+	if (signal.aborted)
+		return timeoutSignal.aborted
+			? { kind: "failed", reason: MCTX_CHILD_TIMEOUT_REASON }
+			: { kind: "cancelled" };
+	// Admission can reject synchronously (e.g. a full pending queue), which
+	// must surface as a failure result instead of rejecting the command.
+	let handle: TaskSubagentHandle;
+	try {
+		handle = launch(current.lifecycle);
+	} catch (error: unknown) {
+		return signal.aborted
+			? { kind: "cancelled" }
+			: { kind: "failed", reason: error instanceof Error ? error.message : String(error) };
+	}
+	const onAbort = (): void => handle.cancel();
+	signal.addEventListener("abort", onAbort, { once: true });
+	// The signal can abort between the precheck and this registration (e.g.
+	// synchronously inside launch). Cancel is idempotent, so a recheck covers
+	// that window; a later abort still hits the listener.
+	if (signal.aborted) onAbort();
+	try {
+		const result: TaskTerminalResult = await handle.result;
+		if (
+			!isCurrent() ||
+			current.lifecycle.signal.aborted ||
+			signal.aborted ||
+			current.runtime.sessionId !== context.sessionManager.getSessionId()
+		)
+			return timeoutSignal.aborted
+				? { kind: "failed", reason: MCTX_CHILD_TIMEOUT_REASON }
+				: { kind: "cancelled" };
+		return { kind: "terminal", handle, result };
+	} finally {
+		signal.removeEventListener("abort", onAbort);
+	}
+}
+
 function validExcludedMemoryIds(value: readonly number[]): boolean {
 	return value.every((memoryId) => Number.isSafeInteger(memoryId) && memoryId > 0);
 }
@@ -260,6 +525,20 @@ export interface MctxFeatureOptions {
 	readonly runHistorianForBranch?: typeof runMctxHistorianForBranch;
 	readonly collectExternalSearchCandidates?: typeof collectMctxExternalSearchCandidates;
 	readonly logHistorianDiagnostic?: (diagnostic: MctxHistorianFailureDiagnostic) => void;
+	/** Test seam; production lazily imports `@hheei/pi-ext-embed` on first use. */
+	readonly acquireEmbeddingProvider?: (
+		config: unknown,
+	) => Promise<EmbeddingProviderLease | undefined>;
+	/** Test seam for the sidekick child task; production uses `startSubagent`. */
+	readonly startSidekickTask?: (
+		context: ExtensionLifecycleContext,
+		spec: TaskSubagentSpec,
+	) => TaskSubagentHandle;
+	/** Test seam for the Dreamer child task; production uses `startSubagent`. */
+	readonly startDreamTask?: (
+		context: ExtensionLifecycleContext,
+		spec: TaskSubagentSpec,
+	) => TaskSubagentHandle;
 }
 
 interface ActiveMctxRuntime {
@@ -270,6 +549,15 @@ interface ActiveMctxRuntime {
 	jobCompletion?: Promise<void> | undefined;
 	rebuildEntries?: readonly SessionEntry[] | undefined;
 	lastNotifiedFailureClass?: MctxHistorianFailureDiagnostic["failureClass"] | undefined;
+	notifiedStoreReadFailure?: boolean | undefined;
+	embeddingLease?: EmbeddingProviderLease | undefined;
+	embeddingJob?: AbortController | undefined;
+	embeddingCompletion?: Promise<void> | undefined;
+	pendingEmbedMemory?: MctxMemory | undefined;
+	/** Abort controller for an in-flight project embedding backfill; busy while set. */
+	embedBackfill?: AbortController | undefined;
+	/** One-shot augmentation text injected by the next successful onContext projection. */
+	pendingAugmentation?: string | undefined;
 }
 
 function defaultLogHistorianDiagnostic(diagnostic: MctxHistorianFailureDiagnostic): void {
@@ -353,7 +641,23 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 	const collectExternalSearchCandidates =
 		options.collectExternalSearchCandidates ?? collectMctxExternalSearchCandidates;
 	const logHistorianDiagnostic = options.logHistorianDiagnostic ?? defaultLogHistorianDiagnostic;
+	const acquireEmbeddingProvider =
+		options.acquireEmbeddingProvider ??
+		// Memory-system embedding is disabled in production behind this hook;
+		// tests inject the seam. Original production acquisition kept verbatim
+		// for revival (see docs/mctx/README.md):
+		// (async (config: unknown): Promise<EmbeddingProviderLease | undefined> => {
+		// 	const module = await import("@hheei/pi-ext-embed");
+		// 	return module.acquireEmbeddingProvider(config);
+		// })
+		(async (_config: unknown): Promise<EmbeddingProviderLease | undefined> => undefined);
+	const startSidekickTask = options.startSidekickTask ?? startSubagent;
+	const startDreamTask = options.startDreamTask ?? startSubagent;
 	let active: ActiveMctxRuntime | undefined;
+	// Feature owns read-only status lifecycle; inactive state never exposes store data.
+	let inactive: { readonly reason: MctxStatusInactiveReason; readonly diagnostic?: string } = {
+		reason: "not-started",
+	};
 	const handoffPreparations = new Set<string>();
 	function reportHistorianFailure(
 		current: ActiveMctxRuntime,
@@ -371,6 +675,30 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			`pi-mctx historian failed (${diagnostic.failureClass}); keeping existing context`,
 			"warning",
 		);
+	}
+	/**
+	 * Runs one `onContext` store call under the enabled pipeline's fail-closed
+	 * read policy. Only store I/O is guarded here: projection, recovery, and
+	 * scheduling errors are programmer/invariant bugs and must propagate, not
+	 * masquerade as a store read failure. `undefined` means the call failed and
+	 * the pipeline opted out; the caller passes Pi-native messages through.
+	 */
+	function withStoreReadPolicy<T>(current: ActiveMctxRuntime, read: () => T): T | undefined {
+		try {
+			return read();
+		} catch (error: unknown) {
+			if (current.runtime.settings.failClosedBlocking) throw error;
+			if (!current.lifecycle.signal.aborted && !current.notifiedStoreReadFailure) {
+				current.notifiedStoreReadFailure = true;
+				current.lifecycle.extension.ui.notify(
+					`pi-mctx context store read failed; continuing with Pi native context: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+					"warning",
+				);
+			}
+			return undefined;
+		}
 	}
 	async function createInitialPartition(
 		context: ExtensionLifecycleContext,
@@ -478,6 +806,81 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				}
 			});
 		current.jobCompletion = completion;
+	}
+
+	/**
+	 * Starts one detached, abortable passage embedding per explicit memory
+	 * write/update while the active runtime holds a provider lease. At most one
+	 * job runs per session; a newer write replaces the pending record and runs
+	 * after the current job settles. The memory tool result never waits on
+	 * embedding and a provider failure is never retried or surfaced.
+	 */
+	function scheduleMemoryEmbedding(current: ActiveMctxRuntime, memory: MctxMemory): void {
+		if (current.embeddingLease === undefined || current.lifecycle.signal.aborted) return;
+		if (current.embeddingJob !== undefined) {
+			current.pendingEmbedMemory = memory;
+			return;
+		}
+		const job = new AbortController();
+		current.embeddingJob = job;
+		const abort = (): void => job.abort();
+		current.lifecycle.signal.addEventListener("abort", abort, { once: true });
+		const completion = runMemoryEmbedding(current, job.signal, memory)
+			.catch(() => {
+				// A provider failure is an optional-capability miss: the memory write
+				// stays successful and simply produces no vector.
+			})
+			.finally(() => {
+				current.lifecycle.signal.removeEventListener("abort", abort);
+				if (current.embeddingJob !== job) return;
+				current.embeddingJob = undefined;
+				current.embeddingCompletion = undefined;
+				const pending = current.pendingEmbedMemory;
+				current.pendingEmbedMemory = undefined;
+				if (pending !== undefined && active === current && !current.lifecycle.signal.aborted) {
+					scheduleMemoryEmbedding(current, pending);
+				}
+			});
+		current.embeddingCompletion = completion;
+	}
+
+	/**
+	 * Embeds one memory record and publishes it under the content/model fence.
+	 * The store transaction rereads the live row, so a completion that lands
+	 * after a newer write/update or archive is dropped without error.
+	 */
+	async function runMemoryEmbedding(
+		current: ActiveMctxRuntime,
+		signal: AbortSignal,
+		memory: MctxMemory,
+	): Promise<void> {
+		const lease = current.embeddingLease;
+		if (lease === undefined || signal.aborted) return;
+		const snapshot = lease.provider.snapshot();
+		if (snapshot === undefined) return;
+		const contentHash = mctxSearchContentHash(memory.content);
+		const vector = await lease.provider.embed(memory.content, "passage", signal);
+		if (vector === undefined || signal.aborted || current.lifecycle.signal.aborted) return;
+		// Model fence: a provider config reload between start and completion must
+		// discard this late result; the ledger row records the observed identity.
+		const settled = lease.provider.snapshot();
+		if (
+			settled === undefined ||
+			settled.modelIdentity !== snapshot.modelIdentity ||
+			settled.generation !== snapshot.generation
+		)
+			return;
+		if (active !== current) return;
+		current.runtime.store.writeMemoryEmbedding({
+			projectIdentity: memory.projectIdentity,
+			memoryId: memory.memoryId,
+			modelIdentity: snapshot.modelIdentity,
+			providerGeneration: snapshot.generation,
+			sourceContentHash: contentHash,
+			sourceMemoryRevision: memory.revision,
+			dimensions: vector.length,
+			vector,
+		});
 	}
 
 	async function prepare(input: {
@@ -606,10 +1009,10 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			},
 		};
 	}
-	return {
+	const feature: MctxFeature = {
 		async start(context): Promise<void> {
-			// Fail closed at every boundary: invalid settings, identity, or store setup
-			// never installs a partial context pipeline in the live Pi session.
+			// Invalid configuration and unavailable optional models keep Pi-native behavior;
+			// storage failures follow the user-owned fail-closed policy below.
 			let configuration: MctxConfiguration;
 			try {
 				// Settings are activation-time input. Saving settings never mutates an
@@ -619,6 +1022,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					context.signal,
 				);
 			} catch (error: unknown) {
+				inactive = { reason: "unavailable", diagnostic: String(error) };
 				if (!context.signal.aborted) {
 					context.extension.ui.notify(
 						`pi-mctx configuration unavailable: ${error instanceof Error ? error.message : String(error)}`,
@@ -631,20 +1035,33 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 
 			const activation = resolveMctxActivation(context, configuration);
 			if (activation.kind === "inactive") {
+				inactive = {
+					reason: activation.reason,
+					...("diagnostic" in activation ? { diagnostic: activation.diagnostic } : {}),
+				};
 				if (activation.reason !== "disabled")
 					context.extension.ui.notify(activation.diagnostic, "warning");
 				return;
 			}
 			let store: MctxStore;
 			try {
-				// Storage is opened only after config and model admission succeed. An
-				// unavailable optional historian must leave Pi's native session untouched.
+				// Storage is opened only after config and model admission succeed. The
+				// explicit opt-out keeps a storage outage from changing Pi's native path.
 				store = await openStore(defaultMctxStorePath());
 			} catch (error: unknown) {
-				context.extension.ui.notify(
-					`pi-mctx context store unavailable: ${error instanceof Error ? error.message : String(error)}`,
-					"error",
-				);
+				inactive = {
+					reason: "store",
+					diagnostic: error instanceof Error ? error.message : String(error),
+				};
+				const message = error instanceof Error ? error.message : String(error);
+				if (!activation.runtime.settings.failClosedBlocking) {
+					context.extension.ui.notify(
+						`pi-mctx context store unavailable; continuing with Pi native behavior: ${message}`,
+						"warning",
+					);
+					return;
+				}
+				context.extension.ui.notify(`pi-mctx context store unavailable: ${message}`, "error");
 				throw error;
 			}
 			let partition: MctxPartition;
@@ -666,16 +1083,49 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				}
 				partition = initialPartition;
 			} catch (error: unknown) {
+				inactive = {
+					reason: "partition",
+					diagnostic: error instanceof Error ? error.message : String(error),
+				};
 				store.close();
 				if (!context.signal.aborted) {
-					context.extension.ui.notify(
-						`pi-mctx context partition unavailable: ${error instanceof Error ? error.message : String(error)}`,
-						"error",
-					);
+					const message = error instanceof Error ? error.message : String(error);
+					if (!activation.runtime.settings.failClosedBlocking) {
+						context.extension.ui.notify(
+							`pi-mctx context partition unavailable; continuing with Pi native behavior: ${message}`,
+							"warning",
+						);
+						return;
+					}
+					context.extension.ui.notify(`pi-mctx context partition unavailable: ${message}`, "error");
 				}
+				if (!activation.runtime.settings.failClosedBlocking) return;
 				throw error;
 			}
 			if (context.signal.aborted) {
+				store.close();
+				return;
+			}
+			// Provider acquisition is an optional capability: the package is
+			// imported only when the user configured an embedding provider, and a
+			// failure keeps the context pipeline active without semantic context.
+			let embeddingLease: EmbeddingProviderLease | undefined;
+			if (configuration.embedding !== undefined) {
+				try {
+					embeddingLease = await acquireEmbeddingProvider(configuration.embedding.config);
+				} catch (error: unknown) {
+					if (!context.signal.aborted) {
+						context.extension.ui.notify(
+							`pi-mctx embedding provider unavailable; continuing without semantic context: ${
+								error instanceof Error ? error.message : String(error)
+							}`,
+							"warning",
+						);
+					}
+				}
+			}
+			if (context.signal.aborted) {
+				await embeddingLease?.release();
 				store.close();
 				return;
 			}
@@ -688,21 +1138,97 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				runtime,
 				lifecycle: context,
 				cooling: false,
+				...(embeddingLease === undefined ? {} : { embeddingLease }),
 			};
 			// Publish last: context/turn handlers can never observe a half-initialized
 			// runtime whose store or partition failed during activation.
 			active = current;
 			// Resources are lifecycle-owned: abort work before closing its store; the feature retains policy.
-			context.resources.add("mctx-runtime", () => {
-				store.close();
+			context.resources.add("mctx-runtime", async () => {
+				// Embedding jobs settle before the provider lease releases and the
+				// store closes; a detached embed may still be writing its fenced row.
 				if (active === current) active = undefined;
+				inactive = { reason: "disposed" };
+				current.embeddingJob?.abort();
+				await current.embeddingCompletion;
+				await current.embeddingLease?.release();
+				store.close();
 			});
 			context.resources.add("mctx-historian", async () => {
 				current.rebuildEntries = undefined;
 				current.job?.abort();
 				await current.jobCompletion;
-				if (active === current) active = undefined;
+				if (active === current) {
+					active = undefined;
+					inactive = { reason: "disposed" };
+				}
 			});
+		},
+		status(context): MctxStatusResult {
+			const current = active;
+			if (current === undefined) return { kind: "inactive", ...inactive };
+			if (current.lifecycle.signal.aborted) return { kind: "inactive", reason: "disposed" };
+			if (current.runtime.sessionId !== context.sessionManager.getSessionId())
+				return { kind: "stale" };
+			const rawUsage = context.getContextUsage();
+			const usageTokens = rawUsage?.tokens;
+			const usageWindow = rawUsage?.contextWindow;
+			const usage =
+				typeof usageTokens === "number" &&
+				Number.isSafeInteger(usageTokens) &&
+				usageTokens >= 0 &&
+				typeof usageWindow === "number" &&
+				Number.isSafeInteger(usageWindow) &&
+				usageWindow > 0
+					? {
+							tokens: usageTokens,
+							contextWindow: usageWindow,
+							percentage: (usageTokens / usageWindow) * 100,
+						}
+					: undefined;
+			const percentage = modelThreshold(
+				current.runtime.settings.executeThresholdPercentage,
+				context.model,
+			);
+			const tokens =
+				current.runtime.settings.executeThresholdTokens === undefined
+					? undefined
+					: modelThreshold(current.runtime.settings.executeThresholdTokens, context.model);
+			const phase =
+				current.rebuildEntries !== undefined
+					? "rebuild-pending"
+					: current.job !== undefined
+						? "running"
+						: current.cooling
+							? "cooling"
+							: "idle";
+			try {
+				const metrics = current.runtime.store.readStatusMetrics(current.runtime.partition);
+				return {
+					kind: "active",
+					projectIdentity: current.runtime.partition.projectIdentity,
+					sessionId: current.runtime.sessionId,
+					partitionRevision: current.runtime.partition.revision,
+					...(usage === undefined ? {} : { usage }),
+					compartments: metrics.compartments,
+					tags: metrics.tags,
+					historian: {
+						phase,
+						model: `${current.runtime.historian.provider}/${current.runtime.historian.id}`,
+						...(current.lastNotifiedFailureClass === undefined
+							? {}
+							: { lastFailureClass: current.lastNotifiedFailureClass }),
+					},
+					trigger: {
+						...(percentage === undefined ? {} : { percentage }),
+						...(tokens === undefined ? {} : { tokens }),
+						protectedTags: current.runtime.settings.protectedTags,
+					},
+					pendingAugmentation: current.pendingAugmentation !== undefined,
+				};
+			} catch (error: unknown) {
+				return { kind: "failed", reason: error instanceof Error ? error.message : String(error) };
+			}
 		},
 		onTurnEnd(context): void {
 			// Turn-end work is deliberately non-blocking. This hook only evaluates the
@@ -752,21 +1278,28 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			// Re-evaluate against the active branch at every model invocation. A prior
 			// publication is not trusted after Pi navigation or branch replacement.
 			const entries = context.sessionManager.getBranch();
-			const tagSync = current.runtime.store.syncHistoryTags(
-				current.runtime.partition,
-				collectMctxHistoryTagInputs(entries),
+			const tagSync = withStoreReadPolicy(current, () =>
+				current.runtime.store.syncHistoryTags(
+					current.runtime.partition,
+					collectMctxHistoryTagInputs(entries),
+				),
 			);
 			if (tagSync === undefined) return undefined;
 			current.runtime = { ...current.runtime, partition: tagSync.partition };
-			const compartments = current.runtime.store.listCompartments(current.runtime.partition);
+			const compartments = withStoreReadPolicy(current, () =>
+				current.runtime.store.listCompartments(current.runtime.partition),
+			);
+			if (compartments === undefined) return undefined;
 			const recovery = planMctxCompartmentRecovery(entries, compartments);
 			if (recovery.kind === "rebuild") {
 				// Branch edits invalidate only the divergent publication tail. Discard via
 				// CAS, then replay the newest stable entries after the job observes abort.
 				const rebuildEntries = [...entries];
-				const nextPartition = current.runtime.store.discardCompartmentsFrom(
-					current.runtime.partition,
-					recovery.discardFromRevision,
+				const nextPartition = withStoreReadPolicy(current, () =>
+					current.runtime.store.discardCompartmentsFrom(
+						current.runtime.partition,
+						recovery.discardFromRevision,
+					),
 				);
 				if (
 					nextPartition !== undefined &&
@@ -787,12 +1320,50 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			const baseMessages = projection.kind === "rendered" ? projection.messages : messages;
 			const tagged = projectMctxHistoryTags(baseMessages, entries, tagSync.tags);
 			if (tagged.droppedTagNumbers.length > 0) {
-				const nextPartition = current.runtime.store.markHistoryTagsDropped(
-					current.runtime.partition,
-					tagged.droppedTagNumbers,
+				const nextPartition = withStoreReadPolicy(current, () =>
+					current.runtime.store.markHistoryTagsDropped(
+						current.runtime.partition,
+						tagged.droppedTagNumbers,
+					),
 				);
 				if (nextPartition !== undefined)
 					current.runtime = { ...current.runtime, partition: nextPartition };
+			}
+			// A successful projection re-arms the read-failure notification for the
+			// next failure epoch, matching the historian notification pattern.
+			current.notifiedStoreReadFailure = false;
+			// One-shot /mctx aug augmentation: injected once after a successful
+			// projection, then cleared. Projection failures keep it pending.
+			// The bounded wrapper is inserted before the last real user prompt so
+			// the model still sees the authoritative request as its final message.
+			const pendingAugmentation = current.pendingAugmentation;
+			if (pendingAugmentation !== undefined) {
+				current.pendingAugmentation = undefined;
+				const augmentationMessage: AgentMessage = {
+					role: "user",
+					content: [{ type: "text", text: pendingAugmentation }],
+					// Stable timestamp keeps the message shape consistent with
+					// synthetic projection messages.
+					timestamp: 0,
+				};
+				let lastUserIndex = -1;
+				for (let index = tagged.messages.length - 1; index >= 0; index--) {
+					if (tagged.messages[index]?.role === "user") {
+						lastUserIndex = index;
+						break;
+					}
+				}
+				const messages =
+					lastUserIndex >= 0
+						? [
+								...tagged.messages.slice(0, lastUserIndex),
+								augmentationMessage,
+								...tagged.messages.slice(lastUserIndex),
+							]
+						: [...tagged.messages, augmentationMessage];
+				return {
+					messages,
+				};
 			}
 			return { messages: tagged.messages };
 		},
@@ -844,6 +1415,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 						projectIdentity,
 						sessionId,
 					});
+					scheduleMemoryEmbedding(current, memory);
 					return {
 						kind: "memory",
 						memories: [memory],
@@ -856,6 +1428,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 						sessionId,
 					});
 					if (memory === undefined) return { kind: "stale" };
+					scheduleMemoryEmbedding(current, memory);
 					return { kind: "memory", memories: [memory] };
 				}
 				case "archive": {
@@ -980,82 +1553,230 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				current.runtime.sessionId !== context.sessionManager.getSessionId()
 			)
 				return { kind: "inactive" };
-			const sources = operation.sources ?? MCTX_SEARCH_SOURCES;
-			const projectIdentity = current.runtime.partition.projectIdentity;
-			const sessionId = current.runtime.sessionId;
-			const candidates: MctxSearchCandidate[] = [];
-			if (sources.includes("memory")) {
-				const exclusionSignal = AbortSignal.any([signal, current.lifecycle.signal]);
-				const excluded = await excludedMemoryIds(
-					getService(current.lifecycle.pi, MCTX_MEMORY_EXCLUSION_SERVICE),
-					{ projectIdentity, sessionId, signal: exclusionSignal },
-				);
-				if (
-					active !== current ||
-					current.lifecycle.signal.aborted ||
-					signal.aborted ||
-					current.runtime.sessionId !== context.sessionManager.getSessionId()
-				)
-					return { kind: "stale" };
-				if (excluded === undefined) return { kind: "invalid-exclusions" };
-				for (const memory of current.runtime.store.listActiveMemories(projectIdentity, 100)) {
-					if (excluded.has(memory.memoryId)) continue;
-					candidates.push({
-						source: "memory",
-						id: `memory:${projectIdentity}:${memory.memoryId}:${memory.revision}:${mctxSearchContentHash(memory.content)}`,
-						title: `Memory #${memory.memoryId} (${memory.category})`,
-						text: boundedMctxSearchText(memory.content),
-					});
-				}
-			}
-			if (sources.includes("note")) {
-				for (const note of current.runtime.store.listActiveNotes(projectIdentity, sessionId, 100)) {
-					const anchor =
-						note.anchor === undefined
-							? ""
-							: ` @${note.anchor.kind}:${note.anchor.entryId}${note.anchor.toolCallId === undefined ? "" : `:${note.anchor.toolCallId}`}`;
-					candidates.push({
-						source: "note",
-						id: `note:${projectIdentity}:${sessionId}:${note.noteId}:${note.revision}:${mctxSearchContentHash(note.content)}`,
-						title: `Note #${note.noteId}${anchor}`,
-						text: boundedMctxSearchText(note.content),
-					});
-				}
-			}
-			if (sources.includes("history")) {
-				for (const tag of current.runtime.store.listRetainedHistoryTags({
-					projectIdentity,
-					activeSessionId: sessionId,
-					limit: 100,
-				})) {
-					candidates.push({
-						source: "history",
-						id: `history:${tag.projectIdentity}:${tag.sessionId}:${tag.tagNumber}:${tag.entryId}:${tag.toolCallId ?? ""}:${mctxSearchContentHash(tag.source)}`,
-						title: `History ${tag.sessionId} §${tag.tagNumber}§ (${tag.kind})`,
-						text: boundedMctxSearchText(tag.source),
-					});
-				}
-			}
-			const external = await collectExternalSearchCandidates({
-				cwd: current.runtime.cwd,
-				...(current.runtime.search.primerPath === undefined
-					? {}
-					: { primerPath: current.runtime.search.primerPath }),
-				sources,
-				signal: AbortSignal.any([signal, current.lifecycle.signal]),
-			});
+			return executeMctxSearch(
+				current,
+				operation,
+				context,
+				signal,
+				() => active === current,
+				collectExternalSearchCandidates,
+			);
+		},
+		async augment(query, context): Promise<MctxAugmentResult> {
+			const current = active;
 			if (
-				active !== current ||
+				current === undefined ||
 				current.lifecycle.signal.aborted ||
-				signal.aborted ||
 				current.runtime.sessionId !== context.sessionManager.getSessionId()
 			)
-				return { kind: "stale" };
-			candidates.push(...external);
+				return { kind: "inactive" };
+			const outcome = await runMctxChildTask(
+				current,
+				context,
+				MCTX_CHILD_TASK_TIMEOUT_MS,
+				() => active === current,
+				(lifecycle) =>
+					startSidekickTask(lifecycle, {
+						mode: "task",
+						session: createMctxChildFactory(context, {
+							model: context.model,
+							systemPrompt: SIDEKICK_SYSTEM_PROMPT,
+						}),
+						prompt: buildSidekickPrompt(query),
+						maxTurns: MCTX_CHILD_MAX_TURNS,
+						// The command awaits handle.result directly; the sink is a no-op
+						// because nothing else may deliver this terminal result.
+						delivery: () => undefined,
+					}),
+			);
+			if (outcome.kind === "cancelled") return { kind: "cancelled" };
+			if (outcome.kind === "failed") return { kind: "failed", reason: outcome.reason };
+			const { handle, result } = outcome;
+			const output = result.output.trim();
+			if (result.status !== "completed" && result.status !== "limit_reached") {
+				return { kind: "failed", reason: result.failure ?? `sidekick task ${result.status}` };
+			}
+			if (output.length === 0) return { kind: "empty" };
+			current.pendingAugmentation = buildSidekickAugmentation({
+				query,
+				operationId: handle.id,
+				status: result.status,
+				partial: result.softLimitReached,
+				output,
+			});
+			return { kind: "injected" };
+		},
+		async dream(query, context): Promise<MctxDreamResult> {
+			const current = active;
+			if (
+				current === undefined ||
+				current.lifecycle.signal.aborted ||
+				current.runtime.sessionId !== context.sessionManager.getSessionId()
+			)
+				return { kind: "inactive" };
+			const projectIdentity = current.runtime.partition.projectIdentity;
+			const sessionId = current.runtime.sessionId;
+			const notes = current.runtime.store
+				.readNotes(projectIdentity, sessionId, "active")
+				.filter(
+					(note): note is MctxNote & { readonly smartCondition: string } =>
+						note.smartCondition !== undefined && note.smartCondition.trim().length > 0,
+				);
+			const trimmedQuery = query.trim();
+			if (notes.length === 0 && trimmedQuery.length === 0) return { kind: "empty" };
+			// An explicitly configured Dreamer model must resolve and have
+			// configured auth, or the command fails loudly; absent config uses the
+			// parent's current model like the sidekick path.
+			let model: Model<Api> | undefined = context.model;
+			const dreamerModel = current.runtime.dreamerModel;
+			if (dreamerModel !== undefined) {
+				const [provider, modelName] = dreamerModel.split("/");
+				const resolved =
+					provider === undefined || modelName === undefined
+						? undefined
+						: context.modelRegistry.find(provider, modelName);
+				if (resolved === undefined || !context.modelRegistry.hasConfiguredAuth(resolved))
+					return {
+						kind: "failed",
+						reason: `Dreamer model is unavailable: ${dreamerModel}`,
+					};
+				model = resolved;
+			}
+			const outcome = await runMctxChildTask(
+				current,
+				context,
+				MCTX_CHILD_TASK_TIMEOUT_MS,
+				() => active === current,
+				(lifecycle) =>
+					startDreamTask(lifecycle, {
+						mode: "task",
+						session: createMctxChildFactory(context, {
+							model,
+							systemPrompt: DREAMER_SYSTEM_PROMPT,
+						}),
+						prompt: buildDreamerPrompt(
+							notes.map((note) => ({
+								noteId: note.noteId,
+								content: note.content,
+								...(note.smartCondition === undefined
+									? {}
+									: { smartCondition: note.smartCondition }),
+							})),
+							trimmedQuery.length === 0 ? undefined : trimmedQuery,
+						),
+						maxTurns: MCTX_CHILD_MAX_TURNS,
+						// The command awaits handle.result directly; the sink is a no-op
+						// because nothing else may deliver this terminal result.
+						delivery: () => undefined,
+					}),
+			);
+			if (outcome.kind === "cancelled") return { kind: "cancelled" };
+			if (outcome.kind === "failed") return { kind: "failed", reason: outcome.reason };
+			const { result } = outcome;
+			const output = result.output.trim();
+			if (result.status !== "completed" && result.status !== "limit_reached") {
+				return { kind: "failed", reason: result.failure ?? `dreamer task ${result.status}` };
+			}
+			if (output.length === 0) return { kind: "empty" };
 			return {
-				kind: "hits",
-				hits: rankMctxSearchCandidates(operation.query, candidates, operation.limit),
+				kind: "reported",
+				summary:
+					output.length <= DREAMER_REPORT_CHARS
+						? output
+						: `${output.slice(0, DREAMER_REPORT_CHARS)}\n…[dreamer report truncated]`,
 			};
+		},
+		async embedBackfill(context): Promise<MctxEmbedBackfillResult> {
+			const current = active;
+			if (
+				current === undefined ||
+				current.lifecycle.signal.aborted ||
+				current.runtime.sessionId !== context.sessionManager.getSessionId()
+			)
+				return { kind: "inactive" };
+			const lease = current.embeddingLease;
+			if (lease === undefined)
+				return { kind: "failed", reason: "no embedding provider is configured" };
+			if (current.embedBackfill !== undefined) return { kind: "busy" };
+			const snapshot = lease.provider.snapshot();
+			if (snapshot === undefined)
+				return { kind: "failed", reason: "embedding provider is unavailable" };
+			const backfill = new AbortController();
+			current.embedBackfill = backfill;
+			const signal = AbortSignal.any([
+				current.lifecycle.signal,
+				backfill.signal,
+				...(context.signal === undefined ? [] : [context.signal]),
+			]);
+			try {
+				const projectIdentity = current.runtime.partition.projectIdentity;
+				const coverage = current.runtime.store.listMemoryEmbeddingCoverage(
+					projectIdentity,
+					snapshot.modelIdentity,
+				);
+				let embedded = 0;
+				let skipped = 0;
+				let failed = 0;
+				let offset = 0;
+				while (true) {
+					if (signal.aborted) return { kind: "cancelled" };
+					// A provider config reload between batches changes the model
+					// generation; remaining coverage is then stale, so stop early.
+					const live = lease.provider.snapshot();
+					if (
+						live === undefined ||
+						live.modelIdentity !== snapshot.modelIdentity ||
+						live.generation !== snapshot.generation
+					)
+						return { kind: "cancelled" };
+					const memories = current.runtime.store.listActiveMemories(
+						projectIdentity,
+						EMBED_BACKFILL_BATCH_SIZE,
+						offset,
+					);
+					if (memories.length === 0) break;
+					offset += memories.length;
+					const pending = memories.filter(
+						(memory) => coverage.get(memory.memoryId) !== mctxSearchContentHash(memory.content),
+					);
+					for (let start = 0; start < pending.length; start += EMBED_BACKFILL_BATCH_SIZE) {
+						const batch = pending.slice(start, start + EMBED_BACKFILL_BATCH_SIZE);
+						const vectors = await lease.provider.embedBatch(
+							batch.map((memory) => ({
+								id: `memory:${memory.memoryId}`,
+								text: memory.content,
+								contentHash: mctxSearchContentHash(memory.content),
+							})),
+							"passage",
+							signal,
+						);
+						if (signal.aborted) return { kind: "cancelled" };
+						for (const memory of batch) {
+							const vector = vectors?.get(`memory:${memory.memoryId}`);
+							if (vector === undefined) {
+								failed += 1;
+								continue;
+							}
+							const published = current.runtime.store.writeMemoryEmbedding({
+								projectIdentity,
+								memoryId: memory.memoryId,
+								modelIdentity: snapshot.modelIdentity,
+								providerGeneration: snapshot.generation,
+								sourceContentHash: mctxSearchContentHash(memory.content),
+								sourceMemoryRevision: memory.revision,
+								dimensions: vector.length,
+								vector,
+							});
+							if (published) embedded += 1;
+							else skipped += 1;
+						}
+					}
+					skipped += memories.length - pending.length;
+				}
+				return { kind: "done", embedded, skipped, failed };
+			} finally {
+				current.embedBackfill = undefined;
+			}
 		},
 		reduce(tagNumbers, context): MctxReduceResult {
 			const current = active;
@@ -1079,4 +1800,5 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			return { kind: "queued", queued: queued.queued, rejected: queued.rejected };
 		},
 	};
+	return feature;
 }

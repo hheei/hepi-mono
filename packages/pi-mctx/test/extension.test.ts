@@ -1,10 +1,19 @@
 import { expect, test } from "bun:test";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import { observeLoadoutInventory } from "@hheei/pi-ext-core";
 import piMctxExtension from "../src/extension.js";
+
+interface TestCommand {
+	readonly description?: string;
+	readonly getArgumentCompletions?: (prefix: string) => AutocompleteItem[] | null;
+	readonly handler: (args: string, context: ExtensionCommandContext) => Promise<void>;
+}
 
 test("pi-mctx entry registers lifecycle handlers and managed Magic Context tools", (): void => {
 	const handlers: string[] = [];
 	const tools: string[] = [];
+	const commands = new Map<string, TestCommand>();
 	const pi = {
 		events: {},
 		on(name: string): void {
@@ -12,6 +21,9 @@ test("pi-mctx entry registers lifecycle handlers and managed Magic Context tools
 		},
 		registerTool(tool: { readonly name: string }): void {
 			tools.push(tool.name);
+		},
+		registerCommand(name: string, command: TestCommand): void {
+			commands.set(name, command);
 		},
 	};
 	const controller = new AbortController();
@@ -25,21 +37,83 @@ test("pi-mctx entry registers lifecycle handlers and managed Magic Context tools
 
 	piMctxExtension(pi as never);
 	expect(handlers).toEqual(["session_start", "session_shutdown", "context", "turn_end"]);
-	expect(tools).toEqual([
-		"ctx_reduce",
-		"ctx_expand",
-		"ctx_history",
-		"ctx_search",
-		"ctx_memory",
-		"ctx_note",
+	expect(tools).toEqual(["ctx_reduce", "ctx_expand", "ctx_history"]);
+	expect([...commands.keys()]).toEqual(["mctx"]);
+	const complete = commands.get("mctx")?.getArgumentCompletions;
+	expect(complete?.("")).toEqual([
+		{
+			value: "status",
+			label: "status",
+			description: "Show read-only Magic Context status",
+		},
+		{
+			value: "aug",
+			label: "aug",
+			description: "Run a read-only Sidekick and inject its result once",
+		},
 	]);
+	expect(complete?.("st")?.map((item) => item.value)).toEqual(["status"]);
+	expect(complete?.("a")?.map((item) => item.value)).toEqual(["aug"]);
+	expect(complete?.("aug ")).toBeNull();
+	expect(complete?.("missing")).toBeNull();
 	expect(inventories.at(-1)).toEqual([
 		"ctx_expand:Magic Context",
 		"ctx_history:Magic Context",
-		"ctx_memory:Magic Context",
-		"ctx_note:Magic Context",
 		"ctx_reduce:Magic Context",
-		"ctx_search:Magic Context",
 	]);
 	controller.abort();
+});
+
+test("mctx routes active subcommands and rejects invalid arguments", async (): Promise<void> => {
+	let command: TestCommand | undefined;
+	const pi = {
+		events: {},
+		on(): void {},
+		registerTool(): void {},
+		registerCommand(_name: string, registered: TestCommand): void {
+			command = registered;
+		},
+	};
+	piMctxExtension(pi as never);
+	if (command === undefined) throw new Error("mctx command was not registered");
+
+	const notifications: Array<{ readonly message: string; readonly level?: string }> = [];
+	const context = {
+		mode: "tui",
+		ui: {
+			notify(message: string, level?: string): void {
+				notifications.push({ message, ...(level === undefined ? {} : { level }) });
+			},
+		},
+	} as unknown as ExtensionCommandContext;
+
+	await command.handler("", context);
+	await command.handler("status", context);
+	await command.handler("status extra", context);
+	await command.handler("aug", context);
+	await command.handler("aug inspect the repository", context);
+	await command.handler("missing", context);
+
+	expect(notifications).toEqual([
+		{ message: "pi-mctx lifecycle is not active", level: "warning" },
+		{ message: "pi-mctx lifecycle is not active", level: "warning" },
+		{ message: "Usage: /mctx status", level: "error" },
+		{ message: "Usage: /mctx aug <query up to 500 characters>", level: "error" },
+		{ message: "pi-mctx is not active for this session.", level: "error" },
+		{
+			message: "Unknown MCTX subcommand: missing. Usage: /mctx [status | aug <query>]",
+			level: "error",
+		},
+	]);
+
+	notifications.length = 0;
+	const jsonContext = { ...context, mode: "json" } as unknown as ExtensionCommandContext;
+	await command.handler("aug", jsonContext);
+	await command.handler(`aug ${"x".repeat(501)}`, jsonContext);
+	await command.handler("aug inspect the repository", jsonContext);
+	expect(notifications).toEqual([
+		{ message: "Usage: /mctx aug <query up to 500 characters>", level: "error" },
+		{ message: "Usage: /mctx aug <query up to 500 characters>", level: "error" },
+		{ message: "/mctx aug requires interactive mode", level: "error" },
+	]);
 });

@@ -7,16 +7,81 @@ configuration 有效时，它在 `session_start` 解析 runtime、打开/migrate
 partition。已启用 pipeline 在 `turn_end` 可触发 historian Completion；已验证 compartment graph 在 `context`
 pass 替换其 covered raw history。Pi host 会 clone context messages，因此 transform 对完整 live branch 做唯一的结构匹配；
 零个或多个候选都 fail open，绝不替换。`ctx_reduce` 等 MCTX tool 只能在 active MCTX session 中执行；inactive session 返回
-明确 tool error。它仍不注册 command 或 status。active runtime 还会发布 Parent compressed-context Service：
+明确 tool error。它注册唯一 `/mctx` command；bare `/mctx` 与 `/mctx status` 打开只读 status surface，`/mctx aug`
+运行 Sidekick。active runtime 还会发布 Parent compressed-context Service：
 `pi-subagents` 在 `inherit_context: true` 时读取已验证 compartments 与 live tail；能力缺失、过期或
 无效时保持其 Pi-native text fallback。
 
+### 记忆体系挂接状态（当前决策）
+
+记忆体系（`ctx_memory`/`ctx_note`/`ctx_search` 工具、`/mctx dream`/`/mctx embed` subcommand、embedding provider
+production 挂接与 Sidekick/Dreamer child 的 `ctx_search` 注入）按产品决策整体禁用：注册调用与挂接点在
+`extension.ts`/`feature.ts`/`sidekick.ts` 中以注释形式 park（disabled behind the hook），代码与 focused
+tests 全部保留，供 revival 时恢复；historian、history-tags、compartment projection、fork/handoff 与
+Sidekick augmentation（四工具 child：`read`/`grep`/`find`/`ls`）保持 active。schema v11 的
+`memory_embeddings` 迁移与 store 方法不受影响，`ctx_history` 仍注册（history-tag 清理属上下文管理域）。
+
 ### Loadout tool registration
 
-`ctx_reduce`、`ctx_expand`、`ctx_memory` 和 `ctx_note` 是 `@hheei/pi-mctx` 所有的 executable tools。它们通过
+`ctx_reduce`、`ctx_expand`、`ctx_history` 是当前注册的 executable tools（`ctx_memory`、`ctx_note`、
+`ctx_search` 随记忆体系禁用而 park）。它们通过
 `pi-ext-core` 的 managed Loadout registration 以 `Magic Context` group 发布：core 负责 Pi static registration、Loadout
 inventory 和 reload 时同 owner replacement；`pi-mctx` 保留参数校验、MCTX runtime dispatch、inactive fallback 与所有
 session/store ownership。缺少 `pi-loadout` 时工具仍可用；Loadout 只消费 inventory 并在安装时展示这些工具。
+
+## Historian Settings registration
+
+### 核心直觉与目标
+
+Historian 是 MCTX pipeline policy，不是 model-callable tool，也不是 Loadout resource。`pi-mctx` 把 historian
+启用与模型配置注册进统一 Settings provider tree，使用户无需手改 JSON 即可启动 pipeline；保存后在
+下一次 Pi `/reload` 或新 session 生效，不热切换正在运行的 historian。
+
+### 边界与生命周期
+
+- **Pi host** 提供当前 session identity、Settings command context 与 model registry；不解释 MCTX 配置。
+- **ext-core** 已有 runtime-scoped `HepiSettingsRegistry`、provider contract 与原子 JSON root update，API 足够，无需新增
+  Historian-specific abstraction。
+- **pi-settings concrete extension** 继续拥有统一 Settings page、field editing、validation flush 与 router surface；不 import
+  `pi-mctx`。
+- **pi-mctx concrete extension** 在 lifecycle start 注册 `HepiSettingsProvider`，即使 pipeline 当前 disabled/invalid 也注册，
+  否则用户无法从 Settings 修复配置。provider 拥有字段 schema、现有 `pi-mctx` global JSON 映射和 reload-only 语义；
+  lifecycle cleanup 注销 provider。
+- **Surface** 复用 Settings page；无新 page、widget、timer 或 background work。project settings 仍只能手动做 opt-out/提高阈值，
+  Settings provider 只写 user-level `~/.pi/agent/settings.json`。
+
+```text
+/ext-settings
+      ↓
+pi-settings combined tree ──► pi-mctx Historian provider draft
+      ↓ validate + atomic save
+~/.pi/agent/settings.json["pi-mctx"]
+      ↓ next /reload or session_start
+loadMctxConfiguration() ──► resolve historian ──► active / inactive
+```
+
+### 字段与存储
+
+Settings 的 `pi-mctx` group 首版只显示：
+
+- `enabled`：boolean，默认 `false`；关闭时其余字段变 dim 且不可编辑。
+- `historian model`：text，保存前要求 exact `provider/model`；认证/可用性仍由下一次 activation 通过 Pi host model registry 检查。
+
+provider 用一个 MCTX-owned custom storage adapter 把 flat Settings state 映射到现有 public JSON keys，不改配置格式：
+`enabled` 与 `historian.model`。保存必须保留 trigger、protected tags、failure policy、`search`、`embedding`、`dreamer`
+等所有 sibling；关闭 enabled 不删除 model 或其余配置，便于稍后恢复。高级 threshold/protection/failure policy 继续由
+现有 JSON contract 管理，不在首版 Settings 中激活第二套编辑面。
+
+### 最小实现 seam 与 focused tests
+
+新增 `createMctxHistorianSettingsProvider()`，在现有 `registerExtensionLifecycle()` 的 start 中通过
+`getHepiRuntimeSettingsRegistry()`/`registerHepiSettings()` 注册；provider storage 直接复用 ext-core 的
+`readJsonSettingsRoot()`/`updateJsonSettingsRoot()`。`feature.start()` 继续只消费 `loadMctxConfiguration()`，不引入第二套 live
+configuration path。
+
+focused tests 覆盖：disabled runtime 仍注册 provider；shutdown 注销；字段 defaults、dependent enabled state 和
+cross-field model validation；flat state 与现有 nested JSON 双向映射；全部 sibling 不丢失；并发 settings writer 不覆盖
+sibling；provider 不提供 live `onChange` callback；真实 Settings registry smoke test 可发现 `pi-mctx` provider。
 
 ## Parent compressed-context Service
 
@@ -110,6 +175,247 @@ rerank 是后续独立 slice：它只能重排同一已 admitted candidate set�
 session 的 live history 永不作为 history source；当前 MCTX 不自动注入 memory，未来 injection owner 必须在自己的
 runtime 中提供 `MCTX_MEMORY_EXCLUSION_SERVICE`，不能把该 policy 交给 model 参数。
 
+## 聚合命令入口（`/mctx <cmd>`）
+
+### 用户意图与边界
+
+MCTX 用户只需记住一个 slash command：`/mctx`。**Pi host** 注册并呈现 command 与参数补全；**pi-mctx**
+拥有 subcommand 路由、参数验证、notification 和既有 feature 调用；**ext-core** 不需要新增 command abstraction，
+surface、historian 与 Sidekick lifecycle contract 均不改变。`ctx_reduce`、`ctx_expand`、`ctx_history` 是 model tool，
+不属于 slash command rename。
+
+当前 active subcommand 只有：
+
+- `/mctx status`：打开既有只读 status surface，不接受额外参数。
+- `/mctx aug <query>`：执行既有 Sidekick augmentation；query 必填，trim 后长度为 1–500 字符。
+
+记忆体系仍处于 park 状态，因此 `dream` 与 `embed` 不进入 completion、不执行，也不能借本次 command migration
+恢复其 production hook。恢复记忆体系时，它们才作为 `/mctx dream [query]` 与 `/mctx embed` 加入同一 router。
+
+### Autocomplete、suggestion 与失败语义
+
+`/mctx` 使用 Pi host 原生 `getArgumentCompletions`。空 prefix 或首个 token 的部分 prefix 返回 canonical lowercase
+subcommand；每项同时提供 `label` 与可见 `description`，使 editor suggestion 能解释行为。输入进入 `aug` 的自由文本
+query 后返回 `null`，不伪造 query suggestion；未知 prefix 也返回 `null`。bare `/mctx` 直接打开 status；未知
+subcommand、`status` 多余参数和 `aug` 缺少/超长 query 都给出带 canonical syntax 的 usage
+notification，不调用对应 feature。
+
+迁移采用 clean cutover：只注册 `/mctx`，不保留 `/ctx-status`、`/ctx-aug` alias，避免 Pi command palette 出现两套入口。
+focused tests 必须覆盖唯一注册名、空/部分/未知 prefix suggestions、description、两条 dispatch、参数拒绝，以及旧 command
+未注册。bare `/mctx` 等同 `/mctx status`，为最常用的只读入口提供快捷路径；未知 subcommand 仍只显示 canonical usage。
+
+## Sidekick augmentation（`/mctx aug`）
+
+### 目标
+
+手动 command：用户输入 `/mctx aug <query>` 时，`pi-mctx` 同步运行一个受限 child session（builtin
+`read`/`grep`/`find`/`ls`），child 探索当前 project 上下文后返回一段
+augmentation prompt；`pi-mctx` 把它作为一次性 preamble 注入后续 model context。这是 fixed legacy `/ctx-aug` 的
+现代等价：保留 child 语义与 retrieval augmentation 形态，不以 completion-only helper 或 prompt resend 伪迁移。
+
+### 边界
+
+- **Pi host**：command dispatch；child `AgentSession` 由 consumer-owned factory 创建。
+- **ext-core**：subagent execution contract（`startSubagent` task mode、shared coordinator budget、terminal
+  delivery、parent-session 清理）。`pi.events` 只做 notification，不做 RPC。
+- **pi-mctx**：注册 `/mctx aug` subcommand；拥有四工具受限 child factory 与 augmentation 注入时机；不 import
+  `pi-subagents`、不注册 agent type、不读其 registry。`ctx_search` 注入随记忆体系继续 park。
+- **pi-subagents**：不参与本次 child 执行；agent catalog/UI/delivery 与 Sidekick 无关。
+
+### child factory（consumer-owned policy）
+
+- builtin tools 固定为 `read`/`grep`/`find`/`ls`（`createReadOnlyTools` 子集，不含 `bash`/`write`/`edit`）；
+  `noExtensions: true`，不绑定任何 extension，因此 child 不激活 pi-mctx lifecycle（无 store/transform/
+  historian/embedding 副作用），也没有自己的 session partition。
+- `ctx_search` 原以 `customTools` 注入同名 `ToolDefinition`（execute 闭包委托 parent runtime 的
+  `feature.search`，保持 parent 的 project partition 与 privacy 语义）；该注入随记忆体系禁用而 park
+  （见上方状态段），child 当前只看到 4 个工具（`read`/`grep`/`find`/`ls`），prompt 已改为四工具探索语义。
+- `maxTurns` 有限且必填（默认 3，soft cap，core 的 wrap-up/grace/ceiling 语义不变）；terminal result 经
+  delivery sink 回到 command；child 不继承 parent session runtime 或 lease，随 parent lifecycle 清理。
+
+### 注入语义
+
+child 成功后，terminal output 作为 augmentation preamble 存入 runtime 的 pending 槽；下一次 onContext 在
+compartment/history-tag projection 完成后、return 前 prepend 为独立 message，随后清除。一次性，不持续注入、
+不自动重触发。失败/abort/limit/no-hit 不注入：notify 明确状态，不改 context、不改 store。
+
+### 公开行为
+
+`/mctx aug <query>`：未启用 pi-mctx、inactive session 或非 tui → notify error；无参数 → usage notify；否则同步
+等待 child 完成，成功注入一次。configured/unconfigured 在无 provider 选择形态下不适用：无 allowlist 配置、无
+provider 配置，仅依赖 pi-mctx 自身启用状态。
+
+### 最小公开 seam 与测试
+
+- feature 暴露 `augment(query, context)` → `{ kind: "injected" | "empty" | "inactive" }` 一类同步/异步结果；
+  command handler 薄封装，复用 `/todos` 的 notify 模式。
+- focused tests：injected 只注入一次且注入后清除；empty/failure/abort/limit 不注入；inactive 返回明确错误；
+  pending 随 runtime 清理；注入不干扰 compartment/history-tag projection；child 工具面只含允许集合。
+
+## Dreamer manual command（`/mctx dream`，当前 park）
+
+### 目标
+
+手动 command：用户输入 `/mctx dream [query]` 时，`pi-mctx` 同步运行一个受限 child（与 Sidekick 同款只读工具面）
+评估当前 project 的 pending `smartCondition` notes（可选自由 `query` 追加关注点），返回评估报告并 notify。
+评估是只读的：不注入 context、不改 note 持久化状态、不改 store；`smartCondition` 仍只是 pending text，
+没有后台 poll、evaluate 或 schedule。这是 legacy project Dreamer task runner 的 manual entry 现代等价；
+`evaluate-smart-notes` 的 scheduled lease domain 属于 core 未来 `task` trigger，首版不迁移。
+
+### 边界
+
+- **Pi host**：command dispatch；child `AgentSession` 由 consumer-owned factory 创建（`/mctx aug` 先例）。
+- **ext-core**：subagent execution contract（`startSubagent` task mode、shared coordinator budget、terminal
+  delivery、parent-session 清理）。schedule/cron 是 core 未来 trigger，首版无 scheduled Dreamer。
+- **pi-mctx**：恢复记忆体系时注册 `/mctx dream` subcommand；拥有 Dreamer child factory（工具面与 Sidekick 相同）与 prompt 编译
+  （smartCondition 列表 + 可选 query）；不 import `pi-subagents`、不注册 agent type。
+- **pi-subagents**：不参与本次 child 执行。
+
+### child factory 与 model 解析
+
+与 Sidekick 同款 factory：builtin `read`/`grep`/`find`/`ls` + 注入同名 `ctx_search`（execute 委托 parent
+`feature.search`），`noExtensions: true`，`tools` allowlist 含 `ctx_search` 本身；system prompt 换为 Dreamer
+评估指令；`maxTurns` 3、deadline 60s（同 Sidekick）。
+
+child model 解析顺序：user-level `pi-mctx.dreamer.model`（exact `provider/model` ref）配置时，经
+`context.extension.modelRegistry.find()` 解析并要求已配置 auth——找不到或无 auth 时 command notify error
+（显式配置必须明确生效或失败），不使用 parent model 静默回退；未配置字段时 child 用 parent 当前模型
+（`context.model`，同 `/mctx aug`）。project settings 一律忽略 `dreamer` 的 model 字段（model 是 user 偏好）。
+该字段仅在 Dreamer 行为存在时启用，不构成空配置面。
+
+### 报告语义
+
+child terminal output 作为评估报告 notify 展示（截断到 `DREAMER_REPORT_CHARS`，4,000 字符）；不注入
+pending augmentation、不改 note/store。失败/abort/timeout 或既无 smart notes 又无 query 时 notify 明确状态。
+
+### 公开行为
+
+`/mctx dream [query]`：未启用 pi-mctx、inactive session 或非 tui → notify error；query 可选（≤500 字符）；
+无 query 且当前 session 无 active `smartCondition` notes → notify empty；否则同步等待 child 完成并 notify 报告。
+
+### 最小公开 seam 与测试
+
+- feature 暴露 `dream(query, context)` → `{ kind: "reported", summary } | { kind: "empty" | "inactive" |
+  "cancelled" | "failed", ... }`；command handler 薄封装。
+- focused tests：inactive 不 spawn；无 smart notes 且无 query → empty；有 notes → spawn + reported；
+  query 编译进 child prompt；不改 note/store 状态；abort 调 cancel 返回 cancelled；admission throw 归一化
+  failed；显式 model 配置解析与不可用失败。
+
+## Project memory embedding backfill（`/mctx embed`，当前 park）
+
+### 目标
+
+手动 command `/mctx embed`（无参）：同步遍历当前 project 的全部 active memories，跳过已嵌入且 content hash
+匹配当前 provider model 的项，批量 passage embedding 剩余项，结束 notify 汇总；abort 绑 lifecycle/caller
+signal；同一 active runtime 的 per-project busy 状态拒绝并发运行。这是 legacy project compartment backfill
+的现代等价——backfill 对象是 durable memories（现代 compartment graph 是 transform 产物，不持久化向量）。
+首版不做自动 GC/retention、不做 semantic search、不做跨进程 SQLite lease。
+
+### 边界
+
+- **Pi host**：command dispatch。
+- **pi-ext-embed**：provider lease、`embed`/`embedBatch`、generation fencing（已实现）。
+- **pi-mctx**：恢复记忆体系时注册 `/mctx embed` subcommand；拥有 backfill 遍历、coverage 判定、批量调用与 store ledger 写回；复用既有
+  `writeMemoryEmbedding` 单事务 content/revision fence（stale 结果静默丢弃）。
+- 无 provider（`pi-mctx.embedding` 未配置或 acquire 失败）→ notify error；provider 可用性不影响 backfill
+  之外的 MCTX 行为，也不参与 `fail_closed_blocking`。
+
+### 行为
+
+- `/mctx embed`：tui 检查；inactive 或当前 runtime 无 embedding lease → notify error；同 runtime 已有 backfill
+  在运行 → notify busy（process-local，不跨进程加锁：重复 work 可容忍，fence 保证 stale vector 不可能发布）。
+- 分页读 `listActiveMemories(projectIdentity)`；coverage 判定：store 的 `listMemoryEmbeddingCoverage` 返回当前
+  model identity 已嵌入的 `memory_id → source content hash`，active memory 的当前 hash 不在其中或不同 → 待嵌。
+- `embedBatch(items, "passage", signal)` 分批（`EMBED_BACKFILL_BATCH_SIZE`，16）；每项成功结果经
+  `writeMemoryEmbedding` fence 写回（source 已变返回 false 计为 skipped，provider 返回 undefined 或 throw 计为
+  failed 并继续）；已写回结果在 abort 后保留。
+- abort（lifecycle/caller signal）中途 → 返回 cancelled；不设独立 wall-clock deadline：backfill 是长时批处理，
+  deadline 会误杀大 project，single-batch hang 由 provider 的 signal 契约负责（future multi-process lease slice
+  再引入 batch deadline）。
+- 结束 notify 汇总 `embedded` / `skipped` / `failed`。
+
+### 最小公开 seam 与测试
+
+- feature 暴露 `embedBackfill(context)` → `{ kind: "done", embedded, skipped, failed } | { kind: "busy" |
+  "inactive" | "cancelled" | "failed", ... }`；command handler 薄封装。
+- focused tests：inactive/无 lease 不跑；busy 拒绝并发；coverage 跳过已嵌项；embedBatch 调用与 fence 写回；
+  abort 中途返回 cancelled 且已写回保留；汇总计数正确。
+
+## `/mctx status` migration design
+
+### 用户意图
+
+`/mctx status`（以及 bare `/mctx`）是只读的单页 TUI overlay：用户打开它，是为了快速判断当前
+context-management runtime 是否 active、当前 partition 是否健康，以及下一次
+维护动作可能何时触发。它不恢复已 park 的 memory system，也不把旧 legacy
+status 的所有指标搬进来。本节记录当前已迁移并可用的行为。
+
+### 边界与公开 snapshot seam
+
+- **Pi host**：提供 usage、theme 与 custom UI admission；不拥有 MCTX 状态或
+  snapshot 解释。
+- **ext-core**：提供 `openTuiSurface`；拥有 surface admission 后的 FIFO、
+  abort 与 cleanup 语义；不新增 status 专用 abstraction。
+- **`pi-mctx`**：拥有 context-management domain 的 snapshot、render 与刷新；
+  只在 active context-management runtime 可用时提供 status 数据。
+- **consumer**：surface renderer 消费一次 snapshot 并按本节字段显示；不读
+  SQLite、不推导指标、不缓存跨 surface 状态。
+- **public seam**：`MctxFeature.status(context): MctxStatusResult` 返回受界限、
+  只读、可渲染的 status snapshot；store 通过
+  `readStatusMetrics(partition)` 提供其 context-management metrics。snapshot 至少
+  携带 active/inactive reason、context usage、project/session identity、
+  partition revision、compartment m0/m1/total、tag active/pending/dropped、
+  historian idle/running/cooling/rebuild-pending、last failure class、effective
+  trigger thresholds、protected tags、pending sidekick augmentation。
+- **fallback**：admission、snapshot 或 render 数据不可用时，关闭 surface 并
+  保持 Pi native behavior；inactive 只显示明确 reason，不伪造 zero metrics。
+  未选择 MCTX snapshot 的路径不得恢复 memory、note、Dreamer、embedding 或
+  其他已 park behavior。
+
+### 显示字段与非目标
+
+状态页只显示 current snapshot 实际拥有的字段，不推导、不补零，也不把
+inactive/stale/failed 当作 healthy。固定 17 个 content rows 采用 legacy-like
+顺序：第一行是 `⚡ Magic Context Status` 加 active/inactive/failed/stale runtime
+state；随后是 blank separator、muted `Context` label、`Context  pct · used /
+limit tokens` 与 full-width usage bar；再是 blank separator、`Counts:`、compartment
+的 `m0`/`m1`/`total`、muted `Tags` label、tag 的 `active`/`pending`/`dropped`
+与 protected tags；再是 blank separator、`Historian:`、historian
+`idle`/`running`/`cooling`/`rebuild-pending` 与 last failure class、effective
+trigger thresholds、partition revision + pending sidekick augmentation。最后两行
+只在 wide 显示 `Project` 与 `Session` identity，窄屏保留为空。字段缺失时保留
+对应行但不伪造值或 legacy 指标。
+
+Context usage bar 只使用单一 semantic status token：低于 65% 为 `success`，
+65%–80%（不含 80%）为 `warning`，80% 及以上为 `error`；不复刻 legacy 的
+category colors。旧 legacy UI 的 fact、memory、note、Dreamer、embedding、
+upgrade、cache、work-token、category-breakdown 指标均为非目标；本 migration
+不新增这些指标，也不改变 memory system 当前 parked 状态。
+
+### Surface lifecycle、刷新、关闭与并发
+
+`/mctx status` 通过 `openTuiSurface` admission 打开单页 overlay；surface host
+  使用 `hostId` 与 `maxPending` 参与 admission；只有 admission
+成功后才启动 1 秒刷新。刷新读取最新 snapshot，不能让行位移；关闭由 `Esc`、
+`Enter` 或 `Ctrl+C` 触发。关闭、cancellation/abort、surface replacement 与 extension
+lifecycle 都必须停止刷新并执行一次 cleanup；cleanup 不删除 MCTX state。
+
+surface 只允许一个当前 status overlay。FIFO admission、snapshot 刷新与关闭
+遵循 ext-core owner 的 abort/cleanup contract；过期或并发中的 snapshot 不得
+覆盖更新版本，关闭后完成的 refresh 结果必须丢弃。`pi-mctx` 不启动 admission
+前后台 timer，也不把刷新变成跨 session 或跨 process 的持久任务。
+
+### Fallback 与验证尺寸
+
+overlay 为 centered、single overlay，外层使用 rounded `borderMuted` frame，
+可用时宽度固定为 78 columns；窄于此值时随 terminal width clamp。总高固定
+20 行：outer top + 17 content rows + footer + outer bottom；active/inactive/
+failed/stale 保持同高。宽屏最后两行显示完整 project/session identity，窄屏
+明确保留两行空白，不挪用给其他字段。footer 为 `Press Escape to close ·
+Enter / Ctrl+C also close`。刷新仅在 admission 成功后每秒进行，且不改变行位。
+布局、semantic tokens、关闭提示与稳定行位移以根 `DESIGN.md` 为准；设计验证
+尺寸为 48x20 与 100x24。
+
 ## 完整迁移目标
 
 `pi-mctx` 的最终目标不是停在首个 context pipeline，而是替代 `@hheei/pi-magic-context@0.33.1-hepi.0`
@@ -170,30 +476,43 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
   history、git commit 与 primer，并过滤 active-session live history 与 `MCTX_MEMORY_EXCLUSION_SERVICE` 提供的已见
   memory。每个 source 都必须有验证过的 index/privacy/retention contract；不以 SQL `LIKE` 或部分 source 占用同名 tool。
   semantic rerank 另行迁移，且只能重排同一 admitted candidate set。
-- [ ] **Todo ownership decision**：legacy `todowrite`/`/todos` 是 session task UI，不迁入 `pi-mctx` 或重复注册。确认
-  当前 Todo owner 的 behavioral coverage 与 legacy migration boundary；Pi 的 first-registered tool rule 禁止以新 MCTX
-  tool 覆盖旧 aggregate。
-- [ ] **Pipeline maintenance commands**：为 legacy `/ctx-flush`、`/ctx-recomp`、`/ctx-session-upgrade`、`/ctx-status`
-  与 `/ctx-wrapup` 分别定义 user need、owner 和 Pi lifecycle integration。fixed source 已确认 `/ctx-flush` 在 current
-  transform 下没有独立行为，`/ctx-recomp`/`ctx-session-upgrade` 是旧 ordinal/schema migration 而不迁移，`/ctx-wrapup`
-  属于 future `hepi-basics` handoff/compaction owner，`/ctx-status` 等待完整 metrics 与 UI owner；没有明确用户 workflow 的
-  internal maintenance action 保持不暴露。
-- [ ] **Sidekick augmentation**：fixed legacy `/ctx-aug` 是手动 command，但同步运行具有 `read`、`grep`、`find`、`ls` 与
-  `ctx_search` allowlist 的 child，并把 retrieval augmentation 后的 prompt 发回 parent。它依赖 unified search 的 memory、
-  session history、Git、primer、note privacy filtering；当前既无 `pi-subagents` child runtime，也无 `ctx_search` source
-  contract，故不以 completion-only helper 或 prompt resend 伪迁移。先完成独立 subagents runtime 与 search contract，再按原
-  configured/unconfigured/empty/failure/abort/timeout/fallback behavior 设计该 command。
-- [ ] **Dreamer 与 embedding commands**：legacy `/ctx-dream`、`/ctx-embed` 归入 historian-adjacent services；先完成
-  Dreamer/embedding storage、leases、cost/cancellation 与 retention，再决定是否保留 command。Dreamer fixed baseline 是
-  free-text smart-condition compiler、capability sandbox、per-project lease/schedule task runner，不是 file-only checker；它
-  等待 `pi-subagents` 提供受限 child-session factory，`pi-mctx` 不越界创建 child agent。Embedding fixed baseline 是
-  project provider generation、model/content-hash fencing、batch ledger、coverage/backfill/GC，不是 one-shot vector API；当前
-  无 second consumer/provider owner，故不注册 partial `/ctx-embed`。
-  共享 capability、multi-process fencing、provider lifetime 与公开 API proposal 见
-  [`docs/architecture/embeddings.md`](../architecture/embeddings.md)。
-   当前已完成 provider runtime、MCTX lifecycle adapter 与 durable memory ledger：user-level `pi-mctx.embedding` 存在时才
-   acquire provider；`ctx_memory` 的明确 write/update 后只嵌入该 record，并由 content/model fence 写入 per-model ledger。
-   它不做 historical backfill、timer、retry、`/ctx-embed` 或 semantic search。
+- [x] **Todo ownership decision**：legacy `todowrite`/`/todos` 不迁入 `pi-mctx`，由独立 `@hheei/pi-todo` 拥有
+  `todo` tool、`/todos` command、task state、reminder 和 widget。MCTX 不重复注册 Todo；旧 aggregate 的 removal 与
+  `pi-todo` release 配套处理，避免 Pi first-registered tool collision。
+- [x] **Pipeline maintenance commands**：已决策 legacy `/ctx-flush` 在 current transform 下没有独立行为，
+  `/ctx-recomp`/`ctx-session-upgrade` 是旧 ordinal/schema migration 而不迁移，`/ctx-wrapup` 属于 future
+  `hepi-basics` handoff/compaction owner；这些 pipeline maintenance action 不迁移，也不注册任何 maintenance
+  command。
+- [x] **`/mctx status` 单页只读 TUI overlay**：已按 [`/mctx status` migration design](#mctx-status-migration-design)
+  迁移；snapshot、字段、surface lifecycle、刷新、关闭、并发与 fallback 已达到该章节及根 `DESIGN.md` 的完整
+  contract。
+- [x] **Sidekick augmentation**：fixed legacy `/ctx-aug` 是手动 command；现代 `/mctx aug` 同步运行具有 `read`、
+  `grep`、`find`、`ls` 的 child，并把 repository augmentation prompt 发回 parent；`ctx_search` 注入随记忆体系 park。
+  child 语义保留：现代形态复用
+  ext-core subagent execution contract（`startSubagent` task mode + consumer-owned resolved child-session factory），
+  `pi-mctx` 拥有受限 child factory 与一次性注入时机，不 import `pi-subagents`、不扩展 `pi.events` RPC、不以
+  completion-only helper 或 prompt resend 伪迁移。注入 wrapper 带 bounded anchor（operation ID、terminal status、
+  partial/limit 标志、正文上限），只插最后真实 user prompt 前、注入后清除；caller/lifecycle/deadline abort 均绑定
+  `handle.cancel()`，admission 同步 throw 归一化为 failure result。设计见下方
+  [Sidekick augmentation section](#sidekick-augmentationmctx-aug)。
+- [x] **Dreamer 与 embedding commands**：legacy `/ctx-dream`、`/ctx-embed` 的 manual behavior 已迁移并随记忆体系
+  park；恢复时以 `/mctx dream`、`/mctx embed` 暴露，不恢复旧 command 名。scheduled
+  Dreamer 等待 core 未来 `task` trigger，backfill 的自动 GC/retention 与 semantic search 仍待 retrieval consumer。
+  - `/mctx dream [query]`：manual Dreamer child（与 Sidekick 同款只读工具面 + 注入 `ctx_search`）评估 project 的
+    pending `smartCondition` notes，可选 query 追加关注点；报告只 notify、不注入 context、不改 note/store 状态。
+    child model 由 user-level `pi-mctx.dreamer.model`（exact `provider/model`）指定，未配置时用 parent 当前模型；
+    显式配置不可用则 command 明确失败。abort/admission 归一化与 Sidekick 共用 `runMctxChildTask` 骨架。
+  - `/mctx embed`：project memory embedding backfill——分页遍历 active memories，按当前 provider model identity 的
+    coverage（`listMemoryEmbeddingCoverage`）跳过已嵌入项，`embedBatch` 分批嵌入剩余项并经既有
+    `writeMemoryEmbedding` 单事务 content/revision fence 写回；abort 绑 lifecycle/caller signal，已写回保留；
+    process-local per-project busy 拒绝并发；结束 notify `embedded/skipped/failed` 汇总。不自动 GC/retention、
+    不做跨进程 lease（fence 保证 stale vector 不可能发布，重复 work 可容忍）。
+  - embedding storage 基线（上轮）：user-level `pi-mctx.embedding` 配置存在时，activation 动态 import
+    `@hheei/pi-ext-embed` 并 acquire provider lease；`ctx_memory` write/update 启动 detached、abortable passage
+    embedding，经 provider snapshot 与 content/revision fence 写入 per-model `memory_embeddings` ledger，
+    archive 同事务删除该 memory 的 vector；provider 缺失/失败不影响 memory write，也不参与 `fail_closed_blocking`。
+    共享 capability、multi-process fencing、provider lifetime 与公开 API proposal 见
+    [`docs/architecture/embeddings.md`](../architecture/embeddings.md)。
 - [ ] **Historian-adjacent services**：按已验证需求设计 Dreamer、embedding provider、background maintenance、search
   index 与 retention/data-management。自动 TTL prune、shutdown deletion 或语义删除在得到明确 retention contract 前保持禁止。
 - [ ] **Reserved configuration activation**：逐字段启用当前 opaque 的 upstream-shaped configuration，定义 user/project
@@ -485,8 +804,8 @@ dispose。`pi-mctx` 不直接调用 Pi AI，也不启动 `pi-subagents` child。
 不直接调用 Pi AI，也不向 core 引入 implicit default。
 
 pipeline 启用后，context store 无法 open、migrate 或通过 schema validation 时默认 fail closed：阻止 parent
-turn 并呈现可操作的 storage error。未来可通过显式 config opt out 回退 Pi native behavior。无 historian model
-config 属于可选能力缺席，不是 context-store failure。
+turn 并呈现可操作的 storage error。用户可通过 `fail_closed_blocking: false` 显式 opt out，回退 Pi native behavior。
+无 historian model config 属于可选能力缺席，不是 context-store failure。
 
 store foundation 使用 Node `node:sqlite`。schema v2 新增 `projects` 和 `partitions`：partition 以 stable project
 identity 与 Pi session ID 唯一标识，初始 revision 是 `0`。get-or-create 在短 `BEGIN IMMEDIATE` transaction 内保证

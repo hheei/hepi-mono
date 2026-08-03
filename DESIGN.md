@@ -174,6 +174,9 @@ existing semantic token expresses the role.
   layout stacks those regions. Field label/value columns remain stable, disabled fields use `dim`,
   and only a selected non-editing long label may marquee. `Space` toggles booleans; Pi Input edits
   other fields; `Tab` only cycles a field's related `tabCycle` value.
+- `pi-mctx` contributes Historian enablement and model selection to the combined Settings tree, not
+  a separate page or Loadout resource. Disabling Historian dims and locks its model row; persisted
+  changes apply on the next Pi reload or session rather than replacing a running historian.
 - Settings and Loadout each reserve at least 20 page-content rows below the shared router tab strip.
   Their lists may remain shorter than that minimum; router-owned blank rows retain a stable custom
   surface height instead of inventing empty list entries.
@@ -225,6 +228,65 @@ existing semantic token expresses the role.
   higher-priority fragment's position.
 - Response telemetry, when present, is one dim output line after an assistant
   response. It is secondary to the response content.
+
+### Context Status Overlay
+
+- `/mctx status` (and bare `/mctx`) is one centered, single-page read-only overlay, not a page-router
+  page or a widget. Its outer frame is rounded and uses `borderMuted`; content
+  uses only existing Pi semantic theme tokens, never hard-coded colors or
+  module-specific accents. The frame width is 78 columns when available and is
+  clamped to the terminal at narrower widths.
+- Keep a fixed 20-row frame: outer top, 17 content rows, one footer row, and
+  outer bottom. All runtime states (`active`, `inactive`, `failed`, and `stale`)
+  keep these rows, including when a snapshot does not own a value; reserve that
+  slot rather than inventing zero, healthy, or legacy metrics.
+- Content rows follow this legacy-like hierarchy and never move:
+  1. `⚡ Magic Context Status` plus semantic runtime state;
+  2. blank separator;
+  3. muted `Context` section label;
+  4. `Context  pct · used / limit tokens` when snapshot usage exists;
+  5. full-width usage bar;
+  6. blank separator;
+  7. `Counts:`;
+  8. compartment detail (`m0`, `m1`, `total`);
+  9. muted `Tags` section label;
+  10. tag counts (`active`, `pending`, `dropped`) and protected tags;
+  11. blank separator;
+  12. `Historian:`;
+  13. historian state and last failure class;
+  14. effective trigger thresholds;
+  15. partition revision and pending sidekick augmentation;
+  16–17. wide-only `Project` and `Session` identity rows.
+  On narrow layouts rows 16–17 remain blank, rather than being repurposed.
+- Usage bar is one full-width, single-color semantic bar: `success` below 65%,
+  `warning` from 65% up to (but not including) 80%, and `error` at or above
+  80%. It must not
+  reproduce legacy hard-coded category colors. Missing usage keeps its row but
+  shows no fabricated value or bar state. Every line fits available width;
+  truncate lower-priority values within their cells without shifting rows.
+- Do not render unavailable legacy-only fact, memory, note, Dreamer, embedding,
+  upgrade, cache, work-token, or category-breakdown metrics. The overlay does
+  not reactivate parked systems or claim metrics absent from the current
+  snapshot.
+- Footer reads `Press Escape to close · Enter / Ctrl+C also close`; these keys
+  close overlay. It has no page-router navigation or editing focus.
+- Refresh once per second only after surface admission. Refresh must not cause
+  row displacement; reserve stable rows for changing values and truncate within
+  their existing cells.
+- Validate layout at 48x20 and 100x24. Pi host owns usage/theme/custom UI;
+  ext-core owns `openTuiSurface` admission, FIFO, abort, and cleanup; status
+  rendering consumes the MCTX snapshot and does not define another lifecycle
+  abstraction.
+
+### MCTX Command Suggestions
+
+- MCTX registers one `/mctx` slash command. First-argument autocomplete lists only active lowercase
+  subcommands and gives each item a concise description; parked behavior is neither suggested nor executable.
+- Bare `/mctx` opens the read-only status overlay. `/mctx status` is the explicit equivalent; `/mctx aug
+  <query>` owns free-form query text, so autocomplete stops after the `aug` token instead of inventing query
+  suggestions.
+- Unknown subcommands and invalid arguments show canonical syntax without opening a surface or starting work.
+  Deprecated `/ctx-*` aliases are not registered.
 
 ### Patch Presentation
 

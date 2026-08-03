@@ -4,10 +4,15 @@ import { lstat, readFile, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
+import type { MctxSearchOperation, MctxSearchResult } from "./feature.js";
+
 const execFileAsync = promisify(execFile);
 const MAX_SOURCE_CHARS = 8_000;
 const MAX_PRIMER_BYTES = 128 * 1_024;
 const MAX_GIT_COMMITS = 100;
+
+export const DEFAULT_CTX_SEARCH_LIMIT = 20;
+export const MAX_CTX_SEARCH_LIMIT = 50;
 
 export const MCTX_SEARCH_SOURCES = ["memory", "note", "history", "git", "primer"] as const;
 export type MctxSearchSource = (typeof MCTX_SEARCH_SOURCES)[number];
@@ -47,6 +52,77 @@ export function mctxSearchContentHash(value: string): string {
 
 export function boundedMctxSearchText(value: string): string {
 	return value.length <= MAX_SOURCE_CHARS ? value : value.slice(0, MAX_SOURCE_CHARS);
+}
+
+/** Parses `ctx_search` tool arguments into a bounded search operation. */
+export function searchOperation(args: Record<string, unknown>): MctxSearchOperation | undefined {
+	const query = args.query;
+	const requestedLimit = args.limit;
+	const limit = requestedLimit === undefined ? DEFAULT_CTX_SEARCH_LIMIT : requestedLimit;
+	const sources = args.sources;
+	if (
+		typeof query !== "string" ||
+		!query.trim() ||
+		query.length > 500 ||
+		typeof limit !== "number" ||
+		!Number.isSafeInteger(limit) ||
+		limit < 1 ||
+		limit > MAX_CTX_SEARCH_LIMIT
+	)
+		return undefined;
+	if (sources === undefined) return { query: query.trim(), limit };
+	if (
+		!Array.isArray(sources) ||
+		sources.length === 0 ||
+		sources.length > MCTX_SEARCH_SOURCES.length
+	)
+		return undefined;
+	const selected: MctxSearchSource[] = [];
+	for (const source of sources) {
+		const matched = MCTX_SEARCH_SOURCES.find((candidate) => candidate === source);
+		if (matched === undefined) return undefined;
+		selected.push(matched);
+	}
+	if (new Set(selected).size !== selected.length) return undefined;
+	return { query: query.trim(), limit, sources: selected };
+}
+
+/** Renders one `ctx_search` result for a tool/custom-tool execution. */
+export function renderSearchToolResult(result: MctxSearchResult) {
+	switch (result.kind) {
+		case "hits":
+			return {
+				content: [{ type: "text" as const, text: JSON.stringify({ hits: result.hits }) }],
+				details: undefined,
+			};
+		case "inactive":
+			return {
+				content: [{ type: "text" as const, text: "pi-mctx is not active for this session." }],
+				details: undefined,
+				isError: true,
+			};
+		case "stale":
+			return {
+				content: [{ type: "text" as const, text: "Context changed; retry ctx_search." }],
+				details: undefined,
+				isError: true,
+			};
+		case "invalid-exclusions":
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text: "Memory exclusion provider failed validation; retry ctx_search after fixing it.",
+					},
+				],
+				details: undefined,
+				isError: true,
+			};
+		default: {
+			const exhaustive: never = result;
+			return exhaustive;
+		}
+	}
 }
 
 function tokens(value: string): readonly string[] {

@@ -5,29 +5,42 @@ import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
+	getHepiRuntimeSettingsRegistry,
 	PARENT_CONTEXT_PROJECTION_SERVICE,
 	provideService,
 	registerExtensionLifecycle,
+	registerHepiSettings,
 	registerManagedLoadoutTool,
 } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import {
 	createMctxFeature,
+	type MctxAugmentResult,
+	type MctxFeature,
 	type MctxHistoryOperation,
 	type MctxHistoryResult,
-	type MctxMemoryOperation,
-	type MctxNoteOperation,
-	type MctxSearchOperation,
-	type MctxSearchResult,
+	// Memory-system command/operation types, disabled and kept for revival:
+	// type MctxDreamResult,
+	// type MctxEmbedBackfillResult,
+	// type MctxMemoryOperation,
+	// type MctxNoteOperation,
 } from "./feature.js";
 import { MAX_CTX_EXPAND_CHARS, renderMctxHistoryTagPage } from "./history-tags.js";
-import { MCTX_SEARCH_SOURCES, type MctxSearchSource } from "./search.js";
-import { MCTX_MEMORY_CATEGORIES } from "./store.js";
+import { createMctxHistorianSettingsProvider } from "./settings.js";
+import { openMctxStatusSurface } from "./status-surface.js";
 
 const DEFAULT_CTX_HISTORY_LIMIT = 50;
 const MAX_CTX_HISTORY_LIMIT = 100;
-const DEFAULT_CTX_SEARCH_LIMIT = 20;
-const MAX_CTX_SEARCH_LIMIT = 50;
+const MCTX_SUBCOMMANDS = [
+	{
+		value: "status",
+		description: "Show read-only Magic Context status",
+	},
+	{
+		value: "aug",
+		description: "Run a read-only Sidekick and inject its result once",
+	},
+] as const;
 
 interface PiContextHook {
 	on(
@@ -48,16 +61,164 @@ const MCTX_MANAGED_TOOL = {
 	defaultActive: true,
 } as const;
 
-function registerContextHook(
-	pi: ExtensionAPI,
-	feature: ReturnType<typeof createMctxFeature>,
-): void {
+function registerContextHook(pi: ExtensionAPI, feature: MctxFeature): void {
 	// Pi exposes this runtime hook, but the installed public extension declaration omits it.
 	// The projection remains MCTX-owned because it validates its own branch graph;
 	// core only supplies lifecycle cancellation and does not interpret context history.
 	const hooks = pi as unknown as PiContextHook;
 	hooks.on("context", (event, context) => feature.onContext(event.messages, context));
 }
+
+async function runSidekickCommand(
+	feature: MctxFeature,
+	args: string,
+	ctx: ExtensionContext,
+): Promise<void> {
+	const query = args.trim();
+	if (query.length === 0 || query.length > 500) {
+		ctx.ui.notify("Usage: /mctx aug <query up to 500 characters>", "error");
+		return;
+	}
+	if (ctx.mode !== "tui") {
+		ctx.ui.notify("/mctx aug requires interactive mode", "error");
+		return;
+	}
+	const result: MctxAugmentResult = await feature.augment(query, ctx);
+	switch (result.kind) {
+		case "injected":
+			ctx.ui.notify("Sidekick augmentation injected into the next context turn.", "info");
+			break;
+		case "inactive":
+			ctx.ui.notify("pi-mctx is not active for this session.", "error");
+			break;
+		case "cancelled":
+			ctx.ui.notify("Sidekick augmentation cancelled.", "warning");
+			break;
+		case "empty":
+			ctx.ui.notify("Sidekick found nothing to augment; context unchanged.", "warning");
+			break;
+		case "failed":
+			ctx.ui.notify(`Sidekick augmentation failed: ${result.reason}`, "error");
+			break;
+	}
+}
+
+function registerMctxCommand(
+	pi: ExtensionAPI,
+	feature: MctxFeature,
+	getLifecycleSignal: () => AbortSignal | undefined,
+): void {
+	pi.registerCommand("mctx", {
+		description: "Show Magic Context status or run a context command",
+		getArgumentCompletions: (argumentPrefix) => {
+			const prefix = argumentPrefix.trimStart().toLowerCase();
+			if (/\s/u.test(prefix)) return null;
+			const matches = MCTX_SUBCOMMANDS.filter(({ value }) => value.startsWith(prefix)).map(
+				({ value, description }) => ({ value, label: value, description }),
+			);
+			return matches.length === 0 ? null : matches;
+		},
+		handler: async (args, context) => {
+			const value = args.trim();
+			const parsed = /^(\S+)(?:\s+(.*))?$/su.exec(value);
+			const subcommand = (parsed?.[1] ?? "").toLowerCase();
+			const subcommandArgs = parsed?.[2]?.trim() ?? "";
+
+			if (subcommand.length === 0 || /^status$/u.test(subcommand)) {
+				if (subcommandArgs.length > 0) {
+					context.ui.notify("Usage: /mctx status", "error");
+					return;
+				}
+				if (context.mode !== "tui") {
+					context.ui.notify("/mctx status is available only in the TUI", "warning");
+					return;
+				}
+				const lifecycleSignal = getLifecycleSignal();
+				if (lifecycleSignal === undefined || lifecycleSignal.aborted) {
+					context.ui.notify("pi-mctx lifecycle is not active", "warning");
+					return;
+				}
+				await openMctxStatusSurface(pi, context, feature, context, lifecycleSignal);
+				return;
+			}
+			if (/^aug$/u.test(subcommand)) {
+				await runSidekickCommand(feature, subcommandArgs, context);
+				return;
+			}
+			context.ui.notify(
+				`Unknown MCTX subcommand: ${subcommand}. Usage: /mctx [status | aug <query>]`,
+				"error",
+			);
+		},
+	});
+}
+
+/* Memory-system subcommand handlers stay disabled for revival (see docs/mctx/README.md).
+ * Revival adds each handler to MCTX_SUBCOMMANDS and registerMctxCommand; it must not register aliases.
+async function runDreamCommand(
+	feature: MctxFeature,
+	args: string,
+	ctx: ExtensionContext,
+): Promise<void> {
+	if (ctx.mode !== "tui") {
+		ctx.ui.notify("/mctx dream requires interactive mode", "error");
+		return;
+	}
+	const query = args.trim();
+	if (query.length > 500) {
+		ctx.ui.notify("Usage: /mctx dream [query up to 500 characters]", "error");
+		return;
+	}
+	const result: MctxDreamResult = await feature.dream(query, ctx);
+	switch (result.kind) {
+		case "reported":
+			ctx.ui.notify(result.summary, "info");
+			break;
+		case "inactive":
+			ctx.ui.notify("pi-mctx is not active for this session.", "error");
+			break;
+		case "cancelled":
+			ctx.ui.notify("Dreamer evaluation cancelled.", "warning");
+			break;
+		case "empty":
+			ctx.ui.notify("No smart-condition notes to evaluate.", "warning");
+			break;
+		case "failed":
+			ctx.ui.notify(`Dreamer evaluation failed: ${result.reason}`, "error");
+			break;
+	}
+}
+*/
+
+/* Memory-system subcommand handler stays disabled for revival (see docs/mctx/README.md).
+async function runEmbedCommand(feature: MctxFeature, ctx: ExtensionContext): Promise<void> {
+	if (ctx.mode !== "tui") {
+		ctx.ui.notify("/mctx embed requires interactive mode", "error");
+		return;
+	}
+	const result: MctxEmbedBackfillResult = await feature.embedBackfill(ctx);
+	switch (result.kind) {
+		case "done":
+			ctx.ui.notify(
+				`Embedding backfill: ${result.embedded} embedded, ${result.skipped} skipped, ${result.failed} failed.`,
+				"info",
+			);
+			break;
+		case "inactive":
+			ctx.ui.notify("pi-mctx is not active for this session.", "error");
+			break;
+		case "busy":
+			ctx.ui.notify("An embedding backfill is already running.", "warning");
+			break;
+		case "cancelled":
+			ctx.ui.notify("Embedding backfill cancelled.", "warning");
+			break;
+		case "failed":
+			ctx.ui.notify(`Embedding backfill failed: ${result.reason}`, "error");
+			break;
+	}
+}
+*/
 
 function parseTagSelectors(value: string): readonly number[] | undefined {
 	const numbers = new Set<number>();
@@ -77,6 +238,8 @@ function parseTagSelectors(value: string): readonly number[] | undefined {
 	return numbers.size === 0 ? undefined : [...numbers].sort((left, right) => left - right);
 }
 
+/* Memory-system operation parsers, disabled with their tool registration and
+ * kept for revival (see docs/mctx/README.md).
 function memoryOperation(args: Record<string, unknown>): MctxMemoryOperation | undefined {
 	const action = args.action;
 	const ids = args.ids;
@@ -186,6 +349,7 @@ function noteOperation(args: Record<string, unknown>): MctxNoteOperation | undef
 		return { action, noteId: id, expectedRevision };
 	return undefined;
 }
+*/
 
 function historyOperation(args: Record<string, unknown>): MctxHistoryOperation | undefined {
 	const action = args.action;
@@ -215,38 +379,6 @@ function historyOperation(args: Record<string, unknown>): MctxHistoryOperation |
 		};
 	if (action === "purge" && typeof sessionId === "string") return { action, sessionId };
 	return undefined;
-}
-
-function searchOperation(args: Record<string, unknown>): MctxSearchOperation | undefined {
-	const query = args.query;
-	const requestedLimit = args.limit;
-	const limit = requestedLimit === undefined ? DEFAULT_CTX_SEARCH_LIMIT : requestedLimit;
-	const sources = args.sources;
-	if (
-		typeof query !== "string" ||
-		!query.trim() ||
-		query.length > 500 ||
-		typeof limit !== "number" ||
-		!Number.isSafeInteger(limit) ||
-		limit < 1 ||
-		limit > MAX_CTX_SEARCH_LIMIT
-	)
-		return undefined;
-	if (sources === undefined) return { query: query.trim(), limit };
-	if (
-		!Array.isArray(sources) ||
-		sources.length === 0 ||
-		sources.length > MCTX_SEARCH_SOURCES.length
-	)
-		return undefined;
-	const selected: MctxSearchSource[] = [];
-	for (const source of sources) {
-		const matched = MCTX_SEARCH_SOURCES.find((candidate) => candidate === source);
-		if (matched === undefined) return undefined;
-		selected.push(matched);
-	}
-	if (new Set(selected).size !== selected.length) return undefined;
-	return { query: query.trim(), limit, sources: selected };
 }
 
 function renderHistoryToolResult(result: MctxHistoryResult) {
@@ -290,47 +422,7 @@ function renderHistoryToolResult(result: MctxHistoryResult) {
 	}
 }
 
-function renderSearchToolResult(result: MctxSearchResult) {
-	switch (result.kind) {
-		case "hits":
-			return {
-				content: [{ type: "text" as const, text: JSON.stringify({ hits: result.hits }) }],
-				details: undefined,
-			};
-		case "inactive":
-			return {
-				content: [{ type: "text" as const, text: "pi-mctx is not active for this session." }],
-				details: undefined,
-				isError: true,
-			};
-		case "stale":
-			return {
-				content: [{ type: "text" as const, text: "Context changed; retry ctx_search." }],
-				details: undefined,
-				isError: true,
-			};
-		case "invalid-exclusions":
-			return {
-				content: [
-					{
-						type: "text" as const,
-						text: "Memory exclusion provider failed validation; retry ctx_search after fixing it.",
-					},
-				],
-				details: undefined,
-				isError: true,
-			};
-		default: {
-			const exhaustive: never = result;
-			return exhaustive;
-		}
-	}
-}
-
-function registerHistoryTools(
-	pi: ExtensionAPI,
-	feature: ReturnType<typeof createMctxFeature>,
-): void {
+function registerHistoryTools(pi: ExtensionAPI, feature: MctxFeature): void {
 	registerManagedLoadoutTool(
 		pi,
 		{ id: "ctx_reduce", ...MCTX_MANAGED_TOOL },
@@ -465,6 +557,10 @@ function registerHistoryTools(
 			},
 		}),
 	);
+	/*
+	 * Memory-system registration disabled (see docs/mctx/README.md): the
+	 * durable memory/search/notes features are parked behind this hook and
+	 * kept for revival. historian, history tags and sidekick stay active.
 	registerManagedLoadoutTool(
 		pi,
 		{ id: "ctx_search", ...MCTX_MANAGED_TOOL },
@@ -497,6 +593,8 @@ function registerHistoryTools(
 			},
 		}),
 	);
+	*/
+	/*
 	registerManagedLoadoutTool(
 		pi,
 		{ id: "ctx_memory", ...MCTX_MANAGED_TOOL },
@@ -547,6 +645,8 @@ function registerHistoryTools(
 			},
 		}),
 	);
+	*/
+	/*
 	registerManagedLoadoutTool(
 		pi,
 		{ id: "ctx_note", ...MCTX_MANAGED_TOOL },
@@ -600,6 +700,7 @@ function registerHistoryTools(
 			},
 		}),
 	);
+	*/
 }
 
 /**
@@ -608,15 +709,27 @@ function registerHistoryTools(
  */
 export default function piMctxExtension(pi: ExtensionAPI): void {
 	const feature = createMctxFeature();
+	const settingsRegistry = getHepiRuntimeSettingsRegistry(pi);
+	const settingsProvider = createMctxHistorianSettingsProvider();
+	let lifecycleSignal: AbortSignal | undefined;
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-mctx",
 		start: async (context) => {
+			const unregisterSettings = registerHepiSettings(settingsProvider, settingsRegistry);
+			context.resources.add("mctx-historian-settings", unregisterSettings);
+			lifecycleSignal = context.signal;
+			context.resources.add("ctx-status-signal", () => {
+				if (lifecycleSignal === context.signal) lifecycleSignal = undefined;
+			});
 			await feature.start(context);
 			if (feature.active() !== undefined)
 				provideService(context, PARENT_CONTEXT_PROJECTION_SERVICE, feature);
 		},
 	});
+	registerMctxCommand(pi, feature, () => lifecycleSignal);
 	registerHistoryTools(pi, feature);
+	// Memory-system subcommands remain absent from the router and completions;
+	// their handlers stay above for revival (see docs/mctx/README.md).
 	registerContextHook(pi, feature);
 	pi.on("turn_end", (_event, context) => feature.onTurnEnd(context));
 }

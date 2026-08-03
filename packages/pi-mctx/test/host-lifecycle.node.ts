@@ -240,6 +240,12 @@ test("real Pi host transforms context and retains it across reload", async (): P
 		assert.ok(
 			host.session.extensionRunner
 				?.getAllRegisteredTools()
+				.some((tool) => tool.definition.name === "ctx_history"),
+		);
+		// Memory-system tools are parked behind the disabled registration hook.
+		assert.ok(
+			!host.session.extensionRunner
+				?.getAllRegisteredTools()
 				.some((tool) => tool.definition.name === "ctx_memory"),
 		);
 		await host.session.prompt("Keep this newer parent turn raw.");

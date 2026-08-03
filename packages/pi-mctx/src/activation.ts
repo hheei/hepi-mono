@@ -9,6 +9,8 @@ export interface MctxRuntime {
 	readonly historian: Model<Api>;
 	readonly settings: MctxPipelineSettings;
 	readonly search: MctxSearchSettings;
+	/** User-owned Dreamer child model ref; absent means the parent model. */
+	readonly dreamerModel?: string;
 }
 
 export type MctxActivation =
@@ -70,6 +72,9 @@ export function resolveMctxActivation(
 					historian,
 					settings: configuration.pipeline.settings,
 					search: configuration.search ?? {},
+					...(configuration.dreamer?.model === undefined
+						? {}
+						: { dreamerModel: configuration.dreamer.model }),
 				},
 			};
 		}
