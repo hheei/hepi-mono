@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { type Terminal, Text, TUI, visibleWidth } from "@earendil-works/pi-tui";
+import type { ToolResultLayout } from "@hheei/pi-ext-core";
 import { ToolExecutionComponent } from "../../../node_modules/.bun/@earendil-works+pi-coding-agent@0.83.0+7eae918161e46c49/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/tool-execution.js";
 import { initTheme } from "../../../node_modules/.bun/@earendil-works+pi-coding-agent@0.83.0+7eae918161e46c49/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
 import { registerReadTool } from "../src/read.js";
@@ -97,6 +98,42 @@ test("dragging a read body uses Pi-owned result viewport bounds", async (): Prom
 	terminal.emit(`\x1b[<32;${x + 2};${row + 1}M`);
 	expect(result.render(terminal.columns)).not.toEqual(before);
 	tui.stop();
+});
+
+test("selection follows result bounds after the viewport moves", (): void => {
+	const terminal = new InputTerminal();
+	const tui = new TUI(terminal);
+	const firstBounds = { x: 2, y: 1, width: 20, height: 1 };
+	const movedBounds = { x: 2, y: 7, width: 20, height: 1 };
+	let publish: ((bounds: typeof firstBounds | undefined) => void) | undefined;
+	const layout: ToolResultLayout = {
+		tui,
+		bounds: firstBounds,
+		onChange(listener): () => void {
+			publish = listener;
+			listener(firstBounds);
+			return (): void => {
+				publish = undefined;
+			};
+		},
+	};
+	const result = new SelectableReadResult();
+
+	tui.addChild(new Text("focus", 0, 0));
+	tui.start();
+	result.setResult("alpha", {} as never);
+	result.bindLayout(layout);
+	try {
+		publish?.(movedBounds);
+		terminal.emit(`\x1b[<0;${movedBounds.x + 1};${firstBounds.y + 1}M`);
+		expect(result.hasSelection()).toBeFalse();
+
+		terminal.emit(`\x1b[<0;${movedBounds.x + 1};${movedBounds.y + 1}M`);
+		expect(result.hasSelection()).toBeTrue();
+	} finally {
+		result.dispose();
+		tui.stop();
+	}
 });
 
 test("collapsed read output leaves terminal mouse tracking disabled", async (): Promise<void> => {

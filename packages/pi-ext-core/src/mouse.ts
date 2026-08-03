@@ -10,8 +10,8 @@ type MouseEventResult = "ignored" | void;
 /**
  * Normalized SGR mouse input in viewport cell coordinates. `button` is the
  * SGR low-two-bit button code: 0/1/2 are primary/middle/secondary and 3 is
- * the terminal's release code, commonly used on `up`; wheel reports are
- * consumed but intentionally have no public event kind in v1.
+ * the terminal's release code, commonly used on `up`; wheel reports have no
+ * public event kind in v1 and pass through to the focused component.
  */
 export interface TerminalMouseEvent {
 	readonly kind: "down" | "drag" | "up";
