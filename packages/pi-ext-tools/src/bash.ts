@@ -63,7 +63,8 @@ export function registerBashTool(pi: ExtensionAPI): void {
 		{
 			id: "bash",
 			owner: OWNER,
-			group: "Tools",
+			group: "Built-in",
+			origin: OWNER,
 			priority: 100,
 			conflictSets: [],
 			defaultActive: true,

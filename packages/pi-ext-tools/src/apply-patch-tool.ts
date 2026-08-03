@@ -122,7 +122,8 @@ export function registerApplyPatchTool(pi: ExtensionAPI): void {
 		{
 			id: "apply_patch",
 			owner: OWNER,
-			group: "Tools",
+			group: "Built-in",
+			origin: OWNER,
 			priority: 100,
 			conflictSets: [],
 			conflictsWith: ["edit", "write"],
