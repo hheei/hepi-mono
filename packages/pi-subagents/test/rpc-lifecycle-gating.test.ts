@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import subagentsExtension from "../src/index.js";
 
 const RPC_CHANNELS = ["subagents:rpc:ping", "subagents:rpc:spawn", "subagents:rpc:stop"] as const;
+const MANAGER_KEY = Symbol.for("pi-subagents:manager");
 
 type LifecycleHandler = (event: unknown, context: unknown) => unknown | Promise<unknown>;
 type RpcHandler = (raw: unknown) => unknown | Promise<unknown>;
@@ -111,6 +112,9 @@ describe("issue #142: RPC handlers + subagents:ready are gated on session_start"
 	});
 
 	afterEach(() => {
+		// Each host has its own pi.events bus. Reset process-global ownership between
+		// tests; different hosts are not child activations of one live root.
+		delete (globalThis as Record<PropertyKey, unknown>)[MANAGER_KEY];
 		process.chdir(prevCwd);
 		if (prevAgentDir == null) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = prevAgentDir;

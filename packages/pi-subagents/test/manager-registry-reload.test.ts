@@ -175,4 +175,36 @@ describe("Subagents manager registry reload", () => {
 
 		await emit(host, "session_shutdown");
 	});
+
+	it("keeps live root ownership when child uses a different events bus", async () => {
+		delete globals[MANAGER_KEY];
+		const root = makePi();
+		const child = makePi();
+
+		subagentsExtension(root.pi);
+		await emit(root, "session_start", undefined, context());
+		const rootEntry = manager();
+
+		subagentsExtension(child.pi);
+		await emit(child, "session_start", undefined, context());
+
+		expect(manager()).toBe(rootEntry);
+		expect(rootEntry.disposed).toBe(false);
+
+		await emit(root, "session_shutdown");
+	});
+
+	it("cleans owning resources after lifecycle cleanup marks entry disposed", async () => {
+		delete globals[MANAGER_KEY];
+		const host = makePi();
+
+		subagentsExtension(host.pi);
+		await emit(host, "session_start", undefined, context());
+		const entry = manager();
+
+		await emit(host, "session_shutdown");
+
+		expect(entry.disposed).toBe(true);
+		expect(globals[MANAGER_KEY]).toBeUndefined();
+	});
 });
