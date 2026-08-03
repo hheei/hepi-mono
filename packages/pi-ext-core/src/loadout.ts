@@ -23,6 +23,11 @@ export interface LoadoutToolMetadata {
 	readonly defaultActive: boolean;
 }
 
+/** Host operations available while a Loadout resource detail handles input. */
+export interface LoadoutResourceDetailContext {
+	openEditor(title: string, prefill?: string): Promise<string | undefined>;
+}
+
 /**
  * Contributor-owned view opened from its Loadout resource row. The view owns its
  * state and persistence; Loadout only supplies focus, width, and theme changes.
@@ -34,7 +39,7 @@ export interface LoadoutToolMetadata {
  */
 export interface LoadoutResourceDetail {
 	render(width: number): readonly string[];
-	handleInput(input: string): Promise<boolean> | boolean;
+	handleInput(input: string, context: LoadoutResourceDetailContext): Promise<boolean> | boolean;
 	onThemeChange?(theme: Theme): void;
 	onScopeChange?(scope: "global" | "project"): void;
 	/** Persist any pending edits; called once when the Loadout page closes. */

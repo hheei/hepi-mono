@@ -9,8 +9,9 @@
  * thinking value in place (off…max, no `inherit`), Enter confirms both, Esc
  * cancels. The form renders as two aligned columns (label / value) like the
  * Settings field list and the focused row gets the accent treatment; the
- * system prompt (body) is deliberately out of scope here — edit the file
- * directly. Project-scope edits always target `<cwd>/.pi/agents/<name>.md`
+ * Body action delegates multi-line input to Pi's native editor and buffers its
+ * result with the other fields; this detail does not implement editor behavior.
+ * Project-scope edits always target `<cwd>/.pi/agents/<name>.md`
  * (materializing a clone when missing); Global-scope edits target the agent's
  * own backing file. Agent activation is owned by the Loadout policy under
  * `agent:<name>`, never by this Markdown, so there is no enabled field here.
@@ -28,6 +29,7 @@ import {
 	hepiAuthenticatedModelSelectionOptions,
 	hepiThinkingGlyph,
 	type LoadoutResourceDetail,
+	type LoadoutResourceDetailContext,
 } from "@hheei/pi-ext-core";
 import type { AgentConfig } from "./types.js";
 
@@ -55,10 +57,11 @@ const DETAIL_FIELDS: readonly DetailField[] = [
 	FIRST_FIELD,
 	{ id: "description", kind: "text" },
 	{ id: "model", kind: "select" },
+	{ id: "body", kind: "action" },
 ];
 
-type FieldId = "identity" | "description" | "model";
-type FieldKind = "text" | "select";
+type FieldId = "identity" | "description" | "model" | "body";
+type FieldKind = "text" | "select" | "action";
 
 interface DetailField {
 	readonly id: FieldId;
@@ -155,6 +158,7 @@ function pad(value: string, width: number): string {
 export function rewriteAgentMarkdown(
 	path: string,
 	values: Readonly<Record<string, string | boolean | undefined>>,
+	bodyOverride?: string,
 ): void {
 	const original = readFileSync(path, "utf8");
 	// Detect the block structurally: `parseFrontmatter` treats a missing block as
@@ -164,7 +168,7 @@ export function rewriteAgentMarkdown(
 			const value = yamlValue(values[key]);
 			return value === undefined ? undefined : `${key}: ${value}`;
 		}).filter((line): line is string => line !== undefined);
-		writeFileSync(path, `---\n${lines.join("\n")}\n---\n${original}`, "utf8");
+		writeFileSync(path, `---\n${lines.join("\n")}\n---\n${bodyOverride ?? original}`, "utf8");
 		return;
 	}
 	// Validates the existing block; malformed YAML surfaces as an Error.
@@ -181,7 +185,12 @@ export function rewriteAgentMarkdown(
 		const value = yamlValue(values[key]);
 		if (value !== undefined) lines.push(`${key}: ${value}`);
 	}
-	const body = start >= 0 && end >= 0 ? original.slice(end + "\n---".length) : original;
+	const body =
+		bodyOverride === undefined
+			? start >= 0 && end >= 0
+				? original.slice(end + "\n---".length)
+				: original
+			: `\n${bodyOverride}`;
 	writeFileSync(path, `---\n${lines.join("\n")}\n---${body}`, "utf8");
 }
 
@@ -213,6 +222,7 @@ export function createAgentDetail(
 		readonly scope: "global" | "project";
 		draft: AgentDraft;
 		dirty: boolean;
+		bodyEdited: boolean;
 	}
 	let base: AgentDraft = draftFromConfig(initial);
 	const byScope = new Map<"global" | "project", ScopeDraft>();
@@ -220,7 +230,7 @@ export function createAgentDetail(
 	const current = (): ScopeDraft => {
 		let entry = byScope.get(scope);
 		if (entry === undefined) {
-			entry = { scope, draft: base, dirty: false };
+			entry = { scope, draft: base, dirty: false, bodyEdited: false };
 			byScope.set(scope, entry);
 		}
 		return entry;
@@ -259,6 +269,7 @@ export function createAgentDetail(
 			{ label: "Identity", value: draft.displayName ?? name },
 			{ label: "Description", value: draft.description },
 			{ label: "Model", value: `${glyph}${model}` },
+			{ label: "Body", value: "open in editor" },
 		];
 	};
 	const textValue = (): string => {
@@ -365,7 +376,7 @@ export function createAgentDetail(
 		};
 		try {
 			if (cloned) writeAgentMarkdown(path, values, draft.systemPrompt);
-			else rewriteAgentMarkdown(path, values);
+			else rewriteAgentMarkdown(path, values, entry.bodyEdited ? draft.systemPrompt : undefined);
 		} catch (error) {
 			notify(
 				`Agent changes were not saved: ${error instanceof Error ? error.message : String(error)}`,
@@ -423,7 +434,7 @@ export function createAgentDetail(
 				return theme.fg("accent", theme.bold(truncated));
 			});
 		},
-		async handleInput(input: string): Promise<boolean> {
+		async handleInput(input: string, context?: LoadoutResourceDetailContext): Promise<boolean> {
 			if (selectingModel) {
 				if (matchesKey(input, Key.up)) {
 					selectIndex = (selectIndex - 1 + modelChoices().length) % modelChoices().length;
@@ -467,6 +478,17 @@ export function createAgentDetail(
 			if (matchesKey(input, Key.enter)) {
 				if (field().kind === "select") {
 					openSelector();
+				} else if (field().id === "body" && context !== undefined) {
+					const result = await context.openEditor(
+						`Edit ${name} body`,
+						current().draft.systemPrompt,
+					);
+					if (result !== undefined) {
+						const entry = current();
+						entry.draft = { ...entry.draft, systemPrompt: result };
+						entry.bodyEdited = true;
+						entry.dirty = true;
+					}
 				}
 				return true;
 			}

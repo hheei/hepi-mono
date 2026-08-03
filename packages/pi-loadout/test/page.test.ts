@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
 import {
 	type ExtensionPageViewContext,
+	type LoadoutResourceDetailContext,
 	type PiSettingsPaths,
 	registerLoadoutResource,
 	registerManagedLoadoutTool,
@@ -49,9 +50,11 @@ function setup(): {
 	readonly context: ExtensionPageViewContext;
 	readonly notifications: Array<{ readonly message: string; readonly type: string | undefined }>;
 	readonly closes: { value: number };
+	readonly editors: Array<{ readonly title: string; readonly prefill: string | undefined }>;
 } {
 	const notifications: Array<{ readonly message: string; readonly type: string | undefined }> = [];
 	const closes = { value: 0 };
+	const editors: Array<{ readonly title: string; readonly prefill: string | undefined }> = [];
 	const pi = {
 		events: {},
 		registerTool: () => undefined,
@@ -97,11 +100,15 @@ function setup(): {
 		signal: new AbortController().signal,
 		theme,
 		requestRender: () => undefined,
+		openEditor: async (title: string, prefill?: string) => {
+			editors.push({ title, prefill });
+			return undefined;
+		},
 		requestClose: () => {
 			closes.value++;
 		},
 	} as ExtensionPageViewContext;
-	return { pi, context, notifications, closes };
+	return { pi, context, notifications, closes, editors };
 }
 
 describe("Loadout Settings page", () => {
@@ -262,6 +269,49 @@ describe("Loadout Settings page", () => {
 			expect(page.component.render(100).join("\n")).toContain("Detail panel");
 			await page.handleInput("\u001b");
 			expect(page.component.render(100).join("\n")).toContain("Detail panel");
+		} finally {
+			dispose();
+		}
+	});
+
+	test("forwards one stable editor context to every active detail input", async () => {
+		const h = setup();
+		const inputs: string[] = [];
+		const contexts: LoadoutResourceDetailContext[] = [];
+		const dispose = registerLoadoutResource(h.pi, {
+			id: "agent:Editor",
+			kind: "agent",
+			group: "𖠌 Agents",
+			priority: 0,
+			conflictSets: [],
+			defaultActive: true,
+			label: "Editor",
+			description: "Has an editor action.",
+			summary: "settings",
+			projectPrivate: false,
+			owner: "test",
+			detail: {
+				render: () => ["Detail panel"],
+				handleInput: async (input, context) => {
+					inputs.push(input);
+					contexts.push(context);
+					if (input === "e") await context.openEditor("Body", "draft body");
+					return input !== "\u001b";
+				},
+			},
+		});
+		try {
+			const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
+			await page.handleInput("\u001b[B");
+			await page.handleInput("\u001b[B");
+			await page.handleInput("\r");
+			await page.handleInput("e");
+			await page.handleInput("\u001b");
+			expect(inputs).toEqual(["e", "\u001b"]);
+			expect(contexts).toHaveLength(2);
+			expect(contexts[0]).toBe(contexts[1]);
+			expect(h.editors).toEqual([{ title: "Body", prefill: "draft body" }]);
+			expect(page.component.render(100).join("\n")).not.toContain("Detail panel");
 		} finally {
 			dispose();
 		}
@@ -669,7 +719,7 @@ describe("Loadout Settings page", () => {
 			await page.handleInput("\r"); // open Two's detail
 			await page.handleInput("y");
 			await page.handleInput("\u001b"); // back to the list
-			page.close();
+			await page.close();
 			// Both edits land only on close, each in its own file.
 			expect(readFile(join(agentsDir, "One.md"), "utf8")).resolves.toContain('display_name: "x"');
 			expect(readFile(join(agentsDir, "Two.md"), "utf8")).resolves.toContain('display_name: "y"');

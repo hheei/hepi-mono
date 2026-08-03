@@ -408,7 +408,7 @@ describe("createAgentDetail", () => {
 		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN);
 		await detail.handleInput(ENTER);
 		const lines = detail.render(18);
-		expect(lines).toHaveLength(3);
+		expect(lines).toHaveLength(4);
 		for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(18);
 		// The open selector shows the current option in place, without hints.
 		expect(detail.render(60).join("\n")).toMatch(/Model\s+inherit/);
@@ -420,7 +420,7 @@ describe("createAgentDetail", () => {
 	it("renders aligned label/value columns without informational extras", async () => {
 		const { detail } = setup();
 		const lines = detail.render(80);
-		expect(lines).toHaveLength(3);
+		expect(lines).toHaveLength(4);
 		expect(lines.join("\n")).not.toContain("Default agent");
 		expect(lines.join("\n")).not.toContain("Markdown");
 		expect(lines.join("\n")).not.toContain("↑/↓");
@@ -442,6 +442,38 @@ describe("createAgentDetail", () => {
 		const moved = detail.render(80);
 		expect(moved[1]).toContain("[accent:<");
 		expect(moved[0]).not.toContain("[accent:");
+	});
+
+	it("opens native editor with body prefill and buffers submit or cancel", async () => {
+		const { detail, path } = setup();
+		const calls: Array<{ title: string; prefill: string | undefined }> = [];
+		const context = {
+			openEditor: async (title: string, prefill?: string) => {
+				calls.push({ title, prefill });
+				return "Edited body.";
+			},
+		};
+		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN);
+		expect(detail.render(80).join("\n")).toContain("open in editor");
+		await detail.handleInput(ENTER, context);
+		expect(calls).toEqual([{ title: "Edit auditor body", prefill: "You are a test agent." }]);
+		expect(readContent(path)).toContain("You are a test agent.");
+		detail.flush();
+		expect(readContent(path)).toContain("\n---\nEdited body.");
+
+		const cancelled = setup("cancel");
+		for (let i = 0; i < 3; i++) await cancelled.detail.handleInput(DOWN);
+		await cancelled.detail.handleInput(ENTER, { openEditor: async () => undefined });
+		cancelled.detail.flush();
+		expect(readContent(cancelled.path)).toContain("You are a test agent.");
+	});
+
+	it("clones a submitted Body for a built-in agent", async () => {
+		const { detail, root } = setupDefault();
+		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN);
+		await detail.handleInput(ENTER, { openEditor: async () => "Cloned body." });
+		detail.flush();
+		expect(readContent(join(root, ".pi", "agents", "Explore.md"))).toContain("Cloned body.");
 	});
 
 	it("removes whole code points with backspace", async () => {
@@ -567,17 +599,22 @@ describe("createAgentDetail", () => {
 		// Global scope edit first…
 		await detail.handleInput("G");
 		await detail.handleInput(ENTER);
+		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN);
+		await detail.handleInput(ENTER, { openEditor: async () => "Global edited body." });
 		// …then the same agent is edited from the Project scope.
 		detail.onScopeChange?.("project");
+		await detail.handleInput(ENTER, { openEditor: async () => "Project edited body." });
+		for (let i = 0; i < 3; i++) await detail.handleInput(UP);
 		await detail.handleInput("P");
-		await detail.handleInput(ENTER);
 		detail.flush();
 		// Global changes land in the global file; Project changes create the
 		// project override. Neither scope overwrites the other's edit.
 		expect(readContent(globalPath)).toContain('display_name: "G"');
 		expect(readContent(globalPath)).not.toContain('display_name: "P"');
+		expect(readContent(globalPath)).toContain("\n---\nGlobal edited body.");
 		const projectPath = join(root, ".pi", "agents", "auditor.md");
 		expect(readContent(projectPath)).toContain('display_name: "P"');
 		expect(readContent(projectPath)).not.toContain('display_name: "GP"');
+		expect(readContent(projectPath)).toContain("\n---\nProject edited body.");
 	});
 });

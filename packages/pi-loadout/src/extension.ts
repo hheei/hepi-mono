@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { OverlayOptions } from "@earendil-works/pi-tui";
 import {
 	openExtensionPageRouter,
 	registerExtensionLifecycle,
@@ -57,6 +58,13 @@ export default function piLoadoutExtension(pi: ExtensionAPI): void {
 				signal: session.signal,
 				maxPending: 1,
 				initialPageId: "loadout",
+				overlay: true,
+				overlayOptions: {
+					width: "100%",
+					maxHeight: "100%",
+					anchor: "bottom-left",
+					margin: 0,
+				} satisfies OverlayOptions,
 				onSurfaceOpen: () => {
 					const lease = suspendHepiWidgets(pi);
 					return () => lease.release();

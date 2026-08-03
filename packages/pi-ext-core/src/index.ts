@@ -41,6 +41,7 @@ export type {
 	LoadoutInventoryObserver,
 	LoadoutInventoryRegistration,
 	LoadoutResourceDetail,
+	LoadoutResourceDetailContext,
 	LoadoutResourceMetadata,
 	LoadoutToolActivationObserver,
 	LoadoutToolActivationSnapshot,
