@@ -651,13 +651,11 @@ export default function (pi: ExtensionAPI) {
 				| {
 						readonly disposed?: boolean;
 						readonly activationToken?: { active: boolean };
-						readonly events?: unknown;
 				  }
 				| undefined;
 			ownsManagerRegistry =
 				currentEntry === registryEntry ||
 				currentEntry === undefined ||
-				currentEntry.events !== pi.events ||
 				currentEntry.disposed === true;
 			if (ownsManagerRegistry) {
 				if (currentEntry !== registryEntry && currentEntry?.activationToken)
@@ -746,7 +744,6 @@ export default function (pi: ExtensionAPI) {
 	const registryEntry = {
 		disposed: false,
 		activationToken,
-		events: pi.events,
 		waitForAll: () => manager.waitForAll(),
 		hasRunning: () => manager.hasRunning(),
 		spawn: (
@@ -837,10 +834,13 @@ export default function (pi: ExtensionAPI) {
 		scheduler.stop();
 	});
 
-	// On shutdown, abort all agents immediately and clean up.
+	// On shutdown, abort all agents immediately and clean up. ext-core runs its
+	// lifecycle resource cleanup first, which marks this entry disposed and
+	// deactivates its token. Registry identity remains the ownership signal here:
+	// stale reload handlers and child activations must stay inert.
 	// If the session is going down, there's nothing left to consume agent results.
 	pi.on("session_shutdown", async () => {
-		if (!isActive()) return;
+		if (!ownsManagerRegistry || runtimeGlobal[MANAGER_KEY] !== registryEntry) return;
 		activationToken.active = false;
 		fleetSurfaceController.abort();
 		rpcHandle?.unsubSpawn();
