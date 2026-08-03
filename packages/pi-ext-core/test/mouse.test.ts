@@ -1,3 +1,4 @@
+import { expect, test } from "bun:test";
 import type { TUI } from "@earendil-works/pi-tui";
 import { getGlobalState } from "../src/global-state.js";
 import { installMouseSupport, type TerminalMouseEvent, type TextRange } from "../src/index.js";

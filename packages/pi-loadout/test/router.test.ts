@@ -102,7 +102,7 @@ function harness(): {
 				return "edited body";
 			},
 			custom<T>(
-				factory: (tui: never, t: never, keybindings: never, done: (value: T) => void) => unknown,
+				factory: (tui: never, t: never, keybindings: unknown, done: (value: T) => void) => unknown,
 				options?: SurfaceOptions,
 			): Promise<T> {
 				calls++;
@@ -173,7 +173,7 @@ test("Esc through the agent detail keeps the router surface closeable and reopen
 	const detail = createAgentDetail(
 		"Explore",
 		config,
-		{ getAvailable: () => [], hasConfiguredAuth: () => false },
+		undefined,
 		() => undefined,
 		() => undefined,
 	);
@@ -271,7 +271,7 @@ test("typing in the detail then closing keeps the surface reopenable", async () 
 	const detail = createAgentDetail(
 		"Explore",
 		config,
-		{ getAvailable: () => [], hasConfiguredAuth: () => false },
+		undefined,
 		() => undefined,
 		() => undefined,
 	);

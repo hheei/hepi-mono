@@ -46,7 +46,9 @@ test("dragging expanded truncated bash output preserves upstream warning rows", 
 	const tools: ToolDefinition[] = [];
 	const pi = {
 		events: {},
-		registerTool: (tool: ToolDefinition): void => void tools.push(tool),
+		registerTool: (tool: ToolDefinition): void => {
+			tools.push(tool);
+		},
 	} as unknown as ExtensionAPI;
 	registerTools(pi);
 	const definition = tools.find((tool) => tool.name === "bash");
@@ -69,6 +71,7 @@ test("dragging expanded truncated bash output preserves upstream warning rows", 
 	tui.addChild(execution);
 	execution.setArgsComplete();
 	execution.updateResult({
+		isError: false,
 		content: [
 			{ type: "text", text: "alpha\n\n[Showing lines 1-1 of 2. Full output: /tmp/full-output]" },
 		],
@@ -84,7 +87,13 @@ test("dragging expanded truncated bash output preserves upstream warning rows", 
 	tui.start();
 	await new Promise((resolve) => setTimeout(resolve, 25));
 	const lines = tui.render(terminal.columns);
-	const row = lines.findLastIndex((line) => line.includes("alpha"));
+	let row = -1;
+	for (let index = lines.length - 1; index >= 0; index -= 1) {
+		if (lines[index]?.includes("alpha") === true) {
+			row = index;
+			break;
+		}
+	}
 	const line = lines[row];
 	const index = line?.indexOf("alpha") ?? -1;
 	if (row < 0 || line === undefined || index < 0) throw new Error("Expected bash output row");

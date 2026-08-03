@@ -54,7 +54,9 @@ function registeredTool(name: string): ToolDefinition {
 	const tools: ToolDefinition[] = [];
 	const pi = {
 		events: {},
-		registerTool: (tool: ToolDefinition): void => void tools.push(tool),
+		registerTool: (tool: ToolDefinition): void => {
+			tools.push(tool);
+		},
 	} as unknown as ExtensionAPI;
 	registerTools(pi);
 	const definition = tools.find((tool) => tool.name === name);
@@ -96,7 +98,11 @@ async function renderToolResult(args: {
 	);
 	tui.addChild(execution);
 	execution.setArgsComplete();
-	execution.updateResult({ content: [{ type: "text", text: args.text }], details: undefined });
+	execution.updateResult({
+		isError: false,
+		content: [{ type: "text", text: args.text }],
+		details: undefined,
+	});
 	tui.start();
 	await new Promise((resolve) => setTimeout(resolve, 25));
 	const result = resultRendererComponent(execution);

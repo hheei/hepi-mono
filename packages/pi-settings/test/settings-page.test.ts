@@ -13,7 +13,11 @@ function context(): {
 			command: {
 				cwd: "/workspace",
 				sessionManager: { getSessionId: () => "settings-test-session" },
-				ui: { notify: () => undefined },
+				ui: {
+					notify: () => undefined,
+					editor: async (_title: string, _prefill?: string): Promise<string | undefined> =>
+						undefined,
+				},
 			} as never,
 			signal: new AbortController().signal,
 			theme: {
@@ -21,6 +25,8 @@ function context(): {
 				bold: (value: string) => value,
 			} as never,
 			requestRender: () => undefined,
+			openEditor: async (_title: string, _prefill?: string): Promise<string | undefined> =>
+				undefined,
 			requestClose: () => {
 				closes.value++;
 			},

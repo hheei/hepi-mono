@@ -47,7 +47,9 @@ test("dragging a read body uses Pi-owned result viewport bounds", async (): Prom
 	const tools: ToolDefinition[] = [];
 	const pi = {
 		events: {},
-		registerTool: (tool: ToolDefinition): void => void tools.push(tool),
+		registerTool: (tool: ToolDefinition): void => {
+			tools.push(tool);
+		},
 	} as unknown as ExtensionAPI;
 	registerReadTool(pi);
 	const definition = tools[0];
@@ -70,7 +72,11 @@ test("dragging a read body uses Pi-owned result viewport bounds", async (): Prom
 	);
 	tui.addChild(execution);
 	execution.setArgsComplete();
-	execution.updateResult({ content: [{ type: "text", text: "alpha" }], details: undefined });
+	execution.updateResult({
+		isError: false,
+		content: [{ type: "text", text: "alpha" }],
+		details: undefined,
+	});
 	execution.setExpanded(true);
 	tui.start();
 	await new Promise((resolve) => setTimeout(resolve, 25));
@@ -98,7 +104,9 @@ test("collapsed read output leaves terminal mouse tracking disabled", async (): 
 	const tools: ToolDefinition[] = [];
 	const pi = {
 		events: {},
-		registerTool: (tool: ToolDefinition): void => void tools.push(tool),
+		registerTool: (tool: ToolDefinition): void => {
+			tools.push(tool);
+		},
 	} as unknown as ExtensionAPI;
 	registerReadTool(pi);
 	const definition = tools[0];
@@ -116,7 +124,11 @@ test("collapsed read output leaves terminal mouse tracking disabled", async (): 
 	);
 	tui.addChild(execution);
 	execution.setArgsComplete();
-	execution.updateResult({ content: [{ type: "text", text: "alpha" }], details: undefined });
+	execution.updateResult({
+		isError: false,
+		content: [{ type: "text", text: "alpha" }],
+		details: undefined,
+	});
 	tui.start();
 	await new Promise((resolve) => setTimeout(resolve, 25));
 	expect(terminal.writes).not.toContain("\x1b[?1002h\x1b[?1006h");

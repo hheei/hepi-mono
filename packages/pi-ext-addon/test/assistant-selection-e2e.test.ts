@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { AssistantMessageComponent, initTheme } from "@earendil-works/pi-coding-agent";
 import { type Terminal, TUI, visibleWidth } from "@earendil-works/pi-tui";
+import { createAssistantMessage } from "@hheei/pi-ext-core/testing";
 import { createAssistantSelectionAddon } from "../src/assistant-selection.js";
 
 const ansiBeforeStyled = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m(?=styled)`, "g");
@@ -48,11 +49,10 @@ class InputTerminal implements Terminal {
 }
 
 function assistantMessage(kind: "text" | "thinking", value: string): AssistantMessage {
-	return {
-		role: "assistant",
-		content: [{ type: kind, [kind]: value }],
-		stopReason: "stop",
-	} as AssistantMessage;
+	return createAssistantMessage({
+		content:
+			kind === "text" ? [{ type: "text", text: value }] : [{ type: "thinking", thinking: value }],
+	});
 }
 
 async function renderAssistant(
