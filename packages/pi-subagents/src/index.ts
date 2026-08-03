@@ -7,6 +7,7 @@
  *   steer_subagent       — LLM-callable: send a steering message to a running agent
  *
  * Commands:
+ *   /subagent-schedules  — list or remove persisted scheduled jobs
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -390,7 +391,7 @@ export default function (pi: ExtensionAPI) {
 		{ readonly fingerprint: string; readonly dispose: () => void }
 	>();
 	const syncLoadoutAgents = (): void => {
-		if (!loadoutRuntime) return;
+		if (!loadoutRuntime || !ownsManagerRegistry) return;
 		const current = new Set(getAllTypes());
 		for (const [name, resource] of loadoutResources) {
 			const config = getAgentConfig(name);
@@ -481,15 +482,17 @@ export default function (pi: ExtensionAPI) {
 		const notification = formatTaskNotification(record, 500);
 		const footer = record.outputFile ? `\nFull transcript available at: ${record.outputFile}` : "";
 
-		pi.sendMessage<NotificationDetails>(
-			{
-				customType: "subagent-notification",
-				content: notification + footer,
-				display: true,
-				details: buildNotificationDetails(record, 500, agentActivity.get(record.id)),
-			},
-			{ deliverAs: "followUp", triggerTurn: true },
-		);
+		void Promise.resolve(
+			pi.sendMessage<NotificationDetails>(
+				{
+					customType: "subagent-notification",
+					content: notification + footer,
+					display: true,
+					details: buildNotificationDetails(record, 500, agentActivity.get(record.id)),
+				},
+				{ deliverAs: "followUp", triggerTurn: true },
+			),
+		).catch(() => undefined);
 	}
 
 	function sendIndividualNudge(record: AgentRecord) {
@@ -528,15 +531,17 @@ export default function (pi: ExtensionAPI) {
 				details.others = rest.map((r) => buildNotificationDetails(r, 300, agentActivity.get(r.id)));
 			}
 
-			pi.sendMessage<NotificationDetails>(
-				{
-					customType: "subagent-notification",
-					content: `Background agent group completed: ${label}\n\n${notifications}\n\nUse get_subagent_result for full output.`,
-					display: true,
-					details,
-				},
-				{ deliverAs: "followUp", triggerTurn: true },
-			);
+			void Promise.resolve(
+				pi.sendMessage<NotificationDetails>(
+					{
+						customType: "subagent-notification",
+						content: `Background agent group completed: ${label}\n\n${notifications}\n\nUse get_subagent_result for full output.`,
+						display: true,
+						details,
+					},
+					{ deliverAs: "followUp", triggerTurn: true },
+				),
+			).catch(() => undefined);
 		});
 		widget.update();
 	}, 30_000);
@@ -569,6 +574,9 @@ export default function (pi: ExtensionAPI) {
 	// Background completion: route through group join or send individual nudge
 	const manager = new AgentManager(
 		(record) => {
+			// Disposed records belong to a prior lifecycle. Late completion must not
+			// emit events or nudges into replacement session.
+			if (manager.getRecord(record.id) !== record) return;
 			// Emit lifecycle event based on terminal status
 			const isError =
 				record.status === "error" || record.status === "stopped" || record.status === "aborted";
@@ -633,23 +641,33 @@ export default function (pi: ExtensionAPI) {
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-subagents",
 		start: async (runtime) => {
-			loadoutRuntime = runtime;
-			runtime.resources.add("loadout-agents", () => {
-				for (const resource of loadoutResources.values()) resource.dispose();
-				loadoutResources.clear();
-			});
-			runtime.resources.add("loadout-agent-runtime", () => {
-				loadoutRuntime = undefined;
-				setLoadoutActivation(undefined);
-			});
-			observeLoadoutToolActivation(pi, {
-				signal: runtime.signal,
-				onChange: (snapshot) => {
-					setLoadoutActivation(snapshot);
-					agentTool.description = resolveAgentToolDescription();
-				},
-			});
-			syncLoadoutAgents();
+			// Resolve process-wide ownership only after ext-core has awaited any
+			// replacement lifecycle cleanup. This lets a true reload replace a
+			// disposed manager while child activations still share the root owner.
+			const currentEntry = runtimeGlobal[MANAGER_KEY] as
+				| { readonly disposed?: boolean }
+				| undefined;
+			ownsManagerRegistry = currentEntry === undefined || currentEntry.disposed === true;
+			if (ownsManagerRegistry) runtimeGlobal[MANAGER_KEY] = registryEntry;
+			if (ownsManagerRegistry) {
+				loadoutRuntime = runtime;
+				runtime.resources.add("loadout-agents", () => {
+					for (const resource of loadoutResources.values()) resource.dispose();
+					loadoutResources.clear();
+				});
+				runtime.resources.add("loadout-agent-runtime", () => {
+					loadoutRuntime = undefined;
+					setLoadoutActivation(undefined);
+				});
+				observeLoadoutToolActivation(pi, {
+					signal: runtime.signal,
+					onChange: (snapshot) => {
+						setLoadoutActivation(snapshot);
+						agentTool.description = resolveAgentToolDescription();
+					},
+				});
+				syncLoadoutAgents();
+			}
 			const sessionId = runtime.extension.sessionManager?.getSessionId?.();
 			if (sessionId === undefined)
 				throw new Error("Pi session id is required for subagent settings");
@@ -691,21 +709,22 @@ export default function (pi: ExtensionAPI) {
 				maxActiveTurns: manager.getMaxConcurrent(),
 			});
 			manager.setRuntime(runtime);
-			runtime.resources.add("pi-subagents-manager", () => manager.dispose());
+			runtime.resources.add("pi-subagents-manager", () => {
+				registryEntry.disposed = true;
+				manager.dispose();
+			});
 		},
 	});
 
 	// Expose manager via Symbol.for() global registry for cross-package access.
 	// Standard Node.js pattern for cross-package singletons (used by OpenTelemetry, etc.).
 	//
-	// Claim the slot only if it's free: subagent sessions re-activate this
-	// extension in the same process (session.bindExtensions in agent-runner.ts),
-	// and unconditionally overwriting would point the registry at a short-lived
-	// child manager — and the child's shutdown would then delete the root
-	// session's entry. The first activation (the root session) wins; child
-	// activations leave it alone.
+	// Lifecycle start claims this slot only when free or marked disposed. Child
+	// sessions re-activate this extension in the same process and leave the
+	// active root manager untouched; a replacement can claim after cleanup.
 	const MANAGER_KEY = Symbol.for("pi-subagents:manager");
 	const registryEntry = {
+		disposed: false,
 		waitForAll: () => manager.waitForAll(),
 		hasRunning: () => manager.hasRunning(),
 		spawn: (
@@ -718,10 +737,7 @@ export default function (pi: ExtensionAPI) {
 		getRecord: (id: string) => manager.getRecord(id),
 	};
 	const runtimeGlobal = globalThis as typeof globalThis & Record<PropertyKey, unknown>;
-	const ownsManagerRegistry = runtimeGlobal[MANAGER_KEY] === undefined;
-	if (ownsManagerRegistry) {
-		runtimeGlobal[MANAGER_KEY] = registryEntry;
-	}
+	let ownsManagerRegistry = false;
 	const refreshWidget = (): void => {
 		widget.ensureTimer();
 		widget.update();
@@ -786,7 +802,9 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_before_switch", () => {
-		manager.clearCompleted(true);
+		currentCtx = undefined;
+		manager.abortAll();
+		manager.dispose();
 		scheduler.stop();
 	});
 
@@ -809,6 +827,49 @@ export default function (pi: ExtensionAPI) {
 		for (const timer of pendingNudges.values()) clearTimeout(timer);
 		pendingNudges.clear();
 		manager.dispose();
+	});
+
+	// Persisted schedules outlive the removed Fleet menu. Keep management small
+	// and scriptable: list jobs, or remove one by ID.
+	pi.registerCommand("subagent-schedules", {
+		description: "List or remove persisted subagent schedules",
+		getArgumentCompletions: (prefix) =>
+			["list", "remove", "cancel"]
+				.filter((value) => value.startsWith(prefix.trim().toLowerCase()))
+				.map((value) => ({ value, label: value })),
+		handler: async (args, ctx) => {
+			if (!scheduler.isActive()) {
+				ctx.ui.notify("Scheduler is not active in this session.", "warning");
+				return;
+			}
+			const [operation = "list", id] = args.trim().split(/\s+/, 2);
+			if (operation === "list") {
+				const jobs = scheduler.list();
+				ctx.ui.notify(
+					jobs.length === 0
+						? "No scheduled subagent jobs."
+						: jobs
+								.map((job) => {
+									const next = scheduler.getNextRun(job.id) ?? "not armed";
+									return `${job.id}  ${job.name}  ${job.schedule}  ${job.enabled ? "enabled" : "disabled"}  next: ${next}`;
+								})
+								.join("\n"),
+					"info",
+				);
+				return;
+			}
+			if ((operation === "remove" || operation === "cancel") && id) {
+				const removed = scheduler.removeJob(id);
+				ctx.ui.notify(
+					removed
+						? `Removed scheduled subagent job ${id}.`
+						: `Scheduled subagent job not found: ${id}`,
+					removed ? "info" : "warning",
+				);
+				return;
+			}
+			ctx.ui.notify("Usage: /subagent-schedules [list|remove <job-id>]", "warning");
+		},
 	});
 
 	// Live widget: show running agents above editor.
@@ -1459,7 +1520,7 @@ Terse command-style prompts produce shallow, generic work.
 					return textResult(
 						`Scheduled "${job.name}" (id: ${job.id}, type: ${job.scheduleType}). ` +
 							`Next run: ${next ?? "(unknown)"}. ` +
-							`Manage via /agents → Scheduled jobs.`,
+							`Manage via /subagent-schedules list or /subagent-schedules remove ${job.id}.`,
 					);
 				} catch (err) {
 					return textResult(err instanceof Error ? err.message : String(err));

@@ -196,7 +196,11 @@ export class AgentManager {
 					if (result.purpose !== "inheritance" || typeof result.payload !== "string") {
 						throw new Error("Invalid parent context projection result");
 					}
-					initialMessage = result.payload + prompt;
+					const taskHeader = "\n---\n# Your Task (below)\n";
+					const hasTaskHeader = result.payload.endsWith("# Your Task (below)\n");
+					initialMessage = hasTaskHeader
+						? result.payload + prompt
+						: result.payload + taskHeader + prompt;
 				} else {
 					initialMessage = buildParentContext(ctx) + prompt;
 				}
