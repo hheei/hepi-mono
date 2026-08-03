@@ -290,13 +290,23 @@ status 的所有指标搬进来。本节记录当前已迁移并可用的行为�
 
 ### 显示字段与非目标
 
-状态页显示：active/inactive reason；context usage；project/session identity；
-partition revision；compartment 的 m0、m1、total；tag 的 active、pending、
-dropped；historian 的 idle、running、cooling、rebuild-pending；last failure
-class；effective trigger thresholds；protected tags；pending sidekick
-augmentation。旧 legacy UI 的 fact、memory、note、Dreamer、embedding、
-upgrade、cache 指标均为非目标；本 migration 不新增这些指标，也不改变
-memory system 当前 parked 状态。
+状态页只显示 current snapshot 实际拥有的字段，不推导、不补零，也不把
+inactive/stale/failed 当作 healthy。固定 17 个 content rows 采用 legacy-like
+顺序：第一行是 `⚡ Magic Context Status` 加 active/inactive/failed/stale runtime
+state；随后是 blank separator、muted `Context` label、`Context  pct · used /
+limit tokens` 与 full-width usage bar；再是 blank separator、`Counts:`、compartment
+的 `m0`/`m1`/`total`、muted `Tags` label、tag 的 `active`/`pending`/`dropped`
+与 protected tags；再是 blank separator、`Historian:`、historian
+`idle`/`running`/`cooling`/`rebuild-pending` 与 last failure class、effective
+trigger thresholds、partition revision + pending sidekick augmentation。最后两行
+只在 wide 显示 `Project` 与 `Session` identity，窄屏保留为空。字段缺失时保留
+对应行但不伪造值或 legacy 指标。
+
+Context usage bar 只使用单一 semantic status token：低于 65% 为 `success`，
+65%–80%（不含 80%）为 `warning`，80% 及以上为 `error`；不复刻 legacy 的
+category colors。旧 legacy UI 的 fact、memory、note、Dreamer、embedding、
+upgrade、cache、work-token、category-breakdown 指标均为非目标；本 migration
+不新增这些指标，也不改变 memory system 当前 parked 状态。
 
 ### Surface lifecycle、刷新、关闭与并发
 
@@ -313,10 +323,14 @@ surface 只允许一个当前 status overlay。FIFO admission、snapshot 刷新�
 
 ### Fallback 与验证尺寸
 
-窄屏隐藏低优先级 project/session identity，保留 active/reason、usage、revision
-与关键 health 状态；宽屏可显示完整 identity 和其余字段。布局规则、semantic
-tokens、关闭提示与稳定行位移以根 `DESIGN.md` 为准；设计验证尺寸为 48x20
-与 100x24。
+overlay 为 centered、single overlay，外层使用 rounded `borderMuted` frame，
+可用时宽度固定为 78 columns；窄于此值时随 terminal width clamp。总高固定
+20 行：outer top + 17 content rows + footer + outer bottom；active/inactive/
+failed/stale 保持同高。宽屏最后两行显示完整 project/session identity，窄屏
+明确保留两行空白，不挪用给其他字段。footer 为 `Press Escape to close ·
+Enter / Ctrl+C also close`。刷新仅在 admission 成功后每秒进行，且不改变行位。
+布局、semantic tokens、关闭提示与稳定行位移以根 `DESIGN.md` 为准；设计验证
+尺寸为 48x20 与 100x24。
 
 ## 完整迁移目标
 

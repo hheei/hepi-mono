@@ -178,19 +178,44 @@ existing semantic token expresses the role.
 ### Context Status Overlay
 
 - `/ctx-status` is one centered, single-page read-only overlay, not a page-router
-  page or a widget. It uses only existing Pi semantic theme tokens; never add
-  hard-coded colors or module-specific accents.
-- Keep structure status-first: active/inactive reason and context usage lead;
-  project/session identity and partition revision follow; compartment counts,
-  tag counts, historian state, failure class, effective trigger thresholds,
-  protected tags, and pending sidekick augmentation follow in that priority
-  order. Labels, values, and status changes retain stable row positions.
-- At narrow widths, hide lower-priority project/session identity before hiding
-  health state or usage. At wide widths, show complete identity when it fits.
-  Every line fits available width; wrap or truncate lower-priority text without
-  moving higher-priority rows.
-- Show a compact close hint for `⎋ Esc`, `↵ Enter`, and `Ctrl+C`. These keys close
-  overlay; it has no page-router navigation or editing focus.
+  page or a widget. Its outer frame is rounded and uses `borderMuted`; content
+  uses only existing Pi semantic theme tokens, never hard-coded colors or
+  module-specific accents. The frame width is 78 columns when available and is
+  clamped to the terminal at narrower widths.
+- Keep a fixed 20-row frame: outer top, 17 content rows, one footer row, and
+  outer bottom. All runtime states (`active`, `inactive`, `failed`, and `stale`)
+  keep these rows, including when a snapshot does not own a value; reserve that
+  slot rather than inventing zero, healthy, or legacy metrics.
+- Content rows follow this legacy-like hierarchy and never move:
+  1. `⚡ Magic Context Status` plus semantic runtime state;
+  2. blank separator;
+  3. muted `Context` section label;
+  4. `Context  pct · used / limit tokens` when snapshot usage exists;
+  5. full-width usage bar;
+  6. blank separator;
+  7. `Counts:`;
+  8. compartment detail (`m0`, `m1`, `total`);
+  9. muted `Tags` section label;
+  10. tag counts (`active`, `pending`, `dropped`) and protected tags;
+  11. blank separator;
+  12. `Historian:`;
+  13. historian state and last failure class;
+  14. effective trigger thresholds;
+  15. partition revision and pending sidekick augmentation;
+  16–17. wide-only `Project` and `Session` identity rows.
+  On narrow layouts rows 16–17 remain blank, rather than being repurposed.
+- Usage bar is one full-width, single-color semantic bar: `success` below 65%,
+  `warning` from 65% up to (but not including) 80%, and `error` at or above
+  80%. It must not
+  reproduce legacy hard-coded category colors. Missing usage keeps its row but
+  shows no fabricated value or bar state. Every line fits available width;
+  truncate lower-priority values within their cells without shifting rows.
+- Do not render unavailable legacy-only fact, memory, note, Dreamer, embedding,
+  upgrade, cache, work-token, or category-breakdown metrics. The overlay does
+  not reactivate parked systems or claim metrics absent from the current
+  snapshot.
+- Footer reads `Press Escape to close · Enter / Ctrl+C also close`; these keys
+  close overlay. It has no page-router navigation or editing focus.
 - Refresh once per second only after surface admission. Refresh must not cause
   row displacement; reserve stable rows for changing values and truncate within
   their existing cells.

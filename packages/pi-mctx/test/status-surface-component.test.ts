@@ -105,7 +105,7 @@ test("theme invalidation uses the current Pi theme and requests render", (): voi
 		bold: (text: string): string => text,
 	};
 	component.invalidate();
-	expect(component.render(48).join("\n")).toContain("[new:success]Runtime active");
+	expect(component.render(100).join("\n")).toContain("[new:success]Runtime active");
 	expect(renders).toBe(1);
 	component.dispose();
 });
