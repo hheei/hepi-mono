@@ -1820,11 +1820,12 @@ function writeMemoryEmbedding(database: DatabaseSync, input: MctxMemoryEmbedding
 }
 
 /**
- * Read-only coverage snapshot for one model identity. Returns the newest
- * embedded source content hash per memory (latest created_at_ms, generation
- * tie-break); the backfill pass compares it against each active memory's
- * current hash to skip already-embedded rows. A stale older-generation row
- * must never shadow the newest one.
+ * Read-only coverage snapshot for one model identity. Returns the embedded
+ * source content hash per memory for its newest source revision (revision is
+ * the monotonic content-freshness source of truth; created_at_ms can move
+ * backward when callers supply wall-clock timestamps, and generation only
+ * distinguishes provider reloads). The backfill pass compares it against each
+ * active memory's current hash to skip already-embedded rows.
  */
 function listMemoryEmbeddingCoverage(
 	database: DatabaseSync,
@@ -1835,7 +1836,7 @@ function listMemoryEmbeddingCoverage(
 		throw new Error("Context store memory embedding coverage is invalid");
 	const rows = database
 		.prepare(
-			"SELECT memory_id, source_content_hash FROM (SELECT memory_id, source_content_hash, ROW_NUMBER() OVER (PARTITION BY memory_id ORDER BY created_at_ms DESC, provider_generation DESC) AS row_number FROM memory_embeddings WHERE project_identity = ? AND model_identity = ?) WHERE row_number = 1",
+			"SELECT memory_id, source_content_hash FROM (SELECT memory_id, source_content_hash, ROW_NUMBER() OVER (PARTITION BY memory_id ORDER BY source_memory_revision DESC, created_at_ms DESC, provider_generation DESC) AS row_number FROM memory_embeddings WHERE project_identity = ? AND model_identity = ?) WHERE row_number = 1",
 		)
 		.all(projectIdentity, modelIdentity);
 	const coverage = new Map<number, string>();

@@ -466,14 +466,15 @@ test("coverage picks the newest generation row per memory", async () => {
 			nowMs: 30,
 		});
 		assert.equal(updated?.revision, memory.revision + 1);
-		// A later generation re-embed coexists with the stale generation row; the
-		// coverage pass must deterministically report the newest one.
+		// A later revision re-embed coexists with the stale generation row; the
+		// coverage pass must report the newest revision even when its timestamp
+		// is older (clock moved backward).
 		assert.equal(
 			write({
 				providerGeneration: 2,
 				sourceContentHash: hash("New content."),
 				sourceMemoryRevision: updated.revision,
-				nowMs: 40,
+				nowMs: 15,
 			}),
 			true,
 		);
