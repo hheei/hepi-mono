@@ -638,6 +638,9 @@ export default function (pi: ExtensionAPI) {
 	);
 
 	getHepiRuntimeSettingsRegistry(pi).replace(createSubagentsSettingsProvider());
+	// Direct pi.on handlers cannot be removed on factory replacement. Token
+	// ownership makes stale handlers inert once newer root activation claims slot.
+	const activationToken = { active: true };
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-subagents",
 		start: async (runtime) => {
@@ -645,10 +648,26 @@ export default function (pi: ExtensionAPI) {
 			// replacement lifecycle cleanup. This lets a true reload replace a
 			// disposed manager while child activations still share the root owner.
 			const currentEntry = runtimeGlobal[MANAGER_KEY] as
-				| { readonly disposed?: boolean }
+				| {
+						readonly disposed?: boolean;
+						readonly activationToken?: { active: boolean };
+						readonly events?: unknown;
+				  }
 				| undefined;
-			ownsManagerRegistry = currentEntry === undefined || currentEntry.disposed === true;
-			if (ownsManagerRegistry) runtimeGlobal[MANAGER_KEY] = registryEntry;
+			ownsManagerRegistry =
+				currentEntry === registryEntry ||
+				currentEntry === undefined ||
+				currentEntry.events !== pi.events ||
+				currentEntry.disposed === true;
+			if (ownsManagerRegistry) {
+				if (currentEntry !== registryEntry && currentEntry?.activationToken)
+					currentEntry.activationToken.active = false;
+				activationToken.active = true;
+				registryEntry.disposed = false;
+				runtimeGlobal[MANAGER_KEY] = registryEntry;
+			} else {
+				activationToken.active = false;
+			}
 			if (ownsManagerRegistry) {
 				loadoutRuntime = runtime;
 				runtime.resources.add("loadout-agents", () => {
@@ -710,6 +729,7 @@ export default function (pi: ExtensionAPI) {
 			});
 			manager.setRuntime(runtime);
 			runtime.resources.add("pi-subagents-manager", () => {
+				activationToken.active = false;
 				registryEntry.disposed = true;
 				manager.dispose();
 			});
@@ -725,6 +745,8 @@ export default function (pi: ExtensionAPI) {
 	const MANAGER_KEY = Symbol.for("pi-subagents:manager");
 	const registryEntry = {
 		disposed: false,
+		activationToken,
+		events: pi.events,
 		waitForAll: () => manager.waitForAll(),
 		hasRunning: () => manager.hasRunning(),
 		spawn: (
@@ -738,6 +760,11 @@ export default function (pi: ExtensionAPI) {
 	};
 	const runtimeGlobal = globalThis as typeof globalThis & Record<PropertyKey, unknown>;
 	let ownsManagerRegistry = false;
+	const isActive = (): boolean =>
+		ownsManagerRegistry &&
+		runtimeGlobal[MANAGER_KEY] === registryEntry &&
+		activationToken.active &&
+		!registryEntry.disposed;
 	const refreshWidget = (): void => {
 		widget.ensureTimer();
 		widget.update();
@@ -780,6 +807,7 @@ export default function (pi: ExtensionAPI) {
 	// This also wires the RPC handlers and broadcasts readiness — on the first
 	// bound session_start, so a filtered-out activation never advertises (#142).
 	pi.on("session_start", async (_event, ctx) => {
+		if (!isActive()) return;
 		fleetSurfaceController.abort();
 		fleetSurfaceController = new AbortController();
 		currentCtx = ctx;
@@ -802,6 +830,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_before_switch", () => {
+		if (!isActive()) return;
 		currentCtx = undefined;
 		manager.abortAll();
 		manager.dispose();
@@ -811,6 +840,8 @@ export default function (pi: ExtensionAPI) {
 	// On shutdown, abort all agents immediately and clean up.
 	// If the session is going down, there's nothing left to consume agent results.
 	pi.on("session_shutdown", async () => {
+		if (!isActive()) return;
+		activationToken.active = false;
 		fleetSurfaceController.abort();
 		rpcHandle?.unsubSpawn();
 		rpcHandle?.unsubStop();
