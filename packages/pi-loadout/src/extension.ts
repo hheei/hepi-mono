@@ -3,6 +3,7 @@ import {
 	openExtensionPageRouter,
 	registerExtensionLifecycle,
 	registerExtensionPage,
+	registerLoadoutHost,
 	suspendHepiWidgets,
 } from "@hheei/pi-ext-core";
 import { createLoadoutEngine } from "./engine.js";
@@ -20,6 +21,7 @@ export default function piLoadoutExtension(pi: ExtensionAPI): void {
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-loadout",
 		start: async ({ extension, signal, resources }) => {
+			resources.add("loadout-host", registerLoadoutHost(pi));
 			const session: ActiveLoadoutSession = { signal };
 			active = session;
 			resources.add("loadout-session", () => {

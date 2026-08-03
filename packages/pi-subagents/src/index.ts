@@ -32,6 +32,7 @@ import {
 	registerLoadoutResource,
 } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
+import { type AgentDetail, createAgentDetail } from "./agent-detail.js";
 import { AgentManager, type SpawnOptions } from "./agent-manager.js";
 import {
 	normalizeMaxTurns,
@@ -388,7 +389,7 @@ export default function (pi: ExtensionAPI) {
 	let loadoutRuntime: ExtensionLifecycleContext | undefined;
 	const loadoutResources = new Map<
 		string,
-		{ readonly fingerprint: string; readonly dispose: () => void }
+		{ readonly fingerprint: string; readonly dispose: () => void; readonly detail?: AgentDetail }
 	>();
 	const syncLoadoutAgents = (): void => {
 		if (!loadoutRuntime || !ownsManagerRegistry) return;
@@ -412,9 +413,24 @@ export default function (pi: ExtensionAPI) {
 				config.description,
 				summary,
 				projectPrivate,
+				config.model,
+				config.thinking,
+				config.promptMode,
+				config.systemPrompt,
 			].join("\0");
-			if (loadoutResources.get(name)?.fingerprint === fingerprint) continue;
-			loadoutResources.get(name)?.dispose();
+			const existing = loadoutResources.get(name);
+			if (existing !== undefined && existing.fingerprint === fingerprint) continue;
+			existing?.dispose();
+			// Keep the same detail instance across fingerprint changes so an open
+			// Loadout panel keeps its selection; only the registration is replaced
+			// so the list row reflects the reloaded metadata.
+			const detail =
+				config.isDefault === true
+					? undefined
+					: (existing?.detail ??
+						createAgentDetail(pi, name, config, reloadCustomAgents, (message) =>
+							loadoutRuntime?.extension.ui.notify(message, "warning"),
+						));
 			const dispose = registerLoadoutResource(pi, {
 				id: `agent:${name}`,
 				kind: "agent",
@@ -426,9 +442,11 @@ export default function (pi: ExtensionAPI) {
 				description: config.description,
 				summary,
 				projectPrivate,
+				...(detail === undefined ? {} : { detail }),
 				owner: "@hheei/pi-subagents",
 			});
-			loadoutResources.set(name, { fingerprint, dispose });
+			detail?.refresh(config);
+			loadoutResources.set(name, { fingerprint, dispose, detail });
 		}
 	};
 	const reloadCustomAgents = () => {

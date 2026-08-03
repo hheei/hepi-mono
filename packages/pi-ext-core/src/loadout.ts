@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { getGlobalState } from "./global-state.js";
 import type { ExtensionLifecycleContext } from "./lifecycle.js";
@@ -24,6 +24,16 @@ export interface LoadoutToolMetadata {
 }
 
 /**
+ * Contributor-owned view opened from its Loadout resource row. The view owns its
+ * state and persistence; Loadout only supplies focus, width, and theme changes.
+ */
+export interface LoadoutResourceDetail {
+	render(width: number): readonly string[];
+	handleInput(input: string): Promise<boolean> | boolean;
+	onThemeChange?(theme: Theme): void;
+}
+
+/**
  * A lifecycle-owned non-tool resource rendered and activated by Loadout.
  *
  * Core transports this declaration and its effective activation only. The contributor owns
@@ -36,6 +46,8 @@ export interface LoadoutResourceMetadata extends LoadoutToolMetadata {
 	readonly summary: string;
 	readonly projectPrivate: boolean;
 	readonly owner: string;
+	/** Optional contributor-owned settings/detail panel, available only while this resource exists. */
+	readonly detail?: LoadoutResourceDetail;
 }
 
 export type LoadoutInventoryItem = LoadoutToolMetadata | LoadoutResourceMetadata;
@@ -71,12 +83,20 @@ export interface LoadoutToolActivationObserver {
 	onChange(snapshot: LoadoutToolActivationSnapshot | undefined): void;
 }
 
+export interface LoadoutHostObserver {
+	/** Aborting the signal removes this observer; current host state arrives immediately. */
+	readonly signal: AbortSignal;
+	onChange(active: boolean): void;
+}
+
 interface RuntimeLoadoutState {
 	readonly registrations: Map<string, LoadoutInventoryItem>;
 	readonly managed: Map<string, { readonly owner: string; readonly runner: object }>;
 	readonly observers: Set<LoadoutInventoryObserver>;
 	activation: LoadoutToolActivationSnapshot | undefined;
 	readonly activationObservers: Set<LoadoutToolActivationObserver>;
+	host: object | undefined;
+	readonly hostObservers: Set<LoadoutHostObserver>;
 }
 
 interface RuntimeLoadoutRegistries {
@@ -97,6 +117,8 @@ function stateFor(pi: RuntimeHost): RuntimeLoadoutState {
 		observers: new Set(),
 		activation: undefined,
 		activationObservers: new Set(),
+		host: undefined,
+		hostObservers: new Set(),
 	};
 	registries().byRuntime.set(identity, created);
 	return created;
@@ -155,6 +177,16 @@ function notifyActivation(state: RuntimeLoadoutState): void {
 		if (observer.signal.aborted) continue;
 		try {
 			observer.onChange(state.activation);
+		} catch {}
+	}
+}
+
+function notifyHost(state: RuntimeLoadoutState): void {
+	const active = state.host !== undefined;
+	for (const observer of state.hostObservers) {
+		if (observer.signal.aborted) continue;
+		try {
+			observer.onChange(active);
 		} catch {}
 	}
 }
@@ -294,4 +326,35 @@ export function observeLoadoutToolActivation(
 		once: true,
 	});
 	observer.onChange(state.activation);
+}
+
+/**
+ * Claims the active Loadout UI host for one lifecycle. This intentionally only
+ * advertises host presence; contributors retain their own fallback settings UI.
+ */
+export function registerLoadoutHost(pi: ExtensionAPI): () => void {
+	const state = stateFor(pi);
+	if (state.host !== undefined) throw new Error("Loadout host is already active");
+	const host = {};
+	state.host = host;
+	notifyHost(state);
+	let active = true;
+	return () => {
+		if (!active) return;
+		active = false;
+		if (state.host !== host) return;
+		state.host = undefined;
+		notifyHost(state);
+	};
+}
+
+/** Observes whether this runtime currently has an active Loadout UI host. */
+export function observeLoadoutHost(pi: ExtensionAPI, observer: LoadoutHostObserver): void {
+	const state = stateFor(pi);
+	if (observer.signal.aborted) return;
+	state.hostObservers.add(observer);
+	observer.signal.addEventListener("abort", () => state.hostObservers.delete(observer), {
+		once: true,
+	});
+	observer.onChange(state.host !== undefined);
 }

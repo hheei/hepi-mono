@@ -37,6 +37,11 @@ anchor message 交给 parent 后续 turn。
 Fleet UI、event-bus RPC、schedules、persistent agent memory、transcripts、worktree isolation 或 dynamic agent-management
 UI。这些属于独立 capability；尤其 task execution 必须 launch-and-deliver，不能重新出现 main-agent wait/poll surface。
 
+可编辑的 custom agent profile（`.pi/agents/`、`.agents/agents/` 与 global agents 目录中的 `.md`）在
+Loadout 的 `Agents` group 里贡献 contributor-owned detail：`Enter` 打开该 profile 的 inline frontmatter
+editor，编辑 identity、description、model、thinking、enabled 并改写文件本身的 YAML（保留 body 与未知 key），
+`Body` 行打开外部编辑器。detail 只负责 profile 文件的就地编辑，不改变 spawn、factory 或 policy 所有权。
+
 历史 `@hheei/hepi-subagents` 仅是 policy/source evidence，revision 见
 [`references/README.md`](../../references/README.md)。其 public API、unlimited defaults、event RPC 和 UI 不是 compatibility
 target。

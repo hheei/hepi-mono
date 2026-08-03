@@ -20,6 +20,14 @@ Loadout 让用户在不改变扩展安装集合的前提下控制工具、技能
 `Agents` 只有安装的 extension 登记至少一个 agent resource 时才出现。图标只标识分组；每行仍以文字及
 `✓` / `○` 表达启用状态。
 
+Agent resource 可选贡献一个 nested settings detail。选中有 detail 的行后，`Enter` 把右侧
+Description lane 切换为该 detail；没有 detail 的 profile 不显示 `↵` hint，`Enter` 也不改变当前
+selection。窄终端把同一 detail 堆叠在列表下方。Loadout 只拥有焦点、布局与导航；contributor 复用自己
+settings provider 的 schema、storage、validation 与 live-policy callback，不复制 JSON 格式或把 feature
+state 下沉到 Loadout。Auto-Title 作为一个 `agent` resource 贡献其既有 settings；具体哪些 subagent
+profile 贡献 detail、以及 Loadout presence 时是否仍在 `/ext-settings` 显示，由实现前 design agreement
+限定。
+
 `𖠌 Agents` 的每一行显示 effective activation、profile 名和 profile 的 effective model：
 
 ```text
@@ -76,7 +84,8 @@ winner inherit 或回到其 default，才可操作被锁定 member。
   skill。
 - 安装 `pi-subagents` 后，Loadout 才显示 `Agents` group。`agent:<name>` 不传给
   Pi host `setActiveTools()`；core 将 effective activation 发布给 profile owner。`Enter` 在同一
-  Loadout surface 打开 contributor 提供的 profile detail。
+  Loadout surface 打开 contributor 提供的 profile detail；没有 contributor detail 时保持当前 list
+  focus，不能把 profile metadata 假装成可编辑 configuration。
 - 不迁移无运行时效果的旧 MCP placeholder。
 - 被 policy 关闭的工具 UI 由该工具扩展订阅 core activation snapshot 自行清理；Loadout
   不直接调用具体扩展。

@@ -185,6 +185,45 @@ describe("Loadout Settings page", () => {
 		expect(output).toContain("Origin: @hheei/pi-ext-tools");
 	});
 
+	test("enters registered resource detail, routes input, and exits with Escape", async () => {
+		const h = setup();
+		const inputs: string[] = [];
+		const dispose = registerLoadoutResource(h.pi, {
+			id: "agent:Detail",
+			kind: "agent",
+			group: "𖠌 Agents",
+			priority: 0,
+			conflictSets: [],
+			defaultActive: true,
+			label: "Detail",
+			description: "Has a settings detail.",
+			summary: "settings",
+			projectPrivate: false,
+			owner: "test",
+			detail: {
+				render: (width) => [`Detail panel ${width}`],
+				handleInput: (input) => {
+					inputs.push(input);
+					return true;
+				},
+			},
+		});
+		try {
+			const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
+			expect(page.component.render(100).join("\n")).toContain("↵");
+			await page.handleInput("\u001b[B");
+			await page.handleInput("\u001b[B");
+			await page.handleInput("\r");
+			expect(page.component.render(100).join("\n")).toContain("Detail panel");
+			await page.handleInput("x");
+			expect(inputs).toEqual(["x"]);
+			await page.handleInput("\u001b");
+			expect(page.component.render(100).join("\n")).toContain("Has a settings detail.");
+		} finally {
+			dispose();
+		}
+	});
+
 	test("flushes one scope before switching and prints reload info only after surface close", async () => {
 		const h = setup();
 		const settings = await paths();

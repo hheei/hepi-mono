@@ -9,6 +9,7 @@ import {
 	type ExtensionPageView,
 	type ExtensionPageViewContext,
 	type LoadoutInventoryItem,
+	type LoadoutResourceDetail,
 	type LoadoutResourceMetadata,
 	type LoadoutToolMetadata,
 	observeLoadoutInventory,
@@ -44,6 +45,7 @@ interface ResourceItem {
 	readonly defaultActive: boolean;
 	readonly projectPrivate: boolean;
 	readonly enabled: boolean;
+	readonly detail?: LoadoutResourceDetail;
 	readonly lockedBy?: string;
 }
 
@@ -225,6 +227,7 @@ function resourceItem(
 		defaultActive: resource.defaultActive,
 		projectPrivate: resource.projectPrivate,
 		enabled: state.enabled,
+		...(resource.detail === undefined ? {} : { detail: resource.detail }),
 	};
 }
 
@@ -246,6 +249,7 @@ export function createLoadoutPage(
 	let scrollTop = 0;
 	let changed = false;
 	let closed = false;
+	let detailKey: string | undefined;
 	const drafts = new Map<LoadoutScope, Map<string, DraftSelection>>();
 	const initialActive = new Set(snapshot.initialActiveToolNames);
 
@@ -253,6 +257,8 @@ export function createLoadoutPage(
 		signal: context.signal,
 		onChange(items) {
 			metadata = items;
+			if (detailKey !== undefined && !items.some((item) => "kind" in item && item.id === detailKey))
+				detailKey = undefined;
 			context.requestRender();
 		},
 	});
@@ -405,6 +411,11 @@ export function createLoadoutPage(
 			render(width: number): string[] {
 				const items = resources();
 				if (selected >= items.length) selected = Math.max(0, items.length - 1);
+				const activeDetail =
+					detailKey === undefined
+						? undefined
+						: items.find((item) => item.key === detailKey)?.detail;
+				if (detailKey !== undefined && activeDetail === undefined) detailKey = undefined;
 				const allEntries = entries();
 				const selectedEntry = allEntries.findIndex(
 					(entry) => entry.kind === "item" && entry.item.key === selectedItem()?.key,
@@ -434,7 +445,9 @@ export function createLoadoutPage(
 						const item = entry.item;
 						const status = item.lockedBy !== undefined ? "⊘" : item.enabled ? "●" : "○";
 						const selectedRow = item.key === selectedItem()?.key;
-						const plain = `${selectedRow ? "→" : " "} ${status} ${pad(truncateToWidth(item.name, nameWidth), nameWidth)} ${truncateToWidth(item.displayGroup, groupWidth)}`;
+						// Detail rows advertise the Enter shortcut; non-detail rows stay plain.
+						const detailHint = item.detail === undefined ? "" : theme.fg("dim", " ↵");
+						const plain = `${selectedRow ? "→" : " "} ${status} ${pad(truncateToWidth(item.name, nameWidth), nameWidth)} ${truncateToWidth(item.displayGroup, groupWidth)}${detailHint}`;
 						const styled =
 							item.lockedBy !== undefined
 								? theme.fg("dim", plain)
@@ -454,32 +467,39 @@ export function createLoadoutPage(
 				);
 				const selectedResource = selectedItem();
 				const description =
-					selectedResource === undefined
-						? [theme.fg("muted", search ? "No matching resources." : "No resources in this scope.")]
-						: [
-								theme.bold(
-									truncateToWidth(
-										`${selectedResource.name} (${selectedResource.kind})`,
-										descriptionWidth,
+					activeDetail !== undefined
+						? [...activeDetail.render(wide ? descriptionWidth : width)]
+						: selectedResource === undefined
+							? [
+									theme.fg(
+										"muted",
+										search ? "No matching resources." : "No resources in this scope.",
 									),
-								),
-								"",
-								...wrapDescription(selectedResource.description, descriptionWidth),
-								"",
-								theme.fg("muted", `Origin: ${selectedResource.origin}`),
-								theme.fg(
-									"muted",
-									`Status: ${selectedResource.lockedBy === undefined ? (selectedResource.enabled ? "● active" : "○ disabled") : "⊘ locked"}`,
-								),
-								...(selectedResource.lockedBy === undefined
-									? []
-									: [
-											theme.fg(
-												"dim",
-												`Locked by ${selectedResource.lockedBy}. Change its winning override first.`,
-											),
-										]),
-							];
+								]
+							: [
+									theme.bold(
+										truncateToWidth(
+											`${selectedResource.name} (${selectedResource.kind})`,
+											descriptionWidth,
+										),
+									),
+									"",
+									...wrapDescription(selectedResource.description, descriptionWidth),
+									"",
+									theme.fg("muted", `Origin: ${selectedResource.origin}`),
+									theme.fg(
+										"muted",
+										`Status: ${selectedResource.lockedBy === undefined ? (selectedResource.enabled ? "● active" : "○ disabled") : "⊘ locked"}`,
+									),
+									...(selectedResource.lockedBy === undefined
+										? []
+										: [
+												theme.fg(
+													"dim",
+													`Locked by ${selectedResource.lockedBy}. Change its winning override first.`,
+												),
+											]),
+								];
 				if (!wide) return [...list, "", ...description].map((line) => truncateToWidth(line, width));
 				// The Description is intentionally read only within the fixed panel height.
 				const rail = scrollbar(allEntries.length, scrollTop, theme);
@@ -494,6 +514,21 @@ export function createLoadoutPage(
 			},
 		},
 		async handleInput(input: string): Promise<boolean> {
+			const activeDetail =
+				detailKey === undefined
+					? undefined
+					: resources().find((item) => item.key === detailKey)?.detail;
+			if (detailKey !== undefined && activeDetail === undefined) detailKey = undefined;
+			else if (activeDetail !== undefined) {
+				if (matchesKey(input, Key.escape)) {
+					detailKey = undefined;
+					context.requestRender();
+					return true;
+				}
+				await activeDetail.handleInput(input);
+				context.requestRender();
+				return true;
+			}
 			// matchesKey accepts both legacy control bytes and terminals' CSI-u Ctrl+P sequence.
 			if (matchesKey(input, "ctrl+p")) {
 				await leave(scope === "global" ? "project" : "global");
@@ -513,7 +548,14 @@ export function createLoadoutPage(
 			}
 			if (matchesKey(input, Key.up)) move(-1);
 			else if (matchesKey(input, Key.down)) move(1);
-			else if (matchesKey(input, Key.space)) toggle();
+			else if (matchesKey(input, Key.enter)) {
+				const selected = selectedItem();
+				if (selected?.detail !== undefined) {
+					detailKey = selected.key;
+					context.requestRender();
+					return true;
+				}
+			} else if (matchesKey(input, Key.space)) toggle();
 			else if (matchesKey(input, Key.backspace)) search = search.slice(0, -1);
 			else if (input && !input.startsWith("\x1b") && !/\p{Cc}/u.test(input)) search += input;
 			context.requestRender();
@@ -521,6 +563,11 @@ export function createLoadoutPage(
 		},
 		onThemeChange(nextTheme: Theme): void {
 			theme = nextTheme;
+			const activeDetail =
+				detailKey === undefined
+					? undefined
+					: resources().find((item) => item.key === detailKey)?.detail;
+			activeDetail?.onThemeChange?.(nextTheme);
 		},
 		close(): void {
 			if (closed) return;

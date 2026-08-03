@@ -6,9 +6,11 @@ import {
 	clearLoadoutToolActivation,
 	getDisabledSkillKeys,
 	isSkillEnabled,
+	observeLoadoutHost,
 	observeLoadoutInventory,
 	observeLoadoutToolActivation,
 	publishLoadoutToolActivation,
+	registerLoadoutHost,
 	registerLoadoutInventory,
 	registerLoadoutResource,
 	registerManagedLoadoutTool,
@@ -38,6 +40,25 @@ function host(events: object = {}) {
 }
 
 describe("Loadout core contract", () => {
+	test("publishes lifecycle-bound Loadout host presence", () => {
+		const h = host();
+		const controller = new AbortController();
+		const states: boolean[] = [];
+		observeLoadoutHost(h.pi, {
+			signal: controller.signal,
+			onChange(active) {
+				states.push(active);
+			},
+		});
+		const dispose = registerLoadoutHost(h.pi);
+		expect(states).toEqual([false, true]);
+		expect(() => registerLoadoutHost(h.pi)).toThrow("Loadout host is already active");
+		dispose();
+		dispose();
+		expect(states).toEqual([false, true, false]);
+		controller.abort();
+	});
+
 	test("registers managed tools and publishes inventory snapshots", () => {
 		const h = host();
 		const controller = new AbortController();
