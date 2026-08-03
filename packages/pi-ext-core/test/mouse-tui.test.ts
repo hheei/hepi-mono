@@ -6,6 +6,7 @@ class RecordingTerminal implements Terminal {
 	readonly writes: string[] = [];
 	private readonly buffer = new StdinBuffer({ timeout: 10 });
 	private readonly waiters: { readonly text: string; readonly resolve: () => void }[] = [];
+	private readonly inputWaiters: { readonly data: string; readonly resolve: () => void }[] = [];
 
 	get columns(): number {
 		return 80;
@@ -68,6 +69,20 @@ class RecordingTerminal implements Terminal {
 		this.waiters.push({ text, resolve });
 		return promise;
 	}
+
+	waitForInput(data: string): Promise<void> {
+		const { promise, resolve } = Promise.withResolvers<void>();
+		this.inputWaiters.push({ data, resolve });
+		return promise;
+	}
+
+	recordInput(data: string): void {
+		for (const waiter of [...this.inputWaiters]) {
+			if (waiter.data !== data) continue;
+			this.inputWaiters.splice(this.inputWaiters.indexOf(waiter), 1);
+			waiter.resolve();
+		}
+	}
 }
 
 test("routes fragmented input through real TUI and redraws selection", async (): Promise<void> => {
@@ -78,7 +93,10 @@ test("routes fragmented input through real TUI and redraws selection", async ():
 	const component: Component = {
 		render: () => [selected ? "selected" : "plain"],
 		invalidate: () => undefined,
-		handleInput: (data) => void keyboardInput.push(data),
+		handleInput: (data) => {
+			keyboardInput.push(data);
+			terminal.recordInput(data);
+		},
 	};
 	tui.addChild(component);
 	tui.setFocus(component);
@@ -101,6 +119,12 @@ test("routes fragmented input through real TUI and redraws selection", async ():
 		expect(selected).toBe(true);
 		expect(keyboardInput).toEqual([]);
 		expect(terminal.writes.join("")).toContain("selected");
+
+		const wheel = "\x1b[<65;1;1M";
+		const received = terminal.waitForInput(wheel);
+		terminal.emit(wheel);
+		await received;
+		expect(keyboardInput).toEqual([wheel]);
 	} finally {
 		support.dispose();
 		tui.stop();

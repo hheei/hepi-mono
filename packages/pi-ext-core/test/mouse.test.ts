@@ -80,7 +80,7 @@ test("decodes complete SGR input and passes ordinary input through", (): void =>
 
 	expect(h.input("x")).toEqual({ consumed: false, data: "x" });
 	expect(h.input("\x1b[<20;3;4M")).toEqual({ consumed: true, data: "\x1b[<20;3;4M" });
-	expect(h.input("\x1b[<64;3;4M")).toEqual({ consumed: true, data: "\x1b[<64;3;4M" });
+	expect(h.input("\x1b[<64;3;4M")).toEqual({ consumed: false, data: "\x1b[<64;3;4M" });
 	expect(h.input("\x1b[<0;0;4M")).toEqual({ consumed: false, data: "\x1b[<0;0;4M" });
 	expect(events).toEqual([
 		{ kind: "down", x: 2, y: 3, button: 0, shift: true, ctrl: true, alt: false },

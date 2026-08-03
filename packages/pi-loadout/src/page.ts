@@ -70,6 +70,17 @@ function readableError(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
+/** Maps an SGR wheel report to list movement; other terminal input stays untouched. */
+function mouseWheelOffset(input: string): -1 | 1 | undefined {
+	if (input.charCodeAt(0) !== 27) return undefined;
+	const match = /^\[<(\d+);\d+;\d+[Mm]$/u.exec(input.slice(1));
+	const controlText = match?.[1];
+	if (controlText === undefined) return undefined;
+	const control = Number(controlText);
+	if (!Number.isSafeInteger(control) || control > 127 || (control & 64) === 0) return undefined;
+	return (control & 1) === 0 ? -1 : 1;
+}
+
 function cloneDelta(delta: LoadoutDelta): LoadoutDelta {
 	return { disabled: [...delta.disabled], enabled: [...delta.enabled] };
 }
@@ -590,6 +601,14 @@ export function createLoadoutPage(
 			},
 		},
 		async handleInput(input: string): Promise<boolean> {
+			const wheel = mouseWheelOffset(input);
+			if (wheel !== undefined) {
+				// The page owns the left-list viewport even while its right detail
+				// owns keyboard focus. Never send a wheel report to field selection.
+				move(wheel);
+				context.requestRender();
+				return true;
+			}
 			const activeDetail =
 				detailKey === undefined
 					? undefined
