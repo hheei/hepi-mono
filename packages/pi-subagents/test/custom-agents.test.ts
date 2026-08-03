@@ -625,20 +625,6 @@ All.`,
 		expect(agent.skills).toBe(true);
 	});
 
-	it("handles enabled: false frontmatter", () => {
-		writeAgent(
-			"disabled",
-			`---
-enabled: false
----
-`,
-		);
-
-		const result = loadCustomAgents(tmpDir);
-		const agent = result.get("disabled")!;
-		expect(agent.enabled).toBe(false);
-	});
-
 	it("parses display_name frontmatter", () => {
 		writeAgent(
 			"myagent",

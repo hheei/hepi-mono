@@ -7,10 +7,11 @@
  * the catalog. The model/thinking pair reuses the Settings cycler (`tabCycle`
  * semantics): Enter opens a single selector on the model options, Up/Down move
  * between them, Tab cycles the thinking value in place, Enter applies both and
- * saves, Esc cancels. Both lists lead with `inherit` (unset). Toggle fields
- * (enabled) persist immediately on Space. The Body row first flushes pending
- * edits, then opens the external editor and reloads after it exits. The caller
- * owns the catalog reload; this module only reports it through `onChanged` and
+ * saves, Esc cancels. Both lists lead with `inherit` (unset). Agent activation
+ * is owned by the Loadout policy under `agent:<name>`, never by this Markdown,
+ * so there is no enabled field here. The Body row first flushes pending edits,
+ * then opens the external editor and reloads after it exits. The caller owns
+ * the catalog reload; this module only reports it through `onChanged` and
  * surfaces failures through `notify`. A built-in (default) agent has no backing
  * file: its first save clones a Markdown file into `<cwd>/.pi/agents/` so the
  * override becomes a normal custom agent (and therefore editable).
@@ -34,7 +35,6 @@ const EDITABLE_AGENT_KEYS = [
 	"description",
 	"model",
 	"thinking",
-	"enabled",
 	"prompt_mode",
 ] as const;
 
@@ -54,12 +54,11 @@ const DETAIL_FIELDS: readonly DetailField[] = [
 	{ id: "description", kind: "text" },
 	{ id: "model", kind: "select" },
 	{ id: "thinking", kind: "select" },
-	{ id: "enabled", kind: "toggle" },
 	{ id: "body", kind: "action" },
 ];
 
-type FieldId = "identity" | "description" | "model" | "thinking" | "enabled" | "body";
-type FieldKind = "text" | "select" | "toggle" | "action";
+type FieldId = "identity" | "description" | "model" | "thinking" | "body";
+type FieldKind = "text" | "select" | "action";
 
 interface DetailField {
 	readonly id: FieldId;
@@ -84,7 +83,6 @@ interface AgentDraft {
 	readonly description: string;
 	readonly model: string | undefined;
 	readonly thinking: ModelThinkingLevel | undefined;
-	readonly enabled: boolean;
 	readonly promptMode: AgentConfig["promptMode"];
 	readonly builtinToolNames: readonly string[] | undefined;
 	readonly systemPrompt: string;
@@ -98,10 +96,9 @@ function draftFromConfig(config: AgentConfig): AgentDraft {
 		description: config.description,
 		model: config.model,
 		thinking: config.thinking,
-		enabled: config.enabled !== false,
 		promptMode: config.promptMode,
 		builtinToolNames: config.builtinToolNames,
-		systemPrompt: config.systemPrompt ?? "",
+		systemPrompt: config.systemPrompt,
 		source: config.source,
 		isDefault: config.isDefault === true,
 	};
@@ -119,10 +116,12 @@ export function writeAgentMarkdown(
 	values: Readonly<Record<string, string | boolean | undefined>>,
 	body: string,
 ): void {
-	const lines = [...EDITABLE_AGENT_KEYS, "tools"].map((key) => {
-		const value = yamlValue(values[key]);
-		return value === undefined ? undefined : `${key}: ${value}`;
-	}).filter((line): line is string => line !== undefined);
+	const lines = [...EDITABLE_AGENT_KEYS, "tools"]
+		.map((key) => {
+			const value = yamlValue(values[key]);
+			return value === undefined ? undefined : `${key}: ${value}`;
+		})
+		.filter((line): line is string => line !== undefined);
 	writeFileSync(path, `---\n${lines.join("\n")}\n---\n${body}`, "utf8");
 }
 
@@ -283,7 +282,6 @@ export function createAgentDetail(
 			description: draft.description,
 			model: model === "" ? undefined : model,
 			thinking: draft.thinking,
-			enabled: draft.enabled,
 			prompt_mode: draft.promptMode,
 			tools: draft.builtinToolNames?.join(", "),
 		};
@@ -315,12 +313,11 @@ export function createAgentDetail(
 				`Description: ${draft.description}`,
 				`Model: ${currentModel}`,
 				`Thinking: ${(selectingModel ? thinkingDraft : draft.thinking) ?? INHERIT}`,
-				`Enabled: ${draft.enabled ? "yes" : "no"}`,
 				`Default agent: ${draft.isDefault ? "yes" : "no"}`,
 				`Markdown: ${path ?? "unavailable"}`,
 				selectingModel
 					? "↑/↓ choose · Tab cycle thinking · Enter save · Esc cancel"
-					: "↑/↓ select · Enter edit/save · Space toggle · Esc back",
+					: "↑/↓ select · Enter edit/save · Esc back",
 			];
 			return lines.map((line, index) =>
 				truncateToWidth(`${index === selected ? "→ " : "  "}${line}`, Math.max(0, width)),
@@ -364,13 +361,6 @@ export function createAgentDetail(
 			}
 			if (matchesKey(input, Key.down)) {
 				selected = Math.min(DETAIL_FIELDS.length - 1, selected + 1);
-				return true;
-			}
-			if (matchesKey(input, Key.space)) {
-				if (field().kind === "toggle") {
-					draft = { ...draft, enabled: !draft.enabled };
-					save();
-				}
 				return true;
 			}
 			if (matchesKey(input, Key.enter)) {

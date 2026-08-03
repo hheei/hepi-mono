@@ -28,8 +28,11 @@ Description lane 切换为该 detail；窄终端把同一 detail 堆叠在列表
 `pi-subagents` 的所有 agent（含内置默认）都提供 detail：内置 agent 没有 backing 文件，首次保存时
 自动 clone 到 `<cwd>/.pi/agents/`，body 保留内置 system prompt。
 
-选中一个贡献 detail 的 agent 时，右侧 Description lane 底部显示 `↵ Edit config` 提示，表示
-`Enter` 打开该 agent 的可编辑 detail。
+编辑入口只对显式 enabled 的行开放：选中一个贡献 detail 且处于 enabled 状态的 agent 时，右侧
+Description lane 底部显示 `↵ Edit config` 提示，`Enter` 打开可编辑 detail；inherit（project scope
+未显式选择、跟随 global effective state）与 disabled 的行是只读的——不显示提示，`Enter` 不打开
+detail。agent 的激活状态完全由 Loadout policy 在 `agent:<name>` key 下决定（`Space` 切换三态并
+persist 到 settings JSON），agent Markdown 不参与启停。
 
 `pi-subagents` 的 agent detail 对 `model` 与 `thinking` 两个字段复用 Settings 的 cycler 交互
 （与 `HepiSettingTabCycle` 语义一致）：在 `model` 或 `thinking` 行按 `Enter` 打开单一选择器，
@@ -43,7 +46,7 @@ key），spawn 时回退到父会话或 profile 默认。
 独立选项保留，格式校验与宽容解析仍只在 spawn 时由 `resolveModel()` 负责。`thinking` 的
 `Tab` 循环顺序：`inherit`、`off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`。
 
-选择器打开时行数保持不变（固定 9 行）：`Model` 行就地显示当前选中的选项，`Thinking` 行值随
+选择器打开时行数保持不变（固定 7 行）：`Model` 行就地显示当前选中的选项，`Thinking` 行值随
 `Tab` 即时更新，hint 行切换为选择器说明。`Esc` 的消费顺序：detail 激活时先交给 detail
 （选择器打开时取消选择器），detail 未消费才退回列表。
 
@@ -54,7 +57,8 @@ key），spawn 时回退到父会话或 profile 默认。
 ○ Plan           ○ anthropic/claude-haiku-4-5
 ```
 
-第一 glyph 是 enabled (`●`) 或 disabled (`○`)；第二 glyph 是 thinking level，只在 profile 配置了
+第一 glyph 是 effective activation (`●` enabled / `○` disabled，由 Loadout policy 决定，与 agent
+Markdown 无关)；第二 glyph 是 thinking level，只在 profile 配置了
 thinking（frontmatter 含 `thinking`）时显示——未配置（继承）时不显示 glyph。缺少 model
 configuration 时显示 `inherit`，不猜测 provider。
 

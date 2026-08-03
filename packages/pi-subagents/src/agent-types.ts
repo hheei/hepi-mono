@@ -63,7 +63,6 @@ export function setDefaultsDisabled(b: boolean): void {
 /**
  * Register agents into the unified registry.
  * Starts with DEFAULT_AGENTS, then overlays user agents (overrides defaults with same name).
- * Disabled agents (enabled === false) are kept in the registry but excluded from spawning.
  */
 export function registerAgents(userAgents: Map<string, AgentConfig>): void {
 	agents.clear();
@@ -102,11 +101,9 @@ export function getAgentConfig(name: string): AgentConfig | undefined {
 	return key ? agents.get(key) : undefined;
 }
 
-/** Get all enabled type names (for spawning and tool descriptions). */
+/** Get all type names allowed by the Loadout activation policy (for spawning and tool descriptions). */
 export function getAvailableTypes(): string[] {
-	return [...agents.entries()]
-		.filter(([name, config]) => config.enabled !== false && isLoadoutActive(name))
-		.map(([name]) => name);
+	return [...agents.entries()].filter(([name]) => isLoadoutActive(name)).map(([name]) => name);
 }
 
 /** Get all type names including disabled (for UI listing). */
@@ -128,11 +125,11 @@ export function getUserAgentNames(): string[] {
 		.map(([name]) => name);
 }
 
-/** Check if a type is valid and enabled (case-insensitive). */
+/** Check if a type is valid and active per the Loadout policy (case-insensitive). */
 export function isValidType(type: string): boolean {
 	const key = resolveKey(type);
 	if (!key) return false;
-	return agents.get(key)?.enabled !== false && isLoadoutActive(key);
+	return isLoadoutActive(key);
 }
 
 /** Tool names required for memory management. */
@@ -159,10 +156,9 @@ export function getReadOnlyMemoryToolNames(existingToolNames: Set<string>): stri
 export function getToolNamesForType(type: string): string[] {
 	const key = resolveKey(type);
 	const raw = key ? agents.get(key) : undefined;
-	const config = raw?.enabled !== false ? raw : undefined;
 	// `undefined` (definition omitted the field) → all built-ins; an explicit `[]`
 	// (`tools: none` or a `tools:` with only `ext:` entries) → zero built-ins.
-	return config?.builtinToolNames ?? [...BUILTIN_TOOL_NAMES];
+	return raw?.builtinToolNames ?? [...BUILTIN_TOOL_NAMES];
 }
 
 /** Get config for a type (case-insensitive, returns a SubagentTypeConfig-compatible object). Falls back to general-purpose. */
@@ -177,7 +173,7 @@ export function getConfig(type: string): {
 } {
 	const key = resolveKey(type);
 	const config = key ? agents.get(key) : undefined;
-	if (config && config.enabled !== false) {
+	if (config) {
 		return {
 			displayName: config.displayName ?? config.name,
 			description: config.description,
@@ -193,7 +189,7 @@ export function getConfig(type: string): {
 
 	// Fallback for unknown/disabled types — general-purpose config
 	const gp = agents.get("general-purpose");
-	if (gp && gp.enabled !== false) {
+	if (gp) {
 		return {
 			displayName: gp.displayName ?? gp.name,
 			description: gp.description,

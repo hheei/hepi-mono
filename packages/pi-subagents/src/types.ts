@@ -61,8 +61,6 @@ export interface AgentConfig {
 	isolation?: IsolationMode;
 	/** true = this is an embedded default agent (informational) */
 	isDefault?: boolean;
-	/** false = agent is hidden from the registry */
-	enabled?: boolean;
 	/** Where this agent was loaded from */
 	source?: "default" | "project" | "global";
 }

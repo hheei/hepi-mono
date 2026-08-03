@@ -39,13 +39,17 @@ UI。这些属于独立 capability；尤其 task execution 必须 launch-and-del
 
 可编辑的 custom agent profile（`.pi/agents/`、`.agents/agents/` 与 global agents 目录中的 `.md`）在
 Loadout 的 `Agents` group 里贡献 contributor-owned detail：`Enter` 打开该 profile 的 inline frontmatter
-editor，编辑 identity、description、model、thinking、enabled 并改写文件本身的 YAML（保留 body 与未知 key），
+editor，编辑 identity、description、model、thinking 并改写文件本身的 YAML（保留 body 与未知 key），
 `Body` 行打开外部编辑器。detail 只负责 profile 文件的就地编辑，不改变 spawn、factory 或 policy 所有权。
+agent 的启停不是 frontmatter 字段：activation 由 Loadout 在 `agent:<name>` key 下管理（inherit /
+enabled / disabled 三态，`Space` 切换、persist 到 settings JSON），agent Markdown 不再解析或写入
+`enabled`。只有显式 enabled 的行提供编辑路径——inherit 与 disabled 行不显示 `↵ Edit config` 提示，
+`Enter` 也不会打开 detail。
 
 内置默认 agent（`general-purpose`、`Explore`、`Plan`）同样提供 detail；由于它们没有 backing `.md`，
 首次保存时自动在 `<cwd>/.pi/agents/` 生成一个 clone（frontmatter 携带当前编辑值，body 携带内置
-system prompt），此后它就是普通 custom agent，可继续就地编辑。想把内置 agent 提前覆盖为 custom，
-在任意 custom 目录放同名 `.md` 即可。
+system prompt，不写 `enabled` key），此后它就是普通 custom agent，可继续就地编辑。想把内置 agent
+提前覆盖为 custom，在任意 custom 目录放同名 `.md` 即可。
 
 历史 `@hheei/hepi-subagents` 仅是 policy/source evidence，revision 见
 [`references/README.md`](../../references/README.md)。其 public API、unlimited defaults、event RPC 和 UI 不是 compatibility
