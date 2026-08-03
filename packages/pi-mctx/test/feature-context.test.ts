@@ -517,8 +517,9 @@ test("search excludes runtime-injected active memory IDs", async (): Promise<voi
 	).toEqual({ kind: "invalid-exclusions" });
 });
 
-test("search reports stale when an exclusion provider rejects after request abort", async (): Promise<void> => {
+test("search reports stale when either exclusion-provider cancellation scope aborts", async (): Promise<void> => {
 	const controller = new AbortController();
+	const lifecycleController = new AbortController();
 	const lifecycle = {
 		pi: { events: {} },
 		extension: {
@@ -527,7 +528,7 @@ test("search reports stale when an exclusion provider rejects after request abor
 			modelRegistry: { find: () => model, hasConfiguredAuth: () => true },
 			ui: { notify: () => undefined },
 		} as unknown as ExtensionContext,
-		signal: new AbortController().signal,
+		signal: lifecycleController.signal,
 		resources: { add: () => undefined, cleanup: async () => [] },
 	} as unknown as ExtensionLifecycleContext;
 	expect(
@@ -554,6 +555,13 @@ test("search reports stale when an exclusion provider rejects after request abor
 	const search = feature.search({ query: "target", limit: 10 }, context, controller.signal);
 	controller.abort();
 	expect(await search).toEqual({ kind: "stale" });
+	const lifecycleSearch = feature.search(
+		{ query: "target", limit: 10 },
+		context,
+		new AbortController().signal,
+	);
+	lifecycleController.abort();
+	expect(await lifecycleSearch).toEqual({ kind: "stale" });
 });
 
 test("context hook renders only the active session's verified graph", async (): Promise<void> => {
