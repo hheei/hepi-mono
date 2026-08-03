@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -9,7 +9,9 @@ import {
 	agentMarkdownPath,
 	createAgentDetail,
 	rewriteAgentMarkdown,
+	writeAgentMarkdown,
 } from "../src/agent-detail.js";
+import { loadCustomAgents } from "../src/custom-agents.js";
 import type { AgentConfig } from "../src/types.js";
 
 const ENTER = "\r";
@@ -22,6 +24,14 @@ const BACKSPACE = "\x7f";
 const ESCAPE = "\x1b";
 
 const roots: string[] = [];
+
+const AUTH_REGISTRY = {
+	getAvailable: () => [
+		{ provider: "anthropic", id: "claude-haiku-4-5", name: "Haiku" },
+		{ provider: "cx", id: "gpt-5.6-luna", name: "Luna" },
+	],
+	hasConfiguredAuth: () => true,
+};
 
 afterEach(() => {
 	roots.splice(0).forEach((root) => {
@@ -60,13 +70,7 @@ function setup(
 	name = "auditor",
 	content?: string,
 	config = configFor(name),
-	registry = {
-		getAvailable: () => [
-			{ provider: "anthropic", id: "claude-haiku-4-5", name: "Haiku" },
-			{ provider: "cx", id: "gpt-5.6-luna", name: "Luna" },
-		],
-		hasConfiguredAuth: () => true,
-	},
+	registry = AUTH_REGISTRY,
 ) {
 	const { root, path } = makeAgent(name, content ?? defaultContent());
 	vi.spyOn(process, "cwd").mockReturnValue(root);
@@ -83,6 +87,37 @@ function setup(
 		(message) => notifications.push(message),
 	);
 	return { detail, notifications, changed, exec, registry, path };
+}
+
+function setupDefault(name = "Explore") {
+	const root = mkdtempSync(join(tmpdir(), "pi-agent-detail-"));
+	roots.push(root);
+	mkdirSync(join(root, ".pi", "agents"), { recursive: true });
+	vi.spyOn(process, "cwd").mockReturnValue(root);
+	const notifications: string[] = [];
+	const changed: string[] = [];
+	const exec = vi.fn(async () => ({ stdout: "", stderr: "", code: 0 }));
+	const pi = { exec } as unknown as ExtensionAPI;
+	const config: AgentConfig = {
+		name,
+		description: "Read-only explorer.",
+		builtinToolNames: ["read", "bash", "grep", "find", "ls"],
+		extensions: true,
+		skills: true,
+		systemPrompt: "You are a read-only explorer.\n",
+		promptMode: "replace",
+		enabled: true,
+		isDefault: true,
+	};
+	const detail = createAgentDetail(
+		pi,
+		name,
+		config,
+		AUTH_REGISTRY,
+		() => changed.push("reload"),
+		(message) => notifications.push(message),
+	);
+	return { detail, root, notifications, changed, exec };
 }
 
 function defaultContent(): string {
@@ -157,6 +192,51 @@ describe("agentMarkdownPath", () => {
 });
 
 describe("createAgentDetail", () => {
+	it("clones a built-in agent into the project agents dir on first save, preserving fields and body", async () => {
+		const { detail, root, changed, notifications } = setupDefault();
+		const path = join(root, ".pi", "agents", "Explore.md");
+		expect(existsSync(path)).toBe(false);
+		await detail.handleInput("x"); // identity edit
+		await detail.handleInput(ENTER);
+		expect(existsSync(path)).toBe(true);
+		const content = readContent(path);
+		expect(content).toContain('display_name: "x"');
+		expect(content).toContain('description: "Read-only explorer."');
+		expect(content).toContain("enabled: true");
+		expect(content).toContain('prompt_mode: "replace"');
+		expect(content).toContain("You are a read-only explorer."); // built-in body preserved
+		expect(notifications).toEqual([]);
+		expect(changed).toEqual(["reload"]);
+		// A second save rewrites the now-existing file without losing the body.
+		await detail.handleInput("y");
+		await detail.handleInput(ENTER);
+		expect(readContent(path)).toContain('display_name: "xy"');
+		expect(readContent(path)).toContain("You are a read-only explorer.");
+	});
+
+	it("clone preserves the built-in tool allowlist so read-only agents stay read-only", async () => {
+		const { detail, root } = setupDefault("Explore");
+		const path = join(root, ".pi", "agents", "Explore.md");
+		await detail.handleInput("x");
+		await detail.handleInput(ENTER);
+		expect(readContent(path)).toContain('tools: "read, bash, grep, find, ls"');
+		// A reload parses the clone back with the same allowlist, not the
+		// "all tools" default that an omitted `tools:` would produce.
+		expect(loadCustomAgents(root).get("Explore")?.builtinToolNames).toEqual([
+			"read",
+			"bash",
+			"grep",
+			"find",
+			"ls",
+		]);
+	});
+
+	it("writeAgentMarkdown omits tools when the source has no allowlist", () => {
+		const { path } = makeAgent("bare", "Body.");
+		writeAgentMarkdown(path, { enabled: true }, "Body.");
+		expect(readContent(path)).not.toContain("tools:");
+	});
+
 	it("persists an identity text edit on Enter", async () => {
 		const { detail, changed, path } = setup();
 		await detail.handleInput("x");

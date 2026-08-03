@@ -429,17 +429,15 @@ export default function (pi: ExtensionAPI) {
 			// Loadout panel keeps its selection; only the registration is replaced
 			// so the list row reflects the reloaded metadata.
 			const detail =
-				config.isDefault === true
-					? undefined
-					: (existing?.detail ??
-						createAgentDetail(
-							pi,
-							name,
-							config,
-							loadoutRuntime?.extension.modelRegistry,
-							reloadCustomAgents,
-							(message) => loadoutRuntime?.extension.ui.notify(message, "warning"),
-						));
+				existing?.detail ??
+				createAgentDetail(
+					pi,
+					name,
+					config,
+					loadoutRuntime?.extension.modelRegistry,
+					reloadCustomAgents,
+					(message) => loadoutRuntime?.extension.ui.notify(message, "warning"),
+				);
 			const dispose = registerLoadoutResource(pi, {
 				id: `agent:${name}`,
 				kind: "agent",
