@@ -54,24 +54,6 @@ test("enabled user configuration resolves pipeline defaults", async (): Promise<
 	});
 });
 
-test("accepts only user-level embedding provider configuration", async (): Promise<void> => {
-	const config = await withSettings(
-		{
-			"pi-mctx": {
-				enabled: true,
-				historian: { model: "anthropic/claude-haiku" },
-				embedding: { provider: "local", model: "Xenova/test" },
-			},
-		},
-		{ "pi-mctx": { embedding: { provider: "synapse" } } },
-		loadMctxConfiguration,
-	);
-	expect(config.embedding).toEqual({ provider: "local", model: "Xenova/test" });
-	expect(config.warnings).toContain(
-		"Ignoring project embedding: only user config may select embedding providers",
-	);
-});
-
 test("project configuration cannot enable or select the historian", async (): Promise<void> => {
 	const disabled = await withSettings(
 		{},
@@ -153,4 +135,36 @@ test("enabled configuration requires a valid historian model", async (): Promise
 		kind: "invalid",
 		reason: "historian.model must be exact provider/model",
 	});
+});
+
+test("accepts only user-owned project-relative primer configuration", async (): Promise<void> => {
+	const config = await withSettings(
+		{
+			"pi-mctx": {
+				enabled: true,
+				historian: { model: "anthropic/claude-haiku" },
+				search: { primer_path: "docs/primer.md" },
+			},
+		},
+		{ "pi-mctx": { search: { primer_path: "outside.md" } } },
+		loadMctxConfiguration,
+	);
+	expect(config.search).toEqual({ primerPath: "docs/primer.md" });
+	expect(config.warnings).toContain("Ignoring project search: primer selection is user-level only");
+
+	const invalid = await withSettings(
+		{
+			"pi-mctx": {
+				enabled: true,
+				historian: { model: "anthropic/claude-haiku" },
+				search: { primer_path: "../outside.md" },
+			},
+		},
+		{},
+		loadMctxConfiguration,
+	);
+	expect(invalid.search).toBeUndefined();
+	expect(invalid.warnings).toContain(
+		"Ignoring user search.primer_path: must be a project-relative path",
+	);
 });

@@ -10,6 +10,7 @@ import {
 	observeLoadoutToolActivation,
 	publishLoadoutToolActivation,
 	registerLoadoutInventory,
+	registerLoadoutResource,
 	registerManagedLoadoutTool,
 	setDisabledSkillKeys,
 } from "../src/index.js";
@@ -116,6 +117,30 @@ describe("Loadout core contract", () => {
 		controller.abort();
 		registerManagedLoadoutTool(h.pi, metadata("read"), { name: "read" } as never);
 		expect(seen).toEqual([[], ["grep"], []]);
+	});
+
+	test("registers and disposes a dynamic non-tool resource", () => {
+		const h = host();
+		const controller = new AbortController();
+		const seen: string[][] = [];
+		observeLoadoutInventory(h.pi, {
+			signal: controller.signal,
+			onChange(items) {
+				seen.push(items.map((item) => item.id));
+			},
+		});
+		const dispose = registerLoadoutResource(h.pi, {
+			...metadata("agent:Explore"),
+			kind: "agent",
+			label: "Explore",
+			description: "Read-only explorer.",
+			summary: "◔ cx/gpt-5.6-luna",
+			projectPrivate: false,
+		});
+		expect(seen).toEqual([[], ["agent:Explore"]]);
+		dispose();
+		dispose();
+		expect(seen).toEqual([[], ["agent:Explore"], []]);
 	});
 
 	test("publishes canonical disabled skill state and clears it", () => {

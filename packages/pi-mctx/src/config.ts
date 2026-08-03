@@ -1,3 +1,4 @@
+import { isAbsolute } from "node:path";
 import {
 	defaultPiSettingsPaths,
 	type JsonSettingsValueSource,
@@ -42,6 +43,11 @@ export interface MctxPipelineSettings {
 	readonly protectedTags: number;
 }
 
+/** User-owned optional primer path. Project settings cannot select local files to search. */
+export interface MctxSearchSettings {
+	readonly primerPath?: string;
+}
+
 export type MctxPipelineState =
 	| { readonly kind: "disabled" }
 	| { readonly kind: "invalid"; readonly reason: string }
@@ -58,13 +64,39 @@ export interface MctxConfiguration {
 	readonly merged: Readonly<Record<string, unknown>>;
 	sourceOf(path: readonly string[]): JsonSettingsValueSource | undefined;
 	readonly pipeline: MctxPipelineState;
-	/** User-authorized opaque provider config, validated by pi-ext-embed on acquisition. */
-	readonly embedding?: Readonly<Record<string, unknown>>;
+	readonly search?: MctxSearchSettings;
 	readonly warnings: readonly string[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseSearchSettings(
+	global: Readonly<Record<string, unknown>>,
+	project: Readonly<Record<string, unknown>>,
+	warnings: string[],
+): MctxSearchSettings | undefined {
+	if (project.search !== undefined)
+		warnings.push("Ignoring project search: primer selection is user-level only");
+	const search = global.search;
+	if (search === undefined) return undefined;
+	if (!isRecord(search)) {
+		warnings.push("Ignoring user search: must be an object");
+		return undefined;
+	}
+	const primerPath = search.primer_path;
+	if (primerPath === undefined) return undefined;
+	if (
+		typeof primerPath !== "string" ||
+		!primerPath.trim() ||
+		isAbsolute(primerPath) ||
+		primerPath.split(/[\\/]+/u).some((part) => part === "..")
+	) {
+		warnings.push("Ignoring user search.primer_path: must be a project-relative path");
+		return undefined;
+	}
+	return { primerPath };
 }
 
 function validModelRef(value: string): boolean {
@@ -280,18 +312,14 @@ export async function loadMctxConfiguration(
 	});
 	const { global, project } = settings;
 	const warnings: string[] = [];
-	const embedding = global.embedding;
-	if (project.embedding !== undefined)
-		warnings.push("Ignoring project embedding: only user config may select embedding providers");
-	if (embedding !== undefined && !isRecord(embedding))
-		warnings.push("Ignoring user embedding: must be an object");
+	const search = parseSearchSettings(global, project, warnings);
 	return {
 		global,
 		project,
 		merged: settings.merged,
 		sourceOf: settings.sourceOf,
 		pipeline: resolvePipeline(global, project, warnings),
-		...(embedding !== undefined && isRecord(embedding) ? { embedding } : {}),
+		...(search === undefined ? {} : { search }),
 		warnings,
 	};
 }

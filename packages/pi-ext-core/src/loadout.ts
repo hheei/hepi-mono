@@ -19,6 +19,23 @@ export interface LoadoutToolMetadata {
 	readonly defaultActive: boolean;
 }
 
+/**
+ * A lifecycle-owned non-tool resource rendered and activated by Loadout.
+ *
+ * Core transports this declaration and its effective activation only. The contributor owns
+ * resource policy and any future detail UI; Loadout owns persisted selection and presentation.
+ */
+export interface LoadoutResourceMetadata extends LoadoutToolMetadata {
+	readonly kind: string;
+	readonly label: string;
+	readonly description: string;
+	readonly summary: string;
+	readonly projectPrivate: boolean;
+	readonly owner: string;
+}
+
+export type LoadoutInventoryItem = LoadoutToolMetadata | LoadoutResourceMetadata;
+
 /** A lifecycle-bound declaration for a tool Pi already registers elsewhere. */
 export interface LoadoutInventoryRegistration extends LoadoutToolMetadata {}
 
@@ -35,7 +52,7 @@ export interface ManagedLoadoutToolRegistration extends LoadoutToolMetadata {
 export interface LoadoutInventoryObserver {
 	/** Aborting the signal removes this observer; `onChange` receives an immediate snapshot. */
 	readonly signal: AbortSignal;
-	onChange(items: readonly LoadoutToolMetadata[]): void;
+	onChange(items: readonly LoadoutInventoryItem[]): void;
 }
 
 /** The resolved name-level activation state published by the Loadout policy owner. */
@@ -51,7 +68,7 @@ export interface LoadoutToolActivationObserver {
 }
 
 interface RuntimeLoadoutState {
-	readonly registrations: Map<string, LoadoutToolMetadata>;
+	readonly registrations: Map<string, LoadoutInventoryItem>;
 	readonly managed: Map<string, { readonly owner: string; readonly runner: object }>;
 	readonly observers: Set<LoadoutInventoryObserver>;
 	activation: LoadoutToolActivationSnapshot | undefined;
@@ -93,11 +110,23 @@ function validateMetadata(metadata: LoadoutToolMetadata): void {
 	}
 }
 
+function validateResourceMetadata(metadata: LoadoutResourceMetadata): void {
+	validateMetadata(metadata);
+	if (!metadata.kind.trim())
+		throw new Error(`Loadout resource kind must not be empty: ${metadata.id}`);
+	if (!metadata.id.startsWith(`${metadata.kind}:`))
+		throw new Error(`Loadout resource id must start with ${metadata.kind}: ${metadata.id}`);
+	if (!metadata.label.trim())
+		throw new Error(`Loadout resource label must not be empty: ${metadata.id}`);
+	if (!metadata.owner.trim())
+		throw new Error(`Loadout resource owner must not be empty: ${metadata.id}`);
+}
+
 function validateManagedOwner(owner: string): void {
 	if (!owner.trim()) throw new Error("Loadout managed tool owner must not be empty");
 }
 
-function snapshot(state: RuntimeLoadoutState): readonly LoadoutToolMetadata[] {
+function snapshot(state: RuntimeLoadoutState): readonly LoadoutInventoryItem[] {
 	return [...state.registrations.values()].sort((left, right) => left.id.localeCompare(right.id));
 }
 
@@ -114,13 +143,38 @@ function notifyActivation(state: RuntimeLoadoutState): void {
 	}
 }
 
-function registerMetadata(pi: RuntimeHost, metadata: LoadoutToolMetadata): void {
+function registerMetadata(pi: RuntimeHost, metadata: LoadoutInventoryItem): void {
 	validateMetadata(metadata);
 	const state = stateFor(pi);
 	if (state.registrations.has(metadata.id))
 		throw new Error(`Loadout tool id already registered: ${metadata.id}`);
 	state.registrations.set(metadata.id, metadata);
 	notify(state);
+}
+
+/**
+ * Registers a dynamic non-tool resource. The returned disposer removes precisely this declaration;
+ * callers retain it and release it on discovery changes and lifecycle shutdown.
+ */
+export function registerLoadoutResource(
+	pi: ExtensionAPI,
+	registration: LoadoutResourceMetadata,
+): () => void {
+	validateResourceMetadata(registration);
+	const state = stateFor(pi);
+	if (state.registrations.has(registration.id))
+		throw new Error(`Loadout resource id already registered: ${registration.id}`);
+	state.registrations.set(registration.id, registration);
+	notify(state);
+	let active = true;
+	return () => {
+		if (!active) return;
+		active = false;
+		const current = state.registrations.get(registration.id);
+		if (current !== registration) return;
+		state.registrations.delete(registration.id);
+		notify(state);
+	};
 }
 
 /** Registers an existing tool as a Loadout inventory item for this lifecycle. */

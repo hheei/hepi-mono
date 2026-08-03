@@ -5,8 +5,11 @@
 已创建独立、可安装的 `@hheei/pi-mctx` package。默认 disabled，保持 Pi native behavior；启用且 historian
 configuration 有效时，它在 `session_start` 解析 runtime、打开/migrate MCTX SQLite store，并绑定当前 project/session
 partition。已启用 pipeline 在 `turn_end` 可触发 historian Completion；已验证 compartment graph 在 `context`
-pass 替换其 covered raw history。`ctx_reduce` 等 MCTX tool 只能在 active MCTX session 中执行；inactive session 返回
-明确 tool error。它仍不注册 command、status 或 child inheritance Service。
+pass 替换其 covered raw history。Pi host 会 clone context messages，因此 transform 对完整 live branch 做唯一的结构匹配；
+零个或多个候选都 fail open，绝不替换。`ctx_reduce` 等 MCTX tool 只能在 active MCTX session 中执行；inactive session 返回
+明确 tool error。它仍不注册 command 或 status。active runtime 还会发布 Parent compressed-context Service：
+`pi-subagents` 在 `inherit_context: true` 时读取已验证 compartments 与 live tail；能力缺失、过期或
+无效时保持其 Pi-native text fallback。
 
 ### Loadout tool registration
 
@@ -14,6 +17,98 @@ pass 替换其 covered raw history。`ctx_reduce` 等 MCTX tool 只能在 active
 `pi-ext-core` 的 managed Loadout registration 以 `Magic Context` group 发布：core 负责 Pi static registration、Loadout
 inventory 和 reload 时同 owner replacement；`pi-mctx` 保留参数校验、MCTX runtime dispatch、inactive fallback 与所有
 session/store ownership。缺少 `pi-loadout` 时工具仍可用；Loadout 只消费 inventory 并在安装时展示这些工具。
+
+## Parent compressed-context Service
+
+### 目标
+
+启用 MCTX 的 parent 启动 child subagent 时，child 应继承已经验证的 compartment 和未压缩 tail，而非重新展开已覆盖
+raw history。没有可用 MCTX 投影时，行为必须完全回退为 `pi-subagents` 现有的 Pi native inheritance 文本。
+
+### 边界
+
+- **Pi host** 持有 parent `ExtensionContext`、session branch 和 child session 创建。
+- **ext-core** 仅导出 runtime-scoped `ParentContextProjectionService` capability/key；它不解释 MCTX record、SQLite 或
+  prompt policy。
+- **`pi-mctx` concrete extension** 在 active session lifecycle 内提供 capability；`prepare({ purpose, signal })` 每次重新验证
+  current branch 和 compartment graph，并返回 `unavailable`、`stale` 或 purpose-specific `result`。
+- **`pi-subagents` concrete extension** 只在 `inherit_context: true` 时消费 inheritance result；不会 import/read MCTX SQLite。
+  capability 缺失、`unavailable` 或 `stale` 时调用既有 `buildParentContext()`；已选择 result 的异常必须显式失败，不能转 native fallback。
+- **Surface/widget** 不参与此路径；没有新 UI、timer、background work 或 persistent cross-session state。
+
+```text
+parent Agent tool
+      │ inherit_context
+      ▼
+pi-subagents ── prepare(inheritance) ──► ext-core capability ──► active pi-mctx
+      │ unavailable/stale                                          │ validated preamble
+      ├── buildParentContext() ◄────────────────────────────┘
+      ▼
+child initialMessage = inherited preamble + task
+```
+
+### 最小公开 seam 与测试
+
+ext-core 的 service key 固定为 `@hheei/pi-mctx/context-projection@1`。inheritance result 的 payload 已是完整、
+model-facing preamble；consumer 只拼接 task，不解析、缓存或修改它。provider 必须以当前 `sessionManager` identity 绑定请求，
+不能为 fork、reload 前 runtime 或其他 session 返回内容。
+
+focused tests：active provider 返回 compartment + live tail；abort/stale graph/错误 session 返回明确状态；`pi-subagents`
+使用 service 输出；provider 缺失/unavailable/stale 时 byte-for-byte 保持现有 fallback；已选择 result 的错误会终止调用。
+
+## Handoff/compaction integration
+
+`/handoff` 在 `waitForIdle()` 后向 provider prepare handoff plan。absence、unavailable 或 stale 才执行 Pi native compact
+并写入 native summary。已选择 plan 则直接创建 replacement session，绝不调用 native compact 或写入 `hepi-handoff`；
+`install(destination, signal)` 在 setup 中完成 pending `ctx_reduce` replay、destination binding、hidden-entry ordering 与
+same-destination idempotency。plan 的 prepare/install error 必须显示 operation error，不能改走 native fallback。新 session
+也不会继承旧 session runtime 或 lease。
+
+## Composite lexical search（首版）
+
+`ctx_search` 只能在五个 source 都有明确索引、privacy、retention 与 exclusion contract 后注册；不得以 SQL
+`LIKE` 或当前 session 的部分数据占用同名 tool。Pi host 只传入 tool request 与 active `ExtensionContext`；
+`pi-mctx` 负责 source admission、bounded retrieval、去重与结果渲染。首版必须在同一五-source set 上执行
+deterministic lexical ranking，不启动 backfill、timer 或网络请求。它不是 SQL `LIKE` table scan；每个 source 先在
+自己的 privacy boundary 内收集 bounded snapshot，再统一 token ranking、stable source/identity tie-break、exact dedupe 并渲染
+hit。dedupe 先按 source/identity 折叠，再按 exact source-text content hash 折叠；保留 score 更高、再按 source/identity
+更靠前的 hit，不做 fuzzy collapse。
+
+```text
+ctx_search request
+      ↓
+pi-mctx validates active project/session and exclusions
+      ↓
+memory | note | retained history | Git | primer adapters
+      ↓
+lexical ranking → bounded rendered hits
+```
+
+候选 source contract：
+
+- **memory**：只取当前 project 的 active record；archive 立即不可检索。identity 是 project/memory ID/revision/content
+  hash。`MCTX_MEMORY_EXCLUSION_SERVICE` 是 ext-core runtime-scoped exclusion seam：memory injection owner 按
+  project/session 返回已见 ID，`ctx_search` 每次调用前读取并排除它们。service 缺席明确表示本 session 没有 memory
+  injector；provider throw、返回非数组或非法 ID 时 search tool 返回 error，不能以未过滤结果 fail open。
+- **note**：只取当前 session 的 active note；identity 是 session/note ID/revision/content hash。hit 只显示同 session
+  的 validated anchor，不能泄露另一 session note。
+- **history**：project 内 retained tag source 可跨 session 查询；identity 是 project/session/tag/entry binding/content hash。
+  fork 复制出的 source 按各自 partition 独立保留。新增 user-owned `ctx_history` 的 list/purge action，purge 只删除
+  caller 明确指定的非 active project session，绝不删除 live tag ledger；没有自动 TTL。
+- **Git**：只索引当前 project identity 的 committed hash、subject、author、timestamp 与 body；不读 diff、working tree、
+  refs 外部仓库或 remote。每次 explicit search 以 HEAD fingerprint 刷新 bounded candidate snapshot，child process 归 tool
+  abort signal 所有；Git failure 只移除该 source。
+- **primer**：只读 user-level `pi-mctx.search.primer_path` 指定的 project-relative regular text file；缺失、越界、binary 或
+  read failure 只移除该 source。identity 是 normalized path/content hash；不自动发现文件。
+
+ranking 对每次 bounded source snapshot 先取 lexical 候选，以 stable source/identity 顺序打破 tie。embedding semantic
+rerank 是后续独立 slice：它只能重排同一已 admitted candidate set，不能改变 source、privacy、retention 或 exclusion，
+也不复用 memory embedding ledger 作为跨 source index。
+
+首版 public tool 为 `ctx_search`：`query` 必填；`sources` 可选为 `memory`、`note`、`history`、`git`、`primer`
+的无重复子集；`limit` 默认 20、最大 50。结果只返回 bounded hit 的 source、stable identity、title 与 excerpt。active
+session 的 live history 永不作为 history source；当前 MCTX 不自动注入 memory，未来 injection owner 必须在自己的
+runtime 中提供 `MCTX_MEMORY_EXCLUSION_SERVICE`，不能把该 policy 交给 model 参数。
 
 ## 完整迁移目标
 
@@ -42,17 +137,17 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
   empty/existing child partition，不能阻止 session start 或读取 parent SQLite state。
 - [x] **Pipeline diagnostics**：为 cooldown-eligible historian failure 提供 model-invisible native notification
   和 structured log。
-- [ ] **Host verification**：已在真实 Pi print-mode host 用独立 agent/session state、explicit built extension 和 active
-  MCTX config 验证 activation、`ctx_memory` tool registration/dispatch 与 SQLite write。仍须验证 context transform、fork、
-  reload 与 historian failure 的可见行为；`tui-replay` 不能代替这些 host lifecycle cases。
-- [ ] **Parent-to-child compressed-context Service**：`pi-mctx` 用 ext-core Service 发布 opaque、validated parent
-  history projection；`pi-subagents` 消费它组装 child prompt。缺席/过期 fallback 为 Pi native inheritance，consumer
-  不读取 MCTX SQLite。当前被缺失的独立 `pi-subagents` consumer 阻塞；在 consumer 的 installable runtime、prompt
-  assembly 与 fallback test 存在前，不发布无可见行为的 provider-only Service。
-- [ ] **Handoff/compaction integration**：定义 parent handoff 如何使用 compartment graph、protected tail、pending
-  reductions 与 failure fallback；它必须和 Pi native compact 共存，不能把 MCTX summary 当 Pi session canonical source。
-  当前被缺失的 `hepi-basics` `/handoff` command owner 阻塞；不得由 `pi-mctx` 越界注册 command。恢复并验证 Pi-native
-  owner 后再设计 MCTX bridge。
+- [x] **Host verification**：以 `packages/pi-mctx/test/host-lifecycle.node.ts` 自有的 hermetic headless Pi fixture 加载真实
+  `DefaultResourceLoader`、`AgentSession` 和 MCTX extension；deterministic faux historian 必须验证 context transform、fork、
+  reload 与 historian failure notification/diagnostic。执行 `bun run test:host`，先 build dist 后以 Node `node:test` 运行，
+  因为 Bun 不实现 production `node:sqlite`。不以网络模型替代四项严格 lifecycle assertion；`tui-replay` 不能代替这些
+  host lifecycle cases。
+- [x] **Parent-to-child compressed-context Service**：`pi-mctx` 用 ext-core Service 发布 opaque、validated parent
+  history projection；`pi-subagents` 只在 `inherit_context: true` 时消费并组装 child prompt。缺席、过期、失效或空值都
+  byte-for-byte 保持 Pi native inheritance fallback，consumer 不读取 MCTX SQLite。
+- [x] **Handoff projection integration**：provider absence、unavailable 或 stale 使用 native compact；selected MCTX plan
+  直接创建 replacement session，不调用 compact 或写 native summary。provider install 写入 opaque non-displayed entry，
+  负责 pending drop replay、destination binding 与 idempotency。
 - [x] **Session-history tag ledger 与 transform**：建立 `N -> immutable Pi identity` 的 session-local ledger、immutable
   source retention、protected tail、pending/deferred drop、branch/reload/fork proof 和 marker projection；不能用 raw message
   dump 或即时删除替代。
@@ -62,16 +157,19 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
   status tag、对 valid selector partial output，并明确列出 rejected selector。`offset`/`limit` 作用于 tag-order
   rendered result，default/max 均为 30,000 characters。它不读取别的 session/fork partition，不修改 tag status，也不把
   source 自动重新注入 model context。
+- [x] **`ctx_history`**：显式列出或清理 current project 内非 active session 的 retained history tag source。
+  `list` 默认排除当前 session，可按旧 `session_id` 过滤并分页；`purge` 必须提供旧 `session_id`，store 层拒绝删除
+  current session live tag ledger，且不提供 project-wide purge。它不是 search source 注入，也不读取其他 project。
 - [x] **Durable memory**：迁移 `ctx_memory` 的 project scope、category、archive、privacy、source provenance 与
   cross-session visibility。它是 user-level durable state，不复用旧 SQLite schema，也不让 project config 或 child session
   取得写权限。
 - [x] **Durable notes**：`ctx_note` 以 session-local record CAS 保存 anchor、read/update/dismiss 与 provenance；smart
 	condition 仅持久化为 pending text。Dreamer-dependent evaluation、surface trigger 与 stale cleanup 必须等 Dreamer
 	feature，不把 cron/polling 偷渡进 tool。
-- [ ] **Composite search**：最后迁移 `ctx_search`；它跨 memory、note、session history、git commit 与 primer，必须在
-  各 source 有验证过的 index/privacy/retention contract 后才暴露。fixed baseline 使用 unified semantic search，并过滤
-  injected memory/live tail；current MCTX 没有 source index、cross-session history、Git/primer、privacy/retention/ranking
-  contract，故不注册 partial 同名 tool。
+- [x] **Composite lexical search**：已迁移 `ctx_search` 的五-source lexical retrieval；它跨 memory、note、session
+  history、git commit 与 primer，并过滤 active-session live history 与 `MCTX_MEMORY_EXCLUSION_SERVICE` 提供的已见
+  memory。每个 source 都必须有验证过的 index/privacy/retention contract；不以 SQL `LIKE` 或部分 source 占用同名 tool。
+  semantic rerank 另行迁移，且只能重排同一 admitted candidate set。
 - [ ] **Todo ownership decision**：legacy `todowrite`/`/todos` 是 session task UI，不迁入 `pi-mctx` 或重复注册。确认
   当前 Todo owner 的 behavioral coverage 与 legacy migration boundary；Pi 的 first-registered tool rule 禁止以新 MCTX
   tool 覆盖旧 aggregate。

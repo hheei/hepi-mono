@@ -6,11 +6,23 @@ import {
 	type SessionEntry,
 	sessionEntryToContextMessages,
 } from "@earendil-works/pi-coding-agent";
-import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
+import {
+	type ExtensionLifecycleContext,
+	MCTX_MEMORY_EXCLUSION_SERVICE,
+	provideService,
+} from "@hheei/pi-ext-core";
 import type { MctxConfiguration } from "../src/config.js";
 import { createMctxFeature } from "../src/feature.js";
+import type { MctxSearchCandidate } from "../src/search.js";
 import { createMctxSourceSnapshot } from "../src/source-snapshot.js";
-import type { MctxCompartment, MctxHistoryTag, MctxNote, MctxStore } from "../src/store.js";
+import type {
+	MctxCompartment,
+	MctxHistoryTag,
+	MctxMemory,
+	MctxNote,
+	MctxRetainedHistoryTag,
+	MctxStore,
+} from "../src/store.js";
 
 const model = { api: "test", provider: "anthropic", id: "claude-haiku" } as Model<Api>;
 
@@ -65,6 +77,7 @@ function compartment(): MctxCompartment {
 function store(): MctxStore {
 	const historyTags: MctxHistoryTag[] = [];
 	const notes: MctxNote[] = [];
+	const handoffDestinations = new Set<string>();
 	return {
 		path: "/store",
 		getOrCreatePartition: () => ({
@@ -73,6 +86,21 @@ function store(): MctxStore {
 			revision: 0,
 		}),
 		findPartition: () => undefined,
+		isHandoffInstalled: (_parent, destinationSessionId) =>
+			handoffDestinations.has(destinationSessionId),
+		reserveHandoffInstallation: (_parent, destinationSessionId) => {
+			if (handoffDestinations.has(destinationSessionId)) return false;
+			handoffDestinations.add(destinationSessionId);
+			return {
+				bindingId: `test-${destinationSessionId}`,
+				ownerToken: `owner-${destinationSessionId}`,
+			};
+		},
+		recoverHandoffInstallation: () => true,
+		markHandoffInstalled: () => undefined,
+		clearHandoffInstallation: (reservation) => {
+			handoffDestinations.delete(reservation.bindingId.slice(5));
+		},
 		initializeForkPartition: () => ({
 			kind: "copied",
 			partition: { projectIdentity: "git:project", sessionId: "session-1", revision: 0 },
@@ -105,10 +133,9 @@ function store(): MctxStore {
 			throw new Error("not used");
 		},
 		getMemories: () => [],
+		listActiveMemories: () => [],
 		updateMemory: () => undefined,
 		archiveMemory: () => undefined,
-		loadMemoryEmbeddingCandidate: () => undefined,
-		persistMemoryEmbedding: () => false,
 		writeNote: (input) => {
 			const note: MctxNote = {
 				projectIdentity: input.projectIdentity,
@@ -129,6 +156,21 @@ function store(): MctxStore {
 		},
 		readNotes: (_projectIdentity, sessionId, status = "active") =>
 			notes.filter((note) => note.sessionId === sessionId && note.status === status),
+		listActiveNotes: (_projectIdentity, sessionId) =>
+			notes.filter((note) => note.sessionId === sessionId && note.status === "active"),
+		listRetainedHistoryTags: (input) =>
+			historyTags
+				.filter(() =>
+					input.sessionId !== undefined
+						? input.sessionId !== input.activeSessionId && input.sessionId === "session-1"
+						: input.activeSessionId !== "session-1",
+				)
+				.slice(input.offset ?? 0, (input.offset ?? 0) + input.limit)
+				.map((tag) => ({ ...tag, projectIdentity: "git:project", sessionId: "session-1" })),
+		purgeRetainedHistory: (input) => {
+			if (input.sessionId === input.activeSessionId) throw new Error("active history");
+			return historyTags.length;
+		},
 		updateNote: (input) => {
 			const index = notes.findIndex(
 				(note) =>
@@ -270,6 +312,211 @@ test("notes persist resolved current-branch tag identity and stay session-local"
 	).toEqual({ kind: "inactive" });
 });
 
+test("history lists and purges only non-active retained sessions", async (): Promise<void> => {
+	const retained: MctxRetainedHistoryTag[] = [
+		{
+			projectIdentity: "git:project",
+			sessionId: "old-session",
+			tagNumber: 1,
+			kind: "message",
+			entryId: "old-entry",
+			source: "old retained source",
+			status: "active",
+		},
+	];
+	let purgedSession: string | undefined;
+	const lifecycle = {
+		pi: { events: {} },
+		extension: {
+			cwd: "/project",
+			sessionManager: { getSessionId: () => "session-1" },
+			modelRegistry: { find: () => model, hasConfiguredAuth: () => true },
+			ui: { notify: () => undefined },
+		} as unknown as ExtensionContext,
+		signal: new AbortController().signal,
+		resources: { add: () => undefined, cleanup: async () => [] },
+	} as unknown as ExtensionLifecycleContext;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => ({
+			...store(),
+			listRetainedHistoryTags: (input) =>
+				input.sessionId === "session-1" ? [] : retained.slice(input.offset ?? 0, input.limit),
+			purgeRetainedHistory: (input) => {
+				if (input.sessionId === input.activeSessionId) throw new Error("active history");
+				purgedSession = input.sessionId;
+				return 1;
+			},
+		}),
+		resolveProjectIdentity: async () => "git:project",
+	});
+	await feature.start(lifecycle);
+	const context = {
+		sessionManager: { getSessionId: () => "session-1", getBranch: () => entries },
+	} as unknown as ExtensionContext;
+	expect(feature.history({ action: "list", limit: 10 }, context)).toMatchObject({
+		kind: "history",
+		tags: [{ sessionId: "old-session", source: "old retained source" }],
+	});
+	expect(feature.history({ action: "list", sessionId: "session-1", limit: 10 }, context)).toEqual({
+		kind: "history",
+		tags: [],
+	});
+	expect(feature.history({ action: "purge", sessionId: "session-1" }, context)).toEqual({
+		kind: "active-session",
+	});
+	expect(feature.history({ action: "purge", sessionId: "old-session" }, context)).toEqual({
+		kind: "purged",
+		deleted: 1,
+	});
+	expect(purgedSession).toBe("old-session");
+});
+
+test("search admits bounded five-source snapshots without current-session history", async (): Promise<void> => {
+	const memory: MctxMemory = {
+		projectIdentity: "git:project",
+		memoryId: 1,
+		category: "ARCHITECTURE",
+		content: "target memory",
+		status: "active",
+		revision: 1,
+		createdSessionId: "session-1",
+		updatedSessionId: "session-1",
+		createdAtMs: 0,
+		updatedAtMs: 0,
+	};
+	const note: MctxNote = {
+		projectIdentity: "git:project",
+		sessionId: "session-1",
+		noteId: 1,
+		content: "target note",
+		status: "active",
+		anchor: { entryId: "assistant", kind: "message" },
+		revision: 1,
+		createdSessionId: "session-1",
+		updatedSessionId: "session-1",
+		createdAtMs: 0,
+		updatedAtMs: 0,
+	};
+	const history: MctxRetainedHistoryTag = {
+		projectIdentity: "git:project",
+		sessionId: "old-session",
+		tagNumber: 1,
+		kind: "message",
+		entryId: "old-entry",
+		source: "target retained history",
+		status: "dropped",
+	};
+	let externalInput:
+		| {
+				readonly sources: readonly string[];
+				readonly signal: AbortSignal;
+		  }
+		| undefined;
+	const lifecycle = {
+		pi: { events: {} },
+		extension: {
+			cwd: "/project",
+			sessionManager: { getSessionId: () => "session-1" },
+			modelRegistry: { find: () => model, hasConfiguredAuth: () => true },
+			ui: { notify: () => undefined },
+		} as unknown as ExtensionContext,
+		signal: new AbortController().signal,
+		resources: { add: () => undefined, cleanup: async () => [] },
+	} as unknown as ExtensionLifecycleContext;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => ({
+			...store(),
+			listActiveMemories: () => [memory],
+			listActiveNotes: () => [note],
+			listRetainedHistoryTags: (input) => {
+				expect(input.activeSessionId).toBe("session-1");
+				return [history];
+			},
+		}),
+		resolveProjectIdentity: async () => "git:project",
+		collectExternalSearchCandidates: async (input): Promise<readonly MctxSearchCandidate[]> => {
+			externalInput = input;
+			return [
+				{ source: "git", id: "git:1", title: "Git", text: "target commit" },
+				{ source: "primer", id: "primer:1", title: "Primer", text: "target primer" },
+			];
+		},
+	});
+	await feature.start(lifecycle);
+	const context = {
+		sessionManager: { getSessionId: () => "session-1", getBranch: () => entries },
+	} as unknown as ExtensionContext;
+	const result = await feature.search(
+		{ query: "target", limit: 10 },
+		context,
+		new AbortController().signal,
+	);
+	expect(result).toMatchObject({
+		kind: "hits",
+		hits: [
+			{ source: "memory" },
+			{ source: "note" },
+			{ source: "history", title: "History old-session §1§ (message)" },
+			{ source: "git" },
+			{ source: "primer" },
+		],
+	});
+	expect(externalInput?.sources).toEqual(["memory", "note", "history", "git", "primer"]);
+});
+
+test("search excludes runtime-injected active memory IDs", async (): Promise<void> => {
+	const memory: MctxMemory = {
+		projectIdentity: "git:project",
+		memoryId: 1,
+		category: "ARCHITECTURE",
+		content: "target memory",
+		status: "active",
+		revision: 1,
+		createdSessionId: "session-1",
+		updatedSessionId: "session-1",
+		createdAtMs: 0,
+		updatedAtMs: 0,
+	};
+	let excludedIds: readonly number[] = [1];
+	const lifecycle = {
+		pi: { events: {} },
+		extension: {
+			cwd: "/project",
+			sessionManager: { getSessionId: () => "session-1" },
+			modelRegistry: { find: () => model, hasConfiguredAuth: () => true },
+			ui: { notify: () => undefined },
+		} as unknown as ExtensionContext,
+		signal: new AbortController().signal,
+		resources: { add: () => undefined, cleanup: async () => [] },
+	} as unknown as ExtensionLifecycleContext;
+	expect(
+		provideService(lifecycle, MCTX_MEMORY_EXCLUSION_SERVICE, {
+			excludeMemoryIds: (input) => {
+				expect(input).toMatchObject({ projectIdentity: "git:project", sessionId: "session-1" });
+				return excludedIds;
+			},
+		}),
+	).toBeTrue();
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => ({ ...store(), listActiveMemories: () => [memory] }),
+		resolveProjectIdentity: async () => "git:project",
+	});
+	await feature.start(lifecycle);
+	const context = {
+		sessionManager: { getSessionId: () => "session-1", getBranch: () => entries },
+	} as unknown as ExtensionContext;
+	expect(
+		await feature.search({ query: "target", limit: 10 }, context, new AbortController().signal),
+	).toEqual({ kind: "hits", hits: [] });
+	excludedIds = [0];
+	expect(
+		await feature.search({ query: "target", limit: 10 }, context, new AbortController().signal),
+	).toEqual({ kind: "invalid-exclusions" });
+});
+
 test("context hook renders only the active session's verified graph", async (): Promise<void> => {
 	const lifecycle = {
 		pi: { events: {} },
@@ -309,6 +556,174 @@ test("context hook renders only the active session's verified graph", async (): 
 			sessionManager: { ...context.sessionManager, getSessionId: () => "other" },
 		}),
 	).toBeUndefined();
+});
+
+test("parent projection exposes verified compartments and only the live tail", async (): Promise<void> => {
+	const branch = [...entries, entry("tail", "user", "live tail")];
+	const installedDestinations = new Set<string>();
+	let reserveFailure = false;
+	const lifecycle = {
+		pi: { events: {} },
+		extension: {
+			cwd: "/project",
+			sessionManager: { getSessionId: () => "session-1", getBranch: () => branch },
+			modelRegistry: { find: () => model, hasConfiguredAuth: () => true },
+			ui: { notify: () => undefined },
+		} as unknown as ExtensionContext,
+		signal: new AbortController().signal,
+		resources: { add: () => undefined, cleanup: async () => [] },
+	} as unknown as ExtensionLifecycleContext;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => ({
+			...store(),
+			isHandoffInstalled: (_parent, destination) => installedDestinations.has(destination),
+			reserveHandoffInstallation: (_parent, destination) => {
+				if (reserveFailure) throw new Error("database unavailable");
+				if (installedDestinations.has(destination)) return false;
+				installedDestinations.add(destination);
+				return { bindingId: `test-${destination}`, ownerToken: `owner-${destination}` };
+			},
+			recoverHandoffInstallation: () => true,
+			markHandoffInstalled: () => undefined,
+			clearHandoffInstallation: (reservation) => {
+				installedDestinations.delete(reservation.bindingId.slice(5));
+			},
+			findPartition: () => ({
+				projectIdentity: "git:project",
+				sessionId: "session-1",
+				revision: 0,
+			}),
+		}),
+		resolveProjectIdentity: async () => "git:project",
+	});
+	await feature.start(lifecycle);
+	const injected: string[] = [];
+	const context = {
+		sessionManager: {
+			getSessionId: () => "replacement-session",
+			getBranch: () => branch,
+			appendCustomMessageEntry: (_type: string, content: string, _display: boolean) =>
+				injected.push(content),
+		},
+	} as unknown as ExtensionContext;
+	const projection = await feature.prepare({
+		purpose: "inheritance",
+		signal: new AbortController().signal,
+	});
+	expect(projection).toMatchObject({ kind: "result", purpose: "inheritance" });
+	if (projection.kind === "result" && projection.purpose === "inheritance") {
+		expect(projection.payload).toContain("[MCTX m0]: summary");
+		expect(projection.payload).toContain("[User]: live tail");
+		expect(projection.payload).not.toContain("old request");
+	}
+	const handoff = await feature.prepare({
+		purpose: "handoff",
+		signal: new AbortController().signal,
+	});
+	expect(handoff.kind).toBe("result");
+	expect(
+		await feature.prepare({ purpose: "handoff", signal: new AbortController().signal }),
+	).toEqual({ kind: "stale" });
+	if (handoff.kind === "result" && handoff.purpose === "handoff") {
+		await handoff.install(context.sessionManager, new AbortController().signal);
+		await handoff.install(
+			{
+				getSessionId: () => "replacement-session",
+				getBranch: () => [],
+				appendCustomMessageEntry: (_type: string, content: string) => injected.push(content),
+			},
+			new AbortController().signal,
+		);
+	}
+	expect(injected).toHaveLength(1);
+
+	// Pi may cancel `newSession()` before it invokes the selected plan's setup.
+	// Aborting prepare's operation must release the in-memory preparation guard.
+	const cancelledPreparation = new AbortController();
+	const cancelledHandoff = await feature.prepare({
+		purpose: "handoff",
+		signal: cancelledPreparation.signal,
+	});
+	expect(cancelledHandoff).toMatchObject({ kind: "result", purpose: "handoff" });
+	cancelledPreparation.abort();
+	const retriedHandoff = await feature.prepare({
+		purpose: "handoff",
+		signal: new AbortController().signal,
+	});
+	expect(retriedHandoff).toMatchObject({ kind: "result", purpose: "handoff" });
+	if (retriedHandoff.kind === "result" && retriedHandoff.purpose === "handoff")
+		await retriedHandoff.install(
+			{
+				getSessionId: () => "cancelled-then-retried",
+				getBranch: () => [],
+				appendCustomMessageEntry: (_type: string, content: string) => injected.push(content),
+			},
+			new AbortController().signal,
+		);
+
+	reserveFailure = true;
+	const markFailure = await feature.prepare({
+		purpose: "handoff",
+		signal: new AbortController().signal,
+	});
+	if (markFailure.kind === "result" && markFailure.purpose === "handoff")
+		await expect(
+			markFailure.install(
+				{
+					getSessionId: () => "mark-failure",
+					getBranch: () => [],
+					appendCustomMessageEntry: (_type: string, content: string) => injected.push(content),
+				},
+				new AbortController().signal,
+			),
+		).rejects.toThrow("database unavailable");
+	expect(injected).toHaveLength(2);
+
+	reserveFailure = false;
+	const appendFailure = await feature.prepare({
+		purpose: "handoff",
+		signal: new AbortController().signal,
+	});
+	if (appendFailure.kind === "result" && appendFailure.purpose === "handoff")
+		await expect(
+			appendFailure.install(
+				{
+					getSessionId: () => "append-failure",
+					getBranch: () => [],
+					appendCustomMessageEntry: () => {
+						throw new Error("host append failed");
+					},
+				},
+				new AbortController().signal,
+			),
+		).rejects.toThrow("host append failed");
+	expect(installedDestinations.has("append-failure")).toBeFalse();
+
+	const abortedPrepare = new AbortController();
+	abortedPrepare.abort();
+	expect(await feature.prepare({ purpose: "inheritance", signal: abortedPrepare.signal })).toEqual({
+		kind: "stale",
+	});
+
+	const abortedInstall = await feature.prepare({
+		purpose: "handoff",
+		signal: new AbortController().signal,
+	});
+	const abortedInstallSignal = new AbortController();
+	abortedInstallSignal.abort();
+	if (abortedInstall.kind === "result" && abortedInstall.purpose === "handoff")
+		await expect(
+			abortedInstall.install(
+				{
+					getSessionId: () => "aborted-install",
+					getBranch: () => [],
+					appendCustomMessageEntry: (_type: string, content: string) => injected.push(content),
+				},
+				abortedInstallSignal.signal,
+			),
+		).rejects.toThrow("MCTX handoff aborted");
+	expect(installedDestinations.has("aborted-install")).toBeFalse();
 });
 
 test("context hook atomically drops a recoverable divergent tail and leaves that pass raw", async (): Promise<void> => {

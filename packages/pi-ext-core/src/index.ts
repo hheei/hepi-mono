@@ -36,8 +36,10 @@ export {
 export type { ExtensionLifecycleContext, ExtensionLifecycleOptions } from "./lifecycle.js";
 export { registerExtensionLifecycle } from "./lifecycle.js";
 export type {
+	LoadoutInventoryItem,
 	LoadoutInventoryObserver,
 	LoadoutInventoryRegistration,
+	LoadoutResourceMetadata,
 	LoadoutToolActivationObserver,
 	LoadoutToolActivationSnapshot,
 	LoadoutToolMetadata,
@@ -49,8 +51,14 @@ export {
 	observeLoadoutToolActivation,
 	publishLoadoutToolActivation,
 	registerLoadoutInventory,
+	registerLoadoutResource,
 	registerManagedLoadoutTool,
 } from "./loadout.js";
+export type {
+	MemorySearchExclusionInput,
+	MemorySearchExclusionService,
+} from "./memory-search-exclusion.js";
+export { MCTX_MEMORY_EXCLUSION_SERVICE } from "./memory-search-exclusion.js";
 export type {
 	CreateHepiModelSelectionFieldOptions,
 	HepiModelSelectionCandidate,
@@ -72,6 +80,17 @@ export type {
 	OpenExtensionPageRouterOptions,
 } from "./page-router.js";
 export { openExtensionPageRouter, registerExtensionPage } from "./page-router.js";
+export type {
+	ParentContextHandoffResult,
+	ParentContextInheritanceResult,
+	ParentContextProjectionPrepareInput,
+	ParentContextProjectionPurpose,
+	ParentContextProjectionResult,
+	ParentContextProjectionService,
+	ParentContextProjectionStale,
+	ParentContextProjectionUnavailable,
+} from "./parent-context-projection.js";
+export { PARENT_CONTEXT_PROJECTION_SERVICE } from "./parent-context-projection.js";
 export type { ServiceKey, WaitForServiceOptions } from "./service.js";
 export { createServiceKey, getService, provideService, waitForService } from "./service.js";
 export type {
