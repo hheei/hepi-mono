@@ -123,6 +123,9 @@ existing semantic token expresses the role.
   layout stacks those regions. Field label/value columns remain stable, disabled fields use `dim`,
   and only a selected non-editing long label may marquee. `Space` toggles booleans; Pi Input edits
   other fields; `Tab` only cycles a field's related `tabCycle` value.
+- `pi-mctx` contributes Historian enablement and model selection to the combined Settings tree, not
+  a separate page or Loadout resource. Disabling Historian dims and locks its model row; persisted
+  changes apply on the next Pi reload or session rather than replacing a running historian.
 - Settings and Loadout each reserve at least 20 page-content rows below the shared router tab strip.
   Their lists may remain shorter than that minimum; router-owned blank rows retain a stable custom
   surface height instead of inventing empty list entries.

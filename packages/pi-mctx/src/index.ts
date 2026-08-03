@@ -10,6 +10,7 @@ export * from "./historian-executor.js";
 export * from "./historian-orchestrator.js";
 export * from "./historian-output.js";
 export * from "./project-identity.js";
+export * from "./settings.js";
 export * from "./source-history.js";
 export * from "./source-snapshot.js";
 export * from "./store.js";
