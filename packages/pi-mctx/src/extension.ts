@@ -28,6 +28,16 @@ import { openMctxStatusSurface } from "./status-surface.js";
 
 const DEFAULT_CTX_HISTORY_LIMIT = 50;
 const MAX_CTX_HISTORY_LIMIT = 100;
+const MCTX_SUBCOMMANDS = [
+	{
+		value: "status",
+		description: "Show read-only Magic Context status",
+	},
+	{
+		value: "aug",
+		description: "Run a read-only Sidekick and inject its result once",
+	},
+] as const;
 
 interface PiContextHook {
 	on(
@@ -56,112 +66,154 @@ function registerContextHook(pi: ExtensionAPI, feature: MctxFeature): void {
 	hooks.on("context", (event, context) => feature.onContext(event.messages, context));
 }
 
-function registerSidekickCommand(pi: ExtensionAPI, feature: MctxFeature): void {
-	pi.registerCommand("ctx-aug", {
-		description: "Run a read-only sidekick child and inject the retrieved augmentation once",
-		handler: async (args, ctx) => {
-			if (ctx.mode !== "tui") {
-				ctx.ui.notify("/ctx-aug requires interactive mode", "error");
+async function runSidekickCommand(
+	feature: MctxFeature,
+	args: string,
+	ctx: ExtensionContext,
+): Promise<void> {
+	const query = args.trim();
+	if (query.length === 0 || query.length > 500) {
+		ctx.ui.notify("Usage: /mctx aug <query up to 500 characters>", "error");
+		return;
+	}
+	if (ctx.mode !== "tui") {
+		ctx.ui.notify("/mctx aug requires interactive mode", "error");
+		return;
+	}
+	const result: MctxAugmentResult = await feature.augment(query, ctx);
+	switch (result.kind) {
+		case "injected":
+			ctx.ui.notify("Sidekick augmentation injected into the next context turn.", "info");
+			break;
+		case "inactive":
+			ctx.ui.notify("pi-mctx is not active for this session.", "error");
+			break;
+		case "cancelled":
+			ctx.ui.notify("Sidekick augmentation cancelled.", "warning");
+			break;
+		case "empty":
+			ctx.ui.notify("Sidekick found nothing to augment; context unchanged.", "warning");
+			break;
+		case "failed":
+			ctx.ui.notify(`Sidekick augmentation failed: ${result.reason}`, "error");
+			break;
+	}
+}
+
+function registerMctxCommand(
+	pi: ExtensionAPI,
+	feature: MctxFeature,
+	getLifecycleSignal: () => AbortSignal | undefined,
+): void {
+	pi.registerCommand("mctx", {
+		description: "Show Magic Context status or run a context command",
+		getArgumentCompletions: (argumentPrefix) => {
+			const prefix = argumentPrefix.trimStart().toLowerCase();
+			if (/\s/u.test(prefix)) return null;
+			const matches = MCTX_SUBCOMMANDS.filter(({ value }) => value.startsWith(prefix)).map(
+				({ value, description }) => ({ value, label: value, description }),
+			);
+			return matches.length === 0 ? null : matches;
+		},
+		handler: async (args, context) => {
+			const value = args.trim();
+			const parsed = /^(\S+)(?:\s+(.*))?$/su.exec(value);
+			const subcommand = (parsed?.[1] ?? "").toLowerCase();
+			const subcommandArgs = parsed?.[2]?.trim() ?? "";
+
+			if (subcommand.length === 0 || /^status$/u.test(subcommand)) {
+				if (subcommandArgs.length > 0) {
+					context.ui.notify("Usage: /mctx status", "error");
+					return;
+				}
+				if (context.mode !== "tui") {
+					context.ui.notify("/mctx status is available only in the TUI", "warning");
+					return;
+				}
+				const lifecycleSignal = getLifecycleSignal();
+				if (lifecycleSignal === undefined || lifecycleSignal.aborted) {
+					context.ui.notify("pi-mctx lifecycle is not active", "warning");
+					return;
+				}
+				await openMctxStatusSurface(pi, context, feature, context, lifecycleSignal);
 				return;
 			}
-			const query = args.trim();
-			if (query.length === 0 || query.length > 500) {
-				ctx.ui.notify("Usage: /ctx-aug <query up to 500 characters>", "error");
+			if (/^aug$/u.test(subcommand)) {
+				await runSidekickCommand(feature, subcommandArgs, context);
 				return;
 			}
-			const result: MctxAugmentResult = await feature.augment(query, ctx);
-			switch (result.kind) {
-				case "injected":
-					ctx.ui.notify("Sidekick augmentation injected into the next context turn.", "info");
-					break;
-				case "inactive":
-					ctx.ui.notify("pi-mctx is not active for this session.", "error");
-					break;
-				case "cancelled":
-					ctx.ui.notify("Sidekick augmentation cancelled.", "warning");
-					break;
-				case "empty":
-					ctx.ui.notify("Sidekick found nothing to augment; context unchanged.", "warning");
-					break;
-				case "failed":
-					ctx.ui.notify(`Sidekick augmentation failed: ${result.reason}`, "error");
-					break;
-			}
+			context.ui.notify(
+				`Unknown MCTX subcommand: ${subcommand}. Usage: /mctx [status | aug <query>]`,
+				"error",
+			);
 		},
 	});
 }
 
-/* Memory-system command handlers, disabled with their registration and kept
- * for revival (see docs/mctx/README.md).
-function registerDreamCommand(pi: ExtensionAPI, feature: MctxFeature): void {
-	pi.registerCommand("ctx-dream", {
-		description: "Run a read-only Dreamer child to evaluate pending smart-condition notes",
-		handler: async (args, ctx) => {
-			if (ctx.mode !== "tui") {
-				ctx.ui.notify("/ctx-dream requires interactive mode", "error");
-				return;
-			}
-			const query = args.trim();
-			if (query.length > 500) {
-				ctx.ui.notify("Usage: /ctx-dream [query up to 500 characters]", "error");
-				return;
-			}
-			const result: MctxDreamResult = await feature.dream(query, ctx);
-			switch (result.kind) {
-				case "reported":
-					ctx.ui.notify(result.summary, "info");
-					break;
-				case "inactive":
-					ctx.ui.notify("pi-mctx is not active for this session.", "error");
-					break;
-				case "cancelled":
-					ctx.ui.notify("Dreamer evaluation cancelled.", "warning");
-					break;
-				case "empty":
-					ctx.ui.notify("No smart-condition notes to evaluate.", "warning");
-					break;
-				case "failed":
-					ctx.ui.notify(`Dreamer evaluation failed: ${result.reason}`, "error");
-					break;
-			}
-		},
-	});
+/* Memory-system subcommand handlers stay disabled for revival (see docs/mctx/README.md).
+ * Revival adds each handler to MCTX_SUBCOMMANDS and registerMctxCommand; it must not register aliases.
+async function runDreamCommand(
+	feature: MctxFeature,
+	args: string,
+	ctx: ExtensionContext,
+): Promise<void> {
+	if (ctx.mode !== "tui") {
+		ctx.ui.notify("/mctx dream requires interactive mode", "error");
+		return;
+	}
+	const query = args.trim();
+	if (query.length > 500) {
+		ctx.ui.notify("Usage: /mctx dream [query up to 500 characters]", "error");
+		return;
+	}
+	const result: MctxDreamResult = await feature.dream(query, ctx);
+	switch (result.kind) {
+		case "reported":
+			ctx.ui.notify(result.summary, "info");
+			break;
+		case "inactive":
+			ctx.ui.notify("pi-mctx is not active for this session.", "error");
+			break;
+		case "cancelled":
+			ctx.ui.notify("Dreamer evaluation cancelled.", "warning");
+			break;
+		case "empty":
+			ctx.ui.notify("No smart-condition notes to evaluate.", "warning");
+			break;
+		case "failed":
+			ctx.ui.notify(`Dreamer evaluation failed: ${result.reason}`, "error");
+			break;
+	}
 }
 */
 
-/* Memory-system command handler, disabled with its registration and kept for
- * revival (see docs/mctx/README.md).
-function registerEmbedCommand(pi: ExtensionAPI, feature: MctxFeature): void {
-	pi.registerCommand("ctx-embed", {
-		description: "Embed all active project memories that are missing vectors",
-		handler: async (_args, ctx) => {
-			if (ctx.mode !== "tui") {
-				ctx.ui.notify("/ctx-embed requires interactive mode", "error");
-				return;
-			}
-			const result: MctxEmbedBackfillResult = await feature.embedBackfill(ctx);
-			switch (result.kind) {
-				case "done":
-					ctx.ui.notify(
-						`Embedding backfill: ${result.embedded} embedded, ${result.skipped} skipped, ${result.failed} failed.`,
-						"info",
-					);
-					break;
-				case "inactive":
-					ctx.ui.notify("pi-mctx is not active for this session.", "error");
-					break;
-				case "busy":
-					ctx.ui.notify("An embedding backfill is already running.", "warning");
-					break;
-				case "cancelled":
-					ctx.ui.notify("Embedding backfill cancelled.", "warning");
-					break;
-				case "failed":
-					ctx.ui.notify(`Embedding backfill failed: ${result.reason}`, "error");
-					break;
-			}
-		},
-	});
+/* Memory-system subcommand handler stays disabled for revival (see docs/mctx/README.md).
+async function runEmbedCommand(feature: MctxFeature, ctx: ExtensionContext): Promise<void> {
+	if (ctx.mode !== "tui") {
+		ctx.ui.notify("/mctx embed requires interactive mode", "error");
+		return;
+	}
+	const result: MctxEmbedBackfillResult = await feature.embedBackfill(ctx);
+	switch (result.kind) {
+		case "done":
+			ctx.ui.notify(
+				`Embedding backfill: ${result.embedded} embedded, ${result.skipped} skipped, ${result.failed} failed.`,
+				"info",
+			);
+			break;
+		case "inactive":
+			ctx.ui.notify("pi-mctx is not active for this session.", "error");
+			break;
+		case "busy":
+			ctx.ui.notify("An embedding backfill is already running.", "warning");
+			break;
+		case "cancelled":
+			ctx.ui.notify("Embedding backfill cancelled.", "warning");
+			break;
+		case "failed":
+			ctx.ui.notify(`Embedding backfill failed: ${result.reason}`, "error");
+			break;
+	}
 }
 */
 
@@ -667,26 +719,10 @@ export default function piMctxExtension(pi: ExtensionAPI): void {
 				provideService(context, PARENT_CONTEXT_PROJECTION_SERVICE, feature);
 		},
 	});
-	pi.registerCommand("ctx-status", {
-		description: "Show read-only Magic Context status",
-		handler: async (_args, context) => {
-			if (context.mode !== "tui") {
-				context.ui.notify("/ctx-status is available only in the TUI", "warning");
-				return;
-			}
-			if (lifecycleSignal === undefined || lifecycleSignal.aborted) {
-				context.ui.notify("pi-mctx lifecycle is not active", "warning");
-				return;
-			}
-			await openMctxStatusSurface(pi, context, feature, context, lifecycleSignal);
-		},
-	});
+	registerMctxCommand(pi, feature, () => lifecycleSignal);
 	registerHistoryTools(pi, feature);
-	registerSidekickCommand(pi, feature);
-	// Memory-system commands disabled (see docs/mctx/README.md); registration
-	// stays behind this hook and the handlers are kept for revival.
-	// registerDreamCommand(pi, feature);
-	// registerEmbedCommand(pi, feature);
+	// Memory-system subcommands remain absent from the router and completions;
+	// their handlers stay above for revival (see docs/mctx/README.md).
 	registerContextHook(pi, feature);
 	pi.on("turn_end", (_event, context) => feature.onTurnEnd(context));
 }

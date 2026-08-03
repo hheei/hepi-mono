@@ -7,13 +7,14 @@ configuration 有效时，它在 `session_start` 解析 runtime、打开/migrate
 partition。已启用 pipeline 在 `turn_end` 可触发 historian Completion；已验证 compartment graph 在 `context`
 pass 替换其 covered raw history。Pi host 会 clone context messages，因此 transform 对完整 live branch 做唯一的结构匹配；
 零个或多个候选都 fail open，绝不替换。`ctx_reduce` 等 MCTX tool 只能在 active MCTX session 中执行；inactive session 返回
-明确 tool error。它仍不注册 command 或 status。active runtime 还会发布 Parent compressed-context Service：
+明确 tool error。它注册唯一 `/mctx` command；bare `/mctx` 与 `/mctx status` 打开只读 status surface，`/mctx aug`
+运行 Sidekick。active runtime 还会发布 Parent compressed-context Service：
 `pi-subagents` 在 `inherit_context: true` 时读取已验证 compartments 与 live tail；能力缺失、过期或
 无效时保持其 Pi-native text fallback。
 
 ### 记忆体系挂接状态（当前决策）
 
-记忆体系（`ctx_memory`/`ctx_note`/`ctx_search` 工具、`/ctx-dream`/`/ctx-embed` 命令、embedding provider
+记忆体系（`ctx_memory`/`ctx_note`/`ctx_search` 工具、`/mctx dream`/`/mctx embed` subcommand、embedding provider
 production 挂接与 Sidekick/Dreamer child 的 `ctx_search` 注入）按产品决策整体禁用：注册调用与挂接点在
 `extension.ts`/`feature.ts`/`sidekick.ts` 中以注释形式 park（disabled behind the hook），代码与 focused
 tests 全部保留，供 revival 时恢复；historian、history-tags、compartment projection、fork/handoff 与
@@ -120,12 +121,41 @@ rerank 是后续独立 slice：它只能重排同一已 admitted candidate set�
 session 的 live history 永不作为 history source；当前 MCTX 不自动注入 memory，未来 injection owner 必须在自己的
 runtime 中提供 `MCTX_MEMORY_EXCLUSION_SERVICE`，不能把该 policy 交给 model 参数。
 
-## Sidekick augmentation（/ctx-aug）
+## 聚合命令入口（`/mctx <cmd>`）
+
+### 用户意图与边界
+
+MCTX 用户只需记住一个 slash command：`/mctx`。**Pi host** 注册并呈现 command 与参数补全；**pi-mctx**
+拥有 subcommand 路由、参数验证、notification 和既有 feature 调用；**ext-core** 不需要新增 command abstraction，
+surface、historian 与 Sidekick lifecycle contract 均不改变。`ctx_reduce`、`ctx_expand`、`ctx_history` 是 model tool，
+不属于 slash command rename。
+
+当前 active subcommand 只有：
+
+- `/mctx status`：打开既有只读 status surface，不接受额外参数。
+- `/mctx aug <query>`：执行既有 Sidekick augmentation；query 必填，trim 后长度为 1–500 字符。
+
+记忆体系仍处于 park 状态，因此 `dream` 与 `embed` 不进入 completion、不执行，也不能借本次 command migration
+恢复其 production hook。恢复记忆体系时，它们才作为 `/mctx dream [query]` 与 `/mctx embed` 加入同一 router。
+
+### Autocomplete、suggestion 与失败语义
+
+`/mctx` 使用 Pi host 原生 `getArgumentCompletions`。空 prefix 或首个 token 的部分 prefix 返回 canonical lowercase
+subcommand；每项同时提供 `label` 与可见 `description`，使 editor suggestion 能解释行为。输入进入 `aug` 的自由文本
+query 后返回 `null`，不伪造 query suggestion；未知 prefix 也返回 `null`。bare `/mctx` 直接打开 status；未知
+subcommand、`status` 多余参数和 `aug` 缺少/超长 query 都给出带 canonical syntax 的 usage
+notification，不调用对应 feature。
+
+迁移采用 clean cutover：只注册 `/mctx`，不保留 `/ctx-status`、`/ctx-aug` alias，避免 Pi command palette 出现两套入口。
+focused tests 必须覆盖唯一注册名、空/部分/未知 prefix suggestions、description、两条 dispatch、参数拒绝，以及旧 command
+未注册。bare `/mctx` 等同 `/mctx status`，为最常用的只读入口提供快捷路径；未知 subcommand 仍只显示 canonical usage。
+
+## Sidekick augmentation（`/mctx aug`）
 
 ### 目标
 
-手动 command：用户输入 `/ctx-aug <query>` 时，`pi-mctx` 同步运行一个受限 child session（builtin
-`read`/`grep`/`find`/`ls` + extension `ctx_search` allowlist），child 探索并检索当前 project 上下文后返回一段
+手动 command：用户输入 `/mctx aug <query>` 时，`pi-mctx` 同步运行一个受限 child session（builtin
+`read`/`grep`/`find`/`ls`），child 探索当前 project 上下文后返回一段
 augmentation prompt；`pi-mctx` 把它作为一次性 preamble 注入后续 model context。这是 fixed legacy `/ctx-aug` 的
 现代等价：保留 child 语义与 retrieval augmentation 形态，不以 completion-only helper 或 prompt resend 伪迁移。
 
@@ -134,8 +164,8 @@ augmentation prompt；`pi-mctx` 把它作为一次性 preamble 注入后续 mode
 - **Pi host**：command dispatch；child `AgentSession` 由 consumer-owned factory 创建。
 - **ext-core**：subagent execution contract（`startSubagent` task mode、shared coordinator budget、terminal
   delivery、parent-session 清理）。`pi.events` 只做 notification，不做 RPC。
-- **pi-mctx**：注册 `/ctx-aug` command；拥有受限 child factory（builtin tool allowlist + 同名 `ctx_search`
-  custom tool）与 augmentation 注入时机；不 import `pi-subagents`、不注册 agent type、不读其 registry。
+- **pi-mctx**：注册 `/mctx aug` subcommand；拥有四工具受限 child factory 与 augmentation 注入时机；不 import
+  `pi-subagents`、不注册 agent type、不读其 registry。`ctx_search` 注入随记忆体系继续 park。
 - **pi-subagents**：不参与本次 child 执行；agent catalog/UI/delivery 与 Sidekick 无关。
 
 ### child factory（consumer-owned policy）
@@ -157,7 +187,7 @@ compartment/history-tag projection 完成后、return 前 prepend 为独立 mess
 
 ### 公开行为
 
-`/ctx-aug <query>`：未启用 pi-mctx、inactive session 或非 tui → notify error；无参数 → usage notify；否则同步
+`/mctx aug <query>`：未启用 pi-mctx、inactive session 或非 tui → notify error；无参数 → usage notify；否则同步
 等待 child 完成，成功注入一次。configured/unconfigured 在无 provider 选择形态下不适用：无 allowlist 配置、无
 provider 配置，仅依赖 pi-mctx 自身启用状态。
 
@@ -168,11 +198,11 @@ provider 配置，仅依赖 pi-mctx 自身启用状态。
 - focused tests：injected 只注入一次且注入后清除；empty/failure/abort/limit 不注入；inactive 返回明确错误；
   pending 随 runtime 清理；注入不干扰 compartment/history-tag projection；child 工具面只含允许集合。
 
-## Dreamer manual command（/ctx-dream）
+## Dreamer manual command（`/mctx dream`，当前 park）
 
 ### 目标
 
-手动 command：用户输入 `/ctx-dream [query]` 时，`pi-mctx` 同步运行一个受限 child（与 Sidekick 同款只读工具面）
+手动 command：用户输入 `/mctx dream [query]` 时，`pi-mctx` 同步运行一个受限 child（与 Sidekick 同款只读工具面）
 评估当前 project 的 pending `smartCondition` notes（可选自由 `query` 追加关注点），返回评估报告并 notify。
 评估是只读的：不注入 context、不改 note 持久化状态、不改 store；`smartCondition` 仍只是 pending text，
 没有后台 poll、evaluate 或 schedule。这是 legacy project Dreamer task runner 的 manual entry 现代等价；
@@ -180,10 +210,10 @@ provider 配置，仅依赖 pi-mctx 自身启用状态。
 
 ### 边界
 
-- **Pi host**：command dispatch；child `AgentSession` 由 consumer-owned factory 创建（`/ctx-aug` 先例）。
+- **Pi host**：command dispatch；child `AgentSession` 由 consumer-owned factory 创建（`/mctx aug` 先例）。
 - **ext-core**：subagent execution contract（`startSubagent` task mode、shared coordinator budget、terminal
   delivery、parent-session 清理）。schedule/cron 是 core 未来 trigger，首版无 scheduled Dreamer。
-- **pi-mctx**：注册 `/ctx-dream`；拥有 Dreamer child factory（工具面与 Sidekick 相同）与 prompt 编译
+- **pi-mctx**：恢复记忆体系时注册 `/mctx dream` subcommand；拥有 Dreamer child factory（工具面与 Sidekick 相同）与 prompt 编译
   （smartCondition 列表 + 可选 query）；不 import `pi-subagents`、不注册 agent type。
 - **pi-subagents**：不参与本次 child 执行。
 
@@ -196,7 +226,7 @@ provider 配置，仅依赖 pi-mctx 自身启用状态。
 child model 解析顺序：user-level `pi-mctx.dreamer.model`（exact `provider/model` ref）配置时，经
 `context.extension.modelRegistry.find()` 解析并要求已配置 auth——找不到或无 auth 时 command notify error
 （显式配置必须明确生效或失败），不使用 parent model 静默回退；未配置字段时 child 用 parent 当前模型
-（`context.model`，同 `/ctx-aug`）。project settings 一律忽略 `dreamer` 的 model 字段（model 是 user 偏好）。
+（`context.model`，同 `/mctx aug`）。project settings 一律忽略 `dreamer` 的 model 字段（model 是 user 偏好）。
 该字段仅在 Dreamer 行为存在时启用，不构成空配置面。
 
 ### 报告语义
@@ -206,7 +236,7 @@ pending augmentation、不改 note/store。失败/abort/timeout 或既无 smart 
 
 ### 公开行为
 
-`/ctx-dream [query]`：未启用 pi-mctx、inactive session 或非 tui → notify error；query 可选（≤500 字符）；
+`/mctx dream [query]`：未启用 pi-mctx、inactive session 或非 tui → notify error；query 可选（≤500 字符）；
 无 query 且当前 session 无 active `smartCondition` notes → notify empty；否则同步等待 child 完成并 notify 报告。
 
 ### 最小公开 seam 与测试
@@ -217,11 +247,11 @@ pending augmentation、不改 note/store。失败/abort/timeout 或既无 smart 
   query 编译进 child prompt；不改 note/store 状态；abort 调 cancel 返回 cancelled；admission throw 归一化
   failed；显式 model 配置解析与不可用失败。
 
-## Project memory embedding backfill（/ctx-embed）
+## Project memory embedding backfill（`/mctx embed`，当前 park）
 
 ### 目标
 
-手动 command `/ctx-embed`（无参）：同步遍历当前 project 的全部 active memories，跳过已嵌入且 content hash
+手动 command `/mctx embed`（无参）：同步遍历当前 project 的全部 active memories，跳过已嵌入且 content hash
 匹配当前 provider model 的项，批量 passage embedding 剩余项，结束 notify 汇总；abort 绑 lifecycle/caller
 signal；同一 active runtime 的 per-project busy 状态拒绝并发运行。这是 legacy project compartment backfill
 的现代等价——backfill 对象是 durable memories（现代 compartment graph 是 transform 产物，不持久化向量）。
@@ -231,14 +261,14 @@ signal；同一 active runtime 的 per-project busy 状态拒绝并发运行。�
 
 - **Pi host**：command dispatch。
 - **pi-ext-embed**：provider lease、`embed`/`embedBatch`、generation fencing（已实现）。
-- **pi-mctx**：注册 `/ctx-embed`；拥有 backfill 遍历、coverage 判定、批量调用与 store ledger 写回；复用既有
+- **pi-mctx**：恢复记忆体系时注册 `/mctx embed` subcommand；拥有 backfill 遍历、coverage 判定、批量调用与 store ledger 写回；复用既有
   `writeMemoryEmbedding` 单事务 content/revision fence（stale 结果静默丢弃）。
 - 无 provider（`pi-mctx.embedding` 未配置或 acquire 失败）→ notify error；provider 可用性不影响 backfill
   之外的 MCTX 行为，也不参与 `fail_closed_blocking`。
 
 ### 行为
 
-- `/ctx-embed`：tui 检查；inactive 或当前 runtime 无 embedding lease → notify error；同 runtime 已有 backfill
+- `/mctx embed`：tui 检查；inactive 或当前 runtime 无 embedding lease → notify error；同 runtime 已有 backfill
   在运行 → notify busy（process-local，不跨进程加锁：重复 work 可容忍，fence 保证 stale vector 不可能发布）。
 - 分页读 `listActiveMemories(projectIdentity)`；coverage 判定：store 的 `listMemoryEmbeddingCoverage` 返回当前
   model identity 已嵌入的 `memory_id → source content hash`，active memory 的当前 hash 不在其中或不同 → 待嵌。
@@ -257,11 +287,11 @@ signal；同一 active runtime 的 per-project busy 状态拒绝并发运行。�
 - focused tests：inactive/无 lease 不跑；busy 拒绝并发；coverage 跳过已嵌项；embedBatch 调用与 fence 写回；
   abort 中途返回 cancelled 且已写回保留；汇总计数正确。
 
-## `/ctx-status` migration design
+## `/mctx status` migration design
 
 ### 用户意图
 
-`/ctx-status` 是只读的单页 TUI overlay：用户打开它，是为了快速判断当前
+`/mctx status`（以及 bare `/mctx`）是只读的单页 TUI overlay：用户打开它，是为了快速判断当前
 context-management runtime 是否 active、当前 partition 是否健康，以及下一次
 维护动作可能何时触发。它不恢复已 park 的 memory system，也不把旧 legacy
 status 的所有指标搬进来。本节记录当前已迁移并可用的行为。
@@ -310,7 +340,7 @@ upgrade、cache、work-token、category-breakdown 指标均为非目标；本 mi
 
 ### Surface lifecycle、刷新、关闭与并发
 
-`/ctx-status` 通过 `openTuiSurface` admission 打开单页 overlay；surface host
+`/mctx status` 通过 `openTuiSurface` admission 打开单页 overlay；surface host
   使用 `hostId` 与 `maxPending` 参与 admission；只有 admission
 成功后才启动 1 秒刷新。刷新读取最新 snapshot，不能让行位移；关闭由 `Esc`、
 `Enter` 或 `Ctrl+C` 触发。关闭、cancellation/abort、surface replacement 与 extension
@@ -399,24 +429,26 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
   `/ctx-recomp`/`ctx-session-upgrade` 是旧 ordinal/schema migration 而不迁移，`/ctx-wrapup` 属于 future
   `hepi-basics` handoff/compaction owner；这些 pipeline maintenance action 不迁移，也不注册任何 maintenance
   command。
-- [x] **`/ctx-status` 单页只读 TUI overlay**：已按 [`/ctx-status` migration design](#ctx-status-migration-design)
+- [x] **`/mctx status` 单页只读 TUI overlay**：已按 [`/mctx status` migration design](#mctx-status-migration-design)
   迁移；snapshot、字段、surface lifecycle、刷新、关闭、并发与 fallback 已达到该章节及根 `DESIGN.md` 的完整
   contract。
-- [x] **Sidekick augmentation**：fixed legacy `/ctx-aug` 是手动 command，同步运行具有 `read`、`grep`、`find`、`ls` 与
-  `ctx_search` allowlist 的 child，并把 retrieval augmentation 后的 prompt 发回 parent。child 语义保留：现代形态复用
+- [x] **Sidekick augmentation**：fixed legacy `/ctx-aug` 是手动 command；现代 `/mctx aug` 同步运行具有 `read`、
+  `grep`、`find`、`ls` 的 child，并把 repository augmentation prompt 发回 parent；`ctx_search` 注入随记忆体系 park。
+  child 语义保留：现代形态复用
   ext-core subagent execution contract（`startSubagent` task mode + consumer-owned resolved child-session factory），
   `pi-mctx` 拥有受限 child factory 与一次性注入时机，不 import `pi-subagents`、不扩展 `pi.events` RPC、不以
   completion-only helper 或 prompt resend 伪迁移。注入 wrapper 带 bounded anchor（operation ID、terminal status、
   partial/limit 标志、正文上限），只插最后真实 user prompt 前、注入后清除；caller/lifecycle/deadline abort 均绑定
   `handle.cancel()`，admission 同步 throw 归一化为 failure result。设计见下方
-  [Sidekick augmentation section](#sidekick-augmentationctx-aug)。
-- [x] **Dreamer 与 embedding commands**：legacy `/ctx-dream`、`/ctx-embed` 的 manual command 已迁移；scheduled
+  [Sidekick augmentation section](#sidekick-augmentationmctx-aug)。
+- [x] **Dreamer 与 embedding commands**：legacy `/ctx-dream`、`/ctx-embed` 的 manual behavior 已迁移并随记忆体系
+  park；恢复时以 `/mctx dream`、`/mctx embed` 暴露，不恢复旧 command 名。scheduled
   Dreamer 等待 core 未来 `task` trigger，backfill 的自动 GC/retention 与 semantic search 仍待 retrieval consumer。
-  - `/ctx-dream [query]`：manual Dreamer child（与 Sidekick 同款只读工具面 + 注入 `ctx_search`）评估 project 的
+  - `/mctx dream [query]`：manual Dreamer child（与 Sidekick 同款只读工具面 + 注入 `ctx_search`）评估 project 的
     pending `smartCondition` notes，可选 query 追加关注点；报告只 notify、不注入 context、不改 note/store 状态。
     child model 由 user-level `pi-mctx.dreamer.model`（exact `provider/model`）指定，未配置时用 parent 当前模型；
     显式配置不可用则 command 明确失败。abort/admission 归一化与 Sidekick 共用 `runMctxChildTask` 骨架。
-  - `/ctx-embed`：project memory embedding backfill——分页遍历 active memories，按当前 provider model identity 的
+  - `/mctx embed`：project memory embedding backfill——分页遍历 active memories，按当前 provider model identity 的
     coverage（`listMemoryEmbeddingCoverage`）跳过已嵌入项，`embedBatch` 分批嵌入剩余项并经既有
     `writeMemoryEmbedding` 单事务 content/revision fence 写回；abort 绑 lifecycle/caller signal，已写回保留；
     process-local per-project busy 拒绝并发；结束 notify `embedded/skipped/failed` 汇总。不自动 GC/retention、

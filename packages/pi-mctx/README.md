@@ -5,6 +5,8 @@ store, binds a session partition, schedules historian completion at `turn_end`, 
 compartment projections during `context`. Store failures block the parent turn by default; user
 configuration may opt back into Pi-native behavior with `fail_closed_blocking: false`.
 
-`/ctx-status` is always registered and opens a read-only TUI snapshot when TUI is available. It reports
+`/mctx` is the sole slash command. Bare `/mctx` and `/mctx status` open a read-only TUI snapshot; `/mctx aug
+<query>` runs Sidekick augmentation. Native argument autocomplete suggests active subcommands with descriptions.
+It reports
 inactive or failed runtime reasons without exposing store payloads. Durable memory, notes, search,
 Dreamer, embedding, and related commands remain parked and are not active.
