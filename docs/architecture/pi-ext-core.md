@@ -36,17 +36,21 @@ runtime 的性能或界面。
 
 这些能力只有在能形成有明确价值、feature-neutral 的中间层 API 时，才以单独提案考虑；consumer
 数量不是硬门槛。提案必须限定使用范围，不能把某个 extension 的 policy、业务 state、schema 或 UI
-下沉到 core。
+下沉到 core。鼠标与局部文本选择是明确记录的受限例外；它只提供 feature-neutral 的 terminal input、
+region dispatch 与 local selection contract，不提供页面内容、clipboard policy 或新的 TUI layout tree。
 
-已批准五个限定例外：core 公开 Loadout tool registration contract、提供 global Extension page router 与
+已批准六个限定例外：core 公开 Loadout tool registration contract、提供 global Extension page router 与
 feature-neutral TUI host、拥有 root-session-scoped subagent execution contract，并提供 JSON settings file
-transport 与 provider registry。它们的边界分别由
+transport 与 provider registry，并提供 terminal mouse 与 local selection contract。
+它们的边界分别由
 [ADR 0002](../adr/0002-core-loadout-contract.md)、
 [ADR 0001](../adr/0001-core-extension-page-shell.md) 与
 [TUI 宿主架构](tui.md)、
-[ADR 0004](../adr/0004-core-subagent-execution.md) 与
-[ADR 0007](../adr/0007-core-json-settings-substrate.md) 限制；core 不接管 Loadout policy、page content、
-Settings policy、feature-owned schema/content 或 agent/config/delivery policy。
+[ADR 0004](../adr/0004-core-subagent-execution.md)、
+[ADR 0007](../adr/0007-core-json-settings-substrate.md)、
+[ADR 0008](../adr/0008-mouse-selection-core-exception.md) 与
+[鼠标与局部文本选择 contract](../mouse/README.md) 限制；core 不接管 Loadout policy、page content、
+Settings policy、feature-owned schema/content、agent/config/delivery policy 或 clipboard policy。
 
 ## Pi 集成边界
 
@@ -66,8 +70,9 @@ Pi 没有为大部分 extension 注册面提供公开 unregister。core 的 life
 
 根入口 `@hheei/pi-ext-core` 只导出实际 consumer 需要的类型与函数，不允许 deep
 import。已实现 v1 包含 lifecycle、Service、ExtensionPoint、cleanup、JSON settings/provider registry、
-Loadout registration、custom surface runtime 与 Extension page router API。Subagent execution contract 的
-边界见 [Subagent 执行架构](subagents.md)，Loadout 细节见 [Loadout 架构](loadout.md)。
+Loadout registration、custom surface runtime、Extension page router API、optional runtime host bridge 与 mouse/local-selection transport。Mouse/selection
+边界见 [鼠标与局部文本选择](../mouse/README.md)。Subagent execution contract 的边界见
+[Subagent 执行架构](subagents.md)，Loadout 细节见 [Loadout 架构](loadout.md)。
 
 ### JSON Settings
 
@@ -306,3 +311,8 @@ packages/pi-ext-core/
 15. v1 只支持 Pi 完整 reload lifecycle，不提供单一 Service HMR replace 后门。
 16. Pi 串行 session start 下，consumer 不得 await `waitForService()`；改以自行处理的
     non-blocking continuation 等待 provider。
+17. Mouse/selection contract 是第六个受限 core 例外；其测试使用 pi-ext-core focused fixtures 与
+     `tui-replay`，不把 frozen `hepi-debug` 当作产品 consumer。tracking lease 期间 surface 暂时拥有
+     terminal mouse input，native selection 可能受影响；core 依赖 Pi TUI 已完成的 input sequence boundary，
+     不读取 `process.stdin` 或建立第二个 stdin buffer。region registry 只在 layout snapshot 更新时改变，
+     不得由 `render(width)` 隐式修改。

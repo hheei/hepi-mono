@@ -9,7 +9,6 @@ Included modules:
 - `pi-ask`
 - `pi-goal`
 - `pi-sshfs`
-- `pi-codex-tool`
 - `pi-advisor`
 - `pi-todo`
 - `pi-web-access`
@@ -20,8 +19,7 @@ Already-installed external packages use the following fallback names:
 
 Other tools keep Loadout's automatic source-based grouping.
 
-FFF is a separate `@hheei/pi-fff` extension. Install it as a separate package
-when FFF-backed path completion and search are needed.
+FFF-backed path completion and search are provided by `@hheei/pi-ext-tools`.
 
 Install it with:
 

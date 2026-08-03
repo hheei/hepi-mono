@@ -1,0 +1,111 @@
+import { TaggedError } from "better-result";
+import type { FffFileCandidate } from "./fff-types.js";
+
+function messageFromCause(cause: unknown): string {
+	return cause instanceof Error ? cause.message : String(cause);
+}
+
+export class RuntimeInitializationError extends TaggedError("RuntimeInitializationError")<{
+	cwd: string;
+	step: string;
+	cause: unknown;
+	message: string;
+}>() {
+	constructor(args: { cwd: string; step: string; cause: unknown }) {
+		super({
+			...args,
+			message: `Failed to initialize FFF runtime (${args.step}) for ${args.cwd}: ${messageFromCause(args.cause)}`,
+		});
+	}
+}
+
+export class FinderOperationError extends TaggedError("FinderOperationError")<{
+	operation: string;
+	reason: string;
+	cause?: unknown;
+	message: string;
+}>() {
+	constructor(args: { operation: string; reason: string; cause?: unknown }) {
+		super({
+			...args,
+			message: `FFF ${args.operation} failed: ${args.reason}`,
+		});
+	}
+}
+
+export class EmptyPathQueryError extends TaggedError("EmptyPathQueryError")<{
+	query: string;
+	message: string;
+}>() {
+	constructor(args: { query: string }) {
+		super({ ...args, message: "Path query is empty." });
+	}
+}
+
+export class MissingPathError extends TaggedError("MissingPathError")<{
+	query: string;
+	reason: string;
+	message: string;
+}>() {
+	constructor(args: { query: string; reason: string }) {
+		super({ ...args, message: args.reason });
+	}
+}
+
+export class AmbiguousPathError extends TaggedError("AmbiguousPathError")<{
+	query: string;
+	candidates: FffFileCandidate[];
+	message: string;
+}>() {
+	constructor(args: { query: string; candidates: FffFileCandidate[] }) {
+		super({ ...args, message: `Ambiguous path query: ${args.query}` });
+	}
+}
+
+export class InvalidGrepCursorError extends TaggedError("InvalidGrepCursorError")<{
+	cursor: string;
+	message: string;
+}>() {
+	constructor(args: { cursor: string }) {
+		super({ ...args, message: "Invalid or expired grep cursor." });
+	}
+}
+
+export class GrepCursorMismatchError extends TaggedError("GrepCursorMismatchError")<{
+	cursor: string;
+	message: string;
+}>() {
+	constructor(args: { cursor: string }) {
+		super({
+			...args,
+			message: "This grep cursor belongs to a different query. Re-run without cursor.",
+		});
+	}
+}
+
+export class ExternalGrepScopeError extends TaggedError("ExternalGrepScopeError")<{
+	path: string;
+	projectRoot: string;
+	message: string;
+}>() {
+	constructor(args: { path: string; projectRoot: string }) {
+		super({
+			...args,
+			message: `Path is outside the FFF project root: ${args.path}`,
+		});
+	}
+}
+
+export type PathResolutionError =
+	| EmptyPathQueryError
+	| MissingPathError
+	| AmbiguousPathError
+	| RuntimeInitializationError
+	| FinderOperationError;
+export type RelatedFilesError = PathResolutionError | FinderOperationError;
+export type GrepSearchError =
+	| InvalidGrepCursorError
+	| GrepCursorMismatchError
+	| ExternalGrepScopeError
+	| PathResolutionError
+	| FinderOperationError;

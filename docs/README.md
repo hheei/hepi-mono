@@ -6,6 +6,7 @@ This directory records high-level information for users and developers. Detailed
 
 - [Getting started](user/getting-started.md): install packages, run a local checkout, and preserve load order.
 - [Package catalogue](user/packages.md): current HEPI packages and prerequisites.
+- [Pi host addon](addon/README.md): assistant local selection bridge and host-addon boundary.
 - Package READMEs under `packages/*/README.md`: installation and compatibility by package.
 
 ## Development

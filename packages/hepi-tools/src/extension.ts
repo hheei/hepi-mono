@@ -10,7 +10,6 @@ import {
 } from "./loadout-groups.js";
 import piAdvisor from "./pi-advisor/index.js";
 import piAsk from "./pi-ask/index.js";
-import piCodexTool from "./pi-codex-tool/index.js";
 import piGoal from "./pi-goal/index.js";
 import piSshfs from "./pi-sshfs/index.js";
 
@@ -46,7 +45,6 @@ export const hepiToolsExtensions: readonly HepiExtension[] = [
 	piAsk,
 	piGoal,
 	piSshfs,
-	piCodexTool,
 	piAdvisor,
 	...(hasWebAccess ? [] : [registerBundledWebAccess]),
 ];
