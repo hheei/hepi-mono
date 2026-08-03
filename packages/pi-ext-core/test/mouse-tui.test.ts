@@ -1,3 +1,4 @@
+import { expect, test } from "bun:test";
 import { type Component, StdinBuffer, type Terminal, TUI } from "@earendil-works/pi-tui";
 import { installMouseSupport } from "../src/index.js";
 

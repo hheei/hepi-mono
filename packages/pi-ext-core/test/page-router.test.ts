@@ -50,7 +50,9 @@ test("lets the active page consume Left and only then falls back to tab routing"
 		extension: command,
 		signal: new AbortController().signal,
 		resources: {
-			add: (_id: string, cleanup: () => void | Promise<void>) => resources.push(cleanup),
+			add: (_id: string, cleanup: () => void | Promise<void>): void => {
+				resources.push(cleanup);
+			},
 		},
 	} as never;
 	const page = (id: string, label: string): ExtensionPageRegistration => ({
@@ -126,7 +128,9 @@ test("lets a page close the host after its own asynchronous work", async () => {
 		extension: command,
 		signal: new AbortController().signal,
 		resources: {
-			add: (_id: string, cleanup: () => void | Promise<void>) => resources.push(cleanup),
+			add: (_id: string, cleanup: () => void | Promise<void>): void => {
+				resources.push(cleanup);
+			},
 		},
 	} as never;
 	registerExtensionPage(lifecycle, {
@@ -365,6 +369,7 @@ test("keeps a queued router gated until late view cleanup and release finish", a
 		maxPending: 1,
 		onSurfaceOpen: () => {
 			secondOpens++;
+			return undefined;
 		},
 	});
 
@@ -500,7 +505,9 @@ test("awaits a removed page view cleanup before releasing surface resources", as
 		extension: command,
 		signal: new AbortController().signal,
 		resources: {
-			add: (_id: string, cleanup: () => void | Promise<void>) => resources.push(cleanup),
+			add: (_id: string, cleanup: () => void | Promise<void>): void => {
+				resources.push(cleanup);
+			},
 		},
 	} as never;
 	registerExtensionPage(lifecycle, {
@@ -683,7 +690,9 @@ test("forwards overlay options and delegates page editors through the hidden ove
 		extension: command,
 		signal: new AbortController().signal,
 		resources: {
-			add: (_id: string, cleanup: () => void | Promise<void>) => resources.push(cleanup),
+			add: (_id: string, cleanup: () => void | Promise<void>): void => {
+				resources.push(cleanup);
+			},
 		},
 	} as never;
 	registerExtensionPage(lifecycle, {
