@@ -11,9 +11,19 @@ pass 替换其 covered raw history。Pi host 会 clone context messages，因此
 `pi-subagents` 在 `inherit_context: true` 时读取已验证 compartments 与 live tail；能力缺失、过期或
 无效时保持其 Pi-native text fallback。
 
+### 记忆体系挂接状态（当前决策）
+
+记忆体系（`ctx_memory`/`ctx_note`/`ctx_search` 工具、`/ctx-dream`/`/ctx-embed` 命令、embedding provider
+production 挂接与 Sidekick/Dreamer child 的 `ctx_search` 注入）按产品决策整体禁用：注册调用与挂接点在
+`extension.ts`/`feature.ts`/`sidekick.ts` 中以注释形式 park（disabled behind the hook），代码与 focused
+tests 全部保留，供 revival 时恢复；historian、history-tags、compartment projection、fork/handoff 与
+Sidekick augmentation（四工具 child：`read`/`grep`/`find`/`ls`）保持 active。schema v11 的
+`memory_embeddings` 迁移与 store 方法不受影响，`ctx_history` 仍注册（history-tag 清理属上下文管理域）。
+
 ### Loadout tool registration
 
-`ctx_reduce`、`ctx_expand`、`ctx_memory` 和 `ctx_note` 是 `@hheei/pi-mctx` 所有的 executable tools。它们通过
+`ctx_reduce`、`ctx_expand`、`ctx_history` 是当前注册的 executable tools（`ctx_memory`、`ctx_note`、
+`ctx_search` 随记忆体系禁用而 park）。它们通过
 `pi-ext-core` 的 managed Loadout registration 以 `Magic Context` group 发布：core 负责 Pi static registration、Loadout
 inventory 和 reload 时同 owner replacement；`pi-mctx` 保留参数校验、MCTX runtime dispatch、inactive fallback 与所有
 session/store ownership。缺少 `pi-loadout` 时工具仍可用；Loadout 只消费 inventory 并在安装时展示这些工具。
@@ -133,10 +143,9 @@ augmentation prompt；`pi-mctx` 把它作为一次性 preamble 注入后续 mode
 - builtin tools 固定为 `read`/`grep`/`find`/`ls`（`createReadOnlyTools` 子集，不含 `bash`/`write`/`edit`）；
   `noExtensions: true`，不绑定任何 extension，因此 child 不激活 pi-mctx lifecycle（无 store/transform/
   historian/embedding 副作用），也没有自己的 session partition。
-- `ctx_search` 以 `customTools` 注入同名 `ToolDefinition`（参数 schema 与注册的 `ctx_search` 一致），execute
-  闭包委托 parent runtime 的 `feature.search(operation, parentContext, signal)`：搜索基于 parent 的 project
-  partition、privacy/retention/exclusion contract 与 active-history 语义，child 只看到严格 5 个工具
-  （`read`/`grep`/`find`/`ls`/`ctx_search`）。
+- `ctx_search` 原以 `customTools` 注入同名 `ToolDefinition`（execute 闭包委托 parent runtime 的
+  `feature.search`，保持 parent 的 project partition 与 privacy 语义）；该注入随记忆体系禁用而 park
+  （见上方状态段），child 当前只看到 4 个工具（`read`/`grep`/`find`/`ls`），prompt 已改为四工具探索语义。
 - `maxTurns` 有限且必填（默认 3，soft cap，core 的 wrap-up/grace/ceiling 语义不变）；terminal result 经
   delivery sink 回到 command；child 不继承 parent session runtime 或 lease，随 parent lifecycle 清理。
 

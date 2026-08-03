@@ -14,22 +14,16 @@ import { Type } from "typebox";
 import {
 	createMctxFeature,
 	type MctxAugmentResult,
-	type MctxDreamResult,
-	type MctxEmbedBackfillResult,
 	type MctxFeature,
 	type MctxHistoryOperation,
 	type MctxHistoryResult,
-	type MctxMemoryOperation,
-	type MctxNoteOperation,
+	// Memory-system command/operation types, disabled and kept for revival:
+	// type MctxDreamResult,
+	// type MctxEmbedBackfillResult,
+	// type MctxMemoryOperation,
+	// type MctxNoteOperation,
 } from "./feature.js";
 import { MAX_CTX_EXPAND_CHARS, renderMctxHistoryTagPage } from "./history-tags.js";
-import {
-	MAX_CTX_SEARCH_LIMIT,
-	MCTX_SEARCH_SOURCES,
-	renderSearchToolResult,
-	searchOperation,
-} from "./search.js";
-import { MCTX_MEMORY_CATEGORIES } from "./store.js";
 
 const DEFAULT_CTX_HISTORY_LIMIT = 50;
 const MAX_CTX_HISTORY_LIMIT = 100;
@@ -96,6 +90,8 @@ function registerSidekickCommand(pi: ExtensionAPI, feature: MctxFeature): void {
 	});
 }
 
+/* Memory-system command handlers, disabled with their registration and kept
+ * for revival (see docs/mctx/README.md).
 function registerDreamCommand(pi: ExtensionAPI, feature: MctxFeature): void {
 	pi.registerCommand("ctx-dream", {
 		description: "Run a read-only Dreamer child to evaluate pending smart-condition notes",
@@ -130,7 +126,10 @@ function registerDreamCommand(pi: ExtensionAPI, feature: MctxFeature): void {
 		},
 	});
 }
+*/
 
+/* Memory-system command handler, disabled with its registration and kept for
+ * revival (see docs/mctx/README.md).
 function registerEmbedCommand(pi: ExtensionAPI, feature: MctxFeature): void {
 	pi.registerCommand("ctx-embed", {
 		description: "Embed all active project memories that are missing vectors",
@@ -163,6 +162,7 @@ function registerEmbedCommand(pi: ExtensionAPI, feature: MctxFeature): void {
 		},
 	});
 }
+*/
 
 function parseTagSelectors(value: string): readonly number[] | undefined {
 	const numbers = new Set<number>();
@@ -182,6 +182,8 @@ function parseTagSelectors(value: string): readonly number[] | undefined {
 	return numbers.size === 0 ? undefined : [...numbers].sort((left, right) => left - right);
 }
 
+/* Memory-system operation parsers, disabled with their tool registration and
+ * kept for revival (see docs/mctx/README.md).
 function memoryOperation(args: Record<string, unknown>): MctxMemoryOperation | undefined {
 	const action = args.action;
 	const ids = args.ids;
@@ -291,6 +293,7 @@ function noteOperation(args: Record<string, unknown>): MctxNoteOperation | undef
 		return { action, noteId: id, expectedRevision };
 	return undefined;
 }
+*/
 
 function historyOperation(args: Record<string, unknown>): MctxHistoryOperation | undefined {
 	const action = args.action;
@@ -498,6 +501,10 @@ function registerHistoryTools(pi: ExtensionAPI, feature: MctxFeature): void {
 			},
 		}),
 	);
+	/*
+	 * Memory-system registration disabled (see docs/mctx/README.md): the
+	 * durable memory/search/notes features are parked behind this hook and
+	 * kept for revival. historian, history tags and sidekick stay active.
 	registerManagedLoadoutTool(
 		pi,
 		{ id: "ctx_search", ...MCTX_MANAGED_TOOL },
@@ -530,6 +537,8 @@ function registerHistoryTools(pi: ExtensionAPI, feature: MctxFeature): void {
 			},
 		}),
 	);
+	*/
+	/*
 	registerManagedLoadoutTool(
 		pi,
 		{ id: "ctx_memory", ...MCTX_MANAGED_TOOL },
@@ -580,6 +589,8 @@ function registerHistoryTools(pi: ExtensionAPI, feature: MctxFeature): void {
 			},
 		}),
 	);
+	*/
+	/*
 	registerManagedLoadoutTool(
 		pi,
 		{ id: "ctx_note", ...MCTX_MANAGED_TOOL },
@@ -633,6 +644,7 @@ function registerHistoryTools(pi: ExtensionAPI, feature: MctxFeature): void {
 			},
 		}),
 	);
+	*/
 }
 
 /**
@@ -651,8 +663,10 @@ export default function piMctxExtension(pi: ExtensionAPI): void {
 	});
 	registerHistoryTools(pi, feature);
 	registerSidekickCommand(pi, feature);
-	registerDreamCommand(pi, feature);
-	registerEmbedCommand(pi, feature);
+	// Memory-system commands disabled (see docs/mctx/README.md); registration
+	// stays behind this hook and the handlers are kept for revival.
+	// registerDreamCommand(pi, feature);
+	// registerEmbedCommand(pi, feature);
 	registerContextHook(pi, feature);
 	pi.on("turn_end", (_event, context) => feature.onTurnEnd(context));
 }
