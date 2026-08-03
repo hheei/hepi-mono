@@ -66,7 +66,7 @@ HEPI 本地可选的 Pi `TUI` patch 可以在一轮 layout 后发布这个 capab
 attribution，并由 Pi TUI focused test、tool selection E2E 和 PTY smoke 锁定；它只是 enhancement，不是 extension
 运行或发布的前提。
 
-`x/y` 是零基 viewport cell 坐标；`button` 保留 SGR 低两位编码（`0/1/2` 为 primary/middle/secondary，`3` 通常表示 release）。wheel sequence 会被消费，但第一版不产生 event。
+`x/y` 是零基 viewport cell 坐标；`button` 保留 SGR 低两位编码（`0/1/2` 为 primary/middle/secondary，`3` 通常表示 release）。wheel sequence 不产生 core event，也不被 dispatcher 消费；它会透传给 focused component，让页面保有滚动策略。
 
 `onMouseEvent()` 返回 `"ignored"` 只对 `down` 有 fallback 语义：dispatcher 继续尝试更早注册的匹配 region；省略返回值会建立 capture。`drag/up` 始终留在 down-region，不因 callback 返回值重新命中。普通 region 的 callback 自己负责 `tui.requestRender()`；core 在每次 `setSelection()` 后请求一次 render。
 
@@ -76,7 +76,7 @@ attribution，并由 Pi TUI focused test、tool selection E2E 和 PTY smoke 锁�
 
 - 同一个 `TUI` 共用一个内部 dispatcher；每个 install handle 只拥有自己注册的 region，dispose 幂等。
 - 第一个 region 注册时启用 SGR button-motion tracking；最后一个 region 移除时关闭。没有 active region 时不保留 tracking。
-- tracking active 期间，所有已识别的 mouse sequence 都由 dispatcher 消费；未命中的事件不会进入 focused component 的 keyboard `handleInput()`。未识别的普通输入保持原样。
+- tracking active 期间，已识别的 `down`/`drag`/`up` mouse sequence 都由 dispatcher 消费；未命中的事件不会进入 focused component 的 keyboard `handleInput()`。wheel sequence 例外地透传给 focused component；未识别的普通输入也保持原样。
 - 区域重叠时，后注册者优先；`down` 命中的 region 若从 `onMouseEvent()` 返回 `"ignored"`，继续尝试更早注册的匹配 region，其他返回值都在当前 region 停止。region 不要求来自可遍历的 component tree。
 - region registration 是 layout snapshot 的更新操作，只在 layout、resize、scroll 或可见性改变时进行；不得在
   `render(width)` 中注册或移除 region。hit test 读取当前 snapshot，不写 registry。

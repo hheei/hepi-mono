@@ -105,6 +105,7 @@ interface MouseDispatcher {
 
 type ParsedMouseInput =
 	| { readonly kind: "event"; readonly event: TerminalMouseEvent }
+	| { readonly kind: "wheel" }
 	| { readonly kind: "unsupported" };
 
 function setTracking(dispatcher: MouseDispatcher, enabled: boolean): void {
@@ -159,8 +160,10 @@ function parseSgrMouseInput(data: string): ParsedMouseInput | undefined {
 	if (terminator !== 77 && terminator !== 109) return undefined;
 	if (control[0] > 127 || column[0] === 0 || row[0] === 0) return undefined;
 
-	// Wheel reports share SGR syntax but have no public event kind in v1.
-	if ((control[0] & 64) !== 0) return { kind: "unsupported" };
+	// Wheel reports share SGR syntax but have no public event kind in v1. Let
+	// the focused page receive them: selection regions cannot act on a wheel,
+	// while a page can retain its own scrolling policy during mouse tracking.
+	if ((control[0] & 64) !== 0) return { kind: "wheel" };
 	return {
 		kind: "event",
 		event: {
@@ -280,6 +283,7 @@ function attachInputListener(dispatcher: MouseDispatcher): void {
 		if (dispatcher.entries.length === 0) return undefined;
 		const parsed = parseSgrMouseInput(data);
 		if (parsed === undefined) return undefined;
+		if (parsed.kind === "wheel") return undefined;
 		if (parsed.kind === "event") dispatchMouseEvent(dispatcher, parsed.event);
 		return { consume: true };
 	});

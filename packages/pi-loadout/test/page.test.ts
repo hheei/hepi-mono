@@ -274,6 +274,57 @@ describe("Loadout Settings page", () => {
 		}
 	});
 
+	test("keeps wheel navigation in the resource list while a detail is open", async () => {
+		const h = setup();
+		const inputs: string[] = [];
+		const disposeDetail = registerLoadoutResource(h.pi, {
+			id: "agent:Detail",
+			kind: "agent",
+			group: "𖠌 Agents",
+			priority: 0,
+			conflictSets: [],
+			defaultActive: true,
+			label: "Detail",
+			description: "Has a settings detail.",
+			summary: "settings",
+			projectPrivate: false,
+			owner: "test",
+			detail: {
+				render: () => ["Detail panel"],
+				handleInput: (input) => {
+					inputs.push(input);
+					return input !== "\u001b";
+				},
+			},
+		});
+		const disposeZulu = registerLoadoutResource(h.pi, {
+			id: "agent:Zulu",
+			kind: "agent",
+			group: "𖠌 Agents",
+			priority: 0,
+			conflictSets: [],
+			defaultActive: true,
+			label: "Zulu",
+			description: "Second resource.",
+			summary: "settings",
+			projectPrivate: false,
+			owner: "test",
+		});
+		try {
+			const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
+			await page.handleInput("\u001b[B");
+			await page.handleInput("\u001b[B");
+			await page.handleInput("\r");
+			await page.handleInput("\x1b[<65;1;1M"); // SGR wheel down
+			expect(inputs).toEqual([]);
+			await page.handleInput("\u001b");
+			expect(page.component.render(100).join("\n")).toContain("Zulu (agent)");
+		} finally {
+			disposeDetail();
+			disposeZulu();
+		}
+	});
+
 	test("forwards one stable editor context to every active detail input", async () => {
 		const h = setup();
 		const inputs: string[] = [];

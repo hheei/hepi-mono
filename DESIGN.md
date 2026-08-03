@@ -151,6 +151,8 @@ existing semantic token expresses the role.
   pinned level in place as `<model> • <level>` so keyboard cycling is legible. A contributor detail's
   buffered model summary is authoritative for its Loadout list row, so returning from the detail
   reflects confirmed model/thinking picks before the deferred file flush.
+- Mouse-wheel navigation remains owned by the Loadout resource list while a detail is open; it
+  changes the left-list selection without being interpreted as a detail-field movement.
 - A contributor detail buffers edits until the Loadout page closes: nothing is written while the
   panel is open, and `close()` flushes every registered detail (not just the currently open one),
   each scope writing all its dirty snapshots before one catalog reload. The Description and Body

@@ -59,6 +59,7 @@ header title 之后（与工具行一致），浏览时全量；detail 打开时
 行数保持不变（固定 4 行）：`Model` 行就地显示当前选项。未聚焦时 thinking 使用紧凑 glyph；聚焦
 `Model` 后展开为 `<model> • <level>` 文本。确认 model/thinking 并退出右侧 detail 后，左侧资源行立即读取当前 scope 的
 buffered summary，不等待退出 Loadout 后的文件 flush。
+detail 打开时鼠标滚轮仍由左侧资源列表处理：它只移动左侧 selection，不会被右侧字段 selection 接管。
 `Esc` 的消费顺序：detail 激活时先交给 detail（选择器打开时取消选择器），detail 未消费才
 退回列表。
 
