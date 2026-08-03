@@ -1,4 +1,4 @@
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { TextPosition, TextRange } from "@hheei/pi-ext-core";
 
 export interface LogicalText {
@@ -72,29 +72,51 @@ export function graphemeAtCell(line: string, cell: number): number {
 	return parts.length;
 }
 
-/** Builds visual rows without manufacturing logical newlines at soft-wrap boundaries. */
+function isWhitespace(grapheme: string): boolean {
+	return grapheme.trim() === "";
+}
+
+function wrappedLine(source: string, width: number, line: number): readonly WrappedLine[] {
+	const sourceParts = graphemes(source);
+	const wrapped = wrapTextWithAnsi(source.replace(/\t/g, "   "), width);
+	let sourceIndex = 0;
+	return wrapped.map((visual) => {
+		const visualParts = graphemes(visual);
+		let visualIndex = 0;
+		while (
+			sourceIndex < sourceParts.length &&
+			visualIndex < visualParts.length &&
+			isWhitespace(sourceParts[sourceIndex] ?? "") &&
+			!isWhitespace(visualParts[visualIndex] ?? "")
+		) {
+			sourceIndex++;
+		}
+		const startGrapheme = sourceIndex;
+		while (sourceIndex < sourceParts.length && visualIndex < visualParts.length) {
+			const sourcePart = sourceParts[sourceIndex] ?? "";
+			if (sourcePart === "\t") {
+				if (visualParts.slice(visualIndex, visualIndex + 3).every((part) => part === " ")) {
+					sourceIndex++;
+					visualIndex += 3;
+					continue;
+				}
+				break;
+			}
+			if (sourcePart !== visualParts[visualIndex]) break;
+			sourceIndex++;
+			visualIndex++;
+		}
+		return { logicalLine: line, startGrapheme, endGrapheme: sourceIndex };
+	});
+}
+
+/** Builds Pi-matching visual rows without manufacturing logical newlines at soft-wrap boundaries. */
 export function softWrap(text: LogicalText, width: number): readonly WrappedLine[] {
 	if (!Number.isSafeInteger(width) || width < 1) return [];
 	if (text.lines.length === 1 && text.lines[0] === "") return [];
 	const rows: WrappedLine[] = [];
 	for (let line = 0; line < text.lines.length; line++) {
-		const parts = graphemes(text.lines[line] ?? "");
-		if (parts.length === 0) {
-			rows.push({ logicalLine: line, startGrapheme: 0, endGrapheme: 0 });
-			continue;
-		}
-		let start = 0;
-		let column = 0;
-		for (let index = 0; index < parts.length; index++) {
-			const next = Math.max(cellWidth(parts[index] ?? ""), 1);
-			if (column > 0 && column + next > width) {
-				rows.push({ logicalLine: line, startGrapheme: start, endGrapheme: index });
-				start = index;
-				column = 0;
-			}
-			column += next;
-		}
-		rows.push({ logicalLine: line, startGrapheme: start, endGrapheme: parts.length });
+		rows.push(...wrappedLine(text.lines[line] ?? "", width, line));
 	}
 	return rows;
 }
