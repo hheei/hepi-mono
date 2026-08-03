@@ -58,6 +58,11 @@ export interface MctxEmbeddingSettings {
 	readonly config: Readonly<Record<string, unknown>>;
 }
 
+export interface MctxDreamerSettings {
+	/** User-owned Dreamer child model ref (exact provider/model). */
+	readonly model?: string;
+}
+
 export type MctxPipelineState =
 	| { readonly kind: "disabled" }
 	| { readonly kind: "invalid"; readonly reason: string }
@@ -76,6 +81,7 @@ export interface MctxConfiguration {
 	readonly pipeline: MctxPipelineState;
 	readonly search?: MctxSearchSettings;
 	readonly embedding?: MctxEmbeddingSettings;
+	readonly dreamer?: MctxDreamerSettings;
 	readonly warnings: readonly string[];
 }
 
@@ -124,6 +130,27 @@ function parseEmbeddingSettings(
 		return undefined;
 	}
 	return { config: embedding };
+}
+
+function parseDreamerSettings(
+	global: Readonly<Record<string, unknown>>,
+	project: Readonly<Record<string, unknown>>,
+	warnings: string[],
+): MctxDreamerSettings | undefined {
+	if (project.dreamer !== undefined)
+		warnings.push("Ignoring project dreamer: model selection is user-level only");
+	const dreamer = global.dreamer;
+	if (dreamer === undefined) return undefined;
+	if (!isRecord(dreamer)) {
+		warnings.push("Ignoring user dreamer: must be an object");
+		return undefined;
+	}
+	const model = dreamer.model;
+	if (model !== undefined && (typeof model !== "string" || !validModelRef(model))) {
+		warnings.push("Ignoring user dreamer.model: must be exact provider/model");
+		return undefined;
+	}
+	return typeof model === "string" ? { model: model.trim() } : {};
 }
 
 function validModelRef(value: string): boolean {
@@ -341,6 +368,7 @@ export async function loadMctxConfiguration(
 	const warnings: string[] = [];
 	const search = parseSearchSettings(global, project, warnings);
 	const embedding = parseEmbeddingSettings(global, project, warnings);
+	const dreamer = parseDreamerSettings(global, project, warnings);
 	return {
 		global,
 		project,
@@ -349,6 +377,7 @@ export async function loadMctxConfiguration(
 		pipeline: resolvePipeline(global, project, warnings),
 		...(search === undefined ? {} : { search }),
 		...(embedding === undefined ? {} : { embedding }),
+		...(dreamer === undefined ? {} : { dreamer }),
 		warnings,
 	};
 }

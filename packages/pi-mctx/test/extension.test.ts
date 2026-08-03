@@ -37,7 +37,7 @@ test("pi-mctx entry registers lifecycle handlers and managed Magic Context tools
 		"ctx_memory",
 		"ctx_note",
 	]);
-	expect(commands).toEqual(["ctx-aug"]);
+	expect(commands).toEqual(["ctx-aug", "ctx-dream", "ctx-embed"]);
 	expect(inventories.at(-1)).toEqual([
 		"ctx_expand:Magic Context",
 		"ctx_history:Magic Context",

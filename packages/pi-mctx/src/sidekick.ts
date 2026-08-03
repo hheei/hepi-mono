@@ -19,14 +19,14 @@ import {
 	searchOperation,
 } from "./search.js";
 
-/** Built-in exploration tools exposed to a sidekick child (no bash/write/edit). */
-export const SIDEKICK_BUILTIN_TOOLS = ["read", "grep", "find", "ls"] as const;
+/** Built-in exploration tools exposed to a read-only MCTX child (no bash/write/edit). */
+export const MCTX_CHILD_BUILTIN_TOOLS = ["read", "grep", "find", "ls"] as const;
 
-/** Per-sidekick soft turn cap; core adds one wrap-up steer and five grace turns. */
-export const SIDEKICK_MAX_TURNS = 3;
+/** Soft turn cap for one read-only MCTX child task; core adds wrap-up and grace turns. */
+export const MCTX_CHILD_MAX_TURNS = 3;
 
-/** Wall-clock deadline for one sidekick child task (its maxTurns cannot bound a hung tool call). */
-export const SIDEKICK_TASK_TIMEOUT_MS = 60_000;
+/** Wall-clock deadline for one MCTX child task (its maxTurns cannot bound a hung tool call). */
+export const MCTX_CHILD_TASK_TIMEOUT_MS = 60_000;
 
 /** Upper bound for the injected augmentation body; longer child output is truncated. */
 export const MAX_SIDEKICK_AUGMENTATION_CHARS = 20_000;
@@ -111,17 +111,20 @@ export function createSidekickContextSearchTool(
 }
 
 /**
- * Consumer-owned sidekick child-session policy. The child runs with no
- * extensions (no pi-mctx lifecycle, store, transform, historian or embedding
- * side effects) and exactly five tools: read/grep/find/ls plus the injected
- * `ctx_search` custom tool. The `tools` allowlist must name `ctx_search`
- * itself — the SDK only enables listed names, and customTools registration
- * does not bypass it.
+ * Consumer-owned read-only child-session policy shared by the Sidekick and
+ * Dreamer commands. The child runs with no extensions (no pi-mctx lifecycle,
+ * store, transform, historian or embedding side effects) and exactly five
+ * tools: read/grep/find/ls plus the injected `ctx_search` custom tool. The
+ * `tools` allowlist must name `ctx_search` itself — the SDK only enables
+ * listed names, and customTools registration does not bypass it.
  */
-export function createSidekickChildFactory(
+export function createMctxChildFactory(
 	context: ExtensionContext,
 	feature: Pick<MctxFeature, "search">,
-	options: { readonly model: Model<Api> | undefined },
+	options: {
+		readonly model: Model<Api> | undefined;
+		readonly systemPrompt: string;
+	},
 ): ResolvedChildSessionFactory {
 	return {
 		async create(signal: AbortSignal) {
@@ -136,7 +139,7 @@ export function createSidekickChildFactory(
 				noPromptTemplates: true,
 				noThemes: true,
 				noContextFiles: true,
-				systemPromptOverride: () => SIDEKICK_SYSTEM_PROMPT,
+				systemPromptOverride: () => options.systemPrompt,
 			});
 			await resourceLoader.reload();
 			signal.throwIfAborted();
@@ -145,7 +148,7 @@ export function createSidekickChildFactory(
 				agentDir,
 				sessionManager: SessionManager.inMemory(cwd),
 				resourceLoader,
-				tools: [...SIDEKICK_BUILTIN_TOOLS, "ctx_search"],
+				tools: [...MCTX_CHILD_BUILTIN_TOOLS, "ctx_search"],
 				customTools: [createSidekickContextSearchTool(feature, context)],
 				...(options.model === undefined ? {} : { model: options.model }),
 				thinkingLevel: "off",
