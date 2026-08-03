@@ -152,8 +152,8 @@ existing semantic token expresses the role.
   per-scope target lets the same contributor serve Global and Project scope (e.g. Project edits
   materialize a project override without rewriting the global backing); the `Status:` header line
   is followed by a read-only `Path:` line showing the current scope's target, truncated from the
-  head at directory boundaries (`…/seg/…/file.md`, whole segments only) so the file name and the
-  longest complete suffix survive narrow widths.
+  head at directory boundaries (one leading `…`, then whole segments only) so the file name and
+  the longest complete suffix survive narrow widths.
 - A detail form keeps the resource description visible: it wraps after the title at full length
   while browsing, and is clamped to three lines only while the detail is actually open so the
   form below keeps its rows. There is no `↵ Edit config` footer hint — row activation is already

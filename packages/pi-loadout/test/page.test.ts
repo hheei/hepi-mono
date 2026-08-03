@@ -519,12 +519,11 @@ describe("Loadout Settings page", () => {
 			await page.handleInput("\u001b[B");
 			await page.handleInput("\r");
 			const opened = page.component.render(100).join("\n");
-			// The head collapses to "…" and the file name survives.
-			expect(opened).toMatch(/Path: …[^ ]*Explore\.md/);
-			// Clipping happens at directory boundaries: after "…" every token
-			// is a complete segment (no mid-name slice).
-			expect(opened).toMatch(/Path: …(?:\/[^/ ]+)+/);
-			expect(opened).not.toContain("directory-one");
+			// One leading ellipsis, then whole segments only: the five
+			// directory-* segments do not fit the lane, so the longest complete
+			// suffix is exactly …/.pi/agents/Explore.md — no mid-name slice.
+			expect(opened).toContain("Path: …/.pi/agents/Explore.md");
+			expect(opened).not.toContain("directory-");
 		} finally {
 			dispose();
 			vi.restoreAllMocks();

@@ -497,14 +497,24 @@ export function createAgentDetail(
 					const temp = join(tmpdir(), `pi-agent-${name}-${Date.now()}.md`);
 					writeFileSync(temp, entry.draft.systemPrompt, "utf8");
 					const editor = process.env.VISUAL ?? process.env.EDITOR ?? "vi";
-					const result = await pi.exec(editor, [temp]);
-					if (result.code === 0) {
-						const content = readFileSync(temp, "utf8");
-						entry.draft = { ...entry.draft, systemPrompt: content };
-						entry.dirty = true;
-						entry.bodyEdited = true;
-					} else {
-						notify(`Editor exited with status ${result.code}; the body may be unchanged.`);
+					try {
+						const result = await pi.exec(editor, [temp]);
+						if (result.code === 0) {
+							const content = readFileSync(temp, "utf8");
+							entry.draft = { ...entry.draft, systemPrompt: content };
+							entry.dirty = true;
+							entry.bodyEdited = true;
+						} else {
+							notify(`Editor exited with status ${result.code}; the body may be unchanged.`);
+						}
+					} catch (error) {
+						// No usable editor (missing binary, spawn failure): drop
+						// the temp copy and tell the user instead of hanging.
+						notify(
+							`Could not open the editor: ${
+								error instanceof Error ? error.message : String(error)
+							}`,
+						);
 					}
 					rmSync(temp, { force: true });
 				}
