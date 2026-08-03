@@ -87,7 +87,7 @@ test("replaces a verified branch segment while retaining surrounding extension m
 	]);
 });
 
-test("fails open for empty, divergent, and identity-unmatched graphs", (): void => {
+test("renders cloned Pi messages but fails open for empty, divergent, or ambiguous graphs", (): void => {
 	const raw = rawMessages();
 	expect(projectMctxContext(raw, entries, [])).toEqual({ kind: "unchanged", reason: "empty" });
 	expect(
@@ -100,6 +100,10 @@ test("fails open for empty, divergent, and identity-unmatched graphs", (): void 
 			raw.map((message) => ({ ...message })),
 			entries,
 			[compartment("m0", 0, 1, 1)],
-		),
-	).toEqual({ kind: "unchanged", reason: "unmatched" });
+		).kind,
+	).toBe("rendered");
+	expect(projectMctxContext([...raw, ...raw], entries, [compartment("m0", 0, 1, 1)])).toEqual({
+		kind: "unchanged",
+		reason: "unmatched",
+	});
 });

@@ -1,11 +1,11 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export const MCTX_STORE_APPLICATION_ID = 0x484d4354;
-export const MCTX_STORE_SCHEMA_VERSION = 8;
+export const MCTX_STORE_SCHEMA_VERSION = 10;
 export const MCTX_STORE_BUSY_TIMEOUT_MS = 5_000;
 
 /**
@@ -17,6 +17,15 @@ export interface MctxStore {
 	readonly path: string;
 	getOrCreatePartition(projectIdentity: string, sessionId: string): MctxPartition;
 	findPartition(projectIdentity: string, sessionId: string): MctxPartition | undefined;
+	/** Durable destination binding, reserved before host appends hidden entry. */
+	isHandoffInstalled(parent: MctxPartitionKey, destinationSessionId: string): boolean;
+	reserveHandoffInstallation(
+		parent: MctxPartitionKey,
+		destinationSessionId: string,
+	): MctxHandoffReservation | undefined;
+	recoverHandoffInstallation(parent: MctxPartitionKey, destinationSessionId: string): boolean;
+	markHandoffInstalled(reservation: MctxHandoffReservation): void;
+	clearHandoffInstallation(reservation: MctxHandoffReservation): void;
 	initializeForkPartition(
 		source: MctxPartition,
 		destination: MctxPartitionKey,
@@ -60,22 +69,30 @@ export interface MctxStore {
 	): MctxPartition | undefined;
 	writeMemory(input: MctxMemoryWrite): MctxMemory;
 	getMemories(projectIdentity: string, memoryIds: readonly number[]): readonly MctxMemory[];
+	listActiveMemories(
+		projectIdentity: string,
+		limit: number,
+		offset?: number,
+	): readonly MctxMemory[];
 	updateMemory(input: MctxMemoryUpdate): MctxMemory | undefined;
 	archiveMemory(input: MctxMemoryArchive): MctxMemory | undefined;
-	loadMemoryEmbeddingCandidate(
-		projectIdentity: string,
-		memoryId: number,
-	): MctxMemoryEmbeddingCandidate | undefined;
-	persistMemoryEmbedding(input: MctxMemoryEmbeddingWrite): boolean;
 	writeNote(input: MctxNoteWrite): MctxNote;
 	readNotes(
 		projectIdentity: string,
 		sessionId: string,
 		status?: MctxNoteStatus,
 	): readonly MctxNote[];
+	listActiveNotes(projectIdentity: string, sessionId: string, limit: number): readonly MctxNote[];
+	listRetainedHistoryTags(input: MctxRetainedHistoryList): readonly MctxRetainedHistoryTag[];
+	purgeRetainedHistory(input: MctxRetainedHistoryPurge): number;
 	updateNote(input: MctxNoteUpdate): MctxNote | undefined;
 	dismissNote(input: MctxNoteDismiss): MctxNote | undefined;
 	close(): void;
+}
+
+export interface MctxHandoffReservation {
+	readonly bindingId: string;
+	readonly ownerToken: string;
 }
 
 /** Identifies one Pi parent session within a stable project and its CAS revision. */
@@ -143,6 +160,26 @@ export interface MctxHistoryTag extends MctxHistoryTagInput {
 	readonly status: MctxHistoryTagStatus;
 }
 
+/** Retained tag with its project/session identity for cross-session reads. */
+export interface MctxRetainedHistoryTag extends MctxHistoryTag {
+	readonly projectIdentity: string;
+	readonly sessionId: string;
+}
+
+export interface MctxRetainedHistoryList {
+	readonly projectIdentity: string;
+	readonly activeSessionId: string;
+	readonly limit: number;
+	readonly offset?: number;
+	readonly sessionId?: string;
+}
+
+export interface MctxRetainedHistoryPurge {
+	readonly projectIdentity: string;
+	readonly activeSessionId: string;
+	readonly sessionId: string;
+}
+
 export interface MctxHistoryTagSync {
 	readonly partition: MctxPartition;
 	readonly tags: readonly MctxHistoryTag[];
@@ -176,27 +213,6 @@ export interface MctxMemory {
 	readonly updatedSessionId: string;
 	readonly createdAtMs: number;
 	readonly updatedAtMs: number;
-}
-
-/** Active source snapshot passed to one detached embedding call. */
-export interface MctxMemoryEmbeddingCandidate {
-	readonly projectIdentity: string;
-	readonly memoryId: number;
-	readonly content: string;
-	readonly contentHash: string;
-	readonly revision: number;
-}
-
-/** Model identity and source fields fence a late provider result at SQLite commit time. */
-export interface MctxMemoryEmbeddingWrite {
-	readonly projectIdentity: string;
-	readonly memoryId: number;
-	readonly contentHash: string;
-	readonly revision: number;
-	readonly modelIdentity: string;
-	readonly providerGeneration: number;
-	readonly vector: Float32Array;
-	readonly nowMs?: number;
 }
 
 export interface MctxMemoryWrite {
@@ -472,14 +488,88 @@ function migrateV8(database: DatabaseSync): void {
 		);
 		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(8);
 		database.exec("DROP TABLE mctx_metadata_v7");
-		// One current source row makes a content/revision change an atomic publication fence.
 		database.exec(
-			"CREATE TABLE memory_embedding_sources (project_identity TEXT NOT NULL, memory_id INTEGER NOT NULL CHECK (memory_id > 0), content_hash TEXT NOT NULL CHECK (length(content_hash) = 64), memory_revision INTEGER NOT NULL CHECK (memory_revision > 0), PRIMARY KEY (project_identity, memory_id), UNIQUE (project_identity, memory_id, content_hash, memory_revision), FOREIGN KEY (project_identity, memory_id) REFERENCES memories(project_identity, memory_id)) STRICT",
-		);
-		database.exec(
-			"CREATE TABLE memory_embeddings (project_identity TEXT NOT NULL, memory_id INTEGER NOT NULL CHECK (memory_id > 0), model_identity TEXT NOT NULL, provider_generation INTEGER NOT NULL CHECK (provider_generation >= 0), source_content_hash TEXT NOT NULL CHECK (length(source_content_hash) = 64), source_memory_revision INTEGER NOT NULL CHECK (source_memory_revision > 0), dimensions INTEGER NOT NULL CHECK (dimensions > 0), vector BLOB NOT NULL, created_at_ms INTEGER NOT NULL CHECK (created_at_ms >= 0), PRIMARY KEY (project_identity, memory_id, model_identity, provider_generation), FOREIGN KEY (project_identity, memory_id, source_content_hash, source_memory_revision) REFERENCES memory_embedding_sources(project_identity, memory_id, content_hash, memory_revision)) STRICT",
+			"CREATE TABLE handoff_bindings (parent_project_identity TEXT NOT NULL, parent_session_id TEXT NOT NULL, destination_session_id TEXT NOT NULL, PRIMARY KEY (parent_project_identity, parent_session_id, destination_session_id), FOREIGN KEY (parent_project_identity, parent_session_id) REFERENCES partitions(project_identity, session_id)) STRICT",
 		);
 		database.exec("PRAGMA user_version = 8");
+		database.exec("COMMIT");
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
+function migrateV9(database: DatabaseSync): void {
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		database.exec("ALTER TABLE mctx_metadata RENAME TO mctx_metadata_v8");
+		database.exec(
+			"CREATE TABLE mctx_metadata (schema_version INTEGER NOT NULL CHECK (schema_version = 9)) STRICT",
+		);
+		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(9);
+		database.exec("DROP TABLE mctx_metadata_v8");
+		database.exec(
+			"ALTER TABLE handoff_bindings ADD COLUMN status TEXT NOT NULL DEFAULT 'installed' CHECK (status IN ('reserved', 'installed'))",
+		);
+		database.exec("PRAGMA user_version = 9");
+		database.exec("COMMIT");
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
+export function mctxHandoffBindingId(
+	parent: MctxPartitionKey,
+	destinationSessionId: string,
+): string {
+	return `mctx-handoff-${createHash("sha256")
+		.update(`${parent.projectIdentity}\u0000${parent.sessionId}\u0000${destinationSessionId}`)
+		.digest("hex")}`;
+}
+const handoffBindingId = mctxHandoffBindingId;
+
+function migrateV10(database: DatabaseSync): void {
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		database.exec("ALTER TABLE mctx_metadata RENAME TO mctx_metadata_v9");
+		database.exec(
+			"CREATE TABLE mctx_metadata (schema_version INTEGER NOT NULL CHECK (schema_version = 10)) STRICT",
+		);
+		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(10);
+		database.exec("DROP TABLE mctx_metadata_v9");
+		database.exec("ALTER TABLE handoff_bindings ADD COLUMN binding_id TEXT");
+		database.exec("ALTER TABLE handoff_bindings ADD COLUMN owner_token TEXT");
+		database.exec("ALTER TABLE handoff_bindings ADD COLUMN lease_expires_at_ms INTEGER");
+		const rows = database
+			.prepare(
+				"SELECT parent_project_identity, parent_session_id, destination_session_id FROM handoff_bindings",
+			)
+			.all();
+		const update = database.prepare(
+			"UPDATE handoff_bindings SET binding_id = ?, owner_token = ?, lease_expires_at_ms = ? WHERE parent_project_identity = ? AND parent_session_id = ? AND destination_session_id = ?",
+		);
+		for (const row of rows) {
+			if (
+				!isRecord(row) ||
+				typeof row.parent_project_identity !== "string" ||
+				typeof row.parent_session_id !== "string" ||
+				typeof row.destination_session_id !== "string"
+			)
+				throw new Error("Context store handoff row is invalid");
+			update.run(
+				handoffBindingId(
+					{ projectIdentity: row.parent_project_identity, sessionId: row.parent_session_id },
+					row.destination_session_id,
+				),
+				"migration",
+				0,
+				row.parent_project_identity,
+				row.parent_session_id,
+				row.destination_session_id,
+			);
+		}
+		database.exec("PRAGMA user_version = 10");
 		database.exec("COMMIT");
 	} catch (error) {
 		database.exec("ROLLBACK");
@@ -516,6 +606,8 @@ function validateSchema(database: DatabaseSync): void {
 	if (pragmaInteger(database, "PRAGMA user_version") === 5) migrateV6(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 6) migrateV7(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 7) migrateV8(database);
+	if (pragmaInteger(database, "PRAGMA user_version") === 8) migrateV9(database);
+	if (pragmaInteger(database, "PRAGMA user_version") === 9) migrateV10(database);
 	if (pragmaInteger(database, "PRAGMA application_id") !== MCTX_STORE_APPLICATION_ID) {
 		throw new Error("Context store application identity is invalid");
 	}
@@ -531,8 +623,7 @@ function validateSchema(database: DatabaseSync): void {
 		!hasTable(database, "history_tags") ||
 		!hasTable(database, "memories") ||
 		!hasTable(database, "notes") ||
-		!hasTable(database, "memory_embedding_sources") ||
-		!hasTable(database, "memory_embeddings")
+		!hasTable(database, "handoff_bindings")
 	) {
 		throw new Error("Context store partition tables are missing");
 	}
@@ -549,6 +640,112 @@ function requirePartitionKey(projectIdentity: string, sessionId: string): void {
 		throw new Error("Invalid context store project identity");
 	}
 	if (!sessionId.trim()) throw new Error("Context store session ID must not be empty");
+}
+
+function isHandoffInstalled(
+	database: DatabaseSync,
+	parent: MctxPartitionKey,
+	destinationSessionId: string,
+): boolean {
+	requirePartitionKey(parent.projectIdentity, parent.sessionId);
+	if (!destinationSessionId.trim())
+		throw new Error("Context store destination session ID must not be empty");
+	const row = database
+		.prepare(
+			"SELECT 1 AS value FROM handoff_bindings WHERE parent_project_identity = ? AND parent_session_id = ? AND destination_session_id = ? AND status = 'installed'",
+		)
+		.get(parent.projectIdentity, parent.sessionId, destinationSessionId);
+	return row !== undefined;
+}
+
+function reserveHandoffInstallation(
+	database: DatabaseSync,
+	parent: MctxPartitionKey,
+	destinationSessionId: string,
+): MctxHandoffReservation | undefined {
+	requirePartitionKey(parent.projectIdentity, parent.sessionId);
+	if (!destinationSessionId.trim())
+		throw new Error("Context store destination session ID is invalid");
+	const bindingId = handoffBindingId(parent, destinationSessionId);
+	const ownerToken = randomUUID();
+	const expires = Date.now() + MCTX_STORE_BUSY_TIMEOUT_MS;
+	if (
+		changedRows(
+			database
+				.prepare(
+					"INSERT INTO handoff_bindings (parent_project_identity, parent_session_id, destination_session_id, binding_id, owner_token, lease_expires_at_ms, status) VALUES (?, ?, ?, ?, ?, ?, 'reserved') ON CONFLICT DO NOTHING",
+				)
+				.run(
+					parent.projectIdentity,
+					parent.sessionId,
+					destinationSessionId,
+					bindingId,
+					ownerToken,
+					expires,
+				),
+		) === 1
+	)
+		return { bindingId, ownerToken };
+	if (
+		changedRows(
+			database
+				.prepare(
+					"UPDATE handoff_bindings SET owner_token = ?, lease_expires_at_ms = ? WHERE parent_project_identity = ? AND parent_session_id = ? AND destination_session_id = ? AND binding_id = ? AND status = 'reserved' AND lease_expires_at_ms < ?",
+				)
+				.run(
+					ownerToken,
+					expires,
+					parent.projectIdentity,
+					parent.sessionId,
+					destinationSessionId,
+					bindingId,
+					Date.now(),
+				),
+		) === 1
+	)
+		return { bindingId, ownerToken };
+	return undefined;
+}
+
+function markHandoffInstalled(database: DatabaseSync, reservation: MctxHandoffReservation): void {
+	if (
+		changedRows(
+			database
+				.prepare(
+					"UPDATE handoff_bindings SET status = 'installed', lease_expires_at_ms = 0 WHERE binding_id = ? AND owner_token = ? AND status = 'reserved'",
+				)
+				.run(reservation.bindingId, reservation.ownerToken),
+		) !== 1
+	)
+		throw new Error("MCTX handoff reservation is no longer owned");
+}
+
+function recoverHandoffInstallation(
+	database: DatabaseSync,
+	parent: MctxPartitionKey,
+	destinationSessionId: string,
+): boolean {
+	const bindingId = handoffBindingId(parent, destinationSessionId);
+	return (
+		changedRows(
+			database
+				.prepare(
+					"UPDATE handoff_bindings SET status = 'installed', lease_expires_at_ms = 0 WHERE binding_id = ? AND status = 'reserved'",
+				)
+				.run(bindingId),
+		) === 1
+	);
+}
+
+function clearHandoffInstallation(
+	database: DatabaseSync,
+	reservation: MctxHandoffReservation,
+): void {
+	database
+		.prepare(
+			"DELETE FROM handoff_bindings WHERE binding_id = ? AND owner_token = ? AND status = 'reserved'",
+		)
+		.run(reservation.bindingId, reservation.ownerToken);
 }
 
 function partitionFromRow(value: unknown): MctxPartition {
@@ -1029,6 +1226,20 @@ function historyTagFromRow(value: unknown): MctxHistoryTag {
 	};
 }
 
+function retainedHistoryTagFromRow(value: unknown): MctxRetainedHistoryTag {
+	if (
+		!isRecord(value) ||
+		typeof value.project_identity !== "string" ||
+		typeof value.session_id !== "string"
+	)
+		throw new Error("Context store retained history tag row is invalid");
+	return {
+		projectIdentity: value.project_identity,
+		sessionId: value.session_id,
+		...historyTagFromRow(value),
+	};
+}
+
 function partitionCas(database: DatabaseSync, partition: MctxPartition): MctxPartition | undefined {
 	const changes = changedRows(
 		database
@@ -1235,14 +1446,6 @@ function validMemoryCategory(value: unknown): value is MctxMemoryCategory {
 	return typeof value === "string" && MCTX_MEMORY_CATEGORIES.includes(value as MctxMemoryCategory);
 }
 
-function memoryContentHash(content: string): string {
-	return createHash("sha256").update(content, "utf8").digest("hex");
-}
-
-function validContentHash(value: unknown): value is string {
-	return typeof value === "string" && /^[0-9a-f]{64}$/i.test(value);
-}
-
 function memoryFromRow(value: unknown): MctxMemory {
 	if (
 		!isRecord(value) ||
@@ -1293,29 +1496,6 @@ function requireMemoryInput(projectIdentity: string, sessionId: string, content?
 		throw new Error("Context store memory content is invalid");
 }
 
-function requireMemoryId(memoryId: number): void {
-	if (!Number.isSafeInteger(memoryId) || memoryId < 1)
-		throw new Error("Context store memory ID is invalid");
-}
-
-function syncMemoryEmbeddingSource(database: DatabaseSync, memory: MctxMemory): void {
-	// Archived or superseded text must not remain a candidate. This mutation-time
-	// deletion is the privacy fence, not background retention or garbage collection.
-	database
-		.prepare("DELETE FROM memory_embeddings WHERE project_identity = ? AND memory_id = ?")
-		.run(memory.projectIdentity, memory.memoryId);
-	database
-		.prepare(
-			"INSERT INTO memory_embedding_sources (project_identity, memory_id, content_hash, memory_revision) VALUES (?, ?, ?, ?) ON CONFLICT(project_identity, memory_id) DO UPDATE SET content_hash = excluded.content_hash, memory_revision = excluded.memory_revision",
-		)
-		.run(
-			memory.projectIdentity,
-			memory.memoryId,
-			memoryContentHash(memory.content),
-			memory.revision,
-		);
-}
-
 function writeMemory(database: DatabaseSync, input: MctxMemoryWrite): MctxMemory {
 	requireMemoryInput(input.projectIdentity, input.sessionId, input.content);
 	if (!validMemoryCategory(input.category))
@@ -1349,7 +1529,6 @@ function writeMemory(database: DatabaseSync, input: MctxMemoryWrite): MctxMemory
 			.prepare("SELECT * FROM memories WHERE project_identity = ? AND memory_id = ?")
 			.get(input.projectIdentity, memoryId);
 		const memory = memoryFromRow(row);
-		syncMemoryEmbeddingSource(database, memory);
 		database.exec("COMMIT");
 		return memory;
 	} catch (error) {
@@ -1373,6 +1552,28 @@ function getMemories(
 				.get(projectIdentity, memoryId);
 			return row === undefined ? [] : [memoryFromRow(row)];
 		});
+}
+
+function listActiveMemories(
+	database: DatabaseSync,
+	projectIdentity: string,
+	limit: number,
+	offset: number = 0,
+): readonly MctxMemory[] {
+	if (
+		!projectIdentity.trim() ||
+		!Number.isSafeInteger(limit) ||
+		limit < 1 ||
+		!Number.isSafeInteger(offset) ||
+		offset < 0
+	)
+		throw new Error("Context store search query is invalid");
+	return database
+		.prepare(
+			"SELECT * FROM memories WHERE project_identity = ? AND status = 'active' ORDER BY memory_id ASC LIMIT ? OFFSET ?",
+		)
+		.all(projectIdentity, limit, offset)
+		.map(memoryFromRow);
 }
 
 function mutateMemory(
@@ -1418,7 +1619,6 @@ function mutateMemory(
 				.prepare("SELECT * FROM memories WHERE project_identity = ? AND memory_id = ?")
 				.get(input.projectIdentity, input.memoryId),
 		);
-		syncMemoryEmbeddingSource(database, memory);
 		database.exec("COMMIT");
 		return memory;
 	} catch (error) {
@@ -1448,113 +1648,6 @@ function updateMemoryContent(
 				input.expectedRevision,
 			),
 	);
-}
-
-function memoryEmbeddingCandidateFromRow(value: unknown): MctxMemoryEmbeddingCandidate {
-	if (!isRecord(value)) throw new Error("Context store memory embedding source row is invalid");
-	const memoryId = value.memory_id;
-	const revision = value.memory_revision;
-	if (
-		typeof value.project_identity !== "string" ||
-		typeof value.content !== "string" ||
-		!validContentHash(value.content_hash) ||
-		typeof memoryId !== "number" ||
-		!Number.isSafeInteger(memoryId) ||
-		memoryId < 1 ||
-		typeof revision !== "number" ||
-		!Number.isSafeInteger(revision) ||
-		revision < 1
-	)
-		throw new Error("Context store memory embedding source row is invalid");
-	return {
-		projectIdentity: value.project_identity,
-		memoryId,
-		content: value.content,
-		contentHash: value.content_hash,
-		revision,
-	};
-}
-
-function loadMemoryEmbeddingCandidate(
-	database: DatabaseSync,
-	projectIdentity: string,
-	memoryId: number,
-): MctxMemoryEmbeddingCandidate | undefined {
-	if (!projectIdentity.trim()) throw new Error("Context store project identity is invalid");
-	requireMemoryId(memoryId);
-	const row = database
-		.prepare(
-			"SELECT memories.project_identity, memories.memory_id, memories.content, memory_embedding_sources.content_hash, memory_embedding_sources.memory_revision FROM memories INNER JOIN memory_embedding_sources USING (project_identity, memory_id) WHERE memories.project_identity = ? AND memories.memory_id = ? AND memories.status = 'active' AND memories.revision = memory_embedding_sources.memory_revision",
-		)
-		.get(projectIdentity, memoryId);
-	return row === undefined ? undefined : memoryEmbeddingCandidateFromRow(row);
-}
-
-function vectorBlob(vector: Float32Array): Uint8Array {
-	if (!(vector instanceof Float32Array))
-		throw new Error("Context store embedding vector is invalid");
-	if (!Number.isSafeInteger(vector.length) || vector.length < 1)
-		throw new Error("Context store embedding vector is invalid");
-	const bytes = new Uint8Array(vector.length * Float32Array.BYTES_PER_ELEMENT);
-	const view = new DataView(bytes.buffer);
-	for (let index = 0; index < vector.length; index++) {
-		const value = vector[index];
-		if (typeof value !== "number" || !Number.isFinite(value))
-			throw new Error("Context store embedding vector is invalid");
-		view.setFloat32(index * Float32Array.BYTES_PER_ELEMENT, value, true);
-	}
-	return bytes;
-}
-
-function persistMemoryEmbedding(database: DatabaseSync, input: MctxMemoryEmbeddingWrite): boolean {
-	if (!input.projectIdentity.trim()) throw new Error("Context store project identity is invalid");
-	requireMemoryId(input.memoryId);
-	if (!validContentHash(input.contentHash))
-		throw new Error("Context store embedding content hash is invalid");
-	if (!Number.isSafeInteger(input.revision) || input.revision < 1)
-		throw new Error("Context store embedding revision is invalid");
-	if (!input.modelIdentity.trim())
-		throw new Error("Context store embedding model identity is invalid");
-	if (!Number.isSafeInteger(input.providerGeneration) || input.providerGeneration < 0)
-		throw new Error("Context store embedding provider generation is invalid");
-	const nowMs = input.nowMs ?? Date.now();
-	if (!Number.isSafeInteger(nowMs) || nowMs < 0)
-		throw new Error("Context store embedding timestamp is invalid");
-	const blob = vectorBlob(input.vector);
-	database.exec("BEGIN IMMEDIATE");
-	try {
-		const candidate = loadMemoryEmbeddingCandidate(database, input.projectIdentity, input.memoryId);
-		if (
-			candidate === undefined ||
-			candidate.contentHash !== input.contentHash ||
-			candidate.revision !== input.revision
-		) {
-			database.exec("ROLLBACK");
-			return false;
-		}
-		// The model and generation are part of the primary key: one provider result
-		// cannot overwrite another model's vector for the same current source.
-		database
-			.prepare(
-				"INSERT INTO memory_embeddings (project_identity, memory_id, model_identity, provider_generation, source_content_hash, source_memory_revision, dimensions, vector, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(project_identity, memory_id, model_identity, provider_generation) DO UPDATE SET source_content_hash = excluded.source_content_hash, source_memory_revision = excluded.source_memory_revision, dimensions = excluded.dimensions, vector = excluded.vector, created_at_ms = excluded.created_at_ms",
-			)
-			.run(
-				input.projectIdentity,
-				input.memoryId,
-				input.modelIdentity,
-				input.providerGeneration,
-				input.contentHash,
-				input.revision,
-				input.vector.length,
-				blob,
-				nowMs,
-			);
-		database.exec("COMMIT");
-		return true;
-	} catch (error) {
-		database.exec("ROLLBACK");
-		throw error;
-	}
 }
 
 function validHistoryTagKind(value: unknown): value is MctxHistoryTagKind {
@@ -1711,6 +1804,65 @@ function readNotes(
 		.map(noteFromRow);
 }
 
+function listActiveNotes(
+	database: DatabaseSync,
+	projectIdentity: string,
+	sessionId: string,
+	limit: number,
+): readonly MctxNote[] {
+	if (!Number.isSafeInteger(limit) || limit < 1)
+		throw new Error("Context store search query is invalid");
+	return database
+		.prepare(
+			"SELECT * FROM notes WHERE project_identity = ? AND session_id = ? AND status = 'active' ORDER BY note_id ASC LIMIT ?",
+		)
+		.all(projectIdentity, sessionId, limit)
+		.map(noteFromRow);
+}
+
+function listRetainedHistoryTags(
+	database: DatabaseSync,
+	input: MctxRetainedHistoryList,
+): readonly MctxRetainedHistoryTag[] {
+	const offset = input.offset ?? 0;
+	if (
+		!input.projectIdentity.trim() ||
+		!input.activeSessionId.trim() ||
+		(input.sessionId !== undefined && !input.sessionId.trim()) ||
+		!Number.isSafeInteger(input.limit) ||
+		input.limit < 1 ||
+		!Number.isSafeInteger(offset) ||
+		offset < 0
+	)
+		throw new Error("Context store search query is invalid");
+	if (input.sessionId === input.activeSessionId) return [];
+	if (input.sessionId !== undefined)
+		return database
+			.prepare(
+				"SELECT project_identity, session_id, tag_number, kind, entry_id, tool_call_id, source, status FROM history_tags WHERE project_identity = ? AND session_id = ? ORDER BY tag_number ASC LIMIT ? OFFSET ?",
+			)
+			.all(input.projectIdentity, input.sessionId, input.limit, offset)
+			.map(retainedHistoryTagFromRow);
+	return database
+		.prepare(
+			"SELECT project_identity, session_id, tag_number, kind, entry_id, tool_call_id, source, status FROM history_tags WHERE project_identity = ? AND session_id <> ? ORDER BY session_id ASC, tag_number ASC LIMIT ? OFFSET ?",
+		)
+		.all(input.projectIdentity, input.activeSessionId, input.limit, offset)
+		.map(retainedHistoryTagFromRow);
+}
+
+function purgeRetainedHistory(database: DatabaseSync, input: MctxRetainedHistoryPurge): number {
+	if (!input.projectIdentity.trim()) throw new Error("Context store project identity is invalid");
+	if (!input.activeSessionId.trim() || !input.sessionId.trim())
+		throw new Error("Context store session ID is invalid");
+	if (input.sessionId === input.activeSessionId)
+		throw new Error("Context store cannot purge active history");
+	const result = database
+		.prepare("DELETE FROM history_tags WHERE project_identity = ? AND session_id = ?")
+		.run(input.projectIdentity, input.sessionId);
+	return changedRows(result);
+}
+
 function requireNoteMutation(input: MctxNoteUpdate | MctxNoteDismiss, nowMs: number): void {
 	requirePartitionKey(input.projectIdentity, input.sessionId);
 	if (
@@ -1825,6 +1977,26 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 			if (database === undefined) throw new Error("Context store is closed");
 			return findPartition(database, projectIdentity, sessionId);
 		},
+		isHandoffInstalled(parent, destinationSessionId): boolean {
+			if (database === undefined) throw new Error("Context store is closed");
+			return isHandoffInstalled(database, parent, destinationSessionId);
+		},
+		reserveHandoffInstallation(parent, destinationSessionId): MctxHandoffReservation | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return reserveHandoffInstallation(database, parent, destinationSessionId);
+		},
+		recoverHandoffInstallation(parent, destinationSessionId): boolean {
+			if (database === undefined) throw new Error("Context store is closed");
+			return recoverHandoffInstallation(database, parent, destinationSessionId);
+		},
+		markHandoffInstalled(reservation): void {
+			if (database === undefined) throw new Error("Context store is closed");
+			markHandoffInstalled(database, reservation);
+		},
+		clearHandoffInstallation(reservation): void {
+			if (database === undefined) throw new Error("Context store is closed");
+			clearHandoffInstallation(database, reservation);
+		},
 		initializeForkPartition(source, destination, compartments): MctxForkPartitionInitialization {
 			if (database === undefined) throw new Error("Context store is closed");
 			return initializeForkPartition(database, source, destination, compartments);
@@ -1887,6 +2059,10 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 			if (database === undefined) throw new Error("Context store is closed");
 			return getMemories(database, projectIdentity, memoryIds);
 		},
+		listActiveMemories(projectIdentity, limit, offset): readonly MctxMemory[] {
+			if (database === undefined) throw new Error("Context store is closed");
+			return listActiveMemories(database, projectIdentity, limit, offset);
+		},
 		updateMemory(input): MctxMemory | undefined {
 			if (database === undefined) throw new Error("Context store is closed");
 			return mutateMemory(database, input, false);
@@ -1895,17 +2071,7 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 			if (database === undefined) throw new Error("Context store is closed");
 			return mutateMemory(database, input, true);
 		},
-		loadMemoryEmbeddingCandidate(
-			projectIdentity,
-			memoryId,
-		): MctxMemoryEmbeddingCandidate | undefined {
-			if (database === undefined) throw new Error("Context store is closed");
-			return loadMemoryEmbeddingCandidate(database, projectIdentity, memoryId);
-		},
-		persistMemoryEmbedding(input): boolean {
-			if (database === undefined) throw new Error("Context store is closed");
-			return persistMemoryEmbedding(database, input);
-		},
+
 		writeNote(input): MctxNote {
 			if (database === undefined) throw new Error("Context store is closed");
 			return writeNote(database, input);
@@ -1913,6 +2079,18 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 		readNotes(projectIdentity, sessionId, status): readonly MctxNote[] {
 			if (database === undefined) throw new Error("Context store is closed");
 			return readNotes(database, projectIdentity, sessionId, status);
+		},
+		listActiveNotes(projectIdentity, sessionId, limit): readonly MctxNote[] {
+			if (database === undefined) throw new Error("Context store is closed");
+			return listActiveNotes(database, projectIdentity, sessionId, limit);
+		},
+		listRetainedHistoryTags(input): readonly MctxRetainedHistoryTag[] {
+			if (database === undefined) throw new Error("Context store is closed");
+			return listRetainedHistoryTags(database, input);
+		},
+		purgeRetainedHistory(input): number {
+			if (database === undefined) throw new Error("Context store is closed");
+			return purgeRetainedHistory(database, input);
 		},
 		updateNote(input): MctxNote | undefined {
 			if (database === undefined) throw new Error("Context store is closed");

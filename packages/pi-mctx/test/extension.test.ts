@@ -25,12 +25,21 @@ test("pi-mctx entry registers lifecycle handlers and managed Magic Context tools
 
 	piMctxExtension(pi as never);
 	expect(handlers).toEqual(["session_start", "session_shutdown", "context", "turn_end"]);
-	expect(tools).toEqual(["ctx_reduce", "ctx_expand", "ctx_memory", "ctx_note"]);
+	expect(tools).toEqual([
+		"ctx_reduce",
+		"ctx_expand",
+		"ctx_history",
+		"ctx_search",
+		"ctx_memory",
+		"ctx_note",
+	]);
 	expect(inventories.at(-1)).toEqual([
 		"ctx_expand:Magic Context",
+		"ctx_history:Magic Context",
 		"ctx_memory:Magic Context",
 		"ctx_note:Magic Context",
 		"ctx_reduce:Magic Context",
+		"ctx_search:Magic Context",
 	]);
 	controller.abort();
 });

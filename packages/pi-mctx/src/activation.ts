@@ -1,12 +1,14 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { type ExtensionLifecycleContext, ensureSubagentCoordinator } from "@hheei/pi-ext-core";
-import type { MctxConfiguration, MctxPipelineSettings } from "./config.js";
+import type { MctxConfiguration, MctxPipelineSettings, MctxSearchSettings } from "./config.js";
 
 /** Resolved immutable inputs held for one active parent session. */
 export interface MctxRuntime {
+	readonly cwd: string;
 	readonly sessionId: string;
 	readonly historian: Model<Api>;
 	readonly settings: MctxPipelineSettings;
+	readonly search: MctxSearchSettings;
 }
 
 export type MctxActivation =
@@ -63,9 +65,11 @@ export function resolveMctxActivation(
 			return {
 				kind: "active",
 				runtime: {
+					cwd: context.extension.cwd,
 					sessionId: context.extension.sessionManager.getSessionId(),
 					historian,
 					settings: configuration.pipeline.settings,
+					search: configuration.search ?? {},
 				},
 			};
 		}

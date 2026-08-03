@@ -8,15 +8,28 @@
 	"exports": {
 		".": "./dist/index.js"
 	},
-	"files": ["dist", "README.md", "LICENSE"],
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE"
+	],
 	"pi": {
-		"extensions": ["dist/extension.js"]
+		"extensions": [
+			"dist/extension.js"
+		]
 	},
 	"scripts": {
 		"build": "bunx tsc -p tsconfig.build.json",
+		"test:host": "bun run build && node --test test/host-lifecycle.node.ts",
 		"prepack": "bun run build"
 	},
-	"keywords": ["pi", "pi-package", "pi-extension", "hepi", "mctx"],
+	"keywords": [
+		"pi",
+		"pi-package",
+		"pi-extension",
+		"hepi",
+		"mctx"
+	],
 	"license": "MIT",
 	"repository": {
 		"type": "git",

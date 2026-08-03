@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { type SessionEntry, sessionEntryToContextMessages } from "@earendil-works/pi-coding-agent";
 import { verifyMctxCompartmentGraph } from "./compartment-graph.js";
@@ -11,24 +12,33 @@ function projectEntries(entries: readonly SessionEntry[]): readonly AgentMessage
 	return entries.flatMap((entry) => sessionEntryToContextMessages(entry));
 }
 
-function indexOfIdentitySequence(
+function indexOfMessageSequence(
 	messages: readonly AgentMessage[],
 	sequence: readonly AgentMessage[],
 ): number | undefined {
-	// Value equality could replace another extension's equal-looking messages.
-	// Identity proves this exact Pi branch segment still survived the hook chain.
+	// Pi host clones messages before this hook. Match one complete branch segment;
+	// a duplicate remains untouched rather than risking a wrong replacement.
 	if (sequence.length === 0) return undefined;
+	let found: number | undefined;
 	for (let start = 0; start <= messages.length - sequence.length; start++) {
 		let matches = true;
 		for (let offset = 0; offset < sequence.length; offset++) {
-			if (messages[start + offset] !== sequence[offset]) {
+			const message = messages[start + offset];
+			const expected = sequence[offset];
+			if (
+				message === undefined ||
+				expected === undefined ||
+				!isDeepStrictEqual(message, expected)
+			) {
 				matches = false;
 				break;
 			}
 		}
-		if (matches) return start;
+		if (!matches) continue;
+		if (found !== undefined) return undefined;
+		found = start;
 	}
-	return undefined;
+	return found;
 }
 
 function tierMessage(tier: "m0" | "m1", compartments: readonly MctxCompartment[]): AgentMessage {
@@ -57,7 +67,7 @@ export function projectMctxContext(
 	if (graph.kind === "empty") return { kind: "unchanged", reason: "empty" };
 	if (graph.kind === "invalid") return { kind: "unchanged", reason: "invalid" };
 	const rawMessages = projectEntries(entries);
-	const rawStart = indexOfIdentitySequence(eventMessages, rawMessages);
+	const rawStart = indexOfMessageSequence(eventMessages, rawMessages);
 	if (rawStart === undefined) return { kind: "unchanged", reason: "unmatched" };
 	const prefix = projectEntries(entries.slice(0, graph.graph.sourceStartIndex));
 	const tail = projectEntries(entries.slice(graph.graph.liveTailStartIndex));

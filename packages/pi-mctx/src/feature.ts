@@ -4,14 +4,15 @@ import {
 	type SessionEntry,
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import type { CompletionFailure, ExtensionLifecycleContext } from "@hheei/pi-ext-core";
 import type {
-	EmbeddingProvider,
-	EmbeddingProviderLease,
-	EmbeddingSnapshot,
-} from "@hheei/pi-ext-embed";
+	CompletionFailure,
+	ExtensionLifecycleContext,
+	MemorySearchExclusionService,
+	ParentContextProjectionResult,
+} from "@hheei/pi-ext-core";
+import { getService, MCTX_MEMORY_EXCLUSION_SERVICE } from "@hheei/pi-ext-core";
 import { type MctxRuntime, resolveMctxActivation } from "./activation.js";
-import { planMctxCompartmentRecovery } from "./compartment-graph.js";
+import { planMctxCompartmentRecovery, verifyMctxCompartmentGraph } from "./compartment-graph.js";
 import {
 	defaultMctxSettingsPaths,
 	loadMctxConfiguration,
@@ -24,6 +25,15 @@ import {
 } from "./historian-branch-runner.js";
 import { collectMctxHistoryTagInputs, projectMctxHistoryTags } from "./history-tags.js";
 import { createProjectIdentityResolver } from "./project-identity.js";
+import {
+	collectMctxExternalSearchCandidates,
+	MCTX_SEARCH_SOURCES,
+	type MctxSearchCandidate,
+	type MctxSearchHit,
+	type MctxSearchSource,
+	mctxSearchContentHash,
+	rankMctxSearchCandidates,
+} from "./search.js";
 import {
 	defaultMctxStorePath,
 	type MctxCompartment,
@@ -39,7 +49,9 @@ import {
 	type MctxNoteUpdate,
 	type MctxNoteWrite,
 	type MctxPartition,
+	type MctxRetainedHistoryTag,
 	type MctxStore,
+	mctxHandoffBindingId,
 	openMctxStore,
 } from "./store.js";
 import { evaluateMctxTriggerPolicy } from "./trigger-policy.js";
@@ -48,7 +60,6 @@ import { evaluateMctxTriggerPolicy } from "./trigger-policy.js";
 export interface MctxSessionRuntime extends MctxRuntime {
 	readonly store: MctxStore;
 	readonly partition: MctxPartition;
-	readonly embedding?: EmbeddingProvider;
 }
 
 /**
@@ -63,11 +74,75 @@ export interface MctxFeature {
 		messages: readonly AgentMessage[],
 		context: ExtensionContext,
 	): { readonly messages: readonly AgentMessage[] } | undefined;
+	prepare(input: {
+		readonly purpose: "handoff" | "inheritance";
+		readonly signal: AbortSignal;
+	}): Promise<ParentContextProjectionResult>;
 	active(): MctxSessionRuntime | undefined;
 	reduce(tagNumbers: readonly number[], context: ExtensionContext): MctxReduceResult;
 	expand(tagNumbers: readonly number[], context: ExtensionContext): MctxExpandResult;
 	memory(operation: MctxMemoryOperation, context: ExtensionContext): MctxMemoryResult;
 	note(operation: MctxNoteOperation, context: ExtensionContext): MctxNoteResult;
+	history(operation: MctxHistoryOperation, context: ExtensionContext): MctxHistoryResult;
+	search(
+		operation: MctxSearchOperation,
+		context: ExtensionContext,
+		signal: AbortSignal,
+	): Promise<MctxSearchResult>;
+}
+
+function entryText(entry: SessionEntry): string | undefined {
+	if (entry.type === "compaction") return entry.summary?.trim() || undefined;
+	if (
+		entry.type !== "message" ||
+		!("message" in entry) ||
+		(entry.message.role !== "user" && entry.message.role !== "assistant")
+	)
+		return undefined;
+	const content = entry.message.content;
+	if (typeof content === "string") return content.trim() || undefined;
+	const text = content
+		.map((block) =>
+			typeof block === "object" &&
+			block !== null &&
+			"type" in block &&
+			block.type === "text" &&
+			"text" in block &&
+			typeof block.text === "string"
+				? block.text
+				: "",
+		)
+		.join("\n")
+		.trim();
+	return text || undefined;
+}
+
+function renderProjectionBody(
+	entries: readonly SessionEntry[],
+	compartments: readonly MctxCompartment[],
+	liveTailStartIndex: number,
+): string | undefined {
+	const parts: string[] = [];
+	for (const tier of ["m0", "m1"] as const) {
+		const payload = compartments
+			.filter((compartment) => compartment.tier === tier)
+			.map((compartment) => compartment.renderedPayload.trim())
+			.filter((payload) => payload.length > 0)
+			.join("\n\n");
+		if (payload) parts.push(`[MCTX ${tier}]: ${payload}`);
+	}
+	for (const entry of entries.slice(liveTailStartIndex)) {
+		const text = entryText(entry);
+		if (text === undefined) continue;
+		const label =
+			entry.type === "compaction"
+				? "Summary"
+				: "message" in entry && entry.message.role === "user"
+					? "User"
+					: "Assistant";
+		parts.push(`[${label}]: ${text}`);
+	}
+	return parts.length === 0 ? undefined : parts.join("\n\n");
 }
 
 export interface MctxReduceResult {
@@ -108,6 +183,55 @@ export type MctxNoteResult =
 	| { readonly kind: "inactive" | "stale" | "invalid-anchor" }
 	| { readonly kind: "notes"; readonly notes: readonly MctxNote[] };
 
+export type MctxHistoryOperation =
+	| {
+			readonly action: "list";
+			readonly limit: number;
+			readonly offset?: number;
+			readonly sessionId?: string;
+	  }
+	| { readonly action: "purge"; readonly sessionId: string };
+export type MctxHistoryResult =
+	| { readonly kind: "inactive" | "active-session" }
+	| {
+			readonly kind: "history";
+			readonly tags: readonly MctxRetainedHistoryTag[];
+			readonly nextOffset?: number;
+	  }
+	| { readonly kind: "purged"; readonly deleted: number };
+
+export interface MctxSearchOperation {
+	readonly query: string;
+	readonly limit: number;
+	readonly sources?: readonly MctxSearchSource[];
+}
+
+export type MctxSearchResult =
+	| { readonly kind: "inactive" | "stale" }
+	| { readonly kind: "invalid-exclusions" }
+	| { readonly kind: "hits"; readonly hits: readonly MctxSearchHit[] };
+
+function validExcludedMemoryIds(value: readonly number[]): boolean {
+	return value.every((memoryId) => Number.isSafeInteger(memoryId) && memoryId > 0);
+}
+
+async function excludedMemoryIds(
+	service: MemorySearchExclusionService | undefined,
+	input: {
+		readonly projectIdentity: string;
+		readonly sessionId: string;
+		readonly signal: AbortSignal;
+	},
+): Promise<ReadonlySet<number> | undefined> {
+	if (service === undefined) return new Set();
+	try {
+		const ids = await service.excludeMemoryIds(input);
+		return validExcludedMemoryIds(ids) ? new Set(ids) : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 export interface MctxForkSource {
 	readonly cwd: string;
 	readonly sessionId: string;
@@ -133,10 +257,8 @@ export interface MctxFeatureOptions {
 	readonly resolveProjectIdentity?: (cwd: string, signal: AbortSignal) => Promise<string>;
 	readonly readForkSource?: (parentSessionPath: string) => MctxForkSource | Promise<MctxForkSource>;
 	readonly runHistorianForBranch?: typeof runMctxHistorianForBranch;
+	readonly collectExternalSearchCandidates?: typeof collectMctxExternalSearchCandidates;
 	readonly logHistorianDiagnostic?: (diagnostic: MctxHistorianFailureDiagnostic) => void;
-	readonly acquireEmbeddingProvider?: (
-		config: Readonly<Record<string, unknown>>,
-	) => Promise<EmbeddingProviderLease | undefined>;
 }
 
 interface ActiveMctxRuntime {
@@ -144,22 +266,12 @@ interface ActiveMctxRuntime {
 	readonly lifecycle: ExtensionLifecycleContext;
 	cooling: boolean;
 	job?: AbortController | undefined;
-	readonly embeddingJobs: Set<AbortController>;
 	rebuildEntries?: readonly SessionEntry[] | undefined;
 	lastNotifiedFailureClass?: MctxHistorianFailureDiagnostic["failureClass"] | undefined;
 }
 
 function defaultLogHistorianDiagnostic(diagnostic: MctxHistorianFailureDiagnostic): void {
 	console.warn(JSON.stringify(diagnostic));
-}
-
-async function defaultAcquireEmbeddingProvider(
-	config: Readonly<Record<string, unknown>>,
-): Promise<EmbeddingProviderLease | undefined> {
-	// Keep optional model runtime parse/JIT out of every MCTX startup. The package
-	// validates the opaque JSON config at its own trust boundary.
-	const embed = await import("@hheei/pi-ext-embed");
-	return embed.acquireEmbeddingProvider(config);
 }
 
 function historianFailureDiagnostic(
@@ -228,13 +340,6 @@ function noteAnchor(tag: MctxHistoryTag): MctxNoteAnchor {
 	};
 }
 
-function sameEmbeddingSnapshot(
-	left: EmbeddingSnapshot | undefined,
-	right: EmbeddingSnapshot,
-): boolean {
-	return left?.modelIdentity === right.modelIdentity && left.generation === right.generation;
-}
-
 /** Owns the session runtime holder; future store and context work attach here. */
 export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature {
 	const loadConfiguration = options.loadConfiguration ?? loadMctxConfiguration;
@@ -243,10 +348,11 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 	const resolveProjectIdentity = options.resolveProjectIdentity ?? identityResolver.resolve;
 	const readForkSource = options.readForkSource ?? defaultForkSource;
 	const runHistorianForBranch = options.runHistorianForBranch ?? runMctxHistorianForBranch;
+	const collectExternalSearchCandidates =
+		options.collectExternalSearchCandidates ?? collectMctxExternalSearchCandidates;
 	const logHistorianDiagnostic = options.logHistorianDiagnostic ?? defaultLogHistorianDiagnostic;
-	const acquireEmbeddingProvider =
-		options.acquireEmbeddingProvider ?? defaultAcquireEmbeddingProvider;
 	let active: ActiveMctxRuntime | undefined;
+	const handoffPreparations = new Set<string>();
 	function reportHistorianFailure(
 		current: ActiveMctxRuntime,
 		diagnostic: MctxHistorianFailureDiagnostic,
@@ -281,6 +387,13 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			if (context.signal.aborted) return undefined;
 			const sourcePartition = store.findPartition(sourceProjectIdentity, source.sessionId);
 			if (sourcePartition === undefined)
+				return store.getOrCreatePartition(projectIdentity, sessionId);
+			if (
+				store.isHandoffInstalled(
+					{ projectIdentity: sourceProjectIdentity, sessionId: source.sessionId },
+					sessionId,
+				)
+			)
 				return store.getOrCreatePartition(projectIdentity, sessionId);
 			const compartments = verifiedForkCompartments(
 				context.extension.sessionManager.getBranch(),
@@ -362,55 +475,132 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				}
 			});
 	}
-	function startMemoryEmbedding(current: ActiveMctxRuntime, memory: MctxMemory): void {
-		if (active !== current || current.lifecycle.signal.aborted) return;
-		const provider = current.runtime.embedding;
-		if (provider === undefined) return;
-		try {
-			const snapshot = provider.snapshot();
-			if (snapshot === undefined) return;
-			const candidate = current.runtime.store.loadMemoryEmbeddingCandidate(
-				memory.projectIdentity,
-				memory.memoryId,
-			);
-			if (candidate === undefined) return;
-			const controller = new AbortController();
-			const abort = (): void => controller.abort();
-			current.embeddingJobs.add(controller);
-			current.lifecycle.signal.addEventListener("abort", abort, { once: true });
-			const id = `memory:${candidate.memoryId}:${candidate.revision}:${candidate.contentHash}`;
-			void provider
-				.embedBatch(
-					[{ id, text: candidate.content, contentHash: candidate.contentHash }],
-					"passage",
-					controller.signal,
-				)
-				.then((vectors) => {
-					if (active !== current || controller.signal.aborted) return;
-					const vector = vectors?.get(id);
-					if (vector === undefined || !sameEmbeddingSnapshot(provider.snapshot(), snapshot)) return;
-					try {
-						current.runtime.store.persistMemoryEmbedding({
-							projectIdentity: candidate.projectIdentity,
-							memoryId: candidate.memoryId,
-							contentHash: candidate.contentHash,
-							revision: candidate.revision,
-							modelIdentity: snapshot.modelIdentity,
-							providerGeneration: snapshot.generation,
-							vector,
-						});
-					} catch {
-						// Embeddings are optional; invalid provider output cannot affect memory writes.
-					}
-				})
-				.catch(() => undefined)
-				.finally(() => {
-					current.lifecycle.signal.removeEventListener("abort", abort);
-					current.embeddingJobs.delete(controller);
-				});
-		} catch {
-			// A provider may be unavailable or fail before returning its detached promise.
+
+	async function prepare(input: {
+		readonly purpose: "handoff" | "inheritance";
+		readonly signal: AbortSignal;
+	}): Promise<ParentContextProjectionResult> {
+		const current = active;
+		if (current === undefined) return { kind: "unavailable" };
+		if (current.lifecycle.signal.aborted || input.signal.aborted) return { kind: "stale" };
+		if (input.purpose !== "handoff" && input.purpose !== "inheritance")
+			return { kind: "unavailable" };
+		const sessionManager = current.lifecycle.extension.sessionManager;
+		if (sessionManager.getSessionId() !== current.runtime.sessionId) return { kind: "stale" };
+		const reservationKey = `${current.runtime.partition.projectIdentity}\u0000${current.runtime.partition.sessionId}`;
+		if (input.purpose === "handoff") {
+			if (handoffPreparations.has(reservationKey)) return { kind: "stale" };
+			handoffPreparations.add(reservationKey);
 		}
+		let retainedReservation = input.purpose === "handoff";
+		const releaseReservation = (): void => {
+			if (!retainedReservation) return;
+			retainedReservation = false;
+			input.signal.removeEventListener("abort", onPreparationAbort);
+			handoffPreparations.delete(reservationKey);
+		};
+		const onPreparationAbort = (): void => releaseReservation();
+		if (input.purpose === "handoff")
+			input.signal.addEventListener("abort", onPreparationAbort, { once: true });
+		const stale = (): ParentContextProjectionResult => {
+			releaseReservation();
+			return { kind: "stale" };
+		};
+		const unavailable = (): ParentContextProjectionResult => {
+			releaseReservation();
+			return { kind: "unavailable" };
+		};
+		const entries = sessionManager.getBranch();
+		let partition = current.runtime.store.findPartition(
+			current.runtime.partition.projectIdentity,
+			current.runtime.partition.sessionId,
+		);
+		if (partition === undefined) return stale();
+		if (partition.revision !== current.runtime.partition.revision) return stale();
+		const synced = current.runtime.store.syncHistoryTags(
+			partition,
+			collectMctxHistoryTagInputs(entries),
+		);
+		if (synced === undefined) return stale();
+		partition = synced.partition;
+		const pending = synced.tags
+			.filter((tag) => tag.status === "pending")
+			.map((tag) => tag.tagNumber);
+		current.runtime = { ...current.runtime, partition };
+		const compartments = current.runtime.store.listCompartments(partition);
+		const graph = verifyMctxCompartmentGraph(entries, compartments);
+		if (graph.kind !== "valid") return stale();
+		const body = renderProjectionBody(
+			entries,
+			[...graph.graph.m0, ...graph.graph.m1],
+			graph.graph.liveTailStartIndex,
+		);
+		if (body === undefined) return unavailable();
+		if (input.purpose === "inheritance")
+			return { kind: "result", purpose: "inheritance", payload: body };
+		return {
+			kind: "result",
+			purpose: "handoff",
+			install: async (destination, signal): Promise<void> => {
+				try {
+					if (current.lifecycle.signal.aborted || signal.aborted)
+						throw new Error("MCTX handoff aborted");
+					const destinationId = destination.getSessionId();
+					if (!destinationId.trim()) throw new Error("MCTX handoff destination is invalid");
+					if (current.runtime.store.isHandoffInstalled(current.runtime.partition, destinationId))
+						return;
+					const reservation = current.runtime.store.reserveHandoffInstallation(
+						current.runtime.partition,
+						destinationId,
+					);
+					if (reservation === undefined) {
+						const recovered = destination
+							.getBranch()
+							.some(
+								(entry) =>
+									entry.type === "custom_message" &&
+									entry.customType === "mctx-parent-context" &&
+									typeof entry.content === "string" &&
+									entry.content.includes(
+										`MCTX-BINDING-ID:${mctxHandoffBindingId(current.runtime.partition, destinationId)}\n`,
+									),
+							);
+						if (recovered) {
+							current.runtime.store.recoverHandoffInstallation(
+								current.runtime.partition,
+								destinationId,
+							);
+							return;
+						}
+						return;
+					}
+					let appended = false;
+					try {
+						if (pending.length > 0) {
+							const replayed = current.runtime.store.markHistoryTagsDropped(
+								current.runtime.partition,
+								pending,
+							);
+							if (replayed === undefined) throw new Error("MCTX handoff source became stale");
+							current.runtime = { ...current.runtime, partition: replayed };
+						}
+						if (current.lifecycle.signal.aborted || signal.aborted)
+							throw new Error("MCTX handoff aborted");
+						destination.appendCustomMessageEntry(
+							"mctx-parent-context",
+							`MCTX-BINDING-ID:${reservation.bindingId}\n--- MCTX HANDOFF SUPPLEMENT ---\n${body}\n--- END MCTX HANDOFF SUPPLEMENT ---`,
+							false,
+						);
+						appended = true;
+						current.runtime.store.markHandoffInstalled(reservation);
+					} finally {
+						if (!appended) current.runtime.store.clearHandoffInstallation(reservation);
+					}
+				} finally {
+					releaseReservation();
+				}
+			},
+		};
 	}
 	return {
 		async start(context): Promise<void> {
@@ -481,21 +671,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				}
 				throw error;
 			}
-			let embeddingLease: EmbeddingProviderLease | undefined;
-			if (configuration.embedding !== undefined) {
-				try {
-					embeddingLease = await acquireEmbeddingProvider(configuration.embedding);
-				} catch (error: unknown) {
-					if (!context.signal.aborted) {
-						context.extension.ui.notify(
-							`pi-mctx embedding unavailable: ${error instanceof Error ? error.message : String(error)}`,
-							"warning",
-						);
-					}
-				}
-			}
 			if (context.signal.aborted) {
-				await embeddingLease?.release();
 				store.close();
 				return;
 			}
@@ -503,13 +679,11 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				...activation.runtime,
 				store,
 				partition,
-				...(embeddingLease === undefined ? {} : { embedding: embeddingLease.provider }),
 			};
 			const current: ActiveMctxRuntime = {
 				runtime,
 				lifecycle: context,
 				cooling: false,
-				embeddingJobs: new Set(),
 			};
 			// Publish last: context/turn handlers can never observe a half-initialized
 			// runtime whose store or partition failed during activation.
@@ -519,17 +693,10 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				store.close();
 				if (active === current) active = undefined;
 			});
-			if (embeddingLease !== undefined) {
-				context.resources.add("mctx-embedding", () => embeddingLease?.release());
-			}
 			context.resources.add("mctx-historian", () => {
 				current.rebuildEntries = undefined;
 				current.job?.abort();
 				if (active === current) active = undefined;
-			});
-			context.resources.add("mctx-memory-embeddings", () => {
-				for (const job of current.embeddingJobs) job.abort();
-				current.embeddingJobs.clear();
 			});
 		},
 		onTurnEnd(context): void {
@@ -624,6 +791,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			}
 			return { messages: tagged.messages };
 		},
+		prepare,
 		active: (): MctxSessionRuntime | undefined => active?.runtime,
 		expand(tagNumbers, context): MctxExpandResult {
 			const current = active;
@@ -671,7 +839,6 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 						projectIdentity,
 						sessionId,
 					});
-					startMemoryEmbedding(current, memory);
 					return {
 						kind: "memory",
 						memories: [memory],
@@ -684,7 +851,6 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 						sessionId,
 					});
 					if (memory === undefined) return { kind: "stale" };
-					startMemoryEmbedding(current, memory);
 					return { kind: "memory", memories: [memory] };
 				}
 				case "archive": {
@@ -767,6 +933,116 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				sessionId,
 			});
 			return note === undefined ? { kind: "stale" } : { kind: "notes", notes: [note] };
+		},
+		history(operation, context): MctxHistoryResult {
+			const current = active;
+			if (
+				current === undefined ||
+				current.lifecycle.signal.aborted ||
+				current.runtime.sessionId !== context.sessionManager.getSessionId()
+			)
+				return { kind: "inactive" };
+			const projectIdentity = current.runtime.partition.projectIdentity;
+			const activeSessionId = current.runtime.sessionId;
+			if (operation.action === "purge") {
+				if (operation.sessionId === activeSessionId) return { kind: "active-session" };
+				return {
+					kind: "purged",
+					deleted: current.runtime.store.purgeRetainedHistory({
+						projectIdentity,
+						activeSessionId,
+						sessionId: operation.sessionId,
+					}),
+				};
+			}
+			const tags = current.runtime.store.listRetainedHistoryTags({
+				projectIdentity,
+				activeSessionId,
+				limit: operation.limit,
+				...(operation.offset === undefined ? {} : { offset: operation.offset }),
+				...(operation.sessionId === undefined ? {} : { sessionId: operation.sessionId }),
+			});
+			const nextOffset =
+				tags.length === operation.limit ? (operation.offset ?? 0) + tags.length : undefined;
+			return { kind: "history", tags, ...(nextOffset === undefined ? {} : { nextOffset }) };
+		},
+		async search(operation, context, signal): Promise<MctxSearchResult> {
+			const current = active;
+			if (
+				current === undefined ||
+				current.lifecycle.signal.aborted ||
+				signal.aborted ||
+				current.runtime.sessionId !== context.sessionManager.getSessionId()
+			)
+				return { kind: "inactive" };
+			const sources = operation.sources ?? MCTX_SEARCH_SOURCES;
+			const projectIdentity = current.runtime.partition.projectIdentity;
+			const sessionId = current.runtime.sessionId;
+			const candidates: MctxSearchCandidate[] = [];
+			if (sources.includes("memory")) {
+				const excluded = await excludedMemoryIds(
+					getService(current.lifecycle.pi, MCTX_MEMORY_EXCLUSION_SERVICE),
+					{ projectIdentity, sessionId, signal },
+				);
+				if (excluded === undefined) return { kind: "invalid-exclusions" };
+				for (const memory of current.runtime.store.listActiveMemories(projectIdentity, 100)) {
+					if (excluded.has(memory.memoryId)) continue;
+					candidates.push({
+						source: "memory",
+						id: `memory:${projectIdentity}:${memory.memoryId}:${memory.revision}:${mctxSearchContentHash(memory.content)}`,
+						title: `Memory #${memory.memoryId} (${memory.category})`,
+						text: memory.content,
+					});
+				}
+			}
+			if (sources.includes("note")) {
+				for (const note of current.runtime.store.listActiveNotes(projectIdentity, sessionId, 100)) {
+					const anchor =
+						note.anchor === undefined
+							? ""
+							: ` @${note.anchor.kind}:${note.anchor.entryId}${note.anchor.toolCallId === undefined ? "" : `:${note.anchor.toolCallId}`}`;
+					candidates.push({
+						source: "note",
+						id: `note:${projectIdentity}:${sessionId}:${note.noteId}:${note.revision}:${mctxSearchContentHash(note.content)}`,
+						title: `Note #${note.noteId}${anchor}`,
+						text: note.content,
+					});
+				}
+			}
+			if (sources.includes("history")) {
+				for (const tag of current.runtime.store.listRetainedHistoryTags({
+					projectIdentity,
+					activeSessionId: sessionId,
+					limit: 100,
+				})) {
+					candidates.push({
+						source: "history",
+						id: `history:${tag.projectIdentity}:${tag.sessionId}:${tag.tagNumber}:${tag.entryId}:${tag.toolCallId ?? ""}:${mctxSearchContentHash(tag.source)}`,
+						title: `History ${tag.sessionId} §${tag.tagNumber}§ (${tag.kind})`,
+						text: tag.source,
+					});
+				}
+			}
+			const external = await collectExternalSearchCandidates({
+				cwd: current.runtime.cwd,
+				...(current.runtime.search.primerPath === undefined
+					? {}
+					: { primerPath: current.runtime.search.primerPath }),
+				sources,
+				signal,
+			});
+			if (
+				active !== current ||
+				current.lifecycle.signal.aborted ||
+				signal.aborted ||
+				current.runtime.sessionId !== context.sessionManager.getSessionId()
+			)
+				return { kind: "stale" };
+			candidates.push(...external);
+			return {
+				kind: "hits",
+				hits: rankMctxSearchCandidates(operation.query, candidates, operation.limit),
+			};
 		},
 		reduce(tagNumbers, context): MctxReduceResult {
 			const current = active;

@@ -96,15 +96,15 @@ test("requires an available authenticated historian", (): void => {
 	});
 });
 
-test("does not replace a conflicting completion coordinator", (): void => {
+test("keeps an existing completion coordinator budget", (): void => {
 	const { context } = runtime();
 	configureSubagentCoordinator(context, {
 		...DEFAULT_SUBAGENT_COORDINATOR_BUDGET,
 		maxActiveTurns: 1,
 	});
 	expect(resolveMctxActivation(context, configuration())).toMatchObject({
-		kind: "inactive",
-		reason: "collision",
+		kind: "active",
+		runtime: { sessionId: "session-1" },
 	});
 });
 
@@ -113,6 +113,7 @@ test("resolves historian and joins the shared completion coordinator", (): void 
 	expect(resolveMctxActivation(context, configuration())).toEqual({
 		kind: "active",
 		runtime: {
+			cwd: "/project",
 			sessionId: "session-1",
 			historian: model,
 			settings: {
@@ -121,6 +122,7 @@ test("resolves historian and joins the shared completion coordinator", (): void 
 				executeThresholdPercentage: { defaultValue: 65, byModel: {} },
 				protectedTags: 20,
 			},
+			search: {},
 		},
 	});
 	expect(resolveMctxActivation(context, configuration()).kind).toBe("active");

@@ -4,11 +4,30 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { registerExtensionLifecycle, registerManagedLoadoutTool } from "@hheei/pi-ext-core";
+import {
+	PARENT_CONTEXT_PROJECTION_SERVICE,
+	provideService,
+	registerExtensionLifecycle,
+	registerManagedLoadoutTool,
+} from "@hheei/pi-ext-core";
 import { Type } from "typebox";
-import { createMctxFeature, type MctxMemoryOperation, type MctxNoteOperation } from "./feature.js";
+import {
+	createMctxFeature,
+	type MctxHistoryOperation,
+	type MctxHistoryResult,
+	type MctxMemoryOperation,
+	type MctxNoteOperation,
+	type MctxSearchOperation,
+	type MctxSearchResult,
+} from "./feature.js";
 import { MAX_CTX_EXPAND_CHARS, renderMctxHistoryTagPage } from "./history-tags.js";
+import { MCTX_SEARCH_SOURCES, type MctxSearchSource } from "./search.js";
 import { MCTX_MEMORY_CATEGORIES } from "./store.js";
+
+const DEFAULT_CTX_HISTORY_LIMIT = 50;
+const MAX_CTX_HISTORY_LIMIT = 100;
+const DEFAULT_CTX_SEARCH_LIMIT = 20;
+const MAX_CTX_SEARCH_LIMIT = 50;
 
 interface PiContextHook {
 	on(
@@ -168,6 +187,146 @@ function noteOperation(args: Record<string, unknown>): MctxNoteOperation | undef
 	return undefined;
 }
 
+function historyOperation(args: Record<string, unknown>): MctxHistoryOperation | undefined {
+	const action = args.action;
+	const sessionId = args.session_id;
+	const offset = args.offset;
+	const limit = args.limit ?? DEFAULT_CTX_HISTORY_LIMIT;
+	const validSessionId =
+		sessionId === undefined || (typeof sessionId === "string" && Boolean(sessionId.trim()));
+	const validOffset =
+		offset === undefined ||
+		(Number.isSafeInteger(offset) && typeof offset === "number" && offset >= 0);
+	if (
+		!Number.isSafeInteger(limit) ||
+		typeof limit !== "number" ||
+		limit < 1 ||
+		limit > MAX_CTX_HISTORY_LIMIT ||
+		!validSessionId ||
+		!validOffset
+	)
+		return undefined;
+	if (action === "list")
+		return {
+			action,
+			limit,
+			...(offset === undefined ? {} : { offset }),
+			...(typeof sessionId === "string" ? { sessionId } : {}),
+		};
+	if (action === "purge" && typeof sessionId === "string") return { action, sessionId };
+	return undefined;
+}
+
+function searchOperation(args: Record<string, unknown>): MctxSearchOperation | undefined {
+	const query = args.query;
+	const requestedLimit = args.limit;
+	const limit = requestedLimit === undefined ? DEFAULT_CTX_SEARCH_LIMIT : requestedLimit;
+	const sources = args.sources;
+	if (
+		typeof query !== "string" ||
+		!query.trim() ||
+		query.length > 500 ||
+		typeof limit !== "number" ||
+		!Number.isSafeInteger(limit) ||
+		limit < 1 ||
+		limit > MAX_CTX_SEARCH_LIMIT
+	)
+		return undefined;
+	if (sources === undefined) return { query: query.trim(), limit };
+	if (
+		!Array.isArray(sources) ||
+		sources.length === 0 ||
+		sources.length > MCTX_SEARCH_SOURCES.length
+	)
+		return undefined;
+	const selected: MctxSearchSource[] = [];
+	for (const source of sources) {
+		const matched = MCTX_SEARCH_SOURCES.find((candidate) => candidate === source);
+		if (matched === undefined) return undefined;
+		selected.push(matched);
+	}
+	if (new Set(selected).size !== selected.length) return undefined;
+	return { query: query.trim(), limit, sources: selected };
+}
+
+function renderHistoryToolResult(result: MctxHistoryResult) {
+	switch (result.kind) {
+		case "history":
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text: JSON.stringify({ tags: result.tags, nextOffset: result.nextOffset }),
+					},
+				],
+				details: undefined,
+			};
+		case "purged":
+			return {
+				content: [{ type: "text" as const, text: JSON.stringify({ deleted: result.deleted }) }],
+				details: undefined,
+			};
+		case "inactive":
+			return {
+				content: [{ type: "text" as const, text: "pi-mctx is not active for this session." }],
+				details: undefined,
+				isError: true,
+			};
+		case "active-session":
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text: "ctx_history cannot purge the active session history ledger.",
+					},
+				],
+				details: undefined,
+				isError: true,
+			};
+		default: {
+			const exhaustive: never = result;
+			return exhaustive;
+		}
+	}
+}
+
+function renderSearchToolResult(result: MctxSearchResult) {
+	switch (result.kind) {
+		case "hits":
+			return {
+				content: [{ type: "text" as const, text: JSON.stringify({ hits: result.hits }) }],
+				details: undefined,
+			};
+		case "inactive":
+			return {
+				content: [{ type: "text" as const, text: "pi-mctx is not active for this session." }],
+				details: undefined,
+				isError: true,
+			};
+		case "stale":
+			return {
+				content: [{ type: "text" as const, text: "Context changed; retry ctx_search." }],
+				details: undefined,
+				isError: true,
+			};
+		case "invalid-exclusions":
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text: "Memory exclusion provider failed validation; retry ctx_search after fixing it.",
+					},
+				],
+				details: undefined,
+				isError: true,
+			};
+		default: {
+			const exhaustive: never = result;
+			return exhaustive;
+		}
+	}
+}
+
 function registerHistoryTools(
 	pi: ExtensionAPI,
 	feature: ReturnType<typeof createMctxFeature>,
@@ -272,6 +431,69 @@ function registerHistoryTools(
 					],
 					details: undefined,
 				};
+			},
+		}),
+	);
+	registerManagedLoadoutTool(
+		pi,
+		{ id: "ctx_history", ...MCTX_MANAGED_TOOL },
+		defineTool({
+			name: "ctx_history",
+			label: "Manage history",
+			description:
+				"List or purge retained context history for non-active sessions in the current project.",
+			parameters: Type.Object({
+				action: Type.Union([Type.Literal("list"), Type.Literal("purge")]),
+				session_id: Type.Optional(Type.String()),
+				offset: Type.Optional(Type.Integer({ minimum: 0 })),
+				limit: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_CTX_HISTORY_LIMIT })),
+			}),
+			async execute(_toolCallId, args, _signal, _onUpdate, context) {
+				const operation = historyOperation(args);
+				if (operation === undefined)
+					return {
+						content: [
+							{
+								type: "text",
+								text: "Invalid ctx_history parameters; purge requires non-active session_id.",
+							},
+						],
+						details: undefined,
+						isError: true,
+					};
+				return renderHistoryToolResult(feature.history(operation, context));
+			},
+		}),
+	);
+	registerManagedLoadoutTool(
+		pi,
+		{ id: "ctx_search", ...MCTX_MANAGED_TOOL },
+		defineTool({
+			name: "ctx_search",
+			label: "Search context",
+			description:
+				"Search bounded project memories, session notes, retained history, Git commits, and optional primer text.",
+			parameters: Type.Object({
+				query: Type.String({ minLength: 1, maxLength: 500 }),
+				limit: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_CTX_SEARCH_LIMIT })),
+				sources: Type.Optional(
+					Type.Array(Type.Union(MCTX_SEARCH_SOURCES.map((source) => Type.Literal(source))), {
+						minItems: 1,
+						maxItems: MCTX_SEARCH_SOURCES.length,
+					}),
+				),
+			}),
+			async execute(_toolCallId, args, signal, _onUpdate, context) {
+				const operation = searchOperation(args);
+				if (operation === undefined)
+					return {
+						content: [{ type: "text", text: "Invalid ctx_search parameters." }],
+						details: undefined,
+						isError: true,
+					};
+				return renderSearchToolResult(
+					await feature.search(operation, context, signal ?? new AbortController().signal),
+				);
 			},
 		}),
 	);
@@ -388,7 +610,11 @@ export default function piMctxExtension(pi: ExtensionAPI): void {
 	const feature = createMctxFeature();
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-mctx",
-		start: feature.start,
+		start: async (context) => {
+			await feature.start(context);
+			if (feature.active() !== undefined)
+				provideService(context, PARENT_CONTEXT_PROJECTION_SERVICE, feature);
+		},
 	});
 	registerHistoryTools(pi, feature);
 	registerContextHook(pi, feature);
