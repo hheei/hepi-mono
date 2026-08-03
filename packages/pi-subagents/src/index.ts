@@ -433,10 +433,6 @@ export default function (pi: ExtensionAPI) {
 					name,
 					config,
 					loadoutRuntime?.extension.modelRegistry,
-					// The Pi host owns the multi-line editor surface; it returns
-					// the edited text or undefined on cancel.
-					(title, prefill) =>
-						loadoutRuntime?.extension.ui.editor(title, prefill) ?? Promise.resolve(undefined),
 					reloadCustomAgents,
 					(message) => loadoutRuntime?.extension.ui.notify(message, "warning"),
 				);
