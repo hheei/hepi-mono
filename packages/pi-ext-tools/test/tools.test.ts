@@ -40,15 +40,34 @@ describe("pi-ext-tools catalog", () => {
 	test("registers each approved name exactly once through managed Loadout ownership", (): void => {
 		const host = harness();
 		registerTools(host.pi);
-		expect(host.tools.map((tool) => tool.name)).toEqual([
-			"read",
-			"grep",
-			"find",
-			"edit",
-			"write",
-			"bash",
-		]);
+		const names = host.tools.map((tool) => tool.name);
+		expect(names).toEqual(["read", "grep", "find", "edit", "write", "bash", "apply_patch"]);
+		expect(names.filter((name) => name === "apply_patch")).toHaveLength(1);
 		expect(() => registerTools(host.pi)).toThrow("Loadout tool id already registered: read");
+	});
+
+	test("registers apply_patch as strict V4A patch transport", (): void => {
+		const host = harness();
+		registerTools(host.pi);
+		const applyPatch = host.tools.find((tool) => tool.name === "apply_patch");
+		if (applyPatch === undefined) throw new Error("apply_patch was not registered");
+
+		expect(applyPatch.parameters).toMatchObject({
+			additionalProperties: false,
+			required: ["patch"],
+			properties: { patch: { type: "string" } },
+		});
+		const parameters: unknown = applyPatch.parameters;
+		if (
+			typeof parameters !== "object" ||
+			parameters === null ||
+			!("properties" in parameters) ||
+			typeof parameters.properties !== "object" ||
+			parameters.properties === null
+		)
+			throw new Error("apply_patch parameters are missing object properties");
+		expect(Object.keys(parameters.properties)).toEqual(["patch"]);
+		expect("prepareArguments" in applyPatch).toBe(false);
 	});
 
 	test("keeps upstream renderer contracts intact", (): void => {
@@ -82,6 +101,27 @@ describe("pi-ext-tools catalog", () => {
 			cwd,
 		} as ExtensionContext);
 		expect(result.content).toContainEqual({ type: "text", text: "canonical\n" });
+	});
+
+	test("executes apply_patch through its strict V4A transport", async (): Promise<void> => {
+		const cwd = await temporaryDirectory();
+		const host = harness();
+		registerTools(host.pi);
+		const applyPatch = host.tools.find((tool) => tool.name === "apply_patch");
+		if (applyPatch === undefined) throw new Error("apply_patch was not registered");
+
+		const result = await applyPatch.execute(
+			"apply-patch-1",
+			{ patch: "*** Begin Patch\n*** Add File: created.txt\n+created\n*** End Patch" },
+			undefined,
+			undefined,
+			{ cwd } as ExtensionContext,
+		);
+		expect(result.content).toContainEqual({
+			type: "text",
+			text: "Done! Applied patch.\nFiles changed: 1\nOperations: 1\nExact updates: 0\nFuzzy updates: 0",
+		});
+		expect(await readFile(join(cwd, "created.txt"), "utf8")).toBe("created\n");
 	});
 
 	test("preserves upstream write, edit, and bash execution semantics", async (): Promise<void> => {
