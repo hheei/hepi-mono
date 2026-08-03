@@ -1,4 +1,5 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import {
 	type ExtensionContext,
 	type SessionEntry,
@@ -27,6 +28,7 @@ import {
 	type MctxConfiguration,
 } from "./config.js";
 import { projectMctxContext } from "./context-projection.js";
+import { buildDreamerPrompt, DREAMER_REPORT_CHARS, DREAMER_SYSTEM_PROMPT } from "./dreamer.js";
 import {
 	type MctxHistorianBranchRunResult,
 	runMctxHistorianForBranch,
@@ -46,9 +48,10 @@ import {
 import {
 	buildSidekickAugmentation,
 	buildSidekickPrompt,
-	createSidekickChildFactory,
-	SIDEKICK_MAX_TURNS,
-	SIDEKICK_TASK_TIMEOUT_MS,
+	createMctxChildFactory,
+	MCTX_CHILD_MAX_TURNS,
+	MCTX_CHILD_TASK_TIMEOUT_MS,
+	SIDEKICK_SYSTEM_PROMPT,
 } from "./sidekick.js";
 import {
 	defaultMctxStorePath,
@@ -108,6 +111,8 @@ export interface MctxFeature {
 		signal: AbortSignal,
 	): Promise<MctxSearchResult>;
 	augment(query: string, context: ExtensionContext): Promise<MctxAugmentResult>;
+	dream(query: string, context: ExtensionContext): Promise<MctxDreamResult>;
+	embedBackfill(context: ExtensionContext): Promise<MctxEmbedBackfillResult>;
 }
 
 function entryText(entry: SessionEntry): string | undefined {
@@ -237,6 +242,31 @@ export type MctxAugmentResult =
 	| { readonly kind: "failed"; readonly reason: string }
 	| { readonly kind: "injected" };
 
+export type MctxDreamResult =
+	| { readonly kind: "inactive" }
+	| { readonly kind: "cancelled" }
+	| { readonly kind: "empty" }
+	| { readonly kind: "failed"; readonly reason: string }
+	| { readonly kind: "reported"; readonly summary: string };
+
+export type MctxEmbedBackfillResult =
+	| { readonly kind: "inactive" }
+	| { readonly kind: "busy" }
+	| { readonly kind: "cancelled" }
+	| { readonly kind: "failed"; readonly reason: string }
+	| {
+			readonly kind: "done";
+			readonly embedded: number;
+			readonly skipped: number;
+			readonly failed: number;
+	  };
+
+/** Wall-clock deadline for one read-only MCTX child task. */
+const MCTX_CHILD_TIMEOUT_REASON = "child task timed out";
+
+/** Batch size for the project memory embedding backfill loop. */
+const EMBED_BACKFILL_BATCH_SIZE = 16;
+
 /**
  * Runs one bounded search against the current active runtime. Shared by the
  * registered `ctx_search` tool and the sidekick child's injected `ctx_search`
@@ -334,6 +364,72 @@ async function executeMctxSearch(
 	};
 }
 
+type MctxChildTaskOutcome =
+	| {
+			readonly kind: "terminal";
+			readonly handle: TaskSubagentHandle;
+			readonly result: TaskTerminalResult;
+	  }
+	| { readonly kind: "cancelled" }
+	| { readonly kind: "failed"; readonly reason: string };
+
+/**
+ * Shared skeleton for the Sidekick and Dreamer child tasks: deadline + caller +
+ * lifecycle signals all cancel the child handle, a synchronous admission
+ * rejection becomes a failure result, and the terminal result is accepted only
+ * while the runtime is still the active one. The launch seam runs inside the
+ * abort window so a synchronous abort (e.g. inside the factory) still cancels.
+ */
+async function runMctxChildTask(
+	current: ActiveMctxRuntime,
+	context: ExtensionContext,
+	timeoutMs: number,
+	isCurrent: () => boolean,
+	launch: (lifecycle: ExtensionLifecycleContext) => TaskSubagentHandle,
+): Promise<MctxChildTaskOutcome> {
+	const timeoutSignal = AbortSignal.timeout(timeoutMs);
+	const signal = AbortSignal.any([
+		current.lifecycle.signal,
+		timeoutSignal,
+		...(context.signal === undefined ? [] : [context.signal]),
+	]);
+	if (signal.aborted)
+		return timeoutSignal.aborted
+			? { kind: "failed", reason: MCTX_CHILD_TIMEOUT_REASON }
+			: { kind: "cancelled" };
+	// Admission can reject synchronously (e.g. a full pending queue), which
+	// must surface as a failure result instead of rejecting the command.
+	let handle: TaskSubagentHandle;
+	try {
+		handle = launch(current.lifecycle);
+	} catch (error: unknown) {
+		return signal.aborted
+			? { kind: "cancelled" }
+			: { kind: "failed", reason: error instanceof Error ? error.message : String(error) };
+	}
+	const onAbort = (): void => handle.cancel();
+	signal.addEventListener("abort", onAbort, { once: true });
+	// The signal can abort between the precheck and this registration (e.g.
+	// synchronously inside launch). Cancel is idempotent, so a recheck covers
+	// that window; a later abort still hits the listener.
+	if (signal.aborted) onAbort();
+	try {
+		const result: TaskTerminalResult = await handle.result;
+		if (
+			!isCurrent() ||
+			current.lifecycle.signal.aborted ||
+			signal.aborted ||
+			current.runtime.sessionId !== context.sessionManager.getSessionId()
+		)
+			return timeoutSignal.aborted
+				? { kind: "failed", reason: MCTX_CHILD_TIMEOUT_REASON }
+				: { kind: "cancelled" };
+		return { kind: "terminal", handle, result };
+	} finally {
+		signal.removeEventListener("abort", onAbort);
+	}
+}
+
 function validExcludedMemoryIds(value: readonly number[]): boolean {
 	return value.every((memoryId) => Number.isSafeInteger(memoryId) && memoryId > 0);
 }
@@ -391,6 +487,11 @@ export interface MctxFeatureOptions {
 		context: ExtensionLifecycleContext,
 		spec: TaskSubagentSpec,
 	) => TaskSubagentHandle;
+	/** Test seam for the Dreamer child task; production uses `startSubagent`. */
+	readonly startDreamTask?: (
+		context: ExtensionLifecycleContext,
+		spec: TaskSubagentSpec,
+	) => TaskSubagentHandle;
 }
 
 interface ActiveMctxRuntime {
@@ -406,6 +507,8 @@ interface ActiveMctxRuntime {
 	embeddingJob?: AbortController | undefined;
 	embeddingCompletion?: Promise<void> | undefined;
 	pendingEmbedMemory?: MctxMemory | undefined;
+	/** Abort controller for an in-flight project embedding backfill; busy while set. */
+	embedBackfill?: AbortController | undefined;
 	/** One-shot augmentation text injected by the next successful onContext projection. */
 	pendingAugmentation?: string | undefined;
 }
@@ -498,6 +601,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			return module.acquireEmbeddingProvider(config);
 		});
 	const startSidekickTask = options.startSidekickTask ?? startSubagent;
+	const startDreamTask = options.startDreamTask ?? startSubagent;
 	let active: ActiveMctxRuntime | undefined;
 	const handoffPreparations = new Set<string>();
 	function reportHistorianFailure(
@@ -1328,75 +1432,212 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				current.runtime.sessionId !== context.sessionManager.getSessionId()
 			)
 				return { kind: "inactive" };
-			// The task's maxTurns cannot bound a hung tool call, so a deadline
-			// signal joins the lifecycle and caller signals. Any abort cancels the
-			// child; a deadline expiry reports a distinct timed-out failure.
-			const timeoutSignal = AbortSignal.timeout(SIDEKICK_TASK_TIMEOUT_MS);
-			const signal = AbortSignal.any([
-				current.lifecycle.signal,
-				timeoutSignal,
-				...(context.signal === undefined ? [] : [context.signal]),
-			]);
-			if (signal.aborted)
-				return timeoutSignal.aborted
-					? { kind: "failed", reason: "sidekick timed out" }
-					: { kind: "cancelled" };
-			// Admission can reject synchronously (e.g. a full pending queue), which
-			// must surface as a failure result instead of rejecting the command.
-			let handle: TaskSubagentHandle;
-			try {
-				handle = startSidekickTask(current.lifecycle, {
-					mode: "task",
-					session: createSidekickChildFactory(context, feature, { model: context.model }),
-					prompt: buildSidekickPrompt(query),
-					maxTurns: SIDEKICK_MAX_TURNS,
-					// The command awaits handle.result directly; the sink is a no-op
-					// because nothing else may deliver this terminal result.
-					delivery: () => undefined,
-				});
-			} catch (error: unknown) {
-				return signal.aborted
-					? { kind: "cancelled" }
-					: {
-							kind: "failed",
-							reason: error instanceof Error ? error.message : String(error),
-						};
+			const outcome = await runMctxChildTask(
+				current,
+				context,
+				MCTX_CHILD_TASK_TIMEOUT_MS,
+				() => active === current,
+				(lifecycle) =>
+					startSidekickTask(lifecycle, {
+						mode: "task",
+						session: createMctxChildFactory(context, feature, {
+							model: context.model,
+							systemPrompt: SIDEKICK_SYSTEM_PROMPT,
+						}),
+						prompt: buildSidekickPrompt(query),
+						maxTurns: MCTX_CHILD_MAX_TURNS,
+						// The command awaits handle.result directly; the sink is a no-op
+						// because nothing else may deliver this terminal result.
+						delivery: () => undefined,
+					}),
+			);
+			if (outcome.kind === "cancelled") return { kind: "cancelled" };
+			if (outcome.kind === "failed") return { kind: "failed", reason: outcome.reason };
+			const { handle, result } = outcome;
+			const output = result.output.trim();
+			if (result.status !== "completed" && result.status !== "limit_reached") {
+				return { kind: "failed", reason: result.failure ?? `sidekick task ${result.status}` };
 			}
-			const onAbort = (): void => handle.cancel();
-			signal.addEventListener("abort", onAbort, { once: true });
-			// The signal can abort between the precheck and this registration (e.g.
-			// synchronously inside startSidekickTask). Cancel is idempotent, so a
-			// recheck covers that window; a later abort still hits the listener.
-			if (signal.aborted) onAbort();
-			try {
-				const result: TaskTerminalResult = await handle.result;
-				if (
-					active !== current ||
-					current.lifecycle.signal.aborted ||
-					signal.aborted ||
-					current.runtime.sessionId !== context.sessionManager.getSessionId()
-				)
-					return timeoutSignal.aborted
-						? { kind: "failed", reason: "sidekick timed out" }
-						: { kind: "cancelled" };
-				const output = result.output.trim();
-				if (result.status !== "completed" && result.status !== "limit_reached") {
+			if (output.length === 0) return { kind: "empty" };
+			current.pendingAugmentation = buildSidekickAugmentation({
+				query,
+				operationId: handle.id,
+				status: result.status,
+				partial: result.softLimitReached,
+				output,
+			});
+			return { kind: "injected" };
+		},
+		async dream(query, context): Promise<MctxDreamResult> {
+			const current = active;
+			if (
+				current === undefined ||
+				current.lifecycle.signal.aborted ||
+				current.runtime.sessionId !== context.sessionManager.getSessionId()
+			)
+				return { kind: "inactive" };
+			const projectIdentity = current.runtime.partition.projectIdentity;
+			const sessionId = current.runtime.sessionId;
+			const notes = current.runtime.store
+				.readNotes(projectIdentity, sessionId, "active")
+				.filter(
+					(note): note is MctxNote & { readonly smartCondition: string } =>
+						note.smartCondition !== undefined && note.smartCondition.trim().length > 0,
+				);
+			const trimmedQuery = query.trim();
+			if (notes.length === 0 && trimmedQuery.length === 0) return { kind: "empty" };
+			// An explicitly configured Dreamer model must resolve and have
+			// configured auth, or the command fails loudly; absent config uses the
+			// parent's current model like the sidekick path.
+			let model: Model<Api> | undefined = context.model;
+			const dreamerModel = current.runtime.dreamerModel;
+			if (dreamerModel !== undefined) {
+				const [provider, modelName] = dreamerModel.split("/");
+				const resolved =
+					provider === undefined || modelName === undefined
+						? undefined
+						: context.modelRegistry.find(provider, modelName);
+				if (resolved === undefined || !context.modelRegistry.hasConfiguredAuth(resolved))
 					return {
 						kind: "failed",
-						reason: result.failure ?? `sidekick task ${result.status}`,
+						reason: `Dreamer model is unavailable: ${dreamerModel}`,
 					};
+				model = resolved;
+			}
+			const outcome = await runMctxChildTask(
+				current,
+				context,
+				MCTX_CHILD_TASK_TIMEOUT_MS,
+				() => active === current,
+				(lifecycle) =>
+					startDreamTask(lifecycle, {
+						mode: "task",
+						session: createMctxChildFactory(context, feature, {
+							model,
+							systemPrompt: DREAMER_SYSTEM_PROMPT,
+						}),
+						prompt: buildDreamerPrompt(
+							notes.map((note) => ({
+								noteId: note.noteId,
+								content: note.content,
+								...(note.smartCondition === undefined
+									? {}
+									: { smartCondition: note.smartCondition }),
+							})),
+							trimmedQuery.length === 0 ? undefined : trimmedQuery,
+						),
+						maxTurns: MCTX_CHILD_MAX_TURNS,
+						// The command awaits handle.result directly; the sink is a no-op
+						// because nothing else may deliver this terminal result.
+						delivery: () => undefined,
+					}),
+			);
+			if (outcome.kind === "cancelled") return { kind: "cancelled" };
+			if (outcome.kind === "failed") return { kind: "failed", reason: outcome.reason };
+			const { result } = outcome;
+			const output = result.output.trim();
+			if (result.status !== "completed" && result.status !== "limit_reached") {
+				return { kind: "failed", reason: result.failure ?? `dreamer task ${result.status}` };
+			}
+			if (output.length === 0) return { kind: "empty" };
+			return {
+				kind: "reported",
+				summary:
+					output.length <= DREAMER_REPORT_CHARS
+						? output
+						: `${output.slice(0, DREAMER_REPORT_CHARS)}\n…[dreamer report truncated]`,
+			};
+		},
+		async embedBackfill(context): Promise<MctxEmbedBackfillResult> {
+			const current = active;
+			if (
+				current === undefined ||
+				current.lifecycle.signal.aborted ||
+				current.runtime.sessionId !== context.sessionManager.getSessionId()
+			)
+				return { kind: "inactive" };
+			const lease = current.embeddingLease;
+			if (lease === undefined)
+				return { kind: "failed", reason: "no embedding provider is configured" };
+			if (current.embedBackfill !== undefined) return { kind: "busy" };
+			const snapshot = lease.provider.snapshot();
+			if (snapshot === undefined)
+				return { kind: "failed", reason: "embedding provider is unavailable" };
+			const backfill = new AbortController();
+			current.embedBackfill = backfill;
+			const signal = AbortSignal.any([
+				current.lifecycle.signal,
+				backfill.signal,
+				...(context.signal === undefined ? [] : [context.signal]),
+			]);
+			try {
+				const projectIdentity = current.runtime.partition.projectIdentity;
+				const coverage = current.runtime.store.listMemoryEmbeddingCoverage(
+					projectIdentity,
+					snapshot.modelIdentity,
+				);
+				let embedded = 0;
+				let skipped = 0;
+				let failed = 0;
+				let offset = 0;
+				while (true) {
+					if (signal.aborted) return { kind: "cancelled" };
+					// A provider config reload between batches changes the model
+					// generation; remaining coverage is then stale, so stop early.
+					const live = lease.provider.snapshot();
+					if (
+						live === undefined ||
+						live.modelIdentity !== snapshot.modelIdentity ||
+						live.generation !== snapshot.generation
+					)
+						return { kind: "cancelled" };
+					const memories = current.runtime.store.listActiveMemories(
+						projectIdentity,
+						EMBED_BACKFILL_BATCH_SIZE,
+						offset,
+					);
+					if (memories.length === 0) break;
+					offset += memories.length;
+					const pending = memories.filter(
+						(memory) => coverage.get(memory.memoryId) !== mctxSearchContentHash(memory.content),
+					);
+					for (let start = 0; start < pending.length; start += EMBED_BACKFILL_BATCH_SIZE) {
+						const batch = pending.slice(start, start + EMBED_BACKFILL_BATCH_SIZE);
+						const vectors = await lease.provider.embedBatch(
+							batch.map((memory) => ({
+								id: `memory:${memory.memoryId}`,
+								text: memory.content,
+								contentHash: mctxSearchContentHash(memory.content),
+							})),
+							"passage",
+							signal,
+						);
+						if (signal.aborted) return { kind: "cancelled" };
+						for (const memory of batch) {
+							const vector = vectors?.get(`memory:${memory.memoryId}`);
+							if (vector === undefined) {
+								failed += 1;
+								continue;
+							}
+							const published = current.runtime.store.writeMemoryEmbedding({
+								projectIdentity,
+								memoryId: memory.memoryId,
+								modelIdentity: snapshot.modelIdentity,
+								providerGeneration: snapshot.generation,
+								sourceContentHash: mctxSearchContentHash(memory.content),
+								sourceMemoryRevision: memory.revision,
+								dimensions: vector.length,
+								vector,
+							});
+							if (published) embedded += 1;
+							else skipped += 1;
+						}
+					}
+					skipped += memories.length - pending.length;
 				}
-				if (output.length === 0) return { kind: "empty" };
-				current.pendingAugmentation = buildSidekickAugmentation({
-					query,
-					operationId: handle.id,
-					status: result.status,
-					partial: result.softLimitReached,
-					output,
-				});
-				return { kind: "injected" };
+				return { kind: "done", embedded, skipped, failed };
 			} finally {
-				signal.removeEventListener("abort", onAbort);
+				current.embedBackfill = undefined;
 			}
 		},
 		reduce(tagNumbers, context): MctxReduceResult {

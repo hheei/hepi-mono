@@ -14,6 +14,8 @@ import { Type } from "typebox";
 import {
 	createMctxFeature,
 	type MctxAugmentResult,
+	type MctxDreamResult,
+	type MctxEmbedBackfillResult,
 	type MctxFeature,
 	type MctxHistoryOperation,
 	type MctxHistoryResult,
@@ -88,6 +90,74 @@ function registerSidekickCommand(pi: ExtensionAPI, feature: MctxFeature): void {
 					break;
 				case "failed":
 					ctx.ui.notify(`Sidekick augmentation failed: ${result.reason}`, "error");
+					break;
+			}
+		},
+	});
+}
+
+function registerDreamCommand(pi: ExtensionAPI, feature: MctxFeature): void {
+	pi.registerCommand("ctx-dream", {
+		description: "Run a read-only Dreamer child to evaluate pending smart-condition notes",
+		handler: async (args, ctx) => {
+			if (ctx.mode !== "tui") {
+				ctx.ui.notify("/ctx-dream requires interactive mode", "error");
+				return;
+			}
+			const query = args.trim();
+			if (query.length > 500) {
+				ctx.ui.notify("Usage: /ctx-dream [query up to 500 characters]", "error");
+				return;
+			}
+			const result: MctxDreamResult = await feature.dream(query, ctx);
+			switch (result.kind) {
+				case "reported":
+					ctx.ui.notify(result.summary, "info");
+					break;
+				case "inactive":
+					ctx.ui.notify("pi-mctx is not active for this session.", "error");
+					break;
+				case "cancelled":
+					ctx.ui.notify("Dreamer evaluation cancelled.", "warning");
+					break;
+				case "empty":
+					ctx.ui.notify("No smart-condition notes to evaluate.", "warning");
+					break;
+				case "failed":
+					ctx.ui.notify(`Dreamer evaluation failed: ${result.reason}`, "error");
+					break;
+			}
+		},
+	});
+}
+
+function registerEmbedCommand(pi: ExtensionAPI, feature: MctxFeature): void {
+	pi.registerCommand("ctx-embed", {
+		description: "Embed all active project memories that are missing vectors",
+		handler: async (_args, ctx) => {
+			if (ctx.mode !== "tui") {
+				ctx.ui.notify("/ctx-embed requires interactive mode", "error");
+				return;
+			}
+			const result: MctxEmbedBackfillResult = await feature.embedBackfill(ctx);
+			switch (result.kind) {
+				case "done":
+					ctx.ui.notify(
+						`Embedding backfill: ${result.embedded} embedded, ${result.skipped} skipped, ${result.failed} failed.`,
+						"info",
+					);
+					break;
+				case "inactive":
+					ctx.ui.notify("pi-mctx is not active for this session.", "error");
+					break;
+				case "busy":
+					ctx.ui.notify("An embedding backfill is already running.", "warning");
+					break;
+				case "cancelled":
+					ctx.ui.notify("Embedding backfill cancelled.", "warning");
+					break;
+				case "failed":
+					ctx.ui.notify(`Embedding backfill failed: ${result.reason}`, "error");
 					break;
 			}
 		},
@@ -581,6 +651,8 @@ export default function piMctxExtension(pi: ExtensionAPI): void {
 	});
 	registerHistoryTools(pi, feature);
 	registerSidekickCommand(pi, feature);
+	registerDreamCommand(pi, feature);
+	registerEmbedCommand(pi, feature);
 	registerContextHook(pi, feature);
 	pi.on("turn_end", (_event, context) => feature.onTurnEnd(context));
 }

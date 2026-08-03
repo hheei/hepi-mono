@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
@@ -144,6 +145,7 @@ function store(overrides: Partial<MctxStore> = {}): MctxStore {
 		writeMemoryEmbedding: () => {
 			throw new Error("not used");
 		},
+		listMemoryEmbeddingCoverage: () => new Map(),
 		writeNote: (input) => {
 			const note: MctxNote = {
 				projectIdentity: input.projectIdentity,
@@ -1083,6 +1085,15 @@ function embeddingLease(
 			purpose: "query" | "passage",
 			signal: AbortSignal,
 		) => Promise<Float32Array | undefined>;
+		readonly embedBatch?: (
+			items: ReadonlyArray<{
+				readonly id: string;
+				readonly text: string;
+				readonly contentHash: string;
+			}>,
+			purpose: "query" | "passage",
+			signal: AbortSignal,
+		) => Promise<ReadonlyMap<string, Float32Array> | undefined>;
 	} = {},
 ): {
 	readonly lease: EmbeddingProviderLease;
@@ -1098,7 +1109,7 @@ function embeddingLease(
 					generation: 1,
 				}),
 				embed: options.embed ?? (async () => new Float32Array([0.5, 0.25])),
-				embedBatch: async () => undefined,
+				embedBatch: options.embedBatch ?? (async () => undefined),
 			},
 			release: async () => {
 				releasedFlag = true;
@@ -1849,3 +1860,388 @@ test("buildSidekickAugmentation truncates oversized child output", (): void => {
 	expect(wrapper).toContain("sidekick output truncated");
 	expect(wrapper.length).toBeLessThan(25_000);
 });
+
+function dreamerStore(notes: readonly MctxNote[]): MctxStore {
+	return store({
+		readNotes: () => notes,
+	});
+}
+
+function dreamerContext(modelRegistry: {
+	readonly find: () => unknown;
+	readonly hasConfiguredAuth: () => boolean;
+}): ExtensionContext {
+	return {
+		sessionManager: { getSessionId: () => "session-1", getBranch: () => entries },
+		modelRegistry,
+	} as unknown as ExtensionContext;
+}
+
+const smartNote: MctxNote = {
+	projectIdentity: "git:project",
+	sessionId: "session-1",
+	noteId: 1,
+	content: "Keep the deploy green.",
+	status: "active",
+	smartCondition: "when the CI is red",
+	revision: 1,
+	createdSessionId: "session-1",
+	updatedSessionId: "session-1",
+	createdAtMs: 0,
+	updatedAtMs: 0,
+};
+
+test("dreamer evaluates smart-condition notes and reports without mutating them", async (): Promise<void> => {
+	const { lifecycle } = embeddingLifecycle();
+	let capturedPrompt: string | undefined;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () =>
+			dreamerStore([
+				smartNote,
+				{
+					...smartNote,
+					noteId: 2,
+					content: "Plain note without a condition.",
+					smartCondition: undefined,
+				},
+			]),
+		resolveProjectIdentity: async () => "git:project",
+		startDreamTask: (_context, spec) => {
+			capturedPrompt = spec.prompt;
+			return taskHandle({
+				id: "task-1",
+				mode: "task",
+				status: "completed",
+				output: "#1 SATISFIED: CI is green on main",
+				softLimitReached: false,
+			});
+		},
+	});
+	await feature.start(lifecycle);
+	const result = await feature.dream(
+		"",
+		dreamerContext({ find: () => undefined, hasConfiguredAuth: () => false }),
+	);
+	expect(result).toEqual({
+		kind: "reported",
+		summary: "#1 SATISFIED: CI is green on main",
+	});
+	// Only the smart-condition note is compiled into the child prompt.
+	expect(capturedPrompt).toContain("Keep the deploy green.");
+	expect(capturedPrompt).toContain("when the CI is red");
+	expect(capturedPrompt).not.toContain("Plain note without a condition.");
+	// The evaluation never touches note state.
+	const notes = feature.active()?.store.readNotes("git:project", "session-1", "active") ?? [];
+	expect(notes.some((note) => note.noteId === 1 && note.status === "active")).toBe(true);
+});
+
+test("dreamer returns empty without smart notes or a query and does not spawn", async (): Promise<void> => {
+	const { lifecycle } = embeddingLifecycle();
+	let spawned = false;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => dreamerStore([]),
+		resolveProjectIdentity: async () => "git:project",
+		startDreamTask: () => {
+			spawned = true;
+			return taskHandle({
+				id: "task-1",
+				mode: "task",
+				status: "completed",
+				output: "x",
+				softLimitReached: false,
+			});
+		},
+	});
+	await feature.start(lifecycle);
+	expect(
+		await feature.dream(
+			"",
+			dreamerContext({ find: () => undefined, hasConfiguredAuth: () => false }),
+		),
+	).toEqual({ kind: "empty" });
+	expect(spawned).toBe(false);
+});
+
+test("dreamer appends a user query to the child prompt", async (): Promise<void> => {
+	const { lifecycle } = embeddingLifecycle();
+	let capturedPrompt: string | undefined;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => dreamerStore([smartNote]),
+		resolveProjectIdentity: async () => "git:project",
+		startDreamTask: (_context, spec) => {
+			capturedPrompt = spec.prompt;
+			return taskHandle({
+				id: "task-1",
+				mode: "task",
+				status: "completed",
+				output: "report",
+				softLimitReached: false,
+			});
+		},
+	});
+	await feature.start(lifecycle);
+	expect(
+		await feature.dream(
+			"focus on the new API",
+			dreamerContext({ find: () => undefined, hasConfiguredAuth: () => false }),
+		),
+	).toEqual({ kind: "reported", summary: "report" });
+	expect(capturedPrompt).toContain("focus on the new API");
+});
+
+test("dreamer aborts cancel the child task", async (): Promise<void> => {
+	const { lifecycle } = embeddingLifecycle();
+	const task = deferredTaskHandle();
+	const controller = new AbortController();
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => dreamerStore([smartNote]),
+		resolveProjectIdentity: async () => "git:project",
+		startDreamTask: () => task.handle,
+	});
+	await feature.start(lifecycle);
+	const abortingContext = {
+		sessionManager: { getSessionId: () => "session-1", getBranch: () => entries },
+		modelRegistry: { find: () => undefined, hasConfiguredAuth: () => false },
+		signal: controller.signal,
+	} as unknown as ExtensionContext;
+	const pending = feature.dream("query", abortingContext);
+	controller.abort();
+	expect(await pending).toEqual({ kind: "cancelled" });
+	expect(task.cancelCalls()).toBeGreaterThanOrEqual(1);
+});
+
+test("dreamer surfaces a synchronous admission rejection as a failure", async (): Promise<void> => {
+	const { lifecycle } = embeddingLifecycle();
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => dreamerStore([smartNote]),
+		resolveProjectIdentity: async () => "git:project",
+		startDreamTask: () => {
+			throw new Error("Subagent pending queue is full");
+		},
+	});
+	await feature.start(lifecycle);
+	expect(
+		await feature.dream(
+			"query",
+			dreamerContext({ find: () => undefined, hasConfiguredAuth: () => false }),
+		),
+	).toEqual({ kind: "failed", reason: "Subagent pending queue is full" });
+});
+
+test("dreamer fails loudly when an explicit model is unavailable", async (): Promise<void> => {
+	const { lifecycle } = embeddingLifecycle();
+	let spawned = false;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => ({ ...configuration(), dreamer: { model: "provider/missing" } }),
+		openStore: () => dreamerStore([smartNote]),
+		resolveProjectIdentity: async () => "git:project",
+		startDreamTask: () => {
+			spawned = true;
+			return taskHandle({
+				id: "task-1",
+				mode: "task",
+				status: "completed",
+				output: "x",
+				softLimitReached: false,
+			});
+		},
+	});
+	await feature.start(lifecycle);
+	expect(
+		await feature.dream(
+			"query",
+			dreamerContext({ find: () => undefined, hasConfiguredAuth: () => false }),
+		),
+	).toEqual({ kind: "failed", reason: "Dreamer model is unavailable: provider/missing" });
+	expect(spawned).toBe(false);
+});
+
+test("dreamer truncates an oversized report", async (): Promise<void> => {
+	const { lifecycle } = embeddingLifecycle();
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => dreamerStore([smartNote]),
+		resolveProjectIdentity: async () => "git:project",
+		startDreamTask: () =>
+			taskHandle({
+				id: "task-1",
+				mode: "task",
+				status: "completed",
+				output: "y".repeat(5_000),
+				softLimitReached: false,
+			}),
+	});
+	await feature.start(lifecycle);
+	const result = await feature.dream(
+		"query",
+		dreamerContext({ find: () => undefined, hasConfiguredAuth: () => false }),
+	);
+	expect(result.kind).toBe("reported");
+	if (result.kind !== "reported") return;
+	expect(result.summary).toContain("dreamer report truncated");
+	expect(result.summary.length).toBeLessThan(5_000);
+});
+
+test("embedBackfill skips covered memories and publishes the rest", async (): Promise<void> => {
+	const { lifecycle } = embeddingLifecycle();
+	const { lease } = embeddingLease({
+		embedBatch: async () =>
+			new Map([
+				["memory:2", new Float32Array([0.1, 0.2])],
+				["memory:3", new Float32Array([0.3, 0.4])],
+			]),
+	});
+	const hash = (value: string): string => createHash("sha256").update(value).digest("hex");
+	const memory = (memoryId: number, content: string): MctxMemory => ({
+		projectIdentity: "git:project",
+		memoryId,
+		category: "ARCHITECTURE",
+		content,
+		status: "active",
+		revision: 1,
+		createdSessionId: "session-1",
+		updatedSessionId: "session-1",
+		createdAtMs: 0,
+		updatedAtMs: 0,
+	});
+	const memories = [memory(1, "covered"), memory(2, "pending-a"), memory(3, "pending-b")];
+	const writes: MctxMemoryEmbeddingWrite[] = [];
+	let activeCalls = 0;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => embeddingConfiguration(),
+		openStore: () =>
+			store({
+				listActiveMemories: () => (activeCalls++ === 0 ? memories : []),
+				listMemoryEmbeddingCoverage: () => new Map([[1, hash("covered")]]),
+				writeMemoryEmbedding: (input) => {
+					writes.push(input);
+					return true;
+				},
+			}),
+		resolveProjectIdentity: async () => "git:project",
+		acquireEmbeddingProvider: async () => lease,
+	});
+	await feature.start(lifecycle);
+	const result = await feature.embedBackfill(sidekickContext);
+	expect(result).toEqual({ kind: "done", embedded: 2, skipped: 1, failed: 0 });
+	expect(writes.map((write) => write.memoryId).sort((a, b) => a - b)).toEqual([2, 3]);
+});
+
+test("embedBackfill without a provider lease fails", async (): Promise<void> => {
+	const { lifecycle } = embeddingLifecycle();
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => store(),
+		resolveProjectIdentity: async () => "git:project",
+	});
+	await feature.start(lifecycle);
+	expect(await feature.embedBackfill(sidekickContext)).toEqual({
+		kind: "failed",
+		reason: "no embedding provider is configured",
+	});
+});
+
+test("embedBackfill rejects a concurrent run as busy", async (): Promise<void> => {
+	const { lifecycle } = embeddingLifecycle();
+	const { lease } = embeddingLease({
+		embedBatch: async () => new Map([["memory:1", new Float32Array([0.1])]]),
+	});
+	let activeCalls = 0;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => embeddingConfiguration(),
+		openStore: () =>
+			store({
+				listActiveMemories: () => (activeCalls++ === 0 ? [memoryFixture(1, "m")] : []),
+				writeMemoryEmbedding: () => true,
+			}),
+		resolveProjectIdentity: async () => "git:project",
+		acquireEmbeddingProvider: async () => lease,
+	});
+	await feature.start(lifecycle);
+	const first = feature.embedBackfill(sidekickContext);
+	expect(await feature.embedBackfill(sidekickContext)).toEqual({ kind: "busy" });
+	await expect(first).resolves.toEqual({ kind: "done", embedded: 1, skipped: 0, failed: 0 });
+});
+
+test("embedBackfill aborts mid-run and keeps published vectors", async (): Promise<void> => {
+	const { lifecycle } = embeddingLifecycle();
+	const controller = new AbortController();
+	let releaseBatch!: (value: ReadonlyMap<string, Float32Array> | undefined) => void;
+	const batch = new Promise<ReadonlyMap<string, Float32Array> | undefined>((resolve) => {
+		releaseBatch = resolve;
+	});
+	const { lease } = embeddingLease({
+		embedBatch: async (_items, _purpose, signal) => {
+			signal.addEventListener("abort", () => releaseBatch(undefined), { once: true });
+			return batch;
+		},
+	});
+	const writes: MctxMemoryEmbeddingWrite[] = [];
+	let activeCalls = 0;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => embeddingConfiguration(),
+		openStore: () =>
+			store({
+				listActiveMemories: () => (activeCalls++ === 0 ? [memoryFixture(1, "m")] : []),
+				writeMemoryEmbedding: (input) => {
+					writes.push(input);
+					return true;
+				},
+			}),
+		resolveProjectIdentity: async () => "git:project",
+		acquireEmbeddingProvider: async () => lease,
+	});
+	await feature.start(lifecycle);
+	const abortingContext = {
+		sessionManager: { getSessionId: () => "session-1", getBranch: () => entries },
+		signal: controller.signal,
+	} as unknown as ExtensionContext;
+	const pending = feature.embedBackfill(abortingContext);
+	controller.abort();
+	expect(await pending).toEqual({ kind: "cancelled" });
+	expect(writes).toEqual([]);
+});
+
+test("embedBackfill counts provider-missing vectors as failed", async (): Promise<void> => {
+	const { lifecycle } = embeddingLifecycle();
+	const { lease } = embeddingLease({
+		embedBatch: async () => new Map(),
+	});
+	let activeCalls = 0;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => embeddingConfiguration(),
+		openStore: () =>
+			store({
+				listActiveMemories: () => (activeCalls++ === 0 ? [memoryFixture(1, "m")] : []),
+			}),
+		resolveProjectIdentity: async () => "git:project",
+		acquireEmbeddingProvider: async () => lease,
+	});
+	await feature.start(lifecycle);
+	expect(await feature.embedBackfill(sidekickContext)).toEqual({
+		kind: "done",
+		embedded: 0,
+		skipped: 0,
+		failed: 1,
+	});
+});
+
+function memoryFixture(memoryId: number, content: string): MctxMemory {
+	return {
+		projectIdentity: "git:project",
+		memoryId,
+		category: "ARCHITECTURE",
+		content,
+		status: "active",
+		revision: 1,
+		createdSessionId: "session-1",
+		updatedSessionId: "session-1",
+		createdAtMs: 0,
+		updatedAtMs: 0,
+	};
+}

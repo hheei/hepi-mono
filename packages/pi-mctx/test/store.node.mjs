@@ -333,6 +333,51 @@ test("publishes fenced passage embeddings into the per-model ledger", async () =
 	});
 });
 
+test("lists embedded source hashes per model identity for backfill coverage", async () => {
+	await withPath(async (path) => {
+		const store = await openMctxStore(path);
+		const project = `git:${"4".repeat(40)}`;
+		store.getOrCreatePartition(project, "session-a");
+		const memory = store.writeMemory({
+			projectIdentity: project,
+			sessionId: "session-a",
+			category: "ARCHITECTURE",
+			content: "Coverage target.",
+			nowMs: 10,
+		});
+		const hash = (value) => createHash("sha256").update(value).digest("hex");
+		const vector = new Float32Array([0.1, 0.2, 0.3]);
+		const write = (modelIdentity) =>
+			store.writeMemoryEmbedding({
+				projectIdentity: project,
+				memoryId: memory.memoryId,
+				modelIdentity,
+				providerGeneration: 1,
+				sourceContentHash: hash("Coverage target."),
+				sourceMemoryRevision: memory.revision,
+				dimensions: 3,
+				vector,
+				nowMs: 20,
+			});
+		assert.equal(write("local/Xenova/all-MiniLM-L6-v2"), true);
+		assert.equal(write("synapse/model-b"), true);
+		assert.deepEqual(
+			store.listMemoryEmbeddingCoverage(project, "local/Xenova/all-MiniLM-L6-v2"),
+			new Map([[memory.memoryId, hash("Coverage target.")]]),
+		);
+		assert.deepEqual(
+			store.listMemoryEmbeddingCoverage(project, "synapse/model-b"),
+			new Map([[memory.memoryId, hash("Coverage target.")]]),
+		);
+		assert.deepEqual(store.listMemoryEmbeddingCoverage(project, "other/model"), new Map());
+		assert.deepEqual(
+			store.listMemoryEmbeddingCoverage(`git:${"5".repeat(40)}`, "local/Xenova/all-MiniLM-L6-v2"),
+			new Map(),
+		);
+		store.close();
+	});
+});
+
 
 test("stores session notes with immutable anchors and record revision CAS", async () => {
 	await withPath(async (path) => {

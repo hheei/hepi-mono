@@ -83,6 +83,14 @@ export interface MctxStore {
 	 * other store-side reason. Never throws for a stale source.
 	 */
 	writeMemoryEmbedding(input: MctxMemoryEmbeddingWrite): boolean;
+	/**
+	 * Returns the embedded source content hash per memory for one model identity,
+	 * used by the backfill coverage pass to skip already-embedded memories.
+	 */
+	listMemoryEmbeddingCoverage(
+		projectIdentity: string,
+		modelIdentity: string,
+	): ReadonlyMap<number, string>;
 	writeNote(input: MctxNoteWrite): MctxNote;
 	readNotes(
 		projectIdentity: string,
@@ -1778,6 +1786,36 @@ function writeMemoryEmbedding(database: DatabaseSync, input: MctxMemoryEmbedding
 	}
 }
 
+/**
+ * Read-only coverage snapshot for one model identity. Returns the embedded
+ * source content hash per memory; the backfill pass compares it against each
+ * active memory's current hash to skip already-embedded rows.
+ */
+function listMemoryEmbeddingCoverage(
+	database: DatabaseSync,
+	projectIdentity: string,
+	modelIdentity: string,
+): ReadonlyMap<number, string> {
+	if (!projectIdentity.trim() || !modelIdentity.trim())
+		throw new Error("Context store memory embedding coverage is invalid");
+	const rows = database
+		.prepare(
+			"SELECT memory_id, source_content_hash FROM memory_embeddings WHERE project_identity = ? AND model_identity = ?",
+		)
+		.all(projectIdentity, modelIdentity);
+	const coverage = new Map<number, string>();
+	for (const row of rows) {
+		if (
+			!isRecord(row) ||
+			typeof row.memory_id !== "number" ||
+			typeof row.source_content_hash !== "string"
+		)
+			throw new Error("Context store memory embedding coverage row is invalid");
+		coverage.set(row.memory_id, row.source_content_hash);
+	}
+	return coverage;
+}
+
 function validHistoryTagKind(value: unknown): value is MctxHistoryTagKind {
 	return value === "message" || value === "tool" || value === "reference";
 }
@@ -2202,6 +2240,10 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 		writeMemoryEmbedding(input): boolean {
 			if (database === undefined) throw new Error("Context store is closed");
 			return writeMemoryEmbedding(database, input);
+		},
+		listMemoryEmbeddingCoverage(projectIdentity, modelIdentity): ReadonlyMap<number, string> {
+			if (database === undefined) throw new Error("Context store is closed");
+			return listMemoryEmbeddingCoverage(database, projectIdentity, modelIdentity);
 		},
 
 		writeNote(input): MctxNote {

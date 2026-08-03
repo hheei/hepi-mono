@@ -159,6 +159,95 @@ provider 配置，仅依赖 pi-mctx 自身启用状态。
 - focused tests：injected 只注入一次且注入后清除；empty/failure/abort/limit 不注入；inactive 返回明确错误；
   pending 随 runtime 清理；注入不干扰 compartment/history-tag projection；child 工具面只含允许集合。
 
+## Dreamer manual command（/ctx-dream）
+
+### 目标
+
+手动 command：用户输入 `/ctx-dream [query]` 时，`pi-mctx` 同步运行一个受限 child（与 Sidekick 同款只读工具面）
+评估当前 project 的 pending `smartCondition` notes（可选自由 `query` 追加关注点），返回评估报告并 notify。
+评估是只读的：不注入 context、不改 note 持久化状态、不改 store；`smartCondition` 仍只是 pending text，
+没有后台 poll、evaluate 或 schedule。这是 legacy project Dreamer task runner 的 manual entry 现代等价；
+`evaluate-smart-notes` 的 scheduled lease domain 属于 core 未来 `task` trigger，首版不迁移。
+
+### 边界
+
+- **Pi host**：command dispatch；child `AgentSession` 由 consumer-owned factory 创建（`/ctx-aug` 先例）。
+- **ext-core**：subagent execution contract（`startSubagent` task mode、shared coordinator budget、terminal
+  delivery、parent-session 清理）。schedule/cron 是 core 未来 trigger，首版无 scheduled Dreamer。
+- **pi-mctx**：注册 `/ctx-dream`；拥有 Dreamer child factory（工具面与 Sidekick 相同）与 prompt 编译
+  （smartCondition 列表 + 可选 query）；不 import `pi-subagents`、不注册 agent type。
+- **pi-subagents**：不参与本次 child 执行。
+
+### child factory 与 model 解析
+
+与 Sidekick 同款 factory：builtin `read`/`grep`/`find`/`ls` + 注入同名 `ctx_search`（execute 委托 parent
+`feature.search`），`noExtensions: true`，`tools` allowlist 含 `ctx_search` 本身；system prompt 换为 Dreamer
+评估指令；`maxTurns` 3、deadline 60s（同 Sidekick）。
+
+child model 解析顺序：user-level `pi-mctx.dreamer.model`（exact `provider/model` ref）配置时，经
+`context.extension.modelRegistry.find()` 解析并要求已配置 auth——找不到或无 auth 时 command notify error
+（显式配置必须明确生效或失败），不使用 parent model 静默回退；未配置字段时 child 用 parent 当前模型
+（`context.model`，同 `/ctx-aug`）。project settings 一律忽略 `dreamer` 的 model 字段（model 是 user 偏好）。
+该字段仅在 Dreamer 行为存在时启用，不构成空配置面。
+
+### 报告语义
+
+child terminal output 作为评估报告 notify 展示（截断到 `DREAMER_REPORT_CHARS`，4,000 字符）；不注入
+pending augmentation、不改 note/store。失败/abort/timeout 或既无 smart notes 又无 query 时 notify 明确状态。
+
+### 公开行为
+
+`/ctx-dream [query]`：未启用 pi-mctx、inactive session 或非 tui → notify error；query 可选（≤500 字符）；
+无 query 且当前 session 无 active `smartCondition` notes → notify empty；否则同步等待 child 完成并 notify 报告。
+
+### 最小公开 seam 与测试
+
+- feature 暴露 `dream(query, context)` → `{ kind: "reported", summary } | { kind: "empty" | "inactive" |
+  "cancelled" | "failed", ... }`；command handler 薄封装。
+- focused tests：inactive 不 spawn；无 smart notes 且无 query → empty；有 notes → spawn + reported；
+  query 编译进 child prompt；不改 note/store 状态；abort 调 cancel 返回 cancelled；admission throw 归一化
+  failed；显式 model 配置解析与不可用失败。
+
+## Project memory embedding backfill（/ctx-embed）
+
+### 目标
+
+手动 command `/ctx-embed`（无参）：同步遍历当前 project 的全部 active memories，跳过已嵌入且 content hash
+匹配当前 provider model 的项，批量 passage embedding 剩余项，结束 notify 汇总；abort 绑 lifecycle/caller
+signal；同一 active runtime 的 per-project busy 状态拒绝并发运行。这是 legacy project compartment backfill
+的现代等价——backfill 对象是 durable memories（现代 compartment graph 是 transform 产物，不持久化向量）。
+首版不做自动 GC/retention、不做 semantic search、不做跨进程 SQLite lease。
+
+### 边界
+
+- **Pi host**：command dispatch。
+- **pi-ext-embed**：provider lease、`embed`/`embedBatch`、generation fencing（已实现）。
+- **pi-mctx**：注册 `/ctx-embed`；拥有 backfill 遍历、coverage 判定、批量调用与 store ledger 写回；复用既有
+  `writeMemoryEmbedding` 单事务 content/revision fence（stale 结果静默丢弃）。
+- 无 provider（`pi-mctx.embedding` 未配置或 acquire 失败）→ notify error；provider 可用性不影响 backfill
+  之外的 MCTX 行为，也不参与 `fail_closed_blocking`。
+
+### 行为
+
+- `/ctx-embed`：tui 检查；inactive 或当前 runtime 无 embedding lease → notify error；同 runtime 已有 backfill
+  在运行 → notify busy（process-local，不跨进程加锁：重复 work 可容忍，fence 保证 stale vector 不可能发布）。
+- 分页读 `listActiveMemories(projectIdentity)`；coverage 判定：store 的 `listMemoryEmbeddingCoverage` 返回当前
+  model identity 已嵌入的 `memory_id → source content hash`，active memory 的当前 hash 不在其中或不同 → 待嵌。
+- `embedBatch(items, "passage", signal)` 分批（`EMBED_BACKFILL_BATCH_SIZE`，16）；每项成功结果经
+  `writeMemoryEmbedding` fence 写回（source 已变返回 false 计为 skipped，provider 返回 undefined 或 throw 计为
+  failed 并继续）；已写回结果在 abort 后保留。
+- abort（lifecycle/caller signal）中途 → 返回 cancelled；不设独立 wall-clock deadline：backfill 是长时批处理，
+  deadline 会误杀大 project，single-batch hang 由 provider 的 signal 契约负责（future multi-process lease slice
+  再引入 batch deadline）。
+- 结束 notify 汇总 `embedded` / `skipped` / `failed`。
+
+### 最小公开 seam 与测试
+
+- feature 暴露 `embedBackfill(context)` → `{ kind: "done", embedded, skipped, failed } | { kind: "busy" |
+  "inactive" | "cancelled" | "failed", ... }`；command handler 薄封装。
+- focused tests：inactive/无 lease 不跑；busy 拒绝并发；coverage 跳过已嵌项；embedBatch 调用与 fence 写回；
+  abort 中途返回 cancelled 且已写回保留；汇总计数正确。
+
 ## 完整迁移目标
 
 `pi-mctx` 的最终目标不是停在首个 context pipeline，而是替代 `@hheei/pi-magic-context@0.33.1-hepi.0`
@@ -234,20 +323,23 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
   partial/limit 标志、正文上限），只插最后真实 user prompt 前、注入后清除；caller/lifecycle/deadline abort 均绑定
   `handle.cancel()`，admission 同步 throw 归一化为 failure result。设计见下方
   [Sidekick augmentation section](#sidekick-augmentationctx-aug)。
-- [ ] **Dreamer 与 embedding commands**：legacy `/ctx-dream`、`/ctx-embed` 归入 historian-adjacent services；先完成
-  Dreamer/embedding storage、leases、cost/cancellation 与 retention，再决定是否保留 command。Dreamer fixed baseline 是
-  free-text smart-condition compiler、capability sandbox、per-project lease/schedule task runner，不是 file-only checker；它
-  等待 `pi-subagents` 提供受限 child-session factory，`pi-mctx` 不越界创建 child agent。Embedding fixed baseline 是
-  project provider generation、model/content-hash fencing、batch ledger、coverage/backfill/GC，不是 one-shot vector API；当前
-  无 second consumer/provider owner，故不注册 partial `/ctx-embed`。
-  共享 capability、multi-process fencing、provider lifetime 与公开 API proposal 见
-  [`docs/architecture/embeddings.md`](../architecture/embeddings.md)。
-   当前实现：user-level `pi-mctx.embedding` 配置存在时，`pi-mctx` 在 activation 中动态 import
-   `@hheei/pi-ext-embed` 并 acquire provider lease；`ctx_memory` 明确 write/update 成功后启动一次 detached、abortable
-   passage embedding，经 provider snapshot 与 content/revision fence 写入 per-model `memory_embeddings` ledger，
-   archive 在同一事务内删除该 memory 的 vector。provider 缺失/失败不影响 memory write 结果，也不参与
-   `fail_closed_blocking`。它不做 historical backfill、timer、retry、`/ctx-embed` 或 semantic search；vector 读取
-   方法留待 retrieval consumer。
+- [x] **Dreamer 与 embedding commands**：legacy `/ctx-dream`、`/ctx-embed` 的 manual command 已迁移；scheduled
+  Dreamer 等待 core 未来 `task` trigger，backfill 的自动 GC/retention 与 semantic search 仍待 retrieval consumer。
+  - `/ctx-dream [query]`：manual Dreamer child（与 Sidekick 同款只读工具面 + 注入 `ctx_search`）评估 project 的
+    pending `smartCondition` notes，可选 query 追加关注点；报告只 notify、不注入 context、不改 note/store 状态。
+    child model 由 user-level `pi-mctx.dreamer.model`（exact `provider/model`）指定，未配置时用 parent 当前模型；
+    显式配置不可用则 command 明确失败。abort/admission 归一化与 Sidekick 共用 `runMctxChildTask` 骨架。
+  - `/ctx-embed`：project memory embedding backfill——分页遍历 active memories，按当前 provider model identity 的
+    coverage（`listMemoryEmbeddingCoverage`）跳过已嵌入项，`embedBatch` 分批嵌入剩余项并经既有
+    `writeMemoryEmbedding` 单事务 content/revision fence 写回；abort 绑 lifecycle/caller signal，已写回保留；
+    process-local per-project busy 拒绝并发；结束 notify `embedded/skipped/failed` 汇总。不自动 GC/retention、
+    不做跨进程 lease（fence 保证 stale vector 不可能发布，重复 work 可容忍）。
+  - embedding storage 基线（上轮）：user-level `pi-mctx.embedding` 配置存在时，activation 动态 import
+    `@hheei/pi-ext-embed` 并 acquire provider lease；`ctx_memory` write/update 启动 detached、abortable passage
+    embedding，经 provider snapshot 与 content/revision fence 写入 per-model `memory_embeddings` ledger，
+    archive 同事务删除该 memory 的 vector；provider 缺失/失败不影响 memory write，也不参与 `fail_closed_blocking`。
+    共享 capability、multi-process fencing、provider lifetime 与公开 API proposal 见
+    [`docs/architecture/embeddings.md`](../architecture/embeddings.md)。
 - [ ] **Historian-adjacent services**：按已验证需求设计 Dreamer、embedding provider、background maintenance、search
   index 与 retention/data-management。自动 TTL prune、shutdown deletion 或语义删除在得到明确 retention contract 前保持禁止。
 - [ ] **Reserved configuration activation**：逐字段启用当前 opaque 的 upstream-shaped configuration，定义 user/project
