@@ -168,3 +168,99 @@ test("accepts only user-owned project-relative primer configuration", async (): 
 		"Ignoring user search.primer_path: must be a project-relative path",
 	);
 });
+
+test("accepts only user-level embedding provider configuration", async (): Promise<void> => {
+	const config = await withSettings(
+		{
+			"pi-mctx": {
+				enabled: true,
+				historian: { model: "anthropic/claude-haiku" },
+				embedding: { provider: "local", model: "Xenova/all-MiniLM-L6-v2" },
+			},
+		},
+		{
+			"pi-mctx": {
+				embedding: { provider: "synapse", connectionFile: "/tmp/mctx.sock" },
+			},
+		},
+		loadMctxConfiguration,
+	);
+	expect(config.embedding).toEqual({
+		config: { provider: "local", model: "Xenova/all-MiniLM-L6-v2" },
+	});
+	expect(config.warnings).toContain(
+		"Ignoring project embedding: provider selection is user-level only",
+	);
+
+	const invalid = await withSettings(
+		{
+			"pi-mctx": {
+				enabled: true,
+				historian: { model: "anthropic/claude-haiku" },
+				embedding: "local",
+			},
+		},
+		{},
+		loadMctxConfiguration,
+	);
+	expect(invalid.embedding).toBeUndefined();
+	expect(invalid.warnings).toContain("Ignoring user embedding: must be an object");
+
+	const absent = await withSettings(
+		{
+			"pi-mctx": {
+				enabled: true,
+				historian: { model: "anthropic/claude-haiku" },
+			},
+		},
+		{},
+		loadMctxConfiguration,
+	);
+	expect(absent.embedding).toBeUndefined();
+});
+
+test("accepts only user-level Dreamer model configuration", async (): Promise<void> => {
+	const config = await withSettings(
+		{
+			"pi-mctx": {
+				dreamer: { model: "anthropic/claude-sonnet-4" },
+			},
+		},
+		{},
+		loadMctxConfiguration,
+	);
+	expect(config.dreamer).toEqual({ model: "anthropic/claude-sonnet-4" });
+
+	const invalid = await withSettings(
+		{ "pi-mctx": { dreamer: { model: "not-a-ref" } } },
+		{},
+		loadMctxConfiguration,
+	);
+	expect(invalid.dreamer).toBeUndefined();
+	expect(invalid.warnings).toContain("Ignoring user dreamer.model: must be exact provider/model");
+
+	const projectOnly = await withSettings(
+		{},
+		{ "pi-mctx": { dreamer: { model: "openai/gpt-5" } } },
+		loadMctxConfiguration,
+	);
+	expect(projectOnly.dreamer).toBeUndefined();
+	expect(projectOnly.warnings).toContain(
+		"Ignoring project dreamer: model selection is user-level only",
+	);
+
+	const invalidShape = await withSettings(
+		{ "pi-mctx": { dreamer: "anthropic/claude-sonnet-4" } },
+		{},
+		loadMctxConfiguration,
+	);
+	expect(invalidShape.dreamer).toBeUndefined();
+	expect(invalidShape.warnings).toContain("Ignoring user dreamer: must be an object");
+
+	const withoutModel = await withSettings(
+		{ "pi-mctx": { dreamer: {} } },
+		{},
+		loadMctxConfiguration,
+	);
+	expect(withoutModel.dreamer).toEqual({});
+});

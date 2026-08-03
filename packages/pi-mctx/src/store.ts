@@ -5,7 +5,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export const MCTX_STORE_APPLICATION_ID = 0x484d4354;
-export const MCTX_STORE_SCHEMA_VERSION = 10;
+export const MCTX_STORE_SCHEMA_VERSION = 11;
 export const MCTX_STORE_BUSY_TIMEOUT_MS = 5_000;
 
 /**
@@ -45,6 +45,7 @@ export interface MctxStore {
 	): MctxHistorianLease | undefined;
 	releaseHistorianLease(lease: MctxHistorianLease): void;
 	listCompartments(partition: MctxPartition): readonly MctxCompartment[];
+	readStatusMetrics(partition: MctxPartition): MctxStoreStatusMetrics;
 	discardCompartmentsFrom(
 		partition: MctxPartition,
 		publishedRevision: number,
@@ -76,6 +77,21 @@ export interface MctxStore {
 	): readonly MctxMemory[];
 	updateMemory(input: MctxMemoryUpdate): MctxMemory | undefined;
 	archiveMemory(input: MctxMemoryArchive): MctxMemory | undefined;
+	/**
+	 * Publishes one fenced passage embedding for an active memory. Returns false
+	 * when the memory is missing, archived, or no longer matches the embedded
+	 * source (content hash and revision), or when the vector was dropped for any
+	 * other store-side reason. Never throws for a stale source.
+	 */
+	writeMemoryEmbedding(input: MctxMemoryEmbeddingWrite): boolean;
+	/**
+	 * Returns the embedded source content hash per memory for one model identity,
+	 * used by the backfill coverage pass to skip already-embedded memories.
+	 */
+	listMemoryEmbeddingCoverage(
+		projectIdentity: string,
+		modelIdentity: string,
+	): ReadonlyMap<number, string>;
 	writeNote(input: MctxNoteWrite): MctxNote;
 	readNotes(
 		projectIdentity: string,
@@ -101,6 +117,22 @@ export interface MctxPartition {
 	readonly projectIdentity: string;
 	readonly sessionId: string;
 	readonly revision: number;
+}
+
+export interface MctxStoreStatusMetrics {
+	readonly compartments: {
+		readonly total: number;
+		readonly m0: number;
+		readonly m1: number;
+		readonly latestSequence?: number;
+		readonly latestPublishedRevision?: number;
+	};
+	readonly tags: {
+		readonly total: number;
+		readonly active: number;
+		readonly pending: number;
+		readonly dropped: number;
+	};
 }
 
 /** Stable store key without a CAS revision, used only to create a fresh session partition. */
@@ -237,6 +269,23 @@ export interface MctxMemoryArchive {
 	readonly sessionId: string;
 	readonly memoryId: number;
 	readonly expectedRevision: number;
+	readonly nowMs?: number;
+}
+
+/**
+ * One detached passage embedding publication. The caller captured the provider
+ * snapshot (model identity/generation) at embed start; the store fence checks
+ * the live memory row still matches the embedded source.
+ */
+export interface MctxMemoryEmbeddingWrite {
+	readonly projectIdentity: string;
+	readonly memoryId: number;
+	readonly modelIdentity: string;
+	readonly providerGeneration: number;
+	readonly sourceContentHash: string;
+	readonly sourceMemoryRevision: number;
+	readonly dimensions: number;
+	readonly vector: Float32Array;
 	readonly nowMs?: number;
 }
 
@@ -527,6 +576,38 @@ function migrateV9(database: DatabaseSync): void {
 	}
 }
 
+function migrateV11(database: DatabaseSync): void {
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		database.exec("ALTER TABLE mctx_metadata RENAME TO mctx_metadata_v10");
+		database.exec(
+			"CREATE TABLE mctx_metadata (schema_version INTEGER NOT NULL CHECK (schema_version = 11)) STRICT",
+		);
+		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(11);
+		database.exec("DROP TABLE mctx_metadata_v10");
+		// v8's composite foreign key (project_identity, memory_id,
+		// source_content_hash, source_memory_revision) referenced the single-row
+		// memory_embedding_sources, which made refreshing source metadata
+		// impossible once an embedding row existed (the updated sources row no
+		// longer matched the old embedding row, violating the statement-level FK).
+		// Rebuild with a memory-scoped key; hash/revision consistency is owned by
+		// the single write transaction that updates sources before embeddings.
+		database.exec("ALTER TABLE memory_embeddings RENAME TO memory_embeddings_v10");
+		database.exec(
+			"CREATE TABLE memory_embeddings (project_identity TEXT NOT NULL, memory_id INTEGER NOT NULL CHECK (memory_id > 0), model_identity TEXT NOT NULL, provider_generation INTEGER NOT NULL CHECK (provider_generation >= 0), source_content_hash TEXT NOT NULL CHECK (length(source_content_hash) = 64), source_memory_revision INTEGER NOT NULL CHECK (source_memory_revision > 0), dimensions INTEGER NOT NULL CHECK (dimensions > 0), vector BLOB NOT NULL, created_at_ms INTEGER NOT NULL CHECK (created_at_ms >= 0), PRIMARY KEY (project_identity, memory_id, model_identity, provider_generation), FOREIGN KEY (project_identity, memory_id) REFERENCES memory_embedding_sources(project_identity, memory_id)) STRICT",
+		);
+		database.exec(
+			"INSERT INTO memory_embeddings (project_identity, memory_id, model_identity, provider_generation, source_content_hash, source_memory_revision, dimensions, vector, created_at_ms) SELECT project_identity, memory_id, model_identity, provider_generation, source_content_hash, source_memory_revision, dimensions, vector, created_at_ms FROM memory_embeddings_v10",
+		);
+		database.exec("DROP TABLE memory_embeddings_v10");
+		database.exec("PRAGMA user_version = 11");
+		database.exec("COMMIT");
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
 export function mctxHandoffBindingId(
 	parent: MctxPartitionKey,
 	destinationSessionId: string,
@@ -616,6 +697,7 @@ function validateSchema(database: DatabaseSync): void {
 	if (pragmaInteger(database, "PRAGMA user_version") === 7) migrateV8(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 8) migrateV9(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 9) migrateV10(database);
+	if (pragmaInteger(database, "PRAGMA user_version") === 10) migrateV11(database);
 	if (pragmaInteger(database, "PRAGMA application_id") !== MCTX_STORE_APPLICATION_ID) {
 		throw new Error("Context store application identity is invalid");
 	}
@@ -1086,6 +1168,86 @@ function listCompartments(
 		.all(partition.projectIdentity, partition.sessionId);
 	if (!Array.isArray(rows)) throw new Error("Context store compartment query is invalid");
 	return rows.map(compartmentFromRow);
+}
+
+function statusMetricsFromRow(value: unknown): MctxStoreStatusMetrics {
+	if (!isRecord(value)) throw new Error("Context store status metrics row is invalid");
+	const integer = (field: string): number => {
+		const number = value[field];
+		if (typeof number !== "number" || !Number.isSafeInteger(number) || number < 0) {
+			throw new Error("Context store status metrics row is invalid");
+		}
+		return number;
+	};
+	const optionalInteger = (field: string): number | null => {
+		const number = value[field];
+		if (
+			number !== null &&
+			(typeof number !== "number" || !Number.isSafeInteger(number) || number < 0)
+		) {
+			throw new Error("Context store status metrics row is invalid");
+		}
+		return number;
+	};
+	const latestSequence = optionalInteger("compartments_latest_sequence");
+	const latestPublishedRevision = optionalInteger("compartments_latest_revision");
+	return {
+		compartments: {
+			total: integer("compartments_total"),
+			m0: integer("compartments_m0"),
+			m1: integer("compartments_m1"),
+			...(latestSequence === null ? {} : { latestSequence }),
+			...(latestPublishedRevision === null ? {} : { latestPublishedRevision }),
+		},
+		tags: {
+			total: integer("tags_total"),
+			active: integer("tags_active"),
+			pending: integer("tags_pending"),
+			dropped: integer("tags_dropped"),
+		},
+	};
+}
+
+/** Store owns this read-only snapshot; scoped aggregates never mutate revision or tag status. Cleanup is statement-local. */
+function readStatusMetrics(
+	database: DatabaseSync,
+	partition: MctxPartition,
+): MctxStoreStatusMetrics {
+	requirePartitionKey(partition.projectIdentity, partition.sessionId);
+	const row = database
+		.prepare(
+			"SELECT " +
+				"(SELECT COUNT(*) FROM compartments WHERE project_identity = ? AND session_id = ?) AS compartments_total, " +
+				"(SELECT COUNT(*) FROM compartments WHERE project_identity = ? AND session_id = ? AND tier = 'm0') AS compartments_m0, " +
+				"(SELECT COUNT(*) FROM compartments WHERE project_identity = ? AND session_id = ? AND tier = 'm1') AS compartments_m1, " +
+				"(SELECT MAX(sequence) FROM compartments WHERE project_identity = ? AND session_id = ?) AS compartments_latest_sequence, " +
+				"(SELECT MAX(published_revision) FROM compartments WHERE project_identity = ? AND session_id = ?) AS compartments_latest_revision, " +
+				"(SELECT COUNT(*) FROM history_tags WHERE project_identity = ? AND session_id = ?) AS tags_total, " +
+				"(SELECT COUNT(*) FROM history_tags WHERE project_identity = ? AND session_id = ? AND status = 'active') AS tags_active, " +
+				"(SELECT COUNT(*) FROM history_tags WHERE project_identity = ? AND session_id = ? AND status = 'pending') AS tags_pending, " +
+				"(SELECT COUNT(*) FROM history_tags WHERE project_identity = ? AND session_id = ? AND status = 'dropped') AS tags_dropped",
+		)
+		.get(
+			partition.projectIdentity,
+			partition.sessionId,
+			partition.projectIdentity,
+			partition.sessionId,
+			partition.projectIdentity,
+			partition.sessionId,
+			partition.projectIdentity,
+			partition.sessionId,
+			partition.projectIdentity,
+			partition.sessionId,
+			partition.projectIdentity,
+			partition.sessionId,
+			partition.projectIdentity,
+			partition.sessionId,
+			partition.projectIdentity,
+			partition.sessionId,
+			partition.projectIdentity,
+			partition.sessionId,
+		);
+	return statusMetricsFromRow(row);
 }
 
 /**
@@ -1624,6 +1786,18 @@ function mutateMemory(
 			database.exec("ROLLBACK");
 			return undefined;
 		}
+		if (archive) {
+			// An archived source must not remain a retrieval candidate: its vectors
+			// and source binding drop in the same transaction as the archive.
+			database
+				.prepare("DELETE FROM memory_embeddings WHERE project_identity = ? AND memory_id = ?")
+				.run(input.projectIdentity, input.memoryId);
+			database
+				.prepare(
+					"DELETE FROM memory_embedding_sources WHERE project_identity = ? AND memory_id = ?",
+				)
+				.run(input.projectIdentity, input.memoryId);
+		}
 		const memory = memoryFromRow(
 			database
 				.prepare("SELECT * FROM memories WHERE project_identity = ? AND memory_id = ?")
@@ -1658,6 +1832,121 @@ function updateMemoryContent(
 				input.expectedRevision,
 			),
 	);
+}
+
+function requireEmbeddingClock(nowMs: number): number {
+	if (!Number.isSafeInteger(nowMs) || nowMs < 0)
+		throw new Error("Context store memory embedding clock is invalid");
+	return nowMs;
+}
+
+/**
+ * Publishes one fenced passage embedding. The write transaction rereads the
+ * live memory row: missing, archived, or content/revision-changed sources
+ * return false, so a detached embed that completed after a newer write/update
+ * (or archive) is silently dropped. A model/generation pair is idempotently
+ * refreshed; different model identities coexist as separate rows.
+ */
+function writeMemoryEmbedding(database: DatabaseSync, input: MctxMemoryEmbeddingWrite): boolean {
+	if (
+		!input.projectIdentity.trim() ||
+		!Number.isSafeInteger(input.memoryId) ||
+		input.memoryId < 1 ||
+		!input.modelIdentity.trim() ||
+		!Number.isSafeInteger(input.providerGeneration) ||
+		input.providerGeneration < 0 ||
+		!/^[0-9a-f]{64}$/u.test(input.sourceContentHash) ||
+		!Number.isSafeInteger(input.sourceMemoryRevision) ||
+		input.sourceMemoryRevision < 1 ||
+		!Number.isSafeInteger(input.dimensions) ||
+		input.dimensions < 1 ||
+		input.vector.length !== input.dimensions
+	) {
+		throw new Error("Context store memory embedding write is invalid");
+	}
+	const nowMs = requireEmbeddingClock(input.nowMs ?? Date.now());
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		const row = database
+			.prepare(
+				"SELECT content, revision, status FROM memories WHERE project_identity = ? AND memory_id = ?",
+			)
+			.get(input.projectIdentity, input.memoryId);
+		if (
+			!isRecord(row) ||
+			row.status !== "active" ||
+			typeof row.content !== "string" ||
+			typeof row.revision !== "number" ||
+			row.revision !== input.sourceMemoryRevision ||
+			createHash("sha256").update(row.content).digest("hex") !== input.sourceContentHash
+		) {
+			database.exec("ROLLBACK");
+			return false;
+		}
+		database
+			.prepare(
+				"INSERT INTO memory_embedding_sources (project_identity, memory_id, content_hash, memory_revision) VALUES (?, ?, ?, ?) ON CONFLICT (project_identity, memory_id) DO UPDATE SET content_hash = excluded.content_hash, memory_revision = excluded.memory_revision",
+			)
+			.run(
+				input.projectIdentity,
+				input.memoryId,
+				input.sourceContentHash,
+				input.sourceMemoryRevision,
+			);
+		database
+			.prepare(
+				"INSERT INTO memory_embeddings (project_identity, memory_id, model_identity, provider_generation, source_content_hash, source_memory_revision, dimensions, vector, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (project_identity, memory_id, model_identity, provider_generation) DO UPDATE SET vector = excluded.vector, dimensions = excluded.dimensions, source_content_hash = excluded.source_content_hash, source_memory_revision = excluded.source_memory_revision, created_at_ms = excluded.created_at_ms",
+			)
+			.run(
+				input.projectIdentity,
+				input.memoryId,
+				input.modelIdentity,
+				input.providerGeneration,
+				input.sourceContentHash,
+				input.sourceMemoryRevision,
+				input.dimensions,
+				Buffer.from(input.vector.buffer, input.vector.byteOffset, input.vector.byteLength),
+				nowMs,
+			);
+		database.exec("COMMIT");
+		return true;
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
+/**
+ * Read-only coverage snapshot for one model identity. Returns the embedded
+ * source content hash per memory for its newest source revision (revision is
+ * the monotonic content-freshness source of truth; created_at_ms can move
+ * backward when callers supply wall-clock timestamps, and generation only
+ * distinguishes provider reloads). The backfill pass compares it against each
+ * active memory's current hash to skip already-embedded rows.
+ */
+function listMemoryEmbeddingCoverage(
+	database: DatabaseSync,
+	projectIdentity: string,
+	modelIdentity: string,
+): ReadonlyMap<number, string> {
+	if (!projectIdentity.trim() || !modelIdentity.trim())
+		throw new Error("Context store memory embedding coverage is invalid");
+	const rows = database
+		.prepare(
+			"SELECT memory_id, source_content_hash FROM (SELECT memory_id, source_content_hash, ROW_NUMBER() OVER (PARTITION BY memory_id ORDER BY source_memory_revision DESC, created_at_ms DESC, provider_generation DESC) AS row_number FROM memory_embeddings WHERE project_identity = ? AND model_identity = ?) WHERE row_number = 1",
+		)
+		.all(projectIdentity, modelIdentity);
+	const coverage = new Map<number, string>();
+	for (const row of rows) {
+		if (
+			!isRecord(row) ||
+			typeof row.memory_id !== "number" ||
+			typeof row.source_content_hash !== "string"
+		)
+			throw new Error("Context store memory embedding coverage row is invalid");
+		coverage.set(row.memory_id, row.source_content_hash);
+	}
+	return coverage;
 }
 
 function validHistoryTagKind(value: unknown): value is MctxHistoryTagKind {
@@ -2036,6 +2325,10 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 			if (database === undefined) throw new Error("Context store is closed");
 			return listCompartments(database, partition);
 		},
+		readStatusMetrics(partition): MctxStoreStatusMetrics {
+			if (database === undefined) throw new Error("Context store is closed");
+			return readStatusMetrics(database, partition);
+		},
 		discardCompartmentsFrom(partition, publishedRevision): MctxPartition | undefined {
 			if (database === undefined) throw new Error("Context store is closed");
 			return discardCompartmentsFrom(database, partition, publishedRevision);
@@ -2080,6 +2373,14 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 		archiveMemory(input): MctxMemory | undefined {
 			if (database === undefined) throw new Error("Context store is closed");
 			return mutateMemory(database, input, true);
+		},
+		writeMemoryEmbedding(input): boolean {
+			if (database === undefined) throw new Error("Context store is closed");
+			return writeMemoryEmbedding(database, input);
+		},
+		listMemoryEmbeddingCoverage(projectIdentity, modelIdentity): ReadonlyMap<number, string> {
+			if (database === undefined) throw new Error("Context store is closed");
+			return listMemoryEmbeddingCoverage(database, projectIdentity, modelIdentity);
 		},
 
 		writeNote(input): MctxNote {

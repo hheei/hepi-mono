@@ -1,8 +1,12 @@
 # Core Subagent Execution Contract
 
 `@hheei/pi-ext-core` 将立即拥有 root-session-scoped subagent execution contract。这是已批准的
-单-consumer exception：独立 extension 需要启动 child execution，但不能 import concrete
-`pi-subagents`。`pi-subagents` 将迁移为 agent/config/UI/delivery adapter，而不是 shared executor。
+consumer exception：独立 extension 需要启动 child execution，但不能 import concrete `pi-subagents`。
+已批准的 direct consumer 是 `@hheei/pi-mctx`：historian 的 no-tools completion（已实现）与 `/ctx-aug`
+Sidekick 的受限 task child（本 ADR 批准同一 consumer 名下增加 task mode 使用）都通过 core 的
+`startSubagent` 执行。`pi-subagents` 将迁移为 agent/config/UI/delivery adapter，而不是 shared
+executor；其 active-turn budget 与 `pi-mctx` 以相同值共享同一 coordinator（同值加入不构成 collision，
+见下文）。任何新的 direct consumer 都必须先经 ADR 更新或新 ADR 批准，不能借既有 consumer 通道静默加入。
 
 ## 后果
 
