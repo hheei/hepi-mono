@@ -378,6 +378,113 @@ test("lists embedded source hashes per model identity for backfill coverage", as
 	});
 });
 
+test("re-embedding after a content update refreshes the coverage hash", async () => {
+	await withPath(async (path) => {
+		const store = await openMctxStore(path);
+		const project = `git:${"3".repeat(40)}`;
+		store.getOrCreatePartition(project, "session-a");
+		const hash = (value) => createHash("sha256").update(value).digest("hex");
+		const vector = new Float32Array([0.1, 0.2, 0.3]);
+		const memory = store.writeMemory({
+			projectIdentity: project,
+			sessionId: "session-a",
+			category: "ARCHITECTURE",
+			content: "First version.",
+			nowMs: 10,
+		});
+		const write = (revision, content) =>
+			store.writeMemoryEmbedding({
+				projectIdentity: project,
+				memoryId: memory.memoryId,
+				modelIdentity: "local/model-a",
+				providerGeneration: 1,
+				sourceContentHash: hash(content),
+				sourceMemoryRevision: revision,
+				dimensions: 3,
+				vector,
+				nowMs: 20,
+			});
+		assert.equal(write(memory.revision, "First version."), true);
+		assert.deepEqual(
+			store.listMemoryEmbeddingCoverage(project, "local/model-a"),
+			new Map([[memory.memoryId, hash("First version.")]]),
+		);
+		const updated = store.updateMemory({
+			projectIdentity: project,
+			sessionId: "session-a",
+			memoryId: memory.memoryId,
+			expectedRevision: memory.revision,
+			content: "Second version.",
+			nowMs: 30,
+		});
+		assert.equal(updated?.revision, memory.revision + 1);
+		// The same model/generation row is refreshed with the new source metadata,
+		// so a later backfill pass sees the new hash and skips the memory.
+		assert.equal(write(updated.revision, "Second version."), true);
+		assert.deepEqual(
+			store.listMemoryEmbeddingCoverage(project, "local/model-a"),
+			new Map([[memory.memoryId, hash("Second version.")]]),
+		);
+		store.close();
+	});
+});
+
+test("coverage picks the newest generation row per memory", async () => {
+	await withPath(async (path) => {
+		const store = await openMctxStore(path);
+		const project = `git:${"2".repeat(40)}`;
+		store.getOrCreatePartition(project, "session-a");
+		const hash = (value) => createHash("sha256").update(value).digest("hex");
+		const vector = new Float32Array([0.1, 0.2, 0.3]);
+		const memory = store.writeMemory({
+			projectIdentity: project,
+			sessionId: "session-a",
+			category: "ARCHITECTURE",
+			content: "Old content.",
+			nowMs: 10,
+		});
+		const write = (overrides) =>
+			store.writeMemoryEmbedding({
+				projectIdentity: project,
+				memoryId: memory.memoryId,
+				modelIdentity: "local/model-a",
+				providerGeneration: 1,
+				sourceContentHash: hash("Old content."),
+				sourceMemoryRevision: memory.revision,
+				dimensions: 3,
+				vector,
+				nowMs: 20,
+				...overrides,
+			});
+		assert.equal(write({}), true);
+		const updated = store.updateMemory({
+			projectIdentity: project,
+			sessionId: "session-a",
+			memoryId: memory.memoryId,
+			expectedRevision: memory.revision,
+			content: "New content.",
+			nowMs: 30,
+		});
+		assert.equal(updated?.revision, memory.revision + 1);
+		// A later generation re-embed coexists with the stale generation row; the
+		// coverage pass must deterministically report the newest one.
+		assert.equal(
+			write({
+				providerGeneration: 2,
+				sourceContentHash: hash("New content."),
+				sourceMemoryRevision: updated.revision,
+				nowMs: 40,
+			}),
+			true,
+		);
+		assert.deepEqual(
+			store.listMemoryEmbeddingCoverage(project, "local/model-a"),
+			new Map([[memory.memoryId, hash("New content.")]]),
+		);
+		store.close();
+	});
+});
+
 
 test("stores session notes with immutable anchors and record revision CAS", async () => {
 	await withPath(async (path) => {
