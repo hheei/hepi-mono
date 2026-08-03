@@ -77,8 +77,9 @@ component；它通过 core 的 optional runtime host bridge 取得 Pi TUI/layout
 `edit`、`write` 保留 upstream renderer 的 padded status shell、diff、partial/expanded output、error 与 timer lifecycle。
 `read` 与 `bash` expanded output 通过 Pi 的 vendored `ToolRenderContext.resultLayout` 接收 result body viewport bounds，并注册
 local mouse region；extension 不遍历 `Container.children`，不读取 `ToolExecutionComponent` private fields。`bash` collapsed preview
-继续由 upstream renderer 处理，不创建 selection region；其他 tool 的 selection 必须分别复制并测试其完整 upstream renderer
-行为后才能接入。
+继续由 upstream renderer 处理，不创建 selection region。`grep` 与 `find` 保留 upstream `Text` renderer；local selection 只替换
+可见 result body 行，跳过 renderer 的首个空行和 shell 的左右 padding，保留 expand/truncation UI。soft-wrap 不生成 logical newline，
+每行右侧 space/tab 在 selection text 中移除。
 
 未来的 region snapshot 必须在 layout/content revision 改变后异步更新，绝不从 `render(width)` 注册或移除；mouse callback
 只读取 selection，不创建 Promise、不执行 I/O，也不接管 `Command+C` / `Ctrl+C`。

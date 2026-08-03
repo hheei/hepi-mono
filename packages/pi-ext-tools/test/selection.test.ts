@@ -30,12 +30,26 @@ describe("local tool selection substrate", () => {
 		const text = logicalText("a\tb");
 		const rows = softWrap(text, 4);
 		expect(rows).toEqual([
-			{ logicalLine: 0, startGrapheme: 0, endGrapheme: 2 },
+			{ logicalLine: 0, startGrapheme: 0, endGrapheme: 1 },
 			{ logicalLine: 0, startGrapheme: 2, endGrapheme: 3 },
 		]);
 		expect(positionAt(text, rows, 0, 1)).toEqual({ line: 0, grapheme: 1 });
-		expect(positionAt(text, rows, 0, 3)).toEqual({ line: 0, grapheme: 1 });
 		expect(positionAt(text, rows, 1, 0)).toEqual({ line: 0, grapheme: 2 });
+	});
+
+	test("matches Pi word wrapping while retaining one logical line", (): void => {
+		const text = logicalText("alpha beta gamma longword");
+		const rows = softWrap(text, 22);
+		expect(rows).toEqual([
+			{ logicalLine: 0, startGrapheme: 0, endGrapheme: 16 },
+			{ logicalLine: 0, startGrapheme: 17, endGrapheme: 25 },
+		]);
+		expect(
+			sliceText(text, {
+				start: { line: 0, grapheme: 0 },
+				end: { line: 0, grapheme: 25 },
+			}),
+		).toBe("alpha beta gamma longword");
 	});
 
 	test("removes OSC hyperlinks before wrapping and mapping cells", (): void => {
