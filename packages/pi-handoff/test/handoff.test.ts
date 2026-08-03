@@ -80,7 +80,6 @@ function harness(): HandoffHarness {
 			calls.push("new-session");
 			parentSessions.push(options.parentSession);
 			await options.setup?.({
-				getSessionId: () => "destination",
 				appendCustomMessageEntry(type, content, display): void {
 					if (state.setupFails) throw new Error("setup failed");
 					injectedTypes.push(type);
