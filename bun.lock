@@ -25,7 +25,6 @@
       "devDependencies": {
         "@earendil-works/pi-coding-agent": ">=0.83.0",
         "@types/bun": "latest",
-        "opencc-js": "^1.4.0",
       },
       "peerDependencies": {
         "@earendil-works/pi-agent-core": ">=0.83.0",
@@ -309,6 +308,25 @@
         "@earendil-works/pi-tui": ">=0.83.0",
       },
     },
+    "packages/pi-t2s": {
+      "name": "@hheei/pi-t2s",
+      "version": "0.0.0",
+      "dependencies": {
+        "@hheei/pi-ext-core": "workspace:*",
+        "opencc-js": "^1.4.0",
+        "typebox": "1.3.7",
+      },
+      "devDependencies": {
+        "@earendil-works/pi-coding-agent": ">=0.83.0",
+        "@types/bun": "latest",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-agent-core": ">=0.83.0",
+        "@earendil-works/pi-ai": ">=0.83.0",
+        "@earendil-works/pi-coding-agent": ">=0.83.0",
+        "@earendil-works/pi-tui": ">=0.83.0",
+      },
+    },
     "packages/pi-todo": {
       "name": "@hheei/pi-todo",
       "version": "0.0.0",
@@ -480,6 +498,8 @@
     "@hheei/pi-settings": ["@hheei/pi-settings@workspace:packages/pi-settings"],
 
     "@hheei/pi-subagents": ["@hheei/pi-subagents@workspace:packages/pi-subagents"],
+
+    "@hheei/pi-t2s": ["@hheei/pi-t2s@workspace:packages/pi-t2s"],
 
     "@hheei/pi-todo": ["@hheei/pi-todo@workspace:packages/pi-todo"],
 

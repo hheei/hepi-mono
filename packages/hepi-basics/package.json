@@ -54,7 +54,6 @@
 	},
 	"devDependencies": {
 		"@earendil-works/pi-coding-agent": ">=0.83.0",
-		"@types/bun": "latest",
-		"opencc-js": "^1.4.0"
+		"@types/bun": "latest"
 	}
 }

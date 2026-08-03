@@ -43,7 +43,6 @@ test("extension factories remain reloadable", async () => {
 		"packages/hepi-basics/src/dollar-skill/extension.ts",
 		"packages/hepi-basics/src/fix/extension.ts",
 		"packages/hepi-basics/src/rtk/index.ts",
-		"packages/hepi-basics/src/t2s/extension.ts",
 	].map((path) => join(repositoryRoot, path));
 
 	const resources = loader(paths);
@@ -51,34 +50,6 @@ test("extension factories remain reloadable", async () => {
 	expect(resources.getExtensions().errors).toEqual([]);
 	await resources.reload();
 	expect(resources.getExtensions().errors).toEqual([]);
-});
-
-test("session shutdown removes a settings contribution before reload", async () => {
-	const path = join(repositoryRoot, "packages/hepi-basics/src/t2s/extension.ts");
-	const ctx = {
-		cwd: join(repositoryRoot, ".pi", "reload-test-missing"),
-		sessionManager: { getSessionId: () => "reload-test" },
-		ui: { notify: () => undefined },
-	} as unknown as ExtensionContext;
-
-	const eventBus = createEventBus();
-	const resources = loader([path], eventBus);
-	const settingsRegistry = getHepiRuntimeSettingsRegistry({ events: eventBus });
-	await resources.reload();
-	const extension = resources.getExtensions().extensions[0];
-	if (extension === undefined) throw new Error("Expected T2S extension to load");
-	await emit(extension, "session_start", ctx);
-	expect(settingsRegistry.get("pi-t2s")).toBeDefined();
-	await emit(extension, "session_shutdown", ctx);
-	expect(settingsRegistry.get("pi-t2s")).toBeUndefined();
-
-	await resources.reload();
-	const reloadedExtension = resources.getExtensions().extensions[0];
-	if (reloadedExtension === undefined) throw new Error("Expected reloaded T2S extension");
-	await emit(reloadedExtension, "session_start", ctx);
-	expect(settingsRegistry.get("pi-t2s")).toBeDefined();
-	await emit(reloadedExtension, "session_shutdown", ctx);
-	expect(settingsRegistry.get("pi-t2s")).toBeUndefined();
 });
 
 test("retry registers its settings contribution for the active session", async () => {
