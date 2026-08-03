@@ -177,7 +177,7 @@ existing semantic token expresses the role.
 
 ### Context Status Overlay
 
-- `/ctx-status` is one centered, single-page read-only overlay, not a page-router
+- `/mctx status` (and bare `/mctx`) is one centered, single-page read-only overlay, not a page-router
   page or a widget. Its outer frame is rounded and uses `borderMuted`; content
   uses only existing Pi semantic theme tokens, never hard-coded colors or
   module-specific accents. The frame width is 78 columns when available and is
@@ -223,6 +223,16 @@ existing semantic token expresses the role.
   ext-core owns `openTuiSurface` admission, FIFO, abort, and cleanup; status
   rendering consumes the MCTX snapshot and does not define another lifecycle
   abstraction.
+
+### MCTX Command Suggestions
+
+- MCTX registers one `/mctx` slash command. First-argument autocomplete lists only active lowercase
+  subcommands and gives each item a concise description; parked behavior is neither suggested nor executable.
+- Bare `/mctx` opens the read-only status overlay. `/mctx status` is the explicit equivalent; `/mctx aug
+  <query>` owns free-form query text, so autocomplete stops after the `aug` token instead of inventing query
+  suggestions.
+- Unknown subcommands and invalid arguments show canonical syntax without opening a surface or starting work.
+  Deprecated `/ctx-*` aliases are not registered.
 
 ### Patch Presentation
 

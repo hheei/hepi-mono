@@ -59,7 +59,7 @@ export function buildSidekickAugmentation(input: {
 			? input.output
 			: `${input.output.slice(0, MAX_SIDEKICK_AUGMENTATION_CHARS)}\n…[sidekick output truncated]`;
 	return [
-		`Sidekick augmentation — /ctx-aug "${input.query}"`,
+		`Sidekick augmentation — /mctx aug "${input.query}"`,
 		`Operation: ${input.operationId} · status: ${input.status}${
 			input.partial ? " · partial output" : ""
 		}`,

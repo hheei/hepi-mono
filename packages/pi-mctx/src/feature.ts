@@ -1332,7 +1332,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			// A successful projection re-arms the read-failure notification for the
 			// next failure epoch, matching the historian notification pattern.
 			current.notifiedStoreReadFailure = false;
-			// One-shot /ctx-aug augmentation: injected once after a successful
+			// One-shot /mctx aug augmentation: injected once after a successful
 			// projection, then cleared. Projection failures keep it pending.
 			// The bounded wrapper is inserted before the last real user prompt so
 			// the model still sees the authoritative request as its final message.
