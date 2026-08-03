@@ -161,6 +161,30 @@ describe("AgentManager core adapter", () => {
 		});
 	});
 
+	it("delimits inherited child prompts after projection payload without newline", async () => {
+		const fake = fakeHandle();
+		startSubagent.mockReturnValue(fake.handle);
+		getService.mockReturnValue({
+			prepare: vi.fn(async () => ({
+				kind: "result" as const,
+				purpose: "inheritance" as const,
+				payload: "projected preamble",
+			})),
+		});
+		manager = new AgentManager();
+		manager.setRuntime(runtime());
+
+		manager.spawn({} as never, { cwd: "/tmp" } as never, "general-purpose", "inspect", {
+			description: "Inspect files",
+			inheritContext: true,
+		});
+		await vi.waitFor(() => expect(startSubagent).toHaveBeenCalledOnce());
+
+		expect(startSubagent.mock.calls[0]?.[1]).toMatchObject({
+			initialMessage: "projected preamble\n---\n# Your Task (below)\ninspect",
+		});
+	});
+
 	it.each([
 		["missing provider", undefined],
 		["undefined projection", { prepare: vi.fn(async () => ({ kind: "unavailable" as const })) }],
