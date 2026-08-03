@@ -24,6 +24,12 @@ extension 在 `registerExtensionLifecycle()` 的 `start(context)` 中：
 4. 将 settings unregistration、coordinator dispose、status cleanup 放入 lifecycle `resources`，使 reload 与
    session shutdown 幂等。
 
+安装 `@hheei/pi-loadout` 时，extension 把同一 settings provider 作为 `agent:auto-title` resource detail
+贡献给 Loadout 的 `Agents` group：`observeLoadoutHost` 为 active 时不重复注册 Settings provider，
+`/ext-settings` 不再显示该 section。Loadout 的 activation snapshot 是 coordinator 的 gate——resource 被
+policy 关闭时取消当前标题任务并阻止新任务，重新启用后按已保存设置恢复；没有 Loadout host 时保持原
+`/ext-settings` fallback。
+
 `hepi-basics` 迁移后不再 import、注册或持有 auto-title。它的 status rail 继续按稳定 key `auto-title` 显示
 extension 已发布的 status，不建立反向 package dependency。
 

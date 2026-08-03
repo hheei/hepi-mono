@@ -210,6 +210,37 @@ describe("Pi Auto Title", () => {
 		).rejects.toThrow("unavailable");
 	});
 
+	test("wires the Loadout settings-change callback", async () => {
+		const calls: Array<{ enabled: boolean; model: string }> = [];
+		const provider = createAutoTitleSettingsProvider({
+			modelOptions: [{ value: "cx/gpt-5.6-luna", label: "cx/gpt-5.6-luna" }],
+			validate: () => undefined,
+			onSettingsChange: (enabled, model) => {
+				calls.push({ enabled, model });
+			},
+		});
+		await provider.onChange?.(
+			{
+				groupId: "auto-title",
+				fieldId: "autoTitle",
+				value: true,
+				state: { "auto-title": { autoTitle: true, autoTitleModel: "cx/gpt-5.6-luna" } },
+			},
+			context("/tmp"),
+		);
+		expect(calls).toEqual([{ enabled: true, model: "cx/gpt-5.6-luna" }]);
+		await provider.onChange?.(
+			{
+				groupId: "auto-title",
+				fieldId: "autoTitle",
+				value: false,
+				state: { "auto-title": { autoTitle: false, autoTitleModel: "" } },
+			},
+			context("/tmp"),
+		);
+		expect(calls.at(-1)).toEqual({ enabled: false, model: "" });
+	});
+
 	test("leaves host handler ownership to the extension", () => {
 		let registrations = 0;
 		const coordinator = createAutoTitleCoordinator(

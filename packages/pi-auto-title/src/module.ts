@@ -122,6 +122,7 @@ export interface AutoTitleSettingsOptions {
 	readonly modelOptions?: readonly AutoTitleModelOption[];
 	readonly validate?: (value: string, ctx: HepiContext) => Promise<void> | void;
 	readonly prepareEnable?: (model?: string) => Promise<void> | void;
+	readonly onSettingsChange?: (enabled: boolean, model: string) => Promise<void> | void;
 }
 export function createAutoTitleSettingsProvider(
 	options: AutoTitleSettingsOptions = {},
@@ -156,13 +157,17 @@ export function createAutoTitleSettingsProvider(
 			const enabled = values[AUTO_TITLE_FIELD] === true;
 			const model =
 				typeof values[AUTO_TITLE_MODEL_FIELD] === "string" ? values[AUTO_TITLE_MODEL_FIELD] : "";
-			if (!enabled) return;
+			if (!enabled) {
+				await options.onSettingsChange?.(false, model);
+				return;
+			}
 			if (model) {
 				parseModelRef(model);
 				await options.validate?.(model, ctx);
 			}
 			if (change.fieldId === AUTO_TITLE_FIELD && change.value === true)
 				await options.prepareEnable?.(model || undefined);
+			await options.onSettingsChange?.(true, model);
 		},
 	};
 }

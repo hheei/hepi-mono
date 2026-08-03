@@ -36,9 +36,11 @@ export {
 export type { ExtensionLifecycleContext, ExtensionLifecycleOptions } from "./lifecycle.js";
 export { registerExtensionLifecycle } from "./lifecycle.js";
 export type {
+	LoadoutHostObserver,
 	LoadoutInventoryItem,
 	LoadoutInventoryObserver,
 	LoadoutInventoryRegistration,
+	LoadoutResourceDetail,
 	LoadoutResourceMetadata,
 	LoadoutToolActivationObserver,
 	LoadoutToolActivationSnapshot,
@@ -47,9 +49,11 @@ export type {
 } from "./loadout.js";
 export {
 	clearLoadoutToolActivation,
+	observeLoadoutHost,
 	observeLoadoutInventory,
 	observeLoadoutToolActivation,
 	publishLoadoutToolActivation,
+	registerLoadoutHost,
 	registerLoadoutInventory,
 	registerLoadoutResource,
 	registerManagedLoadoutTool,
