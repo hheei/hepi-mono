@@ -61,32 +61,38 @@ function loadFromDir(
 
 		const { builtinToolNames, extSelectors } = parseToolsField(fm.tools);
 
-		agents.set(name, {
+		const config: AgentConfig = {
 			name,
-			displayName: str(fm.display_name),
 			description: str(fm.description) ?? name,
 			builtinToolNames,
+			extensions: inheritField(fm.extensions ?? fm.inherit_extensions),
+			skills: inheritField(fm.skills ?? fm.inherit_skills),
+			systemPrompt: body.trim(),
+			promptMode: fm.prompt_mode === "append" ? "append" : "replace",
+			enabled: fm.enabled !== false, // default true; explicitly false disables
+			source,
+		};
+		const optional: Record<string, unknown> = {
+			displayName: str(fm.display_name),
 			extSelectors,
 			disallowedTools: csvListOptional(fm.disallowed_tools),
-			extensions: inheritField(fm.extensions ?? fm.inherit_extensions),
 			excludeExtensions: csvListOptional(fm.exclude_extensions),
-			skills: inheritField(fm.skills ?? fm.inherit_skills),
 			model: str(fm.model),
 			thinking: str(fm.thinking) as ThinkingLevel | undefined,
 			maxTurns: positiveInt(fm.max_turns),
 			persistSession: fm.persist_session != null ? fm.persist_session === true : undefined,
 			outputTranscript: fm.output_transcript != null ? fm.output_transcript !== false : undefined,
 			sessionDir: str(fm.session_dir),
-			systemPrompt: body.trim(),
-			promptMode: fm.prompt_mode === "append" ? "append" : "replace",
 			inheritContext: fm.inherit_context != null ? fm.inherit_context === true : undefined,
 			runInBackground: fm.run_in_background != null ? fm.run_in_background === true : undefined,
 			isolated: fm.isolated != null ? fm.isolated === true : undefined,
 			memory: parseMemory(fm.memory),
 			isolation: fm.isolation === "worktree" ? "worktree" : undefined,
-			enabled: fm.enabled !== false, // default true; explicitly false disables
-			source,
-		});
+		};
+		for (const [key, value] of Object.entries(optional)) {
+			if (value !== undefined) (config as unknown as Record<string, unknown>)[key] = value;
+		}
+		agents.set(name, config);
 	}
 }
 

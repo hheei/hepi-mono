@@ -179,7 +179,7 @@ export function buildInvocationTags(invocation: AgentInvocation | undefined): {
 	if (invocation.inheritContext) tags.push("inherit context");
 	if (invocation.runInBackground) tags.push("background");
 	if (invocation.maxTurns != null) tags.push(`max turns: ${invocation.maxTurns}`);
-	return { modelName: invocation.modelName, tags };
+	return invocation.modelName === undefined ? { tags } : { modelName: invocation.modelName, tags };
 }
 
 /** Truncate text to a single line, max `len` chars. */
@@ -397,7 +397,7 @@ export class AgentWidget {
 		const truncate = (line: string) => truncateToWidth(line, w);
 		const headingColor = hasActive ? "accent" : "dim";
 		const headingIcon = hasActive ? "●" : "○";
-		const frame = SPINNER[this.widgetFrame % SPINNER.length];
+		const frame = SPINNER[this.widgetFrame % SPINNER.length] ?? SPINNER[0] ?? "";
 
 		// Build sections separately for overflow-aware assembly.
 		// Each running agent = 2 lines (header + activity), finished = 1 line, queued = 1 line.
@@ -463,14 +463,17 @@ export class AgentWidget {
 			// Fix last connector: swap ├─ → └─ and │ → space for activity lines.
 			if (lines.length > 1) {
 				const last = lines.length - 1;
-				lines[last] = lines[last].replace("├─", "└─");
+				const lastLine = lines[last];
+				if (lastLine !== undefined) lines[last] = lastLine.replace("├─", "└─");
 				// If last item is a running agent activity line, fix indent of that line
 				// and fix the header line above it.
 				if (runningLines.length > 0 && !queuedLine) {
 					// The last two lines are the last running agent's header + activity.
 					if (last >= 2) {
-						lines[last - 1] = lines[last - 1].replace("├─", "└─");
-						lines[last] = lines[last].replace("│  ", "   ");
+						const previousLine = lines[last - 1];
+						if (previousLine !== undefined) lines[last - 1] = previousLine.replace("├─", "└─");
+						const activityLine = lines[last];
+						if (activityLine !== undefined) lines[last] = activityLine.replace("│  ", "   ");
 					}
 				}
 			}

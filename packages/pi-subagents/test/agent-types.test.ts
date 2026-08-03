@@ -14,6 +14,7 @@ import {
 	registerAgents,
 	resolveType,
 	setDefaultsDisabled,
+	setLoadoutActivation,
 } from "../src/agent-types.js";
 import { DEFAULT_AGENTS } from "../src/default-agents.js";
 import type { AgentConfig } from "../src/types.js";
@@ -36,10 +37,25 @@ function makeAgentConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
 
 describe("agent type registry", () => {
 	beforeEach(() => {
+		setLoadoutActivation(undefined);
 		registerAgents(new Map());
 	});
 
+	afterEach(() => {
+		setLoadoutActivation(undefined);
+	});
+
 	describe("default agents", () => {
+		it("hides a Loadout-disabled profile without changing standalone defaults", () => {
+			setLoadoutActivation({
+				knownIds: new Set(["agent:Explore"]),
+				activeIds: new Set(),
+			});
+			expect(getAvailableTypes()).not.toContain("Explore");
+			expect(isValidType("Explore")).toBe(false);
+			expect(isValidType("Plan")).toBe(true);
+		});
+
 		it("recognizes all default agent types", () => {
 			expect(isValidType("general-purpose")).toBe(true);
 			expect(isValidType("Explore")).toBe(true);

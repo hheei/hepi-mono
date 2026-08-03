@@ -24,7 +24,6 @@ export interface SubagentsSettings {
 	scopeModels?: boolean;
 	disableDefaultAgents?: boolean;
 	toolDescriptionMode?: ToolDescriptionMode;
-	fleetView?: boolean;
 	widgetMode?: WidgetMode;
 	outputTranscript?: boolean;
 }
@@ -38,7 +37,6 @@ export interface SettingsAppliers {
 	setScopeModels: (enabled: boolean) => void;
 	setDisableDefaultAgents: (enabled: boolean) => void;
 	setToolDescriptionMode: (mode: ToolDescriptionMode) => void;
-	setFleetView: (enabled: boolean) => void;
 	setWidgetMode: (mode: WidgetMode) => void;
 	setOutputTranscript: (enabled: boolean) => void;
 }
@@ -89,7 +87,6 @@ function sanitize(raw: unknown): SubagentsSettings {
 		VALID_TOOL_DESCRIPTION_MODES.has(raw.toolDescriptionMode as ToolDescriptionMode)
 	)
 		result.toolDescriptionMode = raw.toolDescriptionMode as ToolDescriptionMode;
-	if (typeof raw.fleetView === "boolean") result.fleetView = raw.fleetView;
 	if (typeof raw.widgetMode === "string" && VALID_WIDGET_MODES.has(raw.widgetMode as WidgetMode))
 		result.widgetMode = raw.widgetMode as WidgetMode;
 	if (typeof raw.outputTranscript === "boolean") result.outputTranscript = raw.outputTranscript;
@@ -242,12 +239,6 @@ export function createSubagentsSettingsProvider(
 						"full",
 						["full", "compact", "custom"],
 					),
-					booleanField(
-						"fleetView",
-						"Fleet view",
-						"Show the navigable subagent list below the parent editor.",
-						true,
-					),
 					enumField(
 						"widgetMode",
 						"Widget",
@@ -306,7 +297,6 @@ export function applySettings(settings: SubagentsSettings, appliers: SettingsApp
 		appliers.setDisableDefaultAgents(settings.disableDefaultAgents);
 	if (settings.toolDescriptionMode !== undefined)
 		appliers.setToolDescriptionMode(settings.toolDescriptionMode);
-	if (typeof settings.fleetView === "boolean") appliers.setFleetView(settings.fleetView);
 	if (settings.widgetMode !== undefined) appliers.setWidgetMode(settings.widgetMode);
 	if (typeof settings.outputTranscript === "boolean")
 		appliers.setOutputTranscript(settings.outputTranscript);

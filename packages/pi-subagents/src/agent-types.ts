@@ -6,6 +6,7 @@
  */
 
 import { createCodingTools, createReadOnlyTools } from "@earendil-works/pi-coding-agent";
+import type { LoadoutToolActivationSnapshot } from "@hheei/pi-ext-core";
 import { DEFAULT_AGENTS } from "./default-agents.js";
 import type { AgentConfig } from "./types.js";
 
@@ -26,6 +27,28 @@ const agents = new Map<string, AgentConfig>();
 
 /** When true, DEFAULT_AGENTS are skipped during registration. */
 let disableDefaults = false;
+let loadoutActivation: LoadoutToolActivationSnapshot | undefined;
+
+/** Apply the latest Loadout resource policy; undefined preserves standalone behavior. */
+export function setLoadoutActivation(snapshot: LoadoutToolActivationSnapshot | undefined): void {
+	loadoutActivation = snapshot;
+}
+
+function isLoadoutActive(name: string): boolean {
+	const snapshot = loadoutActivation;
+	const id = `agent:${name}`;
+	if (snapshot === undefined) return true;
+	return !snapshot.knownIds.has(id) || snapshot.activeIds.has(id);
+}
+
+/** True when Loadout explicitly knows this profile and has disabled it. */
+export function isLoadoutResourceDisabled(name: string): boolean {
+	const snapshot = loadoutActivation;
+	return (
+		snapshot?.knownIds.has(`agent:${name}`) === true &&
+		snapshot?.activeIds.has(`agent:${name}`) !== true
+	);
+}
 
 /** Check whether default agents are disabled. */
 export function isDefaultsDisabled(): boolean {
@@ -82,7 +105,7 @@ export function getAgentConfig(name: string): AgentConfig | undefined {
 /** Get all enabled type names (for spawning and tool descriptions). */
 export function getAvailableTypes(): string[] {
 	return [...agents.entries()]
-		.filter(([_, config]) => config.enabled !== false)
+		.filter(([name, config]) => config.enabled !== false && isLoadoutActive(name))
 		.map(([name]) => name);
 }
 
@@ -109,7 +132,7 @@ export function getUserAgentNames(): string[] {
 export function isValidType(type: string): boolean {
 	const key = resolveKey(type);
 	if (!key) return false;
-	return agents.get(key)?.enabled !== false;
+	return agents.get(key)?.enabled !== false && isLoadoutActive(key);
 }
 
 /** Tool names required for memory management. */
@@ -160,7 +183,9 @@ export function getConfig(type: string): {
 			description: config.description,
 			builtinToolNames: config.builtinToolNames ?? BUILTIN_TOOL_NAMES,
 			extensions: config.extensions,
-			excludeExtensions: config.excludeExtensions,
+			...(config.excludeExtensions === undefined
+				? {}
+				: { excludeExtensions: config.excludeExtensions }),
 			skills: config.skills,
 			promptMode: config.promptMode,
 		};
@@ -174,7 +199,7 @@ export function getConfig(type: string): {
 			description: gp.description,
 			builtinToolNames: gp.builtinToolNames ?? BUILTIN_TOOL_NAMES,
 			extensions: gp.extensions,
-			excludeExtensions: gp.excludeExtensions,
+			...(gp.excludeExtensions === undefined ? {} : { excludeExtensions: gp.excludeExtensions }),
 			skills: gp.skills,
 			promptMode: gp.promptMode,
 		};

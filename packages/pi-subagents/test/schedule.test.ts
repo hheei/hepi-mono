@@ -13,22 +13,29 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AgentManager } from "../src/agent-manager.js";
 import { SubagentScheduler } from "../src/schedule.js";
 import { ScheduleStore } from "../src/schedule-store.js";
 
 function makeMockManager() {
-	const spawnFn = vi.fn(() => "agent-" + Math.random().toString(36).slice(2, 10));
+	const spawnFn = vi.fn(
+		(..._args: Parameters<AgentManager["spawn"]>): string =>
+			`agent-${Math.random().toString(36).slice(2, 10)}`,
+	);
 	return {
 		spawn: spawnFn,
-		getRecord: vi.fn(() => ({ promise: Promise.resolve("done") })),
-	} as any;
+		getRecord: vi.fn((_id: string): { promise: Promise<string> } | undefined => ({
+			promise: Promise.resolve("done"),
+		})),
+	};
 }
 
 function makeMockPi() {
 	return {
 		events: { emit: vi.fn() },
-	} as any;
+	};
 }
 
 function makeMockCtx() {
@@ -36,7 +43,7 @@ function makeMockCtx() {
 		cwd: "/tmp",
 		modelRegistry: { find: vi.fn(), getAll: () => [], getAvailable: () => [] },
 		sessionManager: { getSessionId: () => "sess-1" },
-	} as any;
+	};
 }
 
 describe("SubagentScheduler — static format parsers", () => {
@@ -95,9 +102,9 @@ describe("SubagentScheduler — lifecycle", () => {
 	let tmp: string;
 	let store: ScheduleStore;
 	let scheduler: SubagentScheduler;
-	let manager: any;
-	let pi: any;
-	let ctx: any;
+	let manager = makeMockManager();
+	let pi = makeMockPi();
+	let ctx = makeMockCtx();
 
 	beforeEach(() => {
 		tmp = mkdtempSync(join(tmpdir(), "scheduler-test-"));
@@ -106,7 +113,12 @@ describe("SubagentScheduler — lifecycle", () => {
 		manager = makeMockManager();
 		pi = makeMockPi();
 		ctx = makeMockCtx();
-		scheduler.start(pi, ctx, manager, store);
+		scheduler.start(
+			pi as unknown as ExtensionAPI,
+			ctx as unknown as ExtensionContext,
+			manager as unknown as AgentManager,
+			store,
+		);
 	});
 
 	afterEach(() => {
@@ -180,7 +192,7 @@ describe("SubagentScheduler — lifecycle", () => {
 			prompt: "p",
 		});
 		scheduler.updateJob(job.id, { enabled: false });
-		expect(scheduler.list()[0].enabled).toBe(false);
+		expect(scheduler.list()[0]?.enabled).toBe(false);
 		expect(scheduler.getNextRun(job.id)).toBeUndefined();
 	});
 
@@ -257,7 +269,12 @@ describe("SubagentScheduler — lifecycle", () => {
 		// Re-arm: stop drops timers, start re-reads store.list() and calls scheduleJob
 		// for every enabled job → the past-branch fires for our seeded record.
 		scheduler.stop();
-		scheduler.start(pi, ctx, manager, store);
+		scheduler.start(
+			pi as unknown as ExtensionAPI,
+			ctx as unknown as ExtensionContext,
+			manager as unknown as AgentManager,
+			store,
+		);
 
 		const reloaded = scheduler.list().find((j) => j.id === "reload-test");
 		expect(reloaded?.enabled).toBe(false);
@@ -277,9 +294,9 @@ describe("SubagentScheduler — fire path", () => {
 	let tmp: string;
 	let store: ScheduleStore;
 	let scheduler: SubagentScheduler;
-	let manager: any;
-	let pi: any;
-	let ctx: any;
+	let manager = makeMockManager();
+	let pi = makeMockPi();
+	let ctx = makeMockCtx();
 
 	beforeEach(() => {
 		vi.useFakeTimers();
@@ -289,7 +306,12 @@ describe("SubagentScheduler — fire path", () => {
 		manager = makeMockManager();
 		pi = makeMockPi();
 		ctx = makeMockCtx();
-		scheduler.start(pi, ctx, manager, store);
+		scheduler.start(
+			pi as unknown as ExtensionAPI,
+			ctx as unknown as ExtensionContext,
+			manager as unknown as AgentManager,
+			store,
+		);
 	});
 
 	afterEach(() => {
@@ -345,7 +367,9 @@ describe("SubagentScheduler — fire path", () => {
 
 		vi.advanceTimersByTime(1_000);
 		expect(manager.spawn).toHaveBeenCalledTimes(1);
-		const optsArg = manager.spawn.mock.calls[0][4];
+		const firstCall = manager.spawn.mock.calls[0];
+		if (firstCall === undefined) throw new Error("spawn fixture was not called");
+		const optsArg = firstCall[4];
 		expect(optsArg.bypassQueue).toBe(true);
 		expect(optsArg.isBackground).toBe(true);
 	});
@@ -417,7 +441,7 @@ describe("SubagentScheduler — fire path", () => {
 		function installFaithfulMock(): Map<string, FakeRecord> {
 			const records = new Map<string, FakeRecord>();
 			manager.spawn.mockImplementation(() => {
-				const id = "agent-" + Math.random().toString(36).slice(2, 10);
+				const id = `agent-${Math.random().toString(36).slice(2, 10)}`;
 				let resolve!: () => void;
 				const promise = new Promise<string>((r) => {
 					resolve = () => r("");
@@ -444,6 +468,7 @@ describe("SubagentScheduler — fire path", () => {
 
 			// The agent ran and ended in error — same shape the real AgentManager produces.
 			const r = [...records.values()][0];
+			if (r === undefined) throw new Error("record fixture missing");
 			r.status = "error";
 			r.resolve();
 
@@ -465,6 +490,7 @@ describe("SubagentScheduler — fire path", () => {
 
 			vi.advanceTimersByTime(2_000);
 			const r = [...records.values()][0];
+			if (r === undefined) throw new Error("record fixture missing");
 			r.status = "completed";
 			r.resolve();
 
@@ -492,6 +518,7 @@ describe("SubagentScheduler — fire path", () => {
 
 			vi.advanceTimersByTime(3_000);
 			const recs = [...records.values()];
+			if (recs[0] === undefined || recs[1] === undefined) throw new Error("record fixture missing");
 			recs[0].status = "aborted";
 			recs[0].resolve();
 			recs[1].status = "stopped";

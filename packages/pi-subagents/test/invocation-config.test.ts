@@ -73,18 +73,15 @@ describe("resolveAgentInvocationConfig", () => {
 	});
 
 	it("lets parent fill in booleans when config leaves them undefined", () => {
-		const resolved = resolveAgentInvocationConfig(
-			makeConfig({
-				inheritContext: undefined,
-				runInBackground: undefined,
-				isolated: undefined,
-			}),
-			{
-				inherit_context: true,
-				run_in_background: true,
-				isolated: true,
-			},
-		);
+		const config = makeConfig({});
+		delete config.inheritContext;
+		delete config.runInBackground;
+		delete config.isolated;
+		const resolved = resolveAgentInvocationConfig(config, {
+			inherit_context: true,
+			run_in_background: true,
+			isolated: true,
+		});
 
 		expect(resolved.inheritContext).toBe(true);
 		expect(resolved.runInBackground).toBe(true);
@@ -92,14 +89,7 @@ describe("resolveAgentInvocationConfig", () => {
 	});
 
 	it("defaults booleans to false when neither config nor params set them", () => {
-		const resolved = resolveAgentInvocationConfig(
-			makeConfig({
-				inheritContext: undefined,
-				runInBackground: undefined,
-				isolated: undefined,
-			}),
-			{},
-		);
+		const resolved = resolveAgentInvocationConfig(makeConfig({}), {});
 
 		expect(resolved.inheritContext).toBe(false);
 		expect(resolved.runInBackground).toBe(false);

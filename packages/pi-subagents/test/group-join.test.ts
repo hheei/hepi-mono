@@ -19,6 +19,7 @@ function makeRecord(id: string, overrides: Partial<AgentRecord> = {}): AgentReco
 		toolUses: 0,
 		startedAt: 0,
 		lifetimeUsage: { input: 0, output: 0, cacheWrite: 0 },
+		compactionCount: 0,
 		...overrides,
 	};
 }
@@ -56,7 +57,9 @@ describe("GroupJoinManager", () => {
 		expect(mgr.onAgentComplete(makeRecord("b", { result: "B" }))).toBe("delivered");
 
 		expect(deliver).toHaveBeenCalledTimes(1);
-		const [records, partial] = deliver.mock.calls[0];
+		const firstCall = deliver.mock.calls[0];
+		if (firstCall === undefined) throw new Error("delivery fixture missing");
+		const [records, partial] = firstCall;
 		expect(records.map((r: AgentRecord) => r.id).sort()).toEqual(["a", "b"]);
 		expect(partial).toBe(false);
 
@@ -74,7 +77,9 @@ describe("GroupJoinManager", () => {
 		vi.advanceTimersByTime(30_000);
 
 		expect(deliver).toHaveBeenCalledTimes(1);
-		const [records, partial] = deliver.mock.calls[0];
+		const firstCall = deliver.mock.calls[0];
+		if (firstCall === undefined) throw new Error("delivery fixture missing");
+		const [records, partial] = firstCall;
 		expect(records.map((r: AgentRecord) => r.id)).toEqual(["a"]);
 		expect(partial).toBe(true);
 
@@ -101,8 +106,10 @@ describe("GroupJoinManager", () => {
 		vi.advanceTimersByTime(1);
 		expect(deliver).toHaveBeenCalledTimes(2);
 
-		expect(deliver.mock.calls[1][0].map((r: AgentRecord) => r.id)).toEqual(["b"]);
-		expect(deliver.mock.calls[1][1]).toBe(true);
+		const secondCall = deliver.mock.calls[1];
+		if (secondCall === undefined) throw new Error("delivery fixture missing");
+		expect(secondCall[0].map((r: AgentRecord) => r.id)).toEqual(["b"]);
+		expect(secondCall[1]).toBe(true);
 		expect(mgr.isGrouped("c")).toBe(true); // 'c' is the remaining straggler now
 	});
 
@@ -119,8 +126,10 @@ describe("GroupJoinManager", () => {
 		expect(mgr.onAgentComplete(makeRecord("c"))).toBe("delivered");
 
 		expect(deliver).toHaveBeenCalledTimes(2);
-		expect(deliver.mock.calls[1][0].map((r: AgentRecord) => r.id).sort()).toEqual(["b", "c"]);
-		expect(deliver.mock.calls[1][1]).toBe(false);
+		const secondCall = deliver.mock.calls[1];
+		if (secondCall === undefined) throw new Error("delivery fixture missing");
+		expect(secondCall[0].map((r: AgentRecord) => r.id).sort()).toEqual(["b", "c"]);
+		expect(secondCall[1]).toBe(false);
 	});
 
 	it("returns 'pass' for late completions arriving after a group is already delivered", () => {
