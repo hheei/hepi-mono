@@ -3,6 +3,11 @@ import type {
 	ExtensionCommandContext,
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
+import {
+	getService,
+	PARENT_CONTEXT_PROJECTION_SERVICE,
+	type ParentContextHandoffResult,
+} from "@hheei/pi-ext-core";
 
 const registeredApis = new WeakSet<object>();
 
@@ -21,13 +26,17 @@ async function compactWithPi(ctx: ExtensionCommandContext): Promise<string> {
 
 async function startReplacementSession(
 	ctx: ExtensionCommandContext,
-	payload: string,
+	payload: string | undefined,
+	plan: ParentContextHandoffResult | undefined,
+	signal: AbortSignal,
 ): Promise<void> {
 	const parentSession = ctx.sessionManager.getSessionFile();
 	const result = await ctx.newSession({
 		...(parentSession === undefined ? {} : { parentSession }),
 		setup: async (sessionManager: SessionManager): Promise<void> => {
-			sessionManager.appendCustomMessageEntry("hepi-handoff", payload, false);
+			if (payload !== undefined)
+				sessionManager.appendCustomMessageEntry("hepi-handoff", payload, false);
+			if (plan !== undefined) await plan.install(sessionManager, signal);
 		},
 		withSession: async (replacement): Promise<void> => {
 			replacement.ui.notify("Handoff context is ready.", "info");
@@ -42,17 +51,40 @@ export function registerHandoffCommand(pi: ExtensionAPI): void {
 	pi.registerCommand("handoff", {
 		description: "Compact the current context and continue in a new session",
 		handler: async (args, ctx): Promise<void> => {
+			const operation = new AbortController();
 			if (args.trim() !== "") {
 				ctx.ui.notify("Usage: /handoff", "error");
+				operation.abort();
 				return;
 			}
 			try {
 				await ctx.waitForIdle();
-				const summary = await compactWithPi(ctx);
-				await startReplacementSession(ctx, nativeHandoffPayload(summary));
+				const prepared = await getService(pi, PARENT_CONTEXT_PROJECTION_SERVICE)?.prepare({
+					purpose: "handoff",
+					signal: operation.signal,
+				});
+				let plan: ParentContextHandoffResult | undefined;
+				if (prepared?.kind === "result") {
+					if (prepared.purpose !== "handoff" || typeof prepared.install !== "function")
+						throw new Error("Invalid handoff projection");
+					plan = prepared;
+				}
+				if (plan !== undefined) {
+					await startReplacementSession(ctx, undefined, plan, operation.signal);
+				} else {
+					const summary = await compactWithPi(ctx);
+					await startReplacementSession(
+						ctx,
+						nativeHandoffPayload(summary),
+						undefined,
+						operation.signal,
+					);
+				}
 			} catch {
 				// Pi applies the replacement before setup, so no public rollback exists here.
 				ctx.ui.notify("Handoff failed. The source session can be resumed.", "error");
+			} finally {
+				operation.abort();
 			}
 		},
 	});
