@@ -38,9 +38,10 @@ Fleet UI、event-bus RPC、schedules、persistent agent memory、transcripts、w
 UI。这些属于独立 capability；尤其 task execution 必须 launch-and-deliver，不能重新出现 main-agent wait/poll surface。
 
 可编辑的 custom agent profile（`.pi/agents/`、`.agents/agents/` 与 global agents 目录中的 `.md`）在
-Loadout 的 `Agents` group 里贡献 contributor-owned detail：identity 仍为 inline frontmatter 编辑，
-model/thinking 继续合并为 cycler（`↑`/`↓` 选 model、`Tab` 循环 thinking）。`Description` action
-的 `Description` 与 `Body` action value 都固定为 `edit`，值列最右显示 `↵`；`Enter` 以当前值为
+Loadout 的 `Agents` group 里贡献 contributor-owned detail，字段顺序为 `Identity`、`Model`、
+`Description`、`Body`：identity 仍为 inline frontmatter 编辑，model/thinking 继续合并为 cycler
+（`↑`/`↓` 选 model、`Tab` 循环 thinking）。`Description` 与 `Body` action value 都固定为
+`edit ↵`（中间一个空格）；`Enter` 以当前值为
 prefill 打开 Pi host 原生 `ui.editor()`。`/loadout` 与 `/ext-settings` 的共享 router 都是
 overlay；编辑期间临时隐藏并让出 focus，结束后恢复同一个 overlay，不实现或维护嵌入式多行编辑器。
 提交结果只进入当前 scope 的 buffered draft；`Esc` 取消则不变。所有编辑在退出 Loadout 时一次性
