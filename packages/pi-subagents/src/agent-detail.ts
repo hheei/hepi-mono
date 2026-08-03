@@ -252,6 +252,17 @@ export function createAgentDetail(
 	let selectIndex = 0;
 	let thinkingDraft: ModelThinkingLevel | undefined;
 	const field = (): DetailField => DETAIL_FIELDS[selected] ?? FIRST_FIELD;
+	const modelSummary = (
+		model: string | undefined,
+		thinking: ModelThinkingLevel | undefined,
+		expandThinking: boolean,
+	): string => {
+		const modelText = model ?? INHERIT;
+		if (thinking === undefined) return modelText;
+		return expandThinking
+			? `${modelText} • ${thinking}`
+			: `${hepiThinkingGlyph(thinking)} ${modelText}`;
+	};
 	/**
 	 * The rendered form mirrors the Settings field list: a left label column and
 	 * a right value column. The Model row is the combined model/thinking entry:
@@ -268,10 +279,9 @@ export function createAgentDetail(
 			? (modelChoices()[selectIndex] ?? INHERIT)
 			: (draft.model ?? INHERIT);
 		const thinking = selectingModel ? thinkingDraft : draft.thinking;
-		const glyph = thinking === undefined ? "" : `${hepiThinkingGlyph(thinking)} `;
 		return [
 			{ label: "Identity", value: draft.displayName ?? name },
-			{ label: "Model", value: `${glyph}${model}` },
+			{ label: "Model", value: modelSummary(model, thinking, selected === 1) },
 			{ label: "Description", value: "edit ↵" },
 			{ label: "Body", value: "edit ↵" },
 		];
@@ -419,6 +429,10 @@ export function createAgentDetail(
 				// clone it (the global Pi agents dir), not a dead "unavailable".
 				join(getAgentDir(), "agents", `${name}.md`));
 	const detail: AgentDetail = {
+		summary(): string {
+			const draft = current().draft;
+			return modelSummary(draft.model, draft.thinking, false);
+		},
 		render(width: number): readonly string[] {
 			const rendered = rows();
 			// Mirror the Settings field list: the label column never exceeds 55%

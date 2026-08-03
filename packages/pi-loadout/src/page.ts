@@ -261,7 +261,7 @@ function resourceItem(
 		name: resource.label,
 		kind: resource.kind,
 		description: resource.description,
-		displayGroup: resource.summary,
+		displayGroup: resource.detail?.summary?.() ?? resource.summary,
 		origin: resource.owner,
 		defaultActive: resource.defaultActive,
 		projectPrivate: resource.projectPrivate,

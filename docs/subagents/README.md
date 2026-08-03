@@ -44,6 +44,8 @@ Loadout 的 `Agents` group 里贡献 contributor-owned detail，字段顺序为 
 `edit ↵`（中间一个空格）；`Enter` 以当前值为
 prefill 打开 Pi host 原生 `ui.editor()`。`/loadout` 与 `/ext-settings` 的共享 router 都是
 overlay；编辑期间临时隐藏并让出 focus，结束后恢复同一个 overlay，不实现或维护嵌入式多行编辑器。
+`Model` 未聚焦时保留 thinking glyph；聚焦后将其展开为 `<model> • <level>`。确认选择并退出右侧 detail 后，Agents
+列表立即显示当前 scope 的 buffered model/thinking summary，落盘仍延迟到退出 Loadout。
 提交结果只进入当前 scope 的 buffered draft；`Esc` 取消则不变。所有编辑在退出 Loadout 时一次性
 flush 到 YAML（保留未知 key），detail 打开期间不写文件。detail 只负责 profile 文件的就地编辑，
 不改变 spawn、factory 或 policy 所有权。
