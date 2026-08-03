@@ -45,6 +45,7 @@ export interface MctxStore {
 	): MctxHistorianLease | undefined;
 	releaseHistorianLease(lease: MctxHistorianLease): void;
 	listCompartments(partition: MctxPartition): readonly MctxCompartment[];
+	readStatusMetrics(partition: MctxPartition): MctxStoreStatusMetrics;
 	discardCompartmentsFrom(
 		partition: MctxPartition,
 		publishedRevision: number,
@@ -116,6 +117,22 @@ export interface MctxPartition {
 	readonly projectIdentity: string;
 	readonly sessionId: string;
 	readonly revision: number;
+}
+
+export interface MctxStoreStatusMetrics {
+	readonly compartments: {
+		readonly total: number;
+		readonly m0: number;
+		readonly m1: number;
+		readonly latestSequence?: number;
+		readonly latestPublishedRevision?: number;
+	};
+	readonly tags: {
+		readonly total: number;
+		readonly active: number;
+		readonly pending: number;
+		readonly dropped: number;
+	};
 }
 
 /** Stable store key without a CAS revision, used only to create a fresh session partition. */
@@ -1151,6 +1168,86 @@ function listCompartments(
 		.all(partition.projectIdentity, partition.sessionId);
 	if (!Array.isArray(rows)) throw new Error("Context store compartment query is invalid");
 	return rows.map(compartmentFromRow);
+}
+
+function statusMetricsFromRow(value: unknown): MctxStoreStatusMetrics {
+	if (!isRecord(value)) throw new Error("Context store status metrics row is invalid");
+	const integer = (field: string): number => {
+		const number = value[field];
+		if (typeof number !== "number" || !Number.isSafeInteger(number) || number < 0) {
+			throw new Error("Context store status metrics row is invalid");
+		}
+		return number;
+	};
+	const optionalInteger = (field: string): number | null => {
+		const number = value[field];
+		if (
+			number !== null &&
+			(typeof number !== "number" || !Number.isSafeInteger(number) || number < 0)
+		) {
+			throw new Error("Context store status metrics row is invalid");
+		}
+		return number;
+	};
+	const latestSequence = optionalInteger("compartments_latest_sequence");
+	const latestPublishedRevision = optionalInteger("compartments_latest_revision");
+	return {
+		compartments: {
+			total: integer("compartments_total"),
+			m0: integer("compartments_m0"),
+			m1: integer("compartments_m1"),
+			...(latestSequence === null ? {} : { latestSequence }),
+			...(latestPublishedRevision === null ? {} : { latestPublishedRevision }),
+		},
+		tags: {
+			total: integer("tags_total"),
+			active: integer("tags_active"),
+			pending: integer("tags_pending"),
+			dropped: integer("tags_dropped"),
+		},
+	};
+}
+
+/** Store owns this read-only snapshot; scoped aggregates never mutate revision or tag status. Cleanup is statement-local. */
+function readStatusMetrics(
+	database: DatabaseSync,
+	partition: MctxPartition,
+): MctxStoreStatusMetrics {
+	requirePartitionKey(partition.projectIdentity, partition.sessionId);
+	const row = database
+		.prepare(
+			"SELECT " +
+				"(SELECT COUNT(*) FROM compartments WHERE project_identity = ? AND session_id = ?) AS compartments_total, " +
+				"(SELECT COUNT(*) FROM compartments WHERE project_identity = ? AND session_id = ? AND tier = 'm0') AS compartments_m0, " +
+				"(SELECT COUNT(*) FROM compartments WHERE project_identity = ? AND session_id = ? AND tier = 'm1') AS compartments_m1, " +
+				"(SELECT MAX(sequence) FROM compartments WHERE project_identity = ? AND session_id = ?) AS compartments_latest_sequence, " +
+				"(SELECT MAX(published_revision) FROM compartments WHERE project_identity = ? AND session_id = ?) AS compartments_latest_revision, " +
+				"(SELECT COUNT(*) FROM history_tags WHERE project_identity = ? AND session_id = ?) AS tags_total, " +
+				"(SELECT COUNT(*) FROM history_tags WHERE project_identity = ? AND session_id = ? AND status = 'active') AS tags_active, " +
+				"(SELECT COUNT(*) FROM history_tags WHERE project_identity = ? AND session_id = ? AND status = 'pending') AS tags_pending, " +
+				"(SELECT COUNT(*) FROM history_tags WHERE project_identity = ? AND session_id = ? AND status = 'dropped') AS tags_dropped",
+		)
+		.get(
+			partition.projectIdentity,
+			partition.sessionId,
+			partition.projectIdentity,
+			partition.sessionId,
+			partition.projectIdentity,
+			partition.sessionId,
+			partition.projectIdentity,
+			partition.sessionId,
+			partition.projectIdentity,
+			partition.sessionId,
+			partition.projectIdentity,
+			partition.sessionId,
+			partition.projectIdentity,
+			partition.sessionId,
+			partition.projectIdentity,
+			partition.sessionId,
+			partition.projectIdentity,
+			partition.sessionId,
+		);
+	return statusMetricsFromRow(row);
 }
 
 /**
@@ -2227,6 +2324,10 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 		listCompartments(partition): readonly MctxCompartment[] {
 			if (database === undefined) throw new Error("Context store is closed");
 			return listCompartments(database, partition);
+		},
+		readStatusMetrics(partition): MctxStoreStatusMetrics {
+			if (database === undefined) throw new Error("Context store is closed");
+			return readStatusMetrics(database, partition);
 		},
 		discardCompartmentsFrom(partition, publishedRevision): MctxPartition | undefined {
 			if (database === undefined) throw new Error("Context store is closed");

@@ -257,6 +257,67 @@ signal；同一 active runtime 的 per-project busy 状态拒绝并发运行。�
 - focused tests：inactive/无 lease 不跑；busy 拒绝并发；coverage 跳过已嵌项；embedBatch 调用与 fence 写回；
   abort 中途返回 cancelled 且已写回保留；汇总计数正确。
 
+## `/ctx-status` migration design
+
+### 用户意图
+
+`/ctx-status` 是只读的单页 TUI overlay：用户打开它，是为了快速判断当前
+context-management runtime 是否 active、当前 partition 是否健康，以及下一次
+维护动作可能何时触发。它不恢复已 park 的 memory system，也不把旧 legacy
+status 的所有指标搬进来。本节记录当前已迁移并可用的行为。
+
+### 边界与公开 snapshot seam
+
+- **Pi host**：提供 usage、theme 与 custom UI admission；不拥有 MCTX 状态或
+  snapshot 解释。
+- **ext-core**：提供 `openTuiSurface`；拥有 surface admission 后的 FIFO、
+  abort 与 cleanup 语义；不新增 status 专用 abstraction。
+- **`pi-mctx`**：拥有 context-management domain 的 snapshot、render 与刷新；
+  只在 active context-management runtime 可用时提供 status 数据。
+- **consumer**：surface renderer 消费一次 snapshot 并按本节字段显示；不读
+  SQLite、不推导指标、不缓存跨 surface 状态。
+- **public seam**：`MctxFeature.status(context): MctxStatusResult` 返回受界限、
+  只读、可渲染的 status snapshot；store 通过
+  `readStatusMetrics(partition)` 提供其 context-management metrics。snapshot 至少
+  携带 active/inactive reason、context usage、project/session identity、
+  partition revision、compartment m0/m1/total、tag active/pending/dropped、
+  historian idle/running/cooling/rebuild-pending、last failure class、effective
+  trigger thresholds、protected tags、pending sidekick augmentation。
+- **fallback**：admission、snapshot 或 render 数据不可用时，关闭 surface 并
+  保持 Pi native behavior；inactive 只显示明确 reason，不伪造 zero metrics。
+  未选择 MCTX snapshot 的路径不得恢复 memory、note、Dreamer、embedding 或
+  其他已 park behavior。
+
+### 显示字段与非目标
+
+状态页显示：active/inactive reason；context usage；project/session identity；
+partition revision；compartment 的 m0、m1、total；tag 的 active、pending、
+dropped；historian 的 idle、running、cooling、rebuild-pending；last failure
+class；effective trigger thresholds；protected tags；pending sidekick
+augmentation。旧 legacy UI 的 fact、memory、note、Dreamer、embedding、
+upgrade、cache 指标均为非目标；本 migration 不新增这些指标，也不改变
+memory system 当前 parked 状态。
+
+### Surface lifecycle、刷新、关闭与并发
+
+`/ctx-status` 通过 `openTuiSurface` admission 打开单页 overlay；surface host
+  使用 `hostId` 与 `maxPending` 参与 admission；只有 admission
+成功后才启动 1 秒刷新。刷新读取最新 snapshot，不能让行位移；关闭由 `Esc`、
+`Enter` 或 `Ctrl+C` 触发。关闭、cancellation/abort、surface replacement 与 extension
+lifecycle 都必须停止刷新并执行一次 cleanup；cleanup 不删除 MCTX state。
+
+surface 只允许一个当前 status overlay。FIFO admission、snapshot 刷新与关闭
+遵循 ext-core owner 的 abort/cleanup contract；过期或并发中的 snapshot 不得
+覆盖更新版本，关闭后完成的 refresh 结果必须丢弃。`pi-mctx` 不启动 admission
+前后台 timer，也不把刷新变成跨 session 或跨 process 的持久任务。
+
+### Fallback 与验证尺寸
+
+窄屏隐藏低优先级 project/session identity，保留 active/reason、usage、revision
+与关键 health 状态；宽屏可显示完整 identity 和其余字段。布局规则、semantic
+tokens、关闭提示与稳定行位移以根 `DESIGN.md` 为准；设计验证尺寸为 48x20
+与 100x24。
+
 ## 完整迁移目标
 
 `pi-mctx` 的最终目标不是停在首个 context pipeline，而是替代 `@hheei/pi-magic-context@0.33.1-hepi.0`
@@ -322,8 +383,11 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
   `pi-todo` release 配套处理，避免 Pi first-registered tool collision。
 - [x] **Pipeline maintenance commands**：已决策 legacy `/ctx-flush` 在 current transform 下没有独立行为，
   `/ctx-recomp`/`ctx-session-upgrade` 是旧 ordinal/schema migration 而不迁移，`/ctx-wrapup` 属于 future
-  `hepi-basics` handoff/compaction owner，`/ctx-status` 等待完整 metrics 与 UI owner；没有明确用户 workflow 的
-  internal maintenance action 保持不暴露，不注册任何 maintenance command。
+  `hepi-basics` handoff/compaction owner；这些 pipeline maintenance action 不迁移，也不注册任何 maintenance
+  command。
+- [x] **`/ctx-status` 单页只读 TUI overlay**：已按 [`/ctx-status` migration design](#ctx-status-migration-design)
+  迁移；snapshot、字段、surface lifecycle、刷新、关闭、并发与 fallback 已达到该章节及根 `DESIGN.md` 的完整
+  contract。
 - [x] **Sidekick augmentation**：fixed legacy `/ctx-aug` 是手动 command，同步运行具有 `read`、`grep`、`find`、`ls` 与
   `ctx_search` allowlist 的 child，并把 retrieval augmentation 后的 prompt 发回 parent。child 语义保留：现代形态复用
   ext-core subagent execution contract（`startSubagent` task mode + consumer-owned resolved child-session factory），
