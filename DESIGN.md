@@ -137,6 +137,8 @@ existing semantic token expresses the role.
   detail keeps a fixed row count while selecting: the field row shows the current option in place
   and no option list is expanded. While a detail is open, `Esc` is offered to the detail first; the
   detail only exits to the list when the detail declines it.
+- A Loadout row that contributes a detail shows an `↵ Edit config` hint as the last Description
+  lane line, so the `Enter` affordance is visible before the detail opens.
 - Settings uses the legacy combined provider tree, not one page per provider. Its wide layout is
   grouped field list, conditional scrollbar, then one unframed field Description block; narrow
   layout stacks those regions. Field label/value columns remain stable, disabled fields use `dim`,

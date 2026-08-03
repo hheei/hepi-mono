@@ -236,13 +236,18 @@ describe("createAgentDetail", () => {
 	});
 
 	it("preserves a configured unauthenticated model as the current option", async () => {
-		const { detail, path } = setup("auditor", undefined, {
-			...configFor("auditor"),
-			model: "cx/gpt-5.6-luna",
-		}, {
-			getAvailable: () => [{ provider: "anthropic", id: "claude-haiku-4-5" }],
-			hasConfiguredAuth: (model) => model.provider === "anthropic",
-		});
+		const { detail, path } = setup(
+			"auditor",
+			undefined,
+			{
+				...configFor("auditor"),
+				model: "cx/gpt-5.6-luna",
+			},
+			{
+				getAvailable: () => [{ provider: "anthropic", id: "claude-haiku-4-5" }],
+				hasConfiguredAuth: (model) => model.provider === "anthropic",
+			},
+		);
 		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN);
 		await detail.handleInput(ENTER);
 		expect(detail.render(60).join("\n")).toContain("Model: cx/gpt-5.6-luna"); // current option
@@ -306,7 +311,7 @@ describe("createAgentDetail", () => {
 		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN);
 		await detail.handleInput(ENTER);
 		const lines = detail.render(18);
-		expect(lines).toHaveLength(9);
+		expect(lines).toHaveLength(8);
 		expect(lines.join("\n")).toContain("Model: inherit");
 		expect(detail.render(60).join("\n")).toContain("↑/↓ choose · Tab cycle thinking");
 		await detail.handleInput(DOWN);
@@ -345,7 +350,7 @@ describe("createAgentDetail", () => {
 		const { detail } = setup();
 		await detail.handleInput(UP);
 		const lines = detail.render(18);
-		expect(lines[1]?.startsWith("→")).toBe(true); // identity selected
+		expect(lines[0]?.startsWith("→")).toBe(true); // identity selected
 		for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(18);
 	});
 

@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test, vi } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +11,8 @@ import {
 	registerManagedLoadoutTool,
 } from "@hheei/pi-ext-core";
 import { replayTui, viewFrame } from "../../hepi-debug/src/tui-replay.js";
+import { createAgentDetail } from "../../pi-subagents/src/agent-detail.js";
+import type { AgentConfig } from "../../pi-subagents/src/types.js";
 import type { LoadoutEngine } from "../src/engine.js";
 import { createLoadoutPage } from "../src/page.js";
 
@@ -162,6 +165,8 @@ describe("Loadout Settings page", () => {
 		expect(output).toContain("● Explore");
 		expect(output).toContain("◔ cx/gpt-5.6-luna");
 		expect(output.indexOf("✦ Skills")).toBeLessThan(output.indexOf("𖠌 Agents"));
+		// No detail contribution → no Edit config affordance in the Description lane.
+		expect(output).not.toContain("↵ Edit config");
 		dispose();
 	});
 
@@ -213,13 +218,21 @@ describe("Loadout Settings page", () => {
 			expect(page.component.render(100).join("\n")).toContain("↵");
 			await page.handleInput("\u001b[B");
 			await page.handleInput("\u001b[B");
+			expect(page.component.render(100).join("\n")).toContain("↵ Edit config");
 			await page.handleInput("\r");
-			expect(page.component.render(100).join("\n")).toContain("Detail panel");
+			const opened = page.component.render(100).join("\n");
+			expect(opened).toContain("Detail (agent)");
+			expect(opened).toContain("Origin: test");
+			expect(opened).toContain("Status: ● active");
+			expect(opened).toContain("Detail panel");
+			expect(opened).toContain("↵ Edit config");
 			await page.handleInput("x");
 			expect(inputs).toEqual(["x"]);
 			await page.handleInput("\u001b");
 			expect(inputs).toEqual(["x", "\u001b"]);
-			expect(page.component.render(100).join("\n")).toContain("Has a settings detail.");
+			const back = page.component.render(100).join("\n");
+			expect(back).toContain("↵ Edit config");
+			expect(back).not.toContain("Detail panel");
 		} finally {
 			dispose();
 		}
@@ -254,6 +267,87 @@ describe("Loadout Settings page", () => {
 			expect(page.component.render(100).join("\n")).toContain("Detail panel");
 		} finally {
 			dispose();
+		}
+	});
+
+	test("composes the real agent detail under the resource header without a duplicate title", async () => {
+		const h = setup();
+		const root = await mkdtemp(join(tmpdir(), "pi-loadout-agent-"));
+		temporaryRoots.push(root);
+		const agentsDir = join(root, ".pi", "agents");
+		mkdirSync(agentsDir, { recursive: true });
+		writeFileSync(
+			join(agentsDir, "Explore.md"),
+			"---\ndescription: Read-only explorer.\n---\nYou are read-only.\n",
+		);
+		vi.spyOn(process, "cwd").mockReturnValue(root);
+		const config: AgentConfig = {
+			name: "Explore",
+			description: "Read-only explorer.",
+			extensions: true,
+			skills: true,
+			systemPrompt: "You are read-only.",
+			promptMode: "replace",
+			enabled: true,
+			source: "project",
+		};
+		const detail = createAgentDetail(
+			h.pi,
+			"Explore",
+			config,
+			{
+				getAvailable: () => [{ provider: "cx", id: "gpt-5.6-luna" }],
+				hasConfiguredAuth: () => true,
+			},
+			() => undefined,
+			() => undefined,
+		);
+		const dispose = registerLoadoutResource(h.pi, {
+			id: "agent:Explore",
+			kind: "agent",
+			group: "𖠌 Agents",
+			priority: 0,
+			conflictSets: [],
+			defaultActive: true,
+			label: "Explore",
+			description: "Read-only explorer.",
+			summary: "cx/gpt-5.6-luna",
+			projectPrivate: false,
+			owner: "@hheei/pi-subagents",
+			detail,
+		});
+		try {
+			const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
+			await page.handleInput("\u001b[B");
+			await page.handleInput("\u001b[B");
+			const before = page.component.render(100).join("\n");
+			expect(before).toContain("Explore (agent)");
+			expect(before).toContain("Origin: @hheei/pi-subagents");
+			expect(before).toContain("Status: ● active");
+			expect(page.component.render(100).at(-1)).toContain("↵ Edit config");
+			await page.handleInput("\r");
+			const openedLines = page.component.render(100);
+			const opened = openedLines.join("\n");
+			// The hint is pinned to the fixed panel's last row, not appended
+			// directly after the detail rows.
+			expect(openedLines.at(-1)).toContain("↵ Edit config");
+			const descRow = openedLines.findIndex((line) => line.includes("Read-only explorer."));
+			expect(descRow).toBeGreaterThanOrEqual(0);
+			expect(descRow).toBeLessThan(openedLines.length - 1);
+			// Exact requested layout: title → Origin → Status → detail rows →
+			// trailing Enter hint. The description text only appears inside the
+			// detail's Description row, not between the title and Origin.
+			expect(opened.indexOf("Explore (agent)")).toBeLessThan(opened.indexOf("Origin:"));
+			expect(opened.indexOf("Origin:")).toBeLessThan(opened.indexOf("Status:"));
+			expect(opened.indexOf("Status:")).toBeLessThan(opened.indexOf("Read-only explorer."));
+			expect(opened.indexOf("Read-only explorer.")).toBeLessThan(opened.indexOf("↵ Edit config"));
+			expect(opened).toContain("Identity: Explore");
+			expect(opened).toContain("Model: inherit");
+			expect(opened).toContain("Markdown:");
+			expect(opened).not.toContain("Agent Explore");
+		} finally {
+			dispose();
+			vi.restoreAllMocks();
 		}
 	});
 
