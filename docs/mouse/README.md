@@ -66,7 +66,7 @@ HEPI 本地可选的 Pi `TUI` patch 可以在一轮 layout 后发布这个 capab
 attribution，并由 Pi TUI focused test、tool selection E2E 和 PTY smoke 锁定；它只是 enhancement，不是 extension
 运行或发布的前提。
 
-`x/y` 是零基 viewport cell 坐标；`button` 保留 SGR 低两位编码（`0/1/2` 为 primary/middle/secondary，`3` 通常表示 release）。wheel sequence 不产生 core event，也不被 dispatcher 消费；它会透传给 focused component，让页面保有滚动策略。页面滚动、resize 或内容重排改变可见位置后，host 必须发布新的 layout snapshot；region 的 hit test 必须读取该 live snapshot，不能保留旧的 viewport 坐标。
+`x/y` 是零基 viewport cell 坐标；`button` 保留 SGR 低两位编码（`0/1/2` 为 primary/middle/secondary，`3` 通常表示 release）。wheel sequence 不产生 core event，也不被 dispatcher 消费；它会透传给 focused component，让页面保有滚动策略。dispatcher 同时请求一次 coalesced render，确保即使后续 listener 消费该 wheel，host 也会发布 scroll/reflow 后的新 layout snapshot；region 的 hit test 必须读取该 live snapshot，不能保留旧的 viewport 坐标。
 
 `onMouseEvent()` 返回 `"ignored"` 只对 `down` 有 fallback 语义：dispatcher 继续尝试更早注册的匹配 region；省略返回值会建立 capture。`drag/up` 始终留在 down-region，不因 callback 返回值重新命中。普通 region 的 callback 自己负责 `tui.requestRender()`；core 在每次 `setSelection()` 后请求一次 render。
 

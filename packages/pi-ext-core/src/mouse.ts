@@ -283,7 +283,13 @@ function attachInputListener(dispatcher: MouseDispatcher): void {
 		if (dispatcher.entries.length === 0) return undefined;
 		const parsed = parseSgrMouseInput(data);
 		if (parsed === undefined) return undefined;
-		if (parsed.kind === "wheel") return undefined;
+		if (parsed.kind === "wheel") {
+			// The wheel stays on the focused page, but a later listener may consume it
+			// before that page requests a render. Queue one coalesced TUI pass so host
+			// layout listeners publish the moved viewport before the next mouse hit test.
+			dispatcher.tui.requestRender();
+			return undefined;
+		}
 		if (parsed.kind === "event") dispatchMouseEvent(dispatcher, parsed.event);
 		return { consume: true };
 	});

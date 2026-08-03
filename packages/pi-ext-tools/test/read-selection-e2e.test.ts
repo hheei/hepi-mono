@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { type Terminal, Text, TUI, visibleWidth } from "@earendil-works/pi-tui";
-import type { ToolResultLayout } from "@hheei/pi-ext-core";
+import { type Component, type Terminal, Text, TUI, visibleWidth } from "@earendil-works/pi-tui";
 import { ToolExecutionComponent } from "../../../node_modules/.bun/@earendil-works+pi-coding-agent@0.83.0+7eae918161e46c49/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/tool-execution.js";
 import { initTheme } from "../../../node_modules/.bun/@earendil-works+pi-coding-agent@0.83.0+7eae918161e46c49/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
 import { registerReadTool } from "../src/read.js";
@@ -100,38 +99,85 @@ test("dragging a read body uses Pi-owned result viewport bounds", async (): Prom
 	tui.stop();
 });
 
-test("selection follows result bounds after the viewport moves", (): void => {
+test("wheel-driven viewport reflow refreshes result selection bounds", async (): Promise<void> => {
+	initTheme();
+	const tools: ToolDefinition[] = [];
+	const pi = {
+		events: {},
+		registerTool: (tool: ToolDefinition): void => {
+			tools.push(tool);
+		},
+	} as unknown as ExtensionAPI;
+	registerReadTool(pi);
+	const definition = tools[0];
+	if (definition === undefined) throw new Error("Expected read definition");
 	const terminal = new InputTerminal();
 	const tui = new TUI(terminal);
-	const firstBounds = { x: 2, y: 1, width: 20, height: 1 };
-	const movedBounds = { x: 2, y: 7, width: 20, height: 1 };
-	let publish: ((bounds: typeof firstBounds | undefined) => void) | undefined;
-	const layout: ToolResultLayout = {
-		tui,
-		bounds: firstBounds,
-		onChange(listener): () => void {
-			publish = listener;
-			listener(firstBounds);
-			return (): void => {
-				publish = undefined;
-			};
-		},
+	let trailingRows = 21;
+	const scrollSurface: Component = {
+		render: (): string[] => Array.from({ length: trailingRows }, () => "viewport tail"),
+		invalidate: (): void => {},
 	};
-	const result = new SelectableReadResult();
+	const execution = new ToolExecutionComponent(
+		"read",
+		"read-1",
+		{ path: "value.txt" },
+		{},
+		definition,
+		tui,
+		process.cwd(),
+	);
 
-	tui.addChild(new Text("focus", 0, 0));
+	tui.addChild(execution);
+	tui.addChild(scrollSurface);
+	tui.setFocus(scrollSurface);
+	execution.setArgsComplete();
+	execution.updateResult({
+		isError: false,
+		content: [{ type: "text", text: "alpha" }],
+		details: undefined,
+	});
+	execution.setExpanded(true);
 	tui.start();
-	result.setResult("alpha", {} as never);
-	result.bindLayout(layout);
+	let removeScrollListener: (() => void) | undefined;
 	try {
-		publish?.(movedBounds);
-		terminal.emit(`\x1b[<0;${movedBounds.x + 1};${firstBounds.y + 1}M`);
+		await new Promise((resolve) => setTimeout(resolve, 25));
+		const firstBounds = tui.getComponentBounds(execution);
+		if (firstBounds === undefined) throw new Error("Expected initial execution bounds");
+		const executionLines = execution.render(terminal.columns);
+		const alphaRow = executionLines.findIndex((line) => line.includes("alpha"));
+		if (alphaRow < 0) throw new Error("Expected initial read output row");
+		const firstLine = executionLines[alphaRow];
+		if (firstLine === undefined) throw new Error("Expected initial read output line");
+		const x = firstBounds.x + visibleWidth(firstLine.slice(0, firstLine.indexOf("alpha")));
+		const firstY = firstBounds.y + alphaRow;
+		if (firstY < 0) throw new Error("Expected initial read output in the viewport");
+		const result = (execution as unknown as { resultRendererComponent?: unknown })
+			.resultRendererComponent;
+		if (!(result instanceof SelectableReadResult))
+			throw new Error("Expected selectable read result");
+		removeScrollListener = tui.addInputListener((input) => {
+			if (input !== "\x1b[<64;1;1M") return undefined;
+			trailingRows++;
+			return { consume: true };
+		});
+
+		terminal.emit("\x1b[<64;1;1M");
+		await new Promise((resolve) => setTimeout(resolve, 25));
+		const shiftedBounds = tui.getComponentBounds(execution);
+		if (shiftedBounds === undefined) throw new Error("Expected shifted execution bounds");
+		expect(shiftedBounds.y).toBe(firstBounds.y - 1);
+		const shiftedY = shiftedBounds.y + alphaRow;
+		if (shiftedY < 0) throw new Error("Expected shifted read output in the viewport");
+
+		terminal.emit(`\x1b[<0;${x + 1};${firstY + 1}M`);
 		expect(result.hasSelection()).toBeFalse();
 
-		terminal.emit(`\x1b[<0;${movedBounds.x + 1};${movedBounds.y + 1}M`);
+		terminal.emit(`\x1b[<0;${x + 1};${shiftedY + 1}M`);
 		expect(result.hasSelection()).toBeTrue();
 	} finally {
-		result.dispose();
+		removeScrollListener?.();
+		execution.dispose();
 		tui.stop();
 	}
 });
