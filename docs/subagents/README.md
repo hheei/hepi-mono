@@ -52,14 +52,15 @@ enabled / disabled 三态，`Space` 切换、persist 到 settings JSON），agen
 `Enter` 也不会打开 detail（没有 `↵ Edit config` footer 提示，行尾 `↵` 即表示可 Enter）。
 
 内置默认 agent（`general-purpose`、`Explore`、`Plan`）同样提供 detail；由于它们没有 backing `.md`，
-其 `Identity` 行只读（内置 agent 身份不可修改）。首次 flush 时自动在 `<cwd>/.pi/agents/`
-生成一个 clone（frontmatter 携带当前编辑值，body 携带内置 system prompt，不写 `enabled` key），
-此后它就是普通 custom agent，可继续就地编辑。想把内置 agent 提前覆盖为 custom，在任意 custom
-目录放同名 `.md` 即可。
+其 `Identity` 行只读（内置 agent 身份不可修改）。首次 flush 按当前 Loadout scope 生成 clone：Global
+写入 Pi agent 目录的 `agents/`，Project 写入 `<cwd>/.pi/agents/`；frontmatter 携带当前编辑值，body
+携带内置 system prompt，不写 `enabled` key。Global clone 仍在 Global 列表显示，不会因错误落成
+project-private override 而消失。想把内置 agent 提前覆盖为 custom，在任意 custom 目录放同名 `.md` 即可。
 
 保存位置按 Loadout scope 决定：project scope 的编辑总是落到 `<cwd>/.pi/agents/<name>.md`
 （global 或内置 backing 不被改写；缺文件时 materialize 一个保留当前 system prompt 的 clone），
-global scope 的编辑落到 agent 自己的 backing 文件。两个 scope 各自缓冲，同一 agent 在 global
+global scope 的编辑落到 agent 自己的 backing 文件；内置 agent 缺 backing 时在 Pi agent 目录
+materialize。两个 scope 各自缓冲，同一 agent 在 global
 与 project 分别编辑后各自落盘。header 的 `Path:` 行（`Status:` 后）显示当前 scope 的保存位置。
 
 历史 `@hheei/hepi-subagents` 仅是 policy/source evidence，revision 见

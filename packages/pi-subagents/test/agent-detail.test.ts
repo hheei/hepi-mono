@@ -88,6 +88,7 @@ function setupDefault(name = "Explore") {
 	const root = mkdtempSync(join(tmpdir(), "pi-agent-detail-"));
 	roots.push(root);
 	mkdirSync(join(root, ".pi", "agents"), { recursive: true });
+	process.env.PI_CODING_AGENT_DIR = join(root, "agent-dir");
 	vi.spyOn(process, "cwd").mockReturnValue(root);
 	const notifications: string[] = [];
 	const changed: string[] = [];
@@ -182,9 +183,9 @@ describe("agentMarkdownPath", () => {
 });
 
 describe("createAgentDetail", () => {
-	it("clones a built-in agent into the project agents dir on first flush, preserving fields and body", async () => {
+	it("clones a built-in agent into the global agents dir from Global scope", async () => {
 		const { detail, root, changed, notifications } = setupDefault();
-		const path = join(root, ".pi", "agents", "Explore.md");
+		const path = join(root, "agent-dir", "agents", "Explore.md");
 		expect(existsSync(path)).toBe(false);
 		// A built-in agent's Identity is read-only; edit the description instead.
 		await detail.handleInput(DOWN); // identity → description
@@ -209,20 +210,28 @@ describe("createAgentDetail", () => {
 
 	it("clone preserves the built-in tool allowlist so read-only agents stay read-only", async () => {
 		const { detail, root } = setupDefault("Explore");
-		const path = join(root, ".pi", "agents", "Explore.md");
+		const path = join(root, "agent-dir", "agents", "Explore.md");
 		await detail.handleInput(DOWN); // identity → description
 		await detail.handleInput(ENTER, { openEditor: async () => "d" });
 		detail.flush();
 		expect(readContent(path)).toContain('tools: "read, bash, grep, find, ls"');
 		// A reload parses the clone back with the same allowlist, not the
 		// "all tools" default that an omitted `tools:` would produce.
-		expect(loadCustomAgents(root).get("Explore")?.builtinToolNames).toEqual([
-			"read",
-			"bash",
-			"grep",
-			"find",
-			"ls",
-		]);
+		const loaded = loadCustomAgents(root).get("Explore");
+		expect(loaded?.source).toBe("global");
+		expect(loaded?.builtinToolNames).toEqual(["read", "bash", "grep", "find", "ls"]);
+	});
+
+	it("clones a built-in agent into the project agents dir from Project scope", async () => {
+		const { detail, root } = setupDefault();
+		detail.onScopeChange?.("project");
+		await detail.handleInput(DOWN); // identity → description
+		await detail.handleInput(ENTER, { openEditor: async () => "Project description" });
+		detail.flush();
+
+		const projectPath = join(root, ".pi", "agents", "Explore.md");
+		expect(readContent(projectPath)).toContain('description: "Project description"');
+		expect(existsSync(join(root, "agent-dir", "agents", "Explore.md"))).toBe(false);
 	});
 
 	it("writeAgentMarkdown omits tools when the source has no allowlist", () => {
@@ -493,7 +502,7 @@ describe("createAgentDetail", () => {
 		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN);
 		await detail.handleInput(ENTER, { openEditor: async () => "Cloned body." });
 		detail.flush();
-		expect(readContent(join(root, ".pi", "agents", "Explore.md"))).toContain("Cloned body.");
+		expect(readContent(join(root, "agent-dir", "agents", "Explore.md"))).toContain("Cloned body.");
 	});
 
 	it("removes whole code points with backspace", async () => {
@@ -544,8 +553,9 @@ describe("createAgentDetail", () => {
 
 	it("reports the per-scope backing path", async () => {
 		const { detail, root } = setupDefault("Explore"); // built-in: clone target
+		const globalPath = join(root, "agent-dir", "agents", "Explore.md");
 		const projectPath = join(root, ".pi", "agents", "Explore.md");
-		expect(detail.path).toBe(projectPath);
+		expect(detail.path).toBe(globalPath);
 		detail.onScopeChange?.("project");
 		expect(detail.path).toBe(projectPath);
 	});
