@@ -162,6 +162,22 @@ function wrapDescription(text: string, width: number): readonly string[] {
 	return lines;
 }
 
+/**
+ * Truncates from the head, keeping the shortest `…/tail`: the file name of a
+ * long backing path survives while the leading directories collapse.
+ */
+function truncateHead(value: string, width: number): string {
+	if (width <= 3) return "…".repeat(Math.max(0, width));
+	if (visibleWidth(value) <= width) return value;
+	const budget = width - 3;
+	let tail = "";
+	for (const char of Array.from(value).reverse()) {
+		if (visibleWidth(`${char}${tail}`) > budget) break;
+		tail = `${char}${tail}`;
+	}
+	return `…${tail}`;
+}
+
 function scrollbar(total: number, top: number, theme: Theme): readonly string[] {
 	if (total <= VISIBLE_ROWS) return Array.from({ length: PANEL_ROWS }, () => "");
 	const track = VISIBLE_ROWS;
@@ -502,22 +518,25 @@ export function createLoadoutPage(
 				const hasDetail =
 					selectedResource?.detail !== undefined &&
 					rawSelection(selectedResource, scope, configuration) === "enabled";
+				// The Description wraps before the title in both states, like any
+				// tool row; while the detail is open it is clamped to three lines
+				// so the form below keeps its rows.
+				const descriptionLines =
+					selectedResource === undefined
+						? []
+						: wrapDescription(selectedResource.description, descriptionWidth);
 				const header =
 					selectedResource === undefined
 						? [theme.fg("muted", search ? "No matching resources." : "No resources in this scope.")]
 						: [
+								...(hasDetail ? descriptionLines.slice(0, 3) : descriptionLines),
+								...(descriptionLines.length === 0 ? [] : [""]),
 								theme.bold(
 									truncateToWidth(
 										`${selectedResource.name} (${selectedResource.kind})`,
 										descriptionWidth,
 									),
 								),
-								"",
-								// Detail-bearing rows drop the description so the title,
-								// Origin, and Status read as the panel's fixed header.
-								...(hasDetail
-									? []
-									: [...wrapDescription(selectedResource.description, descriptionWidth), ""]),
 								theme.fg("muted", `Origin: ${selectedResource.origin}`),
 								theme.fg(
 									"muted",
@@ -529,7 +548,12 @@ export function createLoadoutPage(
 								),
 								...(activeDetail?.path === undefined
 									? []
-									: [theme.fg("muted", `Path: ${activeDetail.path}`)]),
+									: [
+											theme.fg(
+												"muted",
+												`Path: ${truncateHead(activeDetail.path, Math.max(0, descriptionWidth - 6))}`,
+											),
+										]),
 								...(selectedResource.lockedBy === undefined
 									? []
 									: [
@@ -539,24 +563,15 @@ export function createLoadoutPage(
 											),
 										]),
 							];
-				// `↵ Edit config` stays visible in both states: it invites the
-				// Enter key before opening and reminds of the exit key while the
-				// detail is open. In the wide layout it is pinned to the fixed
-				// panel's last row (PANEL_ROWS - 1); the narrow layout appends it.
-				const editHint = hasDetail === true ? theme.fg("dim", "↵ Edit config") : undefined;
 				const body =
 					activeDetail !== undefined
 						? [...header, "", ...activeDetail.render(wide ? descriptionWidth : width)]
 						: [...header];
-				if (!wide)
-					return [...list, "", ...body, ...(editHint === undefined ? [] : [editHint])].map((line) =>
-						truncateToWidth(line, width),
-					);
+				if (!wide) return [...list, "", ...body].map((line) => truncateToWidth(line, width));
 				// The Description is intentionally read only within the fixed panel height.
 				const rail = scrollbar(allEntries.length, scrollTop, theme);
 				return Array.from({ length: PANEL_ROWS }, (_, index) => {
-					const lane =
-						editHint !== undefined && index === PANEL_ROWS - 1 ? editHint : (body[index] ?? "");
+					const lane = body[index] ?? "";
 					const left = pad(truncateToWidth(list[index] ?? "", listWidth), listWidth);
 					return `${left}${pad(rail[index] ?? "", scrollbarWidth)}   ${truncateToWidth(lane, descriptionWidth)}`;
 				});

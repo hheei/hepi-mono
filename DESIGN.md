@@ -125,9 +125,10 @@ existing semantic token expresses the role.
   state: `●` is explicitly enabled, `○` is explicitly disabled, `◌` is inherited (no local decision;
   the effective state follows the default or the other scope), and `⊘` is conflict-locked/inactive.
   The Description block's Status line mirrors the row glyph with a text label. The selected row
-  retains the standard `→` slot. Display group is secondary metadata; the Description block uses the
-  legacy selected-resource content: name and kind, description, origin, and status. It adds a lock
-  winner only for a conflict-locked resource.
+  retains the standard `→` slot. Display group is secondary metadata; the Description block wraps
+  the resource description before the title (like any tool row), then name and kind, origin,
+  status, and — for an open detail — a read-only `Path:` line. It adds a lock winner only for a
+  conflict-locked resource.
 - Loadout uses `Ctrl+P` to switch Global and Project scope, `Space` to cycle only the selected
   resource's reachable scope choices, and direct text input to filter resource name and display
   group. Global and Project-private rows remain binary; only global-visible Project rows include
@@ -150,14 +151,18 @@ existing semantic token expresses the role.
   edits a temporary copy and stores the result in the buffer, never the target file directly. A
   per-scope target lets the same contributor serve Global and Project scope (e.g. Project edits
   materialize a project override without rewriting the global backing); the `Status:` header line
-  is followed by a read-only `Path:` line showing the current scope's target.
-- A Loadout row that contributes a detail shows an `↵ Edit config` hint as the last Description
-  lane line, so the `Enter` affordance is visible before the detail opens.
+  is followed by a read-only `Path:` line showing the current scope's target, truncated from the
+  head (`…/file.md`) so the file name survives narrow widths.
+- A detail form keeps the resource description visible: it wraps above the title at full length,
+  and is clamped to three lines while the detail is open so the form below keeps its rows. There
+  is no `↵ Edit config` footer hint — row activation is already visible from the glyph and the
+  `↵` slot on detail-bearing rows.
 - A resource detail is reachable only while its row is explicitly `enabled`: inherited and
-  disabled rows show no `↵ Edit config` hint and `Enter` does not open the detail. Row activation
+  disabled rows show no `↵` slot and `Enter` does not open the detail. Row activation
   (inherit/enabled/disabled) stays under the Loadout policy key (`agent:<name>` for agents), never
   in the contributor's own file format, so a contributor-owned editor cannot silently toggle what
-  the policy owns.
+  the policy owns. The focused row is always accent; a read-only row is only dimmed while
+  unfocused.
 - Settings uses the legacy combined provider tree, not one page per provider. Its wide layout is
   grouped field list, conditional scrollbar, then one unframed field Description block; narrow
   layout stacks those regions. Field label/value columns remain stable, disabled fields use `dim`,
