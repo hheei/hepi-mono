@@ -122,7 +122,7 @@ async function tick(): Promise<void> {
 	await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-test("Body-editor Esc keeps the router surface closeable and reopenable", async () => {
+test("Esc through the agent detail keeps the router surface closeable and reopenable", async () => {
 	const h = harness();
 	const root = await mkdtemp(join(tmpdir(), "pi-loadout-router-"));
 	temporaryRoots.push(root);
@@ -194,13 +194,101 @@ test("Body-editor Esc keeps the router surface closeable and reopenable", async 
 		await drive("\u001b[B"); // read → project_check → Explore
 		expect(firstComponent.render(100).join("\n")).toContain("● Explore");
 		await drive("\r"); // open the detail
-		for (let i = 0; i < 3; i++) await drive("\u001b[B"); // → Body
-		await drive("\r"); // enter the embedded body editor
-		expect(firstComponent.render(100).join("\n")).toContain("Enter save");
-		// Esc cancels the body editor, then backs out of the detail, then
-		// closes the router surface — never leaving the TUI stuck.
-		await drive("\u001b");
-		expect(firstComponent.render(100).join("\n")).not.toContain("Enter save");
+		expect(firstComponent.render(100).join("\n")).toContain("Identity");
+		// Esc backs out of the detail, then closes the router surface — never
+		// leaving the TUI stuck.
+		await drive("\u001b"); // detail → list
+		await drive("\u001b"); // router close
+		await first;
+		await tick();
+
+		// A second open after editing keys inside the detail also closes cleanly.
+		const secondSignal = new AbortController().signal;
+		const second = openExtensionPageRouter(h.pi, h.command, {
+			hostId: "loadout",
+			signal: secondSignal,
+			maxPending: 1,
+		});
+		await tick();
+		expect(h.customCalls()).toBe(2);
+		const secondComponent = h.components[1]!.component;
+		expect(secondComponent.render(100).join("\n")).toContain("Loadout");
+		secondComponent.handleInput?.("\u001b");
+		await second;
+	} finally {
+		disposeResource();
+	}
+});
+
+test("typing in the detail then closing keeps the surface reopenable", async () => {
+	const h = harness();
+	const root = await mkdtemp(join(tmpdir(), "pi-loadout-router-"));
+	temporaryRoots.push(root);
+	const agentsDir = join(root, ".pi", "agents");
+	mkdirSync(agentsDir, { recursive: true });
+	writeFileSync(
+		join(agentsDir, "Explore.md"),
+		"---\ndescription: Read-only explorer.\n---\nYou are read-only.\n",
+	);
+	const config: AgentConfig = {
+		name: "Explore",
+		description: "Read-only explorer.",
+		extensions: true,
+		skills: true,
+		systemPrompt: "You are read-only.",
+		promptMode: "replace",
+		source: "project",
+	};
+	const detail = createAgentDetail(
+		"Explore",
+		config,
+		{ getAvailable: () => [], hasConfiguredAuth: () => false },
+		() => undefined,
+		() => undefined,
+	);
+	const disposeResource = registerLoadoutResource(h.pi, {
+		id: "agent:Explore",
+		kind: "agent",
+		group: "𖠌 Agents",
+		priority: 0,
+		conflictSets: [],
+		defaultActive: true,
+		label: "Explore",
+		description: "Read-only explorer.",
+		summary: "inherit",
+		projectPrivate: false,
+		owner: "@hheei/pi-subagents",
+		detail,
+	});
+	const context = {
+		pi: h.pi,
+		extension: {} as ExtensionContext,
+		signal: new AbortController().signal,
+		resources: { add: () => () => undefined },
+	} as unknown as ExtensionLifecycleContext;
+	registerExtensionPage(context, {
+		id: "loadout",
+		label: "Loadout",
+		order: 0,
+		create: async (viewContext) => createLoadoutPage(h.pi, fakeEngine(), viewContext),
+	});
+	try {
+		const firstSignal = new AbortController().signal;
+		const first = openExtensionPageRouter(h.pi, h.command, {
+			hostId: "loadout",
+			signal: firstSignal,
+			maxPending: 1,
+		});
+		await tick();
+		const firstComponent = h.components[0]!.component;
+		const drive = async (data: string): Promise<void> => {
+			firstComponent.handleInput?.(data);
+			await tick();
+		};
+		await drive("\u001b[B");
+		await drive("\u001b[B");
+		await drive("\r"); // open the detail
+		await drive("x"); // buffer an identity edit
 		await drive("\u001b"); // detail → list
 		await drive("\u001b"); // router close
 		await first;
