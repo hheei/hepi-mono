@@ -199,7 +199,7 @@ describe("createAgentDetail", () => {
 		const path = join(root, "agent-dir", "agents", "Explore.md");
 		expect(existsSync(path)).toBe(false);
 		// A built-in agent's Identity is read-only; edit the description instead.
-		await sendInput(detail, DOWN); // identity → description
+		for (let i = 0; i < 2; i++) await sendInput(detail, DOWN); // identity → description
 		await sendInput(detail, ENTER, { openEditor: async () => "Custom description" });
 		expect(existsSync(path)).toBe(false); // buffered until the page closes
 		detail.flush?.();
@@ -222,7 +222,7 @@ describe("createAgentDetail", () => {
 	it("clone preserves the built-in tool allowlist so read-only agents stay read-only", async () => {
 		const { detail, root } = setupDefault("Explore");
 		const path = join(root, "agent-dir", "agents", "Explore.md");
-		await sendInput(detail, DOWN); // identity → description
+		for (let i = 0; i < 2; i++) await sendInput(detail, DOWN); // identity → description
 		await sendInput(detail, ENTER, { openEditor: async () => "d" });
 		detail.flush?.();
 		expect(readContent(path)).toContain('tools: "read, bash, grep, find, ls"');
@@ -236,7 +236,7 @@ describe("createAgentDetail", () => {
 	it("clones a built-in agent into the project agents dir from Project scope", async () => {
 		const { detail, root } = setupDefault();
 		detail.onScopeChange?.("project");
-		await sendInput(detail, DOWN); // identity → description
+		for (let i = 0; i < 2; i++) await sendInput(detail, DOWN); // identity → description
 		await sendInput(detail, ENTER, { openEditor: async () => "Project description" });
 		detail.flush?.();
 
@@ -269,7 +269,7 @@ describe("createAgentDetail", () => {
 
 	it("cycles thinking with Tab inside the selector and confirms both on Enter", async () => {
 		const { detail, path } = setup();
-		for (let i = 0; i < 2; i++) await sendInput(detail, DOWN); // identity → model
+		await sendInput(detail, DOWN); // identity → model
 		await sendInput(detail, ENTER); // open selector
 		await sendInput(detail, TAB); // inherit → off
 		await sendInput(detail, TAB); // off → minimal
@@ -281,7 +281,7 @@ describe("createAgentDetail", () => {
 
 	it("cycles thinking within off…max and never offers inherit", async () => {
 		const { detail, path } = setup();
-		for (let i = 0; i < 2; i++) await sendInput(detail, DOWN); // identity → model
+		await sendInput(detail, DOWN); // identity → model
 		await sendInput(detail, ENTER); // open selector
 		// THINKING_LEVELS has 7 levels; 8 Tabs from the untouched inherit
 		// buffer lands back on off (modulo wrap) — inherit itself is never an
@@ -294,7 +294,7 @@ describe("createAgentDetail", () => {
 
 	it("keeps the inherited thinking level when confirming without Tab", async () => {
 		const { detail, path } = setup();
-		for (let i = 0; i < 2; i++) await sendInput(detail, DOWN);
+		await sendInput(detail, DOWN);
 		await sendInput(detail, ENTER);
 		await sendInput(detail, ENTER); // confirm as-is
 		detail.flush?.();
@@ -303,7 +303,7 @@ describe("createAgentDetail", () => {
 
 	it("selects a provider/model from the cycler and inherits on the leading option", async () => {
 		const { detail, path } = setup();
-		for (let i = 0; i < 2; i++) await sendInput(detail, DOWN); // identity → model
+		await sendInput(detail, DOWN); // identity → model
 		await sendInput(detail, ENTER); // open selector
 		await sendInput(detail, DOWN);
 		await sendInput(detail, DOWN); // inherit → anthropic/haiku → cx/gpt-5.6-luna
@@ -323,7 +323,7 @@ describe("createAgentDetail", () => {
 			...configFor("auditor"),
 			model: "haiku",
 		});
-		for (let i = 0; i < 2; i++) await sendInput(detail, DOWN);
+		await sendInput(detail, DOWN);
 		await sendInput(detail, ENTER);
 		expect(detail.render(60).join("\n")).toMatch(/Model\s+haiku/);
 	});
@@ -336,7 +336,7 @@ describe("createAgentDetail", () => {
 			],
 			hasConfiguredAuth: (model) => model.provider === "anthropic",
 		});
-		for (let i = 0; i < 2; i++) await sendInput(detail, DOWN);
+		await sendInput(detail, DOWN);
 		await sendInput(detail, ENTER);
 		await sendInput(detail, DOWN); // inherit → anthropic/haiku
 		expect(detail.render(60).join("\n")).toMatch(/Model\s+anthropic\/claude-haiku-4-5/);
@@ -358,7 +358,7 @@ describe("createAgentDetail", () => {
 				hasConfiguredAuth: (model) => model.provider === "anthropic",
 			},
 		);
-		for (let i = 0; i < 2; i++) await sendInput(detail, DOWN);
+		await sendInput(detail, DOWN);
 		await sendInput(detail, ENTER);
 		expect(detail.render(60).join("\n")).toMatch(/Model\s+cx\/gpt-5\.6-luna/); // current option
 		await sendInput(detail, DOWN); // → anthropic/claude-haiku-4-5
@@ -373,7 +373,7 @@ describe("createAgentDetail", () => {
 
 	it("wraps the model cycler at both ends", async () => {
 		const { detail } = setup();
-		for (let i = 0; i < 2; i++) await sendInput(detail, DOWN);
+		await sendInput(detail, DOWN);
 		await sendInput(detail, ENTER);
 		await sendInput(detail, UP); // inherit wraps up to the last option
 		expect(detail.render(60).join("\n")).toMatch(/Model\s+cx\/gpt-5\.6-luna/);
@@ -383,7 +383,7 @@ describe("createAgentDetail", () => {
 
 	it("Shift+Tab cycles thinking backward", async () => {
 		const { detail, path } = setup();
-		for (let i = 0; i < 2; i++) await sendInput(detail, DOWN);
+		await sendInput(detail, DOWN);
 		await sendInput(detail, ENTER);
 		await sendInput(detail, TAB); // inherit → off
 		await sendInput(detail, SHIFT_TAB); // off wraps backward to max
@@ -397,7 +397,7 @@ describe("createAgentDetail", () => {
 			...configFor("auditor"),
 			model: "anthropic/claude-haiku-4-5",
 		});
-		for (let i = 0; i < 2; i++) await sendInput(detail, DOWN);
+		await sendInput(detail, DOWN);
 		await sendInput(detail, ENTER);
 		expect(detail.render(60).join("\n")).toMatch(/Model\s+anthropic\/claude-haiku-4-5/);
 		await sendInput(detail, DOWN); // alphabetic order: anthropic… then cx…
@@ -410,7 +410,7 @@ describe("createAgentDetail", () => {
 
 	it("Esc cancels the selector without saving the cycled thinking value", async () => {
 		const { detail, path } = setup();
-		for (let i = 0; i < 2; i++) await sendInput(detail, DOWN);
+		await sendInput(detail, DOWN);
 		await sendInput(detail, ENTER);
 		await sendInput(detail, TAB); // thinking → off in the draft only
 		await sendInput(detail, ESCAPE);
@@ -422,7 +422,7 @@ describe("createAgentDetail", () => {
 
 	it("shows the current model option in place with a fixed row count and no hints", async () => {
 		const { detail } = setup();
-		for (let i = 0; i < 2; i++) await sendInput(detail, DOWN);
+		await sendInput(detail, DOWN);
 		await sendInput(detail, ENTER);
 		const lines = detail.render(18);
 		expect(lines).toHaveLength(4);
@@ -442,14 +442,17 @@ describe("createAgentDetail", () => {
 		expect(lines.join("\n")).not.toContain("Markdown");
 		expect(lines.join("\n")).not.toContain("↑/↓");
 		// Labels share one left column: "Description" is the widest.
-		expect(lines[1]).toMatch(/^ {2}Description {2}/);
-		expect(lines[1]).toMatch(/Description\s+edit\s+↵$/);
+		expect(lines[0]).toMatch(/^→ Identity\s{2}/);
+		expect(lines[1]).toMatch(/^ {2}Model\s{2}/);
+		expect(lines[2]).toMatch(/^ {2}Description {2}/);
+		expect(lines[2]).toMatch(/Description\s+edit ↵$/);
+		expect(lines[3]).toMatch(/^ {2}Body\s+edit ↵$/);
 	});
 
 	it("opens native editor for Description and buffers submit or cancel", async () => {
 		const { detail, path } = setup();
 		const calls: Array<{ title: string; prefill: string | undefined }> = [];
-		await sendInput(detail, DOWN);
+		for (let i = 0; i < 2; i++) await sendInput(detail, DOWN);
 		await sendInput(detail, ENTER, {
 			openEditor: async (title, prefill) => {
 				calls.push({ title, prefill });
@@ -462,7 +465,7 @@ describe("createAgentDetail", () => {
 		expect(readContent(path)).toContain('description: "Edited description."');
 
 		const cancelled = setup("cancel-description");
-		await sendInput(cancelled.detail, DOWN);
+		for (let i = 0; i < 2; i++) await sendInput(cancelled.detail, DOWN);
 		await sendInput(cancelled.detail, ENTER, { openEditor: async () => undefined });
 		cancelled.detail.flush?.();
 		expect(readContent(cancelled.path)).toContain("description: A test agent.");
@@ -494,7 +497,7 @@ describe("createAgentDetail", () => {
 			},
 		};
 		for (let i = 0; i < 3; i++) await sendInput(detail, DOWN);
-		expect(detail.render(80)[3]).toMatch(/Body\s+edit\s+↵$/);
+		expect(detail.render(80)[3]).toMatch(/Body\s+edit ↵$/);
 		await sendInput(detail, ENTER, context);
 		expect(calls).toEqual([{ title: "Edit auditor body", prefill: "You are a test agent." }]);
 		expect(readContent(path)).toContain("You are a test agent.");

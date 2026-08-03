@@ -56,8 +56,8 @@ const THINKING_LEVELS: readonly ModelThinkingLevel[] = [
 const FIRST_FIELD: DetailField = { id: "identity", kind: "text" };
 const DETAIL_FIELDS: readonly DetailField[] = [
 	FIRST_FIELD,
-	{ id: "description", kind: "action" },
 	{ id: "model", kind: "select" },
+	{ id: "description", kind: "action" },
 	{ id: "body", kind: "action" },
 ];
 
@@ -262,7 +262,6 @@ export function createAgentDetail(
 	const rows = (): ReadonlyArray<{
 		readonly label: string;
 		readonly value: string;
-		readonly enterHint?: boolean;
 	}> => {
 		const draft = current().draft;
 		const model = selectingModel
@@ -272,9 +271,9 @@ export function createAgentDetail(
 		const glyph = thinking === undefined ? "" : `${hepiThinkingGlyph(thinking)} `;
 		return [
 			{ label: "Identity", value: draft.displayName ?? name },
-			{ label: "Description", value: "edit", enterHint: true },
 			{ label: "Model", value: `${glyph}${model}` },
-			{ label: "Body", value: "edit", enterHint: true },
+			{ label: "Description", value: "edit ↵" },
+			{ label: "Body", value: "edit ↵" },
 		];
 	};
 	const textValue = (): string => {
@@ -430,11 +429,7 @@ export function createAgentDetail(
 			return rendered.map((row, index) => {
 				const focused = index === selected && index < DETAIL_FIELDS.length;
 				const readonlyIdentity = index === 0 && current().draft.isDefault;
-				const value = row.enterHint
-					? valueWidth === 1
-						? "↵"
-						: `${pad(truncateToWidth(row.value, Math.max(0, valueWidth - 2)), valueWidth - 1)}↵`
-					: truncateToWidth(row.value, valueWidth);
+				const value = truncateToWidth(row.value, valueWidth);
 				const line = `${focused ? "→ " : "  "}${pad(row.label, labelWidth)}  ${value}`;
 				const truncated = truncateToWidth(line, Math.max(0, width));
 				// The focused row is always accent; a built-in agent's read-only
