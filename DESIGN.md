@@ -143,15 +143,18 @@ existing semantic token expresses the role.
   detail only exits to the list when the detail declines it.
 - A detail form renders like the Settings field list: one aligned label/value pair per row, the
   focused row in accent (with the standard `→` slot), and no key-hint row (its navigation matches
-  the list, so the hint would be noise). Pure informational rows are not focusable; an action row
-  (external editor) shows its affordance as the value, e.g. `open in editor`.
+  the list, so the hint would be noise). Pure informational rows are not focusable. In an agent
+  detail, `Description` is an external-editor action: its value is exactly `edit`, with `↵` pinned
+  to the right edge of the value column; `Enter` opens Pi's native editor with the current
+  description. Other action rows may name their action in the value, e.g. `open in editor`.
 - A contributor detail buffers edits until the Loadout page closes: nothing is written while the
   panel is open, and `close()` flushes every registered detail (not just the currently open one),
-  each scope writing all its dirty snapshots before one catalog reload. The Body action delegates
-  multi-line editing to the Pi host: the router is an overlay, ext-core temporarily hides it while
-  `ui.editor()` owns focus, then shows and refocuses the same overlay without closing or rebuilding
-  its page state. Editor cancel leaves the body unchanged; session abort or surface close never
-  refocuses a disposed overlay. A per-scope target lets the same contributor serve Global and
+  each scope writing all its dirty snapshots before one catalog reload. The Description and Body
+  actions delegate editing to the Pi host: every command that opens the shared router mounts it as
+  an overlay; ext-core temporarily hides it while `ui.editor()` owns focus, then shows and refocuses
+  the same overlay without closing or rebuilding its page state. Editor cancel leaves the draft
+  unchanged; session abort or surface close never refocuses a disposed overlay. A per-scope target
+  lets the same contributor serve Global and
   Project scope (e.g. Project edits materialize a project override without rewriting the global
   backing); the `Status:` header line is followed by a read-only `Path:` line showing the current
   scope's target, truncated from the head at directory boundaries (one leading `…`, then whole

@@ -1,16 +1,16 @@
 /**
  * agent-detail.ts — Contributor-owned Loadout detail editor for custom Markdown agents.
  *
- * The detail is a small inline form over the agent's YAML frontmatter. All edits
- * (text, cycler picks) are buffered per Loadout scope and only written when the
+ * The detail is a small form over the agent's YAML frontmatter. All edits
+ * (inline text, native-editor results, cycler picks) are buffered per Loadout scope and only written when the
  * Loadout page closes (`flush`), never per keystroke; the model/thinking pair
  * reuses the Settings cycler (`tabCycle` semantics): Enter opens a single
  * selector on the model options, Up/Down move between them, Tab cycles the
  * thinking value in place (off…max, no `inherit`), Enter confirms both, Esc
  * cancels. The form renders as two aligned columns (label / value) like the
  * Settings field list and the focused row gets the accent treatment; the
- * Body action delegates multi-line input to Pi's native editor and buffers its
- * result with the other fields; this detail does not implement editor behavior.
+ * Description and Body actions delegate input to Pi's native editor and buffer
+ * its result with the other fields; this detail does not implement editor behavior.
  * Project-scope edits always target `<cwd>/.pi/agents/<name>.md`
  * (materializing a clone when missing); Global-scope edits target the agent's
  * own backing file. Agent activation is owned by the Loadout policy under
@@ -55,7 +55,7 @@ const THINKING_LEVELS: readonly ModelThinkingLevel[] = [
 const FIRST_FIELD: DetailField = { id: "identity", kind: "text" };
 const DETAIL_FIELDS: readonly DetailField[] = [
 	FIRST_FIELD,
-	{ id: "description", kind: "text" },
+	{ id: "description", kind: "action" },
 	{ id: "model", kind: "select" },
 	{ id: "body", kind: "action" },
 ];
@@ -258,7 +258,11 @@ export function createAgentDetail(
 	 * value. The focused row gets the accent treatment like Settings; a built-in
 	 * agent's Identity row is read-only and rendered dim.
 	 */
-	const rows = (): ReadonlyArray<{ readonly label: string; readonly value: string }> => {
+	const rows = (): ReadonlyArray<{
+		readonly label: string;
+		readonly value: string;
+		readonly enterHint?: boolean;
+	}> => {
 		const draft = current().draft;
 		const model = selectingModel
 			? (modelChoices()[selectIndex] ?? INHERIT)
@@ -267,7 +271,7 @@ export function createAgentDetail(
 		const glyph = thinking === undefined ? "" : `${hepiThinkingGlyph(thinking)} `;
 		return [
 			{ label: "Identity", value: draft.displayName ?? name },
-			{ label: "Description", value: draft.description },
+			{ label: "Description", value: "edit", enterHint: true },
 			{ label: "Model", value: `${glyph}${model}` },
 			{ label: "Body", value: "open in editor" },
 		];
@@ -425,7 +429,12 @@ export function createAgentDetail(
 			return rendered.map((row, index) => {
 				const focused = index === selected && index < DETAIL_FIELDS.length;
 				const readonlyIdentity = index === 0 && current().draft.isDefault;
-				const line = `${focused ? "→ " : "  "}${pad(row.label, labelWidth)}  ${truncateToWidth(row.value, valueWidth)}`;
+				const value = row.enterHint
+					? valueWidth === 1
+						? "↵"
+						: `${pad(truncateToWidth(row.value, Math.max(0, valueWidth - 2)), valueWidth - 1)}↵`
+					: truncateToWidth(row.value, valueWidth);
+				const line = `${focused ? "→ " : "  "}${pad(row.label, labelWidth)}  ${value}`;
 				const truncated = truncateToWidth(line, Math.max(0, width));
 				// The focused row is always accent; a built-in agent's read-only
 				// Identity is only dimmed while unfocused.
@@ -478,6 +487,12 @@ export function createAgentDetail(
 			if (matchesKey(input, Key.enter)) {
 				if (field().kind === "select") {
 					openSelector();
+				} else if (field().id === "description" && context !== undefined) {
+					const result = await context.openEditor(
+						`Edit ${name} description`,
+						current().draft.description,
+					);
+					if (result !== undefined) setText(result);
 				} else if (field().id === "body" && context !== undefined) {
 					const result = await context.openEditor(
 						`Edit ${name} body`,

@@ -53,6 +53,13 @@ export default function piSettingsExtension(pi: ExtensionAPI): void {
 				signal: session.signal,
 				maxPending: 1,
 				...(initialPageId === undefined ? {} : { initialPageId }),
+				overlay: true,
+				overlayOptions: {
+					width: "100%",
+					maxHeight: "100%",
+					anchor: "bottom-left",
+					margin: 0,
+				},
 				onSurfaceOpen: () => {
 					// Acquire only after the FIFO host owns Pi's custom slot. Queueing an
 					// unopened Settings request must never hide editor-adjacent widgets.
