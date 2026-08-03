@@ -134,6 +134,24 @@ function pad(value: string, width: number): string {
 	return `${value}${" ".repeat(Math.max(0, width - visibleWidth(value)))}`;
 }
 
+/**
+ * One glyph per raw Loadout selection: `●` explicitly enabled, `○` explicitly
+ * disabled, `◌` inherited (no local decision; the effective state follows the
+ * default / the other scope). `⊘` is reserved for conflict-locked rows.
+ */
+function selectionGlyph(selection: LoadoutSelection): string {
+	return selection === "enabled" ? "●" : selection === "disabled" ? "○" : "◌";
+}
+
+/** Textual status label mirroring the row glyph: enabled / disabled / inherit. */
+function selectionStatusLabel(selection: LoadoutSelection): string {
+	return selection === "enabled"
+		? "● enabled"
+		: selection === "disabled"
+			? "○ disabled"
+			: "◌ inherit";
+}
+
 function wrapDescription(text: string, width: number): readonly string[] {
 	const lines: string[] = [];
 	for (const word of text.split(/\s+/u)) {
@@ -443,7 +461,10 @@ export function createLoadoutPage(
 					...visibleEntries.map((entry) => {
 						if (entry.kind === "group") return theme.bold(truncateToWidth(entry.label, listWidth));
 						const item = entry.item;
-						const status = item.lockedBy !== undefined ? "⊘" : item.enabled ? "●" : "○";
+						const status =
+							item.lockedBy !== undefined
+								? "⊘"
+								: selectionGlyph(rawSelection(item, scope, configuration));
 						const selectedRow = item.key === selectedItem()?.key;
 						// Only explicitly enabled rows advertise the Enter shortcut:
 						// an inherited or disabled row has no edit path, and the
@@ -500,7 +521,11 @@ export function createLoadoutPage(
 								theme.fg("muted", `Origin: ${selectedResource.origin}`),
 								theme.fg(
 									"muted",
-									`Status: ${selectedResource.lockedBy === undefined ? (selectedResource.enabled ? "● active" : "○ disabled") : "⊘ locked"}`,
+									`Status: ${
+										selectedResource.lockedBy === undefined
+											? selectionStatusLabel(rawSelection(selectedResource, scope, configuration))
+											: "⊘ locked"
+									}`,
 								),
 								...(selectedResource.lockedBy === undefined
 									? []

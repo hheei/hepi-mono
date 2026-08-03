@@ -129,7 +129,7 @@ describe("Loadout Settings page", () => {
 		expect(global).toContain("read (tool)");
 		expect(global).toContain("Read a file from the current workspace.");
 		expect(global).toContain("Origin: Pi built-in");
-		expect(global).toContain("Status: ● active");
+		expect(global).toContain("Status: ● enabled");
 		expect(global).not.toContain("Effective:");
 		expect(global).not.toContain("Policy:");
 		expect(global).not.toContain("This scope:");
@@ -223,7 +223,7 @@ describe("Loadout Settings page", () => {
 			const opened = page.component.render(100).join("\n");
 			expect(opened).toContain("Detail (agent)");
 			expect(opened).toContain("Origin: test");
-			expect(opened).toContain("Status: ● active");
+			expect(opened).toContain("Status: ● enabled");
 			expect(opened).toContain("Detail panel");
 			expect(opened).toContain("↵ Edit config");
 			await page.handleInput("x");
@@ -329,6 +329,64 @@ describe("Loadout Settings page", () => {
 		}
 	});
 
+	test("renders enabled, disabled, and inherited agent states distinctly", async () => {
+		const h = setup();
+		const dispose = registerLoadoutResource(h.pi, {
+			id: "agent:Detail",
+			kind: "agent",
+			group: "𖠌 Agents",
+			priority: 0,
+			conflictSets: [],
+			defaultActive: true,
+			label: "Detail",
+			description: "Has a settings detail.",
+			summary: "settings",
+			projectPrivate: false,
+			owner: "test",
+			detail: {
+				render: () => ["Detail panel"],
+				handleInput: () => true,
+			},
+		});
+		const engineFor = (globalDisabled: readonly string[]): LoadoutEngine => ({
+			start: async () => undefined,
+			dispose: () => undefined,
+			snapshot: () => ({
+				configuration: {
+					global: { disabled: [...globalDisabled], enabled: [] },
+					project: { disabled: [], enabled: [] },
+				},
+				initialActiveToolNames: ["read"],
+			}),
+		});
+		try {
+			// Enabled: global scope, no delta, defaultActive true.
+			const enabled = createLoadoutPage(h.pi, engineFor([]), h.context);
+			await enabled.handleInput("\u001b[B");
+			await enabled.handleInput("\u001b[B");
+			const enabledView = enabled.component.render(100).join("\n");
+			expect(enabledView).toContain("● Detail");
+			expect(enabledView).toContain("Status: ● enabled");
+			// Disabled: a global delta disables the row.
+			const disabled = createLoadoutPage(h.pi, engineFor(["agent:Detail"]), h.context);
+			await disabled.handleInput("\u001b[B");
+			await disabled.handleInput("\u001b[B");
+			const disabledView = disabled.component.render(100).join("\n");
+			expect(disabledView).toContain("○ Detail");
+			expect(disabledView).toContain("Status: ○ disabled");
+			// Inherit: project scope, no project delta, global-visible row.
+			const inherited = createLoadoutPage(h.pi, engineFor([]), h.context);
+			await inherited.handleInput("\u001b[112;5u"); // ctrl+p → project
+			await inherited.handleInput("\u001b[B");
+			await inherited.handleInput("\u001b[B");
+			const inheritedView = inherited.component.render(100).join("\n");
+			expect(inheritedView).toContain("◌ Detail");
+			expect(inheritedView).toContain("Status: ◌ inherit");
+		} finally {
+			dispose();
+		}
+	});
+
 	test("composes the real agent detail under the resource header without a duplicate title", async () => {
 		const h = setup();
 		const root = await mkdtemp(join(tmpdir(), "pi-loadout-agent-"));
@@ -381,7 +439,7 @@ describe("Loadout Settings page", () => {
 			const before = page.component.render(100).join("\n");
 			expect(before).toContain("Explore (agent)");
 			expect(before).toContain("Origin: @hheei/pi-subagents");
-			expect(before).toContain("Status: ● active");
+			expect(before).toContain("Status: ● enabled");
 			expect(page.component.render(100).at(-1)).toContain("↵ Edit config");
 			await page.handleInput("\r");
 			const openedLines = page.component.render(100);
