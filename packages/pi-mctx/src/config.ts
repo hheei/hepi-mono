@@ -48,6 +48,16 @@ export interface MctxSearchSettings {
 	readonly primerPath?: string;
 }
 
+/**
+ * User-owned embedding provider selection. Project settings cannot choose a
+ * provider because it may point at a local model cache or an external
+ * connection file; detailed runtime validation belongs to `pi-ext-embed`.
+ */
+export interface MctxEmbeddingSettings {
+	/** Raw user-level config forwarded to `acquireEmbeddingProvider`. */
+	readonly config: Readonly<Record<string, unknown>>;
+}
+
 export type MctxPipelineState =
 	| { readonly kind: "disabled" }
 	| { readonly kind: "invalid"; readonly reason: string }
@@ -65,6 +75,7 @@ export interface MctxConfiguration {
 	sourceOf(path: readonly string[]): JsonSettingsValueSource | undefined;
 	readonly pipeline: MctxPipelineState;
 	readonly search?: MctxSearchSettings;
+	readonly embedding?: MctxEmbeddingSettings;
 	readonly warnings: readonly string[];
 }
 
@@ -97,6 +108,22 @@ function parseSearchSettings(
 		return undefined;
 	}
 	return { primerPath };
+}
+
+function parseEmbeddingSettings(
+	global: Readonly<Record<string, unknown>>,
+	project: Readonly<Record<string, unknown>>,
+	warnings: string[],
+): MctxEmbeddingSettings | undefined {
+	if (project.embedding !== undefined)
+		warnings.push("Ignoring project embedding: provider selection is user-level only");
+	const embedding = global.embedding;
+	if (embedding === undefined) return undefined;
+	if (!isRecord(embedding)) {
+		warnings.push("Ignoring user embedding: must be an object");
+		return undefined;
+	}
+	return { config: embedding };
 }
 
 function validModelRef(value: string): boolean {
@@ -313,6 +340,7 @@ export async function loadMctxConfiguration(
 	const { global, project } = settings;
 	const warnings: string[] = [];
 	const search = parseSearchSettings(global, project, warnings);
+	const embedding = parseEmbeddingSettings(global, project, warnings);
 	return {
 		global,
 		project,
@@ -320,6 +348,7 @@ export async function loadMctxConfiguration(
 		sourceOf: settings.sourceOf,
 		pipeline: resolvePipeline(global, project, warnings),
 		...(search === undefined ? {} : { search }),
+		...(embedding === undefined ? {} : { embedding }),
 		warnings,
 	};
 }

@@ -76,6 +76,13 @@ export interface MctxStore {
 	): readonly MctxMemory[];
 	updateMemory(input: MctxMemoryUpdate): MctxMemory | undefined;
 	archiveMemory(input: MctxMemoryArchive): MctxMemory | undefined;
+	/**
+	 * Publishes one fenced passage embedding for an active memory. Returns false
+	 * when the memory is missing, archived, or no longer matches the embedded
+	 * source (content hash and revision), or when the vector was dropped for any
+	 * other store-side reason. Never throws for a stale source.
+	 */
+	writeMemoryEmbedding(input: MctxMemoryEmbeddingWrite): boolean;
 	writeNote(input: MctxNoteWrite): MctxNote;
 	readNotes(
 		projectIdentity: string,
@@ -237,6 +244,23 @@ export interface MctxMemoryArchive {
 	readonly sessionId: string;
 	readonly memoryId: number;
 	readonly expectedRevision: number;
+	readonly nowMs?: number;
+}
+
+/**
+ * One detached passage embedding publication. The caller captured the provider
+ * snapshot (model identity/generation) at embed start; the store fence checks
+ * the live memory row still matches the embedded source.
+ */
+export interface MctxMemoryEmbeddingWrite {
+	readonly projectIdentity: string;
+	readonly memoryId: number;
+	readonly modelIdentity: string;
+	readonly providerGeneration: number;
+	readonly sourceContentHash: string;
+	readonly sourceMemoryRevision: number;
+	readonly dimensions: number;
+	readonly vector: Float32Array;
 	readonly nowMs?: number;
 }
 
@@ -1624,6 +1648,18 @@ function mutateMemory(
 			database.exec("ROLLBACK");
 			return undefined;
 		}
+		if (archive) {
+			// An archived source must not remain a retrieval candidate: its vectors
+			// and source binding drop in the same transaction as the archive.
+			database
+				.prepare("DELETE FROM memory_embeddings WHERE project_identity = ? AND memory_id = ?")
+				.run(input.projectIdentity, input.memoryId);
+			database
+				.prepare(
+					"DELETE FROM memory_embedding_sources WHERE project_identity = ? AND memory_id = ?",
+				)
+				.run(input.projectIdentity, input.memoryId);
+		}
 		const memory = memoryFromRow(
 			database
 				.prepare("SELECT * FROM memories WHERE project_identity = ? AND memory_id = ?")
@@ -1658,6 +1694,88 @@ function updateMemoryContent(
 				input.expectedRevision,
 			),
 	);
+}
+
+function requireEmbeddingClock(nowMs: number): number {
+	if (!Number.isSafeInteger(nowMs) || nowMs < 0)
+		throw new Error("Context store memory embedding clock is invalid");
+	return nowMs;
+}
+
+/**
+ * Publishes one fenced passage embedding. The write transaction rereads the
+ * live memory row: missing, archived, or content/revision-changed sources
+ * return false, so a detached embed that completed after a newer write/update
+ * (or archive) is silently dropped. A model/generation pair is idempotently
+ * refreshed; different model identities coexist as separate rows.
+ */
+function writeMemoryEmbedding(database: DatabaseSync, input: MctxMemoryEmbeddingWrite): boolean {
+	if (
+		!input.projectIdentity.trim() ||
+		!Number.isSafeInteger(input.memoryId) ||
+		input.memoryId < 1 ||
+		!input.modelIdentity.trim() ||
+		!Number.isSafeInteger(input.providerGeneration) ||
+		input.providerGeneration < 0 ||
+		!/^[0-9a-f]{64}$/u.test(input.sourceContentHash) ||
+		!Number.isSafeInteger(input.sourceMemoryRevision) ||
+		input.sourceMemoryRevision < 1 ||
+		!Number.isSafeInteger(input.dimensions) ||
+		input.dimensions < 1 ||
+		input.vector.length !== input.dimensions
+	) {
+		throw new Error("Context store memory embedding write is invalid");
+	}
+	const nowMs = requireEmbeddingClock(input.nowMs ?? Date.now());
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		const row = database
+			.prepare(
+				"SELECT content, revision, status FROM memories WHERE project_identity = ? AND memory_id = ?",
+			)
+			.get(input.projectIdentity, input.memoryId);
+		if (
+			!isRecord(row) ||
+			row.status !== "active" ||
+			typeof row.content !== "string" ||
+			typeof row.revision !== "number" ||
+			row.revision !== input.sourceMemoryRevision ||
+			createHash("sha256").update(row.content).digest("hex") !== input.sourceContentHash
+		) {
+			database.exec("ROLLBACK");
+			return false;
+		}
+		database
+			.prepare(
+				"INSERT INTO memory_embedding_sources (project_identity, memory_id, content_hash, memory_revision) VALUES (?, ?, ?, ?) ON CONFLICT (project_identity, memory_id) DO UPDATE SET content_hash = excluded.content_hash, memory_revision = excluded.memory_revision",
+			)
+			.run(
+				input.projectIdentity,
+				input.memoryId,
+				input.sourceContentHash,
+				input.sourceMemoryRevision,
+			);
+		database
+			.prepare(
+				"INSERT INTO memory_embeddings (project_identity, memory_id, model_identity, provider_generation, source_content_hash, source_memory_revision, dimensions, vector, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (project_identity, memory_id, model_identity, provider_generation) DO UPDATE SET vector = excluded.vector, dimensions = excluded.dimensions, created_at_ms = excluded.created_at_ms",
+			)
+			.run(
+				input.projectIdentity,
+				input.memoryId,
+				input.modelIdentity,
+				input.providerGeneration,
+				input.sourceContentHash,
+				input.sourceMemoryRevision,
+				input.dimensions,
+				Buffer.from(input.vector.buffer, input.vector.byteOffset, input.vector.byteLength),
+				nowMs,
+			);
+		database.exec("COMMIT");
+		return true;
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
 }
 
 function validHistoryTagKind(value: unknown): value is MctxHistoryTagKind {
@@ -2080,6 +2198,10 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 		archiveMemory(input): MctxMemory | undefined {
 			if (database === undefined) throw new Error("Context store is closed");
 			return mutateMemory(database, input, true);
+		},
+		writeMemoryEmbedding(input): boolean {
+			if (database === undefined) throw new Error("Context store is closed");
+			return writeMemoryEmbedding(database, input);
 		},
 
 		writeNote(input): MctxNote {

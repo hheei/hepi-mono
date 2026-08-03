@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -216,6 +217,118 @@ test("stores project-wide memories with record revision CAS", async () => {
 		assert.equal(store.updateMemory({ projectIdentity: project, sessionId: "session-a", memoryId: 1, expectedRevision: 1, content: "stale", nowMs: 30 }), undefined);
 		assert.equal(store.archiveMemory({ projectIdentity: project, sessionId: "session-a", memoryId: 1, expectedRevision: 2, nowMs: 30 })?.status, "archived");
 		assert.equal(store.getMemories(project, [1])[0]?.content, "Use WAL SQLite.");
+		store.close();
+	});
+});
+
+test("publishes fenced passage embeddings into the per-model ledger", async () => {
+	await withPath(async (path) => {
+		const store = await openMctxStore(path);
+		const project = `git:${"9".repeat(40)}`;
+		store.getOrCreatePartition(project, "session-a");
+		const memory = store.writeMemory({
+			projectIdentity: project,
+			sessionId: "session-a",
+			category: "ARCHITECTURE",
+			content: "Embed this.",
+			nowMs: 10,
+		});
+		const hash = (value) => createHash("sha256").update(value).digest("hex");
+		const vector = new Float32Array([0.1, 0.2, 0.3]);
+		const write = (overrides) =>
+			store.writeMemoryEmbedding({
+				projectIdentity: project,
+				memoryId: memory.memoryId,
+				modelIdentity: "local/Xenova/all-MiniLM-L6-v2",
+				providerGeneration: 3,
+				sourceContentHash: hash("Embed this."),
+				sourceMemoryRevision: memory.revision,
+				dimensions: 3,
+				vector,
+				nowMs: 20,
+				...overrides,
+			});
+		assert.equal(write({}), true);
+		// A stale revision or content hash is dropped, never published.
+		assert.equal(write({ sourceMemoryRevision: memory.revision + 1 }), false);
+		assert.equal(write({ sourceContentHash: "0".repeat(64) }), false);
+		// A second model identity coexists with the first.
+		assert.equal(
+			write({ modelIdentity: "synapse/model-b", providerGeneration: 0 }),
+			true,
+		);
+		// The same model/generation pair refreshes idempotently.
+		assert.equal(write({ vector: new Float32Array([0.9, 0.8, 0.7]) }), true);
+		const updated = store.updateMemory({
+			projectIdentity: project,
+			sessionId: "session-a",
+			memoryId: 1,
+			expectedRevision: 1,
+			content: "Embed this too.",
+			nowMs: 30,
+		});
+		assert.equal(updated?.revision, 2);
+		// An embed that started before the update cannot publish the old source.
+		assert.equal(write({}), false);
+		const readLedger = () => {
+			const database = new DatabaseSync(path, { readOnly: true });
+			try {
+				return database
+					.prepare(
+						"SELECT model_identity, provider_generation, source_content_hash, source_memory_revision, dimensions, vector FROM memory_embeddings ORDER BY model_identity",
+					)
+					.all();
+			} finally {
+				database.close();
+			}
+		};
+		assert.deepEqual(
+			readLedger().map((row) => ({
+				model: row.model_identity,
+				generation: row.provider_generation,
+				hash: row.source_content_hash,
+				revision: row.source_memory_revision,
+				dimensions: row.dimensions,
+				bytes: Buffer.from(row.vector).length,
+			})),
+			[
+				{
+					model: "local/Xenova/all-MiniLM-L6-v2",
+					generation: 3,
+					hash: hash("Embed this."),
+					revision: 1,
+					dimensions: 3,
+					bytes: 12,
+				},
+				{
+					model: "synapse/model-b",
+					generation: 0,
+					hash: hash("Embed this."),
+					revision: 1,
+					dimensions: 3,
+					bytes: 12,
+				},
+			],
+		);
+		// Archive removes every vector; a later publication is rejected.
+		assert.equal(
+			store.archiveMemory({
+				projectIdentity: project,
+				sessionId: "session-a",
+				memoryId: 1,
+				expectedRevision: 2,
+				nowMs: 40,
+			})?.status,
+			"archived",
+		);
+		assert.equal(
+			write({
+				sourceContentHash: hash("Embed this too."),
+				sourceMemoryRevision: 2,
+			}),
+			false,
+		);
+		assert.deepEqual(readLedger(), []);
 		store.close();
 	});
 });

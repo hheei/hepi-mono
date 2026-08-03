@@ -11,6 +11,7 @@ import type {
 	ParentContextProjectionResult,
 } from "@hheei/pi-ext-core";
 import { getService, MCTX_MEMORY_EXCLUSION_SERVICE } from "@hheei/pi-ext-core";
+import type { EmbeddingProviderLease } from "@hheei/pi-ext-embed";
 import { type MctxRuntime, resolveMctxActivation } from "./activation.js";
 import { planMctxCompartmentRecovery, verifyMctxCompartmentGraph } from "./compartment-graph.js";
 import {
@@ -66,7 +67,9 @@ export interface MctxSessionRuntime extends MctxRuntime {
 /**
  * Pi-facing lifecycle seam. Core owns lifecycle cancellation and resource cleanup;
  * MCTX owns activation policy, SQLite state, historian scheduling, and branch-safe
- * projection. `onTurnEnd` starts detached work; `onContext` is synchronous and fails open.
+ * projection. `onTurnEnd` starts detached work; `onContext` is synchronous and, on
+ * store read failure, follows the user-owned fail-closed policy: rethrow by default,
+ * otherwise warn and pass Pi-native messages through.
  */
 export interface MctxFeature {
 	start(context: ExtensionLifecycleContext): Promise<void>;
@@ -260,6 +263,10 @@ export interface MctxFeatureOptions {
 	readonly runHistorianForBranch?: typeof runMctxHistorianForBranch;
 	readonly collectExternalSearchCandidates?: typeof collectMctxExternalSearchCandidates;
 	readonly logHistorianDiagnostic?: (diagnostic: MctxHistorianFailureDiagnostic) => void;
+	/** Test seam; production lazily imports `@hheei/pi-ext-embed` on first use. */
+	readonly acquireEmbeddingProvider?: (
+		config: unknown,
+	) => Promise<EmbeddingProviderLease | undefined>;
 }
 
 interface ActiveMctxRuntime {
@@ -270,6 +277,11 @@ interface ActiveMctxRuntime {
 	jobCompletion?: Promise<void> | undefined;
 	rebuildEntries?: readonly SessionEntry[] | undefined;
 	lastNotifiedFailureClass?: MctxHistorianFailureDiagnostic["failureClass"] | undefined;
+	notifiedStoreReadFailure?: boolean | undefined;
+	embeddingLease?: EmbeddingProviderLease | undefined;
+	embeddingJob?: AbortController | undefined;
+	embeddingCompletion?: Promise<void> | undefined;
+	pendingEmbedMemory?: MctxMemory | undefined;
 }
 
 function defaultLogHistorianDiagnostic(diagnostic: MctxHistorianFailureDiagnostic): void {
@@ -353,6 +365,12 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 	const collectExternalSearchCandidates =
 		options.collectExternalSearchCandidates ?? collectMctxExternalSearchCandidates;
 	const logHistorianDiagnostic = options.logHistorianDiagnostic ?? defaultLogHistorianDiagnostic;
+	const acquireEmbeddingProvider =
+		options.acquireEmbeddingProvider ??
+		(async (config: unknown): Promise<EmbeddingProviderLease | undefined> => {
+			const module = await import("@hheei/pi-ext-embed");
+			return module.acquireEmbeddingProvider(config);
+		});
 	let active: ActiveMctxRuntime | undefined;
 	const handoffPreparations = new Set<string>();
 	function reportHistorianFailure(
@@ -371,6 +389,30 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			`pi-mctx historian failed (${diagnostic.failureClass}); keeping existing context`,
 			"warning",
 		);
+	}
+	/**
+	 * Runs one `onContext` store call under the enabled pipeline's fail-closed
+	 * read policy. Only store I/O is guarded here: projection, recovery, and
+	 * scheduling errors are programmer/invariant bugs and must propagate, not
+	 * masquerade as a store read failure. `undefined` means the call failed and
+	 * the pipeline opted out; the caller passes Pi-native messages through.
+	 */
+	function withStoreReadPolicy<T>(current: ActiveMctxRuntime, read: () => T): T | undefined {
+		try {
+			return read();
+		} catch (error: unknown) {
+			if (current.runtime.settings.failClosedBlocking) throw error;
+			if (!current.lifecycle.signal.aborted && !current.notifiedStoreReadFailure) {
+				current.notifiedStoreReadFailure = true;
+				current.lifecycle.extension.ui.notify(
+					`pi-mctx context store read failed; continuing with Pi native context: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+					"warning",
+				);
+			}
+			return undefined;
+		}
 	}
 	async function createInitialPartition(
 		context: ExtensionLifecycleContext,
@@ -478,6 +520,81 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				}
 			});
 		current.jobCompletion = completion;
+	}
+
+	/**
+	 * Starts one detached, abortable passage embedding per explicit memory
+	 * write/update while the active runtime holds a provider lease. At most one
+	 * job runs per session; a newer write replaces the pending record and runs
+	 * after the current job settles. The memory tool result never waits on
+	 * embedding and a provider failure is never retried or surfaced.
+	 */
+	function scheduleMemoryEmbedding(current: ActiveMctxRuntime, memory: MctxMemory): void {
+		if (current.embeddingLease === undefined || current.lifecycle.signal.aborted) return;
+		if (current.embeddingJob !== undefined) {
+			current.pendingEmbedMemory = memory;
+			return;
+		}
+		const job = new AbortController();
+		current.embeddingJob = job;
+		const abort = (): void => job.abort();
+		current.lifecycle.signal.addEventListener("abort", abort, { once: true });
+		const completion = runMemoryEmbedding(current, job.signal, memory)
+			.catch(() => {
+				// A provider failure is an optional-capability miss: the memory write
+				// stays successful and simply produces no vector.
+			})
+			.finally(() => {
+				current.lifecycle.signal.removeEventListener("abort", abort);
+				if (current.embeddingJob !== job) return;
+				current.embeddingJob = undefined;
+				current.embeddingCompletion = undefined;
+				const pending = current.pendingEmbedMemory;
+				current.pendingEmbedMemory = undefined;
+				if (pending !== undefined && active === current && !current.lifecycle.signal.aborted) {
+					scheduleMemoryEmbedding(current, pending);
+				}
+			});
+		current.embeddingCompletion = completion;
+	}
+
+	/**
+	 * Embeds one memory record and publishes it under the content/model fence.
+	 * The store transaction rereads the live row, so a completion that lands
+	 * after a newer write/update or archive is dropped without error.
+	 */
+	async function runMemoryEmbedding(
+		current: ActiveMctxRuntime,
+		signal: AbortSignal,
+		memory: MctxMemory,
+	): Promise<void> {
+		const lease = current.embeddingLease;
+		if (lease === undefined || signal.aborted) return;
+		const snapshot = lease.provider.snapshot();
+		if (snapshot === undefined) return;
+		const contentHash = mctxSearchContentHash(memory.content);
+		const vector = await lease.provider.embed(memory.content, "passage", signal);
+		if (vector === undefined || signal.aborted || current.lifecycle.signal.aborted) return;
+		// Model fence: a provider config reload between start and completion must
+		// discard this late result; the ledger row records the observed identity.
+		const settled = lease.provider.snapshot();
+		if (
+			settled === undefined ||
+			settled.modelIdentity !== snapshot.modelIdentity ||
+			settled.generation !== snapshot.generation
+		)
+			return;
+		if (active !== current) return;
+		current.runtime.store.writeMemoryEmbedding({
+			projectIdentity: memory.projectIdentity,
+			memoryId: memory.memoryId,
+			modelIdentity: snapshot.modelIdentity,
+			providerGeneration: snapshot.generation,
+			sourceContentHash: contentHash,
+			sourceMemoryRevision: memory.revision,
+			dimensions: vector.length,
+			vector,
+		});
 	}
 
 	async function prepare(input: {
@@ -608,8 +725,8 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 	}
 	return {
 		async start(context): Promise<void> {
-			// Fail closed at every boundary: invalid settings, identity, or store setup
-			// never installs a partial context pipeline in the live Pi session.
+			// Invalid configuration and unavailable optional models keep Pi-native behavior;
+			// storage failures follow the user-owned fail-closed policy below.
 			let configuration: MctxConfiguration;
 			try {
 				// Settings are activation-time input. Saving settings never mutates an
@@ -637,14 +754,19 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			}
 			let store: MctxStore;
 			try {
-				// Storage is opened only after config and model admission succeed. An
-				// unavailable optional historian must leave Pi's native session untouched.
+				// Storage is opened only after config and model admission succeed. The
+				// explicit opt-out keeps a storage outage from changing Pi's native path.
 				store = await openStore(defaultMctxStorePath());
 			} catch (error: unknown) {
-				context.extension.ui.notify(
-					`pi-mctx context store unavailable: ${error instanceof Error ? error.message : String(error)}`,
-					"error",
-				);
+				const message = error instanceof Error ? error.message : String(error);
+				if (!activation.runtime.settings.failClosedBlocking) {
+					context.extension.ui.notify(
+						`pi-mctx context store unavailable; continuing with Pi native behavior: ${message}`,
+						"warning",
+					);
+					return;
+				}
+				context.extension.ui.notify(`pi-mctx context store unavailable: ${message}`, "error");
 				throw error;
 			}
 			let partition: MctxPartition;
@@ -668,14 +790,43 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			} catch (error: unknown) {
 				store.close();
 				if (!context.signal.aborted) {
-					context.extension.ui.notify(
-						`pi-mctx context partition unavailable: ${error instanceof Error ? error.message : String(error)}`,
-						"error",
-					);
+					const message = error instanceof Error ? error.message : String(error);
+					if (!activation.runtime.settings.failClosedBlocking) {
+						context.extension.ui.notify(
+							`pi-mctx context partition unavailable; continuing with Pi native behavior: ${message}`,
+							"warning",
+						);
+						return;
+					}
+					context.extension.ui.notify(`pi-mctx context partition unavailable: ${message}`, "error");
 				}
+				if (!activation.runtime.settings.failClosedBlocking) return;
 				throw error;
 			}
 			if (context.signal.aborted) {
+				store.close();
+				return;
+			}
+			// Provider acquisition is an optional capability: the package is
+			// imported only when the user configured an embedding provider, and a
+			// failure keeps the context pipeline active without semantic context.
+			let embeddingLease: EmbeddingProviderLease | undefined;
+			if (configuration.embedding !== undefined) {
+				try {
+					embeddingLease = await acquireEmbeddingProvider(configuration.embedding.config);
+				} catch (error: unknown) {
+					if (!context.signal.aborted) {
+						context.extension.ui.notify(
+							`pi-mctx embedding provider unavailable; continuing without semantic context: ${
+								error instanceof Error ? error.message : String(error)
+							}`,
+							"warning",
+						);
+					}
+				}
+			}
+			if (context.signal.aborted) {
+				await embeddingLease?.release();
 				store.close();
 				return;
 			}
@@ -688,14 +839,20 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				runtime,
 				lifecycle: context,
 				cooling: false,
+				...(embeddingLease === undefined ? {} : { embeddingLease }),
 			};
 			// Publish last: context/turn handlers can never observe a half-initialized
 			// runtime whose store or partition failed during activation.
 			active = current;
 			// Resources are lifecycle-owned: abort work before closing its store; the feature retains policy.
-			context.resources.add("mctx-runtime", () => {
-				store.close();
+			context.resources.add("mctx-runtime", async () => {
+				// Embedding jobs settle before the provider lease releases and the
+				// store closes; a detached embed may still be writing its fenced row.
 				if (active === current) active = undefined;
+				current.embeddingJob?.abort();
+				await current.embeddingCompletion;
+				await current.embeddingLease?.release();
+				store.close();
 			});
 			context.resources.add("mctx-historian", async () => {
 				current.rebuildEntries = undefined;
@@ -752,21 +909,28 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			// Re-evaluate against the active branch at every model invocation. A prior
 			// publication is not trusted after Pi navigation or branch replacement.
 			const entries = context.sessionManager.getBranch();
-			const tagSync = current.runtime.store.syncHistoryTags(
-				current.runtime.partition,
-				collectMctxHistoryTagInputs(entries),
+			const tagSync = withStoreReadPolicy(current, () =>
+				current.runtime.store.syncHistoryTags(
+					current.runtime.partition,
+					collectMctxHistoryTagInputs(entries),
+				),
 			);
 			if (tagSync === undefined) return undefined;
 			current.runtime = { ...current.runtime, partition: tagSync.partition };
-			const compartments = current.runtime.store.listCompartments(current.runtime.partition);
+			const compartments = withStoreReadPolicy(current, () =>
+				current.runtime.store.listCompartments(current.runtime.partition),
+			);
+			if (compartments === undefined) return undefined;
 			const recovery = planMctxCompartmentRecovery(entries, compartments);
 			if (recovery.kind === "rebuild") {
 				// Branch edits invalidate only the divergent publication tail. Discard via
 				// CAS, then replay the newest stable entries after the job observes abort.
 				const rebuildEntries = [...entries];
-				const nextPartition = current.runtime.store.discardCompartmentsFrom(
-					current.runtime.partition,
-					recovery.discardFromRevision,
+				const nextPartition = withStoreReadPolicy(current, () =>
+					current.runtime.store.discardCompartmentsFrom(
+						current.runtime.partition,
+						recovery.discardFromRevision,
+					),
 				);
 				if (
 					nextPartition !== undefined &&
@@ -787,13 +951,18 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			const baseMessages = projection.kind === "rendered" ? projection.messages : messages;
 			const tagged = projectMctxHistoryTags(baseMessages, entries, tagSync.tags);
 			if (tagged.droppedTagNumbers.length > 0) {
-				const nextPartition = current.runtime.store.markHistoryTagsDropped(
-					current.runtime.partition,
-					tagged.droppedTagNumbers,
+				const nextPartition = withStoreReadPolicy(current, () =>
+					current.runtime.store.markHistoryTagsDropped(
+						current.runtime.partition,
+						tagged.droppedTagNumbers,
+					),
 				);
 				if (nextPartition !== undefined)
 					current.runtime = { ...current.runtime, partition: nextPartition };
 			}
+			// A successful projection re-arms the read-failure notification for the
+			// next failure epoch, matching the historian notification pattern.
+			current.notifiedStoreReadFailure = false;
 			return { messages: tagged.messages };
 		},
 		prepare,
@@ -844,6 +1013,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 						projectIdentity,
 						sessionId,
 					});
+					scheduleMemoryEmbedding(current, memory);
 					return {
 						kind: "memory",
 						memories: [memory],
@@ -856,6 +1026,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 						sessionId,
 					});
 					if (memory === undefined) return { kind: "stale" };
+					scheduleMemoryEmbedding(current, memory);
 					return { kind: "memory", memories: [memory] };
 				}
 				case "archive": {
