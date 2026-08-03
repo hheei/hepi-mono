@@ -1816,6 +1816,28 @@ test("sidekick augment reports a synchronous admission throw as failure", async 
 	).toBe(false);
 });
 
+test("sidekick augment cancels when the signal aborts synchronously during launch", async (): Promise<void> => {
+	const { lifecycle } = embeddingLifecycle();
+	const controller = new AbortController();
+	const task = deferredTaskHandle();
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => store(),
+		resolveProjectIdentity: async () => "git:project",
+		startSidekickTask: () => {
+			controller.abort();
+			return task.handle;
+		},
+	});
+	await feature.start(lifecycle);
+	const abortingContext = {
+		sessionManager: { getSessionId: () => "session-1", getBranch: () => entries },
+		signal: controller.signal,
+	} as unknown as ExtensionContext;
+	expect(await feature.augment("query", abortingContext)).toEqual({ kind: "cancelled" });
+	expect(task.cancelCalls()).toBeGreaterThanOrEqual(1);
+});
+
 test("buildSidekickAugmentation truncates oversized child output", (): void => {
 	const wrapper = buildSidekickAugmentation({
 		query: "q",
