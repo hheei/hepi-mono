@@ -139,6 +139,11 @@ existing semantic token expresses the role.
   detail only exits to the list when the detail declines it.
 - A Loadout row that contributes a detail shows an `↵ Edit config` hint as the last Description
   lane line, so the `Enter` affordance is visible before the detail opens.
+- A resource detail is reachable only while its row is explicitly `enabled`: inherited and
+  disabled rows show no `↵ Edit config` hint and `Enter` does not open the detail. Row activation
+  (inherit/enabled/disabled) stays under the Loadout policy key (`agent:<name>` for agents), never
+  in the contributor's own file format, so a contributor-owned editor cannot silently toggle what
+  the policy owns.
 - Settings uses the legacy combined provider tree, not one page per provider. Its wide layout is
   grouped field list, conditional scrollbar, then one unframed field Description block; narrow
   layout stacks those regions. Field label/value columns remain stable, disabled fields use `dim`,

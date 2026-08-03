@@ -445,8 +445,14 @@ export function createLoadoutPage(
 						const item = entry.item;
 						const status = item.lockedBy !== undefined ? "⊘" : item.enabled ? "●" : "○";
 						const selectedRow = item.key === selectedItem()?.key;
-						// Detail rows advertise the Enter shortcut; non-detail rows stay plain.
-						const detailHint = item.detail === undefined ? "" : theme.fg("dim", " ↵");
+						// Only explicitly enabled rows advertise the Enter shortcut:
+						// an inherited or disabled row has no edit path, and the
+						// row's activation (inherit/enabled/disabled) is owned by
+						// the Loadout policy under its `agent:<name>` key.
+						const detailHint =
+							item.detail === undefined || rawSelection(item, scope, configuration) !== "enabled"
+								? ""
+								: theme.fg("dim", " ↵");
 						const plain = `${selectedRow ? "→" : " "} ${status} ${pad(truncateToWidth(item.name, nameWidth), nameWidth)} ${truncateToWidth(item.displayGroup, groupWidth)}${detailHint}`;
 						const styled =
 							item.lockedBy !== undefined
@@ -469,15 +475,15 @@ export function createLoadoutPage(
 				// The Description lane keeps the resource header (name/kind, origin,
 				// status) in both states; an open detail composes its rows below it
 				// instead of replacing the header.
-				const hasDetail = selectedResource?.detail !== undefined;
+				// Only explicitly enabled rows carry an edit path: activation is
+				// Loadout policy under the row's `agent:<name>` key, and
+				// inherited or disabled rows are read-only here.
+				const hasDetail =
+					selectedResource?.detail !== undefined &&
+					rawSelection(selectedResource, scope, configuration) === "enabled";
 				const header =
 					selectedResource === undefined
-						? [
-								theme.fg(
-									"muted",
-									search ? "No matching resources." : "No resources in this scope.",
-								),
-							]
+						? [theme.fg("muted", search ? "No matching resources." : "No resources in this scope.")]
 						: [
 								theme.bold(
 									truncateToWidth(
@@ -490,10 +496,7 @@ export function createLoadoutPage(
 								// Origin, and Status read as the panel's fixed header.
 								...(hasDetail
 									? []
-									: [
-											...wrapDescription(selectedResource.description, descriptionWidth),
-											"",
-										]),
+									: [...wrapDescription(selectedResource.description, descriptionWidth), ""]),
 								theme.fg("muted", `Origin: ${selectedResource.origin}`),
 								theme.fg(
 									"muted",
@@ -512,15 +515,14 @@ export function createLoadoutPage(
 				// Enter key before opening and reminds of the exit key while the
 				// detail is open. In the wide layout it is pinned to the fixed
 				// panel's last row (PANEL_ROWS - 1); the narrow layout appends it.
-				const editHint =
-					hasDetail === true ? theme.fg("dim", "↵ Edit config") : undefined;
+				const editHint = hasDetail === true ? theme.fg("dim", "↵ Edit config") : undefined;
 				const body =
 					activeDetail !== undefined
 						? [...header, "", ...activeDetail.render(wide ? descriptionWidth : width)]
 						: [...header];
 				if (!wide)
-					return [...list, "", ...body, ...(editHint === undefined ? [] : [editHint])].map(
-						(line) => truncateToWidth(line, width),
+					return [...list, "", ...body, ...(editHint === undefined ? [] : [editHint])].map((line) =>
+						truncateToWidth(line, width),
 					);
 				// The Description is intentionally read only within the fixed panel height.
 				const rail = scrollbar(allEntries.length, scrollTop, theme);
@@ -575,7 +577,10 @@ export function createLoadoutPage(
 			else if (matchesKey(input, Key.down)) move(1);
 			else if (matchesKey(input, Key.enter)) {
 				const selected = selectedItem();
-				if (selected?.detail !== undefined) {
+				if (
+					selected?.detail !== undefined &&
+					rawSelection(selected, scope, configuration) === "enabled"
+				) {
 					detailKey = selected.key;
 					context.requestRender();
 					return true;

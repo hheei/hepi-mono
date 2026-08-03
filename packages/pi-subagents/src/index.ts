@@ -412,7 +412,6 @@ export default function (pi: ExtensionAPI) {
 			const summary = `${thinking}${config.model ?? "inherit"}`;
 			const projectPrivate = config.source === "project";
 			const fingerprint = [
-				config.enabled !== false,
 				label,
 				config.description,
 				summary,
@@ -444,7 +443,10 @@ export default function (pi: ExtensionAPI) {
 				group: "𖠌 Agents",
 				priority: 0,
 				conflictSets: [],
-				defaultActive: config.enabled !== false,
+				// Activation is a Loadout-policy concern under `agent:<name>`,
+				// never an agent-Markdown field; every agent defaults to active
+				// so the panel, not the file, decides inherit/enabled/disabled.
+				defaultActive: true,
 				label,
 				description: config.description,
 				summary,

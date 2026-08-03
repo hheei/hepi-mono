@@ -341,38 +341,45 @@ describe("agent type registry", () => {
 			expect(config.builtinToolNames).toEqual(BUILTIN_TOOL_NAMES);
 		});
 
-		it("disabled agent is excluded from available types", () => {
+		it("Loadout-inactive agent is excluded from available types", () => {
 			const agents = new Map([
 				[
 					"Plan",
 					makeAgentConfig({
 						name: "Plan",
-						enabled: false,
 					}),
 				],
 			]);
 			registerAgents(agents);
+			setLoadoutActivation({
+				knownIds: new Set(["agent:Plan"]),
+				activeIds: new Set(),
+			});
 
 			expect(isValidType("Plan")).toBe(false);
 			expect(getAvailableTypes()).not.toContain("Plan");
 		});
 
-		it("general-purpose can be disabled but fallback still works", () => {
+		it("Loadout-inactivity gates spawning but not config lookup", () => {
 			const agents = new Map([
 				[
 					"general-purpose",
 					makeAgentConfig({
 						name: "general-purpose",
-						enabled: false,
 					}),
 				],
 			]);
 			registerAgents(agents);
+			setLoadoutActivation({
+				knownIds: new Set(["agent:general-purpose"]),
+				activeIds: new Set(),
+			});
 
 			expect(isValidType("general-purpose")).toBe(false);
-			// getConfig fallback should still return something reasonable
+			// Activation is enforced at spawn time; the registry still serves
+			// the profile's configuration for inspection and editing.
 			const config = getConfig("general-purpose");
-			expect(config.displayName).toBe("Agent");
+			expect(config.displayName).toBe("general-purpose");
 		});
 	});
 

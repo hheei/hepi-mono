@@ -270,6 +270,65 @@ describe("Loadout Settings page", () => {
 		}
 	});
 
+	test("inherited and disabled agent rows get no edit path", async () => {
+		const h = setup();
+		const inputs: string[] = [];
+		const dispose = registerLoadoutResource(h.pi, {
+			id: "agent:Detail",
+			kind: "agent",
+			group: "𖠌 Agents",
+			priority: 0,
+			conflictSets: [],
+			defaultActive: true,
+			label: "Detail",
+			description: "Has a settings detail.",
+			summary: "settings",
+			projectPrivate: false,
+			owner: "test",
+			detail: {
+				render: () => ["Detail panel"],
+				handleInput: (input) => {
+					inputs.push(input);
+					return true;
+				},
+			},
+		});
+		try {
+			// Disabled: a global delta disables the row, so the hint is gone and
+			// Enter must not open the detail.
+			const disabledEngine: LoadoutEngine = {
+				start: async () => undefined,
+				dispose: () => undefined,
+				snapshot: () => ({
+					configuration: {
+						global: { disabled: ["agent:Detail"], enabled: [] },
+						project: { disabled: [], enabled: [] },
+					},
+					initialActiveToolNames: ["read"],
+				}),
+			};
+			const disabled = createLoadoutPage(h.pi, disabledEngine, h.context);
+			await disabled.handleInput("\u001b[B");
+			await disabled.handleInput("\u001b[B");
+			expect(disabled.component.render(100).join("\n")).not.toContain("↵");
+			await disabled.handleInput("\r");
+			expect(disabled.component.render(100).join("\n")).not.toContain("Detail panel");
+			// Inherited: project scope with no project-private row and no delta.
+			const inherited = createLoadoutPage(h.pi, fakeEngine(), h.context);
+			await inherited.handleInput("\u001b[112;5u"); // ctrl+p → project
+			await inherited.handleInput("\u001b[B");
+			await inherited.handleInput("\u001b[B");
+			const project = inherited.component.render(100).join("\n");
+			expect(project).toContain("Project · /workspace/.pi/settings.json");
+			expect(project).not.toContain("↵");
+			await inherited.handleInput("\r");
+			expect(inherited.component.render(100).join("\n")).not.toContain("Detail panel");
+			expect(inputs).toEqual([]);
+		} finally {
+			dispose();
+		}
+	});
+
 	test("composes the real agent detail under the resource header without a duplicate title", async () => {
 		const h = setup();
 		const root = await mkdtemp(join(tmpdir(), "pi-loadout-agent-"));
@@ -288,7 +347,6 @@ describe("Loadout Settings page", () => {
 			skills: true,
 			systemPrompt: "You are read-only.",
 			promptMode: "replace",
-			enabled: true,
 			source: "project",
 		};
 		const detail = createAgentDetail(

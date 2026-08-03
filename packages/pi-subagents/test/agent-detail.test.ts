@@ -19,7 +19,6 @@ const UP = "\x1b[A";
 const DOWN = "\x1b[B";
 const TAB = "\t";
 const SHIFT_TAB = "\x1b[Z";
-const SPACE = " ";
 const BACKSPACE = "\x7f";
 const ESCAPE = "\x1b";
 
@@ -61,7 +60,6 @@ function configFor(name: string): AgentConfig {
 		skills: true,
 		systemPrompt: "You are a test agent.",
 		promptMode: "replace",
-		enabled: true,
 		source: "project",
 	};
 }
@@ -106,7 +104,6 @@ function setupDefault(name = "Explore") {
 		skills: true,
 		systemPrompt: "You are a read-only explorer.\n",
 		promptMode: "replace",
-		enabled: true,
 		isDefault: true,
 	};
 	const detail = createAgentDetail(
@@ -150,17 +147,16 @@ Body line two.
 			description: "New",
 			model: "provider/model",
 			thinking: "low",
-			enabled: false,
 			prompt_mode: "replace",
 		});
 		expect(readContent(path)).toBe(
 			`---
+enabled: true
 custom_key: keep-me
 display_name: "Auditor"
 description: "New"
 model: "provider/model"
 thinking: "low"
-enabled: false
 prompt_mode: "replace"
 ---
 Body line one.
@@ -171,8 +167,8 @@ Body line two.
 
 	it("prepends a frontmatter block to a bare body file", () => {
 		const { path } = makeAgent("bare", "Just a prompt.");
-		rewriteAgentMarkdown(path, { enabled: true });
-		expect(readContent(path)).toBe("---\nenabled: true\n---\nJust a prompt.");
+		rewriteAgentMarkdown(path, { description: "Just a prompt." });
+		expect(readContent(path)).toBe('---\ndescription: "Just a prompt."\n---\nJust a prompt.');
 	});
 
 	it("omits unset optional values instead of writing empty keys", () => {
@@ -202,7 +198,7 @@ describe("createAgentDetail", () => {
 		const content = readContent(path);
 		expect(content).toContain('display_name: "x"');
 		expect(content).toContain('description: "Read-only explorer."');
-		expect(content).toContain("enabled: true");
+		expect(content).not.toContain("enabled:"); // activation is Loadout policy, not Markdown
 		expect(content).toContain('prompt_mode: "replace"');
 		expect(content).toContain("You are a read-only explorer."); // built-in body preserved
 		expect(notifications).toEqual([]);
@@ -233,7 +229,7 @@ describe("createAgentDetail", () => {
 
 	it("writeAgentMarkdown omits tools when the source has no allowlist", () => {
 		const { path } = makeAgent("bare", "Body.");
-		writeAgentMarkdown(path, { enabled: true }, "Body.");
+		writeAgentMarkdown(path, { description: "Body." }, "Body.");
 		expect(readContent(path)).not.toContain("tools:");
 	});
 
@@ -245,11 +241,9 @@ describe("createAgentDetail", () => {
 		expect(changed).toEqual(["reload"]);
 	});
 
-	it("persists an enabled toggle immediately on Space", async () => {
-		const { detail, path } = setup();
-		for (let i = 0; i < 4; i++) await detail.handleInput(DOWN); // identity → enabled
-		await detail.handleInput(SPACE);
-		expect(readContent(path)).toContain("enabled: false");
+	it("offers no enabled field: activation stays under the Loadout policy", async () => {
+		const { detail } = setup();
+		expect(detail.render(100).join("\n")).not.toContain("Enabled:");
 	});
 
 	it("cycles thinking with Tab inside the selector and saves both on Enter", async () => {
@@ -391,7 +385,7 @@ describe("createAgentDetail", () => {
 		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN);
 		await detail.handleInput(ENTER);
 		const lines = detail.render(18);
-		expect(lines).toHaveLength(8);
+		expect(lines).toHaveLength(7);
 		expect(lines.join("\n")).toContain("Model: inherit");
 		expect(detail.render(60).join("\n")).toContain("↑/↓ choose · Tab cycle thinking");
 		await detail.handleInput(DOWN);

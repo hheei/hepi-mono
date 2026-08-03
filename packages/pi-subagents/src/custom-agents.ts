@@ -69,7 +69,6 @@ function loadFromDir(
 			skills: inheritField(fm.skills ?? fm.inherit_skills),
 			systemPrompt: body.trim(),
 			promptMode: fm.prompt_mode === "append" ? "append" : "replace",
-			enabled: fm.enabled !== false, // default true; explicitly false disables
 			source,
 		};
 		const optional: Record<string, unknown> = {
