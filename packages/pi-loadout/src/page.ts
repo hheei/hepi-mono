@@ -466,46 +466,69 @@ export function createLoadoutPage(
 					),
 				);
 				const selectedResource = selectedItem();
-				const description =
+				// The Description lane keeps the resource header (name/kind, origin,
+				// status) in both states; an open detail composes its rows below it
+				// instead of replacing the header.
+				const hasDetail = selectedResource?.detail !== undefined;
+				const header =
+					selectedResource === undefined
+						? [
+								theme.fg(
+									"muted",
+									search ? "No matching resources." : "No resources in this scope.",
+								),
+							]
+						: [
+								theme.bold(
+									truncateToWidth(
+										`${selectedResource.name} (${selectedResource.kind})`,
+										descriptionWidth,
+									),
+								),
+								"",
+								// Detail-bearing rows drop the description so the title,
+								// Origin, and Status read as the panel's fixed header.
+								...(hasDetail
+									? []
+									: [
+											...wrapDescription(selectedResource.description, descriptionWidth),
+											"",
+										]),
+								theme.fg("muted", `Origin: ${selectedResource.origin}`),
+								theme.fg(
+									"muted",
+									`Status: ${selectedResource.lockedBy === undefined ? (selectedResource.enabled ? "● active" : "○ disabled") : "⊘ locked"}`,
+								),
+								...(selectedResource.lockedBy === undefined
+									? []
+									: [
+											theme.fg(
+												"dim",
+												`Locked by ${selectedResource.lockedBy}. Change its winning override first.`,
+											),
+										]),
+							];
+				// `↵ Edit config` stays visible in both states: it invites the
+				// Enter key before opening and reminds of the exit key while the
+				// detail is open. In the wide layout it is pinned to the fixed
+				// panel's last row (PANEL_ROWS - 1); the narrow layout appends it.
+				const editHint =
+					hasDetail === true ? theme.fg("dim", "↵ Edit config") : undefined;
+				const body =
 					activeDetail !== undefined
-						? [...activeDetail.render(wide ? descriptionWidth : width)]
-						: selectedResource === undefined
-							? [
-									theme.fg(
-										"muted",
-										search ? "No matching resources." : "No resources in this scope.",
-									),
-								]
-							: [
-									theme.bold(
-										truncateToWidth(
-											`${selectedResource.name} (${selectedResource.kind})`,
-											descriptionWidth,
-										),
-									),
-									"",
-									...wrapDescription(selectedResource.description, descriptionWidth),
-									"",
-									theme.fg("muted", `Origin: ${selectedResource.origin}`),
-									theme.fg(
-										"muted",
-										`Status: ${selectedResource.lockedBy === undefined ? (selectedResource.enabled ? "● active" : "○ disabled") : "⊘ locked"}`,
-									),
-									...(selectedResource.lockedBy === undefined
-										? []
-										: [
-												theme.fg(
-													"dim",
-													`Locked by ${selectedResource.lockedBy}. Change its winning override first.`,
-												),
-											]),
-								];
-				if (!wide) return [...list, "", ...description].map((line) => truncateToWidth(line, width));
+						? [...header, "", ...activeDetail.render(wide ? descriptionWidth : width)]
+						: [...header];
+				if (!wide)
+					return [...list, "", ...body, ...(editHint === undefined ? [] : [editHint])].map(
+						(line) => truncateToWidth(line, width),
+					);
 				// The Description is intentionally read only within the fixed panel height.
 				const rail = scrollbar(allEntries.length, scrollTop, theme);
 				return Array.from({ length: PANEL_ROWS }, (_, index) => {
+					const lane =
+						editHint !== undefined && index === PANEL_ROWS - 1 ? editHint : (body[index] ?? "");
 					const left = pad(truncateToWidth(list[index] ?? "", listWidth), listWidth);
-					return `${left}${pad(rail[index] ?? "", scrollbarWidth)}   ${truncateToWidth(description[index] ?? "", descriptionWidth)}`;
+					return `${left}${pad(rail[index] ?? "", scrollbarWidth)}   ${truncateToWidth(lane, descriptionWidth)}`;
 				});
 			},
 			handleInput(): void {},

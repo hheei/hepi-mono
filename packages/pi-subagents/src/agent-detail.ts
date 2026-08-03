@@ -272,7 +272,6 @@ export function createAgentDetail(
 				? (modelChoices()[selectIndex] ?? INHERIT)
 				: (draft.model ?? INHERIT);
 			const lines = [
-				`Agent ${name}`,
 				`Identity: ${draft.displayName ?? name}`,
 				`Description: ${draft.description}`,
 				`Model: ${currentModel}`,
@@ -285,7 +284,7 @@ export function createAgentDetail(
 					: "↑/↓ select · Enter edit/save · Space toggle · Esc back",
 			];
 			return lines.map((line, index) =>
-				truncateToWidth(`${index === selected + 1 ? "→ " : "  "}${line}`, Math.max(0, width)),
+				truncateToWidth(`${index === selected ? "→ " : "  "}${line}`, Math.max(0, width)),
 			);
 		},
 		async handleInput(input: string): Promise<boolean> {

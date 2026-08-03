@@ -405,7 +405,11 @@ export default function (pi: ExtensionAPI) {
 			const config = getAgentConfig(name);
 			if (!config) continue;
 			const label = config.displayName ?? config.name;
-			const summary = `${hepiThinkingGlyph(config.thinking)} ${config.model ?? "inherit"}`;
+			// The thinking glyph appears only for a pinned thinking level; an
+			// inherited level (frontmatter omits `thinking`) shows no glyph.
+			const thinking =
+				config.thinking === undefined ? "" : `${hepiThinkingGlyph(config.thinking)} `;
+			const summary = `${thinking}${config.model ?? "inherit"}`;
 			const projectPrivate = config.source === "project";
 			const fingerprint = [
 				config.enabled !== false,

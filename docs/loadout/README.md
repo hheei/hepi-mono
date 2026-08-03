@@ -27,6 +27,9 @@ settings provider 的 schema、storage、validation 与 live-policy callback，�
 state 下沉到 Loadout。`pi-auto-title` 不注册 `agent` resource，始终经 `/ext-settings` 显示自己的
 settings；`Agents` group 的行只来自 `pi-subagents` 的 subagent profiles。
 
+选中一个贡献 detail 的 agent 时，右侧 Description lane 底部显示 `↵ Edit config` 提示，表示
+`Enter` 打开该 agent 的可编辑 detail。
+
 `pi-subagents` 的 agent detail 对 `model` 与 `thinking` 两个字段复用 Settings 的 cycler 交互
 （与 `HepiSettingTabCycle` 语义一致）：在 `model` 或 `thinking` 行按 `Enter` 打开单一选择器，
 `↑`/`↓` 在 model 选项间循环移动（到头回绕，与 Settings enum 编辑器一致），`Tab`/`Shift+Tab`
@@ -50,8 +53,9 @@ key），spawn 时回退到父会话或 profile 默认。
 ○ Plan           ○ anthropic/claude-haiku-4-5
 ```
 
-第一 glyph 是 enabled (`●`) 或 disabled (`○`)；第二 glyph 是 thinking level。缺少 model configuration
-时显示 `inherit`，不猜测 provider。
+第一 glyph 是 enabled (`●`) 或 disabled (`○`)；第二 glyph 是 thinking level，只在 profile 配置了
+thinking（frontmatter 含 `thinking`）时显示——未配置（继承）时不显示 glyph。缺少 model
+configuration 时显示 `inherit`，不猜测 provider。
 
 ## 配置与作用域
 
