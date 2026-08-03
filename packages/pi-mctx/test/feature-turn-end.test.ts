@@ -49,10 +49,12 @@ function lifecycleFixture(): {
 		} as unknown as ExtensionContext,
 		signal: new AbortController().signal,
 		resources: {
-			add: (_id: string, cleanup: () => void | Promise<void>) => cleanups.push(cleanup),
+			add: (_id: string, cleanup: () => void | Promise<void>): void => {
+				cleanups.push(cleanup);
+			},
 			cleanup: async () => [],
 		},
-	} as ExtensionLifecycleContext;
+	} as unknown as ExtensionLifecycleContext;
 	return { context, cleanups, notifications };
 }
 
@@ -65,6 +67,11 @@ function store(): MctxStore {
 			revision: 0,
 		}),
 		findPartition: () => undefined,
+		isHandoffInstalled: () => false,
+		reserveHandoffInstallation: () => undefined,
+		recoverHandoffInstallation: () => false,
+		markHandoffInstalled: () => undefined,
+		clearHandoffInstallation: () => undefined,
 		initializeForkPartition: () => ({
 			kind: "copied",
 			partition: { projectIdentity: "git:project", sessionId: "session-1", revision: 0 },
@@ -83,6 +90,7 @@ function store(): MctxStore {
 			throw new Error("not used");
 		},
 		getMemories: () => [],
+		listActiveMemories: () => [],
 		updateMemory: () => undefined,
 		archiveMemory: () => undefined,
 
@@ -90,6 +98,9 @@ function store(): MctxStore {
 			throw new Error("not used");
 		},
 		readNotes: () => [],
+		listActiveNotes: () => [],
+		listRetainedHistoryTags: () => [],
+		purgeRetainedHistory: () => 0,
 		updateNote: () => undefined,
 		dismissNote: () => undefined,
 		close: () => undefined,
@@ -116,16 +127,19 @@ test("turn_end starts one background historian and cleanup aborts it", async ():
 	let calls = 0;
 	let signal: AbortSignal | undefined;
 	let resolveRun: (() => void) | undefined;
+	let storeClosed = false;
 	const feature = createMctxFeature({
 		loadConfiguration: async () => configuration(),
-		openStore: () => store(),
+		openStore: () => ({ ...store(), close: () => (storeClosed = true) }),
 		resolveProjectIdentity: async () => "git:project",
 		runHistorianForBranch: async (request) => {
 			calls++;
 			signal = request.signal;
 			await new Promise<void>((resolve) => {
 				resolveRun = resolve;
+				request.signal.addEventListener("abort", () => resolve());
 			});
+			if (storeClosed) throw new Error("store closed before historian settled");
 			return { kind: "cancelled" };
 		},
 	});
@@ -141,6 +155,10 @@ test("turn_end starts one background historian and cleanup aborts it", async ():
 	await historianCleanup();
 	expect(signal?.aborted).toBe(true);
 	resolveRun?.();
+	const storeCleanup = fixture.cleanups[0];
+	if (storeCleanup === undefined) throw new Error("Expected store cleanup");
+	await storeCleanup();
+	expect(storeClosed).toBe(true);
 });
 
 test("turn_end ignores absent usage and another session", async (): Promise<void> => {

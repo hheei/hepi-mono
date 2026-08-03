@@ -45,7 +45,7 @@ export function mctxSearchContentHash(value: string): string {
 	return hash(value);
 }
 
-function boundedText(value: string): string {
+export function boundedMctxSearchText(value: string): string {
 	return value.length <= MAX_SOURCE_CHARS ? value : value.slice(0, MAX_SOURCE_CHARS);
 }
 
@@ -169,7 +169,7 @@ async function primerCandidate(
 			source: "primer",
 			id: `primer:${relative(root, path)}:${hash(content)}`,
 			title: `Primer ${relative(root, path)}`,
-			text: boundedText(content),
+			text: boundedMctxSearchText(content),
 		};
 	} catch (error: unknown) {
 		if (signal.aborted) throw error;
@@ -199,7 +199,7 @@ function gitCandidates(output: string): readonly MctxSearchCandidate[] {
 			source: "git",
 			id: `git:${commit}`,
 			title: `Commit ${commit.slice(0, 12)}: ${subject}`,
-			text: boundedText([subject, author, timestamp, body].join("\n")),
+			text: boundedMctxSearchText([subject, author, timestamp, body].join("\n")),
 		});
 	}
 	return candidates;
