@@ -20,6 +20,6 @@
 		"exactOptionalPropertyTypes": true,
 		"types": ["node", "bun"]
 	},
-	"include": ["packages/*/**/*.ts", "test/**/*.ts"],
-	"exclude": ["packages/hepi-subagents/**", "**/node_modules/**", "**/dist/**", "**/.pi/**"]
+	"include": ["packages/pi-*/**/*.ts", "test/**/*.ts"],
+	"exclude": ["packages/hepi-*/**", "**/node_modules/**", "**/dist/**", "**/.pi/**"]
 }
