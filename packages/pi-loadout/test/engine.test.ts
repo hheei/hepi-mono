@@ -7,6 +7,7 @@ import {
 	getDisabledSkillKeys,
 	observeLoadoutToolActivation,
 	type PiSettingsPaths,
+	registerLoadoutResource,
 	registerManagedLoadoutTool,
 } from "@hheei/pi-ext-core";
 import { createLoadoutEngine } from "../src/engine.js";
@@ -132,6 +133,52 @@ describe("headless Loadout engine", () => {
 		await engine.start({ cwd: process.cwd() } as ExtensionContext, new AbortController().signal);
 		expect(h.activeSets.at(-1)).toEqual(["third_party"]);
 		engine.dispose();
+	});
+
+	test("publishes agent resource activation without adding it to host tools", async () => {
+		const h = host();
+		const settings = await paths();
+		await writeFile(
+			settings.globalPath,
+			JSON.stringify({ "pi-loadout": { disabled: ["agent:Explore"] } }),
+		);
+		const dispose = registerLoadoutResource(h.pi, {
+			id: "agent:Explore",
+			kind: "agent",
+			group: "𖠌 Agents",
+			priority: 0,
+			conflictSets: [],
+			defaultActive: true,
+			label: "Explore",
+			description: "Read-only explorer.",
+			summary: "○ inherit",
+			projectPrivate: false,
+			owner: "@hheei/pi-subagents",
+		});
+		const snapshots: Array<{
+			readonly known: readonly string[];
+			readonly active: readonly string[];
+		}> = [];
+		const controller = new AbortController();
+		observeLoadoutToolActivation(h.pi, {
+			signal: controller.signal,
+			onChange(snapshot) {
+				if (snapshot === undefined) return;
+				snapshots.push({
+					known: [...snapshot.knownIds].sort(),
+					active: [...snapshot.activeIds].sort(),
+				});
+			},
+		});
+		const engine = createLoadoutEngine(h.pi, { paths: settings });
+		await engine.start({ cwd: process.cwd() } as ExtensionContext, controller.signal);
+		expect(h.activeSets.at(-1)).toEqual(["find", "third_party"]);
+		expect(snapshots.at(-1)).toEqual({
+			known: ["agent:Explore", "custom", "find", "third_party"],
+			active: ["find", "third_party"],
+		});
+		engine.dispose();
+		dispose();
 	});
 
 	test("writes scope deltas, clears fallback choices, and repairs the modified key", async () => {

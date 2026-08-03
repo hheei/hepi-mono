@@ -3,6 +3,8 @@ import {
 	clearDisabledSkillKeys,
 	clearLoadoutToolActivation,
 	defaultPiSettingsPaths,
+	type LoadoutInventoryItem,
+	type LoadoutResourceMetadata,
 	type LoadoutToolMetadata,
 	observeLoadoutInventory,
 	type PiSettingsPaths,
@@ -13,6 +15,7 @@ import {
 	disabledSkillKeys,
 	type LoadoutConfiguration,
 	resolveActiveToolNames,
+	resolveLoadoutState,
 	type ToolPolicy,
 } from "./model.js";
 import { loadLoadoutConfiguration } from "./storage.js";
@@ -63,6 +66,10 @@ function skillNames(pi: ExtensionAPI): readonly string[] {
 	].sort((left, right) => left.localeCompare(right));
 }
 
+function isResourceMetadata(item: LoadoutInventoryItem): item is LoadoutResourceMetadata {
+	return "kind" in item;
+}
+
 /** Projects Pi tools and core inventory into the policy inputs shared by engine and Settings page. */
 export function loadoutToolPolicies(
 	tools: readonly ToolInfo[],
@@ -90,19 +97,33 @@ export function createLoadoutEngine(
 	let configuration: LoadoutConfiguration | undefined;
 	let active = false;
 
-	const apply = (metadata: readonly LoadoutToolMetadata[]): void => {
-		if (!active || configuration === undefined) return;
+	const apply = (metadata: readonly LoadoutInventoryItem[]): void => {
+		const resolvedConfiguration = configuration;
+		if (!active || resolvedConfiguration === undefined) return;
 		const tools = pi.getAllTools();
-		const policies = loadoutToolPolicies(tools, new Set(initialActive), metadata);
+		const toolMetadata = metadata.filter(
+			(item): item is LoadoutToolMetadata => !isResourceMetadata(item),
+		);
+		const resources = metadata.filter(isResourceMetadata);
+		const policies = loadoutToolPolicies(tools, new Set(initialActive), toolMetadata);
 		const policyNames = new Set(policies.map((tool) => tool.name));
 		const preserved = initialActive.filter((name) => !policyNames.has(name));
-		const selected = resolveActiveToolNames(policies, configuration);
+		const selected = resolveActiveToolNames(policies, resolvedConfiguration);
 		pi.setActiveTools([...new Set([...preserved, ...selected])]);
+		const activeResources = resources
+			.filter(
+				(resource) =>
+					resolveLoadoutState(resource.id, resource.defaultActive, resolvedConfiguration).enabled,
+			)
+			.map((resource) => resource.id);
 		publishLoadoutToolActivation(pi, {
-			knownIds: new Set(policies.map((tool) => tool.name)),
-			activeIds: new Set(selected),
+			knownIds: new Set([
+				...policies.map((tool) => tool.name),
+				...resources.map((item) => item.id),
+			]),
+			activeIds: new Set([...selected, ...activeResources]),
 		});
-		setDisabledSkillKeys(pi, disabledSkillKeys(skillNames(pi), configuration));
+		setDisabledSkillKeys(pi, disabledSkillKeys(skillNames(pi), resolvedConfiguration));
 	};
 	const dispose = (): void => {
 		// Clear cross-extension state before restoring Pi so consumers cannot observe

@@ -8,8 +8,9 @@
 
 ## 目标与包边界
 
-Loadout 只管理主动登记的 tool。`@hheei/pi-ext-core` 公开跨 extension 的 Loadout registration
-contract；`pi-loadout` 拥有 tool inventory、activation policy、持久化与 Loadout tab 内容；
+Loadout 管理主动登记的 **resource**。resource 目前包括 Pi tool、skill 与 concrete extension 声明的
+agent profile。`@hheei/pi-ext-core` 公开跨 extension 的 Loadout registration contract；`pi-loadout`
+拥有 resource inventory、activation policy、持久化与 Loadout tab 内容；
 `pi-settings` 是唯一 Settings host，拥有 `/ext-settings [page-id]` command 并打开 core 的 global
 Extension page router。
 
@@ -17,44 +18,48 @@ Extension page router。
 registry 消费 registration，`pi-settings` 从 core router 打开页面。core 始终直接向 Pi 注册 managed
 executable tool，消除 extension load order 依赖。
 
-`pi-loadout` 是 managed-tool contributor 的推荐 companion extension，但不是硬依赖。缺少它时，
+`pi-loadout` 是 managed-tool/resource contributor 的推荐 companion extension，但不是硬依赖。缺少它时，
 core 仍注册 executable tool，保留 Pi 默认 activation；不应用 Loadout inventory、conflict、priority
-或 persisted override。`pi-loadout` 不提供 standalone renderer，但提供 `/loadout` command；它打开 shared router
+或 persisted override。agent profile 则保留其 contributor 声明的 default activation。`pi-loadout` 不提供 standalone renderer，但提供 `/loadout` command；它打开 shared router
 并初始选中 Loadout page。安装 `pi-settings` 时同一 router 也能显示其它页面。它只读取新的
 `pi-loadout` global/project JSON sections；旧 `pi-basics-loadout` state 与早期 `tools` / `skills`
 boolean map schema 不迁移。
 
 ## Tool Registration
 
-core 提供两种独立 registration mode：
+core 提供三种独立 registration mode：
 
 | Mode | 用途 | Pi executable tool | Inventory item |
 | --- | --- | --- | --- |
 | Inventory registration | 管理已存在的 native 或 third-party tool | 不创建 | 创建一个 lifecycle-bound item |
 | Managed tool registration | HEPI-owned non-native executable tool | core 在 extension initialization 创建 | 自动创建同 ID item |
+| Resource registration | 管理非 Pi-tool 的 feature resource，例如 agent profile | 不创建 | 创建一个 lifecycle-bound item |
 
-每个 Tool inventory item 都有稳定 tool ID、单一 display group、小数值优先的 priority、零或多个
-conflict set 与 default activation。两个 mode 使用同一 metadata；managed mode 仅额外带 Pi tool
-definition 和 handler。
+每个 inventory item 都有稳定 resource ID、kind、单一 display group、小数值优先的 priority、零或多个
+conflict set 与 default activation。tool 的 ID 使用 `tool:<Pi tool name>`；agent profile 使用
+`agent:<name>`。前两个 mode 使用 tool metadata；managed mode 仅额外带 Pi tool definition 和 handler；
+resource mode 不能伪装为 Pi executable tool。
 
-同一 runtime 中，一个 tool ID 只能由一个 owner 登记。inventory/managed 混用、不同 owner 抢占或
-同一 Pi runner 内重复 registration 都立即报错；同一 managed owner 在完整 `/reload` 产生新 runner
-时可以替换自己的旧 registration。managed tool 只能在 extension initialization 登记，不能在 session
-内动态新增或单独移除；变更需要完整 `/reload`。所有 HEPI-owned non-native tool 必须使用 managed
-mode，feature package 不得直接调用 Pi tool registration API。
+同一 runtime 中，一个 resource ID 只能由一个 owner 登记。inventory/managed/resource mode 混用、不同
+owner 抢占或同一 Pi runner 内重复 registration 都立即报错；同一 managed owner 在完整 `/reload` 产生新
+runner 时可以替换自己的旧 registration。managed tool 只能在 extension initialization 登记，不能在 session
+内动态新增或单独移除；所有 HEPI-owned non-native tool 必须使用 managed mode，feature package 不得直接
+调用 Pi tool registration API。非-tool resource 可随其 owner 的 active session 增删；例如 profile discovery
+reload 更新 `agent:<name>` registration，但必须保留 lifecycle cleanup 的精确释放。
 
-`pi-loadout` 自动观察 Pi native 与 third-party tools；managed/native 是明确 inventory，未提供
-metadata 的 observed tool 以 session start 的 Pi active list 作为默认状态。同名 source 合并为
-一个 name-level item，Pi 仍决定实际 handler。
+`pi-loadout` 自动观察 Pi native 与 third-party tools，并消费 core resource registry；managed/native 是明确
+tool inventory，未提供 metadata 的 observed tool 以 session start 的 Pi active list 作为默认状态。同名 tool
+source 合并为一个 name-level item，Pi 仍决定实际 handler。
 
 ## Activation Policy
 
-Loadout 在 session start 观察 Pi tools。每次更新时，它只计算 inventory items 的 effective state，
-再一次性写入 Pi active-tool list；无法安全识别的第三方 tool 保留在 Pi baseline，不被关闭。
+Loadout 在 session start 观察 Pi tools 与 core resource registry。每次更新时，它计算所有 inventory items 的
+effective state：tool selection 一次性写入 Pi active-tool list；non-tool resource 只发布 resolved activation
+snapshot。无法安全识别的第三方 tool 保留在 Pi baseline，不被关闭。
 
 配置不是 project-wins object merge，而是两个独立的 JSON delta layer。每层仅有
 `disabled: string[]` 与 `enabled: string[]`；key 为 canonical `tool:<name>` 或
-`skill:<bare-name>`。一个 resource 的 policy source 固定为
+`skill:<bare-name>` 或 `agent:<name>`。一个 resource 的 policy source 固定为
 `project disabled > project enabled > global disabled > global enabled > discovered default`。
 同层双写时 disabled 胜 enabled，写入 API 对被修改 key 清除另一侧条目。合法未发现 key 保留但
 暂时不参与 runtime；未知 schema field、无效 key 与早期 boolean-map schema fail-fast。每层 array
@@ -78,10 +83,53 @@ conflict set 内多个 enabled item 的 winner 先按 delta source rank，再按
 `pi-loadout` state 从空开始，不迁移 legacy entries。
 
 skill enable/disable 由 `pi-loadout` 自己管理；core 只提供 runtime-scoped disabled-skill capability
-供 Loadout 发布、dollar-skill 读取。不得为 skills 预建 generic resource registration API。
+供 Loadout 发布、dollar-skill 读取。agent profile activation 则通过 core 的 runtime-scoped Loadout
+activation snapshot 发布；profile owner 读取 `agent:<name>` 的 effective state 后，将它与自身 profile
+settings 的 enabled state 相交。core 不读取 profile 文件，也不解释 agent policy。
 
 MCP placeholder 不属于新 Loadout inventory。旧实现没有 MCP discovery 或 runtime activation，
 因此不迁移其无效状态。
+
+## Agent Profile Resource 与详情页
+
+`pi-subagents` 加载后，为每个已发现 profile 登记 `agent:<name>` resource，并使用唯一 display group
+`Agents`。没有任何 agent resource 时，Loadout 不显示该 group；profile discovery/reload 必须原子更新
+registration，卸载 extension 或 session abort 必须释放它们。
+
+Loadout list 的 group heading 固定为：
+
+```text
+⚒ Tools
+✦ Skills
+𖠌 Agents
+```
+
+`Agents` 仅在有 agent resource 时出现；Tools 与 Skills 按各自已有 inventory 出现。glyph 只是分组标签，
+不能承担 activation 或 selection 的唯一语义；state 仍使用文字与 `✓` / `○`。实现必须以 Pi TUI 的 cell-width
+工具计算、截断这三个 heading，保证窄终端不破坏 `DESIGN.md` 要求的稳定行宽。
+
+`𖠌 Agents` 内每行固定为 activation、agent name 与 effective model metadata 三列：
+
+```text
+● Explore        ◔ cx/gpt-5.6-luna
+○ Plan           ○ anthropic/claude-haiku-4-5
+```
+
+首 glyph 是 effective activation：`●` 为 enabled，`○` 为 disabled。第二个 glyph 是 thinking level，
+与 activation 无关：off/minimal=`○`、low=`◔`、medium=`◑`、high=`◕`、xhigh/max=`●`；未知值显示 `?`。
+末列显示 resolved `provider/model-name`；未指定时显示 `inherit`，不得猜测 provider。agent-name 与 metadata
+column 按完整 filtered Agents list 的 visible width 固定计算；窄布局必须优先 ANSI/cell-width-safe truncate
+metadata，不能挤压 activation 或 name column。
+
+Loadout 的 `Enter` 可以进入 resource contributor 提供的 detail controller，并仍留在同一 shared router
+surface。Loadout 拥有 tab、焦点、scope、Enter/Esc 路由、component mounting 与 cleanup；contributor 拥有
+detail fields、runtime validation、配置读写与描述。该 detail capability 由 core 注册表传输，禁止
+`pi-subagents` import concrete `pi-loadout`。
+
+`pi-subagents` 不再拥有 `/agents` 的 profile/settings/schedule GUI。agent profile 的 model、thinking、tools、
+memory、isolation、turn budget 与 profile-file mutation 都从 Loadout 的 `Agents` group 进入。运行中的 child
+record、live transcript、steer 和 stop 不属于配置；它们将在后续以独立 Runtime popup 实现，而不塞入
+Loadout settings page。
 
 ## Extension Page Router
 

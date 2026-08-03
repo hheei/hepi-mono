@@ -3,7 +3,11 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
-import type { ExtensionPageViewContext, PiSettingsPaths } from "@hheei/pi-ext-core";
+import {
+	type ExtensionPageViewContext,
+	type PiSettingsPaths,
+	registerLoadoutResource,
+} from "@hheei/pi-ext-core";
 import { replayTui, viewFrame } from "../../hepi-debug/src/tui-replay.js";
 import type { LoadoutEngine } from "../src/engine.js";
 import { createLoadoutPage } from "../src/page.js";
@@ -131,6 +135,32 @@ describe("Loadout Settings page", () => {
 		expect(project).toContain("Project · /workspace/.pi/settings.json");
 		expect(project).toContain("project_check");
 		expect(project.indexOf("read")).toBeLessThan(project.indexOf("project_check"));
+	});
+
+	test("renders registered agents after skills with activation and model summary", () => {
+		const h = setup();
+		const dispose = registerLoadoutResource(h.pi, {
+			id: "agent:Explore",
+			kind: "agent",
+			group: "𖠌 Agents",
+			priority: 0,
+			conflictSets: [],
+			defaultActive: true,
+			label: "Explore",
+			description: "Read-only explorer.",
+			summary: "◔ cx/gpt-5.6-luna",
+			projectPrivate: false,
+			owner: "@hheei/pi-subagents",
+		});
+		const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
+		const output = page.component.render(100).join("\n");
+		expect(output).toContain("⚒ Tools");
+		expect(output).toContain("✦ Skills");
+		expect(output).toContain("𖠌 Agents");
+		expect(output).toContain("● Explore");
+		expect(output).toContain("◔ cx/gpt-5.6-luna");
+		expect(output.indexOf("✦ Skills")).toBeLessThan(output.indexOf("𖠌 Agents"));
+		dispose();
 	});
 
 	test("flushes one scope before switching and prints reload info only after surface close", async () => {
