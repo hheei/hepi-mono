@@ -166,18 +166,20 @@ describe("createAgentDetail", () => {
 		expect(readContent(path)).toContain('thinking: "minimal"');
 	});
 
-	it("persists a model edit on Enter and rejects malformed refs", async () => {
+	it("persists fuzzy and provider/model model edits on Enter", async () => {
 		const { detail, notifications, path } = setup();
 		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN); // identity → model
-		await detail.handleInput("garbage");
+		await detail.handleInput("haiku");
 		await detail.handleInput(ENTER);
-		expect(notifications).toEqual(["Agent model must be provider/model; leave empty to inherit"]);
-		expect(readContent(path)).not.toContain("garbage");
-		for (let i = 0; i < "garbage".length; i++) await detail.handleInput(BACKSPACE);
+		expect(readContent(path)).toContain('model: "haiku"');
+		expect(notifications).toEqual([]);
+		for (let i = 0; i < "haiku".length; i++) await detail.handleInput(BACKSPACE);
 		await detail.handleInput("cx/gpt-5.6-luna");
 		await detail.handleInput(ENTER);
 		expect(readContent(path)).toContain('model: "cx/gpt-5.6-luna"');
-		expect(notifications).toHaveLength(1);
+		for (let i = 0; i < "cx/gpt-5.6-luna".length; i++) await detail.handleInput(BACKSPACE);
+		await detail.handleInput(ENTER);
+		expect(readContent(path)).not.toContain("model:");
 	});
 
 	it("removes whole code points with backspace", async () => {
