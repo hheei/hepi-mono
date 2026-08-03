@@ -49,7 +49,8 @@ function historianOutput(context: Context): string {
 					? message.content.flatMap((part) => (part.type === "text" ? [part.text] : []))
 					: [],
 		)
-		.findLast((part) => part.includes("Source entry IDs, in order:"));
+		.reverse()
+		.find((part: string) => part.includes("Source entry IDs, in order:"));
 	const match = /Source entry IDs, in order: (\[[^\n]+\])/.exec(text ?? "");
 	if (match?.[1] === undefined)
 		throw new Error("Historian prompt did not include source entry IDs");
@@ -119,20 +120,15 @@ async function createHost(
 	const contexts: Context[] = [];
 	const steps: FauxResponseStep[] = Array.from({ length: 32 }, () => async (context) => {
 		contexts.push(context);
-		return fauxAssistantMessage(
-			[
-				fauxText(
-					isHistorianContext(context)
-						? options.invalidHistorian
-							? "invalid historian output"
-							: historianOutput(context)
-						: "HOST_PARENT_RESPONSE",
-				),
-			],
-			{
-				usage: { input: 50_000, output: 1, totalTokens: 50_001, cost: { total: 0 } },
-			},
-		);
+		return fauxAssistantMessage([
+			fauxText(
+				isHistorianContext(context)
+					? options.invalidHistorian
+						? "invalid historian output"
+						: historianOutput(context)
+					: "HOST_PARENT_RESPONSE",
+			),
+		]);
 	});
 	faux.setResponses(steps);
 	const modelRuntime = {
@@ -177,9 +173,15 @@ async function createHost(
 	const warnings: string[] = [];
 	const extensionErrors: string[] = [];
 	let replacement: SessionManager | undefined;
-	session.extensionRunner?.onError((error) => extensionErrors.push(error.message));
+	session.extensionRunner?.onError((error) => {
+		extensionErrors.push(error.error);
+	});
 	await session.bindExtensions({
-		uiContext: { notify: (message: string) => warnings.push(message) } as never,
+		uiContext: {
+			notify: (message: string): void => {
+				warnings.push(message);
+			},
+		} as never,
 		commandContextActions: {
 			waitForIdle: async (): Promise<void> => undefined,
 			newSession: async (options): Promise<{ cancelled: boolean }> => {
@@ -287,7 +289,9 @@ test("real Pi host reports historian failure without replacing raw context", asy
 	const host = await createHost({ invalidHistorian: true });
 	const warnings: string[] = [];
 	const originalWarn = console.warn;
-	console.warn = (value: unknown): void => warnings.push(String(value));
+	console.warn = (value: unknown): void => {
+		warnings.push(String(value));
+	};
 	try {
 		await host.session.prompt("Keep this newer parent turn raw.");
 		await host.session.prompt("Keep another newer parent turn raw.");

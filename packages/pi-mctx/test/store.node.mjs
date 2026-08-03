@@ -383,6 +383,68 @@ test("upgrades an existing v2 partition store with leases", async () => {
 	});
 });
 
+test("upgrades deployed v8 embedding layout before adding handoff bindings", async () => {
+	await withPath(async (path) => {
+		const initial = await openMctxStore(path);
+		const project = `git:${"e".repeat(40)}`;
+		initial.getOrCreatePartition(project, "session-1");
+		const memory = initial.writeMemory({
+			projectIdentity: project,
+			sessionId: "session-1",
+			category: "ARCHITECTURE",
+			content: "Preserve embedding rows.",
+			nowMs: 10,
+		});
+		initial.close();
+
+		const fixture = new DatabaseSync(path);
+		try {
+			fixture.prepare("INSERT INTO memory_embedding_sources VALUES (?, ?, ?, ?)").run(
+				project,
+				memory.memoryId,
+				"a".repeat(64),
+				memory.revision,
+			);
+			fixture.prepare("INSERT INTO memory_embeddings VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+				project,
+				memory.memoryId,
+				"model-a",
+				1,
+				"a".repeat(64),
+				memory.revision,
+				2,
+				Buffer.from(new Float32Array([1, 2]).buffer),
+				20,
+			);
+			fixture.exec("ALTER TABLE handoff_bindings RENAME TO handoff_bindings_current");
+			fixture.exec(
+				"CREATE TABLE handoff_bindings (parent_project_identity TEXT NOT NULL, parent_session_id TEXT NOT NULL, destination_session_id TEXT NOT NULL, PRIMARY KEY (parent_project_identity, parent_session_id, destination_session_id), FOREIGN KEY (parent_project_identity, parent_session_id) REFERENCES partitions(project_identity, session_id)) STRICT",
+			);
+			fixture.exec("DROP TABLE handoff_bindings_current");
+			fixture.exec("ALTER TABLE mctx_metadata RENAME TO mctx_metadata_current");
+			fixture.exec("CREATE TABLE mctx_metadata (schema_version INTEGER NOT NULL CHECK (schema_version = 8)) STRICT");
+			fixture.exec("INSERT INTO mctx_metadata VALUES (8)");
+			fixture.exec("DROP TABLE mctx_metadata_current");
+			fixture.exec("PRAGMA user_version = 8");
+		} finally {
+			fixture.close();
+		}
+
+		const store = await openMctxStore(path);
+		store.close();
+		const migrated = new DatabaseSync(path);
+		try {
+			assert.equal(migrated.prepare("PRAGMA user_version").get().user_version, MCTX_STORE_SCHEMA_VERSION);
+			assert.equal(migrated.prepare("SELECT schema_version FROM mctx_metadata").get().schema_version, MCTX_STORE_SCHEMA_VERSION);
+			assert.equal(migrated.prepare("SELECT COUNT(*) AS count FROM memory_embedding_sources").get().count, 1);
+			assert.equal(migrated.prepare("SELECT COUNT(*) AS count FROM memory_embeddings").get().count, 1);
+			assert.equal(migrated.prepare("SELECT COUNT(*) AS count FROM handoff_bindings").get().count, 0);
+		} finally {
+			migrated.close();
+		}
+	});
+});
+
 test("refuses unknown and future store schemas", async () => {
 	await withPath(async (path) => {
 		const unknown = new DatabaseSync(path);

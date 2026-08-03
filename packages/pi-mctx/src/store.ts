@@ -489,7 +489,10 @@ function migrateV8(database: DatabaseSync): void {
 		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(8);
 		database.exec("DROP TABLE mctx_metadata_v7");
 		database.exec(
-			"CREATE TABLE handoff_bindings (parent_project_identity TEXT NOT NULL, parent_session_id TEXT NOT NULL, destination_session_id TEXT NOT NULL, PRIMARY KEY (parent_project_identity, parent_session_id, destination_session_id), FOREIGN KEY (parent_project_identity, parent_session_id) REFERENCES partitions(project_identity, session_id)) STRICT",
+			"CREATE TABLE memory_embedding_sources (project_identity TEXT NOT NULL, memory_id INTEGER NOT NULL CHECK (memory_id > 0), content_hash TEXT NOT NULL CHECK (length(content_hash) = 64), memory_revision INTEGER NOT NULL CHECK (memory_revision > 0), PRIMARY KEY (project_identity, memory_id), UNIQUE (project_identity, memory_id, content_hash, memory_revision), FOREIGN KEY (project_identity, memory_id) REFERENCES memories(project_identity, memory_id)) STRICT",
+		);
+		database.exec(
+			"CREATE TABLE memory_embeddings (project_identity TEXT NOT NULL, memory_id INTEGER NOT NULL CHECK (memory_id > 0), model_identity TEXT NOT NULL, provider_generation INTEGER NOT NULL CHECK (provider_generation >= 0), source_content_hash TEXT NOT NULL CHECK (length(source_content_hash) = 64), source_memory_revision INTEGER NOT NULL CHECK (source_memory_revision > 0), dimensions INTEGER NOT NULL CHECK (dimensions > 0), vector BLOB NOT NULL, created_at_ms INTEGER NOT NULL CHECK (created_at_ms >= 0), PRIMARY KEY (project_identity, memory_id, model_identity, provider_generation), FOREIGN KEY (project_identity, memory_id, source_content_hash, source_memory_revision) REFERENCES memory_embedding_sources(project_identity, memory_id, content_hash, memory_revision)) STRICT",
 		);
 		database.exec("PRAGMA user_version = 8");
 		database.exec("COMMIT");
@@ -508,6 +511,11 @@ function migrateV9(database: DatabaseSync): void {
 		);
 		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(9);
 		database.exec("DROP TABLE mctx_metadata_v8");
+		if (!hasTable(database, "handoff_bindings")) {
+			database.exec(
+				"CREATE TABLE handoff_bindings (parent_project_identity TEXT NOT NULL, parent_session_id TEXT NOT NULL, destination_session_id TEXT NOT NULL, PRIMARY KEY (parent_project_identity, parent_session_id, destination_session_id), FOREIGN KEY (parent_project_identity, parent_session_id) REFERENCES partitions(project_identity, session_id)) STRICT",
+			);
+		}
 		database.exec(
 			"ALTER TABLE handoff_bindings ADD COLUMN status TEXT NOT NULL DEFAULT 'installed' CHECK (status IN ('reserved', 'installed'))",
 		);
@@ -623,6 +631,8 @@ function validateSchema(database: DatabaseSync): void {
 		!hasTable(database, "history_tags") ||
 		!hasTable(database, "memories") ||
 		!hasTable(database, "notes") ||
+		!hasTable(database, "memory_embedding_sources") ||
+		!hasTable(database, "memory_embeddings") ||
 		!hasTable(database, "handoff_bindings")
 	) {
 		throw new Error("Context store partition tables are missing");

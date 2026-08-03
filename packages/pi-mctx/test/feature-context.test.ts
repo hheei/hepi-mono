@@ -89,7 +89,7 @@ function store(): MctxStore {
 		isHandoffInstalled: (_parent, destinationSessionId) =>
 			handoffDestinations.has(destinationSessionId),
 		reserveHandoffInstallation: (_parent, destinationSessionId) => {
-			if (handoffDestinations.has(destinationSessionId)) return false;
+			if (handoffDestinations.has(destinationSessionId)) return undefined;
 			handoffDestinations.add(destinationSessionId);
 			return {
 				bindingId: `test-${destinationSessionId}`,
@@ -232,7 +232,10 @@ test("expand reads only current-branch retained tags and reports gaps", async ()
 			ui: { notify: () => undefined },
 		} as unknown as ExtensionContext,
 		signal: new AbortController().signal,
-		resources: { add: () => undefined, cleanup: async () => [] },
+		resources: {
+			add: (_id: string, _cleanup: () => void | Promise<void>) => undefined,
+			cleanup: async () => [],
+		} as never,
 	} as unknown as ExtensionLifecycleContext;
 	const feature = createMctxFeature({
 		loadConfiguration: async () => configuration(),
@@ -564,6 +567,46 @@ test("search reports stale when either exclusion-provider cancellation scope abo
 	expect(await lifecycleSearch).toEqual({ kind: "stale" });
 });
 
+test("search passes lifecycle cancellation to external candidates", async (): Promise<void> => {
+	const lifecycleController = new AbortController();
+	const lifecycle = {
+		pi: { events: {} },
+		extension: {
+			cwd: "/project",
+			sessionManager: { getSessionId: () => "session-1" },
+			modelRegistry: { find: () => model, hasConfiguredAuth: () => true },
+			ui: { notify: () => undefined },
+		} as unknown as ExtensionContext,
+		signal: lifecycleController.signal,
+		resources: { add: () => undefined, cleanup: async () => [] },
+	} as unknown as ExtensionLifecycleContext;
+	let externalSignal: AbortSignal | undefined;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => store(),
+		resolveProjectIdentity: async () => "git:project",
+		collectExternalSearchCandidates: async (input) => {
+			externalSignal = input.signal;
+			await new Promise<void>((resolve) =>
+				input.signal.addEventListener("abort", () => resolve(), { once: true }),
+			);
+			return [];
+		},
+	});
+	await feature.start(lifecycle);
+	const context = {
+		sessionManager: { getSessionId: () => "session-1", getBranch: () => entries },
+	} as unknown as ExtensionContext;
+	const search = feature.search(
+		{ query: "target", limit: 10, sources: ["git"] },
+		context,
+		new AbortController().signal,
+	);
+	lifecycleController.abort();
+	expect(await search).toEqual({ kind: "stale" });
+	expect(externalSignal?.aborted).toBe(true);
+});
+
 test("context hook renders only the active session's verified graph", async (): Promise<void> => {
 	const lifecycle = {
 		pi: { events: {} },
@@ -627,7 +670,7 @@ test("parent projection exposes verified compartments and only the live tail", a
 			isHandoffInstalled: (_parent, destination) => installedDestinations.has(destination),
 			reserveHandoffInstallation: (_parent, destination) => {
 				if (reserveFailure) throw new Error("database unavailable");
-				if (installedDestinations.has(destination)) return false;
+				if (installedDestinations.has(destination)) return undefined;
 				installedDestinations.add(destination);
 				return { bindingId: `test-${destination}`, ownerToken: `owner-${destination}` };
 			},
@@ -650,8 +693,14 @@ test("parent projection exposes verified compartments and only the live tail", a
 		sessionManager: {
 			getSessionId: () => "replacement-session",
 			getBranch: () => branch,
-			appendCustomMessageEntry: (_type: string, content: string, _display: boolean) =>
-				injected.push(content),
+			appendCustomMessageEntry: <T = unknown>(
+				_type: string,
+				content: string | T[],
+				_display: boolean,
+			): string => {
+				injected.push(typeof content === "string" ? content : JSON.stringify(content));
+				return "";
+			},
 		},
 	} as unknown as ExtensionContext;
 	const projection = await feature.prepare({
@@ -673,12 +722,18 @@ test("parent projection exposes verified compartments and only the live tail", a
 		await feature.prepare({ purpose: "handoff", signal: new AbortController().signal }),
 	).toEqual({ kind: "stale" });
 	if (handoff.kind === "result" && handoff.purpose === "handoff") {
-		await handoff.install(context.sessionManager, new AbortController().signal);
+		await handoff.install(
+			context.sessionManager as unknown as Parameters<typeof handoff.install>[0],
+			new AbortController().signal,
+		);
 		await handoff.install(
 			{
 				getSessionId: () => "replacement-session",
 				getBranch: () => [],
-				appendCustomMessageEntry: (_type: string, content: string) => injected.push(content),
+				appendCustomMessageEntry: (_type: string, content: string): string => {
+					injected.push(content);
+					return "";
+				},
 			},
 			new AbortController().signal,
 		);
@@ -704,7 +759,10 @@ test("parent projection exposes verified compartments and only the live tail", a
 			{
 				getSessionId: () => "cancelled-then-retried",
 				getBranch: () => [],
-				appendCustomMessageEntry: (_type: string, content: string) => injected.push(content),
+				appendCustomMessageEntry: (_type: string, content: string): string => {
+					injected.push(content);
+					return "";
+				},
 			},
 			new AbortController().signal,
 		);
@@ -720,7 +778,10 @@ test("parent projection exposes verified compartments and only the live tail", a
 				{
 					getSessionId: () => "mark-failure",
 					getBranch: () => [],
-					appendCustomMessageEntry: (_type: string, content: string) => injected.push(content),
+					appendCustomMessageEntry: (_type: string, content: string): string => {
+						injected.push(content);
+						return "";
+					},
 				},
 				new AbortController().signal,
 			),
@@ -765,7 +826,10 @@ test("parent projection exposes verified compartments and only the live tail", a
 				{
 					getSessionId: () => "aborted-install",
 					getBranch: () => [],
-					appendCustomMessageEntry: (_type: string, content: string) => injected.push(content),
+					appendCustomMessageEntry: (_type: string, content: string): string => {
+						injected.push(content);
+						return "";
+					},
 				},
 				abortedInstallSignal.signal,
 			),

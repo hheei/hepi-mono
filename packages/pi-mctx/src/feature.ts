@@ -26,6 +26,7 @@ import {
 import { collectMctxHistoryTagInputs, projectMctxHistoryTags } from "./history-tags.js";
 import { createProjectIdentityResolver } from "./project-identity.js";
 import {
+	boundedMctxSearchText,
 	collectMctxExternalSearchCandidates,
 	MCTX_SEARCH_SOURCES,
 	type MctxSearchCandidate,
@@ -266,6 +267,7 @@ interface ActiveMctxRuntime {
 	readonly lifecycle: ExtensionLifecycleContext;
 	cooling: boolean;
 	job?: AbortController | undefined;
+	jobCompletion?: Promise<void> | undefined;
 	rebuildEntries?: readonly SessionEntry[] | undefined;
 	lastNotifiedFailureClass?: MctxHistorianFailureDiagnostic["failureClass"] | undefined;
 }
@@ -428,7 +430,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 		current.job = job;
 		const abort = (): void => job.abort();
 		current.lifecycle.signal.addEventListener("abort", abort, { once: true });
-		void runHistorianForBranch({
+		const completion = runHistorianForBranch({
 			context: current.lifecycle,
 			model: current.runtime.historian,
 			store: current.runtime.store,
@@ -464,6 +466,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				current.lifecycle.signal.removeEventListener("abort", abort);
 				if (current.job !== job) return;
 				current.job = undefined;
+				current.jobCompletion = undefined;
 				const rebuildEntries = current.rebuildEntries;
 				current.rebuildEntries = undefined;
 				if (
@@ -474,6 +477,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					startHistorian(current, rebuildEntries);
 				}
 			});
+		current.jobCompletion = completion;
 	}
 
 	async function prepare(input: {
@@ -693,9 +697,10 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				store.close();
 				if (active === current) active = undefined;
 			});
-			context.resources.add("mctx-historian", () => {
+			context.resources.add("mctx-historian", async () => {
 				current.rebuildEntries = undefined;
 				current.job?.abort();
+				await current.jobCompletion;
 				if (active === current) active = undefined;
 			});
 		},
@@ -999,7 +1004,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 						source: "memory",
 						id: `memory:${projectIdentity}:${memory.memoryId}:${memory.revision}:${mctxSearchContentHash(memory.content)}`,
 						title: `Memory #${memory.memoryId} (${memory.category})`,
-						text: memory.content,
+						text: boundedMctxSearchText(memory.content),
 					});
 				}
 			}
@@ -1013,7 +1018,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 						source: "note",
 						id: `note:${projectIdentity}:${sessionId}:${note.noteId}:${note.revision}:${mctxSearchContentHash(note.content)}`,
 						title: `Note #${note.noteId}${anchor}`,
-						text: note.content,
+						text: boundedMctxSearchText(note.content),
 					});
 				}
 			}
@@ -1027,7 +1032,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 						source: "history",
 						id: `history:${tag.projectIdentity}:${tag.sessionId}:${tag.tagNumber}:${tag.entryId}:${tag.toolCallId ?? ""}:${mctxSearchContentHash(tag.source)}`,
 						title: `History ${tag.sessionId} §${tag.tagNumber}§ (${tag.kind})`,
-						text: tag.source,
+						text: boundedMctxSearchText(tag.source),
 					});
 				}
 			}
@@ -1037,7 +1042,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					? {}
 					: { primerPath: current.runtime.search.primerPath }),
 				sources,
-				signal,
+				signal: AbortSignal.any([signal, current.lifecycle.signal]),
 			});
 			if (
 				active !== current ||
