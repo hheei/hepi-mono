@@ -143,7 +143,7 @@ describe("Loadout core contract", () => {
 		expect(seen).toEqual([[], ["agent:Explore"], []]);
 	});
 
-	test("rejects unsupported resource kinds and rolls back observer failures", () => {
+	test("keeps resources committed after partial observer fanout", () => {
 		const h = host();
 		expect(() =>
 			registerLoadoutResource(h.pi, {
@@ -155,24 +155,70 @@ describe("Loadout core contract", () => {
 				projectPrivate: false,
 			} as never),
 		).toThrow("Unsupported Loadout resource kind: workflow");
-		const controller = new AbortController();
+		const successfulController = new AbortController();
+		const seen: string[][] = [];
 		observeLoadoutInventory(h.pi, {
-			signal: controller.signal,
+			signal: successfulController.signal,
+			onChange(items) {
+				seen.push(items.map((item) => item.id));
+			},
+		});
+		const throwingController = new AbortController();
+		observeLoadoutInventory(h.pi, {
+			signal: throwingController.signal,
 			onChange(items) {
 				if (items.length > 0) throw new Error("observer failed");
 			},
 		});
+		const dispose = registerLoadoutResource(h.pi, {
+			...metadata("agent:demo"),
+			kind: "agent",
+			label: "Demo",
+			description: "Agent.",
+			summary: "demo",
+			projectPrivate: false,
+		});
+		expect(seen).toEqual([[], ["agent:demo"]]);
+		throwingController.abort();
+		const disposeSecond = registerLoadoutResource(h.pi, {
+			...metadata("agent:second"),
+			kind: "agent",
+			label: "Second",
+			description: "Agent.",
+			summary: "demo",
+			projectPrivate: false,
+		});
+		expect(seen.at(-1)).toEqual(["agent:demo", "agent:second"]);
+		dispose();
+		disposeSecond();
+		successfulController.abort();
+	});
+
+	test("keeps managed tools committed after partial observer fanout", () => {
+		const h = host();
+		const seen: string[][] = [];
+		const successfulController = new AbortController();
+		observeLoadoutInventory(h.pi, {
+			signal: successfulController.signal,
+			onChange(items) {
+				seen.push(items.map((item) => item.id));
+			},
+		});
+		const throwingController = new AbortController();
+		observeLoadoutInventory(h.pi, {
+			signal: throwingController.signal,
+			onChange(items) {
+				if (items.some((item) => item.id === "read")) throw new Error("observer failed");
+			},
+		});
+		registerManagedLoadoutTool(h.pi, metadata("read"), { name: "read" } as never);
+		expect(h.registered).toHaveLength(1);
+		expect(seen).toEqual([[], ["read"]]);
+		throwingController.abort();
 		expect(() =>
-			registerLoadoutResource(h.pi, {
-				...metadata("agent:demo"),
-				kind: "agent",
-				label: "Demo",
-				description: "Agent.",
-				summary: "demo",
-				projectPrivate: false,
-			}),
-		).toThrow("observer failed");
-		controller.abort();
+			registerManagedLoadoutTool(h.pi, metadata("read"), { name: "read" } as never),
+		).toThrow("Loadout tool id already registered: read");
+		successfulController.abort();
 	});
 
 	test("publishes canonical disabled skill state and clears it", () => {
@@ -213,5 +259,33 @@ describe("Loadout core contract", () => {
 			activeIds: new Set(["find"]),
 		});
 		expect(seen).toEqual(["none", "read", "none"]);
+	});
+
+	test("keeps activation committed after partial observer fanout", () => {
+		const h = host();
+		const seen: string[] = [];
+		const successfulController = new AbortController();
+		observeLoadoutToolActivation(h.pi, {
+			signal: successfulController.signal,
+			onChange(snapshot) {
+				seen.push(snapshot === undefined ? "none" : [...snapshot.activeIds].join(","));
+			},
+		});
+		const throwingController = new AbortController();
+		observeLoadoutToolActivation(h.pi, {
+			signal: throwingController.signal,
+			onChange(snapshot) {
+				if (snapshot !== undefined) throw new Error("activation observer failed");
+			},
+		});
+		publishLoadoutToolActivation(h.pi, {
+			knownIds: new Set(["read"]),
+			activeIds: new Set(["read"]),
+		});
+		expect(seen).toEqual(["none", "read"]);
+		throwingController.abort();
+		clearLoadoutToolActivation(h.pi);
+		expect(seen).toEqual(["none", "read", "none"]);
+		successfulController.abort();
 	});
 });
