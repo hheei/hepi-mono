@@ -17,8 +17,13 @@ pi install npm:@hheei/hepi-mctx
 pi install npm:@hheei/hepi-skills
 ```
 
-These aggregate packages are transitional. New features will be published as
-independent extensions built on `@hheei/pi-ext-core`.
+These aggregate packages are transitional. Independent extensions install separately:
+
+```bash
+pi install npm:@hheei/pi-t2s
+```
+
+New features are published as independent extensions built on `@hheei/pi-ext-core`.
 
 For a local checkout:
 

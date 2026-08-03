@@ -1,7 +1,7 @@
 {
-	"name": "@hheei/hepi-basics",
+	"name": "@hheei/pi-t2s",
 	"version": "0.0.0",
-	"description": "HEPI foundational runtime group for Pi.",
+	"description": "Traditional-to-Simplified Chinese input conversion for Pi.",
 	"type": "module",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
@@ -10,21 +10,16 @@
 	},
 	"files": [
 		"dist",
-		"themes",
 		"README.md",
-		"THIRD_PARTY_NOTICES.md",
 		"LICENSE"
 	],
 	"pi": {
 		"extensions": [
 			"dist/extension.js"
-		],
-		"themes": [
-			"themes"
 		]
 	},
 	"scripts": {
-		"build": "bun ../../scripts/build-aggregate.mjs hepi-basics",
+		"build": "bunx tsc -p tsconfig.build.json",
 		"prepack": "bun run build"
 	},
 	"keywords": [
@@ -32,19 +27,22 @@
 		"pi-package",
 		"pi-extension",
 		"hepi",
-		"basics"
+		"traditional-chinese",
+		"simplified-chinese"
 	],
 	"license": "MIT",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/hheei/hepi-mono.git",
-		"directory": "packages/hepi-basics"
+		"directory": "packages/pi-t2s"
 	},
 	"publishConfig": {
 		"access": "public"
 	},
 	"dependencies": {
-		"@hheei/pi-ext-core": "workspace:*"
+		"@hheei/pi-ext-core": "workspace:*",
+		"opencc-js": "^1.4.0",
+		"typebox": "1.3.7"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-agent-core": ">=0.83.0",

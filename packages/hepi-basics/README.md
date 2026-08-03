@@ -11,7 +11,6 @@ Included modules:
 - `pi-rtk`
 - `pi-dollar-skill`
 - `pi-fix`
-- `pi-t2s`
 - `pi-auto-title`
 
 While `pi-auto-title` generates a session title, the editor top rail shows a
