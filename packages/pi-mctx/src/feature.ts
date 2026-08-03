@@ -1341,15 +1341,27 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				return timeoutSignal.aborted
 					? { kind: "failed", reason: "sidekick timed out" }
 					: { kind: "cancelled" };
-			const handle: TaskSubagentHandle = startSidekickTask(current.lifecycle, {
-				mode: "task",
-				session: createSidekickChildFactory(context, feature, { model: context.model }),
-				prompt: buildSidekickPrompt(query),
-				maxTurns: SIDEKICK_MAX_TURNS,
-				// The command awaits handle.result directly; the sink is a no-op
-				// because nothing else may deliver this terminal result.
-				delivery: () => undefined,
-			});
+			// Admission can reject synchronously (e.g. a full pending queue), which
+			// must surface as a failure result instead of rejecting the command.
+			let handle: TaskSubagentHandle;
+			try {
+				handle = startSidekickTask(current.lifecycle, {
+					mode: "task",
+					session: createSidekickChildFactory(context, feature, { model: context.model }),
+					prompt: buildSidekickPrompt(query),
+					maxTurns: SIDEKICK_MAX_TURNS,
+					// The command awaits handle.result directly; the sink is a no-op
+					// because nothing else may deliver this terminal result.
+					delivery: () => undefined,
+				});
+			} catch (error: unknown) {
+				return signal.aborted
+					? { kind: "cancelled" }
+					: {
+							kind: "failed",
+							reason: error instanceof Error ? error.message : String(error),
+						};
+			}
 			const onAbort = (): void => handle.cancel();
 			signal.addEventListener("abort", onAbort, { once: true });
 			try {

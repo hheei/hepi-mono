@@ -1791,6 +1791,31 @@ test("sidekick augment cancels the child when the caller signal aborts", async (
 	expect(task.cancelCalls()).toBe(1);
 });
 
+test("sidekick augment reports a synchronous admission throw as failure", async (): Promise<void> => {
+	const { lifecycle } = embeddingLifecycle();
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => store(),
+		resolveProjectIdentity: async () => "git:project",
+		startSidekickTask: () => {
+			throw new Error("Subagent pending queue is full");
+		},
+	});
+	await feature.start(lifecycle);
+	expect(await feature.augment("query", sidekickContext)).toEqual({
+		kind: "failed",
+		reason: "Subagent pending queue is full",
+	});
+	const projected = feature.onContext(
+		entries.flatMap(sessionEntryToContextMessages),
+		sidekickContext,
+	);
+	expect(projected).toBeDefined();
+	expect(
+		projected!.messages.some((message) => messageText(message).includes("Sidekick augmentation")),
+	).toBe(false);
+});
+
 test("buildSidekickAugmentation truncates oversized child output", (): void => {
 	const wrapper = buildSidekickAugmentation({
 		query: "q",
