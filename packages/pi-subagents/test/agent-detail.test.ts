@@ -511,7 +511,7 @@ describe("createAgentDetail", () => {
 		expect(rendered).toMatch(/Model\s+cx\/gpt-5\.6-luna/);
 	});
 
-	it("keeps a built-in agent's Identity read-only and renders it dim", async () => {
+	it("keeps a built-in agent's Identity read-only, accent while focused and dim otherwise", async () => {
 		const { detail, root } = setupDefault();
 		await detail.handleInput("x"); // identity edit is discarded
 		await detail.handleInput(ENTER);
@@ -522,6 +522,10 @@ describe("createAgentDetail", () => {
 			bold: (value: string) => `<${value}>`,
 		} as never;
 		detail.onThemeChange?.(theme);
+		// The focused row is accent even when read-only…
+		expect(detail.render(80)[0]).toContain("[accent:<");
+		await detail.handleInput(DOWN);
+		// …and the read-only Identity dims once unfocused.
 		expect(detail.render(80)[0]).toContain("[dim:");
 	});
 

@@ -29,10 +29,10 @@ Description lane 切换为该 detail；窄终端把同一 detail 堆叠在列表
 自动 clone 到 `<cwd>/.pi/agents/`，body 保留内置 system prompt。
 
 编辑入口只对显式 enabled 的行开放：选中一个贡献 detail 且处于 enabled 状态的 agent 时，右侧
-Description lane 底部显示 `↵ Edit config` 提示，`Enter` 打开可编辑 detail；inherit（project scope
-未显式选择、跟随 global effective state）与 disabled 的行是只读的——不显示提示，`Enter` 不打开
-detail。agent 的激活状态完全由 Loadout policy 在 `agent:<name>` key 下决定（`Space` 切换三态并
-persist 到 settings JSON），agent Markdown 不参与启停。
+`Enter` 打开可编辑 detail；inherit（project scope 未显式选择、跟随 global effective state）与
+disabled 的行是只读的——行尾无 `↵`、`Enter` 不打开 detail。没有 `↵ Edit config` footer 提示：
+可编辑性已由行 glyph 与行尾 `↵` 表达。agent 的激活状态完全由 Loadout policy 在 `agent:<name>`
+key 下决定（`Space` 切换三态并 persist 到 settings JSON），agent Markdown 不参与启停。
 
 `pi-subagents` 的 agent detail 把 `model` 与 `thinking` 合并为单个 `Model` 行，复用 Settings 的
 cycler 交互（与 `HepiSettingTabCycle` 语义一致）：行值以 `glyph + model` 形式显示（thinking
@@ -50,7 +50,9 @@ detail 表单按 Settings 字段列表的样式渲染为左右两列（label 列
 内置默认 agent 的 `Identity` 行只读（dim 渲染，编辑被丢弃）。`Default agent`/`Markdown`
 信息行与按键提示行不渲染（操作与资源列表一致，不重复提示）；实际文件路径以 `Path:` 行显示
 在 header 的 `Status:` 之后（project scope 显示 `<cwd>/.pi/agents/<name>.md`，即 project
-override 的保存位置）。选择器打开时行数保持不变（固定 4 行）：`Model` 行就地显示当前选项。
+override 的保存位置；过长时从头部截断为 `…/xxx`，保留文件名）。聚焦行始终 accent（只读行仅在
+未聚焦时 dim）。资源 description 以 wrap 形式显示在 header title 之前（与工具行一致）；detail
+打开时截断为 3 行。选择器打开时行数保持不变（固定 4 行）：`Model` 行就地显示当前选项。
 `Esc` 的消费顺序：detail 激活时先交给 detail（选择器打开时取消选择器），detail 未消费才
 退回列表。
 

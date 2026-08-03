@@ -438,7 +438,9 @@ export function createAgentDetail(
 				const readonlyIdentity = index === 0 && current().draft.isDefault;
 				const line = `${focused ? "→ " : "  "}${pad(row.label, labelWidth)}  ${truncateToWidth(row.value, valueWidth)}`;
 				const truncated = truncateToWidth(line, Math.max(0, width));
-				if (readonlyIdentity) return theme?.fg("dim", truncated) ?? truncated;
+				// The focused row is always accent; a built-in agent's read-only
+				// Identity is only dimmed while unfocused.
+				if (readonlyIdentity && !focused) return theme?.fg("dim", truncated) ?? truncated;
 				if (!focused || theme === undefined) return truncated;
 				return theme.fg("accent", theme.bold(truncated));
 			});

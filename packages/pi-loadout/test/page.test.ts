@@ -218,20 +218,17 @@ describe("Loadout Settings page", () => {
 			expect(page.component.render(100).join("\n")).toContain("↵");
 			await page.handleInput("\u001b[B");
 			await page.handleInput("\u001b[B");
-			expect(page.component.render(100).join("\n")).toContain("↵ Edit config");
 			await page.handleInput("\r");
 			const opened = page.component.render(100).join("\n");
 			expect(opened).toContain("Detail (agent)");
 			expect(opened).toContain("Origin: test");
 			expect(opened).toContain("Status: ● Active");
 			expect(opened).toContain("Detail panel");
-			expect(opened).toContain("↵ Edit config");
 			await page.handleInput("x");
 			expect(inputs).toEqual(["x"]);
 			await page.handleInput("\u001b");
 			expect(inputs).toEqual(["x", "\u001b"]);
 			const back = page.component.render(100).join("\n");
-			expect(back).toContain("↵ Edit config");
 			expect(back).not.toContain("Detail panel");
 		} finally {
 			dispose();
@@ -440,28 +437,79 @@ describe("Loadout Settings page", () => {
 			expect(before).toContain("Explore (agent)");
 			expect(before).toContain("Origin: @hheei/pi-subagents");
 			expect(before).toContain("Status: ● Active");
-			expect(page.component.render(100).at(-1)).toContain("↵ Edit config");
 			await page.handleInput("\r");
 			const openedLines = page.component.render(100);
 			const opened = openedLines.join("\n");
-			// The hint is pinned to the fixed panel's last row, not appended
-			// directly after the detail rows.
-			expect(openedLines.at(-1)).toContain("↵ Edit config");
-			const descRow = openedLines.findIndex((line) => line.includes("Read-only explorer."));
-			expect(descRow).toBeGreaterThanOrEqual(0);
-			expect(descRow).toBeLessThan(openedLines.length - 1);
-			// Exact requested layout: title → Origin → Status → detail rows →
-			// trailing Enter hint. The description text only appears inside the
-			// detail's Description row, not between the title and Origin.
+			// Exact requested layout: wrapped Description (before the title) →
+			// title → Origin → Status → Path → detail rows. The hint row is the
+			// ordinary list hint on the last panel row.
+			expect(openedLines.at(-1)).toContain("↕ navigate");
+			expect(opened.indexOf("Read-only explorer.")).toBeLessThan(opened.indexOf("Explore (agent)"));
 			expect(opened.indexOf("Explore (agent)")).toBeLessThan(opened.indexOf("Origin:"));
 			expect(opened.indexOf("Origin:")).toBeLessThan(opened.indexOf("Status:"));
 			expect(opened.indexOf("Status:")).toBeLessThan(opened.indexOf("Path:"));
-			expect(opened.indexOf("Path:")).toBeLessThan(opened.indexOf("Read-only explorer."));
-			expect(opened.indexOf("Read-only explorer.")).toBeLessThan(opened.indexOf("↵ Edit config"));
+			expect(opened.indexOf("Path:")).toBeLessThan(opened.indexOf("Identity"));
 			expect(opened).toMatch(/Identity\s+Explore/);
 			expect(opened).toMatch(/Model\s+inherit/);
 			expect(opened).toMatch(/Path:\s+\S/);
 			expect(opened).not.toContain("Agent Explore");
+		} finally {
+			dispose();
+			vi.restoreAllMocks();
+		}
+	});
+
+	test("truncates a long Path from the head, keeping the file name", async () => {
+		const h = setup();
+		const root = await mkdtemp(join(tmpdir(), "pi-loadout-path-"));
+		temporaryRoots.push(root);
+		const deep = join(root, "a", "b", "c", "d", "e", "f", "g", "h", "i");
+		const agentsDir = join(deep, ".pi", "agents");
+		mkdirSync(agentsDir, { recursive: true });
+		writeFileSync(
+			join(agentsDir, "Explore.md"),
+			"---\ndescription: Read-only explorer.\n---\nYou are read-only.\n",
+		);
+		vi.spyOn(process, "cwd").mockReturnValue(deep);
+		const config: AgentConfig = {
+			name: "Explore",
+			description: "Read-only explorer.",
+			extensions: true,
+			skills: true,
+			systemPrompt: "You are read-only.",
+			promptMode: "replace",
+			source: "project",
+		};
+		const detail = createAgentDetail(
+			h.pi,
+			"Explore",
+			config,
+			{ getAvailable: () => [], hasConfiguredAuth: () => false },
+			() => undefined,
+			() => undefined,
+		);
+		const dispose = registerLoadoutResource(h.pi, {
+			id: "agent:Explore",
+			kind: "agent",
+			group: "𖠌 Agents",
+			priority: 0,
+			conflictSets: [],
+			defaultActive: true,
+			label: "Explore",
+			description: "Read-only explorer.",
+			summary: "inherit",
+			projectPrivate: false,
+			owner: "@hheei/pi-subagents",
+			detail,
+		});
+		try {
+			const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
+			await page.handleInput("\u001b[B");
+			await page.handleInput("\u001b[B");
+			await page.handleInput("\r");
+			const opened = page.component.render(100).join("\n");
+			// The head collapses to "…" and the file name survives.
+			expect(opened).toMatch(/Path: …[^ ]*Explore\.md/);
 		} finally {
 			dispose();
 			vi.restoreAllMocks();

@@ -46,7 +46,7 @@ editor，编辑 identity、description 与合并的 model/thinking 行（cycler�
 agent 的启停不是 frontmatter 字段：activation 由 Loadout 在 `agent:<name>` key 下管理（inherit /
 enabled / disabled 三态，`Space` 切换、persist 到 settings JSON），agent Markdown 不再解析或写入
 `enabled`。只有显式 enabled 的行提供编辑路径——inherit 与 disabled 行不显示 `↵ Edit config` 提示，
-`Enter` 也不会打开 detail。
+`Enter` 也不会打开 detail（没有 `↵ Edit config` footer 提示，行尾 `↵` 即表示可 Enter）。
 
 内置默认 agent（`general-purpose`、`Explore`、`Plan`）同样提供 detail；由于它们没有 backing `.md`，
 其 `Identity` 行只读（内置 agent 身份不可修改）。首次 flush 时自动在 `<cwd>/.pi/agents/`
