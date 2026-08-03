@@ -415,6 +415,7 @@ describe("Loadout Settings page", () => {
 			() => undefined,
 			() => undefined,
 		);
+		const themeSpy = vi.spyOn(detail, "onThemeChange");
 		const dispose = registerLoadoutResource(h.pi, {
 			id: "agent:Explore",
 			kind: "agent",
@@ -440,12 +441,15 @@ describe("Loadout Settings page", () => {
 			await page.handleInput("\r");
 			const openedLines = page.component.render(100);
 			const opened = openedLines.join("\n");
-			// Exact requested layout: wrapped Description (before the title) →
-			// title → Origin → Status → Path → detail rows. The hint row is the
-			// ordinary list hint on the last panel row.
+			// Exact requested layout: title → wrapped Description → Origin →
+			// Status → Path → detail rows. The hint row is the ordinary list
+			// hint on the last panel row. Opening pushes the current theme so
+			// accent styling is live from the first frame.
+			expect(themeSpy).toHaveBeenCalled();
 			expect(openedLines.at(-1)).toContain("↕ navigate");
-			expect(opened.indexOf("Read-only explorer.")).toBeLessThan(opened.indexOf("Explore (agent)"));
 			expect(opened.indexOf("Explore (agent)")).toBeLessThan(opened.indexOf("Origin:"));
+			expect(opened.indexOf("Explore (agent)")).toBeLessThan(opened.indexOf("Read-only explorer."));
+			expect(opened.indexOf("Read-only explorer.")).toBeLessThan(opened.indexOf("Origin:"));
 			expect(opened.indexOf("Origin:")).toBeLessThan(opened.indexOf("Status:"));
 			expect(opened.indexOf("Status:")).toBeLessThan(opened.indexOf("Path:"));
 			expect(opened.indexOf("Path:")).toBeLessThan(opened.indexOf("Identity"));
@@ -463,7 +467,14 @@ describe("Loadout Settings page", () => {
 		const h = setup();
 		const root = await mkdtemp(join(tmpdir(), "pi-loadout-path-"));
 		temporaryRoots.push(root);
-		const deep = join(root, "a", "b", "c", "d", "e", "f", "g", "h", "i");
+		const deep = join(
+			root,
+			"directory-one",
+			"directory-two",
+			"directory-three",
+			"directory-four",
+			"directory-five",
+		);
 		const agentsDir = join(deep, ".pi", "agents");
 		mkdirSync(agentsDir, { recursive: true });
 		writeFileSync(
@@ -510,6 +521,80 @@ describe("Loadout Settings page", () => {
 			const opened = page.component.render(100).join("\n");
 			// The head collapses to "…" and the file name survives.
 			expect(opened).toMatch(/Path: …[^ ]*Explore\.md/);
+			// Clipping happens at directory boundaries: after "…" every token
+			// is a complete segment (no mid-name slice).
+			expect(opened).toMatch(/Path: …(?:\/[^/ ]+)+/);
+			expect(opened).not.toContain("directory-one");
+		} finally {
+			dispose();
+			vi.restoreAllMocks();
+		}
+	});
+
+	test("clamps the description to three lines only while the detail is open", async () => {
+		const h = setup();
+		const root = await mkdtemp(join(tmpdir(), "pi-loadout-desc-"));
+		temporaryRoots.push(root);
+		const agentsDir = join(root, ".pi", "agents");
+		mkdirSync(agentsDir, { recursive: true });
+		const longDescription = [
+			"Read-only explorer that inspects files, searches the workspace, and reports",
+			"findings for planning and review. It never writes, edits, or executes",
+			"destructive actions. It collects evidence, quotes sources, and hands off",
+			"a compressed summary for the orchestrator.",
+		].join(" ");
+		writeFileSync(
+			join(agentsDir, "Explore.md"),
+			`---\ndescription: ${longDescription}\n---\nYou are read-only.\n`,
+		);
+		vi.spyOn(process, "cwd").mockReturnValue(root);
+		const config: AgentConfig = {
+			name: "Explore",
+			description: longDescription,
+			extensions: true,
+			skills: true,
+			systemPrompt: "You are read-only.",
+			promptMode: "replace",
+			source: "project",
+		};
+		const detail = createAgentDetail(
+			h.pi,
+			"Explore",
+			config,
+			{ getAvailable: () => [], hasConfiguredAuth: () => false },
+			() => undefined,
+			() => undefined,
+		);
+		const dispose = registerLoadoutResource(h.pi, {
+			id: "agent:Explore",
+			kind: "agent",
+			group: "𖠌 Agents",
+			priority: 0,
+			conflictSets: [],
+			defaultActive: true,
+			label: "Explore",
+			description: longDescription,
+			summary: "inherit",
+			projectPrivate: false,
+			owner: "@hheei/pi-subagents",
+			detail,
+		});
+		const rowsBetweenTitleAndOrigin = (lines: readonly string[]): number => {
+			const title = lines.findIndex((line) => line.includes("(agent)"));
+			const origin = lines.findIndex((line) => line.includes("Origin:"));
+			return origin - title - 1;
+		};
+		try {
+			const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
+			await page.handleInput("\u001b[B");
+			await page.handleInput("\u001b[B"); // select Explore, detail not open
+			const before = page.component.render(100);
+			// Browsing shows the full wrap (more than three lines).
+			expect(rowsBetweenTitleAndOrigin(before)).toBeGreaterThan(4);
+			await page.handleInput("\r"); // open the detail
+			const after = page.component.render(100);
+			// Editing clamps to three lines plus the separator blank.
+			expect(rowsBetweenTitleAndOrigin(after)).toBe(4);
 		} finally {
 			dispose();
 			vi.restoreAllMocks();

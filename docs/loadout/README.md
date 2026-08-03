@@ -50,9 +50,10 @@ detail 表单按 Settings 字段列表的样式渲染为左右两列（label 列
 内置默认 agent 的 `Identity` 行只读（dim 渲染，编辑被丢弃）。`Default agent`/`Markdown`
 信息行与按键提示行不渲染（操作与资源列表一致，不重复提示）；实际文件路径以 `Path:` 行显示
 在 header 的 `Status:` 之后（project scope 显示 `<cwd>/.pi/agents/<name>.md`，即 project
-override 的保存位置；过长时从头部截断为 `…/xxx`，保留文件名）。聚焦行始终 accent（只读行仅在
-未聚焦时 dim）。资源 description 以 wrap 形式显示在 header title 之前（与工具行一致）；detail
-打开时截断为 3 行。选择器打开时行数保持不变（固定 4 行）：`Model` 行就地显示当前选项。
+override 的保存位置；过长时按目录段从头部截断为 `…/段/…/文件名.md`，只丢完整目录、绝不切开
+段名）。聚焦行始终 accent（只读行仅在未聚焦时 dim）。资源 description 以 wrap 形式显示在
+header title 之后（与工具行一致），浏览时全量；detail 打开时才截断为 3 行。选择器打开时
+行数保持不变（固定 4 行）：`Model` 行就地显示当前选项。
 `Esc` 的消费顺序：detail 激活时先交给 detail（选择器打开时取消选择器），detail 未消费才
 退回列表。
 
