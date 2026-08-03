@@ -226,11 +226,13 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
   `/ctx-recomp`/`ctx-session-upgrade` 是旧 ordinal/schema migration 而不迁移，`/ctx-wrapup` 属于 future
   `hepi-basics` handoff/compaction owner，`/ctx-status` 等待完整 metrics 与 UI owner；没有明确用户 workflow 的
   internal maintenance action 保持不暴露，不注册任何 maintenance command。
-- [ ] **Sidekick augmentation**：fixed legacy `/ctx-aug` 是手动 command，同步运行具有 `read`、`grep`、`find`、`ls` 与
+- [x] **Sidekick augmentation**：fixed legacy `/ctx-aug` 是手动 command，同步运行具有 `read`、`grep`、`find`、`ls` 与
   `ctx_search` allowlist 的 child，并把 retrieval augmentation 后的 prompt 发回 parent。child 语义保留：现代形态复用
   ext-core subagent execution contract（`startSubagent` task mode + consumer-owned resolved child-session factory），
   `pi-mctx` 拥有受限 child factory 与一次性注入时机，不 import `pi-subagents`、不扩展 `pi.events` RPC、不以
-  completion-only helper 或 prompt resend 伪迁移。设计见下方
+  completion-only helper 或 prompt resend 伪迁移。注入 wrapper 带 bounded anchor（operation ID、terminal status、
+  partial/limit 标志、正文上限），只插最后真实 user prompt 前、注入后清除；caller/lifecycle/deadline abort 均绑定
+  `handle.cancel()`，admission 同步 throw 归一化为 failure result。设计见下方
   [Sidekick augmentation section](#sidekick-augmentationctx-aug)。
 - [ ] **Dreamer 与 embedding commands**：legacy `/ctx-dream`、`/ctx-embed` 归入 historian-adjacent services；先完成
   Dreamer/embedding storage、leases、cost/cancellation 与 retention，再决定是否保留 command。Dreamer fixed baseline 是
