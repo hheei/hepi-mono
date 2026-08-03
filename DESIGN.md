@@ -144,9 +144,9 @@ existing semantic token expresses the role.
 - A detail form renders like the Settings field list: one aligned label/value pair per row, the
   focused row in accent (with the standard `→` slot), and no key-hint row (its navigation matches
   the list, so the hint would be noise). Pure informational rows are not focusable. In an agent
-  detail, `Description` is an external-editor action: its value is exactly `edit`, with `↵` pinned
-  to the right edge of the value column; `Enter` opens Pi's native editor with the current
-  description. Other action rows may name their action in the value, e.g. `open in editor`.
+  detail, `Description` and `Body` are external-editor actions: each value is exactly `edit`, with
+  `↵` pinned to the right edge of the value column; `Enter` opens Pi's native editor with the
+  current field value.
 - A contributor detail buffers edits until the Loadout page closes: nothing is written while the
   panel is open, and `close()` flushes every registered detail (not just the currently open one),
   each scope writing all its dirty snapshots before one catalog reload. The Description and Body
