@@ -39,17 +39,25 @@ UI。这些属于独立 capability；尤其 task execution 必须 launch-and-del
 
 可编辑的 custom agent profile（`.pi/agents/`、`.agents/agents/` 与 global agents 目录中的 `.md`）在
 Loadout 的 `Agents` group 里贡献 contributor-owned detail：`Enter` 打开该 profile 的 inline frontmatter
-editor，编辑 identity、description、model、thinking 并改写文件本身的 YAML（保留 body 与未知 key），
-`Body` 行打开外部编辑器。detail 只负责 profile 文件的就地编辑，不改变 spawn、factory 或 policy 所有权。
+editor，编辑 identity、description 与合并的 model/thinking 行（cycler：`↑`/`↓` 选 model、
+`Tab` 循环 thinking），`Body` 行在临时文件中打开外部编辑器并把结果存入 buffered draft。
+所有编辑在退出 Loadout 时一次性 flush 到 YAML（保留 body 与未知 key），detail 打开期间不写
+文件。detail 只负责 profile 文件的就地编辑，不改变 spawn、factory 或 policy 所有权。
 agent 的启停不是 frontmatter 字段：activation 由 Loadout 在 `agent:<name>` key 下管理（inherit /
 enabled / disabled 三态，`Space` 切换、persist 到 settings JSON），agent Markdown 不再解析或写入
 `enabled`。只有显式 enabled 的行提供编辑路径——inherit 与 disabled 行不显示 `↵ Edit config` 提示，
 `Enter` 也不会打开 detail。
 
 内置默认 agent（`general-purpose`、`Explore`、`Plan`）同样提供 detail；由于它们没有 backing `.md`，
-首次保存时自动在 `<cwd>/.pi/agents/` 生成一个 clone（frontmatter 携带当前编辑值，body 携带内置
-system prompt，不写 `enabled` key），此后它就是普通 custom agent，可继续就地编辑。想把内置 agent
-提前覆盖为 custom，在任意 custom 目录放同名 `.md` 即可。
+其 `Identity` 行只读（内置 agent 身份不可修改）。首次 flush 时自动在 `<cwd>/.pi/agents/`
+生成一个 clone（frontmatter 携带当前编辑值，body 携带内置 system prompt，不写 `enabled` key），
+此后它就是普通 custom agent，可继续就地编辑。想把内置 agent 提前覆盖为 custom，在任意 custom
+目录放同名 `.md` 即可。
+
+保存位置按 Loadout scope 决定：project scope 的编辑总是落到 `<cwd>/.pi/agents/<name>.md`
+（global 或内置 backing 不被改写；缺文件时 materialize 一个保留当前 system prompt 的 clone），
+global scope 的编辑落到 agent 自己的 backing 文件。两个 scope 各自缓冲，同一 agent 在 global
+与 project 分别编辑后各自落盘。header 的 `Path:` 行（`Status:` 后）显示当前 scope 的保存位置。
 
 历史 `@hheei/hepi-subagents` 仅是 policy/source evidence，revision 见
 [`references/README.md`](../../references/README.md)。其 public API、unlimited defaults、event RPC 和 UI 不是 compatibility

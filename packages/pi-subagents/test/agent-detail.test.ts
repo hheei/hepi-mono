@@ -36,6 +36,7 @@ afterEach(() => {
 	roots.splice(0).forEach((root) => {
 		rmSync(root, { recursive: true, force: true });
 	});
+	delete process.env.PI_CODING_AGENT_DIR;
 	vi.restoreAllMocks();
 });
 
@@ -188,33 +189,40 @@ describe("agentMarkdownPath", () => {
 });
 
 describe("createAgentDetail", () => {
-	it("clones a built-in agent into the project agents dir on first save, preserving fields and body", async () => {
+	it("clones a built-in agent into the project agents dir on first flush, preserving fields and body", async () => {
 		const { detail, root, changed, notifications } = setupDefault();
 		const path = join(root, ".pi", "agents", "Explore.md");
 		expect(existsSync(path)).toBe(false);
-		await detail.handleInput("x"); // identity edit
+		// A built-in agent's Identity is read-only; edit the description instead.
+		await detail.handleInput(DOWN); // identity → description
+		await detail.handleInput("Custom description");
 		await detail.handleInput(ENTER);
+		expect(existsSync(path)).toBe(false); // buffered until the page closes
+		detail.flush();
 		expect(existsSync(path)).toBe(true);
 		const content = readContent(path);
-		expect(content).toContain('display_name: "x"');
-		expect(content).toContain('description: "Read-only explorer."');
+		expect(content).toContain('description: "Read-only explorer.Custom description"');
 		expect(content).not.toContain("enabled:"); // activation is Loadout policy, not Markdown
 		expect(content).toContain('prompt_mode: "replace"');
 		expect(content).toContain("You are a read-only explorer."); // built-in body preserved
 		expect(notifications).toEqual([]);
 		expect(changed).toEqual(["reload"]);
-		// A second save rewrites the now-existing file without losing the body.
-		await detail.handleInput("y");
+		// A second edit rewrites the now-existing file without losing the body.
+		await detail.handleInput("x"); // description append
 		await detail.handleInput(ENTER);
-		expect(readContent(path)).toContain('display_name: "xy"');
+		detail.flush();
+		expect(readContent(path)).toContain('description: "Read-only explorer.Custom descriptionx"');
 		expect(readContent(path)).toContain("You are a read-only explorer.");
+		expect(changed).toEqual(["reload", "reload"]);
 	});
 
 	it("clone preserves the built-in tool allowlist so read-only agents stay read-only", async () => {
 		const { detail, root } = setupDefault("Explore");
 		const path = join(root, ".pi", "agents", "Explore.md");
-		await detail.handleInput("x");
+		await detail.handleInput(DOWN); // identity → description
+		await detail.handleInput("d");
 		await detail.handleInput(ENTER);
+		detail.flush();
 		expect(readContent(path)).toContain('tools: "read, bash, grep, find, ls"');
 		// A reload parses the clone back with the same allowlist, not the
 		// "all tools" default that an omitted `tools:` would produce.
@@ -233,10 +241,13 @@ describe("createAgentDetail", () => {
 		expect(readContent(path)).not.toContain("tools:");
 	});
 
-	it("persists an identity text edit on Enter", async () => {
+	it("buffers an identity text edit until flush", async () => {
 		const { detail, changed, path } = setup();
 		await detail.handleInput("x");
 		await detail.handleInput(ENTER);
+		expect(readContent(path)).not.toContain('display_name: "x"');
+		expect(changed).toEqual([]);
+		detail.flush();
 		expect(readContent(path)).toContain('display_name: "x"');
 		expect(changed).toEqual(["reload"]);
 	});
@@ -246,24 +257,37 @@ describe("createAgentDetail", () => {
 		expect(detail.render(100).join("\n")).not.toContain("Enabled:");
 	});
 
-	it("cycles thinking with Tab inside the selector and saves both on Enter", async () => {
+	it("cycles thinking with Tab inside the selector and confirms both on Enter", async () => {
 		const { detail, path } = setup();
 		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN); // identity → model
 		await detail.handleInput(ENTER); // open selector
 		await detail.handleInput(TAB); // inherit → off
 		await detail.handleInput(TAB); // off → minimal
-		await detail.handleInput(ENTER); // apply + save
+		await detail.handleInput(ENTER); // confirm
+		detail.flush();
 		expect(readContent(path)).toContain('thinking: "minimal"');
 		expect(readContent(path)).not.toContain("model:");
 	});
 
-	it("wraps the thinking cycle back to inherit and omits the key", async () => {
+	it("cycles thinking within off…max and never offers inherit", async () => {
 		const { detail, path } = setup();
-		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN); // identity → thinking
-		await detail.handleInput(ENTER);
-		// 8 Tab presses walk inherit → off → … → max → inherit.
+		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN); // identity → model
+		await detail.handleInput(ENTER); // open selector
+		// THINKING_LEVELS has 7 levels; 8 Tabs from the untouched inherit
+		// buffer lands back on off (modulo wrap) — inherit itself is never an
+		// option in the cycle.
 		for (let i = 0; i < 8; i++) await detail.handleInput(TAB);
 		await detail.handleInput(ENTER);
+		detail.flush();
+		expect(readContent(path)).toContain('thinking: "off"');
+	});
+
+	it("keeps the inherited thinking level when confirming without Tab", async () => {
+		const { detail, path } = setup();
+		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN);
+		await detail.handleInput(ENTER);
+		await detail.handleInput(ENTER); // confirm as-is
+		detail.flush();
 		expect(readContent(path)).not.toContain("thinking:");
 	});
 
@@ -274,11 +298,13 @@ describe("createAgentDetail", () => {
 		await detail.handleInput(DOWN);
 		await detail.handleInput(DOWN); // inherit → anthropic/haiku → cx/gpt-5.6-luna
 		await detail.handleInput(ENTER);
+		detail.flush();
 		expect(readContent(path)).toContain('model: "cx/gpt-5.6-luna"');
 		await detail.handleInput(ENTER); // reopen; current option selected
 		await detail.handleInput(UP);
 		await detail.handleInput(UP); // back to inherit
 		await detail.handleInput(ENTER);
+		detail.flush();
 		expect(readContent(path)).not.toContain("model:");
 	});
 
@@ -331,6 +357,7 @@ describe("createAgentDetail", () => {
 		expect(detail.render(60).join("\n")).toMatch(/Model\s+inherit/);
 		await detail.handleInput(DOWN); // → the preserved current value
 		await detail.handleInput(ENTER);
+		detail.flush();
 		expect(readContent(path)).toContain('model: "cx/gpt-5.6-luna"');
 	});
 
@@ -349,9 +376,9 @@ describe("createAgentDetail", () => {
 		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN);
 		await detail.handleInput(ENTER);
 		await detail.handleInput(TAB); // inherit → off
-		await detail.handleInput(SHIFT_TAB); // back to inherit
-		await detail.handleInput(SHIFT_TAB); // wraps backward to max
+		await detail.handleInput(SHIFT_TAB); // off wraps backward to max
 		await detail.handleInput(ENTER);
+		detail.flush();
 		expect(readContent(path)).toContain('thinking: "max"');
 	});
 
@@ -367,6 +394,7 @@ describe("createAgentDetail", () => {
 		expect(detail.render(60).join("\n")).toMatch(/Model\s+cx\/gpt-5\.6-luna/);
 		await detail.handleInput(UP); // back to the current value
 		await detail.handleInput(ENTER);
+		detail.flush();
 		expect(readContent(path)).toContain('model: "anthropic/claude-haiku-4-5"');
 	});
 
@@ -377,7 +405,9 @@ describe("createAgentDetail", () => {
 		await detail.handleInput(TAB); // thinking → off in the draft only
 		await detail.handleInput(ESCAPE);
 		expect(readContent(path)).not.toContain("thinking:");
-		expect(detail.render(60).join("\n")).toMatch(/Thinking\s+inherit/);
+		detail.flush();
+		expect(readContent(path)).not.toContain("thinking:");
+		expect(detail.render(60).join("\n")).toMatch(/Model\s+inherit/);
 	});
 
 	it("shows the current model option in place with a fixed row count and no hints", async () => {
@@ -385,7 +415,7 @@ describe("createAgentDetail", () => {
 		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN);
 		await detail.handleInput(ENTER);
 		const lines = detail.render(18);
-		expect(lines).toHaveLength(6);
+		expect(lines).toHaveLength(4);
 		for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(18);
 		// The open selector shows the current option in place, without hints.
 		expect(detail.render(60).join("\n")).toMatch(/Model\s+inherit/);
@@ -397,8 +427,9 @@ describe("createAgentDetail", () => {
 	it("renders aligned label/value columns with Body 'open in editor' and no informational extras", async () => {
 		const { detail } = setup();
 		const lines = detail.render(80);
-		expect(lines).toHaveLength(6);
+		expect(lines).toHaveLength(4);
 		expect(lines.join("\n")).not.toContain("Default agent");
+		expect(lines.join("\n")).not.toContain("Markdown");
 		expect(lines.join("\n")).not.toContain("↑/↓");
 		expect(lines.join("\n")).toContain("open in editor");
 		// Labels share one left column: "Description" is the widest.
@@ -427,25 +458,39 @@ describe("createAgentDetail", () => {
 		await detail.handleInput("a");
 		await detail.handleInput(BACKSPACE);
 		await detail.handleInput(ENTER);
+		detail.flush();
 		expect(readContent(path)).toContain('display_name: "中"');
 	});
 
-	it("flushes pending edits before opening the body editor and reloads afterwards", async () => {
+	it("edits the body through a temp file into the buffered draft, applied only on flush", async () => {
 		const { detail, changed, exec, path } = setup();
 		await detail.handleInput("draft");
-		for (let i = 0; i < 5; i++) await detail.handleInput(DOWN); // identity → body
+		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN); // identity → body
+		exec.mockImplementation(async (_editor: string, [temp]: string[]) => {
+			writeFileSync(temp, "New body.\n", "utf8");
+			return { stdout: "", stderr: "", code: 0 };
+		});
 		await detail.handleInput(ENTER);
+		expect(exec).toHaveBeenCalledTimes(1);
+		const temp = exec.mock.calls[0]?.[1]?.[0] as string;
+		expect(temp).not.toBe(path); // never the target file directly
+		// The body edit is buffered: the target file is untouched until close.
+		expect(readContent(path)).not.toContain("New body.");
+		expect(readContent(path)).not.toContain('display_name: "draft"');
+		detail.flush();
+		expect(readContent(path)).toContain("New body.");
 		expect(readContent(path)).toContain('display_name: "draft"');
-		expect(exec).toHaveBeenCalledWith(process.env.VISUAL ?? process.env.EDITOR ?? "vi", [path]);
-		expect(changed).toEqual(["reload", "reload"]);
+		expect(changed).toEqual(["reload"]);
 	});
 
 	it("notifies when the editor exits non-zero", async () => {
-		const { detail, exec, notifications } = setup();
+		const { detail, exec, notifications, path } = setup();
 		exec.mockResolvedValue({ stdout: "", stderr: "", code: 1 });
-		for (let i = 0; i < 5; i++) await detail.handleInput(DOWN);
+		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN);
 		await detail.handleInput(ENTER);
 		expect(notifications).toEqual(["Editor exited with status 1; the body may be unchanged."]);
+		detail.flush();
+		expect(readContent(path)).not.toContain("You are a test agent.\nNew");
 	});
 
 	it("clamps selection and truncates rendered lines to the panel width", async () => {
@@ -464,5 +509,110 @@ describe("createAgentDetail", () => {
 		const rendered = detail.render(60).join("\n");
 		expect(rendered).toMatch(/Identity\s+Renamed/);
 		expect(rendered).toMatch(/Model\s+cx\/gpt-5\.6-luna/);
+	});
+
+	it("keeps a built-in agent's Identity read-only and renders it dim", async () => {
+		const { detail, root } = setupDefault();
+		await detail.handleInput("x"); // identity edit is discarded
+		await detail.handleInput(ENTER);
+		detail.flush();
+		expect(existsSync(join(root, ".pi", "agents", "Explore.md"))).toBe(false); // nothing dirty
+		const theme = {
+			fg: (role: string, value: string) => `[${role}:${value}]`,
+			bold: (value: string) => `<${value}>`,
+		} as never;
+		detail.onThemeChange?.(theme);
+		expect(detail.render(80)[0]).toContain("[dim:");
+	});
+
+	it("reports the per-scope backing path", async () => {
+		const { detail, root } = setupDefault("Explore"); // built-in: clone target
+		const projectPath = join(root, ".pi", "agents", "Explore.md");
+		expect(detail.path).toBe(projectPath);
+		detail.onScopeChange?.("project");
+		expect(detail.path).toBe(projectPath);
+	});
+
+	it("materializes a project override on flush without touching a global backing", async () => {
+		const root = mkdtempSync(join(tmpdir(), "pi-agent-detail-"));
+		roots.push(root);
+		const globalDir = join(root, "agent-dir");
+		process.env.PI_CODING_AGENT_DIR = globalDir;
+		const globalAgents = join(globalDir, "agents");
+		mkdirSync(globalAgents, { recursive: true });
+		const globalPath = join(globalAgents, "auditor.md");
+		writeFileSync(globalPath, "---\ndescription: Global agent.\n---\nGlobal body.\n");
+		vi.spyOn(process, "cwd").mockReturnValue(root);
+		const config: AgentConfig = {
+			name: "auditor",
+			description: "Global agent.",
+			extensions: true,
+			skills: true,
+			systemPrompt: "Global body.\n",
+			promptMode: "replace",
+			source: "global",
+		};
+		const detail = createAgentDetail(
+			{ exec: vi.fn(async () => ({ stdout: "", stderr: "", code: 0 })) } as unknown as ExtensionAPI,
+			"auditor",
+			config,
+			AUTH_REGISTRY,
+			() => undefined,
+			() => undefined,
+		);
+		detail.onScopeChange?.("project");
+		await detail.handleInput("P");
+		await detail.handleInput(ENTER);
+		detail.flush();
+		// The global file keeps its original frontmatter and body.
+		expect(readContent(globalPath)).toBe("---\ndescription: Global agent.\n---\nGlobal body.\n");
+		// The project override is materialized with the global body preserved.
+		const projectPath = join(root, ".pi", "agents", "auditor.md");
+		expect(readContent(projectPath)).toContain('display_name: "P"');
+		expect(readContent(projectPath)).toContain("Global body.");
+	});
+
+	it("buffers Global and Project edits separately and flushes each to its own file", async () => {
+		const root = mkdtempSync(join(tmpdir(), "pi-agent-detail-"));
+		roots.push(root);
+		const globalDir = join(root, "agent-dir");
+		process.env.PI_CODING_AGENT_DIR = globalDir;
+		const globalAgents = join(globalDir, "agents");
+		mkdirSync(globalAgents, { recursive: true });
+		const globalPath = join(globalAgents, "auditor.md");
+		writeFileSync(globalPath, "---\ndescription: Global agent.\n---\nGlobal body.\n");
+		vi.spyOn(process, "cwd").mockReturnValue(root);
+		const config: AgentConfig = {
+			name: "auditor",
+			description: "Global agent.",
+			extensions: true,
+			skills: true,
+			systemPrompt: "Global body.\n",
+			promptMode: "replace",
+			source: "global",
+		};
+		const detail = createAgentDetail(
+			{ exec: vi.fn(async () => ({ stdout: "", stderr: "", code: 0 })) } as unknown as ExtensionAPI,
+			"auditor",
+			config,
+			AUTH_REGISTRY,
+			() => undefined,
+			() => undefined,
+		);
+		// Global scope edit first…
+		await detail.handleInput("G");
+		await detail.handleInput(ENTER);
+		// …then the same agent is edited from the Project scope.
+		detail.onScopeChange?.("project");
+		await detail.handleInput("P");
+		await detail.handleInput(ENTER);
+		detail.flush();
+		// Global changes land in the global file; Project changes create the
+		// project override. Neither scope overwrites the other's edit.
+		expect(readContent(globalPath)).toContain('display_name: "G"');
+		expect(readContent(globalPath)).not.toContain('display_name: "P"');
+		const projectPath = join(root, ".pi", "agents", "auditor.md");
+		expect(readContent(projectPath)).toContain('display_name: "P"');
+		expect(readContent(projectPath)).not.toContain('display_name: "GP"');
 	});
 });

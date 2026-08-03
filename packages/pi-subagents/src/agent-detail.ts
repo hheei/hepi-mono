@@ -1,28 +1,28 @@
 /**
  * agent-detail.ts — Contributor-owned Loadout detail editor for custom Markdown agents.
  *
- * The detail is a small inline form over the agent's YAML frontmatter. Text fields
- * (identity, description) edit in memory; Enter persists all pending edits by
- * rewriting the frontmatter while preserving the body and unknown keys, then reloads
- * the catalog. The model/thinking pair reuses the Settings cycler (`tabCycle`
- * semantics): Enter opens a single selector on the model options, Up/Down move
- * between them, Tab cycles the thinking value in place, Enter applies both and
- * saves, Esc cancels. Both lists lead with `inherit` (unset). The form renders
- * as two aligned columns (label / value) like the Settings field list, the
- * focused row gets the accent treatment, and the Body action row advertises
- * the external editor as its value ("open in editor"); informational rows are
- * not focusable and there is no key-hint row. Agent activation is owned by the
- * Loadout policy under `agent:<name>`, never by this Markdown, so there is no
- * enabled field here. The Body row first flushes pending edits, then opens the
- * external editor and reloads after it exits. The caller owns the catalog
- * reload; this module only reports it through `onChanged` and surfaces
- * failures through `notify`. A built-in (default) agent has no backing file:
- * its first save clones a Markdown file into `<cwd>/.pi/agents/` so the
- * override becomes a normal custom agent (and therefore editable).
+ * The detail is a small inline form over the agent's YAML frontmatter. All edits
+ * (text, cycler picks, body) are buffered per Loadout scope and only written
+ * when the Loadout page closes (`flush`), never per keystroke; the model/thinking
+ * pair reuses the Settings cycler (`tabCycle` semantics): Enter opens a single
+ * selector on the model options, Up/Down move between them, Tab cycles the
+ * thinking value in place (off…max, no `inherit`), Enter confirms both, Esc
+ * cancels. The form renders as two aligned columns (label / value) like the
+ * Settings field list, the focused row gets the accent treatment, and the Body
+ * action row advertises the external editor as its value ("open in editor").
+ * The Body row edits a temporary file and stores the result in the buffered
+ * draft — nothing touches the target file until flush. Project-scope edits
+ * always target `<cwd>/.pi/agents/<name>.md` (materializing a clone when
+ * missing); Global-scope edits target the agent's own backing file. Agent
+ * activation is owned by the Loadout policy under `agent:<name>`, never by
+ * this Markdown, so there is no enabled field here. The caller owns the
+ * catalog reload; this module only reports it through `onChanged` and surfaces
+ * failures through `notify`.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import {
 	type ExtensionAPI,
@@ -34,6 +34,7 @@ import { Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/
 import {
 	type HepiModelSelectionRegistry,
 	hepiAuthenticatedModelSelectionOptions,
+	hepiThinkingGlyph,
 	type LoadoutResourceDetail,
 } from "@hheei/pi-ext-core";
 import type { AgentConfig } from "./types.js";
@@ -62,11 +63,10 @@ const DETAIL_FIELDS: readonly DetailField[] = [
 	FIRST_FIELD,
 	{ id: "description", kind: "text" },
 	{ id: "model", kind: "select" },
-	{ id: "thinking", kind: "select" },
 	{ id: "body", kind: "action" },
 ];
 
-type FieldId = "identity" | "description" | "model" | "thinking" | "body";
+type FieldId = "identity" | "description" | "model" | "body";
 type FieldKind = "text" | "select" | "action";
 
 interface DetailField {
@@ -159,11 +159,14 @@ function pad(value: string, width: number): string {
 /**
  * Serializes the editable values back into the agent file's YAML frontmatter.
  * Unknown frontmatter keys and the body (including its trailing newline) survive
- * byte-for-byte. A file without a frontmatter block gets one prepended.
+ * byte-for-byte. A file without a frontmatter block gets one prepended. When
+ * `bodyOverride` is supplied (a buffered body edit), it replaces the body and
+ * is written after a single leading newline.
  */
 export function rewriteAgentMarkdown(
 	path: string,
 	values: Readonly<Record<string, string | boolean | undefined>>,
+	bodyOverride?: string,
 ): void {
 	const original = readFileSync(path, "utf8");
 	// Detect the block structurally: `parseFrontmatter` treats a missing block as
@@ -190,7 +193,12 @@ export function rewriteAgentMarkdown(
 		const value = yamlValue(values[key]);
 		if (value !== undefined) lines.push(`${key}: ${value}`);
 	}
-	const body = start >= 0 && end >= 0 ? original.slice(end + "\n---".length) : original;
+	const body =
+		bodyOverride !== undefined
+			? `\n${bodyOverride}`
+			: start >= 0 && end >= 0
+				? original.slice(end + "\n---".length)
+				: original;
 	writeFileSync(path, `---\n${lines.join("\n")}\n---${body}`, "utf8");
 }
 
@@ -213,49 +221,88 @@ export function createAgentDetail(
 	onChanged: () => void,
 	notify: (message: string) => void,
 ): AgentDetail {
-	let draft = draftFromConfig(initial);
+	/**
+	 * One buffered draft per Loadout scope: Global edits target the agent's own
+	 * backing file, Project edits target <cwd>/.pi/agents/<name>.md. Keeping
+	 * them separate means a Global edit followed by a Project edit of the same
+	 * agent flushes to both files on close, instead of the last scope winning.
+	 */
+	interface ScopeDraft {
+		readonly scope: "global" | "project";
+		draft: AgentDraft;
+		dirty: boolean;
+		/** True once the Body row rewrote the buffered system prompt. */
+		bodyEdited: boolean;
+	}
+	let base: AgentDraft = draftFromConfig(initial);
+	const byScope = new Map<"global" | "project", ScopeDraft>();
+	let scope: "global" | "project" = "global";
+	const current = (): ScopeDraft => {
+		let entry = byScope.get(scope);
+		if (entry === undefined) {
+			entry = { scope, draft: base, dirty: false, bodyEdited: false };
+			byScope.set(scope, entry);
+		}
+		return entry;
+	};
 	let selected = 0;
 	let theme: Theme | undefined;
+	// Edits are buffered until the Loadout page closes: typing, cycler picks,
+	// and selector confirms only mutate the active scope's draft and mark it
+	// dirty. `flush()` is the single point that writes files, so leaving the
+	// panel applies every buffered scope's changes at once instead of
+	// rewriting the Markdown per keystroke.
 	// The cycler state: while `selectingModel` is true, Up/Down move through the
-	// model options, Tab cycles `thinkingDraft` in place, and Enter applies both
-	// through `save()`. `thinkingDraft` is separate from `draft` so Esc can
-	// discard the in-progress cycle without touching the persisted snapshot.
+	// model options, Tab cycles `thinkingDraft` in place (off…max only; the
+	// `inherit` state is the untouched buffer and is not offered in the cycle),
+	// and Enter confirms both. `thinkingDraft` is separate from `draft` so Esc
+	// can discard the in-progress cycle without touching the buffered snapshot.
 	let selectingModel = false;
 	let selectIndex = 0;
 	let thinkingDraft: ModelThinkingLevel | undefined;
 	const field = (): DetailField => DETAIL_FIELDS[selected] ?? FIRST_FIELD;
 	/**
 	 * The rendered form mirrors the Settings field list: a left label column and
-	 * a right value column. The Body action row advertises the external editor
-	 * as its value ("open in editor"); informational rows (Markdown) are not
-	 * focusable. The focused row gets the accent treatment like Settings.
+	 * a right value column. The Model row is the combined model/thinking entry:
+	 * the thinking glyph (only when a level is pinned) precedes the model
+	 * value. The Body action row advertises the external editor as its value
+	 * ("open in editor"). The focused row gets the accent treatment like
+	 * Settings; a built-in agent's Identity row is read-only and rendered dim.
 	 */
 	const rows = (): ReadonlyArray<{ readonly label: string; readonly value: string }> => {
-		const path = agentMarkdownPath(name, draft.source);
+		const draft = current().draft;
+		const model = selectingModel
+			? (modelChoices()[selectIndex] ?? INHERIT)
+			: (draft.model ?? INHERIT);
+		const thinking = selectingModel ? thinkingDraft : draft.thinking;
+		const glyph = thinking === undefined ? "" : `${hepiThinkingGlyph(thinking)} `;
 		return [
 			{ label: "Identity", value: draft.displayName ?? name },
 			{ label: "Description", value: draft.description },
-			{
-				label: "Model",
-				value: selectingModel ? (modelChoices()[selectIndex] ?? INHERIT) : (draft.model ?? INHERIT),
-			},
-			{
-				label: "Thinking",
-				value: (selectingModel ? thinkingDraft : draft.thinking) ?? INHERIT,
-			},
+			{ label: "Model", value: `${glyph}${model}` },
 			{ label: "Body", value: "open in editor" },
-			{ label: "Markdown", value: path ?? "unavailable" },
 		];
 	};
 	const textValue = (): string => {
+		const draft = current().draft;
 		const id = field().id;
 		if (id === "identity") return draft.displayName ?? "";
 		return draft.description;
 	};
 	const setText = (value: string): void => {
+		const entry = current();
+		const draft = entry.draft;
 		const id = field().id;
-		if (id === "identity") draft = { ...draft, displayName: value };
-		else draft = { ...draft, description: value };
+		// A built-in agent's identity is owned by its definition, not the user;
+		// the row renders dim and edits are discarded.
+		if (id === "identity" && draft.isDefault) return;
+		if (id === "identity") {
+			entry.draft = { ...draft, displayName: value };
+			entry.dirty = true;
+			return;
+		}
+		entry.draft = { ...draft, description: value };
+		entry.dirty = true;
 	};
 	/**
 	 * Model cycler options: `inherit` first, then the `provider/model` list
@@ -265,38 +312,54 @@ export function createAgentDetail(
 	 * "haiku", or an unauthenticated provider) is preserved and prepended.
 	 */
 	const modelChoices = (): readonly string[] => {
-		const current = draft.model?.trim() ?? "";
+		const currentModel = current().draft.model?.trim() ?? "";
 		const available = hepiAuthenticatedModelSelectionOptions(
 			modelRegistry ?? { hasConfiguredAuth: () => false },
 		)
 			.map((option) => option.value)
 			.filter((ref) => ref !== "")
 			.sort((left, right) => left.localeCompare(right));
-		if (current !== "" && !available.includes(current)) {
-			return [INHERIT, current, ...available];
+		if (currentModel !== "" && !available.includes(currentModel)) {
+			return [INHERIT, currentModel, ...available];
 		}
 		return [INHERIT, ...available];
 	};
-	/** Thinking cycle order; `inherit` is index 0, so one Tab per wrap. */
-	const thinkingChoices = (): readonly string[] => [INHERIT, ...THINKING_LEVELS];
 	const openSelector = (): void => {
 		selectingModel = true;
-		thinkingDraft = draft.thinking;
-		const idx = modelChoices().indexOf(draft.model ?? INHERIT);
+		thinkingDraft = current().draft.thinking;
+		const idx = modelChoices().indexOf(current().draft.model ?? INHERIT);
 		selectIndex = idx >= 0 ? idx : 0;
 	};
-	/** Cycles the thinking value; mirrors the Settings cycler's modulo wrap. */
+	/**
+	 * Cycles the thinking value within off…max (never `inherit`): the first Tab
+	 * from the untouched inherit buffer starts at off, and further Tabs wrap
+	 * within the levels. Confirming without Tab keeps `inherit` intact.
+	 */
 	const cycleThinking = (direction: number): void => {
-		const choices = thinkingChoices();
-		const idx = choices.indexOf(thinkingDraft ?? INHERIT);
-		const next =
-			choices[(Math.max(0, idx) + direction + choices.length) % choices.length] ?? INHERIT;
-		thinkingDraft = next === INHERIT ? undefined : (next as ModelThinkingLevel);
+		const current = thinkingDraft;
+		if (current === undefined) {
+			thinkingDraft = THINKING_LEVELS[direction > 0 ? 0 : THINKING_LEVELS.length - 1];
+			return;
+		}
+		const idx = THINKING_LEVELS.indexOf(current);
+		thinkingDraft =
+			THINKING_LEVELS[(idx + direction + THINKING_LEVELS.length) % THINKING_LEVELS.length];
 	};
-	/** Persists the current snapshot; returns false (with a notification) on failure. */
-	const save = (): boolean => {
-		let path = agentMarkdownPath(name, draft.source);
+	/** Writes one scope's buffered snapshot to that scope's target file. */
+	const applyPending = (entry: ScopeDraft): boolean => {
+		const { draft } = entry;
+		let path: string | undefined;
 		let cloned = false;
+		if (entry.scope === "project") {
+			// The project agents dir is authoritative for project-scope edits; a
+			// missing file (global or built-in agent) is materialized there with
+			// the current system prompt as the body, never touching the original.
+			path = join(process.cwd(), ".pi", "agents", `${name}.md`);
+			cloned = !existsSync(path);
+			mkdirSync(dirname(path), { recursive: true });
+		} else {
+			path = agentMarkdownPath(name, draft.source);
+		}
 		if (path === undefined && draft.isDefault) {
 			// A built-in agent has no backing file; the first save materializes
 			// one in the project agents dir so it becomes an editable override.
@@ -324,22 +387,45 @@ export function createAgentDetail(
 		};
 		try {
 			if (cloned) writeAgentMarkdown(path, values, draft.systemPrompt);
-			else rewriteAgentMarkdown(path, values);
+			else rewriteAgentMarkdown(path, values, entry.bodyEdited ? draft.systemPrompt : undefined);
 		} catch (error) {
 			notify(
 				`Agent changes were not saved: ${error instanceof Error ? error.message : String(error)}`,
 			);
 			return false;
 		}
-		draft = {
+		entry.draft = {
 			...draft,
 			displayName: displayName === "" ? undefined : displayName,
 			model: model === "" ? undefined : model,
 		};
-		onChanged();
 		return true;
 	};
-	return {
+	/**
+	 * Persists every dirty scope when the Loadout page closes: all snapshots
+	 * are written first, then the catalog reload is triggered once. Reloading
+	 * inside the per-scope loop would refresh this detail (clearing the
+	 * buffers) before the remaining scopes are written.
+	 */
+	const flush = (): void => {
+		let wrote = false;
+		for (const entry of byScope.values()) {
+			if (!entry.dirty) continue;
+			if (applyPending(entry)) {
+				entry.dirty = false;
+				wrote = true;
+			}
+		}
+		if (wrote) onChanged();
+	};
+	const backingPath = (): string =>
+		scope === "project"
+			? join(process.cwd(), ".pi", "agents", `${name}.md`)
+			: (agentMarkdownPath(name, base.source) ??
+				// A built-in agent has no file yet; report where a first save would
+				// clone it (the project agents dir), not a dead "unavailable".
+				join(process.cwd(), ".pi", "agents", `${name}.md`));
+	const detail: AgentDetail = {
 		render(width: number): readonly string[] {
 			const rendered = rows();
 			// Mirror the Settings field list: the label column never exceeds 55%
@@ -349,8 +435,10 @@ export function createAgentDetail(
 			const valueWidth = Math.max(1, Math.max(0, width) - labelWidth - 4);
 			return rendered.map((row, index) => {
 				const focused = index === selected && index < DETAIL_FIELDS.length;
+				const readonlyIdentity = index === 0 && current().draft.isDefault;
 				const line = `${focused ? "→ " : "  "}${pad(row.label, labelWidth)}  ${truncateToWidth(row.value, valueWidth)}`;
 				const truncated = truncateToWidth(line, Math.max(0, width));
+				if (readonlyIdentity) return theme?.fg("dim", truncated) ?? truncated;
 				if (!focused || theme === undefined) return truncated;
 				return theme.fg("accent", theme.bold(truncated));
 			});
@@ -372,12 +460,13 @@ export function createAgentDetail(
 				if (matchesKey(input, Key.enter)) {
 					selectingModel = false;
 					const value = modelChoices()[selectIndex] ?? INHERIT;
-					draft = {
-						...draft,
+					const entry = current();
+					entry.draft = {
+						...entry.draft,
 						model: value === INHERIT ? undefined : value,
 						thinking: thinkingDraft,
 					};
-					save();
+					entry.dirty = true;
 					return true;
 				}
 				if (matchesKey(input, Key.escape)) {
@@ -399,18 +488,23 @@ export function createAgentDetail(
 				if (field().kind === "select") {
 					openSelector();
 				} else if (field().kind === "action") {
-					// Pending text edits must reach the file before the editor opens,
-					// otherwise opening the body discards them.
-					if (!save()) return true;
-					const path = agentMarkdownPath(name, draft.source);
-					if (path === undefined) return true;
+					// The editor works on a temporary copy; the result is stored
+					// in the buffered draft, so nothing touches the target file
+					// until the Loadout page closes with flush().
+					const entry = current();
+					const temp = join(tmpdir(), `pi-agent-${name}-${Date.now()}.md`);
+					writeFileSync(temp, entry.draft.systemPrompt, "utf8");
 					const editor = process.env.VISUAL ?? process.env.EDITOR ?? "vi";
-					const result = await pi.exec(editor, [path]);
-					if (result.code !== 0)
+					const result = await pi.exec(editor, [temp]);
+					if (result.code === 0) {
+						const content = readFileSync(temp, "utf8");
+						entry.draft = { ...entry.draft, systemPrompt: content };
+						entry.dirty = true;
+						entry.bodyEdited = true;
+					} else {
 						notify(`Editor exited with status ${result.code}; the body may be unchanged.`);
-					onChanged(); // refresh the catalog and this detail's snapshot after external edits
-				} else {
-					save();
+					}
+					rmSync(temp, { force: true });
 				}
 				return true;
 			}
@@ -425,12 +519,23 @@ export function createAgentDetail(
 			return false;
 		},
 		refresh(next: AgentConfig): void {
-			draft = draftFromConfig(next);
+			// Safe to drop the buffers here: refresh only runs after a reload
+			// that this detail's own flush triggered (all scopes already on
+			// disk) or after external file edits that win over buffered ones.
+			base = draftFromConfig(next);
+			byScope.clear();
+		},
+		flush,
+		path: backingPath(),
+		onScopeChange(next: "global" | "project"): void {
+			scope = next;
+			detail.path = backingPath();
 		},
 		onThemeChange(nextTheme: Theme): void {
 			theme = nextTheme;
 		},
 	};
+	return detail;
 }
 
 function removeLastCodePoint(value: string): string {

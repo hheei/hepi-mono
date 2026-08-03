@@ -26,11 +26,21 @@ export interface LoadoutToolMetadata {
 /**
  * Contributor-owned view opened from its Loadout resource row. The view owns its
  * state and persistence; Loadout only supplies focus, width, and theme changes.
+ * A detail may defer persistence until the Loadout page closes: `flush` is
+ * invoked exactly once then, so edits stay pending while the panel is open.
+ * `path` is an optional read-only backing-file hint rendered by Loadout.
+ * `onScopeChange` is called when the detail is opened so contributors can
+ * target per-scope save locations (e.g. project overrides).
  */
 export interface LoadoutResourceDetail {
 	render(width: number): readonly string[];
 	handleInput(input: string): Promise<boolean> | boolean;
 	onThemeChange?(theme: Theme): void;
+	onScopeChange?(scope: "global" | "project"): void;
+	/** Persist any pending edits; called once when the Loadout page closes. */
+	flush?(): void;
+	/** Read-only backing path (or future save location) shown in the header. */
+	path?: string;
 }
 
 /**

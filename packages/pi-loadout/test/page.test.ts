@@ -11,7 +11,7 @@ import {
 	registerManagedLoadoutTool,
 } from "@hheei/pi-ext-core";
 import { replayTui, viewFrame } from "../../hepi-debug/src/tui-replay.js";
-import { createAgentDetail } from "../../pi-subagents/src/agent-detail.js";
+import { type AgentDetail, createAgentDetail } from "../../pi-subagents/src/agent-detail.js";
 import type { AgentConfig } from "../../pi-subagents/src/types.js";
 import type { LoadoutEngine } from "../src/engine.js";
 import { createLoadoutPage } from "../src/page.js";
@@ -455,14 +455,99 @@ describe("Loadout Settings page", () => {
 			// detail's Description row, not between the title and Origin.
 			expect(opened.indexOf("Explore (agent)")).toBeLessThan(opened.indexOf("Origin:"));
 			expect(opened.indexOf("Origin:")).toBeLessThan(opened.indexOf("Status:"));
-			expect(opened.indexOf("Status:")).toBeLessThan(opened.indexOf("Read-only explorer."));
+			expect(opened.indexOf("Status:")).toBeLessThan(opened.indexOf("Path:"));
+			expect(opened.indexOf("Path:")).toBeLessThan(opened.indexOf("Read-only explorer."));
 			expect(opened.indexOf("Read-only explorer.")).toBeLessThan(opened.indexOf("↵ Edit config"));
 			expect(opened).toMatch(/Identity\s+Explore/);
 			expect(opened).toMatch(/Model\s+inherit/);
-			expect(opened).toMatch(/Markdown\s+\S/);
+			expect(opened).toMatch(/Path:\s+\S/);
 			expect(opened).not.toContain("Agent Explore");
 		} finally {
 			dispose();
+			vi.restoreAllMocks();
+		}
+	});
+
+	test("flushes every edited agent detail once on close, including after returning to the list", async () => {
+		const h = setup();
+		const root = await mkdtemp(join(tmpdir(), "pi-loadout-flush-"));
+		temporaryRoots.push(root);
+		const agentsDir = join(root, ".pi", "agents");
+		mkdirSync(agentsDir, { recursive: true });
+		writeFileSync(join(agentsDir, "One.md"), "---\ndescription: One.\n---\nOne body.\n");
+		writeFileSync(join(agentsDir, "Two.md"), "---\ndescription: Two.\n---\nTwo body.\n");
+		vi.spyOn(process, "cwd").mockReturnValue(root);
+		const registry = {
+			getAvailable: () => [],
+			hasConfiguredAuth: () => false,
+		};
+		const make = (name: string, description: string): AgentDetail =>
+			createAgentDetail(
+				h.pi,
+				name,
+				{
+					name,
+					description,
+					extensions: true,
+					skills: true,
+					systemPrompt: `${description} body.\n`,
+					promptMode: "replace",
+					source: "project",
+				},
+				registry,
+				() => undefined,
+				() => undefined,
+			);
+		const one = make("One", "One");
+		const two = make("Two", "Two");
+		const disposeOne = registerLoadoutResource(h.pi, {
+			id: "agent:One",
+			kind: "agent",
+			group: "𖠌 Agents",
+			priority: 0,
+			conflictSets: [],
+			defaultActive: true,
+			label: "One",
+			description: "One.",
+			summary: "inherit",
+			projectPrivate: false,
+			owner: "test",
+			detail: one,
+		});
+		const disposeTwo = registerLoadoutResource(h.pi, {
+			id: "agent:Two",
+			kind: "agent",
+			group: "𖠌 Agents",
+			priority: 0,
+			conflictSets: [],
+			defaultActive: true,
+			label: "Two",
+			description: "Two.",
+			summary: "inherit",
+			projectPrivate: false,
+			owner: "test",
+			detail: two,
+		});
+		try {
+			const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
+			// Edit One, then return to the list…
+			await page.handleInput("\u001b[B");
+			await page.handleInput("\u001b[B"); // read → project_check → One
+			await page.handleInput("\r"); // open One's detail
+			await page.handleInput("x");
+			await page.handleInput("\u001b"); // back to the list (no flush yet)
+			// …and edit Two before closing.
+			await page.handleInput("\u001b[B"); // One → Two
+			await page.handleInput("\r"); // open Two's detail
+			await page.handleInput("y");
+			await page.handleInput("\u001b"); // back to the list
+			page.close();
+			// Both edits land only on close, each in its own file.
+			expect(readFile(join(agentsDir, "One.md"), "utf8")).resolves.toContain('display_name: "x"');
+			expect(readFile(join(agentsDir, "Two.md"), "utf8")).resolves.toContain('display_name: "y"');
+		} finally {
+			disposeOne();
+			disposeTwo();
 			vi.restoreAllMocks();
 		}
 	});
