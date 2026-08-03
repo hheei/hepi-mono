@@ -38,9 +38,13 @@ type LifecycleHandler = (...args: unknown[]) => unknown;
 interface ManagerRegistryEntry {
 	disposed: boolean;
 }
+interface MockFn {
+	mock: { calls: readonly unknown[][] };
+}
 interface TestHost {
 	pi: ExtensionAPI;
 	lifecycle: Map<string, LifecycleHandler[]>;
+	emit: MockFn;
 }
 
 function makePi() {
@@ -56,7 +60,11 @@ function makePi() {
 		appendEntry: vi.fn(),
 		sendMessage: vi.fn(),
 	};
-	return { pi: pi as unknown as ExtensionAPI, lifecycle };
+	return {
+		pi: pi as unknown as ExtensionAPI,
+		lifecycle,
+		emit: pi.events.emit as unknown as MockFn,
+	};
 }
 
 async function emit(host: TestHost, event: string, ...args: unknown[]): Promise<void> {
@@ -111,6 +119,59 @@ describe("Subagents manager registry reload", () => {
 		expect(replacement).not.toBe(first);
 		expect(replacement.disposed).toBe(false);
 		expect(registerLoadoutResource).toHaveBeenCalledTimes(8);
+
+		await emit(host, "session_shutdown");
+	});
+
+	it("makes replaced direct lifecycle handlers inert on same Pi", async () => {
+		delete globals[MANAGER_KEY];
+		const host = makePi();
+
+		subagentsExtension(host.pi);
+		await emit(host, "session_start", undefined, context());
+		// ext-core lifecycle callbacks are registered first; raw pi.on callbacks
+		// follow and must be inert after replacement.
+		const oldStart = host.lifecycle.get("session_start")?.at(-1);
+		const oldShutdown = host.lifecycle.get("session_shutdown")?.at(-1);
+		if (!oldStart || !oldShutdown) throw new Error("missing initial lifecycle handlers");
+
+		subagentsExtension(host.pi);
+		await emit(host, "session_start", undefined, context());
+		const replacement = manager();
+		const readyCount = host.emit.mock.calls.filter((call) => call[0] === "subagents:ready").length;
+
+		await oldStart(undefined, context());
+		expect(host.emit.mock.calls.filter((call) => call[0] === "subagents:ready")).toHaveLength(
+			readyCount,
+		);
+		await oldShutdown(undefined, context());
+		expect(replacement.disposed).toBe(false);
+
+		await emit(host, "session_shutdown");
+	});
+
+	it("resets disposed on root reuse without child takeover", async () => {
+		delete globals[MANAGER_KEY];
+		const host = makePi();
+
+		subagentsExtension(host.pi);
+		await emit(host, "session_start", undefined, context());
+		const root = manager();
+		await emit(host, "session_shutdown");
+		expect(root.disposed).toBe(true);
+
+		subagentsExtension(host.pi);
+		await emit(host, "session_start", undefined, context());
+		const reusedRoot = manager();
+		expect(reusedRoot).not.toBe(root);
+		expect(reusedRoot.disposed).toBe(false);
+
+		subagentsExtension(host.pi);
+		const childStart = host.lifecycle.get("session_start")?.at(-1);
+		if (!childStart) throw new Error("missing child lifecycle handler");
+		await childStart(undefined, context());
+		expect(manager()).toBe(reusedRoot);
+		expect(reusedRoot.disposed).toBe(false);
 
 		await emit(host, "session_shutdown");
 	});
