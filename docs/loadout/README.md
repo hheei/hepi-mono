@@ -24,9 +24,8 @@ Agent resource 可选贡献一个 nested settings detail。选中有 detail 的�
 Description lane 切换为该 detail；没有 detail 的 profile 不显示 `↵` hint，`Enter` 也不改变当前
 selection。窄终端把同一 detail 堆叠在列表下方。Loadout 只拥有焦点、布局与导航；contributor 复用自己
 settings provider 的 schema、storage、validation 与 live-policy callback，不复制 JSON 格式或把 feature
-state 下沉到 Loadout。Auto-Title 作为一个 `agent` resource 贡献其既有 settings；具体哪些 subagent
-profile 贡献 detail、以及 Loadout presence 时是否仍在 `/ext-settings` 显示，由实现前 design agreement
-限定。
+state 下沉到 Loadout。`pi-auto-title` 不注册 `agent` resource，始终经 `/ext-settings` 显示自己的
+settings；`Agents` group 的行只来自 `pi-subagents` 的 subagent profiles。
 
 `pi-subagents` 的 agent detail 对 `model` 与 `thinking` 两个字段复用 Settings 的 cycler 交互
 （与 `HepiSettingTabCycle` 语义一致）：在 `model` 或 `thinking` 行按 `Enter` 打开单一选择器，
