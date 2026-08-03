@@ -30,9 +30,17 @@ export function registerExtensionLifecycle(
 ): void {
 	if (!options.key.trim()) throw new Error("Extension lifecycle key must not be empty");
 	const registrations = getLifecycleRegistrations(pi);
-	const registration: LifecycleRegistration = { token: Symbol(options.key) };
+	const previous = registrations.get(options.key);
+	const replacement = previous?.shutdown() ?? Promise.resolve();
+	// Keep replacement failures observable by the next start without creating an
+	// unhandled rejection when no subsequent session starts.
+	void replacement.catch(() => undefined);
+	const controller = createLifecycleController(pi, options, replacement);
+	const registration: LifecycleRegistration = {
+		token: Symbol(options.key),
+		shutdown: controller.shutdown,
+	};
 	registrations.set(options.key, registration);
-	const controller = createLifecycleController(pi, options);
 	const isCurrent = (): boolean => registrations.get(options.key)?.token === registration.token;
 
 	// Pi does not unregister old handlers on /reload. The runtime-scoped token
@@ -54,6 +62,7 @@ interface ActiveLifecycle {
 
 interface LifecycleRegistration {
 	readonly token: symbol;
+	readonly shutdown: () => Promise<void>;
 }
 
 function getLifecycleRegistrations(pi: ExtensionAPI): Map<string, LifecycleRegistration> {
@@ -72,6 +81,7 @@ function getLifecycleRegistrations(pi: ExtensionAPI): Map<string, LifecycleRegis
 function createLifecycleController(
 	pi: ExtensionAPI,
 	options: ExtensionLifecycleOptions,
+	replacement: Promise<void>,
 ): {
 	start(context: ExtensionContext): Promise<void>;
 	shutdown(): Promise<void>;
@@ -107,6 +117,7 @@ function createLifecycleController(
 	return {
 		start(context: ExtensionContext): Promise<void> {
 			return enqueue(async () => {
+				await replacement;
 				if (active !== undefined) await shutdownUnlocked();
 				const controller = new AbortController();
 				const resources = createDisposerRegistry();
@@ -129,6 +140,10 @@ function createLifecycleController(
 				}
 			});
 		},
-		shutdown: (): Promise<void> => enqueue(shutdownUnlocked),
+		shutdown: (): Promise<void> =>
+			enqueue(async () => {
+				await replacement;
+				await shutdownUnlocked();
+			}),
 	};
 }

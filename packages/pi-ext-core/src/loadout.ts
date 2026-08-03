@@ -26,7 +26,7 @@ export interface LoadoutToolMetadata {
  * resource policy and any future detail UI; Loadout owns persisted selection and presentation.
  */
 export interface LoadoutResourceMetadata extends LoadoutToolMetadata {
-	readonly kind: string;
+	readonly kind: "agent";
 	readonly label: string;
 	readonly description: string;
 	readonly summary: string;
@@ -112,8 +112,8 @@ function validateMetadata(metadata: LoadoutToolMetadata): void {
 
 function validateResourceMetadata(metadata: LoadoutResourceMetadata): void {
 	validateMetadata(metadata);
-	if (!metadata.kind.trim())
-		throw new Error(`Loadout resource kind must not be empty: ${metadata.id}`);
+	if (metadata.kind !== "agent")
+		throw new Error(`Unsupported Loadout resource kind: ${metadata.kind}`);
 	if (!metadata.id.startsWith(`${metadata.kind}:`))
 		throw new Error(`Loadout resource id must start with ${metadata.kind}: ${metadata.id}`);
 	if (!metadata.label.trim())
@@ -149,7 +149,12 @@ function registerMetadata(pi: RuntimeHost, metadata: LoadoutInventoryItem): void
 	if (state.registrations.has(metadata.id))
 		throw new Error(`Loadout tool id already registered: ${metadata.id}`);
 	state.registrations.set(metadata.id, metadata);
-	notify(state);
+	try {
+		notify(state);
+	} catch (error) {
+		state.registrations.delete(metadata.id);
+		throw error;
+	}
 }
 
 /**
@@ -165,7 +170,12 @@ export function registerLoadoutResource(
 	if (state.registrations.has(registration.id))
 		throw new Error(`Loadout resource id already registered: ${registration.id}`);
 	state.registrations.set(registration.id, registration);
-	notify(state);
+	try {
+		notify(state);
+	} catch (error) {
+		state.registrations.delete(registration.id);
+		throw error;
+	}
 	let active = true;
 	return () => {
 		if (!active) return;
@@ -215,10 +225,18 @@ export function registerManagedLoadoutTool<TParams extends TSchema, TDetails, TS
 			throw new Error(`Loadout tool id already registered: ${registration.id}`);
 		if (current.runner === pi)
 			throw new Error(`Loadout tool id already registered: ${registration.id}`);
+		const previous = state.registrations.get(registration.id);
 		pi.registerTool(tool);
 		state.managed.set(registration.id, { owner: registration.owner, runner: pi });
 		state.registrations.set(registration.id, registration);
-		notify(state);
+		try {
+			notify(state);
+		} catch (error) {
+			state.managed.set(registration.id, current);
+			if (previous === undefined) state.registrations.delete(registration.id);
+			else state.registrations.set(registration.id, previous);
+			throw error;
+		}
 		return;
 	}
 	if (state.registrations.has(registration.id))
@@ -226,7 +244,13 @@ export function registerManagedLoadoutTool<TParams extends TSchema, TDetails, TS
 	pi.registerTool(tool);
 	state.managed.set(registration.id, { owner: registration.owner, runner: pi });
 	state.registrations.set(registration.id, registration);
-	notify(state);
+	try {
+		notify(state);
+	} catch (error) {
+		state.managed.delete(registration.id);
+		state.registrations.delete(registration.id);
+		throw error;
+	}
 }
 
 /** Observes the current inventory and its lifecycle-bound dynamic registrations. */
@@ -251,19 +275,31 @@ export function publishLoadoutToolActivation(
 		if (!snapshot.knownIds.has(id)) throw new Error(`Loadout active tool is not known: ${id}`);
 	}
 	const state = stateFor(pi);
+	const previous = state.activation;
 	state.activation = {
 		knownIds: new Set(snapshot.knownIds),
 		activeIds: new Set(snapshot.activeIds),
 	};
-	notifyActivation(state);
+	try {
+		notifyActivation(state);
+	} catch (error) {
+		state.activation = previous;
+		throw error;
+	}
 }
 
 /** Clears a policy snapshot during lifecycle teardown. */
 export function clearLoadoutToolActivation(pi: ExtensionAPI): void {
 	const state = stateFor(pi);
 	if (state.activation === undefined) return;
+	const previous = state.activation;
 	state.activation = undefined;
-	notifyActivation(state);
+	try {
+		notifyActivation(state);
+	} catch (error) {
+		state.activation = previous;
+		throw error;
+	}
 }
 
 /** Observes resolved activation state, including future policy changes. */

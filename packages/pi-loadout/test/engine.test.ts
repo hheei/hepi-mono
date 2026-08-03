@@ -181,6 +181,27 @@ describe("headless Loadout engine", () => {
 		dispose();
 	});
 
+	test("restores host before observer cleanup and remains retryable", async () => {
+		const h = host();
+		const settings = await paths();
+		const controller = new AbortController();
+		let notifications = 0;
+		observeLoadoutToolActivation(h.pi, {
+			signal: controller.signal,
+			onChange(_snapshot) {
+				if (++notifications === 3) throw new Error("observer failed");
+			},
+		});
+		const engine = createLoadoutEngine(h.pi, { paths: settings });
+		await engine.start({ cwd: process.cwd() } as ExtensionContext, new AbortController().signal);
+		expect(() => engine.dispose()).toThrow("observer failed");
+		expect(h.activeSets.at(-1)).toEqual(["find", "third_party"]);
+		expect(engine.snapshot()).toBeDefined();
+		controller.abort();
+		engine.dispose();
+		expect(engine.snapshot()).toBeUndefined();
+	});
+
 	test("writes scope deltas, clears fallback choices, and repairs the modified key", async () => {
 		const settings = await paths();
 		await writeFile(

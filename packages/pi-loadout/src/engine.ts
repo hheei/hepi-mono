@@ -126,14 +126,13 @@ export function createLoadoutEngine(
 		setDisabledSkillKeys(pi, disabledSkillKeys(skillNames(pi), resolvedConfiguration));
 	};
 	const dispose = (): void => {
-		// Clear cross-extension state before restoring Pi so consumers cannot observe
-		// an activation snapshot that no longer matches the host tool set.
 		if (!active) return;
-		active = false;
-		configuration = undefined;
+		// Restore host first. Failed restoration must leave policy state intact for retry.
+		pi.setActiveTools([...initialActive]);
 		clearDisabledSkillKeys(pi);
 		clearLoadoutToolActivation(pi);
-		pi.setActiveTools([...initialActive]);
+		active = false;
+		configuration = undefined;
 		initialActive = [];
 	};
 

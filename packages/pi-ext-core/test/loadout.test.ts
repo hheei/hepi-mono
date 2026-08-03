@@ -143,6 +143,38 @@ describe("Loadout core contract", () => {
 		expect(seen).toEqual([[], ["agent:Explore"], []]);
 	});
 
+	test("rejects unsupported resource kinds and rolls back observer failures", () => {
+		const h = host();
+		expect(() =>
+			registerLoadoutResource(h.pi, {
+				...metadata("workflow:demo"),
+				kind: "workflow",
+				label: "Demo",
+				description: "Unsupported.",
+				summary: "demo",
+				projectPrivate: false,
+			} as never),
+		).toThrow("Unsupported Loadout resource kind: workflow");
+		const controller = new AbortController();
+		observeLoadoutInventory(h.pi, {
+			signal: controller.signal,
+			onChange(items) {
+				if (items.length > 0) throw new Error("observer failed");
+			},
+		});
+		expect(() =>
+			registerLoadoutResource(h.pi, {
+				...metadata("agent:demo"),
+				kind: "agent",
+				label: "Demo",
+				description: "Agent.",
+				summary: "demo",
+				projectPrivate: false,
+			}),
+		).toThrow("observer failed");
+		controller.abort();
+	});
+
 	test("publishes canonical disabled skill state and clears it", () => {
 		const h = host();
 		setDisabledSkillKeys(h.pi, ["lint", "skill:format"]);
