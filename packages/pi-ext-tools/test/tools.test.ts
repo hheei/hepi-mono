@@ -7,6 +7,7 @@ import type {
 	ExtensionContext,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { observeLoadoutInventory } from "@hheei/pi-ext-core";
 import { registerTools } from "../src/tools.js";
 
 const temporaryPaths: string[] = [];
@@ -44,6 +45,27 @@ describe("pi-ext-tools catalog", () => {
 		expect(names).toEqual(["read", "grep", "find", "edit", "write", "bash", "apply_patch"]);
 		expect(names.filter((name) => name === "apply_patch")).toHaveLength(1);
 		expect(() => registerTools(host.pi)).toThrow("Loadout tool id already registered: read");
+	});
+
+	test("makes apply_patch exclusive with edit and write without splitting edit from write", (): void => {
+		const host = harness();
+		const controller = new AbortController();
+		let inventory: readonly { readonly id: string; readonly conflictsWith?: readonly string[] }[] =
+			[];
+		observeLoadoutInventory(host.pi, {
+			signal: controller.signal,
+			onChange(items) {
+				inventory = items;
+			},
+		});
+
+		registerTools(host.pi);
+		expect(inventory.find((tool) => tool.id === "apply_patch")).toMatchObject({
+			conflictsWith: ["edit", "write"],
+		});
+		expect(inventory.find((tool) => tool.id === "edit")?.conflictsWith).toBeUndefined();
+		expect(inventory.find((tool) => tool.id === "write")?.conflictsWith).toBeUndefined();
+		controller.abort();
 	});
 
 	test("registers apply_patch as strict V4A patch transport", (): void => {

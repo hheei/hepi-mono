@@ -77,6 +77,7 @@ export function loadoutToolPolicies(
 			defaultActive: declaration?.defaultActive ?? initialActive.has(name),
 			priority: declaration?.priority ?? Number.MAX_SAFE_INTEGER,
 			conflictSets: declaration?.conflictSets ?? [],
+			conflictsWith: declaration?.conflictsWith ?? [],
 		};
 	});
 }

@@ -97,6 +97,7 @@ export function registerApplyPatchTool(pi: ExtensionAPI): void {
 			group: "Tools",
 			priority: 100,
 			conflictSets: [],
+			conflictsWith: ["edit", "write"],
 			defaultActive: true,
 		},
 		createApplyPatchTool(),

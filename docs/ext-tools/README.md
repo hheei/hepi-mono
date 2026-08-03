@@ -67,6 +67,16 @@ record 与 MIT notice。
 priority、同名 fallback registration 或运行时 provider arbitration。Loadout priority 仍只属于 activation/inventory
 policy，不能用于决定哪个 implementation 执行。
 
+## 写入工具选择与兼容 guard
+
+Loadout 将 `apply_patch` 视为 `edit` 与 `write` 这组工具的互斥替代：启用 `apply_patch` 时不会同时暴露
+`edit` 或 `write`；禁用它后可同时启用后两者。这个关系按 tool name 声明，避免把 `edit` 和 `write` 错误地彼此排斥；显式的 project/global
+Loadout 选择仍优先于默认值。
+
+extension 也保留兼容 guard：当前 active tools 不含 `apply_patch` 时，若模型在 streamed `bash` 调用中开始执行
+`apply_patch`，guard 会中止该 turn，并在 agent settled 后仅推荐当时仍 active 的 `edit`/`write`。两者都不可用时，
+它明确要求先启用一个写入工具，绝不推荐 disabled tool。`apply_patch` 已 active 时 guard 不介入；它不解析或拦截其它 bash 命令。
+
 ## Tool Ownership
 
 - `pi-ext-tools` 是 catalog 中每个名称的唯一 Canonical tool owner，负责 upstream parameter/execute compatibility、

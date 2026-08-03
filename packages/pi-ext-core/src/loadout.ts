@@ -16,6 +16,8 @@ export interface LoadoutToolMetadata {
 	readonly group: string;
 	readonly priority: number;
 	readonly conflictSets: readonly string[];
+	/** Tool names that cannot be active with this tool. The relation is symmetric. */
+	readonly conflictsWith?: readonly string[];
 	readonly defaultActive: boolean;
 }
 
@@ -90,6 +92,10 @@ function validateMetadata(metadata: LoadoutToolMetadata): void {
 	for (const conflictSet of metadata.conflictSets) {
 		if (!conflictSet.trim())
 			throw new Error(`Loadout conflict set must not be empty: ${metadata.id}`);
+	}
+	for (const toolId of metadata.conflictsWith ?? []) {
+		if (!toolId.trim() || toolId === metadata.id)
+			throw new Error(`Loadout conflicting tool id must name another tool: ${metadata.id}`);
 	}
 }
 
