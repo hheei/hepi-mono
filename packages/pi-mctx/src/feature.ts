@@ -980,9 +980,10 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			const sessionId = current.runtime.sessionId;
 			const candidates: MctxSearchCandidate[] = [];
 			if (sources.includes("memory")) {
+				const exclusionSignal = AbortSignal.any([signal, current.lifecycle.signal]);
 				const excluded = await excludedMemoryIds(
 					getService(current.lifecycle.pi, MCTX_MEMORY_EXCLUSION_SERVICE),
-					{ projectIdentity, sessionId, signal },
+					{ projectIdentity, sessionId, signal: exclusionSignal },
 				);
 				if (
 					active !== current ||
