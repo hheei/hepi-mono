@@ -87,6 +87,7 @@ test("dragging a read body uses Pi-owned result viewport bounds", async (): Prom
 	if (!(result instanceof SelectableReadResult)) throw new Error("Expected selectable read result");
 	const before = result.render(terminal.columns);
 	terminal.emit(`\x1b[<0;${x + 1};${row + 1}M`);
+	await new Promise((resolve) => setTimeout(resolve, 25));
 	terminal.emit(`\x1b[<32;${x + 2};${row + 1}M`);
 	expect(result.render(terminal.columns)).not.toEqual(before);
 	tui.stop();

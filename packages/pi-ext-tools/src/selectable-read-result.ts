@@ -1,7 +1,19 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { installMouseSupport, type TextRange, type ToolResultLayout } from "@hheei/pi-ext-core";
-import { type LogicalText, logicalText, positionAt, sliceLine, softWrap } from "./selection.js";
+import {
+	installMouseSupport,
+	type TextRange,
+	type ToolResultBounds,
+	type ToolResultLayout,
+} from "@hheei/pi-ext-core";
+import {
+	type LogicalText,
+	logicalText,
+	positionAt,
+	sliceLine,
+	softWrap,
+	type WrappedLine,
+} from "./selection.js";
 
 /** Pi-layout-bound read result; never discovers component positions itself. */
 export class SelectableReadResult implements Component {
@@ -23,22 +35,24 @@ export class SelectableReadResult implements Component {
 		this.removeRegion?.();
 		this.removeRegion = undefined;
 		if (resultLayout === undefined) return;
-		this.removeLayout = resultLayout.onChange((bounds) => {
-			this.removeRegion?.();
-			this.removeRegion = undefined;
-			if (bounds === undefined || bounds.width < 1 || bounds.height <= offsetY) return;
-			const rows = softWrap(this.text, bounds.width);
-			if (rows.length === 0) return;
+		let currentBounds: ToolResultBounds | undefined;
+		let rows: readonly WrappedLine[] = [];
+		const registerRegion = (): void => {
 			const support = installMouseSupport(resultLayout.tui, {
 				signal: new AbortController().signal,
 			});
 			const remove = support.registerSelectableRegion({
 				hitTest: (x, y): boolean =>
-					x >= bounds.x &&
-					x < bounds.x + bounds.width &&
-					y >= bounds.y + offsetY &&
-					y < bounds.y + offsetY + rows.length,
-				hitTestText: (x, y) => positionAt(this.text, rows, y - bounds.y - offsetY, x - bounds.x),
+					currentBounds !== undefined &&
+					rows.length > 0 &&
+					x >= currentBounds.x &&
+					x < currentBounds.x + currentBounds.width &&
+					y >= currentBounds.y + offsetY &&
+					y < currentBounds.y + offsetY + rows.length,
+				hitTestText: (x, y) => {
+					if (currentBounds === undefined) return null;
+					return positionAt(this.text, rows, y - currentBounds.y - offsetY, x - currentBounds.x);
+				},
 				setSelection: (selection): void => {
 					this.selection = selection;
 				},
@@ -47,6 +61,17 @@ export class SelectableReadResult implements Component {
 				remove();
 				support.dispose();
 			};
+		};
+		this.removeLayout = resultLayout.onChange((nextBounds) => {
+			// Down requests a render. Replacing a captured entry here would drop the
+			// following drag, so only update the layout snapshot between binds.
+			currentBounds = nextBounds;
+			if (nextBounds === undefined || nextBounds.width < 1 || nextBounds.height <= offsetY) {
+				rows = [];
+				return;
+			}
+			rows = softWrap(this.text, nextBounds.width);
+			if (rows.length > 0 && this.removeRegion === undefined) registerRegion();
 		});
 	}
 
