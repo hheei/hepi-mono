@@ -71,7 +71,7 @@ function resultRendererComponent(execution: ToolExecutionComponent): unknown {
 }
 
 async function renderToolResult(args: {
-	readonly toolName: "grep" | "find";
+	readonly toolName: "apply_patch" | "grep" | "find";
 	readonly toolCallId: string;
 	readonly toolArgs: Record<string, unknown>;
 	readonly text: string;
@@ -139,6 +139,30 @@ test("find selection covers visible result paths", async (): Promise<void> => {
 	const before = result.render(terminal.columns);
 	const x = visibleWidth(line.slice(0, index));
 	terminal.emit(`\x1b[<0;${x + 1};${row + 1}M`);
+	terminal.emit(`\x1b[<32;${x + 2};${row + 1}M`);
+	expect(result.render(terminal.columns)).not.toEqual(before);
+	tui.stop();
+});
+
+test("apply patch selection covers its compact success summary", async (): Promise<void> => {
+	const text =
+		"Done! Applied patch.\nFiles changed: 1\nOperations: 1\nExact updates: 1\nFuzzy updates: 0";
+	const { terminal, tui, result, lines } = await renderToolResult({
+		toolName: "apply_patch",
+		toolCallId: "apply-patch-1",
+		toolArgs: { patch: "*** Begin Patch\n*** End Patch" },
+		text,
+	});
+	const row = lines.findIndex((line) => line.includes("Files changed: 1"));
+	const line = lines[row];
+	const index = line?.indexOf("Files changed: 1") ?? -1;
+	if (row < 0 || line === undefined || index < 0) {
+		throw new Error("Expected apply_patch summary row");
+	}
+	const before = result.render(terminal.columns);
+	const x = visibleWidth(line.slice(0, index));
+	terminal.emit(`\x1b[<0;${x + 1};${row + 1}M`);
+	await new Promise((resolve) => setTimeout(resolve, 25));
 	terminal.emit(`\x1b[<32;${x + 2};${row + 1}M`);
 	expect(result.render(terminal.columns)).not.toEqual(before);
 	tui.stop();

@@ -90,8 +90,9 @@ extension 也保留兼容 guard：当前 active tools 不含 `apply_patch` 时�
 ## 本地文本选择
 
 `pi-ext-tools` 只在本 package 内共享纯文本 selection substrate：logical lines、grapheme/cell mapping、visual
-soft-wrap map 与 half-open `TextRange` slicing。ANSI、padding、border、call header 与 expand hint 都不进入 logical
-text。v1 只显示 local selection，不读取 selected text、不自动 copy、不访问 clipboard。这个 `TextRange` 高亮不是
+soft-wrap map 与 half-open `TextRange` slicing。`read`、`grep`、`find` 与 `apply_patch` 的可见纯文本 result body 支持
+local selection；`apply_patch` 只暴露完成后的 compact success summary，不暴露 patch payload、stream preview 或 coordinator
+internals。ANSI、padding、border、call header 与 expand hint 都不进入 logical text。v1 只显示 local selection，不读取 selected text、不自动 copy、不访问 clipboard。这个 `TextRange` 高亮不是
 terminal emulator 的 native selection，不能用 `Command+C` / `Ctrl+C` 直接复制；用户需要先用各 emulator 自己的
 mouse-reporting bypass 修饰键拖出 native terminal selection，再使用该 emulator 的复制快捷键。修饰键和快捷键均因
 emulator 配置而异，且此流程与 local selection 无关。
