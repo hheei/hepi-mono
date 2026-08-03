@@ -493,6 +493,16 @@ describe("createAgentDetail", () => {
 		expect(readContent(path)).not.toContain("You are a test agent.\nNew");
 	});
 
+	it("does not hang and notifies when the editor cannot start", async () => {
+		const { detail, exec, notifications, path } = setup();
+		exec.mockRejectedValue(new Error("spawn vi ENOENT"));
+		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN);
+		await detail.handleInput(ENTER); // must resolve, never hang
+		expect(notifications).toEqual(["Could not open the editor: spawn vi ENOENT"]);
+		detail.flush();
+		expect(readContent(path)).not.toContain("New body.");
+	});
+
 	it("clamps selection and truncates rendered lines to the panel width", async () => {
 		const { detail } = setup();
 		await detail.handleInput(UP);
