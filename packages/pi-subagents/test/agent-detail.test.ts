@@ -408,7 +408,7 @@ describe("createAgentDetail", () => {
 		for (let i = 0; i < 2; i++) await detail.handleInput(DOWN);
 		await detail.handleInput(ENTER);
 		const lines = detail.render(18);
-		expect(lines).toHaveLength(4);
+		expect(lines).toHaveLength(3);
 		for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(18);
 		// The open selector shows the current option in place, without hints.
 		expect(detail.render(60).join("\n")).toMatch(/Model\s+inherit/);
@@ -417,14 +417,13 @@ describe("createAgentDetail", () => {
 		expect(detail.render(60).join("\n")).toMatch(/Model\s+anthropic\/claude-haiku-4-5/);
 	});
 
-	it("renders aligned label/value columns with Body 'open in editor' and no informational extras", async () => {
+	it("renders aligned label/value columns without informational extras", async () => {
 		const { detail } = setup();
 		const lines = detail.render(80);
-		expect(lines).toHaveLength(4);
+		expect(lines).toHaveLength(3);
 		expect(lines.join("\n")).not.toContain("Default agent");
 		expect(lines.join("\n")).not.toContain("Markdown");
 		expect(lines.join("\n")).not.toContain("↑/↓");
-		expect(lines.join("\n")).toContain("open in editor");
 		// Labels share one left column: "Description" is the widest.
 		expect(lines[1]).toMatch(/^ {2}Description {2}/);
 	});
@@ -453,102 +452,6 @@ describe("createAgentDetail", () => {
 		await detail.handleInput(ENTER);
 		detail.flush();
 		expect(readContent(path)).toContain('display_name: "中"');
-	});
-
-	it("edits the body in the embedded editor and applies it only on flush", async () => {
-		const { detail, changed, path } = setup();
-		await detail.handleInput("draft");
-		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN); // identity → body
-		await detail.handleInput(ENTER); // enter body edit mode
-		expect(detail.render(80)[0]).toContain("Body");
-		await detail.handleInput("N");
-		await detail.handleInput("e");
-		await detail.handleInput("w");
-		await detail.handleInput(ENTER); // submit
-		// The body edit is buffered: the target file is untouched until close.
-		expect(readContent(path)).not.toContain("You are a test agent.New");
-		expect(readContent(path)).not.toContain('display_name: "draft"');
-		detail.flush();
-		expect(readContent(path)).toContain("You are a test agent.New");
-		expect(readContent(path)).toContain('display_name: "draft"');
-		expect(changed).toEqual(["reload"]);
-	});
-
-	it("inserts a newline with Shift+Enter in the body editor", async () => {
-		const { detail, path } = setup();
-		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN);
-		await detail.handleInput(ENTER); // enter body edit mode
-		await detail.handleInput("a");
-		await detail.handleInput("\u001b[13;2u"); // Shift+Enter
-		await detail.handleInput("b");
-		await detail.handleInput(ENTER); // submit
-		detail.flush();
-		expect(readContent(path)).toContain("You are a test agent.a\nb");
-	});
-
-	it("cancels the body editor with Esc without changing the body", async () => {
-		const { detail, path } = setup();
-		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN);
-		await detail.handleInput(ENTER); // enter body edit mode
-		await detail.handleInput("discarded");
-		await detail.handleInput(ESCAPE); // cancel
-		detail.flush();
-		expect(readContent(path)).toContain("You are a test agent.");
-		expect(readContent(path)).not.toContain("discarded");
-	});
-
-	it("navigates and edits existing body text at the cursor", async () => {
-		const { detail, path } = setup();
-		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN);
-		await detail.handleInput(ENTER); // enter body edit mode
-		await detail.handleInput("\u001b[D"); // left
-		await detail.handleInput("\u001b[D");
-		await detail.handleInput("X"); // insert before the trailing period
-		await detail.handleInput(ENTER); // submit
-		detail.flush();
-		expect(readContent(path)).toContain("You are a test agenXt.");
-	});
-
-	it("scrolls the body viewport to follow the cursor", async () => {
-		const longBody = Array.from({ length: 12 }, (_, index) => `line-${index}`).join("\n");
-		const { detail } = setup("auditor", undefined, {
-			...configFor("auditor"),
-			systemPrompt: longBody,
-		});
-		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN);
-		await detail.handleInput(ENTER); // cursor starts at the end (line-11)
-		const rendered = detail.render(80).join("\n");
-		expect(rendered).toContain("line-11");
-		expect(rendered).not.toContain("line-0");
-	});
-
-	it("clamps Left at the document start and Right at the end", async () => {
-		const { detail, path } = setup();
-		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN);
-		await detail.handleInput(ENTER); // cursor at the end
-		await detail.handleInput("\u001b[H"); // Home → line start (offset 0)
-		for (let i = 0; i < 2; i++) await detail.handleInput("\u001b[D"); // Left stays at 0
-		await detail.handleInput("X");
-		await detail.handleInput("\u001b[F"); // End → line end
-		for (let i = 0; i < 2; i++) await detail.handleInput("\u001b[C"); // Right stays put
-		await detail.handleInput("Y");
-		await detail.handleInput(ENTER); // submit
-		detail.flush();
-		expect(readContent(path)).toContain("XYou are a test agent.Y");
-	});
-
-	it("edits around an emoji as a single code-point unit", async () => {
-		const { detail, path } = setup("auditor", undefined, {
-			...configFor("auditor"),
-			systemPrompt: "a😀b",
-		});
-		for (let i = 0; i < 3; i++) await detail.handleInput(DOWN);
-		await detail.handleInput(ENTER); // cursor after "b" (code-point index 3)
-		await detail.handleInput("\u001b[D"); // between 😀 and b
-		await detail.handleInput("X");
-		await detail.handleInput(ENTER); // submit
-		detail.flush();
-		expect(readContent(path)).toContain("a😀Xb");
 	});
 
 	it("clamps selection and truncates rendered lines to the panel width", async () => {

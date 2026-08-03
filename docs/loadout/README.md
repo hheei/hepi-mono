@@ -46,8 +46,7 @@ glyph 仅在已 pin 级别时出现），按 `Enter` 打开单一选择器，`�
 `Tab` 循环顺序：`off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`。
 
 detail 表单按 Settings 字段列表的样式渲染为左右两列（label 列对齐、值列在右），聚焦行
-使用 accent 高亮；`Body` 行的值显示 `open in editor`，提示 `Enter` 打开外部编辑器。
-内置默认 agent 的 `Identity` 行只读（dim 渲染，编辑被丢弃）。`Default agent`/`Markdown`
+使用 accent 高亮。内置默认 agent 的 `Identity` 行只读（dim 渲染，编辑被丢弃）。`Default agent`/`Markdown`
 信息行与按键提示行不渲染（操作与资源列表一致，不重复提示）；实际文件路径以 `Path:` 行显示
 在 header 的 `Status:` 之后（project scope 显示 `<cwd>/.pi/agents/<name>.md`，即 project
 override 的保存位置；过长时按目录段从头部截断为 `…/段/文件名.md`（单个 `…`），只丢完整目录、绝不切开
@@ -57,10 +56,8 @@ header title 之后（与工具行一致），浏览时全量；detail 打开时
 `Esc` 的消费顺序：detail 激活时先交给 detail（选择器打开时取消选择器），detail 未消费才
 退回列表。
 
-所有编辑（文本、cycler、`Body`）都是 buffered：detail 打开期间不写文件，`Body` 在同一个
-custom surface 内进入嵌入式多行编辑（`Enter` 提交、`⇧Enter` 换行、`←`/`→`/`↑`/`↓` 移动光标且
-视口跟随、退格/删除编辑、`Esc` 取消）；不使用 `ui.editor()`（嵌套 host 对话框会让 `Esc`
-逃逸到 TUI 并导致 surface 无法重开）。退出 Loadout（`close`）时才一次性 flush——每个 dirty
+所有编辑（文本、cycler）都是 buffered：detail 打开期间不写文件；system prompt（body）不在
+detail 编辑范围内（直接编辑文件）。退出 Loadout（`close`）时才一次性 flush——每个 dirty
 scope 先写盘、再统一 reload。project scope
 的修改总是落到 `<cwd>/.pi/agents/<name>.md`（不存在则
 materialize 一个保留 system prompt 的 clone），global scope 修改落到 agent 自己的 backing

@@ -2,26 +2,20 @@
  * agent-detail.ts — Contributor-owned Loadout detail editor for custom Markdown agents.
  *
  * The detail is a small inline form over the agent's YAML frontmatter. All edits
- * (text, cycler picks, body) are buffered per Loadout scope and only written
- * when the Loadout page closes (`flush`), never per keystroke; the model/thinking
- * pair reuses the Settings cycler (`tabCycle` semantics): Enter opens a single
+ * (text, cycler picks) are buffered per Loadout scope and only written when the
+ * Loadout page closes (`flush`), never per keystroke; the model/thinking pair
+ * reuses the Settings cycler (`tabCycle` semantics): Enter opens a single
  * selector on the model options, Up/Down move between them, Tab cycles the
  * thinking value in place (off…max, no `inherit`), Enter confirms both, Esc
  * cancels. The form renders as two aligned columns (label / value) like the
- * Settings field list, the focused row gets the accent treatment, and the Body
- * action row advertises the external editor as its value ("open in editor").
- * The Body row switches the form into an embedded edit mode (Enter submits,
- * Shift+Enter inserts a newline, Esc cancels); the result is stored in the
- * buffered draft — nothing touches the target file until flush. It deliberately
- * does not call `ui.editor()`: nesting that host dialog inside the active Loadout
- * custom surface would let Esc escape to the TUI and leave the surface
- * unreopenable (`maxPending: 1`). Project-scope edits
- * always target `<cwd>/.pi/agents/<name>.md` (materializing a clone when
- * missing); Global-scope edits target the agent's own backing file. Agent
- * activation is owned by the Loadout policy under `agent:<name>`, never by
- * this Markdown, so there is no enabled field here. The caller owns the
- * catalog reload; this module only reports it through `onChanged` and surfaces
- * failures through `notify`.
+ * Settings field list and the focused row gets the accent treatment; the
+ * system prompt (body) is deliberately out of scope here — edit the file
+ * directly. Project-scope edits always target `<cwd>/.pi/agents/<name>.md`
+ * (materializing a clone when missing); Global-scope edits target the agent's
+ * own backing file. Agent activation is owned by the Loadout policy under
+ * `agent:<name>`, never by this Markdown, so there is no enabled field here.
+ * The caller owns the catalog reload; this module only reports it through
+ * `onChanged` and surfaces failures through `notify`.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -57,17 +51,14 @@ const THINKING_LEVELS: readonly ModelThinkingLevel[] = [
 ];
 
 const FIRST_FIELD: DetailField = { id: "identity", kind: "text" };
-/** Max rows of the embedded body editor, including its label and hint rows. */
-const BODY_EDIT_ROWS = 10;
 const DETAIL_FIELDS: readonly DetailField[] = [
 	FIRST_FIELD,
 	{ id: "description", kind: "text" },
 	{ id: "model", kind: "select" },
-	{ id: "body", kind: "action" },
 ];
 
-type FieldId = "identity" | "description" | "model" | "body";
-type FieldKind = "text" | "select" | "action";
+type FieldId = "identity" | "description" | "model";
+type FieldKind = "text" | "select";
 
 interface DetailField {
 	readonly id: FieldId;
@@ -159,14 +150,11 @@ function pad(value: string, width: number): string {
 /**
  * Serializes the editable values back into the agent file's YAML frontmatter.
  * Unknown frontmatter keys and the body (including its trailing newline) survive
- * byte-for-byte. A file without a frontmatter block gets one prepended. When
- * `bodyOverride` is supplied (a buffered body edit), it replaces the body and
- * is written after a single leading newline.
+ * byte-for-byte. A file without a frontmatter block gets one prepended.
  */
 export function rewriteAgentMarkdown(
 	path: string,
 	values: Readonly<Record<string, string | boolean | undefined>>,
-	bodyOverride?: string,
 ): void {
 	const original = readFileSync(path, "utf8");
 	// Detect the block structurally: `parseFrontmatter` treats a missing block as
@@ -193,12 +181,7 @@ export function rewriteAgentMarkdown(
 		const value = yamlValue(values[key]);
 		if (value !== undefined) lines.push(`${key}: ${value}`);
 	}
-	const body =
-		bodyOverride !== undefined
-			? `\n${bodyOverride}`
-			: start >= 0 && end >= 0
-				? original.slice(end + "\n---".length)
-				: original;
+	const body = start >= 0 && end >= 0 ? original.slice(end + "\n---".length) : original;
 	writeFileSync(path, `---\n${lines.join("\n")}\n---${body}`, "utf8");
 }
 
@@ -230,8 +213,6 @@ export function createAgentDetail(
 		readonly scope: "global" | "project";
 		draft: AgentDraft;
 		dirty: boolean;
-		/** True once the Body row rewrote the buffered system prompt. */
-		bodyEdited: boolean;
 	}
 	let base: AgentDraft = draftFromConfig(initial);
 	const byScope = new Map<"global" | "project", ScopeDraft>();
@@ -239,7 +220,7 @@ export function createAgentDetail(
 	const current = (): ScopeDraft => {
 		let entry = byScope.get(scope);
 		if (entry === undefined) {
-			entry = { scope, draft: base, dirty: false, bodyEdited: false };
+			entry = { scope, draft: base, dirty: false };
 			byScope.set(scope, entry);
 		}
 		return entry;
@@ -259,73 +240,13 @@ export function createAgentDetail(
 	let selectingModel = false;
 	let selectIndex = 0;
 	let thinkingDraft: ModelThinkingLevel | undefined;
-	// Embedded body editor: while `editingBody` is true the form renders the
-	// body as multi-line text with a real cursor (←/→ move, ↑/↓ move lines,
-	// Backspace/Delete edit, Shift+Enter newline, Enter submits, Esc cancels).
-	// The viewport follows the cursor so long prompts stay editable in place.
-	let editingBody = false;
-	let bodyDraft = "";
-	let cursor = 0;
-	let bodyViewport = 0;
-	const bodyLines = (): readonly string[] => bodyDraft.split("\n");
-	// All cursor coordinates are code-point indexes (matching Array.from), so
-	// emoji and other non-BMP characters navigate as single units instead of
-	// corrupting on UTF-16 halves.
-	const lineColAt = (offset: number): { readonly line: number; readonly col: number } => {
-		const chars = Array.from(bodyDraft);
-		let line = 0;
-		let col = 0;
-		for (let index = 0; index < offset; index++) {
-			if (chars[index] === "\n") {
-				line += 1;
-				col = 0;
-			} else {
-				col += 1;
-			}
-		}
-		return { line, col };
-	};
-	const offsetAt = (line: number, col: number): number => {
-		const parts = bodyLines();
-		const clampedLine = Math.max(0, Math.min(line, parts.length - 1));
-		const length = Array.from(parts[clampedLine] ?? "").length;
-		const clampedCol = Math.max(0, Math.min(col, length));
-		let offset = 0;
-		for (let index = 0; index < clampedLine; index++) {
-			offset += Array.from(parts[index] ?? "").length + 1;
-		}
-		return Math.min(Array.from(bodyDraft).length, offset + clampedCol);
-	};
-	const insertAt = (text: string): void => {
-		const chars = Array.from(bodyDraft);
-		bodyDraft = `${chars.slice(0, cursor).join("")}${text}${chars.slice(cursor).join("")}`;
-		cursor += Array.from(text).length;
-	};
-	const deleteBackward = (): void => {
-		if (cursor <= 0) return;
-		const chars = Array.from(bodyDraft);
-		cursor -= 1;
-		bodyDraft = chars.filter((_, index) => index !== cursor).join("");
-	};
-	const deleteForward = (): void => {
-		const chars = Array.from(bodyDraft);
-		if (cursor >= chars.length) return;
-		bodyDraft = chars.filter((_, index) => index !== cursor).join("");
-	};
-	const moveCursor = (deltaLine: number, deltaCol: number): void => {
-		const { line, col } = lineColAt(cursor);
-		const total = bodyLines().length;
-		const target = Math.max(0, Math.min(line + deltaLine, total - 1));
-		cursor = offsetAt(target, deltaLine === 0 ? col + deltaCol : col);
-	};
 	const field = (): DetailField => DETAIL_FIELDS[selected] ?? FIRST_FIELD;
 	/**
 	 * The rendered form mirrors the Settings field list: a left label column and
 	 * a right value column. The Model row is the combined model/thinking entry:
 	 * the thinking glyph (only when a level is pinned) precedes the model
-	 * value. The Body action row advertises the external editor as its value
-	 * ("open in editor"). The focused row gets the accent treatment like
-	 * Settings; a built-in agent's Identity row is read-only and rendered dim.
+	 * value. The focused row gets the accent treatment like Settings; a built-in
+	 * agent's Identity row is read-only and rendered dim.
 	 */
 	const rows = (): ReadonlyArray<{ readonly label: string; readonly value: string }> => {
 		const draft = current().draft;
@@ -338,7 +259,6 @@ export function createAgentDetail(
 			{ label: "Identity", value: draft.displayName ?? name },
 			{ label: "Description", value: draft.description },
 			{ label: "Model", value: `${glyph}${model}` },
-			{ label: "Body", value: "open in editor" },
 		];
 	};
 	const textValue = (): string => {
@@ -445,7 +365,7 @@ export function createAgentDetail(
 		};
 		try {
 			if (cloned) writeAgentMarkdown(path, values, draft.systemPrompt);
-			else rewriteAgentMarkdown(path, values, entry.bodyEdited ? draft.systemPrompt : undefined);
+			else rewriteAgentMarkdown(path, values);
 		} catch (error) {
 			notify(
 				`Agent changes were not saved: ${error instanceof Error ? error.message : String(error)}`,
@@ -485,38 +405,6 @@ export function createAgentDetail(
 				join(process.cwd(), ".pi", "agents", `${name}.md`));
 	const detail: AgentDetail = {
 		render(width: number): readonly string[] {
-			if (editingBody) {
-				const lines = bodyLines();
-				const { line } = lineColAt(cursor);
-				const visible = BODY_EDIT_ROWS - 2; // label + hint rows
-				// Keep the cursor line centered in the viewport.
-				bodyViewport = Math.min(
-					Math.max(0, lines.length - visible),
-					Math.max(0, line - Math.floor(visible / 2)),
-				);
-				const rows: string[] = [theme?.fg("accent", theme.bold("→ Body")) ?? "→ Body"];
-				for (const content of lines.slice(bodyViewport, bodyViewport + visible)) {
-					const lineIndex = bodyViewport + rows.length - 1;
-					if (lineIndex !== line) {
-						rows.push(truncateToWidth(`  ${content}`, Math.max(0, width)));
-						continue;
-					}
-					const chars = Array.from(content);
-					const { col } = lineColAt(cursor);
-					const head = truncateToWidth(`  ${chars.slice(0, col).join("")}`, Math.max(0, width - 1));
-					const at = chars[col];
-					const marker = at === undefined ? "▏" : (theme?.fg("accent", theme.bold(at)) ?? at);
-					rows.push(
-						truncateToWidth(`${head}${marker}${chars.slice(col + 1).join("")}`, Math.max(0, width)),
-					);
-				}
-				while (rows.length < visible + 1) rows.push("  ");
-				rows.push(
-					theme?.fg("dim", "Enter save · ⇧Enter newline · ↑↓←→ move · Esc cancel") ??
-						"Enter save · ⇧Enter newline · ↑↓←→ move · Esc cancel",
-				);
-				return rows;
-			}
 			const rendered = rows();
 			// Mirror the Settings field list: the label column never exceeds 55%
 			// of the panel width so the value column keeps room at narrow sizes.
@@ -536,64 +424,6 @@ export function createAgentDetail(
 			});
 		},
 		async handleInput(input: string): Promise<boolean> {
-			if (editingBody) {
-				if (matchesKey(input, Key.enter)) {
-					const entry = current();
-					entry.draft = { ...entry.draft, systemPrompt: bodyDraft };
-					entry.dirty = true;
-					entry.bodyEdited = true;
-					editingBody = false;
-					return true;
-				}
-				if (matchesKey(input, Key.shift("enter"))) {
-					insertAt("\n");
-					return true;
-				}
-				if (matchesKey(input, Key.escape)) {
-					editingBody = false;
-					return true;
-				}
-				if (matchesKey(input, Key.left)) {
-					moveCursor(0, -1);
-					return true;
-				}
-				if (matchesKey(input, Key.right)) {
-					moveCursor(0, 1);
-					return true;
-				}
-				if (matchesKey(input, Key.up)) {
-					moveCursor(-1, 0);
-					return true;
-				}
-				if (matchesKey(input, Key.down)) {
-					moveCursor(1, 0);
-					return true;
-				}
-				if (matchesKey(input, Key.home)) {
-					const { line } = lineColAt(cursor);
-					cursor = offsetAt(line, 0);
-					return true;
-				}
-				if (matchesKey(input, Key.end)) {
-					const { line } = lineColAt(cursor);
-					cursor = offsetAt(line, Array.from(bodyLines()[line] ?? "").length);
-					return true;
-				}
-				if (matchesKey(input, Key.backspace)) {
-					deleteBackward();
-					return true;
-				}
-				if (matchesKey(input, Key.delete)) {
-					deleteForward();
-					return true;
-				}
-				if (input && !input.startsWith("\x1b") && !/\p{Cc}/u.test(input)) {
-					insertAt(input);
-					return true;
-				}
-				// Everything else is consumed while editing the body.
-				return true;
-			}
 			if (selectingModel) {
 				if (matchesKey(input, Key.up)) {
 					selectIndex = (selectIndex - 1 + modelChoices().length) % modelChoices().length;
@@ -637,11 +467,6 @@ export function createAgentDetail(
 			if (matchesKey(input, Key.enter)) {
 				if (field().kind === "select") {
 					openSelector();
-				} else if (field().kind === "action") {
-					bodyDraft = current().draft.systemPrompt;
-					cursor = Array.from(bodyDraft).length;
-					bodyViewport = Math.max(0, bodyLines().length - (BODY_EDIT_ROWS - 2));
-					editingBody = true;
 				}
 				return true;
 			}

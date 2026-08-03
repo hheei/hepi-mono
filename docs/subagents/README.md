@@ -40,10 +40,9 @@ UI。这些属于独立 capability；尤其 task execution 必须 launch-and-del
 可编辑的 custom agent profile（`.pi/agents/`、`.agents/agents/` 与 global agents 目录中的 `.md`）在
 Loadout 的 `Agents` group 里贡献 contributor-owned detail：`Enter` 打开该 profile 的 inline frontmatter
 editor，编辑 identity、description 与合并的 model/thinking 行（cycler：`↑`/`↓` 选 model、
-`Tab` 循环 thinking），`Body` 行在面板内进入嵌入式多行编辑（`Enter` 提交、`⇧Enter` 换行、
-方向键移动光标、视口跟随、`Esc` 取消），结果存入 buffered draft。
-所有编辑在退出 Loadout 时一次性 flush 到 YAML（保留 body 与未知 key），detail 打开期间不写
-文件。detail 只负责 profile 文件的就地编辑，不改变 spawn、factory 或 policy 所有权。
+`Tab` 循环 thinking）。system prompt（body）不在 detail 编辑范围内，直接编辑文件。所有编辑
+在退出 Loadout 时一次性 flush 到 YAML（保留 body 与未知 key），detail 打开期间不写文件。
+detail 只负责 profile 文件的就地编辑，不改变 spawn、factory 或 policy 所有权。
 agent 的启停不是 frontmatter 字段：activation 由 Loadout 在 `agent:<name>` key 下管理（inherit /
 enabled / disabled 三态，`Space` 切换、persist 到 settings JSON），agent Markdown 不再解析或写入
 `enabled`。只有显式 enabled 的行提供编辑路径——inherit 与 disabled 行不显示 `↵ Edit config` 提示，
