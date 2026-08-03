@@ -22,6 +22,8 @@ export interface TuiSurfaceContext<T> {
 	readonly keybindings: KeybindingsManager;
 	readonly signal: AbortSignal;
 	requestRender(): void;
+	/** Temporarily yields an overlay's focus slot while a Pi-owned UI operation runs. */
+	withHiddenOverlay<R>(operation: () => Promise<R>): Promise<R>;
 	/** Resolves the caller's promise as `closed`; the host then disposes the component. */
 	close(value: T): void;
 }
@@ -42,6 +44,11 @@ export interface OpenTuiSurfaceOptions<T> {
 	readonly overlay?: boolean;
 	readonly overlayOptions?: OverlayOptions | (() => OverlayOptions);
 	readonly onHandle?: (handle: OverlayHandle) => void;
+	/**
+	 * Runs once after host settlement and hidden operations finish, before the
+	 * arbiter releases this surface slot. A failure rejects the returned Promise.
+	 */
+	readonly beforeRelease?: () => void | Promise<void>;
 	create(context: TuiSurfaceContext<T>): SurfaceComponent | Promise<SurfaceComponent>;
 }
 
@@ -54,8 +61,8 @@ export class TuiSurfaceQueueFullError extends Error {
 }
 
 function abortError(reason: unknown): Error {
-	if (reason instanceof Error) return reason;
-	const error = new Error("TUI surface request aborted");
+	if (reason instanceof Error && reason.name === "AbortError") return reason;
+	const error = new Error(reason instanceof Error ? reason.message : "TUI surface request aborted");
 	error.name = "AbortError";
 	return error;
 }
@@ -113,6 +120,11 @@ export function openTuiSurface<T>(
 	return new Promise<TuiSurfaceResult<T>>((resolve, reject) => {
 		let settled = false;
 		let opened = false;
+		let live = false;
+		let hostSettled = false;
+		let overlayHandle: OverlayHandle | undefined;
+		let hiddenOperationCompletion: Promise<void> | undefined;
+		let deferredCompletion: (() => void) | undefined;
 		let complete: ((result: TuiSurfaceResult<T>) => void) | undefined;
 		const request: SurfaceRequest = {
 			hostId: options.hostId,
@@ -122,10 +134,16 @@ export function openTuiSurface<T>(
 				void command.ui
 					.custom<TuiSurfaceResult<T>>(
 						(tui, theme, keybindings, done) => {
+							live = true;
 							const close = (result: TuiSurfaceResult<T>): void => {
 								if (settled) return;
 								settled = true;
-								done(result);
+								live = false;
+								const finish = (): void => {
+									if (!hostSettled) done(result);
+								};
+								if (hiddenOperationCompletion === undefined) finish();
+								else deferredCompletion = finish;
 							};
 							complete = close;
 							if (options.signal.aborted) {
@@ -138,6 +156,43 @@ export function openTuiSurface<T>(
 								keybindings,
 								signal: options.signal,
 								requestRender: () => tui.requestRender(),
+								withHiddenOverlay: async <R>(operation: () => Promise<R>): Promise<R> => {
+									if (options.overlay !== true)
+										throw new Error("Hidden overlay operations require an overlay surface");
+									if (!live || options.signal.aborted) throw abortError(options.signal.reason);
+									const handle = overlayHandle;
+									if (handle === undefined) throw new Error("Overlay handle is not mounted");
+									if (hiddenOperationCompletion !== undefined)
+										throw new Error("Hidden overlay operation is already in progress");
+									let finishHiddenOperation: (() => void) | undefined;
+									hiddenOperationCompletion = new Promise<void>((resolve) => {
+										finishHiddenOperation = resolve;
+									});
+									let hidden = false;
+									try {
+										handle.setHidden(true);
+										hidden = true;
+										const value = await operation();
+										if (!live || options.signal.aborted || overlayHandle !== handle)
+											throw abortError(options.signal.reason);
+										return value;
+									} catch (error: unknown) {
+										if (!live || options.signal.aborted || overlayHandle !== handle)
+											throw abortError(options.signal.reason);
+										throw error;
+									} finally {
+										try {
+											if (hidden && live && !options.signal.aborted && overlayHandle === handle)
+												handle.setHidden(false);
+										} finally {
+											hiddenOperationCompletion = undefined;
+											finishHiddenOperation?.();
+											const finish = deferredCompletion;
+											deferredCompletion = undefined;
+											finish?.();
+										}
+									}
+								},
 								close: (value) => close({ status: "closed", value }),
 							});
 						},
@@ -146,11 +201,47 @@ export function openTuiSurface<T>(
 							...(options.overlayOptions === undefined
 								? {}
 								: { overlayOptions: options.overlayOptions }),
-							...(options.onHandle === undefined ? {} : { onHandle: options.onHandle }),
+							...(options.overlay === true || options.onHandle !== undefined
+								? {
+										onHandle: (handle: OverlayHandle): void => {
+											overlayHandle = handle;
+											options.onHandle?.(handle);
+										},
+									}
+								: {}),
 						},
 					)
+					.then(
+						(result) => ({ status: "fulfilled" as const, result }),
+						(error: unknown) => ({ status: "rejected" as const, error }),
+					)
+					.then(async (outcome) => {
+						hostSettled = true;
+						settled = true;
+						live = false;
+						deferredCompletion = undefined;
+						const completion = hiddenOperationCompletion;
+						if (completion !== undefined) await completion;
+
+						let releaseFailure: { readonly error: unknown } | undefined;
+						try {
+							await options.beforeRelease?.();
+						} catch (error: unknown) {
+							releaseFailure = { error };
+						}
+						if (outcome.status === "rejected" && releaseFailure !== undefined)
+							throw new AggregateError(
+								[outcome.error, releaseFailure.error],
+								"TUI surface host and before-release hook both failed",
+							);
+						if (outcome.status === "rejected") throw outcome.error;
+						if (releaseFailure !== undefined) throw releaseFailure.error;
+						return outcome.result;
+					})
 					.then(resolve, reject)
 					.finally(() => {
+						live = false;
+						overlayHandle = undefined;
 						options.signal.removeEventListener("abort", onAbort);
 						if (state.active === request) delete state.active;
 						dequeueNext(state);

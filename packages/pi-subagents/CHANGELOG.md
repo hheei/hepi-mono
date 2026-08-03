@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Loadout agent details delegate `Body` editing to Pi's native editor.** The shared Loadout router now runs as an overlay that ext-core temporarily hides while `ui.editor()` owns focus, then restores without closing, flushing, or reconstructing the router. Submitted system prompts stay buffered per Global/Project scope until Loadout closes; `Esc` leaves the body unchanged.
+
 ### Fixed
 - **Orca status extensions no longer report in-process subagent results as parent-pane activity.** Orca's PID-based owner check correctly rejects a separate child process but cannot distinguish a `pi-subagents` child `AgentSession`, which runs in the same Node process as its parent. The child loader now filters every `orca-*` extension before session binding, so their lifecycle handlers and tools never observe a subagent; extension factories retain Pi's normal discovery behavior.
 

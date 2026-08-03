@@ -147,15 +147,15 @@ existing semantic token expresses the role.
   (external editor) shows its affordance as the value, e.g. `open in editor`.
 - A contributor detail buffers edits until the Loadout page closes: nothing is written while the
   panel is open, and `close()` flushes every registered detail (not just the currently open one),
-  each scope writing all its dirty snapshots before one catalog reload. Body/system-prompt
-  editing is deliberately out of scope for the detail form (edit the file directly): no
-  subprocess editor (stdio capture hangs) and no nested `ui.editor()` inside the active custom
-  surface (Esc would escape to the TUI and leave the surface unreopenable). A per-scope target
-  lets the same contributor serve Global and Project scope (e.g. Project edits materialize a
-  project override without rewriting the global backing); the `Status:` header line is followed
-  by a read-only `Path:` line showing the current scope's target, truncated from the head at
-  directory boundaries (one leading `…`, then whole segments only) so the file name and the
-  longest complete suffix survive narrow widths.
+  each scope writing all its dirty snapshots before one catalog reload. The Body action delegates
+  multi-line editing to the Pi host: the router is an overlay, ext-core temporarily hides it while
+  `ui.editor()` owns focus, then shows and refocuses the same overlay without closing or rebuilding
+  its page state. Editor cancel leaves the body unchanged; session abort or surface close never
+  refocuses a disposed overlay. A per-scope target lets the same contributor serve Global and
+  Project scope (e.g. Project edits materialize a project override without rewriting the global
+  backing); the `Status:` header line is followed by a read-only `Path:` line showing the current
+  scope's target, truncated from the head at directory boundaries (one leading `…`, then whole
+  segments only) so the file name and the longest complete suffix survive narrow widths.
 - A detail form keeps the resource description visible: it wraps after the title at full length
   while browsing, and is clamped to three lines only while the detail is actually open so the
   form below keeps its rows. There is no `↵ Edit config` footer hint — row activation is already

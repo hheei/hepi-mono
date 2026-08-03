@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
-import type { Component } from "@earendil-works/pi-tui";
+import type { Component, OverlayOptions } from "@earendil-works/pi-tui";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import { openTuiSurface } from "./custom-surface.js";
 import { getGlobalState } from "./global-state.js";
@@ -13,6 +13,8 @@ export interface ExtensionPageViewContext {
 	readonly theme: Theme;
 	/** Requests host rendering after the contributor changes its own state. */
 	requestRender(): void;
+	/** Opens Pi's native editor while temporarily hiding the router overlay. */
+	openEditor(title: string, prefill?: string): Promise<string | undefined>;
 	/** Closes the Settings surface after the page finishes its own async cleanup or save. */
 	requestClose(): void;
 }
@@ -46,8 +48,13 @@ export interface OpenExtensionPageRouterOptions {
 	/** Explicit FIFO capacity; core does not choose an implicit global limit. */
 	readonly maxPending: number;
 	readonly initialPageId?: string;
-	/** Acquires host-owned resources only after this router owns Pi's custom surface slot. */
-	onSurfaceOpen?(): undefined | (() => void);
+	readonly overlay?: boolean;
+	readonly overlayOptions?: OverlayOptions | (() => OverlayOptions);
+	/**
+	 * Acquires host-owned resources only after this router owns Pi's custom surface slot.
+	 * The returned cleanup is awaited after attached, detached, and late-created views close.
+	 */
+	onSurfaceOpen?(): undefined | (() => void | Promise<void>);
 }
 
 interface RouterState {
@@ -111,11 +118,15 @@ export async function openExtensionPageRouter(
 ): Promise<void> {
 	const state = stateFor(pi);
 	if (state.pages.size === 0) return;
+	let finalizeSurface: (() => Promise<void>) | undefined;
 	await openTuiSurface(pi, command, {
 		hostId: options.hostId,
 		signal: options.signal,
 		maxPending: options.maxPending,
-		create: ({ theme, requestRender, close }) => {
+		...(options.overlay === true ? { overlay: true } : {}),
+		...(options.overlayOptions === undefined ? {} : { overlayOptions: options.overlayOptions }),
+		beforeRelease: () => finalizeSurface?.(),
+		create: ({ theme, requestRender, withHiddenOverlay, close }) => {
 			const releaseSurfaceResources = options.onSurfaceOpen?.();
 			const controller = new AbortController();
 			let currentTheme = theme;
@@ -125,11 +136,24 @@ export async function openExtensionPageRouter(
 					: sortedPages(state)[0]?.id;
 			const views = new Map<string, ExtensionPageView>();
 			const failures = new Map<string, string>();
+			const creationTasks = new Set<Promise<void>>();
+			const detachedCleanupTasks = new Set<Promise<void>>();
 			let closed = false;
+			let finalization: Promise<void> | undefined;
 			let input = Promise.resolve();
 
 			const closeViews = async (): Promise<void> => {
-				const results = await Promise.allSettled([...views.values()].map((view) => view.close()));
+				// A page creation already in flight when the surface closes owns its
+				// late view cleanup. Await those tasks before closing attached views,
+				// then aggregate every sync and async cleanup failure.
+				const backgroundResults = await Promise.allSettled([
+					...creationTasks,
+					...detachedCleanupTasks,
+				]);
+				const viewResults = await Promise.allSettled(
+					[...views.values()].map((view) => Promise.resolve().then(() => view.close())),
+				);
+				const results = [...backgroundResults, ...viewResults];
 				const errors = results.flatMap((result) =>
 					result.status === "rejected" ? [result.reason] : [],
 				);
@@ -141,7 +165,11 @@ export async function openExtensionPageRouter(
 				for (const [id, view] of views) {
 					if (state.pages.has(id)) continue;
 					views.delete(id);
-					void Promise.resolve(view.close()).catch(() => requestRender());
+					const cleanup = Promise.resolve().then(() => view.close());
+					detachedCleanupTasks.add(cleanup);
+					// Finalization awaits the original Promise and aggregates its error;
+					// this handler only prevents an early unhandled rejection.
+					void cleanup.catch(() => requestRender());
 				}
 			};
 			const selectFallback = (): void => {
@@ -158,13 +186,24 @@ export async function openExtensionPageRouter(
 				const registration = state.pages.get(id);
 				if (registration === undefined) return;
 				try {
-					const view = await registration.create({
-						command,
-						signal: controller.signal,
-						theme: currentTheme,
-						requestRender,
-						requestClose: () => close(undefined),
-					});
+					let view: ExtensionPageView;
+					try {
+						view = await registration.create({
+							command,
+							signal: controller.signal,
+							theme: currentTheme,
+							requestRender,
+							openEditor: (title, prefill) =>
+								withHiddenOverlay(() => command.ui.editor(title, prefill)),
+							requestClose: () => close(undefined),
+						});
+					} catch (error: unknown) {
+						// A creator may reject intentionally when its signal is aborted;
+						// only report failures while this page is still current.
+						if (!closed && selectedId === id)
+							failures.set(id, error instanceof Error ? error.message : "Unable to open page");
+						return;
+					}
 					if (
 						closed ||
 						controller.signal.aborted ||
@@ -176,15 +215,20 @@ export async function openExtensionPageRouter(
 					}
 					if (view.minRows !== undefined && (!Number.isInteger(view.minRows) || view.minRows < 0)) {
 						await view.close();
-						throw new Error(`Extension page ${id} minRows must be a non-negative integer`);
+						failures.set(id, `Extension page ${id} minRows must be a non-negative integer`);
+						return;
 					}
 					views.set(id, view);
-				} catch (error: unknown) {
-					if (!closed && selectedId === id)
-						failures.set(id, error instanceof Error ? error.message : "Unable to open page");
 				} finally {
 					requestRender();
 				}
+			};
+			const startCreateSelected = (): void => {
+				const task = createSelected();
+				creationTasks.add(task);
+				// Keep the original Promise in the set through finalization so a
+				// rejection that precedes surface close is still observed there.
+				void task.catch(() => undefined);
 			};
 			const select = (offset: number): void => {
 				const pages = pageList();
@@ -198,7 +242,7 @@ export async function openExtensionPageRouter(
 				);
 				selectedId = pages[(currentIndex + offset + pages.length) % pages.length]?.id;
 				failures.delete(selectedId ?? "");
-				void createSelected();
+				startCreateSelected();
 				requestRender();
 			};
 			const router: RouterController = {
@@ -206,12 +250,27 @@ export async function openExtensionPageRouter(
 					closeRemovedViews();
 					selectFallback();
 					if (selectedId === undefined) close(undefined);
-					else void createSelected();
+					else startCreateSelected();
 					requestRender();
 				},
 			};
+			const finalize = (): Promise<void> => {
+				if (finalization !== undefined) return finalization;
+				closed = true;
+				controller.abort();
+				if (state.active?.deref() === router) delete state.active;
+				// Defer closeViews until after `finalization` is assigned so a
+				// synchronous contributor close cannot re-enter this finalizer.
+				finalization = Promise.resolve()
+					.then(closeViews)
+					.finally(async () => {
+						await releaseSurfaceResources?.();
+					});
+				return finalization;
+			};
+			finalizeSurface = finalize;
 			state.active = new WeakRef(router);
-			void createSelected();
+			startCreateSelected();
 
 			return {
 				render(width: number): string[] {
@@ -268,11 +327,7 @@ export async function openExtensionPageRouter(
 					requestRender();
 				},
 				dispose(): void {
-					if (closed) return;
-					closed = true;
-					controller.abort();
-					if (state.active?.deref() === router) delete state.active;
-					void closeViews().finally(releaseSurfaceResources);
+					void finalize().catch(() => requestRender());
 				},
 			};
 		},

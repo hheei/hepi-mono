@@ -10,6 +10,7 @@ import {
 	type ExtensionPageViewContext,
 	type LoadoutInventoryItem,
 	type LoadoutResourceDetail,
+	type LoadoutResourceDetailContext,
 	type LoadoutResourceMetadata,
 	type LoadoutToolMetadata,
 	observeLoadoutInventory,
@@ -288,6 +289,9 @@ export function createLoadoutPage(
 	let changed = false;
 	let closed = false;
 	let detailKey: string | undefined;
+	const detailContext: LoadoutResourceDetailContext = {
+		openEditor: context.openEditor,
+	};
 	const drafts = new Map<LoadoutScope, Map<string, DraftSelection>>();
 	const initialActive = new Set(snapshot.initialActiveToolNames);
 
@@ -519,9 +523,6 @@ export function createLoadoutPage(
 				// Only explicitly enabled rows carry an edit path: activation is
 				// Loadout policy under the row's `agent:<name>` key, and
 				// inherited or disabled rows are read-only here.
-				const hasDetail =
-					selectedResource?.detail !== undefined &&
-					rawSelection(selectedResource, scope, configuration) === "enabled";
 				// The Description wraps after the title in both states, like any
 				// tool row; while the detail is open it is clamped to three lines
 				// so the form below keeps its rows.
@@ -598,11 +599,11 @@ export function createLoadoutPage(
 				if (matchesKey(input, Key.escape)) {
 					// The detail declines Esc unless it has an open selector to
 					// cancel; only then does the page back out to the list.
-					if (!(await activeDetail.handleInput(input))) detailKey = undefined;
+					if (!(await activeDetail.handleInput(input, detailContext))) detailKey = undefined;
 					context.requestRender();
 					return true;
 				}
-				await activeDetail.handleInput(input);
+				await activeDetail.handleInput(input, detailContext);
 				context.requestRender();
 				return true;
 			}
