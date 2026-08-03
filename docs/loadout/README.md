@@ -34,24 +34,31 @@ Description lane 底部显示 `↵ Edit config` 提示，`Enter` 打开可编辑
 detail。agent 的激活状态完全由 Loadout policy 在 `agent:<name>` key 下决定（`Space` 切换三态并
 persist 到 settings JSON），agent Markdown 不参与启停。
 
-`pi-subagents` 的 agent detail 对 `model` 与 `thinking` 两个字段复用 Settings 的 cycler 交互
-（与 `HepiSettingTabCycle` 语义一致）：在 `model` 或 `thinking` 行按 `Enter` 打开单一选择器，
-`↑`/`↓` 在 model 选项间循环移动（到头回绕，与 Settings enum 编辑器一致），`Tab`/`Shift+Tab`
-就地正向/反向循环 thinking 值（不产生第二个焦点），`Enter` 同时应用两者并立即保存，`Esc`
-取消并保留原值。两者都提供 `inherit` 选项：选择 `inherit` 等价于未设置（省略 frontmatter
-key），spawn 时回退到父会话或 profile 默认。
+`pi-subagents` 的 agent detail 把 `model` 与 `thinking` 合并为单个 `Model` 行，复用 Settings 的
+cycler 交互（与 `HepiSettingTabCycle` 语义一致）：行值以 `glyph + model` 形式显示（thinking
+glyph 仅在已 pin 级别时出现），按 `Enter` 打开单一选择器，`↑`/`↓` 在 model 选项间循环移动
+（到头回绕，`inherit` 为首项），`Tab`/`Shift+Tab` 就地正向/反向循环 thinking 值
+（`off`…`max`，不含 `inherit`——不按 Tab 保持继承），再次 `Enter` 确认，`Esc` 取消并保留原值。
 
 `model` 选择器选项顺序：`inherit`、当前已配置值（若不在下列列表中）、已认证可用模型
 （`provider/model`，按字母序）。当前值可以是任意 fuzzy 模型名（如 `haiku`），选择器把它作为
 独立选项保留，格式校验与宽容解析仍只在 spawn 时由 `resolveModel()` 负责。`thinking` 的
-`Tab` 循环顺序：`inherit`、`off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`。
+`Tab` 循环顺序：`off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`。
 
 detail 表单按 Settings 字段列表的样式渲染为左右两列（label 列对齐、值列在右），聚焦行
 使用 accent 高亮；`Body` 行的值显示 `open in editor`，提示 `Enter` 打开外部编辑器。
-`Default agent` 信息行与按键提示行不渲染（操作与资源列表一致，不重复提示）。选择器打开时
-行数保持不变（固定 6 行）：`Model` 行就地显示当前选中的选项，`Thinking` 行值随 `Tab` 即时
-更新。`Esc` 的消费顺序：detail 激活时先交给 detail（选择器打开时取消选择器），detail 未
-消费才退回列表。
+内置默认 agent 的 `Identity` 行只读（dim 渲染，编辑被丢弃）。`Default agent`/`Markdown`
+信息行与按键提示行不渲染（操作与资源列表一致，不重复提示）；实际文件路径以 `Path:` 行显示
+在 header 的 `Status:` 之后（project scope 显示 `<cwd>/.pi/agents/<name>.md`，即 project
+override 的保存位置）。选择器打开时行数保持不变（固定 4 行）：`Model` 行就地显示当前选项。
+`Esc` 的消费顺序：detail 激活时先交给 detail（选择器打开时取消选择器），detail 未消费才
+退回列表。
+
+所有编辑（文本、cycler、`Body`）都是 buffered：detail 打开期间不写文件，`Body` 在临时文件
+中编辑并把结果存入 draft；退出 Loadout（`close`）时才一次性 flush——每个 dirty scope 先写
+盘、再统一 reload。project scope 的修改总是落到 `<cwd>/.pi/agents/<name>.md`（不存在则
+materialize 一个保留 system prompt 的 clone），global scope 修改落到 agent 自己的 backing
+文件；两个 scope 分别缓冲，同一 agent 在 global 与 project 分别编辑后各自落盘，互不覆盖。
 
 `𖠌 Agents` 的每一行显示 effective activation、profile 名和 profile 的 effective model：
 

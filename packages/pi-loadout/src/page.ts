@@ -527,6 +527,9 @@ export function createLoadoutPage(
 											: "⊘ Locked"
 									}`,
 								),
+								...(activeDetail?.path === undefined
+									? []
+									: [theme.fg("muted", `Path: ${activeDetail.path}`)]),
 								...(selectedResource.lockedBy === undefined
 									? []
 									: [
@@ -606,6 +609,7 @@ export function createLoadoutPage(
 					selected?.detail !== undefined &&
 					rawSelection(selected, scope, configuration) === "enabled"
 				) {
+					selected.detail.onScopeChange?.(scope);
 					detailKey = selected.key;
 					context.requestRender();
 					return true;
@@ -627,6 +631,11 @@ export function createLoadoutPage(
 		close(): void {
 			if (closed) return;
 			closed = true;
+			// Flush every contributor detail, not just the one currently open:
+			// the user may have edited several agents (or scopes) before closing.
+			for (const item of metadata) {
+				if ("detail" in item) item.detail?.flush?.();
+			}
 			if (changed) context.command.ui.notify("※ Reload to apply Loadout changes.", "info");
 		},
 	};

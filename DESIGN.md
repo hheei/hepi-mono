@@ -144,6 +144,13 @@ existing semantic token expresses the role.
   focused row in accent (with the standard `→` slot), and no key-hint row (its navigation matches
   the list, so the hint would be noise). Pure informational rows are not focusable; an action row
   (external editor) shows its affordance as the value, e.g. `open in editor`.
+- A contributor detail buffers edits until the Loadout page closes: nothing is written while the
+  panel is open, and `close()` flushes every registered detail (not just the currently open one),
+  each scope writing all its dirty snapshots before one catalog reload. An external-editor action
+  edits a temporary copy and stores the result in the buffer, never the target file directly. A
+  per-scope target lets the same contributor serve Global and Project scope (e.g. Project edits
+  materialize a project override without rewriting the global backing); the `Status:` header line
+  is followed by a read-only `Path:` line showing the current scope's target.
 - A Loadout row that contributes a detail shows an `↵ Edit config` hint as the last Description
   lane line, so the `Enter` affordance is visible before the detail opens.
 - A resource detail is reachable only while its row is explicitly `enabled`: inherited and
