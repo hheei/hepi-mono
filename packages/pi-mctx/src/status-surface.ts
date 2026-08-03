@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from "node:util";
 import type {
 	ExtensionCommandContext,
 	ExtensionContext,
@@ -47,44 +48,114 @@ function padAnsi(text: string, width: number): string {
 	return `${text}${" ".repeat(Math.max(0, width - visibleWidth(text)))}`;
 }
 
-function bodyRows(snapshot: MctxStatusSnapshot, theme: MctxStatusTheme, wide: boolean): string[] {
-	const rows: string[] = [];
-	if (snapshot.kind === "active") {
-		const usage =
-			snapshot.usage === undefined
-				? "usage unavailable"
-				: `${snapshot.usage.tokens}/${snapshot.usage.contextWindow} tokens (${snapshot.usage.percentage.toFixed(1)}%)`;
-		rows.push(`${style(theme, "success", "Runtime active")}  ${usage}`);
-		rows.push(`Revision  ${snapshot.partitionRevision}`);
-		rows.push(
-			`Historian  ${snapshot.historian.phase} · ${snapshot.historian.model}${snapshot.historian.lastFailureClass === undefined ? "" : ` · ${snapshot.historian.lastFailureClass}`}`,
-		);
-		rows.push(
-			`Compartments  ${snapshot.compartments.total} total · ${snapshot.compartments.m0} m0 · ${snapshot.compartments.m1} m1 · seq ${snapshot.compartments.latestSequence ?? "—"} · pub ${snapshot.compartments.latestPublishedRevision ?? "—"}`,
-		);
-		rows.push(
-			`Tags  ${snapshot.tags.total} total · ${snapshot.tags.active} active · ${snapshot.tags.pending} pending · ${snapshot.tags.dropped} dropped`,
-		);
-		rows.push(
-			`Trigger  ${snapshot.trigger.percentage ?? "—"}% · ${snapshot.trigger.tokens ?? "—"} tokens · ${snapshot.trigger.protectedTags} protected`,
-		);
-		rows.push(`Augmentation  ${snapshot.pendingAugmentation ? "pending" : "idle"}`);
-		rows.push(wide ? `Project  ${snapshot.projectIdentity}` : "");
-		rows.push(wide ? `Session  ${snapshot.sessionId}` : "");
-		rows.push("");
-		return rows;
+function inlineStatusText(text: string): string {
+	let safe = "";
+	for (const character of stripVTControlCharacters(text)) {
+		const codePoint = character.codePointAt(0);
+		if (codePoint === undefined) continue;
+		safe += codePoint <= 31 || (codePoint >= 127 && codePoint <= 159) ? " " : character;
 	}
+	return safe.replace(/ +/gu, " ").trim();
+}
+
+function compactNumber(value: number): string {
+	if (!Number.isFinite(value)) return "—";
+	const absolute = Math.abs(value);
+	if (absolute < 1000) return String(value);
+	const units = ["K", "M", "B"];
+	let scaled = absolute;
+	let unit = "";
+	for (const candidate of units) {
+		scaled /= 1000;
+		unit = candidate;
+		if (scaled < 1000) break;
+	}
+	const rounded = Number(scaled.toFixed(1));
+	return `${value < 0 ? "-" : ""}${rounded}${unit}`;
+}
+
+function bodyRows(
+	snapshot: MctxStatusSnapshot,
+	theme: MctxStatusTheme,
+	wide: boolean,
+	contentWidth: number,
+): string[] {
+	const runtime =
+		snapshot.kind === "active"
+			? style(theme, "success", "Runtime active")
+			: snapshot.kind === "inactive"
+				? style(theme, "warning", "Runtime inactive")
+				: snapshot.kind === "failed"
+					? style(theme, "error", "Runtime failed")
+					: style(theme, "warning", "Runtime stale");
+	const active = snapshot.kind === "active" ? snapshot : undefined;
+	const usage = active?.usage;
+	const usageRole =
+		usage === undefined
+			? undefined
+			: usage.percentage >= 80
+				? "error"
+				: usage.percentage >= 65
+					? "warning"
+					: "success";
+	const percentage = usage === undefined ? "—" : `${usage.percentage.toFixed(1)}%`;
+	const used = usage === undefined ? "—" : compactNumber(usage.tokens);
+	const limit = usage === undefined ? "—" : compactNumber(usage.contextWindow);
+	const filled =
+		usage === undefined
+			? 0
+			: Math.round((Math.max(0, Math.min(100, usage.percentage)) / 100) * contentWidth);
+	const bar =
+		usage === undefined || usageRole === undefined
+			? ""
+			: style(theme, usageRole, "█".repeat(filled) + "░".repeat(contentWidth - filled));
+	const triggerPercentage =
+		active?.trigger.percentage === undefined
+			? "—"
+			: `${Number(active.trigger.percentage.toFixed(1))}%`;
+	const triggerTokens =
+		active?.trigger.tokens === undefined ? "—" : compactNumber(active.trigger.tokens);
+	const historian =
+		active === undefined
+			? ""
+			: `Historian  ${style(theme, active.historian.phase === "idle" ? "success" : "warning", active.historian.phase)} · ${style(theme, "muted", inlineStatusText(active.historian.model))}${active.historian.lastFailureClass === undefined ? "" : ` · ${style(theme, "error", inlineStatusText(active.historian.lastFailureClass))}`}`;
+	const partition =
+		active === undefined
+			? ""
+			: `Partition  revision: ${active.partitionRevision} · sidekick augmentation ${style(theme, active.pendingAugmentation ? "warning" : "muted", active.pendingAugmentation ? "pending" : "idle")}`;
 	const reason =
 		snapshot.kind === "inactive"
-			? (snapshot.diagnostic ?? snapshot.reason)
+			? inlineStatusText(snapshot.diagnostic ?? snapshot.reason)
 			: snapshot.kind === "failed"
-				? snapshot.reason
-				: "snapshot is stale";
-	rows.push(
-		style(theme, snapshot.kind === "failed" ? "error" : "warning", `${snapshot.kind}: ${reason}`),
-	);
-	while (rows.length < 10) rows.push("");
-	return rows;
+				? inlineStatusText(snapshot.reason)
+				: snapshot.kind === "stale"
+					? "snapshot is stale"
+					: undefined;
+	return [
+		`${style(theme, "accent", theme.bold("⚡ Magic Context Status"))} · ${runtime}`,
+		"",
+		style(theme, "muted", "Context"),
+		reason === undefined
+			? `Context  ${usageRole === undefined ? percentage : style(theme, usageRole, theme.bold(percentage))} · ${used} / ${limit} tokens`
+			: style(theme, snapshot.kind === "failed" ? "error" : "warning", `Reason  ${reason}`),
+		bar,
+		"",
+		"Counts:",
+		active === undefined
+			? ""
+			: `Compartments  m0: ${active.compartments.m0} · m1: ${active.compartments.m1} · total: ${active.compartments.total}`,
+		style(theme, "muted", "Tags"),
+		active === undefined
+			? ""
+			: `Tags  active: ${active.tags.active} · pending: ${active.tags.pending} · dropped: ${active.tags.dropped} · protected: ${active.trigger.protectedTags}`,
+		"",
+		"Historian:",
+		historian,
+		active === undefined ? "" : `Trigger  ${triggerPercentage} · ${triggerTokens} tokens`,
+		partition,
+		wide && active !== undefined ? `Project  ${inlineStatusText(active.projectIdentity)}` : "",
+		wide && active !== undefined ? `Session  ${inlineStatusText(active.sessionId)}` : "",
+	];
 }
 
 /** Render one outer frame with ANSI-safe exact cell width and stable row count. */
@@ -93,27 +164,21 @@ export function renderMctxStatusLines(
 	width: number,
 	theme: MctxStatusTheme,
 ): readonly string[] {
-	const safeWidth = Math.max(8, Math.floor(width));
-	const innerWidth = Math.max(1, safeWidth - 2);
+	const safeWidth = Math.max(1, Math.floor(width));
+	const contentWidth = Math.max(0, safeWidth - 4);
 	const wide = safeWidth >= 72;
-	const title = style(theme, "accent", theme.bold(" MCTX STATUS "));
-	const titleWidth = visibleWidth(title);
-	const top = style(
-		theme,
-		"border",
-		`╭─${title}${"─".repeat(Math.max(0, safeWidth - titleWidth - 3))}╮`,
-	);
-	const border = (text: string): string => style(theme, "border", text);
-	const framed = bodyRows(snapshot, theme, wide).map(
-		(row) =>
-			`${border("│")}${padAnsi(truncateToWidth(` ${row}`, innerWidth, ""), innerWidth)}${border("│")}`,
-	);
-	const footerText = style(theme, "dim", " ⎋ Esc · ↵ Enter · Ctrl+C");
-	framed.push(
-		`${border("│")}${padAnsi(truncateToWidth(footerText, innerWidth, ""), innerWidth)}${border("│")}`,
-	);
-	framed.push(border(`╰${"─".repeat(innerWidth)}╯`));
-	return [top, ...framed].map((line) => padAnsi(truncateToWidth(line, safeWidth, ""), safeWidth));
+	const border = (text: string): string => style(theme, "borderMuted", text);
+	const top = border(safeWidth === 1 ? "╭" : `╭${"─".repeat(Math.max(0, safeWidth - 2))}╮`);
+	const frameRow = (row: string): string => {
+		if (safeWidth === 1) return border("│");
+		if (safeWidth === 2) return border("││");
+		if (safeWidth === 3) return border("│ │");
+		return `${border("│")} ${padAnsi(truncateToWidth(row, contentWidth, ""), contentWidth)} ${border("│")}`;
+	};
+	const framed = bodyRows(snapshot, theme, wide, contentWidth).map(frameRow);
+	framed.push(frameRow(style(theme, "dim", "Press Escape to close · Enter / Ctrl+C also close")));
+	framed.push(border(safeWidth === 1 ? "╰" : `╰${"─".repeat(Math.max(0, safeWidth - 2))}╯`));
+	return [top, ...framed];
 }
 
 /** Feature owns snapshot/refresh; component never reads SQLite and clears timer on cleanup. */
