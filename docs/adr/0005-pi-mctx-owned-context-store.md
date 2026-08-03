@@ -80,8 +80,8 @@ synthetic conversation message，从而保持 source transcript、MCTX canonical
 context 分离。`before_agent_start` 的 system-prompt adjunct 不属于首个 context pipeline milestone。
 
 pipeline 启用后，context store open、migration 或 schema validation failure 默认 fail closed：`pi-mctx` 阻止
-parent turn 并呈现可操作 error。未来可以由显式 config opt out 回退 Pi native behavior；缺少可选 historian
-model 不属于 store failure。
+parent turn 并呈现可操作 error。用户可用 `fail_closed_blocking: false` 显式 opt out，回退 Pi native behavior；
+缺少可选 historian model 不属于 store failure。
 
 context store 使用 tiered `m[0]/m[1]` graph：stable cacheable `m[0]` history tier、newer materialized
 `m[1]` tier 和 compartment boundary 后的 live tail 共同构成 transformed model history。单一 rolling summary

@@ -170,9 +170,9 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
   history、git commit 与 primer，并过滤 active-session live history 与 `MCTX_MEMORY_EXCLUSION_SERVICE` 提供的已见
   memory。每个 source 都必须有验证过的 index/privacy/retention contract；不以 SQL `LIKE` 或部分 source 占用同名 tool。
   semantic rerank 另行迁移，且只能重排同一 admitted candidate set。
-- [ ] **Todo ownership decision**：legacy `todowrite`/`/todos` 是 session task UI，不迁入 `pi-mctx` 或重复注册。确认
-  当前 Todo owner 的 behavioral coverage 与 legacy migration boundary；Pi 的 first-registered tool rule 禁止以新 MCTX
-  tool 覆盖旧 aggregate。
+- [x] **Todo ownership decision**：legacy `todowrite`/`/todos` 不迁入 `pi-mctx`，由独立 `@hheei/pi-todo` 拥有
+  `todo` tool、`/todos` command、task state、reminder 和 widget。MCTX 不重复注册 Todo；旧 aggregate 的 removal 与
+  `pi-todo` release 配套处理，避免 Pi first-registered tool collision。
 - [ ] **Pipeline maintenance commands**：为 legacy `/ctx-flush`、`/ctx-recomp`、`/ctx-session-upgrade`、`/ctx-status`
   与 `/ctx-wrapup` 分别定义 user need、owner 和 Pi lifecycle integration。fixed source 已确认 `/ctx-flush` 在 current
   transform 下没有独立行为，`/ctx-recomp`/`ctx-session-upgrade` 是旧 ordinal/schema migration 而不迁移，`/ctx-wrapup`
@@ -191,9 +191,12 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
   无 second consumer/provider owner，故不注册 partial `/ctx-embed`。
   共享 capability、multi-process fencing、provider lifetime 与公开 API proposal 见
   [`docs/architecture/embeddings.md`](../architecture/embeddings.md)。
-   当前已完成 provider runtime、MCTX lifecycle adapter 与 durable memory ledger：user-level `pi-mctx.embedding` 存在时才
-   acquire provider；`ctx_memory` 的明确 write/update 后只嵌入该 record，并由 content/model fence 写入 per-model ledger。
-   它不做 historical backfill、timer、retry、`/ctx-embed` 或 semantic search。
+   当前实现：user-level `pi-mctx.embedding` 配置存在时，`pi-mctx` 在 activation 中动态 import
+   `@hheei/pi-ext-embed` 并 acquire provider lease；`ctx_memory` 明确 write/update 成功后启动一次 detached、abortable
+   passage embedding，经 provider snapshot 与 content/revision fence 写入 per-model `memory_embeddings` ledger，
+   archive 在同一事务内删除该 memory 的 vector。provider 缺失/失败不影响 memory write 结果，也不参与
+   `fail_closed_blocking`。它不做 historical backfill、timer、retry、`/ctx-embed` 或 semantic search；vector 读取
+   方法留待 retrieval consumer。
 - [ ] **Historian-adjacent services**：按已验证需求设计 Dreamer、embedding provider、background maintenance、search
   index 与 retention/data-management。自动 TTL prune、shutdown deletion 或语义删除在得到明确 retention contract 前保持禁止。
 - [ ] **Reserved configuration activation**：逐字段启用当前 opaque 的 upstream-shaped configuration，定义 user/project
@@ -485,8 +488,8 @@ dispose。`pi-mctx` 不直接调用 Pi AI，也不启动 `pi-subagents` child。
 不直接调用 Pi AI，也不向 core 引入 implicit default。
 
 pipeline 启用后，context store 无法 open、migrate 或通过 schema validation 时默认 fail closed：阻止 parent
-turn 并呈现可操作的 storage error。未来可通过显式 config opt out 回退 Pi native behavior。无 historian model
-config 属于可选能力缺席，不是 context-store failure。
+turn 并呈现可操作的 storage error。用户可通过 `fail_closed_blocking: false` 显式 opt out，回退 Pi native behavior。
+无 historian model config 属于可选能力缺席，不是 context-store failure。
 
 store foundation 使用 Node `node:sqlite`。schema v2 新增 `projects` 和 `partitions`：partition 以 stable project
 identity 与 Pi session ID 唯一标识，初始 revision 是 `0`。get-or-create 在短 `BEGIN IMMEDIATE` transaction 内保证
