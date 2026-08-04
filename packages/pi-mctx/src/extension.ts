@@ -17,11 +17,13 @@ import { Type } from "typebox";
 import {
 	createMctxFeature,
 	type MctxAugmentResult,
+	type MctxDreamResult,
 	type MctxFeature,
+	type MctxFlushResult,
+	type MctxHistorianCommandResult,
 	type MctxHistoryOperation,
 	type MctxHistoryResult,
 	// Memory-system command/operation types, disabled and kept for revival:
-	// type MctxDreamResult,
 	// type MctxEmbedBackfillResult,
 	// type MctxMemoryOperation,
 	// type MctxNoteOperation,
@@ -39,10 +41,27 @@ const MCTX_SUBCOMMANDS = [
 		description: "Show read-only Magic Context status",
 	},
 	{
+		value: "flush",
+		description: "Apply queued context tag drops",
+	},
+	{
+		value: "recomp",
+		description: "Rebuild compartments from the current session branch",
+	},
+	{
+		value: "wrapup",
+		description: "Compact older turns while retaining recent messages",
+	},
+	{
+		value: "dream",
+		description: "Run a bounded smart-note evaluation",
+	},
+	{
 		value: "aug",
 		description: "Run a read-only Sidekick and inject its result once",
 	},
 ] as const;
+const WRAPUP_MESSAGE_SUGGESTIONS = [2, 4, 8, 16] as const;
 
 interface PiContextHook {
 	on(
@@ -52,6 +71,86 @@ interface PiContextHook {
 			context: ExtensionContext,
 		) => { readonly messages: readonly AgentMessage[] } | undefined,
 	): void;
+}
+
+function notifyFlushResult(result: MctxFlushResult, context: ExtensionContext): void {
+	switch (result.kind) {
+		case "flushed":
+			context.ui.notify(
+				result.dropped.length === 0
+					? "No queued context tag drops to flush."
+					: `Flushed context tag drops: ${result.dropped.map((tag) => `#${tag}`).join(", ")}.`,
+				"info",
+			);
+			break;
+		case "inactive":
+			context.ui.notify("pi-mctx is not active for this session.", "error");
+			break;
+		case "stale":
+			context.ui.notify("Context changed; retry /mctx flush.", "warning");
+			break;
+	}
+}
+
+function notifyHistorianCommandResult(
+	command: "recomp" | "wrapup",
+	result: MctxHistorianCommandResult,
+	context: ExtensionContext,
+): void {
+	switch (result.kind) {
+		case "scheduled":
+			context.ui.notify(`MCTX ${command} historian run scheduled.`, "info");
+			break;
+		case "restarting":
+			context.ui.notify(`MCTX ${command} will run after the active historian stops.`, "info");
+			break;
+		case "inactive":
+			context.ui.notify("pi-mctx is not active for this session.", "error");
+			break;
+		case "stale":
+			context.ui.notify(`Context changed; retry /mctx ${command}.`, "warning");
+			break;
+		case "historian-disabled":
+			context.ui.notify("MCTX Historian is disabled in settings.", "warning");
+			break;
+		case "historian-unavailable":
+			context.ui.notify(`MCTX Historian is unavailable: ${result.reason}`, "warning");
+			break;
+	}
+}
+
+async function runDreamCommand(
+	feature: MctxFeature,
+	args: string,
+	ctx: ExtensionContext,
+): Promise<void> {
+	if (ctx.mode !== "tui") {
+		ctx.ui.notify("/mctx dream requires interactive mode", "error");
+		return;
+	}
+	const query = args.trim();
+	if (query.length > 500) {
+		ctx.ui.notify("Usage: /mctx dream [query up to 500 characters]", "error");
+		return;
+	}
+	const result: MctxDreamResult = await feature.dream(query, ctx);
+	switch (result.kind) {
+		case "reported":
+			ctx.ui.notify(result.summary, "info");
+			break;
+		case "inactive":
+			ctx.ui.notify("pi-mctx is not active for this session.", "error");
+			break;
+		case "cancelled":
+			ctx.ui.notify("Dreamer evaluation cancelled.", "warning");
+			break;
+		case "empty":
+			ctx.ui.notify("No smart-condition notes to evaluate.", "warning");
+			break;
+		case "failed":
+			ctx.ui.notify(`Dreamer evaluation failed: ${result.reason}`, "error");
+			break;
+	}
 }
 
 // Core owns Pi's static registration and Loadout inventory; MCTX owns every tool's runtime behavior.
@@ -120,6 +219,18 @@ function registerMctxCommand(
 		description: "Show Magic Context status or run a context command",
 		getArgumentCompletions: (argumentPrefix) => {
 			const prefix = argumentPrefix.trimStart().toLowerCase();
+			const wrapupMatch = /^wrapup\s+([^\s]*)$/u.exec(prefix);
+			if (wrapupMatch !== null) {
+				const valuePrefix = wrapupMatch[1] ?? "";
+				const matches = WRAPUP_MESSAGE_SUGGESTIONS.filter((value) =>
+					String(value).startsWith(valuePrefix),
+				).map((value) => ({
+					value: `wrapup ${value}`,
+					label: `wrapup ${value}`,
+					description: `Retain at least ${value} recent messages`,
+				}));
+				return matches.length === 0 ? null : matches;
+			}
 			if (/\s/u.test(prefix)) return null;
 			const matches = MCTX_SUBCOMMANDS.filter(({ value }) => value.startsWith(prefix)).map(
 				({ value, description }) => ({ value, label: value, description }),
@@ -153,8 +264,45 @@ function registerMctxCommand(
 				await runSidekickCommand(feature, subcommandArgs, context);
 				return;
 			}
+			if (/^dream$/u.test(subcommand)) {
+				await runDreamCommand(feature, subcommandArgs, context);
+				return;
+			}
+			if (/^flush$/u.test(subcommand)) {
+				if (subcommandArgs.length > 0) {
+					context.ui.notify("Usage: /mctx flush", "error");
+					return;
+				}
+				notifyFlushResult(feature.flush(context), context);
+				return;
+			}
+			if (/^recomp$/u.test(subcommand)) {
+				if (subcommandArgs.length > 0) {
+					context.ui.notify("Usage: /mctx recomp", "error");
+					return;
+				}
+				notifyHistorianCommandResult("recomp", feature.recomp(context), context);
+				return;
+			}
+			if (/^wrapup$/u.test(subcommand)) {
+				if (subcommandArgs.length === 0) {
+					notifyHistorianCommandResult("wrapup", feature.wrapup(undefined, context), context);
+					return;
+				}
+				if (!/^\d+$/u.test(subcommandArgs)) {
+					context.ui.notify("Usage: /mctx wrapup [positive messages_to_keep]", "error");
+					return;
+				}
+				const messagesToKeep = Number(subcommandArgs);
+				if (!Number.isSafeInteger(messagesToKeep) || messagesToKeep < 1) {
+					context.ui.notify("Usage: /mctx wrapup [positive messages_to_keep]", "error");
+					return;
+				}
+				notifyHistorianCommandResult("wrapup", feature.wrapup(messagesToKeep, context), context);
+				return;
+			}
 			context.ui.notify(
-				`Unknown MCTX subcommand: ${subcommand}. Usage: /mctx [status | aug <query>]`,
+				`Unknown MCTX subcommand: ${subcommand}. Usage: /mctx [status | flush | recomp | wrapup [messages_to_keep] | dream [query] | aug <query>]`,
 				"error",
 			);
 		},

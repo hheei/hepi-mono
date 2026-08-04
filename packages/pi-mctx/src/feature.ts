@@ -58,6 +58,7 @@ import {
 	SIDEKICK_SYSTEM_PROMPT,
 } from "./sidekick.js";
 import { planMctxSmartDrops } from "./smart-drops.js";
+import { protectedTurnGroupsForMessages } from "./source-history.js";
 import {
 	defaultMctxStorePath,
 	type MctxCompartment,
@@ -85,6 +86,11 @@ import { evaluateMctxTriggerPolicy } from "./trigger-policy.js";
 export interface MctxSessionRuntime extends MctxRuntime {
 	readonly store: MctxStore;
 	readonly partition: MctxPartition;
+}
+
+interface MctxHistorianRequest {
+	readonly entries: readonly SessionEntry[];
+	readonly protectedTurnGroups?: number;
 }
 
 function smartDropTargetTokens(
@@ -129,6 +135,9 @@ export interface MctxFeature {
 	memory(operation: MctxMemoryOperation, context: ExtensionContext): MctxMemoryResult;
 	note(operation: MctxNoteOperation, context: ExtensionContext): MctxNoteResult;
 	history(operation: MctxHistoryOperation, context: ExtensionContext): MctxHistoryResult;
+	flush(context: ExtensionContext): MctxFlushResult;
+	recomp(context: ExtensionContext): MctxHistorianCommandResult;
+	wrapup(messagesToKeep: number | undefined, context: ExtensionContext): MctxHistorianCommandResult;
 	search(
 		operation: MctxSearchOperation,
 		context: ExtensionContext,
@@ -295,6 +304,17 @@ export type MctxHistoryResult =
 			readonly nextOffset?: number;
 	  }
 	| { readonly kind: "purged"; readonly deleted: number };
+
+export type MctxFlushResult =
+	| { readonly kind: "inactive" | "stale" }
+	| { readonly kind: "flushed"; readonly dropped: readonly number[] };
+
+export type MctxHistorianCommandResult =
+	| { readonly kind: "inactive" | "stale" }
+	| { readonly kind: "historian-disabled" }
+	| { readonly kind: "historian-unavailable"; readonly reason: string }
+	| { readonly kind: "scheduled" }
+	| { readonly kind: "restarting" };
 
 export interface MctxSearchOperation {
 	readonly query: string;
@@ -573,7 +593,7 @@ interface ActiveMctxRuntime {
 	smartDropCooling: boolean;
 	job?: AbortController | undefined;
 	jobCompletion?: Promise<void> | undefined;
-	rebuildEntries?: readonly SessionEntry[] | undefined;
+	rebuildRequest?: MctxHistorianRequest | undefined;
 	lastNotifiedFailureClass?: MctxHistorianFailureDiagnostic["failureClass"] | undefined;
 	notifiedStoreReadFailure?: boolean | undefined;
 	embeddingLease?: EmbeddingProviderLease | undefined;
@@ -773,10 +793,10 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 	}
 	/**
 	 * Serializes historian work per session. A replacement branch is retained as
-	 * `rebuildEntries` until the aborted job terminalizes, preventing overlapping
+	 * `rebuildRequest` until the aborted job terminalizes, preventing overlapping
 	 * writers while allowing the latest branch to be rebuilt promptly.
 	 */
-	function startHistorian(current: ActiveMctxRuntime, entries: readonly SessionEntry[]): void {
+	function startHistorian(current: ActiveMctxRuntime, request: MctxHistorianRequest): void {
 		const historian = current.runtime.historian;
 		if (historian.kind !== "active") return;
 		// At most one historian runs per session. A newer branch snapshot is retained
@@ -791,8 +811,11 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			model: historian.model,
 			store: current.runtime.store,
 			partition: current.runtime.partition,
-			entries,
+			entries: request.entries,
 			signal: job.signal,
+			...(request.protectedTurnGroups === undefined
+				? {}
+				: { protectedTurnGroups: request.protectedTurnGroups }),
 		})
 			.then((result) => {
 				if (active !== current || current.job !== job || job.signal.aborted) return;
@@ -823,17 +846,47 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				if (current.job !== job) return;
 				current.job = undefined;
 				current.jobCompletion = undefined;
-				const rebuildEntries = current.rebuildEntries;
-				current.rebuildEntries = undefined;
+				const rebuildRequest = current.rebuildRequest;
+				current.rebuildRequest = undefined;
 				if (
-					rebuildEntries !== undefined &&
+					rebuildRequest !== undefined &&
 					active === current &&
 					!current.lifecycle.signal.aborted
 				) {
-					startHistorian(current, rebuildEntries);
+					startHistorian(current, rebuildRequest);
 				}
 			});
 		current.jobCompletion = completion;
+	}
+
+	function historianCommandAvailability(
+		current: ActiveMctxRuntime | undefined,
+		context: ExtensionContext,
+	): MctxHistorianCommandResult | undefined {
+		if (
+			current === undefined ||
+			current.lifecycle.signal.aborted ||
+			current.runtime.sessionId !== context.sessionManager.getSessionId()
+		)
+			return { kind: "inactive" };
+		if (current.runtime.historian.kind === "disabled") return { kind: "historian-disabled" };
+		if (current.runtime.historian.kind === "unavailable")
+			return { kind: "historian-unavailable", reason: current.runtime.historian.diagnostic };
+		return undefined;
+	}
+
+	/** Queues a replacement behind an aborted historian run to preserve single-writer ownership. */
+	function forceHistorian(
+		current: ActiveMctxRuntime,
+		request: MctxHistorianRequest,
+	): MctxHistorianCommandResult {
+		if (current.job === undefined) {
+			startHistorian(current, request);
+			return { kind: "scheduled" };
+		}
+		current.rebuildRequest = request;
+		current.job.abort();
+		return { kind: "restarting" };
 	}
 
 	/**
@@ -1189,7 +1242,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			});
 			if (runtime.historian.kind === "active") {
 				context.resources.add("mctx-historian", async () => {
-					current.rebuildEntries = undefined;
+					current.rebuildRequest = undefined;
 					current.job?.abort();
 					await current.jobCompletion;
 					if (active === current) {
@@ -1238,7 +1291,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 						: {
 								kind: "active" as const,
 								phase:
-									current.rebuildEntries !== undefined
+									current.rebuildRequest !== undefined
 										? ("rebuild-pending" as const)
 										: current.job !== undefined
 											? ("running" as const)
@@ -1306,7 +1359,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			current.cooling = decision.cooling;
 			if (decision.kind !== "trigger" || current.job !== undefined) return;
 
-			startHistorian(current, context.sessionManager.getBranch());
+			startHistorian(current, { entries: context.sessionManager.getBranch() });
 		},
 		onContext(messages, context): { readonly messages: readonly AgentMessage[] } | undefined {
 			// The context hook is synchronous. Any stale/invalid branch graph leaves the
@@ -1334,7 +1387,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			if (compartments === undefined) return undefined;
 			const recovery = planMctxCompartmentRecovery(entries, compartments);
 			if (recovery.kind === "rebuild") {
-				const rebuildEntries = [...entries];
+				const rebuildRequest = { entries: [...entries] };
 				const nextPartition = withStoreReadPolicy(current, () =>
 					current.runtime.store.discardCompartmentsFrom(
 						current.runtime.partition,
@@ -1347,8 +1400,8 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					!current.lifecycle.signal.aborted
 				) {
 					current.runtime = { ...current.runtime, partition: nextPartition };
-					current.rebuildEntries = rebuildEntries;
-					if (current.job === undefined) startHistorian(current, rebuildEntries);
+					current.rebuildRequest = rebuildRequest;
+					if (current.job === undefined) startHistorian(current, rebuildRequest);
 					else current.job.abort();
 				}
 				return undefined;
@@ -1657,6 +1710,48 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			const nextOffset =
 				tags.length === operation.limit ? (operation.offset ?? 0) + tags.length : undefined;
 			return { kind: "history", tags, ...(nextOffset === undefined ? {} : { nextOffset }) };
+		},
+		flush(context): MctxFlushResult {
+			const current = active;
+			if (
+				current === undefined ||
+				current.lifecycle.signal.aborted ||
+				current.runtime.sessionId !== context.sessionManager.getSessionId()
+			)
+				return { kind: "inactive" };
+			const synced = current.runtime.store.syncHistoryTags(
+				current.runtime.partition,
+				collectMctxHistoryTagInputs(context.sessionManager.getBranch()),
+			);
+			if (synced === undefined) return { kind: "stale" };
+			const pending = synced.tags
+				.filter((tag) => tag.status === "pending")
+				.map((tag) => tag.tagNumber);
+			if (pending.length === 0) return { kind: "flushed", dropped: [] };
+			const partition = current.runtime.store.markHistoryTagsDropped(synced.partition, pending);
+			if (partition === undefined) return { kind: "stale" };
+			current.runtime = { ...current.runtime, partition };
+			return { kind: "flushed", dropped: pending };
+		},
+		recomp(context): MctxHistorianCommandResult {
+			const current = active;
+			const unavailable = historianCommandAvailability(current, context);
+			if (unavailable !== undefined) return unavailable;
+			if (current === undefined) return { kind: "inactive" };
+			const partition = current.runtime.store.discardCompartmentsFrom(current.runtime.partition, 0);
+			if (partition === undefined) return { kind: "stale" };
+			current.runtime = { ...current.runtime, partition };
+			return forceHistorian(current, { entries: context.sessionManager.getBranch() });
+		},
+		wrapup(messagesToKeep, context): MctxHistorianCommandResult {
+			const current = active;
+			const unavailable = historianCommandAvailability(current, context);
+			if (unavailable !== undefined) return unavailable;
+			if (current === undefined) return { kind: "inactive" };
+			const entries = context.sessionManager.getBranch();
+			const protectedTurnGroups =
+				messagesToKeep === undefined ? 1 : protectedTurnGroupsForMessages(entries, messagesToKeep);
+			return forceHistorian(current, { entries, protectedTurnGroups });
 		},
 		async search(operation, context, signal): Promise<MctxSearchResult> {
 			const current = active;

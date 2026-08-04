@@ -203,25 +203,35 @@ MCTX 用户只需记住一个 slash command：`/mctx`。**Pi host** 注册并呈
 surface、historian 与 Sidekick lifecycle contract 均不改变。`ctx_reduce`、`ctx_expand`、`ctx_history` 是 model tool，
 不属于 slash command rename。
 
-当前 active subcommand 只有：
+当前保留原版的六个有用命令名，但不注册旧 `/ctx-*` alias：
 
 - `/mctx status`：打开既有只读 status surface，不接受额外参数。
+- `/mctx flush`：立即确认已排队的 `ctx_reduce` tag drop；下一次 context projection 读取已确认的状态。
+- `/mctx recomp`：丢弃当前 session 的已发布 compartment，并以当前 live branch 强制启动一次单飞 Historian 重建。
+- `/mctx wrapup [messages_to_keep]`：强制启动一次 Historian，并保留末尾至少 N 条消息所在的完整 turn group；省略 N 时保留
+  一个完整 turn group。MCTX 的 compartment source 不拆 user/assistant turn，因此当 N 落在 turn 中间时会保守地多保留同组消息。
+- `/mctx dream [query]`：运行已有 Dreamer child。它只评估已存在的 smart-condition note 或显式 query；不会重新启用已 park 的
+  memory/note tool registration。
 - `/mctx aug <query>`：执行既有 Sidekick augmentation；query 必填，trim 后长度为 1–500 字符。
 
-记忆体系仍处于 park 状态，因此 `dream` 与 `embed` 不进入 completion、不执行，也不能借本次 command migration
-恢复其 production hook。恢复记忆体系时，它们才作为 `/mctx dream [query]` 与 `/mctx embed` 加入同一 router。
+`flush`、`recomp` 与 `wrapup` 只对 active MCTX session 生效。Historian disabled、unavailable、已有 run 或没有可压缩完整
+turn 时，它们返回明确 notification，不启动隐式 background work；`recomp` 在已有 Historian run 时只保留最新 branch snapshot，
+并 abort 旧 run，待其 cleanup 后再启动 replacement，始终保持单 writer。
+
+记忆体系仍处于 park 状态，因此 `embed` 不进入 completion、不执行，也不能借本次 command migration 恢复其 production hook。
 
 ### Autocomplete、suggestion 与失败语义
 
-`/mctx` 使用 Pi host 原生 `getArgumentCompletions`。空 prefix 或首个 token 的部分 prefix 返回 canonical lowercase
-subcommand；每项同时提供 `label` 与可见 `description`，使 editor suggestion 能解释行为。输入进入 `aug` 的自由文本
-query 后返回 `null`，不伪造 query suggestion；未知 prefix 也返回 `null`。bare `/mctx` 直接打开 status；未知
-subcommand、`status` 多余参数和 `aug` 缺少/超长 query 都给出带 canonical syntax 的 usage
-notification，不调用对应 feature。
+`/mctx` 使用 Pi host 原生 `getArgumentCompletions`，这是 Pi terminal editor 的 autocomplete 与 autosuggestion contract。
+空 prefix 或首个 token 的部分 prefix 返回 canonical lowercase subcommand；每项同时提供 `label` 与可见 `description`，使
+suggestion 能解释行为。`wrapup ` 后建议常用的安全保留值 `2`、`4`、`8`、`16`；输入 `aug` 或 `dream` 的自由文本 query 后
+返回 `null`，不伪造 query suggestion；未知 prefix 也返回 `null`。bare `/mctx` 直接打开 status；未知 subcommand、无效参数和
+`aug` 缺少/超长 query 都给出带 canonical syntax 的 usage notification，不调用对应 feature。
 
 迁移采用 clean cutover：只注册 `/mctx`，不保留 `/ctx-status`、`/ctx-aug` alias，避免 Pi command palette 出现两套入口。
-focused tests 必须覆盖唯一注册名、空/部分/未知 prefix suggestions、description、两条 dispatch、参数拒绝，以及旧 command
-未注册。bare `/mctx` 等同 `/mctx status`，为最常用的只读入口提供快捷路径；未知 subcommand 仍只显示 canonical usage。
+focused tests 必须覆盖唯一注册名、空/部分/未知 prefix suggestions、description、`wrapup` 数字 suggestions、六条 dispatch、
+参数拒绝，以及旧 command 未注册。bare `/mctx` 等同 `/mctx status`，为最常用的只读入口提供快捷路径；未知 subcommand 仍只显示
+canonical usage。
 
 ## Sidekick augmentation（`/mctx aug`）
 

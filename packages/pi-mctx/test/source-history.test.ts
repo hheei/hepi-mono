@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { projectMctxSourceHistory } from "../src/source-history.js";
+import { projectMctxSourceHistory, protectedTurnGroupsForMessages } from "../src/source-history.js";
 
 function entry(id: string, role: "user" | "assistant" | "toolResult", content = id): SessionEntry {
 	return {
@@ -27,6 +27,23 @@ test("projects whole older turns and preserves a protected tail", (): void => {
 	expect(result.value.sourceText).toContain("first request");
 	expect(result.value.sourceText).toContain("first response");
 	expect(result.value.sourceText).not.toContain("latest request");
+});
+
+test("conservatively converts retained messages to complete turn groups", (): void => {
+	const entries = [
+		entry("user-1", "user"),
+		entry("assistant-1", "assistant"),
+		entry("user-2", "user"),
+		entry("assistant-call", "assistant"),
+		entry("tool-result", "toolResult"),
+		entry("assistant-2", "assistant"),
+	];
+	expect(protectedTurnGroupsForMessages(entries, 1)).toBe(1);
+	expect(protectedTurnGroupsForMessages(entries, 5)).toBe(2);
+	expect(protectedTurnGroupsForMessages(entries, 20)).toBe(2);
+	expect(() => protectedTurnGroupsForMessages(entries, 0)).toThrow(
+		"messages to keep must be a positive safe integer",
+	);
 });
 
 test("does not split a user-assistant-tool-result-assistant turn group", (): void => {

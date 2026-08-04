@@ -219,6 +219,39 @@ test("status exposes running/cooling phases and omits invalid usage", async (): 
 	});
 });
 
+test("manual recomp and wrapup schedule bounded historian work", async (): Promise<void> => {
+	const fixture = lifecycleFixture();
+	const requests: Array<{ readonly protectedTurnGroups?: number }> = [];
+	let discardedAt: number | undefined;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => ({
+			...store(),
+			discardCompartmentsFrom: (_partition, publishedRevision) => {
+				discardedAt = publishedRevision;
+				return { projectIdentity: "git:project", sessionId: "session-1", revision: 1 };
+			},
+		}),
+		resolveProjectIdentity: async () => "git:project",
+		runHistorianForBranch: async (request) => {
+			requests.push({
+				...(request.protectedTurnGroups === undefined
+					? {}
+					: { protectedTurnGroups: request.protectedTurnGroups }),
+			});
+			return { kind: "cancelled" };
+		},
+	});
+	await feature.start(fixture.context);
+
+	expect(feature.recomp(turnContext(undefined))).toEqual({ kind: "scheduled" });
+	expect(discardedAt).toBe(0);
+	await Bun.sleep(0);
+	expect(feature.wrapup(undefined, turnContext(undefined))).toEqual({ kind: "scheduled" });
+	await Bun.sleep(0);
+	expect(requests).toEqual([{}, { protectedTurnGroups: 1 }]);
+});
+
 test("turn_end starts one background historian and cleanup aborts it", async (): Promise<void> => {
 	const fixture = lifecycleFixture();
 	let calls = 0;
