@@ -1,3 +1,0 @@
-[submodule "packages/hepi-subagents"]
-	path = packages/hepi-subagents
-	url = https://github.com/hheei/pi-subagents.git

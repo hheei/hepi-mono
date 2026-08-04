@@ -408,13 +408,13 @@
 use log::{debug, info, trace, warn};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use similar::TextDiff;
 use similar::udiff::unified_diff;
+use similar::TextDiff;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{
-    Arc,
     atomic::{AtomicBool, Ordering},
+    Arc,
 };
 use thiserror::Error;
 
@@ -3456,7 +3456,8 @@ pub fn parse_diffs(content: &str) -> Result<Vec<Patch>, ParseError> {
 
         trace!(
             "Found potential diff block start on line {}: '{}'",
-            line_index, line_text
+            line_index,
+            line_text
         );
         let diff_block_start_line = line_index + 1;
 
@@ -5552,7 +5553,8 @@ pub fn apply_hunk_to_lines(
                 );
                 trace!(
                     "      Fuzzy match location: start={}, len={}",
-                    location.start_index, location.length
+                    location.start_index,
+                    location.length
                 );
                 let file_matched_lines: Vec<_> = target_lines
                     [location.start_index..location.start_index + location.length]
@@ -6578,7 +6580,11 @@ impl<'a> DefaultHunkFinder<'a> {
                     let window_content: Vec<_> = target_refs[*idx..*idx + *len].to_vec();
                     trace!(
                         "        - Index {}, Len {}: Score {:.3} (Ratio {:.3}) | Content: {:?}",
-                        idx, len, score, ratio, window_content
+                        idx,
+                        len,
+                        score,
+                        ratio,
+                        window_content
                     );
                 }
             }
@@ -6821,7 +6827,9 @@ impl<'a> DefaultHunkFinder<'a> {
                     let distance = (match_index + 1).abs_diff(line);
                     trace!(
                         "      Candidate index {}: distance from line hint {} is {}",
-                        match_index, line, distance
+                        match_index,
+                        line,
+                        distance
                     );
                     if distance < min_distance {
                         min_distance = distance;
@@ -6856,7 +6864,8 @@ impl<'a> DefaultHunkFinder<'a> {
             // Exactly one match was found.
             trace!(
                 "      Found 1 {} match candidate at index: {}",
-                match_type, first_match
+                match_type,
+                first_match
             );
             trace!(
                 "    tie_break: Only one match found for '{}' match at index {}. No tie-break needed.",
