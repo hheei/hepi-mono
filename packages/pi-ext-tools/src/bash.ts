@@ -18,6 +18,16 @@ import { PtySession } from "./native-bridge.js";
 import { SelectableBashResult } from "./selectable-bash-result.js";
 
 const OWNER = "@hheei/pi-ext-tools";
+const BASH_DESCRIPTION =
+	"Execute a shell command in the current working directory. Default calls use Pi host Bash; async starts a session-owned job and pty opens an interactive terminal.";
+const BASH_PROMPT_SNIPPET =
+	"Execute shell commands and manage explicit async or interactive PTY work";
+const BASH_PROMPT_GUIDELINES = [
+	"Use bash only for one binary or a short pipeline that computes a fact; use dedicated file tools instead of shell grep, find, ls, head, or tail.",
+	"Use async: true only for finite work that may outlive this tool call; use bash_job with its returned id to inspect logs, status, or stop it.",
+	"Use pty: true only for interactive terminal programs such as sudo or ssh. It requires TUI mode, never falls back to normal Bash, and is mutually exclusive with async.",
+	"Use timeout for a command deadline; it does not make async work foreground or extend a PTY session.",
+] as const;
 const DefaultInput = Type.Object(
 	{ command: Type.String(), timeout: Type.Optional(Type.Number()) },
 	{ additionalProperties: false },
@@ -138,6 +148,9 @@ export function registerBashTool(pi: ExtensionAPI, state?: FffRuntimeState): voi
 	const upstreamComponents = new WeakMap<object, import("@earendil-works/pi-tui").Component>();
 	const tool = {
 		...template,
+		description: BASH_DESCRIPTION,
+		promptSnippet: BASH_PROMPT_SNIPPET,
+		promptGuidelines: [...(template.promptGuidelines ?? []), ...BASH_PROMPT_GUIDELINES],
 		parameters: BashInput,
 		renderResult: (
 			r: AgentToolResult<BashToolDetails | undefined>,
