@@ -1,0 +1,24 @@
+{
+  "name": "@hheei/pi-ponytail",
+  "version": "0.0.0",
+  "description": "Minimal-engineering guidance modes for Pi sessions and subagents.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": { ".": "./dist/index.js" },
+  "files": ["dist", "skills", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+  "pi": { "extensions": ["dist/extension.js"], "skills": ["skills"] },
+  "scripts": { "build": "bunx tsc -p tsconfig.build.json", "prepack": "bun run build" },
+  "keywords": ["pi", "pi-package", "pi-extension", "hepi", "ponytail"],
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/hheei/hepi-mono.git", "directory": "packages/pi-ponytail" },
+  "publishConfig": { "access": "public" },
+  "dependencies": { "@hheei/pi-ext-core": "workspace:*" },
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": ">=0.83.0",
+    "@earendil-works/pi-ai": ">=0.83.0",
+    "@earendil-works/pi-coding-agent": ">=0.83.0",
+    "@earendil-works/pi-tui": ">=0.83.0"
+  },
+  "devDependencies": { "@earendil-works/pi-coding-agent": ">=0.83.0", "@types/bun": "latest" }
+}

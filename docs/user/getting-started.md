@@ -11,6 +11,8 @@ pi install npm:@hheei/hepi-basics
 pi install npm:@hheei/hepi-tools
 pi install npm:@hheei/hepi-mctx
 pi install npm:@hheei/hepi-skills
+pi install npm:@hheei/pi-ponytail
+pi install npm:@hheei/pi-caveman
 ```
 
 Each package exposes one Pi extension entry.
@@ -35,6 +37,8 @@ pi --no-extensions --no-skills -e packages/hepi-basics/dist/extension.js
 pi --no-extensions --no-skills -e packages/hepi-tools/dist/extension.js
 pi --no-extensions --no-skills -e packages/hepi-mctx/dist/extension.js
 pi --no-extensions --no-skills -e packages/hepi-skills/dist/extension.js
+pi --no-extensions --no-skills -e packages/pi-ponytail/dist/extension.js
+pi --no-extensions --no-skills -e packages/pi-caveman/dist/extension.js
 ```
 
 Pass additional Pi arguments normally:

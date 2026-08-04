@@ -15,6 +15,8 @@ pi install npm:@hheei/hepi-basics
 pi install npm:@hheei/hepi-tools
 pi install npm:@hheei/hepi-mctx
 pi install npm:@hheei/hepi-skills
+pi install npm:@hheei/pi-ponytail
+pi install npm:@hheei/pi-caveman
 ```
 
 These aggregate packages are transitional. Independent extensions install separately:
