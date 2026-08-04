@@ -47,6 +47,26 @@ test("pi-mctx entry registers lifecycle handlers and managed Magic Context tools
 			description: "Show read-only Magic Context status",
 		},
 		{
+			value: "flush",
+			label: "flush",
+			description: "Apply queued context tag drops",
+		},
+		{
+			value: "recomp",
+			label: "recomp",
+			description: "Rebuild compartments from the current session branch",
+		},
+		{
+			value: "wrapup",
+			label: "wrapup",
+			description: "Compact older turns while retaining recent messages",
+		},
+		{
+			value: "dream",
+			label: "dream",
+			description: "Run a bounded smart-note evaluation",
+		},
+		{
 			value: "aug",
 			label: "aug",
 			description: "Run a read-only Sidekick and inject its result once",
@@ -54,6 +74,28 @@ test("pi-mctx entry registers lifecycle handlers and managed Magic Context tools
 	]);
 	expect(complete?.("st")?.map((item) => item.value)).toEqual(["status"]);
 	expect(complete?.("a")?.map((item) => item.value)).toEqual(["aug"]);
+	expect(complete?.("wrapup ")).toEqual([
+		{
+			value: "wrapup 2",
+			label: "wrapup 2",
+			description: "Retain at least 2 recent messages",
+		},
+		{
+			value: "wrapup 4",
+			label: "wrapup 4",
+			description: "Retain at least 4 recent messages",
+		},
+		{
+			value: "wrapup 8",
+			label: "wrapup 8",
+			description: "Retain at least 8 recent messages",
+		},
+		{
+			value: "wrapup 16",
+			label: "wrapup 16",
+			description: "Retain at least 16 recent messages",
+		},
+	]);
 	expect(complete?.("aug ")).toBeNull();
 	expect(complete?.("missing")).toBeNull();
 	// MCTX tools have static Pi definitions but only publish inventory after runtime admission.
@@ -87,6 +129,11 @@ test("mctx routes active subcommands and rejects invalid arguments", async (): P
 	await command.handler("", context);
 	await command.handler("status", context);
 	await command.handler("status extra", context);
+	await command.handler("flush", context);
+	await command.handler("recomp", context);
+	await command.handler("wrapup", context);
+	await command.handler("wrapup 0", context);
+	await command.handler("dream", context);
 	await command.handler("aug", context);
 	await command.handler("aug inspect the repository", context);
 	await command.handler("missing", context);
@@ -95,10 +142,16 @@ test("mctx routes active subcommands and rejects invalid arguments", async (): P
 		{ message: "pi-mctx lifecycle is not active", level: "warning" },
 		{ message: "pi-mctx lifecycle is not active", level: "warning" },
 		{ message: "Usage: /mctx status", level: "error" },
+		{ message: "pi-mctx is not active for this session.", level: "error" },
+		{ message: "pi-mctx is not active for this session.", level: "error" },
+		{ message: "pi-mctx is not active for this session.", level: "error" },
+		{ message: "Usage: /mctx wrapup [positive messages_to_keep]", level: "error" },
+		{ message: "pi-mctx is not active for this session.", level: "error" },
 		{ message: "Usage: /mctx aug <query up to 500 characters>", level: "error" },
 		{ message: "pi-mctx is not active for this session.", level: "error" },
 		{
-			message: "Unknown MCTX subcommand: missing. Usage: /mctx [status | aug <query>]",
+			message:
+				"Unknown MCTX subcommand: missing. Usage: /mctx [status | flush | recomp | wrapup [messages_to_keep] | dream [query] | aug <query>]",
 			level: "error",
 		},
 	]);

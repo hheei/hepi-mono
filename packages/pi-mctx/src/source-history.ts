@@ -6,6 +6,29 @@ export interface MctxCompleteTurnGroup {
 	readonly entries: readonly SessionEntry[];
 }
 
+/**
+ * Converts a user-facing retained message count to whole turn groups. MCTX
+ * never splits a turn, so this may conservatively retain extra messages.
+ */
+export function protectedTurnGroupsForMessages(
+	entries: readonly SessionEntry[],
+	messagesToKeep: number,
+): number {
+	if (!Number.isSafeInteger(messagesToKeep) || messagesToKeep < 1) {
+		throw new Error("messages to keep must be a positive safe integer");
+	}
+	const groups = completeGroups(entries);
+	let retainedMessages = 0;
+	let protectedGroups = 0;
+	for (let index = groups.length - 1; index >= 0 && retainedMessages < messagesToKeep; index--) {
+		const group = groups[index];
+		if (group === undefined) continue;
+		protectedGroups++;
+		retainedMessages += group.entries.filter((entry) => entry.type === "message").length;
+	}
+	return Math.max(1, protectedGroups);
+}
+
 export interface MctxSourceHistory {
 	readonly groups: readonly MctxCompleteTurnGroup[];
 	readonly source: MctxCompartmentSourceSnapshot;
