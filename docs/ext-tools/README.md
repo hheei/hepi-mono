@@ -102,13 +102,13 @@ async job 使用 `pi-ext-tools` 自己的 shell-path setting，而不是读取 P
 
 ### PtySession native boundary
 
-下一阶段提供 `PtySession`，但尚不向 `bash` 公开 `pty: true`。它是 `pi-ext-bridge` 的最小 N-API
+`bash` 以显式 `pty: true` 提供 `PtySession`。它是 `pi-ext-bridge` 的最小 N-API
 边界：以明确的 command、cwd、env、rows、cols 创建一条 pseudo-terminal；调用方可写入 UTF-8 bytes、
 调整 rows/cols、读取 raw output bytes 并终止 child process group。每个实例独占 reader、writer、child 与关闭状态；
 `kill()`、`close()` 与 JS wrapper drop 必须幂等。close 后 child reaping 有 300 ms 上限，避免异常的
 platform PTY handle 阻塞 Pi；native output 不跨 session 保存。
 
-Pi host 仍拥有默认 Bash。将来只有 `mode === "tui"` 且 `PI_NO_PTY !== "1"` 的明确
+Pi host 仍拥有默认 Bash。只有 `mode === "tui"` 且 `PI_NO_PTY !== "1"` 的明确
 `bash({ pty: true })` 才能创建 ext-core-managed overlay surface；无 TUI 或被禁用时返回错误，绝不退回
 到 async job 或 host Bash。surface 使用一条 full-width shell frame，header 用 `bashMode`，output 用
 `muted`，并显示 `Esc` kill/dismiss hint，遵循 [DESIGN.md](../../DESIGN.md)。
