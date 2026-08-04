@@ -43,12 +43,34 @@ function parseApplyPatchParameters(params: unknown): ApplyPatchParameters {
 }
 
 function formatApplyPatchResult(result: ApplyPatchInWorkspaceResult): string {
+	const rejectedOperationCount = new Set(
+		result.rejected.flatMap((rejection) => rejection.operationIndices),
+	).size;
+	const status =
+		rejectedOperationCount === 0
+			? "Success"
+			: result.changedPaths.length === 0
+				? "Failed"
+				: "Partial";
+	const headline =
+		status === "Success"
+			? "Done! Applied patch."
+			: status === "Partial"
+				? "Applied patch partially."
+				: "Patch was not applied.";
 	return [
-		"Done! Applied patch.",
+		headline,
+		`Status: ${status}`,
 		`Files changed: ${result.changedPaths.length}`,
 		`Operations: ${result.operationCount}`,
 		`Exact updates: ${result.exactUpdateCount}`,
 		`Fuzzy updates: ${result.fuzzyUpdateCount}`,
+		`Fuzzy matching: ${result.fuzzyUpdateCount > 0 ? "used" : "not used"}`,
+		`Rejected operations: ${rejectedOperationCount}`,
+		...result.rejected.flatMap((rejection) => [
+			`Rejected paths: ${rejection.paths.join(", ")}`,
+			`Reason: ${rejection.error}`,
+		]),
 	].join("\n");
 }
 
@@ -72,6 +94,7 @@ export function createApplyPatchTool(): ToolDefinition<
 		},
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			const { patch } = parseApplyPatchParameters(params);
+			if (/artifact:\/\//.test(patch)) throw new Error("apply_patch cannot modify artifact URLs");
 			try {
 				const result = await applyPatchThroughCoordinator({
 					workspaceRoot: ctx.cwd,
@@ -86,6 +109,7 @@ export function createApplyPatchTool(): ToolDefinition<
 						operationCount: result.operationCount,
 						exactUpdateCount: result.exactUpdateCount,
 						fuzzyUpdateCount: result.fuzzyUpdateCount,
+						rejected: result.rejected,
 					},
 				} satisfies AgentToolResult<ApplyPatchToolDetails>;
 			} catch (error) {

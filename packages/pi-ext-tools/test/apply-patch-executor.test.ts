@@ -71,6 +71,7 @@ describe("staged apply-patch executor", () => {
 			operationCount: 4,
 			exactUpdateCount: 2,
 			fuzzyUpdateCount: 0,
+			rejected: [],
 		});
 		expect(await load(root, "src/add.txt")).toBe("added\n");
 		expect(await load(root, "src/update.txt")).toBe("one\ntwo\ninserted\nthree\n");
@@ -101,36 +102,41 @@ describe("staged apply-patch executor", () => {
 		const root = await temporaryDirectory();
 		await save(root, "value.txt", "alpha\nchanged context\nomega\n");
 
-		await expect(
-			applyPatchInWorkspace({
-				workspaceRoot: root,
-				policy: noFuzzy,
-				patch:
-					"*** Begin Patch\n" +
-					"*** Update File: value.txt\n alpha\n expected context\n+inserted\n omega\n" +
-					"*** End Patch",
-			}),
-		).rejects.toThrow("fuzzy is disabled");
+		const result = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch:
+				"*** Begin Patch\n" +
+				"*** Update File: value.txt\n alpha\n expected context\n+inserted\n omega\n" +
+				"*** End Patch",
+		});
+		expect(result.changedPaths).toEqual([]);
+		expect(result.rejected).toMatchObject([
+			{
+				paths: ["value.txt"],
+				error: "Patch update failed exactly and fuzzy is disabled: value.txt",
+			},
+		]);
 		expect(await load(root, "value.txt")).toBe("alpha\nchanged context\nomega\n");
 	});
 
-	test("leaves earlier real files unchanged when later operation fails", async () => {
+	test("applies earlier operation when later operation fails", async () => {
 		const root = await temporaryDirectory();
 		await save(root, "first.txt", "first\n");
 		await save(root, "second.txt", "second\n");
 
-		await expect(
-			applyPatchInWorkspace({
-				workspaceRoot: root,
-				policy: noFuzzy,
-				patch:
-					"*** Begin Patch\n" +
-					"*** Update File: first.txt\n-first\n+changed\n" +
-					"*** Update File: second.txt\n-missing\n+changed\n" +
-					"*** End Patch",
-			}),
-		).rejects.toThrow("fuzzy is disabled");
-		expect(await load(root, "first.txt")).toBe("first\n");
+		const result = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch:
+				"*** Begin Patch\n" +
+				"*** Update File: first.txt\n-first\n+changed\n" +
+				"*** Update File: second.txt\n-missing\n+changed\n" +
+				"*** End Patch",
+		});
+		expect(result.changedPaths).toEqual(["first.txt"]);
+		expect(result.rejected).toMatchObject([{ paths: ["second.txt"] }]);
+		expect(await load(root, "first.txt")).toBe("changed\n");
 		expect(await load(root, "second.txt")).toBe("second\n");
 	});
 
@@ -138,21 +144,27 @@ describe("staged apply-patch executor", () => {
 		const root = await temporaryDirectory();
 		await save(root, "value.txt", "before\n");
 
-		await expect(
-			applyPatchInWorkspace({
-				workspaceRoot: root,
-				policy: noFuzzy,
-				patch:
-					"*** Begin Patch\n" +
-					"*** Update File: value.txt\n-before\n+first\n" +
-					"*** Update File: value.txt\n-before\n+second\n" +
-					"*** End Patch",
-			}),
-		).rejects.toThrow("path touched more than once: value.txt");
+		const result = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch:
+				"*** Begin Patch\n" +
+				"*** Update File: value.txt\n-before\n+first\n" +
+				"*** Update File: value.txt\n-before\n+second\n" +
+				"*** End Patch",
+		});
+		expect(result.changedPaths).toEqual([]);
+		expect(result.rejected).toMatchObject([
+			{
+				operationIndices: [0, 1],
+				paths: ["value.txt"],
+				error: "path touched more than once: value.txt",
+			},
+		]);
 		expect(await load(root, "value.txt")).toBe("before\n");
 	});
 
-	test("stale baseline conflict leaves staged output uncommitted", async () => {
+	test("rejects stale operation without blocking valid operations", async () => {
 		const root = await temporaryDirectory();
 		await save(root, "first.txt", "first\n");
 		await save(root, "second.txt", "second\n");
@@ -165,19 +177,19 @@ describe("staged apply-patch executor", () => {
 			},
 		});
 
-		await expect(
-			applyPatchInWorkspace({
-				workspaceRoot: root,
-				policy: noFuzzy,
-				signal: controller.signal,
-				patch:
-					"*** Begin Patch\n" +
-					"*** Update File: first.txt\n-first\n+changed\n" +
-					"*** Update File: second.txt\n-second\n+changed\n" +
-					"*** End Patch",
-			}),
-		).rejects.toThrow("Patch baseline changed before commit: second.txt");
-		expect(await load(root, "first.txt")).toBe("first\n");
+		const result = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			signal: controller.signal,
+			patch:
+				"*** Begin Patch\n" +
+				"*** Update File: first.txt\n-first\n+changed\n" +
+				"*** Update File: second.txt\n-second\n+changed\n" +
+				"*** End Patch",
+		});
+		expect(result.changedPaths).toEqual(["first.txt"]);
+		expect(result.rejected).toMatchObject([{ paths: ["second.txt"] }]);
+		expect(await load(root, "first.txt")).toBe("changed\n");
 		expect(await load(root, "second.txt")).toBe("stale\n");
 	});
 

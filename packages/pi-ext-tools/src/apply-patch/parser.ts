@@ -44,6 +44,12 @@ export interface V4aPatch {
 	readonly operations: readonly V4aPatchOperation[];
 }
 
+export interface V4aPatchConflict {
+	readonly path: string;
+	readonly operationIndices: readonly number[];
+	readonly message: string;
+}
+
 interface SourceLine {
 	readonly text: string;
 	readonly newline: string;
@@ -62,7 +68,7 @@ const UPDATE = "*** Update File: ";
 const MOVE = "*** Move to: ";
 
 export function parseV4aPatch(input: string): V4aPatch {
-	const lines = splitLines(input);
+	const lines = normalizeEnvelope(splitLines(input));
 	if (lines.length < 2 || lines[0]?.text !== BEGIN)
 		throw parseError("missing Begin Patch envelope");
 
@@ -107,23 +113,38 @@ export function parseV4aPatch(input: string): V4aPatch {
 	if (index !== lines.length) throw parseError("content after End Patch envelope");
 	if (operations.length === 0) throw parseError("patch contains no actions");
 
-	const patch = Object.freeze({ operations: Object.freeze(operations) });
-	validateV4aPatch(patch);
-	return patch;
+	return Object.freeze({ operations: Object.freeze(operations) });
 }
 
-/**
- * Checks operation graph conflicts after syntax parsing and before filesystem
- * validation. Keeping this separate lets future syntax relaxation merge safe
- * same-file updates without weakening add/delete/move collision checks.
- */
-function validateV4aPatch(patch: V4aPatch): void {
-	const touched = new Set<string>();
-	for (const operation of patch.operations) {
-		assertFreshPath(touched, operation.path);
-		if (operation.kind === "update" && operation.moveTo !== undefined)
-			assertFreshPath(touched, operation.moveTo);
+export function operationTouchedPaths(operation: V4aPatchOperation): readonly string[] {
+	return operation.kind === "update" && operation.moveTo !== undefined
+		? [operation.path, operation.moveTo]
+		: [operation.path];
+}
+
+/** Finds operation graph conflicts without reading or mutating the workspace. */
+export function findV4aPatchConflicts(patch: V4aPatch): readonly V4aPatchConflict[] {
+	const touched = new Map<string, number[]>();
+	for (const [index, operation] of patch.operations.entries()) {
+		for (const path of operationTouchedPaths(operation)) {
+			const indices = touched.get(path) ?? [];
+			indices.push(index);
+			touched.set(path, indices);
+		}
 	}
+	const conflicts: V4aPatchConflict[] = [];
+	for (const [path, indices] of touched) {
+		if (indices.length < 2) continue;
+		const operationIndices = Object.freeze([...new Set(indices)]);
+		conflicts.push(
+			Object.freeze({
+				path,
+				operationIndices,
+				message: `path touched more than once: ${path}`,
+			}),
+		);
+	}
+	return Object.freeze(conflicts);
 }
 
 export function compileV4aUpdateToUnifiedDiff(operation: V4aUpdateOperation): string {
@@ -262,11 +283,6 @@ function parseHeader(text: string): ParsedHeader | undefined {
 	return undefined;
 }
 
-function assertFreshPath(touched: Set<string>, path: string): void {
-	if (touched.has(path)) throw parseError(`path touched more than once: ${path}`);
-	touched.add(path);
-}
-
 function assertPatchPath(path: string): void {
 	if (path.length === 0) throw parseError("empty path in patch header");
 	if (path.startsWith("/") || path.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(path))
@@ -281,12 +297,32 @@ function splitLines(input: string): readonly SourceLine[] {
 	const matches = input.matchAll(/([^\r\n]*)(\r\n|\n|\r|$)/g);
 	const lines: SourceLine[] = [];
 	for (const match of matches) {
-		const text = match[1] ?? "";
+		const rawText = match[1] ?? "";
 		const newline = match[2] ?? "";
+		const text = lines.length === 0 ? rawText.replace(/^\uFEFF/, "") : rawText;
 		if (text.length === 0 && newline.length === 0) break;
 		lines.push(Object.freeze({ text, newline }));
 	}
 	return Object.freeze(lines);
+}
+
+function normalizeEnvelope(lines: readonly SourceLine[]): readonly SourceLine[] {
+	let start = 0;
+	let end = lines.length;
+	while (start < end && lines[start]?.text === "") start += 1;
+	while (end > start && lines[end - 1]?.text === "") end -= 1;
+	let normalized = lines.slice(start, end);
+	const first = normalized[0]?.text;
+	const last = normalized[normalized.length - 1]?.text;
+	if ((first === "```" || first === "```patch" || first === "```diff") && last === "```") {
+		normalized = normalized.slice(1, -1);
+		start = 0;
+		end = normalized.length;
+		while (start < end && normalized[start]?.text === "") start += 1;
+		while (end > start && normalized[end - 1]?.text === "") end -= 1;
+		normalized = normalized.slice(start, end);
+	}
+	return Object.freeze(normalized);
 }
 
 function parseError(message: string): SyntaxError {
