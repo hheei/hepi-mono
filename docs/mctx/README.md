@@ -148,6 +148,19 @@ focused tests：active provider 返回 compartment + live tail；abort/stale gra
 same-destination idempotency。plan 的 prepare/install error 必须显示 operation error，不能改走 native fallback。新 session
 也不会继承旧 session runtime 或 lease。
 
+启用的 MCTX runtime 同时独占当前 parent session 的 Pi compaction。`session_before_compact` 拦截手动 `/compact`、阈值自动
+compact 和 overflow recovery；它不会让 Pi 用另一套摘要重写 MCTX 已验证的 compartment 边界。MCTX 只有在
+current branch、partition revision、compartment graph 和 live-tail boundary 都再次验证成功时，才通过 `session_before_compact`
+返回 MCTX `CompactionResult`，让 Pi host 在**同一 session**调用 `SessionManager.appendCompaction()`：summary 只包含 MCTX
+`m0`/`m1` payload，`firstKeptEntryId` 指向 live tail 的首项，
+因此 Pi host 负责保留 tail，MCTX 不重复注入它。marker 标记为 `{ source: "pi-mctx" }`，重复或已覆盖到相同/更新 boundary 的
+请求不再追加 entry。
+
+这不是 handoff install 的变体：handoff 将 projection 绑定并写入 replacement session；same-session compact 不创建 session、
+不写 `mctx-parent-context`，也不修改 SQLite 的 handoff binding。MCTX active 但尚无有效 compartment、branch 已变化、store
+读取失败或 runtime 已清理时，hook 才取消 Pi native compact 且不写 marker，保持 MCTX 的 fail-closed ownership；下一次
+验证成功的 MCTX compact 才可回收 host context。
+
 ## Composite lexical search（首版）
 
 `ctx_search` 只能在五个 source 都有明确索引、privacy、retention 与 exclusion contract 后注册；不得以 SQL

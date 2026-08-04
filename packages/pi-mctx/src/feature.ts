@@ -21,6 +21,10 @@ import {
 } from "@hheei/pi-ext-core";
 import type { EmbeddingProviderLease } from "@hheei/pi-ext-embed";
 import { type MctxRuntime, resolveMctxActivation } from "./activation.js";
+import {
+	type MctxCompactionMarkerResult,
+	prepareMctxCompactionMarker,
+} from "./compaction-marker.js";
 import { planMctxCompartmentRecovery, verifyMctxCompartmentGraph } from "./compartment-graph.js";
 import {
 	defaultMctxSettingsPaths,
@@ -88,6 +92,10 @@ export interface MctxSessionRuntime extends MctxRuntime {
 	readonly partition: MctxPartition;
 }
 
+export type MctxCompactionResult =
+	| { readonly kind: "inactive" | "stale" }
+	| MctxCompactionMarkerResult;
+
 interface MctxHistorianRequest {
 	readonly entries: readonly SessionEntry[];
 	readonly protectedTurnGroups?: number;
@@ -129,6 +137,11 @@ export interface MctxFeature {
 		readonly purpose: "handoff" | "inheritance";
 		readonly signal: AbortSignal;
 	}): Promise<ParentContextProjectionResult>;
+	compact(
+		entries: readonly SessionEntry[],
+		tokensBefore: number,
+		context: ExtensionContext,
+	): MctxCompactionResult;
 	active(): MctxSessionRuntime | undefined;
 	reduce(tagNumbers: readonly number[], context: ExtensionContext): MctxReduceResult;
 	expand(tagNumbers: readonly number[], context: ExtensionContext): MctxExpandResult;
@@ -248,6 +261,12 @@ function renderProjectionBody(
 		parts.push(`[${label}]: ${text}`);
 	}
 	return parts.length === 0 ? undefined : parts.join("\n\n");
+}
+
+function sameBranchEntries(left: readonly SessionEntry[], right: readonly SessionEntry[]): boolean {
+	return (
+		left.length === right.length && left.every((entry, index) => entry.id === right[index]?.id)
+	);
 }
 
 export interface MctxReduceResult {
@@ -1251,6 +1270,37 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					}
 				});
 			}
+		},
+		compact(entries, tokensBefore, context): MctxCompactionResult {
+			const current = active;
+			if (
+				current === undefined ||
+				current.lifecycle.signal.aborted ||
+				current.runtime.sessionId !== context.sessionManager.getSessionId()
+			)
+				return { kind: "inactive" };
+			if (
+				!Number.isSafeInteger(tokensBefore) ||
+				tokensBefore < 0 ||
+				!sameBranchEntries(entries, context.sessionManager.getBranch())
+			)
+				return { kind: "stale" };
+			const partition = current.runtime.store.findPartition(
+				current.runtime.partition.projectIdentity,
+				current.runtime.partition.sessionId,
+			);
+			if (partition === undefined || partition.revision !== current.runtime.partition.revision)
+				return { kind: "stale" };
+			const graph = verifyMctxCompartmentGraph(
+				entries,
+				current.runtime.store.listCompartments(partition),
+			);
+			if (graph.kind !== "valid") return { kind: "stale" };
+			return prepareMctxCompactionMarker({
+				entries,
+				graph: graph.graph,
+				tokensBefore,
+			});
 		},
 		status(context): MctxStatusResult {
 			const current = active;

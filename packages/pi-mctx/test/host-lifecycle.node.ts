@@ -279,6 +279,40 @@ test("real Pi host transforms context and retains it across reload", async (): P
 	}
 });
 
+test("real Pi host replaces native compact with an MCTX same-session marker", async (): Promise<void> => {
+	const host = await createHost();
+	try {
+		await host.session.prompt("Keep this newer parent turn raw.");
+		await host.session.prompt("Keep another newer parent turn raw.");
+		await host.session.prompt(LARGE_PROMPT);
+		await waitFor(() => host.contexts.some(isHistorianContext));
+		await host.session.prompt("Render the already summarized context before compact.");
+		await waitFor(() => containsSummary(host.contexts));
+
+		const before = host.manager.getEntries().length;
+		await host.session.compact();
+		const markers = host.manager
+			.getEntries()
+			.filter(
+				(entry) =>
+					entry.type === "compaction" &&
+					entry.details !== null &&
+					typeof entry.details === "object" &&
+					"source" in entry.details &&
+					entry.details.source === "pi-mctx",
+			);
+		assert.equal(markers.length, 1, `host errors: ${host.extensionErrors.join("; ")}`);
+		const marker = markers[0];
+		assert.ok(marker, "expected an MCTX compaction marker");
+		assert.ok(marker.summary.includes("HOST_MCTX_SUMMARY"));
+		assert.ok(marker.firstKeptEntryId.length > 0);
+		assert.equal(host.manager.getEntries().length, before + 1);
+		assert.equal(host.replacement(), undefined);
+	} finally {
+		await host.dispose();
+	}
+});
+
 test("real Pi host keeps MCTX tools out of the active set when runtime is disabled", async (): Promise<void> => {
 	const host = await createHost({ runtimeEnabled: false });
 	try {

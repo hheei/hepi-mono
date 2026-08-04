@@ -247,6 +247,48 @@ function store(overrides: Partial<MctxStore> = {}): MctxStore {
 	return { ...base, ...overrides };
 }
 
+test("active MCTX prepares a verified same-session compaction result", async (): Promise<void> => {
+	const branch = [...entries, entry("tail", "user", "keep this live")];
+	const partition = { projectIdentity: "git:project", sessionId: "session-1", revision: 0 };
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () =>
+			store({
+				findPartition: () => partition,
+				listCompartments: () => [compartment()],
+			}),
+		resolveProjectIdentity: async () => "git:project",
+	});
+	const lifecycle = {
+		pi: { events: {} },
+		extension: {
+			cwd: "/project",
+			sessionManager: { getSessionId: () => "session-1" },
+			modelRegistry: { find: () => model, hasConfiguredAuth: () => true },
+			ui: { notify: () => undefined },
+		} as unknown as ExtensionContext,
+		signal: new AbortController().signal,
+		resources: { add: () => undefined, cleanup: async () => [] },
+	};
+	await feature.start(lifecycle as unknown as ExtensionLifecycleContext);
+	const context = {
+		sessionManager: {
+			getSessionId: () => "session-1",
+			getBranch: () => branch,
+		},
+	} as unknown as ExtensionContext;
+
+	expect(feature.compact(branch, 1_000, context)).toEqual({
+		kind: "compaction",
+		compaction: {
+			summary: "[MCTX m0]: summary",
+			firstKeptEntryId: "tail",
+			tokensBefore: 1_000,
+			details: { source: "pi-mctx" },
+		},
+	});
+});
+
 test("smart drops queue an old visible tool result and project its recovery marker", async (): Promise<void> => {
 	const assistant = {
 		role: "assistant" as const,

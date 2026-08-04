@@ -36,7 +36,13 @@ test("pi-mctx entry registers lifecycle handlers and managed Magic Context tools
 	});
 
 	piMctxExtension(pi as never);
-	expect(handlers).toEqual(["session_start", "session_shutdown", "context", "turn_end"]);
+	expect(handlers).toEqual([
+		"session_start",
+		"session_shutdown",
+		"context",
+		"session_before_compact",
+		"turn_end",
+	]);
 	expect(tools).toEqual(["ctx_reduce", "ctx_expand", "ctx_history"]);
 	expect([...commands.keys()]).toEqual(["mctx"]);
 	const complete = commands.get("mctx")?.getArgumentCompletions;

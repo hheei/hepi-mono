@@ -176,6 +176,20 @@ function registerContextHook(pi: ExtensionAPI, feature: MctxFeature): void {
 	hooks.on("context", (event, context) => feature.onContext(event.messages, context));
 }
 
+function registerCompactionHook(pi: ExtensionAPI, feature: MctxFeature): void {
+	pi.on("session_before_compact", (event, context) => {
+		if (feature.active() === undefined) return undefined;
+		try {
+			const result = feature.compact(event.branchEntries, event.preparation.tokensBefore, context);
+			if (result.kind === "compaction") return { compaction: result.compaction };
+		} catch {
+			// An active MCTX runtime owns compact failure semantics. Letting Pi create
+			// a second summary after a failed MCTX projection would corrupt that ownership.
+		}
+		return { cancel: true };
+	});
+}
+
 async function runSidekickCommand(
 	feature: MctxFeature,
 	args: string,
@@ -836,5 +850,6 @@ export default function piMctxExtension(pi: ExtensionAPI): void {
 	// Memory-system subcommands remain absent from the router and completions;
 	// their handlers stay above for revival (see docs/mctx/README.md).
 	registerContextHook(pi, feature);
+	registerCompactionHook(pi, feature);
 	pi.on("turn_end", (_event, context) => feature.onTurnEnd(context));
 }
