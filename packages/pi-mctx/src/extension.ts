@@ -5,14 +5,13 @@ import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
-	type ExtensionLifecycleContext,
 	getHepiRuntimeSettingsRegistry,
 	PARENT_CONTEXT_PROJECTION_SERVICE,
 	provideService,
 	registerExtensionLifecycle,
 	registerHepiSettings,
-	registerLoadoutInventory,
 	registerManagedTool,
+	setManagedLoadoutToolsActive,
 } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import {
@@ -63,18 +62,11 @@ const MCTX_MANAGED_TOOL = {
 	defaultActive: true,
 	forcedActive: true,
 } as const;
-const MCTX_TOOL_NAMES = ["ctx_reduce", "ctx_expand", "ctx_history"] as const;
-
-function setMctxToolsActive(pi: ExtensionAPI, enabled: boolean): void {
-	const active = new Set(pi.getActiveTools());
-	for (const name of MCTX_TOOL_NAMES) active.delete(name);
-	if (enabled) for (const name of MCTX_TOOL_NAMES) active.add(name);
-	pi.setActiveTools([...active]);
-}
-
-function registerMctxToolInventory(context: ExtensionLifecycleContext): void {
-	for (const id of MCTX_TOOL_NAMES) registerLoadoutInventory(context, { id, ...MCTX_MANAGED_TOOL });
-}
+const MCTX_MANAGED_TOOLS = [
+	{ id: "ctx_reduce", ...MCTX_MANAGED_TOOL },
+	{ id: "ctx_expand", ...MCTX_MANAGED_TOOL },
+	{ id: "ctx_history", ...MCTX_MANAGED_TOOL },
+] as const;
 
 function registerContextHook(pi: ExtensionAPI, feature: MctxFeature): void {
 	// Pi exposes this runtime hook, but the installed public extension declaration omits it.
@@ -736,11 +728,10 @@ export default function piMctxExtension(pi: ExtensionAPI): void {
 			context.resources.add("ctx-status-signal", () => {
 				if (lifecycleSignal === context.signal) lifecycleSignal = undefined;
 			});
-			setMctxToolsActive(pi, false);
+			setManagedLoadoutToolsActive(context, MCTX_MANAGED_TOOLS, false);
 			await feature.start(context);
 			if (feature.active() !== undefined) {
-				setMctxToolsActive(pi, true);
-				registerMctxToolInventory(context);
+				setManagedLoadoutToolsActive(context, MCTX_MANAGED_TOOLS, true);
 				provideService(context, PARENT_CONTEXT_PROJECTION_SERVICE, feature);
 			}
 		},

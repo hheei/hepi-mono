@@ -61,6 +61,7 @@ export {
 	registerLoadoutResource,
 	registerManagedLoadoutTool,
 	registerManagedTool,
+	setManagedLoadoutToolsActive,
 } from "./loadout.js";
 export type {
 	MemorySearchExclusionInput,

@@ -30,8 +30,11 @@ Sidekick augmentation（四工具 child：`read`/`grep`/`find`/`ls`）保持 act
 inventory。runtime disabled 或 activation 失败时，三者从 active set 与 inventory 移除，因此不会进入 model tool list，也不会
 显示在 Loadout。active runtime 中三者是 MCTX capability 的固定组成：Loadout 以 `forcedActive` 显示为 enabled/read-only，忽略
 任何 global/project `pi-loadout` override，用户不能单独关闭或修改它们。`pi-ext-core` 负责 static registration、managed-tool
-识别、动态 inventory 与 reload 时同 owner replacement；`pi-mctx` 保留 runtime admission、active-set 切换、参数校验和
-session/store ownership。缺少 `pi-loadout` 时，`pi-mctx` 仍通过 Pi host active set 执行同一可见性与强制启用策略。
+识别、动态 inventory、`setManagedLoadoutToolsActive()` active-set 切换与 reload 时同 owner replacement；`pi-mctx` 只保留
+runtime admission、参数校验和 session/store ownership。该 ext-core helper 是其他 concrete extension 可复用的 capability bundle
+seam：它只接受同 owner 已静态注册的 tools，active 时保留其他 Pi tools 并加入 bundle、注册 lifecycle inventory，cleanup 或
+inactive 时移除 bundle。`forcedActive` 是 transport metadata；`pi-loadout` 解释为只读 policy，不让 ext-core 拥有任何 persisted
+selection。缺少 `pi-loadout` 时，helper 仍通过 Pi host active set 执行同一可见性与强制启用策略。
 
 ## MCTX Settings registration
 

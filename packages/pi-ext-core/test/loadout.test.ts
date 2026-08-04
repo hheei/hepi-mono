@@ -17,6 +17,7 @@ import {
 	registerManagedLoadoutTool,
 	registerManagedTool,
 	setDisabledSkillKeys,
+	setManagedLoadoutToolsActive,
 } from "../src/index.js";
 
 function metadata(id: string, owner = "@hheei/test-extension") {
@@ -58,6 +59,41 @@ describe("Loadout core contract", () => {
 		dispose();
 		dispose();
 		expect(states).toEqual([false, true, false]);
+		controller.abort();
+	});
+
+	test("activates a managed bundle without changing unrelated tools and cleans it up", async () => {
+		const h = host();
+		const activeTools = ["read"];
+		const pi = {
+			...h.pi,
+			getActiveTools(): string[] {
+				return activeTools;
+			},
+			setActiveTools(next: string[]): void {
+				activeTools.splice(0, activeTools.length, ...next);
+			},
+		};
+		const alpha = { ...metadata("alpha"), forcedActive: true };
+		const beta = { ...metadata("beta"), forcedActive: true };
+		registerManagedTool(pi, alpha, { name: "alpha" } as never);
+		registerManagedTool(pi, beta, { name: "beta" } as never);
+		const resources = createDisposerRegistry();
+		const context = { pi, resources } as never;
+		const controller = new AbortController();
+		const snapshots: string[][] = [];
+		observeLoadoutInventory(pi, {
+			signal: controller.signal,
+			onChange(items) {
+				snapshots.push(items.map((item) => item.id));
+			},
+		});
+		setManagedLoadoutToolsActive(context, [alpha, beta], true);
+		expect(activeTools).toEqual(["read", "alpha", "beta"]);
+		expect(snapshots.at(-1)).toEqual(["alpha", "beta"]);
+		await resources.cleanup();
+		expect(activeTools).toEqual(["read"]);
+		expect(snapshots.at(-1)).toEqual([]);
 		controller.abort();
 	});
 

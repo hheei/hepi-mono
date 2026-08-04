@@ -305,6 +305,43 @@ export function isManagedLoadoutTool(pi: ExtensionAPI, id: string): boolean {
 	return stateFor(pi).managed.has(id);
 }
 
+/**
+ * Applies one concrete extension's runtime capability bundle without taking
+ * ownership of its activation predicate or Loadout policy. The active path
+ * publishes lifecycle-bound inventory; cleanup removes both inventory and tools.
+ */
+export function setManagedLoadoutToolsActive(
+	context: ExtensionLifecycleContext,
+	registrations: readonly ManagedLoadoutToolRegistration[],
+	active: boolean,
+): void {
+	const ids = new Set<string>();
+	const state = stateFor(context.pi);
+	for (const registration of registrations) {
+		validateMetadata(registration);
+		validateManagedRegistration(registration);
+		if (ids.has(registration.id))
+			throw new Error(`Managed Loadout tool id is repeated: ${registration.id}`);
+		ids.add(registration.id);
+		const managed = state.managed.get(registration.id);
+		if (managed?.owner !== registration.owner)
+			throw new Error(`Managed Loadout tool is not registered by owner: ${registration.id}`);
+	}
+
+	const apply = (enabled: boolean): void => {
+		const next = new Set(context.pi.getActiveTools());
+		for (const id of ids) next.delete(id);
+		if (enabled) for (const id of ids) next.add(id);
+		context.pi.setActiveTools([...next]);
+	};
+	apply(active);
+	if (!active) return;
+	for (const registration of registrations) registerLoadoutInventory(context, registration);
+	context.resources.add(`managed-loadout-tools:${[...ids].join(",")}`, () => {
+		apply(false);
+	});
+}
+
 /** Registers a HEPI-owned executable tool and immediately publishes its static inventory item. */
 export function registerManagedLoadoutTool<TParams extends TSchema, TDetails, TState>(
 	pi: ExtensionAPI,
