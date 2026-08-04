@@ -1,11 +1,6 @@
-//! HEPI-owned N-API boundary for selected vendored oh-my-pi native modules.
-//!
-//! The vendored crate remains the implementation owner. This crate owns the
-//! JavaScript-facing contract so upstream updates do not silently become the
-//! public API of this mono.
+//! HEPI-owned N-API boundary for selected native capabilities.
 
 mod mpatch;
-mod shell;
 
 use napi_derive::napi;
 

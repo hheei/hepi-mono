@@ -81,35 +81,20 @@ extension 也保留兼容 guard：当前 active tools 不含 `apply_patch` 时�
 `apply_patch`，guard 会中止该 turn，并在 agent settled 后仅推荐当时仍 active 的 `edit`/`write`。两者都不可用时，
 它明确要求先启用一个写入工具，绝不推荐 disabled tool。`apply_patch` 已 active 时 guard 不介入；它不解析或拦截其它 bash 命令。
 
-## Brush Bash runtime
+## Bash backend
 
-`bash` 保持 Pi 的公开 JSON 参数 `{ command: string, timeout?: number }`、call/result renderer、
-truncation 文案与非零退出码的错误语义，但执行器改为 `pi-ext-tools` 的 session-scoped Brush
-Shell。每个 Pi session 创建一个 native `Shell`；连续调用因此保留 shell cwd、export 的环境与
-background job table。每次 tool call 仍以 Pi 给出的 `context.cwd` 作为本次命令 cwd，避免旧 call
-的 `cd` 状态跨 workspace 泄漏。
+`bash` 复用 Pi host 原始 `createBashToolDefinition()` execution、参数 schema、streaming、abort、
+truncation、错误语义与 renderer。`pi-ext-tools` 仅为 expanded output 增加 local text selection；不替换
+shell backend，也不保留 session-scoped native Shell。
 
-```text
-Pi host bash ToolDefinition -> pi-ext-tools Bash adapter -> pi-ext-bridge -> pi-shell -> Brush
-```
-
-adapter 将 Pi 的 `AbortSignal`、秒级 `timeout` 与 streamed output 分别映射到 native `Shell.run()` 的
-signal、毫秒级 timeout 和 `onChunk`。session shutdown 或 reload 必须 `abort()` native Shell；这会终止该
-session 正在执行的命令。tool result 仍由 Pi upstream Bash definition 的 operation adapter 生成，故保留
-Pi 的流式、截断、full-output file 与 renderer contract，而不复制这些策略。
-
-Brush 是 Bash 风格解释器，不是系统 `/bin/bash` 的字节级兼容层。此 catalog 的 `bash` 不提供 PTY、stdin
-回写或 terminal resize；交互程序不属于该 tool contract。需要精确系统 Bash 或 PTY 的功能必须使用另一个显式
-surface，而不能在此 adapter 中隐式 fallback。
+PTY、stdin 回写、terminal resize 与后台 job 是独立 feature，不能由 `bash` tool 隐式 fallback 提供。
 
 ## Tool Ownership
 
 - `pi-ext-tools` 是 catalog 中每个名称的唯一 Canonical tool owner，负责 upstream parameter compatibility、
-  renderer、ToolRenderContext state、abort、streaming 与 cleanup；`bash` 的执行器明确由 session-scoped Brush Shell
-  所有，非 native tool 仍可复用 upstream execute 行为。
+  renderer、ToolRenderContext state、abort、streaming 与 cleanup；`bash` 保持 Pi host 原始 execute 行为。
 - 每个 module 可以调用对应 upstream `create...Tool()`；这用于复用运行行为，不表示必须复用 upstream renderer。
-- `read`、`grep`、`find`、`edit`、`write` 保留 upstream-compatible 参数、execute 与 renderer 语义；`bash` 保留
-  upstream 参数、result/error 与 renderer 语义，但以 Brush 替换 upstream local-shell execution。
+- `read`、`grep`、`find`、`edit`、`write`、`bash` 都保留 upstream-compatible 参数、execute 与 renderer 语义。
 - `apply_patch` 是 `pi-ext-tools` owner 的 Canonical V4A-only tool；public JSON transport 只接受 `{ "patch": string }`，并委托 package 内 patch coordinator 执行。其 call renderer 从 V4A patch text 生成 streaming、折叠和展开预览；它是纯计算，不读取 workspace、调用 coordinator 或修改 patch。
 - 其他 extension 不得为 catalog 名称直接 `pi.registerTool()` 或 managed-register competing definition。它们不能
   import `pi-ext-tools`；跨包协作若确有需求，另行定义 narrow core capability。

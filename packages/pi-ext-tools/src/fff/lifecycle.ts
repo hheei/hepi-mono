@@ -5,7 +5,6 @@ import {
 	registerExtensionLifecycle,
 	registerHepiSettings,
 } from "@hheei/pi-ext-core";
-import { type BashRuntimeState, startBashRuntime } from "../bash-runtime.js";
 import { createFffAutocompleteProvider } from "./autocomplete.js";
 import { FffRuntime } from "./fff.js";
 import {
@@ -43,7 +42,6 @@ const autocompleteHosts = new WeakSet<object>();
 export function registerFffLifecycle(
 	pi: ExtensionAPI,
 	state: FffRuntimeState,
-	bashRuntime: BashRuntimeState,
 	provider = createFffSettingsProvider(),
 ): void {
 	const mutable = runtimeStates.get(state);
@@ -52,7 +50,7 @@ export function registerFffLifecycle(
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-ext-tools",
 		start: async (context) => {
-			await startFffLifecycle(pi, context, state, mutable, bashRuntime, provider);
+			await startFffLifecycle(pi, context, state, mutable, provider);
 		},
 	});
 }
@@ -62,10 +60,8 @@ async function startFffLifecycle(
 	context: ExtensionLifecycleContext,
 	publicState: FffRuntimeState,
 	state: MutableFffRuntimeState,
-	bashRuntime: BashRuntimeState,
 	provider: ReturnType<typeof createFffSettingsProvider>,
 ): Promise<void> {
-	await startBashRuntime(bashRuntime, context.resources);
 	context.resources.add(
 		"fff-settings",
 		registerHepiSettings(provider, getHepiRuntimeSettingsRegistry(pi)),

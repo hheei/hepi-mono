@@ -1,13 +1,12 @@
 import { createBashToolDefinition, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { getToolResultLayout, registerManagedLoadoutTool } from "@hheei/pi-ext-core";
-import { type BashRuntimeState, createBrushBashOperations } from "./bash-runtime.js";
 import { SelectableBashResult } from "./selectable-bash-result.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 
-/** Keeps Pi's bash contract/renderer while routing execution through session-owned Brush. */
-export function registerBashTool(pi: ExtensionAPI, runtime: BashRuntimeState): void {
+/** Keeps Pi's Bash execution contract authoritative, adding selection to expanded output rows. */
+export function registerBashTool(pi: ExtensionAPI): void {
 	const template = createBashToolDefinition(process.cwd());
 	const components = new WeakMap<object, SelectableBashResult>();
 	const upstreamComponents = new WeakMap<object, Component>();
@@ -50,9 +49,13 @@ export function registerBashTool(pi: ExtensionAPI, runtime: BashRuntimeState): v
 			return component;
 		},
 		async execute(toolCallId, params, signal, onUpdate, context) {
-			return createBashToolDefinition(context.cwd, {
-				operations: createBrushBashOperations(runtime.getShell),
-			}).execute(toolCallId, params, signal, onUpdate, context);
+			return createBashToolDefinition(context.cwd).execute(
+				toolCallId,
+				params,
+				signal,
+				onUpdate,
+				context,
+			);
 		},
 	};
 	registerManagedLoadoutTool(

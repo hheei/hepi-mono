@@ -66,14 +66,5 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## Native bridge
-
-The N-API bridge built from `crates/pi-ext-bridge` links vendored crates from
-`can1357/oh-my-pi`.
-
-- Repository: https://github.com/can1357/oh-my-pi
-- Revision: `01c1f91ff529c6af3fc27724a8ba429d83d41aed`
-- License and notices: `crates/vendor/oh-my-pi/**/LICENSE`, `crates/vendor/oh-my-pi/**/NOTICE`
-
-The N-API bridge also links the vendored mpatch library above; it does not launch
-or bundle a separate mpatch executable.
+The N-API bridge links the vendored mpatch library above; it does not launch or
+bundle a separate mpatch executable.

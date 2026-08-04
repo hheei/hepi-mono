@@ -1,12 +1,6 @@
 [workspace]
 members = [
     "pi-ext-bridge",
-    "vendor/oh-my-pi/pi-shell",
-    "vendor/oh-my-pi/pi-uu-diff",
-    "vendor/oh-my-pi/pi-uu-grep",
-    "vendor/oh-my-pi/pi-uutils-ctx",
-    "vendor/oh-my-pi/pi-walker",
-    "vendor/oh-my-pi/vendor/*",
     "vendor/mpatch",
 ]
 resolver = "3"
@@ -19,18 +13,11 @@ authors = ["Can Boluk"]
 homepage = "https://omp.sh/"
 repository = "https://github.com/can1357/oh-my-pi"
 
-[patch.crates-io]
-brush-core = { path = "vendor/oh-my-pi/vendor/brush-core" }
-brush-builtins = { path = "vendor/oh-my-pi/vendor/brush-builtins" }
-
 [profile.release]
 opt-level = 3
 lto = "fat"
 codegen-units = 1
 strip = true
-# Unwind so `pi-shell` can catch a panic in a vendored uutils builtin at its
-# command boundary and return an ordinary command failure instead of ending
-# the Pi host process before `run_caught` can recover it.
 panic = "unwind"
 
 [profile.ci]
@@ -174,11 +161,6 @@ too_many_lines = "allow"     # Arbitrary limits don't account for necessary comp
 # ──────────────────────────────────────────────────────────────────────────────
 # Retained Internal Libraries
 # ──────────────────────────────────────────────────────────────────────────────
-pi-shell = { path = "vendor/oh-my-pi/pi-shell" }
-pi-walker = { path = "vendor/oh-my-pi/pi-walker" }
-brush-core = { path = "vendor/oh-my-pi/vendor/brush-core" }
-brush-builtins = { path = "vendor/oh-my-pi/vendor/brush-builtins" }
-
 # ──────────────────────────────────────────────────────────────────────────────
 # Async Runtime & Concurrency
 # ──────────────────────────────────────────────────────────────────────────────
@@ -317,8 +299,6 @@ tiktoken-rs = "0.11"
 # ──────────────────────────────────────────────────────────────────────────────
 # Shell Parsing
 # ──────────────────────────────────────────────────────────────────────────────
-brush-parser = "0.3"
-
 # ──────────────────────────────────────────────────────────────────────────────
 # AST & Tree-Sitter
 # ──────────────────────────────────────────────────────────────────────────────
