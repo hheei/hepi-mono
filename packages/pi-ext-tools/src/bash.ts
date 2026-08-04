@@ -187,11 +187,23 @@ export function registerBashTool(pi: ExtensionAPI, state?: FffRuntimeState): voi
 				command: params.command,
 				...(params.timeout === undefined ? {} : { timeout: params.timeout }),
 			};
+			const safeUpdate: AgentToolUpdateCallback<BashToolDetails | undefined> | undefined =
+				onUpdate === undefined
+					? undefined
+					: (partial) => {
+							const details = partial.details;
+							if (details?.fullOutputPath === undefined) {
+								onUpdate(partial);
+								return;
+							}
+							const { fullOutputPath: _path, ...safeDetails } = details;
+							onUpdate({ ...partial, details: safeDetails });
+						};
 			const hostResult = await createBashToolDefinition(context.cwd).execute(
 				id,
 				originalParams,
 				signal,
-				onUpdate,
+				safeUpdate,
 				context,
 			);
 			const details = hostResult.details as BashToolDetails | undefined;
