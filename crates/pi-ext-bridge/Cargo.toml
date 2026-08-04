@@ -12,6 +12,7 @@ crate-type = ["cdylib"]
 mpatch = { path = "../vendor/mpatch" }
 napi = { workspace = true }
 napi-derive = "3"
+portable-pty = { workspace = true }
 tokio = { workspace = true }
 
 [build-dependencies]

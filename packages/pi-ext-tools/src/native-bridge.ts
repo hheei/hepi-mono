@@ -14,11 +14,31 @@ export interface MpatchRunOptions extends MpatchRunCommandOptions {
 	readonly signal?: AbortSignal;
 }
 
+export interface PtySessionOptions {
+	readonly command: string;
+	readonly args: readonly string[];
+	readonly cwd: string;
+	readonly env?: Readonly<Record<string, string>>;
+	readonly rows: number;
+	readonly cols: number;
+}
+
+export interface PtyReadResult {
+	readonly output: string;
+	readonly eof: boolean;
+}
+
+export interface PtyExitStatus {
+	readonly code: number;
+	readonly signal?: string;
+}
+
 function isNativeModule(value: unknown): value is NativeModule {
 	if (value === null || typeof value !== "object") return false;
 	return (
 		typeof Reflect.get(value, "piNativeBridgeVersion") === "function" &&
-		typeof Reflect.get(value, "MpatchRun") === "function"
+		typeof Reflect.get(value, "MpatchRun") === "function" &&
+		typeof Reflect.get(value, "PtySession") === "function"
 	);
 }
 
@@ -31,6 +51,7 @@ export interface MpatchRunResult {
 interface NativeModule {
 	readonly piNativeBridgeVersion: () => number;
 	readonly MpatchRun: NativeMpatchRunConstructor;
+	readonly PtySession: NativePtySessionConstructor;
 }
 
 interface NativeMpatchRun {
@@ -40,6 +61,18 @@ interface NativeMpatchRun {
 
 interface NativeMpatchRunConstructor {
 	new (options: MpatchRunCommandOptions): NativeMpatchRun;
+}
+
+interface NativePtySession {
+	read(): Promise<PtyReadResult>;
+	write(data: Uint8Array): void;
+	resize(rows: number, cols: number): void;
+	close(): void;
+	wait(): Promise<PtyExitStatus>;
+}
+
+interface NativePtySessionConstructor {
+	new (options: PtySessionOptions): NativePtySession;
 }
 
 /**
@@ -63,6 +96,35 @@ function loadNative(): NativeModule {
 const native = loadNative();
 
 export const piNativeBridgeVersion: number = native.piNativeBridgeVersion();
+
+/** One session-owned pseudo-terminal. Output arrives in native read chunks. */
+export class PtySession {
+	readonly #native: NativePtySession;
+
+	constructor(options: PtySessionOptions) {
+		this.#native = new native.PtySession(options);
+	}
+
+	read(): Promise<PtyReadResult> {
+		return this.#native.read();
+	}
+
+	write(data: Uint8Array): void {
+		this.#native.write(data);
+	}
+
+	resize(rows: number, cols: number): void {
+		this.#native.resize(rows, cols);
+	}
+
+	close(): void {
+		this.#native.close();
+	}
+
+	wait(): Promise<PtyExitStatus> {
+		return this.#native.wait();
+	}
+}
 
 /** One cancellable, single-use vendored mpatch invocation. */
 export class MpatchRun {

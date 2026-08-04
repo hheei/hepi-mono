@@ -1,6 +1,7 @@
 //! HEPI-owned N-API boundary for selected native capabilities.
 
 mod mpatch;
+mod pty;
 
 use napi_derive::napi;
 

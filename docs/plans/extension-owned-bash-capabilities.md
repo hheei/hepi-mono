@@ -2,8 +2,9 @@
 
 ## Status
 
-Async-job phase implemented. PTY remains a separate proposed phase. This supersedes only the rejected
-Brush migration in `omp-bash-migration.md`; Pi host remains the default `bash` backend.
+Async-job phase implemented. PTY native bridge is now in progress; its TUI surface remains a separate
+follow-up. This supersedes only the rejected Brush migration in `omp-bash-migration.md`; Pi host remains
+the default `bash` backend.
 
 ## Core intuition and goal
 
