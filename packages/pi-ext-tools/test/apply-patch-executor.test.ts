@@ -164,6 +164,43 @@ describe("staged apply-patch executor", () => {
 		expect(await load(root, "value.txt")).toBe("before\n");
 	});
 
+	test("applies ordered delete and add on the same path", async () => {
+		const root = await temporaryDirectory();
+		await save(root, "value.txt", "before\n");
+
+		const result = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch:
+				"*** Begin Patch\n" +
+				"*** Delete File: value.txt\n" +
+				"*** Add File: value.txt\n+after\n" +
+				"*** End Patch",
+		});
+
+		expect(result.changedPaths).toEqual(["value.txt"]);
+		expect(result.rejected).toEqual([]);
+		expect(await load(root, "value.txt")).toBe("after\n");
+	});
+
+	test("applies ordered add and delete on the same path", async () => {
+		const root = await temporaryDirectory();
+
+		const result = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch:
+				"*** Begin Patch\n" +
+				"*** Add File: value.txt\n+temporary\n" +
+				"*** Delete File: value.txt\n" +
+				"*** End Patch",
+		});
+
+		expect(result.changedPaths).toEqual(["value.txt"]);
+		expect(result.rejected).toEqual([]);
+		await expect(readFile(join(root, "value.txt"), "utf8")).rejects.toThrow();
+	});
+
 	test("rejects stale operation without blocking valid operations", async () => {
 		const root = await temporaryDirectory();
 		await save(root, "first.txt", "first\n");

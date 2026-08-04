@@ -124,18 +124,26 @@ export function operationTouchedPaths(operation: V4aPatchOperation): readonly st
 
 /** Finds operation graph conflicts without reading or mutating the workspace. */
 export function findV4aPatchConflicts(patch: V4aPatch): readonly V4aPatchConflict[] {
-	const touched = new Map<string, number[]>();
+	const touched = new Map<
+		string,
+		{ readonly index: number; readonly operation: V4aPatchOperation }[]
+	>();
 	for (const [index, operation] of patch.operations.entries()) {
 		for (const path of operationTouchedPaths(operation)) {
 			const indices = touched.get(path) ?? [];
-			indices.push(index);
+			indices.push({ index, operation });
 			touched.set(path, indices);
 		}
 	}
 	const conflicts: V4aPatchConflict[] = [];
-	for (const [path, indices] of touched) {
-		if (indices.length < 2) continue;
-		const operationIndices = Object.freeze([...new Set(indices)]);
+	for (const [path, touches] of touched) {
+		const operationIndices = Object.freeze([...new Set(touches.map(({ index }) => index))]);
+		const repeatedWithinOperation = touches.length !== operationIndices.length;
+		const compatibleReplace =
+			operationIndices.length === 2 &&
+			touches.every(({ operation }) => operation.kind === "add" || operation.kind === "delete") &&
+			new Set(touches.map(({ operation }) => operation.kind)).size === 2;
+		if (!repeatedWithinOperation && (operationIndices.length < 2 || compatibleReplace)) continue;
 		conflicts.push(
 			Object.freeze({
 				path,

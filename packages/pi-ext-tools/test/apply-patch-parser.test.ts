@@ -63,13 +63,17 @@ describe("V4A patch parser", () => {
 		const duplicate = parseV4aPatch(
 			"*** Begin Patch\n*** Delete File: x\n*** Add File: x\n+v\n*** End Patch",
 		);
+		const repeatedUpdate = parseV4aPatch(
+			"*** Begin Patch\n*** Update File: x\n-a\n+b\n*** Update File: x\n-b\n+c\n*** End Patch",
+		);
 		const selfMove = parseV4aPatch(
 			"*** Begin Patch\n*** Update File: x\n*** Move to: x\n-a\n+b\n*** End Patch",
 		);
 		const moveTarget = parseV4aPatch(
 			"*** Begin Patch\n*** Update File: x\n*** Move to: y\n-a\n+b\n*** Add File: y\n+v\n*** End Patch",
 		);
-		expect(findV4aPatchConflicts(duplicate)).toEqual([
+		expect(findV4aPatchConflicts(duplicate)).toEqual([]);
+		expect(findV4aPatchConflicts(repeatedUpdate)).toEqual([
 			{ path: "x", operationIndices: [0, 1], message: "path touched more than once: x" },
 		]);
 		expect(findV4aPatchConflicts(selfMove)).toEqual([
