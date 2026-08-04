@@ -239,7 +239,7 @@ describe("Todo integration", () => {
 			Value.Check(TODO_PARAMETERS, {
 				operations: [{ action: "update", id: 1, status: "pending" }],
 			}),
-		).toBe(false);
+		).toBe(true);
 		expect(
 			Value.Check(TODO_PARAMETERS, {
 				operations: [{ action: "update", id: 1, status: "suppressed" }],
