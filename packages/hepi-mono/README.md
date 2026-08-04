@@ -3,10 +3,9 @@
 > **Deprecated.** Do not use this package for new installations. HEPI is moving
 > to independently installable extensions backed by `@hheei/pi-ext-core`.
 
-Self-contained unified HEPI bundle for Pi. Its published `dist` entry contains
-the basics, tools, skills, BTW, and Plan implementations, so Pi performs one
-JIT entry traversal instead of discovering each HEPI extension separately.
+Self-contained legacy HEPI bundle for Pi. Its published `dist` entry retains
+the foundational Basics and Plan implementations for existing installations.
+Tools, Magic Context, Caveman, and Ponytail are independent packages now.
 
-The bundle keeps registration order: `pi-basics` first, then `pi-loadout`, the
-remaining basics, tools, skills, BTW, and Plan modules. `hepi-debug` is excluded.
-It receives no new features.
+It receives no new features. Install independent extensions for current
+behavior instead of relying on this bundle.

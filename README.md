@@ -12,17 +12,13 @@ Bun monorepo for HEPI Pi Coding Agent extensions. Every publishable workspace un
 
 ```bash
 pi install npm:@hheei/hepi-basics
-pi install npm:@hheei/hepi-tools
-pi install npm:@hheei/hepi-mctx
-pi install npm:@hheei/hepi-skills
+pi install npm:@hheei/pi-ext-tools
+pi install npm:@hheei/pi-mctx
 pi install npm:@hheei/pi-ponytail
 pi install npm:@hheei/pi-caveman
 ```
 
-`@hheei/hepi-skills` is transitional; choose it or the independent mode
-packages, not both.
-
-These aggregate packages are transitional. Independent extensions install separately:
+Independent extensions install separately:
 
 ```bash
 pi install npm:@hheei/pi-t2s

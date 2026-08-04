@@ -4,7 +4,7 @@
 
 `@hheei/pi-todo` 是独立安装的 Pi extension，拥有任务 tool、`/todos` command、任务状态、提醒与
 editor 上方 widget。它依赖 `@hheei/pi-ext-core` 的 session lifecycle，但不依赖
-过渡性 `@hheei/hepi-tools` 或 `@hheei/hepi-basics`。
+旧 aggregate package。
 
 ## 边界
 

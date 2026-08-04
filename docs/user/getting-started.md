@@ -8,15 +8,11 @@ new features will be published as independent extensions.
 
 ```bash
 pi install npm:@hheei/hepi-basics
-pi install npm:@hheei/hepi-tools
-pi install npm:@hheei/hepi-mctx
-pi install npm:@hheei/hepi-skills
+pi install npm:@hheei/pi-ext-tools
+pi install npm:@hheei/pi-mctx
 pi install npm:@hheei/pi-ponytail
 pi install npm:@hheei/pi-caveman
 ```
-
-`@hheei/hepi-skills` is transitional. Install either it or the independent
-`pi-ponytail`/`pi-caveman` packages, not both.
 
 Each package exposes one Pi extension entry.
 
@@ -37,9 +33,8 @@ Build the selected extension, then run it directly with Pi:
 
 ```bash
 pi --no-extensions --no-skills -e packages/hepi-basics/dist/extension.js
-pi --no-extensions --no-skills -e packages/hepi-tools/dist/extension.js
-pi --no-extensions --no-skills -e packages/hepi-mctx/dist/extension.js
-pi --no-extensions --no-skills -e packages/hepi-skills/dist/extension.js
+pi --no-extensions --no-skills -e packages/pi-ext-tools/dist/extension.js
+pi --no-extensions --no-skills -e packages/pi-mctx/dist/extension.js
 pi --no-extensions --no-skills -e packages/pi-ponytail/dist/extension.js
 pi --no-extensions --no-skills -e packages/pi-caveman/dist/extension.js
 ```
