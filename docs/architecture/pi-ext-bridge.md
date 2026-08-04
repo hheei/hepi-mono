@@ -41,9 +41,9 @@ shell.liveBackgroundJobCount()
 该 handle。bridge 使用有界 Rust→JavaScript 队列，慢 JavaScript consumer 会反压子进程
 而非无界累积输出。
 
-bridge 也提供 `run_mpatch`：它只调用 `pi-ext-tools` 传入的 package-owned mpatch
-executable，不复制或编译 mpatch source。V4A parser、workspace boundary、staging、
-hash revalidation 与 fuzzy policy 仍归 `pi-ext-tools` 所有。
+bridge 也提供 `run_mpatch`：它使用 bridge-owned 的本地 vendored `mpatch` crate，
+不再启动或分发 package-owned mpatch executable。V4A parser、workspace boundary、
+staging、hash revalidation 与 fuzzy policy 仍归 `pi-ext-tools` 所有。
 
 ## mpatch 边界
 
@@ -55,12 +55,12 @@ await run.run()
 await run.abort()
 ```
 
-`pi-ext-tools` 根据当前平台选择 package-owned executable，并把 Pi 的
-`AbortSignal` 映射为 `abort()`，并在调用结束后解除监听；它仍拥有 V4A parser、
-workspace path validation、staging、baseline hash revalidation 和 fuzzy policy。
-`pi-ext-bridge` 则拥有临时 diff 文件、子进程、stdout/stderr 的累计 1 MiB 上限，
-以及取消时 kill 并等待子进程退出。每个 handle 只可执行一次；执行结束、取消或
-N-API handle 被释放时都必须清理临时目录和子进程，不能留下后台 mpatch。
+`pi-ext-tools` 把 Pi 的 `AbortSignal` 映射为 `abort()`，并在调用结束后解除监听；
+它仍拥有 V4A parser、workspace path validation、staging、baseline hash
+revalidation 和 fuzzy policy。`pi-ext-bridge` 则拥有一次性 Rust mpatch run handle
+与取消 flag；vendored mpatch 在文件循环、fuzzy 搜索和写入前协作检查该 flag。
+每个 handle 只可执行一次，`abort()` 必须等待 blocking work 完成；所有写入仅发生在
+`pi-ext-tools` 创建的 staging 目录，因而取消后的半成品不会触及 workspace。
 
 Shell 是 Brush-based Bash 风格解释器，不是系统 `/bin/bash` 的字节级替代；需要
 精确 Bash 兼容的调用必须继续明确启动系统 shell。
@@ -73,6 +73,9 @@ Shell 是 Brush-based Bash 风格解释器，不是系统 `/bin/bash` 的字节�
 - `scripts/update-omp.mjs` 通过 `cargo metadata` 计算并复制 `pi-shell` 的 transitive closure；未被 bridge 引用的 upstream crates 不随 vendor 保留。
 - Upstream workspace metadata 保留在 `crates/Cargo.toml`；它是唯一 Rust workspace，members 已重定位到 retained vendored paths。
 - 更新 upstream 后必须运行 `cargo metadata --manifest-path crates/Cargo.toml`、重新计算 bridge closure、bridge tests 和目标平台 build，并检查 NOTICE/license 变化。
+- mpatch 来源为 `https://github.com/Romelium/mpatch` 的 `v1.6.4`；只保留 crate 的
+  构建清单、MIT license 与 library source。同步时先重放本地 cancellation patch，
+  再运行 mpatch cancellation 测试与 native build。
 
 ## 发布边界
 

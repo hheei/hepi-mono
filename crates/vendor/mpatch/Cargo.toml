@@ -1,0 +1,73 @@
+[package]
+name = "mpatch"
+version = "1.6.4"
+edition = "2021"
+description = "A smart, context-aware patch tool that applies diffs using fuzzy matching, ideal for AI-generated code."
+authors = ["Romelium <author@romelium.com>"]
+repository = "https://github.com/romelium/mpatch"
+license = "MIT"
+keywords = ["patch", "diff", "cli", "fuzzy", "llm"]
+categories = ["command-line-utilities", "development-tools"]
+[dependencies]
+anyhow = "1.0.102"
+arboard = { version = "3.6.1", optional = true }
+clap = { version = "4.6.1", features = ["derive"] }
+colored = "2.2.0"
+env_logger = "0.11.10"
+log = "0.4.30"
+rayon = { version = "1.12.0", optional = true }
+similar = "2.7.0"
+thiserror = "1.0.69"
+
+[features]
+default = ["parallel"]
+parallel = ["dep:rayon"]
+clipboard = ["dep:arboard"]
+
+[dev-dependencies]
+indoc = "2.0.7"
+tempfile = "3.27.0"
+criterion = { version = "0.5.1", features = ["html_reports"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[lib]
+name = "mpatch"
+path = "src/lib.rs"
+
+# --- Cargo Release Configuration ---
+# This section configures the `cargo-release` tool to automatically update version
+# numbers in documentation and source files when you publish a new release.
+#
+# Usage:
+# 1. Install the tool:          cargo install cargo-release
+# 2. Dry run (preview changes): cargo release <version>
+# 3. Execute (commit & tag):    cargo release <version> --execute
+[package.metadata.release]
+pre-release-replacements = [
+  # Update Changelog headers
+  { file = "CHANGELOG.md", search = "## \\[Unreleased\\]", replace = "## [Unreleased]\n\n## [{{version}}] - {{date}}" },
+
+  # --- src/lib.rs ---
+  # Update simple style: mpatch = "x.y.z" (min=0 prevents error if not found)
+  { file = "src/lib.rs", search = "mpatch = \"[0-9.]+\"", replace = "mpatch = \"{{version}}\"", min = 0 },
+  # Update complex style: version = "x.y.z" (inside feature flags or brackets)
+  { file = "src/lib.rs", search = "version = \"[0-9.]+\"", replace = "version = \"{{version}}\"", min = 0 },
+
+  # --- README.md ---
+  # Update simple style: mpatch = "x.y.z" (min=0 prevents error if not found)
+  { file = "README.md", search = "mpatch = \"[0-9.]+\"", replace = "mpatch = \"{{version}}\"", min = 0 },
+  # Update complex style: version = "x.y.z" (inside feature flags or brackets)
+  { file = "README.md", search = "version = \"[0-9.]+\"", replace = "version = \"{{version}}\"", min = 0 },
+  # Update GPG verification example
+  { file = "README.md", search = "mpatch-x86_64-unknown-linux-gnu-v[0-9.]+\\.tar\\.gz", replace = "mpatch-x86_64-unknown-linux-gnu-v{{version}}.tar.gz", min = 0 },
+
+  # --- Python Bindings ---
+  { file = "bindings/python/Cargo.toml", search = "(?m)^version = \"[a-z0-9.-]+\"", replace = "version = \"{{version}}\"", min = 1 },
+  { file = "bindings/python/pyproject.toml", search = "(?m)^version = \"[a-z0-9.-]+\"", replace = "version = \"{{version}}\"", min = 1 },
+  { file = "Cargo.lock", search = "(?m)^name = \"mpatch_py\"\\r?\\nversion = \"[a-z0-9.-]+\"", replace = "name = \"mpatch_py\"\nversion = \"{{version}}\"", min = 1 },
+]
