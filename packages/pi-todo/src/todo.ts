@@ -41,7 +41,7 @@ const TODO_REMINDER_CUSTOM_TYPE = "pi-todo:reminder";
 const taskStatus = Type.String({
 	enum: ["pending", "in_progress", "blocked", "completed", "suppressed"],
 });
-const agentTaskStatus = Type.String({ enum: ["in_progress", "blocked", "completed"] });
+const agentTaskStatus = Type.String({ enum: ["pending", "in_progress", "blocked", "completed"] });
 const taskId = Type.Integer({ minimum: 1 });
 
 const todoOperation = Type.Union([

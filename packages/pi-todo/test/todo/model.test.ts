@@ -88,15 +88,27 @@ describe("todo model", () => {
 		});
 	});
 
-	test("rejects agent-only internal statuses", () => {
+	test("rejects only statuses outside the task update contract", () => {
 		const initial = stateOf(freshTaskState(), [create("one")]).state;
-		for (const status of ["pending", "suppressed", "unknown"]) {
+		for (const status of ["suppressed", "unknown"]) {
 			expect(
 				applyTodo(initial, {
 					operations: [{ action: "update", id: 1, status }] as never,
 				}),
 			).toMatchObject({ ok: false, error: "Invalid status", state: initial });
 		}
+	});
+
+	test("accepts pending in an update batch", () => {
+		const initial = stateOf(freshTaskState(), [create("one"), create("two")]).state;
+		const result = stateOf(initial, [
+			update(1, { status: "pending" }),
+			update(2, { status: "completed" }),
+		]);
+		expect(result.state.tasks).toEqual([
+			{ id: 1, subject: "one", status: "in_progress" },
+			{ id: 2, subject: "two", status: "completed" },
+		]);
 	});
 
 	test("auto-advances after completion", () => {

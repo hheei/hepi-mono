@@ -1,5 +1,5 @@
 export type TaskStatus = "pending" | "in_progress" | "blocked" | "completed" | "suppressed";
-export type AgentTaskStatus = "in_progress" | "blocked" | "completed";
+export type AgentTaskStatus = "pending" | "in_progress" | "blocked" | "completed";
 
 export type TodoAction = "create" | "update" | "list" | "delete";
 
@@ -87,7 +87,9 @@ function isPositiveInteger(value: unknown): value is number {
 }
 
 function isAgentTaskStatus(value: unknown): value is AgentTaskStatus {
-	return value === "in_progress" || value === "blocked" || value === "completed";
+	return (
+		value === "pending" || value === "in_progress" || value === "blocked" || value === "completed"
+	);
 }
 
 function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
