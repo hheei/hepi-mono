@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import type { AgentToolResult, AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import {
 	type BashToolDetails,
@@ -221,13 +222,30 @@ export function registerBashTool(pi: ExtensionAPI, state?: FffRuntimeState): voi
 				command: params.command,
 				...(params.timeout === undefined ? {} : { timeout: params.timeout }),
 			};
-			return createBashToolDefinition(context.cwd).execute(
+			const hostResult = await createBashToolDefinition(context.cwd).execute(
 				id,
 				originalParams,
 				signal,
 				onUpdate,
 				context,
 			);
+			const details = hostResult.details as BashToolDetails | undefined;
+			const fullOutputPath = details?.fullOutputPath;
+			if (details?.truncation?.truncated && fullOutputPath !== undefined) {
+				const artifacts = state?.getArtifacts();
+				if (artifacts !== undefined) {
+					const uri = artifacts.create(await readFile(fullOutputPath, "utf8"));
+					const text = hostResult.content
+						.map((part) => (part.type === "text" ? part.text.replaceAll(fullOutputPath, uri) : ""))
+						.join("\n");
+					const { fullOutputPath: _path, ...safeDetails } = details;
+					return {
+						content: [{ type: "text", text }],
+						details: { ...safeDetails, outputArtifact: uri },
+					};
+				}
+			}
+			return hostResult;
 		},
 	} as unknown as ToolDefinition<typeof BashInput, unknown, unknown>;
 	registerManagedLoadoutTool(

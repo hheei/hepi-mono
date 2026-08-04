@@ -3,6 +3,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ArtifactRegistry } from "@hheei/pi-ext-core";
 
 interface ArtifactAppendHandle {
+	readonly uri: `artifact://${number}`;
 	append(data: Uint8Array): void;
 	finalize(): `artifact://${number}`;
 }
@@ -41,6 +42,7 @@ interface Job {
 	outputArtifact?: string;
 	bytes: number;
 	timeout?: NodeJS.Timeout;
+	terminalized: boolean;
 }
 function shellDefault(): string {
 	return process.platform === "win32"
@@ -94,8 +96,9 @@ export class BashJobRegistry {
 		timeoutMs?: number,
 	): BashJobSnapshot {
 		if (this.#closed) throw new Error("Bash job registry is disposed");
-		const id = `job-${crypto.randomUUID()}`;
 		const artifactHandle = this.#artifacts?.createAppend();
+		const artifactUri = artifactHandle?.uri;
+		const id = artifactUri?.slice("artifact://".length) ?? crypto.randomUUID();
 		const job: Job = {
 			id,
 			command,
@@ -109,6 +112,7 @@ export class BashJobRegistry {
 			chunks: [],
 			...(artifactHandle === undefined ? {} : { artifactHandle }),
 			bytes: 0,
+			terminalized: false,
 		};
 		const child = spawn(
 			shellPath,
@@ -132,23 +136,12 @@ export class BashJobRegistry {
 		});
 		child.once("close", (code, signal) => {
 			clearTimeout(job.timeout);
-			if (job.status !== "running") return;
-			if (this.#closed) return;
-			job.exitCode = code;
-			job.status = signal ? "stopped" : code === 0 ? "completed" : "failed";
-			job.endedAt = Date.now();
-			if (job.artifactHandle) job.outputArtifact = job.artifactHandle.finalize();
-			const tail = snapshot(job).output.slice(-MAX_COMPLETION_TAIL);
-			if (this.#pi)
-				this.#pi.sendMessage(
-					{
-						customType: "bash-job-complete",
-						content: `Bash job ${job.id} ${job.status}\n${tail}`,
-						display: true,
-						details: { jobId: job.id, status: job.status, tail, output: job.outputArtifact },
-					},
-					{ triggerTurn: false },
-				);
+			if (job.status === "running") {
+				job.exitCode = code;
+				job.status = signal ? "stopped" : code === 0 ? "completed" : "failed";
+				job.endedAt = Date.now();
+			}
+			this.#terminalize(job, !this.#closed);
 		});
 		if (timeoutMs !== undefined && timeoutMs > 0) {
 			job.timeout = setTimeout(() => {
@@ -158,6 +151,22 @@ export class BashJobRegistry {
 		}
 		this.#jobs.set(id, job);
 		return snapshot(job);
+	}
+	#terminalize(job: Job, notify: boolean): void {
+		if (job.terminalized) return;
+		job.terminalized = true;
+		if (job.artifactHandle) job.outputArtifact = job.artifactHandle.finalize();
+		if (!notify || this.#pi === undefined) return;
+		const tail = snapshot(job).output.slice(-MAX_COMPLETION_TAIL);
+		this.#pi.sendMessage(
+			{
+				customType: "bash-job-complete",
+				content: `Bash job ${job.id} ${job.status}\n${tail}`,
+				display: true,
+				details: { jobId: job.id, status: job.status, tail, output: job.outputArtifact },
+			},
+			{ triggerTurn: false },
+		);
 	}
 	get(id: string): BashJobSnapshot | undefined {
 		const job = this.#jobs.get(id);

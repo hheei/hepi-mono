@@ -49,7 +49,8 @@ mpatch 是 `apply_patch` 的私有 fuzzy worker，不是独立 Pi tool，也不�
 写入前协作检查取消 flag；写入只发生在 coordinator 的 staging 目录。
 
 mpatch 只接受 unified diff，不能替代 Codex V4A parser。tool 在 TypeScript 中严格解析
-V4A，拒绝 workspace 外 path 与 symlink escape；每个 operation 独立在隔离 staging root 中
+V4A，但容忍 UTF-8 BOM、envelope 外空行与最外层 ` ```patch` / ` ```diff` 代码围栏；内部
+grammar、body whitespace 与 path 仍严格校验。tool 拒绝 workspace 外 path 与 symlink escape；每个 operation 独立在隔离 staging root 中
 预检。某个 operation 的 path 冲突、source/destination 不合规、dry-run failure 或 stale
 baseline 只拒绝该 operation，其他合规 operation 仍会提交；取消和无效 grammar 仍拒绝整个
 request。真实 workspace 只在对应 source hash 未变化时替换，结果会报告 changed paths 与
@@ -98,16 +99,20 @@ session-scoped background job，并立即返回 opaque job id。已确认的后�
 通过 Pi host 的 custom message 主动把 job id、终态、截断标记和有限 tail 放入当前 session；消息持久化并显示，
 但不触发新的 agent turn，使主 session 无需轮询即可查看完成结果而不产生非请求的模型工作。
 
-完整 stdout/stderr 合并流将保存为 session-owned artifact，并仅以 artifact URI 交给 tools；届时 `bash_job`
-不再返回 log 文本，只返回状态和 artifact URI。artifact 与 job 同属一个 session：session shutdown/reload 会终止
-活跃任务并删除 artifact，绝不跨 session 持久化。tail 仍有固定字节上限，完整日志不受内存上限限制。
+后台 Bash 与发生截断的前台 Bash 都将完整 stdout/stderr 保存为 artifact；tool result 仅提示以 `read` 打开该 URI。
+后台任务完成消息仍带有限 tail，完整内容绝不内联。Bash job 与其 artifact 共用同一个线性序号：例如 job `1`
+的完整输出为 `artifact://1`。
+
+artifact 是 Pi 进程内共享、进程外隔离的 resource：同一 Pi host process 中的主 session 与 subagent session 都能
+`read` 同一个 URI，故 subagent 可以返回或创建 artifact URI；另一个 OS process 中的 registry 绝不解析它。artifact
+在 Pi process 退出时清理，而不能因创建它的单个 session shutdown 而失效。
 
 Pi host 的 internal URL registry 是所有 tool 的统一解析入口。extension 向 registry 注册受限 resolver；每个 tool
 可将接受的路径解析为 internal resource，并按自己的读写能力执行。artifact 是只读 resource：`read`、`grep`、
 `find` 等读取工具可消费它，写入工具必须拒绝它，不能把 artifact 当 workspace path。
 
-artifact URI 采用 Pi host 分配的单调十进制 id：`artifact://123`。extension 不选择名称、不持有 host filesystem path、
-也不得伪造 URI；Pi host 保留 URI 到 session-owned resource 的映射，并在 session shutdown/reload 清理。
+artifact URI 采用 ext-core process registry 分配的单调十进制 id：`artifact://123`。extension 不选择名称、不持有
+host filesystem path、也不得伪造 URI；ext-core 保留 URI 到 process-owned resource 的映射，并在 process exit 清理。
 
 async job 使用 `pi-ext-tools` 自己的 shell-path setting，而不是读取 Pi host 的 private shell setting；
 默认 shell 由平台环境决定。`async` 与未来的 `pty` 参数互斥。普通不带 `async` 的调用仍完整委托 Pi host。
@@ -139,7 +144,7 @@ Pi host 仍拥有默认 Bash。只有 `mode === "tui"` 且 `PI_NO_PTY !== "1"` �
 
 `pi-ext-tools` 只在本 package 内共享纯文本 selection substrate：logical lines、grapheme/cell mapping、visual
 soft-wrap map 与 half-open `TextRange` slicing。`read`、`grep`、`find` 与 `apply_patch` 的可见纯文本 result body 支持
-local selection；`apply_patch` result 只暴露完成后的 compact success summary，而其独立 call renderer 显示 patch payload 的 streaming、折叠和展开预览，不显示 coordinator internals。ANSI、padding、border、call header 与 expand hint 都不进入 logical text。v1 只显示 local selection，不读取 selected text、不自动 copy、不访问 clipboard。这个 `TextRange` 高亮不是
+local selection。`apply_patch` result 显示完成状态（`Success` / `Partial` / `Failed`）、changed file 数、operation 数、exact/fuzzy 统计、fuzzy 是否实际使用，以及 rejected operation 的 path/reason；同时参考 Pi 原生 edit/apply-patch 体验显示已接受 operation 的 diff。其独立 call renderer 显示 patch payload 的 streaming、折叠和展开预览，不显示 coordinator internals。ANSI、padding、border、call header 与 expand hint 都不进入 logical text。v1 只显示 local selection，不读取 selected text、不自动 copy、不访问 clipboard。这个 `TextRange` 高亮不是
 terminal emulator 的 native selection，不能用 `Command+C` / `Ctrl+C` 直接复制；用户需要先用各 emulator 自己的
 mouse-reporting bypass 修饰键拖出 native terminal selection，再使用该 emulator 的复制快捷键。修饰键和快捷键均因
 emulator 配置而异，且此流程与 local selection 无关。
