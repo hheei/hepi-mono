@@ -343,16 +343,69 @@ test("smart drops queue an old visible tool result and project its recovery mark
 	});
 	await feature.start(lifecycle);
 	const raw = branch.flatMap(sessionEntryToContextMessages);
+	let activeBranch = branch.slice(0, 2);
 	const context = {
 		model,
 		getContextUsage: () => ({ tokens: 65, contextWindow: 100 }),
-		sessionManager: { getSessionId: () => "session-1", getBranch: () => branch },
+		sessionManager: { getSessionId: () => "session-1", getBranch: () => activeBranch },
 	} as unknown as ExtensionContext;
+	// A high-usage pass with no result must not consume smart-drop cooldown.
+	feature.onContext(activeBranch.flatMap(sessionEntryToContextMessages), context);
+	activeBranch = branch;
 	const projected = feature.onContext(raw, context);
 	expect(
 		projected?.messages.some((message) => JSON.stringify(message).includes("[dropped §3§]")),
 	).toBe(true);
 	expect(historyTags.find((tag) => tag.kind === "tool")?.status).toBe("dropped");
+});
+
+test("ctx_reduce rejects tags already covered by a verified compartment", async (): Promise<void> => {
+	const tail = entry("tail", "user", "current request");
+	const branch = [...entries, tail];
+	const historyTags: MctxHistoryTag[] = [];
+	const lifecycle = {
+		pi: { events: {} },
+		extension: {
+			cwd: "/project",
+			sessionManager: { getSessionId: () => "session-1" },
+			modelRegistry: { find: () => model, hasConfiguredAuth: () => true },
+			ui: { notify: () => undefined },
+		} as unknown as ExtensionContext,
+		signal: new AbortController().signal,
+		resources: { add: () => undefined, cleanup: async () => [] },
+	} as unknown as ExtensionLifecycleContext;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(true, false, 1),
+		openStore: () =>
+			store({
+				syncHistoryTags: (partition, inputs) => {
+					for (const input of inputs) {
+						if (
+							historyTags.some(
+								(tag) =>
+									tag.kind === input.kind &&
+									tag.entryId === input.entryId &&
+									tag.toolCallId === input.toolCallId,
+							)
+						)
+							continue;
+						historyTags.push({ ...input, tagNumber: historyTags.length + 1, status: "active" });
+					}
+					return { partition, tags: historyTags };
+				},
+				queueHistoryTagDrops: (partition, tagNumbers, activeTagNumbers) => ({
+					partition,
+					queued: tagNumbers.filter((tagNumber) => activeTagNumbers.includes(tagNumber)),
+					rejected: tagNumbers.filter((tagNumber) => !activeTagNumbers.includes(tagNumber)),
+				}),
+			}),
+		resolveProjectIdentity: async () => "git:project",
+	});
+	await feature.start(lifecycle);
+	const context = {
+		sessionManager: { getSessionId: () => "session-1", getBranch: () => branch },
+	} as unknown as ExtensionContext;
+	expect(feature.reduce([1], context)).toEqual({ kind: "queued", queued: [], rejected: [1] });
 });
 
 test("expand reads only current-branch retained tags and reports gaps", async (): Promise<void> => {

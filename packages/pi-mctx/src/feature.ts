@@ -1387,7 +1387,10 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 						cooling: current.smartDropCooling,
 						...(absolute === undefined ? {} : { absoluteThreshold: absolute }),
 					});
-					current.smartDropCooling = decision.cooling;
+					// A high-usage sample must not consume the one-shot trigger until
+					// the queue CAS accepts work. Otherwise a no-candidate or stale pass
+					// would suppress later eligible tool results indefinitely.
+					if (decision.kind !== "trigger") current.smartDropCooling = decision.cooling;
 					const targetUsageTokens = smartDropTargetTokens(usage, percentage, absolute);
 					if (decision.kind === "trigger" && targetUsageTokens !== undefined) {
 						const plan = planMctxSmartDrops({
@@ -1413,6 +1416,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 							);
 							if (queued === undefined) return undefined;
 							current.runtime = { ...current.runtime, partition: queued.partition };
+							if (queued.queued.length > 0) current.smartDropCooling = decision.cooling;
 							const refreshed = withStoreReadPolicy(current, () =>
 								current.runtime.store.syncHistoryTags(current.runtime.partition, tagInputs),
 							);
@@ -1896,13 +1900,26 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				current.runtime.sessionId !== context.sessionManager.getSessionId()
 			)
 				return { kind: "inactive" };
-			const inputs = collectMctxHistoryTagInputs(context.sessionManager.getBranch());
+			const entries = context.sessionManager.getBranch();
+			const inputs = collectMctxHistoryTagInputs(entries);
 			const synced = current.runtime.store.syncHistoryTags(current.runtime.partition, inputs);
 			if (synced === undefined) return { kind: "stale" };
+			const recovery = planMctxCompartmentRecovery(
+				entries,
+				current.runtime.store.listCompartments(synced.partition),
+			);
+			if (recovery.kind === "invalid" || recovery.kind === "rebuild") return { kind: "stale" };
+			const liveTailStartIndex = recovery.kind === "valid" ? recovery.graph.liveTailStartIndex : 0;
+			const liveEntryIds = new Set(entries.slice(liveTailStartIndex).map((entry) => entry.id));
+			// queueHistoryTagDrops treats its active set as the proof that a selector
+			// can materialize. Covered compartments are intentionally excluded.
+			const liveTagNumbers = synced.tags
+				.filter((tag) => liveEntryIds.has(tag.entryId))
+				.map((tag) => tag.tagNumber);
 			const queued = current.runtime.store.queueHistoryTagDrops(
 				synced.partition,
 				tagNumbers,
-				synced.tags.map((tag) => tag.tagNumber),
+				liveTagNumbers,
 				current.runtime.settings.protectedTags,
 			);
 			if (queued === undefined) return { kind: "stale" };

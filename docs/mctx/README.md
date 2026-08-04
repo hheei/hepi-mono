@@ -568,10 +568,12 @@ ledger 为每项保留 immutable source copy，供 future `ctx_expand` 在 reloa
 后恢复。source copy 不自动注入、不能跨 partition 读取，且在独立 retention/data-management contract 出现前不会自动过期或
 删除。
 
-`ctx_reduce` 只把 validated selector 写为 pending operation。下一次 MCTX `context` transform 在当前 Pi active branch
-重新验证 entry/tool identity、tag status 与 protected tail 后才将目标内容替换为严格 marker `[dropped §N§]`；raw Pi JSONL
-永远不被改写。默认 `protected_tags` 为 20，user-level setting 只接受 1–100，project settings 无权改变它，reload 后生效。
-受保护、已 dropped、未知、别的 branch/fork 或无法证明 identity 的 tag 必须拒绝或保持 pending，绝不按 position 猜测删除。
+`ctx_reduce` 只把 validated selector 写为 pending operation。manual 与 automatic drop 都只接受 verified compartment
+`liveTailStartIndex` 之后的 current Pi active-branch tag；automatic candidate 还必须在 imminent context 中存在 exact tool-result
+identity。已经由 compartment 覆盖的 source 必须拒绝，不能留下无法 materialize 的 pending record。下一次 MCTX `context` transform 在当前 Pi active branch 重新验证
+entry/tool identity、tag status 与 protected tail 后才将目标内容替换为严格 marker `[dropped §N§]`；raw Pi JSONL 永远不被
+改写。默认 `protected_tags` 为 20，user-level setting 只接受 1–100，project settings 无权改变它，reload 后生效。受保护、
+已 dropped、未知、别的 branch/fork 或无法证明 identity 的 tag 必须拒绝，绝不按 position 猜测删除。
 
 所有 active MCTX tools（`ctx_reduce`、`ctx_expand`、`ctx_history`）的 tool output 都以严格的
 `[magic context]` 开头，随后直接给出对应 operation payload。只有 `ctx_reduce` 输出 `pending: #N, ...` 和
@@ -634,9 +636,10 @@ a deterministic conservative estimator。上游可安全证明的 supersession r
 
 The emergency target is derived from the same model-aware execute threshold already used by historian. When live input is at or
 above that threshold, smart drops target enough eligible tool-result source to return below the re-arm threshold
-(`threshold - 10 percentage points`, plus the existing absolute-threshold guard where configured). The planner makes at most one
-successful automatic plan for an unchanged Pi usage sample; it re-arms only after the lower threshold is observed. This avoids
-repeated marker writes while Pi reports stale usage after a transform. 它仍有意不迁移 upstream private tool-tier ranking、
+(`threshold - 10 percentage points`, plus the existing absolute-threshold guard where configured). Cooldown starts only after the
+queue CAS accepts at least one tag; no candidate, a stale CAS, or rejected candidates leave it armed for a later eligible pass.
+The planner makes at most one successful automatic plan for an unchanged Pi usage sample; it re-arms only after the lower threshold
+is observed. This avoids repeated marker writes while Pi reports stale usage after a transform. 它仍有意不迁移 upstream private tool-tier ranking、
 system-injection stripping、reasoning clearing 和 caveman text rewriting：这些需要更宽的 tool metadata、reasoning ownership
 contract，或会改写 user-visible text，而 current Pi MCTX 不拥有它们。
 
@@ -650,9 +653,10 @@ dropped tags without reinjecting it.
 candidates、resolved threshold 和 `protected_tags`，返回 deterministic no-op 或 tag numbers plus estimated reclaim。Feature
 `onContext` owns graph validation, one-session cooldown and the existing store queue/marker path；store 不推断 candidates。
 Tests cover disabled/default behavior, protected-tail exclusion, tool-only/live-tail eligibility, supersession ordering,
-threshold/re-arm/sample idempotency, stale CAS, branch divergence, projection failure/retry, manual/automatic deduplication, and
-`ctx_expand` recovery after an automatic marker。host lifecycle test proves next model request contains marker, compartment-covered
-result is not queued, and reload clears only uncommitted in-memory planning state。
+cooldown admission, stale CAS, branch divergence, projection failure/retry, manual/automatic deduplication, and `ctx_expand`
+recovery after an automatic marker。host lifecycle tests cover Pi runtime admission, projection/reload, forks, historian failure
+fallback, and handoff. Smart-drop marker materialization remains covered at the feature/context-hook seam until the host fixture
+can drive a real tool-result turn through `AgentSession`.
 
 ### `ctx_expand`
 
