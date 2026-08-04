@@ -19,5 +19,5 @@ upstream `pi-natives` crate uses `alloc_error_hook`:
 bun run --cwd packages/pi-ext-tools build:native
 ```
 
-This writes `native/pi-ext-tools-bridge.node` for the current host platform. The
-native file is a local/release artifact and is not committed.
+This writes `native/pi-ext-tools-bridge.node` for the current host platform with
+Cargo's incremental `local` profile. The native file is not committed.

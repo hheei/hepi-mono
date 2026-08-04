@@ -3,7 +3,9 @@ import { mkdir, rename, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
-const output = resolve(root, "packages/pi-ext-tools/native");
+const toolsPackageRoot = resolve(root, "packages/pi-ext-tools");
+const napiCli = resolve(toolsPackageRoot, "node_modules/@napi-rs/cli/dist/cli.js");
+const output = resolve(toolsPackageRoot, "native");
 await mkdir(output, { recursive: true });
 
 const generatedName = "index.node";
@@ -13,9 +15,10 @@ await rm(resolve(output, bridgeName), { force: true });
 
 const toolchain = process.env.RUSTUP_TOOLCHAIN ?? "nightly";
 const args = [
-	"napi",
+	napiCli,
 	"build",
-	"--release",
+	"--profile",
+	"local",
 	"--no-js",
 	"--manifest-path",
 	resolve(root, "crates/pi-ext-bridge/Cargo.toml"),
@@ -23,7 +26,7 @@ const args = [
 	output,
 ];
 
-const child = spawn("bunx", args, {
+const child = spawn(process.execPath, args, {
 	cwd: root,
 	env: { ...process.env, RUSTUP_TOOLCHAIN: toolchain },
 	stdio: "inherit",
