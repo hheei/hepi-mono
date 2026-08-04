@@ -15,7 +15,6 @@ import { openTuiSurface, TuiSurfaceQueueFullError } from "@hheei/pi-ext-core";
 import type { MctxFeature, MctxStatusResult } from "./feature.js";
 
 type MctxStatusSnapshot = MctxStatusResult;
-type MctxStatusUsage = Extract<MctxStatusSnapshot, { readonly kind: "active" }>["usage"];
 
 export interface MctxStatusTheme {
 	readonly fg: (role: Parameters<Theme["fg"]>[0], text: string) => string;
@@ -75,14 +74,82 @@ function compactNumber(value: number): string {
 	return `${value < 0 ? "-" : ""}${rounded}${unit}`;
 }
 
-function renderUsageBar(
-	usage: MctxStatusUsage,
+function formatDuration(milliseconds: number): string {
+	if (milliseconds >= 60 * 60 * 1000 && milliseconds % (60 * 60 * 1000) === 0)
+		return `${milliseconds / (60 * 60 * 1000)}h`;
+	if (milliseconds >= 60 * 1000 && milliseconds % (60 * 1000) === 0)
+		return `${milliseconds / (60 * 1000)}m`;
+	return `${Math.max(1, Math.round(milliseconds / 1000))}s`;
+}
+
+function relativeTime(timestamp: number, now = Date.now()): string {
+	const seconds = Math.max(0, Math.round((now - timestamp) / 1000));
+	if (seconds < 60) return `${seconds}s ago`;
+	const minutes = Math.round(seconds / 60);
+	if (minutes < 60) return `${minutes}m ago`;
+	return `${Math.round(minutes / 60)}h ago`;
+}
+
+type StatusRole = Parameters<Theme["fg"]>[0];
+type TokenSegment = {
+	readonly label: string;
+	readonly tokens: number;
+	readonly role: StatusRole;
+	readonly detail?: string;
+};
+
+function tokenSegments(
+	snapshot: Extract<MctxStatusSnapshot, { readonly kind: "active" }>,
+): TokenSegment[] {
+	const tokens = snapshot.accounting.tokens;
+	const segments: TokenSegment[] = [];
+	const add = (segment: TokenSegment): void => {
+		if (segment.tokens > 0) segments.push(segment);
+	};
+	add({ label: "System", tokens: tokens.systemPrompt, role: "thinkingText" });
+	add({ label: "Docs", tokens: tokens.docs, role: "mdLink" });
+	add({
+		label: "Compartments",
+		tokens: tokens.compartments,
+		role: "accent",
+		detail: `(${snapshot.compartments.total})`,
+	});
+	add({ label: "Memories", tokens: tokens.memories, role: "success" });
+	add({ label: "User Profile", tokens: tokens.profile, role: "warning" });
+	add({ label: "Conversation", tokens: tokens.conversation, role: "userMessageText" });
+	add({ label: "Tool Calls", tokens: tokens.toolCalls, role: "toolTitle" });
+	add({ label: "Tool Defs", tokens: tokens.toolDefinitions, role: "customMessageLabel" });
+	return segments;
+}
+
+function renderTokenBar(
+	segments: readonly TokenSegment[],
+	inputTokens: number,
 	theme: MctxStatusTheme,
-	contentWidth: number,
+	width: number,
 ): string {
-	if (usage === undefined || contentWidth === 0) return "";
-	const role = usage.percentage >= 80 ? "error" : usage.percentage >= 65 ? "warning" : "accent";
-	return style(theme, role, "█".repeat(contentWidth));
+	if (segments.length === 0 || width === 0) return "";
+	const denominator =
+		inputTokens > 0 ? inputTokens : segments.reduce((sum, segment) => sum + segment.tokens, 0);
+	const widths = segments.map((segment) =>
+		Math.max(1, Math.round((segment.tokens / denominator) * width)),
+	);
+	let total = widths.reduce((sum, value) => sum + value, 0);
+	while (total > width) {
+		const index = widths.indexOf(Math.max(...widths));
+		if (widths[index] === undefined || widths[index] <= 1) break;
+		widths[index] -= 1;
+		total -= 1;
+	}
+	while (total < width) {
+		const index = widths.indexOf(Math.max(...widths));
+		if (widths[index] === undefined) break;
+		widths[index] += 1;
+		total += 1;
+	}
+	return segments
+		.map((segment, index) => style(theme, segment.role, "█".repeat(widths[index] ?? 0)))
+		.join("");
 }
 
 function bodyRows(
@@ -105,6 +172,13 @@ function bodyRows(
 	const percentage = usage === undefined ? "?" : `${usage.percentage.toFixed(1)}%`;
 	const contextLimit = usage === undefined ? "?" : compactNumber(usage.contextWindow);
 	const contextTokens = usage === undefined ? "?" : compactNumber(usage.tokens);
+	const segments = tokenSegments(snapshot);
+	const accounting = snapshot.accounting;
+	const cacheRemaining =
+		accounting.lastResponseAtMs > 0
+			? Math.max(0, accounting.cacheTtlMs - (Date.now() - accounting.lastResponseAtMs))
+			: accounting.cacheTtlMs;
+	const cacheExpired = accounting.lastResponseAtMs > 0 && cacheRemaining === 0;
 	const historian =
 		snapshot.historian.kind === "disabled"
 			? style(theme, "accent", "idle")
@@ -115,14 +189,25 @@ function bodyRows(
 		snapshot.trigger.percentage === undefined
 			? "?"
 			: `${Number(snapshot.trigger.percentage.toFixed(1))}%`;
+	const legend =
+		contentWidth < 60
+			? []
+			: segments.map((segment) => {
+					const percent =
+						usage === undefined ? "?" : ((segment.tokens / (usage.tokens || 1)) * 100).toFixed(1);
+					return `${style(theme, segment.role, `${segment.label}${segment.detail === undefined ? "" : ` ${segment.detail}`}`)}   ${style(theme, "muted", `${compactNumber(segment.tokens)} (${percent}%)`)}`;
+				});
 	return [
 		title,
 		"",
 		`Context  ${style(theme, percentage === "?" ? "muted" : percentageValueRole(usage?.percentage), theme.bold(percentage))} · ${contextTokens} / ${contextLimit} tokens`,
-		renderUsageBar(usage, theme, contentWidth),
+		`Work tokens ${compactNumber(accounting.work.newWorkTokens)} new · ${compactNumber(accounting.work.totalInputTokens)} total input`,
+		renderTokenBar(segments, usage === undefined ? 0 : usage.tokens, theme, contentWidth),
+		...legend,
 		"",
 		`Counts: ${snapshot.compartments.total} compartments`,
 		`Historian: ${historian}`,
+		`Cache TTL: ${formatDuration(accounting.cacheTtlMs)} · last response ${accounting.lastResponseAtMs > 0 ? relativeTime(accounting.lastResponseAtMs) : "never"} · ${cacheExpired ? style(theme, "warning", "expired") : `${formatDuration(cacheRemaining)} remaining`}`,
 		"",
 		style(theme, "muted", "Tags"),
 		`Active ${snapshot.tags.active} · Pending ${snapshot.tags.pending} · Dropped ${snapshot.tags.dropped} · Total ${snapshot.tags.total}`,
@@ -138,7 +223,7 @@ function percentageValueRole(percentage: number | undefined): Parameters<Theme["
 	return percentage >= 80 ? "error" : percentage >= 65 ? "warning" : "accent";
 }
 
-/** Render one outer frame with ANSI-safe exact cell width and stable row count. */
+/** Render one outer frame with ANSI-safe exact cell width. */
 export function renderMctxStatusLines(
 	snapshot: MctxStatusSnapshot,
 	width: number,

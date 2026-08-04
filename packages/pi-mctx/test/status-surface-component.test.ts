@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { MctxStatusResult } from "../src/feature.js";
+import { emptyMctxStatusAccounting } from "../src/status-metrics.js";
 import {
 	createMctxStatusComponent,
 	type MctxStatusTheme,
@@ -17,6 +18,8 @@ const active: MctxStatusResult = {
 	tags: { total: 1, active: 1, pending: 0, dropped: 0 },
 	historian: { kind: "active", phase: "idle", model: "provider/model" },
 	trigger: { protectedTags: 1 },
+	pendingAugmentation: false,
+	accounting: emptyMctxStatusAccounting(),
 };
 const failed: MctxStatusResult = { kind: "failed", reason: "read failed" };
 const context = { ui: { theme } } as ExtensionContext;
@@ -74,7 +77,7 @@ test("refresh requests render and dispose stops refresh", (): void => {
 test("active and failed snapshots use their available upstream content", (): void => {
 	const activeRows = renderMctxStatusLines(active, 48, theme);
 	const failedRows = renderMctxStatusLines(failed, 48, theme);
-	expect(activeRows.length).toBe(17);
+	expect(activeRows.length).toBe(19);
 	expect(failedRows.length).toBe(6);
 	expect(failedRows.length).not.toBe(activeRows.length);
 });

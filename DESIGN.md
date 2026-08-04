@@ -247,13 +247,15 @@ existing semantic token expresses the role.
   separator, `Counts:`, `Historian:`, blank separator, muted `Tags` section,
   tag counts, blank separator, muted `Context` section, execute threshold,
   protected tags, and the footer. `pi-mctx` only renders values present in its
-  snapshot, so upstream memory, notes, cache, upgrade, work-token, category
-  legend, project, session, partition, and sidekick rows are omitted.
-- The token bar is a full-width single semantic segment because the local
-  snapshot has no upstream category breakdown. It uses `accent` below 65%,
-  `warning` from 65% up to (but not including) 80%, and `error` at or above
-  80%. Missing usage keeps the Context row with `?` placeholders and leaves
-  the bar blank; it does not invent zero or legacy metrics.
+  snapshot, so upstream memory, notes, upgrade, project, session, partition,
+  and sidekick rows are omitted.
+- The token bar uses the available category segments (`System`, `Docs`,
+  `Compartments`, `Memories`, `User Profile`, `Conversation`, `Tool Calls`, and
+  `Tool Defs`) and the legend follows it on wide layouts. Segment labels use
+  existing Pi theme tokens, not hard-coded RGB. Narrow layouts keep the colored
+  bar and hide the verbose legend to preserve the title and footer. Missing
+  usage keeps the Context row with `?` placeholders and leaves the bar blank;
+  it does not invent zero or legacy metrics.
 - Active, inactive, failed, and stale snapshots keep the upstream title and
   use a compact `Status:` diagnostic when no active detail exists. Every line
   fits available width and lower-priority values truncate inside their cells.

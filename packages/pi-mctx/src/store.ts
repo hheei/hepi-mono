@@ -2,15 +2,36 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import type { MctxStatusAccounting } from "./status-metrics.js";
 
 export const MCTX_STORE_APPLICATION_ID = 0x484d4354;
-export const MCTX_STORE_SCHEMA_VERSION = 11;
+export const MCTX_STORE_SCHEMA_VERSION = 12;
 export const MCTX_STORE_BUSY_TIMEOUT_MS = 5_000;
 
 interface MctxDatabaseStatement {
 	get(...bindings: readonly unknown[]): unknown;
 	all(...bindings: readonly unknown[]): readonly unknown[];
 	run(...bindings: readonly unknown[]): unknown;
+}
+
+function migrateV12(database: DatabaseSync): void {
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		database.exec("ALTER TABLE mctx_metadata RENAME TO mctx_metadata_v11");
+		database.exec(
+			"CREATE TABLE mctx_metadata (schema_version INTEGER NOT NULL CHECK (schema_version = 12)) STRICT",
+		);
+		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(12);
+		database.exec("DROP TABLE mctx_metadata_v11");
+		database.exec(
+			"CREATE TABLE status_accounting (project_identity TEXT NOT NULL, session_id TEXT NOT NULL, cache_ttl_ms INTEGER NOT NULL DEFAULT 300000 CHECK (cache_ttl_ms > 0), last_response_at_ms INTEGER NOT NULL DEFAULT 0 CHECK (last_response_at_ms >= 0), new_work_tokens INTEGER NOT NULL DEFAULT 0 CHECK (new_work_tokens >= 0), total_input_tokens INTEGER NOT NULL DEFAULT 0 CHECK (total_input_tokens >= 0), system_prompt_tokens INTEGER NOT NULL DEFAULT 0 CHECK (system_prompt_tokens >= 0), docs_tokens INTEGER NOT NULL DEFAULT 0 CHECK (docs_tokens >= 0), compartment_tokens INTEGER NOT NULL DEFAULT 0 CHECK (compartment_tokens >= 0), memory_tokens INTEGER NOT NULL DEFAULT 0 CHECK (memory_tokens >= 0), profile_tokens INTEGER NOT NULL DEFAULT 0 CHECK (profile_tokens >= 0), conversation_tokens INTEGER NOT NULL DEFAULT 0 CHECK (conversation_tokens >= 0), tool_call_tokens INTEGER NOT NULL DEFAULT 0 CHECK (tool_call_tokens >= 0), tool_definition_tokens INTEGER NOT NULL DEFAULT 0 CHECK (tool_definition_tokens >= 0), PRIMARY KEY (project_identity, session_id), FOREIGN KEY (project_identity, session_id) REFERENCES partitions(project_identity, session_id)) STRICT",
+		);
+		database.exec("PRAGMA user_version = 12");
+		database.exec("COMMIT");
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
 }
 
 /** Common synchronous SQLite surface implemented by Bun and Node runtimes. */
@@ -60,6 +81,8 @@ export interface MctxStore {
 	releaseHistorianLease(lease: MctxHistorianLease): void;
 	listCompartments(partition: MctxPartition): readonly MctxCompartment[];
 	readStatusMetrics(partition: MctxPartition): MctxStoreStatusMetrics;
+	readStatusAccounting(partition: MctxPartition): MctxStatusAccounting;
+	writeStatusAccounting(partition: MctxPartition, accounting: MctxStatusAccounting): void;
 	discardCompartmentsFrom(
 		partition: MctxPartition,
 		publishedRevision: number,
@@ -717,6 +740,7 @@ function validateSchema(database: DatabaseSync): void {
 	if (pragmaInteger(database, "PRAGMA user_version") === 8) migrateV9(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 9) migrateV10(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 10) migrateV11(database);
+	if (pragmaInteger(database, "PRAGMA user_version") === 11) migrateV12(database);
 	if (pragmaInteger(database, "PRAGMA application_id") !== MCTX_STORE_APPLICATION_ID) {
 		throw new Error("Context store application identity is invalid");
 	}
@@ -734,7 +758,8 @@ function validateSchema(database: DatabaseSync): void {
 		!hasTable(database, "notes") ||
 		!hasTable(database, "memory_embedding_sources") ||
 		!hasTable(database, "memory_embeddings") ||
-		!hasTable(database, "handoff_bindings")
+		!hasTable(database, "handoff_bindings") ||
+		!hasTable(database, "status_accounting")
 	) {
 		throw new Error("Context store partition tables are missing");
 	}
@@ -1267,6 +1292,92 @@ function readStatusMetrics(
 			partition.sessionId,
 		);
 	return statusMetricsFromRow(row);
+}
+
+function statusAccountingFromRow(value: unknown): MctxStatusAccounting {
+	if (!isRecord(value)) throw new Error("Context store status accounting row is invalid");
+	const integer = (field: string, minimum: number): number => {
+		const number = value[field];
+		if (typeof number !== "number" || !Number.isSafeInteger(number) || number < minimum) {
+			throw new Error("Context store status accounting row is invalid");
+		}
+		return number;
+	};
+	return {
+		cacheTtlMs: integer("cache_ttl_ms", 1),
+		lastResponseAtMs: integer("last_response_at_ms", 0),
+		work: {
+			newWorkTokens: integer("new_work_tokens", 0),
+			totalInputTokens: integer("total_input_tokens", 0),
+		},
+		tokens: {
+			systemPrompt: integer("system_prompt_tokens", 0),
+			docs: integer("docs_tokens", 0),
+			compartments: integer("compartment_tokens", 0),
+			memories: integer("memory_tokens", 0),
+			profile: integer("profile_tokens", 0),
+			conversation: integer("conversation_tokens", 0),
+			toolCalls: integer("tool_call_tokens", 0),
+			toolDefinitions: integer("tool_definition_tokens", 0),
+		},
+	};
+}
+
+function readStatusAccounting(
+	database: DatabaseSync,
+	partition: MctxPartition,
+): MctxStatusAccounting {
+	requirePartitionKey(partition.projectIdentity, partition.sessionId);
+	database
+		.prepare("INSERT OR IGNORE INTO status_accounting (project_identity, session_id) VALUES (?, ?)")
+		.run(partition.projectIdentity, partition.sessionId);
+	const row = database
+		.prepare("SELECT * FROM status_accounting WHERE project_identity = ? AND session_id = ?")
+		.get(partition.projectIdentity, partition.sessionId);
+	return statusAccountingFromRow(row);
+}
+
+function writeStatusAccounting(
+	database: DatabaseSync,
+	partition: MctxPartition,
+	accounting: MctxStatusAccounting,
+): void {
+	requirePartitionKey(partition.projectIdentity, partition.sessionId);
+	const values = [
+		accounting.cacheTtlMs,
+		accounting.lastResponseAtMs,
+		accounting.work.newWorkTokens,
+		accounting.work.totalInputTokens,
+		accounting.tokens.systemPrompt,
+		accounting.tokens.docs,
+		accounting.tokens.compartments,
+		accounting.tokens.memories,
+		accounting.tokens.profile,
+		accounting.tokens.conversation,
+		accounting.tokens.toolCalls,
+		accounting.tokens.toolDefinitions,
+	];
+	if (
+		values.some((value) => !Number.isSafeInteger(value)) ||
+		accounting.cacheTtlMs <= 0 ||
+		accounting.lastResponseAtMs < 0 ||
+		accounting.work.newWorkTokens < 0 ||
+		accounting.work.totalInputTokens < 0 ||
+		accounting.tokens.systemPrompt < 0 ||
+		accounting.tokens.docs < 0 ||
+		accounting.tokens.compartments < 0 ||
+		accounting.tokens.memories < 0 ||
+		accounting.tokens.profile < 0 ||
+		accounting.tokens.conversation < 0 ||
+		accounting.tokens.toolCalls < 0 ||
+		accounting.tokens.toolDefinitions < 0
+	)
+		throw new Error("Context store status accounting values are invalid");
+	database
+		.prepare(
+			"INSERT INTO status_accounting (project_identity, session_id, cache_ttl_ms, last_response_at_ms, new_work_tokens, total_input_tokens, system_prompt_tokens, docs_tokens, compartment_tokens, memory_tokens, profile_tokens, conversation_tokens, tool_call_tokens, tool_definition_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (project_identity, session_id) DO UPDATE SET cache_ttl_ms = excluded.cache_ttl_ms, last_response_at_ms = excluded.last_response_at_ms, new_work_tokens = excluded.new_work_tokens, total_input_tokens = excluded.total_input_tokens, system_prompt_tokens = excluded.system_prompt_tokens, docs_tokens = excluded.docs_tokens, compartment_tokens = excluded.compartment_tokens, memory_tokens = excluded.memory_tokens, profile_tokens = excluded.profile_tokens, conversation_tokens = excluded.conversation_tokens, tool_call_tokens = excluded.tool_call_tokens, tool_definition_tokens = excluded.tool_definition_tokens",
+		)
+		.run(partition.projectIdentity, partition.sessionId, ...values);
 }
 
 /**
@@ -2368,6 +2479,14 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 		readStatusMetrics(partition): MctxStoreStatusMetrics {
 			if (database === undefined) throw new Error("Context store is closed");
 			return readStatusMetrics(database, partition);
+		},
+		readStatusAccounting(partition): MctxStatusAccounting {
+			if (database === undefined) throw new Error("Context store is closed");
+			return readStatusAccounting(database, partition);
+		},
+		writeStatusAccounting(partition, accounting): void {
+			if (database === undefined) throw new Error("Context store is closed");
+			writeStatusAccounting(database, partition, accounting);
 		},
 		discardCompartmentsFrom(partition, publishedRevision): MctxPartition | undefined {
 			if (database === undefined) throw new Error("Context store is closed");
