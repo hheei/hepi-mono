@@ -63,8 +63,8 @@ export class SelectableReadResult implements Component {
 			};
 		};
 		this.removeLayout = resultLayout.onChange((nextBounds) => {
-			// Down requests a render. Replacing a captured entry here would drop the
-			// following drag, so only update the layout snapshot between binds.
+			// Viewport scrolling and reflow move this body. Keep the registered region
+			// and its capture, but replace the closure's live geometry before next hit test.
 			currentBounds = nextBounds;
 			if (nextBounds === undefined || nextBounds.width < 1 || nextBounds.height <= offsetY) {
 				rows = [];
