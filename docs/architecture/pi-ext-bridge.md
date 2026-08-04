@@ -1,15 +1,15 @@
-# pi-native bridge
+# pi-ext bridge
 
 ## 目标
 
 本仓库将 `can1357/oh-my-pi` 的 Rust crates 作为固定 revision 的 vendored
-实现，使用 HEPI-owned `pi-native-bridge` 作为 N-API 边界。Pi extension 只依赖
+实现，使用 HEPI-owned `pi-ext-bridge` 作为 N-API 边界。Pi extension 只依赖
 bridge 暴露的 JavaScript contract，不直接把 upstream Rust API 当成公共契约。
 
 ## 当前边界
 
 ```text
-packages/pi-* -> native loader -> pi-native-bridge -> vendor/oh-my-pi/crates
+packages/pi-* -> native loader -> pi-ext-bridge -> crates/vendor/crates
                                                      |- pi-natives
                                                      |- pi-shell
                                                      `- required vendor crates
@@ -26,9 +26,9 @@ policy 仍归 `pi-ext-tools` 所有。后续每个导出函数必须明确参数
 
 - Repository: `https://github.com/can1357/oh-my-pi`
 - Revision: `01c1f91ff529c6af3fc27724a8ba429d83d41aed`
-- Source root: `vendor/oh-my-pi/`
-- Upstream workspace metadata 保留在 root `Cargo.toml`；workspace members 已重定位到 vendored paths。
-- 更新 upstream 后必须运行 `cargo metadata`、bridge tests 和目标平台 build，并检查 NOTICE/license 变化。
+- Source root: `crates/vendor/`
+- Upstream workspace metadata 保留在 `crates/Cargo.toml`；workspace members 已重定位到 vendored paths。
+- 更新 upstream 后必须运行 `cargo metadata --manifest-path crates/Cargo.toml`、bridge tests 和目标平台 build，并检查 NOTICE/license 变化。
 
 ## 发布边界
 

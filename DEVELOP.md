@@ -23,7 +23,7 @@ bunx biome check --write packages/pi-ext-core/src/subagents.ts
 bunx tsc -p packages/pi-ext-core/tsconfig.build.json --noEmit
 ```
 
-普通局部改动不需要运行全仓库检查。改动共享 API、Pi 依赖、生成 aggregate 或包边界时，
+普通局部改动不需要运行全仓库检查。改动共享 API、Pi 依赖或包边界时，
 再运行：
 
 ```bash

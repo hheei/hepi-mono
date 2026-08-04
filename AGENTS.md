@@ -25,7 +25,7 @@ Do not introduce npm, Yarn, or pnpm lockfiles.
 
 - Keep every workspace's Pi peer and development dependencies on the root baseline: `@earendil-works/pi-agent-core`, `pi-ai`, `pi-coding-agent`, and `pi-tui` must be `>=0.83.0` when declared. Do not add a package-local Pi version pin or broaden compatibility below that baseline without an explicit compatibility decision.
 - After changing any Pi dependency range, run `bun install` from the root and confirm `bun pm ls @earendil-works/pi-coding-agent @earendil-works/pi-agent-core @earendil-works/pi-ai @earendil-works/pi-tui` resolves one version of each before typechecking.
-- Root `bun run typecheck` builds generated aggregates first. Use it for package-boundary, dependency, or generated-source changes; use the smallest affected package `tsc` invocation for ordinary local edits.
+- Root `bun run typecheck` typechecks the whole workspace. Use it for package-boundary or dependency changes; use the smallest affected package `tsc` invocation for ordinary local edits.
 
 ## TypeScript
 
