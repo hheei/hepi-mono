@@ -2,12 +2,16 @@ import { createGrepToolDefinition, type ExtensionAPI } from "@earendil-works/pi-
 import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
 import { grepNeedsBuiltinFallback, inferFffGrepMode } from "./fff/extension-common.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
+import { renderGrepCall, renderGrepResult } from "./search-renderer.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 export function registerGrepTool(pi: ExtensionAPI, state: FffRuntimeState): void {
 	const template = createGrepToolDefinition(process.cwd());
 	const tool: typeof template = {
 		...template,
+		renderCall: (args, theme, context) => renderGrepCall(args, theme, context),
+		renderResult: (result, options, theme, context) =>
+			renderGrepResult(result, options, theme, context),
 		async execute(id, params, signal, onUpdate, context) {
 			const original = createGrepToolDefinition(context.cwd);
 			const native = () => original.execute(id, params, signal, onUpdate, context);
