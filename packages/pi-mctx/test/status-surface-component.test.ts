@@ -71,10 +71,12 @@ test("refresh requests render and dispose stops refresh", (): void => {
 	expect(renders).toBe(1);
 });
 
-test("row count stays stable across active and failed snapshots", (): void => {
+test("active and failed snapshots use their available upstream content", (): void => {
 	const activeRows = renderMctxStatusLines(active, 48, theme);
 	const failedRows = renderMctxStatusLines(failed, 48, theme);
-	expect(failedRows.length).toBe(activeRows.length);
+	expect(activeRows.length).toBe(17);
+	expect(failedRows.length).toBe(6);
+	expect(failedRows.length).not.toBe(activeRows.length);
 });
 
 test("theme invalidation uses the current Pi theme and requests render", (): void => {
@@ -104,7 +106,7 @@ test("theme invalidation uses the current Pi theme and requests render", (): voi
 		bold: (text: string): string => text,
 	};
 	component.invalidate();
-	expect(component.render(100).join("\n")).toContain("[new:success]Runtime active");
+	expect(component.render(100).join("\n")).toContain("[new:accent]⚡ Magic Context Status");
 	expect(renders).toBe(1);
 	component.dispose();
 });

@@ -238,47 +238,31 @@ existing semantic token expresses the role.
 ### Context Status Overlay
 
 - `/mctx status` (and bare `/mctx`) is one centered, single-page read-only overlay, not a page-router
-  page or a widget. Its outer frame is rounded and uses `borderMuted`; content
+-  page or a widget. Its outer frame is rounded and uses `borderMuted`; content
   uses only existing Pi semantic theme tokens, never hard-coded colors or
   module-specific accents. The frame width is 78 columns when available and is
   clamped to the terminal at narrower widths.
-- Keep a fixed 20-row frame: outer top, 17 content rows, one footer row, and
-  outer bottom. All runtime states (`active`, `inactive`, `failed`, and `stale`)
-  keep these rows, including when a snapshot does not own a value; reserve that
-  slot rather than inventing zero, healthy, or legacy metrics.
-- Content rows follow this legacy-like hierarchy and never move:
-  1. `⚡ Magic Context Status` plus semantic runtime state;
-  2. blank separator;
-  3. muted `Context` section label;
-  4. `Context  pct · used / limit tokens` when snapshot usage exists;
-  5. full-width usage bar;
-  6. blank separator;
-  7. `Counts:`;
-  8. compartment detail (`m0`, `m1`, `total`);
-  9. muted `Tags` section label;
-  10. tag counts (`active`, `pending`, `dropped`) and protected tags;
-  11. blank separator;
-  12. `Historian:`;
-  13. historian state and last failure class;
-  14. effective trigger thresholds;
-  15. partition revision;
-  16–17. wide-only `Project` and `Session` identity rows.
-  On narrow layouts rows 16–17 remain blank, rather than being repurposed.
-- Usage bar is one full-width, single-color semantic bar: `success` below 65%,
+- Match the upstream Magic Context Pi dialog's dynamic layout: title, blank
+  separator, `Context  pct · used / limit tokens`, full-width token bar, blank
+  separator, `Counts:`, `Historian:`, blank separator, muted `Tags` section,
+  tag counts, blank separator, muted `Context` section, execute threshold,
+  protected tags, and the footer. `pi-mctx` only renders values present in its
+  snapshot, so upstream memory, notes, cache, upgrade, work-token, category
+  legend, project, session, partition, and sidekick rows are omitted.
+- The token bar is a full-width single semantic segment because the local
+  snapshot has no upstream category breakdown. It uses `accent` below 65%,
   `warning` from 65% up to (but not including) 80%, and `error` at or above
-  80%. It must not
-  reproduce legacy hard-coded category colors. Missing usage keeps its row but
-  shows no fabricated value or bar state. Every line fits available width;
-  truncate lower-priority values within their cells without shifting rows.
-- Do not render unavailable legacy-only fact, memory, note, Dreamer, embedding,
-  upgrade, cache, work-token, or category-breakdown metrics. The overlay does
-  not reactivate parked systems or claim metrics absent from the current
-  snapshot.
-- Footer reads `Press Escape to close · Enter / Ctrl+C also close`; these keys
-  close overlay. It has no page-router navigation or editing focus.
+  80%. Missing usage keeps the Context row with `?` placeholders and leaves
+  the bar blank; it does not invent zero or legacy metrics.
+- Active, inactive, failed, and stale snapshots keep the upstream title and
+  use a compact `Status:` diagnostic when no active detail exists. Every line
+  fits available width and lower-priority values truncate inside their cells.
+- Footer reads `Press Escape to close`; Enter and Ctrl+C remain accepted by the
+  host component but are not additional panel content. It has no page-router
+  navigation or editing focus.
 - Refresh once per second only after surface admission. Refresh must not cause
-  row displacement; reserve stable rows for changing values and truncate within
-  their existing cells.
+  content to rebuild lifecycle state; changing values stay in their existing
+  row order and truncate within their cells.
 - Validate layout at 48x20 and 100x24. Pi host owns usage/theme/custom UI;
   ext-core owns `openTuiSurface` admission, FIFO, abort, and cleanup; status
   rendering consumes the MCTX snapshot and does not define another lifecycle

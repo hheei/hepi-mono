@@ -15,6 +15,7 @@ import { openTuiSurface, TuiSurfaceQueueFullError } from "@hheei/pi-ext-core";
 import type { MctxFeature, MctxStatusResult } from "./feature.js";
 
 type MctxStatusSnapshot = MctxStatusResult;
+type MctxStatusUsage = Extract<MctxStatusSnapshot, { readonly kind: "active" }>["usage"];
 
 export interface MctxStatusTheme {
 	readonly fg: (role: Parameters<Theme["fg"]>[0], text: string) => string;
@@ -74,89 +75,67 @@ function compactNumber(value: number): string {
 	return `${value < 0 ? "-" : ""}${rounded}${unit}`;
 }
 
+function renderUsageBar(
+	usage: MctxStatusUsage,
+	theme: MctxStatusTheme,
+	contentWidth: number,
+): string {
+	if (usage === undefined || contentWidth === 0) return "";
+	const role = usage.percentage >= 80 ? "error" : usage.percentage >= 65 ? "warning" : "accent";
+	return style(theme, role, "█".repeat(contentWidth));
+}
+
 function bodyRows(
 	snapshot: MctxStatusSnapshot,
 	theme: MctxStatusTheme,
-	wide: boolean,
 	contentWidth: number,
 ): string[] {
-	const runtime =
-		snapshot.kind === "active"
-			? style(theme, "success", "Runtime active")
-			: snapshot.kind === "inactive"
-				? style(theme, "warning", "Runtime inactive")
+	const title = `${style(theme, "accent", theme.bold("⚡ Magic Context Status"))}`;
+	if (snapshot.kind !== "active") {
+		const reason =
+			snapshot.kind === "inactive"
+				? (snapshot.diagnostic ?? snapshot.reason)
 				: snapshot.kind === "failed"
-					? style(theme, "error", "Runtime failed")
-					: style(theme, "warning", "Runtime stale");
-	const active = snapshot.kind === "active" ? snapshot : undefined;
-	const usage = active?.usage;
-	const usageRole =
-		usage === undefined
-			? undefined
-			: usage.percentage >= 80
-				? "error"
-				: usage.percentage >= 65
-					? "warning"
-					: "success";
-	const percentage = usage === undefined ? "—" : `${usage.percentage.toFixed(1)}%`;
-	const used = usage === undefined ? "—" : compactNumber(usage.tokens);
-	const limit = usage === undefined ? "—" : compactNumber(usage.contextWindow);
-	const filled =
-		usage === undefined
-			? 0
-			: Math.round((Math.max(0, Math.min(100, usage.percentage)) / 100) * contentWidth);
-	const bar =
-		usage === undefined || usageRole === undefined
-			? ""
-			: style(theme, usageRole, "█".repeat(filled) + "░".repeat(contentWidth - filled));
-	const triggerPercentage =
-		active?.trigger.percentage === undefined
-			? "—"
-			: `${Number(active.trigger.percentage.toFixed(1))}%`;
-	const triggerTokens =
-		active?.trigger.tokens === undefined ? "—" : compactNumber(active.trigger.tokens);
+					? snapshot.reason
+					: "snapshot is stale";
+		return [title, "", style(theme, "error", `Status: ${inlineStatusText(reason)}`)];
+	}
+
+	const usage = snapshot.usage;
+	const percentage = usage === undefined ? "?" : `${usage.percentage.toFixed(1)}%`;
+	const contextLimit = usage === undefined ? "?" : compactNumber(usage.contextWindow);
+	const contextTokens = usage === undefined ? "?" : compactNumber(usage.tokens);
 	const historian =
-		active === undefined
-			? ""
-			: active.historian.kind === "disabled"
-				? `Historian  ${style(theme, "muted", "disabled")}`
-				: active.historian.kind === "unavailable"
-					? `Historian  ${style(theme, "warning", "unavailable")} · ${style(theme, "muted", inlineStatusText(active.historian.diagnostic))}`
-					: `Historian  ${style(theme, active.historian.phase === "idle" ? "success" : "warning", active.historian.phase)} · ${style(theme, "muted", inlineStatusText(active.historian.model))}${active.historian.lastFailureClass === undefined ? "" : ` · ${style(theme, "error", inlineStatusText(active.historian.lastFailureClass))}`}`;
-	const partition = active === undefined ? "" : `Partition  revision: ${active.partitionRevision}`;
-	const reason =
-		snapshot.kind === "inactive"
-			? inlineStatusText(snapshot.diagnostic ?? snapshot.reason)
-			: snapshot.kind === "failed"
-				? inlineStatusText(snapshot.reason)
-				: snapshot.kind === "stale"
-					? "snapshot is stale"
-					: undefined;
+		snapshot.historian.kind === "disabled"
+			? style(theme, "accent", "idle")
+			: snapshot.historian.kind === "unavailable"
+				? `${style(theme, "warning", "unavailable")} · ${style(theme, "muted", inlineStatusText(snapshot.historian.diagnostic))}`
+				: `${style(theme, snapshot.historian.phase === "idle" ? "accent" : "warning", snapshot.historian.phase)}${snapshot.historian.lastFailureClass === undefined ? "" : ` · ${style(theme, "error", inlineStatusText(snapshot.historian.lastFailureClass))}`}`;
+	const threshold =
+		snapshot.trigger.percentage === undefined
+			? "?"
+			: `${Number(snapshot.trigger.percentage.toFixed(1))}%`;
 	return [
-		`${style(theme, "accent", theme.bold("⚡ Magic Context Status"))} · ${runtime}`,
+		title,
+		"",
+		`Context  ${style(theme, percentage === "?" ? "muted" : percentageValueRole(usage?.percentage), theme.bold(percentage))} · ${contextTokens} / ${contextLimit} tokens`,
+		renderUsageBar(usage, theme, contentWidth),
+		"",
+		`Counts: ${snapshot.compartments.total} compartments`,
+		`Historian: ${historian}`,
+		"",
+		style(theme, "muted", "Tags"),
+		`Active ${snapshot.tags.active} · Pending ${snapshot.tags.pending} · Dropped ${snapshot.tags.dropped} · Total ${snapshot.tags.total}`,
 		"",
 		style(theme, "muted", "Context"),
-		reason === undefined
-			? `Context  ${usageRole === undefined ? percentage : style(theme, usageRole, theme.bold(percentage))} · ${used} / ${limit} tokens`
-			: style(theme, snapshot.kind === "failed" ? "error" : "warning", `Reason  ${reason}`),
-		bar,
-		"",
-		"Counts:",
-		active === undefined
-			? ""
-			: `Compartments  m0: ${active.compartments.m0} · m1: ${active.compartments.m1} · total: ${active.compartments.total}`,
-		style(theme, "muted", "Tags"),
-		active === undefined
-			? ""
-			: `Tags  active: ${active.tags.active} · pending: ${active.tags.pending} · dropped: ${active.tags.dropped} · protected: ${active.trigger.protectedTags}`,
-		"",
-		"Historian:",
-		historian,
-		active === undefined ? "" : `Trigger  ${triggerPercentage} · ${triggerTokens} tokens`,
-		partition,
-		wide && active !== undefined ? `Project  ${inlineStatusText(active.projectIdentity)}` : "",
-		wide && active !== undefined ? `Session  ${inlineStatusText(active.sessionId)}` : "",
+		`Execute threshold ${threshold}`,
+		`Protected tags ${snapshot.trigger.protectedTags}`,
 	];
+}
+
+function percentageValueRole(percentage: number | undefined): Parameters<Theme["fg"]>[0] {
+	if (percentage === undefined) return "muted";
+	return percentage >= 80 ? "error" : percentage >= 65 ? "warning" : "accent";
 }
 
 /** Render one outer frame with ANSI-safe exact cell width and stable row count. */
@@ -167,17 +146,16 @@ export function renderMctxStatusLines(
 ): readonly string[] {
 	const safeWidth = Math.max(1, Math.floor(width));
 	const contentWidth = Math.max(0, safeWidth - 4);
-	const wide = safeWidth >= 72;
 	const border = (text: string): string => style(theme, "borderMuted", text);
 	const top = border(safeWidth === 1 ? "╭" : `╭${"─".repeat(Math.max(0, safeWidth - 2))}╮`);
 	const frameRow = (row: string): string => {
 		if (safeWidth === 1) return border("│");
 		if (safeWidth === 2) return border("││");
 		if (safeWidth === 3) return border("│ │");
-		return `${border("│")} ${padAnsi(truncateToWidth(row, contentWidth, ""), contentWidth)} ${border("│")}`;
+		return `${border("│")} ${padAnsi(truncateToWidth(row, contentWidth, "…"), contentWidth)} ${border("│")}`;
 	};
-	const framed = bodyRows(snapshot, theme, wide, contentWidth).map(frameRow);
-	framed.push(frameRow(style(theme, "dim", "Press Escape to close · Enter / Ctrl+C also close")));
+	const framed = bodyRows(snapshot, theme, contentWidth).map(frameRow);
+	framed.push(frameRow(style(theme, "muted", "Press Escape to close")));
 	framed.push(border(safeWidth === 1 ? "╰" : `╰${"─".repeat(Math.max(0, safeWidth - 2))}╯`));
 	return [top, ...framed];
 }

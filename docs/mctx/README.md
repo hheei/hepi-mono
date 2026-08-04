@@ -1,5 +1,17 @@
 # pi-mctx
 
+## Status Panel Display Parity
+
+`/mctx` status panel 的显示内容与布局对齐上游 Magic Context Pi plugin：
+标题行、Context 使用率与 token bar、Counts、Historian、Tags、Context
+阈值区和关闭提示使用上游顺序与视觉层级。对齐范围只包含 panel renderer
+和其可见数据；`pi-mctx` 不具备的 upstream 指标（memory、notes、cache、
+upgrade、work-token 分类等）不显示，也不为此扩展生命周期或 TUI backend。
+
+上游依据：
+https://github.com/cortexkit/magic-context/tree/0e81084f6f9ce8a87df76d975b9d31d10e9c477b/packages/pi-plugin
+，具体实现为 `src/dialogs/status-dialog.ts`。
+
 ## 状态
 
 已创建独立、可安装的 `@hheei/pi-mctx` package。默认 disabled，保持 Pi native behavior；`pi-mctx.enabled`
