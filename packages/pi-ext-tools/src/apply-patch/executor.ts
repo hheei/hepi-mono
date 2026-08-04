@@ -48,7 +48,8 @@ export interface ApplyPatchRejection {
 interface PathState {
 	readonly relativePath: string;
 	readonly absolutePath: string;
-	readonly hash: string | undefined;
+	readonly baselineHash: string | undefined;
+	readonly currentHash: string | undefined;
 	readonly content?: Buffer;
 }
 
@@ -142,8 +143,29 @@ async function assertBaselines(
 		const revalidated = await validatePatchPath(workspaceRoot, state.relativePath);
 		if (revalidated.absolutePath !== state.absolutePath)
 			throw new Error(`Patch path changed before commit: ${state.relativePath}`);
-		if ((await regularFileHash(state.absolutePath, signal)) !== state.hash)
+		if ((await regularFileHash(state.absolutePath, signal)) !== state.baselineHash)
 			throw new Error(`Patch baseline changed before commit: ${state.relativePath}`);
+	}
+}
+
+function hashContent(content: Buffer): string {
+	return createHash("sha256").update(content).digest("hex");
+}
+
+async function stagedPathState(
+	stagingRoot: string,
+	state: PathState,
+	signal?: AbortSignal,
+): Promise<PathState> {
+	const path = stagingPath(stagingRoot, state.relativePath);
+	try {
+		const info = await stat(path);
+		if (!info.isFile()) throw new Error(`Patch path is not a regular file: ${state.relativePath}`);
+		const content = await readFile(path, { signal });
+		return { ...state, currentHash: hashContent(content), content };
+	} catch (error) {
+		if (!isMissingPath(error)) throw error;
+		return { ...state, currentHash: undefined, content: undefined };
 	}
 }
 
@@ -305,20 +327,10 @@ export async function applyPatchInWorkspace(
 				states.set(relativePath, {
 					relativePath,
 					absolutePath: validated.absolutePath,
-					hash: snapshot.hash,
+					baselineHash: snapshot.hash,
+					currentHash: snapshot.hash,
 					...(snapshot.content === undefined ? {} : { content: snapshot.content }),
 				});
-			}
-			const source = states.get(operation.path);
-			if (source === undefined) throw new Error(`Missing validated patch path: ${operation.path}`);
-			if (operation.kind === "add" && source.hash !== undefined)
-				throw new Error(`Patch add target already exists: ${operation.path}`);
-			if (operation.kind !== "add" && source.hash === undefined)
-				throw new Error(`Patch source does not exist: ${operation.path}`);
-			if (operation.kind === "update" && operation.moveTo !== undefined) {
-				const destination = states.get(operation.moveTo);
-				if (destination === undefined || destination.hash !== undefined)
-					throw new Error(`Patch move destination already exists: ${operation.moveTo}`);
 			}
 		} catch (error) {
 			if (options.signal?.aborted) throw options.signal.reason ?? error;
@@ -331,10 +343,22 @@ export async function applyPatchInWorkspace(
 			if (rejectedIndices.has(index)) continue;
 			let stagingRoot: string | undefined;
 			try {
+				const source = states.get(operation.path);
+				if (source === undefined)
+					throw new Error(`Missing validated patch path: ${operation.path}`);
+				if (operation.kind === "add" && source.currentHash !== undefined)
+					throw new Error(`Patch add target already exists: ${operation.path}`);
+				if (operation.kind !== "add" && source.currentHash === undefined)
+					throw new Error(`Patch source does not exist: ${operation.path}`);
+				if (operation.kind === "update" && operation.moveTo !== undefined) {
+					const destination = states.get(operation.moveTo);
+					if (destination === undefined || destination.currentHash !== undefined)
+						throw new Error(`Patch move destination already exists: ${operation.moveTo}`);
+				}
 				stagingRoot = await mkdtemp(join(tmpdir(), "hepi-apply-patch-"));
 				for (const path of operationTouchedPaths(operation)) {
 					const state = states.get(path);
-					if (state?.hash === undefined) continue;
+					if (state?.currentHash === undefined) continue;
 					if (state.content === undefined)
 						throw new Error(`Missing source snapshot for patch path: ${path}`);
 					const staged = stagingPath(stagingRoot, path);
@@ -342,6 +366,11 @@ export async function applyPatchInWorkspace(
 					await writeFile(staged, state.content, { signal: options.signal });
 				}
 				const mode = await stageOperation(stagingRoot, operation, options.policy, options.signal);
+				for (const path of operationTouchedPaths(operation)) {
+					const state = states.get(path);
+					if (state === undefined) throw new Error(`Missing validated patch path: ${path}`);
+					states.set(path, await stagedPathState(stagingRoot, state, options.signal));
+				}
 				if (mode === "exact") exactUpdateCount += 1;
 				if (mode === "fuzzy") fuzzyUpdateCount += 1;
 				successful.push({ operation, stagingRoot, mode });
