@@ -10,6 +10,8 @@ export function registerFindTool(pi: ExtensionAPI, _state: FffRuntimeState): voi
 	const tool: typeof template = {
 		...template,
 		async execute(id, params, signal, onUpdate, context) {
+			if (typeof params.path === "string" && params.path.startsWith("artifact://"))
+				throw new Error("find cannot search artifact URLs");
 			return createFindToolDefinition(context.cwd).execute(id, params, signal, onUpdate, context);
 		},
 	};

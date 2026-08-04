@@ -31,6 +31,14 @@ function registerCanonicalTool<TParams extends TSchema, TDetails, TState>(
 	const tool: ToolDefinition<TParams, TDetails, TState> = {
 		...template,
 		async execute(toolCallId, params, signal, onUpdate, context) {
+			if (
+				typeof params === "object" &&
+				params !== null &&
+				"path" in params &&
+				typeof params.path === "string" &&
+				params.path.startsWith("artifact://")
+			)
+				throw new Error("Write/edit cannot modify artifact URLs");
 			return factory(context.cwd).execute(toolCallId, params, signal, onUpdate, context);
 		},
 	};

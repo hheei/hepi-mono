@@ -3,6 +3,9 @@
  * Concrete packages own commands, state, policy, and rendering; core only owns
  * shared registration, lifecycle, cancellation, and cross-package coordination.
  */
+
+export type { ArtifactRegistry, ArtifactUri } from "./artifact.js";
+export { createArtifactRegistry } from "./artifact.js";
 export type {
 	OpenTuiSurfaceOptions,
 	TuiSurfaceContext,

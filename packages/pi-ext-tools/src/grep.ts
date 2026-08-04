@@ -11,6 +11,27 @@ export function registerGrepTool(pi: ExtensionAPI, state: FffRuntimeState): void
 		async execute(id, params, signal, onUpdate, context) {
 			const original = createGrepToolDefinition(context.cwd);
 			const native = () => original.execute(id, params, signal, onUpdate, context);
+			const artifacts = state.getArtifacts();
+			if (
+				params.path !== undefined &&
+				artifacts !== undefined &&
+				params.path.startsWith("artifact://")
+			) {
+				const text = artifacts.read(params.path);
+				const pattern = params.literal
+					? params.pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+					: params.pattern;
+				const expression = new RegExp(pattern, params.ignoreCase ? "i" : "");
+				const lines = text
+					.split("\\n")
+					.flatMap((line: string, index: number) =>
+						expression.test(line) ? [`${index + 1}:${line}`] : [],
+					);
+				return {
+					content: [{ type: "text" as const, text: lines.join("\\n") }],
+					details: undefined,
+				};
+			}
 			const runtime = state.getRuntime();
 			if (
 				!runtime ||

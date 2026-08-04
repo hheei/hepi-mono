@@ -14,6 +14,12 @@ export function registerReadTool(
 		...template,
 		async execute(toolCallId, params, signal, onUpdate, context) {
 			const original = createReadToolDefinition(context.cwd);
+			const artifacts = state.getArtifacts();
+			if (artifacts !== undefined && params.path.startsWith("artifact://"))
+				return {
+					content: [{ type: "text" as const, text: artifacts.read(params.path) }],
+					details: undefined,
+				};
 			if (!state.getSettings().readEnhancement)
 				return original.execute(toolCallId, params, signal, onUpdate, context);
 			const runtime = state.getRuntime();
