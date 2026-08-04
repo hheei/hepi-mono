@@ -2,8 +2,8 @@
 
 ## mpatch
 
-`bin/mpatch/` contains executable files from
-[Romelium/mpatch](https://github.com/Romelium/mpatch) release `v1.6.4`.
+`crates/vendor/mpatch/` contains library source adapted from
+[Romelium/mpatch](https://github.com/Romelium/mpatch) `v1.6.4`.
 
 Copyright 2025 Romelium
 
@@ -75,5 +75,5 @@ The N-API bridge built from `crates/pi-ext-bridge` links vendored crates from
 - Revision: `01c1f91ff529c6af3fc27724a8ba429d83d41aed`
 - License and notices: `crates/vendor/oh-my-pi/**/LICENSE`, `crates/vendor/oh-my-pi/**/NOTICE`
 
-The mpatch executable remains a separately bundled third-party artifact (see
-above); the bridge only invokes its package-owned path.
+The N-API bridge also links the vendored mpatch library above; it does not launch
+or bundle a separate mpatch executable.

@@ -29,12 +29,6 @@ indoc = "2.0.7"
 tempfile = "3.27.0"
 criterion = { version = "0.5.1", features = ["html_reports"] }
 
-[profile.release]
-lto = true
-codegen-units = 1
-panic = "abort"
-strip = true
-
 [lib]
 name = "mpatch"
 path = "src/lib.rs"

@@ -21,18 +21,12 @@ never adopts upstream `src/editor.ts` or `FffEditor`, because upstream replaces 
 Pi's current provider and integrate core lifecycle/settings without a custom editor. Canonical `read`, `grep`,
 and `find` retain their upstream schemas; FFF only accelerates a semantics-compatible request.
 
-## mpatch binary runtime
+## mpatch native runtime
 
-`bin/mpatch/` contains unmodified executables from
-[Romelium/mpatch](https://github.com/Romelium/mpatch) release `v1.6.4`.
-
-- Source URL: `https://github.com/Romelium/mpatch`
-- Release: `v1.6.4` (published 2026-06-02)
-- License: MIT
-
-The platform archive SHA-256 values and target mapping are recorded in
-`src/apply-patch/mpatch-binary.ts`. The package selects one bundled executable by
-`process.platform` and `process.arch`; it never downloads or falls back to a user-managed executable.
+`crates/vendor/mpatch/` contains the retained library source from
+[Romelium/mpatch](https://github.com/Romelium/mpatch) `v1.6.4`, licensed MIT.
+`pi-ext-bridge` links it into the package's N-API binary; no mpatch executable is
+bundled or launched. Local cancellation checks are maintained beside the source.
 
 ## Updating
 

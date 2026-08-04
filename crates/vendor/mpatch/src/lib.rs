@@ -408,10 +408,14 @@
 use log::{debug, info, trace, warn};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use similar::udiff::unified_diff;
 use similar::TextDiff;
+use similar::udiff::unified_diff;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use thiserror::Error;
 
 // --- Error Types ---
@@ -451,7 +455,9 @@ pub enum ParseError {
     /// use mpatch::ParseError;
     /// let err = ParseError::MissingFileHeader { line: 10 };
     /// ```
-    #[error("Diff block starting on line {line} was found without a file path header (e.g., '--- a/path/to/file')")]
+    #[error(
+        "Diff block starting on line {line} was found without a file path header (e.g., '--- a/path/to/file')"
+    )]
     MissingFileHeader {
         /// The line number where the diff block started.
         ///
@@ -576,6 +582,9 @@ pub enum SingleParseError {
 /// ````
 #[derive(Error, Debug)]
 pub enum PatchError {
+    /// The operation was cancelled before a filesystem change.
+    #[error("Patch application cancelled")]
+    Cancelled,
     /// The patch attempted to access a path outside the target directory.
     /// This is a security measure to prevent malicious patches from modifying
     /// unintended files (e.g., `--- a/../../etc/passwd`).
@@ -905,6 +914,9 @@ pub enum OneShotError {
 /// ````
 #[derive(Error, Debug, Clone, PartialEq)]
 pub enum HunkApplyError {
+    /// The operation was cancelled while searching or applying a hunk.
+    #[error("Patch application cancelled")]
+    Cancelled,
     /// The context lines for the hunk could not be found in the target file.
     ///
     /// # Examples
@@ -945,7 +957,9 @@ pub enum HunkApplyError {
     /// use mpatch::{HunkApplyError, HunkLocation};
     /// let err = HunkApplyError::FuzzyMatchBelowThreshold { best_score: 0.5, threshold: 0.7, location: HunkLocation { start_index: 0, length: 5 } };
     /// ```
-    #[error("Best fuzzy match at {location} (score: {best_score:.3}) was below threshold ({threshold:.3})")]
+    #[error(
+        "Best fuzzy match at {location} (score: {best_score:.3}) was below threshold ({threshold:.3})"
+    )]
     FuzzyMatchBelowThreshold {
         /// The similarity score of the best match found.
         ///
@@ -1214,6 +1228,7 @@ pub enum HunkApplyStatus {
 /// let custom_options = ApplyOptions {
 ///     dry_run: true,
 ///     fuzz_factor: 0.9,
+///     cancellation: None,
 /// };
 ///
 /// // Using a convenience constructor for common cases.
@@ -1226,7 +1241,7 @@ pub enum HunkApplyStatus {
 ///     .with_fuzz_factor(0.5);
 /// assert_eq!(fluent_options.fuzz_factor, 0.5);
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct ApplyOptions {
     /// If `true`, no files will be modified. Instead, a diff of the proposed
     /// changes will be generated and returned in [`PatchResult`].
@@ -1244,6 +1259,7 @@ pub struct ApplyOptions {
     /// let options = ApplyOptions {
     ///     dry_run: true,
     ///     fuzz_factor: 0.7,
+    ///     cancellation: None,
     /// };
     ///
     /// assert!(options.dry_run);
@@ -1259,10 +1275,25 @@ pub struct ApplyOptions {
     /// let options = ApplyOptions {
     ///     dry_run: false,
     ///     fuzz_factor: 0.85,
+    ///     cancellation: None,
     /// };
     /// assert_eq!(options.fuzz_factor, 0.85);
     /// ```
     pub fuzz_factor: f32,
+    /// Optional shared cancellation flag.
+    pub cancellation: Option<Arc<AtomicBool>>,
+}
+
+impl PartialEq for ApplyOptions {
+    fn eq(&self, other: &Self) -> bool {
+        self.dry_run == other.dry_run
+            && self.fuzz_factor == other.fuzz_factor
+            && match (&self.cancellation, &other.cancellation) {
+                (None, None) => true,
+                (Some(left), Some(right)) => Arc::ptr_eq(left, right),
+                _ => false,
+            }
+    }
 }
 
 impl Default for ApplyOptions {
@@ -1288,6 +1319,7 @@ impl Default for ApplyOptions {
         Self {
             dry_run: false,
             fuzz_factor: 0.7,
+            cancellation: None,
         }
     }
 }
@@ -1412,6 +1444,19 @@ impl ApplyOptions {
     pub fn with_fuzz_factor(mut self, fuzz_factor: f32) -> Self {
         self.fuzz_factor = fuzz_factor;
         self
+    }
+
+    /// Attaches shared cooperative cancellation state.
+    pub fn with_cancellation(mut self, cancellation: Arc<AtomicBool>) -> Self {
+        self.cancellation = Some(cancellation);
+        self
+    }
+
+    /// Returns whether cancellation was requested.
+    pub fn is_cancelled(&self) -> bool {
+        self.cancellation
+            .as_ref()
+            .is_some_and(|flag| flag.load(Ordering::Acquire))
     }
 
     /// Creates a new builder for [`ApplyOptions`].
@@ -1580,6 +1625,7 @@ impl ApplyOptionsBuilder {
         ApplyOptions {
             dry_run: self.dry_run.unwrap_or(default.dry_run),
             fuzz_factor: self.fuzz_factor.unwrap_or(default.fuzz_factor),
+            cancellation: None,
         }
     }
 }
@@ -3410,8 +3456,7 @@ pub fn parse_diffs(content: &str) -> Result<Vec<Patch>, ParseError> {
 
         trace!(
             "Found potential diff block start on line {}: '{}'",
-            line_index,
-            line_text
+            line_index, line_text
         );
         let diff_block_start_line = line_index + 1;
 
@@ -4181,13 +4226,17 @@ pub fn apply_patches_to_dir(
     target_dir: &Path,
     options: ApplyOptions,
 ) -> BatchResult {
-    let results = patches
-        .iter()
-        .map(|patch| {
-            let result = apply_patch_to_file(patch, target_dir, options);
-            (patch.file_path.clone(), result)
-        })
-        .collect();
+    let mut results = Vec::new();
+    for patch in patches {
+        if options.is_cancelled() {
+            break;
+        }
+        let result = apply_patch_to_file(patch, target_dir, options.clone());
+        results.push((patch.file_path.clone(), result));
+        if options.is_cancelled() {
+            break;
+        }
+    }
 
     BatchResult { results }
 }
@@ -4292,6 +4341,10 @@ pub fn apply_patch_to_file(
 ) -> Result<PatchResult, PatchError> {
     info!("Applying patch to: {}", patch.file_path.display());
 
+    if options.is_cancelled() {
+        return Err(PatchError::Cancelled);
+    }
+
     // --- Path Safety Check ---
     // This is a critical security measure. `ensure_path_is_safe` returns a
     // canonicalized, absolute path that is confirmed to be inside the target_dir.
@@ -4350,6 +4403,10 @@ pub fn apply_patch_to_file(
     let new_content = result.new_content;
     let apply_result = result.report;
 
+    if options.is_cancelled() {
+        return Err(PatchError::Cancelled);
+    }
+
     let mut diff = None;
     if options.dry_run {
         // In dry-run mode, generate a diff instead of writing to the file.
@@ -4374,6 +4431,9 @@ pub fn apply_patch_to_file(
         // The parent directory might have been created by `ensure_path_is_safe`
         // for a new file, but we ensure it again just in case.
         if new_content.is_empty() {
+            if options.is_cancelled() {
+                return Err(PatchError::Cancelled);
+            }
             if safe_target_path.exists() {
                 info!(
                     "  Resulting content is empty. Removing file '{}'",
@@ -4400,6 +4460,9 @@ pub fn apply_patch_to_file(
                 );
             }
         } else {
+            if options.is_cancelled() {
+                return Err(PatchError::Cancelled);
+            }
             if let Some(parent) = safe_target_path.parent() {
                 fs::create_dir_all(parent).map_err(|e| map_io_error(parent.to_path_buf(), e))?;
             }
@@ -4827,6 +4890,9 @@ impl<'a> Iterator for HunkApplier<'a> {
     /// # }
     /// ```
     fn next(&mut self) -> Option<Self::Item> {
+        if self.options.is_cancelled() {
+            return None;
+        }
         let hunk = self.hunks.next()?;
         let old_len = self.current_lines.len();
         let status = apply_hunk_to_lines(hunk, &mut self.current_lines, self.options);
@@ -5481,11 +5547,12 @@ pub fn apply_hunk_to_lines(
                 // For Fuzzy and ExactIgnoringWhitespace, indentation might mismatch or drift.
                 // We use a robust reconstruction that dynamically adjusts indentation based on the
                 // nearest matching line.
-                debug!("    Applying hunk via robust reconstruction logic (preserving file context & adjusting indent).");
+                debug!(
+                    "    Applying hunk via robust reconstruction logic (preserving file context & adjusting indent)."
+                );
                 trace!(
                     "      Fuzzy match location: start={}, len={}",
-                    location.start_index,
-                    location.length
+                    location.start_index, location.length
                 );
                 let file_matched_lines: Vec<_> = target_lines
                     [location.start_index..location.start_index + location.length]
@@ -5600,7 +5667,11 @@ pub fn apply_hunk_to_lines(
                                 {
                                     current_hunk_indent = h_ind;
                                     current_target_indent = t_ind;
-                                    trace!("      Initial Indentation Context (from Replace): Hunk='{}', Target='{}'", h_ind.escape_debug(), t_ind.escape_debug());
+                                    trace!(
+                                        "      Initial Indentation Context (from Replace): Hunk='{}', Target='{}'",
+                                        h_ind.escape_debug(),
+                                        t_ind.escape_debug()
+                                    );
                                     found = true;
                                     break;
                                 }
@@ -5652,7 +5723,11 @@ pub fn apply_hunk_to_lines(
                                     && (current_hunk_indent != h_ind
                                         || current_target_indent != t_ind)
                                 {
-                                    trace!("      Dynamic Indentation Update (Equal): Hunk='{}', Target='{}'", h_ind.escape_debug(), t_ind.escape_debug());
+                                    trace!(
+                                        "      Dynamic Indentation Update (Equal): Hunk='{}', Target='{}'",
+                                        h_ind.escape_debug(),
+                                        t_ind.escape_debug()
+                                    );
                                     current_hunk_indent = h_ind;
                                     current_target_indent = t_ind;
                                 }
@@ -5734,7 +5809,11 @@ pub fn apply_hunk_to_lines(
                                         if current_hunk_indent != h_ind
                                             || current_target_indent != t_ind
                                         {
-                                            trace!("      Dynamic Indentation Update (Replace search): Hunk='{}', Target='{}'", h_ind.escape_debug(), t_ind.escape_debug());
+                                            trace!(
+                                                "      Dynamic Indentation Update (Replace search): Hunk='{}', Target='{}'",
+                                                h_ind.escape_debug(),
+                                                t_ind.escape_debug()
+                                            );
                                             current_hunk_indent = h_ind;
                                             current_target_indent = t_ind;
                                         }
@@ -5760,7 +5839,11 @@ pub fn apply_hunk_to_lines(
                                         && (current_hunk_indent != h_ind
                                             || current_target_indent != t_ind)
                                     {
-                                        trace!("      Dynamic Indentation Update (Replace match): Hunk='{}', Target='{}'", h_ind.escape_debug(), t_ind.escape_debug());
+                                        trace!(
+                                            "      Dynamic Indentation Update (Replace match): Hunk='{}', Target='{}'",
+                                            h_ind.escape_debug(),
+                                            t_ind.escape_debug()
+                                        );
                                         current_hunk_indent = h_ind;
                                         current_target_indent = t_ind;
                                     }
@@ -6281,10 +6364,7 @@ impl<'a> DefaultHunkFinder<'a> {
             let max_len = len.saturating_add(fuzz_distance);
             trace!(
                 "      Searching with window sizes from {} to {} (hunk size: {}, fuzz distance: {})",
-                min_len,
-                max_len,
-                len,
-                fuzz_distance
+                min_len, max_len, len, fuzz_distance
             );
 
             // Performance heuristic: narrow down the search space using anchor lines.
@@ -6313,6 +6393,9 @@ impl<'a> DefaultHunkFinder<'a> {
                             (0..=target_slice.len() - window_len)
                                 .into_par_iter()
                                 .map(move |i| {
+                                    if self.options.is_cancelled() {
+                                        return None;
+                                    }
                                     let window_stripped_lines = &target_slice[i..i + window_len];
                                     let absolute_index = range_start + i;
 
@@ -6373,18 +6456,23 @@ impl<'a> DefaultHunkFinder<'a> {
                                     let ratio = ratio_strict.max(ratio_loose);
                                     let score = ratio;
 
-                                    (
+                                    Some((
                                         score,
                                         ratio,
                                         ratio_lines as f64,
                                         ratio_words as f64,
                                         absolute_index,
                                         window_len,
-                                    )
+                                    ))
                                 })
                         })
                 })
+                .filter_map(|window| window)
                 .collect();
+
+            if self.options.is_cancelled() {
+                return Err(HunkApplyError::Cancelled);
+            }
 
             #[cfg(not(feature = "parallel"))]
             let all_scored_windows: Vec<(f64, f64, f64, f64, usize, usize)> = search_ranges
@@ -6403,6 +6491,9 @@ impl<'a> DefaultHunkFinder<'a> {
                         .filter(move |&window_len| window_len <= target_slice.len())
                         .flat_map(move |window_len| {
                             (0..=target_slice.len() - window_len).map(move |i| {
+                                if self.options.is_cancelled() {
+                                    return None;
+                                }
                                 let window_stripped_lines = &target_slice[i..i + window_len];
                                 let absolute_index = range_start + i;
 
@@ -6461,18 +6552,22 @@ impl<'a> DefaultHunkFinder<'a> {
                                 let ratio = ratio_strict.max(ratio_loose);
                                 let score = ratio;
 
-                                (
+                                Some((
                                     score,
                                     ratio,
                                     ratio_lines as f64,
                                     ratio_words as f64,
                                     absolute_index,
                                     window_len,
-                                )
+                                ))
                             })
                         })
                 })
                 .collect();
+
+            if self.options.is_cancelled() {
+                return Err(HunkApplyError::Cancelled);
+            }
 
             if log::log_enabled!(log::Level::Trace) {
                 let mut sorted_windows = all_scored_windows.clone();
@@ -6483,11 +6578,7 @@ impl<'a> DefaultHunkFinder<'a> {
                     let window_content: Vec<_> = target_refs[*idx..*idx + *len].to_vec();
                     trace!(
                         "        - Index {}, Len {}: Score {:.3} (Ratio {:.3}) | Content: {:?}",
-                        idx,
-                        len,
-                        score,
-                        ratio,
-                        window_content
+                        idx, len, score, ratio, window_content
                     );
                 }
             }
@@ -6500,11 +6591,7 @@ impl<'a> DefaultHunkFinder<'a> {
                 if score > best_score {
                     trace!(
                         "        New best score: {:.3} (ratio {:.3} [l:{:.3},w:{:.3}]) at index {} (window len {})",
-                        score,
-                        ratio,
-                        ratio_lines,
-                        ratio_words,
-                        absolute_index, window_len
+                        score, ratio, ratio_lines, ratio_words, absolute_index, window_len
                     );
                     best_score = score;
                     best_ratio_at_best_score = ratio;
@@ -6522,9 +6609,7 @@ impl<'a> DefaultHunkFinder<'a> {
                         // This is a better match despite the same score (e.g., less penalty, more similarity)
                         trace!(
                             "        Tie in score ({:.3}), but new ratio {:.3} is better than old {:.3}. New best.",
-                            score,
-                            ratio,
-                            best_ratio_at_best_score
+                            score, ratio, best_ratio_at_best_score
                         );
                         best_ratio_at_best_score = ratio;
                         potential_matches.clear();
@@ -6533,10 +6618,7 @@ impl<'a> DefaultHunkFinder<'a> {
                         // Also a tie in ratio, so it's a true ambiguity
                         trace!(
                             "        Tie in score ({:.3}) and ratio ({:.3}). Adding candidate: index {}, len {}",
-                            score,
-                            ratio,
-                            absolute_index,
-                            window_len
+                            score, ratio, absolute_index, window_len
                         );
                         potential_matches.push((absolute_index, window_len));
                     }
@@ -6545,9 +6627,7 @@ impl<'a> DefaultHunkFinder<'a> {
 
             trace!(
                 "    Fuzzy search complete. Best score: {:.3}, best ratio: {:.3}, potential matches: {:?}",
-                best_score,
-                best_ratio_at_best_score,
-                potential_matches
+                best_score, best_ratio_at_best_score, potential_matches
             );
 
             // Check if the best match found meets the user-defined threshold.
@@ -6571,10 +6651,9 @@ impl<'a> DefaultHunkFinder<'a> {
                 // AMBIGUOUS FUZZY MATCH - TRY TO TIE-BREAK
                 if let Some(line) = old_start_line {
                     trace!(
-                            "    Ambiguous fuzzy match found at {:?}. Attempting to tie-break using line number hint: {}",
-                            potential_matches,
-                            line
-                        );
+                        "    Ambiguous fuzzy match found at {:?}. Attempting to tie-break using line number hint: {}",
+                        potential_matches, line
+                    );
                     let mut closest_match: Option<(usize, usize)> = None;
                     let mut min_distance = usize::MAX;
                     let mut is_tie = false;
@@ -6600,9 +6679,9 @@ impl<'a> DefaultHunkFinder<'a> {
                     if !is_tie {
                         if let Some((start, len)) = closest_match {
                             debug!(
-                                    "    Tie-broke ambiguous fuzzy match using line number. Best match is at index {} (length {}, similarity: {:.3} >= threshold: {:.3}).",
-                                    start, len, best_ratio_at_best_score, self.options.fuzz_factor
-                                );
+                                "    Tie-broke ambiguous fuzzy match using line number. Best match is at index {} (length {}, similarity: {:.3} >= threshold: {:.3}).",
+                                start, len, best_ratio_at_best_score, self.options.fuzz_factor
+                            );
                             return Ok((
                                 HunkLocation {
                                     start_index: start,
@@ -6614,10 +6693,15 @@ impl<'a> DefaultHunkFinder<'a> {
                             ));
                         }
                     } else {
-                        trace!("    Tie-breaking failed: multiple fuzzy matches are equidistant from the line number hint.");
+                        trace!(
+                            "    Tie-breaking failed: multiple fuzzy matches are equidistant from the line number hint."
+                        );
                     }
                 }
-                warn!("    Ambiguous fuzzy match: Multiple locations found with same top score ({:.3}): {:?}. Skipping.", best_ratio_at_best_score, potential_matches);
+                warn!(
+                    "    Ambiguous fuzzy match: Multiple locations found with same top score ({:.3}): {:?}. Skipping.",
+                    best_ratio_at_best_score, potential_matches
+                );
                 return Err(HunkApplyError::AmbiguousFuzzyMatch(potential_matches));
             } else if best_ratio_at_best_score >= 0.0 {
                 // Did not meet threshold
@@ -6681,8 +6765,7 @@ impl<'a> DefaultHunkFinder<'a> {
             } else {
                 trace!(
                     "    End-of-file fuzzy match ratio {:.3} did not meet effective threshold {:.3}.",
-                    ratio,
-                    effective_threshold
+                    ratio, effective_threshold
                 );
             }
         }
@@ -6725,11 +6808,9 @@ impl<'a> DefaultHunkFinder<'a> {
             // More than 1 match, try to tie-break using the line number hint.
             if let Some(line) = start_line {
                 trace!(
-                "    Ambiguous {} match found at {:?}. Attempting to tie-break using line number hint: {}",
-                match_type,
-                all_matches,
-                line
-            );
+                    "    Ambiguous {} match found at {:?}. Attempting to tie-break using line number hint: {}",
+                    match_type, all_matches, line
+                );
                 let mut closest_index = 0;
                 let mut min_distance = usize::MAX;
                 let mut is_tie = false;
@@ -6740,9 +6821,7 @@ impl<'a> DefaultHunkFinder<'a> {
                     let distance = (match_index + 1).abs_diff(line);
                     trace!(
                         "      Candidate index {}: distance from line hint {} is {}",
-                        match_index,
-                        line,
-                        distance
+                        match_index, line, distance
                     );
                     if distance < min_distance {
                         min_distance = distance;
@@ -6777,13 +6856,11 @@ impl<'a> DefaultHunkFinder<'a> {
             // Exactly one match was found.
             trace!(
                 "      Found 1 {} match candidate at index: {}",
-                match_type,
-                first_match
+                match_type, first_match
             );
             trace!(
                 "    tie_break: Only one match found for '{}' match at index {}. No tie-break needed.",
-                match_type,
-                first_match
+                match_type, first_match
             );
             Ok(Some(first_match))
         }

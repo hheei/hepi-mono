@@ -4,7 +4,6 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export interface MpatchRunCommandOptions {
-	readonly executablePath: string;
 	readonly cwd: string;
 	readonly unifiedDiff: string;
 	readonly fuzzFactor: number;
@@ -101,7 +100,7 @@ const native = loadNative();
 
 export const piNativeBridgeVersion: number = native.piNativeBridgeVersion();
 
-/** One cancellable, single-use package-owned mpatch invocation. */
+/** One cancellable, single-use vendored mpatch invocation. */
 export class MpatchRun {
 	readonly #native: NativeMpatchRun;
 
@@ -118,11 +117,10 @@ export class MpatchRun {
 	}
 }
 
-/** Maps a JavaScript AbortSignal to a single native mpatch process. */
+/** Maps a JavaScript AbortSignal to one cooperative native mpatch run. */
 export async function runMpatch(options: MpatchRunOptions): Promise<MpatchRunResult> {
 	options.signal?.throwIfAborted();
 	const run = new MpatchRun({
-		executablePath: options.executablePath,
 		cwd: options.cwd,
 		unifiedDiff: options.unifiedDiff,
 		fuzzFactor: options.fuzzFactor,
