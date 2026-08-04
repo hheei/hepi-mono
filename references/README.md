@@ -20,6 +20,7 @@ Use `<owner>-<repo>` directory names. Documentation must cite the public URL and
 | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) | `16f29800fd2681bdf24f3eb4ccffe38be3baec6b` | Ponytail rules and companion workflows |
 | [ShpetimA/pi-fff](https://github.com/ShpetimA/pi-fff) | `694837d0644abc8527ebfa3ea50135e0f5d1ece4` | FFF runtime, tools, commands, formatting, and autocomplete behavior adapted for HEPI ownership |
 | [Romelium/mpatch](https://github.com/Romelium/mpatch) | `v1.6.4` | Vendored library source for cancellable native fuzzy patch application |
+| [can1357/oh-my-pi](https://github.com/can1357/oh-my-pi) | `01c1f91ff529c6af3fc27724a8ba429d83d41aed` | PTY lifecycle: native process-group termination, raw output transport, resize, and bounded reader teardown; no OMP runtime imported |
 | [mattpocock/skills](https://github.com/mattpocock/skills) | `ed37663cc5fbef691ddfecd080dff42f7e7e350d` | Grill and domain-modeling skills adapted for the HEPI skills bundle |
 | [hheei/magic-context](https://github.com/hheei/magic-context) | `f9c964da0c5cc53d1ef0658af588b46acd2e740d` | Fixed Magic Context Pi plugin/core source, including external Pi subagent accounting API |
 | [hheei/pi-subagents](https://github.com/hheei/pi-subagents) | `594140b50a159dcd33c4c265dc73729d6cb19765` | Agent policy, child-session factory, tool scoping, worktree isolation, and MCTX inheritance bridge; not a target API contract |
