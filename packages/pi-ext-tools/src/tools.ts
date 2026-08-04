@@ -8,6 +8,7 @@ import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
 import type { TSchema } from "typebox";
 import { registerApplyPatchTool } from "./apply-patch-tool.js";
 import { registerBashTool } from "./bash.js";
+import { type BashRuntimeState, createBashRuntimeState } from "./bash-runtime.js";
 import { createFffRuntimeState, type FffRuntimeState } from "./fff/lifecycle.js";
 import { registerFindTool } from "./find.js";
 import { registerGrepTool } from "./grep.js";
@@ -53,12 +54,13 @@ function registerCanonicalTool<TParams extends TSchema, TDetails, TState>(
 export function registerTools(
 	pi: ExtensionAPI,
 	state: FffRuntimeState = createFffRuntimeState(),
+	bashRuntime: BashRuntimeState = createBashRuntimeState(),
 ): void {
 	registerReadTool(pi, state);
 	registerGrepTool(pi, state);
 	registerFindTool(pi, state);
 	registerCanonicalTool(pi, createEditToolDefinition, ["apply_patch"]);
 	registerCanonicalTool(pi, createWriteToolDefinition, ["apply_patch"]);
-	registerBashTool(pi);
+	registerBashTool(pi, bashRuntime);
 	registerApplyPatchTool(pi);
 }

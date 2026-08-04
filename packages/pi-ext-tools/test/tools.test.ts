@@ -161,7 +161,7 @@ describe("pi-ext-tools catalog", () => {
 		expect(await readFile(join(cwd, "created.txt"), "utf8")).toBe("created\n");
 	});
 
-	test("preserves upstream write, edit, and bash execution semantics", async (): Promise<void> => {
+	test("preserves upstream write and edit execution semantics", async (): Promise<void> => {
 		const cwd = await temporaryDirectory();
 		const host = harness();
 		registerTools(host.pi);
@@ -174,8 +174,7 @@ describe("pi-ext-tools catalog", () => {
 		} as unknown as ExtensionContext;
 		const write = host.tools.find((tool) => tool.name === "write");
 		const edit = host.tools.find((tool) => tool.name === "edit");
-		const bash = host.tools.find((tool) => tool.name === "bash");
-		if (write === undefined || edit === undefined || bash === undefined)
+		if (write === undefined || edit === undefined)
 			throw new Error("catalog tool was not registered");
 
 		await write.execute(
@@ -193,18 +192,5 @@ describe("pi-ext-tools catalog", () => {
 			context,
 		);
 		expect(await readFile(join(cwd, "value.txt"), "utf8")).toBe("after\n");
-
-		const result = await bash.execute(
-			"bash-1",
-			{ command: "printf canonical" },
-			undefined,
-			undefined,
-			context,
-		);
-		expect(
-			result.content.some(
-				(part) => part.type === "text" && "text" in part && part.text.includes("canonical"),
-			),
-		).toBe(true);
 	});
 });

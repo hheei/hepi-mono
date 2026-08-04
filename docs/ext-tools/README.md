@@ -17,7 +17,7 @@ Pi upstream factory -> pi-ext-tools tool module -> one managed registration -> P
 ```
 
 每个 tool module 自己决定如何复用 upstream factory、如何 render，以及如何处理特定 feature policy。
-`pi-ext-core` 仅提供 managed registration。
+`pi-ext-core` 仅提供 managed registration 与 mouse transport。
 
 ## v1 Catalog
 
@@ -36,17 +36,17 @@ apply_patch
 catalog 不从 `pi.getAllTools()` 或 active-tool inventory 自动推断。新增名称必须单独确认 upstream compatibility、
 tool schema、rendering、lifecycle、Loadout metadata 与 focused tests。
 
-## apply_patch 与 bundled mpatch runtime
+## apply_patch 与 native mpatch runtime
 
-`pi-ext-tools` 内置 mpatch CLI `v1.6.4` 的 macOS ARM64/x64、Linux ARM64/x64 与 Windows
-ARM64/x64 executable。`apply_patch` 是 catalog 中唯一公开的 patch tool；其 JSON 参数固定为
+`apply_patch` 使用 N-API bridge 内链接的 vendored mpatch `v1.6.4`，不分发或启动独立
+mpatch executable。它是 catalog 中唯一公开的 patch tool；其 JSON 参数固定为
 `{ "patch": "<Codex V4A text>" }`。它只接受 `*** Begin Patch` / `*** End Patch`、`Add File`、
 `Update File`、`Delete File` 与 `Move to` 组成的 Codex V4A grammar；不接受 raw Git diff、参数别名、
 per-call fuzzy option 或绝对 path。
 
-mpatch 是 `apply_patch` 的私有 fuzzy worker，不是独立 Pi tool，也不从
-用户的 `PATH`、`MPATCH_BIN` 或网络下载取得 executable。运行时只按 `process.platform` 与
-`process.arch` 选择匹配文件；不删除 package 内其它平台文件。
+mpatch 是 `apply_patch` 的私有 fuzzy worker，不是独立 Pi tool，也不从用户的 `PATH`、
+`MPATCH_BIN` 或网络取得 executable。bridge 的一次性 run handle 在文件循环、fuzzy 搜索和
+写入前协作检查取消 flag；写入只发生在 coordinator 的 staging 目录。
 
 mpatch 只接受 unified diff，不能替代 Codex V4A parser。tool 在 TypeScript 中严格解析
 V4A，拒绝 workspace 外 path 与 symlink escape；所有操作先在隔离 staging root 中完成。每个
@@ -81,15 +81,62 @@ extension 也保留兼容 guard：当前 active tools 不含 `apply_patch` 时�
 `apply_patch`，guard 会中止该 turn，并在 agent settled 后仅推荐当时仍 active 的 `edit`/`write`。两者都不可用时，
 它明确要求先启用一个写入工具，绝不推荐 disabled tool。`apply_patch` 已 active 时 guard 不介入；它不解析或拦截其它 bash 命令。
 
+## Brush Bash runtime
+
+`bash` 保持 Pi 的公开 JSON 参数 `{ command: string, timeout?: number }`、call/result renderer、
+truncation 文案与非零退出码的错误语义，但执行器改为 `pi-ext-tools` 的 session-scoped Brush
+Shell。每个 Pi session 创建一个 native `Shell`；连续调用因此保留 shell cwd、export 的环境与
+background job table。每次 tool call 仍以 Pi 给出的 `context.cwd` 作为本次命令 cwd，避免旧 call
+的 `cd` 状态跨 workspace 泄漏。
+
+```text
+Pi host bash ToolDefinition -> pi-ext-tools Bash adapter -> pi-ext-bridge -> pi-shell -> Brush
+```
+
+adapter 将 Pi 的 `AbortSignal`、秒级 `timeout` 与 streamed output 分别映射到 native `Shell.run()` 的
+signal、毫秒级 timeout 和 `onChunk`。session shutdown 或 reload 必须 `abort()` native Shell；这会终止该
+session 正在执行的命令。tool result 仍由 Pi upstream Bash definition 的 operation adapter 生成，故保留
+Pi 的流式、截断、full-output file 与 renderer contract，而不复制这些策略。
+
+Brush 是 Bash 风格解释器，不是系统 `/bin/bash` 的字节级兼容层。此 catalog 的 `bash` 不提供 PTY、stdin
+回写或 terminal resize；交互程序不属于该 tool contract。需要精确系统 Bash 或 PTY 的功能必须使用另一个显式
+surface，而不能在此 adapter 中隐式 fallback。
+
 ## Tool Ownership
 
-- `pi-ext-tools` 是 catalog 中每个名称的唯一 Canonical tool owner，负责 upstream parameter/execute compatibility、
-  renderer、ToolRenderContext state、abort、streaming 与 cleanup。
+- `pi-ext-tools` 是 catalog 中每个名称的唯一 Canonical tool owner，负责 upstream parameter compatibility、
+  renderer、ToolRenderContext state、abort、streaming 与 cleanup；`bash` 的执行器明确由 session-scoped Brush Shell
+  所有，非 native tool 仍可复用 upstream execute 行为。
 - 每个 module 可以调用对应 upstream `create...Tool()`；这用于复用运行行为，不表示必须复用 upstream renderer。
-- `read`、`grep`、`find`、`edit`、`write`、`bash` 保留 upstream-compatible 参数、execute 与 renderer 语义。
-- `apply_patch` 是 `pi-ext-tools` owner 的 Canonical V4A-only tool；public JSON transport 只接受 `{ "patch": string }`，并委托 package 内 patch coordinator 执行。
+- `read`、`grep`、`find`、`edit`、`write` 保留 upstream-compatible 参数、execute 与 renderer 语义；`bash` 保留
+  upstream 参数、result/error 与 renderer 语义，但以 Brush 替换 upstream local-shell execution。
+- `apply_patch` 是 `pi-ext-tools` owner 的 Canonical V4A-only tool；public JSON transport 只接受 `{ "patch": string }`，并委托 package 内 patch coordinator 执行。其 call renderer 从 V4A patch text 生成 streaming、折叠和展开预览；它是纯计算，不读取 workspace、调用 coordinator 或修改 patch。
 - 其他 extension 不得为 catalog 名称直接 `pi.registerTool()` 或 managed-register competing definition。它们不能
   import `pi-ext-tools`；跨包协作若确有需求，另行定义 narrow core capability。
+
+## 本地文本选择
+
+`pi-ext-tools` 只在本 package 内共享纯文本 selection substrate：logical lines、grapheme/cell mapping、visual
+soft-wrap map 与 half-open `TextRange` slicing。`read`、`grep`、`find` 与 `apply_patch` 的可见纯文本 result body 支持
+local selection；`apply_patch` result 只暴露完成后的 compact success summary，而其独立 call renderer 显示 patch payload 的 streaming、折叠和展开预览，不显示 coordinator internals。ANSI、padding、border、call header 与 expand hint 都不进入 logical text。v1 只显示 local selection，不读取 selected text、不自动 copy、不访问 clipboard。这个 `TextRange` 高亮不是
+terminal emulator 的 native selection，不能用 `Command+C` / `Ctrl+C` 直接复制；用户需要先用各 emulator 自己的
+mouse-reporting bypass 修饰键拖出 native terminal selection，再使用该 emulator 的复制快捷键。修饰键和快捷键均因
+emulator 配置而异，且此流程与 local selection 无关。
+
+它不是通用 Component framework 或 tool decorator。每个 renderer 自己决定 result body、selection state、highlight
+和 clipboard policy。v1 clipboard policy 明确为空。local tool-surface binding 只识别本 package 产生的 result
+component；它通过 core 的 optional runtime host bridge 取得 Pi TUI/layout。capability 缺席或格式无效时 fail closed：
+保留 upstream renderer，且不注册 mouse region。
+
+`edit`、`write` 保留 upstream renderer 的 padded status shell、diff、partial/expanded output、error 与 timer lifecycle。
+`read` 与 `bash` expanded output 通过 Pi 的 vendored `ToolRenderContext.resultLayout` 接收 result body viewport bounds，并注册
+local mouse region；extension 不遍历 `Container.children`，不读取 `ToolExecutionComponent` private fields。`bash` collapsed preview
+继续由 upstream renderer 处理，不创建 selection region。`grep` 与 `find` 保留 upstream `Text` renderer；local selection 只替换
+可见 result body 行，跳过 renderer 的首个空行和 shell 的左右 padding，保留 expand/truncation UI。soft-wrap 不生成 logical newline，
+每行右侧 space/tab 在 selection text 中移除。
+
+未来的 region snapshot 必须在 layout/content revision 改变后异步更新，绝不从 `render(width)` 注册或移除；mouse callback
+只读取 selection，不创建 Promise、不执行 I/O，也不接管 `Command+C` / `Ctrl+C`。
 
 ## FFF enhancement
 
