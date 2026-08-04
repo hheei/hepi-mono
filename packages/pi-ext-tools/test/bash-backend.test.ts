@@ -94,7 +94,7 @@ test("bash exposes PTY only in interactive TUI mode", async (): Promise<void> =>
 	});
 });
 
-test("bash prompt distinguishes host, async, and PTY execution", (): void => {
+test("bash exposes only async and PTY use guidance", (): void => {
 	const tools: ToolDefinition[] = [];
 	registerBashTool({
 		registerTool(tool: ToolDefinition): void {
@@ -103,13 +103,11 @@ test("bash prompt distinguishes host, async, and PTY execution", (): void => {
 	} as unknown as ExtensionAPI);
 	const bash = tools.find((tool) => tool.name === "bash");
 	if (bash === undefined) throw new Error("Expected bash tool");
-	expect(bash.description).toContain("Default calls use Pi host Bash");
-	expect(bash.promptSnippet).toContain("async");
-	expect(bash.promptGuidelines).toEqual(
-		expect.arrayContaining([
-			expect.stringContaining("bash_job"),
-			expect.stringContaining("pty: true"),
-			expect.stringContaining("timeout"),
-		]),
-	);
+	expect(bash.description).toBe("Run one shell command or short pipeline.");
+	expect(bash.promptSnippet).toBe("Run one shell command or short pipeline.");
+	expect(bash.promptGuidelines).toEqual([
+		"Use `async` only for finite commands that may outlive this tool call.",
+		"Use `pty` only for interactive terminal programs such as `sudo` or `ssh`.",
+		"NEVER combine `pty` with `async`.",
+	]);
 });
