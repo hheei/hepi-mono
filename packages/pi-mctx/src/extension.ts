@@ -394,8 +394,6 @@ function renderHistoryToolResult(result: MctxHistoryResult) {
 		case "history":
 			return renderMctxToolOutput({
 				body: JSON.stringify({ tags: result.tags, nextOffset: result.nextOffset }),
-				dropped: result.tags.filter((tag) => tag.status === "dropped").map((tag) => tag.tagNumber),
-				pending: result.tags.filter((tag) => tag.status === "pending").map((tag) => tag.tagNumber),
 			});
 		case "purged":
 			return renderMctxToolOutput({ body: JSON.stringify({ deleted: result.deleted }) });
@@ -444,8 +442,7 @@ function registerHistoryTools(pi: ExtensionAPI, feature: MctxFeature): void {
 						isError: true,
 					});
 				return renderMctxToolOutput({
-					body: `Queued drops: ${result.queued?.map((tag) => `#${tag}`).join(", ") || "none"}. Rejected: ${result.rejected?.map((tag) => `#${tag}`).join(", ") || "none"}.`,
-					...(result.queued === undefined ? {} : { pending: result.queued }),
+					body: `pending: ${result.queued?.map((tag) => `#${tag}`).join(", ") || "none"}\nrejected: ${result.rejected?.map((tag) => `#${tag}`).join(", ") || "none"}`,
 				});
 			},
 		}),
@@ -485,12 +482,6 @@ function registerHistoryTools(pi: ExtensionAPI, feature: MctxFeature): void {
 				}
 				return renderMctxToolOutput({
 					body: `${page.text || "No current-session tags matched."}${page.nextOffset === undefined ? "" : `\n\nNext offset: ${page.nextOffset}`}${result.rejected.length === 0 ? "" : `\n\nRejected tags: ${result.rejected.map((tag) => `#${tag}`).join(", ")}`}`,
-					dropped: result.tags
-						.filter((tag) => tag.status === "dropped")
-						.map((tag) => tag.tagNumber),
-					pending: result.tags
-						.filter((tag) => tag.status === "pending")
-						.map((tag) => tag.tagNumber),
 				});
 			},
 		}),

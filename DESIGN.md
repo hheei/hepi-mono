@@ -79,9 +79,10 @@ existing semantic token expresses the role.
 - Tool execution uses one padded block with `toolPendingBg`, `toolSuccessBg`,
   or `toolErrorBg`. Use `toolTitle` for its title and `toolOutput` for output.
 - Every active `pi-mctx` tool result begins with the literal `[magic context]`.
-  The next fixed lines report `dropped:` and `pending:` tag numbers or `none`,
-  then the operation-specific result follows after one blank line. This is plain
-  tool output, not a custom message; errors retain the same header.
+  The operation-specific result follows immediately. Only `ctx_reduce` adds its
+  `pending:` and `rejected:` queue summary; `ctx_expand` and `ctx_history` do
+  not display unrelated tag state. This is plain tool output, not a custom
+  message; errors retain the same header.
 - Shell execution uses a full-width frame. Its command header uses `bashMode`;
   output uses `muted`.
 - Extension messages use one `customMessageBg` block with
