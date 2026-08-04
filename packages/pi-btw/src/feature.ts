@@ -5,7 +5,8 @@ import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
-import { type CompletionSubagentHandle, openTuiSurface, startSubagent } from "@hheei/pi-ext-core";
+import { openTuiSurface, startSubagent, type TaskSubagentHandle } from "@hheei/pi-ext-core";
+import { createBtwChildFactory } from "./child.js";
 import { type BtwComponentController, createBtwComponent } from "./component.js";
 import type { BtwExecutionResult, executeBtwTurn } from "./executor.js";
 import {
@@ -14,6 +15,7 @@ import {
 	buildBtwMessages,
 	createBtwTurn,
 	normalizeBtwQuestion,
+	serializeMainMessage,
 } from "./model.js";
 import { BTW_SYSTEM_PROMPT } from "./prompt.js";
 
@@ -37,7 +39,7 @@ export interface BtwFeatureOptions {
 interface ActiveRequest {
 	readonly token: BtwRequestToken;
 	readonly controller: AbortController;
-	handle?: CompletionSubagentHandle;
+	handle?: TaskSubagentHandle;
 	component?: BtwComponentController;
 }
 
@@ -96,19 +98,21 @@ function abortRequest(current: ActiveRuntime, closeOverlay: boolean): void {
 	if (closeOverlay) request.component?.close();
 }
 
-async function executeCoreCompletion(
+async function executeCoreTask(
 	runtime: ActiveRuntime,
 	request: ActiveRequest,
 	model: Model<Api>,
 	messages: ReturnType<typeof buildBtwMessages>,
 ): Promise<BtwExecutionResult> {
 	const handle = startSubagent(runtime.runtime, {
-		mode: "completion",
-		model,
-		prompt: "",
-		messages: [...messages],
-		systemPrompt: BTW_SYSTEM_PROMPT,
-		thinkingLevel: "off",
+		mode: "task",
+		session: createBtwChildFactory(runtime.runtime.extension, {
+			model,
+			systemPrompt: BTW_SYSTEM_PROMPT,
+		}),
+		prompt: messages.map(serializeMainMessage).join("\n\n---\n\n"),
+		maxTurns: 3,
+		delivery: () => undefined,
 	});
 	request.handle = handle;
 	const result = await handle.result;
@@ -116,8 +120,13 @@ async function executeCoreCompletion(
 	if (result.status !== "completed")
 		return {
 			status: "error",
-			message: result.status === "failed" ? result.failure.message : "The BTW request failed",
+			message:
+				result.status === "failed"
+					? (result.failure ?? "The BTW request failed")
+					: "The BTW request reached its turn limit",
 		};
+	if (result.output.trim().length === 0)
+		return { status: "error", message: "The model returned an empty BTW response" };
 	const response: AssistantMessage = {
 		role: "assistant",
 		content: [{ type: "text", text: result.output }],
@@ -193,7 +202,7 @@ export function createBtwFeature(pi: ExtensionAPI, options: BtwFeatureOptions = 
 			});
 			const result =
 				execute === undefined
-					? await executeCoreCompletion(current, request, model as Model<Api>, [...messages])
+					? await executeCoreTask(current, request, model as Model<Api>, [...messages])
 					: await execute({
 							model: model as Model<Api>,
 							modelRegistry: current.runtime.extension.modelRegistry,

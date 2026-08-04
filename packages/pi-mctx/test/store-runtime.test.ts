@@ -9,8 +9,17 @@ test("opens the MCTX store through Bun SQLite", async (): Promise<void> => {
 	try {
 		const store = await openMctxStore(join(directory, "context.db"));
 		try {
-			expect(store.getOrCreatePartition(`dir:${"a".repeat(64)}`, "session-1")).toMatchObject({
+			const partition = store.getOrCreatePartition(`dir:${"a".repeat(64)}`, "session-1");
+			expect(partition).toMatchObject({
 				revision: 0,
+			});
+			expect(
+				store.syncHistoryTags(partition, [
+					{ kind: "message", entryId: "entry-1", source: "fresh Bun store" },
+				]),
+			).toMatchObject({
+				partition: { revision: 1 },
+				tags: [{ kind: "message", entryId: "entry-1", tagNumber: 1, status: "active" }],
 			});
 		} finally {
 			store.close();

@@ -261,7 +261,7 @@ existing semantic token expresses the role.
   12. `Historian:`;
   13. historian state and last failure class;
   14. effective trigger thresholds;
-  15. partition revision and pending sidekick augmentation;
+  15. partition revision;
   16–17. wide-only `Project` and `Session` identity rows.
   On narrow layouts rows 16–17 remain blank, rather than being repurposed.
 - Usage bar is one full-width, single-color semantic bar: `success` below 65%,
@@ -288,9 +288,7 @@ existing semantic token expresses the role.
 
 - MCTX registers one `/mctx` slash command. First-argument autocomplete lists only active lowercase
   subcommands and gives each item a concise description; parked behavior is neither suggested nor executable.
-- Bare `/mctx` opens the read-only status overlay. `/mctx status` is the explicit equivalent; `/mctx aug
-  <query>` owns free-form query text, so autocomplete stops after the `aug` token instead of inventing query
-  suggestions.
+- Bare `/mctx` opens the read-only status overlay. `/mctx status` is the explicit equivalent.
 - Unknown subcommands and invalid arguments show canonical syntax without opening a surface or starting work.
   Deprecated `/ctx-*` aliases are not registered.
 

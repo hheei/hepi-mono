@@ -67,19 +67,9 @@ test("pi-mctx entry registers lifecycle handlers and managed Magic Context tools
 			label: "wrapup",
 			description: "Compact older turns while retaining recent messages",
 		},
-		{
-			value: "dream",
-			label: "dream",
-			description: "Run a bounded smart-note evaluation",
-		},
-		{
-			value: "aug",
-			label: "aug",
-			description: "Run a read-only Sidekick and inject its result once",
-		},
 	]);
 	expect(complete?.("st")?.map((item) => item.value)).toEqual(["status"]);
-	expect(complete?.("a")?.map((item) => item.value)).toEqual(["aug"]);
+	expect(complete?.("a")).toBeNull();
 	expect(complete?.("wrapup ")).toEqual([
 		{
 			value: "wrapup 2",
@@ -102,7 +92,7 @@ test("pi-mctx entry registers lifecycle handlers and managed Magic Context tools
 			description: "Retain at least 16 recent messages",
 		},
 	]);
-	expect(complete?.("aug ")).toBeNull();
+	expect(complete?.("d")).toBeNull();
 	expect(complete?.("missing")).toBeNull();
 	// MCTX tools have static Pi definitions but only publish inventory after runtime admission.
 	expect(inventories.at(-1)).toEqual([]);
@@ -139,9 +129,6 @@ test("mctx routes active subcommands and rejects invalid arguments", async (): P
 	await command.handler("recomp", context);
 	await command.handler("wrapup", context);
 	await command.handler("wrapup 0", context);
-	await command.handler("dream", context);
-	await command.handler("aug", context);
-	await command.handler("aug inspect the repository", context);
 	await command.handler("missing", context);
 
 	expect(notifications).toEqual([
@@ -152,24 +139,10 @@ test("mctx routes active subcommands and rejects invalid arguments", async (): P
 		{ message: "pi-mctx is not active for this session.", level: "error" },
 		{ message: "pi-mctx is not active for this session.", level: "error" },
 		{ message: "Usage: /mctx wrapup [positive messages_to_keep]", level: "error" },
-		{ message: "pi-mctx is not active for this session.", level: "error" },
-		{ message: "Usage: /mctx aug <query up to 500 characters>", level: "error" },
-		{ message: "pi-mctx is not active for this session.", level: "error" },
 		{
 			message:
-				"Unknown MCTX subcommand: missing. Usage: /mctx [status | flush | recomp | wrapup [messages_to_keep] | dream [query] | aug <query>]",
+				"Unknown MCTX subcommand: missing. Usage: /mctx [status | flush | recomp | wrapup [messages_to_keep]]",
 			level: "error",
 		},
-	]);
-
-	notifications.length = 0;
-	const jsonContext = { ...context, mode: "json" } as unknown as ExtensionCommandContext;
-	await command.handler("aug", jsonContext);
-	await command.handler(`aug ${"x".repeat(501)}`, jsonContext);
-	await command.handler("aug inspect the repository", jsonContext);
-	expect(notifications).toEqual([
-		{ message: "Usage: /mctx aug <query up to 500 characters>", level: "error" },
-		{ message: "Usage: /mctx aug <query up to 500 characters>", level: "error" },
-		{ message: "/mctx aug requires interactive mode", level: "error" },
 	]);
 });

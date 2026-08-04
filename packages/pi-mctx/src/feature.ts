@@ -54,12 +54,9 @@ import {
 	rankMctxSearchCandidates,
 } from "./search.js";
 import {
-	buildSidekickAugmentation,
-	buildSidekickPrompt,
 	createMctxChildFactory,
 	MCTX_CHILD_MAX_TURNS,
 	MCTX_CHILD_TASK_TIMEOUT_MS,
-	SIDEKICK_SYSTEM_PROMPT,
 } from "./sidekick.js";
 import { planMctxSmartDrops } from "./smart-drops.js";
 import { protectedTurnGroupsForMessages } from "./source-history.js";
@@ -156,7 +153,6 @@ export interface MctxFeature {
 		context: ExtensionContext,
 		signal: AbortSignal,
 	): Promise<MctxSearchResult>;
-	augment(query: string, context: ExtensionContext): Promise<MctxAugmentResult>;
 	dream(query: string, context: ExtensionContext): Promise<MctxDreamResult>;
 	embedBackfill(context: ExtensionContext): Promise<MctxEmbedBackfillResult>;
 }
@@ -199,7 +195,6 @@ export type MctxStatusResult =
 				readonly tokens?: number;
 				readonly protectedTags: number;
 			};
-			readonly pendingAugmentation: boolean;
 	  }
 	| {
 			readonly kind: "inactive";
@@ -346,13 +341,6 @@ export type MctxSearchResult =
 	| { readonly kind: "invalid-exclusions" }
 	| { readonly kind: "hits"; readonly hits: readonly MctxSearchHit[] };
 
-export type MctxAugmentResult =
-	| { readonly kind: "inactive" }
-	| { readonly kind: "cancelled" }
-	| { readonly kind: "empty" }
-	| { readonly kind: "failed"; readonly reason: string }
-	| { readonly kind: "injected" };
-
 export type MctxDreamResult =
 	| { readonly kind: "inactive" }
 	| { readonly kind: "cancelled" }
@@ -380,8 +368,8 @@ const EMBED_BACKFILL_BATCH_SIZE = 16;
 
 /**
  * Runs one bounded search against the current active runtime. Shared by the
- * registered `ctx_search` tool and the sidekick child's injected `ctx_search`
- * custom tool, so both see the same parent partition and privacy semantics.
+ * registered `ctx_search` tool and child operations, so both see the same
+ * parent partition and privacy semantics.
  */
 async function executeMctxSearch(
 	current: ActiveMctxRuntime,
@@ -485,7 +473,7 @@ type MctxChildTaskOutcome =
 	| { readonly kind: "failed"; readonly reason: string };
 
 /**
- * Shared skeleton for the Sidekick and Dreamer child tasks: deadline + caller +
+ * Shared skeleton for Dreamer child tasks: deadline + caller +
  * lifecycle signals all cancel the child handle, a synchronous admission
  * rejection becomes a failure result, and the terminal result is accepted only
  * while the runtime is still the active one. The launch seam runs inside the
@@ -593,11 +581,6 @@ export interface MctxFeatureOptions {
 	readonly acquireEmbeddingProvider?: (
 		config: unknown,
 	) => Promise<EmbeddingProviderLease | undefined>;
-	/** Test seam for the sidekick child task; production uses `startSubagent`. */
-	readonly startSidekickTask?: (
-		context: ExtensionLifecycleContext,
-		spec: TaskSubagentSpec,
-	) => TaskSubagentHandle;
 	/** Test seam for the Dreamer child task; production uses `startSubagent`. */
 	readonly startDreamTask?: (
 		context: ExtensionLifecycleContext,
@@ -621,8 +604,6 @@ interface ActiveMctxRuntime {
 	pendingEmbedMemory?: MctxMemory | undefined;
 	/** Abort controller for an in-flight project embedding backfill; busy while set. */
 	embedBackfill?: AbortController | undefined;
-	/** One-shot augmentation text injected by the next successful onContext projection. */
-	pendingAugmentation?: string | undefined;
 }
 
 function defaultLogHistorianDiagnostic(diagnostic: MctxHistorianFailureDiagnostic): void {
@@ -716,7 +697,6 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 		// 	return module.acquireEmbeddingProvider(config);
 		// })
 		(async (_config: unknown): Promise<EmbeddingProviderLease | undefined> => undefined);
-	const startSidekickTask = options.startSidekickTask ?? startSubagent;
 	const startDreamTask = options.startDreamTask ?? startSubagent;
 	let active: ActiveMctxRuntime | undefined;
 	// Feature owns read-only status lifecycle; inactive state never exposes store data.
@@ -1369,7 +1349,6 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 						...(tokens === undefined ? {} : { tokens }),
 						protectedTags: current.runtime.settings.protectedTags,
 					},
-					pendingAugmentation: current.pendingAugmentation !== undefined,
 				};
 			} catch (error: unknown) {
 				return { kind: "failed", reason: error instanceof Error ? error.message : String(error) };
@@ -1549,39 +1528,6 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			// A successful projection re-arms the read-failure notification for the
 			// next failure epoch, matching the historian notification pattern.
 			current.notifiedStoreReadFailure = false;
-			// One-shot /mctx aug augmentation: injected once after a successful
-			// projection, then cleared. Projection failures keep it pending.
-			// The bounded wrapper is inserted before the last real user prompt so
-			// the model still sees the authoritative request as its final message.
-			const pendingAugmentation = current.pendingAugmentation;
-			if (pendingAugmentation !== undefined) {
-				current.pendingAugmentation = undefined;
-				const augmentationMessage: AgentMessage = {
-					role: "user",
-					content: [{ type: "text", text: pendingAugmentation }],
-					// Stable timestamp keeps the message shape consistent with
-					// synthetic projection messages.
-					timestamp: 0,
-				};
-				let lastUserIndex = -1;
-				for (let index = tagged.messages.length - 1; index >= 0; index--) {
-					if (tagged.messages[index]?.role === "user") {
-						lastUserIndex = index;
-						break;
-					}
-				}
-				const messages =
-					lastUserIndex >= 0
-						? [
-								...tagged.messages.slice(0, lastUserIndex),
-								augmentationMessage,
-								...tagged.messages.slice(lastUserIndex),
-							]
-						: [...tagged.messages, augmentationMessage];
-				return {
-					messages,
-				};
-			}
 			return { messages: tagged.messages };
 		},
 		prepare,
@@ -1821,50 +1767,6 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				collectExternalSearchCandidates,
 			);
 		},
-		async augment(query, context): Promise<MctxAugmentResult> {
-			const current = active;
-			if (
-				current === undefined ||
-				current.lifecycle.signal.aborted ||
-				current.runtime.sessionId !== context.sessionManager.getSessionId()
-			)
-				return { kind: "inactive" };
-			const outcome = await runMctxChildTask(
-				current,
-				context,
-				MCTX_CHILD_TASK_TIMEOUT_MS,
-				() => active === current,
-				(lifecycle) =>
-					startSidekickTask(lifecycle, {
-						mode: "task",
-						session: createMctxChildFactory(context, {
-							model: context.model,
-							systemPrompt: SIDEKICK_SYSTEM_PROMPT,
-						}),
-						prompt: buildSidekickPrompt(query),
-						maxTurns: MCTX_CHILD_MAX_TURNS,
-						// The command awaits handle.result directly; the sink is a no-op
-						// because nothing else may deliver this terminal result.
-						delivery: () => undefined,
-					}),
-			);
-			if (outcome.kind === "cancelled") return { kind: "cancelled" };
-			if (outcome.kind === "failed") return { kind: "failed", reason: outcome.reason };
-			const { handle, result } = outcome;
-			const output = result.output.trim();
-			if (result.status !== "completed" && result.status !== "limit_reached") {
-				return { kind: "failed", reason: result.failure ?? `sidekick task ${result.status}` };
-			}
-			if (output.length === 0) return { kind: "empty" };
-			current.pendingAugmentation = buildSidekickAugmentation({
-				query,
-				operationId: handle.id,
-				status: result.status,
-				partial: result.softLimitReached,
-				output,
-			});
-			return { kind: "injected" };
-		},
 		async dream(query, context): Promise<MctxDreamResult> {
 			const current = active;
 			if (
@@ -1885,7 +1787,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			if (notes.length === 0 && trimmedQuery.length === 0) return { kind: "empty" };
 			// An explicitly configured Dreamer model must resolve and have
 			// configured auth, or the command fails loudly; absent config uses the
-			// parent's current model like the sidekick path.
+			// parent's current model.
 			let model: Model<Api> | undefined = context.model;
 			const dreamerModel = current.runtime.dreamerModel;
 			if (dreamerModel !== undefined) {

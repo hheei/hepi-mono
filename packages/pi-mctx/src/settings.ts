@@ -1,5 +1,7 @@
 import {
+	createHepiModelSelectionField,
 	defaultPiSettingsPaths,
+	type HepiModelSelectionOption,
 	type HepiSettingField,
 	type HepiSettingsProvider,
 	type HepiSettingsState,
@@ -25,6 +27,8 @@ export interface MctxSettings {
 export interface MctxSettingsProviderOptions {
 	/** User-level Pi settings path; override only for tests or an embedding host. */
 	readonly path?: string;
+	/** Authenticated models exposed by the Pi host's registry. */
+	readonly modelOptions?: readonly HepiModelSelectionOption[];
 }
 
 const opaqueSettingsObjectSchema = Type.Record(Type.String(), Type.Unknown());
@@ -88,26 +92,31 @@ const historianEnabledField: HepiSettingField<boolean> = {
 	enabled: (state): boolean => state[MCTX_RUNTIME_SETTINGS_GROUP]?.enabled === true,
 };
 
-const modelField: HepiSettingField<string> = {
-	id: "model",
-	label: "Historian model",
-	type: "text",
-	defaultValue: "",
-	description: "Select the exact provider/model used for bounded historian completions.",
-	formatDisplay: (value): string => value || "Not selected",
-	parse: (draft): string => draft.trim(),
-	validate: (value): string | undefined =>
-		validModelRef(value) ? undefined : "Expected an exact provider/model reference",
-	enabled: (state): boolean =>
-		state[MCTX_RUNTIME_SETTINGS_GROUP]?.enabled === true &&
-		state[MCTX_HISTORIAN_SETTINGS_GROUP]?.enabled === true,
-};
+function createModelField(
+	modelOptions: readonly HepiModelSelectionOption[],
+): HepiSettingField<string> {
+	return {
+		...createHepiModelSelectionField({
+			id: "model",
+			label: "Historian model",
+			description: "Choose the authenticated model used for bounded historian completions.",
+			modelOptions,
+			thinking: "off",
+		}),
+		enabled: (state): boolean =>
+			state[MCTX_RUNTIME_SETTINGS_GROUP]?.enabled === true &&
+			state[MCTX_HISTORIAN_SETTINGS_GROUP]?.enabled === true,
+		validate: (value): string | undefined =>
+			validModelRef(value) ? undefined : "Expected an exact provider/model reference",
+	};
+}
 
 /** Creates the reload-only Settings contribution for MCTX runtime and historian admission. */
 export function createMctxSettingsProvider(
 	options: MctxSettingsProviderOptions = {},
 ): HepiSettingsProvider {
 	const resolvePath = (): string => options.path ?? defaultPiSettingsPaths().globalPath;
+	const modelField = createModelField(options.modelOptions ?? [{ value: "", label: "Not set" }]);
 	return {
 		id: MCTX_SETTINGS_PROVIDER_ID,
 		title: "Magic Context",
