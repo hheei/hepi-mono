@@ -47,9 +47,11 @@ export type {
 	LoadoutToolActivationSnapshot,
 	LoadoutToolMetadata,
 	ManagedLoadoutToolRegistration,
+	ManagedToolRegistration,
 } from "./loadout.js";
 export {
 	clearLoadoutToolActivation,
+	isManagedLoadoutTool,
 	observeLoadoutHost,
 	observeLoadoutInventory,
 	observeLoadoutToolActivation,
@@ -58,6 +60,7 @@ export {
 	registerLoadoutInventory,
 	registerLoadoutResource,
 	registerManagedLoadoutTool,
+	registerManagedTool,
 } from "./loadout.js";
 export type {
 	MemorySearchExclusionInput,

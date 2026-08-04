@@ -117,6 +117,10 @@ existing semantic token expresses the role.
   name and kind first, then the wrapped resource description (like any tool row), origin, status,
   and — for an open detail — a read-only `Path:` line. It adds a lock winner only for a
   conflict-locked resource.
+- A capability-owned forced-active Tool appears only while its owner publishes it to Loadout. Its row uses
+  `●` and its Description status reads `● Forced active`; it is read-only in both scopes, so `Space` makes
+  no change and no persisted Loadout override is written. `pi-mctx` uses this for its active-runtime
+  `ctx_reduce`, `ctx_expand`, and `ctx_history` tools.
 - Loadout uses `Ctrl+P` to switch Global and Project scope, `Space` to cycle only the selected
   resource's reachable scope choices, and direct text input to filter resource name and display
   group. Global and Project-private rows remain binary; only global-visible Project rows include
@@ -168,9 +172,10 @@ existing semantic token expresses the role.
   layout stacks those regions. Field label/value columns remain stable, disabled fields use `dim`,
   and only a selected non-editing long label may marquee. `Space` toggles booleans; Pi Input edits
   other fields; `Tab` only cycles a field's related `tabCycle` value.
-- `pi-mctx` contributes Historian enablement and model selection to the combined Settings tree, not
-  a separate page or Loadout resource. Disabling Historian dims and locks its model row; persisted
-  changes apply on the next Pi reload or session rather than replacing a running historian.
+- `pi-mctx` contributes Magic Context runtime and Historian controls to the combined Settings tree, not
+  a separate page or Loadout resource. Disabling runtime dims and locks the Historian controls; disabling
+  Historian dims and locks its model row. Persisted changes apply on the next Pi reload or session rather
+  than replacing a running runtime or historian.
 - Settings and Loadout each reserve at least 20 page-content rows below the shared router tab strip.
   Their lists may remain shorter than that minimum; router-owned blank rows retain a stable custom
   surface height instead of inventing empty list entries.

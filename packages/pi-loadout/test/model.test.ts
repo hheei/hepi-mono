@@ -34,6 +34,29 @@ describe("Loadout policy", () => {
 		).toThrow("Expected pi-loadout.enabled to contain canonical tool:<name> or skill:<name> keys");
 	});
 
+	test("keeps a forced tool active despite global and project disable overrides", () => {
+		const tools = [
+			{
+				name: "ctx_reduce",
+				defaultActive: false,
+				priority: 0,
+				conflictSets: [],
+				conflictsWith: [],
+				forcedActive: true,
+			},
+			{ name: "read", defaultActive: true, priority: 1, conflictSets: [], conflictsWith: [] },
+		] as const;
+		expect(
+			resolveActiveToolNames(
+				tools,
+				parseLoadoutConfiguration({
+					global: { disabled: ["tool:ctx_reduce"] },
+					project: { disabled: ["tool:ctx_reduce"] },
+				}),
+			),
+		).toEqual(["ctx_reduce", "read"]);
+	});
+
 	test("applies the ordered delta layers and lets same-layer disabled win", () => {
 		const configuration = parseLoadoutConfiguration({
 			global: { disabled: ["tool:find"], enabled: ["tool:find", "tool:grep"] },

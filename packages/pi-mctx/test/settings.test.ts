@@ -144,6 +144,7 @@ test("pi-mctx registers historian settings for inactive sessions and removes it 
 		);
 		type Handler = (event: unknown, context: unknown) => void | Promise<void>;
 		const handlers = new Map<string, Handler[]>();
+		const activeTools: string[] = [];
 		const pi = {
 			events: {},
 			on(name: string, handler: Handler): void {
@@ -151,6 +152,12 @@ test("pi-mctx registers historian settings for inactive sessions and removes it 
 			},
 			registerTool(): void {},
 			registerCommand(): void {},
+			getActiveTools(): string[] {
+				return activeTools;
+			},
+			setActiveTools(next: string[]): void {
+				activeTools.splice(0, activeTools.length, ...next);
+			},
 		};
 		piMctxExtension(pi as never);
 		const registry = getHepiRuntimeSettingsRegistry(pi as never);

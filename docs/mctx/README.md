@@ -7,8 +7,8 @@
 runtime 内的可选 producer：只有 `pi-mctx.historian.enabled` 与有效模型同时存在时，`turn_end` 才触发 historian
 Completion。关闭 historian 不关闭 runtime、工具、status、Sidekick 或已验证 compartment 的 `context` 投影，也不产生新的
 compartment。Pi host 会 clone context messages，因此 transform 对完整 live branch 做唯一的结构匹配；
-零个或多个候选都 fail open，绝不替换。`ctx_reduce` 等 MCTX tool 只能在 active MCTX session 中执行；inactive session 返回
-明确 tool error。它注册唯一 `/mctx` command；bare `/mctx` 与 `/mctx status` 打开只读 status surface，`/mctx aug`
+零个或多个候选都 fail open，绝不替换。`ctx_reduce` 等 MCTX tool 只能在 active MCTX session 中执行；inactive runtime 时它们不在
+Pi active tool set 或 Loadout inventory 中出现。它注册唯一 `/mctx` command；bare `/mctx` 与 `/mctx status` 打开只读 status surface，`/mctx aug`
 运行 Sidekick。active runtime 还会发布 Parent compressed-context Service：
 `pi-subagents` 在 `inherit_context: true` 时读取已验证 compartments 与 live tail；能力缺失、过期或
 无效时保持其 Pi-native text fallback。
@@ -25,10 +25,13 @@ Sidekick augmentation（四工具 child：`read`/`grep`/`find`/`ls`）保持 act
 ### Loadout tool registration
 
 `ctx_reduce`、`ctx_expand`、`ctx_history` 是当前注册的 executable tools（`ctx_memory`、`ctx_note`、
-`ctx_search` 随记忆体系禁用而 park）。它们通过
-`pi-ext-core` 的 managed Loadout registration 以 `Magic Context` group 发布：core 负责 Pi static registration、Loadout
-inventory 和 reload 时同 owner replacement；`pi-mctx` 保留参数校验、MCTX runtime dispatch、inactive fallback 与所有
-session/store ownership。缺少 `pi-loadout` 时工具仍可用；Loadout 只消费 inventory 并在安装时展示这些工具。
+`ctx_search` 随记忆体系禁用而 park）。Pi host 保留三者的静态 definition，因为 host 不提供 unregister；但 `pi-mctx` 在
+`session_start` 完成 runtime admission 后才把它们加入 Pi active tool set，并以 `Magic Context` group 发布动态 Loadout
+inventory。runtime disabled 或 activation 失败时，三者从 active set 与 inventory 移除，因此不会进入 model tool list，也不会
+显示在 Loadout。active runtime 中三者是 MCTX capability 的固定组成：Loadout 以 `forcedActive` 显示为 enabled/read-only，忽略
+任何 global/project `pi-loadout` override，用户不能单独关闭或修改它们。`pi-ext-core` 负责 static registration、managed-tool
+识别、动态 inventory 与 reload 时同 owner replacement；`pi-mctx` 保留 runtime admission、active-set 切换、参数校验和
+session/store ownership。缺少 `pi-loadout` 时，`pi-mctx` 仍通过 Pi host active set 执行同一可见性与强制启用策略。
 
 ## MCTX Settings registration
 

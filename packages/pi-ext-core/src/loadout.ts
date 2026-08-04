@@ -21,6 +21,8 @@ export interface LoadoutToolMetadata {
 	/** Tool names that cannot be active with this tool. The relation is symmetric. */
 	readonly conflictsWith?: readonly string[];
 	readonly defaultActive: boolean;
+	/** Capability-owned tools ignore user Loadout overrides while published. */
+	readonly forcedActive?: boolean;
 }
 
 /** Host operations available while a Loadout resource detail handles input. */
@@ -79,6 +81,12 @@ export interface LoadoutInventoryRegistration extends LoadoutToolMetadata {}
  * old registration without allowing a second extension to claim the same name.
  */
 export interface ManagedLoadoutToolRegistration extends LoadoutToolMetadata {
+	readonly owner: string;
+}
+
+/** A static Pi registration whose Loadout inventory is published separately by its owner. */
+export interface ManagedToolRegistration {
+	readonly id: string;
 	readonly owner: string;
 }
 
@@ -175,6 +183,11 @@ function validateManagedOwner(owner: string): void {
 	if (!owner.trim()) throw new Error("Loadout managed tool owner must not be empty");
 }
 
+function validateManagedRegistration(registration: ManagedToolRegistration): void {
+	if (!registration.id.trim()) throw new Error("Loadout managed tool id must not be empty");
+	validateManagedOwner(registration.owner);
+}
+
 function snapshot(state: RuntimeLoadoutState): readonly LoadoutInventoryItem[] {
 	return [...state.registrations.values()].sort((left, right) => left.id.localeCompare(right.id));
 }
@@ -260,17 +273,16 @@ export function registerLoadoutInventory(
 }
 
 /**
- * Registers a HEPI-owned executable tool and its corresponding static inventory item.
+ * Registers a HEPI-owned executable tool without publishing it to Loadout inventory.
  * Registration happens during extension construction because Pi has no unregister API;
  * the stable owner permits only the same package to replace its declaration on /reload.
  */
-export function registerManagedLoadoutTool<TParams extends TSchema, TDetails, TState>(
+export function registerManagedTool<TParams extends TSchema, TDetails, TState>(
 	pi: ExtensionAPI,
-	registration: ManagedLoadoutToolRegistration,
+	registration: ManagedToolRegistration,
 	tool: ToolDefinition<TParams, TDetails, TState>,
 ): void {
-	validateMetadata(registration);
-	validateManagedOwner(registration.owner);
+	validateManagedRegistration(registration);
 	if (registration.id !== tool.name)
 		throw new Error(`Loadout tool id must match the Pi tool name: ${registration.id}`);
 	const state = stateFor(pi);
@@ -282,14 +294,29 @@ export function registerManagedLoadoutTool<TParams extends TSchema, TDetails, TS
 			throw new Error(`Loadout tool id already registered: ${registration.id}`);
 		pi.registerTool(tool);
 		state.managed.set(registration.id, { owner: registration.owner, runner: pi });
-		state.registrations.set(registration.id, registration);
-		notify(state);
 		return;
 	}
-	if (state.registrations.has(registration.id))
-		throw new Error(`Loadout tool id already registered: ${registration.id}`);
 	pi.registerTool(tool);
 	state.managed.set(registration.id, { owner: registration.owner, runner: pi });
+}
+
+/** Returns whether a static Pi tool is owned by a managed Loadout contributor. */
+export function isManagedLoadoutTool(pi: ExtensionAPI, id: string): boolean {
+	return stateFor(pi).managed.has(id);
+}
+
+/** Registers a HEPI-owned executable tool and immediately publishes its static inventory item. */
+export function registerManagedLoadoutTool<TParams extends TSchema, TDetails, TState>(
+	pi: ExtensionAPI,
+	registration: ManagedLoadoutToolRegistration,
+	tool: ToolDefinition<TParams, TDetails, TState>,
+): void {
+	validateMetadata(registration);
+	const state = stateFor(pi);
+	const existing = state.registrations.get(registration.id);
+	if (existing !== undefined && (!("owner" in existing) || existing.owner !== registration.owner))
+		throw new Error(`Loadout tool id already registered: ${registration.id}`);
+	registerManagedTool(pi, registration, tool);
 	state.registrations.set(registration.id, registration);
 	notify(state);
 }

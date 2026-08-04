@@ -14,6 +14,7 @@ export type LoadoutScope = "global" | "project";
 export type LoadoutSelection = "enabled" | "disabled" | "inherit";
 
 export type LoadoutPolicySource =
+	| "forced"
 	| "project-disabled"
 	| "project-enabled"
 	| "global-disabled"
@@ -32,6 +33,7 @@ export interface ToolPolicy {
 	readonly priority: number;
 	readonly conflictSets: readonly string[];
 	readonly conflictsWith: readonly string[];
+	readonly forcedActive?: boolean;
 }
 
 const MAX_LOADOUT_DELTA_KEYS = 4096;
@@ -124,6 +126,8 @@ export function resolveLoadoutState(
 
 function sourceRank(source: LoadoutPolicySource): number {
 	switch (source) {
+		case "forced":
+			return 5;
 		case "project-disabled":
 			return 4;
 		case "project-enabled":
@@ -154,11 +158,9 @@ export function resolveActiveToolNames(
 	const candidates = tools
 		.map((tool) => ({
 			...tool,
-			state: resolveLoadoutState(
-				toolConfigurationKey(tool.name),
-				tool.defaultActive,
-				configuration,
-			),
+			state: tool.forcedActive
+				? ({ enabled: true, source: "forced" } as const)
+				: resolveLoadoutState(toolConfigurationKey(tool.name), tool.defaultActive, configuration),
 		}))
 		.filter((tool) => tool.state.enabled)
 		.sort(

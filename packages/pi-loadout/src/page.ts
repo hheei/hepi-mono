@@ -8,6 +8,7 @@ import { Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/
 import {
 	type ExtensionPageView,
 	type ExtensionPageViewContext,
+	isManagedLoadoutTool,
 	type LoadoutInventoryItem,
 	type LoadoutResourceDetail,
 	type LoadoutResourceDetailContext,
@@ -46,6 +47,7 @@ interface ResourceItem {
 	readonly defaultActive: boolean;
 	readonly projectPrivate: boolean;
 	readonly enabled: boolean;
+	readonly forcedActive: boolean;
 	readonly detail?: LoadoutResourceDetail;
 	readonly lockedBy?: string;
 }
@@ -108,10 +110,11 @@ function scopeLabel(scope: LoadoutScope, cwd: string): string {
 }
 
 function rawSelection(
-	item: Pick<ResourceItem, "key" | "defaultActive" | "projectPrivate">,
+	item: Pick<ResourceItem, "key" | "defaultActive" | "projectPrivate" | "forcedActive">,
 	scope: LoadoutScope,
 	configuration: LoadoutConfiguration,
 ): LoadoutSelection {
+	if (item.forcedActive) return "enabled";
 	const delta = configuration[scope];
 	if (delta.disabled.includes(item.key)) return "disabled";
 	if (delta.enabled.includes(item.key)) return "enabled";
@@ -120,7 +123,7 @@ function rawSelection(
 }
 
 function nextSelection(
-	item: Pick<ResourceItem, "key" | "defaultActive" | "projectPrivate">,
+	item: Pick<ResourceItem, "key" | "defaultActive" | "projectPrivate" | "forcedActive">,
 	scope: LoadoutScope,
 	configuration: LoadoutConfiguration,
 ): LoadoutSelection {
@@ -242,6 +245,7 @@ function toolItem(
 		defaultActive,
 		projectPrivate: tool.sourceInfo.scope === "project",
 		enabled: state.enabled && lockedBy === undefined,
+		forcedActive: metadata?.forcedActive === true,
 		...(lockedBy === undefined ? {} : { lockedBy }),
 	};
 }
@@ -259,6 +263,7 @@ function skillItem(skill: SlashCommandInfo, configuration: LoadoutConfiguration)
 		defaultActive: true,
 		projectPrivate: skill.sourceInfo.scope === "project",
 		enabled: state.enabled,
+		forcedActive: false,
 	};
 }
 
@@ -277,6 +282,7 @@ function resourceItem(
 		defaultActive: resource.defaultActive,
 		projectPrivate: resource.projectPrivate,
 		enabled: state.enabled,
+		forcedActive: resource.forcedActive === true,
 		...(resource.detail === undefined ? {} : { detail: resource.detail }),
 	};
 }
@@ -320,10 +326,13 @@ export function createLoadoutPage(
 		const tools = pi.getAllTools();
 		const toolMetadata = metadata.filter((item): item is LoadoutToolMetadata => !("kind" in item));
 		const toolMetadataById = new Map(toolMetadata.map((item) => [item.id, item]));
-		const policies = loadoutToolPolicies(tools, initialActive, toolMetadata);
+		const visibleTools = tools.filter(
+			(tool) => !isManagedLoadoutTool(pi, tool.name) || toolMetadataById.has(tool.name),
+		);
+		const policies = loadoutToolPolicies(visibleTools, initialActive, toolMetadata);
 		const active = new Set(resolveActiveToolNames(policies, configuration));
 		const items = [
-			...tools.map((tool) =>
+			...visibleTools.map((tool) =>
 				toolItem(
 					tool,
 					toolMetadataById.get(tool.name),
@@ -431,7 +440,7 @@ export function createLoadoutPage(
 	};
 	const toggle = (): void => {
 		const item = selectedItem();
-		if (item === undefined || item.lockedBy !== undefined) return;
+		if (item === undefined || item.lockedBy !== undefined || item.forcedActive) return;
 		const selection = nextSelection(item, scope, configuration);
 		const draft: DraftSelection = {
 			key: item.key,
@@ -561,7 +570,9 @@ export function createLoadoutPage(
 									"muted",
 									`Status: ${
 										selectedResource.lockedBy === undefined
-											? selectionStatusLabel(rawSelection(selectedResource, scope, configuration))
+											? selectedResource.forcedActive
+												? "● Forced active"
+												: selectionStatusLabel(rawSelection(selectedResource, scope, configuration))
 											: "⊘ Locked"
 									}`,
 								),
