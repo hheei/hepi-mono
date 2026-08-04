@@ -5,6 +5,7 @@ import {
 	registerExtensionLifecycle,
 	registerHepiSettings,
 } from "@hheei/pi-ext-core";
+import { BashJobRegistry } from "../bash-jobs.js";
 import { createFffAutocompleteProvider } from "./autocomplete.js";
 import { FffRuntime } from "./fff.js";
 import {
@@ -18,11 +19,13 @@ import {
 export interface FffRuntimeState {
 	getRuntime(): FffRuntime | undefined;
 	getSettings(): FffSettings;
+	getBashJobs(): BashJobRegistry | undefined;
 }
 
 interface MutableFffRuntimeState {
 	runtime: FffRuntime | undefined;
 	settings: FffSettings;
+	jobs: BashJobRegistry | undefined;
 }
 
 const runtimeStates = new WeakMap<FffRuntimeState, MutableFffRuntimeState>();
@@ -31,8 +34,9 @@ export function createFffRuntimeState(): FffRuntimeState {
 	const state: FffRuntimeState = {
 		getRuntime: (): FffRuntime | undefined => runtimeStates.get(state)?.runtime,
 		getSettings: (): FffSettings => runtimeStates.get(state)?.settings ?? DEFAULT_FFF_SETTINGS,
+		getBashJobs: (): BashJobRegistry | undefined => runtimeStates.get(state)?.jobs,
 	};
-	runtimeStates.set(state, { runtime: undefined, settings: DEFAULT_FFF_SETTINGS });
+	runtimeStates.set(state, { runtime: undefined, settings: DEFAULT_FFF_SETTINGS, jobs: undefined });
 	return state;
 }
 
@@ -82,6 +86,12 @@ async function startFffLifecycle(
 	state.settings = settings;
 	const runtime = new FffRuntime(context.extension.cwd);
 	state.runtime = runtime;
+	const jobs = new BashJobRegistry();
+	state.jobs = jobs;
+	context.resources.add("bash-jobs", () => {
+		jobs.dispose();
+		if (state.jobs === jobs) state.jobs = undefined;
+	});
 	context.resources.add("fff-runtime", () => {
 		runtime.dispose();
 		if (state.runtime === runtime) state.runtime = undefined;

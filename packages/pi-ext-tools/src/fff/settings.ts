@@ -4,6 +4,7 @@ import {
 	type HepiSettingsProvider,
 	type HepiSettingsState,
 } from "@hheei/pi-ext-core";
+import { defaultShellPath } from "../bash-jobs.js";
 
 const SECTION = "pi-ext-tools";
 const GROUP = "fff";
@@ -13,6 +14,7 @@ export interface FffSettingsProviderOptions {
 }
 
 export interface FffSettings {
+	readonly shellPath: string;
 	/** FFF behavior toggles only; tool activation belongs to pi-loadout. */
 	readonly autocomplete: boolean;
 	readonly grepEnhancement: boolean;
@@ -22,6 +24,7 @@ export interface FffSettings {
 }
 
 export const DEFAULT_FFF_SETTINGS: FffSettings = {
+	shellPath: defaultShellPath(),
 	autocomplete: true,
 	grepEnhancement: true,
 	readEnhancement: true,
@@ -32,14 +35,25 @@ export const DEFAULT_FFF_SETTINGS: FffSettings = {
 function booleanAt(
 	state: HepiSettingsState | undefined,
 	group: string,
-	key: keyof FffSettings,
+	key: "autocomplete" | "grepEnhancement" | "readEnhancement" | "findEnhancement" | "statusUI",
 ): boolean {
 	const value = state?.[group]?.[key];
 	return typeof value === "boolean" ? value : DEFAULT_FFF_SETTINGS[key];
 }
 
+function nonEmptyStringAt(
+	state: HepiSettingsState | undefined,
+	group: string,
+	key: string,
+	fallback: string,
+): string {
+	const value = state?.[group]?.[key];
+	return typeof value === "string" && value.trim() !== "" ? value : fallback;
+}
+
 export function fffSettingsFromState(state: HepiSettingsState | undefined): FffSettings {
 	return {
+		shellPath: nonEmptyStringAt(state, "bash", "shellPath", DEFAULT_FFF_SETTINGS.shellPath),
 		autocomplete: booleanAt(state, GROUP, "autocomplete"),
 		grepEnhancement: booleanAt(state, GROUP, "grepEnhancement"),
 		readEnhancement: booleanAt(state, GROUP, "readEnhancement"),
@@ -69,6 +83,24 @@ export function createFffSettingsProvider(
 		origin: "@hheei/pi-ext-tools",
 		description: "Configure FFF runtime behavior. Tool activation remains owned by Loadout.",
 		groups: [
+			{
+				id: "bash",
+				title: "Bash",
+				fields: [
+					{
+						id: "shellPath",
+						label: "Shell path",
+						type: "path",
+						defaultValue: DEFAULT_FFF_SETTINGS.shellPath,
+						description: "Select system shell used by extension-owned asynchronous Bash jobs.",
+						parse: (value) => value.trim(),
+						validate: (value) =>
+							typeof value !== "string" || value.trim() === ""
+								? "Shell path must not be empty"
+								: undefined,
+					},
+				],
+			},
 			{
 				id: GROUP,
 				title: "",
