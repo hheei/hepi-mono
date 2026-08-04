@@ -5,6 +5,7 @@ import {
 	type ExtensionCommandContext,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { getHepiRuntimeSettingsRegistry } from "@hheei/pi-ext-core";
 
 type EditorFactory = NonNullable<
 	Parameters<NonNullable<ExtensionContext["ui"]["setEditorComponent"]>>[0]
@@ -12,13 +13,11 @@ type EditorFactory = NonNullable<
 type Editor = ReturnType<EditorFactory>;
 type FooterFactory = NonNullable<Parameters<NonNullable<ExtensionContext["ui"]["setFooter"]>>[0]>;
 
-import piCavemanExtension, {
-	CAVEMAN_SETTINGS_PROVIDER_ID,
-} from "../../../hepi-skills/src/pi-caveman/index.js";
+import piCavemanExtension, { CAVEMAN_SETTINGS_PROVIDER_ID } from "../../../pi-caveman/src/index.js";
 import piPonytailExtension, {
 	PONYTAIL_SETTINGS_PROVIDER_ID,
-} from "../../../hepi-skills/src/pi-ponytail/index.js";
-import piBasicsExtension, { getHepiRuntimeSettingsRegistry } from "../../src/core/index.js";
+} from "../../../pi-ponytail/src/index.js";
+import piBasicsExtension from "../../src/core/index.js";
 
 function harness(mode: "tui" | "json" = "tui", waitForCustomDone = false) {
 	const commands: Array<{
@@ -203,8 +202,8 @@ test("accepts settings providers from mode extensions", async () => {
 	piBasicsExtension(host.pi);
 	const settingsRegistry = getHepiRuntimeSettingsRegistry(host.pi);
 	await host.emit("session_start");
-	expect(settingsRegistry.get(CAVEMAN_SETTINGS_PROVIDER_ID)?.origin).toBe("@hheei/hepi-skills");
-	expect(settingsRegistry.get(PONYTAIL_SETTINGS_PROVIDER_ID)?.origin).toBe("@hheei/hepi-skills");
+	expect(settingsRegistry.get(CAVEMAN_SETTINGS_PROVIDER_ID)?.origin).toBe("@hheei/pi-caveman");
+	expect(settingsRegistry.get(PONYTAIL_SETTINGS_PROVIDER_ID)?.origin).toBe("@hheei/pi-ponytail");
 	await host.emit("session_shutdown");
 	expect(settingsRegistry.get(CAVEMAN_SETTINGS_PROVIDER_ID)).toBeUndefined();
 	expect(settingsRegistry.get(PONYTAIL_SETTINGS_PROVIDER_ID)).toBeUndefined();
