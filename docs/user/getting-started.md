@@ -15,6 +15,9 @@ pi install npm:@hheei/pi-ponytail
 pi install npm:@hheei/pi-caveman
 ```
 
+`@hheei/hepi-skills` is transitional. Install either it or the independent
+`pi-ponytail`/`pi-caveman` packages, not both.
+
 Each package exposes one Pi extension entry.
 
 ## Local Checkout

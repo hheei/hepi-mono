@@ -1,8 +1,17 @@
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { HepiSettingField, HepiSettingsProvider, HepiSettingsState } from "@hheei/pi-ext-core";
-import { updateJsonSettingsRoot } from "@hheei/pi-ext-core";
+import type {
+	HepiContext,
+	HepiSettingField,
+	HepiSettingsProvider,
+	HepiSettingsState,
+} from "@hheei/pi-ext-core";
+import {
+	defaultPiSettingsPaths,
+	readJsonSettingsSection,
+	readMergedJsonSettingsSection,
+	updateJsonSettingsRoot,
+} from "@hheei/pi-ext-core";
 import {
 	CAVEMAN_INTENSITIES,
 	type CavemanMode,
@@ -29,15 +38,28 @@ const MODE_OPTIONS = [...CAVEMAN_INTENSITIES, "off"] as const;
 type JsonObject = Record<string, unknown>;
 
 export async function loadCavemanDefaults(
-	settingsFilePath: string = defaultSettingsPath(),
+	settingsFilePath?: string,
+	context?: Pick<HepiContext, "cwd" | "signal">,
 ): Promise<CavemanDefaults> {
-	const path = settingsFilePath;
 	try {
-		const root = parseJsonObject(await readFile(path, "utf8"));
-		return defaultsFromRoot(root);
+		const section =
+			settingsFilePath === undefined
+				? (
+						await readMergedJsonSettingsSection({
+							paths: defaultPiSettingsPaths(context?.cwd),
+							section: CAVEMAN_SETTINGS_PROVIDER_ID,
+							...(context?.signal === undefined ? {} : { signal: context.signal }),
+						})
+					).merged
+				: await readJsonSettingsSection(
+						settingsFilePath,
+						CAVEMAN_SETTINGS_PROVIDER_ID,
+						context?.signal,
+					);
+		return defaultsFromRoot({ [CAVEMAN_SETTINGS_PROVIDER_ID]: section });
 	} catch (error) {
-		if (isMissingFile(error)) return DEFAULT_CAVEMAN_DEFAULTS;
-		console.warn(`[pi-caveman] Ignoring malformed settings at ${path}: ${errorMessage(error)}`);
+		context?.signal?.throwIfAborted();
+		console.warn(`[pi-caveman] Ignoring malformed settings: ${errorMessage(error)}`);
 		return DEFAULT_CAVEMAN_DEFAULTS;
 	}
 }
@@ -49,7 +71,7 @@ export interface CavemanSettingsProviderOptions {
 export function createCavemanSettingsProvider(
 	options: CavemanSettingsProviderOptions = {},
 ): HepiSettingsProvider {
-	const settingsFilePath = options.settingsFilePath ?? defaultSettingsPath();
+	const settingsFilePath = options.settingsFilePath;
 	return {
 		id: CAVEMAN_SETTINGS_PROVIDER_ID,
 		title: "Caveman defaults",
@@ -75,16 +97,21 @@ export function createCavemanSettingsProvider(
 			},
 		],
 		storage: {
-			async load(): Promise<HepiSettingsState> {
-				return defaultsToState(await loadCavemanDefaults(settingsFilePath));
+			async load(ctx): Promise<HepiSettingsState> {
+				return defaultsToState(await loadCavemanDefaults(settingsFilePath, ctx));
 			},
-			async save(state: HepiSettingsState): Promise<void> {
-				await updateJsonSettingsRoot(settingsFilePath, (root) => {
-					const currentSection = asRecord(root[CAVEMAN_SETTINGS_PROVIDER_ID]);
-					const nextSection: JsonObject = currentSection === undefined ? {} : { ...currentSection };
-					nextSection[CAVEMAN_DEFAULTS_GROUP] = defaultsFromState(state);
-					root[CAVEMAN_SETTINGS_PROVIDER_ID] = nextSection;
-				});
+			async save(state: HepiSettingsState, ctx): Promise<void> {
+				await updateJsonSettingsRoot(
+					settingsFilePath ?? defaultSettingsPath(),
+					(root) => {
+						const currentSection = asRecord(root[CAVEMAN_SETTINGS_PROVIDER_ID]);
+						const nextSection: JsonObject =
+							currentSection === undefined ? {} : { ...currentSection };
+						nextSection[CAVEMAN_DEFAULTS_GROUP] = defaultsFromState(state);
+						root[CAVEMAN_SETTINGS_PROVIDER_ID] = nextSection;
+					},
+					ctx.signal,
+				);
 			},
 		},
 	};
@@ -136,22 +163,12 @@ function defaultSettingsPath(): string {
 	return join(getAgentDir(), "settings.json");
 }
 
-function parseJsonObject(text: string): JsonObject {
-	const value: unknown = JSON.parse(text);
-	if (!isRecord(value)) throw new Error("settings root must be an object");
-	return { ...value };
-}
-
 function asRecord(value: unknown): Readonly<JsonObject> | undefined {
 	return isRecord(value) ? value : undefined;
 }
 
 function isRecord(value: unknown): value is Readonly<JsonObject> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isMissingFile(error: unknown): boolean {
-	return isRecord(error) && error.code === "ENOENT";
 }
 
 function errorMessage(error: unknown): string {

@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { PonytailMode } from "./mode.js";
+import { PONYTAIL_INTENSITIES, type PonytailMode } from "./mode.js";
 import { buildPonytailPrompt } from "./prompt.js";
 
 export const PONYTAIL_SUBAGENT_MARKER = "<pi-ponytail-subagent>";
@@ -10,6 +10,10 @@ const PI_SUBAGENT_TOOL_NAMES: ReadonlySet<string> = new Set([
 	"get_subagent_result",
 	"steer_subagent",
 ]);
+const COMPLETE_SUBAGENT_MARKERS = PONYTAIL_INTENSITIES.map(
+	(mode) =>
+		`${PONYTAIL_SUBAGENT_MARKER}\n${buildPonytailPrompt(mode)}\n${PONYTAIL_SUBAGENT_END_MARKER}`,
+);
 
 export interface AgentToolInput {
 	prompt: string;
@@ -29,10 +33,10 @@ export function isAgentToolInput(value: unknown): value is AgentToolInput {
 
 export function injectSubagentPrompt(prompt: string, mode: PonytailMode): string {
 	const instructions = buildPonytailPrompt(mode);
-	if (instructions === undefined || prompt.includes(PONYTAIL_SUBAGENT_MARKER)) return prompt;
+	if (instructions === undefined || hasSubagentPromptMarker(prompt)) return prompt;
 	return `${prompt}\n\n${PONYTAIL_SUBAGENT_MARKER}\n${instructions}\n${PONYTAIL_SUBAGENT_END_MARKER}`;
 }
 
 export function hasSubagentPromptMarker(prompt: string): boolean {
-	return prompt.includes(PONYTAIL_SUBAGENT_MARKER);
+	return COMPLETE_SUBAGENT_MARKERS.some((marker) => prompt.includes(marker));
 }

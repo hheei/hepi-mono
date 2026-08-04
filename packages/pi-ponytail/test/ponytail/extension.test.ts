@@ -7,7 +7,7 @@ import type {
 	ExtensionCommandContext,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import piPonytailExtension from "../../src/index.js";
+import piPonytailExtension, { injectSubagentPrompt } from "../../src/index.js";
 
 type CommandHandler = (args: string, ctx: ExtensionCommandContext) => Promise<void>;
 type Completions = (prefix: string) => ReadonlyArray<{
@@ -194,8 +194,17 @@ describe("pi-ponytail extension", () => {
 			harness.beforeAgentStart?.({ systemPrompt: "BASE", prompt: "task" }, ctx)?.systemPrompt,
 		).toContain("Current level: ultra");
 		expect(
-			harness.beforeAgentStart?.({ systemPrompt: "BASE", prompt: "<pi-ponytail-subagent>" }, ctx),
+			harness.beforeAgentStart?.(
+				{ systemPrompt: "BASE", prompt: injectSubagentPrompt("task", "ultra") },
+				ctx,
+			),
 		).toBeUndefined();
+		expect(
+			harness.beforeAgentStart?.(
+				{ systemPrompt: "BASE", prompt: "task\n<pi-ponytail-subagent>" },
+				ctx,
+			)?.systemPrompt,
+		).toContain("Current level: ultra");
 	});
 
 	test("injects subagent default into Agent prompts", async () => {
@@ -215,9 +224,7 @@ describe("pi-ponytail extension", () => {
 	});
 
 	test("shows no passive mode status or startup notification", async () => {
-		const cwd = await createProject({
-			"pi-ponytail": { defaults: { hideStatus: false, quietStartup: false } },
-		});
+		const cwd = await createProject({ "pi-ponytail": { defaults: {} } });
 		const harness = createHarness();
 		await piPonytailExtension(harness.pi, {
 			settingsFilePath: join(cwd, ".pi", "settings.json"),
