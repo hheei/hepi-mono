@@ -1,13 +1,27 @@
 import { expect, test } from "bun:test";
 import { createArtifactRegistry } from "../src/artifact.js";
 
-test("allocates session artifact URLs and rejects cleared resources", () => {
+test("shares artifacts across registries without exposing backing paths", () => {
+	const first = createArtifactRegistry();
+	const second = createArtifactRegistry();
+	const one = first.create("one");
+	const two = first.create("two");
+	expect(one).toMatch(/^artifact:\/\/[1-9]\d*$/);
+	expect(two).toMatch(/^artifact:\/\/[1-9]\d*$/);
+	expect(second.read(one)).toBe("one");
+	expect(second.read(two)).toBe("two");
+	expect(() => second.read("artifact://999999999999999999999")).toThrow("Unknown artifact URL");
+	expect(() => second.read("/tmp/secret")).toThrow("Invalid artifact URL");
+	first.dispose();
+	expect(second.read(one)).toBe("one");
+	second.dispose();
+});
+
+test("append handle exposes reserved artifact URI before finalization", () => {
 	const registry = createArtifactRegistry();
-	expect(registry.create("one")).toBe("artifact://1");
-	expect(registry.create("two")).toBe("artifact://2");
-	expect(registry.read("artifact://1")).toBe("one");
-	expect(() => registry.read("artifact://3")).toThrow("Unknown artifact URL");
-	expect(() => registry.read("/tmp/secret")).toThrow("Invalid artifact URL");
-	registry.dispose();
-	expect(() => registry.read("artifact://1")).toThrow("Unknown artifact URL");
+	const handle = registry.createAppend();
+	expect(handle.uri).toMatch(/^artifact:\/\/[1-9]\d*$/);
+	handle.append(new TextEncoder().encode("streamed"));
+	expect(handle.finalize()).toBe(handle.uri);
+	expect(registry.read(handle.uri)).toBe("streamed");
 });
