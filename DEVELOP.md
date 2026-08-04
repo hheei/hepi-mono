@@ -60,12 +60,15 @@ PI_DEV_PACKAGES=pi-auto-title,pi-subagents bun scripts/pi-dev
 
 ### 构建缓存
 
-首次运行会 build 所选包并生成 `dist`。随后源码与构建配置不变时，启动器从
+首次运行会 build 所选包并生成 `dist`。选中 `pi-ext-tools` 时，还会以增量
+`local` profile 构建其 N-API 模块。随后对应源码与构建配置不变时，启动器从
 `.pi-dev/agent/build.json` 命中缓存并跳过 build。下列变化会自动失效缓存：
 
 - 已选包的 `src/**/*.ts`、`package.json`、`tsconfig.json` 或 `tsconfig.build.json`
 - 根目录 `bun.lock` 或 `tsconfig.base.json`
 - 任一已选包的 `dist/` 缺失
+- 选中 `pi-ext-tools` 时，`crates/` 内任一 Cargo manifest、lockfile、build script 或
+  Rust 源码变化，或 native 模块缺失
 
 要强制重建，删除缓存文件：
 

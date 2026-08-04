@@ -16,6 +16,8 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageRoot = path.join(root, "packages");
+const toolsPackageDir = path.join(packageRoot, "pi-ext-tools");
+const nativeBridgePath = path.join(toolsPackageDir, "native", "pi-ext-tools-bridge.node");
 const agentDir = path.resolve(process.env.PI_DEV_AGENT_DIR ?? path.join(root, ".pi-dev", "agent"));
 const sourceAgentDir = path.join(homedir(), ".pi", "agent");
 const sourceAuthPath = path.resolve(
@@ -106,6 +108,25 @@ function updateSourceHash(hash: ReturnType<typeof createHash>, directory: string
 	}
 }
 
+/** Hashes every Cargo input while excluding compiler outputs. */
+function updateRustSourceHash(hash: ReturnType<typeof createHash>, directory: string): void {
+	for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) =>
+		a.name.localeCompare(b.name),
+	)) {
+		if (entry.name === "target") continue;
+		const filePath = path.join(directory, entry.name);
+		if (entry.isDirectory()) {
+			updateRustSourceHash(hash, filePath);
+		} else if (
+			entry.isFile() &&
+			(entry.name === "Cargo.toml" || entry.name === "Cargo.lock" || entry.name === "build.rs" || entry.name.endsWith(".rs"))
+		) {
+			hash.update(filePath);
+			hash.update(readFileSync(filePath));
+		}
+	}
+}
+
 function buildFingerprint(directories: readonly string[]): string {
 	const hash = createHash("sha256");
 	for (const filePath of [path.join(root, "bun.lock"), path.join(root, "tsconfig.base.json")]) {
@@ -125,26 +146,66 @@ function buildFingerprint(directories: readonly string[]): string {
 	return hash.digest("hex");
 }
 
+function nativeBuildFingerprint(): string {
+	const hash = createHash("sha256");
+	for (const filePath of [
+		path.join(root, "bun.lock"),
+		path.join(toolsPackageDir, "package.json"),
+		path.join(root, "scripts", "build-rust.mjs"),
+	]) {
+		hash.update(filePath);
+		hash.update(readFileSync(filePath));
+	}
+	updateRustSourceHash(hash, path.join(root, "crates"));
+	return hash.digest("hex");
+}
+
 mkdirSync(agentDir, { recursive: true });
 const buildStatePath = path.join(agentDir, "build.json");
 const buildDirectories = [...new Set([...requiredBuildDirectories, ...packageDirs])];
-const fingerprint = buildFingerprint(buildDirectories);
-let cachedFingerprint: string | undefined;
+const typescriptFingerprint = buildFingerprint(buildDirectories);
+const buildsNativeBridge = packageDirs.includes(toolsPackageDir);
+const nativeFingerprint = buildsNativeBridge ? nativeBuildFingerprint() : undefined;
+let cachedTypeScriptFingerprint: string | undefined;
+let cachedNativeFingerprint: string | undefined;
 try {
 	const cached: unknown = JSON.parse(readFileSync(buildStatePath, "utf8"));
 	if (
 		typeof cached === "object" &&
 		cached !== null &&
-		"fingerprint" in cached &&
-		typeof cached.fingerprint === "string"
+		"typescriptFingerprint" in cached &&
+		typeof cached.typescriptFingerprint === "string"
 	) {
-		cachedFingerprint = cached.fingerprint;
+		cachedTypeScriptFingerprint = cached.typescriptFingerprint;
+	}
+	if (
+		typeof cached === "object" &&
+		cached !== null &&
+		"nativeFingerprint" in cached &&
+		typeof cached.nativeFingerprint === "string"
+	) {
+		cachedNativeFingerprint = cached.nativeFingerprint;
 	}
 } catch {
 	// No cached build state requires a fresh build.
 }
 
-if (cachedFingerprint !== fingerprint || buildDirectories.some((directory) => !existsSync(path.join(directory, "dist")))) {
+const needsNativeBuild =
+	nativeFingerprint !== undefined &&
+	(nativeFingerprint !== cachedNativeFingerprint || !existsSync(nativeBridgePath));
+const needsTypeScriptBuild =
+	cachedTypeScriptFingerprint !== typescriptFingerprint ||
+	buildDirectories.some((directory) => !existsSync(path.join(directory, "dist")));
+
+if (needsNativeBuild) {
+	const result = spawnSync(process.execPath, ["run", "build:native"], {
+		cwd: toolsPackageDir,
+		stdio: "inherit",
+	});
+	if (result.status !== 0) process.exit(result.status ?? 1);
+}
+
+if (needsTypeScriptBuild) {
 	for (const directory of buildDirectories) {
 		const result = spawnSync(process.execPath, ["run", "build", "--", "--noEmit", "false"], {
 			cwd: directory,
@@ -152,7 +213,20 @@ if (cachedFingerprint !== fingerprint || buildDirectories.some((directory) => !e
 		});
 		if (result.status !== 0) process.exit(result.status ?? 1);
 	}
-	writeFileSync(buildStatePath, `${JSON.stringify({ fingerprint })}\n`);
+}
+
+if (needsNativeBuild || needsTypeScriptBuild) {
+	writeFileSync(
+		buildStatePath,
+		`${JSON.stringify({
+			typescriptFingerprint,
+			...(nativeFingerprint === undefined
+				? cachedNativeFingerprint === undefined
+					? {}
+					: { nativeFingerprint: cachedNativeFingerprint }
+				: { nativeFingerprint }),
+		})}\n`,
+	);
 }
 
 const settingsPath = path.join(agentDir, "settings.json");

@@ -19,9 +19,10 @@ Pi 包、扩展、技能或主题，也不加载项目 `.pi/` 中自动发现的
   链接当前 Pi 的对应文件，不复制密钥或 provider 定义；可用
   `PI_DEV_AUTH_FILE`、`PI_DEV_MODELS_FILE` 指定来源。
 - 启动前构建所选本地包并强制 TypeScript 产出 `dist`，构建失败时不启动 Pi。
-  启动器把源码与构建配置的指纹保存到 `.pi-dev/agent/build.json`：首次运行或
-  指纹变化时构建；同一 worktree、同一包集、未改源码时跳过构建。删除该文件可
-  强制下一次构建。
+  选中 `pi-ext-tools` 时，启动器还会以增量 `local` profile 构建其
+  `crates/pi-ext-bridge` N-API 模块。两类构建各有指纹，首次运行或对应输入变化时
+  构建；同一 worktree、同一包集、未改源码时跳过构建。删除
+  `.pi-dev/agent/build.json` 可强制下一次构建。
 
 默认使用 `cx/gpt-5.6-luna` 和 `low` thinking。命令行传入的 Pi 模型与
 thinking 参数仍可覆盖此默认值。启动器不会向子进程继承父进程的
