@@ -1,8 +1,17 @@
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { HepiSettingField, HepiSettingsProvider, HepiSettingsState } from "@hheei/pi-ext-core";
-import { updateJsonSettingsRoot } from "@hheei/pi-ext-core";
+import type {
+	HepiContext,
+	HepiSettingField,
+	HepiSettingsProvider,
+	HepiSettingsState,
+} from "@hheei/pi-ext-core";
+import {
+	defaultPiSettingsPaths,
+	readJsonSettingsRoot,
+	readMergedJsonSettingsSection,
+	updateJsonSettingsRoot,
+} from "@hheei/pi-ext-core";
 import {
 	DEFAULT_PONYTAIL_MODE,
 	isPonytailIntensity,
@@ -14,34 +23,37 @@ export const PONYTAIL_SETTINGS_PROVIDER_ID = "pi-ponytail";
 export const PONYTAIL_DEFAULTS_GROUP = "defaults";
 export const PONYTAIL_MAIN_MODE_FIELD = "mainMode";
 export const PONYTAIL_SUBAGENT_MODE_FIELD = "subagentMode";
-export const PONYTAIL_HIDE_STATUS_FIELD = "hideStatus";
-export const PONYTAIL_QUIET_STARTUP_FIELD = "quietStartup";
 
 export interface PonytailDefaults {
 	readonly mainMode: PonytailMode;
 	readonly subagentMode: PonytailMode;
-	readonly hideStatus: boolean;
-	readonly quietStartup: boolean;
 }
 
 export const DEFAULT_PONYTAIL_DEFAULTS: PonytailDefaults = {
 	mainMode: DEFAULT_PONYTAIL_MODE,
 	subagentMode: DEFAULT_PONYTAIL_MODE,
-	hideStatus: false,
-	quietStartup: false,
 };
 
 const MODE_OPTIONS = [...PONYTAIL_INTENSITIES, "off"] as const;
 type JsonObject = Record<string, unknown>;
 
 export async function loadPonytailDefaults(
-	settingsFilePath: string = defaultSettingsPath(),
+	settingsFilePath?: string,
+	context: Pick<HepiContext, "cwd" | "signal"> = {},
 ): Promise<PonytailDefaults> {
-	const path = settingsFilePath;
 	try {
-		return defaultsFromRoot(parseJsonObject(await readFile(path, "utf8")));
+		if (settingsFilePath !== undefined) {
+			return defaultsFromRoot(await readJsonSettingsRoot(settingsFilePath, context.signal));
+		}
+		const section = await readMergedJsonSettingsSection({
+			paths: defaultPiSettingsPaths(context.cwd ?? process.cwd()),
+			section: PONYTAIL_SETTINGS_PROVIDER_ID,
+			...(context.signal === undefined ? {} : { signal: context.signal }),
+		});
+		return defaultsFromValues(asRecord(section.merged[PONYTAIL_DEFAULTS_GROUP]));
 	} catch (error) {
-		if (isMissingFile(error)) return DEFAULT_PONYTAIL_DEFAULTS;
+		context.signal?.throwIfAborted();
+		const path = settingsFilePath ?? defaultSettingsPath();
 		console.warn(`[pi-ponytail] Ignoring malformed settings at ${path}: ${errorMessage(error)}`);
 		return DEFAULT_PONYTAIL_DEFAULTS;
 	}
@@ -54,7 +66,6 @@ export interface PonytailSettingsProviderOptions {
 export function createPonytailSettingsProvider(
 	options: PonytailSettingsProviderOptions = {},
 ): HepiSettingsProvider {
-	const settingsFilePath = options.settingsFilePath ?? defaultSettingsPath();
 	return {
 		id: PONYTAIL_SETTINGS_PROVIDER_ID,
 		title: "Ponytail defaults",
@@ -80,16 +91,22 @@ export function createPonytailSettingsProvider(
 			},
 		],
 		storage: {
-			async load(): Promise<HepiSettingsState> {
-				return defaultsToState(await loadPonytailDefaults(settingsFilePath));
+			async load(context): Promise<HepiSettingsState> {
+				return defaultsToState(await loadPonytailDefaults(options.settingsFilePath, context));
 			},
-			async save(state: HepiSettingsState): Promise<void> {
-				await updateJsonSettingsRoot(settingsFilePath, (root) => {
-					const currentSection = asRecord(root[PONYTAIL_SETTINGS_PROVIDER_ID]);
-					const nextSection: JsonObject = currentSection === undefined ? {} : { ...currentSection };
-					nextSection[PONYTAIL_DEFAULTS_GROUP] = defaultsFromState(state);
-					root[PONYTAIL_SETTINGS_PROVIDER_ID] = nextSection;
-				});
+			async save(state: HepiSettingsState, context): Promise<void> {
+				const settingsFilePath = options.settingsFilePath ?? defaultSettingsPath();
+				await updateJsonSettingsRoot(
+					settingsFilePath,
+					(root) => {
+						const currentSection = asRecord(root[PONYTAIL_SETTINGS_PROVIDER_ID]);
+						const nextSection: JsonObject =
+							currentSection === undefined ? {} : { ...currentSection };
+						nextSection[PONYTAIL_DEFAULTS_GROUP] = defaultsFromState(state);
+						root[PONYTAIL_SETTINGS_PROVIDER_ID] = nextSection;
+					},
+					context.signal,
+				);
 			},
 		},
 	};
@@ -123,8 +140,6 @@ function defaultsFromValues(
 	return {
 		mainMode: normalizeMode(values?.[PONYTAIL_MAIN_MODE_FIELD], DEFAULT_PONYTAIL_MODE),
 		subagentMode: normalizeMode(values?.[PONYTAIL_SUBAGENT_MODE_FIELD], DEFAULT_PONYTAIL_MODE),
-		hideStatus: normalizeBoolean(values?.[PONYTAIL_HIDE_STATUS_FIELD], false),
-		quietStartup: normalizeBoolean(values?.[PONYTAIL_QUIET_STARTUP_FIELD], false),
 	};
 }
 
@@ -133,8 +148,6 @@ function defaultsToState(defaults: PonytailDefaults): HepiSettingsState {
 		[PONYTAIL_DEFAULTS_GROUP]: {
 			[PONYTAIL_MAIN_MODE_FIELD]: defaults.mainMode,
 			[PONYTAIL_SUBAGENT_MODE_FIELD]: defaults.subagentMode,
-			[PONYTAIL_HIDE_STATUS_FIELD]: defaults.hideStatus,
-			[PONYTAIL_QUIET_STARTUP_FIELD]: defaults.quietStartup,
 		},
 	};
 }
@@ -143,18 +156,8 @@ function normalizeMode(value: unknown, fallback: PonytailMode): PonytailMode {
 	return value === "off" || isPonytailIntensity(value) ? value : fallback;
 }
 
-function normalizeBoolean(value: unknown, fallback: boolean): boolean {
-	return typeof value === "boolean" ? value : fallback;
-}
-
 function defaultSettingsPath(): string {
 	return join(getAgentDir(), "settings.json");
-}
-
-function parseJsonObject(text: string): JsonObject {
-	const value: unknown = JSON.parse(text);
-	if (!isRecord(value)) throw new Error("settings root must be an object");
-	return { ...value };
 }
 
 function asRecord(value: unknown): Readonly<JsonObject> | undefined {
@@ -163,10 +166,6 @@ function asRecord(value: unknown): Readonly<JsonObject> | undefined {
 
 function isRecord(value: unknown): value is Readonly<JsonObject> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isMissingFile(error: unknown): boolean {
-	return isRecord(error) && error.code === "ENOENT";
 }
 
 function errorMessage(error: unknown): string {

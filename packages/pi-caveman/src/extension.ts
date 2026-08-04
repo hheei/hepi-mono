@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { registerExtensionLifecycle } from "@hheei/pi-ext-core";
 import {
 	type CavemanDefaults,
 	type CavemanSettingsProviderOptions,
@@ -54,7 +55,7 @@ export default function piCavemanExtension(
 	let defaults: CavemanDefaults = DEFAULT_CAVEMAN_DEFAULTS;
 	let mode: CavemanMode = DEFAULT_CAVEMAN_MODE;
 	let subagentSession = false;
-	let unregisterSettings: (() => void) | undefined;
+	let active: { extension: ExtensionContext; signal: AbortSignal } | undefined;
 
 	function configuredDefaultMode(): CavemanMode {
 		return subagentSession ? defaults.subagentMode : defaults.mainMode;
@@ -78,6 +79,7 @@ export default function piCavemanExtension(
 			return matches.length > 0 ? matches : null;
 		},
 		handler: async (args, ctx) => {
+			if (activeSession() === undefined) return;
 			const command = parseCavemanCommand(args);
 			switch (command.kind) {
 				case "set":
@@ -107,39 +109,60 @@ export default function piCavemanExtension(
 		mode = restoreCavemanMode(ctx.sessionManager.getBranch(), configuredDefaultMode());
 	}
 
-	pi.on("session_start", async (_event, ctx) => {
-		unregisterSettings?.();
-		unregisterSettings = registerCavemanSettings(pi, options);
-		defaults = await loadCavemanDefaults(options.settingsFilePath);
-		subagentSession = isPiSubagentSession(pi);
-		restoreModeFromBranch(ctx);
+	registerExtensionLifecycle(pi, {
+		key: "@hheei/pi-caveman",
+		start: async (context) => {
+			const session = { extension: context.extension, signal: context.signal };
+			active = session;
+			// Raw Pi handlers remain installed across reload; identity check makes stale ones inert.
+			context.resources.add("active-session", () => {
+				if (active === session) active = undefined;
+			});
+			context.resources.add("settings", registerCavemanSettings(pi, options));
+			// Settings reads and Agent re-reads must stop with lifecycle shutdown.
+			defaults = await loadCavemanDefaults(options.settingsFilePath, {
+				cwd: context.extension.cwd,
+				signal: context.signal,
+			});
+			subagentSession = isPiSubagentSession(pi);
+			restoreModeFromBranch(context.extension);
+		},
 	});
 
-	pi.on("session_shutdown", () => {
-		unregisterSettings?.();
-		unregisterSettings = undefined;
-	});
-
+	const activeSession = ():
+		| {
+				extension: ExtensionContext;
+				signal: AbortSignal;
+		  }
+		| undefined => {
+		const session = active;
+		return session !== undefined && !session.signal.aborted ? session : undefined;
+	};
 	pi.on("session_tree", (_event, ctx) => {
-		restoreModeFromBranch(ctx);
+		if (activeSession() !== undefined) restoreModeFromBranch(ctx);
 	});
-
 	pi.on("input", (event, ctx) => {
-		if (event.source === "extension") return { action: "continue" };
+		if (activeSession() === undefined || event.source === "extension")
+			return { action: "continue" };
 		const requestedMode = detectCavemanIntent(event.text);
 		if (requestedMode !== undefined) setMode(requestedMode, ctx);
 		return { action: "continue" };
 	});
-
 	pi.on("tool_call", async (event) => {
-		if (event.toolName !== "Agent" || !isAgentToolInput(event.input)) return undefined;
-		defaults = await loadCavemanDefaults(options.settingsFilePath);
+		const session = activeSession();
+		if (session === undefined || event.toolName !== "Agent" || !isAgentToolInput(event.input))
+			return undefined;
+		const loaded = await loadCavemanDefaults(options.settingsFilePath, {
+			cwd: session.extension.cwd,
+			signal: session.signal,
+		});
+		if (active !== session || session.signal.aborted) return undefined;
+		defaults = loaded;
 		event.input.prompt = injectSubagentPrompt(event.input.prompt, defaults.subagentMode);
 		return undefined;
 	});
-
 	pi.on("before_agent_start", (event) => {
-		if (hasSubagentPromptMarker(event.prompt)) return undefined;
+		if (activeSession() === undefined || hasSubagentPromptMarker(event.prompt)) return undefined;
 		const prompt = buildCavemanPrompt(mode);
 		if (prompt === undefined) return undefined;
 		return { systemPrompt: `${event.systemPrompt}\n\n${prompt}` };

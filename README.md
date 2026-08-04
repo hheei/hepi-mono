@@ -19,13 +19,17 @@ pi install npm:@hheei/pi-ponytail
 pi install npm:@hheei/pi-caveman
 ```
 
+`@hheei/hepi-skills` is transitional; choose it or the independent mode
+packages, not both.
+
 These aggregate packages are transitional. Independent extensions install separately:
 
 ```bash
 pi install npm:@hheei/pi-t2s
 ```
 
-New features are published as independent extensions built on `@hheei/pi-ext-core`.
+New features will be published as independent extensions built on
+`@hheei/pi-ext-core`.
 
 For a local checkout:
 

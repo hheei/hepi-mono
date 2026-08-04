@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { CavemanMode } from "./mode.js";
+import { CAVEMAN_INTENSITIES, type CavemanMode } from "./mode.js";
 import { buildCavemanPrompt } from "./prompt.js";
 
 export const CAVEMAN_SUBAGENT_MARKER = "<pi-caveman-subagent>";
@@ -10,6 +10,10 @@ const PI_SUBAGENT_TOOL_NAMES: ReadonlySet<string> = new Set([
 	"get_subagent_result",
 	"steer_subagent",
 ]);
+const COMPLETE_SUBAGENT_MARKERS = CAVEMAN_INTENSITIES.map(
+	(mode) =>
+		`${CAVEMAN_SUBAGENT_MARKER}\n${buildCavemanPrompt(mode)}\n${CAVEMAN_SUBAGENT_END_MARKER}`,
+);
 
 export interface AgentToolInput {
 	prompt: string;
@@ -29,10 +33,10 @@ export function isAgentToolInput(value: unknown): value is AgentToolInput {
 
 export function injectSubagentPrompt(prompt: string, mode: CavemanMode): string {
 	const instructions = buildCavemanPrompt(mode);
-	if (instructions === undefined || prompt.includes(CAVEMAN_SUBAGENT_MARKER)) return prompt;
+	if (instructions === undefined || hasSubagentPromptMarker(prompt)) return prompt;
 	return `${prompt}\n\n${CAVEMAN_SUBAGENT_MARKER}\n${instructions}\n${CAVEMAN_SUBAGENT_END_MARKER}`;
 }
 
 export function hasSubagentPromptMarker(prompt: string): boolean {
-	return prompt.includes(CAVEMAN_SUBAGENT_MARKER);
+	return COMPLETE_SUBAGENT_MARKERS.some((marker) => prompt.includes(marker));
 }

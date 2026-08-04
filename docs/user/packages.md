@@ -25,7 +25,7 @@ Independent extensions:
 `pi-ponytail` 与 `pi-caveman` 各自拥有一个 Pi 扩展入口、命令、会话状态、
 设置提供者和提示词注入逻辑。Ponytail 的五个辅助 skill 随该软件包发布；
 Caveman 当前没有额外 skill 目录。两者都通过 `@hheei/pi-ext-core` 使用
-生命周期和设置注册能力，不依赖另一个具体扩展或旧的 `hepi-skills`。
+生命周期、取消和设置注册能力，不依赖另一个具体扩展或旧的 `hepi-skills`。
 
 软件包 README 说明安装和兼容性。跨软件包概念、架构和贡献规则放在
 `docs/`；详细 TypeScript API 和实现行为写在代码旁的注释中。

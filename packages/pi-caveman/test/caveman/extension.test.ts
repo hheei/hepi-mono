@@ -7,7 +7,7 @@ import type {
 	ExtensionCommandContext,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import piCavemanExtension from "../../src/index.js";
+import piCavemanExtension, { injectSubagentPrompt } from "../../src/index.js";
 
 type CommandHandler = (args: string, ctx: ExtensionCommandContext) => Promise<void>;
 type Completions = (prefix: string) => ReadonlyArray<{
@@ -229,10 +229,16 @@ describe("pi-caveman extension", () => {
 		).toContain("Current intensity: ultra");
 		expect(
 			harness.beforeAgentStart?.(
-				{ systemPrompt: "BASE", prompt: "task\n<pi-caveman-subagent>" },
+				{ systemPrompt: "BASE", prompt: injectSubagentPrompt("task", "ultra") },
 				ctx,
 			),
 		).toBeUndefined();
+		expect(
+			harness.beforeAgentStart?.(
+				{ systemPrompt: "BASE", prompt: "task\n<pi-caveman-subagent>" },
+				ctx,
+			)?.systemPrompt,
+		).toContain("Current intensity: ultra");
 	});
 
 	test("injects configured mode into pi-subagents Agent tool prompts", async () => {

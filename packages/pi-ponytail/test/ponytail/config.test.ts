@@ -39,22 +39,18 @@ describe("Ponytail settings", () => {
 		expect(registry.get(PONYTAIL_SETTINGS_PROVIDER_ID)).toBeUndefined();
 	});
 
-	test("loads validated modes and presentation flags", async () => {
+	test("loads validated modes", async () => {
 		const cwd = await createProject({
 			"pi-ponytail": {
 				defaults: {
 					mainMode: "lite",
 					subagentMode: "ultra",
-					hideStatus: true,
-					quietStartup: true,
 				},
 			},
 		});
 		expect(await loadPonytailDefaults(join(cwd, "settings.json"))).toEqual({
 			mainMode: "lite",
 			subagentMode: "ultra",
-			hideStatus: true,
-			quietStartup: true,
 		});
 	});
 
@@ -73,8 +69,6 @@ describe("Ponytail settings", () => {
 				[PONYTAIL_DEFAULTS_GROUP]: {
 					mainMode: "off",
 					subagentMode: "ultra",
-					hideStatus: false,
-					quietStartup: true,
 				},
 			},
 			{ sessionId: "test", cwd },
@@ -88,8 +82,6 @@ describe("Ponytail settings", () => {
 				defaults: {
 					mainMode: "off",
 					subagentMode: "ultra",
-					hideStatus: false,
-					quietStartup: true,
 				},
 			},
 		});

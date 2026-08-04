@@ -7,3 +7,5 @@ Caveman response style for Pi. Provides `/caveman` mode controls, natural-langua
 Install package through Pi's package manager or add `@hheei/pi-caveman` to your Pi package configuration. The extension is published at `dist/extension.js`.
 
 Modes: `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-full`, `wenyan-ultra`, and `off`.
+
+Do not install this package together with the transitional `@hheei/hepi-skills`; both register `/caveman`.
