@@ -155,7 +155,7 @@ export function renderMctxStatusLines(
 		return `${border("│")} ${padAnsi(truncateToWidth(row, contentWidth, "…"), contentWidth)} ${border("│")}`;
 	};
 	const framed = bodyRows(snapshot, theme, contentWidth).map(frameRow);
-	framed.push(frameRow(style(theme, "muted", "Press Escape to close")));
+	framed.push(frameRow(style(theme, "dim", "⎋ close")));
 	framed.push(border(safeWidth === 1 ? "╰" : `╰${"─".repeat(Math.max(0, safeWidth - 2))}╯`));
 	return [top, ...framed];
 }

@@ -63,7 +63,7 @@ test("content follows upstream status dialog order", (): void => {
 		"Context",
 		"Execute threshold 65%",
 		"Protected tags 20",
-		"Press Escape to close",
+		"⎋ close",
 	]);
 	const rendered = lines.join("\n");
 	expect(rendered).not.toContain("Partition");
