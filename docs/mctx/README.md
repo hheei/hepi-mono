@@ -5,12 +5,27 @@
 `/mctx` status panel 的显示内容与布局对齐上游 Magic Context Pi plugin：
 标题行、Context 使用率与 token bar、Counts、Historian、Tags、Context
 阈值区和关闭提示使用上游顺序与视觉层级。对齐范围只包含 panel renderer
-和其可见数据；`pi-mctx` 不具备的 upstream 指标（memory、notes、cache、
-upgrade、work-token 分类等）不显示，也不为此扩展生命周期或 TUI backend。
+和其可见数据；`pi-mctx` 不具备的 upstream 指标（memory、notes、upgrade
+等）不显示，也不为此扩展生命周期或 TUI backend。
 
 上游依据：
 https://github.com/cortexkit/magic-context/tree/0e81084f6f9ce8a87df76d975b9d31d10e9c477b/packages/pi-plugin
 ，具体实现为 `src/dialogs/status-dialog.ts`。
+
+## Status Accounting Migration
+
+状态 panel 的 token 分类、Work tokens 和 cache timing 由 `pi-mctx` 自己生产，
+不依赖上游 Magic Context 的数据库或进程。现有 `context` hook 已拿到 Pi
+实际送往模型的消息，因此在该边界统计 `System`、`Compartments`、
+`Conversation`、`Tool Calls` 与 `Tool Defs`；每次 `turn_end` 更新 response
+时间，MCTX store 持久化 work/cache 和分类 snapshot。panel 只读取
+`MctxStatusResult`，不直接扫描 SQLite 或 session branch。
+
+Work tokens 遵循上游 Pi 算法：每个 assistant usage 的
+`input + cacheRead + cacheWrite` 形成 prompt；prompt 上升量与 output 累加为
+`new work`，prompt 下降开启新 phase，各 phase peak 累加为 `total input`。
+Cache TTL 默认 5 分钟，过期只由 `last response` 与当前时间计算，不启动新
+timer 或改变既有 lifecycle。无数据的上游类别不显示，不伪造零值。
 
 ## 状态
 

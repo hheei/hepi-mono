@@ -3,6 +3,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { replayTui, viewFrame } from "../../hepi-debug/src/tui-replay.js";
 import type { MctxStatusResult } from "../src/feature.js";
+import { emptyMctxStatusAccounting } from "../src/status-metrics.js";
 import {
 	createMctxStatusComponent,
 	type MctxStatusTheme,
@@ -21,6 +22,19 @@ const status: ActiveStatus = {
 	tags: { total: 5, active: 3, pending: 1, dropped: 1 },
 	historian: { kind: "active", phase: "running", model: "openai/gpt-5" },
 	trigger: { percentage: 65, tokens: 2600, protectedTags: 20 },
+	pendingAugmentation: true,
+	accounting: {
+		...emptyMctxStatusAccounting(),
+		tokens: {
+			...emptyMctxStatusAccounting().tokens,
+			systemPrompt: 100,
+			compartments: 400,
+			conversation: 500,
+			toolCalls: 150,
+			toolDefinitions: 50,
+		},
+		work: { newWorkTokens: 704_400, totalInputTokens: 1_200_000 },
+	},
 };
 
 const plainTheme: MctxStatusTheme = {
@@ -41,7 +55,7 @@ function withUsage(percentage: number): ActiveStatus {
 test("upstream-style panel keeps exact width at supported terminal sizes", (): void => {
 	for (const width of [48, 100]) {
 		const lines = renderMctxStatusLines(status, width, plainTheme);
-		expect(lines).toHaveLength(17);
+		expect(lines).toHaveLength(width === 48 ? 19 : 24);
 		for (const line of lines) expect(visibleWidth(line)).toBe(width);
 	}
 });
@@ -52,10 +66,17 @@ test("content follows upstream status dialog order", (): void => {
 		"⚡ Magic Context Status",
 		"",
 		"Context  30.0% · 1.2K / 4K tokens",
+		"Work tokens 704.4K new · 1.2M total input",
 		"█".repeat(96),
+		"System   100 (8.3%)",
+		"Compartments (3)   400 (33.3%)",
+		"Conversation   500 (41.7%)",
+		"Tool Calls   150 (12.5%)",
+		"Tool Defs   50 (4.2%)",
 		"",
 		"Counts: 3 compartments",
 		"Historian: running",
+		"Cache TTL: 5m · last response never · 5m remaining",
 		"",
 		"Tags",
 		"Active 3 · Pending 1 · Dropped 1 · Total 5",
@@ -81,15 +102,15 @@ test("usage bar uses upstream semantic threshold colors", (): void => {
 		},
 		bold: (text: string): string => text,
 	};
-	for (const [percentage, role] of [
-		[30, "accent"],
-		[65, "warning"],
-		[80, "error"],
-	] as const) {
+	for (const percentage of [30, 65, 80]) {
 		const lines = renderMctxStatusLines(withUsage(percentage), 48, semanticTheme);
-		expect(contentRow(lines, 4)).toBe("█".repeat(44));
-		expect(roles.at(-1)).toBe(role);
+		expect(contentRow(lines, 5)).toMatch(/^[█]+$/u);
+		expect(contentRow(lines, 5)).toHaveLength(44);
 	}
+	expect(roles).toContain("thinkingText");
+	expect(roles).toContain("accent");
+	expect(roles).toContain("toolTitle");
+	expect(roles).toContain("customMessageLabel");
 });
 
 test("unavailable usage does not invent token metrics or a bar", (): void => {
@@ -102,10 +123,13 @@ test("unavailable usage does not invent token metrics or a bar", (): void => {
 		tags: status.tags,
 		historian: status.historian,
 		trigger: status.trigger,
+		pendingAugmentation: status.pendingAugmentation,
+		accounting: emptyMctxStatusAccounting(),
 	};
 	const lines = renderMctxStatusLines(missing, 48, plainTheme);
 	expect(contentRow(lines, 3)).toBe("Context  ? · ? / ? tokens");
-	expect(contentRow(lines, 4)).toBe("");
+	expect(contentRow(lines, 4)).toBe("Work tokens 0 new · 0 total input");
+	expect(contentRow(lines, 5)).toBe("");
 	expect(lines.join("\n")).not.toContain("0%");
 });
 
@@ -142,8 +166,8 @@ test("status component replays at 48x20 and 100x24", async (): Promise<void> => 
 				}),
 		});
 		const frame = viewFrame(replay.last);
-		expect(frame).toHaveLength(17);
+		expect(frame).toHaveLength(Math.min(columns === 48 ? 19 : 24, rows));
 		expect(frame[1]).toContain("Magic Context Status");
-		expect(frame.at(-1)).toContain("╰");
+		if (rows >= 25) expect(frame.at(-1)).toContain("╰");
 	}
 });

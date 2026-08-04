@@ -4,6 +4,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
 import type { MctxConfiguration } from "../src/config.js";
 import { createMctxFeature } from "../src/feature.js";
+import { emptyMctxStatusAccounting } from "../src/status-metrics.js";
 import type { MctxStore } from "../src/store.js";
 
 const model = { api: "test", provider: "anthropic", id: "claude-haiku" } as Model<Api>;
@@ -67,6 +68,8 @@ function store(): MctxStore {
 			sessionId: "session-1",
 			revision: 0,
 		}),
+		readStatusAccounting: () => emptyMctxStatusAccounting(),
+		writeStatusAccounting: () => undefined,
 		findPartition: () => undefined,
 		isHandoffInstalled: () => false,
 		reserveHandoffInstallation: () => undefined,

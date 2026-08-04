@@ -29,6 +29,7 @@ import {
 } from "./feature.js";
 import { MAX_CTX_EXPAND_CHARS, renderMctxHistoryTagPage } from "./history-tags.js";
 import { createMctxSettingsProvider } from "./settings.js";
+import type { MctxToolDefinition } from "./status-metrics.js";
 import { openMctxStatusSurface } from "./status-surface.js";
 import { renderMctxToolOutput } from "./tool-output.js";
 
@@ -739,7 +740,14 @@ function registerHistoryTools(pi: ExtensionAPI, feature: MctxFeature): void {
  * private context hook applies only an already-validated MCTX projection and never waits for it.
  */
 export default function piMctxExtension(pi: ExtensionAPI): void {
-	const feature = createMctxFeature();
+	const feature = createMctxFeature({
+		listTools: (): readonly MctxToolDefinition[] =>
+			pi.getAllTools().map((tool) => ({
+				name: tool.name,
+				description: tool.description,
+				parameters: tool.parameters,
+			})),
+	});
 	const settingsRegistry = getHepiRuntimeSettingsRegistry(pi);
 	let lifecycleSignal: AbortSignal | undefined;
 	registerExtensionLifecycle(pi, {

@@ -20,6 +20,7 @@ import type { MctxConfiguration } from "../src/config.js";
 import { createMctxFeature } from "../src/feature.js";
 import { type MctxSearchCandidate, mctxSearchContentHash } from "../src/search.js";
 import { createMctxSourceSnapshot } from "../src/source-snapshot.js";
+import { emptyMctxStatusAccounting } from "../src/status-metrics.js";
 import type {
 	MctxCompartment,
 	MctxHistoryTag,
@@ -100,6 +101,8 @@ function store(overrides: Partial<MctxStore> = {}): MctxStore {
 			sessionId: "session-1",
 			revision: 0,
 		}),
+		readStatusAccounting: () => emptyMctxStatusAccounting(),
+		writeStatusAccounting: () => undefined,
 		findPartition: () => undefined,
 		isHandoffInstalled: (_parent, destinationSessionId) =>
 			handoffDestinations.has(destinationSessionId),

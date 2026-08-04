@@ -61,6 +61,13 @@ import {
 import { planMctxSmartDrops } from "./smart-drops.js";
 import { protectedTurnGroupsForMessages } from "./source-history.js";
 import {
+	computeMctxTokenBreakdown,
+	computeMctxToolDefinitionTokens,
+	computeMctxWorkMetrics,
+	type MctxStatusAccounting,
+	type MctxToolDefinition,
+} from "./status-metrics.js";
+import {
 	defaultMctxStorePath,
 	type MctxCompartment,
 	type MctxHistoryTag,
@@ -195,6 +202,8 @@ export type MctxStatusResult =
 				readonly tokens?: number;
 				readonly protectedTags: number;
 			};
+			readonly pendingAugmentation: boolean;
+			readonly accounting: MctxStatusAccounting;
 	  }
 	| {
 			readonly kind: "inactive";
@@ -572,6 +581,8 @@ export interface MctxFeatureOptions {
 		signal: AbortSignal,
 	) => Promise<MctxConfiguration>;
 	readonly openStore?: (path: string) => MctxStore | Promise<MctxStore>;
+	/** Host-owned tool metadata used only for status token accounting. */
+	readonly listTools?: () => readonly MctxToolDefinition[];
 	readonly resolveProjectIdentity?: (cwd: string, signal: AbortSignal) => Promise<string>;
 	readonly readForkSource?: (parentSessionPath: string) => MctxForkSource | Promise<MctxForkSource>;
 	readonly runHistorianForBranch?: typeof runMctxHistorianForBranch;
@@ -680,6 +691,7 @@ function noteAnchor(tag: MctxHistoryTag): MctxNoteAnchor {
 export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature {
 	const loadConfiguration = options.loadConfiguration ?? loadMctxConfiguration;
 	const openStore = options.openStore ?? openMctxStore;
+	const listTools = options.listTools ?? (() => []);
 	const identityResolver = createProjectIdentityResolver();
 	const resolveProjectIdentity = options.resolveProjectIdentity ?? identityResolver.resolve;
 	const readForkSource = options.readForkSource ?? defaultForkSource;
@@ -743,6 +755,29 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				);
 			}
 			return undefined;
+		}
+	}
+	function updateStatusAccounting(
+		current: ActiveMctxRuntime,
+		context: ExtensionContext,
+		messages: readonly AgentMessage[],
+		entries: readonly SessionEntry[],
+	): void {
+		try {
+			const previous = current.runtime.store.readStatusAccounting(current.runtime.partition);
+			const systemPrompt = context.getSystemPrompt?.();
+			const tokens = computeMctxTokenBreakdown(messages, {
+				...(typeof systemPrompt === "string" ? { systemPrompt } : {}),
+			});
+			const toolDefinitions = computeMctxToolDefinitionTokens(listTools());
+			current.runtime.store.writeStatusAccounting(current.runtime.partition, {
+				...previous,
+				work: computeMctxWorkMetrics(entries),
+				tokens: { ...tokens, toolDefinitions },
+			});
+		} catch {
+			// Metrics are diagnostic. A stale accounting row must never block the
+			// model-visible context projection.
 		}
 	}
 	async function createInitialPartition(
@@ -1335,6 +1370,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 							};
 			try {
 				const metrics = current.runtime.store.readStatusMetrics(current.runtime.partition);
+				const accounting = current.runtime.store.readStatusAccounting(current.runtime.partition);
 				return {
 					kind: "active",
 					projectIdentity: current.runtime.partition.projectIdentity,
@@ -1349,6 +1385,9 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 						...(tokens === undefined ? {} : { tokens }),
 						protectedTags: current.runtime.settings.protectedTags,
 					},
+				return {
+					pendingAugmentation: current.pendingAugmentation !== undefined,
+					accounting,
 				};
 			} catch (error: unknown) {
 				return { kind: "failed", reason: error instanceof Error ? error.message : String(error) };
@@ -1361,10 +1400,19 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			if (
 				current === undefined ||
 				current.lifecycle.signal.aborted ||
-				current.runtime.historian.kind !== "active" ||
 				current.runtime.sessionId !== context.sessionManager.getSessionId()
 			)
 				return;
+			try {
+				const accounting = current.runtime.store.readStatusAccounting(current.runtime.partition);
+				current.runtime.store.writeStatusAccounting(current.runtime.partition, {
+					...accounting,
+					lastResponseAtMs: Date.now(),
+				});
+			} catch {
+				// Response timing is diagnostic and must not affect historian admission.
+			}
+			if (current.runtime.historian.kind !== "active") return;
 			// This handler is deliberately non-blocking. Historian completion happens
 			// after Pi has finished the turn and cannot delay its response lifecycle.
 			const usage = context.getContextUsage();
@@ -1528,7 +1576,40 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			// A successful projection re-arms the read-failure notification for the
 			// next failure epoch, matching the historian notification pattern.
 			current.notifiedStoreReadFailure = false;
-			return { messages: tagged.messages };
+<<<<<<< HEAD
+			// One-shot /mctx aug augmentation: injected once after a successful
+			// projection, then cleared. Projection failures keep it pending.
+			// The bounded wrapper is inserted before the last real user prompt so
+			// the model still sees the authoritative request as its final message.
+			const pendingAugmentation = current.pendingAugmentation;
+			let projectedMessages: readonly AgentMessage[] = tagged.messages;
+			if (pendingAugmentation !== undefined) {
+				current.pendingAugmentation = undefined;
+				const augmentationMessage: AgentMessage = {
+					role: "user",
+					content: [{ type: "text", text: pendingAugmentation }],
+					// Stable timestamp keeps the message shape consistent with
+					// synthetic projection messages.
+					timestamp: 0,
+				};
+				let lastUserIndex = -1;
+				for (let index = tagged.messages.length - 1; index >= 0; index--) {
+					if (tagged.messages[index]?.role === "user") {
+						lastUserIndex = index;
+						break;
+					}
+				}
+				projectedMessages =
+					lastUserIndex >= 0
+						? [
+								...tagged.messages.slice(0, lastUserIndex),
+								augmentationMessage,
+								...tagged.messages.slice(lastUserIndex),
+							]
+						: [...tagged.messages, augmentationMessage];
+			}
+			updateStatusAccounting(current, context, projectedMessages, entries);
+			return { messages: projectedMessages };
 		},
 		prepare,
 		active: (): MctxSessionRuntime | undefined => active?.runtime,
