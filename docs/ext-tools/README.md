@@ -49,9 +49,11 @@ mpatch 是 `apply_patch` 的私有 fuzzy worker，不是独立 Pi tool，也不�
 写入前协作检查取消 flag；写入只发生在 coordinator 的 staging 目录。
 
 mpatch 只接受 unified diff，不能替代 Codex V4A parser。tool 在 TypeScript 中严格解析
-V4A，拒绝 workspace 外 path 与 symlink escape；所有操作先在隔离 staging root 中完成。每个
-Update 先以 exact policy dry-run，再按固定 fuzzy policy dry-run/apply。真实 workspace 只在 source
-hash 未变化时替换，失败、取消、无效 grammar、dry-run failure 与 stale baseline 都不写入真实文件。
+V4A，拒绝 workspace 外 path 与 symlink escape；每个 operation 独立在隔离 staging root 中
+预检。某个 operation 的 path 冲突、source/destination 不合规、dry-run failure 或 stale
+baseline 只拒绝该 operation，其他合规 operation 仍会提交；取消和无效 grammar 仍拒绝整个
+request。真实 workspace 只在对应 source hash 未变化时替换，结果会报告 changed paths 与
+rejected operations。
 同 path job 会串行；无交集 path job 可在共享 worker limit 内并发。
 
 fuzzy policy 只读取 `pi-ext-tools.applyPatch` settings。默认值为 `minSimilarity: 0.7`、
@@ -96,13 +98,16 @@ session-scoped background job，并立即返回 opaque job id。已确认的后�
 通过 Pi host 的 custom message 主动把 job id、终态、截断标记和有限 tail 放入当前 session；消息持久化并显示，
 但不触发新的 agent turn，使主 session 无需轮询即可查看完成结果而不产生非请求的模型工作。
 
-完整 stdout/stderr 合并流将保存为 session-owned artifact，并仅以 artifact URI 交给 `read`；届时 `bash_job`
+完整 stdout/stderr 合并流将保存为 session-owned artifact，并仅以 artifact URI 交给 tools；届时 `bash_job`
 不再返回 log 文本，只返回状态和 artifact URI。artifact 与 job 同属一个 session：session shutdown/reload 会终止
 活跃任务并删除 artifact，绝不跨 session 持久化。tail 仍有固定字节上限，完整日志不受内存上限限制。
 
-此设计依赖 Pi host 先提供公开的 session-scoped artifact writer；该 writer 创建真实 `artifact://` URI，并由
-Pi host 的 `read` 解析。`pi-ext-tools` 在该 public contract 落地前不能实现此行为：extension 不得伪造 URI，
-也不得把普通临时文件宣称为 host artifact。
+Pi host 的 internal URL registry 是所有 tool 的统一解析入口。extension 向 registry 注册受限 resolver；每个 tool
+可将接受的路径解析为 internal resource，并按自己的读写能力执行。artifact 是只读 resource：`read`、`grep`、
+`find` 等读取工具可消费它，写入工具必须拒绝它，不能把 artifact 当 workspace path。
+
+artifact URI 采用 Pi host 分配的单调十进制 id：`artifact://123`。extension 不选择名称、不持有 host filesystem path、
+也不得伪造 URI；Pi host 保留 URI 到 session-owned resource 的映射，并在 session shutdown/reload 清理。
 
 async job 使用 `pi-ext-tools` 自己的 shell-path setting，而不是读取 Pi host 的 private shell setting；
 默认 shell 由平台环境决定。`async` 与未来的 `pty` 参数互斥。普通不带 `async` 的调用仍完整委托 Pi host。
@@ -126,7 +131,7 @@ Pi host 仍拥有默认 Bash。只有 `mode === "tui"` 且 `PI_NO_PTY !== "1"` �
   renderer、ToolRenderContext state、abort、streaming 与 cleanup；`bash` 保持 Pi host 原始 execute 行为。
 - 每个 module 可以调用对应 upstream `create...Tool()`；这用于复用运行行为，不表示必须复用 upstream renderer。
 - `read`、`grep`、`find`、`edit`、`write`、`bash` 都保留 upstream-compatible 参数、execute 与 renderer 语义。
-- `apply_patch` 是 `pi-ext-tools` owner 的 Canonical V4A-only tool；public JSON transport 只接受 `{ "patch": string }`，并委托 package 内 patch coordinator 执行。其 call renderer 从 V4A patch text 生成 streaming、折叠和展开预览；它是纯计算，不读取 workspace、调用 coordinator 或修改 patch。
+- `apply_patch` 是 `pi-ext-tools` owner 的 Canonical V4A-only tool；public JSON transport 只接受 `{ "patch": string }`，并委托 package 内 patch coordinator 执行。其 call renderer 从 V4A patch text 生成 streaming、折叠和展开预览；它是纯计算，不读取 workspace、调用 coordinator 或修改 patch。执行结果同时报告成功路径与被拒 operation。
 - 其他 extension 不得为 catalog 名称直接 `pi.registerTool()` 或 managed-register competing definition。它们不能
   import `pi-ext-tools`；跨包协作若确有需求，另行定义 narrow core capability。
 
