@@ -10,10 +10,9 @@ the retired standalone FFF extension.
 
 ## Native bridge
 
-`src/native-bridge.ts` exposes the HEPI-owned N-API bridge for selected vendored
-oh-my-pi primitives (`runMpatch` and the bridge version sentinel). The native
-module is built from the repository root with nightly Rust because the pinned
-upstream `pi-natives` crate uses `alloc_error_hook`:
+`src/native-bridge.ts` exposes the HEPI-owned N-API bridge for package-owned
+mpatch execution (`runMpatch` and the bridge version sentinel). The small
+bridge has no vendored native dependency and builds with stable Rust:
 
 ```bash
 bun run --cwd packages/pi-ext-tools build:native

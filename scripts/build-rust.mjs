@@ -13,7 +13,7 @@ const bridgeName = "pi-ext-tools-bridge.node";
 await rm(resolve(output, generatedName), { force: true });
 await rm(resolve(output, bridgeName), { force: true });
 
-const toolchain = process.env.RUSTUP_TOOLCHAIN ?? "nightly";
+const toolchain = process.env.RUSTUP_TOOLCHAIN ?? "stable";
 const args = [
 	napiCli,
 	"build",
