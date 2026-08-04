@@ -34,6 +34,37 @@ test("bash executes through Pi host original backend", async (): Promise<void> =
 	expect(result.content).toEqual([{ type: "text", text: "restored-backend" }]);
 });
 
+test("bash never streams Pi host temporary output paths", async (): Promise<void> => {
+	const tools: ToolDefinition[] = [];
+	registerBashTool({
+		registerTool(tool: ToolDefinition): void {
+			tools.push(tool);
+		},
+	} as unknown as ExtensionAPI);
+	const bash = tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("Expected bash tool");
+	const updates: unknown[] = [];
+	await bash.execute(
+		"bash-streamed-path-redaction",
+		{ command: "yes x | head -c 1100000" },
+		undefined,
+		(update): void => {
+			updates.push(update);
+		},
+		{
+			cwd: process.cwd(),
+			sessionManager: {
+				getSessionId: () => "bash-streamed-path-redaction",
+				getSessionFile: () => undefined,
+			},
+		} as ExtensionContext,
+	);
+	expect(updates.length).toBeGreaterThan(0);
+	expect(updates.map((update) => JSON.stringify(update)).join("\n")).not.toContain(
+		"fullOutputPath",
+	);
+});
+
 test("bash exposes PTY only in interactive TUI mode", async (): Promise<void> => {
 	const tools: ToolDefinition[] = [];
 	registerBashTool({
