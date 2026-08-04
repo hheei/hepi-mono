@@ -15,4 +15,5 @@ export * from "./smart-drops.js";
 export * from "./source-history.js";
 export * from "./source-snapshot.js";
 export * from "./store.js";
+export * from "./tool-output.js";
 export * from "./trigger-policy.js";

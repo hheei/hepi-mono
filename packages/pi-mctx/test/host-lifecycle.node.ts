@@ -91,6 +91,8 @@ async function createHost(
 		readonly invalidHistorian?: boolean;
 		readonly includeHandoff?: boolean;
 		readonly runtimeEnabled?: boolean;
+		readonly smartDrops?: boolean;
+		readonly protectedTags?: number;
 	} = {},
 ): Promise<HostFixture> {
 	const agentDir = options.agentDir ?? mkdtempSync(join(tmpdir(), "pi-mctx-host-agent-"));
@@ -101,6 +103,8 @@ async function createHost(
 		JSON.stringify({
 			"pi-mctx": {
 				enabled: options.runtimeEnabled ?? true,
+				smart_drops: options.smartDrops ?? false,
+				protected_tags: options.protectedTags ?? 20,
 				historian: { enabled: true, model: "faux/faux-1" },
 				execute_threshold_percentage: 20,
 				execute_threshold_tokens: { default: 5_000 },

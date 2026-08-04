@@ -35,7 +35,7 @@ import {
 } from "./historian-branch-runner.js";
 import {
 	collectMctxHistoryTagInputs,
-	collectVisibleMctxToolTagNumbers,
+	collectVisibleMctxToolTags,
 	projectMctxHistoryTags,
 } from "./history-tags.js";
 import { createProjectIdentityResolver } from "./project-identity.js";
@@ -1328,7 +1328,38 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			if (tagSync === undefined) return undefined;
 			current.runtime = { ...current.runtime, partition: tagSync.partition };
 			let historyTags = tagSync.tags;
-			if (current.runtime.settings.smartDrops) {
+			const compartments = withStoreReadPolicy(current, () =>
+				current.runtime.store.listCompartments(current.runtime.partition),
+			);
+			if (compartments === undefined) return undefined;
+			const recovery = planMctxCompartmentRecovery(entries, compartments);
+			if (recovery.kind === "rebuild") {
+				const rebuildEntries = [...entries];
+				const nextPartition = withStoreReadPolicy(current, () =>
+					current.runtime.store.discardCompartmentsFrom(
+						current.runtime.partition,
+						recovery.discardFromRevision,
+					),
+				);
+				if (
+					nextPartition !== undefined &&
+					active === current &&
+					!current.lifecycle.signal.aborted
+				) {
+					current.runtime = { ...current.runtime, partition: nextPartition };
+					current.rebuildEntries = rebuildEntries;
+					if (current.job === undefined) startHistorian(current, rebuildEntries);
+					else current.job.abort();
+				}
+				return undefined;
+			}
+			const liveTailStartIndex =
+				recovery.kind === "valid"
+					? recovery.graph.liveTailStartIndex
+					: recovery.kind === "empty"
+						? 0
+						: undefined;
+			if (current.runtime.settings.smartDrops && liveTailStartIndex !== undefined) {
 				const usage = context.getContextUsage();
 				const usageTokens = usage?.tokens;
 				const percentage = modelThreshold(
@@ -1361,7 +1392,12 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					if (decision.kind === "trigger" && targetUsageTokens !== undefined) {
 						const plan = planMctxSmartDrops({
 							tags: historyTags,
-							visibleTagNumbers: collectVisibleMctxToolTagNumbers(messages, entries, historyTags),
+							candidates: collectVisibleMctxToolTags(
+								messages,
+								entries,
+								historyTags,
+								liveTailStartIndex,
+							),
 							protectedTags: current.runtime.settings.protectedTags,
 							usageTokens,
 							targetUsageTokens,
@@ -1386,33 +1422,6 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 						}
 					}
 				}
-			}
-			const compartments = withStoreReadPolicy(current, () =>
-				current.runtime.store.listCompartments(current.runtime.partition),
-			);
-			if (compartments === undefined) return undefined;
-			const recovery = planMctxCompartmentRecovery(entries, compartments);
-			if (recovery.kind === "rebuild") {
-				// Branch edits invalidate only the divergent publication tail. Discard via
-				// CAS, then replay the newest stable entries after the job observes abort.
-				const rebuildEntries = [...entries];
-				const nextPartition = withStoreReadPolicy(current, () =>
-					current.runtime.store.discardCompartmentsFrom(
-						current.runtime.partition,
-						recovery.discardFromRevision,
-					),
-				);
-				if (
-					nextPartition !== undefined &&
-					active === current &&
-					!current.lifecycle.signal.aborted
-				) {
-					current.runtime = { ...current.runtime, partition: nextPartition };
-					current.rebuildEntries = rebuildEntries;
-					if (current.job === undefined) startHistorian(current, rebuildEntries);
-					else current.job.abort();
-				}
-				return undefined;
 			}
 			const projection =
 				recovery.kind === "valid"

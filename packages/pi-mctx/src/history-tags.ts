@@ -10,6 +10,12 @@ export interface MctxHistoryTagProjection {
 	readonly droppedTagNumbers: readonly number[];
 }
 
+export interface MctxVisibleToolTag {
+	readonly tag: MctxHistoryTag;
+	readonly toolName: string;
+	readonly input: unknown;
+}
+
 export function renderMctxHistoryTagPage(
 	tags: readonly MctxHistoryTag[],
 	offset: unknown,
@@ -114,31 +120,40 @@ export function collectMctxHistoryTagInputs(
 }
 
 /** Returns only tool tags whose bound result remains an imminent Pi message. */
-export function collectVisibleMctxToolTagNumbers(
+export function collectVisibleMctxToolTags(
 	messages: readonly AgentMessage[],
 	entries: readonly SessionEntry[],
 	tags: readonly MctxHistoryTag[],
-): ReadonlySet<number> {
+	liveTailStartIndex: number,
+): readonly MctxVisibleToolTag[] {
 	const byIdentity = new Map<string, MctxHistoryTag>();
 	for (const tag of tags) {
 		if (tag.kind === "tool" && tag.toolCallId !== undefined)
 			byIdentity.set(`${tag.entryId}:${tag.toolCallId}`, tag);
 	}
-	const toolOwners = new Map<string, string>();
-	const visible = new Set<number>();
-	for (const entry of entries) {
+	const toolOwners = new Map<
+		string,
+		{ readonly entryId: string; readonly name: string; readonly input: unknown }
+	>();
+	const visible: MctxVisibleToolTag[] = [];
+	for (const [index, entry] of entries.entries()) {
 		if (entry.type !== "message") continue;
 		const message = entry.message;
 		if (message.role === "assistant") {
-			for (const part of message.content)
-				if (part.type === "toolCall") toolOwners.set(part.id, entry.id);
+			if (Array.isArray(message.content)) {
+				for (const part of message.content) {
+					if (part.type !== "toolCall") continue;
+					toolOwners.set(part.id, { entryId: entry.id, name: part.name, input: part.arguments });
+				}
+			}
 			continue;
 		}
-		if (message.role !== "toolResult" || !messages.includes(message)) continue;
+		if (index < liveTailStartIndex || message.role !== "toolResult" || !messages.includes(message))
+			continue;
 		const owner = toolOwners.get(message.toolCallId);
 		if (owner === undefined) continue;
-		const tag = byIdentity.get(`${owner}:${message.toolCallId}`);
-		if (tag !== undefined) visible.add(tag.tagNumber);
+		const tag = byIdentity.get(`${owner.entryId}:${message.toolCallId}`);
+		if (tag !== undefined) visible.push({ tag, toolName: owner.name, input: owner.input });
 	}
 	return visible;
 }
