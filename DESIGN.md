@@ -172,10 +172,12 @@ existing semantic token expresses the role.
   layout stacks those regions. Field label/value columns remain stable, disabled fields use `dim`,
   and only a selected non-editing long label may marquee. `Space` toggles booleans; Pi Input edits
   other fields; `Tab` only cycles a field's related `tabCycle` value.
-- `pi-mctx` contributes Magic Context runtime and Historian controls to the combined Settings tree, not
-  a separate page or Loadout resource. Disabling runtime dims and locks the Historian controls; disabling
-  Historian dims and locks its model row. Persisted changes apply on the next Pi reload or session rather
-  than replacing a running runtime or historian.
+- `pi-mctx` contributes Magic Context runtime, Smart drops, and Historian controls to the combined Settings
+  tree, not a separate page or Loadout resource. Smart drops sits below the runtime control and is dimmed
+  and locked while runtime is disabled; it defaults to disabled and controls only automatic reclaim of old
+  tool results. Disabling runtime dims and locks the Historian controls; disabling Historian dims and locks
+  its model row. Persisted changes apply on the next Pi reload or session rather than replacing a running
+  runtime or historian.
 - Settings and Loadout each reserve at least 20 page-content rows below the shared router tab strip.
   Their lists may remain shorter than that minimum; router-owned blank rows retain a stable custom
   surface height instead of inventing empty list entries.

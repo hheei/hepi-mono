@@ -39,12 +39,16 @@ test("MCTX provider exposes independent runtime and historian controls", async (
 		const runtime = provider.groups.find(
 			(candidate) => candidate.id === MCTX_RUNTIME_SETTINGS_GROUP,
 		);
-		expect(runtime?.fields.map((field) => field.id)).toEqual(["enabled"]);
+		expect(runtime?.fields.map((field) => field.id)).toEqual(["enabled", "smartDrops"]);
 		expect(group?.fields.map((field) => field.id)).toEqual(["enabled", "model"]);
 		const runtimeEnabled = runtime?.fields[0];
+		const smartDrops = runtime?.fields[1];
 		const historianEnabled = group?.fields[0];
 		const model = group?.fields[1];
 		expect(runtimeEnabled?.defaultValue).toBe(false);
+		expect(smartDrops?.defaultValue).toBe(false);
+		expect(smartDrops?.enabled?.({ runtime: { enabled: false } })).toBe(false);
+		expect(smartDrops?.enabled?.({ runtime: { enabled: true } })).toBe(true);
 		expect(historianEnabled?.defaultValue).toBe(false);
 		expect(model?.defaultValue).toBe("");
 		expect(
@@ -94,16 +98,20 @@ test("historian provider round-trips existing MCTX JSON without losing siblings"
 		);
 		const provider = createMctxSettingsProvider({ path });
 		expect(await provider.storage.load({ sessionId: "test" })).toEqual({
-			runtime: { enabled: true },
+			runtime: { enabled: true, smartDrops: false },
 			historian: { enabled: true, model: "old/model" },
 		});
 		await provider.storage.save(
-			{ runtime: { enabled: true }, historian: { enabled: false, model: "new/model" } },
+			{
+				runtime: { enabled: true, smartDrops: true },
+				historian: { enabled: false, model: "new/model" },
+			},
 			{ sessionId: "test" },
 		);
 		expect(parseRoot(await readFile(path, "utf8"))).toEqual({
 			"pi-mctx": {
 				enabled: true,
+				smart_drops: true,
 				historian: { enabled: false, model: "new/model", retained: "keep" },
 				execute_threshold_percentage: { default: 65, "old/model": 75 },
 				protected_tags: 30,
@@ -119,7 +127,10 @@ test("historian provider serializes with sibling settings writers", async (): Pr
 		const provider = createMctxSettingsProvider({ path });
 		await Promise.all([
 			provider.storage.save(
-				{ runtime: { enabled: true }, historian: { enabled: true, model: "provider/model" } },
+				{
+					runtime: { enabled: true, smartDrops: true },
+					historian: { enabled: true, model: "provider/model" },
+				},
 				{ sessionId: "test" },
 			),
 			updateJsonSettingsRoot(path, (root) => {
@@ -127,7 +138,11 @@ test("historian provider serializes with sibling settings writers", async (): Pr
 			}),
 		]);
 		expect(parseRoot(await readFile(path, "utf8"))).toEqual({
-			"pi-mctx": { enabled: true, historian: { enabled: true, model: "provider/model" } },
+			"pi-mctx": {
+				enabled: true,
+				smart_drops: true,
+				historian: { enabled: true, model: "provider/model" },
+			},
 			external: { retained: true },
 		});
 	});

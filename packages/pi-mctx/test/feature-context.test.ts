@@ -52,7 +52,11 @@ function subagentId(value: string): SubagentId {
 	return value as SubagentId;
 }
 
-function configuration(failClosedBlocking = true): MctxConfiguration {
+function configuration(
+	failClosedBlocking = true,
+	smartDrops = false,
+	protectedTags = 20,
+): MctxConfiguration {
 	return {
 		global: {},
 		project: {},
@@ -64,8 +68,9 @@ function configuration(failClosedBlocking = true): MctxConfiguration {
 			settings: {
 				historian: { kind: "enabled", model: "anthropic/claude-haiku" },
 				failClosedBlocking,
+				smartDrops,
 				executeThresholdPercentage: { defaultValue: 65, byModel: {} },
-				protectedTags: 20,
+				protectedTags,
 			},
 		},
 	};
@@ -241,6 +246,114 @@ function store(overrides: Partial<MctxStore> = {}): MctxStore {
 	};
 	return { ...base, ...overrides };
 }
+
+test("smart drops queue an old visible tool result and project its recovery marker", async (): Promise<void> => {
+	const assistant = {
+		role: "assistant" as const,
+		content: [
+			{ type: "text" as const, text: "I inspected the command output." },
+			{ type: "toolCall" as const, id: "call-1", name: "bash", arguments: { command: "rg" } },
+		],
+		timestamp: 1,
+	};
+	const result = {
+		role: "toolResult" as const,
+		toolCallId: "call-1",
+		content: [{ type: "text" as const, text: "x".repeat(400) }],
+		timestamp: 2,
+	};
+	const branch = [
+		entry("user", "user", "Inspect this."),
+		{
+			id: "assistant",
+			parentId: null,
+			timestamp: "2026-01-01T00:00:01.000Z",
+			type: "message",
+			message: assistant,
+		} as SessionEntry,
+		{
+			id: "result",
+			parentId: null,
+			timestamp: "2026-01-01T00:00:02.000Z",
+			type: "message",
+			message: result,
+		} as SessionEntry,
+		{
+			id: "assistant-followup",
+			parentId: null,
+			timestamp: "2026-01-01T00:00:03.000Z",
+			type: "message",
+			message: {
+				role: "assistant" as const,
+				content: [{ type: "text" as const, text: "The output has been handled." }],
+				timestamp: 3,
+			},
+		} as SessionEntry,
+	];
+	const historyTags: MctxHistoryTag[] = [];
+	const lifecycle = {
+		pi: { events: {} },
+		extension: {
+			cwd: "/project",
+			sessionManager: { getSessionId: () => "session-1" },
+			modelRegistry: { find: () => model, hasConfiguredAuth: () => true },
+			ui: { notify: () => undefined },
+		} as unknown as ExtensionContext,
+		signal: new AbortController().signal,
+		resources: { add: () => undefined, cleanup: async () => [] },
+	} as unknown as ExtensionLifecycleContext;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(true, true, 1),
+		openStore: () =>
+			store({
+				listCompartments: () => [],
+				syncHistoryTags: (partition, inputs) => {
+					for (const input of inputs) {
+						const exists = historyTags.some(
+							(tag) =>
+								tag.kind === input.kind &&
+								tag.entryId === input.entryId &&
+								tag.toolCallId === input.toolCallId,
+						);
+						if (exists) continue;
+						historyTags.push({ ...input, tagNumber: historyTags.length + 1, status: "active" });
+					}
+					return { partition, tags: historyTags };
+				},
+				queueHistoryTagDrops: (partition, tagNumbers) => {
+					for (const tag of historyTags) {
+						if (tagNumbers.includes(tag.tagNumber) && tag.status === "active")
+							tag.status = "pending";
+					}
+					return {
+						partition: { ...partition, revision: partition.revision + 1 },
+						queued: tagNumbers,
+						rejected: [],
+					};
+				},
+				markHistoryTagsDropped: (partition, tagNumbers) => {
+					for (const tag of historyTags) {
+						if (tagNumbers.includes(tag.tagNumber) && tag.status === "pending")
+							tag.status = "dropped";
+					}
+					return { ...partition, revision: partition.revision + 1 };
+				},
+			}),
+		resolveProjectIdentity: async () => "git:project",
+	});
+	await feature.start(lifecycle);
+	const raw = branch.flatMap(sessionEntryToContextMessages);
+	const context = {
+		model,
+		getContextUsage: () => ({ tokens: 65, contextWindow: 100 }),
+		sessionManager: { getSessionId: () => "session-1", getBranch: () => branch },
+	} as unknown as ExtensionContext;
+	const projected = feature.onContext(raw, context);
+	expect(
+		projected?.messages.some((message) => JSON.stringify(message).includes("[dropped §3§]")),
+	).toBe(true);
+	expect(historyTags.find((tag) => tag.kind === "tool")?.status).toBe("dropped");
+});
 
 test("expand reads only current-branch retained tags and reports gaps", async (): Promise<void> => {
 	const lifecycle = {

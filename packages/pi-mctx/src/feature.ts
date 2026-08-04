@@ -33,7 +33,11 @@ import {
 	type MctxHistorianBranchRunResult,
 	runMctxHistorianForBranch,
 } from "./historian-branch-runner.js";
-import { collectMctxHistoryTagInputs, projectMctxHistoryTags } from "./history-tags.js";
+import {
+	collectMctxHistoryTagInputs,
+	collectVisibleMctxToolTagNumbers,
+	projectMctxHistoryTags,
+} from "./history-tags.js";
 import { createProjectIdentityResolver } from "./project-identity.js";
 import {
 	boundedMctxSearchText,
@@ -53,6 +57,7 @@ import {
 	MCTX_CHILD_TASK_TIMEOUT_MS,
 	SIDEKICK_SYSTEM_PROMPT,
 } from "./sidekick.js";
+import { planMctxSmartDrops } from "./smart-drops.js";
 import {
 	defaultMctxStorePath,
 	type MctxCompartment,
@@ -80,6 +85,23 @@ import { evaluateMctxTriggerPolicy } from "./trigger-policy.js";
 export interface MctxSessionRuntime extends MctxRuntime {
 	readonly store: MctxStore;
 	readonly partition: MctxPartition;
+}
+
+function smartDropTargetTokens(
+	usage: NonNullable<ReturnType<ExtensionContext["getContextUsage"]>>,
+	percentage: number,
+	absolute: number | undefined,
+): number | undefined {
+	const targets: number[] = [];
+	if (
+		typeof usage.contextWindow === "number" &&
+		Number.isSafeInteger(usage.contextWindow) &&
+		usage.contextWindow > 0
+	) {
+		targets.push(Math.max(0, Math.floor((usage.contextWindow * (percentage - 10)) / 100)));
+	}
+	if (absolute !== undefined) targets.push(Math.max(0, Math.floor(absolute * 0.9)));
+	return targets.length === 0 ? undefined : Math.min(...targets);
 }
 
 /**
@@ -548,6 +570,7 @@ interface ActiveMctxRuntime {
 	runtime: MctxSessionRuntime;
 	readonly lifecycle: ExtensionLifecycleContext;
 	cooling: boolean;
+	smartDropCooling: boolean;
 	job?: AbortController | undefined;
 	jobCompletion?: Promise<void> | undefined;
 	rebuildEntries?: readonly SessionEntry[] | undefined;
@@ -1147,6 +1170,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				runtime,
 				lifecycle: context,
 				cooling: false,
+				smartDropCooling: false,
 				...(embeddingLease === undefined ? {} : { embeddingLease }),
 			};
 			// Publish last: context/turn handlers can never observe a half-initialized
@@ -1297,14 +1321,72 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			// Re-evaluate against the active branch at every model invocation. A prior
 			// publication is not trusted after Pi navigation or branch replacement.
 			const entries = context.sessionManager.getBranch();
+			const tagInputs = collectMctxHistoryTagInputs(entries);
 			const tagSync = withStoreReadPolicy(current, () =>
-				current.runtime.store.syncHistoryTags(
-					current.runtime.partition,
-					collectMctxHistoryTagInputs(entries),
-				),
+				current.runtime.store.syncHistoryTags(current.runtime.partition, tagInputs),
 			);
 			if (tagSync === undefined) return undefined;
 			current.runtime = { ...current.runtime, partition: tagSync.partition };
+			let historyTags = tagSync.tags;
+			if (current.runtime.settings.smartDrops) {
+				const usage = context.getContextUsage();
+				const usageTokens = usage?.tokens;
+				const percentage = modelThreshold(
+					current.runtime.settings.executeThresholdPercentage,
+					context.model,
+				);
+				const absolute =
+					current.runtime.settings.executeThresholdTokens === undefined
+						? undefined
+						: modelThreshold(current.runtime.settings.executeThresholdTokens, context.model);
+				if (
+					usage !== undefined &&
+					typeof usageTokens === "number" &&
+					Number.isSafeInteger(usageTokens) &&
+					usageTokens > 0 &&
+					(usage.contextWindow === undefined ||
+						usage.contextWindow === null ||
+						(Number.isSafeInteger(usage.contextWindow) && usage.contextWindow > 0)) &&
+					percentage !== undefined
+				) {
+					const decision = evaluateMctxTriggerPolicy({
+						usageTokens,
+						contextWindow: usage.contextWindow,
+						percentage,
+						cooling: current.smartDropCooling,
+						...(absolute === undefined ? {} : { absoluteThreshold: absolute }),
+					});
+					current.smartDropCooling = decision.cooling;
+					const targetUsageTokens = smartDropTargetTokens(usage, percentage, absolute);
+					if (decision.kind === "trigger" && targetUsageTokens !== undefined) {
+						const plan = planMctxSmartDrops({
+							tags: historyTags,
+							visibleTagNumbers: collectVisibleMctxToolTagNumbers(messages, entries, historyTags),
+							protectedTags: current.runtime.settings.protectedTags,
+							usageTokens,
+							targetUsageTokens,
+						});
+						if (plan.kind === "drop") {
+							const queued = withStoreReadPolicy(current, () =>
+								current.runtime.store.queueHistoryTagDrops(
+									current.runtime.partition,
+									plan.tagNumbers,
+									historyTags.filter((tag) => tag.status === "active").map((tag) => tag.tagNumber),
+									current.runtime.settings.protectedTags,
+								),
+							);
+							if (queued === undefined) return undefined;
+							current.runtime = { ...current.runtime, partition: queued.partition };
+							const refreshed = withStoreReadPolicy(current, () =>
+								current.runtime.store.syncHistoryTags(current.runtime.partition, tagInputs),
+							);
+							if (refreshed === undefined) return undefined;
+							current.runtime = { ...current.runtime, partition: refreshed.partition };
+							historyTags = refreshed.tags;
+						}
+					}
+				}
+			}
 			const compartments = withStoreReadPolicy(current, () =>
 				current.runtime.store.listCompartments(current.runtime.partition),
 			);
@@ -1337,7 +1419,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					? projectMctxContext(messages, entries, compartments)
 					: { kind: "unchanged" as const, messages };
 			const baseMessages = projection.kind === "rendered" ? projection.messages : messages;
-			const tagged = projectMctxHistoryTags(baseMessages, entries, tagSync.tags);
+			const tagged = projectMctxHistoryTags(baseMessages, entries, historyTags);
 			if (tagged.droppedTagNumbers.length > 0) {
 				const nextPartition = withStoreReadPolicy(current, () =>
 					current.runtime.store.markHistoryTagsDropped(

@@ -113,6 +113,36 @@ export function collectMctxHistoryTagInputs(
 	return inputs;
 }
 
+/** Returns only tool tags whose bound result remains an imminent Pi message. */
+export function collectVisibleMctxToolTagNumbers(
+	messages: readonly AgentMessage[],
+	entries: readonly SessionEntry[],
+	tags: readonly MctxHistoryTag[],
+): ReadonlySet<number> {
+	const byIdentity = new Map<string, MctxHistoryTag>();
+	for (const tag of tags) {
+		if (tag.kind === "tool" && tag.toolCallId !== undefined)
+			byIdentity.set(`${tag.entryId}:${tag.toolCallId}`, tag);
+	}
+	const toolOwners = new Map<string, string>();
+	const visible = new Set<number>();
+	for (const entry of entries) {
+		if (entry.type !== "message") continue;
+		const message = entry.message;
+		if (message.role === "assistant") {
+			for (const part of message.content)
+				if (part.type === "toolCall") toolOwners.set(part.id, entry.id);
+			continue;
+		}
+		if (message.role !== "toolResult" || !messages.includes(message)) continue;
+		const owner = toolOwners.get(message.toolCallId);
+		if (owner === undefined) continue;
+		const tag = byIdentity.get(`${owner}:${message.toolCallId}`);
+		if (tag !== undefined) visible.add(tag.tagNumber);
+	}
+	return visible;
+}
+
 function tagPrefix(tagNumber: number): string {
 	return `§${tagNumber}§ `;
 }
