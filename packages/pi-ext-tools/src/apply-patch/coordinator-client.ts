@@ -52,10 +52,26 @@ function isApplyResponse(value: unknown): value is ApplyResponse {
 				key === "changedPaths" ||
 				key === "operationCount" ||
 				key === "exactUpdateCount" ||
-				key === "fuzzyUpdateCount",
+				key === "fuzzyUpdateCount" ||
+				key === "rejected",
 		) &&
 		Array.isArray(result.changedPaths) &&
 		result.changedPaths.every((path) => typeof path === "string") &&
+		Array.isArray(result.rejected) &&
+		result.rejected.every((entry) => {
+			if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return false;
+			const rejection = entry as Record<string, unknown>;
+			return (
+				Object.keys(rejection).every(
+					(key) => key === "operationIndices" || key === "paths" || key === "error",
+				) &&
+				Array.isArray(rejection.operationIndices) &&
+				rejection.operationIndices.every((index) => Number.isInteger(index) && index >= 0) &&
+				Array.isArray(rejection.paths) &&
+				rejection.paths.every((path) => typeof path === "string") &&
+				typeof rejection.error === "string"
+			);
+		}) &&
 		Number.isInteger(result.operationCount) &&
 		Number.isInteger(result.exactUpdateCount) &&
 		Number.isInteger(result.fuzzyUpdateCount)

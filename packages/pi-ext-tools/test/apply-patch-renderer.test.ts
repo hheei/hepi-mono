@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { renderApplyPatchCall } from "../src/apply-patch/renderer.js";
+import { createApplyPatchTool } from "../src/apply-patch-tool.js";
 
 const theme = {
 	fg: (_role: string, text: string) => text,
@@ -40,5 +41,40 @@ describe("apply_patch call renderer", () => {
 
 	test("malformed complete input safely falls back to Patching", () => {
 		expect(output("not a patch")).toContain("Patching");
+	});
+
+	test("result renderer shows hepi status summary without native Pi diff", () => {
+		const renderResult = createApplyPatchTool().renderResult;
+		if (renderResult === undefined) throw new Error("apply_patch result renderer is missing");
+		const component = renderResult(
+			{
+				content: [
+					{
+						type: "text",
+						text: "Applied patch partially.\nStatus: Partial\nFuzzy matching: used",
+					},
+				],
+				details: {
+					status: "success",
+					changedPaths: ["kept.txt"],
+					operationCount: 2,
+					exactUpdateCount: 0,
+					fuzzyUpdateCount: 1,
+					rejected: [],
+				},
+			},
+			{ expanded: true, isPartial: false },
+			{ fg: (_role: string, text: string) => text, bold: (text: string) => text } as never,
+			{
+				args: { patch: "*** Begin Patch\n*** End Patch" },
+				cwd: process.cwd(),
+				state: undefined,
+			} as never,
+		);
+		const rendered = component.render(200).join("\n");
+		expect(rendered).toContain("Status: Partial");
+		expect(rendered).toContain("Fuzzy matching: used");
+		expect(rendered).not.toContain("--- a/kept.txt");
+		expect(rendered).not.toContain("-1 old");
 	});
 });

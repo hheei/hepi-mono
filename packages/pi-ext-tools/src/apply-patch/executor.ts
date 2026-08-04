@@ -15,6 +15,8 @@ import { dirname, join } from "node:path";
 import { runMpatch } from "./mpatch.js";
 import {
 	compileV4aUpdateToUnifiedDiff,
+	findV4aPatchConflicts,
+	operationTouchedPaths,
 	parseV4aPatch,
 	type V4aPatchOperation,
 	type V4aUpdateOperation,
@@ -34,6 +36,13 @@ export interface ApplyPatchInWorkspaceResult {
 	readonly operationCount: number;
 	readonly exactUpdateCount: number;
 	readonly fuzzyUpdateCount: number;
+	readonly rejected: readonly ApplyPatchRejection[];
+}
+
+export interface ApplyPatchRejection {
+	readonly operationIndices: readonly number[];
+	readonly paths: readonly string[];
+	readonly error: string;
 }
 
 interface PathState {
@@ -206,15 +215,6 @@ async function stageOperation(
 	return mode;
 }
 
-function collectTouchedPaths(operations: readonly V4aPatchOperation[]): Set<string> {
-	const paths = new Set<string>();
-	for (const operation of operations) {
-		paths.add(operation.path);
-		if (operation.kind === "update" && operation.moveTo !== undefined) paths.add(operation.moveTo);
-	}
-	return paths;
-}
-
 function changedPaths(operations: readonly V4aPatchOperation[]): readonly string[] {
 	const paths = new Set<string>();
 	for (const operation of operations) {
@@ -259,68 +259,142 @@ export async function applyPatchInWorkspace(
 ): Promise<ApplyPatchInWorkspaceResult> {
 	options.signal?.throwIfAborted();
 	const patch = parseV4aPatch(options.patch);
-	const states = new Map<string, PathState>();
-	for (const relativePath of collectTouchedPaths(patch.operations)) {
-		const validated = await validatePatchPath(options.workspaceRoot, relativePath);
-		const snapshot = await sourceCache.snapshot(
-			validated.absolutePath,
-			options.policy.cacheMiB,
-			options.signal,
+	const rejected: ApplyPatchRejection[] = [];
+	const rejectedIndices = new Set<number>();
+	for (const conflict of findV4aPatchConflicts(patch)) {
+		const indices = Object.freeze([...conflict.operationIndices]);
+		for (const index of indices) rejectedIndices.add(index);
+		rejected.push(
+			Object.freeze({
+				operationIndices: indices,
+				paths: Object.freeze([conflict.path]),
+				error: conflict.message,
+			}),
 		);
-		states.set(relativePath, {
-			relativePath,
-			absolutePath: validated.absolutePath,
-			hash: snapshot.hash,
-			...(snapshot.content === undefined ? {} : { content: snapshot.content }),
-		});
 	}
-	for (const operation of patch.operations) {
-		const source = states.get(operation.path);
-		if (source === undefined) throw new Error(`Missing validated patch path: ${operation.path}`);
-		if (operation.kind === "add" && source.hash !== undefined)
-			throw new Error(`Patch add target already exists: ${operation.path}`);
-		if (operation.kind !== "add" && source.hash === undefined)
-			throw new Error(`Patch source does not exist: ${operation.path}`);
-		if (operation.kind === "update" && operation.moveTo !== undefined) {
-			const destination = states.get(operation.moveTo);
-			if (destination === undefined)
-				throw new Error(`Missing validated patch path: ${operation.moveTo}`);
-			if (destination.hash !== undefined)
-				throw new Error(`Patch move destination already exists: ${operation.moveTo}`);
+	const states = new Map<string, PathState>();
+	const successful: {
+		readonly operation: V4aPatchOperation;
+		readonly stagingRoot: string;
+		readonly mode: "exact" | "fuzzy" | undefined;
+	}[] = [];
+	let exactUpdateCount = 0;
+	let fuzzyUpdateCount = 0;
+	const rejectOperation = (index: number, operation: V4aPatchOperation, error: unknown): void => {
+		rejectedIndices.add(index);
+		rejected.push(
+			Object.freeze({
+				operationIndices: Object.freeze([index]),
+				paths: Object.freeze([...operationTouchedPaths(operation)]),
+				error: error instanceof Error ? error.message : String(error),
+			}),
+		);
+	};
+	for (const [index, operation] of patch.operations.entries()) {
+		options.signal?.throwIfAborted();
+		if (rejectedIndices.has(index)) continue;
+		try {
+			for (const relativePath of operationTouchedPaths(operation)) {
+				if (states.has(relativePath)) continue;
+				const validated = await validatePatchPath(options.workspaceRoot, relativePath);
+				const snapshot = await sourceCache.snapshot(
+					validated.absolutePath,
+					options.policy.cacheMiB,
+					options.signal,
+				);
+				states.set(relativePath, {
+					relativePath,
+					absolutePath: validated.absolutePath,
+					hash: snapshot.hash,
+					...(snapshot.content === undefined ? {} : { content: snapshot.content }),
+				});
+			}
+			const source = states.get(operation.path);
+			if (source === undefined) throw new Error(`Missing validated patch path: ${operation.path}`);
+			if (operation.kind === "add" && source.hash !== undefined)
+				throw new Error(`Patch add target already exists: ${operation.path}`);
+			if (operation.kind !== "add" && source.hash === undefined)
+				throw new Error(`Patch source does not exist: ${operation.path}`);
+			if (operation.kind === "update" && operation.moveTo !== undefined) {
+				const destination = states.get(operation.moveTo);
+				if (destination === undefined || destination.hash !== undefined)
+					throw new Error(`Patch move destination already exists: ${operation.moveTo}`);
+			}
+		} catch (error) {
+			if (options.signal?.aborted) throw options.signal.reason ?? error;
+			rejectOperation(index, operation, error);
 		}
 	}
-
-	const stagingRoot = await mkdtemp(join(tmpdir(), "hepi-apply-patch-"));
 	try {
-		for (const state of states.values()) {
-			if (state.hash === undefined) continue;
-			if (state.content === undefined)
-				throw new Error(`Missing source snapshot for patch path: ${state.relativePath}`);
-			const staged = stagingPath(stagingRoot, state.relativePath);
-			await ensureParent(staged);
-			await writeFile(staged, state.content, { signal: options.signal });
+		for (const [index, operation] of patch.operations.entries()) {
+			options.signal?.throwIfAborted();
+			if (rejectedIndices.has(index)) continue;
+			let stagingRoot: string | undefined;
+			try {
+				stagingRoot = await mkdtemp(join(tmpdir(), "hepi-apply-patch-"));
+				for (const path of operationTouchedPaths(operation)) {
+					const state = states.get(path);
+					if (state?.hash === undefined) continue;
+					if (state.content === undefined)
+						throw new Error(`Missing source snapshot for patch path: ${path}`);
+					const staged = stagingPath(stagingRoot, path);
+					await ensureParent(staged);
+					await writeFile(staged, state.content, { signal: options.signal });
+				}
+				const mode = await stageOperation(stagingRoot, operation, options.policy, options.signal);
+				if (mode === "exact") exactUpdateCount += 1;
+				if (mode === "fuzzy") fuzzyUpdateCount += 1;
+				successful.push({ operation, stagingRoot, mode });
+			} catch (error) {
+				if (options.signal?.aborted) throw options.signal.reason ?? error;
+				if (stagingRoot !== undefined) await rm(stagingRoot, { recursive: true, force: true });
+				rejectOperation(index, operation, error);
+			}
 		}
-		let exactUpdateCount = 0;
-		let fuzzyUpdateCount = 0;
-		for (const operation of patch.operations) {
-			const mode = await stageOperation(stagingRoot, operation, options.policy, options.signal);
-			if (mode === "exact") exactUpdateCount += 1;
-			if (mode === "fuzzy") fuzzyUpdateCount += 1;
+		for (let index = successful.length - 1; index >= 0; index -= 1) {
+			const entry = successful[index];
+			if (entry === undefined) continue;
+			try {
+				const touched = new Map<string, PathState>();
+				for (const path of operationTouchedPaths(entry.operation)) {
+					const state = states.get(path);
+					if (state === undefined) throw new Error(`Missing validated patch path: ${path}`);
+					touched.set(path, state);
+				}
+				await assertBaselines(options.workspaceRoot, touched, options.signal);
+			} catch (error) {
+				if (options.signal?.aborted) throw options.signal.reason ?? error;
+				rejectOperation(patch.operations.indexOf(entry.operation), entry.operation, error);
+				if (entry.mode === "exact") exactUpdateCount -= 1;
+				if (entry.mode === "fuzzy") fuzzyUpdateCount -= 1;
+				await rm(entry.stagingRoot, { recursive: true, force: true });
+				successful.splice(index, 1);
+			}
 		}
-		await assertBaselines(options.workspaceRoot, states, options.signal);
-		const changed = changedPaths(patch.operations);
-		for (const path of changed) {
-			const state = states.get(path);
-			if (state === undefined) throw new Error(`Missing validated patch path: ${path}`);
-			await commitPath(stagingRoot, state, options.signal);
+		const committedOperations: V4aPatchOperation[] = [];
+		for (const { operation, stagingRoot } of successful) {
+			try {
+				for (const path of operationTouchedPaths(operation)) {
+					const state = states.get(path);
+					if (state === undefined) throw new Error(`Missing validated patch path: ${path}`);
+					await commitPath(stagingRoot, state, options.signal);
+				}
+				committedOperations.push(operation);
+			} catch (error) {
+				if (options.signal?.aborted) throw options.signal.reason ?? error;
+				rejectOperation(patch.operations.indexOf(operation), operation, error);
+			}
 		}
+		const changed = changedPaths(committedOperations);
 		return Object.freeze({
 			changedPaths: changed,
 			operationCount: patch.operations.length,
 			exactUpdateCount,
 			fuzzyUpdateCount,
+			rejected: Object.freeze(rejected),
 		});
 	} finally {
-		await rm(stagingRoot, { recursive: true, force: true });
+		for (const { stagingRoot } of successful)
+			await rm(stagingRoot, { recursive: true, force: true });
 	}
 }

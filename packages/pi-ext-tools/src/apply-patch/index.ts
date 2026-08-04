@@ -11,12 +11,15 @@ export {
 } from "./executor.js";
 export {
 	compileV4aUpdateToUnifiedDiff,
+	findV4aPatchConflicts,
+	operationTouchedPaths,
 	parseV4aPatch,
 	type V4aAddedLine,
 	type V4aAddOperation,
 	type V4aContextLine,
 	type V4aDeleteOperation,
 	type V4aPatch,
+	type V4aPatchConflict,
 	type V4aPatchOperation,
 	type V4aRemovedLine,
 	type V4aUpdateHunk,

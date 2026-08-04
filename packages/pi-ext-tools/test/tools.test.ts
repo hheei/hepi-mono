@@ -156,9 +156,38 @@ describe("pi-ext-tools catalog", () => {
 		);
 		expect(result.content).toContainEqual({
 			type: "text",
-			text: "Done! Applied patch.\nFiles changed: 1\nOperations: 1\nExact updates: 0\nFuzzy updates: 0",
+			text: "Done! Applied patch.\nStatus: Success\nFiles changed: 1\nOperations: 1\nExact updates: 0\nFuzzy updates: 0\nFuzzy matching: not used\nRejected operations: 0",
 		});
 		expect(await readFile(join(cwd, "created.txt"), "utf8")).toBe("created\n");
+	});
+
+	test("reports rejected operation count rather than rejection group count", async (): Promise<void> => {
+		const cwd = await temporaryDirectory();
+		const host = harness();
+		registerTools(host.pi);
+		const applyPatch = host.tools.find((tool) => tool.name === "apply_patch");
+		if (applyPatch === undefined) throw new Error("apply_patch was not registered");
+
+		const result = await applyPatch.execute(
+			"apply-patch-conflict",
+			{
+				patch:
+					"*** Begin Patch\n" +
+					"*** Add File: created.txt\n+created\n" +
+					"*** Add File: first.txt\n+first\n" +
+					"*** Add File: first.txt\n+second\n" +
+					"*** End Patch",
+			},
+			undefined,
+			undefined,
+			{ cwd } as ExtensionContext,
+		);
+		expect(result.content).toContainEqual({
+			type: "text",
+			text: "Applied patch partially.\nStatus: Partial\nFiles changed: 1\nOperations: 3\nExact updates: 0\nFuzzy updates: 0\nFuzzy matching: not used\nRejected operations: 2\nRejected paths: first.txt\nReason: path touched more than once: first.txt",
+		});
+		expect(await readFile(join(cwd, "created.txt"), "utf8")).toBe("created\n");
+		await expect(readFile(join(cwd, "first.txt"), "utf8")).rejects.toThrow();
 	});
 
 	test("preserves upstream write and edit execution semantics", async (): Promise<void> => {

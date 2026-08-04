@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	compileV4aUpdateToUnifiedDiff,
+	findV4aPatchConflicts,
 	parseV4aPatch,
 	type V4aAddOperation,
 	type V4aPatchOperation,
@@ -46,23 +47,37 @@ describe("V4A patch parser", () => {
 		).toThrow();
 	});
 
-	test("rejects duplicate and touch-conflicting paths", () => {
-		expect(() =>
-			parseV4aPatch("*** Begin Patch\n*** Delete File: x\n*** Add File: x\n+v\n*** End Patch"),
-		).toThrow();
-		expect(() =>
-			parseV4aPatch(
-				"*** Begin Patch\n*** Update File: x\n-a\n+b\n*** Update File: x\n-b\n+c\n*** End Patch",
-			),
-		).toThrow("path touched more than once: x");
-		expect(() =>
-			parseV4aPatch("*** Begin Patch\n*** Update File: x\n*** Move to: x\n-a\n+b\n*** End Patch"),
-		).toThrow("path touched more than once: x");
+	test("accepts harmless outer formatting without relaxing inner grammar", () => {
+		const patch = parseV4aPatch(
+			"\uFEFF\n```patch\n\n*** Begin Patch\n*** Add File: x\n+keep\n*** End Patch\n\n```\n",
+		);
+		expect(patch.operations).toEqual([{ kind: "add", path: "x", content: "keep\n" }]);
 		expect(() =>
 			parseV4aPatch(
-				"*** Begin Patch\n*** Update File: x\n*** Move to: y\n-a\n+b\n*** Add File: y\n+v\n*** End Patch",
+				"```patch\n*** Begin Patch\n*** Add File: x\n+keep\n*** Nope\n*** End Patch\n```",
 			),
 		).toThrow();
+	});
+
+	test("reports duplicate and touch-conflicting paths", () => {
+		const duplicate = parseV4aPatch(
+			"*** Begin Patch\n*** Delete File: x\n*** Add File: x\n+v\n*** End Patch",
+		);
+		const selfMove = parseV4aPatch(
+			"*** Begin Patch\n*** Update File: x\n*** Move to: x\n-a\n+b\n*** End Patch",
+		);
+		const moveTarget = parseV4aPatch(
+			"*** Begin Patch\n*** Update File: x\n*** Move to: y\n-a\n+b\n*** Add File: y\n+v\n*** End Patch",
+		);
+		expect(findV4aPatchConflicts(duplicate)).toEqual([
+			{ path: "x", operationIndices: [0, 1], message: "path touched more than once: x" },
+		]);
+		expect(findV4aPatchConflicts(selfMove)).toEqual([
+			{ path: "x", operationIndices: [0], message: "path touched more than once: x" },
+		]);
+		expect(findV4aPatchConflicts(moveTarget)).toEqual([
+			{ path: "y", operationIndices: [0, 1], message: "path touched more than once: y" },
+		]);
 	});
 
 	test("rejects no-op updates", () => {
