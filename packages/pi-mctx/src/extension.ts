@@ -6,6 +6,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import {
 	getHepiRuntimeSettingsRegistry,
+	hepiAuthenticatedModelSelectionOptions,
 	PARENT_CONTEXT_PROJECTION_SERVICE,
 	provideService,
 	registerExtensionLifecycle,
@@ -16,8 +17,6 @@ import {
 import { Type } from "typebox";
 import {
 	createMctxFeature,
-	type MctxAugmentResult,
-	type MctxDreamResult,
 	type MctxFeature,
 	type MctxFlushResult,
 	type MctxHistorianCommandResult,
@@ -51,14 +50,6 @@ const MCTX_SUBCOMMANDS = [
 	{
 		value: "wrapup",
 		description: "Compact older turns while retaining recent messages",
-	},
-	{
-		value: "dream",
-		description: "Run a bounded smart-note evaluation",
-	},
-	{
-		value: "aug",
-		description: "Run a read-only Sidekick and inject its result once",
 	},
 ] as const;
 const WRAPUP_MESSAGE_SUGGESTIONS = [2, 4, 8, 16] as const;
@@ -119,40 +110,6 @@ function notifyHistorianCommandResult(
 	}
 }
 
-async function runDreamCommand(
-	feature: MctxFeature,
-	args: string,
-	ctx: ExtensionContext,
-): Promise<void> {
-	if (ctx.mode !== "tui") {
-		ctx.ui.notify("/mctx dream requires interactive mode", "error");
-		return;
-	}
-	const query = args.trim();
-	if (query.length > 500) {
-		ctx.ui.notify("Usage: /mctx dream [query up to 500 characters]", "error");
-		return;
-	}
-	const result: MctxDreamResult = await feature.dream(query, ctx);
-	switch (result.kind) {
-		case "reported":
-			ctx.ui.notify(result.summary, "info");
-			break;
-		case "inactive":
-			ctx.ui.notify("pi-mctx is not active for this session.", "error");
-			break;
-		case "cancelled":
-			ctx.ui.notify("Dreamer evaluation cancelled.", "warning");
-			break;
-		case "empty":
-			ctx.ui.notify("No smart-condition notes to evaluate.", "warning");
-			break;
-		case "failed":
-			ctx.ui.notify(`Dreamer evaluation failed: ${result.reason}`, "error");
-			break;
-	}
-}
-
 // Core owns Pi's static registration and Loadout inventory; MCTX owns every tool's runtime behavior.
 const MCTX_MANAGED_TOOL = {
 	owner: "@hheei/pi-mctx",
@@ -188,40 +145,6 @@ function registerCompactionHook(pi: ExtensionAPI, feature: MctxFeature): void {
 		}
 		return { cancel: true };
 	});
-}
-
-async function runSidekickCommand(
-	feature: MctxFeature,
-	args: string,
-	ctx: ExtensionContext,
-): Promise<void> {
-	const query = args.trim();
-	if (query.length === 0 || query.length > 500) {
-		ctx.ui.notify("Usage: /mctx aug <query up to 500 characters>", "error");
-		return;
-	}
-	if (ctx.mode !== "tui") {
-		ctx.ui.notify("/mctx aug requires interactive mode", "error");
-		return;
-	}
-	const result: MctxAugmentResult = await feature.augment(query, ctx);
-	switch (result.kind) {
-		case "injected":
-			ctx.ui.notify("Sidekick augmentation injected into the next context turn.", "info");
-			break;
-		case "inactive":
-			ctx.ui.notify("pi-mctx is not active for this session.", "error");
-			break;
-		case "cancelled":
-			ctx.ui.notify("Sidekick augmentation cancelled.", "warning");
-			break;
-		case "empty":
-			ctx.ui.notify("Sidekick found nothing to augment; context unchanged.", "warning");
-			break;
-		case "failed":
-			ctx.ui.notify(`Sidekick augmentation failed: ${result.reason}`, "error");
-			break;
-	}
 }
 
 function registerMctxCommand(
@@ -274,14 +197,6 @@ function registerMctxCommand(
 				await openMctxStatusSurface(pi, context, feature, context, lifecycleSignal);
 				return;
 			}
-			if (/^aug$/u.test(subcommand)) {
-				await runSidekickCommand(feature, subcommandArgs, context);
-				return;
-			}
-			if (/^dream$/u.test(subcommand)) {
-				await runDreamCommand(feature, subcommandArgs, context);
-				return;
-			}
 			if (/^flush$/u.test(subcommand)) {
 				if (subcommandArgs.length > 0) {
 					context.ui.notify("Usage: /mctx flush", "error");
@@ -316,7 +231,7 @@ function registerMctxCommand(
 				return;
 			}
 			context.ui.notify(
-				`Unknown MCTX subcommand: ${subcommand}. Usage: /mctx [status | flush | recomp | wrapup [messages_to_keep] | dream [query] | aug <query>]`,
+				`Unknown MCTX subcommand: ${subcommand}. Usage: /mctx [status | flush | recomp | wrapup [messages_to_keep]]`,
 				"error",
 			);
 		},
@@ -676,7 +591,7 @@ function registerHistoryTools(pi: ExtensionAPI, feature: MctxFeature): void {
 	/*
 	 * Memory-system registration disabled (see docs/mctx/README.md): the
 	 * durable memory/search/notes features are parked behind this hook and
-	 * kept for revival. historian, history tags and sidekick stay active.
+	 * kept for revival. historian and history tags stay active.
 	registerManagedLoadoutTool(
 		pi,
 		{ id: "ctx_search", ...MCTX_MANAGED_TOOL },
@@ -826,11 +741,17 @@ function registerHistoryTools(pi: ExtensionAPI, feature: MctxFeature): void {
 export default function piMctxExtension(pi: ExtensionAPI): void {
 	const feature = createMctxFeature();
 	const settingsRegistry = getHepiRuntimeSettingsRegistry(pi);
-	const settingsProvider = createMctxSettingsProvider();
 	let lifecycleSignal: AbortSignal | undefined;
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-mctx",
 		start: async (context) => {
+			const modelRegistry = context.extension.modelRegistry;
+			const settingsProvider = createMctxSettingsProvider({
+				modelOptions:
+					modelRegistry === undefined
+						? [{ value: "", label: "Not set" }]
+						: hepiAuthenticatedModelSelectionOptions(modelRegistry),
+			});
 			const unregisterSettings = registerHepiSettings(settingsProvider, settingsRegistry);
 			context.resources.add("mctx-historian-settings", unregisterSettings);
 			lifecycleSignal = context.signal;

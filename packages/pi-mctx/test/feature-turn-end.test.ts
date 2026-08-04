@@ -150,7 +150,6 @@ test("status reports inactive before start and active read-only snapshot", async
 		partitionRevision: 0,
 		usage: { tokens: 10, contextWindow: 100, percentage: 10 },
 		historian: { kind: "active", phase: "idle", model: "anthropic/claude-haiku" },
-		pendingAugmentation: false,
 	});
 	expect(feature.status(turnContext(undefined, "other-session"))).toEqual({ kind: "stale" });
 });

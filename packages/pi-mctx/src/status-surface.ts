@@ -123,10 +123,7 @@ function bodyRows(
 				: active.historian.kind === "unavailable"
 					? `Historian  ${style(theme, "warning", "unavailable")} · ${style(theme, "muted", inlineStatusText(active.historian.diagnostic))}`
 					: `Historian  ${style(theme, active.historian.phase === "idle" ? "success" : "warning", active.historian.phase)} · ${style(theme, "muted", inlineStatusText(active.historian.model))}${active.historian.lastFailureClass === undefined ? "" : ` · ${style(theme, "error", inlineStatusText(active.historian.lastFailureClass))}`}`;
-	const partition =
-		active === undefined
-			? ""
-			: `Partition  revision: ${active.partitionRevision} · sidekick augmentation ${style(theme, active.pendingAugmentation ? "warning" : "muted", active.pendingAugmentation ? "pending" : "idle")}`;
+	const partition = active === undefined ? "" : `Partition  revision: ${active.partitionRevision}`;
 	const reason =
 		snapshot.kind === "inactive"
 			? inlineStatusText(snapshot.diagnostic ?? snapshot.reason)

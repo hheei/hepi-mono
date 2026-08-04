@@ -360,6 +360,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+/** Bun returns null for an empty Statement.get; node:sqlite returns undefined. */
+function isMissingRow(value: unknown): value is null | undefined {
+	return value === null || value === undefined;
+}
+
 function integerValue(value: unknown, statement: string): number {
 	const values = isRecord(value) ? Object.values(value) : [];
 	const integer = values[0];
@@ -761,7 +766,7 @@ function isHandoffInstalled(
 			"SELECT 1 AS value FROM handoff_bindings WHERE parent_project_identity = ? AND parent_session_id = ? AND destination_session_id = ? AND status = 'installed'",
 		)
 		.get(parent.projectIdentity, parent.sessionId, destinationSessionId);
-	return row !== undefined;
+	return !isMissingRow(row);
 }
 
 function reserveHandoffInstallation(
@@ -916,7 +921,7 @@ function findPartition(
 			"SELECT project_identity, session_id, revision FROM partitions WHERE project_identity = ? AND session_id = ?",
 		)
 		.get(projectIdentity, sessionId);
-	return row === undefined ? undefined : partitionFromRow(row);
+	return isMissingRow(row) ? undefined : partitionFromRow(row);
 }
 
 function changedRows(value: unknown): number {
@@ -1476,7 +1481,7 @@ function syncHistoryTags(
 					input.kind,
 					input.toolCallId ?? null,
 				);
-			if (existing !== undefined) continue;
+			if (!isMissingRow(existing)) continue;
 			database
 				.prepare(
 					"INSERT INTO history_tags (project_identity, session_id, tag_number, kind, entry_id, tool_call_id, source, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'active')",
@@ -1736,7 +1741,7 @@ function getMemories(
 			const row = database
 				.prepare("SELECT * FROM memories WHERE project_identity = ? AND memory_id = ?")
 				.get(projectIdentity, memoryId);
-			return row === undefined ? [] : [memoryFromRow(row)];
+			return isMissingRow(row) ? [] : [memoryFromRow(row)];
 		});
 }
 

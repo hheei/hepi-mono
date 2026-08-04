@@ -17,7 +17,6 @@ const active: MctxStatusResult = {
 	tags: { total: 1, active: 1, pending: 0, dropped: 0 },
 	historian: { kind: "active", phase: "idle", model: "provider/model" },
 	trigger: { protectedTags: 1 },
-	pendingAugmentation: false,
 };
 const failed: MctxStatusResult = { kind: "failed", reason: "read failed" };
 const context = { ui: { theme } } as ExtensionContext;

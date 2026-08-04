@@ -21,7 +21,6 @@ const status: ActiveStatus = {
 	tags: { total: 5, active: 3, pending: 1, dropped: 1 },
 	historian: { kind: "active", phase: "running", model: "openai/gpt-5" },
 	trigger: { percentage: 65, tokens: 2600, protectedTags: 20 },
-	pendingAugmentation: true,
 };
 
 const plainTheme: MctxStatusTheme = {
@@ -85,7 +84,7 @@ test("content rows retain legacy order and compact values", (): void => {
 		"Historian:",
 		"Historian  running · openai/gpt-5",
 		"Trigger  65% · 2.6K tokens",
-		"Partition  revision: 4 · sidekick augmentation pending",
+		"Partition  revision: 4",
 		"Project  git:project",
 		"Session  session-1",
 	]);
@@ -123,7 +122,6 @@ test("missing usage reserves value and bar rows without inventing zero", (): voi
 		tags: status.tags,
 		historian: status.historian,
 		trigger: status.trigger,
-		pendingAugmentation: status.pendingAugmentation,
 	};
 	const lines = renderMctxStatusLines(missing, 48, plainTheme);
 	expect(contentRow(lines, 4)).toBe("Context  — · — / — tokens");
