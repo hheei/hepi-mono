@@ -17,7 +17,7 @@ Pi upstream factory -> pi-ext-tools tool module -> one managed registration -> P
 ```
 
 每个 tool module 自己决定如何复用 upstream factory、如何 render，以及如何处理特定 feature policy。
-`pi-ext-core` 仅提供 managed registration 与 mouse transport。
+`pi-ext-core` 仅提供 managed registration。
 
 ## v1 Catalog
 
@@ -90,31 +90,6 @@ extension 也保留兼容 guard：当前 active tools 不含 `apply_patch` 时�
 - `apply_patch` 是 `pi-ext-tools` owner 的 Canonical V4A-only tool；public JSON transport 只接受 `{ "patch": string }`，并委托 package 内 patch coordinator 执行。
 - 其他 extension 不得为 catalog 名称直接 `pi.registerTool()` 或 managed-register competing definition。它们不能
   import `pi-ext-tools`；跨包协作若确有需求，另行定义 narrow core capability。
-
-## 本地文本选择
-
-`pi-ext-tools` 只在本 package 内共享纯文本 selection substrate：logical lines、grapheme/cell mapping、visual
-soft-wrap map 与 half-open `TextRange` slicing。`read`、`grep`、`find` 与 `apply_patch` 的可见纯文本 result body 支持
-local selection；`apply_patch` 只暴露完成后的 compact success summary，不暴露 patch payload、stream preview 或 coordinator
-internals。ANSI、padding、border、call header 与 expand hint 都不进入 logical text。v1 只显示 local selection，不读取 selected text、不自动 copy、不访问 clipboard。这个 `TextRange` 高亮不是
-terminal emulator 的 native selection，不能用 `Command+C` / `Ctrl+C` 直接复制；用户需要先用各 emulator 自己的
-mouse-reporting bypass 修饰键拖出 native terminal selection，再使用该 emulator 的复制快捷键。修饰键和快捷键均因
-emulator 配置而异，且此流程与 local selection 无关。
-
-它不是通用 Component framework 或 tool decorator。每个 renderer 自己决定 result body、selection state、highlight
-和 clipboard policy。v1 clipboard policy 明确为空。local tool-surface binding 只识别本 package 产生的 result
-component；它通过 core 的 optional runtime host bridge 取得 Pi TUI/layout。capability 缺席或格式无效时 fail closed：
-保留 upstream renderer，且不注册 mouse region。
-
-`edit`、`write` 保留 upstream renderer 的 padded status shell、diff、partial/expanded output、error 与 timer lifecycle。
-`read` 与 `bash` expanded output 通过 Pi 的 vendored `ToolRenderContext.resultLayout` 接收 result body viewport bounds，并注册
-local mouse region；extension 不遍历 `Container.children`，不读取 `ToolExecutionComponent` private fields。`bash` collapsed preview
-继续由 upstream renderer 处理，不创建 selection region。`grep` 与 `find` 保留 upstream `Text` renderer；local selection 只替换
-可见 result body 行，跳过 renderer 的首个空行和 shell 的左右 padding，保留 expand/truncation UI。soft-wrap 不生成 logical newline，
-每行右侧 space/tab 在 selection text 中移除。
-
-未来的 region snapshot 必须在 layout/content revision 改变后异步更新，绝不从 `render(width)` 注册或移除；mouse callback
-只读取 selection，不创建 Promise、不执行 I/O，也不接管 `Command+C` / `Ctrl+C`。
 
 ## FFF enhancement
 

@@ -18,7 +18,6 @@ Independent extensions:
 | --- | --- | --- |
 | [`pi-settings`](../../packages/pi-settings/README.md) | `/ext-settings` host for registered provider and extension pages | Pi host, `pi-ext-core` |
 | [`pi-loadout`](../../packages/pi-loadout/README.md) | Tool and skill activation policy plus its Settings page | Pi host, `pi-ext-core`, `pi-settings` |
-| [`pi-ext-addon`](../../packages/pi-ext-addon/README.md) | Pi host addons; current feature is assistant/thinking local selection | Pi host, `pi-ext-core`, HEPI Pi `0.83.0` bridge |
 | [`pi-t2s`](../../packages/pi-t2s/README.md) | Traditional-to-simplified Chinese input transformation | Pi host, `pi-ext-core` |
 
 Future features publish as independent extensions backed by `@hheei/pi-ext-core`.
