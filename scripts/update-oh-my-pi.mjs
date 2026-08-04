@@ -7,7 +7,7 @@ if (sourcePath === undefined || sourcePath.trim() === "") {
 	throw new Error("OH_MY_PI_SOURCE must point to a checked-out oh-my-pi repository");
 }
 const source = resolve(sourcePath);
-const destination = join(root, "vendor/oh-my-pi");
+const destination = join(root, "crates", "vendor");
 const revisionFile = join(destination, "UPSTREAM_REVISION");
 
 const revision = process.env.OH_MY_PI_REVISION;
@@ -24,7 +24,7 @@ await cp(join(source, "Cargo.lock"), join(destination, "Cargo.lock"));
 await writeFile(revisionFile, `${revision.trim()}\n`, "utf8");
 
 const manifest = await readFile(join(destination, "Cargo.toml"), "utf8");
-if (!manifest.includes("name = \"pi-natives\"")) {
+if (!manifest.includes('name = "pi-natives"')) {
 	throw new Error("vendored source does not contain pi-natives");
 }
 

@@ -72,7 +72,6 @@ Prefer focused checks first, then the read-only checks for the affected scope:
 bun test <focused-test-path>
 bun run typecheck
 bun run check
-bun run build:aggregates
 ```
 
 When reporting Pi findings, include:

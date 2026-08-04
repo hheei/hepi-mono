@@ -11,6 +11,7 @@
 	"files": [
 		"dist",
 		"bin",
+		"native",
 		"README.md",
 		"LICENSE",
 		"THIRD_PARTY_NOTICES.md",
@@ -22,6 +23,7 @@
 		]
 	},
 	"scripts": {
+		"build:native": "bun ../../scripts/build-native.mjs",
 		"build": "bunx tsc -p tsconfig.build.json",
 		"prepack": "bun run build"
 	},
@@ -55,6 +57,7 @@
 	},
 	"devDependencies": {
 		"@earendil-works/pi-coding-agent": ">=0.83.0",
+		"@napi-rs/cli": "^3.5.0",
 		"@types/bun": "latest"
 	}
 }

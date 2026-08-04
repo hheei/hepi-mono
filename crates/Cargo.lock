@@ -4967,6 +4967,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pi-ext-bridge"
+version = "0.1.0"
+dependencies = [
+ "napi",
+ "napi-build",
+ "napi-derive",
+ "pi-natives",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "pi-iso"
 version = "17.2.6"
 dependencies = [
@@ -4976,18 +4988,6 @@ dependencies = [
  "similar 3.1.1",
  "tokio",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "pi-native-bridge"
-version = "0.1.0"
-dependencies = [
- "napi",
- "napi-build",
- "napi-derive",
- "pi-natives",
- "tempfile",
- "tokio",
 ]
 
 [[package]]

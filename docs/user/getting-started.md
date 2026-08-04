@@ -21,7 +21,6 @@ Build the selected package, then install it:
 
 ```bash
 bun install
-bun run build:aggregates
 pi install ./packages/hepi-basics
 ```
 

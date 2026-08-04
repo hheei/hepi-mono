@@ -1,5 +1,5 @@
-import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -36,9 +36,15 @@ interface NativeModule {
 	}) => Promise<MpatchRunResult>;
 }
 
+/**
+ * Loads the HEPI-owned N-API bridge built from `crates/pi-ext-bridge`.
+ * The bridge is a release artifact (`native/pi-ext-tools-bridge.node`) and is
+ * not committed; callers must tolerate its absence unless they require native
+ * execution.
+ */
 function loadNative(): NativeModule {
 	const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-	const nativePath = join(packageRoot, "native", "index.node");
+	const nativePath = join(packageRoot, "native", "pi-ext-tools-bridge.node");
 	if (!existsSync(nativePath)) {
 		throw new Error(`Native bridge is not built: ${nativePath}`);
 	}

@@ -1,5 +1,5 @@
 [package]
-name = "pi-native-bridge"
+name = "pi-ext-bridge"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
@@ -11,7 +11,7 @@ crate-type = ["cdylib"]
 [dependencies]
 napi = "3"
 napi-derive = "3"
-pi-natives = { path = "../../vendor/oh-my-pi/crates/pi-natives" }
+pi-natives = { path = "../vendor/crates/pi-natives" }
 tempfile = "3"
 tokio = { workspace = true, features = ["process", "fs"] }
 
