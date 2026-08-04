@@ -19,7 +19,7 @@ const status: ActiveStatus = {
 	usage: { tokens: 1200, contextWindow: 4000, percentage: 30 },
 	compartments: { total: 3, m0: 2, m1: 1, latestSequence: 8, latestPublishedRevision: 4 },
 	tags: { total: 5, active: 3, pending: 1, dropped: 1 },
-	historian: { phase: "running", model: "openai/gpt-5" },
+	historian: { kind: "active", phase: "running", model: "openai/gpt-5" },
 	trigger: { percentage: 65, tokens: 2600, protectedTags: 20 },
 	pendingAugmentation: true,
 };

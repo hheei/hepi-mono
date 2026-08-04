@@ -15,7 +15,7 @@ const active: MctxStatusResult = {
 	partitionRevision: 1,
 	compartments: { total: 1, m0: 1, m1: 0 },
 	tags: { total: 1, active: 1, pending: 0, dropped: 0 },
-	historian: { phase: "idle", model: "provider/model" },
+	historian: { kind: "active", phase: "idle", model: "provider/model" },
 	trigger: { protectedTags: 1 },
 	pendingAugmentation: false,
 };

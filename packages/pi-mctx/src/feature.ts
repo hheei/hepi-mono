@@ -128,7 +128,6 @@ export type MctxStatusInactiveReason =
 	| "disabled"
 	| "invalid"
 	| "unavailable"
-	| "collision"
 	| "store"
 	| "partition"
 	| "disposed";
@@ -142,11 +141,15 @@ export type MctxStatusResult =
 			readonly usage?: MctxStatusUsage;
 			readonly compartments: MctxStoreStatusMetrics["compartments"];
 			readonly tags: MctxStoreStatusMetrics["tags"];
-			readonly historian: {
-				readonly phase: "idle" | "running" | "cooling" | "rebuild-pending";
-				readonly model: string;
-				readonly lastFailureClass?: MctxHistorianFailureDiagnostic["failureClass"];
-			};
+			historian:
+				| { readonly kind: "disabled" }
+				| { readonly kind: "unavailable"; readonly diagnostic: string }
+				| {
+						readonly kind: "active";
+						readonly phase: "idle" | "running" | "cooling" | "rebuild-pending";
+						readonly model: string;
+						readonly lastFailureClass?: MctxHistorianFailureDiagnostic["failureClass"];
+				  };
 			readonly trigger: {
 				readonly percentage?: number;
 				readonly tokens?: number;
@@ -751,6 +754,8 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 	 * writers while allowing the latest branch to be rebuilt promptly.
 	 */
 	function startHistorian(current: ActiveMctxRuntime, entries: readonly SessionEntry[]): void {
+		const historian = current.runtime.historian;
+		if (historian.kind !== "active") return;
 		// At most one historian runs per session. A newer branch snapshot is retained
 		// in `rebuildEntries` and starts after the current lease/job settles.
 		if (current.job !== undefined || current.lifecycle.signal.aborted) return;
@@ -760,7 +765,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 		current.lifecycle.signal.addEventListener("abort", abort, { once: true });
 		const completion = runHistorianForBranch({
 			context: current.lifecycle,
-			model: current.runtime.historian,
+			model: historian.model,
 			store: current.runtime.store,
 			partition: current.runtime.partition,
 			entries,
@@ -1011,8 +1016,9 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 	}
 	const feature: MctxFeature = {
 		async start(context): Promise<void> {
-			// Invalid configuration and unavailable optional models keep Pi-native behavior;
-			// storage failures follow the user-owned fail-closed policy below.
+			// Runtime configuration failures keep Pi-native behavior; historian admission
+			// failures leave the runtime active. Storage failures follow the user-owned
+			// fail-closed policy below.
 			let configuration: MctxConfiguration;
 			try {
 				// Settings are activation-time input. Saving settings never mutates an
@@ -1042,6 +1048,9 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				if (activation.reason !== "disabled")
 					context.extension.ui.notify(activation.diagnostic, "warning");
 				return;
+			}
+			if (activation.runtime.historian.kind === "unavailable") {
+				context.extension.ui.notify(activation.runtime.historian.diagnostic, "warning");
 			}
 			let store: MctxStore;
 			try {
@@ -1154,15 +1163,17 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				await current.embeddingLease?.release();
 				store.close();
 			});
-			context.resources.add("mctx-historian", async () => {
-				current.rebuildEntries = undefined;
-				current.job?.abort();
-				await current.jobCompletion;
-				if (active === current) {
-					active = undefined;
-					inactive = { reason: "disposed" };
-				}
-			});
+			if (runtime.historian.kind === "active") {
+				context.resources.add("mctx-historian", async () => {
+					current.rebuildEntries = undefined;
+					current.job?.abort();
+					await current.jobCompletion;
+					if (active === current) {
+						active = undefined;
+						inactive = { reason: "disposed" };
+					}
+				});
+			}
 		},
 		status(context): MctxStatusResult {
 			const current = active;
@@ -1194,14 +1205,27 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				current.runtime.settings.executeThresholdTokens === undefined
 					? undefined
 					: modelThreshold(current.runtime.settings.executeThresholdTokens, context.model);
-			const phase =
-				current.rebuildEntries !== undefined
-					? "rebuild-pending"
-					: current.job !== undefined
-						? "running"
-						: current.cooling
-							? "cooling"
-							: "idle";
+			const historian = current.runtime.historian;
+			const historianStatus =
+				historian.kind === "disabled"
+					? { kind: "disabled" as const }
+					: historian.kind === "unavailable"
+						? { kind: "unavailable" as const, diagnostic: historian.diagnostic }
+						: {
+								kind: "active" as const,
+								phase:
+									current.rebuildEntries !== undefined
+										? ("rebuild-pending" as const)
+										: current.job !== undefined
+											? ("running" as const)
+											: current.cooling
+												? ("cooling" as const)
+												: ("idle" as const),
+								model: `${historian.model.provider}/${historian.model.id}`,
+								...(current.lastNotifiedFailureClass === undefined
+									? {}
+									: { lastFailureClass: current.lastNotifiedFailureClass }),
+							};
 			try {
 				const metrics = current.runtime.store.readStatusMetrics(current.runtime.partition);
 				return {
@@ -1212,13 +1236,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					...(usage === undefined ? {} : { usage }),
 					compartments: metrics.compartments,
 					tags: metrics.tags,
-					historian: {
-						phase,
-						model: `${current.runtime.historian.provider}/${current.runtime.historian.id}`,
-						...(current.lastNotifiedFailureClass === undefined
-							? {}
-							: { lastFailureClass: current.lastNotifiedFailureClass }),
-					},
+					historian: historianStatus,
 					trigger: {
 						...(percentage === undefined ? {} : { percentage }),
 						...(tokens === undefined ? {} : { tokens }),
@@ -1237,6 +1255,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			if (
 				current === undefined ||
 				current.lifecycle.signal.aborted ||
+				current.runtime.historian.kind !== "active" ||
 				current.runtime.sessionId !== context.sessionManager.getSessionId()
 			)
 				return;

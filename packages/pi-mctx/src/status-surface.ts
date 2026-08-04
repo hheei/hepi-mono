@@ -118,7 +118,11 @@ function bodyRows(
 	const historian =
 		active === undefined
 			? ""
-			: `Historian  ${style(theme, active.historian.phase === "idle" ? "success" : "warning", active.historian.phase)} · ${style(theme, "muted", inlineStatusText(active.historian.model))}${active.historian.lastFailureClass === undefined ? "" : ` · ${style(theme, "error", inlineStatusText(active.historian.lastFailureClass))}`}`;
+			: active.historian.kind === "disabled"
+				? `Historian  ${style(theme, "muted", "disabled")}`
+				: active.historian.kind === "unavailable"
+					? `Historian  ${style(theme, "warning", "unavailable")} · ${style(theme, "muted", inlineStatusText(active.historian.diagnostic))}`
+					: `Historian  ${style(theme, active.historian.phase === "idle" ? "success" : "warning", active.historian.phase)} · ${style(theme, "muted", inlineStatusText(active.historian.model))}${active.historian.lastFailureClass === undefined ? "" : ` · ${style(theme, "error", inlineStatusText(active.historian.lastFailureClass))}`}`;
 	const partition =
 		active === undefined
 			? ""

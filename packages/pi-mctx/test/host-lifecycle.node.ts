@@ -100,7 +100,7 @@ async function createHost(
 		JSON.stringify({
 			"pi-mctx": {
 				enabled: true,
-				historian: { model: "faux/faux-1" },
+				historian: { enabled: true, model: "faux/faux-1" },
 				execute_threshold_percentage: 20,
 				execute_threshold_tokens: { default: 5_000 },
 			},

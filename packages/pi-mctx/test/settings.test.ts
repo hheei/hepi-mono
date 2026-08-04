@@ -5,9 +5,10 @@ import { join } from "node:path";
 import { getHepiRuntimeSettingsRegistry, updateJsonSettingsRoot } from "@hheei/pi-ext-core";
 import piMctxExtension from "../src/extension.js";
 import {
-	createMctxHistorianSettingsProvider,
+	createMctxSettingsProvider,
 	MCTX_HISTORIAN_SETTINGS_GROUP,
-	MCTX_HISTORIAN_SETTINGS_PROVIDER_ID,
+	MCTX_RUNTIME_SETTINGS_GROUP,
+	MCTX_SETTINGS_PROVIDER_ID,
 } from "../src/settings.js";
 
 async function temporarySettings<T>(run: (path: string) => Promise<T>): Promise<T> {
@@ -26,35 +27,49 @@ function parseRoot(text: string): Record<string, unknown> {
 	return Object.fromEntries(Object.entries(value));
 }
 
-test("historian provider exposes enablement and dependent model selection", async (): Promise<void> => {
+test("MCTX provider exposes independent runtime and historian controls", async (): Promise<void> => {
 	await temporarySettings(async (path) => {
-		const provider = createMctxHistorianSettingsProvider({ path });
-		expect(provider.id).toBe(MCTX_HISTORIAN_SETTINGS_PROVIDER_ID);
+		const provider = createMctxSettingsProvider({ path });
+		expect(provider.id).toBe(MCTX_SETTINGS_PROVIDER_ID);
 		expect(provider.moduleName).toBe("pi-mctx");
 		expect(provider.onChange).toBeUndefined();
 		const group = provider.groups.find(
 			(candidate) => candidate.id === MCTX_HISTORIAN_SETTINGS_GROUP,
 		);
-		expect(group?.fields.map((field) => field.id)).toEqual(["enabled", "model"]);
-		const enabled = group?.fields[0];
-		const model = group?.fields[1];
-		expect(enabled?.defaultValue).toBe(false);
-		expect(model?.defaultValue).toBe("");
-		expect(model?.enabled?.({ historian: { enabled: false, model: "provider/model" } })).toBe(
-			false,
+		const runtime = provider.groups.find(
+			(candidate) => candidate.id === MCTX_RUNTIME_SETTINGS_GROUP,
 		);
-		expect(model?.enabled?.({ historian: { enabled: true, model: "provider/model" } })).toBe(true);
+		expect(runtime?.fields.map((field) => field.id)).toEqual(["enabled"]);
+		expect(group?.fields.map((field) => field.id)).toEqual(["enabled", "model"]);
+		const runtimeEnabled = runtime?.fields[0];
+		const historianEnabled = group?.fields[0];
+		const model = group?.fields[1];
+		expect(runtimeEnabled?.defaultValue).toBe(false);
+		expect(historianEnabled?.defaultValue).toBe(false);
+		expect(model?.defaultValue).toBe("");
+		expect(
+			model?.enabled?.({
+				runtime: { enabled: false },
+				historian: { enabled: true, model: "provider/model" },
+			}),
+		).toBe(false);
+		expect(
+			model?.enabled?.({
+				runtime: { enabled: true },
+				historian: { enabled: true, model: "provider/model" },
+			}),
+		).toBe(true);
 		expect(model?.validate?.("provider/model")).toBeUndefined();
 		expect(model?.validate?.("missing-provider")).toContain("provider/model");
 		await expect(
 			provider.storage.validate?.(
-				{ historian: { enabled: true, model: "" } },
+				{ runtime: { enabled: true }, historian: { enabled: true, model: "" } },
 				{ sessionId: "test" },
 			),
 		).rejects.toThrow("provider/model");
 		await expect(
 			provider.storage.validate?.(
-				{ historian: { enabled: false, model: "" } },
+				{ runtime: { enabled: true }, historian: { enabled: false, model: "" } },
 				{ sessionId: "test" },
 			),
 		).resolves.toBeUndefined();
@@ -68,7 +83,7 @@ test("historian provider round-trips existing MCTX JSON without losing siblings"
 			JSON.stringify({
 				"pi-mctx": {
 					enabled: true,
-					historian: { model: "old/model", retained: "keep" },
+					historian: { enabled: true, model: "old/model", retained: "keep" },
 					execute_threshold_percentage: { default: 65, "old/model": 75 },
 					protected_tags: 30,
 					search: { primer_path: "docs/primer.md" },
@@ -77,18 +92,19 @@ test("historian provider round-trips existing MCTX JSON without losing siblings"
 			}),
 			"utf8",
 		);
-		const provider = createMctxHistorianSettingsProvider({ path });
+		const provider = createMctxSettingsProvider({ path });
 		expect(await provider.storage.load({ sessionId: "test" })).toEqual({
+			runtime: { enabled: true },
 			historian: { enabled: true, model: "old/model" },
 		});
 		await provider.storage.save(
-			{ historian: { enabled: false, model: "new/model" } },
+			{ runtime: { enabled: true }, historian: { enabled: false, model: "new/model" } },
 			{ sessionId: "test" },
 		);
 		expect(parseRoot(await readFile(path, "utf8"))).toEqual({
 			"pi-mctx": {
-				enabled: false,
-				historian: { model: "new/model", retained: "keep" },
+				enabled: true,
+				historian: { enabled: false, model: "new/model", retained: "keep" },
 				execute_threshold_percentage: { default: 65, "old/model": 75 },
 				protected_tags: 30,
 				search: { primer_path: "docs/primer.md" },
@@ -100,10 +116,10 @@ test("historian provider round-trips existing MCTX JSON without losing siblings"
 
 test("historian provider serializes with sibling settings writers", async (): Promise<void> => {
 	await temporarySettings(async (path) => {
-		const provider = createMctxHistorianSettingsProvider({ path });
+		const provider = createMctxSettingsProvider({ path });
 		await Promise.all([
 			provider.storage.save(
-				{ historian: { enabled: true, model: "provider/model" } },
+				{ runtime: { enabled: true }, historian: { enabled: true, model: "provider/model" } },
 				{ sessionId: "test" },
 			),
 			updateJsonSettingsRoot(path, (root) => {
@@ -111,7 +127,7 @@ test("historian provider serializes with sibling settings writers", async (): Pr
 			}),
 		]);
 		expect(parseRoot(await readFile(path, "utf8"))).toEqual({
-			"pi-mctx": { enabled: true, historian: { model: "provider/model" } },
+			"pi-mctx": { enabled: true, historian: { enabled: true, model: "provider/model" } },
 			external: { retained: true },
 		});
 	});
@@ -138,15 +154,15 @@ test("pi-mctx registers historian settings for inactive sessions and removes it 
 		};
 		piMctxExtension(pi as never);
 		const registry = getHepiRuntimeSettingsRegistry(pi as never);
-		expect(registry.get(MCTX_HISTORIAN_SETTINGS_PROVIDER_ID)).toBeUndefined();
+		expect(registry.get(MCTX_SETTINGS_PROVIDER_ID)).toBeUndefined();
 		const context = {
 			cwd: directory,
 			ui: { notify(): void {} },
 		};
 		for (const handler of handlers.get("session_start") ?? []) await handler({}, context);
-		expect(registry.get(MCTX_HISTORIAN_SETTINGS_PROVIDER_ID)?.moduleName).toBe("pi-mctx");
+		expect(registry.get(MCTX_SETTINGS_PROVIDER_ID)?.moduleName).toBe("pi-mctx");
 		for (const handler of handlers.get("session_shutdown") ?? []) await handler({}, context);
-		expect(registry.get(MCTX_HISTORIAN_SETTINGS_PROVIDER_ID)).toBeUndefined();
+		expect(registry.get(MCTX_SETTINGS_PROVIDER_ID)).toBeUndefined();
 	} finally {
 		await rm(directory, { recursive: true, force: true });
 	}

@@ -2,22 +2,66 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import { type ExtensionLifecycleContext, ensureSubagentCoordinator } from "@hheei/pi-ext-core";
 import type { MctxConfiguration, MctxPipelineSettings, MctxSearchSettings } from "./config.js";
 
+export type MctxHistorianRuntime =
+	| { readonly kind: "disabled" }
+	| { readonly kind: "unavailable"; readonly diagnostic: string }
+	| { readonly kind: "active"; readonly model: Model<Api> };
+
 /** Resolved immutable inputs held for one active parent session. */
 export interface MctxRuntime {
 	readonly cwd: string;
 	readonly sessionId: string;
-	readonly historian: Model<Api>;
+	readonly historian: MctxHistorianRuntime;
 	readonly settings: MctxPipelineSettings;
 	readonly search: MctxSearchSettings;
 	/** User-owned Dreamer child model ref; absent means the parent model. */
 	readonly dreamerModel?: string;
 }
 
+function resolveHistorian(
+	context: ExtensionLifecycleContext,
+	settings: MctxPipelineSettings,
+): MctxHistorianRuntime {
+	switch (settings.historian.kind) {
+		case "disabled":
+			return { kind: "disabled" };
+		case "invalid":
+			return {
+				kind: "unavailable",
+				diagnostic: `pi-mctx historian configuration is invalid: ${settings.historian.reason}`,
+			};
+		case "enabled": {
+			const parts = modelParts(settings.historian.model);
+			if (!parts) {
+				return {
+					kind: "unavailable",
+					diagnostic: "pi-mctx historian model must be exact provider/model",
+				};
+			}
+			const model = context.extension.modelRegistry.find(parts.provider, parts.model);
+			if (!model || !context.extension.modelRegistry.hasConfiguredAuth(model)) {
+				return {
+					kind: "unavailable",
+					diagnostic: `pi-mctx historian model is unavailable: ${settings.historian.model}`,
+				};
+			}
+			try {
+				ensureSubagentCoordinator(context);
+				return { kind: "active", model };
+			} catch (error: unknown) {
+				return {
+					kind: "unavailable",
+					diagnostic: `pi-mctx historian coordinator unavailable: ${error instanceof Error ? error.message : String(error)}`,
+				};
+			}
+		}
+	}
+}
+
 export type MctxActivation =
 	| { readonly kind: "inactive"; readonly reason: "disabled" }
 	| { readonly kind: "inactive"; readonly reason: "invalid"; readonly diagnostic: string }
 	| { readonly kind: "inactive"; readonly reason: "unavailable"; readonly diagnostic: string }
-	| { readonly kind: "inactive"; readonly reason: "collision"; readonly diagnostic: string }
 	| { readonly kind: "active"; readonly runtime: MctxRuntime };
 
 function modelParts(
@@ -47,29 +91,12 @@ export function resolveMctxActivation(
 				diagnostic: `pi-mctx configuration is invalid: ${configuration.pipeline.reason}`,
 			};
 		case "enabled": {
-			const parts = modelParts(configuration.pipeline.settings.historianModel);
-			if (!parts) {
-				return {
-					kind: "inactive",
-					reason: "invalid",
-					diagnostic: "pi-mctx historian model must be exact provider/model",
-				};
-			}
-			const historian = context.extension.modelRegistry.find(parts.provider, parts.model);
-			if (!historian || !context.extension.modelRegistry.hasConfiguredAuth(historian)) {
-				return {
-					kind: "inactive",
-					reason: "unavailable",
-					diagnostic: `pi-mctx historian model is unavailable: ${configuration.pipeline.settings.historianModel}`,
-				};
-			}
-			ensureSubagentCoordinator(context);
 			return {
 				kind: "active",
 				runtime: {
 					cwd: context.extension.cwd,
 					sessionId: context.extension.sessionManager.getSessionId(),
-					historian,
+					historian: resolveHistorian(context, configuration.pipeline.settings),
 					settings: configuration.pipeline.settings,
 					search: configuration.search ?? {},
 					...(configuration.dreamer?.model === undefined

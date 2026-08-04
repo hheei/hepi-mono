@@ -36,14 +36,19 @@ test("disabled configuration leaves pipeline inactive", async (): Promise<void> 
 
 test("enabled user configuration resolves pipeline defaults", async (): Promise<void> => {
 	const config = await withSettings(
-		{ "pi-mctx": { enabled: true, historian: { model: "anthropic/claude-haiku" } } },
+		{
+			"pi-mctx": {
+				enabled: true,
+				historian: { enabled: true, model: "anthropic/claude-haiku" },
+			},
+		},
 		{},
 		loadMctxConfiguration,
 	);
 	expect(config.pipeline).toEqual({
 		kind: "enabled",
 		settings: {
-			historianModel: "anthropic/claude-haiku",
+			historian: { kind: "enabled", model: "anthropic/claude-haiku" },
 			failClosedBlocking: DEFAULT_FAIL_CLOSED_BLOCKING,
 			executeThresholdPercentage: {
 				defaultValue: DEFAULT_EXECUTE_THRESHOLD_PERCENTAGE,
@@ -63,7 +68,12 @@ test("project configuration cannot enable or select the historian", async (): Pr
 	expect(disabled.pipeline).toEqual({ kind: "disabled" });
 
 	const enabled = await withSettings(
-		{ "pi-mctx": { enabled: true, historian: { model: "anthropic/claude-haiku" } } },
+		{
+			"pi-mctx": {
+				enabled: true,
+				historian: { enabled: true, model: "anthropic/claude-haiku" },
+			},
+		},
 		{ "pi-mctx": { enabled: false, historian: { model: "openai/gpt-5" } } },
 		loadMctxConfiguration,
 	);
@@ -72,7 +82,12 @@ test("project configuration cannot enable or select the historian", async (): Pr
 
 test("exposes default merged provenance without weakening MCTX historian policy", async (): Promise<void> => {
 	const config = await withSettings(
-		{ "pi-mctx": { enabled: true, historian: { model: "anthropic/claude-haiku" } } },
+		{
+			"pi-mctx": {
+				enabled: true,
+				historian: { enabled: true, model: "anthropic/claude-haiku" },
+			},
+		},
 		{ "pi-mctx": { historian: { model: "openai/gpt-5" } } },
 		loadMctxConfiguration,
 	);
@@ -81,7 +96,7 @@ test("exposes default merged provenance without weakening MCTX historian policy"
 	expect(config.pipeline).toEqual({
 		kind: "enabled",
 		settings: {
-			historianModel: "anthropic/claude-haiku",
+			historian: { kind: "enabled", model: "anthropic/claude-haiku" },
 			failClosedBlocking: true,
 			executeThresholdPercentage: { defaultValue: 65, byModel: {} },
 			protectedTags: DEFAULT_PROTECTED_TAGS,
@@ -94,7 +109,7 @@ test("project configuration can only raise configured trigger thresholds", async
 		{
 			"pi-mctx": {
 				enabled: true,
-				historian: { model: "anthropic/claude-haiku" },
+				historian: { enabled: true, model: "anthropic/claude-haiku" },
 				execute_threshold_percentage: { default: 65, "anthropic/claude-haiku": 70 },
 				execute_threshold_tokens: { default: 10_000 },
 			},
@@ -110,7 +125,7 @@ test("project configuration can only raise configured trigger thresholds", async
 	expect(config.pipeline).toEqual({
 		kind: "enabled",
 		settings: {
-			historianModel: "anthropic/claude-haiku",
+			historian: { kind: "enabled", model: "anthropic/claude-haiku" },
 			failClosedBlocking: true,
 			executeThresholdPercentage: {
 				defaultValue: 65,
@@ -125,15 +140,23 @@ test("project configuration can only raise configured trigger thresholds", async
 	});
 });
 
-test("enabled configuration requires a valid historian model", async (): Promise<void> => {
+test("invalid enabled historian does not disable MCTX runtime", async (): Promise<void> => {
 	const config = await withSettings(
-		{ "pi-mctx": { enabled: true, historian: { model: "claude-haiku" } } },
+		{ "pi-mctx": { enabled: true, historian: { enabled: true, model: "claude-haiku" } } },
 		{},
 		loadMctxConfiguration,
 	);
 	expect(config.pipeline).toEqual({
-		kind: "invalid",
-		reason: "historian.model must be exact provider/model",
+		kind: "enabled",
+		settings: {
+			historian: { kind: "invalid", reason: "historian.model must be exact provider/model" },
+			failClosedBlocking: DEFAULT_FAIL_CLOSED_BLOCKING,
+			executeThresholdPercentage: {
+				defaultValue: DEFAULT_EXECUTE_THRESHOLD_PERCENTAGE,
+				byModel: {},
+			},
+			protectedTags: DEFAULT_PROTECTED_TAGS,
+		},
 	});
 });
 
