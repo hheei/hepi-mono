@@ -24,7 +24,8 @@ export interface PtySessionOptions {
 }
 
 export interface PtyReadResult {
-	readonly output: string;
+	/** Raw bytes preserve UTF-8 sequences split across native reads. */
+	readonly output: Uint8Array;
 	readonly eof: boolean;
 }
 
@@ -100,6 +101,7 @@ export const piNativeBridgeVersion: number = native.piNativeBridgeVersion();
 /** One session-owned pseudo-terminal. Output arrives in native read chunks. */
 export class PtySession {
 	readonly #native: NativePtySession;
+	#waitPromise: Promise<PtyExitStatus> | undefined;
 
 	constructor(options: PtySessionOptions) {
 		this.#native = new native.PtySession(options);
@@ -122,7 +124,8 @@ export class PtySession {
 	}
 
 	wait(): Promise<PtyExitStatus> {
-		return this.#native.wait();
+		this.#waitPromise ??= this.#native.wait();
+		return this.#waitPromise;
 	}
 }
 

@@ -10,6 +10,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 mpatch = { path = "../vendor/mpatch" }
+libc = { workspace = true }
 napi = { workspace = true }
 napi-derive = "3"
 portable-pty = { workspace = true }

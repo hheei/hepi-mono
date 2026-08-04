@@ -11,6 +11,7 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
+    time::{Duration, Instant},
 };
 
 use napi::{
@@ -34,7 +35,7 @@ pub struct PtySessionOptions {
 /// One blocking read result. `eof` means the slave side has closed.
 #[napi(object)]
 pub struct PtyReadResult {
-    pub output: String,
+    pub output: Buffer,
     pub eof: bool,
 }
 
@@ -46,11 +47,13 @@ pub struct PtyExitStatus {
 }
 
 struct PtySessionState {
-    master: Mutex<Box<dyn MasterPty + Send>>,
+    master: Mutex<Option<Box<dyn MasterPty + Send>>>,
     reader: Mutex<Box<dyn Read + Send>>,
-    writer: Mutex<Box<dyn Write + Send>>,
+    writer: Mutex<Option<Box<dyn Write + Send>>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     child: Mutex<Option<Box<dyn Child + Send + Sync>>>,
+    #[cfg(unix)]
+    termination_targets: Mutex<Option<(libc::pid_t, Option<libc::pid_t>)>>,
     closed: AtomicBool,
 }
 
@@ -59,13 +62,55 @@ impl PtySessionState {
         if self.closed.swap(true, Ordering::AcqRel) {
             return Ok(());
         }
-        // A child can exit normally before teardown. Its process handle is then
-        // already gone; close remains idempotent rather than surfacing ESRCH.
+        // Mirror OMP's child-group teardown: descendants retain the PTY unless
+        // their group receives the signal, while `child.kill()` covers platforms
+        // without Unix process groups.
+        #[cfg(unix)]
+        let targets = self
+            .termination_targets
+            .lock()
+            .map_err(|_| Error::from_reason("pty termination state is poisoned"))?
+            .take();
+        #[cfg(unix)]
+        if let Some((child_pid, process_group_id)) = targets {
+            unsafe {
+                libc::kill(child_pid, libc::SIGTERM);
+                if let Some(process_group_id) = process_group_id {
+                    libc::kill(-process_group_id, libc::SIGTERM);
+                }
+            }
+        }
         let mut killer = self
             .killer
             .lock()
             .map_err(|_| Error::from_reason("pty killer state is poisoned"))?;
         let _ = killer.kill();
+        #[cfg(unix)]
+        if let Some((child_pid, process_group_id)) = targets {
+            unsafe {
+                libc::kill(child_pid, libc::SIGKILL);
+                if let Some(process_group_id) = process_group_id {
+                    libc::kill(-process_group_id, libc::SIGKILL);
+                }
+            }
+        }
+        // Input closes before master. Releasing master after child teardown
+        // unblocks a pending native reader when the slave reaches EOF.
+        self.writer
+            .lock()
+            .map_err(|_| Error::from_reason("pty writer state is poisoned"))?
+            .take();
+        let master = self
+            .master
+            .lock()
+            .map_err(|_| Error::from_reason("pty master state is poisoned"))?
+            .take();
+        #[cfg(windows)]
+        if let Some(master) = master {
+            std::thread::spawn(move || drop(master));
+        }
+        #[cfg(not(windows))]
+        drop(master);
         Ok(())
     }
 }
@@ -117,13 +162,21 @@ impl PtySession {
             .take_writer()
             .map_err(|error| Error::from_reason(format!("take pty writer: {error}")))?;
         let killer = child.clone_killer();
+        #[cfg(unix)]
+        let child_pid = child
+            .process_id()
+            .and_then(|id| libc::pid_t::try_from(id).ok());
+        #[cfg(unix)]
+        let process_group_id = pair.master.process_group_leader().filter(|id| *id > 0);
         Ok(Self {
             state: Arc::new(PtySessionState {
-                master: Mutex::new(pair.master),
+                master: Mutex::new(Some(pair.master)),
                 reader: Mutex::new(reader),
-                writer: Mutex::new(writer),
+                writer: Mutex::new(Some(writer)),
                 killer: Mutex::new(killer),
                 child: Mutex::new(Some(child)),
+                #[cfg(unix)]
+                termination_targets: Mutex::new(child_pid.map(|id| (id, process_group_id))),
                 closed: AtomicBool::new(false),
             }),
         })
@@ -145,11 +198,14 @@ impl PtySession {
         if self.state.closed.load(Ordering::Acquire) {
             return Err(Error::from_reason("pty session is closed"));
         }
-        let mut writer = self
+        let mut writer_guard = self
             .state
             .writer
             .lock()
             .map_err(|_| Error::from_reason("pty writer state is poisoned"))?;
+        let writer = writer_guard
+            .as_mut()
+            .ok_or_else(|| Error::from_reason("pty session is closed"))?;
         writer
             .write_all(data.as_ref())
             .and_then(|()| writer.flush())
@@ -161,11 +217,14 @@ impl PtySession {
         if self.state.closed.load(Ordering::Acquire) {
             return Err(Error::from_reason("pty session is closed"));
         }
-        let master = self
+        let master_guard = self
             .state
             .master
             .lock()
             .map_err(|_| Error::from_reason("pty master state is poisoned"))?;
+        let master = master_guard
+            .as_ref()
+            .ok_or_else(|| Error::from_reason("pty session is closed"))?;
         master
             .resize(pty_size(rows, cols)?)
             .map_err(|error| Error::from_reason(format!("resize pty: {error}")))
@@ -213,7 +272,7 @@ fn read_once(state: &PtySessionState) -> Result<PtyReadResult> {
         .read(&mut bytes)
         .map_err(|error| Error::from_reason(format!("read pty output: {error}")))?;
     Ok(PtyReadResult {
-        output: String::from_utf8_lossy(&bytes[..count]).into_owned(),
+        output: Buffer::from(bytes[..count].to_vec()),
         eof: count == 0,
     })
 }
@@ -225,11 +284,40 @@ fn wait_for_child(state: &PtySessionState) -> Result<PtyExitStatus> {
         .map_err(|_| Error::from_reason("pty child state is poisoned"))?
         .take()
         .ok_or_else(|| Error::from_reason("pty child has already been reaped"))?;
-    let status = child
-        .wait()
-        .map_err(|error| Error::from_reason(format!("wait for pty child: {error}")))?;
-    Ok(PtyExitStatus {
-        code: status.exit_code(),
-        signal: status.signal().map(str::to_owned),
-    })
+    let closed_at = Instant::now();
+    loop {
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|error| Error::from_reason(format!("check pty child: {error}")))?
+        {
+            let result = PtyExitStatus {
+                code: status.exit_code(),
+                signal: status.signal().map(str::to_owned),
+            };
+            clear_termination_targets(state)?;
+            return Ok(result);
+        }
+        // Like OMP, a forcibly terminated PTY must not hold Node hostage if a
+        // platform child handle fails to report exit after process-group kill.
+        if state.closed.load(Ordering::Acquire) && closed_at.elapsed() >= Duration::from_millis(300)
+        {
+            let result = PtyExitStatus {
+                code: 1,
+                signal: Some("terminated".to_owned()),
+            };
+            clear_termination_targets(state)?;
+            return Ok(result);
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn clear_termination_targets(state: &PtySessionState) -> Result<()> {
+    #[cfg(unix)]
+    state
+        .termination_targets
+        .lock()
+        .map_err(|_| Error::from_reason("pty termination state is poisoned"))?
+        .take();
+    Ok(())
 }
