@@ -17,12 +17,6 @@
 	"pi": {
 		"extensions": [
 			"dist/extension.js"
-		],
-		"themes": [
-			"dist/themes"
-		],
-		"skills": [
-			"dist/skills"
 		]
 	},
 	"scripts": {
