@@ -10,10 +10,10 @@ crate-type = ["cdylib"]
 
 [dependencies]
 flume = { workspace = true }
+mpatch = { path = "../vendor/mpatch" }
 napi = { workspace = true }
 napi-derive = "3"
 pi-shell = { path = "../vendor/oh-my-pi/pi-shell" }
-tempfile = "3"
 tokio = { workspace = true, features = ["process", "fs"] }
 tokio-util = { workspace = true }
 

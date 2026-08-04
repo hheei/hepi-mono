@@ -50,7 +50,7 @@ staging、hash revalidation 与 fuzzy policy 仍归 `pi-ext-tools` 所有。
 `apply_patch` 的单次 mpatch 调用使用 bridge 提供的 `MpatchRun` handle：
 
 ```ts
-const run = new MpatchRun({ executablePath, cwd, unifiedDiff, fuzzFactor, dryRun })
+const run = new MpatchRun({ cwd, unifiedDiff, fuzzFactor, dryRun })
 await run.run()
 await run.abort()
 ```

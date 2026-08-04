@@ -1,5 +1,4 @@
 import { runMpatch as runNativeMpatch } from "../native-bridge.js";
-import { getBundledMpatchPath } from "./mpatch-binary.js";
 
 export interface MpatchRunOptions {
 	readonly cwd: string;
@@ -15,14 +14,13 @@ export interface MpatchRunResult {
 	readonly stderr: string;
 }
 
-/** Runs the package-owned mpatch executable against an isolated target directory. */
+/** Runs vendored mpatch against an isolated staging directory. */
 export async function runMpatch(options: MpatchRunOptions): Promise<MpatchRunResult> {
 	if (!Number.isFinite(options.fuzzFactor) || options.fuzzFactor < 0 || options.fuzzFactor > 1)
 		throw new Error(`Invalid mpatch fuzz factor: ${options.fuzzFactor}`);
 	options.signal?.throwIfAborted();
 	try {
 		return await runNativeMpatch({
-			executablePath: getBundledMpatchPath(),
 			cwd: options.cwd,
 			unifiedDiff: options.unifiedDiff,
 			fuzzFactor: options.fuzzFactor,
