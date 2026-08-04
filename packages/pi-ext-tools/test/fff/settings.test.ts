@@ -21,6 +21,7 @@ describe("FFF settings", () => {
 			}),
 		).toEqual({
 			shellPath: DEFAULT_FFF_SETTINGS.shellPath,
+			bashOutputTailKiB: 10,
 			autocomplete: false,
 			grepEnhancement: true,
 			readEnhancement: true,
@@ -45,6 +46,7 @@ describe("FFF settings", () => {
 				fffSettingsFromState(await provider.storage.load({ sessionId: "settings-test" })),
 			).toEqual({
 				shellPath: DEFAULT_FFF_SETTINGS.shellPath,
+				bashOutputTailKiB: 10,
 				autocomplete: false,
 				grepEnhancement: true,
 				readEnhancement: true,

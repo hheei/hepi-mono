@@ -95,7 +95,11 @@ async function startFffLifecycle(
 	const runtime = new FffRuntime(context.extension.cwd);
 	state.runtime = runtime;
 	state.artifacts = context.artifacts;
-	const jobs = new BashJobRegistry({ artifacts: context.artifacts, pi });
+	const jobs = new BashJobRegistry({
+		artifacts: context.artifacts,
+		pi,
+		tailBytes: settings.bashOutputTailKiB * 1024,
+	});
 	state.jobs = jobs;
 	context.resources.add("bash-jobs", () => {
 		jobs.dispose();

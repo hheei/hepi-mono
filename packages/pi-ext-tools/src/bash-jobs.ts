@@ -1,12 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ArtifactRegistry } from "@hheei/pi-ext-core";
-
-interface ArtifactAppendHandle {
-	readonly uri: `artifact://${number}`;
-	append(data: Uint8Array): void;
-	finalize(): `artifact://${number}`;
-}
+import { BashOutputSink } from "./bash-output.js";
 
 export const MAX_JOB_OUTPUT = 1024 * 1024;
 const MAX_COMPLETION_TAIL = 10_000;
@@ -33,14 +28,10 @@ interface Job {
 	exitCode: number | null;
 	startedAt: number;
 	endedAt?: number;
-	output: string;
-	truncated: boolean;
 	timedOut: boolean;
 	process?: ChildProcess;
-	chunks: Buffer[];
-	artifactHandle?: ArtifactAppendHandle;
+	outputSink: BashOutputSink;
 	outputArtifact?: string;
-	bytes: number;
 	timeout?: NodeJS.Timeout;
 	terminalized: boolean;
 }
@@ -49,35 +40,15 @@ function shellDefault(): string {
 		? (process.env.ComSpec ?? "cmd.exe")
 		: (process.env.SHELL ?? "/bin/sh");
 }
-function append(job: Job, data: Buffer): void {
-	job.bytes += data.byteLength;
-	job.chunks.push(data);
-	const total = job.chunks.reduce((n, chunk) => n + chunk.byteLength, 0);
-	if (total > MAX_JOB_OUTPUT) {
-		job.truncated = true;
-		let drop = total - MAX_JOB_OUTPUT;
-		while (drop > 0 && job.chunks.length) {
-			const first = job.chunks[0];
-			if (!first) break;
-			if (first.byteLength <= drop) {
-				job.chunks.shift();
-				drop -= first.byteLength;
-			} else {
-				job.chunks[0] = first.subarray(drop);
-				drop = 0;
-			}
-		}
-	}
-}
 function snapshot(job: Job): BashJobSnapshot {
-	const {
-		process: _process,
-		chunks,
-		artifactHandle: _artifactHandle,
-		bytes: _bytes,
-		...rest
-	} = job;
-	return { ...rest, output: Buffer.concat(chunks).toString("utf8") };
+	const { process: _process, outputSink, outputArtifact: _outputArtifact, ...rest } = job;
+	const output = outputSink.snapshot();
+	return {
+		...rest,
+		output: output.output,
+		truncated: output.truncated,
+		...(output.artifactUri === undefined ? {} : { outputArtifact: output.artifactUri }),
+	};
 }
 
 export class BashJobRegistry {
@@ -85,9 +56,17 @@ export class BashJobRegistry {
 	#closed: boolean = false;
 	readonly #artifacts: ArtifactRegistry | undefined;
 	readonly #pi: ExtensionAPI | undefined;
-	constructor(options: { readonly artifacts?: ArtifactRegistry; readonly pi?: ExtensionAPI } = {}) {
+	readonly #tailBytes: number | undefined;
+	constructor(
+		options: {
+			readonly artifacts?: ArtifactRegistry;
+			readonly pi?: ExtensionAPI;
+			readonly tailBytes?: number;
+		} = {},
+	) {
 		this.#artifacts = options.artifacts;
 		this.#pi = options.pi;
+		this.#tailBytes = options.tailBytes;
 	}
 	start(
 		command: string,
@@ -96,8 +75,12 @@ export class BashJobRegistry {
 		timeoutMs?: number,
 	): BashJobSnapshot {
 		if (this.#closed) throw new Error("Bash job registry is disposed");
-		const artifactHandle = this.#artifacts?.createAppend();
-		const artifactUri = artifactHandle?.uri;
+		const outputSink = new BashOutputSink({
+			...(this.#artifacts === undefined ? {} : { artifacts: this.#artifacts }),
+			...(this.#tailBytes === undefined ? {} : { tailBytes: this.#tailBytes }),
+			reserveArtifact: true,
+		});
+		const artifactUri = outputSink.artifactUri;
 		const id = artifactUri?.slice("artifact://".length) ?? crypto.randomUUID();
 		const job: Job = {
 			id,
@@ -106,12 +89,8 @@ export class BashJobRegistry {
 			status: "running",
 			exitCode: null,
 			startedAt: Date.now(),
-			output: "",
-			truncated: false,
 			timedOut: false,
-			chunks: [],
-			...(artifactHandle === undefined ? {} : { artifactHandle }),
-			bytes: 0,
+			outputSink,
 			terminalized: false,
 		};
 		const child = spawn(
@@ -121,12 +100,10 @@ export class BashJobRegistry {
 		);
 		job.process = child;
 		child.stdout?.on("data", (data: Buffer) => {
-			if (!this.#closed) job.artifactHandle?.append(data);
-			append(job, data);
+			if (!this.#closed) job.outputSink.push(data);
 		});
 		child.stderr?.on("data", (data: Buffer) => {
-			if (!this.#closed) job.artifactHandle?.append(data);
-			append(job, data);
+			if (!this.#closed) job.outputSink.push(data);
 		});
 		child.once("error", () => {
 			if (job.status === "running") {
@@ -155,9 +132,10 @@ export class BashJobRegistry {
 	#terminalize(job: Job, notify: boolean): void {
 		if (job.terminalized) return;
 		job.terminalized = true;
-		if (job.artifactHandle) job.outputArtifact = job.artifactHandle.finalize();
+		const output = job.outputSink.finish();
+		if (output.artifactUri !== undefined) job.outputArtifact = output.artifactUri;
 		if (!notify || this.#pi === undefined) return;
-		const tail = snapshot(job).output.slice(-MAX_COMPLETION_TAIL);
+		const tail = output.output.slice(-MAX_COMPLETION_TAIL);
 		this.#pi.sendMessage(
 			{
 				customType: "bash-job-complete",

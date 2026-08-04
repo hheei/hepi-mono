@@ -15,6 +15,8 @@ export interface FffSettingsProviderOptions {
 
 export interface FffSettings {
 	readonly shellPath: string;
+	/** KiB retained in each foreground or PTY Bash result before artifact spill. */
+	readonly bashOutputTailKiB: number;
 	/** FFF behavior toggles only; tool activation belongs to pi-loadout. */
 	readonly autocomplete: boolean;
 	readonly grepEnhancement: boolean;
@@ -25,6 +27,7 @@ export interface FffSettings {
 
 export const DEFAULT_FFF_SETTINGS: FffSettings = {
 	shellPath: defaultShellPath(),
+	bashOutputTailKiB: 10,
 	autocomplete: true,
 	grepEnhancement: true,
 	readEnhancement: true,
@@ -51,9 +54,25 @@ function nonEmptyStringAt(
 	return typeof value === "string" && value.trim() !== "" ? value : fallback;
 }
 
+function positiveIntegerAt(
+	state: HepiSettingsState | undefined,
+	group: string,
+	key: string,
+	fallback: number,
+): number {
+	const value = state?.[group]?.[key];
+	return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
 export function fffSettingsFromState(state: HepiSettingsState | undefined): FffSettings {
 	return {
 		shellPath: nonEmptyStringAt(state, "bash", "shellPath", DEFAULT_FFF_SETTINGS.shellPath),
+		bashOutputTailKiB: positiveIntegerAt(
+			state,
+			"bash",
+			"outputTailKiB",
+			DEFAULT_FFF_SETTINGS.bashOutputTailKiB,
+		),
 		autocomplete: booleanAt(state, GROUP, "autocomplete"),
 		grepEnhancement: booleanAt(state, GROUP, "grepEnhancement"),
 		readEnhancement: booleanAt(state, GROUP, "readEnhancement"),
@@ -97,6 +116,18 @@ export function createFffSettingsProvider(
 						validate: (value) =>
 							typeof value !== "string" || value.trim() === ""
 								? "Shell path must not be empty"
+								: undefined,
+					},
+					{
+						id: "outputTailKiB",
+						label: "Output tail (KiB)",
+						type: "number",
+						defaultValue: DEFAULT_FFF_SETTINGS.bashOutputTailKiB,
+						description: "Visible Bash output retained before full output spills to an artifact.",
+						parse: (value) => Number(value),
+						validate: (value) =>
+							typeof value !== "number" || !Number.isInteger(value) || value <= 0
+								? "Output tail must be a positive whole number of KiB"
 								: undefined,
 					},
 				],
