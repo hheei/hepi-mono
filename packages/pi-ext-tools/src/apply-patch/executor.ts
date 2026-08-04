@@ -165,7 +165,12 @@ async function stagedPathState(
 		return { ...state, currentHash: hashContent(content), content };
 	} catch (error) {
 		if (!isMissingPath(error)) throw error;
-		return { ...state, currentHash: undefined, content: undefined };
+		return {
+			relativePath: state.relativePath,
+			absolutePath: state.absolutePath,
+			baselineHash: state.baselineHash,
+			currentHash: undefined,
+		};
 	}
 }
 
