@@ -10,6 +10,7 @@ export const MCTX_SETTINGS_SECTION = "pi-mctx";
 export const DEFAULT_EXECUTE_THRESHOLD_PERCENTAGE = 65;
 export const DEFAULT_FAIL_CLOSED_BLOCKING = true;
 export const DEFAULT_PROTECTED_TAGS = 20;
+export const DEFAULT_SMART_DROPS = false;
 
 const MIN_EXECUTE_THRESHOLD_PERCENTAGE = 20;
 const MAX_EXECUTE_THRESHOLD_PERCENTAGE = 80;
@@ -45,6 +46,8 @@ export interface MctxOptionalThreshold {
 export interface MctxPipelineSettings {
 	readonly historian: MctxHistorianConfiguration;
 	readonly failClosedBlocking: boolean;
+	/** User-owned opt-in for automatic old tool-result reclaim. */
+	readonly smartDrops: boolean;
 	readonly executeThresholdPercentage: MctxThreshold;
 	readonly executeThresholdTokens?: MctxOptionalThreshold;
 	readonly protectedTags: number;
@@ -329,6 +332,13 @@ function resolvePipeline(
 	if (project.protected_tags !== undefined) {
 		warnings.push("Ignoring project protected_tags: only user config controls history protection");
 	}
+	const rawSmartDrops = global.smart_drops;
+	const smartDrops = rawSmartDrops === undefined ? DEFAULT_SMART_DROPS : rawSmartDrops;
+	if (typeof smartDrops !== "boolean")
+		return { kind: "invalid", reason: "smart_drops must be boolean" };
+	if (project.smart_drops !== undefined) {
+		warnings.push("Ignoring project smart_drops: only user config controls automatic reclaim");
+	}
 
 	return {
 		kind: "enabled",
@@ -336,6 +346,7 @@ function resolvePipeline(
 			historian: historianConfiguration,
 			failClosedBlocking:
 				failClosedBlocking === undefined ? DEFAULT_FAIL_CLOSED_BLOCKING : failClosedBlocking,
+			smartDrops,
 			executeThresholdPercentage: {
 				defaultValue: raisedPercentage.defaultValue,
 				byModel: raisedPercentage.byModel,

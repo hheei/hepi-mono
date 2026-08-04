@@ -19,6 +19,7 @@ function configuration(failClosedBlocking = true): MctxConfiguration {
 			settings: {
 				historian: { kind: "enabled", model: "anthropic/claude-haiku" },
 				failClosedBlocking,
+				smartDrops: false,
 				executeThresholdPercentage: { defaultValue: 65, byModel: {} },
 				protectedTags: 20,
 			},
@@ -354,6 +355,7 @@ test("runtime-only MCTX opens without a historian and schedules no completion", 
 				settings: {
 					historian: { kind: "disabled" },
 					failClosedBlocking: true,
+					smartDrops: false,
 					executeThresholdPercentage: { defaultValue: 65, byModel: {} },
 					protectedTags: 20,
 				},

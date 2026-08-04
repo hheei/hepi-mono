@@ -6,6 +6,7 @@ import {
 	DEFAULT_EXECUTE_THRESHOLD_PERCENTAGE,
 	DEFAULT_FAIL_CLOSED_BLOCKING,
 	DEFAULT_PROTECTED_TAGS,
+	DEFAULT_SMART_DROPS,
 	loadMctxConfiguration,
 	type MctxSettingsPaths,
 } from "../src/config.js";
@@ -34,6 +35,25 @@ test("disabled configuration leaves pipeline inactive", async (): Promise<void> 
 	expect(config.pipeline).toEqual({ kind: "disabled" });
 });
 
+test("smart drops are user-owned opt-in configuration", async (): Promise<void> => {
+	const enabled = await withSettings(
+		{ "pi-mctx": { enabled: true, smart_drops: true } },
+		{ "pi-mctx": { smart_drops: false } },
+		loadMctxConfiguration,
+	);
+	expect(enabled.pipeline).toMatchObject({ kind: "enabled", settings: { smartDrops: true } });
+	expect(enabled.warnings).toContain(
+		"Ignoring project smart_drops: only user config controls automatic reclaim",
+	);
+
+	const invalid = await withSettings(
+		{ "pi-mctx": { enabled: true, smart_drops: "yes" } },
+		{},
+		loadMctxConfiguration,
+	);
+	expect(invalid.pipeline).toEqual({ kind: "invalid", reason: "smart_drops must be boolean" });
+});
+
 test("enabled user configuration resolves pipeline defaults", async (): Promise<void> => {
 	const config = await withSettings(
 		{
@@ -50,6 +70,7 @@ test("enabled user configuration resolves pipeline defaults", async (): Promise<
 		settings: {
 			historian: { kind: "enabled", model: "anthropic/claude-haiku" },
 			failClosedBlocking: DEFAULT_FAIL_CLOSED_BLOCKING,
+			smartDrops: DEFAULT_SMART_DROPS,
 			executeThresholdPercentage: {
 				defaultValue: DEFAULT_EXECUTE_THRESHOLD_PERCENTAGE,
 				byModel: {},
@@ -98,6 +119,7 @@ test("exposes default merged provenance without weakening MCTX historian policy"
 		settings: {
 			historian: { kind: "enabled", model: "anthropic/claude-haiku" },
 			failClosedBlocking: true,
+			smartDrops: DEFAULT_SMART_DROPS,
 			executeThresholdPercentage: { defaultValue: 65, byModel: {} },
 			protectedTags: DEFAULT_PROTECTED_TAGS,
 		},
@@ -127,6 +149,7 @@ test("project configuration can only raise configured trigger thresholds", async
 		settings: {
 			historian: { kind: "enabled", model: "anthropic/claude-haiku" },
 			failClosedBlocking: true,
+			smartDrops: DEFAULT_SMART_DROPS,
 			executeThresholdPercentage: {
 				defaultValue: 65,
 				byModel: { "anthropic/claude-haiku": 75 },
@@ -151,6 +174,7 @@ test("invalid enabled historian does not disable MCTX runtime", async (): Promis
 		settings: {
 			historian: { kind: "invalid", reason: "historian.model must be exact provider/model" },
 			failClosedBlocking: DEFAULT_FAIL_CLOSED_BLOCKING,
+			smartDrops: DEFAULT_SMART_DROPS,
 			executeThresholdPercentage: {
 				defaultValue: DEFAULT_EXECUTE_THRESHOLD_PERCENTAGE,
 				byModel: {},

@@ -74,6 +74,9 @@ loadMctxConfiguration() ──► resolve runtime ──► active / inactive
 Settings 的 `pi-mctx` group 显示：
 
 - `enabled`：boolean，默认 `false`；控制 MCTX runtime、store、partition、工具与 projection。
+- `smart_drops`：boolean，默认 `false`；仅在 runtime enabled 时可编辑。开启后在 context 到达 execute
+  threshold 时自动回收旧的、未受保护的 tool result，并保留可通过 `ctx_expand` 恢复的 marker source。
+  它是 user-level policy，project settings 不可覆盖。
 - `historian.enabled`：boolean，默认 `false`；只控制 `turn_end` 的摘要 producer。
 - `historian.model`：仅在 runtime 和 historian 都开启时可编辑，保存前要求 exact `provider/model`；认证/可用性仍由下一次
   historian admission 通过 Pi host model registry 检查。
@@ -570,8 +573,78 @@ ledger 为每项保留 immutable source copy，供 future `ctx_expand` 在 reloa
 永远不被改写。默认 `protected_tags` 为 20，user-level setting 只接受 1–100，project settings 无权改变它，reload 后生效。
 受保护、已 dropped、未知、别的 branch/fork 或无法证明 identity 的 tag 必须拒绝或保持 pending，绝不按 position 猜测删除。
 
-首 slice 不迁移 legacy 的 tool-specific skeleton/truncate heuristics、automatic/smart drops 或 reasoning compression。它们
-需要各自可测的 reclaim policy，不能混入用户明确请求的 manual deferred drop。
+### Smart drops 设计基线
+
+Smart drops 让 MCTX 在上下文压力下自动回收已经不再需要的旧 tool result，补足 model 未调用
+`ctx_reduce` 时的可用性。它与 compartment historian 不同：historian 压缩完整、稳定的历史 turn；smart drops
+只将仍在 live tail 中、可证明身份的单个 tool result 替换为可恢复 marker。两者可以在同一 context pass
+先后发生，但任一方失败都不影响另一方或 Pi native context。
+
+固定上游 `@hheei/pi-magic-context@0.33.1-hepi.0` 的可见配置是 user-level
+`pi-mctx.smart_drops`。它必须是 boolean，缺省为 `false`，且 project settings 不得启用、禁用或改变策略；保存后在
+下一次 `/reload` 或新 session 生效。这样与上游 `smart_drops === true` 的 opt-in 语义一致，也避免用户仅启用 MCTX
+runtime 时不知情地扩大自动丢弃范围。
+
+**Core intuition and goal:** 用户在 context 接近 configured execute threshold 时，仍可看到最新工作、用户意图和
+assistant reasoning；系统只回收较早且已完成的 tool result，留下 `[dropped §N§]` marker，模型需要原文时仍可通过
+`ctx_expand` 显式读取 immutable ledger source。
+
+**Boundary mapping:** Pi host 提供 imminent context messages、branch identity 与 token usage。`pi-mctx` concrete
+extension 拥有 candidate planning、SQLite CAS、marker projection、status metric 与 session-local cooldown；它不调用
+model、不创建 background job，也不改写 Pi JSONL。ext-core 不认识 tag、drop 或 MCTX policy。Surface/widget 不参与
+reclaim；status surface 只读取 MCTX 已提交的 metrics。runtime disabled、`smart_drops: false`、unknown usage、stale
+partition、branch mismatch 或 store read failure 都 fail open，保留未修改的 Pi context。session shutdown/reload 取消当前
+pass 后不保留内存中的 plan；只提交成功 CAS 的 `pending`/`dropped` 状态。
+
+```text
+Pi context pass + usage at/above execute threshold
+        |
+        v
+pi-mctx reads current branch + tag ledger
+        |
+        +-- invalid/stale/no candidate --> raw projection unchanged
+        |
+        v
+plan old unprotected tool-result candidates by estimated reclaim
+        |
+        v
+queue active -> pending with partition CAS
+        |
+        v
+existing identity-verified transform projects [dropped §N§]
+        |
+        v
+mark pending -> dropped with partition CAS
+```
+
+**Eligibility and ordering:** automatic planning considers only `kind: "tool"` tag sources that are currently `active`, still
+present as the exact tool-result identity in the active branch, and outside the newest `protected_tags` active tags. It never
+automatically drops user messages, assistant text/tool-call messages, references, image/file descriptors, pending/dropped tags,
+or any tag whose source/branch identity cannot be proven. Candidate estimated reclaim is derived from retained textual source with
+a deterministic conservative estimator. Select candidates oldest-first until the configured target reclaim is met; equal estimates
+are ordered by tag number. A proposal that cannot reclaim a positive minimum amount does nothing.
+
+The emergency target is derived from the same model-aware execute threshold already used by historian. When live input is at or
+above that threshold, smart drops target enough eligible tool-result source to return below the re-arm threshold
+(`threshold - 10 percentage points`, plus the existing absolute-threshold guard where configured). The planner makes at most one
+successful automatic plan for an unchanged Pi usage sample; it re-arms only after the lower threshold is observed. This avoids
+repeated marker writes while Pi reports stale usage after a transform. It is intentionally narrower than upstream's private
+tool-name tiers, duplicate-call detection, system-injection stripping, reasoning clearing and caveman text rewriting: those
+require tool metadata, a reasoning ownership contract, or user-visible text mutation that current Pi MCTX does not own.
+
+Manual and automatic requests share the same atomic queue primitive but preserve intent. Manual `ctx_reduce` keeps its current
+behavior and may target any eligible tag. Smart drops pass only its planner output to that primitive. On the following context
+pass, both use the existing immutable-identity marker transform; a failed projection leaves the tag pending for a later proven
+branch pass rather than silently considering it dropped. `ctx_expand` continues to expose retained source for active, pending and
+dropped tags without reinjecting it.
+
+**Implementation seam and focused tests:** add a pure `planMctxSmartDrops()` module accepting branch-proven active tags, current
+usage, resolved threshold and `protected_tags`, returning either a deterministic no-op reason or tag numbers plus estimated
+reclaim. Feature `onContext` owns the one-session sample/cooldown state and invokes the existing store queue/marker path; the
+store does not infer candidates. Tests cover disabled/default behavior, protected-tail exclusion, tool-only eligibility, exact
+candidate ordering, threshold/re-arm/sample idempotency, stale CAS, branch divergence, projection failure/retry, manual/automatic
+deduplication, and `ctx_expand` recovery after an automatic marker. A host lifecycle test must prove that the next model request
+contains the marker and that reload clears only uncommitted in-memory planning state.
 
 ### `ctx_expand`
 
