@@ -26,7 +26,7 @@ import {
 	// type MctxNoteOperation,
 } from "./feature.js";
 import { MAX_CTX_EXPAND_CHARS, renderMctxHistoryTagPage } from "./history-tags.js";
-import { createMctxHistorianSettingsProvider } from "./settings.js";
+import { createMctxSettingsProvider } from "./settings.js";
 import { openMctxStatusSurface } from "./status-surface.js";
 
 const DEFAULT_CTX_HISTORY_LIMIT = 50;
@@ -710,7 +710,7 @@ function registerHistoryTools(pi: ExtensionAPI, feature: MctxFeature): void {
 export default function piMctxExtension(pi: ExtensionAPI): void {
 	const feature = createMctxFeature();
 	const settingsRegistry = getHepiRuntimeSettingsRegistry(pi);
-	const settingsProvider = createMctxHistorianSettingsProvider();
+	const settingsProvider = createMctxSettingsProvider();
 	let lifecycleSignal: AbortSignal | undefined;
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-mctx",

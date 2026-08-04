@@ -16,7 +16,7 @@ function configuration(
 	pipeline: MctxConfiguration["pipeline"] = {
 		kind: "enabled",
 		settings: {
-			historianModel: "anthropic/claude-haiku",
+			historian: { kind: "enabled", model: "anthropic/claude-haiku" },
 			failClosedBlocking: true,
 			executeThresholdPercentage: { defaultValue: 65, byModel: {} },
 			protectedTags: 20,
@@ -83,17 +83,50 @@ test("leaves disabled and invalid configuration inactive", (): void => {
 	});
 });
 
-test("requires an available authenticated historian", (): void => {
+test("keeps the runtime active when historian is unavailable", (): void => {
 	expect(resolveMctxActivation(runtime({ found: false }).context, configuration())).toMatchObject({
-		kind: "inactive",
-		reason: "unavailable",
+		kind: "active",
+		runtime: { historian: { kind: "unavailable" } },
 	});
 	expect(
 		resolveMctxActivation(runtime({ authenticated: false }).context, configuration()),
 	).toMatchObject({
-		kind: "inactive",
-		reason: "unavailable",
+		kind: "active",
+		runtime: { historian: { kind: "unavailable" } },
 	});
+});
+
+test("starts the runtime but not historian cleanup when admission is unavailable", async (): Promise<void> => {
+	const fixture = runtime({ found: false });
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		resolveProjectIdentity: async () => `git:${"a".repeat(40)}`,
+		openStore: () =>
+			({
+				path: "/store",
+				getOrCreatePartition: () => ({
+					projectIdentity: `git:${"a".repeat(40)}`,
+					sessionId: "session-1",
+					revision: 0,
+				}),
+				advancePartitionRevision: () => undefined,
+				acquireHistorianLease: () => undefined,
+				renewHistorianLease: () => undefined,
+				releaseHistorianLease: () => undefined,
+				listCompartments: () => [],
+				publishCompartment: () => undefined,
+				close: () => undefined,
+			}) as unknown as import("../src/store.js").MctxStore,
+	});
+	await feature.start(fixture.context);
+	expect(feature.active()?.historian).toMatchObject({ kind: "unavailable" });
+	expect(fixture.cleanups).toHaveLength(1);
+	expect(fixture.notifications).toEqual([
+		{
+			message: "pi-mctx historian model is unavailable: anthropic/claude-haiku",
+			level: "warning",
+		},
+	]);
 });
 
 test("keeps an existing completion coordinator budget", (): void => {
@@ -115,9 +148,9 @@ test("resolves historian and joins the shared completion coordinator", (): void 
 		runtime: {
 			cwd: "/project",
 			sessionId: "session-1",
-			historian: model,
+			historian: { kind: "active", model },
 			settings: {
-				historianModel: "anthropic/claude-haiku",
+				historian: { kind: "enabled", model: "anthropic/claude-haiku" },
 				failClosedBlocking: true,
 				executeThresholdPercentage: { defaultValue: 65, byModel: {} },
 				protectedTags: 20,

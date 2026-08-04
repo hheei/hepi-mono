@@ -25,6 +25,12 @@ export interface MctxSettingsPaths {
 	readonly projectPath: string;
 }
 
+/** Historian is an optional producer inside an otherwise active MCTX runtime. */
+export type MctxHistorianConfiguration =
+	| { readonly kind: "disabled" }
+	| { readonly kind: "invalid"; readonly reason: string }
+	| { readonly kind: "enabled"; readonly model: string };
+
 /** Threshold values after model-specific selection, before trigger evaluation. */
 export interface MctxThreshold {
 	readonly defaultValue: number;
@@ -37,7 +43,7 @@ export interface MctxOptionalThreshold {
 }
 
 export interface MctxPipelineSettings {
-	readonly historianModel: string;
+	readonly historian: MctxHistorianConfiguration;
 	readonly failClosedBlocking: boolean;
 	readonly executeThresholdPercentage: MctxThreshold;
 	readonly executeThresholdTokens?: MctxOptionalThreshold;
@@ -257,16 +263,20 @@ function resolvePipeline(
 	if (project.enabled === true)
 		warnings.push("Ignoring project enabled: only user config can enable pi-mctx");
 
-	// Model and failure policy are user-only because both select local credentials
-	// and alter whether a storage failure may block a parent session.
+	// Historian model and failure policy are user-only because both select local
+	// credentials and alter whether a storage failure may block a parent session.
 	const historian = global.historian;
-	if (
-		!isRecord(historian) ||
-		typeof historian.model !== "string" ||
-		!validModelRef(historian.model)
-	) {
-		return { kind: "invalid", reason: "historian.model must be exact provider/model" };
-	}
+	const historianConfiguration: MctxHistorianConfiguration = !isRecord(historian)
+		? historian === undefined
+			? { kind: "disabled" }
+			: { kind: "invalid", reason: "historian must be an object" }
+		: historian.enabled !== true
+			? historian.enabled === undefined || typeof historian.enabled === "boolean"
+				? { kind: "disabled" }
+				: { kind: "invalid", reason: "historian.enabled must be boolean" }
+			: typeof historian.model !== "string" || !validModelRef(historian.model)
+				? { kind: "invalid", reason: "historian.model must be exact provider/model" }
+				: { kind: "enabled", model: historian.model.trim() };
 
 	const failClosedBlocking = global.fail_closed_blocking;
 	if (failClosedBlocking !== undefined && typeof failClosedBlocking !== "boolean") {
@@ -323,7 +333,7 @@ function resolvePipeline(
 	return {
 		kind: "enabled",
 		settings: {
-			historianModel: historian.model.trim(),
+			historian: historianConfiguration,
 			failClosedBlocking:
 				failClosedBlocking === undefined ? DEFAULT_FAIL_CLOSED_BLOCKING : failClosedBlocking,
 			executeThresholdPercentage: {

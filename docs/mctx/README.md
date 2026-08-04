@@ -2,10 +2,11 @@
 
 ## 状态
 
-已创建独立、可安装的 `@hheei/pi-mctx` package。默认 disabled，保持 Pi native behavior；启用且 historian
-configuration 有效时，它在 `session_start` 解析 runtime、打开/migrate MCTX SQLite store，并绑定当前 project/session
-partition。已启用 pipeline 在 `turn_end` 可触发 historian Completion；已验证 compartment graph 在 `context`
-pass 替换其 covered raw history。Pi host 会 clone context messages，因此 transform 对完整 live branch 做唯一的结构匹配；
+已创建独立、可安装的 `@hheei/pi-mctx` package。默认 disabled，保持 Pi native behavior；`pi-mctx.enabled`
+启用时，它在 `session_start` 打开/migrate MCTX SQLite store，并绑定当前 project/session partition。Historian 是
+runtime 内的可选 producer：只有 `pi-mctx.historian.enabled` 与有效模型同时存在时，`turn_end` 才触发 historian
+Completion。关闭 historian 不关闭 runtime、工具、status、Sidekick 或已验证 compartment 的 `context` 投影，也不产生新的
+compartment。Pi host 会 clone context messages，因此 transform 对完整 live branch 做唯一的结构匹配；
 零个或多个候选都 fail open，绝不替换。`ctx_reduce` 等 MCTX tool 只能在 active MCTX session 中执行；inactive session 返回
 明确 tool error。它注册唯一 `/mctx` command；bare `/mctx` 与 `/mctx status` 打开只读 status surface，`/mctx aug`
 运行 Sidekick。active runtime 还会发布 Parent compressed-context Service：
@@ -29,13 +30,13 @@ Sidekick augmentation（四工具 child：`read`/`grep`/`find`/`ls`）保持 act
 inventory 和 reload 时同 owner replacement；`pi-mctx` 保留参数校验、MCTX runtime dispatch、inactive fallback 与所有
 session/store ownership。缺少 `pi-loadout` 时工具仍可用；Loadout 只消费 inventory 并在安装时展示这些工具。
 
-## Historian Settings registration
+## MCTX Settings registration
 
 ### 核心直觉与目标
 
-Historian 是 MCTX pipeline policy，不是 model-callable tool，也不是 Loadout resource。`pi-mctx` 把 historian
-启用与模型配置注册进统一 Settings provider tree，使用户无需手改 JSON 即可启动 pipeline；保存后在
-下一次 Pi `/reload` 或新 session 生效，不热切换正在运行的 historian。
+MCTX runtime 与 Historian 是两个独立 policy。Historian 不是 model-callable tool，也不是 Loadout resource；它只是在
+已启用的 MCTX runtime 中生产新 compartment。`pi-mctx` 把 runtime 开关、Historian 开关与模型配置注册进统一 Settings
+provider tree，使用户无需手改 JSON；保存后在下一次 Pi `/reload` 或新 session 生效，不热切换正在运行的 runtime 或 historian。
 
 ### 边界与生命周期
 
@@ -44,7 +45,7 @@ Historian 是 MCTX pipeline policy，不是 model-callable tool，也不是 Load
   Historian-specific abstraction。
 - **pi-settings concrete extension** 继续拥有统一 Settings page、field editing、validation flush 与 router surface；不 import
   `pi-mctx`。
-- **pi-mctx concrete extension** 在 lifecycle start 注册 `HepiSettingsProvider`，即使 pipeline 当前 disabled/invalid 也注册，
+- **pi-mctx concrete extension** 在 lifecycle start 注册 `HepiSettingsProvider`，即使 runtime 当前 disabled/invalid 也注册，
   否则用户无法从 Settings 修复配置。provider 拥有字段 schema、现有 `pi-mctx` global JSON 映射和 reload-only 语义；
   lifecycle cleanup 注销 provider。
 - **Surface** 复用 Settings page；无新 page、widget、timer 或 background work。project settings 仍只能手动做 opt-out/提高阈值，
@@ -53,35 +54,40 @@ Historian 是 MCTX pipeline policy，不是 model-callable tool，也不是 Load
 ```text
 /ext-settings
       ↓
-pi-settings combined tree ──► pi-mctx Historian provider draft
+pi-settings combined tree ──► pi-mctx runtime + historian provider draft
       ↓ validate + atomic save
 ~/.pi/agent/settings.json["pi-mctx"]
       ↓ next /reload or session_start
-loadMctxConfiguration() ──► resolve historian ──► active / inactive
+loadMctxConfiguration() ──► resolve runtime ──► active / inactive
+                                      │
+                                      └── optional historian admission
 ```
 
 ### 字段与存储
 
-Settings 的 `pi-mctx` group 首版只显示：
+Settings 的 `pi-mctx` group 显示：
 
-- `enabled`：boolean，默认 `false`；关闭时其余字段变 dim 且不可编辑。
-- `historian model`：text，保存前要求 exact `provider/model`；认证/可用性仍由下一次 activation 通过 Pi host model registry 检查。
+- `enabled`：boolean，默认 `false`；控制 MCTX runtime、store、partition、工具与 projection。
+- `historian.enabled`：boolean，默认 `false`；只控制 `turn_end` 的摘要 producer。
+- `historian.model`：仅在 runtime 和 historian 都开启时可编辑，保存前要求 exact `provider/model`；认证/可用性仍由下一次
+  historian admission 通过 Pi host model registry 检查。
 
-provider 用一个 MCTX-owned custom storage adapter 把 flat Settings state 映射到现有 public JSON keys，不改配置格式：
-`enabled` 与 `historian.model`。保存必须保留 trigger、protected tags、failure policy、`search`、`embedding`、`dreamer`
-等所有 sibling；关闭 enabled 不删除 model 或其余配置，便于稍后恢复。高级 threshold/protection/failure policy 继续由
-现有 JSON contract 管理，不在首版 Settings 中激活第二套编辑面。
+provider 用一个 MCTX-owned custom storage adapter 把 flat Settings state 映射到 `enabled`、`historian.enabled` 与
+`historian.model`。保存必须保留 trigger、protected tags、failure policy、`search`、`embedding`、`dreamer` 等所有 sibling；
+关闭任一开关不删除 model 或其余配置，便于稍后恢复。此处采用 clean cutover：旧的仅有 `historian.model` 配置不再隐式开启
+Historian。高级 threshold/protection/failure policy 继续由现有 JSON contract 管理，不在首版 Settings 中激活第二套编辑面。
 
 ### 最小实现 seam 与 focused tests
 
-新增 `createMctxHistorianSettingsProvider()`，在现有 `registerExtensionLifecycle()` 的 start 中通过
+新增 `createMctxSettingsProvider()`，在现有 `registerExtensionLifecycle()` 的 start 中通过
 `getHepiRuntimeSettingsRegistry()`/`registerHepiSettings()` 注册；provider storage 直接复用 ext-core 的
 `readJsonSettingsRoot()`/`updateJsonSettingsRoot()`。`feature.start()` 继续只消费 `loadMctxConfiguration()`，不引入第二套 live
 configuration path。
 
-focused tests 覆盖：disabled runtime 仍注册 provider；shutdown 注销；字段 defaults、dependent enabled state 和
-cross-field model validation；flat state 与现有 nested JSON 双向映射；全部 sibling 不丢失；并发 settings writer 不覆盖
-sibling；provider 不提供 live `onChange` callback；真实 Settings registry smoke test 可发现 `pi-mctx` provider。
+focused tests 覆盖：disabled runtime 仍注册 provider；shutdown 注销；独立开关、dependent enabled state 和 cross-field
+model validation；flat state 与现有 nested JSON 双向映射；runtime-only session 不获取 completion coordinator、不调用
+Historian 但继续投影已提交 compartment；全部 sibling 不丢失；并发 settings writer 不覆盖 sibling；provider 不提供 live
+`onChange` callback；真实 Settings registry smoke test 可发现 `pi-mctx` provider。
 
 ## Parent compressed-context Service
 
@@ -365,7 +371,7 @@ status 的所有指标搬进来。本节记录当前已迁移并可用的行为�
   `readStatusMetrics(partition)` 提供其 context-management metrics。snapshot 至少
   携带 active/inactive reason、context usage、project/session identity、
   partition revision、compartment m0/m1/total、tag active/pending/dropped、
-  historian idle/running/cooling/rebuild-pending、last failure class、effective
+  historian disabled/unavailable/idle/running/cooling/rebuild-pending、last failure class、effective
   trigger thresholds、protected tags、pending sidekick augmentation。
 - **fallback**：admission、snapshot 或 render 数据不可用时，关闭 surface 并
   保持 Pi native behavior；inactive 只显示明确 reason，不伪造 zero metrics。
@@ -789,19 +795,19 @@ summary 与 model-visible rendered context 三层分离。
 首个 pipeline milestone 不在 `before_agent_start` 追加 MCTX system-prompt block。该 surface 只在未来出现
 guidance、memory、docs 等 system adjunct 时单独设计。
 
-parent historian 必须有显式、形状有效的 model config，负责把 history snapshot 写成 compartment。未配置时，
-`pi-mctx` 不产生 compartment，且不隐式复用 parent agent model；Pi 原生 history/compaction 继续工作。
-runtime authentication 或 model-availability failure 不发布新 compartment，保留上次 committed context 并走
-historian failure policy。
+开启 Historian 时，它必须有显式、形状有效的 model config，负责把 history snapshot 写成 compartment；它不隐式复用
+parent agent model。Historian 关闭时，active runtime 不产生 compartment、不获取 completion coordinator，也不调度
+`turn_end` 或 rebuild 工作；已提交且仍通过 graph 验证的 compartment 继续投影。Historian runtime authentication 或
+model-availability failure 仅拒绝 Historian admission，保留 active runtime 与上次 committed context。
 
 parent historian 是 `@hheei/pi-ext-core` 的 Completion consumer。`pi-mctx` 提供已解析的 historian
 model 与 prompt policy；core 负责 completion 的 admission、execution、timeout/abort、terminalization 和
 dispose。`pi-mctx` 不直接调用 Pi AI，也不启动 `pi-subagents` child。
 
-在 DB/transform activation 前，`pi-mctx` lifecycle 配置或复用 core exported canonical coordinator budget
-（active `2`、pending `16`、retained terminal `32`），与现有 core Completion consumers 对齐；SQLite lease
-仍将 historian 限为每个 context partition 一次。若已有 coordinator 使用不同 budget，activation 拒绝并产生 diagnostic，Pi native behavior 继续；
-不直接调用 Pi AI，也不向 core 引入 implicit default。
+Historian admission 前，`pi-mctx` lifecycle 配置或复用 core exported canonical coordinator budget（active `2`、pending
+`16`、retained terminal `32`），与现有 core Completion consumers 对齐；SQLite lease 仍将 historian 限为每个 context
+partition 一次。若已有 coordinator 使用不同 budget，只拒绝 Historian admission 并产生 diagnostic；MCTX runtime 不受影响。
+MCTX 不直接调用 Pi AI，也不向 core 引入 implicit default。
 
 pipeline 启用后，context store 无法 open、migrate 或通过 schema validation 时默认 fail closed：阻止 parent
 turn 并呈现可操作的 storage error。用户可通过 `fail_closed_blocking: false` 显式 opt out，回退 Pi native behavior。
@@ -829,38 +835,37 @@ override。保存配置不热改 active pipeline；extension 只在下一次 `se
 依赖 `hepi-basics` settings provider，也不读取 CortexKit config 路径。
 
 configuration 使用既有 Pi settings layout：global `<getAgentDir>/settings.json` 和 project
-`<cwd>/.pi/settings.json` 的 `pi-mctx` section。两处都保存 raw schema，但 active pipeline 使用 field-scoped
-merge：user config 必须启用 pipeline 并选择有效 historian；project 只可 disable，不可单独启用。historian、
-fail-closed policy 与 SQLite tuning 是 user-only；project 只能提高已由 user 设置的 trigger threshold，不能
-引入或降低 threshold。future reserved field 必须在其 feature milestone 决定 scope，不能继承 blanket override。
+`<cwd>/.pi/settings.json` 的 `pi-mctx` section。两处都保存 raw schema，但 active runtime 使用 field-scoped merge：user
+config 必须启用 runtime；project 只可 disable runtime，不可单独启用。Historian enablement/model、fail-closed policy 与
+SQLite tuning 是 user-only；project 只能提高已由 user 设置的 trigger threshold，不能引入或降低 threshold。future reserved
+field 必须在其 feature milestone 决定 scope，不能继承 blanket override。
 它通过 atomic read-modify-write、process queue 和 file lock 更新，不能覆盖同一 settings file 的 sibling section；
 它不与 SQLite context store 混用。
 
 core 的 merged settings entry 同时提供 `global`、`project`、默认 project-wins `merged` 和 structured key path
 来源查询，供不需要额外 trust policy 的 consumer 使用。MCTX 保留 raw layers 执行上述 field-scoped merge；不能以
-默认 `merged` 允许 project 选择 historian 或改变 fail-closed policy。
+默认 `merged` 允许 project 开启或选择 Historian，或改变 fail-closed policy。
 
-迁移期保留完整 upstream-shaped MCTX configuration schema。首个 pipeline milestone 只读取已实现的
-`enabled`、historian model、trigger budget 和 fail-closed policy；其余字段保存为 reserved/inactive，暂不产生
+迁移期保留完整 upstream-shaped MCTX configuration schema。当前 milestone 只读取已实现的 `enabled`、
+`historian.enabled`、historian model、trigger budget 和 fail-closed policy；其余字段保存为 reserved/inactive，暂不产生
 行为。它们不是 backward-compatibility promise；未来每项 feature 启用其字段时，代码必须用 `ponytail:` 注释说明
 当前 inactive ceiling 与 activation trigger。schema baseline 固定为
 `@hheei/pi-magic-context@0.33.1-hepi.0`；public CortexKit source 只能辅助研究，不能让 validation 跟随
 upstream `master` 漂移。reserved/inactive values 作为 opaque JSON 保存；首版只 validation active pipeline
 fields，不提前复制 Dreamer、embedding、experimental 等未实现 feature 的 runtime validator。
 
-context pipeline 默认关闭。用户必须显式配置 parent historian model 并启用 pipeline；只有启用后才打开或
-migrate context store、注册 context transform，并进入 fail-closed storage contract。未启用的 package 不改变
-Pi runtime。
+MCTX runtime 默认关闭。用户必须显式启用 `pi-mctx.enabled`；只有启用后才打开或 migrate context store、注册 context
+transform，并进入 fail-closed storage contract。Historian 默认关闭且需要独立开启及配置 model。未启用的 package 不改变 Pi runtime。
 
-若 `enabled: true` 但 parent historian configuration 无效，`pi-mctx` 拒绝 activation：不打开 store、不注册
-transform，呈现 config diagnostic 后保留 Pi native behavior。它不是 context-store failure；用户修正配置并
-reload 后才启用 pipeline。
+若 `enabled: true` 但 `historian.enabled: true` 的 parent historian configuration 无效，`pi-mctx` 只拒绝
+Historian admission：仍打开 store、注册 transform 并保留 runtime-only 行为，同时呈现 config diagnostic。它不是
+context-store failure；用户修正配置并 reload 后才启用 Historian。
 
-首个 runtime activation slice 在 `session_start` 读取 config，并用 Pi `modelRegistry.find()` 与
-`hasConfiguredAuth()` 解析显式 historian model。disabled config 保持静默 native behavior；invalid config、
-unavailable/unconfigured model 或 core Completion coordinator budget collision 显示 diagnostic 后保持 native
-behavior。只有解析成功时才配置/reuse canonical coordinator budget 并创建 session-scoped MCTX runtime holder；
-shutdown 会清除该 holder。store/partition wiring、`turn_end` historian 和 verified `context` projection 已附加。
+runtime activation 在 `session_start` 读取 config：disabled config 保持静默 native behavior；runtime config invalid、
+store 或 partition failure 按既有 failure policy 处理。active runtime 随后只在 `historian.enabled` 时用 Pi
+`modelRegistry.find()` 与 `hasConfiguredAuth()` 解析显式 historian model 并配置/reuse canonical coordinator budget；
+Historian invalid、unavailable/unconfigured model 或 coordinator budget collision 显示 diagnostic，但不关闭 runtime。
+shutdown 会清除 runtime holder。store/partition wiring、可选 `turn_end` historian 和 verified `context` projection 已附加。
 
 已激活的 compartment trigger budget 使用 model-aware percentage threshold、absolute-token fallback/guard 和
 hysteresis。具体 default 必须在 `pi-mctx` schema 与 focused tests 中固定；它不隐式追随会变化的 upstream

@@ -17,7 +17,7 @@ function configuration(failClosedBlocking = true): MctxConfiguration {
 		pipeline: {
 			kind: "enabled",
 			settings: {
-				historianModel: "anthropic/claude-haiku",
+				historian: { kind: "enabled", model: "anthropic/claude-haiku" },
 				failClosedBlocking,
 				executeThresholdPercentage: { defaultValue: 65, byModel: {} },
 				protectedTags: 20,
@@ -148,7 +148,7 @@ test("status reports inactive before start and active read-only snapshot", async
 		sessionId: "session-1",
 		partitionRevision: 0,
 		usage: { tokens: 10, contextWindow: 100, percentage: 10 },
-		historian: { phase: "idle" },
+		historian: { kind: "active", phase: "idle", model: "anthropic/claude-haiku" },
 		pendingAugmentation: false,
 	});
 	expect(feature.status(turnContext(undefined, "other-session"))).toEqual({ kind: "stale" });
@@ -341,6 +341,38 @@ test("turn_end ignores absent usage and another session", async (): Promise<void
 	feature.onTurnEnd(turnContext(undefined));
 	feature.onTurnEnd(turnContext({ tokens: 65_000, contextWindow: 100_000 }, "other-session"));
 	expect(calls).toBe(0);
+});
+
+test("runtime-only MCTX opens without a historian and schedules no completion", async (): Promise<void> => {
+	const fixture = lifecycleFixture();
+	let calls = 0;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => ({
+			...configuration(),
+			pipeline: {
+				kind: "enabled",
+				settings: {
+					historian: { kind: "disabled" },
+					failClosedBlocking: true,
+					executeThresholdPercentage: { defaultValue: 65, byModel: {} },
+					protectedTags: 20,
+				},
+			},
+		}),
+		openStore: () => store(),
+		resolveProjectIdentity: async () => "git:project",
+		runHistorianForBranch: async () => {
+			calls++;
+			return { kind: "cancelled" };
+		},
+	});
+	await feature.start(fixture.context);
+	feature.onTurnEnd(turnContext({ tokens: 65_000, contextWindow: 100_000 }));
+	expect(calls).toBe(0);
+	expect(feature.status(turnContext(undefined))).toMatchObject({
+		kind: "active",
+		historian: { kind: "disabled" },
+	});
 });
 
 test("adopts a successful publication revision for the next historian run", async (): Promise<void> => {

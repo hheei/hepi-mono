@@ -62,7 +62,7 @@ function configuration(failClosedBlocking = true): MctxConfiguration {
 		pipeline: {
 			kind: "enabled",
 			settings: {
-				historianModel: "anthropic/claude-haiku",
+				historian: { kind: "enabled", model: "anthropic/claude-haiku" },
 				failClosedBlocking,
 				executeThresholdPercentage: { defaultValue: 65, byModel: {} },
 				protectedTags: 20,
