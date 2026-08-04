@@ -574,11 +574,10 @@ ledger 为每项保留 immutable source copy，供 future `ctx_expand` 在 reloa
 受保护、已 dropped、未知、别的 branch/fork 或无法证明 identity 的 tag 必须拒绝或保持 pending，绝不按 position 猜测删除。
 
 所有 active MCTX tools（`ctx_reduce`、`ctx_expand`、`ctx_history`）的 tool output 都以严格的
-`[magic context]` 开头，下一行固定为 `dropped: #N, ...` 或 `dropped: none`，再下一行固定为
-`pending: #N, ...` 或 `pending: none`。随后空一行才输出具体 operation payload。`ctx_reduce` 的成功结果把
-本次 accepted selector 列入 pending；marker materialization 后的实际 dropped tag 只由后续 context projection
-确认，tool 不得预先把 queued tag 声称为 dropped。错误也使用同一 header，令 transcript 中的 MCTX operation
-可扫描且不依赖工具名称的特殊格式。
+`[magic context]` 开头，随后直接给出对应 operation payload。只有 `ctx_reduce` 输出 `pending: #N, ...` 和
+`rejected: #N, ...` queue summary；它不预先把 queued tag 声称为 dropped，marker materialization 后的实际
+dropped tag 只由后续 context projection 确认。`ctx_expand` 直接给恢复 source，`ctx_history` 直接给 list/purge
+payload，错误也不伪造无关的 tag count。
 
 ### Smart drops 设计基线
 
