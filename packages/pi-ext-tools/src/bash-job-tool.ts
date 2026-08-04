@@ -30,11 +30,18 @@ export function registerBashJobTool(pi: ExtensionAPI, state: FffRuntimeState): v
 					content: [{ type: "text", text: `Unknown Bash job: ${params.id}` }],
 					details: { error: "not_found" },
 				};
+			const metadata = { ...job, output: undefined };
 			return {
 				content: [
-					{ type: "text", text: params.action === "logs" ? job.output : JSON.stringify(job) },
+					{
+						type: "text",
+						text:
+							params.action === "logs"
+								? JSON.stringify({ id: job.id, status: job.status, artifact: job.outputArtifact })
+								: JSON.stringify(metadata),
+					},
 				],
-				details: job,
+				details: metadata,
 			};
 		},
 	};

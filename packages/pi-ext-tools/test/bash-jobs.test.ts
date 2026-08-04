@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { createArtifactRegistry } from "@hheei/pi-ext-core";
 import { registerBashJobTool } from "../src/bash-job-tool.js";
 import { BashJobRegistry, MAX_JOB_OUTPUT } from "../src/bash-jobs.js";
 import { createFffRuntimeState } from "../src/fff/lifecycle.js";
@@ -33,6 +34,29 @@ test("retains bounded combined output and reports completion", async (): Promise
 	expect(completed.status).toBe("completed");
 	expect(completed.truncated).toBe(true);
 	expect(Buffer.byteLength(completed.output)).toBeLessThanOrEqual(MAX_JOB_OUTPUT);
+});
+
+test("publishes completed output as an artifact without triggering a turn", async (): Promise<void> => {
+	const artifacts = createArtifactRegistry();
+	const messages: unknown[] = [];
+	const registry = new BashJobRegistry({
+		artifacts,
+		pi: {
+			sendMessage(message, options): void {
+				messages.push({ message, options });
+			},
+		} as unknown as ExtensionAPI,
+	});
+	registries.push(registry);
+	const started = registry.start("printf artifact-output", process.cwd());
+	const completed = await eventually(
+		() => registry.get(started.id),
+		(job) => job.status === "completed" && job.outputArtifact !== undefined,
+	);
+	expect(completed.outputArtifact).toMatch(/^artifact:\/\/[1-9]\d*$/);
+	expect(artifacts.read(completed.outputArtifact ?? "")).toBe("artifact-output");
+	expect(messages).toEqual([expect.objectContaining({ options: { triggerTurn: false } })]);
+	artifacts.dispose();
 });
 
 test("stops an owned process group", async (): Promise<void> => {

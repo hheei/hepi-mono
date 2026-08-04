@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { type ArtifactRegistry, createArtifactRegistry } from "./artifact.js";
 import { createDisposerRegistry, type DisposerRegistry } from "./disposer-registry.js";
 import { getGlobalState } from "./global-state.js";
 import { runtimeIdentity } from "./runtime-identity.js";
@@ -14,6 +15,7 @@ export interface ExtensionLifecycleContext {
 	readonly extension: ExtensionContext;
 	readonly signal: AbortSignal;
 	readonly resources: DisposerRegistry;
+	readonly artifacts: ArtifactRegistry;
 }
 
 export interface ExtensionLifecycleOptions {
@@ -121,10 +123,18 @@ function createLifecycleController(
 				if (active !== undefined) await shutdownUnlocked();
 				const controller = new AbortController();
 				const resources = createDisposerRegistry();
+				const artifacts = createArtifactRegistry();
+				resources.add("artifacts", () => artifacts.dispose());
 				const created: ActiveLifecycle = { controller, resources };
 				active = created;
 				try {
-					await options.start({ pi, extension: context, signal: controller.signal, resources });
+					await options.start({
+						pi,
+						extension: context,
+						signal: controller.signal,
+						resources,
+						artifacts,
+					});
 				} catch (error) {
 					active = undefined;
 					controller.abort();

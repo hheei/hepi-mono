@@ -20,12 +20,14 @@ export interface FffRuntimeState {
 	getRuntime(): FffRuntime | undefined;
 	getSettings(): FffSettings;
 	getBashJobs(): BashJobRegistry | undefined;
+	getArtifacts(): import("@hheei/pi-ext-core").ArtifactRegistry | undefined;
 }
 
 interface MutableFffRuntimeState {
 	runtime: FffRuntime | undefined;
 	settings: FffSettings;
 	jobs: BashJobRegistry | undefined;
+	artifacts: import("@hheei/pi-ext-core").ArtifactRegistry | undefined;
 }
 
 const runtimeStates = new WeakMap<FffRuntimeState, MutableFffRuntimeState>();
@@ -35,8 +37,14 @@ export function createFffRuntimeState(): FffRuntimeState {
 		getRuntime: (): FffRuntime | undefined => runtimeStates.get(state)?.runtime,
 		getSettings: (): FffSettings => runtimeStates.get(state)?.settings ?? DEFAULT_FFF_SETTINGS,
 		getBashJobs: (): BashJobRegistry | undefined => runtimeStates.get(state)?.jobs,
+		getArtifacts: () => runtimeStates.get(state)?.artifacts,
 	};
-	runtimeStates.set(state, { runtime: undefined, settings: DEFAULT_FFF_SETTINGS, jobs: undefined });
+	runtimeStates.set(state, {
+		runtime: undefined,
+		settings: DEFAULT_FFF_SETTINGS,
+		jobs: undefined,
+		artifacts: undefined,
+	});
 	return state;
 }
 
@@ -86,11 +94,15 @@ async function startFffLifecycle(
 	state.settings = settings;
 	const runtime = new FffRuntime(context.extension.cwd);
 	state.runtime = runtime;
-	const jobs = new BashJobRegistry();
+	state.artifacts = context.artifacts;
+	const jobs = new BashJobRegistry({ artifacts: context.artifacts, pi });
 	state.jobs = jobs;
 	context.resources.add("bash-jobs", () => {
 		jobs.dispose();
 		if (state.jobs === jobs) state.jobs = undefined;
+	});
+	context.resources.add("artifacts-state", () => {
+		if (state.artifacts === context.artifacts) state.artifacts = undefined;
 	});
 	context.resources.add("fff-runtime", () => {
 		runtime.dispose();
