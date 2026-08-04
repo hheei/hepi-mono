@@ -1,12 +1,26 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { DatabaseSync } from "node:sqlite";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export const MCTX_STORE_APPLICATION_ID = 0x484d4354;
 export const MCTX_STORE_SCHEMA_VERSION = 11;
 export const MCTX_STORE_BUSY_TIMEOUT_MS = 5_000;
+
+interface MctxDatabaseStatement {
+	get(...bindings: readonly unknown[]): unknown;
+	all(...bindings: readonly unknown[]): readonly unknown[];
+	run(...bindings: readonly unknown[]): unknown;
+}
+
+/** Common synchronous SQLite surface implemented by Bun and Node runtimes. */
+interface DatabaseSync {
+	exec(sql: string): void;
+	prepare(sql: string): MctxDatabaseStatement;
+	close(): void;
+}
+
+type MctxDatabaseConstructor = new (path: string) => DatabaseSync;
 
 /**
  * Canonical MCTX persistence boundary. The store owns schema/migration, partition
@@ -2246,6 +2260,27 @@ export function defaultMctxStorePath(agentDir: string = getAgentDir()): string {
 	return join(agentDir, "mctx", "context.db");
 }
 
+function databaseConstructor(
+	module: unknown,
+	exportName: string,
+): MctxDatabaseConstructor | undefined {
+	if (!isRecord(module)) return undefined;
+	const candidate = module[exportName];
+	return typeof candidate === "function" ? (candidate as MctxDatabaseConstructor) : undefined;
+}
+
+async function loadMctxDatabaseConstructor(): Promise<MctxDatabaseConstructor> {
+	// Pi runs on Bun, which deliberately does not implement node:sqlite. Keep the
+	// Node branch for host/test environments that provide DatabaseSync instead.
+	if ("Bun" in globalThis) {
+		const databaseClass = databaseConstructor(await import("bun:sqlite"), "Database");
+		if (databaseClass !== undefined) return databaseClass;
+	}
+	const databaseClass = databaseConstructor(await import("node:sqlite"), "DatabaseSync");
+	if (databaseClass === undefined) throw new Error("No supported synchronous SQLite runtime");
+	return databaseClass;
+}
+
 /**
  * Opens only the MCTX schema fence; callers own its session-lifecycle close.
  * WAL and a bounded busy wait allow independent Pi processes to share the DB;
@@ -2255,8 +2290,8 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 	mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
 	let database: DatabaseSync | undefined;
 	try {
-		const { DatabaseSync } = await import("node:sqlite");
-		database = new DatabaseSync(path);
+		const Database = await loadMctxDatabaseConstructor();
+		database = new Database(path);
 		database.exec(`PRAGMA busy_timeout = ${MCTX_STORE_BUSY_TIMEOUT_MS}`);
 		database.exec("PRAGMA journal_mode = WAL");
 		database.exec("PRAGMA foreign_keys = ON");

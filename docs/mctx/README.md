@@ -13,6 +13,10 @@ Pi active tool set 或 Loadout inventory 中出现。它注册唯一 `/mctx` com
 `pi-subagents` 在 `inherit_context: true` 时读取已验证 compartments 与 live tail；能力缺失、过期或
 无效时保持其 Pi-native text fallback。
 
+store adapter 在 Bun-based Pi host 使用 `bun:sqlite`，在 Node host 使用 `node:sqlite` 的 `DatabaseSync`。两者都不可用时，
+store admission 按 `fail_closed_blocking` policy 明确失败或保留 Pi native context；extension module 本身不得因某一个
+runtime-specific SQLite import 而无法加载。
+
 ### 记忆体系挂接状态（当前决策）
 
 记忆体系（`ctx_memory`/`ctx_note`/`ctx_search` 工具、`/mctx dream`/`/mctx embed` subcommand、embedding provider
