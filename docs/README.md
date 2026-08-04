@@ -20,6 +20,7 @@ This directory records high-level information for users and developers. Detailed
 ## Architecture
 
 - [Extension reference architecture](architecture/extension-reference.md): target package layout, public API, lifecycle, concurrency, and test boundaries.
+- [Native bridge architecture](architecture/pi-ext-bridge.md): N-API shell boundary, vendored Brush/uutils ownership, and cancellation contract.
 - [Loadout architecture](architecture/loadout.md): planned tool registration, activation policy, Settings host, and Extension page router boundaries.
 - [Subagent execution architecture](architecture/subagents.md): planned completion, task, conversation, delivery, and concurrency boundaries.
 - [pi-mctx](mctx/README.md): planned parent-session context-management package and child inheritance boundary.

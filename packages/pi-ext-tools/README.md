@@ -11,8 +11,10 @@ the retired standalone FFF extension.
 ## Native bridge
 
 `src/native-bridge.ts` exposes the HEPI-owned N-API bridge for package-owned
-mpatch execution (`runMpatch` and the bridge version sentinel). The small
-bridge has no vendored native dependency and builds with stable Rust:
+mpatch execution and session-scoped Brush shell execution. The shell retains
+its cwd, exported environment and background jobs, and uses upstream's patched
+uutils builtin set without exposing upstream Rust types to TypeScript. The
+bridge builds with stable Rust:
 
 ```bash
 bun run --cwd packages/pi-ext-tools build:native
@@ -20,3 +22,9 @@ bun run --cwd packages/pi-ext-tools build:native
 
 This writes `native/pi-ext-tools-bridge.node` for the current host platform with
 Cargo's incremental `local` profile. The native file is not committed.
+
+Run the focused native contract test with:
+
+```bash
+bun run --cwd packages/pi-ext-tools test:native
+```
