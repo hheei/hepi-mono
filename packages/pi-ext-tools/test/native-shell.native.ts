@@ -2,6 +2,14 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+	ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
+import { createDisposerRegistry } from "../../pi-ext-core/src/disposer-registry.js";
+import { registerBashTool } from "../src/bash.js";
+import { createBashRuntimeState, startBashRuntime } from "../src/bash-runtime.js";
 import { MpatchRun, Shell } from "../src/native-bridge.js";
 
 const shells: Shell[] = [];
@@ -27,6 +35,39 @@ async function temporaryDirectory(): Promise<string> {
 }
 
 describe("native Brush shell", () => {
+	test("executes Pi's Bash tool through its session-owned Brush shell", async (): Promise<void> => {
+		const state = createBashRuntimeState();
+		const resources = createDisposerRegistry();
+		await startBashRuntime(state, resources);
+		const tools: ToolDefinition[] = [];
+		const pi = {
+			events: {},
+			registerTool: (tool: ToolDefinition): void => tools.push(tool),
+		} as unknown as ExtensionAPI;
+		registerBashTool(pi, state);
+		const bash = tools.find((tool) => tool.name === "bash");
+		if (bash === undefined) throw new Error("bash was not registered");
+
+		try {
+			const result = await bash.execute(
+				"native-bash-1",
+				{ command: "printf '%s\\n' c b a b | sort | uniq" },
+				undefined,
+				undefined,
+				{
+					cwd: process.cwd(),
+					sessionManager: {
+						getSessionId: (): string => "native-bash-test",
+						getSessionFile: (): undefined => undefined,
+					},
+				} as unknown as ExtensionContext,
+			);
+			expect(result.content).toContainEqual({ type: "text", text: "a\nb\nc\n" });
+		} finally {
+			await resources.cleanup();
+		}
+	});
+
 	test("runs vendored uutils builtins with streamed output", async (): Promise<void> => {
 		const shell = createShell();
 		const environment = await shell.run({ command: 'test "$HEPI_NATIVE_SHELL" = ready' });
