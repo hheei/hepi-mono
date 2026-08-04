@@ -104,7 +104,7 @@ const retainedCrates = packages
 await mkdir(destination, { recursive: true });
 await rm(destination, { recursive: true, force: true });
 for (const cratePath of retainedCrates) {
-	const target = join(destination, "crates", cratePath);
+	const target = join(destination, "oh-my-pi", cratePath);
 	await mkdir(dirname(target), { recursive: true });
 	await cp(join(sourceCrates, cratePath), target, { recursive: true });
 }
