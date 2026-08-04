@@ -24,6 +24,7 @@
 	},
 	"scripts": {
 		"build:native": "bun ../../scripts/build-rust.mjs",
+		"test:native": "bun run build:native && bun test ./test/native-shell.native.ts",
 		"build": "bunx tsc -p tsconfig.build.json",
 		"prepack": "bun run build"
 	},

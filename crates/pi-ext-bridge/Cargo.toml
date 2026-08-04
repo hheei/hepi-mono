@@ -9,8 +9,10 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
+flume = { workspace = true }
 napi = { workspace = true }
 napi-derive = "3"
+pi-shell = { path = "../vendor/crates/pi-shell" }
 tempfile = "3"
 tokio = { workspace = true, features = ["process", "fs"] }
 

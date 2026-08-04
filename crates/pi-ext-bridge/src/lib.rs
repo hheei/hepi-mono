@@ -4,6 +4,8 @@
 //! JavaScript-facing contract so upstream updates do not silently become the
 //! public API of this mono.
 
+mod shell;
+
 use napi_derive::napi;
 
 const MAX_MPATCH_OUTPUT_BYTES: usize = 1024 * 1024;
