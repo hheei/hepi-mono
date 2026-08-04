@@ -573,6 +573,13 @@ ledger 为每项保留 immutable source copy，供 future `ctx_expand` 在 reloa
 永远不被改写。默认 `protected_tags` 为 20，user-level setting 只接受 1–100，project settings 无权改变它，reload 后生效。
 受保护、已 dropped、未知、别的 branch/fork 或无法证明 identity 的 tag 必须拒绝或保持 pending，绝不按 position 猜测删除。
 
+所有 active MCTX tools（`ctx_reduce`、`ctx_expand`、`ctx_history`）的 tool output 都以严格的
+`[magic context]` 开头，下一行固定为 `dropped: #N, ...` 或 `dropped: none`，再下一行固定为
+`pending: #N, ...` 或 `pending: none`。随后空一行才输出具体 operation payload。`ctx_reduce` 的成功结果把
+本次 accepted selector 列入 pending；marker materialization 后的实际 dropped tag 只由后续 context projection
+确认，tool 不得预先把 queued tag 声称为 dropped。错误也使用同一 header，令 transcript 中的 MCTX operation
+可扫描且不依赖工具名称的特殊格式。
+
 ### Smart drops 设计基线
 
 Smart drops 让 MCTX 在上下文压力下自动回收已经不再需要的旧 tool result，补足 model 未调用
@@ -617,20 +624,22 @@ existing identity-verified transform projects [dropped §N§]
 mark pending -> dropped with partition CAS
 ```
 
-**Eligibility and ordering:** automatic planning considers only `kind: "tool"` tag sources that are currently `active`, still
-present as the exact tool-result identity in the active branch, and outside the newest `protected_tags` active tags. It never
+**Eligibility and ordering:** planner 先读取并验证 compartment graph；只有 graph 的 `liveTailStartIndex` 之后、当前
+imminent context 中仍以 exact tool-result identity 出现的 `kind: "tool"` active tag 才是候选。invalid/rebuild graph
+不进行 automatic reclaim。候选再排除 newest `protected_tags` active tags。它永不
 automatically drops user messages, assistant text/tool-call messages, references, image/file descriptors, pending/dropped tags,
 or any tag whose source/branch identity cannot be proven. Candidate estimated reclaim is derived from retained textual source with
-a deterministic conservative estimator. Select candidates oldest-first until the configured target reclaim is met; equal estimates
-are ordered by tag number. A proposal that cannot reclaim a positive minimum amount does nothing.
+a deterministic conservative estimator。上游可安全证明的 supersession rules 先选择：零值 metadata tool、保留最近一个的
+`todowrite`、保留最近五个的 `ctx_reduce`，以及有可证明 file path 的旧 edit result；随后按 tag number oldest-first
+选择 remaining candidate，直到 configured target reclaim 达成。相同候选只选一次；无法回收正值时不写 mutation。
 
 The emergency target is derived from the same model-aware execute threshold already used by historian. When live input is at or
 above that threshold, smart drops target enough eligible tool-result source to return below the re-arm threshold
 (`threshold - 10 percentage points`, plus the existing absolute-threshold guard where configured). The planner makes at most one
 successful automatic plan for an unchanged Pi usage sample; it re-arms only after the lower threshold is observed. This avoids
-repeated marker writes while Pi reports stale usage after a transform. It is intentionally narrower than upstream's private
-tool-name tiers, duplicate-call detection, system-injection stripping, reasoning clearing and caveman text rewriting: those
-require tool metadata, a reasoning ownership contract, or user-visible text mutation that current Pi MCTX does not own.
+repeated marker writes while Pi reports stale usage after a transform. 它仍有意不迁移 upstream private tool-tier ranking、
+system-injection stripping、reasoning clearing 和 caveman text rewriting：这些需要更宽的 tool metadata、reasoning ownership
+contract，或会改写 user-visible text，而 current Pi MCTX 不拥有它们。
 
 Manual and automatic requests share the same atomic queue primitive but preserve intent. Manual `ctx_reduce` keeps its current
 behavior and may target any eligible tag. Smart drops pass only its planner output to that primitive. On the following context
@@ -638,13 +647,13 @@ pass, both use the existing immutable-identity marker transform; a failed projec
 branch pass rather than silently considering it dropped. `ctx_expand` continues to expose retained source for active, pending and
 dropped tags without reinjecting it.
 
-**Implementation seam and focused tests:** add a pure `planMctxSmartDrops()` module accepting branch-proven active tags, current
-usage, resolved threshold and `protected_tags`, returning either a deterministic no-op reason or tag numbers plus estimated
-reclaim. Feature `onContext` owns the one-session sample/cooldown state and invokes the existing store queue/marker path; the
-store does not infer candidates. Tests cover disabled/default behavior, protected-tail exclusion, tool-only eligibility, exact
-candidate ordering, threshold/re-arm/sample idempotency, stale CAS, branch divergence, projection failure/retry, manual/automatic
-deduplication, and `ctx_expand` recovery after an automatic marker. A host lifecycle test must prove that the next model request
-contains the marker and that reload clears only uncommitted in-memory planning state.
+**Implementation seam and focused tests:** `planMctxSmartDrops()` 接收 branch-proven active tags、verified live-tail
+candidates、resolved threshold 和 `protected_tags`，返回 deterministic no-op 或 tag numbers plus estimated reclaim。Feature
+`onContext` owns graph validation, one-session cooldown and the existing store queue/marker path；store 不推断 candidates。
+Tests cover disabled/default behavior, protected-tail exclusion, tool-only/live-tail eligibility, supersession ordering,
+threshold/re-arm/sample idempotency, stale CAS, branch divergence, projection failure/retry, manual/automatic deduplication, and
+`ctx_expand` recovery after an automatic marker。host lifecycle test proves next model request contains marker, compartment-covered
+result is not queued, and reload clears only uncommitted in-memory planning state。
 
 ### `ctx_expand`
 

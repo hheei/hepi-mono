@@ -1,13 +1,59 @@
+import type { MctxVisibleToolTag } from "./history-tags.js";
 import type { MctxHistoryTag } from "./store.js";
 
 export interface MctxSmartDropPlanInput {
 	readonly tags: readonly MctxHistoryTag[];
-	/** Only tags whose exact tool-result message remains imminent may be replaced. */
-	readonly visibleTagNumbers: ReadonlySet<number>;
+	/** Only exact tool-result identities in the verified live tail may be replaced. */
+	readonly candidates: readonly MctxVisibleToolTag[];
 	readonly protectedTags: number;
 	readonly usageTokens: number;
 	/** The usage target after reclaim, normally the trigger policy's re-arm point. */
 	readonly targetUsageTokens: number;
+}
+
+function recordString(value: unknown, keys: readonly string[]): string | undefined {
+	if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+	for (const key of keys) {
+		const candidate = (value as Readonly<Record<string, unknown>>)[key];
+		if (typeof candidate === "string" && candidate.trim()) return candidate;
+	}
+	return undefined;
+}
+
+function heuristicTagNumbers(candidates: readonly MctxVisibleToolTag[]): ReadonlySet<number> {
+	const selected = new Set<number>();
+	const byNewest = [...candidates].sort((left, right) => right.tag.tagNumber - left.tag.tagNumber);
+	let todoSeen = 0;
+	let reduceSeen = 0;
+	const newestEditByPath = new Set<string>();
+	for (const candidate of byNewest) {
+		const name = candidate.toolName.toLowerCase();
+		if (name === "bash_status" || name === "bash_kill") {
+			selected.add(candidate.tag.tagNumber);
+			continue;
+		}
+		if (name === "todowrite") {
+			todoSeen++;
+			if (todoSeen > 1) selected.add(candidate.tag.tagNumber);
+			continue;
+		}
+		if (name === "ctx_reduce") {
+			reduceSeen++;
+			if (reduceSeen > 5) selected.add(candidate.tag.tagNumber);
+			continue;
+		}
+		if (name === "ctx_note") {
+			const action = recordString(candidate.input, ["action"]);
+			if (action === "read" || action === "dismiss") selected.add(candidate.tag.tagNumber);
+			continue;
+		}
+		if (name !== "edit" && name !== "write" && name !== "apply_patch") continue;
+		const path = recordString(candidate.input, ["filePath", "file_path", "path"]);
+		if (path === undefined) continue;
+		if (newestEditByPath.has(path)) selected.add(candidate.tag.tagNumber);
+		else newestEditByPath.add(path);
+	}
+	return selected;
 }
 
 export type MctxSmartDropPlan =
@@ -43,23 +89,27 @@ export function planMctxSmartDrops(input: MctxSmartDropPlanInput): MctxSmartDrop
 		.map((tag) => tag.tagNumber)
 		.sort((left, right) => right - left);
 	const protectedNumbers = new Set(activeTagNumbers.slice(0, input.protectedTags));
-	const candidates = input.tags
+	const candidates = input.candidates
 		.filter(
-			(tag) =>
-				tag.kind === "tool" &&
-				tag.status === "active" &&
-				input.visibleTagNumbers.has(tag.tagNumber) &&
-				!protectedNumbers.has(tag.tagNumber),
+			(candidate) =>
+				candidate.tag.status === "active" && !protectedNumbers.has(candidate.tag.tagNumber),
 		)
-		.sort((left, right) => left.tagNumber - right.tagNumber);
+		.sort((left, right) => left.tag.tagNumber - right.tag.tagNumber);
 	if (candidates.length === 0) return { kind: "noop", reason: "no eligible tool results" };
 
 	const required = input.usageTokens - input.targetUsageTokens;
 	const tagNumbers: number[] = [];
 	let estimatedReclaimTokens = 0;
+	const heuristic = heuristicTagNumbers(candidates);
 	for (const candidate of candidates) {
-		tagNumbers.push(candidate.tagNumber);
-		estimatedReclaimTokens += estimatedTokens(candidate.source);
+		if (!heuristic.has(candidate.tag.tagNumber)) continue;
+		tagNumbers.push(candidate.tag.tagNumber);
+		estimatedReclaimTokens += estimatedTokens(candidate.tag.source);
+	}
+	for (const candidate of candidates) {
+		if (heuristic.has(candidate.tag.tagNumber)) continue;
+		tagNumbers.push(candidate.tag.tagNumber);
+		estimatedReclaimTokens += estimatedTokens(candidate.tag.source);
 		if (estimatedReclaimTokens >= required) break;
 	}
 	return { kind: "drop", tagNumbers, estimatedReclaimTokens };

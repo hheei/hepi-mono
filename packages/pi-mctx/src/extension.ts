@@ -29,6 +29,7 @@ import {
 import { MAX_CTX_EXPAND_CHARS, renderMctxHistoryTagPage } from "./history-tags.js";
 import { createMctxSettingsProvider } from "./settings.js";
 import { openMctxStatusSurface } from "./status-surface.js";
+import { renderMctxToolOutput } from "./tool-output.js";
 
 const DEFAULT_CTX_HISTORY_LIMIT = 50;
 const MAX_CTX_HISTORY_LIMIT = 100;
@@ -391,37 +392,23 @@ function historyOperation(args: Record<string, unknown>): MctxHistoryOperation |
 function renderHistoryToolResult(result: MctxHistoryResult) {
 	switch (result.kind) {
 		case "history":
-			return {
-				content: [
-					{
-						type: "text" as const,
-						text: JSON.stringify({ tags: result.tags, nextOffset: result.nextOffset }),
-					},
-				],
-				details: undefined,
-			};
+			return renderMctxToolOutput({
+				body: JSON.stringify({ tags: result.tags, nextOffset: result.nextOffset }),
+				dropped: result.tags.filter((tag) => tag.status === "dropped").map((tag) => tag.tagNumber),
+				pending: result.tags.filter((tag) => tag.status === "pending").map((tag) => tag.tagNumber),
+			});
 		case "purged":
-			return {
-				content: [{ type: "text" as const, text: JSON.stringify({ deleted: result.deleted }) }],
-				details: undefined,
-			};
+			return renderMctxToolOutput({ body: JSON.stringify({ deleted: result.deleted }) });
 		case "inactive":
-			return {
-				content: [{ type: "text" as const, text: "pi-mctx is not active for this session." }],
-				details: undefined,
+			return renderMctxToolOutput({
+				body: "pi-mctx is not active for this session.",
 				isError: true,
-			};
+			});
 		case "active-session":
-			return {
-				content: [
-					{
-						type: "text" as const,
-						text: "ctx_history cannot purge the active session history ledger.",
-					},
-				],
-				details: undefined,
+			return renderMctxToolOutput({
+				body: "ctx_history cannot purge the active session history ledger.",
 				isError: true,
-			};
+			});
 		default: {
 			const exhaustive: never = result;
 			return exhaustive;
@@ -440,39 +427,26 @@ function registerHistoryTools(pi: ExtensionAPI, feature: MctxFeature): void {
 			parameters: Type.Object({ drop: Type.String() }),
 			async execute(_toolCallId, args, _signal, _onUpdate, context) {
 				const tags = parseTagSelectors(args.drop);
-				if (tags === undefined) {
-					return {
-						content: [
-							{ type: "text", text: "Invalid drop selector; use N, N-M, comma-separated." },
-						],
-						details: undefined,
+				if (tags === undefined)
+					return renderMctxToolOutput({
+						body: "Invalid drop selector; use N, N-M, comma-separated.",
 						isError: true,
-					};
-				}
+					});
 				const result = feature.reduce(tags, context);
-				if (result.kind === "inactive") {
-					return {
-						content: [{ type: "text", text: "pi-mctx is not active for this session." }],
-						details: undefined,
+				if (result.kind === "inactive")
+					return renderMctxToolOutput({
+						body: "pi-mctx is not active for this session.",
 						isError: true,
-					};
-				}
-				if (result.kind === "stale") {
-					return {
-						content: [{ type: "text", text: "Context changed; retry ctx_reduce." }],
-						details: undefined,
+					});
+				if (result.kind === "stale")
+					return renderMctxToolOutput({
+						body: "Context changed; retry ctx_reduce.",
 						isError: true,
-					};
-				}
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Queued drops: ${result.queued?.join(", ") || "none"}. Rejected: ${result.rejected?.join(", ") || "none"}.`,
-						},
-					],
-					details: undefined,
-				};
+					});
+				return renderMctxToolOutput({
+					body: `Queued drops: ${result.queued?.map((tag) => `#${tag}`).join(", ") || "none"}. Rejected: ${result.rejected?.map((tag) => `#${tag}`).join(", ") || "none"}.`,
+					...(result.queued === undefined ? {} : { pending: result.queued }),
+				});
 			},
 		}),
 	);
@@ -490,46 +464,34 @@ function registerHistoryTools(pi: ExtensionAPI, feature: MctxFeature): void {
 			}),
 			async execute(_toolCallId, args, _signal, _onUpdate, context) {
 				const tags = parseTagSelectors(args.tags);
-				if (tags === undefined) {
-					return {
-						content: [{ type: "text", text: "Invalid tag selector; use N, N-M, comma-separated." }],
-						details: undefined,
+				if (tags === undefined)
+					return renderMctxToolOutput({
+						body: "Invalid tag selector; use N, N-M, comma-separated.",
 						isError: true,
-					};
-				}
+					});
 				const result = feature.expand(tags, context);
 				if (result.kind !== "expanded") {
-					return {
-						content: [
-							{
-								type: "text",
-								text:
-									result.kind === "inactive"
-										? "pi-mctx is not active for this session."
-										: "Context changed; retry ctx_expand.",
-							},
-						],
-						details: undefined,
+					return renderMctxToolOutput({
+						body:
+							result.kind === "inactive"
+								? "pi-mctx is not active for this session."
+								: "Context changed; retry ctx_expand.",
 						isError: true,
-					};
+					});
 				}
 				const page = renderMctxHistoryTagPage(result.tags, args.offset, args.limit);
 				if (page === undefined) {
-					return {
-						content: [{ type: "text", text: "offset or limit is invalid." }],
-						details: undefined,
-						isError: true,
-					};
+					return renderMctxToolOutput({ body: "offset or limit is invalid.", isError: true });
 				}
-				return {
-					content: [
-						{
-							type: "text",
-							text: `${page.text || "No current-session tags matched."}${page.nextOffset === undefined ? "" : `\n\nNext offset: ${page.nextOffset}`}${result.rejected.length === 0 ? "" : `\n\nRejected tags: ${result.rejected.join(", ")}`}`,
-						},
-					],
-					details: undefined,
-				};
+				return renderMctxToolOutput({
+					body: `${page.text || "No current-session tags matched."}${page.nextOffset === undefined ? "" : `\n\nNext offset: ${page.nextOffset}`}${result.rejected.length === 0 ? "" : `\n\nRejected tags: ${result.rejected.map((tag) => `#${tag}`).join(", ")}`}`,
+					dropped: result.tags
+						.filter((tag) => tag.status === "dropped")
+						.map((tag) => tag.tagNumber),
+					pending: result.tags
+						.filter((tag) => tag.status === "pending")
+						.map((tag) => tag.tagNumber),
+				});
 			},
 		}),
 	);
@@ -550,16 +512,10 @@ function registerHistoryTools(pi: ExtensionAPI, feature: MctxFeature): void {
 			async execute(_toolCallId, args, _signal, _onUpdate, context) {
 				const operation = historyOperation(args);
 				if (operation === undefined)
-					return {
-						content: [
-							{
-								type: "text",
-								text: "Invalid ctx_history parameters; purge requires non-active session_id.",
-							},
-						],
-						details: undefined,
+					return renderMctxToolOutput({
+						body: "Invalid ctx_history parameters; purge requires non-active session_id.",
 						isError: true,
-					};
+					});
 				return renderHistoryToolResult(feature.history(operation, context));
 			},
 		}),

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import {
 	collectMctxHistoryTagInputs,
+	collectVisibleMctxToolTags,
 	MAX_CTX_EXPAND_CHARS,
 	projectMctxHistoryTags,
 	renderMctxHistoryTagPage,
@@ -51,4 +52,43 @@ describe("MCTX history tags", () => {
 		expect(renderMctxHistoryTagPage([tag], 5, 5)).toEqual({ text: "messa", nextOffset: 10 });
 		expect(renderMctxHistoryTagPage([tag], 0, MAX_CTX_EXPAND_CHARS + 1)).toBeUndefined();
 	});
+});
+
+test("collects tool candidates only from the verified live tail", (): void => {
+	const assistant = {
+		type: "message",
+		id: "assistant-tool",
+		parentId: null,
+		timestamp: "2026-01-01T00:00:00.000Z",
+		message: {
+			role: "assistant" as const,
+			content: [{ type: "toolCall" as const, id: "call-1", name: "bash_status", arguments: {} }],
+			timestamp: 1,
+		},
+	} as SessionEntry;
+	const resultMessage = {
+		role: "toolResult" as const,
+		toolCallId: "call-1",
+		content: "result",
+		timestamp: 2,
+	};
+	const result = {
+		type: "message",
+		id: "tool-result",
+		parentId: null,
+		timestamp: "2026-01-01T00:00:01.000Z",
+		message: resultMessage,
+	} as SessionEntry;
+	const tag: MctxHistoryTag = {
+		kind: "tool",
+		entryId: "assistant-tool",
+		toolCallId: "call-1",
+		source: "result",
+		tagNumber: 1,
+		status: "active",
+	};
+	expect(collectVisibleMctxToolTags([resultMessage], [assistant, result], [tag], 2)).toEqual([]);
+	expect(collectVisibleMctxToolTags([resultMessage], [assistant, result], [tag], 1)).toEqual([
+		{ tag, toolName: "bash_status", input: {} },
+	]);
 });
