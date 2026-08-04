@@ -1,6 +1,6 @@
 import type {
 	ExtensionAPI,
-	ExtensionCommandContext,
+	ExtensionContext,
 	KeybindingsManager,
 	Theme,
 } from "@earendil-works/pi-coding-agent";
@@ -107,7 +107,7 @@ function dequeueNext(state: SurfaceState): void {
  */
 export function openTuiSurface<T>(
 	pi: ExtensionAPI,
-	command: ExtensionCommandContext,
+	command: ExtensionContext,
 	options: OpenTuiSurfaceOptions<T>,
 ): Promise<TuiSurfaceResult<T>> {
 	if (!Number.isInteger(options.maxPending) || options.maxPending < 0)

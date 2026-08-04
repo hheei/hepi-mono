@@ -33,3 +33,32 @@ test("bash executes through Pi host original backend", async (): Promise<void> =
 
 	expect(result.content).toEqual([{ type: "text", text: "restored-backend" }]);
 });
+
+test("bash exposes PTY only in interactive TUI mode", async (): Promise<void> => {
+	const tools: ToolDefinition[] = [];
+	registerBashTool({
+		registerTool(tool: ToolDefinition): void {
+			tools.push(tool);
+		},
+	} as unknown as ExtensionAPI);
+	const bash = tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("Expected bash tool");
+	expect(bash.parameters).toMatchObject({
+		anyOf: [
+			expect.anything(),
+			expect.anything(),
+			{ properties: { pty: { const: true } }, additionalProperties: false },
+		],
+	});
+	const result = await bash.execute(
+		"bash-pty-unavailable",
+		{ command: "printf unavailable", pty: true },
+		undefined,
+		undefined,
+		{ cwd: process.cwd(), mode: "print" } as ExtensionContext,
+	);
+	expect(result).toMatchObject({
+		content: [{ type: "text", text: "PTY Bash requires an interactive TUI with PTY enabled" }],
+		details: { error: "pty_unavailable" },
+	});
+});
