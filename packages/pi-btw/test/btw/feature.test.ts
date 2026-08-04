@@ -143,6 +143,7 @@ function fixture(options: FixtureOptions = {}) {
 		extension: typedCtx,
 		signal: new AbortController().signal,
 		resources: { add: () => undefined, cleanup: async () => [] },
+		artifacts: {} as ExtensionLifecycleContext["artifacts"],
 	} as ExtensionLifecycleContext;
 	const execute: NonNullable<BtwFeatureOptions["execute"]> = async (
 		options: ExecuteBtwTurnOptions,

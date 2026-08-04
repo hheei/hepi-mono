@@ -20,6 +20,7 @@ describe("FFF settings", () => {
 				},
 			}),
 		).toEqual({
+			shellPath: DEFAULT_FFF_SETTINGS.shellPath,
 			autocomplete: false,
 			grepEnhancement: true,
 			readEnhancement: true,
@@ -43,6 +44,7 @@ describe("FFF settings", () => {
 			expect(
 				fffSettingsFromState(await provider.storage.load({ sessionId: "settings-test" })),
 			).toEqual({
+				shellPath: DEFAULT_FFF_SETTINGS.shellPath,
 				autocomplete: false,
 				grepEnhancement: true,
 				readEnhancement: true,

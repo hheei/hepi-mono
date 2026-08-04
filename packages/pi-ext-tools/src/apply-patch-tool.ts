@@ -3,13 +3,18 @@ import type {
 	ExtensionAPI,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { Container, Text } from "@earendil-works/pi-tui";
 import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import {
 	type ApplyPatchInWorkspaceResult,
 	applyPatchThroughCoordinator,
 } from "./apply-patch/index.js";
+import {
+	finishApplyPatchRenderState,
+	renderApplyPatchCall,
+	setApplyPatchRenderState,
+} from "./apply-patch/renderer.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 
@@ -85,22 +90,34 @@ export function createApplyPatchTool(): ToolDefinition<
 		description: "Apply a strict Codex V4A patch through the pi-ext-tools patch coordinator.",
 		parameters: APPLY_PATCH_PARAMETERS,
 		executionMode: "parallel",
-		renderResult: (result, _options, theme) => {
-			const output = result.content
-				.filter((part) => part.type === "text")
-				.map((part) => part.text ?? "")
-				.join("\n");
-			return new Text(theme.fg("toolOutput", output), 0, 0);
+		renderCall: (args, theme, context) => renderApplyPatchCall(args, theme, context),
+		renderResult: (_result, { isPartial }, theme) => {
+			if (isPartial) return new Text(`${theme.fg("warning", "◐")} ${theme.bold("Patching")}`, 0, 0);
+			return new Container();
 		},
-		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+		async execute(toolCallId, params, signal, _onUpdate, ctx) {
 			const { patch } = parseApplyPatchParameters(params);
-			if (/artifact:\/\//.test(patch)) throw new Error("apply_patch cannot modify artifact URLs");
+			setApplyPatchRenderState(toolCallId);
+			if (/artifact:\/\//.test(patch)) {
+				finishApplyPatchRenderState(toolCallId, "failed");
+				throw new Error("apply_patch cannot modify artifact URLs");
+			}
 			try {
 				const result = await applyPatchThroughCoordinator({
 					workspaceRoot: ctx.cwd,
 					patch,
 					...(signal === undefined ? {} : { signal }),
 				});
+				const failedOperationIndices = result.rejected.flatMap(
+					(rejection) => rejection.operationIndices,
+				);
+				const status =
+					failedOperationIndices.length === 0
+						? "success"
+						: result.changedPaths.length === 0
+							? "failed"
+							: "partial";
+				finishApplyPatchRenderState(toolCallId, status, failedOperationIndices);
 				return {
 					content: [{ type: "text", text: formatApplyPatchResult(result) }],
 					details: {
@@ -113,6 +130,7 @@ export function createApplyPatchTool(): ToolDefinition<
 					},
 				} satisfies AgentToolResult<ApplyPatchToolDetails>;
 			} catch (error) {
+				finishApplyPatchRenderState(toolCallId, "failed");
 				const message = error instanceof Error ? error.message : String(error);
 				throw new Error(`apply_patch failed: ${message}`);
 			}

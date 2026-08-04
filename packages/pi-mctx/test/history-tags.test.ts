@@ -69,7 +69,9 @@ test("collects tool candidates only from the verified live tail", (): void => {
 	const resultMessage = {
 		role: "toolResult" as const,
 		toolCallId: "call-1",
-		content: "result",
+		toolName: "bash_status",
+		content: [{ type: "text" as const, text: "result" }],
+		isError: false,
 		timestamp: 2,
 	};
 	const result = {

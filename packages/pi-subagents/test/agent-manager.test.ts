@@ -84,6 +84,7 @@ function runtime(): ExtensionLifecycleContext {
 		extension: {} as ExtensionLifecycleContext["extension"],
 		signal: new AbortController().signal,
 		resources: { add: vi.fn() } as unknown as ExtensionLifecycleContext["resources"],
+		artifacts: {} as ExtensionLifecycleContext["artifacts"],
 	};
 }
 

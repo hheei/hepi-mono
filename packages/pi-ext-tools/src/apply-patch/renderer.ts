@@ -14,6 +14,73 @@ export interface ApplyPatchRenderContext {
 	readonly showCollapsedDiff?: boolean;
 }
 
+export type ApplyPatchRenderStatus = "pending" | "success" | "partial" | "failed";
+
+interface ApplyPatchRenderState {
+	readonly status: ApplyPatchRenderStatus;
+	readonly failedOperationIndices: ReadonlySet<number>;
+}
+
+const renderStates = new Map<string, ApplyPatchRenderState>();
+const RENDER_STATE_LIMIT = 50;
+
+function cacheRenderState(toolCallId: string, state: ApplyPatchRenderState): void {
+	renderStates.delete(toolCallId);
+	renderStates.set(toolCallId, state);
+	while (renderStates.size > RENDER_STATE_LIMIT) {
+		const oldest = renderStates.keys().next().value;
+		if (oldest === undefined) return;
+		renderStates.delete(oldest);
+	}
+}
+
+export function setApplyPatchRenderState(toolCallId: string): void {
+	cacheRenderState(toolCallId, {
+		status: "pending",
+		failedOperationIndices: new Set(),
+	});
+}
+
+export function finishApplyPatchRenderState(
+	toolCallId: string,
+	status: Exclude<ApplyPatchRenderStatus, "pending">,
+	failedOperationIndices: readonly number[] = [],
+): void {
+	cacheRenderState(toolCallId, {
+		status,
+		failedOperationIndices: new Set(failedOperationIndices),
+	});
+}
+
+export function clearApplyPatchRenderStates(): void {
+	renderStates.clear();
+}
+
+function renderState(toolCallId: string | undefined): ApplyPatchRenderState | undefined {
+	if (toolCallId === undefined) return undefined;
+	const state = renderStates.get(toolCallId);
+	if (state === undefined) return undefined;
+	cacheRenderState(toolCallId, state);
+	return state;
+}
+
+function operationStatus(
+	state: ApplyPatchRenderState | undefined,
+	index: number,
+): "pending" | "success" | "failed" {
+	if (state === undefined || state.status === "pending") return "pending";
+	if (state.status === "failed" || state.failedOperationIndices.has(index)) return "failed";
+	return "success";
+}
+
+function statusGlyph(status: "pending" | "success" | "failed"): string {
+	return status === "pending" ? "◐" : status === "success" ? "✓" : "✗";
+}
+
+function statusRole(status: "pending" | "success" | "failed"): string {
+	return status === "pending" ? "warning" : status === "success" ? "success" : "error";
+}
+
 function countContent(content: string): number {
 	return content.length === 0
 		? 0
@@ -49,42 +116,70 @@ function delta(added: number, removed: number): string {
 	return `+${added} -${removed}`;
 }
 
-function summary(operations: readonly V4aPatchOperation[]): string {
-	const total = operations.reduce(
-		(r, op) => {
-			const c = counts(op);
-			return { added: r.added + c.added, removed: r.removed + c.removed };
-		},
-		{ added: 0, removed: 0 },
-	);
+function branch(index: number, total: number): string {
+	return index === total - 1 ? "└─" : "├─";
+}
+
+function successCount(
+	operations: readonly V4aPatchOperation[],
+	state: ApplyPatchRenderState | undefined,
+): number {
+	if (state?.status === "success") return operations.length;
+	if (state?.status === "partial") return operations.length - state.failedOperationIndices.size;
+	return 0;
+}
+
+function operationLine(
+	operation: V4aPatchOperation,
+	index: number,
+	state: ApplyPatchRenderState | undefined,
+): string {
+	const c = counts(operation);
+	const status = operationStatus(state, index);
+	return `${statusGlyph(status)} ${verb(operation)} ${target(operation)} ${delta(c.added, c.removed)}`;
+}
+
+function summary(
+	operations: readonly V4aPatchOperation[],
+	state: ApplyPatchRenderState | undefined,
+): string {
+	if (operations.length === 0) return "";
 	if (operations.length === 1) {
-		const [op] = operations;
-		if (op === undefined) return "";
-		const c = counts(op);
-		return `${verb(op)} ${target(op)} ${delta(c.added, c.removed)}`;
+		const [operation] = operations;
+		if (operation === undefined) return "";
+		return operationLine(operation, 0, state);
 	}
+	const completed = successCount(operations, state);
+	const rootStatus =
+		state?.status === "success" ? "success" : state?.status === "failed" ? "failed" : "pending";
 	return [
-		`Edited ${operations.length} files ${delta(total.added, total.removed)}`,
-		...operations.map((op) => {
-			const c = counts(op);
-			return `  └ ${verb(op)} ${target(op)} ${delta(c.added, c.removed)}`;
-		}),
+		`${statusGlyph(rootStatus)} Edited ${operations.length} files (${completed}/${operations.length})`,
+		...operations.map(
+			(operation, index) =>
+				`${branch(index, operations.length)} ${operationLine(operation, index, state)}`,
+		),
 	].join("\n");
 }
 
-function expanded(operations: readonly V4aPatchOperation[]): string {
+function expanded(
+	operations: readonly V4aPatchOperation[],
+	state: ApplyPatchRenderState | undefined,
+): string {
 	const lines: string[] = [];
 	for (const [index, op] of operations.entries()) {
 		if (index > 0) lines.push("");
-		const c = counts(op);
-		lines.push(`${verb(op)} ${target(op)} ${delta(c.added, c.removed)}`);
+		lines.push(
+			operations.length === 1
+				? operationLine(op, index, state)
+				: `${branch(index, operations.length)} ${operationLine(op, index, state)}`,
+		);
 		if (op.kind === "add")
 			for (const line of op.content.split(/(?<=\n)/))
-				if (line) lines.push(`+ ${line.replace(/\n$/, "")}`);
+				if (line) lines.push(`    + ${line.replace(/\n$/, "")}`);
 		if (op.kind === "update") {
 			for (const hunk of op.hunks) {
-				if (hunk.anchor) lines.push(`@@${hunk.anchor}`);
-				for (const line of hunk.lines) lines.push(formatUpdateLine(line));
+				if (hunk.anchor) lines.push(`    @@${hunk.anchor}`);
+				for (const line of hunk.lines) lines.push(`    ${formatUpdateLine(line)}`);
 			}
 		}
 	}
@@ -145,11 +240,37 @@ function streaming(text: string): string {
 	}
 	if (actions.length === 0) return "Patching";
 	return actions
-		.map(
-			(action) =>
-				`${action.kind === "add" ? "Created" : action.kind === "delete" ? "Deleted" : "Edited"} ${action.move ? `${action.path} → ${action.move}` : action.path} ${delta(action.added, action.removed)}`,
-		)
+		.map((action, index) => {
+			const line = `${statusGlyph("pending")} ${action.kind === "add" ? "Created" : action.kind === "delete" ? "Deleted" : "Edited"} ${action.move ? `${action.path} → ${action.move}` : action.path} ${delta(action.added, action.removed)}`;
+			return actions.length === 1 ? line : `${branch(index, actions.length)} ${line}`;
+		})
 		.join("\n");
+}
+
+function colorStatusLine(line: string, theme: ApplyPatchTheme): string {
+	let rest = line;
+	let tree = "";
+	if (rest.startsWith("├─ ") || rest.startsWith("└─ ")) {
+		tree = rest.slice(0, 3);
+		rest = rest.slice(3);
+	}
+	const glyph = rest.slice(0, 1);
+	if (glyph !== "✓" && glyph !== "✗" && glyph !== "◐") return theme.fg("dim", line);
+	if (rest[1] !== " ") return theme.fg("dim", line);
+	rest = rest.slice(2);
+	const status = glyph === "✓" ? "success" : glyph === "✗" ? "failed" : "pending";
+	const actionWithDelta = rest.match(/^(Created|Deleted|Edited|Changed)(.*?)( \+\d+ -\d+)$/);
+	const actionOnly = rest.match(/^(Created|Deleted|Edited|Changed)(.*)$/);
+	const action = actionWithDelta?.[1] ?? actionOnly?.[1];
+	const label = actionWithDelta?.[2] ?? actionOnly?.[2];
+	const deltaText = actionWithDelta?.[3];
+	if (action === undefined || label === undefined) return theme.fg("dim", line);
+	const actionRole = action === "Created" ? "success" : action === "Deleted" ? "error" : "accent";
+	const coloredDelta =
+		deltaText === undefined
+			? ""
+			: ` ${theme.fg("success", deltaText.trim().split(" ")[0] ?? "")} ${theme.fg("error", deltaText.trim().split(" ")[1] ?? "")}`;
+	return `${tree === "" ? "" : theme.fg("dim", tree)}${theme.fg(statusRole(status), glyph)} ${theme.fg(actionRole, action)}${theme.fg("dim", label)}${coloredDelta}`;
 }
 
 export function renderApplyPatchCall(
@@ -166,8 +287,11 @@ export function renderApplyPatchCall(
 	else {
 		try {
 			const operations = parseV4aPatch(patch).operations;
+			const state = renderState(context.toolCallId);
 			body =
-				context.expanded || context.showCollapsedDiff ? expanded(operations) : summary(operations);
+				context.expanded || context.showCollapsedDiff
+					? expanded(operations, state)
+					: summary(operations, state);
 		} catch {
 			body = "Patching";
 		}
@@ -176,17 +300,10 @@ export function renderApplyPatchCall(
 		.split("\n")
 		.map((line) => {
 			if (line === "Patching") return theme.fg("dim", line);
-			if (line.startsWith("+ ")) return theme.fg("success", line);
-			if (line.startsWith("- ")) return theme.fg("error", line);
-			const match = line.match(/^(Created|Deleted|Edited|Changed)(.*?)( \+\d+ -\d+)$/);
-			if (!match) return theme.fg("dim", line);
-			const [, action, label, deltaText] = match;
-			if (action === undefined || label === undefined || deltaText === undefined)
-				return theme.fg("dim", line);
-			const [added, removed] = deltaText.trim().split(" ");
-			if (added === undefined || removed === undefined) return theme.fg("dim", line);
-			const role = action === "Created" ? "success" : action === "Deleted" ? "error" : "accent";
-			return `${theme.fg(role, action)}${theme.fg("dim", label)} ${theme.fg("success", added)} ${theme.fg("error", removed)}`;
+			if (/^\s+\+ /.test(line)) return theme.fg("success", line);
+			if (/^\s+- /.test(line)) return theme.fg("error", line);
+			if (/^\s+@@/.test(line)) return theme.fg("dim", line);
+			return colorStatusLine(line, theme);
 		})
 		.join("\n");
 	return new Text(`${theme.fg("toolTitle", theme.bold("apply_patch"))}\n\n${colored}`, 0, 0);
