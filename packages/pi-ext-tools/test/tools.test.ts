@@ -42,7 +42,16 @@ describe("pi-ext-tools catalog", () => {
 		const host = harness();
 		registerTools(host.pi);
 		const names = host.tools.map((tool) => tool.name);
-		expect(names).toEqual(["read", "grep", "find", "edit", "write", "bash", "apply_patch"]);
+		expect(names).toEqual([
+			"read",
+			"grep",
+			"find",
+			"edit",
+			"write",
+			"bash",
+			"bash_job",
+			"apply_patch",
+		]);
 		expect(names.filter((name) => name === "apply_patch")).toHaveLength(1);
 		expect(() => registerTools(host.pi)).toThrow("Loadout tool id already registered: read");
 	});

@@ -18,9 +18,10 @@ Independent extensions:
 | --- | --- | --- |
 | [`pi-settings`](../../packages/pi-settings/README.md) | `/ext-settings` host for registered provider and extension pages | Pi host, `pi-ext-core` |
 | [`pi-loadout`](../../packages/pi-loadout/README.md) | Tool and skill activation policy plus its Settings page | Pi host, `pi-ext-core`, `pi-settings` |
-| [`pi-t2s`](../../packages/pi-t2s/README.md) | Traditional-to-simplified Chinese input transformation | Pi host, `pi-ext-core` |
+| [`pi-ext-addon`](../../packages/pi-ext-addon/README.md) | Pi host addons; current feature is assistant/thinking local selection | Pi host, `pi-ext-core`, HEPI Pi `0.83.0` bridge |
 | [`pi-ponytail`](../../packages/pi-ponytail/README.md) | Ponytail engineering minimalism mode and companion skills | Pi host, `pi-ext-core` |
 | [`pi-caveman`](../../packages/pi-caveman/README.md) | Caveman concise communication mode | Pi host, `pi-ext-core` |
+| [`pi-t2s`](../../packages/pi-t2s/README.md) | Traditional-to-simplified Chinese input transformation | Pi host, `pi-ext-core` |
 
 `pi-ponytail` 与 `pi-caveman` 各自拥有一个 Pi 扩展入口、命令、会话状态、
 设置提供者和提示词注入逻辑。Ponytail 的五个辅助 skill 随该软件包发布；

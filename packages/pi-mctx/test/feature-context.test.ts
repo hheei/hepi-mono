@@ -321,9 +321,9 @@ test("smart drops queue an old visible tool result and project its recovery mark
 					return { partition, tags: historyTags };
 				},
 				queueHistoryTagDrops: (partition, tagNumbers) => {
-					for (const tag of historyTags) {
+					for (const [index, tag] of historyTags.entries()) {
 						if (tagNumbers.includes(tag.tagNumber) && tag.status === "active")
-							tag.status = "pending";
+							historyTags[index] = { ...tag, status: "pending" };
 					}
 					return {
 						partition: { ...partition, revision: partition.revision + 1 },
@@ -332,9 +332,9 @@ test("smart drops queue an old visible tool result and project its recovery mark
 					};
 				},
 				markHistoryTagsDropped: (partition, tagNumbers) => {
-					for (const tag of historyTags) {
+					for (const [index, tag] of historyTags.entries()) {
 						if (tagNumbers.includes(tag.tagNumber) && tag.status === "pending")
-							tag.status = "dropped";
+							historyTags[index] = { ...tag, status: "dropped" };
 					}
 					return { ...partition, revision: partition.revision + 1 };
 				},
@@ -866,7 +866,8 @@ test("context hook rethrows store read failures when blocking is enabled", async
 
 test("context hook passes Pi-native messages through and warns per failure epoch when disabled", async (): Promise<void> => {
 	const notifications: Array<{ readonly message: string; readonly level: string | undefined }> = [];
-	let failing = true;
+	const failureState = { value: true };
+	const shouldFail = (): boolean => failureState.value;
 	const lifecycle = {
 		pi: { events: {} },
 		extension: {
@@ -885,7 +886,7 @@ test("context hook passes Pi-native messages through and warns per failure epoch
 		openStore: () => ({
 			...store(),
 			syncHistoryTags: () => {
-				if (failing) throw new Error("database is unavailable");
+				if (shouldFail()) throw new Error("database is unavailable");
 				return {
 					partition: { projectIdentity: "git:project", sessionId: "session-1", revision: 0 },
 					tags: [],
@@ -910,9 +911,9 @@ test("context hook passes Pi-native messages through and warns per failure epoch
 		},
 	]);
 	// A successful projection re-arms the next failure epoch.
-	failing = false;
+	failureState.value = false;
 	expect(feature.onContext(raw, context)).toBeDefined();
-	failing = true;
+	failureState.value = true;
 	expect(feature.onContext(raw, context)).toBeUndefined();
 	expect(notifications).toHaveLength(2);
 });
@@ -920,7 +921,8 @@ test("context hook passes Pi-native messages through and warns per failure epoch
 test("parent projection exposes verified compartments and only the live tail", async (): Promise<void> => {
 	const branch = [...entries, entry("tail", "user", "live tail")];
 	const installedDestinations = new Set<string>();
-	let reserveFailure = false;
+	const reservationState = { failed: false };
+	const shouldFailReservation = (): boolean => reservationState.failed;
 	const lifecycle = {
 		pi: { events: {} },
 		extension: {
@@ -938,7 +940,7 @@ test("parent projection exposes verified compartments and only the live tail", a
 			...store(),
 			isHandoffInstalled: (_parent, destination) => installedDestinations.has(destination),
 			reserveHandoffInstallation: (_parent, destination) => {
-				if (reserveFailure) throw new Error("database unavailable");
+				if (shouldFailReservation()) throw new Error("database unavailable");
 				if (installedDestinations.has(destination)) return undefined;
 				installedDestinations.add(destination);
 				return { bindingId: `test-${destination}`, ownerToken: `owner-${destination}` };
@@ -1036,7 +1038,7 @@ test("parent projection exposes verified compartments and only the live tail", a
 			new AbortController().signal,
 		);
 
-	reserveFailure = true;
+	reservationState.failed = true;
 	const markFailure = await feature.prepare({
 		purpose: "handoff",
 		signal: new AbortController().signal,
@@ -1057,7 +1059,7 @@ test("parent projection exposes verified compartments and only the live tail", a
 		).rejects.toThrow("database unavailable");
 	expect(injected).toHaveLength(2);
 
-	reserveFailure = false;
+	reservationState.failed = false;
 	const appendFailure = await feature.prepare({
 		purpose: "handoff",
 		signal: new AbortController().signal,
@@ -2125,7 +2127,9 @@ test("dreamer evaluates smart-condition notes and reports without mutating them"
 	expect(capturedPrompt).toContain("when the CI is red");
 	expect(capturedPrompt).not.toContain("Plain note without a condition.");
 	// The evaluation never touches note state.
-	const notes = feature.active()?.store.readNotes("git:project", "session-1", "active") ?? [];
+	const active = feature.active();
+	if (active === undefined) throw new Error("Expected active MCTX feature");
+	const notes = active.store.readNotes("git:project", "session-1", "active");
 	expect(notes.some((note) => note.noteId === 1 && note.status === "active")).toBe(true);
 });
 

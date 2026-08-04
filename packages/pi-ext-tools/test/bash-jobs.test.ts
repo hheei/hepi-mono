@@ -1,5 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
-import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+	ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import { createArtifactRegistry } from "@hheei/pi-ext-core";
 import { registerBashJobTool } from "../src/bash-job-tool.js";
 import { BashJobRegistry, MAX_JOB_OUTPUT } from "../src/bash-jobs.js";
@@ -42,7 +46,10 @@ test("publishes completed output as an artifact without triggering a turn", asyn
 	const registry = new BashJobRegistry({
 		artifacts,
 		pi: {
-			sendMessage(message, options): void {
+			sendMessage(
+				message: Parameters<ExtensionAPI["sendMessage"]>[0],
+				options?: Parameters<ExtensionAPI["sendMessage"]>[1],
+			): void {
 				messages.push({ message, options });
 			},
 		} as unknown as ExtensionAPI,
@@ -98,6 +105,12 @@ test("bash_job reports unavailable before session start", async (): Promise<void
 		additionalProperties: false,
 		required: ["action", "id"],
 	});
-	const result = await tool.execute("bash-job-1", { action: "status", id: "missing" });
+	const result = await tool.execute(
+		"bash-job-1",
+		{ action: "status", id: "missing" },
+		undefined,
+		undefined,
+		{} as ExtensionContext,
+	);
 	expect(result.content).toEqual([{ type: "text", text: "No active Bash job session" }]);
 });

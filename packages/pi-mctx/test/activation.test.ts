@@ -59,6 +59,7 @@ function runtime(options: { readonly found?: boolean; readonly authenticated?: b
 				add: (_id: string, cleanup: () => void | Promise<void>) => cleanups.push(cleanup),
 				cleanup: async () => [],
 			},
+			artifacts: {} as ExtensionLifecycleContext["artifacts"],
 		} as ExtensionLifecycleContext,
 		controller,
 		cleanups,

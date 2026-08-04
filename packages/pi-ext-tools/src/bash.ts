@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import type { AgentToolResult, AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
+import type { AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import {
 	type BashToolDetails,
 	createBashToolDefinition,
@@ -7,16 +7,11 @@ import {
 	type ExtensionContext,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import {
-	getToolResultLayout,
-	openTuiSurface,
-	registerManagedLoadoutTool,
-} from "@hheei/pi-ext-core";
+import { openTuiSurface, registerManagedLoadoutTool } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import { BashPtySurface, type BashPtySurfaceResult } from "./bash-pty-surface.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import { PtySession } from "./native-bridge.js";
-import { SelectableBashResult } from "./selectable-bash-result.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 const BASH_DESCRIPTION =
@@ -145,42 +140,12 @@ async function runPty(
 /** Pi original definition remains default execution; async is extension-owned and session-scoped. */
 export function registerBashTool(pi: ExtensionAPI, state?: FffRuntimeState): void {
 	const template = createBashToolDefinition(process.cwd());
-	const components = new WeakMap<object, SelectableBashResult>();
-	const upstreamComponents = new WeakMap<object, import("@earendil-works/pi-tui").Component>();
 	const tool = {
 		...template,
 		description: BASH_DESCRIPTION,
 		promptSnippet: BASH_PROMPT_SNIPPET,
 		promptGuidelines: [...(template.promptGuidelines ?? []), ...BASH_PROMPT_GUIDELINES],
 		parameters: BashInput,
-		renderResult: (
-			r: AgentToolResult<BashToolDetails | undefined>,
-			options: Parameters<NonNullable<typeof template.renderResult>>[1],
-			theme: Parameters<NonNullable<typeof template.renderResult>>[2],
-			context: Parameters<NonNullable<typeof template.renderResult>>[3],
-		) => {
-			const previous = upstreamComponents.get(context.state);
-			const upstream = template.renderResult?.(r, options, theme, {
-				...context,
-				lastComponent: previous,
-			});
-			if (upstream === undefined) throw new Error("Pi bash renderer unavailable");
-			upstreamComponents.set(context.state, upstream);
-			const layout = getToolResultLayout(context);
-			if (!options.expanded || layout === undefined) {
-				components.get(context.state)?.dispose();
-				return upstream;
-			}
-			const component = components.get(context.state) ?? new SelectableBashResult();
-			components.set(context.state, component);
-			const output = r.content
-				.filter((part) => part.type === "text")
-				.map((part) => ("text" in part ? part.text : ""))
-				.join("\n")
-				.trim();
-			component.set(upstream, output, theme, layout);
-			return component;
-		},
 		async execute(
 			id: string,
 			params: Input,

@@ -13,6 +13,7 @@ import {
 	registerManagedLoadoutTool,
 	registerManagedTool,
 } from "@hheei/pi-ext-core";
+import { Type } from "typebox";
 import { replayTui, viewFrame } from "../../hepi-debug/src/tui-replay.js";
 import { type AgentDetail, createAgentDetail } from "../../pi-subagents/src/agent-detail.js";
 import type { AgentConfig } from "../../pi-subagents/src/types.js";
@@ -62,11 +63,13 @@ function setup(): {
 		{
 			name: "read",
 			description: "Read a file from the current workspace.",
+			parameters: Type.Object({}),
 			sourceInfo: { source: "builtin", scope: "user", origin: "top-level", path: "builtin" },
 		},
 		{
 			name: "project_check",
 			description: "Run the project-local check.",
+			parameters: Type.Object({}),
 			sourceInfo: {
 				source: "extension",
 				scope: "project",
@@ -120,6 +123,7 @@ describe("Loadout Settings page", () => {
 		h.tools.push({
 			name: "ctx_reduce",
 			description: "Reduce MCTX history.",
+			parameters: Type.Object({}),
 			sourceInfo: { source: "extension", scope: "user", origin: "top-level", path: "mctx" },
 		});
 		registerManagedTool(h.pi, { id: "ctx_reduce", owner: "@hheei/pi-mctx" }, {

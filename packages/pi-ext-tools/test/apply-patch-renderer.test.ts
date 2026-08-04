@@ -1,5 +1,10 @@
-import { describe, expect, test } from "bun:test";
-import { renderApplyPatchCall } from "../src/apply-patch/renderer.js";
+import { afterEach, describe, expect, test } from "bun:test";
+import {
+	clearApplyPatchRenderStates,
+	finishApplyPatchRenderState,
+	renderApplyPatchCall,
+	setApplyPatchRenderState,
+} from "../src/apply-patch/renderer.js";
 import { createApplyPatchTool } from "../src/apply-patch-tool.js";
 
 const theme = {
@@ -11,15 +16,31 @@ function output(patch: string, context: Record<string, unknown> = {}): string {
 	return renderApplyPatchCall({ patch }, theme, context).render(200).join("\n");
 }
 
+afterEach(() => clearApplyPatchRenderStates());
+
 describe("apply_patch call renderer", () => {
 	test("summarizes create, edit, delete, and move without filesystem reads", () => {
 		const text = output(
 			"*** Begin Patch\n*** Add File: new.txt\n+one\n+two\n*** Update File: old.txt\n*** Move to: moved.txt\n-old\n+new\n*** Delete File: gone.txt\n*** End Patch",
 		);
-		expect(text).toContain("Edited 3 files +3 -1");
-		expect(text).toContain("Created new.txt +2 -0");
-		expect(text).toContain("Edited old.txt → moved.txt +1 -1");
-		expect(text).toContain("Deleted gone.txt +0 -0");
+		expect(text).toContain("◐ Edited 3 files (0/3)");
+		expect(text).toContain("├─ ◐ Created new.txt +2 -0");
+		expect(text).toContain("├─ ◐ Edited old.txt → moved.txt +1 -1");
+		expect(text).toContain("└─ ◐ Deleted gone.txt +0 -0");
+	});
+
+	test("updates each action with success and failure status", () => {
+		const patch =
+			"*** Begin Patch\n" +
+			"*** Add File: created.txt\n+created\n" +
+			"*** Add File: rejected.txt\n+rejected\n" +
+			"*** End Patch";
+		setApplyPatchRenderState("partial");
+		finishApplyPatchRenderState("partial", "partial", [1]);
+		const text = output(patch, { toolCallId: "partial" });
+		expect(text).toContain("◐ Edited 2 files (1/2)");
+		expect(text).toContain("├─ ✓ Created created.txt +1 -0");
+		expect(text).toContain("└─ ✗ Created rejected.txt +1 -0");
 	});
 
 	test("expanded mode includes action lines and deltas", () => {
@@ -43,7 +64,7 @@ describe("apply_patch call renderer", () => {
 		expect(output("not a patch")).toContain("Patching");
 	});
 
-	test("result renderer shows hepi status summary without native Pi diff", () => {
+	test("result renderer does not duplicate the call body", () => {
 		const renderResult = createApplyPatchTool().renderResult;
 		if (renderResult === undefined) throw new Error("apply_patch result renderer is missing");
 		const component = renderResult(
@@ -71,10 +92,6 @@ describe("apply_patch call renderer", () => {
 				state: undefined,
 			} as never,
 		);
-		const rendered = component.render(200).join("\n");
-		expect(rendered).toContain("Status: Partial");
-		expect(rendered).toContain("Fuzzy matching: used");
-		expect(rendered).not.toContain("--- a/kept.txt");
-		expect(rendered).not.toContain("-1 old");
+		expect(component.render(200).join("\n")).toBe("");
 	});
 });
