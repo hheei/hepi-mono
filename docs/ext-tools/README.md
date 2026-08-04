@@ -89,6 +89,17 @@ shell backend，也不保留 session-scoped native Shell。
 
 PTY、stdin 回写、terminal resize 与后台 job 是独立 feature，不能由 `bash` tool 隐式 fallback 提供。
 
+### Extension-owned async Bash
+
+`bash` 可显式接受 `async: true`。此路径不是 Pi host Bash 的 fallback：`pi-ext-tools` 创建
+session-scoped background job，并立即返回 opaque job id。`bash_job` 以
+`{ action: "status" | "logs" | "stop", id }` 查询、读取 bounded in-memory log tail 或终止同一
+session 的 job。session shutdown/reload 终止所有仍活跃的 job；job 和日志均不跨 session 持久化，也
+不写 artifact file。
+
+async job 使用 `pi-ext-tools` 自己的 shell-path setting，而不是读取 Pi host 的 private shell setting；
+默认 shell 由平台环境决定。`async` 与未来的 `pty` 参数互斥。普通不带 `async` 的调用仍完整委托 Pi host。
+
 ## Tool Ownership
 
 - `pi-ext-tools` 是 catalog 中每个名称的唯一 Canonical tool owner，负责 upstream parameter compatibility、

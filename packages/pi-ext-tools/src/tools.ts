@@ -8,6 +8,7 @@ import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
 import type { TSchema } from "typebox";
 import { registerApplyPatchTool } from "./apply-patch-tool.js";
 import { registerBashTool } from "./bash.js";
+import { registerBashJobTool } from "./bash-job-tool.js";
 import { createFffRuntimeState, type FffRuntimeState } from "./fff/lifecycle.js";
 import { registerFindTool } from "./find.js";
 import { registerGrepTool } from "./grep.js";
@@ -59,6 +60,7 @@ export function registerTools(
 	registerFindTool(pi, state);
 	registerCanonicalTool(pi, createEditToolDefinition, ["apply_patch"]);
 	registerCanonicalTool(pi, createWriteToolDefinition, ["apply_patch"]);
-	registerBashTool(pi);
+	registerBashTool(pi, state);
+	registerBashJobTool(pi, state);
 	registerApplyPatchTool(pi);
 }
