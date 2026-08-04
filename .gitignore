@@ -1,6 +1,7 @@
 node_modules/
 dist/
 packages/pi-ext-tools/native/*.node
+packages/pi-ext-tools/native/*.d.ts
 coverage/
 target/
 *.log

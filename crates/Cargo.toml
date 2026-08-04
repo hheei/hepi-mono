@@ -1,5 +1,13 @@
 [workspace]
-members = ["pi-ext-bridge", "vendor/crates/pi-*", "vendor/crates/vendor/*"]
+members = [
+    "pi-ext-bridge",
+    "vendor/crates/pi-shell",
+    "vendor/crates/pi-uu-diff",
+    "vendor/crates/pi-uu-grep",
+    "vendor/crates/pi-uutils-ctx",
+    "vendor/crates/pi-walker",
+    "vendor/crates/vendor/*",
+]
 resolver = "3"
 
 [workspace.package]
@@ -19,18 +27,9 @@ opt-level = 3
 lto = "fat"
 codegen-units = 1
 strip = true
-# Unwind (not abort) so panics inside vendored code and native tasks stay
-# recoverable at the appropriate boundary: the uutils boundary
-# (pi-shell coreutils) turns a panic into a failed command, and the
-# `task::blocking` wrapper in `crates/pi-natives/src/task.rs` catches unwinds
-# inside `Blocking::compute` before they cross napi-rs's async-work
-# `extern "C"` callback (napi `src/async_work.rs:109`) so they surface as
-# rejected JS Promises instead of forced process aborts under Rust's C-unwind
-# rules (RFC 2945, stable since 1.81). napi-rs does NOT install its own
-# per-call `catch_unwind` on the `Task`/`AsyncTask` path; the tokio-future
-# path (`env.spawn_future`) is guarded upstream. Recoverable uutils panics
-# are kept out of the crash report by the crash hook
-# (see crates/pi-natives/src/crash_handler.rs).
+# Unwind so `pi-shell` can catch a panic in a vendored uutils builtin at its
+# command boundary and return an ordinary command failure instead of ending
+# the Pi host process before `run_caught` can recover it.
 panic = "unwind"
 
 [profile.ci]
@@ -172,12 +171,9 @@ too_many_lines = "allow"     # Arbitrary limits don't account for necessary comp
 [workspace.dependencies]
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Internal Libraries
+# Retained Internal Libraries
 # ──────────────────────────────────────────────────────────────────────────────
-pi-ast = { path = "vendor/crates/pi-ast" }
-pi-iso = { path = "vendor/crates/pi-iso" }
 pi-shell = { path = "vendor/crates/pi-shell" }
-pi-voice = { path = "vendor/crates/pi-voice" }
 pi-walker = { path = "vendor/crates/pi-walker" }
 brush-core = { path = "vendor/crates/vendor/brush-core" }
 brush-builtins = { path = "vendor/crates/vendor/brush-builtins" }

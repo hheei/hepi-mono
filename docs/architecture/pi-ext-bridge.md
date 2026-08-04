@@ -53,8 +53,9 @@ Shell 是 Brush-based Bash 风格解释器，不是系统 `/bin/bash` 的字节�
 - Repository: `https://github.com/can1357/oh-my-pi`
 - Revision: `01c1f91ff529c6af3fc27724a8ba429d83d41aed`
 - Source root: `crates/vendor/`
-- Upstream workspace metadata 保留在 `crates/Cargo.toml`；workspace members 已重定位到 vendored paths。
-- 更新 upstream 后必须运行 `cargo metadata --manifest-path crates/Cargo.toml`、bridge tests 和目标平台 build，并检查 NOTICE/license 变化。
+- `scripts/update-omp.mjs` 通过 `cargo metadata` 计算并复制 `pi-shell` 的 transitive closure；未被 bridge 引用的 upstream crates 不随 vendor 保留。
+- Upstream workspace metadata 保留在 `crates/Cargo.toml`；它是唯一 Rust workspace，members 已重定位到 retained vendored paths。
+- 更新 upstream 后必须运行 `cargo metadata --manifest-path crates/Cargo.toml`、重新计算 bridge closure、bridge tests 和目标平台 build，并检查 NOTICE/license 变化。
 
 ## 发布边界
 
