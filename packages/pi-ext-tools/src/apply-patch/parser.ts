@@ -68,7 +68,6 @@ export function parseV4aPatch(input: string): V4aPatch {
 
 	let index = 1;
 	const operations: V4aPatchOperation[] = [];
-	const touched = new Set<string>();
 	let sawEnd = false;
 
 	while (index < lines.length) {
@@ -85,7 +84,6 @@ export function parseV4aPatch(input: string): V4aPatch {
 
 		if (header.kind === "add") {
 			const result = parseAdd(lines, index + 1, header.path);
-			assertFreshPath(touched, header.path);
 			operations.push(result.operation);
 			index = result.nextIndex;
 			continue;
@@ -95,15 +93,12 @@ export function parseV4aPatch(input: string): V4aPatch {
 			const nextIndex = index + 1;
 			if (nextIndex < lines.length && !isHeaderOrEnd(lines[nextIndex]?.text ?? ""))
 				throw parseError("Delete actions cannot contain body lines");
-			assertFreshPath(touched, header.path);
 			operations.push(Object.freeze({ kind: "delete", path: header.path }));
 			index = nextIndex;
 			continue;
 		}
 
 		const result = parseUpdate(lines, index + 1, header.path);
-		assertFreshPath(touched, header.path);
-		if (result.operation.moveTo !== undefined) assertFreshPath(touched, result.operation.moveTo);
 		operations.push(result.operation);
 		index = result.nextIndex;
 	}
@@ -112,7 +107,23 @@ export function parseV4aPatch(input: string): V4aPatch {
 	if (index !== lines.length) throw parseError("content after End Patch envelope");
 	if (operations.length === 0) throw parseError("patch contains no actions");
 
-	return Object.freeze({ operations: Object.freeze(operations) });
+	const patch = Object.freeze({ operations: Object.freeze(operations) });
+	validateV4aPatch(patch);
+	return patch;
+}
+
+/**
+ * Checks operation graph conflicts after syntax parsing and before filesystem
+ * validation. Keeping this separate lets future syntax relaxation merge safe
+ * same-file updates without weakening add/delete/move collision checks.
+ */
+function validateV4aPatch(patch: V4aPatch): void {
+	const touched = new Set<string>();
+	for (const operation of patch.operations) {
+		assertFreshPath(touched, operation.path);
+		if (operation.kind === "update" && operation.moveTo !== undefined)
+			assertFreshPath(touched, operation.moveTo);
+	}
 }
 
 export function compileV4aUpdateToUnifiedDiff(operation: V4aUpdateOperation): string {

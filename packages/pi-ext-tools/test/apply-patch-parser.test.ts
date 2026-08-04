@@ -52,6 +52,14 @@ describe("V4A patch parser", () => {
 		).toThrow();
 		expect(() =>
 			parseV4aPatch(
+				"*** Begin Patch\n*** Update File: x\n-a\n+b\n*** Update File: x\n-b\n+c\n*** End Patch",
+			),
+		).toThrow("path touched more than once: x");
+		expect(() =>
+			parseV4aPatch("*** Begin Patch\n*** Update File: x\n*** Move to: x\n-a\n+b\n*** End Patch"),
+		).toThrow("path touched more than once: x");
+		expect(() =>
+			parseV4aPatch(
 				"*** Begin Patch\n*** Update File: x\n*** Move to: y\n-a\n+b\n*** Add File: y\n+v\n*** End Patch",
 			),
 		).toThrow();
