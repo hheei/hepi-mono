@@ -135,6 +135,35 @@ describe("pi-ext-tools catalog", () => {
 		}
 	});
 
+	test("uses pi-fff grep and find display formatting", (): void => {
+		const host = harness();
+		registerTools(host.pi);
+		const theme = {
+			fg: (_role: string, text: string): string => text,
+			bold: (text: string): string => text,
+		};
+		const grep = host.tools.find((candidate) => candidate.name === "grep");
+		const find = host.tools.find((candidate) => candidate.name === "find");
+		if (grep === undefined || find === undefined) throw new Error("Missing search tool");
+
+		expect(
+			grep
+				.renderCall?.({ pattern: "needle", path: "src", timeout: 5 }, theme, {
+					lastComponent: undefined,
+				})
+				.render(200)
+				.join("\n")
+				.trimEnd(),
+		).toBe("grep /needle/ in src (timeout 5s)");
+		expect(
+			find
+				.renderCall?.({ pattern: "status-surface", limit: 8 }, theme, { lastComponent: undefined })
+				.render(200)
+				.join("\n")
+				.trimEnd(),
+		).toBe("find status-surface (limit 8)");
+	});
+
 	test("executes read with the call context cwd instead of extension construction cwd", async (): Promise<void> => {
 		const cwd = await temporaryDirectory();
 		await writeFile(join(cwd, "value.txt"), "canonical\n", "utf8");
