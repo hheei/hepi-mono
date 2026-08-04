@@ -134,6 +134,24 @@ describe("staged apply-patch executor", () => {
 		expect(await load(root, "second.txt")).toBe("second\n");
 	});
 
+	test("rejects path conflicts before touching the workspace", async () => {
+		const root = await temporaryDirectory();
+		await save(root, "value.txt", "before\n");
+
+		await expect(
+			applyPatchInWorkspace({
+				workspaceRoot: root,
+				policy: noFuzzy,
+				patch:
+					"*** Begin Patch\n" +
+					"*** Update File: value.txt\n-before\n+first\n" +
+					"*** Update File: value.txt\n-before\n+second\n" +
+					"*** End Patch",
+			}),
+		).rejects.toThrow("path touched more than once: value.txt");
+		expect(await load(root, "value.txt")).toBe("before\n");
+	});
+
 	test("stale baseline conflict leaves staged output uncommitted", async () => {
 		const root = await temporaryDirectory();
 		await save(root, "first.txt", "first\n");
