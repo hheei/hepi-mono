@@ -91,11 +91,18 @@ PTY、stdin 回写、terminal resize 与后台 job 是独立 feature，不能由
 
 ### Extension-owned async Bash
 
-`bash` 可显式接受 `async: true`。此路径不是 Pi host Bash 的 fallback：`pi-ext-tools` 创建
-session-scoped background job，并立即返回 opaque job id。`bash_job` 以
-`{ action: "status" | "logs" | "stop", id }` 查询、读取 bounded in-memory log tail 或终止同一
-session 的 job。session shutdown/reload 终止所有仍活跃的 job；job 和日志均不跨 session 持久化，也
-不写 artifact file。
+`bash` 可显式接受 `async: true`。当前路径不是 Pi host Bash 的 fallback：`pi-ext-tools` 创建
+session-scoped background job，并立即返回 opaque job id。已确认的后续设计是：任务进入终态后，extension
+通过 Pi host 的 custom message 主动把 job id、终态、截断标记和有限 tail 放入当前 session；消息持久化并显示，
+但不触发新的 agent turn，使主 session 无需轮询即可查看完成结果而不产生非请求的模型工作。
+
+完整 stdout/stderr 合并流将保存为 session-owned artifact，并仅以 artifact URI 交给 `read`；届时 `bash_job`
+不再返回 log 文本，只返回状态和 artifact URI。artifact 与 job 同属一个 session：session shutdown/reload 会终止
+活跃任务并删除 artifact，绝不跨 session 持久化。tail 仍有固定字节上限，完整日志不受内存上限限制。
+
+此设计依赖 Pi host 先提供公开的 session-scoped artifact writer；该 writer 创建真实 `artifact://` URI，并由
+Pi host 的 `read` 解析。`pi-ext-tools` 在该 public contract 落地前不能实现此行为：extension 不得伪造 URI，
+也不得把普通临时文件宣称为 host artifact。
 
 async job 使用 `pi-ext-tools` 自己的 shell-path setting，而不是读取 Pi host 的 private shell setting；
 默认 shell 由平台环境决定。`async` 与未来的 `pty` 参数互斥。普通不带 `async` 的调用仍完整委托 Pi host。
