@@ -1,19 +1,25 @@
-import { readFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
 import type { AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import {
-	type BashToolDetails,
 	createBashToolDefinition,
 	type ExtensionAPI,
 	type ExtensionContext,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { openTuiSurface, registerManagedLoadoutTool } from "@hheei/pi-ext-core";
+import type { ArtifactRegistry } from "@hheei/pi-ext-core";
+import {
+	createArtifactRegistry,
+	openTuiSurface,
+	registerManagedLoadoutTool,
+} from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
+import { BashOutputSink } from "./bash-output.js";
 import { BashPtySurface, type BashPtySurfaceResult } from "./bash-pty-surface.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import { PtySession } from "./native-bridge.js";
 
 const OWNER = "@hheei/pi-ext-tools";
+const fallbackArtifacts = createArtifactRegistry();
 const BASH_DESCRIPTION = "Run one shell command or short pipeline.";
 const BASH_PROMPT_SNIPPET = "Run one shell command or short pipeline.";
 const BASH_PROMPT_GUIDELINES = [
@@ -54,6 +60,58 @@ function result(text: string, details: Record<string, unknown> = {}): BashToolRe
 	return { content: [{ type: "text" as const, text }], details };
 }
 
+async function runForeground(
+	command: string,
+	context: ExtensionContext,
+	signal: AbortSignal | undefined,
+	onUpdate: AgentToolUpdateCallback<unknown> | undefined,
+	shellPath: string,
+	timeoutSeconds: number | undefined,
+	tailBytes: number,
+	artifacts: ArtifactRegistry,
+): Promise<BashToolResult> {
+	const sink = new BashOutputSink({ artifacts, tailBytes });
+	const child = spawn(
+		shellPath,
+		process.platform === "win32" ? ["/d", "/s", "/c", command] : ["-c", command],
+		{ cwd: context.cwd, stdio: ["ignore", "pipe", "pipe"] },
+	);
+	let timedOut = false;
+	const terminate = (): void => {
+		child.kill();
+	};
+	signal?.addEventListener("abort", terminate, { once: true });
+	const timeout =
+		timeoutSeconds === undefined || timeoutSeconds <= 0
+			? undefined
+			: setTimeout(() => {
+					timedOut = true;
+					terminate();
+				}, timeoutSeconds * 1000);
+	const update = (data: Buffer): void => {
+		sink.push(data);
+		const output = sink.snapshot();
+		onUpdate?.({ content: [{ type: "text", text: output.output }], details: output });
+	};
+	child.stdout?.on("data", update);
+	child.stderr?.on("data", update);
+	const exitCode = await new Promise<number | null>((resolve, reject) => {
+		child.once("error", reject);
+		child.once("close", resolve);
+	});
+	clearTimeout(timeout);
+	signal?.removeEventListener("abort", terminate);
+	const output = sink.finish();
+	return result(
+		`${output.output}${output.truncated && output.artifactUri ? `\n\n[Output truncated. Read ${output.artifactUri} for full output.]` : ""}`,
+		{
+			...output,
+			...(timedOut ? { timedOut: true } : {}),
+			...(exitCode === 0 ? {} : { exitCode }),
+		},
+	);
+}
+
 async function runPty(
 	pi: ExtensionAPI,
 	command: string,
@@ -61,12 +119,15 @@ async function runPty(
 	signal: AbortSignal | undefined,
 	shellPath: string | undefined,
 	timeoutSeconds: number | undefined,
+	tailBytes: number,
+	artifacts: ArtifactRegistry,
 ): Promise<BashToolResult> {
 	if (context.mode !== "tui" || process.env.PI_NO_PTY === "1")
 		return result("PTY Bash requires an interactive TUI with PTY enabled", {
 			error: "pty_unavailable",
 		});
 	const controller = new AbortController();
+	const sink = new BashOutputSink({ artifacts, tailBytes });
 	const abort = (): void => controller.abort(signal?.reason);
 	signal?.addEventListener("abort", abort, { once: true });
 	let timeout: NodeJS.Timeout | undefined;
@@ -96,6 +157,7 @@ async function runPty(
 					try {
 						for (;;) {
 							const chunk = await session.read();
+							sink.push(chunk.output);
 							component.append(chunk.output, decoder);
 							requestRender();
 							if (chunk.eof) break;
@@ -113,14 +175,16 @@ async function runPty(
 		});
 		if (surface.status === "aborted") return result("PTY Bash aborted", { error: "aborted" });
 		const outcome: BashPtySurfaceResult = surface.value;
+		const output = sink.finish();
 		return result(
-			outcome.output,
+			`${output.output}${output.truncated && output.artifactUri ? `\n\n[Output truncated. Read ${output.artifactUri} for full output.]` : ""}`,
 			outcome.status === "completed"
 				? {
+						...output,
 						code: outcome.exit.code,
 						...(outcome.exit.signal === undefined ? {} : { signal: outcome.exit.signal }),
 					}
-				: { error: "aborted" },
+				: { ...output, error: "aborted" },
 		);
 	} catch (error) {
 		return result(
@@ -144,7 +208,7 @@ export function registerBashTool(pi: ExtensionAPI, state?: FffRuntimeState): voi
 		promptGuidelines: BASH_PROMPT_GUIDELINES,
 		parameters: BashInput,
 		async execute(
-			id: string,
+			_id: string,
 			params: Input,
 			signal: AbortSignal | undefined,
 			onUpdate: AgentToolUpdateCallback<unknown> | undefined,
@@ -158,6 +222,8 @@ export function registerBashTool(pi: ExtensionAPI, state?: FffRuntimeState): voi
 					signal,
 					state?.getSettings().shellPath,
 					params.timeout,
+					(state?.getSettings().bashOutputTailKiB ?? 10) * 1024,
+					state?.getArtifacts() ?? fallbackArtifacts,
 				);
 			if ("async" in params && params.async === true) {
 				const jobs = state?.getBashJobs();
@@ -180,46 +246,16 @@ export function registerBashTool(pi: ExtensionAPI, state?: FffRuntimeState): voi
 					);
 				}
 			}
-			const originalParams = {
-				command: params.command,
-				...(params.timeout === undefined ? {} : { timeout: params.timeout }),
-			};
-			const safeUpdate: AgentToolUpdateCallback<BashToolDetails | undefined> | undefined =
-				onUpdate === undefined
-					? undefined
-					: (partial) => {
-							const details = partial.details;
-							if (details?.fullOutputPath === undefined) {
-								onUpdate(partial);
-								return;
-							}
-							const { fullOutputPath: _path, ...safeDetails } = details;
-							onUpdate({ ...partial, details: safeDetails });
-						};
-			const hostResult = await createBashToolDefinition(context.cwd).execute(
-				id,
-				originalParams,
-				signal,
-				safeUpdate,
+			return runForeground(
+				params.command,
 				context,
+				signal,
+				onUpdate,
+				state?.getSettings().shellPath ?? process.env.SHELL ?? "/bin/sh",
+				params.timeout,
+				(state?.getSettings().bashOutputTailKiB ?? 10) * 1024,
+				state?.getArtifacts() ?? fallbackArtifacts,
 			);
-			const details = hostResult.details as BashToolDetails | undefined;
-			const fullOutputPath = details?.fullOutputPath;
-			if (details?.truncation?.truncated && fullOutputPath !== undefined) {
-				const artifacts = state?.getArtifacts();
-				if (artifacts !== undefined) {
-					const uri = artifacts.create(await readFile(fullOutputPath, "utf8"));
-					const text = hostResult.content
-						.map((part) => (part.type === "text" ? part.text.replaceAll(fullOutputPath, uri) : ""))
-						.join("\n");
-					const { fullOutputPath: _path, ...safeDetails } = details;
-					return {
-						content: [{ type: "text", text }],
-						details: { ...safeDetails, outputArtifact: uri },
-					};
-				}
-			}
-			return hostResult;
 		},
 	} as unknown as ToolDefinition<typeof BashInput, unknown, unknown>;
 	registerManagedLoadoutTool(

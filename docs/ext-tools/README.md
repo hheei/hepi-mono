@@ -86,9 +86,15 @@ extension 也保留兼容 guard：当前 active tools 不含 `apply_patch` 时�
 
 ## Bash backend
 
-`bash` 复用 Pi host 原始 `createBashToolDefinition()` execution、参数 schema、streaming、abort、
-truncation、错误语义与 renderer。`pi-ext-tools` 仅为 expanded output 增加 local text selection；不替换
-shell backend，也不保留 session-scoped native Shell。
+`bash` 保留 Pi-compatible `{ command, timeout }` 参数，但执行、streaming、timeout、输出截断与 artifact
+均由 `pi-ext-tools` 管理；它不复用 Pi host `createBashToolDefinition()`。这是为了避免 Pi host 的
+`pi-bash-*.log` 与 extension artifact 重复持有同一份完整输出，也绝不把 host 临时路径传给模型或 TUI。
+
+`pi-ext-tools` 的 `BashOutputSink` 是 foreground、async 与 PTY 的唯一输出策略 owner。它默认保留最后
+10 KiB 的 UTF-8-safe 可见 tail；foreground 与 PTY 仅在输出超过该限制时创建并持续写入 `artifact://N`，
+async 在启动时预留 artifact。所有终态 tool result 只携带 tail、截断 metadata 和 opaque artifact URI。
+settings 属于 concrete extension：`pi-ext-tools` 的 Bash settings 配置该 visible-tail 上限；ext-core 仅持有
+进程范围 artifact resource，不拥有输出大小、截断或 shell policy。
 
 PTY、stdin 回写、terminal resize 与后台 job 是独立 feature，不能由 `bash` tool 隐式 fallback 提供。
 
