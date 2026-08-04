@@ -23,7 +23,7 @@
 		]
 	},
 	"scripts": {
-		"build:native": "bun ../../scripts/build-native.mjs",
+		"build:native": "bun ../../scripts/build-rust.mjs",
 		"build": "bunx tsc -p tsconfig.build.json",
 		"prepack": "bun run build"
 	},
