@@ -257,9 +257,9 @@ existing semantic token expresses the role.
 - Active, inactive, failed, and stale snapshots keep the upstream title and
   use a compact `Status:` diagnostic when no active detail exists. Every line
   fits available width and lower-priority values truncate inside their cells.
-- Footer reads `Press Escape to close`; Enter and Ctrl+C remain accepted by the
-  host component but are not additional panel content. It has no page-router
-  navigation or editing focus.
+- Footer reads the compact dim key hint `⎋ close`; Enter and Ctrl+C remain
+  accepted by the host component but are not additional panel content. It has
+  no page-router navigation or editing focus.
 - Refresh once per second only after surface admission. Refresh must not cause
   content to rebuild lifecycle state; changing values stay in their existing
   row order and truncate within their cells.
