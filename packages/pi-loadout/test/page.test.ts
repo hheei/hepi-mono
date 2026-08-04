@@ -8,8 +8,10 @@ import {
 	type ExtensionPageViewContext,
 	type LoadoutResourceDetailContext,
 	type PiSettingsPaths,
+	registerLoadoutInventory,
 	registerLoadoutResource,
 	registerManagedLoadoutTool,
+	registerManagedTool,
 } from "@hheei/pi-ext-core";
 import { replayTui, viewFrame } from "../../hepi-debug/src/tui-replay.js";
 import { type AgentDetail, createAgentDetail } from "../../pi-subagents/src/agent-detail.js";
@@ -51,31 +53,32 @@ function setup(): {
 	readonly notifications: Array<{ readonly message: string; readonly type: string | undefined }>;
 	readonly closes: { value: number };
 	readonly editors: Array<{ readonly title: string; readonly prefill: string | undefined }>;
+	readonly tools: ToolInfo[];
 } {
 	const notifications: Array<{ readonly message: string; readonly type: string | undefined }> = [];
 	const closes = { value: 0 };
 	const editors: Array<{ readonly title: string; readonly prefill: string | undefined }> = [];
+	const tools: ToolInfo[] = [
+		{
+			name: "read",
+			description: "Read a file from the current workspace.",
+			sourceInfo: { source: "builtin", scope: "user", origin: "top-level", path: "builtin" },
+		},
+		{
+			name: "project_check",
+			description: "Run the project-local check.",
+			sourceInfo: {
+				source: "extension",
+				scope: "project",
+				origin: "top-level",
+				path: "project",
+			},
+		},
+	];
 	const pi = {
 		events: {},
 		registerTool: () => undefined,
-		getAllTools: () =>
-			[
-				{
-					name: "read",
-					description: "Read a file from the current workspace.",
-					sourceInfo: { source: "builtin", scope: "user", origin: "top-level", path: "builtin" },
-				},
-				{
-					name: "project_check",
-					description: "Run the project-local check.",
-					sourceInfo: {
-						source: "extension",
-						scope: "project",
-						origin: "top-level",
-						path: "project",
-					},
-				},
-			] as ToolInfo[],
+		getAllTools: () => tools,
 		getCommands: () => [
 			{
 				name: "skill:review",
@@ -108,10 +111,44 @@ function setup(): {
 			closes.value++;
 		},
 	} as ExtensionPageViewContext;
-	return { pi, context, notifications, closes, editors };
+	return { pi, context, notifications, closes, editors, tools };
 }
 
 describe("Loadout Settings page", () => {
+	test("hides unpublished managed tools and keeps published forced tools read-only", async () => {
+		const h = setup();
+		h.tools.push({
+			name: "ctx_reduce",
+			description: "Reduce MCTX history.",
+			sourceInfo: { source: "extension", scope: "user", origin: "top-level", path: "mctx" },
+		});
+		registerManagedTool(h.pi, { id: "ctx_reduce", owner: "@hheei/pi-mctx" }, {
+			name: "ctx_reduce",
+		} as never);
+		const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
+		expect(page.component.render(100).join("\n")).not.toContain("ctx_reduce");
+		const cleanups: Array<() => void | Promise<void>> = [];
+		const resources = {
+			add(_key: string, cleanup: () => void | Promise<void>): void {
+				cleanups.push(cleanup);
+			},
+		};
+		registerLoadoutInventory({ pi: h.pi, resources } as never, {
+			id: "ctx_reduce",
+			group: "Magic Context",
+			priority: 0,
+			conflictSets: [],
+			defaultActive: true,
+			forcedActive: true,
+		});
+		expect(page.component.render(100).join("\n")).toContain("ctx_reduce");
+		await page.handleInput("\u001b[B");
+		expect(page.component.render(100).join("\n")).toContain("Status: ● Forced active");
+		await page.handleInput(" ");
+		expect(page.component.render(100).join("\n")).toContain("Status: ● Forced active");
+		for (const cleanup of cleanups) await cleanup();
+	});
+
 	test("renders one selected-resource Description block and hides project-private rows globally", async () => {
 		const h = setup();
 		const page = createLoadoutPage(h.pi, fakeEngine(), h.context);

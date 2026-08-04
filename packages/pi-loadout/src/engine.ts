@@ -3,6 +3,7 @@ import {
 	clearDisabledSkillKeys,
 	clearLoadoutToolActivation,
 	defaultPiSettingsPaths,
+	isManagedLoadoutTool,
 	type LoadoutInventoryItem,
 	type LoadoutResourceMetadata,
 	type LoadoutToolMetadata,
@@ -85,6 +86,7 @@ export function loadoutToolPolicies(
 			priority: declaration?.priority ?? Number.MAX_SAFE_INTEGER,
 			conflictSets: declaration?.conflictSets ?? [],
 			conflictsWith: declaration?.conflictsWith ?? [],
+			...(declaration?.forcedActive === true ? { forcedActive: true } : {}),
 		};
 	});
 }
@@ -105,15 +107,23 @@ export function createLoadoutEngine(
 		const toolMetadata = metadata.filter(
 			(item): item is LoadoutToolMetadata => !isResourceMetadata(item),
 		);
+		const visibleTools = tools.filter(
+			(tool) =>
+				!isManagedLoadoutTool(pi, tool.name) ||
+				toolMetadata.some((metadata) => metadata.id === tool.name),
+		);
 		const resources = metadata.filter(isResourceMetadata);
-		const policies = loadoutToolPolicies(tools, new Set(initialActive), toolMetadata);
-		const policyNames = new Set(policies.map((tool) => tool.name));
-		const preserved = initialActive.filter((name) => !policyNames.has(name));
+		const policies = loadoutToolPolicies(visibleTools, new Set(initialActive), toolMetadata);
+		const visiblePolicyNames = new Set(policies.map((tool) => tool.name));
+		const preserved = initialActive.filter(
+			(name) => !visiblePolicyNames.has(name) && !isManagedLoadoutTool(pi, name),
+		);
 		const selected = resolveActiveToolNames(policies, resolvedConfiguration);
 		pi.setActiveTools([...new Set([...preserved, ...selected])]);
 		const activeResources = resources
 			.filter(
 				(resource) =>
+					resource.forcedActive ||
 					resolveLoadoutState(resource.id, resource.defaultActive, resolvedConfiguration).enabled,
 			)
 			.map((resource) => resource.id);

@@ -5,6 +5,7 @@ import {
 	clearDisabledSkillKeys,
 	clearLoadoutToolActivation,
 	getDisabledSkillKeys,
+	isManagedLoadoutTool,
 	isSkillEnabled,
 	observeLoadoutHost,
 	observeLoadoutInventory,
@@ -14,6 +15,7 @@ import {
 	registerLoadoutInventory,
 	registerLoadoutResource,
 	registerManagedLoadoutTool,
+	registerManagedTool,
 	setDisabledSkillKeys,
 } from "../src/index.js";
 
@@ -56,6 +58,26 @@ describe("Loadout core contract", () => {
 		dispose();
 		dispose();
 		expect(states).toEqual([false, true, false]);
+		controller.abort();
+	});
+
+	test("keeps static managed tools out of inventory until their lifecycle publishes them", async () => {
+		const h = host();
+		const controller = new AbortController();
+		const snapshots: string[][] = [];
+		observeLoadoutInventory(h.pi, {
+			signal: controller.signal,
+			onChange(items) {
+				snapshots.push(items.map((item) => item.id));
+			},
+		});
+		registerManagedTool(h.pi, metadata("ctx_reduce"), { name: "ctx_reduce" } as never);
+		expect(isManagedLoadoutTool(h.pi, "ctx_reduce")).toBe(true);
+		expect(snapshots).toEqual([[]]);
+		const resources = createDisposerRegistry();
+		registerLoadoutInventory({ pi: h.pi, resources } as never, metadata("ctx_reduce"));
+		expect(snapshots).toEqual([[], ["ctx_reduce"]]);
+		await resources.cleanup();
 		controller.abort();
 	});
 

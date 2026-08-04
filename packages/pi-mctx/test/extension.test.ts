@@ -56,11 +56,8 @@ test("pi-mctx entry registers lifecycle handlers and managed Magic Context tools
 	expect(complete?.("a")?.map((item) => item.value)).toEqual(["aug"]);
 	expect(complete?.("aug ")).toBeNull();
 	expect(complete?.("missing")).toBeNull();
-	expect(inventories.at(-1)).toEqual([
-		"ctx_expand:Magic Context",
-		"ctx_history:Magic Context",
-		"ctx_reduce:Magic Context",
-	]);
+	// MCTX tools have static Pi definitions but only publish inventory after runtime admission.
+	expect(inventories.at(-1)).toEqual([]);
 	controller.abort();
 });
 

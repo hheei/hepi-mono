@@ -90,6 +90,7 @@ async function createHost(
 		readonly manager?: SessionManager;
 		readonly invalidHistorian?: boolean;
 		readonly includeHandoff?: boolean;
+		readonly runtimeEnabled?: boolean;
 	} = {},
 ): Promise<HostFixture> {
 	const agentDir = options.agentDir ?? mkdtempSync(join(tmpdir(), "pi-mctx-host-agent-"));
@@ -99,7 +100,7 @@ async function createHost(
 		join(agentDir, "settings.json"),
 		JSON.stringify({
 			"pi-mctx": {
-				enabled: true,
+				enabled: options.runtimeEnabled ?? true,
 				historian: { enabled: true, model: "faux/faux-1" },
 				execute_threshold_percentage: 20,
 				execute_threshold_tokens: { default: 5_000 },
@@ -109,7 +110,7 @@ async function createHost(
 	const previousAgentDir = process.env[PI_AGENT_DIR_ENV];
 	process.env[PI_AGENT_DIR_ENV] = agentDir;
 	const configuration = await loadMctxConfiguration(defaultMctxSettingsPaths(cwd, agentDir));
-	if (configuration.pipeline.kind !== "enabled") {
+	if ((options.runtimeEnabled ?? true) && configuration.pipeline.kind !== "enabled") {
 		throw new Error(`Fixture MCTX config did not activate: ${JSON.stringify(configuration)}`);
 	}
 	const faux = registerFauxProvider({
@@ -242,6 +243,13 @@ test("real Pi host transforms context and retains it across reload", async (): P
 				?.getAllRegisteredTools()
 				.some((tool) => tool.definition.name === "ctx_history"),
 		);
+		assert.deepEqual(
+			host.session.extensionRunner
+				?.getActiveTools()
+				.filter((name) => ["ctx_reduce", "ctx_expand", "ctx_history"].includes(name))
+				.sort(),
+			["ctx_expand", "ctx_history", "ctx_reduce"],
+		);
 		// Memory-system tools are parked behind the disabled registration hook.
 		assert.ok(
 			!host.session.extensionRunner
@@ -262,6 +270,20 @@ test("real Pi host transforms context and retains it across reload", async (): P
 		await host.session.reload();
 		await host.session.prompt("Render the summary after reload.");
 		await waitFor(() => containsSummary(host.contexts.slice(-4)));
+	} finally {
+		await host.dispose();
+	}
+});
+
+test("real Pi host keeps MCTX tools out of the active set when runtime is disabled", async (): Promise<void> => {
+	const host = await createHost({ runtimeEnabled: false });
+	try {
+		assert.deepEqual(
+			host.session.extensionRunner
+				?.getActiveTools()
+				.filter((name) => ["ctx_reduce", "ctx_expand", "ctx_history"].includes(name)),
+			[],
+		);
 	} finally {
 		await host.dispose();
 	}
@@ -324,6 +346,8 @@ test("real Pi host hands off through selected MCTX projection without native com
 		await host.session.prompt("Keep another newer parent turn raw.");
 		await host.session.prompt(LARGE_PROMPT);
 		await waitFor(() => host.contexts.some(isHistorianContext));
+		await host.session.prompt("Render the already summarized context before handoff.");
+		await waitFor(() => containsSummary(host.contexts));
 
 		const contextsBeforeHandoff = host.contexts.length;
 		await host.session.prompt("/handoff");
