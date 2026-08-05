@@ -1,11 +1,13 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_CONFIG } from "../extensions/config/config.js";
 import { buildConfigEditingTabs } from "../extensions/config/config-editing-model.js";
 import {
 	buildRetainReceiptStatusFacts,
+	createHindsightHubComponent,
 	createSetupComponent,
 	runHindsightSetupTui,
 } from "../extensions/tui/setup-tui.js";
@@ -35,6 +37,29 @@ describe("setup TUI receipt facts", () => {
 		]);
 	});
 
+	it("renders a compact narrow-safe hub without advanced settings", () => {
+		const actions: Array<string | null> = [];
+		const component = createHindsightHubComponent(
+			[
+				["Status", "connected"],
+				["Bank", "coding"],
+				["Queue", "0"],
+				["Ignored", "not shown"],
+			],
+			theme,
+			(action) => actions.push(action),
+		);
+
+		for (const width of [48, 100]) {
+			const rendered = component.render(width);
+			expect(rendered).toHaveLength(10);
+			expect(rendered.every((line) => visibleWidth(line) <= width)).toBe(true);
+			expect(rendered.join("\n")).not.toContain("advanced");
+		}
+		component.handleInput?.("f");
+		expect(actions).toEqual(["flush-queue"]);
+	});
+
 	it("shows empty receipt state", () => {
 		expect(buildRetainReceiptStatusFacts([])).toEqual([["Retain receipts", "none"]]);
 	});
@@ -61,7 +86,6 @@ describe("setup TUI receipt facts", () => {
 		// Footer is width-truncated; assert the full hub help string and visible prefix.
 		expect(HUB_ACTION_HELP).toContain("f flush");
 		expect(HUB_ACTION_HELP).toContain("t templates");
-		expect(HUB_ACTION_HELP).toContain("a advanced");
 		expect(HUB_ACTION_HELP.indexOf("f flush")).toBeLessThan(HUB_ACTION_HELP.indexOf("t templates"));
 		expect(rendered).toContain("g guided");
 		expect(rendered).toContain("m mode");
@@ -83,6 +107,60 @@ describe("setup TUI receipt facts", () => {
 			{ showAdvanced: true },
 		);
 		expect(advanced.map((tab) => tab.id)).toContain("Banks");
+	});
+
+	it("opens the hub through the ext-core surface and closes it", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "pi-hindsight-surface-"));
+		const controller = new AbortController();
+		let customCalls = 0;
+		let customOptions: unknown;
+		const ctx = {
+			cwd,
+			mode: "tui",
+			sessionManager: { getSessionFile: () => undefined },
+			ui: {
+				notify: vi.fn(),
+				select: vi.fn(),
+				custom: <T>(
+					factory: (
+						tui: { requestRender(): void },
+						colors: typeof theme,
+						keybindings: unknown,
+						done: (value: T) => void,
+					) => { handleInput?(input: string): void },
+					options?: unknown,
+				): Promise<T> => {
+					customCalls++;
+					customOptions = options;
+					return new Promise((resolve) => {
+						const component = factory({ requestRender: () => undefined }, theme, {}, resolve);
+						component.handleInput?.("q");
+					});
+				},
+			},
+		};
+		const pi = { events: {} };
+		mkdirSync(join(cwd, ".pi"));
+		writeFileSync(
+			join(cwd, ".pi", "settings.json"),
+			JSON.stringify({ "pi-hindsight": { setupComplete: true } }),
+		);
+
+		await runHindsightSetupTui(
+			ctx as never,
+			{
+				getClient: () => ({ retain: vi.fn(), recall: vi.fn(), reflect: vi.fn() }),
+				getConfig: () => DEFAULT_CONFIG,
+				getProjectBankId: () => "project-bank",
+			} as never,
+			{ pi: pi as never, signal: controller.signal },
+		);
+
+		expect(customCalls).toBe(1);
+		expect(customOptions).toMatchObject({
+			overlay: true,
+			overlayOptions: { width: 78, maxHeight: "80%", anchor: "center", margin: 1 },
+		});
 	});
 
 	it("writes durable ignore-repo config from no-config prompt", async () => {

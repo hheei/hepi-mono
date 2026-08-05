@@ -6,7 +6,7 @@ Older path-bank installs remain readable through legacy `repo:` tags. Use `hinds
 
 ## Resolution order
 
-1. **Pin** — `scope.projectId` in `.pi/hindsight.json` or global config
+1. **Pin** — `scope.projectId` in `.pi/settings.json["pi-hindsight"]` or global config
 2. **Git remote** — normalized `origin` URL (default strategy)
 3. **Basename** — git root folder name (fallback, or when `scope.projectIdStrategy` is `"basename"`)
 
@@ -59,19 +59,23 @@ When dual-tag can end: every active project memory you care about carries `proje
 ## Config
 
 ```jsonc
-// ~/.pi/agent/hindsight.json
+// ~/.pi/agent/settings.json
 {
-  "setupComplete": true,
-  "scope": { "mode": "domain-tagged", "projectIdStrategy": "remote" },
-  "banks": {
-    "project": { "enabled": true, "bankId": "kai-coding", "derive": "manual" },
-    "user": { "enabled": true, "bankId": "kai-life" }
+  "pi-hindsight": {
+    "setupComplete": true,
+    "scope": { "mode": "domain-tagged", "projectIdStrategy": "remote" },
+    "banks": {
+      "project": { "enabled": true, "bankId": "kai-coding", "derive": "manual" },
+      "user": { "enabled": true, "bankId": "kai-life" }
+    }
   }
 }
 
-// .pi/hindsight.json
+// .pi/settings.json
 {
-  "scope": { "projectId": "finalform" }
+  "pi-hindsight": {
+    "scope": { "projectId": "finalform" }
+  }
 }
 ```
 

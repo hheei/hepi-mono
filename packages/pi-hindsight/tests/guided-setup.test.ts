@@ -2,8 +2,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { resolveProjectIdentity } from "../extensions/banks/banking.js";
 import { expectedStarterMentalModelIds } from "../extensions/banks/bank-templates.js";
+import { resolveProjectIdentity } from "../extensions/banks/banking.js";
 import { DEFAULT_CONFIG } from "../extensions/config/config-defaults.js";
 import {
 	buildGuidedSetupGlobalPatch,
@@ -57,15 +57,23 @@ describe("guided setup", () => {
 		expect(hasProjectHindsightConfig(cwd)).toBe(false);
 	});
 
-	it("detects the project settings file", () => {
+	it("detects only a non-empty Hindsight settings section", () => {
 		const jsonCwd = mkdtempSync(join(tmpdir(), "pi-hindsight-guided-json-"));
+		const configuredCwd = mkdtempSync(join(tmpdir(), "pi-hindsight-guided-configured-"));
 		const legacyCwd = mkdtempSync(join(tmpdir(), "pi-hindsight-guided-legacy-"));
 		mkdirSync(join(jsonCwd, ".pi"));
+		mkdirSync(join(configuredCwd, ".pi"));
 		mkdirSync(join(legacyCwd, ".pi"));
 		writeFileSync(join(jsonCwd, ".pi", "settings.json"), "{}", { flag: "wx" });
+		writeFileSync(
+			join(configuredCwd, ".pi", "settings.json"),
+			JSON.stringify({ "pi-hindsight": { setupComplete: true } }),
+			{ flag: "wx" },
+		);
 		writeFileSync(join(legacyCwd, ".pi", "hindsight.json"), "{}", { flag: "wx" });
 
-		expect(hasProjectHindsightConfig(jsonCwd)).toBe(true);
+		expect(hasProjectHindsightConfig(jsonCwd)).toBe(false);
+		expect(hasProjectHindsightConfig(configuredCwd)).toBe(true);
 		expect(hasProjectHindsightConfig(legacyCwd)).toBe(false);
 	});
 

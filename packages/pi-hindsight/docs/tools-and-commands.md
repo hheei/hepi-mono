@@ -21,7 +21,7 @@ Pi Hindsight is **TUI-first**. Public slash commands:
 | `x` | Next-opt-out: skip automatic retain for the next agent run            |
 | `f` | Flush retain queue                                                    |
 | `o` | Doctor diagnostics report (includes status tones)                     |
-| `n` | Write `.pi/hindsight.json` with the selected project bank             |
+| `n` | Write `.pi/settings.json` `pi-hindsight` section with the selected project bank |
 | `d` | Deployment / connection helpers                                       |
 | `i` | Historical import (dry-run first)                                     |
 | `t` | Apply starter bank template / mental-model set (dry-run first)        |

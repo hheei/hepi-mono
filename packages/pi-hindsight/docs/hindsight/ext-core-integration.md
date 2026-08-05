@@ -9,7 +9,8 @@
 - Pi host：派发 `session_start`、`context`、`agent_end` 与 `session_shutdown`。
 - ext-core：以 `@hheei/pi-hindsight` 为稳定 key 串行 lifecycle，提供 abort signal 和 cleanup registry。
 - pi-hindsight：创建 memory lifecycle；仅在当前 lifecycle signal 未 abort 时处理 recall、retain 与命令。
-- Hindsight settings：作为 ext-core provider 注册；写入用户级 `~/.pi/agent/hindsight.json`。项目级 bank、API secret、导入配置不进入 settings host。
+- Hindsight settings：作为 ext-core provider 注册；写入用户级 `~/.pi/agent/settings.json["pi-hindsight"]`。项目级 bank、API secret、导入配置不进入 settings host。共享 `.pi/settings.json` 只有存在非空 `pi-hindsight` section 才算本 extension 已配置。
+- Hindsight hub：`/hindsight` 通过 ext-core `openTuiSurface()` 打开居中紧凑 popup（78 列优先、窄终端收缩）；ext-core 负责跨 extension 排队、session abort、overlay focus 与释放，pi-hindsight 负责状态内容与动作。动作先关闭 popup，再打开 Pi host 原生 prompt 或执行工作；高级日常配置继续使用 agent tools，不在 popup 展开 field farm。
 
 ## 流程
 
@@ -17,6 +18,7 @@
 Pi host session_start -> ext-core start -> hindsight initialize
 Pi host context       -> active signal guard -> hindsight recall
 Pi host agent_end     -> active signal guard -> hindsight retain
+Pi host /hindsight    -> ext-core surface queue -> hindsight hub
 Pi host shutdown      -> ext-core abort -> hindsight shutdown/queue flush
 ```
 

@@ -62,7 +62,7 @@ Path-hash `repo:` remains only for **legacy detection / migration**, not new wri
 
 ### 3. Where does a per-repo pin go? (review clarification)
 
-Per-repo `.pi/hindsight.json` fields such as `scope.projectId` **do not choose the life bank**. Routing:
+Per-repo `.pi/settings.json["pi-hindsight"]` fields such as `scope.projectId` **do not choose the life bank**. Routing:
 
 | Write path                        | Bank role                                     | Tags                                     |
 | --------------------------------- | --------------------------------------------- | ---------------------------------------- |

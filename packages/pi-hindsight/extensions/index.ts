@@ -11,7 +11,7 @@ export default function hindsightExtension(pi: ExtensionAPI): void {
 	const active = (): boolean => lifecycleSignal !== undefined && !lifecycleSignal.aborted;
 
 	registerTools(pi, lifecycle.deps);
-	registerCommands(pi, lifecycle.deps, active);
+	registerCommands(pi, lifecycle.deps, active, () => lifecycleSignal);
 
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-hindsight",
