@@ -42,4 +42,22 @@ describe("FFF grep formatting", () => {
 			"src/a.ts\n 9|before\n10:first\n11|after\n20:second\n\nsrc/b.ts\n3:third",
 		);
 	});
+
+	test("suppresses context for large results and summarizes a full page", () => {
+		const fullPage = buildGrepText([match("src/a.ts", 1, "one"), match("src/a.ts", 3, "three")], {
+			limit: 2,
+			requestedContext: 2,
+			includeCursorHint: false,
+		});
+		expect(fullPage.text).toBe("src/a.ts (2 matches)\nline: 1, 3, ...");
+
+		const many = Array.from({ length: 11 }, (_, index) => ({
+			...match("src/a.ts", index + 1, `line-${index + 1}`),
+			contextBefore: ["before"],
+			contextAfter: ["after"],
+		}));
+		expect(
+			buildGrepText(many, { limit: 100, requestedContext: 1, includeCursorHint: false }).text,
+		).not.toContain("|before");
+	});
 });

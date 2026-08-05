@@ -605,7 +605,7 @@ export class FffRuntime {
 				currentFile = item.relativePath;
 				lines.push(currentFile);
 			}
-			lines.push(` ${item.lineNumber}: ${cropMatchLine(item.lineContent, item.matchRanges).text}`);
+			lines.push(`${item.lineNumber}?${cropMatchLine(item.lineContent, item.matchRanges).text}`);
 		}
 		return lines.join("\n");
 	}
