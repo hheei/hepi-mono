@@ -27,14 +27,17 @@ const BASH_PROMPT_GUIDELINES = [
 	"Use `pty` only for interactive terminal programs such as `sudo` or `ssh`.",
 	"NEVER combine `pty` with `async`.",
 ] as const;
+const Timeout = Type.Optional(
+	Type.Number({ description: "Timeout in seconds (optional, no default timeout)" }),
+);
 const DefaultInput = Type.Object(
-	{ command: Type.String(), timeout: Type.Optional(Type.Number()) },
+	{ command: Type.String(), timeout: Timeout },
 	{ additionalProperties: false },
 );
 const AsyncInput = Type.Object(
 	{
 		command: Type.String(),
-		timeout: Type.Optional(Type.Number()),
+		timeout: Timeout,
 		async: Type.Literal(true),
 		pty: Type.Optional(Type.Literal(false)),
 	},
@@ -43,7 +46,7 @@ const AsyncInput = Type.Object(
 const PtyInput = Type.Object(
 	{
 		command: Type.String(),
-		timeout: Type.Optional(Type.Number()),
+		timeout: Timeout,
 		pty: Type.Literal(true),
 		async: Type.Optional(Type.Literal(false)),
 	},

@@ -1,8 +1,15 @@
+import type { AgentToolResult, GrepToolDetails } from "@earendil-works/pi-coding-agent";
+
 type GrepContent = { readonly type: "text"; readonly text: string };
+type NormalizedGrepDetails = GrepToolDetails & {
+	readonly format?: "fff-grep";
+	readonly totalMatched?: number;
+	readonly totalFiles?: number;
+};
 
 export type GrepResultLike = {
-	readonly content: readonly GrepContent[];
-	readonly details?: unknown;
+	readonly content: GrepContent[];
+	readonly details: NormalizedGrepDetails | undefined;
 };
 
 const NATIVE_MATCH_LINE = /^(.+?):(\d+): ?(.*)$/;
@@ -54,8 +61,14 @@ export function addGrepSummary(
 	return `Found ${totals.matches} matches in ${totals.files} files.\n\n${text}`;
 }
 
-export function normalizeNativeGrepResult(result: GrepResultLike): GrepResultLike {
-	const canonical = canonicalizeNativeText(resultText(result));
+export function normalizeNativeGrepResult(
+	result: AgentToolResult<GrepToolDetails | undefined>,
+): GrepResultLike {
+	const textResult: GrepResultLike = {
+		content: result.content.filter((part): part is GrepContent => part.type === "text"),
+		details: result.details,
+	};
+	const canonical = canonicalizeNativeText(resultText(textResult));
 	return {
 		content: [{ type: "text", text: addGrepSummary(canonical.text, canonical) }],
 		details: {

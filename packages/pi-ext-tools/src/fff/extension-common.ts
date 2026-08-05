@@ -61,11 +61,17 @@ export function buildGrepDetails(result?: GrepSearchResponse, error?: { message:
 		format: "fff-grep" as const,
 		totalMatched: result?.items.length ?? 0,
 		totalFiles: files.size,
-		truncation: result?.truncation,
-		matchLimitReached: result?.matchLimitReached,
+		...(result?.truncation === undefined ? {} : { truncation: result.truncation }),
+		...(result?.matchLimitReached === undefined
+			? {}
+			: { matchLimitReached: result.matchLimitReached }),
 		linesTruncated: result?.linesTruncated ?? false,
-		regexFallbackError: result?.regexFallbackError,
-		resolvedScope: result?.scope?.relativePath,
+		...(result?.regexFallbackError === undefined
+			? {}
+			: { regexFallbackError: result.regexFallbackError }),
+		...(result?.scope?.relativePath === undefined
+			? {}
+			: { resolvedScope: result.scope.relativePath }),
 		nextCursor: result?.nextCursor ?? null,
 		constraints: result?.constraintQuery ?? null,
 		suggestedReadPath: result?.suggestedReadPath ?? null,
