@@ -9,6 +9,7 @@ import { validModelRef } from "./model-ref.js";
 export const MCTX_SETTINGS_SECTION = "pi-mctx";
 export const DEFAULT_EXECUTE_THRESHOLD_PERCENTAGE = 65;
 export const DEFAULT_FAIL_CLOSED_BLOCKING = true;
+export const DEFAULT_CLEAR_REASONING_AGE = 50;
 export const DEFAULT_PROTECTED_TAGS = 20;
 export const DEFAULT_SMART_DROPS = false;
 
@@ -18,6 +19,8 @@ const MIN_EXECUTE_THRESHOLD_TOKENS = 5_000;
 const MAX_EXECUTE_THRESHOLD_TOKENS = 2_000_000;
 const MIN_PROTECTED_TAGS = 1;
 const MAX_PROTECTED_TAGS = 100;
+const MIN_CLEAR_REASONING_AGE = 1;
+const MAX_CLEAR_REASONING_AGE = 10_000;
 
 export interface MctxSettingsPaths {
 	/** Global settings are the base; project settings may only apply the documented overrides. */
@@ -53,6 +56,8 @@ export interface MctxPipelineSettings {
 	readonly executeThresholdPercentage: MctxThreshold;
 	readonly executeThresholdTokens?: MctxOptionalThreshold;
 	readonly protectedTags: number;
+	/** Number of newest tags that retain assistant reasoning. */
+	readonly clearReasoningAge: number;
 }
 
 /** User-owned optional primer path. Project settings cannot select local files to search. */
@@ -341,6 +346,25 @@ function resolvePipeline(
 	if (project.smart_drops !== undefined) {
 		warnings.push("Ignoring project smart_drops: only user config controls automatic reclaim");
 	}
+	const rawClearReasoningAge = global.clear_reasoning_age;
+	const clearReasoningAge =
+		rawClearReasoningAge === undefined ? DEFAULT_CLEAR_REASONING_AGE : rawClearReasoningAge;
+	if (
+		typeof clearReasoningAge !== "number" ||
+		!Number.isSafeInteger(clearReasoningAge) ||
+		clearReasoningAge < MIN_CLEAR_REASONING_AGE ||
+		clearReasoningAge > MAX_CLEAR_REASONING_AGE
+	) {
+		return {
+			kind: "invalid",
+			reason: "clear_reasoning_age must be an integer between 1 and 10000",
+		};
+	}
+	if (project.clear_reasoning_age !== undefined) {
+		warnings.push(
+			"Ignoring project clear_reasoning_age: only user config controls reasoning cleanup",
+		);
+	}
 	const temporalAwareness = global.temporal_awareness;
 	if (temporalAwareness !== undefined && typeof temporalAwareness !== "boolean")
 		return { kind: "invalid", reason: "temporal_awareness must be boolean" };
@@ -364,6 +388,7 @@ function resolvePipeline(
 			},
 			...(raisedTokens === undefined ? {} : { executeThresholdTokens: raisedTokens }),
 			protectedTags,
+			clearReasoningAge,
 		},
 	};
 }
