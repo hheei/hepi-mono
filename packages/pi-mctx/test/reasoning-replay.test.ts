@@ -42,6 +42,22 @@ test("execute clears old typed thinking and advances the watermark", (): void =>
 	expect(first.content[0]).not.toHaveProperty("thinkingSignature");
 });
 
+test("replays inline thinking cleanup from the watermark", (): void => {
+	const inline = {
+		...assistant,
+		content: [{ type: "text" as const, text: "<think>private</think> public" }],
+	};
+	const result = replayMctxReasoning({
+		messages: [inline],
+		entries: [{ ...entry, message: inline }],
+		tags: [tag],
+		watermark: 1,
+		clearReasoningAge: 50,
+		execute: false,
+	});
+	expect(result.messages[0]).toMatchObject({ content: [{ type: "text", text: "public" }] });
+});
+
 test("defer replays a persisted watermark without clearing redacted thinking", (): void => {
 	const redacted = {
 		...assistant,
