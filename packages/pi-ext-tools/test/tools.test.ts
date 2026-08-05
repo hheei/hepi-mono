@@ -272,7 +272,12 @@ describe("pi-ext-tools catalog", () => {
 			grep
 				.renderResult?.(
 					{
-						content: [{ type: "text", text: "src/a.ts:1,2,3,4,5,6 (6 matches)" }],
+						content: [
+							{
+								type: "text",
+								text: "src/\na.ts:1,2,3,4,5,6 (6 matches)\nb.ts:7 (1 matches)",
+							},
+						],
 						details: { format: "fff-grep" },
 					},
 					{},
@@ -283,7 +288,9 @@ describe("pi-ext-tools catalog", () => {
 				.map((line) => line.trimEnd())
 				.join("\n")
 				.trimEnd(),
-		).toBe("<dim>src/a.ts</dim><mdCode>:1,2,3,4,5, …</mdCode> (<success>6</success> matches)");
+		).toBe(
+			"<mdCode>src/</mdCode>\n<dim>a.ts</dim><mdCode>:1,2,3,4,5, …</mdCode> (<success>6</success> matches)\n<dim>b.ts</dim><mdCode>:7</mdCode> (<success>1</success> matches)",
+		);
 		expect(
 			find
 				.renderResult?.(

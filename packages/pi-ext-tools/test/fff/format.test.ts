@@ -86,6 +86,18 @@ describe("FFF grep formatting", () => {
 
 	test("suppresses context for large results and summarizes a full page", () => {
 		expect(
+			buildGrepText(
+				[
+					match("src/a.ts", 1, "one"),
+					match("other/only.ts", 2, "two"),
+					match("src/b.ts", 3, "three"),
+				],
+				{ limit: 3, requestedContext: 0, includeCursorHint: false, matchLimitReached: 3 },
+			).text,
+		).toBe(
+			"src/\na.ts:1 (1 matches)\nb.ts:3 (1 matches)\nother/only.ts:2 (1 matches)\n\n[3 matches shown. Refine the pattern or increase limit for more.]",
+		);
+		expect(
 			buildGrepText([match("src/a.ts", 1, "one"), match("src/a.ts", 3, "three")], {
 				limit: 2,
 				requestedContext: 2,

@@ -171,6 +171,8 @@ FFF `find` 结果按首次命中顺序聚合目录。一个目录出现至少两
 
 当 FFF `grep` 达到 page limit 时，原始 tool result 使用 `path:line,line (N matches)` 汇总，模型仍接收此完整文本。TUI 将 path 渲染为 `dim`、行号段渲染为 `mdCode`、计数渲染为 `success`；theme 不改变模型上下文。
 
+压缩 grep 汇总也按 parent dir 合并：同一目录至少两个匹配文件时输出 `dir/` 标题，文件行只保留 basename；根目录和单项目录继续输出完整 path。该原始结构同时发送给模型和 renderer。
+
 ## 验证与发布
 
 - 每个 catalog tool：upstream schema/execute compatibility、managed registration singleton、abort、streaming（如适用）

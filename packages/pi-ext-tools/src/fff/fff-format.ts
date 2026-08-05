@@ -158,9 +158,35 @@ function buildMatchSummaryLines(items: GrepMatch[]): string[] {
 	const groups = new Map<string, number[]>();
 	for (const item of items)
 		groups.set(item.relativePath, [...(groups.get(item.relativePath) ?? []), item.lineNumber]);
+	const directoryCounts = new Map<string, number>();
+	for (const path of groups.keys()) {
+		const separator = path.lastIndexOf("/");
+		if (separator <= 0) continue;
+		const directory = path.slice(0, separator);
+		directoryCounts.set(directory, (directoryCounts.get(directory) ?? 0) + 1);
+	}
 	const lines: string[] = [];
-	for (const [path, lineNumbers] of groups) {
-		lines.push(`${path}:${lineNumbers.join(",")} (${lineNumbers.length} matches)`);
+	const emittedDirectories = new Set<string>();
+	for (const path of groups.keys()) {
+		const separator = path.lastIndexOf("/");
+		const directory = separator > 0 ? path.slice(0, separator) : undefined;
+		const grouped = directory !== undefined && (directoryCounts.get(directory) ?? 0) >= 2;
+		if (grouped && emittedDirectories.has(directory)) continue;
+		if (grouped) {
+			emittedDirectories.add(directory);
+			lines.push(`${directory}/`);
+		}
+		for (const [candidatePath, candidateLineNumbers] of groups) {
+			const candidateSeparator = candidatePath.lastIndexOf("/");
+			const candidateDirectory =
+				candidateSeparator > 0 ? candidatePath.slice(0, candidateSeparator) : undefined;
+			if (grouped && candidateDirectory !== directory) continue;
+			if (!grouped && candidatePath !== path) continue;
+			const displayPath = grouped ? candidatePath.slice(candidateSeparator + 1) : candidatePath;
+			lines.push(
+				`${displayPath}:${candidateLineNumbers.join(",")} (${candidateLineNumbers.length} matches)`,
+			);
+		}
 	}
 	return lines;
 }
