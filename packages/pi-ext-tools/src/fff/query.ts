@@ -51,3 +51,66 @@ export function nativeFallbackPattern(pattern: string): string {
 	const words = pattern.trim().split(/\s+/).filter(Boolean);
 	return words.length === 0 ? "*" : `*${words.join("*")}*`;
 }
+
+function excludePatterns(exclude: string | readonly string[] | undefined): string[] {
+	const values = exclude === undefined ? [] : Array.isArray(exclude) ? exclude : [exclude];
+	return values
+		.flatMap((value) => value.split(/[\s,]+/))
+		.map((value) => value.trim().replace(/^!/, "").replace(/^\.\//, ""))
+		.filter((value) => value.length > 0);
+}
+
+function globExpression(pattern: string): RegExp {
+	let expression = "^";
+	for (let index = 0; index < pattern.length; index += 1) {
+		const character = pattern[index] ?? "";
+		if (character === "*") {
+			if (pattern[index + 1] === "*") {
+				index += 1;
+				if (pattern[index + 1] === "/") {
+					index += 1;
+					expression += "(?:.*/)?";
+				} else expression += ".*";
+			} else expression += "[^/]*";
+			continue;
+		}
+		if (character === "?") {
+			expression += "[^/]";
+			continue;
+		}
+		expression += character.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
+	}
+	return new RegExp(`${expression}$`);
+}
+
+export function isExcludedPath(
+	path: string,
+	exclude: string | readonly string[] | undefined,
+): boolean {
+	const normalized = path.replace(/\\/g, "/").replace(/^\.\//, "");
+	return excludePatterns(exclude).some((pattern) => {
+		if (pattern.endsWith("/")) return normalized.startsWith(pattern);
+		return globExpression(pattern).test(normalized);
+	});
+}
+
+export function filterNativeFindText(
+	text: string,
+	exclude: string | readonly string[] | undefined,
+): string {
+	if (exclude === undefined) return text;
+	const visible = text.split("\n").filter((line) => line && !isExcludedPath(line, exclude));
+	return visible.join("\n") || "No files found matching pattern";
+}
+
+export function filterNativeGrepText(
+	text: string,
+	exclude: string | readonly string[] | undefined,
+): string {
+	if (exclude === undefined) return text;
+	const visible = text.split("\n").filter((line) => {
+		const match = line.match(/^(.*?)(?::|-)(\d+)(?::|-)/);
+		return match === null || !isExcludedPath(match[1] ?? "", exclude);
+	});
+	return visible.join("\n") || "No matches found.";
+}

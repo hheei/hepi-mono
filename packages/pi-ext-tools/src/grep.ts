@@ -3,7 +3,12 @@ import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { buildGrepDetails } from "./fff/extension-common.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
-import { buildFffQuery, containsRegexSyntax, supportsFffPath } from "./fff/query.js";
+import {
+	buildFffQuery,
+	containsRegexSyntax,
+	filterNativeGrepText,
+	supportsFffPath,
+} from "./fff/query.js";
 import { addGrepSummary, normalizeNativeGrepResult } from "./grep-format.js";
 import { renderGrepCall, renderGrepResult } from "./search-renderer.js";
 
@@ -39,10 +44,6 @@ function nativeParams(params: {
 	context?: number;
 	limit?: number;
 } {
-	if (params.exclude !== undefined || params.cursor !== undefined)
-		throw new Error(
-			"FFF is unavailable; Pi native grep cannot preserve exclude or cursor semantics.",
-		);
 	const isRegex = containsRegexSyntax(params.pattern);
 	const smartCase =
 		params.caseSensitive !== true && params.pattern === params.pattern.toLowerCase();
@@ -92,16 +93,23 @@ export function registerGrepTool(pi: ExtensionAPI, state: FffRuntimeState): void
 			context: { cwd: string },
 		) {
 			if (signal?.aborted) throw new Error("Operation aborted");
-			const native = async () =>
-				normalizeNativeGrepResult(
-					await createGrepToolDefinition(context.cwd).execute(
-						id,
-						nativeParams(params),
-						signal,
-						onUpdate,
-						context as never,
-					),
+			const native = async () => {
+				const result = await createGrepToolDefinition(context.cwd).execute(
+					id,
+					nativeParams(params),
+					signal,
+					onUpdate,
+					context as never,
 				);
+				return normalizeNativeGrepResult({
+					...result,
+					content: result.content.map((part) =>
+						part.type === "text" && "text" in part
+							? { ...part, text: filterNativeGrepText(part.text, params.exclude) }
+							: part,
+					),
+				});
+			};
 			const runtime = state.getRuntime();
 			if (
 				!state.getSettings().grepEnhancement ||
