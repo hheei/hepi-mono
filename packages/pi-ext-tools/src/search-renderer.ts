@@ -216,7 +216,7 @@ export function renderGrepResult(
 			? theme.fg("error", content)
 			: summary === undefined
 				? renderedContent
-				: `${summary}\n\n${renderedContent}`,
+				: `\n${summary}\n\n${renderedContent.trimStart()}`,
 	);
 	return text;
 }
