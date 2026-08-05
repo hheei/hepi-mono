@@ -258,7 +258,10 @@ export function projectMctxHistoryTags(
 			if (tag.status === "pending" && projected.dropped) dropped.push(tag.tagNumber);
 			continue;
 		}
-		const projected = taggedContent(message.content, tag);
+		const projected = taggedContent(
+			message.role === "user" && typeof message.content === "string" ? tag.source : message.content,
+			tag,
+		);
 		if (message.role === "user") {
 			result[index] = { ...message, content: projected.content };
 		} else {

@@ -28,6 +28,18 @@ describe("MCTX history tags", () => {
 		expect(projection.messages[0]).toMatchObject({ content: "§7§ keep this" });
 	});
 
+	test("replays a persisted user source instead of raw branch content", () => {
+		const tag: MctxHistoryTag = {
+			kind: "message",
+			entryId: "user-entry",
+			source: "cleaned request",
+			tagNumber: 7,
+			status: "active",
+		};
+		const projection = projectMctxHistoryTags([userMessage], [userEntry], [tag]);
+		expect(projection.messages[0]).toMatchObject({ content: "§7§ cleaned request" });
+	});
+
 	test("projects tags into Pi's cloned context messages", () => {
 		const assistantMessage = {
 			role: "assistant" as const,

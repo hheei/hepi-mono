@@ -90,6 +90,7 @@ import {
 	mctxHandoffBindingId,
 	openMctxStore,
 } from "./store.js";
+import { stripMctxSystemInjections } from "./system-injection.js";
 import { injectMctxTemporalMarkers } from "./temporal-awareness.js";
 import { evaluateMctxTriggerPolicy } from "./trigger-policy.js";
 
@@ -1600,7 +1601,26 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 						usage?.tokens ?? 0,
 					);
 			}
-			const baseMessages = projection.kind === "rendered" ? projection.messages : messages;
+			let baseMessages = projection.kind === "rendered" ? projection.messages : messages;
+			if (maintenance === "execute") {
+				const stripped = stripMctxSystemInjections({
+					messages: baseMessages,
+					entries,
+					tags: historyTags,
+					protectedTags: current.runtime.settings.protectedTags,
+				});
+				if (stripped.updates.length > 0) {
+					const partition = withStoreReadPolicy(current, () =>
+						current.runtime.store.replaceHistoryTagSources(
+							current.runtime.partition,
+							stripped.updates,
+						),
+					);
+					if (partition === undefined) return undefined;
+					current.runtime = { ...current.runtime, partition };
+					baseMessages = stripped.messages;
+				}
+			}
 			const reasoningWatermark = withStoreReadPolicy(current, () =>
 				current.runtime.store.readReasoningWatermark(current.runtime.partition),
 			);
