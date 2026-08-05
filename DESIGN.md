@@ -78,6 +78,7 @@ existing semantic token expresses the role.
   not a large placeholder panel.
 - Tool execution uses one padded block with `toolPendingBg`, `toolSuccessBg`,
   or `toolErrorBg`. Use `toolTitle` for its title and `toolOutput` for output.
+- Grouped `find` results use `mdCode` for a directory header, `success` for its FFF match tag, and `dim` for the displayed path. A group exists only when that directory has at least two candidates; root and singleton directories retain their complete repo-relative path.
 - Every active `pi-mctx` tool result begins with the literal `[magic context]`.
   The operation-specific result follows immediately. Only `ctx_reduce` adds its
   `pending:` and `rejected:` queue summary; `ctx_expand` and `ctx_history` do

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { buildGrepText } from "../../src/fff/fff-format.js";
-import type { GrepMatch } from "../../src/fff/fff-types.js";
+import { buildGrepText, formatCandidateLines } from "../../src/fff/fff-format.js";
+import type { FffFileCandidate, GrepMatch } from "../../src/fff/fff-types.js";
 
 function match(path: string, lineNumber: number, lineContent: string): GrepMatch {
 	return {
@@ -23,7 +23,36 @@ function match(path: string, lineNumber: number, lineContent: string): GrepMatch
 	};
 }
 
+function candidate(
+	relativePath: string,
+	matchType: string,
+	totalFrecencyScore = 0,
+	gitStatus = "clean",
+): FffFileCandidate {
+	return {
+		item: { relativePath, totalFrecencyScore, gitStatus },
+		score: { matchType },
+	} as FffFileCandidate;
+}
+
 describe("FFF grep formatting", () => {
+	test("groups sibling find candidates while retaining singleton paths", () => {
+		expect(
+			formatCandidateLines([
+				candidate("src/one.ts", "fuzzy", 10, "modified"),
+				candidate("other/only.ts", "prefix"),
+				candidate("src/two.ts", "prefix"),
+				candidate("root.ts", "fuzzy"),
+			]),
+		).toEqual([
+			"src/",
+			"1. one.ts (fuzzy) - frequent git:modified",
+			"3. two.ts (prefix)",
+			"2. other/only.ts (prefix)",
+			"4. root.ts (fuzzy)",
+		]);
+	});
+
 	test("does not prefix regex fallback output with Pi's bash shorthand", () => {
 		const result = buildGrepText([match("src/a.ts", 1, "catch (error")], {
 			limit: 20,

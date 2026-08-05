@@ -282,6 +282,26 @@ describe("pi-ext-tools catalog", () => {
 				.join("\n")
 				.trimEnd(),
 		).toBe("src/a.ts:1,2,3,4,5, … (6 matches)");
+		expect(
+			find
+				.renderResult?.(
+					{
+						content: [
+							{
+								type: "text",
+								text: "src/\n1. one.ts (fuzzy) - frequent git:modified\n2. two.ts (prefix)",
+							},
+						],
+					},
+					{},
+					theme,
+					{ isError: false, lastComponent: undefined },
+				)
+				.render(200)
+				.map((line) => line.trimEnd())
+				.join("\n")
+				.trimEnd(),
+		).toBe("src/\nFF one.ts (frequent git:modified)\nFP two.ts");
 	});
 
 	test("executes read with the call context cwd instead of extension construction cwd", async (): Promise<void> => {

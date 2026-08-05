@@ -167,6 +167,8 @@ find 的 glob/path/result contract，因此 `find` 始终 native fallback；`fin
 settings 只读取和写入 `pi-ext-tools.fff`。不注册 `find_files`，也不保留其 cursor/query schema。`src/fff/multi-grep.ts`
 保留为未注册的 future implementation；只有形成 translated unified `grep` contract 且出现 product consumer 后才能接入 catalog。
 
+FFF `find` 结果按首次命中顺序聚合目录。一个目录出现至少两个候选时，输出一个 `dir/` 标题，候选行只显示文件名；根目录和仅一个候选的目录保留完整 repo-relative path。分组只改变展示，不改变 FFF 的候选、排序、limit 或 cursor。renderer 使用 grep 一致的 `mdCode` 目录标题、`success` 匹配标签和 `dim` 路径。
+
 ## 验证与发布
 
 - 每个 catalog tool：upstream schema/execute compatibility、managed registration singleton、abort、streaming（如适用）

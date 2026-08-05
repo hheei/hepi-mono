@@ -26,6 +26,7 @@ const GREP_TRUNCATION = /^\.\.\. \((\d+) more lines, ctrl\+o to expand\)$/i;
 const GREP_NO_MATCHES = /^(?:No files matched\b.*|No match(?:es)? found\.?)$/i;
 const FIND_SUMMARY = /^\d+\/\d+ matches$/;
 const FIND_CANDIDATE = /^\d+\. (.+) \(([^)]+)\)(?: - (.+))?$/;
+const FIND_DIRECTORY_HEADER = /^.+\/$/;
 const FIND_CURSOR = /^cursor:\s+/;
 const MAX_COLLAPSED_GREP_CONTENT_LINES = 14;
 const DEFAULT_GREP_TIMEOUT_SECONDS = 30;
@@ -230,11 +231,12 @@ function findTotalMatched(result: AgentToolResult<unknown>): number | undefined 
 }
 
 function findTag(reason: string): string {
-	return reason
+	const matchTag = reason
 		.split("_")
 		.filter((part) => part.length > 0)
 		.map((part) => part[0]?.toUpperCase() ?? "")
 		.join("");
+	return `F${matchTag}`;
 }
 
 export function renderFindCall(
@@ -264,12 +266,13 @@ function renderFindText(result: AgentToolResult<unknown>, theme: Theme): string 
 		...lines
 			.filter((line) => !FIND_SUMMARY.test(line) && !FIND_CURSOR.test(line))
 			.map((line) => {
+				if (FIND_DIRECTORY_HEADER.test(line)) return theme.fg("mdCode", line);
 				const match = line.match(FIND_CANDIDATE);
 				if (!match) return line;
 				const path = match[1] ?? "";
 				const matchType = match[2] ?? "";
 				const reason = match[3];
-				return `${findTag(matchType)} ${theme.fg("dim", path)}${reason ? ` (${reason})` : ""}`;
+				return `${theme.fg("success", findTag(matchType))} ${theme.fg("dim", path)}${reason ? ` (${reason})` : ""}`;
 			}),
 	].join("\n");
 }

@@ -346,9 +346,43 @@ export function formatCandidateLines(
 	candidates: FffFileCandidate[],
 	max = DEFAULT_FILE_CANDIDATE_LIMIT,
 ): string[] {
-	return candidates.slice(0, max).map((candidate, index) => {
+	const visible = candidates.slice(0, max);
+	const directoryCounts = new Map<string, number>();
+	for (const candidate of visible) {
+		const separator = candidate.item.relativePath.lastIndexOf("/");
+		if (separator <= 0) continue;
+		const directory = candidate.item.relativePath.slice(0, separator);
+		directoryCounts.set(directory, (directoryCounts.get(directory) ?? 0) + 1);
+	}
+	const grouped = new Set<string>();
+	const render = (candidate: FffFileCandidate, index: number, path: string): string => {
 		const matchType = candidate.score?.matchType;
 		const suffix = fileSuffix(candidate.item.totalFrecencyScore, candidate.item.gitStatus);
-		return `${index + 1}. ${candidate.item.relativePath}${matchType ? ` (${matchType})` : ""}${suffix}`;
-	});
+		return `${index + 1}. ${path}${matchType ? ` (${matchType})` : ""}${suffix}`;
+	};
+	const lines: string[] = [];
+	for (const [index, candidate] of visible.entries()) {
+		const separator = candidate.item.relativePath.lastIndexOf("/");
+		const directory = separator > 0 ? candidate.item.relativePath.slice(0, separator) : undefined;
+		if (directory === undefined || (directoryCounts.get(directory) ?? 0) < 2) {
+			lines.push(render(candidate, index, candidate.item.relativePath));
+			continue;
+		}
+		if (grouped.has(directory)) continue;
+		grouped.add(directory);
+		lines.push(`${directory}/`);
+		for (const [groupIndex, groupCandidate] of visible.entries()) {
+			if (!groupCandidate.item.relativePath.startsWith(`${directory}/`)) continue;
+			const groupSeparator = groupCandidate.item.relativePath.lastIndexOf("/");
+			if (groupCandidate.item.relativePath.slice(0, groupSeparator) !== directory) continue;
+			lines.push(
+				render(
+					groupCandidate,
+					groupIndex,
+					groupCandidate.item.relativePath.slice(groupSeparator + 1),
+				),
+			);
+		}
+	}
+	return lines;
 }
