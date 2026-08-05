@@ -941,8 +941,8 @@ mapper invalid 时仅以 diagnostic 运行一次 repair completion，然后用�
 source-history projection 从 `sessionManager.getBranch()` 的 ordered `SessionEntry[]` 工作，使用 Pi
 `sessionEntryToContextMessages()` 作为唯一 entry-to-message projection。一个 complete turn group 从 user message 开始，
 包含直到下一 user message 前的所有 entries，且必须以 assistant message 收尾；最新 complete groups 保留为 protected tail。
-eligible groups 的 entry IDs 建立 source snapshot，canonical projected messages 用 JSON source text 交给 historian；不自行猜测
-Pi content block 或 tool-result shape。
+eligible groups 的 entry IDs 建立 source snapshot，canonical projected messages 用 JSON source text 交给 historian；context
+hook 的 deep-copy messages 通过有序结构映射回 entry ID，不依赖对象 identity，不自行猜测 Pi content block 或 tool-result shape。
 
 branch runner 只组合 source-history projection 和 historian orchestrator。caller 提供 active branch entries、current runtime
 partition/model/store 与 abort signal；ineligible projection 不取 lease、不调用 model，eligible projection 交给同一 explicit
@@ -1064,7 +1064,7 @@ materialized `m[1]` tier，再接 compartment boundary 后的 live tail。contex
 model history；它不使用单一 rolling summary。
 
 context transform 只处理已验证 graph。它使用 Pi `sessionEntryToContextMessages()` 重建 branch 的 raw
-message sequence，并只在该 sequence 以 object identity 连续存在于 imminent `context` event 时替换 covered
+message sequence，并只在该 sequence 以有序结构映射连续存在于 imminent `context` event 时替换 covered
 segment；这样保留其他 extension 已注入的 messages。无法匹配时 fail open，不改 Pi context。replacement 使用两个
 model-visible、`display: false` custom messages（`pi-mctx:m0`、`pi-mctx:m1`）和 branch live tail；每个 tier
 payload 以稳定 order 拼接，timestamp 固定为 `0` 以保留 m0 cache stability。store read failure 仍遵守 enabled

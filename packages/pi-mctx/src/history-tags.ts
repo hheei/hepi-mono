@@ -137,6 +137,9 @@ export function collectVisibleMctxToolTags(
 		string,
 		{ readonly entryId: string; readonly name: string; readonly input: unknown }
 	>();
+	// Pi passes a deep copy to the context hook. Resolve durable entries through
+	// the ordered structural mapping instead of comparing message object identity.
+	const contextIndexes = contextIndexesByEntryId(messages, entries);
 	const visible: MctxVisibleToolTag[] = [];
 	for (const [index, entry] of entries.entries()) {
 		if (entry.type !== "message") continue;
@@ -150,7 +153,11 @@ export function collectVisibleMctxToolTags(
 			}
 			continue;
 		}
-		if (index < liveTailStartIndex || message.role !== "toolResult" || !messages.includes(message))
+		if (
+			index < liveTailStartIndex ||
+			message.role !== "toolResult" ||
+			!contextIndexes.has(entry.id)
+		)
 			continue;
 		const owner = toolOwners.get(message.toolCallId);
 		if (owner === undefined) continue;
