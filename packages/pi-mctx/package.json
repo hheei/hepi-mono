@@ -20,7 +20,7 @@
 	},
 	"scripts": {
 		"build": "bunx tsc -p tsconfig.build.json",
-		"test:host": "bun run build && node --test test/host-lifecycle.node.ts",
+		"test:host": "bun run build && node --test --test-concurrency=1 test/host-lifecycle.node.ts",
 		"prepack": "bun run build"
 	},
 	"keywords": [

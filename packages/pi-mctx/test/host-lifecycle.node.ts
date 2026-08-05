@@ -93,6 +93,7 @@ async function createHost(
 		readonly runtimeEnabled?: boolean;
 		readonly smartDrops?: boolean;
 		readonly protectedTags?: number;
+		readonly executeThresholdTokens?: number;
 	} = {},
 ): Promise<HostFixture> {
 	const agentDir = options.agentDir ?? mkdtempSync(join(tmpdir(), "pi-mctx-host-agent-"));
@@ -107,7 +108,7 @@ async function createHost(
 				protected_tags: options.protectedTags ?? 20,
 				historian: { enabled: true, model: "faux/faux-1" },
 				execute_threshold_percentage: 20,
-				execute_threshold_tokens: { default: 5_000 },
+				execute_threshold_tokens: { default: options.executeThresholdTokens ?? 5_000 },
 			},
 		}),
 	);
@@ -277,6 +278,48 @@ test("real Pi host transforms context and retains it across reload", async (): P
 		await host.session.reload();
 		await host.session.prompt("Render the summary after reload.");
 		await waitFor(() => containsSummary(host.contexts.slice(-4)));
+	} finally {
+		await host.dispose();
+	}
+});
+
+test("real Pi host reports an MCTX error when manual compact cannot publish", async (): Promise<void> => {
+	const host = await createHost({ executeThresholdTokens: 1_000_000, invalidHistorian: true });
+	try {
+		await host.session.prompt("First completed turn before failed manual compact.");
+		await host.session.prompt("Second completed turn before failed manual compact.");
+		await host.session.prompt(LARGE_PROMPT);
+		await assert.rejects(host.session.compact(), /Compaction cancelled/);
+		assert.ok(
+			host.warnings.some((warning) => warning.startsWith("MCTX compact failed:")),
+			`warnings: ${host.warnings.join("; ")}`,
+		);
+	} finally {
+		await host.dispose();
+	}
+});
+
+test("real Pi host builds an MCTX compartment for manual compact", async (): Promise<void> => {
+	const host = await createHost({ executeThresholdTokens: 1_000_000 });
+	try {
+		await host.session.prompt("First completed turn before manual compact.");
+		await host.session.prompt("Second completed turn before manual compact.");
+		await host.session.prompt(LARGE_PROMPT);
+		const before = host.manager.getEntries().length;
+		await host.session.compact();
+		const markers = host.manager
+			.getEntries()
+			.filter(
+				(entry) =>
+					entry.type === "compaction" &&
+					entry.details !== null &&
+					typeof entry.details === "object" &&
+					"source" in entry.details &&
+					entry.details.source === "pi-mctx",
+			);
+		assert.equal(markers.length, 1, `host errors: ${host.extensionErrors.join("; ")}`);
+		assert.ok(markers[0]?.summary.includes("HOST_MCTX_SUMMARY"));
+		assert.equal(host.manager.getEntries().length, before + 1);
 	} finally {
 		await host.dispose();
 	}

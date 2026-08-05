@@ -293,6 +293,12 @@ current branch、partition revision、compartment graph 和 live-tail boundary �
 因此 Pi host 负责保留 tail，MCTX 不重复注入它。marker 标记为 `{ source: "pi-mctx" }`，重复或已覆盖到相同/更新 boundary 的
 请求不再追加 entry。
 
+手动 `/compact` 没有可用 marker 时，MCTX 先同步等待当前或新启动的一次 Historian publication，再重新验证 graph 并返回
+MCTX marker。Historian disabled/unavailable、source 不足、publication 失败或 branch 变更时，hook 取消 Pi compact，并通过
+MCTX notification 明确失败原因；不放行 Pi native compaction。阈值与 overflow compaction 保持同一 fail-closed ownership：
+没有已验证 marker 时取消 Pi native compaction，等待后续 MCTX recovery，避免自动路径在用户未请求时阻塞一个 Historian
+completion。
+
 这不是 handoff install 的变体：handoff 将 projection 绑定并写入 replacement session；same-session compact 不创建 session、
 不写 `mctx-parent-context`，也不修改 SQLite 的 handoff binding。MCTX active 但尚无有效 compartment、branch 已变化、store
 读取失败或 runtime 已清理时，hook 才取消 Pi native compact 且不写 marker，保持 MCTX 的 fail-closed ownership；下一次

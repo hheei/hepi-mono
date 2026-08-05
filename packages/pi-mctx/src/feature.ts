@@ -123,6 +123,7 @@ export interface MctxCeilingNudge {
 
 export type MctxCompactionResult =
 	| { readonly kind: "inactive" | "stale" }
+	| { readonly kind: "failed"; readonly reason: string }
 	| MctxCompactionMarkerResult;
 
 interface MctxHistorianRequest {
@@ -170,7 +171,9 @@ export interface MctxFeature {
 		entries: readonly SessionEntry[],
 		tokensBefore: number,
 		context: ExtensionContext,
-	): MctxCompactionResult;
+		manual: boolean,
+		signal: AbortSignal,
+	): Promise<MctxCompactionResult>;
 	active(): MctxSessionRuntime | undefined;
 	reduce(tagNumbers: readonly number[], context: ExtensionContext): MctxReduceResult;
 	systemPrompt(): string | undefined;
@@ -1369,7 +1372,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				});
 			}
 		},
-		compact(entries, tokensBefore, context): MctxCompactionResult {
+		async compact(entries, tokensBefore, context, manual, signal): Promise<MctxCompactionResult> {
 			const current = active;
 			if (
 				current === undefined ||
@@ -1393,12 +1396,59 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				entries,
 				current.runtime.store.listCompartments(partition),
 			);
-			if (graph.kind !== "valid") return { kind: "stale" };
-			return prepareMctxCompactionMarker({
+			if (graph.kind === "invalid") return { kind: "stale" };
+			if (graph.kind === "valid") {
+				const marker = prepareMctxCompactionMarker({
+					entries,
+					graph: graph.graph,
+					tokensBefore,
+				});
+				if (marker.kind === "compaction" || !manual) return marker;
+			} else if (!manual) {
+				return { kind: "stale" };
+			}
+			if (signal.aborted) return { kind: "failed", reason: "MCTX compaction was cancelled" };
+			if (current.runtime.historian.kind === "disabled")
+				return { kind: "failed", reason: "MCTX Historian is disabled" };
+			if (current.runtime.historian.kind === "unavailable")
+				return { kind: "failed", reason: current.runtime.historian.diagnostic };
+			if (current.job === undefined) startHistorian(current, { entries: [...entries] });
+			const job = current.job;
+			if (job === undefined) return { kind: "failed", reason: "MCTX Historian did not start" };
+			const abort = (): void => job.abort();
+			signal.addEventListener("abort", abort, { once: true });
+			try {
+				await current.jobCompletion;
+			} finally {
+				signal.removeEventListener("abort", abort);
+			}
+			if (signal.aborted) return { kind: "failed", reason: "MCTX compaction was cancelled" };
+			if (
+				active !== current ||
+				current.lifecycle.signal.aborted ||
+				current.runtime.sessionId !== context.sessionManager.getSessionId() ||
+				!sameBranchEntries(entries, context.sessionManager.getBranch())
+			)
+				return { kind: "stale" };
+			const refreshedPartition = current.runtime.store.findPartition(
+				current.runtime.partition.projectIdentity,
+				current.runtime.partition.sessionId,
+			);
+			if (refreshedPartition === undefined) return { kind: "stale" };
+			const refreshedGraph = verifyMctxCompartmentGraph(
 				entries,
-				graph: graph.graph,
+				current.runtime.store.listCompartments(refreshedPartition),
+			);
+			if (refreshedGraph.kind !== "valid")
+				return { kind: "failed", reason: "MCTX Historian did not publish a valid compartment" };
+			const refreshedMarker = prepareMctxCompactionMarker({
+				entries,
+				graph: refreshedGraph.graph,
 				tokensBefore,
 			});
+			return refreshedMarker.kind === "compaction"
+				? refreshedMarker
+				: { kind: "failed", reason: "MCTX Historian did not produce a new compaction marker" };
 		},
 		status(context): MctxStatusResult {
 			const current = active;
