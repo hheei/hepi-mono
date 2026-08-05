@@ -158,35 +158,47 @@ function buildContentLines(items: GrepMatch[], requestedContext: number) {
 	const lines: string[] = [];
 	let linesTruncated = false;
 	let currentPath: string | undefined;
+	let currentFileItems: GrepMatch[] = [];
+	let lineNumberWidth = 0;
+
+	const appendFileLines = (fileItems: readonly GrepMatch[], width: number): void => {
+		for (const match of fileItems) {
+			const before = requestedContext > 0 ? (match.contextBefore ?? []) : [];
+			for (let i = 0; i < before.length; i += 1) {
+				const lineNumber = match.lineNumber - before.length + i;
+				const truncated = truncateLine(before[i] ?? "");
+				linesTruncated ||= truncated.wasTruncated;
+				lines.push(`${String(lineNumber).padStart(width)}|${truncated.text}`);
+			}
+
+			const main = truncateLine(match.lineContent);
+			linesTruncated ||= main.wasTruncated;
+			lines.push(`${String(match.lineNumber).padStart(width)}:${main.text}`);
+
+			if (requestedContext > 0) {
+				const after = match.contextAfter ?? [];
+				for (let i = 0; i < after.length; i += 1) {
+					const truncated = truncateLine(after[i] ?? "");
+					linesTruncated ||= truncated.wasTruncated;
+					lines.push(`${String(match.lineNumber + i + 1).padStart(width)}|${truncated.text}`);
+				}
+			}
+		}
+	};
 
 	for (const match of items) {
 		if (match.relativePath !== currentPath) {
+			if (currentFileItems.length > 0) appendFileLines(currentFileItems, lineNumberWidth);
 			if (lines.length > 0) lines.push("");
 			lines.push(`${match.relativePath}${grepFileAnnotation(match)}`);
 			currentPath = match.relativePath;
+			currentFileItems = [];
+			lineNumberWidth = 0;
 		}
-
-		const before = requestedContext > 0 ? (match.contextBefore ?? []) : [];
-		for (let i = 0; i < before.length; i += 1) {
-			const lineNumber = match.lineNumber - before.length + i;
-			const truncated = truncateLine(before[i] ?? "");
-			linesTruncated ||= truncated.wasTruncated;
-			lines.push(` ${lineNumber}- ${truncated.text}`);
-		}
-
-		const main = truncateLine(match.lineContent);
-		linesTruncated ||= main.wasTruncated;
-		lines.push(` ${match.lineNumber}: ${main.text}`);
-
-		if (requestedContext > 0) {
-			const after = match.contextAfter ?? [];
-			for (let i = 0; i < after.length; i += 1) {
-				const truncated = truncateLine(after[i] ?? "");
-				linesTruncated ||= truncated.wasTruncated;
-				lines.push(` ${match.lineNumber + i + 1}- ${truncated.text}`);
-			}
-		}
+		currentFileItems.push(match);
+		lineNumberWidth = Math.max(lineNumberWidth, String(match.lineNumber).length);
 	}
+	if (currentFileItems.length > 0) appendFileLines(currentFileItems, lineNumberWidth);
 	return { lines, linesTruncated };
 }
 

@@ -39,7 +39,7 @@ describe("FFF grep formatting", () => {
 		);
 
 		expect(result.text).toBe(
-			"src/a.ts\n 9- before\n 10: first\n 11- after\n 20: second\n\nsrc/b.ts\n 3: third",
+			"src/a.ts\n 9|before\n10:first\n11|after\n20:second\n\nsrc/b.ts\n3:third",
 		);
 	});
 });
