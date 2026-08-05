@@ -35,6 +35,44 @@ function resultText(result: AgentToolResult<unknown>): string {
 		.join("\n");
 }
 
+function grepTotalsFromText(text: string): { readonly matched: number; readonly files: number } {
+	const files = new Set<string>();
+	let currentFile: string | undefined;
+	let matched = 0;
+	for (const line of text.split("\n")) {
+		const match = line.match(GREP_MATCH_LINE);
+		if (match) {
+			matched += 1;
+			continue;
+		}
+		if (
+			line.trim() === "" ||
+			line.startsWith(" ") ||
+			line.startsWith("!") ||
+			line.startsWith("[") ||
+			line.startsWith("0 ") ||
+			line.startsWith("No ") ||
+			line.startsWith("cursor:")
+		)
+			continue;
+		currentFile = line;
+		files.add(currentFile);
+	}
+	return { matched, files: files.size };
+}
+
+function grepTotals(
+	result: AgentToolResult<unknown>,
+	content: string,
+): { readonly matched: number; readonly files: number } | undefined {
+	if (typeof result.details === "object" && result.details !== null) {
+		const matched = Reflect.get(result.details, "totalMatched");
+		const files = Reflect.get(result.details, "totalFiles");
+		if (typeof matched === "number" && typeof files === "number") return { matched, files };
+	}
+	return grepTotalsFromText(content);
+}
+
 function requestedGrepLimit(result: AgentToolResult<unknown>): number | undefined {
 	if (typeof result.details !== "object" || result.details === null) return undefined;
 	const requestedLimit = Reflect.get(result.details, "requestedLimit");
@@ -97,7 +135,7 @@ export function renderGrepCall(
 	context: Pick<RenderContext, "lastComponent">,
 ): Text {
 	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-	const scope = args.path ? ` in ${theme.fg("dim", args.path)}` : "";
+	const scope = args.path ? ` in ${theme.fg("mdCode", args.path)}` : "";
 	const timeout = theme.fg("dim", ` (timeout ${args.timeout ?? DEFAULT_GREP_TIMEOUT_SECONDS}s)`);
 	text.setText(
 		`${theme.fg("accent", "grep")} ${theme.fg("mdCode", `/${args.pattern}/`)}${scope}${timeout}`,
@@ -113,14 +151,22 @@ export function renderGrepResult(
 ): Text {
 	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 	const content = resultText(result).replace(/(?:\r?\n)+$/, "");
+	const totals = grepTotals(result, content);
+	const summary =
+		totals === undefined
+			? undefined
+			: `Found ${theme.fg("mdCode", String(totals.matched))} matches in ${theme.fg("mdCode", String(totals.files))} files.`;
+	const renderedContent = renderGrepText(
+		collapseGrepText(content, options.expanded === true),
+		theme,
+		requestedGrepLimit(result),
+	);
 	text.setText(
 		context.isError
 			? theme.fg("error", content)
-			: renderGrepText(
-					collapseGrepText(content, options.expanded === true),
-					theme,
-					requestedGrepLimit(result),
-				),
+			: summary === undefined
+				? renderedContent
+				: `${summary}\n\n${renderedContent}`,
 	);
 	return text;
 }
