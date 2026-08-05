@@ -32,15 +32,26 @@ test("opens the MCTX store through Bun SQLite", async (): Promise<void> => {
 
 test("persists a monotonic per-partition reasoning watermark", async (): Promise<void> => {
 	const directory = mkdtempSync(join(tmpdir(), "pi-mctx-reasoning-"));
+	const path = join(directory, "context.db");
 	try {
-		const store = await openMctxStore(join(directory, "context.db"));
+		const store = await openMctxStore(path);
 		try {
 			const partition = store.getOrCreatePartition(`dir:${"d".repeat(64)}`, "session-1");
 			expect(store.readReasoningWatermark(partition)).toBe(0);
 			expect(store.advanceReasoningWatermark(partition, 8)).toBe(8);
 			expect(store.advanceReasoningWatermark(partition, 3)).toBe(8);
+			expect(store.findPartition(partition.projectIdentity, partition.sessionId)).toMatchObject({
+				revision: 0,
+			});
 		} finally {
 			store.close();
+		}
+		const reloaded = await openMctxStore(path);
+		try {
+			const partition = reloaded.getOrCreatePartition(`dir:${"d".repeat(64)}`, "session-1");
+			expect(reloaded.readReasoningWatermark(partition)).toBe(8);
+		} finally {
+			reloaded.close();
 		}
 	} finally {
 		rmSync(directory, { force: true, recursive: true });
