@@ -42,6 +42,23 @@ test("execute clears old typed thinking and advances the watermark", (): void =>
 	expect(first.content[0]).not.toHaveProperty("thinkingSignature");
 });
 
+test("keeps reasoning inside the configured newest-tag window", (): void => {
+	const newer = {
+		...assistant,
+		content: [{ type: "thinking" as const, thinking: "new", thinkingSignature: "new-sig" }],
+	};
+	const result = replayMctxReasoning({
+		messages: [assistant, newer],
+		entries: [entry, { ...entry, id: "entry-2", message: newer }],
+		tags: [tag, { ...tag, tagNumber: 2, entryId: "entry-2" }],
+		watermark: 0,
+		clearReasoningAge: 1,
+		execute: true,
+	});
+	expect(result.watermark).toBe(1);
+	expect(result.messages[1]).toEqual(newer);
+});
+
 test("does not advance a watermark when no assistant thinking was cleared", (): void => {
 	const user = { role: "user" as const, content: "prompt", timestamp: 0 };
 	const userEntry = {
