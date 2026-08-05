@@ -292,6 +292,45 @@ describe("pi-ext-tools catalog", () => {
 			"<mdCode>src/</mdCode>\n<dim>a.ts</dim><mdCode>:1,2,3,4,5, …</mdCode> (<success>6</success> matches)\n<dim>b.ts</dim><mdCode>:7</mdCode> (<success>1</success> matches)",
 		);
 		expect(
+			grep
+				.renderResult?.(
+					{
+						content: [
+							{
+								type: "text",
+								text: "0 exact matches. 3 approximate:\nsrc/a.ts\n1?one\n100?hundred\nother/b.ts\n2?two",
+							},
+						],
+						details: { format: "fff-grep" },
+					},
+					{},
+					theme,
+					{ isError: false, lastComponent: undefined },
+				)
+				.render(200)
+				.map((line) => line.trimEnd())
+				.join("\n")
+				.trimEnd(),
+		).toBe(
+			"<mdCode>0 exact matches. 3 approximate:</mdCode>\n<mdCode>src/a.ts</mdCode>\n<dim>  1?</dim>one\n<dim>100?</dim>hundred\n<mdCode>other/b.ts</mdCode>\n<dim>2?</dim>two",
+		);
+		expect(
+			grep
+				.renderResult?.(
+					{
+						content: [{ type: "text", text: "src/a.ts\n9:one\n100:hundred" }],
+						details: { format: "fff-grep" },
+					},
+					{},
+					theme,
+					{ isError: false, lastComponent: undefined },
+				)
+				.render(200)
+				.map((line) => line.trimEnd())
+				.join("\n")
+				.trimEnd(),
+		).toBe("<mdCode>src/a.ts</mdCode>\n<dim>  9:</dim>one\n<dim>100:</dim>hundred");
+		expect(
 			find
 				.renderResult?.(
 					{

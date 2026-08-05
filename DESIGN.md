@@ -81,6 +81,7 @@ existing semantic token expresses the role.
 - Grouped `find` results use `mdCode` for a directory header, `success` for its FFF match tag, and `dim` for the displayed path. A group exists only when that directory has at least two candidates; root and singleton directories retain their complete repo-relative path.
 - Compressed FFF `grep` rows render the path with `dim`, the `:line,line` segment with `mdCode`, and the match count with `success`. The raw row remains unchanged for the model.
 - Compressed FFF `grep` summaries group two or more files from the same parent directory under a `dir/` header. Both the model and TUI receive the grouped raw structure; singleton directories retain full repo-relative paths.
+- FFF `grep` content, approximate results, and native fallback results right-align line numbers to the widest number in each displayed file block. The renderer applies this TUI-only alignment to `:`, `│`, and `?` row separators without changing the model-visible result.
 - Every active `pi-mctx` tool result begins with the literal `[magic context]`.
   The operation-specific result follows immediately. Only `ctx_reduce` adds its
   `pending:` and `rejected:` queue summary; `ctx_expand` and `ctx_history` do
