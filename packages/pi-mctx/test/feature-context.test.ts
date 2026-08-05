@@ -398,7 +398,9 @@ test("smart drops queue an old visible tool result and project its recovery mark
 		resolveProjectIdentity: async () => "git:project",
 	});
 	await feature.start(lifecycle);
-	const raw = branch.flatMap(sessionEntryToContextMessages);
+	// Pi emits a deep copy for context hooks; this catches accidental session-object
+	// identity checks in smart-drop candidate selection.
+	const raw = structuredClone(branch.flatMap(sessionEntryToContextMessages));
 	let activeBranch = branch.slice(0, 2);
 	const context = {
 		model,
