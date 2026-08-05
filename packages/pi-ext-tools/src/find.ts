@@ -127,9 +127,7 @@ export function registerFindTool(pi: ExtensionAPI, state: FffRuntimeState): void
 			}
 			const lines = formatCandidateLines(result.value.items, limit);
 			if (result.value.hasMore)
-				lines.push(
-					`${result.value.totalMatched - (result.value.pageIndex + 1) * limit} more matches available. cursor="${nextCursor(query, limit, result.value.pageIndex + 1)}" to continue`,
-				);
+				lines.push(`cursor: ${nextCursor(query, limit, result.value.pageIndex + 1)}`);
 			return {
 				content: [
 					{ type: "text" as const, text: lines.join("\n") || "No files found matching pattern" },

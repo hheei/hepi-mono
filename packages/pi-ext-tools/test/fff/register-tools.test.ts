@@ -138,7 +138,7 @@ describe("FFF tool registration", () => {
 		const text = result.content[0];
 		if (text?.type !== "text") throw new Error("Expected text result");
 		expect(text.text).toStartWith("1. src/find-enhancement.ts (fuzzy) - hot git:modified");
-		expect(text.text).toContain('cursor="find:');
+		expect(text.text).toContain("cursor: find:");
 		expect(result.details).toBeUndefined();
 	});
 });

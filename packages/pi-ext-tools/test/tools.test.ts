@@ -57,6 +57,44 @@ describe("pi-ext-tools catalog", () => {
 		expect(() => registerTools(host.pi)).toThrow("Loadout tool id already registered: read");
 	});
 
+	test("hides pagination cursors from search renderers", (): void => {
+		const host = harness();
+		registerTools(host.pi);
+		const theme = {
+			fg: (_role: string, text: string): string => text,
+			bold: (text: string): string => text,
+		};
+		const grep = host.tools.find((candidate) => candidate.name === "grep");
+		const find = host.tools.find((candidate) => candidate.name === "find");
+		if (grep === undefined || find === undefined) throw new Error("Missing search tools");
+
+		expect(
+			grep
+				.renderResult?.(
+					{
+						content: [{ type: "text", text: "src/a.ts\n1:needle\ncursor: grep:abc" }],
+						details: { format: "fff-grep" },
+					},
+					{},
+					theme,
+					{ isError: false, lastComponent: undefined },
+				)
+				.render(200)
+				.join("\n"),
+		).not.toContain("cursor:");
+		expect(
+			find
+				.renderResult?.(
+					{ content: [{ type: "text", text: "1. src/a.ts (fuzzy)\ncursor: find:abc" }] },
+					{},
+					theme,
+					{ isError: false, lastComponent: undefined },
+				)
+				.render(200)
+				.join("\n"),
+		).not.toContain("cursor:");
+	});
+
 	test("exposes the upstream FFF grep and find schemas", (): void => {
 		const host = harness();
 		registerTools(host.pi);
@@ -80,7 +118,6 @@ describe("pi-ext-tools catalog", () => {
 			"path",
 			"exclude",
 			"caseSensitive",
-			"context",
 			"limit",
 			"cursor",
 		]);

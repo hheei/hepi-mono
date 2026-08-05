@@ -18,7 +18,6 @@ import {
 } from "./errors.js";
 import { buildGrepText, cropMatchLine } from "./fff-format.js";
 import {
-	AUTO_EXPAND_AFTER_CONTEXT,
 	DEFAULT_FILE_CANDIDATE_LIMIT,
 	DEFAULT_GREP_LIMIT,
 	DEFAULT_GREP_TIMEOUT_MS,
@@ -235,7 +234,8 @@ function grepRequestKey(
 		mode: request.kind === "single" ? request.mode : undefined,
 		constraintQuery: constraintQuery ?? null,
 		limit: request.limit,
-		context: request.context,
+		beforeContext: request.beforeContext,
+		afterContext: request.afterContext,
 		includeCursorHint: request.includeCursorHint ?? false,
 		outputMode: request.outputMode ?? "content",
 	});
@@ -584,7 +584,8 @@ export class FffRuntime {
 			...(request.pathQuery === undefined ? {} : { pathQuery: request.pathQuery }),
 			...(request.glob === undefined ? {} : { glob: request.glob }),
 			...(request.constraints === undefined ? {} : { constraints: request.constraints }),
-			context: request.context ?? 0,
+			beforeContext: request.beforeContext ?? 1,
+			afterContext: request.afterContext ?? 3,
 			limit: request.limit ?? DEFAULT_GREP_LIMIT,
 			timeBudgetMs: request.timeBudgetMs ?? DEFAULT_GREP_TIMEOUT_MS,
 			...(request.cursor === undefined ? {} : { cursor: request.cursor }),
@@ -600,7 +601,8 @@ export class FffRuntime {
 		pathQuery?: string;
 		glob?: string;
 		constraints?: string;
-		context?: number;
+		beforeContext?: number;
+		afterContext?: number;
 		limit?: number;
 		cursor?: string;
 		includeCursorHint?: boolean;
@@ -612,7 +614,8 @@ export class FffRuntime {
 			...(request.pathQuery === undefined ? {} : { pathQuery: request.pathQuery }),
 			...(request.glob === undefined ? {} : { glob: request.glob }),
 			...(request.constraints === undefined ? {} : { constraints: request.constraints }),
-			context: request.context ?? 0,
+			beforeContext: request.beforeContext ?? 1,
+			afterContext: request.afterContext ?? 3,
 			limit: request.limit ?? DEFAULT_GREP_LIMIT,
 			timeBudgetMs: DEFAULT_GREP_TIMEOUT_MS,
 			...(request.cursor === undefined ? {} : { cursor: request.cursor }),
@@ -652,8 +655,8 @@ export class FffRuntime {
 						patterns: alternatePatterns ?? [request.pattern],
 						...(constraintQuery === undefined ? {} : { constraints: constraintQuery }),
 						cursor: engineCursor,
-						beforeContext: request.context,
-						afterContext: request.context > 0 ? request.context : AUTO_EXPAND_AFTER_CONTEXT,
+						beforeContext: request.beforeContext,
+						afterContext: request.afterContext,
 						pageSize,
 						maxMatchesPerFile: MAX_MATCHES_PER_FILE,
 						timeBudgetMs,
@@ -665,8 +668,8 @@ export class FffRuntime {
 					mode: request.mode,
 					smartCase: request.kind === "single" ? request.caseSensitive !== true : true,
 					cursor: engineCursor,
-					beforeContext: request.context,
-					afterContext: request.context > 0 ? request.context : AUTO_EXPAND_AFTER_CONTEXT,
+					beforeContext: request.beforeContext,
+					afterContext: request.afterContext,
 					pageSize,
 					maxMatchesPerFile: MAX_MATCHES_PER_FILE,
 					timeBudgetMs,
@@ -678,8 +681,8 @@ export class FffRuntime {
 				patterns: request.patterns,
 				...(constraintQuery === undefined ? {} : { constraints: constraintQuery }),
 				cursor: engineCursor,
-				beforeContext: request.context,
-				afterContext: request.context > 0 ? request.context : AUTO_EXPAND_AFTER_CONTEXT,
+				beforeContext: request.beforeContext,
+				afterContext: request.afterContext,
 				pageSize,
 				maxMatchesPerFile: MAX_MATCHES_PER_FILE,
 				timeBudgetMs,
@@ -706,7 +709,7 @@ export class FffRuntime {
 			if (broadenedItems.length > 0) {
 				const built = buildGrepText(broadenedItems, {
 					limit: request.limit,
-					requestedContext: request.context,
+					requestedContext: request.beforeContext,
 					includeCursorHint: false,
 					...(broadenedResult.value.regexFallbackError === undefined
 						? {}
@@ -795,7 +798,8 @@ export class FffRuntime {
 					...(request.pathQuery === undefined ? {} : { pathQuery: request.pathQuery }),
 					...(request.glob === undefined ? {} : { glob: request.glob }),
 					...(request.constraints === undefined ? {} : { constraints: request.constraints }),
-					context: request.context,
+					beforeContext: request.beforeContext,
+					afterContext: request.afterContext,
 					limit: request.limit,
 					timeBudgetMs: request.timeBudgetMs,
 					includeCursorHint: false,
@@ -809,7 +813,7 @@ export class FffRuntime {
 			if (fallbackItems.length === 0) continue;
 			const built = buildGrepText(fallbackItems, {
 				limit: request.limit,
-				requestedContext: request.context,
+				requestedContext: request.beforeContext,
 				includeCursorHint: false,
 				...(fallbackResult.value.regexFallbackError === undefined
 					? {}
@@ -950,7 +954,7 @@ export class FffRuntime {
 
 		const built = buildGrepText(items.slice(0, request.limit), {
 			limit: request.limit,
-			requestedContext: request.context,
+			requestedContext: request.beforeContext,
 			includeCursorHint: request.includeCursorHint ?? false,
 			...(nextCursor === undefined ? {} : { matchLimitReached: request.limit }),
 			...(nextCursor === undefined ? {} : { nextCursor }),
