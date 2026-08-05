@@ -36,6 +36,34 @@ test("disabled configuration leaves pipeline inactive", async (): Promise<void> 
 	expect(config.pipeline).toEqual({ kind: "disabled" });
 });
 
+test("accepts only user-owned opt-in caveman compression", async (): Promise<void> => {
+	const config = await withSettings(
+		{
+			"pi-mctx": {
+				enabled: true,
+				historian: { enabled: true, model: "anthropic/claude-haiku" },
+				caveman_text_compression: { enabled: true, min_chars: 800 },
+			},
+		},
+		{ "pi-mctx": { caveman_text_compression: { enabled: false } } },
+		loadMctxConfiguration,
+	);
+	if (config.pipeline.kind !== "enabled") throw new Error("expected enabled pipeline");
+	expect(config.pipeline.settings.cavemanTextCompression).toEqual({ minChars: 800 });
+	expect(config.warnings).toContain(
+		"Ignoring project caveman_text_compression: only user config controls lossy history compression",
+	);
+	const invalid = await withSettings(
+		{ "pi-mctx": { enabled: true, caveman_text_compression: { enabled: true, min_chars: 99 } } },
+		{},
+		loadMctxConfiguration,
+	);
+	expect(invalid.pipeline).toEqual({
+		kind: "invalid",
+		reason: "caveman_text_compression.min_chars must be an integer between 100 and 10000",
+	});
+});
+
 test("reasoning cleanup age is user-owned and validated", async (): Promise<void> => {
 	const config = await withSettings(
 		{ "pi-mctx": { enabled: true, clear_reasoning_age: 12 } },
