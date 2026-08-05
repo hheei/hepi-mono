@@ -5,13 +5,123 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { MctxStatusAccounting } from "./status-metrics.js";
 
 export const MCTX_STORE_APPLICATION_ID = 0x484d4354;
-export const MCTX_STORE_SCHEMA_VERSION = 14;
+export const MCTX_STORE_SCHEMA_VERSION = 15;
 export const MCTX_STORE_BUSY_TIMEOUT_MS = 5_000;
 
 interface MctxDatabaseStatement {
 	get(...bindings: readonly unknown[]): unknown;
 	all(...bindings: readonly unknown[]): readonly unknown[];
 	run(...bindings: readonly unknown[]): unknown;
+}
+
+function armNudgeDelivery(database: DatabaseSync, partition: MctxPartition): void {
+	requirePartitionKey(partition.projectIdentity, partition.sessionId);
+	database
+		.prepare(
+			"INSERT INTO nudge_deliveries (project_identity, session_id, state) VALUES (?, ?, 'pending') ON CONFLICT (project_identity, session_id) DO UPDATE SET state = 'pending', owner_token = NULL, lease_expires_at_ms = 0 WHERE nudge_deliveries.state = 'pending'",
+		)
+		.run(partition.projectIdentity, partition.sessionId);
+}
+
+function claimNudgeDelivery(
+	database: DatabaseSync,
+	partition: MctxPartition,
+	ownerToken: string,
+	ttlMs: number,
+	nowMs: number,
+): MctxNudgeDeliveryClaim | undefined {
+	requirePartitionKey(partition.projectIdentity, partition.sessionId);
+	const expiresAtMs = requireLeaseInput(ownerToken, ttlMs, nowMs);
+	const changed = changedRows(
+		database
+			.prepare(
+				"UPDATE nudge_deliveries SET state = 'claimed', owner_token = ?, lease_expires_at_ms = ? WHERE project_identity = ? AND session_id = ? AND (state = 'pending' OR (state = 'claimed' AND lease_expires_at_ms <= ?))",
+			)
+			.run(ownerToken, expiresAtMs, partition.projectIdentity, partition.sessionId, nowMs),
+	);
+	return changed === 1 ? { partition, ownerToken } : undefined;
+}
+
+function markNudgeDelivered(database: DatabaseSync, claim: MctxNudgeDeliveryClaim): boolean {
+	return (
+		changedRows(
+			database
+				.prepare(
+					"UPDATE nudge_deliveries SET state = 'delivered', owner_token = NULL, lease_expires_at_ms = 0 WHERE project_identity = ? AND session_id = ? AND state = 'claimed' AND owner_token = ?",
+				)
+				.run(claim.partition.projectIdentity, claim.partition.sessionId, claim.ownerToken),
+		) === 1
+	);
+}
+
+function releaseNudgeDelivery(database: DatabaseSync, claim: MctxNudgeDeliveryClaim): boolean {
+	return (
+		changedRows(
+			database
+				.prepare(
+					"UPDATE nudge_deliveries SET state = 'pending', owner_token = NULL, lease_expires_at_ms = 0 WHERE project_identity = ? AND session_id = ? AND state = 'claimed' AND owner_token = ?",
+				)
+				.run(claim.partition.projectIdentity, claim.partition.sessionId, claim.ownerToken),
+		) === 1
+	);
+}
+
+function readDetectedContextLimit(
+	database: DatabaseSync,
+	partition: MctxPartition,
+): number | undefined {
+	const row = database
+		.prepare(
+			"SELECT detected_context_window FROM pressure_state WHERE project_identity = ? AND session_id = ?",
+		)
+		.get(partition.projectIdentity, partition.sessionId);
+	if (isMissingRow(row)) return undefined;
+	if (!isRecord(row) || typeof row.detected_context_window !== "number")
+		throw new Error("Context store pressure row is invalid");
+	return row.detected_context_window;
+}
+
+function recordDetectedContextLimit(
+	database: DatabaseSync,
+	partition: MctxPartition,
+	contextWindow: number,
+): void {
+	requirePartitionKey(partition.projectIdentity, partition.sessionId);
+	if (!Number.isSafeInteger(contextWindow) || contextWindow <= 0)
+		throw new Error("Context store detected context window is invalid");
+	database
+		.prepare(
+			"INSERT INTO pressure_state (project_identity, session_id, detected_context_window) VALUES (?, ?, ?) ON CONFLICT (project_identity, session_id) DO UPDATE SET detected_context_window = MIN(pressure_state.detected_context_window, excluded.detected_context_window)",
+		)
+		.run(partition.projectIdentity, partition.sessionId, contextWindow);
+}
+
+function migrateV15(database: DatabaseSync): void {
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		database.exec("ALTER TABLE mctx_metadata RENAME TO mctx_metadata_v14");
+		database.exec(
+			"CREATE TABLE mctx_metadata (schema_version INTEGER NOT NULL CHECK (schema_version = 15)) STRICT",
+		);
+		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(15);
+		database.exec("DROP TABLE mctx_metadata_v14");
+		database.exec(
+			"CREATE TABLE nudge_deliveries (project_identity TEXT NOT NULL, session_id TEXT NOT NULL, state TEXT NOT NULL CHECK (state IN ('pending', 'claimed', 'delivered')), owner_token TEXT, lease_expires_at_ms INTEGER NOT NULL DEFAULT 0 CHECK (lease_expires_at_ms >= 0), PRIMARY KEY (project_identity, session_id), FOREIGN KEY (project_identity, session_id) REFERENCES partitions(project_identity, session_id)) STRICT",
+		);
+		database.exec(
+			"CREATE TABLE pressure_state (project_identity TEXT NOT NULL, session_id TEXT NOT NULL, detected_context_window INTEGER CHECK (detected_context_window > 0), PRIMARY KEY (project_identity, session_id), FOREIGN KEY (project_identity, session_id) REFERENCES partitions(project_identity, session_id)) STRICT",
+		);
+		database.exec("PRAGMA user_version = 15");
+		database.exec("COMMIT");
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
+export interface MctxNudgeDeliveryClaim {
+	readonly partition: MctxPartition;
+	readonly ownerToken: string;
 }
 
 function advanceHistoryTagCavemanDepths(
@@ -286,6 +396,18 @@ export interface MctxStore {
 		partition: MctxPartition,
 		updates: readonly MctxHistoryTagCavemanDepthUpdate[],
 	): MctxPartition | undefined;
+	/** One durable Channel 2 delivery intent per session partition. */
+	armNudgeDelivery?(partition: MctxPartition): void;
+	claimNudgeDelivery?(
+		partition: MctxPartition,
+		ownerToken: string,
+		ttlMs: number,
+		nowMs?: number,
+	): MctxNudgeDeliveryClaim | undefined;
+	markNudgeDelivered?(claim: MctxNudgeDeliveryClaim): boolean;
+	releaseNudgeDelivery?(claim: MctxNudgeDeliveryClaim): boolean;
+	readDetectedContextLimit?(partition: MctxPartition): number | undefined;
+	recordDetectedContextLimit?(partition: MctxPartition, contextWindow: number): void;
 	writeMemory(input: MctxMemoryWrite): MctxMemory;
 	getMemories(projectIdentity: string, memoryIds: readonly number[]): readonly MctxMemory[];
 	listActiveMemories(
@@ -938,6 +1060,7 @@ function validateSchema(database: DatabaseSync): void {
 	if (pragmaInteger(database, "PRAGMA user_version") === 11) migrateV12(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 12) migrateV13(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 13) migrateV14(database);
+	if (pragmaInteger(database, "PRAGMA user_version") === 14) migrateV15(database);
 	if (pragmaInteger(database, "PRAGMA application_id") !== MCTX_STORE_APPLICATION_ID) {
 		throw new Error("Context store application identity is invalid");
 	}
@@ -957,7 +1080,9 @@ function validateSchema(database: DatabaseSync): void {
 		!hasTable(database, "memory_embeddings") ||
 		!hasTable(database, "handoff_bindings") ||
 		!hasTable(database, "status_accounting") ||
-		!hasTable(database, "reasoning_state")
+		!hasTable(database, "reasoning_state") ||
+		!hasTable(database, "nudge_deliveries") ||
+		!hasTable(database, "pressure_state")
 	) {
 		throw new Error("Context store partition tables are missing");
 	}
@@ -2732,6 +2857,35 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 		advanceHistoryTagCavemanDepths(partition, updates): MctxPartition | undefined {
 			if (database === undefined) throw new Error("Context store is closed");
 			return advanceHistoryTagCavemanDepths(database, partition, updates);
+		},
+		armNudgeDelivery(partition): void {
+			if (database === undefined) throw new Error("Context store is closed");
+			armNudgeDelivery(database, partition);
+		},
+		claimNudgeDelivery(
+			partition,
+			ownerToken,
+			ttlMs,
+			nowMs = Date.now(),
+		): MctxNudgeDeliveryClaim | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return claimNudgeDelivery(database, partition, ownerToken, ttlMs, nowMs);
+		},
+		markNudgeDelivered(claim): boolean {
+			if (database === undefined) throw new Error("Context store is closed");
+			return markNudgeDelivered(database, claim);
+		},
+		releaseNudgeDelivery(claim): boolean {
+			if (database === undefined) throw new Error("Context store is closed");
+			return releaseNudgeDelivery(database, claim);
+		},
+		readDetectedContextLimit(partition): number | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return readDetectedContextLimit(database, partition);
+		},
+		recordDetectedContextLimit(partition, contextWindow): void {
+			if (database === undefined) throw new Error("Context store is closed");
+			recordDetectedContextLimit(database, partition, contextWindow);
 		},
 		writeMemory(input): MctxMemory {
 			if (database === undefined) throw new Error("Context store is closed");

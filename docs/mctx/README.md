@@ -535,6 +535,48 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
 以下 checklist 是当前唯一 migration roadmap。`[x]` 表示实现和 focused verification 已完成；`[ ]` 表示尚未
 开始或尚未达到完整 contract。每个未完成项开始前都必须更新本文、完成 focused design discussion、先写测试，再实现。
 
+## Context Pressure Recovery
+
+### 目标
+
+`pi-mctx` 必须在当前 agent turn 内通知模型并回收可证明的旧 tool output。仅在
+`agent_end` 注入 follow-up 会错过仍在增长的 turn；只建议模型调用 `ctx_reduce` 也不能
+保证 context 在接近窗口上限时收缩。
+
+### 边界
+
+- **Pi host** 在 `tool_result` 后接受 hidden custom message；`deliverAs: "steer"` 在下一次
+  model request 前交付。`agent_end` 的 `followUp` 只作为没有下一个 tool boundary 时的 fallback。
+- **pi-mctx concrete extension** 计算 pressure、持久化 delivery lease、选择已验证 live-tail tool
+  tag，并在 context hook materialize pending drop。它不得改写 Pi transcript。
+- **MCTX SQLite store** 保存 partition-local `pending -> claimed -> delivered` lease。reload、失败与
+  重复 delivery 只能恢复或拒绝，不能重置已 delivered intent。
+
+```text
+context pass at >= 85% -> queue eligible tool drops -> project markers
+tool_result              -> claim pending nudge -> hidden steer
+agent_end                -> claim pending nudge -> hidden followUp fallback
+context pass at >= 95%  -> wait bounded historian -> force eligible tool drops -> request
+```
+
+### Pressure 与恢复
+
+pressure 使用最新 assistant usage 的 `input + cacheRead + cacheWrite`，除以有效 context
+window；Pi host 的 aggregate `getContextUsage().tokens` 只在没有 assistant usage 时作保守
+fallback。有效 window 优先 runtime context window，overflow 后的已检测更小 window 覆盖它。
+
+达到 85% 时，无视 `smart_drops` setting，强制 materialize 所有可证明、未保护、仍在 live
+tail 的 tool output；不可证明、受保护、非 tool source 保持原样。达到 95% 时，先等待当前
+single-flight Historian，最多 30 秒；无论等待结果如何都执行同一强制 materialization，再继续
+当前 request。Historian 失败或超时不阻断 Pi host。
+
+### 最小 seam 与验证
+
+store 暴露 nudge lease 的 claim/release/deliver 操作；feature 只在验证 baseline 后请求该 lease；
+extension 在 `tool_result` 调 primary steer delivery、在 `agent_end` 调 fallback follow-up。
+focused tests 覆盖 reload 恢复、send failure requeue、重复 delivery 拒绝、85% 自动 drop、95%
+bounded wait、pressure usage 计算与 current-turn steer。
+
 - [x] 独立 `@hheei/pi-mctx` package、显式 enable/model admission、user-level SQLite context store、project/session
   partition、revision CAS、lease、compartment graph、parent historian、repair/retry、trigger、context transform 与
   same-session branch divergence rebuild。

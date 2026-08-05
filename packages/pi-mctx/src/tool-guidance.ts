@@ -18,7 +18,6 @@ export interface MctxNudgeBaseline {
 	turnToolTokens: number;
 	lastLevel: 0 | 1 | 2;
 	reduced: boolean;
-	ceilingDelivered: boolean;
 }
 
 export function estimateMctxToolTokens(text: string): number {
