@@ -36,7 +36,6 @@ test("pi-mctx entry registers lifecycle handlers and managed Magic Context tools
 	});
 
 	piMctxExtension(pi as never);
-<<<<<<< HEAD
 	expect(handlers).toEqual([
 		"session_start",
 		"session_shutdown",
