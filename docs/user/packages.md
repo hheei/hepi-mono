@@ -7,7 +7,7 @@
 | --- | --- | --- |
 | [`hepi-mono`](../../packages/hepi-mono/README.md) | **Deprecated.** Former unified bundle; do not install for new setups. | Pi host, `ffi-rs` |
 | [`hepi-basics`](../../packages/hepi-basics/README.md) | Transitional foundational bundle | Pi host |
-| [`hepi-debug`](../../packages/hepi-debug/README.md) | Development diagnostics and deterministic TUI replay | Pi host |
+| [`pi-debug`](../../packages/pi-debug/README.md) | Development diagnostics and deterministic TUI replay | Pi host, ext-core |
 
 Independent extensions:
 

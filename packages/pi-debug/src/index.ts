@@ -15,3 +15,9 @@ export {
 	snapshotProviderPayload,
 	type ValueDigest,
 } from "./probe.js";
+export {
+	createDebugSettingsProvider,
+	DEBUG_ENABLED_FIELD,
+	DEBUG_SETTINGS_GROUP,
+	DEBUG_SETTINGS_SECTION,
+} from "./settings.js";

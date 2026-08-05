@@ -75,6 +75,6 @@ Pi docs define host behavior; HEPI documents define project policy. After readin
 | Aggregate install/publish behavior | root `README.md`, `docs/user/packages.md`, package README |
 | Shared TUI primitives and statusbar | `packages/hepi-basics/src/core/ui/`, `packages/hepi-basics/src/core/contributions/statusbar/` |
 | Skills and Loadout behavior | `packages/pi-ponytail/`, `packages/pi-caveman/`, `packages/pi-loadout/`, `packages/hepi-basics/src/dollar-skill/` |
-| TUI replay | `packages/hepi-debug/TUI_REPLAY.md` |
+| TUI replay | `packages/pi-debug/TUI_REPLAY.md` |
 
 When upstream and HEPI differ, first determine whether HEPI intentionally adapts the host. Document the host contract, the HEPI policy, and the compatibility boundary separately.

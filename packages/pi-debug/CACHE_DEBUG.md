@@ -1,6 +1,6 @@
 # Prompt Cache Debugging Guide
 
-This guide explains how to use `@hheei/hepi-debug` to determine why a Pi provider request did or did not reuse a prompt cache prefix.
+This guide explains how to use `@hheei/pi-debug` to determine why a Pi provider request did or did not reuse a prompt cache prefix.
 
 The extension records hashes and structural metadata only. It does not decide whether a cache miss is correct. Use the request hashes together with the provider-reported `cacheRead` and `cacheWrite` values.
 
@@ -37,7 +37,7 @@ Load the package after any extension that rewrites `before_provider_request`. Ev
 {
   "packages": [
     "...payload-rewriting extensions...",
-    "npm:@hheei/hepi-debug"
+    "npm:@hheei/pi-debug"
   ]
 }
 ```

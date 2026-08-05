@@ -50,7 +50,7 @@ For HEPI TUI changes:
 - Follow [Pi Source Design](references/DESIGN.md) for Pi's code-level design taste, state ownership, lifecycle, streaming, and integration boundaries. The repository-root `DESIGN.md` remains the HEPI TUI policy.
 - Reuse `packages/hepi-basics/src/core/ui/` primitives before adding local geometry or formatting helpers.
 - Test narrow and wide terminal dimensions, first render, selection changes, reload/session replacement, and cleanup.
-- Use `packages/hepi-debug/TUI_REPLAY.md` and `pi-tui-replay` for deterministic component output, but verify host-dependent behavior in the real Pi host or a PTY before claiming a shortcut, event, streaming, or lifecycle feature works.
+- Use `packages/pi-debug/TUI_REPLAY.md` and `pi-tui-replay` for deterministic component output, but verify host-dependent behavior in the real Pi host or a PTY before claiming a shortcut, event, streaming, or lifecycle feature works.
 
 ## Skills and Loadout
 

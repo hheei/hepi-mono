@@ -3,11 +3,17 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
+	getHepiRuntimeSettingsRegistry,
+	registerExtensionLifecycle,
+	registerHepiSettings,
+} from "@hheei/pi-ext-core";
+import {
 	comparePayloadSnapshots,
 	type PayloadSnapshot,
 	requestLogSnapshot,
 	snapshotProviderPayload,
 } from "./probe.js";
+import { createDebugSettingsProvider } from "./settings.js";
 
 interface SessionState {
 	readonly logPath: string;
@@ -18,10 +24,11 @@ interface SessionState {
 }
 
 export const DEBUG_GUIDE_URL =
-	"https://github.com/hheei/hepi-mono/blob/main/packages/hepi-debug/CACHE_DEBUG.md";
+	"https://github.com/hheei/hepi-mono/blob/main/packages/pi-debug/CACHE_DEBUG.md";
 
 export interface CacheDebugOptions {
 	readonly logPath?: string;
+	readonly isEnabled?: (context: ExtensionContext) => boolean;
 }
 
 export function registerCacheDebug(pi: ExtensionAPI, options: CacheDebugOptions = {}): void {
@@ -41,6 +48,7 @@ export function registerCacheDebug(pi: ExtensionAPI, options: CacheDebugOptions 
 		sessions.set(sessionId, state);
 		return state;
 	};
+	const enabled = (ctx: ExtensionContext): boolean => options.isEnabled?.(ctx) ?? true;
 
 	const write = (ctx: ExtensionContext, state: SessionState, record: unknown): void => {
 		try {
@@ -55,6 +63,7 @@ export function registerCacheDebug(pi: ExtensionAPI, options: CacheDebugOptions 
 	};
 
 	pi.on("session_start", (event, ctx) => {
+		if (!enabled(ctx)) return;
 		const state = stateFor(ctx);
 		write(ctx, state, {
 			schemaVersion: 1,
@@ -68,6 +77,7 @@ export function registerCacheDebug(pi: ExtensionAPI, options: CacheDebugOptions 
 	});
 
 	pi.on("before_provider_request", (event, ctx) => {
+		if (!enabled(ctx)) return undefined;
 		const state = stateFor(ctx);
 		const snapshot = snapshotProviderPayload(event.payload);
 		const comparison = comparePayloadSnapshots(state.previous, snapshot);
@@ -90,6 +100,7 @@ export function registerCacheDebug(pi: ExtensionAPI, options: CacheDebugOptions 
 	});
 
 	pi.on("after_provider_response", (event, ctx) => {
+		if (!enabled(ctx)) return;
 		const state = stateFor(ctx);
 		write(ctx, state, {
 			schemaVersion: 1,
@@ -103,6 +114,7 @@ export function registerCacheDebug(pi: ExtensionAPI, options: CacheDebugOptions 
 
 	pi.on("message_end", (event, ctx) => {
 		if (event.message.role !== "assistant") return;
+		if (!enabled(ctx)) return;
 		const state = stateFor(ctx);
 		const request = state.pendingRequests.shift() ?? null;
 		write(ctx, state, {
@@ -129,6 +141,10 @@ export function registerCacheDebug(pi: ExtensionAPI, options: CacheDebugOptions 
 	pi.registerCommand("cache-debug", {
 		description: "Show the prompt cache diagnostic log and guide",
 		handler: async (_args, ctx) => {
+			if (!enabled(ctx)) {
+				ctx.ui.notify("Cache diagnostics are disabled. Enable Pi Debug in ext-settings.", "info");
+				return;
+			}
 			ctx.ui.notify(`Log: ${stateFor(ctx).logPath}\nGuide: ${DEBUG_GUIDE_URL}`, "info");
 		},
 	});
@@ -142,5 +158,35 @@ function resolveLogPath(sessionId: string, configuredPath?: string): string {
 }
 
 export default function piDebugExtension(pi: ExtensionAPI): void {
-	registerCacheDebug(pi);
+	const enabledSessions = new Set<string>();
+	registerExtensionLifecycle(pi, {
+		key: "pi-debug",
+		start: async (runtime) => {
+			const provider = createDebugSettingsProvider((sessionId, enabled) => {
+				if (enabled) enabledSessions.add(sessionId);
+				else enabledSessions.delete(sessionId);
+			});
+			const disposeSettings = registerHepiSettings(provider, getHepiRuntimeSettingsRegistry(pi));
+			try {
+				const context = {
+					sessionId: runtime.extension.sessionManager.getSessionId(),
+					cwd: runtime.extension.cwd,
+				};
+				const state = await provider.storage.load(context);
+				await provider.onLoad?.(state ?? {}, context);
+			} catch (error) {
+				runtime.extension.ui.notify(
+					`Unable to load Pi Debug settings: ${error instanceof Error ? error.message : String(error)}`,
+					"error",
+				);
+			}
+			runtime.resources.add("pi-debug-settings", () => {
+				enabledSessions.delete(runtime.extension.sessionManager.getSessionId());
+				disposeSettings();
+			});
+		},
+	});
+	registerCacheDebug(pi, {
+		isEnabled: (context) => enabledSessions.has(context.sessionManager.getSessionId()),
+	});
 }

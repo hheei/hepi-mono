@@ -11,7 +11,7 @@ import {
 	stripAnsi,
 	viewFrame,
 	writeReplayArtifacts,
-} from "../../hepi-debug/src/tui-replay.js";
+} from "../../pi-debug/src/tui-replay.js";
 import { createStatusFeature } from "../src/core/contributions/status/index.js";
 import { createStatusbarFeature } from "../src/core/contributions/statusbar/index.js";
 

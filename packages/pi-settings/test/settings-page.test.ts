@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ExtensionPageViewContext, HepiSettingsProvider } from "@hheei/pi-ext-core";
-import { replayTui, viewFrame } from "../../hepi-debug/src/tui-replay.js";
+import { replayTui, viewFrame } from "../../pi-debug/src/tui-replay.js";
 import { createSettingsPage } from "../src/settings-page.js";
 
 function context(): {
