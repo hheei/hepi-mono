@@ -144,6 +144,45 @@ describe("FFF tool registration", () => {
 		expect(result.details).toBeUndefined();
 	});
 
+	test("treats an empty cursor as a new FFF search", async () => {
+		const host = harness();
+		const runtime = new FffRuntime(process.cwd(), {
+			finder: {
+				fileSearch: () => ({
+					ok: true as const,
+					value: { items: [], scores: [], totalMatched: 0, totalFiles: 0 },
+				}),
+			} as never,
+		});
+		const state = {
+			getRuntime: () => runtime,
+			getSettings: () => ({
+				shellPath: "sh",
+				bashOutputTailKiB: 10,
+				autocomplete: true,
+				grepEnhancement: true,
+				readEnhancement: true,
+				findEnhancement: true,
+				statusUI: true,
+			}),
+			getBashJobs: () => undefined,
+			getArtifacts: () => undefined,
+		} satisfies FffRuntimeState;
+		registerFindTool(host.pi, state);
+		const find = host.tools[0];
+		if (find === undefined) throw new Error("FFF find was not registered");
+
+		const result = await find.execute(
+			"find-empty-cursor",
+			{ pattern: "missing", cursor: "" },
+			undefined,
+			undefined,
+			{ cwd: process.cwd() } as never,
+		);
+
+		expect(result.content).toEqual([{ type: "text", text: "No files found matching pattern" }]);
+	});
+
 	test("searches artifact text with grep and rejects it from find", async () => {
 		const artifacts = createArtifactRegistry();
 		const path = artifacts.create("before\nNeedle\nafter");

@@ -113,8 +113,9 @@ export function registerFindTool(pi: ExtensionAPI, state: FffRuntimeState): void
 			) {
 				return native();
 			}
-			const resumed = params.cursor === undefined ? undefined : cursorStore.get(params.cursor);
-			if (params.cursor !== undefined && resumed === undefined)
+			const cursor = params.cursor === "" ? undefined : params.cursor;
+			const resumed = cursor === undefined ? undefined : cursorStore.get(cursor);
+			if (cursor !== undefined && resumed === undefined)
 				throw new Error("Invalid or expired find cursor.");
 			const limit = resumed?.limit ?? Math.max(1, params.limit ?? DEFAULT_LIMIT);
 			const query =

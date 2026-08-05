@@ -524,7 +524,7 @@ describe("Todo integration", () => {
 		expect(listed.details.snapshot).toEqual({ tasks: [], nextId: 1 });
 	});
 
-	test("starts fresh and clears state on session tree navigation", async () => {
+	test("restores the active branch state on startup and session tree navigation", async () => {
 		const host = harness("json");
 		const feature = createTodoFeature(host.pi);
 		const snapshot: TodoSnapshot = {
@@ -541,14 +541,13 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(listed.content[0]?.text).toBe("No todos.\nFinished all todos.");
-		await tool.execute(
-			"create",
-			{ operations: [{ action: "create", subject: "Current" }] },
-			undefined,
-			undefined,
-			host.ctx,
-		);
+		expect(listed.content[0]?.text).toBe("◐ #1 Restored\nNext: #1 Restored.");
+		host.setBranch([
+			branchResult({
+				tasks: [{ id: 2, subject: "Tree state", status: "pending" }],
+				nextId: 3,
+			}),
+		]);
 
 		await host.emit("session_tree");
 		listed = await tool.execute(
@@ -558,7 +557,7 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(listed.content[0]?.text).toBe("No todos.\nFinished all todos.");
+		expect(listed.content[0]?.text).toBe("◐ #2 Tree state\nNext: #2 Tree state.");
 	});
 
 	test("hides blocked work after two later assistant turns without Todo changes", async () => {
@@ -760,7 +759,19 @@ describe("Todo integration", () => {
 			message: "Suppressed #1\nNext: #2 Pending.",
 			level: "info",
 		});
-		expect(host.appended).toHaveLength(0);
+		expect(host.appended).toEqual([
+			{
+				type: "custom",
+				customType: "pi-todo:state",
+				data: {
+					tasks: [
+						{ id: 1, subject: "Working", status: "suppressed" },
+						{ id: 2, subject: "Pending", status: "in_progress" },
+					],
+					nextId: 3,
+				},
+			},
+		]);
 
 		let failure: unknown;
 		try {
@@ -800,6 +811,10 @@ describe("Todo integration", () => {
 		expect(created.content[0]?.text).toBe("Created #3\nNext: #2 Pending.");
 		await host.emit("session_tree");
 		await host.commands[0]!.handler("", host.ctx);
-		expect(host.notifications.at(-1)).toEqual({ message: "No todos.", level: "info" });
+		expect(host.notifications.at(-1)).toEqual({
+			message:
+				"0/1 completed\n── In Progress ──\n◐ #2 Pending\n── Suppressed ──\n× #1 Working  user suppressed",
+			level: "info",
+		});
 	});
 });
