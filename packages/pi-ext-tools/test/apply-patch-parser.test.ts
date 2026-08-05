@@ -36,6 +36,19 @@ describe("V4A patch parser", () => {
 		expect(patch.operations).toEqual(expected);
 	});
 
+	test("rejects repeated envelope markers with actionable errors", () => {
+		expect(() =>
+			parseV4aPatch(
+				"*** Begin Patch\n*** Update File: *** Begin Patch\n*** Update File: file.txt\n-old\n+new\n*** End Patch",
+			),
+		).toThrow("patch envelope markers cannot be used as file paths");
+		expect(() =>
+			parseV4aPatch(
+				"*** Begin Patch\n*** Update File: file.txt\n*** Begin Patch\n-old\n+new\n*** End Patch",
+			),
+		).toThrow("Begin Patch must appear only as the first line of the patch");
+	});
+
 	test("preserves literal whitespace and rejects malformed full input", () => {
 		const parsed = parseV4aPatch("*** Begin Patch\n*** Add File: x\n+  keep  \n*** End Patch");
 		const operation = parsed.operations[0];

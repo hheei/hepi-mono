@@ -188,6 +188,10 @@ function parseAdd(
 	while (index < lines.length) {
 		const line = lines[index];
 		if (line === undefined) throw parseError("unexpected end of add action");
+		if (line.text === BEGIN)
+			throw parseError("Begin Patch must appear only as the first line of the patch");
+		if (line.text === END && content.length === 0)
+			throw parseError("End Patch cannot appear before Add File content");
 		if (isHeaderOrEnd(line.text)) break;
 		if (!line.text.startsWith("+")) throw parseError("Add content lines must begin with +");
 		content.push(line.text.slice(1), line.newline);
@@ -222,6 +226,10 @@ function parseUpdate(
 	while (index < lines.length) {
 		const line = lines[index];
 		if (line === undefined) throw parseError("unexpected end of update action");
+		if (line.text === BEGIN)
+			throw parseError("Begin Patch must appear only as the first line of the patch");
+		if (line.text === END && current.lines.length === 0 && hunks.length === 0)
+			throw parseError("End Patch cannot appear before Update File body");
 		if (isHeaderOrEnd(line.text)) break;
 		if (line.text.startsWith(MOVE))
 			throw parseError("Move to must appear immediately after Update File");
@@ -293,6 +301,8 @@ function parseHeader(text: string): ParsedHeader | undefined {
 
 function assertPatchPath(path: string): void {
 	if (path.length === 0) throw parseError("empty path in patch header");
+	if (path === BEGIN || path === END)
+		throw parseError("patch envelope markers cannot be used as file paths");
 	if (path.startsWith("/") || path.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(path))
 		throw parseError("absolute paths are not allowed");
 }
