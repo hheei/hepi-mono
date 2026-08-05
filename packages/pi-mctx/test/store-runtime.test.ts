@@ -30,6 +30,25 @@ test("opens the MCTX store through Bun SQLite", async (): Promise<void> => {
 	}
 });
 
+test("inserts a history tag when Bun SQLite returns null for a missing row", async (): Promise<void> => {
+	const directory = mkdtempSync(join(tmpdir(), "pi-mctx-bun-history-tags-"));
+	try {
+		const store = await openMctxStore(join(directory, "context.db"));
+		try {
+			const partition = store.getOrCreatePartition(`dir:${"c".repeat(64)}`, "session-1");
+			expect(
+				store.syncHistoryTags(partition, [
+					{ kind: "message", entryId: "entry-1", source: "hello" },
+				]),
+			).toMatchObject({ tags: [{ tagNumber: 1, status: "active" }] });
+		} finally {
+			store.close();
+		}
+	} finally {
+		rmSync(directory, { force: true, recursive: true });
+	}
+});
+
 test("persists status accounting per partition", async (): Promise<void> => {
 	const directory = mkdtempSync(join(tmpdir(), "pi-mctx-accounting-"));
 	try {
