@@ -45,6 +45,7 @@ function isFffGrepResult(result: AgentToolResult<unknown>): boolean {
 function renderFffGrepText(text: string, theme: Theme): string {
 	return text
 		.split("\n")
+		.filter((line) => !FIND_CURSOR.test(line))
 		.map((line) => {
 			if (line.trim() === "" || line.startsWith("!")) return line;
 			if (/^\s*\d+[:|│]/.test(line)) {
@@ -146,7 +147,8 @@ function renderGrepText(text: string, theme: Theme, limit: number | undefined): 
 			if (lineList) return `${theme.fg("dim", "line:")}${lineList[1] ?? ""}`;
 			const match = line.match(GREP_MATCH_LINE);
 			if (!match) {
-				if (line.trim() === "" || line.startsWith("!") || line.startsWith("cursor:")) return line;
+				if (line.trim() === "" || line.startsWith("!")) return line;
+				if (FIND_CURSOR.test(line)) return "";
 				if (line.startsWith("[")) return theme.fg("dim", line);
 				return theme.fg("mdCode", line);
 			}

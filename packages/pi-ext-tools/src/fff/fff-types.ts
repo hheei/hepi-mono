@@ -78,7 +78,8 @@ export type GrepSearchRequest = {
 	pathQuery?: string;
 	glob?: string;
 	constraints?: string;
-	context?: number;
+	beforeContext?: number;
+	afterContext?: number;
 	limit?: number;
 	timeBudgetMs?: number;
 	cursor?: string;
@@ -111,7 +112,8 @@ export type GrepBaseRequest = {
 	pathQuery?: string;
 	glob?: string;
 	constraints?: string;
-	context: number;
+	beforeContext: number;
+	afterContext: number;
 	limit: number;
 	timeBudgetMs: number;
 	cursor?: string;

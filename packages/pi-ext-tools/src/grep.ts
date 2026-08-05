@@ -22,7 +22,6 @@ const schema = Type.Object({
 	caseSensitive: Type.Optional(
 		Type.Boolean({ description: "Force case-sensitive matching. Default uses smart-case." }),
 	),
-	context: Type.Optional(Type.Number({ description: "Context lines before and after each match" })),
 	limit: Type.Optional(Type.Number({ description: "Max matches (default 20)" })),
 	cursor: Type.Optional(Type.String({ description: "Pagination cursor from the previous result" })),
 });
@@ -32,7 +31,6 @@ function nativeParams(params: {
 	path?: string;
 	exclude?: string | string[];
 	caseSensitive?: boolean;
-	context?: number;
 	limit?: number;
 	cursor?: string;
 }): {
@@ -56,7 +54,7 @@ function nativeParams(params: {
 				: { path: params.path }),
 		...(smartCase ? { ignoreCase: true } : {}),
 		...(isRegex ? {} : { literal: true }),
-		...(params.context === undefined ? {} : { context: params.context }),
+		context: 3,
 		...(params.limit === undefined ? {} : { limit: params.limit }),
 	};
 }
@@ -84,7 +82,6 @@ export function registerGrepTool(pi: ExtensionAPI, state: FffRuntimeState): void
 				path?: string;
 				exclude?: string | string[];
 				caseSensitive?: boolean;
-				context?: number;
 				limit?: number;
 				cursor?: string;
 			},
@@ -122,7 +119,8 @@ export function registerGrepTool(pi: ExtensionAPI, state: FffRuntimeState): void
 				mode: containsRegexSyntax(params.pattern) ? "regex" : "plain",
 				...(params.caseSensitive === undefined ? {} : { caseSensitive: params.caseSensitive }),
 				constraints: buildFffQuery(params.path, "", params.exclude, context.cwd).trim(),
-				context: Math.max(0, params.context ?? 0),
+				beforeContext: 1,
+				afterContext: 3,
 				limit: Math.max(1, params.limit ?? DEFAULT_LIMIT),
 				...(params.cursor === undefined ? {} : { cursor: params.cursor }),
 				includeCursorHint: true,
