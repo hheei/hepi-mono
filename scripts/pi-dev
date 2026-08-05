@@ -4,12 +4,9 @@ import {
 	mkdirSync,
 	readdirSync,
 	readFileSync,
-	symlinkSync,
-	unlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
-import { homedir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -18,14 +15,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageRoot = path.join(root, "packages");
 const toolsPackageDir = path.join(packageRoot, "pi-ext-tools");
 const nativeBridgePath = path.join(toolsPackageDir, "native", "pi-ext-tools-bridge.node");
-const agentDir = path.resolve(process.env.PI_DEV_AGENT_DIR ?? path.join(root, ".pi-dev", "agent"));
-const sourceAgentDir = path.join(homedir(), ".pi", "agent");
-const sourceAuthPath = path.resolve(
-	process.env.PI_DEV_AUTH_FILE ?? path.join(sourceAgentDir, "auth.json"),
-);
-const sourceModelsPath = path.resolve(
-	process.env.PI_DEV_MODELS_FILE ?? path.join(sourceAgentDir, "models.json"),
-);
+const buildCacheDir = path.join(root, ".pi-dev");
 const piCli = path.join(root, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js");
 const requiredBuildDirectories = [
 	path.join(packageRoot, "pi-ext-core"),
@@ -63,36 +53,25 @@ const selectedPackageNames = new Set(
 		.map((name) => name.trim())
 		.filter((name) => name.length > 0),
 );
+
+function extensionPaths(directory: string): string[] {
+	const manifest: unknown = JSON.parse(
+		readFileSync(path.join(directory, "package.json"), "utf8"),
+	);
+	if (typeof manifest !== "object" || manifest === null || !("pi" in manifest)) return [];
+	const pi = manifest.pi;
+	if (typeof pi !== "object" || pi === null || !("extensions" in pi)) return [];
+	const extensions = pi.extensions;
+	if (!Array.isArray(extensions)) return [];
+	return extensions.filter((extension): extension is string => typeof extension === "string").map((extension) =>
+		path.join(directory, extension),
+	);
+}
 const packageDirs = independentPackageDirs.filter((directory) =>
 	selectedPackageNames.size > 0
 		? selectedPackageNames.has(path.basename(directory))
 		: true,
 );
-
-function isEmptyJsonObject(filePath: string): boolean {
-	try {
-		const parsed: unknown = JSON.parse(readFileSync(filePath, "utf8"));
-		return (
-			typeof parsed === "object" &&
-			parsed !== null &&
-			!Array.isArray(parsed) &&
-			Object.keys(parsed).length === 0
-		);
-	} catch {
-		return false;
-	}
-}
-
-function linkSourceFile(sourcePath: string, targetPath: string): void {
-	if (
-		sourcePath === targetPath ||
-		!existsSync(sourcePath) ||
-		(existsSync(targetPath) && !isEmptyJsonObject(targetPath))
-	)
-		return;
-	if (existsSync(targetPath)) unlinkSync(targetPath);
-	symlinkSync(sourcePath, targetPath);
-}
 
 function updateSourceHash(hash: ReturnType<typeof createHash>, directory: string): void {
 	for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) =>
@@ -160,8 +139,8 @@ function nativeBuildFingerprint(): string {
 	return hash.digest("hex");
 }
 
-mkdirSync(agentDir, { recursive: true });
-const buildStatePath = path.join(agentDir, "build.json");
+mkdirSync(buildCacheDir, { recursive: true });
+const buildStatePath = path.join(buildCacheDir, "build.json");
 const buildDirectories = [...new Set([...requiredBuildDirectories, ...packageDirs])];
 const typescriptFingerprint = buildFingerprint(buildDirectories);
 const buildsNativeBridge = packageDirs.includes(toolsPackageDir);
@@ -229,32 +208,15 @@ if (needsNativeBuild || needsTypeScriptBuild) {
 	);
 }
 
-const settingsPath = path.join(agentDir, "settings.json");
-const authPath = path.join(agentDir, "auth.json");
-const modelsPath = path.join(agentDir, "models.json");
-let settings: Record<string, unknown> = {};
-if (existsSync(settingsPath)) {
-	const parsed: unknown = JSON.parse(readFileSync(settingsPath, "utf8"));
-	if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-		settings = parsed as Record<string, unknown>;
-	}
-}
-settings.packages = packageDirs;
-settings.defaultProvider = "cx";
-settings.defaultModel = "gpt-5.6-luna";
-settings.defaultThinkingLevel = "low";
-settings.enabledModels = ["cx/gpt-5.6-luna"];
-delete settings.extensions;
-delete settings.skills;
-delete settings.prompts;
-delete settings.themes;
-writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
-linkSourceFile(sourceAuthPath, authPath);
-linkSourceFile(sourceModelsPath, modelsPath);
-
-const childEnv = { ...process.env, PI_CODING_AGENT_DIR: agentDir };
+const extensionArgs = packageDirs.flatMap((directory) =>
+	extensionPaths(directory).flatMap((extension) => ["--extension", extension]),
+);
+const childEnv = { ...process.env };
 delete childEnv.OPENAI_API_KEY;
-const result = spawnSync(process.execPath, [piCli, "--no-approve", ...process.argv.slice(2)], {
+const result = spawnSync(
+	process.execPath,
+	[piCli, "--no-approve", "--no-extensions", ...extensionArgs, ...process.argv.slice(2)],
+	{
 	cwd: process.cwd(),
 	env: childEnv,
 	stdio: "inherit",

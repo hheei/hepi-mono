@@ -21,9 +21,9 @@ const GREP_SUMMARY = /^(\d+) matches in (\d+) files:$/;
 const GREP_FILE_HEADER = /^> (.+) \((\d+) matches\):$/;
 const GREP_FILE_SUMMARY = /^(.+) \((\d+) matches\)$/;
 const GREP_LINE_LIST = /^line: (.*)$/;
-const GREP_MATCH_LINE = /^\s*(\d+)([:|?])(.*)$/;
+const GREP_MATCH_LINE = /^\s*(\d+)([:|│?])(.*)$/;
 const GREP_TRUNCATION = /^\.\.\. \((\d+) more lines, ctrl\+o to expand\)$/i;
-const GREP_NO_MATCHES = /^(?:No files matched\b.*|No matches found\.?)$/i;
+const GREP_NO_MATCHES = /^(?:No files matched\b.*|No match(?:es)? found\.?)$/i;
 const FIND_SUMMARY = /^\d+\/\d+ matches$/;
 const FIND_CANDIDATE = /^\d+\. (.+) \(([^)]+)\)(?: - (.+))?$/;
 const FIND_CURSOR = /^cursor:\s+/;
@@ -34,6 +34,41 @@ function resultText(result: AgentToolResult<unknown>): string {
 	return result.content
 		.filter((part) => part.type === "text")
 		.map((part) => ("text" in part ? part.text : ""))
+		.join("\n");
+}
+
+function isFffGrepResult(result: AgentToolResult<unknown>): boolean {
+	if (typeof result.details !== "object" || result.details === null) return false;
+	return Reflect.get(result.details, "format") === "fff-grep";
+}
+
+function renderFffGrepText(text: string, theme: Theme): string {
+	return text
+		.split("\n")
+		.map((line) => {
+			if (line.trim() === "" || line.startsWith("!")) return line;
+			if (/^\s*\d+[:|│]/.test(line)) {
+				const match = line.match(/^(\s*\d+)([:|│])(.*)$/);
+				return match
+					? `${theme.fg("dim", `${match[1] ?? ""}${match[2] ?? ""}`)}${match[3] ?? ""}`
+					: line;
+			}
+			if (line.startsWith("line:")) return theme.fg("dim", line);
+			const summary = line.match(/^Found (\d+) matches in (\d+) files\.$/);
+			if (summary)
+				return `Found ${theme.fg("success", summary[1] ?? "0")} matches in ${theme.fg("success", summary[2] ?? "0")} files.`;
+			const fileMatchSummary = line.match(/^(.*):([\d,]+) \((\d+) matches\)$/);
+			if (fileMatchSummary) {
+				const numbers = (fileMatchSummary[2] ?? "").split(",");
+				const shown = numbers.slice(0, 5).join(",");
+				const suffix = numbers.length > 5 ? ", …" : "";
+				return `${theme.fg("mdCode", `${fileMatchSummary[1] ?? ""}:${shown}${suffix}`)} (${theme.fg("success", fileMatchSummary[3] ?? "0")} matches)`;
+			}
+			const fileSummary = line.match(/^(.*) \((\d+) matches\)$/);
+			if (fileSummary)
+				return `${theme.fg("mdCode", fileSummary[1] ?? "")} (${theme.fg("success", fileSummary[2] ?? "0")} matches)`;
+			return theme.fg("mdCode", line);
+		})
 		.join("\n");
 }
 
@@ -158,6 +193,14 @@ export function renderGrepResult(
 ): Text {
 	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 	const content = resultText(result).replace(/(?:\r?\n)+$/, "");
+	if (isFffGrepResult(result)) {
+		text.setText(
+			context.isError
+				? theme.fg("error", content)
+				: renderFffGrepText(collapseGrepText(content, options.expanded === true), theme),
+		);
+		return text;
+	}
 	const totals = grepTotals(result, content);
 	const summary =
 		totals === undefined

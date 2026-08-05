@@ -8,6 +8,7 @@ import type {
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { observeLoadoutInventory } from "@hheei/pi-ext-core";
+import { normalizeNativeGrepResult } from "../src/grep-format.js";
 import { registerTools } from "../src/tools.js";
 
 const temporaryPaths: string[] = [];
@@ -54,6 +55,25 @@ describe("pi-ext-tools catalog", () => {
 		]);
 		expect(names.filter((name) => name === "apply_patch")).toHaveLength(1);
 		expect(() => registerTools(host.pi)).toThrow("Loadout tool id already registered: read");
+	});
+
+	test("normalizes native grep output to the FFF result shape", (): void => {
+		const result = normalizeNativeGrepResult({
+			content: [
+				{
+					type: "text",
+					text: "src/a.ts:10: first\nsrc/a.ts-9- before\nsrc/b.ts:3: second",
+				},
+			],
+		});
+		expect(result.content[0]?.text).toBe(
+			"Found 2 matches in 2 files.\n\nsrc/a.ts\n10:first\n9│before\n\nsrc/b.ts\n3:second",
+		);
+		expect(result.details).toMatchObject({
+			format: "fff-grep",
+			totalMatched: 2,
+			totalFiles: 2,
+		});
 	});
 
 	test("registers Built-in provenance and bidirectional mutator locks", (): void => {
@@ -162,6 +182,38 @@ describe("pi-ext-tools catalog", () => {
 				.join("\n")
 				.trimEnd(),
 		).toBe("find status-surface (limit 8)");
+		expect(
+			grep
+				.renderResult?.(
+					{
+						content: [{ type: "text", text: "src/a.ts (2 matches)\nline: 1, 3, ..." }],
+						details: { format: "fff-grep" },
+					},
+					{},
+					theme,
+					{ isError: false, lastComponent: undefined },
+				)
+				.render(200)
+				.map((line) => line.trimEnd())
+				.join("\n")
+				.trimEnd(),
+		).toBe("src/a.ts (2 matches)\nline: 1, 3, ...");
+		expect(
+			grep
+				.renderResult?.(
+					{
+						content: [{ type: "text", text: "src/a.ts:1,2,3,4,5,6 (6 matches)" }],
+						details: { format: "fff-grep" },
+					},
+					{},
+					theme,
+					{ isError: false, lastComponent: undefined },
+				)
+				.render(200)
+				.map((line) => line.trimEnd())
+				.join("\n")
+				.trimEnd(),
+		).toBe("src/a.ts:1,2,3,4,5, … (6 matches)");
 	});
 
 	test("executes read with the call context cwd instead of extension construction cwd", async (): Promise<void> => {

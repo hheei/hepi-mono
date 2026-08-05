@@ -31,6 +31,7 @@ describe("FFF tool registration", () => {
 	test("delegates every case-insensitive grep request to Pi", () => {
 		expect(grepNeedsBuiltinFallback({ pattern: "needle", ignoreCase: true })).toBe(true);
 		expect(grepNeedsBuiltinFallback({ pattern: "NEEDLE", ignoreCase: true })).toBe(true);
+		expect(grepNeedsBuiltinFallback({ pattern: "needle", ignoreCase: false })).toBe(false);
 	});
 
 	test("does not register retired find_files name", () => {
