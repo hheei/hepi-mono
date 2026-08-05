@@ -43,6 +43,7 @@ import {
 	projectMctxHistoryTags,
 } from "./history-tags.js";
 import { createProjectIdentityResolver } from "./project-identity.js";
+import { scheduleMctxMaintenance } from "./scheduler.js";
 import {
 	boundedMctxSearchText,
 	collectMctxExternalSearchCandidates,
@@ -1416,7 +1417,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			if (current.runtime.historian.kind !== "active") return;
 			// This handler is deliberately non-blocking. Historian completion happens
 			// after Pi has finished the turn and cannot delay its response lifecycle.
-			const usage = context.getContextUsage();
+			const usage = context.getContextUsage?.();
 			if (usage === undefined || typeof usage.tokens !== "number") return;
 			const percentage = modelThreshold(
 				current.runtime.settings.executeThresholdPercentage,
@@ -1459,6 +1460,28 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			if (tagSync === undefined) return undefined;
 			current.runtime = { ...current.runtime, partition: tagSync.partition };
 			let historyTags = tagSync.tags;
+			const usage = context.getContextUsage?.();
+			const percentage = modelThreshold(
+				current.runtime.settings.executeThresholdPercentage,
+				context.model,
+			);
+			const absolute =
+				current.runtime.settings.executeThresholdTokens === undefined
+					? undefined
+					: modelThreshold(current.runtime.settings.executeThresholdTokens, context.model);
+			const accounting = withStoreReadPolicy(current, () =>
+				current.runtime.store.readStatusAccounting(current.runtime.partition),
+			);
+			if (accounting === undefined) return undefined;
+			const maintenance = scheduleMctxMaintenance({
+				accounting,
+				...(typeof usage?.tokens === "number" ? { usageTokens: usage.tokens } : {}),
+				...(usage?.contextWindow === undefined || usage.contextWindow === null
+					? {}
+					: { contextWindow: usage.contextWindow }),
+				...(percentage === undefined ? {} : { percentageThreshold: percentage }),
+				...(absolute === undefined ? {} : { absoluteThreshold: absolute }),
+			});
 			const compartments = withStoreReadPolicy(current, () =>
 				current.runtime.store.listCompartments(current.runtime.partition),
 			);
@@ -1490,8 +1513,11 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					: recovery.kind === "empty"
 						? 0
 						: undefined;
-			if (current.runtime.settings.smartDrops && liveTailStartIndex !== undefined) {
-				const usage = context.getContextUsage();
+			if (
+				maintenance === "execute" &&
+				current.runtime.settings.smartDrops &&
+				liveTailStartIndex !== undefined
+			) {
 				const usageTokens = usage?.tokens;
 				const percentage = modelThreshold(
 					current.runtime.settings.executeThresholdPercentage,
@@ -1563,8 +1589,15 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					? projectMctxContext(messages, entries, compartments)
 					: { kind: "unchanged" as const, messages };
 			const baseMessages = projection.kind === "rendered" ? projection.messages : messages;
-			const tagged = projectMctxHistoryTags(baseMessages, entries, historyTags);
-			if (tagged.droppedTagNumbers.length > 0) {
+			const tagsForProjection: readonly MctxHistoryTag[] =
+				maintenance === "execute"
+					? historyTags
+					: historyTags.map(
+							(tag): MctxHistoryTag =>
+								tag.status === "pending" ? { ...tag, status: "active" } : tag,
+						);
+			const tagged = projectMctxHistoryTags(baseMessages, entries, tagsForProjection);
+			if (maintenance === "execute" && tagged.droppedTagNumbers.length > 0) {
 				const nextPartition = withStoreReadPolicy(current, () =>
 					current.runtime.store.markHistoryTagsDropped(
 						current.runtime.partition,
