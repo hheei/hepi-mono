@@ -129,8 +129,10 @@ winner inherit 或回到其 default，才可操作被锁定 member。
 - `pi-loadout` 发现 Pi 中的 native、HEPI 与第三方工具。同名工具合并为一个 name-level
   项，因为 Pi 的 active set 和 handler 选择同样按 name 工作。
 - 未配置的已发现工具保留 session-start Pi active set；HEPI managed tool 可声明自身默认值。
-- skill disable 只过滤 HEPI prompt 与 dollar-skill autocomplete/input expansion，不卸载 Pi
-  skill。
+- skill disable 不卸载 Pi skill，也不阻止用户显式 `/skill:<name>` 调用；它过滤 Pi `0.83`
+  system prompt 的 `<available_skills>` 条目，并过滤 dollar-skill autocomplete/input expansion。这个
+  prompt filter 使用公开 `before_agent_start` hook，依赖当前 Pi skill XML markup；升级 Pi 后必须由
+  focused test 验证 disabled skill 不会重新进入 prompt。
 - 安装 `pi-subagents` 后，Loadout 才显示 `Agents` group。`agent:<name>` 不传给
   Pi host `setActiveTools()`；core 将 effective activation 发布给 profile owner。`Enter` 在同一
   Loadout surface 打开 contributor 提供的 profile detail；没有 contributor detail 时保持当前 list

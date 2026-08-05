@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { OverlayOptions } from "@earendil-works/pi-tui";
 import {
+	getDisabledSkillKeys,
 	openExtensionPageRouter,
 	registerExtensionLifecycle,
 	registerExtensionPage,
@@ -14,11 +15,42 @@ interface ActiveLoadoutSession {
 	readonly signal: AbortSignal;
 }
 
+const AVAILABLE_SKILLS_SECTION =
+	/\n\nThe following skills provide specialized instructions for specific tasks\.[\s\S]*?<\/available_skills>/;
+const AVAILABLE_SKILL_ENTRY =
+	/\n {2}<skill>\n {4}<name>([^<\n]+)<\/name>\n[\s\S]*?\n {2}<\/skill>/g;
+
+/**
+ * Pi 0.83 exposes the generated prompt, not its skill list, to before_agent_start.
+ * Keep this compatibility bridge local and test the host's XML envelope explicitly.
+ */
+export function filterDisabledSkillsFromSystemPrompt(
+	systemPrompt: string,
+	disabledSkillKeys: ReadonlySet<string>,
+): string {
+	if (disabledSkillKeys.size === 0) return systemPrompt;
+	const section = systemPrompt.match(AVAILABLE_SKILLS_SECTION)?.[0];
+	if (section === undefined) return systemPrompt;
+	const filtered = section.replace(AVAILABLE_SKILL_ENTRY, (entry, name: string) =>
+		disabledSkillKeys.has(`skill:${name}`) ? "" : entry,
+	);
+	return filtered.includes("\n  <skill>")
+		? systemPrompt.replace(section, filtered)
+		: systemPrompt.replace(section, "");
+}
+
 export default function piLoadoutExtension(pi: ExtensionAPI): void {
 	// The command starts on Loadout but uses the shared router. This keeps page rendering
 	// and widget suspension identical to /ext-settings without importing pi-settings.
 	let active: ActiveLoadoutSession | undefined;
 	const engine = createLoadoutEngine(pi);
+	pi.on("before_agent_start", (event) => {
+		const systemPrompt = filterDisabledSkillsFromSystemPrompt(
+			event.systemPrompt,
+			getDisabledSkillKeys(pi),
+		);
+		return systemPrompt === event.systemPrompt ? undefined : { systemPrompt };
+	});
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-loadout",
 		start: async ({ extension, signal, resources, artifacts }) => {
