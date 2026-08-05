@@ -42,6 +42,26 @@ test("execute clears old typed thinking and advances the watermark", (): void =>
 	expect(first.content[0]).not.toHaveProperty("thinkingSignature");
 });
 
+test("does not advance a watermark when no assistant thinking was cleared", (): void => {
+	const user = { role: "user" as const, content: "prompt", timestamp: 0 };
+	const userEntry = {
+		id: "entry-1",
+		parentId: null,
+		type: "message",
+		message: user,
+	} as SessionEntry;
+	expect(
+		replayMctxReasoning({
+			messages: [user],
+			entries: [userEntry],
+			tags: [tag],
+			watermark: 0,
+			clearReasoningAge: 0,
+			execute: true,
+		}).watermark,
+	).toBe(0);
+});
+
 test("replays inline thinking cleanup from the watermark", (): void => {
 	const inline = {
 		...assistant,
