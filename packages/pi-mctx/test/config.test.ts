@@ -36,6 +36,43 @@ test("disabled configuration leaves pipeline inactive", async (): Promise<void> 
 	expect(config.pipeline).toEqual({ kind: "disabled" });
 });
 
+test("resolves user-owned cache TTL by exact model with malformed leaves falling back", async (): Promise<void> => {
+	const config = await withSettings(
+		{
+			"pi-mctx": {
+				enabled: true,
+				cache_ttl: { default: "2m", "anthropic/claude-haiku": "30s", "bad/model": "later" },
+			},
+		},
+		{ "pi-mctx": { cache_ttl: "1h" } },
+		loadMctxConfiguration,
+	);
+	if (config.pipeline.kind !== "enabled") throw new Error("expected enabled pipeline");
+	expect(config.pipeline.settings.cacheTtlMs).toEqual({
+		defaultValue: 120_000,
+		byModel: { "anthropic/claude-haiku": 30_000 },
+	});
+	expect(config.warnings).toEqual(
+		expect.arrayContaining([
+			"Ignoring user cache_ttl.bad/model: expected positive milliseconds or Ns/Nm/Nh",
+			"Ignoring project cache_ttl: only user config controls cache policy",
+		]),
+	);
+});
+
+test("falls back to the default cache TTL for malformed user config", async (): Promise<void> => {
+	const config = await withSettings(
+		{ "pi-mctx": { enabled: true, cache_ttl: "0m" } },
+		{},
+		loadMctxConfiguration,
+	);
+	if (config.pipeline.kind !== "enabled") throw new Error("expected enabled pipeline");
+	expect(config.pipeline.settings.cacheTtlMs).toBeUndefined();
+	expect(config.warnings).toContain(
+		"Ignoring user cache_ttl: expected positive milliseconds or Ns/Nm/Nh",
+	);
+});
+
 test("temporal awareness defaults to enabled", async (): Promise<void> => {
 	const config = await withSettings(
 		{ "pi-mctx": { enabled: true, historian: { enabled: true, model: "anthropic/claude-haiku" } } },

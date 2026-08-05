@@ -1001,6 +1001,13 @@ configuration 使用既有 Pi settings layout：global `<getAgentDir>/settings.j
 config 必须启用 runtime；project 只可 disable runtime，不可单独启用。Historian enablement/model、fail-closed policy 与
 SQLite tuning 是 user-only；project 只能提高已由 user 设置的 trigger threshold，不能引入或降低 threshold。future reserved
 field 必须在其 feature milestone 决定 scope，不能继承 blanket override。
+
+`cache_ttl` 已激活为 user-level scheduler policy：可取正整数毫秒、`Ns`、`Nm` 或 `Nh`，也可取 `{ default, "provider/model" }`
+map。缺省为 `5m`；exact `provider/model` override 优先于 default。malformed value 或 map leaf 只写 warning，并回退到 map
+default 或 `5m`，不能阻断已经可用的 MCTX runtime。project `cache_ttl` 一律忽略并 warning，避免 repository 改变用户机器的
+provider cache policy。每次 context pass 在 scheduler 前以当前 model 解析 TTL，并将 resolved milliseconds 写入既有 status
+accounting；因此 reload 后首个 pass 已使用新 TTL，status surface 显示相同值。该字段不创建 timer，也不改变 token threshold、
+historian admission 或 persisted context source。
 它通过 atomic read-modify-write、process queue 和 file lock 更新，不能覆盖同一 settings file 的 sibling section；
 它不与 SQLite context store 混用。
 
