@@ -135,7 +135,7 @@ export function renderGrepCall(
 	context: Pick<RenderContext, "lastComponent">,
 ): Text {
 	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-	const scope = args.path ? ` in ${theme.fg("mdCode", args.path)}` : "";
+	const scope = args.path ? ` in ${theme.fg("accent", args.path)}` : "";
 	const timeout = theme.fg("dim", ` (timeout ${args.timeout ?? DEFAULT_GREP_TIMEOUT_SECONDS}s)`);
 	text.setText(
 		`${theme.fg("accent", "grep")} ${theme.fg("mdCode", `/${args.pattern}/`)}${scope}${timeout}`,
@@ -155,7 +155,7 @@ export function renderGrepResult(
 	const summary =
 		totals === undefined
 			? undefined
-			: `Found ${theme.fg("mdCode", String(totals.matched))} matches in ${theme.fg("mdCode", String(totals.files))} files.`;
+			: `Found ${theme.fg("success", String(totals.matched))} matches in ${theme.fg("success", String(totals.files))} files.`;
 	const renderedContent = renderGrepText(
 		collapseGrepText(content, options.expanded === true),
 		theme,
