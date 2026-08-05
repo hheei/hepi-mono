@@ -78,6 +78,7 @@ import {
 	defaultMctxStorePath,
 	type MctxCompartment,
 	type MctxHistoryTag,
+	type MctxHistoryTagInput,
 	type MctxMemory,
 	type MctxMemoryArchive,
 	type MctxMemoryUpdate,
@@ -829,6 +830,34 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			}
 			return undefined;
 		}
+	}
+	/**
+	 * A historian publication can advance the partition after a drop projection
+	 * is rendered but before its status commit. Rebase once against the unchanged
+	 * branch so rendered pending markers cannot remain pending indefinitely.
+	 */
+	function commitProjectedHistoryTagDrops(
+		current: ActiveMctxRuntime,
+		entries: readonly SessionEntry[],
+		tagInputs: readonly MctxHistoryTagInput[],
+		tagNumbers: readonly number[],
+	): MctxPartition | undefined {
+		const committed = current.runtime.store.markHistoryTagsDropped(
+			current.runtime.partition,
+			tagNumbers,
+		);
+		if (committed !== undefined) return committed;
+		if (!sameBranchEntries(entries, current.lifecycle.extension.sessionManager.getBranch()))
+			return undefined;
+		const partition = current.runtime.store.findPartition(
+			current.runtime.partition.projectIdentity,
+			current.runtime.partition.sessionId,
+		);
+		if (partition === undefined) return undefined;
+		const synced = current.runtime.store.syncHistoryTags(partition, tagInputs);
+		return synced === undefined
+			? undefined
+			: current.runtime.store.markHistoryTagsDropped(synced.partition, tagNumbers);
 	}
 	function updateStatusAccounting(
 		current: ActiveMctxRuntime,
@@ -1953,10 +1982,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			const tagged = projectMctxHistoryTags(reasoning.messages, entries, tagsForProjection);
 			if (executeMaintenance && tagged.droppedTagNumbers.length > 0) {
 				const nextPartition = withStoreReadPolicy(current, () =>
-					current.runtime.store.markHistoryTagsDropped(
-						current.runtime.partition,
-						tagged.droppedTagNumbers,
-					),
+					commitProjectedHistoryTagDrops(current, entries, tagInputs, tagged.droppedTagNumbers),
 				);
 				if (nextPartition !== undefined)
 					current.runtime = { ...current.runtime, partition: nextPartition };
