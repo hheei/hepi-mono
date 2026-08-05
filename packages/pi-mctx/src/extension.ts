@@ -31,6 +31,7 @@ import { MAX_CTX_EXPAND_CHARS, renderMctxHistoryTagPage } from "./history-tags.j
 import { createMctxSettingsProvider } from "./settings.js";
 import type { MctxToolDefinition } from "./status-metrics.js";
 import { openMctxStatusSurface } from "./status-surface.js";
+import { stripMctxTagPrefix } from "./tag-prefix.js";
 import { renderMctxToolOutput } from "./tool-output.js";
 
 const DEFAULT_CTX_HISTORY_LIMIT = 50;
@@ -778,4 +779,8 @@ export default function piMctxExtension(pi: ExtensionAPI): void {
 	registerContextHook(pi, feature);
 	registerCompactionHook(pi, feature);
 	pi.on("turn_end", (_event, context) => feature.onTurnEnd(context));
+	pi.on("message_end", (event) => {
+		if (event.message.role !== "assistant") return undefined;
+		return { message: stripMctxTagPrefix(event.message) };
+	});
 }

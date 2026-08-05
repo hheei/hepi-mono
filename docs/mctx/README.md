@@ -29,6 +29,44 @@ compartment 投影后再对未覆盖的 live tail 做唯一结构匹配。重复
 `<!-- +Xm -->`。该 marker 只用于模型可见的时间间隔，不写入 session；重复 context
 pass 保持幂等。默认关闭，避免改变既有请求字节。
 
+## 非记忆完整迁移
+
+本 package 的目标是完整迁移上游 `cortexkit/magic-context` Pi plugin 的所有
+非 memory 行为：context scheduler、cache TTL gate、tag/drop/replay、reasoning
+cleanup、caveman text compression、tool-result nudge、todo state、historian
+trigger、m0/m1 materialization、Pi native compaction marker、overflow recovery、
+fork/clone、status、Sidekick、手动恢复 command 与生命周期清理。memory、embedding、
+search、note、Dreamer 和它们的自动注入明确不在本迁移范围。
+
+公开 command 采用本项目唯一入口 `/mctx <subcommand>`，不注册上游 `/ctx-*`
+alias。迁移后的 subcommand 为 `status`、`flush`、`recomp`、`wrapup`、`upgrade`
+和 `aug`；每项语义、取消、失败和缓存边界与上游对应 command 对齐。model tools
+`ctx_reduce` 与 `ctx_expand` 采用上游的 selector 和恢复语义；旧 `pi-mctx`
+tag-only `ctx_expand` 参数不保留兼容层。
+
+Pi host 是 context 深拷贝和 native compaction 的 owner。`pi-mctx` 使用 source
+entry ID 与完整 branch projection 建立稳定映射，不能依赖对象身份；在一次 context
+pass 中，scheduler 先选择 defer/execute，再仅在 execute 或强制恢复时 materialize
+会改变 prompt bytes 的 operation。pending drop、reasoning watermark、caveman depth、
+compartment boundary 与 compaction marker 都需持久化并在 defer pass 原样 replay。
+native compaction 一律由 `pi-mctx` 拦截；只有已验证 MCTX boundary 覆盖 pending
+marker 后，extension 才调用 Pi host `appendCompaction()`。
+
+```text
+Pi context clone
+  -> stable branch alignment
+  -> cache scheduler: defer | execute | emergency
+  -> replay durable tag/drop/reasoning/caveman state
+  -> execute pending operations and historian materialization when admitted
+  -> render m0 + m1 + protected live tail
+  -> drain verified Pi compaction marker
+  -> provider request
+```
+
+迁移按上述顺序完成。每一阶段先补 Pi host deep-clone regression，再加入对应 source
+state migration；任何对齐失败保持 raw context 或明确阻断，不能猜测、静默丢弃或以
+synthetic assistant message 替代 source transcript。
+
 ## Status Accounting Migration
 
 状态 panel 的 token 分类、Work tokens 和 cache timing 由 `pi-mctx` 自己生产，
