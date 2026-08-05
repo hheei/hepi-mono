@@ -192,8 +192,8 @@ describe("RTK feature lifecycle", () => {
 			const finalResult = { content: [{ type: "text", text: "\u001B[32mgreen\u001B[0m" }] };
 			await update({ toolName: "bash", toolCallId: "call", partialResult });
 			await end({ toolName: "bash", toolCallId: "call", result: finalResult });
-			expect(partialResult.content[0].text).toBe("\u001B[31mred\u001B[0m");
-			expect(finalResult.content[0].text).toBe("\u001B[32mgreen\u001B[0m");
+			expect(partialResult.content[0]!.text).toBe("\u001B[31mred\u001B[0m");
+			expect(finalResult.content[0]!.text).toBe("\u001B[32mgreen\u001B[0m");
 		}
 	});
 });
