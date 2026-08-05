@@ -72,4 +72,26 @@ describe("FFF grep formatting", () => {
 			buildGrepText(many, { limit: 100, requestedContext: 1, includeCursorHint: false }).text,
 		).not.toContain("│before");
 	});
+
+	test("deduplicates overlapping context and keeps match lines", () => {
+		const result = buildGrepText(
+			[
+				{
+					...match("src/a.ts", 10, "first"),
+					contextBefore: ["nine"],
+					contextAfter: ["second", "twelve", "thirteen"],
+				},
+				{
+					...match("src/a.ts", 11, "second"),
+					contextBefore: ["first"],
+					contextAfter: ["twelve", "thirteen", "fourteen"],
+				},
+			],
+			{ limit: 20, requestedContext: 1, includeCursorHint: false },
+		);
+
+		expect(result.text).toBe(
+			"src/a.ts\n 9│nine\n10:first\n11:second\n12│twelve\n13│thirteen\n14│fourteen",
+		);
+	});
 });

@@ -118,6 +118,7 @@ describe("pi-ext-tools catalog", () => {
 			"path",
 			"exclude",
 			"caseSensitive",
+			"context",
 			"limit",
 			"cursor",
 		]);

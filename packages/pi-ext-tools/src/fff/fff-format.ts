@@ -175,27 +175,36 @@ function buildContentLines(items: GrepMatch[], requestedContext: number) {
 
 	const appendFileLines = (fileItems: readonly GrepMatch[], width: number): void => {
 		const includeContext = requestedContext > 0 && !suppressAllContext && fileItems.length <= 10;
+		const rendered = new Map<number, { readonly text: string; readonly isMatch: boolean }>();
 		for (const match of fileItems) {
 			const before = includeContext ? (match.contextBefore ?? []) : [];
 			for (let i = 0; i < before.length; i += 1) {
 				const lineNumber = match.lineNumber - before.length + i;
 				const truncated = truncateLine(before[i] ?? "");
 				linesTruncated ||= truncated.wasTruncated;
-				lines.push(`${String(lineNumber).padStart(width)}│${truncated.text}`);
+				if (!rendered.has(lineNumber))
+					rendered.set(lineNumber, { text: truncated.text, isMatch: false });
 			}
 
 			const main = truncateLine(match.lineContent);
 			linesTruncated ||= main.wasTruncated;
-			lines.push(`${String(match.lineNumber).padStart(width)}:${main.text}`);
+			rendered.set(match.lineNumber, { text: main.text, isMatch: true });
 
 			if (includeContext) {
 				const after = match.contextAfter ?? [];
 				for (let i = 0; i < after.length; i += 1) {
+					const lineNumber = match.lineNumber + i + 1;
 					const truncated = truncateLine(after[i] ?? "");
 					linesTruncated ||= truncated.wasTruncated;
-					lines.push(`${String(match.lineNumber + i + 1).padStart(width)}│${truncated.text}`);
+					if (!rendered.has(lineNumber))
+						rendered.set(lineNumber, { text: truncated.text, isMatch: false });
 				}
 			}
+		}
+		for (const [lineNumber, line] of [...rendered.entries()].sort(
+			([left], [right]) => left - right,
+		)) {
+			lines.push(`${String(lineNumber).padStart(width)}${line.isMatch ? ":" : "│"}${line.text}`);
 		}
 	};
 
