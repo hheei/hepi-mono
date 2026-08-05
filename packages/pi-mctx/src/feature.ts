@@ -94,7 +94,12 @@ import {
 } from "./store.js";
 import { stripMctxSystemInjections } from "./system-injection.js";
 import { injectMctxTemporalMarkers } from "./temporal-awareness.js";
-import { injectMctxToolGuidance } from "./tool-guidance.js";
+import {
+	buildMctxToolGuidance,
+	buildMctxToolReminder,
+	estimateMctxToolTokens,
+	type MctxNudgeBaseline,
+} from "./tool-guidance.js";
 import { evaluateMctxTriggerPolicy } from "./trigger-policy.js";
 
 /** Active session state. `partition` is replaced after each successful store CAS. */
@@ -155,6 +160,13 @@ export interface MctxFeature {
 	): MctxCompactionResult;
 	active(): MctxSessionRuntime | undefined;
 	reduce(tagNumbers: readonly number[], context: ExtensionContext): MctxReduceResult;
+	systemPrompt(): string | undefined;
+	onToolResult(
+		toolName: string,
+		content: readonly unknown[],
+		context: ExtensionContext,
+	): string | undefined;
+	takeCeilingNudge(context: ExtensionContext): string | undefined;
 	expand(tagNumbers: readonly number[], context: ExtensionContext): MctxExpandResult;
 	memory(operation: MctxMemoryOperation, context: ExtensionContext): MctxMemoryResult;
 	note(operation: MctxNoteOperation, context: ExtensionContext): MctxNoteResult;
@@ -622,6 +634,22 @@ interface ActiveMctxRuntime {
 	pendingEmbedMemory?: MctxMemory | undefined;
 	/** Abort controller for an in-flight project embedding backfill; busy while set. */
 	embedBackfill?: AbortController | undefined;
+	nudgeBaseline?: MctxNudgeBaseline | undefined;
+}
+
+function toolResultText(content: readonly unknown[]): string {
+	return content
+		.map((part) =>
+			part !== null &&
+			typeof part === "object" &&
+			"type" in part &&
+			part.type === "text" &&
+			"text" in part &&
+			typeof part.text === "string"
+				? part.text
+				: "",
+		)
+		.join("");
 }
 
 function defaultLogHistorianDiagnostic(diagnostic: MctxHistorianFailureDiagnostic): void {
@@ -1403,6 +1431,66 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				return { kind: "failed", reason: error instanceof Error ? error.message : String(error) };
 			}
 		},
+		systemPrompt(): string | undefined {
+			const current = active;
+			if (current === undefined || current.lifecycle.signal.aborted) return undefined;
+			return buildMctxToolGuidance(
+				current.runtime.settings.protectedTags,
+				current.runtime.settings.cavemanTextCompression !== undefined,
+			);
+		},
+		onToolResult(toolName, content, context): string | undefined {
+			const current = active;
+			if (
+				current === undefined ||
+				current.lifecycle.signal.aborted ||
+				current.runtime.sessionId !== context.sessionManager.getSessionId()
+			)
+				return undefined;
+			const baseline = current.nudgeBaseline;
+			if (baseline === undefined) return undefined;
+			if (toolName === "ctx_reduce") {
+				baseline.reduced = true;
+				return undefined;
+			}
+			const text = toolResultText(content);
+			if (text.length === 0 || text.includes("<system-reminder>")) return undefined;
+			baseline.turnToolTokens += estimateMctxToolTokens(text);
+			if (baseline.reduced || baseline.reclaimableTags.length === 0) return undefined;
+			const pressure =
+				((baseline.usageTokens + baseline.turnToolTokens) / baseline.contextWindow) * 100;
+			const level: 0 | 1 | 2 =
+				pressure >= baseline.executeThresholdPercentage
+					? 2
+					: pressure >= baseline.executeThresholdPercentage - 5
+						? 1
+						: 0;
+			if (level === 0 || level <= baseline.lastLevel) return undefined;
+			baseline.lastLevel = level;
+			return buildMctxToolReminder(baseline.reclaimableTags, false);
+		},
+		takeCeilingNudge(context): string | undefined {
+			const current = active;
+			if (
+				current === undefined ||
+				current.lifecycle.signal.aborted ||
+				current.runtime.sessionId !== context.sessionManager.getSessionId()
+			)
+				return undefined;
+			const baseline = current.nudgeBaseline;
+			if (
+				baseline === undefined ||
+				baseline.ceilingDelivered ||
+				baseline.reduced ||
+				baseline.reclaimableTags.length === 0
+			)
+				return undefined;
+			const pressure =
+				((baseline.usageTokens + baseline.turnToolTokens) / baseline.contextWindow) * 100;
+			if (pressure < baseline.executeThresholdPercentage - 2) return undefined;
+			baseline.ceilingDelivered = true;
+			return buildMctxToolReminder(baseline.reclaimableTags, true);
+		},
 		onTurnEnd(context): void {
 			// Turn-end work is deliberately non-blocking. This hook only evaluates the
 			// trigger and schedules a background historian; Pi's turn remains independent.
@@ -1692,9 +1780,50 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				current.runtime.settings.temporalAwareness !== false
 					? injectMctxTemporalMarkers(tagged.messages)
 					: tagged.messages;
-			const guidedMessages = injectMctxToolGuidance(projectedMessages);
-			updateStatusAccounting(current, context, guidedMessages, entries, cacheTtlMs);
-			return { messages: guidedMessages };
+			const visibleTools = collectVisibleMctxToolTags(
+				projectedMessages,
+				entries,
+				historyTags,
+				liveTailStartIndex ?? 0,
+			);
+			const usageTokens = usage?.tokens;
+			const contextWindow = usage?.contextWindow;
+			if (
+				typeof usageTokens === "number" &&
+				Number.isSafeInteger(usageTokens) &&
+				usageTokens >= 0 &&
+				typeof contextWindow === "number" &&
+				Number.isSafeInteger(contextWindow) &&
+				contextWindow > 0 &&
+				percentage !== undefined
+			) {
+				const protectedTags = new Set(
+					historyTags
+						.filter((tag) => tag.status === "active")
+						.sort((left, right) => right.tagNumber - left.tagNumber)
+						.slice(0, current.runtime.settings.protectedTags)
+						.map((tag) => tag.tagNumber),
+				);
+				const priorBaseline = current.nudgeBaseline;
+				const initialPressure = (usageTokens / contextWindow) * 100;
+				current.nudgeBaseline = {
+					usageTokens,
+					contextWindow,
+					executeThresholdPercentage: percentage,
+					reclaimableTags: visibleTools
+						.filter(
+							(candidate) =>
+								candidate.tag.status === "active" && !protectedTags.has(candidate.tag.tagNumber),
+						)
+						.map((candidate) => candidate.tag.tagNumber),
+					turnToolTokens: 0,
+					lastLevel: initialPressure < percentage - 5 ? 0 : (priorBaseline?.lastLevel ?? 0),
+					reduced: false,
+					ceilingDelivered: priorBaseline?.ceilingDelivered ?? false,
+				};
+			} else current.nudgeBaseline = undefined;
+			updateStatusAccounting(current, context, projectedMessages, entries, cacheTtlMs);
+			return { messages: projectedMessages };
 		},
 		prepare,
 		active: (): MctxSessionRuntime | undefined => active?.runtime,
@@ -2124,20 +2253,33 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			if (recovery.kind === "invalid" || recovery.kind === "rebuild") return { kind: "stale" };
 			const liveTailStartIndex = recovery.kind === "valid" ? recovery.graph.liveTailStartIndex : 0;
 			const liveEntryIds = new Set(entries.slice(liveTailStartIndex).map((entry) => entry.id));
-			// queueHistoryTagDrops treats its active set as the proof that a selector
-			// can materialize. Covered compartments are intentionally excluded.
-			const liveTagNumbers = synced.tags
-				.filter((tag) => liveEntryIds.has(tag.entryId))
+			// Only live tool results can be reclaimed by the model. User, assistant,
+			// and reference tags remain durable instruction/context even when selected.
+			const liveToolTagNumbers = synced.tags
+				.filter(
+					(tag) => tag.kind === "tool" && tag.status === "active" && liveEntryIds.has(tag.entryId),
+				)
 				.map((tag) => tag.tagNumber);
+			const allowed = new Set(liveToolTagNumbers);
+			const requested = tagNumbers.filter((tagNumber) => allowed.has(tagNumber));
 			const queued = current.runtime.store.queueHistoryTagDrops(
 				synced.partition,
-				tagNumbers,
-				liveTagNumbers,
+				requested,
+				liveToolTagNumbers,
 				current.runtime.settings.protectedTags,
 			);
 			if (queued === undefined) return { kind: "stale" };
 			current.runtime = { ...current.runtime, partition: queued.partition };
-			return { kind: "queued", queued: queued.queued, rejected: queued.rejected };
+			return {
+				kind: "queued",
+				queued: queued.queued,
+				rejected: [
+					...new Set([
+						...tagNumbers.filter((tagNumber) => !allowed.has(tagNumber)),
+						...queued.rejected,
+					]),
+				],
+			};
 		},
 	};
 	return feature;

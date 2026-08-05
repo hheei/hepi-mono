@@ -41,6 +41,9 @@ test("pi-mctx entry registers lifecycle handlers and managed Magic Context tools
 		"session_shutdown",
 		"context",
 		"session_before_compact",
+		"before_agent_start",
+		"tool_result",
+		"agent_end",
 		"turn_end",
 		"message_end",
 	]);

@@ -504,6 +504,91 @@ test("expand reads only current-branch retained tags and reports gaps", async ()
 	).toMatchObject({ kind: "expanded", tags: [{ tagNumber: 1 }], rejected: [] });
 });
 
+test("nudges only reclaimable old tool tags under pressure", async (): Promise<void> => {
+	const toolBranch = [
+		entry("request", "user", "inspect files"),
+		{
+			type: "message",
+			id: "tool-call-1",
+			parentId: "request",
+			timestamp: "2026-01-01T00:00:01.000Z",
+			message: {
+				role: "assistant" as const,
+				content: [{ type: "toolCall" as const, id: "call-1", name: "read", arguments: {} }],
+				timestamp: 1,
+			},
+		} as SessionEntry,
+		{
+			type: "message",
+			id: "tool-result-1",
+			parentId: "tool-call-1",
+			timestamp: "2026-01-01T00:00:02.000Z",
+			message: {
+				role: "toolResult" as const,
+				toolCallId: "call-1",
+				toolName: "read",
+				content: [{ type: "text" as const, text: "old result" }],
+				isError: false,
+				timestamp: 2,
+			},
+		} as SessionEntry,
+		{
+			type: "message",
+			id: "tool-call-2",
+			parentId: "tool-result-1",
+			timestamp: "2026-01-01T00:00:03.000Z",
+			message: {
+				role: "assistant" as const,
+				content: [{ type: "toolCall" as const, id: "call-2", name: "read", arguments: {} }],
+				timestamp: 3,
+			},
+		} as SessionEntry,
+		{
+			type: "message",
+			id: "tool-result-2",
+			parentId: "tool-call-2",
+			timestamp: "2026-01-01T00:00:04.000Z",
+			message: {
+				role: "toolResult" as const,
+				toolCallId: "call-2",
+				toolName: "read",
+				content: [{ type: "text" as const, text: "protected result" }],
+				isError: false,
+				timestamp: 4,
+			},
+		} as SessionEntry,
+	];
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(true, false, 1),
+		openStore: () => store({ listCompartments: () => [] }),
+		resolveProjectIdentity: async () => "git:project",
+	});
+	const lifecycle = {
+		pi: { events: {} },
+		extension: {
+			cwd: "/project",
+			sessionManager: { getSessionId: () => "session-1" },
+			modelRegistry: { find: () => model, hasConfiguredAuth: () => true },
+			ui: { notify: () => undefined },
+		} as unknown as ExtensionContext,
+		signal: new AbortController().signal,
+		resources: { add: () => undefined, cleanup: async () => [] },
+	} as unknown as ExtensionLifecycleContext;
+	await feature.start(lifecycle);
+	const context = {
+		model,
+		getContextUsage: () => ({ tokens: 64, contextWindow: 100 }),
+		sessionManager: { getSessionId: () => "session-1", getBranch: () => toolBranch },
+	} as unknown as ExtensionContext;
+	feature.onContext(toolBranch.flatMap(sessionEntryToContextMessages), context);
+	expect(feature.onToolResult("read", [{ type: "text", text: "more output" }], context)).toContain(
+		"2",
+	);
+	expect(feature.takeCeilingNudge(context)).toContain("Reclaim now before continuing");
+	feature.onContext(toolBranch.flatMap(sessionEntryToContextMessages), context);
+	expect(feature.takeCeilingNudge(context)).toBeUndefined();
+});
+
 test("notes persist resolved current-branch tag identity and stay session-local", async (): Promise<void> => {
 	const lifecycle = {
 		pi: { events: {} },
