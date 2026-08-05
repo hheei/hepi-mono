@@ -48,7 +48,7 @@ import {
 	type SingleGrepRequest,
 } from "./fff-types.js";
 import { type AppResult, errResult, propagateError, toVoidResult } from "./result-utils.js";
-import { getProjectDatabasePaths, resolveProjectRoot } from "./runtime-paths.js";
+import { getProjectDatabasePaths } from "./runtime-paths.js";
 
 async function getPathType(path: string): Promise<"file" | "directory" | null> {
 	try {
@@ -337,9 +337,7 @@ export class FffRuntime {
 	}
 
 	async getMetadata(): Promise<RuntimeMetadata> {
-		const projectRoot =
-			this.options.projectRoot ??
-			(this.basePath !== this.cwd ? this.basePath : await resolveProjectRoot(this.cwd));
+		const projectRoot = this.options.projectRoot ?? this.cwd;
 		this.basePath = projectRoot;
 		const root = resolve(getAgentDir(), "pi-ext-tools");
 		const paths = getProjectDatabasePaths(root, projectRoot);
@@ -1012,7 +1010,7 @@ export class FffRuntime {
 		});
 		if (rootResult.isErr()) return propagateError(rootResult);
 
-		const projectRoot = this.options.projectRoot ?? (await resolveProjectRoot(this.cwd));
+		const projectRoot = this.options.projectRoot ?? this.cwd;
 		this.basePath = projectRoot;
 		const paths = getProjectDatabasePaths(root, projectRoot);
 		const dbDir = paths.dbDir;
@@ -1046,11 +1044,6 @@ export class FffRuntime {
 		}
 
 		const finder = created.value.value;
-		void (await Result.tryPromise({
-			try: () => finder.waitForScan(500),
-			catch: (cause) =>
-				finderFailure("waitForScan", cause instanceof Error ? cause.message : String(cause), cause),
-		}));
 		return Result.ok(finder);
 	}
 }

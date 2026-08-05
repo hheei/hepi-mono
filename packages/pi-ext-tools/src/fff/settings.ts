@@ -22,7 +22,6 @@ export interface FffSettings {
 	readonly grepEnhancement: boolean;
 	readonly readEnhancement: boolean;
 	readonly findEnhancement: boolean;
-	readonly statusUI: boolean;
 }
 
 export const DEFAULT_FFF_SETTINGS: FffSettings = {
@@ -32,13 +31,12 @@ export const DEFAULT_FFF_SETTINGS: FffSettings = {
 	grepEnhancement: true,
 	readEnhancement: true,
 	findEnhancement: true,
-	statusUI: true,
 };
 
 function booleanAt(
 	state: HepiSettingsState | undefined,
 	group: string,
-	key: "autocomplete" | "grepEnhancement" | "readEnhancement" | "findEnhancement" | "statusUI",
+	key: "autocomplete" | "grepEnhancement" | "readEnhancement" | "findEnhancement",
 ): boolean {
 	const value = state?.[group]?.[key];
 	return typeof value === "boolean" ? value : DEFAULT_FFF_SETTINGS[key];
@@ -77,7 +75,6 @@ export function fffSettingsFromState(state: HepiSettingsState | undefined): FffS
 		grepEnhancement: booleanAt(state, GROUP, "grepEnhancement"),
 		readEnhancement: booleanAt(state, GROUP, "readEnhancement"),
 		findEnhancement: booleanAt(state, GROUP, "findEnhancement"),
-		statusUI: booleanAt(state, GROUP, "statusUI"),
 	};
 }
 
@@ -169,15 +166,6 @@ export function createFffSettingsProvider(
 						defaultValue: true,
 						description:
 							"Use FFF content search when its semantics are compatible with the requested grep operation.",
-						parse: (value) => value === "true",
-					},
-					{
-						id: "statusUI",
-						label: "Status notices",
-						type: "boolean",
-						defaultValue: true,
-						description:
-							"Show FFF startup availability and indexing notices in the current Pi session.",
 						parse: (value) => value === "true",
 					},
 				],
