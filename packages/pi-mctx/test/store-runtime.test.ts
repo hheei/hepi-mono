@@ -30,6 +30,23 @@ test("opens the MCTX store through Bun SQLite", async (): Promise<void> => {
 	}
 });
 
+test("persists a monotonic per-partition reasoning watermark", async (): Promise<void> => {
+	const directory = mkdtempSync(join(tmpdir(), "pi-mctx-reasoning-"));
+	try {
+		const store = await openMctxStore(join(directory, "context.db"));
+		try {
+			const partition = store.getOrCreatePartition(`dir:${"d".repeat(64)}`, "session-1");
+			expect(store.readReasoningWatermark(partition)).toBe(0);
+			expect(store.advanceReasoningWatermark(partition, 8)).toBe(8);
+			expect(store.advanceReasoningWatermark(partition, 3)).toBe(8);
+		} finally {
+			store.close();
+		}
+	} finally {
+		rmSync(directory, { force: true, recursive: true });
+	}
+});
+
 test("inserts a history tag when Bun SQLite returns null for a missing row", async (): Promise<void> => {
 	const directory = mkdtempSync(join(tmpdir(), "pi-mctx-bun-history-tags-"));
 	try {
