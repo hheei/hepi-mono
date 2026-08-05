@@ -98,6 +98,7 @@ export interface MctxSessionRuntime extends MctxRuntime {
 	readonly partition: MctxPartition;
 }
 
+<<<<<<< HEAD
 export type MctxCompactionResult =
 	| { readonly kind: "inactive" | "stale" }
 	| MctxCompactionMarkerResult;
@@ -1588,6 +1589,16 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				recovery.kind === "valid"
 					? projectMctxContext(messages, entries, compartments)
 					: { kind: "unchanged" as const, messages };
+			if (recovery.kind === "valid") {
+				const marker = planMctxCompactionMarker(entries, recovery.graph);
+				if (marker !== undefined)
+					appendMctxCompactionMarker(
+						context,
+						marker.summary,
+						marker.firstKeptEntryId,
+						usage?.tokens ?? 0,
+					);
+			}
 			const baseMessages = projection.kind === "rendered" ? projection.messages : messages;
 			const tagsForProjection: readonly MctxHistoryTag[] =
 				maintenance === "execute"
