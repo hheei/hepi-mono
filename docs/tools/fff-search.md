@@ -9,3 +9,5 @@
 - FFF 失败时，adapter 将可表达部分转换为 Pi native `rg`/`fd` 参数，并对返回路径应用 `exclude` 后处理。native 无法忠实表示 fuzzy 语义；cursor 在 native fallback 中被忽略。
 
 Pi host 拥有 tool call、取消信号和 native fallback 执行。`pi-ext-tools` 拥有 FFF runtime、cursor、查询转换和 session cleanup。
+
+`grep` 在内存中搜索 session artifact URL；`find` 拒绝该 URL，因为 artifact 不是可遍历文件树。

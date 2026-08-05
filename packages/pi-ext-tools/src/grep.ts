@@ -14,6 +14,19 @@ import { renderGrepCall, renderGrepResult } from "./search-renderer.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 const DEFAULT_LIMIT = 20;
+const ARTIFACT_PREFIX = "artifact:" + "//";
+const artifactCursors = new Map<
+	string,
+	{
+		path: string;
+		pattern: string;
+		caseSensitive: boolean | undefined;
+		context: number | undefined;
+		limit: number;
+		offset: number;
+	}
+>();
+let artifactCursorSequence = 0;
 
 const schema = Type.Object({
 	pattern: Type.String({ description: "Search pattern (literal text or regex)" }),
@@ -65,6 +78,92 @@ function nativeParams(params: {
 	};
 }
 
+function escapeLiteral(pattern: string): string {
+	return pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function artifactCursor(value: {
+	path: string;
+	pattern: string;
+	caseSensitive: boolean | undefined;
+	context: number | undefined;
+	limit: number;
+	offset: number;
+}): string {
+	const cursor = `artifact-grep:${++artifactCursorSequence}`;
+	artifactCursors.set(cursor, value);
+	if (artifactCursors.size > 200) {
+		const oldest = artifactCursors.keys().next().value;
+		if (typeof oldest === "string") artifactCursors.delete(oldest);
+	}
+	return cursor;
+}
+
+function searchArtifact(
+	path: string,
+	text: string,
+	params: {
+		pattern: string;
+		caseSensitive?: boolean;
+		context?: number;
+		limit?: number;
+		cursor?: string;
+	},
+): string {
+	const resumed = params.cursor === undefined ? undefined : artifactCursors.get(params.cursor);
+	if (params.cursor !== undefined && resumed === undefined)
+		throw new Error("Invalid or expired artifact grep cursor.");
+	const pattern = resumed?.pattern ?? params.pattern;
+	const caseSensitive = resumed?.caseSensitive ?? params.caseSensitive;
+	const context = resumed?.context ?? params.context;
+	const limit = resumed?.limit ?? Math.max(1, params.limit ?? DEFAULT_LIMIT);
+	const offset = resumed?.offset ?? 0;
+	const source = containsRegexSyntax(pattern) ? pattern : escapeLiteral(pattern);
+	let expression: RegExp;
+	try {
+		expression = new RegExp(
+			source,
+			caseSensitive === true || pattern !== pattern.toLowerCase() ? "" : "i",
+		);
+	} catch {
+		expression = new RegExp(escapeLiteral(pattern), caseSensitive === true ? "" : "i");
+	}
+	const lines = text.split("\n");
+	const matches = lines.flatMap((line, index) => (expression.test(line) ? [index] : []));
+	const page = matches.slice(offset, offset + limit);
+	if (page.length === 0) return "No match found";
+	const requestedContext = Math.max(0, context ?? 1);
+	const before = requestedContext;
+	const after = context === undefined ? 3 : requestedContext;
+	const showContext = matches.length <= 30 && page.length <= 10;
+	const rendered = new Map<number, boolean>();
+	for (const index of page) {
+		if (showContext) {
+			for (
+				let line = Math.max(0, index - before);
+				line <= Math.min(lines.length - 1, index + after);
+				line += 1
+			)
+				rendered.set(line, rendered.get(line) === true || line === index);
+		} else rendered.set(index, true);
+	}
+	const output = [path];
+	for (const [index, isMatch] of [...rendered.entries()].sort(([left], [right]) => left - right))
+		output.push(`${index + 1}${isMatch ? ":" : "│"}${lines[index] ?? ""}`);
+	if (offset + page.length < matches.length)
+		output.push(
+			`cursor: ${artifactCursor({
+				path,
+				pattern,
+				caseSensitive,
+				context,
+				limit,
+				offset: offset + page.length,
+			})}`,
+		);
+	return output.join("\n");
+}
+
 export function registerGrepTool(pi: ExtensionAPI, state: FffRuntimeState): void {
 	const tool = {
 		name: "grep",
@@ -97,6 +196,22 @@ export function registerGrepTool(pi: ExtensionAPI, state: FffRuntimeState): void
 			context: { cwd: string },
 		) {
 			if (signal?.aborted) throw new Error("Operation aborted");
+			const artifacts = state.getArtifacts();
+			const resumedArtifact =
+				params.cursor === undefined ? undefined : artifactCursors.get(params.cursor);
+			const artifactPath = resumedArtifact?.path ?? params.path;
+			if (artifactPath?.startsWith(ARTIFACT_PREFIX)) {
+				if (artifacts === undefined) throw new Error("Artifact registry is unavailable.");
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: searchArtifact(artifactPath, artifacts.read(artifactPath), params),
+						},
+					],
+					details: undefined,
+				};
+			}
 			const native = async () => {
 				const result = await createGrepToolDefinition(context.cwd).execute(
 					id,
