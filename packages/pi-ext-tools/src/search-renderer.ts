@@ -19,7 +19,7 @@ type RenderContext = {
 
 const GREP_SUMMARY = /^(\d+) matches in (\d+) files:$/;
 const GREP_FILE_HEADER = /^> (.+) \((\d+) matches\):$/;
-const GREP_MATCH_LINE = /^\s*(\d+):(.*)$/;
+const GREP_MATCH_LINE = /^\s*(\d+)([:|])(.*)$/;
 const GREP_TRUNCATION = /^\.\.\. \((\d+) more lines, ctrl\+o to expand\)$/i;
 const GREP_NO_MATCHES = /^(?:No files matched\b.*|No matches found\.?)$/i;
 const FIND_SUMMARY = /^\d+\/\d+ matches$/;
@@ -65,10 +65,15 @@ function renderGrepText(text: string, theme: Theme, limit: number | undefined): 
 			if (fileHeader)
 				return `${theme.fg("dim", fileHeader[1] ?? "")} (${theme.fg("success", fileHeader[2] ?? "0")} matches)`;
 			const match = line.match(GREP_MATCH_LINE);
-			if (!match) return line;
+			if (!match) {
+				if (line.trim() === "" || line.startsWith("!") || line.startsWith("cursor:")) return line;
+				if (line.startsWith("[")) return theme.fg("dim", line);
+				return theme.fg("mdCode", line);
+			}
 			const lineNumber = match[1] ?? "";
-			const content = (match[2] ?? "").replace(/^ /, "");
-			return `${theme.fg("dim", lineNumber.padStart(lineWidth, " "))}${theme.fg("dim", ":")}  ${content}`;
+			const separator = match[2] ?? ":";
+			const content = match[3] ?? "";
+			return `${theme.fg("dim", lineNumber.padStart(lineWidth, " ") + separator)}${content}`;
 		})
 		.join("\n");
 	return lines.some((line) => GREP_SUMMARY.test(line) || GREP_NO_MATCHES.test(line))
