@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { grepNeedsBuiltinFallback, inferFffGrepMode } from "../../src/fff/extension-common.js";
-import { createFffRuntimeState } from "../../src/fff/lifecycle.js";
+import { FffRuntime } from "../../src/fff/fff.js";
+import { createFffRuntimeState, type FffRuntimeState } from "../../src/fff/lifecycle.js";
 import { registerMultiGrepTool } from "../../src/fff/multi-grep.js";
 import { registerFindTool } from "../../src/find.js";
 
@@ -85,5 +86,59 @@ describe("FFF tool registration", () => {
 		} finally {
 			await rm(directory, { recursive: true, force: true });
 		}
+	});
+
+	test("uses FFF for unscoped non-glob find queries when enabled", async () => {
+		const host = harness();
+		const runtime = new FffRuntime(process.cwd(), {
+			finder: {
+				fileSearch: () => ({
+					ok: true as const,
+					value: {
+						items: [
+							{
+								relativePath: "src/find-enhancement.ts",
+								totalFrecencyScore: 100,
+								gitStatus: "modified",
+							},
+						],
+						scores: [{ matchType: "fuzzy", total: 1 }],
+					},
+				}),
+			} as never,
+		});
+		const state = {
+			getRuntime: () => runtime,
+			getSettings: () => ({
+				shellPath: "sh",
+				bashOutputTailKiB: 10,
+				autocomplete: true,
+				grepEnhancement: true,
+				readEnhancement: true,
+				findEnhancement: true,
+				statusUI: true,
+			}),
+			getBashJobs: () => undefined,
+			getArtifacts: () => undefined,
+		} satisfies FffRuntimeState;
+		registerFindTool(host.pi, state);
+		const find = host.tools[0];
+		if (find === undefined) throw new Error("FFF find was not registered");
+
+		const result = await find.execute(
+			"find-fff",
+			{ pattern: "find enhancement" },
+			undefined,
+			undefined,
+			{ cwd: process.cwd() } as never,
+		);
+
+		expect(result.content).toEqual([
+			{
+				type: "text",
+				text: "1. src/find-enhancement.ts (fuzzy) - hot git:modified",
+			},
+		]);
+		expect(result.details).toBeUndefined();
 	});
 });

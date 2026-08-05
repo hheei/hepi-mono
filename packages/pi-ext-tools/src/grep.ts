@@ -28,6 +28,15 @@ export function registerGrepTool(pi: ExtensionAPI, state: FffRuntimeState): void
 	const template = createGrepToolDefinition(process.cwd());
 	const tool: typeof template = {
 		...template,
+		description:
+			"Grep file contents. FFF-backed when the request is compatible; otherwise uses Pi's native ripgrep path. Results are ranked by frecency when FFF is used; matches within a file stay in source order. Default limit 100.",
+		promptSnippet: "Grep contents",
+		promptGuidelines: [
+			"grep: prefer bare identifiers as patterns. Literal queries are most efficient.",
+			"grep: use path or glob to include a scope (for example, 'src/' or '*.ts') and avoid noisy paths.",
+			"grep: use ignoreCase: true only when case-insensitive matching is required; omitted or false preserves exact case.",
+			"grep: after 1-2 greps, read the top match instead of doing more greps.",
+		],
 		renderCall: (args, theme, context) => renderGrepCall(args, theme, context),
 		renderResult: (result, options, theme, context) =>
 			renderGrepResult(result, options, theme, context),
