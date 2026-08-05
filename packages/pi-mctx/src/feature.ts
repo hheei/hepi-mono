@@ -727,6 +727,20 @@ function verifiedForkCompartments(
 	return undefined;
 }
 
+function verifiedForkHistoryTags(
+	entries: readonly SessionEntry[],
+	tags: readonly MctxHistoryTag[],
+): readonly MctxHistoryTag[] {
+	const childIdentities = new Set(
+		collectMctxHistoryTagInputs(entries).map(
+			(tag) => `${tag.kind}\u0000${tag.entryId}\u0000${tag.toolCallId ?? ""}`,
+		),
+	);
+	return tags.filter((tag) =>
+		childIdentities.has(`${tag.kind}\u0000${tag.entryId}\u0000${tag.toolCallId ?? ""}`),
+	);
+}
+
 function modelThreshold(
 	threshold: { readonly defaultValue?: number; readonly byModel: Readonly<Record<string, number>> },
 	model: ExtensionContext["model"],
@@ -868,10 +882,15 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				store.listCompartments(sourcePartition),
 			);
 			if (compartments === undefined) return store.getOrCreatePartition(projectIdentity, sessionId);
+			const historyTags = verifiedForkHistoryTags(
+				context.extension.sessionManager.getBranch(),
+				store.listHistoryTags(sourcePartition),
+			);
 			const initialized = store.initializeForkPartition(
 				sourcePartition,
 				{ projectIdentity, sessionId },
 				compartments,
+				historyTags,
 			);
 			return initialized.kind === "stale"
 				? store.getOrCreatePartition(projectIdentity, sessionId)

@@ -14,6 +14,19 @@ interface MctxDatabaseStatement {
 	run(...bindings: readonly unknown[]): unknown;
 }
 
+function listHistoryTags(
+	database: DatabaseSync,
+	partition: MctxPartition,
+): readonly MctxHistoryTag[] {
+	requirePartitionKey(partition.projectIdentity, partition.sessionId);
+	return database
+		.prepare(
+			"SELECT tag_number, kind, entry_id, tool_call_id, source, status, caveman_depth FROM history_tags WHERE project_identity = ? AND session_id = ? ORDER BY tag_number ASC",
+		)
+		.all(partition.projectIdentity, partition.sessionId)
+		.map(historyTagFromRow);
+}
+
 function hasColumn(database: DatabaseSync, table: string, column: string): boolean {
 	return database
 		.prepare(`PRAGMA table_info(${table})`)
@@ -481,7 +494,10 @@ export interface MctxStore {
 		source: MctxPartition,
 		destination: MctxPartitionKey,
 		compartments: readonly MctxCompartment[],
+		historyTags?: readonly MctxHistoryTag[],
 	): MctxForkPartitionInitialization;
+	/** Reads one partition's full tag ledger for verified fork initialization. */
+	listHistoryTags(partition: MctxPartition): readonly MctxHistoryTag[];
 	advancePartitionRevision(partition: MctxPartition): MctxPartition | undefined;
 	acquireHistorianLease(
 		partition: MctxPartition,
@@ -1606,6 +1622,7 @@ function initializeForkPartition(
 	source: MctxPartition,
 	destination: MctxPartitionKey,
 	compartments: readonly MctxCompartment[],
+	historyTags: readonly MctxHistoryTag[] = [],
 ): MctxForkPartitionInitialization {
 	requirePartitionKey(source.projectIdentity, source.sessionId);
 	requirePartitionKey(destination.projectIdentity, destination.sessionId);
@@ -1613,6 +1630,23 @@ function initializeForkPartition(
 		throw new Error("Context store source partition revision is invalid");
 	}
 	requireForkCompartments(compartments);
+	for (const tag of historyTags) {
+		requireHistoryTagInput(tag);
+		if (
+			!Number.isSafeInteger(tag.tagNumber) ||
+			tag.tagNumber <= 0 ||
+			(tag.cavemanDepth !== undefined &&
+				(!Number.isSafeInteger(tag.cavemanDepth) || tag.cavemanDepth < 0 || tag.cavemanDepth > 3))
+		)
+			throw new Error("Context store fork history tag is invalid");
+	}
+	if (
+		new Set(historyTags.map((tag) => tag.tagNumber)).size !== historyTags.length ||
+		new Set(
+			historyTags.map((tag) => `${tag.kind}\u0000${tag.entryId}\u0000${tag.toolCallId ?? ""}`),
+		).size !== historyTags.length
+	)
+		throw new Error("Context store fork history tags are duplicated");
 	database.exec("BEGIN IMMEDIATE");
 	try {
 		const existing = findPartition(database, destination.projectIdentity, destination.sessionId);
@@ -1657,6 +1691,22 @@ function initializeForkPartition(
 			database
 				.prepare("UPDATE partitions SET revision = ? WHERE project_identity = ? AND session_id = ?")
 				.run(revision, destination.projectIdentity, destination.sessionId);
+		}
+		const insertHistoryTag = database.prepare(
+			"INSERT INTO history_tags (project_identity, session_id, tag_number, kind, entry_id, tool_call_id, source, status, caveman_depth) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		);
+		for (const tag of historyTags) {
+			insertHistoryTag.run(
+				destination.projectIdentity,
+				destination.sessionId,
+				tag.tagNumber,
+				tag.kind,
+				tag.entryId,
+				tag.toolCallId ?? null,
+				tag.source,
+				tag.status,
+				tag.cavemanDepth ?? 0,
+			);
 		}
 		const partition = findPartition(database, destination.projectIdentity, destination.sessionId);
 		if (partition === undefined) throw new Error("Context store fork partition was not created");
@@ -2921,9 +2971,18 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 			if (database === undefined) throw new Error("Context store is closed");
 			clearHandoffInstallation(database, reservation);
 		},
-		initializeForkPartition(source, destination, compartments): MctxForkPartitionInitialization {
+		initializeForkPartition(
+			source,
+			destination,
+			compartments,
+			historyTags,
+		): MctxForkPartitionInitialization {
 			if (database === undefined) throw new Error("Context store is closed");
-			return initializeForkPartition(database, source, destination, compartments);
+			return initializeForkPartition(database, source, destination, compartments, historyTags);
+		},
+		listHistoryTags(partition): readonly MctxHistoryTag[] {
+			if (database === undefined) throw new Error("Context store is closed");
+			return listHistoryTags(database, partition);
 		},
 		advancePartitionRevision(partition): MctxPartition | undefined {
 			if (database === undefined) throw new Error("Context store is closed");

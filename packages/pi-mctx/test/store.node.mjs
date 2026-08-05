@@ -168,12 +168,22 @@ test("copies verified fork ancestors into a fresh child revision timeline", asyn
 			renderedPayload: "recent history",
 		});
 		assert.ok(second);
-		const sourceSnapshot = store.advancePartitionRevision(second.partition);
+		const tagged = store.syncHistoryTags(second.partition, [
+			{ kind: "message", entryId: "user-1", source: "dropped source" },
+			{ kind: "message", entryId: "user-2", source: "protected source" },
+		]);
+		assert.ok(tagged);
+		const queued = store.queueHistoryTagDrops(tagged.partition, [1], [1, 2], 1);
+		assert.ok(queued);
+		const dropped = store.markHistoryTagsDropped(queued.partition, [1]);
+		assert.ok(dropped);
+		const sourceSnapshot = store.advanceHistoryTagCavemanDepths(dropped, [{ tagNumber: 2, depth: 2 }]);
 		assert.ok(sourceSnapshot);
 		const copied = store.initializeForkPartition(
 			sourceSnapshot,
 			{ projectIdentity: `git:${"e".repeat(40)}`, sessionId: "child-session" },
 			store.listCompartments(sourceSnapshot),
+			store.listHistoryTags(sourceSnapshot),
 		);
 		assert.deepEqual(copied, {
 			kind: "copied",
@@ -187,6 +197,24 @@ test("copies verified fork ancestors into a fresh child revision timeline", asyn
 		assert.deepEqual(store.listCompartments(copied.partition), [
 			{ ...first.compartment, publishedRevision: 1 },
 			{ ...second.compartment, publishedRevision: 2 },
+		]);
+		assert.deepEqual(store.listHistoryTags(copied.partition), [
+			{
+				kind: "message",
+				entryId: "user-1",
+				source: "dropped source",
+				tagNumber: 1,
+				status: "dropped",
+				cavemanDepth: 0,
+			},
+			{
+				kind: "message",
+				entryId: "user-2",
+				source: "protected source",
+				tagNumber: 2,
+				status: "active",
+				cavemanDepth: 2,
+			},
 		]);
 		assert.deepEqual(
 			store.initializeForkPartition(
