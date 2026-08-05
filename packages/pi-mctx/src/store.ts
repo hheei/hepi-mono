@@ -5,13 +5,67 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { MctxStatusAccounting } from "./status-metrics.js";
 
 export const MCTX_STORE_APPLICATION_ID = 0x484d4354;
-export const MCTX_STORE_SCHEMA_VERSION = 12;
+export const MCTX_STORE_SCHEMA_VERSION = 13;
 export const MCTX_STORE_BUSY_TIMEOUT_MS = 5_000;
 
 interface MctxDatabaseStatement {
 	get(...bindings: readonly unknown[]): unknown;
 	all(...bindings: readonly unknown[]): readonly unknown[];
 	run(...bindings: readonly unknown[]): unknown;
+}
+
+function readReasoningWatermark(database: DatabaseSync, partition: MctxPartition): number {
+	requirePartitionKey(partition.projectIdentity, partition.sessionId);
+	database
+		.prepare("INSERT OR IGNORE INTO reasoning_state (project_identity, session_id) VALUES (?, ?)")
+		.run(partition.projectIdentity, partition.sessionId);
+	const row = database
+		.prepare(
+			"SELECT cleared_through_tag FROM reasoning_state WHERE project_identity = ? AND session_id = ?",
+		)
+		.get(partition.projectIdentity, partition.sessionId);
+	if (!isRecord(row) || typeof row.cleared_through_tag !== "number")
+		throw new Error("Context store reasoning watermark row is invalid");
+	const watermark = row.cleared_through_tag;
+	if (!Number.isSafeInteger(watermark) || watermark < 0)
+		throw new Error("Context store reasoning watermark row is invalid");
+	return watermark;
+}
+
+function advanceReasoningWatermark(
+	database: DatabaseSync,
+	partition: MctxPartition,
+	tagNumber: number,
+): number {
+	requirePartitionKey(partition.projectIdentity, partition.sessionId);
+	if (!Number.isSafeInteger(tagNumber) || tagNumber < 0)
+		throw new Error("Context store reasoning watermark is invalid");
+	database
+		.prepare(
+			"INSERT INTO reasoning_state (project_identity, session_id, cleared_through_tag) VALUES (?, ?, ?) ON CONFLICT (project_identity, session_id) DO UPDATE SET cleared_through_tag = MAX(cleared_through_tag, excluded.cleared_through_tag)",
+		)
+		.run(partition.projectIdentity, partition.sessionId, tagNumber);
+	return readReasoningWatermark(database, partition);
+}
+
+function migrateV13(database: DatabaseSync): void {
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		database.exec("ALTER TABLE mctx_metadata RENAME TO mctx_metadata_v12");
+		database.exec(
+			"CREATE TABLE mctx_metadata (schema_version INTEGER NOT NULL CHECK (schema_version = 13)) STRICT",
+		);
+		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(13);
+		database.exec("DROP TABLE mctx_metadata_v12");
+		database.exec(
+			"CREATE TABLE reasoning_state (project_identity TEXT NOT NULL, session_id TEXT NOT NULL, cleared_through_tag INTEGER NOT NULL DEFAULT 0 CHECK (cleared_through_tag >= 0), PRIMARY KEY (project_identity, session_id), FOREIGN KEY (project_identity, session_id) REFERENCES partitions(project_identity, session_id)) STRICT",
+		);
+		database.exec("PRAGMA user_version = 13");
+		database.exec("COMMIT");
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
 }
 
 function migrateV12(database: DatabaseSync): void {
@@ -83,6 +137,8 @@ export interface MctxStore {
 	readStatusMetrics(partition: MctxPartition): MctxStoreStatusMetrics;
 	readStatusAccounting(partition: MctxPartition): MctxStatusAccounting;
 	writeStatusAccounting(partition: MctxPartition, accounting: MctxStatusAccounting): void;
+	readReasoningWatermark(partition: MctxPartition): number;
+	advanceReasoningWatermark(partition: MctxPartition, tagNumber: number): number;
 	discardCompartmentsFrom(
 		partition: MctxPartition,
 		publishedRevision: number,
@@ -741,6 +797,7 @@ function validateSchema(database: DatabaseSync): void {
 	if (pragmaInteger(database, "PRAGMA user_version") === 9) migrateV10(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 10) migrateV11(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 11) migrateV12(database);
+	if (pragmaInteger(database, "PRAGMA user_version") === 12) migrateV13(database);
 	if (pragmaInteger(database, "PRAGMA application_id") !== MCTX_STORE_APPLICATION_ID) {
 		throw new Error("Context store application identity is invalid");
 	}
@@ -759,7 +816,8 @@ function validateSchema(database: DatabaseSync): void {
 		!hasTable(database, "memory_embedding_sources") ||
 		!hasTable(database, "memory_embeddings") ||
 		!hasTable(database, "handoff_bindings") ||
-		!hasTable(database, "status_accounting")
+		!hasTable(database, "status_accounting") ||
+		!hasTable(database, "reasoning_state")
 	) {
 		throw new Error("Context store partition tables are missing");
 	}
@@ -2487,6 +2545,14 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 		writeStatusAccounting(partition, accounting): void {
 			if (database === undefined) throw new Error("Context store is closed");
 			writeStatusAccounting(database, partition, accounting);
+		},
+		readReasoningWatermark(partition): number {
+			if (database === undefined) throw new Error("Context store is closed");
+			return readReasoningWatermark(database, partition);
+		},
+		advanceReasoningWatermark(partition, tagNumber): number {
+			if (database === undefined) throw new Error("Context store is closed");
+			return advanceReasoningWatermark(database, partition, tagNumber);
 		},
 		discardCompartmentsFrom(partition, publishedRevision): MctxPartition | undefined {
 			if (database === undefined) throw new Error("Context store is closed");
