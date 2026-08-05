@@ -52,16 +52,18 @@ work。
 
 ## 非记忆完整迁移
 
-本 package 的目标是完整迁移上游 `cortexkit/magic-context` Pi plugin 的所有
-非 memory 行为：context scheduler、cache TTL gate、tag/drop/replay、reasoning
-cleanup、caveman text compression、tool-result nudge、todo state、historian
-trigger、m0/m1 materialization、Pi native compaction marker、overflow recovery、
-fork/clone、status、Sidekick、手动恢复 command 与生命周期清理。memory、embedding、
-search、note、Dreamer 和它们的自动注入明确不在本迁移范围。
+本 package 迁移上游 `cortexkit/magic-context` Pi plugin 的已采用 context 行为：
+context scheduler、cache TTL gate、tag/drop/replay、reasoning cleanup、caveman text
+compression、tool-result nudge、historian trigger、textual m0/m1 materialization、Pi
+native compaction marker、overflow recovery、fork/clone、status、手动恢复 command 与
+生命周期清理。`todowrite` 由 `@hheei/pi-todo` 独立拥有。memory、embedding、search、note、
+Dreamer 和自动注入明确不在本迁移范围。Sidekick `/ctx-aug` 与 experimental m0 mural 也不
+迁移：前者需要独立的公开模型/timeout/fallback/child policy，后者依赖本仓不存在的 mural
+renderer、manifest 与 PNG cache；不得从上游 reference 目录 import 或复制其依赖图。
 
 公开 command 采用本项目唯一入口 `/mctx <subcommand>`，不注册上游 `/ctx-*`
-alias。迁移后的 subcommand 为 `status`、`flush`、`recomp`、`wrapup`、`upgrade`
-和 `aug`；每项语义、取消、失败和缓存边界与上游对应 command 对齐。model tools
+迁移后的 subcommand 为 `status`、`flush`、`recomp` 和 `wrapup`；每项语义、取消、失败和
+缓存边界与本 package 的公开 contract 对齐。model tools
 `ctx_reduce` 与 `ctx_expand` 采用上游的 selector 和恢复语义；旧 `pi-mctx`
 tag-only `ctx_expand` 参数不保留兼容层。
 
@@ -100,6 +102,14 @@ Pi host，store 必须 seal `delivered` 或保留 claim；不得因 post-send SQ
 只有明确的 context/token overflow 才会 arm recovery；network、auth、rate-limit 等 provider
 failure 保持原有失败语义。Historian published 或确认没有可处理窗口时清除 recovery latch，
 保留检测到的较小 context window。Channel-2 还要求可回收 tool token 至少达到 usable range 的三分之一。
+
+## Processed Image Stripping
+
+execute context pass 在 assistant 已响应后，将 reasoning watermark 之前的大型 user/tool-result
+image 的 immutable Pi entry ID 写入 partition-local SQLite ledger；写入成功才把该 image block
+替换为 `[image stripped]`。后续 defer、reload、fork 和 branch replay 都按 ledger 重放替换，避免
+旧 image bytes 反复进入 provider request。未持久化、最新/受保护 live tail、assistant image、未知
+entry 或小 image 均保持原样。此行为不读取、导出或保留 image bytes。
 
 ## Status Accounting Migration
 
@@ -637,10 +647,15 @@ bounded wait、pressure usage 计算与 current-turn steer。
 - [x] **Todo ownership decision**：legacy `todowrite`/`/todos` 不迁入 `pi-mctx`，由独立 `@hheei/pi-todo` 拥有
   `todo` tool、`/todos` command、task state、reminder 和 widget。MCTX 不重复注册 Todo；旧 aggregate 的 removal 与
   `pi-todo` release 配套处理，避免 Pi first-registered tool collision。
-- [x] **Pipeline maintenance commands**：已决策 legacy `/ctx-flush` 在 current transform 下没有独立行为，
-  `/ctx-recomp`/`ctx-session-upgrade` 是旧 ordinal/schema migration 而不迁移，`/ctx-wrapup` 属于 future
-  `hepi-basics` handoff/compaction owner；这些 pipeline maintenance action 不迁移，也不注册任何 maintenance
-  command。
+- [x] **Pipeline maintenance commands**：legacy `/ctx-*` alias、`ctx-session-upgrade` 的旧 ordinal/schema
+  migration 不迁移。当前公开入口是 `/mctx flush`、`/mctx recomp`、`/mctx wrapup`；它们操作 MCTX
+  partition/tag ledger，不读取旧 plugin state。
+- [x] **Processed image stripping**：execute pass 在 durable reasoning watermark 之后记录大型
+  user/tool-result image entry ID；只有 SQLite insert 成功才将 model-visible block 替换为
+  `[image stripped]`，并在 defer/reload/fork pass 重放。binary bytes 不进入 ledger。
+- [x] **Sidekick 与 mural non-goal**：`/ctx-aug` Sidekick 不迁移；它需要独立公开模型、timeout、fallback
+  与 read-only child policy。experimental m0 mural 不迁移；本仓没有可复用的 renderer、manifest 或 PNG cache，
+  且 reference 目录不能作为 runtime dependency。
 - [x] **`/mctx status` 单页只读 TUI overlay**：已按 [`/mctx status` migration design](#mctx-status-migration-design)
   迁移；snapshot、字段、surface lifecycle、刷新、关闭、并发与 fallback 已达到该章节及根 `DESIGN.md` 的完整
   contract。
