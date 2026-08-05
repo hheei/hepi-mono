@@ -3,7 +3,12 @@ import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { formatCandidateLines } from "./fff/fff.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
-import { buildFffQuery, nativeFallbackPattern, supportsFffPath } from "./fff/query.js";
+import {
+	buildFffQuery,
+	filterNativeFindText,
+	nativeFallbackPattern,
+	supportsFffPath,
+} from "./fff/query.js";
 import { renderFindCall, renderFindResult } from "./search-renderer.js";
 
 const OWNER = "@hheei/pi-ext-tools";
@@ -44,10 +49,6 @@ function nativeParams(params: {
 	limit?: number;
 	cursor?: string;
 }): { pattern: string; path?: string; limit?: number } {
-	if (params.exclude !== undefined || params.cursor !== undefined)
-		throw new Error(
-			"FFF is unavailable; Pi native find cannot preserve exclude or cursor semantics.",
-		);
 	return {
 		pattern: params.path?.match(/[*?[{]/) ? params.path : nativeFallbackPattern(params.pattern),
 		...(params.path === undefined || params.path.match(/[*?[{]/) ? {} : { path: params.path }),
@@ -84,26 +85,37 @@ export function registerFindTool(pi: ExtensionAPI, state: FffRuntimeState): void
 			context: { cwd: string },
 		) {
 			if (signal?.aborted) throw new Error("Operation aborted");
-			const resumed = params.cursor === undefined ? undefined : cursorStore.get(params.cursor);
-			if (params.cursor !== undefined && resumed === undefined)
-				throw new Error("Invalid or expired find cursor.");
-			const limit = resumed?.limit ?? Math.max(1, params.limit ?? DEFAULT_LIMIT);
-			const query =
-				resumed?.query ?? buildFffQuery(params.path, params.pattern, params.exclude, context.cwd);
-			const runtime = state.getRuntime();
-			if (
-				!state.getSettings().findEnhancement ||
-				runtime === undefined ||
-				!supportsFffPath(params.path, context.cwd)
-			) {
-				return createFindToolDefinition(context.cwd).execute(
+			const native = async () => {
+				const result = await createFindToolDefinition(context.cwd).execute(
 					id,
 					nativeParams(params),
 					signal,
 					onUpdate,
 					context as never,
 				);
+				return {
+					...result,
+					content: result.content.map((part) =>
+						part.type === "text" && "text" in part
+							? { ...part, text: filterNativeFindText(part.text, params.exclude) }
+							: part,
+					),
+				};
+			};
+			const runtime = state.getRuntime();
+			if (
+				!state.getSettings().findEnhancement ||
+				runtime === undefined ||
+				!supportsFffPath(params.path, context.cwd)
+			) {
+				return native();
 			}
+			const resumed = params.cursor === undefined ? undefined : cursorStore.get(params.cursor);
+			if (params.cursor !== undefined && resumed === undefined)
+				throw new Error("Invalid or expired find cursor.");
+			const limit = resumed?.limit ?? Math.max(1, params.limit ?? DEFAULT_LIMIT);
+			const query =
+				resumed?.query ?? buildFffQuery(params.path, params.pattern, params.exclude, context.cwd);
 			const result = await runtime.findSearch({
 				query,
 				limit,
@@ -111,13 +123,7 @@ export function registerFindTool(pi: ExtensionAPI, state: FffRuntimeState): void
 			});
 			if (signal?.aborted) throw new Error("Operation aborted");
 			if (result.isErr()) {
-				return createFindToolDefinition(context.cwd).execute(
-					id,
-					nativeParams(params),
-					signal,
-					onUpdate,
-					context as never,
-				);
+				return native();
 			}
 			const lines = formatCandidateLines(result.value.items, limit);
 			if (result.value.hasMore)
