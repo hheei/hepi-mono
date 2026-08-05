@@ -45,7 +45,7 @@ import {
 	collectVisibleMctxToolTags,
 	projectMctxHistoryTags,
 } from "./history-tags.js";
-import { detectMctxContextWindow, resolveMctxPressure } from "./pressure.js";
+import { detectMctxContextWindow, isMctxOverflow, resolveMctxPressure } from "./pressure.js";
 import { createProjectIdentityResolver } from "./project-identity.js";
 import { replayMctxReasoning } from "./reasoning-replay.js";
 import { scheduleMctxMaintenance } from "./scheduler.js";
@@ -109,6 +109,10 @@ import { evaluateMctxTriggerPolicy } from "./trigger-policy.js";
 export interface MctxSessionRuntime extends MctxRuntime {
 	readonly store: MctxStore;
 	readonly partition: MctxPartition;
+}
+
+function shouldTriggerCeilingNudge(baseline: MctxNudgeBaseline): boolean {
+	return baseline.reclaimableTokens + baseline.turnToolTokens >= baseline.usableTokens / 3;
 }
 
 export interface MctxCeilingNudge {
@@ -908,11 +912,15 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				if (active !== current || current.job !== job || job.signal.aborted) return;
 				if (result.kind === "published") {
 					current.runtime = { ...current.runtime, partition: result.publication.partition };
+					current.runtime.store.clearEmergencyRecovery?.(result.publication.partition);
 					current.cooling = false;
 					current.lastNotifiedFailureClass = undefined;
 					return;
 				}
-				if (result.kind === "ineligible") current.cooling = false;
+				if (result.kind === "ineligible") {
+					current.cooling = false;
+					current.runtime.store.clearEmergencyRecovery?.(current.runtime.partition);
+				}
 				const diagnostic = historianFailureDiagnostic(result, current.runtime.partition);
 				if (diagnostic === undefined) return;
 				reportHistorianFailure(current, diagnostic);
@@ -1475,9 +1483,12 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			if (baseline.reduced || baseline.reclaimableTags.length === 0) return undefined;
 			const pressure =
 				((baseline.usageTokens + baseline.turnToolTokens) / baseline.contextWindow) * 100;
-			if (pressure >= baseline.executeThresholdPercentage - 2) {
+			if (
+				pressure >= baseline.executeThresholdPercentage - 2 &&
+				shouldTriggerCeilingNudge(baseline)
+			) {
 				current.runtime.store.armNudgeDelivery?.(current.runtime.partition);
-			}
+			} else current.runtime.store.disarmNudgeDelivery?.(current.runtime.partition);
 			const level: 0 | 1 | 2 =
 				pressure >= baseline.executeThresholdPercentage
 					? 2
@@ -1501,7 +1512,10 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				return undefined;
 			const pressure =
 				((baseline.usageTokens + baseline.turnToolTokens) / baseline.contextWindow) * 100;
-			if (pressure < baseline.executeThresholdPercentage - 2) {
+			if (
+				pressure < baseline.executeThresholdPercentage - 2 ||
+				!shouldTriggerCeilingNudge(baseline)
+			) {
 				current.runtime.store.disarmNudgeDelivery?.(current.runtime.partition);
 				return undefined;
 			}
@@ -1538,6 +1552,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				current.runtime.sessionId !== context.sessionManager.getSessionId()
 			)
 				return;
+			if (!isMctxOverflow(errorMessage)) return;
 			current.runtime.store.recordOverflowRecovery?.(
 				current.runtime.partition,
 				detectMctxContextWindow(errorMessage),
@@ -1909,21 +1924,33 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				);
 				const priorBaseline = current.nudgeBaseline;
 				const initialPressure = (usageTokens / contextWindow) * 100;
+				const reclaimable = visibleTools.filter(
+					(candidate) =>
+						candidate.tag.status === "active" && !protectedTags.has(candidate.tag.tagNumber),
+				);
+				const reclaimableTokens = reclaimable.reduce(
+					(total, candidate) => total + estimateMctxToolTokens(candidate.tag.source),
+					0,
+				);
+				const liveTailTokens = historyTags
+					.filter((tag) => tag.status === "active")
+					.reduce((total, tag) => total + estimateMctxToolTokens(tag.source), 0);
+				const usableTokens = Math.max(
+					0,
+					Math.ceil((contextWindow * percentage) / 100) - usageTokens + liveTailTokens,
+				);
 				current.nudgeBaseline = {
 					usageTokens,
 					contextWindow,
 					executeThresholdPercentage: percentage,
-					reclaimableTags: visibleTools
-						.filter(
-							(candidate) =>
-								candidate.tag.status === "active" && !protectedTags.has(candidate.tag.tagNumber),
-						)
-						.map((candidate) => candidate.tag.tagNumber),
+					reclaimableTags: reclaimable.map((candidate) => candidate.tag.tagNumber),
+					reclaimableTokens,
+					usableTokens,
 					turnToolTokens: 0,
 					lastLevel: initialPressure < percentage - 5 ? 0 : (priorBaseline?.lastLevel ?? 0),
 					reduced: false,
 				};
-				if (initialPressure >= percentage - 2)
+				if (initialPressure >= percentage - 2 && shouldTriggerCeilingNudge(current.nudgeBaseline))
 					current.runtime.store.armNudgeDelivery?.(current.runtime.partition);
 				else current.runtime.store.disarmNudgeDelivery?.(current.runtime.partition);
 			} else current.nudgeBaseline = undefined;

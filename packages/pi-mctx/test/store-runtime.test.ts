@@ -30,6 +30,24 @@ test("opens the MCTX store through Bun SQLite", async (): Promise<void> => {
 	}
 });
 
+test("clears emergency recovery after a successful recovery cycle", async (): Promise<void> => {
+	const directory = mkdtempSync(join(tmpdir(), "pi-mctx-overflow-clear-"));
+	try {
+		const store = await openMctxStore(join(directory, "context.db"));
+		try {
+			const partition = store.getOrCreatePartition(`dir:${"8".repeat(64)}`, "session-1");
+			store.recordOverflowRecovery?.(partition, 128_000);
+			store.clearEmergencyRecovery?.(partition);
+			expect(store.needsEmergencyRecovery?.(partition)).toBe(false);
+			expect(store.readDetectedContextLimit?.(partition)).toBe(128_000);
+		} finally {
+			store.close();
+		}
+	} finally {
+		rmSync(directory, { force: true, recursive: true });
+	}
+});
+
 test("seals a nudge after host delivery when claim confirmation is unavailable", async (): Promise<void> => {
 	const directory = mkdtempSync(join(tmpdir(), "pi-mctx-nudge-seal-"));
 	try {
