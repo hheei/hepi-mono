@@ -88,6 +88,15 @@ Pi context clone
 state migration；任何对齐失败保持 raw context 或明确阻断，不能猜测、静默丢弃或以
 synthetic assistant message 替代 source transcript。
 
+## Context Pressure Recovery
+
+`pi-mctx` 持久化 provider overflow，即使错误没有报告具体 context window；下一次
+context pass 以 95% emergency path 启动或等待 Historian，并强制 materialize。pressure
+取最新 assistant wire usage，且以 Pi live forward usage 的保守 floor 覆盖，避免当前
+turn 的 tool output 延迟到下一次 response 才触发恢复。hidden ceiling nudge 一旦已交给
+Pi host，store 必须 seal `delivered` 或保留 claim；不得因 post-send SQLite failure 回到
+`pending`，否则会重复提醒。
+
 ## Status Accounting Migration
 
 状态 panel 的 token 分类、Work tokens 和 cache timing 由 `pi-mctx` 自己生产，

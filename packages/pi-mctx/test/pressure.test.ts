@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { detectMctxContextWindow, resolveMctxPressure } from "../src/pressure.js";
 
-test("pressure uses latest assistant wire input and the lower detected window", (): void => {
+test("pressure floors completed assistant usage with Pi's live forward estimate", (): void => {
 	const pressure = resolveMctxPressure(
 		{
 			model: { contextWindow: 200_000 },
@@ -20,7 +20,7 @@ test("pressure uses latest assistant wire input and the lower detected window", 
 		} as never,
 		128_000,
 	);
-	expect(pressure).toEqual({ inputTokens: 85_000, contextWindow: 128_000 });
+	expect(pressure).toEqual({ inputTokens: 117_646, contextWindow: 128_000 });
 });
 
 test("pressure detects reported context window only on overflow-shaped errors", (): void => {

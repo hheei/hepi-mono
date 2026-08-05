@@ -1501,7 +1501,10 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				return undefined;
 			const pressure =
 				((baseline.usageTokens + baseline.turnToolTokens) / baseline.contextWindow) * 100;
-			if (pressure < baseline.executeThresholdPercentage - 2) return undefined;
+			if (pressure < baseline.executeThresholdPercentage - 2) {
+				current.runtime.store.disarmNudgeDelivery?.(current.runtime.partition);
+				return undefined;
+			}
 			const claim = current.runtime.store.claimNudgeDelivery?.(
 				current.runtime.partition,
 				randomUUID(),
@@ -1512,7 +1515,17 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				: { text: buildMctxToolReminder(baseline.reclaimableTags, true), claim };
 		},
 		completeCeilingNudge(nudge): void {
-			active?.runtime.store.markNudgeDelivered?.(nudge.claim);
+			const store = active?.runtime.store;
+			try {
+				if (store?.markNudgeDelivered?.(nudge.claim) === true) return;
+			} catch {
+				// The host already accepted the nudge. Never re-arm it after send.
+			}
+			try {
+				store?.sealNudgeDelivered?.(nudge.claim.partition);
+			} catch {
+				// The claimed lease remains the duplicate-delivery safety fallback.
+			}
 		},
 		releaseCeilingNudge(nudge): void {
 			active?.runtime.store.releaseNudgeDelivery?.(nudge.claim);
@@ -1525,12 +1538,10 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				current.runtime.sessionId !== context.sessionManager.getSessionId()
 			)
 				return;
-			const contextWindow = detectMctxContextWindow(errorMessage);
-			if (contextWindow !== undefined)
-				current.runtime.store.recordDetectedContextLimit?.(
-					current.runtime.partition,
-					contextWindow,
-				);
+			current.runtime.store.recordOverflowRecovery?.(
+				current.runtime.partition,
+				detectMctxContextWindow(errorMessage),
+			);
 		},
 		onTurnEnd(context): void {
 			// Turn-end work is deliberately non-blocking. This hook only evaluates the
@@ -1615,6 +1626,8 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				current.runtime.partition,
 			);
 			const pressure = resolveMctxPressure(context, detectedContextWindow);
+			const emergencyRecovery =
+				current.runtime.store.needsEmergencyRecovery?.(current.runtime.partition) === true;
 			const usage =
 				pressure === undefined
 					? undefined
@@ -1624,8 +1637,15 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 							percent: (pressure.inputTokens / pressure.contextWindow) * 100,
 						};
 			const pressurePercentage =
-				pressure === undefined ? undefined : (pressure.inputTokens / pressure.contextWindow) * 100;
+				pressure === undefined
+					? undefined
+					: Math.max(
+							(pressure.inputTokens / pressure.contextWindow) * 100,
+							emergencyRecovery ? EMERGENCY_BLOCK_PERCENTAGE : 0,
+						);
 			if (pressurePercentage !== undefined && pressurePercentage >= EMERGENCY_BLOCK_PERCENTAGE) {
+				if (emergencyRecovery && current.job === undefined)
+					startHistorian(current, { entries: [...entries] });
 				const completion = current.jobCompletion;
 				if (completion !== undefined) {
 					await Promise.race([
@@ -1905,6 +1925,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				};
 				if (initialPressure >= percentage - 2)
 					current.runtime.store.armNudgeDelivery?.(current.runtime.partition);
+				else current.runtime.store.disarmNudgeDelivery?.(current.runtime.partition);
 			} else current.nudgeBaseline = undefined;
 			updateStatusAccounting(current, context, projectedMessages, entries, cacheTtlMs);
 			return { messages: projectedMessages };

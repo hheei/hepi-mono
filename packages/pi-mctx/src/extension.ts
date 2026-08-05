@@ -811,10 +811,11 @@ export default function piMctxExtension(pi: ExtensionAPI): void {
 				},
 				{ deliverAs },
 			);
-			reloadCompatibleFeature.completeCeilingNudge?.(nudge);
 		} catch {
 			reloadCompatibleFeature.releaseCeilingNudge?.(nudge);
+			return;
 		}
+		reloadCompatibleFeature.completeCeilingNudge?.(nudge);
 	};
 	onToolResult("tool_result", (event, context) => {
 		const reminder = reloadCompatibleFeature.onToolResult?.(event.toolName, event.content, context);
