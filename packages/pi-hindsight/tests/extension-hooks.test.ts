@@ -72,10 +72,10 @@ vi.mock("../extensions/banks/bank-operations.js", async (importOriginal) => {
 });
 
 describe("extension hooks", () => {
-	const originalHome = process.env.HOME;
+	const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
 
 	beforeEach(() => {
-		process.env.HOME = mkdtempSync(join(tmpdir(), "pi-hindsight-home-"));
+		process.env.PI_CODING_AGENT_DIR = mkdtempSync(join(tmpdir(), "pi-hindsight-agent-"));
 		vi.useRealTimers();
 		vi.clearAllMocks();
 		mocked.client.recall.mockImplementation(async (..._args: unknown[]) => ({
@@ -87,10 +87,10 @@ describe("extension hooks", () => {
 	afterEach(() => {
 		vi.clearAllTimers();
 		vi.useRealTimers();
-		if (originalHome === undefined) {
-			delete process.env.HOME;
+		if (originalAgentDir === undefined) {
+			delete process.env.PI_CODING_AGENT_DIR;
 		} else {
-			process.env.HOME = originalHome;
+			process.env.PI_CODING_AGENT_DIR = originalAgentDir;
 		}
 	});
 

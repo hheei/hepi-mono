@@ -31,17 +31,17 @@ const configuredGlobal = {
 	},
 };
 
-/** Isolate global config writes from the real user home. */
-function withTempHome<T>(fn: (home: string) => Promise<T>): Promise<T> {
-	const home = mkdtempSync(join(tmpdir(), "pi-hindsight-home-"));
-	const previous = process.env.HOME;
-	process.env.HOME = home;
+/** Isolate global config writes from the Pi host agent directory. */
+function withTempHome<T>(fn: (agentDir: string) => Promise<T>): Promise<T> {
+	const agentDir = mkdtempSync(join(tmpdir(), "pi-hindsight-agent-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	process.env.PI_CODING_AGENT_DIR = agentDir;
 	const restore = () => {
-		if (previous === undefined) delete process.env.HOME;
-		else process.env.HOME = previous;
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previous;
 	};
 	try {
-		return fn(home).finally(restore);
+		return fn(agentDir).finally(restore);
 	} catch (error) {
 		restore();
 		throw error;
@@ -203,7 +203,7 @@ describe("guided setup", () => {
 	});
 
 	it("writes project config without a template step", async () => {
-		await withTempHome(async (home) => {
+		await withTempHome(async (agentDir) => {
 			const cwd = mkdtempSync(join(tmpdir(), "pi-hindsight-guided-run-"));
 			const notify = vi.fn();
 			const ctx = {
@@ -243,7 +243,7 @@ describe("guided setup", () => {
 			expect(completed).toBe(true);
 			expect(hasProjectHindsightConfig(cwd)).toBe(true);
 			expect(notify).toHaveBeenCalledWith(
-				expect.stringContaining(`Wrote ${join(home, ".pi", "agent", "settings.json")}`),
+				expect.stringContaining(`Wrote ${join(agentDir, "settings.json")}`),
 				"info",
 			);
 			expect(notify).toHaveBeenCalledWith(
