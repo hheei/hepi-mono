@@ -1592,7 +1592,7 @@ function syncHistoryTags(
 					input.kind,
 					input.toolCallId ?? null,
 				);
-			if (!isMissingRow(existing)) continue;
+<<<<<<< HEAD
 			database
 				.prepare(
 					"INSERT INTO history_tags (project_identity, session_id, tag_number, kind, entry_id, tool_call_id, source, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'active')",
