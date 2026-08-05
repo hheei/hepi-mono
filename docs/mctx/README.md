@@ -604,11 +604,14 @@ bounded wait、pressure usage 计算与 current-turn steer。
   partition、revision CAS、lease、compartment graph、parent historian、repair/retry、trigger、context transform 与
   same-session branch divergence rebuild。
 - [x] **Fork partition projection**：在 Pi fork 的 `session_start` 识别 source partition，验证并复制 child branch
-  可见 ancestor compartments 到新的 partition；copy failure fail open，child 后续 rebuild，绝不共享 parent state。source
-  session 从 child header 的 `parentSession` 经 Pi `SessionManager.open()` 读取 ID/cwd，再解析 source project identity；
-  显式 Pi fork 可以跨 project copy，因为 child 已持有同一 raw branch。仅连续、通过 child branch range/fingerprint
-  proof 的 records 可复制；missing source、source revision stale、invalid graph、destination 已存在或 SQLite error 都必须保留
-  empty/existing child partition，不能阻止 session start 或读取 parent SQLite state。
+  可见 ancestor compartments 与 history tag ledger 到新的 partition；tag 保留 immutable source、ordinal、`active`/
+  `pending`/`dropped` status 与 caveman depth。copy failure fail open，child 后续 rebuild，绝不共享 parent state。
+  source session 从 child header 的 `parentSession` 经 Pi `SessionManager.open()` 读取 ID/cwd，再解析 source project
+  identity；显式 Pi fork 可以跨 project copy，因为 child 已持有同一 raw branch。仅连续、通过 child branch
+  range/fingerprint proof 的 compartment，以及 entry/tool-call identity 在 child branch 内的 tag 可复制；missing
+  source、source revision stale、invalid graph、destination 已存在或 SQLite error 都必须保留 empty/existing child
+  partition，不能阻止 session start 或读取 parent SQLite state。MCTX 没有上游的 pending compaction-marker 表：Pi fork
+  已复制 transcript compaction entries，新的 child partition 不复制 pressure、nudge lease 或 historian lease。
 - [x] **Pipeline diagnostics**：为 cooldown-eligible historian failure 提供 model-invisible native notification
   和 structured log。
 - [x] **Host verification**：以 `packages/pi-mctx/test/host-lifecycle.node.ts` 自有的 hermetic headless Pi fixture 加载真实

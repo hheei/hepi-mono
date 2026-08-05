@@ -135,6 +135,7 @@ function store(overrides: Partial<MctxStore> = {}): MctxStore {
 			kind: "copied",
 			partition: { projectIdentity: "git:project", sessionId: "session-1", revision: 0 },
 		}),
+		listHistoryTags: () => historyTags,
 		advancePartitionRevision: () => undefined,
 		acquireHistorianLease: () => undefined,
 		renewHistorianLease: () => undefined,
@@ -1320,7 +1321,24 @@ test("fork activation copies cross-project ancestors only after child-branch pro
 				sessionId: "parent-session",
 				revision: 1,
 			}),
-			initializeForkPartition: (source, destination, compartments) => {
+			listHistoryTags: () => [
+				{
+					kind: "message",
+					entryId: "user",
+					source: "old request",
+					tagNumber: 1,
+					status: "dropped",
+					cavemanDepth: 2,
+				},
+				{
+					kind: "message",
+					entryId: "outside-child-branch",
+					source: "must not copy",
+					tagNumber: 2,
+					status: "active",
+				},
+			],
+			initializeForkPartition: (source, destination, compartments, historyTags) => {
 				initialized = true;
 				expect(source).toEqual({
 					projectIdentity: parentProject,
@@ -1329,6 +1347,16 @@ test("fork activation copies cross-project ancestors only after child-branch pro
 				});
 				expect(destination).toEqual({ projectIdentity: childProject, sessionId: "child-session" });
 				expect(compartments).toEqual([compartment()]);
+				expect(historyTags).toEqual([
+					{
+						kind: "message",
+						entryId: "user",
+						source: "old request",
+						tagNumber: 1,
+						status: "dropped",
+						cavemanDepth: 2,
+					},
+				]);
 				return {
 					kind: "copied",
 					partition: { ...destination, revision: compartments.length },
