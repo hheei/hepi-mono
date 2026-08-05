@@ -777,6 +777,7 @@ export default function piMctxExtension(pi: ExtensionAPI): void {
 	// Memory-system subcommands remain absent from the router and completions;
 	// their handlers stay above for revival (see docs/mctx/README.md).
 	registerContextHook(pi, feature);
+<<<<<<< HEAD
 	registerCompactionHook(pi, feature);
 	pi.on("turn_end", (_event, context) => feature.onTurnEnd(context));
 	pi.on("message_end", (event) => {
