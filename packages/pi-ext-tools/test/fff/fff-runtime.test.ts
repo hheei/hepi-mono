@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Result } from "better-result";
 import { ExternalGrepScopeError } from "../../src/fff/errors.js";
 import { FffRuntime } from "../../src/fff/fff.js";
+import { admitFffScan } from "../../src/fff/fff-runtime.js";
 
 describe("FFF runtime", () => {
 	test("continues grep pages after the runtime is recreated", async () => {
@@ -42,6 +43,25 @@ describe("FFF runtime", () => {
 		if (second.isErr()) throw second.error;
 		expect(second.value.items[0]?.relativePath).toBe("second.ts");
 		expect(seenOffsets).toEqual([null, 1]);
+	});
+
+	test("bounds scan admission and skips dependency directories", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "hepi-fff-admission-"));
+		try {
+			await mkdir(join(cwd, "node_modules"));
+			await writeFile(join(cwd, "first.ts"), "", "utf8");
+			await writeFile(join(cwd, "node_modules", "ignored.ts"), "", "utf8");
+			await expect(admitFffScan(cwd, { maxFiles: 1, timeoutMs: 1_000 })).resolves.toBeUndefined();
+			await writeFile(join(cwd, "second.ts"), "", "utf8");
+			await expect(admitFffScan(cwd, { maxFiles: 1, timeoutMs: 1_000 })).rejects.toThrow(
+				"scan admission exceeded 1 files",
+			);
+			await expect(admitFffScan(cwd, { timeoutMs: -1 })).rejects.toThrow(
+				"scan admission exceeded -1ms",
+			);
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
 	});
 
 	test("uses cwd as the index root and bounds explicit scan waiting", async () => {

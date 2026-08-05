@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, stat } from "node:fs/promises";
+import { mkdir, opendir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
@@ -49,6 +49,47 @@ import {
 } from "./fff-types.js";
 import { type AppResult, errResult, propagateError, toVoidResult } from "./result-utils.js";
 import { getProjectDatabasePaths } from "./runtime-paths.js";
+
+const MAX_ADMITTED_SCAN_FILES = 20_000;
+const SCAN_ADMISSION_TIMEOUT_MS = 500;
+const SKIPPED_SCAN_DIRECTORIES = new Set([".git", "node_modules"]);
+
+export async function admitFffScan(
+	cwd: string,
+	limits: { readonly maxFiles?: number; readonly timeoutMs?: number } = {},
+): Promise<void> {
+	const maxFiles = limits.maxFiles ?? MAX_ADMITTED_SCAN_FILES;
+	const deadline = Date.now() + (limits.timeoutMs ?? SCAN_ADMISSION_TIMEOUT_MS);
+	let fileCount = 0;
+	const directories = [cwd];
+	while (directories.length > 0) {
+		if (Date.now() > deadline)
+			throw new Error(`scan admission exceeded ${limits.timeoutMs ?? SCAN_ADMISSION_TIMEOUT_MS}ms`);
+		const directory = directories.pop();
+		if (directory === undefined) break;
+		let handle: Awaited<ReturnType<typeof opendir>>;
+		try {
+			handle = await opendir(directory);
+		} catch (error) {
+			if (error instanceof Error && "code" in error && error.code === "ENOENT") continue;
+			throw error;
+		}
+		for await (const entry of handle) {
+			if (Date.now() > deadline)
+				throw new Error(
+					`scan admission exceeded ${limits.timeoutMs ?? SCAN_ADMISSION_TIMEOUT_MS}ms`,
+				);
+			if (entry.isDirectory()) {
+				if (!SKIPPED_SCAN_DIRECTORIES.has(entry.name))
+					directories.push(resolve(directory, entry.name));
+				continue;
+			}
+			if (!entry.isFile()) continue;
+			fileCount += 1;
+			if (fileCount > maxFiles) throw new Error(`scan admission exceeded ${maxFiles} files`);
+		}
+	}
+}
 
 async function getPathType(path: string): Promise<"file" | "directory" | null> {
 	try {
@@ -1002,6 +1043,13 @@ export class FffRuntime {
 	}
 
 	private async initialize(): Promise<AppResult<FileFinder, RuntimeInitializationError>> {
+		const projectRoot = this.options.projectRoot ?? this.cwd;
+		const admission = await Result.tryPromise({
+			try: () => admitFffScan(projectRoot),
+			catch: (cause) =>
+				new RuntimeInitializationError({ cwd: this.cwd, step: "admit scan", cause }),
+		});
+		if (admission.isErr()) return propagateError(admission);
 		const root = resolve(getAgentDir(), "pi-ext-tools");
 		const rootResult = await Result.tryPromise({
 			try: () => mkdir(root, { recursive: true }),
@@ -1010,7 +1058,6 @@ export class FffRuntime {
 		});
 		if (rootResult.isErr()) return propagateError(rootResult);
 
-		const projectRoot = this.options.projectRoot ?? this.cwd;
 		this.basePath = projectRoot;
 		const paths = getProjectDatabasePaths(root, projectRoot);
 		const dbDir = paths.dbDir;
