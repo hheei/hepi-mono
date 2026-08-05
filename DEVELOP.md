@@ -50,19 +50,18 @@ bun scripts/pi-dev
 PI_DEV_PACKAGES=pi-auto-title,pi-subagents bun scripts/pi-dev
 ```
 
-`pi-dev` 将 session、settings 和包配置隔离在 `<worktree>/.pi-dev/agent/`。首次运行会将
-该目录的空 `auth.json`、`models.json` 链接到当前 Pi 的
-`~/.pi/agent/auth.json`、`~/.pi/agent/models.json`，不复制密钥。默认模型为
-`cx/gpt-5.6-luna`，thinking 为 `low`。
+`pi-dev` 使用 Pi 默认的 `~/.pi/agent/` 路径保存 session、settings、认证和模型配置。
+它只在本次启动中禁用默认 extension 发现，并显式加载当前 worktree 已构建的本地
+`pi.extensions`。默认模型、thinking 和其他 Pi 设置由默认配置决定。
 
-启动器不会继承 `OPENAI_API_KEY`，避免旧 OpenAI 凭证覆盖默认 `cx` 认证。使用 OpenAI
-必须在 Pi 命令中显式选择 provider 并提供认证；不要把密钥写进 worktree 文件。
+启动器不会继承 `OPENAI_API_KEY`，避免环境变量覆盖 Pi 默认认证。使用 OpenAI
+必须在 Pi 命令中显式选择 provider 并提供认证。
 
 ### 构建缓存
 
 首次运行会 build 所选包并生成 `dist`。选中 `pi-ext-tools` 时，还会以增量
 `local` profile 构建其 N-API 模块。随后对应源码与构建配置不变时，启动器从
-`.pi-dev/agent/build.json` 命中缓存并跳过 build。下列变化会自动失效缓存：
+`.pi-dev/build.json` 命中缓存并跳过 build。下列变化会自动失效缓存：
 
 - 已选包的 `src/**/*.ts`、`package.json`、`tsconfig.json` 或 `tsconfig.build.json`
 - 根目录 `bun.lock` 或 `tsconfig.base.json`
@@ -73,7 +72,7 @@ PI_DEV_PACKAGES=pi-auto-title,pi-subagents bun scripts/pi-dev
 要强制重建，删除缓存文件：
 
 ```bash
-rm .pi-dev/agent/build.json
+rm .pi-dev/build.json
 ```
 
 ## Live Smoke
@@ -82,7 +81,7 @@ rm .pi-dev/agent/build.json
 注册、lifecycle、provider、subagent 或 TUI 后，至少执行与改动范围匹配的 smoke。
 
 ```bash
-# 只检查隔离配置能解析默认模型，不输出 API key
+# 检查默认配置能解析模型，不输出 API key
 bun scripts/pi-dev --list-models cx/gpt-5.6-luna
 
 # 检查 cx 认证存在，不输出 API key

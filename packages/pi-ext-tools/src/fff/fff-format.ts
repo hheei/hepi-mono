@@ -160,8 +160,7 @@ function buildMatchSummaryLines(items: GrepMatch[]): string[] {
 		groups.set(item.relativePath, [...(groups.get(item.relativePath) ?? []), item.lineNumber]);
 	const lines: string[] = [];
 	for (const [path, lineNumbers] of groups) {
-		lines.push(`${path} (${lineNumbers.length} matches)`);
-		lines.push(`line: ${lineNumbers.join(", ")}, ...`);
+		lines.push(`${path}:${lineNumbers.join(",")} (${lineNumbers.length} matches)`);
 	}
 	return lines;
 }
@@ -182,7 +181,7 @@ function buildContentLines(items: GrepMatch[], requestedContext: number) {
 				const lineNumber = match.lineNumber - before.length + i;
 				const truncated = truncateLine(before[i] ?? "");
 				linesTruncated ||= truncated.wasTruncated;
-				lines.push(`${String(lineNumber).padStart(width)}|${truncated.text}`);
+				lines.push(`${String(lineNumber).padStart(width)}│${truncated.text}`);
 			}
 
 			const main = truncateLine(match.lineContent);
@@ -194,7 +193,7 @@ function buildContentLines(items: GrepMatch[], requestedContext: number) {
 				for (let i = 0; i < after.length; i += 1) {
 					const truncated = truncateLine(after[i] ?? "");
 					linesTruncated ||= truncated.wasTruncated;
-					lines.push(`${String(match.lineNumber + i + 1).padStart(width)}|${truncated.text}`);
+					lines.push(`${String(match.lineNumber + i + 1).padStart(width)}│${truncated.text}`);
 				}
 			}
 		}
@@ -235,7 +234,7 @@ function buildFilesWithMatchesLines(items: GrepMatch[]) {
 				if (!line.trim()) continue;
 				const truncated = truncateLine(line);
 				linesTruncated ||= truncated.wasTruncated;
-				lines.push(`  ${preview.lineNumber + i + 1}| ${truncated.text}`);
+				lines.push(`  ${preview.lineNumber + i + 1}│ ${truncated.text}`);
 			}
 		}
 	}
@@ -279,6 +278,7 @@ export function buildGrepText(
 		requestedContext: number;
 		includeCursorHint: boolean;
 		nextCursor?: string;
+		matchLimitReached?: number;
 		regexFallbackError?: string;
 		outputMode?: GrepOutputMode;
 	},
@@ -290,11 +290,11 @@ export function buildGrepText(
 	suggestedReadPath?: string;
 } {
 	if (items.length === 0) {
-		return { text: "No matches found.", linesTruncated: false };
+		return { text: "No match found", linesTruncated: false };
 	}
 
 	const outputMode = options.outputMode ?? "content";
-	const summaryMode = outputMode === "content" && items.length === options.limit;
+	const summaryMode = outputMode === "content" && options.matchLimitReached !== undefined;
 	const prefixLines = options.regexFallbackError
 		? [`! regex failed: ${options.regexFallbackError}, using literal match`]
 		: [];
@@ -311,7 +311,7 @@ export function buildGrepText(
 							suggestedReadPath: undefined,
 						};
 
-	const matchLimitReached = undefined;
+	const matchLimitReached = options.matchLimitReached;
 	const finalized = finalizeGrepText([...prefixLines, ...built.lines].join("\n"), {
 		includeCursorHint: options.includeCursorHint,
 		...(options.nextCursor === undefined ? {} : { nextCursor: options.nextCursor }),

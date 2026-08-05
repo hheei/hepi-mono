@@ -13,10 +13,8 @@ export function grepNeedsBuiltinFallback(params: {
 	pattern: string;
 	ignoreCase?: boolean;
 }): boolean {
-	// FFF's request contract has no case-insensitive option; lowercasing only the
-	// pattern cannot make matching file content case-insensitive.
+	// FFF supports case-sensitive matching, so an explicit false is compatible.
 	if (params.ignoreCase === true) return true;
-	if (params.ignoreCase === false && params.pattern.toLowerCase() === params.pattern) return true;
 	return false;
 }
 
@@ -58,7 +56,11 @@ export function buildErrorDetails(error?: { message: string } | null) {
 }
 
 export function buildGrepDetails(result?: GrepSearchResponse, error?: { message: string } | null) {
+	const files = new Set(result?.items.map((item) => item.relativePath));
 	return {
+		format: "fff-grep" as const,
+		totalMatched: result?.items.length ?? 0,
+		totalFiles: files.size,
 		truncation: result?.truncation,
 		matchLimitReached: result?.matchLimitReached,
 		linesTruncated: result?.linesTruncated ?? false,

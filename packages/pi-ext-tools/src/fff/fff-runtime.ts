@@ -925,6 +925,7 @@ export class FffRuntime {
 			limit: request.limit,
 			requestedContext: request.context,
 			includeCursorHint: request.includeCursorHint ?? false,
+			...(nextCursor === undefined ? {} : { matchLimitReached: request.limit }),
 			...(nextCursor === undefined ? {} : { nextCursor }),
 			...(regexFallbackError === undefined ? {} : { regexFallbackError }),
 			...(request.outputMode === undefined ? {} : { outputMode: request.outputMode }),
