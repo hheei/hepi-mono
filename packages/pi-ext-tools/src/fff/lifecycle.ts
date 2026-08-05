@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	type ExtensionLifecycleContext,
 	getHepiRuntimeSettingsRegistry,
@@ -120,30 +120,6 @@ async function startFffLifecycle(
 				publicState.getRuntime,
 				() => publicState.getSettings().autocomplete,
 			),
-		);
-	}
-	void warmFffRuntime(runtime, context.extension, publicState);
-}
-
-async function warmFffRuntime(
-	runtime: FffRuntime,
-	extension: ExtensionContext,
-	state: FffRuntimeState,
-): Promise<void> {
-	try {
-		const warmed = await runtime.warm(1500);
-		if (state.getRuntime() !== runtime || !state.getSettings().statusUI) return;
-		if (warmed.isErr()) {
-			extension.ui.notify(`fff unavailable: ${warmed.error.message}`, "warning");
-			return;
-		}
-		const indexed = warmed.value.indexedFiles ? ` (${warmed.value.indexedFiles} files)` : "";
-		extension.ui.notify(`fff path + grep mode enabled${indexed}`, "info");
-	} catch (error) {
-		if (state.getRuntime() !== runtime || !state.getSettings().statusUI) return;
-		extension.ui.notify(
-			`fff unavailable: ${error instanceof Error ? error.message : String(error)}`,
-			"warning",
 		);
 	}
 }

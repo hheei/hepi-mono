@@ -16,7 +16,6 @@ describe("FFF settings", () => {
 				fff: {
 					autocomplete: false,
 					grepEnhancement: true,
-					statusUI: null,
 				},
 			}),
 		).toEqual({
@@ -26,7 +25,6 @@ describe("FFF settings", () => {
 			grepEnhancement: true,
 			readEnhancement: true,
 			findEnhancement: true,
-			statusUI: true,
 		});
 	});
 
@@ -35,12 +33,9 @@ describe("FFF settings", () => {
 		try {
 			const path = join(directory, "settings.json");
 			const provider = createFffSettingsProvider({ path });
-			await provider.storage.save(
-				{ fff: { autocomplete: false, statusUI: false } },
-				{ sessionId: "settings-test" },
-			);
+			await provider.storage.save({ fff: { autocomplete: false } }, { sessionId: "settings-test" });
 			expect(await provider.storage.load({ sessionId: "settings-test" })).toEqual({
-				fff: { autocomplete: false, statusUI: false },
+				fff: { autocomplete: false },
 			});
 			expect(
 				fffSettingsFromState(await provider.storage.load({ sessionId: "settings-test" })),
@@ -51,10 +46,9 @@ describe("FFF settings", () => {
 				grepEnhancement: true,
 				readEnhancement: true,
 				findEnhancement: true,
-				statusUI: false,
 			});
 			expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
-				"pi-ext-tools": { fff: { autocomplete: false, statusUI: false } },
+				"pi-ext-tools": { fff: { autocomplete: false } },
 			});
 		} finally {
 			await rm(directory, { recursive: true, force: true });

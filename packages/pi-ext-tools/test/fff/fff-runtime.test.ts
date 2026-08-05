@@ -44,6 +44,28 @@ describe("FFF runtime", () => {
 		expect(seenOffsets).toEqual([null, 1]);
 	});
 
+	test("uses cwd as the index root and bounds explicit scan waiting", async () => {
+		const waits: number[] = [];
+		const runtime = new FffRuntime("/tmp/session", {
+			finder: {
+				waitForScan: async (timeoutMs: number) => {
+					waits.push(timeoutMs);
+					return { ok: true as const, value: false };
+				},
+				healthCheck: () => ({
+					ok: true as const,
+					value: { filePicker: { indexedFiles: 7 } },
+				}),
+			} as never,
+		});
+
+		expect((await runtime.getMetadata()).projectRoot).toBe("/tmp/session");
+		const warmed = await runtime.warm(25);
+		if (warmed.isErr()) throw warmed.error;
+		expect(warmed.value).toMatchObject({ ready: false, indexedFiles: 7 });
+		expect(waits).toEqual([25]);
+	});
+
 	test("destroys a finder that finishes initialization after disposal", async () => {
 		const runtime = new FffRuntime("/tmp");
 		let resolveInitialization: (result: unknown) => void = () => undefined;
