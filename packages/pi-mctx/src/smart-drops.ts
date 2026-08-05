@@ -11,6 +11,35 @@ export interface MctxSmartDropPlanInput {
 	readonly targetUsageTokens: number;
 }
 
+type MctxToolTier = 1 | 2 | 3;
+
+function toolTier(name: string): MctxToolTier {
+	const normalized = name.toLowerCase().replace(/^mcp_/u, "");
+	if (["read", "todowrite", "task", "aft_outline", "aft_zoom"].includes(normalized)) return 1;
+	if (["edit", "write", "apply_patch", "grep", "glob", "aft_search"].includes(normalized)) return 2;
+	return 3;
+}
+
+/** Preserves the newest fifth of continuation tools before pressure eviction. */
+function tierOrderedCandidates(
+	candidates: readonly MctxVisibleToolTag[],
+): readonly MctxVisibleToolTag[] {
+	const reserved = new Set<number>();
+	for (const tier of [1, 2] as const) {
+		const members = candidates
+			.filter((candidate) => toolTier(candidate.toolName) === tier)
+			.sort((left, right) => right.tag.tagNumber - left.tag.tagNumber);
+		for (const candidate of members.slice(0, Math.ceil(members.length / 5)))
+			reserved.add(candidate.tag.tagNumber);
+	}
+	return [...candidates]
+		.filter((candidate) => !reserved.has(candidate.tag.tagNumber))
+		.sort((left, right) => {
+			const tier = toolTier(right.toolName) - toolTier(left.toolName);
+			return tier === 0 ? left.tag.tagNumber - right.tag.tagNumber : tier;
+		});
+}
+
 function recordString(value: unknown, keys: readonly string[]): string | undefined {
 	if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
 	for (const key of keys) {
@@ -106,7 +135,7 @@ export function planMctxSmartDrops(input: MctxSmartDropPlanInput): MctxSmartDrop
 		tagNumbers.push(candidate.tag.tagNumber);
 		estimatedReclaimTokens += estimatedTokens(candidate.tag.source);
 	}
-	for (const candidate of candidates) {
+	for (const candidate of tierOrderedCandidates(candidates)) {
 		if (heuristic.has(candidate.tag.tagNumber)) continue;
 		tagNumbers.push(candidate.tag.tagNumber);
 		estimatedReclaimTokens += estimatedTokens(candidate.tag.source);

@@ -53,6 +53,25 @@ test("smart drops select oldest visible unprotected tool results until the targe
 	expect(plan).toEqual({ kind: "drop", tagNumbers: [1, 2], estimatedReclaimTokens: 30 });
 });
 
+test("smart drops prefer tier-three tools and retain recent tier-one tools", (): void => {
+	const readOld = tool(1, "r".repeat(40));
+	const readNew = tool(2, "r".repeat(40));
+	const bash = tool(3, "b".repeat(40));
+	const plan = planMctxSmartDrops({
+		tags: [
+			readOld,
+			readNew,
+			bash,
+			{ kind: "message", entryId: "protected", source: "keep", tagNumber: 4, status: "active" },
+		],
+		candidates: [candidate(readOld, "read"), candidate(readNew, "read"), candidate(bash, "bash")],
+		protectedTags: 1,
+		usageTokens: 100,
+		targetUsageTokens: 85,
+	});
+	expect(plan).toEqual({ kind: "drop", tagNumbers: [3, 1], estimatedReclaimTokens: 20 });
+});
+
 test("smart drops exclude hidden, pending, and protected tag identities", (): void => {
 	const pending = tool(2, "pending", "pending");
 	const newest = tool(3, "new");
