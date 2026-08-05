@@ -111,3 +111,20 @@ test("defer replays a persisted watermark without clearing redacted thinking", (
 		}).messages[0],
 	).toEqual(redacted);
 });
+
+test("replays only the matching entry when assistant messages are identical", (): void => {
+	const duplicate = structuredClone(assistant);
+	const result = replayMctxReasoning({
+		messages: [assistant, duplicate],
+		entries: [entry, { ...entry, id: "entry-2", message: duplicate }],
+		tags: [tag, { ...tag, tagNumber: 2, entryId: "entry-2" }],
+		watermark: 1,
+		clearReasoningAge: 1,
+		execute: false,
+	});
+	const first = result.messages[0];
+	if (first === undefined || first.role !== "assistant")
+		throw new Error("missing assistant message");
+	expect(first.content[0]).toMatchObject({ type: "thinking", thinking: "" });
+	expect(result.messages[1]).toEqual(duplicate);
+});

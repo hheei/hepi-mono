@@ -691,9 +691,9 @@ above that threshold, smart drops target enough eligible tool-result source to r
 (`threshold - 10 percentage points`, plus the existing absolute-threshold guard where configured). Cooldown starts only after the
 queue CAS accepts at least one tag; no candidate, a stale CAS, or rejected candidates leave it armed for a later eligible pass.
 The planner makes at most one successful automatic plan for an unchanged Pi usage sample; it re-arms only after the lower threshold
-is observed. This avoids repeated marker writes while Pi reports stale usage after a transform. 它仍有意不迁移 upstream private tool-tier ranking、
-system-injection stripping、reasoning clearing 和 caveman text rewriting：这些需要更宽的 tool metadata、reasoning ownership
-contract，或会改写 user-visible text，而 current Pi MCTX 不拥有它们。
+This avoids repeated marker writes while Pi reports stale usage after a transform. upstream private tool-tier ranking、
+system-injection stripping 和 caveman text rewriting 仍不迁移：这些需要更宽的 tool metadata，或会改写 user-visible text。
+reasoning clearing 已迁移为 Pi-safe typed/inline replay；它只使用 durable branch entry identity，redacted blocks 不改写。
 
 Manual and automatic requests share the same atomic queue primitive but preserve intent. Manual `ctx_reduce` keeps its current
 behavior and may target any eligible tag. Smart drops pass only its planner output to that primitive. On the following context

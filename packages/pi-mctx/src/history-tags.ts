@@ -1,7 +1,7 @@
-import { isDeepStrictEqual } from "node:util";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ImageContent, TextContent } from "@earendil-works/pi-ai";
-import { type SessionEntry, sessionEntryToContextMessages } from "@earendil-works/pi-coding-agent";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { contextIndexesByEntryId } from "./context-entry-indexes.js";
 import type { MctxHistoryTag, MctxHistoryTagInput } from "./store.js";
 
 export const MAX_CTX_EXPAND_CHARS = 30_000;
@@ -217,36 +217,6 @@ function taggedAssistantContent(
 		}),
 		dropped: replacement !== undefined,
 	};
-}
-
-function uniqueMessageIndex(
-	messages: readonly AgentMessage[],
-	expected: AgentMessage,
-): number | undefined {
-	let index: number | undefined;
-	for (const [candidateIndex, candidate] of messages.entries()) {
-		if (!isDeepStrictEqual(candidate, expected)) continue;
-		if (index !== undefined) return undefined;
-		index = candidateIndex;
-	}
-	return index;
-}
-
-function contextIndexesByEntryId(
-	messages: readonly AgentMessage[],
-	entries: readonly SessionEntry[],
-): ReadonlyMap<string, number> {
-	const indexes = new Map<string, number>();
-	for (const entry of entries) {
-		if (entry.type !== "message") continue;
-		const projected = sessionEntryToContextMessages(entry);
-		if (projected.length !== 1) continue;
-		const expected = projected[0];
-		if (expected === undefined) continue;
-		const index = uniqueMessageIndex(messages, expected);
-		if (index !== undefined) indexes.set(entry.id, index);
-	}
-	return indexes;
 }
 
 /** Applies tags only when a cloned Pi context message has one unambiguous branch origin. */
