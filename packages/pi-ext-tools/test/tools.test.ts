@@ -61,7 +61,7 @@ describe("pi-ext-tools catalog", () => {
 		const host = harness();
 		registerTools(host.pi);
 		const theme = {
-			fg: (_role: string, text: string): string => text,
+			fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
 			bold: (text: string): string => text,
 		};
 		const grep = host.tools.find((candidate) => candidate.name === "grep");
@@ -242,14 +242,16 @@ describe("pi-ext-tools catalog", () => {
 				.render(200)
 				.join("\n")
 				.trimEnd(),
-		).toBe("grep /needle/ in src (timeout 5s)");
+		).toBe(
+			"<accent>grep</accent> <mdCode>/needle/</mdCode> in <accent>src</accent><dim> (timeout 5s)</dim>",
+		);
 		expect(
 			find
 				.renderCall?.({ pattern: "status-surface", limit: 8 }, theme, { lastComponent: undefined })
 				.render(200)
 				.join("\n")
 				.trimEnd(),
-		).toBe("find status-surface (limit 8)");
+		).toBe("<accent>find</accent> <mdCode>status-surface</mdCode> (limit 8)");
 		expect(
 			grep
 				.renderResult?.(
@@ -265,7 +267,7 @@ describe("pi-ext-tools catalog", () => {
 				.map((line) => line.trimEnd())
 				.join("\n")
 				.trimEnd(),
-		).toBe("src/a.ts (2 matches)\nline: 1, 3, ...");
+		).toBe("<dim>src/a.ts</dim> (<success>2</success> matches)\n<dim>line: 1, 3, ...</dim>");
 		expect(
 			grep
 				.renderResult?.(
@@ -281,7 +283,7 @@ describe("pi-ext-tools catalog", () => {
 				.map((line) => line.trimEnd())
 				.join("\n")
 				.trimEnd(),
-		).toBe("src/a.ts:1,2,3,4,5, … (6 matches)");
+		).toBe("<dim>src/a.ts</dim><mdCode>:1,2,3,4,5, …</mdCode> (<success>6</success> matches)");
 		expect(
 			find
 				.renderResult?.(
@@ -301,7 +303,9 @@ describe("pi-ext-tools catalog", () => {
 				.map((line) => line.trimEnd())
 				.join("\n")
 				.trimEnd(),
-		).toBe("src/\nFF one.ts (frequent git:modified)\nFP two.ts");
+		).toBe(
+			"<mdCode>src/</mdCode>\n<success>FF</success> <dim>one.ts</dim> (frequent git:modified)\n<success>FP</success> <dim>two.ts</dim>",
+		);
 	});
 
 	test("executes read with the call context cwd instead of extension construction cwd", async (): Promise<void> => {
