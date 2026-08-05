@@ -1,6 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getHepiRuntimeSettingsRegistry, registerHepiSettings } from "@hheei/pi-ext-core";
-import { createStatusFeature } from "./contributions/status/index.js";
 import {
 	type CursorOptions,
 	createCursorSettingsProvider,
@@ -15,7 +14,6 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 
 	const coordinator = getToolActivationCoordinator(pi);
 	let cursorOptions: CursorOptions = DEFAULT_CURSOR_OPTIONS;
-	const status = createStatusFeature(pi);
 	const statusbar = createStatusbarFeature(pi, () => cursorOptions);
 	const lifecycle = new HepiLifecycleController({
 		onStart: async (runtime) => {
@@ -37,13 +35,8 @@ export default function piBasicsExtension(pi: ExtensionAPI): void {
 				id: "tool-activation",
 				cleanup: () => coordinator.dispose(),
 			});
-			status.start(runtime);
 			statusbar.start(runtime);
 			const sessionId = runtime.ctx.sessionManager.getSessionId();
-			runtime.registry.registerLifecycle({
-				id: "status",
-				cleanup: () => status.dispose(sessionId),
-			});
 			runtime.registry.registerLifecycle({
 				id: "statusbar",
 				cleanup: () => statusbar.dispose(sessionId),
