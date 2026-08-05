@@ -305,7 +305,7 @@ export function buildGrepText(
 	const outputMode = options.outputMode ?? "content";
 	const summaryMode = outputMode === "content" && options.matchLimitReached !== undefined;
 	const prefixLines = options.regexFallbackError
-		? [`! regex failed: ${options.regexFallbackError}, using literal match`]
+		? [`[regex fallback] ${options.regexFallbackError}; searched literally`]
 		: [];
 	const built = summaryMode
 		? { lines: buildMatchSummaryLines(items), linesTruncated: false, suggestedReadPath: undefined }
