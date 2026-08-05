@@ -100,7 +100,6 @@ export interface MctxSessionRuntime extends MctxRuntime {
 	readonly partition: MctxPartition;
 }
 
-<<<<<<< HEAD
 export type MctxCompactionResult =
 	| { readonly kind: "inactive" | "stale" }
 	| MctxCompactionMarkerResult;
@@ -1390,8 +1389,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 						...(tokens === undefined ? {} : { tokens }),
 						protectedTags: current.runtime.settings.protectedTags,
 					},
-				return {
-					pendingAugmentation: current.pendingAugmentation !== undefined,
+					pendingAugmentation: false,
 					accounting,
 				};
 			} catch (error: unknown) {
@@ -1591,16 +1589,6 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				recovery.kind === "valid"
 					? projectMctxContext(messages, entries, compartments)
 					: { kind: "unchanged" as const, messages };
-			if (recovery.kind === "valid") {
-				const marker = planMctxCompactionMarker(entries, recovery.graph);
-				if (marker !== undefined)
-					appendMctxCompactionMarker(
-						context,
-						marker.summary,
-						marker.firstKeptEntryId,
-						usage?.tokens ?? 0,
-					);
-			}
 			let baseMessages = projection.kind === "rendered" ? projection.messages : messages;
 			if (maintenance === "execute") {
 				const stripped = stripMctxSystemInjections({
@@ -1663,41 +1651,10 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			// A successful projection re-arms the read-failure notification for the
 			// next failure epoch, matching the historian notification pattern.
 			current.notifiedStoreReadFailure = false;
-<<<<<<< HEAD
-			// One-shot /mctx aug augmentation: injected once after a successful
-			// projection, then cleared. Projection failures keep it pending.
-			// The bounded wrapper is inserted before the last real user prompt so
-			// the model still sees the authoritative request as its final message.
-			const pendingAugmentation = current.pendingAugmentation;
-			let projectedMessages: readonly AgentMessage[] =
+			const projectedMessages: readonly AgentMessage[] =
 				current.runtime.settings.temporalAwareness !== false
 					? injectMctxTemporalMarkers(tagged.messages)
 					: tagged.messages;
-			if (pendingAugmentation !== undefined) {
-				current.pendingAugmentation = undefined;
-				const augmentationMessage: AgentMessage = {
-					role: "user",
-					content: [{ type: "text", text: pendingAugmentation }],
-					// Stable timestamp keeps the message shape consistent with
-					// synthetic projection messages.
-					timestamp: 0,
-				};
-				let lastUserIndex = -1;
-				for (let index = tagged.messages.length - 1; index >= 0; index--) {
-					if (tagged.messages[index]?.role === "user") {
-						lastUserIndex = index;
-						break;
-					}
-				}
-				projectedMessages =
-					lastUserIndex >= 0
-						? [
-								...tagged.messages.slice(0, lastUserIndex),
-								augmentationMessage,
-								...tagged.messages.slice(lastUserIndex),
-							]
-						: [...tagged.messages, augmentationMessage];
-			}
 			updateStatusAccounting(current, context, projectedMessages, entries);
 			return { messages: projectedMessages };
 		},
