@@ -38,12 +38,6 @@ pass 保持幂等。默认关闭，避免改变既有请求字节。
 无法验证、CAS/store failure 均 fail open，保留原始 context。`ctx_expand` 只返回清理后的 retained source，避免把
 extension 注入重新提供给模型。
 
-## Caveman Configuration
-
-`caveman_text_compression` 是 user-level opt-in。缺省关闭；启用时只接受
-`{ "enabled": true, "min_chars": 100..10000 }`，缺省 `min_chars: 500`。project setting
-一律忽略并给出 warning。此配置只授权后续 execute/replay 实现，单独保存配置不会改写 context。
-
 ## 非记忆完整迁移
 
 本 package 的目标是完整迁移上游 `cortexkit/magic-context` Pi plugin 的所有
