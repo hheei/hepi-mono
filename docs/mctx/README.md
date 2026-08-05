@@ -12,6 +12,23 @@
 https://github.com/cortexkit/magic-context/tree/0e81084f6f9ce8a87df76d975b9d31d10e9c477b/packages/pi-plugin
 ，具体实现为 `src/dialogs/status-dialog.ts`。
 
+## Message Marker Parity
+
+`pi-mctx` 在每次 Pi host `context` hook 中，为仍在模型上下文里的 user、assistant
+和 toolResult 注入稳定的 `§N§` history tag；已 reduce 的内容替换为
+`[dropped §N§]`，可通过 `ctx_expand` 读取原文。tag 只存在于模型请求投影，绝不
+写回 Pi session transcript。
+
+Pi host 在 hook 前深拷贝消息，故 concrete extension 不能依赖 session entry 和
+context message 的对象身份。`pi-mctx` 以完整 session branch 的结构序列匹配 context；
+compartment 投影后再对未覆盖的 live tail 做唯一结构匹配。重复或被其他 extension
+修改而无法唯一归属的消息保持原样，不能猜测 tag 归属。
+
+`pi-mctx.temporal_awareness: true` 对齐上游 opt-in：当前 user message 与前一条带
+时间戳 message 的间隔超过 5 分钟时，在该 user message 的 `§N§` 后插入
+`<!-- +Xm -->`。该 marker 只用于模型可见的时间间隔，不写入 session；重复 context
+pass 保持幂等。默认关闭，避免改变既有请求字节。
+
 ## Status Accounting Migration
 
 状态 panel 的 token 分类、Work tokens 和 cache timing 由 `pi-mctx` 自己生产，

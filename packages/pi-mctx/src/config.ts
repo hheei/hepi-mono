@@ -48,6 +48,8 @@ export interface MctxPipelineSettings {
 	readonly failClosedBlocking: boolean;
 	/** User-owned opt-in for automatic old tool-result reclaim. */
 	readonly smartDrops: boolean;
+	/** Opt-in model-visible elapsed-time comments, matching Magic Context Pi behavior. */
+	readonly temporalAwareness?: boolean;
 	readonly executeThresholdPercentage: MctxThreshold;
 	readonly executeThresholdTokens?: MctxOptionalThreshold;
 	readonly protectedTags: number;
@@ -339,6 +341,14 @@ function resolvePipeline(
 	if (project.smart_drops !== undefined) {
 		warnings.push("Ignoring project smart_drops: only user config controls automatic reclaim");
 	}
+	const temporalAwareness = global.temporal_awareness;
+	if (temporalAwareness !== undefined && typeof temporalAwareness !== "boolean")
+		return { kind: "invalid", reason: "temporal_awareness must be boolean" };
+	if (project.temporal_awareness !== undefined) {
+		warnings.push(
+			"Ignoring project temporal_awareness: only user config controls temporal markers",
+		);
+	}
 
 	return {
 		kind: "enabled",
@@ -347,6 +357,7 @@ function resolvePipeline(
 			failClosedBlocking:
 				failClosedBlocking === undefined ? DEFAULT_FAIL_CLOSED_BLOCKING : failClosedBlocking,
 			smartDrops,
+			...(temporalAwareness === true ? { temporalAwareness: true } : {}),
 			executeThresholdPercentage: {
 				defaultValue: raisedPercentage.defaultValue,
 				byModel: raisedPercentage.byModel,

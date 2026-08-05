@@ -35,6 +35,37 @@ test("disabled configuration leaves pipeline inactive", async (): Promise<void> 
 	expect(config.pipeline).toEqual({ kind: "disabled" });
 });
 
+test("accepts only user-owned temporal awareness configuration", async (): Promise<void> => {
+	await withSettings(
+		{ "pi-mctx": { enabled: true, temporal_awareness: true } },
+		{ "pi-mctx": { temporal_awareness: false } },
+		async (paths): Promise<void> => {
+			const configuration = await loadMctxConfiguration(paths);
+			expect(configuration.pipeline).toEqual({
+				kind: "enabled",
+				settings: expect.objectContaining({ temporalAwareness: true }),
+			});
+			expect(configuration.warnings).toContain(
+				"Ignoring project temporal_awareness: only user config controls temporal markers",
+			);
+		},
+	);
+});
+
+test("rejects invalid temporal awareness configuration", async (): Promise<void> => {
+	await withSettings(
+		{ "pi-mctx": { enabled: true, temporal_awareness: "yes" } },
+		{},
+		async (paths): Promise<void> => {
+			const configuration = await loadMctxConfiguration(paths);
+			expect(configuration.pipeline).toEqual({
+				kind: "invalid",
+				reason: "temporal_awareness must be boolean",
+			});
+		},
+	);
+});
+
 test("smart drops are user-owned opt-in configuration", async (): Promise<void> => {
 	const enabled = await withSettings(
 		{ "pi-mctx": { enabled: true, smart_drops: true } },

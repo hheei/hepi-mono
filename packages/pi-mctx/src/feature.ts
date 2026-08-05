@@ -88,6 +88,7 @@ import {
 	mctxHandoffBindingId,
 	openMctxStore,
 } from "./store.js";
+import { injectMctxTemporalMarkers } from "./temporal-awareness.js";
 import { evaluateMctxTriggerPolicy } from "./trigger-policy.js";
 
 /** Active session state. `partition` is replaced after each successful store CAS. */
@@ -1582,7 +1583,10 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			// The bounded wrapper is inserted before the last real user prompt so
 			// the model still sees the authoritative request as its final message.
 			const pendingAugmentation = current.pendingAugmentation;
-			let projectedMessages: readonly AgentMessage[] = tagged.messages;
+			let projectedMessages: readonly AgentMessage[] =
+				current.runtime.settings.temporalAwareness === true
+					? injectMctxTemporalMarkers(tagged.messages)
+					: tagged.messages;
 			if (pendingAugmentation !== undefined) {
 				current.pendingAugmentation = undefined;
 				const augmentationMessage: AgentMessage = {
