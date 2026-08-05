@@ -70,13 +70,13 @@ export function registerGrepTool(pi: ExtensionAPI, state: FffRuntimeState): void
 		name: "grep",
 		label: "grep",
 		description:
-			"Grep file contents. Smart-case, auto-detects regex or literal, git-aware. Results are frecency-ranked; matches within a file stay in source order. Default limit 20.",
+			"Search file contents. Smart-case, auto-detect regex or literal, git-aware, frecency-ranked. Default limit 20.",
 		promptSnippet: "Grep contents",
 		promptGuidelines: [
-			"grep: prefer bare identifiers as patterns. Literal queries are most efficient.",
+			"grep: prefer bare identifiers; literal queries are most efficient.",
 			"grep: use path to include a scope and exclude to remove noise.",
-			"grep: use caseSensitive: true when exact case is required.",
-			"grep: after 1-2 greps, read the top match instead of more greps.",
+			"grep: set caseSensitive: true for exact case; otherwise smart-case applies.",
+			"grep: after 1-2 searches, read the top match. AVOID `ripgrep` through the `bash` tool; use grep.",
 		],
 		parameters: schema,
 		renderCall: renderGrepCall,
