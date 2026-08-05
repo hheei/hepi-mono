@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	DEFAULT_CLEAR_REASONING_AGE,
 	DEFAULT_EXECUTE_THRESHOLD_PERCENTAGE,
 	DEFAULT_FAIL_CLOSED_BLOCKING,
 	DEFAULT_PROTECTED_TAGS,
@@ -33,6 +34,27 @@ async function withSettings<T>(
 test("disabled configuration leaves pipeline inactive", async (): Promise<void> => {
 	const config = await withSettings({}, {}, loadMctxConfiguration);
 	expect(config.pipeline).toEqual({ kind: "disabled" });
+});
+
+test("reasoning cleanup age is user-owned and validated", async (): Promise<void> => {
+	const config = await withSettings(
+		{ "pi-mctx": { enabled: true, clear_reasoning_age: 12 } },
+		{ "pi-mctx": { clear_reasoning_age: 1 } },
+		loadMctxConfiguration,
+	);
+	expect(config.pipeline).toMatchObject({ kind: "enabled", settings: { clearReasoningAge: 12 } });
+	expect(config.warnings).toContain(
+		"Ignoring project clear_reasoning_age: only user config controls reasoning cleanup",
+	);
+	const invalid = await withSettings(
+		{ "pi-mctx": { enabled: true, clear_reasoning_age: 0 } },
+		{},
+		loadMctxConfiguration,
+	);
+	expect(invalid.pipeline).toEqual({
+		kind: "invalid",
+		reason: "clear_reasoning_age must be an integer between 1 and 10000",
+	});
 });
 
 test("accepts only user-owned temporal awareness configuration", async (): Promise<void> => {
@@ -101,6 +123,7 @@ test("enabled user configuration resolves pipeline defaults", async (): Promise<
 		settings: {
 			historian: { kind: "enabled", model: "anthropic/claude-haiku" },
 			failClosedBlocking: DEFAULT_FAIL_CLOSED_BLOCKING,
+			clearReasoningAge: DEFAULT_CLEAR_REASONING_AGE,
 			smartDrops: DEFAULT_SMART_DROPS,
 			executeThresholdPercentage: {
 				defaultValue: DEFAULT_EXECUTE_THRESHOLD_PERCENTAGE,
@@ -150,6 +173,7 @@ test("exposes default merged provenance without weakening MCTX historian policy"
 		settings: {
 			historian: { kind: "enabled", model: "anthropic/claude-haiku" },
 			failClosedBlocking: true,
+			clearReasoningAge: DEFAULT_CLEAR_REASONING_AGE,
 			smartDrops: DEFAULT_SMART_DROPS,
 			executeThresholdPercentage: { defaultValue: 65, byModel: {} },
 			protectedTags: DEFAULT_PROTECTED_TAGS,
@@ -180,6 +204,7 @@ test("project configuration can only raise configured trigger thresholds", async
 		settings: {
 			historian: { kind: "enabled", model: "anthropic/claude-haiku" },
 			failClosedBlocking: true,
+			clearReasoningAge: DEFAULT_CLEAR_REASONING_AGE,
 			smartDrops: DEFAULT_SMART_DROPS,
 			executeThresholdPercentage: {
 				defaultValue: 65,
@@ -205,6 +230,7 @@ test("invalid enabled historian does not disable MCTX runtime", async (): Promis
 		settings: {
 			historian: { kind: "invalid", reason: "historian.model must be exact provider/model" },
 			failClosedBlocking: DEFAULT_FAIL_CLOSED_BLOCKING,
+			clearReasoningAge: DEFAULT_CLEAR_REASONING_AGE,
 			smartDrops: DEFAULT_SMART_DROPS,
 			executeThresholdPercentage: {
 				defaultValue: DEFAULT_EXECUTE_THRESHOLD_PERCENTAGE,
