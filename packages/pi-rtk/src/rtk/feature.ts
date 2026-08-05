@@ -192,7 +192,14 @@ export function createRtkFeature(agentDir: string = getAgentDir()): RtkFeature {
 					toolCallId: string;
 					partialResult: Parameters<typeof sanitizeStreamingBashExecutionResult>[0];
 				}) => {
-					if (sessionId === undefined || event.toolName !== "bash") return;
+					if (
+						sessionId === undefined ||
+						!config.enabled ||
+						!config.outputCompaction.enabled ||
+						!config.outputCompaction.stripAnsi ||
+						event.toolName !== "bash"
+					)
+						return;
 					const result = sanitizeStreamingBashExecutionResult(
 						event.partialResult,
 						active.get(event.toolCallId),
@@ -207,7 +214,14 @@ export function createRtkFeature(agentDir: string = getAgentDir()): RtkFeature {
 					toolCallId: string;
 					result: Parameters<typeof sanitizeStreamingBashExecutionResult>[0];
 				}) => {
-					if (sessionId === undefined || event.toolName !== "bash") return;
+					if (
+						sessionId === undefined ||
+						!config.enabled ||
+						!config.outputCompaction.enabled ||
+						!config.outputCompaction.stripAnsi ||
+						event.toolName !== "bash"
+					)
+						return;
 					const result = sanitizeStreamingBashExecutionResult(
 						event.result,
 						active.get(event.toolCallId),
