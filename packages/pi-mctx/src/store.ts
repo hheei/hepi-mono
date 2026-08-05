@@ -5,13 +5,33 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { MctxStatusAccounting } from "./status-metrics.js";
 
 export const MCTX_STORE_APPLICATION_ID = 0x484d4354;
-export const MCTX_STORE_SCHEMA_VERSION = 13;
+export const MCTX_STORE_SCHEMA_VERSION = 14;
 export const MCTX_STORE_BUSY_TIMEOUT_MS = 5_000;
 
 interface MctxDatabaseStatement {
 	get(...bindings: readonly unknown[]): unknown;
 	all(...bindings: readonly unknown[]): readonly unknown[];
 	run(...bindings: readonly unknown[]): unknown;
+}
+
+function migrateV14(database: DatabaseSync): void {
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		database.exec("ALTER TABLE mctx_metadata RENAME TO mctx_metadata_v13");
+		database.exec(
+			"CREATE TABLE mctx_metadata (schema_version INTEGER NOT NULL CHECK (schema_version = 14)) STRICT",
+		);
+		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(14);
+		database.exec("DROP TABLE mctx_metadata_v13");
+		database.exec(
+			"ALTER TABLE history_tags ADD COLUMN caveman_depth INTEGER NOT NULL DEFAULT 0 CHECK (caveman_depth BETWEEN 0 AND 3)",
+		);
+		database.exec("PRAGMA user_version = 14");
+		database.exec("COMMIT");
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
 }
 
 function replaceHistoryTagSources(
@@ -852,6 +872,7 @@ function validateSchema(database: DatabaseSync): void {
 	if (pragmaInteger(database, "PRAGMA user_version") === 10) migrateV11(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 11) migrateV12(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 12) migrateV13(database);
+	if (pragmaInteger(database, "PRAGMA user_version") === 13) migrateV14(database);
 	if (pragmaInteger(database, "PRAGMA application_id") !== MCTX_STORE_APPLICATION_ID) {
 		throw new Error("Context store application identity is invalid");
 	}
