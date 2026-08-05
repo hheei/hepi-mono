@@ -19,3 +19,36 @@ index d3f343b18c1d04ed35c9c52656213ecf72a226ed..ada97e73dc809e021969616b54f82285
                  }
                  return;
              }
+diff --git a/dist/tui.js b/dist/tui.js
+index 7e6b41a8d95d7707d0e2d160dc64cd4b57fbf37f..fab67929491120c06095404eae90facc20f7ce53 100644
+--- a/dist/tui.js
++++ b/dist/tui.js
+@@ -1003,12 +1003,15 @@ export class TUI extends Container {
+         const cursorPos = this.extractCursorPosition(newLines, height);
+         newLines = this.applyLineResets(newLines);
+         // Helper to clear scrollback and viewport and render all new lines
+-        const fullRender = (clear) => {
++        const fullRender = (clear, clearScrollback = clear) => {
+             this.fullRedrawCount += 1;
+             let buffer = "\x1b[?2026h"; // Begin synchronized output
+             if (clear) {
+                 buffer += this.deleteKittyImages(this.previousKittyImageIds);
+-                buffer += "\x1b[2J\x1b[H\x1b[3J"; // Clear screen, home, then clear scrollback
++                buffer += "\x1b[2J\x1b[H"; // Clear screen and home
++                if (clearScrollback) {
++                    buffer += "\x1b[3J"; // Clear scrollback
++                }
+             }
+             for (let i = 0; i < newLines.length; i++) {
+                 if (i > 0)
+@@ -1173,7 +1176,9 @@ export class TUI extends Container {
+         // If the first changed line is above the previous viewport, we need a full redraw.
+         if (firstChanged < prevViewportTop) {
+             logRedraw(`firstChanged < viewportTop (${firstChanged} < ${prevViewportTop})`);
+-            fullRender(true);
++            // A streaming update can change a tool row that is above the visible viewport.
++            // Repaint it without deleting the user's terminal scrollback.
++            fullRender(true, false);
+             return;
+         }
+         // Render from first changed line to end
