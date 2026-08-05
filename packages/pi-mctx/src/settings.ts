@@ -27,7 +27,6 @@ export interface MctxSettings {
 export interface MctxSettingsProviderOptions {
 	/** User-level Pi settings path; override only for tests or an embedding host. */
 	readonly path?: string;
-<<<<<<< HEAD
 	readonly modelOptions?: readonly HepiModelSelectionOption[];
 }
 
@@ -99,7 +98,6 @@ function createModelField(
 		...createHepiModelSelectionField({
 			id: "model",
 			label: "Historian model",
-<<<<<<< HEAD
 			description: "Select the exact provider/model used for bounded historian completions.",
 			modelOptions,
 			thinking: "off",
