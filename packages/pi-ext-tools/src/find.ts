@@ -12,6 +12,7 @@ import {
 import { renderFindCall, renderFindResult } from "./search-renderer.js";
 
 const OWNER = "@hheei/pi-ext-tools";
+const ARTIFACT_PREFIX = "artifact:" + "//";
 const DEFAULT_LIMIT = 30;
 const cursorStore = new Map<string, { query: string; limit: number; pageIndex: number }>();
 let cursorSequence = 0;
@@ -85,6 +86,8 @@ export function registerFindTool(pi: ExtensionAPI, state: FffRuntimeState): void
 			context: { cwd: string },
 		) {
 			if (signal?.aborted) throw new Error("Operation aborted");
+			if (params.path?.startsWith(ARTIFACT_PREFIX))
+				throw new Error("find cannot search artifact URLs");
 			const native = async () => {
 				const result = await createFindToolDefinition(context.cwd).execute(
 					id,

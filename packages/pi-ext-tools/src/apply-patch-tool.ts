@@ -10,6 +10,7 @@ import {
 	type ApplyPatchInWorkspaceResult,
 	applyPatchThroughCoordinator,
 } from "./apply-patch/index.js";
+import { parseV4aPatch } from "./apply-patch/parser.js";
 import {
 	finishApplyPatchRenderState,
 	renderApplyPatchCall,
@@ -17,6 +18,7 @@ import {
 } from "./apply-patch/renderer.js";
 
 const OWNER = "@hheei/pi-ext-tools";
+const ARTIFACT_PREFIX = "artifact:" + "//";
 
 export const APPLY_PATCH_PARAMETERS = Type.Object(
 	{
@@ -32,6 +34,14 @@ type ApplyPatchParameters = Static<typeof APPLY_PATCH_PARAMETERS>;
 
 export interface ApplyPatchToolDetails extends ApplyPatchInWorkspaceResult {
 	readonly status: "success";
+}
+
+export function modifiesArtifactPath(patch: string): boolean {
+	return parseV4aPatch(patch).operations.some(
+		(operation) =>
+			operation.path.startsWith(ARTIFACT_PREFIX) ||
+			("moveTo" in operation && operation.moveTo?.startsWith(ARTIFACT_PREFIX) === true),
+	);
 }
 
 function parseApplyPatchParameters(params: unknown): ApplyPatchParameters {
@@ -98,7 +108,7 @@ export function createApplyPatchTool(): ToolDefinition<
 		async execute(toolCallId, params, signal, _onUpdate, ctx) {
 			const { patch } = parseApplyPatchParameters(params);
 			setApplyPatchRenderState(toolCallId);
-			if (/artifact:\/\//.test(patch)) {
+			if (modifiesArtifactPath(patch)) {
 				finishApplyPatchRenderState(toolCallId, "failed");
 				throw new Error("apply_patch cannot modify artifact URLs");
 			}

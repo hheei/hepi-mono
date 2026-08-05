@@ -3,11 +3,13 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { createArtifactRegistry } from "@hheei/pi-ext-core";
 import { grepNeedsBuiltinFallback, inferFffGrepMode } from "../../src/fff/extension-common.js";
 import { FffRuntime } from "../../src/fff/fff.js";
 import { createFffRuntimeState, type FffRuntimeState } from "../../src/fff/lifecycle.js";
 import { registerMultiGrepTool } from "../../src/fff/multi-grep.js";
 import { registerFindTool } from "../../src/find.js";
+import { registerGrepTool } from "../../src/grep.js";
 
 function harness(): { readonly pi: ExtensionAPI; readonly tools: ToolDefinition[] } {
 	const tools: ToolDefinition[] = [];
@@ -140,5 +142,49 @@ describe("FFF tool registration", () => {
 		expect(text.text).toStartWith("1. src/find-enhancement.ts (fuzzy) - hot git:modified");
 		expect(text.text).toContain("cursor: find:");
 		expect(result.details).toBeUndefined();
+	});
+
+	test("searches artifact text with grep and rejects it from find", async () => {
+		const artifacts = createArtifactRegistry();
+		const path = artifacts.create("before\nNeedle\nafter");
+		const state = {
+			getRuntime: () => undefined,
+			getSettings: () => ({
+				shellPath: "sh",
+				bashOutputTailKiB: 10,
+				autocomplete: true,
+				grepEnhancement: true,
+				readEnhancement: true,
+				findEnhancement: true,
+				statusUI: true,
+			}),
+			getBashJobs: () => undefined,
+			getArtifacts: () => artifacts,
+		} satisfies FffRuntimeState;
+		const grepHost = harness();
+		registerGrepTool(grepHost.pi, state);
+		const grep = grepHost.tools[0];
+		if (grep === undefined) throw new Error("grep was not registered");
+		const grepResult = await grep.execute(
+			"grep-artifact",
+			{ pattern: "Needle", path },
+			undefined,
+			undefined,
+			{ cwd: process.cwd() } as never,
+		);
+		expect(grepResult.content).toEqual([
+			{ type: "text", text: `${path}\n1│before\n2:Needle\n3│after` },
+		]);
+
+		const findHost = harness();
+		registerFindTool(findHost.pi, state);
+		const find = findHost.tools[0];
+		if (find === undefined) throw new Error("find was not registered");
+		await expect(
+			find.execute("find-artifact", { pattern: "Needle", path }, undefined, undefined, {
+				cwd: process.cwd(),
+			} as never),
+		).rejects.toThrow("find cannot search artifact URLs");
+		artifacts.dispose();
 	});
 });
