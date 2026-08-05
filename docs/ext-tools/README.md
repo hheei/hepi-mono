@@ -173,6 +173,8 @@ FFF `find` 结果按首次命中顺序聚合目录。一个目录出现至少两
 
 压缩 grep 汇总也按 parent dir 合并：同一目录至少两个匹配文件时输出 `dir/` 标题，文件行只保留 basename；根目录和单项目录继续输出完整 path。该原始结构同时发送给模型和 renderer。
 
+grep renderer 在每个文件块内以最大行号宽度右对齐 `:`、`│`、`?` 前的数字。该行为覆盖 exact content、approximate 和 native fallback；只调整 TUI，不重写模型收到的原始 tool result。
+
 ## 验证与发布
 
 - 每个 catalog tool：upstream schema/execute compatibility、managed registration singleton、abort、streaming（如适用）

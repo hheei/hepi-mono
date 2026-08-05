@@ -43,17 +43,41 @@ function isFffGrepResult(result: AgentToolResult<unknown>): boolean {
 	return Reflect.get(result.details, "format") === "fff-grep";
 }
 
+const FFF_GREP_LINE = /^(\s*)(\d+)([:|│?])(.*)$/;
+
+function fffGrepLineWidths(lines: readonly string[]): ReadonlyMap<number, number> {
+	const widths = new Map<number, number>();
+	for (let start = 0; start < lines.length; ) {
+		const first = lines[start]?.match(FFF_GREP_LINE);
+		if (!first) {
+			start += 1;
+			continue;
+		}
+		let end = start;
+		let width = 0;
+		while (end < lines.length) {
+			const match = lines[end]?.match(FFF_GREP_LINE);
+			if (!match) break;
+			width = Math.max(width, (match[2] ?? "").length);
+			end += 1;
+		}
+		for (let index = start; index < end; index += 1) widths.set(index, width);
+		start = end;
+	}
+	return widths;
+}
+
 function renderFffGrepText(text: string, theme: Theme): string {
-	return text
-		.split("\n")
-		.filter((line) => !FIND_CURSOR.test(line))
-		.map((line) => {
+	const lines = text.split("\n").filter((line) => !FIND_CURSOR.test(line));
+	const lineWidths = fffGrepLineWidths(lines);
+	return lines
+		.map((line, index) => {
 			if (line.trim() === "" || line.startsWith("!")) return line;
 			if (FIND_DIRECTORY_HEADER.test(line)) return theme.fg("mdCode", line);
-			if (/^\s*\d+[:|│]/.test(line)) {
-				const match = line.match(/^(\s*\d+)([:|│])(.*)$/);
+			if (/^\s*\d+[:|│?]/.test(line)) {
+				const match = line.match(FFF_GREP_LINE);
 				return match
-					? `${theme.fg("dim", `${match[1] ?? ""}${match[2] ?? ""}`)}${match[3] ?? ""}`
+					? `${theme.fg("dim", `${match[1] ?? ""}${(match[2] ?? "").padStart(lineWidths.get(index) ?? 0)}${match[3] ?? ""}`)}${match[4] ?? ""}`
 					: line;
 			}
 			if (line.startsWith("line:")) return theme.fg("dim", line);
