@@ -37,6 +37,7 @@ const TODO_LOADOUT_REGISTRATION = {
 export const TODO_REMINDER_IDLE_TURNS = 3;
 export const TODO_REMINDER_IDLE_MS = 3 * 60_000;
 const TODO_REMINDER_CUSTOM_TYPE = "pi-todo:reminder";
+const TODO_STATE_CUSTOM_TYPE = "pi-todo:state";
 
 const taskStatus = Type.String({
 	enum: ["pending", "in_progress", "blocked", "completed", "suppressed"],
@@ -111,6 +112,29 @@ interface ActiveTodoRuntime {
 	reminderWindowStartedAtMs: number;
 	todoChangedThisTurn: boolean;
 	blockedQuietTurns: Map<number, number>;
+}
+
+/** Restores the latest durable snapshot on the active session branch. */
+function restoreTodoState(context: ExtensionContext): TaskState {
+	const entries = context.sessionManager.getBranch();
+	for (let index = entries.length - 1; index >= 0; index--) {
+		const entry = entries[index];
+		if (entry === undefined) continue;
+		if (entry.type === "custom" && entry.customType === TODO_STATE_CUSTOM_TYPE) {
+			const state = stateFromSnapshot(entry.data);
+			if (state) return state;
+			continue;
+		}
+		if (
+			entry.type === "message" &&
+			entry.message.role === "toolResult" &&
+			entry.message.toolName === TODO_TOOL_NAME
+		) {
+			const state = stateFromSnapshot(entry.message.details?.snapshot);
+			if (state) return state;
+		}
+	}
+	return freshTaskState();
 }
 
 export interface TodoFeature {
@@ -330,8 +354,6 @@ function renderTodoResult(
 	if (isError) return new Text(theme.fg("error", "✗"), 0, 0);
 	const details = result.details;
 	if (!details || typeof details !== "object") return new Text(theme.fg("success", "✓"), 0, 0);
-	// This snapshot belongs only to this rendered tool result. Startup and tree
-	// changes deliberately begin from fresh runtime state and never restore it.
 	const snapshot = (details as { readonly snapshot?: unknown }).snapshot;
 	const state = stateFromSnapshot(snapshot);
 	if (!state) return new Text(theme.fg("success", "✓"), 0, 0);
@@ -487,6 +509,8 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 			current.reminderWindowStartedAtMs = now();
 			current.todoChangedThisTurn = true;
 			current.widget?.refresh(current.state);
+			// Commands do not create a tool result, so persist this user-only state change.
+			pi.appendEntry(TODO_STATE_CUSTOM_TYPE, snapshotFromState(current.state));
 			const lines = [`Suppressed #${id}`, formatTodoGuidance(result.state)];
 			ctx.ui.notify(lines.join("\n"), "info");
 		},
@@ -557,7 +581,7 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 	pi.on("session_tree", async (_event, ctx) => {
 		const current = active;
 		if (!current || current.sessionId !== ctx.sessionManager.getSessionId()) return;
-		current.state = freshTaskState();
+		current.state = restoreTodoState(ctx);
 		current.blockedQuietTurns.clear();
 		current.idleTurns = 0;
 		current.reminderWindowStartedAtMs = now();
@@ -578,11 +602,8 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 
 	return {
 		start(context, signal) {
-			// Fresh state is an intentional compatibility boundary. Result snapshots
-			// remain render data only; neither branch history nor suppression entries
-			// are restored into a newly started Todo runtime.
 			renderedIdsByCall.clear();
-			const state = freshTaskState();
+			const state = restoreTodoState(context);
 			const current: ActiveTodoRuntime = {
 				sessionId: context.sessionManager.getSessionId(),
 				state,
