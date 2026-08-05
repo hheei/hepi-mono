@@ -19,7 +19,9 @@ type RenderContext = {
 
 const GREP_SUMMARY = /^(\d+) matches in (\d+) files:$/;
 const GREP_FILE_HEADER = /^> (.+) \((\d+) matches\):$/;
-const GREP_MATCH_LINE = /^\s*(\d+)([:|])(.*)$/;
+const GREP_FILE_SUMMARY = /^(.+) \((\d+) matches\)$/;
+const GREP_LINE_LIST = /^line: (.*)$/;
+const GREP_MATCH_LINE = /^\s*(\d+)([:|?])(.*)$/;
 const GREP_TRUNCATION = /^\.\.\. \((\d+) more lines, ctrl\+o to expand\)$/i;
 const GREP_NO_MATCHES = /^(?:No files matched\b.*|No matches found\.?)$/i;
 const FIND_SUMMARY = /^\d+\/\d+ matches$/;
@@ -102,6 +104,11 @@ function renderGrepText(text: string, theme: Theme, limit: number | undefined): 
 			const fileHeader = line.match(GREP_FILE_HEADER);
 			if (fileHeader)
 				return `${theme.fg("dim", fileHeader[1] ?? "")} (${theme.fg("success", fileHeader[2] ?? "0")} matches)`;
+			const fileSummary = line.match(GREP_FILE_SUMMARY);
+			if (fileSummary)
+				return `${theme.fg("mdCode", fileSummary[1] ?? "")} (${theme.fg("success", fileSummary[2] ?? "0")} matches)`;
+			const lineList = line.match(GREP_LINE_LIST);
+			if (lineList) return `${theme.fg("dim", "line:")}${lineList[1] ?? ""}`;
 			const match = line.match(GREP_MATCH_LINE);
 			if (!match) {
 				if (line.trim() === "" || line.startsWith("!") || line.startsWith("cursor:")) return line;

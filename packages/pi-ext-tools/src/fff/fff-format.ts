@@ -154,16 +154,30 @@ function finalizeGrepText(
 	return { text: output, truncation: truncation.truncated ? truncation : undefined };
 }
 
+function buildMatchSummaryLines(items: GrepMatch[]): string[] {
+	const groups = new Map<string, number[]>();
+	for (const item of items)
+		groups.set(item.relativePath, [...(groups.get(item.relativePath) ?? []), item.lineNumber]);
+	const lines: string[] = [];
+	for (const [path, lineNumbers] of groups) {
+		lines.push(`${path} (${lineNumbers.length} matches)`);
+		lines.push(`line: ${lineNumbers.join(", ")}, ...`);
+	}
+	return lines;
+}
+
 function buildContentLines(items: GrepMatch[], requestedContext: number) {
 	const lines: string[] = [];
 	let linesTruncated = false;
 	let currentPath: string | undefined;
 	let currentFileItems: GrepMatch[] = [];
 	let lineNumberWidth = 0;
+	const suppressAllContext = items.length > 30;
 
 	const appendFileLines = (fileItems: readonly GrepMatch[], width: number): void => {
+		const includeContext = requestedContext > 0 && !suppressAllContext && fileItems.length <= 10;
 		for (const match of fileItems) {
-			const before = requestedContext > 0 ? (match.contextBefore ?? []) : [];
+			const before = includeContext ? (match.contextBefore ?? []) : [];
 			for (let i = 0; i < before.length; i += 1) {
 				const lineNumber = match.lineNumber - before.length + i;
 				const truncated = truncateLine(before[i] ?? "");
@@ -175,7 +189,7 @@ function buildContentLines(items: GrepMatch[], requestedContext: number) {
 			linesTruncated ||= main.wasTruncated;
 			lines.push(`${String(match.lineNumber).padStart(width)}:${main.text}`);
 
-			if (requestedContext > 0) {
+			if (includeContext) {
 				const after = match.contextAfter ?? [];
 				for (let i = 0; i < after.length; i += 1) {
 					const truncated = truncateLine(after[i] ?? "");
@@ -280,11 +294,13 @@ export function buildGrepText(
 	}
 
 	const outputMode = options.outputMode ?? "content";
+	const summaryMode = outputMode === "content" && items.length === options.limit;
 	const prefixLines = options.regexFallbackError
 		? [`! regex failed: ${options.regexFallbackError}, using literal match`]
 		: [];
-	const built =
-		outputMode === "files_with_matches"
+	const built = summaryMode
+		? { lines: buildMatchSummaryLines(items), linesTruncated: false, suggestedReadPath: undefined }
+		: outputMode === "files_with_matches"
 			? buildFilesWithMatchesLines(items)
 			: outputMode === "count"
 				? { ...buildCountLines(items), suggestedReadPath: undefined }
@@ -295,8 +311,7 @@ export function buildGrepText(
 							suggestedReadPath: undefined,
 						};
 
-	const matchLimitReached =
-		items.length >= options.limit && outputMode === "content" ? options.limit : undefined;
+	const matchLimitReached = undefined;
 	const finalized = finalizeGrepText([...prefixLines, ...built.lines].join("\n"), {
 		includeCursorHint: options.includeCursorHint,
 		...(options.nextCursor === undefined ? {} : { nextCursor: options.nextCursor }),
