@@ -1,73 +1,135 @@
 import { createFindToolDefinition, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
+import { Type } from "typebox";
 import { formatCandidateLines } from "./fff/fff.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
+import { buildFffQuery, nativeFallbackPattern, supportsFffPath } from "./fff/query.js";
 import { renderFindCall, renderFindResult } from "./search-renderer.js";
 
 const OWNER = "@hheei/pi-ext-tools";
-const GLOB_SYNTAX = /[*?[{]/;
+const DEFAULT_LIMIT = 30;
+const cursorStore = new Map<string, { query: string; limit: number; pageIndex: number }>();
+let cursorSequence = 0;
 
-function canUseFffFind(
-	params: { readonly pattern: string; readonly path?: string; readonly limit?: number },
-	state: FffRuntimeState,
-): boolean {
-	return (
-		state.getSettings().findEnhancement &&
-		state.getRuntime() !== undefined &&
-		params.path === undefined &&
-		!GLOB_SYNTAX.test(params.pattern) &&
-		(params.limit === undefined || (Number.isInteger(params.limit) && params.limit > 0))
-	);
+const schema = Type.Object({
+	pattern: Type.String({
+		description:
+			"Fuzzy filename search and glob search. Frecency-ranked, git-aware. Multi-word narrows the result (AND).",
+	}),
+	path: Type.Optional(
+		Type.String({
+			description:
+				"Path constraint: directory prefix, filename, or glob, applied to the repo-relative path.",
+		}),
+	),
+	exclude: Type.Optional(Type.Union([Type.String(), Type.Array(Type.String())])),
+	limit: Type.Optional(Type.Number({ description: "Max results per page (default 30)" })),
+	cursor: Type.Optional(Type.String({ description: "Pagination cursor from the previous result" })),
+});
+
+function nextCursor(query: string, limit: number, pageIndex: number): string {
+	const cursor = `find:${++cursorSequence}`;
+	cursorStore.set(cursor, { query, limit, pageIndex });
+	if (cursorStore.size > 200) {
+		const oldest = cursorStore.keys().next().value;
+		if (typeof oldest === "string") cursorStore.delete(oldest);
+	}
+	return cursor;
 }
 
-/** ponytail: FFF find supports only unscoped non-glob queries; add native-equivalent glob/root support before widening. */
+function nativeParams(params: {
+	pattern: string;
+	path?: string;
+	exclude?: string | string[];
+	limit?: number;
+	cursor?: string;
+}): { pattern: string; path?: string; limit?: number } {
+	if (params.exclude !== undefined || params.cursor !== undefined)
+		throw new Error(
+			"FFF is unavailable; Pi native find cannot preserve exclude or cursor semantics.",
+		);
+	return {
+		pattern: params.path?.match(/[*?[{]/) ? params.path : nativeFallbackPattern(params.pattern),
+		...(params.path === undefined || params.path.match(/[*?[{]/) ? {} : { path: params.path }),
+		...(params.limit === undefined ? {} : { limit: params.limit }),
+	};
+}
+
 export function registerFindTool(pi: ExtensionAPI, state: FffRuntimeState): void {
-	const template = createFindToolDefinition(process.cwd());
-	const tool: typeof template = {
-		...template,
+	const tool = {
+		name: "find",
+		label: "find",
 		description:
-			"Search for files by FFF fuzzy path query when available; otherwise searches by glob pattern. Returns matching file paths relative to the search directory. Respects .gitignore. Default limit 1000.",
-		promptSnippet: "Find files by fuzzy path query or glob (respects .gitignore)",
+			"Fuzzy path search and glob search. Matches the whole repo-relative path, is frecency-ranked and git-aware. Multi-word narrows results. Default limit 30.",
+		promptSnippet: "Find files by path or glob",
 		promptGuidelines: [
 			"find: use for paths, not content. Use grep for content.",
-			"find: keep glob patterns precise; use a path-containing pattern such as 'src/**/*.ts' when the scope is known.",
-			"find: use limit when a broad pattern may return many files.",
+			"find: keep queries to 1-2 terms; extra words narrow.",
+			"find: use path for exact glob constraints and exclude to remove noise.",
 		],
-		renderCall: (args, theme, context) => renderFindCall(args, theme, context),
-		renderResult: (result, options, theme, context) =>
-			renderFindResult(result, options, theme, context),
-		async execute(id, params, signal, onUpdate, context) {
-			if (typeof params.path === "string" && params.path.startsWith("artifact://"))
-				throw new Error("find cannot search artifact URLs");
-			const native = () =>
-				createFindToolDefinition(context.cwd).execute(id, params, signal, onUpdate, context);
-			if (!canUseFffFind(params, state)) return native();
-			const runtime = state.getRuntime();
-			if (runtime === undefined) return native();
+		parameters: schema,
+		renderCall: renderFindCall,
+		renderResult: renderFindResult,
+		async execute(
+			id: string,
+			params: {
+				pattern: string;
+				path?: string;
+				exclude?: string | string[];
+				limit?: number;
+				cursor?: string;
+			},
+			signal: AbortSignal | undefined,
+			onUpdate: undefined,
+			context: { cwd: string },
+		) {
 			if (signal?.aborted) throw new Error("Operation aborted");
-			try {
-				const candidates = await runtime.searchFileCandidates(params.pattern, params.limit ?? 1000);
-				if (signal?.aborted) throw new Error("Operation aborted");
-				if (candidates.isErr()) return native();
-				if (candidates.value.length === 0) {
-					return {
-						content: [{ type: "text" as const, text: "No files found matching pattern" }],
-						details: undefined,
-					};
-				}
-				return {
-					content: [
-						{
-							type: "text" as const,
-							text: formatCandidateLines(candidates.value, params.limit ?? 1000).join("\n"),
-						},
-					],
-					details: undefined,
-				};
-			} catch (error) {
-				if (signal?.aborted) throw error;
-				return native();
+			const resumed = params.cursor === undefined ? undefined : cursorStore.get(params.cursor);
+			if (params.cursor !== undefined && resumed === undefined)
+				throw new Error("Invalid or expired find cursor.");
+			const limit = resumed?.limit ?? Math.max(1, params.limit ?? DEFAULT_LIMIT);
+			const query =
+				resumed?.query ?? buildFffQuery(params.path, params.pattern, params.exclude, context.cwd);
+			const runtime = state.getRuntime();
+			if (
+				!state.getSettings().findEnhancement ||
+				runtime === undefined ||
+				!supportsFffPath(params.path, context.cwd)
+			) {
+				return createFindToolDefinition(context.cwd).execute(
+					id,
+					nativeParams(params),
+					signal,
+					onUpdate,
+					context as never,
+				);
 			}
+			const result = await runtime.findSearch({
+				query,
+				limit,
+				pageIndex: resumed?.pageIndex ?? 0,
+			});
+			if (signal?.aborted) throw new Error("Operation aborted");
+			if (result.isErr()) {
+				return createFindToolDefinition(context.cwd).execute(
+					id,
+					nativeParams(params),
+					signal,
+					onUpdate,
+					context as never,
+				);
+			}
+			const lines = formatCandidateLines(result.value.items, limit);
+			if (result.value.hasMore)
+				lines.push(
+					`${result.value.totalMatched - (result.value.pageIndex + 1) * limit} more matches available. cursor="${nextCursor(query, limit, result.value.pageIndex + 1)}" to continue`,
+				);
+			return {
+				content: [
+					{ type: "text" as const, text: lines.join("\n") || "No files found matching pattern" },
+				],
+				details: undefined,
+			};
 		},
 	};
 	registerManagedLoadoutTool(

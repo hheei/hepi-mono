@@ -11,7 +11,13 @@ import type {
 	Location,
 	Score,
 } from "@ff-labs/fff-node";
-import type { GrepSearchError, PathResolutionError, RelatedFilesError } from "./errors.js";
+import type {
+	FinderOperationError,
+	GrepSearchError,
+	PathResolutionError,
+	RelatedFilesError,
+	RuntimeInitializationError,
+} from "./errors.js";
 import type { AppResult } from "./result-utils.js";
 
 export type FileItem = EngineFileItem & { path?: string };
@@ -31,6 +37,25 @@ export type FffFileCandidate = {
 	score?: Score;
 };
 
+export type FindSearchRequest = {
+	query: string;
+	limit: number;
+	pageIndex: number;
+};
+
+export type FindSearchResponse = {
+	items: FffFileCandidate[];
+	totalMatched: number;
+	totalFiles: number;
+	pageIndex: number;
+	hasMore: boolean;
+};
+
+export type FindSearchResult = AppResult<
+	FindSearchResponse,
+	RuntimeInitializationError | FinderOperationError
+>;
+
 export type ResolvedPath = {
 	kind: "resolved";
 	query: string;
@@ -49,6 +74,7 @@ export type GrepOutputMode = "content" | "files_with_matches" | "count" | "usage
 export type GrepSearchRequest = {
 	pattern: string;
 	mode?: GrepMode;
+	caseSensitive?: boolean;
 	pathQuery?: string;
 	glob?: string;
 	constraints?: string;
@@ -97,6 +123,7 @@ export type SingleGrepRequest = GrepBaseRequest & {
 	kind: "single";
 	pattern: string;
 	mode: GrepMode;
+	caseSensitive?: boolean;
 };
 
 export type MultiGrepRequest = GrepBaseRequest & {

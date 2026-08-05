@@ -103,6 +103,8 @@ describe("FFF tool registration", () => {
 							},
 						],
 						scores: [{ matchType: "fuzzy", total: 1 }],
+						totalMatched: 2,
+						totalFiles: 2,
 					},
 				}),
 			} as never,
@@ -127,18 +129,16 @@ describe("FFF tool registration", () => {
 
 		const result = await find.execute(
 			"find-fff",
-			{ pattern: "find enhancement" },
+			{ pattern: "find enhancement", limit: 1 },
 			undefined,
 			undefined,
 			{ cwd: process.cwd() } as never,
 		);
 
-		expect(result.content).toEqual([
-			{
-				type: "text",
-				text: "1. src/find-enhancement.ts (fuzzy) - hot git:modified",
-			},
-		]);
+		const text = result.content[0];
+		if (text?.type !== "text") throw new Error("Expected text result");
+		expect(text.text).toStartWith("1. src/find-enhancement.ts (fuzzy) - hot git:modified");
+		expect(text.text).toContain('cursor="find:');
 		expect(result.details).toBeUndefined();
 	});
 });
