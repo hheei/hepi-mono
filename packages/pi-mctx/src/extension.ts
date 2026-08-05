@@ -137,14 +137,34 @@ function registerContextHook(pi: ExtensionAPI, feature: MctxFeature): void {
 }
 
 function registerCompactionHook(pi: ExtensionAPI, feature: MctxFeature): void {
-	pi.on("session_before_compact", (event, context) => {
+	pi.on("session_before_compact", async (event, context) => {
 		if (feature.active() === undefined) return undefined;
 		try {
-			const result = feature.compact(event.branchEntries, event.preparation.tokensBefore, context);
+			const result = await feature.compact(
+				event.branchEntries,
+				event.preparation.tokensBefore,
+				context,
+				event.reason === "manual",
+				event.signal,
+			);
 			if (result.kind === "compaction") return { compaction: result.compaction };
-		} catch {
+			if (event.reason === "manual") {
+				const reason =
+					result.kind === "failed"
+						? result.reason
+						: result.kind === "inactive"
+							? "MCTX runtime is inactive"
+							: "MCTX context changed before compaction completed";
+				context.ui.notify(`MCTX compact failed: ${reason}`, "error");
+			}
+		} catch (error: unknown) {
 			// An active MCTX runtime owns compact failure semantics. Letting Pi create
 			// a second summary after a failed MCTX projection would corrupt that ownership.
+			if (event.reason === "manual")
+				context.ui.notify(
+					`MCTX compact failed: ${error instanceof Error ? error.message : String(error)}`,
+					"error",
+				);
 		}
 		return { cancel: true };
 	});

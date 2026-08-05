@@ -293,7 +293,9 @@ test("active MCTX prepares a verified same-session compaction result", async ():
 		},
 	} as unknown as ExtensionContext;
 
-	expect(feature.compact(branch, 1_000, context)).toEqual({
+	expect(
+		await feature.compact(branch, 1_000, context, false, new AbortController().signal),
+	).toEqual({
 		kind: "compaction",
 		compaction: {
 			summary: "[MCTX m0]: summary",
