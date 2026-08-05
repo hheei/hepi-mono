@@ -439,8 +439,7 @@ test("adopts a successful publication revision for the next historian run", asyn
 	});
 	await feature.start(fixture.context);
 	feature.onTurnEnd(turnContext({ tokens: 65_000, contextWindow: 100_000 }));
-	await Promise.resolve();
-	await Promise.resolve();
+	await Bun.sleep(0);
 	const active = feature.active();
 	if (active === undefined) throw new Error("Expected active runtime");
 	expect(active.partition.revision).toBe(1);

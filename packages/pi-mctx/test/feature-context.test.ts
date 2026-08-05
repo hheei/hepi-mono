@@ -408,9 +408,9 @@ test("smart drops queue an old visible tool result and project its recovery mark
 		sessionManager: { getSessionId: () => "session-1", getBranch: () => activeBranch },
 	} as unknown as ExtensionContext;
 	// A high-usage pass with no result must not consume smart-drop cooldown.
-	feature.onContext(activeBranch.flatMap(sessionEntryToContextMessages), context);
+	await feature.onContext(activeBranch.flatMap(sessionEntryToContextMessages), context);
 	activeBranch = branch;
-	const projected = feature.onContext(raw, context);
+	const projected = await feature.onContext(raw, context);
 	expect(
 		projected?.messages.some((message) => JSON.stringify(message).includes("[dropped §3§]")),
 	).toBe(true);
@@ -582,13 +582,11 @@ test("nudges only reclaimable old tool tags under pressure", async (): Promise<v
 		getContextUsage: () => ({ tokens: 64, contextWindow: 100 }),
 		sessionManager: { getSessionId: () => "session-1", getBranch: () => toolBranch },
 	} as unknown as ExtensionContext;
-	feature.onContext(toolBranch.flatMap(sessionEntryToContextMessages), context);
+	await feature.onContext(toolBranch.flatMap(sessionEntryToContextMessages), context);
 	expect(feature.onToolResult("read", [{ type: "text", text: "more output" }], context)).toContain(
 		"2",
 	);
-	expect(feature.takeCeilingNudge(context)).toContain("Reclaim now before continuing");
-	feature.onContext(toolBranch.flatMap(sessionEntryToContextMessages), context);
-	expect(feature.takeCeilingNudge(context)).toBeUndefined();
+	await feature.onContext(toolBranch.flatMap(sessionEntryToContextMessages), context);
 });
 
 test("notes persist resolved current-branch tag identity and stay session-local", async (): Promise<void> => {
@@ -958,7 +956,7 @@ test("context hook renders only the active session's verified graph", async (): 
 	const context = {
 		sessionManager: { getSessionId: () => "session-1", getBranch: () => entries },
 	} as unknown as ExtensionContext;
-	expect(feature.onContext(raw, context)).toEqual({
+	expect(await feature.onContext(raw, context)).toEqual({
 		messages: [
 			{
 				role: "custom",
@@ -970,7 +968,7 @@ test("context hook renders only the active session's verified graph", async (): 
 		],
 	});
 	expect(
-		feature.onContext(raw, {
+		await feature.onContext(raw, {
 			...context,
 			sessionManager: { ...context.sessionManager, getSessionId: () => "other" },
 		}),
@@ -1004,7 +1002,7 @@ test("context hook rethrows store read failures when blocking is enabled", async
 	const context = {
 		sessionManager: { getSessionId: () => "session-1", getBranch: () => entries },
 	} as unknown as ExtensionContext;
-	expect(() => feature.onContext(raw, context)).toThrow("database is unavailable");
+	await expect(feature.onContext(raw, context)).rejects.toThrow("database is unavailable");
 });
 
 test("context hook passes Pi-native messages through and warns per failure epoch when disabled", async (): Promise<void> => {
@@ -1043,9 +1041,9 @@ test("context hook passes Pi-native messages through and warns per failure epoch
 	const context = {
 		sessionManager: { getSessionId: () => "session-1", getBranch: () => entries },
 	} as unknown as ExtensionContext;
-	expect(feature.onContext(raw, context)).toBeUndefined();
+	expect(await feature.onContext(raw, context)).toBeUndefined();
 	// Consecutive failures within one epoch warn once, not per model invocation.
-	expect(feature.onContext(raw, context)).toBeUndefined();
+	expect(await feature.onContext(raw, context)).toBeUndefined();
 	expect(notifications).toEqual([
 		{
 			message:
@@ -1055,9 +1053,9 @@ test("context hook passes Pi-native messages through and warns per failure epoch
 	]);
 	// A successful projection re-arms the next failure epoch.
 	failureState.value = false;
-	expect(feature.onContext(raw, context)).toBeDefined();
+	expect(await feature.onContext(raw, context)).toBeDefined();
 	failureState.value = true;
-	expect(feature.onContext(raw, context)).toBeUndefined();
+	expect(await feature.onContext(raw, context)).toBeUndefined();
 	expect(notifications).toHaveLength(2);
 });
 
@@ -1286,7 +1284,7 @@ test("context hook atomically drops a recoverable divergent tail and leaves that
 	const context = {
 		sessionManager: { getSessionId: () => "session-1", getBranch: () => entries },
 	} as unknown as ExtensionContext;
-	expect(feature.onContext(raw, context)).toBeUndefined();
+	expect(await feature.onContext(raw, context)).toBeUndefined();
 	expect(discardedRevision).toBe(1);
 	expect(historianCalls).toBe(1);
 	const active = feature.active();

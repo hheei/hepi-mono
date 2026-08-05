@@ -63,7 +63,7 @@ interface PiContextHook {
 		handler: (
 			event: { readonly messages: readonly AgentMessage[] },
 			context: ExtensionContext,
-		) => { readonly messages: readonly AgentMessage[] } | undefined,
+		) => Promise<{ readonly messages: readonly AgentMessage[] } | undefined>,
 	): void;
 }
 
@@ -795,27 +795,41 @@ export default function piMctxExtension(pi: ExtensionAPI): void {
 			context: ExtensionContext,
 		) => { content?: ToolResultEvent["content"] },
 	) => void;
+	const deliverCeilingNudge = (
+		context: ExtensionContext,
+		deliverAs: "steer" | "followUp",
+	): void => {
+		const nudge = reloadCompatibleFeature.claimCeilingNudge?.(context);
+		if (nudge === undefined) return;
+		try {
+			pi.sendMessage(
+				{
+					customType: "pi-mctx:ceiling-nudge",
+					content: nudge.text,
+					display: false,
+					details: { kind: "ctx-reduce-ceiling-nudge" },
+				},
+				{ deliverAs },
+			);
+			reloadCompatibleFeature.completeCeilingNudge?.(nudge);
+		} catch {
+			reloadCompatibleFeature.releaseCeilingNudge?.(nudge);
+		}
+	};
 	onToolResult("tool_result", (event, context) => {
 		const reminder = reloadCompatibleFeature.onToolResult?.(event.toolName, event.content, context);
+		deliverCeilingNudge(context, "steer");
 		return reminder === undefined
 			? {}
 			: { content: [...event.content, { type: "text", text: reminder }] };
 	});
 	pi.on("agent_end", (_event, context) => {
-		const reminder = reloadCompatibleFeature.takeCeilingNudge?.(context);
-		if (reminder === undefined) return;
-		pi.sendMessage(
-			{
-				customType: "pi-mctx:ceiling-nudge",
-				content: reminder,
-				display: false,
-				details: { kind: "ctx-reduce-ceiling-nudge" },
-			},
-			{ deliverAs: "followUp" },
-		);
+		deliverCeilingNudge(context, "followUp");
 	});
 	pi.on("turn_end", (_event, context) => feature.onTurnEnd(context));
-	pi.on("message_end", (event) => {
+	pi.on("message_end", (event, context) => {
+		if (event.message.role === "assistant" && "errorMessage" in event.message)
+			reloadCompatibleFeature.recordProviderError?.(event.message.errorMessage, context);
 		if (event.message.role !== "assistant") return undefined;
 		return { message: stripMctxTagPrefix(event.message) };
 	});

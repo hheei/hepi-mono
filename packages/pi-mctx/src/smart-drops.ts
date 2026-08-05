@@ -9,6 +9,8 @@ export interface MctxSmartDropPlanInput {
 	readonly usageTokens: number;
 	/** The usage target after reclaim, normally the trigger policy's re-arm point. */
 	readonly targetUsageTokens: number;
+	/** Emergency recovery drops every eligible live-tail tool result. */
+	readonly forceAll?: boolean;
 }
 
 type MctxToolTier = 1 | 2 | 3;
@@ -139,7 +141,7 @@ export function planMctxSmartDrops(input: MctxSmartDropPlanInput): MctxSmartDrop
 		if (heuristic.has(candidate.tag.tagNumber)) continue;
 		tagNumbers.push(candidate.tag.tagNumber);
 		estimatedReclaimTokens += estimatedTokens(candidate.tag.source);
-		if (estimatedReclaimTokens >= required) break;
+		if (!input.forceAll && estimatedReclaimTokens >= required) break;
 	}
 	return { kind: "drop", tagNumbers, estimatedReclaimTokens };
 }

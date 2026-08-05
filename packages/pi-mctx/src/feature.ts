@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
@@ -44,6 +45,7 @@ import {
 	collectVisibleMctxToolTags,
 	projectMctxHistoryTags,
 } from "./history-tags.js";
+import { detectMctxContextWindow, resolveMctxPressure } from "./pressure.js";
 import { createProjectIdentityResolver } from "./project-identity.js";
 import { replayMctxReasoning } from "./reasoning-replay.js";
 import { scheduleMctxMaintenance } from "./scheduler.js";
@@ -85,6 +87,7 @@ import {
 	type MctxNoteStatus,
 	type MctxNoteUpdate,
 	type MctxNoteWrite,
+	type MctxNudgeDeliveryClaim,
 	type MctxPartition,
 	type MctxRetainedHistoryTag,
 	type MctxStore,
@@ -106,6 +109,11 @@ import { evaluateMctxTriggerPolicy } from "./trigger-policy.js";
 export interface MctxSessionRuntime extends MctxRuntime {
 	readonly store: MctxStore;
 	readonly partition: MctxPartition;
+}
+
+export interface MctxCeilingNudge {
+	readonly text: string;
+	readonly claim: MctxNudgeDeliveryClaim;
 }
 
 export type MctxCompactionResult =
@@ -148,7 +156,7 @@ export interface MctxFeature {
 	onContext(
 		messages: readonly AgentMessage[],
 		context: ExtensionContext,
-	): { readonly messages: readonly AgentMessage[] } | undefined;
+	): Promise<{ readonly messages: readonly AgentMessage[] } | undefined>;
 	prepare(input: {
 		readonly purpose: "handoff" | "inheritance";
 		readonly signal: AbortSignal;
@@ -166,7 +174,10 @@ export interface MctxFeature {
 		content: readonly unknown[],
 		context: ExtensionContext,
 	): string | undefined;
-	takeCeilingNudge(context: ExtensionContext): string | undefined;
+	claimCeilingNudge(context: ExtensionContext): MctxCeilingNudge | undefined;
+	completeCeilingNudge(nudge: MctxCeilingNudge): void;
+	releaseCeilingNudge(nudge: MctxCeilingNudge): void;
+	recordProviderError(errorMessage: unknown, context: ExtensionContext): void;
 	expand(tagNumbers: readonly number[], context: ExtensionContext): MctxExpandResult;
 	memory(operation: MctxMemoryOperation, context: ExtensionContext): MctxMemoryResult;
 	note(operation: MctxNoteOperation, context: ExtensionContext): MctxNoteResult;
@@ -636,6 +647,11 @@ interface ActiveMctxRuntime {
 	embedBackfill?: AbortController | undefined;
 	nudgeBaseline?: MctxNudgeBaseline | undefined;
 }
+
+const FORCE_MATERIALIZATION_PERCENTAGE = 85;
+const EMERGENCY_BLOCK_PERCENTAGE = 95;
+const EMERGENCY_HISTORIAN_WAIT_MS = 30_000;
+const NUDGE_DELIVERY_LEASE_MS = 30_000;
 
 function toolResultText(content: readonly unknown[]): string {
 	return content
@@ -1459,6 +1475,9 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			if (baseline.reduced || baseline.reclaimableTags.length === 0) return undefined;
 			const pressure =
 				((baseline.usageTokens + baseline.turnToolTokens) / baseline.contextWindow) * 100;
+			if (pressure >= baseline.executeThresholdPercentage - 2) {
+				current.runtime.store.armNudgeDelivery?.(current.runtime.partition);
+			}
 			const level: 0 | 1 | 2 =
 				pressure >= baseline.executeThresholdPercentage
 					? 2
@@ -1469,7 +1488,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			baseline.lastLevel = level;
 			return buildMctxToolReminder(baseline.reclaimableTags, false);
 		},
-		takeCeilingNudge(context): string | undefined {
+		claimCeilingNudge(context): MctxCeilingNudge | undefined {
 			const current = active;
 			if (
 				current === undefined ||
@@ -1478,18 +1497,40 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			)
 				return undefined;
 			const baseline = current.nudgeBaseline;
-			if (
-				baseline === undefined ||
-				baseline.ceilingDelivered ||
-				baseline.reduced ||
-				baseline.reclaimableTags.length === 0
-			)
+			if (baseline === undefined || baseline.reduced || baseline.reclaimableTags.length === 0)
 				return undefined;
 			const pressure =
 				((baseline.usageTokens + baseline.turnToolTokens) / baseline.contextWindow) * 100;
 			if (pressure < baseline.executeThresholdPercentage - 2) return undefined;
-			baseline.ceilingDelivered = true;
-			return buildMctxToolReminder(baseline.reclaimableTags, true);
+			const claim = current.runtime.store.claimNudgeDelivery?.(
+				current.runtime.partition,
+				randomUUID(),
+				NUDGE_DELIVERY_LEASE_MS,
+			);
+			return claim === undefined
+				? undefined
+				: { text: buildMctxToolReminder(baseline.reclaimableTags, true), claim };
+		},
+		completeCeilingNudge(nudge): void {
+			active?.runtime.store.markNudgeDelivered?.(nudge.claim);
+		},
+		releaseCeilingNudge(nudge): void {
+			active?.runtime.store.releaseNudgeDelivery?.(nudge.claim);
+		},
+		recordProviderError(errorMessage, context): void {
+			const current = active;
+			if (
+				current === undefined ||
+				current.lifecycle.signal.aborted ||
+				current.runtime.sessionId !== context.sessionManager.getSessionId()
+			)
+				return;
+			const contextWindow = detectMctxContextWindow(errorMessage);
+			if (contextWindow !== undefined)
+				current.runtime.store.recordDetectedContextLimit?.(
+					current.runtime.partition,
+					contextWindow,
+				);
 		},
 		onTurnEnd(context): void {
 			// Turn-end work is deliberately non-blocking. This hook only evaluates the
@@ -1511,9 +1552,20 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				// Response timing is diagnostic and must not affect historian admission.
 			}
 			if (current.runtime.historian.kind !== "active") return;
-			// This handler is deliberately non-blocking. Historian completion happens
-			// after Pi has finished the turn and cannot delay its response lifecycle.
-			const usage = context.getContextUsage?.();
+			// This handler only starts detached historian work; emergency waiting belongs
+			// to the async context hook before the next provider request.
+			const detectedContextWindow = current.runtime.store.readDetectedContextLimit?.(
+				current.runtime.partition,
+			);
+			const pressure = resolveMctxPressure(context, detectedContextWindow);
+			const usage =
+				pressure === undefined
+					? undefined
+					: {
+							tokens: pressure.inputTokens,
+							contextWindow: pressure.contextWindow,
+							percent: (pressure.inputTokens / pressure.contextWindow) * 100,
+						};
 			if (usage === undefined || typeof usage.tokens !== "number") return;
 			const percentage = modelThreshold(
 				current.runtime.settings.executeThresholdPercentage,
@@ -1536,9 +1588,12 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 
 			startHistorian(current, { entries: context.sessionManager.getBranch() });
 		},
-		onContext(messages, context): { readonly messages: readonly AgentMessage[] } | undefined {
-			// The context hook is synchronous. Any stale/invalid branch graph leaves the
-			// host context untouched instead of risking a lossy or cross-branch rewrite.
+		async onContext(
+			messages,
+			context,
+		): Promise<{ readonly messages: readonly AgentMessage[] } | undefined> {
+			// The async hook only waits during emergency recovery. Any stale/invalid branch
+			// graph leaves host context untouched instead of a lossy cross-branch rewrite.
 			const current = active;
 			if (
 				current === undefined ||
@@ -1556,7 +1611,29 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			if (tagSync === undefined) return undefined;
 			current.runtime = { ...current.runtime, partition: tagSync.partition };
 			let historyTags = tagSync.tags;
-			const usage = context.getContextUsage?.();
+			const detectedContextWindow = current.runtime.store.readDetectedContextLimit?.(
+				current.runtime.partition,
+			);
+			const pressure = resolveMctxPressure(context, detectedContextWindow);
+			const usage =
+				pressure === undefined
+					? undefined
+					: {
+							tokens: pressure.inputTokens,
+							contextWindow: pressure.contextWindow,
+							percent: (pressure.inputTokens / pressure.contextWindow) * 100,
+						};
+			const pressurePercentage =
+				pressure === undefined ? undefined : (pressure.inputTokens / pressure.contextWindow) * 100;
+			if (pressurePercentage !== undefined && pressurePercentage >= EMERGENCY_BLOCK_PERCENTAGE) {
+				const completion = current.jobCompletion;
+				if (completion !== undefined) {
+					await Promise.race([
+						completion,
+						new Promise<void>((resolve) => setTimeout(resolve, EMERGENCY_HISTORIAN_WAIT_MS)),
+					]);
+				}
+			}
 			const percentage = modelThreshold(
 				current.runtime.settings.executeThresholdPercentage,
 				context.model,
@@ -1617,73 +1694,80 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					: recovery.kind === "empty"
 						? 0
 						: undefined;
-			if (
-				maintenance === "execute" &&
-				current.runtime.settings.smartDrops &&
-				liveTailStartIndex !== undefined
-			) {
-				const usageTokens = usage?.tokens;
-				const percentage = modelThreshold(
-					current.runtime.settings.executeThresholdPercentage,
-					context.model,
-				);
-				const absolute =
-					current.runtime.settings.executeThresholdTokens === undefined
-						? undefined
-						: modelThreshold(current.runtime.settings.executeThresholdTokens, context.model);
-				if (
-					usage !== undefined &&
-					typeof usageTokens === "number" &&
-					Number.isSafeInteger(usageTokens) &&
-					usageTokens > 0 &&
-					(usage.contextWindow === undefined ||
-						usage.contextWindow === null ||
-						(Number.isSafeInteger(usage.contextWindow) && usage.contextWindow > 0)) &&
-					percentage !== undefined
-				) {
-					const decision = evaluateMctxTriggerPolicy({
-						usageTokens,
-						contextWindow: usage.contextWindow,
-						percentage,
-						cooling: current.smartDropCooling,
-						...(absolute === undefined ? {} : { absoluteThreshold: absolute }),
-					});
-					// A high-usage sample must not consume the one-shot trigger until
-					// the queue CAS accepts work. Otherwise a no-candidate or stale pass
-					// would suppress later eligible tool results indefinitely.
-					if (decision.kind !== "trigger") current.smartDropCooling = decision.cooling;
-					const targetUsageTokens = smartDropTargetTokens(usage, percentage, absolute);
-					if (decision.kind === "trigger" && targetUsageTokens !== undefined) {
-						const plan = planMctxSmartDrops({
-							tags: historyTags,
-							candidates: collectVisibleMctxToolTags(
-								messages,
-								entries,
-								historyTags,
-								liveTailStartIndex,
-							),
-							protectedTags: current.runtime.settings.protectedTags,
+			const forceMaterialization =
+				pressurePercentage !== undefined && pressurePercentage >= FORCE_MATERIALIZATION_PERCENTAGE;
+			const executeMaintenance = maintenance === "execute" || forceMaterialization;
+			if ((executeMaintenance && current.runtime.settings.smartDrops) || forceMaterialization) {
+				if (liveTailStartIndex !== undefined) {
+					const usageTokens = usage?.tokens;
+					const percentage = modelThreshold(
+						current.runtime.settings.executeThresholdPercentage,
+						context.model,
+					);
+					const absolute =
+						current.runtime.settings.executeThresholdTokens === undefined
+							? undefined
+							: modelThreshold(current.runtime.settings.executeThresholdTokens, context.model);
+					if (
+						usage !== undefined &&
+						typeof usageTokens === "number" &&
+						Number.isSafeInteger(usageTokens) &&
+						usageTokens > 0 &&
+						(usage.contextWindow === undefined ||
+							usage.contextWindow === null ||
+							(Number.isSafeInteger(usage.contextWindow) && usage.contextWindow > 0)) &&
+						percentage !== undefined
+					) {
+						const decision = evaluateMctxTriggerPolicy({
 							usageTokens,
-							targetUsageTokens,
+							contextWindow: usage.contextWindow,
+							percentage,
+							cooling: current.smartDropCooling,
+							...(absolute === undefined ? {} : { absoluteThreshold: absolute }),
 						});
-						if (plan.kind === "drop") {
-							const queued = withStoreReadPolicy(current, () =>
-								current.runtime.store.queueHistoryTagDrops(
-									current.runtime.partition,
-									plan.tagNumbers,
-									historyTags.filter((tag) => tag.status === "active").map((tag) => tag.tagNumber),
-									current.runtime.settings.protectedTags,
+						// A high-usage sample must not consume the one-shot trigger until
+						// the queue CAS accepts work. Otherwise a no-candidate or stale pass
+						// would suppress later eligible tool results indefinitely.
+						if (decision.kind !== "trigger") current.smartDropCooling = decision.cooling;
+						const targetUsageTokens = smartDropTargetTokens(usage, percentage, absolute);
+						if (
+							forceMaterialization ||
+							(decision.kind === "trigger" && targetUsageTokens !== undefined)
+						) {
+							const plan = planMctxSmartDrops({
+								tags: historyTags,
+								candidates: collectVisibleMctxToolTags(
+									messages,
+									entries,
+									historyTags,
+									liveTailStartIndex,
 								),
-							);
-							if (queued === undefined) return undefined;
-							current.runtime = { ...current.runtime, partition: queued.partition };
-							if (queued.queued.length > 0) current.smartDropCooling = decision.cooling;
-							const refreshed = withStoreReadPolicy(current, () =>
-								current.runtime.store.syncHistoryTags(current.runtime.partition, tagInputs),
-							);
-							if (refreshed === undefined) return undefined;
-							current.runtime = { ...current.runtime, partition: refreshed.partition };
-							historyTags = refreshed.tags;
+								protectedTags: current.runtime.settings.protectedTags,
+								usageTokens,
+								targetUsageTokens: forceMaterialization ? 0 : (targetUsageTokens ?? 0),
+								...(forceMaterialization ? { forceAll: true } : {}),
+							});
+							if (plan.kind === "drop") {
+								const queued = withStoreReadPolicy(current, () =>
+									current.runtime.store.queueHistoryTagDrops(
+										current.runtime.partition,
+										plan.tagNumbers,
+										historyTags
+											.filter((tag) => tag.status === "active")
+											.map((tag) => tag.tagNumber),
+										current.runtime.settings.protectedTags,
+									),
+								);
+								if (queued === undefined) return undefined;
+								current.runtime = { ...current.runtime, partition: queued.partition };
+								if (queued.queued.length > 0) current.smartDropCooling = decision.cooling;
+								const refreshed = withStoreReadPolicy(current, () =>
+									current.runtime.store.syncHistoryTags(current.runtime.partition, tagInputs),
+								);
+								if (refreshed === undefined) return undefined;
+								current.runtime = { ...current.runtime, partition: refreshed.partition };
+								historyTags = refreshed.tags;
+							}
 						}
 					}
 				}
@@ -1693,7 +1777,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					? projectMctxContext(messages, entries, compartments)
 					: { kind: "unchanged" as const, messages };
 			let baseMessages = projection.kind === "rendered" ? projection.messages : messages;
-			if (maintenance === "execute") {
+			if (executeMaintenance) {
 				const stripped = stripMctxSystemInjections({
 					messages: baseMessages,
 					entries,
@@ -1713,7 +1797,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				}
 			}
 			const caveman = current.runtime.settings.cavemanTextCompression;
-			if (maintenance === "execute" && caveman !== undefined) {
+			if (executeMaintenance && caveman !== undefined) {
 				const updates = planMctxCavemanDepths(
 					historyTags,
 					caveman.minChars,
@@ -1744,7 +1828,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				tags: historyTags,
 				watermark: reasoningWatermark,
 				clearReasoningAge: current.runtime.settings.clearReasoningAge,
-				execute: maintenance === "execute",
+				execute: executeMaintenance,
 			});
 			if (reasoning.watermark > reasoningWatermark) {
 				const persisted = withStoreReadPolicy(current, () =>
@@ -1755,15 +1839,14 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				);
 				if (persisted === undefined) return undefined;
 			}
-			const tagsForProjection: readonly MctxHistoryTag[] =
-				maintenance === "execute"
-					? historyTags
-					: historyTags.map(
-							(tag): MctxHistoryTag =>
-								tag.status === "pending" ? { ...tag, status: "active" } : tag,
-						);
+			const tagsForProjection: readonly MctxHistoryTag[] = executeMaintenance
+				? historyTags
+				: historyTags.map(
+						(tag): MctxHistoryTag =>
+							tag.status === "pending" ? { ...tag, status: "active" } : tag,
+					);
 			const tagged = projectMctxHistoryTags(reasoning.messages, entries, tagsForProjection);
-			if (maintenance === "execute" && tagged.droppedTagNumbers.length > 0) {
+			if (executeMaintenance && tagged.droppedTagNumbers.length > 0) {
 				const nextPartition = withStoreReadPolicy(current, () =>
 					current.runtime.store.markHistoryTagsDropped(
 						current.runtime.partition,
@@ -1819,8 +1902,9 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					turnToolTokens: 0,
 					lastLevel: initialPressure < percentage - 5 ? 0 : (priorBaseline?.lastLevel ?? 0),
 					reduced: false,
-					ceilingDelivered: priorBaseline?.ceilingDelivered ?? false,
 				};
+				if (initialPressure >= percentage - 2)
+					current.runtime.store.armNudgeDelivery?.(current.runtime.partition);
 			} else current.nudgeBaseline = undefined;
 			updateStatusAccounting(current, context, projectedMessages, entries, cacheTtlMs);
 			return { messages: projectedMessages };

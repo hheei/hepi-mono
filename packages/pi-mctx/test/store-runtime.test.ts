@@ -30,6 +30,29 @@ test("opens the MCTX store through Bun SQLite", async (): Promise<void> => {
 	}
 });
 
+test("persists nudge delivery leases across reopen without replaying delivered nudges", async (): Promise<void> => {
+	const directory = mkdtempSync(join(tmpdir(), "pi-mctx-nudge-"));
+	const path = join(directory, "context.db");
+	try {
+		const first = await openMctxStore(path);
+		const partition = first.getOrCreatePartition(`dir:${"e".repeat(64)}`, "session-1");
+		first.armNudgeDelivery?.(partition);
+		const claim = first.claimNudgeDelivery?.(partition, "first", 100, 0);
+		expect(claim).toBeDefined();
+		first.close();
+
+		const reloaded = await openMctxStore(path);
+		const recovered = reloaded.claimNudgeDelivery?.(partition, "second", 100, 101);
+		expect(recovered).toBeDefined();
+		if (recovered === undefined) throw new Error("Expected expired nudge lease claim");
+		expect(reloaded.markNudgeDelivered?.(recovered)).toBe(true);
+		expect(reloaded.claimNudgeDelivery?.(partition, "third", 100, 202)).toBeUndefined();
+		reloaded.close();
+	} finally {
+		rmSync(directory, { force: true, recursive: true });
+	}
+});
+
 test("persists a monotonic per-partition reasoning watermark", async (): Promise<void> => {
 	const directory = mkdtempSync(join(tmpdir(), "pi-mctx-reasoning-"));
 	const path = join(directory, "context.db");
