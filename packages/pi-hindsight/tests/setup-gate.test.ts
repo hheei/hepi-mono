@@ -110,6 +110,22 @@ describe("setup gate", () => {
 		expect(isMemorySetupComplete(config(), cwd)).toBe(false);
 	});
 
+	it("does not treat another extension settings section as Hindsight setup", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "pi-hindsight-setup-other-settings-"));
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		writeFileSync(
+			join(cwd, ".pi", "settings.json"),
+			JSON.stringify({ "pi-ponytail": { enabled: true } }),
+		);
+
+		expect(
+			isMemorySetupComplete(
+				config({ scope: { ...DEFAULT_CONFIG.scope, mode: "isolated-bank" } }),
+				cwd,
+			),
+		).toBe(false);
+	});
+
 	it("does not unlock domain-tagged auto memory from runtime state alone", () => {
 		const cwd = mkdtempSync(join(tmpdir(), "pi-hindsight-setup-runtime-"));
 		mkdirSync(join(cwd, ".pi", "hindsight"), { recursive: true });
@@ -117,10 +133,13 @@ describe("setup gate", () => {
 		expect(isMemorySetupComplete(config(), cwd)).toBe(false);
 	});
 
-	it("allows isolated-bank path-derived setup via config file or runtime state", () => {
+	it("allows isolated-bank path-derived setup via Hindsight config or runtime state", () => {
 		const cwd = mkdtempSync(join(tmpdir(), "pi-hindsight-setup-isolated-"));
 		mkdirSync(join(cwd, ".pi"), { recursive: true });
-		writeFileSync(join(cwd, ".pi", "settings.json"), "{}\n");
+		writeFileSync(
+			join(cwd, ".pi", "settings.json"),
+			JSON.stringify({ "pi-hindsight": { status: { style: "off" } } }),
+		);
 		expect(
 			isMemorySetupComplete(
 				config({

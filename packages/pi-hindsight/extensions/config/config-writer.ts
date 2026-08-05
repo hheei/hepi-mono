@@ -338,13 +338,18 @@ function deletePath(config: Record<string, unknown>, path: string[]): void {
 
 async function writeConfig(
 	path: string,
-	base: Record<string, unknown>,
 	patch: Record<string, unknown>,
 	deletePaths: string[][] = [],
 ): Promise<{ path: string; config: Record<string, unknown> }> {
-	for (const deletePathParts of deletePaths) deletePath(base, deletePathParts);
-	const next = deepMergeConfig(base, patch);
+	let next: Record<string, unknown> = {};
 	await updateJsonSettingsRoot(path, (root) => {
+		const current = root[HINDSIGHT_SETTINGS_SECTION];
+		if (current !== undefined && !isRecord(current)) {
+			throw new Error(`${HINDSIGHT_SETTINGS_SECTION} in ${path} must be an object`);
+		}
+		const base = current ?? {};
+		for (const deletePathParts of deletePaths) deletePath(base, deletePathParts);
+		next = deepMergeConfig(base, patch);
 		root[HINDSIGHT_SETTINGS_SECTION] = next;
 	});
 	return { path, config: next };
@@ -355,7 +360,7 @@ export async function writeProjectConfig(
 	patch: Record<string, unknown>,
 	deletePaths: string[][] = [],
 ): Promise<{ path: string; config: Record<string, unknown> }> {
-	return writeConfig(projectConfigPath(cwd), readProjectConfig(cwd), patch, deletePaths);
+	return writeConfig(projectConfigPath(cwd), patch, deletePaths);
 }
 
 export async function writeGlobalConfig(
@@ -363,7 +368,7 @@ export async function writeGlobalConfig(
 	deletePaths: string[][] = [],
 	agentDir?: string,
 ): Promise<{ path: string; config: Record<string, unknown> }> {
-	return writeConfig(globalConfigPath(agentDir), readGlobalConfig(agentDir), patch, deletePaths);
+	return writeConfig(globalConfigPath(agentDir), patch, deletePaths);
 }
 
 export type ConfigOperationDeps = {

@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { describe, expect, it } from "vitest";
 import {
 	buildProjectConfigDeletes,
 	buildProjectConfigPatch,
@@ -24,6 +24,20 @@ describe("settings.json config writer", () => {
 		expect(result.path).toBe(projectConfigPath(cwd));
 		expect(JSON.parse(readFileSync(result.path, "utf8"))).toMatchObject({
 			"pi-hindsight": { banks: { project: { bankId: "bank", derive: "manual" } } },
+		});
+	});
+
+	it("merges concurrent writes to the same settings section", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "pi-hindsight-config-"));
+
+		await Promise.all([
+			writeProjectConfig(cwd, buildProjectConfigPatch({ baseUrl: "http://local" })),
+			writeProjectConfig(cwd, buildProjectConfigPatch({ recallBudget: "high" })),
+		]);
+
+		expect(readProjectConfig(cwd)).toMatchObject({
+			hindsight: { baseUrl: "http://local" },
+			recall: { budget: "high" },
 		});
 	});
 

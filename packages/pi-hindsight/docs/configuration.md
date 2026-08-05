@@ -6,11 +6,11 @@ Pi Hindsight resolves configuration from defaults, global config, project config
 
 Config is loaded from:
 
-1. `~/.pi/agent/hindsight.json` or `~/.pi/agent/hindsight.jsonc`
-2. `.pi/hindsight.json` or `.pi/hindsight.jsonc` in the current repo
+1. `~/.pi/agent/settings.json["pi-hindsight"]`
+2. `.pi/settings.json["pi-hindsight"]` in the current repo
 3. environment variables
 
-If both `.json` and `.jsonc` exist at the same scope, `.json` wins. Config is normalized after merging. Unknown fields are ignored, and invalid values fall back to defaults.
+`hindsight.json` and `hindsight.jsonc` are ignored. Config is normalized after merging. Unknown fields are ignored, and invalid values fall back to defaults.
 
 Environment variables win the effective value. Project/user stored values can still be edited for future runs after the environment override is removed.
 
@@ -34,7 +34,7 @@ export PI_HINDSIGHT_USER_BANK_ID=user-luxus
 # export PI_HINDSIGHT_MIN_SEMANTIC=0.65
 ```
 
-Project config SecretRef shape:
+Project config `pi-hindsight` section SecretRef shape:
 
 ```json
 {
@@ -51,7 +51,7 @@ Project config SecretRef shape:
 - **User Only**: project bank disabled; user bank enabled from global Pi config.
 - **Recall Only**: automatic recall enabled; automatic retain disabled; explicit tools and imports remain available.
 
-When a profile uses user memory, guided setup asks for a user bank ID and writes it to global Pi config. Override it later with `PI_HINDSIGHT_USER_BANK_ID`, `~/.pi/agent/hindsight.json` `banks.user.bankId`, or the setup TUI if you prefer a different shared bank. Legacy `PI_HINDSIGHT_GLOBAL_BANK_ID`, `banks.global`, and `global-only` config names are migrated/supported during transition.
+When a profile uses user memory, guided setup asks for a user bank ID and writes it to global Pi config. Override it later with `PI_HINDSIGHT_USER_BANK_ID`, `~/.pi/agent/settings.json` `pi-hindsight.banks.user.bankId`, or the setup TUI if you prefer a different shared bank. Legacy `PI_HINDSIGHT_GLOBAL_BANK_ID`, `banks.global`, and `global-only` config names are migrated/supported during transition.
 
 ## Bank settings display
 
@@ -80,7 +80,7 @@ Deployment choices cover Hindsight Cloud, an existing local/external API, and lo
 
 ## Advanced project config example
 
-Bank missions are intentionally absent from this JSON example. Hindsight bank configuration/database is the source of truth for retain, reflect, and observation mission text; Pi JSON should only select banks and extension behavior. Existing mission fields in older configs are treated as legacy fallbacks.
+Put this `pi-hindsight` section in `.pi/settings.json`. Bank missions are intentionally absent from this JSON example. Hindsight bank configuration/database is the source of truth for retain, reflect, and observation mission text; Pi JSON should only select banks and extension behavior. Existing mission fields in older configs are treated as legacy fallbacks.
 
 ```json
 {

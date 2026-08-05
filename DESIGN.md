@@ -270,6 +270,21 @@ existing semantic token expresses the role.
   rendering consumes the MCTX snapshot and does not define another lifecycle
   abstraction.
 
+### Hindsight Hub Overlay
+
+- `/hindsight` is one centered, compact overlay, not a full-screen settings page.
+  Its rounded `borderMuted` frame is 78 columns when available, clamped by a
+  one-cell margin on narrow terminals, and capped at 80% terminal height.
+- The hub has a stable compact layout: title, up to three status facts, then two
+  dim action-hint rows. The selected or active fact uses `accent`; ordinary
+  facts use `text` with `muted` labels. It shows no advanced field list,
+  scrolling region, or nested cards.
+- Hub actions close the overlay before opening Pi host native prompts or doing
+  work. Guided setup remains a separate flow. Day-to-day advanced edits use
+  agent tools; the popup has no advanced-settings toggle.
+- `Esc` and `q` close. Validate at 48x20 and 100x24: every line fits, the
+  overlay does not clip, and a native action leaves no visible overlay behind.
+
 ### MCTX Command Suggestions
 
 - MCTX registers one `/mctx` slash command. First-argument autocomplete lists only active lowercase
