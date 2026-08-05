@@ -35,6 +35,14 @@ function clearThinking(message: AgentMessage): AgentMessage | undefined {
 	if (message.role !== "assistant") return undefined;
 	let changed = false;
 	const content = message.content.map((part) => {
+		if (part.type === "text") {
+			const text = part.text
+				.replace(/<thinking>[\s\S]*?<\/thinking>\s*/giu, "")
+				.replace(/<think>[\s\S]*?<\/think>\s*/giu, "");
+			if (text === part.text) return part;
+			changed = true;
+			return { ...part, text };
+		}
 		if (
 			part.type !== "thinking" ||
 			part.redacted === true ||
