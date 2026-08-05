@@ -35,24 +35,6 @@
         "@earendil-works/pi-tui": ">=0.83.0",
       },
     },
-    "packages/hepi-debug": {
-      "name": "@hheei/hepi-debug",
-      "version": "0.0.0",
-      "bin": {
-        "pi-tui-replay": "src/tui-replay.ts",
-        "replay": "src/tui-replay-session.ts",
-      },
-      "dependencies": {
-        "proper-lockfile": "4.1.2",
-      },
-      "devDependencies": {
-        "@types/proper-lockfile": "4.1.4",
-      },
-      "peerDependencies": {
-        "@earendil-works/pi-coding-agent": ">=0.82.0",
-        "@earendil-works/pi-tui": "*",
-      },
-    },
     "packages/hepi-mono": {
       "name": "@hheei/hepi-mono",
       "version": "0.0.0",
@@ -109,6 +91,27 @@
       "devDependencies": {
         "@earendil-works/pi-coding-agent": ">=0.83.0",
         "@types/bun": "latest",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-agent-core": ">=0.83.0",
+        "@earendil-works/pi-ai": ">=0.83.0",
+        "@earendil-works/pi-coding-agent": ">=0.83.0",
+        "@earendil-works/pi-tui": ">=0.83.0",
+      },
+    },
+    "packages/pi-debug": {
+      "name": "@hheei/pi-debug",
+      "version": "0.0.0",
+      "bin": {
+        "pi-tui-replay": "src/tui-replay.ts",
+        "replay": "src/tui-replay-session.ts",
+      },
+      "dependencies": {
+        "@hheei/pi-ext-core": "workspace:*",
+        "proper-lockfile": "4.1.2",
+      },
+      "devDependencies": {
+        "@types/proper-lockfile": "4.1.4",
       },
       "peerDependencies": {
         "@earendil-works/pi-agent-core": ">=0.83.0",
@@ -537,8 +540,6 @@
 
     "@hheei/hepi-basics": ["@hheei/hepi-basics@workspace:packages/hepi-basics"],
 
-    "@hheei/hepi-debug": ["@hheei/hepi-debug@workspace:packages/hepi-debug"],
-
     "@hheei/hepi-mono": ["@hheei/hepi-mono@workspace:packages/hepi-mono"],
 
     "@hheei/pi-auto-title": ["@hheei/pi-auto-title@workspace:packages/pi-auto-title"],
@@ -546,6 +547,8 @@
     "@hheei/pi-btw": ["@hheei/pi-btw@workspace:packages/pi-btw"],
 
     "@hheei/pi-caveman": ["@hheei/pi-caveman@workspace:packages/pi-caveman"],
+
+    "@hheei/pi-debug": ["@hheei/pi-debug@workspace:packages/pi-debug"],
 
     "@hheei/pi-ext-core": ["@hheei/pi-ext-core@workspace:packages/pi-ext-core"],
 

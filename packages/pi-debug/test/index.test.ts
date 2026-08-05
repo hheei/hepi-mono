@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { access, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	comparePayloadSnapshots,
+	createDebugSettingsProvider,
 	DEBUG_GUIDE_URL,
 	registerCacheDebug,
 	requestLogSnapshot,
@@ -69,6 +70,45 @@ describe("provider payload probe", () => {
 });
 
 describe("debug extension", () => {
+	test("loads cache diagnostics as disabled unless settings enable it", async () => {
+		const changes: Array<{ readonly sessionId: string; readonly enabled: boolean }> = [];
+		const provider = createDebugSettingsProvider((sessionId, enabled) => {
+			changes.push({ sessionId, enabled });
+		});
+		await provider.onLoad?.({}, { sessionId: "session-1" });
+		await provider.onLoad?.({ cache: { enabled: true } }, { sessionId: "session-1" });
+		expect(changes).toEqual([
+			{ sessionId: "session-1", enabled: false },
+			{ sessionId: "session-1", enabled: true },
+		]);
+	});
+
+	test("does not write provider diagnostics while disabled", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "pi-debug-test-"));
+		const logPath = join(directory, "requests.jsonl");
+		const handlers = new Map<
+			string,
+			(event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown
+		>();
+		const pi = {
+			on(
+				event: string,
+				handler: (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown,
+			) {
+				handlers.set(event, handler);
+			},
+			registerCommand() {},
+		};
+		registerCacheDebug(pi as never, { logPath, isEnabled: () => false });
+		const ctx = {
+			sessionManager: { getSessionId: () => "session-1" },
+			ui: { notify() {} },
+		};
+		await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+		await handlers.get("before_provider_request")?.({ payload: basePayload }, ctx);
+		await expect(access(logPath)).rejects.toThrow();
+	});
+
 	test("correlates request hashes with provider usage in JSONL", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "pi-debug-test-"));
 		const logPath = join(directory, "requests.jsonl");

@@ -17,8 +17,8 @@
 		"lint": "biome lint .",
 		"test": "bun test --path-ignore-patterns='**/references/**' --path-ignore-patterns='packages/hepi-subagents/**'",
 		"typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
-		"tui:replay": "bun packages/hepi-debug/src/tui-replay.ts",
-		"tui:replay:session": "bun packages/hepi-debug/src/tui-replay-session.ts"
+		"tui:replay": "bun packages/pi-debug/src/tui-replay.ts",
+		"tui:replay:session": "bun packages/pi-debug/src/tui-replay-session.ts"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.0",

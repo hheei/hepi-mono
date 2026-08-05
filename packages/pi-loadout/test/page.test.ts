@@ -14,7 +14,7 @@ import {
 	registerManagedTool,
 } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
-import { replayTui, viewFrame } from "../../hepi-debug/src/tui-replay.js";
+import { replayTui, viewFrame } from "../../pi-debug/src/tui-replay.js";
 import { type AgentDetail, createAgentDetail } from "../../pi-subagents/src/agent-detail.js";
 import type { AgentConfig } from "../../pi-subagents/src/types.js";
 import type { LoadoutEngine } from "../src/engine.js";

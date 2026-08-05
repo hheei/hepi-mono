@@ -1,4 +1,4 @@
-# @hheei/hepi-debug
+# @hheei/pi-debug
 
 Development diagnostics for Pi extensions.
 
@@ -19,8 +19,8 @@ See [TUI Replay Guide](./TUI_REPLAY.md).
 ## Package entry points
 
 ```text
-@hheei/hepi-debug                 Pi extension and cache probe API
-@hheei/hepi-debug/tui-replay      TUI replay library
+@hheei/pi-debug                      Pi extension and cache probe API
+@hheei/pi-debug/tui-replay           TUI replay library
 pi-tui-replay                   Automatic replay and shell snapshot CLI
 replay                          Incremental action-journal CLI
 ```
@@ -28,6 +28,6 @@ replay                          Incremental action-journal CLI
 ## Development
 
 ```bash
-bun test packages/hepi-debug/test
+bun test packages/pi-debug/test
 bun run typecheck
 ```

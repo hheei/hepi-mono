@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { replayTui, viewFrame } from "../../hepi-debug/src/tui-replay.js";
+import { replayTui, viewFrame } from "../../pi-debug/src/tui-replay.js";
 import type { MctxStatusResult } from "../src/feature.js";
 import { emptyMctxStatusAccounting } from "../src/status-metrics.js";
 import {

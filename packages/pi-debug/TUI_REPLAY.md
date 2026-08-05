@@ -1,6 +1,6 @@
 # TUI Replay Guide
 
-`@hheei/hepi-debug/tui-replay` runs Pi TUI components against deterministic actions and records every render frame. It is intended for extension development, layout regression tests, narrow-terminal checks, and artifact generation.
+`@hheei/pi-debug/tui-replay` runs Pi TUI components against deterministic actions and records every render frame. It is intended for extension development, layout regression tests, narrow-terminal checks, and artifact generation.
 
 ## Import
 
@@ -15,7 +15,7 @@ import {
   viewFrame,
   writeReplayArtifacts,
   writeReplaySnapshot,
-} from "@hheei/hepi-debug/tui-replay";
+} from "@hheei/pi-debug/tui-replay";
 ```
 
 ## Basic replay
@@ -136,7 +136,7 @@ Capture shell output as an ANSI file:
 
 ```bash
 pi-tui-replay \
-  --command "bun test packages/hepi-debug/test" \
+  --command "bun test packages/pi-debug/test" \
   --format ans
 ```
 
@@ -254,7 +254,7 @@ Use a custom component by default-exporting a replay factory:
 
 ```ts
 // scenario.ts
-import type { ReplayHost } from "@hheei/hepi-debug/tui-replay";
+import type { ReplayHost } from "@hheei/pi-debug/tui-replay";
 
 export default function createScenario(host: ReplayHost) {
   let selected = 0;
@@ -290,7 +290,7 @@ Use component replay for deterministic UI behavior. Use a native Pi TUI smoke te
 ## Development checks
 
 ```bash
-bun test packages/hepi-debug/test/tui-replay.test.ts
-bun test packages/hepi-debug/test/tui-replay-session.test.ts
+bun test packages/pi-debug/test/tui-replay.test.ts
+bun test packages/pi-debug/test/tui-replay-session.test.ts
 bun run typecheck
 ```
