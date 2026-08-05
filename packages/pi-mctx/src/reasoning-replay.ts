@@ -69,21 +69,25 @@ export function replayMctxReasoning(input: {
 	readonly execute: boolean;
 }): MctxReasoningReplayResult {
 	const maxTag = input.tags.reduce((maximum, tag) => Math.max(maximum, tag.tagNumber), 0);
-	const executeWatermark = input.execute ? Math.max(0, maxTag - input.clearReasoningAge) : 0;
-	const watermark = Math.max(input.watermark, executeWatermark);
-	if (watermark === 0) return { messages: input.messages, watermark };
+	const executeCutoff = input.execute ? Math.max(0, maxTag - input.clearReasoningAge) : 0;
+	if (input.watermark === 0 && executeCutoff === 0)
+		return { messages: input.messages, watermark: 0 };
 	const tagsByEntryId = assistantTagByEntryId(input.tags);
 	const result = [...input.messages];
+	let watermark = input.watermark;
 	for (const entry of input.entries) {
 		if (entry.type !== "message" || entry.message.role !== "assistant") continue;
 		const tagNumber = tagsByEntryId.get(entry.id);
-		if (tagNumber === undefined || tagNumber > watermark) continue;
+		if (tagNumber === undefined || (tagNumber > input.watermark && tagNumber > executeCutoff))
+			continue;
 		const expected = sessionEntryToContextMessages(entry)[0];
 		if (expected === undefined) continue;
 		const index = uniqueMessageIndex(input.messages, expected);
 		if (index === undefined) continue;
 		const cleared = clearThinking(result[index] ?? expected);
-		if (cleared !== undefined) result[index] = cleared;
+		if (cleared === undefined) continue;
+		result[index] = cleared;
+		if (input.execute && tagNumber <= executeCutoff) watermark = Math.max(watermark, tagNumber);
 	}
 	return { messages: result, watermark };
 }
