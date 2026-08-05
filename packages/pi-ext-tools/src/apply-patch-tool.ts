@@ -22,7 +22,7 @@ export const APPLY_PATCH_PARAMETERS = Type.Object(
 	{
 		patch: Type.String({
 			description:
-				"Full Codex V4A patch text. Must use *** Begin Patch / *** End Patch with Add File, Update File, Delete File, and optional Move to sections.",
+				"V4A patch text. `*** Begin Patch` first, `*** End Patch` last; never repeat either marker. Use Add File, Update File, Delete File, and optional Move to sections.",
 		}),
 	},
 	{ additionalProperties: false },
