@@ -30,6 +30,25 @@ test("opens the MCTX store through Bun SQLite", async (): Promise<void> => {
 	}
 });
 
+test("persists processed image strips across reopen", async (): Promise<void> => {
+	const directory = mkdtempSync(join(tmpdir(), "pi-mctx-images-"));
+	const path = join(directory, "context.db");
+	try {
+		const first = await openMctxStore(path);
+		const partition = first.getOrCreatePartition(`dir:${"7".repeat(64)}`, "session-1");
+		first.addProcessedImageStrips?.(partition, ["entry-1", "entry-1"]);
+		first.close();
+		const reopened = await openMctxStore(path);
+		try {
+			expect(reopened.listProcessedImageStrips?.(partition)).toEqual(["entry-1"]);
+		} finally {
+			reopened.close();
+		}
+	} finally {
+		rmSync(directory, { force: true, recursive: true });
+	}
+});
+
 test("clears emergency recovery after a successful recovery cycle", async (): Promise<void> => {
 	const directory = mkdtempSync(join(tmpdir(), "pi-mctx-overflow-clear-"));
 	try {

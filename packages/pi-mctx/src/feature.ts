@@ -46,6 +46,7 @@ import {
 	projectMctxHistoryTags,
 } from "./history-tags.js";
 import { detectMctxContextWindow, isMctxOverflow, resolveMctxPressure } from "./pressure.js";
+import { planMctxProcessedImageStrips, stripMctxProcessedImages } from "./processed-images.js";
 import { createProjectIdentityResolver } from "./project-identity.js";
 import { replayMctxReasoning } from "./reasoning-replay.js";
 import { scheduleMctxMaintenance } from "./scheduler.js";
@@ -1891,13 +1892,38 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				if (nextPartition !== undefined)
 					current.runtime = { ...current.runtime, partition: nextPartition };
 			}
+			const persistedImageStrips = withStoreReadPolicy(
+				current,
+				() => current.runtime.store.listProcessedImageStrips?.(current.runtime.partition) ?? [],
+			);
+			if (persistedImageStrips === undefined) return undefined;
+			const newImageStrips = planMctxProcessedImageStrips({
+				entries,
+				tags: historyTags,
+				reasoningWatermark: reasoning.watermark,
+				execute: executeMaintenance,
+			});
+			if (newImageStrips.length > 0) {
+				const persisted = withStoreReadPolicy(current, () => {
+					const add = current.runtime.store.addProcessedImageStrips;
+					if (add === undefined) return false;
+					add(current.runtime.partition, newImageStrips);
+					return true;
+				});
+				if (persisted !== true) return undefined;
+			}
+			const imageStrippedMessages = stripMctxProcessedImages(
+				tagged.messages,
+				entries,
+				new Set([...persistedImageStrips, ...newImageStrips]),
+			);
 			// A successful projection re-arms the read-failure notification for the
 			// next failure epoch, matching the historian notification pattern.
 			current.notifiedStoreReadFailure = false;
 			const projectedMessages: readonly AgentMessage[] =
 				current.runtime.settings.temporalAwareness !== false
-					? injectMctxTemporalMarkers(tagged.messages)
-					: tagged.messages;
+					? injectMctxTemporalMarkers(imageStrippedMessages)
+					: imageStrippedMessages;
 			const visibleTools = collectVisibleMctxToolTags(
 				projectedMessages,
 				entries,

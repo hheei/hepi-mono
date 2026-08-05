@@ -5,13 +5,73 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { MctxStatusAccounting } from "./status-metrics.js";
 
 export const MCTX_STORE_APPLICATION_ID = 0x484d4354;
-export const MCTX_STORE_SCHEMA_VERSION = 16;
+export const MCTX_STORE_SCHEMA_VERSION = 17;
 export const MCTX_STORE_BUSY_TIMEOUT_MS = 5_000;
 
 interface MctxDatabaseStatement {
 	get(...bindings: readonly unknown[]): unknown;
 	all(...bindings: readonly unknown[]): readonly unknown[];
 	run(...bindings: readonly unknown[]): unknown;
+}
+
+function hasColumn(database: DatabaseSync, table: string, column: string): boolean {
+	return database
+		.prepare(`PRAGMA table_info(${table})`)
+		.all()
+		.some((row) => isRecord(row) && row.name === column);
+}
+
+function listProcessedImageStrips(
+	database: DatabaseSync,
+	partition: MctxPartition,
+): readonly string[] {
+	requirePartitionKey(partition.projectIdentity, partition.sessionId);
+	return database
+		.prepare(
+			"SELECT entry_id FROM processed_image_strips WHERE project_identity = ? AND session_id = ? ORDER BY entry_id",
+		)
+		.all(partition.projectIdentity, partition.sessionId)
+		.map((row) => {
+			if (!isRecord(row) || typeof row.entry_id !== "string" || row.entry_id.length === 0)
+				throw new Error("Context store processed image row is invalid");
+			return row.entry_id;
+		});
+}
+
+function addProcessedImageStrips(
+	database: DatabaseSync,
+	partition: MctxPartition,
+	entryIds: readonly string[],
+): void {
+	requirePartitionKey(partition.projectIdentity, partition.sessionId);
+	if (entryIds.some((entryId) => entryId.length === 0))
+		throw new Error("Context store processed image entry ID is invalid");
+	const insert = database.prepare(
+		"INSERT OR IGNORE INTO processed_image_strips (project_identity, session_id, entry_id) VALUES (?, ?, ?)",
+	);
+	for (const entryId of new Set(entryIds))
+		insert.run(partition.projectIdentity, partition.sessionId, entryId);
+}
+
+function migrateV17(database: DatabaseSync): void {
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		database.exec("ALTER TABLE mctx_metadata RENAME TO mctx_metadata_v16");
+		database.exec(
+			"CREATE TABLE mctx_metadata (schema_version INTEGER NOT NULL CHECK (schema_version = 17)) STRICT",
+		);
+		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(17);
+		database.exec("DROP TABLE mctx_metadata_v16");
+		if (!hasTable(database, "processed_image_strips"))
+			database.exec(
+				"CREATE TABLE processed_image_strips (project_identity TEXT NOT NULL, session_id TEXT NOT NULL, entry_id TEXT NOT NULL, PRIMARY KEY (project_identity, session_id, entry_id), FOREIGN KEY (project_identity, session_id) REFERENCES partitions(project_identity, session_id)) STRICT",
+			);
+		database.exec("PRAGMA user_version = 17");
+		database.exec("COMMIT");
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
 }
 
 function recordOverflowRecovery(
@@ -71,9 +131,10 @@ function migrateV16(database: DatabaseSync): void {
 		);
 		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(16);
 		database.exec("DROP TABLE mctx_metadata_v15");
-		database.exec(
-			"ALTER TABLE pressure_state ADD COLUMN needs_emergency_recovery INTEGER NOT NULL DEFAULT 0 CHECK (needs_emergency_recovery IN (0, 1))",
-		);
+		if (!hasColumn(database, "pressure_state", "needs_emergency_recovery"))
+			database.exec(
+				"ALTER TABLE pressure_state ADD COLUMN needs_emergency_recovery INTEGER NOT NULL DEFAULT 0 CHECK (needs_emergency_recovery IN (0, 1))",
+			);
 		database.exec("PRAGMA user_version = 16");
 		database.exec("COMMIT");
 	} catch (error) {
@@ -174,12 +235,14 @@ function migrateV15(database: DatabaseSync): void {
 		);
 		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(15);
 		database.exec("DROP TABLE mctx_metadata_v14");
-		database.exec(
-			"CREATE TABLE nudge_deliveries (project_identity TEXT NOT NULL, session_id TEXT NOT NULL, state TEXT NOT NULL CHECK (state IN ('pending', 'claimed', 'delivered')), owner_token TEXT, lease_expires_at_ms INTEGER NOT NULL DEFAULT 0 CHECK (lease_expires_at_ms >= 0), PRIMARY KEY (project_identity, session_id), FOREIGN KEY (project_identity, session_id) REFERENCES partitions(project_identity, session_id)) STRICT",
-		);
-		database.exec(
-			"CREATE TABLE pressure_state (project_identity TEXT NOT NULL, session_id TEXT NOT NULL, detected_context_window INTEGER CHECK (detected_context_window > 0), PRIMARY KEY (project_identity, session_id), FOREIGN KEY (project_identity, session_id) REFERENCES partitions(project_identity, session_id)) STRICT",
-		);
+		if (!hasTable(database, "nudge_deliveries"))
+			database.exec(
+				"CREATE TABLE nudge_deliveries (project_identity TEXT NOT NULL, session_id TEXT NOT NULL, state TEXT NOT NULL CHECK (state IN ('pending', 'claimed', 'delivered')), owner_token TEXT, lease_expires_at_ms INTEGER NOT NULL DEFAULT 0 CHECK (lease_expires_at_ms >= 0), PRIMARY KEY (project_identity, session_id), FOREIGN KEY (project_identity, session_id) REFERENCES partitions(project_identity, session_id)) STRICT",
+			);
+		if (!hasTable(database, "pressure_state"))
+			database.exec(
+				"CREATE TABLE pressure_state (project_identity TEXT NOT NULL, session_id TEXT NOT NULL, detected_context_window INTEGER CHECK (detected_context_window > 0), PRIMARY KEY (project_identity, session_id), FOREIGN KEY (project_identity, session_id) REFERENCES partitions(project_identity, session_id)) STRICT",
+			);
 		database.exec("PRAGMA user_version = 15");
 		database.exec("COMMIT");
 	} catch (error) {
@@ -255,9 +318,10 @@ function migrateV14(database: DatabaseSync): void {
 		);
 		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(14);
 		database.exec("DROP TABLE mctx_metadata_v13");
-		database.exec(
-			"ALTER TABLE history_tags ADD COLUMN caveman_depth INTEGER NOT NULL DEFAULT 0 CHECK (caveman_depth BETWEEN 0 AND 3)",
-		);
+		if (!hasColumn(database, "history_tags", "caveman_depth"))
+			database.exec(
+				"ALTER TABLE history_tags ADD COLUMN caveman_depth INTEGER NOT NULL DEFAULT 0 CHECK (caveman_depth BETWEEN 0 AND 3)",
+			);
 		database.exec("PRAGMA user_version = 14");
 		database.exec("COMMIT");
 	} catch (error) {
@@ -353,9 +417,10 @@ function migrateV13(database: DatabaseSync): void {
 		);
 		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(13);
 		database.exec("DROP TABLE mctx_metadata_v12");
-		database.exec(
-			"CREATE TABLE reasoning_state (project_identity TEXT NOT NULL, session_id TEXT NOT NULL, cleared_through_tag INTEGER NOT NULL DEFAULT 0 CHECK (cleared_through_tag >= 0), PRIMARY KEY (project_identity, session_id), FOREIGN KEY (project_identity, session_id) REFERENCES partitions(project_identity, session_id)) STRICT",
-		);
+		if (!hasTable(database, "reasoning_state"))
+			database.exec(
+				"CREATE TABLE reasoning_state (project_identity TEXT NOT NULL, session_id TEXT NOT NULL, cleared_through_tag INTEGER NOT NULL DEFAULT 0 CHECK (cleared_through_tag >= 0), PRIMARY KEY (project_identity, session_id), FOREIGN KEY (project_identity, session_id) REFERENCES partitions(project_identity, session_id)) STRICT",
+			);
 		database.exec("PRAGMA user_version = 13");
 		database.exec("COMMIT");
 	} catch (error) {
@@ -373,9 +438,10 @@ function migrateV12(database: DatabaseSync): void {
 		);
 		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(12);
 		database.exec("DROP TABLE mctx_metadata_v11");
-		database.exec(
-			"CREATE TABLE status_accounting (project_identity TEXT NOT NULL, session_id TEXT NOT NULL, cache_ttl_ms INTEGER NOT NULL DEFAULT 300000 CHECK (cache_ttl_ms > 0), last_response_at_ms INTEGER NOT NULL DEFAULT 0 CHECK (last_response_at_ms >= 0), new_work_tokens INTEGER NOT NULL DEFAULT 0 CHECK (new_work_tokens >= 0), total_input_tokens INTEGER NOT NULL DEFAULT 0 CHECK (total_input_tokens >= 0), system_prompt_tokens INTEGER NOT NULL DEFAULT 0 CHECK (system_prompt_tokens >= 0), docs_tokens INTEGER NOT NULL DEFAULT 0 CHECK (docs_tokens >= 0), compartment_tokens INTEGER NOT NULL DEFAULT 0 CHECK (compartment_tokens >= 0), memory_tokens INTEGER NOT NULL DEFAULT 0 CHECK (memory_tokens >= 0), profile_tokens INTEGER NOT NULL DEFAULT 0 CHECK (profile_tokens >= 0), conversation_tokens INTEGER NOT NULL DEFAULT 0 CHECK (conversation_tokens >= 0), tool_call_tokens INTEGER NOT NULL DEFAULT 0 CHECK (tool_call_tokens >= 0), tool_definition_tokens INTEGER NOT NULL DEFAULT 0 CHECK (tool_definition_tokens >= 0), PRIMARY KEY (project_identity, session_id), FOREIGN KEY (project_identity, session_id) REFERENCES partitions(project_identity, session_id)) STRICT",
-		);
+		if (!hasTable(database, "status_accounting"))
+			database.exec(
+				"CREATE TABLE status_accounting (project_identity TEXT NOT NULL, session_id TEXT NOT NULL, cache_ttl_ms INTEGER NOT NULL DEFAULT 300000 CHECK (cache_ttl_ms > 0), last_response_at_ms INTEGER NOT NULL DEFAULT 0 CHECK (last_response_at_ms >= 0), new_work_tokens INTEGER NOT NULL DEFAULT 0 CHECK (new_work_tokens >= 0), total_input_tokens INTEGER NOT NULL DEFAULT 0 CHECK (total_input_tokens >= 0), system_prompt_tokens INTEGER NOT NULL DEFAULT 0 CHECK (system_prompt_tokens >= 0), docs_tokens INTEGER NOT NULL DEFAULT 0 CHECK (docs_tokens >= 0), compartment_tokens INTEGER NOT NULL DEFAULT 0 CHECK (compartment_tokens >= 0), memory_tokens INTEGER NOT NULL DEFAULT 0 CHECK (memory_tokens >= 0), profile_tokens INTEGER NOT NULL DEFAULT 0 CHECK (profile_tokens >= 0), conversation_tokens INTEGER NOT NULL DEFAULT 0 CHECK (conversation_tokens >= 0), tool_call_tokens INTEGER NOT NULL DEFAULT 0 CHECK (tool_call_tokens >= 0), tool_definition_tokens INTEGER NOT NULL DEFAULT 0 CHECK (tool_definition_tokens >= 0), PRIMARY KEY (project_identity, session_id), FOREIGN KEY (project_identity, session_id) REFERENCES partitions(project_identity, session_id)) STRICT",
+			);
 		database.exec("PRAGMA user_version = 12");
 		database.exec("COMMIT");
 	} catch (error) {
@@ -482,6 +548,8 @@ export interface MctxStore {
 	recordOverflowRecovery?(partition: MctxPartition, contextWindow: number | undefined): void;
 	needsEmergencyRecovery?(partition: MctxPartition): boolean;
 	clearEmergencyRecovery?(partition: MctxPartition): void;
+	listProcessedImageStrips?(partition: MctxPartition): readonly string[];
+	addProcessedImageStrips?(partition: MctxPartition, entryIds: readonly string[]): void;
 	writeMemory(input: MctxMemoryWrite): MctxMemory;
 	getMemories(projectIdentity: string, memoryIds: readonly number[]): readonly MctxMemory[];
 	listActiveMemories(
@@ -1136,6 +1204,7 @@ function validateSchema(database: DatabaseSync): void {
 	if (pragmaInteger(database, "PRAGMA user_version") === 13) migrateV14(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 14) migrateV15(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 15) migrateV16(database);
+	if (pragmaInteger(database, "PRAGMA user_version") === 16) migrateV17(database);
 	if (pragmaInteger(database, "PRAGMA application_id") !== MCTX_STORE_APPLICATION_ID) {
 		throw new Error("Context store application identity is invalid");
 	}
@@ -1157,7 +1226,8 @@ function validateSchema(database: DatabaseSync): void {
 		!hasTable(database, "status_accounting") ||
 		!hasTable(database, "reasoning_state") ||
 		!hasTable(database, "nudge_deliveries") ||
-		!hasTable(database, "pressure_state")
+		!hasTable(database, "pressure_state") ||
+		!hasTable(database, "processed_image_strips")
 	) {
 		throw new Error("Context store partition tables are missing");
 	}
@@ -2977,6 +3047,14 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 		clearEmergencyRecovery(partition): void {
 			if (database === undefined) throw new Error("Context store is closed");
 			clearEmergencyRecovery(database, partition);
+		},
+		listProcessedImageStrips(partition): readonly string[] {
+			if (database === undefined) throw new Error("Context store is closed");
+			return listProcessedImageStrips(database, partition);
+		},
+		addProcessedImageStrips(partition, entryIds): void {
+			if (database === undefined) throw new Error("Context store is closed");
+			addProcessedImageStrips(database, partition, entryIds);
 		},
 		sealNudgeDelivered(partition): void {
 			if (database === undefined) throw new Error("Context store is closed");
