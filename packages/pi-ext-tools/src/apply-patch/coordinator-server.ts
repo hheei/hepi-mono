@@ -27,6 +27,8 @@ type ApplyResponse =
 	| { readonly id: string; readonly ok: true; readonly result: ApplyPatchInWorkspaceResult }
 	| { readonly id: string; readonly ok: false; readonly error: string };
 
+const COORDINATOR_IDLE_TIMEOUT_MS = 30_000;
+
 function isApplyRequest(value: unknown): value is ApplyRequest {
 	if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
 	const r: Record<string, unknown> = {};
@@ -106,7 +108,15 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 	const activeLocks = new Set<string>();
 	let active = 0;
 	let idleTimer: NodeJS.Timeout | undefined;
+	const scheduleIdleShutdown = (): void => {
+		if (active > 0 || pending.length > 0 || idleTimer !== undefined) return;
+		idleTimer = setTimeout(() => void server.close(), COORDINATOR_IDLE_TIMEOUT_MS);
+	};
 	const server = createServer((socket) => {
+		if (idleTimer !== undefined) {
+			clearTimeout(idleTimer);
+			idleTimer = undefined;
+		}
 		let data = "";
 		socket.setEncoding("utf8");
 		socket.on("data", (chunk: string) => {
@@ -150,7 +160,10 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 			}
 			const item: QueueItem = { request: value, socket, abort: new AbortController(), locks };
 			pending.push(item);
-			clearTimeout(idleTimer);
+			if (idleTimer !== undefined) {
+				clearTimeout(idleTimer);
+				idleTimer = undefined;
+			}
 			pump();
 		});
 		socket.on("close", () => {
@@ -163,6 +176,7 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 			for (const item of running)
 				if (item.item.socket === socket)
 					item.abort.abort(new Error("Apply patch client disconnected"));
+			scheduleIdleShutdown();
 		});
 	});
 	const pump = (): void => {
@@ -192,8 +206,7 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 					for (const lock of item.locks) activeLocks.delete(lock);
 					active -= 1;
 					pump();
-					if (active === 0 && pending.length === 0)
-						idleTimer = setTimeout(() => void server.close(), 5000);
+					scheduleIdleShutdown();
 				});
 		}
 	};
@@ -201,6 +214,7 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 	server.once("error", listening.reject);
 	server.listen(socketPath, () => listening.resolve());
 	await listening.promise;
+	scheduleIdleShutdown();
 	const cleanup = (): void => {
 		void unlink(socketPath).catch(() => undefined);
 		void unlink(lockPath).catch(() => undefined);

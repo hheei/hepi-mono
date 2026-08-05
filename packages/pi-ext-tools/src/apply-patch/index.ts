@@ -2,6 +2,7 @@ export {
 	type ApplyPatchThroughCoordinatorOptions,
 	applyPatchThroughCoordinator,
 	coordinatorSocketPath,
+	warmApplyPatchCoordinator,
 } from "./coordinator-client.js";
 export { startApplyPatchCoordinatorServer } from "./coordinator-server.js";
 export {

@@ -4,6 +4,7 @@ import { realpath } from "node:fs/promises";
 import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import type { ApplyPatchInWorkspaceResult } from "./executor.js";
 
@@ -11,6 +12,41 @@ export interface ApplyPatchThroughCoordinatorOptions {
 	readonly workspaceRoot: string;
 	readonly patch: string;
 	readonly signal?: AbortSignal;
+}
+
+async function ensureCoordinator(
+	workspaceRoot: string,
+	signal?: AbortSignal,
+): Promise<{ readonly workspaceRoot: string; readonly socketPath: string }> {
+	const resolvedWorkspaceRoot = await realpath(workspaceRoot);
+	const socketPath = coordinatorSocketPath(resolvedWorkspaceRoot);
+	try {
+		await waitForCoordinator(socketPath, signal);
+	} catch (error) {
+		if (signal?.aborted) throw signal.reason ?? error;
+		await ensureServer(resolvedWorkspaceRoot, socketPath, signal);
+	}
+	return { workspaceRoot: resolvedWorkspaceRoot, socketPath };
+}
+
+/** Starts a workspace coordinator while Pi is waiting for the model's first tool call. */
+export async function warmApplyPatchCoordinator(
+	workspaceRoot: string,
+	signal?: AbortSignal,
+): Promise<void> {
+	await ensureCoordinator(workspaceRoot, signal);
+}
+
+function appendStderrTail(current: string, chunk: Buffer): string {
+	const combined = current + chunk.toString("utf8");
+	return combined.length <= COORDINATOR_STDERR_TAIL_MAX_CHARS
+		? combined
+		: combined.slice(-COORDINATOR_STDERR_TAIL_MAX_CHARS);
+}
+
+function formatChildStartupError(prefix: string, stderr: string): Error {
+	const detail = stderr.trim();
+	return new Error(detail.length === 0 ? prefix : `${prefix}: ${detail}`);
 }
 
 interface ApplyResponse {
@@ -21,6 +57,9 @@ interface ApplyResponse {
 }
 
 const startupPromises = new Map<string, Promise<void>>();
+const COORDINATOR_READY_TIMEOUT_MS = 10_000;
+const COORDINATOR_READY_POLL_INTERVAL_MS = 25;
+const COORDINATOR_STDERR_TAIL_MAX_CHARS = 8_192;
 
 export function coordinatorSocketPath(workspaceRoot: string): string {
 	const digest = createHash("sha256").update(workspaceRoot).digest("hex");
@@ -168,21 +207,56 @@ async function ensureServer(
 		const modulePath = fileURLToPath(new URL(`./coordinator-server.${extension}`, import.meta.url));
 		const child = spawn(process.execPath, [modulePath, workspaceRoot], {
 			detached: true,
-			stdio: "ignore",
+			stdio: ["ignore", "ignore", "pipe"],
 		});
 		child.unref();
+		let ready = false;
+		let stderr = "";
+		let childFailure: Error | undefined;
+		const onStderr = (chunk: Buffer): void => {
+			stderr = appendStderrTail(stderr, chunk);
+		};
+		const onError = (error: Error): void => {
+			if (!ready)
+				childFailure = formatChildStartupError(
+					`Apply patch coordinator failed to spawn: ${error.message}`,
+					stderr,
+				);
+		};
+		const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+			if (ready) return;
+			const reason =
+				signal === null ? `exited with code ${String(code)}` : `was terminated by ${signal}`;
+			childFailure = formatChildStartupError(`Apply patch coordinator ${reason}`, stderr);
+		};
+		child.stderr?.on("data", onStderr);
+		child.once("error", onError);
+		child.once("exit", onExit);
 		let lastError: unknown;
-		for (let attempt = 0; attempt < 40; attempt += 1) {
-			signal?.throwIfAborted();
-			try {
-				await waitForCoordinator(socketPath, signal);
-				return;
-			} catch (error) {
-				lastError = error;
-				await delay(25);
+		const deadline = performance.now() + COORDINATOR_READY_TIMEOUT_MS;
+		try {
+			while (performance.now() < deadline) {
+				signal?.throwIfAborted();
+				if (childFailure !== undefined) throw childFailure;
+				try {
+					await waitForCoordinator(socketPath, signal);
+					ready = true;
+					return;
+				} catch (error) {
+					lastError = error;
+				}
+				const remaining = deadline - performance.now();
+				if (remaining > 0) await delay(Math.min(COORDINATOR_READY_POLL_INTERVAL_MS, remaining));
 			}
+			throw new Error(
+				`Apply patch coordinator did not become ready within ${COORDINATOR_READY_TIMEOUT_MS}ms: ${String(lastError)}`,
+			);
+		} finally {
+			child.stderr?.removeListener("data", onStderr);
+			child.removeListener("error", onError);
+			child.removeListener("exit", onExit);
+			if (ready) child.stderr?.destroy();
 		}
-		throw new Error(`Apply patch coordinator startup failed: ${String(lastError)}`);
 	})();
 	startupPromises.set(socketPath, startup);
 	try {
@@ -196,8 +270,10 @@ export async function applyPatchThroughCoordinator(
 	options: ApplyPatchThroughCoordinatorOptions,
 ): Promise<ApplyPatchInWorkspaceResult> {
 	options.signal?.throwIfAborted();
-	const workspaceRoot = await realpath(options.workspaceRoot);
-	const socketPath = coordinatorSocketPath(workspaceRoot);
+	const { workspaceRoot, socketPath } = await ensureCoordinator(
+		options.workspaceRoot,
+		options.signal,
+	);
 	const id = randomUUID();
 	const request = JSON.stringify({ type: "apply", id, workspaceRoot, patch: options.patch });
 	let response: ApplyResponse;
@@ -205,7 +281,7 @@ export async function applyPatchThroughCoordinator(
 		response = await connectOnce(socketPath, request, options.signal);
 	} catch (error) {
 		if (options.signal?.aborted) throw options.signal.reason ?? error;
-		await ensureServer(workspaceRoot, socketPath, options.signal);
+		await ensureCoordinator(workspaceRoot, options.signal);
 		response = await connectOnce(socketPath, request, options.signal);
 	}
 	if (response.id !== id) throw new Error("Apply patch coordinator response id mismatch");

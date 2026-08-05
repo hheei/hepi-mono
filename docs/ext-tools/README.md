@@ -57,6 +57,13 @@ request。真实 workspace 只在对应 source hash 未变化时替换，结果�
 rejected operations。
 同 path job 会串行；无交集 path job 可在共享 worker limit 内并发。
 
+`apply_patch` 在每个 workspace 使用一个短生命周期 coordinator 进程维护跨 tool call 的 path lock。
+Pi host 进入 agent run 时由 `pi-ext-tools` 异步预热该 coordinator，把 native bridge、policy 与
+socket bind 的 cold-start 移到模型等待期间；tool 执行仍在 coordinator ready 后才开始。若预热未完成，
+首次 tool call 等待 coordinator readiness；启动 deadline 只保护异常，不能作为正常流程。child 提前退出时
+tool 返回 exit code 与受限 stderr tail，便于区分 native bridge、policy 或 socket bind 失败。coordinator
+空闲后自行退出；session reload、切换与 shutdown 不持有或复用旧 session 的资源。
+
 fuzzy policy 只读取 `pi-ext-tools.applyPatch` settings。默认值为 `minSimilarity: 0.7`、
 `maxConcurrentWorkers: 2`、`maxQueueDepth: 32`、`cacheMiB: 64`。`minSimilarity: 0` 关闭 fuzzy，
 只允许 exact apply；`1` 只接受 score 为 `1` 的 fuzzy candidate。user-global settings 可配置完整
