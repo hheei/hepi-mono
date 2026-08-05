@@ -23,6 +23,7 @@ Use `<owner>-<repo>` directory names. Documentation must cite the public URL and
 | [can1357/oh-my-pi](https://github.com/can1357/oh-my-pi) | `01c1f91ff529c6af3fc27724a8ba429d83d41aed` | PTY lifecycle: native process-group termination, raw output transport, resize, and bounded reader teardown; no OMP runtime imported |
 | [mattpocock/skills](https://github.com/mattpocock/skills) | `ed37663cc5fbef691ddfecd080dff42f7e7e350d` | Grill and domain-modeling skills adapted for the HEPI skills bundle |
 | [hheei/magic-context](https://github.com/hheei/magic-context) | `f9c964da0c5cc53d1ef0658af588b46acd2e740d` | Fixed Magic Context Pi plugin/core source, including external Pi subagent accounting API |
+| [cortexkit/magic-context](https://github.com/cortexkit/magic-context) | `7af5961d0a6af6e02a5200dc42c3ac0bbebc5864` | Current `master` Pi plugin reference for behavioral comparison |
 | [hheei/pi-subagents](https://github.com/hheei/pi-subagents) | `594140b50a159dcd33c4c265dc73729d6cb19765` | Agent policy, child-session factory, tool scoping, worktree isolation, and MCTX inheritance bridge; not a target API contract |
 
 ## Other Design References
