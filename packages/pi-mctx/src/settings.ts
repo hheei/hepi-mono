@@ -27,7 +27,7 @@ export interface MctxSettings {
 export interface MctxSettingsProviderOptions {
 	/** User-level Pi settings path; override only for tests or an embedding host. */
 	readonly path?: string;
-	/** Authenticated models exposed by the Pi host's registry. */
+<<<<<<< HEAD
 	readonly modelOptions?: readonly HepiModelSelectionOption[];
 }
 
@@ -99,15 +99,17 @@ function createModelField(
 		...createHepiModelSelectionField({
 			id: "model",
 			label: "Historian model",
-			description: "Choose the authenticated model used for bounded historian completions.",
+<<<<<<< HEAD
+			description: "Select the exact provider/model used for bounded historian completions.",
 			modelOptions,
 			thinking: "off",
 		}),
+		parse: (draft): string => draft.trim(),
+		validate: (value): string | undefined =>
+			validModelRef(value) ? undefined : "Expected an exact provider/model reference",
 		enabled: (state): boolean =>
 			state[MCTX_RUNTIME_SETTINGS_GROUP]?.enabled === true &&
 			state[MCTX_HISTORIAN_SETTINGS_GROUP]?.enabled === true,
-		validate: (value): string | undefined =>
-			validModelRef(value) ? undefined : "Expected an exact provider/model reference",
 	};
 }
 

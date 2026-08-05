@@ -51,6 +51,8 @@ test("MCTX provider exposes independent runtime and historian controls", async (
 		expect(smartDrops?.enabled?.({ runtime: { enabled: true } })).toBe(true);
 		expect(historianEnabled?.defaultValue).toBe(false);
 		expect(model?.defaultValue).toBe("");
+		expect(model?.type).toBe("enum");
+		expect(model?.options).toEqual([{ value: "", label: "Not set" }]);
 		expect(
 			model?.enabled?.({
 				runtime: { enabled: false },
@@ -179,6 +181,10 @@ test("pi-mctx registers historian settings for inactive sessions and removes it 
 		expect(registry.get(MCTX_SETTINGS_PROVIDER_ID)).toBeUndefined();
 		const context = {
 			cwd: directory,
+			modelRegistry: {
+				getAvailable: () => [],
+				hasConfiguredAuth: () => false,
+			},
 			ui: { notify(): void {} },
 		};
 		for (const handler of handlers.get("session_start") ?? []) await handler({}, context);

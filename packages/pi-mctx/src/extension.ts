@@ -753,12 +753,9 @@ export default function piMctxExtension(pi: ExtensionAPI): void {
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-mctx",
 		start: async (context) => {
-			const modelRegistry = context.extension.modelRegistry;
+<<<<<<< HEAD
 			const settingsProvider = createMctxSettingsProvider({
-				modelOptions:
-					modelRegistry === undefined
-						? [{ value: "", label: "Not set" }]
-						: hepiAuthenticatedModelSelectionOptions(modelRegistry),
+				modelOptions: hepiAuthenticatedModelSelectionOptions(context.extension.modelRegistry),
 			});
 			const unregisterSettings = registerHepiSettings(settingsProvider, settingsRegistry);
 			context.resources.add("mctx-historian-settings", unregisterSettings);
