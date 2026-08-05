@@ -24,10 +24,10 @@ context message 的对象身份。`pi-mctx` 以完整 session branch 的结构�
 compartment 投影后按完整 branch 顺序对未覆盖的 live tail 做结构匹配。重复内容仍按
 各自 entry ID 归属；被其他 extension 修改而无法匹配的消息保持原样，不能猜测 tag 归属。
 
-`pi-mctx.temporal_awareness: true` 对齐上游 opt-in：当前 user message 与前一条带
+`pi-mctx.temporal_awareness` 默认开启，对齐上游：当前 user message 与前一条带
 时间戳 message 的间隔超过 5 分钟时，在该 user message 的 `§N§` 后插入
 `<!-- +Xm -->`。该 marker 只用于模型可见的时间间隔，不写入 session；重复 context
-pass 保持幂等。默认关闭，避免改变既有请求字节。
+pass 保持幂等。显式 `false` 才关闭。
 
 ## System Injection Stripping
 
