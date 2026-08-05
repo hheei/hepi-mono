@@ -9,10 +9,6 @@ import {
 	type ResolvedPath,
 } from "./fff-types.js";
 
-function formatContextLine(path: string, lineNumber: number, line: string) {
-	return `${path}-${lineNumber}- ${truncateLine(line).text}`;
-}
-
 function frecencyWord(score: number): string | undefined {
 	if (score >= 100) return "hot";
 	if (score >= 50) return "warm";
@@ -30,6 +26,14 @@ function fileSuffix(totalFrecencyScore: number, gitStatus: string): string {
 	if (frecency && git) return ` - ${frecency} git:${git}`;
 	if (frecency) return ` - ${frecency}`;
 	if (git) return ` git:${git}`;
+	return "";
+}
+
+function grepFileAnnotation(match: GrepMatch): string {
+	if (match.gitStatus && match.gitStatus !== "clean" && match.gitStatus !== "unknown")
+		return `  [${match.gitStatus} in git]`;
+	if (match.totalFrecencyScore >= 25) return "  [VERY often touched file]";
+	if (match.totalFrecencyScore >= 20) return "  [often touched file]";
 	return "";
 }
 
@@ -150,58 +154,37 @@ function finalizeGrepText(
 	return { text: output, truncation: truncation.truncated ? truncation : undefined };
 }
 
-function buildContentLines(
-	items: GrepMatch[],
-	requestedContext: number,
-	suggestion: { expandedPath?: string; path?: string; reason?: string },
-) {
+function buildContentLines(items: GrepMatch[], requestedContext: number) {
 	const lines: string[] = [];
 	let linesTruncated = false;
-	if (suggestion.path) {
-		lines.push(`→ Read ${suggestion.path} (${suggestion.reason})`);
-	}
-
-	const explicitContext = requestedContext > 0;
-	const autoExpandPath = explicitContext ? undefined : suggestion.expandedPath;
-	let autoExpanded = false;
+	let currentPath: string | undefined;
 
 	for (const match of items) {
-		const before = explicitContext ? (match.contextBefore ?? []) : [];
+		if (match.relativePath !== currentPath) {
+			if (lines.length > 0) lines.push("");
+			lines.push(`${match.relativePath}${grepFileAnnotation(match)}`);
+			currentPath = match.relativePath;
+		}
+
+		const before = requestedContext > 0 ? (match.contextBefore ?? []) : [];
 		for (let i = 0; i < before.length; i += 1) {
 			const lineNumber = match.lineNumber - before.length + i;
 			const truncated = truncateLine(before[i] ?? "");
 			linesTruncated ||= truncated.wasTruncated;
-			lines.push(formatContextLine(match.relativePath, lineNumber, truncated.text));
+			lines.push(` ${lineNumber}- ${truncated.text}`);
 		}
 
-		const main = cropMatchLine(match.lineContent, match.matchRanges);
+		const main = truncateLine(match.lineContent);
 		linesTruncated ||= main.wasTruncated;
-		lines.push(`${match.relativePath}:${match.lineNumber}: ${main.text}`);
+		lines.push(` ${match.lineNumber}: ${main.text}`);
 
-		if (explicitContext) {
+		if (requestedContext > 0) {
 			const after = match.contextAfter ?? [];
 			for (let i = 0; i < after.length; i += 1) {
 				const truncated = truncateLine(after[i] ?? "");
 				linesTruncated ||= truncated.wasTruncated;
-				lines.push(formatContextLine(match.relativePath, match.lineNumber + i + 1, truncated.text));
+				lines.push(` ${match.lineNumber + i + 1}- ${truncated.text}`);
 			}
-			continue;
-		}
-
-		if (
-			!autoExpanded &&
-			autoExpandPath === match.relativePath &&
-			isLikelyDefinitionLine(match.lineContent)
-		) {
-			const after = (match.contextAfter ?? []).slice(0, MAX_AUTO_EXPAND_LINES);
-			for (let i = 0; i < after.length; i += 1) {
-				const content = after[i] ?? "";
-				if (!content.trim()) continue;
-				const truncated = truncateLine(content);
-				linesTruncated ||= truncated.wasTruncated;
-				lines.push(`${match.relativePath}|${match.lineNumber + i + 1}: ${truncated.text}`);
-			}
-			autoExpanded = true;
 		}
 	}
 	return { lines, linesTruncated };
@@ -285,7 +268,6 @@ export function buildGrepText(
 	}
 
 	const outputMode = options.outputMode ?? "content";
-	const suggestion = pickSuggestedReadPath(items);
 	const prefixLines = options.regexFallbackError
 		? [`! regex failed: ${options.regexFallbackError}, using literal match`]
 		: [];
@@ -297,8 +279,8 @@ export function buildGrepText(
 				: outputMode === "usage"
 					? { ...buildUsageLines(items), suggestedReadPath: undefined }
 					: {
-							...buildContentLines(items, options.requestedContext, suggestion),
-							suggestedReadPath: suggestion.path,
+							...buildContentLines(items, options.requestedContext),
+							suggestedReadPath: undefined,
 						};
 
 	const matchLimitReached =
