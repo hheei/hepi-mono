@@ -12,4 +12,4 @@ Pi host 拥有 tool call、取消信号和 native fallback 执行。`pi-ext-tool
 
 `grep` 在内存中搜索 session artifact URL；`find` 拒绝该 URL，因为 artifact 不是可遍历文件树。
 
-FFF 索引 root 固定为 Pi session 的 cwd。runtime 在首次 FFF 查询、自动补全或状态命令时创建；session start 不触发扫描。runtime disposal 销毁 finder；任何显式 scan wait 都必须带 timeout，超时不阻塞 Pi host。
+FFF 索引 root 固定为 Pi session 的 cwd。runtime 在首次 FFF 查询、自动补全或状态命令时创建；session start 不触发扫描。runtime disposal 销毁 finder；任何显式 scan wait 都必须带 timeout，超时不阻塞 Pi host。FFF 禁用 mmap 预热、内容索引和文件 watcher，只保留一次文件索引与 live grep。

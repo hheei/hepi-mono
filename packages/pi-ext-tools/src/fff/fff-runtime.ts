@@ -1026,6 +1026,10 @@ export class FffRuntime {
 				FileFinder.create({
 					basePath: projectRoot,
 					aiMode: true,
+					// FFF remains a lazy, bounded session helper rather than a project daemon.
+					disableMmapCache: true,
+					disableContentIndexing: true,
+					disableWatch: true,
 					frecencyDbPath: paths.frecencyDbPath,
 					historyDbPath: paths.historyDbPath,
 				}),
