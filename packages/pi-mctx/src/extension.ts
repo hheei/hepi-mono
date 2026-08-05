@@ -3,6 +3,7 @@ import {
 	defineTool,
 	type ExtensionAPI,
 	type ExtensionContext,
+	type ToolResultEvent,
 } from "@earendil-works/pi-coding-agent";
 import {
 	getHepiRuntimeSettingsRegistry,
@@ -777,6 +778,38 @@ export default function piMctxExtension(pi: ExtensionAPI): void {
 	// their handlers stay above for revival (see docs/mctx/README.md).
 	registerContextHook(pi, feature);
 	registerCompactionHook(pi, feature);
+	pi.on("before_agent_start", (event) => {
+		const prompt = feature.systemPrompt();
+		return prompt === undefined
+			? undefined
+			: { systemPrompt: `${event.systemPrompt}\n\n${prompt}` };
+	});
+	const onToolResult = pi.on as unknown as (
+		event: "tool_result",
+		handler: (
+			event: ToolResultEvent,
+			context: ExtensionContext,
+		) => { content?: ToolResultEvent["content"] },
+	) => void;
+	onToolResult("tool_result", (event, context) => {
+		const reminder = feature.onToolResult(event.toolName, event.content, context);
+		return reminder === undefined
+			? {}
+			: { content: [...event.content, { type: "text", text: reminder }] };
+	});
+	pi.on("agent_end", (_event, context) => {
+		const reminder = feature.takeCeilingNudge(context);
+		if (reminder === undefined) return;
+		pi.sendMessage(
+			{
+				customType: "pi-mctx:ceiling-nudge",
+				content: reminder,
+				display: false,
+				details: { kind: "ctx-reduce-ceiling-nudge" },
+			},
+			{ deliverAs: "followUp" },
+		);
+	});
 	pi.on("turn_end", (_event, context) => feature.onTurnEnd(context));
 	pi.on("message_end", (event) => {
 		if (event.message.role !== "assistant") return undefined;

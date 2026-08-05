@@ -142,10 +142,10 @@ seam：它只接受同 owner 已静态注册的 tools，active 时保留其他 P
 inactive 时移除 bundle。`forcedActive` 是 transport metadata；`pi-loadout` 解释为只读 policy，不让 ext-core 拥有任何 persisted
 selection。缺少 `pi-loadout` 时，helper 仍通过 Pi host active set 执行同一可见性与强制启用策略。
 
-active runtime 的每个 completed context transform 都插入固定的 model-visible `pi-mctx:tool-guidance` custom message：
-`ctx_reduce` 只标记已不再需要的旧 `§N§` history tag；recent/protected tag 与仍可能需要的 source 不应 reduce；
-`ctx_expand` 用于恢复 dropped source；`ctx_history` 只管理 other-session retained history。它不写入 Pi transcript，固定
-content/timestamp 不随 tag 状态变化，避免每 turn 破坏 provider cache。runtime disabled 或 rebuild-aborted transform 不注入 guidance。
+active runtime 的每个 parent turn 由 `before_agent_start` 注入固定 `## Magic Context` system prompt：`ctx_reduce` 只标记已
+分析、未保护的旧 tool output；recent/protected tag 与仍可能需要的 source 不应 reduce；`ctx_expand` 用于恢复 dropped source；
+`ctx_history` 只管理 other-session retained history。prompt 不写入 Pi transcript，内容仅随 `protected_tags` 与 caveman setting
+改变；runtime disabled 时不注入。
 
 ## MCTX Settings registration
 
@@ -959,8 +959,16 @@ historian 不会阻塞本次 invocation；它完成后的新 revision 只在后�
 物化为 Pi compaction entry，也不插入 synthetic conversation message。这保持 source transcript、MCTX canonical
 summary 与 model-visible rendered context 三层分离。
 
-首个 pipeline milestone 不在 `before_agent_start` 追加 MCTX system-prompt block。该 surface 只在未来出现
-guidance、memory、docs 等 system adjunct 时单独设计。
+每个 active parent turn 在 Pi host `before_agent_start` 追加 cache-stable `## Magic Context` system prompt。
+它定义 `ctx_reduce` selector grammar、protected tag 数、即时回收时机、tool-output-only 边界、静默 drop、真实 tool call
+要求；不写入 transcript。`caveman_text_compression` 开启时，同一 prompt 明确历史压缩不是用户或 assistant 原话，模型不得模仿
+caveman 文风。MCTX 不使用 hidden custom message 代替该 system prompt。
+
+Pi host `tool_result` 是 Channel 1：feature 用上一次 context projection 的 session-scoped baseline 累计本 turn tool
+output，在压力增长且有可回收的旧 tool tag 时把 `<system-reminder>` 追加到该 result。Pi host `agent_end` 是 Channel 2：当
+reclaimable tool output 接近 execute ceiling 时，extension 以 hidden `sendMessage` follow-up 发送一次提醒。baseline、nudge
+level 与 Channel 2 delivered 状态只属于 active session runtime；`ctx_reduce` 或 session cleanup 重置本轮抑制。提醒只列出
+未保护、live、tool-result tag，不能催促 drop user、assistant 或 reference text。
 
 开启 Historian 时，它必须有显式、形状有效的 model config，负责把 history snapshot 写成 compartment；它不隐式复用
 parent agent model。Historian 关闭时，active runtime 不产生 compartment、不获取 completion coordinator，也不调度

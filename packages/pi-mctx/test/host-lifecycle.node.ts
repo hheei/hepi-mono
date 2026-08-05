@@ -262,9 +262,7 @@ test("real Pi host transforms context and retains it across reload", async (): P
 		);
 		await host.session.prompt("Keep this newer parent turn raw.");
 		await waitFor(() =>
-			host.contexts.some((context) =>
-				JSON.stringify(context.messages).includes("MCTX history tools"),
-			),
+			host.contexts.some((context) => context.systemPrompt?.includes("## Magic Context") === true),
 		);
 		await host.session.prompt("Keep another newer parent turn raw.");
 		await host.session.prompt(LARGE_PROMPT);
