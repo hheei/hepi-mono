@@ -261,6 +261,11 @@ test("real Pi host transforms context and retains it across reload", async (): P
 				.some((tool) => tool.definition.name === "ctx_memory"),
 		);
 		await host.session.prompt("Keep this newer parent turn raw.");
+		await waitFor(() =>
+			host.contexts.some((context) =>
+				JSON.stringify(context.messages).includes("MCTX history tools"),
+			),
+		);
 		await host.session.prompt("Keep another newer parent turn raw.");
 		await host.session.prompt(LARGE_PROMPT);
 		const usage = host.session.extensionRunner?.createContext().getContextUsage();

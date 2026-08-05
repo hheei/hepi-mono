@@ -197,7 +197,7 @@ test("status preserves disabled and disposed inactive reasons", async (): Promis
 	expect(feature.status(turnContext(undefined))).toEqual({ kind: "inactive", reason: "disposed" });
 });
 
-test("status exposes running/cooling phases and omits invalid usage", async (): Promise<void> => {
+test("status returns to idle after an ineligible historian run", async (): Promise<void> => {
 	const fixture = lifecycleFixture();
 	const historianGate = Promise.withResolvers<{
 		readonly kind: "ineligible";
@@ -219,7 +219,7 @@ test("status exposes running/cooling phases and omits invalid usage", async (): 
 	await Bun.sleep(0);
 	expect(feature.status(turnContext({ tokens: 1, contextWindow: 100_000 }))).toMatchObject({
 		kind: "active",
-		historian: { phase: "cooling" },
+		historian: { phase: "idle" },
 	});
 });
 
@@ -444,6 +444,10 @@ test("adopts a successful publication revision for the next historian run", asyn
 	const active = feature.active();
 	if (active === undefined) throw new Error("Expected active runtime");
 	expect(active.partition.revision).toBe(1);
+	expect(feature.status(turnContext({ tokens: 65_000, contextWindow: 100_000 }))).toMatchObject({
+		kind: "active",
+		historian: { phase: "idle" },
+	});
 });
 
 test("logs every historian failure but notifies once until publication rearms it", async (): Promise<void> => {
