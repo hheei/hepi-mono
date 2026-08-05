@@ -47,6 +47,16 @@ export function containsRegexSyntax(pattern: string): boolean {
 	return /[.*+?^${}()|[\]\\]/.test(pattern);
 }
 
+/** Invalid regex input must use Pi's literal grep fallback, never a shell command. */
+export function isValidRegexPattern(pattern: string): boolean {
+	try {
+		new RegExp(pattern);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 export function nativeFallbackPattern(pattern: string): string {
 	const words = pattern.trim().split(/\s+/).filter(Boolean);
 	return words.length === 0 ? "*" : `*${words.join("*")}*`;

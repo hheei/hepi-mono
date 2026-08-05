@@ -7,6 +7,7 @@ import {
 	buildFffQuery,
 	containsRegexSyntax,
 	filterNativeGrepText,
+	isValidRegexPattern,
 	supportsFffPath,
 } from "./fff/query.js";
 import { addGrepSummary, normalizeNativeGrepResult } from "./grep-format.js";
@@ -61,7 +62,7 @@ function nativeParams(params: {
 	context?: number;
 	limit?: number;
 } {
-	const isRegex = containsRegexSyntax(params.pattern);
+	const isRegex = containsRegexSyntax(params.pattern) && isValidRegexPattern(params.pattern);
 	const smartCase =
 		params.caseSensitive !== true && params.pattern === params.pattern.toLowerCase();
 	return {

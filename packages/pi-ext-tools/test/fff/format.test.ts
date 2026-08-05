@@ -24,6 +24,18 @@ function match(path: string, lineNumber: number, lineContent: string): GrepMatch
 }
 
 describe("FFF grep formatting", () => {
+	test("does not prefix regex fallback output with Pi's bash shorthand", () => {
+		const result = buildGrepText([match("src/a.ts", 1, "catch (error")], {
+			limit: 20,
+			requestedContext: 1,
+			includeCursorHint: false,
+			regexFallbackError: "regex parse error",
+		});
+		expect(result.text).toBe(
+			"[regex fallback] regex parse error; searched literally\nsrc/a.ts\n1:catch (error",
+		);
+	});
+
 	test("groups matches by file and keeps paths out of each result line", () => {
 		const result = buildGrepText(
 			[
