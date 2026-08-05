@@ -103,6 +103,8 @@ function store(overrides: Partial<MctxStore> = {}): MctxStore {
 		}),
 		readStatusAccounting: () => emptyMctxStatusAccounting(),
 		writeStatusAccounting: () => undefined,
+		readReasoningWatermark: () => 0,
+		advanceReasoningWatermark: (_partition, tagNumber) => tagNumber,
 		findPartition: () => undefined,
 		isHandoffInstalled: (_parent, destinationSessionId) =>
 			handoffDestinations.has(destinationSessionId),

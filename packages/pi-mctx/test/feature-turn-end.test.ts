@@ -70,6 +70,8 @@ function store(): MctxStore {
 		}),
 		readStatusAccounting: () => emptyMctxStatusAccounting(),
 		writeStatusAccounting: () => undefined,
+		readReasoningWatermark: () => 0,
+		advanceReasoningWatermark: (_partition, tagNumber) => tagNumber,
 		findPartition: () => undefined,
 		isHandoffInstalled: () => false,
 		reserveHandoffInstallation: () => undefined,

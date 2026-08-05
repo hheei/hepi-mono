@@ -1,0 +1,60 @@
+import { expect, test } from "bun:test";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { replayMctxReasoning } from "../src/reasoning-replay.js";
+
+const assistant: AgentMessage = {
+	role: "assistant",
+	content: [
+		{ type: "thinking", thinking: "private", thinkingSignature: "sig" },
+		{ type: "text", text: "answer" },
+	],
+	timestamp: 0,
+};
+const entry = {
+	id: "entry-1",
+	parentId: null,
+	type: "message",
+	message: assistant,
+} as SessionEntry;
+const tag = {
+	tagNumber: 1,
+	kind: "message" as const,
+	entryId: "entry-1",
+	source: "answer",
+	status: "active" as const,
+};
+
+test("execute clears old typed thinking and advances the watermark", (): void => {
+	const result = replayMctxReasoning({
+		messages: [assistant],
+		entries: [entry],
+		tags: [tag],
+		watermark: 0,
+		clearReasoningAge: 0,
+		execute: true,
+	});
+	expect(result.watermark).toBe(1);
+	const first = result.messages[0];
+	if (first === undefined || first.role !== "assistant")
+		throw new Error("missing assistant message");
+	expect(first.content[0]).toMatchObject({ type: "thinking", thinking: "" });
+	expect(first.content[0]).not.toHaveProperty("thinkingSignature");
+});
+
+test("defer replays a persisted watermark without clearing redacted thinking", (): void => {
+	const redacted = {
+		...assistant,
+		content: [{ type: "thinking" as const, thinking: "opaque", redacted: true }],
+	};
+	expect(
+		replayMctxReasoning({
+			messages: [redacted],
+			entries: [{ ...entry, message: redacted }],
+			tags: [tag],
+			watermark: 1,
+			clearReasoningAge: 50,
+			execute: false,
+		}).messages[0],
+	).toEqual(redacted);
+});
