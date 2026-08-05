@@ -21,13 +21,22 @@ https://github.com/cortexkit/magic-context/tree/0e81084f6f9ce8a87df76d975b9d31d1
 
 Pi host 在 hook 前深拷贝消息，故 concrete extension 不能依赖 session entry 和
 context message 的对象身份。`pi-mctx` 以完整 session branch 的结构序列匹配 context；
-compartment 投影后再对未覆盖的 live tail 做唯一结构匹配。重复或被其他 extension
-修改而无法唯一归属的消息保持原样，不能猜测 tag 归属。
+compartment 投影后按完整 branch 顺序对未覆盖的 live tail 做结构匹配。重复内容仍按
+各自 entry ID 归属；被其他 extension 修改而无法匹配的消息保持原样，不能猜测 tag 归属。
 
 `pi-mctx.temporal_awareness: true` 对齐上游 opt-in：当前 user message 与前一条带
 时间戳 message 的间隔超过 5 分钟时，在该 user message 的 `§N§` 后插入
 `<!-- +Xm -->`。该 marker 只用于模型可见的时间间隔，不写入 session；重复 context
 pass 保持幂等。默认关闭，避免改变既有请求字节。
+
+## System Injection Stripping
+
+`pi-mctx` 在 execute pass 对非保护的 active user-text message tag 清理上游已定义的 system injection：
+`<system-reminder>`、OMO initiator、OH-MY system directive 与固定 emergency/reminder marker。
+清理按 tag source 持久化，后续 defer、reload 与 fork projection 重放相同 prompt bytes；清理结果为空时使用
+既有 `[dropped §N§]` marker。最新 `protected_tags` 永不改写。未知 marker、tool/reference tag、branch identity
+无法验证、CAS/store failure 均 fail open，保留原始 context。`ctx_expand` 只返回清理后的 retained source，避免把
+extension 注入重新提供给模型。
 
 ## 非记忆完整迁移
 

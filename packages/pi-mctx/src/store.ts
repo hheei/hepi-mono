@@ -14,6 +14,50 @@ interface MctxDatabaseStatement {
 	run(...bindings: readonly unknown[]): unknown;
 }
 
+function replaceHistoryTagSources(
+	database: DatabaseSync,
+	partition: MctxPartition,
+	updates: readonly MctxHistoryTagSourceUpdate[],
+): MctxPartition | undefined {
+	if (updates.some((update) => !Number.isSafeInteger(update.tagNumber) || update.tagNumber <= 0))
+		throw new Error("Context store history source update contains an invalid tag number");
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		const current = findPartition(database, partition.projectIdentity, partition.sessionId);
+		if (current?.revision !== partition.revision) {
+			database.exec("ROLLBACK");
+			return undefined;
+		}
+		let changed = false;
+		for (const update of updates) {
+			const rows = changedRows(
+				database
+					.prepare(
+						"UPDATE history_tags SET source = ? WHERE project_identity = ? AND session_id = ? AND tag_number = ? AND kind = 'message' AND status = 'active' AND source <> ?",
+					)
+					.run(
+						update.source,
+						partition.projectIdentity,
+						partition.sessionId,
+						update.tagNumber,
+						update.source,
+					),
+			);
+			changed ||= rows === 1;
+		}
+		const next = changed ? partitionCas(database, partition) : partition;
+		if (next === undefined) {
+			database.exec("ROLLBACK");
+			return undefined;
+		}
+		database.exec("COMMIT");
+		return next;
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
 function readReasoningWatermark(database: DatabaseSync, partition: MctxPartition): number {
 	requirePartitionKey(partition.projectIdentity, partition.sessionId);
 	database
@@ -161,6 +205,10 @@ export interface MctxStore {
 		partition: MctxPartition,
 		tagNumbers: readonly number[],
 	): MctxPartition | undefined;
+	replaceHistoryTagSources(
+		partition: MctxPartition,
+		updates: readonly MctxHistoryTagSourceUpdate[],
+	): MctxPartition | undefined;
 	writeMemory(input: MctxMemoryWrite): MctxMemory;
 	getMemories(projectIdentity: string, memoryIds: readonly number[]): readonly MctxMemory[];
 	listActiveMemories(
@@ -283,6 +331,12 @@ export interface MctxHistoryTagInput {
 export interface MctxHistoryTag extends MctxHistoryTagInput {
 	readonly tagNumber: number;
 	readonly status: MctxHistoryTagStatus;
+}
+
+/** A verified cleanup replacement for one active message tag. */
+export interface MctxHistoryTagSourceUpdate {
+	readonly tagNumber: number;
+	readonly source: string;
 }
 
 /** Retained tag with its project/session identity for cross-session reads. */
@@ -2578,6 +2632,10 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 		markHistoryTagsDropped(partition, tagNumbers): MctxPartition | undefined {
 			if (database === undefined) throw new Error("Context store is closed");
 			return markHistoryTagsDropped(database, partition, tagNumbers);
+		},
+		replaceHistoryTagSources(partition, updates): MctxPartition | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return replaceHistoryTagSources(database, partition, updates);
 		},
 		writeMemory(input): MctxMemory {
 			if (database === undefined) throw new Error("Context store is closed");
