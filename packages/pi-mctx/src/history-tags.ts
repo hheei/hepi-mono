@@ -1,6 +1,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ImageContent, TextContent } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { cavemanCompress } from "./caveman-compression.js";
 import { contextIndexesByEntryId } from "./context-entry-indexes.js";
 import type { MctxHistoryTag, MctxHistoryTagInput } from "./store.js";
 
@@ -173,8 +174,9 @@ function taggedContent(
 ): { readonly content: string | (TextContent | ImageContent)[]; readonly dropped: boolean } {
 	const replacement = tag.status === "active" ? undefined : marker(tag.tagNumber);
 	if (typeof content === "string") {
+		const source = cavemanCompress(content, tag.cavemanDepth);
 		return {
-			content: replacement ?? `${tagPrefix(tag.tagNumber)}${content}`,
+			content: replacement ?? `${tagPrefix(tag.tagNumber)}${source}`,
 			dropped: replacement !== undefined,
 		};
 	}
@@ -202,7 +204,27 @@ function taggedAssistantContent(
 	tag: MctxHistoryTag,
 ): { readonly content: AssistantMessage["content"]; readonly dropped: boolean } {
 	const replacement = tag.status === "active" ? undefined : marker(tag.tagNumber);
+	let sourceTextParts: readonly string[] | undefined;
+	try {
+		const parsed: unknown = JSON.parse(tag.source);
+		if (
+			Array.isArray(parsed) &&
+			parsed.every(
+				(part) =>
+					part !== null &&
+					typeof part === "object" &&
+					"type" in part &&
+					part.type === "text" &&
+					"text" in part &&
+					typeof part.text === "string",
+			)
+		)
+			sourceTextParts = parsed.map((part) => part.text);
+	} catch {
+		// Historical malformed sources retain the verified Pi projection.
+	}
 	let replaced = false;
+	let sourceIndex = 0;
 	return {
 		content: content.map((part) => {
 			if (part.type !== "text") return part;
@@ -213,7 +235,11 @@ function taggedAssistantContent(
 			}
 			if (replaced) return part;
 			replaced = true;
-			return { ...part, text: `${tagPrefix(tag.tagNumber)}${part.text}` };
+			const source = sourceTextParts?.[sourceIndex++] ?? part.text;
+			return {
+				...part,
+				text: `${tagPrefix(tag.tagNumber)}${cavemanCompress(source, tag.cavemanDepth)}`,
+			};
 		}),
 		dropped: replacement !== undefined,
 	};

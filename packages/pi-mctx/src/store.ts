@@ -14,6 +14,59 @@ interface MctxDatabaseStatement {
 	run(...bindings: readonly unknown[]): unknown;
 }
 
+function advanceHistoryTagCavemanDepths(
+	database: DatabaseSync,
+	partition: MctxPartition,
+	updates: readonly MctxHistoryTagCavemanDepthUpdate[],
+): MctxPartition | undefined {
+	if (
+		updates.some(
+			(update) =>
+				!Number.isSafeInteger(update.tagNumber) ||
+				update.tagNumber <= 0 ||
+				!Number.isSafeInteger(update.depth) ||
+				update.depth < 1 ||
+				update.depth > 3,
+		)
+	)
+		throw new Error("Context store caveman depth update is invalid");
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		const current = findPartition(database, partition.projectIdentity, partition.sessionId);
+		if (current?.revision !== partition.revision) {
+			database.exec("ROLLBACK");
+			return undefined;
+		}
+		let changed = false;
+		for (const update of updates) {
+			const rows = changedRows(
+				database
+					.prepare(
+						"UPDATE history_tags SET caveman_depth = ? WHERE project_identity = ? AND session_id = ? AND tag_number = ? AND kind = 'message' AND status = 'active' AND caveman_depth < ?",
+					)
+					.run(
+						update.depth,
+						partition.projectIdentity,
+						partition.sessionId,
+						update.tagNumber,
+						update.depth,
+					),
+			);
+			changed ||= rows === 1;
+		}
+		const next = changed ? partitionCas(database, partition) : partition;
+		if (next === undefined) {
+			database.exec("ROLLBACK");
+			return undefined;
+		}
+		database.exec("COMMIT");
+		return next;
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
 function migrateV14(database: DatabaseSync): void {
 	database.exec("BEGIN IMMEDIATE");
 	try {
@@ -229,6 +282,10 @@ export interface MctxStore {
 		partition: MctxPartition,
 		updates: readonly MctxHistoryTagSourceUpdate[],
 	): MctxPartition | undefined;
+	advanceHistoryTagCavemanDepths(
+		partition: MctxPartition,
+		updates: readonly MctxHistoryTagCavemanDepthUpdate[],
+	): MctxPartition | undefined;
 	writeMemory(input: MctxMemoryWrite): MctxMemory;
 	getMemories(projectIdentity: string, memoryIds: readonly number[]): readonly MctxMemory[];
 	listActiveMemories(
@@ -359,6 +416,12 @@ export interface MctxHistoryTag extends MctxHistoryTagInput {
 export interface MctxHistoryTagSourceUpdate {
 	readonly tagNumber: number;
 	readonly source: string;
+}
+
+/** Execute-pass depth advance; source remains pristine for deterministic replay. */
+export interface MctxHistoryTagCavemanDepthUpdate {
+	readonly tagNumber: number;
+	readonly depth: 1 | 2 | 3;
 }
 
 /** Retained tag with its project/session identity for cross-session reads. */
@@ -2665,6 +2728,10 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 		replaceHistoryTagSources(partition, updates): MctxPartition | undefined {
 			if (database === undefined) throw new Error("Context store is closed");
 			return replaceHistoryTagSources(database, partition, updates);
+		},
+		advanceHistoryTagCavemanDepths(partition, updates): MctxPartition | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return advanceHistoryTagCavemanDepths(database, partition, updates);
 		},
 		writeMemory(input): MctxMemory {
 			if (database === undefined) throw new Error("Context store is closed");

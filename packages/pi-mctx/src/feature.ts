@@ -21,6 +21,7 @@ import {
 } from "@hheei/pi-ext-core";
 import type { EmbeddingProviderLease } from "@hheei/pi-ext-embed";
 import { type MctxRuntime, resolveMctxActivation } from "./activation.js";
+import { planMctxCavemanDepths } from "./caveman-compression.js";
 import {
 	type MctxCompactionMarkerResult,
 	prepareMctxCompactionMarker,
@@ -1607,6 +1608,28 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					if (partition === undefined) return undefined;
 					current.runtime = { ...current.runtime, partition };
 					baseMessages = stripped.messages;
+				}
+			}
+			const caveman = current.runtime.settings.cavemanTextCompression;
+			if (maintenance === "execute" && caveman !== undefined) {
+				const updates = planMctxCavemanDepths(
+					historyTags,
+					caveman.minChars,
+					current.runtime.settings.protectedTags,
+				);
+				if (updates.length > 0) {
+					const partition = withStoreReadPolicy(current, () =>
+						current.runtime.store.advanceHistoryTagCavemanDepths(
+							current.runtime.partition,
+							updates,
+						),
+					);
+					if (partition === undefined) return undefined;
+					current.runtime = { ...current.runtime, partition };
+					historyTags = historyTags.map((tag) => {
+						const update = updates.find((candidate) => candidate.tagNumber === tag.tagNumber);
+						return update === undefined ? tag : { ...tag, cavemanDepth: update.depth };
+					});
 				}
 			}
 			const reasoningWatermark = withStoreReadPolicy(current, () =>

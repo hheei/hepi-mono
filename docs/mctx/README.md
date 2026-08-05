@@ -40,12 +40,15 @@ extension 注入重新提供给模型。
 
 ## Caveman History Compression
 
-`pi-mctx` 独立拥有历史 context 的 caveman compression，不依赖 `pi-caveman`。`pi-caveman`
-只控制未来回复风格；MCTX 在 execute pass 对非保护 active text tag 按 oldest-first 的
-ultra/full/lite/untouched（20/20/20/40）tier 压缩，并持久化每个 tag depth。defer、reload 与
-fork projection 只重放持久化 depth，绝不提升 depth。压缩始终从 retained pristine source 计算；代码、URL、path、
-commit hash、tag 与 user quote 保持原样。`caveman_text_compression` 是 user-level opt-in，默认关闭；启用时
-`min_chars` 为 100–10000，默认 500。project setting 忽略并 warning。
+`pi-mctx` 独立拥有历史 context 的 caveman compression，不依赖 `pi-caveman`；后者只控制未来回复风格。
+`caveman_text_compression` 是 user-level opt-in，默认关闭；启用时 `min_chars` 为 100–10000，默认 500。project
+setting 忽略并 warning。
+
+执行 pass 对非保护 active text tag 按 oldest-first 的 ultra/full/lite/untouched（20/20/20/40）tier 规划，并以 partition
+CAS 持久化只能递增的 depth。每个 context pass 从 retained pristine source（assistant 从 verified cloned message）按已持久化
+depth 重放，defer、reload 与 fork projection 都不提升 depth。压缩保留 code、URL、path、commit hash、tag 与 `U: ` user
+quote；branch 对齐、store CAS 或 projection 任一失败时保持 Pi raw context。此 slice 不迁移上游私有 tool ranking 或 background
+work。
 
 ## 非记忆完整迁移
 
@@ -710,7 +713,7 @@ above that threshold, smart drops target enough eligible tool-result source to r
 queue CAS accepts at least one tag; no candidate, a stale CAS, or rejected candidates leave it armed for a later eligible pass.
 The planner makes at most one successful automatic plan for an unchanged Pi usage sample; it re-arms only after the lower threshold
 This avoids repeated marker writes while Pi reports stale usage after a transform. upstream private tool-tier ranking、
-system-injection stripping 和 caveman text rewriting 仍不迁移：这些需要更宽的 tool metadata，或会改写 user-visible text。
+upstream private tool-tier ranking 仍不迁移：它需要更宽的 tool metadata。
 reasoning clearing 已迁移为 Pi-safe typed/inline replay；它只使用 durable branch entry identity，redacted blocks 不改写。
 
 Manual and automatic requests share the same atomic queue primitive but preserve intent. Manual `ctx_reduce` keeps its current
