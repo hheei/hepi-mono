@@ -38,6 +38,15 @@ pass 保持幂等。默认关闭，避免改变既有请求字节。
 无法验证、CAS/store failure 均 fail open，保留原始 context。`ctx_expand` 只返回清理后的 retained source，避免把
 extension 注入重新提供给模型。
 
+## Caveman History Compression
+
+`pi-mctx` 独立拥有历史 context 的 caveman compression，不依赖 `pi-caveman`。`pi-caveman`
+只控制未来回复风格；MCTX 在 execute pass 对非保护 active text tag 按 oldest-first 的
+ultra/full/lite/untouched（20/20/20/40）tier 压缩，并持久化每个 tag depth。defer、reload 与
+fork projection 只重放持久化 depth，绝不提升 depth。压缩始终从 retained pristine source 计算；代码、URL、path、
+commit hash、tag 与 user quote 保持原样。`caveman_text_compression` 是 user-level opt-in，默认关闭；启用时
+`min_chars` 为 100–10000，默认 500。project setting 忽略并 warning。
+
 ## 非记忆完整迁移
 
 本 package 的目标是完整迁移上游 `cortexkit/magic-context` Pi plugin 的所有

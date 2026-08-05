@@ -58,6 +58,8 @@ export interface MctxPipelineSettings {
 	readonly protectedTags: number;
 	/** Number of newest tags that retain assistant reasoning. */
 	readonly clearReasoningAge: number;
+	/** Lossy old-text compression is opt-in and never project-controlled. */
+	readonly cavemanTextCompression?: { readonly minChars: number };
 }
 
 /** User-owned optional primer path. Project settings cannot select local files to search. */
@@ -373,6 +375,28 @@ function resolvePipeline(
 			"Ignoring project temporal_awareness: only user config controls temporal markers",
 		);
 	}
+	if (project.caveman_text_compression !== undefined)
+		warnings.push(
+			"Ignoring project caveman_text_compression: only user config controls lossy history compression",
+		);
+	const rawCaveman = global.caveman_text_compression;
+	let cavemanTextCompression: { readonly minChars: number } | undefined;
+	if (rawCaveman !== undefined) {
+		if (!isRecord(rawCaveman) || typeof rawCaveman.enabled !== "boolean")
+			return { kind: "invalid", reason: "caveman_text_compression.enabled must be boolean" };
+		const minChars = rawCaveman.min_chars === undefined ? 500 : rawCaveman.min_chars;
+		if (
+			typeof minChars !== "number" ||
+			!Number.isSafeInteger(minChars) ||
+			minChars < 100 ||
+			minChars > 10_000
+		)
+			return {
+				kind: "invalid",
+				reason: "caveman_text_compression.min_chars must be an integer between 100 and 10000",
+			};
+		if (rawCaveman.enabled) cavemanTextCompression = { minChars };
+	}
 
 	return {
 		kind: "enabled",
@@ -389,6 +413,7 @@ function resolvePipeline(
 			...(raisedTokens === undefined ? {} : { executeThresholdTokens: raisedTokens }),
 			protectedTags,
 			clearReasoningAge,
+			...(cavemanTextCompression === undefined ? {} : { cavemanTextCompression }),
 		},
 	};
 }
