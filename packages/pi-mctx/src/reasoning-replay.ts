@@ -1,24 +1,11 @@
-import { isDeepStrictEqual } from "node:util";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { type SessionEntry, sessionEntryToContextMessages } from "@earendil-works/pi-coding-agent";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { contextIndexesByEntryId } from "./context-entry-indexes.js";
 import type { MctxHistoryTag } from "./store.js";
 
 export interface MctxReasoningReplayResult {
 	readonly messages: readonly AgentMessage[];
 	readonly watermark: number;
-}
-
-function uniqueMessageIndex(
-	messages: readonly AgentMessage[],
-	expected: AgentMessage,
-): number | undefined {
-	let found: number | undefined;
-	for (const [index, message] of messages.entries()) {
-		if (!isDeepStrictEqual(message, expected)) continue;
-		if (found !== undefined) return undefined;
-		found = index;
-	}
-	return found;
 }
 
 function assistantTagByEntryId(tags: readonly MctxHistoryTag[]): ReadonlyMap<string, number> {
@@ -73,6 +60,7 @@ export function replayMctxReasoning(input: {
 	if (input.watermark === 0 && executeCutoff === 0)
 		return { messages: input.messages, watermark: 0 };
 	const tagsByEntryId = assistantTagByEntryId(input.tags);
+	const contextIndexes = contextIndexesByEntryId(input.messages, input.entries);
 	const result = [...input.messages];
 	let watermark = input.watermark;
 	for (const entry of input.entries) {
@@ -80,11 +68,11 @@ export function replayMctxReasoning(input: {
 		const tagNumber = tagsByEntryId.get(entry.id);
 		if (tagNumber === undefined || (tagNumber > input.watermark && tagNumber > executeCutoff))
 			continue;
-		const expected = sessionEntryToContextMessages(entry)[0];
-		if (expected === undefined) continue;
-		const index = uniqueMessageIndex(input.messages, expected);
+		const index = contextIndexes.get(entry.id);
 		if (index === undefined) continue;
-		const cleared = clearThinking(result[index] ?? expected);
+		const message = result[index];
+		if (message === undefined) continue;
+		const cleared = clearThinking(message);
 		if (cleared === undefined) continue;
 		result[index] = cleared;
 		if (input.execute && tagNumber <= executeCutoff) watermark = Math.max(watermark, tagNumber);

@@ -66,6 +66,33 @@ describe("MCTX history tags", () => {
 		expect(projection.droppedTagNumbers).toEqual([8]);
 	});
 
+	test("projects duplicate content by its separate branch entries", () => {
+		const duplicateEntry = { ...userEntry, id: "user-entry-2" };
+		const tags: MctxHistoryTag[] = [
+			{
+				kind: "message",
+				entryId: "user-entry",
+				source: "keep this",
+				tagNumber: 7,
+				status: "active",
+			},
+			{
+				kind: "message",
+				entryId: "user-entry-2",
+				source: "keep this",
+				tagNumber: 8,
+				status: "active",
+			},
+		];
+		const projection = projectMctxHistoryTags(
+			[structuredClone(userMessage), structuredClone(userMessage)],
+			[userEntry, duplicateEntry],
+			tags,
+		);
+		expect(projection.messages[0]).toMatchObject({ content: "§7§ keep this" });
+		expect(projection.messages[1]).toMatchObject({ content: "§8§ keep this" });
+	});
+
 	test("replaces only pending verified payloads with the recovery marker", () => {
 		const tag: MctxHistoryTag = {
 			kind: "message",
