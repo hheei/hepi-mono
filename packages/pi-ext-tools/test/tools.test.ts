@@ -57,6 +57,36 @@ describe("pi-ext-tools catalog", () => {
 		expect(() => registerTools(host.pi)).toThrow("Loadout tool id already registered: read");
 	});
 
+	test("exposes the upstream FFF grep and find schemas", (): void => {
+		const host = harness();
+		registerTools(host.pi);
+		const grep = host.tools.find((tool) => tool.name === "grep");
+		const find = host.tools.find((tool) => tool.name === "find");
+		if (grep === undefined || find === undefined) throw new Error("Missing FFF search tools");
+		const properties = (tool: ToolDefinition): string[] => {
+			const schema: unknown = tool.parameters;
+			if (
+				typeof schema !== "object" ||
+				schema === null ||
+				!("properties" in schema) ||
+				typeof schema.properties !== "object" ||
+				schema.properties === null
+			)
+				throw new Error("Tool schema has no properties");
+			return Object.keys(schema.properties);
+		};
+		expect(properties(grep)).toEqual([
+			"pattern",
+			"path",
+			"exclude",
+			"caseSensitive",
+			"context",
+			"limit",
+			"cursor",
+		]);
+		expect(properties(find)).toEqual(["pattern", "path", "exclude", "limit", "cursor"]);
+	});
+
 	test("normalizes native grep output to the FFF result shape", (): void => {
 		const result = normalizeNativeGrepResult({
 			content: [

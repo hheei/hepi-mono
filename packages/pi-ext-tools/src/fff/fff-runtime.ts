@@ -25,6 +25,9 @@ import {
 	type EngineResult,
 	type FffFileCandidate,
 	type FileItem,
+	type FindSearchRequest,
+	type FindSearchResponse,
+	type FindSearchResult,
 	GREP_CURSOR_PREFIX,
 	type GrepCursor,
 	type GrepMatch,
@@ -441,6 +444,29 @@ export class FffRuntime {
 		);
 	}
 
+	async findSearch(request: FindSearchRequest): Promise<FindSearchResult> {
+		const finderResult = await this.ensure();
+		if (finderResult.isErr()) return propagateError(finderResult);
+		const search = safeFinderCall("fileSearch", () =>
+			finderResult.value.fileSearch(request.query, {
+				pageIndex: request.pageIndex,
+				pageSize: request.limit,
+			}),
+		);
+		if (search.isErr()) return propagateError(search);
+		const items = search.value.items.map((item, index) =>
+			normalizeCandidate(item, search.value.scores[index]),
+		);
+		const shownSoFar = request.pageIndex * request.limit + items.length;
+		return Result.ok({
+			items,
+			totalMatched: search.value.totalMatched,
+			totalFiles: search.value.totalFiles,
+			pageIndex: request.pageIndex,
+			hasMore: items.length >= request.limit && search.value.totalMatched > shownSoFar,
+		} satisfies FindSearchResponse);
+	}
+
 	async resolvePath(
 		query: string,
 		options?: { limit?: number; allowDirectory?: boolean },
@@ -637,6 +663,7 @@ export class FffRuntime {
 			return safeFinderCall("grep", () =>
 				finder.grep(buildSingleGrepQuery(request.pattern, constraintQuery), {
 					mode: request.mode,
+					smartCase: request.kind === "single" ? request.caseSensitive !== true : true,
 					cursor: engineCursor,
 					beforeContext: request.context,
 					afterContext: request.context > 0 ? request.context : AUTO_EXPAND_AFTER_CONTEXT,

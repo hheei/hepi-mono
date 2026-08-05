@@ -1,108 +1,139 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { createGrepToolDefinition, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
-import {
-	buildGrepDetails,
-	grepNeedsBuiltinFallback,
-	inferFffGrepMode,
-} from "./fff/extension-common.js";
+import { Type } from "typebox";
+import { buildGrepDetails } from "./fff/extension-common.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
+import { buildFffQuery, containsRegexSyntax, supportsFffPath } from "./fff/query.js";
 import { addGrepSummary, normalizeNativeGrepResult } from "./grep-format.js";
 import { renderGrepCall, renderGrepResult } from "./search-renderer.js";
 
 const OWNER = "@hheei/pi-ext-tools";
-const execFileAsync = promisify(execFile);
+const DEFAULT_LIMIT = 20;
 
-async function isGitIgnoredPath(targetPath: string | undefined, cwd: string): Promise<boolean> {
-	if (targetPath === undefined) return false;
-	try {
-		await execFileAsync("git", ["check-ignore", "--no-index", "-q", "--", targetPath], { cwd });
-		return true;
-	} catch {
-		return false;
-	}
+const schema = Type.Object({
+	pattern: Type.String({ description: "Search pattern (literal text or regex)" }),
+	path: Type.Optional(Type.String({ description: "Directory, filename, or glob path constraint" })),
+	exclude: Type.Optional(Type.Union([Type.String(), Type.Array(Type.String())])),
+	caseSensitive: Type.Optional(
+		Type.Boolean({ description: "Force case-sensitive matching. Default uses smart-case." }),
+	),
+	context: Type.Optional(Type.Number({ description: "Context lines before and after each match" })),
+	limit: Type.Optional(Type.Number({ description: "Max matches (default 20)" })),
+	cursor: Type.Optional(Type.String({ description: "Pagination cursor from the previous result" })),
+});
+
+function nativeParams(params: {
+	pattern: string;
+	path?: string;
+	exclude?: string | string[];
+	caseSensitive?: boolean;
+	context?: number;
+	limit?: number;
+	cursor?: string;
+}): {
+	pattern: string;
+	path?: string;
+	glob?: string;
+	ignoreCase?: boolean;
+	literal?: boolean;
+	context?: number;
+	limit?: number;
+} {
+	if (params.exclude !== undefined || params.cursor !== undefined)
+		throw new Error(
+			"FFF is unavailable; Pi native grep cannot preserve exclude or cursor semantics.",
+		);
+	const isRegex = containsRegexSyntax(params.pattern);
+	const smartCase =
+		params.caseSensitive !== true && params.pattern === params.pattern.toLowerCase();
+	return {
+		pattern: params.pattern,
+		...(params.path === undefined
+			? {}
+			: params.path.match(/[*?[{]/)
+				? { glob: params.path }
+				: { path: params.path }),
+		...(smartCase ? { ignoreCase: true } : {}),
+		...(isRegex ? {} : { literal: true }),
+		...(params.context === undefined ? {} : { context: params.context }),
+		...(params.limit === undefined ? {} : { limit: params.limit }),
+	};
 }
 
 export function registerGrepTool(pi: ExtensionAPI, state: FffRuntimeState): void {
-	const template = createGrepToolDefinition(process.cwd());
-	const tool: typeof template = {
-		...template,
+	const tool = {
+		name: "grep",
+		label: "grep",
 		description:
-			"Grep file contents. FFF-backed when the request is compatible; otherwise uses Pi's native ripgrep path. Results are ranked by frecency when FFF is used; matches within a file stay in source order. Default limit 100.",
+			"Grep file contents. Smart-case, auto-detects regex or literal, git-aware. Results are frecency-ranked; matches within a file stay in source order. Default limit 20.",
 		promptSnippet: "Grep contents",
 		promptGuidelines: [
 			"grep: prefer bare identifiers as patterns. Literal queries are most efficient.",
-			"grep: use path or glob to include a scope (for example, 'src/' or '*.ts') and avoid noisy paths.",
-			"grep: use ignoreCase: true only when case-insensitive matching is required; omitted or false preserves exact case.",
-			"grep: after 1-2 greps, read the top match instead of doing more greps.",
+			"grep: use path to include a scope and exclude to remove noise.",
+			"grep: use caseSensitive: true when exact case is required.",
+			"grep: after 1-2 greps, read the top match instead of more greps.",
 		],
-		renderCall: (args, theme, context) => renderGrepCall(args, theme, context),
-		renderResult: (result, options, theme, context) =>
-			renderGrepResult(result, options, theme, context),
-		async execute(id, params, signal, onUpdate, context) {
-			const original = createGrepToolDefinition(context.cwd);
+		parameters: schema,
+		renderCall: renderGrepCall,
+		renderResult: renderGrepResult,
+		async execute(
+			id: string,
+			params: {
+				pattern: string;
+				path?: string;
+				exclude?: string | string[];
+				caseSensitive?: boolean;
+				context?: number;
+				limit?: number;
+				cursor?: string;
+			},
+			signal: AbortSignal | undefined,
+			onUpdate: undefined,
+			context: { cwd: string },
+		) {
+			if (signal?.aborted) throw new Error("Operation aborted");
 			const native = async () =>
-				normalizeNativeGrepResult(await original.execute(id, params, signal, onUpdate, context));
-			const artifacts = state.getArtifacts();
-			if (
-				params.path !== undefined &&
-				artifacts !== undefined &&
-				params.path.startsWith("artifact://")
-			) {
-				const text = artifacts.read(params.path);
-				const pattern = params.literal
-					? params.pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-					: params.pattern;
-				const expression = new RegExp(pattern, params.ignoreCase ? "i" : "");
-				const lines = text
-					.split("\\n")
-					.flatMap((line: string, index: number) =>
-						expression.test(line) ? [`${index + 1}:${line}`] : [],
-					);
-				return {
-					content: [{ type: "text" as const, text: lines.join("\\n") }],
-					details: undefined,
-				};
-			}
+				normalizeNativeGrepResult(
+					await createGrepToolDefinition(context.cwd).execute(
+						id,
+						nativeParams(params),
+						signal,
+						onUpdate,
+						context as never,
+					),
+				);
 			const runtime = state.getRuntime();
-			const ignoredPath = await isGitIgnoredPath(params.path, context.cwd);
 			if (
-				!runtime ||
 				!state.getSettings().grepEnhancement ||
-				ignoredPath ||
-				grepNeedsBuiltinFallback({
-					pattern: params.pattern,
-					...(params.ignoreCase === undefined ? {} : { ignoreCase: params.ignoreCase }),
-				})
+				runtime === undefined ||
+				!supportsFffPath(params.path, context.cwd)
 			)
 				return native();
-			try {
-				const result = await runtime.grepSearch({
-					pattern: params.pattern,
-					mode: inferFffGrepMode(params.literal),
-					...(params.path === undefined ? {} : { pathQuery: params.path }),
-					...(params.glob === undefined ? {} : { glob: params.glob }),
-					...(params.context === undefined ? {} : { context: params.context }),
-					...(params.limit === undefined ? {} : { limit: params.limit }),
-				});
-				if (result.isErr()) return native();
-				const files = new Set(result.value.items.map((item) => item.relativePath));
-				return {
-					content: [
-						{
-							type: "text" as const,
-							text: addGrepSummary(result.value.formatted, {
-								matches: result.value.items.length,
-								files: files.size,
-							}),
-						},
-					],
-					details: buildGrepDetails(result.value),
-				};
-			} catch {
-				return native();
-			}
+			const result = await runtime.grepSearch({
+				pattern: params.pattern,
+				mode: containsRegexSyntax(params.pattern) ? "regex" : "plain",
+				...(params.caseSensitive === undefined ? {} : { caseSensitive: params.caseSensitive }),
+				constraints: buildFffQuery(params.path, "", params.exclude, context.cwd).trim(),
+				context: Math.max(0, params.context ?? 0),
+				limit: Math.max(1, params.limit ?? DEFAULT_LIMIT),
+				...(params.cursor === undefined ? {} : { cursor: params.cursor }),
+				includeCursorHint: true,
+			});
+			if (signal?.aborted) throw new Error("Operation aborted");
+			if (result.isErr()) return native();
+			const files = new Set(result.value.items.map((item) => item.relativePath));
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text: addGrepSummary(result.value.formatted, {
+							matches: result.value.items.length,
+							files: files.size,
+						}),
+					},
+				],
+				details: buildGrepDetails(result.value),
+			};
 		},
 	};
 	registerManagedLoadoutTool(
