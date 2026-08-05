@@ -97,6 +97,10 @@ turn 的 tool output 延迟到下一次 response 才触发恢复。hidden ceilin
 Pi host，store 必须 seal `delivered` 或保留 claim；不得因 post-send SQLite failure 回到
 `pending`，否则会重复提醒。
 
+只有明确的 context/token overflow 才会 arm recovery；network、auth、rate-limit 等 provider
+failure 保持原有失败语义。Historian published 或确认没有可处理窗口时清除 recovery latch，
+保留检测到的较小 context window。Channel-2 还要求可回收 tool token 至少达到 usable range 的三分之一。
+
 ## Status Accounting Migration
 
 状态 panel 的 token 分类、Work tokens 和 cache timing 由 `pi-mctx` 自己生产，

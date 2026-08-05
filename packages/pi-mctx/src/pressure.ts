@@ -7,6 +7,16 @@ export interface MctxPressure {
 
 const FORWARD_PRESSURE_LIMIT_FACTOR = 0.85;
 
+/** Narrow provider-error classification; ordinary transport failures must not trigger drops. */
+export function isMctxOverflow(errorMessage: unknown): boolean {
+	return (
+		typeof errorMessage === "string" &&
+		/(?:context[_ -]?(?:length|window)|maximum context|token limit|too many tokens|prompt(?: is)? too long|input(?: is)? too long).*(?:exceed|too long|maximum|limit)|(?:exceed|too long).*(?:context|token)/iu.test(
+			errorMessage,
+		)
+	);
+}
+
 function finiteUsage(value: unknown): number {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
 }
@@ -64,19 +74,17 @@ export function resolveMctxPressure(
 		}
 	}
 	return validWindow(hostUsage?.tokens)
-		? { inputTokens: hostUsage.tokens, contextWindow }
+		? {
+				inputTokens: Math.ceil(hostUsage.tokens / FORWARD_PRESSURE_LIMIT_FACTOR),
+				contextWindow,
+			}
 		: undefined;
 }
 
 /** Provider errors sometimes disclose the actual accepted context window. */
 export function detectMctxContextWindow(errorMessage: unknown): number | undefined {
 	if (typeof errorMessage !== "string") return undefined;
-	if (
-		!/(context|token).*(limit|length|window|maximum|exceed)|maximum.*(context|token)/iu.test(
-			errorMessage,
-		)
-	)
-		return undefined;
+	if (!isMctxOverflow(errorMessage)) return undefined;
 	const values = errorMessage.matchAll(
 		/(?:limit|window|maximum|max(?:imum)?\s+tokens?)\D{0,24}([\d,]{3,})/giu,
 	);

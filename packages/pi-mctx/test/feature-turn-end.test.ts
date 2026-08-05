@@ -488,7 +488,7 @@ test("logs every historian failure but notifies once until publication rearms it
 	});
 	await feature.start(fixture.context);
 	const highUsage = { tokens: 65_000, contextWindow: 100_000 };
-	const lowUsage = { tokens: 50_000, contextWindow: 100_000 };
+	const lowUsage = { tokens: 45_000, contextWindow: 100_000 };
 	for (let index = 0; index < outcomes.length; index++) {
 		feature.onTurnEnd(turnContext(highUsage));
 		await new Promise<void>((resolve) => setTimeout(resolve, 0));

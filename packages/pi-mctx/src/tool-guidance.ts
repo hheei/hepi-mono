@@ -15,6 +15,8 @@ export interface MctxNudgeBaseline {
 	readonly contextWindow: number;
 	readonly executeThresholdPercentage: number;
 	readonly reclaimableTags: readonly number[];
+	readonly reclaimableTokens: number;
+	readonly usableTokens: number;
 	turnToolTokens: number;
 	lastLevel: 0 | 1 | 2;
 	reduced: boolean;
