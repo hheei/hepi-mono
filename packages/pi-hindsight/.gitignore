@@ -1,0 +1,22 @@
+node_modules/
+.DS_Store
+.agents/skills/
+skills-lock.json
+.pi/hindsight/retain-queue.jsonl
+.pi/hindsight/retain-queue.jsonl.*
+.pi/hindsight/import-manifest.json
+.pi/hindsight/import-checkpoint.json
+.pi/hindsight/retain-cursors.json
+.pi/hindsight/session-meta/
+.pi/hindsight/last-recall.json
+coverage/
+dist/
+tmp/
+.env
+.env.*
+/.pi
+
+# Astro generated docs artifacts
+.astro/
+docs-site/dist/
+.gitnexus
