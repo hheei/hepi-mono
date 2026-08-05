@@ -59,8 +59,8 @@ describe("memory operations", () => {
 	it("configures global scope without writing project config", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "pi-hindsight-ops-project-"));
 		const home = mkdtempSync(join(tmpdir(), "pi-hindsight-ops-home-"));
-		const oldHome = process.env.HOME;
-		process.env.HOME = home;
+		const oldAgentDir = process.env.PI_CODING_AGENT_DIR;
+		process.env.PI_CODING_AGENT_DIR = home;
 		try {
 			const operations = createMemoryOperations({
 				getClient: () => client(),
@@ -70,12 +70,13 @@ describe("memory operations", () => {
 
 			await operations.configure(cwd, { scope: "global", baseUrl: "http://global" });
 
-			const written = JSON.parse(
-				readFileSync(join(home, ".pi", "agent", "settings.json"), "utf8"),
-			) as { "pi-hindsight": { hindsight: { baseUrl: string } } };
+			const written = JSON.parse(readFileSync(join(home, "settings.json"), "utf8")) as {
+				"pi-hindsight": { hindsight: { baseUrl: string } };
+			};
 			expect(written["pi-hindsight"].hindsight.baseUrl).toBe("http://global");
 		} finally {
-			process.env.HOME = oldHome;
+			if (oldAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+			else process.env.PI_CODING_AGENT_DIR = oldAgentDir;
 		}
 	});
 

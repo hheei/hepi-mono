@@ -25,15 +25,17 @@ export default function hindsightExtension(pi: ExtensionAPI): void {
 				lifecycle.shutdown(context.extension),
 			);
 			context.resources.add("hindsight-settings", registerHindsightSettings(pi));
-			await lifecycle.initialize(context.extension);
+			await lifecycle.initialize(context.extension, context.signal);
 		},
 	});
 
 	// Pi retains raw handlers across reload. The session signal makes older module instances inert.
-	pi.on("context", async (event, ctx) => (active() ? lifecycle.recall(event, ctx) : undefined));
+	pi.on("context", async (event, ctx) =>
+		active() ? lifecycle.recall(event, ctx, lifecycleSignal) : undefined,
+	);
 
 	pi.on("agent_end", async (event, ctx) => {
 		if (!active()) return;
-		await lifecycle.retain(event, ctx);
+		await lifecycle.retain(event, ctx, lifecycleSignal);
 	});
 }
