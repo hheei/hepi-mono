@@ -236,8 +236,42 @@
         "@earendil-works/pi-tui": ">=0.83.0",
       },
     },
+    "packages/pi-rtk": {
+      "name": "@hheei/pi-rtk",
+      "version": "0.0.0",
+      "dependencies": {
+        "@hheei/pi-ext-core": "workspace:*",
+      },
+      "devDependencies": {
+        "@earendil-works/pi-coding-agent": ">=0.83.0",
+        "@types/bun": "latest",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-agent-core": ">=0.83.0",
+        "@earendil-works/pi-ai": ">=0.83.0",
+        "@earendil-works/pi-coding-agent": ">=0.83.0",
+        "@earendil-works/pi-tui": ">=0.83.0",
+      },
+    },
     "packages/pi-settings": {
       "name": "@hheei/pi-settings",
+      "version": "0.0.0",
+      "dependencies": {
+        "@hheei/pi-ext-core": "workspace:*",
+      },
+      "devDependencies": {
+        "@earendil-works/pi-coding-agent": ">=0.83.0",
+        "@types/bun": "latest",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-agent-core": ">=0.83.0",
+        "@earendil-works/pi-ai": ">=0.83.0",
+        "@earendil-works/pi-coding-agent": ">=0.83.0",
+        "@earendil-works/pi-tui": ">=0.83.0",
+      },
+    },
+    "packages/pi-status": {
+      "name": "@hheei/pi-status",
       "version": "0.0.0",
       "dependencies": {
         "@hheei/pi-ext-core": "workspace:*",
@@ -455,7 +489,11 @@
 
     "@hheei/pi-ponytail": ["@hheei/pi-ponytail@workspace:packages/pi-ponytail"],
 
+    "@hheei/pi-rtk": ["@hheei/pi-rtk@workspace:packages/pi-rtk"],
+
     "@hheei/pi-settings": ["@hheei/pi-settings@workspace:packages/pi-settings"],
+
+    "@hheei/pi-status": ["@hheei/pi-status@workspace:packages/pi-status"],
 
     "@hheei/pi-subagents": ["@hheei/pi-subagents@workspace:packages/pi-subagents"],
 

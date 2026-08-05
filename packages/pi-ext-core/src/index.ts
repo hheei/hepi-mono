@@ -103,6 +103,8 @@ export type {
 	ParentContextProjectionUnavailable,
 } from "./parent-context-projection.js";
 export { PARENT_CONTEXT_PROJECTION_SERVICE } from "./parent-context-projection.js";
+export type { ResponseStatusFeature } from "./response-status.js";
+export { createResponseStatusFeature } from "./response-status.js";
 export type { ServiceKey, WaitForServiceOptions } from "./service.js";
 export { createServiceKey, getService, provideService, waitForService } from "./service.js";
 export type {
