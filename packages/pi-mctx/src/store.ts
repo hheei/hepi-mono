@@ -351,6 +351,8 @@ export interface MctxHistoryTagInput {
 export interface MctxHistoryTag extends MctxHistoryTagInput {
 	readonly tagNumber: number;
 	readonly status: MctxHistoryTagStatus;
+	/** Persisted caveman tier; absent only in pre-v14 in-memory fixtures. */
+	readonly cavemanDepth?: number;
 }
 
 /** A verified cleanup replacement for one active message tag. */
@@ -1647,7 +1649,12 @@ function historyTagFromRow(value: unknown): MctxHistoryTag {
 		typeof value.source !== "string" ||
 		typeof value.tag_number !== "number" ||
 		!Number.isSafeInteger(value.tag_number) ||
-		value.tag_number <= 0
+		value.tag_number <= 0 ||
+		(value.caveman_depth !== undefined &&
+			(typeof value.caveman_depth !== "number" ||
+				!Number.isSafeInteger(value.caveman_depth) ||
+				value.caveman_depth < 0 ||
+				value.caveman_depth > 3))
 	) {
 		throw new Error("Context store history tag row is invalid");
 	}
@@ -1658,6 +1665,7 @@ function historyTagFromRow(value: unknown): MctxHistoryTag {
 		source: value.source,
 		tagNumber: value.tag_number,
 		status: value.status,
+		...(typeof value.caveman_depth === "number" ? { cavemanDepth: value.caveman_depth } : {}),
 	};
 }
 
@@ -1751,7 +1759,7 @@ function syncHistoryTags(
 			historyTagFromRow(
 				database
 					.prepare(
-						"SELECT tag_number, kind, entry_id, tool_call_id, source, status FROM history_tags WHERE project_identity = ? AND session_id = ? AND entry_id = ? AND kind = ? AND tool_call_id IS ?",
+						"SELECT tag_number, kind, entry_id, tool_call_id, source, status, caveman_depth FROM history_tags WHERE project_identity = ? AND session_id = ? AND entry_id = ? AND kind = ? AND tool_call_id IS ?",
 					)
 					.get(
 						partition.projectIdentity,
@@ -2401,13 +2409,13 @@ function listRetainedHistoryTags(
 	if (input.sessionId !== undefined)
 		return database
 			.prepare(
-				"SELECT project_identity, session_id, tag_number, kind, entry_id, tool_call_id, source, status FROM history_tags WHERE project_identity = ? AND session_id = ? ORDER BY tag_number ASC LIMIT ? OFFSET ?",
+				"SELECT project_identity, session_id, tag_number, kind, entry_id, tool_call_id, source, status, caveman_depth FROM history_tags WHERE project_identity = ? AND session_id = ? ORDER BY tag_number ASC LIMIT ? OFFSET ?",
 			)
 			.all(input.projectIdentity, input.sessionId, input.limit, offset)
 			.map(retainedHistoryTagFromRow);
 	return database
 		.prepare(
-			"SELECT project_identity, session_id, tag_number, kind, entry_id, tool_call_id, source, status FROM history_tags WHERE project_identity = ? AND session_id <> ? ORDER BY session_id ASC, tag_number ASC LIMIT ? OFFSET ?",
+			"SELECT project_identity, session_id, tag_number, kind, entry_id, tool_call_id, source, status, caveman_depth FROM history_tags WHERE project_identity = ? AND session_id <> ? ORDER BY session_id ASC, tag_number ASC LIMIT ? OFFSET ?",
 		)
 		.all(input.projectIdentity, input.activeSessionId, input.limit, offset)
 		.map(retainedHistoryTagFromRow);
