@@ -49,6 +49,7 @@ function renderFffGrepText(text: string, theme: Theme): string {
 		.filter((line) => !FIND_CURSOR.test(line))
 		.map((line) => {
 			if (line.trim() === "" || line.startsWith("!")) return line;
+			if (FIND_DIRECTORY_HEADER.test(line)) return theme.fg("mdCode", line);
 			if (/^\s*\d+[:|│]/.test(line)) {
 				const match = line.match(/^(\s*\d+)([:|│])(.*)$/);
 				return match
