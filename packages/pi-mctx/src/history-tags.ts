@@ -1,6 +1,7 @@
+import { isDeepStrictEqual } from "node:util";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ImageContent, TextContent } from "@earendil-works/pi-ai";
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { type SessionEntry, sessionEntryToContextMessages } from "@earendil-works/pi-coding-agent";
 import type { MctxHistoryTag, MctxHistoryTagInput } from "./store.js";
 
 export const MAX_CTX_EXPAND_CHARS = 30_000;
@@ -218,7 +219,37 @@ function taggedAssistantContent(
 	};
 }
 
-/** Applies tags only to exact live message identities supplied by Pi's active branch. */
+function uniqueMessageIndex(
+	messages: readonly AgentMessage[],
+	expected: AgentMessage,
+): number | undefined {
+	let index: number | undefined;
+	for (const [candidateIndex, candidate] of messages.entries()) {
+		if (!isDeepStrictEqual(candidate, expected)) continue;
+		if (index !== undefined) return undefined;
+		index = candidateIndex;
+	}
+	return index;
+}
+
+function contextIndexesByEntryId(
+	messages: readonly AgentMessage[],
+	entries: readonly SessionEntry[],
+): ReadonlyMap<string, number> {
+	const indexes = new Map<string, number>();
+	for (const entry of entries) {
+		if (entry.type !== "message") continue;
+		const projected = sessionEntryToContextMessages(entry);
+		if (projected.length !== 1) continue;
+		const expected = projected[0];
+		if (expected === undefined) continue;
+		const index = uniqueMessageIndex(messages, expected);
+		if (index !== undefined) indexes.set(entry.id, index);
+	}
+	return indexes;
+}
+
+/** Applies tags only when a cloned Pi context message has one unambiguous branch origin. */
 export function projectMctxHistoryTags(
 	messages: readonly AgentMessage[],
 	entries: readonly SessionEntry[],
@@ -228,6 +259,7 @@ export function projectMctxHistoryTags(
 	for (const tag of tags) {
 		byIdentity.set(`${tag.kind}:${tag.entryId}:${tag.toolCallId ?? ""}`, tag);
 	}
+	const contextIndexes = contextIndexesByEntryId(messages, entries);
 	const result: AgentMessage[] = [];
 	const dropped: number[] = [];
 	const toolOwners = new Map<string, string>();
@@ -247,9 +279,9 @@ export function projectMctxHistoryTags(
 				: byIdentity.get(
 						`${message.role === "user" && typeof message.content !== "string" && !message.content.some((part) => part.type === "text") ? "reference" : "message"}:${entry.id}:`,
 					);
-		if (tag === undefined || !messages.includes(message)) continue;
-		const index = messages.indexOf(message);
-		if (index < 0) continue;
+		if (tag === undefined) continue;
+		const index = contextIndexes.get(entry.id);
+		if (index === undefined) continue;
 		if (message.role === "assistant") {
 			const projected = taggedAssistantContent(message.content, tag);
 			result[index] = { ...message, content: projected.content };
