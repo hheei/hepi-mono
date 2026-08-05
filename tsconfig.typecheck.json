@@ -1,0 +1,9 @@
+{
+	"extends": "./tsconfig.base.json",
+	"compilerOptions": {
+		"paths": {
+			"@hheei/pi-ext-core": ["packages/pi-ext-core/src/index.ts"],
+			"@hheei/pi-ext-core/testing": ["packages/pi-ext-core/src/testing.ts"]
+		}
+	}
+}

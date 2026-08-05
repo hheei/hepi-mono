@@ -1,27 +1,35 @@
 # Documentation
 
-This directory contains current user and developer documentation, architecture notes, research, and historical plans. Package-specific behavior remains in each package README so it ships with the package.
+This directory records high-level information for users and developers. Detailed implementation and TypeScript API usage belong in concise comments beside the relevant code.
 
 ## User Guides
 
 - [Getting started](user/getting-started.md): install packages, run a local checkout, and preserve load order.
 - [Package catalogue](user/packages.md): current HEPI packages and prerequisites.
-- Package READMEs under `packages/*/README.md`: commands, tools, settings, persistence, requirements, and incompatibilities.
+- Package READMEs under `packages/*/README.md`: installation and compatibility by package.
 
 ## Development
 
-- [Extension development](development/extension-development.md): package conventions and repository workflow.
-- [Pi Basics development](development/pi-basics.md): architecture, public integration APIs, tests, and contribution rules.
-- [HEPI TUI design](../DESIGN.md): normative TUI design language.
+- [Extension development](development/extension-development.md): feature workflow, package conventions, and focused verification.
+- [Isolated Pi development](development/pi-dev.md): run the local Pi host with only this repository's independent packages.
+- [Pi Basics development](development/pi-basics.md): foundation boundaries and integration contracts.
+- [pi-ext-core development](development/pi-ext-core.md): core and consumer-specific development rules.
+- [HEPI TUI design](../DESIGN.md): required specification for UI and UX work.
 - [Pi source design](../.pi/skills/pi-development/references/DESIGN.md): Pi source-code design taste and integration guidance.
 
 ## Architecture
 
-- [Pi upstream architecture](architecture/pi-upstream.md): upstream layering and corresponding HEPI boundaries.
+- [Extension reference architecture](architecture/extension-reference.md): target package layout, public API, lifecycle, concurrency, and test boundaries.
+- [Native bridge architecture](architecture/pi-ext-bridge.md): N-API shell boundary, vendored Brush/uutils ownership, and cancellation contract.
+- [Loadout architecture](architecture/loadout.md): planned tool registration, activation policy, Settings host, and Extension page router boundaries.
+- [Subagent execution architecture](architecture/subagents.md): planned completion, task, conversation, delivery, and concurrency boundaries.
+- [pi-mctx](mctx/README.md): planned parent-session context-management package and child inheritance boundary.
+- [pi-t2s](t2s/README.md): Traditional-to-Simplified input conversion, settings migration, and lifecycle boundary.
 
 ## Research
 
 - [Advisor research](research/advisor.md): advisor design comparison and original feature boundary.
+- [Pi upstream research](research/pi-upstream.md): upstream extension layering and the historical aggregate proposal.
 - [Original Pi theme analysis](research/pi-original-theme.md): research used to derive the HEPI TUI design.
 - [BTW implementation research](research/btw/implementation-research.md): comparison of four public BTW implementations.
 - [BTW reuse inventory](research/btw/reuse-inventory.md): code reuse decisions made before implementation.
@@ -36,8 +44,8 @@ Research records evidence and prior reasoning. It does not override current code
 
 When documents disagree, use this order:
 
-1. Public behavior covered by source code and tests.
-2. Package README usage and compatibility notes.
-3. `DESIGN.md` for HEPI TUI policy and the `pi-development` skill's `references/DESIGN.md` for Pi source design guidance.
+1. Source code, its comments, and focused tests.
+2. `DESIGN.md` for HEPI UI and UX policy, and the `pi-development` skill's `references/DESIGN.md` for Pi source design guidance.
+3. Package README installation and compatibility notes.
 4. Current development and architecture guides.
 5. Research and completed plans.

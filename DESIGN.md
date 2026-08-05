@@ -1,405 +1,300 @@
----
-version: "alpha"
-name: "Pi Basics Terminal UI"
-description: "A restrained, semantic terminal design system derived from the original pi interactive UI."
-colors:
-  primary: "#8ABEB7"
-  text: "#D4D4D4"
-  accent: "#8ABEB7"
-  border: "#5F87FF"
-  border-accent: "#00D7FF"
-  border-muted: "#505050"
-  muted: "#808080"
-  dim: "#666666"
-  success: "#B5BD68"
-  warning: "#FFFF00"
-  error: "#CC6666"
-  selected-background: "#3A3A4A"
-  user-message-background: "#343541"
-  custom-message-background: "#2D2838"
-  tool-pending-background: "#282832"
-  tool-success-background: "#283228"
-  tool-error-background: "#3C2828"
-  code: "#00D7FF"
-  code-block: "#B5BD68"
-  heading: "#F0C674"
-  link: "#81A2BE"
-  quote: "#808080"
-  diff-added: "#B5BD68"
-  diff-removed: "#CC6666"
-  bash-mode: "#B5BD68"
-  thinking-off: "#505050"
-  thinking-minimal: "#6E6E6E"
-  thinking-low: "#5F87AF"
-  thinking-medium: "#81A2BE"
-  thinking-high: "#B294BB"
-  thinking-xhigh: "#D183E8"
-  thinking-max: "#FF5FFF"
-typography:
-  body:
-    fontFamily: "terminal-default"
-    fontSize: 1rem
-    fontWeight: 400
-  heading:
-    fontFamily: "terminal-default"
-    fontSize: 1rem
-    fontWeight: 700
-  label:
-    fontFamily: "terminal-default"
-    fontSize: 1rem
-    fontWeight: 700
-  thinking:
-    fontFamily: "terminal-default"
-    fontSize: 1rem
-    fontWeight: 400
-    fontStyle: italic
-  hint:
-    fontFamily: "terminal-default"
-    fontSize: 1rem
-    fontWeight: 400
-rounded:
-  none: 0px
-spacing:
-  none: 0
-  xs: 1
-  sm: 1
-  md: 2
-  lg: 2
-components:
-  user-message:
-    backgroundColor: "{colors.user-message-background}"
-    textColor: "{colors.text}"
-    rounded: "{rounded.none}"
-    padding: 1
-  assistant-message:
-    textColor: "{colors.text}"
-    rounded: "{rounded.none}"
-    padding: 1
-  thinking-block:
-    textColor: "{colors.muted}"
-    typography: "{typography.thinking}"
-    rounded: "{rounded.none}"
-    padding: 1
-  tool-pending:
-    backgroundColor: "{colors.tool-pending-background}"
-    textColor: "{colors.text}"
-    rounded: "{rounded.none}"
-    padding: 1
-  tool-success:
-    backgroundColor: "{colors.tool-success-background}"
-    textColor: "{colors.text}"
-    rounded: "{rounded.none}"
-    padding: 1
-  tool-error:
-    backgroundColor: "{colors.tool-error-background}"
-    textColor: "{colors.text}"
-    rounded: "{rounded.none}"
-    padding: 1
-  selector:
-    backgroundColor: "transparent"
-    textColor: "{colors.text}"
-    rounded: "{rounded.none}"
-    padding: 1
-  selector-selected:
-    textColor: "{colors.accent}"
-    rounded: "{rounded.none}"
-    padding: 0
-  selector-description:
-    textColor: "{colors.muted}"
-    rounded: "{rounded.none}"
-    padding: 0
-  settings-selected:
-    textColor: "{colors.accent}"
-    rounded: "{rounded.none}"
-    padding: 0
-  settings-description:
-    textColor: "{colors.dim}"
-    rounded: "{rounded.none}"
-    padding: 0
-  editor:
-    textColor: "{colors.text}"
-    rounded: "{rounded.none}"
-    padding: 1
-  editor-thinking-off:
-    textColor: "{colors.thinking-off}"
-    rounded: "{rounded.none}"
-    padding: 1
-  editor-bash-mode:
-    textColor: "{colors.bash-mode}"
-    rounded: "{rounded.none}"
-    padding: 1
-  footer:
-    textColor: "{colors.dim}"
-    rounded: "{rounded.none}"
-    padding: 0
-  status-success:
-    textColor: "{colors.success}"
-  status-warning:
-    textColor: "{colors.warning}"
-  status-error:
-    textColor: "{colors.error}"
-  structural-border:
-    textColor: "{colors.border}"
-    rounded: "{rounded.none}"
-    padding: 0
-  structural-border-accent:
-    textColor: "{colors.border-accent}"
-    rounded: "{rounded.none}"
-    padding: 0
-  structural-border-muted:
-    textColor: "{colors.border-muted}"
-    rounded: "{rounded.none}"
-    padding: 0
-  selected-row:
-    backgroundColor: "{colors.selected-background}"
-    textColor: "{colors.accent}"
-    rounded: "{rounded.none}"
-    padding: 0
-  custom-message:
-    backgroundColor: "{colors.custom-message-background}"
-    textColor: "{colors.text}"
-    rounded: "{rounded.none}"
-    padding: 1
-  markdown-code:
-    textColor: "{colors.code}"
-    rounded: "{rounded.none}"
-    padding: 0
-  markdown-code-block:
-    backgroundColor: "transparent"
-    textColor: "{colors.code-block}"
-    rounded: "{rounded.none}"
-    padding: 0
-  markdown-heading:
-    textColor: "{colors.heading}"
-    typography: "{typography.heading}"
-    rounded: "{rounded.none}"
-    padding: 0
-  markdown-link:
-    textColor: "{colors.link}"
-    rounded: "{rounded.none}"
-    padding: 0
-  markdown-quote:
-    textColor: "{colors.quote}"
-    rounded: "{rounded.none}"
-    padding: 0
-  diff-added:
-    textColor: "{colors.diff-added}"
-  diff-removed:
-    textColor: "{colors.diff-removed}"
-  thinking-minimal:
-    textColor: "{colors.thinking-minimal}"
-  thinking-low:
-    textColor: "{colors.thinking-low}"
-  thinking-medium:
-    textColor: "{colors.thinking-medium}"
-  thinking-high:
-    textColor: "{colors.thinking-high}"
-  thinking-xhigh:
-    textColor: "{colors.thinking-xhigh}"
-  thinking-max:
-    textColor: "{colors.thinking-max}"
----
-
-## Overview
-
-Pi Basics is a focused terminal interface for repeated coding work. Its visual language is **semantic, quiet, and state-aware**: the user should be able to scan messages, tools, selectors, and status without decoding a collection of decorative colors.
-
-The system follows the original pi interactive UI. Content remains the dominant layer. Backgrounds identify a small number of meaningful blocks, while accent and status colors communicate focus and state. Structure comes from full-width single-line borders, one-line spacing, and stable terminal-width rendering.
-
-This document is normative for HEPI TUI work. `packages/hepi-basics/src/core/ui/` owns the shared structural primitives; Basics, Tools, Skills, and Mono features reuse their semantic roles and geometry. When an existing component conflicts with it, preserve behavior first and migrate the visual treatment deliberately.
-
-## Colors
-
-The palette is organized by semantic role rather than by feature or module.
-
-- **Text:** `{colors.text}` is the default reading color and the most frequent foreground.
-- **Accent:** `{colors.accent}` is the single interaction color for selection, cursor, focused labels, and important titles.
-- **Muted:** `{colors.muted}` is readable secondary information such as metadata, tool output, descriptions, and thinking content.
-- **Dim:** `{colors.dim}` is low-priority information such as hints, footer data, and non-contextual status.
-- **Border:** `{colors.border}` provides ordinary structural separation.
-- **Border muted:** `{colors.border-muted}` is used for an unfocused editor border or low-emphasis structure.
-- **Success, warning, error:** these colors communicate state only. They are not category colors or decorative accents.
-
-### Backgrounds
-
-Backgrounds are low-contrast surfaces, not generic cards:
-
-- `{colors.user-message-background}` identifies user-authored input.
-- `{colors.custom-message-background}` identifies extension-provided content.
-- `{colors.tool-pending-background}`, `{colors.tool-success-background}`, and `{colors.tool-error-background}` identify tool lifecycle state.
-- `{colors.selected-background}` may identify a selected row when an arrow and accent text are not sufficient.
-
-Do not introduce a new background for a new feature until the feature has been classified as one of these semantic roles.
-
-### Thresholds
-
-Context usage is a progressive warning:
-
-- Below 70%: normal dim footer treatment.
-- Above 70%: `{colors.warning}`.
-- Above 90%: `{colors.error}`.
-
-Empty states are not errors by default. Use muted text unless the empty state represents a failed operation.
-
-## Typography
-
-Terminal typography uses the terminal's default font and does not rely on font substitution or viewport-scaled sizes.
-
-- **Body:** normal weight, `{colors.text}`.
-- **Heading/label:** bold, usually accent only when it represents focus or a component title.
-- **Thinking:** italic and muted; it is supporting process information, not primary content.
-- **Hint:** normal weight and dim; hints should remain discoverable without competing with the active control.
-- **Code:** use the code and syntax roles for readability, not as general UI decoration.
-
-Bold and italic establish hierarchy together with color and whitespace. Do not use large type, all-caps labels, or repeated bold text to compensate for weak layout.
-
-## Layout
-
-The default composition is linear and terminal-native:
-
-1. Optional one-line spacer.
-2. Full-width single-line border when a framed region is needed.
-3. Content with zero or one cell of horizontal padding.
-4. Optional one-line spacer.
-5. Closing border when the region is framed.
-
-Use one-cell horizontal and vertical padding for user messages and tools. Use zero padding for inline assistant content, metadata, and footer content where possible. Use one line of vertical spacing to separate adjacent semantic blocks.
-
-Every rendered line must respect the available terminal width. Wrap prose and truncate metadata or status strings with an ANSI-safe operation. Layout must remain usable on narrow terminals without horizontal overflow.
-
-## Elevation & Depth
-
-This is a flat terminal system. There are no shadows, gradients, floating surfaces, or multi-level elevation scales.
-
-Depth is communicated through:
-
-- a single background surface for a semantic block;
-- a full-width border for structure;
-- whitespace between blocks;
-- muted and dim text for lower information priority.
-
-A component should have at most one background container. Do not place a card inside another card.
-
-## Shapes
-
-The default shape is square: `{rounded.none}`. Do not add rounded corners to terminal panels, selectors, messages, tools, or editor shells.
-
-Use stable dimensions for controls, rows, borders, and tool previews. A change in selection, status, or label length must not cause adjacent controls to jump or resize unexpectedly.
-
-## Components
-
-### Shared TUI primitives
-
-Pi Basics uses pi's semantic and terminal-native foundation, while HEPI owns a small set of shared structural primitives:
-
-- `PanelShell`-style composition keeps tabs, content, errors, hints, and the bottom rule in a predictable order. Individual surfaces may omit parts when their interaction model needs it.
-- `renderDetailPanel` is the shared description/detail panel. It owns the title frame, one-cell inner padding, fixed-height padding, wrapping, and safe clipping. Settings, Loadout, and Plan should not hand-write another Description frame.
-- `createSelectorPanelLayout` is the shared Settings/Loadout outer geometry. A split begins at 75 columns, uses a three-cell gap, keeps the list between 24 and 54 cells, and keeps the detail panel between 32 and 100 cells. In a real terminal its body height is `floor(rows * 0.3) + 1`; standalone renderers may use an explicit fallback height. Below the breakpoint, the detail panel stacks or disappears according to the surface's purpose.
-- `renderSelectableRow` owns the two-cell cursor slot where a surface uses a selection cursor. A selected row begins with `→ ` and an unselected row reserves the same space, so selection never shifts the label or value column. Settings group rows are headers, not selectable field rows, and therefore start at column zero.
-- `keyGlyph` standardizes compact hints as `↕`, `↔`, `↵`, and `⎋`; `␣` and `⇥` are used only when Space or Tab is an actual distinct action. Labels should be short verbs: `navigate`, `switch`, `select`, `save`, `toggle`, `cancel`.
-
-These primitives unify structure, not product identity. Ask can remain a questionnaire with tabs and a sticky footer; Plan can remain a decision surface; Loadout can retain its grouped inventory. They should share framing, spacing, selection slots, responsive behavior, and interaction vocabulary without becoming visually identical.
-
-### User message
-
-Use one background block with `{colors.user-message-background}`, `{colors.text}`, and one-cell padding. Do not add avatars, decorative labels, multiple borders, or a nested card.
-
-### Assistant message
-
-Assistant content is the primary reading flow and normally has no background. Keep markdown on the terminal background, use one-cell output padding where needed, and separate adjacent blocks with whitespace. Errors appear after partial content in `{colors.error}`.
-
-### Thinking block
-
-Thinking is secondary information. Render it in italic and `{colors.muted}`. When collapsed, show one concise label instead of a large placeholder panel.
-
-### Tool execution
-
-Use one padded block whose background changes with lifecycle state: pending, success, or error. Tool titles are bold and may use `{colors.text}` or `{colors.accent}` when focused. Tool output is `{colors.muted}`. Do not create separate colored badges for every tool state.
-
-### Bash execution
-
-Frame shell execution with full-width borders. Use `{colors.bash-mode}` for the command header and spinner while running, and `{colors.muted}` for output. A command excluded from context may use `{colors.dim}` for its border. The command itself remains the primary label, for example `$ command`.
-
-### Selector
-
-Use a simple framed list with a single focus point. The selected row uses an accent arrow (`→ `) and `{colors.accent}` text. Provider names, descriptions, scroll information, and no-match messages use `{colors.muted}`. The current item may use `{colors.success}` with `✓`.
-
-### Settings list
-
-Settings follow this hierarchy:
-
-- selected label and value: accent;
-- normal value: muted;
-- description and hint: dim;
-- cursor: accent `→ `.
-
-The setting name should remain easier to scan than its description. Avoid a different color for every setting type. Group headers start at column zero; field rows retain the cursor and child indentation. The selected, non-editing field key may marquee only when it overflows: wait 750ms at the left edge, advance one terminal cell every 125ms, hold 1500ms at the right edge, then return to the start. Short keys, group rows, other tabs, editing state, and closed components must not schedule marquee rendering.
-
-### Editor
-
-The editor text remains `{colors.text}`. Cursor rendering uses Pi's hardware cursor marker so the cursor sits on the terminal cell boundary without replacing the underlying character. Pi Basics exposes `bar`, `block`, `hollow`, and `underline` shapes plus a blink toggle; the default is a steady block. Shape support follows the active terminal's DECSCUSR implementation, with unsupported hollow cursors falling back to the matching block style. Its border communicates mode:
-
-- `thinking-off` through `thinking-max` indicate reasoning level;
-- `{colors.bash-mode}` indicates shell mode;
-- `{colors.border-muted}` is the ordinary low-emphasis border.
-
-Changing model mode should not recolor the entire screen or the text being edited.
-
-### Editor top rail
-
-The statusbar wraps the first editor line; it is not a global header. Its left side carries model, Advisor indicator, thinking level, and context usage. The Advisor indicator appears immediately after the model: accent for clear, warning for concern, and error for blocker. Keep the left rail complete rather than truncating or compressing it to fit a title.
-
-The right-side slot is reserved for automatic session title state. A completed title uses `{colors.dim}` without a background. During title generation, show `Generating title` without a spinner glyph or background; a gray-to-white, one-sided four-cell shimmer travels left to right in a two-second loop, requesting a frame every 25ms only while generation is active. The entire right-side title state hides when it does not fit. It is never truncated and must not block normal interaction.
-
-### Tail rail and extension status
-
-The tail rail is one fixed row beneath the editor. It always starts with the current working directory in `{colors.dim}`. When extension status exists, append ` · ` followed by the compact status grammar `⛁ connected/total · PLAN · GOAL · other statuses` in registration order. Extension text registered through `ui.setStatus()` belongs here, except Advisor and auto-title state, which belong to the top rail; omit ambient Magic Context telemetry and receiving state. Do not run a receiving spinner or a timer merely to animate extension status.
-
-### Response telemetry
-
-Append one dim output line after every successful assistant response using `↱ input  ↳ output  ⚇ cache-read  ⏱ duration  ⚡ rate/s`. Metrics are per provider response, not aggregated across an agent run. Duration spans `turn_start` through assistant `message_end`, excluding subsequent tool execution. Rate is non-reasoning output divided by that whole-response duration. Telemetry remains transient UI output and must not enter session or LLM context.
-
-### Apply Patch tool call
-
-`apply_patch` uses a compact, semantic tool-call summary instead of a diff card when collapsed. The first line is `apply_patch` in `{colors.accent}`, followed by one blank line. A normal single-file result is one line: action verb in accent, path in dim, additions in success, and removals in error. Multi-file results use an aggregate action line followed by one blank line and one dim-path delta line per target. `Created`, `Deleted`, `Edited`, and `Changed` all use accent.
-
-Failure summaries keep the same hierarchy. The combined `Edit failed` uses error and `Edit partially failed` uses warning; file count remains ordinary text and aggregate deltas remain success/error. A failed target is rendered as a dim path plus error `failed`, without an invented delta. Do not add bullet prefixes.
-
-While model tool-call arguments stream in, show the same semantic action/path/delta format as a preview of the proposed patch. It is not an execution result: it must perform no file I/O, no patch execution, and no disk mutation. Delete previews show no fabricated removed-line count. Once arguments are complete, the normal strict patch parser and final result renderer replace the preview.
-
-### Custom message
-
-Extension content uses one `{colors.custom-message-background}` block, a bold type label using a dedicated label color if available, and normal custom message text. A custom renderer may own its internal styling, but it must still follow the same semantic hierarchy and spacing rules.
-
-## Do's and Don'ts
-
-### Do
-
-- Use semantic tokens instead of hard-coded colors inside components.
-- Reuse `accent`, `muted`, `dim`, `success`, `warning`, and `error` consistently across modules.
-- Use `→ ` plus accent for selection and `✓` plus success for the current value.
-- Reserve backgrounds for user/custom/tool/selection semantics.
+# HEPI Terminal UI Design
+
+## Scope
+
+This is the living UI and UX specification for HEPI terminal surfaces. It
+defines visible hierarchy, layout, interaction, and Pi theme-token usage. It
+does not define feature architecture, persistence, lifecycle, metrics, or other
+non-visual behavior.
+
+Every agreed UI or UX decision that changes these rules updates this document in
+the same commit. Implementations must use the active Pi theme through its token
+names; never introduce hard-coded color values.
+
+## Visual Language
+
+HEPI is quiet, semantic, and terminal-native. Reading content is dominant.
+Color, backgrounds, borders, and whitespace communicate state and hierarchy;
+they are never decoration.
+
+Use Pi theme tokens by their actual names:
+
+| Role | Pi theme token |
+| --- | --- |
+| Primary reading text | `text` |
+| Focus and selection | `accent` |
+| Secondary and tertiary text | `muted`, `dim` |
+| Status | `success`, `warning`, `error` |
+| Structure | `border`, `borderAccent`, `borderMuted` |
+| Thinking | `thinkingText` |
+| Selection background | `selectedBg` |
+| User message | `userMessageBg`, `userMessageText` |
+| Extension message | `customMessageBg`, `customMessageText`, `customMessageLabel` |
+| Tool states | `toolPendingBg`, `toolSuccessBg`, `toolErrorBg`, `toolTitle`, `toolOutput` |
+| Markdown | `mdHeading`, `mdLink`, `mdLinkUrl`, `mdCode`, `mdCodeBlock`, `mdCodeBlockBorder`, `mdQuote`, `mdQuoteBorder`, `mdHr`, `mdListBullet` |
+| Diffs | `toolDiffAdded`, `toolDiffRemoved`, `toolDiffContext` |
+| Editor mode | `thinkingOff` through `thinkingMax`, `bashMode` |
+
+Use `accent` for the single active focus point. Use status tokens only for
+status. Do not give modules their own accent colors or add a token when an
+existing semantic token expresses the role.
+
+## Typography And Layout
+
+- Use the terminal default font and normal terminal cell size.
+- Use bold for labels and headings; use italic `thinkingText` for thinking.
 - Keep assistant prose on the terminal background.
-- Use borders and whitespace as the primary layout structure.
-- Make every component wrap, truncate, and render safely at the available width.
-- Rebuild theme-dependent content when the theme changes or the component invalidates.
-- Add a new token only when an existing semantic role cannot express the behavior clearly.
+- Use one terminal cell of padding inside user messages and tools. Inline
+  content, metadata, and footer content normally use zero padding.
+- Use one blank line between adjacent semantic blocks when separation is needed.
+- Use full-width single-line borders for framed regions. A surface may explicitly
+  choose a rounded, square, or absent outer frame; frame shape is independent
+  from whether the surface has a background. Do not use shadows, gradients, or
+  nested cards.
+- Every rendered line must fit the available width. Wrap prose; ANSI-safely
+  truncate metadata and status text.
+- Keep control and row dimensions stable. Selection, status, and label changes
+  must not shift adjacent content.
 
-### Don't
+## Shared Interaction
 
-- Do not use a different accent color for each module.
-- Do not use success, warning, or error as decorative category colors.
-- Do not turn every message, selector, or status line into a card.
-- Do not nest cards or add shadows, gradients, rounded panels, or floating dashboards.
-- Do not use color as the only selection signal.
-- Do not color ordinary empty states as errors.
-- Do not recolor editor text when only the editor mode changed.
-- Do not bake stale ANSI styles into cached components.
-- Do not let long labels or terminal resizing break line width constraints.
-- Do not create a second Description panel, split breakpoint, selection slot, or interaction glyph vocabulary in a feature module.
+- Reuse shared core UI primitives for panels, split layouts, selectable rows,
+  key hints, wrapping, and clipping when they exist.
+- A selected row begins with `→ ` and unselected rows reserve the same width.
+- Use `↕`, `↔`, `↵`, and `⎋` for compact keyboard hints. Use `␣` or `⇥` only
+  when Space or Tab is a distinct action.
+- Shortcuts that are not self-evident remain visible near their control.
+- Empty states use `muted` or `dim` unless they represent a failed operation.
 
-## Implementation Notes
+## Surfaces
 
-The original pi theme exposes more detailed tokens than this document's compact design token set, including Markdown, syntax, diff, thinking-level, and tool-specific roles. Map those detailed roles to the semantic groups above rather than creating ad hoc project colors.
+### Messages And Tools
 
-When implementing a component, classify it first as a message, tool, selector, editor, footer, or status element. Then select its foreground, background, border, typography, and spacing from this document. A component should not invent a second visual language because it belongs to a different module.
+- User messages use one `userMessageBg` block with `userMessageText` and
+  one-cell padding. Do not add avatars, nested cards, or decorative labels.
+- Assistant messages normally have no background. Separate content blocks with
+  whitespace; show errors with `error` after available partial content.
+- Thinking uses italic `thinkingText`. A collapsed state is one concise label,
+  not a large placeholder panel.
+- Tool execution uses one padded block with `toolPendingBg`, `toolSuccessBg`,
+  or `toolErrorBg`. Use `toolTitle` for its title and `toolOutput` for output.
+- Every active `pi-mctx` tool result begins with the literal `[magic context]`.
+  The operation-specific result follows immediately. Only `ctx_reduce` adds its
+  `pending:` and `rejected:` queue summary; `ctx_expand` and `ctx_history` do
+  not display unrelated tag state. This is plain tool output, not a custom
+  message; errors retain the same header.
+- Shell execution uses a full-width frame. Its command header uses `bashMode`;
+  output uses `muted`.
+- Extension messages use one `customMessageBg` block with
+  `customMessageLabel` and `customMessageText`.
+
+### Selectors And Settings
+
+- A selector has one focus point. Selected text uses `accent`; the current
+  value may use `success` with `✓`.
+- Descriptions, provider names, scroll information, and no-match messages use
+  `muted` or `dim`.
+- Settings use `accent` for the selected label and value, `muted` for normal
+  values, and `dim` for descriptions and hints.
+- Group headers start at column zero. Field rows retain the selection slot and
+  child indentation.
+- Long selected setting keys may marquee only while non-editing and selected;
+  all other content remains static.
+- `pi-settings` owns the generic Settings page and exposes `pi-loadout` as a router page. Settings
+  owns generic field rendering and editing; `pi-loadout` owns activation policy and state; the core
+  Extension page router owns only tab navigation and shared page framing.
+- An Extension page router uses `←`/`→` to switch tabs only after the active page does not handle
+  the key; `Esc` closes the router. Show the compact `↔` hint near the tabs. Do not add a separate
+  tab-strip focus region.
+- The Settings host hides core-managed editor-adjacent widgets for the lifetime of its custom
+  surface, then restores them when it closes. This applies only to widgets registered through the
+  core contract; do not claim control over unknown direct Pi widgets.
+- Loadout uses one unframed selector page: Tools and Skills share its grouped resource list; the
+  selected resource has one Description block, rather than inline descriptions on every row. A wide
+  layout is list, conditional scrollbar, then Description; a narrow layout stacks list then
+  Description. Within each resource kind, Built-in resources come first; registered resources then
+  sort by display group and name.
+- Loadout status is textual and glyph-backed, and shows the raw selection, not just the effective
+  state: `●` is explicitly enabled, `○` is explicitly disabled, `◌` is inherited (no local decision;
+  the effective state follows the default or the other scope), and `⊘` is conflict-locked/inactive.
+  The Description block's Status line mirrors the row glyph with a text label. The selected row
+  retains the standard `→` slot. Display group is secondary metadata; the Description block shows
+  name and kind first, then the wrapped resource description (like any tool row), origin, status,
+  and — for an open detail — a read-only `Path:` line. It adds a lock winner only for a
+  conflict-locked resource.
+- A capability-owned forced-active Tool appears only while its owner publishes it to Loadout. Its row uses
+  `●` and its Description status reads `● Forced active`; it is read-only in both scopes, so `Space` makes
+  no change and no persisted Loadout override is written. `pi-mctx` uses this for its active-runtime
+  `ctx_reduce`, `ctx_expand`, and `ctx_history` tools.
+- Loadout uses `Ctrl+P` to switch Global and Project scope, `Space` to cycle only the selected
+  resource's reachable scope choices, and direct text input to filter resource name and display
+  group. Global and Project-private rows remain binary; only global-visible Project rows include
+  `inherit`. `Esc` clears a filter before closing. Do not overload `←` or `→`, which remain router
+  navigation.
+- A resource detail (nested settings surface) may reuse the Settings model cycler: `Enter` opens a
+  single selector on the field, `↑`/`↓` wrap through that field's options modulo the list (same as
+  the Settings enum editor), `Tab`/`Shift+Tab` cycle the related `tabCycle` field's value forward
+  and backward in place (no second focus), `Enter` applies both and saves, `Esc` cancels. The
+  detail keeps a fixed row count while selecting: the field row shows the current option in place
+  and no option list is expanded. While a detail is open, `Esc` is offered to the detail first; the
+  detail only exits to the list when the detail declines it.
+- A detail form renders like the Settings field list: one aligned label/value pair per row, the
+  focused row in accent (with the standard `→` slot), and no key-hint row (its navigation matches
+  the list, so the hint would be noise). Pure informational rows are not focusable. In an agent
+  detail, fields appear in `Identity`, `Model`, `Description`, `Body` order. `Description` and
+  `Body` are external-editor actions: each value is exactly `edit ↵`, with one space before `↵`;
+  `Enter` opens Pi's native editor with the current field value.
+- Agent model rows keep the compact thinking glyph while unfocused. Focusing `Model` expands a
+  pinned level in place as `<model> • <level>` so keyboard cycling is legible. A contributor detail's
+  buffered model summary is authoritative for its Loadout list row, so returning from the detail
+  reflects confirmed model/thinking picks before the deferred file flush.
+- Mouse-wheel navigation remains owned by the Loadout resource list while a detail is open; it
+  changes the left-list selection without being interpreted as a detail-field movement.
+- A contributor detail buffers edits until the Loadout page closes: nothing is written while the
+  panel is open, and `close()` flushes every registered detail (not just the currently open one),
+  each scope writing all its dirty snapshots before one catalog reload. The Description and Body
+  actions delegate editing to the Pi host: every command that opens the shared router mounts it as
+  an overlay; ext-core temporarily hides it while `ui.editor()` owns focus, then shows and refocuses
+  the same overlay without closing or rebuilding its page state. Editor cancel leaves the draft
+  unchanged; session abort or surface close never refocuses a disposed overlay. A per-scope target
+  lets the same contributor serve Global and Project scope. A backingless built-in materializes in
+  the selected scope: Global writes the Pi agent directory, while Project writes `.pi/agents/`;
+  Project edits never rewrite the global backing. The `Status:` header line is followed by a read-only `Path:` line showing the current
+  scope's target, truncated from the head at directory boundaries (one leading `…`, then whole
+  segments only) so the file name and the longest complete suffix survive narrow widths.
+- A detail form keeps the resource description visible: it wraps after the title at full length
+  while browsing, and is clamped to three lines only while the detail is actually open so the
+  form below keeps its rows. There is no `↵ Edit config` footer hint — row activation is already
+  visible from the glyph and the `↵` slot on detail-bearing rows.
+- A resource detail is reachable only while its row is explicitly `enabled`: inherited and
+  disabled rows show no `↵` slot and `Enter` does not open the detail. Row activation
+  (inherit/enabled/disabled) stays under the Loadout policy key (`agent:<name>` for agents), never
+  in the contributor's own file format, so a contributor-owned editor cannot silently toggle what
+  the policy owns. The focused row is always accent; a read-only row is only dimmed while
+  unfocused.
+- Settings uses the legacy combined provider tree, not one page per provider. Its wide layout is
+  grouped field list, conditional scrollbar, then one unframed field Description block; narrow
+  layout stacks those regions. Field label/value columns remain stable, disabled fields use `dim`,
+  and only a selected non-editing long label may marquee. `Space` toggles booleans; Pi Input edits
+  other fields; `Tab` only cycles a field's related `tabCycle` value.
+- `pi-mctx` contributes Magic Context runtime, Smart drops, and Historian controls to the combined Settings
+  tree, not a separate page or Loadout resource. Smart drops sits below the runtime control and is dimmed
+  and locked while runtime is disabled; it defaults to disabled and controls only automatic reclaim of old
+  tool results. Disabling runtime dims and locks the Historian controls; disabling Historian dims and locks
+  its model row. Persisted changes apply on the next Pi reload or session rather than replacing a running
+  runtime or historian.
+- Settings and Loadout each reserve at least 20 page-content rows below the shared router tab strip.
+  Their lists may remain shorter than that minimum; router-owned blank rows retain a stable custom
+  surface height instead of inventing empty list entries.
+- Settings and Loadout render exactly 20 content rows in their wide layouts. Their list metadata
+  occupies the first rows, key hints occupy the last row, and a conditional scrollbar occupies its
+  own vertical column between the list and Description. It is never appended to list values.
+  Selected rows remain near the center of the list viewport until either scroll boundary is reached;
+  Description content clips within the fixed panel instead of changing its height.
+- Settings and Loadout filter inputs retain one trailing cell after their visible query so the cursor
+  does not visually touch the list boundary.
+- Settings label/value columns and Loadout name/group columns size from the complete filtered list,
+  remain stable while scrolling, and align from the left with at least one cell between them. Do not
+  spend surplus list width to right-align a value or group.
+
+### Frames And Backgrounds
+
+- Each TUI component owns its outer frame, optional rectangular background,
+  title, padding, height, scrolling, and ANSI line filling together. Do not
+  extract those details into a shared wrapper without demonstrated common
+  behavior.
+- A background uses an existing Pi semantic token chosen by that component; do
+  not introduce a new theme token. Framed or background-filled surfaces keep
+  their rendered rectangle cell-width stable. A frame is structural, not
+  decorative; absent frame and absent background leave content visually
+  unframed.
+
+### Editor And Status
+
+- Editor text uses `text`. The cursor remains Pi's hardware cursor marker.
+- The editor border uses `thinkingOff` through `thinkingMax` for thinking level,
+  `bashMode` for shell mode, and `borderMuted` otherwise.
+- The top rail wraps the first editor line. Its left side shows model, Advisor,
+  thinking level, and context state; its right side holds session-title state
+  only when it fits without truncation.
+- The tail rail is one fixed row below the editor. It begins with the working
+  directory in `dim`, followed by compact extension status in registration
+  order.
+- Persistent content above and below the editor uses unframed widget bands. A
+  band may split into left and right content, but must reserve the editor's
+  readable height and hide lower-priority complete blocks before clipping a
+  block. Content is status-oriented, uses `text`, `muted`, `dim`, or semantic
+  status tokens, and does not take editor keyboard focus.
+- Todo shows a newly blocked task as temporary retired work: glyph and subject
+  use `dim` and the subject is struck through. After two later assistant turns
+  without a Todo update, it hides the blocked row rather than reserving an
+  editor-adjacent line indefinitely.
+- The top and tail rails share one priority order for width pressure. Keep their
+  rows stable; truncate or hide lower-priority fragments before changing a
+  higher-priority fragment's position.
+- Response telemetry, when present, is one dim output line after an assistant
+  response. It is secondary to the response content.
+
+### Context Status Overlay
+
+- `/mctx status` (and bare `/mctx`) is one centered, single-page read-only overlay, not a page-router
+-  page or a widget. Its outer frame is rounded and uses `borderMuted`; content
+  uses only existing Pi semantic theme tokens, never hard-coded colors or
+  module-specific accents. The frame width is 78 columns when available and is
+  clamped to the terminal at narrower widths.
+- Match the upstream Magic Context Pi dialog's dynamic layout: title, blank
+  separator, `Context  pct · used / limit tokens`, full-width token bar, blank
+  separator, `Counts:`, `Historian:`, blank separator, muted `Tags` section,
+  tag counts, blank separator, muted `Context` section, execute threshold,
+  protected tags, and the footer. `pi-mctx` only renders values present in its
+  snapshot, so upstream memory, notes, upgrade, project, session, partition,
+  and sidekick rows are omitted.
+- The token bar uses the available category segments (`System`, `Docs`,
+  `Compartments`, `Memories`, `User Profile`, `Conversation`, `Tool Calls`, and
+  `Tool Defs`) and the legend follows it on wide layouts. Segment labels use
+  existing Pi theme tokens, not hard-coded RGB. Narrow layouts keep the colored
+  bar and hide the verbose legend to preserve the title and footer. Missing
+  usage keeps the Context row with `?` placeholders and leaves the bar blank;
+  it does not invent zero or legacy metrics.
+- Active, inactive, failed, and stale snapshots keep the upstream title and
+  use a compact `Status:` diagnostic when no active detail exists. Every line
+  fits available width and lower-priority values truncate inside their cells.
+- Footer reads the compact dim key hint `⎋ close`; Enter and Ctrl+C remain
+  accepted by the host component but are not additional panel content. It has
+  no page-router navigation or editing focus.
+- Refresh once per second only after surface admission. Refresh must not cause
+  content to rebuild lifecycle state; changing values stay in their existing
+  row order and truncate within their cells.
+- Validate layout at 48x20 and 100x24. Pi host owns usage/theme/custom UI;
+  ext-core owns `openTuiSurface` admission, FIFO, abort, and cleanup; status
+  rendering consumes the MCTX snapshot and does not define another lifecycle
+  abstraction.
+
+### MCTX Command Suggestions
+
+- MCTX registers one `/mctx` slash command. First-argument autocomplete lists only active lowercase
+  subcommands and gives each item a concise description; parked behavior is neither suggested nor executable.
+- Bare `/mctx` opens the read-only status overlay. `/mctx status` is the explicit equivalent.
+- Unknown subcommands and invalid arguments show canonical syntax without opening a surface or starting work.
+  Deprecated `/ctx-*` aliases are not registered.
+
+### Patch Presentation
+
+- A collapsed `apply_patch` call uses a compact semantic summary, not a diff
+  card.
+- Action labels use `accent`; paths use `dim`; additions use `toolDiffAdded`;
+  removals use `toolDiffRemoved`.
+- Failure labels use `error`; partial failure uses `warning`. Failed paths do
+  not display fabricated line deltas.
+- A streaming patch preview uses the same visual grammar while remaining visibly
+  distinct from a completed result.
+
+## Accessibility And Resilience
+
+- Never use color as the only selection or status signal.
+- Keep contrast and semantic token choice meaningful across the active Pi theme.
+- Re-render after visible state changes and rebuild cached theme-dependent
+  content when the theme changes.
+- Verify changed UI at affected narrow and wide terminal dimensions. Validate
+  visible behavior in Pi or `tui-replay` when the change affects rendering or
+  interaction.

@@ -1,0 +1,21 @@
+diff --git a/dist/components/editor.js b/dist/components/editor.js
+index d3f343b18c1d04ed35c9c52656213ecf72a226ed..ada97e73dc809e021969616b54f82285744f97ff 100644
+--- a/dist/components/editor.js
++++ b/dist/components/editor.js
+@@ -540,6 +540,7 @@ export class Editor {
+             if (kb.matches(data, "tui.input.tab")) {
+                 const selected = this.autocompleteList.getSelectedItem();
+                 if (selected && this.autocompleteProvider) {
++                    const shouldRefreshSlashCompletion = this.autocompletePrefix.startsWith("/") && !this.autocompletePrefix.includes(" ");
+                     this.pushUndoSnapshot();
+                     this.lastAction = null;
+                     const result = this.autocompleteProvider.applyCompletion(this.state.lines, this.state.cursorLine, this.state.cursorCol, selected, this.autocompletePrefix);
+@@ -549,6 +550,8 @@ export class Editor {
+                     this.cancelAutocomplete();
+                     if (this.onChange)
+                         this.onChange(this.getText());
++                    if (shouldRefreshSlashCompletion)
++                        this.tryTriggerAutocomplete();
+                 }
+                 return;
+             }

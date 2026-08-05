@@ -8,7 +8,7 @@ Use `<owner>-<repo>` directory names. Documentation must cite the public URL and
 
 | Repository | Revision | What was studied |
 | --- | --- | --- |
-| [earendil-works/pi](https://github.com/earendil-works/pi) | `65ff8e7f6db447dcddb1a9c8fd05f081c5cda76a` | Pi extension lifecycle, model registry, TUI, tools, and agent runtime |
+| [earendil-works/pi](https://github.com/earendil-works/pi) | `c13ffe1877c3a47ce9f2fc98d9880447d64a0e87` | Shared upstream reference clone for Pi extension lifecycle, model registry, TUI, tools, and agent runtime |
 | [earendil-works/pi](https://github.com/earendil-works/pi) | `b4f293684bba718d59cc1157679bcf6157b3a7f5` (`v0.82.1`) | Project-only `pi-development` skill source reference |
 | [gabelul/bpx-mono](https://github.com/gabelul/bpx-mono) | `64567efe1177739b2eb110a746fff7c736c9468b` | Isolated advisor agents and result delivery |
 | [pasky/pi-omplike-advisor](https://github.com/pasky/pi-omplike-advisor) | `43eb9a976d751c06016a62b5423e2c6ddaff43a1` | Read-only advisor behavior |
@@ -19,8 +19,11 @@ Use `<owner>-<repo>` directory names. Documentation must cite the public URL and
 | [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) | `0d95a81d35a9f2d123a5e9430d1cfc43d55f1bb0` | Caveman prompt behavior |
 | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) | `16f29800fd2681bdf24f3eb4ccffe38be3baec6b` | Ponytail rules and companion workflows |
 | [ShpetimA/pi-fff](https://github.com/ShpetimA/pi-fff) | `694837d0644abc8527ebfa3ea50135e0f5d1ece4` | FFF runtime, tools, commands, formatting, and autocomplete behavior adapted for HEPI ownership |
+| [Romelium/mpatch](https://github.com/Romelium/mpatch) | `v1.6.4` | Vendored library source for cancellable native fuzzy patch application |
+| [can1357/oh-my-pi](https://github.com/can1357/oh-my-pi) | `01c1f91ff529c6af3fc27724a8ba429d83d41aed` | PTY lifecycle: native process-group termination, raw output transport, resize, and bounded reader teardown; no OMP runtime imported |
 | [mattpocock/skills](https://github.com/mattpocock/skills) | `ed37663cc5fbef691ddfecd080dff42f7e7e350d` | Grill and domain-modeling skills adapted for the HEPI skills bundle |
 | [hheei/magic-context](https://github.com/hheei/magic-context) | `f9c964da0c5cc53d1ef0658af588b46acd2e740d` | Fixed Magic Context Pi plugin/core source, including external Pi subagent accounting API |
+| [hheei/pi-subagents](https://github.com/hheei/pi-subagents) | `594140b50a159dcd33c4c265dc73729d6cb19765` | Agent policy, child-session factory, tool scoping, worktree isolation, and MCTX inheritance bridge; not a target API contract |
 
 ## Other Design References
 

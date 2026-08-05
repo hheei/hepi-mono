@@ -39,6 +39,11 @@ type StatusbarSession = {
 	fallbackUsage?: StatusbarContextUsage | undefined;
 	awaitingAssistantUsage: boolean;
 	compacted: boolean;
+	staticUsage?: {
+		readonly activeToolsKey: string;
+		readonly systemPrompt: string;
+		readonly tokens: number;
+	};
 };
 
 const TERMINAL_CURSOR_PATTERN = new RegExp(`${CURSOR_MARKER}\\x1b\\[7m([\\s\\S]*?)\\x1b\\[0m`, "g");
@@ -81,12 +86,28 @@ export function createStatusbarFeature(
 	getCursorOptions: () => CursorOptions = () => ({ shape: "block", blink: false }),
 ): StatusbarFeature {
 	let owner: StatusbarSession | undefined;
-	const activeToolDefinitions = (): readonly unknown[] => {
-		const activeTools = new Set(pi.getActiveTools());
+	const activeToolDefinitions = (activeToolNames: readonly string[]): readonly unknown[] => {
+		const activeTools = new Set(activeToolNames);
 		return pi
 			.getAllTools()
 			.filter((tool) => activeTools.has(tool.name))
 			.map(({ name, description, parameters }) => ({ name, description, parameters }));
+	};
+	const staticContextTokens = (
+		session: StatusbarSession,
+		systemPrompt: string,
+		contextWindow: number | null | undefined,
+	): number => {
+		const activeToolNames = [...pi.getActiveTools()].sort();
+		const activeToolsKey = activeToolNames.join("\u0000");
+		const cached = session.staticUsage;
+		if (cached?.systemPrompt === systemPrompt && cached.activeToolsKey === activeToolsKey)
+			return cached.tokens;
+		const tokens =
+			estimateContextUsage([], contextWindow, systemPrompt, activeToolDefinitions(activeToolNames))
+				?.tokens ?? estimateTokens({ role: "user", content: systemPrompt } as never);
+		session.staticUsage = { activeToolsKey, systemPrompt, tokens };
+		return tokens;
 	};
 	const disposeSession = (sessionId: string): void => {
 		const current = owner;
@@ -225,7 +246,7 @@ export function createStatusbarFeature(
 										messages,
 										currentUsage?.contextWindow,
 										systemPrompt,
-										activeToolDefinitions(),
+										activeToolDefinitions(pi.getActiveTools()),
 									);
 								} catch {
 									fallback = undefined;
@@ -248,13 +269,7 @@ export function createStatusbarFeature(
 						}
 						let displayUsage = usage;
 						if (displayUsage?.tokens === 0 && systemPrompt !== undefined) {
-							const tokens =
-								estimateContextUsage(
-									[],
-									displayUsage.contextWindow,
-									systemPrompt,
-									activeToolDefinitions(),
-								)?.tokens ?? estimateTokens({ role: "user", content: systemPrompt } as never);
+							const tokens = staticContextTokens(session, systemPrompt, displayUsage.contextWindow);
 							const { contextWindow } = displayUsage;
 							const percent =
 								typeof contextWindow === "number" &&

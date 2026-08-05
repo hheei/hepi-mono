@@ -1,0 +1,53 @@
+{
+	"name": "@hheei/pi-ext-core",
+	"version": "0.0.0",
+	"description": "Shared lifecycle and coordination primitives for independent Pi extensions.",
+	"type": "module",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"exports": {
+		".": "./dist/index.js",
+		"./testing": "./dist/testing.js"
+	},
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE"
+	],
+	"scripts": {
+		"build": "bunx tsc -p tsconfig.build.json",
+		"prepack": "bun run build"
+	},
+	"keywords": [
+		"pi",
+		"pi-extension",
+		"hepi",
+		"extension-core"
+	],
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/hheei/hepi-mono.git",
+		"directory": "packages/pi-ext-core"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"dependencies": {
+		"proper-lockfile": "4.1.2",
+		"typebox": "1.3.7"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-agent-core": ">=0.83.0",
+		"@earendil-works/pi-ai": ">=0.83.0",
+		"@earendil-works/pi-coding-agent": ">=0.83.0",
+		"@earendil-works/pi-tui": ">=0.83.0"
+	},
+	"devDependencies": {
+		"@earendil-works/pi-agent-core": ">=0.83.0",
+		"@earendil-works/pi-ai": ">=0.83.0",
+		"@earendil-works/pi-coding-agent": ">=0.83.0",
+		"@earendil-works/pi-tui": ">=0.83.0",
+		"@types/proper-lockfile": "4.1.4"
+	}
+}

@@ -1,8 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { isSkillEnabled } from "@hheei/pi-ext-core";
 import {
 	getHepiRuntimeSettingsRegistry,
 	HepiLifecycleController,
-	isHepiSkillEnabled,
 	registerHepiLifecycle,
 	registerHepiSettings,
 } from "../core/index.js";
@@ -15,7 +15,7 @@ import {
 
 export default function piDollarSkillExtension(pi: ExtensionAPI): void {
 	const settingsRegistry = getHepiRuntimeSettingsRegistry(pi);
-	const feature = createDollarSkillFeature(pi, (command) => isHepiSkillEnabled(pi, command.name));
+	const feature = createDollarSkillFeature(pi, (command) => isSkillEnabled(pi, command.name));
 	registerDollarSkillInputTransform(pi, feature);
 	const provider = createDollarSkillSettingsProvider();
 	registerHepiLifecycle(
