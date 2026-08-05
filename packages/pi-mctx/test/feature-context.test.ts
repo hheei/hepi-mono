@@ -350,6 +350,7 @@ test("smart drops queue an old visible tool result and project its recovery mark
 		} as SessionEntry,
 	];
 	const historyTags: MctxHistoryTag[] = [];
+	let firstDropCommit = true;
 	const lifecycle = {
 		pi: { events: {} },
 		extension: {
@@ -366,6 +367,11 @@ test("smart drops queue an old visible tool result and project its recovery mark
 		openStore: () =>
 			store({
 				listCompartments: () => [],
+				findPartition: () => ({
+					projectIdentity: "git:project",
+					sessionId: "session-1",
+					revision: 1,
+				}),
 				syncHistoryTags: (partition, inputs) => {
 					for (const input of inputs) {
 						const exists = historyTags.some(
@@ -391,6 +397,10 @@ test("smart drops queue an old visible tool result and project its recovery mark
 					};
 				},
 				markHistoryTagsDropped: (partition, tagNumbers) => {
+					if (firstDropCommit) {
+						firstDropCommit = false;
+						return undefined;
+					}
 					for (const [index, tag] of historyTags.entries()) {
 						if (tagNumbers.includes(tag.tagNumber) && tag.status === "pending")
 							historyTags[index] = { ...tag, status: "dropped" };
@@ -418,6 +428,7 @@ test("smart drops queue an old visible tool result and project its recovery mark
 		projected?.messages.some((message) => JSON.stringify(message).includes("[dropped §3§]")),
 	).toBe(true);
 	expect(historyTags.find((tag) => tag.kind === "tool")?.status).toBe("dropped");
+	expect(firstDropCommit).toBeFalse();
 });
 
 test("ctx_reduce rejects tags already covered by a verified compartment", async (): Promise<void> => {
