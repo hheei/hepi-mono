@@ -1,30 +1,11 @@
 # @hheei/hepi-mono
 
-Self-contained unified HEPI bundle for Pi. Its published `dist` entry contains
-the basics, tools, skills, BTW, and Plan implementations, so Pi performs one
-JIT entry traversal instead of discovering each HEPI extension separately.
+> **Deprecated.** Do not use this package for new installations. HEPI is moving
+> to independently installable extensions backed by `@hheei/pi-ext-core`.
 
-The bundle keeps registration order: `pi-basics` first, then `pi-loadout`, the
-remaining basics, tools, skills, BTW, and Plan modules. `hepi-debug` is excluded. The aggregate bundles are the supported runtime
-installation units; top-level `pi-*` feature packages are deprecated.
+Self-contained legacy HEPI bundle for Pi. Its published `dist` entry retains
+the foundational Basics and Plan implementations for existing installations.
+Tools, Magic Context, Caveman, and Ponytail are independent packages now.
 
-Install the unified package globally:
-
-```bash
-pi install npm:@hheei/hepi-mono
-```
-
-For local development:
-
-```bash
-pi install -l ./packages/hepi-mono
-```
-
-Build first with `bun run build` from this package or
-`bun run build:aggregates` from the repository root.
-
-The full bundle keeps `ffi-rs` as a platform runtime dependency for `pi-fff`;
-its native binary cannot be embedded in a portable JavaScript bundle.
-
-Do not install both `@hheei/hepi-mono` and a group package in one Pi runtime;
-duplicate registration can cause duplicate commands, handlers, or status entries.
+It receives no new features. Install independent extensions for current
+behavior instead of relying on this bundle.

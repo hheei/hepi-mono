@@ -1,6 +1,9 @@
 node_modules/
 dist/
+packages/pi-ext-tools/native/*.node
+packages/pi-ext-tools/native/*.d.ts
 coverage/
+target/
 *.log
 *.tgz
 .DS_Store
@@ -19,14 +22,12 @@ package-lock.json
 npm-debug.log*
 .zed/
 .pi-subagents/
+.pi-dev/
 .codex/
 outputs/
 graphify-out/*
 !graphify-out/graph.json
 pi-session-*.html
-
-# The pi-subagents fork is a separately checked submodule with its own tooling.
-packages/pi-subagents/
 
 # Public reference repositories are documented, not vendored.
 references/repos/

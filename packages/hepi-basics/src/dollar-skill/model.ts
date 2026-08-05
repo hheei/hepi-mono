@@ -4,7 +4,7 @@ import type {
 	AutocompleteSuggestions,
 } from "@earendil-works/pi-tui";
 
-export const DEFAULT_DOLLAR_SKILL_MAX_SUGGESTIONS = 20;
+export const DEFAULT_DOLLAR_SKILL_MAX_SUGGESTIONS = 50;
 export const MAX_DOLLAR_SKILL_SUGGESTIONS = 50;
 
 export interface DollarSkillCommand {

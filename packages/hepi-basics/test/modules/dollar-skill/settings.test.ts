@@ -17,7 +17,7 @@ describe("dollar skill settings", () => {
 		});
 		expect(normalizeDollarSkillConfig({ enabled: "no", maxSuggestions: 1.5 })).toEqual({
 			enabled: true,
-			maxSuggestions: 20,
+			maxSuggestions: 50,
 		});
 	});
 

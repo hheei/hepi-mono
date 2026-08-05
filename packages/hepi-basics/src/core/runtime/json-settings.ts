@@ -1,8 +1,8 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { lock } from "proper-lockfile";
+import {
+	defaultPiSettingsPaths,
+	readJsonSettingsRoot,
+	updateJsonSettingsRoot as updateCoreJsonSettingsRoot,
+} from "@hheei/pi-ext-core";
 import type { HepiSettingsState, HepiSettingsStorage, HepiSettingValue } from "../api/settings.js";
 
 export interface JsonSectionSettingsStorageOptions {
@@ -24,85 +24,15 @@ function isSettingValue(value: unknown): value is HepiSettingValue {
 	);
 }
 
-function isMissingFile(error: unknown): boolean {
-	return isRecord(error) && error.code === "ENOENT";
-}
-
-async function readRoot(path: string): Promise<Record<string, unknown>> {
-	let text: string;
-	try {
-		text = await readFile(path, "utf8");
-	} catch (error) {
-		if (isMissingFile(error)) return {};
-		throw error;
-	}
-	const value: unknown = JSON.parse(text);
-	if (!isRecord(value)) throw new Error(`Expected JSON object root in ${path}`);
-	return value;
-}
-
-async function writeRoot(path: string, root: Readonly<Record<string, unknown>>): Promise<void> {
-	const directory = dirname(path);
-	await mkdir(directory, { recursive: true });
-	const temporaryPath = join(directory, `.${basename(path)}.${randomUUID()}.tmp`);
-	try {
-		await writeFile(temporaryPath, `${JSON.stringify(root, null, 2)}\n`, {
-			encoding: "utf8",
-			mode: 0o600,
-		});
-		await rename(temporaryPath, path);
-	} catch (error) {
-		await rm(temporaryPath, { force: true }).catch(() => undefined);
-		throw error;
-	}
-}
-
-declare global {
-	var __hepiJsonSettingsWriteQueues: Map<string, Promise<void>> | undefined;
-}
-
-function settingsWriteQueues(): Map<string, Promise<void>> {
-	globalThis.__hepiJsonSettingsWriteQueues ??= new Map();
-	return globalThis.__hepiJsonSettingsWriteQueues;
-}
-
-export async function updateJsonSettingsRoot(
-	path: string,
-	update: (root: Record<string, unknown>) => void,
-): Promise<void> {
-	const writeQueues = settingsWriteQueues();
-	const previous = writeQueues.get(path) ?? Promise.resolve();
-	const current = previous
-		.catch(() => undefined)
-		.then(async () => {
-			await mkdir(dirname(path), { recursive: true });
-			const release = await lock(path, {
-				realpath: false,
-				retries: { retries: 100, minTimeout: 20, maxTimeout: 20 },
-			});
-			try {
-				const root = await readRoot(path);
-				update(root);
-				await writeRoot(path, root);
-			} finally {
-				await release();
-			}
-		});
-	writeQueues.set(path, current);
-	try {
-		await current;
-	} finally {
-		if (writeQueues.get(path) === current) writeQueues.delete(path);
-	}
-}
+export const updateJsonSettingsRoot = updateCoreJsonSettingsRoot;
 
 export function createJsonSectionSettingsStorage(
 	options: JsonSectionSettingsStorageOptions,
 ): HepiSettingsStorage {
-	const resolvePath = (): string => options.path ?? join(getAgentDir(), "settings.json");
+	const resolvePath = (): string => options.path ?? defaultPiSettingsPaths().globalPath;
 	return {
 		async load(): Promise<HepiSettingsState | undefined> {
-			const root = await readRoot(resolvePath());
+			const root = await readJsonSettingsRoot(resolvePath());
 			const section = root[options.section];
 			if (section !== undefined && !isRecord(section))
 				throw new Error(`Expected ${options.section} to be an object in ${resolvePath()}`);
@@ -118,7 +48,7 @@ export function createJsonSectionSettingsStorage(
 		},
 		async save(state): Promise<void> {
 			const path = resolvePath();
-			await updateJsonSettingsRoot(path, (root) => {
+			await updateCoreJsonSettingsRoot(path, (root) => {
 				const currentSection = root[options.section];
 				if (currentSection !== undefined && !isRecord(currentSection))
 					throw new Error(`Expected ${options.section} to be an object in ${path}`);

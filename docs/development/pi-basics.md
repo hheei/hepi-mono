@@ -1,9 +1,9 @@
-# Pi Basics Development
+# Pi Basics Development (Transitional)
 
-`@hheei/hepi-basics` is the shared HEPI foundation inside the aggregate source
-layout. Its core lives at `packages/hepi-basics/src/core`; feature modules in
-the aggregate keep their own implementation and use core contracts for shared
-runtime behavior.
+`@hheei/hepi-basics` is a transitional aggregate package. This document records
+its current integration boundaries while existing features migrate. New features
+must follow the [Extension Reference Architecture](../architecture/extension-reference.md)
+and target `@hheei/pi-ext-core`, not this package.
 
 ## Foundation Responsibilities
 
@@ -34,18 +34,12 @@ Registration IDs must be non-empty. Duplicate tool disable handlers are programm
 
 Module and settings contributions follow the same ownership rule. Register them inside `session_start`, immediately add the returned disposer to `runtime.registry`, and let `session_shutdown` remove them. Registration disposers are idempotent and remove only their exact registration generation, even when the same object is registered again. Do not use `replace()` to hide duplicate IDs from the same active extension generation.
 
-Use `pi.events` directly only for namespaced notifications without shared state ownership. Use a core contract for coordinated state or request/response semantics. Do not add a generic registry until at least two concrete contracts need identical ownership and collision behavior.
+Use `pi.events` directly only for namespaced notifications without shared state ownership. Use a core contract for coordinated state or request/response semantics. Add a generic registry only when it has a clear, feature-neutral middle-layer scope with identical ownership and collision behavior; consumer count alone is not the gate.
 
 ## TUI
 
-Follow [DESIGN.md](../../DESIGN.md). Reuse `renderDetailPanel`, `createSplitLayout`, `renderSelectableRow`, `keyGlyph`, and text helpers. Every rendered line must fit its width; request rendering after state changes.
+Follow [DESIGN.md](../../DESIGN.md); every Pi Basics UI or UX change must reference it in its plan and implementation notes. Reuse `renderDetailPanel`, `createSplitLayout`, `renderSelectableRow`, `keyGlyph`, and text helpers. Every rendered line must fit its width; request rendering after state changes.
 
 ## Verification
 
-```bash
-bun run typecheck
-bun test
-bun run check
-```
-
-Run focused package tests first. Update the package README whenever commands, settings, persistence, requirements, or compatibility changes.
+Run only the focused package tests and checks that cover the changed behavior. Update high-level documentation when package installation or compatibility changes; document TypeScript API usage and implementation details beside the code.

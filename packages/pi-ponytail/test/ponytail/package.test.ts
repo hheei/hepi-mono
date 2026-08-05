@@ -1,0 +1,23 @@
+import { describe, expect, test } from "bun:test";
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
+
+const packageRoot = join(import.meta.dir, "../..");
+
+describe("Ponytail package", () => {
+	test("publishes one extension and its Loadout-discoverable auxiliary skills", async () => {
+		const manifest: unknown = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
+		expect(manifest).toMatchObject({
+			pi: { extensions: ["dist/extension.js"], skills: ["skills"] },
+		});
+		expect((await readdir(join(packageRoot, "skills"))).sort()).toEqual([
+			"ponytail-audit",
+			"ponytail-debt",
+			"ponytail-gain",
+			"ponytail-help",
+			"ponytail-review",
+		]);
+		const help = await readFile(join(packageRoot, "skills", "ponytail-help", "SKILL.md"), "utf8");
+		expect(help).toContain("Ponytail");
+	});
+});

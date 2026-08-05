@@ -1,6 +1,7 @@
-import { type ExtensionRuntimeHost, extensionRuntimeIdentity } from "../runtime/identity.js";
-import type { HepiMaybePromise } from "./modules.js";
-import type { HepiPanel } from "./panels.js";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getHepiRuntimeSettingsRegistry as getCoreRuntimeSettingsRegistry } from "@hheei/pi-ext-core";
+import type { ExtensionRuntimeHost } from "../runtime/identity.js";
+import type { HepiMaybePromise, HepiPanel } from "./panels.js";
 
 export type HepiSettingPrimitive = boolean | number | string;
 export type HepiSettingValue = HepiSettingPrimitive | null;
@@ -175,17 +176,9 @@ declare global {
 }
 
 export function getHepiRuntimeSettingsRegistry(pi: ExtensionRuntimeHost): HepiSettingsRegistry {
-	let registries = globalThis.__hepiSettingsRegistriesByRuntime;
-	if (registries === undefined) {
-		registries = new WeakMap();
-		globalThis.__hepiSettingsRegistriesByRuntime = registries;
-	}
-	const identity = extensionRuntimeIdentity(pi);
-	const existing = registries.get(identity);
-	if (existing !== undefined) return existing;
-	const created = new SettingsRegistry();
-	registries.set(identity, created);
-	return created;
+	// Transitional facade: old Basics providers and independent core consumers
+	// must register into one runtime-scoped Settings surface.
+	return getCoreRuntimeSettingsRegistry(pi as ExtensionAPI) as unknown as HepiSettingsRegistry;
 }
 
 export function createHepiSettingsRegistry(): HepiSettingsRegistry {
