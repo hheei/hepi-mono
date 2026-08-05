@@ -36,6 +36,16 @@ test("disabled configuration leaves pipeline inactive", async (): Promise<void> 
 	expect(config.pipeline).toEqual({ kind: "disabled" });
 });
 
+test("temporal awareness defaults to enabled", async (): Promise<void> => {
+	const config = await withSettings(
+		{ "pi-mctx": { enabled: true, historian: { enabled: true, model: "anthropic/claude-haiku" } } },
+		{},
+		loadMctxConfiguration,
+	);
+	if (config.pipeline.kind !== "enabled") throw new Error("expected enabled pipeline");
+	expect(config.pipeline.settings.temporalAwareness).not.toBe(false);
+});
+
 test("accepts only user-owned opt-in caveman compression", async (): Promise<void> => {
 	const config = await withSettings(
 		{
@@ -91,10 +101,8 @@ test("accepts only user-owned temporal awareness configuration", async (): Promi
 		{ "pi-mctx": { temporal_awareness: false } },
 		async (paths): Promise<void> => {
 			const configuration = await loadMctxConfiguration(paths);
-			expect(configuration.pipeline).toEqual({
-				kind: "enabled",
-				settings: expect.objectContaining({ temporalAwareness: true }),
-			});
+			if (configuration.pipeline.kind !== "enabled") throw new Error("expected enabled pipeline");
+			expect(configuration.pipeline.settings.temporalAwareness).not.toBe(false);
 			expect(configuration.warnings).toContain(
 				"Ignoring project temporal_awareness: only user config controls temporal markers",
 			);

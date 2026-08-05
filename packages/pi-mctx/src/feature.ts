@@ -1670,7 +1670,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			// the model still sees the authoritative request as its final message.
 			const pendingAugmentation = current.pendingAugmentation;
 			let projectedMessages: readonly AgentMessage[] =
-				current.runtime.settings.temporalAwareness === true
+				current.runtime.settings.temporalAwareness !== false
 					? injectMctxTemporalMarkers(tagged.messages)
 					: tagged.messages;
 			if (pendingAugmentation !== undefined) {

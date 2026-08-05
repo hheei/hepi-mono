@@ -1,16 +1,22 @@
 import type { AssistantMessage, TextContent } from "@earendil-works/pi-ai";
 
-const HISTORY_TAG_PREFIX = /^§\d+§\s*/u;
+const HISTORY_TAG_PREFIX = /^(?:§\d+§\s*)+/u;
 
-/** Removes a model-imitated MCTX tag before Pi persists an assistant response. */
+/** Removes model-imitated MCTX tag notation before Pi persists assistant text. */
 export function stripMctxTagPrefix(message: AssistantMessage): AssistantMessage {
-	let stripped = false;
+	let changed = false;
 	const content = message.content.map((part) => {
-		if (stripped || part.type !== "text") return part;
-		const text = part.text.replace(HISTORY_TAG_PREFIX, "");
+		if (part.type !== "text") return part;
+		const text = part.text
+			.replace(HISTORY_TAG_PREFIX, "")
+			.replace(/§\d+§/gu, "")
+			.replace(/§\d+">(?:§(?:\d+§)?)?/gu, "")
+			.replace(/§\d+(?!\.\d)[^\s§\w.]?/gu, "")
+			.replace(/§/gu, "")
+			.trim();
 		if (text === part.text) return part;
-		stripped = true;
+		changed = true;
 		return { ...part, text } satisfies TextContent;
 	});
-	return stripped ? { ...message, content } : message;
+	return changed ? { ...message, content } : message;
 }

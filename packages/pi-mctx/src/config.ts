@@ -51,7 +51,7 @@ export interface MctxPipelineSettings {
 	readonly failClosedBlocking: boolean;
 	/** User-owned opt-in for automatic old tool-result reclaim. */
 	readonly smartDrops: boolean;
-	/** Opt-in model-visible elapsed-time comments, matching Magic Context Pi behavior. */
+	/** Model-visible elapsed-time comments; enabled unless the user explicitly disables them. */
 	readonly temporalAwareness?: boolean;
 	readonly executeThresholdPercentage: MctxThreshold;
 	readonly executeThresholdTokens?: MctxOptionalThreshold;
@@ -367,8 +367,8 @@ function resolvePipeline(
 			"Ignoring project clear_reasoning_age: only user config controls reasoning cleanup",
 		);
 	}
-	const temporalAwareness = global.temporal_awareness;
-	if (temporalAwareness !== undefined && typeof temporalAwareness !== "boolean")
+	const temporalAwareness = global.temporal_awareness ?? true;
+	if (typeof temporalAwareness !== "boolean")
 		return { kind: "invalid", reason: "temporal_awareness must be boolean" };
 	if (project.temporal_awareness !== undefined) {
 		warnings.push(
@@ -405,7 +405,7 @@ function resolvePipeline(
 			failClosedBlocking:
 				failClosedBlocking === undefined ? DEFAULT_FAIL_CLOSED_BLOCKING : failClosedBlocking,
 			smartDrops,
-			...(temporalAwareness === true ? { temporalAwareness: true } : {}),
+			...(temporalAwareness === false ? { temporalAwareness: false } : {}),
 			executeThresholdPercentage: {
 				defaultValue: raisedPercentage.defaultValue,
 				byModel: raisedPercentage.byModel,
