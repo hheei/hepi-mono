@@ -61,12 +61,12 @@ export function registerFindTool(pi: ExtensionAPI, state: FffRuntimeState): void
 		name: "find",
 		label: "find",
 		description:
-			"Fuzzy path search and glob search. Matches the whole repo-relative path, is frecency-ranked and git-aware. Multi-word narrows results. Default limit 30.",
+			"Fuzzy path and glob search. Matches the whole repo-relative path, frecency-ranked and git-aware. Default limit 30.",
 		promptSnippet: "Find files by path or glob",
 		promptGuidelines: [
-			"find: use for paths, not content. Use grep for content.",
-			"find: keep queries to 1-2 terms; extra words narrow.",
+			"find: prefer 1-2 terms; extra words narrow the whole-path match.",
 			"find: use path for exact glob constraints and exclude to remove noise.",
+			"find: use for paths, not content. Use grep for content. AVOID `find` or `fd` through the `bash` tool; use find.",
 		],
 		parameters: schema,
 		renderCall: renderFindCall,
