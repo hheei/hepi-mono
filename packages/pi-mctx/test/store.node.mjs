@@ -115,6 +115,38 @@ test("creates and fences an MCTX-owned store", async () => {
 	});
 });
 
+test("advances caveman depth with a partition CAS while retaining pristine source", async () => {
+	await withPath(async (path) => {
+		const store = await openMctxStore(path);
+		const initial = store.getOrCreatePartition(`git:${"8".repeat(40)}`, "session-caveman");
+		const synced = store.syncHistoryTags(initial, [
+			{ kind: "message", entryId: "entry-1", source: "Please, I think this is detailed." },
+		]);
+		assert.ok(synced);
+		const advanced = store.advanceHistoryTagCavemanDepths(synced.partition, [
+			{ tagNumber: 1, depth: 2 },
+		]);
+		assert.deepEqual(advanced, { ...initial, revision: 2 });
+		const replay = store.syncHistoryTags(advanced, [
+			{ kind: "message", entryId: "entry-1", source: "changed branch text" },
+		]);
+		assert.ok(replay);
+		assert.deepEqual(replay.tags, [
+			{
+				kind: "message",
+				entryId: "entry-1",
+				source: "Please, I think this is detailed.",
+				tagNumber: 1,
+				status: "active",
+				cavemanDepth: 2,
+			},
+		]);
+		assert.deepEqual(store.advanceHistoryTagCavemanDepths(replay.partition, [{ tagNumber: 1, depth: 1 }]), replay.partition);
+		assert.equal(store.advanceHistoryTagCavemanDepths(synced.partition, [{ tagNumber: 1, depth: 3 }]), undefined);
+		store.close();
+	});
+});
+
 test("copies verified fork ancestors into a fresh child revision timeline", async () => {
 	await withPath(async (path) => {
 		const store = await openMctxStore(path);

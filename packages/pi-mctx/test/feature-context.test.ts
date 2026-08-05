@@ -106,6 +106,11 @@ function store(overrides: Partial<MctxStore> = {}): MctxStore {
 			sessionId: "session-1",
 			revision: 0,
 		}),
+		advanceHistoryTagCavemanDepths: () => ({
+			projectIdentity: "git:project",
+			sessionId: "session-1",
+			revision: 0,
+		}),
 		readStatusAccounting: () => emptyMctxStatusAccounting(),
 		writeStatusAccounting: () => undefined,
 		readReasoningWatermark: () => 0,

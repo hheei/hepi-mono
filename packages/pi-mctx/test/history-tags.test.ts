@@ -40,6 +40,19 @@ describe("MCTX history tags", () => {
 		expect(projection.messages[0]).toMatchObject({ content: "§7§ cleaned request" });
 	});
 
+	test("replays persisted caveman depth from pristine user source", () => {
+		const tag: MctxHistoryTag = {
+			kind: "message",
+			entryId: "user-entry",
+			source: "Please, I think the context is very useful.",
+			tagNumber: 7,
+			status: "active",
+			cavemanDepth: 2,
+		};
+		const projection = projectMctxHistoryTags([userMessage], [userEntry], [tag]);
+		expect(projection.messages[0]).toMatchObject({ content: "§7§ context useful." });
+	});
+
 	test("projects tags into Pi's cloned context messages", () => {
 		const assistantMessage = {
 			role: "assistant" as const,
