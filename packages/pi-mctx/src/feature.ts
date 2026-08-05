@@ -94,6 +94,7 @@ import {
 } from "./store.js";
 import { stripMctxSystemInjections } from "./system-injection.js";
 import { injectMctxTemporalMarkers } from "./temporal-awareness.js";
+import { injectMctxToolGuidance } from "./tool-guidance.js";
 import { evaluateMctxTriggerPolicy } from "./trigger-policy.js";
 
 /** Active session state. `partition` is replaced after each successful store CAS. */
@@ -863,9 +864,11 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				if (active !== current || current.job !== job || job.signal.aborted) return;
 				if (result.kind === "published") {
 					current.runtime = { ...current.runtime, partition: result.publication.partition };
+					current.cooling = false;
 					current.lastNotifiedFailureClass = undefined;
 					return;
 				}
+				if (result.kind === "ineligible") current.cooling = false;
 				const diagnostic = historianFailureDiagnostic(result, current.runtime.partition);
 				if (diagnostic === undefined) return;
 				reportHistorianFailure(current, diagnostic);
@@ -1689,8 +1692,9 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				current.runtime.settings.temporalAwareness !== false
 					? injectMctxTemporalMarkers(tagged.messages)
 					: tagged.messages;
-			updateStatusAccounting(current, context, projectedMessages, entries, cacheTtlMs);
-			return { messages: projectedMessages };
+			const guidedMessages = injectMctxToolGuidance(projectedMessages);
+			updateStatusAccounting(current, context, guidedMessages, entries, cacheTtlMs);
+			return { messages: guidedMessages };
 		},
 		prepare,
 		active: (): MctxSessionRuntime | undefined => active?.runtime,

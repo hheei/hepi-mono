@@ -87,7 +87,7 @@ test("replaces a verified branch segment while retaining surrounding extension m
 	]);
 });
 
-test("renders cloned Pi messages but fails open for empty, divergent, or ambiguous graphs", (): void => {
+test("fails open for empty, divergent, or ambiguous graphs", (): void => {
 	const raw = rawMessages();
 	expect(projectMctxContext(raw, entries, [])).toEqual({ kind: "unchanged", reason: "empty" });
 	expect(

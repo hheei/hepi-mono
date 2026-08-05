@@ -142,6 +142,11 @@ seam：它只接受同 owner 已静态注册的 tools，active 时保留其他 P
 inactive 时移除 bundle。`forcedActive` 是 transport metadata；`pi-loadout` 解释为只读 policy，不让 ext-core 拥有任何 persisted
 selection。缺少 `pi-loadout` 时，helper 仍通过 Pi host active set 执行同一可见性与强制启用策略。
 
+active runtime 的每个 completed context transform 都插入固定的 model-visible `pi-mctx:tool-guidance` custom message：
+`ctx_reduce` 只标记已不再需要的旧 `§N§` history tag；recent/protected tag 与仍可能需要的 source 不应 reduce；
+`ctx_expand` 用于恢复 dropped source；`ctx_history` 只管理 other-session retained history。它不写入 Pi transcript，固定
+content/timestamp 不随 tag 状态变化，避免每 turn 破坏 provider cache。runtime disabled 或 rebuild-aborted transform 不注入 guidance。
+
 ## MCTX Settings registration
 
 ### Historian 模型选择
