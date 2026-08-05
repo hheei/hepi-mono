@@ -5,6 +5,8 @@ export interface MctxPressure {
 	readonly contextWindow: number;
 }
 
+const FORWARD_PRESSURE_LIMIT_FACTOR = 0.85;
+
 function finiteUsage(value: unknown): number {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
 }
@@ -50,7 +52,16 @@ export function resolveMctxPressure(
 		const entry = branch[index];
 		if (entry === undefined) continue;
 		const inputTokens = usagePressure(entry);
-		if (inputTokens !== undefined) return { inputTokens, contextWindow };
+		if (inputTokens !== undefined) {
+			const forwardTokens = validWindow(hostUsage?.tokens) ? hostUsage.tokens : 0;
+			return {
+				inputTokens:
+					forwardTokens > inputTokens
+						? Math.ceil(forwardTokens / FORWARD_PRESSURE_LIMIT_FACTOR)
+						: inputTokens,
+				contextWindow,
+			};
+		}
 	}
 	return validWindow(hostUsage?.tokens)
 		? { inputTokens: hostUsage.tokens, contextWindow }

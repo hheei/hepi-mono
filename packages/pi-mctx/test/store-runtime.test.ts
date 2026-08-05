@@ -30,6 +30,42 @@ test("opens the MCTX store through Bun SQLite", async (): Promise<void> => {
 	}
 });
 
+test("seals a nudge after host delivery when claim confirmation is unavailable", async (): Promise<void> => {
+	const directory = mkdtempSync(join(tmpdir(), "pi-mctx-nudge-seal-"));
+	try {
+		const store = await openMctxStore(join(directory, "context.db"));
+		try {
+			const partition = store.getOrCreatePartition(`dir:${"f".repeat(64)}`, "session-1");
+			store.armNudgeDelivery?.(partition);
+			const claim = store.claimNudgeDelivery?.(partition, "owner", 100, 0);
+			expect(claim).toBeDefined();
+			store.sealNudgeDelivered?.(partition);
+			expect(store.claimNudgeDelivery?.(partition, "later", 100, 101)).toBeUndefined();
+		} finally {
+			store.close();
+		}
+	} finally {
+		rmSync(directory, { force: true, recursive: true });
+	}
+});
+
+test("records numeric-free provider overflows as emergency recovery", async (): Promise<void> => {
+	const directory = mkdtempSync(join(tmpdir(), "pi-mctx-overflow-"));
+	try {
+		const store = await openMctxStore(join(directory, "context.db"));
+		try {
+			const partition = store.getOrCreatePartition(`dir:${"9".repeat(64)}`, "session-1");
+			store.recordOverflowRecovery?.(partition, undefined);
+			expect(store.needsEmergencyRecovery?.(partition)).toBe(true);
+			expect(store.readDetectedContextLimit?.(partition)).toBeUndefined();
+		} finally {
+			store.close();
+		}
+	} finally {
+		rmSync(directory, { force: true, recursive: true });
+	}
+});
+
 test("persists nudge delivery leases across reopen without replaying delivered nudges", async (): Promise<void> => {
 	const directory = mkdtempSync(join(tmpdir(), "pi-mctx-nudge-"));
 	const path = join(directory, "context.db");

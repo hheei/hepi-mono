@@ -5,13 +5,81 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { MctxStatusAccounting } from "./status-metrics.js";
 
 export const MCTX_STORE_APPLICATION_ID = 0x484d4354;
-export const MCTX_STORE_SCHEMA_VERSION = 15;
+export const MCTX_STORE_SCHEMA_VERSION = 16;
 export const MCTX_STORE_BUSY_TIMEOUT_MS = 5_000;
 
 interface MctxDatabaseStatement {
 	get(...bindings: readonly unknown[]): unknown;
 	all(...bindings: readonly unknown[]): readonly unknown[];
 	run(...bindings: readonly unknown[]): unknown;
+}
+
+function recordOverflowRecovery(
+	database: DatabaseSync,
+	partition: MctxPartition,
+	contextWindow: number | undefined,
+): void {
+	requirePartitionKey(partition.projectIdentity, partition.sessionId);
+	if (contextWindow !== undefined && (!Number.isSafeInteger(contextWindow) || contextWindow <= 0))
+		throw new Error("Context store detected context window is invalid");
+	database
+		.prepare(
+			"INSERT INTO pressure_state (project_identity, session_id, detected_context_window, needs_emergency_recovery) VALUES (?, ?, ?, 1) ON CONFLICT (project_identity, session_id) DO UPDATE SET detected_context_window = CASE WHEN excluded.detected_context_window IS NULL THEN pressure_state.detected_context_window WHEN pressure_state.detected_context_window IS NULL THEN excluded.detected_context_window ELSE MIN(pressure_state.detected_context_window, excluded.detected_context_window) END, needs_emergency_recovery = 1",
+		)
+		.run(partition.projectIdentity, partition.sessionId, contextWindow ?? null);
+}
+
+function needsEmergencyRecovery(database: DatabaseSync, partition: MctxPartition): boolean {
+	const row = database
+		.prepare(
+			"SELECT needs_emergency_recovery FROM pressure_state WHERE project_identity = ? AND session_id = ?",
+		)
+		.get(partition.projectIdentity, partition.sessionId);
+	return !isMissingRow(row) && isRecord(row) && row.needs_emergency_recovery === 1;
+}
+
+function clearEmergencyRecovery(database: DatabaseSync, partition: MctxPartition): void {
+	database
+		.prepare(
+			"UPDATE pressure_state SET needs_emergency_recovery = 0 WHERE project_identity = ? AND session_id = ?",
+		)
+		.run(partition.projectIdentity, partition.sessionId);
+}
+
+function sealNudgeDelivered(database: DatabaseSync, partition: MctxPartition): void {
+	database
+		.prepare(
+			"UPDATE nudge_deliveries SET state = 'delivered', owner_token = NULL, lease_expires_at_ms = 0 WHERE project_identity = ? AND session_id = ?",
+		)
+		.run(partition.projectIdentity, partition.sessionId);
+}
+
+function disarmNudgeDelivery(database: DatabaseSync, partition: MctxPartition): void {
+	database
+		.prepare(
+			"DELETE FROM nudge_deliveries WHERE project_identity = ? AND session_id = ? AND state = 'pending'",
+		)
+		.run(partition.projectIdentity, partition.sessionId);
+}
+
+function migrateV16(database: DatabaseSync): void {
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		database.exec("ALTER TABLE mctx_metadata RENAME TO mctx_metadata_v15");
+		database.exec(
+			"CREATE TABLE mctx_metadata (schema_version INTEGER NOT NULL CHECK (schema_version = 16)) STRICT",
+		);
+		database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(16);
+		database.exec("DROP TABLE mctx_metadata_v15");
+		database.exec(
+			"ALTER TABLE pressure_state ADD COLUMN needs_emergency_recovery INTEGER NOT NULL DEFAULT 0 CHECK (needs_emergency_recovery IN (0, 1))",
+		);
+		database.exec("PRAGMA user_version = 16");
+		database.exec("COMMIT");
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
 }
 
 function armNudgeDelivery(database: DatabaseSync, partition: MctxPartition): void {
@@ -76,7 +144,8 @@ function readDetectedContextLimit(
 		)
 		.get(partition.projectIdentity, partition.sessionId);
 	if (isMissingRow(row)) return undefined;
-	if (!isRecord(row) || typeof row.detected_context_window !== "number")
+	if (!isRecord(row) || row.detected_context_window === null) return undefined;
+	if (typeof row.detected_context_window !== "number")
 		throw new Error("Context store pressure row is invalid");
 	return row.detected_context_window;
 }
@@ -398,6 +467,7 @@ export interface MctxStore {
 	): MctxPartition | undefined;
 	/** One durable Channel 2 delivery intent per session partition. */
 	armNudgeDelivery?(partition: MctxPartition): void;
+	disarmNudgeDelivery?(partition: MctxPartition): void;
 	claimNudgeDelivery?(
 		partition: MctxPartition,
 		ownerToken: string,
@@ -405,9 +475,13 @@ export interface MctxStore {
 		nowMs?: number,
 	): MctxNudgeDeliveryClaim | undefined;
 	markNudgeDelivered?(claim: MctxNudgeDeliveryClaim): boolean;
+	sealNudgeDelivered?(partition: MctxPartition): void;
 	releaseNudgeDelivery?(claim: MctxNudgeDeliveryClaim): boolean;
 	readDetectedContextLimit?(partition: MctxPartition): number | undefined;
 	recordDetectedContextLimit?(partition: MctxPartition, contextWindow: number): void;
+	recordOverflowRecovery?(partition: MctxPartition, contextWindow: number | undefined): void;
+	needsEmergencyRecovery?(partition: MctxPartition): boolean;
+	clearEmergencyRecovery?(partition: MctxPartition): void;
 	writeMemory(input: MctxMemoryWrite): MctxMemory;
 	getMemories(projectIdentity: string, memoryIds: readonly number[]): readonly MctxMemory[];
 	listActiveMemories(
@@ -1061,6 +1135,7 @@ function validateSchema(database: DatabaseSync): void {
 	if (pragmaInteger(database, "PRAGMA user_version") === 12) migrateV13(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 13) migrateV14(database);
 	if (pragmaInteger(database, "PRAGMA user_version") === 14) migrateV15(database);
+	if (pragmaInteger(database, "PRAGMA user_version") === 15) migrateV16(database);
 	if (pragmaInteger(database, "PRAGMA application_id") !== MCTX_STORE_APPLICATION_ID) {
 		throw new Error("Context store application identity is invalid");
 	}
@@ -2862,6 +2937,10 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 			if (database === undefined) throw new Error("Context store is closed");
 			armNudgeDelivery(database, partition);
 		},
+		disarmNudgeDelivery(partition): void {
+			if (database === undefined) throw new Error("Context store is closed");
+			disarmNudgeDelivery(database, partition);
+		},
 		claimNudgeDelivery(
 			partition,
 			ownerToken,
@@ -2886,6 +2965,22 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 		recordDetectedContextLimit(partition, contextWindow): void {
 			if (database === undefined) throw new Error("Context store is closed");
 			recordDetectedContextLimit(database, partition, contextWindow);
+		},
+		recordOverflowRecovery(partition, contextWindow): void {
+			if (database === undefined) throw new Error("Context store is closed");
+			recordOverflowRecovery(database, partition, contextWindow);
+		},
+		needsEmergencyRecovery(partition): boolean {
+			if (database === undefined) throw new Error("Context store is closed");
+			return needsEmergencyRecovery(database, partition);
+		},
+		clearEmergencyRecovery(partition): void {
+			if (database === undefined) throw new Error("Context store is closed");
+			clearEmergencyRecovery(database, partition);
+		},
+		sealNudgeDelivered(partition): void {
+			if (database === undefined) throw new Error("Context store is closed");
+			sealNudgeDelivered(database, partition);
 		},
 		writeMemory(input): MctxMemory {
 			if (database === undefined) throw new Error("Context store is closed");

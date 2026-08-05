@@ -506,7 +506,7 @@ test("expand reads only current-branch retained tags and reports gaps", async ()
 	).toMatchObject({ kind: "expanded", tags: [{ tagNumber: 1 }], rejected: [] });
 });
 
-test("nudges only reclaimable old tool tags under pressure", async (): Promise<void> => {
+test("tool-result guidance does not append an inline ceiling message", async (): Promise<void> => {
 	const toolBranch = [
 		entry("request", "user", "inspect files"),
 		{
@@ -583,9 +583,9 @@ test("nudges only reclaimable old tool tags under pressure", async (): Promise<v
 		sessionManager: { getSessionId: () => "session-1", getBranch: () => toolBranch },
 	} as unknown as ExtensionContext;
 	await feature.onContext(toolBranch.flatMap(sessionEntryToContextMessages), context);
-	expect(feature.onToolResult("read", [{ type: "text", text: "more output" }], context)).toContain(
-		"2",
-	);
+	expect(
+		feature.onToolResult("read", [{ type: "text", text: "more output" }], context),
+	).toBeUndefined();
 	await feature.onContext(toolBranch.flatMap(sessionEntryToContextMessages), context);
 });
 
