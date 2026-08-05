@@ -43,6 +43,7 @@ import {
 	projectMctxHistoryTags,
 } from "./history-tags.js";
 import { createProjectIdentityResolver } from "./project-identity.js";
+import { replayMctxReasoning } from "./reasoning-replay.js";
 import { scheduleMctxMaintenance } from "./scheduler.js";
 import {
 	boundedMctxSearchText,
@@ -1600,6 +1601,27 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					);
 			}
 			const baseMessages = projection.kind === "rendered" ? projection.messages : messages;
+			const reasoningWatermark = withStoreReadPolicy(current, () =>
+				current.runtime.store.readReasoningWatermark(current.runtime.partition),
+			);
+			if (reasoningWatermark === undefined) return undefined;
+			const reasoning = replayMctxReasoning({
+				messages: baseMessages,
+				entries,
+				tags: historyTags,
+				watermark: reasoningWatermark,
+				clearReasoningAge: current.runtime.settings.clearReasoningAge,
+				execute: maintenance === "execute",
+			});
+			if (reasoning.watermark > reasoningWatermark) {
+				const persisted = withStoreReadPolicy(current, () =>
+					current.runtime.store.advanceReasoningWatermark(
+						current.runtime.partition,
+						reasoning.watermark,
+					),
+				);
+				if (persisted === undefined) return undefined;
+			}
 			const tagsForProjection: readonly MctxHistoryTag[] =
 				maintenance === "execute"
 					? historyTags
@@ -1607,7 +1629,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 							(tag): MctxHistoryTag =>
 								tag.status === "pending" ? { ...tag, status: "active" } : tag,
 						);
-			const tagged = projectMctxHistoryTags(baseMessages, entries, tagsForProjection);
+			const tagged = projectMctxHistoryTags(reasoning.messages, entries, tagsForProjection);
 			if (maintenance === "execute" && tagged.droppedTagNumbers.length > 0) {
 				const nextPartition = withStoreReadPolicy(current, () =>
 					current.runtime.store.markHistoryTagsDropped(
