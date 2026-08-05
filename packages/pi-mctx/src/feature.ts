@@ -28,6 +28,7 @@ import {
 } from "./compaction-marker.js";
 import { planMctxCompartmentRecovery, verifyMctxCompartmentGraph } from "./compartment-graph.js";
 import {
+	DEFAULT_CACHE_TTL_MS,
 	defaultMctxSettingsPaths,
 	loadMctxConfiguration,
 	type MctxConfiguration,
@@ -767,6 +768,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 		context: ExtensionContext,
 		messages: readonly AgentMessage[],
 		entries: readonly SessionEntry[],
+		cacheTtlMs: number,
 	): void {
 		try {
 			const previous = current.runtime.store.readStatusAccounting(current.runtime.partition);
@@ -777,6 +779,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			const toolDefinitions = computeMctxToolDefinitionTokens(listTools());
 			current.runtime.store.writeStatusAccounting(current.runtime.partition, {
 				...previous,
+				cacheTtlMs,
 				work: computeMctxWorkMetrics(entries),
 				tokens: { ...tokens, toolDefinitions },
 			});
@@ -1475,8 +1478,16 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				current.runtime.store.readStatusAccounting(current.runtime.partition),
 			);
 			if (accounting === undefined) return undefined;
+			const cacheTtlMs = modelThreshold(
+				current.runtime.settings.cacheTtlMs ?? {
+					defaultValue: DEFAULT_CACHE_TTL_MS,
+					byModel: {},
+				},
+				context.model,
+			);
+			if (cacheTtlMs === undefined) return undefined;
 			const maintenance = scheduleMctxMaintenance({
-				accounting,
+				accounting: { ...accounting, cacheTtlMs },
 				...(typeof usage?.tokens === "number" ? { usageTokens: usage.tokens } : {}),
 				...(usage?.contextWindow === undefined || usage.contextWindow === null
 					? {}
@@ -1678,7 +1689,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				current.runtime.settings.temporalAwareness !== false
 					? injectMctxTemporalMarkers(tagged.messages)
 					: tagged.messages;
-			updateStatusAccounting(current, context, projectedMessages, entries);
+			updateStatusAccounting(current, context, projectedMessages, entries, cacheTtlMs);
 			return { messages: projectedMessages };
 		},
 		prepare,

@@ -12,6 +12,7 @@ export const DEFAULT_FAIL_CLOSED_BLOCKING = true;
 export const DEFAULT_CLEAR_REASONING_AGE = 50;
 export const DEFAULT_PROTECTED_TAGS = 20;
 export const DEFAULT_SMART_DROPS = false;
+export const DEFAULT_CACHE_TTL_MS = 5 * 60 * 1_000;
 
 const MIN_EXECUTE_THRESHOLD_PERCENTAGE = 20;
 const MAX_EXECUTE_THRESHOLD_PERCENTAGE = 80;
@@ -60,6 +61,8 @@ export interface MctxPipelineSettings {
 	readonly clearReasoningAge: number;
 	/** Lossy old-text compression is opt-in and never project-controlled. */
 	readonly cavemanTextCompression?: { readonly minChars: number };
+	/** User-owned cache maintenance delay, selected by the current parent model. */
+	readonly cacheTtlMs?: MctxThreshold;
 }
 
 /** User-owned optional primer path. Project settings cannot select local files to search. */
@@ -222,6 +225,53 @@ function parsePercentage(value: unknown): MctxThreshold | string {
 
 function parseTokens(value: unknown): MctxOptionalThreshold | string {
 	return parseThreshold(value, MIN_EXECUTE_THRESHOLD_TOKENS, MAX_EXECUTE_THRESHOLD_TOKENS, false);
+}
+
+function parseCacheTtlValue(value: unknown): number | undefined {
+	if (typeof value === "number")
+		return Number.isSafeInteger(value) && value > 0 ? value : undefined;
+	if (typeof value !== "string") return undefined;
+	const match = value.trim().match(/^(\d+)([smh])?$/u);
+	if (match === null) return undefined;
+	const quantity = Number(match[1]);
+	const unit = match[2];
+	const multiplier = unit === "s" ? 1_000 : unit === "m" ? 60_000 : unit === "h" ? 3_600_000 : 1;
+	const milliseconds = quantity * multiplier;
+	return Number.isSafeInteger(milliseconds) && milliseconds > 0 ? milliseconds : undefined;
+}
+
+function parseCacheTtl(
+	global: Readonly<Record<string, unknown>>,
+	project: Readonly<Record<string, unknown>>,
+	warnings: string[],
+): MctxThreshold | undefined {
+	if (project.cache_ttl !== undefined)
+		warnings.push("Ignoring project cache_ttl: only user config controls cache policy");
+	const raw = global.cache_ttl;
+	if (raw === undefined) return undefined;
+	const scalar = parseCacheTtlValue(raw);
+	if (scalar !== undefined) return { defaultValue: scalar, byModel: {} };
+	if (!isRecord(raw)) {
+		warnings.push("Ignoring user cache_ttl: expected positive milliseconds or Ns/Nm/Nh");
+		return undefined;
+	}
+	const byModel: Record<string, number> = {};
+	const rawDefault = raw.default;
+	const parsedDefault =
+		rawDefault === undefined ? DEFAULT_CACHE_TTL_MS : parseCacheTtlValue(rawDefault);
+	if (parsedDefault === undefined)
+		warnings.push("Ignoring user cache_ttl.default: expected positive milliseconds or Ns/Nm/Nh");
+	for (const [model, value] of Object.entries(raw)) {
+		if (model === "default") continue;
+		const parsed = parseCacheTtlValue(value);
+		if (parsed === undefined) {
+			warnings.push(`Ignoring user cache_ttl.${model}: expected positive milliseconds or Ns/Nm/Nh`);
+			continue;
+		}
+		byModel[model] = parsed;
+	}
+	if (parsedDefault === undefined && Object.keys(byModel).length === 0) return undefined;
+	return { defaultValue: parsedDefault ?? DEFAULT_CACHE_TTL_MS, byModel };
 }
 
 function raiseThreshold(
@@ -397,6 +447,7 @@ function resolvePipeline(
 			};
 		if (rawCaveman.enabled) cavemanTextCompression = { minChars };
 	}
+	const cacheTtlMs = parseCacheTtl(global, project, warnings);
 
 	return {
 		kind: "enabled",
@@ -414,6 +465,7 @@ function resolvePipeline(
 			protectedTags,
 			clearReasoningAge,
 			...(cavemanTextCompression === undefined ? {} : { cavemanTextCompression }),
+			...(cacheTtlMs === undefined ? {} : { cacheTtlMs }),
 		},
 	};
 }
