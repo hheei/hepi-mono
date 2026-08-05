@@ -778,8 +778,12 @@ export default function piMctxExtension(pi: ExtensionAPI): void {
 	// their handlers stay above for revival (see docs/mctx/README.md).
 	registerContextHook(pi, feature);
 	registerCompactionHook(pi, feature);
+	// Pi /reload can replace this entry module during an active turn while its
+	// dependency cache still exposes the prior feature object. Keep that one
+	// transition harmless; a process restart loads the matching implementation.
+	const reloadCompatibleFeature = feature as Partial<MctxFeature>;
 	pi.on("before_agent_start", (event) => {
-		const prompt = feature.systemPrompt();
+		const prompt = reloadCompatibleFeature.systemPrompt?.();
 		return prompt === undefined
 			? undefined
 			: { systemPrompt: `${event.systemPrompt}\n\n${prompt}` };
@@ -792,13 +796,13 @@ export default function piMctxExtension(pi: ExtensionAPI): void {
 		) => { content?: ToolResultEvent["content"] },
 	) => void;
 	onToolResult("tool_result", (event, context) => {
-		const reminder = feature.onToolResult(event.toolName, event.content, context);
+		const reminder = reloadCompatibleFeature.onToolResult?.(event.toolName, event.content, context);
 		return reminder === undefined
 			? {}
 			: { content: [...event.content, { type: "text", text: reminder }] };
 	});
 	pi.on("agent_end", (_event, context) => {
-		const reminder = feature.takeCeilingNudge(context);
+		const reminder = reloadCompatibleFeature.takeCeilingNudge?.(context);
 		if (reminder === undefined) return;
 		pi.sendMessage(
 			{
