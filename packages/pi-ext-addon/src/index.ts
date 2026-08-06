@@ -1,3 +1,16 @@
+export {
+	createDollarSkillFeature,
+	createDollarSkillSettingsProvider,
+	type DollarSkillFeature,
+	registerDollarSkillInputTransform,
+} from "./dollar-skill/index.js";
+export {
+	type DollarSkillCommand,
+	type DollarSkillConfig,
+	expandDollarSkillReferences,
+	extractDollarSkillToken,
+	getDollarSkillSuggestions,
+} from "./dollar-skill/model.js";
 export { default, default as piExtAddonExtension } from "./extension.js";
 export {
 	applyOpenAIResponsesCompat,

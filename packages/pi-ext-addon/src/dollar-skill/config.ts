@@ -1,14 +1,14 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { updateJsonSettingsRoot } from "../core/index.js";
+import { updateJsonSettingsRoot } from "@hheei/pi-ext-core";
 import {
 	DEFAULT_DOLLAR_SKILL_CONFIG,
 	type DollarSkillConfig,
 	MAX_DOLLAR_SKILL_SUGGESTIONS,
 } from "./model.js";
 
-const SECTION = "pi-basics";
+const SECTION = "pi-ext-addon";
 export const DOLLAR_SKILL_SETTINGS_GROUP = "dollarSkillReferences";
 type JsonObject = Record<string, unknown>;
 

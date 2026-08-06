@@ -5,6 +5,7 @@ import type {
 } from "@earendil-works/pi-tui";
 
 export const DEFAULT_DOLLAR_SKILL_MAX_SUGGESTIONS = 50;
+// Dollar references are resolved against Pi's loaded skill command registry.
 export const MAX_DOLLAR_SKILL_SUGGESTIONS = 50;
 
 export interface DollarSkillCommand {
