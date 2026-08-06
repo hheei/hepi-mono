@@ -75,6 +75,7 @@ function endsWithAssistant(entries: readonly SessionEntry[]): boolean {
 function completeGroups(entries: readonly SessionEntry[]): readonly MctxCompleteTurnGroup[] {
 	const groups: MctxCompleteTurnGroup[] = [];
 	let current: SessionEntry[] | undefined;
+	let leading: SessionEntry[] = [];
 	for (const entry of entries) {
 		if (isUserEntry(entry)) {
 			// A new user entry closes the previous group only after its assistant
@@ -82,9 +83,15 @@ function completeGroups(entries: readonly SessionEntry[]): readonly MctxComplete
 			if (current !== undefined && endsWithAssistant(current)) {
 				groups.push({ entries: current });
 			}
-			current = [entry];
+			// Pi compaction markers are branch entries, not messages. A live tail can
+			// start with one, so retain it in the next source snapshot or the next
+			// compartment would leave a graph gap.
+			current = [...leading, entry];
+			leading = [];
 		} else if (current !== undefined) {
 			current.push(entry);
+		} else {
+			leading.push(entry);
 		}
 	}
 	if (current !== undefined && endsWithAssistant(current)) groups.push({ entries: current });

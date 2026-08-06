@@ -12,6 +12,18 @@ function entry(id: string, role: "user" | "assistant" | "toolResult", content = 
 	} as SessionEntry;
 }
 
+function compaction(id: string): SessionEntry {
+	return {
+		id,
+		parentId: null,
+		timestamp: "2026-01-01T00:00:00.000Z",
+		type: "compaction",
+		summary: "MCTX summary",
+		firstKeptEntryId: "user-1",
+		tokensBefore: 1,
+	} as SessionEntry;
+}
+
 test("projects whole older turns and preserves a protected tail", (): void => {
 	const result = projectMctxSourceHistory([
 		entry("user-1", "user", "first request"),
@@ -27,6 +39,22 @@ test("projects whole older turns and preserves a protected tail", (): void => {
 	expect(result.value.sourceText).toContain("first request");
 	expect(result.value.sourceText).toContain("first response");
 	expect(result.value.sourceText).not.toContain("latest request");
+});
+
+test("keeps a leading Pi compaction marker in the next compartment source", (): void => {
+	const result = projectMctxSourceHistory(
+		[
+			compaction("marker"),
+			entry("user-1", "user"),
+			entry("assistant-1", "assistant"),
+			entry("user-2", "user"),
+			entry("assistant-2", "assistant"),
+		],
+		1,
+	);
+	expect(result.kind).toBe("eligible");
+	if (result.kind !== "eligible") throw new Error("Expected eligible source history");
+	expect(result.value.source.entryIds).toEqual(["marker", "user-1", "assistant-1"]);
 });
 
 test("conservatively converts retained messages to complete turn groups", (): void => {

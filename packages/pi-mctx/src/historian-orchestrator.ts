@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { Api, Model } from "@earendil-works/pi-ai";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { CompletionFailure, ExtensionLifecycleContext } from "@hheei/pi-ext-core";
+import { verifyMctxCompartmentGraph } from "./compartment-graph.js";
 import type { MctxCompartmentSourceSnapshot } from "./compartment-validation.js";
 import type { MctxHistorianCompletionResult } from "./historian-executor.js";
 import { executeMctxHistorianCompletion } from "./historian-executor.js";
 import { mapMctxHistorianOutput } from "./historian-output.js";
 import type {
+	MctxCompartment,
 	MctxCompartmentDraft,
 	MctxCompartmentPublication,
 	MctxHistorianLease,
@@ -36,14 +39,42 @@ export interface MctxHistorianRunRequest {
 	readonly source: MctxCompartmentSourceSnapshot;
 	readonly sourceText: string;
 	readonly signal: AbortSignal;
+	/** Rejects output captured from a branch that changed while completion was running. */
+	readonly isCurrent?: () => boolean;
 	readonly expectedTier?: "m0" | "m1";
 	readonly replaceFromPublishedRevision?: number;
+	/** Optional live graph proof. When supplied, drafts are checked before publication. */
+	readonly graphEntries?: readonly SessionEntry[];
+	readonly existingCompartments?: readonly MctxCompartment[];
 	readonly leaseOwnerToken?: string;
 	readonly nowMs?: number;
 	/** Test-only timing seam. Production renews at half the lease TTL. */
 	readonly leaseRenewalIntervalMs?: number;
 	/** Test-only timing seam. Production uses bounded exponential jitter. */
 	readonly retryDelayMs?: (retryAttempt: number) => number;
+}
+
+function validateDraftGraph(
+	request: MctxHistorianRunRequest,
+	draft: MctxCompartmentDraft,
+): string | undefined {
+	if (request.graphEntries === undefined || request.existingCompartments === undefined)
+		return undefined;
+	const replaceFrom = request.replaceFromPublishedRevision;
+	const retained =
+		replaceFrom === undefined
+			? request.existingCompartments
+			: request.existingCompartments.filter(
+					(compartment) => compartment.publishedRevision < replaceFrom,
+				);
+	const previousRevision = retained.at(-1)?.publishedRevision ?? 0;
+	const candidate: MctxCompartment = {
+		...draft,
+		sequence: 0,
+		publishedRevision: previousRevision + 1,
+	};
+	const graph = verifyMctxCompartmentGraph(request.graphEntries, [...retained, candidate]);
+	return graph.kind === "invalid" ? graph.reason : undefined;
 }
 
 export type MctxHistorianRunResult =
@@ -108,6 +139,10 @@ function errorReason(error: unknown): string {
 
 function storageFailure(reason: string, attempt: number): MctxHistorianRunResult {
 	return { kind: "failed", reason, failureKind: "storage", attempt };
+}
+
+function invalidGraphResult(reason: string, attempt: number): MctxHistorianRunResult {
+	return { kind: "invalid", reason, failureKind: "validation", attempt };
 }
 
 function publishMappedDraft(
@@ -249,6 +284,7 @@ export async function runMctxHistorian(
 		if (renewalFailure !== undefined) outcome = storageFailure(renewalFailure, attempts.count);
 		else if (leaseLost || controller.signal.aborted || first.kind === "cancelled")
 			outcome = { kind: "cancelled" };
+		else if (request.isCurrent?.() === false) outcome = { kind: "stale" };
 		else if (first.kind === "failed")
 			outcome = {
 				kind: "failed",
@@ -259,7 +295,11 @@ export async function runMctxHistorian(
 		else {
 			const firstMapping = mappedDraft(first.output, request);
 			if (firstMapping.kind === "valid") {
-				outcome = publishMappedDraft(request, firstMapping.value.draft, false, attempts.count);
+				const graphError = validateDraftGraph(request, firstMapping.value.draft);
+				outcome =
+					graphError === undefined
+						? publishMappedDraft(request, firstMapping.value.draft, false, attempts.count)
+						: invalidGraphResult(graphError, attempts.count);
 			} else {
 				const repair = await executeWithTransientRetries(
 					request,
@@ -272,6 +312,7 @@ export async function runMctxHistorian(
 				if (renewalFailure !== undefined) outcome = storageFailure(renewalFailure, attempts.count);
 				else if (leaseLost || controller.signal.aborted || repair.kind === "cancelled")
 					outcome = { kind: "cancelled" };
+				else if (request.isCurrent?.() === false) outcome = { kind: "stale" };
 				else if (repair.kind === "failed")
 					outcome = {
 						kind: "failed",
@@ -289,7 +330,12 @@ export async function runMctxHistorian(
 									failureKind: "validation",
 									attempt: attempts.count,
 								}
-							: publishMappedDraft(request, repairMapping.value.draft, true, attempts.count);
+							: (() => {
+									const graphError = validateDraftGraph(request, repairMapping.value.draft);
+									return graphError === undefined
+										? publishMappedDraft(request, repairMapping.value.draft, true, attempts.count)
+										: invalidGraphResult(graphError, attempts.count);
+								})();
 				}
 			}
 		}
