@@ -1,7 +1,6 @@
 # @hheei/pi-ext-addon
 
-Pi host addons: OpenAI Responses replay compatibility plus `$skill-name` autocomplete and
-prompt-time skill path references.
+Pi host addon for OpenAI Responses replay compatibility.
 
 ## Install
 
