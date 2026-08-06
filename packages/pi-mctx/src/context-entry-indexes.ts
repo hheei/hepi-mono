@@ -11,17 +11,42 @@ export function contextIndexesByEntryId(
 	entries: readonly SessionEntry[],
 ): ReadonlyMap<string, number> {
 	const indexes = new Map<string, number>();
-	let messageIndex = 0;
-	for (const entry of entries) {
-		if (entry.type !== "message") continue;
-		const projected = sessionEntryToContextMessages(entry);
-		if (projected.length !== 1) continue;
-		const expected = projected[0];
-		if (expected === undefined) continue;
-		while (messageIndex < messages.length && !isDeepStrictEqual(messages[messageIndex], expected))
-			messageIndex++;
-		if (messageIndex >= messages.length) continue;
-		indexes.set(entry.id, messageIndex++);
+	let entryIndex = 0;
+	for (let messageIndex = 0; messageIndex < messages.length; messageIndex += 1) {
+		const message = messages[messageIndex];
+		if (message === undefined) continue;
+		for (let candidateIndex = entryIndex; candidateIndex < entries.length; candidateIndex += 1) {
+			const entry = entries[candidateIndex];
+			if (entry === undefined || entry.type !== "message") continue;
+			const projected = sessionEntryToContextMessages(entry);
+			const expected = projected.length === 1 ? projected[0] : undefined;
+			if (expected === undefined || !sameContextMessage(message, expected)) continue;
+			indexes.set(entry.id, messageIndex);
+			entryIndex = candidateIndex + 1;
+			break;
+		}
 	}
 	return indexes;
+}
+
+/** Reasoning replay clears private thinking before history-tag projection. */
+function sameContextMessage(actual: AgentMessage, expected: AgentMessage): boolean {
+	if (isDeepStrictEqual(actual, expected)) return true;
+	if (actual.role !== "assistant" || expected.role !== "assistant") return false;
+	if (!Array.isArray(actual.content) || !Array.isArray(expected.content)) return false;
+	const normalizeThinking = (message: AgentMessage): AgentMessage => {
+		if (message.role !== "assistant" || !Array.isArray(message.content)) return message;
+		return {
+			...message,
+			content: message.content.map((part) =>
+				part.type === "thinking"
+					? (() => {
+							const { thinkingSignature: _thinkingSignature, ...rest } = part;
+							return { ...rest, thinking: "" };
+						})()
+					: part,
+			),
+		};
+	};
+	return isDeepStrictEqual(normalizeThinking(actual), normalizeThinking(expected));
 }

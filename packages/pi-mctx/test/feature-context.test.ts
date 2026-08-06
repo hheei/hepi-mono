@@ -1385,6 +1385,9 @@ test("context hook atomically drops a recoverable divergent tail and leaves that
 		resources: { add: () => undefined, cleanup: async () => [] },
 	} as unknown as ExtensionLifecycleContext;
 	let historianCalls = 0;
+	let rebuildRequest:
+		| { readonly rebuild?: true; readonly baseCompartments?: readonly MctxCompartment[] }
+		| undefined;
 	const feature = createMctxFeature({
 		loadConfiguration: async () => configuration(),
 		openStore: () => ({
@@ -1393,8 +1396,9 @@ test("context hook atomically drops a recoverable divergent tail and leaves that
 			replaceCompartmentsFrom: () => undefined,
 		}),
 		resolveProjectIdentity: async () => "git:project",
-		runHistorianForBranch: async () => {
+		runHistorianForBranch: async (request) => {
 			historianCalls++;
+			rebuildRequest = request;
 			return { kind: "cancelled" };
 		},
 	});
@@ -1405,9 +1409,10 @@ test("context hook atomically drops a recoverable divergent tail and leaves that
 	} as unknown as ExtensionContext;
 	expect(await feature.onContext(raw, context)).toBeUndefined();
 	expect(historianCalls).toBe(1);
+	expect(rebuildRequest).toMatchObject({ rebuild: true, baseCompartments: [] });
 	const active = feature.active();
 	if (active === undefined) throw new Error("Expected active runtime");
-	expect(active.partition.revision).toBe(1);
+	expect(active.partition.revision).toBe(0);
 });
 
 test("fork activation copies cross-project ancestors only after child-branch proof", async (): Promise<void> => {

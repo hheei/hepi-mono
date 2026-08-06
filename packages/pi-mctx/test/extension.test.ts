@@ -2,13 +2,58 @@ import { expect, test } from "bun:test";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import { observeLoadoutInventory } from "@hheei/pi-ext-core";
-import piMctxExtension from "../src/extension.js";
+import {
+	appendMctxToolResultReminder,
+	deliverMctxCeilingNudge,
+	default as piMctxExtension,
+} from "../src/extension.js";
 
 interface TestCommand {
 	readonly description?: string;
 	readonly getArgumentCompletions?: (prefix: string) => AutocompleteItem[] | null;
 	readonly handler: (args: string, context: ExtensionCommandContext) => Promise<void>;
 }
+
+test("transports reminders and ceiling nudges through Pi events", (): void => {
+	const context = {} as ExtensionCommandContext;
+	const reminder = appendMctxToolResultReminder(
+		{ onToolResult: () => "<system-reminder>reduce</system-reminder>" },
+		{ toolName: "read", content: [{ type: "text", text: "result" }] } as never,
+		context as never,
+	);
+	expect(reminder).toEqual({
+		content: [
+			{ type: "text", text: "result" },
+			{ type: "text", text: "<system-reminder>reduce</system-reminder>" },
+		],
+	});
+	const nudge = { text: "reduce now", claim: {} } as never;
+	const sent: Array<{ readonly options: unknown }> = [];
+	let completed = 0;
+	deliverMctxCeilingNudge(
+		{
+			claimCeilingNudge: () => nudge,
+			completeCeilingNudge: () => void completed++,
+		},
+		{ sendMessage: (_message, options) => void sent.push({ options }) } as never,
+		context as never,
+		"steer",
+	);
+	expect(sent).toEqual([{ options: { deliverAs: "steer" } }]);
+	expect(completed).toBe(1);
+	let released = 0;
+	deliverMctxCeilingNudge(
+		{ claimCeilingNudge: () => nudge, releaseCeilingNudge: () => void released++ },
+		{
+			sendMessage: () => {
+				throw new Error("host unavailable");
+			},
+		} as never,
+		context as never,
+		"followUp",
+	);
+	expect(released).toBe(1);
+});
 
 test("pi-mctx entry registers lifecycle handlers and managed Magic Context tools", (): void => {
 	const handlers: string[] = [];

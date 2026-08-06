@@ -23,6 +23,30 @@ const validOutput = JSON.stringify({
 	renderedPayload: "summary",
 });
 
+test("uses atomic replacement publication when recomp requests it", async (): Promise<void> => {
+	const { store: activeStore } = store({});
+	let replaced = 0;
+	const result = await runMctxHistorian(
+		request({
+			replaceFromPublishedRevision: 1,
+			store: {
+				...activeStore,
+				publishCompartment: () => {
+					throw new Error("must not publish separately");
+				},
+				replaceCompartmentsFrom: (_partition, revision, draft) => {
+					expect(revision).toBe(1);
+					replaced++;
+					return publication(draft);
+				},
+			},
+		}),
+		executor([validOutput]),
+	);
+	expect(result).toMatchObject({ kind: "published" });
+	expect(replaced).toBe(1);
+});
+
 function publication(draft: MctxCompartmentDraft): MctxCompartmentPublication {
 	return {
 		partition: { ...partition, revision: 1 },
@@ -111,6 +135,57 @@ test("publishes valid primary output and releases its lease", async (): Promise<
 	const result = await runMctxHistorian(request({ store: activeStore }), executor([validOutput]));
 	expect(result).toMatchObject({ kind: "published", repaired: false });
 	expect(releases()).toBe(1);
+});
+
+test("returns a typed storage failure when publication throws", async (): Promise<void> => {
+	const { store: activeStore, releases } = store({});
+	const result = await runMctxHistorian(
+		request({
+			store: {
+				...activeStore,
+				publishCompartment: () => {
+					throw new Error("database busy");
+				},
+			},
+		}),
+		executor([validOutput]),
+	);
+	expect(result).toEqual({
+		kind: "failed",
+		reason: "database busy",
+		failureKind: "storage",
+		attempt: 1,
+	});
+	expect(releases()).toBe(1);
+});
+
+test("returns a typed storage failure when lease release throws", async (): Promise<void> => {
+	const { store: activeStore } = store({
+		publish: publication({
+			tier: "m0",
+			sourceStartEntryId: "entry-1",
+			sourceEndEntryId: "entry-2",
+			sourceFingerprint: "snapshot",
+			renderedPayload: "summary",
+		}),
+	});
+	const result = await runMctxHistorian(
+		request({
+			store: {
+				...activeStore,
+				releaseHistorianLease: () => {
+					throw new Error("release failed");
+				},
+			},
+		}),
+		executor([validOutput]),
+	);
+	expect(result).toEqual({
+		kind: "failed",
+		reason: "release failed",
+		failureKind: "storage",
+		attempt: 1,
+	});
 });
 
 test("renews an active lease and releases its latest snapshot", async (): Promise<void> => {

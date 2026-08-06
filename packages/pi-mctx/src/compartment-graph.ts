@@ -19,7 +19,7 @@ export type MctxCompartmentRecoveryPlan =
 	| {
 			readonly kind: "rebuild";
 			readonly graph: MctxVerifiedCompartmentGraph | undefined;
-			readonly discardFromRevision: number;
+			readonly replaceFromPublishedRevision: number;
 			readonly rebuildStartIndex: number;
 			readonly reason: string;
 	  }
@@ -135,7 +135,7 @@ export function planMctxCompartmentRecovery(
 			return {
 				kind: "rebuild",
 				graph: ancestor,
-				discardFromRevision: divergent.publishedRevision,
+				replaceFromPublishedRevision: divergent.publishedRevision,
 				rebuildStartIndex:
 					ancestor === undefined ? (start < 0 ? 0 : start) : ancestor.liveTailStartIndex,
 				reason: candidate.reason,

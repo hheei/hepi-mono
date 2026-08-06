@@ -81,7 +81,7 @@ describe("verifyMctxCompartmentGraph", () => {
 		expect(planMctxCompartmentRecovery(entries, [first, divergent])).toEqual({
 			kind: "rebuild",
 			graph: { m0: [first], m1: [], sourceStartIndex: 1, liveTailStartIndex: 3 },
-			discardFromRevision: 2,
+			replaceFromPublishedRevision: 2,
 			rebuildStartIndex: 3,
 			reason: "compartment source fingerprint does not match the current branch",
 		});
@@ -95,7 +95,7 @@ describe("verifyMctxCompartmentGraph", () => {
 		).toMatchObject({
 			kind: "rebuild",
 			graph: undefined,
-			discardFromRevision: 1,
+			replaceFromPublishedRevision: 1,
 			rebuildStartIndex: 1,
 		});
 		expect(

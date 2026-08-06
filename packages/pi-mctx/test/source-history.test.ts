@@ -78,3 +78,29 @@ test("leaves incomplete and only protected turns ineligible", (): void => {
 		reason: "protected-tail",
 	});
 });
+
+test("keeps a whole source prefix inside the token budget", (): void => {
+	const entries = [
+		entry("user-1", "user", "first request"),
+		entry("assistant-1", "assistant", "first response"),
+		entry("user-2", "user", "second request"),
+		entry("assistant-2", "assistant", "second response"),
+		entry("user-3", "user", "protected request"),
+		entry("assistant-3", "assistant", "protected response"),
+	];
+	const full = projectMctxSourceHistory(entries, 1);
+	if (full.kind !== "eligible") throw new Error("Expected eligible source history");
+	const firstOnly = projectMctxSourceHistory(
+		entries,
+		1,
+		Math.ceil(full.value.sourceText.length / 8),
+	);
+	expect(firstOnly.kind).toBe("eligible");
+	if (firstOnly.kind !== "eligible") throw new Error("Expected bounded source history");
+	expect(firstOnly.value.groups).toHaveLength(1);
+	expect(firstOnly.value.source.entryIds).toEqual(["user-1", "assistant-1"]);
+	expect(projectMctxSourceHistory(entries, 1, 1)).toEqual({
+		kind: "ineligible",
+		reason: "source-too-large",
+	});
+});

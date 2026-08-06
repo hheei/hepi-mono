@@ -35,6 +35,7 @@ interface HostFixture {
 	readonly extensionErrors: string[];
 	readonly manager: SessionManager;
 	readonly replacement: () => SessionManager | undefined;
+	reregisterFaux(): void;
 	readonly session: Awaited<ReturnType<typeof createAgentSession>>["session"];
 	readonly warnings: string[];
 	dispose(): Promise<void>;
@@ -118,11 +119,6 @@ async function createHost(
 	if ((options.runtimeEnabled ?? true) && configuration.pipeline.kind !== "enabled") {
 		throw new Error(`Fixture MCTX config did not activate: ${JSON.stringify(configuration)}`);
 	}
-	const faux = registerFauxProvider({
-		provider: "faux",
-		models: [{ id: "faux-1", contextWindow: 200_000 }],
-	});
-	const model = faux.getModel();
 	const contexts: Context[] = [];
 	const steps: FauxResponseStep[] = Array.from({ length: 32 }, () => async (context) => {
 		contexts.push(context);
@@ -136,12 +132,25 @@ async function createHost(
 			),
 		]);
 	});
+	let faux = registerFauxProvider({
+		provider: "faux",
+		models: [{ id: "faux-1", contextWindow: 200_000 }],
+	});
+	faux.setResponses(steps);
+	const reregisterFaux = (): void => {
+		faux = registerFauxProvider({
+			provider: "faux",
+			models: [{ id: "faux-1", contextWindow: 200_000 }],
+		});
+		faux.setResponses(steps);
+	};
+	const model = faux.getModel();
 	faux.setResponses(steps);
 	const modelRuntime = {
 		getModel: (provider: string, id: string) =>
-			provider === model.provider && id === model.id ? model : undefined,
-		getModels: () => [model],
-		getAvailableSnapshot: () => [model],
+			provider === "faux" && id === "faux-1" ? faux.getModel() : undefined,
+		getModels: () => [faux.getModel()],
+		getAvailableSnapshot: () => [faux.getModel()],
 		hasConfiguredAuth: (): boolean => true,
 		checkAuth: async () => undefined,
 		isUsingOAuth: (): boolean => false,
@@ -211,6 +220,7 @@ async function createHost(
 		extensionErrors,
 		manager,
 		replacement: (): SessionManager | undefined => replacement,
+		reregisterFaux,
 		session,
 		warnings,
 		async dispose(): Promise<void> {
@@ -305,6 +315,11 @@ test("real Pi host builds an MCTX compartment for manual compact", async (): Pro
 		await host.session.prompt("First completed turn before manual compact.");
 		await host.session.prompt("Second completed turn before manual compact.");
 		await host.session.prompt(LARGE_PROMPT);
+		await host.session.reload({
+			beforeSessionStart: (): void => {
+				host.reregisterFaux();
+			},
+		});
 		const before = host.manager.getEntries().length;
 		await host.session.compact();
 		const markers = host.manager
@@ -434,6 +449,7 @@ test("real Pi host hands off through selected MCTX projection without native com
 		await waitFor(() => containsSummary(host.contexts));
 
 		const contextsBeforeHandoff = host.contexts.length;
+		await host.session.reload({ beforeSessionStart: host.reregisterFaux });
 		await host.session.prompt("/handoff");
 
 		const replacement = host.replacement();

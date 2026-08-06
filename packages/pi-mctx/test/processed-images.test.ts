@@ -68,6 +68,39 @@ test("plans only persisted, aged image entries after an assistant response", ():
 	).toEqual([]);
 });
 
+test("replays strips through a pre-tag identity index", (): void => {
+	const user = {
+		role: "user" as const,
+		content: [
+			{ type: "text" as const, text: "§1§ inspect" },
+			{ type: "image" as const, data: "x".repeat(201), mimeType: "image/png" },
+		],
+		timestamp: 1,
+	};
+	const entry = {
+		type: "message",
+		id: "user",
+		parentId: null,
+		timestamp: "2026-01-01T00:00:00.000Z",
+		message: {
+			...user,
+			content: [{ type: "text" as const, text: "inspect" }, ...user.content.slice(1)],
+		},
+	} as SessionEntry;
+	const result = stripMctxProcessedImages(
+		[user],
+		[entry],
+		new Set(["user"]),
+		new Map([["user", 0]]),
+	);
+	expect(result[0]).toMatchObject({
+		content: [
+			{ type: "text", text: "§1§ inspect" },
+			{ type: "text", text: "[image stripped]" },
+		],
+	});
+});
+
 test("replays persisted image strips without changing other messages", (): void => {
 	const messages = structuredClone([userMessage, assistantMessage]);
 	const stripped = stripMctxProcessedImages(messages, entries, new Set(["image-user"]));

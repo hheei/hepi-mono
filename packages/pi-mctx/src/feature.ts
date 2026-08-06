@@ -201,6 +201,7 @@ interface MctxHistorianRequest {
 	readonly replaceFromPublishedRevision?: number;
 	readonly usagePercentage?: number;
 	readonly executeThresholdPercentage?: number;
+	readonly parentContextWindow?: number;
 }
 
 function smartDropTargetTokens(
@@ -737,6 +738,7 @@ interface ActiveMctxRuntime {
 	lastHistorianTerminalReason?: string | undefined;
 	notifiedStoreReadFailure?: boolean | undefined;
 	notifiedHistoryTagDropFailure?: boolean | undefined;
+	notifiedEmbeddingFailure?: boolean | undefined;
 	embeddingLease?: EmbeddingProviderLease | undefined;
 	embeddingJob?: AbortController | undefined;
 	embeddingCompletion?: Promise<void> | undefined;
@@ -1025,6 +1027,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				? {}
 				: { usagePercentage: (pressure.inputTokens / pressure.contextWindow) * 100 }),
 			...(percentage === undefined ? {} : { executeThresholdPercentage: percentage }),
+			...(pressure === undefined ? {} : { parentContextWindow: pressure.contextWindow }),
 		};
 	}
 	/**
@@ -1081,6 +1084,9 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			...(request.executeThresholdPercentage === undefined
 				? {}
 				: { executeThresholdPercentage: request.executeThresholdPercentage }),
+			...(request.parentContextWindow === undefined
+				? {}
+				: { parentContextWindow: request.parentContextWindow }),
 		})
 			.then((result) => {
 				if (active !== current || current.job !== job || job.signal.aborted) return;
@@ -1166,6 +1172,24 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 		current: ActiveMctxRuntime,
 		request: MctxHistorianRequest,
 	): MctxHistorianCommandResult {
+		const historian = current.runtime.historian;
+		if (historian.kind !== "active")
+			return {
+				kind: "historian-unavailable",
+				reason:
+					historian.kind === "unavailable"
+						? historian.diagnostic
+						: "Historian is disabled in settings",
+			};
+		const model = current.lifecycle.extension.modelRegistry.find(
+			historian.model.provider,
+			historian.model.id,
+		);
+		if (model === undefined || !current.lifecycle.extension.modelRegistry.hasConfiguredAuth(model))
+			return {
+				kind: "historian-unavailable",
+				reason: `historian model is unavailable: ${historian.model.provider}/${historian.model.id}`,
+			};
 		if (current.job === undefined) {
 			startHistorian(current, request);
 			return { kind: "scheduled" };
@@ -1193,9 +1217,15 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 		const abort = (): void => job.abort();
 		current.lifecycle.signal.addEventListener("abort", abort, { once: true });
 		const completion = runMemoryEmbedding(current, job.signal, memory)
-			.catch(() => {
-				// A provider failure is an optional-capability miss: the memory write
-				// stays successful and simply produces no vector.
+			.catch((error: unknown) => {
+				if (current.lifecycle.signal.aborted || current.notifiedEmbeddingFailure === true) return;
+				current.notifiedEmbeddingFailure = true;
+				current.lifecycle.extension.ui.notify(
+					`pi-mctx embedding failed; memory was saved without a vector: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+					"warning",
+				);
 			})
 			.finally(() => {
 				current.lifecycle.signal.removeEventListener("abort", abort);
@@ -1930,10 +1960,11 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			if (recovery.kind === "rebuild") {
 				const rebuildRequest: MctxHistorianRequest = {
 					entries: [...entries],
-					replaceFromPublishedRevision: recovery.discardFromRevision,
-					...(recovery.graph === undefined
-						? {}
-						: { baseCompartments: [...recovery.graph.m0, ...recovery.graph.m1] }),
+					replaceFromPublishedRevision: recovery.replaceFromPublishedRevision,
+					baseCompartments:
+						recovery.graph === undefined ? [] : [...recovery.graph.m0, ...recovery.graph.m1],
+					...(recovery.graph === undefined ? { rebuild: true } : {}),
+					...historianSourceBudget(current, context),
 				};
 				current.rebuildRequest = rebuildRequest;
 				if (current.job === undefined) startHistorian(current, rebuildRequest);
