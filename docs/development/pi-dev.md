@@ -15,8 +15,8 @@ Pi 默认路径与命令行行为决定。
 - 包来源：仓库 `packages/` 下选定的本地 Pi 包，使用其原有 `pi` manifest。
 - Pi 状态：沿用 Pi 默认目录，不创建独立的配置目录，也不复制或链接认证、模型文件。
 - 构建缓存：仅将构建指纹写入 `.pi-dev/build.json`；这不是 Pi 配置目录。
-- 启动前构建所选本地包并强制 TypeScript 产出 `dist`，构建失败时不启动 Pi。
-  选中 `pi-ext-tools` 时，启动器还会以增量 `local` profile 构建其
+- 启动前构建所选包中声明 `scripts.build` 的包；直接指向 TypeScript 源目录的 extension
+  不构建，由 Pi 直接加载。构建失败时不启动 Pi。选中 `pi-ext-tools` 时，启动器还会以增量 `local` profile 构建其
   `crates/pi-ext-bridge` N-API 模块。两类构建各有指纹，首次运行或对应输入变化时
   构建；同一 worktree、同一包集、未改源码时跳过构建。删除
   `.pi-dev/build.json` 可强制下一次构建。
@@ -27,4 +27,4 @@ OpenAI 时用 `pi` 的 `--api-key` 参数显式提供。
 默认加载全部本仓库 `pi-*` 包。可用 `PI_DEV_PACKAGES` 传入以逗号分隔的包目录名
 测试局部组合，例如 `PI_DEV_PACKAGES=pi-auto-title,pi-subagents`。
 默认集为 `packages/pi-*` 下的本仓库 `@hheei` 独立包。脚本不加载已弃用的
-`hepi-*` 聚合包、开发诊断包 `hepi-debug` 或独立子模块 `hepi-subagents`。
+`hepi-*` 聚合包、开发诊断包 `pi-debug` 或独立子模块 `hepi-subagents`。
