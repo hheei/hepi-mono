@@ -31,6 +31,7 @@ test("retains bounded combined output and reports completion", async (): Promise
 	const registry = new BashJobRegistry();
 	registries.push(registry);
 	const started = registry.start("yes x | head -c 1100000", process.cwd());
+	expect(() => structuredClone(started)).not.toThrow();
 	const completed = await eventually(
 		() => registry.get(started.id),
 		(job) => job.status !== "running",

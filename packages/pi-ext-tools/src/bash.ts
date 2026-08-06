@@ -241,7 +241,17 @@ export function registerBashTool(pi: ExtensionAPI, state?: FffRuntimeState): voi
 						state?.getSettings().shellPath,
 						params.timeout === undefined ? undefined : Math.max(0, params.timeout * 1000),
 					);
-					return result(`Started Bash job ${job.id}`, { ...job, output: undefined });
+					return result(`Started Bash job ${job.id}`, {
+						id: job.id,
+						command: job.command,
+						cwd: job.cwd,
+						status: job.status,
+						exitCode: job.exitCode,
+						startedAt: job.startedAt,
+						timedOut: job.timedOut,
+						...(job.endedAt === undefined ? {} : { endedAt: job.endedAt }),
+						...(job.outputArtifact === undefined ? {} : { outputArtifact: job.outputArtifact }),
+					});
 				} catch (error) {
 					return result(
 						`Unable to start Bash job: ${error instanceof Error ? error.message : String(error)}`,
