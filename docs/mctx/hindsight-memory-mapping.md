@@ -344,11 +344,15 @@ category/importance -> explicit retained metadata or documented discard
 active/archive      -> documented Hindsight scope/correction policy
 embedding           -> discard; Hindsight re-extracts/re-embeds
 note                -> import only when user explicitly selects it
+scope               -> current project bank only by default
 ```
 
 每次 import 生成 receipt：source row count、selected rows、Hindsight document IDs、read-back scope check、
 failures 和 skipped rows。只有所有 selected source rows 都可从 Hindsight read-back 验证、receipt 已持久化、
 用户确认后，才允许删除旧 tables/API。失败 row 不得静默跳过，也不得为它们保留 production dual-write。
+import 不自动升级任何旧 row 到 global/user/life bank；scope 扩大必须由用户逐条或显式 batch 确认。receipt
+还记录 target bank、profile、redaction policy、update mode 和 import tool version，保证后续 correction/deletion
+可追溯到 Hindsight document provenance。
 
 ## 旧功能删除清单
 
