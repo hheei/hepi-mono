@@ -336,6 +336,29 @@ describe("pi-ext-tools catalog", () => {
 			"<mdCode>0 exact matches. 3 approximate:</mdCode>\n<mdCode>src/a.ts</mdCode>\n<dim>  1?</dim>one\n<dim>100?</dim>hundred\n<mdCode>other/b.ts</mdCode>\n<dim>2?</dim>two",
 		);
 		expect(
+			find
+				.renderResult?.(
+					{
+						content: [
+							{
+								type: "text",
+								text: "src/\n1. search.ts (fff)\n8. historian-orchestrator.ts (fuzzy_filename) git:modified\n9. historian-branch-runner.ts (fuzzy_filename) git:modified\n10. historian-executor.ts (ffp)",
+							},
+						],
+						details: undefined,
+					},
+					{},
+					theme,
+					{ isError: false, lastComponent: undefined },
+				)
+				.render(200)
+				.map((line) => line.trimEnd())
+				.join("\n")
+				.trimEnd(),
+		).toBe(
+			"<mdCode>src/</mdCode>\n<success>FF</success> <dim>search.ts</dim>\n<success>FF</success> <dim>historian-orchestrator.ts</dim> (git:modified)\n<success>FF</success> <dim>historian-branch-runner.ts</dim> (git:modified)\n<success>FP</success> <dim>historian-executor.ts</dim>",
+		);
+		expect(
 			grep
 				.renderResult?.(
 					{
