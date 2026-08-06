@@ -151,14 +151,9 @@ function requestedGrepLimit(result: AgentToolResult<unknown>): number | undefine
 
 function renderGrepText(text: string, theme: Theme, limit: number | undefined): string {
 	const lines = text.split("\n");
-	const lineWidth = String(
-		lines.reduce((max, line) => {
-			const match = line.match(GREP_MATCH_LINE);
-			return match ? Math.max(max, Number(match[1])) : max;
-		}, 1),
-	).length;
+	const lineWidths = fffGrepLineWidths(lines);
 	const rendered = lines
-		.map((line) => {
+		.map((line, index) => {
 			if (GREP_NO_MATCHES.test(line)) return theme.fg("warning", line);
 			const truncation = line.match(GREP_TRUNCATION);
 			if (truncation)
@@ -187,7 +182,7 @@ function renderGrepText(text: string, theme: Theme, limit: number | undefined): 
 			const lineNumber = match[1] ?? "";
 			const separator = match[2] ?? ":";
 			const content = match[3] ?? "";
-			return `${theme.fg("dim", lineNumber.padStart(lineWidth, " ") + separator)}${content}`;
+			return `${theme.fg("dim", lineNumber.padStart(lineWidths.get(index) ?? 0, " ") + separator)}${content}`;
 		})
 		.join("\n");
 	return lines.some((line) => GREP_SUMMARY.test(line) || GREP_NO_MATCHES.test(line))
