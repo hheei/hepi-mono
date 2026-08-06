@@ -69,6 +69,12 @@ function fffGrepLineWidths(lines: readonly string[]): ReadonlyMap<number, number
 
 function renderFffGrepText(text: string, theme: Theme): string {
 	const lines = text.split("\n").filter((line) => !FIND_CURSOR.test(line));
+	const summaryIndex = lines.findIndex((line) => /^Found \d+ matches in \d+ files\.$/.test(line));
+	if (summaryIndex >= 0) {
+		const firstContent = summaryIndex + 1;
+		while (lines[firstContent] === "") lines.splice(firstContent, 1);
+		lines.splice(firstContent, 0, "");
+	}
 	const lineWidths = fffGrepLineWidths(lines);
 	return lines
 		.map((line, index) => {
@@ -205,7 +211,7 @@ export function renderGrepCall(
 	context: Pick<RenderContext, "lastComponent">,
 ): Text {
 	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-	const scope = args.path ? ` in ${theme.fg("accent", args.path)}` : "";
+	const scope = args.path ? ` in ${theme.fg("dim", args.path)}` : "";
 	const timeout = theme.fg("dim", ` (timeout ${args.timeout ?? DEFAULT_GREP_TIMEOUT_SECONDS}s)`);
 	text.setText(
 		`${theme.fg("accent", "grep")} ${theme.fg("mdCode", `/${args.pattern}/`)}${scope}${timeout}`,

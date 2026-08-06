@@ -83,6 +83,7 @@ existing semantic token expresses the role.
 - Compressed FFF `grep` rows render the path with `dim`, the `:line,line` segment with `mdCode`, and the match count with `success`. The raw row remains unchanged for the model.
 - Compressed FFF `grep` summary line-number segments, including `:1,2,3`, use `warning`; paths remain `dim` and match counts remain `success`.
 - Compressed FFF `grep` summaries group two or more files from the same parent directory under a `dir/` header. Both the model and TUI receive the grouped raw structure; singleton directories retain full repo-relative paths.
+- FFF `grep` result summaries keep exactly one blank line between the `Found ... matches in ... files.` line and the first result block; the grep call renders its path constraint with `dim`.
 - FFF `grep` content, approximate results, and native fallback results right-align line numbers to the widest number in each displayed file block. The renderer applies this TUI-only alignment to `:`, `│`, and `?` row separators without changing the model-visible result.
 - Every active `pi-mctx` tool result begins with the literal `[magic context]`.
   The operation-specific result follows immediately. Only `ctx_reduce` adds its

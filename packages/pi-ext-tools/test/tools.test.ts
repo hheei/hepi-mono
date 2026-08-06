@@ -243,7 +243,7 @@ describe("pi-ext-tools catalog", () => {
 				.join("\n")
 				.trimEnd(),
 		).toBe(
-			"<accent>grep</accent> <mdCode>/needle/</mdCode> in <accent>src</accent><dim> (timeout 5s)</dim>",
+			"<accent>grep</accent> <mdCode>/needle/</mdCode> in <dim>src</dim><dim> (timeout 5s)</dim>",
 		);
 		expect(
 			find
@@ -291,6 +291,27 @@ describe("pi-ext-tools catalog", () => {
 		).toBe(
 			"<mdCode>src/</mdCode>\n<dim>a.ts</dim><warning>:1,2,3,4,5, …</warning> (<success>6</success> matches)\n<dim>b.ts</dim><warning>:7</warning> (<success>1</success> matches)",
 		);
+		expect(
+			grep
+				.renderResult?.(
+					{
+						content: [
+							{
+								type: "text",
+								text: "Found 9 matches in 3 files.\n\n\nsrc/a.ts\n1:one",
+							},
+						],
+						details: { format: "fff-grep" },
+					},
+					{},
+					theme,
+					{ isError: false, lastComponent: undefined },
+				)
+				.render(200)
+				.map((line) => line.trimEnd())
+				.join("\n")
+				.trimEnd(),
+		).toBe("Found 9 matches in 3 files.\n\nsrc/a.ts\n1:one");
 		expect(
 			grep
 				.renderResult?.(
