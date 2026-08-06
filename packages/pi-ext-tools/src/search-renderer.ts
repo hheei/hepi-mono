@@ -89,7 +89,7 @@ function renderFffGrepText(text: string, theme: Theme): string {
 				const numbers = (fileMatchSummary[2] ?? "").split(",");
 				const shown = numbers.slice(0, 5).join(",");
 				const suffix = numbers.length > 5 ? ", …" : "";
-				return `${theme.fg("dim", fileMatchSummary[1] ?? "")}${theme.fg("mdCode", `:${shown}${suffix}`)} (${theme.fg("success", fileMatchSummary[3] ?? "0")} matches)`;
+				return `${theme.fg("dim", fileMatchSummary[1] ?? "")}${theme.fg("warning", `:${shown}${suffix}`)} (${theme.fg("success", fileMatchSummary[3] ?? "0")} matches)`;
 			}
 			const fileSummary = line.match(/^(.*) \((\d+) matches\)$/);
 			if (fileSummary)
