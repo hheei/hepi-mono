@@ -73,11 +73,6 @@ function heuristicTagNumbers(candidates: readonly MctxVisibleToolTag[]): Readonl
 			if (reduceSeen > 5) selected.add(candidate.tag.tagNumber);
 			continue;
 		}
-		if (name === "ctx_note") {
-			const action = recordString(candidate.input, ["action"]);
-			if (action === "read" || action === "dismiss") selected.add(candidate.tag.tagNumber);
-			continue;
-		}
 		if (name !== "edit" && name !== "write" && name !== "apply_patch") continue;
 		const path = recordString(candidate.input, ["filePath", "file_path", "path"]);
 		if (path === undefined) continue;

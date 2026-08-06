@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	createServiceKey,
+	ensureKnowledgeInjectionCoordinator,
 	getService,
 	provideService,
 	registerExtensionLifecycle,
@@ -138,4 +139,40 @@ test("does not publish a Service from a continuation after shutdown", async () =
 
 	expect(lateError).toBeInstanceOf(Error);
 	expect(getService(host.pi, database)).toBeUndefined();
+});
+
+test("keeps disabled knowledge injection terminal for its lifecycle generation", async () => {
+	const host = createFakePiHost();
+	registerExtensionLifecycle(host.pi, {
+		key: "@hheei/pi-knowledge-gate",
+		start: (context) => {
+			const coordinator = ensureKnowledgeInjectionCoordinator(host.pi, context);
+			coordinator.setMctxEligibility({ generation: "mctx-1", eligible: true });
+			const mctxLease = coordinator.claim({
+				owner: "mctx-owned",
+				generation: "mctx-1",
+				reason: "test owner",
+			});
+			expect(mctxLease).toBeDefined();
+			expect(
+				coordinator.claim({
+					owner: "hindsight-owned",
+					generation: "hindsight-1",
+					reason: "test fallback",
+				}),
+			).toBeUndefined();
+			coordinator.disable({ generation: "mctx-1", reason: "provider unavailable" });
+			expect(coordinator.state()).toMatchObject({ owner: "disabled", generation: "mctx-1" });
+			expect(
+				coordinator.claim({
+					owner: "mctx-owned",
+					generation: "mctx-1",
+					reason: "retry in same lifecycle",
+				}),
+			).toBeUndefined();
+			expect(mctxLease === undefined ? false : coordinator.release(mctxLease)).toBe(false);
+		},
+	});
+
+	await host.emit("session_start");
 });

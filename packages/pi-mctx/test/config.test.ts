@@ -180,6 +180,35 @@ test("smart drops are user-owned opt-in configuration", async (): Promise<void> 
 	expect(invalid.pipeline).toEqual({ kind: "invalid", reason: "smart_drops must be boolean" });
 });
 
+test("resolves user-owned knowledge persistence and rejects project overrides", async (): Promise<void> => {
+	const ephemeral = await withSettings(
+		{ "pi-mctx": { enabled: true, knowledge: { persistence: "ephemeral" } } },
+		{ "pi-mctx": { knowledge: { persistence: "disabled" } } },
+		loadMctxConfiguration,
+	);
+	if (ephemeral.pipeline.kind !== "enabled") throw new Error("expected enabled pipeline");
+	expect(ephemeral.pipeline.settings.knowledgePersistence).toBe("ephemeral");
+	expect(ephemeral.warnings).toContain(
+		"Ignoring project knowledge: only user config controls knowledge privacy",
+	);
+	const disabled = await withSettings(
+		{ "pi-mctx": { enabled: true, knowledge: { persistence: "disabled" } } },
+		{},
+		loadMctxConfiguration,
+	);
+	if (disabled.pipeline.kind !== "enabled") throw new Error("expected enabled pipeline");
+	expect(disabled.pipeline.settings.knowledgePersistence).toBe("disabled");
+	const invalid = await withSettings(
+		{ "pi-mctx": { enabled: true, knowledge: { persistence: "other" } } },
+		{},
+		loadMctxConfiguration,
+	);
+	expect(invalid.pipeline).toEqual({
+		kind: "invalid",
+		reason: "knowledge.persistence must be persistent, ephemeral, or disabled",
+	});
+});
+
 test("enabled user configuration resolves pipeline defaults", async (): Promise<void> => {
 	const config = await withSettings(
 		{
@@ -195,6 +224,7 @@ test("enabled user configuration resolves pipeline defaults", async (): Promise<
 		kind: "enabled",
 		settings: {
 			historian: { kind: "enabled", model: "anthropic/claude-haiku" },
+			knowledgePersistence: "persistent",
 			failClosedBlocking: DEFAULT_FAIL_CLOSED_BLOCKING,
 			clearReasoningAge: DEFAULT_CLEAR_REASONING_AGE,
 			smartDrops: DEFAULT_SMART_DROPS,
@@ -245,6 +275,7 @@ test("exposes default merged provenance without weakening MCTX historian policy"
 		kind: "enabled",
 		settings: {
 			historian: { kind: "enabled", model: "anthropic/claude-haiku" },
+			knowledgePersistence: "persistent",
 			failClosedBlocking: true,
 			clearReasoningAge: DEFAULT_CLEAR_REASONING_AGE,
 			smartDrops: DEFAULT_SMART_DROPS,
@@ -276,6 +307,7 @@ test("project configuration can only raise configured trigger thresholds", async
 		kind: "enabled",
 		settings: {
 			historian: { kind: "enabled", model: "anthropic/claude-haiku" },
+			knowledgePersistence: "persistent",
 			failClosedBlocking: true,
 			clearReasoningAge: DEFAULT_CLEAR_REASONING_AGE,
 			smartDrops: DEFAULT_SMART_DROPS,
@@ -302,6 +334,7 @@ test("invalid enabled historian does not disable MCTX runtime", async (): Promis
 		kind: "enabled",
 		settings: {
 			historian: { kind: "invalid", reason: "historian.model must be exact provider/model" },
+			knowledgePersistence: "persistent",
 			failClosedBlocking: DEFAULT_FAIL_CLOSED_BLOCKING,
 			clearReasoningAge: DEFAULT_CLEAR_REASONING_AGE,
 			smartDrops: DEFAULT_SMART_DROPS,
@@ -312,132 +345,4 @@ test("invalid enabled historian does not disable MCTX runtime", async (): Promis
 			protectedTags: DEFAULT_PROTECTED_TAGS,
 		},
 	});
-});
-
-test("accepts only user-owned project-relative primer configuration", async (): Promise<void> => {
-	const config = await withSettings(
-		{
-			"pi-mctx": {
-				enabled: true,
-				historian: { model: "anthropic/claude-haiku" },
-				search: { primer_path: "docs/primer.md" },
-			},
-		},
-		{ "pi-mctx": { search: { primer_path: "outside.md" } } },
-		loadMctxConfiguration,
-	);
-	expect(config.search).toEqual({ primerPath: "docs/primer.md" });
-	expect(config.warnings).toContain("Ignoring project search: primer selection is user-level only");
-
-	const invalid = await withSettings(
-		{
-			"pi-mctx": {
-				enabled: true,
-				historian: { model: "anthropic/claude-haiku" },
-				search: { primer_path: "../outside.md" },
-			},
-		},
-		{},
-		loadMctxConfiguration,
-	);
-	expect(invalid.search).toBeUndefined();
-	expect(invalid.warnings).toContain(
-		"Ignoring user search.primer_path: must be a project-relative path",
-	);
-});
-
-test("accepts only user-level embedding provider configuration", async (): Promise<void> => {
-	const config = await withSettings(
-		{
-			"pi-mctx": {
-				enabled: true,
-				historian: { model: "anthropic/claude-haiku" },
-				embedding: { provider: "local", model: "Xenova/all-MiniLM-L6-v2" },
-			},
-		},
-		{
-			"pi-mctx": {
-				embedding: { provider: "synapse", connectionFile: "/tmp/mctx.sock" },
-			},
-		},
-		loadMctxConfiguration,
-	);
-	expect(config.embedding).toEqual({
-		config: { provider: "local", model: "Xenova/all-MiniLM-L6-v2" },
-	});
-	expect(config.warnings).toContain(
-		"Ignoring project embedding: provider selection is user-level only",
-	);
-
-	const invalid = await withSettings(
-		{
-			"pi-mctx": {
-				enabled: true,
-				historian: { model: "anthropic/claude-haiku" },
-				embedding: "local",
-			},
-		},
-		{},
-		loadMctxConfiguration,
-	);
-	expect(invalid.embedding).toBeUndefined();
-	expect(invalid.warnings).toContain("Ignoring user embedding: must be an object");
-
-	const absent = await withSettings(
-		{
-			"pi-mctx": {
-				enabled: true,
-				historian: { model: "anthropic/claude-haiku" },
-			},
-		},
-		{},
-		loadMctxConfiguration,
-	);
-	expect(absent.embedding).toBeUndefined();
-});
-
-test("accepts only user-level Dreamer model configuration", async (): Promise<void> => {
-	const config = await withSettings(
-		{
-			"pi-mctx": {
-				dreamer: { model: "anthropic/claude-sonnet-4" },
-			},
-		},
-		{},
-		loadMctxConfiguration,
-	);
-	expect(config.dreamer).toEqual({ model: "anthropic/claude-sonnet-4" });
-
-	const invalid = await withSettings(
-		{ "pi-mctx": { dreamer: { model: "not-a-ref" } } },
-		{},
-		loadMctxConfiguration,
-	);
-	expect(invalid.dreamer).toBeUndefined();
-	expect(invalid.warnings).toContain("Ignoring user dreamer.model: must be exact provider/model");
-
-	const projectOnly = await withSettings(
-		{},
-		{ "pi-mctx": { dreamer: { model: "openai/gpt-5" } } },
-		loadMctxConfiguration,
-	);
-	expect(projectOnly.dreamer).toBeUndefined();
-	expect(projectOnly.warnings).toContain(
-		"Ignoring project dreamer: model selection is user-level only",
-	);
-
-	const invalidShape = await withSettings(
-		{ "pi-mctx": { dreamer: "anthropic/claude-sonnet-4" } },
-		{},
-		loadMctxConfiguration,
-	);
-	expect(invalidShape.dreamer).toBeUndefined();
-	expect(invalidShape.warnings).toContain("Ignoring user dreamer: must be an object");
-
-	const withoutModel = await withSettings(
-		{ "pi-mctx": { dreamer: {} } },
-		{},
-		loadMctxConfiguration,
-	);
-	expect(withoutModel.dreamer).toEqual({});
 });

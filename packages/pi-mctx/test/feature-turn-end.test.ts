@@ -96,25 +96,8 @@ function store(): MctxStore {
 		syncHistoryTags: (partition) => ({ partition, tags: [] }),
 		queueHistoryTagDrops: () => undefined,
 		markHistoryTagsDropped: () => undefined,
-		writeMemory: () => {
-			throw new Error("not used");
-		},
-		getMemories: () => [],
-		listActiveMemories: () => [],
-		updateMemory: () => undefined,
-		archiveMemory: () => undefined,
-		writeMemoryEmbedding: () => false,
-		listMemoryEmbeddingCoverage: () => new Map(),
-
-		writeNote: () => {
-			throw new Error("not used");
-		},
-		readNotes: () => [],
-		listActiveNotes: () => [],
 		listRetainedHistoryTags: () => [],
 		purgeRetainedHistory: () => 0,
-		updateNote: () => undefined,
-		dismissNote: () => undefined,
 		close: () => undefined,
 	};
 }
@@ -193,7 +176,7 @@ test("status preserves disabled and disposed inactive reasons", async (): Promis
 		resolveProjectIdentity: async () => "git:project",
 	});
 	await feature.start(active.context);
-	await active.cleanups[0]?.();
+	await active.cleanups[1]?.();
 	expect(feature.status(turnContext(undefined))).toEqual({ kind: "inactive", reason: "disposed" });
 });
 
@@ -316,12 +299,12 @@ test("turn_end starts one background historian and cleanup aborts it", async ():
 	feature.onTurnEnd(turnContext({ tokens: 65_000, contextWindow: 100_000 }));
 	expect(calls).toBe(1);
 
-	const historianCleanup = fixture.cleanups[1];
+	const historianCleanup = fixture.cleanups[2];
 	if (historianCleanup === undefined) throw new Error("Expected historian cleanup");
 	await historianCleanup();
 	expect(signal?.aborted).toBe(true);
 	resolveRun?.();
-	const storeCleanup = fixture.cleanups[0];
+	const storeCleanup = fixture.cleanups[1];
 	if (storeCleanup === undefined) throw new Error("Expected store cleanup");
 	await storeCleanup();
 	expect(storeClosed).toBe(true);

@@ -1,6 +1,6 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { type ExtensionLifecycleContext, ensureSubagentCoordinator } from "@hheei/pi-ext-core";
-import type { MctxConfiguration, MctxPipelineSettings, MctxSearchSettings } from "./config.js";
+import type { MctxConfiguration, MctxPipelineSettings } from "./config.js";
 
 export type MctxHistorianRuntime =
 	| { readonly kind: "disabled" }
@@ -13,9 +13,6 @@ export interface MctxRuntime {
 	readonly sessionId: string;
 	readonly historian: MctxHistorianRuntime;
 	readonly settings: MctxPipelineSettings;
-	readonly search: MctxSearchSettings;
-	/** User-owned Dreamer child model ref; absent means the parent model. */
-	readonly dreamerModel?: string;
 }
 
 function resolveHistorian(
@@ -98,10 +95,6 @@ export function resolveMctxActivation(
 					sessionId: context.extension.sessionManager.getSessionId(),
 					historian: resolveHistorian(context, configuration.pipeline.settings),
 					settings: configuration.pipeline.settings,
-					search: configuration.search ?? {},
-					...(configuration.dreamer?.model === undefined
-						? {}
-						: { dreamerModel: configuration.dreamer.model }),
 				},
 			};
 		}

@@ -265,12 +265,6 @@ test("real Pi host transforms context and retains it across reload", async (): P
 				.sort(),
 			["ctx_expand", "ctx_history", "ctx_reduce"],
 		);
-		// Memory-system tools are parked behind the disabled registration hook.
-		assert.ok(
-			!host.session.extensionRunner
-				?.getAllRegisteredTools()
-				.some((tool) => tool.definition.name === "ctx_memory"),
-		);
 		await host.session.prompt("Keep this newer parent turn raw.");
 		await waitFor(() =>
 			host.contexts.some((context) => context.systemPrompt?.includes("## Magic Context") === true),

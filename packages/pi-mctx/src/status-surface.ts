@@ -114,8 +114,6 @@ function tokenSegments(
 		role: "accent",
 		detail: `(${snapshot.compartments.total})`,
 	});
-	add({ label: "Memories", tokens: tokens.memories, role: "success" });
-	add({ label: "User Profile", tokens: tokens.profile, role: "warning" });
 	add({ label: "Conversation", tokens: tokens.conversation, role: "userMessageText" });
 	add({ label: "Tool Calls", tokens: tokens.toolCalls, role: "toolTitle" });
 	add({ label: "Tool Defs", tokens: tokens.toolDefinitions, role: "customMessageLabel" });

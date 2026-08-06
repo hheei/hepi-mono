@@ -20,6 +20,7 @@ export const MCTX_HISTORIAN_SETTINGS_GROUP = "historian";
 export interface MctxSettings {
 	readonly runtimeEnabled: boolean;
 	readonly smartDrops: boolean;
+	readonly knowledgePersistence: "persistent" | "ephemeral" | "disabled";
 	readonly historianEnabled: boolean;
 	readonly model: string;
 }
@@ -44,6 +45,10 @@ function settingsFromState(state: HepiSettingsState): MctxSettings {
 	return {
 		runtimeEnabled: runtime?.enabled === true,
 		smartDrops: runtime?.smartDrops === true,
+		knowledgePersistence:
+			runtime?.knowledgePersistence === "ephemeral" || runtime?.knowledgePersistence === "disabled"
+				? runtime.knowledgePersistence
+				: "persistent",
 		historianEnabled: historian?.enabled === true,
 		model: typeof historian?.model === "string" ? historian.model.trim() : "",
 	};
@@ -73,6 +78,25 @@ const smartDropsField: HepiSettingField<boolean> = {
 		if (draft === "true") return true;
 		if (draft === "false") return false;
 		throw new Error("Expected true or false");
+	},
+	enabled: (state): boolean => state[MCTX_RUNTIME_SETTINGS_GROUP]?.enabled === true,
+};
+
+const knowledgePersistenceField: HepiSettingField<MctxSettings["knowledgePersistence"]> = {
+	id: "knowledgePersistence",
+	label: "Knowledge copy",
+	type: "enum",
+	defaultValue: "persistent",
+	description:
+		"Choose whether validated Hindsight knowledge is persisted, kept only in memory, or not injected.",
+	options: [
+		{ value: "persistent", label: "Persistent" },
+		{ value: "ephemeral", label: "Ephemeral" },
+		{ value: "disabled", label: "Disabled" },
+	],
+	parse: (draft): MctxSettings["knowledgePersistence"] => {
+		if (draft === "persistent" || draft === "ephemeral" || draft === "disabled") return draft;
+		throw new Error("Expected persistent, ephemeral, or disabled");
 	},
 	enabled: (state): boolean => state[MCTX_RUNTIME_SETTINGS_GROUP]?.enabled === true,
 };
@@ -128,7 +152,7 @@ export function createMctxSettingsProvider(
 			{
 				id: MCTX_RUNTIME_SETTINGS_GROUP,
 				title: "",
-				fields: [runtimeEnabledField, smartDropsField],
+				fields: [runtimeEnabledField, smartDropsField, knowledgePersistenceField],
 			},
 			{
 				id: MCTX_HISTORIAN_SETTINGS_GROUP,
@@ -156,10 +180,22 @@ export function createMctxSettingsProvider(
 								rawHistorian,
 								`Expected ${MCTX_SETTINGS_SECTION}.historian to be an object in ${path}`,
 							);
+				const rawKnowledge = section?.knowledge;
+				const knowledge =
+					rawKnowledge === undefined
+						? undefined
+						: parseSettingsObject(
+								rawKnowledge,
+								`Expected ${MCTX_SETTINGS_SECTION}.knowledge to be an object in ${path}`,
+							);
 				return {
 					[MCTX_RUNTIME_SETTINGS_GROUP]: {
 						enabled: section?.enabled === true,
 						smartDrops: section?.smart_drops === true,
+						knowledgePersistence:
+							knowledge?.persistence === "ephemeral" || knowledge?.persistence === "disabled"
+								? knowledge.persistence
+								: "persistent",
 					},
 					[MCTX_HISTORIAN_SETTINGS_GROUP]: {
 						enabled: historian?.enabled === true,
@@ -197,6 +233,18 @@ export function createMctxSettingsProvider(
 									);
 						section.enabled = settings.runtimeEnabled;
 						section.smart_drops = settings.smartDrops;
+						const rawKnowledge = section.knowledge;
+						const knowledge =
+							rawKnowledge === undefined
+								? {}
+								: parseSettingsObject(
+										rawKnowledge,
+										`Expected ${MCTX_SETTINGS_SECTION}.knowledge to be an object in ${path}`,
+									);
+						section.knowledge = {
+							...knowledge,
+							persistence: settings.knowledgePersistence,
+						};
 						section.historian = {
 							...historian,
 							enabled: settings.historianEnabled,

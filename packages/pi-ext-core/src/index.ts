@@ -36,6 +36,31 @@ export {
 	readMergedJsonSettingsSection,
 	updateJsonSettingsRoot,
 } from "./json-settings.js";
+export type {
+	HindsightKnowledgeProvider,
+	InjectedKnowledgeMarker,
+	KnowledgeInjectionCoordinator,
+	KnowledgeInjectionLease,
+	KnowledgeInjectionOwner,
+	KnowledgeInjectionState,
+	KnowledgeProjectionAdmission,
+	KnowledgeProjectionIdentity,
+	KnowledgeProjectionIdentityRequest,
+	KnowledgeProjectionRequest,
+	KnowledgeProjectionResult,
+	KnowledgeProjectionSource,
+	KnowledgeSourceKind,
+} from "./knowledge-coordination.js";
+export {
+	ensureKnowledgeInjectionCoordinator,
+	getKnowledgeInjectionCoordinator,
+	HINDSIGHT_KNOWLEDGE_PROVIDER,
+	INJECTED_KNOWLEDGE_MARKER,
+	injectedKnowledgeMarker,
+	isInjectedKnowledgeMarker,
+	isInjectedKnowledgeMessage,
+	KNOWLEDGE_INJECTION_COORDINATOR,
+} from "./knowledge-coordination.js";
 export type { ExtensionLifecycleContext, ExtensionLifecycleOptions } from "./lifecycle.js";
 export { registerExtensionLifecycle } from "./lifecycle.js";
 export type {
@@ -66,11 +91,6 @@ export {
 	registerManagedTool,
 	setManagedLoadoutToolsActive,
 } from "./loadout.js";
-export type {
-	MemorySearchExclusionInput,
-	MemorySearchExclusionService,
-} from "./memory-search-exclusion.js";
-export { MCTX_MEMORY_EXCLUSION_SERVICE } from "./memory-search-exclusion.js";
 export type {
 	CreateHepiModelSelectionFieldOptions,
 	HepiModelSelectionCandidate,

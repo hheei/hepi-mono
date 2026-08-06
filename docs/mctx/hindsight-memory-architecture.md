@@ -1,6 +1,46 @@
 # MCTX 与 Hindsight 记忆架构
 
-状态：设计提案，未进入实现。
+状态：Phase 0–2 已落地；Phase 3 因 pinned Hindsight client 未提供 pages list/read/version contract 而保持禁用。
+
+## 当前实施边界
+
+本轮实现严格采用单一自动注入 owner：`pi-mctx` 负责 provider context 中的 Hindsight
+knowledge projection，`pi-hindsight` 继续负责 raw retain、queue、bank/scope、显式
+recall/reflect 和长期知识 lifecycle。旧 MCTX local memory、embedding、search、note 与
+Dreamer 不再复活。
+
+实现顺序固定为：
+
+```text
+Phase 0 capability audit + old subsystem removal
+  -> Phase 1a injection admission
+  -> Phase 1b mental-model snapshot
+  -> Phase 1c snapshot persistence/handoff + retain boundary
+  -> Phase 2 reflect/observation materialization（已实现）
+  -> Phase 3 pages/local section index/turn-local selection
+```
+
+Phase 2 当前使用 mental models、严格 scope 的 bounded observations 和带 `based_on.memories`
+provenance 的 reflect；MCTX 以 generation single-flight、snapshot CAS 和 stale replay 负责最终发布。
+Phase 3 不伪造 page API，也不把 reflect/observation remote call 扩展到每个 turn。
+
+Phase 0 capability audit 未证明 Hindsight API 提供稳定 ID、scope、provenance、size 和
+version 前，不允许远程 knowledge read、snapshot persistence 或 automatic injection。
+每个阶段只在前一阶段的 focused tests 和 capability evidence 通过后启用。
+
+## 联合实现最小公共契约
+
+ext-core 只提供 coordination transport，不拥有任何 knowledge content：
+
+- session-scoped `InjectionGate`：`unknown`、`mctx-owned`、`hindsight-owned`、`disabled`；
+- owner claim/release 必须带 lifecycle generation，释放后下一次 context revision 才能重新 admission；
+- shared injected-knowledge marker：`provider`、`sourceIds`、`retain: false`；
+- `KnowledgeProjectionProvider` 只返回经过 scope/provenance/size 验证的 opaque projection；
+- canonical retain source 只能来自 Pi raw branch，不得来自 MCTX `context` hook projection。
+
+`KnowledgeSnapshotIdentity`、snapshot CAS 和具体 bank/source policy 由 `pi-mctx` 拥有；
+Hindsight client、retain queue 和知识产品由 `pi-hindsight` 拥有。远端失败、取消、scope
+mismatch 或 CAS 冲突均保留上一个 validated snapshot，不清空旧内容。
 
 参考：
 
@@ -558,6 +598,10 @@ disabled    = 不保存或注入 Hindsight knowledge
 默认是 `persistent`；首次启用前必须显示本地副本范围。`ephemeral` 和 `disabled` 是显式隐私选项；status、
 diagnostic 和日志不得输出 raw snapshot text。
 
+当前配置入口是用户级 `pi-mctx.knowledge.persistence`，可取 `persistent`、`ephemeral` 或 `disabled`；
+project settings 不能覆盖该隐私策略。`persistent` 首次成功写入 snapshot 时通知本地副本上限
+（当前 12,000 字符）。
+
 显式 Pi session delete 同步清除 MCTX snapshot 与 handoff payload，并由 pi-hindsight 按 session/document
 provenance enqueue remote evidence deletion。远端确认前 status 必须显示 `remote deletion pending`；MCTX
 不得保留 snapshot 或声称远端删除已完成。
@@ -732,7 +776,7 @@ visible status, not a second memory implementation. MCTX knowledge mode 已 acti
 - Implement pi-hindsight stable projection provider using existing lifecycle/client ownership.
 - Validate response schema, limits, scope, provenance and snapshot identity.
 - Store MCTX knowledge snapshot in the separate render slot.
-- Use mental models only: no reflect, observations, pages or adaptive recall.
+- Phase 1b baseline now feeds Phase 2 compiler; pages and adaptive recall remain disabled.
 
 #### Phase 1c: persistence and handoff
 
@@ -743,8 +787,11 @@ visible status, not a second memory implementation. MCTX knowledge mode 已 acti
 
 ### Phase 2: Hindsight-backed knowledge compilation
 
-- Use mental models and bounded observations for knowledge baseline/delta, never for compartment m0/m1.
-- Add reflect hard materialization with one lease and atomic snapshot replacement.
+- Use mental models and bounded, strictly scoped observations for knowledge baseline/delta, never for compartment m0/m1.
+- Reflect hard materialization runs with bounded low-budget calls over observations; `includeFacts` evidence must be observation IDs
+  already returned by the scoped recall and is stored as source provenance.
+- MCTX owns one generation lease and CAS snapshot replacement; malformed, duplicate, oversized, or out-of-scope
+  responses reject the whole projection and preserve the prior snapshot.
 - Add scope/provenance/fingerprint tests.
 - Do not add per-turn remote recall.
 
