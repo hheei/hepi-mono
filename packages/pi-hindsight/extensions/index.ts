@@ -3,6 +3,7 @@ import {
 	ensureKnowledgeInjectionCoordinator,
 	getKnowledgeInjectionCoordinator,
 	HINDSIGHT_KNOWLEDGE_PROVIDER,
+	HINDSIGHT_PAGE_SECTION_SERVICE,
 	type KnowledgeInjectionLease,
 	provideService,
 	registerExtensionLifecycle,
@@ -10,6 +11,7 @@ import {
 import { registerHindsightSettings } from "./config/hepi-settings.js";
 import { createHindsightKnowledgeProvider } from "./lifecycle/knowledge-provider.js";
 import { createMemoryLifecycle } from "./lifecycle/memory-lifecycle.js";
+import { createHindsightPageSectionService } from "./lifecycle/page-sections.js";
 import { registerTools } from "./operations/tools.js";
 import { registerCommands } from "./tui/commands.js";
 
@@ -17,6 +19,7 @@ export default function hindsightExtension(pi: ExtensionAPI): void {
 	const lifecycle = createMemoryLifecycle(process.cwd());
 	let lifecycleSignal: AbortSignal | undefined;
 	let injectionLease: KnowledgeInjectionLease | undefined;
+	let pageSectionService: Awaited<ReturnType<typeof createHindsightPageSectionService>> | undefined;
 	const active = (): boolean => lifecycleSignal !== undefined && !lifecycleSignal.aborted;
 	const canInjectAutomatically = (ctx: ExtensionContext): boolean => {
 		const coordinator = getKnowledgeInjectionCoordinator(pi);
@@ -66,6 +69,22 @@ export default function hindsightExtension(pi: ExtensionAPI): void {
 						getCwd: () => context.extension.cwd,
 					}),
 				);
+				pageSectionService = await createHindsightPageSectionService(
+					{
+						getClient: lifecycle.deps.getClient,
+						getConfig: lifecycle.deps.getConfig,
+						getProjectBankId: lifecycle.deps.getProjectBankId,
+						getCwd: () => context.extension.cwd,
+						getInjectionState: () => coordinator.state(),
+					},
+					context.signal,
+				);
+				if (pageSectionService !== undefined) {
+					provideService(context, HINDSIGHT_PAGE_SECTION_SERVICE, pageSectionService.service);
+					context.resources.add("hindsight-page-section-service", () => {
+						pageSectionService = undefined;
+					});
+				}
 			}
 		},
 	});
@@ -80,5 +99,8 @@ export default function hindsightExtension(pi: ExtensionAPI): void {
 	pi.on("agent_end", async (event, ctx) => {
 		if (!active()) return;
 		await lifecycle.retain(event, ctx, lifecycleSignal);
+		const refresh = pageSectionService?.refresh;
+		const signal = lifecycleSignal;
+		if (refresh !== undefined && signal !== undefined) void refresh(signal).catch(() => undefined);
 	});
 }

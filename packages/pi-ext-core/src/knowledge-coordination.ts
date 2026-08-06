@@ -95,6 +95,44 @@ export const HINDSIGHT_KNOWLEDGE_PROVIDER = createServiceKey<HindsightKnowledgeP
 	"hheei/hindsight-knowledge-provider",
 );
 
+/** One bounded, already-rendered section from a Hindsight knowledge page. */
+export interface KnowledgeSection {
+	readonly id: string;
+	readonly pageId: string;
+	readonly pageName: string;
+	readonly heading: string;
+	readonly text: string;
+	readonly sourceVersion: string;
+	readonly provenance: readonly string[];
+	readonly scopeTags: readonly string[];
+	readonly updatedAt?: string;
+}
+
+/**
+ * Reads a provider-owned page cache for MCTX turn-local selection.
+ * Implementations MUST NOT perform remote I/O in this method: refresh happens
+ * in the owning extension's lifecycle/background path.
+ */
+export interface PageSectionService {
+	getPageSections(input: {
+		readonly lease: KnowledgeInjectionLease;
+		readonly projectId: string;
+		readonly signal: AbortSignal;
+	}): Promise<
+		| {
+				readonly kind: "sections";
+				readonly version?: string;
+				readonly sections: readonly KnowledgeSection[];
+		  }
+		| { readonly kind: "unsupported" }
+		| { readonly kind: "unavailable"; readonly reason: string }
+	>;
+}
+
+export const HINDSIGHT_PAGE_SECTION_SERVICE = createServiceKey<PageSectionService>(
+	"hheei/hindsight-page-section-service",
+);
+
 export interface InjectedKnowledgeMarker {
 	readonly provider: "hindsight";
 	readonly sourceIds: readonly string[];

@@ -49,12 +49,15 @@ export type {
 	KnowledgeProjectionRequest,
 	KnowledgeProjectionResult,
 	KnowledgeProjectionSource,
+	KnowledgeSection,
 	KnowledgeSourceKind,
+	PageSectionService,
 } from "./knowledge-coordination.js";
 export {
 	ensureKnowledgeInjectionCoordinator,
 	getKnowledgeInjectionCoordinator,
 	HINDSIGHT_KNOWLEDGE_PROVIDER,
+	HINDSIGHT_PAGE_SECTION_SERVICE,
 	INJECTED_KNOWLEDGE_MARKER,
 	injectedKnowledgeMarker,
 	isInjectedKnowledgeMarker,

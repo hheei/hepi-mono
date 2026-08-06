@@ -12,12 +12,14 @@ import type {
 	KnowledgeInjectionCoordinator,
 	KnowledgeInjectionLease,
 	KnowledgeProjectionIdentity,
+	PageSectionService,
 	ParentContextProjectionResult,
 } from "@hheei/pi-ext-core";
 import {
 	ensureKnowledgeInjectionCoordinator,
 	getService,
 	HINDSIGHT_KNOWLEDGE_PROVIDER,
+	HINDSIGHT_PAGE_SECTION_SERVICE,
 	isInjectedKnowledgeMessage,
 	waitForService,
 } from "@hheei/pi-ext-core";
@@ -52,6 +54,14 @@ import {
 	knowledgeIdentityMatches,
 	knowledgeSnapshotMessage,
 } from "./knowledge-snapshot.js";
+import {
+	buildKnowledgeSectionIndex,
+	type KnowledgeSectionIndex,
+	latestUserQuery,
+	pageSectionBudget,
+	pageSectionsMessage,
+	selectKnowledgeSections,
+} from "./page-sections.js";
 import { detectMctxContextWindow, isMctxOverflow, resolveMctxPressure } from "./pressure.js";
 import { planMctxProcessedImageStrips, stripMctxProcessedImages } from "./processed-images.js";
 import { createProjectIdentityResolver } from "./project-identity.js";
@@ -426,6 +436,7 @@ interface ActiveMctxRuntime {
 	knowledgeMaterializationIdentity?: string | undefined;
 	knowledgeMaterializationInFlight?: Promise<void> | undefined;
 	knowledgeSnapshotDisclosed: boolean;
+	pageSectionIndex?: KnowledgeSectionIndex | undefined;
 	nudgeBaseline?: MctxNudgeBaseline | undefined;
 }
 
@@ -612,6 +623,60 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			clearTimeout(timeout);
 			current.lifecycle.signal.removeEventListener("abort", abortWait);
 		}
+	}
+	async function resolvePageSectionService(
+		current: ActiveMctxRuntime,
+	): Promise<PageSectionService | undefined> {
+		const existing = getService(current.lifecycle.pi, HINDSIGHT_PAGE_SECTION_SERVICE);
+		if (existing !== undefined) return existing;
+		const waitController = new AbortController();
+		const abortWait = (): void => waitController.abort();
+		const timeout = setTimeout(abortWait, KNOWLEDGE_PROVIDER_WAIT_MS);
+		current.lifecycle.signal.addEventListener("abort", abortWait, { once: true });
+		try {
+			return await waitForService(current.lifecycle.pi, HINDSIGHT_PAGE_SECTION_SERVICE, {
+				signal: waitController.signal,
+			});
+		} catch {
+			return getService(current.lifecycle.pi, HINDSIGHT_PAGE_SECTION_SERVICE);
+		} finally {
+			clearTimeout(timeout);
+			current.lifecycle.signal.removeEventListener("abort", abortWait);
+		}
+	}
+	async function ensureTurnLocalPageMessage(
+		current: ActiveMctxRuntime,
+		messages: readonly AgentMessage[],
+		context: ExtensionContext,
+	): Promise<AgentMessage | undefined> {
+		if (current.runtime.settings.knowledgePersistence === "disabled") return undefined;
+		const lease = current.knowledgeLease;
+		if (lease === undefined) return undefined;
+		const query = latestUserQuery(messages);
+		const usage = context.getContextUsage?.();
+		const budget = pageSectionBudget(usage?.contextWindow ?? undefined, usage?.tokens ?? undefined);
+		if (!query || budget === 0) return undefined;
+		const service = await resolvePageSectionService(current);
+		if (service === undefined) return undefined;
+		let result: Awaited<ReturnType<PageSectionService["getPageSections"]>>;
+		try {
+			result = await service.getPageSections({
+				lease,
+				projectId: current.runtime.partition.projectIdentity,
+				signal: current.lifecycle.signal,
+			});
+		} catch {
+			return undefined;
+		}
+		if (result.kind !== "sections") return undefined;
+		const index =
+			current.pageSectionIndex?.version === result.version
+				? current.pageSectionIndex
+				: buildKnowledgeSectionIndex(result.sections, result.version);
+		if (index === undefined) return undefined;
+		current.pageSectionIndex = index;
+		const selected = selectKnowledgeSections(index, query, budget);
+		return pageSectionsMessage(selected, budget);
 	}
 	async function ensureKnowledgeSnapshot(
 		current: ActiveMctxRuntime,
@@ -1712,6 +1777,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			const knowledgeMessage =
 				knowledgeSnapshot === undefined ? undefined : knowledgeSnapshotMessage(knowledgeSnapshot);
 			const contextMessages = messages.filter((message) => !isInjectedKnowledgeMessage(message));
+			const pageMessage = await ensureTurnLocalPageMessage(current, contextMessages, context);
 			// Re-evaluate against the active branch at every model invocation. A prior
 			// publication is not trusted after Pi navigation or branch replacement.
 			const entries = context.sessionManager.getBranch();
@@ -2084,10 +2150,11 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					current.runtime.store.armNudgeDelivery?.(current.runtime.partition);
 				else current.runtime.store.disarmNudgeDelivery?.(current.runtime.partition);
 			} else current.nudgeBaseline = undefined;
-			const projectedWithKnowledge: readonly AgentMessage[] =
-				knowledgeMessage === undefined
-					? projectedMessages
-					: [knowledgeMessage, ...projectedMessages];
+			const projectedWithKnowledge: readonly AgentMessage[] = [
+				...(knowledgeMessage === undefined ? [] : [knowledgeMessage]),
+				...(pageMessage === undefined ? [] : [pageMessage]),
+				...projectedMessages,
+			];
 			updateStatusAccounting(current, context, projectedWithKnowledge, entries, cacheTtlMs);
 			const nudge = claimCeilingNudgeForContext(current, context);
 			if (nudge === undefined) return { messages: projectedWithKnowledge };

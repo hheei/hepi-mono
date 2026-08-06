@@ -9,8 +9,10 @@ import {
 import {
 	type ExtensionLifecycleContext,
 	HINDSIGHT_KNOWLEDGE_PROVIDER,
+	HINDSIGHT_PAGE_SECTION_SERVICE,
 	type HindsightKnowledgeProvider,
 	type KnowledgeProjectionIdentity,
+	type KnowledgeSection,
 	provideService,
 } from "@hheei/pi-ext-core";
 import type { MctxConfiguration } from "../src/config.js";
@@ -315,6 +317,23 @@ test("knowledge persistence policy prevents disabled provider use and ephemeral 
 		resources: { add: () => undefined, cleanup: async () => [] },
 	} as unknown as ExtensionLifecycleContext;
 	provideService(lifecycle, HINDSIGHT_KNOWLEDGE_PROVIDER, provider);
+	const pageSection: KnowledgeSection = {
+		id: "knowledge-page:page-1:section:0",
+		pageId: "page-1",
+		pageName: "Session guidance",
+		heading: "Old request",
+		text: "Keep page context bounded.",
+		sourceVersion: "page-version-1",
+		provenance: ["bank:project-bank", "knowledge-page:page-1"],
+		scopeTags: ["project:project"],
+	};
+	provideService(lifecycle, HINDSIGHT_PAGE_SECTION_SERVICE, {
+		getPageSections: async () => ({
+			kind: "sections",
+			version: "page-version-1",
+			sections: [pageSection],
+		}),
+	});
 
 	const disabledFeature = createMctxFeature({
 		loadConfiguration: async () => configuration(true, false, 20, "disabled"),
@@ -350,6 +369,10 @@ test("knowledge persistence policy prevents disabled provider use and ephemeral 
 	expect(identityCalls).toBeGreaterThan(0);
 	expect(projectCalls).toBeGreaterThan(0);
 	expect(projected?.messages[0]).toMatchObject({ customType: "pi-injected-knowledge" });
+	expect(projected?.messages[1]).toMatchObject({
+		customType: "pi-injected-knowledge",
+		details: { sourceIds: [pageSection.id], retain: false },
+	});
 });
 
 test("concurrent context passes wait for one materialization and replay its result", async (): Promise<void> => {
