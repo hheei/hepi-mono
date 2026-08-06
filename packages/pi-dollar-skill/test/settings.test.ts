@@ -34,7 +34,8 @@ describe("dollar skill settings", () => {
 		expect(parsed).toEqual({
 			"pi-dollar-skill": {
 				unrelated: true,
-				dollarSkillReferences: { enabled: false, maxSuggestions: 7 },
+				enabled: false,
+				maxSuggestions: 7,
 			},
 			external: true,
 		});
@@ -57,7 +58,7 @@ describe("dollar skill settings", () => {
 		expect(limit?.validate?.(0)).toContain("1 to 50");
 		expect(limit?.validate?.(10)).toBeUndefined();
 		await provider.storage.save(
-			{ dollarSkillReferences: { enabled: false, maxSuggestions: 3 } },
+			{ enabled: false, maxSuggestions: 3 },
 			{ sessionId: "test", cwd: settingsDirectory },
 		);
 		expect(await loadDollarSkillConfig(settingsDirectory)).toEqual({

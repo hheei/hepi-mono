@@ -9,7 +9,7 @@ import {
 } from "./model.js";
 
 const SECTION = "pi-dollar-skill";
-export const DOLLAR_SKILL_SETTINGS_GROUP = "dollarSkillReferences";
+export const DOLLAR_SKILL_SETTINGS_SECTION = SECTION;
 type JsonObject = Record<string, unknown>;
 
 function isJsonObject(value: unknown): value is JsonObject {
@@ -50,9 +50,7 @@ export async function loadDollarSkillConfig(
 ): Promise<DollarSkillConfig> {
 	const root = await readRoot(dollarSkillSettingsPath(settingsDirectory));
 	const section = root[SECTION];
-	return normalizeDollarSkillConfig(
-		isJsonObject(section) ? section[DOLLAR_SKILL_SETTINGS_GROUP] : undefined,
-	);
+	return normalizeDollarSkillConfig(section);
 }
 
 export async function saveDollarSkillConfig(
@@ -63,7 +61,6 @@ export async function saveDollarSkillConfig(
 	await updateJsonSettingsRoot(path, (root) => {
 		const existing = root[SECTION];
 		const section = isJsonObject(existing) ? { ...existing } : {};
-		section[DOLLAR_SKILL_SETTINGS_GROUP] = normalizeDollarSkillConfig(config);
-		root[SECTION] = section;
+		root[SECTION] = { ...section, ...normalizeDollarSkillConfig(config) };
 	});
 }
