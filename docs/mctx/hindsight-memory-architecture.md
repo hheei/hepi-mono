@@ -1,6 +1,6 @@
 # MCTX 与 Hindsight 记忆架构
 
-状态：Phase 0–2 已落地；Phase 3 因 pinned Hindsight client 未提供 pages list/read/version contract 而保持禁用。
+状态：Phase 0–2 已落地；Phase 3 pages capability、local section index 与 turn-local injection 已实现。
 
 ## 当前实施边界
 
@@ -23,11 +23,34 @@ Phase 0 capability audit + old subsystem removal
 Phase 2 当前使用 mental models、严格 scope 的 bounded observations 和带 `based_on.memories`
 provenance 的 reflect；reflect evidence 必须以 observation 的 `type`、稳定 ID 和规范化 text
 三元一致，MCTX 以 generation single-flight、snapshot CAS 和 stale replay 负责最终发布。
-Phase 3 不伪造 page API，也不把 reflect/observation remote call 扩展到每个 turn。
+Phase 3 使用 pinned Hindsight server API 0.8.6 的
+`GET /v1/default/banks/{bank_id}/knowledge-base/tree` 与
+`GET /v1/default/banks/{bank_id}/knowledge-base/pages/{page_id}`。tree 的
+`is_stale` 与 page `timestamp` 是可验证的 source freshness signal；当前 npm client
+虽未生成这些 endpoint 的 wrapper，但由 pi-hindsight 的 client adapter 按 pinned OpenAPI
+contract 调用并严格验证 response，不伪造 SDK capability。页面内容只在后台 cache refresh
+读取；MCTX turn-local hot path 只读取已缓存 sections，不发起 remote call。
 
 Phase 0 capability audit 未证明 Hindsight API 提供稳定 ID、scope、provenance、size 和
 version 前，不允许远程 knowledge read、snapshot persistence 或 automatic injection。
 每个阶段只在前一阶段的 focused tests 和 capability evidence 通过后启用。
+
+Phase 3 当前实现由三段组成：ext-core 的 `PageSectionService` 只传递 MCTX lease、scope
+和已验证的 section cache；pi-hindsight 通过 pinned OpenAPI adapter 在 capability probe
+和后台 refresh 中读取 pages，并拒绝 malformed、重复、超大或身份不一致响应；pi-mctx
+在 context hook 中建立本地 lexical index，按 heading/body score、floor 和剩余预算选择
+section。turn-local block 使用 `retain: false` marker，低分、失主、过压或 cache 不可用时
+静默省略，hot path 不发起网络请求。
+
+Phase 3 evidence：`packages/pi-hindsight/tests/page-sections.test.ts` 覆盖嵌套 tree、
+frontmatter、scope/provenance、malformed response、lease gate、refresh cache 与 hot-path
+无 I/O；`packages/pi-mctx/test/page-sections.test.ts` 覆盖 heading 优先级、重复拒绝、
+固定 wrapper 开销后的预算上限、多模态 user query、pressure budget 与低分静默；
+`packages/pi-mctx/test/feature-context.test.ts` 覆盖 snapshot + page section 的实际 hook
+投影和 non-retain marker。仓库没有 isolated evaluation bank 或 model-quality benchmark
+harness，因此本阶段不宣称 pages 提升回答质量；以上 deterministic regression/cost
+evidence 只证明 pages path 不破坏现有 reflect-only contract，后续接入 harness 后再做
+reflect-only 对 reflect+pages 的质量比较。
 
 ## 联合实现最小公共契约
 
