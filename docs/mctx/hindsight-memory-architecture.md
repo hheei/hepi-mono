@@ -211,8 +211,17 @@ Hindsight upstream 最新 Reflect + Pages runtime 的经验表明，raw recall-p
 - 低于 score floor 时不注入；
 - 注入包含 page/section provenance 和读取完整 page 的指引。
 
-后续若 benchmark 证明当前任务需要 query-dependent recall，才增加显式 opt-in 的 Hindsight recall。
-它不能悄悄进入 stable knowledge snapshot，也不能在每轮无 score floor 地注入。
+Hindsight recall 使用三档策略：
+
+```text
+off       不自动 recall，仅允许显式 hindsight_recall
+snapshot  hard materialization 时 bounded recall 一次，结果经过验证后进入 knowledge snapshot
+adaptive  cached sections 无高分、snapshot stale、预算允许时，本轮最多 recall 一次
+```
+
+默认 `snapshot`。`adaptive` 还要求本 turn 未 adaptive recall、session mode 可读、lease current、provider
+healthy、query 有足够有效文本且 deadline 尚有余量。结果只作为本 turn local block，不能 publish 到 stable
+snapshot，也不能 retain。它必须经 benchmark 证明收益，不能退化成每轮无条件 remote recall。
 
 ## 4. 运行时流程
 
@@ -230,6 +239,20 @@ hindsight_*  = 查询或保存长期 Hindsight knowledge
 `ctx_expand` 与 `hindsight_recall` 不能互相替代。前者按 MCTX tag 精确恢复本 session 的原始
 tool/message source；后者返回跨 session 的语义知识候选。MCTX 不重新注册 `ctx_memory`、`ctx_note`、
 `ctx_search` 或 Dreamer command。
+
+`/mctx status` 与 `/hindsight status` 显示同一 injection coordination state：
+
+```text
+injectionOwner: unknown | mctx-owned | hindsight-owned | disabled
+admissionReason
+snapshotIdentity hash
+freshness
+last materialization outcome
+retain mode
+automatic recall policy
+```
+
+两边可添加各自 owner 的细节，但不得给出互相矛盾的当前 owner/freshness。
 
 Hindsight session mode 是用户 authority：
 
@@ -253,13 +276,14 @@ pi-mctx active + knowledge integration enabled
   -> pi-hindsight suppresses mental-model + recall auto injection
   -> pi-mctx renders only validated knowledge snapshot/local sections
 claim release / MCTX cleanup
-  -> pi-hindsight may resume its independent auto path on a later context turn
+  -> injection owner returns to unknown
+  -> next context revision must run admission before either side injects
 ```
 
 Lifecycle ordering is not assumed. If MCTX starts before pi-hindsight, it retries admission at the first
-eligible materialization boundary; it must not permanently decide from one absent service lookup. If Hindsight
-starts first, it may inject normally until MCTX claim succeeds. The claim transition requires a context revision
-boundary: never mix old Hindsight auto injection and new MCTX snapshot injection in one provider request.
+eligible materialization boundary; it must not permanently decide from one absent service lookup. Hindsight
+must not inject first and let MCTX take over later. The claim transition requires a context revision boundary:
+never mix Hindsight direct injection and MCTX snapshot injection in one provider request.
 
 ### 注入 owner admission 状态机
 
@@ -386,14 +410,20 @@ snapshot 维持 `freshness: unknown`，不得在每次 agent end 盲目 reflect�
 并有最小 cooldown。它不因 agent end 自动 materialize，也不因 context pressure 反复 reflect。等 capability
 audit 证明有稳定 change/version signal 后，才启用 version-driven stale/materialization。
 
-### Hard materialization
+`adaptive` recall 还要求：本 turn 未执行过 adaptive recall、session mode 可读、lease current、provider
+healthy、query 有足够有效文本、context deadline 尚有余量。结果只可作为本 turn local block，不能 publish
+到 stable snapshot，也不能 retain；任何失败直接省略该 block。
+
+### Knowledge materialization
 
 触发条件：
 
-- `/mctx recomp` 或 `/mctx wrapup`；
 - snapshot stale 且 context pressure 允许后台工作；
 - Hindsight refresh watermark 变化；
-- 显式 memory refresh command。
+- 显式 `/mctx knowledge refresh` command。
+
+`/mctx recomp` 和 `/mctx wrapup` 只重建当前 session compartment graph。它们不调用 Hindsight、
+不做 reflect、不等待远程网络，也不改变 knowledge snapshot。
 
 流程：
 
@@ -408,6 +438,11 @@ claim one materialization lease
 
 失败、cancelled、stale、scope mismatch 或 source-too-large 时保留旧 valid snapshot。不能先删旧
 snapshot 再等待 Hindsight。
+
+materialization lease 绑定 `KnowledgeSnapshotIdentity`、owner generation、MCTX snapshot revision 和
+request ID。abort/reload/profile change 会取消 client request；远端仍可能晚到响应。publish 前必须再次验证
+lease current、generation、identity、source fingerprint 和 MCTX CAS revision。任一不匹配，结果为 `stale`，
+不得写 snapshot。lease TTL/renewal、timeout 和 cancellation ownership 使用与 MCTX historian 同等约束。
 
 ## 5. Hindsight 能力利用方式
 
@@ -456,8 +491,8 @@ memory row。upstream Reflect + Pages runtime spec 本身不是当前 0.8.x clie
 
 ### Context budget arbitration
 
-MCTX 是最终 context budget owner。knowledge snapshot 使用 MCTX 已有 `memories` token accounting slot，
-但不与 compartment graph 共用 record。render policy 固定优先级：
+MCTX 是最终 context budget owner。旧 `memories` accounting 随旧 local memory backend 删除；knowledge
+snapshot 不与 compartment graph 共用 record。render policy 固定优先级：
 
 ```text
 required system prompt and tool definitions
@@ -473,7 +508,7 @@ required system prompt and tool definitions
 snapshot render 记录 token count 和裁剪原因，`/mctx` status 显示 knowledge budget/freshness；`/hindsight`
 继续显示 bank、queue、retain 和 remote health。
 
-knowledge accounting 不复用一个模糊的 `memories` 数字。status 分别显示：
+knowledge accounting 分别显示：
 
 ```text
 knowledgeBaseline
@@ -493,6 +528,23 @@ MCTX compartment store          = context transformation authority
 MCTX snapshot 不是 Hindsight transaction。它记录 capture metadata，并通过 content/version
 fingerprint 检测 stale。无法获得稳定 source version 时，materializer 必须使用 content fingerprint
 和 capture timestamp，且 status 标为 time-based/weak freshness；不能声称强一致。
+
+### Snapshot persistence and response limits
+
+knowledge snapshot 会把 Hindsight-derived text 复制到 MCTX SQLite。因此其 persistence policy 是显式配置：
+
+```text
+persistent  = 按 session SQLite 生命周期保存；session delete 清除 snapshot 与 handoff binding payload
+ephemeral   = 只保存在内存；不参与 resume/handoff reuse
+disabled    = 不保存或注入 Hindsight knowledge
+```
+
+默认 `persistent` 前必须显示本地副本范围；status、diagnostic、receipt 和日志不得输出 raw snapshot text。
+Handoff payload 只在 reservation/install lifetime 存在，install 或 abort 后清除。
+
+pi-hindsight provider 在 MCTX render 前强制 runtime schema 和大小上限：最大 response bytes、sources、
+bytes/source、provenance IDs/source、tags/source、sections 和 section bytes。超过上限的响应整体拒绝或按
+documented deterministic prefix 截断，绝不把未验证的大 payload 交给 token renderer。
 
 ### Prefix cache
 
@@ -538,17 +590,18 @@ upstream planned API。
 
 ```ts
 interface MctxKnowledgeService {
-  /** MCTX owns automatic context injection while this lifecycle lease is held. */
+  /** One session-scoped owner lease. Every read validates its captured identity. */
   claimContextInjection(input: {
     projectId: string;
     signal: AbortSignal;
   }): Promise<
-    | { kind: "claimed"; release(): void }
+    | { kind: "claimed"; lease: KnowledgeInjectionLease }
     | { kind: "denied"; reason: "session-mode-ignored" | "knowledge-mode-disabled" }
     | { kind: "unavailable"; reason: string }
   >;
 
   getStableProjection(input: {
+    lease: KnowledgeInjectionLease;
     projectId: string;
     bankRole: "coding" | "life" | "isolated";
     signal: AbortSignal;
@@ -570,8 +623,29 @@ interface MctxKnowledgeService {
   >;
 }
 
+interface KnowledgeInjectionLease {
+  readonly identity: KnowledgeSnapshotIdentity;
+  readonly generation: number;
+  release(): void;
+}
+
+interface EpochSynthesisService {
+  getEpochSynthesis(input: {
+    lease: KnowledgeInjectionLease;
+    epochId: string;
+    queryFingerprint: string;
+    query: string;
+    signal: AbortSignal;
+  }): Promise<
+    | { kind: "synthesis"; sourceId: string; text: string; provenance: readonly string[] }
+    | { kind: "empty" }
+    | { kind: "unavailable"; reason: string }
+  >;
+}
+
 interface PageSectionService {
   getPageSections(input: {
+    lease: KnowledgeInjectionLease;
     projectId: string;
     signal: AbortSignal;
   }): Promise<
@@ -618,14 +692,25 @@ visible status, not a second memory implementation. MCTX knowledge mode 已 acti
 
 ### Phase 1: stable projection and injection admission
 
-- Add the ext-core capability contract.
-- Implement pi-hindsight provider using existing lifecycle/client ownership.
-- Validate responses with runtime guards.
-- Store MCTX knowledge snapshot and replay it through the separate knowledge render slot.
-- Test against exported fixtures, isolated evaluation banks and benchmark harnesses. Do not dual-read or dual-write
-  local MCTX memory and Hindsight memory in production.
-- Add shared injected-knowledge marker handling before any knowledge payload reaches provider context.
-- Add injection ownership claim; verify pi-hindsight auto-recall cannot run concurrently with MCTX knowledge mode.
+#### Phase 1a: admission only
+
+- Add injection gate, owner state machine and opaque lease.
+- Verify direct Hindsight injection and MCTX integration are mutually exclusive.
+- Do not read, render or persist knowledge yet.
+
+#### Phase 1b: mental-model stable projection
+
+- Implement pi-hindsight stable projection provider using existing lifecycle/client ownership.
+- Validate response schema, limits, scope, provenance and snapshot identity.
+- Store MCTX knowledge snapshot in the separate render slot.
+- Use mental models only: no reflect, observations, pages or adaptive recall.
+
+#### Phase 1c: persistence and handoff
+
+- Add snapshot persistence policy, late-result publish fence, status and handoff validation.
+- Add canonical retain-source and injected-marker regressions before any payload reaches provider context.
+- Test exported fixtures, isolated evaluation banks and benchmark harnesses. Do not dual-read or dual-write old
+  MCTX memory and Hindsight memory in production.
 
 ### Phase 2: Hindsight-backed knowledge compilation
 
