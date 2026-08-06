@@ -1,4 +1,4 @@
-# MCTX 与 Hindsight 功能映射和数据边界
+# MCTX 与 Hindsight 功能映射和被舍弃的能力
 
 状态：设计说明，未进入实现。
 
@@ -194,7 +194,164 @@ force historian compaction
 remove protected live tail
 ```
 
-## 可逆性分类
+## 为了统一而舍弃、收缩或转移的功能
+
+统一的原则不是“尽量保留每个 API”，而是每种能力只保留一个 owner。下表描述的是目标实现中
+哪些现有能力会被删除、停止作为默认路径，或转移给 Hindsight。
+
+### 直接删除：MCTX local long-term memory machinery
+
+这些功能与 Hindsight 的长期知识能力重复，目标实现不再保留：
+
+```text
+MCTX local memory content authority
+MCTX memory embeddings table
+MCTX embedding provider lease
+MCTX embedding queue/backfill/coverage maintenance
+MCTX local vector search
+MCTX local semantic ranking
+MCTX local memory consolidation/observation logic
+MCTX Dreamer as a second knowledge synthesis engine
+MCTX local memory importance ranking as durable-knowledge policy
+```
+
+原因：保留它们会产生两套长期知识：一套由 MCTX 的 row、embedding、Dreamer 维护，另一套由
+Hindsight 的 document、facts、observations、mental models 维护。两套结果会出现重复、冲突、
+不同 scope、不同 freshness 和不同删除语义。
+
+### 转移给 Hindsight：长期知识能力
+
+MCTX 仍可以发起请求或提供用户入口，但不再拥有实现：
+
+```text
+raw evidence retain
+retain queue/retry/dead-letter
+fact/entity extraction
+observation merge、contradiction、staleness
+semantic recall
+reflect
+mental-model refresh
+knowledge-page synthesis
+project/global bank routing
+```
+
+用户看到的效果保留，底层 owner 改为 Hindsight。MCTX 只接收经过 scope、provenance 和 budget
+验证的 knowledge projection。
+
+### 停止默认：Hindsight 每轮 automatic recall
+
+当前 pi-hindsight 的 automatic recall 会在 context path 同时注入 mental models 和 recall results。
+启用 MCTX knowledge mode 后，这条默认路径停止：
+
+```text
+删除/关闭：每轮 remote raw recall
+删除/关闭：每轮 automatic mental-model injection
+保留：显式 hindsight_recall tool
+保留：显式 hindsight_reflect tool
+保留：agent_end raw retain
+保留：retain queue、bank、scope、session mode、status
+```
+
+原因：MCTX 需要单一 context injection owner，避免双重 token budget、重复知识、不稳定 prefix cache
+和每轮网络调用。Hindsight 仍完整提供长期知识能力，只把自动注入交给 MCTX knowledge snapshot
+compiler。
+
+### 从强同步改为 snapshot：知识即时注入语义
+
+如果旧 MCTX local memory API 允许：
+
+```text
+write memory -> 下一次 context 立即可见
+update memory -> 下一次 context 立即替换
+archive memory -> 下一次 context 立即消失
+```
+
+统一后不再保证 Hindsight knowledge 的 read-your-write：
+
+```text
+retain queued/delivered
+-> Hindsight extraction/consolidation
+-> selected projection version observed
+-> MCTX knowledge snapshot materialized
+-> 下一次稳定 context 可见
+```
+
+这不是遗漏功能，而是从本地强同步 memory row 转为 Hindsight 的异步知识生命周期。MCTX 必须显示
+queued、stale、unknown 或 unavailable 状态，不能伪装立即完成。
+
+### 不再保留为长期 memory 的 MCTX note
+
+MCTX `ctx_note` 保留为 session-local artifact，用于当前 session 的 anchored note、dismiss、revision
+和 branch identity。它不再自动参与 Hindsight retain，也不自动升级为 project memory。
+
+若用户明确要长期保存，必须通过 Hindsight explicit retain/knowledge workflow。这样删除的是
+“note 自动成为长期知识”的隐式行为，不是删除 `ctx_note` 本身。
+
+### 不再使用的 MCTX memory category/importance 语义
+
+旧 local backend 的 `category`、`importance`、active list ordering 如果只服务于 local memory render，
+统一后删除其长期知识含义。替代关系：
+
+```text
+category       -> Hindsight product/tags/scope policy
+importance     -> Hindsight selection + MCTX context budget
+active list    -> Hindsight selected projection
+archive        -> Hindsight correction/staleness lifecycle
+```
+
+MCTX 仍可以有自己的 render priority，但那是 context placement policy，不是第二套 knowledge truth。
+
+### 不迁移到 Hindsight：MCTX session context machinery
+
+统一不意味着全部交给 Hindsight。以下功能不会被删除或转移：
+
+```text
+MCTX m0/m1 compartments
+history tags
+smart drop
+ctx_expand
+historian context compression
+context token accounting
+provider prefix-cache stability
+compaction interception/recovery
+fork/handoff projection
+session-local notes
+knowledge snapshot CAS/cache
+```
+
+原因：这些能力依赖 Pi branch entry sequence、session partition、source fingerprint、CAS 和当前
+context projection。Hindsight 的 knowledge model 不能替代它们。
+
+### 不再保留 production dual-read/dual-write
+
+为比较效果，可以使用 export fixtures、isolated evaluation banks 和 benchmark harness。但 production
+不同时读取或写入：
+
+```text
+MCTX local memory + Hindsight memory
+```
+
+比较完成后，旧 local memory schema、embedding、Dreamer 和相关 API 直接删除。若旧 durable 数据有价值，
+执行一次显式 import/reconciliation，验证完成后删除旧路径；不保留运行时兼容层。
+
+## 旧功能删除清单
+
+实现前应逐项确认：
+
+```text
+[ ] local memory row 不再是长期知识 authority
+[ ] memory_embeddings 删除
+[ ] embedding provider/queue/backfill 删除
+[ ] local semantic search/ranking 删除
+[ ] local Dreamer 删除，改用 Hindsight reflect
+[ ] memory category/importance 不再决定长期知识
+[ ] note -> project memory 的隐式升级删除
+[ ] Hindsight automatic recall 与 automatic mental-model injection 关闭
+[ ] production dual-read/dual-write 删除
+[ ] ctx_expand、smart drop、m0/m1、historian、handoff 保留
+```
+
+## 数据边界与可逆性
 
 区分三类影响：
 
