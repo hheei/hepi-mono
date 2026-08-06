@@ -47,23 +47,23 @@ const FFF_GREP_LINE = /^(\s*)(\d+)([:|│?])(.*)$/;
 
 function fffGrepLineWidths(lines: readonly string[]): ReadonlyMap<number, number> {
 	const widths = new Map<number, number>();
-	for (let start = 0; start < lines.length; ) {
-		const first = lines[start]?.match(FFF_GREP_LINE);
-		if (!first) {
-			start += 1;
-			continue;
-		}
-		let end = start;
-		let width = 0;
-		while (end < lines.length) {
-			const match = lines[end]?.match(FFF_GREP_LINE);
-			if (!match) break;
+	let block: number[] = [];
+	let width = 0;
+	const commit = (): void => {
+		for (const index of block) widths.set(index, width);
+		block = [];
+		width = 0;
+	};
+	for (const [index, line] of lines.entries()) {
+		const match = line.match(FFF_GREP_LINE);
+		if (match) {
+			block.push(index);
 			width = Math.max(width, (match[2] ?? "").length);
-			end += 1;
+		} else if (line.trim() !== "") {
+			commit();
 		}
-		for (let index = start; index < end; index += 1) widths.set(index, width);
-		start = end;
 	}
+	commit();
 	return widths;
 }
 
