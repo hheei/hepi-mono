@@ -120,6 +120,23 @@
         "@earendil-works/pi-tui": ">=0.83.0",
       },
     },
+    "packages/pi-ext-addon": {
+      "name": "@hheei/pi-ext-addon",
+      "version": "0.0.0",
+      "dependencies": {
+        "@hheei/pi-ext-core": "workspace:*",
+      },
+      "devDependencies": {
+        "@earendil-works/pi-coding-agent": ">=0.83.0",
+        "@types/bun": "latest",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-agent-core": ">=0.83.0",
+        "@earendil-works/pi-ai": ">=0.83.0",
+        "@earendil-works/pi-coding-agent": ">=0.83.0",
+        "@earendil-works/pi-tui": ">=0.83.0",
+      },
+    },
     "packages/pi-ext-core": {
       "name": "@hheei/pi-ext-core",
       "version": "0.0.0",
@@ -549,6 +566,8 @@
     "@hheei/pi-caveman": ["@hheei/pi-caveman@workspace:packages/pi-caveman"],
 
     "@hheei/pi-debug": ["@hheei/pi-debug@workspace:packages/pi-debug"],
+
+    "@hheei/pi-ext-addon": ["@hheei/pi-ext-addon@workspace:packages/pi-ext-addon"],
 
     "@hheei/pi-ext-core": ["@hheei/pi-ext-core@workspace:packages/pi-ext-core"],
 
