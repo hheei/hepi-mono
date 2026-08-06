@@ -658,6 +658,8 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 		if (!query || budget === 0) return undefined;
 		const service = await resolvePageSectionService(current);
 		if (service === undefined) return undefined;
+		const expectedScopeTags = current.knowledgeSnapshot?.identity.scopeTags;
+		if (expectedScopeTags === undefined || expectedScopeTags.length === 0) return undefined;
 		let result: Awaited<ReturnType<PageSectionService["getPageSections"]>>;
 		try {
 			result = await service.getPageSections({
@@ -672,7 +674,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 		const index =
 			current.pageSectionIndex?.version === result.version
 				? current.pageSectionIndex
-				: buildKnowledgeSectionIndex(result.sections, result.version);
+				: buildKnowledgeSectionIndex(result.sections, result.version, expectedScopeTags);
 		if (index === undefined) return undefined;
 		current.pageSectionIndex = index;
 		const selected = selectKnowledgeSections(index, query, budget);

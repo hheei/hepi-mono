@@ -38,6 +38,11 @@ test("indexes scoped sections and ranks heading matches above body matches", ():
 test("rejects duplicate sections, bounds rendering, and marks only rendered sources", (): void => {
 	const duplicate = buildKnowledgeSectionIndex([section(), section()]);
 	expect(duplicate).toBeUndefined();
+	expect(
+		buildKnowledgeSectionIndex([section({ scopeTags: ["project:other"] })], undefined, [
+			"project:repo",
+		]),
+	).toBeUndefined();
 	const index = buildKnowledgeSectionIndex([section({ text: "x".repeat(4_000) })]);
 	expect(index).toBeDefined();
 	if (index === undefined) throw new Error("Expected valid section index");
