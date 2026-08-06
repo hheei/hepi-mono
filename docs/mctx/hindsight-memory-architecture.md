@@ -21,7 +21,8 @@ Phase 0 capability audit + old subsystem removal
 ```
 
 Phase 2 当前使用 mental models、严格 scope 的 bounded observations 和带 `based_on.memories`
-provenance 的 reflect；MCTX 以 generation single-flight、snapshot CAS 和 stale replay 负责最终发布。
+provenance 的 reflect；reflect evidence 必须以 observation 的 `type`、稳定 ID 和规范化 text
+三元一致，MCTX 以 generation single-flight、snapshot CAS 和 stale replay 负责最终发布。
 Phase 3 不伪造 page API，也不把 reflect/observation remote call 扩展到每个 turn。
 
 Phase 0 capability audit 未证明 Hindsight API 提供稳定 ID、scope、provenance、size 和
@@ -788,8 +789,8 @@ visible status, not a second memory implementation. MCTX knowledge mode 已 acti
 ### Phase 2: Hindsight-backed knowledge compilation
 
 - Use mental models and bounded, strictly scoped observations for knowledge baseline/delta, never for compartment m0/m1.
-- Reflect hard materialization runs with bounded low-budget calls over observations; `includeFacts` evidence must be observation IDs
-  already returned by the scoped recall and is stored as source provenance.
+- Reflect hard materialization runs with bounded low-budget calls over observations; `includeFacts` evidence must match
+  scoped recall observation `type`、ID 和 normalized text, and is stored as source provenance.
 - MCTX owns one generation lease and CAS snapshot replacement; malformed, duplicate, oversized, or out-of-scope
   responses reject the whole projection and preserve the prior snapshot.
 - Add scope/provenance/fingerprint tests.
