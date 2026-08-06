@@ -6,8 +6,8 @@ import {
 	loadDollarSkillConfig,
 	normalizeDollarSkillConfig,
 	saveDollarSkillConfig,
-} from "../../../src/dollar-skill/config.js";
-import { createDollarSkillSettingsProvider } from "../../../src/dollar-skill/index.js";
+} from "../../src/dollar-skill/config.js";
+import { createDollarSkillSettingsProvider } from "../../src/dollar-skill/index.js";
 
 describe("dollar skill settings", () => {
 	test("normalizes untrusted values", () => {
@@ -22,18 +22,18 @@ describe("dollar skill settings", () => {
 	});
 
 	test("round-trips its section without overwriting sibling settings", async () => {
-		const cwd = await mkdtemp(join(tmpdir(), "pi-basics-dollar-"));
+		const cwd = await mkdtemp(join(tmpdir(), "pi-ext-addon-dollar-"));
 		const settingsPath = join(cwd, "settings.json");
 		await Bun.write(
 			settingsPath,
-			JSON.stringify({ "pi-basics": { rtk: { mode: "suggest" } }, external: true }),
+			JSON.stringify({ "pi-ext-addon": { "openai-responses-compat": {} }, external: true }),
 		);
 		await saveDollarSkillConfig(cwd, { enabled: false, maxSuggestions: 7 });
 		expect(await loadDollarSkillConfig(cwd)).toEqual({ enabled: false, maxSuggestions: 7 });
 		const parsed: unknown = JSON.parse(await readFile(settingsPath, "utf8"));
 		expect(parsed).toEqual({
-			"pi-basics": {
-				rtk: { mode: "suggest" },
+			"pi-ext-addon": {
+				"openai-responses-compat": {},
 				dollarSkillReferences: { enabled: false, maxSuggestions: 7 },
 			},
 			external: true,
@@ -41,7 +41,7 @@ describe("dollar skill settings", () => {
 	});
 
 	test("uses unique temporary files for concurrent saves", async () => {
-		const cwd = await mkdtemp(join(tmpdir(), "pi-basics-dollar-concurrent-"));
+		const cwd = await mkdtemp(join(tmpdir(), "pi-ext-addon-dollar-concurrent-"));
 		await Promise.all([
 			saveDollarSkillConfig(cwd, { enabled: true, maxSuggestions: 3 }),
 			saveDollarSkillConfig(cwd, { enabled: false, maxSuggestions: 7 }),
@@ -50,7 +50,7 @@ describe("dollar skill settings", () => {
 	});
 
 	test("provider validates limits without changing a live feature", async () => {
-		const settingsDirectory = await mkdtemp(join(tmpdir(), "pi-basics-dollar-provider-"));
+		const settingsDirectory = await mkdtemp(join(tmpdir(), "pi-ext-addon-dollar-provider-"));
 		const provider = createDollarSkillSettingsProvider({ settingsDirectory });
 		const group = provider.groups[0];
 		const limit = group?.fields.find((field) => field.id === "maxSuggestions");

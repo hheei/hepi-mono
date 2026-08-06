@@ -2,6 +2,7 @@ import { Editor, type EditorComponent, getKeybindings } from "@earendil-works/pi
 import type { DollarSkillCommand } from "./model.js";
 
 const ATOMIC_REFERENCE_PATTERN = /(^|[\s([{])\$([A-Za-z][A-Za-z0-9-]*)(?=$|[^A-Za-z0-9:-])/g;
+// The editor wrapper owns movement and deletion only for references Pi can resolve.
 const PASTE_MARKER_PREFIX = "[paste #";
 const CURSOR_LEFT_INPUTS = ["\x1b[D", "\x02"] as const;
 

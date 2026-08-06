@@ -4,8 +4,8 @@ import type { AutocompleteProvider } from "@earendil-works/pi-tui";
 import {
 	createDollarSkillFeature,
 	registerDollarSkillInputTransform,
-} from "../../../src/dollar-skill/index.js";
-import type { DollarSkillCommand } from "../../../src/dollar-skill/model.js";
+} from "../../src/dollar-skill/index.js";
+import type { DollarSkillCommand } from "../../src/dollar-skill/model.js";
 
 type EditorFactory = NonNullable<
 	Parameters<NonNullable<ExtensionContext["ui"]["setEditorComponent"]>>[0]
@@ -70,7 +70,7 @@ describe("dollar skill feature", () => {
 		const feature = createDollarSkillFeature(host.pi);
 		registerDollarSkillInputTransform(host.pi, feature);
 		expect(host.inputHandler?.({ text: "$librarian", source: "interactive" })).toBeUndefined();
-		feature.start({ pi: host.pi, ctx: host.ctx } as never);
+		feature.start(host.ctx);
 		expect(host.wrapper).toBeDefined();
 		expect(host.editorFactory).toBeDefined();
 		expect(host.inputHandler?.({ text: "Use $librarian.", source: "interactive" })).toEqual({
@@ -86,7 +86,7 @@ describe("dollar skill feature", () => {
 	test("forwards live skill status to autocomplete", async () => {
 		const host = harness("tui");
 		const feature = createDollarSkillFeature(host.pi, () => false);
-		feature.start({ pi: host.pi, ctx: host.ctx } as never);
+		feature.start(host.ctx);
 		const current: AutocompleteProvider = {
 			async getSuggestions() {
 				return null;
@@ -131,7 +131,7 @@ describe("dollar skill feature", () => {
 			(command) => command.sourceInfo?.scope === "project",
 		);
 		registerDollarSkillInputTransform(host.pi, feature);
-		feature.start({ pi: host.pi, ctx: host.ctx } as never);
+		feature.start(host.ctx);
 
 		expect(host.inputHandler?.({ text: "Use $review.", source: "interactive" })).toEqual({
 			action: "transform",
@@ -143,7 +143,7 @@ describe("dollar skill feature", () => {
 		const host = harness("json");
 		const feature = createDollarSkillFeature(host.pi);
 		registerDollarSkillInputTransform(host.pi, feature);
-		feature.start({ pi: host.pi, ctx: host.ctx } as never);
+		feature.start(host.ctx);
 		expect(host.wrapper).toBeUndefined();
 		expect(host.editorFactory).toBeUndefined();
 		const images = [{ type: "image", data: "fixture", mimeType: "image/png" }];

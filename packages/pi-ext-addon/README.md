@@ -1,6 +1,7 @@
 # @hheei/pi-ext-addon
 
-Narrow compatibility addons for Pi host. The current addon rewrites OpenAI Responses replay input for gateways that reject assistant or reasoning item `status` fields.
+Pi host addons: OpenAI Responses replay compatibility plus `$skill-name` autocomplete and
+prompt-time skill path references.
 
 ## Install
 

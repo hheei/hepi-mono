@@ -6,12 +6,7 @@ import {
 	type ExtensionContext,
 	getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import type {
-	HepiRuntimeContext,
-	HepiSettingField,
-	HepiSettingsProvider,
-	HepiSettingsState,
-} from "../core/index.js";
+import type { HepiSettingField, HepiSettingsProvider, HepiSettingsState } from "@hheei/pi-ext-core";
 import { createDollarSkillAtomicEditor } from "./atomic-editor.js";
 import {
 	DOLLAR_SKILL_SETTINGS_GROUP,
@@ -70,7 +65,7 @@ function configFromState(state: HepiSettingsState): DollarSkillConfig {
 }
 
 export interface DollarSkillFeature {
-	start(runtime: HepiRuntimeContext): void;
+	start(context: ExtensionContext): void;
 	dispose(sessionId: string): void;
 	isActive(): boolean;
 	isSkillEnabled(command: DollarSkillCommand): boolean;
@@ -87,12 +82,12 @@ export function createDollarSkillFeature(
 	let editorOwner: AtomicEditorOwner | undefined;
 	const autocompleteContexts = new WeakSet<object>();
 	return {
-		start(runtime) {
-			const sessionId = runtime.ctx.sessionManager.getSessionId();
+		start(context) {
+			const sessionId = context.sessionManager.getSessionId();
 			activeSessionId = sessionId;
-			if (runtime.ctx.mode === "tui" && !autocompleteContexts.has(runtime.ctx)) {
-				autocompleteContexts.add(runtime.ctx);
-				runtime.ctx.ui.addAutocompleteProvider((current) =>
+			if (context.mode === "tui" && !autocompleteContexts.has(context)) {
+				autocompleteContexts.add(context);
+				context.ui.addAutocompleteProvider((current) =>
 					createDollarSkillAutocompleteProvider(
 						current,
 						() => pi.getCommands(),
@@ -104,13 +99,13 @@ export function createDollarSkillFeature(
 			}
 			if (
 				editorOwner?.sessionId === sessionId ||
-				runtime.ctx.mode !== "tui" ||
-				typeof runtime.ctx.ui.getEditorComponent !== "function" ||
-				typeof runtime.ctx.ui.setEditorComponent !== "function"
+				context.mode !== "tui" ||
+				typeof context.ui.getEditorComponent !== "function" ||
+				typeof context.ui.setEditorComponent !== "function"
 			)
 				return;
 			editorOwner?.dispose();
-			const previousEditorFactory = runtime.ctx.ui.getEditorComponent();
+			const previousEditorFactory = context.ui.getEditorComponent();
 			let next: AtomicEditorOwner | undefined;
 			const installedEditorFactory: EditorFactory = (tui, theme, keybindings) =>
 				createDollarSkillAtomicEditor(
@@ -125,12 +120,12 @@ export function createDollarSkillFeature(
 				dispose() {
 					if (editorOwner !== next) return;
 					editorOwner = undefined;
-					if (runtime.ctx.ui.getEditorComponent?.() === installedEditorFactory)
-						runtime.ctx.ui.setEditorComponent?.(previousEditorFactory);
+					if (context.ui.getEditorComponent?.() === installedEditorFactory)
+						context.ui.setEditorComponent?.(previousEditorFactory);
 				},
 			};
 			editorOwner = next;
-			runtime.ctx.ui.setEditorComponent(installedEditorFactory);
+			context.ui.setEditorComponent(installedEditorFactory);
 		},
 		dispose(sessionId) {
 			if (activeSessionId === sessionId) activeSessionId = undefined;
@@ -166,9 +161,9 @@ export function createDollarSkillSettingsProvider(
 ): HepiSettingsProvider {
 	const settingsDirectory = options.settingsDirectory ?? getAgentDir();
 	return {
-		id: "pi-basics-dollar-skill",
+		id: "pi-ext-addon-dollar-skill",
 		title: "Dollar skill references",
-		origin: "@hheei/hepi-basics",
+		origin: "@hheei/pi-ext-addon",
 		description: "Skill autocomplete and prompt-time path references.",
 		groups: [{ id: DOLLAR_SKILL_SETTINGS_GROUP, title: "", fields }],
 		storage: {

@@ -6,7 +6,7 @@ import {
 	expandDollarSkillReferences,
 	extractDollarSkillToken,
 	getDollarSkillSuggestions,
-} from "../../../src/dollar-skill/model.js";
+} from "../../src/dollar-skill/model.js";
 
 const commands: readonly DollarSkillCommand[] = [
 	{

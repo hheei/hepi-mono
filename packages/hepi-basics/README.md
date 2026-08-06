@@ -9,7 +9,6 @@ Included modules:
 - `pi-basics`
 - `pi-retry`
 - `pi-rtk`
-- `pi-dollar-skill`
 - `pi-fix`
 - `pi-auto-title`
 
