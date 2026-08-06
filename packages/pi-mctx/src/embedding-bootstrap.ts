@@ -2,7 +2,7 @@ import { statSync } from "node:fs";
 import {
 	cortexKitProjectConfigBasePath,
 	cortexKitUserConfigBasePath,
-} from "@magic-context/core/config/migrate-config-location";
+	} from "@magic-context/core/config/paths";
 import {
 	type EmbeddingFeatures,
 	registerProjectEmbedding,

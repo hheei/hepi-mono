@@ -27,7 +27,6 @@ import {
 	isCompactionEnabled,
 	isDreamerRunnable,
 } from "@magic-context/core/config/agent-disable";
-import { migrateMagicContextConfigLocations } from "@magic-context/core/config/migrate-config-location";
 import type {
 	DreamerConfig,
 	HistorianConfig,
@@ -409,24 +408,9 @@ function warn(message: string, data?: unknown): void {
 	log(`${PREFIX} WARN ${message}`, data);
 }
 
-// Migrate config from the legacy per-harness locations to the shared CortexKit
-// location BEFORE any loadPiConfig. The loader prefers the shared CortexKit
-// paths and only falls back to Pi-owned legacy files when that base is absent.
-// Memoized per directory so the per-cwd switch sites don't re-run the
-// (idempotent, lock-guarded) migration on every pass. Fails open.
-const migratedConfigDirs = new Set<string>();
 // Memoized per directory so repeated /cd lookups do not spam the same config
 // summary/warning lines on every hot-path config resolution.
 const loggedPiConfigDirs = new Set<string>();
-function ensureConfigLocationsMigrated(dir: string): void {
-	if (migratedConfigDirs.has(dir)) return;
-	migratedConfigDirs.add(dir);
-	migrateMagicContextConfigLocations(dir, {
-		warn: (m) => warn(m),
-		info: (m) => info(m),
-	});
-}
-
 function logPiConfigLoad(args: {
 	dir: string;
 	loadedFromPaths: string[];
@@ -737,7 +721,6 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 	// Project config cannot alter it, so every project in this process shares the
 	// operator's chosen owner-private or externally managed permission policy.
 	const bootProjectDir = process.cwd();
-	ensureConfigLocationsMigrated(bootProjectDir);
 	const bootConfig = loadPiConfig({ cwd: bootProjectDir });
 	setStoragePrivatePermissionEnforcement(
 		bootConfig.config.storage.enforce_private_permissions,
@@ -765,7 +748,6 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 	// blocking surface instead of silently skipping hooks (native compaction).
 	if (!db) {
 		const projectDirForConfig = process.cwd();
-		ensureConfigLocationsMigrated(projectDirForConfig);
 		const early = loadPiConfig({ cwd: projectDirForConfig });
 		if (!early.config.enabled) {
 			info(
@@ -892,7 +874,6 @@ async function startPiMagicContextRuntime(
 	// We surface warnings via the standard `warn()` channel so users see
 	// them in the magic-context log. Loading never throws — bad config
 	// gracefully degrades to defaults.
-	ensureConfigLocationsMigrated(projectDir);
 	const { config, warnings, loadedFromPaths } = loadPiConfig({
 		cwd: projectDir,
 	});
@@ -1074,7 +1055,6 @@ async function startPiMagicContextRuntime(
 	): ResolvedPiProjectDeps {
 		const cached = projectDepsByDir.get(dir);
 		if (cached) return cached;
-		ensureConfigLocationsMigrated(dir);
 		const switchedLoad = loadPiConfig({ cwd: dir });
 		logPiConfigLoad({
 			dir,

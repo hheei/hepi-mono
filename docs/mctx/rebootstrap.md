@@ -45,13 +45,17 @@ cortexkit/magic-context@7dcd2e
 复制 extension 直接拥有的 TypeScript 文件和测试：上游 `plugin/src/**` 与
 `pi-plugin/src/**` 的 extension/shared 树，包括 `commands/`、`dialogs/`、`dreamer/`、
 `tools/`、`features/`、`hooks/` 和 `shared/`。复制后再剪掉 OpenCode-only surface；
-保留剩余生产源文件名；所有 `*.test.*` 置于同 package 的镜像 `test/` 树，并重写其
+保留剩余生产源文件名；所有保留的 `*.test.*` 置于同 package 的镜像 `test/` 树，并重写其
 相对 import，以便生产实现与验证代码有明确边界；不在本阶段重构运行时代码。
 
 不复制：`node_modules`、`dist`、benchmark/experiment scripts、上游 package lock、
 上游构建配置和依赖声明。源码基线还没有运行或编译入口，故不添加未被执行代码消费的
 依赖。仓库禁止声明或安装 `@opencode-ai/*`；将来需要运行 OpenCode adapter 时必须先做
 独立兼容性决策，不能以源码复制隐式绕过该约束。
+
+当前基线只读取 `~/.config/cortexkit/magic-context` 和项目的
+`.cortexkit/magic-context`。旧的 OpenCode/Pi 配置位置、启动迁移、legacy fallback
+和对应测试已删除；旧 settings/SQLite 兼容性不属于当前目标。
 
 ## 启用与验证
 
