@@ -211,27 +211,7 @@ function taggedAssistantContent(
 	tag: MctxHistoryTag,
 ): { readonly content: AssistantMessage["content"]; readonly dropped: boolean } {
 	const replacement = tag.status === "active" ? undefined : marker(tag.tagNumber);
-	let sourceTextParts: readonly string[] | undefined;
-	try {
-		const parsed: unknown = JSON.parse(tag.source);
-		if (
-			Array.isArray(parsed) &&
-			parsed.every(
-				(part) =>
-					part !== null &&
-					typeof part === "object" &&
-					"type" in part &&
-					part.type === "text" &&
-					"text" in part &&
-					typeof part.text === "string",
-			)
-		)
-			sourceTextParts = parsed.map((part) => part.text);
-	} catch {
-		// Historical malformed sources retain the verified Pi projection.
-	}
 	let replaced = false;
-	let sourceIndex = 0;
 	return {
 		content: content.map((part) => {
 			if (part.type !== "text") return part;
@@ -242,10 +222,9 @@ function taggedAssistantContent(
 			}
 			if (replaced) return part;
 			replaced = true;
-			const source = sourceTextParts?.[sourceIndex++] ?? part.text;
 			return {
 				...part,
-				text: `${tagPrefix(tag.tagNumber)}${cavemanCompress(source, tag.cavemanDepth)}`,
+				text: `${tagPrefix(tag.tagNumber)}${cavemanCompress(part.text, tag.cavemanDepth)}`,
 			};
 		}),
 		dropped: replacement !== undefined,
@@ -285,22 +264,29 @@ export function projectMctxHistoryTags(
 		if (tag === undefined) continue;
 		const index = contextIndexes.get(entry.id);
 		if (index === undefined) continue;
+		const contextMessage = messages[index];
+		if (contextMessage === undefined) continue;
 		if (message.role === "assistant") {
-			const projected = taggedAssistantContent(message.content, tag);
-			result[index] = { ...message, content: projected.content };
+			if (contextMessage.role !== "assistant") continue;
+			const projected = taggedAssistantContent(contextMessage.content, tag);
+			result[index] = { ...contextMessage, content: projected.content };
 			if (tag.status === "pending" && projected.dropped) dropped.push(tag.tagNumber);
 			continue;
 		}
-		const projected = taggedContent(
-			message.role === "user" && typeof message.content === "string" ? tag.source : message.content,
-			tag,
-		);
 		if (message.role === "user") {
-			result[index] = { ...message, content: projected.content };
-		} else {
-			if (typeof projected.content === "string") continue;
-			result[index] = { ...message, content: projected.content };
+			if (contextMessage.role !== "user") continue;
+			const projected = taggedContent(
+				typeof contextMessage.content === "string" ? tag.source : contextMessage.content,
+				tag,
+			);
+			result[index] = { ...contextMessage, content: projected.content };
+			if (tag.status === "pending" && projected.dropped) dropped.push(tag.tagNumber);
+			continue;
 		}
+		if (contextMessage.role !== "toolResult") continue;
+		const projected = taggedContent(contextMessage.content, tag);
+		if (typeof projected.content === "string") continue;
+		result[index] = { ...contextMessage, content: projected.content };
 		if (tag.status === "pending" && projected.dropped) dropped.push(tag.tagNumber);
 	}
 	for (let index = 0; index < messages.length; index++) {

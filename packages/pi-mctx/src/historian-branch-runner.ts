@@ -1,5 +1,6 @@
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { estimateTokens, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import { verifyMctxCompartmentGraph } from "./compartment-graph.js";
+import { mctxHistorianReservedTokens } from "./historian-executor.js";
 import {
 	type MctxHistorianExecutor,
 	type MctxHistorianRunRequest,
@@ -69,6 +70,8 @@ export interface MctxHistorianBranchRunRequest
 	readonly baseCompartments?: readonly MctxCompartment[];
 	readonly usagePercentage?: number;
 	readonly executeThresholdPercentage?: number;
+	/** Parent model context window defines the pressure-scaled per-run policy. */
+	readonly parentContextWindow?: number;
 	readonly store: Pick<
 		MctxStore,
 		| "acquireHistorianLease"
@@ -105,23 +108,54 @@ export async function runMctxHistorianForBranch(
 		request.rebuild === true || graph.kind === "empty"
 			? request.entries
 			: request.entries.slice(graph.graph.liveTailStartIndex);
-	const projection = projectMctxSourceHistory(
+	const expectedTier = request.rebuild === true || graph.kind === "empty" ? "m0" : "m1";
+	let projection = projectMctxSourceHistory(
 		sourceEntries,
 		request.protectedTurnGroups,
 		mctxHistorianSourceTokenBudget(
-			request.model.contextWindow,
+			request.parentContextWindow,
 			request.usagePercentage,
 			request.executeThresholdPercentage,
 		),
 	);
 	if (projection.kind === "ineligible") return projection;
 	if (projection.kind === "invalid") return projection;
+	const historianWindow = request.model.contextWindow;
+	if (!Number.isSafeInteger(historianWindow) || historianWindow <= 0) {
+		return { kind: "ineligible", reason: "source-too-large" };
+	}
+	const allowedSourceTokens =
+		historianWindow - mctxHistorianReservedTokens(projection.value.source, expectedTier);
+	if (allowedSourceTokens < 1) return { kind: "ineligible", reason: "source-too-large" };
+	const sourceTokens = estimateTokens({
+		role: "user",
+		content: projection.value.sourceText,
+		timestamp: 0,
+	});
+	if (sourceTokens > allowedSourceTokens) {
+		projection = projectMctxSourceHistory(
+			sourceEntries,
+			request.protectedTurnGroups,
+			allowedSourceTokens,
+		);
+		if (projection.kind === "ineligible" || projection.kind === "invalid") return projection;
+		const boundedTokens = estimateTokens({
+			role: "user",
+			content: projection.value.sourceText,
+			timestamp: 0,
+		});
+		if (
+			boundedTokens + mctxHistorianReservedTokens(projection.value.source, expectedTier) >
+			historianWindow
+		)
+			return { kind: "ineligible", reason: "source-too-large" };
+	}
 	return runMctxHistorian(
 		{
 			...request,
 			source: projection.value.source,
 			sourceText: projection.value.sourceText,
-			expectedTier: request.rebuild === true || graph.kind === "empty" ? "m0" : "m1",
+			expectedTier,
 			...(request.replaceFromPublishedRevision === undefined
 				? {}
 				: { replaceFromPublishedRevision: request.replaceFromPublishedRevision }),

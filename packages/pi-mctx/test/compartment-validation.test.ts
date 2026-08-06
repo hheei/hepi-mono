@@ -5,7 +5,7 @@ const source = { entryIds: ["entry-1", "entry-2", "entry-3"], fingerprint: "snap
 const draft = {
 	tier: "m0",
 	sourceStartEntryId: "entry-1",
-	sourceEndEntryId: "entry-2",
+	sourceEndEntryId: "entry-3",
 	sourceFingerprint: "snapshot-1",
 	renderedPayload: "history",
 } as const;
@@ -13,7 +13,14 @@ const draft = {
 test("validates an inclusive source range against its immutable snapshot", (): void => {
 	expect(validateMctxCompartmentDraft(draft, source)).toEqual({
 		kind: "valid",
-		value: { draft, sourceStartIndex: 0, sourceEndIndex: 1 },
+		value: { draft, sourceStartIndex: 0, sourceEndIndex: 2 },
+	});
+});
+
+test("rejects a historian range that leaves snapshot entries uncovered", (): void => {
+	expect(validateMctxCompartmentDraft({ ...draft, sourceEndEntryId: "entry-2" }, source)).toEqual({
+		kind: "invalid",
+		reason: "source range must cover the complete snapshot",
 	});
 });
 

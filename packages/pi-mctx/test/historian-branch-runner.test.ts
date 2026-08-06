@@ -15,7 +15,12 @@ import type {
 	MctxPartition,
 } from "../src/store.js";
 
-const model = { api: "test", provider: "test", id: "historian" } as Model<Api>;
+const model = {
+	api: "test",
+	provider: "test",
+	id: "historian",
+	contextWindow: 200_000,
+} as Model<Api>;
 const partition = { projectIdentity: "project", sessionId: "session", revision: 0 } as const;
 
 function entry(id: string, role: "user" | "assistant", content = id): SessionEntry {
@@ -84,6 +89,24 @@ test("leaves projection-ineligible branches without a historian call", async ():
 		},
 	);
 	expect(result).toEqual({ kind: "ineligible", reason: "protected-tail" });
+});
+
+test("rejects historian input that cannot fit its prompt and output reserve", async (): Promise<void> => {
+	const result = await runMctxHistorianForBranch(
+		{
+			...request([
+				entry("user-1", "user", "old request"),
+				entry("assistant-1", "assistant", "old response"),
+				entry("user-2", "user", "new request"),
+				entry("assistant-2", "assistant", "new response"),
+			]),
+			model: { ...model, contextWindow: 1 },
+		},
+		async () => {
+			throw new Error("must not execute");
+		},
+	);
+	expect(result).toEqual({ kind: "ineligible", reason: "source-too-large" });
 });
 
 test("uses the upstream pressure-scaled source budget", (): void => {

@@ -44,5 +44,7 @@ export function validateMctxCompartmentDraft(
 	if (sourceStartIndex < 0 || sourceEndIndex < 0)
 		return invalid("source range is outside snapshot");
 	if (sourceStartIndex > sourceEndIndex) return invalid("source range is reversed");
+	if (sourceStartIndex !== 0 || sourceEndIndex !== source.entryIds.length - 1)
+		return invalid("source range must cover the complete snapshot");
 	return { kind: "valid", value: { draft, sourceStartIndex, sourceEndIndex } };
 }

@@ -46,6 +46,20 @@ test("constructs a JSON-only no-tools historian completion", async (): Promise<v
 	});
 });
 
+test("normalizes synchronous completion admission errors", async (): Promise<void> => {
+	const result = await executeMctxHistorianCompletion(
+		{} as ExtensionLifecycleContext,
+		{ model, source, sourceText: "history", signal: new AbortController().signal },
+		() => {
+			throw new Error("model is unavailable");
+		},
+	);
+	expect(result).toEqual({
+		kind: "failed",
+		failure: { kind: "invalid-request", message: "model is unavailable" },
+	});
+});
+
 test("normalizes failed terminals", async (): Promise<void> => {
 	const result = await executeMctxHistorianCompletion(
 		{} as ExtensionLifecycleContext,

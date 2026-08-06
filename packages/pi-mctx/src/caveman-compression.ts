@@ -69,10 +69,7 @@ function compressProse(text: string, depth: 1 | 2 | 3): string {
 	if (depth >= 2) {
 		result = result
 			.replace(/\b(?:the|a|an)\b\s*/giu, "")
-			.replace(
-				/\s+\b(?:is|are|was|were|be|been|being|has been|had been|have been|will be|would be|could be|should be|might be|may be)\b\s+(?=\w+(?:ed|en|ing|ized|ised)\b)/giu,
-				" ",
-			);
+			.replace(/\s+\b(?:is|are|was|were|be|been|being)\b\s+/giu, " ");
 	}
 	if (depth === 3)
 		result = result

@@ -67,6 +67,44 @@ interface PiContextHook {
 	): void;
 }
 
+/** Pi event transport for an inline reminder; feature owns all admission policy. */
+export function appendMctxToolResultReminder(
+	feature: Partial<MctxFeature>,
+	event: ToolResultEvent,
+	context: ExtensionContext,
+): { readonly content?: ToolResultEvent["content"] } {
+	const reminder = feature.onToolResult?.(event.toolName, event.content, context);
+	return reminder === undefined
+		? {}
+		: { content: [...event.content, { type: "text", text: reminder }] };
+}
+
+/** Delivers one store-claimed ceiling nudge and releases the claim on host failure. */
+export function deliverMctxCeilingNudge(
+	feature: Partial<MctxFeature>,
+	pi: Pick<ExtensionAPI, "sendMessage">,
+	context: ExtensionContext,
+	deliverAs: "steer" | "followUp",
+): void {
+	const nudge = feature.claimCeilingNudge?.(context);
+	if (nudge === undefined) return;
+	try {
+		pi.sendMessage(
+			{
+				customType: "pi-mctx:ceiling-nudge",
+				content: nudge.text,
+				display: false,
+				details: { kind: "ctx-reduce-ceiling-nudge" },
+			},
+			{ deliverAs },
+		);
+	} catch {
+		feature.releaseCeilingNudge?.(nudge);
+		return;
+	}
+	feature.completeCeilingNudge?.(nudge);
+}
+
 function notifyFlushResult(result: MctxFlushResult, context: ExtensionContext): void {
 	switch (result.kind) {
 		case "flushed":
@@ -815,37 +853,13 @@ export default function piMctxExtension(pi: ExtensionAPI): void {
 			context: ExtensionContext,
 		) => { content?: ToolResultEvent["content"] },
 	) => void;
-	const deliverCeilingNudge = (
-		context: ExtensionContext,
-		deliverAs: "steer" | "followUp",
-	): void => {
-		const nudge = reloadCompatibleFeature.claimCeilingNudge?.(context);
-		if (nudge === undefined) return;
-		try {
-			pi.sendMessage(
-				{
-					customType: "pi-mctx:ceiling-nudge",
-					content: nudge.text,
-					display: false,
-					details: { kind: "ctx-reduce-ceiling-nudge" },
-				},
-				{ deliverAs },
-			);
-		} catch {
-			reloadCompatibleFeature.releaseCeilingNudge?.(nudge);
-			return;
-		}
-		reloadCompatibleFeature.completeCeilingNudge?.(nudge);
-	};
 	onToolResult("tool_result", (event, context) => {
-		const reminder = reloadCompatibleFeature.onToolResult?.(event.toolName, event.content, context);
-		deliverCeilingNudge(context, "steer");
-		return reminder === undefined
-			? {}
-			: { content: [...event.content, { type: "text", text: reminder }] };
+		const reminder = appendMctxToolResultReminder(reloadCompatibleFeature, event, context);
+		deliverMctxCeilingNudge(reloadCompatibleFeature, pi, context, "steer");
+		return reminder;
 	});
 	pi.on("agent_end", (_event, context) => {
-		deliverCeilingNudge(context, "followUp");
+		deliverMctxCeilingNudge(reloadCompatibleFeature, pi, context, "followUp");
 	});
 	pi.on("turn_end", (_event, context) => feature.onTurnEnd(context));
 	pi.on("message_end", (event, context) => {

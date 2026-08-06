@@ -1,9 +1,22 @@
-import { type SessionEntry, sessionEntryToContextMessages } from "@earendil-works/pi-coding-agent";
+import {
+	estimateTokens,
+	type SessionEntry,
+	sessionEntryToContextMessages,
+} from "@earendil-works/pi-coding-agent";
 import type { MctxCompartmentSourceSnapshot } from "./compartment-validation.js";
 import { createMctxSourceSnapshot } from "./source-snapshot.js";
 
 export interface MctxCompleteTurnGroup {
 	readonly entries: readonly SessionEntry[];
+}
+
+function sourceTokens(text: string): number | undefined {
+	try {
+		const tokens = estimateTokens({ role: "user", content: text, timestamp: 0 });
+		return Number.isSafeInteger(tokens) && tokens > 0 ? tokens : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 /**
@@ -37,7 +50,10 @@ export interface MctxSourceHistory {
 
 export type MctxSourceHistoryProjection =
 	| { readonly kind: "eligible"; readonly value: MctxSourceHistory }
-	| { readonly kind: "ineligible"; readonly reason: "no-complete-turn-groups" | "protected-tail" }
+	| {
+			readonly kind: "ineligible";
+			readonly reason: "no-complete-turn-groups" | "protected-tail" | "source-too-large";
+	  }
 	| { readonly kind: "invalid"; readonly reason: string };
 
 function isUserEntry(entry: SessionEntry): boolean {
@@ -75,11 +91,37 @@ function completeGroups(entries: readonly SessionEntry[]): readonly MctxComplete
 	return groups;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function compactContent(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.flatMap((part) => {
+			if (!isRecord(part)) return [];
+			if (typeof part.text === "string") return [part.text];
+			if (part.type === "toolCall" && typeof part.name === "string")
+				return [`[tool call: ${part.name}]`];
+			if (part.type === "image") return ["[image omitted]"];
+			return [];
+		})
+		.join("\n");
+}
+
 function sourceText(entries: readonly SessionEntry[]): string | undefined {
 	try {
-		const messages = entries.flatMap((entry) => sessionEntryToContextMessages(entry));
-		const encoded = JSON.stringify(messages);
-		return typeof encoded === "string" ? encoded : undefined;
+		const lines = entries.flatMap((entry) => {
+			if (entry.type !== "message") return [];
+			return sessionEntryToContextMessages(entry).map(
+				(message) =>
+					`[${entry.id}] ${message.role}\n${compactContent(
+						isRecord(message) && "content" in message ? message.content : undefined,
+					)}`,
+			);
+		});
+		return lines.join("\n\n");
 	} catch {
 		return undefined;
 	}
@@ -92,6 +134,7 @@ function sourceText(entries: readonly SessionEntry[]): string | undefined {
 export function projectMctxSourceHistory(
 	entries: readonly SessionEntry[],
 	protectedTurnGroups: number = 1,
+	maxSourceTokens?: number,
 ): MctxSourceHistoryProjection {
 	if (!Number.isSafeInteger(protectedTurnGroups) || protectedTurnGroups < 0) {
 		return { kind: "invalid", reason: "protected turn group count must be a non-negative integer" };
@@ -102,7 +145,27 @@ export function projectMctxSourceHistory(
 	// detail even after older history becomes a compartment.
 	const eligibleGroups = groups.slice(0, Math.max(0, groups.length - protectedTurnGroups));
 	if (eligibleGroups.length === 0) return { kind: "ineligible", reason: "protected-tail" };
-	const eligibleEntries = eligibleGroups.flatMap((group) => group.entries);
+	if (
+		maxSourceTokens !== undefined &&
+		(!Number.isSafeInteger(maxSourceTokens) || maxSourceTokens < 1)
+	) {
+		return { kind: "ineligible", reason: "source-too-large" };
+	}
+	const boundedGroups: MctxCompleteTurnGroup[] = [];
+	let totalTokens = 0;
+	for (const group of eligibleGroups) {
+		const text = sourceText(group.entries);
+		if (text === undefined)
+			return { kind: "invalid", reason: "Pi source messages cannot be serialized" };
+		const tokens = sourceTokens(text);
+		if (tokens === undefined)
+			return { kind: "invalid", reason: "Pi source messages cannot be tokenized" };
+		if (maxSourceTokens !== undefined && totalTokens + tokens > maxSourceTokens) break;
+		boundedGroups.push(group);
+		totalTokens += tokens;
+	}
+	if (boundedGroups.length === 0) return { kind: "ineligible", reason: "source-too-large" };
+	const eligibleEntries = boundedGroups.flatMap((group) => group.entries);
 	const snapshot = createMctxSourceSnapshot(eligibleEntries);
 	if (snapshot.kind === "invalid") return snapshot;
 	const text = sourceText(eligibleEntries);
@@ -110,6 +173,6 @@ export function projectMctxSourceHistory(
 		return { kind: "invalid", reason: "Pi source messages cannot be serialized" };
 	return {
 		kind: "eligible",
-		value: { groups: eligibleGroups, source: snapshot.snapshot, sourceText: text },
+		value: { groups: boundedGroups, source: snapshot.snapshot, sourceText: text },
 	};
 }

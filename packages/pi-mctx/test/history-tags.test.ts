@@ -145,6 +145,58 @@ describe("MCTX history tags", () => {
 	});
 });
 
+test("tags a live tail after injected MCTX context and preserves cleared assistant reasoning", (): void => {
+	const assistant = {
+		role: "assistant" as const,
+		content: [
+			{ type: "thinking" as const, thinking: "", thinkingSignature: undefined },
+			{ type: "text" as const, text: "answer" },
+		],
+		timestamp: 1,
+	};
+	const entry = {
+		type: "message",
+		id: "assistant-entry",
+		parentId: null,
+		timestamp: "2026-01-01T00:00:00.000Z",
+		message: {
+			...assistant,
+			content: [
+				{ type: "thinking" as const, thinking: "private", thinkingSignature: "signature" },
+				{ type: "text" as const, text: "answer" },
+			],
+		},
+	} as SessionEntry;
+	const projection = projectMctxHistoryTags(
+		[
+			{
+				role: "custom",
+				customType: "pi-mctx:m0",
+				content: "compact",
+				display: false,
+				timestamp: 0,
+			},
+			assistant,
+		],
+		[entry],
+		[
+			{
+				kind: "message",
+				entryId: "assistant-entry",
+				source: "ignored",
+				tagNumber: 4,
+				status: "active",
+			},
+		],
+	);
+	expect(projection.messages[1]).toMatchObject({
+		content: [
+			{ type: "thinking", thinking: "", thinkingSignature: undefined },
+			{ type: "text", text: "§4§ answer" },
+		],
+	});
+});
+
 test("inserts temporal markers after history tags and remains idempotent", (): void => {
 	const messages = [
 		{

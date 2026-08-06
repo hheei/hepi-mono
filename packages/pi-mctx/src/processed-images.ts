@@ -104,9 +104,9 @@ export function stripMctxProcessedImages(
 	messages: readonly AgentMessage[],
 	entries: readonly SessionEntry[],
 	entryIds: ReadonlySet<string>,
+	indexes: ReadonlyMap<string, number> = contextIndexesByEntryId(messages, entries),
 ): readonly AgentMessage[] {
 	if (entryIds.size === 0) return messages;
-	const indexes = contextIndexesByEntryId(messages, entries);
 	const result = [...messages];
 	for (const [entryId, index] of indexes) {
 		if (!entryIds.has(entryId)) continue;

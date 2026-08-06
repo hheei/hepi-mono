@@ -1,4 +1,5 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
+import { estimateTokens } from "@earendil-works/pi-coding-agent";
 import {
 	type CompletionFailure,
 	type CompletionSubagentResult,
@@ -12,6 +13,7 @@ export const MCTX_HISTORIAN_SYSTEM_PROMPT = `You compress one bounded source ran
 Return exactly one JSON object. Do not use Markdown or code fences.
 Use only the source entry IDs supplied in the user prompt.
 The object must have exactly these keys: tier, sourceStartEntryId, sourceEndEntryId, renderedPayload.`;
+const MCTX_HISTORIAN_OUTPUT_RESERVE_TOKENS = 4_096;
 
 export interface MctxHistorianCompletionRequest {
 	readonly model: Model<Api>;
@@ -19,6 +21,23 @@ export interface MctxHistorianCompletionRequest {
 	readonly sourceText: string;
 	readonly signal: AbortSignal;
 	readonly expectedTier?: "m0" | "m1";
+}
+
+/** Fixed prompt and output room excluded from historian source selection. */
+export function mctxHistorianReservedTokens(
+	source: MctxCompartmentSourceSnapshot,
+	expectedTier: "m0" | "m1" | undefined,
+): number {
+	const prompt = createMctxHistorianPrompt({
+		source,
+		sourceText: "",
+		...(expectedTier === undefined ? {} : { expectedTier }),
+	});
+	return (
+		estimateTokens({ role: "user", content: MCTX_HISTORIAN_SYSTEM_PROMPT, timestamp: 0 }) +
+		estimateTokens({ role: "user", content: prompt, timestamp: 0 }) +
+		MCTX_HISTORIAN_OUTPUT_RESERVE_TOKENS
+	);
 }
 
 export type MctxHistorianCompletionResult =
@@ -36,7 +55,16 @@ export type MctxHistorianCompletionStarter = (
 	spec: CompletionSubagentSpec,
 ) => MctxHistorianCompletionHandle;
 
-export function createMctxHistorianPrompt(request: MctxHistorianCompletionRequest): string {
+function failureFromError(error: unknown): CompletionFailure {
+	return {
+		kind: "invalid-request",
+		message: error instanceof Error ? error.message : String(error),
+	};
+}
+
+export function createMctxHistorianPrompt(
+	request: Pick<MctxHistorianCompletionRequest, "source" | "sourceText" | "expectedTier">,
+): string {
 	const tier = request.expectedTier === undefined ? "" : `Required tier: ${request.expectedTier}\n`;
 	return `${tier}Source fingerprint: ${request.source.fingerprint}
 Source entry IDs, in order: ${JSON.stringify(request.source.entryIds)}
@@ -52,13 +80,18 @@ export async function executeMctxHistorianCompletion(
 	start: MctxHistorianCompletionStarter = startSubagent,
 ): Promise<MctxHistorianCompletionResult> {
 	if (request.signal.aborted) return { kind: "cancelled" };
-	const handle = start(context, {
-		mode: "completion",
-		model: request.model,
-		prompt: createMctxHistorianPrompt(request),
-		systemPrompt: MCTX_HISTORIAN_SYSTEM_PROMPT,
-		thinkingLevel: "off",
-	});
+	let handle: MctxHistorianCompletionHandle;
+	try {
+		handle = start(context, {
+			mode: "completion",
+			model: request.model,
+			prompt: createMctxHistorianPrompt(request),
+			systemPrompt: MCTX_HISTORIAN_SYSTEM_PROMPT,
+			thinkingLevel: "off",
+		});
+	} catch (error: unknown) {
+		return { kind: "failed", failure: failureFromError(error) };
+	}
 	const cancel = (): void => handle.cancel();
 	request.signal.addEventListener("abort", cancel, { once: true });
 	try {
