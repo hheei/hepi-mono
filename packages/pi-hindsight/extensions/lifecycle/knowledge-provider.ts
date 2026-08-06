@@ -46,6 +46,10 @@ interface ValidReflect {
 	readonly memoryIds: readonly string[];
 }
 
+function normalizeKnowledgeText(text: string): string {
+	return text.replace(/\s+/gu, " ").trim();
+}
+
 function responseRecord(response: unknown): Record<string, unknown> | undefined {
 	return response !== null && typeof response === "object" && !Array.isArray(response)
 		? (response as Record<string, unknown>)
@@ -62,7 +66,10 @@ function responseText(response: unknown): string | undefined {
 	return undefined;
 }
 
-function validReflect(response: unknown, observationIds: ReadonlySet<string>): ValidReflect {
+function validReflect(
+	response: unknown,
+	observationTexts: ReadonlyMap<string, string>,
+): ValidReflect {
 	const record = responseRecord(response);
 	const text = responseText(response);
 	const basedOn = responseRecord(record?.based_on);
@@ -85,6 +92,8 @@ function validReflect(response: unknown, observationIds: ReadonlySet<string>): V
 		const id = memory.id;
 		const memoryText = memory.text;
 		const type = memory.type;
+		const normalizedId = typeof id === "string" ? id.trim() : "";
+		const normalizedText = typeof memoryText === "string" ? normalizeKnowledgeText(memoryText) : "";
 		if (
 			typeof id !== "string" ||
 			!id.trim() ||
@@ -93,11 +102,16 @@ function validReflect(response: unknown, observationIds: ReadonlySet<string>): V
 			!memoryText.trim() ||
 			memoryText.length > MAX_OBSERVATION_TEXT_CHARS ||
 			type !== "observation" ||
-			!observationIds.has(id.trim()) ||
-			ids.has(id.trim())
+			!observationTexts.has(normalizedId) ||
+			observationTexts.get(normalizedId) !== normalizedText ||
+			ids.has(normalizedId)
 		)
-			throw new Error("Hindsight reflect provenance is malformed or out of scope");
-		ids.add(id.trim());
+			throw new Error(
+				observationTexts.has(normalizedId) && observationTexts.get(normalizedId) !== normalizedText
+					? "Hindsight reflect provenance text mismatch"
+					: "Hindsight reflect provenance is malformed or out of scope",
+			);
+		ids.add(normalizedId);
 		evidenceChars += memoryText.length;
 	}
 	if (evidenceChars > MAX_OBSERVATION_TOTAL_CHARS)
@@ -160,9 +174,9 @@ function responseItems(
 		ids.add(id.trim());
 		return {
 			id: id.trim(),
-			text: text.trim(),
+			text: normalizeKnowledgeText(text),
 			tags: normalizedTags,
-			sourceVersion: responseItemVersion(item, text),
+			sourceVersion: responseItemVersion(item, normalizeKnowledgeText(text)),
 		};
 	});
 }
@@ -288,8 +302,8 @@ export function createHindsightKnowledgeProvider(
 					scopeTags,
 					...(model.lastRefreshedAt ? { updatedAt: model.lastRefreshedAt } : {}),
 				}));
-				const observationIds = new Set<string>();
-				// Same bounded query lets reflect citations be checked against recalled IDs; never trust unknown IDs.
+				const observationTexts = new Map<string, string>();
+				// Same bounded query lets reflect citations be checked against recalled IDs and normalized text; never trust unknown evidence.
 				const recalled = await deps.getClient().recall(current.bankId, KNOWLEDGE_QUERY, {
 					types: ["observation"],
 					preferObservations: true,
@@ -304,7 +318,7 @@ export function createHindsightKnowledgeProvider(
 					scopeTags,
 					current.kind === "project" && config.scope.includeSharedObservations,
 				)) {
-					observationIds.add(item.id);
+					observationTexts.set(item.id, item.text);
 					sources.push({
 						id: `observation:${current.bankId}:${item.id}`,
 						kind: "observation",
@@ -330,7 +344,7 @@ export function createHindsightKnowledgeProvider(
 					...("tagGroups" in scopedFilter ? scopedFilter : {}),
 					signal: request.signal,
 				});
-				const reflectedResult = validReflect(reflected, observationIds);
+				const reflectedResult = validReflect(reflected, observationTexts);
 				const reflectedVersion = createHash("sha256")
 					.update(JSON.stringify(reflectedResult))
 					.digest("hex");

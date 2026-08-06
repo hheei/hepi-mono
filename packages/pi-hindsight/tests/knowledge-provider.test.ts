@@ -109,7 +109,9 @@ describe("MCTX knowledge provider", () => {
 		const reflect = vi.fn(async () => ({
 			text: "Durable project conventions.",
 			based_on: {
-				memories: [{ id: "observation-1", text: "Use strict boundaries.", type: "observation" }],
+				memories: [
+					{ id: "observation-1", text: "Use   strict\n boundaries.", type: "observation" },
+				],
 			},
 		}));
 		const provider = createHindsightKnowledgeProvider({
@@ -244,18 +246,31 @@ describe("MCTX knowledge provider", () => {
 		const configValue = config();
 		const scopeTag = scopeTagsForBank("/repo", configValue, "project-bank")[0];
 		if (scopeTag === undefined) throw new Error("Expected project scope tag");
-		const responses = [
-			{ id: "unknown", text: "Unknown evidence.", type: "observation" },
-			{ id: "observation-1", text: "Wrong type.", type: "world" },
+		const responses: ReadonlyArray<{
+			memory: { id: string; text: string; type: string };
+			error: string;
+		}> = [
+			{
+				memory: { id: "unknown", text: "Unknown evidence.", type: "observation" },
+				error: "out of scope",
+			},
+			{
+				memory: { id: "observation-1", text: "Scoped observation.", type: "world" },
+				error: "out of scope",
+			},
+			{
+				memory: { id: "observation-1", text: "Different evidence.", type: "observation" },
+				error: "text mismatch",
+			},
 		];
-		for (const memory of responses) {
+		for (const current of responses) {
 			const provider = createHindsightKnowledgeProvider({
 				getClient: () => ({
 					retain: async () => undefined,
 					recall: async () => ({
 						results: [{ id: "observation-1", text: "Scoped observation.", tags: [scopeTag] }],
 					}),
-					reflect: async () => ({ text: "Reflect.", based_on: { memories: [memory] } }),
+					reflect: async () => ({ text: "Reflect.", based_on: { memories: [current.memory] } }),
 					listMentalModels: async () => ({ items: [] }),
 				}),
 				getConfig: () => configValue,
@@ -269,7 +284,7 @@ describe("MCTX knowledge provider", () => {
 					signal: new AbortController().signal,
 					mode: "baseline",
 				}),
-			).rejects.toThrow("out of scope");
+			).rejects.toThrow(current.error);
 		}
 	});
 
