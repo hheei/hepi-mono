@@ -25,7 +25,7 @@ const GREP_MATCH_LINE = /^\s*(\d+)([:|│?])(.*)$/;
 const GREP_TRUNCATION = /^\.\.\. \((\d+) more lines, ctrl\+o to expand\)$/i;
 const GREP_NO_MATCHES = /^(?:No files matched\b.*|No match(?:es)? found\.?)$/i;
 const FIND_SUMMARY = /^\d+\/\d+ matches$/;
-const FIND_CANDIDATE = /^\d+\. (.+) \(([^)]+)\)(?: - (.+))?$/;
+const FIND_CANDIDATE = /^\d+\. (.+) \(([^)]+)\)(?:(?: - | )(.+))?$/;
 const FIND_DIRECTORY_HEADER = /^.+\/$/;
 const FIND_CURSOR = /^cursor:\s+/;
 const MAX_COLLAPSED_GREP_CONTENT_LINES = 14;
@@ -263,6 +263,8 @@ function findTotalMatched(result: AgentToolResult<unknown>): number | undefined 
 
 function findTag(reason: string): string {
 	const normalizedReason = reason.startsWith("fff_") ? reason.slice(4) : reason;
+	if (normalizedReason === "fuzzy_filename" || normalizedReason === "fff") return "FF";
+	if (normalizedReason === "fuzzy_path" || normalizedReason === "ffp") return "FP";
 	const matchTag = normalizedReason
 		.split("_")
 		.filter((part) => part.length > 0)
