@@ -135,6 +135,24 @@ knowledge snapshot replace 与 compartment publish 是独立 CAS。任一失败�
 
 snapshot 可以在 Hindsight refresh 前继续 replay。它必须标记 freshness，不能伪装成最新知识。
 
+### Snapshot identity
+
+每次 read、publish、handoff 和 status 都使用完整 `KnowledgeSnapshotIdentity`：
+
+```text
+project identity
+resolved bank IDs and bank role
+strict scope tags and memoryProfile
+Hindsight server/client capability revision
+projection policy version
+source product versions/content fingerprints
+knowledge epoch + reflect query fingerprint when applicable
+page-section index version when applicable
+```
+
+任一字段变化都使旧 snapshot 不可作为 fresh 复用。它可以在相同 project/scope 下作为 stale fallback
+replay；跨 project、profile、bank、privacy policy 或 capability revision 不得 replay。
+
 ## 3. 知识产品与上下文层级
 
 Hindsight upstream 明确区分：
@@ -157,16 +175,16 @@ MCTX 不把这些产品混成一个 `Memory[]`。目标 context tier：
 - project mental model；
 - Hindsight knowledge page 中明确标为 project-stable 的 sections；
 - 经过 materializer 固定的 project observations；
-- 一次 session-start 或 hard materialization 的 reflect synthesis。
 
 knowledge baseline 只使用已缓存 snapshot。普通 turn 不重新远程 recall 或 reflect。它的 fingerprint
 包含 Hindsight source IDs、versions、scope、render policy 和 rendered payload；不进入 MCTX
 compartment source fingerprint。
 
 source selection 不由 MCTX 对 long-term knowledge 做第二次 semantic ranking。pi-hindsight provider 以
-Hindsight product policy 返回已选 projection：默认优先 project-scoped mental models；reflect synthesis
-只补当前 knowledge epoch 的明确问题；observations 只补 mental model/page 未覆盖的缺口。相同 provenance
-或内容指纹只能出现一次。MCTX 验证 scope/provenance/budget 后编译，不重写知识优先级。
+Hindsight product policy 返回已选 projection：默认优先 project-scoped mental models，再补 provenance
+完整的 observations/pages。相同 provenance 或内容指纹只能出现一次。MCTX 验证 scope/provenance/budget
+后编译，不重写知识优先级。Reflect 是当前 task/session epoch 的 synthesis，默认只进入该 epoch snapshot，
+不是以后 session 的长期 baseline。
 
 默认只使用 project/coding bank。只有 Hindsight `memoryProfile` 明确允许 global/user scope 时，provider
 才返回 global mental model/page；MCTX 不因 context 压力或 project snapshot 为空而扩大到 user bank。
@@ -243,6 +261,27 @@ eligible materialization boundary; it must not permanently decide from one absen
 starts first, it may inject normally until MCTX claim succeeds. The claim transition requires a context revision
 boundary: never mix old Hindsight auto injection and new MCTX snapshot injection in one provider request.
 
+### 注入 owner admission 状态机
+
+automatic knowledge injection 只有一个 session-scoped owner。不能在 Hindsight 先启动时先注入一次，
+再在 MCTX claim 后切换，因为首次 provider request 也必须稳定。
+
+```text
+unknown
+  -> mctx-owned       MCTX enabled、Hindsight readable、claim 成功
+  -> hindsight-owned  MCTX integration disabled 或用户明确选择 Hindsight direct runtime
+  -> disabled         session mode ignored、capability denied 或双方均未启用
+
+mctx-owned / hindsight-owned / disabled
+  -> unknown          reload、extension unload、profile/bank/scope change、session replacement
+```
+
+`unknown` 时两边都不 automatic inject。admission 必须在下一次 context revision 前完成；超时/失败进入
+`disabled` 并显示 reason，而不是临时回退另一方。owner 变更只发生在 context revision boundary，不能在
+同一个 provider request 混合 Hindsight direct block 与 MCTX knowledge snapshot。
+
+automatic retain 不受 injection owner 影响；它只服从 Hindsight session mode。
+
 ### Session start
 
 ```text
@@ -316,6 +355,20 @@ Hindsight retain 的 source 必须是 Pi session branch/agent-end 的原始 mess
 provider-only custom message 都不得成为 retained evidence。实现前增加 host regression，证明 smart drop 后
 Hindsight 仍 retain 原始 eligible source，而不会 retain MCTX projection。
 
+这是主安全 invariant，不依赖 injected-knowledge marker：
+
+```text
+automatic retain input = canonical Pi session entries only
+context-projection message = never retain input
+```
+
+marker 只作为显式 tool input、import 和未来 interop path 的 defence-in-depth filter。
+
+retain 前由 pi-hindsight 做持久化安全过滤：secret redaction、credential/token pattern filtering、
+tool/source allowlist、oversized output exclusion、custom/injected message exclusion 和 explicit user opt-out。
+Hindsight returned text 也当作不可信数据渲染：固定 delimiter、provenance label、禁止它覆盖 system/tool
+instruction 或扩大 bank/scope。source deletion/correction 必须通过 Hindsight document provenance 路径完成。
+
 retain delivery 不等于知识刷新。MCTX status 必须区分：
 
 ```text
@@ -328,6 +381,10 @@ retain queued
 只有观察到可验证的 Hindsight source version/content fingerprint 改变，才将 knowledge snapshot 标为
 `stale`。只有新 snapshot CAS publish 成功，才标为 `fresh`。当前 Hindsight server 无法提供该观察信号时，
 snapshot 维持 `freshness: unknown`，不得在每次 agent end 盲目 reflect。
+
+`unknown` 的可执行策略是：只允许 explicit refresh 或首次/新 epoch 的一次 bounded materialization，
+并有最小 cooldown。它不因 agent end 自动 materialize，也不因 context pressure 反复 reflect。等 capability
+audit 证明有稳定 change/version signal 后，才启用 version-driven stale/materialization。
 
 ### Hard materialization
 
@@ -403,8 +460,8 @@ MCTX 是最终 context budget owner。knowledge snapshot 使用 MCTX 已有 `mem
 但不与 compartment graph 共用 record。render policy 固定优先级：
 
 ```text
-protected live tail / current user message
--> required system and tool definitions
+required system prompt and tool definitions
+-> current user message / protected live tail
 -> verified compartment m0/m1
 -> knowledge baseline
 -> knowledge delta
@@ -415,6 +472,14 @@ protected live tail / current user message
 不能为了注入 Hindsight knowledge 触发 smart drop、提前 historian compaction 或削减 protected live tail。
 snapshot render 记录 token count 和裁剪原因，`/mctx` status 显示 knowledge budget/freshness；`/hindsight`
 继续显示 bank、queue、retain 和 remote health。
+
+knowledge accounting 不复用一个模糊的 `memories` 数字。status 分别显示：
+
+```text
+knowledgeBaseline
+knowledgeDelta
+knowledgeLocal
+```
 
 ### 真相与缓存
 
@@ -441,9 +506,35 @@ Hindsight observation stale、矛盾或 source correction 由 Hindsight 处理�
 读取新结果。若 Hindsight 没有可验证的 exclusion/provenance，MCTX 不得宣称旧事实已被移除；status 应显示
 `knowledge freshness unresolved`。
 
+### Handoff
+
+handoff 不把 Hindsight knowledge render 写入 Pi transcript，也不把它 retain 为新 source。payload 只携带
+`KnowledgeSnapshotIdentity`、render payload、freshness、source provenance 和 integrity fingerprint。
+
+```text
+destination validates:
+  MCTX knowledge integration enabled
+  same project identity
+  same resolved bank IDs, profile, strict scope and privacy policy
+  compatible Hindsight capability revision
+  payload/source integrity fingerprint
+
+all valid
+  -> reuse snapshot as validated/stale according to freshness
+
+any mismatch or unavailable capability
+  -> do not copy knowledge into transcript
+  -> do not use old MCTX memory fallback
+  -> retain session compartments only; knowledge state is unavailable or stale
+```
+
+compartment parent projection 与 knowledge snapshot validation 是独立 transaction/decision。
+
 ## 7. Capability contract
 
-跨 extension 不共享 Hindsight client。ext-core 提供窄 capability：
+跨 extension 不共享 Hindsight client。Phase 1 只提供 `StableProjectionService`；Phase 3 capability audit
+通过后才单独增加 `PageSectionService`。Pages 不进入 Phase 1 contract，也不让 0.8.x integration 假装支持
+upstream planned API。
 
 ```ts
 interface MctxKnowledgeService {
@@ -465,7 +556,7 @@ interface MctxKnowledgeService {
     | {
         kind: "projection";
         sources: readonly {
-          sourceKind: "mental-model" | "page" | "observation" | "reflect";
+          sourceKind: "mental-model" | "observation" | "reflect";
           sourceId: string;
           version?: string;
           text: string;
@@ -477,8 +568,10 @@ interface MctxKnowledgeService {
     | { kind: "empty" }
     | { kind: "unavailable"; reason: string }
   >;
+}
 
-  getPageSections?(input: {
+interface PageSectionService {
+  getPageSections(input: {
     projectId: string;
     signal: AbortSignal;
   }): Promise<
@@ -492,9 +585,8 @@ interface MctxKnowledgeService {
 该 capability 拥有 Hindsight routing、network、retry、response validation 和 source provenance。
 MCTX 拥有 snapshot publication、context rendering 和 cache invalidation。context injection claim 存在时，
 pi-hindsight 不执行自己的 automatic recall hook；claim release、lifecycle abort 或 provider absence 后，
-pi-hindsight 才能恢复其独立 automatic recall policy。`pi-hindsight` 可以省略
-`getPageSections` when its connected server lacks the capability; MCTX then uses only stable projection,
-not a fake page implementation.
+injection owner 回到 `unknown`，必须重新 admission，不能立即恢复自动注入。连接的 server 没有 Page capability
+时，pi-hindsight 不注册 `PageSectionService`；MCTX 只使用 stable projection，不伪造 page 实现。
 
 ## 8. Failure and fallback policy
 
@@ -520,8 +612,11 @@ visible status, not a second memory implementation. MCTX knowledge mode 已 acti
 - Verify mental-model payload, tags, update timestamps and stable IDs.
 - Verify observation recall filters, source facts and provenance.
 - Verify correction/stale behavior after retain `replace`.
+- Define and test `KnowledgeSnapshotIdentity`, admission state transitions and canonical retain source invariant.
+- Define old MCTX memory export/import receipt, read-back verification and deletion admission before code deletion.
+- Verify redaction, custom-message exclusion, prompt-injection rendering and document correction/deletion behavior.
 
-### Phase 1: stable projection, no UI behavior change
+### Phase 1: stable projection and injection admission
 
 - Add the ext-core capability contract.
 - Implement pi-hindsight provider using existing lifecycle/client ownership.
