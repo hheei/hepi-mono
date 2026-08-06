@@ -289,7 +289,7 @@ describe("pi-ext-tools catalog", () => {
 				.join("\n")
 				.trimEnd(),
 		).toBe(
-			"<mdCode>src/</mdCode>\n<dim>a.ts</dim><mdCode>:1,2,3,4,5, …</mdCode> (<success>6</success> matches)\n<dim>b.ts</dim><mdCode>:7</mdCode> (<success>1</success> matches)",
+			"<mdCode>src/</mdCode>\n<dim>a.ts</dim><warning>:1,2,3,4,5, …</warning> (<success>6</success> matches)\n<dim>b.ts</dim><warning>:7</warning> (<success>1</success> matches)",
 		);
 		expect(
 			grep

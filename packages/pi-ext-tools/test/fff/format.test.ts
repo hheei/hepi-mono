@@ -48,7 +48,9 @@ describe("FFF grep formatting", () => {
 			"src/",
 			"1. one.ts (fuzzy) - frequent git:modified",
 			"3. two.ts (prefix)",
+			"",
 			"2. other/only.ts (prefix)",
+			"",
 			"4. root.ts (fuzzy)",
 		]);
 	});
@@ -95,7 +97,7 @@ describe("FFF grep formatting", () => {
 				{ limit: 3, requestedContext: 0, includeCursorHint: false, matchLimitReached: 3 },
 			).text,
 		).toBe(
-			"src/\na.ts:1 (1 matches)\nb.ts:3 (1 matches)\nother/only.ts:2 (1 matches)\n\n[3 matches shown. Refine the pattern or increase limit for more.]",
+			"src/\na.ts:1 (1 matches)\nb.ts:3 (1 matches)\n\nother/only.ts:2 (1 matches)\n\n[3 matches shown. Refine the pattern or increase limit for more.]",
 		);
 		expect(
 			buildGrepText([match("src/a.ts", 1, "one"), match("src/a.ts", 3, "three")], {

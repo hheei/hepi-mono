@@ -165,16 +165,17 @@ function buildMatchSummaryLines(items: GrepMatch[]): string[] {
 		const directory = path.slice(0, separator);
 		directoryCounts.set(directory, (directoryCounts.get(directory) ?? 0) + 1);
 	}
-	const lines: string[] = [];
+	const blocks: string[][] = [];
 	const emittedDirectories = new Set<string>();
 	for (const path of groups.keys()) {
 		const separator = path.lastIndexOf("/");
 		const directory = separator > 0 ? path.slice(0, separator) : undefined;
 		const grouped = directory !== undefined && (directoryCounts.get(directory) ?? 0) >= 2;
 		if (grouped && emittedDirectories.has(directory)) continue;
+		const block: string[] = [];
 		if (grouped) {
 			emittedDirectories.add(directory);
-			lines.push(`${directory}/`);
+			block.push(`${directory}/`);
 		}
 		for (const [candidatePath, candidateLineNumbers] of groups) {
 			const candidateSeparator = candidatePath.lastIndexOf("/");
@@ -183,12 +184,13 @@ function buildMatchSummaryLines(items: GrepMatch[]): string[] {
 			if (grouped && candidateDirectory !== directory) continue;
 			if (!grouped && candidatePath !== path) continue;
 			const displayPath = grouped ? candidatePath.slice(candidateSeparator + 1) : candidatePath;
-			lines.push(
+			block.push(
 				`${displayPath}:${candidateLineNumbers.join(",")} (${candidateLineNumbers.length} matches)`,
 			);
 		}
+		blocks.push(block);
 	}
-	return lines;
+	return blocks.flatMap((block, index) => (index === 0 ? block : ["", ...block]));
 }
 
 function buildContentLines(items: GrepMatch[], requestedContext: number) {
@@ -386,22 +388,22 @@ export function formatCandidateLines(
 		const suffix = fileSuffix(candidate.item.totalFrecencyScore, candidate.item.gitStatus);
 		return `${index + 1}. ${path}${matchType ? ` (${matchType})` : ""}${suffix}`;
 	};
-	const lines: string[] = [];
+	const blocks: string[][] = [];
 	for (const [index, candidate] of visible.entries()) {
 		const separator = candidate.item.relativePath.lastIndexOf("/");
 		const directory = separator > 0 ? candidate.item.relativePath.slice(0, separator) : undefined;
 		if (directory === undefined || (directoryCounts.get(directory) ?? 0) < 2) {
-			lines.push(render(candidate, index, candidate.item.relativePath));
+			blocks.push([render(candidate, index, candidate.item.relativePath)]);
 			continue;
 		}
 		if (grouped.has(directory)) continue;
 		grouped.add(directory);
-		lines.push(`${directory}/`);
+		const block = [`${directory}/`];
 		for (const [groupIndex, groupCandidate] of visible.entries()) {
 			if (!groupCandidate.item.relativePath.startsWith(`${directory}/`)) continue;
 			const groupSeparator = groupCandidate.item.relativePath.lastIndexOf("/");
 			if (groupCandidate.item.relativePath.slice(0, groupSeparator) !== directory) continue;
-			lines.push(
+			block.push(
 				render(
 					groupCandidate,
 					groupIndex,
@@ -409,6 +411,7 @@ export function formatCandidateLines(
 				),
 			);
 		}
+		blocks.push(block);
 	}
-	return lines;
+	return blocks.flatMap((block, index) => (index === 0 ? block : ["", ...block]));
 }

@@ -79,7 +79,9 @@ existing semantic token expresses the role.
 - Tool execution uses one padded block with `toolPendingBg`, `toolSuccessBg`,
   or `toolErrorBg`. Use `toolTitle` for its title and `toolOutput` for output.
 - Grouped `find` results use `mdCode` for a directory header, `success` for its FFF match tag, and `dim` for the displayed path. A group exists only when that directory has at least two candidates; root and singleton directories retain their complete repo-relative path.
+- Adjacent grouped `find` directory blocks, singleton paths, and grouped FFF `grep` summary blocks have exactly one blank line between blocks; lines inside one directory block remain consecutive.
 - Compressed FFF `grep` rows render the path with `dim`, the `:line,line` segment with `mdCode`, and the match count with `success`. The raw row remains unchanged for the model.
+- Compressed FFF `grep` summary line-number segments, including `:1,2,3`, use `warning`; paths remain `dim` and match counts remain `success`.
 - Compressed FFF `grep` summaries group two or more files from the same parent directory under a `dir/` header. Both the model and TUI receive the grouped raw structure; singleton directories retain full repo-relative paths.
 - FFF `grep` content, approximate results, and native fallback results right-align line numbers to the widest number in each displayed file block. The renderer applies this TUI-only alignment to `:`, `│`, and `?` row separators without changing the model-visible result.
 - Every active `pi-mctx` tool result begins with the literal `[magic context]`.
