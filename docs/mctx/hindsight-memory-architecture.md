@@ -47,6 +47,8 @@ Pi model context
 - 让 Hindsight 的网络、异步 extraction、consolidation 和 refresh 不破坏 MCTX 的 prefix cache、
   CAS、取消和 context replay。
 - 明确 remote knowledge freshness、MCTX snapshot freshness 和当前 turn relevance 的边界。
+- 保持用户对两类记忆的心智模型清晰：MCTX 提供“本 session 的精确上下文恢复与压缩”，
+  Hindsight 提供“跨 session 的长期知识”。
 
 非目标：
 
@@ -94,6 +96,11 @@ pi-mctx 是 context compiler。它拥有：
 
 pi-mctx 不拥有 Hindsight bank、retain queue、observation extraction、embedding、semantic rank、
 reflect prompt 或 mental-model content generation。
+
+当前 `pi-mctx` 的 memory/embedding/search/note/Dreamer runtime 已 parked，生产路径没有 local
+long-term memory authority。迁移不需要 production dual-read/dual-write；比较只能使用 exported fixtures、
+isolated evaluation banks 和 benchmark harness。确认 Hindsight capability 完整后，删除 parked implementation、
+schema 与 revival 注释，不保留第二套 backend。
 
 ### Compartment 与 knowledge snapshot 的硬边界
 
@@ -156,6 +163,14 @@ knowledge baseline 只使用已缓存 snapshot。普通 turn 不重新远程 rec
 包含 Hindsight source IDs、versions、scope、render policy 和 rendered payload；不进入 MCTX
 compartment source fingerprint。
 
+source selection 不由 MCTX 对 long-term knowledge 做第二次 semantic ranking。pi-hindsight provider 以
+Hindsight product policy 返回已选 projection：默认优先 project-scoped mental models；reflect synthesis
+只补当前 knowledge epoch 的明确问题；observations 只补 mental model/page 未覆盖的缺口。相同 provenance
+或内容指纹只能出现一次。MCTX 验证 scope/provenance/budget 后编译，不重写知识优先级。
+
+默认只使用 project/coding bank。只有 Hindsight `memoryProfile` 明确允许 global/user scope 时，provider
+才返回 global mental model/page；MCTX 不因 context 压力或 project snapshot 为空而扩大到 user bank。
+
 ### Knowledge delta
 
 适合当前 session 或近期变化、但尚未成为长期 baseline 的内容：
@@ -182,6 +197,51 @@ Hindsight upstream 最新 Reflect + Pages runtime 的经验表明，raw recall-p
 它不能悄悄进入 stable knowledge snapshot，也不能在每轮无 score floor 地注入。
 
 ## 4. 运行时流程
+
+### 用户工作流与控制面
+
+用户不应学习两套同义 memory command：
+
+```text
+/mctx        = 当前 session context、compartment、drop、historian、knowledge snapshot 状态
+/hindsight   = bank、scope、retain queue、session memory mode、显式 recall/reflect、mental model 管理
+ctx_expand   = 精确恢复被 MCTX drop 的历史 source
+hindsight_*  = 查询或保存长期 Hindsight knowledge
+```
+
+`ctx_expand` 与 `hindsight_recall` 不能互相替代。前者按 MCTX tag 精确恢复本 session 的原始
+tool/message source；后者返回跨 session 的语义知识候选。MCTX 不重新注册 `ctx_memory`、`ctx_note`、
+`ctx_search` 或 Dreamer command。
+
+Hindsight session mode 是用户 authority：
+
+```text
+normal     = MCTX knowledge snapshot 可读；Hindsight retain 可写
+read-only  = MCTX knowledge snapshot 可读；Hindsight automatic retain 不写
+ignored    = 不读、不写、不注入 Hindsight knowledge；MCTX 仍可做纯 session compartment/context 工作
+next-retain-off = 只影响下一次 Hindsight retain，不撤销已验证 knowledge snapshot
+```
+
+### 注入仲裁与生命周期顺序
+
+pi-hindsight 当前 automatic context path 同时渲染 mental models 和 raw recall。MCTX knowledge mode
+必须接管这整个 automatic path，不能只关闭 raw recall 而保留 mental-model auto injection。
+
+```text
+pi-hindsight active + session mode permits read
+  -> publishes runtime injection-gate capability before bank initialization completes
+pi-mctx active + knowledge integration enabled
+  -> claims gate after both lifecycles are active
+  -> pi-hindsight suppresses mental-model + recall auto injection
+  -> pi-mctx renders only validated knowledge snapshot/local sections
+claim release / MCTX cleanup
+  -> pi-hindsight may resume its independent auto path on a later context turn
+```
+
+Lifecycle ordering is not assumed. If MCTX starts before pi-hindsight, it retries admission at the first
+eligible materialization boundary; it must not permanently decide from one absent service lookup. If Hindsight
+starts first, it may inject normally until MCTX claim succeeds. The claim transition requires a context revision
+boundary: never mix old Hindsight auto injection and new MCTX snapshot injection in one provider request.
 
 ### Session start
 
@@ -215,6 +275,10 @@ first task message
 
 不在 session-open 对空 query 做 reflect。不在每个 prompt 做新的 reflect。
 
+“first real task” 是 knowledge epoch，不等于 session file 创建。resume、handoff 或长 idle 后的第一条
+substantive user request 可开始新 epoch；短连续 turns 复用同一 snapshot。Phase 0 必须定义可观察的
+epoch boundary，不能把 MCTX 5-minute temporal marker 直接当作知识刷新事实。
+
 ### Each turn
 
 ```text
@@ -246,6 +310,11 @@ queued/failed/dead-letter，而不是静默当作 durable。
 包含 provider、source IDs 与 `retain: false`。pi-hindsight retain projection 必须排除该 marker，
 和排除自身 `<hindsight-memory>` block 使用同一规则。这样 reflect/page/model 内容不会作为新的
 raw evidence 再次 retain。
+
+Hindsight retain 的 source 必须是 Pi session branch/agent-end 的原始 message sequence，不能是 MCTX
+`context` hook 的 rendered messages。MCTX drop marker、compartment、knowledge snapshot、recall block 和
+provider-only custom message 都不得成为 retained evidence。实现前增加 host regression，证明 smart drop 后
+Hindsight 仍 retain 原始 eligible source，而不会 retain MCTX projection。
 
 retain delivery 不等于知识刷新。MCTX status 必须区分：
 
@@ -328,6 +397,25 @@ memory row。upstream Reflect + Pages runtime spec 本身不是当前 0.8.x clie
 
 ## 6. 一致性与缓存
 
+### Context budget arbitration
+
+MCTX 是最终 context budget owner。knowledge snapshot 使用 MCTX 已有 `memories` token accounting slot，
+但不与 compartment graph 共用 record。render policy 固定优先级：
+
+```text
+protected live tail / current user message
+-> required system and tool definitions
+-> verified compartment m0/m1
+-> knowledge baseline
+-> knowledge delta
+-> turn-local page sections
+```
+
+预算不足时，先省略 turn-local sections，再裁剪/跳过 knowledge delta，再使用较旧但已验证的 baseline；
+不能为了注入 Hindsight knowledge 触发 smart drop、提前 historian compaction 或削减 protected live tail。
+snapshot render 记录 token count 和裁剪原因，`/mctx` status 显示 knowledge budget/freshness；`/hindsight`
+继续显示 bank、queue、retain 和 remote health。
+
 ### 真相与缓存
 
 ```text
@@ -365,6 +453,7 @@ interface MctxKnowledgeService {
     signal: AbortSignal;
   }): Promise<
     | { kind: "claimed"; release(): void }
+    | { kind: "denied"; reason: "session-mode-ignored" | "knowledge-mode-disabled" }
     | { kind: "unavailable"; reason: string }
   >;
 
@@ -381,6 +470,8 @@ interface MctxKnowledgeService {
           version?: string;
           text: string;
           tags: readonly string[];
+          /** Product selection happened in pi-hindsight, not in MCTX. */
+          selectionRole: "baseline" | "delta" | "epoch-synthesis";
         }[];
       }
     | { kind: "empty" }
