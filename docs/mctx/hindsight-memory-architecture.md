@@ -39,11 +39,12 @@ Phase 3 当前实现由三段组成：ext-core 的 `PageSectionService` 只传�
 和已验证的 section cache；pi-hindsight 通过 pinned OpenAPI adapter 在 capability probe
 和后台 refresh 中读取 pages，并拒绝 malformed、重复、超大或身份不一致响应；pi-mctx
 在 context hook 中建立本地 lexical index，按 heading/body score、floor 和剩余预算选择
-section。turn-local block 使用 `retain: false` marker，低分、失主、过压或 cache 不可用时
+section，并在首次读取时绑定当前 MCTX project identity、拒绝后续 identity 漂移，验证
+section scopeTags 属于当前 projection scope。turn-local block 使用 `retain: false` marker，低分、失主、过压或 cache 不可用时
 静默省略，hot path 不发起网络请求。
 
 Phase 3 evidence：`packages/pi-hindsight/tests/page-sections.test.ts` 覆盖嵌套 tree、
-frontmatter、scope/provenance、malformed response、lease gate、refresh cache 与 hot-path
+frontmatter、scope/provenance、malformed response、lease/project gate、refresh cache 与 hot-path
 无 I/O；`packages/pi-mctx/test/page-sections.test.ts` 覆盖 heading 优先级、重复拒绝、
 固定 wrapper 开销后的预算上限、多模态 user query、pressure budget 与低分静默；
 `packages/pi-mctx/test/feature-context.test.ts` 覆盖 snapshot + page section 的实际 hook

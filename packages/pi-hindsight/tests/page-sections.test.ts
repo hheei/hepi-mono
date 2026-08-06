@@ -107,6 +107,13 @@ test("loads validated nested pages into scoped sections without hot-path I/O", a
 	expect(result.sections[0]?.scopeTags.length).toBeGreaterThan(0);
 	expect(treeCalls.value).toBe(1);
 	expect(pageCalls.value).toBe(1);
+	await expect(
+		handle.service.getPageSections({
+			lease: { owner: "mctx-owned", generation: "generation-1", token: "token" },
+			projectId: "other-project",
+			signal: new AbortController().signal,
+		}),
+	).resolves.toMatchObject({ kind: "unavailable" });
 
 	await handle.refresh(new AbortController().signal);
 	expect(treeCalls.value).toBe(2);

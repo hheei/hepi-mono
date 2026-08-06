@@ -253,6 +253,7 @@ export async function createHindsightPageSectionService(
 		return undefined;
 	}
 	let refreshInFlight: Promise<void> | undefined;
+	let admittedProjectId: string | undefined;
 	const refresh = async (refreshSignal: AbortSignal): Promise<void> => {
 		if (refreshInFlight !== undefined) return refreshInFlight;
 		const run = (async (): Promise<void> => {
@@ -275,8 +276,14 @@ export async function createHindsightPageSectionService(
 			const state = deps.getInjectionState();
 			if (lease.owner !== "mctx-owned" || state.owner !== "mctx-owned")
 				return { kind: "unavailable", reason: "MCTX does not own knowledge injection" };
-			if (!projectId.trim() || state.generation !== lease.generation)
+			const normalizedProjectId = projectId.trim();
+			if (
+				!normalizedProjectId ||
+				state.generation !== lease.generation ||
+				(admittedProjectId !== undefined && admittedProjectId !== normalizedProjectId)
+			)
 				return { kind: "unavailable", reason: "Hindsight page cache identity changed" };
+			admittedProjectId ??= normalizedProjectId;
 			return { kind: "sections", version: cache.version, sections: cache.sections };
 		},
 	};

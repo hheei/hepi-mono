@@ -52,17 +52,39 @@ function validSection(section: KnowledgeSection): boolean {
 	);
 }
 
+function sectionScopeMatches(
+	section: KnowledgeSection,
+	expectedScopeTags: ReadonlySet<string> | undefined,
+): boolean {
+	return (
+		expectedScopeTags === undefined ||
+		section.scopeTags.every((scopeTag) => expectedScopeTags.has(scopeTag))
+	);
+}
+
 export function buildKnowledgeSectionIndex(
 	sections: readonly KnowledgeSection[],
 	version?: string,
+	expectedScopeTags?: readonly string[],
 ): KnowledgeSectionIndex | undefined {
 	if (sections.length > MAX_INDEX_SECTIONS) return undefined;
+	const expectedScopes =
+		expectedScopeTags === undefined
+			? undefined
+			: new Set(expectedScopeTags.filter((scopeTag) => scopeTag.trim().length > 0));
+	if (expectedScopes !== undefined && expectedScopes.size === 0) return undefined;
 	const ids = new Set<string>();
 	const contents = new Set<string>();
 	const indexed: IndexedSection[] = [];
 	for (const section of sections) {
 		const text = section.text.trim();
-		if (!validSection(section) || ids.has(section.id) || contents.has(text)) return undefined;
+		if (
+			!validSection(section) ||
+			!sectionScopeMatches(section, expectedScopes) ||
+			ids.has(section.id) ||
+			contents.has(text)
+		)
+			return undefined;
 		ids.add(section.id);
 		contents.add(text);
 		indexed.push({
