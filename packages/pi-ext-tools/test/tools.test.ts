@@ -375,6 +375,26 @@ describe("pi-ext-tools catalog", () => {
 				.trimEnd(),
 		).toBe("<mdCode>src/a.ts</mdCode>\n<dim>  9:</dim>one\n<dim>100:</dim>hundred");
 		expect(
+			grep
+				.renderResult?.(
+					{
+						content: [
+							{ type: "text", text: "src/a.ts\n9│before\n10:match\n\nsrc/b.ts\n100:later" },
+						],
+						details: undefined,
+					},
+					{},
+					theme,
+					{ isError: false, lastComponent: undefined },
+				)
+				.render(200)
+				.map((line) => line.trimEnd())
+				.join("\n")
+				.trimEnd(),
+		).toBe(
+			"Found 3 matches in 2 files.\n\n<mdCode>src/a.ts</mdCode>\n<dim> 9│</dim>before\n<dim>10:</dim>match\n\n<mdCode>src/b.ts</mdCode>\n<dim>100:</dim>later",
+		);
+		expect(
 			find
 				.renderResult?.(
 					{
