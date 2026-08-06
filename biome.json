@@ -19,6 +19,8 @@
 			"!**/dist",
 			"!**/.pi",
 			"!references",
+			"!packages/pi-mctx",
+			"!packages/xmagic-context",
 			"!legacy",
 			"!graphify-out"
 		]

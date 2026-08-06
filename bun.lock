@@ -244,19 +244,6 @@
     "packages/pi-mctx": {
       "name": "@hheei/pi-mctx",
       "version": "0.0.0",
-      "dependencies": {
-        "@hheei/pi-ext-core": "workspace:*",
-      },
-      "devDependencies": {
-        "@earendil-works/pi-coding-agent": ">=0.84.0",
-        "@types/bun": "latest",
-      },
-      "peerDependencies": {
-        "@earendil-works/pi-agent-core": ">=0.84.0",
-        "@earendil-works/pi-ai": ">=0.84.0",
-        "@earendil-works/pi-coding-agent": ">=0.84.0",
-        "@earendil-works/pi-tui": ">=0.84.0",
-      },
     },
     "packages/pi-ponytail": {
       "name": "@hheei/pi-ponytail",
@@ -386,6 +373,14 @@
         "@earendil-works/pi-coding-agent": ">=0.84.0",
         "@earendil-works/pi-tui": ">=0.84.0",
       },
+    },
+    "packages/xmagic-context": {
+      "name": "@hheei/xmagic-context",
+      "version": "0.0.0",
+    },
+    "packages/xpi-mctx": {
+      "name": "@hheei/xpi-mctx",
+      "version": "0.0.0",
     },
   },
   "patchedDependencies": {
@@ -601,6 +596,10 @@
     "@hheei/pi-t2s": ["@hheei/pi-t2s@workspace:packages/pi-t2s"],
 
     "@hheei/pi-todo": ["@hheei/pi-todo@workspace:packages/pi-todo"],
+
+    "@hheei/xmagic-context": ["@hheei/xmagic-context@workspace:packages/xmagic-context"],
+
+    "@hheei/xpi-mctx": ["@hheei/xpi-mctx@workspace:packages/xpi-mctx"],
 
     "@huggingface/jinja": ["@huggingface/jinja@0.5.9", "", {}, "sha512-uWTG+l3VJRsl7EXxYizuL3P+cCPoc3cRqbWWRcQN0FhejRfbdq0RNhCmbY/YDtnTcz9icdLYuLDjsnz4d8JMuw=="],
 

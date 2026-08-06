@@ -1,0 +1,13 @@
+{
+	"name": "@hheei/xmagic-context",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Inactive upstream Magic Context shared and OpenCode source baseline.",
+	"type": "module",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/hheei/hepi-mono.git",
+		"directory": "packages/xmagic-context"
+	}
+}

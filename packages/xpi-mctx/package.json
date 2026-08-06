@@ -1,0 +1,20 @@
+{
+	"name": "@hheei/xpi-mctx",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Disabled archive of the previous HEPI Magic Context implementation.",
+	"type": "module",
+	"keywords": [
+		"pi",
+		"pi-package",
+		"pi-extension",
+		"hepi",
+		"mctx"
+	],
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/hheei/hepi-mono.git",
+		"directory": "packages/xpi-mctx"
+	}
+}

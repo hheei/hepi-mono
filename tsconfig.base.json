@@ -16,5 +16,5 @@
 		"types": ["node", "bun"]
 	},
 	"include": ["packages/pi-*/**/*.ts", "test/**/*.ts"],
-	"exclude": ["**/node_modules/**", "**/dist/**", "**/.pi/**"]
+	"exclude": ["**/node_modules/**", "**/dist/**", "**/.pi/**", "packages/pi-mctx/**"]
 }
