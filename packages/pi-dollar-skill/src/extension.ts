@@ -18,7 +18,7 @@ export default function piDollarSkillExtension(pi: ExtensionAPI): void {
 	registerDollarSkillInputTransform(pi, feature);
 	const provider = createDollarSkillSettingsProvider();
 	registerExtensionLifecycle(pi, {
-		key: "@hheei/pi-ext-addon-dollar-skill",
+		key: "@hheei/pi-dollar-skill",
 		start: async (runtime): Promise<void> => {
 			runtime.resources.add(
 				"dollar-skill-settings",

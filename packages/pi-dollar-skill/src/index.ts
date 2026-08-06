@@ -161,9 +161,9 @@ export function createDollarSkillSettingsProvider(
 ): HepiSettingsProvider {
 	const settingsDirectory = options.settingsDirectory ?? getAgentDir();
 	return {
-		id: "pi-ext-addon-dollar-skill",
+		id: "pi-dollar-skill",
 		title: "Dollar skill references",
-		origin: "@hheei/pi-ext-addon",
+		origin: "@hheei/pi-dollar-skill",
 		description: "Skill autocomplete and prompt-time path references.",
 		groups: [{ id: DOLLAR_SKILL_SETTINGS_GROUP, title: "", fields }],
 		storage: {

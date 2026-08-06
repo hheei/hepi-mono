@@ -4,7 +4,6 @@ import {
 	registerExtensionLifecycle,
 	registerHepiSettings,
 } from "@hheei/pi-ext-core";
-import piDollarSkillExtension from "./dollar-skill/extension.js";
 import {
 	createOpenAIResponsesCompatFeature,
 	createOpenAIResponsesCompatSettingsProvider,
@@ -12,7 +11,6 @@ import {
 
 /** Registers OpenAI Responses replay compatibility for gateways with a reduced schema. */
 export default function piExtAddonExtension(pi: ExtensionAPI): void {
-	piDollarSkillExtension(pi);
 	const responsesCompat = createOpenAIResponsesCompatFeature(pi);
 	const settings = createOpenAIResponsesCompatSettingsProvider();
 	registerExtensionLifecycle(pi, {
