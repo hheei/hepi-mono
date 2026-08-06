@@ -67,6 +67,22 @@ function extensionPaths(directory: string): string[] {
 		path.join(directory, extension),
 	);
 }
+
+function hasBuildScript(directory: string): boolean {
+	const manifest: unknown = JSON.parse(
+		readFileSync(path.join(directory, "package.json"), "utf8"),
+	);
+	if (typeof manifest !== "object" || manifest === null || !("scripts" in manifest)) return false;
+	const scripts = manifest.scripts;
+	return (
+		typeof scripts === "object" &&
+		scripts !== null &&
+		"build" in scripts &&
+		typeof scripts.build === "string" &&
+		scripts.build.length > 0
+	);
+}
+
 const packageDirs = independentPackageDirs.filter((directory) =>
 	selectedPackageNames.size > 0
 		? selectedPackageNames.has(path.basename(directory))
@@ -141,7 +157,9 @@ function nativeBuildFingerprint(): string {
 
 mkdirSync(buildCacheDir, { recursive: true });
 const buildStatePath = path.join(buildCacheDir, "build.json");
-const buildDirectories = [...new Set([...requiredBuildDirectories, ...packageDirs])];
+const buildDirectories = [
+	...new Set([...requiredBuildDirectories, ...packageDirs.filter(hasBuildScript)]),
+];
 const typescriptFingerprint = buildFingerprint(buildDirectories);
 const buildsNativeBridge = packageDirs.includes(toolsPackageDir);
 const nativeFingerprint = buildsNativeBridge ? nativeBuildFingerprint() : undefined;
