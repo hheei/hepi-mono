@@ -10,10 +10,6 @@ import {
 	normalizeGuardPatchMode,
 	registerApplyPatchGuard,
 } from "./apply-patch-guard.js";
-import {
-	createOpenAIResponsesCompatFeature,
-	createOpenAIResponsesCompatSettingsProvider,
-} from "./index.js";
 
 export default function piFixExtension(
 	pi: ExtensionAPI,
@@ -23,13 +19,6 @@ export default function piFixExtension(
 	const applyPatchGuard = registerApplyPatchGuard(pi);
 	const providerOptions = options.agentDir === undefined ? {} : { agentDir: options.agentDir };
 	const applyPatchGuardProvider = createApplyPatchGuardSettingsProvider(providerOptions);
-	const responsesCompat = createOpenAIResponsesCompatFeature(pi, {
-		...(options.agentDir === undefined ? {} : { settingsDirectory: options.agentDir }),
-	});
-	const responsesCompatProvider = createOpenAIResponsesCompatSettingsProvider({
-		...(options.agentDir === undefined ? {} : { settingsDirectory: options.agentDir }),
-	});
-
 	const lifecycle = new HepiLifecycleController({
 		onStart: async (runtime) => {
 			const unregisterApplyPatchSettings = registerHepiSettings(
@@ -39,14 +28,6 @@ export default function piFixExtension(
 			runtime.registry.registerLifecycle({
 				id: "apply-patch-settings",
 				cleanup: unregisterApplyPatchSettings,
-			});
-			const unregisterResponsesSettings = registerHepiSettings(
-				responsesCompatProvider,
-				settingsRegistry,
-			);
-			runtime.registry.registerLifecycle({
-				id: "responses-compat-settings",
-				cleanup: unregisterResponsesSettings,
 			});
 			const context = {
 				sessionId: runtime.ctx.sessionManager.getSessionId(),
@@ -61,11 +42,6 @@ export default function piFixExtension(
 					"error",
 				);
 			}
-			await responsesCompat.start(runtime);
-			runtime.registry.registerLifecycle({
-				id: "pi-fix",
-				cleanup: () => responsesCompat.dispose(context.sessionId),
-			});
 		},
 	});
 	registerHepiLifecycle(pi, lifecycle, "pi-basics-fix");
