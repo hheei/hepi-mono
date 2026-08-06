@@ -10,10 +10,8 @@
 ```json
 {
   "pi-dollar-skill": {
-    "dollarSkillReferences": {
-      "enabled": true,
-      "maxSuggestions": 50
-    }
+    "enabled": true,
+    "maxSuggestions": 50
   }
 }
 ```
