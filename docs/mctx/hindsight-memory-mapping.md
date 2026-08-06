@@ -27,9 +27,10 @@ MCTX knowledge snapshot
   = Hindsight 知识的可替换 context cache
 ```
 
-当前 `pi-mctx` 的 local memory/embedding/search/Dreamer runtime 已 parked。它的 schema、测试和
-工具接口仍在，但正常 MCTX context path 不把它作为长期知识 authority。本说明比较的是旧 local
-memory backend 的能力与目标 Hindsight + MCTX 架构，不表示两者应在 production 同时运行。
+当前仓库仍有 `pi-mctx` 的旧 local memory/embedding/search/note/Dreamer runtime。它不是目标架构，
+也不应继续作为兼容路径。本说明比较旧 local memory backend 与目标 Hindsight + MCTX 架构；目标是
+完成一次显式 export/import（如用户数据有价值）后删除旧 schema、工具、tests、embedding 和 Dreamer，
+不在 production 同时运行两套 backend。
 
 ## 用户入口
 
@@ -64,7 +65,7 @@ hindsight_recall
 | category/importance | Hindsight tags/entities/product policy | MCTX 不再维护平行长期分类/排序系统 |
 | `archiveMemory` | Hindsight source correction、staleness、provenance lifecycle | MCTX 不直接宣布长期事实失效 |
 | deterministic memory render | MCTX knowledge snapshot render | 保留；MCTX 需要稳定 context bytes |
-| session-local note | MCTX note/session artifact | 不自动升级为长期知识 |
+| session-local note | 旧 `ctx_note` 删除；显式 “retain this” 转为 Hindsight retain | 不保留第二套 note subsystem |
 | Dreamer | Hindsight reflect | Hindsight 有完整证据和 consolidation 输入 |
 | m0/m1 compartments | MCTX 保留 | session graph，不是长期 memory |
 | smart drop / `ctx_expand` | MCTX 保留 | 精确历史恢复，不是 semantic recall |
@@ -279,13 +280,13 @@ retain queued/delivered
 这不是遗漏功能，而是从本地强同步 memory row 转为 Hindsight 的异步知识生命周期。MCTX 必须显示
 queued、stale、unknown 或 unavailable 状态，不能伪装立即完成。
 
-### 不再保留为长期 memory 的 MCTX note
+### 删除 MCTX note subsystem
 
-MCTX `ctx_note` 保留为 session-local artifact，用于当前 session 的 anchored note、dismiss、revision
-和 branch identity。它不再自动参与 Hindsight retain，也不自动升级为 project memory。
+旧 MCTX `ctx_note` 不保留为运行时 subsystem。它的 anchored note、dismiss、revision 和 branch identity
+能力不迁移到 Hindsight；它们属于旧 memory/note API。
 
-若用户明确要长期保存，必须通过 Hindsight explicit retain/knowledge workflow。这样删除的是
-“note 自动成为长期知识”的隐式行为，不是删除 `ctx_note` 本身。
+若用户明确要长期保存，改用 Hindsight explicit retain/knowledge workflow。若旧 note 数据有价值，
+只在一次性 export/import 中保留，验证后删除旧 note 表和 command。
 
 ### 不再使用的 MCTX memory category/importance 语义
 

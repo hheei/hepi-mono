@@ -97,10 +97,10 @@ pi-mctx 是 context compiler。它拥有：
 pi-mctx 不拥有 Hindsight bank、retain queue、observation extraction、embedding、semantic rank、
 reflect prompt 或 mental-model content generation。
 
-当前 `pi-mctx` 的 memory/embedding/search/note/Dreamer runtime 已 parked，生产路径没有 local
-long-term memory authority。迁移不需要 production dual-read/dual-write；比较只能使用 exported fixtures、
-isolated evaluation banks 和 benchmark harness。确认 Hindsight capability 完整后，删除 parked implementation、
-schema 与 revival 注释，不保留第二套 backend。
+当前仓库仍有旧的 `pi-mctx` memory/embedding/search/note/Dreamer runtime。它不是目标架构，也不应继续
+作为兼容路径。若用户数据有价值，先做一次显式 export/import 和验证；之后删除旧 implementation、schema、
+tools、tests、embedding、Dreamer 和 revival 注释。不在 production 同时运行两套 backend；比较只能使用
+exported fixtures、isolated evaluation banks 和 benchmark harness。
 
 ### Compartment 与 knowledge snapshot 的硬边界
 
