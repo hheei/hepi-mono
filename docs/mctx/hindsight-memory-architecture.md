@@ -30,8 +30,8 @@ Hindsight retain
         v
 MCTX knowledge materializer
         |
-        +--> stable m0 baseline
-        +--> bounded m1 delta
+        +--> stable knowledge baseline
+        +--> bounded knowledge delta
         +--> local per-turn page-section selection
         |
         v
@@ -40,7 +40,7 @@ Pi model context
 
 目标：
 
-- 保留 MCTX 的 deterministic context projection、m0/m1 snapshot、history tags、smart drop、
+- 保留 MCTX 的 deterministic context projection、session compartment m0/m1、history tags、smart drop、
   historian、fork/handoff 和 compaction recovery。
 - 使用 Hindsight 的 raw retain、semantic retrieval、facts、observations、reflect、mental models
   和 knowledge pages，不在 MCTX 重复实现这些知识能力。
@@ -50,7 +50,7 @@ Pi model context
 
 非目标：
 
-- 不把 Hindsight 直接塞进 MCTX compartment graph。
+- 不把 Hindsight knowledge 写入 MCTX compartment graph，也不复用 compartment m0/m1。
 - 不让 MCTX 每个 turn 对 Hindsight 做远程 recall。
 - 不把 Hindsight recall 结果直接当作最终答案。
 - 不把 MCTX 的 session compartments、history tags 或 Pi transcript 迁移到 Hindsight。
@@ -87,13 +87,33 @@ pi-hindsight 不直接改 MCTX SQLite，不创建 MCTX compartment，不参与 M
 pi-mctx 是 context compiler。它拥有：
 
 - Hindsight knowledge snapshot 的 materialization state；
-- m0/m1 context placement、token budget 和 cache identity；
+- knowledge baseline/delta context placement、token budget 和 cache identity；
 - page-section local index 和 score floor；
 - snapshot invalidation、stale state、CAS publish、fork/handoff projection；
 - MCTX context markers、history tags、smart drop 和 native compaction interception。
 
 pi-mctx 不拥有 Hindsight bank、retain queue、observation extraction、embedding、semantic rank、
 reflect prompt 或 mental-model content generation。
+
+### Compartment 与 knowledge snapshot 的硬边界
+
+MCTX 的 `m0`/`m1` 是 session compartment graph 的持久化 tier。每个 compartment 必须覆盖
+Pi branch 的连续 entry range，并由 entry ID、source fingerprint、partition revision 和 CAS 验证。
+Hindsight objects 不具备该 source contract，因此不得成为 compartment、不得占用 m0/m1 sequence，
+也不得参与 compartment recovery、recomp 或 handoff graph。
+
+Hindsight knowledge 使用独立 `knowledge snapshot` record，保存 source provenance、freshness、
+render payload 与独立 revision。它和 compartment 按固定顺序共同渲染：
+
+```text
+stable Hindsight knowledge baseline
+-> verified MCTX compartment m0
+-> verified MCTX compartment m1
+-> protected live tail
+-> optional turn-local knowledge augmentation
+```
+
+knowledge snapshot replace 与 compartment publish 是独立 CAS。任一失败不得修改另一方。
 
 ### Hindsight knowledge snapshot
 
@@ -123,7 +143,7 @@ Knowledge Pages = 面向人和 agent 的组织化长期知识视图
 
 MCTX 不把这些产品混成一个 `Memory[]`。目标 context tier：
 
-### m0 stable baseline
+### Knowledge baseline
 
 适合跨 turn 重放、prefix cache 和 handoff 的稳定知识：
 
@@ -132,10 +152,11 @@ MCTX 不把这些产品混成一个 `Memory[]`。目标 context tier：
 - 经过 materializer 固定的 project observations；
 - 一次 session-start 或 hard materialization 的 reflect synthesis。
 
-m0 只使用已缓存 snapshot。普通 turn 不重新远程 recall 或 reflect。m0 fingerprint 包含
-source IDs、source versions、scope、render policy 和 rendered payload。
+knowledge baseline 只使用已缓存 snapshot。普通 turn 不重新远程 recall 或 reflect。它的 fingerprint
+包含 Hindsight source IDs、versions、scope、render policy 和 rendered payload；不进入 MCTX
+compartment source fingerprint。
 
-### m1 bounded delta
+### Knowledge delta
 
 适合当前 session 或近期变化、但尚未成为长期 baseline 的内容：
 
@@ -143,7 +164,7 @@ source IDs、source versions、scope、render policy 和 rendered payload。
 - 当前 project page refresh 后的增量 sections；
 - hard materialization 后新增且通过 policy 的 stable knowledge。
 
-m1 仍由 MCTX 固定 snapshot 后重放。它不是每个 turn 的动态远程结果。
+knowledge delta 仍由 MCTX 固定 snapshot 后重放。它不是每个 turn 的动态远程结果，也不是 compartment m1。
 
 ### turn-local selection
 
@@ -158,7 +179,7 @@ Hindsight upstream 最新 Reflect + Pages runtime 的经验表明，raw recall-p
 - 注入包含 page/section provenance 和读取完整 page 的指引。
 
 后续若 benchmark 证明当前任务需要 query-dependent recall，才增加显式 opt-in 的 Hindsight recall。
-它不能悄悄进入 stable m0/m1，也不能在每轮无 score floor 地注入。
+它不能悄悄进入 stable knowledge snapshot，也不能在每轮无 score floor 地注入。
 
 ## 4. 运行时流程
 
@@ -168,10 +189,12 @@ Hindsight upstream 最新 Reflect + Pages runtime 的经验表明，raw recall-p
 Pi host session_start
   -> ext-core starts pi-hindsight and pi-mctx lifecycles
   -> pi-hindsight resolves setup, banks and project scope
+  -> MCTX knowledge mode claims automatic context injection ownership
+  -> pi-hindsight disables its own automatic context recall for this lifecycle
   -> pi-mctx loads last valid knowledge snapshot
-  -> if snapshot fresh: replay m0/m1
+  -> if snapshot fresh: replay knowledge snapshot + compartment m0/m1
   -> if stale and policy permits: schedule one bounded materialization
-  -> Pi context receives stable snapshot only
+  -> Pi context receives stable snapshots only
 ```
 
 session start 不因 Hindsight network failure 阻塞 MCTX context。若没有 valid snapshot，MCTX
@@ -199,11 +222,12 @@ current prompt
   -> MCTX matches cached page sections locally
   -> score floor + token budget
   -> optional turn-local block
-  -> replay unchanged m0/m1 snapshot
+  -> replay unchanged knowledge snapshot + compartment graph
   -> provider request
 ```
 
-local section selection 的结果不写 Pi transcript，不 retain 回 Hindsight，不改变 m0/m1 fingerprint。
+local section selection 的结果不写 Pi transcript，不 retain 回 Hindsight，不改变 compartment 或
+knowledge snapshot fingerprint。
 
 ### Agent end
 
@@ -212,11 +236,29 @@ Pi host agent_end
   -> pi-hindsight retains raw structured session delta
   -> queue persists before network flush
   -> Hindsight extracts facts and updates observations/pages/models asynchronously
-  -> pi-mctx marks knowledge snapshot stale on successful/known remote update
+  -> pi-mctx records retain delivery state only
 ```
 
 pi-mctx 不复制 pi-hindsight queue。retain 失败不能破坏已经可用的 MCTX snapshot；状态必须显示
 queued/failed/dead-letter，而不是静默当作 durable。
+
+所有 MCTX-rendered Hindsight knowledge 都使用 ext-core 定义的 shared injected-knowledge marker，
+包含 provider、source IDs 与 `retain: false`。pi-hindsight retain projection 必须排除该 marker，
+和排除自身 `<hindsight-memory>` block 使用同一规则。这样 reflect/page/model 内容不会作为新的
+raw evidence 再次 retain。
+
+retain delivery 不等于知识刷新。MCTX status 必须区分：
+
+```text
+retain queued
+-> retain delivered
+-> Hindsight consolidation/page/model version observed
+-> MCTX knowledge snapshot materialized
+```
+
+只有观察到可验证的 Hindsight source version/content fingerprint 改变，才将 knowledge snapshot 标为
+`stale`。只有新 snapshot CAS publish 成功，才标为 `fresh`。当前 Hindsight server 无法提供该观察信号时，
+snapshot 维持 `freshness: unknown`，不得在每次 agent end 盲目 reflect。
 
 ### Hard materialization
 
@@ -271,14 +313,15 @@ Reflect 不能直接修改 MCTX state。
 
 ### Mental models
 
-Mental models 是 m0 的首选输入，因为它们已经面向 recurring question 综合。MCTX 读取 selected
+Mental models 是 knowledge baseline 的首选输入，因为它们已经面向 recurring question 综合。MCTX 读取 selected
 bank 中的 project-scoped 与允许的 bank-global models，按 active project scope 过滤。MCTX 不自动创建
 或刷新 mental model；刷新由 Hindsight 控制面或显式 pi-hindsight agent operation 负责。
 
 ### Knowledge pages
 
-如果连接的 Hindsight server 提供 upstream knowledge pages API，MCTX 使用 page roster/content 作为
-本地 section index 的 source。page 是 Hindsight 的组织化视图，不是 MCTX memory row。
+如果连接的 Hindsight server 通过 capability audit 证明提供稳定的 page list/read/content/version API，MCTX
+才使用 page roster/content 作为本地 section index 的 source。page 是 Hindsight 的组织化视图，不是 MCTX
+memory row。upstream Reflect + Pages runtime spec 本身不是当前 0.8.x client/server 的 capability guarantee。
 
 若当前 server/client 只有 0.8 retain/recall/reflect/mental-model surface，则不模拟 pages。第一阶段
 可使用 mental models + bounded observations，等 page API capability 明确后再启用 page path。
@@ -300,8 +343,9 @@ fingerprint 检测 stale。无法获得稳定 source version 时，materializer 
 
 ### Prefix cache
 
-Hindsight refresh 不应直接改变当前 request 的 m0 bytes。新知识只在下一次 successful materialization
-后进入 m0/m1。turn-local page sections 必须独立于 m0 fingerprint，并有明确 cache policy。
+Hindsight refresh 不应直接改变当前 request 的 compartment bytes 或 knowledge baseline bytes。新知识只在下一次
+successful materialization 后进入 knowledge baseline/delta。turn-local page sections 必须独立于两类
+snapshot fingerprint，并有明确 cache policy。
 
 ### Archive / correction
 
@@ -315,6 +359,15 @@ Hindsight observation stale、矛盾或 source correction 由 Hindsight 处理�
 
 ```ts
 interface MctxKnowledgeService {
+  /** MCTX owns automatic context injection while this lifecycle lease is held. */
+  claimContextInjection(input: {
+    projectId: string;
+    signal: AbortSignal;
+  }): Promise<
+    | { kind: "claimed"; release(): void }
+    | { kind: "unavailable"; reason: string }
+  >;
+
   getStableProjection(input: {
     projectId: string;
     bankRole: "coding" | "life" | "isolated";
@@ -346,7 +399,9 @@ interface MctxKnowledgeService {
 ```
 
 该 capability 拥有 Hindsight routing、network、retry、response validation 和 source provenance。
-MCTX 拥有 snapshot publication、context rendering 和 cache invalidation。`pi-hindsight` 可以省略
+MCTX 拥有 snapshot publication、context rendering 和 cache invalidation。context injection claim 存在时，
+pi-hindsight 不执行自己的 automatic recall hook；claim release、lifecycle abort 或 provider absence 后，
+pi-hindsight 才能恢复其独立 automatic recall policy。`pi-hindsight` 可以省略
 `getPageSections` when its connected server lacks the capability; MCTX then uses only stable projection,
 not a fake page implementation.
 
@@ -361,8 +416,9 @@ not a fake page implementation.
 - MCTX store failure: do not inject an untracked new knowledge block; preserve Pi raw context.
 - No Hindsight provider: no knowledge capability is registered; no alternate backend is silently selected.
 
-The only fallback is replaying a previously validated MCTX snapshot. This is stale-data replay with visible
-status, not a second memory implementation.
+The only fallback is replaying a previously validated MCTX knowledge snapshot. This is stale-data replay with
+visible status, not a second memory implementation. MCTX knowledge mode 已 active 但 capability unavailable
+且无 snapshot 时，pi-hindsight 不得在同一 lifecycle 静默恢复 raw automatic recall；必须显示 unavailable。
 
 ## 9. Implementation phases
 
@@ -379,12 +435,15 @@ status, not a second memory implementation.
 - Add the ext-core capability contract.
 - Implement pi-hindsight provider using existing lifecycle/client ownership.
 - Validate responses with runtime guards.
-- Store MCTX knowledge snapshot and replay it only through existing context materialization.
-- Keep current MCTX local memory behavior until comparison tests pass.
+- Store MCTX knowledge snapshot and replay it through the separate knowledge render slot.
+- Test against exported fixtures, isolated evaluation banks and benchmark harnesses. Do not dual-read or dual-write
+  local MCTX memory and Hindsight memory in production.
+- Add shared injected-knowledge marker handling before any knowledge payload reaches provider context.
+- Add injection ownership claim; verify pi-hindsight auto-recall cannot run concurrently with MCTX knowledge mode.
 
 ### Phase 2: Hindsight-backed knowledge compilation
 
-- Use mental models and bounded observations for m0/m1.
+- Use mental models and bounded observations for knowledge baseline/delta, never for compartment m0/m1.
 - Add reflect hard materialization with one lease and atomic snapshot replacement.
 - Add scope/provenance/fingerprint tests.
 - Do not add per-turn remote recall.
@@ -413,7 +472,7 @@ explicit import operation with a receipt and verification before old tables/code
 - Scope isolation: project A cannot appear in project B strict projection.
 - Bank-global/life memory cannot enter coding project projection without explicit policy.
 - Recalled/retained source provenance survives projection and is inspectable.
-- Hindsight response failure never changes existing m0/m1 bytes.
+- Hindsight response failure never changes existing compartment or knowledge snapshot bytes.
 - Materialization CAS conflict leaves old snapshot intact.
 - Repeated defer/context passes produce identical snapshot bytes.
 - Reload aborts old provider requests and does not publish late results.
@@ -421,6 +480,8 @@ explicit import operation with a receipt and verification before old tables/code
 - Page section injection makes no remote call on the hot path.
 - Low-score page match injects nothing.
 - Raw recall is not automatically retained again.
+- MCTX-rendered knowledge is not automatically retained again.
+- MCTX knowledge mode and pi-hindsight automatic recall never inject concurrently.
 - Hindsight retain queue is durable before network delivery.
 - Reflect-only and reflect+pages benchmark both beat or do not regress against the chosen baseline.
 
@@ -432,4 +493,6 @@ explicit import operation with a receipt and verification before old tables/code
 4. What exact Hindsight freshness/version signal invalidates MCTX snapshot?
 5. Does the project want Hindsight to become the sole long-term knowledge authority immediately, or only after
    an explicit import/reconciliation command proves existing MCTX memories were retained?
+6. What exact Hindsight event or polling state distinguishes `retain queued`, `retain delivered`, `consolidation
+   complete`, `mental model/page version changed`, and `MCTX snapshot refreshed`?
 
