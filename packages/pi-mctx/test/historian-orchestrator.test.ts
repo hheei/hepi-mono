@@ -1,11 +1,13 @@
 import { expect, test } from "bun:test";
 import type { Api, Model } from "@earendil-works/pi-ai";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
 import {
 	MCTX_HISTORIAN_LEASE_TTL_MS,
 	type MctxHistorianExecutor,
 	runMctxHistorian,
 } from "../src/historian-orchestrator.js";
+import { createMctxSourceSnapshot } from "../src/source-snapshot.js";
 import type {
 	MctxCompartmentDraft,
 	MctxCompartmentPublication,
@@ -22,6 +24,93 @@ const validOutput = JSON.stringify({
 	sourceEndEntryId: "entry-2",
 	renderedPayload: "summary",
 });
+
+test("rejects a graph-invalid draft before publishing", async (): Promise<void> => {
+	const entries = [entry("entry-1"), entry("entry-2"), entry("entry-3"), entry("entry-4")];
+	const existingSource = createMctxSourceSnapshot(entries.slice(0, 1));
+	const draftSource = createMctxSourceSnapshot(entries.slice(2));
+	if (existingSource.kind !== "valid" || draftSource.kind !== "valid")
+		throw new Error("Expected valid test sources");
+	let publications = 0;
+	const { store: activeStore } = store({});
+	const result = await runMctxHistorian(
+		request({
+			store: {
+				...activeStore,
+				publishCompartment: () => {
+					publications++;
+					return undefined;
+				},
+			},
+			source: draftSource.snapshot,
+			graphEntries: entries,
+			existingCompartments: [
+				{
+					tier: "m0",
+					sequence: 0,
+					sourceStartEntryId: "entry-1",
+					sourceEndEntryId: "entry-1",
+					sourceFingerprint: existingSource.snapshot.fingerprint,
+					renderedPayload: "existing",
+					publishedRevision: 1,
+				},
+			],
+		}),
+		executor([
+			JSON.stringify({
+				tier: "m1",
+				sourceStartEntryId: "entry-3",
+				sourceEndEntryId: "entry-4",
+				renderedPayload: "summary",
+			}),
+		]),
+	);
+	expect(result).toMatchObject({
+		kind: "invalid",
+		reason: "compartment ranges are not contiguous",
+	});
+	expect(publications).toBe(0);
+});
+
+test("does not publish a completion captured from a stale branch", async (): Promise<void> => {
+	const { store: activeStore } = store({});
+	let current = true;
+	let publications = 0;
+	const result = await runMctxHistorian(
+		request({
+			isCurrent: () => current,
+			store: {
+				...activeStore,
+				publishCompartment: () => {
+					publications++;
+					return publication({
+						tier: "m0",
+						sourceStartEntryId: "entry-1",
+						sourceEndEntryId: "entry-2",
+						sourceFingerprint: "snapshot",
+						renderedPayload: "summary",
+					});
+				},
+			},
+		}),
+		async () => {
+			current = false;
+			return { kind: "completed", output: validOutput };
+		},
+	);
+	expect(result).toEqual({ kind: "stale" });
+	expect(publications).toBe(0);
+});
+
+function entry(id: string): SessionEntry {
+	return {
+		id,
+		parentId: null,
+		timestamp: "2026-01-01T00:00:00.000Z",
+		type: "message",
+		message: { role: "user", content: id, timestamp: 0 },
+	} as SessionEntry;
+}
 
 test("uses atomic replacement publication when recomp requests it", async (): Promise<void> => {
 	const { store: activeStore } = store({});

@@ -1068,6 +1068,10 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			partition: current.runtime.partition,
 			entries: request.entries,
 			signal: job.signal,
+			isCurrent: () =>
+				active === current &&
+				!current.lifecycle.signal.aborted &&
+				sameBranchEntries(request.entries, current.lifecycle.extension.sessionManager.getBranch()),
 			...(request.protectedTurnGroups === undefined
 				? {}
 				: { protectedTurnGroups: request.protectedTurnGroups }),

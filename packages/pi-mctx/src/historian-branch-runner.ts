@@ -156,6 +156,9 @@ export async function runMctxHistorianForBranch(
 			source: projection.value.source,
 			sourceText: projection.value.sourceText,
 			expectedTier,
+			graphEntries: request.entries,
+			existingCompartments:
+				request.baseCompartments ?? request.store.listCompartments(request.partition),
 			...(request.replaceFromPublishedRevision === undefined
 				? {}
 				: { replaceFromPublishedRevision: request.replaceFromPublishedRevision }),

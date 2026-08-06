@@ -72,6 +72,7 @@ entry ID 与完整 branch projection 建立稳定映射，不能依赖对象身�
 pass 中，scheduler 先选择 defer/execute，再仅在 execute 或强制恢复时 materialize
 会改变 prompt bytes 的 operation。pending drop、reasoning watermark、caveman depth、
 compartment boundary 与 compaction marker 都需持久化并在 defer pass 原样 replay。
+`pending` drop 在 durable status commit 前不得投影为 `[dropped §N§]`；commit 失败的 execute pass 必须回放 active source，避免 marker 与原文在相邻请求间翻转。
 native compaction 一律由 `pi-mctx` 拦截；只有已验证 MCTX boundary 覆盖 pending
 marker 后，extension 才调用 Pi host `appendCompaction()`。
 
@@ -139,7 +140,7 @@ Pi active tool set 或 Loadout inventory 中出现。它注册唯一 `/mctx` com
 无效时保持其 Pi-native text fallback。
 
 store adapter 在 Bun-based Pi host 使用 `bun:sqlite`，在 Node host 使用 `node:sqlite` 的 `DatabaseSync`。两者都不可用时，
-store admission 按 `fail_closed_blocking` policy 明确失败或保留 Pi native context；extension module 本身不得因某一个
+store admission 按 `fail_closed_blocking` policy 明确失败或保留 Pi native context；即使用户显式选择保留 Pi native context，store、partition 与 fork parent context 失败也必须显示 `error`，不得静默降级；extension module 本身不得因某一个
 runtime-specific SQLite import 而无法加载。
 
 ### 记忆体系挂接状态（当前决策）
@@ -582,8 +583,9 @@ binary compatibility。需要导入旧数据时，另立带 backup、validation�
   重复 delivery 只能恢复或拒绝，不能重置已 delivered intent。
 
 ```text
-context pass at >= 85% -> queue eligible tool drops -> project markers
-tool_result              -> claim pending nudge -> hidden steer
+context pass at >= 63%  -> claim pending nudge -> inject hidden reminder in current request
+context pass at >= 85%  -> queue eligible tool drops -> project markers
+tool_result              -> claim pending nudge -> hidden steer fallback
 agent_end                -> claim pending nudge -> hidden followUp fallback
 context pass at >= 95%  -> wait bounded historian -> force eligible tool drops -> request
 ```
@@ -993,8 +995,8 @@ record 和推进 revision；stale snapshot 不写任何 record。read API 只返
 结构、coverage、graph validation 与 historian output mapping 是当前 publication fence 的组成部分。
 
 draft validator 不序列化或猜测 Pi message。它只接收 ordered source entry IDs 与该 immutable snapshot 的 fingerprint：
-draft 必须使用 `m0`/`m1` tier、匹配 fingerprint，且 start/end ID 必须在同一 snapshot 内按 source order 形成 inclusive
-range。跨-tier merge topology、historian JSON mapping、repair prompt 与 publication policy 由 historian publication
+draft 必须使用 `m0`/`m1` tier、匹配 fingerprint，且 start/end ID 必须等于本次 snapshot 的首尾 ID。一个 historian run
+只能发布其完整 source 的 compartment，避免子区间 fingerprint 与后续 graph 验证不一致。跨-tier merge topology、historian JSON mapping、repair prompt 与 publication policy 由 historian publication
 path 执行，不能由 store schema 推断。
 
 source snapshot 从 `sessionManager.getBranch()` 的 active branch 顺序读取 entry IDs；它验证 nonempty/unique ID，并以
@@ -1012,15 +1014,22 @@ terminal result 规范为 completed/cancelled/failed。run-local abort 会 cance
 也不 publish record。
 
 historian orchestrator 是显式 async function：以 current partition snapshot 获取一次 finite lease，运行 primary completion，
-mapper invalid 时仅以 diagnostic 运行一次 repair completion，然后用同一 snapshot 原子 publish。lease acquisition failure
-返回 skipped；CAS conflict 返回 stale，不重试；任意路径在 `finally` release lease。active run 续约 lease；仅 core
+mapper invalid 时仅以 diagnostic 运行一次 repair completion。mapped draft 必须先与 retained live graph 组成候选图并通过
+完整 branch 验证，且 completion 返回后 source branch 仍是当前 branch，才可用同一 snapshot 原子 publish；候选图或 branch
+freshness 失败不写 SQLite、不产生 Pi compaction marker。lease acquisition failure
+返回 skipped；CAS conflict 返回 stale，不重试；subagent admission、publish 与 release 的异常必须返回 typed failure；任意路径在 `finally` release lease。active run 续约 lease；仅 core
 结构化分类为 `transient` 的 provider failure 可在同一次 lease 内最多重试两次，retry delay 使用 cancellable jitter。
 它不做 trigger 或 Pi context rendering。
+
+`/mctx recomp` 不得先删旧 compartment graph。它从完整 branch 构建 replacement `m0`；仅在 historian output
+通过验证后，store 在同一 CAS transaction 中删除旧 graph 并写入 replacement。ineligible、failed、stale、cancelled 必须保留旧 graph。
 
 source-history projection 从 `sessionManager.getBranch()` 的 ordered `SessionEntry[]` 工作，使用 Pi
 `sessionEntryToContextMessages()` 作为唯一 entry-to-message projection。一个 complete turn group 从 user message 开始，
 包含直到下一 user message 前的所有 entries，且必须以 assistant message 收尾；最新 complete groups 保留为 protected tail。
-eligible groups 的 entry IDs 建立 source snapshot，canonical projected messages 用 JSON source text 交给 historian；context
+若 live tail 以 Pi native compaction marker 等非 message entry 开始，该 entry 归入下一完整 turn 的 source snapshot，确保
+新 compartment 与既有 boundary 连续；它不需要序列化成 historian source text。
+eligible groups 按 parent context window、当前 pressure 与 trigger threshold 的动态 per-run budget 截取为完整的连续前缀；预算采用 250k/500k/750k normal/force/emergency 上限。单个 group 超出预算时不调用 model 并返回明确 ineligible。entry IDs 建立 source snapshot，source text 是 entry-ID 锚定的紧凑纯文本 transcript，省略 image payload 与 tool-call arguments；context
 hook 的 deep-copy messages 通过有序结构映射回 entry ID，不依赖对象 identity，不自行猜测 Pi content block 或 tool-result shape。
 
 branch runner 只组合 source-history projection 和 historian orchestrator。caller 提供 active branch entries、current runtime
