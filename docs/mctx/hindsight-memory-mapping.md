@@ -83,7 +83,6 @@ context budget
 provider prefix-cache stability
 compaction recovery
 fork/handoff
-session-local notes
 knowledge snapshot cache
 ```
 
@@ -171,8 +170,8 @@ rendered projection。compartment、knowledge snapshot、drop marker、recall bl
 MCTX 是最终 token budget owner。Hindsight 不直接决定多少知识进入 provider context。
 
 ```text
-protected live tail / current user message
--> required system prompt and tool definitions
+required system prompt and tool definitions
+-> current user message / protected live tail
 -> verified MCTX compartment m0/m1
 -> knowledge baseline
 -> knowledge delta
@@ -316,7 +315,6 @@ context token accounting
 provider prefix-cache stability
 compaction interception/recovery
 fork/handoff projection
-session-local notes
 knowledge snapshot CAS/cache
 ```
 
@@ -334,6 +332,23 @@ MCTX local memory + Hindsight memory
 
 比较完成后，旧 local memory schema、embedding、Dreamer 和相关 API 直接删除。若旧 durable 数据有价值，
 执行一次显式 import/reconciliation，验证完成后删除旧路径；不保留运行时兼容层。
+
+### 一次性 import 与删除 admission
+
+旧 MCTX memory 数据只允许通过一次性 import 进入 Hindsight，不能在运行时持续同步。import contract：
+
+```text
+old memory ID       -> deterministic Hindsight document ID
+content             -> retained source text with old-memory provenance
+category/importance -> explicit retained metadata or documented discard
+active/archive      -> documented Hindsight scope/correction policy
+embedding           -> discard; Hindsight re-extracts/re-embeds
+note                -> import only when user explicitly selects it
+```
+
+每次 import 生成 receipt：source row count、selected rows、Hindsight document IDs、read-back scope check、
+failures 和 skipped rows。只有所有 selected source rows 都可从 Hindsight read-back 验证、receipt 已持久化、
+用户确认后，才允许删除旧 tables/API。失败 row 不得静默跳过，也不得为它们保留 production dual-write。
 
 ## 旧功能删除清单
 
