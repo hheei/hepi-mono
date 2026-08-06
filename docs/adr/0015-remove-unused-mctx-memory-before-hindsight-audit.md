@@ -1,0 +1,3 @@
+# Remove unused MCTX memory before Hindsight audit
+
+The unused MCTX memory, note, search, Dreamer, and embedding subsystem is deleted before the Hindsight capability audit. The deletion has no import, receipt, fallback, compatibility path, or database cleanup migration; existing unused tables are orphaned and never read. Until Phase 0 records supported Hindsight capabilities, implementation may add injection admission only, not snapshot persistence, remote calls, or automatic injection. Audit failure stops Phase 1b with owner `disabled`; it never restores direct automatic injection, while explicit Hindsight tools and retain remain available.

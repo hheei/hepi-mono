@@ -97,10 +97,9 @@ pi-mctx 是 context compiler。它拥有：
 pi-mctx 不拥有 Hindsight bank、retain queue、observation extraction、embedding、semantic rank、
 reflect prompt 或 mental-model content generation。
 
-当前仓库仍有旧的 `pi-mctx` memory/embedding/search/note/Dreamer runtime。它不是目标架构，也不应继续
-作为兼容路径。若用户数据有价值，先做一次显式 export/import 和验证；之后删除旧 implementation、schema、
-tools、tests、embedding、Dreamer 和 revival 注释。不在 production 同时运行两套 backend；比较只能使用
-exported fixtures、isolated evaluation banks 和 benchmark harness。
+当前仓库仍有旧的 `pi-mctx` memory/embedding/search/note/Dreamer runtime。它从未被使用，不是目标架构，
+直接删除 implementation、schema、tools、tests、embedding、Dreamer 和 revival 注释。没有 migration、
+receipt、fallback 或 production dual-read/dual-write；比较只能使用 isolated evaluation banks 和 benchmark harness。
 
 ### Compartment 与 knowledge snapshot 的硬边界
 
@@ -237,8 +236,8 @@ hindsight_*  = 查询或保存长期 Hindsight knowledge
 ```
 
 `ctx_expand` 与 `hindsight_recall` 不能互相替代。前者按 MCTX tag 精确恢复本 session 的原始
-tool/message source；后者返回跨 session 的语义知识候选。MCTX 不重新注册 `ctx_memory`、`ctx_note`、
-`ctx_search` 或 Dreamer command。
+tool/message source；后者返回跨 session 的语义知识候选。MCTX 直接删除，不重新注册 `ctx_memory`、
+`ctx_note`、`ctx_search`（包括 Git/primer/history lexical search）或 Dreamer command。
 
 `/mctx status` 与 `/hindsight status` 显示同一 injection coordination state：
 
@@ -262,6 +261,9 @@ read-only  = MCTX knowledge snapshot 可读；Hindsight automatic retain 不写
 ignored    = 不读、不写、不注入 Hindsight knowledge；MCTX 仍可做纯 session compartment/context 工作
 next-retain-off = 只影响下一次 Hindsight retain，不撤销已验证 knowledge snapshot
 ```
+
+`ignored` 不自动删除持久化 knowledge snapshot，但禁止读取、注入、refresh 和 retain。切回 `normal` 后必须
+重新 admission；只有完整 identity 仍匹配时才可作为 stale snapshot replay。删除由显式数据管理操作执行。
 
 ### 注入仲裁与生命周期顺序
 
@@ -338,9 +340,10 @@ first task message
 
 不在 session-open 对空 query 做 reflect。不在每个 prompt 做新的 reflect。
 
-“first real task” 是 knowledge epoch，不等于 session file 创建。resume、handoff 或长 idle 后的第一条
-substantive user request 可开始新 epoch；短连续 turns 复用同一 snapshot。Phase 0 必须定义可观察的
-epoch boundary，不能把 MCTX 5-minute temporal marker 直接当作知识刷新事实。
+“first real task” 是 knowledge epoch，不等于 session file 创建。session start、resume 或 handoff 后的第一条
+非 command user message 开始新 epoch；短连续 turns 与 long idle 都复用同一 snapshot。long idle 后需要显式
+`/mctx knowledge refresh`；不能用 semantic “substantive task” classifier 或 MCTX 5-minute temporal marker
+作为知识刷新事实。
 
 ### Each turn
 
@@ -374,6 +377,9 @@ queued/failed/dead-letter，而不是静默当作 durable。
 和排除自身 `<hindsight-memory>` block 使用同一规则。这样 reflect/page/model 内容不会作为新的
 raw evidence 再次 retain。
 
+所有 `hindsight_*` read tool output 也带 shared `retain: false` marker，automatic retain projection 必须
+排除它们。只有显式 `hindsight_retain` 可写入 Hindsight evidence。
+
 Hindsight retain 的 source 必须是 Pi session branch/agent-end 的原始 message sequence，不能是 MCTX
 `context` hook 的 rendered messages。MCTX drop marker、compartment、knowledge snapshot、recall block 和
 provider-only custom message 都不得成为 retained evidence。实现前增加 host regression，证明 smart drop 后
@@ -388,10 +394,15 @@ context-projection message = never retain input
 
 marker 只作为显式 tool input、import 和未来 interop path 的 defence-in-depth filter。
 
-retain 前由 pi-hindsight 做持久化安全过滤：secret redaction、credential/token pattern filtering、
-tool/source allowlist、oversized output exclusion、custom/injected message exclusion 和 explicit user opt-out。
-Hindsight returned text 也当作不可信数据渲染：固定 delimiter、provenance label、禁止它覆盖 system/tool
-instruction 或扩大 bank/scope。source deletion/correction 必须通过 Hindsight document provenance 路径完成。
+`normal` mode 的 automatic retain 只接受 canonical Pi branch 的 user、assistant 和 allowlisted tool-result
+entries。system/developer、provider/custom context、MCTX projection、injected knowledge、redacted 与 oversized
+entries全部排除；`read-only` 与 `ignored` 不写。retain 前由 pi-hindsight 做持久化安全过滤：secret redaction、
+credential/token pattern filtering、tool/source allowlist、oversized output exclusion、custom/injected message
+exclusion 和 explicit user opt-out。
+Hindsight returned text 是 untrusted reference：以固定 delimiter、provenance label 和 `retain: false` marker
+渲染，绝不作为 system/tool instruction，不能扩大 bank/scope。schema、scope 或 size 不通过时整体拒绝；不以
+关键词 prompt-injection filter 作为信任边界。source deletion/correction 必须通过 Hindsight document provenance
+路径完成。
 
 retain delivery 不等于知识刷新。MCTX status 必须区分：
 
@@ -406,9 +417,10 @@ retain queued
 `stale`。只有新 snapshot CAS publish 成功，才标为 `fresh`。当前 Hindsight server 无法提供该观察信号时，
 snapshot 维持 `freshness: unknown`，不得在每次 agent end 盲目 reflect。
 
-`unknown` 的可执行策略是：只允许 explicit refresh 或首次/新 epoch 的一次 bounded materialization，
-并有最小 cooldown。它不因 agent end 自动 materialize，也不因 context pressure 反复 reflect。等 capability
-audit 证明有稳定 change/version signal 后，才启用 version-driven stale/materialization。
+Phase 1-2 的 `unknown` freshness 策略是：只允许 explicit refresh 或首次/新 epoch 的一次 bounded
+materialization，并有最小 cooldown。它不因 agent end 自动 materialize，也不因 context pressure 反复
+reflect。Phase 3 capability audit 证明有稳定 change/version signal 后，才启用 version-driven
+stale/materialization。
 
 `adaptive` recall 还要求：本 turn 未执行过 adaptive recall、session mode 可读、lease current、provider
 healthy、query 有足够有效文本、context deadline 尚有余量。结果只可作为本 turn local block，不能 publish
@@ -435,6 +447,10 @@ claim one materialization lease
   -> atomic MCTX snapshot replace
   -> release lease
 ```
+
+同一 `KnowledgeSnapshotIdentity` 的 materialization 是 single-flight。运行中执行 `/mctx knowledge refresh`
+只 coalesce 到该 run，不排队、不并发；status 显示 `in-progress (coalesced)`。profile、bank 或 scope change
+会 abort old lease，在下一 context revision 重新 admission。
 
 失败、cancelled、stale、scope mismatch 或 source-too-large 时保留旧 valid snapshot。不能先删旧
 snapshot 再等待 Hindsight。
@@ -539,7 +555,12 @@ ephemeral   = 只保存在内存；不参与 resume/handoff reuse
 disabled    = 不保存或注入 Hindsight knowledge
 ```
 
-默认 `persistent` 前必须显示本地副本范围；status、diagnostic、receipt 和日志不得输出 raw snapshot text。
+默认是 `persistent`；首次启用前必须显示本地副本范围。`ephemeral` 和 `disabled` 是显式隐私选项；status、
+diagnostic 和日志不得输出 raw snapshot text。
+
+显式 Pi session delete 同步清除 MCTX snapshot 与 handoff payload，并由 pi-hindsight 按 session/document
+provenance enqueue remote evidence deletion。远端确认前 status 必须显示 `remote deletion pending`；MCTX
+不得保留 snapshot 或声称远端删除已完成。
 Handoff payload 只在 reservation/install lifetime 存在，install 或 abort 后清除。
 
 pi-hindsight provider 在 MCTX render 前强制 runtime schema 和大小上限：最大 response bytes、sources、
@@ -681,14 +702,19 @@ visible status, not a second memory implementation. MCTX knowledge mode 已 acti
 
 ### Phase 0: capability audit
 
+- Delete the unused old MCTX memory/note/search/Dreamer/embedding subsystem first. Do not import, read, migrate,
+  clean up, or provide compatibility for its old SQLite tables.
 - Pin the upstream Hindsight revision and connected server/client version.
+- Measure materialization latency, payload sizes and Pi deadline margin; record conservative fixed Phase 1 timeout,
+  response-byte, source and section limits. Do not implement before this audit or expose these limits as user config.
 - Verify page list/read/version/provenance APIs, or record that pages are unavailable.
 - Verify mental-model payload, tags, update timestamps and stable IDs.
 - Verify observation recall filters, source facts and provenance.
 - Verify correction/stale behavior after retain `replace`.
 - Define and test `KnowledgeSnapshotIdentity`, admission state transitions and canonical retain source invariant.
-- Define old MCTX memory export/import receipt, read-back verification and deletion admission before code deletion.
 - Verify redaction, custom-message exclusion, prompt-injection rendering and document correction/deletion behavior.
+- Before the audit records supported capabilities, implementation may add injection admission only: no snapshot storage,
+  Hindsight remote call, or automatic knowledge injection.
 
 ### Phase 1: stable projection and injection admission
 
@@ -700,6 +726,9 @@ visible status, not a second memory implementation. MCTX knowledge mode 已 acti
 
 #### Phase 1b: mental-model stable projection
 
+- Proceed only when Phase 0 records stable mental-model ID, scope/provenance, bounded response and Pi deadline
+  behavior. Otherwise stop with injection owner `disabled`; do not restore direct automatic injection. Explicit
+  Hindsight tools and retain remain available.
 - Implement pi-hindsight stable projection provider using existing lifecycle/client ownership.
 - Validate response schema, limits, scope, provenance and snapshot identity.
 - Store MCTX knowledge snapshot in the separate render slot.
@@ -721,22 +750,11 @@ visible status, not a second memory implementation. MCTX knowledge mode 已 acti
 
 ### Phase 3: pages and local sections
 
+- Enable stale-driven materialization only after the capability audit proves a stable source-version/change signal.
 - Enable only when server capability is verified.
 - Build local page section index.
 - Add score floor, budget trim, provenance labels and silence-on-low-score.
 - Benchmark reflect-only against reflect+pages; reject regressions.
-
-### Phase 4: remove duplicate MCTX knowledge machinery
-
-Only after Phase 1-3 verification:
-
-- remove local embeddings/vector search;
-- remove local observation/dreamer/consolidation paths that duplicate Hindsight;
-- remove duplicate retain queue only after pi-hindsight owns all required delivery semantics;
-- retain MCTX snapshot/compiler state required for deterministic context.
-
-No dual-read or dual-write compatibility path is planned. Any old durable data migration must be a separate,
-explicit import operation with a receipt and verification before old tables/code are deleted.
 
 ## 10. Verification gates
 
@@ -747,7 +765,7 @@ explicit import operation with a receipt and verification before old tables/code
 - Materialization CAS conflict leaves old snapshot intact.
 - Repeated defer/context passes produce identical snapshot bytes.
 - Reload aborts old provider requests and does not publish late results.
-- First-task reflect is at most once per session.
+- First-task reflect is at most once per knowledge epoch.
 - Page section injection makes no remote call on the hot path.
 - Low-score page match injects nothing.
 - Raw recall is not automatically retained again.
@@ -761,9 +779,8 @@ explicit import operation with a receipt and verification before old tables/code
 1. Which upstream Hindsight release exposes knowledge pages in the supported server/client contract?
 2. Can current recall responses provide stable document/source provenance for MCTX dedupe?
 3. Should MCTX compile observations into m1, or only mental models/pages into m0 until observation payload is proven stable?
-4. What exact Hindsight freshness/version signal invalidates MCTX snapshot?
-5. Does the project want Hindsight to become the sole long-term knowledge authority immediately, or only after
-   an explicit import/reconciliation command proves existing MCTX memories were retained?
-6. What exact Hindsight event or polling state distinguishes `retain queued`, `retain delivered`, `consolidation
+4. What exact Hindsight freshness/version signal invalidates MCTX snapshot before Phase 3 enables stale-driven
+   materialization?
+5. What exact Hindsight event or polling state distinguishes `retain queued`, `retain delivered`, `consolidation
    complete`, `mental model/page version changed`, and `MCTX snapshot refreshed`?
 
