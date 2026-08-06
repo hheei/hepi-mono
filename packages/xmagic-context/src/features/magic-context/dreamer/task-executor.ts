@@ -78,9 +78,6 @@ export interface DreamTaskExecutorDeps {
     client: PluginContext["client"];
     /** Filesystem directory of the project this drain owns (NOT the identity). */
     sessionDirectory: string;
-    /** Opens the OpenCode DB read-only (for the key-files candidate scan). The
-     *  dream-timer owns the path resolution; null when unavailable. */
-    openOpenCodeDb: () => Database | null;
     retrospectiveRawProvider?:
         | RetrospectiveRawProvider
         | ((db: Database, projectIdentity: string) => RetrospectiveRawProvider | null);

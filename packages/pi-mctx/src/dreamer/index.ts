@@ -2,7 +2,6 @@ import type {
 	DreamerConfig,
 	EmbeddingConfig,
 } from "@magic-context/core/config/schema/magic-context";
-import { openOpenCodeDb } from "@magic-context/core/features/magic-context/dreamer/open-opencode-db";
 import {
 	buildDreamTaskRuntimeConfigs,
 	userMemoryCollectionEnabled,
@@ -184,7 +183,6 @@ export function registerPiDreamerProject(opts: PiDreamerOptions): void {
 			executor: createDreamTaskExecutor({
 				client: client as never,
 				sessionDirectory: opts.projectDir,
-				openOpenCodeDb,
 				retrospectiveRawProvider: new PiRetrospectiveRawProvider({
 					projectCwd: opts.projectDir,
 				}),

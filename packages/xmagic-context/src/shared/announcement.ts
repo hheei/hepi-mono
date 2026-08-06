@@ -17,7 +17,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { compareSemverCore } from "../hooks/auto-update-checker/semver";
+import { compareSemverCore } from "./semver";
 import { getMagicContextStorageDir } from "./data-path";
 
 /**

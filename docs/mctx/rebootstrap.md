@@ -21,10 +21,10 @@ extension 的加载，保留其源码以便比对；再以 `cortexkit/magic-cont
 - `packages/pi-mctx/`：新的目标 extension package。初始内容复制上游
   `packages/pi-plugin/src/**`，包括 colocated `*.test.ts`、`test-preload.ts` 与
   `subagent-entry.ts`。
-- `packages/xmagic-context/`：上游 `packages/plugin/src/**` 的完整源码和测试快照。
-  它包含 OpenCode adapter 与被 Pi adapter 引用的共用 implementation，保留原始目录
-  结构以满足 `@magic-context/core/*` import 的后续对照需求，但不作为 OpenCode plugin
-  安装、编译或加载。
+- `packages/xmagic-context/`：上游 `packages/plugin/src/**` 的裁剪源码和测试快照。
+  保留被 Pi adapter 对照的共用 implementation，删除 OpenCode adapter、OpenTUI/TUI、
+  OpenCode builtin commands、自动更新器、OpenCode tool wrappers 和模型建议 HTTP
+  helper；不作为 OpenCode plugin 安装、编译或加载。
 - Pi host：新包接入前不加载任何 MCTX entry；不读取旧 SQLite、旧配置或旧 session
   state。
 - ext-core：本阶段不增加 capability、生命周期、TUI 或 storage contract。
@@ -43,9 +43,10 @@ cortexkit/magic-context@7dcd2e
 ## 导入范围
 
 复制 extension 直接拥有的 TypeScript 文件和测试：上游 `plugin/src/**` 与
-`pi-plugin/src/**` 的完整树，包括 `commands/`、`dialogs/`、`dreamer/`、`tools/`、
-`features/`、`hooks/`、`shared/` 和 OpenCode adapter。保留源文件名和相对 import，
-以便之后逐项对照上游 commit；不在本阶段重构为 HEPI layout。
+`pi-plugin/src/**` 的 extension/shared 树，包括 `commands/`、`dialogs/`、`dreamer/`、
+`tools/`、`features/`、`hooks/` 和 `shared/`。复制后再剪掉 OpenCode-only surface；
+保留剩余源文件名和相对 import，以便之后逐项对照上游 commit；不在本阶段重构为
+HEPI layout。
 
 不复制：`node_modules`、`dist`、benchmark/experiment scripts、上游 package lock、
 上游构建配置和依赖声明。源码基线还没有运行或编译入口，故不添加未被执行代码消费的
@@ -62,8 +63,9 @@ behavior，不会把未适配上游代码带入用户 session。
 upstream revision 的文件清单一致；根 workspace 不尝试解析上游依赖。没有 TypeScript
 build 或 host lifecycle 成功的声明。
 
-根 `biome`、TypeScript 与 Bun test command 明确忽略两个 source baseline。它们不是已
-采用的 HEPI code，不能以关闭整个根检查或伪造依赖的方式让其通过；首个适配 slice
+根 TypeScript 与 Bun test command 明确忽略三个 inactive baseline；Biome 只保留可解析
+的存档文件检查。它们不是已采用的 HEPI code，不能以关闭整个根检查或伪造依赖的方式
+让其通过；首个适配 slice
 落地时，必须把其拥有的文件从忽略项移除并纳入正常验证。
 
 后续每个真实功能 slice 必须先定义 Pi host、ext-core、`pi-mctx` 的 owner、缺失

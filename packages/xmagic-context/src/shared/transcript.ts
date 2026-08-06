@@ -21,7 +21,7 @@
  *      from the mutated transcript only at commit time.
  *   3. Lets the shared transform code (tagging, stripping, drops)
  *      operate on `TranscriptPart` interface instances without caring
- *      whether they're wrapping `Part` from `@opencode-ai/sdk` or
+ *      whether they're wrapping a host SDK part or
  *      `TextContent | ToolCall | ThinkingContent` from `@earendil-works/pi-ai`.
  *
  * What this interface deliberately does NOT do:
@@ -215,8 +215,7 @@ export interface TranscriptMessage {
  * Adapters are owned by the harness adapter layer (OpenCode's
  * messages-transform.ts, Pi's context-event handler). The shared
  * transform code receives a Transcript and operates only through this
- * interface — it never imports from `@opencode-ai/sdk` or
- * `@earendil-works/pi-ai`.
+ * interface — it never imports from a host SDK or `@earendil-works/pi-ai`.
  */
 export interface Transcript {
     /** Ordered messages in the current pass. */
