@@ -15,6 +15,79 @@ The parent-session process that turns eligible history into compartments and inj
 rendered context; it excludes memory, notes, search, Dreamer, embeddings, commands, and UI.
 _Avoid_: full MCTX stack, child compaction
 
+**Automatic knowledge injection owner**:
+The one session-scoped extension authorized to add Hindsight-derived knowledge to provider context.
+When MCTX knowledge integration is enabled, pi-mctx owns it; pi-hindsight retains evidence and serves
+explicit knowledge operations without automatic injection.
+_Avoid_: concurrent injection, per-turn Hindsight automatic recall
+
+**Stale-driven refresh**:
+An automatic knowledge-snapshot materialization caused only by a verified Hindsight source-version change.
+It is deferred until Phase 3; earlier phases allow first/new-epoch and explicit refresh only.
+_Avoid_: refresh on agent end, refresh on context pressure, time-based freshness claim
+
+**Knowledge snapshot persistence**:
+The user-selected storage lifetime for MCTX's Hindsight-derived render cache. It defaults to `persistent`
+after first-use disclosure of the local copy range; `ephemeral` and `disabled` are explicit privacy choices.
+_Avoid_: undisclosed derived-text persistence, implicit cross-session reuse
+
+**Automatic projection scope**:
+The Hindsight bank scope eligible for automatic MCTX knowledge projection. It is the current project's
+`coding` bank only unless an explicit `memoryProfile` authorizes another scope.
+_Avoid_: empty-snapshot expansion, context-pressure expansion, implicit user/life scope
+
+**Injection-owner failure fallback**:
+The session behavior after the admitted automatic knowledge injector becomes unavailable. The owner becomes
+`disabled`; MCTX may replay only an already validated snapshot as stale until a new context revision admits an owner.
+_Avoid_: mid-lifecycle injector switch, silent direct-recall fallback
+
+**Ignored memory mode**:
+The Hindsight session mode that prohibits memory read, injection, refresh, and retain without deleting the
+persisted MCTX snapshot. Returning to `normal` requires new admission and an identity match before stale replay.
+_Avoid_: implicit deletion, snapshot use while ignored, immediate resume without admission
+
+**Knowledge handoff eligibility**:
+The persistence-policy condition for carrying a knowledge snapshot in a handoff payload. Only a `persistent`
+snapshot is eligible and destination identity/privacy validation still applies; `ephemeral` never leaves its process/session.
+_Avoid_: ephemeral handoff, unvalidated destination replay
+
+**Knowledge epoch**:
+One knowledge-materialization window starting with the first non-command user message after session start,
+resume, or handoff. Long idle time does not create an epoch; explicit refresh is required.
+_Avoid_: semantic substantive-task classifier, temporal marker, idle refresh
+
+**Untrusted knowledge reference**:
+Hindsight-derived text rendered only as bounded, provenance-labelled reference content, never as a system or
+tool instruction. Invalid schema, scope, or size rejects the source; content keyword filtering is not a trust boundary.
+_Avoid_: trusted remote instruction, heuristic prompt-injection filter, raw projection
+
+**Knowledge materialization single-flight**:
+The one active snapshot build for one `KnowledgeSnapshotIdentity`. Same-identity refreshes coalesce; a profile,
+bank, or scope change aborts the lease and requires new admission.
+_Avoid_: refresh queue, concurrent snapshot build, stale-identity publish
+
+**Knowledge projection limits**:
+The fixed Phase 1 bounds for Hindsight materialization latency and response shape, derived from Phase 0 capability
+audit measurements. They are not user configuration.
+_Avoid_: unbounded projection, pre-audit constants, per-user limit tuning
+
+**Automatic retain source allowlist**:
+The canonical branch entries eligible for Hindsight automatic retain in `normal` mode: user, assistant, and
+allowlisted tool results. System/developer, provider/custom context, MCTX projection, injected knowledge, redacted,
+and oversized entries are excluded.
+_Avoid_: rendered-context retain, privileged-message retain, projection feedback loop
+
+**Knowledge read output exclusion**:
+The rule that all `hindsight_*` read-tool outputs carry `retain: false` and are excluded from automatic retain.
+Only explicit `hindsight_retain` writes Hindsight evidence.
+_Avoid_: recalled-evidence retain, read-result feedback loop, implicit read-to-write transition
+
+**Session-memory deletion**:
+The explicit Pi-session deletion flow: MCTX synchronously removes its snapshot and handoff payload, then
+pi-hindsight queues provenance-targeted remote evidence deletion. Diagnostics remain `remote deletion pending`
+until confirmation.
+_Avoid_: retained local snapshot, untracked remote deletion, deletion-success claim before confirmation
+
 **Context store**:
 The MCTX-owned SQLite compartment graph that is canonical for a parent session's rendered context;
 the Pi session branch remains the source transcript, not the context-store summary.

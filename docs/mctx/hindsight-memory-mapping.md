@@ -27,10 +27,8 @@ MCTX knowledge snapshot
   = Hindsight 知识的可替换 context cache
 ```
 
-当前仓库仍有 `pi-mctx` 的旧 local memory/embedding/search/note/Dreamer runtime。它不是目标架构，
-也不应继续作为兼容路径。本说明比较旧 local memory backend 与目标 Hindsight + MCTX 架构；目标是
-完成一次显式 export/import（如用户数据有价值）后删除旧 schema、工具、tests、embedding 和 Dreamer，
-不在 production 同时运行两套 backend。
+当前仓库仍有 `pi-mctx` 的旧 local memory/embedding/search/note/Dreamer runtime。它从未被使用，不是目标架构，
+直接删除旧 schema、工具、tests、embedding 和 Dreamer；不做 migration、fallback 或 production dual-read/dual-write。
 
 ## 用户入口
 
@@ -60,7 +58,7 @@ hindsight_recall
 | `writeMemory(content, category)` | Hindsight retain raw source -> facts/observations/models；MCTX 编译 selected projection | 不再把手写短文本当长期知识最终真相 |
 | SQLite `memories` row | Hindsight bank/document/fact/observation/model | 长期知识 authority 移到 Hindsight |
 | `memory_embeddings` | Hindsight embedding/retrieval | 删除 MCTX local vector、provider、backfill |
-| local semantic search | Hindsight recall/reflect/pages | 不复制语义检索 |
+| local semantic search、`ctx_search`（含 Git/primer/history lexical search） | 删除 | 不属于 context compiler 或 Hindsight long-term knowledge；无替代 API |
 | active memory list | Hindsight selected mental models/observations/pages | Hindsight 决定知识产品；MCTX 决定 context 预算 |
 | category/importance | Hindsight tags/entities/product policy | MCTX 不再维护平行长期分类/排序系统 |
 | `archiveMemory` | Hindsight source correction、staleness、provenance lifecycle | MCTX 不直接宣布长期事实失效 |
@@ -162,6 +160,9 @@ Hindsight model/page
 -> repeated amplification
 ```
 
+所有 `hindsight_*` read tool output 同样带 `retain: false` marker，不能进入 automatic retain；只有显式
+`hindsight_retain` 可写入 Hindsight evidence。
+
 Hindsight retain 必须读取 Pi raw branch/agent-end message sequence，不能读取 MCTX `context` hook 的
 rendered projection。compartment、knowledge snapshot、drop marker、recall block 都不是 raw evidence。
 
@@ -210,6 +211,7 @@ MCTX embedding provider lease
 MCTX embedding queue/backfill/coverage maintenance
 MCTX local vector search
 MCTX local semantic ranking
+ctx_search（包括 Git/primer/history lexical search）
 MCTX local memory consolidation/observation logic
 MCTX Dreamer as a second knowledge synthesis engine
 MCTX local memory importance ranking as durable-knowledge policy
@@ -284,8 +286,7 @@ queued、stale、unknown 或 unavailable 状态，不能伪装立即完成。
 旧 MCTX `ctx_note` 不保留为运行时 subsystem。它的 anchored note、dismiss、revision 和 branch identity
 能力不迁移到 Hindsight；它们属于旧 memory/note API。
 
-若用户明确要长期保存，改用 Hindsight explicit retain/knowledge workflow。若旧 note 数据有价值，
-只在一次性 export/import 中保留，验证后删除旧 note 表和 command。
+若用户明确要长期保存，改用 Hindsight explicit retain/knowledge workflow。旧 note 表和 command 直接删除。
 
 ### 不再使用的 MCTX memory category/importance 语义
 
@@ -323,36 +324,14 @@ context projection。Hindsight 的 knowledge model 不能替代它们。
 
 ### 不再保留 production dual-read/dual-write
 
-为比较效果，可以使用 export fixtures、isolated evaluation banks 和 benchmark harness。但 production
+为比较效果，可以使用 isolated evaluation banks 和 benchmark harness。但 production
 不同时读取或写入：
 
 ```text
 MCTX local memory + Hindsight memory
 ```
 
-比较完成后，旧 local memory schema、embedding、Dreamer 和相关 API 直接删除。若旧 durable 数据有价值，
-执行一次显式 import/reconciliation，验证完成后删除旧路径；不保留运行时兼容层。
-
-### 一次性 import 与删除 admission
-
-旧 MCTX memory 数据只允许通过一次性 import 进入 Hindsight，不能在运行时持续同步。import contract：
-
-```text
-old memory ID       -> deterministic Hindsight document ID
-content             -> retained source text with old-memory provenance
-category/importance -> explicit retained metadata or documented discard
-active/archive      -> documented Hindsight scope/correction policy
-embedding           -> discard; Hindsight re-extracts/re-embeds
-note                -> import only when user explicitly selects it
-scope               -> current project bank only by default
-```
-
-每次 import 生成 receipt：source row count、selected rows、Hindsight document IDs、read-back scope check、
-failures 和 skipped rows。只有所有 selected source rows 都可从 Hindsight read-back 验证、receipt 已持久化、
-用户确认后，才允许删除旧 tables/API。失败 row 不得静默跳过，也不得为它们保留 production dual-write。
-import 不自动升级任何旧 row 到 global/user/life bank；scope 扩大必须由用户逐条或显式 batch 确认。receipt
-还记录 target bank、profile、redaction policy、update mode 和 import tool version，保证后续 correction/deletion
-可追溯到 Hindsight document provenance。
+比较完成后，旧 local memory schema、embedding、Dreamer 和相关 API 直接删除；不保留运行时兼容层。
 
 ## 旧功能删除清单
 
@@ -363,6 +342,7 @@ import 不自动升级任何旧 row 到 global/user/life bank；scope 扩大必�
 [ ] memory_embeddings 删除
 [ ] embedding provider/queue/backfill 删除
 [ ] local semantic search/ranking 删除
+[ ] ctx_search（包括 Git/primer/history lexical search）删除
 [ ] local Dreamer 删除，改用 Hindsight reflect
 [ ] memory category/importance 不再决定长期知识
 [ ] note -> project memory 的隐式升级删除
@@ -458,7 +438,6 @@ stop future injection
 2. 物理删除 Hindsight source/document，且没有 export/provenance。
 3. 删除 Pi session transcript。
 4. 删除唯一 history tag source，导致 ctx_expand 无法恢复。
-5. 删除旧 local MCTX memory 数据前，未完成并验证一次性 Hindsight import。
 ```
 
 下列操作必须设计为可重建、可替换或仅影响当前 context：
