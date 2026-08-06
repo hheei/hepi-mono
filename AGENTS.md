@@ -4,6 +4,16 @@
 
 These instructions apply to the whole repository unless a subdirectory adds a more specific `AGENTS.md`.
 
+## Engineering Principles
+
+- Default to deletion. Do not preserve obsolete APIs, layouts, adapters, or compatibility layers. Before deleting, confirm there are no current callers and inspect persisted-data, resume, fork, and public-contract consequences.
+- Do not add migrations or fallbacks for superseded behavior. Persistence and user-data safety are exceptions: prove that no migration is needed, or add one explicit one-time migration. A fallback is allowed only when it prevents data loss, preserves the model-visible contract, and reports the degraded outcome clearly.
+- Choose the simplest implementation that satisfies the current contract. Do not add speculative abstractions, configuration, extension points, or compatibility shims. Never simplify away boundary validation, cancellation, cleanup, concurrency protection, error propagation, accessibility, or data-loss prevention.
+- Build the smallest end-to-end path first. Split it by real ownership, lifecycle, concurrency boundary, and public contract only after the path works. Do not pre-split layers for complexity that does not exist; do not split files only to shorten them.
+- Before adding code, inspect existing implementations, installed dependencies, the standard library, native platform APIs, and the relevant upstream references. Add a dependency or write a replacement only when those options cannot satisfy the current contract and the reason is recorded.
+- Make stable boundaries, persistence formats, and public contracts durable. Keep implementation scope limited to confirmed requirements; do not use temporary adapters or pretend extension points to defer an architectural decision.
+- Study mature products and upstream implementations before inventing behavior. Reuse verified constraints, failure handling, and user interaction patterns that fit this repository; do not copy unrelated complexity.
+
 ## Tooling
 
 Use Bun from the repository root. Use Biome only for changed TypeScript files; it is a formatting and local safety aid, not an all-repository gate:
@@ -95,9 +105,10 @@ Before implementing a user-requested feature:
 1. Inspect existing repository implementations and the relevant Pi API.
 2. Write or update the matching high-level `docs/<topic>/` document in Simplified Chinese. Explain the proposed boundary and public interface to the user.
 3. Run `grill-me` for a bounded design discussion, or `grill-with-docs` when the decision needs ADRs or a shared glossary. Reach explicit agreement with the user.
-4. Create the actual code files and interface framework without detailed behavior.
-5. Write focused tests for the affected behavior.
-6. Implement the details, then run focused verification.
-7. Commit each independent feature or cohesive feature addition separately. Before completing development, commit all completed feature work; never include unrelated user changes.
+4. Build the smallest runnable end-to-end path. Do not create speculative layers or compatibility scaffolding before the path works.
+5. Define the smallest public contract and ownership boundary required by that path, then split modules only where the boundary removes coupling or isolates lifecycle/concurrency concerns.
+6. Write focused tests for the affected behavior.
+7. Implement the details, then run focused verification.
+8. Commit each independent feature or cohesive feature addition separately. Before completing development, commit all completed feature work; never include unrelated user changes.
 
 For UI work, follow [DESIGN.md](DESIGN.md), reuse `@hheei/pi-ext-core` primitives once available, keep output ANSI- and cell-width-safe, request rendering after state changes, and test only affected narrow and wide layouts.
