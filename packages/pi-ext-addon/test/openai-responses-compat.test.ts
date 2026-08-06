@@ -45,7 +45,7 @@ describe("OpenAI Responses compatibility", () => {
 				payload.input[3],
 			],
 		});
-		expect(payload.input[1].status).toBe("completed");
+		expect(payload.input[1]?.status).toBe("completed");
 	});
 
 	test("normalizes only item-prefixed assistant message IDs", () => {

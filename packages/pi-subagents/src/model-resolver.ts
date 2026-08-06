@@ -21,6 +21,8 @@ export function resolveModel<T extends ModelEntry>(
 		return `Model must use provider/modelId: "${input}"`;
 	}
 	const [provider, modelId] = input.split("/");
+	if (provider === undefined || modelId === undefined)
+		return `Model must use provider/modelId: "${input}"`;
 	const all = registry.getAvailable?.() ?? registry.getAll();
 	const foundEntry = all.find((model) => model.provider === provider && model.id === modelId);
 	const found = registry.find(provider, modelId);

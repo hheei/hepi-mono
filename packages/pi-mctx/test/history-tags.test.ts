@@ -83,7 +83,11 @@ describe("MCTX history tags", () => {
 			},
 		];
 		const clonedMessages = structuredClone([userMessage, assistantMessage]);
-		const projection = projectMctxHistoryTags(clonedMessages, [userEntry, assistantEntry], tags);
+		const projection = projectMctxHistoryTags(
+			clonedMessages as never,
+			[userEntry, assistantEntry],
+			tags,
+		);
 		expect(projection.messages[0]).toMatchObject({ content: "§7§ keep this" });
 		expect(projection.messages[1]).toMatchObject({
 			content: [{ type: "text", text: "[dropped §8§]" }],
@@ -177,7 +181,7 @@ test("tags a live tail after injected MCTX context and preserves cleared assista
 				timestamp: 0,
 			},
 			assistant,
-		],
+		] as never,
 		[entry],
 		[
 			{
@@ -206,7 +210,7 @@ test("inserts temporal markers after history tags and remains idempotent", (): v
 		},
 		{ role: "user" as const, content: "§7§ request", timestamp: 10 * 60 * 1_000 },
 	];
-	const projected = injectMctxTemporalMarkers(messages);
+	const projected = injectMctxTemporalMarkers(messages as never);
 	expect(projected[1]).toMatchObject({ content: "§7§ <!-- +10m -->\nrequest" });
 	expect(injectMctxTemporalMarkers(projected)).toBe(projected);
 });

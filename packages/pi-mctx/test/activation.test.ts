@@ -21,6 +21,7 @@ function configuration(
 			smartDrops: false,
 			executeThresholdPercentage: { defaultValue: 65, byModel: {} },
 			protectedTags: 20,
+			clearReasoningAge: 3,
 		},
 	},
 ): MctxConfiguration {
@@ -158,6 +159,7 @@ test("resolves historian and joins the shared completion coordinator", (): void 
 				smartDrops: false,
 				executeThresholdPercentage: { defaultValue: 65, byModel: {} },
 				protectedTags: 20,
+				clearReasoningAge: 3,
 			},
 			search: {},
 		},

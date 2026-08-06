@@ -333,7 +333,11 @@ test("real Pi host builds an MCTX compartment for manual compact", async (): Pro
 					entry.details.source === "pi-mctx",
 			);
 		assert.equal(markers.length, 1, `host errors: ${host.extensionErrors.join("; ")}`);
-		assert.ok(markers[0]?.summary.includes("HOST_MCTX_SUMMARY"));
+		assert.ok(
+			(
+				markers[0] as import("@earendil-works/pi-coding-agent").CompactionEntry | undefined
+			)?.summary.includes("HOST_MCTX_SUMMARY"),
+		);
 		assert.equal(host.manager.getEntries().length, before + 1);
 	} finally {
 		await host.dispose();
@@ -363,7 +367,9 @@ test("real Pi host replaces native compact with an MCTX same-session marker", as
 					entry.details.source === "pi-mctx",
 			);
 		assert.equal(markers.length, 1, `host errors: ${host.extensionErrors.join("; ")}`);
-		const marker = markers[0];
+		const marker = markers[0] as
+			| import("@earendil-works/pi-coding-agent").CompactionEntry
+			| undefined;
 		assert.ok(marker, "expected an MCTX compaction marker");
 		assert.ok(marker.summary.includes("HOST_MCTX_SUMMARY"));
 		assert.ok(marker.firstKeptEntryId.length > 0);

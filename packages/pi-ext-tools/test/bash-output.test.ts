@@ -38,6 +38,7 @@ test("reports a running bounded tail without finalizing its artifact", (): void 
 	const artifacts = createArtifactRegistry();
 	const sink = new BashOutputSink({ artifacts, reserveArtifact: true, tailBytes: 2 });
 	const reserved = sink.artifactUri;
+	if (reserved === undefined) throw new Error("Expected reserved artifact URI");
 	sink.push(Buffer.from("abc"));
 	expect(sink.snapshot()).toEqual({
 		output: "bc",
