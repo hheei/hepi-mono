@@ -262,7 +262,8 @@ function findTotalMatched(result: AgentToolResult<unknown>): number | undefined 
 }
 
 function findTag(reason: string): string {
-	const matchTag = reason
+	const normalizedReason = reason.startsWith("fff_") ? reason.slice(4) : reason;
+	const matchTag = normalizedReason
 		.split("_")
 		.filter((part) => part.length > 0)
 		.map((part) => part[0]?.toUpperCase() ?? "")

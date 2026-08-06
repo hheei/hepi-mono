@@ -373,6 +373,21 @@ describe("pi-ext-tools catalog", () => {
 		).toBe(
 			"<mdCode>src/</mdCode>\n<success>FF</success> <dim>one.ts</dim> (frequent git:modified)\n<success>FP</success> <dim>two.ts</dim>",
 		);
+		expect(
+			find
+				.renderResult?.(
+					{
+						content: [{ type: "text", text: "1. one.ts (fff_fuzzy)\n2. two.ts (fff_prefix)" }],
+					},
+					{},
+					theme,
+					{ isError: false, lastComponent: undefined },
+				)
+				.render(200)
+				.map((line) => line.trimEnd())
+				.join("\n")
+				.trimEnd(),
+		).toBe("<success>FF</success> <dim>one.ts</dim>\n<success>FP</success> <dim>two.ts</dim>");
 	});
 
 	test("executes read with the call context cwd instead of extension construction cwd", async (): Promise<void> => {
