@@ -1,7 +1,7 @@
 import { createGrepToolDefinition, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
-import { buildGrepDetails } from "./fff/extension-common.js";
+import { buildGrepDetails, inferFffGrepMode } from "./fff/extension-common.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import {
 	buildFffQuery,
@@ -239,7 +239,7 @@ export function registerGrepTool(pi: ExtensionAPI, state: FffRuntimeState): void
 				return native();
 			const result = await runtime.grepSearch({
 				pattern: params.pattern,
-				mode: containsRegexSyntax(params.pattern) ? "regex" : "plain",
+				mode: inferFffGrepMode(undefined, params.pattern),
 				...(params.caseSensitive === undefined ? {} : { caseSensitive: params.caseSensitive }),
 				constraints: buildFffQuery(params.path, "", params.exclude, context.cwd).trim(),
 				beforeContext: Math.max(0, params.context ?? 1),
