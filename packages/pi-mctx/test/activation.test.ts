@@ -117,6 +117,7 @@ test("starts the runtime but not historian cleanup when admission is unavailable
 				releaseHistorianLease: () => undefined,
 				listCompartments: () => [],
 				publishCompartment: () => undefined,
+				replaceCompartmentsFrom: () => undefined,
 				close: () => undefined,
 			}) as unknown as import("../src/store.js").MctxStore,
 	});

@@ -89,10 +89,22 @@ test("creates and fences an MCTX-owned store", async () => {
 				},
 			},
 		);
-		const pruned = store.discardCompartmentsFrom({ ...first, revision: 4 }, 4);
-		assert.deepEqual(pruned, { ...first, revision: 5 });
-		assert.deepEqual(store.listCompartments(pruned), [{ ...draft, sequence: 0, publishedRevision: 3 }]);
-		assert.equal(store.discardCompartmentsFrom({ ...first, revision: 4 }, 4), undefined);
+		const replaced = store.replaceCompartmentsFrom(
+			{ ...first, revision: 4 },
+			3,
+			{ ...draft, renderedPayload: "replacement history" },
+		);
+		assert.deepEqual(replaced, {
+			partition: { ...first, revision: 5 },
+			compartment: {
+				...draft,
+				renderedPayload: "replacement history",
+				sequence: 0,
+				publishedRevision: 5,
+			},
+		});
+		assert.deepEqual(store.listCompartments(replaced.partition), [replaced.compartment]);
+		assert.equal(store.replaceCompartmentsFrom({ ...first, revision: 4 }, 3, draft), undefined);
 		store.close();
 		store.close();
 		const database = new DatabaseSync(path);

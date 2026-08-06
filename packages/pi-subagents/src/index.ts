@@ -1440,12 +1440,8 @@ Terse command-style prompts produce shallow, generic work.
 			let model = ctx.model;
 			if (resolvedConfig.modelInput) {
 				const resolved = resolveModel(resolvedConfig.modelInput, ctx.modelRegistry);
-				if (typeof resolved === "string") {
-					if (resolvedConfig.modelFromParams) return textResult(resolved);
-					// config-specified: silent fallback to parent
-				} else {
-					model = resolved;
-				}
+				if (typeof resolved === "string") return textResult(resolved);
+				model = resolved;
 			}
 
 			// Scope validation: the effective resolved model is checked against the

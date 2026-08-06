@@ -2,7 +2,10 @@ import { expect, test } from "bun:test";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
-import { runMctxHistorianForBranch } from "../src/historian-branch-runner.js";
+import {
+	mctxHistorianSourceTokenBudget,
+	runMctxHistorianForBranch,
+} from "../src/historian-branch-runner.js";
 import type { MctxHistorianExecutor } from "../src/historian-orchestrator.js";
 import { createMctxSourceSnapshot } from "../src/source-snapshot.js";
 import type {
@@ -43,6 +46,14 @@ function request(entries: readonly SessionEntry[]) {
 				partition: { ...partition, revision: 1 },
 				compartment: { ...draft, sequence: 0, publishedRevision: 1 },
 			}),
+			replaceCompartmentsFrom: (
+				_partition: MctxPartition,
+				_revision: number,
+				draft: MctxCompartmentDraft,
+			) => ({
+				partition: { ...partition, revision: 1 },
+				compartment: { ...draft, sequence: 0, publishedRevision: 1 },
+			}),
 		},
 	};
 }
@@ -73,6 +84,12 @@ test("leaves projection-ineligible branches without a historian call", async ():
 		},
 	);
 	expect(result).toEqual({ kind: "ineligible", reason: "protected-tail" });
+});
+
+test("uses the upstream pressure-scaled source budget", (): void => {
+	expect(mctxHistorianSourceTokenBudget(200_000, 65, 65)).toBe(32_500);
+	expect(mctxHistorianSourceTokenBudget(200_000, 80, 65)).toBe(45_500);
+	expect(mctxHistorianSourceTokenBudget(200_000, 95, 65)).toBe(65_000);
 });
 
 test("projects older branch turns into the lease-guarded historian", async (): Promise<void> => {

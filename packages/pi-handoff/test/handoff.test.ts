@@ -117,6 +117,22 @@ test("does not duplicate the command after extension reload", () => {
 	expect(state.commands).toHaveLength(1);
 });
 
+test("does not fall back to native compact when MCTX projection is installed but unavailable", async () => {
+	const state = harness();
+	provideService(
+		{ pi: state.pi, resources: { add: () => undefined } } as never,
+		PARENT_CONTEXT_PROJECTION_SERVICE,
+		{ prepare: async () => ({ kind: "unavailable" }) },
+	);
+
+	await state.command.handler("", state.context);
+
+	expect(state.calls).toEqual(["idle"]);
+	expect(state.notices).toEqual([
+		"Handoff failed: MCTX context projection is unavailable; native compaction is disabled while MCTX is active. The source session can be resumed.",
+	]);
+});
+
 test("waits idle, compacts, and seeds a linked replacement session", async () => {
 	const state = harness();
 	await state.command.handler("", state.context);
@@ -156,7 +172,7 @@ test("installs selected MCTX handoff without native compaction", async () => {
 	expect(state.state.installed).toBe(true);
 });
 
-test("keeps native handoff when the MCTX provider is unavailable", async () => {
+test("does not fall back when the MCTX provider is installed but unavailable", async () => {
 	const state = harness();
 	state.state.prepare = "unavailable";
 	provideService(
@@ -167,9 +183,11 @@ test("keeps native handoff when the MCTX provider is unavailable", async () => {
 
 	await state.command.handler("", state.context);
 
-	expect(state.calls).toEqual(["idle", "compact", "new-session"]);
-	expect(state.injected).toEqual(["<handoff-summary>\nnative summary\n</handoff-summary>"]);
-	expect(state.notices).toEqual(["Handoff context is ready."]);
+	expect(state.calls).toEqual(["idle"]);
+	expect(state.injected).toEqual([]);
+	expect(state.notices).toEqual([
+		"Handoff failed: MCTX context projection is unavailable; native compaction is disabled while MCTX is active. The source session can be resumed.",
+	]);
 });
 
 test("selected prepare error has no compact fallback", async () => {
@@ -186,7 +204,9 @@ test("selected prepare error has no compact fallback", async () => {
 	);
 	await state.command.handler("", state.context);
 	expect(state.calls).toEqual(["idle"]);
-	expect(state.notices).toEqual(["Handoff failed. The source session can be resumed."]);
+	expect(state.notices).toEqual([
+		"Handoff failed: prepare failed. The source session can be resumed.",
+	]);
 });
 
 test("selected result for another purpose is an operation error", async () => {
@@ -198,7 +218,9 @@ test("selected result for another purpose is an operation error", async () => {
 	);
 	await state.command.handler("", state.context);
 	expect(state.calls).toEqual(["idle"]);
-	expect(state.notices).toEqual(["Handoff failed. The source session can be resumed."]);
+	expect(state.notices).toEqual([
+		"Handoff failed: Invalid handoff projection. The source session can be resumed.",
+	]);
 });
 
 test("selected install error surfaces operation failure", async () => {
@@ -219,7 +241,9 @@ test("selected install error surfaces operation failure", async () => {
 	);
 	await state.command.handler("", state.context);
 	expect(state.calls).toEqual(["idle", "new-session"]);
-	expect(state.notices).toEqual(["Handoff failed. The source session can be resumed."]);
+	expect(state.notices).toEqual([
+		"Handoff failed: install failed. The source session can be resumed.",
+	]);
 });
 
 test("rejects arguments without changing the session", async () => {

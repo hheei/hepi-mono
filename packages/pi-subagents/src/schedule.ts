@@ -259,13 +259,16 @@ export class SubagentScheduler {
 
 		store.update(id, { lastStatus: "running" });
 
-		// Resolve model at fire time — registry contents may have changed since the
-		// job was created (auth added/removed). Fall back silently to spawn-default
-		// if resolution fails; the spawn path handles undefined model gracefully.
+		// Resolve model at fire time because registry/auth state may change after scheduling.
 		let resolvedModel: Model<Api> | undefined;
 		if (job.model) {
 			const r = resolveModel(job.model, ctx.modelRegistry);
-			if (typeof r !== "string") resolvedModel = r;
+			if (typeof r === "string") {
+				store.update(id, { lastRun: new Date().toISOString(), lastStatus: "error" });
+				this.emit({ type: "error", jobId: id, error: r });
+				return;
+			}
+			resolvedModel = r;
 		}
 
 		let agentId: string;

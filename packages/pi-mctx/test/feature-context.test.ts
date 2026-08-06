@@ -145,8 +145,8 @@ function store(overrides: Partial<MctxStore> = {}): MctxStore {
 			compartments: { total: 1, m0: 1, m1: 0 },
 			tags: { total: historyTags.length, active: historyTags.length, pending: 0, dropped: 0 },
 		}),
-		discardCompartmentsFrom: () => undefined,
 		publishCompartment: () => undefined,
+		replaceCompartmentsFrom: () => undefined,
 		syncHistoryTags: (partition, inputs) => {
 			for (const input of inputs) {
 				if (
@@ -280,7 +280,7 @@ test("active MCTX prepares a verified same-session compaction result", async ():
 			cwd: "/project",
 			sessionManager: { getSessionId: () => "session-1" },
 			modelRegistry: { find: () => model, hasConfiguredAuth: () => true },
-			ui: { notify: () => undefined },
+			ui: { notify: (message: string, level?: string) => notifications.push({ message, level }) },
 		} as unknown as ExtensionContext,
 		signal: new AbortController().signal,
 		resources: { add: () => undefined, cleanup: async () => [] },
@@ -351,13 +351,14 @@ test("smart drops queue an old visible tool result and project its recovery mark
 	];
 	const historyTags: MctxHistoryTag[] = [];
 	let firstDropCommit = true;
+	const notifications: Array<{ readonly message: string; readonly level?: string }> = [];
 	const lifecycle = {
 		pi: { events: {} },
 		extension: {
 			cwd: "/project",
 			sessionManager: { getSessionId: () => "session-1" },
 			modelRegistry: { find: () => model, hasConfiguredAuth: () => true },
-			ui: { notify: () => undefined },
+			ui: { notify: (message: string, level?: string) => notifications.push({ message, level }) },
 		} as unknown as ExtensionContext,
 		signal: new AbortController().signal,
 		resources: { add: () => undefined, cleanup: async () => [] },
@@ -426,6 +427,16 @@ test("smart drops queue an old visible tool result and project its recovery mark
 	const projected = await feature.onContext(raw, context);
 	expect(
 		projected?.messages.some((message) => JSON.stringify(message).includes("[dropped §3§]")),
+	).toBeFalse();
+	expect(historyTags.find((tag) => tag.kind === "tool")?.status).toBe("pending");
+	expect(notifications).toContainEqual({
+		message: "pi-mctx automatic history drop failed during commit; keeping raw context",
+		level: "error",
+	});
+
+	const committed = await feature.onContext(raw, context);
+	expect(
+		committed?.messages.some((message) => JSON.stringify(message).includes("[dropped §3§]")),
 	).toBe(true);
 	expect(historyTags.find((tag) => tag.kind === "tool")?.status).toBe("dropped");
 	expect(firstDropCommit).toBeFalse();
@@ -597,10 +608,108 @@ test("tool-result guidance does not append an inline ceiling message", async ():
 		sessionManager: { getSessionId: () => "session-1", getBranch: () => toolBranch },
 	} as unknown as ExtensionContext;
 	await feature.onContext(toolBranch.flatMap(sessionEntryToContextMessages), context);
-	expect(
-		feature.onToolResult("read", [{ type: "text", text: "more output" }], context),
-	).toBeUndefined();
+	expect(feature.onToolResult("read", [{ type: "text", text: "more output" }], context)).toBe(
+		"<system-reminder>Context pressure is rising. Review completed tool outputs and silently call ctx_reduce for obsolete tool tags: 2. Keep user and assistant text. Reclaim after this result if it is no longer needed.</system-reminder>",
+	);
 	await feature.onContext(toolBranch.flatMap(sessionEntryToContextMessages), context);
+});
+
+test("context injects a ceiling nudge in the request that first crosses the delivery threshold", async (): Promise<void> => {
+	const toolBranch = [
+		entry("request", "user", "inspect files"),
+		{
+			type: "message",
+			id: "tool-call",
+			parentId: "request",
+			timestamp: "2026-01-01T00:00:01.000Z",
+			message: {
+				role: "assistant" as const,
+				content: [{ type: "toolCall" as const, id: "call-1", name: "read", arguments: {} }],
+				timestamp: 1,
+			},
+		} as SessionEntry,
+		{
+			type: "message",
+			id: "tool-result",
+			parentId: "tool-call",
+			timestamp: "2026-01-01T00:00:02.000Z",
+			message: {
+				role: "toolResult" as const,
+				toolCallId: "call-1",
+				toolName: "read",
+				content: [{ type: "text" as const, text: "x".repeat(1_000) }],
+				isError: false,
+				timestamp: 2,
+			},
+		} as SessionEntry,
+		entry("current", "user", "continue"),
+	];
+	const historyTags: MctxHistoryTag[] = [];
+	let nudgeState: "pending" | "claimed" | "delivered" | undefined;
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(true, false, 1),
+		openStore: () =>
+			store({
+				listCompartments: () => [],
+				syncHistoryTags: (partition, inputs) => {
+					for (const input of inputs) {
+						const alreadyTracked = historyTags.some(
+							(tag) =>
+								tag.kind === input.kind &&
+								tag.entryId === input.entryId &&
+								tag.toolCallId === input.toolCallId,
+						);
+						if (alreadyTracked) continue;
+						historyTags.push({ ...input, tagNumber: historyTags.length + 1, status: "active" });
+					}
+					return { partition, tags: historyTags };
+				},
+				armNudgeDelivery: () => {
+					nudgeState = "pending";
+				},
+				claimNudgeDelivery: (partition) => {
+					if (nudgeState !== "pending") return undefined;
+					nudgeState = "claimed";
+					return { partition, ownerToken: "nudge" };
+				},
+				markNudgeDelivered: () => {
+					if (nudgeState !== "claimed") return false;
+					nudgeState = "delivered";
+					return true;
+				},
+			}),
+		resolveProjectIdentity: async () => "git:project",
+	});
+	const lifecycle = {
+		pi: { events: {} },
+		extension: {
+			cwd: "/project",
+			sessionManager: { getSessionId: () => "session-1" },
+			modelRegistry: { find: () => model, hasConfiguredAuth: () => true },
+			ui: { notify: () => undefined },
+		} as unknown as ExtensionContext,
+		signal: new AbortController().signal,
+		resources: { add: () => undefined, cleanup: async () => [] },
+	} as unknown as ExtensionLifecycleContext;
+	await feature.start(lifecycle);
+	const context = {
+		model,
+		getContextUsage: () => ({ tokens: 64, contextWindow: 100 }),
+		sessionManager: { getSessionId: () => "session-1", getBranch: () => toolBranch },
+	} as unknown as ExtensionContext;
+
+	const projected = await feature.onContext(
+		structuredClone(toolBranch.flatMap(sessionEntryToContextMessages)),
+		context,
+	);
+	expect(projected?.messages).toContainEqual(
+		expect.objectContaining({
+			role: "custom",
+			customType: "pi-mctx:ceiling-nudge",
+			content: expect.stringContaining("Context pressure is rising"),
+		}),
+	);
+	expect(nudgeState).toBe("delivered");
 });
 
 test("notes persist resolved current-branch tag identity and stay session-local", async (): Promise<void> => {
@@ -1062,7 +1171,7 @@ test("context hook passes Pi-native messages through and warns per failure epoch
 		{
 			message:
 				"pi-mctx context store read failed; continuing with Pi native context: database is unavailable",
-			level: "warning",
+			level: "error",
 		},
 	]);
 	// A successful projection re-arms the next failure epoch.
@@ -1275,17 +1384,13 @@ test("context hook atomically drops a recoverable divergent tail and leaves that
 		signal: new AbortController().signal,
 		resources: { add: () => undefined, cleanup: async () => [] },
 	} as unknown as ExtensionLifecycleContext;
-	let discardedRevision: number | undefined;
 	let historianCalls = 0;
 	const feature = createMctxFeature({
 		loadConfiguration: async () => configuration(),
 		openStore: () => ({
 			...store(),
 			listCompartments: () => [{ ...compartment(), sourceFingerprint: "stale" }],
-			discardCompartmentsFrom: (_partition, revision) => {
-				discardedRevision = revision;
-				return { projectIdentity: "git:project", sessionId: "session-1", revision: 1 };
-			},
+			replaceCompartmentsFrom: () => undefined,
 		}),
 		resolveProjectIdentity: async () => "git:project",
 		runHistorianForBranch: async () => {
@@ -1299,7 +1404,6 @@ test("context hook atomically drops a recoverable divergent tail and leaves that
 		sessionManager: { getSessionId: () => "session-1", getBranch: () => entries },
 	} as unknown as ExtensionContext;
 	expect(await feature.onContext(raw, context)).toBeUndefined();
-	expect(discardedRevision).toBe(1);
 	expect(historianCalls).toBe(1);
 	const active = feature.active();
 	if (active === undefined) throw new Error("Expected active runtime");
