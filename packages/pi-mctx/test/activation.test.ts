@@ -123,7 +123,7 @@ test("starts the runtime but not historian cleanup when admission is unavailable
 	});
 	await feature.start(fixture.context);
 	expect(feature.active()?.historian).toMatchObject({ kind: "unavailable" });
-	expect(fixture.cleanups).toHaveLength(1);
+	expect(fixture.cleanups).toHaveLength(2);
 	expect(fixture.notifications).toEqual([
 		{
 			message: "pi-mctx historian model is unavailable: anthropic/claude-haiku",
@@ -159,7 +159,6 @@ test("resolves historian and joins the shared completion coordinator", (): void 
 				executeThresholdPercentage: { defaultValue: 65, byModel: {} },
 				protectedTags: 20,
 			},
-			search: {},
 		},
 	});
 	expect(resolveMctxActivation(context, configuration()).kind).toBe("active");
@@ -195,7 +194,7 @@ test("feature owns the active runtime for the session lifecycle", async (): Prom
 		sessionId: "session-1",
 		revision: 0,
 	});
-	const cleanup = fixture.cleanups[0];
+	const cleanup = fixture.cleanups[1];
 	if (!cleanup) throw new Error("Expected active MCTX runtime cleanup");
 	await cleanup();
 	expect(feature.active()).toBeUndefined();

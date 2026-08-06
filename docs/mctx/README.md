@@ -145,12 +145,12 @@ runtime-specific SQLite import 而无法加载。
 
 ### 记忆体系挂接状态（当前决策）
 
-记忆体系（`ctx_memory`/`ctx_note`/`ctx_search` 工具、`/mctx dream`/`/mctx embed` subcommand、embedding provider
-production 挂接与 Dreamer child 的 `ctx_search` 注入）按产品决策整体禁用：注册调用与挂接点在
-`extension.ts`/`feature.ts`/`sidekick.ts` 中以注释形式 park（disabled behind the hook），代码与 focused
-tests 全部保留，供 revival 时恢复；historian、history-tags、compartment projection、fork/handoff 与
-Dreamer child 的四工具策略（`read`/`grep`/`find`/`ls`）保持 active。schema v11 的
-`memory_embeddings` 迁移与 store 方法不受影响，`ctx_history` 仍注册（history-tag 清理属上下文管理域）。
+`ctx_memory`/`ctx_note`/`ctx_search`、`/mctx dream`、`/mctx embed`、本地 embedding 与 Dreamer
+不再属于 `pi-mctx`：工具、命令、运行时 API、测试和 child 模块均删除，长期知识由 Hindsight
+唯一拥有。已有 SQLite store 的 `memories`、`notes`、`memory_embedding_sources`、
+`memory_embeddings` 表仍由 schema 19 保留但不再读写；这是防止已部署数据库发生破坏性数据删除，
+不是 revival 兼容 API。未来若要清理这些孤立表，必须先发布显式、可验证的数据迁移和用户数据处置策略。
+`ctx_history` 仍注册（history-tag 清理属上下文管理域）。
 
 ### Loadout tool registration
 

@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +9,7 @@ import {
 	MCTX_STORE_SCHEMA_VERSION,
 	openMctxStore,
 } from "../dist/store.js";
+import { emptyMctxStatusAccounting } from "../dist/status-metrics.js";
 
 async function withPath(run) {
 	const directory = await mkdtemp(join(tmpdir(), "pi-mctx-store-"));
@@ -121,8 +121,76 @@ test("creates and fences an MCTX-owned store", async () => {
 				database.prepare("SELECT schema_version FROM mctx_metadata").get().schema_version,
 				MCTX_STORE_SCHEMA_VERSION,
 			);
+			assert.deepEqual(
+				database
+					.prepare("PRAGMA table_info(status_accounting)")
+					.all()
+					.map((column) => column.name),
+				[
+					"project_identity",
+					"session_id",
+					"cache_ttl_ms",
+					"last_response_at_ms",
+					"new_work_tokens",
+					"total_input_tokens",
+					"system_prompt_tokens",
+					"docs_tokens",
+					"compartment_tokens",
+					"conversation_tokens",
+					"tool_call_tokens",
+					"tool_definition_tokens",
+				],
+			);
 		} finally {
 			database.close();
+		}
+	});
+});
+
+test("removes obsolete accounting columns while upgrading v18", async () => {
+	await withPath(async (path) => {
+		const store = await openMctxStore(path);
+		const partition = store.getOrCreatePartition(`git:${"d".repeat(40)}`, "session-1");
+		store.writeStatusAccounting(partition, {
+			...emptyMctxStatusAccounting(),
+			lastResponseAtMs: 321,
+		});
+		store.close();
+
+		const database = new DatabaseSync(path);
+		try {
+			database.exec("ALTER TABLE mctx_metadata RENAME TO mctx_metadata_v19");
+			database.exec(
+				"CREATE TABLE mctx_metadata (schema_version INTEGER NOT NULL CHECK (schema_version = 18)) STRICT",
+			);
+			database.prepare("INSERT INTO mctx_metadata (schema_version) VALUES (?)").run(18);
+			database.exec("DROP TABLE mctx_metadata_v19");
+			database.exec("ALTER TABLE status_accounting RENAME TO status_accounting_v19");
+			database.exec(
+				"CREATE TABLE status_accounting (project_identity TEXT NOT NULL, session_id TEXT NOT NULL, cache_ttl_ms INTEGER NOT NULL DEFAULT 300000 CHECK (cache_ttl_ms > 0), last_response_at_ms INTEGER NOT NULL DEFAULT 0 CHECK (last_response_at_ms >= 0), new_work_tokens INTEGER NOT NULL DEFAULT 0 CHECK (new_work_tokens >= 0), total_input_tokens INTEGER NOT NULL DEFAULT 0 CHECK (total_input_tokens >= 0), system_prompt_tokens INTEGER NOT NULL DEFAULT 0 CHECK (system_prompt_tokens >= 0), docs_tokens INTEGER NOT NULL DEFAULT 0 CHECK (docs_tokens >= 0), compartment_tokens INTEGER NOT NULL DEFAULT 0 CHECK (compartment_tokens >= 0), memory_tokens INTEGER NOT NULL DEFAULT 0 CHECK (memory_tokens >= 0), profile_tokens INTEGER NOT NULL DEFAULT 0 CHECK (profile_tokens >= 0), conversation_tokens INTEGER NOT NULL DEFAULT 0 CHECK (conversation_tokens >= 0), tool_call_tokens INTEGER NOT NULL DEFAULT 0 CHECK (tool_call_tokens >= 0), tool_definition_tokens INTEGER NOT NULL DEFAULT 0 CHECK (tool_definition_tokens >= 0), PRIMARY KEY (project_identity, session_id), FOREIGN KEY (project_identity, session_id) REFERENCES partitions(project_identity, session_id)) STRICT",
+			);
+			database.exec(
+				"INSERT INTO status_accounting SELECT project_identity, session_id, cache_ttl_ms, last_response_at_ms, new_work_tokens, total_input_tokens, system_prompt_tokens, docs_tokens, compartment_tokens, 77, 88, conversation_tokens, tool_call_tokens, tool_definition_tokens FROM status_accounting_v19",
+			);
+			database.exec("DROP TABLE status_accounting_v19");
+			database.exec("PRAGMA user_version = 18");
+		} finally {
+			database.close();
+		}
+
+		const migrated = await openMctxStore(path);
+		try {
+			assert.equal(migrated.readStatusAccounting(partition).lastResponseAtMs, 321);
+			const inspection = new DatabaseSync(path);
+			const columns = inspection
+				.prepare("PRAGMA table_info(status_accounting)")
+				.all()
+				.map((column) => column.name);
+			inspection.close();
+			assert.equal(columns.includes("memory_tokens"), false);
+			assert.equal(columns.includes("profile_tokens"), false);
+		} finally {
+			migrated.close();
 		}
 	});
 });
@@ -277,6 +345,96 @@ test("queues only active unprotected history tags and marks projected drops", as
 	});
 });
 
+test("copies a validated knowledge snapshot only within its project", async () => {
+	await withPath(async (path) => {
+		const store = await openMctxStore(path);
+		const project = `git:${"a".repeat(40)}`;
+		const source = store.getOrCreatePartition(project, "parent-session");
+		const publication = store.publishCompartment(source, {
+			tier: "m0",
+			sourceStartEntryId: "entry-1",
+			sourceEndEntryId: "entry-2",
+			sourceFingerprint: "fingerprint",
+			renderedPayload: "history",
+		});
+		assert.ok(publication);
+		const snapshot = store.replaceKnowledgeSnapshot(source, 0, {
+			freshness: "fresh",
+			identity: {
+				projectIdentity: project,
+				bankIds: ["project-bank"],
+				scopeTags: ["project:a"],
+				memoryProfile: "project-only",
+				capabilityRevision: "hindsight-client:1",
+				policyVersion: "policy-1",
+				epoch: "persistent",
+			},
+			sources: [
+				{
+					id: "mental-model:architecture",
+					kind: "mental-model",
+					title: "Architecture",
+					text: "Keep boundaries explicit.",
+					sourceVersion: "version-1",
+					provenance: ["bank:project-bank"],
+					scopeTags: ["project:a"],
+				},
+			],
+			renderedPayload: "<hindsight-knowledge>Keep boundaries explicit.</hindsight-knowledge>",
+			sourceFingerprint: "source-fingerprint",
+			updatedAtMs: 123,
+		});
+		assert.ok(snapshot);
+		const copied = store.initializeForkPartition(
+			publication.partition,
+			{ projectIdentity: project, sessionId: "child-session" },
+			store.listCompartments(publication.partition),
+			[],
+			snapshot,
+		);
+		assert.equal(copied.kind, "copied");
+		if (copied.kind !== "copied") throw new Error("Expected copied child partition");
+		assert.deepEqual(store.readKnowledgeSnapshot(copied.partition), {
+			...snapshot,
+		});
+		store.close();
+	});
+});
+
+test("keeps validated knowledge snapshot when publication CAS loses", async () => {
+	await withPath(async (path) => {
+		const store = await openMctxStore(path);
+		const project = `git:${"b".repeat(40)}`;
+		const partition = store.getOrCreatePartition(project, "session-cas");
+		const draft = {
+			freshness: "fresh",
+			identity: {
+				projectIdentity: project,
+				bankIds: ["project-bank"],
+				scopeTags: ["project:b"],
+				memoryProfile: "project-only",
+				capabilityRevision: "hindsight-client:1",
+				policyVersion: "policy-2",
+				epoch: "persistent",
+			},
+			sources: [],
+			renderedPayload: "<hindsight-knowledge>stable</hindsight-knowledge>",
+			sourceFingerprint: "stable",
+			updatedAtMs: 1,
+		};
+		const published = store.replaceKnowledgeSnapshot(partition, 0, draft);
+		assert.ok(published);
+		const lost = store.replaceKnowledgeSnapshot(partition, 0, {
+			...draft,
+			renderedPayload: "<hindsight-knowledge>late</hindsight-knowledge>",
+			sourceFingerprint: "late",
+		});
+		assert.equal(lost, undefined);
+		assert.deepEqual(store.readKnowledgeSnapshot(partition), published);
+		store.close();
+	});
+});
+
 test("reads scoped status metrics without advancing or mutating a partition", async () => {
 	await withPath(async (path) => {
 		const store = await openMctxStore(path);
@@ -346,366 +504,6 @@ test("reads scoped status metrics without advancing or mutating a partition", as
 	});
 });
 
-test("stores project-wide memories with record revision CAS", async () => {
-	await withPath(async (path) => {
-		const store = await openMctxStore(path);
-		const project = `git:${"8".repeat(40)}`;
-		store.getOrCreatePartition(project, "session-a");
-		const memory = store.writeMemory({ projectIdentity: project, sessionId: "session-a", category: "ARCHITECTURE", content: "Use SQLite.", nowMs: 10 });
-		assert.deepEqual(memory, { projectIdentity: project, memoryId: 1, category: "ARCHITECTURE", content: "Use SQLite.", status: "active", revision: 1, createdSessionId: "session-a", updatedSessionId: "session-a", createdAtMs: 10, updatedAtMs: 10 });
-		const updated = store.updateMemory({ projectIdentity: project, sessionId: "session-b", memoryId: 1, expectedRevision: 1, content: "Use WAL SQLite.", nowMs: 20 });
-		assert.equal(updated?.revision, 2);
-		assert.equal(store.updateMemory({ projectIdentity: project, sessionId: "session-a", memoryId: 1, expectedRevision: 1, content: "stale", nowMs: 30 }), undefined);
-		assert.equal(store.archiveMemory({ projectIdentity: project, sessionId: "session-a", memoryId: 1, expectedRevision: 2, nowMs: 30 })?.status, "archived");
-		assert.equal(store.getMemories(project, [1])[0]?.content, "Use WAL SQLite.");
-		store.close();
-	});
-});
-
-test("publishes fenced passage embeddings into the per-model ledger", async () => {
-	await withPath(async (path) => {
-		const store = await openMctxStore(path);
-		const project = `git:${"9".repeat(40)}`;
-		store.getOrCreatePartition(project, "session-a");
-		const memory = store.writeMemory({
-			projectIdentity: project,
-			sessionId: "session-a",
-			category: "ARCHITECTURE",
-			content: "Embed this.",
-			nowMs: 10,
-		});
-		const hash = (value) => createHash("sha256").update(value).digest("hex");
-		const vector = new Float32Array([0.1, 0.2, 0.3]);
-		const write = (overrides) =>
-			store.writeMemoryEmbedding({
-				projectIdentity: project,
-				memoryId: memory.memoryId,
-				modelIdentity: "local/Xenova/all-MiniLM-L6-v2",
-				providerGeneration: 3,
-				sourceContentHash: hash("Embed this."),
-				sourceMemoryRevision: memory.revision,
-				dimensions: 3,
-				vector,
-				nowMs: 20,
-				...overrides,
-			});
-		assert.equal(write({}), true);
-		// A stale revision or content hash is dropped, never published.
-		assert.equal(write({ sourceMemoryRevision: memory.revision + 1 }), false);
-		assert.equal(write({ sourceContentHash: "0".repeat(64) }), false);
-		// A second model identity coexists with the first.
-		assert.equal(
-			write({ modelIdentity: "synapse/model-b", providerGeneration: 0 }),
-			true,
-		);
-		// The same model/generation pair refreshes idempotently.
-		assert.equal(write({ vector: new Float32Array([0.9, 0.8, 0.7]) }), true);
-		const updated = store.updateMemory({
-			projectIdentity: project,
-			sessionId: "session-a",
-			memoryId: 1,
-			expectedRevision: 1,
-			content: "Embed this too.",
-			nowMs: 30,
-		});
-		assert.equal(updated?.revision, 2);
-		// An embed that started before the update cannot publish the old source.
-		assert.equal(write({}), false);
-		const readLedger = () => {
-			const database = new DatabaseSync(path, { readOnly: true });
-			try {
-				return database
-					.prepare(
-						"SELECT model_identity, provider_generation, source_content_hash, source_memory_revision, dimensions, vector FROM memory_embeddings ORDER BY model_identity",
-					)
-					.all();
-			} finally {
-				database.close();
-			}
-		};
-		assert.deepEqual(
-			readLedger().map((row) => ({
-				model: row.model_identity,
-				generation: row.provider_generation,
-				hash: row.source_content_hash,
-				revision: row.source_memory_revision,
-				dimensions: row.dimensions,
-				bytes: Buffer.from(row.vector).length,
-			})),
-			[
-				{
-					model: "local/Xenova/all-MiniLM-L6-v2",
-					generation: 3,
-					hash: hash("Embed this."),
-					revision: 1,
-					dimensions: 3,
-					bytes: 12,
-				},
-				{
-					model: "synapse/model-b",
-					generation: 0,
-					hash: hash("Embed this."),
-					revision: 1,
-					dimensions: 3,
-					bytes: 12,
-				},
-			],
-		);
-		// Archive removes every vector; a later publication is rejected.
-		assert.equal(
-			store.archiveMemory({
-				projectIdentity: project,
-				sessionId: "session-a",
-				memoryId: 1,
-				expectedRevision: 2,
-				nowMs: 40,
-			})?.status,
-			"archived",
-		);
-		assert.equal(
-			write({
-				sourceContentHash: hash("Embed this too."),
-				sourceMemoryRevision: 2,
-			}),
-			false,
-		);
-		assert.deepEqual(readLedger(), []);
-		store.close();
-	});
-});
-
-test("lists embedded source hashes per model identity for backfill coverage", async () => {
-	await withPath(async (path) => {
-		const store = await openMctxStore(path);
-		const project = `git:${"4".repeat(40)}`;
-		store.getOrCreatePartition(project, "session-a");
-		const memory = store.writeMemory({
-			projectIdentity: project,
-			sessionId: "session-a",
-			category: "ARCHITECTURE",
-			content: "Coverage target.",
-			nowMs: 10,
-		});
-		const hash = (value) => createHash("sha256").update(value).digest("hex");
-		const vector = new Float32Array([0.1, 0.2, 0.3]);
-		const write = (modelIdentity) =>
-			store.writeMemoryEmbedding({
-				projectIdentity: project,
-				memoryId: memory.memoryId,
-				modelIdentity,
-				providerGeneration: 1,
-				sourceContentHash: hash("Coverage target."),
-				sourceMemoryRevision: memory.revision,
-				dimensions: 3,
-				vector,
-				nowMs: 20,
-			});
-		assert.equal(write("local/Xenova/all-MiniLM-L6-v2"), true);
-		assert.equal(write("synapse/model-b"), true);
-		assert.deepEqual(
-			store.listMemoryEmbeddingCoverage(project, "local/Xenova/all-MiniLM-L6-v2"),
-			new Map([[memory.memoryId, hash("Coverage target.")]]),
-		);
-		assert.deepEqual(
-			store.listMemoryEmbeddingCoverage(project, "synapse/model-b"),
-			new Map([[memory.memoryId, hash("Coverage target.")]]),
-		);
-		assert.deepEqual(store.listMemoryEmbeddingCoverage(project, "other/model"), new Map());
-		assert.deepEqual(
-			store.listMemoryEmbeddingCoverage(`git:${"5".repeat(40)}`, "local/Xenova/all-MiniLM-L6-v2"),
-			new Map(),
-		);
-		store.close();
-	});
-});
-
-test("re-embedding after a content update refreshes the coverage hash", async () => {
-	await withPath(async (path) => {
-		const store = await openMctxStore(path);
-		const project = `git:${"3".repeat(40)}`;
-		store.getOrCreatePartition(project, "session-a");
-		const hash = (value) => createHash("sha256").update(value).digest("hex");
-		const vector = new Float32Array([0.1, 0.2, 0.3]);
-		const memory = store.writeMemory({
-			projectIdentity: project,
-			sessionId: "session-a",
-			category: "ARCHITECTURE",
-			content: "First version.",
-			nowMs: 10,
-		});
-		const write = (revision, content) =>
-			store.writeMemoryEmbedding({
-				projectIdentity: project,
-				memoryId: memory.memoryId,
-				modelIdentity: "local/model-a",
-				providerGeneration: 1,
-				sourceContentHash: hash(content),
-				sourceMemoryRevision: revision,
-				dimensions: 3,
-				vector,
-				nowMs: 20,
-			});
-		assert.equal(write(memory.revision, "First version."), true);
-		assert.deepEqual(
-			store.listMemoryEmbeddingCoverage(project, "local/model-a"),
-			new Map([[memory.memoryId, hash("First version.")]]),
-		);
-		const updated = store.updateMemory({
-			projectIdentity: project,
-			sessionId: "session-a",
-			memoryId: memory.memoryId,
-			expectedRevision: memory.revision,
-			content: "Second version.",
-			nowMs: 30,
-		});
-		assert.equal(updated?.revision, memory.revision + 1);
-		// The same model/generation row is refreshed with the new source metadata,
-		// so a later backfill pass sees the new hash and skips the memory.
-		assert.equal(write(updated.revision, "Second version."), true);
-		assert.deepEqual(
-			store.listMemoryEmbeddingCoverage(project, "local/model-a"),
-			new Map([[memory.memoryId, hash("Second version.")]]),
-		);
-		store.close();
-	});
-});
-
-test("coverage picks the newest generation row per memory", async () => {
-	await withPath(async (path) => {
-		const store = await openMctxStore(path);
-		const project = `git:${"2".repeat(40)}`;
-		store.getOrCreatePartition(project, "session-a");
-		const hash = (value) => createHash("sha256").update(value).digest("hex");
-		const vector = new Float32Array([0.1, 0.2, 0.3]);
-		const memory = store.writeMemory({
-			projectIdentity: project,
-			sessionId: "session-a",
-			category: "ARCHITECTURE",
-			content: "Old content.",
-			nowMs: 10,
-		});
-		const write = (overrides) =>
-			store.writeMemoryEmbedding({
-				projectIdentity: project,
-				memoryId: memory.memoryId,
-				modelIdentity: "local/model-a",
-				providerGeneration: 1,
-				sourceContentHash: hash("Old content."),
-				sourceMemoryRevision: memory.revision,
-				dimensions: 3,
-				vector,
-				nowMs: 20,
-				...overrides,
-			});
-		assert.equal(write({}), true);
-		const updated = store.updateMemory({
-			projectIdentity: project,
-			sessionId: "session-a",
-			memoryId: memory.memoryId,
-			expectedRevision: memory.revision,
-			content: "New content.",
-			nowMs: 30,
-		});
-		assert.equal(updated?.revision, memory.revision + 1);
-		// A later revision re-embed coexists with the stale generation row; the
-		// coverage pass must report the newest revision even when its timestamp
-		// is older (clock moved backward).
-		assert.equal(
-			write({
-				providerGeneration: 2,
-				sourceContentHash: hash("New content."),
-				sourceMemoryRevision: updated.revision,
-				nowMs: 15,
-			}),
-			true,
-		);
-		assert.deepEqual(
-			store.listMemoryEmbeddingCoverage(project, "local/model-a"),
-			new Map([[memory.memoryId, hash("New content.")]]),
-		);
-		store.close();
-	});
-});
-
-
-test("stores session notes with immutable anchors and record revision CAS", async () => {
-	await withPath(async (path) => {
-		const store = await openMctxStore(path);
-		const project = `git:${"7".repeat(40)}`;
-		store.getOrCreatePartition(project, "session-a");
-		store.getOrCreatePartition(project, "session-b");
-		const note = store.writeNote({
-			projectIdentity: project,
-			sessionId: "session-a",
-			content: "Verify session scope.",
-			anchor: { entryId: "assistant-1", kind: "tool", toolCallId: "call-1" },
-			smartCondition: "When Dreamer exists",
-			nowMs: 10,
-		});
-		assert.deepEqual(note, {
-			projectIdentity: project,
-			sessionId: "session-a",
-			noteId: 1,
-			content: "Verify session scope.",
-			status: "active",
-			anchor: { entryId: "assistant-1", kind: "tool", toolCallId: "call-1" },
-			smartCondition: "When Dreamer exists",
-			revision: 1,
-			createdSessionId: "session-a",
-			updatedSessionId: "session-a",
-			createdAtMs: 10,
-			updatedAtMs: 10,
-		});
-		assert.deepEqual(store.readNotes(project, "session-b"), []);
-		const updated = store.updateNote({
-			projectIdentity: project,
-			sessionId: "session-a",
-			noteId: 1,
-			expectedRevision: 1,
-			content: "Verify record CAS.",
-			anchor: null,
-			smartCondition: null,
-			nowMs: 20,
-		});
-		assert.deepEqual(updated, {
-			projectIdentity: project,
-			sessionId: "session-a",
-			noteId: 1,
-			content: "Verify record CAS.",
-			status: "active",
-			revision: 2,
-			createdSessionId: "session-a",
-			updatedSessionId: "session-a",
-			createdAtMs: 10,
-			updatedAtMs: 20,
-		});
-		assert.equal(
-			store.updateNote({
-				projectIdentity: project,
-				sessionId: "session-a",
-				noteId: 1,
-				expectedRevision: 1,
-				content: "stale",
-				nowMs: 30,
-			}),
-			undefined,
-		);
-		assert.equal(
-			store.dismissNote({
-				projectIdentity: project,
-				sessionId: "session-a",
-				noteId: 1,
-				expectedRevision: 2,
-				nowMs: 30,
-			})?.status,
-			"dismissed",
-		);
-		assert.equal(store.readNotes(project, "session-a").length, 0);
-		assert.equal(store.readNotes(project, "session-a", "dismissed")[0]?.content, "Verify record CAS.");
-		store.close();
-	});
-});
-
 test("reads scoped records and purges only requested project history", async () => {
 	await withPath(async (path) => {
 		const store = await openMctxStore(path);
@@ -714,14 +512,6 @@ test("reads scoped records and purges only requested project history", async () 
 		const sessionA = store.getOrCreatePartition(project, "session-a");
 		const sessionB = store.getOrCreatePartition(project, "session-b");
 		const other = store.getOrCreatePartition(otherProject, "session-a");
-		const memory = store.writeMemory({ projectIdentity: project, sessionId: "session-a", category: "ARCHITECTURE", content: "active", nowMs: 1 });
-		const archived = store.writeMemory({ projectIdentity: project, sessionId: "session-a", category: "NAMING", content: "archived", nowMs: 2 });
-		assert.ok(store.archiveMemory({ projectIdentity: project, sessionId: "session-a", memoryId: archived.memoryId, expectedRevision: archived.revision, nowMs: 3 }));
-		assert.deepEqual(store.listActiveMemories(project, 1), [memory]);
-		store.writeNote({ projectIdentity: project, sessionId: "session-a", content: "note-a", nowMs: 1 });
-		store.writeNote({ projectIdentity: project, sessionId: "session-b", content: "note-b", nowMs: 1 });
-		assert.equal(store.listActiveNotes(project, "session-a", 1).length, 1);
-		assert.equal(store.listActiveNotes(project, "session-a", 1)[0].content, "note-a");
 		const tagsA = store.syncHistoryTags(sessionA, [{ kind: "message", entryId: "entry-a", source: "A" }]);
 		assert.ok(tagsA);
 		const tagsB = store.syncHistoryTags(sessionB, [{ kind: "tool", entryId: "entry-b", toolCallId: "call-b", source: "B" }]);
@@ -790,68 +580,6 @@ test("upgrades an existing v2 partition store with leases", async () => {
 	});
 });
 
-test("upgrades deployed v8 embedding layout before adding handoff bindings", async () => {
-	await withPath(async (path) => {
-		const initial = await openMctxStore(path);
-		const project = `git:${"e".repeat(40)}`;
-		initial.getOrCreatePartition(project, "session-1");
-		const memory = initial.writeMemory({
-			projectIdentity: project,
-			sessionId: "session-1",
-			category: "ARCHITECTURE",
-			content: "Preserve embedding rows.",
-			nowMs: 10,
-		});
-		initial.close();
-
-		const fixture = new DatabaseSync(path);
-		try {
-			fixture.prepare("INSERT INTO memory_embedding_sources VALUES (?, ?, ?, ?)").run(
-				project,
-				memory.memoryId,
-				"a".repeat(64),
-				memory.revision,
-			);
-			fixture.prepare("INSERT INTO memory_embeddings VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
-				project,
-				memory.memoryId,
-				"model-a",
-				1,
-				"a".repeat(64),
-				memory.revision,
-				2,
-				Buffer.from(new Float32Array([1, 2]).buffer),
-				20,
-			);
-			fixture.exec("ALTER TABLE handoff_bindings RENAME TO handoff_bindings_current");
-			fixture.exec(
-				"CREATE TABLE handoff_bindings (parent_project_identity TEXT NOT NULL, parent_session_id TEXT NOT NULL, destination_session_id TEXT NOT NULL, PRIMARY KEY (parent_project_identity, parent_session_id, destination_session_id), FOREIGN KEY (parent_project_identity, parent_session_id) REFERENCES partitions(project_identity, session_id)) STRICT",
-			);
-			fixture.exec("DROP TABLE handoff_bindings_current");
-			fixture.exec("ALTER TABLE mctx_metadata RENAME TO mctx_metadata_current");
-			fixture.exec("CREATE TABLE mctx_metadata (schema_version INTEGER NOT NULL CHECK (schema_version = 8)) STRICT");
-			fixture.exec("INSERT INTO mctx_metadata VALUES (8)");
-			fixture.exec("DROP TABLE mctx_metadata_current");
-			fixture.exec("PRAGMA user_version = 8");
-		} finally {
-			fixture.close();
-		}
-
-		const store = await openMctxStore(path);
-		store.close();
-		const migrated = new DatabaseSync(path);
-		try {
-			assert.equal(migrated.prepare("PRAGMA user_version").get().user_version, MCTX_STORE_SCHEMA_VERSION);
-			assert.equal(migrated.prepare("SELECT schema_version FROM mctx_metadata").get().schema_version, MCTX_STORE_SCHEMA_VERSION);
-			assert.equal(migrated.prepare("SELECT COUNT(*) AS count FROM memory_embedding_sources").get().count, 1);
-			assert.equal(migrated.prepare("SELECT COUNT(*) AS count FROM memory_embeddings").get().count, 1);
-			assert.equal(migrated.prepare("SELECT COUNT(*) AS count FROM handoff_bindings").get().count, 0);
-		} finally {
-			migrated.close();
-		}
-	});
-});
-
 test("refuses unknown and future store schemas", async () => {
 	await withPath(async (path) => {
 		const unknown = new DatabaseSync(path);
@@ -867,3 +595,4 @@ test("refuses unknown and future store schemas", async () => {
 		await assert.rejects(openMctxStore(path), /newer than supported/);
 	});
 });
+

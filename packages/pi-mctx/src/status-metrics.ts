@@ -8,8 +8,6 @@ export interface MctxTokenBreakdown {
 	readonly systemPrompt: number;
 	readonly docs: number;
 	readonly compartments: number;
-	readonly memories: number;
-	readonly profile: number;
 	readonly conversation: number;
 	readonly toolCalls: number;
 	readonly toolDefinitions: number;
@@ -47,8 +45,6 @@ export function emptyMctxTokenBreakdown(): MctxTokenBreakdown {
 		systemPrompt: 0,
 		docs: 0,
 		compartments: 0,
-		memories: 0,
-		profile: 0,
 		conversation: 0,
 		toolCalls: 0,
 		toolDefinitions: 0,
@@ -102,13 +98,9 @@ export function computeMctxTokenBreakdown(
 			const field =
 				customType === "pi-mctx:m0" || customType === "pi-mctx:m1"
 					? "compartments"
-					: customType.includes("memory")
-						? "memories"
-						: customType.includes("profile")
-							? "profile"
-							: customType.includes("docs")
-								? "docs"
-								: "conversation";
+					: customType.includes("docs")
+						? "docs"
+						: "conversation";
 			breakdown = addBreakdown(breakdown, field, estimatePiMessage(message));
 			continue;
 		}

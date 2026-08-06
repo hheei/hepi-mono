@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { Api, Model } from "@earendil-works/pi-ai";
 import {
 	type ExtensionContext,
 	type SessionEntry,
@@ -9,40 +8,19 @@ import {
 import type {
 	CompletionFailure,
 	ExtensionLifecycleContext,
-	MemorySearchExclusionService,
+	HindsightKnowledgeProvider,
+	KnowledgeInjectionCoordinator,
+	KnowledgeInjectionLease,
+	KnowledgeProjectionIdentity,
 	ParentContextProjectionResult,
 } from "@hheei/pi-ext-core";
 import {
+	ensureKnowledgeInjectionCoordinator,
 	getService,
-	MCTX_MEMORY_EXCLUSION_SERVICE,
-	startSubagent,
-	type TaskSubagentHandle,
-	type TaskSubagentSpec,
-	type TaskTerminalResult,
+	HINDSIGHT_KNOWLEDGE_PROVIDER,
+	isInjectedKnowledgeMessage,
+	waitForService,
 } from "@hheei/pi-ext-core";
-
-interface EmbeddingProviderLease {
-	readonly provider: {
-		readonly snapshot: () =>
-			| { readonly modelIdentity: string; readonly generation: number }
-			| undefined;
-		readonly embed: (
-			text: string,
-			purpose: "passage" | "query",
-			signal: AbortSignal,
-		) => Promise<Float32Array | undefined>;
-		readonly embedBatch: (
-			items: ReadonlyArray<{
-				readonly id: string;
-				readonly text: string;
-				readonly contentHash: string;
-			}>,
-			purpose: "passage" | "query",
-			signal: AbortSignal,
-		) => Promise<ReadonlyMap<string, Float32Array> | undefined>;
-	};
-	readonly release: () => Promise<void>;
-}
 
 import { type MctxRuntime, resolveMctxActivation } from "./activation.js";
 import { planMctxCavemanDepths } from "./caveman-compression.js";
@@ -59,7 +37,6 @@ import {
 } from "./config.js";
 import { contextIndexesByEntryId } from "./context-entry-indexes.js";
 import { projectMctxContext } from "./context-projection.js";
-import { buildDreamerPrompt, DREAMER_REPORT_CHARS, DREAMER_SYSTEM_PROMPT } from "./dreamer.js";
 import {
 	type MctxHistorianBranchRunResult,
 	runMctxHistorianForBranch,
@@ -69,26 +46,17 @@ import {
 	collectVisibleMctxToolTags,
 	projectMctxHistoryTags,
 } from "./history-tags.js";
+import {
+	createKnowledgeSnapshotDraft,
+	isKnowledgeSnapshotFreshForReplay,
+	knowledgeIdentityMatches,
+	knowledgeSnapshotMessage,
+} from "./knowledge-snapshot.js";
 import { detectMctxContextWindow, isMctxOverflow, resolveMctxPressure } from "./pressure.js";
 import { planMctxProcessedImageStrips, stripMctxProcessedImages } from "./processed-images.js";
 import { createProjectIdentityResolver } from "./project-identity.js";
 import { replayMctxReasoning } from "./reasoning-replay.js";
 import { scheduleMctxMaintenance } from "./scheduler.js";
-import {
-	boundedMctxSearchText,
-	collectMctxExternalSearchCandidates,
-	MCTX_SEARCH_SOURCES,
-	type MctxSearchCandidate,
-	type MctxSearchHit,
-	type MctxSearchSource,
-	mctxSearchContentHash,
-	rankMctxSearchCandidates,
-} from "./search.js";
-import {
-	createMctxChildFactory,
-	MCTX_CHILD_MAX_TURNS,
-	MCTX_CHILD_TASK_TIMEOUT_MS,
-} from "./sidekick.js";
 import { planMctxSmartDrops } from "./smart-drops.js";
 import { protectedTurnGroupsForMessages } from "./source-history.js";
 import {
@@ -102,16 +70,7 @@ import {
 	defaultMctxStorePath,
 	type MctxCompartment,
 	type MctxHistoryTag,
-	type MctxMemory,
-	type MctxMemoryArchive,
-	type MctxMemoryUpdate,
-	type MctxMemoryWrite,
-	type MctxNote,
-	type MctxNoteAnchor,
-	type MctxNoteDismiss,
-	type MctxNoteStatus,
-	type MctxNoteUpdate,
-	type MctxNoteWrite,
+	type MctxKnowledgeSnapshot,
 	type MctxNudgeDeliveryClaim,
 	type MctxPartition,
 	type MctxRetainedHistoryTag,
@@ -260,19 +219,10 @@ export interface MctxFeature {
 	releaseCeilingNudge(nudge: MctxCeilingNudge): void;
 	recordProviderError(errorMessage: unknown, context: ExtensionContext): void;
 	expand(tagNumbers: readonly number[], context: ExtensionContext): MctxExpandResult;
-	memory(operation: MctxMemoryOperation, context: ExtensionContext): MctxMemoryResult;
-	note(operation: MctxNoteOperation, context: ExtensionContext): MctxNoteResult;
 	history(operation: MctxHistoryOperation, context: ExtensionContext): MctxHistoryResult;
 	flush(context: ExtensionContext): MctxFlushResult;
 	recomp(context: ExtensionContext): MctxHistorianCommandResult;
 	wrapup(messagesToKeep: number | undefined, context: ExtensionContext): MctxHistorianCommandResult;
-	search(
-		operation: MctxSearchOperation,
-		context: ExtensionContext,
-		signal: AbortSignal,
-	): Promise<MctxSearchResult>;
-	dream(query: string, context: ExtensionContext): Promise<MctxDreamResult>;
-	embedBackfill(context: ExtensionContext): Promise<MctxEmbedBackfillResult>;
 }
 
 export interface MctxStatusUsage {
@@ -398,46 +348,6 @@ export type MctxExpandResult =
 			readonly rejected: readonly number[];
 	  };
 
-export type MctxMemoryOperation =
-	| {
-			readonly action: "write";
-			readonly category: MctxMemoryWrite["category"];
-			readonly content: string;
-			readonly nowMs?: number;
-	  }
-	| {
-			readonly action: "update";
-			readonly memoryId: MctxMemoryUpdate["memoryId"];
-			readonly expectedRevision: MctxMemoryUpdate["expectedRevision"];
-			readonly content: string;
-			readonly nowMs?: number;
-	  }
-	| {
-			readonly action: "archive";
-			readonly memoryId: MctxMemoryArchive["memoryId"];
-			readonly expectedRevision: MctxMemoryArchive["expectedRevision"];
-			readonly nowMs?: number;
-	  }
-	| { readonly action: "get"; readonly memoryIds: readonly number[] };
-export type MctxMemoryResult =
-	| { readonly kind: "inactive" | "stale" }
-	| { readonly kind: "memory"; readonly memories: readonly MctxMemory[] };
-
-export type MctxNoteOperation =
-	| ({ readonly action: "write"; readonly anchorTag?: number } & Omit<
-			MctxNoteWrite,
-			"projectIdentity" | "sessionId" | "anchor"
-	  >)
-	| ({ readonly action: "update"; readonly anchorTag?: number | null } & Omit<
-			MctxNoteUpdate,
-			"projectIdentity" | "sessionId" | "anchor"
-	  >)
-	| ({ readonly action: "dismiss" } & Omit<MctxNoteDismiss, "projectIdentity" | "sessionId">)
-	| { readonly action: "read"; readonly status?: MctxNoteStatus };
-export type MctxNoteResult =
-	| { readonly kind: "inactive" | "stale" | "invalid-anchor" }
-	| { readonly kind: "notes"; readonly notes: readonly MctxNote[] };
-
 export type MctxHistoryOperation =
 	| {
 			readonly action: "list";
@@ -466,226 +376,6 @@ export type MctxHistorianCommandResult =
 	| { readonly kind: "scheduled" }
 	| { readonly kind: "restarting" };
 
-export interface MctxSearchOperation {
-	readonly query: string;
-	readonly limit: number;
-	readonly sources?: readonly MctxSearchSource[];
-}
-
-export type MctxSearchResult =
-	| { readonly kind: "inactive" | "stale" }
-	| { readonly kind: "invalid-exclusions" }
-	| { readonly kind: "hits"; readonly hits: readonly MctxSearchHit[] };
-
-export type MctxDreamResult =
-	| { readonly kind: "inactive" }
-	| { readonly kind: "cancelled" }
-	| { readonly kind: "empty" }
-	| { readonly kind: "failed"; readonly reason: string }
-	| { readonly kind: "reported"; readonly summary: string };
-
-export type MctxEmbedBackfillResult =
-	| { readonly kind: "inactive" }
-	| { readonly kind: "busy" }
-	| { readonly kind: "cancelled" }
-	| { readonly kind: "failed"; readonly reason: string }
-	| {
-			readonly kind: "done";
-			readonly embedded: number;
-			readonly skipped: number;
-			readonly failed: number;
-	  };
-
-/** Wall-clock deadline for one read-only MCTX child task. */
-const MCTX_CHILD_TIMEOUT_REASON = "child task timed out";
-
-/** Batch size for the project memory embedding backfill loop. */
-const EMBED_BACKFILL_BATCH_SIZE = 16;
-
-/**
- * Runs one bounded search against the current active runtime. Shared by the
- * registered `ctx_search` tool and child operations, so both see the same
- * parent partition and privacy semantics.
- */
-async function executeMctxSearch(
-	current: ActiveMctxRuntime,
-	operation: MctxSearchOperation,
-	context: ExtensionContext,
-	signal: AbortSignal,
-	isCurrent: () => boolean,
-	collectExternal: typeof collectMctxExternalSearchCandidates,
-): Promise<MctxSearchResult> {
-	if (
-		current.lifecycle.signal.aborted ||
-		signal.aborted ||
-		current.runtime.sessionId !== context.sessionManager.getSessionId()
-	)
-		return { kind: "inactive" };
-	const sources = operation.sources ?? MCTX_SEARCH_SOURCES;
-	const projectIdentity = current.runtime.partition.projectIdentity;
-	const sessionId = current.runtime.sessionId;
-	const candidates: MctxSearchCandidate[] = [];
-	if (sources.includes("memory")) {
-		const exclusionSignal = AbortSignal.any([signal, current.lifecycle.signal]);
-		const excluded = await excludedMemoryIds(
-			getService(current.lifecycle.pi, MCTX_MEMORY_EXCLUSION_SERVICE),
-			{ projectIdentity, sessionId, signal: exclusionSignal },
-		);
-		if (
-			!isCurrent() ||
-			current.lifecycle.signal.aborted ||
-			signal.aborted ||
-			current.runtime.sessionId !== context.sessionManager.getSessionId()
-		)
-			return { kind: "stale" };
-		if (excluded === undefined) return { kind: "invalid-exclusions" };
-		for (const memory of current.runtime.store.listActiveMemories(projectIdentity, 100)) {
-			if (excluded.has(memory.memoryId)) continue;
-			candidates.push({
-				source: "memory",
-				id: `memory:${projectIdentity}:${memory.memoryId}:${memory.revision}:${mctxSearchContentHash(memory.content)}`,
-				title: `Memory #${memory.memoryId} (${memory.category})`,
-				text: boundedMctxSearchText(memory.content),
-			});
-		}
-	}
-	if (sources.includes("note")) {
-		for (const note of current.runtime.store.listActiveNotes(projectIdentity, sessionId, 100)) {
-			const anchor =
-				note.anchor === undefined
-					? ""
-					: ` @${note.anchor.kind}:${note.anchor.entryId}${note.anchor.toolCallId === undefined ? "" : `:${note.anchor.toolCallId}`}`;
-			candidates.push({
-				source: "note",
-				id: `note:${projectIdentity}:${sessionId}:${note.noteId}:${note.revision}:${mctxSearchContentHash(note.content)}`,
-				title: `Note #${note.noteId}${anchor}`,
-				text: boundedMctxSearchText(note.content),
-			});
-		}
-	}
-	if (sources.includes("history")) {
-		for (const tag of current.runtime.store.listRetainedHistoryTags({
-			projectIdentity,
-			activeSessionId: sessionId,
-			limit: 100,
-		})) {
-			candidates.push({
-				source: "history",
-				id: `history:${tag.projectIdentity}:${tag.sessionId}:${tag.tagNumber}:${tag.entryId}:${tag.toolCallId ?? ""}:${mctxSearchContentHash(tag.source)}`,
-				title: `History ${tag.sessionId} §${tag.tagNumber}§ (${tag.kind})`,
-				text: boundedMctxSearchText(tag.source),
-			});
-		}
-	}
-	const external = await collectExternal({
-		cwd: current.runtime.cwd,
-		...(current.runtime.search.primerPath === undefined
-			? {}
-			: { primerPath: current.runtime.search.primerPath }),
-		sources,
-		signal: AbortSignal.any([signal, current.lifecycle.signal]),
-	});
-	if (
-		!isCurrent() ||
-		current.lifecycle.signal.aborted ||
-		signal.aborted ||
-		current.runtime.sessionId !== context.sessionManager.getSessionId()
-	)
-		return { kind: "stale" };
-	candidates.push(...external);
-	return {
-		kind: "hits",
-		hits: rankMctxSearchCandidates(operation.query, candidates, operation.limit),
-	};
-}
-
-type MctxChildTaskOutcome =
-	| {
-			readonly kind: "terminal";
-			readonly handle: TaskSubagentHandle;
-			readonly result: TaskTerminalResult;
-	  }
-	| { readonly kind: "cancelled" }
-	| { readonly kind: "failed"; readonly reason: string };
-
-/**
- * Shared skeleton for Dreamer child tasks: deadline + caller +
- * lifecycle signals all cancel the child handle, a synchronous admission
- * rejection becomes a failure result, and the terminal result is accepted only
- * while the runtime is still the active one. The launch seam runs inside the
- * abort window so a synchronous abort (e.g. inside the factory) still cancels.
- */
-async function runMctxChildTask(
-	current: ActiveMctxRuntime,
-	context: ExtensionContext,
-	timeoutMs: number,
-	isCurrent: () => boolean,
-	launch: (lifecycle: ExtensionLifecycleContext) => TaskSubagentHandle,
-): Promise<MctxChildTaskOutcome> {
-	const timeoutSignal = AbortSignal.timeout(timeoutMs);
-	const signal = AbortSignal.any([
-		current.lifecycle.signal,
-		timeoutSignal,
-		...(context.signal === undefined ? [] : [context.signal]),
-	]);
-	if (signal.aborted)
-		return timeoutSignal.aborted
-			? { kind: "failed", reason: MCTX_CHILD_TIMEOUT_REASON }
-			: { kind: "cancelled" };
-	// Admission can reject synchronously (e.g. a full pending queue), which
-	// must surface as a failure result instead of rejecting the command.
-	let handle: TaskSubagentHandle;
-	try {
-		handle = launch(current.lifecycle);
-	} catch (error: unknown) {
-		return signal.aborted
-			? { kind: "cancelled" }
-			: { kind: "failed", reason: error instanceof Error ? error.message : String(error) };
-	}
-	const onAbort = (): void => handle.cancel();
-	signal.addEventListener("abort", onAbort, { once: true });
-	// The signal can abort between the precheck and this registration (e.g.
-	// synchronously inside launch). Cancel is idempotent, so a recheck covers
-	// that window; a later abort still hits the listener.
-	if (signal.aborted) onAbort();
-	try {
-		const result: TaskTerminalResult = await handle.result;
-		if (
-			!isCurrent() ||
-			current.lifecycle.signal.aborted ||
-			signal.aborted ||
-			current.runtime.sessionId !== context.sessionManager.getSessionId()
-		)
-			return timeoutSignal.aborted
-				? { kind: "failed", reason: MCTX_CHILD_TIMEOUT_REASON }
-				: { kind: "cancelled" };
-		return { kind: "terminal", handle, result };
-	} finally {
-		signal.removeEventListener("abort", onAbort);
-	}
-}
-
-function validExcludedMemoryIds(value: readonly number[]): boolean {
-	return value.every((memoryId) => Number.isSafeInteger(memoryId) && memoryId > 0);
-}
-
-async function excludedMemoryIds(
-	service: MemorySearchExclusionService | undefined,
-	input: {
-		readonly projectIdentity: string;
-		readonly sessionId: string;
-		readonly signal: AbortSignal;
-	},
-): Promise<ReadonlySet<number> | undefined> {
-	if (service === undefined) return new Set();
-	try {
-		const ids = await service.excludeMemoryIds(input);
-		return validExcludedMemoryIds(ids) ? new Set(ids) : undefined;
-	} catch {
-		return undefined;
-	}
-}
-
 export interface MctxForkSource {
 	readonly cwd: string;
 	readonly sessionId: string;
@@ -713,17 +403,7 @@ export interface MctxFeatureOptions {
 	readonly resolveProjectIdentity?: (cwd: string, signal: AbortSignal) => Promise<string>;
 	readonly readForkSource?: (parentSessionPath: string) => MctxForkSource | Promise<MctxForkSource>;
 	readonly runHistorianForBranch?: typeof runMctxHistorianForBranch;
-	readonly collectExternalSearchCandidates?: typeof collectMctxExternalSearchCandidates;
 	readonly logHistorianDiagnostic?: (diagnostic: MctxHistorianFailureDiagnostic) => void;
-	/** Optional embedding capability supplied by the host integration. */
-	readonly acquireEmbeddingProvider?: (
-		config: unknown,
-	) => Promise<EmbeddingProviderLease | undefined>;
-	/** Test seam for the Dreamer child task; production uses `startSubagent`. */
-	readonly startDreamTask?: (
-		context: ExtensionLifecycleContext,
-		spec: TaskSubagentSpec,
-	) => TaskSubagentHandle;
 }
 
 interface ActiveMctxRuntime {
@@ -738,13 +418,14 @@ interface ActiveMctxRuntime {
 	lastHistorianTerminalReason?: string | undefined;
 	notifiedStoreReadFailure?: boolean | undefined;
 	notifiedHistoryTagDropFailure?: boolean | undefined;
-	notifiedEmbeddingFailure?: boolean | undefined;
-	embeddingLease?: EmbeddingProviderLease | undefined;
-	embeddingJob?: AbortController | undefined;
-	embeddingCompletion?: Promise<void> | undefined;
-	pendingEmbedMemory?: MctxMemory | undefined;
-	/** Abort controller for an in-flight project embedding backfill; busy while set. */
-	embedBackfill?: AbortController | undefined;
+	readonly knowledgeCoordinator: KnowledgeInjectionCoordinator;
+	readonly knowledgeGeneration: string;
+	knowledgeLease?: KnowledgeInjectionLease | undefined;
+	knowledgeSnapshot?: MctxKnowledgeSnapshot | undefined;
+	knowledgeMaterializationAttempted: boolean;
+	knowledgeMaterializationIdentity?: string | undefined;
+	knowledgeMaterializationInFlight?: Promise<void> | undefined;
+	knowledgeSnapshotDisclosed: boolean;
 	nudgeBaseline?: MctxNudgeBaseline | undefined;
 }
 
@@ -844,14 +525,6 @@ function modelThreshold(
 	return threshold.byModel[`${model.provider}/${model.id}`] ?? threshold.defaultValue;
 }
 
-function noteAnchor(tag: MctxHistoryTag): MctxNoteAnchor {
-	return {
-		entryId: tag.entryId,
-		kind: tag.kind,
-		...(tag.toolCallId === undefined ? {} : { toolCallId: tag.toolCallId }),
-	};
-}
-
 /** Owns the session runtime holder; future store and context work attach here. */
 export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature {
 	const loadConfiguration = options.loadConfiguration ?? loadMctxConfiguration;
@@ -861,13 +534,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 	const resolveProjectIdentity = options.resolveProjectIdentity ?? identityResolver.resolve;
 	const readForkSource = options.readForkSource ?? defaultForkSource;
 	const runHistorianForBranch = options.runHistorianForBranch ?? runMctxHistorianForBranch;
-	const collectExternalSearchCandidates =
-		options.collectExternalSearchCandidates ?? collectMctxExternalSearchCandidates;
 	const logHistorianDiagnostic = options.logHistorianDiagnostic ?? defaultLogHistorianDiagnostic;
-	const acquireEmbeddingProvider =
-		options.acquireEmbeddingProvider ??
-		(async (_config: unknown): Promise<EmbeddingProviderLease | undefined> => undefined);
-	const startDreamTask = options.startDreamTask ?? startSubagent;
 	let active: ActiveMctxRuntime | undefined;
 	// Feature owns read-only status lifecycle; inactive state never exposes store data.
 	let inactive: { readonly reason: MctxStatusInactiveReason; readonly diagnostic?: string } = {
@@ -923,6 +590,239 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			return undefined;
 		}
 	}
+
+	const KNOWLEDGE_BASELINE_MAX_CHARS = 12_000;
+	const KNOWLEDGE_PROVIDER_WAIT_MS = 250;
+	async function resolveKnowledgeProvider(
+		current: ActiveMctxRuntime,
+	): Promise<HindsightKnowledgeProvider | undefined> {
+		const existing = getService(current.lifecycle.pi, HINDSIGHT_KNOWLEDGE_PROVIDER);
+		if (existing !== undefined) return existing;
+		const waitController = new AbortController();
+		const abortWait = (): void => waitController.abort();
+		const timeout = setTimeout(abortWait, KNOWLEDGE_PROVIDER_WAIT_MS);
+		current.lifecycle.signal.addEventListener("abort", abortWait, { once: true });
+		try {
+			return await waitForService(current.lifecycle.pi, HINDSIGHT_KNOWLEDGE_PROVIDER, {
+				signal: waitController.signal,
+			});
+		} catch {
+			return getService(current.lifecycle.pi, HINDSIGHT_KNOWLEDGE_PROVIDER);
+		} finally {
+			clearTimeout(timeout);
+			current.lifecycle.signal.removeEventListener("abort", abortWait);
+		}
+	}
+	async function ensureKnowledgeSnapshot(
+		current: ActiveMctxRuntime,
+		context: ExtensionContext,
+	): Promise<MctxKnowledgeSnapshot | undefined> {
+		const persistence = current.runtime.settings.knowledgePersistence;
+		if (persistence === "disabled") return undefined;
+		if (current.knowledgeLease === undefined) {
+			if (current.knowledgeCoordinator.state().owner !== "unknown") return undefined;
+			const lease = current.knowledgeCoordinator.claim({
+				owner: "mctx-owned",
+				generation: current.knowledgeGeneration,
+				reason: "MCTX owns automatic Hindsight knowledge injection",
+			});
+			if (lease === undefined) return undefined;
+			current.knowledgeLease = lease;
+		}
+		const state = current.knowledgeCoordinator.state();
+		if (state.owner !== "mctx-owned" || state.generation !== current.knowledgeGeneration)
+			return undefined;
+		const provider = await resolveKnowledgeProvider(current);
+		if (provider === undefined) return undefined;
+		const sessionFile = context.sessionManager.getSessionFile?.();
+		const request = {
+			projectIdentity: current.runtime.partition.projectIdentity,
+			mode: "baseline" as const,
+			...(sessionFile === undefined ? {} : { sessionFile }),
+		};
+		let admission: Awaited<ReturnType<HindsightKnowledgeProvider["identity"]>>;
+		try {
+			admission = await provider.identity(request);
+		} catch (error: unknown) {
+			current.knowledgeCoordinator.disable({
+				generation: current.knowledgeGeneration,
+				reason: "Hindsight knowledge admission failed",
+			});
+			current.knowledgeMaterializationAttempted = true;
+			current.knowledgeMaterializationIdentity = "admission-failed";
+			if (!current.lifecycle.signal.aborted)
+				current.lifecycle.extension.ui.notify(
+					`pi-mctx Hindsight knowledge unavailable: ${error instanceof Error ? error.message : String(error)}`,
+					"warning",
+				);
+			return undefined;
+		}
+		if (admission.kind === "denied") {
+			current.knowledgeCoordinator.disable({
+				generation: current.knowledgeGeneration,
+				reason: admission.reason,
+			});
+			current.knowledgeMaterializationAttempted = true;
+			current.knowledgeMaterializationIdentity = "admission-denied";
+			return undefined;
+		}
+		const expectedIdentity: KnowledgeProjectionIdentity = admission.identity;
+		if (
+			current.knowledgeSnapshot !== undefined &&
+			isKnowledgeSnapshotFreshForReplay(current.knowledgeSnapshot, expectedIdentity)
+		) {
+			return current.knowledgeSnapshot;
+		}
+		const branchAtStart = context.sessionManager.getBranch();
+		const stored =
+			persistence === "persistent"
+				? withStoreReadPolicy(current, () =>
+						current.runtime.store.readKnowledgeSnapshot(current.runtime.partition),
+					)
+				: undefined;
+		const fallback = stored ?? current.knowledgeSnapshot;
+		if (stored !== undefined && isKnowledgeSnapshotFreshForReplay(stored, expectedIdentity)) {
+			current.knowledgeSnapshot = stored;
+			return stored;
+		}
+		const identityKey = JSON.stringify(expectedIdentity);
+		const inFlight = current.knowledgeMaterializationInFlight;
+		if (inFlight !== undefined && current.knowledgeMaterializationIdentity === identityKey) {
+			await inFlight;
+			const replayed = current.knowledgeSnapshot;
+			return replayed !== undefined && knowledgeIdentityMatches(replayed.identity, expectedIdentity)
+				? replayed
+				: fallback !== undefined && knowledgeIdentityMatches(fallback.identity, expectedIdentity)
+					? fallback
+					: undefined;
+		}
+		// Set before remote await: one generation owns one hard materialization; later context passes wait and replay CAS output.
+		if (
+			current.knowledgeMaterializationAttempted &&
+			current.knowledgeMaterializationIdentity === identityKey
+		)
+			return fallback !== undefined &&
+				knowledgeIdentityMatches(fallback.identity, expectedIdentity) &&
+				fallback.freshness === "stale"
+				? fallback
+				: undefined;
+		current.knowledgeMaterializationAttempted = true;
+		current.knowledgeMaterializationIdentity = identityKey;
+		let finishMaterialization: (() => void) | undefined;
+		const materializationFinished = new Promise<void>((resolve) => {
+			finishMaterialization = resolve;
+		});
+		current.knowledgeMaterializationInFlight = materializationFinished;
+		try {
+			const result = await provider.project({
+				projectIdentity: current.runtime.partition.projectIdentity,
+				maxChars: KNOWLEDGE_BASELINE_MAX_CHARS,
+				signal: current.lifecycle.signal,
+				...(request.sessionFile === undefined ? {} : { sessionFile: request.sessionFile }),
+				mode: "baseline",
+			});
+			if (
+				current.lifecycle.signal.aborted ||
+				active !== current ||
+				!sameBranchEntries(branchAtStart, context.sessionManager.getBranch())
+			) {
+				current.knowledgeMaterializationAttempted = false;
+				current.knowledgeMaterializationIdentity = undefined;
+				return undefined;
+			}
+			if (!knowledgeIdentityMatches(result.identity, expectedIdentity))
+				throw new Error("Hindsight knowledge identity changed during projection");
+			const draft = createKnowledgeSnapshotDraft(
+				result,
+				current.runtime.partition.projectIdentity,
+				KNOWLEDGE_BASELINE_MAX_CHARS,
+			);
+			if (persistence === "ephemeral") {
+				const ephemeral: MctxKnowledgeSnapshot = {
+					revision: fallback?.revision ?? 0,
+					...draft,
+				};
+				current.knowledgeSnapshot = ephemeral;
+				return ephemeral;
+			}
+			const published = withStoreReadPolicy(current, () =>
+				current.runtime.store.replaceKnowledgeSnapshot(
+					current.runtime.partition,
+					fallback?.revision ?? 0,
+					draft,
+				),
+			);
+			if (published !== undefined) {
+				current.knowledgeSnapshot = published;
+				if (!current.knowledgeSnapshotDisclosed && !current.lifecycle.signal.aborted) {
+					current.knowledgeSnapshotDisclosed = true;
+					current.lifecycle.extension.ui.notify(
+						"MCTX stores up to 12,000 characters of validated Hindsight knowledge for session resume and handoff.",
+						"info",
+					);
+				}
+				return published;
+			}
+			const raced = withStoreReadPolicy(current, () =>
+				current.runtime.store.readKnowledgeSnapshot(current.runtime.partition),
+			);
+			if (raced !== undefined && knowledgeIdentityMatches(raced.identity, expectedIdentity)) {
+				current.knowledgeSnapshot = raced;
+				return raced;
+			}
+			return fallback !== undefined && knowledgeIdentityMatches(fallback.identity, expectedIdentity)
+				? fallback
+				: undefined;
+		} catch (error: unknown) {
+			const message = error instanceof Error ? error.message : String(error);
+			if (fallback !== undefined && knowledgeIdentityMatches(fallback.identity, expectedIdentity)) {
+				const staleDraft = {
+					...fallback,
+					freshness: "stale" as const,
+					lastError: message,
+				};
+				const markedStale =
+					persistence === "persistent"
+						? withStoreReadPolicy(current, () =>
+								current.runtime.store.replaceKnowledgeSnapshot(
+									current.runtime.partition,
+									fallback.revision,
+									staleDraft,
+								),
+							)
+						: undefined;
+				const raced =
+					markedStale === undefined && persistence === "persistent"
+						? withStoreReadPolicy(current, () =>
+								current.runtime.store.readKnowledgeSnapshot(current.runtime.partition),
+							)
+						: undefined;
+				current.knowledgeSnapshot =
+					markedStale ??
+					(raced !== undefined && knowledgeIdentityMatches(raced.identity, expectedIdentity)
+						? raced
+						: staleDraft);
+				if (!current.lifecycle.signal.aborted)
+					current.lifecycle.extension.ui.notify(
+						`pi-mctx Hindsight knowledge is stale: ${message}`,
+						"warning",
+					);
+				return current.knowledgeSnapshot;
+			}
+			if (!current.lifecycle.signal.aborted) {
+				current.lifecycle.extension.ui.notify(
+					`pi-mctx Hindsight knowledge unavailable; snapshot replay denied: ${message}`,
+					"warning",
+				);
+			}
+			return undefined;
+		} finally {
+			if (current.knowledgeMaterializationInFlight === materializationFinished)
+				current.knowledgeMaterializationInFlight = undefined;
+			finishMaterialization?.();
+		}
+	}
+
 	function commitProjectedHistoryTagDrops(
 		current: ActiveMctxRuntime,
 		tagNumbers: readonly number[],
@@ -959,6 +859,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 		store: MctxStore,
 		projectIdentity: string,
 		sessionId: string,
+		knowledgePersistence: "persistent" | "ephemeral" | "disabled",
 	): Promise<MctxPartition | undefined> {
 		if (context.signal.aborted) return undefined;
 		const parentSessionPath = forkParentSessionPath(context);
@@ -988,11 +889,19 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				context.extension.sessionManager.getBranch(),
 				store.listHistoryTags(sourcePartition),
 			);
+			const knowledgeSnapshot =
+				knowledgePersistence === "persistent"
+					? store.readKnowledgeSnapshot(sourcePartition)
+					: undefined;
 			const initialized = store.initializeForkPartition(
 				sourcePartition,
 				{ projectIdentity, sessionId },
 				compartments,
 				historyTags,
+				knowledgeSnapshot !== undefined &&
+					knowledgeSnapshot.identity.projectIdentity === projectIdentity
+					? knowledgeSnapshot
+					: undefined,
 			);
 			return initialized.kind === "stale"
 				? store.getOrCreatePartition(projectIdentity, sessionId)
@@ -1203,87 +1112,6 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 		return { kind: "restarting" };
 	}
 
-	/**
-	 * Starts one detached, abortable passage embedding per explicit memory
-	 * write/update while the active runtime holds a provider lease. At most one
-	 * job runs per session; a newer write replaces the pending record and runs
-	 * after the current job settles. The memory tool result never waits on
-	 * embedding and a provider failure is never retried or surfaced.
-	 */
-	function scheduleMemoryEmbedding(current: ActiveMctxRuntime, memory: MctxMemory): void {
-		if (current.embeddingLease === undefined || current.lifecycle.signal.aborted) return;
-		if (current.embeddingJob !== undefined) {
-			current.pendingEmbedMemory = memory;
-			return;
-		}
-		const job = new AbortController();
-		current.embeddingJob = job;
-		const abort = (): void => job.abort();
-		current.lifecycle.signal.addEventListener("abort", abort, { once: true });
-		const completion = runMemoryEmbedding(current, job.signal, memory)
-			.catch((error: unknown) => {
-				if (current.lifecycle.signal.aborted || current.notifiedEmbeddingFailure === true) return;
-				current.notifiedEmbeddingFailure = true;
-				current.lifecycle.extension.ui.notify(
-					`pi-mctx embedding failed; memory was saved without a vector: ${
-						error instanceof Error ? error.message : String(error)
-					}`,
-					"warning",
-				);
-			})
-			.finally(() => {
-				current.lifecycle.signal.removeEventListener("abort", abort);
-				if (current.embeddingJob !== job) return;
-				current.embeddingJob = undefined;
-				current.embeddingCompletion = undefined;
-				const pending = current.pendingEmbedMemory;
-				current.pendingEmbedMemory = undefined;
-				if (pending !== undefined && active === current && !current.lifecycle.signal.aborted) {
-					scheduleMemoryEmbedding(current, pending);
-				}
-			});
-		current.embeddingCompletion = completion;
-	}
-
-	/**
-	 * Embeds one memory record and publishes it under the content/model fence.
-	 * The store transaction rereads the live row, so a completion that lands
-	 * after a newer write/update or archive is dropped without error.
-	 */
-	async function runMemoryEmbedding(
-		current: ActiveMctxRuntime,
-		signal: AbortSignal,
-		memory: MctxMemory,
-	): Promise<void> {
-		const lease = current.embeddingLease;
-		if (lease === undefined || signal.aborted) return;
-		const snapshot = lease.provider.snapshot();
-		if (snapshot === undefined) return;
-		const contentHash = mctxSearchContentHash(memory.content);
-		const vector = await lease.provider.embed(memory.content, "passage", signal);
-		if (vector === undefined || signal.aborted || current.lifecycle.signal.aborted) return;
-		// Model fence: a provider config reload between start and completion must
-		// discard this late result; the ledger row records the observed identity.
-		const settled = lease.provider.snapshot();
-		if (
-			settled === undefined ||
-			settled.modelIdentity !== snapshot.modelIdentity ||
-			settled.generation !== snapshot.generation
-		)
-			return;
-		if (active !== current) return;
-		current.runtime.store.writeMemoryEmbedding({
-			projectIdentity: memory.projectIdentity,
-			memoryId: memory.memoryId,
-			modelIdentity: snapshot.modelIdentity,
-			providerGeneration: snapshot.generation,
-			sourceContentHash: contentHash,
-			sourceMemoryRevision: memory.revision,
-			dimensions: vector.length,
-			vector,
-		});
-	}
-
 	async function prepare(input: {
 		readonly purpose: "handoff" | "inheritance";
 		readonly signal: AbortSignal;
@@ -1481,6 +1309,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					store,
 					projectIdentity,
 					activation.runtime.sessionId,
+					activation.runtime.settings.knowledgePersistence,
 				);
 				if (initialPartition === undefined || context.signal.aborted) {
 					store.close();
@@ -1511,29 +1340,12 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				store.close();
 				return;
 			}
-			// Provider acquisition is an optional capability: the package is
-			// imported only when the user configured an embedding provider, and a
-			// failure keeps the context pipeline active without semantic context.
-			let embeddingLease: EmbeddingProviderLease | undefined;
-			if (configuration.embedding !== undefined) {
-				try {
-					embeddingLease = await acquireEmbeddingProvider(configuration.embedding.config);
-				} catch (error: unknown) {
-					if (!context.signal.aborted) {
-						context.extension.ui.notify(
-							`pi-mctx embedding provider unavailable; continuing without semantic context: ${
-								error instanceof Error ? error.message : String(error)
-							}`,
-							"warning",
-						);
-					}
-				}
-			}
-			if (context.signal.aborted) {
-				await embeddingLease?.release();
-				store.close();
-				return;
-			}
+			const knowledgeCoordinator = ensureKnowledgeInjectionCoordinator(context.pi, context);
+			const knowledgeGeneration = randomUUID();
+			knowledgeCoordinator.setMctxEligibility({
+				generation: knowledgeGeneration,
+				eligible: activation.runtime.settings.knowledgePersistence !== "disabled",
+			});
 			const runtime: MctxSessionRuntime = {
 				...activation.runtime,
 				store,
@@ -1544,20 +1356,26 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				lifecycle: context,
 				cooling: false,
 				smartDropCooling: false,
-				...(embeddingLease === undefined ? {} : { embeddingLease }),
+				knowledgeCoordinator,
+				knowledgeGeneration,
+				knowledgeMaterializationAttempted: false,
+				knowledgeSnapshotDisclosed: false,
 			};
 			// Publish last: context/turn handlers can never observe a half-initialized
 			// runtime whose store or partition failed during activation.
 			active = current;
 			// Resources are lifecycle-owned: abort work before closing its store; the feature retains policy.
 			context.resources.add("mctx-runtime", async () => {
-				// Embedding jobs settle before the provider lease releases and the
-				// store closes; a detached embed may still be writing its fenced row.
 				if (active === current) active = undefined;
 				inactive = { reason: "disposed" };
-				current.embeddingJob?.abort();
-				await current.embeddingCompletion;
-				await current.embeddingLease?.release();
+				if (current.knowledgeLease !== undefined) {
+					current.knowledgeCoordinator.release(current.knowledgeLease);
+					current.knowledgeLease = undefined;
+				}
+				current.knowledgeCoordinator.setMctxEligibility({
+					generation: current.knowledgeGeneration,
+					eligible: false,
+				});
 				store.close();
 			});
 			if (runtime.historian.kind === "active") {
@@ -1570,6 +1388,14 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 						inactive = { reason: "disposed" };
 					}
 				});
+			}
+			if (activation.runtime.settings.knowledgePersistence !== "disabled") {
+				const knowledgeLease = knowledgeCoordinator.claim({
+					owner: "mctx-owned",
+					generation: knowledgeGeneration,
+					reason: "MCTX owns automatic Hindsight knowledge injection",
+				});
+				if (knowledgeLease !== undefined) current.knowledgeLease = knowledgeLease;
 			}
 		},
 		async compact(entries, tokensBefore, context, manual, signal): Promise<MctxCompactionResult> {
@@ -1882,6 +1708,10 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				current.runtime.sessionId !== context.sessionManager.getSessionId()
 			)
 				return undefined;
+			const knowledgeSnapshot = await ensureKnowledgeSnapshot(current, context);
+			const knowledgeMessage =
+				knowledgeSnapshot === undefined ? undefined : knowledgeSnapshotMessage(knowledgeSnapshot);
+			const contextMessages = messages.filter((message) => !isInjectedKnowledgeMessage(message));
 			// Re-evaluate against the active branch at every model invocation. A prior
 			// publication is not trusted after Pi navigation or branch replacement.
 			const entries = context.sessionManager.getBranch();
@@ -2024,7 +1854,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 							const plan = planMctxSmartDrops({
 								tags: historyTags,
 								candidates: collectVisibleMctxToolTags(
-									messages,
+									contextMessages,
 									entries,
 									historyTags,
 									liveTailStartIndex,
@@ -2067,9 +1897,9 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			}
 			const projection =
 				recovery.kind === "valid"
-					? projectMctxContext(messages, entries, compartments)
-					: { kind: "unchanged" as const, messages };
-			let baseMessages = projection.kind === "rendered" ? projection.messages : messages;
+					? projectMctxContext(contextMessages, entries, compartments)
+					: { kind: "unchanged" as const, messages: contextMessages };
+			let baseMessages = projection.kind === "rendered" ? projection.messages : contextMessages;
 			if (executeMaintenance) {
 				const stripped = stripMctxSystemInjections({
 					messages: baseMessages,
@@ -2199,7 +2029,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					? injectMctxTemporalMarkers(imageStrippedMessages)
 					: imageStrippedMessages;
 			const visibleTools = collectVisibleMctxToolTags(
-				messages,
+				contextMessages,
 				entries,
 				historyTags,
 				liveTailStartIndex ?? 0,
@@ -2254,13 +2084,17 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					current.runtime.store.armNudgeDelivery?.(current.runtime.partition);
 				else current.runtime.store.disarmNudgeDelivery?.(current.runtime.partition);
 			} else current.nudgeBaseline = undefined;
-			updateStatusAccounting(current, context, projectedMessages, entries, cacheTtlMs);
+			const projectedWithKnowledge: readonly AgentMessage[] =
+				knowledgeMessage === undefined
+					? projectedMessages
+					: [knowledgeMessage, ...projectedMessages];
+			updateStatusAccounting(current, context, projectedWithKnowledge, entries, cacheTtlMs);
 			const nudge = claimCeilingNudgeForContext(current, context);
-			if (nudge === undefined) return { messages: projectedMessages };
+			if (nudge === undefined) return { messages: projectedWithKnowledge };
 			completeCeilingNudgeForStore(current.runtime.store, nudge);
 			return {
 				messages: [
-					...projectedMessages,
+					...projectedWithKnowledge,
 					{
 						role: "custom",
 						customType: "pi-mctx:ceiling-nudge",
@@ -2297,118 +2131,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			}
 			return { kind: "expanded", tags, rejected };
 		},
-		memory(operation, context): MctxMemoryResult {
-			const current = active;
-			if (
-				current === undefined ||
-				current.lifecycle.signal.aborted ||
-				current.runtime.sessionId !== context.sessionManager.getSessionId()
-			)
-				return { kind: "inactive" };
-			const projectIdentity = current.runtime.partition.projectIdentity;
-			const sessionId = current.runtime.sessionId;
-			if (operation.action === "get")
-				return {
-					kind: "memory",
-					memories: current.runtime.store.getMemories(projectIdentity, operation.memoryIds),
-				};
-			if (operation.action === "write") {
-				const memory = current.runtime.store.writeMemory({
-					...operation,
-					projectIdentity,
-					sessionId,
-				});
-				scheduleMemoryEmbedding(current, memory);
-				return { kind: "memory", memories: [memory] };
-			}
-			if (operation.action === "update") {
-				const memory = current.runtime.store.updateMemory({
-					...operation,
-					projectIdentity,
-					sessionId,
-				});
-				if (memory === undefined) return { kind: "stale" };
-				scheduleMemoryEmbedding(current, memory);
-				return { kind: "memory", memories: [memory] };
-			}
-			const memory = current.runtime.store.archiveMemory({
-				...operation,
-				projectIdentity,
-				sessionId,
-			});
-			return memory === undefined ? { kind: "stale" } : { kind: "memory", memories: [memory] };
-		},
-		note(operation, context): MctxNoteResult {
-			const current = active;
-			if (
-				current === undefined ||
-				current.lifecycle.signal.aborted ||
-				current.runtime.sessionId !== context.sessionManager.getSessionId()
-			)
-				return { kind: "inactive" };
-			const projectIdentity = current.runtime.partition.projectIdentity;
-			const sessionId = current.runtime.sessionId;
-			if (operation.action === "read") {
-				return {
-					kind: "notes",
-					notes: current.runtime.store.readNotes(projectIdentity, sessionId, operation.status),
-				};
-			}
-			if (operation.action === "dismiss") {
-				const note = current.runtime.store.dismissNote({
-					...operation,
-					projectIdentity,
-					sessionId,
-				});
-				return note === undefined ? { kind: "stale" } : { kind: "notes", notes: [note] };
-			}
-			const anchorTag = operation.anchorTag;
-			let anchor: MctxNoteAnchor | null | undefined;
-			if (anchorTag !== undefined) {
-				if (anchorTag === null) anchor = null;
-				else {
-					// A numeric tag is only a session-local selector. Resolve it against this
-					// branch before persisting the immutable Pi identity it represents.
-					const synced = current.runtime.store.syncHistoryTags(
-						current.runtime.partition,
-						collectMctxHistoryTagInputs(context.sessionManager.getBranch()),
-					);
-					if (synced === undefined) return { kind: "stale" };
-					current.runtime = { ...current.runtime, partition: synced.partition };
-					const tag = synced.tags.find((value) => value.tagNumber === anchorTag);
-					if (tag === undefined) return { kind: "invalid-anchor" };
-					anchor = noteAnchor(tag);
-				}
-			}
-			if (operation.action === "write") {
-				return {
-					kind: "notes",
-					notes: [
-						current.runtime.store.writeNote({
-							content: operation.content,
-							...(anchor === undefined || anchor === null ? {} : { anchor }),
-							...(operation.smartCondition === undefined
-								? {}
-								: { smartCondition: operation.smartCondition }),
-							projectIdentity,
-							sessionId,
-						}),
-					],
-				};
-			}
-			const note = current.runtime.store.updateNote({
-				content: operation.content,
-				noteId: operation.noteId,
-				expectedRevision: operation.expectedRevision,
-				...(anchor === undefined ? {} : { anchor }),
-				...(operation.smartCondition === undefined
-					? {}
-					: { smartCondition: operation.smartCondition }),
-				projectIdentity,
-				sessionId,
-			});
-			return note === undefined ? { kind: "stale" } : { kind: "notes", notes: [note] };
-		},
+
 		history(operation, context): MctxHistoryResult {
 			const current = active;
 			if (
@@ -2492,196 +2215,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				...historianSourceBudget(current, context),
 			});
 		},
-		async search(operation, context, signal): Promise<MctxSearchResult> {
-			const current = active;
-			if (
-				current === undefined ||
-				current.lifecycle.signal.aborted ||
-				signal.aborted ||
-				current.runtime.sessionId !== context.sessionManager.getSessionId()
-			)
-				return { kind: "inactive" };
-			return executeMctxSearch(
-				current,
-				operation,
-				context,
-				signal,
-				() => active === current,
-				collectExternalSearchCandidates,
-			);
-		},
-		async dream(query, context): Promise<MctxDreamResult> {
-			const current = active;
-			if (
-				current === undefined ||
-				current.lifecycle.signal.aborted ||
-				current.runtime.sessionId !== context.sessionManager.getSessionId()
-			)
-				return { kind: "inactive" };
-			const projectIdentity = current.runtime.partition.projectIdentity;
-			const sessionId = current.runtime.sessionId;
-			const notes = current.runtime.store
-				.readNotes(projectIdentity, sessionId, "active")
-				.filter(
-					(note): note is MctxNote & { readonly smartCondition: string } =>
-						note.smartCondition !== undefined && note.smartCondition.trim().length > 0,
-				);
-			const trimmedQuery = query.trim();
-			if (notes.length === 0 && trimmedQuery.length === 0) return { kind: "empty" };
-			// An explicitly configured Dreamer model must resolve and have
-			// configured auth, or the command fails loudly; absent config uses the
-			// parent's current model.
-			let model: Model<Api> | undefined = context.model;
-			const dreamerModel = current.runtime.dreamerModel;
-			if (dreamerModel !== undefined) {
-				const [provider, modelName] = dreamerModel.split("/");
-				const resolved =
-					provider === undefined || modelName === undefined
-						? undefined
-						: context.modelRegistry.find(provider, modelName);
-				if (resolved === undefined || !context.modelRegistry.hasConfiguredAuth(resolved))
-					return {
-						kind: "failed",
-						reason: `Dreamer model is unavailable: ${dreamerModel}`,
-					};
-				model = resolved;
-			}
-			const outcome = await runMctxChildTask(
-				current,
-				context,
-				MCTX_CHILD_TASK_TIMEOUT_MS,
-				() => active === current,
-				(lifecycle) =>
-					startDreamTask(lifecycle, {
-						mode: "task",
-						session: createMctxChildFactory(context, {
-							model,
-							systemPrompt: DREAMER_SYSTEM_PROMPT,
-						}),
-						prompt: buildDreamerPrompt(
-							notes.map((note) => ({
-								noteId: note.noteId,
-								content: note.content,
-								...(note.smartCondition === undefined
-									? {}
-									: { smartCondition: note.smartCondition }),
-							})),
-							trimmedQuery.length === 0 ? undefined : trimmedQuery,
-						),
-						maxTurns: MCTX_CHILD_MAX_TURNS,
-						// The command awaits handle.result directly; the sink is a no-op
-						// because nothing else may deliver this terminal result.
-						delivery: () => undefined,
-					}),
-			);
-			if (outcome.kind === "cancelled") return { kind: "cancelled" };
-			if (outcome.kind === "failed") return { kind: "failed", reason: outcome.reason };
-			const { result } = outcome;
-			const output = result.output.trim();
-			if (result.status !== "completed" && result.status !== "limit_reached") {
-				return { kind: "failed", reason: result.failure ?? `dreamer task ${result.status}` };
-			}
-			if (output.length === 0) return { kind: "empty" };
-			return {
-				kind: "reported",
-				summary:
-					output.length <= DREAMER_REPORT_CHARS
-						? output
-						: `${output.slice(0, DREAMER_REPORT_CHARS)}\n…[dreamer report truncated]`,
-			};
-		},
-		async embedBackfill(context): Promise<MctxEmbedBackfillResult> {
-			const current = active;
-			if (
-				current === undefined ||
-				current.lifecycle.signal.aborted ||
-				current.runtime.sessionId !== context.sessionManager.getSessionId()
-			)
-				return { kind: "inactive" };
-			const lease = current.embeddingLease;
-			if (lease === undefined)
-				return { kind: "failed", reason: "no embedding provider is configured" };
-			if (current.embedBackfill !== undefined) return { kind: "busy" };
-			const snapshot = lease.provider.snapshot();
-			if (snapshot === undefined)
-				return { kind: "failed", reason: "embedding provider is unavailable" };
-			const backfill = new AbortController();
-			current.embedBackfill = backfill;
-			const signal = AbortSignal.any([
-				current.lifecycle.signal,
-				backfill.signal,
-				...(context.signal === undefined ? [] : [context.signal]),
-			]);
-			try {
-				const projectIdentity = current.runtime.partition.projectIdentity;
-				const coverage = current.runtime.store.listMemoryEmbeddingCoverage(
-					projectIdentity,
-					snapshot.modelIdentity,
-				);
-				let embedded = 0;
-				let skipped = 0;
-				let failed = 0;
-				let offset = 0;
-				for (;;) {
-					if (signal.aborted) return { kind: "cancelled" };
-					// A provider config reload between batches changes the model
-					// generation; remaining coverage is then stale, so stop early.
-					const live = lease.provider.snapshot();
-					if (
-						live === undefined ||
-						live.modelIdentity !== snapshot.modelIdentity ||
-						live.generation !== snapshot.generation
-					)
-						return { kind: "cancelled" };
-					const memories = current.runtime.store.listActiveMemories(
-						projectIdentity,
-						EMBED_BACKFILL_BATCH_SIZE,
-						offset,
-					);
-					if (memories.length === 0) break;
-					offset += memories.length;
-					const pending = memories.filter(
-						(memory) => coverage.get(memory.memoryId) !== mctxSearchContentHash(memory.content),
-					);
-					for (let start = 0; start < pending.length; start += EMBED_BACKFILL_BATCH_SIZE) {
-						const batch = pending.slice(start, start + EMBED_BACKFILL_BATCH_SIZE);
-						const vectors = await lease.provider.embedBatch(
-							batch.map((memory) => ({
-								id: `memory:${memory.memoryId}`,
-								text: memory.content,
-								contentHash: mctxSearchContentHash(memory.content),
-							})),
-							"passage",
-							signal,
-						);
-						if (signal.aborted) return { kind: "cancelled" };
-						for (const memory of batch) {
-							const vector = vectors?.get(`memory:${memory.memoryId}`);
-							if (vector === undefined) {
-								failed += 1;
-								continue;
-							}
-							const published = current.runtime.store.writeMemoryEmbedding({
-								projectIdentity,
-								memoryId: memory.memoryId,
-								modelIdentity: snapshot.modelIdentity,
-								providerGeneration: snapshot.generation,
-								sourceContentHash: mctxSearchContentHash(memory.content),
-								sourceMemoryRevision: memory.revision,
-								dimensions: vector.length,
-								vector,
-							});
-							if (published) embedded += 1;
-							else skipped += 1;
-						}
-					}
-					skipped += memories.length - pending.length;
-				}
-				return { kind: "done", embedded, skipped, failed };
-			} finally {
-				current.embedBackfill = undefined;
-			}
-		},
+
 		reduce(tagNumbers, context): MctxReduceResult {
 			const current = active;
 			if (

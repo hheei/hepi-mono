@@ -14,4 +14,5 @@ separate MCTX runtime and Historian controls. Saved values apply after Pi reload
 autocomplete suggests active subcommands with descriptions.
 It reports
 inactive or failed runtime reasons without exposing store payloads. Durable memory, notes, search,
-Dreamer, embedding, and related commands remain parked and are not active.
+Dreamer, embedding, and related commands are removed and are not active. Legacy SQLite tables remain
+unreachable so existing stores do not lose data.

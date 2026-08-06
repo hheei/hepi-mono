@@ -39,7 +39,11 @@ test("MCTX provider exposes independent runtime and historian controls", async (
 		const runtime = provider.groups.find(
 			(candidate) => candidate.id === MCTX_RUNTIME_SETTINGS_GROUP,
 		);
-		expect(runtime?.fields.map((field) => field.id)).toEqual(["enabled", "smartDrops"]);
+		expect(runtime?.fields.map((field) => field.id)).toEqual([
+			"enabled",
+			"smartDrops",
+			"knowledgePersistence",
+		]);
 		expect(group?.fields.map((field) => field.id)).toEqual(["enabled", "model"]);
 		const runtimeEnabled = runtime?.fields[0];
 		const smartDrops = runtime?.fields[1];
@@ -47,6 +51,13 @@ test("MCTX provider exposes independent runtime and historian controls", async (
 		const model = group?.fields[1];
 		expect(runtimeEnabled?.defaultValue).toBe(false);
 		expect(smartDrops?.defaultValue).toBe(false);
+		const knowledgePersistence = runtime?.fields[2];
+		expect(knowledgePersistence?.defaultValue).toBe("persistent");
+		expect(knowledgePersistence?.options).toEqual([
+			{ value: "persistent", label: "Persistent" },
+			{ value: "ephemeral", label: "Ephemeral" },
+			{ value: "disabled", label: "Disabled" },
+		]);
 		expect(smartDrops?.enabled?.({ runtime: { enabled: false } })).toBe(false);
 		expect(smartDrops?.enabled?.({ runtime: { enabled: true } })).toBe(true);
 		expect(historianEnabled?.defaultValue).toBe(false);
@@ -100,12 +111,12 @@ test("historian provider round-trips existing MCTX JSON without losing siblings"
 		);
 		const provider = createMctxSettingsProvider({ path });
 		expect(await provider.storage.load({ sessionId: "test" })).toEqual({
-			runtime: { enabled: true, smartDrops: false },
+			runtime: { enabled: true, smartDrops: false, knowledgePersistence: "persistent" },
 			historian: { enabled: true, model: "old/model" },
 		});
 		await provider.storage.save(
 			{
-				runtime: { enabled: true, smartDrops: true },
+				runtime: { enabled: true, smartDrops: true, knowledgePersistence: "persistent" },
 				historian: { enabled: false, model: "new/model" },
 			},
 			{ sessionId: "test" },
@@ -114,6 +125,7 @@ test("historian provider round-trips existing MCTX JSON without losing siblings"
 			"pi-mctx": {
 				enabled: true,
 				smart_drops: true,
+				knowledge: { persistence: "persistent" },
 				historian: { enabled: false, model: "new/model", retained: "keep" },
 				execute_threshold_percentage: { default: 65, "old/model": 75 },
 				protected_tags: 30,
@@ -130,7 +142,7 @@ test("historian provider serializes with sibling settings writers", async (): Pr
 		await Promise.all([
 			provider.storage.save(
 				{
-					runtime: { enabled: true, smartDrops: true },
+					runtime: { enabled: true, smartDrops: true, knowledgePersistence: "persistent" },
 					historian: { enabled: true, model: "provider/model" },
 				},
 				{ sessionId: "test" },
@@ -143,6 +155,7 @@ test("historian provider serializes with sibling settings writers", async (): Pr
 			"pi-mctx": {
 				enabled: true,
 				smart_drops: true,
+				knowledge: { persistence: "persistent" },
 				historian: { enabled: true, model: "provider/model" },
 			},
 			external: { retained: true },

@@ -1,6 +1,6 @@
 # MCTX 与 Hindsight 功能映射和被舍弃的能力
 
-状态：设计说明，未进入实现。
+状态：联合实现映射；与 `hindsight-memory-architecture.md` 的 Phase 0–3 实施顺序一致。
 
 关联设计：[Hindsight 与 MCTX 记忆架构](./hindsight-memory-architecture.md)。
 
@@ -216,6 +216,10 @@ MCTX local memory consolidation/observation logic
 MCTX Dreamer as a second knowledge synthesis engine
 MCTX local memory importance ranking as durable-knowledge policy
 ```
+
+已部署 SQLite 中的旧 `memories`、`notes`、`memory_embedding_sources`、`memory_embeddings`
+表暂不删除，避免迁移时丢失用户数据；它们只是 schema-owned orphan，不构成 API、读取路径或
+双写。未来清理必须另行设计显式数据迁移。
 
 原因：保留它们会产生两套长期知识：一套由 MCTX 的 row、embedding、Dreamer 维护，另一套由
 Hindsight 的 document、facts、observations、mental models 维护。两套结果会出现重复、冲突、

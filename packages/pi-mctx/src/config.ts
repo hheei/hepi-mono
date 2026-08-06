@@ -1,4 +1,3 @@
-import { isAbsolute } from "node:path";
 import {
 	defaultPiSettingsPaths,
 	type JsonSettingsValueSource,
@@ -12,6 +11,7 @@ export const DEFAULT_FAIL_CLOSED_BLOCKING = true;
 export const DEFAULT_CLEAR_REASONING_AGE = 50;
 export const DEFAULT_PROTECTED_TAGS = 20;
 export const DEFAULT_SMART_DROPS = false;
+export const DEFAULT_KNOWLEDGE_PERSISTENCE = "persistent" as const;
 export const DEFAULT_CACHE_TTL_MS = 5 * 60 * 1_000;
 
 const MIN_EXECUTE_THRESHOLD_PERCENTAGE = 20;
@@ -36,6 +36,8 @@ export type MctxHistorianConfiguration =
 	| { readonly kind: "invalid"; readonly reason: string }
 	| { readonly kind: "enabled"; readonly model: string };
 
+export type MctxKnowledgePersistence = "persistent" | "ephemeral" | "disabled";
+
 /** Threshold values after model-specific selection, before trigger evaluation. */
 export interface MctxThreshold {
 	readonly defaultValue: number;
@@ -49,6 +51,8 @@ export interface MctxOptionalThreshold {
 
 export interface MctxPipelineSettings {
 	readonly historian: MctxHistorianConfiguration;
+	/** User-owned privacy policy for Hindsight-derived knowledge copies. */
+	readonly knowledgePersistence: MctxKnowledgePersistence;
 	readonly failClosedBlocking: boolean;
 	/** User-owned opt-in for automatic old tool-result reclaim. */
 	readonly smartDrops: boolean;
@@ -63,26 +67,6 @@ export interface MctxPipelineSettings {
 	readonly cavemanTextCompression?: { readonly minChars: number };
 	/** User-owned cache maintenance delay, selected by the current parent model. */
 	readonly cacheTtlMs?: MctxThreshold;
-}
-
-/** User-owned optional primer path. Project settings cannot select local files to search. */
-export interface MctxSearchSettings {
-	readonly primerPath?: string;
-}
-
-/**
- * User-owned embedding provider selection. Project settings cannot choose a
- * provider because it may point at a local model cache or an external
- * connection file; detailed runtime validation belongs to `pi-ext-embed`.
- */
-export interface MctxEmbeddingSettings {
-	/** Raw user-level config forwarded to `acquireEmbeddingProvider`. */
-	readonly config: Readonly<Record<string, unknown>>;
-}
-
-export interface MctxDreamerSettings {
-	/** User-owned Dreamer child model ref (exact provider/model). */
-	readonly model?: string;
 }
 
 export type MctxPipelineState =
@@ -101,78 +85,11 @@ export interface MctxConfiguration {
 	readonly merged: Readonly<Record<string, unknown>>;
 	sourceOf(path: readonly string[]): JsonSettingsValueSource | undefined;
 	readonly pipeline: MctxPipelineState;
-	readonly search?: MctxSearchSettings;
-	readonly embedding?: MctxEmbeddingSettings;
-	readonly dreamer?: MctxDreamerSettings;
 	readonly warnings: readonly string[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function parseSearchSettings(
-	global: Readonly<Record<string, unknown>>,
-	project: Readonly<Record<string, unknown>>,
-	warnings: string[],
-): MctxSearchSettings | undefined {
-	if (project.search !== undefined)
-		warnings.push("Ignoring project search: primer selection is user-level only");
-	const search = global.search;
-	if (search === undefined) return undefined;
-	if (!isRecord(search)) {
-		warnings.push("Ignoring user search: must be an object");
-		return undefined;
-	}
-	const primerPath = search.primer_path;
-	if (primerPath === undefined) return undefined;
-	if (
-		typeof primerPath !== "string" ||
-		!primerPath.trim() ||
-		isAbsolute(primerPath) ||
-		primerPath.split(/[\\/]+/u).some((part) => part === "..")
-	) {
-		warnings.push("Ignoring user search.primer_path: must be a project-relative path");
-		return undefined;
-	}
-	return { primerPath };
-}
-
-function parseEmbeddingSettings(
-	global: Readonly<Record<string, unknown>>,
-	project: Readonly<Record<string, unknown>>,
-	warnings: string[],
-): MctxEmbeddingSettings | undefined {
-	if (project.embedding !== undefined)
-		warnings.push("Ignoring project embedding: provider selection is user-level only");
-	const embedding = global.embedding;
-	if (embedding === undefined) return undefined;
-	if (!isRecord(embedding)) {
-		warnings.push("Ignoring user embedding: must be an object");
-		return undefined;
-	}
-	return { config: embedding };
-}
-
-function parseDreamerSettings(
-	global: Readonly<Record<string, unknown>>,
-	project: Readonly<Record<string, unknown>>,
-	warnings: string[],
-): MctxDreamerSettings | undefined {
-	if (project.dreamer !== undefined)
-		warnings.push("Ignoring project dreamer: model selection is user-level only");
-	const dreamer = global.dreamer;
-	if (dreamer === undefined) return undefined;
-	if (!isRecord(dreamer)) {
-		warnings.push("Ignoring user dreamer: must be an object");
-		return undefined;
-	}
-	const model = dreamer.model;
-	if (model !== undefined && (typeof model !== "string" || !validModelRef(model))) {
-		warnings.push("Ignoring user dreamer.model: must be exact provider/model");
-		return undefined;
-	}
-	return typeof model === "string" ? { model: model.trim() } : {};
 }
 
 function thresholdValue(value: unknown, minimum: number, maximum: number): value is number {
@@ -325,6 +242,26 @@ function resolvePipeline(
 	if (project.enabled === true)
 		warnings.push("Ignoring project enabled: only user config can enable pi-mctx");
 
+	const rawKnowledge = global.knowledge;
+	let knowledgePersistence: MctxKnowledgePersistence = DEFAULT_KNOWLEDGE_PERSISTENCE;
+	if (rawKnowledge !== undefined) {
+		if (!isRecord(rawKnowledge)) return { kind: "invalid", reason: "knowledge must be an object" };
+		const persistence = rawKnowledge.persistence;
+		if (
+			persistence !== undefined &&
+			persistence !== "persistent" &&
+			persistence !== "ephemeral" &&
+			persistence !== "disabled"
+		)
+			return {
+				kind: "invalid",
+				reason: "knowledge.persistence must be persistent, ephemeral, or disabled",
+			};
+		if (persistence !== undefined) knowledgePersistence = persistence;
+	}
+	if (project.knowledge !== undefined)
+		warnings.push("Ignoring project knowledge: only user config controls knowledge privacy");
+
 	// Historian model and failure policy are user-only because both select local
 	// credentials and alter whether a storage failure may block a parent session.
 	const historian = global.historian;
@@ -453,6 +390,7 @@ function resolvePipeline(
 		kind: "enabled",
 		settings: {
 			historian: historianConfiguration,
+			knowledgePersistence,
 			failClosedBlocking:
 				failClosedBlocking === undefined ? DEFAULT_FAIL_CLOSED_BLOCKING : failClosedBlocking,
 			smartDrops,
@@ -496,18 +434,12 @@ export async function loadMctxConfiguration(
 	});
 	const { global, project } = settings;
 	const warnings: string[] = [];
-	const search = parseSearchSettings(global, project, warnings);
-	const embedding = parseEmbeddingSettings(global, project, warnings);
-	const dreamer = parseDreamerSettings(global, project, warnings);
 	return {
 		global,
 		project,
 		merged: settings.merged,
 		sourceOf: settings.sourceOf,
 		pipeline: resolvePipeline(global, project, warnings),
-		...(search === undefined ? {} : { search }),
-		...(embedding === undefined ? {} : { embedding }),
-		...(dreamer === undefined ? {} : { dreamer }),
 		warnings,
 	};
 }
