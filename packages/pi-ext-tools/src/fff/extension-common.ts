@@ -2,6 +2,7 @@ import { TaggedError } from "better-result";
 import { formatGrepError } from "./error-format.js";
 import type { GrepSearchError } from "./errors.js";
 import type { GrepSearchResponse, HealthCheck, RuntimeMetadata } from "./fff.js";
+import { isValidRegexPattern } from "./query.js";
 
 export const FFF_RUNTIME_NOT_READY_TEXT = "FFF runtime is not ready.";
 
@@ -31,9 +32,11 @@ export function normalizeOutputMode(
 	return undefined;
 }
 
-export function inferFffGrepMode(literal?: boolean): "plain" | "regex" {
+export function inferFffGrepMode(literal?: boolean, pattern?: string): "plain" | "regex" {
 	// Pi grep treats an omitted `literal` as false, so its default is regex.
-	return literal === true ? "plain" : "regex";
+	return literal === true || (pattern !== undefined && !isValidRegexPattern(pattern))
+		? "plain"
+		: "regex";
 }
 
 export function buildErrorDetails(error?: { message: string } | null) {

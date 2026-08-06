@@ -29,6 +29,8 @@ describe("FFF tool registration", () => {
 		expect(inferFffGrepMode()).toBe("regex");
 		expect(inferFffGrepMode(false)).toBe("regex");
 		expect(inferFffGrepMode(true)).toBe("plain");
+		expect(inferFffGrepMode(undefined, "catch (error")).toBe("plain");
+		expect(inferFffGrepMode(undefined, "catch \\(error\\)")).toBe("regex");
 	});
 
 	test("delegates every case-insensitive grep request to Pi", () => {
