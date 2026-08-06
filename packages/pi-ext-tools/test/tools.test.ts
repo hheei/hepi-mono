@@ -378,6 +378,24 @@ describe("pi-ext-tools catalog", () => {
 			grep
 				.renderResult?.(
 					{
+						content: [{ type: "text", text: "src/a.ts\n1:one\n6│context\n\n29│context\n30:two" }],
+						details: { format: "fff-grep" },
+					},
+					{},
+					theme,
+					{ isError: false, lastComponent: undefined },
+				)
+				.render(200)
+				.map((line) => line.trimEnd())
+				.join("\n")
+				.trimEnd(),
+		).toBe(
+			"<mdCode>src/a.ts</mdCode>\n<dim> 1:</dim>one\n<dim> 6│</dim>context\n\n<dim>29│</dim>context\n<dim>30:</dim>two",
+		);
+		expect(
+			grep
+				.renderResult?.(
+					{
 						content: [
 							{ type: "text", text: "src/a.ts\n9│before\n10:match\n\nsrc/b.ts\n100:later" },
 						],
