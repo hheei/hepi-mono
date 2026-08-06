@@ -6,6 +6,7 @@ import type { MctxHistorianCompletionResult } from "./historian-executor.js";
 import { executeMctxHistorianCompletion } from "./historian-executor.js";
 import { mapMctxHistorianOutput } from "./historian-output.js";
 import type {
+	MctxCompartmentDraft,
 	MctxCompartmentPublication,
 	MctxHistorianLease,
 	MctxPartition,
@@ -25,13 +26,18 @@ export interface MctxHistorianRunRequest {
 	readonly model: Model<Api>;
 	readonly store: Pick<
 		MctxStore,
-		"acquireHistorianLease" | "renewHistorianLease" | "publishCompartment" | "releaseHistorianLease"
+		| "acquireHistorianLease"
+		| "renewHistorianLease"
+		| "publishCompartment"
+		| "replaceCompartmentsFrom"
+		| "releaseHistorianLease"
 	>;
 	readonly partition: MctxPartition;
 	readonly source: MctxCompartmentSourceSnapshot;
 	readonly sourceText: string;
 	readonly signal: AbortSignal;
 	readonly expectedTier?: "m0" | "m1";
+	readonly replaceFromPublishedRevision?: number;
 	readonly leaseOwnerToken?: string;
 	readonly nowMs?: number;
 	/** Test-only timing seam. Production renews at half the lease TTL. */
@@ -98,6 +104,35 @@ function leaseRenewalInterval(request: MctxHistorianRunRequest): number {
 
 function errorReason(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
+}
+
+function storageFailure(reason: string, attempt: number): MctxHistorianRunResult {
+	return { kind: "failed", reason, failureKind: "storage", attempt };
+}
+
+function publishMappedDraft(
+	request: MctxHistorianRunRequest,
+	draft: MctxCompartmentDraft,
+	repaired: boolean,
+	attempt: number,
+): MctxHistorianRunResult {
+	try {
+		let publication: MctxCompartmentPublication | undefined;
+		if (request.replaceFromPublishedRevision === undefined) {
+			publication = request.store.publishCompartment(request.partition, draft);
+		} else {
+			publication = request.store.replaceCompartmentsFrom(
+				request.partition,
+				request.replaceFromPublishedRevision,
+				draft,
+			);
+		}
+		return publication === undefined
+			? { kind: "stale" }
+			: { kind: "published", publication, repaired };
+	} catch (error: unknown) {
+		return storageFailure(errorReason(error), attempt);
+	}
 }
 
 function retryDelay(request: MctxHistorianRunRequest, retryAttempt: number): number {
@@ -199,6 +234,7 @@ export async function runMctxHistorian(
 		}
 		activeLease = renewed;
 	}, renewalIntervalMs);
+	let outcome: MctxHistorianRunResult;
 	try {
 		// Completion output is untrusted. It is mapped back through the immutable
 		// source snapshot before any store operation can publish it.
@@ -210,80 +246,63 @@ export async function runMctxHistorian(
 			retries,
 			attempts,
 		);
-		if (renewalFailure !== undefined)
-			return {
-				kind: "failed",
-				reason: renewalFailure,
-				failureKind: "storage",
-				attempt: attempts.count,
-			};
-		if (leaseLost || controller.signal.aborted || first.kind === "cancelled")
-			return { kind: "cancelled" };
-		if (first.kind === "failed")
-			return {
+		if (renewalFailure !== undefined) outcome = storageFailure(renewalFailure, attempts.count);
+		else if (leaseLost || controller.signal.aborted || first.kind === "cancelled")
+			outcome = { kind: "cancelled" };
+		else if (first.kind === "failed")
+			outcome = {
 				kind: "failed",
 				reason: first.failure.message,
 				failureKind: first.failure.kind,
 				attempt: attempts.count,
 			};
-		const firstMapping = mappedDraft(first.output, request);
-		if (firstMapping.kind === "valid") {
-			// Publication repeats the original partition CAS. A concurrent branch
-			// update wins without overwriting its newer compartment graph.
-			const publication = request.store.publishCompartment(
-				request.partition,
-				firstMapping.value.draft,
-			);
-			return publication === undefined
-				? { kind: "stale" }
-				: { kind: "published", publication, repaired: false };
+		else {
+			const firstMapping = mappedDraft(first.output, request);
+			if (firstMapping.kind === "valid") {
+				outcome = publishMappedDraft(request, firstMapping.value.draft, false, attempts.count);
+			} else {
+				const repair = await executeWithTransientRetries(
+					request,
+					execute,
+					controller,
+					repairSourceText(request.sourceText, firstMapping.reason),
+					retries,
+					attempts,
+				);
+				if (renewalFailure !== undefined) outcome = storageFailure(renewalFailure, attempts.count);
+				else if (leaseLost || controller.signal.aborted || repair.kind === "cancelled")
+					outcome = { kind: "cancelled" };
+				else if (repair.kind === "failed")
+					outcome = {
+						kind: "failed",
+						reason: repair.failure.message,
+						failureKind: repair.failure.kind,
+						attempt: attempts.count,
+					};
+				else {
+					const repairMapping = mappedDraft(repair.output, request);
+					outcome =
+						repairMapping.kind === "invalid"
+							? {
+									kind: "invalid",
+									reason: repairMapping.reason,
+									failureKind: "validation",
+									attempt: attempts.count,
+								}
+							: publishMappedDraft(request, repairMapping.value.draft, true, attempts.count);
+				}
+			}
 		}
-		// A malformed first result gets exactly one diagnostic repair. Retrying
-		// again would turn a bounded turn-end job into an unowned retry loop.
-		const repair = await executeWithTransientRetries(
-			request,
-			execute,
-			controller,
-			repairSourceText(request.sourceText, firstMapping.reason),
-			retries,
-			attempts,
-		);
-		if (renewalFailure !== undefined)
-			return {
-				kind: "failed",
-				reason: renewalFailure,
-				failureKind: "storage",
-				attempt: attempts.count,
-			};
-		if (leaseLost || controller.signal.aborted || repair.kind === "cancelled")
-			return { kind: "cancelled" };
-		if (repair.kind === "failed")
-			return {
-				kind: "failed",
-				reason: repair.failure.message,
-				failureKind: repair.failure.kind,
-				attempt: attempts.count,
-			};
-		const repairMapping = mappedDraft(repair.output, request);
-		if (repairMapping.kind === "invalid")
-			return {
-				kind: "invalid",
-				reason: repairMapping.reason,
-				failureKind: "validation",
-				attempt: attempts.count,
-			};
-		const publication = request.store.publishCompartment(
-			request.partition,
-			repairMapping.value.draft,
-		);
-		return publication === undefined
-			? { kind: "stale" }
-			: { kind: "published", publication, repaired: true };
+	} catch (error: unknown) {
+		outcome = storageFailure(errorReason(error), attempts.count);
+	}
+	try {
+		request.store.releaseHistorianLease(activeLease);
+	} catch (error: unknown) {
+		outcome = storageFailure(errorReason(error), attempts.count);
 	} finally {
 		clearInterval(renewalTimer);
 		request.signal.removeEventListener("abort", abortFromCaller);
-		// Terminal paths, including cancellation and malformed output, must release
-		// the finite lease so another process can make forward progress.
-		request.store.releaseHistorianLease(activeLease);
 	}
+	return outcome;
 }

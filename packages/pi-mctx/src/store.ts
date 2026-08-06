@@ -14,6 +14,75 @@ interface MctxDatabaseStatement {
 	run(...bindings: readonly unknown[]): unknown;
 }
 
+function replaceCompartmentsFrom(
+	database: DatabaseSync,
+	partition: MctxPartition,
+	publishedRevision: number,
+	draft: MctxCompartmentDraft,
+): MctxCompartmentPublication | undefined {
+	requirePartitionKey(partition.projectIdentity, partition.sessionId);
+	if (!Number.isSafeInteger(publishedRevision) || publishedRevision <= 0)
+		throw new Error("Context store replacement revision is invalid");
+	requireCompartmentDraft(draft);
+	database.exec("BEGIN IMMEDIATE");
+	try {
+		const changes = changedRows(
+			database
+				.prepare(
+					"UPDATE partitions SET revision = revision + 1 WHERE project_identity = ? AND session_id = ? AND revision = ?",
+				)
+				.run(partition.projectIdentity, partition.sessionId, partition.revision),
+		);
+		if (changes === 0) {
+			database.exec("ROLLBACK");
+			return undefined;
+		}
+		if (changes !== 1) throw new Error("Context store replacement affected multiple partitions");
+		const deleted = changedRows(
+			database
+				.prepare(
+					"DELETE FROM compartments WHERE project_identity = ? AND session_id = ? AND published_revision >= ?",
+				)
+				.run(partition.projectIdentity, partition.sessionId, publishedRevision),
+		);
+		if (deleted === 0) throw new Error("Context store replacement found no compartments");
+		const nextPartition = { ...partition, revision: partition.revision + 1 };
+		const sequence = integerValue(
+			database
+				.prepare(
+					"SELECT COALESCE(MAX(sequence) + 1, 0) AS value FROM compartments WHERE project_identity = ? AND session_id = ? AND tier = ?",
+				)
+				.get(partition.projectIdentity, partition.sessionId, draft.tier),
+			"compartment sequence",
+		);
+		const compartment: MctxCompartment = {
+			...draft,
+			sequence,
+			publishedRevision: nextPartition.revision,
+		};
+		database
+			.prepare(
+				"INSERT INTO compartments (project_identity, session_id, tier, sequence, source_start_entry_id, source_end_entry_id, source_fingerprint, rendered_payload, published_revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			)
+			.run(
+				partition.projectIdentity,
+				partition.sessionId,
+				compartment.tier,
+				compartment.sequence,
+				compartment.sourceStartEntryId,
+				compartment.sourceEndEntryId,
+				compartment.sourceFingerprint,
+				compartment.renderedPayload,
+				compartment.publishedRevision,
+			);
+		database.exec("COMMIT");
+		return { partition: nextPartition, compartment };
+	} catch (error) {
+		database.exec("ROLLBACK");
+		throw error;
+	}
+}
+
 function listHistoryTags(
 	database: DatabaseSync,
 	partition: MctxPartition,
@@ -517,12 +586,14 @@ export interface MctxStore {
 	writeStatusAccounting(partition: MctxPartition, accounting: MctxStatusAccounting): void;
 	readReasoningWatermark(partition: MctxPartition): number;
 	advanceReasoningWatermark(partition: MctxPartition, tagNumber: number): number;
-	discardCompartmentsFrom(
-		partition: MctxPartition,
-		publishedRevision: number,
-	): MctxPartition | undefined;
 	publishCompartment(
 		partition: MctxPartition,
+		draft: MctxCompartmentDraft,
+	): MctxCompartmentPublication | undefined;
+	/** Atomically replaces a verified graph tail with a freshly published compartment. */
+	replaceCompartmentsFrom(
+		partition: MctxPartition,
+		publishedRevision: number,
 		draft: MctxCompartmentDraft,
 	): MctxCompartmentPublication | undefined;
 	syncHistoryTags(
@@ -1898,52 +1969,6 @@ function writeStatusAccounting(
 		.run(partition.projectIdentity, partition.sessionId, ...values);
 }
 
-/**
- * Atomically drops a branch-diverged tail only while the caller's partition
- * snapshot is current. A stale caller must reread and re-plan recovery.
- */
-function discardCompartmentsFrom(
-	database: DatabaseSync,
-	partition: MctxPartition,
-	publishedRevision: number,
-): MctxPartition | undefined {
-	requirePartitionKey(partition.projectIdentity, partition.sessionId);
-	if (!Number.isSafeInteger(publishedRevision) || publishedRevision <= 0) {
-		throw new Error("Context store discard revision is invalid");
-	}
-	database.exec("BEGIN IMMEDIATE");
-	try {
-		// Fence first. A failed compare-and-swap rolls back before the destructive
-		// delete, so a stale recovery worker cannot prune a newer graph tail.
-		const revisionChanges = changedRows(
-			database
-				.prepare(
-					"UPDATE partitions SET revision = revision + 1 WHERE project_identity = ? AND session_id = ? AND revision = ?",
-				)
-				.run(partition.projectIdentity, partition.sessionId, partition.revision),
-		);
-		if (revisionChanges === 0) {
-			database.exec("ROLLBACK");
-			return undefined;
-		}
-		if (revisionChanges !== 1)
-			throw new Error("Context store discard affected multiple partitions");
-		const deleted = changedRows(
-			database
-				.prepare(
-					"DELETE FROM compartments WHERE project_identity = ? AND session_id = ? AND published_revision >= ?",
-				)
-				.run(partition.projectIdentity, partition.sessionId, publishedRevision),
-		);
-		if (deleted === 0) throw new Error("Context store discard found no divergent compartments");
-		database.exec("COMMIT");
-		return { ...partition, revision: partition.revision + 1 };
-	} catch (error) {
-		database.exec("ROLLBACK");
-		throw error;
-	}
-}
-
 function publishCompartment(
 	database: DatabaseSync,
 	partition: MctxPartition,
@@ -3029,13 +3054,17 @@ export async function openMctxStore(path: string = defaultMctxStorePath()): Prom
 			if (database === undefined) throw new Error("Context store is closed");
 			return advanceReasoningWatermark(database, partition, tagNumber);
 		},
-		discardCompartmentsFrom(partition, publishedRevision): MctxPartition | undefined {
-			if (database === undefined) throw new Error("Context store is closed");
-			return discardCompartmentsFrom(database, partition, publishedRevision);
-		},
 		publishCompartment(partition, draft): MctxCompartmentPublication | undefined {
 			if (database === undefined) throw new Error("Context store is closed");
 			return publishCompartment(database, partition, draft);
+		},
+		replaceCompartmentsFrom(
+			partition,
+			publishedRevision,
+			draft,
+		): MctxCompartmentPublication | undefined {
+			if (database === undefined) throw new Error("Context store is closed");
+			return replaceCompartmentsFrom(database, partition, publishedRevision, draft);
 		},
 		syncHistoryTags(partition, inputs): MctxHistoryTagSync | undefined {
 			if (database === undefined) throw new Error("Context store is closed");

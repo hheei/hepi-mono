@@ -40,8 +40,7 @@
 		"access": "public"
 	},
 	"dependencies": {
-		"@hheei/pi-ext-core": "workspace:*",
-		"@hheei/pi-ext-embed": "workspace:*"
+		"@hheei/pi-ext-core": "workspace:*"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-agent-core": ">=0.83.0",

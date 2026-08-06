@@ -71,7 +71,7 @@ export function registerHandoffCommand(pi: ExtensionAPI): void {
 				}
 				if (plan !== undefined) {
 					await startReplacementSession(ctx, undefined, plan, operation.signal);
-				} else {
+				} else if (prepared === undefined) {
 					const summary = await compactWithPi(ctx);
 					await startReplacementSession(
 						ctx,
@@ -79,10 +79,15 @@ export function registerHandoffCommand(pi: ExtensionAPI): void {
 						undefined,
 						operation.signal,
 					);
+				} else {
+					throw new Error(
+						"MCTX context projection is unavailable; native compaction is disabled while MCTX is active",
+					);
 				}
-			} catch {
+			} catch (error: unknown) {
 				// Pi applies the replacement before setup, so no public rollback exists here.
-				ctx.ui.notify("Handoff failed. The source session can be resumed.", "error");
+				const reason = error instanceof Error ? `: ${error.message}` : "";
+				ctx.ui.notify(`Handoff failed${reason}. The source session can be resumed.`, "error");
 			} finally {
 				operation.abort();
 			}

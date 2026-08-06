@@ -20,7 +20,30 @@ import {
 	type TaskSubagentSpec,
 	type TaskTerminalResult,
 } from "@hheei/pi-ext-core";
-import type { EmbeddingProviderLease } from "@hheei/pi-ext-embed";
+
+interface EmbeddingProviderLease {
+	readonly provider: {
+		readonly snapshot: () =>
+			| { readonly modelIdentity: string; readonly generation: number }
+			| undefined;
+		readonly embed: (
+			text: string,
+			purpose: "passage" | "query",
+			signal: AbortSignal,
+		) => Promise<Float32Array | undefined>;
+		readonly embedBatch: (
+			items: ReadonlyArray<{
+				readonly id: string;
+				readonly text: string;
+				readonly contentHash: string;
+			}>,
+			purpose: "passage" | "query",
+			signal: AbortSignal,
+		) => Promise<ReadonlyMap<string, Float32Array> | undefined>;
+	};
+	readonly release: () => Promise<void>;
+}
+
 import { type MctxRuntime, resolveMctxActivation } from "./activation.js";
 import { planMctxCavemanDepths } from "./caveman-compression.js";
 import {
@@ -34,6 +57,7 @@ import {
 	loadMctxConfiguration,
 	type MctxConfiguration,
 } from "./config.js";
+import { contextIndexesByEntryId } from "./context-entry-indexes.js";
 import { projectMctxContext } from "./context-projection.js";
 import { buildDreamerPrompt, DREAMER_REPORT_CHARS, DREAMER_SYSTEM_PROMPT } from "./dreamer.js";
 import {
@@ -78,7 +102,6 @@ import {
 	defaultMctxStorePath,
 	type MctxCompartment,
 	type MctxHistoryTag,
-	type MctxHistoryTagInput,
 	type MctxMemory,
 	type MctxMemoryArchive,
 	type MctxMemoryUpdate,
@@ -122,6 +145,48 @@ export interface MctxCeilingNudge {
 	readonly claim: MctxNudgeDeliveryClaim;
 }
 
+function claimCeilingNudgeForContext(
+	current: ActiveMctxRuntime,
+	context: ExtensionContext,
+): MctxCeilingNudge | undefined {
+	if (
+		current.lifecycle.signal.aborted ||
+		current.runtime.sessionId !== context.sessionManager.getSessionId()
+	)
+		return undefined;
+	const baseline = current.nudgeBaseline;
+	if (baseline === undefined || baseline.reduced || baseline.reclaimableTags.length === 0)
+		return undefined;
+	const pressure =
+		((baseline.usageTokens + baseline.turnToolTokens) / baseline.contextWindow) * 100;
+	if (pressure < baseline.executeThresholdPercentage - 2 || !shouldTriggerCeilingNudge(baseline)) {
+		current.runtime.store.disarmNudgeDelivery?.(current.runtime.partition);
+		return undefined;
+	}
+
+	const claim = current.runtime.store.claimNudgeDelivery?.(
+		current.runtime.partition,
+		randomUUID(),
+		NUDGE_DELIVERY_LEASE_MS,
+	);
+	return claim === undefined
+		? undefined
+		: { text: buildMctxToolReminder(baseline.reclaimableTags, true), claim };
+}
+
+function completeCeilingNudgeForStore(store: MctxStore, nudge: MctxCeilingNudge): void {
+	try {
+		if (store.markNudgeDelivered?.(nudge.claim) === true) return;
+	} catch {
+		// The host already accepted the nudge. Never re-arm it after send.
+	}
+	try {
+		store.sealNudgeDelivered?.(nudge.claim.partition);
+	} catch {
+		// The claimed lease remains the duplicate-delivery safety fallback.
+	}
+}
+
 export type MctxCompactionResult =
 	| { readonly kind: "inactive" | "stale" }
 	| { readonly kind: "failed"; readonly reason: string }
@@ -129,7 +194,13 @@ export type MctxCompactionResult =
 
 interface MctxHistorianRequest {
 	readonly entries: readonly SessionEntry[];
+	readonly baseCompartments?: readonly MctxCompartment[];
 	readonly protectedTurnGroups?: number;
+	readonly origin?: "manual";
+	readonly rebuild?: true;
+	readonly replaceFromPublishedRevision?: number;
+	readonly usagePercentage?: number;
+	readonly executeThresholdPercentage?: number;
 }
 
 function smartDropTargetTokens(
@@ -327,9 +398,25 @@ export type MctxExpandResult =
 	  };
 
 export type MctxMemoryOperation =
-	| ({ readonly action: "write" } & Omit<MctxMemoryWrite, "projectIdentity" | "sessionId">)
-	| ({ readonly action: "update" } & Omit<MctxMemoryUpdate, "projectIdentity" | "sessionId">)
-	| ({ readonly action: "archive" } & Omit<MctxMemoryArchive, "projectIdentity" | "sessionId">)
+	| {
+			readonly action: "write";
+			readonly category: MctxMemoryWrite["category"];
+			readonly content: string;
+			readonly nowMs?: number;
+	  }
+	| {
+			readonly action: "update";
+			readonly memoryId: MctxMemoryUpdate["memoryId"];
+			readonly expectedRevision: MctxMemoryUpdate["expectedRevision"];
+			readonly content: string;
+			readonly nowMs?: number;
+	  }
+	| {
+			readonly action: "archive";
+			readonly memoryId: MctxMemoryArchive["memoryId"];
+			readonly expectedRevision: MctxMemoryArchive["expectedRevision"];
+			readonly nowMs?: number;
+	  }
 	| { readonly action: "get"; readonly memoryIds: readonly number[] };
 export type MctxMemoryResult =
 	| { readonly kind: "inactive" | "stale" }
@@ -627,7 +714,7 @@ export interface MctxFeatureOptions {
 	readonly runHistorianForBranch?: typeof runMctxHistorianForBranch;
 	readonly collectExternalSearchCandidates?: typeof collectMctxExternalSearchCandidates;
 	readonly logHistorianDiagnostic?: (diagnostic: MctxHistorianFailureDiagnostic) => void;
-	/** Test seam; production lazily imports `@hheei/pi-ext-embed` on first use. */
+	/** Optional embedding capability supplied by the host integration. */
 	readonly acquireEmbeddingProvider?: (
 		config: unknown,
 	) => Promise<EmbeddingProviderLease | undefined>;
@@ -647,7 +734,9 @@ interface ActiveMctxRuntime {
 	jobCompletion?: Promise<void> | undefined;
 	rebuildRequest?: MctxHistorianRequest | undefined;
 	lastNotifiedFailureClass?: MctxHistorianFailureDiagnostic["failureClass"] | undefined;
+	lastHistorianTerminalReason?: string | undefined;
 	notifiedStoreReadFailure?: boolean | undefined;
+	notifiedHistoryTagDropFailure?: boolean | undefined;
 	embeddingLease?: EmbeddingProviderLease | undefined;
 	embeddingJob?: AbortController | undefined;
 	embeddingCompletion?: Promise<void> | undefined;
@@ -775,13 +864,6 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 	const logHistorianDiagnostic = options.logHistorianDiagnostic ?? defaultLogHistorianDiagnostic;
 	const acquireEmbeddingProvider =
 		options.acquireEmbeddingProvider ??
-		// Memory-system embedding is disabled in production behind this hook;
-		// tests inject the seam. Original production acquisition kept verbatim
-		// for revival (see docs/mctx/README.md):
-		// (async (config: unknown): Promise<EmbeddingProviderLease | undefined> => {
-		// 	const module = await import("@hheei/pi-ext-embed");
-		// 	return module.acquireEmbeddingProvider(config);
-		// })
 		(async (_config: unknown): Promise<EmbeddingProviderLease | undefined> => undefined);
 	const startDreamTask = options.startDreamTask ?? startSubagent;
 	let active: ActiveMctxRuntime | undefined;
@@ -807,6 +889,14 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			"warning",
 		);
 	}
+	function reportHistoryTagDropFailure(current: ActiveMctxRuntime, operation: string): void {
+		if (current.notifiedHistoryTagDropFailure) return;
+		current.notifiedHistoryTagDropFailure = true;
+		current.lifecycle.extension.ui.notify(
+			`pi-mctx automatic history drop failed during ${operation}; keeping raw context`,
+			"error",
+		);
+	}
 	/**
 	 * Runs one `onContext` store call under the enabled pipeline's fail-closed
 	 * read policy. Only store I/O is guarded here: projection, recovery, and
@@ -825,39 +915,17 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					`pi-mctx context store read failed; continuing with Pi native context: ${
 						error instanceof Error ? error.message : String(error)
 					}`,
-					"warning",
+					"error",
 				);
 			}
 			return undefined;
 		}
 	}
-	/**
-	 * A historian publication can advance the partition after a drop projection
-	 * is rendered but before its status commit. Rebase once against the unchanged
-	 * branch so rendered pending markers cannot remain pending indefinitely.
-	 */
 	function commitProjectedHistoryTagDrops(
 		current: ActiveMctxRuntime,
-		entries: readonly SessionEntry[],
-		tagInputs: readonly MctxHistoryTagInput[],
 		tagNumbers: readonly number[],
 	): MctxPartition | undefined {
-		const committed = current.runtime.store.markHistoryTagsDropped(
-			current.runtime.partition,
-			tagNumbers,
-		);
-		if (committed !== undefined) return committed;
-		if (!sameBranchEntries(entries, current.lifecycle.extension.sessionManager.getBranch()))
-			return undefined;
-		const partition = current.runtime.store.findPartition(
-			current.runtime.partition.projectIdentity,
-			current.runtime.partition.sessionId,
-		);
-		if (partition === undefined) return undefined;
-		const synced = current.runtime.store.syncHistoryTags(partition, tagInputs);
-		return synced === undefined
-			? undefined
-			: current.runtime.store.markHistoryTagsDropped(synced.partition, tagNumbers);
+		return current.runtime.store.markHistoryTagsDropped(current.runtime.partition, tagNumbers);
 	}
 	function updateStatusAccounting(
 		current: ActiveMctxRuntime,
@@ -927,12 +995,37 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			return initialized.kind === "stale"
 				? store.getOrCreatePartition(projectIdentity, sessionId)
 				: initialized.partition;
-		} catch {
+		} catch (error: unknown) {
 			if (context.signal.aborted) return undefined;
 			// Parent path lookup, identity resolution, graph proof, and copy are optional
 			// fork acceleration. A child must still start with raw Pi history on failure.
+			context.extension.ui.notify(
+				`pi-mctx parent context unavailable; starting with raw child context: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+				"error",
+			);
 			return store.getOrCreatePartition(projectIdentity, sessionId);
 		}
+	}
+	function historianSourceBudget(
+		current: ActiveMctxRuntime,
+		context: ExtensionContext,
+	): Pick<MctxHistorianRequest, "usagePercentage" | "executeThresholdPercentage"> {
+		const percentage = modelThreshold(
+			current.runtime.settings.executeThresholdPercentage,
+			context.model,
+		);
+		const pressure = resolveMctxPressure(
+			context,
+			current.runtime.store.readDetectedContextLimit?.(current.runtime.partition),
+		);
+		return {
+			...(pressure === undefined
+				? {}
+				: { usagePercentage: (pressure.inputTokens / pressure.contextWindow) * 100 }),
+			...(percentage === undefined ? {} : { executeThresholdPercentage: percentage }),
+		};
 	}
 	/**
 	 * Serializes historian work per session. A replacement branch is retained as
@@ -942,6 +1035,22 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 	function startHistorian(current: ActiveMctxRuntime, request: MctxHistorianRequest): void {
 		const historian = current.runtime.historian;
 		if (historian.kind !== "active") return;
+		const model = current.lifecycle.extension.modelRegistry.find(
+			historian.model.provider,
+			historian.model.id,
+		);
+		if (
+			model === undefined ||
+			!current.lifecycle.extension.modelRegistry.hasConfiguredAuth(model)
+		) {
+			current.lastHistorianTerminalReason = `historian model is unavailable: ${historian.model.provider}/${historian.model.id}`;
+			return;
+		}
+		if (model !== historian.model)
+			current.runtime = {
+				...current.runtime,
+				historian: { kind: "active", model },
+			};
 		// At most one historian runs per session. A newer branch snapshot is retained
 		// in `rebuildEntries` and starts after the current lease/job settles.
 		if (current.job !== undefined || current.lifecycle.signal.aborted) return;
@@ -951,7 +1060,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 		current.lifecycle.signal.addEventListener("abort", abort, { once: true });
 		const completion = runHistorianForBranch({
 			context: current.lifecycle,
-			model: historian.model,
+			model,
 			store: current.runtime.store,
 			partition: current.runtime.partition,
 			entries: request.entries,
@@ -959,9 +1068,30 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			...(request.protectedTurnGroups === undefined
 				? {}
 				: { protectedTurnGroups: request.protectedTurnGroups }),
+			...(request.rebuild === true ? { rebuild: true } : {}),
+			...(request.baseCompartments === undefined
+				? {}
+				: { baseCompartments: request.baseCompartments }),
+			...(request.replaceFromPublishedRevision === undefined
+				? {}
+				: { replaceFromPublishedRevision: request.replaceFromPublishedRevision }),
+			...(request.usagePercentage === undefined
+				? {}
+				: { usagePercentage: request.usagePercentage }),
+			...(request.executeThresholdPercentage === undefined
+				? {}
+				: { executeThresholdPercentage: request.executeThresholdPercentage }),
 		})
 			.then((result) => {
 				if (active !== current || current.job !== job || job.signal.aborted) return;
+				current.lastHistorianTerminalReason =
+					result.kind === "published"
+						? undefined
+						: result.kind === "ineligible"
+							? result.reason
+							: result.kind === "failed" || result.kind === "invalid"
+								? result.reason
+								: result.kind;
 				if (result.kind === "published") {
 					current.runtime = { ...current.runtime, partition: result.publication.partition };
 					current.runtime.store.clearEmergencyRecovery?.(result.publication.partition);
@@ -972,13 +1102,20 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				if (result.kind === "ineligible") {
 					current.cooling = false;
 					current.runtime.store.clearEmergencyRecovery?.(current.runtime.partition);
+					if (request.origin === "manual")
+						current.lifecycle.extension.ui.notify(
+							`MCTX historian skipped: ${result.reason}.`,
+							"info",
+						);
 				}
 				const diagnostic = historianFailureDiagnostic(result, current.runtime.partition);
 				if (diagnostic === undefined) return;
 				reportHistorianFailure(current, diagnostic);
 			})
-			.catch(() => {
+			.catch((error: unknown) => {
 				if (active !== current || current.job !== job || job.signal.aborted) return;
+				current.lastHistorianTerminalReason =
+					error instanceof Error ? error.message : "historian runner failed";
 				reportHistorianFailure(current, {
 					event: "pi-mctx.historian_failure",
 					partition: {
@@ -1291,7 +1428,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				if (!activation.runtime.settings.failClosedBlocking) {
 					context.extension.ui.notify(
 						`pi-mctx context store unavailable; continuing with Pi native behavior: ${message}`,
-						"warning",
+						"error",
 					);
 					return;
 				}
@@ -1327,7 +1464,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					if (!activation.runtime.settings.failClosedBlocking) {
 						context.extension.ui.notify(
 							`pi-mctx context partition unavailable; continuing with Pi native behavior: ${message}`,
-							"warning",
+							"error",
 						);
 						return;
 					}
@@ -1441,7 +1578,12 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				return { kind: "failed", reason: "MCTX Historian is disabled" };
 			if (current.runtime.historian.kind === "unavailable")
 				return { kind: "failed", reason: current.runtime.historian.diagnostic };
-			if (current.job === undefined) startHistorian(current, { entries: [...entries] });
+			if (current.job === undefined)
+				startHistorian(current, {
+					entries: [...entries],
+					...(manual ? { origin: "manual" as const } : {}),
+					...historianSourceBudget(current, context),
+				});
 			const job = current.job;
 			if (job === undefined) return { kind: "failed", reason: "MCTX Historian did not start" };
 			const abort = (): void => job.abort();
@@ -1452,6 +1594,14 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				signal.removeEventListener("abort", abort);
 			}
 			if (signal.aborted) return { kind: "failed", reason: "MCTX compaction was cancelled" };
+			if (current.lastHistorianTerminalReason !== undefined) {
+				const reason = current.lastHistorianTerminalReason;
+				current.lastHistorianTerminalReason = undefined;
+				return {
+					kind: "failed",
+					reason: `MCTX Historian did not publish a valid compartment (${reason})`,
+				};
+			}
 			if (
 				active !== current ||
 				current.lifecycle.signal.aborted ||
@@ -1469,7 +1619,10 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				current.runtime.store.listCompartments(refreshedPartition),
 			);
 			if (refreshedGraph.kind !== "valid")
-				return { kind: "failed", reason: "MCTX Historian did not publish a valid compartment" };
+				return {
+					kind: "failed",
+					reason: `MCTX Historian did not publish a valid compartment (${current.lastHistorianTerminalReason ?? "graph validation failed"})`,
+				};
 			const refreshedMarker = prepareMctxCompactionMarker({
 				entries,
 				graph: refreshedGraph.graph,
@@ -1600,45 +1753,11 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 		},
 		claimCeilingNudge(context): MctxCeilingNudge | undefined {
 			const current = active;
-			if (
-				current === undefined ||
-				current.lifecycle.signal.aborted ||
-				current.runtime.sessionId !== context.sessionManager.getSessionId()
-			)
-				return undefined;
-			const baseline = current.nudgeBaseline;
-			if (baseline === undefined || baseline.reduced || baseline.reclaimableTags.length === 0)
-				return undefined;
-			const pressure =
-				((baseline.usageTokens + baseline.turnToolTokens) / baseline.contextWindow) * 100;
-			if (
-				pressure < baseline.executeThresholdPercentage - 2 ||
-				!shouldTriggerCeilingNudge(baseline)
-			) {
-				current.runtime.store.disarmNudgeDelivery?.(current.runtime.partition);
-				return undefined;
-			}
-			const claim = current.runtime.store.claimNudgeDelivery?.(
-				current.runtime.partition,
-				randomUUID(),
-				NUDGE_DELIVERY_LEASE_MS,
-			);
-			return claim === undefined
-				? undefined
-				: { text: buildMctxToolReminder(baseline.reclaimableTags, true), claim };
+			return current === undefined ? undefined : claimCeilingNudgeForContext(current, context);
 		},
 		completeCeilingNudge(nudge): void {
 			const store = active?.runtime.store;
-			try {
-				if (store?.markNudgeDelivered?.(nudge.claim) === true) return;
-			} catch {
-				// The host already accepted the nudge. Never re-arm it after send.
-			}
-			try {
-				store?.sealNudgeDelivered?.(nudge.claim.partition);
-			} catch {
-				// The claimed lease remains the duplicate-delivery safety fallback.
-			}
+			if (store !== undefined) completeCeilingNudgeForStore(store, nudge);
 		},
 		releaseCeilingNudge(nudge): void {
 			active?.runtime.store.releaseNudgeDelivery?.(nudge.claim);
@@ -1711,7 +1830,10 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			current.cooling = decision.cooling;
 			if (decision.kind !== "trigger" || current.job !== undefined) return;
 
-			startHistorian(current, { entries: context.sessionManager.getBranch() });
+			startHistorian(current, {
+				entries: context.sessionManager.getBranch(),
+				...historianSourceBudget(current, context),
+			});
 		},
 		async onContext(
 			messages,
@@ -1759,7 +1881,10 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 						);
 			if (pressurePercentage !== undefined && pressurePercentage >= EMERGENCY_BLOCK_PERCENTAGE) {
 				if (emergencyRecovery && current.job === undefined)
-					startHistorian(current, { entries: [...entries] });
+					startHistorian(current, {
+						entries: [...entries],
+						...historianSourceBudget(current, context),
+					});
 				const completion = current.jobCompletion;
 				if (completion !== undefined) {
 					await Promise.race([
@@ -1803,23 +1928,16 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			if (compartments === undefined) return undefined;
 			const recovery = planMctxCompartmentRecovery(entries, compartments);
 			if (recovery.kind === "rebuild") {
-				const rebuildRequest = { entries: [...entries] };
-				const nextPartition = withStoreReadPolicy(current, () =>
-					current.runtime.store.discardCompartmentsFrom(
-						current.runtime.partition,
-						recovery.discardFromRevision,
-					),
-				);
-				if (
-					nextPartition !== undefined &&
-					active === current &&
-					!current.lifecycle.signal.aborted
-				) {
-					current.runtime = { ...current.runtime, partition: nextPartition };
-					current.rebuildRequest = rebuildRequest;
-					if (current.job === undefined) startHistorian(current, rebuildRequest);
-					else current.job.abort();
-				}
+				const rebuildRequest: MctxHistorianRequest = {
+					entries: [...entries],
+					replaceFromPublishedRevision: recovery.discardFromRevision,
+					...(recovery.graph === undefined
+						? {}
+						: { baseCompartments: [...recovery.graph.m0, ...recovery.graph.m1] }),
+				};
+				current.rebuildRequest = rebuildRequest;
+				if (current.job === undefined) startHistorian(current, rebuildRequest);
+				else current.job.abort();
 				return undefined;
 			}
 			const liveTailStartIndex =
@@ -1892,13 +2010,19 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 										current.runtime.settings.protectedTags,
 									),
 								);
-								if (queued === undefined) return undefined;
+								if (queued === undefined) {
+									reportHistoryTagDropFailure(current, "queue");
+									return undefined;
+								}
 								current.runtime = { ...current.runtime, partition: queued.partition };
 								if (queued.queued.length > 0) current.smartDropCooling = decision.cooling;
 								const refreshed = withStoreReadPolicy(current, () =>
 									current.runtime.store.syncHistoryTags(current.runtime.partition, tagInputs),
 								);
-								if (refreshed === undefined) return undefined;
+								if (refreshed === undefined) {
+									reportHistoryTagDropFailure(current, "refresh");
+									return undefined;
+								}
 								current.runtime = { ...current.runtime, partition: refreshed.partition };
 								historyTags = refreshed.tags;
 							}
@@ -1927,6 +2051,13 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					);
 					if (partition === undefined) return undefined;
 					current.runtime = { ...current.runtime, partition };
+					const sourcesByTagNumber = new Map(
+						stripped.updates.map((update) => [update.tagNumber, update.source]),
+					);
+					historyTags = historyTags.map((tag) => {
+						const source = sourcesByTagNumber.get(tag.tagNumber);
+						return source === undefined ? tag : { ...tag, source };
+					});
 					baseMessages = stripped.messages;
 				}
 			}
@@ -1973,19 +2104,31 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				);
 				if (persisted === undefined) return undefined;
 			}
-			const tagsForProjection: readonly MctxHistoryTag[] = executeMaintenance
+			let tagsForProjection: readonly MctxHistoryTag[] = executeMaintenance
 				? historyTags
 				: historyTags.map(
 						(tag): MctxHistoryTag =>
 							tag.status === "pending" ? { ...tag, status: "active" } : tag,
 					);
-			const tagged = projectMctxHistoryTags(reasoning.messages, entries, tagsForProjection);
+			let tagged = projectMctxHistoryTags(reasoning.messages, entries, tagsForProjection);
 			if (executeMaintenance && tagged.droppedTagNumbers.length > 0) {
 				const nextPartition = withStoreReadPolicy(current, () =>
-					commitProjectedHistoryTagDrops(current, entries, tagInputs, tagged.droppedTagNumbers),
+					commitProjectedHistoryTagDrops(current, tagged.droppedTagNumbers),
 				);
-				if (nextPartition !== undefined)
+				if (nextPartition !== undefined) {
 					current.runtime = { ...current.runtime, partition: nextPartition };
+					current.notifiedHistoryTagDropFailure = false;
+				} else {
+					reportHistoryTagDropFailure(current, "commit");
+					// Never send a dropped marker before its status is durable. A later
+					// defer pass replays pending tags as active; emitting the marker here
+					// would flip the provider prefix from marker back to source.
+					tagsForProjection = historyTags.map(
+						(tag): MctxHistoryTag =>
+							tag.status === "pending" ? { ...tag, status: "active" } : tag,
+					);
+					tagged = projectMctxHistoryTags(reasoning.messages, entries, tagsForProjection);
+				}
 			}
 			const persistedImageStrips = withStoreReadPolicy(
 				current,
@@ -2011,6 +2154,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				tagged.messages,
 				entries,
 				new Set([...persistedImageStrips, ...newImageStrips]),
+				contextIndexesByEntryId(reasoning.messages, entries),
 			);
 			// A successful projection re-arms the read-failure notification for the
 			// next failure epoch, matching the historian notification pattern.
@@ -2020,7 +2164,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 					? injectMctxTemporalMarkers(imageStrippedMessages)
 					: imageStrippedMessages;
 			const visibleTools = collectVisibleMctxToolTags(
-				projectedMessages,
+				messages,
 				entries,
 				historyTags,
 				liveTailStartIndex ?? 0,
@@ -2076,7 +2220,21 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				else current.runtime.store.disarmNudgeDelivery?.(current.runtime.partition);
 			} else current.nudgeBaseline = undefined;
 			updateStatusAccounting(current, context, projectedMessages, entries, cacheTtlMs);
-			return { messages: projectedMessages };
+			const nudge = claimCeilingNudgeForContext(current, context);
+			if (nudge === undefined) return { messages: projectedMessages };
+			completeCeilingNudgeForStore(current.runtime.store, nudge);
+			return {
+				messages: [
+					...projectedMessages,
+					{
+						role: "custom",
+						customType: "pi-mctx:ceiling-nudge",
+						content: nudge.text,
+						display: false,
+						timestamp: 0,
+					},
+				],
+			};
 		},
 		prepare,
 		active: (): MctxSessionRuntime | undefined => active?.runtime,
@@ -2114,43 +2272,36 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				return { kind: "inactive" };
 			const projectIdentity = current.runtime.partition.projectIdentity;
 			const sessionId = current.runtime.sessionId;
-			switch (operation.action) {
-				case "get":
-					return {
-						kind: "memory",
-						memories: current.runtime.store.getMemories(projectIdentity, operation.memoryIds),
-					};
-				case "write": {
-					const memory = current.runtime.store.writeMemory({
-						...operation,
-						projectIdentity,
-						sessionId,
-					});
-					scheduleMemoryEmbedding(current, memory);
-					return {
-						kind: "memory",
-						memories: [memory],
-					};
-				}
-				case "update": {
-					const memory = current.runtime.store.updateMemory({
-						...operation,
-						projectIdentity,
-						sessionId,
-					});
-					if (memory === undefined) return { kind: "stale" };
-					scheduleMemoryEmbedding(current, memory);
-					return { kind: "memory", memories: [memory] };
-				}
-				case "archive": {
-					const memory = current.runtime.store.archiveMemory({
-						...operation,
-						projectIdentity,
-						sessionId,
-					});
-					return memory === undefined ? { kind: "stale" } : { kind: "memory", memories: [memory] };
-				}
+			if (operation.action === "get")
+				return {
+					kind: "memory",
+					memories: current.runtime.store.getMemories(projectIdentity, operation.memoryIds),
+				};
+			if (operation.action === "write") {
+				const memory = current.runtime.store.writeMemory({
+					...operation,
+					projectIdentity,
+					sessionId,
+				});
+				scheduleMemoryEmbedding(current, memory);
+				return { kind: "memory", memories: [memory] };
 			}
+			if (operation.action === "update") {
+				const memory = current.runtime.store.updateMemory({
+					...operation,
+					projectIdentity,
+					sessionId,
+				});
+				if (memory === undefined) return { kind: "stale" };
+				scheduleMemoryEmbedding(current, memory);
+				return { kind: "memory", memories: [memory] };
+			}
+			const memory = current.runtime.store.archiveMemory({
+				...operation,
+				projectIdentity,
+				sessionId,
+			});
+			return memory === undefined ? { kind: "stale" } : { kind: "memory", memories: [memory] };
 		},
 		note(operation, context): MctxNoteResult {
 			const current = active;
@@ -2282,10 +2433,14 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			const unavailable = historianCommandAvailability(current, context);
 			if (unavailable !== undefined) return unavailable;
 			if (current === undefined) return { kind: "inactive" };
-			const partition = current.runtime.store.discardCompartmentsFrom(current.runtime.partition, 0);
-			if (partition === undefined) return { kind: "stale" };
-			current.runtime = { ...current.runtime, partition };
-			return forceHistorian(current, { entries: context.sessionManager.getBranch() });
+			const first = current.runtime.store.listCompartments(current.runtime.partition)[0];
+			return forceHistorian(current, {
+				entries: context.sessionManager.getBranch(),
+				origin: "manual",
+				rebuild: true,
+				...historianSourceBudget(current, context),
+				...(first === undefined ? {} : { replaceFromPublishedRevision: first.publishedRevision }),
+			});
 		},
 		wrapup(messagesToKeep, context): MctxHistorianCommandResult {
 			const current = active;
@@ -2295,7 +2450,12 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			const entries = context.sessionManager.getBranch();
 			const protectedTurnGroups =
 				messagesToKeep === undefined ? 1 : protectedTurnGroupsForMessages(entries, messagesToKeep);
-			return forceHistorian(current, { entries, protectedTurnGroups });
+			return forceHistorian(current, {
+				entries,
+				protectedTurnGroups,
+				origin: "manual",
+				...historianSourceBudget(current, context),
+			});
 		},
 		async search(operation, context, signal): Promise<MctxSearchResult> {
 			const current = active;
@@ -2427,7 +2587,7 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 				let skipped = 0;
 				let failed = 0;
 				let offset = 0;
-				while (true) {
+				for (;;) {
 					if (signal.aborted) return { kind: "cancelled" };
 					// A provider config reload between batches changes the model
 					// generation; remaining coverage is then stale, so stop early.

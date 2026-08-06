@@ -91,8 +91,8 @@ function store(): MctxStore {
 			compartments: { total: 0, m0: 0, m1: 0 },
 			tags: { total: 0, active: 0, pending: 0, dropped: 0 },
 		}),
-		discardCompartmentsFrom: () => undefined,
 		publishCompartment: () => undefined,
+		replaceCompartmentsFrom: () => undefined,
 		syncHistoryTags: (partition) => ({ partition, tags: [] }),
 		queueHistoryTagDrops: () => undefined,
 		markHistoryTagsDropped: () => undefined,
@@ -225,16 +225,25 @@ test("status returns to idle after an ineligible historian run", async (): Promi
 
 test("manual recomp and wrapup schedule bounded historian work", async (): Promise<void> => {
 	const fixture = lifecycleFixture();
-	const requests: Array<{ readonly protectedTurnGroups?: number }> = [];
-	let discardedAt: number | undefined;
+	const requests: Array<{
+		readonly protectedTurnGroups?: number;
+		readonly rebuild?: true;
+		readonly replaceFromPublishedRevision?: number;
+	}> = [];
+	const existingCompartment = {
+		tier: "m0" as const,
+		sequence: 0,
+		sourceStartEntryId: "user-1",
+		sourceEndEntryId: "assistant-1",
+		sourceFingerprint: "source",
+		renderedPayload: "summary",
+		publishedRevision: 1,
+	};
 	const feature = createMctxFeature({
 		loadConfiguration: async () => configuration(),
 		openStore: () => ({
 			...store(),
-			discardCompartmentsFrom: (_partition, publishedRevision) => {
-				discardedAt = publishedRevision;
-				return { projectIdentity: "git:project", sessionId: "session-1", revision: 1 };
-			},
+			listCompartments: () => [existingCompartment],
 		}),
 		resolveProjectIdentity: async () => "git:project",
 		runHistorianForBranch: async (request) => {
@@ -242,6 +251,10 @@ test("manual recomp and wrapup schedule bounded historian work", async (): Promi
 				...(request.protectedTurnGroups === undefined
 					? {}
 					: { protectedTurnGroups: request.protectedTurnGroups }),
+				...(request.rebuild === true ? { rebuild: true } : {}),
+				...(request.replaceFromPublishedRevision === undefined
+					? {}
+					: { replaceFromPublishedRevision: request.replaceFromPublishedRevision }),
 			});
 			return { kind: "cancelled" };
 		},
@@ -249,11 +262,30 @@ test("manual recomp and wrapup schedule bounded historian work", async (): Promi
 	await feature.start(fixture.context);
 
 	expect(feature.recomp(turnContext(undefined))).toEqual({ kind: "scheduled" });
-	expect(discardedAt).toBe(0);
 	await Bun.sleep(0);
 	expect(feature.wrapup(undefined, turnContext(undefined))).toEqual({ kind: "scheduled" });
 	await Bun.sleep(0);
-	expect(requests).toEqual([{}, { protectedTurnGroups: 1 }]);
+	expect(requests).toEqual([
+		{ rebuild: true, replaceFromPublishedRevision: existingCompartment.publishedRevision },
+		{ protectedTurnGroups: 1 },
+	]);
+});
+
+test("manual historian commands explain an immediate ineligible result", async (): Promise<void> => {
+	const fixture = lifecycleFixture();
+	const feature = createMctxFeature({
+		loadConfiguration: async () => configuration(),
+		openStore: () => store(),
+		resolveProjectIdentity: async () => "git:project",
+		runHistorianForBranch: async () => ({ kind: "ineligible", reason: "protected-tail" }),
+	});
+	await feature.start(fixture.context);
+	expect(feature.wrapup(undefined, turnContext(undefined))).toEqual({ kind: "scheduled" });
+	await Bun.sleep(0);
+	expect(fixture.notifications).toContainEqual({
+		message: "MCTX historian skipped: protected-tail.",
+		level: "info",
+	});
 });
 
 test("turn_end starts one background historian and cleanup aborts it", async (): Promise<void> => {
@@ -329,7 +361,7 @@ test("storage open failure keeps Pi-native behavior when blocking is disabled", 
 		{
 			message:
 				"pi-mctx context store unavailable; continuing with Pi native behavior: database is unavailable",
-			level: "warning",
+			level: "error",
 		},
 	]);
 });
@@ -358,7 +390,7 @@ test("partition failure follows disabled blocking policy after closing the store
 		{
 			message:
 				"pi-mctx context partition unavailable; continuing with Pi native behavior: partition is unavailable",
-			level: "warning",
+			level: "error",
 		},
 	]);
 });
