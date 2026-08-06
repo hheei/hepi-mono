@@ -19,8 +19,8 @@ extension 的加载，保留其源码以便比对；再以 `cortexkit/magic-cont
   供 diff 和回归调查使用，但 package manifest 不再声明 Pi extension entry，Pi host
   不会自动加载它。
 - `packages/pi-mctx/`：新的目标 extension package。初始内容复制上游
-  `packages/pi-plugin/src/**`，包括 colocated `*.test.ts`、`test-preload.ts` 与
-  `subagent-entry.ts`。
+  `packages/pi-plugin/src/**`；生产代码放在 `src/`，上游 colocated tests 与
+  `test-preload.ts` 重组到镜像 `test/` 树，`subagent-entry.ts` 留在 `src/`。
 - `packages/xmagic-context/`：上游 `packages/plugin/src/**` 的裁剪源码和测试快照。
   保留被 Pi adapter 对照的共用 implementation，删除 OpenCode adapter、OpenTUI/TUI、
   OpenCode builtin commands、自动更新器、OpenCode tool wrappers 和模型建议 HTTP
@@ -45,8 +45,8 @@ cortexkit/magic-context@7dcd2e
 复制 extension 直接拥有的 TypeScript 文件和测试：上游 `plugin/src/**` 与
 `pi-plugin/src/**` 的 extension/shared 树，包括 `commands/`、`dialogs/`、`dreamer/`、
 `tools/`、`features/`、`hooks/` 和 `shared/`。复制后再剪掉 OpenCode-only surface；
-保留剩余源文件名和相对 import，以便之后逐项对照上游 commit；不在本阶段重构为
-HEPI layout。
+保留剩余生产源文件名；所有 `*.test.*` 置于同 package 的镜像 `test/` 树，并重写其
+相对 import，以便生产实现与验证代码有明确边界；不在本阶段重构运行时代码。
 
 不复制：`node_modules`、`dist`、benchmark/experiment scripts、上游 package lock、
 上游构建配置和依赖声明。源码基线还没有运行或编译入口，故不添加未被执行代码消费的
