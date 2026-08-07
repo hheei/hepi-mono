@@ -225,7 +225,7 @@ export function pageSectionsMessage(
 		role: "custom",
 		customType: "pi-injected-knowledge",
 		content: `${PAGE_PREFIX}${bodyParts.join("\n\n")}${PAGE_SUFFIX}`,
-		display: false,
+		display: true,
 		timestamp: 0,
 		details: injectedKnowledgeMarker(renderedSectionIds),
 	};

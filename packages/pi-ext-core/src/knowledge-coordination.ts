@@ -15,6 +15,8 @@ export interface KnowledgeInjectionState {
 	readonly owner: KnowledgeInjectionOwner;
 	readonly generation?: string;
 	readonly reason?: string;
+	/** MCTX reached an active runtime and registered its integration policy. */
+	readonly mctxConfigured: boolean;
 	readonly mctxEligible: boolean;
 }
 
@@ -188,17 +190,20 @@ function createKnowledgeInjectionCoordinator(): KnowledgeInjectionCoordinator {
 	let current: KnowledgeInjectionLease | undefined;
 	let reason: string | undefined;
 	let mctxEligibility: { readonly generation: string; readonly eligible: boolean } | undefined;
+	let mctxConfigured = false;
 	return {
 		state(): KnowledgeInjectionState {
 			return {
 				owner: current?.owner ?? "unknown",
 				...(current === undefined ? {} : { generation: current.generation }),
 				...(reason === undefined ? {} : { reason }),
+				mctxConfigured,
 				mctxEligible: mctxEligibility?.eligible === true,
 			};
 		},
 		setMctxEligibility(input): void {
 			if (!input.generation.trim()) return;
+			mctxConfigured = true;
 			if (
 				!input.eligible &&
 				current?.owner === "disabled" &&

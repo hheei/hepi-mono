@@ -436,6 +436,8 @@ interface ActiveMctxRuntime {
 	knowledgeMaterializationIdentity?: string | undefined;
 	knowledgeMaterializationInFlight?: Promise<void> | undefined;
 	knowledgeSnapshotDisclosed: boolean;
+	knowledgeDisclosureKey?: string | undefined;
+	pageDisclosureKey?: string | undefined;
 	pageSectionIndex?: KnowledgeSectionIndex | undefined;
 	nudgeBaseline?: MctxNudgeBaseline | undefined;
 }
@@ -444,6 +446,35 @@ const FORCE_MATERIALIZATION_PERCENTAGE = 85;
 const EMERGENCY_BLOCK_PERCENTAGE = 95;
 const EMERGENCY_HISTORIAN_WAIT_MS = 30_000;
 const NUDGE_DELIVERY_LEASE_MS = 30_000;
+
+function discloseKnowledgeProjection(
+	current: ActiveMctxRuntime,
+	message: AgentMessage | undefined,
+	label: "baseline" | "page sections",
+	level: "info" | "warning",
+): void {
+	if (
+		message === undefined ||
+		message.role !== "custom" ||
+		typeof message.content !== "string" ||
+		message.content.trim().length === 0 ||
+		current.lifecycle.signal.aborted
+	)
+		return;
+	const key = `${label}\n${message.content}`;
+	if (label === "baseline" && current.knowledgeDisclosureKey === key) return;
+	if (label === "page sections" && current.pageDisclosureKey === key) return;
+	try {
+		current.lifecycle.extension.ui.notify(
+			`MCTX Hindsight ${label} injected:\n${message.content}`,
+			level,
+		);
+		if (label === "baseline") current.knowledgeDisclosureKey = key;
+		else current.pageDisclosureKey = key;
+	} catch {
+		// Disclosure is diagnostic UI. It must never block model context projection.
+	}
+}
 
 function toolResultText(content: readonly unknown[]): string {
 	return content
@@ -1778,8 +1809,15 @@ export function createMctxFeature(options: MctxFeatureOptions = {}): MctxFeature
 			const knowledgeSnapshot = await ensureKnowledgeSnapshot(current, context);
 			const knowledgeMessage =
 				knowledgeSnapshot === undefined ? undefined : knowledgeSnapshotMessage(knowledgeSnapshot);
+			discloseKnowledgeProjection(
+				current,
+				knowledgeMessage,
+				"baseline",
+				knowledgeSnapshot?.freshness === "stale" ? "warning" : "info",
+			);
 			const contextMessages = messages.filter((message) => !isInjectedKnowledgeMessage(message));
 			const pageMessage = await ensureTurnLocalPageMessage(current, contextMessages, context);
+			discloseKnowledgeProjection(current, pageMessage, "page sections", "info");
 			// Re-evaluate against the active branch at every model invocation. A prior
 			// publication is not trusted after Pi navigation or branch replacement.
 			const entries = context.sessionManager.getBranch();

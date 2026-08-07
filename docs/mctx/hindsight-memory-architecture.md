@@ -373,6 +373,18 @@ mctx-owned / hindsight-owned / disabled
 
 automatic retain 不受 injection owner 影响；它只服从 Hindsight session mode。
 
+### 知识结果可见性与 fallback warning
+
+模型请求中的 `<hindsight-knowledge>`、`<hindsight-page-sections>` 是 context-hook 临时投影，不能因为
+显示需求而写入 Pi transcript，也不能作为下一轮 retain source。每次产生新的 baseline/page projection 时，
+MCTX 通过 Pi host notification channel 显示相同的 bounded rendered payload、来源标题和 provenance；显示内容
+仍标记为 untrusted background，不改变模型上下文的安全边界。
+
+如果 pi-mctx 与 pi-hindsight 都已启动，但 MCTX 没有资格拥有 automatic knowledge injection，Hindsight 接管
+`hindsight-owned` 时必须显示 `warning`，明确写出 owner、MCTX integration 状态和 fallback 原因。只显示普通
+recall 数量或静默切换 owner 都不满足可观测性要求。owner warning 不改变既有生命周期规则：同一次 provider
+request 只能有一个 owner，mid-lifecycle 不切换。
+
 ### Session start
 
 ```text
@@ -420,6 +432,10 @@ current prompt
   -> replay unchanged knowledge snapshot + compartment graph
   -> provider request
 ```
+
+MCTX 在注入新的 baseline 或 turn-local page projection 时，同时向用户显示该 bounded projection 和
+provenance；这是可见性副作用，不是新的 transcript/context source。相同 projection 在同一 lifecycle revision
+内只显示一次，避免 repeated context pass 造成通知风暴。知识快照仍以 `retain: false` marker 参与防御性过滤。
 
 local section selection 的结果不写 Pi transcript，不 retain 回 Hindsight，不改变 compartment 或
 knowledge snapshot fingerprint。

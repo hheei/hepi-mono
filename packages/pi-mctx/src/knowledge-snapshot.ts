@@ -131,7 +131,7 @@ export function knowledgeSnapshotMessage(
 			snapshot.freshness === "stale"
 				? `${snapshot.renderedPayload}\n[Hindsight knowledge is stale; prefer current evidence.]`
 				: snapshot.renderedPayload,
-		display: false,
+		display: true,
 		timestamp: 0,
 		details: injectedKnowledgeMarker(snapshot.sources.map((source) => source.id)),
 	};

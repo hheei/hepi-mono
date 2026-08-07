@@ -5,7 +5,7 @@ import {
 	observeLoadoutInventory,
 } from "@hheei/pi-ext-core";
 import { describe, expect, it, vi } from "vitest";
-import hindsightExtension from "../extensions/index.js";
+import hindsightExtension, { warnHindsightFallback } from "../extensions/index.js";
 
 type Handler = (event: unknown, context: unknown) => Promise<unknown> | unknown;
 
@@ -29,6 +29,25 @@ function createPi() {
 }
 
 describe("ext-core integration", () => {
+	it("warns when MCTX is configured but Hindsight takes fallback ownership", () => {
+		const notifications: Array<{ message: string; level: "warning" }> = [];
+		expect(
+			warnHindsightFallback({ mctxConfigured: true, mctxEligible: false }, (message, level) =>
+				notifications.push({ message, level }),
+			),
+		).toBe(true);
+		expect(notifications).toEqual([
+			{
+				message:
+					"Hindsight automatic knowledge injection is using fallback owner hindsight-owned: MCTX integration is not eligible for this session.",
+				level: "warning",
+			},
+		]);
+		expect(
+			warnHindsightFallback({ mctxConfigured: false, mctxEligible: false }, () => undefined),
+		).toBe(false);
+	});
+
 	it("registers managed tools and lifecycle-owned settings", async () => {
 		const { pi, handlers, tools, commands } = createPi();
 		const inventory: string[][] = [];
