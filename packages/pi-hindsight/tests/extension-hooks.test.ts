@@ -1,3 +1,6 @@
+// biome-ignore-all lint/suspicious/noExplicitAny: Pi extension hook mocks intentionally span heterogeneous callback contracts.
+// biome-ignore-all lint/suspicious/noUnnecessaryConditions: Handler maps intentionally model optional Pi registrations.
+
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -57,6 +60,13 @@ function writeHindsightConfig(cwd: string, config: Record<string, unknown>): voi
 	writeFileSync(join(cwd, ".pi", "settings.json"), JSON.stringify({ "pi-hindsight": config }));
 }
 
+function sessionManager(cwd: string, sessionFile = join(cwd, "session.jsonl")) {
+	return {
+		getSessionFile: () => sessionFile,
+		getSessionId: () => stableSessionId(sessionFile, cwd),
+	};
+}
+
 vi.mock("../extensions/client/client.js", () => ({
 	createHindsightClient: () => mocked.client,
 	checkHindsight: mocked.checkHindsight,
@@ -102,7 +112,7 @@ describe("extension hooks", () => {
 		const ctx = {
 			cwd,
 			ui: { setStatus: vi.fn(), notify: vi.fn() },
-			sessionManager: { getSessionFile: () => join(cwd, "session.jsonl") },
+			sessionManager: sessionManager(cwd),
 		};
 		const lifecycle = createMemoryLifecycle(cwd);
 		await lifecycle.initialize(ctx);
@@ -231,7 +241,7 @@ describe("extension hooks", () => {
 		const ctx = {
 			cwd,
 			ui: { setStatus: vi.fn(), notify: vi.fn() },
-			sessionManager: { getSessionFile: () => sessionFile },
+			sessionManager: sessionManager(cwd, sessionFile),
 		};
 
 		const { default: hindsightExtension } = await import("../extensions/index.js");
@@ -428,7 +438,7 @@ describe("extension hooks", () => {
 		const ctx = {
 			cwd,
 			ui: { setStatus: vi.fn(), notify: vi.fn() },
-			sessionManager: { getSessionFile: () => sessionFile },
+			sessionManager: sessionManager(cwd, sessionFile),
 		};
 
 		const { default: hindsightExtension } = await import("../extensions/index.js");
@@ -529,7 +539,7 @@ describe("extension hooks", () => {
 		const ctx = {
 			cwd,
 			ui: { setStatus: vi.fn(), notify: vi.fn() },
-			sessionManager: { getSessionFile: () => join(cwd, "session.jsonl") },
+			sessionManager: sessionManager(cwd),
 		};
 
 		const { default: hindsightExtension } = await import("../extensions/index.js");
@@ -568,7 +578,7 @@ describe("extension hooks", () => {
 		const ctx = {
 			cwd,
 			ui: { setStatus: vi.fn(), notify: vi.fn() },
-			sessionManager: { getSessionFile: () => join(cwd, "session.jsonl") },
+			sessionManager: sessionManager(cwd),
 		};
 
 		const { default: hindsightExtension } = await import("../extensions/index.js");
@@ -611,7 +621,7 @@ describe("extension hooks", () => {
 		const ctx = {
 			cwd,
 			ui: { setStatus: vi.fn(), notify: vi.fn() },
-			sessionManager: { getSessionFile: () => join(cwd, "session.jsonl") },
+			sessionManager: sessionManager(cwd),
 		};
 
 		const { default: hindsightExtension } = await import("../extensions/index.js");
@@ -657,7 +667,7 @@ describe("extension hooks", () => {
 		const ctx = {
 			cwd,
 			ui: { setStatus: vi.fn(), notify: vi.fn() },
-			sessionManager: { getSessionFile: () => join(cwd, "session.jsonl") },
+			sessionManager: sessionManager(cwd),
 		};
 
 		const { default: hindsightExtension } = await import("../extensions/index.js");
@@ -687,7 +697,7 @@ describe("extension hooks", () => {
 		const ctx = {
 			cwd,
 			ui: { setStatus: vi.fn(), notify: vi.fn() },
-			sessionManager: { getSessionFile: () => join(cwd, "session.jsonl") },
+			sessionManager: sessionManager(cwd),
 		};
 
 		const { default: hindsightExtension } = await import("../extensions/index.js");
@@ -728,7 +738,7 @@ describe("extension hooks", () => {
 		const ctx = {
 			cwd,
 			ui: { setStatus: vi.fn(), notify: vi.fn() },
-			sessionManager: { getSessionFile: () => join(cwd, "session.jsonl") },
+			sessionManager: sessionManager(cwd),
 		};
 
 		const { default: hindsightExtension } = await import("../extensions/index.js");
@@ -797,7 +807,7 @@ describe("extension hooks", () => {
 		const ctx = {
 			cwd,
 			ui: { setStatus: vi.fn(), notify: vi.fn() },
-			sessionManager: { getSessionFile: () => join(cwd, "session.jsonl") },
+			sessionManager: sessionManager(cwd),
 		};
 
 		const { default: hindsightExtension } = await import("../extensions/index.js");
@@ -831,7 +841,7 @@ describe("extension hooks", () => {
 		const ctx = {
 			cwd,
 			ui: { setStatus: vi.fn(), notify: vi.fn() },
-			sessionManager: { getSessionFile: () => join(cwd, "session.jsonl") },
+			sessionManager: sessionManager(cwd),
 		};
 
 		const { default: hindsightExtension } = await import("../extensions/index.js");
@@ -861,7 +871,7 @@ describe("extension hooks", () => {
 		const ctx = {
 			cwd,
 			ui: { setStatus: vi.fn(), notify: vi.fn() },
-			sessionManager: { getSessionFile: () => join(cwd, "session.jsonl") },
+			sessionManager: sessionManager(cwd),
 		};
 
 		const { default: hindsightExtension } = await import("../extensions/index.js");
@@ -1056,7 +1066,7 @@ describe("extension hooks", () => {
 		const ctx = {
 			cwd,
 			ui: { setStatus: vi.fn(), notify: vi.fn() },
-			sessionManager: { getSessionFile: () => sessionFile },
+			sessionManager: sessionManager(cwd, sessionFile),
 		};
 
 		const { default: hindsightExtension } = await import("../extensions/index.js");
@@ -1224,7 +1234,7 @@ describe("extension hooks", () => {
 		const ctx = {
 			cwd,
 			ui: { setStatus: vi.fn(), notify: vi.fn() },
-			sessionManager: { getSessionFile: () => sessionFile },
+			sessionManager: sessionManager(cwd, sessionFile),
 		};
 
 		const { default: hindsightExtension } = await import("../extensions/index.js");
@@ -1262,7 +1272,7 @@ describe("extension hooks", () => {
 		const ctx = {
 			cwd,
 			ui: { setStatus: vi.fn(), notify: vi.fn() },
-			sessionManager: { getSessionFile: () => sessionFile },
+			sessionManager: sessionManager(cwd, sessionFile),
 		};
 
 		const { default: hindsightExtension } = await import("../extensions/index.js");
@@ -1609,7 +1619,7 @@ describe("extension hooks", () => {
 		const ctx = {
 			cwd,
 			ui: { setStatus: vi.fn(), notify: vi.fn() },
-			sessionManager: { getSessionFile: () => join(cwd, "session.jsonl") },
+			sessionManager: sessionManager(cwd),
 		};
 
 		const { default: hindsightExtension } = await import("../extensions/index.js");
