@@ -17,7 +17,7 @@ editor 上方 widget。它依赖 `@hheei/pi-ext-core` 的 session lifecycle，�
 - core 还提供 session lifecycle cleanup。widget 继续直接使用 Pi 原生
   `setWidget(..., { placement: "aboveEditor" })`，不等待尚未实现的 widget layout；
 - 不新增 shared TUI frame/background API。widget 的行布局、主题 token 和宽度裁剪仍属于 Todo；
-- `hepi-tools` 移除 Todo 注册，不提供 aggregate adapter 或重复 command/tool。
+- 旧 aggregate package 不再注册 Todo，不提供 adapter 或重复 command/tool。
 
 ## 当前行为
 
@@ -44,8 +44,8 @@ completed task 只暂显到下一次 agent start。session tree 切换会从 fre
 
 widget key 改为 `pi-todo:tasks`，使 runtime ownership 与 package 名称一致。
 
-`pi-todo` 与移除 Todo 的新 `hepi-tools` 必须在同一 release 发布。旧发布版 aggregate 与新 package
-混装不受支持，因为 Pi 对同名 tool/command 的注册顺序没有可靠的升级语义。
+`pi-todo` 已独立拥有 Todo 注册。旧发布版 aggregate 与新 package 混装不受支持，因为 Pi 对同名
+tool/command 的注册顺序没有可靠的升级语义。
 
 ## 实现注释
 

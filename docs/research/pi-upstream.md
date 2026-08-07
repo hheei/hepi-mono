@@ -192,7 +192,7 @@ session switch、fork 和 new 属于 session replacement：
 
 ## 4. HEPI 应如何实现模块“相互支持”
 
-上游提供 `pi.on()`、各类 registration API、`pi.events` 和 package resources 等协作机制，但不规定 HEPI feature 之间的依赖政策。结合本仓库已有的 `feature -> pi-basics` 约束，HEPI 应按协作语义选择通道：
+上游提供 `pi.on()`、各类 registration API、`pi.events` 和 package resources 等协作机制，但不规定 HEPI feature 之间的依赖政策。结合本仓库已有的 `feature -> pi-ext-core` 约束，HEPI 应按协作语义选择通道：
 
 | 需求 | 应使用的通道 | 原因 |
 | --- | --- | --- |
@@ -245,9 +245,9 @@ Pi host / upstream libraries
 
 Pi 为每个 extension 创建不同的 `ExtensionAPI` facade，但同一 runtime 的 facade 共享 `pi.events`。因此，跨 feature 状态不能用 `ExtensionAPI` 对象作为 identity。
 
-Pi Basics 现在用共享 event bus 标识 runtime：
+ext-core 现在用共享 event bus 标识 runtime：
 
-- `ToolActivationCoordinator` 在 Basics、Loadout、Ask 等 facade 之间共享；
+- `ToolActivationCoordinator` 在 Loadout、Ask 等 facade 之间共享；
 - reload 时 coordinator 重新绑定当前 host actions，避免保留旧 API facade；
 - Loadout skill/tool bridge 在不同 feature facade 之间共享；
 - duplicate tool disable handler 明确抛错；
@@ -285,7 +285,7 @@ pi-ext-core -> upstream Pi package
 
 ```text
 feature A -> feature B
-pi-basics -> feature
+pi-ext-core -> feature
 shared core -> concrete feature
 ```
 
@@ -353,7 +353,7 @@ aggregate feature 继续只从 core 的公开入口导入。新增 export 前检
 当至少两个 feature 出现相同需求时，优先顺序是：
 
 1. 复用上游 API；
-2. 复用已有 `pi-basics` primitive；
+2. 复用已有 ext-core 或 concrete-extension primitive；
 3. 增加一个窄 contract；
 4. 最后才增加新 registry 或 shared service。
 
@@ -396,10 +396,10 @@ aggregate feature 继续只从 core 的公开入口导入。新增 export 前检
 - HEPI 不需要再造一套 `ExtensionAPI`；Pi 已经提供。
 - HEPI 不需要自己的 resource/package loader；Pi 已经提供。
 - HEPI 不需要复制 `Models`、provider registry 或 agent loop。
-- HEPI 不需要把所有 feature 塞回 `pi-basics` 以获得“统一”。
+- HEPI 不需要把所有 feature 塞回一个 aggregate package 以获得“统一”。
 - HEPI 不需要为未来可能出现的协作预建 event、registry 或 bridge。
 
-最小正确方向是保留现有 `feature -> pi-basics -> Pi` 单向结构，把 composition、lifecycle 和 cross-feature contract 规则补全，并在实际修改 feature 时逐步收敛。
+最小正确方向是保留现有 `feature -> pi-ext-core -> Pi` 单向结构，把 composition、lifecycle 和 cross-feature contract 规则补全，并在实际修改 feature 时逐步收敛。
 
 ## 10. 参考源码
 

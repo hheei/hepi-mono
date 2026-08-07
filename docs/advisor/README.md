@@ -1,13 +1,14 @@
 # Advisor
 
-`@hheei/pi-advisor` 在主 agent 的稳定节点审查近期证据，并按严重度反馈可操作问题。
+Advisor 设计用于在主 agent 的稳定节点审查近期证据，并按严重度反馈可操作问题。当前没有 active
+package owner；本文只描述目标边界。
 
 ## 边界
 
 - 扩展拥有 evidence、节流、重确认、反馈去重和通知 policy。
 - `@hheei/pi-ext-core` 提供生命周期资源清理、persistent conversation execution、child compact request 与 usage snapshot。
 - Advisor 不持有 child-session lifecycle；它只按自己的 context budget policy 请求 core compact，并读取 usage snapshot。
-- 旧实现曾位于已移除的 `hepi-tools` package；当前没有 active package owner。
+- 旧 aggregate 实现已移除；Advisor 当前没有 active package owner。
 
 ## 配置与故障
 

@@ -224,11 +224,11 @@ packages/pi-btw/test/
   component.test.ts
 ```
 
-入口在 `packages/pi-btw/src/extension.ts` 创建 `createBtwFeature()` 并注册 command/lifecycle hooks。`BtwFeature` 持有当前 `HePiRuntimeContext` 和 session-local state，不把 runtime 放在模块全局。
+入口在 `packages/pi-btw/src/extension.ts` 创建 `createBtwFeature()` 并注册 command/lifecycle hooks。`BtwFeature` 持有当前 `ExtensionLifecycleContext` 和 session-local state，不把 runtime 放在模块全局。
 
 ### 5.2 Session lifecycle
 
-- `session_start`：由现有 `HePiLifecycleController` 创建 runtime；清空或重新初始化 BTW state；注册 session-local cleanup。
+- `session_start`：由 ext-core `registerExtensionLifecycle` 创建 runtime；清空或重新初始化 BTW state；注册 session-local cleanup。
 - `session_shutdown`：abort active request、关闭 overlay、移除 abort listener、释放 turns 和 component 引用；cleanup 可重复执行。
 - `/new`、`/resume`、`/fork`、`/clone`：旧 runtime shutdown 后新 session 获得空 BTW history；不跨 session 复制 history。
 - `/reload`：旧 feature cleanup 后重新绑定新 runtime；不从磁盘恢复 BTW history。
@@ -269,10 +269,10 @@ sessionId + runtimeRevision + contextRevision + historyGeneration + requestRevis
 
 `success` commit 必须在 UI 更新前完成或由同一个 guarded completion 顺序完成，不能出现 UI 显示成功但 side history 没有该 turn 的不一致状态。
 
-## 7. 与现有 pi-basics 的整合规则
+## 7. 与现有 Pi/ext-core 的整合规则
 
-- 复用 `HePiRuntimeContext`、`HePiLifecycleController`、`ctx.ui.custom(..., { overlay: true })` 和 `requestRender` 模式。
-- 复用 `packages/pi-basics/src/ui/text.ts` 的 `wrap`、`truncateToWidth`、`padToWidth`，必要时复用 `renderScrollbar` 和 `keyGlyph`。
+- 复用 ext-core 的 `ExtensionLifecycleContext`、`registerExtensionLifecycle`、`ctx.ui.custom(..., { overlay: true })` 和 `requestRender` 模式。
+- 复用 `packages/pi-btw/src/ui.ts` 的文本、按键和滚动原语。
 - 颜色只使用 `DESIGN.md` 已定义的 `accent`、`text`、`muted`、`dim`、`error`、`border`；不新增 BTW 专用 palette。
 - overlay 最多拥有一个平面语义 surface，不做 nested card、圆角、阴影、渐变或装饰背景。
 - 不把 BTW 加进 `/hepi` tab；BTW 是即时命令，不是 Settings/Loadout module。
@@ -374,7 +374,7 @@ sessionId + runtimeRevision + contextRevision + historyGeneration + requestRevis
 - 所有渲染行不超过 terminal width，resize 后不崩溃、不重叠。
 - 主 session transcript、custom entries、active tools、磁盘均不因 BTW 改变。
 - 所有 session-local state 在 shutdown/reload 后释放，overlay custom Promise 不悬挂。
-- 现有 `pi-btw` 与 `pi-basics` tests、typecheck、check 不回归。
+- 现有 `pi-btw` tests、typecheck、check 不回归。
 
 ### 明确不作为首版验收
 

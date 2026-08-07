@@ -1,12 +1,12 @@
 # Advisor 调度策略改进计划
 
-状态：部分实现。Phase 1、Phase 2 的 material signature、cooldown 内 material evidence 保留，以及 context/terminal/reconfirm 稳定性修复已实现；Phase 3 的独立 single-flight admission lock 和之后功能未实现。
+状态：历史计划，已归档。Advisor package 未进入当前 workspace；以下内容保留未来实现可复用的调度决策，不代表当前行为。
 
-当前行为仍以 `packages/pi-advisor/src/`、测试和 `packages/pi-advisor/README.md` 为准。本文件记录后续调度改进的范围、取舍和验收条件。
+当前没有 Advisor implementation source、tests 或 README 作为行为依据。本文件只记录调度范围、取舍和验收条件。
 
 ## 1. 背景
 
-HEPI Advisor 当前已经具备以下能力：
+历史 Advisor 提案曾要求具备以下能力：
 
 - 每个 primary turn 生成 review delta。
 - Advisor runtime 串行 review，并支持 review completion flush。
@@ -384,17 +384,17 @@ terminal timeout/failure：
 
 ## 6. 预期修改范围
 
-主要文件：
+未来 Advisor extension 主要文件：
 
 ```text
-packages/pi-advisor/src/feature.ts
-packages/pi-advisor/src/runtime.ts
-packages/pi-advisor/src/context.ts
-packages/pi-advisor/src/prompt.ts
-packages/pi-advisor/README.md
-packages/pi-advisor/test/modules/advisor/feature.test.ts
-packages/pi-advisor/test/modules/advisor/runtime.test.ts
-packages/pi-advisor/test/modules/advisor/context.test.ts
+feature.ts
+runtime.ts
+context.ts
+prompt.ts
+README.md
+test/modules/advisor/feature.test.ts
+test/modules/advisor/runtime.test.ts
+test/modules/advisor/context.test.ts
 ```
 
 只有在现有模块无法表达 scheduler 状态时，才新增小型纯函数模块。优先复用现有 queue、epoch、runtime cleanup、fake clock 和 test harness。
@@ -424,13 +424,4 @@ packages/pi-advisor/test/modules/advisor/context.test.ts
 - typecheck、Biome、`git diff --check` 通过。
 - live provider smoke 仍作为手动实验，不进入常规 CI。
 
-验证命令：
-
-```bash
-bun test packages/pi-advisor/test
-bun run typecheck
-bunx biome check packages/pi-advisor/src packages/pi-advisor/test
-bun run check
-```
-
-`bun run check` 若仍出现已知的 deprecated aggregate package-boundary failures，应单独记录，不把它们归因于 Advisor 调度改动。
+验证命令只适用于未来 package 落地后的实现；当前不执行本计划的 Advisor 测试或构建。
