@@ -10,7 +10,7 @@ test("strips all model-imitated MCTX tag notation from assistant text", (): void
 			{ type: "text", text: "§43§ preserved later content" },
 		],
 		timestamp: 0,
-	};
+	} as unknown as AssistantMessage;
 	expect(stripMctxTagPrefix(message)).toMatchObject({
 		content: [
 			{ type: "text", text: "answer" },
@@ -24,7 +24,7 @@ test("strips malformed and dangling marker forms", (): void => {
 		role: "assistant",
 		content: [{ type: "text", text: 'See §42">§42§ result §9$ now' }],
 		timestamp: 0,
-	};
+	} as unknown as AssistantMessage;
 	expect(stripMctxTagPrefix(message)).toMatchObject({
 		content: [{ type: "text", text: "See  result  now" }],
 	});
@@ -35,6 +35,6 @@ test("preserves an assistant message without a tag prefix", (): void => {
 		role: "assistant",
 		content: [{ type: "text", text: "answer" }],
 		timestamp: 0,
-	};
+	} as unknown as AssistantMessage;
 	expect(stripMctxTagPrefix(message)).toBe(message);
 });

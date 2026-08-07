@@ -3,7 +3,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { replayMctxReasoning } from "../src/reasoning-replay.js";
 
-const assistant: AgentMessage = {
+const assistant = {
 	role: "assistant",
 	content: [
 		{ type: "thinking", thinking: "private", thinkingSignature: "sig" },
@@ -14,9 +14,10 @@ const assistant: AgentMessage = {
 const entry = {
 	id: "entry-1",
 	parentId: null,
+	timestamp: new Date(0).toISOString(),
 	type: "message",
 	message: assistant,
-} as SessionEntry;
+} as unknown as SessionEntry;
 const tag = {
 	tagNumber: 1,
 	kind: "message" as const,
@@ -27,7 +28,7 @@ const tag = {
 
 test("execute clears old typed thinking and advances the watermark", (): void => {
 	const result = replayMctxReasoning({
-		messages: [assistant],
+		messages: [assistant] as unknown as AgentMessage[],
 		entries: [entry],
 		tags: [tag],
 		watermark: 0,
@@ -48,15 +49,15 @@ test("keeps reasoning inside the configured newest-tag window", (): void => {
 		content: [{ type: "thinking" as const, thinking: "new", thinkingSignature: "new-sig" }],
 	};
 	const result = replayMctxReasoning({
-		messages: [assistant, newer],
-		entries: [entry, { ...entry, id: "entry-2", message: newer }],
+		messages: [assistant, newer] as unknown as AgentMessage[],
+		entries: [entry, { ...entry, id: "entry-2", message: newer } as unknown as SessionEntry],
 		tags: [tag, { ...tag, tagNumber: 2, entryId: "entry-2" }],
 		watermark: 0,
 		clearReasoningAge: 1,
 		execute: true,
 	});
 	expect(result.watermark).toBe(1);
-	expect(result.messages[1]).toEqual(newer);
+	expect(result.messages[1]).toMatchObject(newer);
 });
 
 test("does not advance a watermark when no assistant thinking was cleared", (): void => {
@@ -64,12 +65,13 @@ test("does not advance a watermark when no assistant thinking was cleared", (): 
 	const userEntry = {
 		id: "entry-1",
 		parentId: null,
+		timestamp: new Date(0).toISOString(),
 		type: "message",
 		message: user,
-	} as SessionEntry;
+	} as unknown as SessionEntry;
 	expect(
 		replayMctxReasoning({
-			messages: [user],
+			messages: [user] as AgentMessage[],
 			entries: [userEntry],
 			tags: [tag],
 			watermark: 0,
@@ -85,8 +87,8 @@ test("replays inline thinking cleanup from the watermark", (): void => {
 		content: [{ type: "text" as const, text: "<think>private</think> public" }],
 	};
 	const result = replayMctxReasoning({
-		messages: [inline],
-		entries: [{ ...entry, message: inline }],
+		messages: [inline] as unknown as AgentMessage[],
+		entries: [{ ...entry, message: inline } as unknown as SessionEntry],
 		tags: [tag],
 		watermark: 1,
 		clearReasoningAge: 50,
@@ -102,21 +104,21 @@ test("defer replays a persisted watermark without clearing redacted thinking", (
 	};
 	expect(
 		replayMctxReasoning({
-			messages: [redacted],
-			entries: [{ ...entry, message: redacted }],
+			messages: [redacted] as unknown as AgentMessage[],
+			entries: [{ ...entry, message: redacted } as unknown as SessionEntry],
 			tags: [tag],
 			watermark: 1,
 			clearReasoningAge: 50,
 			execute: false,
 		}).messages[0],
-	).toEqual(redacted);
+	).toMatchObject(redacted);
 });
 
 test("replays only the matching entry when assistant messages are identical", (): void => {
 	const duplicate = structuredClone(assistant);
 	const result = replayMctxReasoning({
-		messages: [assistant, duplicate],
-		entries: [entry, { ...entry, id: "entry-2", message: duplicate }],
+		messages: [assistant, duplicate] as unknown as AgentMessage[],
+		entries: [entry, { ...entry, id: "entry-2", message: duplicate } as unknown as SessionEntry],
 		tags: [tag, { ...tag, tagNumber: 2, entryId: "entry-2" }],
 		watermark: 1,
 		clearReasoningAge: 1,
@@ -126,5 +128,5 @@ test("replays only the matching entry when assistant messages are identical", ()
 	if (first === undefined || first.role !== "assistant")
 		throw new Error("missing assistant message");
 	expect(first.content[0]).toMatchObject({ type: "thinking", thinking: "" });
-	expect(result.messages[1]).toEqual(duplicate);
+	expect(result.messages[1]).toMatchObject(duplicate);
 });

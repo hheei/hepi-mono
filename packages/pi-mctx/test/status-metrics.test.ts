@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import type { AgentMessage, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import {
 	computeMctxTokenBreakdown,
 	computeMctxToolDefinitionTokens,
@@ -19,7 +20,7 @@ test("work metrics accumulate prompt deltas and reset phases", (): void => {
 });
 
 test("token breakdown separates MCTX, conversation, tool calls, and system", (): void => {
-	const messages: AgentMessage[] = [
+	const messages = [
 		{ role: "custom", customType: "pi-mctx:m0", content: "summary", display: false, timestamp: 0 },
 		{ role: "user", content: "request", timestamp: 0 },
 		{
@@ -38,7 +39,7 @@ test("token breakdown separates MCTX, conversation, tool calls, and system", ():
 			isError: false,
 			timestamp: 0,
 		},
-	];
+	] as unknown as AgentMessage[];
 	const breakdown = computeMctxTokenBreakdown(messages, { systemPrompt: "system" });
 	expect(breakdown.systemPrompt).toBeGreaterThan(0);
 	expect(breakdown.compartments).toBeGreaterThan(0);
