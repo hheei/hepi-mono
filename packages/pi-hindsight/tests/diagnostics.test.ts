@@ -16,6 +16,19 @@ import {
 	PI_HINDSIGHT_VERSION,
 } from "../extensions/version.js";
 
+interface DiagnosticsReport extends Record<string, unknown> {
+	retain: {
+		content: { toolResult: unknown };
+		toolFilter: { toolResult: { exclude: unknown } };
+	};
+	observations: { enabled: boolean; scopes: unknown; error: unknown };
+	queue: Record<string, unknown> & {
+		deadLetterMalformedLines: unknown;
+		action: unknown;
+	};
+	imports: { latest: unknown };
+}
+
 function latestImport(overrides: Partial<ImportManifestEntry> = {}): ImportManifestEntry {
 	return {
 		documentId: "doc-1",
@@ -71,7 +84,7 @@ describe("diagnostics", () => {
 				queueLength: 2,
 				health: { ok: true },
 			}),
-		) as Record<string, unknown>;
+		) as DiagnosticsReport;
 
 		expect(report.projectBankId).toBe("bank");
 		expect(report.health).toBe("reachable");
@@ -108,7 +121,7 @@ describe("diagnostics", () => {
 		expect(report.memoryProfile).toBe("project-only");
 		expect(report.memoryRoutes).toEqual({ recall: ["project"], autoRetain: "project" });
 		expect(report.bankMissions).toEqual({ projectConfigured: false, globalConfigured: false });
-		const retain = report.retain as Record<string, any>;
+		const retain = report.retain;
 		expect(retain.content.toolResult).toEqual(["error"]);
 		expect(retain.toolFilter.toolResult.exclude).toContain("hindsight_recall");
 		expect(report.observations).toEqual({
@@ -185,7 +198,7 @@ describe("diagnostics", () => {
 				},
 				queueLength: 0,
 			}),
-		) as Record<string, any>;
+		) as DiagnosticsReport;
 
 		expect(report.observations.enabled).toBe(true);
 		expect(report.observations.scopes).toEqual([[expect.stringMatching(/^repo:/)], ["bank:bank"]]);
@@ -237,7 +250,7 @@ describe("diagnostics", () => {
 				deadLetterLength: 3,
 				deadLetterMalformedLines: 1,
 			}),
-		) as Record<string, any>;
+		) as DiagnosticsReport;
 
 		expect(report.queue).toMatchObject({
 			path: "/tmp/q.jsonl",
@@ -266,7 +279,7 @@ describe("diagnostics", () => {
 				deadLetterLength: 0,
 				deadLetterReadError: "ENOTDIR: not a directory",
 			}),
-		) as Record<string, any>;
+		) as DiagnosticsReport;
 
 		expect(report.queue).toMatchObject({
 			path: "/tmp/q.jsonl",
@@ -289,7 +302,7 @@ describe("diagnostics", () => {
 				deadLetterLength: 0,
 				deadLetterMalformedLines: 1,
 			}),
-		) as Record<string, any>;
+		) as DiagnosticsReport;
 
 		expect(report.queue.deadLetterMalformedLines).toBe(1);
 		expect(report.queue.action).toContain("Inspect queue files");
@@ -313,7 +326,7 @@ describe("diagnostics", () => {
 					updateMode: "replace",
 				}),
 			}),
-		) as Record<string, any>;
+		) as DiagnosticsReport;
 
 		expect(report.imports.latest).toEqual({
 			documentId: "doc-1",
@@ -346,7 +359,7 @@ describe("diagnostics", () => {
 				queueLength: 0,
 				latestImport: importWithoutQualityContext as ImportManifestEntry,
 			}),
-		) as Record<string, any>;
+		) as DiagnosticsReport;
 
 		expect(report.imports.latest).toEqual({
 			documentId: "doc-1",

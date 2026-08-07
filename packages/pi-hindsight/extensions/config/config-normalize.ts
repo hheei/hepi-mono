@@ -1,6 +1,6 @@
 import {
-	RECALL_SCORE_FIELDS,
 	type HindsightEntityInput,
+	RECALL_SCORE_FIELDS,
 	type RecallMinScores,
 	type ResolvedConfig,
 } from "../types.js";

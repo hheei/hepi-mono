@@ -1,19 +1,19 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { ResolvedConfig } from "../types.js";
 import {
 	buildConfigEditingFields,
+	type ConfigEditingField,
+	type FieldId,
 	inputDefaultForConfigEditingField,
 	parseConfigEditingFieldInput,
 	patchForConfigEditingField,
 	readConfigLayers,
-	type ConfigEditingField,
-	type FieldId,
 } from "../config/config-editing-model.js";
+import type { ConfigScope, ProjectConfigPatchInput } from "../config/config-writer.js";
 import {
 	createMemoryOperations,
 	type MemoryOperationsDeps,
 } from "../operations/memory-operation-service.js";
-import { type ConfigScope, type ProjectConfigPatchInput } from "../config/config-writer.js";
+import type { ResolvedConfig } from "../types.js";
 import { inputWithPrefill } from "./prefill-input.js";
 import { CANCEL } from "./setup-tui-types.js";
 
