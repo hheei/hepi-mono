@@ -44,7 +44,7 @@
 		"ffi-rs": "^1.3.2"
 	},
 	"devDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.84.0",
+		"@earendil-works/pi-coding-agent": ">=0.84.0",
 		"@types/bun": "latest"
 	}
 }
