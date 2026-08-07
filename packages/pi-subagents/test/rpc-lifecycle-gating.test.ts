@@ -58,13 +58,13 @@ function makePi() {
 	return { pi, tools, lifecycle, busHandlers, emit, eventOn };
 }
 
-function ctx() {
+function ctx(modelRegistry: unknown = { find: vi.fn(), getAvailable: vi.fn(() => []) }) {
 	return {
 		hasUI: false,
 		ui: { setStatus: vi.fn(), setWidget: vi.fn(), notify: vi.fn() },
 		cwd: process.cwd(),
 		model: undefined,
-		modelRegistry: { find: vi.fn(), getAvailable: vi.fn(() => []) },
+		modelRegistry,
 		sessionManager: { getSessionId: vi.fn(() => "s1"), getBranch: vi.fn(() => []) },
 		getSystemPrompt: vi.fn(() => "parent"),
 	} as unknown as ExtensionContext;
@@ -73,8 +73,9 @@ function ctx() {
 async function emitLifecycle(
 	lifecycle: Map<string, LifecycleHandler[]>,
 	event: string,
+	context: ExtensionContext = ctx(),
 ): Promise<void> {
-	for (const handler of lifecycle.get(event) ?? []) await handler({}, ctx());
+	for (const handler of lifecycle.get(event) ?? []) await handler({}, context);
 }
 
 const readyEmits = (emit: MockCalls): readonly unknown[][] =>
@@ -189,5 +190,38 @@ describe("issue #142: RPC handlers + subagents:ready are gated on session_start"
 		for (const channel of RPC_CHANNELS) {
 			expect(onCallsFor(eventOn, channel), `${channel} registered exactly once`).toHaveLength(1);
 		}
+	});
+
+	it("uses latest session context for RPC after session_start", async () => {
+		const { pi, lifecycle, busHandlers, emit } = makePi();
+		const firstContext = ctx();
+		const model = { id: "gpt-5.5", provider: "test", name: "Test" };
+		const secondContext = ctx({
+			find: () => model,
+			getAll: () => [model],
+			getAvailable: () => [model],
+		});
+		subagentsExtension(pi);
+
+		await emitLifecycle(lifecycle, "session_start", firstContext);
+		await emitLifecycle(lifecycle, "session_start", secondContext);
+
+		const spawnHandler = busHandlers.get("subagents:rpc:spawn");
+		if (spawnHandler === undefined) throw new Error("Missing spawn RPC handler");
+		const requestId = "req-latest-context";
+		await spawnHandler({
+			requestId,
+			type: "general-purpose",
+			prompt: "go",
+			options: { model: "test/gpt-5.5" },
+		});
+
+		const reply = emit.mock.calls.find(
+			(call) => call[0] === `subagents:rpc:spawn:reply:${requestId}`,
+		);
+		if (reply === undefined) throw new Error("Spawn RPC did not emit a reply");
+		const payload = reply[1];
+		if (!isRecord(payload)) throw new Error("Invalid spawn RPC reply");
+		expect(payload.success).toBe(true);
 	});
 });

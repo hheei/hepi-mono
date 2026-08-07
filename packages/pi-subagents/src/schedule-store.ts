@@ -33,13 +33,19 @@ function isProcessRunning(pid: number): boolean {
 	}
 }
 
+function errorCode(error: unknown): string | undefined {
+	if (typeof error !== "object" || error === null) return undefined;
+	const code = Reflect.get(error, "code");
+	return typeof code === "string" ? code : undefined;
+}
+
 function acquireLock(lockPath: string): void {
 	for (let i = 0; i < LOCK_MAX_RETRIES; i++) {
 		try {
 			writeFileSync(lockPath, `${process.pid}`, { flag: "wx" });
 			return;
-		} catch (e: any) {
-			if (e.code === "EEXIST") {
+		} catch (error: unknown) {
+			if (errorCode(error) === "EEXIST") {
 				try {
 					const pid = parseInt(readFileSync(lockPath, "utf-8"), 10);
 					if (pid && !isProcessRunning(pid)) {
@@ -55,7 +61,7 @@ function acquireLock(lockPath: string): void {
 				}
 				continue;
 			}
-			throw e;
+			throw error;
 		}
 	}
 	throw new Error(`Failed to acquire schedule lock: ${lockPath}`);
@@ -81,7 +87,7 @@ export class ScheduleStore {
 
 	constructor(filePath: string) {
 		this.filePath = filePath;
-		this.lockPath = filePath + ".lock";
+		this.lockPath = `${filePath}.lock`;
 		this.load();
 	}
 
@@ -96,7 +102,7 @@ export class ScheduleStore {
 		try {
 			const data: ScheduleStoreData = JSON.parse(readFileSync(this.filePath, "utf-8"));
 			this.jobs.clear();
-			for (const j of data.jobs ?? []) this.jobs.set(j.id, j);
+			for (const j of data.jobs) this.jobs.set(j.id, j);
 		} catch {
 			/* corrupt — start fresh, next save rewrites */
 		}
@@ -105,7 +111,7 @@ export class ScheduleStore {
 	/** Atomic write via temp file + rename (POSIX-atomic). */
 	private save(): void {
 		const data: ScheduleStoreData = { version: 1, jobs: [...this.jobs.values()] };
-		const tmp = this.filePath + ".tmp";
+		const tmp = `${this.filePath}.tmp`;
 		writeFileSync(tmp, JSON.stringify(data, null, 2));
 		renameSync(tmp, this.filePath);
 	}

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { getLifetimeTotal, getSessionContextPercent, getSessionTokens } from "../src/usage.js";
+import {
+	getLifetimeTotal,
+	getSessionContextPercent,
+	getSessionTokens,
+	type SessionLike,
+} from "../src/usage.js";
 
 // Regression for issue #38 — token semantics + context indicator
 describe("usage", () => {
@@ -13,7 +18,7 @@ describe("usage", () => {
 						cacheRead: 500_000,
 						cacheWrite: 50,
 						total: 500_350,
-					} as any,
+					},
 					contextUsage: { tokens: 50_300, contextWindow: 200_000, percent: 25 },
 				}),
 			};
@@ -26,7 +31,7 @@ describe("usage", () => {
 				getSessionStats: () => {
 					throw new Error("nope");
 				},
-			} as any;
+			} satisfies SessionLike;
 			expect(getSessionTokens(broken)).toBe(0);
 		});
 	});

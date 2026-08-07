@@ -1,15 +1,15 @@
-import { Type } from "typebox";
 import {
 	defineTool,
 	type ExtensionAPI,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import type { MemoryOperationsDeps } from "./memory-operation-service.js";
-import { createMemoryOperations } from "./memory-operation-service.js";
-import { formatReflectResult } from "./reflect-presenter.js";
+import { Type } from "typebox";
 import { runHindsightSetupTui } from "../tui/setup-tui.js";
 import { renderMemoryToolTextResult, retainToolResponse } from "../tui/tool-presenters.js";
 import { getSessionFile } from "../utils/session.js";
+import type { MemoryOperationsDeps } from "./memory-operation-service.js";
+import { createMemoryOperations } from "./memory-operation-service.js";
+import { formatReflectResult } from "./reflect-presenter.js";
 
 export const HINDSIGHT_DISABLED_TOOL_MESSAGE =
 	"Hindsight is disabled for this repository (enabled=false). Open /hindsight and set enabled=true (and restore status.style if desired), or edit .pi/settings.json under pi-hindsight.";

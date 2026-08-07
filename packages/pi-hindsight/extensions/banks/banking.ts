@@ -1,8 +1,7 @@
-import { createHash } from "node:crypto";
-import { basename, resolve } from "node:path";
-import { existsSync, realpathSync } from "node:fs";
-import { dirname } from "node:path";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { existsSync, realpathSync } from "node:fs";
+import { basename, dirname, resolve } from "node:path";
 import type { BankSelection, ResolvedConfig } from "../types.js";
 
 export type ProjectIdBasis = "pin" | "remote" | "basename";
