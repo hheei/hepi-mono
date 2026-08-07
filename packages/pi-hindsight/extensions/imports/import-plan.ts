@@ -1,7 +1,7 @@
-import type { ImportMode, ImportQualityProfile, ResolvedConfig, UpdateMode } from "../types.js";
 import { createHash } from "node:crypto";
-import { dirname, isAbsolute, join, resolve } from "node:path";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import type { ImportMode, ImportQualityProfile, ResolvedConfig, UpdateMode } from "../types.js";
 import { stableSessionId } from "../utils/session.js";
 import {
 	type ImportBranch,
@@ -155,17 +155,22 @@ export async function readImportCheckpoint(path: string): Promise<ImportCheckpoi
 		if (!hasValidCheckpointRunFields(parsed)) {
 			throw new Error("import checkpoint run fields are invalid");
 		}
-		const record = parsed as unknown as ImportCheckpoint;
-		if (record.documents !== undefined && !isPlainRecord(record.documents)) {
+		const record = parsed as unknown as Omit<ImportCheckpoint, "documents"> & {
+			documents?: unknown;
+		};
+		const documents = record.documents;
+		if (documents !== undefined && !isPlainRecord(documents)) {
 			throw new Error("import checkpoint documents must be a JSON object");
 		}
-		const documents = record.documents ?? {};
-		for (const [documentId, document] of Object.entries(documents)) {
+		const sourceDocuments: Record<string, unknown> = documents ?? {};
+		const normalizedDocuments: Record<string, ImportCheckpointDocument> = {};
+		for (const [documentId, document] of Object.entries(sourceDocuments)) {
 			if (!isImportCheckpointDocument(document) || document.documentId !== documentId) {
 				throw new Error(`import checkpoint document ${documentId} is invalid`);
 			}
+			normalizedDocuments[documentId] = document;
 		}
-		return { ...record, version: 1, documents };
+		return { ...record, version: 1, documents: normalizedDocuments };
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
 		throw error;
