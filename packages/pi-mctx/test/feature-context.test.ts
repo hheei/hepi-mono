@@ -317,7 +317,10 @@ test("knowledge persistence policy prevents disabled provider use and ephemeral 
 			cwd: "/project",
 			sessionManager: { getSessionId: () => "session-1" },
 			modelRegistry: { find: () => model, hasConfiguredAuth: () => true },
-			ui: { notify: (message: string, level?: string) => notifications.push({ message, level }) },
+			ui: {
+				notify: (message: string, level?: string) =>
+					notifications.push({ message, ...(level === undefined ? {} : { level }) }),
+			},
 		} as unknown as ExtensionContext,
 		signal: new AbortController().signal,
 		resources: { add: () => undefined, cleanup: async () => [] },

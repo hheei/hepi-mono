@@ -388,9 +388,9 @@ describe("pi-ext-tools catalog", () => {
 						content: [{ type: "text", text: "src/a.ts\n1:one\n6│context\n\n29│context\n30:two" }],
 						details: { format: "fff-grep" },
 					},
-					{},
+					{ isPartial: false, expanded: false },
 					theme,
-					{ isError: false, lastComponent: undefined },
+					renderContext,
 				)
 				.render(200)
 				.map((line) => line.trimEnd())
@@ -408,16 +408,16 @@ describe("pi-ext-tools catalog", () => {
 						],
 						details: undefined,
 					},
-					{},
+					{ isPartial: false, expanded: false },
 					theme,
-					{ isError: false, lastComponent: undefined },
+					renderContext,
 				)
 				.render(200)
 				.map((line) => line.trimEnd())
 				.join("\n")
 				.trimEnd(),
 		).toBe(
-			"Found 3 matches in 2 files.\n\n<mdCode>src/a.ts</mdCode>\n<dim> 9│</dim>before\n<dim>10:</dim>match\n\n<mdCode>src/b.ts</mdCode>\n<dim>100:</dim>later",
+			"\nFound <success>3</success> matches in <success>2</success> files.\n\n<mdCode>src/a.ts</mdCode>\n<dim> 9│</dim>before\n<dim>10:</dim>match\n\n<mdCode>src/b.ts</mdCode>\n<dim>100:</dim>later",
 		);
 		expect(
 			find

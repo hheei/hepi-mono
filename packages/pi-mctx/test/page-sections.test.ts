@@ -60,7 +60,23 @@ test("rejects duplicate sections, bounds rendering, and marks only rendered sour
 test("extracts latest multimodal user text and applies pressure budget", (): void => {
 	const messages: AgentMessage[] = [
 		{ role: "user", content: [{ type: "text", text: "first" }], timestamp: 1 },
-		{ role: "assistant", content: [{ type: "text", text: "answer" }], timestamp: 2 },
+		{
+			role: "assistant",
+			content: [{ type: "text", text: "answer" }],
+			api: "test",
+			provider: "anthropic",
+			model: "claude-haiku",
+			usage: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "stop",
+			timestamp: 2,
+		},
 		{ role: "user", content: [{ type: "text", text: "find ownership" }], timestamp: 3 },
 	];
 	expect(latestUserQuery(messages)).toBe("find ownership");
