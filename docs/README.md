@@ -12,7 +12,6 @@ This directory records high-level information for users and developers. Detailed
 
 - [Extension development](development/extension-development.md): feature workflow, package conventions, and focused verification.
 - [Isolated Pi development](development/pi-dev.md): run the local Pi host with only this repository's independent packages.
-- [Pi Basics development](development/pi-basics.md): foundation boundaries and integration contracts.
 - [pi-ext-core development](development/pi-ext-core.md): core and consumer-specific development rules.
 - [HEPI TUI design](../DESIGN.md): required specification for UI and UX work.
 - [Pi source design](../.pi/skills/pi-development/references/DESIGN.md): Pi source-code design taste and integration guidance.

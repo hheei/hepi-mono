@@ -2,7 +2,7 @@
 
 ## 目标
 
-将冻结的 `@hheei/hepi-basics` 中 RTK rewrite 与输出压缩迁移为独立的 `@hheei/pi-rtk` Pi extension。用户继续通过 `/rtk` 与 settings 配置 RTK；Pi host 的 `bash` tool call 在 rewrite mode 下由 RTK 重写，tool result 可按配置压缩。
+RTK rewrite 与输出压缩现由独立的 `@hheei/pi-rtk` Pi extension 拥有。用户通过 `/rtk` 与 settings 配置 RTK；Pi host 的 `bash` tool call 在 rewrite mode 下由 RTK 重写，tool result 可按配置压缩。
 
 ## 边界
 
@@ -16,8 +16,8 @@
 
 ## 接口
 
-包入口只导出 extension default、`RtkIntegrationConfig`、`RuntimeStatus` 与 RTK feature factory。settings 使用 ext-core JSON section storage；不依赖 `hepi-basics` 私有 registry。
+包入口只导出 extension default、`RtkIntegrationConfig`、`RuntimeStatus` 与 RTK feature factory。settings 使用 ext-core JSON section storage；不依赖 aggregate package 私有 registry。
 
-## 迁移决策
+## 实现状态
 
-先机械复制 `src/rtk/rtk/` 的领域实现和 focused tests，再把旧 `HepiLifecycleController`、旧 settings storage、旧 core import 替换为 ext-core 公共接口。旧 `hepi-basics` 保持冻结，不做兼容 adapter。
+迁移已完成。`pi-rtk` 使用 ext-core JSON section storage 与 lifecycle contract，不保留旧 aggregate adapter。

@@ -8,10 +8,9 @@ Bun monorepo for HEPI Pi Coding Agent extensions. Every publishable workspace un
 
 ## Install
 
-`@hheei/hepi-mono` is deprecated. Install only the extensions you need:
+Install only the extensions you need:
 
 ```bash
-pi install npm:@hheei/hepi-basics
 pi install npm:@hheei/pi-ext-tools
 pi install npm:@hheei/pi-mctx
 pi install npm:@hheei/pi-ponytail
@@ -31,7 +30,7 @@ For a local checkout:
 
 ```bash
 bun install
-pi install ./packages/hepi-basics
+pi install ./packages/pi-ext-tools
 ```
 
 Use `-l` for project-local installation.
@@ -40,7 +39,7 @@ Use `-l` for project-local installation.
 
 ```text
 packages/       HEPI-owned publishable workspaces
-  hepi-subagents/  Pinned external fork submodule, excluded from workspaces
+  pi-*/           Independently installable extensions
 
 docs/
   user/         Cross-package usage

@@ -903,9 +903,9 @@ provider 和 consumer 分别声明相同的 namespaced service ID，不互相 im
 
 ### 预留的跨扩展 projection API
 
-`/handoff` 是 `hepi-basics` 的未来独立 command，不属于 `pi-mctx`。为避免每个 consumer 读取 MCTX SQLite 或
+`/handoff` 是 `pi-handoff` 的独立 command，不属于 `pi-mctx`。为避免每个 consumer 读取 MCTX SQLite 或
 解析 compartment XML，`pi-mctx` 将来只发布一个窄的 runtime-scoped projection capability。它服务两个已定义的
-consumer：`hepi-basics` 的 handoff 与独立 `pi-subagents` 的 inheritance；memory、notes、search 或任意第三方
+consumer：`pi-handoff` 的 handoff 与独立 `pi-subagents` 的 inheritance；memory、notes、search 或任意第三方
 extension 不得借此取得 MCTX state，未来各自需要独立 capability。
 
 projection 有明确的 feature-neutral 中间层价值时，可以在第二个 installable consumer 出现前创建窄 Service key
@@ -1104,7 +1104,7 @@ runtime 持有该 partition。identity 或 partition 失败会关闭刚打开的
 
 `pi-mctx` 自己拥有 HEPI/Pi-native configuration：user-level `pi-mctx` namespace 加 optional project `.pi`
 override。保存配置不热改 active pipeline；extension 只在下一次 `session_start` 或 `/reload` 读取并应用。它不
-依赖 `hepi-basics` settings provider，也不读取 CortexKit config 路径。
+依赖 aggregate settings provider，也不读取 CortexKit config 路径。
 
 configuration 使用既有 Pi settings layout：global `<getAgentDir>/settings.json` 和 project
 `<cwd>/.pi/settings.json` 的 `pi-mctx` section。两处都保存 raw schema，但 active runtime 使用 field-scoped merge：user

@@ -13,8 +13,7 @@ packages/
   pi-<name>/
 ```
 
-`hepi-mono` is deprecated and existing aggregate packages are transitional.
-Do not add new features to them. A `pi-<name>` package may own one feature or a
+All installable packages are independent extensions. A `pi-<name>` package may own one feature or a
 cohesive family of related features; split it only when installation, lifecycle,
 or public API ownership differs. An extension may depend on `pi-ext-core` and
 upstream Pi packages, but never on another concrete extension.
