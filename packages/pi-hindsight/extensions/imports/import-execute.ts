@@ -1,8 +1,7 @@
-import type { HindsightLikeClient, ResolvedConfig, RetainJob, UpdateMode } from "../types.js";
-import type { ImportBranch, ParsedSession } from "./import-parse.js";
-import { baseTags } from "../banks/banking.js";
-import { buildDurableRetainJob } from "../lifecycle/retain.js";
 import { createHash } from "node:crypto";
+import { baseTags } from "../banks/banking.js";
+import { expandObservationScopes } from "../lifecycle/observation-scopes.js";
+import { buildDurableRetainJob } from "../lifecycle/retain.js";
 import { createMemoryIdentity } from "../operations/memory-identity.js";
 import {
 	enqueueRetain,
@@ -10,11 +9,12 @@ import {
 	readQueuedRetains,
 	removeQueuedRetains,
 } from "../queue/queue.js";
-import { expandObservationScopes } from "../lifecycle/observation-scopes.js";
-import { hashImportContent, type ImportManifestEntry } from "./import-plan.js";
-import { importDocumentId, stableSessionId } from "../utils/session.js";
+import type { HindsightLikeClient, ResolvedConfig, RetainJob, UpdateMode } from "../types.js";
 import { isInjectedHindsightMemory, projectMessage, projectMessages } from "../utils/messages.js";
 import { redactSecrets } from "../utils/sanitize.js";
+import { importDocumentId, stableSessionId } from "../utils/session.js";
+import type { ImportBranch, ParsedSession } from "./import-parse.js";
+import { hashImportContent, type ImportManifestEntry } from "./import-plan.js";
 
 export interface ImportRetainIdentity {
 	bankId: string;
@@ -698,33 +698,49 @@ function chunkCuratedMessages(
 	let current: ImportChunk["messages"] = [];
 	for (const entry of indexed) {
 		if (entry.message.data.role === "user" && current.length) {
+			const first = current[0];
+			const last = current.at(-1);
+			if (first === undefined || last === undefined) {
+				throw new Error("Import turn bounds missing");
+			}
 			turns.push({
 				index: turns.length,
 				messages: current,
-				start: current[0]!.originalIndex,
-				end: current.at(-1)!.originalIndex,
+				start: first.originalIndex,
+				end: last.originalIndex,
 			});
 			current = [];
 		}
 		current.push(entry);
 	}
-	if (current.length)
+	if (current.length) {
+		const first = current[0];
+		const last = current.at(-1);
+		if (first === undefined || last === undefined) {
+			throw new Error("Import turn bounds missing");
+		}
 		turns.push({
 			index: turns.length,
 			messages: current,
-			start: current[0]!.originalIndex,
-			end: current.at(-1)!.originalIndex,
+			start: first.originalIndex,
+			end: last.originalIndex,
 		});
+	}
 	const chunks: ImportChunk[] = [];
 	let chunk: ImportChunk["messages"] = [];
 	let turnCount = 0;
 	const flush = () => {
 		if (!chunk.length) return;
+		const first = chunk[0];
+		const last = chunk.at(-1);
+		if (first === undefined || last === undefined) {
+			throw new Error("Import chunk bounds missing");
+		}
 		chunks.push({
 			index: chunks.length,
 			messages: chunk,
-			start: chunk[0]!.originalIndex,
-			end: chunk.at(-1)!.originalIndex,
+			start: first.originalIndex,
+			end: last.originalIndex,
 		});
 		chunk = [];
 		turnCount = 0;

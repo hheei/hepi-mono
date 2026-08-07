@@ -13,10 +13,10 @@ export function renderBankTemplateList(templates: readonly BuiltInBankTemplate[]
 function summarizeImportResponse(result: unknown): string {
 	if (typeof result !== "object" || !result) return JSON.stringify(result);
 	const response = result as BankTemplateImportResponse;
-	const created = response.mental_models_created?.length ?? 0;
-	const updated = response.mental_models_updated?.length ?? 0;
-	const directivesCreated = response.directives_created?.length ?? 0;
-	const directivesUpdated = response.directives_updated?.length ?? 0;
+	const created = (response.mental_models_created ?? []).length;
+	const updated = (response.mental_models_updated ?? []).length;
+	const directivesCreated = (response.directives_created ?? []).length;
+	const directivesUpdated = (response.directives_updated ?? []).length;
 	return `configApplied=${response.config_applied}; mentalModels created=${created}/updated=${updated}; directives created=${directivesCreated}/updated=${directivesUpdated}`;
 }
 
