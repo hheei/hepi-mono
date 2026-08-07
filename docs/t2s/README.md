@@ -56,7 +56,7 @@ provider ID 为 `pi-t2s`。Settings 继续暴露一个 `mode` enum：`t2s | off`
 
 ## Clean cutover
 
-`pi-t2s` 从 deprecated `@hheei/hepi-basics` aggregate 中移除。新代码、测试、OpenCC runtime dependency 与 Settings provider 全部由独立 package 所有；ext-core 不增加 T2S API。旧 aggregate 与新 package 不应同时提供同一 input feature。
+`pi-t2s` 由独立 package 所有。代码、测试、OpenCC runtime dependency 与 Settings provider 均属于该 package；ext-core 不增加 T2S API。
 
 ## 公开接口与验证
 

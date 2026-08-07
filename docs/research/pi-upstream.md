@@ -332,7 +332,7 @@ aggregate feature 继续只从 core 的公开入口导入。新增 export 前检
 ### P0：先补可见边界，不改架构
 
 - 用本文作为总架构入口。
-- 在 `docs/development/pi-basics.md` 维护 cross-feature contract inventory。
+- 在 owning extension 与 `packages/pi-ext-core/` 文档中维护 cross-feature contract inventory。
 - 为每个 contract 写 owner、consumer、lifecycle 和缺席行为。
 - 给新增 package 评审使用第 8 节 checklist。
 

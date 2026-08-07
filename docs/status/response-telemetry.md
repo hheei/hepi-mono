@@ -9,7 +9,7 @@
 - Pi host：拥有 agent、turn、message event 与通知 UI。
 - ext-core：提供 session-scoped response telemetry backend，负责事件订阅、当前 session 校验与清理。
 - `pi-status`：唯一 concrete extension；在 lifecycle 内启动和销毁 backend。
-- `hepi-basics`：不再拥有 response telemetry。
+- 旧 aggregate package：不再拥有 response telemetry。
 
 ## 行为
 
