@@ -251,7 +251,7 @@ Footer 是低優先級資訊：
 
 ## 6. 對本專案的落地要求
 
-1. 先建立一個共用 semantic theme adapter，所有 `packages/pi-basics` UI 只使用 token，不直接寫 hex。
+1. 先建立一個共用 semantic theme adapter，所有 concrete extension UI 只使用 token，不直接寫 hex。
 2. 先統一 token 命名與使用規則，再調整各模組 layout；不要一邊改元件一邊新增顏色。
 3. 所有 panel 先判斷它是 message、tool、selector、editor、footer 還是 status；只能選一個主角色。
 4. panel 的背景只允許對應到 user/custom/tool/selected 四類語義。

@@ -1,4 +1,4 @@
-# Completed Pi Basics Plans
+# Completed Extension Plans
 
 This document preserves the durable decisions from feature plans that have already landed. It is historical context, not a current behavior specification. Source code, tests, the package README, and `DESIGN.md` take precedence.
 
@@ -27,8 +27,8 @@ Tests: `packages/pi-plan/test/`
 
 The statusbar contribution centralizes session status rendering and lifecycle cleanup. It composes compact status items without letting individual features overwrite host UI independently, and it follows the shared width, ANSI, and rendering rules in `DESIGN.md`.
 
-Implementation: `packages/pi-basics/src/contributions/statusbar/`
-Tests: `packages/pi-basics/test/contributions/statusbar/`
+Implementation: `packages/pi-status/src/`
+Tests: `packages/pi-status/test/`
 
 ## Todo
 
