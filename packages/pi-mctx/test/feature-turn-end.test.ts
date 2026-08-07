@@ -19,6 +19,7 @@ function configuration(failClosedBlocking = true): MctxConfiguration {
 			kind: "enabled",
 			settings: {
 				historian: { kind: "enabled", model: "anthropic/claude-haiku" },
+				knowledgePersistence: "persistent",
 				failClosedBlocking,
 				smartDrops: false,
 				executeThresholdPercentage: { defaultValue: 65, byModel: {} },
@@ -88,6 +89,11 @@ function store(): MctxStore {
 		renewHistorianLease: () => undefined,
 		releaseHistorianLease: () => undefined,
 		listCompartments: () => [],
+		listHistoryTags: () => [],
+		replaceHistoryTagSources: () => undefined,
+		advanceHistoryTagCavemanDepths: () => undefined,
+		readKnowledgeSnapshot: () => undefined,
+		replaceKnowledgeSnapshot: () => undefined,
 		readStatusMetrics: () => ({
 			compartments: { total: 0, m0: 0, m1: 0 },
 			tags: { total: 0, active: 0, pending: 0, dropped: 0 },
@@ -408,6 +414,7 @@ test("runtime-only MCTX opens without a historian and schedules no completion", 
 				kind: "enabled",
 				settings: {
 					historian: { kind: "disabled" },
+					knowledgePersistence: "persistent",
 					failClosedBlocking: true,
 					smartDrops: false,
 					executeThresholdPercentage: { defaultValue: 65, byModel: {} },

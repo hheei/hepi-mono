@@ -17,6 +17,7 @@ function configuration(
 		kind: "enabled",
 		settings: {
 			historian: { kind: "enabled", model: "anthropic/claude-haiku" },
+			knowledgePersistence: "persistent",
 			failClosedBlocking: true,
 			smartDrops: false,
 			executeThresholdPercentage: { defaultValue: 65, byModel: {} },
@@ -155,6 +156,7 @@ test("resolves historian and joins the shared completion coordinator", (): void 
 			historian: { kind: "active", model },
 			settings: {
 				historian: { kind: "enabled", model: "anthropic/claude-haiku" },
+				knowledgePersistence: "persistent",
 				failClosedBlocking: true,
 				smartDrops: false,
 				executeThresholdPercentage: { defaultValue: 65, byModel: {} },

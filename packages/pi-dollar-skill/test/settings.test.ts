@@ -3,6 +3,7 @@ import { mkdtemp, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	DOLLAR_SKILL_SETTINGS_SECTION,
 	loadDollarSkillConfig,
 	normalizeDollarSkillConfig,
 	saveDollarSkillConfig,
@@ -58,7 +59,9 @@ describe("dollar skill settings", () => {
 		expect(limit?.validate?.(0)).toContain("1 to 50");
 		expect(limit?.validate?.(10)).toBeUndefined();
 		await provider.storage.save(
-			{ enabled: false, maxSuggestions: 3 },
+			{
+				[DOLLAR_SKILL_SETTINGS_SECTION]: { enabled: false, maxSuggestions: 3 },
+			},
 			{ sessionId: "test", cwd: settingsDirectory },
 		);
 		expect(await loadDollarSkillConfig(settingsDirectory)).toEqual({
