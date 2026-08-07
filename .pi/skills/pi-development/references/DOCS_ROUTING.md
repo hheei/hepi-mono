@@ -73,7 +73,7 @@ Pi docs define host behavior; HEPI documents define project policy. After readin
 | Visual/layout contract | `DESIGN.md` |
 | Pi source design, lifecycle, integration boundaries | [`DESIGN.md`](DESIGN.md), `AGENTS.md` |
 | Aggregate install/publish behavior | root `README.md`, `docs/user/packages.md`, package README |
-| Shared TUI primitives and statusbar | `packages/hepi-basics/src/core/ui/`, `packages/hepi-basics/src/core/contributions/statusbar/` |
+| Shared TUI primitives and statusbar | owning `packages/pi-*/src/` extension, `packages/pi-ext-core/` lifecycle and UI contracts |
 | Skills and Loadout behavior | `packages/pi-ponytail/`, `packages/pi-caveman/`, `packages/pi-loadout/`, `packages/pi-dollar-skill/` |
 | TUI replay | `packages/pi-debug/TUI_REPLAY.md` |
 

@@ -54,7 +54,7 @@ global/project 两个 JSON root 的部分提交。直接文字输入过滤 name 
 
 ## Settings 页面
 
-Settings page 沿用原 `hepi-basics` Settings 的单棵组合树，而不是为每个 provider 创建 router page。
+Settings page 使用单棵组合树，而不是为每个 provider 创建 router page。
 `pi-settings` 将 core registry 的 provider groups 映射到一个 display tree：每个 extension/module 只显示一次
 header，之后列出其 group 和 field；发生 group ID collision 时只在 display tree 使用 namespaced ID，保存和
 callback 始终映射回 provider 原始 group ID。

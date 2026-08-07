@@ -1,17 +1,17 @@
-import { describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
+import { describe, expect, it } from "vitest";
 import {
 	addSessionMemoryTag,
 	clearNextSessionRetainMode,
 	getEffectiveSessionMemoryMode,
 	readSessionMemoryMeta,
 	removeSessionMemoryTag,
+	sessionMetaPath,
 	setNextSessionRetainMode,
 	setSessionMemoryMode,
 	setSessionRetainEnabled,
-	sessionMetaPath,
 } from "../extensions/utils/session-memory-meta.js";
 
 describe("session memory metadata", () => {

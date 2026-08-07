@@ -32,7 +32,7 @@ runtime 的性能或界面。
 - Settings policy、feature-owned schema/content、UI、`/hepi` command、model selection；
 - 具体 feature 的业务状态、持久化和 UI；
 - 通用 event bus、RPC 框架或自动 discovery；
-- 对旧 `hepi-basics` API 的兼容 adapter。
+- 对旧 aggregate API 的兼容 adapter。
 
 这些能力只有在能形成有明确价值、feature-neutral 的中间层 API 时，才以单独提案考虑；consumer
 数量不是硬门槛。提案必须限定使用范围，不能把某个 extension 的 policy、业务 state、schema 或 UI
@@ -281,8 +281,7 @@ packages/pi-ext-core/
 ## 已确认决策
 
 1. v1 实现 runtime identity、lifecycle、Service、ExtensionPoint 和 disposer registry；
-   不迁移任何
-   `hepi-basics` 专属 API。
+   不迁移任何旧 aggregate 专属 API。
 2. Service duplicate provider 保留 first provider 并返回 `false`；ExtensionPoint owner
    保持 1:1 fail-fast，hook 是 1:N registration。
 3. Service consumer 可以用带 `AbortSignal` 的 Promise 等待 provider，避免加载顺序

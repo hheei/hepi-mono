@@ -181,7 +181,7 @@ describe("headless Loadout engine", () => {
 		dispose();
 	});
 
-	test("restores host before observer cleanup and remains retryable", async () => {
+	test("restores host even when an observer fails and remains idempotent", async () => {
 		const h = host();
 		const settings = await paths();
 		const controller = new AbortController();
@@ -194,9 +194,9 @@ describe("headless Loadout engine", () => {
 		});
 		const engine = createLoadoutEngine(h.pi, { paths: settings });
 		await engine.start({ cwd: process.cwd() } as ExtensionContext, new AbortController().signal);
-		expect(() => engine.dispose()).toThrow("observer failed");
+		expect(() => engine.dispose()).not.toThrow();
 		expect(h.activeSets.at(-1)).toEqual(["find", "third_party"]);
-		expect(engine.snapshot()).toBeDefined();
+		expect(engine.snapshot()).toBeUndefined();
 		controller.abort();
 		engine.dispose();
 		expect(engine.snapshot()).toBeUndefined();

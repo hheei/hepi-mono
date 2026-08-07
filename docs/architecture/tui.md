@@ -38,9 +38,7 @@ non-TUI dialog fallback、问卷 model 和结果 policy。
 
 `packages/pi-settings` 独占 `/ext-settings [page-id]`，并调用 core router。`pi-loadout` 额外注册
 `/loadout`，以 Loadout 为 initial page 打开同一 router。它们不 import concrete extensions；provider page
-与 `pi-loadout` page 都经 runtime-scoped core registry 组合。过渡性
-`hepi-basics` 不再注册 `/ext-settings`、`/loadout` 或 `/hepi` module command，也不保留 legacy Settings
-shell。
+与 `pi-loadout` page 都经 runtime-scoped core registry 组合；没有 legacy aggregate Settings shell。
 
 Loadout 是独立 router page，Tools 与 Skills 同页；任一 router command host 打开期间 suspend 所有
 core-managed editor widget；Loadout 持有 scope draft，切 scope/离开 page/close 时写入而不 hot-apply。旧

@@ -263,11 +263,15 @@ test("reports cancellation and failure without retrying", async () => {
 	failed.state.compact = "failure";
 	await failed.command.handler("", failed.context);
 	expect(failed.calls).toEqual(["idle", "compact"]);
-	expect(failed.notices).toEqual(["Handoff failed. The source session can be resumed."]);
+	expect(failed.notices).toEqual([
+		"Handoff failed: provider failed. The source session can be resumed.",
+	]);
 
 	const setupFailure = harness();
 	setupFailure.state.setupFails = true;
 	await setupFailure.command.handler("", setupFailure.context);
 	expect(setupFailure.calls).toEqual(["idle", "compact", "new-session"]);
-	expect(setupFailure.notices).toEqual(["Handoff failed. The source session can be resumed."]);
+	expect(setupFailure.notices).toEqual([
+		"Handoff failed: setup failed. The source session can be resumed.",
+	]);
 });

@@ -1,4 +1,4 @@
-# Pi Basics BTW Research
+# Pi BTW Research
 
 研究日期：2026-07-23
 
@@ -23,7 +23,7 @@
 | Persistence | Custom session entries restore hidden thread | Invocation/session memory only | Process-global memory, not disk | Extension instance/session lifetime |
 | Cancellation | Abort and dispose independent sub-session | Abort race guarded before commit | Dedicated overlay controller and abort | Per-run controllers plus shutdown queue abort |
 | Test depth | Broad orchestration tests, many Pi API mocks | Good focused behavior/UI tests | Strong execution/UI/compat tests | Only focused `SideThread` tests |
-| Migration cost to `pi-basics` | High | Low | Medium | Medium-high |
+| Migration cost to current Pi extension boundary | High | Low | Medium | Medium-high |
 
 ## 1. dbachelder/pi-btw
 
@@ -45,7 +45,7 @@ Hidden state is represented by custom session entries for thread/reset/model/thi
 
 Strengths: complete event-driven transcript state machine; explicit sub-session isolation; restore/save/inject semantics; broad orchestration tests in `tests/btw.runtime.test.ts:688-2179`.
 
-Risks for Pi Basics: large scope and high migration cost; it enables tools by default; it depends on `createAgentSession`, internal agent state assignment, resource loaders, and several version-sensitive Pi APIs. The peer range is broad (`>=0.74.0 <1`) while the tests and implementation were written around older Pi APIs. It should be treated as a source of optional future features, not the first implementation baseline.
+Risks for Pi BTW: large scope and high migration cost; it enables tools by default; it depends on `createAgentSession`, internal agent state assignment, resource loaders, and several version-sensitive Pi APIs. The peer range is broad (`>=0.74.0 <1`) while the tests and implementation were written around older Pi APIs. It should be treated as a source of optional future features, not the first implementation baseline.
 
 ## 2. narumiruna/pi-extensions
 
@@ -69,7 +69,7 @@ The two test files cover compat loading, settings/auth fallback, context convers
 
 Strengths: smallest coherent architecture; successful-turn-only commit rule; one-time main-context injection; native Pi UI; focused tests; current Pi 0.80-oriented dependency/API assumptions; configuration failure falls back to the main model with a warning.
 
-Risks: the textual context bound and side-thread history can still grow; user configuration and `completeSimple` compat loading need to be adapted to `pi-basics` policies; the feature is currently TUI-centric. The implementation does not provide a durable session record, which is acceptable for an initial transient feature.
+Risks: the textual context bound and side-thread history can still grow; user configuration and `completeSimple` compat loading need to be adapted to current extension policies; the feature is currently TUI-centric. The implementation does not provide a durable session record, which is acceptable for an initial transient feature.
 
 ## 3. juicesharp/rpiv-mono
 
@@ -97,7 +97,7 @@ Tests cover execution/error/cancel branches, snapshot behavior, command behavior
 
 Strengths: explicit cache invalidation; strong test contract; stable provider prefix via original message object reuse; clear separation between temporary overlay and main transcript; careful compat fallback.
 
-Risks: `globalThis`/`Symbol.for` state can outlive a session runtime and complicate reload/cleanup; snapshot keying by session file is weaker than explicit branch identity; cross-session hints add policy and privacy surface; non-streaming answer delivery is less responsive. The architecture is a useful set of hardening ideas but should not be copied wholesale into Pi Basics.
+Risks: `globalThis`/`Symbol.for` state can outlive a session runtime and complicate reload/cleanup; snapshot keying by session file is weaker than explicit branch identity; cross-session hints add policy and privacy surface; non-streaming answer delivery is less responsive. The architecture is a useful set of hardening ideas but should not be copied wholesale into Pi BTW.
 
 
 ## 4. Firstp1ck/npm-packages
@@ -122,21 +122,21 @@ The only test file, `tests/side-thread.test.mjs:37-101`, checks first-context be
 
 Strengths: responsive streaming; a clean serial queue; mode-specific rendering; explicit transfer action rather than automatic transcript pollution.
 
-Risks: wider scope than the current Pi Basics requirement; peer dependencies are unbounded; WebUI/widget protocol increases compatibility surface; transfer and summary boundaries are under-validated; test coverage is comparatively thin. Reuse the serial queue and streaming state ideas only if the first TUI version proves that non-streaming latency is a problem.
+Risks: wider scope than the current Pi BTW requirement; peer dependencies are unbounded; WebUI/widget protocol increases compatibility surface; transfer and summary boundaries are under-validated; test coverage is comparatively thin. Reuse the serial queue and streaming state ideas only if the first TUI version proves that non-streaming latency is a problem.
 
-## Baseline recommendation for Pi Basics
+## Baseline recommendation for Pi BTW
 
 Use `narumiruna/pi-extensions` as the initial structural baseline:
 
 1. Keep `SideThread` semantics: main branch context is injected once, successful turns are committed, failed/aborted turns never enter the next provider request.
-2. Keep the no-tools system prompt and current-model/auth resolution, but adapt it to the existing `HePiRuntimeContext` and `pi-basics` strict TypeScript rules.
-3. Rebuild the transcript component using `packages/pi-basics/src/ui/text.ts`, the Pi Basics semantic theme, and the existing `ctx.ui.custom` lifecycle pattern used by Ask.
-4. Make the runtime explicitly session-scoped and dispose it through `HePiLifecycleController`; do not use `globalThis`, `Symbol.for`, or disk persistence for the first version.
+2. Keep the no-tools system prompt and current-model/auth resolution, but adapt it to `ExtensionLifecycleContext` and the repository's strict TypeScript rules.
+3. Rebuild the transcript component using `packages/pi-btw/src/ui.ts`, Pi host semantic theme tokens, and the existing `ctx.ui.custom` lifecycle pattern used by Ask.
+4. Make the runtime explicitly session-scoped and dispose it through `registerExtensionLifecycle`; do not use `globalThis`, `Symbol.for`, or disk persistence for the first version.
 5. Add `rpiv`-style focused tests for cancellation races, successful-only commit, branch/compaction invalidation, auth failures, empty provider output, width-safe rendering, and command rejection outside interactive UI.
 6. Defer dbachelder-style sub-agent tools, main-transcript save/inject, model/thinking override commands, cross-session hints, and Firstp1ck-style WebUI transfer until separate requirements justify them.
 
-This recommendation was based on migration risk and alignment with the Pi Basics runtime. The implementation later landed as the independent `packages/pi-btw` workspace with behavior tests before visual polish.
+This recommendation was based on migration risk and alignment with ext-core lifecycle ownership. The implementation later landed as the independent `packages/pi-btw` workspace with behavior tests before visual polish.
 
 ## Verification performed
 
-The four repositories were cloned with `git clone --depth 1`. Their latest revisions were recorded above. Source and tests were read; no reference repository test suite was run, and no production `pi-basics` code was changed in this research step.
+The four repositories were cloned with `git clone --depth 1`. Their latest revisions were recorded above. Source and tests were read; no reference repository test suite was run, and no production Pi BTW code was changed in this research step.

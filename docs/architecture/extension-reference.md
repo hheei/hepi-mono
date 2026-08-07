@@ -2,9 +2,8 @@
 
 ## Status
 
-This is the target architecture for new HEPI work. `@hheei/hepi-mono` is
-deprecated. Existing aggregate packages are transitional and are not targets
-for new features.
+This is the package architecture for HEPI work. Installable packages are
+independent `@hheei/pi-<name>` extensions backed by `@hheei/pi-ext-core`.
 
 ## Package Boundaries
 

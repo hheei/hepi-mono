@@ -52,7 +52,11 @@ import {
 	setDefaultsDisabled,
 	setLoadoutActivation,
 } from "./agent-types.js";
-import { type RpcHandle, registerRpcHandlers } from "./cross-extension-rpc.js";
+import {
+	type RpcHandle,
+	type RpcSpawnOptions,
+	registerRpcHandlers,
+} from "./cross-extension-rpc.js";
 import { loadCustomAgents } from "./custom-agents.js";
 import { isModelInScope, readEnabledModels, resolveEnabledModels } from "./enabled-models.js";
 import { GroupJoinManager } from "./group-join.js";
@@ -93,6 +97,21 @@ import {
 	type Theme,
 } from "./ui/agent-widget.js";
 import { addUsage, getLifetimeTotal, type LifetimeUsage } from "./usage.js";
+
+function toManagerSpawnOptions(options: RpcSpawnOptions, prompt: string): SpawnOptions {
+	const { model, ...restOptions } = options;
+	if (typeof model === "string") {
+		throw new Error("RPC model must be resolved before reaching AgentManager");
+	}
+	return {
+		...restOptions,
+		description: restOptions.description ?? prompt,
+		...(model === undefined ? {} : { model }),
+	};
+}
+
+const MANAGER_KEY = Symbol.for("pi-subagents:manager");
+let childLifecycleSequence = 0;
 
 // ---- Shared helpers ----
 
@@ -667,8 +686,25 @@ export default function (pi: ExtensionAPI) {
 	// Direct pi.on handlers cannot be removed on factory replacement. Token
 	// ownership makes stale handlers inert once newer root activation claims slot.
 	const activationToken = { active: true };
+	const runtimeGlobal = globalThis as typeof globalThis & Record<PropertyKey, unknown>;
+	const currentManager = runtimeGlobal[MANAGER_KEY];
+	const hasLiveManager =
+		typeof currentManager === "object" &&
+		currentManager !== null &&
+		Reflect.get(currentManager, "disposed") !== true;
+	const sameOwnerPi =
+		typeof currentManager === "object" &&
+		currentManager !== null &&
+		Reflect.get(currentManager, "ownerPi") === pi;
+	// ext-core replaces a same-key lifecycle owner before the new start callback
+	// runs. Keep active root ownership intact for child activations; once root
+	// cleanup marks it disposed, stable-key registration can replace it.
+	const lifecycleKey =
+		hasLiveManager && !sameOwnerPi
+			? `@hheei/pi-subagents:child:${++childLifecycleSequence}`
+			: "@hheei/pi-subagents";
 	registerExtensionLifecycle(pi, {
-		key: "@hheei/pi-subagents",
+		key: lifecycleKey,
 		start: async (runtime) => {
 			// Resolve process-wide ownership only after ext-core has awaited any
 			// replacement lifecycle cleanup. This lets a true reload replace a
@@ -766,9 +802,9 @@ export default function (pi: ExtensionAPI) {
 	// Lifecycle start claims this slot only when free or marked disposed. Child
 	// sessions re-activate this extension in the same process and leave the
 	// active root manager untouched; a replacement can claim after cleanup.
-	const MANAGER_KEY = Symbol.for("pi-subagents:manager");
 	const registryEntry = {
 		disposed: false,
+		ownerPi: pi,
 		activationToken,
 		waitForAll: () => manager.waitForAll(),
 		hasRunning: () => manager.hasRunning(),
@@ -781,7 +817,6 @@ export default function (pi: ExtensionAPI) {
 		) => manager.spawn(piRef, ctx, type, prompt, options),
 		getRecord: (id: string) => manager.getRecord(id),
 	};
-	const runtimeGlobal = globalThis as typeof globalThis & Record<PropertyKey, unknown>;
 	let ownsManagerRegistry = false;
 	const isActive = (): boolean =>
 		ownsManagerRegistry &&
@@ -842,7 +877,20 @@ export default function (pi: ExtensionAPI) {
 				events: pi.events,
 				pi,
 				getCtx: () => currentCtx,
-				manager,
+				manager: {
+					spawn: (_pi, _ctx, type, prompt, options) => {
+						const activeCtx = currentCtx;
+						if (activeCtx === undefined) throw new Error("No active session");
+						return manager.spawn(
+							pi,
+							activeCtx,
+							type,
+							prompt,
+							toManagerSpawnOptions(options, prompt),
+						);
+					},
+					abort: (id) => manager.abort(id),
+				},
 			});
 			// Broadcast readiness so extensions loaded alongside us can discover us.
 			// Emitting after all factories have run (rather than at factory time)

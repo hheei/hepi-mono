@@ -1,12 +1,10 @@
 # Package Catalogue
 
-这是当前软件包清单。旧的 `hepi-*` 软件包仅用于过渡；新功能发布为
-`@hheei` 作用域下、可独立安装的 `pi-<name>` 扩展。
+这是当前软件包清单。所有功能均发布为 `@hheei` 作用域下、可独立安装的
+`pi-<name>` 扩展。
 
 | Package | Purpose | Requirements |
 | --- | --- | --- |
-| [`hepi-mono`](../../packages/hepi-mono/README.md) | **Deprecated.** Former unified bundle; do not install for new setups. | Pi host, `ffi-rs` |
-| [`hepi-basics`](../../packages/hepi-basics/README.md) | Transitional foundational bundle | Pi host |
 | [`pi-debug`](../../packages/pi-debug/README.md) | Development diagnostics and deterministic TUI replay | Pi host, ext-core |
 
 Independent extensions:

@@ -14,7 +14,6 @@
 			"packages/*/**/*.json",
 			"scripts/**/*.mjs",
 			"scripts/**/*.ts",
-			"!packages/hepi-subagents",
 			"!**/node_modules",
 			"!**/dist",
 			"!**/.pi",
