@@ -1,10 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "../extensions/config/config.js";
-import { buildStatusFields, formatStatusFieldsText } from "../extensions/utils/status-fields.js";
 import type { ResolvedConfig } from "../extensions/types.js";
+import { buildStatusFields, formatStatusFieldsText } from "../extensions/utils/status-fields.js";
 
 function config(patch: Partial<ResolvedConfig> = {}): ResolvedConfig {
 	return {

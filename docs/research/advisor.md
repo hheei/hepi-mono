@@ -1,6 +1,6 @@
-# Pi Basics `/advisor` 研究与功能边界
+# Advisor `/advisor` 研究与功能边界
 
-> 状态：历史研究；当前实现位于 `packages/pi-advisor`，行为以该 package 的代码、测试和 README 为准。
+> 状态：历史研究；Advisor 当前没有 concrete extension implementation。以下内容只保留产品边界与研究结论。
 > 日期：2026-07-22
 > 范围：只定义产品和技术边界，不是实现规格，也不代表功能已经落地。
 
@@ -12,7 +12,7 @@
 - `bpx-consult`：在单次咨询之上扩展 solo、council、debate、persona、CLI backend 和自动触发；
 - `pi-omplike-advisor`：一个长期存在的只读 shadow agent，每个主 Agent turn 都接收增量上下文，仅在发现具体问题时向主会话注入 advice。
 
-结合“只有一个 `/advisor` 指令，并在 Settings 指定 advisor 模型和思考强度”的目标，建议 `pi-basics` 实现 **OMPlike-lite**，而不是复制 RPIV 的 executor 工具或 BPX 的咨询编排：
+结合“只有一个 `/advisor` 指令，并在 Settings 指定 advisor 模型和思考强度”的目标，建议独立 Advisor extension 实现 **OMPlike-lite**，而不是复制 RPIV 的 executor 工具或 BPX 的咨询编排：
 
 1. 只注册一个 slash command：`/advisor [on|off|status]`。
 2. 注册一个唯一 id 的模块 settings provider，其中 `advisor` group 有 `model` 和 `thinking` 两个字段；该 provider 再由现有 combined settings 聚合显示。
@@ -23,7 +23,7 @@
 7. V1 包含 advisor self-compaction，且绝不 hard-interrupt 主 Agent。
 8. V1 不实现 council、debate、persona、CLI backend、自然语言触发、executor blocklist、自定义 prompt 文件或复杂 context ledger。
 
-这个方案保留 OMPlike 的本质：**持续旁路审阅、独立上下文、只读验证、边界化反馈**；同时把公开配置和维护面压缩到 `pi-basics` 已有的 command、settings、session lifecycle 与 TUI 体系内。
+这个方案保留 OMPlike 的本质：**持续旁路审阅、独立上下文、只读验证、边界化反馈**；同时把公开配置和维护面压缩到 Advisor extension 自己的 command、settings、session lifecycle 与 TUI 边界内。
 
 ## 2. 需求解释
 
@@ -46,7 +46,7 @@
 - `/consult`
 - 自然语言短语触发
 
-`pi-basics` 的 `HePiModule` registry 只负责 `/hepi <subcommand>` 路由，不能自动提供独立 `/advisor`；现有 `/plan` 也是直接注册独立 command，因此 Advisor 应沿用这一方式。[模块 API](../../packages/pi-basics/src/api/modules.ts) [命令路由](../../packages/pi-basics/src/command/hepi-command.ts) [Plan feature](../../packages/pi-plan/src/feature.ts)
+旧 aggregate 的 `HePiModule` registry 已删除，不能作为 `/advisor` owner；Advisor 应直接注册独立 command，沿用 `/plan` 的公开入口原则。[Plan feature](../../packages/pi-plan/src/feature.ts)
 
 ### 2.2 “一个 setting”
 
@@ -61,10 +61,10 @@ Advisor
 原因：
 
 - 模型和 thinking 是两个独立约束，模型变化会改变可用 thinking levels；
-- `pi-basics` settings 已支持 provider/group/field、在 provider 创建时生成的 options、validation 和异步 storage；
+- ext-core settings 已支持 provider/group/field、在 provider 创建时生成的 options、validation 和异步 storage；
 - 组合字符串会迫使 UI、校验、迁移和错误信息重复解析一套隐式协议。
 
-Settings 公共类型和生命周期见 [settings API](../../packages/pi-basics/src/api/settings.ts)。自动标题已经提供了 `provider/model` 选项、解析、认证验证和写入 `.pi/settings.json` 的可复用模式。[Auto Title settings](../../packages/pi-auto-title/src/index.ts)
+Settings 公共类型和生命周期见 [ext-core settings API](../../packages/pi-ext-core/src/settings.ts)。自动标题已经提供了 `provider/model` 选项、解析、认证验证和写入 `.pi/settings.json` 的可复用模式。[Auto Title settings](../../packages/pi-auto-title/src/index.ts)
 
 ## 3. 三个参考设计
 
@@ -137,7 +137,7 @@ BPX 最有价值的工程部分是 context engine：
 - persona、confidence、stance 和 synthesizer 引入第二套产品语言；
 - CLI backend 增加 subprocess、协议解析和额外认证边界；
 - 短语/自动触发和 delivery modes 会与 OMPlike 的 turn observer 重叠；
-- 完整 evidence ledger 与大型 configurator 超出 `pi-basics` Advisor 的维护预算。
+- 完整 evidence ledger 与大型 configurator 超出 Advisor extension 的维护预算。
 
 结论：BPX 适合作为 **context-window invariant、timeout 和部分失败处理** 的参考，不应复制其编排层。
 
@@ -171,7 +171,7 @@ Advice 有 `nit`、`concern`、`blocker` 三个 severity。原实现为解决异
 
 #### 需要修正或简化
 
-- 原实现默认启用且把 enabled 状态写入单独全局文件，不符合 `pi-basics` session-scoped 状态惯例；
+- 原实现默认启用且把 enabled 状态写入单独全局文件，不符合 Advisor extension 的 session-scoped 状态惯例；
 - `modes.json` 和固定 OpenRouter fallback 应替换为统一 Settings；
 - 自定义 `advisor.md`、`WATCHDOG.md` 和环境变量配置暂不引入；
 - 原实现把主 Agent thinking 原样发送给 advisor，增加成本和潜在信息边界问题；V1 不应转发 thinking；
@@ -210,7 +210,7 @@ Advice 有 `nit`、`concern`、`blocker` 三个 severity。原实现为解决异
 - severity：`nit | concern | blocker`；
 - note 必须非空，并限制单条长度；
 - note 在真实交付前按规范化文本去重；
-- advice 通过 `pi.sendMessage({ customType: "pi-basics-advisory" })` 注入；
+- advice 通过 `pi.sendMessage({ customType: "advisor-advisory" })` 注入；
 - delivery 使用 `deliverAs: "steer"`；
 - 绝不调用主 Agent 的 `abort()`；
 - 用户已 Escape 停止时，late advice 可以显示但不能 `triggerTurn` 自动恢复。
@@ -278,7 +278,7 @@ high-severity hold/reconfirm 不后置：异步 shadow review 天然会产生 st
 
 ```json
 {
-  "pi-basics": {
+  "advisor": {
     "advisor": {
       "model": "anthropic/claude-opus-4-7",
       "thinking": "high"
@@ -311,14 +311,14 @@ type AdvisorBoundary = {
 };
 ```
 
-custom type：`pi-basics-advisor-mode`。
+custom type：`advisor-mode`。
 
 这与 Plan/Goal 的 branch-backed persistence 一致，并自然满足 reload/resume、fork、tree navigation 和新 session 默认关闭。它也避免跨项目、跨 session 的隐式模型费用。
 
 持久化 decoder 必须：
 
 - 只接受精确 version 和字段；
-- 找到当前 branch 中最后一个 `pi-basics-advisor-mode` entry，再对它严格 decode；不能先过滤 malformed entry 后回退到更早状态；
+- 找到当前 branch 中最后一个 `advisor-mode` entry，再对它严格 decode；不能先过滤 malformed entry 后回退到更早状态；
 - 最后一个 matching entry malformed 时 fail closed 为 disabled 并 warning；
 - `/advisor off` 先 append disabled boundary，再 teardown；
 - `/advisor on` 先验证配置和构造 runtime，再 append enabled boundary；构造失败不得留下 enabled boundary，append 失败必须 teardown 刚创建的 runtime。
@@ -543,21 +543,21 @@ V1 不必复制 OMPlike 的所有动态 backoff 和 best-effort 分支，但必�
 
 ## 10. 最终 package 集成
 
-### 10.1 当前文件布局
+### 10.1 未来文件布局
 
 ```text
-packages/pi-advisor/src/
+future Advisor extension/
   extension.ts      package entry
   feature.ts        session lifecycle and command
   runtime.ts        review runtime
   settings.ts       settings provider
 ```
 
-以下章节保留实现前的边界理由；实际文件拆分以当前 package 为准。
+以下章节保留实现前的边界理由；当前没有 package 文件拆分可作为依据。
 
 ### 10.2 入口集成
 
-在 `piBasicsExtension()` 中：
+在未来 Advisor extension entry 中：
 
 1. 创建 AdvisorFeature factory；
 2. 在 session `onStart` 中绑定当前 `pi`、`ctx` 和 session registry；
@@ -565,13 +565,13 @@ packages/pi-advisor/src/
 4. 注册所需 lifecycle hooks；
 5. 把唯一 id 的 Advisor 模块 provider 交给现有 `combineSettingsProviders()` 聚合；
 6. cleanup 时逆序 dispose；
-7. 不注册 `HePiModule`，除非未来需要 `/hepi advisor`。
+7. 不注册旧 aggregate module；Advisor 只拥有独立 `/advisor` command。
 
-当前入口和 lifecycle 见 [Advisor entry](../../packages/pi-advisor/src/extension.ts) [Feature](../../packages/pi-advisor/src/feature.ts) [Pi Basics runtime](../../packages/pi-basics/src/runtime/context.ts)。
+当前没有 Advisor entry 或 feature 实现；未来入口应使用 ext-core lifecycle contract。
 
 ### 10.3 Settings 组合
 
-Advisor 应创建唯一 id 的模块 provider，例如 `pi-basics-advisor`，其中 group id 为 `advisor`。入口把它与 auto-title、RTK 等 provider 一起传给 `combineSettingsProviders()`；不要直接注册另一个 id 为 `pi-basics` 或 `pi-basics-settings` 的 provider。Advisor storage 自己只读写 `.pi/settings.json` 的 `pi-basics.advisor` section，combined provider 只负责统一展示和分发 storage 生命周期。[Settings registry](../../packages/pi-basics/src/api/settings.ts) [Combined settings](../../packages/pi-basics/src/ui/settings/combined.ts)
+Advisor 应创建唯一 id 的模块 provider，其中 group id 为 `advisor`。入口把它与 auto-title、RTK 等 provider 一起交给 settings host；不要复用旧 aggregate settings id。Advisor storage 自己只读写 `.pi/settings.json` 的 `advisor` section，settings host 只负责统一展示和分发 storage 生命周期。[Settings registry](../../packages/pi-ext-core/src/settings.ts)
 
 | Field | Type | Default | 规则 |
 | --- | --- | --- | --- |
@@ -580,11 +580,11 @@ Advisor 应创建唯一 id 的模块 provider，例如 `pi-basics-advisor`，其
 
 `HePiSettingsProvider.onChange` 发生在 storage save 之前，因此不能在 `onChange` 中永久替换 active runtime。应像 auto-title 一样包装 storage：`onChange` 只做 parse/capability 预检，backing storage 成功保存后再调用 post-persist callback 重建 runtime；保存失败则 SettingsController 回滚 UI，旧 runtime 保持不变。
 
-Settings UI 遵循 `DESIGN.md` 和现有 enum 交互，不为 Advisor 新建模型 picker。[DESIGN](../../DESIGN.md) [Settings component](../../packages/pi-basics/src/ui/settings/component.ts)
+Settings UI 遵循 `DESIGN.md` 和现有 enum 交互，不为 Advisor 新建模型 picker。[DESIGN](../../DESIGN.md)
 
 ### 10.4 AI API 依赖
 
-`pi-basics` 当前没有显式 `@earendil-works/pi-ai` 或 `@earendil-works/pi-agent-core` peer dependency。OMPlike 直接使用 `pi-agent-core Agent`，RPIV/BPX 使用 `pi-ai` completion API；两条路都不能假定仅靠当前 package metadata 就能解析。
+Advisor extension 当前没有显式 `@earendil-works/pi-ai` 或 `@earendil-works/pi-agent-core` peer dependency。OMPlike 直接使用 `pi-agent-core Agent`，RPIV/BPX 使用 `pi-ai` completion API；两条路都不能假定仅靠当前 package metadata 就能解析。
 
 Phase 0 必须在实现前形成一个受测、不可含糊的依赖决策：
 
@@ -595,7 +595,7 @@ Phase 0 必须在实现前形成一个受测、不可含糊的依赖决策：
 
 ### 10.5 `pi-subagents` 依赖评估
 
-`pi-basics` 的 auto-title 已经通过 event bus 使用外部 `@tintinweb/pi-subagents` RPC v2，因此复用它看起来比新增 Agent runtime 更轻。[Auto Title RPC client](../../packages/pi-auto-title/src/index.ts) 但现有 RPC 的公开实现只提供：
+Auto-title 已经通过 event bus 使用外部 `@tintinweb/pi-subagents` RPC v2，因此复用它看起来比新增 Agent runtime 更轻。[Auto Title RPC client](../../packages/pi-auto-title/src/index.ts) 但现有 RPC 的公开实现只提供：
 
 ```text
 subagents:rpc:ping
@@ -629,7 +629,7 @@ subagents:rpc:stop
 
 1. **产品语义改变**：每 turn spawn 是 RPIV/BPX 式 stateless side-call，不是 long-lived shadow reviewer。
 2. **只读边界不足**：RPC 不能动态下发准确的 builtin tool allowlist 和 private `advise`。
-3. **状态机没有减少**：held advice、reconfirm、epoch、turn attribution 和 delivery 仍要由 `pi-basics` 实现。
+3. **状态机没有减少**：held advice、reconfirm、epoch、turn attribution 和 delivery 仍要由 Advisor extension 实现。
 4. **context 成本更高**：child 不保留历史时，parent 必须重复发送 fitted bootstrap/history。
 5. **多一个强运行时依赖**：未安装、未加载、被 child extension allowlist 排除或 RPC 版本不匹配时，`/advisor on` 必须 fail closed。
 6. **协议不是 capability-based**：`ping` 只返回 version，不能区分 persistent/resume/private-tool 等能力。
@@ -802,7 +802,7 @@ test/modules/advisor/command.test.ts
 
 ## 16. 最终建议
 
-`pi-basics /advisor` 应被定义为：
+`Advisor /advisor` 应被定义为：
 
 > 一个由 `/advisor` 控制、由统一 Settings 选择模型和思考强度、随当前 session branch 生命周期运行的只读 shadow reviewer。它自动审阅主 Agent 的 turn delta，只能通过结构化 advice 在 turn 边界向主 Agent 反馈，不拥有执行权限，也不向 executor 暴露咨询工具。
 
@@ -810,9 +810,9 @@ test/modules/advisor/command.test.ts
 
 - 产品模式选 OMPlike；
 - context/错误正确性借鉴 RPIV 与 BPX；
-- 配置和生命周期遵循 `pi-basics`；
+- 配置和生命周期遵循 ext-core contract；
 - V1 只做单 advisor，不做咨询平台；
 - 现有 `pi-subagents` 只适合 one-shot delegation，不作为 long-lived Advisor runtime；
 - V1 先保证隔离、顺序、预算、取消和 reset，再讨论更多策略。
 
-这条边界既保留持续审阅的价值，也避免把 RPIV 的主动工具策略、BPX 的多模型编排和 OMPlike 的全部成熟状态机一次性搬入 `pi-basics`。
+这条边界既保留持续审阅的价值，也避免把 RPIV 的主动工具策略、BPX 的多模型编排和 OMPlike 的全部成熟状态机一次性搬入 Advisor extension。

@@ -235,7 +235,8 @@ export async function loadMentalModelsForScopes(args: {
 	let remaining = totalBudget;
 
 	for (let i = 0; i < args.bankIds.length; i++) {
-		const bankId = args.bankIds[i]!;
+		const bankId = args.bankIds[i];
+		if (bankId === undefined) continue;
 		if (remaining < minBudget) break;
 		const budget = equalShare >= minBudget ? Math.min(equalShare, remaining) : remaining;
 		const bankKind = args.bankKinds?.[i] ?? "project";

@@ -9,7 +9,25 @@
  *   error   → { success: false, error: string }
  */
 
+import type { Api, Model } from "@earendil-works/pi-ai";
+import type { SpawnOptions } from "./agent-manager.js";
 import { type ModelRegistry, resolveModel } from "./model-resolver.js";
+
+type PiModelRegistry = ModelRegistry<Model<Api>>;
+
+function isModelRegistry(value: unknown): value is PiModelRegistry {
+	if (typeof value !== "object" || value === null) return false;
+	return (
+		typeof Reflect.get(value, "find") === "function" &&
+		typeof Reflect.get(value, "getAll") === "function"
+	);
+}
+
+function getModelRegistry(value: unknown): PiModelRegistry | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	const registry = Reflect.get(value, "modelRegistry");
+	return isModelRegistry(registry) ? registry : undefined;
+}
 
 /** Minimal event bus interface needed by the RPC handlers. */
 export interface EventBus {
@@ -24,8 +42,13 @@ export type RpcReply<T = void> = { success: true; data?: T } | { success: false;
 export const PROTOCOL_VERSION = 2;
 
 /** Minimal AgentManager interface needed by the spawn/stop RPCs. */
+export type RpcSpawnOptions = Partial<Omit<SpawnOptions, "description" | "model">> & {
+	description?: string;
+	model?: SpawnOptions["model"] | string;
+};
+
 export interface SpawnCapable {
-	spawn(pi: unknown, ctx: unknown, type: string, prompt: string, options: any): string;
+	spawn(pi: unknown, ctx: unknown, type: string, prompt: string, options: RpcSpawnOptions): string;
 	abort(id: string): boolean;
 }
 
@@ -58,10 +81,10 @@ function handleRpc<P extends { requestId: string }>(
 			const reply: { success: true; data?: unknown } = { success: true };
 			if (data !== undefined) reply.data = data;
 			events.emit(`${channel}:reply:${params.requestId}`, reply);
-		} catch (err: any) {
+		} catch (err: unknown) {
 			events.emit(`${channel}:reply:${params.requestId}`, {
 				success: false,
-				error: err?.message ?? String(err),
+				error: err instanceof Error ? err.message : String(err),
 			});
 		}
 	});
@@ -78,40 +101,45 @@ export function registerRpcHandlers(deps: RpcDeps): RpcHandle {
 		return { version: PROTOCOL_VERSION };
 	});
 
-	const unsubSpawn = handleRpc<{ requestId: string; type: string; prompt: string; options?: any }>(
-		events,
-		"subagents:rpc:spawn",
-		({ type, prompt, options }) => {
-			const ctx = getCtx();
-			if (!ctx) throw new Error("No active session");
+	const unsubSpawn = handleRpc<{
+		requestId: string;
+		type: string;
+		prompt: string;
+		options?: RpcSpawnOptions;
+	}>(events, "subagents:rpc:spawn", ({ type, prompt, options }) => {
+		const ctx = getCtx();
+		if (!ctx) throw new Error("No active session");
 
-			// Cross-extension RPC callers (e.g. pi-tasks TaskExecute) naturally
-			// forward serializable values, so options.model can be a string like
-			// "openai-codex/gpt-5.5". Resolve it to a real Model instance here
-			// — same pattern the scheduler path already uses — so the spawned
-			// agent's auth lookup doesn't crash with "No API key found for
-			// undefined".
-			let normalizedOptions = options ?? {};
-			if (typeof normalizedOptions.model === "string") {
-				const registry = (ctx as { modelRegistry?: ModelRegistry }).modelRegistry;
-				if (!registry) {
-					throw new Error(
-						`Model override "${normalizedOptions.model}" provided but ctx.modelRegistry is unavailable`,
-					);
-				}
-				const resolved = resolveModel(normalizedOptions.model, registry);
-				if (typeof resolved === "string") {
-					// resolveModel returns a human-readable error string when the
-					// input doesn't match any available model. Surface it instead of
-					// silently falling back so the caller sees the auth/typo issue.
-					throw new Error(resolved);
-				}
-				normalizedOptions = { ...normalizedOptions, model: resolved };
+		// Cross-extension RPC callers (e.g. pi-tasks TaskExecute) naturally
+		// forward serializable values, so options.model can be a string like
+		// "openai-codex/gpt-5.5". Resolve it to a real Model instance here
+		// — same pattern the scheduler path already uses — so the spawned
+		// agent's auth lookup doesn't crash with "No API key found for
+		// undefined".
+		const rawOptions = options ?? {};
+		const { model: requestedModel, ...restOptions } = rawOptions;
+		let normalizedOptions: RpcSpawnOptions = restOptions;
+		if (typeof requestedModel === "string") {
+			const registry = getModelRegistry(ctx);
+			if (!registry) {
+				throw new Error(
+					`Model override "${requestedModel}" provided but ctx.modelRegistry is unavailable`,
+				);
 			}
+			const resolved = resolveModel<Model<Api>>(requestedModel, registry);
+			if (typeof resolved === "string") {
+				// resolveModel returns a human-readable error string when the
+				// input doesn't match any available model. Surface it instead of
+				// silently falling back so the caller sees the auth/typo issue.
+				throw new Error(resolved);
+			}
+			normalizedOptions = { ...normalizedOptions, model: resolved };
+		} else if (requestedModel !== undefined) {
+			normalizedOptions = { ...normalizedOptions, model: requestedModel };
+		}
 
-			return { id: manager.spawn(pi, ctx, type, prompt, normalizedOptions) };
-		},
-	);
+		return { id: manager.spawn(pi, ctx, type, prompt, normalizedOptions) };
+	});
 
 	const unsubStop = handleRpc<{ requestId: string; agentId: string }>(
 		events,

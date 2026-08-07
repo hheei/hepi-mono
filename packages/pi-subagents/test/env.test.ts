@@ -6,6 +6,11 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { detectEnv } from "../src/env.js";
 
+function errorField(error: unknown, field: string): unknown {
+	if (typeof error !== "object" || error === null) return undefined;
+	return Reflect.get(error, field);
+}
+
 /** Minimal mock of pi.exec() that shells out via child_process. */
 function mockPi(): ExtensionAPI {
 	return {
@@ -18,8 +23,12 @@ function mockPi(): ExtensionAPI {
 					timeout: options?.timeout,
 				});
 				return { stdout, stderr: "", code: 0, killed: false };
-			} catch (err: any) {
-				return { stdout: "", stderr: err.stderr ?? "", code: err.status ?? 1, killed: false };
+			} catch (error: unknown) {
+				const stderrValue = errorField(error, "stderr");
+				const stderr = typeof stderrValue === "string" ? stderrValue : "";
+				const statusValue = errorField(error, "status");
+				const status = typeof statusValue === "number" ? statusValue : 1;
+				return { stdout: "", stderr, code: status, killed: false };
 			}
 		},
 	} as unknown as ExtensionAPI;

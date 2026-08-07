@@ -23,7 +23,7 @@ The local source is read-only reference material. Do not edit it, vendor it unde
 
 Read [DOCS_ROUTING.md](references/DOCS_ROUTING.md) first. It routes every Pi `coding-agent/docs/` document by problem type and names the matching source entry points and HEPI overlays. Then read the selected upstream document completely before inspecting the smallest source locations that implement its contract.
 
-For HEPI behavior, then read the owning module under `packages/hepi-basics/src`, `packages/pi-ext-tools/src`, `packages/pi-mctx/src`, `packages/pi-ponytail/src`, `packages/pi-caveman/src`, or `packages/hepi-mono/src`. Shared contracts belong in Basics `core`; feature state machines and parsers stay in their feature module.
+For HEPI behavior, then read the owning module under the relevant `packages/pi-*/src` extension. Shared contracts belong in `packages/pi-ext-core`; feature state machines and parsers stay in their feature module.
 
 Read [ARCHITECTURE.md](references/ARCHITECTURE.md) when the task needs an overall Pi model, crosses package boundaries, or depends on whether a behavior is public API versus interactive-mode implementation detail.
 
@@ -48,7 +48,7 @@ For HEPI TUI changes:
 
 - Follow `DESIGN.md` for visual roles, dimensions, ANSI safety, top/tail rails, and narrow layouts.
 - Follow [Pi Source Design](references/DESIGN.md) for Pi's code-level design taste, state ownership, lifecycle, streaming, and integration boundaries. The repository-root `DESIGN.md` remains the HEPI TUI policy.
-- Reuse `packages/hepi-basics/src/core/ui/` primitives before adding local geometry or formatting helpers.
+- Reuse existing `packages/pi-*/src` UI primitives before adding local geometry or formatting helpers.
 - Test narrow and wide terminal dimensions, first render, selection changes, reload/session replacement, and cleanup.
 - Use `packages/pi-debug/TUI_REPLAY.md` and `pi-tui-replay` for deterministic component output, but verify host-dependent behavior in the real Pi host or a PTY before claiming a shortcut, event, streaming, or lifecycle feature works.
 
