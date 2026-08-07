@@ -562,7 +562,7 @@ Enter / Ctrl+C also close`。刷新仅在 admission 成功后每秒进行，且�
 
 `pi-mctx` 的最终目标不是停在首个 context pipeline，而是替代 `@hheei/pi-magic-context@0.33.1-hepi.0`
 baseline。完成定义是：所有仍被 HEPI 用户依赖的 MCTX 行为都有独立 owner、明确的持久化/取消/并发 contract、
-focused tests 和可安装 package entry。deprecated `@hheei/hepi-mctx` wrapper 已移除；它的
+focused tests 和可安装 package entry。deprecated legacy wrapper 已移除；它的
 Loadout、reminder、subagent accounting bridge 不构成 MCTX migration scope。
 
 迁移追求 behavioral parity，不追求旧 package API、tool 名称、settings key、SQLite schema 或 persisted state 的
@@ -702,7 +702,7 @@ bounded wait、pressure usage 计算与 current-turn steer。
 - [ ] **Reserved configuration activation**：逐字段启用当前 opaque 的 upstream-shaped configuration，定义 user/project
   scope、runtime validation、default、reload semantics 和 invalid-value fallback；不得因保存过某字段而隐式开启 feature。
 - [x] **Installer migration 与旧 wrapper retirement**：独立 package entry、安装文档和 Loadout ownership 已迁移；
-  deprecated `@hheei/hepi-mctx` wrapper 与 aggregate bundle 中的重复注册已移除。wrapper bridge 不迁移。
+  deprecated legacy wrapper 与 aggregate bundle 中的重复注册已移除。wrapper bridge 不迁移。
 
 完成 migration 前，不得宣称 `pi-mctx` 已替代 Magic Context。每个 checkbox 需要独立 commit；跨 package contract
 change 还必须更新 `docs/architecture/` 和相关 ADR。
@@ -870,7 +870,7 @@ Pi entry ID、kind 与 tool-call ID，再写入 note；未知、旧 branch 或�
 `@hheei/pi-mctx` 将成为 HEPI 对父 Pi 会话进行上下文管理的唯一 owner。未来它可以维护摘要、
 compartment 和父会话长期上下文，并为子代理提供经过父会话压缩的继承内容。
 
-它不是旧 wrapper 的 adapter 或重命名；旧的 `@hheei/hepi-mctx` wrapper 已移除。
+它不是旧 wrapper 的 adapter 或重命名；旧 wrapper 已移除。
 
 `pi-mctx` 的目标是 behavioral parity：保留已确认的用户可见上下文管理结果，但不兼容旧 package API、
 tool/command 名称、配置键、存储格式或已持久化 state。

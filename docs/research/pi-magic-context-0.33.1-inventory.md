@@ -78,7 +78,7 @@ branch-divergence recovery owner 触发。`/ctx-session-upgrade` 同样只迁移
 （`dist/index.js:26787-26987`），而新 store 明确不兼容旧 schema，故两者不迁移。
 
 `/ctx-wrapup` 是 primary-session-only manual compaction，持有独立 progress lease、循环跑 historian chunks，并修改
-old compaction marker（`dist/index.js:27742+`）。它与 future `hepi-basics` handoff/compaction owner 重叠，不能由
+old compaction marker（`dist/index.js:27742+`）。它与 future aggregate handoff/compaction owner 重叠，不能由
 `pi-mctx` 单独重新注册。`/ctx-status` 读取 legacy tag/compartment/fact/memory/note/Dreamer metrics，并在有 UI 时打开
 legacy dialog（`dist/index.js:27658-27740`）；当前没有完整 metric set 或 UI owner，不能注册 misleading status command。
 

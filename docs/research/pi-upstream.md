@@ -215,13 +215,13 @@ session switch、fork 和 new 属于 session replacement：
 
 ## 5. 对 HEPI 当前结构的判断
 
-当前 `hepi-mono` 已经具备正确的主依赖方向：
+当前 repository 已经具备正确的主依赖方向：
 
 ```text
 Pi host / upstream libraries
              ▲
              │
-       @hheei/hepi-basics
+       shared foundation
              ▲
              │
    aggregate feature modules
@@ -229,7 +229,7 @@ Pi host / upstream libraries
 
 已有边界：
 
-- `hepi-basics` owns the foundation under `src/core`; product modules remain separate inside their owning aggregate.
+- Shared foundation owns reusable contracts; product modules remain separate inside their owning extension.
 - Each aggregate has one `pi.extensions` entry; internal feature modules do not publish separate entries.
 - Feature modules use the shared `core` contracts and do not import another feature's private implementation.
 - Cross-feature coordination goes through `core` contracts.
@@ -239,7 +239,7 @@ Pi host / upstream libraries
 1. package entry 到底只负责组装什么；
 2. session state 和外部资源由谁创建、谁清理；
 3. cross-feature contract 应选 event、registry 还是 shared service；
-4. `pi-basics` 哪些 export 是公共稳定契约，哪些只是内部实现。
+4. 哪些 shared exports 是公共稳定契约，哪些只是内部实现。
 
 ### 5.1 已实施的第一步优化
 
@@ -276,9 +276,9 @@ entry 不放 reducer、persistence parser、rendering algorithm 或 provider pay
 允许：
 
 ```text
-aggregate feature -> hepi-basics/src/core
+independent extension -> pi-ext-core contract
 aggregate feature -> upstream Pi package（确实需要原始能力时）
-hepi-basics/src/core -> upstream Pi package
+pi-ext-core -> upstream Pi package
 ```
 
 禁止：
@@ -289,7 +289,7 @@ pi-basics -> feature
 shared core -> concrete feature
 ```
 
-第二个真实消费者出现后，再把稳定、无 feature 语义的部分下沉到 `hepi-basics/src/core`。
+稳定、无 feature 语义的部分归属 `pi-ext-core`，不下沉到已删除 aggregate package。
 
 ### 6.3 给 cross-feature contract 指定 owner
 
@@ -315,7 +315,7 @@ shared core -> concrete feature
 - cleanup 必须幂等；start 失败也必须清理已创建资源。
 - 不把 `ExtensionContext`、AbortController、component 或 session object 保存到 process-global state。
 
-### 6.5 把 `hepi-basics/src/core` export 当作稳定 API
+### 6.5 把 `pi-ext-core` export 当作稳定 API
 
 aggregate feature 继续只从 core 的公开入口导入。新增 export 前检查：
 

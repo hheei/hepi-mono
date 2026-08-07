@@ -66,7 +66,7 @@ global scope 的编辑落到 agent 自己的 backing 文件；内置 agent 缺 b
 materialize。两个 scope 各自缓冲，同一 agent 在 global
 与 project 分别编辑后各自落盘。header 的 `Path:` 行（`Status:` 后）显示当前 scope 的保存位置。
 
-历史 `@hheei/hepi-subagents` 仅是 policy/source evidence，revision 见
+历史 external fork 仅是 policy/source evidence，revision 见
 [`references/README.md`](../../references/README.md)。其 public API、unlimited defaults、event RPC 和 UI 不是 compatibility
 target。
 

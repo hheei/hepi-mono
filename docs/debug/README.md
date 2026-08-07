@@ -33,4 +33,4 @@ Pi host provider hook -> pi-debug hash-only record -> JSONL
 /cache-debug -> 当前日志路径或未启用提示
 ```
 
-公开入口保持两个：`@hheei/pi-debug` 和 `@hheei/pi-debug/tui-replay`。旧 `@hheei/hepi-debug` 不保留兼容入口。
+公开入口保持两个：`@hheei/pi-debug` 和 `@hheei/pi-debug/tui-replay`。旧 debug aggregate 不保留兼容入口。
