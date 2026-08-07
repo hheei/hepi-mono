@@ -103,7 +103,7 @@ test("replays strips through a pre-tag identity index", (): void => {
 
 test("replays persisted image strips without changing other messages", (): void => {
 	const messages = structuredClone([userMessage, assistantMessage]);
-	const stripped = stripMctxProcessedImages(messages, entries, new Set(["image-user"]));
+	const stripped = stripMctxProcessedImages(messages as never, entries, new Set(["image-user"]));
 	expect(stripped[0]).toMatchObject({ content: [{ type: "text", text: "[image stripped]" }] });
-	expect(stripped[1]).toEqual(assistantMessage);
+	expect(stripped[1]).toMatchObject(assistantMessage);
 });

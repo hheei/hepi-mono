@@ -35,7 +35,7 @@ test("transports reminders and ceiling nudges through Pi events", (): void => {
 			claimCeilingNudge: () => nudge,
 			completeCeilingNudge: () => void completed++,
 		},
-		{ sendMessage: (_message, options) => void sent.push({ options }) } as never,
+		{ sendMessage: (_message: unknown, options: unknown) => void sent.push({ options }) } as never,
 		context as never,
 		"steer",
 	);

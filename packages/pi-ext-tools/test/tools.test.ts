@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
+	Theme,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { observeLoadoutInventory } from "@hheei/pi-ext-core";
@@ -12,6 +13,8 @@ import { normalizeNativeGrepResult } from "../src/grep-format.js";
 import { registerTools } from "../src/tools.js";
 
 const temporaryPaths: string[] = [];
+const renderContext = { isError: false, lastComponent: undefined } as never;
+const renderCallContext = { lastComponent: undefined } as never;
 
 afterEach(async (): Promise<void> => {
 	await Promise.all(
@@ -63,7 +66,7 @@ describe("pi-ext-tools catalog", () => {
 		const theme = {
 			fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
 			bold: (text: string): string => text,
-		};
+		} as Theme;
 		const grep = host.tools.find((candidate) => candidate.name === "grep");
 		const find = host.tools.find((candidate) => candidate.name === "find");
 		if (grep === undefined || find === undefined) throw new Error("Missing search tools");
@@ -75,9 +78,9 @@ describe("pi-ext-tools catalog", () => {
 						content: [{ type: "text", text: "src/a.ts\n1:needle\ncursor: grep:abc" }],
 						details: { format: "fff-grep" },
 					},
-					{},
+					{ isPartial: false, expanded: false },
 					theme,
-					{ isError: false, lastComponent: undefined },
+					renderContext,
 				)
 				.render(200)
 				.join("\n"),
@@ -85,10 +88,13 @@ describe("pi-ext-tools catalog", () => {
 		expect(
 			find
 				.renderResult?.(
-					{ content: [{ type: "text", text: "1. src/a.ts (fuzzy)\ncursor: find:abc" }] },
-					{},
+					{
+						content: [{ type: "text", text: "1. src/a.ts (fuzzy)\ncursor: find:abc" }],
+						details: undefined,
+					},
+					{ isPartial: false, expanded: false },
 					theme,
-					{ isError: false, lastComponent: undefined },
+					renderContext,
 				)
 				.render(200)
 				.join("\n"),
@@ -133,6 +139,7 @@ describe("pi-ext-tools catalog", () => {
 					text: "src/a.ts:10: first\nsrc/a.ts-9- before\nsrc/b.ts:3: second",
 				},
 			],
+			details: undefined,
 		});
 		expect(result.content[0]?.text).toBe(
 			"Found 2 matches in 2 files.\n\nsrc/a.ts\n10:first\n9│before\n\nsrc/b.ts\n3:second",
@@ -227,18 +234,16 @@ describe("pi-ext-tools catalog", () => {
 		const host = harness();
 		registerTools(host.pi);
 		const theme = {
-			fg: (_role: string, text: string): string => text,
+			fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
 			bold: (text: string): string => text,
-		};
+		} as Theme;
 		const grep = host.tools.find((candidate) => candidate.name === "grep");
 		const find = host.tools.find((candidate) => candidate.name === "find");
 		if (grep === undefined || find === undefined) throw new Error("Missing search tool");
 
 		expect(
 			grep
-				.renderCall?.({ pattern: "needle", path: "src", timeout: 5 }, theme, {
-					lastComponent: undefined,
-				})
+				.renderCall?.({ pattern: "needle", path: "src", timeout: 5 }, theme, renderCallContext)
 				.render(200)
 				.join("\n")
 				.trimEnd(),
@@ -247,7 +252,7 @@ describe("pi-ext-tools catalog", () => {
 		);
 		expect(
 			find
-				.renderCall?.({ pattern: "status-surface", limit: 8 }, theme, { lastComponent: undefined })
+				.renderCall?.({ pattern: "status-surface", limit: 8 }, theme, renderCallContext)
 				.render(200)
 				.join("\n")
 				.trimEnd(),
@@ -259,9 +264,9 @@ describe("pi-ext-tools catalog", () => {
 						content: [{ type: "text", text: "src/a.ts (2 matches)\nline: 1, 3, ..." }],
 						details: { format: "fff-grep" },
 					},
-					{},
+					{ isPartial: false, expanded: false },
 					theme,
-					{ isError: false, lastComponent: undefined },
+					renderContext,
 				)
 				.render(200)
 				.map((line) => line.trimEnd())
@@ -280,9 +285,9 @@ describe("pi-ext-tools catalog", () => {
 						],
 						details: { format: "fff-grep" },
 					},
-					{},
+					{ isPartial: false, expanded: false },
 					theme,
-					{ isError: false, lastComponent: undefined },
+					renderContext,
 				)
 				.render(200)
 				.map((line) => line.trimEnd())
@@ -303,15 +308,17 @@ describe("pi-ext-tools catalog", () => {
 						],
 						details: { format: "fff-grep" },
 					},
-					{},
+					{ isPartial: false, expanded: false },
 					theme,
-					{ isError: false, lastComponent: undefined },
+					renderContext,
 				)
 				.render(200)
 				.map((line) => line.trimEnd())
 				.join("\n")
 				.trimEnd(),
-		).toBe("Found 9 matches in 3 files.\n\nsrc/a.ts\n1:one");
+		).toBe(
+			"Found <success>9</success> matches in <success>3</success> files.\n\n<mdCode>src/a.ts</mdCode>\n<dim>1:</dim>one",
+		);
 		expect(
 			grep
 				.renderResult?.(
@@ -324,9 +331,9 @@ describe("pi-ext-tools catalog", () => {
 						],
 						details: { format: "fff-grep" },
 					},
-					{},
+					{ isPartial: false, expanded: false },
 					theme,
-					{ isError: false, lastComponent: undefined },
+					renderContext,
 				)
 				.render(200)
 				.map((line) => line.trimEnd())
@@ -347,9 +354,9 @@ describe("pi-ext-tools catalog", () => {
 						],
 						details: undefined,
 					},
-					{},
+					{ isPartial: false, expanded: false },
 					theme,
-					{ isError: false, lastComponent: undefined },
+					renderContext,
 				)
 				.render(200)
 				.map((line) => line.trimEnd())
@@ -365,9 +372,9 @@ describe("pi-ext-tools catalog", () => {
 						content: [{ type: "text", text: "src/a.ts\n9:one\n100:hundred" }],
 						details: { format: "fff-grep" },
 					},
-					{},
+					{ isPartial: false, expanded: false },
 					theme,
-					{ isError: false, lastComponent: undefined },
+					renderContext,
 				)
 				.render(200)
 				.map((line) => line.trimEnd())
@@ -422,10 +429,11 @@ describe("pi-ext-tools catalog", () => {
 								text: "src/\n1. one.ts (fuzzy) - frequent git:modified\n2. two.ts (prefix)",
 							},
 						],
+						details: undefined,
 					},
-					{},
+					{ isPartial: false, expanded: false },
 					theme,
-					{ isError: false, lastComponent: undefined },
+					renderContext,
 				)
 				.render(200)
 				.map((line) => line.trimEnd())
@@ -439,10 +447,11 @@ describe("pi-ext-tools catalog", () => {
 				.renderResult?.(
 					{
 						content: [{ type: "text", text: "1. one.ts (fff_fuzzy)\n2. two.ts (fff_prefix)" }],
+						details: undefined,
 					},
-					{},
+					{ isPartial: false, expanded: false },
 					theme,
-					{ isError: false, lastComponent: undefined },
+					renderContext,
 				)
 				.render(200)
 				.map((line) => line.trimEnd())

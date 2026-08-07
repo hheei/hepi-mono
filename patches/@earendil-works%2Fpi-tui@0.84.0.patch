@@ -1,5 +1,5 @@
 diff --git a/dist/components/editor.js b/dist/components/editor.js
-index d3f343b18c1d04ed35c9c52656213ecf72a226ed..ada97e73dc809e021969616b54f82285744f97ff 100644
+index 4786b46932b65785cfbd2304610ca77ccead910a..af52c6fb10fefbb74cb8090a1f95481369046e6a 100644
 --- a/dist/components/editor.js
 +++ b/dist/components/editor.js
 @@ -540,6 +540,7 @@ export class Editor {
@@ -19,11 +19,11 @@ index d3f343b18c1d04ed35c9c52656213ecf72a226ed..ada97e73dc809e021969616b54f82285
                  }
                  return;
              }
-diff --git a/dist/tui.js b/dist/tui.js
-index 7e6b41a8d95d7707d0e2d160dc64cd4b57fbf37f..fab67929491120c06095404eae90facc20f7ce53 100644
---- a/dist/tui.js
-+++ b/dist/tui.js
-@@ -1003,12 +1003,15 @@ export class TUI extends Container {
+diff --git a/dist/tui-main-screen.js b/dist/tui-main-screen.js
+index 05279f4699c298ca345785dd2f896a33d8271f4a..c50e7f9d0f83f196a9b08dffd6fa9f6cf5d87e57 100644
+--- a/dist/tui-main-screen.js
++++ b/dist/tui-main-screen.js
+@@ -176,12 +176,15 @@ export class TuiMainScreen extends TuiBase {
          const cursorPos = this.extractCursorPosition(newLines, height);
          newLines = this.applyLineResets(newLines);
          // Helper to clear scrollback and viewport and render all new lines
@@ -41,14 +41,14 @@ index 7e6b41a8d95d7707d0e2d160dc64cd4b57fbf37f..fab67929491120c06095404eae90facc
              }
              for (let i = 0; i < newLines.length; i++) {
                  if (i > 0)
-@@ -1173,7 +1176,9 @@ export class TUI extends Container {
-         // If the first changed line is above the previous viewport, we need a full redraw.
-         if (firstChanged < prevViewportTop) {
-             logRedraw(`firstChanged < viewportTop (${firstChanged} < ${prevViewportTop})`);
+@@ -238,7 +241,9 @@ export class TuiMainScreen extends TuiBase {
+         // Width changes always need a full re-render because wrapping changes.
+         if (widthChanged) {
+             logRedraw(`terminal width changed (${this.previousWidth} -> ${width})`);
 -            fullRender(true);
 +            // A streaming update can change a tool row that is above the visible viewport.
 +            // Repaint it without deleting the user's terminal scrollback.
 +            fullRender(true, false);
              return;
          }
-         // Render from first changed line to end
+         // Height changes normally need a full re-render to keep the visible viewport aligned,

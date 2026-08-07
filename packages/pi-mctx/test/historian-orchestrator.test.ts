@@ -123,7 +123,11 @@ test("uses atomic replacement publication when recomp requests it", async (): Pr
 				publishCompartment: () => {
 					throw new Error("must not publish separately");
 				},
-				replaceCompartmentsFrom: (_partition, revision, draft) => {
+				replaceCompartmentsFrom: (
+					_partition: MctxPartition,
+					revision: number,
+					draft: MctxCompartmentDraft,
+				) => {
 					expect(revision).toBe(1);
 					replaced++;
 					return publication(draft);

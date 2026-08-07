@@ -1,4 +1,8 @@
-import type { AgentToolResult, Theme } from "@earendil-works/pi-coding-agent";
+import type {
+	AgentToolResult,
+	Theme,
+	ToolRenderResultOptions,
+} from "@earendil-works/pi-coding-agent";
 import { type Component, Text } from "@earendil-works/pi-tui";
 
 type GrepRenderArgs = {
@@ -10,11 +14,6 @@ type GrepRenderArgs = {
 type FindRenderArgs = {
 	readonly pattern: string;
 	readonly limit?: number | undefined;
-};
-
-type RenderContext = {
-	readonly isError: boolean;
-	readonly lastComponent: Component | undefined;
 };
 
 const GREP_SUMMARY = /^(\d+) matches in (\d+) files:$/;
@@ -30,6 +29,7 @@ const FIND_DIRECTORY_HEADER = /^.+\/$/;
 const FIND_CURSOR = /^cursor:\s+/;
 const MAX_COLLAPSED_GREP_CONTENT_LINES = 14;
 const DEFAULT_GREP_TIMEOUT_SECONDS = 30;
+type RenderContext = { readonly isError: boolean; readonly lastComponent: Component | undefined };
 
 function resultText(result: AgentToolResult<unknown>): string {
 	return result.content
@@ -216,7 +216,7 @@ export function renderGrepCall(
 
 export function renderGrepResult(
 	result: AgentToolResult<unknown>,
-	options: { readonly expanded?: boolean },
+	_options: ToolRenderResultOptions,
 	theme: Theme,
 	context: RenderContext,
 ): Text {
@@ -226,7 +226,7 @@ export function renderGrepResult(
 		text.setText(
 			context.isError
 				? theme.fg("error", content)
-				: renderFffGrepText(collapseGrepText(content, options.expanded === true), theme),
+				: renderFffGrepText(collapseGrepText(content, false), theme),
 		);
 		return text;
 	}
@@ -236,7 +236,7 @@ export function renderGrepResult(
 			? undefined
 			: `Found ${theme.fg("success", String(totals.matched))} matches in ${theme.fg("success", String(totals.files))} files.`;
 	const renderedContent = renderGrepText(
-		collapseGrepText(content, options.expanded === true),
+		collapseGrepText(content, false),
 		theme,
 		requestedGrepLimit(result),
 	);
@@ -308,7 +308,7 @@ function renderFindText(result: AgentToolResult<unknown>, theme: Theme): string 
 
 export function renderFindResult(
 	result: AgentToolResult<unknown>,
-	_options: unknown,
+	_options: ToolRenderResultOptions,
 	theme: Theme,
 	context: RenderContext,
 ): Text {

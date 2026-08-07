@@ -65,6 +65,7 @@ function configuration(
 				smartDrops,
 				executeThresholdPercentage: { defaultValue: 65, byModel: {} },
 				protectedTags,
+				clearReasoningAge: 3,
 			},
 		},
 	};
@@ -215,6 +216,7 @@ function store(overrides: Partial<MctxStore> = {}): MctxStore {
 }
 
 test("active MCTX prepares a verified same-session compaction result", async (): Promise<void> => {
+	const notifications: Array<{ readonly message: string; readonly level?: string }> = [];
 	const branch = [...entries, entry("tail", "user", "keep this live")];
 	const partition = { projectIdentity: "git:project", sessionId: "session-1", revision: 0 };
 	const feature = createMctxFeature({
@@ -232,7 +234,10 @@ test("active MCTX prepares a verified same-session compaction result", async ():
 			cwd: "/project",
 			sessionManager: { getSessionId: () => "session-1" },
 			modelRegistry: { find: () => model, hasConfiguredAuth: () => true },
-			ui: { notify: (message: string, level?: string) => notifications.push({ message, level }) },
+			ui: {
+				notify: (message: string, level?: string) =>
+					notifications.push({ message, ...(level === undefined ? {} : { level }) }),
+			},
 		} as unknown as ExtensionContext,
 		signal: new AbortController().signal,
 		resources: { add: () => undefined, cleanup: async () => [] },
@@ -583,7 +588,10 @@ test("smart drops queue an old visible tool result and project its recovery mark
 			cwd: "/project",
 			sessionManager: { getSessionId: () => "session-1" },
 			modelRegistry: { find: () => model, hasConfiguredAuth: () => true },
-			ui: { notify: (message: string, level?: string) => notifications.push({ message, level }) },
+			ui: {
+				notify: (message: string, level?: string) =>
+					notifications.push({ message, ...(level === undefined ? {} : { level }) }),
+			},
 		} as unknown as ExtensionContext,
 		signal: new AbortController().signal,
 		resources: { add: () => undefined, cleanup: async () => [] },
