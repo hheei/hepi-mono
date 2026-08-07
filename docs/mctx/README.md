@@ -29,6 +29,15 @@ compartment 投影后按完整 branch 顺序对未覆盖的 live tail 做结构�
 `<!-- +Xm -->`。该 marker 只用于模型可见的时间间隔，不写入 session；重复 context
 pass 保持幂等。显式 `false` 才关闭。
 
+## Knowledge disclosure and fallback warning
+
+`<hindsight-knowledge>` 与 `<hindsight-page-sections>` 不再对用户隐藏。它们仍是 transient context projection，
+不写回 Pi transcript、不参与 automatic retain；MCTX 在首次显示某个新 projection 时，通过 Pi host notification
+显示 bounded rendered payload 与 provenance。重复 context pass 不重复通知。
+
+当 `pi-mctx` 与 `pi-hindsight` 同时运行而 Hindsight 意外成为 automatic injection fallback owner 时，Pi 必须显示
+`warning`，说明 `hindsight-owned`、MCTX 当前状态与 fallback 原因。普通 `info` recall 数量不能代替该 warning。
+
 ## System Injection Stripping
 
 `pi-mctx` 在 execute pass 对非保护的 active user-text message tag 清理上游已定义的 system injection：

@@ -109,7 +109,7 @@ export function createRecallTurnPolicy(deps: RecallTurnPolicyDeps): RecallTurnPo
 				return undefined;
 			}
 
-			const cacheKey = scopes.map((s) => s.bankId).join(",") + "|" + event.messages.length;
+			const cacheKey = `${scopes.map((s) => s.bankId).join(",")}|${event.messages.length}`;
 			let recallResult = cache.get(cacheKey);
 
 			try {
@@ -143,6 +143,9 @@ export function createRecallTurnPolicy(deps: RecallTurnPolicyDeps): RecallTurnPo
 						),
 						failed > 0 && memoryCount === 0 ? "warning" : "info",
 					);
+				}
+				if (rendered) {
+					deps.notify(runtime, `Hindsight automatic recall result:\n${rendered}`, "info");
 				}
 				if (
 					config.recall.storeLastRecall &&

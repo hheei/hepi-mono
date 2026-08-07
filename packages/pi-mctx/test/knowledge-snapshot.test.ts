@@ -43,6 +43,7 @@ test("renders bounded knowledge and marks injected sources as non-retainable", (
 	expect(message).toMatchObject({
 		role: "custom",
 		customType: "pi-injected-knowledge",
+		display: true,
 		details: { provider: "hindsight", sourceIds: ["mental-model:architecture"], retain: false },
 	});
 });

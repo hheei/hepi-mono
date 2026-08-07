@@ -94,6 +94,13 @@ existing semantic token expresses the role.
   output uses `muted`.
 - Extension messages use one `customMessageBg` block with
   `customMessageLabel` and `customMessageText`.
+- Automatic Hindsight knowledge is disclosed to the user at injection time,
+  including its bounded rendered payload and provenance. Context-hook
+  projections remain transient and are not persisted as transcript messages;
+  the disclosure uses the host notification channel and `info` status styling.
+- If Hindsight becomes the fallback automatic-injection owner while MCTX is
+  active but not eligible, show a `warning` notification stating the owner and
+  reason. Never hide an owner transition behind a normal informational toast.
 
 ### Selectors And Settings
 

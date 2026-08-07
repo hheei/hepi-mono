@@ -53,6 +53,7 @@ test("rejects duplicate sections, bounds rendering, and marks only rendered sour
 	if (message.role !== "custom" || typeof message.content !== "string")
 		throw new Error("Expected custom string page message");
 	expect(message.content.length).toBeLessThanOrEqual(300);
+	expect(message.display).toBe(true);
 	expect(message.details).toMatchObject({ sourceIds: ["page-1:0"], retain: false });
 });
 

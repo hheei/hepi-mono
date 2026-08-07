@@ -261,6 +261,7 @@ test("active MCTX prepares a verified same-session compaction result", async ():
 test("knowledge persistence policy prevents disabled provider use and ephemeral SQLite writes", async (): Promise<void> => {
 	let identityCalls = 0;
 	let projectCalls = 0;
+	const notifications: Array<{ readonly message: string; readonly level?: string }> = [];
 	const provider: HindsightKnowledgeProvider = {
 		identity: async () => {
 			identityCalls++;
@@ -311,7 +312,7 @@ test("knowledge persistence policy prevents disabled provider use and ephemeral 
 			cwd: "/project",
 			sessionManager: { getSessionId: () => "session-1" },
 			modelRegistry: { find: () => model, hasConfiguredAuth: () => true },
-			ui: { notify: () => undefined },
+			ui: { notify: (message: string, level?: string) => notifications.push({ message, level }) },
 		} as unknown as ExtensionContext,
 		signal: new AbortController().signal,
 		resources: { add: () => undefined, cleanup: async () => [] },
@@ -371,8 +372,13 @@ test("knowledge persistence policy prevents disabled provider use and ephemeral 
 	expect(projected?.messages[0]).toMatchObject({ customType: "pi-injected-knowledge" });
 	expect(projected?.messages[1]).toMatchObject({
 		customType: "pi-injected-knowledge",
+		display: true,
 		details: { sourceIds: [pageSection.id], retain: false },
 	});
+	expect(notifications.filter(({ message }) => message.includes("MCTX Hindsight"))).toEqual([
+		expect.objectContaining({ message: expect.stringContaining("<hindsight-knowledge>") }),
+		expect.objectContaining({ message: expect.stringContaining("<hindsight-page-sections>") }),
+	]);
 });
 
 test("concurrent context passes wait for one materialization and replay its result", async (): Promise<void> => {

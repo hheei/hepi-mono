@@ -8,6 +8,11 @@ Automatic recall runs in Pi's `context` hook. The extension composes a determini
 
 The injected block is not written to the Pi transcript by this extension and is not retained back into Hindsight.
 
+Automatic recall is user-visible. When a recall block is injected, Hindsight discloses its bounded rendered result
+through the Pi host notification channel. If it owns injection as an MCTX fallback, a separate warning names the
+fallback owner and MCTX eligibility state. The block remains transient and untrusted, and the notification does not
+make it eligible for automatic retain.
+
 Defaults:
 
 - `recall.types: ["observation"]`

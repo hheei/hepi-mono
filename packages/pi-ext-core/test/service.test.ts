@@ -148,6 +148,7 @@ test("keeps disabled knowledge injection terminal for its lifecycle generation",
 		start: (context) => {
 			const coordinator = ensureKnowledgeInjectionCoordinator(host.pi, context);
 			coordinator.setMctxEligibility({ generation: "mctx-1", eligible: true });
+			expect(coordinator.state().mctxConfigured).toBe(true);
 			const mctxLease = coordinator.claim({
 				owner: "mctx-owned",
 				generation: "mctx-1",

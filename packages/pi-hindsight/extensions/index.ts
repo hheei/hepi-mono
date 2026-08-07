@@ -5,6 +5,7 @@ import {
 	HINDSIGHT_KNOWLEDGE_PROVIDER,
 	HINDSIGHT_PAGE_SECTION_SERVICE,
 	type KnowledgeInjectionLease,
+	type KnowledgeInjectionState,
 	provideService,
 	registerExtensionLifecycle,
 } from "@hheei/pi-ext-core";
@@ -15,11 +16,24 @@ import { createHindsightPageSectionService } from "./lifecycle/page-sections.js"
 import { registerTools } from "./operations/tools.js";
 import { registerCommands } from "./tui/commands.js";
 
+export function warnHindsightFallback(
+	state: Pick<KnowledgeInjectionState, "mctxConfigured" | "mctxEligible">,
+	notify: (message: string, level: "warning") => void,
+): boolean {
+	if (!state.mctxConfigured || state.mctxEligible) return false;
+	notify(
+		"Hindsight automatic knowledge injection is using fallback owner hindsight-owned: MCTX integration is not eligible for this session.",
+		"warning",
+	);
+	return true;
+}
+
 export default function hindsightExtension(pi: ExtensionAPI): void {
 	const lifecycle = createMemoryLifecycle(process.cwd());
 	let lifecycleSignal: AbortSignal | undefined;
 	let injectionLease: KnowledgeInjectionLease | undefined;
 	let pageSectionService: Awaited<ReturnType<typeof createHindsightPageSectionService>> | undefined;
+	let fallbackWarningShown = false;
 	const active = (): boolean => lifecycleSignal !== undefined && !lifecycleSignal.aborted;
 	const canInjectAutomatically = (ctx: ExtensionContext): boolean => {
 		const coordinator = getKnowledgeInjectionCoordinator(pi);
@@ -33,6 +47,13 @@ export default function hindsightExtension(pi: ExtensionAPI): void {
 			generation: `hindsight:${ctx.sessionManager.getSessionId()}`,
 			reason: "MCTX automatic knowledge integration is unavailable",
 		});
+		if (
+			injectionLease !== undefined &&
+			!fallbackWarningShown &&
+			warnHindsightFallback(state, ctx.ui.notify)
+		) {
+			fallbackWarningShown = true;
+		}
 		return injectionLease !== undefined;
 	};
 
@@ -46,6 +67,7 @@ export default function hindsightExtension(pi: ExtensionAPI): void {
 			const coordinator = ensureKnowledgeInjectionCoordinator(pi, context);
 			context.resources.add("hindsight-active-session", () => {
 				if (lifecycleSignal === context.signal) lifecycleSignal = undefined;
+				fallbackWarningShown = false;
 				if (injectionLease !== undefined) {
 					coordinator.release(injectionLease);
 					injectionLease = undefined;
