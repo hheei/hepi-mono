@@ -433,4 +433,4 @@ bunx biome check packages/pi-advisor/src packages/pi-advisor/test
 bun run check
 ```
 
-`bun run check` 若仍出现已知的 `packages/hepi-mono` package-boundary failures，应单独记录，不把它们归因于 Advisor 调度改动。
+`bun run check` 若仍出现已知的 deprecated aggregate package-boundary failures，应单独记录，不把它们归因于 Advisor 调度改动。
