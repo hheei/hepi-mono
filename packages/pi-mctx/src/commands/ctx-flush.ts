@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { getPendingOps, type ContextDatabase } from "#core/features/magic-context/storage";
-import { executeFlush } from "#core/hooks/magic-context/execute-flush";
+import { getPendingOps, type ContextDatabase } from "#core/features/storage";
+import { executeFlush } from "#core/hooks/execute-flush";
 import { COMPACTION_OFF_COMMAND_UNAVAILABLE } from "../compaction-off-pi";
 import {
 	signalPiHistoryRefresh,

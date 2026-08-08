@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { setRawMessageProvider } from "../../../../src/core/hooks/magic-context/read-session-chunk";
-import type { RawMessage } from "../../../../src/core/hooks/magic-context/read-session-raw";
+import { setRawMessageProvider } from "../../../../src/core/hooks/read-session-chunk";
+import type { RawMessage } from "../../../../src/core/hooks/read-session-raw";
 import { renderMessageByOrdinal, renderVerboseRange } from "../../../../src/core/tools/ctx-expand/render";
 
 const SESSION = "ses-render-test";

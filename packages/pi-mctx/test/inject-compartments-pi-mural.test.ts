@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveMuralWire } from "#core/features/magic-context/mural/render-trigger";
-import { getOrCreateSessionMeta } from "#core/features/magic-context/storage";
+import { resolveMuralWire } from "#core/features/mural/render-trigger";
+import { getOrCreateSessionMeta } from "#core/features/storage";
 import {
 	clearModelsDevCache,
 	refreshModelLimitsFromApi,

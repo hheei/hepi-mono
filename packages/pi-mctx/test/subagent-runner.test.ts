@@ -12,7 +12,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { PassThrough } from "node:stream";
-import { closeDatabase, openDatabase } from "#core/features/magic-context/storage";
+import { closeDatabase, openDatabase } from "#core/features/storage";
 import * as loggerModule from "#core/shared/logger";
 import type { SubagentRunOptions } from "#core/shared/subagent-runner";
 

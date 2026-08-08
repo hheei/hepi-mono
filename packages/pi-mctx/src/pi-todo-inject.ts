@@ -4,7 +4,7 @@
  * # Why this is separate from legacy host's path
  *
  * legacy host synthesizes a single `tool` part on the latest assistant message
- * (`buildSyntheticTodoPart` in `packages/plugin/src/hooks/magic-context/todo-view.ts`);
+ * (`buildSyntheticTodoPart` in `packages/plugin/src/hooks/todo-view.ts`);
  * legacy host's wire serializer (`MessageV2.toModelMessagesEffect`) splits that
  * combined part into provider-shape `tool_use` (assistant) and `tool_result`
  * (next user) at wire-emit time.
@@ -30,16 +30,16 @@
  *   so identical persisted state produces byte-identical wire shape.
  */
 
-import type { ContextDatabase } from "#core/features/magic-context/storage";
+import type { ContextDatabase } from "#core/features/storage";
 import {
 	clearPersistedTodoSyntheticAnchor,
 	getPersistedTodoSyntheticAnchor,
 	setPersistedTodoSyntheticAnchor,
-} from "#core/features/magic-context/storage-meta";
+} from "#core/features/storage-meta";
 import {
 	buildSyntheticTodoPart,
 	type SyntheticTodoPart,
-} from "#core/hooks/magic-context/todo-view";
+} from "#core/hooks/todo-view";
 
 // Pi message shape (mirrors @earendil-works/pi-ai types — kept local because
 // the pi-plugin builds against a stable subset of those types via TypeScript

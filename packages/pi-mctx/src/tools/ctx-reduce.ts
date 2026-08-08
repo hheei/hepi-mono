@@ -14,7 +14,7 @@
  */
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { parseRangeString } from "#core/features/magic-context/range-parser";
+import { parseRangeString } from "#core/features/range-parser";
 import {
 	type ContextDatabase,
 	getOrCreateSessionMeta,
@@ -22,7 +22,7 @@ import {
 	getTagsBySession,
 	queuePendingOp,
 	updateSessionMeta,
-} from "#core/features/magic-context/storage";
+} from "#core/features/storage";
 import { getErrorMessage } from "#core/shared/error-message";
 import { CTX_REDUCE_DESCRIPTION } from "#core/tools/ctx-reduce/constants";
 import { unwrapImitatedReducedArgs } from "#core/tools/unwrap-imitated-reduced-args";

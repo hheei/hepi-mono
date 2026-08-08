@@ -53,18 +53,18 @@ import type { ContextEvent } from "@earendil-works/pi-coding-agent";
 import {
 	embedTextForProject,
 	getProjectEmbeddingSnapshot,
-} from "#core/features/magic-context/memory/embedding";
+} from "#core/features/memory/embedding";
 import {
 	unifiedSearch,
 	type UnifiedSearchOptions,
 	type UnifiedSearchResult,
-} from "#core/features/magic-context/search";
+} from "#core/features/search";
 import {
 	type AutoSearchHintNoHintReason,
 	appendAutoSearchHintDecision,
 	getAutoSearchHintDecisions,
-} from "#core/features/magic-context/storage-meta-persisted";
-import { buildAutoSearchHint } from "#core/hooks/magic-context/auto-search-hint";
+} from "#core/features/storage-meta-persisted";
+import { buildAutoSearchHint } from "#core/hooks/auto-search-hint";
 import { log, sessionLog } from "#core/shared/logger";
 import type { Database } from "#core/shared/sqlite";
 

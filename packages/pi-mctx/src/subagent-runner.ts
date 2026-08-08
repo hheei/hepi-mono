@@ -11,9 +11,9 @@ import {
 } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
-import { openDatabase } from "#core/features/magic-context/storage";
-import type { SubagentKind } from "#core/features/magic-context/storage-subagent-invocations";
-import { recordChildInvocation } from "#core/features/magic-context/subagent-token-capture";
+import { openDatabase } from "#core/features/storage";
+import type { SubagentKind } from "#core/features/storage-subagent-invocations";
+import { recordChildInvocation } from "#core/features/subagent-token-capture";
 import {
 	piModelRefToCanonical,
 	resolveModelRefForPi,

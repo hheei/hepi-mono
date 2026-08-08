@@ -1,4 +1,4 @@
-import type { MemorySourceType } from "../../features/magic-context/memory";
+import type { MemorySourceType } from "../../features/memory";
 import type { RustToolBackends } from "../../plugin/rust-tool-backends";
 import type { Database } from "../../shared/sqlite";
 import type { ImitatedReducedArgs } from "../unwrap-imitated-reduced-args";

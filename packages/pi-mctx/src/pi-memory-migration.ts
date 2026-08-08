@@ -5,11 +5,11 @@ import {
 	isMemoryMigrationDone,
 	markMemoryMigrationDone,
 	parseMemoryMigrationOutput,
-} from "#core/features/magic-context/memory/memory-migration";
-import { resolveProjectIdentityForSession } from "#core/features/magic-context/memory/project-identity";
-import { getAllActiveMemoriesForMigration } from "#core/features/magic-context/memory/storage-memory";
-import type { ContextDatabase } from "#core/features/magic-context/storage";
-import { insertUserMemoryCandidates } from "#core/features/magic-context/user-memory/storage-user-memory";
+} from "#core/features/memory/memory-migration";
+import { resolveProjectIdentityForSession } from "#core/features/memory/project-identity";
+import { getAllActiveMemoriesForMigration } from "#core/features/memory/storage-memory";
+import type { ContextDatabase } from "#core/features/storage";
+import { insertUserMemoryCandidates } from "#core/features/user-memory/storage-user-memory";
 import { sessionLog } from "#core/shared/logger";
 import type { SubagentRunner } from "#core/shared/subagent-runner";
 

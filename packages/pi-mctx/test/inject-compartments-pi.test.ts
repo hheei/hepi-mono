@@ -2,24 +2,24 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appendCompartments } from "#core/features/magic-context/compartment-storage";
-import { resolveProjectIdentity } from "#core/features/magic-context/memory/project-identity";
+import { appendCompartments } from "#core/features/compartment-storage";
+import { resolveProjectIdentity } from "#core/features/memory/project-identity";
 import {
 	archiveMemory,
 	getMemoriesByProject,
 	insertMemory,
-} from "#core/features/magic-context/memory/storage-memory";
+} from "#core/features/memory/storage-memory";
 import {
 	getCompartments,
 	getOrCreateSessionMeta,
 	queueMemoryMutation,
 	setProjectState,
-} from "#core/features/magic-context/storage";
+} from "#core/features/storage";
 import {
 	getActiveUserMemories,
 	insertUserMemory,
-} from "#core/features/magic-context/user-memory/storage-user-memory";
-import { COMPARTMENT_RENDER_EPOCH } from "#core/hooks/magic-context/compartment-render-epoch";
+} from "#core/features/user-memory/storage-user-memory";
+import { COMPARTMENT_RENDER_EPOCH } from "#core/hooks/compartment-render-epoch";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import {
 	__test,

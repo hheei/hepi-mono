@@ -10,25 +10,25 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import { getCompartments } from "#core/features/magic-context/compartment-storage";
-import { getMemoryCount } from "#core/features/magic-context/memory/storage-memory";
-import { parseCacheTtl } from "#core/features/magic-context/scheduler";
-import type { ContextDatabase } from "#core/features/magic-context/storage";
-import { getOrCreateSessionMeta } from "#core/features/magic-context/storage-meta";
+import { getCompartments } from "#core/features/compartment-storage";
+import { getMemoryCount } from "#core/features/memory/storage-memory";
+import { parseCacheTtl } from "#core/features/scheduler";
+import type { ContextDatabase } from "#core/features/storage";
+import { getOrCreateSessionMeta } from "#core/features/storage-meta";
 import {
 	getOverflowState,
 	getSessionWorkMetrics,
-} from "#core/features/magic-context/storage-meta-persisted";
-import { getNotes } from "#core/features/magic-context/storage-notes";
-import { getTagsBySession } from "#core/features/magic-context/storage-tags";
+} from "#core/features/storage-meta-persisted";
+import { getNotes } from "#core/features/storage-notes";
+import { getTagsBySession } from "#core/features/storage-tags";
 import {
 	MAX_EXECUTE_THRESHOLD,
 	resolveExecuteThresholdDetail,
-} from "#core/hooks/magic-context/event-resolvers";
-import { formatBytes } from "#core/hooks/magic-context/format-bytes";
-import { computeM0BlockTokens } from "#core/hooks/magic-context/m0-token-breakdown";
-import { estimateTokens } from "#core/hooks/magic-context/read-session-formatting";
-import { countCompartmentsNeedingUpgrade } from "#core/hooks/magic-context/upgrade-reminder";
+} from "#core/hooks/event-resolvers";
+import { formatBytes } from "#core/hooks/format-bytes";
+import { computeM0BlockTokens } from "#core/hooks/m0-token-breakdown";
+import { estimateTokens } from "#core/hooks/read-session-formatting";
+import { countCompartmentsNeedingUpgrade } from "#core/hooks/upgrade-reminder";
 import {
 	formatThresholdClampNote,
 	formatThresholdPercent,

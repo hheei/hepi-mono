@@ -8,11 +8,11 @@ import {
 	COMPARTMENT_LEASE_RENEWAL_MS,
 	releaseCompartmentLease,
 	renewCompartmentLease,
-} from "#core/features/magic-context/compartment-lease";
+} from "#core/features/compartment-lease";
 import {
 	getCompartments,
 	getLastCompartmentEndMessage,
-} from "#core/features/magic-context/compartment-storage";
+} from "#core/features/compartment-storage";
 import {
 	acquireWrapupInProgress,
 	type ContextDatabase,
@@ -22,13 +22,13 @@ import {
 	getWrapupInProgressState,
 	releaseWrapupInProgress,
 	updateWrapupInProgress,
-} from "#core/features/magic-context/storage";
-import { resolveExecuteThreshold } from "#core/hooks/magic-context/event-resolvers";
+} from "#core/features/storage";
+import { resolveExecuteThreshold } from "#core/hooks/event-resolvers";
 import {
 	hasRunnableCompartmentWindow,
 	resolveWrapupProtectedTailBoundary,
-} from "#core/hooks/magic-context/protected-tail-boundary";
-import { setRawMessageProvider } from "#core/hooks/magic-context/read-session-chunk";
+} from "#core/hooks/protected-tail-boundary";
+import { setRawMessageProvider } from "#core/hooks/read-session-chunk";
 import type { SubagentRunner } from "#core/shared/subagent-runner";
 import { COMPACTION_OFF_COMMAND_UNAVAILABLE } from "../compaction-off-pi";
 import {

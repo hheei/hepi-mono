@@ -22,7 +22,7 @@ import {
 	setChannel2NudgeState,
 	setLastNudgeLevel,
 	setLastNudgeUndropped,
-} from "#core/features/magic-context/storage";
+} from "#core/features/storage";
 import {
 	buildChannel1Reminder,
 	buildChannel2Reminder,
@@ -35,7 +35,7 @@ import {
 	type TailTokenEstimate,
 	tailToolTokensFromStrings,
 	toolOutputTokens,
-} from "#core/hooks/magic-context/ctx-reduce-nudge";
+} from "#core/hooks/ctx-reduce-nudge";
 import { sessionLog } from "#core/shared/logger";
 import type { Database } from "#core/shared/sqlite";
 

@@ -18,12 +18,12 @@
  */
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { getLastCompartmentEndMessage } from "#core/features/magic-context/compartment-storage";
-import type { ContextDatabase } from "#core/features/magic-context/storage";
+import { getLastCompartmentEndMessage } from "#core/features/compartment-storage";
+import type { ContextDatabase } from "#core/features/storage";
 import {
 	readSessionChunk,
 	setRawMessageProvider,
-} from "#core/hooks/magic-context/read-session-chunk";
+} from "#core/hooks/read-session-chunk";
 import {
 	CTX_EXPAND_DESCRIPTION,
 	CTX_EXPAND_TOKEN_BUDGET,

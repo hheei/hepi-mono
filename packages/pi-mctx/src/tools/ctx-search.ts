@@ -15,20 +15,20 @@
  */
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { getLastCompartmentEndMessage } from "#core/features/magic-context/compartment-storage";
+import { getLastCompartmentEndMessage } from "#core/features/compartment-storage";
 import {
 	embedTextForProject,
 	getProjectEmbeddingSnapshot,
-} from "#core/features/magic-context/memory/embedding";
-import { resolveProjectIdentityForSession } from "#core/features/magic-context/memory/project-identity";
+} from "#core/features/memory/embedding";
+import { resolveProjectIdentityForSession } from "#core/features/memory/project-identity";
 import {
 	parseIdShapedQuery,
 	resolveMemoriesByIdsForSearch,
 	type UnifiedSearchResult,
 	unifiedSearch,
-} from "#core/features/magic-context/search";
-import type { ContextDatabase } from "#core/features/magic-context/storage";
-import { getVisibleMemoryIds } from "#core/hooks/magic-context/inject-compartments";
+} from "#core/features/search";
+import type { ContextDatabase } from "#core/features/storage";
+import { getVisibleMemoryIds } from "#core/hooks/inject-compartments";
 import { CTX_SEARCH_DESCRIPTION } from "#core/tools/ctx-search/constants";
 import { unwrapImitatedReducedArgs } from "#core/tools/unwrap-imitated-reduced-args";
 import { type Static, Type } from "typebox";

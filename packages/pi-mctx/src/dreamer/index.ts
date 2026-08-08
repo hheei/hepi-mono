@@ -5,14 +5,14 @@ import type {
 import {
 	buildDreamTaskRuntimeConfigs,
 	userMemoryCollectionEnabled,
-} from "#core/features/magic-context/dreamer/task-config";
-import { createDreamTaskExecutor } from "#core/features/magic-context/dreamer/task-executor";
-import type { DreamTaskName } from "#core/features/magic-context/dreamer/task-registry";
+} from "#core/features/dreamer/task-config";
+import { createDreamTaskExecutor } from "#core/features/dreamer/task-executor";
+import type { DreamTaskName } from "#core/features/dreamer/task-registry";
 import {
 	type ManualRunResult,
 	runManualDream,
-} from "#core/features/magic-context/dreamer/task-scheduler";
-import type { ContextDatabase } from "#core/features/magic-context/storage";
+} from "#core/features/dreamer/task-scheduler";
+import type { ContextDatabase } from "#core/features/storage";
 import { startDreamScheduleTimer as defaultStartDreamScheduleTimer } from "#core/plugin/dream-timer";
 import { ensureProjectRegisteredFromPiDirectory } from "../embedding-bootstrap";
 import { PiSubagentRunner } from "../subagent-runner";

@@ -14,7 +14,7 @@ import {
 	TITLE_DONE_STATUSES,
 	TODO_PRIORITIES,
 	TODO_STATUSES,
-} from "#core/hooks/magic-context/todo-view";
+} from "#core/hooks/todo-view";
 import { type Static, Type } from "typebox";
 import {
 	renderTodowriteCall,

@@ -21,9 +21,9 @@
  * its `RawMessageProvider` for the call exactly like the range view does.
  */
 
-import { readRawSessionMessages } from "../../hooks/magic-context/read-session-chunk";
-import { estimateTokens } from "../../hooks/magic-context/read-session-formatting";
-import type { RawMessage } from "../../hooks/magic-context/read-session-raw";
+import { readRawSessionMessages } from "../../hooks/read-session-chunk";
+import { estimateTokens } from "../../hooks/read-session-formatting";
+import type { RawMessage } from "../../hooks/read-session-raw";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === "object" && !Array.isArray(value);

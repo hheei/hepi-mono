@@ -13,7 +13,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { ContextDatabase } from "#core/features/magic-context/storage";
+import type { ContextDatabase } from "#core/features/storage";
 import { createCtxExpandTool } from "./ctx-expand";
 import { createCtxMemoryTool } from "./ctx-memory";
 import { createCtxNoteTool } from "./ctx-note";

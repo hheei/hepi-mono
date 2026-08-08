@@ -1,19 +1,19 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { withContentLanguageDirective } from "#core/agents/language-directive";
-import { getCompartments } from "#core/features/magic-context/compartment-storage";
-import { isMemoryMigrationDone } from "#core/features/magic-context/memory/memory-migration";
-import { resolveProjectIdentityForSession } from "#core/features/magic-context/memory/project-identity";
-import type { ContextDatabase } from "#core/features/magic-context/storage";
-import { isWrapupInProgress } from "#core/features/magic-context/storage-meta-persisted";
-import { COMPARTMENT_STRUCTURAL_SYSTEM_PROMPT } from "#core/hooks/magic-context/compartment-prompt";
-import { executeContextRecompWithResult } from "#core/hooks/magic-context/compartment-runner";
-import type { RawMessageProvider } from "#core/hooks/magic-context/read-session-chunk";
+import { getCompartments } from "#core/features/compartment-storage";
+import { isMemoryMigrationDone } from "#core/features/memory/memory-migration";
+import { resolveProjectIdentityForSession } from "#core/features/memory/project-identity";
+import type { ContextDatabase } from "#core/features/storage";
+import { isWrapupInProgress } from "#core/features/storage-meta-persisted";
+import { COMPARTMENT_STRUCTURAL_SYSTEM_PROMPT } from "#core/hooks/compartment-prompt";
+import { executeContextRecompWithResult } from "#core/hooks/compartment-runner";
+import type { RawMessageProvider } from "#core/hooks/read-session-chunk";
 import {
 	contextualizeUpgradeReason,
 	extractRecompReason,
 	isRecompComplete,
 	isRecompFailure,
-} from "#core/hooks/magic-context/recomp-orchestrator";
+} from "#core/hooks/recomp-orchestrator";
 import { describeError } from "#core/shared/error-message";
 import { sessionLog } from "#core/shared/logger";
 import type { SubagentRunner } from "#core/shared/subagent-runner";

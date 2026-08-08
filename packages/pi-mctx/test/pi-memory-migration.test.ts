@@ -2,16 +2,16 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isMemoryMigrationDone } from "#core/features/magic-context/memory/memory-migration";
-import { resolveProjectIdentity } from "#core/features/magic-context/memory/project-identity";
+import { isMemoryMigrationDone } from "#core/features/memory/memory-migration";
+import { resolveProjectIdentity } from "#core/features/memory/project-identity";
 import {
 	getMemoriesByProject,
 	insertMemory,
-} from "#core/features/magic-context/memory/storage-memory";
+} from "#core/features/memory/storage-memory";
 import {
 	closeDatabase,
 	openDatabase,
-} from "#core/features/magic-context/storage";
+} from "#core/features/storage";
 import type {
 	SubagentRunner,
 	SubagentRunResult,

@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { insertUserMemory } from "#core/features/magic-context/user-memory/storage-user-memory";
+import { insertUserMemory } from "#core/features/user-memory/storage-user-memory";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import {
 	buildMagicContextBlock,

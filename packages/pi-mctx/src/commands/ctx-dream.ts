@@ -2,8 +2,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	type DreamTaskName,
 	isCanonicalDreamTask,
-} from "#core/features/magic-context/dreamer/task-registry";
-import type { ContextDatabase } from "#core/features/magic-context/storage";
+} from "#core/features/dreamer/task-registry";
+import type { ContextDatabase } from "#core/features/storage";
 import { sessionLog } from "#core/shared/logger";
 import { runPiDreamForProject } from "../dreamer";
 import { sendCtxStatusMessage } from "./pi-command-utils";

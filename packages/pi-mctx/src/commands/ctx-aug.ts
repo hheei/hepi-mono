@@ -8,12 +8,12 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { withContentLanguageDirective } from "#core/agents/language-directive";
-import { resolveProjectIdentityForSession } from "#core/features/magic-context/memory/project-identity";
+import { resolveProjectIdentityForSession } from "#core/features/memory/project-identity";
 import {
 	isEmptySidekickResult,
 	SIDEKICK_SYSTEM_PROMPT,
 	stripThinkingBlocks,
-} from "#core/features/magic-context/sidekick/core";
+} from "#core/features/sidekick/core";
 import { log, sessionLog } from "#core/shared/logger";
 
 import { PiSubagentRunner } from "../subagent-runner";

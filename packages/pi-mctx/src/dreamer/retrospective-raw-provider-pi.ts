@@ -5,7 +5,7 @@ import type {
 	RetrospectiveRawMessage,
 	RetrospectiveRawProvider,
 	RetrospectiveSinceRead,
-} from "#core/features/magic-context/dreamer/retrospective-raw-provider";
+} from "#core/features/dreamer/retrospective-raw-provider";
 import { loadDefaultPiSessionApi } from "./pi-session-api";
 
 interface PiSessionInfoLike {

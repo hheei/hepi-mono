@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { getProcessedImageStrippedIds } from "#core/features/magic-context/storage";
+import { getProcessedImageStrippedIds } from "#core/features/storage";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import { stripPiProcessedImages } from "../src/strip-processed-images-pi";
 import { assistantMessage, createTestDb } from "./test-utils.test";

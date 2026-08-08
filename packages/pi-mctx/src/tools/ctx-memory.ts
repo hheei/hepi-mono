@@ -50,29 +50,29 @@ import {
 	updateMemoryContent,
 	updateMemorySeenCount,
 	V2_MEMORY_CATEGORIES,
-} from "#core/features/magic-context/memory";
+} from "#core/features/memory";
 import {
 	embedTextForProject,
 	getProjectEmbeddingSnapshot,
-} from "#core/features/magic-context/memory/embedding";
-import { invalidateMemory } from "#core/features/magic-context/memory/embedding-cache";
-import { computeNormalizedHash } from "#core/features/magic-context/memory/normalize-hash";
+} from "#core/features/memory/embedding";
+import { invalidateMemory } from "#core/features/memory/embedding-cache";
+import { computeNormalizedHash } from "#core/features/memory/normalize-hash";
 import {
 	normalizeStoredProjectPath,
 	resolveProjectIdentityForSession,
 	storedPathBelongsToIdentity,
-} from "#core/features/magic-context/memory/project-identity";
+} from "#core/features/memory/project-identity";
 import {
 	type ContextDatabase,
 	queueMemoryMutation,
-} from "#core/features/magic-context/storage";
+} from "#core/features/storage";
 import {
 	expandWorkspaceIdentitySetWithAliases,
 	resolveStoredPathWorkspaceIdentity,
 	resolveWorkspaceIdentitySet,
 	resolveWorkspaceShareCategories,
 	storedPathBelongsToWorkspace,
-} from "#core/features/magic-context/workspaces";
+} from "#core/features/workspaces";
 import { log } from "#core/shared/logger";
 import { CTX_MEMORY_DESCRIPTION } from "#core/tools/ctx-memory/constants";
 import { runImmediateTransaction } from "#core/tools/ctx-memory/verification-recording";

@@ -14,8 +14,8 @@ import {
 	type ContextDatabase,
 	getOrCreateSessionMeta,
 	updateSessionMeta,
-} from "#core/features/magic-context/storage";
-import { estimateTokens } from "#core/hooks/magic-context/read-session-formatting";
+} from "#core/features/storage";
+import { estimateTokens } from "#core/hooks/read-session-formatting";
 import { sessionLog } from "#core/shared/logger";
 
 const PROJECT_DOCS_MARKER = "<project-docs>";
@@ -115,7 +115,7 @@ export function processSystemPromptForCache(args: {
 
 	// Step 1: hash detection vs persisted value.
 	let sessionMeta:
-		| import("#core/features/magic-context/types").SessionMeta
+		| import("#core/features/types").SessionMeta
 		| undefined;
 	try {
 		sessionMeta = getOrCreateSessionMeta(db, sessionId);

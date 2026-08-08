@@ -46,24 +46,24 @@
  */
 
 import { createHash } from "node:crypto";
-import type { ContextDatabase } from "../features/magic-context/storage";
-import { saveSourceContent } from "../features/magic-context/storage-source";
+import type { ContextDatabase } from "../features/storage";
+import { saveSourceContent } from "../features/storage-source";
 import {
     updateTagByteSize,
     updateTagInputByteSize,
     updateTagInputTokenCount,
     updateTagTokenCount,
-} from "../features/magic-context/storage-tags";
-import { makeToolCompositeKey, type Tagger } from "../features/magic-context/tagger";
-import { applyEditMarkerToInput } from "../hooks/magic-context/edit-marker";
-import { estimateImageTokensFromDataUrl } from "../hooks/magic-context/image-token-estimate";
-import { estimateTokens } from "../hooks/magic-context/read-session-formatting";
+} from "../features/storage-tags";
+import { makeToolCompositeKey, type Tagger } from "../features/tagger";
+import { applyEditMarkerToInput } from "../hooks/edit-marker";
+import { estimateImageTokensFromDataUrl } from "../hooks/image-token-estimate";
+import { estimateTokens } from "../hooks/read-session-formatting";
 import {
     byteSize,
     prependTag,
     stripTagPrefix,
-} from "../hooks/magic-context/tag-content-primitives";
-import type { TagTarget } from "../hooks/magic-context/tag-messages";
+} from "../hooks/tag-content-primitives";
+import type { TagTarget } from "../hooks/tag-messages";
 import type { Transcript, TranscriptPart } from "./transcript";
 
 export const TEXT_TAG_IDENTITY_MARKER = ":mc-text-v1:";

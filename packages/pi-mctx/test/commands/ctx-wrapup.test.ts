@@ -4,21 +4,21 @@ import { describe, expect, it, mock } from "bun:test";
 import {
 	acquireCompartmentLease,
 	releaseCompartmentLease,
-} from "#core/features/magic-context/compartment-lease";
+} from "#core/features/compartment-lease";
 import {
 	appendCompartments,
 	getCompartments,
 	getLastCompartmentEndMessage,
-} from "#core/features/magic-context/compartment-storage";
-import { initializeDatabase } from "../../src/core/features/magic-context/storage-db";
-import { updateSessionMeta } from "#core/features/magic-context/storage";
+} from "#core/features/compartment-storage";
+import { initializeDatabase } from "../../src/core/features/storage-db";
+import { updateSessionMeta } from "#core/features/storage";
 import {
 	getOverflowState,
 	getPendingPiCompactionMarkerState,
 	getWrapupInProgressState,
 	recordOverflowDetected,
 	setPendingPiCompactionMarkerState,
-} from "#core/features/magic-context/storage-meta-persisted";
+} from "#core/features/storage-meta-persisted";
 import { Database } from "#core/shared/sqlite";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import {

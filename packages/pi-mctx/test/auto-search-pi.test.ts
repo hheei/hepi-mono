@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
-import * as searchModule from "#core/features/magic-context/search";
+import * as searchModule from "#core/features/search";
 
 import {
 	appendAutoSearchHintDecision,
 	getAutoSearchHintDecisions,
-} from "#core/features/magic-context/storage";
+} from "#core/features/storage";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import {
 	clearAutoSearchForPiSession,

@@ -69,7 +69,7 @@
  * tagging+drops layer (which today only knows about MessageLike[]).
  */
 
-import { estimateTokens } from "#core/hooks/magic-context/read-session-formatting";
+import { estimateTokens } from "#core/hooks/read-session-formatting";
 import { isRecord } from "#core/shared/record-type-guard";
 import type {
 	Transcript,

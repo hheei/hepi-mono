@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "bun:test";
 import {
 	getOrCreateSessionMeta,
 	updateSessionMeta,
-} from "#core/features/magic-context/storage";
+} from "#core/features/storage";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 
 import {

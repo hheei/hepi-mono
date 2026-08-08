@@ -2,12 +2,12 @@ import { afterEach, describe, expect, it, mock, spyOn } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appendCompartments } from "#core/features/magic-context/compartment-storage";
+import { appendCompartments } from "#core/features/compartment-storage";
 import {
 	__resetMessageIndexAsyncForTests,
 	isSessionReconciled,
-} from "#core/features/magic-context/message-index-async";
-import * as searchModule from "#core/features/magic-context/search";
+} from "#core/features/message-index-async";
+import * as searchModule from "#core/features/search";
 import {
 	acquireWrapupInProgress,
 	addNote,
@@ -29,18 +29,18 @@ import {
 	setPendingPiCompactionMarkerState,
 	updateCavemanDepth,
 	updateSessionMeta,
-} from "#core/features/magic-context/storage";
+} from "#core/features/storage";
 import {
 	getEmergencyInputSample,
 	getOverflowState,
 	recordOverflowDetected,
-} from "#core/features/magic-context/storage-meta-persisted";
-import { createTagger } from "#core/features/magic-context/tagger";
-import { checkCompartmentTrigger } from "#core/hooks/magic-context/compartment-trigger";
-import { deriveTriggerBudget } from "#core/hooks/magic-context/derive-budgets";
-import { resolveExecuteThreshold } from "#core/hooks/magic-context/event-resolvers";
-import { onNoteTrigger } from "#core/hooks/magic-context/note-nudger";
-import { withRawMessageProvider } from "#core/hooks/magic-context/read-session-chunk";
+} from "#core/features/storage-meta-persisted";
+import { createTagger } from "#core/features/tagger";
+import { checkCompartmentTrigger } from "#core/hooks/compartment-trigger";
+import { deriveTriggerBudget } from "#core/hooks/derive-budgets";
+import { resolveExecuteThreshold } from "#core/hooks/event-resolvers";
+import { onNoteTrigger } from "#core/hooks/note-nudger";
+import { withRawMessageProvider } from "#core/hooks/read-session-chunk";
 import { setBootQuietPeriodForTests } from "#core/plugin/boot-quiet";
 import { clearModelsDevCache } from "#core/shared/models-dev-cache";
 import { closeQuietly } from "#core/shared/sqlite-helpers";

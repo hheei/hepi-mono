@@ -39,19 +39,19 @@
 
 import * as crypto from "node:crypto";
 import { withContentLanguageDirective } from "#core/agents/language-directive";
-import { embedAndStoreCompartmentChunks } from "#core/features/magic-context/compartment-embedding";
-import { insertCompartmentEvents } from "#core/features/magic-context/compartment-events";
-import { isCompartmentLeaseHeld } from "#core/features/magic-context/compartment-lease";
+import { embedAndStoreCompartmentChunks } from "#core/features/compartment-embedding";
+import { insertCompartmentEvents } from "#core/features/compartment-events";
+import { isCompartmentLeaseHeld } from "#core/features/compartment-lease";
 import {
 	appendCompartments,
 	getCompartments,
-} from "#core/features/magic-context/compartment-storage";
+} from "#core/features/compartment-storage";
 import {
 	embedPromotedFacts,
 	promoteSessionFactsDurable,
-} from "#core/features/magic-context/memory";
-import { resolveProjectIdentityForSession } from "#core/features/magic-context/memory/project-identity";
-import { getMemoriesByProject } from "#core/features/magic-context/memory/storage-memory";
+} from "#core/features/memory";
+import { resolveProjectIdentityForSession } from "#core/features/memory/project-identity";
+import { getMemoriesByProject } from "#core/features/memory/storage-memory";
 import {
 	clearEmergencyDrainLatch,
 	clearEmergencyRecovery,
@@ -65,33 +65,33 @@ import {
 	reserveProtectedTailDrainTokens,
 	rollbackProtectedTailDrainReservation,
 	setPendingPiCompactionMarkerState,
-} from "#core/features/magic-context/storage";
+} from "#core/features/storage";
 import {
 	type HistorianRunInput,
 	recordHistorianRun,
 	summarizeImportance,
 	tallyFactsByCategory,
-} from "#core/features/magic-context/storage-historian-runs";
-import { updateSessionMeta } from "#core/features/magic-context/storage-meta";
-import { insertPrimerCandidates } from "#core/features/magic-context/storage-primers";
-import { getLatestHistorianInvocationId } from "#core/features/magic-context/storage-subagent-invocations";
-import { insertUserMemoryCandidates } from "#core/features/magic-context/user-memory/storage-user-memory";
+} from "#core/features/storage-historian-runs";
+import { updateSessionMeta } from "#core/features/storage-meta";
+import { insertPrimerCandidates } from "#core/features/storage-primers";
+import { getLatestHistorianInvocationId } from "#core/features/storage-subagent-invocations";
+import { insertUserMemoryCandidates } from "#core/features/user-memory/storage-user-memory";
 import {
 	buildCompartmentAgentPrompt,
 	buildHistorianEditorPrompt,
 	COMPARTMENT_AGENT_SYSTEM_PROMPT,
 	HISTORIAN_EDITOR_SYSTEM_PROMPT,
-} from "#core/hooks/magic-context/compartment-prompt";
-import { queueDropsForCompartmentalizedMessages } from "#core/hooks/magic-context/compartment-runner-drop-queue";
+} from "#core/hooks/compartment-prompt";
+import { queueDropsForCompartmentalizedMessages } from "#core/hooks/compartment-runner-drop-queue";
 import {
 	buildHistorianFailureNotice,
 	buildHistorianRepairPrompt,
 	validateChunkCoverage,
 	validateHistorianOutput,
 	validateStoredCompartments,
-} from "#core/hooks/magic-context/compartment-runner-validation";
-import { renderMemoryBlock } from "#core/hooks/magic-context/inject-compartments";
-import { onNoteTrigger } from "#core/hooks/magic-context/note-nudger";
+} from "#core/hooks/compartment-runner-validation";
+import { renderMemoryBlock } from "#core/hooks/inject-compartments";
+import { onNoteTrigger } from "#core/hooks/note-nudger";
 import {
 	createDefaultBoundarySnapshotForTests,
 	hasRunnableCompartmentWindow,
@@ -99,14 +99,14 @@ import {
 	recordHighPressureNoEligibleHead,
 	selectPerRunCap,
 	validateBoundarySnapshot,
-} from "#core/hooks/magic-context/protected-tail-boundary";
+} from "#core/hooks/protected-tail-boundary";
 import {
 	type RawMessageProvider,
 	readSessionChunk,
 	withRawMessageProvider,
-} from "#core/hooks/magic-context/read-session-chunk";
-import { estimateTokens } from "#core/hooks/magic-context/read-session-formatting";
-import { buildReferenceBlocks } from "#core/hooks/magic-context/reference-retrieval";
+} from "#core/hooks/read-session-chunk";
+import { estimateTokens } from "#core/hooks/read-session-formatting";
+import { buildReferenceBlocks } from "#core/hooks/reference-retrieval";
 import { describeError } from "#core/shared/error-message";
 import { sessionLog } from "#core/shared/logger";
 import type { Database } from "#core/shared/sqlite";

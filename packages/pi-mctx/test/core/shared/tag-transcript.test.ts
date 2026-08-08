@@ -1,10 +1,10 @@
 /// <reference types="bun-types" />
 
 import { describe, expect, it } from "bun:test";
-import { initializeDatabase } from "../../../src/core/features/magic-context/storage-db";
-import type { ContextDatabase } from "../../../src/core/features/magic-context/storage";
+import { initializeDatabase } from "../../../src/core/features/storage-db";
+import type { ContextDatabase } from "../../../src/core/features/storage";
 
-import { type Tagger, type ToolTagAccounting, createTagger } from "../../../src/core/features/magic-context/tagger";
+import { type Tagger, type ToolTagAccounting, createTagger } from "../../../src/core/features/tagger";
 
 import { Database } from "../../../src/core/shared/sqlite";
 import { tagTranscript } from "../../../src/core/shared/tag-transcript";

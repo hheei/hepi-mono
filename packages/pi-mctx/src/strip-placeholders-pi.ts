@@ -15,7 +15,7 @@
  * contract.
  */
 
-import { type ContextDatabase, applyStrippedPlaceholderDelta, getStrippedPlaceholderIds } from "#core/features/magic-context/storage";
+import { type ContextDatabase, applyStrippedPlaceholderDelta, getStrippedPlaceholderIds } from "#core/features/storage";
 
 import { sessionLog } from "#core/shared/logger";
 import { resolvePiStableId } from "./read-session-pi";

@@ -15,13 +15,13 @@
  * Parity reference (legacy host):
  *   `tools/ctx-note/tools.ts` for the action surface
  *   `tools/ctx-note/types.ts` for filter/parameter shapes
- *   `features/magic-context/storage-notes.ts` for the underlying storage
+ *   `features/storage-notes.ts` for the underlying storage
  */
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { resolveProjectIdentityForSession } from "#core/features/magic-context/memory/project-identity";
-import { getLastIndexedOrdinal } from "#core/features/magic-context/message-index";
-import { type ContextDatabase, addNote, dismissNote, getNotes, type Note, type NoteStatus, setNoteLastReadAt, updateNote } from "#core/features/magic-context/storage";
+import { resolveProjectIdentityForSession } from "#core/features/memory/project-identity";
+import { getLastIndexedOrdinal } from "#core/features/message-index";
+import { type ContextDatabase, addNote, dismissNote, getNotes, type Note, type NoteStatus, setNoteLastReadAt, updateNote } from "#core/features/storage";
 
 import { CTX_NOTE_DESCRIPTION } from "#core/tools/ctx-note/constants";
 import { unwrapImitatedReducedArgs } from "#core/tools/unwrap-imitated-reduced-args";

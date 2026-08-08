@@ -8,7 +8,7 @@ import {
 	type ContextDatabase,
 	type CopySessionStateForCloneResult,
 	type PendingPiCompactionMarker,
-} from "#core/features/magic-context/storage";
+} from "#core/features/storage";
 import { log } from "#core/shared/logger";
 import { convertEntriesToRawMessages } from "./read-session-pi";
 

@@ -15,8 +15,8 @@
  * caveman compression — caveman is text-only.
  */
 import { describe, expect, it } from "bun:test";
-import { getSourceContents } from "#core/features/magic-context/storage-source";
-import { createTagger } from "#core/features/magic-context/tagger";
+import { getSourceContents } from "#core/features/storage-source";
+import { createTagger } from "#core/features/tagger";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import { tagTranscript } from "#core/shared/tag-transcript";
 import { assistantMessage, createTestDb, userMessage } from "./test-utils.test";

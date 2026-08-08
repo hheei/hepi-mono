@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { getStrippedPlaceholderIds } from "#core/features/magic-context/storage";
+import { getStrippedPlaceholderIds } from "#core/features/storage";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import { stripPiDroppedPlaceholderMessages } from "../src/strip-placeholders-pi";
 import { assistantMessage, createTestDb, userMessage } from "./test-utils.test";
