@@ -14,12 +14,12 @@
 			"packages/*/**/*.json",
 			"scripts/**/*.mjs",
 			"scripts/**/*.ts",
-			"!**/node_modules",
-			"!**/dist",
-			"!**/.pi",
+
+			"!!**/dist",
+			"!!**/.pi",
 			"!references",
 			"!legacy",
-			"!graphify-out"
+			"!!graphify-out"
 		]
 	},
 	"formatter": {
@@ -30,36 +30,73 @@
 	"linter": {
 		"enabled": true,
 		"domains": {
-			"types": "all"
+			"types": "recommended"
 		},
 		"rules": {
 			"preset": "recommended",
+
 			"correctness": {
 				"noUnusedImports": "error",
-				"noUnusedVariables": "warn"
+				"noUnusedVariables": "warn",
+				"noUnusedPrivateClassMembers": "warn",
+				"noInvalidUseBeforeDeclaration": "error"
 			},
-			"nursery": {
-				"noFloatingPromises": "error"
-			},
-			"style": {
-				"noEnum": "error",
-				"noNamespace": "error",
-				"noNonNullAssertion": "error",
-				"useConst": "warn"
-			},
+
 			"suspicious": {
+				"noControlCharactersInRegex": "off",
 				"noExplicitAny": "error",
-				"noTsIgnore": "error"
+				"noTsIgnore": "error",
+				"noFallthroughSwitchClause": "error",
+				"noDoubleEquals": "error",
+				"noVar": "error"
+			},
+
+			"nursery": {
+				"noFloatingPromises": "error",
+				"noMisusedPromises": "error"
+			},
+
+			"complexity": {
+				"noExcessiveCognitiveComplexity": {
+					"level": "warn",
+					"options": {
+						"maxAllowedComplexity": 100
+					}
+				},
+				"noForEach": "off",
+				"noUselessTernary": "warn",
+				"noUselessConstructor": "warn"
+			},
+
+			"style": {
+				"noNonNullAssertion": "error",
+				"useConst": "warn",
+				"noParameterAssign": "off",
+				"noEnum": "warn",
+				"noNamespace": "warn"
+			},
+
+			"performance": {
+				"noAccumulatingSpread": "error",
+				"noDelete": "off"
 			}
 		}
 	},
 	"overrides": [
 		{
-			"includes": ["packages/*/test/**/*.ts", "packages/*/**/*.test.ts"],
+			"includes": [
+				"packages/*/test/**/*.ts",
+				"packages/*/tests/**/*.ts",
+				"packages/*/**/*.test.ts",
+				"packages/*/**/*.spec.ts"
+			],
 			"linter": {
 				"rules": {
 					"style": {
 						"noNonNullAssertion": "off"
+					},
+					"suspicious": {
+						"noExplicitAny": "warn"
 					}
 				}
 			}
@@ -68,6 +105,14 @@
 	"javascript": {
 		"formatter": {
 			"quoteStyle": "double"
+		}
+	},
+	"assist": {
+		"enabled": true,
+		"actions": {
+			"source": {
+				"organizeImports": "on"
+			}
 		}
 	}
 }
