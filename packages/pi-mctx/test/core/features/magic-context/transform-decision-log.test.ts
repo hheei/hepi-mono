@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../src/core/shared/sqlite-helpers";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+
 import { __test, TRANSFORM_DECISIONS_RETENTION } from "../../../../src/core/features/magic-context/transform-decision-log";
 
 let dir: string;
@@ -17,7 +17,7 @@ beforeEach(() => {
     dbPath = join(dir, "context.db");
     db = new Database(dbPath);
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     __test.reset();
 });
 

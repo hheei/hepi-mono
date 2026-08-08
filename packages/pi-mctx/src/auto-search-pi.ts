@@ -54,11 +54,11 @@ import {
 	embedTextForProject,
 	getProjectEmbeddingSnapshot,
 } from "#core/features/magic-context/memory/embedding";
-import type {
-	UnifiedSearchOptions,
-	UnifiedSearchResult,
+import {
+	unifiedSearch,
+	type UnifiedSearchOptions,
+	type UnifiedSearchResult,
 } from "#core/features/magic-context/search";
-import { unifiedSearch } from "#core/features/magic-context/search";
 import {
 	type AutoSearchHintNoHintReason,
 	appendAutoSearchHintDecision,

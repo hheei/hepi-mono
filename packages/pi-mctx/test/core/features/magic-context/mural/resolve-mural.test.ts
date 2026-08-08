@@ -6,8 +6,8 @@ import { Database } from "../../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../../src/core/shared/sqlite-helpers";
 import { insertMemory, setMemoryClassification } from "../../../../../src/core/features/magic-context/memory";
 import type { Memory } from "../../../../../src/core/features/magic-context/memory/types";
-import { runMigrations } from "../../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../../src/core/features/magic-context/storage-db";
+
 import { ensureMuralRendered, muralCoverageGate } from "../../../../../src/core/features/magic-context/mural/render-trigger";
 import { resolveMural } from "../../../../../src/core/features/magic-context/mural/resolve-mural";
 import { getMural } from "../../../../../src/core/features/magic-context/mural/storage-mural";
@@ -16,7 +16,7 @@ import { computeCueContentHash, setMuralCue } from "../../../../../src/core/feat
 function freshDb(): Database {
     const db = new Database(":memory:");
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 

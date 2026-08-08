@@ -1,12 +1,12 @@
 /// <reference types="bun-types" />
 
 import { describe, expect, it } from "bun:test";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+
 import { getTagsBySession } from "../../../../src/core/features/magic-context/storage-tags";
 import { createTagger } from "../../../../src/core/features/magic-context/tagger";
-import type { Database as DatabaseType } from "../../../../src/core/shared/sqlite";
-import { Database } from "../../../../src/core/shared/sqlite";
+import { type Database as DatabaseType, Database } from "../../../../src/core/shared/sqlite";
+
 import { type MessageLike, tagMessages } from "../../../../src/core/hooks/magic-context/transform-operations";
 
 type TestPart = { type: "text"; text: string } | { type: "metadata"; value?: string };
@@ -14,7 +14,7 @@ type TestPart = { type: "text"; text: string } | { type: "metadata"; value?: str
 function openTestDb(): DatabaseType {
     const db = new Database(":memory:");
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 

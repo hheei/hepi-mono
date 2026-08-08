@@ -1,23 +1,11 @@
 import { HISTORIAN_RECOMP_AGENT } from "../../agents/historian";
 import { embedAndStoreCompartmentChunks } from "../../features/magic-context/compartment-embedding";
-import type {
-    Compartment,
-    CompartmentInput,
-} from "../../features/magic-context/compartment-storage";
-import {
-    clearRecompStaging,
-    getCompartments,
-    getRecompPartialRange,
-    getRecompStaging,
-    saveRecompStagingPass,
-    setRecompPartialRange,
-} from "../../features/magic-context/compartment-storage";
+import { type Compartment, type CompartmentInput, clearRecompStaging, getCompartments, getRecompPartialRange, getRecompStaging, saveRecompStagingPass, setRecompPartialRange } from "../../features/magic-context/compartment-storage";
+
 import { clearCompressionDepthRange } from "../../features/magic-context/compression-depth-storage";
 import { resolveProjectIdentity } from "../../features/magic-context/memory/project-identity";
 import {
-    clearPendingCompactionMarkerStateIf,
-    getPendingCompactionMarkerState,
-    updateSessionMeta,
+updateSessionMeta
 } from "../../features/magic-context/storage-meta";
 import { normalizeSDKResponse } from "../../shared";
 import { getErrorMessage } from "../../shared/error-message";
@@ -25,11 +13,11 @@ import { log } from "../../shared/logger";
 import { buildCompartmentAgentPrompt } from "./compartment-prompt";
 import { runValidatedHistorianPass } from "./compartment-runner-historian";
 import { promoteRecompStagingWithM0Mutation } from "./compartment-runner-recomp";
-import type { CandidateCompartment, CompartmentRunnerDeps } from "./compartment-runner-types";
+import type { CandidateCompartment,CompartmentRunnerDeps } from "./compartment-runner-types";
 import {
-    getReducedRecompTokenBudget,
-    validateChunkCoverage,
-    validateStoredCompartments,
+getReducedRecompTokenBudget,
+validateChunkCoverage,
+validateStoredCompartments,
 } from "./compartment-runner-validation";
 import { clearInjectionCache } from "./inject-compartments";
 import { readSessionChunk } from "./read-session-chunk";

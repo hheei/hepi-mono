@@ -1,5 +1,4 @@
-import type { EmbeddingConfig } from "../../../config/schema/magic-context";
-import { DEFAULT_LOCAL_EMBEDDING_MODEL } from "../../../config/schema/magic-context";
+import { DEFAULT_LOCAL_EMBEDDING_MODEL, type EmbeddingConfig } from "../../../config/schema/magic-context";
 import { log } from "../../../shared/logger";
 import { normalizeCompartmentChunkMaxInputTokens } from "../compartment-chunk-embedding";
 import { cosineSimilarity } from "./cosine-similarity";

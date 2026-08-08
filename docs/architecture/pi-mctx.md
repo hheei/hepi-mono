@@ -21,6 +21,12 @@ Pi host
 
 Pi raw-session data is supplied only by the adapter's `RawMessageProvider`; core fails closed when no provider is installed. Shared storage is Pi-owned and has no import or migration path from a legacy OpenCode database. Legacy subagent-invocation rows retain their invocation IDs and token totals, but the retired cross-host `harness` telemetry column is removed by a transactional table rebuild; callers no longer write or read a host origin for those rows.
 
+## 儲存版本邊界
+
+Pi MCTX 只支援新建資料庫。啟動時會建立完整的最新 SQLite schema，不保留歷史 schema 升級、資料修復或跨版本相容程式。
+
+已有的舊 `context.db` 不會被自動升級、重用或刪除；使用者必須先明確移除它，再讓 Pi 建立新資料庫。這避免舊資料在未確認遷移的情況下被靜默改寫。新資料庫開啟失敗仍 fail-closed，不會回退到記憶體資料庫。
+
 ## 模組解析與啟用條件
 
 Adapter source imports shared code through private `#core/*` specifiers. The package `imports` map resolves those specifiers to `src/core/**` under Bun. No public subpath export is added for core.

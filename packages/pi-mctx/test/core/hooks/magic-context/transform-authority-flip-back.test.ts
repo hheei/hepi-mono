@@ -8,8 +8,8 @@ import {
     installAuthorityManagedMarker,
 } from "../../../../src/core/features/magic-context/context-authority";
 import { insertMemory } from "../../../../src/core/features/magic-context/memory/storage-memory";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+
 import { getProjectState } from "../../../../src/core/features/magic-context/storage-project-state";
 import { Database } from "../../../../src/core/shared/sqlite";
 import type { RustModeModuleClient } from "../../../../src/core/hooks/magic-context/rust-mode-transform";
@@ -33,7 +33,7 @@ describe("TS authority flip-back", () => {
     test("drains real authority protocol, removes the marker, and bumps the memory epoch once", async () => {
         const db = new Database(":memory:");
         initializeDatabase(db);
-        runMigrations(db);
+        initializeDatabase(db);
         installAuthorityManagedMarker(db, PROJECT);
         const states = new Map<"memories" | "notes", AuthorityStatus["state"]>([
             ["memories", "MODULE"],

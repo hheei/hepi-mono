@@ -9,8 +9,8 @@ import { Database } from "../../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../../src/core/shared/sqlite-helpers";
 import { evaluateSmartNotes } from "../../../../../src/core/features/magic-context/dreamer/evaluate-smart-notes";
 import { acquireLease } from "../../../../../src/core/features/magic-context/dreamer/lease";
-import { runMigrations } from "../../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../../src/core/features/magic-context/storage-db";
+
 import { addNote, dismissNote, getNotes, getPendingSmartNotes, updateNote } from "../../../../../src/core/features/magic-context/storage-notes";
 import { runDueCompiledSmartNoteChecks } from "../../../../../src/core/features/magic-context/smart-notes/runner";
 import {
@@ -27,7 +27,7 @@ const tempDirs: string[] = [];
 function freshDb(): Database {
     const db = new Database(":memory:");
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 

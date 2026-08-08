@@ -4,8 +4,12 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
-import { openTuiSurface, startSubagent, type TaskSubagentHandle } from "@hheei/pi-ext-core";
+import {
+	type ExtensionLifecycleContext,
+	openTuiSurface,
+	startSubagent,
+	type TaskSubagentHandle,
+} from "@hheei/pi-ext-core";
 import { createBtwChildFactory } from "./child.js";
 import { type BtwComponentController, createBtwComponent } from "./component.js";
 import type { BtwExecutionResult, executeBtwTurn } from "./executor.js";

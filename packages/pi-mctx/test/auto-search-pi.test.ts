@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
-import type { UnifiedSearchResult } from "#core/features/magic-context/search";
 import * as searchModule from "#core/features/magic-context/search";
+
 import {
 	appendAutoSearchHintDecision,
 	getAutoSearchHintDecisions,

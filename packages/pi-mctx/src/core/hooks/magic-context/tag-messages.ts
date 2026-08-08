@@ -1,5 +1,5 @@
-import type { ContextDatabase } from "../../features/magic-context/storage";
-import { getSourceContents, saveSourceContent } from "../../features/magic-context/storage";
+import { type ContextDatabase, getSourceContents, saveSourceContent } from "../../features/magic-context/storage";
+
 import {
     adoptNullOwnerToolTag,
     getNullOwnerToolTag,

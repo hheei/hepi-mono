@@ -3,8 +3,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "../../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../../src/core/shared/sqlite-helpers";
 import { getMemoriesByProject } from "../../../../../src/core/features/magic-context/memory";
-import { runMigrations } from "../../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../../src/core/features/magic-context/storage-db";
+
 import { getUserMemoryCandidates } from "../../../../../src/core/features/magic-context/user-memory/storage-user-memory";
 import {
     applyRetrospectiveLearnings,
@@ -22,7 +22,7 @@ afterEach(() => {
 function freshDb(): Database {
     const database = new Database(":memory:");
     initializeDatabase(database);
-    runMigrations(database);
+    initializeDatabase(database);
     return database;
 }
 

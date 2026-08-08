@@ -3,31 +3,18 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database, withPrivilegedWriter } from "../../../../src/core/shared/sqlite";
-import type { AuthorityModuleClient, AuthorityStatus, ChangefeedPage } from "../../../../src/core/features/magic-context/context-authority";
-import {
-    applyMirrorPage,
-    bumpDomainMutationEpoch,
-    drainAuthority,
-    ensureContextStoreUuid,
-    ensureLiveMemoryResnapshot,
-    getAuthorityManagedMarker,
-    getModuleNoteEvaluationBridge,
-    installAuthorityManagedMarker,
-    prepareAuthority,
-    pullAndApplyMirrorPage,
-    reconcileAuthorityProject,
-    registerModuleNoteEvaluationBridge,
-} from "../../../../src/core/features/magic-context/context-authority";
+import { type AuthorityModuleClient, type AuthorityStatus, type ChangefeedPage, applyMirrorPage, bumpDomainMutationEpoch, drainAuthority, ensureContextStoreUuid, ensureLiveMemoryResnapshot, getAuthorityManagedMarker, getModuleNoteEvaluationBridge, installAuthorityManagedMarker, prepareAuthority, pullAndApplyMirrorPage, reconcileAuthorityProject, registerModuleNoteEvaluationBridge } from "../../../../src/core/features/magic-context/context-authority";
+
 import { getMemoriesByProjects, insertMemory, isMemoryRow } from "../../../../src/core/features/magic-context/memory/storage-memory";
 import { getMemoryVerifications } from "../../../../src/core/features/magic-context/memory/storage-memory-verifications";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
-import { resolveMemoriesByIdsForSearch, unifiedSearch } from "../../../../src/core/features/magic-context/search";
 import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+import { resolveMemoriesByIdsForSearch, unifiedSearch } from "../../../../src/core/features/magic-context/search";
+
 
 function db(): Database {
     const value = new Database(":memory:");
     initializeDatabase(value);
-    runMigrations(value);
+    initializeDatabase(value);
     return value;
 }
 
@@ -1061,7 +1048,7 @@ describe("memory authority protocol", () => {
                     )
                     .run();
             });
-            runMigrations(database);
+            initializeDatabase(database);
             const calls: Array<{ live_only?: boolean }> = [];
             const module: AuthorityModuleClient = {
                 authorityStatus: async () => ({ authority: null }),
@@ -1227,7 +1214,7 @@ describe("memory authority protocol", () => {
                     )
                     .run();
             });
-            runMigrations(database);
+            initializeDatabase(database);
             if (interruptedStatus === "resnapshotting") {
                 database
                     .prepare(
@@ -1413,9 +1400,9 @@ describe("memory authority protocol", () => {
         const second = new Database(path);
         try {
             initializeDatabase(first);
-            runMigrations(first);
+            initializeDatabase(first);
             initializeDatabase(second);
-            runMigrations(second);
+            initializeDatabase(second);
             first
                 .prepare(
                     "UPDATE mirror_resnapshot_state SET status = 'resnapshotting', generation = 'bootstrap' WHERE domain = 'memories'",
@@ -1518,9 +1505,9 @@ describe("memory authority protocol", () => {
         const drainDb = new Database(path);
         try {
             initializeDatabase(pullDb);
-            runMigrations(pullDb);
+            initializeDatabase(pullDb);
             initializeDatabase(drainDb);
-            runMigrations(drainDb);
+            initializeDatabase(drainDb);
             pullDb
                 .prepare(
                     "UPDATE mirror_resnapshot_state SET status = 'resnapshotting', generation = 'bootstrap' WHERE domain = 'memories'",

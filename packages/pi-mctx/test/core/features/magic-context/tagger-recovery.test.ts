@@ -21,17 +21,17 @@ import { beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Database as DatabaseType } from "../../../../src/core/shared/sqlite";
-import { Database } from "../../../../src/core/shared/sqlite";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
+import { type Database as DatabaseType, Database } from "../../../../src/core/shared/sqlite";
+
 import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+
 import { getMaxTagNumberBySession, getTagNumberByMessageId } from "../../../../src/core/features/magic-context/storage-tags";
 import { createTagger } from "../../../../src/core/features/magic-context/tagger";
 
 function openTestDb(): DatabaseType {
     const db = new Database(":memory:");
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 
@@ -44,7 +44,7 @@ function openFileBackedTestDb(filePath: string): DatabaseType {
     const db = new Database(filePath);
     db.exec("PRAGMA journal_mode = WAL");
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 
@@ -256,7 +256,7 @@ describe("migration v6 — counter heal", () => {
         // succeed. Easiest path: run migrations once normally, then
         // delete v6's record so the heal logic is forced to run again on
         // the already-divergent state we'll build below.
-        runMigrations(db);
+        initializeDatabase(db);
         // Build a session with counter=2, max(tag_number)=5
         db.prepare(
             "INSERT INTO session_meta (session_id, counter, last_response_time, cache_ttl) VALUES (?, ?, 0, '5m')",
@@ -275,12 +275,10 @@ describe("migration v6 — counter heal", () => {
                 "INSERT INTO tags (session_id, message_id, type, byte_size, tag_number) VALUES (?, ?, 'message', 0, ?)",
             ).run("s-clean", `clean-${n}`, n);
         }
-        // Run the v6 heal SQL directly. We can't trigger it via runMigrations
-        // again because getCurrentVersion uses MAX(version), and v7 is
-        // already applied — runMigrations would consider everything done.
+        // Run the repair SQL directly. The test verifies that the SQL heals
+        // divergent state without relying on startup wiring.
         // What we're testing is that the SQL itself heals divergent state
-        // correctly; the wiring (invocation on the v5→v6 schema upgrade) is
-        // covered by runMigrations() running it once on fresh-DB setup.
+        // correctly; fresh-schema setup covers startup wiring.
         db.prepare(
             `UPDATE session_meta
              SET counter = (
@@ -306,7 +304,7 @@ describe("migration v6 — counter heal", () => {
         const db = openTestDb();
 
         //#when — running migrations again is a no-op.
-        runMigrations(db);
+        initializeDatabase(db);
 
         //#then — schema_migrations only has each version once.
         const v6Count = db

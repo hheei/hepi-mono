@@ -1,6 +1,6 @@
 import type { Scheduler } from "../../features/magic-context/scheduler";
-import type { ContextDatabase } from "../../features/magic-context/storage";
-import { loadPersistedUsage } from "../../features/magic-context/storage";
+import { type ContextDatabase, loadPersistedUsage } from "../../features/magic-context/storage";
+
 import type { ContextUsage, SessionMeta } from "../../features/magic-context/types";
 import { sessionLog } from "../../shared/logger";
 

@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../src/core/shared/sqlite-helpers";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+
 import { clearSession } from "../../../../src/core/features/magic-context/storage-meta-session";
 import { getTagsBySession, insertTag } from "../../../../src/core/features/magic-context/storage-tags";
 import {
@@ -115,7 +115,7 @@ function createMcDb(): Database {
     const mcPath = join(mcDir, "context.db");
     const db = new Database(mcPath);
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 

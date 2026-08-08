@@ -3,8 +3,8 @@
 import { describe, expect, it } from "bun:test";
 import { Database } from "../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../src/core/shared/sqlite-helpers";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+
 
 /**
  * Phase 2a regression: every session-scoped table must carry a `harness`
@@ -39,7 +39,7 @@ describe("harness column", () => {
     it("every session-scoped table has a harness column", () => {
         const db = new Database(":memory:");
         initializeDatabase(db);
-        runMigrations(db);
+        initializeDatabase(db);
 
         for (const table of SESSION_SCOPED_TABLES) {
             const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
@@ -98,7 +98,7 @@ describe("harness column", () => {
 
         // Now run init (idempotent) + migration v6.
         initializeDatabase(db);
-        runMigrations(db);
+        initializeDatabase(db);
 
         // Legacy row should now report harness='opencode' even though it was
         // inserted before the column existed (SQLite physically backfills

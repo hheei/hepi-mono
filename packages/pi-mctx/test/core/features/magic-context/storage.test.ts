@@ -11,7 +11,7 @@ import {
     replaceAllCompartmentStateAndBumpDepth,
     saveRecompStagingPass,
 } from "../../../../src/core/features/magic-context/compartment-storage";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
+import { initializeDatabase, ensureColumn } from "../../../../src/core/features/magic-context/storage-db";
 import {
     addNote,
     appendAutoSearchHintDecision,
@@ -45,7 +45,7 @@ import {
     updateSessionMeta,
     updateTagStatus,
 } from "../../../../src/core/features/magic-context/storage";
-import { ensureColumn, initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+
 
 const tempDirs: string[] = [];
 const originalXdgDataHome = process.env.XDG_DATA_HOME;
@@ -84,7 +84,7 @@ function resolveDbPath(dataHome: string): string {
 function makeMemoryDatabase(): Database {
     const db = new Database(":memory:");
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 

@@ -15,14 +15,14 @@ import {
 import { embedAndStoreCompartmentChunks } from "../../../../src/core/features/magic-context/compartment-embedding";
 import { appendCompartments, getCompartments } from "../../../../src/core/features/magic-context/compartment-storage";
 import type { EmbeddingProvider, EmbeddingPurpose } from "../../../../src/core/features/magic-context/memory/embedding-provider";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
+import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
 import {
     _resetProjectEmbeddingRegistryForTests,
     _setTestProviderFactoryForProject,
     getProjectEmbeddingSnapshot,
     registerProjectEmbedding,
 } from "../../../../src/core/features/magic-context/project-embedding-registry";
-import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+
 import { clearSession } from "../../../../src/core/features/magic-context/storage-meta-session";
 
 class CapturingEmbeddingProvider implements EmbeddingProvider {
@@ -66,7 +66,7 @@ class CapturingEmbeddingProvider implements EmbeddingProvider {
 function createDb(): Database {
     const db = new Database(":memory:");
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 

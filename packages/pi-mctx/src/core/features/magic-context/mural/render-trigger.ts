@@ -6,9 +6,9 @@ import { modelSupportsVision } from "../../../shared/models-dev-cache";
 import type { Database } from "../../../shared/sqlite";
 import { DEFAULT_MURAL_MEMORY_BUDGET } from "./mural-selection";
 import { renderMural } from "./render-mural";
-import type { MuralWireOptions } from "./resolve-mural";
-import { getMuralCoverage, resolveMural } from "./resolve-mural";
-import { getMural, upsertMural } from "./storage-mural";
+import { type MuralWireOptions, getMuralCoverage, resolveMural } from "./resolve-mural";
+
+import { getMural,upsertMural } from "./storage-mural";
 
 /**
  * On-demand deterministic mural render. The weekly author task is gone: the

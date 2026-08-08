@@ -2,14 +2,14 @@
 
 import { beforeEach, describe, expect, it } from "bun:test";
 import { Database } from "../../../../src/core/shared/sqlite";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+
 import { addStaleReduceStrippedIds, getStaleReduceStrippedIds } from "../../../../src/core/features/magic-context/storage-meta-persisted";
 
 function createTestDb(): Database {
     const db = new Database(":memory:");
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 

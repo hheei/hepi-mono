@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../src/core/shared/sqlite-helpers";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+
 import {
     bumpEpochsForWorkspaceMembers,
     computeWorkspaceEpochFingerprint,
@@ -14,7 +14,7 @@ import {
 function openDb(): Database {
     const db = new Database(":memory:");
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 

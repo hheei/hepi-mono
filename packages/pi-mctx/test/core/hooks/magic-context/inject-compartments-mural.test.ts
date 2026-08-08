@@ -1,8 +1,8 @@
 /// <reference types="bun-types" />
 
 import { describe, expect, it } from "bun:test";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+
 import { getOrCreateSessionMeta } from "../../../../src/core/features/magic-context/storage-meta-session";
 import { Database } from "../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../src/core/shared/sqlite-helpers";
@@ -15,7 +15,7 @@ const PROJECT_ID = "git:mural-project";
 function makeDb(): Database {
     const db = new Database(":memory:");
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     getOrCreateSessionMeta(db, SESSION_ID);
     return db;
 }

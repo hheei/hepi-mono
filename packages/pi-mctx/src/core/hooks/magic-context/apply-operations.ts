@@ -1,12 +1,6 @@
-import type { ContextDatabase } from "../../features/magic-context/storage";
-import {
-    getPendingOps,
-    getTagsBySession,
-    removePendingOp,
-    updateTagDropMode,
-    updateTagStatus,
-} from "../../features/magic-context/storage";
-import type { PendingOp, TagEntry } from "../../features/magic-context/types";
+import { type ContextDatabase, getPendingOps, getTagsBySession, removePendingOp, updateTagDropMode, updateTagStatus } from "../../features/magic-context/storage";
+
+import type { PendingOp,TagEntry } from "../../features/magic-context/types";
 import type { TagTarget } from "./tag-messages";
 
 // Max characters kept from the original user content when a user-message tag

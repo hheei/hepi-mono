@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../src/core/shared/sqlite-helpers";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+
 import { auditIdentityMerge, mergeProjectIdentities } from "../../../../src/core/features/magic-context/storage-identity-merge";
 
 let db: Database | null = null;
@@ -10,7 +10,7 @@ let db: Database | null = null;
 function makeDb(): Database {
     db = new Database(":memory:");
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
-import * as searchModule from "../../../../src/core/features/magic-context/search";
 import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+import * as searchModule from "../../../../src/core/features/magic-context/search";
+
 import { Database } from "../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../src/core/shared/sqlite-helpers";
 import { _resetAutoSearchCache, runAutoSearchHint } from "../../../../src/core/hooks/magic-context/auto-search-runner";
@@ -40,7 +40,7 @@ describe("auto-search-runner", () => {
     beforeEach(() => {
         db = new Database(":memory:");
         initializeDatabase(db);
-        runMigrations(db);
+        initializeDatabase(db);
         _resetAutoSearchCache();
     });
 

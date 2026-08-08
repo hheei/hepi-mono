@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../src/core/shared/sqlite-helpers";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+
 import {
     __resetToolDefinitionMeasurements,
     getMeasuredToolDefinitionTokens,
@@ -14,11 +14,9 @@ import {
 
 function createTestDb(): Database {
     const db = new Database(":memory:");
-    // initializeDatabase creates session_meta + tags etc., needed by older
-    // migrations (v5 heal, v6 counter heal). Then runMigrations applies the
-    // versioned migrations including v9 (tool_definition_measurements).
+    // initializeDatabase creates the complete fresh schema, including
+    // tool_definition_measurements.
     initializeDatabase(db);
-    runMigrations(db);
     return db;
 }
 

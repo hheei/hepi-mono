@@ -4,8 +4,8 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { Database } from "../../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../../src/core/shared/sqlite-helpers";
 import { insertMemory } from "../../../../../src/core/features/magic-context/memory/storage-memory";
-import { runMigrations } from "../../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../../src/core/features/magic-context/storage-db";
+
 import { acquireLease, releaseLease } from "../../../../../src/core/features/magic-context/dreamer/lease";
 import { setDreamState } from "../../../../../src/core/features/magic-context/dreamer/storage-dream-state";
 import {
@@ -31,7 +31,7 @@ afterEach(() => {
 function freshDb(): Database {
     const d = new Database(":memory:");
     initializeDatabase(d);
-    runMigrations(d);
+    initializeDatabase(d);
     return d;
 }
 

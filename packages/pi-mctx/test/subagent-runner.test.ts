@@ -12,14 +12,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { PassThrough } from "node:stream";
-import {
-	closeDatabase,
-	openDatabase,
-} from "#core/features/magic-context/storage";
-import {
-	__resetSchemaFenceStateForTests,
-	LATEST_SUPPORTED_VERSION,
-} from "#core/features/magic-context/storage-db";
+import { closeDatabase, openDatabase } from "#core/features/magic-context/storage";
 import * as loggerModule from "#core/shared/logger";
 import type { SubagentRunOptions } from "#core/shared/subagent-runner";
 
@@ -46,7 +39,6 @@ beforeEach(() => {
 
 afterEach(() => {
 	closeDatabase();
-	__resetSchemaFenceStateForTests();
 });
 
 type MockChild = ReturnType<typeof createMockChild>;
@@ -2248,42 +2240,5 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		await new Promise((resolve) => setTimeout(resolve, 2100));
 
 		expect(child.killSignals).toEqual(["SIGTERM", "SIGKILL"]);
-	});
-});
-
-describe("Pi subagent schema-fence probe", () => {
-	it("does not spawn a Pi child when the shared database is newer than this build", async () => {
-		const dataHome = mkdtempSync(join(tmpdir(), "mc-pi-fence-probe-"));
-		try {
-			process.env.XDG_DATA_HOME = dataHome;
-			closeDatabase();
-			__resetSchemaFenceStateForTests();
-			const db = openDatabase();
-			if (!db) throw new Error("expected a fresh test database");
-			db.prepare(
-				"INSERT INTO schema_migrations(version, description, applied_at) VALUES (?, ?, ?)",
-			).run(LATEST_SUPPORTED_VERSION + 1, "future schema", Date.now());
-
-			const { runner, spawnImpl } = runnerWith(createMockChild());
-			const result = await runner.run(baseOptions);
-
-			// Removing the pre-spawn probe makes this fake process launch, so the
-			// assertion proves Pi shares the stale-build fence rather than merely
-			// returning a matching failure from a later path.
-			expect(spawnImpl).not.toHaveBeenCalled();
-			expect(result).toMatchObject({
-				ok: false,
-				reason: "spawn_failed",
-				error: expect.stringContaining(
-					"plugin build is older than its database",
-				),
-			});
-		} finally {
-			closeDatabase();
-			__resetSchemaFenceStateForTests();
-			if (originalXdgDataHome === undefined) delete process.env.XDG_DATA_HOME;
-			else process.env.XDG_DATA_HOME = originalXdgDataHome;
-			rmSync(dataHome, { recursive: true, force: true });
-		}
 	});
 });

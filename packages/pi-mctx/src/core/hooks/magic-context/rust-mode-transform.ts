@@ -1,64 +1,64 @@
 import { createHash } from "node:crypto";
 import {
-    type AuthorityDrainResponse,
-    type AuthorityModuleClient,
-    type AuthorityStatus,
-    checksumAuthoritySeedRows,
-    drainAuthority,
-    ensureContextStoreUuid,
-    prepareAuthority,
-    pullMemoryMirrorOnce,
-    reconcileAuthorityProject,
+type AuthorityDrainResponse,
+type AuthorityModuleClient,
+type AuthorityStatus,
+checksumAuthoritySeedRows,
+drainAuthority,
+ensureContextStoreUuid,
+prepareAuthority,
+pullMemoryMirrorOnce,
+reconcileAuthorityProject,
 } from "../../features/magic-context/context-authority";
 import { DEFAULT_PROTECTED_TAGS } from "../../features/magic-context/defaults";
 import { resolveProjectIdentity } from "../../features/magic-context/memory/project-identity";
 import { getMemoryVerifications } from "../../features/magic-context/memory/storage-memory-verifications";
 import type { getOrCreateSessionMeta } from "../../features/magic-context/storage";
 import {
-    casChannel2NudgeState,
-    clearEmergencyRecovery,
-    getChannel2NudgeState,
-    getOverflowState,
-    isEmergencyRecoveryArmed,
-    isProviderOverflowReconfirmed,
-    loadProtectedTailMeta,
+casChannel2NudgeState,
+clearEmergencyRecovery,
+getChannel2NudgeState,
+getOverflowState,
+isEmergencyRecoveryArmed,
+isProviderOverflowReconfirmed,
+loadProtectedTailMeta,
 } from "../../features/magic-context/storage-meta-persisted";
 import type { ContextUsage } from "../../features/magic-context/types";
 import { sessionLog } from "../../shared/logger";
 import { resolveCtxReduceAvailability } from "./ctx-reduce-availability";
 import { EmergencyFailClosedError } from "./emergency-fail-closed";
 import {
-    resolveExecuteThreshold,
-    resolveModelKey,
-    resolveTrustedContextLimit,
+resolveExecuteThreshold,
+resolveModelKey,
+resolveTrustedContextLimit,
 } from "./event-resolvers";
 import { estimateFinalWireInputTokens } from "./final-wire-token-estimate";
-import { replayLkg, resolveLkgModelKeys } from "./lkg-replay";
+import { replayLkg,resolveLkgModelKeys } from "./lkg-replay";
 import {
-    captureSlot,
-    dropSlot,
-    getSlot,
-    type LkgEntryNote,
-    lkgContentDigest,
-    noteEntry,
+type LkgEntryNote,
+captureSlot,
+dropSlot,
+getSlot,
+lkgContentDigest,
+noteEntry,
 } from "./lkg-slot";
 import {
-    type ModuleCompartmentMirrorResponse,
-    type ModuleCompartmentReader,
-    type ModuleStateSyncClient,
-    type ModuleStateSyncState,
-    mirrorModuleCompartments,
-    syncModuleState,
+type ModuleCompartmentMirrorResponse,
+type ModuleCompartmentReader,
+type ModuleStateSyncClient,
+type ModuleStateSyncState,
+mirrorModuleCompartments,
+syncModuleState,
 } from "./module-state-sync";
 import {
-    buildPagedModuleTransformPayloads,
-    encodeMessagesToCk,
-    resolveOrdinalsForModule,
+buildPagedModuleTransformPayloads,
+encodeMessagesToCk,
+resolveOrdinalsForModule,
 } from "./module-wire";
 import { RECOVERY_NO_HEAD_LIMIT } from "./protected-tail-boundary";
 import type { RawMessageOrdinalAnchor } from "./read-session-raw";
-import type { TransformDeps } from "./transform";
-import { resolveHistoryBudgetTokens } from "./transform";
+import { type TransformDeps, resolveHistoryBudgetTokens } from "./transform";
+
 import { loadContextUsage } from "./transform-context-state";
 import type { MessageLike } from "./transform-operations";
 import { runRustModePostprocess } from "./transform-postprocess-phase";

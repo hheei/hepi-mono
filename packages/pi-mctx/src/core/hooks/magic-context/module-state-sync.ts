@@ -1,59 +1,53 @@
-import { createHmac, randomUUID } from "node:crypto";
+import { createHmac,randomUUID } from "node:crypto";
 
 import type { Compartment } from "../../features/magic-context/compartment-storage";
 import {
-    buildWorkspaceMemorySqlFilter,
-    getMaxMemoryIdForProjects,
-    getMemoriesByProject,
-    getMemoriesByProjects,
-    readNewMemoriesForM1Union,
+buildWorkspaceMemorySqlFilter,
+getMaxMemoryIdForProjects,
+getMemoriesByProject,
+getMemoriesByProjects,
+readNewMemoriesForM1Union,
 } from "../../features/magic-context/memory/storage-memory";
-import type { ContextDatabase } from "../../features/magic-context/storage";
+import { type ContextDatabase, getCompartments, getOrCreateSessionMeta, getProcessedImageStrippedIds, getStaleReduceStrippedIds, getStrippedPlaceholderIds } from "../../features/magic-context/storage";
+
 import {
-    getCompartments,
-    getOrCreateSessionMeta,
-    getProcessedImageStrippedIds,
-    getStaleReduceStrippedIds,
-    getStrippedPlaceholderIds,
-} from "../../features/magic-context/storage";
-import {
-    getMaxMemoryMutationIdForProjects,
-    getMemoryMutationsForRenderByProjects,
+getMaxMemoryMutationIdForProjects,
+getMemoryMutationsForRenderByProjects,
 } from "../../features/magic-context/storage-memory-mutation-log";
 import {
-    getAutoSearchHintDecisions,
-    getChannel2NudgeState,
-    getEmergencyInputSample,
-    getNoteNudgeAnchors,
-    getPendingCompactionMarkerState,
-    getPersistedTodoSyntheticAnchor,
-    peekDeferredExecutePending,
+getAutoSearchHintDecisions,
+getChannel2NudgeState,
+getEmergencyInputSample,
+getNoteNudgeAnchors,
+getPendingCompactionMarkerState,
+getPersistedTodoSyntheticAnchor,
+peekDeferredExecutePending,
 } from "../../features/magic-context/storage-meta-persisted";
 import { getPendingOps } from "../../features/magic-context/storage-ops";
 import {
-    GLOBAL_USER_PROFILE_PROJECT_PATH,
-    getProjectState,
+GLOBAL_USER_PROFILE_PROJECT_PATH,
+getProjectState,
 } from "../../features/magic-context/storage-project-state";
 import {
-    getDroppedTagsBySession,
-    getTagsByNumbers,
+getDroppedTagsBySession,
+getTagsByNumbers,
 } from "../../features/magic-context/storage-tags";
 import type { TagEntry } from "../../features/magic-context/types";
 import { getActiveUserMemories } from "../../features/magic-context/user-memory/storage-user-memory";
 import {
-    computeWorkspaceEpochFingerprint,
-    expandWorkspaceIdentitySetWithAliases,
-    resolveWorkspaceIdentitySet,
-    resolveWorkspaceShareCategories,
+computeWorkspaceEpochFingerprint,
+expandWorkspaceIdentitySetWithAliases,
+resolveWorkspaceIdentitySet,
+resolveWorkspaceShareCategories,
 } from "../../features/magic-context/workspaces";
 import { getHarness } from "../../shared/harness";
 import { sessionLog } from "../../shared/logger";
 import { isRecord } from "../../shared/record-type-guard";
 import { resolveTodowriteAvailability } from "./ctx-reduce-availability";
-import { MODULE_PAGE_MAX_BYTES, moduleRawBlockMappings, moduleWireBodyBytes } from "./module-wire";
+import { MODULE_PAGE_MAX_BYTES,moduleRawBlockMappings,moduleWireBodyBytes } from "./module-wire";
 import {
-    readRawSessionMessageOrdinalById,
-    readRawSessionMessagePartsById,
+readRawSessionMessageOrdinalById,
+readRawSessionMessagePartsById,
 } from "./read-session-chunk";
 import type { RawMessageParts } from "./read-session-raw";
 import { formatDate } from "./temporal-awareness";

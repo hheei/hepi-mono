@@ -2,10 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { replaceAllCompartments } from "../../../../src/core/features/magic-context/compartment-storage";
 import { insertMemory } from "../../../../src/core/features/magic-context/memory";
 import { indexMessagesAfterOrdinal } from "../../../../src/core/features/magic-context/message-index";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
-import type { UnifiedSearchResult } from "../../../../src/core/features/magic-context/search";
-import * as searchModule from "../../../../src/core/features/magic-context/search";
 import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+import * as searchModule from "../../../../src/core/features/magic-context/search";
+
+
 import { Database } from "../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../src/core/shared/sqlite-helpers";
 import { createCtxSearchTools } from "../../../../src/core/tools/ctx-search/tools";
@@ -19,7 +19,7 @@ const NOTE_EXPAND_HINT =
 function createTestDb(): Database {
     const db = new Database(":memory:");
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { replaceAllCompartmentState } from "#core/features/magic-context/compartment-storage";
-import { runMigrations } from "#core/features/magic-context/migrations";
-import { initializeDatabase } from "#core/features/magic-context/storage-db";
+import { initializeDatabase } from "../../src/core/features/magic-context/storage-db";
 import { queuePendingOp } from "#core/features/magic-context/storage-ops";
 import { insertTag } from "#core/features/magic-context/storage-tags";
 import { Database } from "#core/shared/sqlite";
@@ -48,7 +47,7 @@ interface MockCommandContext {
 function createDb() {
 	const db = new Database(":memory:");
 	initializeDatabase(db);
-	runMigrations(db);
+	initializeDatabase(db);
 	return db;
 }
 

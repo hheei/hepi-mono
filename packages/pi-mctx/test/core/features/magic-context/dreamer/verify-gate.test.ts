@@ -18,8 +18,8 @@ import {
     recordMemoryMapping,
     recordMemoryVerifications,
 } from "../../../../../src/core/features/magic-context/memory";
-import { runMigrations } from "../../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../../src/core/features/magic-context/storage-db";
+
 import { partitionVerifyScope } from "../../../../../src/core/features/magic-context/dreamer/verify-gate";
 
 const PROJECT = "git:test";
@@ -28,7 +28,7 @@ const HEAD_SHA = "1111111111111111111111111111111111111111";
 function freshDb(): Database {
     const db = new Database(":memory:");
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 

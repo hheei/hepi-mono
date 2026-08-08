@@ -21,16 +21,8 @@
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { resolveProjectIdentityForSession } from "#core/features/magic-context/memory/project-identity";
 import { getLastIndexedOrdinal } from "#core/features/magic-context/message-index";
-import type { ContextDatabase } from "#core/features/magic-context/storage";
-import {
-	addNote,
-	dismissNote,
-	getNotes,
-	type Note,
-	type NoteStatus,
-	setNoteLastReadAt,
-	updateNote,
-} from "#core/features/magic-context/storage";
+import { type ContextDatabase, addNote, dismissNote, getNotes, type Note, type NoteStatus, setNoteLastReadAt, updateNote } from "#core/features/magic-context/storage";
+
 import { CTX_NOTE_DESCRIPTION } from "#core/tools/ctx-note/constants";
 import { unwrapImitatedReducedArgs } from "#core/tools/unwrap-imitated-reduced-args";
 import { type Static, Type } from "typebox";

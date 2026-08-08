@@ -19,17 +19,17 @@
  */
 
 import { beforeEach, describe, expect, it } from "bun:test";
-import type { Database as DatabaseType } from "../../../../src/core/shared/sqlite";
-import { Database } from "../../../../src/core/shared/sqlite";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
+import { type Database as DatabaseType, Database } from "../../../../src/core/shared/sqlite";
+
 import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+
 import { getNullOwnerToolTag, getTagsBySession } from "../../../../src/core/features/magic-context/storage-tags";
 import { createTagger } from "../../../../src/core/features/magic-context/tagger";
 
 function openTestDb(): DatabaseType {
     const db = new Database(":memory:");
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 

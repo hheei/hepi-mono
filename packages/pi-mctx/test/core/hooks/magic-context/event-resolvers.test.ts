@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+
 import { updateSessionMeta } from "../../../../src/core/features/magic-context/storage-meta";
 import { recordDetectedContextLimit } from "../../../../src/core/features/magic-context/storage-meta-persisted";
 import { clearModelsDevCache, refreshModelLimitsFromApi } from "../../../../src/core/shared/models-dev-cache";
@@ -52,7 +52,7 @@ describe("event-resolvers", () => {
         it("does not reserve output twice from a detected prompt-only ceiling", async () => {
             const db = new Database(":memory:");
             initializeDatabase(db);
-            runMigrations(db);
+            initializeDatabase(db);
             const sessionId = "ses-prompt-only-limit";
             try {
                 clearModelsDevCache();
@@ -122,7 +122,7 @@ describe("event-resolvers", () => {
         it("uses a matching persisted usage limit for token thresholds on an unknown model", () => {
             const db = new Database(":memory:");
             initializeDatabase(db);
-            runMigrations(db);
+            initializeDatabase(db);
             const sessionId = "ses-usage-limit-threshold";
             const modelKey = "custom-proxy/gemini-agent";
             try {
@@ -154,7 +154,7 @@ describe("event-resolvers", () => {
         it("does not trust a persisted usage limit after the model key changes", () => {
             const db = new Database(":memory:");
             initializeDatabase(db);
-            runMigrations(db);
+            initializeDatabase(db);
             const sessionId = "ses-usage-limit-model-switch";
             try {
                 updateSessionMeta(db, sessionId, {

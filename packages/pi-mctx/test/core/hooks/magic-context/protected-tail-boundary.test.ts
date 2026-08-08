@@ -1,12 +1,8 @@
 /// <reference types="bun-types" />
 
 import { afterEach, describe, expect, it } from "bun:test";
-import {
-    deriveMinForceEligibleTokens,
-    deriveProtectedTailTokenTarget,
-    MIN_FORCE_ELIGIBLE_TOKENS_CAP,
-} from "../../../../src/core/hooks/magic-context/protected-tail-boundary";
-import { buildTrueRawTokenIndexFromTokenCountsForTest } from "../../../../src/core/hooks/magic-context/read-session-true-raw-tokens";
+import { deriveMinForceEligibleTokens, deriveProtectedTailTokenTarget, MIN_FORCE_ELIGIBLE_TOKENS_CAP, hasRunnableCompartmentWindow, type ProtectedTailBoundarySnapshot, recordHighPressureNoEligibleHead, resolveOpenCodeProtectedTailBoundary, resolveWrapupProtectedTailBoundary, validateBoundarySnapshot } from "../../../../src/core/hooks/magic-context/protected-tail-boundary";
+import { buildTrueRawTokenIndexFromTokenCountsForTest, buildToolArcs, buildTrueRawTokenIndex, computeRawRangeFingerprint, fenceBoundaryForToolArcs } from "../../../../src/core/hooks/magic-context/read-session-true-raw-tokens";
 
 describe("protected-tail size walk", () => {
     it("finds the largest ordinal whose suffix still covers the target tokens", () => {
@@ -53,14 +49,7 @@ import { dirname, join } from "node:path";
 import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
 import { Database } from "../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../src/core/shared/sqlite-helpers";
-import {
-    hasRunnableCompartmentWindow,
-    type ProtectedTailBoundarySnapshot,
-    recordHighPressureNoEligibleHead,
-    resolveOpenCodeProtectedTailBoundary,
-    resolveWrapupProtectedTailBoundary,
-    validateBoundarySnapshot,
-} from "../../../../src/core/hooks/magic-context/protected-tail-boundary";
+
 
 const boundaryTempDirs: string[] = [];
 const originalBoundaryXdg = process.env.XDG_DATA_HOME;
@@ -496,12 +485,7 @@ it("manual full recomp protects an in-progress open tool arc", () => {
 });
 
 import type { RawMessage } from "../../../../src/core/hooks/magic-context/read-session-raw";
-import {
-    buildToolArcs,
-    buildTrueRawTokenIndex,
-    computeRawRangeFingerprint,
-    fenceBoundaryForToolArcs,
-} from "../../../../src/core/hooks/magic-context/read-session-true-raw-tokens";
+
 
 it("fingerprints and true-raw tokens change when nested tool output grows with the same id and part count", () => {
     const short: RawMessage[] = [

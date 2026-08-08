@@ -2,8 +2,8 @@
 
 import { describe, expect, it } from "bun:test";
 import { Database } from "../../../../src/core/shared/sqlite";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+
 import { clearSession } from "../../../../src/core/features/magic-context/storage-meta-session";
 import {
     createPrimer,
@@ -17,7 +17,7 @@ import { bumpProjectMemoryEpoch, getProjectState } from "../../../../src/core/fe
 function freshDb(): Database {
     const db = new Database(":memory:");
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 

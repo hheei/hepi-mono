@@ -20,20 +20,17 @@
  */
 
 import {
-    embedTextForProject,
-    getProjectEmbeddingSnapshot,
+embedTextForProject,
+getProjectEmbeddingSnapshot,
 } from "../../features/magic-context/memory/embedding";
-import type {
-    UnifiedSearchOptions,
-    UnifiedSearchResult,
-} from "../../features/magic-context/search";
-import { unifiedSearch } from "../../features/magic-context/search";
+import { type UnifiedSearchOptions, type UnifiedSearchResult, unifiedSearch } from "../../features/magic-context/search";
+
 import {
-    type AutoSearchHintNoHintReason,
-    appendAutoSearchHintDecision,
-    getAutoSearchHintDecisions,
+type AutoSearchHintNoHintReason,
+appendAutoSearchHintDecision,
+getAutoSearchHintDecisions,
 } from "../../features/magic-context/storage-meta-persisted";
-import { log, sessionLog } from "../../shared/logger";
+import { log,sessionLog } from "../../shared/logger";
 import type { Database } from "../../shared/sqlite";
 import { buildAutoSearchHint } from "./auto-search-hint";
 import { hasMeaningfulUserText } from "./read-session-formatting";

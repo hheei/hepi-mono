@@ -51,7 +51,7 @@ const SESSION_META_FALLBACK_SELECTS: Partial<
 // on the hot transform path (many calls per pass), and the old code ran
 // `PRAGMA table_info(session_meta)` + rebuilt the ~50-column list on EVERY
 // call. The schema shape is fixed for a connection's lifetime — ensureColumn
-// and migrations run only inside initializeDatabase/runMigrations at startup,
+// and schema creation run only inside initializeDatabase() at startup,
 // before any getOrCreateSessionMeta call — so the projection never changes
 // after init and is safe to cache per Database (same pattern as the prepared-
 // statement WeakMaps in compartment-storage.ts).
