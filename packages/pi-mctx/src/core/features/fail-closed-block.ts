@@ -1,37 +1,14 @@
-/**
- * Loud fail-closed blocking when Magic Context cannot operate on a session the
- * user enabled it for (schema fence, storage open/migration failure).
- *
- * Motivation: a schema-fence refusal used to unregister hooks and silently fall
- * through to native compaction — the user saw a 136%+ overflow with zero signal.
- * When blocking is armed, the harness transform throws an actionable error every
- * primary-session pass instead of degrading quietly.
- *
- * Transient SQLite contention (BUSY/LOCKED) is intentionally NOT handled here —
- * those stay fail-open pass-through in the outer transform wrappers.
- */
+/** Loud fail-closed blocking when persistent storage cannot open. */
 
 export const FAIL_CLOSED_DOCTOR_COMMAND = "npx @cortexkit/magic-context@latest doctor";
 
 /** How often a blocked transform pass re-attempts storage open (1 = every pass). */
 export const FAIL_CLOSED_REPROBE_EVERY_N = 5;
 
-export interface FailClosedBlockingProcess {
-    harness: string;
-    pid: number;
-}
-
-export type FailClosedReason =
-    | {
-          kind: "migration_guard";
-          persistedVersion: number;
-          supportedVersion: number;
-          blockingProcesses: readonly FailClosedBlockingProcess[];
-      }
-    | {
-          kind: "storage_failure";
-          cause: string;
-      };
+export type FailClosedReason = {
+    kind: "storage_failure";
+    cause: string;
+};
 
 export class FailClosedBlockingError extends Error {
     readonly code = "FAIL_CLOSED_BLOCKING";
@@ -62,38 +39,7 @@ function isMagicContextHiddenAgentName(agent: string): boolean {
     return false;
 }
 
-const MAX_FORMATTED_BLOCKING_PROCESSES = 8;
-
-export function formatFailClosedBlockingProcesses(
-    processes: readonly FailClosedBlockingProcess[],
-): string {
-    const uniqueProcesses = new Map<string, FailClosedBlockingProcess>();
-    for (const process of processes) {
-        if (!process.harness.trim() || !Number.isInteger(process.pid) || process.pid <= 0) continue;
-        uniqueProcesses.set(`${process.harness}\u0000${process.pid}`, {
-            harness: process.harness.trim(),
-            pid: process.pid,
-        });
-    }
-    const entries = [...uniqueProcesses.values()];
-    const visible = entries.slice(0, MAX_FORMATTED_BLOCKING_PROCESSES);
-    const rendered = visible.map(({ harness, pid }) => `${harness} (PID ${pid})`);
-    const omitted = entries.length - visible.length;
-    if (omitted > 0) rendered.push(`${omitted} more blocking process(es)`);
-    if (rendered.length === 0) return "a live harness process";
-    if (rendered.length === 1) return rendered[0];
-    const last = rendered.pop();
-    return `${rendered.join(", ")}, and ${last}`;
-}
-
 export function formatFailClosedBlockingMessage(reason: FailClosedReason): string {
-    if (reason.kind === "migration_guard") {
-        return [
-            `Magic Context cannot migrate the shared database because ${formatFailClosedBlockingProcesses(reason.blockingProcesses)} may be running an older Magic Context build that would fail against the migrated database.`,
-            "Restart the blocking process (it will pick up the new build and migrate on start), or shut it down and retry.",
-            `Recovery: ${FAIL_CLOSED_DOCTOR_COMMAND}`,
-        ].join(" ");
-    }
     const cause = reason.cause.trim().length > 0 ? reason.cause.trim() : "unknown storage error";
     return [
         `Magic Context cannot operate: persistent storage failed (${cause}).`,
@@ -222,7 +168,7 @@ export function createFailClosedController(options?: {
     };
 }
 
-/** Hook-init classification so boot can arm the gate only for storage failures. */
+/** Hook-init classification so boot can arm the gate for storage failures. */
 export type HookInitFailure =
     | { type: "storage"; reason: FailClosedReason }
     | { type: "no_project" };
