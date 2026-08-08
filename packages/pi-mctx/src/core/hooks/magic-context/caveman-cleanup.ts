@@ -35,11 +35,11 @@
  *  - source_contents.content is unchanged (remains the pristine original)
  *  - message-part text holds the cavemaned result visible to the agent
  */
-import type { ContextDatabase } from "../../features/magic-context/storage";
-import { getSourceContents, updateCavemanDepth } from "../../features/magic-context/storage";
+import { type ContextDatabase, getSourceContents, updateCavemanDepth } from "../../features/magic-context/storage";
+
 import type { TagEntry } from "../../features/magic-context/types";
 import { sessionLog } from "../../shared";
-import { type CavemanLevel, cavemanCompress } from "./caveman";
+import { type CavemanLevel,cavemanCompress } from "./caveman";
 import type { TagTarget } from "./tag-messages";
 
 const DEPTH_UNTOUCHED = 0;

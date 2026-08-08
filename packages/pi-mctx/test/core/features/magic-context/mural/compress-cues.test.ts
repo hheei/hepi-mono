@@ -8,8 +8,8 @@ import { ensureContextStoreUuid, installAuthorityManagedMarker } from "../../../
 import { acquireLease } from "../../../../../src/core/features/magic-context/dreamer/lease";
 import { getMemoryById, insertMemory, updateMemoryContent } from "../../../../../src/core/features/magic-context/memory";
 import { computeNormalizedHash } from "../../../../../src/core/features/magic-context/memory/normalize-hash";
-import { runMigrations } from "../../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../../src/core/features/magic-context/storage-db";
+
 import {
     applyCues,
     CHUNK_TIMEOUT_FLOOR_MS,
@@ -88,7 +88,7 @@ function invalidOutputCueClient(onPrompt?: () => void) {
 function freshDb(): Database {
     const db = new Database(":memory:");
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 

@@ -5,8 +5,7 @@ import {
 } from "#core/config/schema/magic-context";
 import { getTaskScheduleState } from "#core/features/magic-context/dreamer/storage-task-schedule";
 import { insertMemory } from "#core/features/magic-context/memory";
-import { runMigrations } from "#core/features/magic-context/migrations";
-import { initializeDatabase } from "#core/features/magic-context/storage-db";
+import { initializeDatabase } from "../../src/core/features/magic-context/storage-db";
 import { Database } from "#core/shared/sqlite";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import {
@@ -37,7 +36,7 @@ function requireCapturedClient(
 function createDb(): Database {
 	const database = new Database(":memory:");
 	initializeDatabase(database);
-	runMigrations(database);
+	initializeDatabase(database);
 	return database;
 }
 

@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { log } from "../../shared/logger";
-import type { Database, Statement } from "../../shared/sqlite";
-import { withPrivilegedWriter } from "../../shared/sqlite";
+import { withPrivilegedWriter, type Database, type Statement } from "../../shared/sqlite";
 
 export const AUTHORITY_DOMAINS = ["memories", "notes"] as const;
 export type AuthorityDomain = (typeof AUTHORITY_DOMAINS)[number];

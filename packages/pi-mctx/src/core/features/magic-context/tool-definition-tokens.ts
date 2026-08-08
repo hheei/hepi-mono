@@ -84,7 +84,7 @@ function fingerprintFor(description: string, parameters: unknown): string {
 
 /**
  * Register the database used to persist measurements. Called by
- * openDatabase() after runMigrations() has ensured the
+ * openDatabase() after initializeDatabase() has ensured the
  * `tool_definition_measurements` table exists. Subsequent
  * recordToolDefinition() calls will write through to SQLite.
  */

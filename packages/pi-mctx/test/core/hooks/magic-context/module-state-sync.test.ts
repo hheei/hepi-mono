@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { appendCompartments } from "../../../../src/core/features/magic-context/compartment-storage";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
+import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
 import {
     addProcessedImageStrippedIds,
     addStaleReduceStrippedIds,
@@ -13,7 +13,7 @@ import {
     getCompartments,
     updateSessionMeta,
 } from "../../../../src/core/features/magic-context/storage";
-import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+
 import { setProjectState } from "../../../../src/core/features/magic-context/storage-project-state";
 import {
     insertTag,
@@ -114,7 +114,7 @@ function createContextDb(): Database {
     const db = new Database(":memory:");
     databases.push(db);
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 
@@ -780,7 +780,7 @@ describe("module compartment mirror-back", () => {
         const db = new Database(":memory:");
         databases.push(db);
         initializeDatabase(db);
-        runMigrations(db);
+        initializeDatabase(db);
         const calls: number[] = [];
         const reader = {
             async getCompartmentsAfter(_sessionId: string, afterSequence: number) {

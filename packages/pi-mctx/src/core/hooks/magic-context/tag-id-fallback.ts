@@ -1,5 +1,5 @@
-import type { ContextDatabase } from "../../features/magic-context/storage";
-import { updateTagMessageId } from "../../features/magic-context/storage";
+import { type ContextDatabase, updateTagMessageId } from "../../features/magic-context/storage";
+
 import type { Tagger } from "../../features/magic-context/tagger";
 
 type TaggableContentType = "message" | "file";

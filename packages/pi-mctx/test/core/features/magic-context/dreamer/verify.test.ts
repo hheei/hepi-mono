@@ -20,8 +20,8 @@ import {
     getMemoryVerifications,
     recordMemoryVerifications,
 } from "../../../../../src/core/features/magic-context/memory/storage-memory-verifications";
-import { runMigrations } from "../../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../../src/core/features/magic-context/storage-db";
+
 import { acquireLease } from "../../../../../src/core/features/magic-context/dreamer/lease";
 import { applyVerifyManifest, runVerify, type VerifyArgs } from "../../../../../src/core/features/magic-context/dreamer/verify";
 
@@ -30,7 +30,7 @@ const tempDirs: string[] = [];
 function freshDb(): Database {
     const db = new Database(":memory:");
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 

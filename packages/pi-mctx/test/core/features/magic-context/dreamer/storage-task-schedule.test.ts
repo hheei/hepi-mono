@@ -3,8 +3,8 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { Database } from "../../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../../src/core/shared/sqlite-helpers";
-import { runMigrations } from "../../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../../src/core/features/magic-context/storage-db";
+
 import {
     getMostRecentTaskRunAt,
     getTaskScheduleState,
@@ -22,7 +22,7 @@ afterEach(() => {
 function freshDb(): Database {
     const d = new Database(":memory:");
     initializeDatabase(d);
-    runMigrations(d);
+    initializeDatabase(d);
     return d;
 }
 

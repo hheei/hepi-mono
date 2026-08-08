@@ -2,7 +2,6 @@ import {
 	cortexKitProjectConfigBasePath,
 	cortexKitUserConfigBasePath,
 } from "#core/config/paths";
-import "#core/config/prune-config-leaf";
 import { existsSync, readFileSync } from "node:fs";
 import { migrateLegacyAgentEnabledInMemory } from "#core/config/agent-disable";
 import { migrateDreamerV2 } from "#core/config/migrate-dreamer-v2";

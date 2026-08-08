@@ -6,8 +6,7 @@ import { join, relative, resolve } from "node:path";
 // of the `compaction.enabled` config path. Every gate site (pi-plugin, cli,
 // plugin boot, session hooks) must IMPORT it and never re-derive the value.
 // This guard asserts no other source file reads `compaction.enabled` or
-// `compaction?.enabled` directly. Precedent: the runMigrations import guard
-// (packages/cli/src/lib/migration-import-guard.test.ts).
+// `compaction?.enabled` directly.
 //
 // The schema file (config/schema/magic-context.ts) is the single producer of
 // the path and is excluded; the accessor file (config/agent-disable.ts) is the

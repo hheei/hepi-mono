@@ -1,6 +1,5 @@
 import type { ContextEvent } from "@earendil-works/pi-coding-agent";
-import { runMigrations } from "#core/features/magic-context/migrations";
-import { initializeDatabase } from "#core/features/magic-context/storage-db";
+import { initializeDatabase } from "../src/core/features/magic-context/storage-db";
 import { setHarness } from "#core/shared/harness";
 import { Database } from "#core/shared/sqlite";
 
@@ -10,7 +9,6 @@ export function createTestDb(path = ":memory:"): Database {
 	setHarness("pi");
 	const db = new Database(path);
 	initializeDatabase(db);
-	runMigrations(db);
 	return db;
 }
 

@@ -11,8 +11,8 @@ import {
     insertMemory,
     recordMemoryVerifications,
 } from "../../../../../src/core/features/magic-context/memory";
-import { runMigrations } from "../../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../../src/core/features/magic-context/storage-db";
+
 import { ensureProjectState, getProjectState } from "../../../../../src/core/features/magic-context/storage-project-state";
 import { getUserMemoryCandidates, insertUserMemory } from "../../../../../src/core/features/magic-context/user-memory/storage-user-memory";
 import { acquireLease } from "../../../../../src/core/features/magic-context/dreamer/lease";
@@ -31,7 +31,7 @@ afterEach(() => {
 function freshDb(): Database {
     const database = new Database(":memory:");
     initializeDatabase(database);
-    runMigrations(database);
+    initializeDatabase(database);
     return database;
 }
 

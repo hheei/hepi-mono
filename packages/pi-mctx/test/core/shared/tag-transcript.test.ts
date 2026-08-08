@@ -1,11 +1,11 @@
 /// <reference types="bun-types" />
 
 import { describe, expect, it } from "bun:test";
-import { runMigrations } from "../../../src/core/features/magic-context/migrations";
-import type { ContextDatabase } from "../../../src/core/features/magic-context/storage";
 import { initializeDatabase } from "../../../src/core/features/magic-context/storage-db";
-import type { Tagger, ToolTagAccounting } from "../../../src/core/features/magic-context/tagger";
-import { createTagger } from "../../../src/core/features/magic-context/tagger";
+import type { ContextDatabase } from "../../../src/core/features/magic-context/storage";
+
+import { type Tagger, type ToolTagAccounting, createTagger } from "../../../src/core/features/magic-context/tagger";
+
 import { Database } from "../../../src/core/shared/sqlite";
 import { tagTranscript } from "../../../src/core/shared/tag-transcript";
 import type { Transcript, TranscriptPart, TranscriptPartKind } from "../../../src/core/shared/transcript";
@@ -458,7 +458,7 @@ describe("tagTranscript tool aggregation", () => {
         const runScenario = (reuse: boolean): { before: AccountingRow; after: AccountingRow } => {
             const db = new Database(":memory:");
             initializeDatabase(db);
-            runMigrations(db);
+            initializeDatabase(db);
             const sessionId = reuse ? "session-grown-reuse" : "session-grown-derive";
             const tagger = createTagger();
             tagger.initFromDb(sessionId, db);

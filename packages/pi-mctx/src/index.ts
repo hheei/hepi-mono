@@ -45,16 +45,10 @@ import { resolveProjectIdentityForSession } from "#core/features/magic-context/m
 import { scheduleIncrementalIndex } from "#core/features/magic-context/message-index-async";
 import { detectOverflow } from "#core/features/magic-context/overflow-detection";
 import { runSessionProjectBackfill } from "#core/features/magic-context/session-project-backfill";
-import type { ContextDatabase } from "#core/features/magic-context/storage";
-import {
-	getOrCreateSessionMeta,
-	getPendingPiCompactionMarkerState,
-	getSessionsWithPendingPiMarker,
-	updateSessionMeta,
-} from "#core/features/magic-context/storage";
+import { type ContextDatabase, getOrCreateSessionMeta, getPendingPiCompactionMarkerState, getSessionsWithPendingPiMarker, updateSessionMeta } from "#core/features/magic-context/storage";
+
 import {
 	applySqliteTuningPragmas,
-	getSchemaFenceRejection,
 	openDatabaseAsync,
 	setSqlitePragmaConfig,
 } from "#core/features/magic-context/storage-db";
@@ -741,10 +735,8 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 		db = null;
 	}
 
-	// openDatabase() returns null on the schema fence (DB newer than this binary).
-	// Genuine open/migration exceptions are caught above. Either way Magic Context
-	// cannot operate — when fail_closed_blocking is on (default), register a loud
-	// blocking surface instead of silently skipping hooks (native compaction).
+	// Storage open failures are fatal for this runtime. The fresh-schema
+	// initializer rejects legacy databases before it writes anything.
 	if (!db) {
 		const projectDirForConfig = process.cwd();
 		const early = loadPiConfig({ cwd: projectDirForConfig });
@@ -754,19 +746,12 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 			);
 			return;
 		}
-		const fence = getSchemaFenceRejection();
-		const reason: FailClosedReason = fence
-			? {
-					kind: "schema_fence",
-					persistedVersion: fence.persistedVersion,
-					supportedVersion: fence.supportedVersion,
-				}
-			: {
-					kind: "storage_failure",
-					cause:
-						openFailureCause ??
-						`storage unavailable at ${dbPath} (cache schema newer than this binary, or open failed)`,
-				};
+		const reason: FailClosedReason = {
+			kind: "storage_failure",
+			cause:
+				openFailureCause ??
+				`storage unavailable at ${dbPath}`,
+		};
 		if (
 			early.config.fail_closed_blocking === false ||
 			!isCompactionEnabled(early.config)

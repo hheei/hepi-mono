@@ -4,8 +4,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { Database } from "../../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../../src/core/shared/sqlite-helpers";
-import { runMigrations } from "../../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../../src/core/features/magic-context/storage-db";
+
 import {
     type RetrospectiveProjectSession,
     type RetrospectiveRawMessage,
@@ -91,7 +91,7 @@ afterEach(() => {
 function freshDb(): Database {
     const database = new Database(":memory:");
     initializeDatabase(database);
-    runMigrations(database);
+    initializeDatabase(database);
     return database;
 }
 

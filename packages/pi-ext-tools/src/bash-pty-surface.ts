@@ -1,6 +1,5 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { Component } from "@earendil-works/pi-tui";
-import { matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { type Component, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { PtyExitStatus, PtySession } from "./native-bridge.js";
 
 const MAX_LIVE_LINES = 10_000;

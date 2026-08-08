@@ -6,8 +6,8 @@ import { Database, withPrivilegedWriter } from "../../../../../src/core/shared/s
 import { closeQuietly } from "../../../../../src/core/shared/sqlite-helpers";
 import { installAuthorityManagedMarker } from "../../../../../src/core/features/magic-context/context-authority";
 import { getMemoryById, insertMemory } from "../../../../../src/core/features/magic-context/memory";
-import { runMigrations } from "../../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../../src/core/features/magic-context/storage-db";
+
 import {
     applyClassifications,
     type ClassifyArgs,
@@ -46,7 +46,7 @@ function successfulClassifyClient(onPrompt?: () => void) {
 function freshDb(): Database {
     const db = new Database(":memory:");
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import { Database } from "../../../../../src/core/shared/sqlite";
-import { runMigrations } from "../../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../../src/core/features/magic-context/storage-db";
+
 import type { GitCommit } from "../../../../../src/core/features/magic-context/git-commits/git-log-reader";
 import { enforceProjectCap, getCommitCount, upsertCommits } from "../../../../../src/core/features/magic-context/git-commits/storage-git-commits";
 import {
@@ -16,7 +16,7 @@ import {
 function openTestDb(): Database {
     const db = new Database(":memory:");
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 

@@ -9,10 +9,10 @@ import {
     type AuthorityStatus,
     getAuthorityManagedMarker,
 } from "../../../../src/core/features/magic-context/context-authority";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
-import type { ContextDatabase } from "../../../../src/core/features/magic-context/storage";
-import { getChannel2NudgeState, setChannel2NudgeState } from "../../../../src/core/features/magic-context/storage";
 import { initializeDatabase, openDatabase } from "../../../../src/core/features/magic-context/storage-db";
+import { type ContextDatabase, getChannel2NudgeState, setChannel2NudgeState } from "../../../../src/core/features/magic-context/storage";
+
+
 import { getOrCreateSessionMeta } from "../../../../src/core/features/magic-context/storage-meta";
 import {
     getOverflowState,
@@ -37,8 +37,8 @@ import {
     createRustModeTransform as createRustModeTransformImpl,
     type RustModeModuleClient,
 } from "../../../../src/core/hooks/magic-context/rust-mode-transform";
-import type { TransformDeps } from "../../../../src/core/hooks/magic-context/transform";
-import { createTransform } from "../../../../src/core/hooks/magic-context/transform";
+import { type TransformDeps, createTransform } from "../../../../src/core/hooks/magic-context/transform";
+
 import type { MessageLike } from "../../../../src/core/hooks/magic-context/transform-operations";
 
 const createRustModeTransform = (
@@ -127,7 +127,7 @@ afterEach(() => {
 function makeDb(): ContextDatabase {
     const db = new Database(":memory:") as ContextDatabase;
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     databases.push(db);
     return db;
 }
@@ -1769,7 +1769,7 @@ describe("prepareRustMemoryAuthority mixed restore", () => {
                 "INSERT INTO mirror_cursors(domain, cursor, updated_at) VALUES ('memories', 20, 0)",
             ).run();
         });
-        runMigrations(db);
+        initializeDatabase(db);
         db.prepare(
             "UPDATE mirror_resnapshot_state SET status = 'resnapshotting' WHERE domain = 'memories'",
         ).run();

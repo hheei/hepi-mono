@@ -8,8 +8,8 @@ import {
 import { getCompartments } from "../../../../src/core/features/magic-context/compartment-storage";
 import { resolveProjectIdentity } from "../../../../src/core/features/magic-context/memory/project-identity";
 import { getMemoriesByProject } from "../../../../src/core/features/magic-context/memory/storage-memory";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+
 import { reserveProtectedTailDrainTokens } from "../../../../src/core/features/magic-context/storage-meta-persisted";
 import { getPrimerCandidatesForProject } from "../../../../src/core/features/magic-context/storage-primers";
 import { getUserMemoryCandidates } from "../../../../src/core/features/magic-context/user-memory/storage-user-memory";
@@ -26,7 +26,7 @@ import { readSessionChunk, setRawMessageProvider } from "../../../../src/core/ho
 function createDb(): Database {
     const db = new Database(":memory:");
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 

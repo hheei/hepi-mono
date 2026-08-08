@@ -11,7 +11,6 @@ import {
 } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
-import { probeChildSpawnFence } from "#core/features/magic-context/schema-fence-probe";
 import { openDatabase } from "#core/features/magic-context/storage";
 import type { SubagentKind } from "#core/features/magic-context/storage-subagent-invocations";
 import { recordChildInvocation } from "#core/features/magic-context/subagent-token-capture";
@@ -725,14 +724,6 @@ export class PiSubagentRunner implements SubagentRunner {
 				"invalid_prompt",
 				`zero-tool Pi subagent "${options.agent}" requires a non-empty system prompt`,
 				true,
-			);
-		}
-
-		const fence = probeChildSpawnFence(openDatabase());
-		if (!fence.allowSpawn) {
-			return failBeforeSpawn(
-				"spawn_failed",
-				`Magic Context: plugin build is older than its database (database=v${fence.failure.persistedVersion}, supported_fence=v${fence.failure.supportedVersion}) — restart Pi.`,
 			);
 		}
 

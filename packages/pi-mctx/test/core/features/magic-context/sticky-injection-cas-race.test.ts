@@ -5,8 +5,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "../../../../src/core/shared/sqlite";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+
 import {
     appendAutoSearchHintDecision,
     appendNoteNudgeAnchor,
@@ -18,7 +18,7 @@ import {
 function createRaceDb(path: string): Database {
     const db = new Database(path);
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 

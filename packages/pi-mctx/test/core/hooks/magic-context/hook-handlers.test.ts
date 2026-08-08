@@ -1,8 +1,8 @@
 /// <reference types="bun-types" />
 
 import { describe, expect, test } from "bun:test";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+
 import {
     getOrCreateSessionMeta,
     updateSessionMeta,
@@ -22,7 +22,7 @@ import {
 function createTestDb(): Database {
     const db = new Database(":memory:");
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 

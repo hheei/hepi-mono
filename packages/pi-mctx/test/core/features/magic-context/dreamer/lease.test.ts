@@ -7,8 +7,8 @@ import { join } from "node:path";
 import { $ } from "bun";
 import { Database } from "../../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../../src/core/shared/sqlite-helpers";
-import { runMigrations } from "../../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../../src/core/features/magic-context/storage-db";
+
 import {
     acquireLease,
     DREAMING_LEASE_KEY,
@@ -28,7 +28,7 @@ function expireLease(db: Database, key = "dreaming_lease_expiry"): void {
 function makeDb(path = ":memory:"): Database {
     const db = new Database(path);
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 
@@ -181,7 +181,7 @@ describe("dreamer lease (atomic CAS)", () => {
                 const lease = await import(${JSON.stringify(`file://${pluginRoot}/src/features/magic-context/dreamer/lease.ts`)});
                 const db = new sqlite.Database(${JSON.stringify(path)});
                 storageDb.initializeDatabase(db);
-                migrations.runMigrations(db);
+                migrations.initializeDatabase(db);
                 const ok = lease.acquireLease(db, process.argv.at(-1) ?? "missing-holder");
                 db.close();
                 console.log(JSON.stringify({ ok }));

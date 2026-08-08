@@ -6,8 +6,8 @@ import {
 	type ExtensionContext,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import type { ArtifactRegistry } from "@hheei/pi-ext-core";
 import {
+	type ArtifactRegistry,
 	createArtifactRegistry,
 	openTuiSurface,
 	registerManagedLoadoutTool,

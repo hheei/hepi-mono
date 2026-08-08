@@ -2,10 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { RawMessage } from "#core/hooks/magic-context/read-session-raw";
-import {
-	buildToolArcs,
-	buildTrueRawTokenIndex,
-} from "#core/hooks/magic-context/read-session-true-raw-tokens";
+import { buildToolArcs, buildTrueRawTokenIndex, computeRawRangeFingerprint } from "#core/hooks/magic-context/read-session-true-raw-tokens";
 
 describe("Pi protected-tail true-raw parity", () => {
 	test("matches OpenCode text and tool-I/O totals for folded Pi shape", () => {
@@ -123,7 +120,7 @@ describe("Pi protected-tail true-raw parity", () => {
 });
 
 import type { ProtectedTailBoundarySnapshot } from "#core/hooks/magic-context/protected-tail-boundary";
-import { computeRawRangeFingerprint } from "#core/hooks/magic-context/read-session-true-raw-tokens";
+
 import { selectPiHistorianRunBoundarySnapshot } from "../src/context-handler";
 import { convertEntriesToRawMessages } from "../src/read-session-pi";
 

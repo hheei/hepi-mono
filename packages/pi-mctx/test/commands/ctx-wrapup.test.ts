@@ -10,9 +10,8 @@ import {
 	getCompartments,
 	getLastCompartmentEndMessage,
 } from "#core/features/magic-context/compartment-storage";
-import { runMigrations } from "#core/features/magic-context/migrations";
+import { initializeDatabase } from "../../src/core/features/magic-context/storage-db";
 import { updateSessionMeta } from "#core/features/magic-context/storage";
-import { initializeDatabase } from "#core/features/magic-context/storage-db";
 import {
 	getOverflowState,
 	getPendingPiCompactionMarkerState,
@@ -35,7 +34,7 @@ import {
 function createDb(): Database {
 	const db = new Database(":memory:");
 	initializeDatabase(db);
-	runMigrations(db);
+	initializeDatabase(db);
 	return db;
 }
 

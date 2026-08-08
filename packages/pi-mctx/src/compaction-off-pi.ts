@@ -1,5 +1,4 @@
 import { COMPACTION_ENABLED_PATH } from "#core/config/agent-disable";
-import type { ContextDatabase } from "#core/features/magic-context/storage";
 import {
 	clearCachedM0M1,
 	clearPendingOps,
@@ -9,6 +8,7 @@ import {
 	setChannel2NudgeState,
 	setPendingPiCompactionMarkerState,
 	updateSessionMeta,
+	type ContextDatabase,
 } from "#core/features/magic-context/storage";
 import {
 	type CompactionModeRecord,

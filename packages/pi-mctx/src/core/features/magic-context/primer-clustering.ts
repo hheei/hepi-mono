@@ -1,6 +1,6 @@
 import { cosineSimilarity } from "./memory/cosine-similarity";
-import type { Primer, PrimerCandidate } from "./storage-primers";
-import { primerOccurrenceKey, primerOccurrenceUtcDay } from "./storage-primers";
+import { type Primer, type PrimerCandidate, primerOccurrenceKey, primerOccurrenceUtcDay } from "./storage-primers";
+
 
 export const PRIMER_CLUSTER_THRESHOLD = 0.85;
 export const PRIMER_CLUSTER_HYSTERESIS = 0.02;

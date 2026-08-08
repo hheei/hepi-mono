@@ -1,7 +1,7 @@
 import { describe, expect, it, spyOn } from "bun:test";
 import { resolveProjectIdentity } from "#core/features/magic-context/memory/project-identity";
-import type { UnifiedSearchResult } from "#core/features/magic-context/search";
 import * as searchModule from "#core/features/magic-context/search";
+
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import { createTestDb, fakeContext } from "../test-utils.test";
 import { createCtxSearchTool } from "../../src/tools/ctx-search";

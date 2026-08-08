@@ -1,6 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { ContextDatabase } from "#core/features/magic-context/storage";
-import { getPendingOps } from "#core/features/magic-context/storage";
+import { getPendingOps, type ContextDatabase } from "#core/features/magic-context/storage";
 import { executeFlush } from "#core/hooks/magic-context/execute-flush";
 import { COMPACTION_OFF_COMMAND_UNAVAILABLE } from "../compaction-off-pi";
 import {

@@ -1,25 +1,19 @@
-import type { ContextDatabase } from "../../features/magic-context/storage";
+import { type ContextDatabase, getActiveTagsBySession, getMaxTagNumberBySession, replaceSourceContent, updateTagDropMode, updateTagStatus } from "../../features/magic-context/storage";
+
 import {
-    getActiveTagsBySession,
-    getMaxTagNumberBySession,
-    replaceSourceContent,
-    updateTagDropMode,
-    updateTagStatus,
-} from "../../features/magic-context/storage";
-import {
-    getEmergencyInputSample,
-    setEmergencyDropSample,
+getEmergencyInputSample,
+setEmergencyDropSample,
 } from "../../features/magic-context/storage-meta-persisted";
 import type { TagEntry } from "../../features/magic-context/types";
 import { sessionLog } from "../../shared";
-import { applyCavemanCleanup, type CavemanCleanupConfig } from "./caveman-cleanup";
+import { applyCavemanCleanup,type CavemanCleanupConfig } from "./caveman-cleanup";
 import {
-    type EmergencyDropTag,
-    estimateEmergencyDropReclaimTokens,
-    planEmergencyDrop,
+type EmergencyDropTag,
+estimateEmergencyDropReclaimTokens,
+planEmergencyDrop,
 } from "./emergency-drop";
 import { stripSystemInjection } from "./system-injection-stripper";
-import type { MessageLike, TagTarget } from "./tag-messages";
+import type { MessageLike,TagTarget } from "./tag-messages";
 import { stripTagPrefix } from "./tag-part-guards";
 
 const DEDUP_SAFE_TOOLS = new Set([

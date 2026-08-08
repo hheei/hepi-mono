@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Database } from "../../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../../src/core/shared/sqlite-helpers";
-import { runMigrations } from "../../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../../src/core/features/magic-context/storage-db";
+
 import type { GitCommit } from "../../../../../src/core/features/magic-context/git-commits/git-log-reader";
 import { searchGitCommitsSync } from "../../../../../src/core/features/magic-context/git-commits/search-git-commits";
 import { saveCommitEmbedding } from "../../../../../src/core/features/magic-context/git-commits/storage-git-commit-embeddings";
@@ -25,7 +25,7 @@ describe("searchGitCommitsSync", () => {
     beforeEach(() => {
         db = new Database(":memory:");
         initializeDatabase(db);
-        runMigrations(db);
+        initializeDatabase(db);
     });
 
     afterEach(() => {

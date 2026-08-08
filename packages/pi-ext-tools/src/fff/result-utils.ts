@@ -1,5 +1,4 @@
-import type { Result as BetterResult } from "better-result";
-import { Result } from "better-result";
+import { type Result as BetterResult, Result } from "better-result";
 
 export type AppResult<T, E> = BetterResult<T, E>;
 

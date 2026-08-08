@@ -34,8 +34,8 @@
  * so the bypass is no longer needed.
  */
 
-import type { ContextDatabase } from "#core/features/magic-context/storage";
-import { getOrCreateSessionMeta } from "#core/features/magic-context/storage";
+import { type ContextDatabase, getOrCreateSessionMeta } from "#core/features/magic-context/storage";
+
 import type { TagTarget } from "#core/hooks/magic-context/tag-messages";
 
 type PiTextContent = { type: "text"; text: string };

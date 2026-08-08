@@ -13,12 +13,12 @@ import {
     __resetProjectIdentityForTests,
     __setProjectIdentityTestHooks,
 } from "../../../../src/core/features/magic-context/memory/project-identity";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
+import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
 import {
     _getSessionProjectBackfillState,
     runSessionProjectBackfill,
 } from "../../../../src/core/features/magic-context/session-project-backfill";
-import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+
 
 const tempDirs: string[] = [];
 const openDatabases: Database[] = [];
@@ -48,7 +48,7 @@ function createDb(): Database {
     const db = new Database(dbPath);
     openDatabases.push(db);
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 

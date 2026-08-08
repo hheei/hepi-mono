@@ -18,13 +18,13 @@ import {
 import { appendCompartments, getCompartments, replaceSessionFacts } from "../../../../src/core/features/magic-context/compartment-storage";
 import { getMemoryById, insertMemory, resetEmbeddingCacheForTests, saveEmbedding } from "../../../../src/core/features/magic-context/memory";
 import { ensureMessagesIndexed } from "../../../../src/core/features/magic-context/message-index";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
+import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
 import {
     _resetProjectEmbeddingRegistryForTests,
     registerProjectEmbedding,
 } from "../../../../src/core/features/magic-context/project-embedding-registry";
 import { parseIdShapedQuery, unifiedSearch } from "../../../../src/core/features/magic-context/search";
-import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+
 import { addNote, dismissNote, updateNote } from "../../../../src/core/features/magic-context/storage-notes";
 import { createPrimer } from "../../../../src/core/features/magic-context/storage-primers";
 
@@ -88,11 +88,8 @@ function registerEmbeddingProject(db: Database, projectPath: string) {
 function createTestDb(): Database {
     const db = new Database(":memory:");
     initializeDatabase(db);
-    // runMigrations adds the git_commits + git_commits_fts tables that the
-    // dedup regression test exercises. Production code calls both functions
-    // back-to-back inside openDatabase(); the test path historically only
-    // called initializeDatabase() because no test needed the v4 schema.
-    runMigrations(db);
+    // initializeDatabase creates the git_commits + git_commits_fts tables
+    // used by this dedup regression test.
     return db;
 }
 

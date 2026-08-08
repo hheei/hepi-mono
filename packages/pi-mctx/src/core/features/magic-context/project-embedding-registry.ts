@@ -1,57 +1,57 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash,randomUUID } from "node:crypto";
 
-import type { EmbeddingConfig } from "../../config/schema/magic-context";
-import { DEFAULT_LOCAL_EMBEDDING_MODEL } from "../../config/schema/magic-context";
+import { type EmbeddingConfig, DEFAULT_LOCAL_EMBEDDING_MODEL } from "../../config/schema/magic-context";
+
 import { log } from "../../shared/logger";
-import type { Database, Statement as PreparedStatement } from "../../shared/sqlite";
+import type { Database,Statement as PreparedStatement } from "../../shared/sqlite";
 import {
-    buildCanonicalChunkTextFromFts,
-    buildCompartmentSummaryFallbackText,
-    type CompartmentChunkBackfillCandidate,
-    chunkCanonicalText,
-    chunkEmbeddingWindowsAreCurrent,
-    countSessionCompartmentEmbedCoverage,
-    countUnembeddedSessionCompartments,
-    loadUnembeddedCompartmentChunkCandidates,
-    loadUnembeddedSessionChunkCandidates,
-    normalizeCompartmentChunkMaxInputTokens,
-    replaceCompartmentChunkEmbeddings,
-    type SaveCompartmentChunkEmbeddingInput,
+buildCanonicalChunkTextFromFts,
+buildCompartmentSummaryFallbackText,
+chunkCanonicalText,
+chunkEmbeddingWindowsAreCurrent,
+countSessionCompartmentEmbedCoverage,
+countUnembeddedSessionCompartments,
+loadUnembeddedCompartmentChunkCandidates,
+loadUnembeddedSessionChunkCandidates,
+normalizeCompartmentChunkMaxInputTokens,
+replaceCompartmentChunkEmbeddings,
+type CompartmentChunkBackfillCandidate,
+type SaveCompartmentChunkEmbeddingInput,
 } from "./compartment-chunk-embedding";
 import {
-    countEmbeddedCommits,
-    loadUnembeddedCommits,
-    saveCommitEmbedding,
+countEmbeddedCommits,
+loadUnembeddedCommits,
+saveCommitEmbedding,
 } from "./git-commits/storage-git-commit-embeddings";
 import { getCommitCount } from "./git-commits/storage-git-commits";
 import {
-    acquireGitSweepLease,
-    releaseGitSweepLease,
-    renewGitSweepLease,
+acquireGitSweepLease,
+releaseGitSweepLease,
+renewGitSweepLease,
 } from "./git-commits/sweep-coordinator";
 import { invalidateProject } from "./memory/embedding-cache";
 import { getEmbeddingProviderIdentity } from "./memory/embedding-identity";
 import { LocalEmbeddingProvider } from "./memory/embedding-local";
 import { OpenAICompatibleEmbeddingProvider } from "./memory/embedding-openai";
-import type { EmbeddingProvider, EmbeddingPurpose } from "./memory/embedding-provider";
+import type { EmbeddingProvider,EmbeddingPurpose } from "./memory/embedding-provider";
 import {
-    getSynapseBatchRequestKey,
-    SYNAPSE_DEFAULT_MODEL,
-    SYNAPSE_MAX_INPUT_TOKENS,
-    SynapseEmbeddingProvider,
+getSynapseBatchRequestKey,
+SYNAPSE_DEFAULT_MODEL,
+SYNAPSE_MAX_INPUT_TOKENS,
+SynapseEmbeddingProvider,
 } from "./memory/embedding-synapse";
 import {
-    getMemoryEmbedCoverage,
-    saveEmbeddingIfHashMatches,
+getMemoryEmbedCoverage,
+saveEmbeddingIfHashMatches,
 } from "./memory/storage-memory-embeddings";
 import {
-    recordSessionProjectIdentity,
-    repairMisScopedCompartmentChunkEmbeddingsForProject,
+recordSessionProjectIdentity,
+repairMisScopedCompartmentChunkEmbeddingsForProject,
 } from "./session-project-storage";
 import {
-    beginSynapseBatchLedger,
-    finishSynapseBatchLedger,
-    pruneSynapseBatchLedgerForProject,
+beginSynapseBatchLedger,
+finishSynapseBatchLedger,
+pruneSynapseBatchLedgerForProject,
 } from "./storage-embedding-measurements";
 
 const OFF_PROVIDER_IDENTITY = "embedding-provider:off";

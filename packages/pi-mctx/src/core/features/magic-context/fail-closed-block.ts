@@ -29,11 +29,6 @@ export type FailClosedReason =
           blockingProcesses: readonly FailClosedBlockingProcess[];
       }
     | {
-          kind: "schema_fence";
-          persistedVersion: number;
-          supportedVersion: number;
-      }
-    | {
           kind: "storage_failure";
           cause: string;
       };
@@ -96,12 +91,6 @@ export function formatFailClosedBlockingMessage(reason: FailClosedReason): strin
         return [
             `Magic Context cannot migrate the shared database because ${formatFailClosedBlockingProcesses(reason.blockingProcesses)} may be running an older Magic Context build that would fail against the migrated database.`,
             "Restart the blocking process (it will pick up the new build and migrate on start), or shut it down and retry.",
-            `Recovery: ${FAIL_CLOSED_DOCTOR_COMMAND}`,
-        ].join(" ");
-    }
-    if (reason.kind === "schema_fence") {
-        return [
-            `Magic Context cannot operate: this Magic Context build is older than the database; upgrade/restart this harness (database schema v${reason.persistedVersion}, build supports through v${reason.supportedVersion}).`,
             `Recovery: ${FAIL_CLOSED_DOCTOR_COMMAND}`,
         ].join(" ");
     }

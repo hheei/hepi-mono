@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { Database } from "../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../src/core/shared/sqlite-helpers";
 import { ProjectIdentityError } from "../../../../src/core/features/magic-context/memory/project-identity";
-import { runMigrations } from "../../../../src/core/features/magic-context/migrations";
 import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
+
 import { getProjectState } from "../../../../src/core/features/magic-context/storage-project-state";
 import {
     BATCH_SIZE,
@@ -20,7 +20,7 @@ const tempDirs: string[] = [];
 function makeDb(): Database {
     db = new Database(":memory:");
     initializeDatabase(db);
-    runMigrations(db);
+    initializeDatabase(db);
     return db;
 }
 

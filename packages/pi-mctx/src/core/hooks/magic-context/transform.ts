@@ -12,8 +12,8 @@ import {
     takeDubiousOwnershipProjectIdentityWarning,
 } from "../../features/magic-context/memory/project-identity";
 import { scheduleReconciliation } from "../../features/magic-context/message-index-async";
-import type { Scheduler } from "../../features/magic-context/scheduler";
-import { parseCacheTtl } from "../../features/magic-context/scheduler";
+import { type Scheduler, parseCacheTtl } from "../../features/magic-context/scheduler";
+
 import { recordSessionProjectIdentity } from "../../features/magic-context/session-project-storage";
 import {
     type ContextDatabase,
