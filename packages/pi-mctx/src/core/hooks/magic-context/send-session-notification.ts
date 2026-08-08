@@ -6,8 +6,6 @@ export interface NotificationParams {
     variant?: string;
     providerId?: string;
     modelId?: string;
-    /** TUI toast lifetime in milliseconds (default: 5000). */
-    toastDurationMs?: number;
 }
 
 export type NotificationDeliveryDisposition = "sent" | "queued" | "skipped" | "failed";
@@ -44,42 +42,7 @@ function queueIgnoredNotification(notification: QueuedIgnoredNotification): void
     queuedIgnoredNotifications.set(notification.sessionId, queued);
 }
 
-async function trySendTuiToast(
-    sessionId: string,
-    text: string,
-    params: NotificationParams,
-    forcePersist: boolean,
-): Promise<boolean> {
-    if (forcePersist) return false;
-
-    const title = extractToastTitle(text);
-    const message = text.length > 200 ? `${text.slice(0, 200)}…` : text;
-    const toastVariant = inferToastVariant(text);
-    const duration = params.toastDurationMs ?? 5000;
-    const { isTuiConnected: checkTui } = await import("../../shared/rpc-notifications");
-    if (!checkTui(sessionId)) return false;
-
-    try {
-        const { pushNotification } = await import("../../shared/rpc-notifications");
-        pushNotification(
-            "toast",
-            {
-                title,
-                message,
-                variant: toastVariant,
-                duration,
-            },
-            sessionId,
-        );
-        return true;
-    } catch {
-        // RPC enqueue failed — fall through to the persisted ignored-message path.
-        sessionLog(sessionId, "TUI RPC toast enqueue failed, falling back to ignored message");
-        return false;
-    }
-}
-
-/** Test seams for the process-local queue; production uses the read-only OpenCode DB signal. */
+/** Test seams for the process-local queue; production uses the Pi session-state signal. */
 export const __ignoredNotificationTest = {
     pendingTexts(sessionId: string): string[] {
         return (queuedIgnoredNotifications.get(sessionId) ?? []).map((item) => item.text);
@@ -113,37 +76,6 @@ function hasNotificationSessionClient(client: unknown): client is NotificationCl
     );
 }
 
-/**
- * Map notification text to a TUI toast variant based on content heuristics.
- */
-function inferToastVariant(text: string): "success" | "error" | "warning" | "info" {
-    const lower = text.toLowerCase();
-    if (lower.includes("error") || lower.includes("failed") || lower.includes("alert"))
-        return "error";
-    if (lower.includes("warning") || lower.includes("⚠")) return "warning";
-    if (
-        lower.includes("complete") ||
-        lower.includes("success") ||
-        lower.includes("✓") ||
-        lower.includes("finished")
-    )
-        return "success";
-    return "info";
-}
-
-/**
- * Extract a short title from notification text (first line or first sentence).
- */
-function extractToastTitle(text: string): string {
-    // Use first markdown heading if present
-    const headingMatch = text.match(/^#+\s+(.+)/m);
-    if (headingMatch) return headingMatch[1].trim();
-    // Use first line if short enough
-    const firstLine = text.split("\n")[0].trim();
-    if (firstLine.length <= 80) return firstLine;
-    return "Magic Context";
-}
-
 async function sendIgnoredMessageNow(
     client: unknown,
     sessionId: string,
@@ -159,10 +91,9 @@ async function sendIgnoredMessageNow(
     }
 
     // Title-safety guard (issue #129): an ignored message is hidden from the
-    // LLM but NOT `synthetic`, so OpenCode's title gate counts it as a real
-    // user message — one post into a not-yet-titled session permanently
-    // suppresses that session's title generation. Only persist into sessions
-    // that already have a real title (the toast path above is unaffected).
+    // LLM but not `synthetic`, so Pi title generation counts it as a real
+    // user message. Do not persist into a not-yet-titled session because that
+    // permanently suppresses title generation.
     const { waitForSafeNotificationTarget } = await import("../../shared/safe-notification-target");
     if ((await waitForSafeNotificationTarget(client, sessionId)) === "skip") {
         sessionLog(sessionId, "notification skipped (session not titled yet)");
@@ -185,12 +116,9 @@ async function sendIgnoredMessageNow(
 
     // Pin the prompt context (agent + model + variant) to the session's most
     // recent real turn. WHY: even though this is `noReply: true` (no assistant
-    // turn fires now), OpenCode's createUserMessage RECORDS prompt context on
-    // the appended user message, and THAT becomes the session's active
-    // model/agent for the NEXT real turn. Passing nothing makes OpenCode record
-    // the DEFAULT agent/model — which then switches the model on the user's
-    // next turn and busts the provider prefix cache the prior turn warmed.
-    // Mirrors AFT's notifications.ts (issue #62).
+    // turn fires now), Pi records prompt context on the appended user message;
+    // that becomes active on the next real turn. Pinning the latest real values
+    // prevents a notification from switching the model or agent.
     //
     // Caller-supplied params win; otherwise resolve from the last assistant
     // turn. We only pin values actually resolved from real messages (never a
@@ -267,18 +195,10 @@ export async function sendIgnoredMessage(
     sessionId: string,
     text: string,
     params: NotificationParams,
-    // When true, always persist as an ignored message instead of using the TUI
-    // toast path, so the content remains in scrollback. Use this for outcomes of
-    // long-running background work, such as a session-upgrade result, when a
-    // transient five-second toast may be missed.
     forcePersist = false,
 ): Promise<NotificationDeliveryDisposition> {
-    // TUI notifications are already out-of-band and do not create a user row.
-    if (await trySendTuiToast(sessionId, text, params, forcePersist)) return "sent";
-
-    // OpenCode's MessageV2.latest is role-based and treats an ignored-only user
-    // row as the latest user turn. Do not create that invisible chronology entry
-    // while the read-only DB signal says the assistant is still mid-turn.
+    // Pi appends ignored rows to the session transcript. Do not create one
+    // while the assistant is mid-turn.
     if (midTurnDetector(sessionId)) {
         queueIgnoredNotification({ client, sessionId, text, params, forcePersist });
         return "queued";

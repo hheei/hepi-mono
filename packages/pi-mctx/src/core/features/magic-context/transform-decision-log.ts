@@ -2,7 +2,7 @@ import { Database } from "../../shared/sqlite";
 import { closeQuietly } from "../../shared/sqlite-helpers";
 import { getDatabasePath } from "./storage-db";
 
-export type TransformDecisionHarness = "opencode" | "pi";
+export type TransformDecisionHarness = "pi";
 export type TransformSchedulerDecision =
     | "execute"
     | "defer"
@@ -96,9 +96,7 @@ const sharedReasonAliases: Record<string, CanonicalMaterializeReason> = {
     pressure: "pressure_refold",
 };
 
-const pendingDecisionBySession = new Map<string, PendingTransformDecision>();
 const pendingPiDecisionBySession = new Map<string, PendingPiTransformDecision>();
-const lastBoundMessageIdBySession = new Map<string, string>();
 const scheduledWriteTokensBySession = new Map<string, Set<symbol>>();
 
 let writerOverrideForTests: TransformDecisionWriter | null = null;
@@ -125,73 +123,14 @@ export function normalizeMaterializeReason(
         return null;
     }
 
-    // OpenCode's pressure refold flips rematerialized=true without changing
-    // mustMaterialize().reason. Pi records the same path as "drift" above, but
-    // keep this fallback for cross-harness parity and future callers.
+    // Pi records pressure refolds as "drift" above; retain this fallback for
+    // callers that only report a rematerialization boolean.
     return rematerialized ? "pressure_refold" : null;
 }
 
-/**
- * Stage one Rust pass for the assistant message that will receive its provider usage row.
- * The transform runs before that assistant exists, so binding to the newest input message
- * attributes a multi-step pass to the previous step. The ordinary OpenCode event path binds
- * this pending record to the next completed assistant id.
- */
-export function writeRustTransformDecision(args: {
-    sessionId: string;
-    decision: string;
-    materializeReason: string | null;
-    inputTokens: number;
-    tsMs?: number;
-}): void {
-    const rawDecision = args.decision.trim();
-    const decisionUpper = rawDecision.toUpperCase();
-    const mapped =
-        decisionUpper === "HARD" || decisionUpper === "MIGRATE_HARD"
-            ? { decision: "execute" as const, materialized: true, bustedThisPass: true }
-            : decisionUpper === "SOFT" || decisionUpper === "EXECUTE"
-              ? { decision: "execute" as const, materialized: false, bustedThisPass: true }
-              : decisionUpper === "SOFT+"
-                ? { decision: "defer" as const, materialized: false, bustedThisPass: false }
-                : {
-                      decision: (rawDecision.toLowerCase() ||
-                          "unknown") as TransformSchedulerDecision,
-                      materialized: false,
-                      bustedThisPass: false,
-                  };
-    pendingDecisionBySession.set(args.sessionId, {
-        tsMs: args.tsMs ?? Date.now(),
-        decision: mapped.decision,
-        materialized: mapped.materialized,
-        materializeReason: args.materializeReason as CanonicalMaterializeReason | null,
-        emergency: false,
-        droppedTokens: 0,
-        droppedCount: 0,
-        inputTokens: args.inputTokens,
-        bustedThisPass: mapped.bustedThisPass,
-    });
-}
-
-export function clearOpenCodePendingTransformDecision(sessionId: string): void {
-    pendingDecisionBySession.delete(sessionId);
-}
-
 export function clearTransformDecisionSession(sessionId: string): void {
-    pendingDecisionBySession.delete(sessionId);
     pendingPiDecisionBySession.delete(sessionId);
-    lastBoundMessageIdBySession.delete(sessionId);
     scheduledWriteTokensBySession.delete(sessionId);
-}
-
-export function recordPendingTransformDecision(
-    sessionId: string,
-    decision: PendingTransformDecision,
-): void {
-    if (!decision.bustedThisPass) {
-        pendingDecisionBySession.delete(sessionId);
-        return;
-    }
-    pendingDecisionBySession.set(sessionId, decision);
 }
 
 export function recordPendingPiTransformDecision(
@@ -204,40 +143,6 @@ export function recordPendingPiTransformDecision(
         ...decision,
         snapshotNewestAssistantEntryId,
     });
-}
-
-export function scheduleOpenCodeTransformDecisionWrite(args: {
-    db: Database;
-    sessionId: string;
-    messageId: string;
-    inputTokens: number;
-}): boolean {
-    const pending = pendingDecisionBySession.get(args.sessionId);
-    if (!pending) return false;
-    if (lastBoundMessageIdBySession.get(args.sessionId) === args.messageId) {
-        return false;
-    }
-    const dbPath = getDatabasePath(args.db);
-    if (!dbPath) return false;
-
-    lastBoundMessageIdBySession.set(args.sessionId, args.messageId);
-    pendingDecisionBySession.delete(args.sessionId);
-    const token = addScheduledWriteToken(args.sessionId);
-    setTimeout(() => {
-        try {
-            if (!hasScheduledWriteToken(args.sessionId, token)) return;
-            writeTransformDecisionBestEffort(dbPath, {
-                ...pending,
-                sessionId: args.sessionId,
-                harness: "opencode",
-                messageId: args.messageId,
-                inputTokens: args.inputTokens,
-            });
-        } finally {
-            deleteScheduledWriteToken(args.sessionId, token);
-        }
-    }, 0);
-    return true;
 }
 
 export function findNewestPiAssistantEntryId(
@@ -437,16 +342,11 @@ function writeTransformDecisionRowOnDatabase(
 }
 
 export const __test = {
-    getPending(sessionId: string): PendingTransformDecision | undefined {
-        return pendingDecisionBySession.get(sessionId);
-    },
     getPendingPi(sessionId: string): PendingPiTransformDecision | undefined {
         return pendingPiDecisionBySession.get(sessionId);
     },
     reset(): void {
-        pendingDecisionBySession.clear();
         pendingPiDecisionBySession.clear();
-        lastBoundMessageIdBySession.clear();
         scheduledWriteTokensBySession.clear();
         writerOverrideForTests = null;
         retentionOverrideForTests = null;

@@ -1,21 +1,19 @@
 import type { RecompProgress } from "./compartment-runner-types";
-import type { AgentBySession, LiveModelBySession, VariantBySession } from "./hook-handlers";
+
+export type LiveModelBySession = Map<string, { providerID: string; modelID: string }>;
+export type VariantBySession = Map<string, string | undefined>;
+export type AgentBySession = Map<string, string>;
 
 /**
  * Plugin-process-scoped shared state. Lives in `index.ts` and is threaded into
- * every component that needs to share signals with the others (the magic-
- * context hook, RPC handlers, command handlers, etc).
+ * every component that needs to share signals with the Pi adapter.
  *
  * The `*Sessions` sets are the cache-busting signal channels added in
  * the Oracle 2026-04-26 review (replaces the old single `flushedSessions`).
- * See `hook-handlers.ts` for the full lifetime/semantics doc-comment on
- * each set, and `system-prompt-hash.ts` / `transform.ts` /
- * `transform-postprocess-phase.ts` for the consumer drain points.
+ * `system-prompt-hash.ts` / `transform.ts` / `transform-postprocess-phase.ts`
+ * for consumer drain points.
  *
- * Storing them here lets RPC-driven recomp (TUI command path) signal the
- * same sets the hook-driven recomp (server `/ctx-recomp` path) signals.
- * Without this, the TUI recomp publish would silently leave injection cache
- * stale and the next defer pass would reuse old `<session-history>`.
+ * Pi recomp publication signals the same sets used by the transform path.
  */
 export interface LiveSessionState {
     liveModelBySession: LiveModelBySession;
@@ -27,14 +25,10 @@ export interface LiveSessionState {
     pendingMaterializationSessions: Set<string>;
     deferredMaterializationSessions: Set<string>;
     /**
-     * Cache of resolved session.directory values from `client.session.get(...)`.
+     * Cache of Pi session directory values.
      *
-     * The session→project binding is set at session create time and never
-     * changes (OpenCode source: `Session.directory` is read once from the
-     * session record, no migration path), so caching for the lifetime of the
-     * plugin process is safe. Without this, transform.ts hits OpenCode's
-     * local API on every transform pass — observed to be 1.5s+ for large
-     * sessions under Electron, accounting for the bulk of transform latency.
+     * The session-to-project binding is stable for a session, so caching for
+     * the plugin process lifetime avoids repeated session metadata reads.
      *
      * Populated on first successful resolution; cleared on `session.deleted`.
      */

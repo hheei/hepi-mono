@@ -28,16 +28,9 @@ import {
     getPersistedCompactionMarkerState,
 } from "../../features/magic-context/storage-meta-persisted";
 import type { Tagger } from "../../features/magic-context/tagger";
-import {
-    clearTransformDecisionSession,
-    scheduleOpenCodeTransformDecisionWrite,
-} from "../../features/magic-context/transform-decision-log";
+import { clearTransformDecisionSession } from "../../features/magic-context/transform-decision-log";
 import type { ContextUsage, SessionMeta } from "../../features/magic-context/types";
 import { log, sessionLog } from "../../shared/logger";
-import {
-    refreshModelLimitsAfterAuthOnce,
-    refreshModelLimitsFromApi,
-} from "../../shared/models-dev-cache";
 import { maybeDeliverChannel2 } from "./channel2-delivery";
 import {
     getMessageRemovedInfo,
@@ -508,22 +501,6 @@ export function createEventHandler(deps: EventHandlerDeps) {
             const hasUsageTokens = usageTokens.some(
                 (value) => typeof value === "number" && value > 0,
             );
-            const terminalAssistantUpdate =
-                info.messageID !== undefined &&
-                hasUsageTokens &&
-                (typeof info.finish === "string" || typeof info.completedAt === "number");
-            if (terminalAssistantUpdate && info.messageID) {
-                scheduleOpenCodeTransformDecisionWrite({
-                    db: deps.db,
-                    sessionId: info.sessionID,
-                    messageId: info.messageID,
-                    inputTokens:
-                        (info.tokens?.input ?? 0) +
-                        (info.tokens?.cache?.read ?? 0) +
-                        (info.tokens?.cache?.write ?? 0),
-                });
-            }
-
             sessionLog(
                 info.sessionID,
                 `event message.updated: provider=${info.providerID} model=${info.modelID} hasUsageTokens=${hasUsageTokens} tokens.input=${info.tokens?.input} cache.read=${info.tokens?.cache?.read} cache.write=${info.tokens?.cache?.write}`,
@@ -555,16 +532,6 @@ export function createEventHandler(deps: EventHandlerDeps) {
                         (info.tokens?.input ?? 0) +
                         (info.tokens?.cache?.read ?? 0) +
                         (info.tokens?.cache?.write ?? 0);
-                    // Auth is provably live now (a request returned usage), so
-                    // re-warm the model-limit cache once per process to overwrite
-                    // any stale pre-auth limit (e.g. gpt-5.5 cached at the raw
-                    // 922k before the OAuth 272k downshift applied, #179). No-op
-                    // after the first successful warm.
-                    if (deps.client) {
-                        await refreshModelLimitsAfterAuthOnce(
-                            deps.client as Parameters<typeof refreshModelLimitsAfterAuthOnce>[0],
-                        );
-                    }
                     let contextLimit = resolveContextLimit(info.providerID, info.modelID, {
                         db: deps.db,
                         sessionID: info.sessionID,
@@ -583,30 +550,12 @@ export function createEventHandler(deps: EventHandlerDeps) {
                         observedSafeInputTokens > 0 &&
                         totalInputTokens <= observedSafeInputTokens * 2
                     ) {
-                        const oldLimit = contextLimit;
-                        if (deps.client) {
-                            await refreshModelLimitsFromApi(
-                                deps.client as Parameters<typeof refreshModelLimitsFromApi>[0],
-                            );
-                            contextLimit = resolveContextLimit(info.providerID, info.modelID, {
-                                db: deps.db,
-                                sessionID: info.sessionID,
-                            });
-                            if (contextLimit >= totalInputTokens) {
-                                percentage = (totalInputTokens / contextLimit) * 100;
-                                sessionLog(
-                                    info.sessionID,
-                                    `models-dev-cache: regression recovered for ${info.providerID}/${info.modelID} via refresh (was=${oldLimit}, now=${contextLimit})`,
-                                );
-                            }
-                        }
-
                         if (contextLimit < totalInputTokens && !sessionMeta.cacheAlertSent) {
                             const safeTokens = Math.max(observedSafeInputTokens, totalInputTokens);
                             const delivery = await sendIgnoredMessage(
                                 deps.client,
                                 info.sessionID,
-                                `⚠️ Magic Context: OpenCode reports a context limit of ${formatTokens(contextLimit)} tokens for ${info.providerID}/${info.modelID} but you've successfully sent ${formatTokens(safeTokens)} tokens in this session — the cached limit looks wrong. Restart OpenCode if you suspect this is incorrect.`,
+                                `⚠️ Magic Context: Pi reports a context limit of ${formatTokens(contextLimit)} tokens for ${info.providerID}/${info.modelID} but this session has successfully sent ${formatTokens(safeTokens)} tokens. The reported limit may be stale.`,
                                 deps.getNotificationParams?.(info.sessionID) ?? {},
                             );
                             // The title guard can skip ignored-message posts until a

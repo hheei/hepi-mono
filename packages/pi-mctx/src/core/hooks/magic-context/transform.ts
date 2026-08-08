@@ -45,10 +45,6 @@ import {
 } from "../../features/magic-context/storage-meta-persisted";
 import { bumpProjectMemoryEpoch } from "../../features/magic-context/storage-project-state";
 import type { Tagger } from "../../features/magic-context/tagger";
-import {
-    normalizeMaterializeReason,
-    recordPendingTransformDecision,
-} from "../../features/magic-context/transform-decision-log";
 import type { ContextUsage } from "../../features/magic-context/types";
 import { BoundedSessionMap } from "../../shared/bounded-session-map";
 import { getErrorMessage } from "../../shared/error-message";
@@ -80,7 +76,7 @@ import {
     estimateFinalWireInputTokens,
     estimateMessageTokens,
 } from "./final-wire-token-estimate";
-import type { LiveModelBySession } from "./hook-handlers";
+import type { LiveModelBySession } from "./live-session-state";
 import {
     type PreparedCompartmentInjection,
     prepareCompartmentInjection,
@@ -2270,23 +2266,6 @@ export function createTransform(deps: TransformDeps) {
             );
         }
 
-        if (postTransformResult.bustedThisPass) {
-            recordPendingTransformDecision(sessionId, {
-                tsMs: Date.now(),
-                decision: schedulerDecision,
-                materialized: postTransformResult.materialized,
-                materializeReason: normalizeMaterializeReason(
-                    "opencode",
-                    postTransformResult.materializeReason,
-                    postTransformResult.materialized,
-                ),
-                emergency: postTransformResult.emergency,
-                droppedTokens: postTransformResult.droppedTokens,
-                droppedCount: postTransformResult.droppedCount,
-                inputTokens: contextUsage.inputTokens,
-                bustedThisPass: true,
-            });
-        }
         logTransformTiming(sessionId, "postTransformPhase", tPostProcess);
 
         // Estimate the total token size of the transformed messages array so

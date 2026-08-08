@@ -23,7 +23,6 @@ import {
     isProviderOverflowReconfirmed,
     loadProtectedTailMeta,
 } from "../../features/magic-context/storage-meta-persisted";
-import { writeRustTransformDecision } from "../../features/magic-context/transform-decision-log";
 import type { ContextUsage } from "../../features/magic-context/types";
 import { sessionLog } from "../../shared/logger";
 import { resolveCtxReduceAvailability } from "./ctx-reduce-availability";
@@ -1222,15 +1221,6 @@ export function createRustModeTransform(
                     timings,
                 }),
             );
-            if (served) {
-                writeRustTransformDecision({
-                    sessionId,
-                    decision,
-                    materializeReason: materializeReason === "none" ? null : materializeReason,
-                    inputTokens: requestInputTokens,
-                    tsMs: passObservedAtMs,
-                });
-            }
         };
         const captureResponseTelemetry = (response: Record<string, unknown>): void => {
             decision =
