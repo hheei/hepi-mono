@@ -4,55 +4,37 @@ import {
     applyStrippedPlaceholderDelta,
     type ContextDatabase,
     clearDeferredExecutePendingIfMatches,
-    clearPendingCompactionMarkerStateIf,
     clearPersistedTodoSyntheticAnchor,
     getActiveTagsBySession,
     getAutoSearchHintDecisions,
     getMaxM0MutationId,
     getNoteNudgeAnchors,
-    getPendingCompactionMarkerState,
     getPendingOps,
-    getPersistedTodoPermissionDenied,
     getPersistedTodoSyntheticAnchor,
     getProcessedImageStrippedIds,
     getStaleReduceStrippedIds,
     getStrippedPlaceholderIds,
-    type PendingCompactionMarker,
     peekDeferredExecutePending,
     pruneAutoSearchHintDecisions,
     pruneNoteNudgeAnchors,
-    setPersistedTodoPermissionDenied,
     setPersistedTodoSyntheticAnchor,
     updateSessionMeta,
 } from "../../features/magic-context/storage";
-import {
-    getPersistedCompactionMarkerState,
-    type PersistedCompactionMarkerState,
-} from "../../features/magic-context/storage-meta-persisted";
 import {
     getTagNumberByMessageId,
     updateTagStatus,
 } from "../../features/magic-context/storage-tags";
 import type { Tagger } from "../../features/magic-context/tagger";
 import type { SessionMeta, TagEntry } from "../../features/magic-context/types";
-import type { PluginContext } from "../../plugin/types";
 import { BoundedSessionMap } from "../../shared/bounded-session-map";
 import { getErrorMessage } from "../../shared/error-message";
 import { sessionLog } from "../../shared/logger";
 import { isRecord } from "../../shared/record-type-guard";
 import { runAutoSearchHint } from "./auto-search-runner";
-import { applyDeferredCompactionMarker, MARKER_SUMMARY_TEXT } from "./compaction-marker-manager";
 import { getActiveCompartmentRun } from "./compartment-runner";
 import type {
     CtxReduceAvailabilityVerdict,
     ToolAvailabilityVerdict,
-} from "./ctx-reduce-availability";
-import {
-    cachedToolPermissionDenied,
-    hasLoggedCtxReducePermissionDeny,
-    markCtxReducePermissionDenyLogged,
-    resolveToolPermissionDenied,
-    todowritePermissionDenied,
 } from "./ctx-reduce-availability";
 import { dropStaleReduceCalls } from "./drop-stale-reduce-calls";
 import { applyHeuristicCleanup } from "./heuristic-cleanup";
@@ -80,7 +62,8 @@ import {
     stripSystemInjectedMessages,
 } from "./strip-content";
 import { buildEditSupersessionReclaim, buildSupersessionReclaimOps } from "./supersession-reclaim";
-import { byteSize, prependTag } from "./tag-content-primitives";
+import { prependTag } from "./tag-content-primitives";
+
 import { buildSyntheticTodoPart, isSyntheticTodoPart, type SyntheticTodoPart } from "./todo-view";
 import {
     advanceToolReclaimWatermarkToCurrentMax,
@@ -212,40 +195,13 @@ export async function applyTodoSynthesis(args: {
     isCacheBustingPass: boolean;
     sessionMeta: SessionMeta;
     todowriteAvailability: ToolAvailabilityVerdict;
-    client?: PluginContext["client"];
-    activeAgent?: string;
 }): Promise<number> {
     if (!args.fullFeatureMode || args.compactionOff) return 0;
 
     const persistedAnchor = getPersistedTodoSyntheticAnchor(args.db, args.sessionId);
-    let permissionDenied =
-        cachedToolPermissionDenied(args.sessionId, "todowrite") ??
-        getPersistedTodoPermissionDenied(args.db, args.sessionId) ??
-        false;
     const toolsMapUnavailable =
         args.todowriteAvailability.frozen && !args.todowriteAvailability.callable;
-
-    if (args.isCacheBustingPass && args.client && !toolsMapUnavailable) {
-        try {
-            permissionDenied = await todowritePermissionDenied(
-                args.client,
-                args.sessionId,
-                args.activeAgent,
-            );
-            setPersistedTodoPermissionDenied(args.db, args.sessionId, permissionDenied);
-        } catch (error) {
-            // A transient SDK read must not turn a previously denied tool back on.
-            // Keep the last in-memory or durable verdict until a later permission
-            // refresh successfully reads the live state.
-            sessionLog(
-                args.sessionId,
-                "todowrite permission read failed; retaining the last successful verdict:",
-                error,
-            );
-        }
-    }
-
-    const todowriteUnavailable = toolsMapUnavailable || permissionDenied;
+    const todowriteUnavailable = toolsMapUnavailable;
     if (args.isCacheBustingPass && todowriteUnavailable) {
         removeSyntheticTodoParts(args.messages);
         // Clear the persisted synthetic anchor even if an older row contains only
@@ -388,125 +344,15 @@ function dropMarkerSummaryTag(
     if (tagNumber !== null) updateTagStatus(db, sessionId, tagNumber, "dropped");
 }
 
-/**
- * Replay the persisted marker representation on every pass.
- *
- * OpenCode projects a completed summary immediately before the retained tail.
- * The transform prepends synthetic history slots later, so the canonical array
- * position is after the contiguous synthetic head and before every real tail
- * message, regardless of role. Rebuilding from persisted state also removes
- * stale loser-process arrays and duplicate summaries deterministically.
- */
 export function reconcileMarkerRepresentation(
     messages: MessageLike[],
-    persistedMarkerState: PersistedCompactionMarkerState | null,
-    options: {
-        db: ContextDatabase;
-        sessionId: string;
-        tagger: Tagger;
-        ctxReduceAvailability: CtxReduceAvailabilityVerdict;
-    },
+    _persistedMarkerState: unknown,
+    _options: { db: ContextDatabase; sessionId: string },
 ): boolean {
-    const retainedMessages: MessageLike[] = [];
-    const staleSummaryIds = new Set<string>();
-    for (const message of messages) {
-        if (message.info.summary !== true) {
-            retainedMessages.push(message);
-            continue;
-        }
-        const messageId = message.info.id;
-        if (typeof messageId === "string" && messageId !== persistedMarkerState?.summaryMessageId) {
-            staleSummaryIds.add(messageId);
-        }
-    }
-    if (staleSummaryIds.size > 0) {
-        options.db.transaction(() => {
-            for (const messageId of staleSummaryIds) {
-                dropMarkerSummaryTag(options.db, options.sessionId, messageId);
-            }
-        })();
-    }
-
-    const removedSummary = retainedMessages.length !== messages.length;
-    if (removedSummary) messages.splice(0, messages.length, ...retainedMessages);
-    if (persistedMarkerState === null) return removedSummary;
-
-    const summaryTagNumber = options.tagger.assignTag(
-        options.sessionId,
-        `${persistedMarkerState.summaryMessageId}:p0`,
-        "message",
-        byteSize(MARKER_SUMMARY_TEXT),
-        options.db,
-        0,
-        null,
-        0,
-        null,
-        () => ({
-            tokenCount: estimateTokens(MARKER_SUMMARY_TEXT),
-            inputTokenCount: null,
-            reasoningTokenCount: null,
-        }),
-    );
-    const summaryText =
-        options.ctxReduceAvailability.frozen && options.ctxReduceAvailability.callable
-            ? prependTag(summaryTagNumber, MARKER_SUMMARY_TEXT)
-            : MARKER_SUMMARY_TEXT;
-    const summaryMessage: MessageLike = {
-        info: {
-            id: persistedMarkerState.summaryMessageId,
-            role: "assistant",
-            sessionID: options.sessionId,
-            summary: true,
-            finish: "stop",
-        },
-        parts: [{ type: "text", text: summaryText }],
-    };
-
-    let retainedTailStart = 0;
-    while (
-        retainedTailStart < messages.length &&
-        isSyntheticHeadMessage(messages[retainedTailStart])
-    ) {
-        retainedTailStart += 1;
-    }
-    messages.splice(retainedTailStart, 0, summaryMessage);
-    return true;
-}
-
-function pendingMarkerCoveredByConsumedBoundary(
-    pending: PendingCompactionMarker,
-    injection: PreparedCompartmentInjection | null,
-): boolean {
-    if (!injection) return false;
-    if (pending.endMessageId === injection.compartmentEndMessageId) return true;
-    return pending.ordinal <= injection.compartmentEndMessage;
-}
-
-export function clearPendingCompactionMarkerAfterSuccessfulDrain(args: {
-    db: ContextDatabase;
-    sessionId: string;
-    pending: PendingCompactionMarker;
-    deferredHistoryRefreshSessions: Set<string>;
-}): DeferredCompactionMarkerClearOutcome {
-    if (clearPendingCompactionMarkerStateIf(args.db, args.sessionId, args.pending)) {
-        return "cleared";
-    }
-
-    const latestPending = getPendingCompactionMarkerState(args.db, args.sessionId);
-    if (latestPending) {
-        args.deferredHistoryRefreshSessions.add(args.sessionId);
-        sessionLog(
-            args.sessionId,
-            "compaction-marker drain: CAS-clear failed because a newer pending blob exists; preserving deferred history refresh signal",
-        );
-        return "cas-lost-newer-pending";
-    }
-
-    sessionLog(
-        args.sessionId,
-        "compaction-marker drain: CAS-clear failed but no pending blob remains; another drain already cleared it",
-    );
-    return "cas-lost-already-cleared";
+    const retainedMessages = messages.filter((message) => message.info.summary !== true);
+    const changed = retainedMessages.length !== messages.length;
+    if (changed) messages.splice(0, messages.length, ...retainedMessages);
+    return changed;
 }
 
 interface RunPostTransformPhaseArgs {
@@ -523,9 +369,9 @@ interface RunPostTransformPhaseArgs {
      *  synthetic todo-pair injection below: a session whose tools map filters
      *  todowrite out must not get a synthetic pair for a tool it cannot call. */
     todowriteAvailability: ToolAvailabilityVerdict;
-    /** OpenCode SDK for live permission checks on cache-busting passes. */
-    client?: PluginContext["client"];
-    /** Active agent selected by the latest user message or hook input. */
+    /** Optional host handle retained only for compatibility with inactive baseline callers. */
+    client?: unknown;
+    /** Active agent metadata is unused by Pi permission gating. */
     activeAgent?: string;
     batch: { finalize: () => void } | null;
     contextUsage: { percentage: number; inputTokens: number };
@@ -639,31 +485,11 @@ export interface PostTransformPhaseResult {
     bustedThisPass: boolean;
 }
 
-export interface ConfirmedAbortClient {
-    session?: {
-        abort?: (input: {
-            path: { id: string };
-            throwOnError: true;
-        }) => Promise<{ data?: boolean; error?: unknown }>;
-    };
-}
-
 export async function abortSessionFailClosed(
-    client: ConfirmedAbortClient,
-    sessionId: string,
+    _client: unknown,
+    _sessionId: string,
 ): Promise<void> {
-    if (typeof client.session?.abort !== "function") {
-        throw new Error("OpenCode session.abort is unavailable");
-    }
-    const result = await client.session.abort({
-        path: { id: sessionId },
-        throwOnError: true,
-    });
-    if (result.data !== true) {
-        throw new Error(
-            `OpenCode session.abort was not confirmed: ${JSON.stringify(result.error ?? result.data)}`,
-        );
-    }
+    throw new Error("session abort is unavailable in Pi runtime");
 }
 
 export interface EmergencyFailClosedDecision {
@@ -924,33 +750,6 @@ export async function runPostTransformPhase(
     // remain narrow (each reads its own dedicated set) so adjunct refresh
     // and history rebuild are decoupled from materialization timing.
     const isCacheBustingPass = shouldApplyPendingOps || shouldRunHeuristics;
-    // ctx_reduce stays frozen for prompt-hash stability, but observe the live
-    // permission signal on the same busts so an operator knows guidance may be
-    // stale until the session restarts. This log never changes the wire.
-    if (
-        isCacheBustingPass &&
-        args.client &&
-        args.ctxReduceAvailability.callable &&
-        !hasLoggedCtxReducePermissionDeny(args.sessionId)
-    ) {
-        try {
-            const denied = await resolveToolPermissionDenied(
-                args.client,
-                args.sessionId,
-                "ctx_reduce",
-                args.activeAgent,
-            );
-            if (denied) {
-                markCtxReducePermissionDenyLogged(args.sessionId);
-                sessionLog(
-                    args.sessionId,
-                    "ctx_reduce permission is denied by OpenCode; frozen guidance remains until session restart",
-                );
-            }
-        } catch (error) {
-            sessionLog(args.sessionId, "ctx_reduce permission read failed (ignored):", error);
-        }
-    }
     const canUseEmptySentinels = modelAcceptsEmptyContent(args.resolvedProviderID);
     if (shouldRunHeuristics) {
         const subagentRerun =
@@ -1616,78 +1415,9 @@ export async function runPostTransformPhase(
             explicitRebuildHappened) &&
         materializationSatisfied;
 
-    // Drain the persisted marker before todo synthesis so the todo anchor sees
-    // the same summary representation that this pass will emit.
-    let suppressV12HistoryDrain = false;
-    if (historyWasConsumedThisPass && args.deferredHistoryWasPendingAtPassStart) {
-        const pending = getPendingCompactionMarkerState(args.db, args.sessionId);
-        if (pending) {
-            if (
-                !pendingMarkerCoveredByConsumedBoundary(pending, args.pendingCompartmentInjection)
-            ) {
-                suppressV12HistoryDrain = true;
-                sessionLog(
-                    args.sessionId,
-                    `compaction-marker drain: pending ordinal ${pending.ordinal} is newer than consumed boundary ${args.pendingCompartmentInjection?.compartmentEndMessage ?? "<none>"}; preserving deferred history refresh signal`,
-                );
-            } else {
-                const outcome = applyDeferredCompactionMarker(
-                    args.db,
-                    args.sessionId,
-                    pending,
-                    args.sessionDirectory,
-                );
-                switch (outcome.kind) {
-                    case "applied":
-                    case "already-current":
-                    case "stale-skip":
-                        if (
-                            clearPendingCompactionMarkerAfterSuccessfulDrain({
-                                db: args.db,
-                                sessionId: args.sessionId,
-                                pending,
-                                deferredHistoryRefreshSessions: args.deferredHistoryRefreshSessions,
-                            }) === "cas-lost-newer-pending"
-                        ) {
-                            suppressV12HistoryDrain = true;
-                        }
-                        break;
-                    case "retryable-failure":
-                        args.passOutcome?.record("compaction-marker-drain-failure");
-                        sessionLog(
-                            args.sessionId,
-                            "compaction-marker drain: retryable failure; preserving deferred history refresh signal",
-                            outcome.error,
-                        );
-                        suppressV12HistoryDrain = true;
-                        break;
-                }
-            }
-        }
-    }
-
-    // Compaction-off: the marker reconciler and the deferred marker drain are
-    // compaction machinery — gated off. The off-transition deletes the MC
-    // marker rows and clears the persisted/pending marker state, so nothing
-    // here has state to replay; leaving it live would re-insert a synthetic
-    // summary into the wire of a mode that must stay additive-only.
-    if (!compactionOff) {
-        reconcileMarkerRepresentation(
-            args.messages,
-            getPersistedCompactionMarkerState(args.db, args.sessionId),
-            {
-                db: args.db,
-                sessionId: args.sessionId,
-                tagger: args.tagger,
-                ctxReduceAvailability: args.ctxReduceAvailability,
-            },
-        );
-    }
-
     const deferredHistoryDrainEligible =
         historyWasConsumedThisPass &&
-        args.deferredHistoryWasPendingAtPassStart &&
-        !suppressV12HistoryDrain;
+        args.deferredHistoryWasPendingAtPassStart;
     if (deferredHistoryDrainEligible) {
         args.deferredHistoryRefreshSessions.delete(args.sessionId);
     }

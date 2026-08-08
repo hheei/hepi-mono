@@ -46,14 +46,12 @@ import {
 import { BoundedSessionMap } from "../../shared/bounded-session-map";
 import { sessionLog } from "../../shared/logger";
 import type { Database, Statement as PreparedStatement } from "../../shared/sqlite";
-import { reconcileForkOrphanedCompactionMarkers } from "./compaction-marker-manager";
 import {
     COMPARTMENT_RENDER_EPOCH,
     decodeCachedM0UpgradeIdentity,
     encodeCachedM0UpgradeIdentity,
 } from "./compartment-render-epoch";
 import { extractM0Block, renderCompartmentAtTier, renderDecayedCompartments } from "./decay-render";
-import { getMessageTimesFromOpenCodeDb } from "./read-session-db";
 import { estimateTokens } from "./read-session-formatting";
 import type { MessageLike } from "./tag-messages";
 import { formatDate } from "./temporal-awareness";
@@ -433,7 +431,7 @@ export function prepareCompartmentInjection(
             if (c.startMessageId) ids.add(c.startMessageId);
             if (c.endMessageId) ids.add(c.endMessageId);
         }
-        const times = getMessageTimesFromOpenCodeDb(sessionId, Array.from(ids));
+        const times = new Map<string, number>();
         const byId = new Map<number, { start: string; end: string }>();
         for (const c of compartments) {
             const startMs = times.get(c.startMessageId);
@@ -548,13 +546,6 @@ export function prepareCompartmentInjection(
         // Degraded: the natural boundary message is not in the visible window.
         const degradedCount = noteDegradedRebuild(sessionId);
         // Layer A (#263): on the FIRST degraded detection of an episode, run the
-        // fork-orphan marker hygiene pass. If a foreign marker outranks ours this
-        // removes it, so the next pass's window stops at our marker and we
-        // recover. Gated to the degraded trigger so steady state pays nothing.
-        if (degradedCount === 1) {
-            reconcileForkOrphanedCompactionMarkers(db, sessionId);
-        }
-
         let reAnchored = false;
         if (degradedCount >= REANCHOR_MIN_DEGRADED_PASSES && isCacheBusting) {
             // Layer B (#264): the boundary has stayed invisible for long enough;
@@ -1747,7 +1738,7 @@ function withCompartmentDates(
         if (compartment.startMessageId) messageIds.add(compartment.startMessageId);
         if (compartment.endMessageId) messageIds.add(compartment.endMessageId);
     }
-    const times = getMessageTimesFromOpenCodeDb(sessionId, Array.from(messageIds));
+    const times = new Map<string, number>();
     return compartments.map((compartment) => {
         const startMs = times.get(compartment.startMessageId);
         const endMs = times.get(compartment.endMessageId);

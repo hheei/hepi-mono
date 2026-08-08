@@ -1,6 +1,5 @@
 import { getErrorMessage } from "../../shared/error-message";
 import { sessionLog } from "../../shared/logger";
-import { isMidTurn } from "./read-session-db";
 
 export interface NotificationParams {
     agent?: string;
@@ -30,7 +29,7 @@ interface QueuedIgnoredNotification {
 
 const queuedIgnoredNotifications = new Map<string, QueuedIgnoredNotification[]>();
 const flushingIgnoredNotifications = new Set<string>();
-let midTurnDetector = (sessionId: string): boolean => isMidTurn(undefined, sessionId);
+let midTurnDetector = (): boolean => false;
 
 function queueIgnoredNotification(notification: QueuedIgnoredNotification): void {
     const queued = queuedIgnoredNotifications.get(notification.sessionId) ?? [];
@@ -88,7 +87,7 @@ export const __ignoredNotificationTest = {
     reset(): void {
         queuedIgnoredNotifications.clear();
         flushingIgnoredNotifications.clear();
-        midTurnDetector = (sessionId: string): boolean => isMidTurn(undefined, sessionId);
+        midTurnDetector = (): boolean => false;
     },
     setMidTurnDetector(detector: (sessionId: string) => boolean): void {
         midTurnDetector = detector;

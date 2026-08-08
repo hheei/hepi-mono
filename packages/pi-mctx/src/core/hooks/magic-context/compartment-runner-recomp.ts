@@ -26,7 +26,6 @@ import { getErrorMessage } from "../../shared/error-message";
 import { getHarness } from "../../shared/harness";
 import { sessionLog } from "../../shared/logger";
 import type { Database } from "../../shared/sqlite";
-import { updateCompactionMarkerAfterPublication } from "./compaction-marker-manager";
 import { buildCompartmentAgentPrompt } from "./compartment-prompt";
 import { queueDropsForCompartmentalizedMessages } from "./compartment-runner-drop-queue";
 import { runValidatedHistorianPass } from "./compartment-runner-historian";
@@ -306,31 +305,6 @@ export async function executeContextRecompInternal(deps: CompartmentRunnerDeps):
             // race fired. Mirrors the incremental path.
             deps.onCompartmentStatePublished?.(sessionId);
 
-            // Update compaction marker after recomp.
-            // Recomp is explicit (eagerly clears injection cache), so the marker
-            // applies directly here. Plan v6 §6: also CAS-clear any stale pending
-            // marker that a prior in-flight incremental publish may have left
-            // behind — recomp now owns the boundary.
-            if (lastCompartmentEnd > 0) {
-                const markerUpdated = updateCompactionMarkerAfterPublication(
-                    db,
-                    sessionId,
-                    lastCompartmentEnd,
-                    deps.directory,
-                );
-                // Only CAS-clear a stale pending marker blob when the direct
-                // update actually advanced the boundary. If the update failed
-                // (transient OpenCode DB write error on removal/injection), keep
-                // the pending blob so the deferred drain can still retry —
-                // clearing it would drop the only durable retry path.
-                if (markerUpdated) {
-                    const stalePending = getPendingCompactionMarkerState(db, sessionId);
-                    if (stalePending) {
-                        clearPendingCompactionMarkerStateIf(db, sessionId, stalePending);
-                    }
-                }
-            }
-
             return [
                 `Persisted ${promoted.compartments.length} compartment${promoted.compartments.length === 1 ? "" : "s"} from ${passCount} successful pass${passCount === 1 ? "" : "es"}.`,
                 `Covered raw history 1-${lastCompartmentEnd} out of ${rawMessageCount} total messages.`,
@@ -608,26 +582,6 @@ export async function executeContextRecompInternal(deps: CompartmentRunnerDeps):
                 endMessage: c.endMessage,
             }));
             void embedAndStoreCompartmentChunks(db, sessionId, projectIdentity, chunksToEmbed);
-        }
-
-        // v2: advance the compaction marker on the full-completion path too (the
-        // promoteAndFinalize early-exit path already does this). Without it, the
-        // next incremental run may reprocess already-compartmentalized messages.
-        if (lastCompartmentEnd > 0) {
-            const markerUpdated = updateCompactionMarkerAfterPublication(
-                db,
-                sessionId,
-                lastCompartmentEnd,
-                deps.directory,
-            );
-            // Only clear the stale pending blob when the boundary actually
-            // advanced — preserve it for the deferred-drain retry on failure.
-            if (markerUpdated) {
-                const stalePending = getPendingCompactionMarkerState(db, sessionId);
-                if (stalePending) {
-                    clearPendingCompactionMarkerStateIf(db, sessionId, stalePending);
-                }
-            }
         }
 
         // v2: no compressor pass — deterministic decay-tier rendering keeps the

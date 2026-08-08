@@ -489,11 +489,11 @@ const MIGRATIONS: Migration[] = [
         // point because v1 creates it. So we ALTER TABLE here.
         //
         // SQLite physically backfills NOT NULL DEFAULT on existing rows,
-        // so all pre-v0.16 notes transparently become harness='opencode'.
+        // so all pre-v0.16 notes transparently become harness='pi'.
         up: (db: Database) => {
             const cols = db.prepare("PRAGMA table_info(notes)").all() as Array<{ name?: string }>;
             if (!cols.some((c) => c.name === "harness")) {
-                db.exec("ALTER TABLE notes ADD COLUMN harness TEXT NOT NULL DEFAULT 'opencode'");
+                db.exec("ALTER TABLE notes ADD COLUMN harness TEXT NOT NULL DEFAULT 'pi'");
             }
         },
     },
@@ -1053,7 +1053,7 @@ const MIGRATIONS: Migration[] = [
                     at_compartment INTEGER,
                     fields_json TEXT NOT NULL DEFAULT '{}',
                     created_at INTEGER NOT NULL,
-                    harness TEXT NOT NULL DEFAULT 'opencode'
+                    harness TEXT NOT NULL DEFAULT 'pi'
                 );
                 CREATE INDEX IF NOT EXISTS idx_compartment_events_session
                     ON compartment_events(session_id);
@@ -1073,7 +1073,7 @@ const MIGRATIONS: Migration[] = [
                 CREATE TABLE IF NOT EXISTS historian_runs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     session_id TEXT NOT NULL,
-                    harness TEXT NOT NULL DEFAULT 'opencode',
+                    harness TEXT NOT NULL DEFAULT 'pi',
                     subagent_invocation_id INTEGER,
                     run_kind TEXT NOT NULL,
                     status TEXT NOT NULL,
@@ -1435,7 +1435,7 @@ const MIGRATIONS: Migration[] = [
                     compartment_id INTEGER NOT NULL REFERENCES compartments(id) ON DELETE CASCADE,
                     session_id TEXT NOT NULL,
                     project_path TEXT NOT NULL,
-                    harness TEXT NOT NULL DEFAULT 'opencode',
+                    harness TEXT NOT NULL DEFAULT 'pi',
                     window_index INTEGER NOT NULL DEFAULT 0,
                     start_ordinal INTEGER NOT NULL,
                     end_ordinal INTEGER NOT NULL,
@@ -1581,7 +1581,7 @@ const MIGRATIONS: Migration[] = [
             db.exec(`
                 CREATE TABLE IF NOT EXISTS session_projects (
                     session_id TEXT NOT NULL,
-                    harness TEXT NOT NULL DEFAULT 'opencode',
+                    harness TEXT NOT NULL DEFAULT 'pi',
                     project_path TEXT NOT NULL,
                     updated_at INTEGER NOT NULL,
                     PRIMARY KEY(session_id, harness)
@@ -1657,7 +1657,7 @@ const MIGRATIONS: Migration[] = [
             db.exec(`
                 CREATE TABLE IF NOT EXISTS transform_decisions (
                     session_id         TEXT    NOT NULL,
-                    harness            TEXT    NOT NULL DEFAULT 'opencode',
+                    harness            TEXT    NOT NULL DEFAULT 'pi',
                     message_id         TEXT    NOT NULL,
                     ts_ms              INTEGER NOT NULL,
                     decision           TEXT    NOT NULL,
@@ -1809,7 +1809,7 @@ const MIGRATIONS: Migration[] = [
                 CREATE TABLE IF NOT EXISTS primer_candidates (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     project_path TEXT NOT NULL,
-                    harness TEXT NOT NULL DEFAULT 'opencode',
+                    harness TEXT NOT NULL DEFAULT 'pi',
                     session_id TEXT NOT NULL,
                     question TEXT NOT NULL,
                     normalized_question TEXT NOT NULL,
@@ -2004,7 +2004,7 @@ const MIGRATIONS: Migration[] = [
                         compartment_id INTEGER NOT NULL REFERENCES compartments(id) ON DELETE CASCADE,
                         session_id TEXT NOT NULL,
                         project_path TEXT NOT NULL,
-                        harness TEXT NOT NULL DEFAULT 'opencode',
+                        harness TEXT NOT NULL DEFAULT 'pi',
                         window_index INTEGER NOT NULL DEFAULT 0,
                         start_ordinal INTEGER NOT NULL,
                         end_ordinal INTEGER NOT NULL,
@@ -2615,7 +2615,7 @@ const MIGRATIONS: Migration[] = [
                     source_version TEXT NOT NULL,
                     normalized_content_hash TEXT NOT NULL,
                     role TEXT NOT NULL,
-                    harness TEXT NOT NULL DEFAULT 'opencode',
+                    harness TEXT NOT NULL DEFAULT 'pi',
                     updated_at INTEGER NOT NULL,
                     PRIMARY KEY(session_id, message_id)
                 );
@@ -2624,7 +2624,7 @@ const MIGRATIONS: Migration[] = [
 
                 CREATE TABLE IF NOT EXISTS pending_session_cleanup (
                     session_id TEXT PRIMARY KEY,
-                    harness TEXT NOT NULL DEFAULT 'opencode',
+                    harness TEXT NOT NULL DEFAULT 'pi',
                     requested_at INTEGER NOT NULL,
                     last_attempt_at INTEGER
                 );

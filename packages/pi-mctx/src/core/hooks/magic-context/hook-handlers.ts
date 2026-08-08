@@ -20,13 +20,10 @@ import {
     setLastNudgeUndropped,
 } from "../../features/magic-context/storage-meta-persisted";
 import { clearSidebarSnapshotCache } from "../../plugin/sidebar-snapshot-cache";
-import type { PluginContext } from "../../plugin/types";
 import { sessionLog } from "../../shared/logger";
 import { clearAutoSearchForSession } from "./auto-search-runner";
 import {
-    cachedToolPermissionDenied,
     resolveTodowriteAvailability,
-    todowritePermissionDenied,
 } from "./ctx-reduce-availability";
 import {
     buildChannel1Reminder,
@@ -279,7 +276,7 @@ export function createEventHook(args: {
     deferredMaterializationSessions: DeferredMaterializationSessions;
     lastHeuristicsTurnId: LastHeuristicsTurnId;
     commitSeenLastPass?: Map<string, boolean>;
-    client: PluginContext["client"];
+    client?: unknown;
     protectedTags: number;
 }) {
     return async (input: { event: { type: string; properties?: unknown } }) => {
@@ -521,7 +518,7 @@ function maybeInjectChannel1Nudge(
 export function createToolExecuteAfterHook(args: {
     db: Parameters<typeof getOrCreateSessionMeta>[0];
     channel1StateBySession: Map<string, Channel1State>;
-    client?: PluginContext["client"];
+    client?: unknown;
     transformMode?: "ts" | "rust";
     todoStateSet?: (input: {
         sessionId: string;
@@ -577,31 +574,7 @@ export function createToolExecuteAfterHook(args: {
             // remain refused.
             const todowriteVerdict = resolveTodowriteAvailability(typedInput.sessionID);
             if (todowriteVerdict.frozen && !todowriteVerdict.callable) return;
-            const activeAgent = typedInput.agent;
-            if (args.client) {
-                try {
-                    if (
-                        await todowritePermissionDenied(
-                            args.client,
-                            typedInput.sessionID,
-                            activeAgent,
-                        )
-                    ) {
-                        return;
-                    }
-                } catch (error) {
-                    // Preserve a prior live deny across a transient SDK read;
-                    // otherwise a failed read could resume stale capture.
-                    if (cachedToolPermissionDenied(typedInput.sessionID, "todowrite")) {
-                        return;
-                    }
-                    sessionLog(
-                        typedInput.sessionID,
-                        "todowrite permission read failed during capture (ignored):",
-                        error,
-                    );
-                }
-            }
+            // Pi tool-map availability is authoritative for native todowrite.
             // Only trigger note nudge when ALL todo items are terminal (completed/cancelled).
             // Firing on every todowrite is too eager — agents call it repeatedly while working.
             const todoArgs = typedInput.args as { todos?: unknown } | undefined;

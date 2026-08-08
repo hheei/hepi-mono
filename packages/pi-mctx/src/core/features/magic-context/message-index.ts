@@ -645,7 +645,7 @@ function getMessageHistoryOrphanSweepState(db: Database): MessageHistoryOrphanSw
     return (
         (db
             .prepare(
-                "SELECT cursor_session_id, last_swept_at FROM message_history_orphan_sweep WHERE harness = 'opencode'",
+                "SELECT cursor_session_id, last_swept_at FROM message_history_orphan_sweep WHERE harness = 'pi'",
             )
             .get() as MessageHistoryOrphanSweepRow | null) ?? {}
     );
@@ -658,7 +658,7 @@ function persistMessageHistoryOrphanSweepState(
 ): void {
     db.prepare(
         `INSERT INTO message_history_orphan_sweep (harness, cursor_session_id, last_swept_at)
-         VALUES ('opencode', ?, ?)
+         VALUES ('pi', ?, ?)
          ON CONFLICT(harness) DO UPDATE SET
              cursor_session_id = excluded.cursor_session_id,
              last_swept_at = excluded.last_swept_at`,
@@ -711,7 +711,7 @@ export function sweepOrphanedOpenCodeMessageIndexes(
             .prepare(
                 `SELECT session_id
                  FROM message_history_index
-                 WHERE harness = 'opencode'
+                 WHERE harness = 'pi'
                    AND updated_at <= ?
                    AND session_id > ?
                  ORDER BY session_id ASC
@@ -733,7 +733,7 @@ export function sweepOrphanedOpenCodeMessageIndexes(
         let deleted = 0;
         try {
             const stillEligible = db.prepare(
-                "SELECT 1 FROM message_history_index WHERE session_id = ? AND harness = 'opencode' AND updated_at <= ?",
+                "SELECT 1 FROM message_history_index WHERE session_id = ? AND harness = 'pi' AND updated_at <= ?",
             );
             for (const sessionId of missingSessionIds) {
                 if (!stillEligible.get(sessionId, cutoff)) continue;
@@ -741,7 +741,7 @@ export function sweepOrphanedOpenCodeMessageIndexes(
                 getDeleteMessageSourceStatement(db).run(sessionId);
                 const result = db
                     .prepare(
-                        "DELETE FROM message_history_index WHERE session_id = ? AND harness = 'opencode' AND updated_at <= ?",
+                        "DELETE FROM message_history_index WHERE session_id = ? AND harness = 'pi' AND updated_at <= ?",
                     )
                     .run(sessionId, cutoff);
                 if (result.changes === 1) deleted += 1;

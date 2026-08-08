@@ -13,10 +13,13 @@ Pi host
   -> session storage / Pi APIs / configured external services
 ```
 
-- adapter owns Pi hooks、commands、tools、surface registration，以及 Pi session lifecycle。
-- `src/core/**` owns shared storage、compaction、memory、search、Dreamer 與 non-Pi-specific logic。
+- adapter owns Pi hooks、commands、tools、surface registration、Pi session lifecycle，以及 `RawMessageProvider` registration。
+- `src/core/**` owns Pi 使用的 shared storage、compaction、memory、search、Dreamer 與 pure transformations。
 - core is private implementation. Other workspace packages must not import it.
 - `xpi-mctx` remains excluded: it is a historical archive, not part of active implementation.
+- OpenCode backend is not retained: no OpenCode DB access、config/RPC integration、legacy migration、plugin context, or cross-harness fallback remains under this package.
+
+Pi raw-session data is supplied only by the adapter's `RawMessageProvider`; core fails closed when no provider is installed. Shared storage is Pi-owned and has no import or migration path from a legacy OpenCode database.
 
 ## 模組解析與啟用條件
 
@@ -24,7 +27,7 @@ Adapter source imports shared code through private `#core/*` specifiers. The pac
 
 This is an inactive, private upstream baseline. It declares no `pi.extensions` entry, has no build or publish script, and root formatter/typecheck/test deliberately exclude `packages/pi-mctx/**`. The copied core references missing upstream companion modules and targets a different Pi API, so enabling it before an adapted slice would conceal failures rather than create a working extension.
 
-Before enabling any slice, remove the root exclusions, add only its needed source dependencies, implement its Pi adapter boundary, and make its focused test/typecheck pass. The package becomes loadable only when `pi.extensions` declares a verified extension entry.
+Before enabling any slice, remove the root exclusions, add only its needed source dependencies, implement its Pi adapter boundary, and make its focused test/typecheck pass. The package becomes loadable only when `pi.extensions` declares a verified extension entry. The completion check for this baseline is `rg -i opencode packages/pi-mctx` returning no matches.
 
 ## 合併與驗證
 

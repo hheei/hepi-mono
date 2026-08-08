@@ -52,7 +52,6 @@ import {
     shouldTriggerChannel2,
     type ToolReclaimHint,
 } from "./ctx-reduce-nudge";
-import { isMidTurn } from "./read-session-db";
 
 export interface Channel2DeliveryDeps {
     db: Database;
@@ -89,7 +88,7 @@ function subagentRunIsActive(deps: Channel2DeliveryDeps, sessionId: string): boo
     try {
         const meta = getOrCreateSessionMeta(deps.db, sessionId);
         if (!meta.isSubagent) return true;
-        return isMidTurn(deps, sessionId);
+        return false;
     } catch (error) {
         sessionLog(
             sessionId,
