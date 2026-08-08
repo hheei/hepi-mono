@@ -1,0 +1,45 @@
+{
+	"name": "@hheei/pi-mctx",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Magic Context implementation and Pi adapter source baseline.",
+	"type": "module",
+	"imports": {
+		"#core/*": {
+			"bun": "./src/core/*.ts",
+			"default": "./dist/core/*.js"
+		}
+	},
+	"files": ["README.md", "LICENSE"],
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/hheei/hepi-mono.git",
+		"directory": "packages/pi-mctx"
+	},
+	"dependencies": {
+		"@cortexkit/subc-client": "0.4.1",
+		"@huggingface/transformers": "^4.1.0",
+		"@jitl/quickjs-singlefile-cjs-release-asyncify": "0.32.0",
+		"ai-tokenizer": "^1.0.6",
+		"comment-json": "^5.0.0",
+		"quickjs-emscripten": "^0.32.0",
+		"typebox": "1.3.7",
+		"zod": "^4.1.8"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-agent-core": ">=0.84.0",
+		"@earendil-works/pi-ai": ">=0.84.0",
+		"@earendil-works/pi-coding-agent": ">=0.84.0",
+		"@earendil-works/pi-tui": ">=0.84.0"
+	},
+	"devDependencies": {
+		"@earendil-works/pi-agent-core": ">=0.84.0",
+		"@earendil-works/pi-ai": ">=0.84.0",
+		"@earendil-works/pi-coding-agent": ">=0.84.0",
+		"@earendil-works/pi-tui": ">=0.84.0",
+		"@types/better-sqlite3": "^7.6.13",
+		"@types/bun": "latest",
+		"@types/node": "^22.19.19"
+	}
+}

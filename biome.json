@@ -19,6 +19,7 @@
 			"!!**/.pi",
 			"!references",
 			"!legacy",
+			"!!packages/pi-mctx",
 			"!!graphify-out"
 		]
 	},
