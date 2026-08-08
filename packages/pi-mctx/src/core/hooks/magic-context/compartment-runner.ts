@@ -23,7 +23,7 @@ export interface ActiveCompartmentRun {
      * dispatched for this run. Prevents the notification from re-firing on
      * every subsequent transform pass while the same compartment run is
      * still active — which would otherwise persist a fresh ignored user
-     * message every pass and drive OpenCode's runLoop break condition false.
+     * message every pass and drive the runner break condition false.
      */
     notificationSent?: boolean;
 }

@@ -298,7 +298,7 @@ export function applyHeuristicCleanup(
 function extractToolInfo(
     part: Record<string, unknown>,
 ): { toolName: string; args: unknown } | null {
-    // OpenCode format: { type: "tool", tool: "name", callID: "...", state: { input: {...}, output: "..." } }
+    // Native tool format: { type: "tool", tool: "name", callID: "...", state: { input: {...}, output: "..." } }
     if (part.type === "tool" && typeof part.tool === "string" && DEDUP_SAFE_TOOLS.has(part.tool)) {
         const state =
             typeof part.state === "object" && part.state !== null
@@ -360,7 +360,7 @@ function buildToolFingerprints(messages: MessageLike[]): Map<string, string> {
 }
 
 function extractCallId(part: Record<string, unknown>): string | null {
-    // OpenCode format: { type: "tool", callID: "call_xxx" }
+    // Native tool format: { type: "tool", callID: "call_xxx" }
     if (part.type === "tool" && typeof part.callID === "string") return part.callID;
     // tool-invocation format: { type: "tool-invocation", callID: "call_xxx" }
     if (part.type === "tool-invocation" && typeof part.callID === "string") return part.callID;

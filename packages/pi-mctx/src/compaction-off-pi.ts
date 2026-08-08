@@ -25,7 +25,7 @@ import { sessionLog } from "#core/shared/logger";
 export const COMPACTION_OFF_COMMAND_UNAVAILABLE = `Unavailable: magic-context is in compaction-off mode (${COMPACTION_ENABLED_PATH}=false).`;
 
 /**
- * Pi has no OpenCode marker rows to delete. Its MC-owned compaction state is the
+ * Pi owns marker cleanup. Its Magic Context compaction state is
  * pending JSONL marker payload plus the in-process deferred-drain signals; the
  * latter are cleared by the context handler after this durable cleanup succeeds.
  */
@@ -96,7 +96,7 @@ export function reconcilePiCompactionMode(args: {
 			compartmentInProgress: true,
 		});
 		// Stage notice delivery before the context handler reaches the UI. This
-		// record is shared with OpenCode and survives a process restart.
+		// Record is persisted and survives a process restart.
 		setCompactionModeRecord(args.db, args.sessionId, "on_notice_pending");
 		return {
 			recordToWrite: "on",

@@ -1,5 +1,5 @@
 // Channel 1 of the ctx_reduce nudge redesign: an in-turn `<system-reminder>`
-// appended to a tool's `output.output` in `tool.execute.after`. OpenCode
+// Appended to a tool's `output.output` in `tool.execute.after`. The host
 // persists the mutated tool output to its DB and replays it verbatim on every
 // later transform, so this is "free sticky" — no anchor store, no CAS, no
 // replay machinery (unlike the deleted assistant/user-anchored nudges).
@@ -113,7 +113,7 @@ const DROP_SENTINELS = ["[dropped", "[truncated"];
 /**
  * Whether a tool output string is a drop/truncation sentinel (so it should NOT
  * count toward reclaimable `undropped` tokens). Exported so the Pi harness — whose
- * tool output lives in `toolResult.content[].text`, not OpenCode's
+ * tool output lives in `toolResult.content[].text`, not the legacy
  * `parts[].state.output` — can reuse the exact same sentinel detection.
  */
 export function isDroppedToolOutput(output: string): boolean {
@@ -123,7 +123,7 @@ export function isDroppedToolOutput(output: string): boolean {
 
 /**
  * Sum approximate tokens of non-dropped tool output from a list of already-
- * extracted output strings. Harness-agnostic core shared by OpenCode
+ * extracted output strings. Shared by transform paths.
  * (`computeTailToolTokens`) and Pi (`toolResult.content[].text` extraction).
  */
 export function tailToolTokensFromStrings(outputs: readonly string[]): number {

@@ -36,7 +36,7 @@ export interface RegisterToolsOptions {
 	/** When true, ctx_memory exposes dreamer-only actions (update, merge, archive).
 	 *  Set by the subagent extension entry when the parent passes
 	 *  `--magic-context-dreamer-actions`. The main extension entry
-	 *  (./index.ts) leaves this false to match OpenCode's primary-agent surface. */
+	 *  (./index.ts) leaves this false for the primary-agent surface. */
 	allowDreamerActions?: boolean;
 	/** Number of recent tags that ctx_reduce should treat as protected
 	 *  (deferred drops instead of immediate). Should match `magic_context.protected_tags`. */
@@ -117,7 +117,7 @@ export function registerMagicContextTools(
 	}
 
 	if (opts.todowriteEnabled !== false) {
-		// `todowrite` parity with OpenCode. Pi-coding-agent has no built-in
+		// Pi has no built-in `todowrite`; register the extension tool.
 		// task list tool, so without this the synthetic-todowrite injector
 		// would never have anything to surface. The tool just captures the
 		// `todos` arg and echoes a pretty-printed JSON ack; `message_end`

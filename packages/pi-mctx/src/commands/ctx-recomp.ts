@@ -176,7 +176,7 @@ export function registerCtxRecompCommand(
 			} satisfies RawMessageProvider;
 
 			// Detached: the recomp runs in the background so the Pi REPL stays
-			// responsive (parity with OpenCode's `void runManagedRecomp`). The
+			// responsive. The result callback reports completion to Pi.
 			// command handler returns right after this call. Provider registration,
 			// the `recomp` status-line flag, shutdown-drain tracking, and cleanup
 			// are owned by spawnPiRecompRun.
@@ -223,7 +223,7 @@ export function registerCtxRecompCommand(
 							// path computes chunk embeddings, else rebuilt rows get
 							// none and drop out of ctx_search semantic results.
 							ensureProjectRegistered: ensureProjectRegisteredFromPiDirectory,
-							// Recomp-runner model chain parity with OpenCode: configured
+							// Recomp-runner model chain: configured
 							// fallbacks + the session's own model as last-ditch retry.
 							fallbackModels: currentDeps.historianFallbacks,
 							language: currentDeps.language,
@@ -237,7 +237,7 @@ export function registerCtxRecompCommand(
 						// A successful recomp resolves the overflow that may have armed
 						// needs_emergency_recovery — clear it so the flag stops force-
 						// bumping pressure to 95% every later pass (parity with
-						// OpenCode runManagedRecomp). detectedContextLimit is left intact.
+						// Managed recomp leaves detectedContextLimit intact.
 						try {
 							clearEmergencyRecovery(currentDeps.db, sessionId);
 						} catch (recoveryError) {

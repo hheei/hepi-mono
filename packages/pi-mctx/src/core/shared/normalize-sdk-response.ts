@@ -2,9 +2,9 @@ export interface NormalizeSDKResponseOptions {
     preferResponseOnMissingData?: boolean;
 }
 
-// Audit note: `as TData` casts are intentional at this boundary. The OpenCode plugin SDK types
+// Audit note: `as TData` casts are intentional at this external SDK boundary. The types
 // external responses as `unknown`. Adding Zod validation here would require schema definitions
-// for every SDK response shape, which changes with each OpenCode release. The fallback parameter
+// for every SDK response shape, which changes with each SDK release. The fallback parameter
 // provides safe degradation when shapes mismatch.
 export function normalizeSDKResponse<TData>(
     response: unknown,

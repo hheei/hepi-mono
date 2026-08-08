@@ -1,5 +1,5 @@
 /**
- * Release-notes startup announcement shared by OpenCode plugin and Pi plugin.
+ * Release-notes startup announcement shared by Magic Context components.
  *
  * Bump `ANNOUNCEMENT_VERSION` and populate `ANNOUNCEMENT_FEATURES` *only* when a
  * release ships user-facing news worth surfacing once at startup. Patch releases
@@ -8,7 +8,7 @@
  * it again on the next bugfix bump.
  *
  * The persisted state is a single line of text (`last_announced_version`) under
- * `getMagicContextStorageDir()`. OpenCode and Pi share the same file because
+ * `getMagicContextStorageDir()`. Components share the same file because
  * they share the same storage root — so dismissing in one harness suppresses
  * the dialog in the other for the same announcement.
  *

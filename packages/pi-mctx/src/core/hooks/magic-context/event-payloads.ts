@@ -31,7 +31,7 @@ export interface MessageUpdatedAssistantInfo {
     role: "assistant";
     finish?: string;
     sessionID: string;
-    /** OpenCode assistant message id. Undefined only when the event payload
+    /** Assistant message id. Undefined only when the event payload
      *  doesn't include one (older SDK versions or malformed events). */
     messageID?: string;
     completedAt?: number;
@@ -44,7 +44,7 @@ export interface MessageUpdatedAssistantInfo {
             write?: number;
         };
     };
-    /** Error attached to the assistant message, if any. OpenCode attaches
+    /** Error attached to the assistant message, if any. The provider attaches
      *  context-overflow errors here in addition to emitting session.error. */
     error?: unknown;
 }
@@ -161,7 +161,7 @@ export function getMessageUpdatedInfo(properties: unknown): MessageUpdatedInfo |
 /**
  * Extract `session.error` event payload. The event carries `{ sessionID, error }`
  * at the top level (no `info` wrapper). We intentionally keep `error` as
- * `unknown` — the plugin does not depend on OpenCode's NamedError shape, the
+ * `unknown` — the plugin does not depend on a provider-specific error shape, the
  * overflow detector accepts strings, Errors, or objects with `message`.
  */
 export function getSessionErrorInfo(properties: unknown): SessionErrorInfo | null {

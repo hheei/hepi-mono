@@ -649,7 +649,7 @@ export function resolveBoundaryContext(args: {
     providerShapeVersion?: "legacy-v1" | "pi-folded-v1";
     cacheNamespace?: string;
     /**
-     * Tagger load-scoping floor (OpenCode only). When > 0, the stored-token map
+     * Tagger load-scoping floor. When > 0, the stored-token map
      * is loaded only for tags at/above this floor (the live wire) instead of
      * scanning the whole session's tags (~100k rows → ~50ms every pass). The
      * boundary only indexes the live slice (all >= floor), and any slice message

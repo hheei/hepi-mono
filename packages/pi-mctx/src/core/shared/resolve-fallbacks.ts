@@ -5,7 +5,7 @@
  * Policy: ONLY the user's explicitly-configured `fallback_models` for this
  * agent. There is NO builtin provider-agnostic chain — a hardcoded chain
  * inevitably names providers the user doesn't have (e.g. a metapi-only user got
- * a chain of google/github-copilot/opencode entries, every one a
+ * a chain of provider entries, every one a
  * `Model not found` retry), which produced confusing errors and wasted
  * attempts. If the user configured nothing, this returns an empty list and the
  * runner's session-model last resort (the model the user is actually using) is
@@ -50,7 +50,7 @@ function dedupe(list: string[]): string[] {
 }
 
 /**
- * Parse a "provider/modelID" string into the OpenCode `model` object shape.
+ * Parse a "provider/modelID" string into the runtime model object shape.
  * Returns null on invalid input.
  *
  * Note: only splits on the FIRST "/" — modelID can legitimately contain slashes
@@ -66,7 +66,7 @@ export function parseProviderModel(spec: string): { providerID: string; modelID:
 }
 
 /**
- * Build the `{ model: { providerID, modelID } }` fragment for an OpenCode prompt
+ * Build the `{ model: { providerID, modelID } }` prompt fragment
  * body from a `provider/model` spec string, or `{}` when the spec is absent or
  * unparseable (the session falls back to its default model). Spread into a
  * `client.session.prompt` body.

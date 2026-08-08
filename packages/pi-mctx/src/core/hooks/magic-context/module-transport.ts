@@ -499,7 +499,7 @@ export class SubcModuleTransport {
 
     private async ensureRoute(sessionId: string, rawProjectRoot: string): Promise<EnsuredRoute> {
         // The transform and tool lanes can observe the same directory under different
-        // spellings when the project is reached through a symlink (OpenCode reports the
+        // spellings when the project is reached through a symlink (the session reports the
         // launch spelling on one lane and the resolved target on the other). The module
         // pairs (session, root) for lineage, and it canonicalizes on ITS filesystem —
         // which cannot see this process's mount/symlink namespace. Converge here, where

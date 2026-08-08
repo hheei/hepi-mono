@@ -176,7 +176,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * OpenCode retains the original messages array when it serializes a transform result.
+ * The host retains the original messages array when it serializes a transform result.
  * Mutate that array in place so the module response reaches the wire, while returning
  * the same array for callers that also consume the hook result.
  */
@@ -1360,7 +1360,7 @@ export function createRustModeTransform(
                 const appending = messages.length > previousWireCache.rawCount;
                 const lastMessage = messages.at(-1);
                 // Delta transport is only sound when the prefix the module would reuse is
-                // byte-identical to what OpenCode holds NOW. Count/last-signature checks
+                // byte-identical to the current host state. Count/last-signature checks
                 // cover the tail; this covers in-place mutation of an older message (an
                 // ephemeral reminder wrapper, a late tool completion) which must force a
                 // full send instead of riding a stale-prefix delta.

@@ -10,7 +10,7 @@
  *     pick the id of a specific message/tool call to recover in full.
  *   - `renderMessageById`: the FULL untruncated content of one message (any
  *     role) — every text part, and every tool call's complete input + output —
- *     read straight from the harness's stored history (opencode.db / Pi JSONL).
+ *     read straight from the harness's stored history (Pi JSONL).
  *     This is the cheap way back from a `ctx_reduce` drop: the wire placeholder
  *     is `[dropped §N§]`, but the original output still lives in storage until
  *     the row is genuinely deleted (session prune/revert), in which case we say
@@ -53,7 +53,7 @@ function keyArg(input: Record<string, unknown> | null | undefined): string {
 
 /**
  * Normalize the several tool-part shapes into { name, callId, input, output }.
- * Handles OpenCode (`{type:"tool", tool, callID, state:{input,output}}`), the
+ * Handles supported tool-part shapes and the
  * Anthropic invocation/result split (`tool_use` / `tool_result`), and Pi's
  * tool parts. Returns null for non-tool parts.
  */
@@ -66,7 +66,7 @@ function asToolPart(part: Record<string, unknown>): {
 } | null {
     const type = typeof part.type === "string" ? part.type : "";
 
-    // OpenCode merged tool part: { type:"tool", tool, callID, state:{input,output,title} }
+    // Native merged tool part: { type:"tool", tool, callID, state:{input,output,title} }
     if (type === "tool") {
         const state = isRecord(part.state) ? part.state : null;
         const output =

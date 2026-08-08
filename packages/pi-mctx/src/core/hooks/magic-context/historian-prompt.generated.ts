@@ -226,7 +226,6 @@ P4 is your long-term-pointer memory. You remember that something happened, rough
 **1. Self-closing \`<p4/>\`** — when the compartment's title alone is sufficient to recognize and find it. The title carries everything that matters; anything more would be filler.
 
 Examples:
-- Title: "Renamed @aft/core to @aft/opencode" → \`<p4/>\` (the title IS the entire memory).
 - Title: "Updated .gitignore and committed all work since last commit" → \`<p4/>\` (mechanical housekeeping, fully captured).
 - Title: "Cut v0.21.4 patch release" → \`<p4/>\` if no controversial detail; the title and importance are enough.
 
@@ -406,7 +405,6 @@ Facts capture stable properties of the project that survive past any single comp
 - Facts are editable, not append-only. Rewrite, normalize, deduplicate, or drop existing facts whenever needed.
 - **Before emitting any fact, scan \`<project_memory>\` and silently skip any fact that overlaps a memory you can already see there.** A fact is "already covered" if a memory in the same category states the same underlying knowledge — even with different wording. Examples of facts to skip because they're already covered:
   - You see in memory: "After every fix, commit + build both Rust binary and TypeScript plugin." Your candidate: "Every fix followed by commit + build both Rust binary and TypeScript plugin." → **skip**, same rule, different words.
-  - You see in memory: "Bridge idle timeout: Infinity." Your candidate: "Bridges stay alive for entire opencode session." → **skip**, same config knob, different framing.
   - You see in memory: "Use only AFT tools (no read/edit/write/patch)." Your candidate: "Dogfood AFT tools." → **skip**, same rule, weaker wording.
 - Only emit a fact you've seen before in memory if the underlying value or behavior has actually CHANGED in this chunk's evidence (then emit with the new value — the dreamer captures the transition).
 - Facts must be durable and actionable after the conversation ends.
@@ -432,7 +430,6 @@ A durable behavioral expectation for the project — how the developer/agent sho
 - "After every fix, commit + build both Rust binary and TypeScript plugin before continuing."
 - "Use AFT tools for code investigation, not shell commands."
 - "Disable explore and general agents for fair AFT benchmark comparison."
-- "Run benchmark runners from a fresh terminal outside an active OpenCode session."
 - "Use scripts/release.sh VERSION for releases."
 
 **Negative examples (do NOT extract as PROJECT_RULES)**:
@@ -457,7 +454,6 @@ A load-bearing design choice. The compartment that produced it could probably be
 **Positive examples**:
 - "Reverse trace_to prioritized over forward call_tree because agents typically start deep in the codebase."
 - "Bridge pool uses per-directory instances to avoid cross-session corruption in server mode."
-- "Hoisted tools share opencode names so users don't need to disable opencode tools to use ours."
 - "Tool API surface is the documentation; avoid SKILL.md decision trees."
 
 **Negative examples**:
@@ -474,7 +470,6 @@ A load-bearing design choice. The compartment that produced it could probably be
 A discovered limit, behavior, or quirk of an **external** system (provider API, host SDK, language parser, package registry, OS, runtime) that we have to work around because we don't control the source.
 
 **Positive examples (external systems we don't control)**:
-- "OpenCode wrapper in fromPlugin discards plugin-set metadata fields like title."
 - "Top-level discriminated unions break tool schemas on some providers."
 - "tree-sitter does not parse JSON, YAML, or markdown — fallback to grep needed for those files."
 - "Anthropic SDK merges consecutive assistant messages; reasoning must be stripped from non-first messages."
@@ -514,7 +509,6 @@ A specific value that future work needs to know exactly, AND that is intended to
 - "Read command line truncation: 2000 characters" — durable limit
 - "dryRun default across all tools: false" — durable default
 - "All numeric tool params: 1-based, end-inclusive" — durable semantic
-- "User config path: ~/.config/opencode/aft.jsonc" — durable path
 - "Hoisted tool metadata schema: { title, diff, filediff, diagnostics }" — durable schema
 - "Expando character for Python/Rust AST patterns: µ (U+00B5)" — durable constant
 
@@ -528,7 +522,6 @@ A specific value that future work needs to know exactly, AND that is intended to
 - "10 SWE-bench tasks selected" — task setup for one benchmark session.
 
 **Other category mismatches**:
-- "Use OPENCODE_CONFIG env var" — too vague; specific values or schema are facts.
 - "Rust crate name is agent-file-tools" — NAMING (a named entity choice).
 - "Hoisted tool list: aft_outline, aft_zoom, …" — NAMING (a list of names), or just compartment narrative.
 
@@ -547,14 +540,10 @@ What IS a NAMING fact: the convention itself (a prefix pattern, a case style, a 
 NAMING captures **conventions and renames**, not inventories of current names.
 
 **Positive examples (conventions, renames, rejected alternatives)**:
-- "Hoisted tools share opencode names: read, write, edit, apply_patch."
 - "aft_ prefix used for non-hoisted tools when hoist_builtin_tools=false."
-- "Parameter name is filePath (not file) for opencode UI compatibility."
-- "Plural form is 'plugin' in opencode config (not 'plugins')."
 - "Rust crate name: agent-file-tools (because 'aft' is taken on crates.io)."
 - "npm scope: @cortexkit (because @aft is taken)."
 - "Parameter renamed: scope → container (in aft_transform)."
-- "All tool parameters use camelCase (matching opencode built-in convention)."
 
 **Negative examples (DO NOT extract as NAMING)**:
 
@@ -599,10 +588,8 @@ The decisive test:
 > If this discovery were forgotten, would a future session in this project hit the same surprise again? Is the surprise about something we don't control (an external SDK, host platform, model behavior, undocumented protocol)?
 
 **Yes → emit a \`causal_incident\`.** Examples:
-- "OpenCode's \`fromPlugin\` wrapper hardcodes \`title: ""\` and overwrites plugin metadata" — durable SDK constraint, future plugin work will encounter it
 - "Anthropic SDK merges consecutive assistant messages, breaking reasoning preservation" — durable provider quirk
 - "GPT-5.5 returns empty \`content\` when reasoning tokens hit, even with valid output" — durable model behavior
-- "OpenCode caches plugin install via \`node_modules/.bin\` but won't refresh without a clean tarball install" — durable host behavior
 
 **No → it's a routine bug fix.** Do NOT emit an event. The compartment narrative is sufficient. Examples that should NOT produce events:
 - "Found a relative-path-vs-absolute-path bug in our own undo command, fixed it" — once fixed, the bug is gone; nobody will hit it again

@@ -271,7 +271,7 @@ export function requestValidatedAddress(
                     if (bytes > options.bodyLimitBytes) {
                         // Reject FIRST, then destroy WITHOUT an error argument.
                         // destroy(err) hands the error to the stream machinery,
-                        // which under OpenCode's embedded Bun has been observed
+                        // which the embedded Bun runtime has been observed
                         // re-surfacing it through the readable's flow() as an
                         // UNCAUGHT stderr dump even with 'error' listeners on
                         // both the request and the response. An errorless
