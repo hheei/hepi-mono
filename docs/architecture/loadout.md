@@ -92,9 +92,9 @@ MCP placeholder 不属于新 Loadout inventory。旧实现没有 MCP discovery �
 
 ## Agent Profile Resource 与详情页
 
-`pi-subagents` 加载后，为每个已发现 profile 登记 `agent:<name>` resource，并使用唯一 display group
-`Agents`。没有任何 agent resource 时，Loadout 不显示该 group；profile discovery/reload 必须原子更新
-registration，卸载 extension 或 session abort 必须释放它们。
+Agent contributor 为每个已发现 profile 登记 `agent:<name>` resource，并使用唯一 display group `Agents`。
+没有任何 agent resource 时，Loadout 不显示该 group；profile discovery/reload 必须原子更新 registration，
+卸载 extension 或 session abort 必须释放它们。
 
 Loadout list 的 group heading 固定为：
 
@@ -123,13 +123,11 @@ metadata，不能挤压 activation 或 name column。
 
 Loadout 的 `Enter` 可以进入 resource contributor 提供的 detail controller，并仍留在同一 shared router
 surface。Loadout 拥有 tab、焦点、scope、Enter/Esc 路由、component mounting 与 cleanup；contributor 拥有
-detail fields、runtime validation、配置读写与描述。该 detail capability 由 core 注册表传输，禁止
-`pi-subagents` import concrete `pi-loadout`。
+detail fields、runtime validation、配置读写与描述。该 detail capability 由 core 注册表传输，禁止 agent contributor import concrete `pi-loadout`。
 
-`pi-subagents` 不再拥有 `/agents` 的 profile/settings/schedule GUI。agent profile 的 model、thinking、tools、
-memory、isolation、turn budget 与 profile-file mutation 都从 Loadout 的 `Agents` group 进入。运行中的 child
-record、live transcript、steer 和 stop 不属于配置；它们将在后续以独立 Runtime popup 实现，而不塞入
-Loadout settings page。
+Agent contributor 拥有 profile 的 model、thinking、tools、memory、isolation、turn budget 与 profile-file
+mutation。运行中的 child record、live transcript、steer 和 stop 不属于配置；它们应由独立 Runtime surface
+实现，而不塞入 Loadout settings page。
 
 ## Extension Page Router
 
@@ -171,7 +169,6 @@ signal。页面遵守 `DESIGN.md` 的 token、稳定尺寸、narrow/wide 验证�
   preservation、conflict atomicity、scope persistence、dynamic tab add/remove、lazy factory、retry、
   key routing 和 close cleanup。
 
-详细术语见根目录 [CONTEXT.md](../../CONTEXT.md)。不可逆边界的原因见
-[ADR 0001](../adr/0001-core-extension-page-shell.md)、
+不可逆边界的原因见 [ADR 0001](../adr/0001-core-extension-page-shell.md)、
 [ADR 0002](../adr/0002-core-loadout-contract.md) 与
 [ADR 0003](../adr/0003-independent-settings-host.md)。

@@ -40,14 +40,14 @@ describe("Pi Auto Title", () => {
 		const dir = await mkdtemp(join(tmpdir(), "pi-basics-title-"));
 		try {
 			const path = join(dir, "settings.json");
-			await Bun.write(path, JSON.stringify({ packages: ["npm:pi-subagents"], other: true }));
+			await Bun.write(path, JSON.stringify({ packages: ["npm:pi-todo"], other: true }));
 			const storage = createAutoTitleStorage({ path });
 			await storage.save(
 				{ "auto-title": { autoTitle: true, autoTitleModel: "provider/model" } },
 				context(dir),
 			);
 			const root = JSON.parse(await readFile(path, "utf8"));
-			expect(root.packages).toEqual(["npm:pi-subagents"]);
+			expect(root.packages).toEqual(["npm:pi-todo"]);
 			expect(root["pi-auto-title"]["auto-title"].autoTitle).toBe(true);
 		} finally {
 			await rm(dir, { recursive: true, force: true });

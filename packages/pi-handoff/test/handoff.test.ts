@@ -1,11 +1,5 @@
 import { expect, test } from "bun:test";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import {
-	PARENT_CONTEXT_PROJECTION_SERVICE,
-	type ParentContextHandoffResult,
-	type ParentContextProjectionService,
-	provideService,
-} from "@hheei/pi-ext-core";
 import { registerHandoffCommand } from "../src/handoff.js";
 
 interface RegisteredCommand {
@@ -27,9 +21,6 @@ interface HandoffHarness {
 		compact: "success" | "failure";
 		cancelled: boolean;
 		setupFails: boolean;
-		prepare: "absent" | "unavailable" | "selected" | "failure";
-		install: "success" | "failure";
-		installed: boolean;
 	};
 	readonly context: ExtensionCommandContext;
 }
@@ -46,9 +37,6 @@ function harness(): HandoffHarness {
 		compact: "success",
 		cancelled: false,
 		setupFails: false,
-		prepare: "absent",
-		install: "success",
-		installed: false,
 	};
 	const pi = {
 		registerCommand(name: string, command: Omit<RegisteredCommand, "name">): void {
@@ -117,133 +105,15 @@ test("does not duplicate the command after extension reload", () => {
 	expect(state.commands).toHaveLength(1);
 });
 
-test("does not fall back to native compact when MCTX projection is installed but unavailable", async () => {
-	const state = harness();
-	provideService(
-		{ pi: state.pi, resources: { add: () => undefined } } as never,
-		PARENT_CONTEXT_PROJECTION_SERVICE,
-		{ prepare: async () => ({ kind: "unavailable" }) },
-	);
-
-	await state.command.handler("", state.context);
-
-	expect(state.calls).toEqual(["idle"]);
-	expect(state.notices).toEqual([
-		"Handoff failed: MCTX context projection is unavailable; native compaction is disabled while MCTX is active. The source session can be resumed.",
-	]);
-});
-
 test("waits idle, compacts, and seeds a linked replacement session", async () => {
 	const state = harness();
 	await state.command.handler("", state.context);
 	expect(state.calls).toEqual(["idle", "compact", "new-session"]);
 	expect(state.parentSessions).toEqual(["/tmp/parent.jsonl"]);
 	expect(state.injected).toEqual(["<handoff-summary>\nnative summary\n</handoff-summary>"]);
-	expect(state.notices).toEqual(["Handoff context is ready."]);
-});
-
-test("installs selected MCTX handoff without native compaction", async () => {
-	const state = harness();
-	state.state.prepare = "selected";
-	const service: ParentContextProjectionService = {
-		prepare: async () =>
-			({
-				kind: "result",
-				purpose: "handoff",
-				install: async (destination, signal) => {
-					if (signal.aborted) throw new Error("aborted");
-					state.state.installed = true;
-					destination.appendCustomMessageEntry("opaque", "MCTX context", false);
-				},
-			}) satisfies ParentContextHandoffResult,
-	};
-	provideService(
-		{ pi: state.pi, resources: { add: () => undefined } } as never,
-		PARENT_CONTEXT_PROJECTION_SERVICE,
-		service,
-	);
-
-	await state.command.handler("", state.context);
-
-	expect(state.calls).toEqual(["idle", "new-session"]);
-	expect(state.injected).toEqual(["MCTX context"]);
-	expect(state.injectedTypes).toEqual(["opaque"]);
+	expect(state.injectedTypes).toEqual(["hepi-handoff"]);
 	expect(state.injectedDisplays).toEqual([false]);
-	expect(state.state.installed).toBe(true);
-});
-
-test("does not fall back when the MCTX provider is installed but unavailable", async () => {
-	const state = harness();
-	state.state.prepare = "unavailable";
-	provideService(
-		{ pi: state.pi, resources: { add: () => undefined } } as never,
-		PARENT_CONTEXT_PROJECTION_SERVICE,
-		{ prepare: async () => ({ kind: "unavailable" }) },
-	);
-
-	await state.command.handler("", state.context);
-
-	expect(state.calls).toEqual(["idle"]);
-	expect(state.injected).toEqual([]);
-	expect(state.notices).toEqual([
-		"Handoff failed: MCTX context projection is unavailable; native compaction is disabled while MCTX is active. The source session can be resumed.",
-	]);
-});
-
-test("selected prepare error has no compact fallback", async () => {
-	const state = harness();
-	state.state.prepare = "failure";
-	provideService(
-		{ pi: state.pi, resources: { add: () => undefined } } as never,
-		PARENT_CONTEXT_PROJECTION_SERVICE,
-		{
-			prepare: async () => {
-				throw new Error("prepare failed");
-			},
-		},
-	);
-	await state.command.handler("", state.context);
-	expect(state.calls).toEqual(["idle"]);
-	expect(state.notices).toEqual([
-		"Handoff failed: prepare failed. The source session can be resumed.",
-	]);
-});
-
-test("selected result for another purpose is an operation error", async () => {
-	const state = harness();
-	provideService(
-		{ pi: state.pi, resources: { add: () => undefined } } as never,
-		PARENT_CONTEXT_PROJECTION_SERVICE,
-		{ prepare: async () => ({ kind: "result", purpose: "inheritance", payload: "wrong purpose" }) },
-	);
-	await state.command.handler("", state.context);
-	expect(state.calls).toEqual(["idle"]);
-	expect(state.notices).toEqual([
-		"Handoff failed: Invalid handoff projection. The source session can be resumed.",
-	]);
-});
-
-test("selected install error surfaces operation failure", async () => {
-	const state = harness();
-	state.state.prepare = "selected";
-	provideService(
-		{ pi: state.pi, resources: { add: () => undefined } } as never,
-		PARENT_CONTEXT_PROJECTION_SERVICE,
-		{
-			prepare: async () => ({
-				kind: "result",
-				purpose: "handoff",
-				install: async () => {
-					throw new Error("install failed");
-				},
-			}),
-		},
-	);
-	await state.command.handler("", state.context);
-	expect(state.calls).toEqual(["idle", "new-session"]);
-	expect(state.notices).toEqual([
-		"Handoff failed: install failed. The source session can be resumed.",
-	]);
+	expect(state.notices).toEqual(["Handoff context is ready."]);
 });
 
 test("rejects arguments without changing the session", async () => {

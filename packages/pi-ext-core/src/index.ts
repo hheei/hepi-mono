@@ -36,34 +36,6 @@ export {
 	readMergedJsonSettingsSection,
 	updateJsonSettingsRoot,
 } from "./json-settings.js";
-export type {
-	HindsightKnowledgeProvider,
-	InjectedKnowledgeMarker,
-	KnowledgeInjectionCoordinator,
-	KnowledgeInjectionLease,
-	KnowledgeInjectionOwner,
-	KnowledgeInjectionState,
-	KnowledgeProjectionAdmission,
-	KnowledgeProjectionIdentity,
-	KnowledgeProjectionIdentityRequest,
-	KnowledgeProjectionRequest,
-	KnowledgeProjectionResult,
-	KnowledgeProjectionSource,
-	KnowledgeSection,
-	KnowledgeSourceKind,
-	PageSectionService,
-} from "./knowledge-coordination.js";
-export {
-	ensureKnowledgeInjectionCoordinator,
-	getKnowledgeInjectionCoordinator,
-	HINDSIGHT_KNOWLEDGE_PROVIDER,
-	HINDSIGHT_PAGE_SECTION_SERVICE,
-	INJECTED_KNOWLEDGE_MARKER,
-	injectedKnowledgeMarker,
-	isInjectedKnowledgeMarker,
-	isInjectedKnowledgeMessage,
-	KNOWLEDGE_INJECTION_COORDINATOR,
-} from "./knowledge-coordination.js";
 export type { ExtensionLifecycleContext, ExtensionLifecycleOptions } from "./lifecycle.js";
 export { registerExtensionLifecycle } from "./lifecycle.js";
 export type {
@@ -115,17 +87,6 @@ export type {
 	OpenExtensionPageRouterOptions,
 } from "./page-router.js";
 export { openExtensionPageRouter, registerExtensionPage } from "./page-router.js";
-export type {
-	ParentContextHandoffResult,
-	ParentContextInheritanceResult,
-	ParentContextProjectionPrepareInput,
-	ParentContextProjectionPurpose,
-	ParentContextProjectionResult,
-	ParentContextProjectionService,
-	ParentContextProjectionStale,
-	ParentContextProjectionUnavailable,
-} from "./parent-context-projection.js";
-export { PARENT_CONTEXT_PROJECTION_SERVICE } from "./parent-context-projection.js";
 export type { ResponseStatusFeature } from "./response-status.js";
 export { createResponseStatusFeature } from "./response-status.js";
 export type { ServiceKey, WaitForServiceOptions } from "./service.js";

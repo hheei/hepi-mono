@@ -23,9 +23,9 @@ Loadout 让用户在不改变扩展安装集合的前提下控制工具、技能
 Agent resource 可选贡献一个 nested settings detail。选中有 detail 的行后，`Enter` 把右侧
 Description lane 切换为该 detail；窄终端把同一 detail 堆叠在列表下方。Loadout 只拥有焦点、布局与
 导航；contributor 复用自己 settings provider 的 schema、storage、validation 与 live-policy callback，
-不复制 JSON 格式或把 feature state 下沉到 Loadout。`pi-auto-title` 不注册 `agent` resource，始终经
-`/ext-settings` 显示自己的 settings；`Agents` group 的行只来自 `pi-subagents` 的 subagent profiles。
-`pi-subagents` 的所有 agent（含内置默认）都提供 detail：内置 agent 没有 backing 文件，首次保存时
+不复制 JSON 格式或把 feature state 下沉到 Loadout。`pi-auto-title` 不注册 `agent` resource，始终经 `/ext-settings` 显示自己的 settings；`Agents` group 的行
+只来自已登记的 agent contributor。
+Agent contributor 的 profile 可提供 detail；没有 backing 文件的 profile 首次保存时
 按当前 scope clone；Global 落到 Pi agent 目录的 `agents/`，Project 落到 `<cwd>/.pi/agents/`，body
 保留内置 system prompt。这样 Global 编辑不会把原本全局可见的行变成只在 Project 显示的 private resource。
 
@@ -35,7 +35,7 @@ disabled 的行是只读的——行尾无 `↵`、`Enter` 不打开 detail。�
 可编辑性已由行 glyph 与行尾 `↵` 表达。agent 的激活状态完全由 Loadout policy 在 `agent:<name>`
 key 下决定（`Space` 切换三态并 persist 到 settings JSON），agent Markdown 不参与启停。
 
-`pi-subagents` 的 agent detail 把 `model` 与 `thinking` 合并为单个 `Model` 行，复用 Settings 的
+Agent contributor 可把 `model` 与 `thinking` 合并为单个 `Model` 行，复用 Settings 的
 cycler 交互（与 `HepiSettingTabCycle` 语义一致）：行值以 `glyph + model` 形式显示（thinking
 glyph 仅在已 pin 级别时出现），按 `Enter` 打开单一选择器，`↑`/`↓` 在 model 选项间循环移动
 （到头回绕，`inherit` 为首项），`Tab`/`Shift+Tab` 就地正向/反向循环 thinking 值
@@ -133,8 +133,8 @@ winner inherit 或回到其 default，才可操作被锁定 member。
   system prompt 的 `<available_skills>` 条目，并过滤 dollar-skill autocomplete/input expansion。这个
   prompt filter 使用公开 `before_agent_start` hook，依赖当前 Pi skill XML markup；升级 Pi 后必须由
   focused test 验证 disabled skill 不会重新进入 prompt。
-- 安装 `pi-subagents` 后，Loadout 才显示 `Agents` group。`agent:<name>` 不传给
-  Pi host `setActiveTools()`；core 将 effective activation 发布给 profile owner。`Enter` 在同一
+- 有 agent contributor 登记 resource 后，Loadout 才显示 `Agents` group。`agent:<name>` 不传给 Pi host
+  `setActiveTools()`；core 将 effective activation 发布给 profile owner。`Enter` 在同一
   Loadout surface 打开 contributor 提供的 profile detail；没有 contributor detail 时保持当前 list
   focus，不能把 profile metadata 假装成可编辑 configuration。
 - 不迁移无运行时效果的旧 MCP placeholder。
