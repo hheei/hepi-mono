@@ -64,7 +64,6 @@ export {
     type ContextDatabase,
     closeDatabase,
     getDatabasePath,
-    getDatabasePersistenceError,
     initializeDatabase,
     isDatabasePersisted,
     type OpenDatabaseOptions,

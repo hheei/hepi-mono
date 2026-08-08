@@ -23,7 +23,6 @@ import {
 const databases = new Map<string, Database>();
 const pendingAsyncOpens = new Map<string, Promise<Database | null>>();
 const persistenceByDatabase = new WeakMap<Database, boolean>();
-const persistenceErrorByDatabase = new WeakMap<Database, string>();
 const pathByDatabase = new WeakMap<Database, string>();
 
 // chmod is meaningless on Windows (POSIX modes are not honored), so all
@@ -216,6 +215,16 @@ export function runSqliteOptimize(db: Database): void {
     }
 }
 
+const CHANNEL2_CLAIM_TTL_MS = 120_000;
+
+/** Requeue crash-stranded Channel-2 deliveries after their lease expires. */
+function healWedgedChannel2Claims(db: Database): void {
+    const staleBefore = Date.now() - CHANNEL2_CLAIM_TTL_MS;
+    db.prepare(
+        "UPDATE session_meta SET channel2_nudge_state = 'pending', channel2_nudge_claimed_at = 0, channel2_nudge_claim_token = '' WHERE channel2_nudge_state = 'claimed' AND (channel2_nudge_claimed_at IS NULL OR channel2_nudge_claimed_at = 0 OR channel2_nudge_claimed_at <= ?)",
+    ).run(staleBefore);
+}
+
 function finishDatabaseOpen(
     db: Database,
     dbPath: string,
@@ -238,7 +247,6 @@ function finishDatabaseOpen(
     databases.set(dbPath, db);
     pathByDatabase.set(db, dbPath);
     persistenceByDatabase.set(db, true);
-    persistenceErrorByDatabase.delete(db);
     return db;
 }
 
@@ -267,24 +275,11 @@ export function initializeDatabase(db: Database): void {
  *      silently broken instead of explicitly disabled.
  *   2. More importantly, an in-memory DB across process restarts effectively
  *      means "no Magic Context", but the plugin still tags messages and
- *      tries to drive transforms. On Pi/legacy host this can let the full
- *      raw history reach the model and overflow the context window — the
- *      exact failure mode that broke a real test session.
+ *      tries to drive transforms. On Pi this can let the full raw history reach
+ *      the model and overflow the context window.
  *
- * Two failure modes, both fail-closed:
- *   - **Schema fence** (the on-disk DB is newer than this binary supports, e.g.
- *     a stale process after a rolling upgrade): returns `null`. This is an
- *     expected, recoverable condition (restart onto the newer binary), so it is
- *     not exceptional.
- *   - **Fatal open error** (ABI mismatch, unwritable path, corrupt file):
- *     throws. The thrown message carries the failure detail for surfacing.
- *
- * The return type is therefore `Database | null`, and callers MUST both
- * null-check the result AND be prepared for a throw (typically a try/catch that
- * also treats a null result as "storage unavailable"). On either outcome the
- * caller disables Magic Context for that run (server plugin: registers a
- * startup warning + skips the runtime; Pi plugin: logs warning + skips the
- * extension). There is NEVER a silent in-memory fallback.
+ * Any open error fails closed: callers disable Magic Context for that run.
+ * There is never an in-memory fallback.
  */
 export function openDatabase(): Database | null;
 export function openDatabase(dbPath: string): Database | null;
@@ -292,7 +287,6 @@ export function openDatabase(options: OpenDatabaseOptions): Database | null;
 export function openDatabase(dbPathOrOptions?: string | OpenDatabaseOptions): Database | null {
     const options =
         typeof dbPathOrOptions === "string" ? { dbPath: dbPathOrOptions } : dbPathOrOptions;
-    const explicitDbPath = options?.dbPath !== undefined;
     const { dbDir, dbPath } = resolveDatabasePath(options?.dbPath);
     const existing = databases.get(dbPath);
     if (existing) {
@@ -326,16 +320,14 @@ export function openDatabase(dbPathOrOptions?: string | OpenDatabaseOptions): Da
 }
 
 /**
- * Async boot variant of openDatabase. SQLite calls remain synchronous, but the
- * bounded migration-lock waits yield to the host between attempts so a busy
- * sibling cannot freeze plugin startup for the whole retry budget.
+ * Async boot variant of openDatabase. SQLite calls remain synchronous; this
+ * wrapper coalesces concurrent opens for the same database path.
  */
 export async function openDatabaseAsync(
     dbPathOrOptions?: string | OpenDatabaseOptions,
 ): Promise<Database | null> {
     const options =
         typeof dbPathOrOptions === "string" ? { dbPath: dbPathOrOptions } : dbPathOrOptions;
-    const explicitDbPath = options?.dbPath !== undefined;
     const { dbDir, dbPath } = resolveDatabasePath(options?.dbPath);
     const existing = databases.get(dbPath);
     if (existing) {
@@ -376,11 +368,6 @@ export async function openDatabaseAsync(
 export function isDatabasePersisted(db: Database | null): boolean {
     if (!db) return false;
     return persistenceByDatabase.get(db) ?? false;
-}
-
-export function getDatabasePersistenceError(db: Database | null): string | null {
-    if (!db) return null;
-    return persistenceErrorByDatabase.get(db) ?? null;
 }
 
 export function closeDatabase(): void {
