@@ -14,7 +14,6 @@ This directory records high-level information for users and developers. Detailed
 - [Isolated Pi development](development/pi-dev.md): run the local Pi host with only this repository's independent packages.
 - [pi-ext-core development](development/pi-ext-core.md): core and consumer-specific development rules.
 - [HEPI TUI design](../DESIGN.md): required specification for UI and UX work.
-- [Pi source design](../.pi/skills/pi-development/references/DESIGN.md): Pi source-code design taste and integration guidance.
 
 ## Architecture
 
@@ -22,7 +21,6 @@ This directory records high-level information for users and developers. Detailed
 - [Native bridge architecture](architecture/pi-ext-bridge.md): N-API shell boundary, vendored Brush/uutils ownership, and cancellation contract.
 - [Loadout architecture](architecture/loadout.md): planned tool registration, activation policy, Settings host, and Extension page router boundaries.
 - [Subagent execution architecture](architecture/subagents.md): planned completion, task, conversation, delivery, and concurrency boundaries.
-- [pi-mctx](mctx/README.md): planned parent-session context-management package and child inheritance boundary.
 - [pi-t2s](t2s/README.md): Traditional-to-Simplified input conversion, settings migration, and lifecycle boundary.
 
 ## Research

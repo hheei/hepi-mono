@@ -1,5 +1,4 @@
-import { afterEach, describe, expect, test, vi } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,8 +14,6 @@ import {
 } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { replayTui, viewFrame } from "../../pi-debug/src/tui-replay.js";
-import { type AgentDetail, createAgentDetail } from "../../pi-subagents/src/agent-detail.js";
-import type { AgentConfig } from "../../pi-subagents/src/types.js";
 import type { LoadoutEngine } from "../src/engine.js";
 import { createLoadoutPage } from "../src/page.js";
 
@@ -126,7 +123,7 @@ describe("Loadout Settings page", () => {
 			parameters: Type.Object({}),
 			sourceInfo: { source: "extension", scope: "user", origin: "top-level", path: "mctx" },
 		});
-		registerManagedTool(h.pi, { id: "ctx_reduce", owner: "@hheei/pi-mctx" }, {
+		registerManagedTool(h.pi, { id: "ctx_reduce", owner: "test-tool" }, {
 			name: "ctx_reduce",
 		} as never);
 		const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
@@ -203,7 +200,7 @@ describe("Loadout Settings page", () => {
 			description: "Read-only explorer.",
 			summary: "◔ cx/gpt-5.6-luna",
 			projectPrivate: false,
-			owner: "@hheei/pi-subagents",
+			owner: "test-agent",
 		});
 		const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
 		const output = page.component.render(100).join("\n");
@@ -523,309 +520,6 @@ describe("Loadout Settings page", () => {
 			expect(inheritedView).toContain("Status: ◌ Inherit");
 		} finally {
 			dispose();
-		}
-	});
-
-	test("composes the real agent detail under the resource header without a duplicate title", async () => {
-		const h = setup();
-		const root = await mkdtemp(join(tmpdir(), "pi-loadout-agent-"));
-		temporaryRoots.push(root);
-		const agentsDir = join(root, ".pi", "agents");
-		mkdirSync(agentsDir, { recursive: true });
-		writeFileSync(
-			join(agentsDir, "Explore.md"),
-			"---\ndescription: Read-only explorer.\n---\nYou are read-only.\n",
-		);
-		vi.spyOn(process, "cwd").mockReturnValue(root);
-		const config: AgentConfig = {
-			name: "Explore",
-			description: "Read-only explorer.",
-			extensions: true,
-			skills: true,
-			systemPrompt: "You are read-only.",
-			promptMode: "replace",
-			isDefault: true,
-			source: "default",
-		};
-		const detail = createAgentDetail(
-			"Explore",
-			config,
-			{
-				getAvailable: () => [{ provider: "cx", id: "gpt-5.6-luna" }],
-				hasConfiguredAuth: () => true,
-			},
-			() => undefined,
-			() => undefined,
-		);
-		const themeSpy = vi.spyOn(detail, "onThemeChange");
-		const dispose = registerLoadoutResource(h.pi, {
-			id: "agent:Explore",
-			kind: "agent",
-			group: "𖠌 Agents",
-			priority: 0,
-			conflictSets: [],
-			defaultActive: true,
-			label: "Explore",
-			description: "Read-only explorer.",
-			summary: "inherit",
-			projectPrivate: false,
-			owner: "@hheei/pi-subagents",
-			detail,
-		});
-		try {
-			const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
-			await page.handleInput("\u001b[B");
-			await page.handleInput("\u001b[B");
-			const before = page.component.render(100).join("\n");
-			expect(before).toContain("Explore (agent)");
-			expect(before).toContain("Origin: @hheei/pi-subagents");
-			expect(before).toContain("Status: ● Active");
-			await page.handleInput("\r");
-			const openedLines = page.component.render(100);
-			const opened = openedLines.join("\n");
-			// Exact requested layout: title → wrapped Description → Origin →
-			// Status → Path → detail rows. The hint row is the ordinary list
-			// hint on the last panel row. Opening pushes the current theme so
-			// accent styling is live from the first frame.
-			expect(themeSpy).toHaveBeenCalled();
-			expect(openedLines.at(-1)).toContain("↕ navigate");
-			expect(opened.indexOf("Explore (agent)")).toBeLessThan(opened.indexOf("Origin:"));
-			expect(opened.indexOf("Explore (agent)")).toBeLessThan(opened.indexOf("Read-only explorer."));
-			expect(opened.indexOf("Read-only explorer.")).toBeLessThan(opened.indexOf("Origin:"));
-			expect(opened.indexOf("Origin:")).toBeLessThan(opened.indexOf("Status:"));
-			expect(opened.indexOf("Status:")).toBeLessThan(opened.indexOf("Path:"));
-			expect(opened.indexOf("Path:")).toBeLessThan(opened.indexOf("Identity"));
-			expect(opened).toMatch(/Identity\s+Explore/);
-			expect(opened).toMatch(/Model\s+inherit/);
-			expect(opened).toMatch(/Path:\s+\S/);
-			expect(opened).not.toContain("Agent Explore");
-			await page.handleInput("\u001b[B"); // Identity → Model
-			await page.handleInput("\r"); // open selector
-			await page.handleInput("\u001b[B"); // inherit → cx/gpt-5.6-luna
-			await page.handleInput("\r"); // confirm buffered selection
-			await page.handleInput("\u001b"); // return to resource list
-			expect(page.component.render(100).join("\n")).toContain("cx/gpt-5.6-luna");
-		} finally {
-			dispose();
-			vi.restoreAllMocks();
-		}
-	});
-
-	test("truncates a long Path from the head, keeping the file name", async () => {
-		const h = setup();
-		const root = await mkdtemp(join(tmpdir(), "pi-loadout-path-"));
-		temporaryRoots.push(root);
-		const deep = join(
-			root,
-			"directory-one",
-			"directory-two",
-			"directory-three",
-			"directory-four",
-			"directory-five",
-		);
-		const agentsDir = join(deep, ".pi", "agents");
-		mkdirSync(agentsDir, { recursive: true });
-		writeFileSync(
-			join(agentsDir, "Explore.md"),
-			"---\ndescription: Read-only explorer.\n---\nYou are read-only.\n",
-		);
-		vi.spyOn(process, "cwd").mockReturnValue(deep);
-		const config: AgentConfig = {
-			name: "Explore",
-			description: "Read-only explorer.",
-			extensions: true,
-			skills: true,
-			systemPrompt: "You are read-only.",
-			promptMode: "replace",
-			source: "project",
-		};
-		const detail = createAgentDetail(
-			"Explore",
-			config,
-			{ getAvailable: () => [], hasConfiguredAuth: () => false },
-			() => undefined,
-			() => undefined,
-		);
-		const dispose = registerLoadoutResource(h.pi, {
-			id: "agent:Explore",
-			kind: "agent",
-			group: "𖠌 Agents",
-			priority: 0,
-			conflictSets: [],
-			defaultActive: true,
-			label: "Explore",
-			description: "Read-only explorer.",
-			summary: "inherit",
-			projectPrivate: false,
-			owner: "@hheei/pi-subagents",
-			detail,
-		});
-		try {
-			const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
-			await page.handleInput("\u001b[B");
-			await page.handleInput("\u001b[B");
-			await page.handleInput("\r");
-			const opened = page.component.render(100).join("\n");
-			// One leading ellipsis, then whole segments only: the five
-			// directory-* segments do not fit the lane, so the longest complete
-			// suffix is exactly …/.pi/agents/Explore.md — no mid-name slice.
-			expect(opened).toContain("Path: …/.pi/agents/Explore.md");
-			expect(opened).not.toContain("directory-");
-		} finally {
-			dispose();
-			vi.restoreAllMocks();
-		}
-	});
-
-	test("clamps the description to three lines only while the detail is open", async () => {
-		const h = setup();
-		const root = await mkdtemp(join(tmpdir(), "pi-loadout-desc-"));
-		temporaryRoots.push(root);
-		const agentsDir = join(root, ".pi", "agents");
-		mkdirSync(agentsDir, { recursive: true });
-		const longDescription = [
-			"Read-only explorer that inspects files, searches the workspace, and reports",
-			"findings for planning and review. It never writes, edits, or executes",
-			"destructive actions. It collects evidence, quotes sources, and hands off",
-			"a compressed summary for the orchestrator.",
-		].join(" ");
-		writeFileSync(
-			join(agentsDir, "Explore.md"),
-			`---\ndescription: ${longDescription}\n---\nYou are read-only.\n`,
-		);
-		vi.spyOn(process, "cwd").mockReturnValue(root);
-		const config: AgentConfig = {
-			name: "Explore",
-			description: longDescription,
-			extensions: true,
-			skills: true,
-			systemPrompt: "You are read-only.",
-			promptMode: "replace",
-			source: "project",
-		};
-		const detail = createAgentDetail(
-			"Explore",
-			config,
-			{ getAvailable: () => [], hasConfiguredAuth: () => false },
-			() => undefined,
-			() => undefined,
-		);
-		const dispose = registerLoadoutResource(h.pi, {
-			id: "agent:Explore",
-			kind: "agent",
-			group: "𖠌 Agents",
-			priority: 0,
-			conflictSets: [],
-			defaultActive: true,
-			label: "Explore",
-			description: longDescription,
-			summary: "inherit",
-			projectPrivate: false,
-			owner: "@hheei/pi-subagents",
-			detail,
-		});
-		const rowsBetweenTitleAndOrigin = (lines: readonly string[]): number => {
-			const title = lines.findIndex((line) => line.includes("(agent)"));
-			const origin = lines.findIndex((line) => line.includes("Origin:"));
-			return origin - title - 1;
-		};
-		try {
-			const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
-			await page.handleInput("\u001b[B");
-			await page.handleInput("\u001b[B"); // select Explore, detail not open
-			const before = page.component.render(100);
-			// Browsing shows the full wrap (more than three lines).
-			expect(rowsBetweenTitleAndOrigin(before)).toBeGreaterThan(4);
-			await page.handleInput("\r"); // open the detail
-			const after = page.component.render(100);
-			// Editing clamps to three lines plus the separator blank.
-			expect(rowsBetweenTitleAndOrigin(after)).toBe(4);
-		} finally {
-			dispose();
-			vi.restoreAllMocks();
-		}
-	});
-
-	test("flushes every edited agent detail once on close, including after returning to the list", async () => {
-		const h = setup();
-		const root = await mkdtemp(join(tmpdir(), "pi-loadout-flush-"));
-		temporaryRoots.push(root);
-		const agentsDir = join(root, ".pi", "agents");
-		mkdirSync(agentsDir, { recursive: true });
-		writeFileSync(join(agentsDir, "One.md"), "---\ndescription: One.\n---\nOne body.\n");
-		writeFileSync(join(agentsDir, "Two.md"), "---\ndescription: Two.\n---\nTwo body.\n");
-		vi.spyOn(process, "cwd").mockReturnValue(root);
-		const registry = {
-			getAvailable: () => [],
-			hasConfiguredAuth: () => false,
-		};
-		const make = (name: string, description: string): AgentDetail =>
-			createAgentDetail(
-				name,
-				{
-					name,
-					description,
-					extensions: true,
-					skills: true,
-					systemPrompt: `${description} body.\n`,
-					promptMode: "replace",
-					source: "project",
-				},
-				registry,
-				() => undefined,
-				() => undefined,
-			);
-		const one = make("One", "One");
-		const two = make("Two", "Two");
-		const disposeOne = registerLoadoutResource(h.pi, {
-			id: "agent:One",
-			kind: "agent",
-			group: "𖠌 Agents",
-			priority: 0,
-			conflictSets: [],
-			defaultActive: true,
-			label: "One",
-			description: "One.",
-			summary: "inherit",
-			projectPrivate: false,
-			owner: "test",
-			detail: one,
-		});
-		const disposeTwo = registerLoadoutResource(h.pi, {
-			id: "agent:Two",
-			kind: "agent",
-			group: "𖠌 Agents",
-			priority: 0,
-			conflictSets: [],
-			defaultActive: true,
-			label: "Two",
-			description: "Two.",
-			summary: "inherit",
-			projectPrivate: false,
-			owner: "test",
-			detail: two,
-		});
-		try {
-			const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
-			// Edit One, then return to the list…
-			await page.handleInput("\u001b[B");
-			await page.handleInput("\u001b[B"); // read → project_check → One
-			await page.handleInput("\r"); // open One's detail
-			await page.handleInput("x");
-			await page.handleInput("\u001b"); // back to the list (no flush yet)
-			// …and edit Two before closing.
-			await page.handleInput("\u001b[B"); // One → Two
-			await page.handleInput("\r"); // open Two's detail
-			await page.handleInput("y");
-			await page.handleInput("\u001b"); // back to the list
-			await page.close();
-			// Both edits land only on close, each in its own file.
-			expect(readFile(join(agentsDir, "One.md"), "utf8")).resolves.toContain('display_name: "x"');
-			expect(readFile(join(agentsDir, "Two.md"), "utf8")).resolves.toContain('display_name: "y"');
-		} finally {
-			disposeOne();
-			disposeTwo();
-			vi.restoreAllMocks();
 		}
 	});
 

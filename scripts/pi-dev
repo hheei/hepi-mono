@@ -19,7 +19,6 @@ const buildCacheDir = path.join(root, ".pi-dev");
 const piCli = path.join(root, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js");
 const requiredBuildDirectories = [
 	path.join(packageRoot, "pi-ext-core"),
-	path.join(packageRoot, "pi-ext-embed"),
 ].filter(existsSync);
 
 if (!existsSync(piCli)) {

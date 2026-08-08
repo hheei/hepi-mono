@@ -153,7 +153,7 @@ describe("headless Loadout engine", () => {
 			description: "Read-only explorer.",
 			summary: "○ inherit",
 			projectPrivate: false,
-			owner: "@hheei/pi-subagents",
+			owner: "test-agent",
 		});
 		const snapshots: Array<{
 			readonly known: readonly string[];

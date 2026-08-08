@@ -6,9 +6,6 @@ Install the independent extensions you need.
 
 ```bash
 pi install npm:@hheei/pi-ext-tools
-pi install npm:@hheei/pi-mctx
-pi install npm:@hheei/pi-ponytail
-pi install npm:@hheei/pi-caveman
 ```
 
 Each package exposes one Pi extension entry.
@@ -30,9 +27,6 @@ Build the selected extension, then run it directly with Pi:
 
 ```bash
 pi --no-extensions --no-skills -e packages/pi-ext-tools/dist/extension.js
-pi --no-extensions --no-skills -e packages/pi-mctx/dist/extension.js
-pi --no-extensions --no-skills -e packages/pi-ponytail/dist/extension.js
-pi --no-extensions --no-skills -e packages/pi-caveman/dist/extension.js
 ```
 
 Pass additional Pi arguments normally:
