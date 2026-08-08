@@ -13,7 +13,7 @@ const BUFFER_SIZE_LIMIT = 50;
 // filesystem call when the resolved path actually changes. The path is
 // re-evaluated on every flush because `setHarness("pi")` runs after module
 // load on Pi; we MUST NOT freeze it at import time, or Pi's first flush
-// could land in the OpenCode subtree.
+// could land in an obsolete host-specific directory.
 let lastEnsuredDir: string | null = null;
 
 function ensureDir(filePath: string): void {

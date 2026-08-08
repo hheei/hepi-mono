@@ -33,46 +33,6 @@ export function clearSystemPromptHashSession(
 }
 
 /**
- * Detect OpenCode's three native hidden agents by stable signature lines from
- * their built-in prompts (see `~/Work/OSS/opencode/packages/opencode/src/agent/
- * prompt/{title,summary,compaction}.txt`).
- *
- * These agents:
- *   - "title": runs once on the first user turn against `small_model` to
- *              generate a short session title.
- *   - "summary": pull-request-style description of work done in a session.
- *   - "compaction": OpenCode's own auto-compaction summarizer (orthogonal to
- *                   our historian — fires when users haven't disabled
- *                   `compaction.auto`).
- *
- * Magic Context skips ALL injection (guidance, project docs, user profile,
- * key files, sticky date, hash flush) when these agents fire — they don't
- * benefit from any of it and the extra prompt content is wasted spend on
- * what's typically a small/cheap model running a fixed single-shot job.
- *
- * Detection uses literal substrings rather than fuzzy matching so a small
- * upstream prompt edit doesn't silently disable the skip. If OpenCode ever
- * rewrites these prompts, our injection will resume — that's the correct
- * fail-open behavior (worse than ideal, but not broken).
- */
-function isInternalOpenCodeAgent(systemPromptContent: string): boolean {
-    return (
-        // title.txt opens with this exact line
-        systemPromptContent.includes(
-            "You are a title generator. You output ONLY a thread title.",
-        ) ||
-        // summary.txt opens with this exact line
-        systemPromptContent.includes(
-            "Summarize what was done in this conversation. Write like a pull request description.",
-        ) ||
-        // compaction.txt opens with this exact line
-        systemPromptContent.includes(
-            "You are an anchored context summarization assistant for coding sessions.",
-        )
-    );
-}
-
-/**
  * Detect Magic Context's OWN hidden child agents by their system-prompt
  * openers. These children (historian/dreamer/sidekick/memory-migration) load a
  * fixed agent identity and must NOT receive the MC guidance block — it's wasted
@@ -195,38 +155,7 @@ export function createSystemPromptHashHandler(deps: {
         const sessionId = input.sessionID;
         if (!sessionId) return;
 
-        // ── Skip OpenCode's internal hidden agents ──
-        //
-        // OpenCode invokes `experimental.chat.system.transform` for ALL llm
-        // calls inside a session, including its three native hidden agents:
-        //   - "title": runs once on the first user turn against `small_model`
-        //              (or the small variant of the active model) to generate
-        //              a session title from the first message.
-        //   - "summary": session export / pull-request-style description.
-        //   - "compaction": OpenCode's own auto-compaction summarizer.
-        //
-        // These agents:
-        //   1. Don't benefit from magic-context guidance (they have a fixed
-        //      single-shot job — no tools, no `ctx_reduce`, no nudges).
-        //   2. Get hit with our `<project-docs>`, `<user-profile>`,
-        //      `<key-files>`, and the multi-paragraph guidance block, which
-        //      can multiply their input by 10× for a tiny single-line output.
-        //   3. Often run on a smaller/cheaper model where the extra prompt
-        //      content is wasted spend.
-        //
-        // The hook contract gives us only `{ sessionID, model }`, so we can't
-        // dispatch on agent name. We detect them by signature lines from
-        // their prompts in OpenCode source (`packages/opencode/src/agent/prompt/`).
-        // These signatures are stable across OpenCode releases — they're the
-        // first instruction lines of each internal prompt.
         const fullPromptForDetection = output.system.join("\n");
-        if (isInternalOpenCodeAgent(fullPromptForDetection)) {
-            sessionLog(
-                sessionId,
-                "system-prompt-hash skipped (OpenCode internal agent: title/summary/compaction)",
-            );
-            return;
-        }
 
         // ── Skip Magic Context's OWN hidden children ──
         // historian/dreamer/sidekick/memory-migration must not get the MC

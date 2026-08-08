@@ -1,5 +1,5 @@
 /**
- * Startup-time shim for graduated experimental features (shared OpenCode + Pi).
+ * Startup-time shim for graduated experimental features.
  *
  * Features have graduated out of the `experimental.*` namespace across releases:
  *  - v0.14: `experimental.user_memories` / `experimental.pin_key_files` →

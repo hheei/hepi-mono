@@ -20,7 +20,7 @@ import {
     getRawHistoryEligibility,
     hasRunnableCompartmentWindow,
     type ProtectedTailBoundarySnapshot,
-    resolveOpenCodeProtectedTailBoundary,
+    resolveProtectedTailBoundary,
 } from "./protected-tail-boundary";
 import { primeTailRawMessageCache, withRawSessionMessageCache } from "./read-session-chunk";
 import { sendIgnoredMessage } from "./send-session-notification";
@@ -88,7 +88,7 @@ interface RunCompartmentPhaseArgs {
  * Prime the raw-message cache for the WHOLE compartment phase, then run it.
  *
  * The phase's boundary resolution (`getRawHistoryEligibility` +
- * `resolveOpenCodeProtectedTailBoundary`) AND the historian runner's
+ * `resolveProtectedTailBoundary`) AND the historian runner's
  * `readSessionChunk` all read raw OpenCode history. On a large session an
  * un-primed read is O(session) (multi-second each) and runs on the transform
  * thread — OpenCode awaits `messages.transform` before the LLM call, so a
@@ -213,7 +213,7 @@ async function runCompartmentPhaseImpl(args: RunCompartmentPhaseArgs): Promise<{
     function resolveBoundarySnapshot(
         emergencyTailScale?: 0.5 | 0.25,
     ): ProtectedTailBoundarySnapshot {
-        return resolveOpenCodeProtectedTailBoundary({
+        return resolveProtectedTailBoundary({
             db: args.db,
             sessionId: args.resolvedSessionId,
             mode: "transform-force",

@@ -60,17 +60,15 @@ function sensitiveFilePathReason(resolvedPath: string): string | null {
 /**
  * Expand `{env:VAR}` and `{file:path}` tokens in raw config text.
  *
- * Mirrors OpenCode's `ConfigVariable.substitute` semantics so users can share
- * the same patterns across `opencode.json(c)` and `magic-context.jsonc`:
+ * Supports a small, explicit configuration substitution syntax:
  *   - `{env:VAR}` → `process.env.VAR` (trimmed key), JSON-escaped for safe inlining, empty string when missing
  *   - `{file:~/path}` → contents of `~/path`, JSON-escaped for safe inlining
  *   - `{file:./rel}` or `{file:rel}` → resolved against the config file's dir
  *   - `{file:/abs}` → resolved as absolute
  *
- * Unlike OpenCode we treat missing values as warnings rather than hard errors:
- * magic-context config is less critical than the main OpenCode config, and a
- * typo in an optional embedding key should not prevent the plugin from loading
- * with other (valid) settings.
+ * Missing values produce warnings rather than hard errors: Magic Context
+ * configuration is optional, so one bad optional value must not block loading
+ * other valid settings.
  *
  * File and env value substitution is JSON-escaped (wrapped then unwrapped
  * through `JSON.stringify`) so line breaks, quotes, and backslashes survive
@@ -135,7 +133,7 @@ export function substituteConfigVariables(input: SubstituteInput): SubstituteRes
         output += text.slice(cursor, index);
         cursor = index + token.length;
 
-        // Skip tokens inside line comments: agents-only feature, matches OpenCode.
+        // Skip tokens inside line comments.
         // We run before JSONC parsing so raw comments are still in the text.
         const lineStart = text.lastIndexOf("\n", index - 1) + 1;
         const prefix = text.slice(lineStart, index).trimStart();
@@ -151,9 +149,8 @@ export function substituteConfigVariables(input: SubstituteInput): SubstituteRes
             filePath = resolve(configDir, filePath);
         }
 
-        // Warn (don't block — this is user-level config, mirroring OpenCode's
-        // {file:} semantics) when a {file:} token resolves into a known-sensitive
-        // directory. A user pasting `{file:~/.ssh/id_rsa}` from a copied snippet
+        // Warn rather than block when a user-level {file:} token resolves into
+        // a known-sensitive directory. A user pasting `{file:~/.ssh/id_rsa}` from a copied snippet
         // would otherwise silently inline a private key into the prompt.
         const sensitiveReason = sensitiveFilePathReason(filePath);
         if (sensitiveReason) {

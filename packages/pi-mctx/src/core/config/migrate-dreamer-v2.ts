@@ -1,7 +1,6 @@
 /**
  * In-memory migration of the legacy v1 dreamer config shape to the Dreamer v2
- * per-task shape (shared OpenCode + Pi; runs on every config load, like
- * migrate-experimental). Doctor performs the on-disk equivalent.
+ * per-task shape and runs on every config load, like migrate-experimental.
  *
  * v1 shape (any subset):
  *   dreamer: {

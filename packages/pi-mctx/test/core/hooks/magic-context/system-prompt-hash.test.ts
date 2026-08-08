@@ -20,7 +20,6 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildHiddenAgentRegistrations } from "../../../../src/core/agents/hidden-agent-registrations";
 import { CLASSIFY_SYSTEM_PROMPT } from "../../../../src/core/features/magic-context/dreamer/classify-prompt";
 import { MAP_MEMORIES_SYSTEM_PROMPT } from "../../../../src/core/features/magic-context/dreamer/map-memories-prompt";
 import {
@@ -468,26 +467,6 @@ describe("system-prompt-hash skips Magic Context internal child agents", () => {
             expect(system.join("\n")).not.toContain("## Magic Context");
         });
     }
-
-    it("detects every registered hidden-agent prompt", () => {
-        const registrations = buildHiddenAgentRegistrations({
-            dreamerPrompt: DREAMER_SYSTEM_PROMPT,
-            smartNoteCompilerPrompt: SMART_NOTE_COMPILER_SYSTEM_PROMPT,
-            historianPrompt: COMPARTMENT_AGENT_SYSTEM_PROMPT,
-            historianRecompPrompt: COMPARTMENT_STRUCTURAL_SYSTEM_PROMPT,
-            historianEditorPrompt: HISTORIAN_EDITOR_SYSTEM_PROMPT,
-            sidekickPrompt: SIDEKICK_SYSTEM_PROMPT,
-            historianDisallowed: [],
-        });
-
-        for (const registration of registrations) {
-            expect(registration.prompt, registration.id).toBeString();
-            expect(
-                isMagicContextInternalAgent(registration.prompt as string),
-                registration.id,
-            ).toBe(true);
-        }
-    });
 
     it("detects every dedicated Magic Context child prompt constant", () => {
         const prompts = [

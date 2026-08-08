@@ -220,14 +220,8 @@ export const HistorianConfigSchema = AgentOverrideConfigSchema.extend({
             "Run a second editor pass over historian output to clean low-signal U: lines and cross-compartment duplicates. Adds ~1 extra API call and ~1.3x cost per historian run. Useful for models without extended thinking support. (default: false)",
         ),
     thinking_level: PiThinkingLevelSchema.describe(
-        "Pi only: explicit thinking level passed as --thinking <level> to Pi historian subagent invocations. Required when using reasoning models (e.g. github-copilot/gpt-5.4) because Pi's default thinking-level resolution can pick a value the provider rejects. OpenCode users set variant instead. Valid: off | minimal | low | medium | high | xhigh | max",
+        "Pi only: explicit thinking level passed as --thinking <level> to Pi historian subagent invocations. Required when using reasoning models (e.g. github-copilot/gpt-5.4) because Pi's default thinking-level resolution can pick a value the provider rejects. Valid: off | minimal | low | medium | high | xhigh | max",
     ),
-    disallowed_tools: z
-        .array(z.enum(["*", "read", "aft_outline", "aft_zoom", "aft_search"]))
-        .default([])
-        .describe(
-            'OpenCode only. Tools to REMOVE from the historian\'s default allow-list [read, aft_outline, aft_zoom, aft_search]. Applies to both historian and historian-editor agents. Use ["*"] to strip all tool definitions from the model request — this prevents weak instruction-following models (e.g. mistral-small-latest) from entering tool-calling loops. Individual tool names remove just that tool. Note: a user-supplied historian.permission override can re-allow a tool that disallowed_tools removed — disallowed_tools sets the baseline, permission overrides take precedence. (default: [])',
-        ),
 }).optional();
 export type HistorianConfig = NonNullable<z.infer<typeof HistorianConfigSchema>>;
 
@@ -412,9 +406,6 @@ export interface MagicContextConfig {
     experimental: ExperimentalConfig;
     /** Selects the runtime implementation for this project. Rust mode is experimental and requires user-level subc configuration. */
     transform_mode: "ts" | "rust";
-    /** Auto-update the cached OpenCode plugin wrapper when a newer npm version is available.
-     *  USER config only; project configs cannot disable it. Default: true. */
-    auto_update?: boolean;
     /** Output language for generated Magic Context prose. USER config only. */
     language?: string;
     historian?: HistorianConfig;
@@ -610,12 +601,6 @@ export const MagicContextConfigSchema = z
             .describe(
                 'Experimental: routes the entire Magic Context runtime for the project through the ck-mc Rust module over subc (requires user-level `subc` config); "ts" is the current TypeScript pipeline.',
             ),
-        auto_update: z
-            .boolean()
-            .optional()
-            .describe(
-                "Enable automatic npm self-update checks for the OpenCode plugin. Security: USER-only in config loader, so hostile project configs cannot suppress updates.",
-            ),
         language: z
             .string()
             .trim()
@@ -637,7 +622,7 @@ export const MagicContextConfigSchema = z
                     "original language until naturally rewritten.",
             ),
         historian: HistorianConfigSchema.describe(
-            "Historian agent configuration (model, fallback_models, variant, temperature, maxTokens, permission, two_pass, etc.)",
+            "Historian agent configuration (model, fallback_models, temperature, maxTokens, two_pass, etc.)",
         ),
         dreamer: DreamerConfigSchema.optional().describe(
             "Dreamer agent + scheduling configuration (model, fallback_models, disable, schedule, tasks, etc.)",

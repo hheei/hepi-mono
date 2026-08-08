@@ -52,7 +52,7 @@ import {
 } from "./module-state-sync";
 import {
     buildPagedModuleTransformPayloads,
-    encodeOpenCodeMessagesToCk,
+    encodeMessagesToCk,
     resolveOrdinalsForModule,
 } from "./module-wire";
 import { RECOVERY_NO_HEAD_LIMIT } from "./protected-tail-boundary";
@@ -1539,7 +1539,7 @@ export function createRustModeTransform(
                 logStage(sessionId, "stateSync", stateSyncStartedAt, timings);
             }
             const wireBuildStartedAt = performance.now();
-            const encodedInput = encodeOpenCodeMessagesToCk(resolved.annotatedInput);
+            const encodedInput = encodeMessagesToCk(resolved.annotatedInput);
             timings.wireMessages = wireDelta
                 ? messages.length - wireDelta.rawStart
                 : messages.length;
@@ -1726,7 +1726,7 @@ export function createRustModeTransform(
                     state.ordinalMemoAnchor = retryResolved.memoAnchor;
                     state.ordinalMemoStoredCount = retryResolved.memoStoredCount;
                     state.ordinalMemoCanonicalCount = retryResolved.memoCanonicalCount;
-                    const retryEncodedInput = encodeOpenCodeMessagesToCk(
+                    const retryEncodedInput = encodeMessagesToCk(
                         retryResolved.annotatedInput,
                     );
                     timings.wireMessages = messages.length;

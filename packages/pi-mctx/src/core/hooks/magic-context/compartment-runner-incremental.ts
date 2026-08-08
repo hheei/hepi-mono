@@ -68,7 +68,7 @@ import {
     createDefaultBoundarySnapshotForTests,
     hasRunnableCompartmentWindow,
     recordHighPressureNoEligibleHead,
-    resolveOpenCodeProtectedTailBoundary,
+    resolveProtectedTailBoundary,
     selectPerRunCap,
     validateBoundarySnapshot,
 } from "./protected-tail-boundary";
@@ -130,7 +130,7 @@ export async function runCompartmentAgent(deps: CompartmentRunnerDeps): Promise<
                 : null;
         recordHistorianRun(db, {
             sessionId,
-            harness: "opencode",
+            harness: "pi",
             subagentInvocationId: invocationId,
             runKind: telemetry.runKind ?? "incremental",
             status: telemetry.status ?? "failed",
@@ -254,7 +254,7 @@ export async function runCompartmentAgent(deps: CompartmentRunnerDeps): Promise<
         if (!validation.ok && validation.reason === "stale_snapshot") {
             const refreshed = deps.refreshBoundarySnapshot
                 ? deps.refreshBoundarySnapshot(boundarySnapshot, validation)
-                : resolveOpenCodeProtectedTailBoundary({
+                : resolveProtectedTailBoundary({
                       db,
                       sessionId,
                       mode: "incremental-runner",
@@ -879,7 +879,7 @@ export async function runCompartmentAgent(deps: CompartmentRunnerDeps): Promise<
                 const stored = insertPrimerCandidates(db, [
                     {
                         projectPath: promotionProjectIdentity,
-                        harness: "opencode",
+                        harness: "pi",
                         sessionId,
                         question: candidate.question,
                         sourceCompartmentStart: startC?.startMessage,

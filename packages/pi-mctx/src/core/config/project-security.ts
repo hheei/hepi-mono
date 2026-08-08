@@ -9,8 +9,7 @@ import { DEFAULT_EXECUTE_THRESHOLD_PERCENTAGE } from "./schema/magic-context";
  * trusted user config, mutating the relevant object in place and returning
  * human-readable warnings.
  *
- * Shared by both harnesses (OpenCode `config/index.ts` and Pi
- * `config/index.ts`) so the trust boundary is identical cross-harness.
+ * Used by Pi config loading so the trust boundary remains consistent.
  */
 
 /** Hidden agents that run with elevated/autonomous capability. */
@@ -24,7 +23,6 @@ const HISTORIAN_USER_ONLY_FIELDS = ["model", "fallback_models"] as const;
  *  - `prompt`     — reprograms the agent's instructions. The dreamer runs
  *                   AUTONOMOUSLY in the background with `bash`/`edit`/`webfetch`,
  *                   so a repo-supplied prompt is an unattended exfil/RCE path.
- *  - `permission` — broadens the agent's per-tool permissions.
  *  - `tools`      — enable/disable map; could flip a denied tool (e.g. `bash`)
  *                   on for an agent whose allow-list intentionally excludes it.
  *  - `system_prompt` — sidekick's custom system prompt. It takes precedence over
@@ -40,7 +38,7 @@ const HISTORIAN_USER_ONLY_FIELDS = ["model", "fallback_models"] as const;
  * project raise-only, so a cloned repo cannot force earlier compaction or extra
  * historian spend on the user's dime.
  */
-const AGENT_ESCALATION_FIELDS = ["prompt", "permission", "tools", "system_prompt"] as const;
+const AGENT_ESCALATION_FIELDS = ["prompt", "tools", "system_prompt"] as const;
 const EMBEDDING_DESTINATION_FIELDS = ["endpoint", "provider", "fallback_provider"] as const;
 const PERCENTAGE_THRESHOLD_REASON =
     "security: a repository may only raise compaction thresholds above the user's effective value; it cannot force earlier historian work or cloned-repo cost escalation.";
@@ -188,8 +186,6 @@ function makeProjectThresholdWarning(field: string, reason: string): string {
  * over the user config. Returns warnings describing what was ignored.
  *
  * Closes:
- *  - `auto_update` — a repo must not suppress plugin self-updates (which can
- *    carry security fixes).
  *  - `fail_closed_blocking` — a repo must not un-block (or force-block) the
  *    loud inoperability gate; only the user may restore silent degrade.
  *  - `allow_home_project` — only the user may opt a home-directory session
@@ -215,18 +211,11 @@ function makeProjectThresholdWarning(field: string, reason: string): string {
  *    user-level only; a cloned repo cannot force extra compaction cost.
  *  - `pi.subagent_extensions` — a cloned repo must not choose which extensions
  *    the user's Pi child processes load.
- *  - hidden-agent `prompt`/`permission`/`tools` — a repo must not reprogram or
- *    re-permission the historian/dreamer/sidekick.
+ *  - hidden-agent `prompt`/`tools` — a repo must not reprogram or enable
+ *    tools for the historian/dreamer/sidekick.
  */
 export function stripUnsafeProjectConfigFields(projectRaw: Record<string, unknown>): string[] {
     const warnings: string[] = [];
-
-    if ("auto_update" in projectRaw) {
-        delete projectRaw.auto_update;
-        warnings.push(
-            "Ignoring auto_update from project config (security: this setting only honors user-level config).",
-        );
-    }
 
     if ("fail_closed_blocking" in projectRaw) {
         delete projectRaw.fail_closed_blocking;
