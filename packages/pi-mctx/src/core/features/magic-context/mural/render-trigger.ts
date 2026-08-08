@@ -133,9 +133,8 @@ export function ensureMuralRendered(
 
 /** True only when the given model's cached provider metadata accepts images. A
  *  model key is `provider/model`; unknown capability means no image.
- *  Pi-native prefixes (`openai-codex/…`, `google-antigravity/…`) are translated
- *  to the canonical OpenCode form before the models.dev lookup so both harnesses
- *  share one vision gate. Missing cache entries fail closed (no image). */
+ *  model key aliases are translated to the canonical form before the models.dev
+ *  lookup. Missing cache entries fail closed (no image). */
 function modelKeyAcceptsImages(modelKey: string | undefined): boolean {
     if (!modelKey) return false;
     const canonical = piModelRefToCanonical(modelKey);

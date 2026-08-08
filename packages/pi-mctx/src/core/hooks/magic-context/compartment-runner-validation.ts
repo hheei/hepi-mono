@@ -129,7 +129,7 @@ export const HISTORIAN_PERSISTENT_FAILURE_THRESHOLD = 3;
  *     the last error and the actionable next step (check magic-context.jsonc).
  *
  * Shared by both harnesses so the wording (and the transient/persistent contract)
- * never drifts between OpenCode and Pi.
+ * never drifts across Pi entrypoints.
  */
 export function buildHistorianFailureNotice(failureCount: number, lastError: string): string {
     if (failureCount >= HISTORIAN_PERSISTENT_FAILURE_THRESHOLD) {

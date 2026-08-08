@@ -75,7 +75,7 @@ export function peekLeaseHolderAndExpiry(
 // be a single-statement CAS like compartment-lease.ts. Instead each mutation
 // runs under BEGIN IMMEDIATE: the write lock is taken at BEGIN time (not at the
 // first write, as the deferred BEGIN that db.transaction() emits would), so the
-// read-then-write is atomic across the OpenCode+Pi processes that share this
+// read-then-write is atomic across workers sharing this SQLite file.
 // SQLite file. Without IMMEDIATE, two processes could both read isLeaseActive()
 // = false under WAL snapshot isolation and both write — double-acquiring the
 // lease and spawning duplicate dreamer workers. busy_timeout (set in

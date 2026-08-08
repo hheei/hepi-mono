@@ -1633,7 +1633,7 @@ export async function unifiedSearch(
     // and prevents in-flight `fetch()` work from being processed by the
     // runtime — even though the request was technically dispatched. On
     // long sessions `searchMessages` can do seconds of indexing work
-    // (`ensureMessagesIndexed` walks raw OpenCode session history); doing
+    // (`ensureMessagesIndexed` walks raw session history); doing
     // that BEFORE the embed call meant the embed fetch couldn't start
     // until indexing finished.
     const needsEmbedding =

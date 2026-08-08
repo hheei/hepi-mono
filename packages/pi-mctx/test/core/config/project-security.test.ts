@@ -185,9 +185,7 @@ describe("stripUnsafeProjectConfigFields", () => {
     });
 
     it("strips sidekick.system_prompt (reprogramming vector via /ctx-aug)", () => {
-        // system_prompt takes precedence over the built-in prompt at
-        // sidekick/agent.ts, so leaving it unstripped reopens the exact
-        // reprogramming vector `prompt` closes.
+        // A repository-supplied system prompt could reprogram sidekick.
         const raw: Record<string, unknown> = {
             sidekick: {
                 model: "claude-x",

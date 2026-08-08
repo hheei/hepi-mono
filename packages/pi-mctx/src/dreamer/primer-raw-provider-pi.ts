@@ -6,7 +6,7 @@ import { loadDefaultPiSessionApi } from "./pi-session-api";
 /**
  * Pi `primerRawProviderFactory`: resolve a historical session id to a
  * `RawMessageProvider` over its JSONL, so refresh-primers can render the
- * orientation seed on Pi-only installs (no opencode.db).
+ * orientation seed on Pi-only installs.
  *
  * Discovery is async (listSessions / loadEntriesFromFile), so this returns a
  * Promise; the produced provider's `readMessages()` is synchronous (it wraps the

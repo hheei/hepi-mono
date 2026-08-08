@@ -85,7 +85,7 @@ export function countMessagesSinceLastUser(messages: MessageLike[]): number {
  *
  * Returns the message ID where the part landed, or `null` if no eligible
  * assistant message exists in the visible window. Assistant messages with an
- * OpenCode `error` are skipped because provider serializers can omit failed or
+ * Provider errors are skipped because serializers can omit failed or
  * aborted assistants from the wire; anchoring a synthetic tool call there would
  * make its replay disappear on subsequent passes.
  */

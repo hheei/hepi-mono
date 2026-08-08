@@ -585,8 +585,7 @@ export function normalizeStoredProjectPath(rawOrStored: string): string {
  * path (legacy) OR an already-normalized `git:`/`dir:` identity; either must
  * match the current identity after normalization. Used by ctx_memory
  * delete/update/archive/merge so a session can still manage memories stored
- * under a legacy raw path that normalizes to the same project (shared by both
- * harnesses — Pi previously used raw `===`, diverging from OpenCode).
+ * under a legacy raw path that normalizes to the same project.
  */
 export function storedPathBelongsToIdentity(
     storedProjectPath: string,

@@ -2,7 +2,7 @@
  * Strip injected `§N§` tag prefixes AND defensively strip cargo-cult MC tag
  * notation from assistant text before Pi persists the message.
  *
- * Mirrors OpenCode's `text-complete.ts` via {@link stripPersistedAssistantText}:
+ * Uses {@link stripPersistedAssistantText} to remove Magic Context tags while
  * whole `§N§` pairs globally, malformed hybrids, then stray `§`. Does not strip
  * bare leading digits on the transform path.
  *

@@ -280,7 +280,7 @@ function writeTransformDecisionBestEffort(dbPath: string, row: TransformDecision
         const writer = writerOverrideForTests ?? writeTransformDecisionRow;
         writer(dbPath, row);
     } catch {
-        // Best-effort telemetry only. Never throw into OpenCode/Pi event or
+        // Best-effort telemetry only. Never throw into event or
         // context hooks; a locked/missing DB just drops this attribution row.
     }
 }

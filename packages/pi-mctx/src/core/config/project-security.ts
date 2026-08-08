@@ -25,12 +25,8 @@ const HISTORIAN_USER_ONLY_FIELDS = ["model", "fallback_models"] as const;
  *                   so a repo-supplied prompt is an unattended exfil/RCE path.
  *  - `tools`      — enable/disable map; could flip a denied tool (e.g. `bash`)
  *                   on for an agent whose allow-list intentionally excludes it.
- *  - `system_prompt` — sidekick's custom system prompt. It takes precedence over
- *                   the built-in prompt (sidekick/agent.ts reads
- *                   `config.system_prompt` before `config.prompt`), so leaving it
- *                   unstripped reopens the exact reprogramming vector `prompt`
- *                   closes — a cloned repo could rewrite sidekick's instructions
- *                   via `/ctx-aug`.
+ *  - `system_prompt` — overrides the built-in sidekick prompt. A repository-supplied
+ *                   value would reprogram sidekick through `/ctx-aug`.
  *
  * Dreamer model/cadence fields are deliberately NOT stripped: a repo may tune
  * its own dreamer overlays and schedules through the user's provider auth.

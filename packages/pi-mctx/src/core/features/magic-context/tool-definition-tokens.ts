@@ -1,7 +1,7 @@
 /**
  * Tool-definition token measurement store.
  *
- * OpenCode's `tool.definition` hook fires once per tool per
+ * A tool-definition hook fires once per tool per
  * `ToolRegistry.tools()` call, with `{ toolID }` as input and
  * `{ description, parameters }` as output. Crucially the hook input does NOT
  * carry `sessionID` — the tool set is computed per
@@ -34,7 +34,7 @@
  * carries the same fingerprint as the previous one. This collapses
  * steady-state hook overhead from ~1.4s to <1ms while still re-measuring
  * any tool whose description/schema actually changed (e.g. MCP server
- * restart, OpenCode upgrade). Cached prepared statement avoids repeated
+ * restart). Cached prepared statement avoids repeated
  * `db.prepare()` compile cost on first-flight rebuilds.
  */
 

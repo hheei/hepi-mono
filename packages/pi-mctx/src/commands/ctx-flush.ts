@@ -39,7 +39,7 @@ export function registerCtxFlushCommand(
 			const pendingBefore = getPendingOps(deps.db, sessionId).length;
 			const result = executeFlush(deps.db, sessionId);
 
-			// Mirrors OpenCode `hook.ts:438-441` `onFlush`: explicit
+			// Explicit flush requests a fresh context checkpoint.
 			// flush is a "force everything to refresh" semantic, so we
 			// signal all THREE refresh sets:
 			//   1. historyRefresh — flushing mutates persistent tag

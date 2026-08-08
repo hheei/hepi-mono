@@ -3,7 +3,7 @@
  * `ctx_note(action="read")` tool call in a Pi `AgentMessage[]`. Used
  * by note-nudger to suppress note nudges while the agent currently
  * has visibility into the notes (and re-surface them once the read
- * has aged out). Mirrors OpenCode's `note-visibility.ts`.
+ * has aged out).
  *
  * Pi shapes we care about:
  *   - Assistant message with content array containing
