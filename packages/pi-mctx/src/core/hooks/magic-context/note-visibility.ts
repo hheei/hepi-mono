@@ -59,7 +59,7 @@ export function hasVisibleNoteReadCall(messages: MessageLike[]): boolean {
 }
 
 /**
- * Detect a `ctx_note(action="read")` tool call across the three OpenCode
+ * Detect a `ctx_note(action="read")` tool call across supported message
  * part shapes (mirrors the dispatch table in `drop-stale-reduce-calls.ts`):
  *
  *   - `{ type: "tool", tool: "ctx_note", state: { input: { action: "read" } } }`
@@ -74,7 +74,7 @@ export function hasVisibleNoteReadCall(messages: MessageLike[]): boolean {
 function isVisibleNoteReadPart(part: unknown): boolean {
     if (!isRecord(part)) return false;
 
-    // OpenCode tool format. The agent-visible input lives at `state.input`
+    // Tool input lives at `state.input`.
     // for completed calls; in-flight calls may not have state populated yet
     // but those don't surface a result anyway, so they shouldn't count.
     if (part.type === "tool" && typeof part.tool === "string" && NOTE_TOOL_NAMES.has(part.tool)) {

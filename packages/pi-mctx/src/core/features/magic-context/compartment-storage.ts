@@ -255,7 +255,7 @@ export function getLastCompartmentEndMessage(db: Database, sessionId: string): n
 }
 
 /**
- * The OpenCode message id at the boundary of the highest-sequence compartment —
+ * The stored message id at the boundary of the highest-sequence compartment —
  * i.e. the last raw message the compartment history (m[0]+m[1]) covers. Returns
  * null when there are no compartments or the latest one has no stored boundary
  * (legacy rows). Used to persist the m[1]-coverage boundary so a cold post-
@@ -274,7 +274,7 @@ export function getLastCompartmentEndMessageId(db: Database, sessionId: string):
 
 /**
  * Look up compartments whose stored `end_message_id` matches the given
- * OpenCode message id. Returns an ARRAY — schema only enforces
+ * message id. Returns an ARRAY — schema only enforces
  * `UNIQUE(session_id, sequence)`, NOT `(session_id, end_message_id)`, so
  * a future bug could in principle leave two rows sharing a boundary. The
  * marker drain's `validatePendingTarget` treats `length > 1` as a schema

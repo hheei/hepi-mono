@@ -1,10 +1,10 @@
 import type { SubagentRunner } from "#core/shared/subagent-runner";
 
 /**
- * Shared OpenCode-client emulation backed by a Pi `SubagentRunner`.
+ * Shared Pi client facade backed by a `SubagentRunner`.
  *
  * `executeContextRecompWithResult` is harness-agnostic but expects an
- * OpenCode-shaped `client.session.{create,prompt,messages,delete}`. This wraps
+ * The Dreamer executor consumes a session facade. This implementation wraps
  * the Pi subagent runner into that shape so recomp (and session-upgrade) can
  * reuse the exact shared runner. Extracted from ctx-recomp.ts so both
  * /ctx-recomp and /ctx-session-upgrade share one implementation.

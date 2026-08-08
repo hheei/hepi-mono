@@ -69,7 +69,7 @@ export interface ManagedRecompContext {
     language?: string;
     /** Pre-resolved last-resort model key (the live session model). When omitted,
      *  the orchestrator resolves it from `liveModelBySession`. The hook path passes
-     *  this explicitly so it can include its OpenCode-DB fallback (the live map can
+     *  this explicitly so it can include a persisted-model fallback (the live map can
      *  be empty when `/ctx-recomp` runs before the first transform pass). */
     fallbackModelId?: string;
     /** Gate the upgrade's memory-migration step (memory enabled + historian model set). */
@@ -424,7 +424,7 @@ export async function runManagedUpgrade(
         // The old code then ran the migration and declared the upgrade COMPLETE
         // even though zero compartments were rebuilt — leaving tierless rows but
         // migrated memories + a false "Complete" (dogfood 2026-05-30, AFT: a
-        // concurrent opencode process for the same project still held the lease,
+        // concurrent process for the same project still held the lease,
         // so the resume's recomp was skipped while migration ran anyway).
         const recompResult = await executeContextRecompWithResult(buildRecompDeps(ctx, sessionId));
 

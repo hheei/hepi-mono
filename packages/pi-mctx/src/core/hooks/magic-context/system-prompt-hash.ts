@@ -11,7 +11,7 @@ import { resolveCtxReduceAvailability } from "./ctx-reduce-availability";
 import { estimateTokens } from "./read-session-formatting";
 
 const MAGIC_CONTEXT_MARKER = "## Magic Context";
-// Module-scope caches are per-plugin-instance (one plugin process per OpenCode
+// Module-scope caches are per-plugin-instance (one plugin process per
 // process) and accumulate session entries over the plugin's lifetime. Without
 // cleanup on `session.deleted`, these maps grow unbounded. Exported so hook.ts
 // can register a cleanup callback tied to the session-deleted lifecycle event.
@@ -70,7 +70,7 @@ export function isMagicContextInternalAgent(systemPromptContent: string): boolea
  *
  * 1. Inject generic magic-context guidance into the system prompt.
  *    Skips injection if guidance is already present (e.g., baked into the
- *    agent prompt by oh-my-opencode).
+ *    agent prompt by a host-side augmentation layer).
  *
  * 2. Detect system prompt changes for cache-flush triggering.
  *    If the hash changes between turns, the Anthropic prompt-cache prefix is

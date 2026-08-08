@@ -55,7 +55,7 @@ Magic Context control metadata is not reply syntax. Never reproduce \`<system-re
 const MEMORY_GUIDANCE = `Use \`ctx_memory\` for durable project knowledge: write what future sessions must know, update/archive/merge the memories you see in \`<project-memory>\` when they drift. Memories persist across sessions and every new session starts with them.
 Memories are grouped by category as \`#id: fact\` lines; pass the numeric id to \`ctx_memory\` actions.
 **Save to memory proactively**: If you spent multiple turns finding something (a file path, a DB location, a config pattern, a workaround), save it with \`ctx_memory\` so future sessions don't repeat the search. Examples:
-- Found a project's source code path after searching → \`ctx_memory(action="write", category="CONFIG_VALUES", content="OpenCode source is at ~/Work/OSS/opencode")\`
+- Found a project's source path after searching → \`ctx_memory(action="write", category="CONFIG_VALUES", content="Provider source is at ~/Work/OSS/provider")\`
 - Discovered a non-obvious build/test command → \`ctx_memory(action="write", category="PROJECT_RULES", content="Always use scripts/release.sh for releases")\`
 - Learned a constraint the hard way → \`ctx_memory(action="write", category="CONSTRAINTS", content="Dashboard Tauri build needs RGBA PNGs, not grayscale")\``;
 

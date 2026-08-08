@@ -4,7 +4,7 @@
  * Pi delivers messages via `pi.on("context", ...)` as `AgentMessage[]`
  * (from `@earendil-works/pi-agent-core`). The event handler returns
  * `{ messages: AgentMessage[] }` to mutate the LLM-bound message array.
- * Unlike OpenCode where `Part.text` is mutated in place, Pi messages
+ * Pi messages retain immutable parts; conversion creates transformed copies.
  * have content arrays of typed parts (`TextContent | ThinkingContent
  * | ToolCall` for assistant; `TextContent | ImageContent` for user;
  * `(TextContent | ImageContent)[]` for toolResult). Because the Pi event
@@ -14,8 +14,8 @@
  *
  * ## Shape normalization
  *
- * The transform pipeline is OpenCode-shaped: it expects user messages
- * to contain tool_result parts (because OpenCode folds tool results
+ * The transform pipeline expects user messages
+ * to contain tool_result parts for folded tool output.
  * into the next user message). Pi keeps tool results as separate
  * top-level `ToolResultMessage` entries with role `"toolResult"`. The
  * normalization happens here:

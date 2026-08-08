@@ -1,7 +1,6 @@
 const SYSTEM_INJECTION_MARKERS = [
     "<!-- OMO_INTERNAL_INITIATOR -->",
     "[SYSTEM DIRECTIVE: MAGIC-CONTEXT",
-    "[SYSTEM DIRECTIVE: OH-MY-OPENCODE",
     "[Category+Skill Reminder]",
     "[EDIT ERROR - IMMEDIATE ACTION REQUIRED]",
     "[task CALL FAILED - IMMEDIATE RETRY REQUIRED]",
@@ -30,7 +29,7 @@ export function stripSystemInjection(text: string): string | null {
     cleaned = cleaned.replace(SYSTEM_REMINDER_REGEX, "");
     cleaned = cleaned.replace(OMO_MARKER_REGEX, "");
     cleaned = cleaned.replace(
-        /\[SYSTEM DIRECTIVE: OH-MY-(?:OPENCODE|CLAUDE)[^\]]*\][\s\S]*?(?=\n\n(?!\s*[-*])|$)/g,
+        /\[SYSTEM DIRECTIVE: CLAUDE[^\]]*\][\s\S]*?(?=\n\n(?!\s*[-*])|$)/g,
         "",
     );
 

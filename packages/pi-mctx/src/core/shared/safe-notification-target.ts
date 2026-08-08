@@ -4,7 +4,7 @@ import { log } from "./logger";
  * Guard for ignored-message notification posting: only post into sessions
  * that already carry a REAL title.
  *
- * Why: OpenCode's title generation (SessionPrompt.ensureTitle) silently and
+ * Why: automatic title generation can produce a generic title while
  * PERMANENTLY skips a session once it contains more than one non-synthetic
  * user message. Our notification posts (config warnings, conflict warnings,
  * schema-fence warnings, startup announcements) are `ignored: true` — hidden
@@ -26,7 +26,7 @@ import { log } from "./logger";
  */
 
 /**
- * Mirrors OpenCode's Session.isDefaultTitle (session.ts): a default title is
+ * Mirrors default-title detection: a default title is
  * `New session - <ISO>` or `Child session - <ISO>`.
  */
 const DEFAULT_TITLE_RE =
@@ -71,7 +71,7 @@ export interface SafeTargetOptions {
  *
  * - "safe": the session has a real (non-default) title, or the title is
  *   unreadable (fail-open).
- * - "skip": the session still has OpenCode's default title after all
+ * - "skip": the session still has a default title after all
  *   attempts — posting now could permanently suppress its title generation.
  *   The caller must leave its delivered/seen marker unset so a later
  *   startup retries.

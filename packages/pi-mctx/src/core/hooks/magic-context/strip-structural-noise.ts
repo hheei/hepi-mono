@@ -23,7 +23,7 @@ function isStructuralNoisePart(part: unknown): boolean {
 /**
  * Replace structural/cleared parts with empty-text sentinels instead of removing
  * them. Preserves message.parts length between passes so Anthropic prompt-cache
- * prefixes stay byte-stable while OpenCode filters the empty text parts before
+ * prefixes stay byte-stable while empty text parts are filtered before
  * the wire.
  *
  * Caller contract: run only when `modelAcceptsEmptyContent(providerID)` is true.

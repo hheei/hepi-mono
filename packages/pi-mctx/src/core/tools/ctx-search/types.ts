@@ -19,7 +19,7 @@ export interface CtxSearchToolDeps {
     /**
      * Resolve the project identity for the session's directory at call time.
      * See CtxMemoryToolDeps.resolveProjectPath for why this is a function:
-     * OpenCode's top-level `ctx.directory` reflects the launch dir, not the
+     * Session-level working directory may differ from project identity; use the
      * session's working directory.
      */
     resolveProjectPath: (directory: string) => string | undefined;
@@ -27,7 +27,7 @@ export interface CtxSearchToolDeps {
     embeddingEnabled?: boolean;
     /** When true, ctx_search surfaces indexed git commits as a 3rd source. */
     gitCommitsEnabled?: boolean;
-    /** Override message reader for testing (avoids opening OpenCode DB in CI). */
+    /** Override message reader for testing without a provider store. */
     readMessages?: (sessionId: string) => Array<{
         ordinal: number;
         id: string;

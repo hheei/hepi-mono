@@ -4,13 +4,13 @@
  * Scans the last few assistant messages for a commit-hash mention paired with a
  * commit-related word IN THE SAME text part, using the shared
  * `textMentionsRecentCommit` predicate (the single source of truth, also used by
- * OpenCode's `tag-messages.ts` walk and the historian). Runs against Pi's
- * `AgentMessage[]` shape since Pi doesn't have OpenCode's MessageLike structure.
+ * shared raw-message tagging and historian logic. Runs against Pi's
+ * `AgentMessage[]` shape, which differs from the generic raw format.
  *
  * Used inside runPipeline to fire `onNoteTrigger(db, sessionId,
  * "commit_detected")` when a NEW commit appears (i.e. one the previous
  * pass did not already see). Tracking the last-seen state lives in
- * `commitSeenLastPass` per-session, mirroring OpenCode parity.
+ * `commitSeenLastPass` per session.
  */
 
 import { textMentionsRecentCommit } from "#core/shared/commit-detection";

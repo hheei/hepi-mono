@@ -68,7 +68,7 @@ export function formatGap(seconds: number): string | null {
 }
 
 /**
- * Compute the effective end time for a raw OpenCode message given its
+ * Compute the effective end time for a raw message given its
  * time.created and optional time.completed fields.
  *
  * For completed assistants use `completed`; for everything else (user messages,
@@ -105,8 +105,8 @@ export function temporalMarkerPrefix(seconds: number): string | null {
 }
 
 /**
- * Structural shape of OpenCode message metadata as seen from the runtime
- * transform. `time` is always present in OpenCode's persisted form even though
+ * Structural shape of message metadata as seen from the runtime
+ * transform. `time` is present in persisted form even though
  * our narrower `MessageInfo` type doesn't declare it.
  */
 type MessageLikeWithTime = {

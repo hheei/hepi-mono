@@ -25,7 +25,7 @@ function wirePartKind(part: unknown, role: string): string {
     if (rawType === "tool_use" || rawType === "tool-use" || rawType === "tool-invocation") {
         return "tool";
     }
-    // OpenCode's native `tool` part carries the result on user-role messages
+    // Native `tool` parts carry results on user-role messages
     // and the call on assistant-role messages.
     if (role === "user" && rawType === "tool") return "toolresult";
     return compactWireLabel(rawType, "unknown");
@@ -49,7 +49,7 @@ function serializedTokens(value: unknown): number {
     return serialized ? estimateTokens(serialized) : 0;
 }
 
-/** Count the token-bearing fields in the message representation sent to OpenCode. */
+/** Count token-bearing fields in the outgoing message representation. */
 export function estimateMessageTokens(message: MessageLike): MessageTokenEstimate {
     let conversation = 0;
     let toolCall = 0;

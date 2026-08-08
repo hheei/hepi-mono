@@ -150,7 +150,7 @@ export function registerPiDreamerProject(opts: PiDreamerOptions): void {
 		language: opts.language,
 		gitCommitIndexing: opts.gitCommitIndexing,
 		ensureRegistered: ensureProjectRegisteredFromPiDirectory,
-		// SCHEDULED Pi retrospective must read Pi JSONL sessions, not opencode.db.
+		// Scheduled retrospective reads Pi JSONL sessions through its provider.
 		// Supply the Pi provider factory (db arg ignored — Pi reads JSONL by cwd),
 		// converging the scheduled path onto the same provider the manual
 		// /ctx-dream path already uses.
@@ -206,7 +206,7 @@ export function registerPiDreamerProject(opts: PiDreamerOptions): void {
 
 /**
  * Run one dream cycle IMMEDIATELY for the given project, mirroring
- * OpenCode's `/ctx-dream` behavior. Returns the run result, or `null`
+ * Pi's `/ctx-dream` behavior. Returns the run result, or `null`
  * if there's nothing to dequeue (queue empty or another worker holds
  * the lease — see `processDreamQueue` semantics). Throws if the project
  * isn't registered (call `registerPiDreamerProject` first).
@@ -214,7 +214,7 @@ export function registerPiDreamerProject(opts: PiDreamerOptions): void {
  * The user-visible reason this exists: without it, the user types
  * `/ctx-dream` and gets "queued, the timer will run it eventually" —
  * which makes the command feel broken even though the queue entry is
- * really there. Mirroring OpenCode's behavior lets us actually drain
+ * really there. Draining it on the same turn keeps the command responsive.
  * it on the same turn.
  */
 export async function runPiDreamForProject(

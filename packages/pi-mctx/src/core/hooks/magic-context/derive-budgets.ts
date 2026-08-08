@@ -82,12 +82,10 @@ export function deriveHistorianChunkTokens(historianContextLimit: number): numbe
  *   - If the override is set but lacks `/` (e.g. `"llama3-32k"`) → warn and use
  *     the conservative default, since we can't look up a model without a
  *     provider and silently guessing would produce an incorrect chunk size.
- *   - If no override (or the model is unknown to models.dev / opencode.json
- *     custom providers) → 128K conservative default.
+ *   - If no override (or the model is unknown to models.dev / config), *     custom providers) → 128K conservative default.
  *
  * Context limits are resolved through `getSdkContextLimit`, which reads
- * OpenCode's SDK-resolved provider config (models.dev + snapshot + opencode.json
- * overrides + auth-plugin caps), bounded to a sane range.
+ * Provider config (models.dev + snapshot + local configuration) is * overrides + auth-plugin caps), bounded to a sane range.
  */
 export function resolveHistorianContextLimit(historianModelOverride?: string): number {
     // Explicit override with full provider/model form — user intent wins.

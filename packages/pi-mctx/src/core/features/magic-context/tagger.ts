@@ -71,7 +71,7 @@ export interface Tagger {
         /**
          * Pi-only: fingerprint of the raw message this tag is created for,
          * persisted on the tag row so a later pass can adopt a fallback-id tag
-         * onto the real SessionEntry id. OpenCode passes undefined → column
+         * onto the real SessionEntry id. Host data may omit it → column
          * stays NULL → no behavior change.
          */
         entryFingerprint?: string | null,
@@ -254,7 +254,7 @@ function isAssignmentRow(row: unknown): row is AssignmentRow {
  * tag numbers that another writer already claimed.
  *
  * `harness` is written on first INSERT only. On conflict we don't update it —
- * a session is created by exactly one harness (OpenCode or Pi) and that origin
+ * a session is created by one host and that origin
  * doesn't change for the lifetime of the row.
  */
 const UPSERT_COUNTER_SQL = `
@@ -775,7 +775,7 @@ export function createTagger(): Tagger {
             | null
             | undefined;
         // floor > 0: load only the live-wire range (tag_number >= floor). floor=0
-        // (Pi, and the OpenCode fallback when no floor could be derived) keeps the
+        // (Pi, and fallback operation when no floor could be derived) keeps the
         // full-session load unchanged. Self-heal (dbExistingLookup in allocateTag)
         // rebinds any below-floor in-wire tag to its exact persisted number, so a
         // scoped load is byte-identical on the wire — it only changes how many

@@ -509,7 +509,7 @@ export function fenceBoundaryForToolArcs(
         // window is an interrupted/abandoned invocation whose result will never
         // arrive — protecting it would let one dead call at the eligible-head
         // edge fence off the entire eligible region and freeze the historian
-        // indefinitely. Compacting it is safe: OpenCode mutates the tool part in
+        // indefinitely. Compacting it is safe: the tool part is updated in
         // place on completion (no later standalone tool_result to orphan), and
         // the historian replaces the whole raw range with narration, so no
         // dangling tool_use survives on the wire.
