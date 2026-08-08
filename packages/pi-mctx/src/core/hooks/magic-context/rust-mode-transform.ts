@@ -57,7 +57,6 @@ import {
     resolveOrdinalsForModule,
 } from "./module-wire";
 import { RECOVERY_NO_HEAD_LIMIT } from "./protected-tail-boundary";
-import { findLastAssistantModelFromOpenCodeDb, isMidTurn } from "./read-session-db";
 import type { RawMessageOrdinalAnchor } from "./read-session-raw";
 import type { TransformDeps } from "./transform";
 import { resolveHistoryBudgetTokens } from "./transform";
@@ -879,7 +878,7 @@ function buildTransformBody(args: {
         method: "transform",
         kind: "transform",
         v: 2,
-        serializer_profile: "opencode-aisdk",
+        serializer_profile: "pi-aisdk",
         serve_native: true,
         session_id: args.sessionId,
         // Model/provider and system-prompt changes are provider-cache eviction signals;
@@ -1061,7 +1060,7 @@ export function createRustModeTransform(
             return false;
         }
         const replayModel =
-            modelFromMessages(currentMessages) ?? findLastAssistantModelFromOpenCodeDb(sessionId);
+            modelFromMessages(currentMessages);
         const trustedReplayLimit = replayModel
             ? resolveTrustedContextLimit(replayModel.providerID, replayModel.modelID, {
                   db: deps.db,
@@ -1170,13 +1169,6 @@ export function createRustModeTransform(
         requestInputTokens = Math.max(0, Math.floor(passUsageSnapshot.inputTokens));
         let preflightError: unknown;
         let model = modelFromMessages(messages);
-        if (!model) {
-            try {
-                model = findLastAssistantModelFromOpenCodeDb(sessionId) ?? undefined;
-            } catch (error) {
-                preflightError = error;
-            }
-        }
         const modelKey = model ? resolveModelKey(model.providerID, model.modelID) : null;
         let resolvedContextLimit: number | undefined;
         if (model) {
@@ -1327,7 +1319,7 @@ export function createRustModeTransform(
                 deps.executeThresholdTokens,
                 resolvedContextLimit,
             );
-            const midTurn = isMidTurn(deps, sessionId);
+            const midTurn = false;
             const requestObservedAtMs = Date.now();
             const recoveryNoHeadEscape =
                 overflowState.needsEmergencyRecovery &&

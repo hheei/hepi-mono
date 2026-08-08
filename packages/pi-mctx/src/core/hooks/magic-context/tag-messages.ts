@@ -12,7 +12,6 @@ import { textMentionsRecentCommit } from "../../shared/commit-detection";
 import { isRecord } from "../../shared/record-type-guard";
 import { isReduceToolPart } from "./drop-stale-reduce-calls";
 import { estimateImageTokensFromDataUrl } from "./image-token-estimate";
-import { getMessageTimesFromOpenCodeDb } from "./read-session-db";
 import { estimateTokens } from "./read-session-formatting";
 import { byteSize, isThinkingPart, prependTag } from "./tag-content-primitives";
 import { createExistingTagResolver } from "./tag-id-fallback";
@@ -74,7 +73,7 @@ function getCachedMessageTimesFromOpenCodeDb(
     const uncached = [...new Set(messageIds)].filter((id) => !cache.messageTimesById.has(id));
     if (uncached.length > 0) {
         onLookup?.({ kind: "messageTimes", messageIds: uncached });
-        const resolved = getMessageTimesFromOpenCodeDb(sessionId, uncached);
+        const resolved = new Map<string, number>();
         for (const id of uncached) {
             cache.messageTimesById.set(id, resolved.get(id) ?? null);
         }

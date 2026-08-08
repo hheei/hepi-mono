@@ -46,12 +46,10 @@ import {
 import { bumpProjectMemoryEpoch } from "../../features/magic-context/storage-project-state";
 import type { Tagger } from "../../features/magic-context/tagger";
 import {
-    clearOpenCodePendingTransformDecision,
     normalizeMaterializeReason,
     recordPendingTransformDecision,
 } from "../../features/magic-context/transform-decision-log";
 import type { ContextUsage } from "../../features/magic-context/types";
-import type { PluginContext } from "../../plugin/types";
 import { BoundedSessionMap } from "../../shared/bounded-session-map";
 import { getErrorMessage } from "../../shared/error-message";
 import { log, sessionLog } from "../../shared/logger";
@@ -100,7 +98,6 @@ import {
     resolveOpenCodeProtectedTailBoundary,
 } from "./protected-tail-boundary";
 import { readRawSessionMessages } from "./read-session-chunk";
-import { findLastAssistantModelFromOpenCodeDb, isMidTurn } from "./read-session-db";
 import { extractInMemoryMessageViews } from "./read-session-raw";
 import { createRustModeTransform, type RustModeModuleClient } from "./rust-mode-transform";
 import { sendIgnoredMessage } from "./send-session-notification";
@@ -122,7 +119,6 @@ import {
     tagMessages,
 } from "./transform-operations";
 import {
-    abortSessionFailClosed,
     evaluateEmergencyFailClosed,
     runPostTransformPhase,
 } from "./transform-postprocess-phase";
@@ -532,7 +528,7 @@ export interface TransformDeps {
     deferredMaterializationSessions?: Set<string>;
     lastHeuristicsTurnId: Map<string, string>;
     commitSeenLastPass?: Map<string, boolean>;
-    client?: PluginContext["client"];
+    client?: unknown;
     directory?: string;
     /** Whether user-level configuration lets this session use the canonical home directory as its project. */
     allowHomeProject?: boolean;
@@ -684,7 +680,6 @@ export function createTransform(deps: TransformDeps) {
             return;
         }
         const resolvedSessionId = sessionId;
-        clearOpenCodePendingTransformDecision(sessionId);
         logTransformTiming(sessionId, "findSessionId", startTime, `messages=${messages.length}`);
 
         const db = deps.db;
@@ -1193,15 +1188,6 @@ export function createTransform(deps: TransformDeps) {
         // what the live-usage back-derivation yields — so for unknown models we
         // deliberately fall through to the live-usage path inside the resolver.
         let modelForBudget = deps.liveModelBySession?.get(sessionId);
-        if (!modelForBudget) {
-            const recovered = findLastAssistantModelFromOpenCodeDb(sessionId);
-            if (recovered) {
-                modelForBudget = recovered;
-                // Seed the live map so the scheduler / notification / sidebar
-                // paths reuse it this process without re-hitting the DB.
-                deps.liveModelBySession?.set(sessionId, recovered);
-            }
-        }
         // Single pass-local provider resolution for every empty-sentinel producer.
         // A cold pass may recover the model from OpenCode's DB above; hot passes hit
         // the live map. Reusing this value keeps cold/hot output identical and keeps
@@ -1283,7 +1269,7 @@ export function createTransform(deps: TransformDeps) {
                   deps.getModelKey?.(sessionId),
                   resolvedContextLimit,
               );
-        const midTurn = isMidTurn(deps, resolvedSessionId);
+        const midTurn = false;
         const bypassReason = detectMidTurnBypassReason({
             contextUsage: contextUsageEarly,
             sessionMeta,
@@ -2249,56 +2235,9 @@ export function createTransform(deps: TransformDeps) {
                 );
             }
             if (emergencyFailClosed.shouldAbort) {
-                if (!deps.client) {
-                    throw new EmergencyFailClosedError(
-                        "Cannot fail closed: OpenCode client is unavailable",
-                    );
-                }
-                // The notice must finish before self-abort so recovery instructions survive interruption.
-                let notification: Awaited<ReturnType<typeof sendIgnoredMessage>>;
-                try {
-                    notification = await sendIgnoredMessage(
-                        deps.client,
-                        sessionId,
-                        "Context full — /ctx-flush or /clear to continue.",
-                        notificationParams,
-                    );
-                } catch (error) {
-                    throw new EmergencyFailClosedError("Emergency recovery notification failed", {
-                        cause: error,
-                    });
-                }
-                if (notification !== "sent" && notification !== "queued") {
-                    throw new EmergencyFailClosedError(
-                        `Emergency recovery notification was ${notification}`,
-                    );
-                }
-                try {
-                    await abortSessionFailClosed(deps.client, sessionId);
-                } catch (error) {
-                    sessionLog(
-                        sessionId,
-                        "transform: emergency fail-closed abort failed; refusing to return a sendable prompt:",
-                        getErrorMessage(error),
-                    );
-                    throw new EmergencyFailClosedError("Emergency recovery abort failed", {
-                        cause: error,
-                    });
-                }
-                // The abort prevents a fresh provider usage sample. Release the
-                // stale-sample latch so the retry can reclaim additional tools.
-                try {
-                    clearEmergencyDropSample(db, sessionId);
-                } catch (error) {
-                    throw new EmergencyFailClosedError("Emergency recovery cleanup failed", {
-                        cause: error,
-                    });
-                }
-                sessionLog(
-                    sessionId,
-                    `EMERGENCY: fail-closed (reason=${emergencyFailClosed.reason}, recoveryOrigin=${emergencyRecoveryOrigin ?? "unknown"}, finalEstimate=${finalWireEstimate?.tokens ?? "unavailable"}, estimateTrusted=${finalWireEstimate?.trusted ?? false}, syntheticUsage=${usagePercentageSynthetic})`,
+                throw new EmergencyFailClosedError(
+                    "Context full; run /ctx-flush or /clear before retrying.",
                 );
-                return;
             }
         }
         if (!finalWireEstimate) {

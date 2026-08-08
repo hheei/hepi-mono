@@ -39,7 +39,6 @@ import {
     refreshModelLimitsFromApi,
 } from "../../shared/models-dev-cache";
 import { maybeDeliverChannel2 } from "./channel2-delivery";
-import { removeCompactionMarkerForSession } from "./compaction-marker-manager";
 import {
     getMessageRemovedInfo,
     getMessageUpdatedAssistantInfo,
@@ -726,20 +725,6 @@ export function createEventHandler(deps: EventHandlerDeps) {
                     "event message.removed: invalidated tagger session cache",
                 );
 
-                // If the removed message is the compaction marker boundary, remove the marker
-                const markerState = getPersistedCompactionMarkerState(deps.db, info.sessionID);
-                if (
-                    markerState &&
-                    (markerState.boundaryMessageId === info.messageID ||
-                        markerState.summaryMessageId === info.messageID)
-                ) {
-                    removeCompactionMarkerForSession(deps.db, info.sessionID);
-                    sessionLog(
-                        info.sessionID,
-                        `event message.removed: cleared compaction marker (boundary or summary message removed)`,
-                    );
-                }
-
                 // Invalidate this message's cached token contribution so the
                 // next transform pass recomputes without stale data.
                 clearMessageTokensCache(info.sessionID, info.messageID);
@@ -771,13 +756,6 @@ export function createEventHandler(deps: EventHandlerDeps) {
                 deps.compactionHandler.onCompacted(sessionId, deps.db);
             } catch (error) {
                 sessionLog(sessionId, "event session.compacted handling failed:", error);
-            }
-            // Native compaction may have deleted the boundary message — remove our marker
-            // to avoid stale/orphaned rows. The next historian run will re-inject if needed.
-            try {
-                removeCompactionMarkerForSession(deps.db, sessionId);
-            } catch (error) {
-                sessionLog(sessionId, "event session.compacted marker cleanup failed:", error);
             }
             // Plan v6 §8: a user-driven OpenCode compaction makes any deferred
             // pending marker stale (we no longer own that boundary). CAS-clear
@@ -817,11 +795,6 @@ export function createEventHandler(deps: EventHandlerDeps) {
                 // it in the same transaction as the session data, so a BUSY/rollback
                 // leaves a durable retry for the next maintenance tick.
                 markSessionCleanupPending(deps.db, sessionId);
-                // Read and remove compaction marker BEFORE clearSession destroys session_meta.
-                // Plan v6: pending_compaction_marker_state lives on the same row, so
-                // clearSession's session_meta DELETE wipes it automatically — no
-                // separate CAS-clear needed here.
-                removeCompactionMarkerForSession(deps.db, sessionId);
                 clearSession(deps.db, sessionId);
             } catch (error) {
                 sessionLog(sessionId, "event session.deleted persistence failed:", error);

@@ -37,12 +37,12 @@
  * indistinguishable from a steady-state pass of the resolved mode.
  */
 
-import { existsSync } from "node:fs";
-import {
-    getOpenCodeDbPath,
-    type McOwnedMarkerCleanupResult,
-    removeMcOwnedCompactionMarkers,
-} from "../../features/magic-context/compaction-marker";
+type MarkerCleanupResult = {
+    verified: boolean;
+    removedLineages: number;
+    removedRows: number;
+    retainedLineages: number;
+};
 import {
     clearPendingOps,
     getPendingOps,
@@ -63,7 +63,6 @@ import {
     setPersistedCompactionMarkerState,
 } from "../../features/magic-context/storage-meta-persisted";
 import { sessionLog } from "../../shared/logger";
-import { MARKER_SUMMARY_TEXT } from "./compaction-marker-manager";
 
 let loggedUnverifiedMarkerCleanupRetry = false;
 
@@ -117,7 +116,7 @@ export interface CompactionModeTransitionResult {
     /** True when the off-transition cleared at least one durable MC state item. */
     clearedSomething: boolean;
     /** Marker-row cleanup detail (off-transition only; zeros otherwise). */
-    markerCleanup: McOwnedMarkerCleanupResult;
+    markerCleanup: MarkerCleanupResult;
 }
 
 const NO_TRANSITION: CompactionModeTransitionResult = {
@@ -154,11 +153,8 @@ function clearCachedM0Baseline(
     return (result.changes ?? 0) > 0;
 }
 
-function cleanupOffMarkers(sessionId: string): McOwnedMarkerCleanupResult {
-    if (!existsSync(getOpenCodeDbPath())) {
-        return { verified: true, removedLineages: 0, removedRows: 0, retainedLineages: 0 };
-    }
-    return removeMcOwnedCompactionMarkers(sessionId, MARKER_SUMMARY_TEXT);
+function cleanupOffMarkers(_sessionId: string): MarkerCleanupResult {
+    return { verified: true, removedLineages: 0, removedRows: 0, retainedLineages: 0 };
 }
 
 export function reconcileCompactionMode(args: {
@@ -254,15 +250,12 @@ export function reconcileCompactionMode(args: {
     // stored === null | "on" → the off-transition (exactly once per session).
     let clearedSomething = false;
 
-    // 1. Delete MC-owned marker lineages from opencode.db (canonical +
-    //    supported legacy). No opencode.db means no markers — not an error.
+    // 1. Host marker state was removed with the external marker backend.
     const markerCleanup = cleanupOffMarkers(sessionId);
     if (markerCleanup.removedRows > 0) clearedSomething = true;
 
-    // 2. Clear the context.db marker bookkeeping that references the deleted
-    //    rows. Leaving it would dangle: the reconciler would replay a summary
-    //    whose opencode.db rows are gone, and a flip-back drain would re-inject
-    //    a marker at a boundary whose lineage was just removed.
+    // 2. Clear local marker bookkeeping from earlier versions.
+    //    Leaving it would replay a stale synthetic summary on flip-back.
     if (getPersistedCompactionMarkerState(db, sessionId) !== null) {
         setPersistedCompactionMarkerState(db, sessionId, null);
         clearedSomething = true;

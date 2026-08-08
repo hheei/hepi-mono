@@ -1,37 +1,25 @@
 import {
     chmodSync,
-    copyFileSync,
-    cpSync,
-    type Dirent,
     existsSync,
     mkdirSync,
     mkdtempSync,
-    readdirSync,
-    readFileSync,
-    unlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { bootQuietRemainingMs, scheduleAfterBootQuiet } from "../../plugin/boot-quiet";
-import {
-    getLegacyOpenCodeMagicContextStorageDir,
-    getMagicContextStorageDir,
-} from "../../shared/data-path";
+import { getMagicContextStorageDir } from "../../shared/data-path";
 import { getErrorMessage } from "../../shared/error-message";
 import { log } from "../../shared/logger";
-import { isPidAlive, parseRpcPortFile } from "../../shared/rpc-utils";
 import { Database } from "../../shared/sqlite";
 import { closeQuietly } from "../../shared/sqlite-helpers";
 import { shouldEnforcePrivateStoragePermissions } from "../../shared/storage-permissions";
 import { ensureContextStoreUuid } from "./context-authority";
-import type { FailClosedBlockingProcess } from "./fail-closed-block";
 import { runMigrations, runMigrationsWithRetry } from "./migrations";
 import { ensureColumn, healAllNullColumns } from "./storage-schema-helpers";
 import {
     loadToolDefinitionMeasurements,
     setDatabase as setToolDefinitionDatabase,
 } from "./tool-definition-tokens";
-import { runToolOwnerBackfill } from "./tool-owner-backfill";
 
 // Re-exported so existing `from "./storage-db"` importers (and tests) keep
 // resolving these; the definitions live in the leaf module to break the
@@ -45,26 +33,9 @@ const persistenceErrorByDatabase = new WeakMap<Database, string>();
 const pathByDatabase = new WeakMap<Database, string>();
 
 // Last schema-fence rejection, recorded so startup can surface a user-facing
-// message (not just a log line). When OpenCode and Pi share context.db and one
-// harness auto-updates first, it migrates the DB to a newer schema; the lagging
-// harness's older binary then refuses to open the DB (fail-closed) and silently
-// disables ALL of Magic Context until it too updates. The null openDatabase()
-// return has no Database handle to key a WeakMap on, so we stash the detail in
-// a module global the plugin entrypoint reads after a failed/empty open.
+// message (not just a log line). The null openDatabase() return has no
+// Database handle to key a WeakMap on, so the detail lives in this module.
 let lastSchemaFenceRejection: { persistedVersion: number; supportedVersion: number } | null = null;
-
-// A fresh CLI/Pi/OpenCode process must not be the process that advances the
-// shared schema while a live OpenCode server still holds the old build in memory.
-// The port files are the server's durable liveness signal; this latch lets callers
-// distinguish that intentional refusal from ordinary storage failures.
-export interface MigrationOnOpenRefusal {
-    persistedVersion: number;
-    supportedVersion: number;
-    serverPids: number[];
-    unreadableFile?: string;
-}
-
-let lastMigrationOnOpenRefusal: MigrationOnOpenRefusal | null = null;
 
 export function getSchemaFenceRejection(): {
     persistedVersion: number;
@@ -73,14 +44,9 @@ export function getSchemaFenceRejection(): {
     return lastSchemaFenceRejection;
 }
 
-export function getMigrationOnOpenRefusal(): MigrationOnOpenRefusal | null {
-    return lastMigrationOnOpenRefusal;
-}
-
-/** Test seam for isolated schema-fence and migration-guard scenarios. */
+/** Test seam for isolated schema-fence scenarios. */
 export function __resetSchemaFenceStateForTests(): void {
     lastSchemaFenceRejection = null;
-    lastMigrationOnOpenRefusal = null;
 }
 
 export const LATEST_SUPPORTED_VERSION = 74;
@@ -233,83 +199,6 @@ export function getDatabasePath(db: Database): string | null {
     return pathByDatabase.get(db) ?? null;
 }
 
-/**
- * One-time migration of pre-cortexkit OpenCode plugin data into the shared
- * cortexkit/magic-context location. Runs lazily on first openDatabase() call.
- *
- * Safety guarantees:
- *   - Only runs when target DB does not yet exist (idempotent on subsequent
- *     boots; never overwrites newer state).
- *   - Only runs when legacy DB exists (no-op for fresh installs and Pi).
- *   - Copies WAL/SHM sidecars too — WAL mode means uncheckpointed writes live
- *     there, so omitting them would lose recent data.
- *   - Copies the embedding model cache subdirectory if present, avoiding
- *     re-download on first post-migration boot.
- *   - Leaves legacy files in place as a manual rollback path. Manual cleanup
- *     is safe after one stable release.
- */
-function migrateLegacyStorageIfNeeded(targetDbPath: string, targetDbDir: string): void {
-    if (existsSync(targetDbPath)) return;
-
-    const legacyDir = getLegacyOpenCodeMagicContextStorageDir();
-    const legacyDbPath = join(legacyDir, "context.db");
-    if (!existsSync(legacyDbPath)) return;
-
-    log(
-        `[magic-context] migrating legacy plugin storage: ${legacyDir} -> ${targetDbDir} (legacy left in place as backup)`,
-    );
-    ensureSecureStorageDir(targetDbDir);
-
-    // Fold the legacy WAL into the main DB FIRST so the copied target is one
-    // crash-consistent file. Copying .db/-wal/-shm as three separate files is
-    // not atomic: if a legacy process is concurrently writing (or the -wal/-shm
-    // are mid-update), the three snapshots can be mutually inconsistent and the
-    // target opens corrupt or loses recent writes. wal_checkpoint(TRUNCATE)
-    // writes all committed WAL frames back into the main file and empties the
-    // WAL, after which the .db alone is complete. Best-effort: if the checkpoint
-    // fails (legacy locked by a live writer), we still fall back to copying all
-    // three sidecars below.
-    try {
-        const legacyDb = new Database(legacyDbPath);
-        try {
-            legacyDb.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-        } finally {
-            closeQuietly(legacyDb);
-        }
-    } catch (error) {
-        log(
-            `[magic-context] legacy WAL checkpoint before copy failed (continuing with sidecar copy): ${getErrorMessage(error)}`,
-        );
-    }
-
-    // Copy main DB + WAL/SHM sidecars. After a successful checkpoint the -wal is
-    // empty and the .db is self-contained, but we still copy the sidecars in
-    // case the checkpoint was skipped (legacy locked) so uncheckpointed writes
-    // aren't lost.
-    for (const suffix of ["", "-wal", "-shm"]) {
-        const src = `${legacyDbPath}${suffix}`;
-        const dst = join(targetDbDir, `context.db${suffix}`);
-        if (existsSync(src)) {
-            try {
-                copyFileSync(src, dst);
-            } catch (error) {
-                log(`[magic-context] failed to copy ${src}:`, getErrorMessage(error));
-            }
-        }
-    }
-
-    // Copy the embedding model cache subdir to avoid re-downloading on first boot.
-    const legacyModelsDir = join(legacyDir, "models");
-    const targetModelsDir = join(targetDbDir, "models");
-    if (existsSync(legacyModelsDir) && !existsSync(targetModelsDir)) {
-        try {
-            cpSync(legacyModelsDir, targetModelsDir, { recursive: true });
-        } catch (error) {
-            log("[magic-context] failed to copy embedding model cache:", getErrorMessage(error));
-        }
-    }
-}
-
 export function getPersistedSchemaVersion(db: Database): number {
     const hasMigrationsTable = db
         .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'")
@@ -366,139 +255,6 @@ export function enforceSchemaFence(
     log(
         `[magic-context] storage fatal: refusing to open ${dbPath}; database schema v${persistedVersion} is newer than this binary supports (max v${latestSupportedVersion}). A pinned or stale plugin is likely sharing this database with a newer instance; update or unpin Magic Context with 'npx @cortexkit/magic-context@latest doctor --force', then restart.`,
     );
-    return false;
-}
-
-export interface RpcServerDiscovery {
-    state: "absent" | "stale" | "live" | "unreadable";
-    serverPids: number[];
-    staleFiles: string[];
-    unreadableFile?: string;
-}
-
-function unreadableDiscovery(path: string): RpcServerDiscovery {
-    return {
-        state: "unreadable",
-        serverPids: [],
-        staleFiles: [],
-        unreadableFile: path,
-    };
-}
-
-/**
- * Inspect the shared RPC discovery tree without treating partial evidence as
- * proof that no server is running. A missing/empty tree is a clean machine;
- * dead-PID files are removed; malformed or unreadable evidence is fail-closed.
- */
-export function inspectRpcServerDiscovery(storageDir: string): RpcServerDiscovery {
-    const rpcRoot = join(storageDir, "rpc");
-    let projectEntries: Dirent[];
-    try {
-        projectEntries = readdirSync(rpcRoot, { withFileTypes: true });
-    } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-            return { state: "absent", serverPids: [], staleFiles: [] };
-        }
-        return unreadableDiscovery(rpcRoot);
-    }
-
-    const portFiles: string[] = [];
-    for (const projectEntry of projectEntries) {
-        if (!projectEntry.isDirectory()) continue;
-        const projectDir = join(rpcRoot, projectEntry.name);
-        let entries: string[];
-        try {
-            entries = readdirSync(projectDir);
-        } catch {
-            return unreadableDiscovery(projectDir);
-        }
-        for (const entry of entries) {
-            if (entry === "port" || (entry.startsWith("port-") && entry.endsWith(".json"))) {
-                portFiles.push(join(projectDir, entry));
-            }
-        }
-    }
-    if (portFiles.length === 0) {
-        return { state: "absent", serverPids: [], staleFiles: [] };
-    }
-
-    const pids = new Set<number>();
-    const staleFiles: string[] = [];
-    for (const portFile of portFiles) {
-        let raw: string;
-        try {
-            raw = readFileSync(portFile, "utf8");
-        } catch {
-            return unreadableDiscovery(portFile);
-        }
-        const filename = basename(portFile);
-        const pidFromName = /^port-(\d+)/.exec(filename)?.[1];
-        const record = parseRpcPortFile(raw, pidFromName ? Number(pidFromName) : 0);
-        if (!record || !Number.isInteger(record.pid) || record.pid <= 0) {
-            return unreadableDiscovery(portFile);
-        }
-        if (isPidAlive(record.pid)) pids.add(record.pid);
-        else staleFiles.push(portFile);
-    }
-
-    const serverPids = [...pids].sort((a, b) => a - b);
-    if (serverPids.length > 0) {
-        return { state: "live", serverPids, staleFiles };
-    }
-
-    for (const staleFile of staleFiles) {
-        try {
-            unlinkSync(staleFile);
-        } catch {
-            return unreadableDiscovery(staleFile);
-        }
-    }
-    return { state: "stale", serverPids: [], staleFiles };
-}
-
-/** Return the live OpenCode servers that would block an on-open migration. */
-export function getLiveMigrationBlockingProcesses(storageDir: string): FailClosedBlockingProcess[] {
-    const discovery = inspectRpcServerDiscovery(storageDir);
-    if (discovery.state !== "live") return [];
-    return discovery.serverPids.map((pid) => ({ harness: "OpenCode server", pid }));
-}
-
-/**
- * Refuse an on-open migration when another live OpenCode server still has this
- * shared DB open. That server loaded its plugin dist at boot and cannot observe
- * the new fence, so migrating here would strand every session it creates later.
- */
-function enforceMigrationOnOpenGuard(
-    db: Database,
-    dbPath: string,
-    dbDir: string,
-    latestSupportedVersion: number,
-): boolean {
-    const persistedVersion = getPersistedSchemaVersion(db);
-    if (persistedVersion >= latestSupportedVersion) {
-        lastMigrationOnOpenRefusal = null;
-        return true;
-    }
-    const discovery = inspectRpcServerDiscovery(dbDir);
-    if (discovery.state === "absent" || discovery.state === "stale") {
-        lastMigrationOnOpenRefusal = null;
-        return true;
-    }
-    lastMigrationOnOpenRefusal = {
-        persistedVersion,
-        supportedVersion: latestSupportedVersion,
-        serverPids: discovery.serverPids,
-        ...(discovery.unreadableFile ? { unreadableFile: discovery.unreadableFile } : {}),
-    };
-    if (discovery.state === "unreadable") {
-        log(
-            `[magic-context] storage fatal: refusing to migrate ${dbPath} from schema v${persistedVersion} to v${latestSupportedVersion} because RPC discovery file ${discovery.unreadableFile ?? "<unknown>"} is unreadable or invalid, so the absence of a live OpenCode server cannot be proven. Restart OpenCode, remove or repair the named discovery file, then retry this process.`,
-        );
-    } else {
-        log(
-            `[magic-context] storage fatal: refusing to migrate ${dbPath} from schema v${persistedVersion} to v${latestSupportedVersion} while live OpenCode server PID(s) ${discovery.serverPids.join(", ")} may still use the old plugin build. Restart OpenCode, then retry this process.`,
-        );
-    }
     return false;
 }
 
@@ -560,27 +316,6 @@ function finishDatabaseOpen(
     // cached-handle reuses both run this TTL-scoped heal so long-lived
     // processes eventually unwind stuck stale claims without a restart.
     healWedgedChannel2Claims(db);
-    // Initial boot-time backfill populates tool_owner_message_id on legacy tool
-    // tags. The module short-circuits when every session is already complete or
-    // skipped, so re-running it is cheap.
-    //
-    // The backfill is best-effort: missing OpenCode DB, transient
-    // SQLite errors, and per-session failures are logged but
-    // never fail-close the plugin. Lazy adoption covers rows the backfill could
-    // not reach.
-    if (!explicitDbPath) {
-        const runBackfill = () => {
-            try {
-                runToolOwnerBackfill(db);
-            } catch (error) {
-                log(
-                    `[magic-context] tool-owner backfill failed (continuing with lazy adoption fallback): ${getErrorMessage(error)}`,
-                );
-            }
-        };
-        if (bootQuietRemainingMs() > 0) scheduleAfterBootQuiet(runBackfill);
-        else runBackfill();
-    }
     // Wire the persistence-backed tool-definition measurement store and
     // rehydrate the in-memory map from any prior writes. Doing this here
     // (after migrations) means migration v9 has already created the
@@ -603,7 +338,7 @@ function finishDatabaseOpen(
 
 export function initializeDatabase(db: Database): void {
     // Install the busy timeout BEFORE any file-level PRAGMAs like WAL. Two
-    // processes can cold-open the same DB at once (real OpenCode/Pi startup, or
+    // processes can cold-open the same DB at once (real legacy host/Pi startup, or
     // the subprocess lease tests); without the timeout this connection can throw
     // SQLITE_BUSY immediately while the sibling is switching journal mode.
     db.exec("PRAGMA busy_timeout=5000");
@@ -622,7 +357,7 @@ export function initializeDatabase(db: Database): void {
       status TEXT DEFAULT 'active',
       byte_size INTEGER,
       tag_number INTEGER,
-      harness TEXT NOT NULL DEFAULT 'opencode',
+      harness TEXT NOT NULL DEFAULT 'pi',
       entry_fingerprint TEXT,
       token_count INTEGER,
       input_token_count INTEGER,
@@ -636,7 +371,7 @@ export function initializeDatabase(db: Database): void {
       tag_id INTEGER,
       operation TEXT,
       queued_at INTEGER,
-      harness TEXT NOT NULL DEFAULT 'opencode'
+      harness TEXT NOT NULL DEFAULT 'pi'
     );
 
     CREATE TABLE IF NOT EXISTS source_contents (
@@ -644,7 +379,7 @@ export function initializeDatabase(db: Database): void {
       session_id TEXT,
       content TEXT,
       created_at INTEGER,
-      harness TEXT NOT NULL DEFAULT 'opencode',
+      harness TEXT NOT NULL DEFAULT 'pi',
       PRIMARY KEY(session_id, tag_id)
     );
 
@@ -668,7 +403,7 @@ export function initializeDatabase(db: Database): void {
       p1_embedding_model_id TEXT,
       legacy INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
-      harness TEXT NOT NULL DEFAULT 'opencode',
+      harness TEXT NOT NULL DEFAULT 'pi',
       UNIQUE(session_id, sequence)
     );
     CREATE INDEX IF NOT EXISTS idx_compartments_session ON compartments(session_id);
@@ -678,7 +413,7 @@ export function initializeDatabase(db: Database): void {
       compartment_id INTEGER NOT NULL REFERENCES compartments(id) ON DELETE CASCADE,
       session_id TEXT NOT NULL,
       project_path TEXT NOT NULL,
-      harness TEXT NOT NULL DEFAULT 'opencode',
+      harness TEXT NOT NULL DEFAULT 'pi',
       window_index INTEGER NOT NULL DEFAULT 0,
       start_ordinal INTEGER NOT NULL,
       end_ordinal INTEGER NOT NULL,
@@ -694,7 +429,7 @@ export function initializeDatabase(db: Database): void {
 
     CREATE TABLE IF NOT EXISTS session_projects (
       session_id TEXT NOT NULL,
-      harness TEXT NOT NULL DEFAULT 'opencode',
+      harness TEXT NOT NULL DEFAULT 'pi',
       project_path TEXT NOT NULL,
       updated_at INTEGER NOT NULL,
       PRIMARY KEY(session_id, harness)
@@ -710,7 +445,7 @@ export function initializeDatabase(db: Database): void {
       at_compartment INTEGER,
       fields_json TEXT NOT NULL DEFAULT '{}',
       created_at INTEGER NOT NULL,
-      harness TEXT NOT NULL DEFAULT 'opencode'
+      harness TEXT NOT NULL DEFAULT 'pi'
     );
     CREATE INDEX IF NOT EXISTS idx_compartment_events_session
       ON compartment_events(session_id);
@@ -728,7 +463,7 @@ export function initializeDatabase(db: Database): void {
       session_id TEXT NOT NULL,
       message_ordinal INTEGER NOT NULL,
       depth INTEGER NOT NULL DEFAULT 0,
-      harness TEXT NOT NULL DEFAULT 'opencode',
+      harness TEXT NOT NULL DEFAULT 'pi',
       PRIMARY KEY(session_id, message_ordinal)
     );
     CREATE INDEX IF NOT EXISTS idx_compression_depth_session ON compression_depth(session_id);
@@ -740,13 +475,13 @@ export function initializeDatabase(db: Database): void {
       content TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      harness TEXT NOT NULL DEFAULT 'opencode'
+      harness TEXT NOT NULL DEFAULT 'pi'
     );
 
     CREATE TABLE IF NOT EXISTS primer_candidates (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_path TEXT NOT NULL,
-      harness TEXT NOT NULL DEFAULT 'opencode',
+      harness TEXT NOT NULL DEFAULT 'pi',
       session_id TEXT NOT NULL,
       question TEXT NOT NULL,
       normalized_question TEXT NOT NULL,
@@ -1135,7 +870,7 @@ CREATE INDEX IF NOT EXISTS idx_dream_queue_pending ON dream_queue(started_at, en
       last_indexed_ordinal INTEGER NOT NULL DEFAULT 0,
       dirty_floor_ordinal INTEGER NOT NULL DEFAULT 0,
       updated_at INTEGER NOT NULL,
-      harness TEXT NOT NULL DEFAULT 'opencode'
+      harness TEXT NOT NULL DEFAULT 'pi'
     );
     CREATE INDEX IF NOT EXISTS idx_message_history_index_orphan_sweep
       ON message_history_index(harness, session_id, updated_at);
@@ -1147,7 +882,7 @@ CREATE INDEX IF NOT EXISTS idx_dream_queue_pending ON dream_queue(started_at, en
       source_version TEXT NOT NULL,
       normalized_content_hash TEXT NOT NULL,
       role TEXT NOT NULL,
-      harness TEXT NOT NULL DEFAULT 'opencode',
+      harness TEXT NOT NULL DEFAULT 'pi',
       updated_at INTEGER NOT NULL,
       PRIMARY KEY(session_id, message_id)
     );
@@ -1156,7 +891,7 @@ CREATE INDEX IF NOT EXISTS idx_dream_queue_pending ON dream_queue(started_at, en
 
     CREATE TABLE IF NOT EXISTS pending_session_cleanup (
       session_id TEXT PRIMARY KEY,
-      harness TEXT NOT NULL DEFAULT 'opencode',
+      harness TEXT NOT NULL DEFAULT 'pi',
       requested_at INTEGER NOT NULL,
       last_attempt_at INTEGER
     );
@@ -1182,7 +917,7 @@ CREATE INDEX IF NOT EXISTS idx_dream_queue_pending ON dream_queue(started_at, en
 
     CREATE TABLE IF NOT EXISTS session_meta (
       session_id TEXT PRIMARY KEY,
-      harness TEXT NOT NULL DEFAULT 'opencode',
+      harness TEXT NOT NULL DEFAULT 'pi',
       last_response_time INTEGER,
       cache_ttl TEXT,
       counter INTEGER DEFAULT 0,
@@ -1231,7 +966,7 @@ CREATE INDEX IF NOT EXISTS idx_dream_queue_pending ON dream_queue(started_at, en
       -- Excluded from the healAllNullColumns fallback list. Readers filter
       -- IS NOT NULL AND != empty-string defensively. Plan v6 section 3.
       pending_compaction_marker_state TEXT,
-      -- Target OpenCode message id used to inject the current compaction marker.
+      -- Target legacy host message id used to inject the current compaction marker.
       -- Nullable for legacy persisted markers; repaired on the next marker move.
       compaction_marker_target_end_message_id TEXT,
       -- pending_pi_compaction_marker_state: intentionally NULLABLE without a
@@ -1318,7 +1053,7 @@ CREATE INDEX IF NOT EXISTS idx_dream_queue_pending ON dream_queue(started_at, en
     CREATE TABLE IF NOT EXISTS historian_runs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       session_id TEXT NOT NULL,
-      harness TEXT NOT NULL DEFAULT 'opencode',
+      harness TEXT NOT NULL DEFAULT 'pi',
       subagent_invocation_id INTEGER,
       run_kind TEXT NOT NULL,
       status TEXT NOT NULL,
@@ -1346,7 +1081,7 @@ CREATE INDEX IF NOT EXISTS idx_dream_queue_pending ON dream_queue(started_at, en
 
     CREATE TABLE IF NOT EXISTS transform_decisions (
       session_id         TEXT    NOT NULL,
-      harness            TEXT    NOT NULL DEFAULT 'opencode',
+      harness            TEXT    NOT NULL DEFAULT 'pi',
       message_id         TEXT    NOT NULL,
       ts_ms              INTEGER NOT NULL,
       decision           TEXT    NOT NULL,
@@ -1385,7 +1120,7 @@ CREATE INDEX IF NOT EXISTS idx_dream_queue_pending ON dream_queue(started_at, en
       episode_type TEXT,
       pass_number INTEGER NOT NULL,
       created_at INTEGER NOT NULL,
-      harness TEXT NOT NULL DEFAULT 'opencode',
+      harness TEXT NOT NULL DEFAULT 'pi',
       UNIQUE(session_id, sequence)
     );
 
@@ -1396,7 +1131,7 @@ CREATE INDEX IF NOT EXISTS idx_dream_queue_pending ON dream_queue(started_at, en
       content TEXT NOT NULL,
       pass_number INTEGER NOT NULL,
       created_at INTEGER NOT NULL,
-      harness TEXT NOT NULL DEFAULT 'opencode'
+      harness TEXT NOT NULL DEFAULT 'pi'
     );
 
     CREATE INDEX IF NOT EXISTS idx_session_facts_session ON session_facts(session_id);
@@ -1408,7 +1143,7 @@ CREATE INDEX IF NOT EXISTS idx_dream_queue_pending ON dream_queue(started_at, en
     CREATE INDEX IF NOT EXISTS idx_message_history_index_updated_at ON message_history_index(updated_at);
   `);
 
-    ensureColumn(db, "primer_candidates", "harness", "TEXT NOT NULL DEFAULT 'opencode'");
+    ensureColumn(db, "primer_candidates", "harness", "TEXT NOT NULL DEFAULT 'pi'");
     ensureColumn(db, "primer_candidates", "source_start_message_id", "TEXT NOT NULL DEFAULT ''");
     ensureColumn(db, "primer_candidates", "source_end_message_id", "TEXT NOT NULL DEFAULT ''");
     ensureColumn(db, "primer_candidates", "question_embedding", "BLOB");
@@ -1530,7 +1265,7 @@ CREATE INDEX IF NOT EXISTS idx_dream_queue_pending ON dream_queue(started_at, en
     // Pi fallback-tag adoption: fingerprint of the raw message a tag was first
     // created for, so a later pass can migrate the tag's message_id from the
     // unstable pi-msg-* fallback to the real SessionEntry id without changing
-    // tag_number (hence §N§). NULL on OpenCode and on any tag created before v27.
+    // tag_number (hence §N§). NULL on legacy host and on any tag created before v27.
     ensureColumn(db, "tags", "entry_fingerprint", "TEXT");
     db.exec(
         `CREATE INDEX IF NOT EXISTS idx_tags_pi_adopt
@@ -1713,7 +1448,7 @@ CREATE INDEX IF NOT EXISTS idx_dream_queue_pending ON dream_queue(started_at, en
       );
       CREATE TABLE IF NOT EXISTS session_projects (
         session_id TEXT NOT NULL,
-        harness TEXT NOT NULL DEFAULT 'opencode',
+        harness TEXT NOT NULL DEFAULT 'pi',
         project_path TEXT NOT NULL,
         updated_at INTEGER NOT NULL,
         PRIMARY KEY(session_id, harness)
@@ -1790,7 +1525,7 @@ CREATE INDEX IF NOT EXISTS idx_dream_queue_pending ON dream_queue(started_at, en
       );
       CREATE TABLE IF NOT EXISTS transform_decisions (
         session_id         TEXT    NOT NULL,
-        harness            TEXT    NOT NULL DEFAULT 'opencode',
+        harness            TEXT    NOT NULL DEFAULT 'pi',
         message_id         TEXT    NOT NULL,
         ts_ms              INTEGER NOT NULL,
         decision           TEXT    NOT NULL,
@@ -1813,27 +1548,27 @@ CREATE INDEX IF NOT EXISTS idx_dream_queue_pending ON dream_queue(started_at, en
 
     // Plugin v0.16+ — `harness` column on every session-scoped table.
     // SQLite ALTER TABLE ADD COLUMN ... NOT NULL DEFAULT physically backfills
-    // existing rows with the default, so OpenCode users transparently get
-    // harness='opencode' on all pre-existing data. Pi will be added later
+    // existing rows with the default, so legacy host users transparently get
+    // harness='pi' on all pre-existing data. Pi will be added later
     // by its own plugin entry, also writing to the same shared DB.
     //
-    // We don't (yet) include harness in WHERE clauses — OpenCode session IDs
+    // We don't (yet) include harness in WHERE clauses — legacy host session IDs
     // never collide with Pi session IDs in practice (different ID formats).
     // The column captures origin for the dashboard and unblocks future
     // cross-harness session migration. Defensive query scoping by harness
     // ships in a later commit once Pi can write to the same DB concurrently
     // and we can validate the safety property end-to-end.
-    ensureColumn(db, "tags", "harness", "TEXT NOT NULL DEFAULT 'opencode'");
+    ensureColumn(db, "tags", "harness", "TEXT NOT NULL DEFAULT 'pi'");
     ensureColumn(db, "message_history_index", "dirty_floor_ordinal", "INTEGER NOT NULL DEFAULT 0");
-    ensureColumn(db, "pending_ops", "harness", "TEXT NOT NULL DEFAULT 'opencode'");
-    ensureColumn(db, "source_contents", "harness", "TEXT NOT NULL DEFAULT 'opencode'");
-    ensureColumn(db, "compartments", "harness", "TEXT NOT NULL DEFAULT 'opencode'");
-    ensureColumn(db, "compression_depth", "harness", "TEXT NOT NULL DEFAULT 'opencode'");
-    ensureColumn(db, "session_facts", "harness", "TEXT NOT NULL DEFAULT 'opencode'");
-    ensureColumn(db, "session_meta", "harness", "TEXT NOT NULL DEFAULT 'opencode'");
-    ensureColumn(db, "recomp_compartments", "harness", "TEXT NOT NULL DEFAULT 'opencode'");
-    ensureColumn(db, "recomp_facts", "harness", "TEXT NOT NULL DEFAULT 'opencode'");
-    ensureColumn(db, "message_history_index", "harness", "TEXT NOT NULL DEFAULT 'opencode'");
+    ensureColumn(db, "pending_ops", "harness", "TEXT NOT NULL DEFAULT 'pi'");
+    ensureColumn(db, "source_contents", "harness", "TEXT NOT NULL DEFAULT 'pi'");
+    ensureColumn(db, "compartments", "harness", "TEXT NOT NULL DEFAULT 'pi'");
+    ensureColumn(db, "compression_depth", "harness", "TEXT NOT NULL DEFAULT 'pi'");
+    ensureColumn(db, "session_facts", "harness", "TEXT NOT NULL DEFAULT 'pi'");
+    ensureColumn(db, "session_meta", "harness", "TEXT NOT NULL DEFAULT 'pi'");
+    ensureColumn(db, "recomp_compartments", "harness", "TEXT NOT NULL DEFAULT 'pi'");
+    ensureColumn(db, "recomp_facts", "harness", "TEXT NOT NULL DEFAULT 'pi'");
+    ensureColumn(db, "message_history_index", "harness", "TEXT NOT NULL DEFAULT 'pi'");
     ensureColumn(db, "workspaces", "share_categories", `TEXT NOT NULL DEFAULT '["CONSTRAINTS"]'`);
     // notes table is created by migration v1 (not initializeDatabase). It
     // exists by the time runMigrations() returns, but ensureColumn's PRAGMA
@@ -1879,7 +1614,7 @@ function healWedgedChannel2Claims(db: Database): void {
  *      silently broken instead of explicitly disabled.
  *   2. More importantly, an in-memory DB across process restarts effectively
  *      means "no Magic Context", but the plugin still tags messages and
- *      tries to drive transforms. On Pi/OpenCode this can let the full
+ *      tries to drive transforms. On Pi/legacy host this can let the full
  *      raw history reach the model and overflow the context window — the
  *      exact failure mode that broke a real test session.
  *
@@ -1908,7 +1643,6 @@ export function openDatabase(dbPathOrOptions?: string | OpenDatabaseOptions): Da
     const { dbDir, dbPath } = resolveDatabasePath(options?.dbPath);
     const latestSupportedVersion = getRuntimeLatestSupportedVersion(options);
     lastSchemaFenceRejection = null;
-    lastMigrationOnOpenRefusal = null;
     const existing = databases.get(dbPath);
     if (existing) {
         if (!enforceSchemaFence(existing, dbPath, latestSupportedVersion)) {
@@ -1926,17 +1660,10 @@ export function openDatabase(dbPathOrOptions?: string | OpenDatabaseOptions): Da
     }
 
     try {
-        if (!explicitDbPath) {
-            migrateLegacyStorageIfNeeded(dbPath, dbDir);
-        }
         ensureSecureStorageDir(dbDir);
 
         const db = new Database(dbPath);
         if (!enforceSchemaFence(db, dbPath, latestSupportedVersion)) {
-            closeQuietly(db);
-            return null;
-        }
-        if (!enforceMigrationOnOpenGuard(db, dbPath, dbDir, latestSupportedVersion)) {
             closeQuietly(db);
             return null;
         }
@@ -1969,7 +1696,6 @@ export async function openDatabaseAsync(
     const { dbDir, dbPath } = resolveDatabasePath(options?.dbPath);
     const latestSupportedVersion = getRuntimeLatestSupportedVersion(options);
     lastSchemaFenceRejection = null;
-    lastMigrationOnOpenRefusal = null;
     const existing = databases.get(dbPath);
     if (existing) {
         if (!enforceSchemaFence(existing, dbPath, latestSupportedVersion)) return null;
@@ -1984,15 +1710,10 @@ export async function openDatabaseAsync(
     const opening = (async (): Promise<Database | null> => {
         let db: Database | undefined;
         try {
-            if (!explicitDbPath) migrateLegacyStorageIfNeeded(dbPath, dbDir);
             ensureSecureStorageDir(dbDir);
 
             db = new Database(dbPath);
             if (!enforceSchemaFence(db, dbPath, latestSupportedVersion)) {
-                closeQuietly(db);
-                return null;
-            }
-            if (!enforceMigrationOnOpenGuard(db, dbPath, dbDir, latestSupportedVersion)) {
                 closeQuietly(db);
                 return null;
             }

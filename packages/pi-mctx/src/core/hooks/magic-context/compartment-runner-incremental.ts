@@ -53,7 +53,6 @@ import { insertUserMemoryCandidates } from "../../features/magic-context/user-me
 import { normalizeSDKResponse } from "../../shared";
 import { describeError } from "../../shared/error-message";
 import { sessionLog } from "../../shared/logger";
-import { updateCompactionMarkerAfterPublication } from "./compaction-marker-manager";
 import { buildCompartmentAgentPrompt } from "./compartment-prompt";
 import { queueDropsForCompartmentalizedMessages } from "./compartment-runner-drop-queue";
 import { runValidatedHistorianPass } from "./compartment-runner-historian";
@@ -74,7 +73,6 @@ import {
     validateBoundarySnapshot,
 } from "./protected-tail-boundary";
 import { readSessionChunk } from "./read-session-chunk";
-import { getMessageTimesFromOpenCodeDb } from "./read-session-db";
 import { estimateTokens } from "./read-session-formatting";
 import { buildReferenceBlocks } from "./reference-retrieval";
 import { sendIgnoredMessage } from "./send-session-notification";
@@ -739,19 +737,8 @@ export async function runCompartmentAgent(deps: CompartmentRunnerDeps): Promise<
         // a committed publish marked failed or unsignaled.
         deps.onCompartmentStatePublished?.(sessionId);
 
-        // Inject compaction marker into OpenCode's DB.
-        // When deferring (plan v6 §4), the pending blob was already written
-        // in-transaction and `onDeferredMarkerPending` signals the drain set.
-        // When NOT deferring, fall back to the legacy direct-apply path.
         if (deferMarkerApplication) {
             deps.onDeferredMarkerPending?.(sessionId);
-        } else {
-            updateCompactionMarkerAfterPublication(
-                db,
-                sessionId,
-                lastCompartmentEnd,
-                sessionDirectory,
-            );
         }
 
         // v2: the LLM compressor is gone — deterministic decay-tier rendering
@@ -888,8 +875,7 @@ export async function runCompartmentAgent(deps: CompartmentRunnerDeps): Promise<
                     startC?.startMessageId || `ordinal:${startC?.startMessage ?? chunk.startIndex}`;
                 const sourceEndMessageId =
                     endC?.endMessageId || `ordinal:${endC?.endMessage ?? lastCompartmentEnd}`;
-                const times = getMessageTimesFromOpenCodeDb(sessionId, [sourceStartMessageId]);
-                const sourceMessageTime = times.get(sourceStartMessageId) ?? Date.now();
+                const sourceMessageTime = Date.now();
                 const stored = insertPrimerCandidates(db, [
                     {
                         projectPath: promotionProjectIdentity,

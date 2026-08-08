@@ -22,7 +22,6 @@ import {
 import { normalizeSDKResponse } from "../../shared";
 import { getErrorMessage } from "../../shared/error-message";
 import { log } from "../../shared/logger";
-import { updateCompactionMarkerAfterPublication } from "./compaction-marker-manager";
 import { buildCompartmentAgentPrompt } from "./compartment-prompt";
 import { runValidatedHistorianPass } from "./compartment-runner-historian";
 import { promoteRecompStagingWithM0Mutation } from "./compartment-runner-recomp";
@@ -362,26 +361,6 @@ export async function executePartialRecompInternal(
             }
 
             const lastEnd = merged[merged.length - 1]?.endMessage ?? snapEnd;
-            // Plan v6 §6: partial recomp is explicit (eager cache clear). Apply
-            // the marker directly here AND CAS-clear any stale pending blob a
-            // prior in-flight incremental publish may have left behind — partial
-            // recomp now owns the boundary up to lastEnd.
-            if (lastEnd > 0) {
-                const markerUpdated = updateCompactionMarkerAfterPublication(
-                    db,
-                    sessionId,
-                    lastEnd,
-                    deps.directory,
-                );
-                // Only clear the stale pending blob when the boundary actually
-                // advanced — preserve it for the deferred-drain retry on failure.
-                if (markerUpdated) {
-                    const stalePending = getPendingCompactionMarkerState(db, sessionId);
-                    if (stalePending) {
-                        clearPendingCompactionMarkerStateIf(db, sessionId, stalePending);
-                    }
-                }
-            }
             return { compartmentCount: merged.length, lastEndMessage: lastEnd };
         }
 
