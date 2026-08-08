@@ -1,9 +1,9 @@
 /**
- * Pi dropped-placeholder stripping — mirrors OpenCode's
+ * Pi dropped-placeholder stripping.
  * `stripDroppedPlaceholderMessages` plus persisted
  * `session_meta.stripped_placeholder_ids` replay.
  *
- * OpenCode replaces placeholder-only messages with sentinel shells to
+ * Placeholder-only messages become sentinel shells to
  * keep provider-cache array structure stable. Pi rebuilds `AgentMessage[]`
  * from JSONL on every pass, so the Pi-native operation is simpler: remove
  * messages whose only model-visible content is `[dropped §N§]` after
@@ -11,7 +11,7 @@
  *
  * Replay is persistent and runs on every pass from stable Pi message ids.
  * Discovery of new placeholder-only ids happens only on cache-busting
- * passes, matching OpenCode's "discover on execute, replay everywhere"
+ * passes, using a discover-on-execute and replay-everywhere rule.
  * contract.
  */
 
@@ -43,7 +43,7 @@ function messageIsPlaceholderOnly(message: unknown): boolean {
 	const msg = message as { role?: unknown; content?: unknown };
 	// Only assistant messages may be neutralized/removed. User-role messages
 	// anchor turn boundaries the AI SDK relies on to avoid merging consecutive
-	// assistants — removing one can collapse a boundary. Mirrors OpenCode's
+	// assistants — removing one can collapse a boundary.
 	// strip-content.ts ("Never neutralize user-role messages — they anchor turn
 	// boundaries"). In Pi's raw array, tool results carry role "toolResult"
 	// (synthetic tool-result user folds live only in the transcript view, never

@@ -1,7 +1,7 @@
 /**
  * Pi-side wrapper for the `ctx_memory` tool.
  *
- * Action surface mirrors OpenCode's `packages/plugin/src/tools/ctx-memory/tools.ts`.
+ * Action surface mirrors legacy host's `packages/plugin/src/tools/ctx-memory/tools.ts`.
  * Two tiers of actions:
  *
  *  Primary (for any agent that can call ctx_memory):
@@ -15,20 +15,20 @@
  *  (memory verification + classification are no longer tool actions — the verify
  *   and classify dreamer tasks apply them host-side from a manifest.)
  *
- * Allowlist gating mirrors OpenCode's `allowedActions` deps field. In OpenCode,
+ * Allowlist gating mirrors legacy host's `allowedActions` deps field. In legacy host,
  * the dreamer subagent gets the full action surface because `toolContext.agent
  * === DREAMER_AGENT`. Pi has no agent identity inside child processes, so we
  * use an explicit flag (`--magic-context-dreamer-actions`) wired through the
  * subagent extension entry. Same effective behavior, different transport.
  *
- * Parity reference (OpenCode):
+ * Parity reference (legacy host):
  *   - `tools/ctx-memory/types.ts` for action enum
  *   - `tools/ctx-memory/tools.ts` for handler logic
  *   - `plugin/tool-registry.ts` for the primary allowedActions (CTX_MEMORY_ACTIONS)
  *
  * Memories are project-scoped via `resolveProjectIdentity(ctx.cwd)` and stored
  * in the shared cortexkit DB, so a memory written from the pi-plugin is
- * immediately visible to OpenCode sessions on the same project (and vice
+ * immediately visible to legacy host sessions on the same project (and vice
  * versa).
  */
 
@@ -81,7 +81,7 @@ import { type Static, Type } from "typebox";
 
 const DEFAULT_LIST_LIMIT = 10;
 
-// Mirrors OpenCode CTX_MEMORY_DREAMER_ACTIONS. `delete` was removed — it was an
+// Mirrors legacy host CTX_MEMORY_DREAMER_ACTIONS. `delete` was removed — it was an
 // exact alias of `archive` (both soft-archive); `archive` is the single
 // soft-remove action. Primary agents get write/archive/update/merge/get on the
 // memories they already see (with ids) in the injected project-memory block;
@@ -379,7 +379,7 @@ export function createCtxMemoryTool(
 				return err("Error: Action 'undefined' is not allowed in this context.");
 			}
 			// Gate dreamer-only actions on the allowlist flag. Mirrors
-			// OpenCode's `if (toolContext.agent !== DREAMER_AGENT && !allowedActions.includes(args.action))`.
+			// legacy host's `if (toolContext.agent !== DREAMER_AGENT && !allowedActions.includes(args.action))`.
 			if (!dreamerAllowed && DREAMER_ONLY_ACTIONS.has(params.action)) {
 				return err(
 					`Error: Action '${params.action}' is not allowed in this context.`,
@@ -499,7 +499,7 @@ export function createCtxMemoryTool(
 				// the next cache-busting pass, WITHOUT busting m[0]. Clearing the cache
 				// re-materialized m[0] for every session (the call was global over
 				// session_meta), defeating the whole additive/non-additive split and
-				// busting unrelated projects. Matches OpenCode's write path, which
+				// busting unrelated projects. Matches legacy host's write path, which
 				// likewise does no cache invalidation.
 				return ok(`Saved memory [ID: ${memory.id}] in ${rawCategory}.`);
 			}
@@ -638,7 +638,7 @@ export function createCtxMemoryTool(
 				// so every affected project's m[1] reconciles correctly. But
 				// `merge` is in the primary action set too, and a primary agent
 				// must not reach into ANOTHER project's memories — mirror
-				// update/archive ownership (parity with OpenCode).
+				// update/archive ownership (parity with legacy host).
 				if (!dreamerAllowed) {
 					const foreign = sourceMemories.find(
 						(memory) => !memoryOwnedByTool(memory),
@@ -658,7 +658,7 @@ export function createCtxMemoryTool(
 					// user's explicit privacy boundary the dreamer honors too: a
 					// foreign member's memory in a non-shared category is off-limits.
 					// memoryVisibleToTool already encodes own→true,
-					// foreign-shared→true, else→false. (Parity with OpenCode D1.)
+					// foreign-shared→true, else→false. (Parity with legacy host D1.)
 					const blocked = sourceMemories.find(
 						(memory) => !memoryVisibleToTool(memory),
 					);
@@ -720,7 +720,7 @@ export function createCtxMemoryTool(
 				);
 				// `mergedFrom` is JSON-stringified in the DB. Flatten any prior
 				// merge chains so the lineage stays accurate when merging
-				// already-merged memories. Mirrors OpenCode's parity construction
+				// already-merged memories. Mirrors legacy host's parity construction
 				// at packages/plugin/src/tools/ctx-memory/tools.ts:381-405.
 				const mergedFromIds = Array.from(
 					new Set(
@@ -793,7 +793,7 @@ export function createCtxMemoryTool(
 						queueMemoryMutation(deps.db, {
 							// Normalize the stored path to the resolved identity
 							// before queueing — the render-side mutation-log reader
-							// matches exact project_path, and OpenCode + dashboard
+							// matches exact project_path, and legacy host + dashboard
 							// both normalize first. A legacy raw filesystem path here
 							// would write a row that normalized git:/dir: sessions
 							// never read (the supersede delta would silently vanish).

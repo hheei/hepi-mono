@@ -60,7 +60,7 @@ export const NEEDS_UPGRADE_SQL = "(legacy = 1 OR p1 IS NULL OR p1 = '')";
  * Count compartments that still need a v2 upgrade (pre-v2 `legacy=1` rows OR
  * tierless `p1 IS NULL/''` rows from an interrupted/old partial build). Shared
  * with the Pi /ctx-status dialog (Pi has no sidebar, so it surfaces upgrade
- * status here) and the OpenCode upgrade gate. Returns 0 on any error.
+ * status here) and the upgrade gate. Returns 0 on any error.
  */
 export function countCompartmentsNeedingUpgrade(db: Database, sessionId: string): number {
     try {
@@ -133,7 +133,7 @@ export interface UpgradeReminderDeps {
     /** True when a TUI client is actively polling FOR THIS SESSION (decides
      *  dialog vs ignored msg). Must be session-scoped: a TUI on a different
      *  session in the same process must not make this session take the dialog
-     *  path. Optional: harnesses without an OpenCode-style TUI dialog system
+     *  path. Optional: harnesses without a dialog system
      *  (e.g. Pi, which delivers via `ctx.ui.notify`) omit this and always take
      *  the `sendIgnoredMessage` path. */
     isTuiConnected?: (sessionId?: string) => boolean;
@@ -142,7 +142,7 @@ export interface UpgradeReminderDeps {
      *  omitted on harnesses without a dialog system. When `resume` is set, the
      *  dialog shows resume-flavored copy. */
     pushTuiDialogAction?: (sessionId: string, resume?: ResumeInfo) => void;
-    /** Whether delivery persists in scrollback. Default true for OpenCode.
+    /** Whether delivery persists in scrollback. Default true. */
      *  Pi uses transient toasts, so it ignores the old explicit-dismissal stamp;
      *  both harnesses still persist the shared cooldown and delivery cap. */
     deliveryPersists?: boolean;
@@ -185,7 +185,7 @@ export async function maybeSendUpgradeReminder(
 
     const resume = getResumeInfo(deps.db, sessionId);
     const durableDismissalActive = deps.deliveryPersists !== false;
-    // An explicit OpenCode dialog choice remains a permanent dismissal for the
+    // An explicit dialog choice remains a permanent dismissal for the
     // fresh reminder. Pi ignores old stamps because its toast never persisted.
     if (!resume && durableDismissalActive && meta.upgradeRemindedAt !== null) {
         remindedThisProcess.add(sessionId);

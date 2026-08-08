@@ -49,7 +49,7 @@ export function __resetSchemaFenceStateForTests(): void {
     lastSchemaFenceRejection = null;
 }
 
-export const LATEST_SUPPORTED_VERSION = 74;
+export const LATEST_SUPPORTED_VERSION = 75;
 
 // chmod is meaningless on Windows (POSIX modes are not honored), so all
 // permission tightening is skipped there. mkdir's `mode` is likewise ignored.
@@ -1030,7 +1030,6 @@ CREATE INDEX IF NOT EXISTS idx_dream_queue_pending ON dream_queue(started_at, en
     CREATE TABLE IF NOT EXISTS subagent_invocations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       session_id TEXT NOT NULL,
-      harness TEXT NOT NULL,
       subagent TEXT NOT NULL,
       task TEXT,
       provider_id TEXT,

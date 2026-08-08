@@ -102,7 +102,7 @@ function isSyntheticHeadMessage(message: MessageLike): boolean {
     // could carry it and absorb a real message into the injected head, shifting
     // the summary's canonical position. Require the exact shape only
     // prependM0M1Messages produces: an ID-less user message whose every part is
-    // marked synthetic. Persisted OpenCode rows always carry an id, so they can
+    // marked synthetic. Persisted legacy host rows always carry an id, so they can
     // never satisfy this regardless of their metadata.
     if (message.info.syntheticHead !== true) return false;
     if (message.info.id !== undefined) return false;
@@ -294,7 +294,7 @@ export function runRustModePostprocess(args: {
 }): void {
     if (!args.fullFeatureMode) return;
     // Test doubles and older integrations may return the legacy bare message shape.
-    // The host-side sticky phase only applies to OpenCode MessageLike objects, so leave
+    // The host-side sticky phase only applies to legacy host MessageLike objects, so leave
     // those responses untouched instead of treating a missing `info` object as a failure.
     if (
         args.messages.some(
@@ -661,7 +661,7 @@ export async function runPostTransformPhase(
     //     system-prompt change folded m[0], then the 1807-op backlog drained ~30s
     //     later as a second bust). Pi already gates this way (context-handler.ts).
     // Safe in both cases because the historian and the drain touch DISJOINT DBs:
-    //   - Historian reads RAW OpenCode messages from opencode.db (read-only); its
+    //   - Historian reads RAW legacy host messages from legacy session store (read-only); its
     //     in-flight snapshot is validated by computeRawRangeFingerprint, which
     //     hashes raw content only (ids/part-types/lengths), NOT tag/drop state.
     //   - Drops mutate context.db (tags + pending_ops) + the in-memory wire only.
@@ -932,7 +932,7 @@ export async function runPostTransformPhase(
             // Typed reasoning clearing is canonical-Anthropic-only. clearOldReasoning
             // rewrites a reasoning part's `thinking`/`text` to "[cleared]"; only
             // stripClearedReasoning (gated on canUseEmptySentinels) then converts
-            // those shells to empty sentinels that OpenCode drops before the
+            // those shells to empty sentinels that legacy host drops before the
             // Anthropic wire. For any provider that is NOT canonical Anthropic the
             // "[cleared]" string would remain inside the reasoning block on the
             // wire — wrong, and a real hazard for non-canonical Claude proxies
@@ -1296,7 +1296,7 @@ export async function runPostTransformPhase(
     // plus system-injected messages (notifications, reminders, internal markers).
     // Both produce IDENTICAL empty-text-sentinel replacements that preserve array
     // length between passes — cache-stable for both Anthropic-native (where
-    // OpenCode's upstream filter drops the empty parts at the wire) and proxy
+    // legacy host's upstream filter drops the empty parts at the wire) and proxy
     // providers that hash the serialized message array.
     //
     // MUST run AFTER compartment injection: renderCompartmentInjection checks whether
@@ -1373,7 +1373,7 @@ export async function runPostTransformPhase(
     }
 
     // The in-turn ctx_reduce nudge (Channel 1) is injected into tool outputs in
-    // tool.execute.after and persisted by OpenCode, so it needs no transform-side
+    // tool.execute.after and persisted by legacy host, so it needs no transform-side
     // replay. The old rolling/iteration assistant-anchored nudges and the
     // tool-heavy sticky user-message reminder were removed (their buried-anchor
     // first-append busted the Anthropic prompt-cache prefix). Their persisted

@@ -9,15 +9,15 @@
 /**
  * Configuration for one subagent invocation.
  *
- * Mirrors the union of OpenCode's `session.create` + `session.prompt` body
+ * Mirrors the union of legacy host's `session.create` + `session.prompt` body
  * fields and Pi's `--print` CLI flags, picking the shared subset that all
  * three subagent kinds (historian, dreamer, sidekick) actually use today.
  *
  * Fields:
- * - `agent`: harness-specific agent name. OpenCode looks this up in its
+ * - `agent`: harness-specific agent name. legacy host looks this up in its
  *   agent registry (`HISTORIAN_AGENT`, `DREAMER_AGENT`, `SIDEKICK_AGENT`).
  *   Pi has no concept of "agent name" beyond config, so this is ignored
- *   on the Pi side and used only by `OpenCodeSubagentRunner`.
+ *   on the Pi side and used only by `legacy hostSubagentRunner`.
  * - `systemPrompt`: full system prompt for this child run. Replaces (not
  *   appends to) any harness-default system prompt.
  * - `userMessage`: the single user-turn prompt. Subagent runs are always
@@ -29,7 +29,7 @@
  *   harnesses retry on transient model failures.
  * - `timeoutMs`: hard cap on the child run. The runner aborts the child on
  *   exceeding this and returns `{ ok: false, reason: "timeout" }`.
- * - `cwd`: working directory for the child. OpenCode uses this for
+ * - `cwd`: working directory for the child. legacy host uses this for
  *   `query.directory`; Pi uses it as the spawn cwd so that `--cwd`-aware
  *   tools see the right project root.
  * - `signal`: optional AbortSignal so callers can cancel an in-flight run
@@ -46,8 +46,8 @@ export interface SubagentRunOptions {
     signal?: AbortSignal | undefined;
     /**
      * Pi only: explicit thinking level, passed as `--thinking <level>` to the
-     * Pi subprocess. OpenCode ignores this field — thinking/reasoning is
-     * controlled via `variant` in the OpenCode agent config instead.
+     * Pi subprocess. legacy host ignores this field — thinking/reasoning is
+     * controlled via `variant` in the legacy host agent config instead.
      *
      * Required when the configured historian/dreamer model supports reasoning
      * (e.g. github-copilot/gpt-5.4) because Pi's own default resolution may
@@ -94,10 +94,10 @@ export interface SubagentRunOptions {
  * - `first_event` — convenience: first event received from the child, useful
  *   for measuring auth/network warmup time.
  * - `terminal` — runner detected the final assistant turn (Pi: assistant
- *   message_end with terminal stopReason and no toolCall; OpenCode: SDK
+ *   message_end with terminal stopReason and no toolCall; legacy host: SDK
  *   `agent_end` equivalent).
  * - `raw_event` — every parsed event from the harness's structured output
- *   stream (Pi NDJSON / OpenCode SDK events). Emitted unconditionally so
+ *   stream (Pi NDJSON / legacy host SDK events). Emitted unconditionally so
  *   debug logs can capture the full timeline. The `event` payload is
  *   harness-shaped — callers should treat it as `unknown` and log it raw.
  */
@@ -150,7 +150,7 @@ export type SubagentProgressEvent =
  * - `error`: human-readable detail; safe to log, may include stack info.
  * - `durationMs`: wall-clock time from runner-call to runner-return.
  * - `meta`: optional harness-specific debug payload. Currently unused; left
- *   here so the OpenCode runner can surface the child session ID for log
+ *   here so the legacy host runner can surface the child session ID for log
  *   correlation when Step 5b lands.
  */
 export type SubagentRunResult =
@@ -162,7 +162,7 @@ export type SubagentRunResult =
            * Number of tool invocations the agent made during the run. Pi reports
            * this so callers that gate on "did the agent actually investigate vs
            * just paraphrase" (refresh-primers' grounding gate) work on Pi, whose
-           * facade otherwise surfaces only the final assistant text. OpenCode
+           * facade otherwise surfaces only the final assistant text. legacy host
            * leaves it undefined — its callers read tool-call parts straight off
            * the real session messages.
            */
@@ -191,14 +191,14 @@ export type SubagentRunResult =
 /**
  * Abstract runner contract.
  *
- * Each harness ships a single instance — the OpenCode plugin wires
- * `OpenCodeSubagentRunner` and the Pi plugin wires `PiSubagentRunner` in
+ * Each harness ships a single instance — the legacy host plugin wires
+ * `legacy hostSubagentRunner` and the Pi plugin wires `PiSubagentRunner` in
  * its `extension` boot path. Agent code (historian, dreamer, sidekick)
  * receives the runner as a dep and never reaches for harness-specific
  * client APIs directly.
  */
 export interface SubagentRunner {
-    /** Human-readable harness name, for logging (`"opencode"` or `"pi"`). */
+    /** Human-readable harness name, for logging (`"legacy-host"` or `"pi"`). */
     readonly harness: string;
 
     /**

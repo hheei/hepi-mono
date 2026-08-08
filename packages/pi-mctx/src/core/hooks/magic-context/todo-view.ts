@@ -5,7 +5,7 @@
  * need to learn to parse), we synthesize a realistic `todowrite` tool part
  * and inject it into the latest assistant message on cache-busting passes.
  * The agent reads it through their existing todowrite-tracking mental model:
- * the wire shape is identical to OpenCode's stored todowrite tool parts
+ * the wire shape is identical to legacy host's stored todowrite tool parts
  * (`{type: "tool", callID, tool: "todowrite", state: {input, output, ...}}`).
  *
  * Cache safety:
@@ -19,8 +19,8 @@
  *     re-inject the same part at the same anchor, idempotent via callID match.
  *
  * Wire shape verified against:
- *   - OpenCode source: ~/Work/OSS/opencode/packages/opencode/src/tool/todo.ts
- *   - Production OpenCode DB sample: part where data LIKE '%"tool":"todowrite"%'
+ *   - legacy host source: src/tool/todo.ts
+ *   - Production legacy host DB sample: part where data LIKE '%"tool":"todowrite"%'
  */
 
 import { createHash } from "node:crypto";
@@ -71,11 +71,11 @@ export const TERMINAL_STATUSES = new Set<TodoStatus>([
 ]);
 
 /**
- * The set of statuses real OpenCode `todowrite` excludes when computing the
- * tool-part `title` (e.g. "3 todos"). OpenCode counts only `completed` as
+ * The set of statuses real legacy host `todowrite` excludes when computing the
+ * tool-part `title` (e.g. "3 todos"). legacy host counts only `completed` as
  * "done"; cancelled todos still appear in the title's active count.
  *
- * Source: ~/Work/OSS/opencode/packages/opencode/src/tool/todo.ts:47-52.
+ * Source: src/tool/todo.ts:47-52.
  */
 export const TITLE_DONE_STATUSES = new Set<TodoStatus>([TODO_STATUS_COMPLETED]);
 
@@ -111,19 +111,19 @@ export function normalizeTodoStateJson(todos: unknown): string | null {
 }
 
 /**
- * A synthetic OpenCode tool part matching the wire shape of a real
+ * A synthetic legacy host tool part matching the wire shape of a real
  * `todowrite` tool result.
  *
- * NOTE — deliberate field omissions vs OpenCode `ToolPart`:
- *   - `id`, `sessionID`, `messageID`: OpenCode generates these from
+ * NOTE — deliberate field omissions vs legacy host `ToolPart`:
+ *   - `id`, `sessionID`, `messageID`: legacy host generates these from
  *     `Identifier.ascending(...)` for parts that originate from real tool
- *     calls and persist to the OpenCode DB. The synthetic part is
- *     transform-only (never persisted to OpenCode's DB), so these fields
- *     would be meaningless. The OpenCode wire serializer
+ *     calls and persist to the legacy host DB. The synthetic part is
+ *     transform-only (never persisted to legacy host's DB), so these fields
+ *     would be meaningless. The legacy host wire serializer
  *     (`MessageV2.toModelMessagesEffect`) only reads `part.state.*`,
  *     `part.callID`, `part.tool`, and `part.metadata` — none of the
  *     omitted fields participate in wire serialization. Verified against
- *     ~/Work/OSS/opencode/packages/opencode/src/session/message-v2.ts:851-884.
+ *     src/session/message-v2.ts:851-884.
  */
 export interface SyntheticTodoPart {
     type: "tool";
@@ -154,16 +154,16 @@ export function buildSyntheticTodoPart(stateJson: string): SyntheticTodoPart | n
     if (todos.every((t) => TERMINAL_STATUSES.has(t.status))) return null;
 
     const callID = computeSyntheticCallId(stateJson);
-    // Match OpenCode's `${todos.length - completed.length} todos` exactly:
+    // Match legacy host's `${todos.length - completed.length} todos` exactly:
     // exclude only `completed`, NOT `cancelled`. See todo.ts:47-52.
     const activeCount = todos.filter((t) => !TITLE_DONE_STATUSES.has(t.status)).length;
 
-    // Match OpenCode's todowrite output exactly: pretty-printed JSON of the full todos array.
-    // See ~/Work/OSS/opencode/packages/opencode/src/tool/todo.ts:46-52.
+    // Match legacy host's todowrite output exactly: pretty-printed JSON of the full todos array.
+    // See src/tool/todo.ts:46-52.
     const output = JSON.stringify(todos, null, 2);
 
     // `time.start === time.end` is a deliberate signal that this is synthetic.
-    // OpenCode itself never produces a zero-duration tool execution.
+    // legacy host itself never produces a zero-duration tool execution.
     const ts = 0;
 
     return {

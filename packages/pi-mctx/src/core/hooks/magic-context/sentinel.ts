@@ -7,7 +7,7 @@ import { isRecord } from "../../shared/record-type-guard";
  * Background: when `stripDroppedPlaceholderMessages` /
  * `stripSystemInjectedMessages` / `replaySentinelByMessageIds` reduce a whole
  * assistant message to one sentinel part, the resulting AI-SDK `ModelMessage`
- * can become `{ role: "assistant", content: "" }`. OpenCode's canonical
+ * can become `{ role: "assistant", content: "" }`. legacy host's canonical
  * Anthropic adapter filters that empty message before the wire; most other
  * providers can forward it and stricter backends reject it (e.g. Moonshot/Kimi:
  * "must not be empty").
@@ -20,13 +20,13 @@ export const WHOLE_MESSAGE_PLACEHOLDER_TEXT = "[dropped]";
 /**
  * Decide whether empty-text sentinels are safe for the provider's wire path.
  *
- * The gate is deliberately canonical-Anthropic only. OpenCode filters empty
+ * The gate is deliberately canonical-Anthropic only. legacy host filters empty
  * text/reasoning parts only in the `@ai-sdk/anthropic` branch before sending
  * to the provider; github-copilot and other non-Anthropic adapters forward
  * `{type:"text", text:""}` parts as real content blocks. Bedrock also filters
  * empty text later, but native `step-start` boundaries and empty sentinels are
  * not byte-equivalent before that filter runs. Google Vertex Anthropic maps to
- * an Anthropic SDK key but does not enter OpenCode's `@ai-sdk/anthropic`
+ * an Anthropic SDK key but does not enter legacy host's `@ai-sdk/anthropic`
  * empty-part filter.
  *
  * Unknown or non-canonical providers therefore must keep native parts (or use
@@ -66,12 +66,12 @@ export function modelAcceptsEmptyContent(providerID?: string): boolean {
  * never forces its own). So the conservative default for unknown providers is
  * TRUE (today's behavior).
  *
- * Provider IDs matched (per OpenCode's `provider/transform.ts`):
+ * Provider IDs matched (per legacy host's `provider/transform.ts`):
  *   - `anthropic`                     — canonical @ai-sdk/anthropic
  *   - `bedrock`                        — @ai-sdk/amazon-bedrock (reported as "bedrock")
  *   - `google-vertex-anthropic`       — @ai-sdk/google-vertex/anthropic
  * The `bedrock` check uses `includes` so any future bedrock-derived providerID
- * (e.g. a mantle variant) is also covered, matching how OpenCode's own
+ * (e.g. a mantle variant) is also covered, matching how legacy host's own
  * `useMessageLevelOptions` gate matches bedrock.
  */
 export function variantChangeBustsProviderCache(providerID?: string): boolean {
@@ -89,7 +89,7 @@ export function variantChangeBustsProviderCache(providerID?: string): boolean {
  *
  * Why sentinels exist: Anthropic prompt caching is sensitive to serialized
  * message-array shape. Replacing removed parts with inert `{type:"text",
- * text:""}` placeholders keeps indices stable across passes, and OpenCode's
+ * text:""}` placeholders keeps indices stable across passes, and legacy host's
  * canonical Anthropic adapter filters those empty text parts before the wire.
  *
  * Call sites must gate this helper with `modelAcceptsEmptyContent()`. For
@@ -98,7 +98,7 @@ export function variantChangeBustsProviderCache(providerID?: string): boolean {
  *
  * `cache_control` inheritance: if the original part carried provider-side
  * cache-breakpoint metadata (`cache_control` / `cacheControl`), the
- * sentinel inherits it. OpenCode currently only sets cache markers on the
+ * sentinel inherits it. legacy host currently only sets cache markers on the
  * last two system+non-system messages (never on mid-history parts we
  * strip), so this is defensive, but cheap.
  */
@@ -159,7 +159,7 @@ export function isSentinel(part: unknown): boolean {
 /**
  * Replay a previously-persisted set of message IDs by replacing each
  * matching message's parts with a single whole-message sentinel. Used to
- * keep the wire shape stable across defer passes when OpenCode rebuilds
+ * keep the wire shape stable across defer passes when legacy host rebuilds
  * messages from its DB — any message whose ID is in `ids` was
  * neutralized on a prior bust pass and should be neutralized again now.
  *

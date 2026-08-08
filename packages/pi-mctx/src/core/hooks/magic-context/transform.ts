@@ -131,7 +131,7 @@ export { EmergencyFailClosedError } from "./emergency-fail-closed";
 // invalidated on message.removed via clearMessageTokensCache().
 //
 // Bounded LRU on the outer key: sessions that are never explicitly deleted
-// (crashed OpenCode, archived but not deleted sessions, sessions outliving
+// (crashed legacy host, archived but not deleted sessions, sessions outliving
 // the plugin process's interest) would otherwise leak their inner Maps
 // forever. 100 sessions is generously above any realistic active working
 // set — evicted entries are recomputed lazily on the next transform pass.
@@ -183,7 +183,7 @@ export function clearMessageTokensCache(sessionId: string, messageId?: string): 
 // pass. Bounded so crashed/abandoned sessions can't leak the guard forever.
 const recordedSessionProjectIdentity = new BoundedSessionMap<string>(MESSAGE_TOKENS_CACHE_MAX);
 
-// Tagger / trigger load-scoping floor (OpenCode only). Several hot-path reads
+// Tagger / trigger load-scoping floor (legacy host only). Several hot-path reads
 // preload an in-memory map or aggregate over a session's tags; on a large/old
 // session that is the full tag history (100K+ rows): the tagger's content-key
 // map (~32ms), the boundary's stored-token map (~52ms), the trigger pre-gate's
@@ -275,7 +275,7 @@ function findLastAssistantModel(
     messages: MessageLike[],
 ): { providerID: string; modelID: string } | null {
     for (let i = messages.length - 1; i >= 0; i--) {
-        // OpenCode message objects have providerID/modelID under info, though
+        // legacy host message objects have providerID/modelID under info, though
         // our narrow MessageInfo type doesn't declare them.
         const info = messages[i].info as {
             role?: string;
@@ -291,8 +291,8 @@ function findLastAssistantModel(
 
 /**
  * Extract the selected model from the newest USER message in the array. This is
- * the model the outgoing request will ACTUALLY go to: OpenCode's loop resolves
- * the request model from `lastUser.model` (verified with the OpenCode
+ * the model the outgoing request will ACTUALLY go to: legacy host's loop resolves
+ * the request model from `lastUser.model` (verified with the legacy host
  * maintainer). On a mid-session model switch, the array ends with
  * `[..., OLD-model assistant, NEW user message]` (the new model has not
  * produced an assistant message yet), so the last ASSISTANT still carries the
@@ -300,7 +300,7 @@ function findLastAssistantModel(
  * last-assistant model is what stops the model-change detector from false-firing
  * on the switching turn.
  *
- * Note the role asymmetry in OpenCode's schema: user messages nest the model
+ * Note the role asymmetry in legacy host's schema: user messages nest the model
  * under `info.model.{providerID,modelID}`, whereas assistant messages carry it
  * flat as `info.providerID`/`info.modelID`.
  */
@@ -313,7 +313,7 @@ function findNewestUserModel(
             model?: { providerID?: string; modelID?: string };
         };
         if (info.role !== "user") continue;
-        // The NEWEST (last) user message is the one OpenCode resolves the
+        // The NEWEST (last) user message is the one legacy host resolves the
         // outgoing request model from (`lastUser.model`). Return its model, or
         // null if it carries none (do NOT keep scanning to an OLDER user, whose
         // model is not what this request goes to). A null return lets the caller
@@ -589,8 +589,8 @@ export interface TransformDeps {
     liveModelBySession?: LiveModelBySession;
     /**
      * Process-scoped cache of resolved session.directory values. When provided,
-     * we look up here before hitting OpenCode's API and populate after a
-     * successful lookup. The session→project binding is immutable in OpenCode,
+     * we look up here before hitting legacy host's API and populate after a
+     * successful lookup. The session→project binding is immutable in legacy host,
      * so this cache lives until the session is deleted.
      */
     sessionDirectoryBySession?: Map<string, string>;
@@ -781,7 +781,7 @@ export function createTransform(deps: TransformDeps) {
                 }
                 const notice = transition.notice;
                 // A missing client is the existing no-notification test/headless
-                // seam. Production OpenCode transforms always provide one; when
+                // seam. Production legacy host transforms always provide one; when
                 // present, its delivery result controls whether the settled record
                 // commits. The reconciler has already persisted a pending notice
                 // record, so a restart retries instead of losing this delivery.
@@ -835,25 +835,25 @@ export function createTransform(deps: TransformDeps) {
         const todowriteAvailability: ToolAvailabilityVerdict =
             resolveTodowriteAvailabilityFromMessages(sessionId, messages);
 
-        // Resolve the *session's* working directory, not the OpenCode launch
-        // directory. When the user runs `opencode -s <id>` from outside the
+        // Resolve the *session's* working directory, not the legacy host launch
+        // directory. When the user runs `legacy session selector <id>` from outside the
         // project, `deps.directory` (captured at plugin init) reflects the
         // launch dir (often $HOME) while the session itself is bound to the
         // project. Historian/dreamer/recomp child sessions and project-scoped
         // memory all need the session's real directory.
         //
-        // We call `client.session.get(...)` (OpenCode's public SDK) once per
+        // We call `client.session.get(...)` (legacy host's public SDK) once per
         // session per plugin-process lifetime and cache the result in
         // `liveSessionState.sessionDirectoryBySession`. The session→project
-        // binding is immutable in OpenCode (the `directory` field is set at
+        // binding is immutable in legacy host (the `directory` field is set at
         // session create time and never modified), so caching for the entire
         // session lifetime is safe.
         //
         // Without the cache, this HTTP round trip ran on every transform pass
         // and was observed to take 1.5s+ for large sessions under Electron
         // Desktop, dominating transform latency. We deliberately keep using
-        // the public SDK rather than reading OpenCode's internal SQLite
-        // directly — the schema is OpenCode's private contract and could
+        // the public SDK rather than reading legacy host's internal SQLite
+        // directly — the schema is legacy host's private contract and could
         // change without notice.
         //
         // session.get failure is non-fatal — fall back to deps.directory so
@@ -879,7 +879,7 @@ export function createTransform(deps: TransformDeps) {
                     sessionDirectory = sessionInfo.directory;
                     // Populate cache for future transforms in this session.
                     // Don't cache the fallback (deps.directory) — it might be
-                    // wrong for `opencode -s <id>` launches from a different
+                    // wrong for `legacy session selector <id>` launches from a different
                     // cwd, and the next transform should retry the SDK lookup.
                     deps.sessionDirectoryBySession?.set(sessionId, sessionDirectory);
                     sessionDirectoryResolvedFromHost = true;
@@ -913,7 +913,7 @@ export function createTransform(deps: TransformDeps) {
         // history budget don't run on the previous model's numbers.
         if (deps.liveModelBySession) {
             // The model the request will ACTUALLY go to. The newest USER message
-            // carries the selected (possibly just-switched) model, and OpenCode
+            // carries the selected (possibly just-switched) model, and legacy host
             // resolves the outgoing request from it (`lastUser.model`). On a
             // switching turn the array ends with [..., OLD assistant, NEW user]:
             // the last ASSISTANT still reads OLD (assistant model is flat
@@ -1171,8 +1171,8 @@ export function createTransform(deps: TransformDeps) {
         // override from session_meta.
         //
         // Model resolution order: the in-memory live map (seeded above from the
-        // visible message array) first, then a read-only OpenCode-DB recovery
-        // (findLastAssistantModelFromOpenCodeDb) for the case where older
+        // visible message array) first, then a read-only legacy host-DB recovery
+        // (findLastAssistantModelFromlegacy hostDb) for the case where older
         // messages — including the last assistant tuple — are NOT in the visible
         // array (trimmed window). Without the DB fallback a compartmented
         // session could miss its model on a cold pass and fall back to 60K.
@@ -1185,7 +1185,7 @@ export function createTransform(deps: TransformDeps) {
         // deliberately fall through to the live-usage path inside the resolver.
         let modelForBudget = deps.liveModelBySession?.get(sessionId);
         // Single pass-local provider resolution for every empty-sentinel producer.
-        // A cold pass may recover the model from OpenCode's DB above; hot passes hit
+        // A cold pass may recover the model from legacy host's DB above; hot passes hit
         // the live map. Reusing this value keeps cold/hot output identical and keeps
         // postprocess from making a divergent provider decision later in the pass.
         const resolvedProviderID = modelForBudget?.providerID;
@@ -1514,7 +1514,7 @@ export function createTransform(deps: TransformDeps) {
         // Session-scoped project identity for note-nudge and auto-search, which
         // must target the SESSION's project — not the launch cwd. `deps.projectPath`
         // is resolved once at hook init from the launch directory; on
-        // `opencode -s <id>` started from a different repo it points at the wrong
+        // `legacy session selector <id>` started from a different repo it points at the wrong
         // project, so note nudges and auto-search would query the launch project's
         // notes/memories. Reuse the memory identity when memory is enabled
         // (identical value, no extra resolve); otherwise resolve from the session
@@ -1561,12 +1561,12 @@ export function createTransform(deps: TransformDeps) {
 
         // Historian trigger decision — relocated here from the message.updated
         // event handler. The event handler has no message array, so it re-read
-        // the session tail from opencode.db on EVERY streaming delta (~186ms of
+        // the session tail from legacy session store on EVERY streaming delta (~186ms of
         // synchronous SQLite per event on a large session, freezing the event
         // loop and making parallel hooks like tool.definition measure seconds).
         // The transform already receives the post-compaction-marker tail —
         // the exact eligible window — as parsed objects, so the inspection runs
-        // from memory with zero opencode.db reads (live-verified byte-identical
+        // from memory with zero legacy session store reads (live-verified byte-identical
         // boundary on every decision field before the cutover). Cadence is
         // once per LLM request (this hook) instead of per streaming delta,
         // which is when the decision inputs actually change. Runs here because
@@ -1715,7 +1715,7 @@ export function createTransform(deps: TransformDeps) {
         //   2. Deterministic: the marker value derives from immutable
         //      message.time.created / time.completed timestamps — same input,
         //      same output, every pass.
-        //   3. Required every pass: OpenCode rebuilds the messages array from
+        //   3. Required every pass: legacy host rebuilds the messages array from
         //      its DB for every transform, so markers must be re-applied on
         //      each pass or they would disappear on defer passes. Skipping
         //      defer passes here would cause the marker to flicker in/out and
@@ -1870,7 +1870,7 @@ export function createTransform(deps: TransformDeps) {
 
         const t3 = performance.now();
         // Empty text part sentinels are safe only for canonical Anthropic, where
-        // OpenCode filters them before the wire. Other providers keep native
+        // legacy host filters them before the wire. Other providers keep native
         // structural parts so an empty text block cannot break tool adjacency.
         const strippedStructuralNoise =
             canUseEmptySentinels && !compactionOff ? stripStructuralNoise(messages) : 0;
@@ -1883,7 +1883,7 @@ export function createTransform(deps: TransformDeps) {
 
         // Replay persisted reasoning clearing on EVERY pass (including defer).
         // This ensures reasoning cleared on a previous cache-busting pass stays cleared
-        // even when OpenCode rebuilds messages fresh from its own DB.
+        // even when legacy host rebuilds messages fresh from its own DB.
         const persistedReasoningWatermark = sessionMeta?.clearedReasoningThroughTag ?? 0;
         if (persistedReasoningWatermark > 0 && !compactionOff) {
             const tReplay = performance.now();
@@ -2290,7 +2290,7 @@ export function createTransform(deps: TransformDeps) {
         //   toolCallTokens     = tool call I/O inside messages
         //                        (tool, tool_use, tool_result, tool-invocation)
         //                        — actionable, can be compacted by ctx_reduce
-        // Tool DEFINITIONS (schemas OpenCode sends in the separate `tools`
+        // Tool DEFINITIONS (schemas legacy host sends in the separate `tools`
         // parameter) are not in messages — they surface as a residual at
         // display time (inputTokens − system − messagesBlock − toolCalls).
         //
@@ -2537,7 +2537,7 @@ export function resolveHistoryBudgetTokens(
     // real history budget — and the decay renderer archived the oldest
     // compartments to fit 60K, then stuck there via cache_hit replay. The
     // resolved limit is available even at percentage=0 (recovered from the
-    // OpenCode DB), so it removes the hole. The live-usage back-derivation is
+    // legacy host DB), so it removes the hole. The live-usage back-derivation is
     // kept only as a last-resort fallback if a limit couldn't be resolved.
     let contextLimit = resolvedContextLimit && resolvedContextLimit > 0 ? resolvedContextLimit : 0;
     if (contextLimit <= 0) {

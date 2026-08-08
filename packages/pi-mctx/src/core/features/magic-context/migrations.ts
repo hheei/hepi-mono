@@ -481,7 +481,7 @@ const MIGRATIONS: Migration[] = [
         description: "Add harness column to notes table for cross-harness sharing",
         // The unified `notes` table was created by migration v1. As of
         // plugin v0.16+ we share `~/.local/share/cortexkit/magic-context/`
-        // between OpenCode and Pi, so every session-scoped table needs to
+        // from external runtimes, so every session-scoped table needs to
         // record which harness wrote each row. All other session-scoped
         // tables get the column via ensureColumn() in initializeDatabase()
         // (which runs before this migration). `notes` is the only table
@@ -566,7 +566,7 @@ const MIGRATIONS: Migration[] = [
         version: 10,
         description: "Add tool_owner_message_id column to tags + composite identity indexes",
         // Tag-owner identity fix (plan v3.3.1). Pre-v10 tool tags were
-        // keyed solely by (session_id, callID), but OpenCode generates
+        // keyed solely by (session_id, callID), but call IDs can repeat
         // callIDs per-turn rather than per-session. When two assistant
         // turns produce a tool with the same internal counter (e.g.
         // `read:32`), the tagger looked up the existing row by callID
@@ -580,7 +580,7 @@ const MIGRATIONS: Migration[] = [
         // (session_id, callID, tool_owner_message_id). Existing rows get
         // NULL owner; the runtime lazy-adopts them on first observation
         // (one-shot adoption per orphan, defense-in-depth) and a
-        // separate backfill pass populates owner from the OpenCode DB
+        // separate backfill pass populated owner from an external session store
         // (primary correctness mechanism).
         //
         // The partial UNIQUE index prevents duplicate composite identity
@@ -1110,7 +1110,7 @@ const MIGRATIONS: Migration[] = [
             // = legacy index-based pi-msg-* ids; >=1 = real-SessionEntry-id scheme.
             // When a session's stored scheme < PI_STABLE_ID_SCHEME, Pi forces one
             // execute+materialize cutover pass (re-tag + re-drop + placeholder
-            // rediscovery) then stamps the new scheme. OpenCode never reads/writes
+            // rediscovery) then stamps the new scheme. Older runtimes never read/write
             // it. Guarded ADD COLUMN: session_meta already exists; SQLite sets
             // existing rows to NULL (treated as scheme 0), not the DEFAULT.
             const rows = db.prepare("PRAGMA table_info(session_meta)").all() as Array<{
@@ -1191,8 +1191,7 @@ const MIGRATIONS: Migration[] = [
             // role + toolCallId + firstTextHash) lets the next pass find the
             // fallback tag and migrate its message_id in place, keeping the
             // tag_number (hence §N§ and all per-tag state) stable. Nullable:
-            // OpenCode never writes it (real id on pass 1), so its rows stay
-            // NULL and adoption never fires.
+            // legacy rows leave it NULL and adoption never fires.
             //
             // Guard on the tags table existing: in production tags is created
             // (migration v1) long before this runs, but partial test fixtures
@@ -2738,6 +2737,45 @@ const MIGRATIONS: Migration[] = [
                     "TEXT NOT NULL DEFAULT 'unknown'",
                 );
             }
+        },
+    {
+        version: 75,
+        description: "remove retired host origin from subagent invocation telemetry",
+        up(db: Database): void {
+            if (!tableExists(db, "subagent_invocations")) return;
+            db.exec(`
+                CREATE TABLE subagent_invocations_next (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  session_id TEXT NOT NULL,
+                  subagent TEXT NOT NULL,
+                  task TEXT,
+                  provider_id TEXT,
+                  model_id TEXT,
+                  started_at INTEGER NOT NULL,
+                  ended_at INTEGER,
+                  status TEXT NOT NULL,
+                  input_tokens INTEGER NOT NULL DEFAULT 0,
+                  output_tokens INTEGER NOT NULL DEFAULT 0,
+                  cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+                  error TEXT,
+                  parent_invocation_id INTEGER
+                );
+                INSERT INTO subagent_invocations_next (
+                  id, session_id, subagent, task, provider_id, model_id,
+                  started_at, ended_at, status, input_tokens, output_tokens,
+                  cache_read_tokens, cache_write_tokens, error, parent_invocation_id
+                ) SELECT id, session_id, subagent, task, provider_id, model_id,
+                  started_at, ended_at, status, input_tokens, output_tokens,
+                  cache_read_tokens, cache_write_tokens, error, parent_invocation_id
+                FROM subagent_invocations;
+                DROP TABLE subagent_invocations;
+                ALTER TABLE subagent_invocations_next RENAME TO subagent_invocations;
+                CREATE INDEX idx_sai_session_started
+                  ON subagent_invocations(session_id, started_at DESC);
+                CREATE INDEX idx_sai_subagent
+                  ON subagent_invocations(subagent, started_at DESC);
+            `);
         },
     },
 ];

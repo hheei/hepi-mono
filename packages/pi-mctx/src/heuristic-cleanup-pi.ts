@@ -1,14 +1,14 @@
 /**
- * Pi-side heuristic cleanup — mirrors OpenCode's `applyHeuristicCleanup`
+ * Pi-side heuristic cleanup — mirrors legacy host's `applyHeuristicCleanup`
  * (packages/plugin/src/hooks/magic-context/heuristic-cleanup.ts).
  *
  * Same four passes, in the same order, with the same DB persistence
  * semantics. The only Pi-specific pieces are:
  *
  *   - Tool fingerprinting walks Pi `AgentMessage[]` instead of
- *     OpenCode `MessageLike[]`. Pi assistant messages carry tool calls
+ *     legacy host `MessageLike[]`. Pi assistant messages carry tool calls
  *     as parts of type `"toolCall"` with `{ id, name, arguments }`.
- *     OpenCode's `extractToolInfo` checks `"tool" | "tool_use" |
+ *     legacy host's `extractToolInfo` checks `"tool" | "tool_use" |
  *     "tool-invocation"` shapes that don't exist in Pi.
  *   - Stale `ctx_reduce` removal also walks Pi shape directly. New discovery is
  *     gated to providers that can safely drop empty sentinels; Pi persists
@@ -18,12 +18,12 @@
  *   - Everything else (drop aged tools, strip system injections from
  *     message tags, age-tier caveman compression) is tag-driven and
  *     uses the shared `TagTarget` interface produced by `tagTranscript`,
- *     so the OpenCode helpers `applyCavemanCleanup` and
+ *     so the legacy host helpers `applyCavemanCleanup` and
  *     `stripSystemInjection` are called as-is — they don't know about
  *     the harness shape.
  *
  * Runs behind the same scheduler-execute / explicit-flush /
- * force-materialization gating as OpenCode (gating is the caller's
+ * force-materialization gating as legacy host (gating is the caller's
  * responsibility — this function unconditionally executes when called).
  *
  * Cache safety: every mutation persists to the DB (`tags.status`,
@@ -60,7 +60,7 @@ import { stripTagPrefix } from "#core/hooks/magic-context/tag-part-guards";
 import { sessionLog } from "#core/shared/logger";
 
 /**
- * Same DEDUP_SAFE_TOOLS list OpenCode uses. Read-only tools whose
+ * Same DEDUP_SAFE_TOOLS list legacy host uses. Read-only tools whose
  * outputs are deterministic given the same input — duplicate calls
  * are wasted context. Anything mutating (write/edit/bash/etc.) is
  * intentionally excluded because two identical calls may have
@@ -88,7 +88,7 @@ export interface PiHeuristicCleanupConfig {
 	/**
 	 * Tiered target-headroom emergency drop (Phase 2). Provided only on the
 	 * derived force-band materialize (cache-busting) pass; undefined on routine execute
-	 * passes (routine age-based tool drops were removed). Mirrors OpenCode's
+	 * passes (routine age-based tool drops were removed). Mirrors legacy host's
 	 * `applyHeuristicCleanup` emergency config.
 	 */
 	emergency?: {
@@ -120,8 +120,8 @@ export interface PiHeuristicCleanupResult {
  * the dedup pass can match fingerprints to tool tags without collapsing
  * cross-owner reused call IDs.
  *
- * Mirrors OpenCode's `buildToolFingerprints` semantics, just with Pi
- * shape: assistant `content: PiToolCall[]` instead of OpenCode
+ * Mirrors legacy host's `buildToolFingerprints` semantics, just with Pi
+ * shape: assistant `content: PiToolCall[]` instead of legacy host
  * `parts: [{ type: "tool_use" | "tool" | "tool-invocation", ... }]`.
  */
 function buildPiToolFingerprints(
@@ -192,7 +192,7 @@ function buildPiToolFingerprints(
 /**
  * Identify stale `ctx_reduce` tool calls by COMPOSITE (owner, callId) identity.
  *
- * A bare-callId match is unsafe: Pi/OpenCode can reuse a tool callId across
+ * A bare-callId match is unsafe: Pi/legacy host can reuse a tool callId across
  * assistant turns (the reason tool tags carry tool_owner_message_id), so a stale
  * ctx_reduce call in an OLD assistant message must NOT cause a FRESH ctx_reduce
  * reusing the same callId in a recent turn to be dropped. We key by
@@ -241,12 +241,12 @@ function collectStaleReduceCallIds(
 }
 
 /**
- * Apply heuristic cleanup to a Pi session. Mirrors OpenCode's
+ * Apply heuristic cleanup to a Pi session. Mirrors legacy host's
  * `applyHeuristicCleanup` 1:1 in semantics; differences are limited
  * to message-shape walking for tool fingerprinting (everything else
  * goes through `TagTarget` and shared helpers).
  *
- * Run order matches OpenCode:
+ * Run order matches legacy host:
  *   1. Drop aged tools (or all tools when `dropAllTools=true`).
  *   2. Strip system injections from message tags.
  *   3. Tool dedup (drop older identical calls of read-only tools).
@@ -281,7 +281,7 @@ export function applyPiHeuristicCleanup(
 	};
 
 	// All work in this function short-circuits on `tag.status !== "active"`.
-	// See OpenCode `applyHeuristicCleanup` for the full P0 perf rationale.
+	// See legacy host `applyHeuristicCleanup` for the full P0 perf rationale.
 	const tags = preloadedTags ?? getActiveTagsBySession(db, sessionId);
 	// `maxTag` must reflect the true session max (including dropped/compacted)
 	// so the protected-cutoff window is anchored to the most recent tag
@@ -291,7 +291,7 @@ export function applyPiHeuristicCleanup(
 	const protectedCutoff = maxTag - config.protectedTags;
 	// Stale ctx_reduce removal now uses the protected-tail window (Phase 2
 	// removed the routine age knob); a ctx_reduce call is "stale" once it ages
-	// past the protected tail, mirroring OpenCode's protected-count model.
+	// past the protected tail, mirroring legacy host's protected-count model.
 	const toolAgeCutoff = protectedCutoff;
 
 	let droppedTools = 0;
@@ -304,13 +304,13 @@ export function applyPiHeuristicCleanup(
 	// Replaces the old need-blind aged-drop + dropAllTools nuke. Runs only when
 	// the caller supplies `emergency` (derived force-band cache-busting pass). Selection is
 	// pure (`planEmergencyDrop`); we apply it and advance the persisted watermark
-	// so each tag drops once. Mirrors OpenCode `applyHeuristicCleanup`.
+	// so each tag drops once. Mirrors legacy host `applyHeuristicCleanup`.
 	if (config.emergency) {
 		const emergency = config.emergency;
 		const priorInputSample = getEmergencyInputSample(db, sessionId);
 		// Plan ONLY over tags in the live window that would ACTUALLY reclaim
 		// bytes (canDrop, not mere drop() presence) — keeps the floor math equal
-		// to the on-wire tail and avoids phantom under-evict. Mirrors OpenCode.
+		// to the on-wire tail and avoids phantom under-evict. Mirrors legacy host.
 		const droppableTags = tags.filter(
 			(t) =>
 				t.status === "active" &&

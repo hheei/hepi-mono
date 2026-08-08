@@ -67,7 +67,7 @@ function isSyntheticWireMessage(message: MessageLike): boolean {
 }
 
 /**
- * Resolve OpenCode message ids to the absolute ordinals used by the module.
+ * Resolve legacy host message ids to the absolute ordinals used by the module.
  * The module and shadow lanes must see the same provisional suffix behavior, so
  * this is shared rather than reimplemented by the authority adapter.
  */
@@ -167,7 +167,7 @@ export async function resolveOrdinalsForModule(args: {
         return false;
     });
 
-    // Keep the caller-owned OpenCode objects untouched. A shallow root projection is
+    // Keep the caller-owned legacy host objects untouched. A shallow root projection is
     // sufficient because the encoder only reads nested fields; unlike the old JSON clone,
     // this does not walk or duplicate the full message tree on every pass.
     const annotated: Array<Record<string, unknown>> = new Array(visibleMessages.length);
@@ -201,7 +201,7 @@ export async function resolveOrdinalsForModule(args: {
     }
 
     /**
-     * OpenCode can place an unpersisted synthetic nudge between two persisted
+     * legacy host can place an unpersisted synthetic nudge between two persisted
      * messages in one wire snapshot. It is not part of canonical raw history,
      * so it borrows the preceding canonical ordinal instead of consuming a
      * slot. Only explicit synthetic messages get this exception. A genuine
@@ -520,7 +520,7 @@ function toolCallId(part: Record<string, unknown>, messageId: string, blockIndex
 }
 
 /**
- * Map raw OpenCode parts to the CK block indexes used by the Rust module. The
+ * Map raw legacy host parts to the CK block indexes used by the Rust module. The
  * drop seed must name the same block the module would reduce; counting raw
  * parts is not enough because ignored parts disappear and completed tools
  * become a call/result pair.
@@ -610,7 +610,7 @@ export function encodeMessagesToCk(messages: unknown[]): Array<{
                 : raw;
         const id =
             (typeof info.id === "string" && info.id.length > 0 && info.id) ||
-            `opencode-${crypto.createHash("sha256").update(JSON.stringify(message)).digest("hex").slice(0, 24)}`;
+            `magic-context-${crypto.createHash("sha256").update(JSON.stringify(message)).digest("hex").slice(0, 24)}`;
         const ordinal =
             (typeof raw.absolute_ordinal === "number" && raw.absolute_ordinal) ||
             (typeof info.absolute_ordinal === "number" && info.absolute_ordinal) ||
@@ -687,7 +687,7 @@ export function encodeMessagesToCk(messages: unknown[]): Array<{
                 content.push({
                     kind: {
                         type: "opaque",
-                        source: "opencode",
+                        source: "magic-context",
                         kind: type,
                         raw: part,
                     },

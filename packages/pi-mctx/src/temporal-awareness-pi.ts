@@ -1,8 +1,8 @@
 /**
- * Pi-side temporal-marker injection — mirrors OpenCode's
+ * Pi-side temporal-marker injection — mirrors legacy host's
  * `injectTemporalMarkers` (packages/plugin/src/hooks/magic-context/temporal-awareness.ts).
  *
- * Behaves identically to OpenCode at the agent-visible layer: when the
+ * Behaves identically to legacy host at the agent-visible layer: when the
  * gap between the previous message's effective end time and the current
  * user message's creation time exceeds TEMPORAL_AWARENESS_THRESHOLD_SECONDS
  * (5 minutes), prepends an HTML-comment marker to the user message's
@@ -10,17 +10,17 @@
  *
  * Pi differences:
  *   - Pi messages carry a single `timestamp` (number, ms epoch). Pi has
- *     no separate created/completed fields the way OpenCode does — the
+ *     no separate created/completed fields the way legacy host does — the
  *     timestamp is when the message was emitted. We use that for both
  *     "previous end time" and "current creation time", which is the
- *     same effective behavior OpenCode falls back to for non-completed
+ *     same effective behavior legacy host falls back to for non-completed
  *     messages (see effectiveEndMs in temporal-awareness.ts).
  *   - Pi user messages have `content: string | (TextContent | ImageContent)[]`.
  *     We mutate the first text content (or convert string → array+text).
  *
  * Idempotent: re-injecting on a later transform pass detects existing
- * markers via the same regex OpenCode uses and skips. Safe to run on
- * every pass (intentional — same as OpenCode, see transform.ts:648).
+ * markers via the same regex legacy host uses and skips. Safe to run on
+ * every pass (intentional — same as legacy host, see transform.ts:648).
  */
 
 import {
@@ -47,7 +47,7 @@ type PiAgentMessage = PiUserMessage | PiOtherMessage;
 
 /**
  * Inject HTML-comment gap markers into Pi user messages. Mirrors
- * OpenCode's `injectTemporalMarkers` 1:1 in agent-visible behavior;
+ * legacy host's `injectTemporalMarkers` 1:1 in agent-visible behavior;
  * differences are limited to the message-shape walking and write
  * back into Pi's content union.
  *
@@ -65,7 +65,7 @@ export function injectPiTemporalMarkers(messages: unknown[]): number {
 
 		const currTimestamp = msg.timestamp;
 		// Compute gap from previous-any-role message → current user message.
-		// Matches OpenCode: any role triggers the "previous time" baseline,
+		// Matches legacy host: any role triggers the "previous time" baseline,
 		// only user role receives the marker.
 		if (
 			prevTimestampMs !== undefined &&

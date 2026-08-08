@@ -1085,8 +1085,7 @@ export function resetLastNudgeCycleIfTailShrank(
 //   'claimed'  — a delivery attempt is in flight (CAS-claimed before send);
 //                `channel2_nudge_claimed_at` stores the lease timestamp so boot
 //                recovery only rewinds stale claims, never a live sibling send.
-//                OpenCode also writes `channel2_nudge_claim_token` so a slow
-//                sender cannot confirm a lease after another process heals and
+//                A slow sender cannot confirm a lease after another process heals and
 //                re-delivers it.
 //   'delivered'— confirmed sent; the one ceiling nudge is consumed (terminal)
 // On send failure the caller reverts 'claimed' -> 'pending' so a transient error
@@ -1920,7 +1919,7 @@ export interface PersistedCompactionMarkerState {
     summaryPartId: string;
     /** The raw ordinal at which the boundary was set */
     boundaryOrdinal: number;
-    /** OpenCode message id of the compartment target used to resolve this marker. */
+    /** Message id of the compartment target used to resolve this marker. */
     targetEndMessageId: string | null;
 }
 
@@ -2009,7 +2008,7 @@ export function setStrippedPlaceholderIds(db: Database, sessionId: string, ids: 
 
 /**
  * Compare-and-swap a delta (add/remove) onto the persisted stripped-placeholder
- * set, retrying on a concurrent write so sibling OpenCode/Pi processes sharing
+ * set, retrying on a concurrent write so sibling processes sharing
  * the session DB merge instead of clobbering each other's discovered IDs.
  *
  * The mutation is expressed as a delta (not a whole-set overwrite) precisely so
@@ -2205,7 +2204,7 @@ export function addProcessedImageStrippedIds(
  * own copy so concurrent publishers don't double-clear.
  *
  * `endMessageId` lets the consuming pass validate the marker target is still
- * present (raw OpenCode message + compartment row), then write
+ * present (raw message + compartment row), then write
  * `PersistedCompactionMarkerState` and clear pending atomically.
  *
  * Stored as a JSON string via `stableStringify` for byte-identical CAS.
@@ -2216,7 +2215,7 @@ export function addProcessedImageStrippedIds(
 export interface PendingCompactionMarker {
     /** Raw ordinal at which the marker should land. */
     ordinal: number;
-    /** OpenCode message ID at the end of the compartment target. */
+    /** Message ID at the end of the compartment target. */
     endMessageId: string;
     /** Unix ms of publication. Diagnostic only; used by doctor stale-pending checks. */
     publishedAt: number;

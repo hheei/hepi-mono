@@ -2,10 +2,10 @@
  * Pi-side raw session reader.
  *
  * Reads from `pi.sessionManager.getBranch()` and produces the same
- * `RawMessage[]` shape OpenCode uses for historian input. The shared
+ * `RawMessage[]` shape legacy host uses for historian input. The shared
  * `read-session-formatting.ts` and `read-session-chunk.ts` modules
  * are duck-typed against `parts: unknown[]` with specific field
- * conventions, so by synthesizing OpenCode-compatible parts here we
+ * conventions, so by synthesizing legacy host-compatible parts here we
  * reuse 100% of the formatting/chunking/trigger logic unchanged.
  *
  * # Shape mapping
@@ -26,10 +26,10 @@
  *
  * Mapping:
  *   - User & assistant messages each become one RawMessage with parts
- *     synthesized in OpenCode's shape.
+ *     synthesized in legacy host's shape.
  *   - ToolResult messages get folded into the IMMEDIATELY-FOLLOWING
  *     user message as `{ type: "tool", tool, callID, state: { output } }`
- *     parts. This matches OpenCode's convention: tool results live in
+ *     parts. This matches legacy host's convention: tool results live in
  *     the next user turn, paired by callID with the assistant's
  *     prior tool_use parts.
  *   - When a tool-result run has no following user message (live tail
@@ -61,7 +61,7 @@
  *   1. Compartments preserve a structured XML view of older turns
  *      (categorized facts, ranges, dates) that Pi's monolithic
  *      summary text can't.
- *   2. Cross-harness consistency: OpenCode users see the same
+ *   2. Cross-harness consistency: legacy host users see the same
  *      `<session-history>` shape regardless of which harness ran the
  *      historian.
  *   3. Pi's compaction lives in the session JSONL file; magic-context
@@ -236,7 +236,7 @@ function getToolCallIds(content: unknown): Set<string> {
 }
 
 /**
- * Read the active Pi session branch and synthesize an OpenCode-shape
+ * Read the active Pi session branch and synthesize an legacy host-shape
  * RawMessage[]. Returns an empty array if no branch is available.
  *
  * The function is pure given `getBranch()` is pure (which it is — Pi
@@ -275,7 +275,7 @@ export function readPiSessionMessages(ctx: ExtensionContext): RawMessage[] {
  * NOT be detected — leaking the previous model's detected-context-limit /
  * reasoning-watermark / historian-failure state into the new model. Seeding from
  * the JSONL lets the first-pass model-change comparison fire correctly. Mirrors
- * OpenCode seeding liveModelBySession from the latest assistant message's model.
+ * legacy host seeding liveModelBySession from the latest assistant message's model.
  *
  * Returns undefined when the branch has no model_change entry (older sessions /
  * edge cases) — the caller then leaves previousModelKey undefined, preserving
@@ -391,7 +391,7 @@ export function convertEntriesToRawMessages(entries: unknown[]): RawMessage[] {
 		if (role === "user") {
 			// Fold any pending tool-result parts into THIS user's parts
 			// (they precede the user's own content in real conversation
-			// order, matching OpenCode's flow).
+			// order, matching legacy host's flow).
 			const version = rawEntryVersion(entry);
 			const parts: unknown[] = [
 				...pendingToolParts,
@@ -488,7 +488,7 @@ function isMessageEntry(value: unknown): value is MessageEntry {
 
 /**
  * User content can be `string` or `(TextContent | ImageContent)[]`.
- * Synthesize OpenCode-shape `{ type: "text", text }` parts (image
+ * Synthesize legacy host-shape `{ type: "text", text }` parts (image
  * parts are dropped — historian ignores them anyway).
  */
 function synthesizeUserParts(msg: unknown): unknown[] {
@@ -551,7 +551,7 @@ function synthesizeAssistantParts(msg: unknown): unknown[] {
 /**
  * ToolResult content is `(TextContent | ImageContent)[]`. We collapse
  * to a single `{ type: "tool", tool, callID, state: { output } }`
- * part, joining text fragments. The OpenCode formatting layer expects
+ * part, joining text fragments. The legacy host formatting layer expects
  * one tool part per call result; multiple text fragments inside one
  * ToolResultMessage are concatenated.
  */

@@ -4,7 +4,7 @@
  * Magic Context's transform pipeline operates on messages in a specific
  * shape: ordered messages with role-tagged parts (text, tool, reasoning,
  * tool_result, image), where tagging, sentinel stripping, and queued-drop
- * application MUTATE part content in-place. OpenCode's plugin transform
+ * application MUTATE part content in-place. legacy host's plugin transform
  * receives a `{ info, parts: unknown[] }[]` array and the AI SDK reads
  * those mutations directly. Pi's `pi.on("context", ...)` event delivers a
  * `AgentMessage[]` and accepts a fully-replaced array as the result.
@@ -16,7 +16,7 @@
  *
  *   1. Exposes ordered messages with a *uniform* part-level mutation
  *      surface, regardless of underlying shape.
- *   2. Is owned by the harness — OpenCode's adapter mutates `parts[]`
+ *   2. Is owned by the harness — legacy host's adapter mutates `parts[]`
  *      directly (zero copies), Pi's adapter rebuilds an `AgentMessage[]`
  *      from the mutated transcript only at commit time.
  *   3. Lets the shared transform code (tagging, stripping, drops)
@@ -33,14 +33,14 @@
  *
  * - **No mutation semantics divergence.** Both adapters expose the same
  *   in-place mutation API (`setText`, `setOutput`, `replaceWithSentinel`).
- *   Whether mutation flushes to the source array immediately (OpenCode)
+ *   Whether mutation flushes to the source array immediately (legacy host)
  *   or accumulates until `commit()` (Pi) is the adapter's concern.
  *
  * - **No session-storage abstraction.** Compartment storage, ordinals,
  *   raw-history reads — those live in feature modules, not here. The
  *   transcript only models the *current turn's* live message buffer.
  *
- * Step 4b.1 ships ONLY the interface and OpenCode adapter migration.
+ * Step 4b.1 ships ONLY the interface and legacy host adapter migration.
  * Pi adapter implementation lands in 4b.2 alongside the Pi context-event
  * wire-up, since the two are co-designed (the Pi adapter has to satisfy
  * the same operations the tagging code calls). 4b.3 wires the Pi
@@ -67,7 +67,7 @@ export type TranscriptPartKind =
  * harness adapter implements these against its native part type.
  *
  * IMPORTANT: implementations are stateful proxies over the live source
- * data. Calling `setText("...")` on an OpenCode part mutates the
+ * data. Calling `setText("...")` on an legacy host part mutates the
  * underlying `Part.text`; calling it on a Pi part flips a dirty flag and
  * the adapter's `commit()` rebuilds the affected `AgentMessage`. Either
  * way, the transcript code reads back consistent values via `getText()`.
@@ -78,7 +78,7 @@ export interface TranscriptPart {
 
     /**
      * Best-effort identifier for cross-pass tracking. May be:
-     * - OpenCode part ID (e.g. "prt_..."), stable across passes.
+     * - legacy host part ID (e.g. "prt_..."), stable across passes.
      * - Pi tool-call ID for tool_use/tool_result parts.
      * - undefined for synthetic/structural parts.
      *
@@ -190,13 +190,13 @@ export interface TranscriptMessage {
      * cross-pass correlation. Adapters fill these from harness-native
      * fields:
      *
-     * - id: provider-stable message ID (OpenCode `msg_...`, Pi entryId).
+     * - id: provider-stable message ID (legacy host `msg_...`, Pi entryId).
      * - role: "user" | "assistant" | "system" | "tool" | other custom roles.
      * - sessionId: session identifier, used to scope DB writes.
      *
      * IMPORTANT for Pi: Pi's `ToolResultMessage` has role "toolResult"
-     * which the OpenCode-derived transform code expects to NOT be present
-     * (OpenCode folds tool results into the next user message's parts).
+     * which the legacy host-derived transform code expects to NOT be present
+     * (legacy host folds tool results into the next user message's parts).
      * The Pi adapter therefore exposes tool-result messages as parts of a
      * synthetic "user" message in the transcript view, even though the
      * underlying Pi storage has them as separate top-level entries. This
@@ -212,7 +212,7 @@ export interface TranscriptMessage {
  * Adapter contract: everything the transform pipeline calls on a
  * harness-specific transcript implementation.
  *
- * Adapters are owned by the harness adapter layer (OpenCode's
+ * Adapters are owned by the harness adapter layer (legacy host's
  * messages-transform.ts, Pi's context-event handler). The shared
  * transform code receives a Transcript and operates only through this
  * interface — it never imports from a host SDK or `@earendil-works/pi-ai`.
@@ -223,18 +223,18 @@ export interface Transcript {
 
     /**
      * Adapter identification. Useful for:
-     * - Logging (`magic-context[opencode]` vs `magic-context[pi]`).
-     * - Per-harness behaviors gated at adapter level (e.g. opencode-only
+     * - Logging (`magic-context[legacy host]` vs `magic-context[pi]`).
+     * - Per-harness behaviors gated at adapter level (e.g. legacy host-only
      *   compaction marker injection).
      * - Test assertions confirming the right adapter ran.
      */
-    readonly harness: "opencode" | "pi";
+    readonly harness: "pi";
 
     /**
      * Commit accumulated mutations to the underlying source array.
      *
-     * For OpenCode: no-op — parts are mutated directly in `Part.text`/
-     * `Part.state.output` and OpenCode reads them back from the same
+     * For legacy host: no-op — parts are mutated directly in `Part.text`/
+     * `Part.state.output` and legacy host reads them back from the same
      * array, so changes are already visible.
      *
      * For Pi: rebuilds a new `AgentMessage[]` from the dirty messages
@@ -250,11 +250,11 @@ export interface Transcript {
 /**
  * Sentinel marker for transcript parts that should be ignored by all
  * downstream transform stages (tagging, drops, indexing). Adapters set
- * this on parts that exist only as structural artifacts (e.g. OpenCode's
+ * this on parts that exist only as structural artifacts (e.g. legacy host's
  * `step-start`/`step-finish`).
  *
  * Exported so harness adapters can stamp it on synthetic parts they
  * create internally and so test fixtures can construct synthetic
- * transcripts without needing real OpenCode/Pi structures.
+ * transcripts without needing real legacy host/Pi structures.
  */
 export const STRUCTURAL_SENTINEL_KIND: TranscriptPartKind = "structural";

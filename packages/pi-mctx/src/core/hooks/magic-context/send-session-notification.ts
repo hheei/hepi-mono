@@ -101,8 +101,7 @@ async function sendIgnoredMessageNow(
     }
 
     // Check again immediately before constructing the prompt. This prevents an
-    // active run that began during title lookup or prompt-context resolution
-    // from receiving a new user row.
+    // active run that began during title lookup from receiving a new user row.
     if (midTurnDetector(sessionId)) {
         queueIgnoredNotification({ client, sessionId, text, params, forcePersist });
         return "queued";
@@ -114,54 +113,12 @@ async function sendIgnoredMessageNow(
     }
     const c = client;
 
-    // Pin the prompt context (agent + model + variant) to the session's most
-    // recent real turn. WHY: even though this is `noReply: true` (no assistant
-    // turn fires now), Pi records prompt context on the appended user message;
-    // that becomes active on the next real turn. Pinning the latest real values
-    // prevents a notification from switching the model or agent.
-    //
-    // Caller-supplied params win; otherwise resolve from the last assistant
-    // turn. We only pin values actually resolved from real messages (never a
-    // synthesized default), and resolution failures degrade to "pin nothing"
-    // (today's behavior) — so a fresh/empty session is never made worse.
     let agent = params.agent || undefined;
     let variant = params.variant || undefined;
-    let model =
+    const model =
         params.providerId && params.modelId
             ? { providerID: params.providerId, modelID: params.modelId }
             : undefined;
-    if (!agent || !model || !variant) {
-        try {
-            const { resolvePromptContext } = await import("../../shared/prompt-context");
-            const resolved = await resolvePromptContext(client, sessionId);
-            if (resolved) {
-                agent = agent ?? resolved.agent;
-                model = model ?? resolved.model;
-                variant = variant ?? resolved.variant;
-            }
-        } catch {
-            // Resolution is best-effort; on failure fall back to whatever the
-            // caller passed (possibly nothing) rather than blocking the notice.
-        }
-    }
-
-    // The context lookup above can yield to a newly started run. Check directly
-    // before the SDK call so the final mutation gate covers that last window too.
-    if (midTurnDetector(sessionId)) {
-        queueIgnoredNotification({ client, sessionId, text, params, forcePersist });
-        return "queued";
-    }
-
-    const input = {
-        path: { id: sessionId },
-        body: {
-            // noReply prevents this status line from starting a new model loop.
-            // It does not make appending during an active loop safe; the caller
-            // defers while mid-turn, which is the separate safety gate.
-            noReply: true,
-            agent,
-            model,
-            variant,
             parts: [
                 {
                     type: "text",

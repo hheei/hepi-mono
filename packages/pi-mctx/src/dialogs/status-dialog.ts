@@ -39,7 +39,7 @@ import { resolvePiUsableContextLimit } from "../pi-context-limit";
 import { isPiRecompInFlight } from "../pi-recomp-runner";
 
 // Mirror packages/plugin/src/tui/slots/sidebar-content.tsx COLORS so the Pi
-// dialog and the OpenCode sidebar render the same category palette.
+// dialog surfaces render the same category palette.
 const COLORS = {
 	system: "#c084fc", // Purple
 	docs: "#22d3ee", // Cyan — <project-docs>
@@ -430,7 +430,7 @@ export function buildPiStatusDetail(
 	const memoryBlockCount = Number(metaRow?.memory_block_count ?? 0);
 
 	// v2 m[0] per-block attribution via the SHARED core helper so the Pi dialog
-	// renders byte-identical categories to OpenCode's sidebar (Docs / User
+	// renders stable categories (Docs / User
 	// Profile / Memories / Compartments measured from the real cached_m0 slice;
 	// Facts retired → 0). Falls back to Σp1 / on-demand v2 memory render cold.
 	const m0Bytes = metaRow?.cached_m0_bytes;
@@ -494,7 +494,7 @@ export function buildPiStatusDetail(
 	// Tool definition tokens: serialize each registered tool the way Pi sends
 	// them to providers — name + description + JSON-stringified parameter
 	// schema. This is a structural estimate (not the exact wire payload), but
-	// matches OpenCode's calibrated bucket within a reasonable margin.
+	// matches the calibrated bucket within a reasonable margin.
 	let toolDefinitionTokens = 0;
 	try {
 		const tools = pi.getAllTools?.() ?? [];
@@ -661,7 +661,7 @@ function breakdownSegments(s: StatusDialogDetail): Array<{
 		color: string;
 		detail?: string;
 	}> = [];
-	// Category order/labels/colors mirror OpenCode's sidebar
+	// Category order/labels/colors use the established sidebar
 	// (packages/plugin/src/tui/slots/sidebar-content.tsx) for cross-harness
 	// parity. v2: Facts is retired (promoted to memories); Docs and User Profile
 	// are their own m[0] buckets.

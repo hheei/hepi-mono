@@ -83,7 +83,7 @@ export interface PreparedCompartmentInjection {
  * historian/compressor/recomp write new compartments or facts.
  *
  * Bounded LRU: session.deleted clears entries explicitly, but sessions that
- * are never deleted (crashed OpenCode, force-quit, archived sessions) would
+ * are never deleted (crashed legacy host, force-quit, archived sessions) would
  * otherwise leak PreparedCompartmentInjection objects holding tens of KB of
  * XML each. 100 is generously above any realistic working set of active
  * sessions — evicted entries are simply recomputed on the next cache-busting
@@ -338,7 +338,7 @@ export function prepareCompartmentInjection(
                     messages.splice(0, messages.length, ...remaining);
                 } else {
                     // Boundary message not in array — covered messages were already
-                    // trimmed by OpenCode (compaction, old history not sent). The splice
+                    // trimmed by legacy host (compaction, old history not sent). The splice
                     // is effectively a no-op because there's nothing to splice out.
                     // Keep the cached injection so <session-history> stays stable on
                     // defer passes instead of alternating between injected/not-injected.
@@ -392,7 +392,7 @@ export function prepareCompartmentInjection(
             // Swallow SQLITE_BUSY: the cache is a pure optimization (the block itself
             // is already computed and returned below). If another writer holds the DB
             // past busy_timeout=5s — typically a concurrent dreamer/historian child
-            // session or a second OpenCode process — we'd rather let the transform
+            // session or a second legacy host process — we'd rather let the transform
             // proceed with a one-turn cache miss than crash the user's prompt.
             // Issue: https://github.com/cortexkit/magic-context/issues/23
             try {
@@ -425,7 +425,7 @@ export function prepareCompartmentInjection(
 
     let dateRanges: CompartmentDateRanges | undefined;
     if (temporalAwareness && compartments.length > 0) {
-        // Resolve start/end message times from OpenCode's DB in a single batched query.
+        // Resolve start/end message times from legacy host's DB in a single batched query.
         const ids = new Set<string>();
         for (const c of compartments) {
             if (c.startMessageId) ids.add(c.startMessageId);
@@ -651,7 +651,7 @@ export function renderCompartmentInjection(
     if (!firstMessage || !textPart || isDroppedPlaceholder(textPart.text)) {
         prependedMessageCount = 1;
         // synthetic: true — injected context, not a real user turn. Keeps it out
-        // of OpenCode's auto-title gate (issue #129) while still reaching the
+        // of legacy host's auto-title gate (issue #129) while still reaching the
         // model (toModelMessagesEffect filters `ignored`, not `synthetic`).
         messages.unshift({
             info: { role: "user", sessionID: sessionId },
@@ -856,14 +856,14 @@ export class RenderM1InvalidMarkersError extends Error {
 }
 
 // Compartment already carries p1..p4, importance, episodeType, legacy (v2 model B).
-// Boundary dates are render-only values resolved from OpenCode's message database.
+// Boundary dates are render-only values resolved from legacy host's message database.
 type M0Compartment = Compartment & {
     startDate?: string | null;
     endDate?: string | null;
 };
 
 /**
- * The boundary (OpenCode message id) covered by a compartment set rendered into
+ * The boundary (legacy host message id) covered by a compartment set rendered into
  * m[0]+m[1] — the highest-sequence compartment's end message id, or null when
  * there are none / the latest has no stored boundary (legacy rows). The input
  * is ordered `sequence ASC`, so the last element is the latest compartment.
@@ -1722,7 +1722,7 @@ function nullableString(value: unknown): string | null {
 }
 
 /**
- * Resolve every boundary in one OpenCode DB query for a fresh m[0] or m[1] render.
+ * Resolve every boundary in one legacy host DB query for a fresh m[0] or m[1] render.
  * Callers invoke this only on existing materialize/refresh paths; defer passes replay
  * persisted bytes without consulting live timestamps.
  */
@@ -1875,7 +1875,7 @@ function renderUserProfileBlock(memories: UserMemory[], wrapper = "user-profile"
 /**
  * v2 decayed session-history rendering delegates entirely to the shared
  * `decay-render` module (which uses the validated `decay-curve` formula). This
- * keeps OpenCode and Pi byte-identical and ensures the council-validated decay
+ * keeps legacy host and Pi byte-identical and ensures the council-validated decay
  * math is the single source of truth — no local approximation lives here.
  *
  * Facts are NOT a render input (v2 faithful: facts = promoted memories).
@@ -2819,7 +2819,7 @@ function prependM0M1Messages(
     // `syntheticHead` identifies the injected m0 and m1 message positions for
     // marker placement; `synthetic: true` marks their parts as injected context,
     // not real user turns.
-    // OpenCode's `toModelMessagesEffect` filters on `ignored` (NOT `synthetic`),
+    // legacy host's `toModelMessagesEffect` filters on `ignored` (NOT `synthetic`),
     // so the blocks STILL reach the model — but its title-generation gate
     // (`ensureTitle`) counts a message as a real user turn only when not every
     // part is synthetic, and skips titling unless exactly one real user message

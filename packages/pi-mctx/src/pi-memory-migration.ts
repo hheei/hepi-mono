@@ -14,10 +14,10 @@ import { sessionLog } from "#core/shared/logger";
 import type { SubagentRunner } from "#core/shared/subagent-runner";
 
 /**
- * Pi memory migration (E6c parity with OpenCode E3.2).
+ * Pi memory migration (E6c parity with legacy host E3.2).
  *
  * Re-evaluates the project's memories into the v2 5-category taxonomy using the
- * Pi historian subagent runner directly (no OpenCode-client emulation needed).
+ * Pi historian subagent runner directly (no legacy host-client emulation needed).
  * Reuses the shared pure pieces (prompt builder, parser, apply, once-per-project
  * guard). Idempotent + project-scoped — runs at most once per project.
  */
@@ -32,7 +32,7 @@ export interface PiMemoryMigrationDeps {
 	model: string;
 	/**
 	 * Optional session MAIN model to run the migration on FIRST (parity with
-	 * OpenCode's `primaryModelId`). The migration is a quality-sensitive
+	 * legacy host's `primaryModelId`). The migration is a quality-sensitive
 	 * consolidation, so the user's working interactive model — typically
 	 * stronger and guaranteed-present — should lead, with `model` (historian)
 	 * and `fallbackModels` as the safety net behind it. When omitted the chain
@@ -83,7 +83,7 @@ export async function runPiMemoryMigration(
 	// left untouched (see applyMemoryMigration). Load the EXACT set we mutate —
 	// all active rows including expired (getAllActiveMemoriesForMigration), so the
 	// prompt and the destructive apply operate on the same set (parity with
-	// OpenCode; fixes the expired-survivor partial-wipe bug).
+	// legacy host; fixes the expired-survivor partial-wipe bug).
 	const memories = getAllActiveMemoriesForMigration(deps.db, projectPath);
 	if (memories.length === 0) {
 		markMemoryMigrationDone(deps.db, projectPath);
@@ -102,13 +102,13 @@ export async function runPiMemoryMigration(
 	//
 	// Chain head = primaryModel when provided (the upgrade path passes the
 	// session MAIN model), ELSE the historian model — NOT both. This exactly
-	// mirrors OpenCode's `[primaryModelId ?? historian-default, ...fallbackModels]`
+	// mirrors legacy host's `[primaryModelId ?? historian-default, ...fallbackModels]`
 	// (memory-migration.ts:321): the historian model is the head ONLY when no
 	// session-model primary is given, never an always-present 2nd element.
 	// Inserting `model` (historian) between primary and fallbacks would make Pi
-	// run a different 2nd model than OpenCode on the rare primary-failure path —
+	// run a different 2nd model than legacy host on the rare primary-failure path —
 	// and for a misconfigured historian (e.g. an empty-returning provider) it
-	// would waste an attempt on a model OpenCode never tries. Then the configured
+	// would waste an attempt on a model legacy host never tries. Then the configured
 	// fallbacks. Each de-duplicated.
 	const modelChain: string[] = [];
 	const seenModels = new Set<string>();
@@ -173,7 +173,7 @@ export async function runPiMemoryMigration(
 		};
 	}
 
-	// SAFETY (parity with OpenCode runMemoryMigration): a parsed <migrated> block
+	// SAFETY (parity with legacy host runMemoryMigration): a parsed <migrated> block
 	// with ZERO recognized v2-category memories is NOT a successful migration —
 	// applying it would hard-delete the whole active pool and insert nothing (root
 	// cause, dogfood 2026-05-31). Refuse the destructive apply AND do NOT set the
@@ -210,7 +210,7 @@ export async function runPiMemoryMigration(
 	}
 
 	// Apply the destructive rewrite AND set the done-guard atomically (parity with
-	// OpenCode). Separate, a crash between them leaves the project migrated-to-v2
+	// legacy host). Separate, a crash between them leaves the project migrated-to-v2
 	// but UNGUARDED, so a retry re-migrates v2 rows. A nested db.transaction() runs
 	// as a savepoint, so applyMemoryMigration's inner transaction still works.
 	const { removed, inserted } = deps.db.transaction(() => {

@@ -91,7 +91,6 @@ Remember: output only the JSON object described by the system prompt.`;
         recordChildInvocation({
             db: args.db,
             parentSessionId: args.parentSessionId,
-            harness: "opencode",
             // Dashboard token rollups group dream-task invocations under the
             // historical dreamer bucket. The session.prompt agent is still the
             // no-tool smart-note compiler.

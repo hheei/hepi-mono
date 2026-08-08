@@ -63,7 +63,7 @@ export interface CompartmentTriggerResult {
  * In-memory tail source for the trigger — the transform's `args.messages`
  * converted to absolute-ordinal RawMessages (via `buildInMemoryTailRawMessages`
  * with `anchorFound=true`). When supplied, the tail inspection primes the
- * raw-message cache from memory and performs ZERO opencode.db reads on the hot
+ * raw-message cache from memory and performs ZERO legacy session store reads on the hot
  * path. Callers must only pass an ANCHORED conversion — an unanchored one has
  * assumed ordinals; leave it undefined to fall through to the DB-primed path.
  */
@@ -73,7 +73,7 @@ export interface InMemoryTailSource {
 }
 
 /**
- * Wire capability for projecting reclaimable reasoning bytes. OpenCode derives
+ * Wire capability for projecting reclaimable reasoning bytes. legacy host derives
  * this from the provider's empty-sentinel support; Pi overrides it because its
  * serializers safely omit cleared thinking for every provider.
  */
@@ -103,7 +103,7 @@ function getActiveOrDroppedTagOwnerMessageIds(
     sessionId: string,
     floor = 0,
 ): Set<string> {
-    // floor > 0 (OpenCode) scopes to the live-wire range (tag_number >= floor) —
+    // floor > 0 (legacy host) scopes to the live-wire range (tag_number >= floor) —
     // the same scoping the other two cheap-gate tag scans use. This set is only
     // consumed to mark which IN-MEMORY TAIL messages are already tag-covered (so
     // the cheap-gate's per-message estimate charges only uncovered ones). Every
@@ -165,7 +165,7 @@ function estimateUntaggedInMemoryTailUpperBound(
  * applying the anchored-only gate:
  *
  * - Compartments exist + boundary has a message id → require the anchor to be
- *   FOUND in the array (`anchorFound`). OpenCode's `filterCompacted` stops at
+ *   FOUND in the array (`anchorFound`). legacy host's `filterCompacted` stops at
  *   our compaction marker (the boundary message), so the anchor is normally the
  *   array head; when the marker drain lags, the anchor sits a few messages in
  *   and the converter drops the already-compartmentalized prefix. If it isn't
@@ -317,7 +317,7 @@ function getUnsummarizedTailInfo(
         try {
             // Prime the scoped cache from MEMORY when the transform supplied its
             // own `args.messages` tail (live-verified byte-identical to the DB
-            // read on every boundary decision field) — zero opencode.db reads.
+            // read on every boundary decision field) — zero legacy session store reads.
             // Otherwise prime with the TAIL-ONLY DB read so the boundary
             // resolution and chunk scan below read only messages after the last
             // compartment — never the whole session (the O(session) read that
@@ -452,7 +452,7 @@ export function checkCompartmentTrigger(
         }
     }
 
-    // Tag load-scoping floor (OpenCode only). Both tag scans below — the pre-gate
+    // Tag load-scoping floor (legacy host only). Both tag scans below — the pre-gate
     // upper-bound sum and the boundary's stored-token map — used to scan the
     // whole session's tags (~100k rows → ~90ms combined every pass) to read data
     // about only the live wire. Scope both reads to `tag_number >= floor`.
@@ -578,7 +578,7 @@ export function checkCompartmentTrigger(
     );
     if (!tailInfo.hasNewRawHistory) {
         // Diagnostic data collection is best-effort. The helpers can throw if
-        // the OpenCode session DB is unavailable (e.g. in unit-test env or
+        // the legacy host session DB is unavailable (e.g. in unit-test env or
         // when the harness has not yet wired a RawMessageProvider). A throw
         // here would propagate to the caller's try/catch and prevent
         // downstream state updates (e.g. session-meta writes in event-handler
@@ -600,7 +600,7 @@ export function checkCompartmentTrigger(
     }
 
     // Never project reclaimed reasoning unless this harness can actually clear
-    // it from the provider wire. The OpenCode fallback shares the sentinel
+    // it from the provider wire. The legacy host fallback shares the sentinel
     // predicate with the postprocess clearing path; Pi explicitly supplies its
     // own provider-independent capability.
     const canClearReasoning =

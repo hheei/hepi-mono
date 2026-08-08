@@ -330,7 +330,7 @@ export function getActiveToolTagsForAgeReclaim(
  * Upper bound on the historian's true-raw ELIGIBLE tokens for the cheap
  * trigger pre-gate. Sums `active` AND `dropped` tags: a ctx_reduce/emergency
  * drop removes a tool output from the wire (and the active set) but its raw
- * content stays in OpenCode's DB and still counts toward the historian's
+ * content stays in legacy host's DB and still counts toward the historian's
  * chunk size — an active-only bound undercounts after drops and wrongly
  * suppresses real tail-size triggers. `compacted` tags are excluded: they sit
  * before the last compartment boundary by construction, so they can't be in
@@ -343,7 +343,7 @@ export function getTriggerTagTokenUpperBound(
     sessionId: string,
     floor = 0,
 ): { bound: number; nullCount: number } {
-    // floor > 0 (OpenCode) restricts to the live-wire range (tag_number >= floor).
+    // floor > 0 (legacy host) restricts to the live-wire range (tag_number >= floor).
     // The bound is an UPPER BOUND on the historian's eligible-tail tokens; the
     // eligible tail ⊆ the live wire, so the scoped sum is still a valid (tighter,
     // more accurate) upper bound. Critically it also fixes nullCount: pre-floor
@@ -504,7 +504,7 @@ export function getPersistedToolTagAccounting(
  * real message id. Sums every tag's stored token weight (output + input +
  * reasoning) for a message REGARDLESS of drop status, because the boundary
  * measures true-raw tokens — the original content the historian re-reads to
- * compact, which lives in opencode.db even when the wire shows a `[dropped]`
+ * compact, which lives in legacy session store even when the wire shows a `[dropped]`
  * sentinel. (An active-only sum would undercount the eligible range whenever a
  * tool output had been ctx_reduce-dropped in the live tail.)
  *
@@ -519,13 +519,13 @@ export function getAllStatusTagTokenTotalsFlat(
     sessionId: string,
     floor = 0,
 ): { totals: Map<string, number>; nullMessageIds: Set<string> } {
-    // floor > 0 (OpenCode) loads only the live-wire range (tag_number >= floor):
+    // floor > 0 (legacy host) loads only the live-wire range (tag_number >= floor):
     // tag_number is monotonic with message order, so every tag below the first
     // wire message is compacted-away history the boundary never indexes. The
     // boundary only looks up totals for messages in the live slice (all >= floor
     // by construction), and any excluded slice message degrades to live
     // tokenization of the same content — byte-identical total. floor=0 (Pi, and
-    // the OpenCode no-floor fallback) keeps the full-session scan unchanged.
+    // the legacy host no-floor fallback) keeps the full-session scan unchanged.
     const rows = (
         floor > 0
             ? db
@@ -1486,7 +1486,7 @@ function isMinTagNumberRow(row: unknown): row is MinTagNumberRow {
  *
  * Returns null when the rawId has no message/file tag yet (untagged synthetic
  * leader) or, defensively, when the rawId itself contains ':' (which would
- * break the delimiter proof — never true for OpenCode `msg_*` ids).
+ * break the delimiter proof — never true for legacy host `msg_*` ids).
  */
 export function getMinMessageTagNumberForRawId(
     db: Database,
@@ -1791,7 +1791,7 @@ export function getTopNBySize(db: Database, sessionId: string, n: number): TagEn
 // ─── Tool-owner composite identity helpers (migration v10) ──────────────────
 //
 // Pre-v10 tool tags were keyed by (session_id, callID); collisions on
-// OpenCode's per-turn callID counter could replay drop status onto fresh
+// legacy host's per-turn callID counter could replay drop status onto fresh
 // content. Post-v10 the persistent identity is the triple
 // (session_id, callID, tool_owner_message_id).
 //

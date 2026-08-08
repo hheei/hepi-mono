@@ -22,7 +22,6 @@ export interface LastAssistantModel {
 export interface ChildInvocationRecordInput {
     db: Database | null;
     parentSessionId: string;
-    harness: "opencode" | "pi";
     subagent: SubagentKind;
     startedAt: number;
     endedAt?: number;
@@ -123,7 +122,6 @@ export function recordChildInvocation(input: ChildInvocationRecordInput): number
     try {
         return recordSubagentInvocation(input.db, {
             sessionId: input.parentSessionId,
-            harness: input.harness,
             subagent: input.subagent,
             task: input.task ?? null,
             providerId: model.providerId,

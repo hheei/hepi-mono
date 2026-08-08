@@ -1,6 +1,6 @@
 /**
  * Pi-side reasoning clearing & inline-thinking strip — mirrors
- * OpenCode's `clearOldReasoning`, `replayClearedReasoning`, and
+ * legacy host's `clearOldReasoning`, `replayClearedReasoning`, and
  * `replayStrippedInlineThinking`.
  *
  * Why this matters for Pi:
@@ -10,7 +10,7 @@
  *     model on every pass, wasting tokens AND mutating cached prefix
  *     content if it ever changes shape (e.g. thinking blocks getting
  *     stripped lazily by the provider). Both are exactly what
- *     OpenCode's reasoning-clearing replay was added to fix.
+ *     legacy host's reasoning-clearing replay was added to fix.
  *
  * Behavior:
  *   - On execute passes (cache-busting): walk Pi assistant messages
@@ -22,13 +22,13 @@
  *     reaches any provider.
  *   - On EVERY pass (including defer): replay the cleared state from
  *     the watermark so the message array stays byte-stable — same
- *     contract as OpenCode's `replayClearedReasoning`.
+ *     contract as legacy host's `replayClearedReasoning`.
  *   - Inline `<thinking>...</thinking>` markup in text content is also
  *     stripped on every pass via the same watermark.
  *
  * Providers with `capabilities.interleaved.field` (e.g. Moonshot/Kimi
  * `reasoning_content`) used to need a special bypass to keep typed
- * reasoning intact. OpenCode PR #24146 (preserve empty reasoning_content
+ * reasoning intact. legacy host PR #24146 (preserve empty reasoning_content
  * for DeepSeek V4 thinking mode) made the provider transform always
  * emit the interleaved field — empty when no reasoning parts remain —
  * so the bypass is no longer needed.
@@ -71,8 +71,8 @@ const INLINE_THINKING_PATTERNS = [
 // provider, which structurally eliminates the stale-signature hazard that
 // "[cleared]" + the original signature created on canonical Claude/Bedrock (a
 // content/signature mismatch). The signature is dropped too since the block is
-// discarded everywhere. This is intentionally DIFFERENT from OpenCode, whose
-// non-Anthropic adapters forward empty parts, so OpenCode must keep "[cleared]"
+// discarded everywhere. This is intentionally DIFFERENT from legacy host, whose
+// non-Anthropic adapters forward empty parts, so legacy host must keep "[cleared]"
 // for canonical-anthropic-only and gate the write off elsewhere (see PARITY.md).
 const CLEARED = "";
 
@@ -88,7 +88,7 @@ function stripInlineThinkingMarkup(text: string): string {
  * Build a `messageIdToTagNumber` map from the tagger's `targets` map
  * (returned by `tagTranscript`). For each message that has any tagged
  * part, record the MAX tag number across its parts — same contract
- * OpenCode's `messageTagNumbers` uses (see tag-messages.ts:209).
+ * legacy host's `messageTagNumbers` uses (see tag-messages.ts:209).
  *
  * Only text and tool tags are present in `targets`; thinking parts
  * are not tagged. That's fine: we only need the message's primary
@@ -114,7 +114,7 @@ export function buildMessageIdToMaxTag(
  * number that was actually cleared, so the caller can persist the
  * watermark via `setReasoningWatermark`.
  *
- * Mirrors OpenCode's `clearOldReasoning` (strip-content.ts).
+ * Mirrors legacy host's `clearOldReasoning` (strip-content.ts).
  */
 export function clearOldReasoningPi(args: {
 	messages: unknown[];
@@ -242,7 +242,7 @@ export function stripInlineThinkingPi(args: {
 
 /**
  * Replay typed-reasoning clearing on EVERY pass (execute or defer).
- * Mirrors OpenCode's `replayClearedReasoning` — required for cache
+ * Mirrors legacy host's `replayClearedReasoning` — required for cache
  * stability so the Pi assistant content array stays byte-identical
  * across passes.
  */
@@ -299,7 +299,7 @@ export function replayClearedReasoningPi(args: {
 
 /**
  * Replay inline `<thinking>...</thinking>` stripping on EVERY pass.
- * Mirrors OpenCode's `replayStrippedInlineThinking`. Some providers
+ * Mirrors legacy host's `replayStrippedInlineThinking`. Some providers
  * (e.g. older Anthropic responses, Kimi non-interleaved) emit inline
  * thinking markup inside text content; once we strip it on an
  * execute pass via the same watermark, we must keep stripping on

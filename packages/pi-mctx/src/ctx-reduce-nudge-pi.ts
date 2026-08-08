@@ -3,15 +3,11 @@
 // The metric math is fully shared from `@magic-context/core` — only the
 // harness-specific I/O differs:
 //
-//   Channel 1 (in-turn tool-output nudge): OpenCode appends to a tool's
-//   `output.output` string in `tool.execute.after`; Pi appends a TextContent
-//   block to a `toolResult.content[]` in `pi.on("tool_result")`. Both persist
-//   (OpenCode→DB, Pi→JSONL via `appendMessage` on `message_end`) and replay
-//   verbatim, so both are "free sticky" with no anchor/CAS/replay machinery.
+//   Channel 1 (in-turn tool-output nudge): Pi appends a TextContent
+//   block to a `toolResult.content[]` in `pi.on("tool_result")`. It persists
+//   via `appendMessage` on `message_end`, so it stays sticky with no
 //
-//   Channel 2 (ceiling nudge): OpenCode delivers via the in-process client's
-//   `promptAsync` (which joins the in-flight runner on OpenCode >= 1.17.7). Pi
-//   is single-process, so it just calls the native `pi.sendMessage(..., {
+//   Channel 2 (ceiling nudge): Pi uses native `pi.sendMessage`.
 //   deliverAs })` as a hidden custom message (`display:false`). The
 //   `channel2_nudge_state` lease is kept both to enforce the one-nudge-per-
 //   session cap and because the intent is recorded at one point in the pipeline
@@ -68,8 +64,7 @@ function sealDeliveredAfterUnconfirmedSend(
 
 // Per-session Channel 1 metric baseline. Written at the end of each pipeline
 // pass (post-drop), read in the `tool_result` handler. Primary-only: subagents
-// never get a baseline, which is how Channel 1 stays off for them (matches
-// OpenCode's `channel1StateBySession` gating).
+
 const channel1StateBySession = new Map<string, Channel1State>();
 
 export function setPiChannel1Baseline(
@@ -121,8 +116,7 @@ function toolResultText(content: readonly unknown[]): string {
 
 /**
  * Sum approximate tokens of non-dropped tool output across Pi messages. Pi tool
- * output lives in `toolResult.content[].text` (not OpenCode's
- * `parts[].state.output`); the math is the shared `tailToolTokensFromStrings`.
+ * output lives in `toolResult.content[].text`; the math is shared.
  * `messages` is the post-injection wire array, already trimmed to the live tail.
  */
 export function computeTailToolTokensPi(messages: readonly unknown[]): number {
@@ -211,7 +205,7 @@ export function computeTailTokenEstimatePi(
  * TextContent block to append (so the caller's `tool_result` handler can return
  * `{ content: [...event.content, block] }`), or null when no nudge should fire.
  * `toolName` of `ctx_reduce` short-circuits to suppression (the agent is
- * actively managing context) — mirrors OpenCode's `tool.execute.after` branch.
+ * actively managing context.
  */
 export function maybeChannel1ReminderForToolResult(args: {
 	db: Database;
@@ -280,8 +274,7 @@ export function maybeChannel1ReminderForToolResult(args: {
  * Uses `sendMessage` (custom message) rather than `sendUserMessage` so the nudge
  * can render `display: false` — hidden from the Pi TUI while still reaching the
  * model (Pi converts a `role:"custom"` entry to a model-visible user message via
- * `convertToLlm`). This is the Pi parity for OpenCode marking the same nudge
- * `synthetic: true`: an agent-directed steer should drive the run + reach the
+ * `convertToLlm`).
  * model but NOT show up as a literal user turn the user didn't type. Available
  * since published pi-coding-agent 0.74.0 (our floor); MC already uses
  * `sendMessage` for /ctx-status.
@@ -332,14 +325,14 @@ export function maybeDeliverChannel2Pi(
 	}
 	if (state !== "pending") return false;
 
-	// Revalidate before delivering (parity with OpenCode channel2-delivery).
+	// Revalidate before delivery.
 	// The `pending` intent was recorded at high pressure during a context pass;
 	// by this agent_end the agent may have run ctx_reduce (markPiChannel1Reduced
 	// + the next pass refreshes the baseline), so the ceiling condition may no
 	// longer hold. Firing anyway injects a stale follow-up AND burns the
 	// one-per-session cap.
 	//
-	// Two rules, both cap-preserving (mirrors OpenCode):
+	// Two rules, both cap-preserving:
 	// - UNKNOWN baseline → do NOT deliver, do NOT touch the lease: leave
 	//   `pending` for a later agent_end with a real measurement. Never
 	//   substitute a default and burn the cap on an unvalidated condition.

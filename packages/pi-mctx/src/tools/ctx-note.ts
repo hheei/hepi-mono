@@ -1,7 +1,7 @@
 /**
  * Pi-side wrapper for the `ctx_note` tool.
  *
- * Action surface mirrors OpenCode's `packages/plugin/src/tools/ctx-note/tools.ts`:
+ * Action surface mirrors legacy host's `packages/plugin/src/tools/ctx-note/tools.ts`:
  *   - write: append a session note OR a smart note (when surface_condition is set)
  *   - read: show active session notes + ready smart notes by default; supports `filter`
  *   - dismiss: dismiss a note by note_id
@@ -12,7 +12,7 @@
  * we reject smart-note writes with a clear message — silent creation
  * would leave the note stuck `pending` forever with no path to surface.
  *
- * Parity reference (OpenCode):
+ * Parity reference (legacy host):
  *   `tools/ctx-note/tools.ts` for the action surface
  *   `tools/ctx-note/types.ts` for filter/parameter shapes
  *   `features/magic-context/storage-notes.ts` for the underlying storage
@@ -117,7 +117,7 @@ function err(text: string) {
 
 /** Capture the live-tail message ordinal so a note can be traced back to the
  *  conversation that produced it. Best-effort: returns null when there are no
- *  indexed messages yet (ordinal 0) or the lookup fails. Mirrors OpenCode's
+ *  indexed messages yet (ordinal 0) or the lookup fails. Mirrors legacy host's
  *  packages/plugin/src/tools/ctx-note/tools.ts. */
 function captureAnchorOrdinal(
 	db: ContextDatabase,
@@ -157,7 +157,7 @@ const DISMISS_FOOTER =
 
 /** Default page size for read. Long-running sessions accumulate hundreds of
  *  notes; read pages newest-first and points the caller at older pages.
- *  Mirrors OpenCode's ctx-note tool. */
+ *  Mirrors legacy host's ctx-note tool. */
 const DEFAULT_READ_LIMIT = 25;
 
 function paginateNewestFirst(
@@ -323,7 +323,7 @@ export function createCtxNoteTool(
 			}
 
 			// read — IMPORTANT: pass through `undefined` as the default
-			// mixed-view marker (matches OpenCode parity). Coercing to
+			// mixed-view marker (matches legacy host parity). Coercing to
 			// "active" here would conflate two distinct semantics:
 			// (a) default mixed view = active session notes + READY
 			//     smart notes (the "what should I see right now?" view)
@@ -372,13 +372,13 @@ export function createCtxNoteTool(
 
 /**
  * Read both session notes and smart notes for the current project, applying
- * the requested filter. The DEFAULT (filter undefined) matches OpenCode's
+ * the requested filter. The DEFAULT (filter undefined) matches legacy host's
  * `buildReadSections` mixed-view branch: active session notes + READY
  * smart notes. This is the "what should I act on now?" view.
  *
  * Explicit filter='active' is DIFFERENT — it returns all active notes of
  * BOTH types, including active (not-yet-ready) smart notes. This matches
- * OpenCode parity (see packages/plugin/src/tools/ctx-note/tools.ts:46-95).
+ * legacy host parity (see packages/plugin/src/tools/ctx-note/tools.ts:46-95).
  *
  * Returns an array of markdown sections (one per note category that has
  * matches). Caller joins with `\n\n` and appends the dismiss footer.

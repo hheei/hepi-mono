@@ -13,7 +13,6 @@ export type SubagentInvocationStatus = "completed" | "failed" | "aborted";
 
 export interface SubagentInvocationInput {
     sessionId: string;
-    harness: "opencode" | "pi";
     subagent: SubagentKind;
     task?: string | null;
     providerId?: string | null;
@@ -32,7 +31,6 @@ export interface SubagentInvocationInput {
 export interface SubagentInvocationRow {
     id: number;
     sessionId: string;
-    harness: "opencode" | "pi";
     subagent: SubagentKind;
     task: string | null;
     providerId: string | null;
@@ -59,7 +57,6 @@ export interface SubagentTotals {
 interface SubagentInvocationDbRow {
     id: number;
     session_id: string;
-    harness: "opencode" | "pi";
     subagent: SubagentKind;
     task: string | null;
     provider_id: string | null;
@@ -83,7 +80,6 @@ function toRow(row: SubagentInvocationDbRow): SubagentInvocationRow {
     return {
         id: row.id,
         sessionId: row.session_id,
-        harness: row.harness,
         subagent: row.subagent,
         task: row.task,
         providerId: row.provider_id,
@@ -104,15 +100,14 @@ export function recordSubagentInvocation(db: Database, input: SubagentInvocation
     const result = db
         .prepare(
             `INSERT INTO subagent_invocations (
-                session_id, harness, subagent, task, provider_id, model_id,
+                session_id, subagent, task, provider_id, model_id,
                 started_at, ended_at, status,
                 input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
                 error, parent_invocation_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
             input.sessionId,
-            input.harness,
             input.subagent,
             input.task ?? null,
             input.providerId ?? null,

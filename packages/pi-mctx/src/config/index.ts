@@ -89,7 +89,7 @@ function loadConfigFile(
 			text: rawText,
 			configPath: path,
 			// Repo-supplied project configs are untrusted: do not expand
-			// {env:}/{file:} secret-bearing tokens (parity with OpenCode).
+			// {env:}/{file:} secret-bearing tokens stay disabled for project config.
 			isProjectConfig: scope === "project",
 		});
 		return {
@@ -169,7 +169,7 @@ function parsePiConfig(
 	);
 	// Relocate graduated experimental.* keys (temporal_awareness, caveman →
 	// top-level; auto_search, git_commit_indexing → memory.*; user_memories,
-	// pin_key_files → dreamer.*). Shared with OpenCode so both harnesses preserve
+	// pin_key_files → dreamer.*). Both config scopes preserve a user's
 	// a user's opt-in/opt-out across the upgrade.
 	const migrated = migrateDreamerV2(
 		migrateLegacyExperimental(agentMigrated, preMigrationWarnings),
@@ -183,7 +183,7 @@ function parsePiConfig(
 	const defaults = MagicContextConfigSchema.parse({});
 	const errorPaths = new Set<string>();
 	// Per top-level key, the FULL error paths — so we can prune only the invalid
-	// nested leaf instead of the whole block (mirrors OpenCode config recovery).
+	// nested leaf instead of the whole block.
 	const issuePathsByKey = new Map<string, PropertyKey[][]>();
 	for (const issue of parsed.error.issues) {
 		const topKey = issue.path[0];
@@ -230,7 +230,7 @@ function parsePiConfig(
 			};
 			const prunedLeaves: string[] = [];
 			for (const p of issuePaths) {
-				// Prune the DEEPEST invalid leaf (parity with OpenCode), so a
+				// Prune the DEEPEST invalid leaf so a
 				// 3-level path like memory.git_commit_indexing.since_days drops
 				// only `since_days` and keeps a sibling `enabled: false`.
 				const relative = p.slice(1);
@@ -301,7 +301,7 @@ export function loadPiConfig(
 
 		if (loaded.scope === "project") {
 			// Harden the repo-supplied (untrusted) project config before merging
-			// it over the trusted user config (parity with OpenCode).
+			// it over the trusted user config.
 			const projectRaw = { ...loaded.config };
 			for (const warning of stripUnsafeProjectConfigFields(projectRaw)) {
 				warnings.push(`${prefix} ${warning}`);

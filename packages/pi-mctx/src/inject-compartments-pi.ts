@@ -1,11 +1,11 @@
 /**
- * Pi-side `<session-history>` injection — mirrors OpenCode's
+ * Pi-side `<session-history>` injection — mirrors legacy host's
  * `prepareCompartmentInjection` + `renderCompartmentInjection`
  * (packages/plugin/src/hooks/magic-context/inject-compartments.ts).
  *
  * Pi differences:
  *   - Pi messages have `content: string | (TextContent | ImageContent)[]`,
- *     not OpenCode's `parts: unknown[]`. We project Pi messages into a
+ *     not legacy host's `parts: unknown[]`. We project Pi messages into a
  *     minimal MessageLike-shaped view so the shared
  *     `prepareCompartmentInjection` can do its DB read + cache lookup +
  *     boundary trim. The actual render writes back to Pi shape.
@@ -126,7 +126,7 @@ function resolveStableId(
  * id appears at or before the cutoff. Preserves the rest of the array.
  *
  * Mirrors the `messages.splice(0, cutoffIndex+1)` behavior the shared
- * `prepareCompartmentInjection` does on its (OpenCode) MessageLike[].
+ * `prepareCompartmentInjection` does on its (legacy host) MessageLike[].
  *
  * # Synthetic-user (folded toolResult) cutoffs
  *
@@ -169,10 +169,10 @@ function trimPiMessagesToBoundary(
 	}
 	if (cutoffIndex < 0) return 0;
 
-	// Start with the same prefix trim as the shared OpenCode projection, then
+	// Start with the same prefix trim as the shared legacy host projection, then
 	// repeatedly sweep both directions across Pi's split tool-call shape. The
 	// sweep is intentionally scoped by the owning assistant message index, not by
-	// bare callId: Pi/OpenCode may reuse callIds across turns, and a global callId
+	// bare callId: Pi/legacy host may reuse callIds across turns, and a global callId
 	// match can delete a valid kept-tail pair from a later turn. Pair ownership is
 	// inferred from the nearest assistant carrying that callId (backward first,
 	// then forward for legacy/test shapes where a result precedes its call). This
@@ -301,8 +301,8 @@ export const __test = {
 
 const PI_M1_PLACEHOLDER =
 	"<session-history-since>(no new content since last materialization)</session-history-since>";
-// Pi uses a STATIC upgrade-state marker, intentionally diverging from OpenCode's
-// dynamic getUpgradeState(db, sessionId). OpenCode flips this per-session when a
+// Pi uses a STATIC upgrade-state marker, intentionally diverging from legacy host's
+// dynamic getUpgradeState(db, sessionId). legacy host flips this per-session when a
 // `/ctx-session-upgrade` recomp transitions legacy→v2, forcing an m[0] refold.
 // Pi has no equivalent per-session upgrade-state transition wired into the m[0]
 // markers yet, so a static const is internally consistent (stored marker and
@@ -327,7 +327,7 @@ interface FrozenM0Inputs {
 
 /**
  * Real-tokenizer size of ONLY the <session-history> slice of a rendered m[0]
- * (parity with OpenCode's historySliceTokens). The over-budget tightening loop
+ * (parity with legacy host's historySliceTokens). The over-budget tightening loop
  * must measure the history block against the history budget, not the whole m[0]
  * — m[0] also carries <project-docs>/<user-profile>/<project-memory>, each with
  * its own budget. Charging those against the history budget over-tightens decay
@@ -339,10 +339,10 @@ function historySliceTokensPi(m0Text: string): number {
 }
 
 /**
- * Fail-open wrapper around getActiveUserMemories (parity with OpenCode's
+ * Fail-open wrapper around getActiveUserMemories (parity with legacy host's
  * safeGetActiveUserMemories). On a DB that predates the user_memories table
  * (unmigrated / partially-initialized), the raw call throws "no such table:
- * user_memories"; OpenCode degrades to an empty profile, so Pi must too —
+ * user_memories"; legacy host degrades to an empty profile, so Pi must too —
  * otherwise m[0] materialization crashes the whole transform on such DBs.
  */
 function safeGetActiveUserMemoriesPi(db: ContextDatabase): UserMemory[] {
@@ -359,7 +359,7 @@ export interface PiM0M1State {
 	projectIdentity: string;
 	projectDirectory: string;
 	/** When false, project memories are NOT read or rendered into m[0]/m[1]
-	 *  (config `memory.enabled=false`). Mirrors OpenCode, which passes
+	 *  (config `memory.enabled=false`). Mirrors legacy host, which passes
 	 *  `projectPath: undefined` in that case so every memory read short-circuits.
 	 *  Docs are controlled independently by injectDocs. Unset/true keeps memory on. */
 	memoryEnabled?: boolean;
@@ -372,7 +372,7 @@ export interface PiM0M1State {
 	 *  over-demote every compartment. */
 	historyBudgetTokens?: number;
 	/** User-profile block budget (~4K). The m[1] new-user-profile delta is
-	 *  trimmed to 25% of this (matches OpenCode renderM1). Defaults when unset. */
+	 *  trimmed to 25% of this (matches legacy host renderM1). Defaults when unset. */
 	userProfileBudgetTokens?: number;
 	/** Provider-side cache-eviction signals for HARD-bust detection. */
 	hardSignals?: PiM0HardSignals;
@@ -382,7 +382,7 @@ export interface PiM0M1State {
 	 *  cached baseline. Defer passes replay the baked-in bytes without re-render. */
 	muralEnabled?: boolean;
 	/** Explicit mural wire options for tests. When set, skips on-demand resolve
-	 * during HARD materialization (mirrors OpenCode `M0M1RenderOptions.mural`). */
+	 * during HARD materialization (mirrors legacy host `M0M1RenderOptions.mural`). */
 	mural?: MuralWireOptions;
 	/** Keeps memory/docs injection while suppressing compartment history rendering and trimming. */
 	compactionOff?: boolean;
@@ -409,7 +409,7 @@ function readProjectDocsForPiM0(state: PiM0M1State): PiProjectDocsRender {
 /**
  * The project path used for MEMORY reads only. Returns undefined when
  * `memory.enabled=false`, so every memory read short-circuits to its empty
- * value (mirrors OpenCode passing `projectPath: undefined`). Project docs use
+ * value (mirrors legacy host passing `projectPath: undefined`). Project docs use
  * the independent injectDocs flag.
  */
 function memoryProjectPath(state: PiM0M1State): string | undefined {
@@ -497,7 +497,7 @@ export interface PiM0SnapshotMarkers {
 	upgradeState: string;
 	compartmentRenderEpoch: string | null;
 	lastBaselineEndMessageId: string | null;
-	// HARD-bust markers (parity with OpenCode M0SnapshotMarkers): provider-side
+	// HARD-bust markers (parity with legacy host M0SnapshotMarkers): provider-side
 	// cache-eviction signals. systemHash/modelKey come from runtime; Pi has no
 	// Captured from PiM0HardSignals at the injection call site.
 	systemHash: string;
@@ -509,7 +509,7 @@ export interface PiM0SnapshotMarkers {
 
 /**
  * Runtime cache-eviction signals threaded into Pi's materialization decision
- * (parity with OpenCode M0HardSignals). systemHash + cacheExpired derive from
+ * (parity with legacy host M0HardSignals). systemHash + cacheExpired derive from
  * session_meta; modelKey comes from the volatile liveModelBySession map in
  * context-handler. toolSetHash is always "" on Pi (no tool.definition hook).
  */
@@ -799,7 +799,7 @@ function getCachedMarkers(
 	// Invalidate a null cached boundary ONLY when the live snapshot actually has
 	// a usable boundary — i.e. the cache is genuinely stale (a boundary appeared
 	// since it was written). An empty `end_message_id` on the latest compartment
-	// is a LEGITIMATE state (schema default ''; OpenCode degrades to "inject
+	// is a LEGITIMATE state (schema default ''; legacy host degrades to "inject
 	// without visible-prefix trimming"), so a materialize can correctly persist a
 	// null boundary. Rejecting that every pass caused a re-materialize loop for
 	// legacy / partially-upgraded sessions. When the live snapshot also has no
@@ -881,7 +881,7 @@ function readCurrentMarkersFromCompartments(
 		// reduce, not Math.max(...spread): a project with very many
 		// compartments/memories (100K+) blows the call-stack arg limit and
 		// throws RangeError, breaking m[0]/m[1] rendering for that session.
-		// OpenCode uses SQL COALESCE(MAX(id),0) with no such limit.
+		// legacy host uses SQL COALESCE(MAX(id),0) with no such limit.
 		maxCompartmentSeq:
 			compartments.length > 0
 				? compartments.reduce(
@@ -909,7 +909,7 @@ function readCurrentMarkersFromCompartments(
 			projectDocsHash ?? readProjectDocsForPiM0(state).canonicalHash,
 		sessionFactsVersion: getSessionFactsVersion(db, state.sessionId),
 		materializedAt: Date.now(),
-		// Dynamic upgrade state (parity with OpenCode getUpgradeState): suffix
+		// Dynamic upgrade state (parity with legacy host getUpgradeState): suffix
 		// "legacy" when any legacy=1 compartment remains, else "ready". This makes
 		// `/ctx-session-upgrade` (legacy→v2 conversion) flip the marker so m[0]
 		// re-materializes with the upgraded tiered content. A static const would
@@ -966,7 +966,7 @@ export function mustMaterializePi(
 		return { value: true, reason: "compartment_render_epoch" };
 	}
 	// ── HARD: provider-side cache eviction (the cache was already dead) ──
-	// Parity with OpenCode mustMaterialize. An empty current signal means
+	// Parity with legacy host mustMaterialize. An empty current signal means
 	// "unknown this pass" and is never treated as a change. Pi never produces a
 	// toolSetHash (no tool.definition hook), so that branch is effectively inert
 	// on Pi — kept for structural parity. See PARITY.md.
@@ -990,7 +990,7 @@ export function mustMaterializePi(
 		return { value: true, reason: "project_change" };
 	}
 	// Idle > TTL: self-consuming guard via cachedM0MaterializedAt (parity with
-	// OpenCode). cacheExpired stays true every pass until lastResponseTime
+	// legacy host). cacheExpired stays true every pass until lastResponseTime
 	// updates, so fold only when the last response is newer than the last
 	// materialization; the fold sets materializedAt = now, so the rest of the
 	// turn skips. Next idle-after-response re-arms.
@@ -1021,21 +1021,21 @@ export function mustMaterializePi(
 	) {
 		return { value: true, reason: "project_memory_change" };
 	}
-	// Use !== (not >), matching OpenCode mustMaterialize: a max-id that DECREASES
+	// Use !== (not >), matching legacy host mustMaterialize: a max-id that DECREASES
 	// (revert / message.removed shrinking the compartment or mutation set) must
 	// still invalidate m[0]. A '>' comparison would miss a decrease and serve a
 	// stale cached baseline.
 	if (current.maxMutationId !== (meta.cachedM0MaxMutationId ?? 0)) {
 		return { value: true, reason: "pending_mutations" };
 	}
-	// new_compartment is NOT a trigger (parity with OpenCode — Bug 1 fix): new
+	// new_compartment is NOT a trigger (parity with legacy host — Bug 1 fix): new
 	// compartments are an m[1] delta (renderM1Pi readNewCompartments WHERE
 	// sequence > cachedM0Seq, normalized via normalizeCachedMaxCompartmentSeq in
 	// the render path), folded into m[0] only on a HARD bust.
 	// project_user_profile_version is also NOT a trigger: additive user-profile
 	// rides the m[1] <new-user-profile> delta.
 	// maxMemoryId is deliberately NOT a materialization trigger (parity with
-	// OpenCode): new memories are additive and surface in m[1] via the
+	// legacy host): new memories are additive and surface in m[1] via the
 	// maxMemoryId watermark, so they must not bust the m[0] cache. Memory
 	// mutations use cachedM0MaxMemoryMutationId as an m[1] reconcile cursor,
 	// not as a materialization trigger; keep it out of this trigger set.
@@ -1067,7 +1067,7 @@ export function renderM0Pi(
 	// Atomic-snapshot override: when materializeM0Pi reads markers + memories in
 	// one transaction, it passes the SAME memory set here so the rendered m[0]
 	// can't include a memory whose id is above the persisted maxMemoryId watermark
-	// (which would duplicate it across the m[0]/m[1] split). Mirrors OpenCode,
+	// (which would duplicate it across the m[0]/m[1] split). Mirrors legacy host,
 	// where renderM0 takes memories as a parameter rather than re-reading.
 	memoriesOverride?: Memory[],
 	compartmentsOverride?: PiCompartment[],
@@ -1094,11 +1094,11 @@ export function renderM0Pi(
 					)
 				: getMemoriesByProject(db, memPath, ["active", "permanent"])
 			: []);
-	// Use the V2 trim + render helpers (shared with OpenCode) so both harnesses
+	// Use the V2 trim + render helpers (shared with legacy host) so both harnesses
 	// emit the same category-grouped `#id: fact` bytes and use the same
 	// permanent-first / importance-DESC selection. A divergent shape here would
-	// put different bytes on the wire between OpenCode and Pi.
-	// Always trim with the default memory-budget fallback (matching OpenCode),
+	// put different bytes on the wire between legacy host and Pi.
+	// Always trim with the default memory-budget fallback (matching legacy host),
 	// not gated on a truthy injectionBudgetTokens — an unset budget must NOT mean
 	// "render every memory untrimmed", which would grow m[0] without bound.
 	const memoryRenderOptions: MemoryRenderOptions = {
@@ -1129,12 +1129,12 @@ export function renderM0Pi(
 			? renderMemoryBlockV2(memories, "project-memory", memoryRenderOptions)
 			: undefined;
 	// v2: decay-render compartments via the shared module (same validated curve
-	// as OpenCode). Facts are NOT rendered (v2 faithful: facts = promoted
+	// as legacy host). Facts are NOT rendered (v2 faithful: facts = promoted
 	// memories, surfaced via memoryBlock / <project-memory>).
 	// The decay-pressure multiplier maps to a proportionally tighter effective
 	// budget (lower budget → higher curve pressure → more demotion), keeping the
 	// shared decay-curve as the single source of pressure math — same approach as
-	// OpenCode renderM0. The materialize loop escalates it when m[0] is over budget.
+	// legacy host renderM0. The materialize loop escalates it when m[0] is over budget.
 	const baseHistoryBudget =
 		state.historyBudgetTokens ?? DEFAULT_HISTORY_BUDGET_TOKENS;
 	const decayed = renderDecayedCompartments({
@@ -1145,7 +1145,7 @@ export function renderM0Pi(
 		historyBudgetTokens:
 			baseHistoryBudget / Math.max(1, decayPressureMultiplier),
 	});
-	// Sibling-block layout MUST match OpenCode renderM0 exactly (otherwise the
+	// Sibling-block layout MUST match legacy host renderM0 exactly (otherwise the
 	// two harnesses put different bytes on the wire for the same state):
 	//   <project-docs>   — sibling
 	//   <user-profile>   — sibling
@@ -1156,9 +1156,9 @@ export function renderM0Pi(
 	// joined by "\n\n".
 	const sections: string[] = [];
 	if (projectDocs.length > 0) sections.push(projectDocs);
-	// Baseline user-profile MUST be trimmed to budget, matching OpenCode renderM0.
+	// Baseline user-profile MUST be trimmed to budget, matching legacy host renderM0.
 	// Rendering all active user memories untrimmed would put different (larger)
-	// bytes on the wire than OpenCode for the same state, and let m[0] grow
+	// bytes on the wire than legacy host for the same state, and let m[0] grow
 	// without bound as the global user-profile accumulates.
 	const trimmedProfile = trimUserMemoriesToBudget(
 		userProfileOverride ?? safeGetActiveUserMemoriesPi(db),
@@ -1178,7 +1178,7 @@ export function renderM0Pi(
 		);
 	}
 	if (memoryBlock) sections.push(memoryBlock);
-	// Sibling layout parity with OpenCode renderM0: mural marker after memories.
+	// Sibling layout parity with legacy host renderM0: mural marker after memories.
 	if (mural?.enabled && mural.supportsVision && mural.dataUrl) {
 		sections.push(
 			"<memory-mural>\nThe project memory mural image follows.\n</memory-mural>",
@@ -1222,7 +1222,7 @@ function renderedMemoryIdsForPi(
 }
 
 /** Raised when the m[0] snapshot changed between the read-markers phase and the
- *  persist phase (a concurrent writer — sibling Pi/OpenCode process sharing the
+ *  persist phase (a concurrent writer — sibling Pi/legacy host process sharing the
  *  same SQLite DB, or the historian — mutated state mid-materialization). Caught
  *  by the retry wrapper so we never cache m[0] bytes that no longer match the
  *  markers they were rendered from. */
@@ -1442,10 +1442,10 @@ export function materializeM0Pi(
 		mural?.enabled && mural.supportsVision ? (mural.dataUrl ?? null) : null;
 	const frozenMuralHash =
 		mural?.enabled && mural.supportsVision ? (mural.contentHash ?? null) : null;
-	// Over-budget tightening loop (matches OpenCode materializeM0): if the
+	// Over-budget tightening loop (matches legacy host materializeM0): if the
 	// rendered m[0] exceeds the history budget, escalate the decay pressure and
 	// re-render up to 3x so tight budgets demote more aggressively. Without this,
-	// Pi would select different (looser) tiers than OpenCode under budget pressure.
+	// Pi would select different (looser) tiers than legacy host under budget pressure.
 	let decayPressureMultiplier = 1;
 	let m0 = renderM0Pi(
 		state,
@@ -1497,7 +1497,7 @@ export function materializeM0Pi(
 	}
 	try {
 		const current = readCurrentMarkers(db, state, phase3ProjectDocsHash);
-		// maxMemoryId deliberately EXCLUDED (parity with OpenCode materializeM0):
+		// maxMemoryId deliberately EXCLUDED (parity with legacy host materializeM0):
 		// additive memory writes don't bump projectMemoryEpoch and must NOT bust
 		// m[0] — they surface in m[1] via the persisted maxMemoryId watermark. The
 		// memory-mutation cursor IS included because a materialization pass must
@@ -1516,7 +1516,7 @@ export function materializeM0Pi(
 			current.maxMemoryMutationId !== snapshotMarkers.maxMemoryMutationId ||
 			current.projectIdentity !== snapshotMarkers.projectIdentity ||
 			// Inert today (both harnesses pin sessionFactsVersion to 0 — facts are
-			// retired in v2), but kept for structural parity with OpenCode
+			// retired in v2), but kept for structural parity with legacy host
 			// materializeM0 so the two stale checks can't silently drift if either
 			// harness ever revives the field.
 			current.sessionFactsVersion !== snapshotMarkers.sessionFactsVersion ||
@@ -1559,7 +1559,7 @@ export function materializeM0Pi(
 			projectIdentity: snapshotMarkers.projectIdentity,
 		});
 		// Persist the rendered-memory identity in the SAME transaction as the m[0]
-		// snapshot (parity with OpenCode materializeM0). `memory_block_ids` /
+		// snapshot (parity with legacy host materializeM0). `memory_block_ids` /
 		// `memory_block_count` are otherwise written only by the dead legacy v1
 		// path, so they'd stay frozen at the last legacy value — wrong sidebar
 		// "Injected" count AND a stale ctx_search hide-already-visible filter after
@@ -1605,7 +1605,7 @@ export function materializeM0Pi(
 	}
 }
 
-/** Retry materializeM0Pi on contention (parity with OpenCode materializeWithRetry). */
+/** Retry materializeM0Pi on contention (parity with legacy host materializeWithRetry). */
 export function materializeM0PiWithRetry(
 	state: PiM0M1State,
 	db: ContextDatabase,
@@ -1739,7 +1739,7 @@ function renderM1PiWithMetadata(
 					workspace.expandedIdentities,
 					markers.maxMemoryId,
 					// Freeze expiry to the m[0] materialization timestamp (parity with
-					// OpenCode readNewMemoriesForM1): defer passes replay the same markers,
+					// legacy host readNewMemoriesForM1): defer passes replay the same markers,
 					// so a memory crossing expires_at between passes can't silently shift
 					// m[1].
 					markers.materializedAt,
@@ -1751,7 +1751,7 @@ function renderM1PiWithMetadata(
 					memPath,
 					["active", "permanent"],
 					// Freeze expiry to the m[0] materialization timestamp (parity with
-					// OpenCode readNewMemoriesForM1): defer passes replay the same markers,
+					// legacy host readNewMemoriesForM1): defer passes replay the same markers,
 					// so a memory crossing expires_at between passes can't silently shift
 					// m[1].
 					markers.materializedAt,
@@ -1759,7 +1759,7 @@ function renderM1PiWithMetadata(
 		: [];
 	if (newMemories.length > 0) {
 		// Trim to 25% of the memory budget and V2-render with the "new-memories"
-		// wrapper — same helper, shape, AND budget cap OpenCode's renderM1 uses.
+		// wrapper — same helper, shape, AND budget cap legacy host's renderM1 uses.
 		// Without the cap, m[1] grows unbounded as memories accumulate between
 		// m[0] materializations (m[1] is the volatile delta; it must stay small).
 		const memoryBudget =
@@ -1789,7 +1789,7 @@ function renderM1PiWithMetadata(
 	// this m[0] baseline was materialized, surface the current profile under a
 	// <new-user-profile> wrapper so freshly promoted user memories reach the agent
 	// in m[1] before the next m[0] materialization folds them into the baseline.
-	// Trimmed to 25% of the user-profile budget (matches OpenCode renderM1).
+	// Trimmed to 25% of the user-profile budget (matches legacy host renderM1).
 	const currentUserProfileVersion =
 		getProjectState(db, GLOBAL_USER_PROFILE_PROJECT_PATH)
 			?.projectUserProfileVersion ?? 0;
@@ -1814,7 +1814,7 @@ function renderM1PiWithMetadata(
 			memoryUpdateCount: memoryUpdates.count,
 		};
 	}
-	// Join with "\n" (single newline) to match OpenCode renderM1 exactly — the
+	// Join with "\n" (single newline) to match legacy host renderM1 exactly — the
 	// m[1] delta bytes must be identical across harnesses.
 	return {
 		text: state.compactionOff
@@ -1982,14 +1982,14 @@ function cachedPiRowMatchesSnapshot(args: {
 		rowMarkers.sessionFactsVersion === args.markers.sessionFactsVersion &&
 		(rowMarkers.upgradeState ?? null) === (args.markers.upgradeState ?? null) &&
 		rowMarkers.compartmentRenderEpoch === args.markers.compartmentRenderEpoch &&
-		// HARD-bust markers (parity with OpenCode cachedRowMatchesState): a sibling
+		// HARD-bust markers (parity with legacy host cachedRowMatchesState): a sibling
 		// that re-materialized under a new system/tool/model identity must invalidate
 		// this process's cached row so the soft-refresh CAS adopts the sibling's m[0].
 		(rowMarkers.systemHash ?? "") === (args.markers.systemHash ?? "") &&
 		(rowMarkers.modelKey ?? "") === (args.markers.modelKey ?? "") &&
 		(rowMarkers.projectIdentity ?? null) ===
 			(args.markers.projectIdentity ?? null) &&
-		// Workspace fingerprint (parity with OpenCode cachedRowMatchesState):
+		// Workspace fingerprint (parity with legacy host cachedRowMatchesState):
 		// projectMemoryEpoch above only tracks THIS session's own project, but a
 		// FOREIGN member's epoch bump changes the workspace fingerprint without
 		// touching this session's epoch. Without this compare, a sibling row
@@ -2132,7 +2132,7 @@ function softRefreshCachedM1Pi(args: {
 		// summarized compartment's raw messages stay in the tail (duplication) on
 		// this and every subsequent replay pass. Persisted in the SAME transaction as
 		// cached_m1_bytes so replay passes (which read the boundary from this row)
-		// trim consistently. Mirrors OpenCode caching prepared.compartmentEndMessageId
+		// trim consistently. Mirrors legacy host caching prepared.compartmentEndMessageId
 		// on each cache-busting pass. Boundary is NOT part of the m[0] CAS identity
 		// (cachedPiRowMatchesSnapshot excludes it), so advancing it cannot spuriously
 		// invalidate a sibling's cached m[0].
@@ -2197,7 +2197,7 @@ function prependM0M1Messages(
 	const baseTimestamp =
 		typeof firstTimestamp === "number" ? firstTimestamp : Date.now();
 	// Pi's native image part is `{ type: "image", data: base64, mimeType }` —
-	// serializers rebuild `data:…;base64,…` for providers. OpenCode uses a
+	// serializers rebuild `data:…;base64,…` for providers. legacy host uses a
 	// file-part with a data URL; same PNG bytes, different envelope.
 	const muralImage =
 		mural?.enabled && mural.supportsVision && mural.dataUrl
@@ -2245,7 +2245,7 @@ export function injectM0M1Pi(
 
 	if (decision.value) {
 		// On contention exhaustion, reuse the cached m[0]/m[1] pair rather than
-		// throwing (matches OpenCode injectM0M1). A sibling process mutated state
+		// throwing (matches legacy host injectM0M1). A sibling process mutated state
 		// mid-materialization; serving the slightly-stale cached pair this pass is
 		// correct and the next pass retries — dropping injection entirely would lose
 		// the whole history block.
@@ -2367,7 +2367,7 @@ export function injectM0M1Pi(
 		markers = replayed.markers;
 	}
 
-	// Pressure backstop refold (parity with OpenCode) — only on Pi's cache-busting
+	// Pressure backstop refold (parity with legacy host) — only on Pi's cache-busting
 	// recompute gate (`executedWorkThisPass`) where m[1] was freshly recomputed;
 	// defer passes replay persisted bytes and must never live-read/refold. Three
 	// independent triggers (any one folds):
@@ -2378,7 +2378,7 @@ export function injectM0M1Pi(
 	//      m[1] could otherwise grow unbounded after the new_compartment trigger
 	//      was removed. Fold once m[1] exceeds a fixed share of the history budget.
 	// Token counts (NOT char lengths) on both sides of the ratio — parity with
-	// OpenCode. The documented intent is "m[1] exceeds ~15% of m[0] tokens";
+	// legacy host. The documented intent is "m[1] exceeds ~15% of m[0] tokens";
 	// char length diverges from token count on XML-heavy / non-Latin content.
 	const M0_DRIFT_RATIO_FLOOR_TOKENS = 500;
 	const M1_DRIFT_RATIO = 0.15;

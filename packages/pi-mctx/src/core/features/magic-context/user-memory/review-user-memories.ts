@@ -138,7 +138,6 @@ If no promotions are warranted, return empty arrays. Always consume reviewed can
         recordChildInvocation({
             db: args.db,
             parentSessionId: args.parentSessionId,
-            harness: "opencode",
             // subagent: "dreamer" + task: "user memories" so the dashboard's
             // dream-run token enrichment (filters subagent='dreamer', GROUP BY
             // task) maps this invocation's tokens to the "user memories" row.
@@ -331,7 +330,7 @@ If no promotions are warranted, return empty arrays. Always consume reviewed can
         heartbeat.stop();
         // PRIVACY: this child prompt embeds cross-session user behavior. Always
         // delete it, even on failure and even when debug subagent retention is
-        // enabled, so personal data is not left in the OpenCode session store.
+        // enabled, so personal data is not left in the child session store.
         if (agentSessionId) {
             await args.client.session
                 .delete({
