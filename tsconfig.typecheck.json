@@ -1,5 +1,7 @@
 {
 	"extends": "./tsconfig.base.json",
+	"include": ["packages/pi-*/**/*.ts", "test/**/*.ts"],
+	"exclude": ["**/node_modules/**", "**/dist/**", "**/.pi/**"],
 	"compilerOptions": {
 		"paths": {
 			"@hheei/pi-ext-core": ["packages/pi-ext-core/src/index.ts"],

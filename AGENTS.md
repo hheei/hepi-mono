@@ -1,114 +1,108 @@
-# Repository Instructions
+## Product Constraints
 
-## Scope
+- **MUST** keep meaningful reads, commands, edits, delegation, retries, fallbacks, and model changes inspectable.
+- **NEVER** silently select, replace, or route models/providers; subagents should inherit the caller's model unless explicitly overridden.
+- **SHOULD** keep baseline prompts and tool schemas small, loading skills, references, catalogs, and volatile metadata only when needed.
+- **AVOID** always-on reviewers, advisors, background agents, orchestration loops, and opaque automation.
+- **MUST** preserve complete results even when UI output is collapsed, and keep sensitive, privileged, expensive, or setup-heavy capabilities opt-in.
+- **SHOULD** build complex behavior from visible, composable primitives rather than hidden commands or modes.
 
-These instructions apply to the whole repository unless a subdirectory adds a more specific `AGENTS.md`.
+**Product rule:** No hidden intent. No silent routing. No blind automation.
 
-## Engineering Principles
+## Engineering
 
-- Default to deletion. Do not preserve obsolete APIs, layouts, adapters, or compatibility layers. Before deleting, confirm there are no current callers and inspect persisted-data, resume, fork, and public-contract consequences.
-- Do not add migrations or fallbacks for superseded behavior. Persistence and user-data safety are exceptions: prove that no migration is needed, or add one explicit one-time migration. A fallback is allowed only when it prevents data loss, preserves the model-visible contract, and reports the degraded outcome clearly.
-- Choose the simplest implementation that satisfies the current contract. Do not add speculative abstractions, configuration, extension points, or compatibility shims. Never simplify away boundary validation, cancellation, cleanup, concurrency protection, error propagation, accessibility, or data-loss prevention.
-- Build the smallest end-to-end path first. Split it by real ownership, lifecycle, concurrency boundary, and public contract only after the path works. Do not pre-split layers for complexity that does not exist; do not split files only to shorten them.
-- Before adding code, inspect existing implementations, installed dependencies, the standard library, native platform APIs, and the relevant upstream references. Add a dependency or write a replacement only when those options cannot satisfy the current contract and the reason is recorded.
-- Make stable boundaries, persistence formats, and public contracts durable. Keep implementation scope limited to confirmed requirements; do not use temporary adapters or pretend extension points to defer an architectural decision.
-- Study mature products and upstream implementations before inventing behavior. Reuse verified constraints, failure handling, and user interaction patterns that fit this repository; do not copy unrelated complexity.
+- **SHOULD** delete obsolete APIs, layouts, adapters, and compatibility layers after checking callers, persistence, resume/fork behavior, and public contracts.
+- **NEVER** add speculative abstractions, extension points, compatibility shims, or configuration for unconfirmed requirements.
+- Build the smallest runnable end-to-end path first; split only at real ownership, lifecycle, concurrency, or public-contract boundaries.
+- **MUST** preserve validation, cancellation, cleanup, concurrency safety, error propagation, accessibility, and data safety.
+- Before adding infrastructure, inspect existing implementations, dependencies, standard/platform APIs, and relevant upstream references.
+- **AVOID** temporary adapters, unnecessary dependencies, duplicated infrastructure, and file splitting done only to reduce file length.
+- **MUST** keep unrelated user changes untouched.
+- read `DESIGN_TS.md` before write any typescript.
 
 ## Tooling
 
-Use Bun from the repository root. Use Biome only for changed TypeScript files; it is a formatting and local safety aid, not an all-repository gate:
+- **MUST** use Bun from the repository root; **NEVER** introduce npm, Yarn, or pnpm lockfiles.
+- For ordinary changes, format/check only changed TypeScript paths and run focused tests:
 
 ```bash
-bunx biome check --write <changed paths...>
-```
-
-Use `bun run check:fix` only when the whole HEPI-owned tree is intentionally in scope; inspect its diff so unrelated user changes remain untouched. Prioritize strict typing, runtime boundary validation, resource ownership, cancellation, and race-free async behavior over style-only lint fixes. Verify only the code affected by the change. Run broader checks only when the user asks for them or the change crosses a shared contract:
-
-```bash
+bunx biome check --write <changed-paths...>
+bunx biome check <changed-paths...>
 bun test <focused-test-path>
-bunx biome check <changed paths...>
+
 ```
 
-Do not introduce npm, Yarn, or pnpm lockfiles.
-
-### Pi dependency baseline
-
-- Keep every workspace's Pi peer and development dependencies on the root baseline: `@earendil-works/pi-agent-core`, `pi-ai`, `pi-coding-agent`, and `pi-tui` must be `>=0.83.0` when declared. Do not add a package-local Pi version pin or broaden compatibility below that baseline without an explicit compatibility decision.
-- After changing any Pi dependency range, run `bun install` from the root and confirm `bun pm ls @earendil-works/pi-coding-agent @earendil-works/pi-agent-core @earendil-works/pi-ai @earendil-works/pi-tui` resolves one version of each before typechecking.
-- Root `bun run typecheck` typechecks the whole workspace. Use it for package-boundary or dependency changes; use the smallest affected package `tsc` invocation for ordinary local edits.
-
-## TypeScript
-
-- Keep the root TypeScript project fully strict, including `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`; do not weaken compiler options to land a change.
-- Use `unknown` at untrusted boundaries and narrow it with runtime checks or type guards. Explicit `any` is prohibited, including as a generic default; use `unknown` when a default is required.
-- Validate API, file, environment, and third-party data at runtime before use. Prefer a focused type guard for small shapes and the repository's existing TypeBox stack for shared or complex schemas; do not add another schema library without a concrete need.
-- Model variant states with discriminated unions. Use an exhaustive `switch` and a `never` check when every variant must be handled.
-- Prefer small focused contracts composed into larger types over deep class or interface inheritance. One shallow `extends` for a genuine subtype is acceptable; avoid inheritance chains.
-- Use branded types when multiple same-primitive identifiers are easy to interchange within one domain and can be constructed or validated at a clear boundary. Do not brand opaque third-party IDs when it would require scattered assertions.
-- Prefer `readonly`, `ReadonlyArray<T>`, and immutable updates for shared data. Mutability must be local and intentional.
-- Exported functions and public package APIs must declare explicit return types. Local callbacks may rely on inference when the contextual type is clear.
-- Avoid type assertions. Validate boundary data first; reserve assertions for interop gaps that TypeScript cannot express. `as const` is encouraged for literal objects and tuples.
-- Non-null assertions are prohibited in production code. Narrow nullable values explicitly or use optional chaining with an intentional fallback. Tests may use non-null assertions only for fixture invariants.
-- Do not use TypeScript `enum` or `namespace`. Use ES modules and `as const` objects or literal unions.
-- Every Promise must be awaited, returned, handled with a rejection path, or intentionally discarded with `void`.
-- Keep boolean conditions explicit when `0`, `""`, `null`, or `undefined` have distinct meanings; do not rely on incidental truthiness.
-- Optional properties mean the key may be absent. Add `| undefined` only when a present key or mutable field intentionally accepts `undefined`.
-- Use `Pick` and `Omit` only for small, obvious projections. For substantially different or repeatedly transformed shapes, extract a named shared contract and compose the variants explicitly.
-- Do not use `@ts-ignore` or `@ts-nocheck`. A temporary `@ts-expect-error` must include the reason and the upstream issue or removal condition; remove it when the expected error disappears.
-- Keep `compilerOptions.types` as an explicit allowlist of required global type packages. Add entries only when code intentionally relies on those globals.
+- Use `bun run check:fix` only when the whole owned tree is intentionally in scope, and inspect its diff.
+- Run broader validation for shared/public contracts, package boundaries, dependency changes, and releases.
+- Keep Pi peer/dev dependencies on the root compatibility baseline. After changing their ranges, run `bun install`, verify a single resolved Pi version set, then typecheck.
+- Use focused package typechecks for local edits and root `bun run typecheck` for dependency or package-boundary changes.
 
 ## Package Boundaries
 
-- A `packages/pi-<name>/` workspace owns one independent feature or a cohesive family of related features. Split a package only when installation, lifecycle, or public API ownership differs. Each extension package declares exactly one entry under `pi.extensions` and depends on `@hheei/pi-ext-core`.
-- `@hheei/pi-ext-core` is the naming exception: a publishable foundation package, not a Pi extension. It registers generic coordination APIs for extension packages and never imports a concrete extension. Its imports are side-effect free; without a registering extension, it creates no Pi handlers, timers, listeners, session state, or render work.
-- All `@hheei/hepi-*` packages are deprecated and frozen. Do not add features, dependencies, compatibility work, or maintenance to them; migrate a touched feature to an independent `@hheei/pi-<name>` extension instead.
-- The project is in active development. Do not preserve obsolete HEPI APIs or layouts unless the user explicitly requests compatibility. Prefer the smallest sound target abstraction over adapters for superseded shapes.
-- Avoid placing external repositories, source snapshots, or vendored reference code under `packages/`. When a stable upstream implementation must be vendored for an extension-owned integration point, vendor the smallest necessary surface, record its URL and revision in `references/README.md`, and cover the copied contract with focused tests.
-- The shared Pi upstream reference is `references/repos/earendil-works-pi`. Use it for Pi API and implementation research; it is ignored, read-only reference material, never a workspace dependency or import source. Update it intentionally and record its checked revision in `references/README.md`.
-- Extensions depend on `@hheei/pi-ext-core` and upstream Pi packages, never on another concrete extension. Cross-extension cooperation uses core-owned, runtime-scoped capability contracts; events remain notifications, not shared state or RPC.
-- Keep runtime state session-scoped and cleanup idempotent unless persistence is explicitly part of the feature contract.
+- Each `packages/pi-<name>/` workspace owns one independent feature or cohesive feature family and exactly one `pi.extensions` entry.
+- Concrete extensions **MUST** depend on `@hheei/pi-ext-core`, never directly on another concrete extension; cross-extension cooperation goes through ext-core-owned runtime capabilities.
+- `@hheei/pi-ext-core` is a side-effect-free foundation package and **MUST NEVER** import concrete extensions.
+- `@hheei/hepi-*` packages are deprecated and frozen; migrate touched behavior instead of extending them.
+- Keep runtime state session-scoped and cleanup idempotent unless persistence is explicitly part of the contract.
+- Avoid vendoring external repositories under `packages/`; if unavoidable, vendor the smallest surface and record the upstream URL/revision.
+- Events are notifications, not shared state or RPC.
 
 ## Architecture Vocabulary
 
-Use the following names consistently in design discussions and implementation notes:
+Use these names consistently:
 
-- **Pi host** means `@earendil-works/pi-coding-agent`: the process that loads extensions and owns the extension runner, Pi session lifecycle, editor, terminal, `ExtensionContext`, and native UI primitives such as `input`, `confirm`, and `editor`.
-- **ext-core** means `@hheei/pi-ext-core`: the publishable, non-extension foundation between the Pi host and concrete extensions. It owns reusable mechanisms such as lifecycle registration, admission, cancellation, cleanup, `openTuiSurface()`, `registerHepiWidget()`, and opaque Subagent handles. It does not own a concrete feature's records, policy, files, labels, or page content.
-- **Concrete extension** means an independently installable `packages/pi-<name>/` package. It owns domain state, public commands/tools, schemas, policy, and rendering, and registers the ext-core capabilities it consumes.
-- **Surface** means one ext-core-managed custom TUI lifetime. The concrete extension supplies the component and its domain state; ext-core owns queueing, abort, disposal, and host mounting.
-- **Widget** means editor-adjacent, usually read-only presentation. The extension owns the rendered content; ext-core owns mounting, suspension, remounting, and cleanup. A widget is not a surface and must not use private Pi focus/input APIs.
+- **Pi host** — `@earendil-works/pi-coding-agent`; owns the session, extension runner, editor, terminal, and native UI.
+- **ext-core** — `@hheei/pi-ext-core`; owns reusable lifecycle, cancellation, cleanup, surfaces, widgets, and coordination primitives.
+- **Concrete extension** — independently installable `packages/pi-<name>/`; owns feature state, commands/tools, schemas, policy, and rendering.
+- **Surface** — ext-core-managed custom TUI lifetime.
+- **Widget** — editor-adjacent presentation managed by ext-core.
 
-When explaining or proposing architecture, use this order:
+**NEVER** use unqualified “core” as an owner name.
 
-1. **Core intuition and goal:** state the user-visible problem and the main data/control-flow change in one or two sentences.
-2. **Boundary mapping:** define Pi host, ext-core, concrete extension, surface, widget, and any feature-specific names. State owner, consumers, fallback, cleanup, cancellation, and concurrency semantics where relevant.
-3. **Control-flow visualization:** include a small ASCII flow or state machine for the old and new paths.
-4. **Implementation seam:** name the smallest public contract and the focused tests before discussing individual files.
+Architecture proposals should state, in order:
 
-Do not use “core” as an unqualified owner name in new design text. Say **Pi host**, **ext-core**, or the concrete extension instead.
+1. user-visible goal and main data/control-flow change;
+2. ownership, consumers, cleanup, cancellation, fallback, and concurrency where relevant;
+3. a small ASCII flow/state machine when useful;
+4. the smallest public contract and focused tests before file-level details.
 
 ## Documentation
 
-- Keep `docs/` high-level: developer and user concepts, architecture boundaries, prerequisites, and entry points. Keep repository workflow and architecture guidance under `docs/development/` and `docs/architecture/`; keep evidence and historical context under `docs/research/` and `docs/plans/`.
-- For new feature work, write or update the matching high-level `docs/<topic>/` document in Simplified Chinese before creating code files. Record the user-facing intent, boundary, public interface, and decisions there; keep detailed behavior beside TypeScript code.
-- Put implementation detail, public TypeScript API contracts, and function usage in concise TypeScript comments or JSDoc beside the code. Keep package READMEs limited to package-level installation and compatibility information.
-- Write those comments alongside the implementation, not as a later documentation pass. Put design intent and behavioral conventions beside the critical code that realizes them, especially TUI layout, scrolling, focus, clipping, and fixed-height rules. New or changed public contracts, persistence and migration steps, concurrency or cancellation ownership, non-obvious validation, and intentional fallback behavior require concise comments that state the reason and invariant. Do not add narration for self-evident code.
-- Follow `docs/architecture/extension-reference.md` when designing a new extension.
-- Treat [DESIGN.md](DESIGN.md) as the required specification for every UI or UX decision. Agent proposals, plans, and implementation notes for UI work must cite it. When an agreed UI or UX decision changes the product design, update `DESIGN.md` in the same commit using Pi theme token names, not color values. Pi source-code design taste and integration guidance live in `.pi/skills/pi-development/references/DESIGN.md`; load the `pi-development` skill before using that reference.
-- Treat `docs/plans/` as historical context, not the current behavior contract.
-- Update documentation when public behavior, compatibility, or package entry points change.
+- Keep `docs/` high-level; implementation details and TypeScript API contracts belong near the code.
+- **MUST** document public-contract, architecture, persistence, and meaningful UI/UX changes before implementation; small bug fixes and local refactors may skip new design docs.
+- High-level design docs should use Simplified Chinese.
+- Document non-obvious invariants around persistence, migration, cancellation, concurrency, validation, fallback, and critical UI behavior.
+- Follow `docs/architecture/[extension-reference.md](http://extension-reference.md)` for new extensions.
+- [`DESIGN.md`](http://DESIGN.md) is the UI/UX specification and **MUST** be updated when an agreed UI/UX contract changes.
+- Treat `docs/plans/` as historical context, not current behavior.
 
-## Feature Workflow
+## Workflow
 
-Before implementing a user-requested feature:
+For substantial feature, architecture, persistence, lifecycle/concurrency, public-contract, or UI/UX changes:
 
-1. Inspect existing repository implementations and the relevant Pi API.
-2. Write or update the matching high-level `docs/<topic>/` document in Simplified Chinese. Explain the proposed boundary and public interface to the user.
-3. Run `grill-me` for a bounded design discussion, or `grill-with-docs` when the decision needs ADRs or a shared glossary. Reach explicit agreement with the user.
-4. Build the smallest runnable end-to-end path. Do not create speculative layers or compatibility scaffolding before the path works.
-5. Define the smallest public contract and ownership boundary required by that path, then split modules only where the boundary removes coupling or isolates lifecycle/concurrency concerns.
-6. Write focused tests for the affected behavior.
-7. Implement the details, then run focused verification.
-8. Commit each independent feature or cohesive feature addition separately. Before completing development, commit all completed feature work; never include unrelated user changes.
+1. Inspect repository and relevant upstream implementations.
+2. Write/update the high-level design document and explain the proposed boundary/interface.
+3. Use `grill-me` or `grill-with-docs` for non-trivial design decisions and reach agreement.
+4. Build the smallest runnable end-to-end path and define the smallest required public contract.
+5. Add focused tests, implement details, and run focused verification.
+6. Commit cohesive changes separately and **NEVER** include unrelated user work.
 
-For UI work, follow [DESIGN.md](DESIGN.md), reuse `@hheei/pi-ext-core` primitives once available, keep output ANSI- and cell-width-safe, request rendering after state changes, and test only affected narrow and wide layouts.
+For small fixes/refactors: inspect callers, make the smallest sound change, update focused tests when behavior changes, and run focused formatting/type/test verification.
+
+For UI work: follow [`DESIGN.md`](http://DESIGN.md), reuse ext-core primitives where appropriate, keep output ANSI/cell-width safe, request rendering after state changes, and test affected narrow/wide layouts.
+
+## Release Safety
+
+- **MUST** pass the full repository release gate and verify intended versions/dependency ranges before publishing.
+- **MUST** obtain explicit approval for the exact externally visible push/tag/publish/release action unless already authorized.
+- Use a dry-run when available and report exact packages, versions, or tags before publication.
+- **NEVER** treat a successful push, tag, workflow trigger, or command exit as proof of publication; verify the actual CI/CD release result.
+- On failure, stop and report evidence. **NEVER** weaken tests, typing, validation, or compatibility constraints merely to make a release pass.
+
+## Key Rules
+
+- **MUST** keep edits focused, typing strict, runtime boundaries validated, and concrete extensions independent.
+- **NEVER** silently route models, hide meaningful automation, preserve obsolete HEPI compatibility without need, or modify unrelated user work.
+- **SHOULD** prefer simple, visible, composable, and idempotent mechanisms.
+- Shared TypeScript baseline: `tsconfig.base.json`; packages extend it.
+
