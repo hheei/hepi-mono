@@ -31,3 +31,7 @@ pi-session-*.html
 
 # Public reference repositories are documented, not vendored.
 references/repos/
+
+# Pix Agent
+.pi/
+.pi-lens/

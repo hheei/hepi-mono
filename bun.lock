@@ -191,26 +191,6 @@
         "@earendil-works/pi-tui": ">=0.84.0",
       },
     },
-    "packages/pi-hindsight": {
-      "name": "@hheei/pi-hindsight",
-      "version": "0.0.0",
-      "dependencies": {
-        "@hheei/pi-ext-core": "workspace:*",
-        "@vectorize-io/hindsight-client": "^0.8.4",
-      },
-      "devDependencies": {
-        "@earendil-works/pi-coding-agent": ">=0.84.0",
-        "@types/node": "^22.19.19",
-        "tsx": "4.23.0",
-        "vitest": "^4.1.5",
-      },
-      "peerDependencies": {
-        "@earendil-works/pi-agent-core": ">=0.84.0",
-        "@earendil-works/pi-ai": ">=0.84.0",
-        "@earendil-works/pi-coding-agent": ">=0.84.0",
-        "@earendil-works/pi-tui": ">=0.84.0",
-      },
-    },
     "packages/pi-loadout": {
       "name": "@hheei/pi-loadout",
       "version": "0.0.0",
@@ -562,8 +542,6 @@
     "@hheei/pi-ext-tools": ["@hheei/pi-ext-tools@workspace:packages/pi-ext-tools"],
 
     "@hheei/pi-handoff": ["@hheei/pi-handoff@workspace:packages/pi-handoff"],
-
-    "@hheei/pi-hindsight": ["@hheei/pi-hindsight@workspace:packages/pi-hindsight"],
 
     "@hheei/pi-loadout": ["@hheei/pi-loadout@workspace:packages/pi-loadout"],
 
@@ -918,8 +896,6 @@
     "@types/proper-lockfile": ["@types/proper-lockfile@4.1.4", "", { "dependencies": { "@types/retry": "*" } }, "sha512-uo2ABllncSqg9F1D4nugVl9v93RmjxF6LJzQLMLDdPaXCUIDPeOJ21Gbqi43xNKzBi/WQ0Q0dICqufzQbMjipQ=="],
 
     "@types/retry": ["@types/retry@0.12.0", "", {}, "sha512-wWKOClTTiizcZhXnPY4wikVAwmdYHp8q6DmC+EJUzAMsycb7HB32Kh9RN4+0gExjmPmZSAQjgURXIGATPegAvA=="],
-
-    "@vectorize-io/hindsight-client": ["@vectorize-io/hindsight-client@0.8.6", "", {}, "sha512-ixwtVju8p9C9/UFhn2PzThxaxWBBrhT5T2USzTeW9AO3imacbw8KWJWoG4YFTffS9jHh93jv0VJ7vAWlwa0uLw=="],
 
     "@vitest/expect": ["@vitest/expect@4.1.10", "", { "dependencies": { "@standard-schema/spec": "^1.1.0", "@types/chai": "^5.2.2", "@vitest/spy": "4.1.10", "@vitest/utils": "4.1.10", "chai": "^6.2.2", "tinyrainbow": "^3.1.0" } }, "sha512-YsCn+qAk1GWjQOWFEsEcL2gNQ0zmVmQu3T03qP6UyjhtmdtwtbuI+DASn/7iQB3HGTXkdBwGddzxPlmiql5vlA=="],
 
