@@ -14,14 +14,12 @@
 			"packages/*/**/*.json",
 			"scripts/**/*.mjs",
 			"scripts/**/*.ts",
-			"!packages/hepi-subagents",
 			"!**/node_modules",
 			"!**/dist",
 			"!**/.pi",
 			"!references",
 			"!packages/pi-mctx",
 			"!packages/xmagic-context",
-			"!legacy",
 			"!graphify-out"
 		]
 	},
@@ -58,7 +56,10 @@
 	},
 	"overrides": [
 		{
-			"includes": ["packages/*/test/**/*.ts", "packages/*/**/*.test.ts"],
+			"includes": [
+				"packages/*/test/**/*.ts", 
+				"packages/*/**/*.test.ts"
+				],
 			"linter": {
 				"rules": {
 					"style": {
