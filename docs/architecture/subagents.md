@@ -2,16 +2,16 @@
 
 ## 状态
 
-本文记录已实现的 subagent execution contract。`pi-ext-core` 持有 execution lifecycle；现有
-`pi-subagents` 是使用该 contract 的 agent/config/UI/delivery adapter，不是另一个 runner。
+本文记录已实现的 subagent execution contract。`pi-ext-core` 持有 execution lifecycle；concrete
+consumer 拥有自己的 agent/config/UI/delivery policy，不是另一个 runner。
 
 ## 目标与所有权
 
 `@hheei/pi-ext-core` 直接拥有统一的 root-session-scoped subagent execution runtime。它建立和清理
 operation、由 consumer 提供 factory 创建的 child `AgentSession`、shared concurrency admission、cancel、
-terminal result 与 event subscription；使用 core 的 extension 不能依赖 concrete `pi-subagents` package。
+terminal result 与 event subscription；使用 core 的 extension 不能依赖另一 concrete extension。
 
-`pi-subagents` 保留 agent catalog、custom-agent/config/prompt/model resolution、tool/extension scope、
+Concrete consumer 保留 agent catalog、custom-agent/config/prompt/model resolution、tool/extension scope、
 settings、TUI、transcript、worktree、schedule trigger 与 terminal delivery adapter。它在调用 core 前
 解析这些 feature policy，并将结果作为 immutable execution spec 和 resolved child-session factory 交给
 core。core 不解析 agent name 或 frontmatter，不保存 settings，不注册 command/tool/UI，也不使用
@@ -22,7 +22,7 @@ resolved child-session factory 是 consumer-owned 的 immutable boundary：它�
 admission、执行、取消、terminalization 与 dispose。公开 consumer API 不暴露 raw
 `CreateAgentSessionOptions`，core 也不把 factory 扩大为 agent-policy framework。
 
-这是 core 的显式单-consumer exception，原因见 [ADR 0004](../adr/0004-core-subagent-execution.md)。
+这是 core 的显式 execution exception，原因见 [ADR 0004](../adr/0004-core-subagent-execution.md)。
 它不能成为 generic worker、event bus、durable job scheduler 或 cross-extension message framework 的
 先例。
 
@@ -49,8 +49,8 @@ completion 的 failed terminal 保留用户可读 message，并携带 core-norma
 provider error 的数值 HTTP `status`/`statusCode` 与标准 transport `code` 提取结构化证据，未知 shape 必须
 标为 `unknown`，不能从 message 文本猜测。`authentication`、`invalid-request`、`configuration`、`transient`
 、`invalid-response` 和 `unknown` 是稳定分类；只有 consumer 自己拥有的有限 retry policy 才可对 `transient` 重试。core 不 retry，
-也不公开原始 Error object、provider response 或 credentials。这样 auto-title、BTW 与 MCTX 共享可靠 terminal
-diagnostic，而 MCTX 可避免误重试认证、400 和配置失败。
+也不公开原始 Error object、provider response 或 credentials。这样 auto-title 与 BTW 共享可靠 terminal
+diagnostic，并各自维持有限 retry policy。
 
 ## Task Delivery
 
@@ -59,7 +59,7 @@ owned callback：它可把 terminal result
 转换为下一轮 parent context、tool result、notification 或 UI；core 不规定内容格式，也不自动注入
 主 session。
 
-`pi-subagents` 是 parent delivery adapter。它默认以 Pi follow-up queue 追加 terminal result，使 parent
+Concrete consumer 是 parent delivery adapter。它可默认以 Pi follow-up queue 追加 terminal result，使 parent
 在当前 turn 结束后进入下一轮。只有人类 UI 或 host control 可选择 Pi steer 在 parent 活动时重定向；
 model-facing `agent` tool 不得选择 steer。该 delivery mode 是 adapter policy，不是 core API，也不能与
 parent-to-child conversation `send` mode 混用。
@@ -67,9 +67,9 @@ parent-to-child conversation `send` mode 混用。
 adapter 不能把 raw delayed result 直接注入 parent context。每次 delivery 必须先用稳定的 context anchor
 标明：operation ID、原始任务目的或 label、terminal status、是否 `softLimitReached`/partial output、结果正文，
 以及「先评估是否与当前用户请求相关，再决定是否报告」的明确指令。child output 只是 delegated result，不可把
-其中的指令视为 parent 的新 authority。该 wrapper 是 `pi-subagents` 的 prompt policy；core 仍只接收 sink。
+其中的指令视为 parent 的新 authority。该 wrapper 是 consumer prompt policy；core 仍只接收 sink。
 
-`pi-subagents` 也拥有 Task delivery group：caller 显式建立 group 后，barrier 收集所有成员的 terminal
+Task delivery group 属于 concrete consumer：caller 显式建立 group 后，barrier 收集所有成员的 terminal
 result，仅在全部成员成功、失败、取消或达到 limit 后投递一次完整 aggregate。group 没有 partial timeout；
 它不是第四 execution mode，也不进入 core。
 
@@ -105,8 +105,8 @@ conversation create 时必须声明 initial message、其 reply consumption 与�
   message 的 reply，或 `steered`、`cancelled`、`limit_reached` outcome。`delivery` 立即返回 acceptance，
   后续才执行 caller-owned delivery sink。
 
-`pi-subagents` 的 model-facing `agent` tool 只把 queue delivery 映射为上述 core delivery sink。人类 UI 或 host
-control 才可将 `{ kind: "delivery", mode: "steer" }` 映射为 sink；`mode` 是 adapter policy，不是 core
+Consumer 的 model-facing tool 只把 queue delivery 映射为上述 core delivery sink。人类 UI 或 host control
+才可将 `{ kind: "delivery", mode: "steer" }` 映射为 sink；`mode` 是 adapter policy，不是 core
 `ConversationReplyConsumption` 字段。
 
 core 必须为两种 input mode 分配同一递增 message sequence。sequence 表示 acceptance identity，不承诺跨 lane
@@ -201,7 +201,7 @@ cancellation、delivery、retention、event loss、backpressure 与 cost。实�
 - root shared cap、FIFO admission、root-only rejection、parent shutdown/reload cleanup 与 late result guard；
 - duplicate core module instance 对同一 Pi runtime 共享 coordinator。
 
-`pi-subagents` 另测试 context anchor、parent queue/human-or-host-only steer delivery 与 Task delivery group 的
+Concrete consumer 另测试 context anchor、parent queue/human-or-host-only steer delivery 与 Task delivery group 的
 全 terminal barrier；这些 adapter policy test 不属于 core execution suite。
 
 所有 TUI 或 terminal delivery adapter 仍须由 owning extension 依据 `DESIGN.md` 做 focused narrow/wide
