@@ -46,7 +46,7 @@
 - `/consult`
 - 自然语言短语触发
 
-旧 aggregate 的 `HePiModule` registry 已删除，不能作为 `/advisor` owner；Advisor 应直接注册独立 command，沿用 `/plan` 的公开入口原则。[Plan feature](../../packages/pi-plan/src/feature.ts)
+旧 aggregate 的 `HePiModule` registry 已删除，不能作为 `/advisor` owner；Advisor 应直接注册独立 command，沿用公开入口原则。
 
 ### 2.2 “一个 setting”
 
@@ -323,7 +323,7 @@ custom type：`advisor-mode`。
 - `/advisor off` 先 append disabled boundary，再 teardown；
 - `/advisor on` 先验证配置和构造 runtime，再 append enabled boundary；构造失败不得留下 enabled boundary，append 失败必须 teardown 刚创建的 runtime。
 
-Plan 的 versioned boundary 和严格 decode 可作为模式参考。[Plan persistence](../../packages/pi-plan/src/persistence.ts)
+Plan 的 versioned boundary 和严格 decode 可作为模式参考。
 
 ### 5.3 内存状态
 
