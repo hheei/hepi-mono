@@ -2,13 +2,13 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getProjectEmbeddingSnapshot } from "#core/features/magic-context/memory/embedding";
+import { getProjectEmbeddingSnapshot } from "#core/features/memory/embedding";
 import {
 	getProjectEmbeddings,
 	peekProjectEmbeddings,
 	resetEmbeddingCacheForTests,
-} from "#core/features/magic-context/memory/embedding-cache";
-import { resolveProjectIdentity } from "#core/features/magic-context/memory/project-identity";
+} from "#core/features/memory/embedding-cache";
+import { resolveProjectIdentity } from "#core/features/memory/project-identity";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import { ensureProjectRegisteredFromPiDirectory } from "../src/embedding-bootstrap";
 import { createTestDb } from "./test-utils.test";

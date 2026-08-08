@@ -3,9 +3,9 @@ import {
 	type DreamerConfig,
 	DreamerConfigSchema,
 } from "#core/config/schema/magic-context";
-import { getTaskScheduleState } from "#core/features/magic-context/dreamer/storage-task-schedule";
-import { insertMemory } from "#core/features/magic-context/memory";
-import { initializeDatabase } from "../../src/core/features/magic-context/storage-db";
+import { getTaskScheduleState } from "#core/features/dreamer/storage-task-schedule";
+import { insertMemory } from "#core/features/memory";
+import { initializeDatabase } from "../../src/core/features/storage-db";
 import { Database } from "#core/shared/sqlite";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import {

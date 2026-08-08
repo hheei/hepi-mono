@@ -19,11 +19,11 @@ import {
 	getPendingOps,
 	queuePendingOp,
 	updateSessionMeta,
-} from "#core/features/magic-context/storage";
+} from "#core/features/storage";
 import {
 	insertTag,
 	updateTagStatus,
-} from "#core/features/magic-context/storage-tags";
+} from "#core/features/storage-tags";
 import { createTestDb, fakeContext } from "../test-utils.test";
 import { createCtxReduceTool } from "../../src/tools/ctx-reduce";
 

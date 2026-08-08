@@ -36,39 +36,39 @@ import type {
 import {
 	summarizeDreamSchedule,
 	userMemoryCollectionEnabled,
-} from "#core/features/magic-context/dreamer/task-config";
+} from "#core/features/dreamer/task-config";
 import {
 	type FailClosedReason,
 	formatFailClosedBlockingMessage,
-} from "#core/features/magic-context/fail-closed-block";
-import { resolveProjectIdentityForSession } from "#core/features/magic-context/memory/project-identity";
-import { scheduleIncrementalIndex } from "#core/features/magic-context/message-index-async";
-import { detectOverflow } from "#core/features/magic-context/overflow-detection";
-import { runSessionProjectBackfill } from "#core/features/magic-context/session-project-backfill";
-import { type ContextDatabase, getOrCreateSessionMeta, getPendingPiCompactionMarkerState, getSessionsWithPendingPiMarker, updateSessionMeta } from "#core/features/magic-context/storage";
+} from "#core/features/fail-closed-block";
+import { resolveProjectIdentityForSession } from "#core/features/memory/project-identity";
+import { scheduleIncrementalIndex } from "#core/features/message-index-async";
+import { detectOverflow } from "#core/features/overflow-detection";
+import { runSessionProjectBackfill } from "#core/features/session-project-backfill";
+import { type ContextDatabase, getOrCreateSessionMeta, getPendingPiCompactionMarkerState, getSessionsWithPendingPiMarker, updateSessionMeta } from "#core/features/storage";
 
 import {
 	applySqliteTuningPragmas,
 	openDatabaseAsync,
 	setSqlitePragmaConfig,
-} from "#core/features/magic-context/storage-db";
+} from "#core/features/storage-db";
 import {
 	getOverflowState,
 	recordOverflowDetected,
-} from "#core/features/magic-context/storage-meta-persisted";
-import { runDeferredV22Backfill } from "#core/features/magic-context/v22-deferred-backfill";
-import { setCtxReduceRegisteredGlobally } from "#core/hooks/magic-context/ctx-reduce-availability";
+} from "#core/features/storage-meta-persisted";
+import { runDeferredV22Backfill } from "#core/features/v22-deferred-backfill";
+import { setCtxReduceRegisteredGlobally } from "#core/hooks/ctx-reduce-availability";
 import {
 	deriveHistorianChunkTokens,
 	resolveHistorianContextLimit,
-} from "#core/hooks/magic-context/derive-budgets";
-import { resolveCacheTtl } from "#core/hooks/magic-context/event-resolvers";
+} from "#core/hooks/derive-budgets";
+import { resolveCacheTtl } from "#core/hooks/event-resolvers";
 import {
 	clearNoteNudgeTriggerAndCooldown,
 	onNoteTrigger,
-} from "#core/hooks/magic-context/note-nudger";
-import { normalizeTodoStateJson } from "#core/hooks/magic-context/todo-view";
-import { maybeSendUpgradeReminder } from "#core/hooks/magic-context/upgrade-reminder";
+} from "#core/hooks/note-nudger";
+import { normalizeTodoStateJson } from "#core/hooks/todo-view";
+import { maybeSendUpgradeReminder } from "#core/hooks/upgrade-reminder";
 import {
 	beginBootQuietPeriod,
 	scheduleAfterBootQuiet,

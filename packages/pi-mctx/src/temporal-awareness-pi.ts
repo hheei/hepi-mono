@@ -1,6 +1,6 @@
 /**
  * Pi-side temporal-marker injection — mirrors legacy host's
- * `injectTemporalMarkers` (packages/plugin/src/hooks/magic-context/temporal-awareness.ts).
+ * `injectTemporalMarkers` (packages/plugin/src/hooks/temporal-awareness.ts).
  *
  * Behaves identically to legacy host at the agent-visible layer: when the
  * gap between the previous message's effective end time and the current
@@ -26,11 +26,11 @@
 import {
 	peelLeadingMcTagNotation,
 	stripTagPrefix,
-} from "#core/hooks/magic-context/tag-content-primitives";
+} from "#core/hooks/tag-content-primitives";
 import {
 	TEMPORAL_MARKER_PATTERN,
 	temporalMarkerPrefix,
-} from "#core/hooks/magic-context/temporal-awareness";
+} from "#core/hooks/temporal-awareness";
 
 type PiTextContent = { type: "text"; text: string; textSignature?: string };
 type PiImageContent = { type: "image"; data: string; mimeType: string };

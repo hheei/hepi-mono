@@ -52,9 +52,9 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { resolveProjectIdentityForSession } from "#core/features/magic-context/memory/project-identity";
-import type { ContextDatabase } from "#core/features/magic-context/storage";
-import { openDatabase } from "#core/features/magic-context/storage-db";
+import { resolveProjectIdentityForSession } from "#core/features/memory/project-identity";
+import type { ContextDatabase } from "#core/features/storage";
+import { openDatabase } from "#core/features/storage-db";
 import { setHarness } from "#core/shared/harness";
 import { log } from "#core/shared/logger";
 import { setStoragePrivatePermissionEnforcement } from "#core/shared/storage-permissions";

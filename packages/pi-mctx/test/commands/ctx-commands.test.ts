@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { replaceAllCompartmentState } from "#core/features/magic-context/compartment-storage";
-import { initializeDatabase } from "../../src/core/features/magic-context/storage-db";
-import { queuePendingOp } from "#core/features/magic-context/storage-ops";
-import { insertTag } from "#core/features/magic-context/storage-tags";
+import { replaceAllCompartmentState } from "#core/features/compartment-storage";
+import { initializeDatabase } from "../../src/core/features/storage-db";
+import { queuePendingOp } from "#core/features/storage-ops";
+import { insertTag } from "#core/features/storage-tags";
 import { Database } from "#core/shared/sqlite";
 
 import { awaitInFlightRecomps } from "../../src/pi-recomp-runner";

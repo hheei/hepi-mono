@@ -72,7 +72,7 @@ export function extractAssistantUsage(
  * The formula intentionally omits output tokens — they're not part of
  * the prefix sent to the next prompt, so they don't count against
  * cacheable-prefix pressure. This matches
- * `packages/plugin/src/hooks/magic-context/event-handler.ts:388-397`
+ * `packages/plugin/src/hooks/event-handler.ts:388-397`
  * exactly:
  *
  *     totalInputTokens = info.tokens.input + info.tokens.cache.read + info.tokens.cache.write

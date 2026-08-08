@@ -1,6 +1,6 @@
 import { describe, expect, it, mock } from "bun:test";
-import { appendCompartments } from "#core/features/magic-context/compartment-storage";
-import type { PendingPiCompactionMarker } from "#core/features/magic-context/storage";
+import { appendCompartments } from "#core/features/compartment-storage";
+import type { PendingPiCompactionMarker } from "#core/features/storage";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import {
 	applyDeferredPiCompactionMarker,

@@ -6,9 +6,9 @@ import {
 	type DeferredExecutePayload,
 	peekDeferredExecutePending,
 	setDeferredExecutePendingIfAbsent,
-} from "#core/features/magic-context/storage-meta-persisted";
-import { ensureSessionMetaRow } from "#core/features/magic-context/storage-meta-shared";
-import { applyMidTurnDeferral } from "#core/hooks/magic-context/boundary-execution";
+} from "#core/features/storage-meta-persisted";
+import { ensureSessionMetaRow } from "#core/features/storage-meta-shared";
+import { applyMidTurnDeferral } from "#core/hooks/boundary-execution";
 import { Database } from "#core/shared/sqlite";
 import { isMidTurnPi } from "../src/read-session-pi";
 

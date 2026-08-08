@@ -1,6 +1,6 @@
 import { describe, expect, it, spyOn } from "bun:test";
-import { resolveProjectIdentity } from "#core/features/magic-context/memory/project-identity";
-import * as searchModule from "#core/features/magic-context/search";
+import { resolveProjectIdentity } from "#core/features/memory/project-identity";
+import * as searchModule from "#core/features/search";
 
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import { createTestDb, fakeContext } from "../test-utils.test";
@@ -149,7 +149,7 @@ describe("createCtxSearchTool", () => {
 		// then verify that an ID-shaped query uses `resolveMemoriesByIdsForSearch`
 		// instead of `unifiedSearch`.
 		const { insertMemory } = await import(
-			"#core/features/magic-context/memory"
+			"#core/features/memory"
 		);
 		const projectIdentity = resolveProjectIdentity(process.cwd());
 		const memory = insertMemory(db, {

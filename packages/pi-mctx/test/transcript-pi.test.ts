@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { createTagger } from "#core/features/magic-context/tagger";
+import { createTagger } from "#core/features/tagger";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import { tagTranscript } from "#core/shared/tag-transcript";
 import {

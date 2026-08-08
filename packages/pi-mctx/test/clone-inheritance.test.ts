@@ -10,9 +10,9 @@ import {
 	getOrCreateSessionMeta,
 	getSourceContents,
 	getTagsBySession,
-} from "#core/features/magic-context/storage";
-import { replayCavemanCompression } from "#core/hooks/magic-context/caveman-cleanup";
-import type { TagTarget } from "#core/hooks/magic-context/tag-messages";
+} from "#core/features/storage";
+import { replayCavemanCompression } from "#core/hooks/caveman-cleanup";
+import type { TagTarget } from "#core/hooks/tag-messages";
 import type { Database } from "#core/shared/sqlite";
 import {
 	__test,

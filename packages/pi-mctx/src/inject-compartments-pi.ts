@@ -1,7 +1,7 @@
 /**
  * Pi-side `<session-history>` injection — mirrors legacy host's
  * `prepareCompartmentInjection` + `renderCompartmentInjection`
- * (packages/plugin/src/hooks/magic-context/inject-compartments.ts).
+ * (packages/plugin/src/hooks/inject-compartments.ts).
  *
  * Pi differences:
  *   - Pi messages have `content: string | (TextContent | ImageContent)[]`,
@@ -30,10 +30,10 @@ import {
 	getMemoriesByProject,
 	getMemoriesByProjects,
 	readNewMemoriesForM1Union,
-} from "#core/features/magic-context/memory/storage-memory";
-import type { Memory } from "#core/features/magic-context/memory/types";
-import { resolveMuralWire } from "#core/features/magic-context/mural/render-trigger";
-import type { MuralWireOptions } from "#core/features/magic-context/mural/resolve-mural";
+} from "#core/features/memory/storage-memory";
+import type { Memory } from "#core/features/memory/types";
+import { resolveMuralWire } from "#core/features/mural/render-trigger";
+import type { MuralWireOptions } from "#core/features/mural/resolve-mural";
 import {
 	type ContextDatabase,
 	clearCachedM0M1,
@@ -49,29 +49,29 @@ import {
 	getProjectState,
 	persistCachedM0,
 	readProjectDocsCanonical,
-} from "#core/features/magic-context/storage";
+} from "#core/features/storage";
 import {
 	getActiveUserMemories,
 	type UserMemory,
-} from "#core/features/magic-context/user-memory/storage-user-memory";
+} from "#core/features/user-memory/storage-user-memory";
 import {
 	computeWorkspaceEpochFingerprint,
 	expandWorkspaceIdentitySetWithAliases,
 	resolveWorkspaceIdentitySet,
 	resolveWorkspaceShareCategories,
 	sourceNameForMemory,
-} from "#core/features/magic-context/workspaces";
+} from "#core/features/workspaces";
 import {
 	COMPARTMENT_RENDER_EPOCH,
 	decodeCachedM0UpgradeIdentity,
 	encodeCachedM0UpgradeIdentity,
-} from "#core/hooks/magic-context/compartment-render-epoch";
+} from "#core/hooks/compartment-render-epoch";
 import {
 	DEFAULT_HISTORY_BUDGET_TOKENS,
 	extractM0Block,
 	renderCompartmentAtTier,
 	renderDecayedCompartments,
-} from "#core/hooks/magic-context/decay-render";
+} from "#core/hooks/decay-render";
 import {
 	DEFAULT_MEMORY_BUDGET_TOKENS,
 	DEFAULT_USER_PROFILE_BUDGET_TOKENS,
@@ -82,9 +82,9 @@ import {
 	trimUserMemoriesToBudget,
 	trimWorkspaceMemoriesToBudgetV2,
 	type WorkspaceRenderContext,
-} from "#core/hooks/magic-context/inject-compartments";
+} from "#core/hooks/inject-compartments";
 
-import { estimateTokens } from "#core/hooks/magic-context/read-session-formatting";
+import { estimateTokens } from "#core/hooks/read-session-formatting";
 import { sessionLog as logSession } from "#core/shared/logger";
 import { resolvePiStableId, SYNTH_USER_ID_PREFIX } from "./read-session-pi";
 

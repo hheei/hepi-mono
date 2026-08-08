@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { COMPARTMENT_AGENT_SYSTEM_PROMPT } from "../../../src/core/hooks/magic-context/compartment-prompt";
+import { COMPARTMENT_AGENT_SYSTEM_PROMPT } from "../../../src/core/hooks/compartment-prompt";
 import { withContentLanguageDirective } from "../../../src/core/agents/language-directive";
 import { buildMagicContextSection } from "../../../src/core/agents/magic-context-prompt";
 

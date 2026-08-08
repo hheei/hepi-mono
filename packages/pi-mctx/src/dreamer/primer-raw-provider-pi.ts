@@ -1,5 +1,5 @@
-import type { RawMessageProvider } from "#core/hooks/magic-context/read-session-chunk";
-import type { RawMessage } from "#core/hooks/magic-context/read-session-raw";
+import type { RawMessageProvider } from "#core/hooks/read-session-chunk";
+import type { RawMessage } from "#core/hooks/read-session-raw";
 import { convertEntriesToRawMessages } from "../read-session-pi";
 import { loadDefaultPiSessionApi } from "./pi-session-api";
 

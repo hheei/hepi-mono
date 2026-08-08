@@ -12,13 +12,13 @@
  */
 
 import { describe, expect, it } from "bun:test";
-import { resolveProjectIdentity } from "#core/features/magic-context/memory/project-identity";
-import { indexMessagesAfterOrdinal } from "#core/features/magic-context/message-index";
+import { resolveProjectIdentity } from "#core/features/memory/project-identity";
+import { indexMessagesAfterOrdinal } from "#core/features/message-index";
 import {
 	addNote,
 	getNotes,
 	updateNote,
-} from "#core/features/magic-context/storage";
+} from "#core/features/storage";
 import { createTestDb, fakeContext } from "../test-utils.test";
 import { createCtxNoteTool } from "../../src/tools/ctx-note";
 import { createCtxSearchTool } from "../../src/tools/ctx-search";

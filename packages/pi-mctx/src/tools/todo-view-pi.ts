@@ -13,7 +13,7 @@ import {
 	TITLE_DONE_STATUSES,
 	TODO_PRIORITIES,
 	TODO_STATUSES,
-} from "#core/hooks/magic-context/todo-view";
+} from "#core/hooks/todo-view";
 
 export const TODO_TOOL_NAME = "todowrite";
 export const TODOS_COMMAND_NAME = "todos";

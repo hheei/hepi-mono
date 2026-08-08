@@ -39,7 +39,7 @@
  * dialog render time from `pi.getAllTools()`.
  */
 
-import { estimateTokens } from "#core/hooks/magic-context/read-session-formatting";
+import { estimateTokens } from "#core/hooks/read-session-formatting";
 
 export interface PiMessageTokenCounts {
 	conversation: number;

@@ -15,18 +15,18 @@ import {
     insertMemoryIdempotent,
     normalizeStoredProjectPath,
     setMemoryClassification,
-} from "../../../../src/core/features/magic-context";
+} from "../../../../src/core/features";
 import {
     _resetProjectEmbeddingRegistryForTests,
     _setTestProviderFactoryForProject,
     type ProjectEmbeddingRegistrationSnapshot,
     registerProjectEmbedding,
-} from "../../../../src/core/features/magic-context/memory/embedding";
+} from "../../../../src/core/features/memory/embedding";
 import type {
     EmbeddingProvider,
     EmbeddingPurpose,
-} from "../../../../src/core/features/magic-context/memory/embedding-provider";
-import { resolveProjectIdentityForSession } from "../../../../src/core/features/magic-context/memory/project-identity";
+} from "../../../../src/core/features/memory/embedding-provider";
+import { resolveProjectIdentityForSession } from "../../../../src/core/features/memory/project-identity";
 import { Database } from "../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../src/core/shared/sqlite-helpers";
 

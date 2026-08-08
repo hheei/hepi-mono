@@ -5,8 +5,8 @@ import { join } from "node:path";
 import {
 	getOrCreateSessionMeta,
 	updateSessionMeta,
-} from "#core/features/magic-context/storage";
-import { openDatabase } from "#core/features/magic-context/storage-db";
+} from "#core/features/storage";
+import { openDatabase } from "#core/features/storage-db";
 import { setHarness } from "#core/shared/harness";
 import {
 	buildMessageIdToMaxTag,
@@ -60,7 +60,7 @@ describe("buildMessageIdToMaxTag", () => {
 		const result = buildMessageIdToMaxTag(
 			targets as unknown as Map<
 				number,
-				import("#core/hooks/magic-context/tag-messages").TagTarget
+				import("#core/hooks/tag-messages").TagTarget
 			>,
 		);
 		expect(result.size).toBe(1);

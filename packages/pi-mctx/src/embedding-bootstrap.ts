@@ -6,9 +6,9 @@ import {
 import {
 	type EmbeddingFeatures,
 	registerProjectEmbedding,
-} from "#core/features/magic-context/memory/embedding";
-import { resolveProjectIdentityForSession } from "#core/features/magic-context/memory/project-identity";
-import type { ContextDatabase } from "#core/features/magic-context/storage";
+} from "#core/features/memory/embedding";
+import { resolveProjectIdentityForSession } from "#core/features/memory/project-identity";
+import type { ContextDatabase } from "#core/features/storage";
 import {
 	handleUntrustedLoad,
 	isConfigLoadUntrusted,

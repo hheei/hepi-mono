@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { computePiWorkMetrics } from "#core/features/magic-context/work-metrics";
+import { computePiWorkMetrics } from "#core/features/work-metrics";
 
 describe("Pi work metrics", () => {
 	test("computes delta new work and phase peak total input", () => {

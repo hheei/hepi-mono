@@ -1,8 +1,8 @@
 import { describe, expect, it, mock } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { appendCompartments } from "#core/features/magic-context/compartment-storage";
-import { getPendingPiCompactionMarkerState } from "#core/features/magic-context/storage";
+import { appendCompartments } from "#core/features/compartment-storage";
+import { getPendingPiCompactionMarkerState } from "#core/features/storage";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import { queueAndApplyPiRecompMarker } from "../src/pi-recomp-marker";
 import { createTestDb } from "./test-utils.test";

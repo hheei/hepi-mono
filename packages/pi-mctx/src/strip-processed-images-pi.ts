@@ -2,7 +2,7 @@ import {
 	addProcessedImageStrippedIds,
 	type ContextDatabase,
 	getProcessedImageStrippedIds,
-} from "#core/features/magic-context/storage";
+} from "#core/features/storage";
 import { sessionLog } from "#core/shared/logger";
 
 interface PiImagePart {

@@ -41,21 +41,21 @@ import {
 	COMPARTMENT_LEASE_RENEWAL_MS,
 	releaseCompartmentLease,
 	renewCompartmentLease,
-} from "#core/features/magic-context/compartment-lease";
-import { getCompartments } from "#core/features/magic-context/compartment-storage";
-import { isFailClosedBlockingError } from "#core/features/magic-context/fail-closed-block";
-import { resolveProjectIdentityForSession } from "#core/features/magic-context/memory/project-identity";
+} from "#core/features/compartment-lease";
+import { getCompartments } from "#core/features/compartment-storage";
+import { isFailClosedBlockingError } from "#core/features/fail-closed-block";
+import { resolveProjectIdentityForSession } from "#core/features/memory/project-identity";
 import {
 	clearSessionTracking,
 	scheduleIncrementalIndex,
 	scheduleReconciliation,
-} from "#core/features/magic-context/message-index-async";
+} from "#core/features/message-index-async";
 import {
 	createScheduler,
 	parseCacheTtl,
 	type Scheduler,
-} from "#core/features/magic-context/scheduler";
-import { recordSessionProjectIdentity } from "#core/features/magic-context/session-project-storage";
+} from "#core/features/scheduler";
+import { recordSessionProjectIdentity } from "#core/features/session-project-storage";
 import {
 	adoptPiFallbackMessageTag,
 	adoptPiFallbackToolOwnerTag,
@@ -80,8 +80,8 @@ import {
 	isWrapupInProgress,
 	setSessionWorkMetrics,
 	updateSessionMeta,
-} from "#core/features/magic-context/storage";
-import { getOrCreateSessionMeta } from "#core/features/magic-context/storage-meta";
+} from "#core/features/storage";
+import { getOrCreateSessionMeta } from "#core/features/storage-meta";
 import {
 	clearDeferredExecutePendingIfMatches,
 	clearDetectedContextLimit,
@@ -98,64 +98,64 @@ import {
 	pruneNoteNudgeAnchors,
 	resetLastNudgeCycleIfTailShrank,
 	setDeferredExecutePendingIfAbsent,
-} from "#core/features/magic-context/storage-meta-persisted";
-import { getSourceContents } from "#core/features/magic-context/storage-source";
+} from "#core/features/storage-meta-persisted";
+import { getSourceContents } from "#core/features/storage-source";
 import {
 	createTagger,
 	type Tagger,
-} from "#core/features/magic-context/tagger";
+} from "#core/features/tagger";
 import {
 	findNewestPiAssistantEntryId,
 	normalizeMaterializeReason,
 	recordPendingPiTransformDecision,
 	schedulePiTransformDecisionResolve,
-} from "#core/features/magic-context/transform-decision-log";
-import { computePiWorkMetrics } from "#core/features/magic-context/work-metrics";
+} from "#core/features/transform-decision-log";
+import { computePiWorkMetrics } from "#core/features/work-metrics";
 import {
 	applyFlushedStatuses,
 	applyPendingOperations,
 	RECENT_TOOL_SKELETON_WINDOW,
-} from "#core/hooks/magic-context/apply-operations";
+} from "#core/hooks/apply-operations";
 import {
 	applyMidTurnDeferral,
 	detectMidTurnBypassReason,
-} from "#core/hooks/magic-context/boundary-execution";
-import { replayCavemanCompression } from "#core/hooks/magic-context/caveman-cleanup";
-import { checkCompartmentTrigger } from "#core/hooks/magic-context/compartment-trigger";
-import { shouldTriggerChannel2 } from "#core/hooks/magic-context/ctx-reduce-nudge";
-import { deriveTriggerBudget } from "#core/hooks/magic-context/derive-budgets";
+} from "#core/hooks/boundary-execution";
+import { replayCavemanCompression } from "#core/hooks/caveman-cleanup";
+import { checkCompartmentTrigger } from "#core/hooks/compartment-trigger";
+import { shouldTriggerChannel2 } from "#core/hooks/ctx-reduce-nudge";
+import { deriveTriggerBudget } from "#core/hooks/derive-budgets";
 import {
 	DEFAULT_CONTEXT_LIMIT,
 	resolveExecuteThreshold,
-} from "#core/hooks/magic-context/event-resolvers";
-import { getVisibleMemoryIds } from "#core/hooks/magic-context/inject-compartments";
+} from "#core/hooks/event-resolvers";
+import { getVisibleMemoryIds } from "#core/hooks/inject-compartments";
 import {
 	markNoteNudgeDelivered,
 	onNoteTrigger,
 	peekNoteNudgeText,
-} from "#core/hooks/magic-context/note-nudger";
+} from "#core/hooks/note-nudger";
 import {
 	getRawHistoryEligibility,
 	hasRunnableCompartmentWindow,
 	type ProtectedTailBoundarySnapshot,
 	resolveBoundaryContext,
 	resolveProtectedTailBoundary,
-} from "#core/hooks/magic-context/protected-tail-boundary";
+} from "#core/hooks/protected-tail-boundary";
 import {
 	readRawSessionMessages,
 	setRawMessageProvider,
-} from "#core/hooks/magic-context/read-session-chunk";
-import { invalidateTrueRawTokenCache } from "#core/hooks/magic-context/read-session-true-raw-tokens";
-import { modelAcceptsEmptyContent } from "#core/hooks/magic-context/sentinel";
+} from "#core/hooks/read-session-chunk";
+import { invalidateTrueRawTokenCache } from "#core/hooks/read-session-true-raw-tokens";
+import { modelAcceptsEmptyContent } from "#core/hooks/sentinel";
 import {
 	buildEditSupersessionReclaim,
 	buildSupersessionReclaimOps,
-} from "#core/hooks/magic-context/supersession-reclaim";
-import { stripTagPrefix } from "#core/hooks/magic-context/tag-content-primitives";
+} from "#core/hooks/supersession-reclaim";
+import { stripTagPrefix } from "#core/hooks/tag-content-primitives";
 import {
 	advanceToolReclaimWatermarkToCurrentMax,
 	buildSyntheticToolReclaimOps,
-} from "#core/hooks/magic-context/tool-reclaim";
+} from "#core/hooks/tool-reclaim";
 import { escalationBands } from "#core/shared/escalation-bands";
 import { log, sessionLog } from "#core/shared/logger";
 import { isSaneLimit } from "#core/shared/models-dev-cache";

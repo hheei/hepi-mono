@@ -1,6 +1,6 @@
 /**
  * Pi-side heuristic cleanup — mirrors legacy host's `applyHeuristicCleanup`
- * (packages/plugin/src/hooks/magic-context/heuristic-cleanup.ts).
+ * (packages/plugin/src/hooks/heuristic-cleanup.ts).
  *
  * Same four passes, in the same order, with the same DB persistence
  * semantics. The only Pi-specific pieces are:
@@ -40,23 +40,23 @@ import {
 	replaceSourceContent,
 	updateTagDropMode,
 	updateTagStatus,
-} from "#core/features/magic-context/storage";
+} from "#core/features/storage";
 import {
 	getEmergencyInputSample,
 	setEmergencyDropSample,
-} from "#core/features/magic-context/storage-meta-persisted";
-import type { TagEntry } from "#core/features/magic-context/types";
+} from "#core/features/storage-meta-persisted";
+import type { TagEntry } from "#core/features/types";
 import {
 	applyCavemanCleanup,
 	type CavemanCleanupConfig,
-} from "#core/hooks/magic-context/caveman-cleanup";
+} from "#core/hooks/caveman-cleanup";
 import {
 	type EmergencyDropTag,
 	planEmergencyDrop,
-} from "#core/hooks/magic-context/emergency-drop";
-import { stripSystemInjection } from "#core/hooks/magic-context/system-injection-stripper";
-import type { TagTarget } from "#core/hooks/magic-context/tag-messages";
-import { stripTagPrefix } from "#core/hooks/magic-context/tag-part-guards";
+} from "#core/hooks/emergency-drop";
+import { stripSystemInjection } from "#core/hooks/system-injection-stripper";
+import type { TagTarget } from "#core/hooks/tag-messages";
+import { stripTagPrefix } from "#core/hooks/tag-part-guards";
 import { sessionLog } from "#core/shared/logger";
 
 /**

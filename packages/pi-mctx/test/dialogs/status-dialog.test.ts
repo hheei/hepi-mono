@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { resolveProjectIdentity } from "#core/features/magic-context/memory/project-identity";
-import { setSessionWorkMetrics } from "#core/features/magic-context/storage-meta-persisted";
+import { resolveProjectIdentity } from "#core/features/memory/project-identity";
+import { setSessionWorkMetrics } from "#core/features/storage-meta-persisted";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import { createTestDb, fakeContext } from "../test-utils.test";
 import { buildPiStatusDetail, showStatusDialog } from "../../src/dialogs/status-dialog";

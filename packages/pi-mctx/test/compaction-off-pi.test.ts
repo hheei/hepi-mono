@@ -6,13 +6,13 @@ import {
 	setChannel2NudgeState,
 	setPendingPiCompactionMarkerState,
 	updateSessionMeta,
-} from "#core/features/magic-context/storage";
+} from "#core/features/storage";
 import {
 	getChannel2NudgeState,
 	getCompactionModeRecord,
 	getOverflowState,
 	recordOverflowDetected,
-} from "#core/features/magic-context/storage-meta-persisted";
+} from "#core/features/storage-meta-persisted";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 
 import {

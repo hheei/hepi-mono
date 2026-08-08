@@ -4,13 +4,13 @@ import {
 	getTagsBySession,
 	insertTag,
 	queuePendingOp,
-} from "#core/features/magic-context/storage";
-import { createTagger } from "#core/features/magic-context/tagger";
+} from "#core/features/storage";
+import { createTagger } from "#core/features/tagger";
 import {
 	applyFlushedStatuses,
 	applyPendingOperations,
-} from "#core/hooks/magic-context/apply-operations";
-import type { TagTarget } from "#core/hooks/magic-context/tag-messages";
+} from "#core/hooks/apply-operations";
+import type { TagTarget } from "#core/hooks/tag-messages";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import { tagTranscript } from "#core/shared/tag-transcript";
 import { applyPiHeuristicCleanup } from "../src/heuristic-cleanup-pi";

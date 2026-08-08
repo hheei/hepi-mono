@@ -1,5 +1,5 @@
 import type { ContextEvent } from "@earendil-works/pi-coding-agent";
-import { initializeDatabase } from "../src/core/features/magic-context/storage-db";
+import { initializeDatabase } from "../src/core/features/storage-db";
 import { setHarness } from "#core/shared/harness";
 import { Database } from "#core/shared/sqlite";
 

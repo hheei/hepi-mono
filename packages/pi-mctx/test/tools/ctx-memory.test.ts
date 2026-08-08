@@ -1,10 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { resolveProjectIdentity } from "#core/features/magic-context/memory/project-identity";
+import { resolveProjectIdentity } from "#core/features/memory/project-identity";
 import {
 	getMemoryById,
 	insertMemory,
-} from "#core/features/magic-context/memory/storage-memory";
-import { getMemoryMutationsForRender } from "#core/features/magic-context/storage";
+} from "#core/features/memory/storage-memory";
+import { getMemoryMutationsForRender } from "#core/features/storage";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import { createTestDb, fakeContext } from "../test-utils.test";
 import { createCtxMemoryTool } from "../../src/tools/ctx-memory";

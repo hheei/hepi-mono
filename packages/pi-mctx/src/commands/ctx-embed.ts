@@ -3,14 +3,14 @@ import {
 	embedSessionCompartmentChunks,
 	getEmbeddingCoverageStatus,
 	type SessionChunkBackfillProgress,
-} from "#core/features/magic-context/project-embedding-registry";
-import type { ContextDatabase } from "#core/features/magic-context/storage";
+} from "#core/features/project-embedding-registry";
+import type { ContextDatabase } from "#core/features/storage";
 import {
 	autoEmbedAttemptedBySession,
 	embedPauseBySession,
 	embedRunStateBySession,
-} from "#core/hooks/magic-context/embed-session-state";
-import { formatEmbedStatusText } from "#core/hooks/magic-context/format-embed-status";
+} from "#core/hooks/embed-session-state";
+import { formatEmbedStatusText } from "#core/hooks/format-embed-status";
 import { ensureProjectRegisteredFromPiDirectory } from "../embedding-bootstrap";
 import { resolveSessionId, sendCtxStatusMessage } from "./pi-command-utils";
 

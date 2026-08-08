@@ -1,18 +1,18 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { withContentLanguageDirective } from "#core/agents/language-directive";
-import { getCompartments } from "#core/features/magic-context/compartment-storage";
-import type { ContextDatabase } from "#core/features/magic-context/storage";
+import { getCompartments } from "#core/features/compartment-storage";
+import type { ContextDatabase } from "#core/features/storage";
 import {
 	clearEmergencyRecovery,
 	isWrapupInProgress,
-} from "#core/features/magic-context/storage-meta-persisted";
-import { COMPARTMENT_STRUCTURAL_SYSTEM_PROMPT } from "#core/hooks/magic-context/compartment-prompt";
-import { executeContextRecompWithResult } from "#core/hooks/magic-context/compartment-runner";
+} from "#core/features/storage-meta-persisted";
+import { COMPARTMENT_STRUCTURAL_SYSTEM_PROMPT } from "#core/hooks/compartment-prompt";
+import { executeContextRecompWithResult } from "#core/hooks/compartment-runner";
 import {
 	type PartialRecompRange,
 	snapRangeToCompartments,
-} from "#core/hooks/magic-context/compartment-runner-partial-recomp";
-import type { RawMessageProvider } from "#core/hooks/magic-context/read-session-chunk";
+} from "#core/hooks/compartment-runner-partial-recomp";
+import type { RawMessageProvider } from "#core/hooks/read-session-chunk";
 import { describeError } from "#core/shared/error-message";
 import { sessionLog } from "#core/shared/logger";
 import type { SubagentRunner } from "#core/shared/subagent-runner";

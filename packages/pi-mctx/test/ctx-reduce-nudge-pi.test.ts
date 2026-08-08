@@ -5,7 +5,7 @@ import {
 	getChannel2NudgeClaimedAt,
 	getChannel2NudgeState,
 	setChannel2NudgeState,
-} from "#core/features/magic-context/storage";
+} from "#core/features/storage";
 import * as loggerModule from "#core/shared/logger";
 import {
 	clearPiChannel1State,

@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
-import { replaceAllCompartments } from "../../../../src/core/features/magic-context/compartment-storage";
-import { insertMemory } from "../../../../src/core/features/magic-context/memory";
-import { indexMessagesAfterOrdinal } from "../../../../src/core/features/magic-context/message-index";
-import { initializeDatabase } from "../../../../src/core/features/magic-context/storage-db";
-import * as searchModule from "../../../../src/core/features/magic-context/search";
+import { replaceAllCompartments } from "../../../../src/core/features/compartment-storage";
+import { insertMemory } from "../../../../src/core/features/memory";
+import { indexMessagesAfterOrdinal } from "../../../../src/core/features/message-index";
+import { initializeDatabase } from "../../../../src/core/features/storage-db";
+import * as searchModule from "../../../../src/core/features/search";
 
 
 import { Database } from "../../../../src/core/shared/sqlite";

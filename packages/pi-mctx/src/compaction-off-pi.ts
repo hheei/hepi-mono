@@ -9,7 +9,7 @@ import {
 	setPendingPiCompactionMarkerState,
 	updateSessionMeta,
 	type ContextDatabase,
-} from "#core/features/magic-context/storage";
+} from "#core/features/storage";
 import {
 	type CompactionModeRecord,
 	clearEmergencyRecovery,
@@ -18,7 +18,7 @@ import {
 	getOverflowState,
 	resolveCompactionModeRecord,
 	setCompactionModeRecord,
-} from "#core/features/magic-context/storage-meta-persisted";
+} from "#core/features/storage-meta-persisted";
 import { sessionLog } from "#core/shared/logger";
 
 /** Exact refusal text shared by Pi's context-management commands. */

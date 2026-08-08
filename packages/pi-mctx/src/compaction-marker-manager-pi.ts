@@ -1,5 +1,5 @@
-import { getCompartmentsByEndMessageId } from "#core/features/magic-context/compartment-storage";
-import type { PendingPiCompactionMarker } from "#core/features/magic-context/storage-meta-persisted";
+import { getCompartmentsByEndMessageId } from "#core/features/compartment-storage";
+import type { PendingPiCompactionMarker } from "#core/features/storage-meta-persisted";
 import { sessionLog } from "#core/shared/logger";
 import type { Database } from "#core/shared/sqlite";
 

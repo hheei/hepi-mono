@@ -2,8 +2,8 @@ import { describe, expect, it } from "bun:test";
 import {
 	getPersistedTodoSyntheticAnchor,
 	setPersistedTodoSyntheticAnchor,
-} from "#core/features/magic-context/storage-meta";
-import { computeSyntheticCallId } from "#core/hooks/magic-context/todo-view";
+} from "#core/features/storage-meta";
+import { computeSyntheticCallId } from "#core/hooks/todo-view";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import { injectSyntheticTodowriteForPi } from "../src/pi-todo-inject";
 import { assistantMessage, createTestDb } from "./test-utils.test";

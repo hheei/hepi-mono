@@ -1,12 +1,12 @@
 import { describe, expect, it, mock } from "bun:test";
-import { acquireCompartmentLease } from "#core/features/magic-context/compartment-lease";
+import { acquireCompartmentLease } from "#core/features/compartment-lease";
 import {
 	appendCompartments,
 	getCompartments,
 	getSessionFacts,
-} from "#core/features/magic-context/compartment-storage";
-import { resolveProjectIdentity } from "#core/features/magic-context/memory/project-identity";
-import { getMemoriesByProject } from "#core/features/magic-context/memory/storage-memory";
+} from "#core/features/compartment-storage";
+import { resolveProjectIdentity } from "#core/features/memory/project-identity";
+import { getMemoriesByProject } from "#core/features/memory/storage-memory";
 import {
 	getHistorianFailureState,
 	getOverflowState,
@@ -15,9 +15,9 @@ import {
 	loadProtectedTailMeta,
 	recordOverflowDetected,
 	reserveProtectedTailDrainTokens,
-} from "#core/features/magic-context/storage";
-import { getUserMemoryCandidates } from "#core/features/magic-context/user-memory/storage-user-memory";
-import type { ProtectedTailBoundarySnapshot } from "#core/hooks/magic-context/protected-tail-boundary";
+} from "#core/features/storage";
+import { getUserMemoryCandidates } from "#core/features/user-memory/storage-user-memory";
+import type { ProtectedTailBoundarySnapshot } from "#core/hooks/protected-tail-boundary";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import type {
 	SubagentRunner,

@@ -5,7 +5,7 @@ import {
     getProjectEmbeddingSnapshot,
     markProjectLoadUntrusted,
     registerProjectInObservationMode,
-} from "../features/magic-context/memory/embedding";
+} from "../features/memory/embedding";
 import { log } from "../shared/logger";
 import type { Database } from "../shared/sqlite";
 
