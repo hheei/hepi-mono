@@ -12,9 +12,6 @@ Install only the extensions you need:
 
 ```bash
 pi install npm:@hheei/pi-ext-tools
-pi install npm:@hheei/pi-mctx
-pi install npm:@hheei/pi-ponytail
-pi install npm:@hheei/pi-caveman
 ```
 
 Independent extensions install separately:
@@ -56,4 +53,4 @@ scripts/        Repository development commands
 templates/      Extension generator inputs
 ```
 
-`graphify-out/`, `outputs/`, `.pi/`, and `.pi-subagents/` are local generated state and are not versioned. External source clones under `references/repos/` are references only: they are not workspace packages, dependencies, or behavior contracts.
+`graphify-out/`, `outputs/`, and `.pi/` are local generated state and are not versioned. External source clones under `references/repos/` are references only: they are not workspace packages, dependencies, or behavior contracts.

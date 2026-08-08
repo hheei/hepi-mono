@@ -4,8 +4,8 @@
 	"exclude": ["**/node_modules/**", "**/dist/**", "**/.pi/**"],
 	"compilerOptions": {
 		"paths": {
-			"@hheei/pi-ext-core": ["packages/pi-ext-core/src/index.ts"],
-			"@hheei/pi-ext-core/testing": ["packages/pi-ext-core/src/testing.ts"]
+			"@hheei/pi-ext-core": ["./packages/pi-ext-core/src/index.ts"],
+			"@hheei/pi-ext-core/testing": ["./packages/pi-ext-core/src/testing.ts"]
 		}
 	}
 }

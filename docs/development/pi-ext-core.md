@@ -113,7 +113,7 @@ content model、worker framework 或 shared dependency。
 
 所有 HEPI-owned non-native executable tool 必须在 extension composition root 使用 core 的 managed
 Loadout registration，禁止直接调用 Pi tool registration API。非-tool resource 使用 lifecycle-bound
-Loadout resource registration；例如 `pi-subagents` profile 使用 `agent:<name>`，不得伪装为 Pi tool。
+Loadout resource registration；agent contributor 使用 `agent:<name>`，不得伪装为 Pi tool。
 `pi-loadout` 是强烈推荐 companion；
 缺席时 core fallback 仅保留 Pi 默认 activation，不提供 inventory、conflict 或 persisted policy。
 
@@ -130,12 +130,12 @@ abort；consumer 不得另加隐式 timeout/grace。sink 必须接受 abort 后�
 subscriber 必须声明 event kinds、接受 fixed-cap snapshot coalescing，且在其 lifecycle signal abort 后不得
 保留 handle reference。
 
-`pi-subagents` 也必须在每次 parent session start 配置 root active-turn cap。core 只接受一项 live
+subagent consumer 也必须在每次 parent session start 配置 root active-turn cap。core 只接受一项 live
 lifecycle configuration，且 runtime 校验值为 positive integer；另一 owner 是 collision error。不得把 cap
 放进单 task spec、凭 load order 覆盖，或在 core 内加入 hidden default。
 
-core 不提供 main-agent wait 或 result-polling surface。`pi-subagents` 保留 parent delivery adapter：
-default queue、human/host explicit steer 与 all-terminal Task delivery group 都是该 package 的 policy，不能
+core 不提供 main-agent wait 或 result-polling surface。具体 contributor 保留 parent delivery adapter：
+default queue、human/host explicit steer 与 all-terminal Task delivery group 都是 contributor policy，不能
 下沉到 core execution contract。model-facing `agent` tool 只提供 conversation queue input，不能暴露 steer。
 所有 delivery 必须以 operation ID、任务目的、terminal/partial state 和「先评估相关性再报告」包裹 child output；
 不能直接注入 raw delayed result。
