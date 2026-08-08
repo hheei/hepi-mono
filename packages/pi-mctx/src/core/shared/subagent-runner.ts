@@ -1,32 +1,9 @@
 /**
- * Cross-harness subagent runner abstraction.
+ * Pi subagent runner contract.
  *
- * Magic Context spawns three kinds of subagents — historian, dreamer, sidekick —
- * each as a child "session" with its own model/prompt/tools. OpenCode and Pi
- * have very different APIs for this:
- *
- *   - OpenCode: `client.session.create({parentID}) → client.session.prompt() →
- *     client.session.messages() → client.session.delete()`. The plugin runs
- *     in-process with the OpenCode server and uses its SDK client directly.
- *
- *   - Pi: no in-process child-session API. Instead `pi --print --mode=json`
- *     spawns a non-interactive subprocess that emits structured JSON events
- *     and exits when the agent loop finishes. Sessions are JSONL files on
- *     disk, optionally addressed via `--session <path>`.
- *
- * The runner interface below normalizes both into the same shape so the
- * actual subagent business logic (historian XML parsing, dreamer task loop,
- * sidekick augmentation) can stay harness-agnostic. Each harness ships its
- * own runner implementation; agents take a `SubagentRunner` as a dep instead
- * of reaching for `client.session.*` directly.
- *
- * Step 5a (this commit) defines the contract and ships `PiSubagentRunner`.
- * Step 5b will refactor the OpenCode-side spawn paths in
- * `compartment-runner-historian.ts`, `dreamer/runner.ts`, and
- * `sidekick/agent.ts` onto an `OpenCodeSubagentRunner` so both harnesses
- * share the agent business logic instead of duplicating it. Until 5b lands,
- * OpenCode keeps its existing direct `client.session.*` calls untouched —
- * the runner contract is purely additive on the OpenCode side.
+ * Magic Context runs historian, dreamer, and sidekick as non-interactive Pi
+ * subprocesses. The runner isolates their model, prompt, tool, cancellation,
+ * and result handling from the feature logic that consumes their output.
  */
 
 /**

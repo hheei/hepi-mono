@@ -217,7 +217,7 @@ function countTodos(todos: readonly TodoItem[]): TodoCounts {
 }
 
 function activeTitleCount(todos: readonly TodoItem[]): number {
-	// OpenCode's todowrite title excludes only completed todos; cancelled items
+	// The Todo title excludes only completed todos; cancelled items
 	// remain in the model-visible active count for wire-shape parity.
 	return todos.filter((todo) => !TITLE_DONE_STATUSES.has(todo.status)).length;
 }

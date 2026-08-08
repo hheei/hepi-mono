@@ -6,7 +6,7 @@ import { estimateTokens } from "./read-session-formatting";
 
 /**
  * Per-block token attribution for the synthetic m[0] message, shared by BOTH
- * harnesses (OpenCode sidebar/RPC + Pi /ctx-status dialog) so they NEVER
+ * Pi's status dialog so token breakdowns use one calculation and never
  * diverge on what the categories are or how they're measured.
  *
  * v2 reality this encodes:

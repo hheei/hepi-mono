@@ -31,7 +31,7 @@ import {
 } from "../../../../src/core/features/magic-context/dreamer/task-prompts";
 import { VERIFY_SYSTEM_PROMPT } from "../../../../src/core/features/magic-context/dreamer/verify-prompt";
 import { MIGRATION_SYSTEM_PROMPT } from "../../../../src/core/features/magic-context/memory/memory-migration";
-import { SIDEKICK_SYSTEM_PROMPT } from "../../../../src/core/features/magic-context/sidekick/agent";
+import { SIDEKICK_SYSTEM_PROMPT } from "../../../../src/core/features/magic-context/sidekick/core";
 import { SMART_NOTE_COMPILER_SYSTEM_PROMPT } from "../../../../src/core/features/magic-context/smart-notes/compiler-prompt";
 import {
     closeDatabase,

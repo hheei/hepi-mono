@@ -2,7 +2,7 @@
  * Pi-side system prompt injector helpers.
  *
  * v2 cache architecture keeps only stable instructions in the Pi system
- * prompt: Magic Context guidance and Pi/OpenCode's existing "Today's date"
+ * prompt: Magic Context guidance and Pi's existing "Today's date"
  * line (sticky-frozen by processSystemPromptForCache). Project docs,
  * user profile, key files, memories, facts, and compartments are rendered
  * by the m[0]/m[1] message materializer instead.

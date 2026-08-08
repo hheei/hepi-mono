@@ -18,8 +18,8 @@
  *     Node's `child_process.execFile` validation rejects argv elements that
  *     contain embedded NUL bytes ("must be a string without null bytes"),
  *     even when the underlying program (git) would happily accept them via
- *     other entry points. Bun's execFile is more permissive, which masked
- *     this in unit tests until live OpenCode runtime exposed it. US/RS
+ *     other entry points. Bun's execFile is more permissive, which masked this
+ *     in unit tests. US/RS
  *     never appear naturally in commit subjects, emails, or bodies.
  *   - Subject + trimmed body combine into the searchable message.
  *   - We skip merge commits via `--no-merges` so merge "Merge branch 'x'"

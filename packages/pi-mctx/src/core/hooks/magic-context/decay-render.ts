@@ -1,5 +1,5 @@
 /**
- * Shared deterministic decay renderer (v2). Used by BOTH OpenCode
+ * Shared deterministic decay renderer (v2). Used by Pi so visual behavior
  * (inject-compartments.ts) and Pi (inject-compartments-pi.ts) so the two
  * harnesses render compartment history byte-identically from the same validated
  * decay curve. This is the single render-side implementation of the curve in

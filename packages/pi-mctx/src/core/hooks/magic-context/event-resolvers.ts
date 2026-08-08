@@ -204,7 +204,7 @@ function isFinitePositive(v: unknown): v is number {
 /**
  * Yield progressively-less-specific lookup keys for a given `provider/model`.
  *
- * OpenCode's `experimental.modes` feature derives model IDs like
+ * Experimental model modes may derive model IDs like
  * `gpt-5.4-fast` from a base model `gpt-5.4`. Users may put EITHER the
  * derived key OR the base key in their per-model config. This generator
  * returns keys in specificity order so we pick the most specific match

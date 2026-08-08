@@ -13,7 +13,7 @@ import { setMagicContextRecompActive } from "./status-line";
  * Why detached: Pi's command handler IS the REPL turn (single process). Awaiting
  * a multi-pass recomp inline froze ALL input — new prompts and even /ctx-status —
  * until it finished (dogfood 2026-06-01: a 1105-message upgrade locked the REPL
- * across several ~4-min historian passes). OpenCode runs recomp/upgrade as
+ * across several ~4-min historian passes). Recomp/upgrade runs as
  * `void runManagedRecomp(...)` in its separate server process; Pi must do the
  * equivalent fire-and-forget so the REPL stays responsive while the historian
  * passes run in the background — the same pattern as `spawnPiHistorianRun`.

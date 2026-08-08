@@ -3,7 +3,7 @@
  *
  * Why vendored (no dependency): we only need "next occurrence after time T", the
  * 3-day package-release-age floor makes pulling a dep awkward, and the surface is
- * small. Shared core — both OpenCode and Pi import this via @magic-context/core.
+ * small. This module is private implementation code inside pi-mctx.
  *
  * Fields: `minute hour day-of-month month day-of-week`
  *   minute 0-59 · hour 0-23 · dom 1-31 · month 1-12 · dow 0-6 (0 or 7 = Sunday)

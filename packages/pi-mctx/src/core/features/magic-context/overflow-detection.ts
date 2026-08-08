@@ -10,21 +10,16 @@ import type { ContextLimitProvenance } from "../../shared/context-limit-provenan
  *   2. If the error message reveals the real context limit, persist it as a
  *      session-specific override so pressure math is accurate going forward.
  *
- * Pattern list adapted from OpenCode's `packages/opencode/src/provider/error.ts`
- * (BSD-licensed). We keep our own copy rather than importing OpenCode internals
- * so the plugin stays decoupled from OpenCode versioning.
+ * Pattern list maintained locally so this package stays independent from host
+ * runtime internals.
  *
  * References:
- *   - OpenCode overflow detection (origin of patterns):
- *     https://github.com/sst/opencode/blob/main/packages/opencode/src/provider/error.ts
  *   - Adapted originally from:
  *     https://github.com/earendil-works/pi-mono/blob/main/packages/ai/src/utils/overflow.ts
  */
 
 /**
- * Regexes that match provider-reported context-overflow errors. Keep in sync
- * with upstream OpenCode patterns — new providers can be added here as they
- * emerge.
+ * Regexes that match provider-reported context-overflow errors.
  */
 export const OVERFLOW_PATTERNS: ReadonlyArray<RegExp> = [
     /prompt is too long/i, // Anthropic
@@ -114,7 +109,7 @@ export interface OverflowDetection {
 }
 
 /**
- * Extract an error message from any reasonable shape. Events from OpenCode can
+ * Extract an error message from any reasonable shape. Provider events can
  * deliver errors as strings, Error instances, or plain objects with `message`.
  */
 export function extractErrorMessage(error: unknown): string {

@@ -131,7 +131,7 @@ function hasStackedAugmentation(rawText: string): boolean {
 
 /**
  * Depth-aware stripper for tags that can legitimately nest. The system-reminder
- * tag is the canonical example: OpenCode and magic-context both wrap content
+ * tag is the canonical example: another layer may wrap content
  * in <system-reminder>…</system-reminder>, and when the inner content itself
  * contains a system reminder (e.g. background-task notifications cited inside
  * a parent reminder), a non-greedy regex matches from the outer open to the

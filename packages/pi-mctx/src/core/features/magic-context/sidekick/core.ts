@@ -6,17 +6,15 @@
  * tool, and returns a short augmentation block to prepend to the user's
  * prompt before sending it to the main agent.
  *
- * The actual spawn mechanism is harness-specific — OpenCode creates a child
- * session via `client.session.create()` and Pi spawns `pi --print --mode json`
- * as a subprocess. This module owns the parts that are the same in both:
+ * Pi runs the child as `pi --print --mode json` in a subprocess. This module
+ * owns the prompt and output handling shared by Pi callers:
  *
  *   - The system prompt that defines sidekick's role and tool-use policy.
  *   - The post-processing that strips `<think>` reasoning blocks (DeepSeek,
  *     Qwen, etc. emit these even with explicit "no chain-of-thought" prompts).
  *
- * The harness-specific OpenCode wrapper continues to live in `agent.ts`; the
- * Pi-plugin runner imports from this file directly so it never depends on
- * OpenCode-specific types.
+ * Pi runners import this file directly so sidekick logic remains independent
+ * from any host client types.
  */
 
 export const SIDEKICK_SYSTEM_PROMPT = `You are Sidekick, a focused memory-retrieval subagent for an AI coding assistant.

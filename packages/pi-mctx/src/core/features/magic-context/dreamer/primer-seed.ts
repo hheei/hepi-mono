@@ -14,7 +14,7 @@
  *     dedicated renderer, not a line filter.)
  *  2. TC: shows tool INPUTS only (no outputs) — already the formatter default.
  *
- * Raw availability: reading old origin raw works on OpenCode (compaction markers
+ * Raw availability: reading old origin raw works through compaction markers
  * filter summary rows, they don't delete message/part rows). When the raw range
  * is empty (deleted session, or Pi-only with no provider registered), we fall
  * back to a closed-book seed (origin compartment P1) rather than silently

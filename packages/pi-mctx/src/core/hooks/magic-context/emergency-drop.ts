@@ -5,7 +5,7 @@
 // (reclaim down to ~30% of working space) instead of need-blind ("drop all" /
 // "older than X"). Selection is PURE here; the harness applies the returned
 // plan (drop primitive + `updateTagStatus(...,"dropped")` + watermark persist),
-// so OpenCode and Pi run identical selection logic.
+// so every Pi call uses identical selection logic.
 //
 // CACHE CONTRACT (see .alfonso/plans/ctx-reduce-phase2-v3.md):
 //   - The caller MUST invoke this only on the ≥derived force-materialize pass (a

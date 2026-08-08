@@ -45,7 +45,7 @@ const PRESERVATION_PATTERNS: RegExp[] = [
     /`[^`\n]+`/g,
     // URLs
     /https?:\/\/\S+/g,
-    // Magic Context tags and opencode IDs
+    // Magic Context tags and legacy message IDs
     /§\d+§/g,
     /\b(?:msg|ses|toolu)_[A-Za-z0-9]+/g,
     // File paths — rough heuristic: starts with ./ or ../ or contains / and a common file extension

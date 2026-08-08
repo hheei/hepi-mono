@@ -6,7 +6,7 @@
  * By default these child sessions are deleted on success (only FAILED ones are
  * kept for debugging). With `keep_subagents: true` ALL of them are retained, so
  * their full transcript — prompt, tool calls, token usage, model output — stays
- * inspectable in OpenCode's session store / the dashboard. Intended for
+ * inspectable in Pi session artifacts. Intended for
  * short-term data collection (e.g. profiling what the dreamer actually does)
  * before the dreamer v2 overhaul, NOT for steady-state use — kept sessions
  * accumulate in the host's session DB until manually cleared.

@@ -14,7 +14,7 @@ import { deleteMemory, getAllActiveMemoriesForMigration, insertMemory } from "./
 import type { Memory, MemoryCategory } from "./types";
 
 // Minimal structural client type — avoids importing the heavy PluginContext into
-// a feature module. Uses `never[]` arg variance so any concrete OpenCode client
+// a feature module. Uses `never[]` arg variance so any concrete client
 // (whose session methods have specific arg shapes) is assignable here.
 // biome-ignore lint/suspicious/noExplicitAny: structural client seam for the SDK.
 type AnyFn = (...args: any[]) => Promise<unknown>;
