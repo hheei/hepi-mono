@@ -6,7 +6,7 @@ export function getErrorMessage(error: unknown): string {
  * Produce a rich, safe-to-log description of any thrown value.
  *
  * Motivated by SDK errors whose `.message` is empty while `.name`/`toString()`
- * carry the actual signal (e.g. `NotFoundError` with no message on OpenCode
+ * carry the actual signal (e.g. `NotFoundError` with no message during
  * session-delete races). Using {@link getErrorMessage} alone erases that signal.
  *
  * Captures:

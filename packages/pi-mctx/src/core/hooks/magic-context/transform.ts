@@ -91,7 +91,7 @@ import {
     type ProtectedTailBoundarySnapshot,
     RECOVERY_NO_HEAD_LIMIT,
     recordHighPressureNoEligibleHead,
-    resolveOpenCodeProtectedTailBoundary,
+    resolveProtectedTailBoundary,
 } from "./protected-tail-boundary";
 import { readRawSessionMessages } from "./read-session-chunk";
 import { extractInMemoryMessageViews } from "./read-session-raw";
@@ -1340,7 +1340,7 @@ export function createTransform(deps: TransformDeps) {
         ): ProtectedTailBoundarySnapshot | null => {
             if (!canRunCompartments) return null;
             if (_boundarySnapshotCache === undefined || emergencyTailScale) {
-                const snapshot = resolveOpenCodeProtectedTailBoundary({
+                const snapshot = resolveProtectedTailBoundary({
                     db,
                     sessionId: resolvedSessionId,
                     mode: "transform-force",

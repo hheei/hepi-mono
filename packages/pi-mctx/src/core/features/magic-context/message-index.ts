@@ -7,7 +7,6 @@ import {
 import type { RawMessage } from "../../hooks/magic-context/read-session-raw";
 import { getHarness } from "../../shared/harness";
 import type { Database, Statement as PreparedStatement } from "../../shared/sqlite";
-import { closeQuietly } from "../../shared/sqlite-helpers";
 import { removeSystemReminders } from "../../shared/system-directive";
 import { clearCompressionDepth } from "./compression-depth-storage";
 
@@ -22,31 +21,6 @@ interface MessageHistorySourceRow {
     normalized_content_hash?: string;
     role?: string;
 }
-
-interface MessageHistoryOrphanSweepRow {
-    cursor_session_id?: string;
-    last_swept_at?: number | null;
-}
-
-export interface MessageHistoryOrphanSweepResult {
-    status: "swept" | "cooldown" | "source_unavailable";
-    scanned: number;
-    deleted: number;
-    cursor: string;
-}
-
-export interface MessageHistoryOrphanSweepOptions {
-    batchSize?: number;
-    now?: number;
-    safetyAgeMs?: number;
-    cooldownMs?: number;
-    unavailableReprobeMs?: number;
-}
-
-export const MESSAGE_HISTORY_ORPHAN_SWEEP_BATCH_SIZE = 200;
-export const MESSAGE_HISTORY_ORPHAN_SAFETY_AGE_MS = 24 * 60 * 60 * 1000;
-export const MESSAGE_HISTORY_ORPHAN_SWEEP_COOLDOWN_MS = 10 * 60 * 1000;
-export const MESSAGE_HISTORY_ORPHAN_UNAVAILABLE_REPROBE_MS = 24 * 60 * 60 * 1000;
 
 const lastIndexedStatements = new WeakMap<Database, PreparedStatement>();
 const insertMessageStatements = new WeakMap<Database, PreparedStatement>();
@@ -639,133 +613,4 @@ export function ensureMessagesIndexed(
     }
 
     indexMessagesAfterOrdinal(db, sessionId, messages, lastIndexedOrdinal, messages.length);
-}
-
-function getMessageHistoryOrphanSweepState(db: Database): MessageHistoryOrphanSweepRow {
-    return (
-        (db
-            .prepare(
-                "SELECT cursor_session_id, last_swept_at FROM message_history_orphan_sweep WHERE harness = 'pi'",
-            )
-            .get() as MessageHistoryOrphanSweepRow | null) ?? {}
-    );
-}
-
-function persistMessageHistoryOrphanSweepState(
-    db: Database,
-    cursor: string,
-    lastSweptAt: number | null,
-): void {
-    db.prepare(
-        `INSERT INTO message_history_orphan_sweep (harness, cursor_session_id, last_swept_at)
-         VALUES ('pi', ?, ?)
-         ON CONFLICT(harness) DO UPDATE SET
-             cursor_session_id = excluded.cursor_session_id,
-             last_swept_at = excluded.last_swept_at`,
-    ).run(cursor, lastSweptAt);
-}
-
-/**
- * Delete old OpenCode FTS sessions that no longer exist in OpenCode's
- * authoritative session table. One bounded keyset page is processed per call;
- * the cursor survives restarts and only resets after a complete pass.
- */
-export function sweepOrphanedOpenCodeMessageIndexes(
-    db: Database,
-    openReadableOpenCodeDb: () => Database | null,
-    options: MessageHistoryOrphanSweepOptions = {},
-): MessageHistoryOrphanSweepResult {
-    const now = options.now ?? Date.now();
-    const batchSize = Math.max(
-        1,
-        Math.floor(options.batchSize ?? MESSAGE_HISTORY_ORPHAN_SWEEP_BATCH_SIZE),
-    );
-    const safetyAgeMs = Math.max(0, options.safetyAgeMs ?? MESSAGE_HISTORY_ORPHAN_SAFETY_AGE_MS);
-    const cooldownMs = Math.max(0, options.cooldownMs ?? MESSAGE_HISTORY_ORPHAN_SWEEP_COOLDOWN_MS);
-    const unavailableReprobeMs = Math.max(
-        cooldownMs,
-        options.unavailableReprobeMs ?? MESSAGE_HISTORY_ORPHAN_UNAVAILABLE_REPROBE_MS,
-    );
-    const state = getMessageHistoryOrphanSweepState(db);
-    const cursor = typeof state.cursor_session_id === "string" ? state.cursor_session_id : "";
-    if (typeof state.last_swept_at === "number" && state.last_swept_at + cooldownMs > now) {
-        return { status: "cooldown", scanned: 0, deleted: 0, cursor };
-    }
-
-    let openCodeDb: Database | null = null;
-    try {
-        openCodeDb = openReadableOpenCodeDb();
-    } catch {
-        openCodeDb = null;
-    }
-    if (!openCodeDb) {
-        // Mirror the git sweep's non-indexable parking: future-date the last
-        // sweep so the normal cooldown arithmetic re-probes after one day.
-        persistMessageHistoryOrphanSweepState(db, cursor, now + unavailableReprobeMs - cooldownMs);
-        return { status: "source_unavailable", scanned: 0, deleted: 0, cursor };
-    }
-
-    try {
-        const cutoff = now - safetyAgeMs;
-        const candidates = db
-            .prepare(
-                `SELECT session_id
-                 FROM message_history_index
-                 WHERE harness = 'pi'
-                   AND updated_at <= ?
-                   AND session_id > ?
-                 ORDER BY session_id ASC
-                 LIMIT ?`,
-            )
-            .all(cutoff, cursor, batchSize) as Array<{ session_id: string }>;
-        const sessionExists = openCodeDb.prepare("SELECT 1 FROM session WHERE id = ? LIMIT 1");
-        const missingSessionIds = candidates
-            .filter((candidate) => !sessionExists.get(candidate.session_id))
-            .map((candidate) => candidate.session_id);
-        const nextCursor =
-            candidates.length < batchSize
-                ? ""
-                : (candidates[candidates.length - 1]?.session_id ?? cursor);
-        const completedAt = candidates.length < batchSize ? now : null;
-
-        db.exec("BEGIN IMMEDIATE");
-        let committed = false;
-        let deleted = 0;
-        try {
-            const stillEligible = db.prepare(
-                "SELECT 1 FROM message_history_index WHERE session_id = ? AND harness = 'pi' AND updated_at <= ?",
-            );
-            for (const sessionId of missingSessionIds) {
-                if (!stillEligible.get(sessionId, cutoff)) continue;
-                getDeleteFtsStatement(db).run(sessionId);
-                getDeleteMessageSourceStatement(db).run(sessionId);
-                const result = db
-                    .prepare(
-                        "DELETE FROM message_history_index WHERE session_id = ? AND harness = 'pi' AND updated_at <= ?",
-                    )
-                    .run(sessionId, cutoff);
-                if (result.changes === 1) deleted += 1;
-            }
-            persistMessageHistoryOrphanSweepState(db, nextCursor, completedAt);
-            db.exec("COMMIT");
-            committed = true;
-        } finally {
-            if (!committed) {
-                try {
-                    db.exec("ROLLBACK");
-                } catch {
-                    // already rolled back / no active transaction
-                }
-            }
-        }
-
-        return {
-            status: "swept",
-            scanned: candidates.length,
-            deleted,
-            cursor: nextCursor,
-        };
-    } finally {
-        closeQuietly(openCodeDb);
-    }
 }

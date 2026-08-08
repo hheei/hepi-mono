@@ -49,9 +49,6 @@ export class FailClosedBlockingError extends Error {
     }
 }
 
-/** OpenCode native hidden agents that must never be blocked by the gate. */
-const OPENCODE_INTERNAL_AGENT_NAMES = new Set(["title", "summary", "compaction"]);
-
 /**
  * Magic Context hidden-child agent ids (and stable prefixes). These sessions are
  * single-shot / bounded jobs that must keep running even when the primary
@@ -135,8 +132,7 @@ export function isFailClosedBlockingError(error: unknown): error is FailClosedBl
 
 /**
  * Whether this transform/context pass should skip the loud block.
- * Primary user sessions are never exempt; internal OpenCode agents, Magic
- * Context hidden children, and Pi subagent processes are.
+ * Magic Context hidden children and Pi subagent processes are.
  */
 export function shouldBypassFailClosedBlock(input: {
     agent?: string | null;
@@ -147,7 +143,6 @@ export function shouldBypassFailClosedBlock(input: {
     if (input.isInternalChildSession === true) return true;
     const agent = typeof input.agent === "string" ? input.agent.trim() : "";
     if (agent.length === 0) return false;
-    if (OPENCODE_INTERNAL_AGENT_NAMES.has(agent)) return true;
     if (isMagicContextHiddenAgentName(agent)) return true;
     return false;
 }

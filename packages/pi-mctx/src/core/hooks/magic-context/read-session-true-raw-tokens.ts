@@ -14,7 +14,7 @@ export interface TrueRawTokenBreakdown {
 }
 
 export interface TrueRawEstimateOptions {
-    providerShapeVersion: "opencode-v1" | "pi-folded-v1";
+    providerShapeVersion: "legacy-v1" | "pi-folded-v1";
     imageTokenHeuristic?: (part: unknown) => number;
 }
 

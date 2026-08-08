@@ -3,10 +3,8 @@
  * by a SINGLE `process.once("exit")` listener no matter how many controllers
  * register.
  *
- * Why this exists: the plugin factory runs once per plugin instance, and
- * OpenCode Desktop loads many instances in one Node process (one per open
- * project). Registering a `process.once("exit")` per instance added one listener
- * each, so past Node's default 10-listener cap it logged a
+ * Why this exists: the plugin factory runs once per plugin instance. Registering
+ * a `process.once("exit")` per instance added one listener each, so past Node's default 10-listener cap it logged a
  * `MaxListenersExceededWarning` ("11 exit listeners added to [process]"). One
  * module-global listener that fans out to every registered controller keeps the
  * count at one.

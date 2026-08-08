@@ -4,13 +4,12 @@
  * Rationale: magic-context maintains several module-scope Maps that track
  * per-session state (prepared injection cache, per-message token cache, etc.).
  * These are cleared on the `session.deleted` event, but sessions that are
- * never explicitly deleted — because OpenCode crashed, the user force-quit,
- * the session was archived rather than deleted, or the session simply outlived
- * the plugin process's interest in it — leak entries for the lifetime of the
+ * never explicitly deleted because the process crashed, the user force-quit,
+ * the session was archived rather than deleted, or it simply outlived the
+ * plugin process's interest in it leak entries for the lifetime of the
  * plugin process.
  *
- * In long-running OpenCode instances with thousands of sessions over time,
- * an unbounded `Map<sessionId, LargeObject>` can retain tens of megabytes
+ * In long-running sessions with thousands of historical branches, an unbounded `Map<sessionId, LargeObject>` can retain tens of megabytes
  * indefinitely. A session-scoped LRU with a generous cap (e.g. 100) covers
  * any realistic working-set of active sessions a user actually cares about,
  * while evicting cold session ids that will either never return or be

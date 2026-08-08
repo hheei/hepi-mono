@@ -587,14 +587,14 @@ export function moduleRawBlockMappings(message: RawMessageParts | null): ModuleR
 
 export const __moduleWireTest = {
     buildPagedModuleTransformPayloads,
-    encodeOpenCodeMessagesToCk,
+    encodeMessagesToCk,
     moduleRawBlockMappings,
     moduleWireBodyBytes,
     resolveOrdinalsForModule,
     toFlatModuleWireBody,
 };
 
-export function encodeOpenCodeMessagesToCk(messages: unknown[]): Array<{
+export function encodeMessagesToCk(messages: unknown[]): Array<{
     mid: string;
     ordinal: number;
     ck: Record<string, unknown>;

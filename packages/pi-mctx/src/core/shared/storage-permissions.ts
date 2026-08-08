@@ -1,8 +1,9 @@
 /**
  * Process-wide storage permission policy resolved from trusted user config.
  *
- * Storage is shared by OpenCode and Pi, so all writers consult one setting before
- * applying POSIX modes. The default preserves the historical owner-only policy.
+ * Storage is shared across Magic Context modules, so all writers consult one
+ * setting before applying POSIX modes. The default preserves the historical
+ * owner-only policy.
  */
 let enforcePrivateStoragePermissions = true;
 

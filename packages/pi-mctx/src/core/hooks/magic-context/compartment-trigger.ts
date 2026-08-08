@@ -18,7 +18,7 @@ import {
     getRawHistoryEligibility,
     hasRunnableCompartmentWindow,
     type ProtectedTailBoundarySnapshot,
-    resolveOpenCodeProtectedTailBoundary,
+    resolveProtectedTailBoundary,
 } from "./protected-tail-boundary";
 import {
     primeInMemoryTailRawMessageCache,
@@ -154,7 +154,7 @@ function estimateUntaggedInMemoryTailUpperBound(
         if (message.ordinal <= lastCompartmentEnd) continue;
         if (coveredOwnerMessageIds.has(message.id)) continue;
         total += estimateTrueRawMessageTokens(message, {
-            providerShapeVersion: "opencode-v1",
+            providerShapeVersion: "legacy-v1",
         }).total;
     }
     return total;
@@ -359,7 +359,7 @@ function getUnsummarizedTailInfo(
             const boundary =
                 process.env.NODE_ENV === "test"
                     ? createDefaultBoundarySnapshotForTests(sessionId)
-                    : resolveOpenCodeProtectedTailBoundary({
+                    : resolveProtectedTailBoundary({
                           db,
                           sessionId,
                           mode: "trigger",
@@ -656,7 +656,7 @@ export function checkCompartmentTrigger(
                     absoluteMessageCount: resolvedInMemoryTail.absoluteMessageCount,
                 });
             }
-            return resolveOpenCodeProtectedTailBoundary({
+            return resolveProtectedTailBoundary({
                 db,
                 sessionId,
                 mode: "trigger",

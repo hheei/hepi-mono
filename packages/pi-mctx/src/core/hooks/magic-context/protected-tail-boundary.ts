@@ -52,7 +52,7 @@ export interface ResolvedBoundaryContext {
     protectedTailPolicyVersion: number;
     migrationFloorActive: boolean;
     emergencyTailScale?: 0.5 | 0.25;
-    providerShapeVersion: "opencode-v1" | "pi-folded-v1";
+    providerShapeVersion: "legacy-v1" | "pi-folded-v1";
     cacheNamespace: string;
     createdAt?: number;
     /**
@@ -87,7 +87,7 @@ export interface ProtectedTailBoundarySnapshot {
     priorBoundaryOrdinal: number;
     migrationFloorActive: boolean;
     emergencyTailScale?: 0.5 | 0.25;
-    providerShapeVersion: "opencode-v1" | "pi-folded-v1";
+    providerShapeVersion: "legacy-v1" | "pi-folded-v1";
     cacheNamespace: string;
     createdAt: number;
     rawRangeFingerprint: string;
@@ -646,7 +646,7 @@ export function resolveBoundaryContext(args: {
     usage?: BoundaryUsage | null;
     usageSource?: ResolvedBoundaryContext["usageSource"];
     emergencyTailScale?: 0.5 | 0.25;
-    providerShapeVersion?: "opencode-v1" | "pi-folded-v1";
+    providerShapeVersion?: "legacy-v1" | "pi-folded-v1";
     cacheNamespace?: string;
     /**
      * Tagger load-scoping floor (OpenCode only). When > 0, the stored-token map
@@ -713,13 +713,13 @@ export function resolveBoundaryContext(args: {
         protectedTailPolicyVersion: meta.protectedTailPolicyVersion,
         migrationFloorActive,
         emergencyTailScale: args.emergencyTailScale,
-        providerShapeVersion: args.providerShapeVersion ?? "opencode-v1",
-        cacheNamespace: args.cacheNamespace ?? `opencode:${args.sessionId}`,
+        providerShapeVersion: args.providerShapeVersion ?? "legacy-v1",
+        cacheNamespace: args.cacheNamespace ?? `legacy:${args.sessionId}`,
         storedTokenTotals,
     };
 }
 
-export function resolveOpenCodeProtectedTailBoundary(
+export function resolveProtectedTailBoundary(
     args: Parameters<typeof resolveBoundaryContext>[0],
 ): ProtectedTailBoundarySnapshot {
     return resolveProtectedTailBoundary(resolveBoundaryContext(args));
@@ -1011,7 +1011,7 @@ export function createDefaultBoundarySnapshotForTests(
     // tool-output-inclusive size, not a hardcoded 0 (which made tests of the
     // true-raw/TC distinction pass vacuously).
     const index = buildTrueRawTokenIndex(sessionId, messages, {
-        providerShapeVersion: "opencode-v1",
+        providerShapeVersion: "legacy-v1",
         cacheNamespace: `test:${sessionId}`,
     });
     const trueRawEligibleTokens = index.rangeTokens(1, protectedTailStart);
@@ -1037,7 +1037,7 @@ export function createDefaultBoundarySnapshotForTests(
         triggerBudget: deriveTriggerBudget(128_000, 65),
         priorBoundaryOrdinal: protectedTailStart,
         migrationFloorActive: false,
-        providerShapeVersion: "opencode-v1",
+        providerShapeVersion: "legacy-v1",
         cacheNamespace: `test:${sessionId}`,
         createdAt: Date.now(),
         rawRangeFingerprint: "",
