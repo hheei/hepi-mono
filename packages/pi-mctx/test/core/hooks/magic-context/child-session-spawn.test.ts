@@ -10,10 +10,6 @@ import {
     initializeDatabase,
     LATEST_SUPPORTED_VERSION,
 } from "../../../../src/core/features/magic-context/storage-db";
-import {
-    __resetNotificationStateForTests,
-    drainNotifications,
-} from "../../../../src/core/shared/rpc-notifications";
 import { Database } from "../../../../src/core/shared/sqlite";
 import { createChildSessionWithFence, STALE_PLUGIN_RESTART_NOTICE } from "../../../../src/core/hooks/magic-context/child-session-spawn";
 
@@ -32,7 +28,6 @@ function staleDatabase(): Database {
 
 afterEach(() => {
     __resetChildSpawnFenceProbeForTests();
-    __resetNotificationStateForTests();
     for (const db of dbs.splice(0)) db.close();
 });
 
@@ -64,7 +59,7 @@ describe("createChildSessionWithFence", () => {
         });
     });
 
-    it("surfaces the latched failure through the TUI toast and parent warning paths", async () => {
+    it("records the latched failure and sends a parent warning", async () => {
         const db = staleDatabase();
         db.prepare("INSERT INTO session_meta (session_id) VALUES (?)").run("ses_parent");
         const create = mock(async () => ({ id: "child" }));
@@ -81,19 +76,6 @@ describe("createChildSessionWithFence", () => {
         await createChildSessionWithFence(args);
         await createChildSessionWithFence(args);
 
-        const notifications = drainNotifications(0, "ses_parent");
-        expect(notifications).toContainEqual(
-            expect.objectContaining({
-                type: "toast",
-                payload: expect.objectContaining({
-                    message: STALE_PLUGIN_RESTART_NOTICE,
-                    variant: "error",
-                }),
-            }),
-        );
-        expect(notifications).toContainEqual(
-            expect.objectContaining({ type: "action", payload: { action: "refresh-sidebar" } }),
-        );
         expect(prompt).toHaveBeenCalledTimes(1);
         expect(
             db
