@@ -33,7 +33,7 @@ function isSystemInjectedText(text: string): boolean {
  *
  * Returns both the count of neutralized messages and the set of their IDs so
  * callers can persist-and-replay the decision across defer passes (cache-safe
- * — OpenCode rebuilds messages from its DB every turn, so the sentinel needs
+ * — legacy host rebuilds messages from its DB every turn, so the sentinel needs
  * to be re-applied each transform).
  *
  * Cache safety: replaces each matched message's parts with a single empty-text
@@ -108,7 +108,7 @@ export function stripSystemInjectedMessages(
     return { stripped, sentineledIds };
 }
 
-// OpenCode messages can have metadata parts alongside content parts.
+// legacy host messages can have metadata parts alongside content parts.
 // Only text/reasoning/tool/file parts carry content to the model — metadata
 // parts are invisible to the LLM. We skip these when deciding if a message
 // is nothing but dropped placeholders.
@@ -151,7 +151,7 @@ const METADATA_PART_TYPES = new Set([
  * Cache safety: replaces matched messages' parts with a single empty-text
  * sentinel instead of splicing the messages out of the array. Preserves array
  * length so proxy providers that hash message-array structure see a stable
- * prefix. For Anthropic/Bedrock, OpenCode's upstream filter drops empty
+ * prefix. For Anthropic/Bedrock, legacy host's upstream filter drops empty
  * content messages on the wire — same effective behavior, no mid-pipeline
  * array mutation.
  *
@@ -251,7 +251,7 @@ export function stripDroppedPlaceholderMessages(
 /**
  * Replay persisted reasoning clearing on every pass (including defer).
  * Clears reasoning for all messages with tag <= persistedWatermark.
- * This ensures clearing is sticky across passes even when OpenCode
+ * This ensures clearing is sticky across passes even when legacy host
  * rebuilds messages fresh from its own DB.
  */
 export function replayClearedReasoning(
@@ -366,7 +366,7 @@ const CLEARED_REASONING_TYPES = new Set(["thinking", "reasoning"]);
  * sentinels so message.parts length stays constant between passes.
  *
  * See strip-structural-noise.ts for the cache-safety rationale. Caller contract:
- * run only when `modelAcceptsEmptyContent(providerID)` is true. OpenCode's
+ * run only when `modelAcceptsEmptyContent(providerID)` is true. legacy host's
  * canonical Anthropic adapter filters empty text sentinels before the wire;
  * other adapters can forward them as real content blocks.
  */
@@ -431,7 +431,7 @@ export function stripInlineThinking(
     return stripped;
 }
 
-// Parts that the AI SDK ignores when converting OpenCode messages to the
+// Parts that the AI SDK ignores when converting legacy host messages to the
 // Anthropic request body. Treating them as invisible when deciding whether
 // a reasoning part lands at the start of the eventual assistant block.
 const REASONING_IGNORED_PART_TYPES = new Set([
@@ -446,7 +446,7 @@ const REASONING_IGNORED_PART_TYPES = new Set([
 ]);
 
 // Every part type that becomes an Anthropic thinking/redacted_thinking block
-// on the wire. OpenCode's internal "reasoning" gets converted by @ai-sdk
+// on the wire. legacy host's internal "reasoning" gets converted by @ai-sdk
 // into a thinking block, while "thinking" and "redacted_thinking" are the
 // wire-format types (seen on opus-4.7 with interleaved thinking). All three
 // must be considered when deciding which to keep/strip so the merged
@@ -463,13 +463,13 @@ const REASONING_PART_TYPES = new Set(["reasoning", "thinking", "redacted_thinkin
  *    original response."
  *
  * (1) ACROSS assistants: @ai-sdk/anthropic's groupIntoBlocks merges
- *     consecutive OpenCode assistant messages into one Anthropic assistant
+ *     consecutive legacy host assistant messages into one Anthropic assistant
  *     block. Each source assistant's signed reasoning gets emitted as its
  *     own thinking block — the merged block ends up with thinking
  *     INTERLEAVED between text/tool_use.
  *
  * (2) WITHIN ONE assistant: opus-4.7 with interleaved thinking produces
- *     multiple reasoning parts in a single OpenCode assistant message
+ *     multiple reasoning parts in a single legacy host assistant message
  *     (observed: up to 12 reasoning parts per message). AI SDK passes each
  *     through verbatim, again producing interleaved thinking.
  *
@@ -528,7 +528,7 @@ export function stripReasoningFromMergedAssistants(
         //
         // Sentinels (from stripStructuralNoise and other in-place strips) are
         // `{type:"text", text:""}` and occupy positions previously held by
-        // structural-noise parts. They are invisible on the wire (OpenCode's
+        // structural-noise parts. They are invisible on the wire (legacy host's
         // provider transform drops empty text) so the "first non-metadata" rule
         // must treat them as equivalent to the structural parts they replaced
         // — otherwise a reasoning part that would have been first-after-strip
@@ -556,7 +556,7 @@ export function stripReasoningFromMergedAssistants(
         // parts except the one we decided to keep (if any). Replace in place
         // with empty-text sentinels so message.parts length stays constant
         // across passes — preserving cache-prefix stability for proxy
-        // providers that hash the message array. For Anthropic, OpenCode's
+        // providers that hash the message array. For Anthropic, legacy host's
         // provider/transform.ts:65 drops empty text parts before the wire,
         // so the "thinking-block must be at index 0" rule the AI SDK cares
         // about is still satisfied (the kept reasoning part is the only

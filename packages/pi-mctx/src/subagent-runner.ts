@@ -236,7 +236,7 @@ const SEARCH_ONLY_SUBAGENT_TOOL_AGENTS: ReadonlySet<string> = new Set([
  * (AgentSession._refreshToolRegistry): a tool enters the registry ONLY if its
  * name is in the set, so it strips Pi's built-ins (read/bash/edit/write) AND any
  * other extension tool, leaving exactly the named tools. This is the Pi mirror of
- * OpenCode's per-agent locked allow-list — every dreamer TASK agent runs under a
+ * legacy host's per-agent locked allow-list — every dreamer TASK agent runs under a
  * tight, per-task tool budget. The allow-list only KEEPS an existing
  * registration; for the ctx_* tools the lean extension must still have registered
  * them (see the *_SUBAGENT_TOOL_AGENTS sets above). For aft_* tools, Pi tolerates
@@ -256,7 +256,7 @@ const STRICT_TOOL_ALLOWLIST_ENTRIES: readonly (readonly [
 	// must not mutate source or memory. Keep only read-only Pi built-ins plus
 	// aft_search (no aft_outline/aft_zoom, no ctx_* tools).
 	["magic-context-historian", PI_HISTORIAN_TOOLS],
-	// Shared OpenCode agent ids that can be passed by tests or future Pi callers.
+	// Shared legacy host agent ids that can be passed by tests or future Pi callers.
 	// Same historian surface as magic-context-historian: local read/search only,
 	// optional aft_search, never writes or ctx_* tools.
 	["historian", PI_HISTORIAN_TOOLS],
@@ -276,7 +276,7 @@ const STRICT_TOOL_ALLOWLIST_ENTRIES: readonly (readonly [
 	// refresh-primers code investigator: read-only investigation of the CURRENT
 	// source. Pi's own canonical read-only set is {read, grep, find, ls}
 	// (createReadOnlyToolDefinitions), plus ctx_search and the optional AFT read
-	// navigation tools OpenCode grants. NO bash/edit/write and NO ctx_memory.
+	// navigation tools legacy host grants. NO bash/edit/write and NO ctx_memory.
 	[
 		"dreamer-primer-investigator",
 		[...PI_READ_ONLY_BUILTINS, ...PI_AFT_READ_TOOLS, "ctx_search"],
@@ -398,7 +398,7 @@ type ExtensionRetryResult = {
  *
  * Why subprocess instead of in-process?
  * - Pi's @earendil-works/pi-coding-agent has no in-process child-session
- *   API equivalent to OpenCode's `client.session.create() / .prompt()`.
+ *   API equivalent to legacy host's `client.session.create() / .prompt()`.
  *   Sessions are tied to a SessionManager that runs the interactive UI
  *   loop, and the agent loop expects to own stdout/stderr.
  * - The print-mode subprocess path is the *only* officially supported
@@ -1505,7 +1505,7 @@ export function buildArgs(
 		// show up in `pi resume` or the session picker. We don't need
 		// the persisted JSONL anyway: the result comes back through the
 		// `agent_end` event on stdout (see extractFinalAssistant). Maps
-		// directly to OpenCode's "hidden subagent" pattern, which lets
+		// directly to legacy host's "hidden subagent" pattern, which lets
 		// historian etc. stay invisible to the user even though they're
 		// real LLM rounds the user pays for.
 		"--no-session",
@@ -1613,7 +1613,7 @@ export function buildArgs(
 		// fallback chain. The runner implements fallback by spawning a fresh child
 		// per model, so each invocation receives exactly one --model.
 		//
-		// The shared config stores the canonical (OpenCode) provider form; Pi
+		// The shared config stores the canonical (legacy host) provider form; Pi
 		// names a few auth-plugin providers differently (openai->openai-codex,
 		// google->google-antigravity). Translate to Pi's form HERE, at the only
 		// point the model reaches the spawned process, so options.model stays

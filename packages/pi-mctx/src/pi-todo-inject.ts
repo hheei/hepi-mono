@@ -1,11 +1,11 @@
 /**
  * Pi synthetic-todowrite injection.
  *
- * # Why this is separate from OpenCode's path
+ * # Why this is separate from legacy host's path
  *
- * OpenCode synthesizes a single `tool` part on the latest assistant message
+ * legacy host synthesizes a single `tool` part on the latest assistant message
  * (`buildSyntheticTodoPart` in `packages/plugin/src/hooks/magic-context/todo-view.ts`);
- * OpenCode's wire serializer (`MessageV2.toModelMessagesEffect`) splits that
+ * legacy host's wire serializer (`MessageV2.toModelMessagesEffect`) splits that
  * combined part into provider-shape `tool_use` (assistant) and `tool_result`
  * (next user) at wire-emit time.
  *
@@ -136,7 +136,7 @@ function findToolResultAfter(
 }
 
 /**
- * Pi-shape adapter for the OpenCode `SyntheticTodoPart`. Builds the
+ * Pi-shape adapter for the legacy host `SyntheticTodoPart`. Builds the
  * provider-style `toolCall` block + `toolResult` message that Pi will
  * forward to the LLM.
  */
@@ -235,7 +235,7 @@ function injectIntoLatestAssistant(
 
 /**
  * Pi synthetic-todowrite injection entry point. Mirrors the B7 block in
- * OpenCode's `transform-postprocess-phase.ts` but uses Pi's wire-shape
+ * legacy host's `transform-postprocess-phase.ts` but uses Pi's wire-shape
  * helpers.
  *
  * Returns the (possibly-mutated) messages array. The array itself is
@@ -272,7 +272,7 @@ export function injectSyntheticTodowriteForPi(args: {
 			// Snapshot unchanged AND persisted anchor still present —
 			// idempotent re-inject; backfill stateJson if it was empty
 			// (legacy row from a build that persisted callID without state).
-			// Mirrors the same self-heal in the OpenCode todo-injection path.
+			// Mirrors the same self-heal in the legacy host todo-injection path.
 			if (persistedAnchor.stateJson.length === 0) {
 				setPersistedTodoSyntheticAnchor(
 					args.db,
@@ -311,7 +311,7 @@ export function injectSyntheticTodowriteForPi(args: {
 		return args.messages;
 	}
 	// If the anchor is not in Pi's visible window, skip silently — same
-	// behavior as OpenCode's `injectToolPartIntoAssistantById`. Re-anchoring
+	// behavior as legacy host's `injectToolPartIntoAssistantById`. Re-anchoring
 	// on defer would change the message-array position versus prior defer
 	// passes and bust prompt-cache wire shape.
 	injectByAssistantId(args.messages, persistedAnchor.messageId, part);

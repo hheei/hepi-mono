@@ -1,7 +1,7 @@
 /**
  * Pi historian runner — Step 4b.3b.
  *
- * Mirrors `compartment-runner-incremental.ts` (OpenCode) but uses
+ * Mirrors `compartment-runner-incremental.ts` (legacy host) but uses
  * `PiSubagentRunner` (spawns `pi --print --mode json` subprocess) for the
  * actual historian invocation instead of `client.session.create` + prompt.
  *
@@ -20,7 +20,7 @@
  *  12. Emit success notification (if notifier provided)
  *
  * What this runner does NOT do (deferred to later slices):
- *   - OpenCode-style compaction markers (Pi has native compaction)
+ *   - legacy host-style compaction markers (Pi has native compaction)
  *   - Compressor pass (Step 4b.4 territory)
  *   - Two-pass editor mode (config option, defer)
  *   - Note nudge triggers (Step 4b.4 territory)
@@ -28,12 +28,12 @@
  *   - User memory candidate extraction (defer to dedicated slice)
  *   - In-flight cancellation via AbortSignal (PiSubagentRunner handles per-run timeout)
  *
- * Failure handling philosophy: like OpenCode, this runner is fail-closed —
+ * Failure handling philosophy: like legacy host, this runner is fail-closed —
  * any validation/parse/spawn failure leaves stored compartments untouched
  * and increments the historian failure counter so the next pass can
  * react. We never write partial state.
  *
- * Logs go through the shared sessionLog so OpenCode log-tailing tools
+ * Logs go through the shared sessionLog so legacy host log-tailing tools
  * see Pi runs in the same `[magic-context][ses_xxx]` format.
  */
 
@@ -360,11 +360,11 @@ export interface PiHistorianDeps {
 	historianTimeoutMs?: number;
 	/** Optional cancellation signal for the historian run and retry backoff. */
 	signal?: AbortSignal;
-	/** Test seam for transient retry backoff. Defaults to OpenCode's retry cadence. */
+	/** Test seam for transient retry backoff. Defaults to legacy host's retry cadence. */
 	retryBackoffMs?: (retryIndex: number) => number;
 	/** When true, run a second editor pass after a successful first pass to
 	 *  clean low-signal U: lines and cross-compartment duplicates. Mirrors
-	 *  OpenCode's `historian.two_pass` config. Editor validation falls back
+	 *  legacy host's `historian.two_pass` config. Editor validation falls back
 	 *  to the first-pass result on failure. Default: false. */
 	twoPass?: boolean;
 	/** Pi only: explicit thinking level passed as --thinking <level> to
@@ -459,7 +459,7 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 	updateSessionMeta(db, sessionId, { compartmentInProgress: true });
 
 	// historian_runs telemetry (migration v24) — recorded ONCE in finally so every
-	// exit path is logged. Best-effort. Mirrors the OpenCode incremental runner.
+	// exit path is logged. Best-effort. Mirrors the legacy host incremental runner.
 	const invocationBaseline = getLatestHistorianInvocationId(db, sessionId);
 	const telemetry: Partial<HistorianRunInput> = {
 		runKind: "incremental",
@@ -583,7 +583,7 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 				} else {
 					recordHighPressureNoEligibleHead(db, boundarySnapshot);
 				}
-				// Tail exhausted — clear the emergency catch-up latch (see OpenCode).
+				// Tail exhausted — clear the emergency catch-up latch (see legacy host).
 				clearEmergencyDrainLatch(db, sessionId);
 				return;
 			}
@@ -671,7 +671,7 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 			// Build prompt: include prior compartments, facts, AND read-only
 			// memory block so historian can dedup new facts against existing
 			// project memories. Cross-harness coherence comes free here —
-			// memories written by OpenCode show up in this Pi historian run.
+			// memories written by legacy host show up in this Pi historian run.
 			const projectPath = resolveProjectIdentityForSession(
 				directory,
 				allowHomeProject,
@@ -692,7 +692,7 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 			// (importance-band calibration) + the last 6 same-session
 			// compartments (continuity) + <project-memory> for fact dedup.
 			// Bounded forever regardless of session age, so no temp-file
-			// offload is needed. Mirrors the OpenCode incremental runner.
+			// offload is needed. Mirrors the legacy host incremental runner.
 			const projectMemory = memoryBlock ?? "";
 			const references = buildReferenceBlocks({
 				sessionId,
@@ -720,7 +720,7 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 			});
 
 			// Defensive: use MAX(sequence) + 1 over .length to survive any old
-			// recomp gaps. Same logic as OpenCode runner.
+			// recomp gaps. Same logic as legacy host runner.
 			const maxExistingSequence = priorCompartments.reduce(
 				(max, c) => (c.sequence > max ? c.sequence : max),
 				-1,
@@ -842,14 +842,14 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 			// below: when first-pass validation fails but repair succeeds,
 			// the editor must refine the REPAIR draft (the one that
 			// validated), NOT the original first-pass text. Mirrors
-			// OpenCode parity in `compartment-runner-historian.ts`,
+			// legacy host parity in `compartment-runner-historian.ts`,
 			// which feeds `firstRun.result` or `repairRun.result` into
 			// `runEditorPassOrFallback` based on which run validated.
 			let validatedDraftText: string | null = firstResult.ok
 				? firstResult.assistantText
 				: null;
 
-			// Repair retry on validation failure (mirrors OpenCode behavior).
+			// Repair retry on validation failure (mirrors legacy host behavior).
 			if (validatedPass.kind === "validation-failed") {
 				sessionLog(
 					sessionId,
@@ -974,7 +974,7 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 			}
 			retainDrainReservationForRetryThrottle = false;
 
-			// Optional two-pass editor refinement. Mirrors OpenCode's
+			// Optional two-pass editor refinement. Mirrors legacy host's
 			// `runEditorPassOrFallback` in `compartment-runner-historian.ts`.
 			// When `historian.two_pass` is enabled, the validated draft is
 			// fed back to the historian agent with the editor system
@@ -1040,7 +1040,7 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 				}
 			}
 
-			// Discard-last boundary healing (E6 parity with OpenCode): the LAST
+			// Discard-last boundary healing (E6 parity with legacy host): the LAST
 			// compartment of a greedy-consume run was decided WITHOUT lookahead,
 			// so its boundary is structurally unreliable. If historian consumed
 			// ~the whole chunk (≤ SLACK messages of lookahead past the last
@@ -1124,7 +1124,7 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 			const skipUnanchoredPromotion =
 				discardedLast || weakLookaheadFinalCompartment;
 
-			// Two distinct gates (parity with OpenCode): embeddingActive = memory
+			// Two distinct gates (parity with legacy host): embeddingActive = memory
 			// feature on (drives registration + embedding, the ctx_search / dreamer
 			// linking substrate); promotionActive additionally requires auto_promote
 			// (drives writing facts as memories).
@@ -1225,7 +1225,7 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 				// userObservations are inserted POST-COMMIT
 				// (best-effort, below), not inside this publish transaction. An
 				// auxiliary user_memory_candidates failure must never roll back
-				// compartment publication. Mirrors OpenCode.
+				// compartment publication. Mirrors legacy host.
 				if (firstKeptEntryId && lastNewEndMessageId) {
 					setPendingPiCompactionMarkerState(db, sessionId, {
 						firstKeptEntryId,
@@ -1263,13 +1263,13 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 
 			// Note-nudge trigger #1 (of 3): historian publication is a natural
 			// work boundary, so signal that deferred notes should surface on
-			// the next user turn. Mirrors OpenCode's placement.
+			// the next user turn. Mirrors legacy host's placement.
 			onNoteTrigger(db, sessionId, "historian_complete");
 
 			// user observations are inserted POST-COMMIT,
 			// best-effort, so an auxiliary failure never rolls back the publish.
 			// Gated on the user-memory feature so opted-out users never have
-			// behavioral candidates persisted (privacy parity with OpenCode).
+			// behavioral candidates persisted (privacy parity with legacy host).
 			if (
 				userMemoriesEnabled === true &&
 				!skipUnanchoredPromotion &&
@@ -1313,7 +1313,7 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 					// source chunk stores at most one candidate occurrence (its
 					// origin-compartment tag is the single tagged origin).
 					const [candidate] = validatedPass.primerCandidates;
-					// Origin-tag (mirrors OpenCode): narrow the source to the SPECIFIC
+					// Origin-tag (mirrors legacy host): narrow the source to the SPECIFIC
 					// compartment the question came from. originCompartmentIndex is
 					// 1-based into the emitted list (same convention as <events>);
 					// chunk-span fallback when untagged or out of range (non-fatal).
@@ -1454,7 +1454,7 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 				// Genuine historian failure (the retained-reservation retry-throttle
 				// condition) — suppress the emergency catch-up latch bypass for a
 				// short backoff so a broken historian can't retry-thrash. Mirrors
-				// OpenCode.
+				// legacy host.
 				recordHistorianDrainFailure(db, sessionId);
 			}
 		}
@@ -1494,7 +1494,7 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 	}
 }
 
-/** Internal validation result classification — mirrors OpenCode pass result shape. */
+/** Internal validation result classification — mirrors legacy host pass result shape. */
 type ValidationOutcome =
 	| {
 			kind: "ok";

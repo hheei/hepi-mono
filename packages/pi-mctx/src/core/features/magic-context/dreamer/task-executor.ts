@@ -87,9 +87,8 @@ export interface DreamTaskExecutorDeps {
     ensureProjectRegistered?: (directory: string, db: Database) => Promise<void> | void;
     /**
      * Pi only: builds a RawMessageProvider for an arbitrary historical session id
-     * so refresh-primers can render the orientation seed from Pi JSONL. OpenCode
-     * leaves this undefined (the seed read falls to the read-only opencode.db
-     * path). Returning null for a session → refresh falls back to closed-book.
+     * so refresh-primers can render the orientation seed from Pi JSONL.
+     * Returning null for a session keeps the closed-book fallback.
      */
     primerRawProviderFactory?: (
         sessionId: string,
@@ -801,8 +800,7 @@ async function runRetrospectiveTask(
         if (!childSessionId) throw new Error("Retrospective could not create its child session.");
         const sessionId = childSessionId;
 
-        // One child, two turns sharing the same session — OpenCode applies the
-        // per-prompt `body.system`, so turn 1 runs the cheap gate system and turn
+        // One child, two turns sharing the same session: turn 1 runs the cheap gate system and turn
         // 2 (only on a hit) runs the deepen system. fetchOutput returns the whole
         // child branch, so recording the LAST run's output covers both turns'
         // token usage without double counting.
@@ -851,7 +849,6 @@ async function runRetrospectiveTask(
                 recordChildInvocation({
                     db,
                     parentSessionId: parent,
-                    harness: "opencode",
                     subagent: "dreamer",
                     task: config.task,
                     startedAt: helpers.invocationStartedAt,
@@ -1151,7 +1148,6 @@ async function runAgenticTask(
             recordChildInvocation({
                 db,
                 parentSessionId: parent,
-                harness: "opencode",
                 subagent: "dreamer",
                 task,
                 startedAt: invocationStartedAt,

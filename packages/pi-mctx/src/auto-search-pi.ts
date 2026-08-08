@@ -1,7 +1,7 @@
 /**
  * Pi transform-time auto-search hint runner.
  *
- * This is the Pi-shaped counterpart to OpenCode's
+ * This is the Pi-shaped counterpart to legacy host's
  * `auto-search-runner.ts`: when a context event carries a new meaningful
  * user message, run the shared `unifiedSearch()` over the stripped user
  * prompt, build the shared vague-recall hint, and append that hint to the
@@ -11,7 +11,7 @@
  * ## Per-turn cache
  *
  * Pi can re-fire `pi.on("context", ...)` multiple times for the same user
- * turn. We mirror OpenCode's per-session cache (OpenCode lines 33-38,
+ * turn. We mirror legacy host's per-session cache (legacy host lines 33-38,
  * 182-187, 271-272): `sessionId -> { messageId, hint }`. A cached empty
  * hint means “this turn was already evaluated and skipped”; a cached
  * non-empty hint is replayed through the same idempotent append guard. The
@@ -22,7 +22,7 @@
  * ## Timeout
  *
  * The LLM-bound context path must not hang on embedding providers. We use
- * the same 3000ms cap as OpenCode (lines 40-47, 222-229, 239-246). On
+ * the same 3000ms cap as legacy host (lines 40-47, 222-229, 239-246). On
  * timeout the `AbortController` is fired so `unifiedSearch()` can cancel
  * the underlying embedding fetch.
  *
@@ -43,10 +43,10 @@
  * Before appending, we check whether the target message already contains
  * the exact hint or any `<ctx-search-hint>` block. Before searching, we
  * skip if raw user text already contains `<sidekick-augmentation>`,
- * `<ctx-search-hint>`, or `<ctx-search-auto>`, matching OpenCode's stacked
+ * `<ctx-search-hint>`, or `<ctx-search-auto>`, matching legacy host's stacked
  * augmentation guard (lines 106-115, 189-198). Prompt extraction strips
  * Magic Context markers and prior plugin blocks before embedding, matching
- * OpenCode lines 118-143.
+ * legacy host lines 118-143.
  */
 
 import type { ContextEvent } from "@earendil-works/pi-coding-agent";
@@ -120,7 +120,7 @@ async function unifiedSearchWithTimeout(
 				...options,
 				signal: controller.signal,
 				// Auto hints are plugin-internal surfacing, not explicit agent
-				// retrievals; match OpenCode lines 69-73 and search.ts lines 77-84.
+				// retrievals; match legacy host lines 69-73 and search.ts lines 77-84.
 				countRetrievals: false,
 			}),
 			timeoutPromise,
@@ -347,7 +347,7 @@ export async function runAutoSearchHintForPi(args: {
 		}
 	};
 
-	// Suppression check runs on raw text before stripping; OpenCode does the
+	// Suppression check runs on raw text before stripping; legacy host does the
 	// same at lines 189-198 because stripping removes the signal tags.
 	const rawPartsText = collectUserPromptParts(userMsg);
 	if (hasStackedAugmentation(rawPartsText)) {
@@ -412,7 +412,7 @@ export async function runAutoSearchHintForPi(args: {
 	}
 
 	if (results === null) {
-		// Timeout is also retryable, matching OpenCode's auto-search runner.
+		// Timeout is also retryable, matching legacy host's auto-search runner.
 		sessionLog(
 			sessionId,
 			`auto-search: timed out after ${AUTO_SEARCH_TIMEOUT_MS}ms, skipping hint for this turn (will retry)`,
@@ -442,7 +442,7 @@ export async function runAutoSearchHintForPi(args: {
 	}
 
 	// Prefix with double newline so the hint is a separate block, matching
-	// OpenCode lines 268-270.
+	// legacy host lines 268-270.
 	const payload = `\n\n${hintText}`;
 	const outcome = appendAutoSearchHintDecision(db, sessionId, {
 		messageId: userMsgId,

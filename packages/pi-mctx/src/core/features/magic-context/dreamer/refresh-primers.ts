@@ -41,9 +41,8 @@ export interface RefreshPrimersArgs {
     language?: string;
     /**
      * Pi only: builds a RawMessageProvider for an arbitrary historical session id
-     * (JSONL), so the orientation seed read works on Pi-only installs where there
-     * is no opencode.db. OpenCode leaves this undefined — the seed read falls to
-     * the read-only opencode.db path. Returning null → closed-book fallback.
+     * Pi obtains the origin session through its raw-message provider; returning
+     * null keeps the closed-book fallback.
      * May be async (Pi JSONL discovery is async); the returned provider's
      * `readMessages()` itself is synchronous (wraps already-loaded entries).
      */
@@ -204,8 +203,7 @@ async function refreshOnePrimer(
     signal: AbortSignal,
 ): Promise<boolean> {
     // Build the orientation seed. On Pi, resolve a raw provider for the origin
-    // session (async JSONL discovery) BEFORE the synchronous seed scope; on
-    // OpenCode, the read falls to the read-only opencode.db path.
+    // session (async JSONL discovery) before the synchronous seed scope.
     const originSessionId = originSessionIdForPrimer(args, primer);
     let provider: RawMessageProvider | null = null;
     if (args.rawProviderFactory && originSessionId) {
@@ -339,7 +337,6 @@ function recordInvocation(
     recordChildInvocation({
         db: args.db,
         parentSessionId: args.parentSessionId,
-        harness: "opencode",
         subagent: "dreamer",
         task: "refresh-primers",
         startedAt,

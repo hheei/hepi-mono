@@ -614,7 +614,6 @@ function recordInvocation(
     recordChildInvocation({
         db: args.db,
         parentSessionId: args.parentSessionId,
-        harness: "opencode",
         subagent: "dreamer",
         task: "classify-memories",
         startedAt,

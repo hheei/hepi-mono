@@ -3,28 +3,10 @@
  *
  * # Why this exists
  *
- * OpenCode ships a built-in `todowrite` tool that the agent uses to manage
- * work-tracking state. Magic Context captures that state in
- * `session_meta.last_todo_state` via the `tool.execute.after` hook so the
- * synthetic-todowrite injector can resurface it across cache-busts.
- *
- * Pi-coding-agent has NO built-in `todowrite` — Pi treats todo management
- * as an extension concern (see `pi-mono/packages/coding-agent/examples/extensions/todo.ts`
- * for a community example). That means:
- *   1. The Pi LLM won't see a `todowrite` tool unless something registers it.
- *   2. Without registration, the agent can't emit `todowrite` calls, so
- *      synthetic-todowrite injection has nothing to surface.
- *   3. e2e tests can't drive the capture path either.
- *
- * Magic Context provides a built-in `todowrite` to close this parity gap.
- * The tool is intentionally minimal: it accepts the same `{ todos: [...] }`
- * shape OpenCode uses, returns a pretty-printed JSON acknowledgement
- * (matching OpenCode's `todo.ts` output), and lets the message_end capture
- * path in `index.ts` snapshot the args into `session_meta.last_todo_state`.
- *
- * Wire-shape parity verified against:
- *   - OpenCode source: `~/Work/OSS/opencode/packages/opencode/src/tool/todo.ts`
- *   - Synthetic part shape: `packages/plugin/src/hooks/magic-context/todo-view.ts`
+ * Magic Context provides a built-in `todowrite` because Pi treats todo
+ * management as an extension concern. It validates `{ todos: [...] }`, returns
+ * a pretty-printed JSON acknowledgement, and lets the message-end capture path
+ * snapshot the args into `session_meta.last_todo_state`.
  */
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -85,7 +67,7 @@ export function createTodowriteTool(): ToolDefinition<typeof TodowriteParams> {
 			_ctx,
 		) {
 			const todos = params.todos ?? [];
-			// Output shape matches OpenCode `todo.ts:46-52`: pretty-printed JSON
+			// Output is pretty-printed JSON of the full todo list.
 			// of the full todos array. Magic Context's `tool_execution_start`
 			// and `message_end` handlers capture `params.todos` into
 			// `session_meta.last_todo_state` directly, so this output is

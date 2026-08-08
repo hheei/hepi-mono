@@ -2,8 +2,8 @@
  * SQLite chokepoint — runtime-detected backend selection.
  *
  * The same shipped plugin artifact must run under two different runtimes:
- *   - Bun (current OpenCode releases) → uses `bun:sqlite` (built-in, fast)
- *   - Node / Electron (Pi plugin, OpenCode Desktop) → uses `node:sqlite`
+ *   - Bun (current legacy host releases) → uses `bun:sqlite` (built-in, fast)
+ *   - Node / Electron (Pi plugin, legacy host Desktop) → uses `node:sqlite`
  *     (`DatabaseSync`, built into Node 22.5+ / Electron 41+, stable-enough and
  *     flag-free since Node 22.13/23.4).
  *
@@ -16,7 +16,7 @@
  * Node prebuild — which forced a runtime download of an Electron-matched
  * `.node` binary (a supply-chain + maintenance liability). `node:sqlite` is
  * built into the runtime, so there is NOTHING to download or rebuild. Both Pi
- * (plain Node 24) and OpenCode Desktop (Electron 41 → Node 24.14.1) ship it.
+ * (plain Node 24) and legacy host Desktop (Electron 41 → Node 24.14.1) ship it.
  *
  * API surface we use (common across both backends, modulo the shims below):
  *   - new Database(path, { readonly?: boolean })   ← we map readonly→readOnly
@@ -48,7 +48,7 @@ import type BetterSqlite3 from "better-sqlite3";
 // Detect Bun via process.versions.bun. Both globalThis.Bun and
 // process.versions.bun are set by the Bun runtime, but process.versions
 // is a lower-level surface less likely to be sandboxed by host runtimes
-// (e.g. Electron in OpenCode desktop apps that re-expose a Bun-flavored
+// (e.g. Electron in legacy host desktop apps that re-expose a Bun-flavored
 // environment). Real Node and Electron never set this field.
 const isBun = typeof process !== "undefined" && typeof process.versions?.bun === "string";
 
@@ -112,8 +112,8 @@ function buildNodeSqliteDatabaseClass(DatabaseSync: any): typeof BetterSqlite3 {
         // bun:sqlite. bun's `.run([a,b])` binds positionally; node:sqlite instead
         // reads a lone array as NAMED params with keys "0","1" and throws
         // `Unknown named parameter '0'`. That divergence let an array-form bind
-        // (e.g. `.run([x, y])`) silently work on OpenCode/Bun yet break Pi and
-        // OpenCode Desktop (both node:sqlite) — issue #151 (/ctx-dream). Wrapping
+        // (e.g. `.run([x, y])`) silently work on legacy host/Bun yet break Pi and
+        // legacy host Desktop (both node:sqlite) — issue #151 (/ctx-dream). Wrapping
         // every prepared statement here keeps the two backends' bind surface
         // truly identical so this whole class is impossible regardless of how a
         // call site writes its bind. Named-object binds (`.run({k:v})`), no-arg

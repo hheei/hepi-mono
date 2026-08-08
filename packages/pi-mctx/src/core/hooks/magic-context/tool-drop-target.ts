@@ -62,7 +62,7 @@ function setToolContent(part: unknown, content: string): void {
 /**
  * Deep-copy a tool part so a clamp/drop can rewrite the copy without touching
  * the original object. The transform receives `args.messages` whose part
- * objects are the LIVE instances OpenCode still holds (it reads the same
+ * objects are the LIVE instances legacy host still holds (it reads the same
  * objects back for the wire and, for a tool that is still executing, for the
  * execution itself). Rewriting one of those in place can corrupt a live run —
  * e.g. clamping a background task part's `input.prompt` while the child agent
@@ -92,7 +92,7 @@ function clonePart(part: unknown): unknown {
  * Apply a clamp to a throwaway clone of the occurrence's part and swap the
  * clone into the message's parts array, leaving the original part object
  * byte-identical. This is the mutation-safety guarantee: the wire (the array
- * OpenCode reads back) carries the clamped copy, while the live object OpenCode
+ * legacy host reads back) carries the clamped copy, while the live object legacy host
  * may still execute from is never touched. The swap is by reference identity
  * (`indexOf`), so it is a no-op if the part is no longer in the array.
  */
@@ -114,7 +114,7 @@ function truncateToolPart(part: unknown, tagId: number): void {
     // its own marker. Frozen by the dropMode column, so it replays identically.
     const sentinel = `[dropped \u00a7${tagId}\u00a7]`;
 
-    // OpenCode format: { type: "tool", state: { input: {...}, output: "..." } }
+    // legacy host format: { type: "tool", state: { input: {...}, output: "..." } }
     if (part.type === "tool" && isRecord(part.state)) {
         const state = part.state;
         state.output = sentinel;
@@ -135,7 +135,7 @@ function truncateToolPart(part: unknown, tagId: number): void {
         return;
     }
 
-    // OpenCode invocation format: { type: "tool-invocation", args: {...} }
+    // legacy host invocation format: { type: "tool-invocation", args: {...} }
     if (part.type === "tool-invocation" && isRecord(part.args)) {
         const inputSize = estimateInputSize(part.args as Record<string, unknown>);
         if (inputSize > 500) {
@@ -265,16 +265,15 @@ function clearThinkingParts(thinkingParts: ThinkingLikePart[]): void {
 
 /**
  * True when a tool part carries a COMPLETED result — i.e. the arc is closed and
- * OpenCode will not read its input again. This is the selection gate that keeps
+ * legacy host will not read its input again. This is the selection gate that keeps
  * open arcs (an invocation with no result yet) out of every drop/clamp selector.
  *
- * OpenCode's single-part `{ type: "tool" }` representation is classified as a
+ * legacy host's single-part `{ type: "tool" }` representation is classified as a
  * "result" observation by its TYPE even while the call is still pending/running
  * (no output written yet). The arc is closed in either of two arms: a completed
  * result (`state.output` is a string) OR an errored call (`state.status ===
- * "error"`, carrying `state.error`). OpenCode serializes an errored part as an
- * `output-error` block built from `state.error` and never reads its input again
- * (opencode message-v2.ts error arm), so it is just as safe to reclaim as a
+ * "error"`, carrying `state.error`). legacy host serializes an errored part as an
+ * error block built from `state.error` and never reads its input again, so it
  * completed one — excluding it would leak bulky inputs (e.g. a failed write with
  * a large content arg). Pending/running parts have neither an output nor an
  * error status and stay excluded. Anthropic's separate `tool_result` part only
@@ -401,7 +400,7 @@ export function createToolDropTarget(
         for (const occurrence of entry.occurrences) {
             // Truncate both result parts (output) and invocation parts
             // (args/input). Clamp a CLONE and swap it into the wire so the live
-            // part object OpenCode may still execute from stays byte-identical.
+            // part object legacy host may still execute from stays byte-identical.
             clampCloneInPlace(occurrence, (part) => truncateToolPart(part, tagId));
         }
         clearThinkingParts(thinkingParts);
@@ -454,7 +453,7 @@ export function createToolDropTarget(
             const entry = index.get(compositeKey);
             if (!entry) return null;
             // Prefer an invocation occurrence's input, but fall back to ANY
-            // occurrence carrying readable input: a COMPLETED OpenCode tool part
+            // occurrence carrying readable input: a COMPLETED legacy host tool part
             // is `{ type:"tool", state:{ input, output } }`, classified as a
             // "result" occurrence, yet it still holds the call's input, which is
             // where an edit/write's filePath lives once the call finished.

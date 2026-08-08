@@ -428,7 +428,6 @@ async function confirmReadOnly(
         recordChildInvocation({
             db: args.db,
             parentSessionId: args.parentSessionId,
-            harness: "opencode",
             // Dashboard token rollups group dream-task invocations under the
             // historical "dreamer" bucket. The actual child agent remains the
             // no-tool SMART_NOTE_COMPILER_AGENT passed to session.prompt below.

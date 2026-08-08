@@ -7,11 +7,11 @@
  * /ctx-aug command, system-prompt injection, dreamer scheduling, and
  * agent_end cleanup.
  *
- * Storage: shares one SQLite database with the OpenCode plugin at
+ * Storage: shares one SQLite database with the legacy host plugin at
  *   ~/.local/share/cortexkit/magic-context/context.db
  * so project memories, embedding cache, dreamer runs, and other
  * project-scoped state are visible across both harnesses. Session-scoped
- * tables carry a `harness` column ('opencode' or 'pi') so per-session
+ * tables carry a `harness` column ('legacy-host' or 'pi') so per-session
  * data stays correctly attributed.
  *
  * Config: read from the shared CortexKit location —
@@ -468,7 +468,7 @@ function resolvePiPressureContextLimit(args: {
 	// Pi reports the model's context window directly (ctx.getContextUsage() /
 	// ctx.model.contextWindow) — its own authoritative source. We no longer
 	// consult models.dev for Pi. Sanity-bound the reported value so a transient
-	// garbage window can't poison pressure (mirrors OpenCode's SDK sane bound).
+	// garbage window can't poison pressure (mirrors legacy host's SDK sane bound).
 	let detectedContextLimit: number | undefined;
 	try {
 		const overflowState = getOverflowState(args.db, args.sessionId);
@@ -627,7 +627,7 @@ export function resolveHistorianFromConfig(
 	// The historian chunk budget is anchored to the HISTORIAN model because
 	// it bounds one summarizer call. The trigger budget is intentionally NOT
 	// derived at startup: Pi resolves it per context pass from the live main
-	// session model + effective execute threshold to match OpenCode.
+	// session model + effective execute threshold to match legacy host.
 	const historianContextLimit = resolveHistorianContextLimit(model);
 	const historianChunkTokens = deriveHistorianChunkTokens(
 		historianContextLimit,
@@ -643,7 +643,7 @@ export function resolveHistorianFromConfig(
 		timeoutMs: config.historian_timeout_ms,
 		// `historian.two_pass` runs an editor pass after a successful
 		// first pass to clean low-signal U: lines and cross-compartment
-		// duplicates. Mirrors OpenCode's config flag — defaults to false
+		// duplicates. Mirrors legacy host's config flag — defaults to false
 		// on the schema side because the editor pass adds a second
 		// historian round-trip's latency and token cost. Enable for
 		// long sessions where chunk dedupe matters more than speed.
@@ -914,11 +914,11 @@ async function startPiMagicContextRuntime(
 	applySqliteTuningPragmas(db);
 
 	// Debug data-collection toggle: keep subagent child sessions instead of
-	// deleting on success (parity with the OpenCode plugin).
+	// deleting on success (parity with the legacy host plugin).
 	setKeepSubagents(config.keep_subagents === true);
 
 	// Top-level disable: when `enabled: false` is set in config, register
-	// nothing — same fail-closed posture the OpenCode plugin uses.
+	// nothing — same fail-closed posture the legacy host plugin uses.
 	if (!config.enabled) {
 		info("plugin DISABLED via config (enabled: false) — skipping registration");
 		return;
@@ -1078,7 +1078,7 @@ async function startPiMagicContextRuntime(
 		todowriteEnabled && bootProjectDeps.config.todowrite.overlay !== false;
 
 	// Register the agent-facing tools. Reuses the same business logic
-	// the OpenCode plugin uses (insertMemory, unifiedSearch, addNote, …)
+	// the legacy host plugin uses (insertMemory, unifiedSearch, addNote, …)
 	// via the shared cortexkit DB. Cross-harness memory sharing is automatic
 	// because both plugins resolve the same project identity for the same
 	// directory.
@@ -1189,7 +1189,7 @@ async function startPiMagicContextRuntime(
 	);
 
 	// Step 5c: register the diagnostic/admin slash commands so Pi reaches
-	// command-surface parity with the OpenCode plugin. Their user-facing output
+	// command-surface parity with the legacy host plugin. Their user-facing output
 	// uses model-invisible custom entries when the runtime can render them.
 	const recompRunner = new PiSubagentRunner();
 	const wrapupRunner = new PiSubagentRunner();
@@ -1435,23 +1435,23 @@ async function startPiMagicContextRuntime(
 	// resulting prompt stays cache-stable across turns when nothing
 	// material has changed.
 	//
-	// Pi has prefix caching the same way OpenCode does — every major
+	// Pi has prefix caching the same way legacy host does — every major
 	// LLM provider (Anthropic, OpenAI, Codex, GitHub Copilot, etc.)
 	// caches the system prompt portion of the prefix. Drift between
 	// turns busts the cache and the user pays full input price for the
-	// next call. The protections here mirror OpenCode's
+	// next call. The protections here mirror legacy host's
 	// `experimental.chat.system.transform` handler in
 	// `system-prompt-hash.ts`.
 	pi.on("before_agent_start", async (event, ctx) => {
-		// Startup release announcement (Pi parity with OpenCode TUI dialog +
+		// Startup release announcement (Pi parity with legacy host TUI dialog +
 		// Desktop ignored message). Fires once per ANNOUNCEMENT_VERSION across
-		// the whole machine — persistence file is shared with the OpenCode
+		// the whole machine — persistence file is shared with the legacy host
 		// plugin via `getMagicContextStorageDir()/last_announced_version`.
 		//
 		// Skipped silently when:
 		//   - announcement constants are empty (bugfix-only release)
 		//   - the current ANNOUNCEMENT_VERSION was already dismissed (here or
-		//     in OpenCode TUI/Desktop)
+		//     in legacy host TUI/Desktop)
 		//   - ctx.hasUI is false (print/rpc subagent — no point notifying)
 		//
 		// Fire-and-forget: storage write happens inside markAnnouncementSeen,
@@ -1784,7 +1784,7 @@ async function startPiMagicContextRuntime(
 		// .finally cleans up the inFlight map).
 		log("agent_end: returning synchronously (background work continues)");
 
-		// Channel 2 (ceiling) nudge delivery — the Pi analog of OpenCode's
+		// Channel 2 (ceiling) nudge delivery — the Pi analog of legacy host's
 		// event-handler delivery on terminal message.updated. The pipeline
 		// records a `pending` intent near the threshold; deliver it here at the
 		// turn boundary via sendUserMessage(followUp). Internally CAS-gated to
@@ -1794,7 +1794,7 @@ async function startPiMagicContextRuntime(
 		// Deliver ONLY on a clean final stop. Pi emits agent_end for error /
 		// aborted responses and for retry attempts too (agent-loop); delivering
 		// on those would inject the follow-up mid-retry and burn the one-shot cap
-		// before the turn actually completed. OpenCode's equivalent gates on
+		// before the turn actually completed. legacy host's equivalent gates on
 		// finish === "stop". Mirror that with the final assistant's stopReason.
 		try {
 			const msgs = (
@@ -1814,11 +1814,11 @@ async function startPiMagicContextRuntime(
 	});
 
 	// Tool-execution-start hook: detect note-nudge triggers from
-	// agent tool usage. Mirrors OpenCode's `tool.execute.after` hook in
+	// agent tool usage. Mirrors legacy host's `tool.execute.after` hook in
 	// `hook-handlers.ts` (`createToolExecuteAfterHook`). We use Pi's
 	// `tool_execution_start` event because (a) it fires before the tool
 	// runs (so we can inspect args without waiting for output, matching
-	// OpenCode's `tool.execute.before`/`after` that have full args
+	// legacy host's `tool.execute.before`/`after` that have full args
 	// available), and (b) `tool_execution_end` is fire-and-forget and
 	// could race with the next pipeline pass.
 	//
@@ -1835,7 +1835,7 @@ async function startPiMagicContextRuntime(
 	//     The agent already saw / acted on notes, so we kill any
 	//     pending sticky reminder for this session right away. Subagents
 	//     never deliver note nudges (gated upstream in postprocess),
-	//     so we still skip the trigger for them. Mirrors OpenCode's
+	//     so we still skip the trigger for them. Mirrors legacy host's
 	//     `if (typedInput.tool === "ctx_note") clearNoteNudgeState(...)`.
 	pi.on("tool_execution_start", async (event, ctx) => {
 		try {
@@ -1854,7 +1854,7 @@ async function startPiMagicContextRuntime(
 					: null;
 
 				// Synthetic-todowrite snapshot capture (Pi parity with
-				// OpenCode hook-handlers.ts:386-401). Persist normalized
+				// legacy host hook-handlers.ts:386-401). Persist normalized
 				// state on EVERY todowrite call so the transform-time
 				// injection path in pi-pipeline.ts always has a current
 				// snapshot to replay on the next cache-busting pass.
@@ -1911,14 +1911,14 @@ async function startPiMagicContextRuntime(
 		}
 	});
 
-	// Channel 1 (ctx_reduce in-turn nudge), Pi parity with OpenCode's
+	// Channel 1 (ctx_reduce in-turn nudge), Pi parity with legacy host's
 	// `tool.execute.after` → `output.output` append. `tool_result` lets an
 	// extension REPLACE the recorded tool result content; returning the original
 	// content plus an appended `<system-reminder>` block persists to the session
 	// JSONL (via `appendMessage` on `message_end`) and replays verbatim on every
 	// later `context` pass — "free sticky", no anchor/CAS/replay machinery. The
 	// metric baseline is computed in the pipeline (`pi.on("context")`) and read
-	// here, exactly mirroring OpenCode's transform→tool.execute.after split.
+	// here, exactly mirroring legacy host's transform→tool.execute.after split.
 	pi.on("tool_result", async (event, ctx) => {
 		try {
 			const sessionId = ctx.sessionManager.getSessionId();
@@ -1953,14 +1953,14 @@ async function startPiMagicContextRuntime(
 
 	// Strip injected `§N§` tag prefix from assistant text BEFORE Pi
 	// persists the message to disk and renders it to the UI. Mirrors
-	// OpenCode's `experimental.text.complete` handler which scrubs the
+	// legacy host's `experimental.text.complete` handler which scrubs the
 	// prefix from `output.text` before the assistant message lands in
-	// `opencode.db`.
+	// `legacy session store`.
 	//
 	// Pi's `agent-session.ts` emits `message_end` to extensions BEFORE
 	// calling `sessionManager.appendMessage(event.message)`. Mutating
 	// the message reference in this handler is therefore visible to
-	// the persistence call — same effect as OpenCode's hook on a
+	// the persistence call — same effect as legacy host's hook on a
 	// different harness.
 	//
 	// Why this matters: LLMs frequently mimic the `§N§` prefix they
@@ -1985,7 +1985,7 @@ async function startPiMagicContextRuntime(
 		// so the scheduler's TTL gating can decide between execute and defer
 		// on the next transform pass. Without this, every Pi pass would either
 		// always execute (stale lastResponseTime=0 → TTL elapsed) or always
-		// defer (no usage data) — neither matches OpenCode parity.
+		// defer (no usage data) — neither matches legacy host parity.
 		try {
 			const sm = ctx.sessionManager as
 				| { getSessionId?: () => string | undefined }
@@ -2015,7 +2015,7 @@ async function startPiMagicContextRuntime(
 				message: event.message,
 				cacheTtlConfig: resolveCurrentProjectDeps(ctx).config.cache_ttl,
 			});
-			// Compute pressure with OpenCode-equivalent semantics: pull
+			// Compute pressure with legacy host-equivalent semantics: pull
 			// the assistant's `usage` field and use
 			// `input + cacheRead + cacheWrite` (NOT output) divided by
 			// the effective context limit. The window comes from Pi's own
@@ -2053,7 +2053,7 @@ async function startPiMagicContextRuntime(
 				},
 			});
 
-			// Synthetic-todowrite capture (Pi parity with OpenCode
+			// Synthetic-todowrite capture (Pi parity with legacy host
 			// hook-handlers.ts `tool.execute.after` for `todowrite`).
 			//
 			// Why message_end and not tool_execution_start:
@@ -2064,13 +2064,13 @@ async function startPiMagicContextRuntime(
 			//   — would not trigger `tool_execution_start`. Reading the
 			//   assistant message at `message_end` catches every
 			//   todowrite-shaped `toolCall` block regardless of whether
-			//   Pi could execute it locally, matching what OpenCode
+			//   Pi could execute it locally, matching what legacy host
 			//   captures via `tool.execute.after` on every visible tool
 			//   call.
 			//
 			// Cache safety: pure DB write, no message mutation.
 			// Subagents skip — they don't get synthetic todowrite
-			// injection downstream (mirrors OpenCode `fullFeatureMode`
+			// injection downstream (mirrors legacy host `fullFeatureMode`
 			// gate).
 			try {
 				const sessionMetaForTodo = getOrCreateSessionMeta(db, sessionId);
@@ -2249,7 +2249,7 @@ async function startPiMagicContextRuntime(
 	// by the OUTGOING session id — without this, every session swap
 	// in a long-running Pi process leaks one entry per cache, and
 	// after dozens of swaps the maps balloon. Cleanup here mirrors
-	// OpenCode's `session.deleted` handler in `event-handler.ts`.
+	// legacy host's `session.deleted` handler in `event-handler.ts`.
 	pi.on("session_before_switch", (_event, ctx) => {
 		try {
 			const sm = (
@@ -2266,7 +2266,7 @@ async function startPiMagicContextRuntime(
 				// Clear ONLY the in-memory per-session maps (the actual leak that
 				// grows one entry per swap). Do NOT clear the durable DB m[0] cache
 				// here: session_before_switch is REVERSIBLE (the user can switch
-				// back), unlike OpenCode's session.deleted. The DB cache is bounded
+				// back), unlike legacy host's session.deleted. The DB cache is bounded
 				// (one session_meta row per session) and self-invalidates via
 				// epoch/version/docs-hash checks in mustMaterializePi, so preserving
 				// it lets a switch-back reuse the cached prefix instead of forcing a

@@ -37,8 +37,8 @@ import {
 
 // Intentionally kept: historian validation failure dumps are preserved for
 // debugging. They land in the project-local historian dir
-// (<project>/.opencode/magic-context/historian/) so they sit inside the
-// project boundary OpenCode's permission system already trusts AND so users
+// (<project>/.cortexkit/magic-context/historian/) so they sit inside the
+// project boundary legacy host's permission system already trusts AND so users
 // debugging a failed run can find dumps next to the project they belong to.
 // The user has explicitly requested keeping these dumps for now (see audit
 // #21); they survive until manual cleanup.
@@ -346,7 +346,6 @@ async function runHistorianPrompt(args: {
         return recordChildInvocation({
             db: openDatabase(),
             parentSessionId,
-            harness: "opencode",
             subagent:
                 agentId === HISTORIAN_EDITOR_AGENT
                     ? "historian_editor"
@@ -397,14 +396,14 @@ async function runHistorianPrompt(args: {
                         query: { directory: sessionDirectory },
                         body: {
                             // Use the specified agent (HISTORIAN_AGENT by default, or
-                            // HISTORIAN_EDITOR_AGENT for two-pass editor pass) so OpenCode
+                            // HISTORIAN_EDITOR_AGENT for two-pass editor pass) so legacy host
                             // loads the right system prompt. When modelOverride is set,
-                            // OpenCode uses the override model but still loads the agent's
+                            // legacy host uses the override model but still loads the agent's
                             // registered system prompt.
                             agent: agentId,
                             ...(modelOverride ? { model: modelOverride } : {}),
                             // synthetic: true keeps this big internal prompt out of the
-                            // OpenCode TUI subagent pane (would otherwise render as a huge
+                            // legacy host TUI subagent pane (would otherwise render as a huge
                             // unreadable visible message — see issue #50). The historian
                             // model still receives the part because toModelMessages only
                             // filters `ignored`, not `synthetic`.

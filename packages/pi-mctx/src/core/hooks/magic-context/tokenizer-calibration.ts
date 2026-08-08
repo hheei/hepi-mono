@@ -93,10 +93,6 @@ const CALIBRATION_TABLE: CalibrationEntry[] = [
         systemRatio: 1.05,
         toolsRatio: 1.09,
     },
-    // OpenCode-Go — same upstream open-weight providers.
-    { prefix: "opencode-go/glm-5.1", systemRatio: 1.0, toolsRatio: 1.06 },
-    { prefix: "opencode-go/glm-5", systemRatio: 1.0, toolsRatio: 1.06 },
-    { prefix: "opencode-go/kimi-k2.6", systemRatio: 0.87, toolsRatio: 0.86 },
 ];
 
 const NEUTRAL: ModelCalibration = { systemRatio: 1.0, toolsRatio: 1.0 };

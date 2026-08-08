@@ -29,8 +29,8 @@ export type LocalEmbeddingDtype =
     | "q1f16";
 
 /**
- * Cross-process mutex for embedding-model load. When two OpenCode processes
- * spawn simultaneously (typical Desktop sidecar + TUI + dashboard setup), they
+ * Cross-process mutex for embedding-model load. Concurrent processes can
+ * spawn simultaneously, they can
  * can both call onnxruntime-node's `InferenceSession::LoadModel` on the same
  * cached `.onnx` file at the same wall-clock time. Older onnxruntime-node
  * builds (<=1.21.0 / native lib 1.14.0) could double-free an internal
@@ -140,7 +140,7 @@ function startLockHeartbeat(lockPath: string): () => void {
  *
  * Why this exists:
  *   `@huggingface/transformers@4.x` does a top-level static `import "onnxruntime-node"`.
- *   On Electron Desktop (e.g. OpenCode Desktop's main process), that native
+ *   On Electron Desktop, that native
  *   `.node` binary fails to load for several environmental reasons — missing
  *   Visual C++ Redistributables on Windows, ASAR archive layout issues,
  *   onnxruntime's own dependency DLLs not being resolvable. The failure
@@ -158,7 +158,7 @@ function startLockHeartbeat(lockPath: string): () => void {
  *   but on Electron Desktop it's the only path that actually loads.
  *
  * Why only Electron:
- *   Plain Node and Bun runtimes (Pi, terminal OpenCode, dashboard backend)
+ *   Plain Node and Bun runtimes (Pi and backend processes)
  *   load `onnxruntime-node` correctly. We don't want to regress those to WASM.
  *   `process.versions.electron` is the canonical check — it's only present
  *   inside Electron processes.
@@ -493,7 +493,7 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
 
                 // Set a stable model cache directory outside of node_modules.
                 // On Windows, the default .cache inside the npm cached install
-                // (e.g. ~\.cache\opencode\packages\...\node_modules\@huggingface\transformers\.cache)
+                // (e.g. a package-local transformers cache)
                 // can be inaccessible or non-writable, causing "Unable to get model file path
                 // or buffer" failures. Using our own storage dir survives plugin updates too.
                 const modelCacheDir = join(getMagicContextStorageDir(), "models");
@@ -522,7 +522,7 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
                 const createPipeline = transformersModule.pipeline as CreateEmbeddingPipeline;
 
                 // Cross-process lock — serializes InferenceSession::LoadModel
-                // across concurrently-starting OpenCode processes. See the
+                // across concurrently-starting processes. See the
                 // doc block on `acquireModelLoadLock` and issue #21.
                 const lockPath = join(modelCacheDir, ".load.lock");
                 const releaseLock = await acquireModelLoadLock(lockPath);

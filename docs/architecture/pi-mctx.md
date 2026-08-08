@@ -19,7 +19,7 @@ Pi host
 - `xpi-mctx` remains excluded: it is a historical archive, not part of active implementation.
 - OpenCode backend is not retained: no OpenCode DB access、config/RPC integration、legacy migration、plugin context, or cross-harness fallback remains under this package.
 
-Pi raw-session data is supplied only by the adapter's `RawMessageProvider`; core fails closed when no provider is installed. Shared storage is Pi-owned and has no import or migration path from a legacy OpenCode database.
+Pi raw-session data is supplied only by the adapter's `RawMessageProvider`; core fails closed when no provider is installed. Shared storage is Pi-owned and has no import or migration path from a legacy OpenCode database. Legacy subagent-invocation rows retain their invocation IDs and token totals, but the retired cross-host `harness` telemetry column is removed by a transactional table rebuild; callers no longer write or read a host origin for those rows.
 
 ## 模組解析與啟用條件
 

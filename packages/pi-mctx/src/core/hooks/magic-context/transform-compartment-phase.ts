@@ -89,9 +89,9 @@ interface RunCompartmentPhaseArgs {
  *
  * The phase's boundary resolution (`getRawHistoryEligibility` +
  * `resolveProtectedTailBoundary`) AND the historian runner's
- * `readSessionChunk` all read raw OpenCode history. On a large session an
+ * `readSessionChunk` all read raw legacy host history. On a large session an
  * un-primed read is O(session) (multi-second each) and runs on the transform
- * thread — OpenCode awaits `messages.transform` before the LLM call, so a
+ * thread — legacy host awaits `messages.transform` before the LLM call, so a
  * historian-FIRE pass froze ~9.6s at "Thinking". The compartment TRIGGER primes
  * its own scope (`withRawSessionMessageCache` inside `getUnsummarizedTailInfo`),
  * but that scope ends when the trigger returns, so the phase read un-primed.
@@ -393,8 +393,8 @@ async function runCompartmentPhaseImpl(args: RunCompartmentPhaseArgs): Promise<{
             // while historian compacts. Without this, users have no idea what's happening.
             //
             // CRITICAL: This notification creates a user message via session.prompt
-            // with noReply:true. The message is PERSISTED to OpenCode's session DB,
-            // which gives it a higher ID than the latest assistant. OpenCode's
+            // with noReply:true. The message is PERSISTED to legacy host's session DB,
+            // which gives it a higher ID than the latest assistant. legacy host's
             // runLoop break condition checks `lastUser.id < lastAssistant.id`, and
             // a fresh notification-user-message every transform pass makes that
             // condition stay false → runLoop keeps iterating → mock returns text

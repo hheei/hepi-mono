@@ -468,7 +468,7 @@ export function tagMessages(
                 const thinkingParts = messageThinkingParts;
                 const contentId = `${messageId}:p${partIndex}`;
                 // Resolver pre-warms any tag-id-fallback bindings (e.g. when
-                // OpenCode re-assigns part IDs); the assigned tag below uses
+                // part ids can change); the assigned tag below uses
                 // those bindings if the resolver populated them.
                 resolver.resolve(messageId, "message", contentId, textOrdinal);
                 const reasoningBytes = textOrdinal === 0 ? getReasoningByteSize(thinkingParts) : 0;
@@ -563,14 +563,14 @@ export function tagMessages(
                 const _tAssignTool = performance.now();
                 // No growth-bump on the existing-tag path here (unlike Pi's
                 // tag-transcript, which bumps byte_size/token_count when a later
-                // occurrence is larger). The asymmetry is structural: OpenCode
+                // occurrence is larger). The asymmetry is structural: output is
                 // only tags once `state.output` is a string — i.e. after the tool
-                // completed — and OpenCode writes tool output exactly once, so a
+                // completed — and tool output is written exactly once, so a
                 // tagged output never grows afterwards. Pi tags the INVOCATION
                 // occurrence first (byte_size=0) and must bump when the result
                 // lands. Verified empirically: 100,670 tool tags across the two
                 // largest live sessions show zero byte_size drift vs the current
-                // opencode.db output. Adding a per-part size compare here would
+                // persisted output. Adding a per-part size compare here would
                 // cost every hot pass to defend an unreachable case.
                 const tagId = tagger.assignToolTag(
                     sessionId,

@@ -32,7 +32,7 @@ export interface TagEntry {
      * For `type: "tool"` tags: the assistant message id where the
      * underlying tool call was invoked. Identity for a tool tag is the
      * triple `(sessionId, messageId/callID, toolOwnerMessageId)` —
-     * including this field disambiguates collisions when OpenCode's
+     * including this field disambiguates collisions when another runtime's
      * per-turn callID counter produces the same id across turns.
      *
      * NULL on:
@@ -40,7 +40,7 @@ export interface TagEntry {
      *   - legacy tool tags written before plugin v0.16.x (the
      *     tag-owner-fix migration v10). The runtime lazily adopts these
      *     orphan rows on first observation; backfill populates them at
-     *     plugin startup against the OpenCode DB.
+     *     extension startup against an external session database.
      *
      * See plan v3.3.1 in `.alfonso/plans/tag-owner-fix-plan.md`.
      */
@@ -88,7 +88,7 @@ export interface SessionMeta {
     cachedM0MaxCompartmentSeq: number | null;
     cachedM0MaxMemoryId: number | null;
     /**
-     * Pi message stable-id scheme version (Pi-only; OpenCode ignores it).
+     * Pi message stable-id scheme version.
      * NULL/0 = legacy index-based `pi-msg-*` ids; >=1 = real-SessionEntry-id
      * scheme. Drives the one-time forced execute+materialize cutover when a
      * session's stored scheme is below PI_STABLE_ID_SCHEME.
@@ -115,7 +115,7 @@ export interface SessionMeta {
     recoveryNoEligibleHeadCount: number;
     forceEmergencyBypassWindowStart: number;
     forceEmergencyBypassUsed: number;
-    /** Set only after an explicit OpenCode dialog choice; keeps the fresh dialog dismissed. */
+    /** Set only after an explicit upgrade-dialog choice; keeps the fresh dialog dismissed. */
     upgradeRemindedAt: number | null;
     /** Most recent push reminder delivery, used for the bounded re-notification cooldown. */
     upgradeReminderLastSentAt: number | null;

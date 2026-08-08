@@ -1,7 +1,7 @@
 /**
  * Pi-side wrapper for the `ctx_expand` tool.
  *
- * Mirrors OpenCode's `packages/plugin/src/tools/ctx-expand/tools.ts`:
+ * Expands a complete context compartment by ordinal or search result.
  * given the N-M range from a rendered `## N-M · date · title` heading, return
  * the original compacted U:/A: transcript so the agent can see the raw
  * discussion behind a summarized region.
@@ -12,8 +12,8 @@
  * so we never accidentally leak the provider into other transform passes
  * which might race against this call.
  *
- * Token budget mirrors OpenCode's `CTX_EXPAND_TOKEN_BUDGET = 15_000` —
- * shared constant imported from the OpenCode tool's constants module so
+ * Token budget is 15,000, shared by this tool and its constants.
+ *
  * both harnesses produce equivalent slices for the same range.
  */
 
@@ -135,7 +135,7 @@ export function createCtxExpandTool(
 					);
 				}
 
-				// Clamp to the last compartment boundary (parity with OpenCode +
+				// Clamp to the last compartment boundary.
 				// ctx_search): messages after it are the live tail already visible
 				// to the agent, so re-expanding them wastes output tokens. -1 = no
 				// compartments yet → nothing compacted, so don't clamp.

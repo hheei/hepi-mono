@@ -29,7 +29,7 @@ export type DreamingTask = (typeof AGENTIC_DREAM_TASKS)[number];
 /** Valid thinking levels for Pi subagents. Maps to Pi's --thinking CLI flag.
  *  Off: disable reasoning. Minimal/low/medium/high/xhigh/max: increasing reasoning depth.
  *  `max` was added in Pi 0.83.0.
- *  Pi-only — OpenCode uses `variant` in agent config instead. */
+ *  Pi-only — legacy host uses `variant` in agent config instead. */
 export const PiThinkingLevelSchema = z
     .enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"])
     .optional();
@@ -211,7 +211,7 @@ export type SidekickConfig = NonNullable<z.infer<typeof SidekickConfigSchema>>;
  *  Two-pass mode runs a second editor pass after the initial historian pass to clean
  *  up low-signal U: lines and cross-compartment duplicates. Recommended for models
  *  without extended thinking; not needed for Claude Sonnet/Opus when reasoning is
- *  enabled via OpenCode variant config. */
+ *  enabled via legacy host variant config. */
 export const HistorianConfigSchema = AgentOverrideConfigSchema.extend({
     two_pass: z
         .boolean()
@@ -445,7 +445,7 @@ export interface MagicContextConfig {
      * (`## Magic Context` guidance, `<project-docs>`, `<user-profile>`,
      * sticky date) inside `experimental.chat.system.transform`.
      *
-     * Internal OpenCode hidden agents (title, summary, compaction) are
+     * Internal legacy host hidden agents (title, summary, compaction) are
      * always skipped automatically — that's a separate code path.
      */
     system_prompt_injection: {
@@ -487,7 +487,7 @@ export interface MagicContextConfig {
     compaction: {
         enabled: boolean;
     };
-    /** Pi-only controls for Magic Context's OpenCode-parity todowrite surface. */
+    /** Pi-only controls for Magic Context's legacy host-parity todowrite surface. */
     todowrite: {
         enabled: boolean;
         overlay: boolean;
@@ -734,7 +734,7 @@ export const MagicContextConfigSchema = z
                 skip_signatures: ["<!-- magic-context: skip -->"],
             })
             .describe(
-                "Controls whether and where Magic Context augments the system prompt. Lets users opt specific agents out of the Magic Context guidance and the surrounding project-docs / user-profile blocks. OpenCode's internal hidden agents — title, summary, and compaction — are always skipped automatically.",
+                "Controls whether and where Magic Context augments the system prompt. Lets users opt specific agents out of the Magic Context guidance and the surrounding project-docs / user-profile blocks. legacy host's internal hidden agents — title, summary, and compaction — are always skipped automatically.",
             ),
         // v2: the LLM compressor was removed — deterministic decay-tier rendering
         // (decay-render.ts) replaces it, so there are no compressor knobs. A
@@ -824,7 +824,7 @@ export const MagicContextConfigSchema = z
                     .boolean()
                     .default(true)
                     .describe(
-                        "When false, Magic Context stops managing the context window and keeps its knowledge layer: memory and docs/user-profile/key-files injection through additive m[0]/m[1], raw-message FTS indexing, dreamer, notes, ctx_search, ctx_expand, ctx_memory, and /ctx-embed remain available. MC's historian/compartment preparation, tagging, markers, pruning, folding, drops, strips, splicing, synthetic context-management todos, temporal markers, nudges, and fail-closed blocking stop; ctx_expand remains a knowledge-surface tool. fail_closed_blocking is inert: a transform failure passes the input messages through without blocking or cancelling. This setting does not enable native compaction: OpenCode's compaction.auto / compaction.prune or Pi's equivalent owns the window, or nothing does. MC's compaction.enabled in magic-context.jsonc is distinct from OpenCode's compaction.auto / compaction.prune in opencode.jsonc; they are different files and different owners. On the first turn after disabling, a long session may trigger one native compaction cycle; MC removes only its own marker boundary, leaves native boundaries and stored compartments intact, and does no pre-trimming mitigation. Marker cleanup is lazy per session, so an unresumed session is cleaned when it is next resumed. If compaction is enabled again, run /ctx-wrapup when the historian is runnable to catch up. OpenCode peer verification against v1.18.4 confirms native compaction covers child sessions: subagents receive additive memory/docs injection and no MC reclaim in this mode, so keep subagent tasks small or leave compaction.enabled on for long subagent runs. If transform_mode is rust, compaction-off resolves to the TypeScript transform and emits one frozen boot warning because there is no Rust reduced-mode contract. This is boot-resolved and requires a process restart; project-tier compaction.enabled is stripped so a cloned repository cannot disable the user's setting. The sidebar reports raw usage as Context: <pct>% · native compaction or Context: <pct>% · no active compaction and does not show an MC execute-threshold fill. /ctx-wrapup, /ctx-recomp, /ctx-flush, and /ctx-session-upgrade refuse without context-management side effects; /ctx-embed remains functional. Raw content hidden by a native boundary before Magic Context's first pass is not retroactively indexed.",
+                        "When false, Magic Context stops managing the context window and keeps its knowledge layer: memory and docs/user-profile/key-files injection through additive m[0]/m[1], raw-message FTS indexing, dreamer, notes, ctx_search, ctx_expand, ctx_memory, and /ctx-embed remain available. MC's historian/compartment preparation, tagging, markers, pruning, folding, drops, strips, splicing, synthetic context-management todos, temporal markers, nudges, and fail-closed blocking stop; ctx_expand remains a knowledge-surface tool. fail_closed_blocking is inert: a transform failure passes the input messages through without blocking or cancelling. This setting does not enable native compaction: legacy host's compaction.auto / compaction.prune or Pi's equivalent owns the window, or nothing does. MC's compaction.enabled in magic-context.jsonc is distinct from legacy host's compaction.auto / compaction.prune in legacy host configuration; they are different files and different owners. On the first turn after disabling, a long session may trigger one native compaction cycle; MC removes only its own marker boundary, leaves native boundaries and stored compartments intact, and does no pre-trimming mitigation. Marker cleanup is lazy per session, so an unresumed session is cleaned when it is next resumed. If compaction is enabled again, run /ctx-wrapup when the historian is runnable to catch up. legacy host peer verification against v1.18.4 confirms native compaction covers child sessions: subagents receive additive memory/docs injection and no MC reclaim in this mode, so keep subagent tasks small or leave compaction.enabled on for long subagent runs. If transform_mode is rust, compaction-off resolves to the TypeScript transform and emits one frozen boot warning because there is no Rust reduced-mode contract. This is boot-resolved and requires a process restart; project-tier compaction.enabled is stripped so a cloned repository cannot disable the user's setting. The sidebar reports raw usage as Context: <pct>% · native compaction or Context: <pct>% · no active compaction and does not show an MC execute-threshold fill. /ctx-wrapup, /ctx-recomp, /ctx-flush, and /ctx-session-upgrade refuse without context-management side effects; /ctx-embed remains functional. Raw content hidden by a native boundary before Magic Context's first pass is not retroactively indexed.",
                     ),
             })
             .default({ enabled: true })
@@ -837,7 +837,7 @@ export const MagicContextConfigSchema = z
                     .boolean()
                     .default(true)
                     .describe(
-                        "Pi only: register Magic Context's todowrite task-list tool. Disable if you use your own todo extension. OpenCode ships its own built-in todowrite; this setting has no effect there.",
+                        "Pi only: register Magic Context's todowrite task-list tool. Disable if you use your own todo extension. legacy host ships its own built-in todowrite; this setting has no effect there.",
                     ),
                 overlay: z
                     .boolean()

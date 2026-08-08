@@ -1,8 +1,8 @@
 /**
  * Harness-agnostic tagging over the Transcript interface.
  *
- * This is a deliberately minimal alternative to the OpenCode-specific
- * `tag-messages.ts` that operates on `MessageLike[]`. The OpenCode flow
+ * This is a deliberately minimal alternative to the legacy host-specific
+ * `tag-messages.ts` that operates on `MessageLike[]`. The legacy host flow
  * carries 380+ lines of accumulated complexity:
  *
  *   - source-content persistence (for cross-pass detag/restore behavior),
@@ -11,7 +11,7 @@
  *   - file-part stable IDs,
  *   - existing-tag resolver with content-id fallback.
  *
- * Most of that is OpenCode-specific (cache stability across multi-pass
+ * Most of that is legacy host-specific (cache stability across multi-pass
  * transforms, AI SDK part-id semantics, file part shapes). Pi's
  * `pi.on("context", ...)` fires once per LLM call with a complete
  * `AgentMessage[]`, so we can use a simpler tagging contract:
@@ -25,7 +25,7 @@
  *      a queued drop fires.
  *
  * Tool drops aggregate by call_id across both invocation and result
- * occurrences (mirrors OpenCode tag-messages.ts:196-220). When a drop
+ * occurrences (mirrors legacy host tag-messages.ts:196-220). When a drop
  * fires for a tool tag, BOTH the assistant `toolCall`/`tool_use` part
  * and the user `toolResult`/`tool_result` part are mutated together so
  * the LLM sees consistent dropped state. Without this aggregation:
@@ -37,7 +37,7 @@
  *   - Drops touch only the second occurrence (last write wins on
  *     `targets.set`), leaving the first in original form.
  *
- * Reuses unchanged from the OpenCode path:
+ * Reuses unchanged from the legacy host path:
  *
  *   - `Tagger` (DB-backed counter + assignment store).
  *   - `applyPendingOperations` (operates on `Map<number, TagTarget>`).
@@ -81,7 +81,7 @@ export interface TagTranscriptOptions {
      * Pi-only: map of messageId → raw-message fingerprint. When a NEW message
      * text tag is created, its fingerprint is persisted on the tag row so a
      * later pass can adopt the fallback-id tag onto the real SessionEntry id
-     * (keeping tag_number/§N§ stable). OpenCode omits this → tags store NULL
+     * (keeping tag_number/§N§ stable). legacy host omits this → tags store NULL
      * → adoption never fires. Keyed by the bare messageId (not the `:pN`
      * contentId) since all parts of a message share one fingerprint.
      */
@@ -148,7 +148,7 @@ export interface TagTranscriptResult {
  * Built up during the walk and used to:
  *   1. Assign one tag per call_id with byte_size = the tool_RESULT (output)
  *      size, and inputByteSize = the tool_use (args) size, tracked SEPARATELY
- *      (mirrors OpenCode tag-messages.ts). Reclaim accounting sums them
+ *      (mirrors legacy host tag-messages.ts). Reclaim accounting sums them
  *      (byteSize + inputByteSize + reasoning); folding args into byte_size too
  *      would double-count the args for a large-input/small-output tool.
  *   2. Build a single aggregate TagTarget that mutates BOTH the
@@ -218,7 +218,7 @@ export function tagTranscript(
         : undefined;
 
     // Tool aggregation is keyed by the same owner+callId identity used by
-    // assignToolTag. OpenCode/Pi callId counters can repeat across turns, so
+    // assignToolTag. legacy host/Pi callId counters can repeat across turns, so
     // a bare callId key can merge distinct invocations and replay drops/status
     // changes against the wrong tool pair.
     const toolAggregates = new Map<string, ToolAggregate & { tagId: number }>();
@@ -229,7 +229,7 @@ export function tagTranscript(
     // db.transaction() wrapper rolled back EVERY tag insert + savedSource
     // when a single UNIQUE collision fired late in the walk. Per-tag
     // SAVEPOINTs inside `assignToolTag` / `assignTag` already give us the
-    // atomicity we need. Removing the wrapper matches OpenCode's
+    // atomicity we need. Removing the wrapper matches legacy host's
     // tag-messages.ts design — see the long comment there for the
     // rationale (cache-bust amplifier story).
     for (let msgIndex = 0; msgIndex < transcript.messages.length; msgIndex += 1) {
@@ -904,7 +904,7 @@ interface TagToolPartArgs {
 
 function tagToolPart(args: TagToolPartArgs): void {
     const identityStart = args.timing ? performance.now() : 0;
-    // Prefer the part's stable id (tool call id from Pi/OpenCode); fall
+    // Prefer the part's stable id (tool call id from Pi/legacy host); fall
     // back to a synthetic locator. Tool calls and their results MAY
     // share an id (Pi sets toolCallId on ToolResultMessage to match the
     // originating ToolCall.id); when that happens, both tag operations
@@ -960,7 +960,7 @@ function tagToolPart(args: TagToolPartArgs): void {
 function applySingleToolPrefixAndTarget(args: TagToolPartArgs, tagId: number, text: string): void {
     // For tool parts, the visible payload is the tool result text. We
     // can inject the tag prefix into it for in-text references; this
-    // matches the OpenCode behavior of tagging tool outputs.
+    // matches the legacy host behavior of tagging tool outputs.
     if (!args.skipPrefixInjection && args.part.kind === "tool_result") {
         const prefixStart = args.timing ? performance.now() : 0;
         args.part.setText(prependTag(tagId, text));
@@ -997,7 +997,7 @@ function setToolContentOrText(part: TranscriptPart, content: string): boolean {
  * over the updated array — otherwise consumers that captured the target
  * before the push won't see the new occurrence.
  *
- * Mirrors OpenCode's createToolDropTarget semantics in tool-drop-target.ts.
+ * Mirrors legacy host's createToolDropTarget semantics in tool-drop-target.ts.
  */
 function buildAggregateTarget(tagId: number, occurrences: ToolOccurrence[]): TagTarget {
     const role = occurrences[0]?.message.info.role ?? "user";
@@ -1039,7 +1039,7 @@ function buildAggregateTarget(tagId: number, occurrences: ToolOccurrence[]): Tag
         truncate(): "truncated" | "absent" {
             // Skeleton-drop: replace BOTH halves' content with the one
             // canonical `[dropped §N§]` placeholder (byte-identical to a full
-            // drop and to OpenCode). Frozen by the dropMode column → replays
+            // drop and to legacy host). Frozen by the dropMode column → replays
             // the same string every pass. The tool_use call survives intact.
             const sentinel = `[dropped \u00a7${tagId}\u00a7]`;
             let any = false;
@@ -1072,8 +1072,8 @@ function buildAggregateTarget(tagId: number, occurrences: ToolOccurrence[]): Tag
             }
             return any ? "truncated" : "absent";
         },
-        // Non-mutating reclaim predicate (Pi parity with OpenCode's canDrop).
-        // Pi sentinelizes BOTH halves, so unlike OpenCode there's no
+        // Non-mutating reclaim predicate (Pi parity with legacy host's canDrop).
+        // Pi sentinelizes BOTH halves, so unlike legacy host there's no
         // result-part requirement — a target reclaims as long as it still has
         // at least one live occurrence to sentinelize.
         canDrop(): boolean {
@@ -1162,7 +1162,7 @@ function buildToolTarget(
         truncate(): "truncated" | "absent" {
             // Skeleton-drop: replace the tool output with the one canonical
             // `[dropped §N§]` placeholder (byte-identical to a full drop and to
-            // OpenCode). Frozen by the dropMode column, so it replays the same
+            // legacy host). Frozen by the dropMode column, so it replays the same
             // string every pass. The tool_use call itself survives intact.
             const ok = setToolContentOrText(part, `[dropped \u00a7${tagId}\u00a7]`);
             return ok ? "truncated" : "absent";

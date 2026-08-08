@@ -6,7 +6,7 @@
  *
  *   1. Translate the LLM-provided arguments into the search options shape.
  *   2. Resolve session ID and project identity from the Pi extension context.
- *   3. Format results for the LLM the same way the OpenCode plugin does.
+ *   3. Formats results for the LLM.
  *
  * `ctx_expand` is now registered alongside (see `./ctx-expand.ts`) — Pi
  * sessions are JSONL files, but the shared `readSessionChunk` reads
@@ -98,7 +98,7 @@ function formatResult(
 ): string {
 	if (result.source === "memory") {
 		// `source=` attributes a foreign workspace member's memory to its origin
-		// project (parity with OpenCode ctx-search/tools.ts); empty for own-project.
+		// project; empty for own-project.
 		const source = result.sourceName ? ` source=${result.sourceName}` : "";
 		return [
 			`[${index}] [memory] score=${result.score.toFixed(2)} id=${result.memoryId} category=${result.category}${source} match=${result.matchType}`,
@@ -273,7 +273,7 @@ export function createCtxSearchTool(
 			// Hard-filter memories already rendered in <session-history>.
 			const visibleMemoryIds = getVisibleMemoryIds(deps.db, sessionId);
 
-			// ID-shaped short-circuit (parity with OpenCode ctx_search): when the
+			// ID-shaped short-circuit: when the
 			// whole query is one or more memory ids, bypass the lexical+semantic
 			// lanes and look the ids up directly. If nothing resolves we fall
 			// through to the normal lanes so a numeric query with no matching
@@ -324,7 +324,7 @@ export function createCtxSearchTool(
 					sources: params.sources,
 					visibleMemoryIds,
 					// Explicit agent search → literal-probe multi-query recall
-					// (parity with OpenCode's ctx_search). Pi auto-search leaves
+					// Pi auto-search leaves
 					// this off to protect its latency budget.
 					explicitSearch: true,
 				},

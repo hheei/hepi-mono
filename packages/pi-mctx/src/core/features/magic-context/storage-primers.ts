@@ -212,7 +212,7 @@ export function insertPrimerCandidates(db: Database, candidates: PrimerCandidate
             const normalized = candidate.normalizedQuestion ?? normalizePrimerQuestion(question);
             stmt.run(
                 candidate.projectPath,
-                candidate.harness || "opencode",
+                candidate.harness,
                 candidate.sessionId,
                 question,
                 normalized,
@@ -227,7 +227,7 @@ export function insertPrimerCandidates(db: Database, candidates: PrimerCandidate
             );
             const row = select.get(
                 candidate.projectPath,
-                candidate.harness || "opencode",
+                candidate.harness,
                 candidate.sessionId,
                 candidate.sourceStartMessageId,
                 candidate.sourceEndMessageId,

@@ -1,5 +1,5 @@
 /**
- * Pi-side counterpart of OpenCode's per-message conversation/tool-call
+ * Per-message conversation and tool-call token accounting for Pi.
  * token accounting in `transform.ts:996-1124`.
  *
  * Walks the post-compaction Pi `event.messages` array (same view the LLM
@@ -26,7 +26,7 @@
  * serialization of fields the counter ignores.
  * Synthetic injection messages are deliberately re-counted on every pass.
  *
- * Mirrors OpenCode's switch in `transform.ts:1028-1119` adapted to
+ * Uses Pi part shapes.
  * Pi part shapes:
  *   - PiTextContent (user/assistant/toolResult) → conversation
  *   - PiThinkingContent (assistant) → conversation (incl. signature)
@@ -36,8 +36,7 @@
  *
  * Tool definitions (the schemas Pi sends in the separate `tools` field
  * of the request) are NOT counted here. They're computed at status-
- * dialog render time from `pi.getAllTools()` — same approach as
- * OpenCode (residual at display).
+ * dialog render time from `pi.getAllTools()`.
  */
 
 import { estimateTokens } from "#core/hooks/magic-context/read-session-formatting";
@@ -160,16 +159,15 @@ export function tokenizePiMessages(
 						case "image":
 							// Pi image content is base64. Anthropic-style visual
 							// token estimate would need width/height, which Pi
-							// doesn't expose at this layer. Use the OpenCode
-							// fallback (1200 tokens) — over-estimates small
+							// doesn't expose at this layer. Use the fixed
+							// fallback (1200 tokens). It over-estimates small
 							// thumbnails, under-estimates 4K screenshots, but is
-							// stable and matches the OpenCode fallback path.
+							// stable across renders.
 							conversation += 1200;
 							break;
 						case "toolCall":
 							// Tool invocation: name + JSON-serialized arguments.
-							// Mirrors OpenCode's `tool_use` case where input is
-							// the args payload.
+							// Uses the normalized args payload.
 							if (typeof p.name === "string")
 								toolCall += estimateTokens(p.name);
 							if (p.arguments !== undefined) {
