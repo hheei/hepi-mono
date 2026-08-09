@@ -4,7 +4,10 @@ import {
     loadCompartmentChunkEmbeddingsForSearch,
     type StoredCompartmentChunkEmbedding,
 } from "./compartment-chunk-embedding";
-import { type GitCommitSearchHit, searchGitCommitsSync } from "./git-commits";
+import {
+    type GitCommitSearchHit,
+    searchGitCommitsSync,
+} from "./git-commits/search-git-commits";
 import { containsProbeVerbatim, extractLiteralProbes } from "./literal-probes";
 import {
     ensureMemoryEmbeddings,

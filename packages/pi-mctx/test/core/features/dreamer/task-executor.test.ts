@@ -1,7 +1,6 @@
 /// <reference types="bun-types" />
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { createDreamTimerModuleClient } from "../../../../src/core/plugin/dream-timer-module-client";
 import { Database } from "../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../src/core/shared/sqlite-helpers";
 import { ensureContextStoreUuid } from "../../../../src/core/features/context-authority";
@@ -357,7 +356,7 @@ describe("createDreamTaskExecutor — classify-memories", () => {
                 return { accepted: rows.map((row) => row.memory_id), rejected: [] };
             }
         }
-        const moduleClient = createDreamTimerModuleClient(new StatefulTimerModuleClient() as never);
+        const moduleClient = new StatefulTimerModuleClient() as never;
         const executor = createDreamTaskExecutor({
             client: client as never,
             sessionDirectory: project,
@@ -426,7 +425,7 @@ describe("createDreamTaskExecutor — classify-memories", () => {
                 throw new Error("module transport unavailable");
             }
         }
-        const moduleClient = createDreamTimerModuleClient(new FailingTimerModuleClient() as never);
+        const moduleClient = new FailingTimerModuleClient() as never;
         const executor = createDreamTaskExecutor({
             client: client as never,
             sessionDirectory: project,
