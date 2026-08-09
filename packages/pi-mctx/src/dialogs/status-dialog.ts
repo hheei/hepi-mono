@@ -25,7 +25,7 @@ import {
 	MAX_EXECUTE_THRESHOLD,
 	resolveExecuteThresholdDetail,
 } from "#core/hooks/event-resolvers";
-import { formatBytes } from "#core/hooks/format-bytes";
+import { formatBytes } from "#core/shared/format-bytes";
 import { computeM0BlockTokens } from "#core/hooks/m0-token-breakdown";
 import { estimateTokens } from "#core/hooks/read-session-formatting";
 import { countCompartmentsNeedingUpgrade } from "#core/hooks/upgrade-reminder";

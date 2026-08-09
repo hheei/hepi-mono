@@ -205,9 +205,6 @@ function makeProjectThresholdWarning(field: string, reason: string): string {
  *  - `embedding.endpoint` / `embedding.provider` — a repo must not choose
  *    where private memory/search/commit text is embedded. User-level config is
  *    the trust boundary for embedding destinations.
- *  - `transform_mode` is intentionally allowed at project tier so a repository
- *    can opt its own runtime into the experimental Rust pipeline. The resolver
- *    requires trusted user-level `subc` configuration before Rust can activate.
  *  - `historian.model` / `historian.fallback_models` — historian model spend is
  *    user-level only; a cloned repo cannot force extra compaction cost.
  *  - `pi.subagent_extensions` — a cloned repo must not choose which extensions

@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 
 import { detectConfigFile, parseJsonc } from "../shared/jsonc-parser";
 import { setOutputReserveConfig } from "../shared/models-dev-cache";
-import { isCompactionEnabled, migrateLegacyAgentEnabledInMemory } from "./agent-disable";
+import { migrateLegacyAgentEnabledInMemory } from "./agent-disable";
 import {
     cortexKitProjectConfigBasePath,
     cortexKitUserConfigBasePath,
@@ -16,7 +16,6 @@ import {
 } from "./project-security";
 import { pruneNestedConfigLeaf } from "./prune-config-leaf";
 import { type MagicContextConfig, MagicContextConfigSchema } from "./schema/magic-context";
-import { resolveTransformMode } from "./transform-mode";
 import { substituteConfigVariables } from "./variable";
 
 export interface MagicContextPluginConfig extends MagicContextConfig {
@@ -371,13 +370,6 @@ export function loadPluginConfig(
     return loadPluginConfigDetailed(directory).config;
 }
 
-function hasUserTierSubcConfig(config: Record<string, unknown> | undefined): boolean {
-    const subc = config?.subc;
-    if (typeof subc !== "object" || subc === null || Array.isArray(subc)) return false;
-    const connectionFile = (subc as Record<string, unknown>).connection_file;
-    return typeof connectionFile === "string" && connectionFile.trim().length > 0;
-}
-
 function collectEmptyStringPaths(value: unknown, prefix = ""): string[] {
     if (typeof value === "string") {
         return value === "" && prefix ? [prefix] : [];
@@ -484,14 +476,6 @@ export function loadPluginConfigDetailed(directory: string): LoadResultDetailed 
             }),
         );
     }
-
-    const resolvedTransformMode = resolveTransformMode({
-        configured: config.transform_mode,
-        userTierHasSubc: hasUserTierSubcConfig(userLoaded?.config),
-        compactionEnabled: isCompactionEnabled(config),
-    });
-    config.transform_mode = resolvedTransformMode.mode;
-    allWarnings.push(...resolvedTransformMode.warnings.map((warning) => `[config] ${warning}`));
 
     if (allWarnings.length > 0) {
         config.configWarnings = allWarnings;

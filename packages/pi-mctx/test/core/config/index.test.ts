@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { loadPluginConfig, loadPluginConfigDetailed } from "../../../src/core/config/index";
-import { RUST_COMPACTION_OFF_WARNING } from "../../../src/core/config/transform-mode";
 
 /**
  * Writes a magic-context.jsonc file inside a fresh temp XDG_CONFIG_HOME tree
@@ -108,38 +107,6 @@ function loadWithUserAndProjectConfig(
         }
     }
 }
-
-describe("loadPluginConfig — transform mode resolution", () => {
-    it("downgrades rust when compaction is off and emits one boot warning", () => {
-        const result = loadWithUserConfig(
-            JSON.stringify({
-                compaction: { enabled: false },
-                transform_mode: "rust",
-                subc: { connection_file: "/tmp/subc.sock" },
-            }),
-        );
-
-        expect(result.transform_mode).toBe("ts");
-        expect(result.configWarnings?.filter((warning) => warning.includes("rust"))).toEqual([
-            `[config] ${RUST_COMPACTION_OFF_WARNING}`,
-        ]);
-    });
-
-    it("keeps rust when compaction is on", () => {
-        const result = loadWithUserConfig(
-            JSON.stringify({
-                compaction: { enabled: true },
-                transform_mode: "rust",
-                subc: { connection_file: "/tmp/subc.sock" },
-            }),
-        );
-
-        expect(result.transform_mode).toBe("rust");
-        expect(result.configWarnings ?? []).not.toContain(
-            expect.stringContaining(RUST_COMPACTION_OFF_WARNING),
-        );
-    });
-});
 
 describe("loadPluginConfig — secret redaction", () => {
     it.skip("reads an unmigrated legacy project config instead of falling to defaults", () => {
@@ -866,39 +833,5 @@ describe("loadPluginConfig — raw merge preserves user fields not set in projec
         );
 
         expect(result.disabled_hooks?.sort()).toEqual(["a", "b", "c"]);
-    });
-});
-
-describe("transform_mode resolution", () => {
-    it("keeps project rust mode only when user config supplies subc", () => {
-        const withSubc = loadWithUserAndProjectConfig(
-            JSON.stringify({ subc: { connection_file: "~/.local/share/cortexkit/subc.json" } }),
-            JSON.stringify({ transform_mode: "rust" }),
-        );
-        expect(withSubc.transform_mode).toBe("rust");
-
-        const withoutSubc = loadWithUserAndProjectConfig(
-            JSON.stringify({}),
-            JSON.stringify({ transform_mode: "rust" }),
-        );
-        expect(withoutSubc.transform_mode).toBe("ts");
-        expect(withoutSubc.configWarnings?.join("\n")).toContain(
-            "rust mode requires user-level subc configuration; running ts.",
-        );
-    });
-
-    it("passes the resolved rust mode to the plugin config without mutating project trust", () => {
-        const result = loadWithUserAndProjectConfig(
-            JSON.stringify({
-                subc: { connection_file: "~/.local/share/cortexkit/subc.json" },
-            }),
-            JSON.stringify({
-                transform_mode: "rust",
-                subc: { connection_file: "/tmp/project-controlled.sock" },
-            }),
-        );
-
-        expect(result.transform_mode).toBe("rust");
-        expect(result.subc?.connection_file).not.toContain("project-controlled.sock");
     });
 });

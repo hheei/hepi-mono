@@ -16,7 +16,6 @@ describe("MagicContextConfigSchema", () => {
                 enabled: true,
                 allow_home_project: false,
                 fail_closed_blocking: true,
-                transform_mode: "ts",
                 storage: { enforce_private_permissions: true },
                 cache_ttl: "5m",
                 execute_threshold_percentage: 65,
@@ -74,7 +73,6 @@ describe("MagicContextConfigSchema", () => {
                 allow_home_project: false,
                 fail_closed_blocking: true,
                 experimental: { mural: { enabled: false } },
-                transform_mode: "ts",
                 auto_update: false,
                 toast_duration_ms: 5000,
                 cache_ttl: "10m",
@@ -215,15 +213,6 @@ describe("MagicContextConfigSchema", () => {
             expect(result.dreamer?.tasks.retrospective.schedule).toBe("0 5 * * *");
         });
 
-        it("parses both transform modes", () => {
-            expect(MagicContextConfigSchema.parse({ transform_mode: "ts" }).transform_mode).toBe(
-                "ts",
-            );
-            expect(MagicContextConfigSchema.parse({ transform_mode: "rust" }).transform_mode).toBe(
-                "rust",
-            );
-        });
-
         it.skip("accepts optional auto_update user preference", () => {
             expect(MagicContextConfigSchema.parse({ auto_update: false }).auto_update).toBe(false);
             expect(MagicContextConfigSchema.parse({ auto_update: true }).auto_update).toBe(true);
@@ -259,10 +248,6 @@ describe("MagicContextConfigSchema", () => {
     });
 
     describe("validation", () => {
-        it("rejects an unknown transform mode", () => {
-            expect(() => MagicContextConfigSchema.parse({ transform_mode: "wasm" })).toThrow();
-        });
-
         it("rejects empty Pi subagent extension entries", () => {
             expect(() =>
                 MagicContextConfigSchema.parse({ pi: { subagent_extensions: ["  "] } }),
