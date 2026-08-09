@@ -67,7 +67,7 @@ import {
 	queueMemoryMutation,
 } from "#core/features/storage";
 import {
-	expandWorkspaceIdentitySetWithAliases,
+	resolveWorkspaceIdentityExpansion,
 	resolveStoredPathWorkspaceIdentity,
 	resolveWorkspaceIdentitySet,
 	resolveWorkspaceShareCategories,
@@ -397,7 +397,7 @@ export function createCtxMemoryTool(
 				deps.db,
 				projectIdentity,
 			);
-			const expandedWorkspace = expandWorkspaceIdentitySetWithAliases(
+			const expandedWorkspace = resolveWorkspaceIdentityExpansion(
 				deps.db,
 				workspaceIdentitySet.identities,
 			);

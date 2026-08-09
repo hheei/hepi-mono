@@ -6,7 +6,7 @@ import { initializeDatabase } from "../../../src/core/features/storage-db";
 import {
     bumpEpochsForWorkspaceMembers,
     computeWorkspaceEpochFingerprint,
-    expandWorkspaceIdentitySet,
+    resolveWorkspaceIdentityExpansion,
     resolveWorkspaceIdentitySet,
     resolveWorkspaceShareCategories,
 } from "../../../src/core/features/workspaces";
@@ -19,22 +19,19 @@ function openDb(): Database {
 }
 
 describe("workspace identity helpers", () => {
-    test("resolves members and reverse-expands legacy aliases from the v22 rekey map", () => {
+    test("resolves current workspace members", () => {
         const db = openDb();
         try {
             db.exec(`
                 INSERT INTO workspaces (id, name, created_at, updated_at) VALUES (1, 'ws', 1, 1);
                 INSERT INTO workspace_members (workspace_id, project_path, display_name, display_path, added_at)
                 VALUES (1, 'git:new-a', 'A', '/a', 1), (1, 'git:new-b', 'B', '/b', 1);
-                INSERT INTO v22_identity_rekey_map (old_project_path, new_project_path, rekeyed_at)
-                VALUES ('/raw/path/a', 'git:new-a', 2);
             `);
 
             const set = resolveWorkspaceIdentitySet(db, "git:new-b");
             expect(set.identities).toEqual(["git:new-a", "git:new-b"]);
             expect(set.namesByIdentity.get("git:new-a")).toBe("A");
-            expect(expandWorkspaceIdentitySet(db, set.identities).sort()).toEqual([
-                "/raw/path/a",
+            expect(resolveWorkspaceIdentityExpansion(db, set.identities).expandedIdentities).toEqual([
                 "git:new-a",
                 "git:new-b",
             ]);

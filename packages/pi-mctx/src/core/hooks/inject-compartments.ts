@@ -39,7 +39,7 @@ import {
 } from "#core/features/user-memory/storage-user-memory";
 import {
 	computeWorkspaceEpochFingerprint,
-	expandWorkspaceIdentitySetWithAliases,
+	resolveWorkspaceIdentityExpansion,
 	resolveStoredPathWorkspaceIdentity,
 	resolveWorkspaceIdentitySet,
 	resolveWorkspaceShareCategories,
@@ -407,7 +407,7 @@ function resolveWorkspaceRenderContextPi(
 	}
 	const identitySet = resolveWorkspaceIdentitySet(db, memPath);
 	const isWorkspaced = identitySet.identities.length > 1;
-	const expanded = expandWorkspaceIdentitySetWithAliases(
+	const expanded = resolveWorkspaceIdentityExpansion(
 		db,
 		identitySet.identities,
 	);

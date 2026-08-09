@@ -29,7 +29,7 @@ import { recordShadowMeasurement } from "./search-measurement";
 import { getNotes, type Note } from "./storage-notes";
 import { getActivePrimers, type Primer } from "./storage-primers";
 import {
-    expandWorkspaceIdentitySetWithAliases,
+    resolveWorkspaceIdentityExpansion,
     resolveStoredPathWorkspaceIdentity,
     resolveWorkspaceIdentitySet,
     resolveWorkspaceShareCategories,
@@ -288,7 +288,7 @@ function resolveSearchWorkspaceContext(
 ): SearchWorkspaceContext {
     const resolved = identitySet ?? resolveWorkspaceIdentitySet(db, projectPath);
     const isWorkspaced = resolved.identities.length > 1;
-    const expanded = expandWorkspaceIdentitySetWithAliases(db, resolved.identities);
+    const expanded = resolveWorkspaceIdentityExpansion(db, resolved.identities);
     const expandedIdentities = isWorkspaced ? expanded.expandedIdentities : resolved.identities;
     const canonicalIdentityByStoredPath = isWorkspaced
         ? expanded.canonicalIdentityByStoredPath

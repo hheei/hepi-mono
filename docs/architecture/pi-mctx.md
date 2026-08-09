@@ -24,9 +24,11 @@ Pi raw-session data is supplied only by the adapter's `RawMessageProvider`; core
 
 ## 儲存版本邊界
 
-Pi MCTX 只支援新建資料庫。啟動時會建立完整的最新 SQLite schema，不保留歷史 schema 升級、資料修復或跨版本相容程式。
+Pi MCTX 只支持新建数据库。启动时会建立完整的最新 SQLite schema，不保留历史 schema 升级、数据修复或跨版本兼容程序。
 
-已有的舊 `context.db` 不會被自動升級、重用或刪除；使用者必須先明確移除它，再讓 Pi 建立新資料庫。這避免舊資料在未確認遷移的情況下被靜默改寫。新資料庫開啟失敗仍 fail-closed，不會回退到記憶體資料庫。
+已有的旧 `context.db` 不会被自动升级、重用或删除；用户必须先明确移除它，再让 Pi 建立新数据库。这避免旧数据在未确认迁移的情况下被静默改写。新数据库开启失败仍 fail-closed，不会回退到内存数据库。
+
+最新 schema 不包含已退役的 v22 identity rekey 映射；workspace 只按当前成员身份解析。
 
 ## 模組解析與啟用條件
 

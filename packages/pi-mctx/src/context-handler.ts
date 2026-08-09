@@ -4848,9 +4848,8 @@ async function runPipeline(args: RunPipelineArgs): Promise<RunPipelineResult> {
 	// 4. Heuristic cleanup — drops aged tools, dedups, strips system
 	// injections, age-tier caveman compression. Gated on scheduler
 	// decision because mutations bust provider cache; persisted to DB
-	// so subsequent defer passes replay via applyFlushedStatuses.
-	// Mirrors legacy host's `applyHeuristicCleanup` call in
-	// transform-postprocess-phase.ts.
+	// Pi heuristic cleanup persists mutations so defer passes replay via
+	// applyFlushedStatuses.
 	let heuristicsExecuted = false;
 	let heuristicsResult: PiHeuristicCleanupResult | null = null;
 	const tActiveTags = performance.now();

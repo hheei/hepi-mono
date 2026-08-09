@@ -19,11 +19,6 @@ interface WorkspaceMemberRow {
     displayName: string;
 }
 
-interface IdentityAliasRow {
-    oldProjectPath: string;
-    newProjectPath: string;
-}
-
 interface WorkspaceShareCategoriesRow {
     shareCategories: string | null;
 }
@@ -198,11 +193,7 @@ export function resolveWorkspaceIdentitySet(
         : { identities: [projectIdentity], namesByIdentity: new Map() };
 }
 
-export function expandWorkspaceIdentitySet(db: Database, identities: readonly string[]): string[] {
-    return expandWorkspaceIdentitySetWithAliases(db, identities).expandedIdentities;
-}
-
-export function expandWorkspaceIdentitySetWithAliases(
+export function resolveWorkspaceIdentityExpansion(
     db: Database,
     identities: readonly string[],
 ): ExpandedWorkspaceIdentitySet {
@@ -211,28 +202,6 @@ export function expandWorkspaceIdentitySetWithAliases(
     const canonicalIdentityByStoredPath = new Map<string, string>();
     for (const identity of canonical) {
         canonicalIdentityByStoredPath.set(identity, identity);
-    }
-
-    if (canonical.length === 0 || !tableExists(db, "v22_identity_rekey_map")) {
-        return { expandedIdentities: [...expanded], canonicalIdentityByStoredPath };
-    }
-
-    const rows = db
-        .prepare(
-            `SELECT old_project_path AS oldProjectPath, new_project_path AS newProjectPath
-               FROM v22_identity_rekey_map
-              WHERE new_project_path IN (${placeholders(canonical)})
-              ORDER BY old_project_path ASC`,
-        )
-        .all(...canonical) as IdentityAliasRow[];
-
-    for (const row of rows) {
-        if (typeof row.oldProjectPath !== "string" || typeof row.newProjectPath !== "string") {
-            continue;
-        }
-        if (!canonicalIdentityByStoredPath.has(row.newProjectPath)) continue;
-        expanded.add(row.oldProjectPath);
-        canonicalIdentityByStoredPath.set(row.oldProjectPath, row.newProjectPath);
     }
 
     return { expandedIdentities: [...expanded], canonicalIdentityByStoredPath };
