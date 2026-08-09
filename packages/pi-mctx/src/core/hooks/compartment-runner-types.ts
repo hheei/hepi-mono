@@ -114,8 +114,8 @@ export interface CompartmentRunnerDeps {
      *  and terminal (done/failed) phases. Best-effort, never throws into the loop. */
     onRecompProgress?: (progress: RecompProgress) => void;
     /**
-     * When true, publication preserves the in-memory injection cache until a
-     * later materializing pass consumes the deferred refresh.
+     * When true, marker application waits for a later materializing pass that
+     * renders the matching compartment state.
      */
     preserveInjectionCacheUntilConsumed?: boolean;
     /**

@@ -19,7 +19,6 @@ getReducedRecompTokenBudget,
 validateChunkCoverage,
 validateStoredCompartments,
 } from "./compartment-runner-validation";
-import { clearInjectionCache } from "./inject-compartments";
 import { readSessionChunk } from "./read-session-chunk";
 import { buildReferenceBlocks } from "./reference-retrieval";
 import { sendIgnoredMessage } from "./send-session-notification";
@@ -315,9 +314,6 @@ export async function executePartialRecompInternal(
             // Reset depth counters for rebuilt range so fresh compartments start
             // at depth 0. Prior/tail depth is preserved.
             clearCompressionDepthRange(db, sessionId, snapStart, snapEnd);
-            if (deps.preserveInjectionCacheUntilConsumed !== true) {
-                clearInjectionCache(sessionId);
-            }
             deps.onCompartmentStatePublished?.(sessionId);
 
             // v2: recompute raw chunk embeddings for the rebuilt compartments.

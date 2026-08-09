@@ -19,7 +19,7 @@ import {
 	handlePiCloneSessionStart,
 	readPiSessionIdFromFile,
 } from "../src/clone-inheritance";
-import { mustMaterializePi } from "../src/inject-compartments-pi";
+import { mustMaterializePi } from "../src/core/hooks/inject-compartments";
 import { createTestDb } from "./test-utils.test";
 
 const openDatabases: Database[] = [];

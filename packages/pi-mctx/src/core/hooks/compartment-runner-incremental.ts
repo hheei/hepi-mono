@@ -62,7 +62,7 @@ import {
     validateChunkCoverage,
     validateStoredCompartments,
 } from "./compartment-runner-validation";
-import { clearInjectionCache, renderMemoryBlock } from "./inject-compartments";
+import { renderMemoryBlock } from "./inject-compartments";
 import { onNoteTrigger } from "./note-nudger";
 import {
     createDefaultBoundarySnapshotForTests,
@@ -722,13 +722,8 @@ export async function runCompartmentAgent(deps: CompartmentRunnerDeps): Promise<
                 }
             }
         }
-        // Background publication normally preserves the injection cache until
-        // a materializing pass can rebuild history and apply queued drops
-        // together. Explicit recomp paths leave preserve=false and invalidate
-        // immediately.
-        if (deps.preserveInjectionCacheUntilConsumed !== true) {
-            clearInjectionCache(sessionId);
-        }
+        // Background publication defers marker application until a later
+        // materializing pass can render the matching compartment state.
 
         // Signal publication immediately after COMMIT. All publish-visible durable
         // state (compartments, boundary floor, promoted facts, event attempts, and

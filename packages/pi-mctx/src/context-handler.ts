@@ -200,7 +200,7 @@ import {
 	mustMaterializePi,
 	type PiM0M1InjectionResult as PiInjectionResult,
 	trimPiMessagesToCachedBoundary,
-} from "./inject-compartments-pi";
+} from "#core/hooks/inject-compartments";
 import { hasVisibleNoteReadCallPi } from "./note-visibility-pi";
 import { resolvePiUsableContextLimit } from "./pi-context-limit";
 import { type PiHistorianDeps, runPiHistorian } from "./pi-historian-runner";
@@ -5211,12 +5211,8 @@ async function runPipeline(args: RunPipelineArgs): Promise<RunPipelineResult> {
 		tPostCommitStableIdMaps,
 	);
 
-	// 6. <session-history> injection — writes compartments, facts, and
-	// project memories into message[0]. This is the second-biggest
-	// reduction lever after heuristic cleanup: a session that's been
-	// summarized has its bulk history replaced by a compact compartment
-	// block. Mirrors legacy host's prepareCompartmentInjection +
-	// renderCompartmentInjection pair (transform.ts:587-616 + ~960).
+	// Pi `<session-history>` injection writes compartments and project memories
+	// into message[0], replacing summarized bulk history with a compact block.
 	let injectionResult: PiInjectionResult | null = null;
 	if (args.injection) {
 		try {
