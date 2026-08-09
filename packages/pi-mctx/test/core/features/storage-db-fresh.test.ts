@@ -37,6 +37,7 @@ describe("fresh Magic Context database", () => {
         expect(tableNames.has("tags")).toBe(true);
         expect(tableNames.has("memories")).toBe(true);
         expect(tableNames.has("compartments")).toBe(true);
+        expect(tableNames.has("v22_identity_rekey_map")).toBe(false);
     });
 
     test("requeues stale Channel-2 claims when reopening", () => {

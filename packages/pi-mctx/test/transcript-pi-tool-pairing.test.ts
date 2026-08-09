@@ -72,8 +72,7 @@ describe("transcript-pi tool pairing preservation", () => {
 		expect(toolUsePart).toBeDefined();
 		expect(toolUsePart?.id).toBe("call_abc123");
 
-		// This is the call path heuristic-cleanup uses through the TagTarget.drop()
-		// indirection; we exercise it directly here.
+		// Pi tag-driven cleanup reaches this through TagTarget.drop(); exercise it directly.
 		const replaced = toolUsePart?.replaceWithSentinel("[dropped §42§]");
 		expect(replaced).toBe(true);
 

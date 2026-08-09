@@ -39,10 +39,8 @@ export const RECENT_TOOL_SKELETON_WINDOW = 20;
 // passes (e.g. `[dropped §N§]` on one pass, `[truncated §N§]\n…` on the next),
 // which on a defer pass changes a tail message's bytes and busts the entire
 // prompt-cache prefix after it. This exact divergence caused repeated cache
-// catastrophes. The bytes here are byte-identical to heuristic-cleanup.ts's
-// `[dropped §${n}§]`, so the two drop paths can never disagree. (We deliberately
-// dropped the old user-text preview variant — a minor nicety that was the sole
-// source of the instability.)
+// All message-drop paths use this exact `[dropped §N§]` form, so replay never
+// changes a prompt-cache prefix.
 export function buildReplacementContent(tagId: number): string {
     return `[dropped \u00a7${tagId}\u00a7]`;
 }

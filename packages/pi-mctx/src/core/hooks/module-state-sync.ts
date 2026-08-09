@@ -36,7 +36,7 @@ import type { TagEntry } from "../features/types";
 import { getActiveUserMemories } from "../features/user-memory/storage-user-memory";
 import {
 computeWorkspaceEpochFingerprint,
-expandWorkspaceIdentitySetWithAliases,
+resolveWorkspaceIdentityExpansion,
 resolveWorkspaceIdentitySet,
 resolveWorkspaceShareCategories,
 } from "../features/workspaces";
@@ -355,7 +355,7 @@ function resolveModuleWorkspaceContext(
             shareCategories: null,
         };
     }
-    const expanded = expandWorkspaceIdentitySetWithAliases(db, identitySet.identities);
+    const expanded = resolveWorkspaceIdentityExpansion(db, identitySet.identities);
     const ownIdentities = expanded.expandedIdentities.filter(
         (identity) => expanded.canonicalIdentityByStoredPath.get(identity) === projectPath,
     );

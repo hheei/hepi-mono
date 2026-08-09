@@ -82,13 +82,6 @@ export {
     type SynapseBatchLedgerInput,
 } from "./storage-embedding-measurements";
 export {
-    deleteIdentityRekeyMap,
-    getIdentityRekeyMap,
-    type IdentityRekeyMapRow,
-    listIdentityRekeyMaps,
-    upsertIdentityRekeyMap,
-} from "./storage-identity-rekey-map";
-export {
     clearM0MutationsForSession,
     deleteM0Mutation,
     getM0Mutation,
@@ -311,8 +304,7 @@ export {
     bumpEpochsForWorkspaceMembers,
     computeWorkspaceEpochFingerprint,
     type ExpandedWorkspaceIdentitySet,
-    expandWorkspaceIdentitySet,
-    expandWorkspaceIdentitySetWithAliases,
+    resolveWorkspaceIdentityExpansion,
     resolveStoredPathWorkspaceIdentity,
     resolveWorkspaceIdentitySet,
     sourceNameForMemory,

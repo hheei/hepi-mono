@@ -18,10 +18,8 @@ describe("buildReplacementContent — one canonical placeholder", () => {
         expect(buildReplacementContent(7)).toBe("[dropped \u00a77\u00a7]");
     });
 
-    it("is byte-identical to heuristic-cleanup's message placeholder", () => {
-        // heuristic-cleanup.ts writes `[dropped §${tag.tagNumber}§]` — the two drop
-        // paths MUST agree byte-for-byte or a tag that gets dropped on one path and
-        // replayed on the other flips bytes and busts cache.
+    it("uses canonical message placeholder bytes", () => {
+        // Every message-drop path must preserve the same bytes across replay.
         const n = 591;
         expect(buildReplacementContent(n)).toBe(`[dropped \u00a7${n}\u00a7]`);
     });

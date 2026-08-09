@@ -1,36 +1,6 @@
 /**
- * Pi-side heuristic cleanup — mirrors legacy host's `applyHeuristicCleanup`
- * (packages/plugin/src/hooks/heuristic-cleanup.ts).
- *
- * Same four passes, in the same order, with the same DB persistence
- * semantics. The only Pi-specific pieces are:
- *
- *   - Tool fingerprinting walks Pi `AgentMessage[]` instead of
- *     legacy host `MessageLike[]`. Pi assistant messages carry tool calls
- *     as parts of type `"toolCall"` with `{ id, name, arguments }`.
- *     legacy host's `extractToolInfo` checks `"tool" | "tool_use" |
- *     "tool-invocation"` shapes that don't exist in Pi.
- *   - Stale `ctx_reduce` removal also walks Pi shape directly. New discovery is
- *     gated to providers that can safely drop empty sentinels; Pi persists
- *     `tags.status='dropped'` and lets `applyFlushedStatuses` replay existing
- *     drops on every provider, which is the cache-stable mechanism Pi already uses.
- *
- *   - Everything else (drop aged tools, strip system injections from
- *     message tags, age-tier caveman compression) is tag-driven and
- *     uses the shared `TagTarget` interface produced by `tagTranscript`,
- *     so the legacy host helpers `applyCavemanCleanup` and
- *     `stripSystemInjection` are called as-is — they don't know about
- *     the harness shape.
- *
- * Runs behind the same scheduler-execute / explicit-flush /
- * force-materialization gating as legacy host (gating is the caller's
- * responsibility — this function unconditionally executes when called).
- *
- * Cache safety: every mutation persists to the DB (`tags.status`,
- * `tags.drop_mode`, `source_contents`, `tags.caveman_depth`). Subsequent
- * defer passes read these durable signals via `applyFlushedStatuses` +
- * `replayCavemanCompression` so the visible message bytes stay stable
- * across passes.
+ * Pi-side heuristic cleanup over Pi transcript messages and persistent tags.
+ * Shared tag operations stay provider-neutral; Pi owns message-shape traversal.
  */
 
 import {
@@ -88,8 +58,7 @@ export interface PiHeuristicCleanupConfig {
 	/**
 	 * Tiered target-headroom emergency drop (Phase 2). Provided only on the
 	 * derived force-band materialize (cache-busting) pass; undefined on routine execute
-	 * passes (routine age-based tool drops were removed). Mirrors legacy host's
-	 * `applyHeuristicCleanup` emergency config.
+	 * passes (routine age-based tool drops were removed).
 	 */
 	emergency?: {
 		currentTotalInputTokens: number;
@@ -113,16 +82,14 @@ export interface PiHeuristicCleanupResult {
 }
 
 /**
- * Pi `AgentMessage[]` walker for tool-dedup fingerprinting.
+ * Pi tool-call fingerprinting over `AgentMessage[]`.
  *
  * Returns one entry per assistant `toolCall` part whose tool name is
  * in DEDUP_SAFE_TOOLS, keyed by composite `<ownerMsgId>\x00<callId>` so
  * the dedup pass can match fingerprints to tool tags without collapsing
  * cross-owner reused call IDs.
  *
- * Mirrors legacy host's `buildToolFingerprints` semantics, just with Pi
- * shape: assistant `content: PiToolCall[]` instead of legacy host
- * `parts: [{ type: "tool_use" | "tool" | "tool-invocation", ... }]`.
+ * Uses Pi `toolCall` parts and stable transcript message IDs.
  */
 function buildPiToolFingerprints(
 	messages: readonly unknown[],
@@ -241,12 +208,10 @@ function collectStaleReduceCallIds(
 }
 
 /**
- * Apply heuristic cleanup to a Pi session. Mirrors legacy host's
- * `applyHeuristicCleanup` 1:1 in semantics; differences are limited
- * to message-shape walking for tool fingerprinting (everything else
- * goes through `TagTarget` and shared helpers).
+ * Apply heuristic cleanup to a Pi session through persistent tags and Pi
+ * message-shape traversal.
  *
- * Run order matches legacy host:
+ * Run order:
  *   1. Drop aged tools (or all tools when `dropAllTools=true`).
  *   2. Strip system injections from message tags.
  *   3. Tool dedup (drop older identical calls of read-only tools).
@@ -280,8 +245,7 @@ export function applyPiHeuristicCleanup(
 			: `pi-msg-${index}-${role}`;
 	};
 
-	// All work in this function short-circuits on `tag.status !== "active"`.
-	// See legacy host `applyHeuristicCleanup` for the full P0 perf rationale.
+	// All work short-circuits on inactive tags; load only active tags for the hot path.
 	const tags = preloadedTags ?? getActiveTagsBySession(db, sessionId);
 	// `maxTag` must reflect the true session max (including dropped/compacted)
 	// so the protected-cutoff window is anchored to the most recent tag
@@ -291,7 +255,7 @@ export function applyPiHeuristicCleanup(
 	const protectedCutoff = maxTag - config.protectedTags;
 	// Stale ctx_reduce removal now uses the protected-tail window (Phase 2
 	// removed the routine age knob); a ctx_reduce call is "stale" once it ages
-	// past the protected tail, mirroring legacy host's protected-count model.
+	// past the protected tail.
 	const toolAgeCutoff = protectedCutoff;
 
 	let droppedTools = 0;
@@ -304,13 +268,13 @@ export function applyPiHeuristicCleanup(
 	// Replaces the old need-blind aged-drop + dropAllTools nuke. Runs only when
 	// the caller supplies `emergency` (derived force-band cache-busting pass). Selection is
 	// pure (`planEmergencyDrop`); we apply it and advance the persisted watermark
-	// so each tag drops once. Mirrors legacy host `applyHeuristicCleanup`.
+	// so each tag drops once.
 	if (config.emergency) {
 		const emergency = config.emergency;
 		const priorInputSample = getEmergencyInputSample(db, sessionId);
 		// Plan ONLY over tags in the live window that would ACTUALLY reclaim
 		// bytes (canDrop, not mere drop() presence) — keeps the floor math equal
-		// to the on-wire tail and avoids phantom under-evict. Mirrors legacy host.
+		// to the on-wire tail and avoids phantom under-evict.
 		const droppableTags = tags.filter(
 			(t) =>
 				t.status === "active" &&
