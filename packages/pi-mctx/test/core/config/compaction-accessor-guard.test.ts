@@ -13,19 +13,13 @@ import { join, relative, resolve } from "node:path";
 // single consumer and is excluded. The storage helpers read a DB column
 // (compaction_mode_record), not the config path, so they are not in scope.
 
-const REPOSITORY_ROOT = resolve(import.meta.dir, "../../../..");
-const SOURCE_ROOTS = ["packages/cli/src", "packages/plugin/src", "packages/pi-plugin/src"];
+const REPOSITORY_ROOT = resolve(import.meta.dir, "../../../../..");
+const SOURCE_ROOTS = ["packages/pi-mctx/src"];
 
 const ALLOWED_READERS = new Set<string>([
-    // The accessor itself — the one permitted non-schema reader.
-    "packages/plugin/src/config/agent-disable.ts",
-    // The Zod schema that defines the path.
-    "packages/plugin/src/config/schema/magic-context.ts",
-    // project-security.ts references the path NAME in a warning string when it
-    // strips the project-tier field; it never reads the parsed config path.
-    // The strip operates on a raw Record<string, unknown> by key name, not on
-    // a parsed MagicContextConfig.
-    "packages/plugin/src/config/project-security.ts",
+    "packages/pi-mctx/src/core/config/agent-disable.ts",
+    "packages/pi-mctx/src/core/config/schema/magic-context.ts",
+    "packages/pi-mctx/src/core/config/project-security.ts",
 ]);
 
 function sourceFiles(directory: string): string[] {

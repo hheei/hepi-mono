@@ -3045,17 +3045,21 @@ describe("registerPiContextHandler", () => {
 					runner,
 					model: "test/model",
 					historianChunkTokens: 20_000,
+					twoPass: false,
 				},
 			});
 			const handler = fake.handlers.get("context") as (
 				event: { messages: never[] },
 				ctx: never,
 			) => Promise<{ messages: never[] }>;
-			const messages = Array.from({ length: 12 }, (_, index) =>
+			const messages = Array.from({ length: 40 }, (_, index) =>
 				index % 2 === 0
-					? userMessage(`user ${index}`, index + 1)
-					: assistantMessage(`assistant ${index}`, index + 1),
+					? userMessage(`user ${index} ${"x".repeat(1_000)}`, index + 1)
+					: assistantMessage(`assistant ${index} ${"x".repeat(1_000)}`, index + 1),
 			) as never[];
+			for (let index = 0; index < messages.length; index++) {
+				insertTag(db, "ses-context", `entry-${index + 1}`, "message", 100, index + 1);
+			}
 			const notify = mock(() => undefined);
 			const ctx = {
 				...fakeContext("ses-context"),
@@ -3079,7 +3083,7 @@ describe("registerPiContextHandler", () => {
 			await handler({ messages }, ctx as never);
 			await new Promise((resolve) => setTimeout(resolve, 0));
 
-			expect(runner.run).toHaveBeenCalledTimes(1);
+			expect(runner.run).toHaveBeenCalledTimes(2);
 			expect(notify).toHaveBeenCalledWith(
 				expect.stringContaining("Historian recovery"),
 			);

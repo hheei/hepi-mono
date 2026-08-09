@@ -25,10 +25,10 @@ import { join } from "node:path";
  * the contract is short and stable enough to pin via grep.
  */
 
-const HANDLER_PATH = join(import.meta.dir, "context-handler.ts");
+const HANDLER_PATH = join(import.meta.dir, "../src/context-handler.ts");
 const HANDLER_SRC = readFileSync(HANDLER_PATH, "utf8");
 const RUNNER_SRC = readFileSync(
-	join(import.meta.dir, "pi-historian-runner.ts"),
+	join(import.meta.dir, "../src/pi-historian-runner.ts"),
 	"utf8",
 );
 

@@ -202,7 +202,7 @@ describe("SubcModuleTransport", () => {
                 target: { kind: "tool_provider", module_id: "magic-context" },
                 identity: {
                     project_root: "/workspace/project",
-                    harness: "opencode",
+                    harness: "pi",
                     session: "session-1",
                 },
                 ...consumerIdentity,

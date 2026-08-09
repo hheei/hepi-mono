@@ -27,7 +27,7 @@ import { join } from "node:path";
  * cheaper to pin via source inspection than a Pi runtime mock.
  */
 
-const INDEX_PATH = join(import.meta.dir, "index.ts");
+const INDEX_PATH = join(import.meta.dir, "../src/index.ts");
 const INDEX_SRC = readFileSync(INDEX_PATH, "utf8");
 
 function extractAgentEndHandlerBody(src: string): string {

@@ -18,9 +18,9 @@ import { join } from "node:path";
  * `event-handler.ts:262-276`.
  */
 
-const INDEX_SRC = readFileSync(join(import.meta.dir, "index.ts"), "utf8");
+const INDEX_SRC = readFileSync(join(import.meta.dir, "../src/index.ts"), "utf8");
 const HANDLER_SRC = readFileSync(
-	join(import.meta.dir, "context-handler.ts"),
+	join(import.meta.dir, "../src/context-handler.ts"),
 	"utf8",
 );
 

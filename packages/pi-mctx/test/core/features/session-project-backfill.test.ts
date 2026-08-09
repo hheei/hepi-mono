@@ -55,7 +55,7 @@ function createDb(): Database {
 function getStoredProjectPath(db: Database, sessionId: string): string | null {
     const row = db
         .prepare(
-            "SELECT project_path FROM session_projects WHERE session_id = ? AND harness = 'opencode'",
+            "SELECT project_path FROM session_projects WHERE session_id = ? AND harness = 'pi'",
         )
         .get(sessionId) as { project_path: string } | null | undefined;
     return row?.project_path ?? null;
@@ -82,7 +82,7 @@ describe("runSessionProjectBackfill", () => {
 
         db.prepare(
             `INSERT INTO session_projects (session_id, harness, project_path, updated_at)
-             VALUES (?, 'opencode', ?, ?)`,
+             VALUES (?, 'pi', ?, ?)`,
         ).run("ses-mapped", "git:keep", 1);
 
         const result = await runSessionProjectBackfill(
@@ -194,7 +194,7 @@ describe("runSessionProjectBackfill", () => {
                 lease_expires_at,
                 completed_at
             )
-             VALUES ('opencode', 'running', ?, ?, NULL)`,
+             VALUES ('pi', 'running', ?, ?, NULL)`,
         ).run(5100, 5100 + 60_000);
 
         const blocked = await runSessionProjectBackfill(
@@ -211,7 +211,7 @@ describe("runSessionProjectBackfill", () => {
         expect(getStoredProjectPath(db, "ses-lease")).toBeNull();
 
         db.prepare(
-            "UPDATE session_project_backfill_state SET lease_expires_at = ? WHERE harness = 'opencode'",
+            "UPDATE session_project_backfill_state SET lease_expires_at = ? WHERE harness = 'pi'",
         ).run(5199);
 
         const reclaimed = await runSessionProjectBackfill(
@@ -336,7 +336,7 @@ describe("runSessionProjectBackfill", () => {
                 db.prepare(
                     `UPDATE session_project_backfill_state
                      SET holder_id = 'holder-new', lease_expires_at = 999999999
-                     WHERE harness = 'opencode'`,
+                     WHERE harness = 'pi'`,
                 ).run();
             },
         });

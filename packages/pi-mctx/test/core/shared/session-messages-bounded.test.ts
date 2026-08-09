@@ -18,7 +18,7 @@ import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-const PLUGIN_SRC = join(__dirname, "..", "..", "src");
+const PLUGIN_SRC = join(__dirname, "..", "..", "..", "src");
 
 /** Recursively walk a directory and return paths of all `.ts` files
  *  excluding `.test.ts`, `.gen.ts`, and node_modules. */

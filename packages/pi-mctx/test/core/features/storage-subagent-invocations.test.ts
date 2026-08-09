@@ -12,7 +12,6 @@ function dbWithTable(): Database {
         CREATE TABLE subagent_invocations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             session_id TEXT NOT NULL,
-            harness TEXT NOT NULL,
             subagent TEXT NOT NULL,
             task TEXT,
             provider_id TEXT,

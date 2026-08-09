@@ -143,7 +143,7 @@ describe("recomp marker command wiring stays on the deferred path", () => {
 	// coverage-gated drain applies the marker on the next busting pass.
 	for (const name of ["ctx-recomp.ts", "ctx-session-upgrade.ts"]) {
 		it(`${name} stages the marker and never calls the eager apply path`, () => {
-			const src = readFileSync(join(import.meta.dir, "commands", name), "utf8");
+			const src = readFileSync(join(import.meta.dir, "../src/commands", name), "utf8");
 			const codeOnly = src
 				.split("\n")
 				.filter((line) => !line.trim().startsWith("//"))

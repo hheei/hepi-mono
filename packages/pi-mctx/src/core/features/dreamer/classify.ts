@@ -59,6 +59,8 @@ const CLASSIFY_CHUNK_SIZE = 100;
 
 // Module-side classify awaits a full broca producer run (CLASSIFY_AWAIT_TIMEOUT is
 // 600s in the module); the transport request must outlive it plus dispatch slack.
+const CLASSIFY_MODULE_RUN_TIMEOUT_MS = 660_000;
+
 function isRustAuthorityDrainingError(error: unknown): boolean {
     if (!error || typeof error !== "object") return false;
     const record = error as { code?: unknown; message?: unknown };

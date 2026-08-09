@@ -380,7 +380,7 @@ function applyHeadCap(args: {
     return { eligibleEndOrdinal: Math.min(end, protectedTailStart), oversizeAtomicUnit };
 }
 
-export function resolveProtectedTailBoundary(
+function buildProtectedTailBoundary(
     ctx: ResolvedBoundaryContext,
 ): ProtectedTailBoundarySnapshot {
     const createdAt = ctx.createdAt ?? Date.now();
@@ -720,9 +720,11 @@ export function resolveBoundaryContext(args: {
 }
 
 export function resolveProtectedTailBoundary(
-    args: Parameters<typeof resolveBoundaryContext>[0],
+    args: Parameters<typeof resolveBoundaryContext>[0] | ResolvedBoundaryContext,
 ): ProtectedTailBoundarySnapshot {
-    return resolveProtectedTailBoundary(resolveBoundaryContext(args));
+    return buildProtectedTailBoundary(
+        "providerShapeVersion" in args ? args : resolveBoundaryContext(args),
+    );
 }
 
 export function resolveWrapupProtectedTailBoundary(

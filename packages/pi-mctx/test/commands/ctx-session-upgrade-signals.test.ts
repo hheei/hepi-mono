@@ -19,7 +19,7 @@ import { join } from "node:path";
  * mutates getBranch immediately and could land mid-turn).
  */
 
-const PATH = join(import.meta.dir, "ctx-session-upgrade.ts");
+const PATH = join(import.meta.dir, "../../src/commands/ctx-session-upgrade.ts");
 const SRC = readFileSync(PATH, "utf8");
 const codeOnly = SRC.split("\n")
 	.filter((line) => !line.trim().startsWith("//"))

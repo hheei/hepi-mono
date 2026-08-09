@@ -58,11 +58,40 @@ export function normalizedQueryHash(query: string): string {
  *  insert pushes a session past the cap, its oldest rows are pruned. */
 export const MEASUREMENT_CORPUS_SESSION_ROW_CAP = 2000;
 
+const measurementCounts = new WeakMap<Database, Map<string, number>>();
+
+function countMeasurements(db: Database, sessionId: string): number {
+    let counts = measurementCounts.get(db);
+    if (!counts) {
+        counts = new Map();
+        measurementCounts.set(db, counts);
+    }
+    const known = counts.get(sessionId);
+    if (known !== undefined) return known;
+    const count = (
+        db
+            .prepare("SELECT COUNT(*) AS count FROM embedding_measurement_corpus WHERE session_id = ?")
+            .get(sessionId) as { count: number }
+    ).count;
+    counts.set(sessionId, count);
+    return count;
+}
+
+function setMeasurementCount(db: Database, sessionId: string, count: number): void {
+    let counts = measurementCounts.get(db);
+    if (!counts) {
+        counts = new Map();
+        measurementCounts.set(db, counts);
+    }
+    counts.set(sessionId, count);
+}
+
 export function recordEmbeddingMeasurement(
     db: Database,
     input: EmbeddingMeasurementInput,
 ): boolean {
     const queryTextHash = normalizedQueryHash(input.queryText);
+    const rowCountBeforeInsert = countMeasurements(db, input.sessionId);
     const dedupKey = queryTextHash;
     const result = db
         .prepare(
@@ -101,13 +130,7 @@ export function recordEmbeddingMeasurement(
         // (INSERT OR IGNORE dedups repeat queries, the common case). One row
         // was just added, so at most one row overflows the cap; delete exactly
         // the oldest overflow rather than re-scanning the whole session.
-        const rowCount = (
-            db
-                .prepare(
-                    "SELECT COUNT(*) AS count FROM embedding_measurement_corpus WHERE session_id = ?",
-                )
-                .get(input.sessionId) as { count: number }
-        ).count;
+        const rowCount = rowCountBeforeInsert + 1;
         const overflow = rowCount - MEASUREMENT_CORPUS_SESSION_ROW_CAP;
         if (overflow > 0) {
             db.prepare(
@@ -121,6 +144,11 @@ export function recordEmbeddingMeasurement(
                     )`,
             ).run(input.sessionId, input.sessionId, overflow);
         }
+        setMeasurementCount(
+            db,
+            input.sessionId,
+            Math.min(rowCount, MEASUREMENT_CORPUS_SESSION_ROW_CAP),
+        );
     }
     return result.changes > 0;
 }

@@ -17,14 +17,14 @@ import { computeNormalizedHash } from "../../../../src/core/features/memory/norm
 const mockEmbedText = mock(async () => null);
 const mockLog = mock(() => {});
 
-mock.module("./embedding", () => ({
+mock.module("../../../../src/core/features/memory/embedding", () => ({
     ...realEmbedding,
     embedText: mockEmbedText,
     embedTextForProject: mockEmbedText,
     getEmbeddingModelId: () => "mock:model",
 }));
 
-mock.module("../../../shared/logger", () => ({
+mock.module("../../../../src/core/shared/logger", () => ({
     log: mockLog,
     sessionLog: mockLog,
     getLogFilePath: () => "/tmp/test.log",

@@ -1771,6 +1771,13 @@ export function applyMirrorPage(args: { db: Database; page: ChangefeedPage }): n
         resnapshotState.status !== "complete" &&
         (durableCursor === 0 || page.rows.some((feed) => feed.op === "tombstone"));
     if (!hasNewRows && !replayMustRun) {
+        if (page.domain === "memories") {
+            withPrivilegedWriter(db, () => {
+                ensureMemoryRepairState(db);
+                markMemoryRepairPending(db);
+                repairNullClobberedMemoryRows(prepareMirrorPageStatements(db));
+            });
+        }
         if (page.next_cursor <= durableCursor) return durableCursor;
         withPrivilegedWriter(db, () => {
             db.prepare(
@@ -1788,7 +1795,9 @@ export function applyMirrorPage(args: { db: Database; page: ChangefeedPage }): n
             const currentResnapshotState =
                 page.domain === "memories" ? memoryResnapshotState(db) : null;
             let resnapshotStatus =
-                page.domain === "memories" ? (currentResnapshotState?.status ?? null) : "complete";
+                page.domain === "memories"
+                    ? (currentResnapshotState?.status ?? "complete")
+                    : "complete";
             if (
                 page.domain === "memories" &&
                 durableCursor === 0 &&

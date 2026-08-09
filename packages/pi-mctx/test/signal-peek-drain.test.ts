@@ -36,10 +36,10 @@ import {
 import { createTestDb } from "./test-utils.test";
 
 const CONTEXT_HANDLER_SRC = readFileSync(
-	join(import.meta.dir, "context-handler.ts"),
+	join(import.meta.dir, "../src/context-handler.ts"),
 	"utf-8",
 );
-const INDEX_SRC = readFileSync(join(import.meta.dir, "index.ts"), "utf-8");
+const INDEX_SRC = readFileSync(join(import.meta.dir, "../src/index.ts"), "utf-8");
 
 function stripComments(src: string): string {
 	// Strip both /* ... */ and // ... single-line comments so source-pinning

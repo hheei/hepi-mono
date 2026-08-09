@@ -3423,13 +3423,13 @@ function hasEligiblePiCompartmentHistory(
 	boundarySnapshot?: ProtectedTailBoundarySnapshot,
 ): boolean {
 	try {
+		if (boundarySnapshot) {
+			return hasRunnableCompartmentWindow(
+				ensureRunnablePiBoundaryForTests(boundarySnapshot),
+			);
+		}
 		const rawEligibility = getRawHistoryEligibility(db, sessionId);
-		if (!rawEligibility.hasRawBeyondLastCompartment) return false;
-		if (!boundarySnapshot)
-			return rawEligibility.offset <= rawEligibility.rawMessageCount;
-		return hasRunnableCompartmentWindow(
-			ensureRunnablePiBoundaryForTests(boundarySnapshot),
-		);
+		return rawEligibility.hasRawBeyondLastCompartment && rawEligibility.offset <= rawEligibility.rawMessageCount;
 	} catch (err) {
 		sessionLog(
 			sessionId,
@@ -3857,9 +3857,7 @@ function maybeFireHistorian(args: {
 				boundarySnapshot = resolveRunnablePiBoundarySnapshot();
 			}
 			const shouldRecoverOnFirstPass =
-				failureState.failureCount > 0 &&
-				boundarySnapshot !== undefined &&
-				hasEligiblePiCompartmentHistory(db, sessionId, boundarySnapshot);
+				failureState.failureCount > 0 && boundarySnapshot !== undefined;
 			if (shouldRecoverOnFirstPass) {
 				triggered = true;
 				sessionLog(
