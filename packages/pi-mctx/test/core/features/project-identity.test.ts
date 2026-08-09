@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, mock } from "bun:test";
 import type { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
 import path, { join } from "node:path";
 import {
     __clearProjectIdentityResolutionCacheForTests,
@@ -35,7 +34,7 @@ afterEach(() => {
 });
 
 function makeTempDir(prefix: string): string {
-    const dir = mkdtempSync(join(tmpdir(), prefix));
+    const dir = mkdtempSync(join("/var/tmp", prefix));
     tempDirs.push(dir);
     return dir;
 }

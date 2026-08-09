@@ -149,7 +149,7 @@ describe("createCtxSearchTool", () => {
 		// then verify that an ID-shaped query uses `resolveMemoriesByIdsForSearch`
 		// instead of `unifiedSearch`.
 		const { insertMemory } = await import(
-			"#core/features/memory"
+			"#core/features/memory/index"
 		);
 		const projectIdentity = resolveProjectIdentity(process.cwd());
 		const memory = insertMemory(db, {

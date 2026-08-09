@@ -62,7 +62,8 @@ describe("embedding measurement corpus", () => {
         const db = openDatabase();
         const overflow = 5;
         const total = MEASUREMENT_CORPUS_SESSION_ROW_CAP + overflow;
-        for (let i = 0; i < total; i++) {
+        db.transaction(() => {
+            for (let i = 0; i < total; i++) {
             recordEmbeddingMeasurement(db, {
                 sessionId: "ses-cap",
                 projectPath: "/repo",
@@ -85,7 +86,8 @@ describe("embedding measurement corpus", () => {
                 corpusHash: `corpus-${i}`,
                 coverage: {},
             });
-        }
+            }
+        })();
 
         const rows = listEmbeddingMeasurements(db, "ses-cap");
         expect(rows).toHaveLength(MEASUREMENT_CORPUS_SESSION_ROW_CAP);

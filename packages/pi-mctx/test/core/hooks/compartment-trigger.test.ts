@@ -1,9 +1,9 @@
 /// <reference types="bun-types" />
 
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import {
     closeDatabase,
     insertTag,
@@ -12,16 +12,17 @@ import {
     queuePendingOp,
 } from "../../../src/core/features/storage";
 import type { SessionMeta } from "../../../src/core/features/types";
-import { Database } from "../../../src/core/shared/sqlite";
-import { closeQuietly } from "../../../src/core/shared/sqlite-helpers";
 import { checkCompartmentTrigger, type InMemoryTailSource } from "../../../src/core/hooks/compartment-trigger";
+import { setRawMessageProvider } from "../../../src/core/hooks/read-session-chunk";
 import type { RawMessage } from "../../../src/core/hooks/read-session-raw";
 
 const tempDirs: string[] = [];
+const rawProviderCleanups: Array<() => void> = [];
 const originalXdgDataHome = process.env.XDG_DATA_HOME;
 
 afterEach(() => {
     closeDatabase();
+    for (const cleanup of rawProviderCleanups.splice(0)) cleanup();
     process.env.XDG_DATA_HOME = originalXdgDataHome;
     for (const dir of tempDirs) {
         try {
@@ -41,59 +42,17 @@ function useTempDataHome(prefix: string): void {
 
 function createOpenCodeDb(
     sessionId: string,
-    messages: Array<{ id: string; role: string; text?: string }>,
+    messages: Array<{ id: string; role: string; text?: string; parts?: RawMessage["parts"] }>,
 ): void {
-    const dbPath = join(process.env.XDG_DATA_HOME!, "opencode", "opencode.db");
-    mkdirSync(dirname(dbPath), { recursive: true });
-    const db = new Database(dbPath);
-    try {
-        db.exec(`
-      CREATE TABLE IF NOT EXISTS message (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        time_created INTEGER NOT NULL,
-        time_updated INTEGER NOT NULL,
-        data TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS part (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        message_id TEXT NOT NULL,
-        session_id TEXT NOT NULL,
-        time_created INTEGER NOT NULL,
-        time_updated INTEGER NOT NULL,
-        data TEXT NOT NULL
-      );
-    `);
-
-        const insertMessage = db.prepare(
-            "INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)",
-        );
-        const insertPart = db.prepare(
-            "INSERT INTO part (message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)",
-        );
-
-        messages.forEach((message, index) => {
-            const timestamp = index + 1;
-            insertMessage.run(
-                message.id,
-                sessionId,
-                timestamp,
-                timestamp,
-                JSON.stringify({ id: message.id, role: message.role, sessionID: sessionId }),
-            );
-            if (message.text) {
-                insertPart.run(
-                    message.id,
-                    sessionId,
-                    timestamp,
-                    timestamp,
-                    JSON.stringify({ type: "text", text: message.text }),
-                );
-            }
-        });
-    } finally {
-        closeQuietly(db);
-    }
+    rawProviderCleanups.push(
+        setRawMessageProvider(sessionId, {
+            readMessages: () =>
+                messages.map((message, index) => ({
+                    ...rawTextMessage(index + 1, message.id, message.role, message.text ?? ""),
+                    parts: message.parts ?? (message.text ? [{ type: "text", text: message.text }] : []),
+                })),
+        }),
+    );
 }
 
 function makeSessionMeta(sessionId: string, lastContextPercentage: number): SessionMeta {
@@ -682,32 +641,16 @@ describe("checkCompartmentTrigger", () => {
         // spans degraded 155 -> 27 messages/compartment over one session).
         useTempDataHome("compartment-trigger-tool-heavy-");
         const sessionId = "ses-tool-heavy-thin";
-        const messages: Array<{ id: string; role: string; text?: string }> = [];
+        const messages: Array<{ id: string; role: string; text?: string; parts?: RawMessage["parts"] }> = [];
         for (let i = 1; i <= 6; i++) {
             messages.push({ id: `m-u${i}`, role: "user", text: `short question ${i}` });
             // Assistant turn whose part is a tool result carrying ~40K chars of
             // output — counts fully toward true-raw, collapses to a TC: line.
-            messages.push({ id: `m-a${i}`, role: "assistant", text: undefined });
-        }
-        // Protected tail filler.
-        for (let i = 1; i <= 5; i++) {
-            messages.push({ id: `m-p${i}`, role: "user", text: `protected ${i}` });
-        }
-        createOpenCodeDb(sessionId, messages);
-        // Attach the huge tool outputs as tool parts on the assistant messages.
-        const ocPath = join(process.env.XDG_DATA_HOME!, "opencode", "opencode.db");
-        const oc = new Database(ocPath);
-        try {
-            const insertPart = oc.prepare(
-                "INSERT INTO part (message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)",
-            );
-            for (let i = 1; i <= 6; i++) {
-                insertPart.run(
-                    `m-a${i}`,
-                    sessionId,
-                    i * 2,
-                    i * 2,
-                    JSON.stringify({
+            messages.push({
+                id: `m-a${i}`,
+                role: "assistant",
+                parts: [
+                    {
                         type: "tool",
                         callID: `read:${i}`,
                         tool: "read",
@@ -716,12 +659,15 @@ describe("checkCompartmentTrigger", () => {
                             input: { filePath: `/tmp/file-${i}.ts` },
                             output: `line of file content ${i} `.repeat(1600),
                         },
-                    }),
-                );
-            }
-        } finally {
-            closeQuietly(oc);
+                    },
+                ],
+            });
         }
+        // Protected tail filler.
+        for (let i = 1; i <= 5; i++) {
+            messages.push({ id: `m-p${i}`, role: "user", text: `protected ${i}` });
+        }
+        createOpenCodeDb(sessionId, messages);
         const db = openDatabase();
         // Tag-token rows so the cheap pre-gate (live-tail upper bound vs
         // triggerBudget) does NOT short-circuit — the point of this test is

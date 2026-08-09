@@ -20,7 +20,7 @@ import { join } from "node:path";
  * for), not on a failure path.
  */
 
-const PATH = join(import.meta.dir, "ctx-recomp.ts");
+const PATH = join(import.meta.dir, "../../src/commands/ctx-recomp.ts");
 const SRC = readFileSync(PATH, "utf8");
 
 const codeOnly = SRC.split("\n")

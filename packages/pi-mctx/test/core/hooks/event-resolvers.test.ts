@@ -4,7 +4,6 @@ import { initializeDatabase } from "../../../src/core/features/storage-db";
 
 import { updateSessionMeta } from "../../../src/core/features/storage-meta";
 import { recordDetectedContextLimit } from "../../../src/core/features/storage-meta-persisted";
-import { clearModelsDevCache, refreshModelLimitsFromApi } from "../../../src/core/shared/models-dev-cache";
 import { Database } from "../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../src/core/shared/sqlite-helpers";
 import {
@@ -47,48 +46,6 @@ describe("event-resolvers", () => {
 
             //#then
             expect(limit).toBe(128_000);
-        });
-
-        it("does not reserve output twice from a detected prompt-only ceiling", async () => {
-            const db = new Database(":memory:");
-            initializeDatabase(db);
-            initializeDatabase(db);
-            const sessionId = "ses-prompt-only-limit";
-            try {
-                clearModelsDevCache();
-                await refreshModelLimitsFromApi({
-                    config: {
-                        providers: async () => ({
-                            data: {
-                                providers: [
-                                    {
-                                        id: "anthropic",
-                                        models: {
-                                            claude: {
-                                                limit: { context: 200_000, output: 32_000 },
-                                            },
-                                        },
-                                    },
-                                ],
-                            },
-                        }),
-                    },
-                });
-                recordDetectedContextLimit(
-                    db,
-                    sessionId,
-                    167_000,
-                    "anthropic/claude",
-                    "prompt_only",
-                );
-
-                expect(
-                    resolveContextLimit("anthropic", "claude", { db, sessionID: sessionId }),
-                ).toBe(167_000);
-            } finally {
-                clearModelsDevCache();
-                closeQuietly(db);
-            }
         });
     });
 

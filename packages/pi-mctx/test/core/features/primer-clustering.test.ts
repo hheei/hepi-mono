@@ -84,7 +84,7 @@ describe("primer clustering", () => {
 
     it("keeps Primers cache-neutral in v1", () => {
         const inject = readFileSync(
-            join(import.meta.dir, "../../hooks/inject-compartments.ts"),
+            join(import.meta.dir, "../../../src/core/hooks/inject-compartments.ts"),
             "utf8",
         );
         expect(inject).not.toContain("primer");

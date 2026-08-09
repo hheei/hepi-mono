@@ -33,7 +33,7 @@ describe("smart-note SSRF guard runtime parity", () => {
         const dir = await mkdtemp(path.join(tmpdir(), "mc-ssrf-parity-"));
         try {
             const result = await Bun.build({
-                entrypoints: [path.join(here, "ssrf-guard.ts")],
+                entrypoints: [path.join(here, "../../../../src/core/features/smart-notes/ssrf-guard.ts")],
                 outdir: dir,
                 target: "node",
                 format: "esm",

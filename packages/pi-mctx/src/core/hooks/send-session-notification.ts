@@ -59,7 +59,9 @@ export const __ignoredNotificationTest = {
 
 interface NotificationClient {
     session?: {
-        messages?: () => Promise<{ data?: Array<{ info?: Record<string, unknown> }> }>;
+        messages?: (query: { limit: number }) => Promise<{
+            data?: Array<{ info?: Record<string, unknown> }>;
+        }>;
         prompt?: (opts: unknown) => unknown | Promise<unknown>;
         promptAsync?: (opts: unknown) => Promise<unknown>;
     };
@@ -119,7 +121,7 @@ async function sendIgnoredMessageNow(
     let providerId = params.providerId;
     let modelId = params.modelId;
     if ((!agent || !providerId || !modelId) && c.session?.messages) {
-        const messages = await c.session.messages();
+        const messages = await c.session.messages({ limit: 50 });
         const lastAssistant = [...(messages.data ?? [])]
             .reverse()
             .find((message) => message.info?.role === "assistant")?.info;

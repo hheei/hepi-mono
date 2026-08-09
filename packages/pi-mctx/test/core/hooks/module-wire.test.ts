@@ -2,13 +2,13 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { encodeOpenCodeMessagesToCk, resolveOrdinalsForModule } from "../../../src/core/hooks/module-wire";
+import { encodeMessagesToCk, resolveOrdinalsForModule } from "../../../src/core/hooks/module-wire";
 import { setRawMessageProvider } from "../../../src/core/hooks/read-session-chunk";
 import type { MessageLike } from "../../../src/core/hooks/transform-operations";
 
-describe("encodeOpenCodeMessagesToCk", () => {
+describe("encodeMessagesToCk", () => {
     it("marks a collapsed synthetic todo pair as synthetic CK ingress", () => {
-        const [encoded] = encodeOpenCodeMessagesToCk([
+        const [encoded] = encodeMessagesToCk([
             {
                 info: { id: "msg_synthetic_todo", role: "assistant" },
                 parts: [
@@ -93,7 +93,7 @@ describe("resolveOrdinalsForModule provisional tails", () => {
                 expect.objectContaining({ absolute_ordinal: 501 }),
             ]);
             expect(
-                encodeOpenCodeMessagesToCk(result.first.annotatedInput as MessageLike[])[0]?.ck
+                encodeMessagesToCk(result.first.annotatedInput as MessageLike[])[0]?.ck
                     .meta,
             ).toEqual(expect.objectContaining({ ordinal: 501 }));
         } finally {
@@ -110,7 +110,7 @@ describe("resolveOrdinalsForModule provisional tails", () => {
                 ),
             ).toEqual([501, 502]);
             expect(
-                encodeOpenCodeMessagesToCk(result.first.annotatedInput as MessageLike[]).map(
+                encodeMessagesToCk(result.first.annotatedInput as MessageLike[]).map(
                     (message) => message.ck.meta.ordinal,
                 ),
             ).toEqual([501, 502]);

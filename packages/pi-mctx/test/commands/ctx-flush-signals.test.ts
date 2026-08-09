@@ -17,7 +17,7 @@ import { join } from "node:path";
  * called).
  */
 
-const PATH = join(import.meta.dir, "ctx-flush.ts");
+const PATH = join(import.meta.dir, "../../src/commands/ctx-flush.ts");
 const SRC = readFileSync(PATH, "utf8");
 
 // Strip comments so the contract checks look at code only — comments

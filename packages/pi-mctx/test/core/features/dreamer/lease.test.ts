@@ -171,17 +171,12 @@ describe("dreamer lease (atomic CAS)", () => {
         const setup = makeDb(path);
         closeQuietly(setup);
         try {
-            const pluginRoot = process.cwd().endsWith("/packages/plugin")
-                ? process.cwd()
-                : join(process.cwd(), "packages", "plugin");
+            const packageRoot = join(import.meta.dir, "../../../..");
             const script = `
-                const sqlite = await import(${JSON.stringify(`file://${pluginRoot}/src/shared/sqlite.ts`)});
-                const storageDb = await import(${JSON.stringify(`file://${pluginRoot}/src/features/storage-db.ts`)});
-                const migrations = await import(${JSON.stringify(`file://${pluginRoot}/src/features/migrations.ts`)});
-                const lease = await import(${JSON.stringify(`file://${pluginRoot}/src/features/dreamer/lease.ts`)});
+                const sqlite = await import(${JSON.stringify(`file://${packageRoot}/src/core/shared/sqlite.ts`)});
+                const lease = await import(${JSON.stringify(`file://${packageRoot}/src/core/features/dreamer/lease.ts`)});
                 const db = new sqlite.Database(${JSON.stringify(path)});
-                storageDb.initializeDatabase(db);
-                migrations.initializeDatabase(db);
+                db.exec("PRAGMA busy_timeout=5000");
                 const ok = lease.acquireLease(db, process.argv.at(-1) ?? "missing-holder");
                 db.close();
                 console.log(JSON.stringify({ ok }));

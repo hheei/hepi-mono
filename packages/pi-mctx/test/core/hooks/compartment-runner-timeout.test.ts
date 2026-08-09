@@ -1,21 +1,23 @@
 /// <reference types="bun-types" />
 
 import { afterEach, describe, expect, it, mock, spyOn } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
+import { setRawMessageProvider } from "../../../src/core/hooks/read-session-chunk";
 import { closeDatabase, openDatabase } from "../../../src/core/features/storage";
 import type { PluginContext } from "../../../src/core/plugin/types";
 import * as shared from "../../../src/core/shared";
-import { Database } from "../../../src/core/shared/sqlite";
-import { closeQuietly } from "../../../src/core/shared/sqlite-helpers";
+import { resolveWrapupProtectedTailBoundary } from "../../../src/core/hooks/protected-tail-boundary";
 import { executeContextRecomp, runCompartmentAgent } from "../../../src/core/hooks/compartment-runner";
 
 const tempDirs: string[] = [];
+const rawProviderCleanups: Array<() => void> = [];
 const originalXdgDataHome = process.env.XDG_DATA_HOME;
 
 afterEach(() => {
     closeDatabase();
+    for (const cleanup of rawProviderCleanups.splice(0)) cleanup();
     process.env.XDG_DATA_HOME = originalXdgDataHome;
 
     for (const dir of tempDirs) {
@@ -31,7 +33,7 @@ afterEach(() => {
 describe("historian timeout wiring", () => {
     it("passes historianTimeoutMs to incremental historian runs", async () => {
         useTempDataHome("magic-context-incremental-timeout-");
-        createOpenCodeDb("ses-incremental-timeout", [
+        setRawSessionProvider("ses-incremental-timeout", [
             { id: "m-1", role: "user", text: "eligible one" },
             { id: "m-2", role: "assistant", text: "eligible two" },
             { id: "m-3", role: "user", text: "protected 1" },
@@ -57,6 +59,8 @@ describe("historian timeout wiring", () => {
                 sessionId: "ses-incremental-timeout",
                 historianChunkTokens: 10_000,
                 historianTimeoutMs: 456_789,
+                boundarySnapshot: makeBoundarySnapshot(db, "ses-incremental-timeout"),
+                currentContextLimit: 20,
                 directory: "/tmp",
             });
 
@@ -72,7 +76,7 @@ describe("historian timeout wiring", () => {
 
     it("passes historianTimeoutMs to recomp historian runs", async () => {
         useTempDataHome("magic-context-recomp-timeout-");
-        createOpenCodeDb("ses-recomp-timeout-wiring", [
+        setRawSessionProvider("ses-recomp-timeout-wiring", [
             { id: "m-1", role: "user", text: "eligible one" },
             { id: "m-2", role: "assistant", text: "eligible two" },
             { id: "m-3", role: "user", text: "eligible three" },
@@ -100,6 +104,8 @@ describe("historian timeout wiring", () => {
                 sessionId: "ses-recomp-timeout-wiring",
                 historianChunkTokens: 10_000,
                 historianTimeoutMs: 456_789,
+                boundarySnapshot: makeBoundarySnapshot(db, "ses-recomp-timeout-wiring"),
+                currentContextLimit: 20,
                 directory: "/tmp",
             });
 
@@ -111,6 +117,21 @@ describe("historian timeout wiring", () => {
         }
     });
 });
+
+function makeBoundarySnapshot(db: ReturnType<typeof openDatabase>, sessionId: string) {
+    return resolveWrapupProtectedTailBoundary({
+        db,
+        sessionId,
+        mode: "manual-wrapup",
+        contextLimit: 20,
+        executeThresholdPercentage: 50,
+        usage: { percentage: 0, inputTokens: 0 },
+        usageSource: "test",
+        providerShapeVersion: "test-v1",
+        cacheNamespace: "test",
+        messagesToKeep: 5,
+    }).snapshot;
+}
 
 function createHistorianClient(directory: string, output: string): PluginContext["client"] {
     return {
@@ -137,58 +158,21 @@ function useTempDataHome(prefix: string): void {
     process.env.XDG_DATA_HOME = dir;
 }
 
-function createOpenCodeDb(
+function setRawSessionProvider(
     sessionId: string,
-    messages: Array<{ id: string; role: string; text: string }>,
+    messages: Array<{ id: string; role: "user" | "assistant"; text: string }>,
 ): void {
-    const dbPath = join(process.env.XDG_DATA_HOME!, "opencode", "opencode.db");
-    mkdirSync(dirname(dbPath), { recursive: true });
-    const db = new Database(dbPath);
-
-    try {
-        db.exec(`
-      CREATE TABLE IF NOT EXISTS message (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        time_created INTEGER NOT NULL,
-        time_updated INTEGER NOT NULL,
-        data TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS part (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        message_id TEXT NOT NULL,
-        session_id TEXT NOT NULL,
-        time_created INTEGER NOT NULL,
-        time_updated INTEGER NOT NULL,
-        data TEXT NOT NULL
-      );
-    `);
-
-        const insertMessage = db.prepare(
-            "INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)",
-        );
-        const insertPart = db.prepare(
-            "INSERT INTO part (message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)",
-        );
-
-        messages.forEach((message, index) => {
-            const timestamp = index + 1;
-            insertMessage.run(
-                message.id,
-                sessionId,
-                timestamp,
-                timestamp,
-                JSON.stringify({ id: message.id, role: message.role, sessionID: sessionId }),
-            );
-            insertPart.run(
-                message.id,
-                sessionId,
-                timestamp,
-                timestamp,
-                JSON.stringify({ type: "text", text: message.text }),
-            );
-        });
-    } finally {
-        closeQuietly(db);
-    }
+    rawProviderCleanups.push(
+        setRawMessageProvider(sessionId, {
+            readMessages: () =>
+                messages.map((message, index) => ({
+                    ordinal: index + 1,
+                    id: message.id,
+                    role: message.role,
+                    parts: [{ type: "text", text: message.text }],
+                    version: null,
+                })),
+            getStoredMessageCount: () => messages.length,
+        }),
+    );
 }

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import type { RawMessage } from "../../../src/core/hooks/read-session-raw";
 import { Database } from "../../../src/core/shared/sqlite";
+import { setBootQuietPeriodForTests } from "../../../src/core/plugin/boot-quiet";
 import { closeQuietly } from "../../../src/core/shared/sqlite-helpers";
 import { getDirtyIndexFloor } from "../../../src/core/features/message-index";
 import {
@@ -107,6 +108,7 @@ describe("message-index-async", () => {
     let db: Database;
 
     beforeEach(() => {
+        setBootQuietPeriodForTests(null);
         __resetMessageIndexAsyncForTests();
         db = createTestDb();
     });
@@ -114,6 +116,7 @@ describe("message-index-async", () => {
     afterEach(() => {
         closeQuietly(db);
         __resetMessageIndexAsyncForTests();
+        setBootQuietPeriodForTests(null);
     });
 
     it("dedupes concurrent reconciliation schedules for one session", async () => {

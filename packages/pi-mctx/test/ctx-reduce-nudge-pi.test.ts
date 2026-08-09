@@ -408,7 +408,7 @@ describe("Channel 2 delivery wiring (regression)", () => {
 	// The helper is well-tested above, but the bug it guards against is that
 	// `index.ts` never CALLED it — Pi recorded `pending` and never delivered.
 	// Assert the agent_end handler actually invokes the delivery.
-	const INDEX_SRC = readFileSync(join(import.meta.dir, "index.ts"), "utf8");
+	const INDEX_SRC = readFileSync(join(import.meta.dir, "../src/index.ts"), "utf8");
 
 	it("index.ts imports maybeDeliverChannel2Pi", () => {
 		expect(INDEX_SRC).toContain("maybeDeliverChannel2Pi");

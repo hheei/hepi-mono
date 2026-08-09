@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import {
     __resetProjectIdentityForTests,
@@ -12,7 +12,7 @@ import {
 } from "../../../../src/core/features/memory/project-identity";
 
 function tempDir(): string {
-    return mkdtempSync(join(tmpdir(), "mc-identity-"));
+    return mkdtempSync(join("/var/tmp", "mc-identity-"));
 }
 
 function returningRootCommit(rootCommit: string): typeof execFileSync {
@@ -25,8 +25,16 @@ afterEach(() => {
 
 describe("resolveProjectIdentity directory fallback", () => {
     test("refuses the exact canonical home directory unless the user opts in", () => {
-        expect(resolveProjectIdentityForSession(homedir())).toBeUndefined();
-        expect(resolveProjectIdentityForSession(join(homedir(), "a-project"))).not.toBeUndefined();
+        const fakeHome = tempDir();
+        const child = join(fakeHome, "a-project");
+        try {
+            mkdirSync(child);
+            __setProjectIdentityTestHooks({ homeDirectory: () => fakeHome });
+            expect(resolveProjectIdentityForSession(fakeHome)).toBeUndefined();
+            expect(resolveProjectIdentityForSession(child)).toBeDefined();
+        } finally {
+            rmSync(fakeHome, { recursive: true, force: true });
+        }
     });
 
     test("uses the canonical home directory's stable dir identity when opted in", () => {

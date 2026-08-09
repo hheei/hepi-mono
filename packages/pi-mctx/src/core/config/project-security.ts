@@ -34,7 +34,12 @@ const HISTORIAN_USER_ONLY_FIELDS = ["model", "fallback_models"] as const;
  * project raise-only, so a cloned repo cannot force earlier compaction or extra
  * historian spend on the user's dime.
  */
-const AGENT_ESCALATION_FIELDS = ["prompt", "tools", "system_prompt"] as const;
+const AGENT_ESCALATION_FIELDS = [
+    "prompt",
+    "permission",
+    "tools",
+    "system_prompt",
+] as const;
 const EMBEDDING_DESTINATION_FIELDS = ["endpoint", "provider", "fallback_provider"] as const;
 const PERCENTAGE_THRESHOLD_REASON =
     "security: a repository may only raise compaction thresholds above the user's effective value; it cannot force earlier historian work or cloned-repo cost escalation.";

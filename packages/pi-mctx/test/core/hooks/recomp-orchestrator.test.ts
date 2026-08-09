@@ -153,7 +153,7 @@ describe("runManagedRecomp clears stale emergency recovery", () => {
     // bumping pressure to 95% every later pass once the session is small again.
     // The full behavioral path needs a live historian client; this guard pins
     // the clear-on-done wiring against a silent revert.
-    const SRC = readFileSync(join(import.meta.dir, "recomp-orchestrator.ts"), "utf8");
+    const SRC = readFileSync(join(import.meta.dir, "../../../src/core/hooks/recomp-orchestrator.ts"), "utf8");
 
     it("clears the flag only in the done terminal phase", () => {
         expect(SRC).toContain("clearEmergencyRecovery(ctx.db, sessionId)");

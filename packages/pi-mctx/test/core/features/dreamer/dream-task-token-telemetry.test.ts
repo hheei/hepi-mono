@@ -15,7 +15,7 @@ import { join } from "node:path";
 const HERE = import.meta.dir;
 
 function read(relFromFeatures: string): string {
-    return readFileSync(join(HERE, "..", relFromFeatures), "utf-8");
+    return readFileSync(join(HERE, "../../../../src/core/features", relFromFeatures), "utf-8");
 }
 
 describe("dream-task token telemetry mapping", () => {

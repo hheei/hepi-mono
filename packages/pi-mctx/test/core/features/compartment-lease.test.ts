@@ -127,17 +127,13 @@ describe("compartment state lease", () => {
         closeQuietly(setup);
 
         try {
-            const projectRoot = process.cwd().includes("packages")
-                ? join(process.cwd(), "..", "..")
-                : process.cwd();
-            const pluginRoot = join(projectRoot, "packages", "plugin");
+            const packageRoot = join(import.meta.dir, "../../..");
 
             const script = `
-                const sqlite = await import(${JSON.stringify(`file://${pluginRoot}/src/shared/sqlite.ts`)});
-                const storageDb = await import(${JSON.stringify(`file://${pluginRoot}/src/features/storage-db.ts`)});
-                const lease = await import(${JSON.stringify(`file://${pluginRoot}/src/features/compartment-lease.ts`)});
+                const sqlite = await import(${JSON.stringify(`file://${packageRoot}/src/core/shared/sqlite.ts`)});
+                const lease = await import(${JSON.stringify(`file://${packageRoot}/src/core/features/compartment-lease.ts`)});
                 const db = new sqlite.Database(${JSON.stringify(path)});
-                storageDb.initializeDatabase(db);
+                db.exec("PRAGMA busy_timeout=5000");
                 const ok = lease.acquireCompartmentLease(db, "ses", process.argv.at(-1) ?? "missing-holder") !== null;
                 db.close();
                 console.log(JSON.stringify({ ok }));

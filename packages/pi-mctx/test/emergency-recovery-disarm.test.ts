@@ -22,7 +22,7 @@ import { join } from "node:path";
  * This guard pins that predicate so a future refactor can't silently revert to
  * the loose check.
  */
-const SRC = readFileSync(join(import.meta.dir, "context-handler.ts"), "utf8");
+const SRC = readFileSync(join(import.meta.dir, "../src/context-handler.ts"), "utf8");
 const codeOnly = SRC.split("\n")
 	.filter((line) => !line.trim().startsWith("//"))
 	.join("\n");
