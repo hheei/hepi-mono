@@ -72,6 +72,12 @@ afterEach(() => {
     tempDirs.length = 0;
 });
 
+function freezeCtxReduce(sessionId: string): void {
+    resolveCtxReduceAvailabilityFromMessages(sessionId, [
+        { info: { role: "user", tools: { ctx_reduce: true } } },
+    ]);
+}
+
 function buildHandler(opts?: {
     historyRefreshSessions?: Set<string>;
     systemPromptRefreshSessions?: Set<string>;
@@ -102,9 +108,10 @@ function buildHandler(opts?: {
 }
 
 describe("system-prompt-hash drain semantics (Oracle review 2026-04-26 Finding A1)", () => {
-    it.skip("drains pre-existing systemPromptRefresh flag set by /ctx-flush", async () => {
+    it("drains pre-existing systemPromptRefresh flag set by /ctx-flush", async () => {
         useTempDataHome("sph-drain-existing-");
         const sessionId = "ses-existing-flag";
+        freezeCtxReduce(sessionId);
         const systemPromptRefreshSessions = new Set<string>([sessionId]);
 
         const { handler } = buildHandler({ systemPromptRefreshSessions });
@@ -124,9 +131,10 @@ describe("system-prompt-hash drain semantics (Oracle review 2026-04-26 Finding A
         expect(systemPromptRefreshSessions.has(sessionId)).toBe(false);
     });
 
-    it.skip("does NOT drain just-added flag from hash-change detection (the bug Oracle caught)", async () => {
+    it("does NOT drain just-added flag from hash-change detection (the bug Oracle caught)", async () => {
         useTempDataHome("sph-drain-just-added-");
         const sessionId = "ses-hash-change";
+        freezeCtxReduce(sessionId);
         const systemPromptRefreshSessions = new Set<string>(); // empty on entry
         const historyRefreshSessions = new Set<string>();
         const pendingMaterializationSessions = new Set<string>();
@@ -185,9 +193,10 @@ describe("system-prompt-hash drain semantics (Oracle review 2026-04-26 Finding A
         expect(systemPromptRefreshSessions.has(sessionId)).toBe(true);
     });
 
-    it.skip("on subsequent pass after hash-change pass, drains the surviving flag", async () => {
+    it("on subsequent pass after hash-change pass, drains the surviving flag", async () => {
         useTempDataHome("sph-drain-followup-");
         const sessionId = "ses-followup";
+        freezeCtxReduce(sessionId);
         const systemPromptRefreshSessions = new Set<string>();
         const historyRefreshSessions = new Set<string>();
         const pendingMaterializationSessions = new Set<string>();
@@ -218,9 +227,10 @@ describe("system-prompt-hash drain semantics (Oracle review 2026-04-26 Finding A
 });
 
 describe("system-prompt-hash token estimation (council audit bg_51106601 #2)", () => {
-    it.skip("does not refresh systemPromptTokens when the system prompt hash is unchanged", async () => {
+    it("does not refresh systemPromptTokens when the system prompt hash is unchanged", async () => {
         useTempDataHome("sph-unchanged-token-skip-");
         const sessionId = "ses-unchanged-token-skip";
+        freezeCtxReduce(sessionId);
         const { handler } = buildHandler();
         const db = openDatabase();
 
@@ -294,9 +304,10 @@ describe("system-prompt-hash v2 system prompt contents", () => {
         expect(joined).not.toContain("Alpha &lt;closing-tag&gt;");
     });
 
-    it.skip("injects language guidance and stabilizes after the config changes once", async () => {
+    it("injects language guidance and stabilizes after the config changes once", async () => {
         useTempDataHome("sph-language-fold-once-");
         const sessionId = "ses-language-fold";
+        freezeCtxReduce(sessionId);
         const systemPromptRefreshSessions = new Set<string>();
         const historyRefreshSessions = new Set<string>();
         const pendingMaterializationSessions = new Set<string>();
