@@ -27,6 +27,7 @@ This directory records high-level information for users and developers. Detailed
 
 - [Advisor research](research/advisor.md): advisor design comparison and original feature boundary.
 - [Pi upstream research](research/pi-upstream.md): upstream extension layering and the historical aggregate proposal.
+- [Pi native tools, rendering, and extensions](pi-native-tools.md): installed Pi location, tool lifecycle, TUI rendering, extension boundaries, and native grep/find behavior.
 - [Original Pi theme analysis](research/pi-original-theme.md): research used to derive the HEPI TUI design.
 - [BTW implementation research](research/btw/implementation-research.md): comparison of four public BTW implementations.
 - [BTW reuse inventory](research/btw/reuse-inventory.md): code reuse decisions made before implementation.
