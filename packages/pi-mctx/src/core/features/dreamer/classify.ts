@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 
 import { DREAMER_CLASSIFIER_AGENT } from "../../agents/dreamer";
 import { createChildSessionWithFence } from "../../hooks/child-session-spawn";
-import { isRustAuthorityDrainingError } from "../../plugin/rust-tool-backends";
 import type { PluginContext } from "../../plugin/types";
 import * as shared from "../../shared";
 import {
@@ -60,7 +59,14 @@ const CLASSIFY_CHUNK_SIZE = 100;
 
 // Module-side classify awaits a full broca producer run (CLASSIFY_AWAIT_TIMEOUT is
 // 600s in the module); the transport request must outlive it plus dispatch slack.
-const CLASSIFY_MODULE_RUN_TIMEOUT_MS = 660_000;
+function isRustAuthorityDrainingError(error: unknown): boolean {
+    if (!error || typeof error !== "object") return false;
+    const record = error as { code?: unknown; message?: unknown };
+    return (
+        record.code === "RUST_AUTHORITY_DRAINING" ||
+        (typeof record.message === "string" && /rust memory authority.*not ready|authority.*draining/i.test(record.message))
+    );
+}
 
 export interface ClassifyModuleCallArgs {
     sessionId: string;

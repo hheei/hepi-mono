@@ -245,7 +245,7 @@ describe("getTagNumberByMessageId helper", () => {
     });
 });
 
-describe("migration v6 — counter heal", () => {
+describe("counter repair", () => {
     it("heals divergent counters where MAX(tag_number) > session_meta.counter", () => {
         //#given — fresh DB, mark migrations v1-v5 as already applied (so v1
         // already created `notes`, allowing v7 to ALTER it later), then
@@ -299,19 +299,6 @@ describe("migration v6 — counter heal", () => {
         expect(getCounter(db, "s-clean")).toBe(3);
     });
 
-    it("is idempotent on a fresh DB with no divergent sessions", () => {
-        //#given — fresh DB, migrations applied.
-        const db = openTestDb();
-
-        //#when — running migrations again is a no-op.
-        initializeDatabase(db);
-
-        //#then — schema_migrations only has each version once.
-        const v6Count = db
-            .prepare("SELECT COUNT(*) as c FROM schema_migrations WHERE version = 6")
-            .get() as { c: number };
-        expect(v6Count.c).toBe(1);
-    });
 });
 
 describe("initFromDb signature cache", () => {

@@ -23,6 +23,7 @@ import {
 import { insertUserMemory } from "../../../src/core/features/user-memory/storage-user-memory";
 import { Database } from "../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../src/core/shared/sqlite-helpers";
+import { setRawMessageProvider } from "../../../src/core/hooks/read-session-chunk";
 import {
     buildModuleStateSyncPayload,
     buildPagedModuleStateSyncPayloads,
@@ -36,15 +37,14 @@ import {
     moduleWireBodyBytes,
     resolveOrdinalsForModule,
 } from "../../../src/core/hooks/module-wire";
-import { closeReadOnlySessionDb } from "../../../src/core/hooks/read-session-db";
 
 const databases: Database[] = [];
 const tempDirs: string[] = [];
+const rawProviderCleanups: Array<() => void> = [];
 const originalXdgDataHome = process.env.XDG_DATA_HOME;
 
 afterEach(() => {
-    for (const db of databases.splice(0)) closeQuietly(db);
-    closeReadOnlySessionDb();
+    for (const cleanup of rawProviderCleanups.splice(0)) cleanup();
     if (originalXdgDataHome === undefined) delete process.env.XDG_DATA_HOME;
     else process.env.XDG_DATA_HOME = originalXdgDataHome;
     for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
@@ -56,58 +56,50 @@ function useTempDataHome(prefix: string): void {
     process.env.XDG_DATA_HOME = dir;
 }
 
-function createOpenCodeDb(
+function createRawSession(
     sessionId: string,
     messages: Array<{ id: string; role: string; summary?: boolean; parts?: unknown[] }>,
 ): void {
-    const dbPath = join(process.env.XDG_DATA_HOME ?? "", "opencode", "opencode.db");
-    mkdirSync(dirname(dbPath), { recursive: true });
-    const db = new Database(dbPath);
-    try {
-        db.exec(`
-            CREATE TABLE message (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                time_created INTEGER NOT NULL,
-                time_updated INTEGER NOT NULL,
-                data TEXT NOT NULL
-            );
-            CREATE TABLE part (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                message_id TEXT NOT NULL,
-                session_id TEXT NOT NULL,
-                time_created INTEGER NOT NULL,
-                time_updated INTEGER NOT NULL,
-                data TEXT NOT NULL
-            );
-        `);
-        const insertMessage = db.prepare(
-            "INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)",
-        );
-        const insertPart = db.prepare(
-            "INSERT INTO part (message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)",
-        );
-        messages.forEach((message, index) => {
-            const timestamp = index + 1;
-            insertMessage.run(
-                message.id,
-                sessionId,
-                timestamp,
-                timestamp,
-                JSON.stringify({
+    rawProviderCleanups.push(
+        setRawMessageProvider(sessionId, {
+            readMessages: () =>
+                messages.map((message, index) => ({
                     id: message.id,
+                    sessionId,
                     role: message.role,
-                    summary: message.summary === true ? true : undefined,
-                    finish: message.summary === true ? "stop" : undefined,
-                }),
-            );
-            for (const part of message.parts ?? [{ type: "text", text: message.id }]) {
-                insertPart.run(message.id, sessionId, timestamp, timestamp, JSON.stringify(part));
-            }
-        });
-    } finally {
-        closeQuietly(db);
-    }
+                    ordinal: index + 1,
+                    createdAt: index + 1,
+                    summary: message.summary === true,
+                    info:
+                        message.summary === true ? { summary: true, finish: "stop" } : undefined,
+                    parts: message.parts ?? [{ type: "text", text: message.id }],
+                })),
+            readMessageOrdinalPage: (after, limit) =>
+                messages
+                    .map((message, index) => ({
+                        id: message.id,
+                        timeCreated: index + 1,
+                        contributesOrdinal: message.summary !== true,
+                        hasValidInfo: true,
+                    }))
+                    .filter(
+                        (entry) =>
+                            !after ||
+                            entry.timeCreated > after.timeCreated ||
+                            (entry.timeCreated === after.timeCreated && entry.id > after.id),
+                    )
+                    .slice(0, limit),
+            readMessageIdOrdinals: () => {
+                let ordinal = 0;
+                const ordinals = new Map<string, number>();
+                for (const message of messages) {
+                    if (message.summary === true) continue;
+                    ordinals.set(message.id, ++ordinal);
+                }
+                return ordinals;
+            },
+        }),
+    );
 }
 
 function createContextDb(): Database {
@@ -166,7 +158,7 @@ describe("module drop-state cold-start seed", () => {
     it("maps dropped message and tool tags to deterministic module blocks", async () => {
         useTempDataHome("module-state-sync-drop-seed-");
         const sessionId = "ses-drop-seed";
-        createOpenCodeDb(sessionId, [
+        createRawSession(sessionId, [
             {
                 id: "m1",
                 role: "assistant",
@@ -481,7 +473,7 @@ describe("module compartment ordinal serialization", () => {
     it("uses canonical ordinals when stored boundaries include a summary row", async () => {
         useTempDataHome("module-state-sync-ordinal-basis-");
         const sessionId = "ses-ordinal-basis";
-        createOpenCodeDb(sessionId, [
+        createRawSession(sessionId, [
             { id: "m1", role: "user" },
             { id: "summary", role: "assistant", summary: true },
             { id: "m2", role: "assistant" },
@@ -543,7 +535,7 @@ describe("module compartment ordinal serialization", () => {
     it("keeps canonical ordinal drift fail-loud when the wire resolver finds a conflict", async () => {
         useTempDataHome("module-state-sync-ordinal-drift-");
         const sessionId = "ses-ordinal-drift";
-        createOpenCodeDb(sessionId, [
+        createRawSession(sessionId, [
             { id: "m1", role: "user" },
             { id: "summary", role: "assistant", summary: true },
             { id: "m2", role: "user" },
@@ -567,7 +559,7 @@ describe("module compartment ordinal serialization", () => {
     it("preserves stored ordinals when a session has no summary rows", async () => {
         useTempDataHome("module-state-sync-no-summary-");
         const sessionId = "ses-no-summary";
-        createOpenCodeDb(sessionId, [
+        createRawSession(sessionId, [
             { id: "m1", role: "user" },
             { id: "m2", role: "assistant" },
         ]);
@@ -609,7 +601,7 @@ describe("module compartment ordinal serialization", () => {
     it("keeps persisted ordinals stable around an interior synthetic wire message", async () => {
         useTempDataHome("module-state-sync-interior-synthetic-");
         const sessionId = "ses-interior-synthetic";
-        createOpenCodeDb(sessionId, [
+        createRawSession(sessionId, [
             { id: "m1", role: "user" },
             { id: "m2", role: "assistant" },
             { id: "m3", role: "user" },
@@ -644,7 +636,7 @@ describe("module compartment ordinal serialization", () => {
     it("reports the first non-synthetic ordinal gap with its wire identity", async () => {
         useTempDataHome("module-state-sync-unresolved-diagnostic-");
         const sessionId = "ses-unresolved-diagnostic";
-        createOpenCodeDb(sessionId, [
+        createRawSession(sessionId, [
             { id: "m1", role: "user" },
             { id: "m2", role: "assistant" },
         ]);

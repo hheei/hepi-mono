@@ -142,9 +142,9 @@ export interface UpgradeReminderDeps {
      *  omitted on harnesses without a dialog system. When `resume` is set, the
      *  dialog shows resume-flavored copy. */
     pushTuiDialogAction?: (sessionId: string, resume?: ResumeInfo) => void;
-    /** Whether delivery persists in scrollback. Default true. */
-     *  Pi uses transient toasts, so it ignores the old explicit-dismissal stamp;
-     *  both harnesses still persist the shared cooldown and delivery cap. */
+    /** Whether delivery persists in scrollback. Default true. Pi uses transient
+     *  toasts, so it ignores the old explicit-dismissal stamp; both harnesses
+     *  still persist the shared cooldown and delivery cap. */
     deliveryPersists?: boolean;
 }
 

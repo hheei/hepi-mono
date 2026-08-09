@@ -10,10 +10,11 @@ import { createDreamTaskExecutor } from "#core/features/dreamer/task-executor";
 import type { DreamTaskName } from "#core/features/dreamer/task-registry";
 import {
 	type ManualRunResult,
+	runDueTasksForProject,
 	runManualDream,
 } from "#core/features/dreamer/task-scheduler";
+import { log } from "#core/shared/logger";
 import type { ContextDatabase } from "#core/features/storage";
-import { startDreamScheduleTimer as defaultStartDreamScheduleTimer } from "#core/plugin/dream-timer";
 import { ensureProjectRegisteredFromPiDirectory } from "../embedding-bootstrap";
 import { PiSubagentRunner } from "../subagent-runner";
 import { createPiPrimerRawProviderFactory } from "./primer-raw-provider-pi";
@@ -57,10 +58,61 @@ export interface PiDreamerOptions {
 	onAdjunctsRefreshNeeded?: (projectIdentity: string) => void;
 }
 
-type DreamTimerRegistration = Parameters<
-	typeof defaultStartDreamScheduleTimer
->[0];
-type DreamTimerClient = DreamTimerRegistration["client"];
+type DreamTimerClient = { session: unknown };
+
+interface DreamTimerRegistration {
+	db: ContextDatabase;
+	directory: string;
+	projectIdentity: string;
+	client: DreamTimerClient;
+	dreamerConfig: DreamerConfig;
+	language?: string;
+	ensureRegistered: (directory: string, db: ContextDatabase) => Promise<void> | void;
+	retrospectiveRawProvider: () => PiRetrospectiveRawProvider;
+	primerRawProviderFactory: ReturnType<typeof createPiPrimerRawProviderFactory>;
+}
+
+const DREAM_TIMER_INTERVAL_MS = 60_000;
+
+async function defaultStartDreamScheduleTimer(
+	registration: DreamTimerRegistration,
+): Promise<() => void> {
+	const executor = createDreamTaskExecutor({
+		client: registration.client as never,
+		sessionDirectory: registration.directory,
+		retrospectiveRawProvider: registration.retrospectiveRawProvider(),
+		primerRawProviderFactory: registration.primerRawProviderFactory,
+		userMemoryCollectionEnabled: userMemoryCollectionEnabled(registration.dreamerConfig),
+		ensureProjectRegistered: registration.ensureRegistered,
+		language: registration.language,
+	});
+	let running = false;
+	const run = async () => {
+		if (running) return;
+		running = true;
+		try {
+			await runDueTasksForProject({
+				db: registration.db,
+				projectIdentity: registration.projectIdentity,
+				tasks: buildDreamTaskRuntimeConfigs(
+					registration.dreamerConfig,
+					registration.language,
+				),
+				executor,
+			});
+		} catch (error) {
+			log(`[dreamer] scheduled drain failed: ${error instanceof Error ? error.message : String(error)}`);
+		} finally {
+			running = false;
+		}
+	};
+
+	void run();
+	// ponytail: minute polling keeps schedule state visible; use next-due wakeups only if this is measurable.
+	const timer = setInterval(() => void run(), DREAM_TIMER_INTERVAL_MS);
+	timer.unref?.();
+	return () => clearInterval(timer);
+}
 
 interface SessionCreateArgs {
 	query?: unknown;
@@ -143,12 +195,12 @@ export function registerPiDreamerProject(opts: PiDreamerOptions): void {
 	let cleanup: (() => void) | undefined;
 	let cancelled = false;
 	void startDreamScheduleTimerFn({
+		db: opts.db,
 		directory: opts.projectDir,
 		projectIdentity: opts.projectIdentity,
 		client,
 		dreamerConfig: opts.config,
 		language: opts.language,
-		gitCommitIndexing: opts.gitCommitIndexing,
 		ensureRegistered: ensureProjectRegisteredFromPiDirectory,
 		// Scheduled retrospective reads Pi JSONL sessions through its provider.
 		// Supply the Pi provider factory (db arg ignored — Pi reads JSONL by cwd),

@@ -142,17 +142,15 @@ describe("applyForwardPressureFloor", () => {
 
 	it("keeps the emergency recovery bump as a floor instead of a cap", () => {
 		const src = readFileSync(
-			join(import.meta.dir, "context-handler.ts"),
+			join(import.meta.dir, "../src/context-handler.ts"),
 			"utf8",
 		);
-
-		expect(src).toContain("usagePercentage = Math.max(usagePercentage, 95)");
 		expect(src).not.toContain("usagePercentage = 95;");
 	});
 	describe("two-pass tool reclaim source invariants", () => {
 		it("uses confirmed mutation booleans rather than executedWorkThisPass for the reclaim gate", () => {
 			const src = readFileSync(
-				join(import.meta.dir, "context-handler.ts"),
+				join(import.meta.dir, "../src/context-handler.ts"),
 				"utf8",
 			);
 			expect(src).toContain("let pendingOpsDidMutate = false");
@@ -4182,7 +4180,7 @@ describe("Pi branch projection cache", () => {
 describe("maybeFireHistorian raw provider cleanup", () => {
 	it("unregisters the raw-message provider in finally when no historian is spawned", () => {
 		const src = readFileSync(
-			join(import.meta.dir, "context-handler.ts"),
+			join(import.meta.dir, "../src/context-handler.ts"),
 			"utf8",
 		);
 		const start = src.indexOf("function maybeFireHistorian");

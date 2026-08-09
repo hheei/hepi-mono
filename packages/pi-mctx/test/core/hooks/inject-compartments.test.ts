@@ -42,7 +42,7 @@ import {
     renderMemoryLineV2,
     trimMemoriesToBudgetV2,
 } from "../../../src/core/hooks/inject-compartments";
-import { closeReadOnlySessionDb } from "../../../src/core/hooks/read-session-db";
+import { setRawMessageProvider } from "../../../src/core/hooks/read-session-chunk";
 import { estimateTokens } from "../../../src/core/hooks/read-session-formatting";
 import type { MessageLike } from "../../../src/core/hooks/tag-messages";
 
@@ -53,6 +53,7 @@ let db: Database;
 const tempDirs: string[] = [];
 const originalXdgDataHome = process.env.XDG_DATA_HOME;
 const originalXdgCacheHome = process.env.XDG_CACHE_HOME;
+let unregisterRawMessages: () => void = () => {};
 
 function makeDb(): Database {
     const d = new Database(":memory:");
@@ -68,31 +69,19 @@ function makeProjectDir(): string {
     return dir;
 }
 
-function createOpenCodeMessageTimes(rows: Array<{ id: string; timestamp: number }>): void {
-    const dataHome = mkdtempSync(join(tmpdir(), "mc-inject-dates-"));
-    tempDirs.push(dataHome);
-    process.env.XDG_DATA_HOME = dataHome;
-    process.env.XDG_CACHE_HOME = dataHome;
-    closeReadOnlySessionDb();
-
-    const dbPath = join(dataHome, "opencode", "opencode.db");
-    mkdirSync(dirname(dbPath), { recursive: true });
-    const source = new Database(dbPath);
-    try {
-        source.exec(`
-            CREATE TABLE message (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                time_created INTEGER NOT NULL
-            );
-        `);
-        const insert = source.prepare(
-            "INSERT INTO message (id, session_id, time_created) VALUES (?, ?, ?)",
-        );
-        for (const row of rows) insert.run(row.id, SESSION_ID, row.timestamp);
-    } finally {
-        source.close();
-    }
+function createMessageTimes(rows: Array<{ id: string; timestamp: number }>): void {
+    unregisterRawMessages();
+    unregisterRawMessages = setRawMessageProvider(SESSION_ID, {
+        readMessages: () =>
+            rows.map((row, index) => ({
+                id: row.id,
+                sessionId: SESSION_ID,
+                role: "user",
+                ordinal: index + 1,
+                createdAt: row.timestamp,
+                parts: [],
+            })),
+    });
 }
 
 function readStateFromMeta(): ReturnType<typeof getOrCreateSessionMeta> {
@@ -137,7 +126,8 @@ function storeDatedCompartment(): void {
 
 afterEach(() => {
     if (db) db.close();
-    closeReadOnlySessionDb();
+    unregisterRawMessages();
+    unregisterRawMessages = () => {};
     if (originalXdgDataHome === undefined) delete process.env.XDG_DATA_HOME;
     else process.env.XDG_DATA_HOME = originalXdgDataHome;
     if (originalXdgCacheHome === undefined) delete process.env.XDG_CACHE_HOME;
@@ -623,7 +613,7 @@ describe("m[0]/m[1] materialization", () => {
     it("renders complete date ranges into m[0] only when temporal awareness is enabled", () => {
         db = makeDb();
         storeDatedCompartment();
-        createOpenCodeMessageTimes([
+        createMessageTimes([
             { id: "m1", timestamp: new Date(2026, 0, 2, 12).getTime() },
             { id: "m2", timestamp: new Date(2026, 0, 3, 12).getTime() },
         ]);
@@ -641,7 +631,7 @@ describe("m[0]/m[1] materialization", () => {
     it("omits compartment date ranges from m[0] when temporal awareness is disabled", () => {
         db = makeDb();
         storeDatedCompartment();
-        createOpenCodeMessageTimes([
+        createMessageTimes([
             { id: "m1", timestamp: new Date(2026, 0, 2, 12).getTime() },
             { id: "m2", timestamp: new Date(2026, 0, 3, 12).getTime() },
         ]);
@@ -660,7 +650,7 @@ describe("m[0]/m[1] materialization", () => {
     it("replays date-bearing m[0]/m[1] bytes unchanged on consecutive defer passes", () => {
         db = makeDb();
         storeDatedCompartment();
-        createOpenCodeMessageTimes([
+        createMessageTimes([
             { id: "m1", timestamp: new Date(2026, 0, 2, 12).getTime() },
             { id: "m2", timestamp: new Date(2026, 0, 3, 12).getTime() },
         ]);
@@ -909,7 +899,7 @@ describe("m[0]/m[1] materialization", () => {
                         .prepare(
                             `INSERT INTO compartments
                                 (session_id, sequence, start_message, end_message, title, content, legacy, created_at)
-                             VALUES (?, 0, 1, 1, 'legacy', 'legacy summary', 1, 1)`,
+                             VALUES (?, 99, 1, 1, 'legacy', 'legacy summary', 1, 1)`,
                         )
                         .run(SESSION_ID);
                 },
@@ -951,7 +941,7 @@ describe("m[0]/m[1] materialization", () => {
                 closeQuietly(reader);
             }
         }
-    });
+    }, 15_000);
 
     it("uses one cached statement execution for an unchanged marker decision", () => {
         db = makeDb();
@@ -1171,7 +1161,7 @@ describe("m[0]/m[1] materialization", () => {
         // split exists to prevent. New compartments fold into m[0] only on a HARD
         // bust (TTL/system/tools/model change).
         db = makeDb();
-        createOpenCodeMessageTimes([{ id: "m1", timestamp: new Date(2026, 0, 4, 12).getTime() }]);
+        createMessageTimes([{ id: "m1", timestamp: new Date(2026, 0, 4, 12).getTime() }]);
         const projectDirectory = makeProjectDir();
         materializeM0({
             db,

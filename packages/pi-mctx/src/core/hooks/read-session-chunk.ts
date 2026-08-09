@@ -81,9 +81,8 @@ let activeAbsoluteCountCache: Map<string, number> | null = null;
  * `readRawSessionMessages` / `getRawSessionMessageCount` /
  * `getProtectedTailStartOrdinal` / `readSessionChunk` helpers.
  *
- * The registry is lookup-by-sessionId: a registered provider takes
- * precedence over the Pi-DB default. Sessions never registered
- * here continue to read from Pi's DB (existing behavior).
+ * Pi adapter installs a provider before invoking these helpers. The registry
+ * never falls back to a host session database.
  *
  * Lifecycle: providers should be registered for the duration of one
  * historian/trigger evaluation and unregistered afterward to avoid
@@ -111,10 +110,7 @@ export interface RawMessageProvider {
 const sessionProviders = new Map<string, RawMessageProvider>();
 
 /**
- * Register a per-session source for raw message reading. Returns an
- * unregister function. Pass-through harnesses (Pi) never call
- * this; only Pi/future harnesses install themselves before triggering
- * historian.
+ * Pi installs this provider for each historian/trigger evaluation.
  */
 export function setRawMessageProvider(sessionId: string, provider: RawMessageProvider): () => void {
     sessionProviders.set(sessionId, provider);
@@ -433,7 +429,7 @@ export function readRawSessionMessageById(sessionId: string, messageId: string):
 }
 
 function readRawSessionMessagesFromSource(sessionId: string): RawMessage[] {
-    return provider?.readMessages() ?? [];
+    return sessionProviders.get(sessionId)?.readMessages() ?? [];
 }
 
 export function getRawSessionMessageCount(sessionId: string): number {

@@ -659,14 +659,8 @@ export function buildTrueRawTokenIndex(
  * Deliberately hashes ONLY the content-bearing fields the tokenizer counts
  * (text / thinking / tool input+output text), NOT the JSON envelope or
  * updated-at metadata. The same logical message is observed through two
- * different views — the DB rows (`readRawSession*FromDb`) and the transform's
- * in-memory `args.messages` (which carries extra runtime fields and no
- * timestamps) — and the fingerprint computed at trigger time from one view
- * must match the one recomputed at historian-start from the other, or every
- * memory-derived snapshot would be rejected as stale. Content edits and
- * message insertion/removal still change the fingerprint (content hashes/ids/
- * ordinals), which is exactly the staleness the check exists to catch;
- * metadata-only drift never affects the historian's chunk content.
+ * The trigger and transform use Pi in-memory views, so their fingerprints
+ * must agree despite different runtime metadata.
  */
 function partContentFingerprint(part: unknown): string {
     if (!isRecord(part)) return `${typeof part}:${recursiveByteLength(part)}`;

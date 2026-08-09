@@ -49,7 +49,7 @@ import {
 import {
 	embedPromotedFacts,
 	promoteSessionFactsDurable,
-} from "#core/features/memory";
+} from "#core/features/memory/index";
 import { resolveProjectIdentityForSession } from "#core/features/memory/project-identity";
 import { getMemoriesByProject } from "#core/features/memory/storage-memory";
 import {

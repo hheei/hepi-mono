@@ -25,6 +25,12 @@ export function getProjectMagicContextDir(directory: string): string {
     return path.join(directory, ".cortexkit", "magic-context");
 }
 
+/** Project-local historian response dumps. */
+export function getProjectMagicContextHistorianDir(directory: string): string {
+    return path.join(getProjectMagicContextDir(directory), "historian");
+}
+
+
 const GITIGNORE_GUARD_OPEN = "# >>> cortexkit:magic-context";
 const GITIGNORE_GUARD_CLOSE = "# <<< cortexkit:magic-context";
 

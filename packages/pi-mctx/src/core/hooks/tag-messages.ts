@@ -591,12 +591,6 @@ export function tagMessages(
                         reasoningTokenCount: reasoningTokens,
                     }),
                 );
-                invalidateCachedCandidateToolOwnersIfNewOwner(
-                    ownerDerivationCache,
-                    sessionId,
-                    toolPart.callID,
-                    ownerMsgId,
-                );
                 accAssignToolTag += performance.now() - _tAssignTool;
                 messageTagNumbers.set(
                     message,

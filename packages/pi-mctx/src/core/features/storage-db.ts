@@ -261,7 +261,12 @@ export function initializeDatabase(db: Database): void {
     db.exec("PRAGMA foreign_keys=ON");
     db.exec("PRAGMA journal_mode=WAL");
     applySqliteTuningPragmas(db);
-    db.exec(LATEST_SCHEMA_SQL);
+    const initialized = db
+        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'session_meta'")
+        .get();
+    if (!initialized) {
+        db.exec(LATEST_SCHEMA_SQL);
+    }
 }
 
 /**
@@ -301,14 +306,16 @@ export function openDatabase(dbPathOrOptions?: string | OpenDatabaseOptions): Da
         return existing;
     }
 
+    let db: Database | undefined;
     try {
         ensureSecureStorageDir(dbDir);
 
-        const db = new Database(dbPath);
+        db = new Database(dbPath);
         initializeDatabase(db);
         ensureContextStoreUuid(db);
         return finishDatabaseOpen(db, dbPath);
     } catch (error) {
+        if (db) closeQuietly(db);
         const detail = getErrorMessage(error);
         log(`[magic-context] storage fatal: failed to open ${dbPath}: ${detail}`);
         // No silent in-memory fallback — see comment above. Caller must
