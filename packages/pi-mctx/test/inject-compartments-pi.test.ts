@@ -29,7 +29,7 @@ import {
 	mustMaterializePi,
 	renderM0Pi,
 	renderM1Pi,
-} from "../src/inject-compartments-pi";
+} from "../src/core/hooks/inject-compartments";
 import { createTestDb, textOf, userMessage } from "./test-utils.test";
 
 function user(text: string, timestamp = 1) {

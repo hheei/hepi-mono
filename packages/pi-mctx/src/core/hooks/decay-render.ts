@@ -1,7 +1,6 @@
 /**
  * Shared deterministic decay renderer (v2). Used by Pi so visual behavior
- * (inject-compartments.ts) and Pi (inject-compartments-pi.ts) so the two
- * harnesses render compartment history byte-identically from the same validated
+ * (`inject-compartments.ts`) supplies both Pi injection and shared decay rendering.
  * decay curve. This is the single render-side implementation of the curve in
  * `decay-curve.ts`; neither harness may keep a private/approximate copy.
  *

@@ -12,7 +12,7 @@ import {
 	__test,
 	injectM0M1Pi,
 	type PiM0M1State,
-} from "../src/inject-compartments-pi";
+} from "../src/core/hooks/inject-compartments";
 import { createTestDb, textOf, userMessage } from "./test-utils.test";
 
 const SESSION_ID = "ses_pi_mural_inject";

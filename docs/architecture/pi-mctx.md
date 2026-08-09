@@ -14,7 +14,7 @@ Pi host
 ```
 
 - adapter owns Pi hooks、commands、tools、surface registration、Pi session lifecycle，以及 `RawMessageProvider` registration。
-- `src/core/**` owns Pi 使用的 shared storage、compaction、memory、search、Dreamer 與 pure transformations。
+- `src/core/**` owns Pi 使用的 shared storage、compaction、memory、search、Dreamer 與 pure transformations；`src/core/hooks/inject-compartments.ts` 是明確的 Pi-aware exception，集中 m[0]/m[1] injection、Pi message splice 與共享 memory render，避免 adapter wrapper 與 legacy injector 平行演進。
 - Embedding provider state is project-scoped in `project-embedding-registry`; adapter search callers pass `embedQuery` and availability explicitly. Core search never creates an ambient provider or silently chooses a model.
 - core is private implementation. Other workspace packages must not import it.
 - `xpi-mctx` remains excluded: it is a historical archive, not part of active implementation.

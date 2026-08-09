@@ -36,7 +36,6 @@ import {
     validateChunkCoverage,
     validateStoredCompartments,
 } from "./compartment-runner-validation";
-import { clearInjectionCache } from "./inject-compartments";
 import {
     createDefaultBoundarySnapshotForTests,
     resolveProtectedTailBoundary,
@@ -260,10 +259,6 @@ export async function executeContextRecompInternal(deps: CompartmentRunnerDeps):
             // per-session depth state so the rebuilt compartments start at depth
             // 0, matching what partial recomp does for its rebuilt range.
             clearCompressionDepth(db, sessionId);
-
-            if (deps.preserveInjectionCacheUntilConsumed !== true) {
-                clearInjectionCache(sessionId);
-            }
 
             // v2 locked rule: recomp does NOT promote facts to project memory
             // (see final-success path below for rationale). Structural rebuild only.
@@ -539,10 +534,6 @@ export async function executeContextRecompInternal(deps: CompartmentRunnerDeps):
         // Full recomp rebuilds every compartment, so all pre-existing depth
         // rows are stale. Matches partial recomp's behavior for rebuilt ranges.
         clearCompressionDepth(db, sessionId);
-        if (deps.preserveInjectionCacheUntilConsumed !== true) {
-            clearInjectionCache(sessionId);
-        }
-
         const finalCompartments = promoted?.compartments ?? candidateCompartments;
         const finalFacts = promoted?.facts ?? candidateFacts;
 
