@@ -1108,7 +1108,7 @@ describe("memory authority protocol", () => {
         }
     });
 
-    test.skip("repairs a partially populated live mirror before replay", async () => {
+    test("repairs a partially populated live mirror before replay", async () => {
         const database = db();
         withPrivilegedWriter(database, () => {
             database
@@ -1318,7 +1318,7 @@ describe("memory authority protocol", () => {
         }
     });
 
-    test.skip("stages paged live resnapshots and swaps only after the final page", async () => {
+    test("stages paged live resnapshots and swaps only after the final page", async () => {
         const database = db();
         database
             .prepare(
@@ -1393,7 +1393,7 @@ describe("memory authority protocol", () => {
         );
     });
 
-    test.skip("a stale paged resnapshot cannot replace a newer completed generation", async () => {
+    test("a stale paged resnapshot cannot replace a newer completed generation", async () => {
         const directory = mkdtempSync(join(tmpdir(), "mc-resnapshot-owner-"));
         const path = join(directory, "context.db");
         const first = new Database(path);
@@ -1498,7 +1498,7 @@ describe("memory authority protocol", () => {
         }
     });
 
-    test.skip("pull and drain resnapshots honor the same file-backed generation owner", async () => {
+    test("pull and drain resnapshots honor the same file-backed generation owner", async () => {
         const directory = mkdtempSync(join(tmpdir(), "mc-resnapshot-entrypoints-"));
         const path = join(directory, "context.db");
         const pullDb = new Database(path);

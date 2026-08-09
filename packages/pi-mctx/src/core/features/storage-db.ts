@@ -266,6 +266,9 @@ export function initializeDatabase(db: Database): void {
         .get();
     if (!initialized) {
         db.exec(LATEST_SCHEMA_SQL);
+        db.prepare(
+            "INSERT OR IGNORE INTO mirror_resnapshot_state(domain, status, updated_at, generation) VALUES ('memories', 'pending_check', 0, NULL)",
+        ).run();
     }
 }
 
