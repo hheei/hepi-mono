@@ -17,7 +17,7 @@ import {
     MAX_EXECUTE_THRESHOLD,
     resolveExecuteThresholdDetail,
 } from "./event-resolvers";
-import { formatBytes } from "./format-bytes";
+import { formatBytes } from "../shared/format-bytes";
 import { estimateTokens } from "./read-session-formatting";
 
 function formatExecuteThreshold(detail: ExecuteThresholdDetail, contextLimit: number): string {

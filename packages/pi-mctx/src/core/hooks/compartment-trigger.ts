@@ -51,9 +51,8 @@ export interface CompartmentTriggerResult {
     /**
      * The protected-tail boundary snapshot the decision was computed from.
      * Present whenever the tail inspection ran. Callers that start the
-     * historian in the SAME pass (transform path) should hand this to
-     * runCompartmentPhase so it doesn't re-resolve the boundary — one
-     * resolution per pass, and the historian sees exactly the snapshot the
+     * historian in the SAME pass should hand this snapshot onward so it does
+     * not re-resolve the boundary — one resolution per pass, and the historian
      * decision saw.
      */
     boundarySnapshot?: ProtectedTailBoundarySnapshot;
