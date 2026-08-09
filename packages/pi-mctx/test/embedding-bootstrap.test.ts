@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getProjectEmbeddingSnapshot } from "#core/features/memory/embedding";
+import { getProjectEmbeddingSnapshot } from "#core/features/project-embedding-registry";
 import {
 	getProjectEmbeddings,
 	peekProjectEmbeddings,

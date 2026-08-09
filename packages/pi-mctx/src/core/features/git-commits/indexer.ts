@@ -17,7 +17,7 @@ import {
     embedItemsForProject,
     enqueueShadowEmbeddingItems,
     getProjectEmbeddingSnapshot,
-} from "../memory/embedding";
+} from "../project-embedding-registry";
 import { readGitCommitsResult } from "./git-log-reader";
 import {
     countEmbeddedCommits,

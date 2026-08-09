@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { log } from "../shared/logger";
 import type { Database } from "../shared/sqlite";
 import { V2_MEMORY_CATEGORIES } from "./memory/constants";
-import { normalizeStoredProjectPath, storedPathBelongsToIdentity } from "./project-identity";
+import { normalizeStoredProjectPath, storedPathBelongsToIdentity } from "./memory/project-identity";
 
 export interface WorkspaceIdentitySet {
     identities: string[];

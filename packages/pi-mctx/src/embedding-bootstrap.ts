@@ -6,7 +6,7 @@ import {
 import {
 	type EmbeddingFeatures,
 	registerProjectEmbedding,
-} from "#core/features/memory/embedding";
+} from "#core/features/project-embedding-registry";
 import { resolveProjectIdentityForSession } from "#core/features/memory/project-identity";
 import type { ContextDatabase } from "#core/features/storage";
 import {

@@ -1,6 +1,6 @@
 import { log } from "../../shared/logger";
 import type { Database } from "../../shared/sqlite";
-import { embedBatchForProject, getProjectEmbeddingSnapshot } from "./embedding";
+import { embedBatchForProject, getProjectEmbeddingSnapshot } from "../project-embedding-registry";
 import {
     type StoredMemoryEmbedding,
     saveEmbeddingIfHashMatches,

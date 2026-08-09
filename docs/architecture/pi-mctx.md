@@ -15,7 +15,7 @@ Pi host
 
 - adapter owns Pi hooks、commands、tools、surface registration、Pi session lifecycle，以及 `RawMessageProvider` registration。
 - `src/core/**` owns Pi 使用的 shared storage、compaction、memory、search、Dreamer 與 pure transformations。
-- `src/context-handler.ts` 與 `src/auto-search-pi.ts` 是 Pi 唯一的 transform 與 auto-search 執行入口。已移除的 generic transform/Rust pipeline 不可由 adapter、動態載入或設定重新啟用；Pi 保留的 core helper 必須有 adapter 的直接 consumer。
+- Embedding provider state is project-scoped in `project-embedding-registry`; adapter search callers pass `embedQuery` and availability explicitly. Core search never creates an ambient provider or silently chooses a model.
 - core is private implementation. Other workspace packages must not import it.
 - `xpi-mctx` remains excluded: it is a historical archive, not part of active implementation.
 - OpenCode backend is not retained: no OpenCode DB access、config/RPC integration、legacy migration、plugin context, or cross-harness fallback remains under this package.

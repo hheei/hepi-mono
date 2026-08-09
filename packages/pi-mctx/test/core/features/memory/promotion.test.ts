@@ -10,18 +10,16 @@ import { CATEGORY_DEFAULT_TTL } from "../../../../src/core/features/memory/const
 // tests that import the omitted exports (e.g. embedding-backfill.test.ts /
 // embedding-cache.test.ts fail with "Export named 'embedBatchForProject' not
 // found" under a whole-dir run). Spreading the real module keeps the mock
-// complete — only the three functions this file needs stubbed are overridden.
-import * as realEmbedding from "../../../../src/core/features/memory/embedding";
+// complete while the project embedding call is overridden.
+import * as realEmbedding from "../../../../src/core/features/project-embedding-registry";
 import { computeNormalizedHash } from "../../../../src/core/features/memory/normalize-hash";
 
 const mockEmbedText = mock(async () => null);
 const mockLog = mock(() => {});
 
-mock.module("../../../../src/core/features/memory/embedding", () => ({
+mock.module("../../../../src/core/features/project-embedding-registry", () => ({
     ...realEmbedding,
-    embedText: mockEmbedText,
     embedTextForProject: mockEmbedText,
-    getEmbeddingModelId: () => "mock:model",
 }));
 
 mock.module("../../../../src/core/shared/logger", () => ({

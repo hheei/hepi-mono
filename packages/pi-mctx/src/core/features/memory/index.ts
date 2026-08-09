@@ -1,5 +1,4 @@
 export * from "./constants";
-export * from "./embedding";
 export * from "./embedding-backfill";
 export * from "./embedding-cache";
 export * from "./normalize-hash";

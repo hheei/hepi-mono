@@ -8,7 +8,7 @@ import {
     isMemoryMigrationDone,
     markMemoryMigrationDone,
 } from "../../../src/core/features/memory/memory-migration";
-import { resolveProjectIdentity } from "../../../src/core/features/project-identity";
+import { resolveProjectIdentity } from "../../../src/core/features/memory/project-identity";
 import { closeDatabase, openDatabase } from "../../../src/core/features/storage-db";
 import { acquireWrapupInProgress } from "../../../src/core/features/storage-meta-persisted";
 import type { LiveSessionState } from "../../../src/core/hooks/live-session-state";

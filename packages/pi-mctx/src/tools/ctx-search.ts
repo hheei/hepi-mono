@@ -19,7 +19,7 @@ import { getLastCompartmentEndMessage } from "#core/features/compartment-storage
 import {
 	embedTextForProject,
 	getProjectEmbeddingSnapshot,
-} from "#core/features/memory/embedding";
+} from "#core/features/project-embedding-registry";
 import { resolveProjectIdentityForSession } from "#core/features/memory/project-identity";
 import {
 	parseIdShapedQuery,

@@ -19,7 +19,7 @@ import {
     updateMemoryRetrievalCount,
 } from "./memory";
 import { cosineSimilarity } from "./memory/cosine-similarity";
-import { embedText, getProjectEmbeddingSnapshot, isEmbeddingEnabled } from "./memory/embedding";
+import { getProjectEmbeddingSnapshot } from "./project-embedding-registry";
 import { sanitizeFtsQuery } from "./memory/storage-memory-fts";
 import { getIndexedMessageCorpusSize } from "./message-index";
 import { recordShadowMeasurement } from "./search-measurement";
@@ -1607,8 +1607,8 @@ export async function unifiedSearch(
     const tierLimit = Math.max(limit * 3, DEFAULT_UNIFIED_SEARCH_LIMIT);
 
     const embeddingEnabled = options.embeddingEnabled ?? true;
-    const embedQuery = options.embedQuery ?? embedText;
-    const isEmbeddingRuntimeEnabled = options.isEmbeddingRuntimeEnabled ?? isEmbeddingEnabled;
+    const embedQuery = options.embedQuery ?? (async () => null);
+    const isEmbeddingRuntimeEnabled = options.isEmbeddingRuntimeEnabled ?? (() => false);
     const gitCommitsEnabled = options.gitCommitsEnabled ?? false;
     const activeSources = resolveSources(options.sources);
 

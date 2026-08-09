@@ -1,7 +1,7 @@
 import { sessionLog } from "../../shared/logger";
 import type { Database } from "../../shared/sqlite";
 import { CATEGORY_DEFAULT_TTL, PROMOTABLE_CATEGORIES } from "./constants";
-import { embedTextForProject } from "./embedding";
+import { embedTextForProject } from "../project-embedding-registry";
 import { computeNormalizedHash } from "./normalize-hash";
 import {
     getMemoryByHash,

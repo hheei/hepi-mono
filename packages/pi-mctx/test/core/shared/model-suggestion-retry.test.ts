@@ -3,7 +3,7 @@ import { describe, expect, mock, test } from "bun:test";
 import {
     promptSyncWithModelSuggestionRetry,
     promptSyncWithValidatedOutputRetry,
-} from "../../../src/core/shared/model-suggestion-retry";
+} from "../../../src/core/shared/prompt-sync";
 
 type PromptCall = {
     body: {

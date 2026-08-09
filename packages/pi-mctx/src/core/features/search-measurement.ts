@@ -5,7 +5,7 @@ import {
     embedShadowTextForProject,
     getPrimaryEmbeddingMeasurementCohort,
     getShadowEmbeddingMeasurementCohort,
-} from "./memory/embedding";
+} from "./project-embedding-registry";
 import type { CapturedQueryEmbedding, UnifiedSearchOptions, UnifiedSearchResult } from "./search";
 import { recordEmbeddingMeasurement } from "./storage-embedding-measurements";
 
