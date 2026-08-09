@@ -5,7 +5,7 @@ import {
     getProjectEmbeddingSnapshot,
     markProjectLoadUntrusted,
     registerProjectInObservationMode,
-} from "../features/memory/embedding";
+} from "../features/project-embedding-registry";
 import { log } from "../shared/logger";
 import type { Database } from "../shared/sqlite";
 

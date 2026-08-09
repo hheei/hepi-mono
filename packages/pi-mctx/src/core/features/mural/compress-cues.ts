@@ -242,8 +242,7 @@ export async function runCompressCues(args: CompressCuesArgs): Promise<CompressC
 }
 
 /** True when a chunk failed because the model did not finish within its time
- *  slice — the "prompt timed out after Nms" error thrown by promptWithTimeout in
- *  shared/model-suggestion-retry. Validation failures (bad/missing manifest,
+ *  slice — the "prompt timed out after Nms" error thrown by the shared prompt retry helper. Validation failures (bad/missing manifest,
  *  length-capped output) and provider errors are deliberately NOT timeout-class:
  *  those keep the existing per-chunk retry-next-run behavior and must not trip
  *  the consecutive-timeout circuit breaker. */

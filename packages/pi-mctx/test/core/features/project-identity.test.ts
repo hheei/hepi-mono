@@ -14,7 +14,7 @@ import {
     resolveProjectIdentityStrict,
     storedPathBelongsToIdentity,
     takeDubiousOwnershipProjectIdentityWarning,
-} from "../../../src/core/features/project-identity";
+} from "../../../src/core/features/memory/project-identity";
 
 const tempDirs: string[] = [];
 const FIRST_ROOT_COMMIT = "abcdef1234567890abcdef1234567890abcdef12";

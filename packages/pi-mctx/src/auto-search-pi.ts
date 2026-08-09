@@ -53,7 +53,7 @@ import type { ContextEvent } from "@earendil-works/pi-coding-agent";
 import {
 	embedTextForProject,
 	getProjectEmbeddingSnapshot,
-} from "#core/features/memory/embedding";
+} from "#core/features/project-embedding-registry";
 import {
 	unifiedSearch,
 	type UnifiedSearchOptions,

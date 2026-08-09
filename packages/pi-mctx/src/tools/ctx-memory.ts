@@ -54,7 +54,7 @@ import {
 import {
 	embedTextForProject,
 	getProjectEmbeddingSnapshot,
-} from "#core/features/memory/embedding";
+} from "#core/features/project-embedding-registry";
 import { invalidateMemory } from "#core/features/memory/embedding-cache";
 import { computeNormalizedHash } from "#core/features/memory/normalize-hash";
 import {

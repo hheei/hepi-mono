@@ -6,7 +6,7 @@ import {
     isMemoryMigrationDone,
     runMemoryMigration,
 } from "../features/memory/memory-migration";
-import { resolveProjectIdentity } from "../features/project-identity";
+import { resolveProjectIdentity } from "../features/memory/project-identity";
 import {
     clearEmergencyRecovery,
     isWrapupInProgress,

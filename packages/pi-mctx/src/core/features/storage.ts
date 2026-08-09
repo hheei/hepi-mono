@@ -51,7 +51,7 @@ export {
     resolveProjectIdentity,
     resolveProjectIdentityStrict,
     storedPathBelongsToIdentity,
-} from "./project-identity";
+} from "./memory/project-identity";
 export {
     type CloneCompartmentRow,
     type CloneSessionStateFilter,
