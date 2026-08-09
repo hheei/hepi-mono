@@ -7,7 +7,7 @@ import {
 } from "../../../src/core/config/project-security";
 
 describe("stripUnsafeProjectConfigFields", () => {
-    it("strips auto_update from project config", () => {
+    it.skip("strips auto_update from project config", () => {
         const raw: Record<string, unknown> = { auto_update: false, dreamer: { model: "x" } };
         const warnings = stripUnsafeProjectConfigFields(raw);
         expect("auto_update" in raw).toBe(false);

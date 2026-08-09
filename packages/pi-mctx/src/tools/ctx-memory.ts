@@ -50,7 +50,7 @@ import {
 	updateMemoryContent,
 	updateMemorySeenCount,
 	V2_MEMORY_CATEGORIES,
-} from "#core/features/memory";
+} from "#core/features/memory/index";
 import {
 	embedTextForProject,
 	getProjectEmbeddingSnapshot,

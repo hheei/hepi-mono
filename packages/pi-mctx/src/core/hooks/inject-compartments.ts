@@ -53,6 +53,7 @@ import {
 } from "./compartment-render-epoch";
 import { extractM0Block, renderCompartmentAtTier, renderDecayedCompartments } from "./decay-render";
 import { estimateTokens } from "./read-session-formatting";
+import { readRawSessionMessages } from "./read-session-chunk";
 import type { MessageLike } from "./tag-messages";
 import { formatDate } from "./temporal-awareness";
 
@@ -425,13 +426,20 @@ export function prepareCompartmentInjection(
 
     let dateRanges: CompartmentDateRanges | undefined;
     if (temporalAwareness && compartments.length > 0) {
-        // Resolve start/end message times from legacy host's DB in a single batched query.
+        // Resolve start/end message times from Pi's registered session provider.
         const ids = new Set<string>();
         for (const c of compartments) {
             if (c.startMessageId) ids.add(c.startMessageId);
             if (c.endMessageId) ids.add(c.endMessageId);
         }
         const times = new Map<string, number>();
+        for (const message of readRawSessionMessages(sessionId)) {
+            const createdAt = message.createdAt;
+            if (!ids.has(message.id) || typeof createdAt !== "number" || !Number.isFinite(createdAt)) {
+                continue;
+            }
+            times.set(message.id, createdAt);
+        }
         const byId = new Map<number, { start: string; end: string }>();
         for (const c of compartments) {
             const startMs = times.get(c.startMessageId);
@@ -1722,7 +1730,7 @@ function nullableString(value: unknown): string | null {
 }
 
 /**
- * Resolve every boundary in one legacy host DB query for a fresh m[0] or m[1] render.
+ * Resolve every boundary from Pi's registered session provider for a fresh m[0] or m[1] render.
  * Callers invoke this only on existing materialize/refresh paths; defer passes replay
  * persisted bytes without consulting live timestamps.
  */
@@ -1739,6 +1747,13 @@ function withCompartmentDates(
         if (compartment.endMessageId) messageIds.add(compartment.endMessageId);
     }
     const times = new Map<string, number>();
+    for (const message of readRawSessionMessages(sessionId)) {
+        const createdAt = message.createdAt;
+        if (!messageIds.has(message.id) || typeof createdAt !== "number" || !Number.isFinite(createdAt)) {
+            continue;
+        }
+        times.set(message.id, createdAt);
+    }
     return compartments.map((compartment) => {
         const startMs = times.get(compartment.startMessageId);
         const endMs = times.get(compartment.endMessageId);

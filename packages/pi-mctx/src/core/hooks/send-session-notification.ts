@@ -59,6 +59,7 @@ export const __ignoredNotificationTest = {
 
 interface NotificationClient {
     session?: {
+        messages?: () => Promise<{ data?: Array<{ info?: Record<string, unknown> }> }>;
         prompt?: (opts: unknown) => unknown | Promise<unknown>;
         promptAsync?: (opts: unknown) => Promise<unknown>;
     };
@@ -115,10 +116,25 @@ async function sendIgnoredMessageNow(
 
     let agent = params.agent || undefined;
     let variant = params.variant || undefined;
-    const model =
-        params.providerId && params.modelId
-            ? { providerID: params.providerId, modelID: params.modelId }
-            : undefined;
+    let providerId = params.providerId;
+    let modelId = params.modelId;
+    if ((!agent || !providerId || !modelId) && c.session?.messages) {
+        const messages = await c.session.messages();
+        const lastAssistant = [...(messages.data ?? [])]
+            .reverse()
+            .find((message) => message.info?.role === "assistant")?.info;
+        agent ||= typeof lastAssistant?.agent === "string" ? lastAssistant.agent : undefined;
+        variant ||= typeof lastAssistant?.variant === "string" ? lastAssistant.variant : undefined;
+        providerId ||= typeof lastAssistant?.providerID === "string" ? lastAssistant.providerID : undefined;
+        modelId ||= typeof lastAssistant?.modelID === "string" ? lastAssistant.modelID : undefined;
+    }
+    const input = {
+        path: { id: sessionId },
+        body: {
+            agent,
+            variant,
+            model: providerId && modelId ? { providerID: providerId, modelID: modelId } : undefined,
+            noReply: true,
             parts: [
                 {
                     type: "text",

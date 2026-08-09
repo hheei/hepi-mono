@@ -1,20 +1,15 @@
 /**
  * Magic Context — Pi coding agent extension.
  *
- * Loaded once per Pi session via `pi.extensions` in package.json. Boots
- * Magic Context's shared SQLite store and registers session lifecycle
- * hooks: tools, transform pipeline (tagging + drops), historian trigger,
- * /ctx-aug command, system-prompt injection, dreamer scheduling, and
- * agent_end cleanup.
+ * Loaded once per Pi session by the Pi extension bootstrap.
+ * Registers session lifecycle hooks: tools, transform pipeline (tagging + drops),
+ * historian trigger, /ctx-aug command, system-prompt injection, Dreamer scheduling,
+ * and agent_end cleanup.
  *
- * Storage: shares one SQLite database with the legacy host plugin at
+ * Storage: fresh Pi schema at
  *   ~/.local/share/cortexkit/magic-context/context.db
- * so project memories, embedding cache, dreamer runs, and other
- * project-scoped state are visible across both harnesses. Session-scoped
- * tables carry a `harness` column ('legacy-host' or 'pi') so per-session
- * data stays correctly attributed.
  *
- * Config: read from the shared CortexKit location —
+ * Config: read from
  *   $cwd/.cortexkit/magic-context.jsonc (project) and
  *   ~/.config/cortexkit/magic-context.jsonc (user) via `loadPiConfig()`.
  *   Falls back to schema defaults when neither file exists.
@@ -56,7 +51,6 @@ import {
 	getOverflowState,
 	recordOverflowDetected,
 } from "#core/features/storage-meta-persisted";
-import { runDeferredV22Backfill } from "#core/features/v22-deferred-backfill";
 import { setCtxReduceRegisteredGlobally } from "#core/hooks/ctx-reduce-availability";
 import {
 	deriveHistorianChunkTokens,
@@ -798,15 +792,6 @@ async function startPiMagicContextRuntime(
 	dbPath: string,
 ): Promise<void> {
 	const db = database;
-
-	// v22 deferred legacy-memory identity backfill. openDatabase() has already
-	// run migrations; the runner is fire-and-forget and logs failures without
-	// blocking Pi startup.
-	scheduleAfterBootQuiet(() => {
-		runDeferredV22Backfill(db).catch((err) => {
-			warn(`[v22-backfill] background runner failed: ${err}`);
-		});
-	});
 
 	scheduleAfterBootQuiet(() => {
 		void (async () => {

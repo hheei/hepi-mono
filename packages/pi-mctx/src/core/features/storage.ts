@@ -307,15 +307,6 @@ export {
     updateTagStatus,
 } from "./storage-tags";
 export {
-    clearV22BackfillFailures,
-    deleteV22BackfillFailure,
-    getV22BackfillFailure,
-    listV22BackfillFailures,
-    recordV22BackfillFailure,
-    type V22BackfillErrorClass,
-    type V22BackfillFailureRow,
-} from "./storage-v22-backfill-failures";
-export {
     bumpEpochsForWorkspaceMemberSet,
     bumpEpochsForWorkspaceMembers,
     computeWorkspaceEpochFingerprint,

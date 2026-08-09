@@ -1,5 +1,4 @@
 import type { MemorySourceType } from "../../features/memory";
-import type { RustToolBackends } from "../../plugin/rust-tool-backends";
 import type { Database } from "../../shared/sqlite";
 import type { ImitatedReducedArgs } from "../unwrap-imitated-reduced-args";
 
@@ -56,5 +55,5 @@ export interface CtxMemoryToolDeps {
     embeddingEnabled?: boolean;
     allowedActions?: CtxMemoryAction[];
     sourceType?: MemorySourceType;
-    rustToolBackends?: RustToolBackends;
+    rustToolBackends?: unknown;
 }

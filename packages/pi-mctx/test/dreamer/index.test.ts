@@ -4,7 +4,7 @@ import {
 	DreamerConfigSchema,
 } from "#core/config/schema/magic-context";
 import { getTaskScheduleState } from "#core/features/dreamer/storage-task-schedule";
-import { insertMemory } from "#core/features/memory";
+import { insertMemory } from "#core/features/memory/index";
 import { initializeDatabase } from "../../src/core/features/storage-db";
 import { Database } from "#core/shared/sqlite";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
@@ -14,7 +14,7 @@ import {
 	registerPiDreamerProject,
 	runPiDreamForProject,
 	unregisterPiDreamerProject,
-} from ".";
+} from "../../src/dreamer/index";
 
 let db: Database | null = null;
 
