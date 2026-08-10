@@ -17,11 +17,11 @@ export default function piSettingsExtension(pi: ExtensionAPI): void {
 	let active: ActiveSettingsSession | undefined;
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-settings",
-		start: ({ extension, signal, resources, artifacts }) => {
+		start: ({ extension, signal, resources, outputs }) => {
 			const session: ActiveSettingsSession = { signal };
 			active = session;
 			registerExtensionPage(
-				{ pi, extension, signal, resources, artifacts },
+				{ pi, extension, signal, resources, outputs },
 				{
 					id: "settings",
 					label: "Settings",

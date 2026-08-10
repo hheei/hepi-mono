@@ -1,4 +1,5 @@
 import { runMpatch as runNativeMpatch } from "../native-bridge.js";
+import type { MpatchHunkOutcome } from "./outcome.js";
 
 export interface MpatchRunOptions {
 	readonly cwd: string;
@@ -12,6 +13,7 @@ export interface MpatchRunResult {
 	readonly status: number | null;
 	readonly stdout: string;
 	readonly stderr: string;
+	readonly outcomes: readonly MpatchHunkOutcome[];
 }
 
 /** Runs vendored mpatch against an isolated staging directory. */

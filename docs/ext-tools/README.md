@@ -93,15 +93,15 @@ extension 也保留兼容 guard：当前 active tools 不含 `apply_patch` 时�
 
 ## Bash backend
 
-`bash` 保留 Pi-compatible `{ command, timeout }` 参数，但执行、streaming、timeout、输出截断与 artifact
+`bash` 保留 Pi-compatible `{ command, timeout }` 参数，但执行、streaming、timeout、输出截断与 output
 均由 `pi-ext-tools` 管理；它不复用 Pi host `createBashToolDefinition()`。这是为了避免 Pi host 的
-`pi-bash-*.log` 与 extension artifact 重复持有同一份完整输出，也绝不把 host 临时路径传给模型或 TUI。
+`pi-bash-*.log` 与 extension output 重复持有同一份完整输出，也绝不把 host 临时路径传给模型或 TUI。
 
 `pi-ext-tools` 的 `BashOutputSink` 是 foreground、async 与 PTY 的唯一输出策略 owner。它默认保留最后
-10 KiB 的 UTF-8-safe 可见 tail；foreground 与 PTY 仅在输出超过该限制时创建并持续写入 `artifact://N`，
-async 在启动时预留 artifact。所有终态 tool result 只携带 tail、截断 metadata 和 opaque artifact URI。
+10 KiB 的 UTF-8-safe 可见 tail；foreground 与 PTY 仅在输出超过该限制时创建并持续写入 `output://N`，
+async 在启动时预留 output。所有终态 tool result 只携带 tail、截断 metadata 和 opaque output URI。
 settings 属于 concrete extension：`pi-ext-tools` 的 Bash settings 配置该 visible-tail 上限；ext-core 仅持有
-进程范围 artifact resource，不拥有输出大小、截断或 shell policy。
+进程范围 output resource，不拥有输出大小、截断或 shell policy。
 
 PTY、stdin 回写、terminal resize 与后台 job 是独立 feature，不能由 `bash` tool 隐式 fallback 提供。
 
@@ -112,19 +112,19 @@ session-scoped background job，并立即返回 opaque job id。已确认的后�
 通过 Pi host 的 custom message 主动把 job id、终态、截断标记和有限 tail 放入当前 session；消息持久化并显示，
 但不触发新的 agent turn，使主 session 无需轮询即可查看完成结果而不产生非请求的模型工作。
 
-后台 Bash 与发生截断的前台 Bash 都将完整 stdout/stderr 保存为 artifact；tool result 仅提示以 `read` 打开该 URI。
-后台任务完成消息仍带有限 tail，完整内容绝不内联。Bash job 与其 artifact 共用同一个线性序号：例如 job `1`
-的完整输出为 `artifact://1`。
+后台 Bash 与发生截断的前台 Bash 都将完整 stdout/stderr 保存为 output；tool result 仅提示以 `read` 打开该 URI。
+后台任务完成消息仍带有限 tail，完整内容绝不内联。Bash job 与其 output 共用同一个线性序号：例如 job `1`
+的完整输出为 `output://1`。
 
-artifact 是 Pi 进程内共享、进程外隔离的 resource：同一 Pi host process 中的主 session 与 subagent session 都能
-`read` 同一个 URI，故 subagent 可以返回或创建 artifact URI；另一个 OS process 中的 registry 绝不解析它。artifact
+output 是 Pi 进程内共享、进程外隔离的 resource：同一 Pi host process 中的主 session 与 subagent session 都能
+`read` 同一个 URI，故 subagent 可以返回或创建 output URI；另一个 OS process 中的 registry 绝不解析它。output
 在 Pi process 退出时清理，而不能因创建它的单个 session shutdown 而失效。
 
 Pi host 的 internal URL registry 是所有 tool 的统一解析入口。extension 向 registry 注册受限 resolver；每个 tool
-可将接受的路径解析为 internal resource，并按自己的读写能力执行。artifact 是只读 resource：`read`、`grep`、
-`find` 等读取工具可消费它，写入工具必须拒绝它，不能把 artifact 当 workspace path。
+可将接受的路径解析为 internal resource，并按自己的读写能力执行。output 是只读 resource：`read`、`grep`、
+`find` 等读取工具可消费它，写入工具必须拒绝它，不能把 output 当 workspace path。
 
-artifact URI 采用 ext-core process registry 分配的单调十进制 id：`artifact://123`。extension 不选择名称、不持有
+output URI 采用 ext-core process registry 分配的单调十进制 id：`output://123`。extension 不选择名称、不持有
 host filesystem path、也不得伪造 URI；ext-core 保留 URI 到 process-owned resource 的映射，并在 process exit 清理。
 
 async job 使用 `pi-ext-tools` 自己的 shell-path setting，而不是读取 Pi host 的 private shell setting；
@@ -173,7 +173,7 @@ FFF `find` 结果按首次命中顺序聚合目录。一个目录出现至少两
 
 压缩 grep 汇总也按 parent dir 合并：同一目录至少两个匹配文件时输出 `dir/` 标题，文件行只保留 basename；根目录和单项目录继续输出完整 path。该原始结构同时发送给模型和 renderer。
 
-grep renderer 在每个文件块内以最大行号宽度右对齐 `:`、`│`、`?` 前的数字。该行为覆盖 exact content、approximate 和 native fallback；只调整 TUI，不重写模型收到的原始 tool result。
+grep renderer 在每个文件块内以最大行号宽度右对齐 `│` 前的数字。模型 compact output 首行是 `N matches in M files` 或 `N fuzzy matches in M files`；approximate match 仍用 `:`，不引入 `?`。TUI path 使用 `mdCode`，行号与 `│` 使用 `dim`，普通文本保持基础 theme，match range 使用 `success` highlight。未展开的整个结果（含 engine header 与 expansion hint）最多 15 行。
 
 ## 验证与发布
 
