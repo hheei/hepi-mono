@@ -9,12 +9,11 @@ import type {
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { observeLoadoutInventory } from "@hheei/pi-ext-core";
-import { normalizeNativeGrepResult } from "../src/grep-format.js";
 import { registerTools } from "../src/tools.js";
 
 const temporaryPaths: string[] = [];
-const renderContext = { isError: false, lastComponent: undefined } as never;
-const renderCallContext = { lastComponent: undefined } as never;
+const renderContext = { isError: false, isPartial: false, lastComponent: undefined } as never;
+const renderCallContext = { isError: false, isPartial: true, lastComponent: undefined } as never;
 
 afterEach(async (): Promise<void> => {
 	await Promise.all(
@@ -57,7 +56,115 @@ describe("pi-ext-tools catalog", () => {
 			"apply_patch",
 		]);
 		expect(names.filter((name) => name === "apply_patch")).toHaveLength(1);
+		expect(host.tools.every((tool) => tool.renderShell === "self")).toBe(true);
 		expect(() => registerTools(host.pi)).toThrow("Loadout tool id already registered: read");
+	});
+
+	test("renders a bounded, numbered read preview without changing model content", (): void => {
+		const host = harness();
+		registerTools(host.pi);
+		const read = host.tools.find((tool) => tool.name === "read");
+		if (read === undefined) throw new Error("read was not registered");
+		const theme = {
+			bg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
+			fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
+			bold: (text: string): string => `<b>${text}</b>`,
+		} as Theme;
+		const source = [
+			"H1",
+			"H2",
+			"H3",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"hidden",
+			"T1",
+			"T2",
+		].join("\n");
+		const result = {
+			content: [{ type: "text" as const, text: source }],
+			details: { __piExtToolsCompletion: { durationMs: 10 } },
+		};
+		const call = read.renderCall?.(
+			{ path: "sample.ts", offset: 9, limit: 48 },
+			theme,
+			renderContext,
+		);
+		expect(call?.render(200)).toEqual([
+			"<success>✓</success> <toolTitle><b>read</b></toolTitle> sample.ts<warning>:9-56</warning>",
+		]);
+		const preview = read
+			.renderResult?.(result, { isPartial: false, expanded: false }, theme, {
+				...(renderContext as object),
+				args: { path: "sample.ts", offset: 9, limit: 48 },
+			} as never)
+			?.render(80)
+			.join("\n");
+		expect(preview).toContain("<dim> 9│</dim>H1");
+		expect(preview).toContain("<dim>10│</dim>H2");
+		expect(preview).toContain("<dim>  │...</dim>");
+		expect(preview).toContain("<dim>55│</dim>T1");
+		expect(preview).toContain("<dim>56│</dim>T2");
+		expect(preview).toContain("<dim>315 chars · 48 lines · 10ms</dim>");
+		expect(result.content[0]?.text).toBe(source);
+		const expanded = read
+			.renderResult?.(result, { isPartial: false, expanded: true }, theme, {
+				...(renderContext as object),
+				args: { path: "sample.ts", offset: 9, limit: 48 },
+			} as never)
+			?.render(200)
+			.join("\n");
+		expect(expanded).toContain("hidden");
+		expect(result.content[0]?.text).toBe(source);
+		const narrow = read
+			.renderResult?.(
+				{ ...result, content: [{ type: "text" as const, text: "12345678901234567890" }] },
+				{ isPartial: false, expanded: false },
+				theme,
+				{ ...(renderContext as object), args: { path: "sample.ts" } } as never,
+			)
+			?.render(10)
+			.join("\n");
+		expect(narrow).toContain("<dim>></dim>");
 	});
 
 	test("hides pagination cursors from search renderers", (): void => {
@@ -75,8 +182,15 @@ describe("pi-ext-tools catalog", () => {
 			grep
 				.renderResult?.(
 					{
-						content: [{ type: "text", text: "src/a.ts\n1:needle\ncursor: grep:abc" }],
-						details: { format: "fff-grep" },
+						content: [{ type: "text", text: "src/a.ts\n1:needle" }],
+						details: {
+							format: "grep",
+							engine: "rg",
+							rows: [
+								{ kind: "file", text: "src/a.ts" },
+								{ kind: "match", text: "1: needle", ranges: [] },
+							],
+						},
 					},
 					{ isPartial: false, expanded: false },
 					theme,
@@ -122,33 +236,13 @@ describe("pi-ext-tools catalog", () => {
 		expect(properties(grep)).toEqual([
 			"pattern",
 			"path",
-			"exclude",
-			"caseSensitive",
+			"glob",
+			"ignoreCase",
+			"literal",
 			"context",
 			"limit",
-			"cursor",
 		]);
 		expect(properties(find)).toEqual(["pattern", "path", "exclude", "limit", "cursor"]);
-	});
-
-	test("normalizes native grep output to the FFF result shape", (): void => {
-		const result = normalizeNativeGrepResult({
-			content: [
-				{
-					type: "text",
-					text: "src/a.ts:10: first\nsrc/a.ts-9- before\nsrc/b.ts:3: second",
-				},
-			],
-			details: undefined,
-		});
-		expect(result.content[0]?.text).toBe(
-			"Found 2 matches in 2 files.\n\nsrc/a.ts\n10:first\n9│before\n\nsrc/b.ts\n3:second",
-		);
-		expect(result.details).toMatchObject({
-			format: "fff-grep",
-			totalMatched: 2,
-			totalFiles: 2,
-		});
 	});
 
 	test("registers Built-in provenance and bidirectional mutator locks", (): void => {
@@ -214,23 +308,16 @@ describe("pi-ext-tools catalog", () => {
 	test("keeps upstream renderer contracts intact", (): void => {
 		const host = harness();
 		registerTools(host.pi);
-		for (const [name, renderShell] of [
-			["read", undefined],
-			["grep", undefined],
-			["find", undefined],
-			["edit", "self"],
-			["write", undefined],
-			["bash", undefined],
-		] as const) {
+		for (const name of ["read", "grep", "find", "edit", "write", "bash"] as const) {
 			const tool = host.tools.find((candidate) => candidate.name === name);
 			if (tool === undefined) throw new Error(`Missing ${name} tool`);
-			expect(tool.renderShell).toBe(renderShell);
+			expect(tool.renderShell).toBe("self");
 			expect(tool.renderCall).toBeDefined();
 			expect(tool.renderResult).toBeDefined();
 		}
 	});
 
-	test("uses pi-fff grep and find display formatting", (): void => {
+	test("renders canonical grep details and existing find results", (): void => {
 		const host = harness();
 		registerTools(host.pi);
 		const theme = {
@@ -240,224 +327,107 @@ describe("pi-ext-tools catalog", () => {
 		const grep = host.tools.find((candidate) => candidate.name === "grep");
 		const find = host.tools.find((candidate) => candidate.name === "find");
 		if (grep === undefined || find === undefined) throw new Error("Missing search tool");
-
-		expect(
-			grep
-				.renderCall?.({ pattern: "needle", path: "src", timeout: 5 }, theme, renderCallContext)
-				.render(200)
-				.join("\n")
-				.trimEnd(),
-		).toBe(
-			"<accent>grep</accent> <mdCode>/needle/</mdCode> in <dim>src</dim><dim> (timeout 5s)</dim>",
+		const grepCall = grep
+			.renderCall?.({ pattern: "needle", path: "src" }, theme, renderCallContext)
+			.render(200)
+			.join("\n")
+			.trimEnd();
+		expect(grepCall).toBe(
+			"<warning>◐</warning> <accent>grep</accent> <mdCode>/needle/</mdCode> in <dim>src</dim>",
 		);
-		expect(
-			find
-				.renderCall?.({ pattern: "status-surface", limit: 8 }, theme, renderCallContext)
-				.render(200)
-				.join("\n")
-				.trimEnd(),
-		).toBe("<accent>find</accent> <mdCode>status-surface</mdCode> (limit 8)");
-		expect(
-			grep
-				.renderResult?.(
-					{
-						content: [{ type: "text", text: "src/a.ts (2 matches)\nline: 1, 3, ..." }],
-						details: { format: "fff-grep" },
-					},
-					{ isPartial: false, expanded: false },
-					theme,
-					renderContext,
-				)
-				.render(200)
-				.map((line) => line.trimEnd())
-				.join("\n")
-				.trimEnd(),
-		).toBe("<dim>src/a.ts</dim> (<success>2</success> matches)\n<dim>line: 1, 3, ...</dim>");
-		expect(
-			grep
-				.renderResult?.(
-					{
-						content: [
+		const grepResult = grep
+			.renderResult?.(
+				{
+					content: [{ type: "text", text: `src/a.ts\n12: needle` }],
+					details: {
+						format: "canonical-grep",
+						engine: "rg",
+						totalMatched: 1,
+						totalFiles: 1,
+						durationMs: 3_700,
+						display: [
+							{ type: "text", text: "1 matches in 1 files" },
+							{ type: "path", text: "src/a.ts" },
 							{
-								type: "text",
-								text: "src/\na.ts:1,2,3,4,5,6 (6 matches)\nb.ts:7 (1 matches)",
+								type: "context",
+								lineNumber: 1,
+								text: "before",
+								source: "before",
+								visibleStart: 0,
+								visibleEnd: 6,
+							},
+							{
+								type: "match",
+								lineNumber: 12,
+								text: "needle",
+								source: "needle",
+								visibleStart: 0,
+								visibleEnd: 6,
+								approximate: true,
+								submatches: [{ start: 0, end: 6 }],
+							},
+							{
+								type: "match",
+								lineNumber: 13,
+								text: "needle",
+								source: "  needle trailing",
+								visibleStart: 2,
+								visibleEnd: 8,
+								truncatedLeft: true,
+								truncatedRight: true,
+								submatches: [{ start: 2, end: 8 }],
 							},
 						],
-						details: { format: "fff-grep" },
 					},
-					{ isPartial: false, expanded: false },
-					theme,
-					renderContext,
-				)
-				.render(200)
-				.map((line) => line.trimEnd())
-				.join("\n")
-				.trimEnd(),
-		).toBe(
-			"<mdCode>src/</mdCode>\n<dim>a.ts</dim><warning>:1,2,3,4,5, …</warning> (<success>6</success> matches)\n<dim>b.ts</dim><warning>:7</warning> (<success>1</success> matches)",
+				},
+				{ isPartial: false, expanded: false },
+				theme,
+				renderContext,
+			)
+			.render(200)
+			.map((line) => line.trimEnd())
+			.join("\n")
+			.trimEnd();
+		expect(grepResult).toContain("<mdCode>src/a.ts</mdCode>");
+		expect(grepResult).toContain("<dim> 1│</dim>before");
+		expect(grepResult).toContain("<dim>13│</dim><dim><</dim><success>needle</success><dim>></dim>");
+		expect(grepResult).not.toContain("1 matches in 1 files");
+		expect(grepResult).toContain("<dim>1 matches · 1 files · 3.7s</dim>");
+		const collapsedResult = grep.renderResult?.(
+			{
+				content: [{ type: "text", text: "overflow" }],
+				details: {
+					format: "canonical-grep",
+					engine: "rg",
+					totalMatched: 20,
+					totalFiles: 1,
+					durationMs: 0,
+					display: Array.from({ length: 20 }, (_, index) => ({
+						type: "text" as const,
+						text: `row ${index + 1}`,
+					})),
+				},
+			},
+			{ isPartial: false, expanded: false },
+			theme,
+			renderContext,
 		);
-		expect(
-			grep
-				.renderResult?.(
-					{
-						content: [
-							{
-								type: "text",
-								text: "Found 9 matches in 3 files.\n\n\nsrc/a.ts\n1:one",
-							},
-						],
-						details: { format: "fff-grep" },
-					},
-					{ isPartial: false, expanded: false },
-					theme,
-					renderContext,
-				)
-				.render(200)
-				.map((line) => line.trimEnd())
-				.join("\n")
-				.trimEnd(),
-		).toBe(
-			"Found <success>9</success> matches in <success>3</success> files.\n\n<mdCode>src/a.ts</mdCode>\n<dim>1:</dim>one",
-		);
-		expect(
-			grep
-				.renderResult?.(
-					{
-						content: [
-							{
-								type: "text",
-								text: "0 exact matches. 3 approximate:\nsrc/a.ts\n1?one\n100?hundred\nother/b.ts\n2?two",
-							},
-						],
-						details: { format: "fff-grep" },
-					},
-					{ isPartial: false, expanded: false },
-					theme,
-					renderContext,
-				)
-				.render(200)
-				.map((line) => line.trimEnd())
-				.join("\n")
-				.trimEnd(),
-		).toBe(
-			"<mdCode>0 exact matches. 3 approximate:</mdCode>\n<mdCode>src/a.ts</mdCode>\n<dim>  1?</dim>one\n<dim>100?</dim>hundred\n<mdCode>other/b.ts</mdCode>\n<dim>2?</dim>two",
-		);
-		expect(
-			find
-				.renderResult?.(
-					{
-						content: [
-							{
-								type: "text",
-								text: "src/\n1. search.ts (fff)\n8. historian-orchestrator.ts (fuzzy_filename) git:modified\n9. historian-branch-runner.ts (fuzzy_filename) git:modified\n10. historian-executor.ts (ffp)",
-							},
-						],
-						details: undefined,
-					},
-					{ isPartial: false, expanded: false },
-					theme,
-					renderContext,
-				)
-				.render(200)
-				.map((line) => line.trimEnd())
-				.join("\n")
-				.trimEnd(),
-		).toBe(
-			"<mdCode>src/</mdCode>\n<success>FF</success> <dim>search.ts</dim>\n<success>FF</success> <dim>historian-orchestrator.ts</dim> (git:modified)\n<success>FF</success> <dim>historian-branch-runner.ts</dim> (git:modified)\n<success>FP</success> <dim>historian-executor.ts</dim>",
-		);
-		expect(
-			grep
-				.renderResult?.(
-					{
-						content: [{ type: "text", text: "src/a.ts\n9:one\n100:hundred" }],
-						details: { format: "fff-grep" },
-					},
-					{ isPartial: false, expanded: false },
-					theme,
-					renderContext,
-				)
-				.render(200)
-				.map((line) => line.trimEnd())
-				.join("\n")
-				.trimEnd(),
-		).toBe("<mdCode>src/a.ts</mdCode>\n<dim>  9:</dim>one\n<dim>100:</dim>hundred");
-		expect(
-			grep
-				.renderResult?.(
-					{
-						content: [{ type: "text", text: "src/a.ts\n1:one\n6│context\n\n29│context\n30:two" }],
-						details: { format: "fff-grep" },
-					},
-					{ isPartial: false, expanded: false },
-					theme,
-					renderContext,
-				)
-				.render(200)
-				.map((line) => line.trimEnd())
-				.join("\n")
-				.trimEnd(),
-		).toBe(
-			"<mdCode>src/a.ts</mdCode>\n<dim> 1:</dim>one\n<dim> 6│</dim>context\n\n<dim>29│</dim>context\n<dim>30:</dim>two",
-		);
-		expect(
-			grep
-				.renderResult?.(
-					{
-						content: [
-							{ type: "text", text: "src/a.ts\n9│before\n10:match\n\nsrc/b.ts\n100:later" },
-						],
-						details: undefined,
-					},
-					{ isPartial: false, expanded: false },
-					theme,
-					renderContext,
-				)
-				.render(200)
-				.map((line) => line.trimEnd())
-				.join("\n")
-				.trimEnd(),
-		).toBe(
-			"\nFound <success>3</success> matches in <success>2</success> files.\n\n<mdCode>src/a.ts</mdCode>\n<dim> 9│</dim>before\n<dim>10:</dim>match\n\n<mdCode>src/b.ts</mdCode>\n<dim>100:</dim>later",
-		);
-		expect(
-			find
-				.renderResult?.(
-					{
-						content: [
-							{
-								type: "text",
-								text: "src/\n1. one.ts (fuzzy) - frequent git:modified\n2. two.ts (prefix)",
-							},
-						],
-						details: undefined,
-					},
-					{ isPartial: false, expanded: false },
-					theme,
-					renderContext,
-				)
-				.render(200)
-				.map((line) => line.trimEnd())
-				.join("\n")
-				.trimEnd(),
-		).toBe(
-			"<mdCode>src/</mdCode>\n<success>FF</success> <dim>one.ts</dim> (frequent git:modified)\n<success>FP</success> <dim>two.ts</dim>",
-		);
-		expect(
-			find
-				.renderResult?.(
-					{
-						content: [{ type: "text", text: "1. one.ts (fff_fuzzy)\n2. two.ts (fff_prefix)" }],
-						details: undefined,
-					},
-					{ isPartial: false, expanded: false },
-					theme,
-					renderContext,
-				)
-				.render(200)
-				.map((line) => line.trimEnd())
-				.join("\n")
-				.trimEnd(),
-		).toBe("<success>FF</success> <dim>one.ts</dim>\n<success>FP</success> <dim>two.ts</dim>");
+		if (collapsedResult === undefined) throw new Error("grep renderer is missing");
+		const collapsed = collapsedResult.render(200);
+		expect(collapsed).toHaveLength(15);
+		expect(collapsed.at(-3)).toContain("... (9 more lines, expand to show)");
+		expect(collapsed.at(-1)).toContain("20 matches · 1 files · 0ms");
+		const findResult = find
+			.renderResult?.(
+				{ content: [{ type: "text", text: "1. one.ts (fff_fuzzy)" }], details: undefined },
+				{ isPartial: false, expanded: false },
+				theme,
+				renderContext,
+			)
+			.render(200)
+			.join("\n")
+			.trimEnd();
+		expect(findResult).toContain("<success>FF</success> <dim>one.ts</dim>");
 	});
 
 	test("executes read with the call context cwd instead of extension construction cwd", async (): Promise<void> => {
@@ -472,6 +442,10 @@ describe("pi-ext-tools catalog", () => {
 			cwd,
 		} as ExtensionContext);
 		expect(result.content).toContainEqual({ type: "text", text: "canonical\n" });
+		expect(result.details).toMatchObject({
+			__piExtToolsRead: { characters: 10, lines: 2 },
+			__piExtToolsCompletion: { durationMs: expect.any(Number) },
+		});
 	});
 
 	test("executes apply_patch through its strict V4A transport", async (): Promise<void> => {
@@ -490,7 +464,7 @@ describe("pi-ext-tools catalog", () => {
 		);
 		expect(result.content).toContainEqual({
 			type: "text",
-			text: "Done! Applied patch.\nStatus: Success\nFiles changed: 1\nOperations: 1\nExact updates: 0\nFuzzy updates: 0\nFuzzy matching: not used\nRejected operations: 0",
+			text: "Applied patch: 1 operations in 1 files.\nChanged:\n- created.txt: add",
 		});
 		expect(await readFile(join(cwd, "created.txt"), "utf8")).toBe("created\n");
 	});
@@ -518,7 +492,7 @@ describe("pi-ext-tools catalog", () => {
 		);
 		expect(result.content).toContainEqual({
 			type: "text",
-			text: "Applied patch partially.\nStatus: Partial\nFiles changed: 1\nOperations: 3\nExact updates: 0\nFuzzy updates: 0\nFuzzy matching: not used\nRejected operations: 2\nRejected paths: first.txt\nReason: path touched more than once: first.txt",
+			text: "Patch partially applied.\nChanged:\n- created.txt: add\nRejected:\n- operation 2, operation 3, first.txt: path touched more than once: first.txt\nRecovery: read first.txt, then retry only operation 2, operation 3.\nDo not retry applied operations.",
 		});
 		expect(await readFile(join(cwd, "created.txt"), "utf8")).toBe("created\n");
 		await expect(readFile(join(cwd, "first.txt"), "utf8")).rejects.toThrow();

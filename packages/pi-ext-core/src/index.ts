@@ -4,8 +4,6 @@
  * shared registration, lifecycle, cancellation, and cross-package coordination.
  */
 
-export type { ArtifactRegistry, ArtifactUri } from "./artifact.js";
-export { createArtifactRegistry } from "./artifact.js";
 export type {
 	OpenTuiSurfaceOptions,
 	TuiSurfaceContext,
@@ -80,6 +78,8 @@ export {
 	hepiModelSelectionOptions,
 	hepiThinkingGlyph,
 } from "./model-selection.js";
+export type { OutputRegistry, OutputUri } from "./output.js";
+export { createOutputRegistry } from "./output.js";
 export type {
 	ExtensionPageRegistration,
 	ExtensionPageView,

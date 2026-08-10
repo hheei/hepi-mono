@@ -6,9 +6,9 @@ import {
 	type ExtensionContext,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import type { OutputRegistry } from "@hheei/pi-ext-core";
 import {
-	type ArtifactRegistry,
-	createArtifactRegistry,
+	createOutputRegistry,
 	openTuiSurface,
 	registerManagedLoadoutTool,
 } from "@hheei/pi-ext-core";
@@ -17,9 +17,11 @@ import { BashOutputSink } from "./bash-output.js";
 import { BashPtySurface, type BashPtySurfaceResult } from "./bash-pty-surface.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import { PtySession } from "./native-bridge.js";
+import { withToolFrame } from "./pretty/frame.js";
+import { ToolTraceController } from "./pretty/trace.js";
 
 const OWNER = "@hheei/pi-ext-tools";
-const fallbackArtifacts = createArtifactRegistry();
+const fallbackOutputs = createOutputRegistry();
 const BASH_DESCRIPTION = "Run one shell command or short pipeline.";
 const BASH_PROMPT_SNIPPET = "Run one shell command or short pipeline.";
 const BASH_PROMPT_GUIDELINES = [
@@ -71,9 +73,9 @@ async function runForeground(
 	shellPath: string,
 	timeoutSeconds: number | undefined,
 	tailBytes: number,
-	artifacts: ArtifactRegistry,
+	outputs: OutputRegistry,
 ): Promise<BashToolResult> {
-	const sink = new BashOutputSink({ artifacts, tailBytes });
+	const sink = new BashOutputSink({ outputs, tailBytes });
 	const child = spawn(
 		shellPath,
 		process.platform === "win32" ? ["/d", "/s", "/c", command] : ["-c", command],
@@ -106,7 +108,7 @@ async function runForeground(
 	signal?.removeEventListener("abort", terminate);
 	const output = sink.finish();
 	return result(
-		`${output.output}${output.truncated && output.artifactUri ? `\n\n[Output truncated. Read ${output.artifactUri} for full output.]` : ""}`,
+		`${output.output}${output.truncated && output.outputUri ? `\n\n[Output truncated. Read ${output.outputUri} for full output.]` : ""}`,
 		{
 			...output,
 			...(timedOut ? { timedOut: true } : {}),
@@ -123,14 +125,14 @@ async function runPty(
 	shellPath: string | undefined,
 	timeoutSeconds: number | undefined,
 	tailBytes: number,
-	artifacts: ArtifactRegistry,
+	outputs: OutputRegistry,
 ): Promise<BashToolResult> {
 	if (context.mode !== "tui" || process.env.PI_NO_PTY === "1")
 		return result("PTY Bash requires an interactive TUI with PTY enabled", {
 			error: "pty_unavailable",
 		});
 	const controller = new AbortController();
-	const sink = new BashOutputSink({ artifacts, tailBytes });
+	const sink = new BashOutputSink({ outputs, tailBytes });
 	const abort = (): void => controller.abort(signal?.reason);
 	signal?.addEventListener("abort", abort, { once: true });
 	let timeout: NodeJS.Timeout | undefined;
@@ -180,7 +182,7 @@ async function runPty(
 		const outcome: BashPtySurfaceResult = surface.value;
 		const output = sink.finish();
 		return result(
-			`${output.output}${output.truncated && output.artifactUri ? `\n\n[Output truncated. Read ${output.artifactUri} for full output.]` : ""}`,
+			`${output.output}${output.truncated && output.outputUri ? `\n\n[Output truncated. Read ${output.outputUri} for full output.]` : ""}`,
 			outcome.status === "completed"
 				? {
 						...output,
@@ -201,8 +203,20 @@ async function runPty(
 	}
 }
 
+function bashResultWarning(result: { readonly details: unknown }): boolean {
+	if (typeof result.details !== "object" || result.details === null) return false;
+	const details = result.details as Record<string, unknown>;
+	return (
+		details.timedOut === true || (typeof details.exitCode === "number" && details.exitCode !== 0)
+	);
+}
+
 /** Pi original definition remains default execution; async is extension-owned and session-scoped. */
-export function registerBashTool(pi: ExtensionAPI, state?: FffRuntimeState): void {
+export function registerBashTool(
+	pi: ExtensionAPI,
+	state?: FffRuntimeState,
+	trace = new ToolTraceController(),
+): void {
 	const template = createBashToolDefinition(process.cwd());
 	const tool = {
 		...template,
@@ -226,7 +240,7 @@ export function registerBashTool(pi: ExtensionAPI, state?: FffRuntimeState): voi
 					state?.getSettings().shellPath,
 					params.timeout,
 					(state?.getSettings().bashOutputTailKiB ?? 10) * 1024,
-					state?.getArtifacts() ?? fallbackArtifacts,
+					state?.getOutputs() ?? fallbackOutputs,
 				);
 			if ("async" in params && params.async === true) {
 				const jobs = state?.getBashJobs();
@@ -250,7 +264,7 @@ export function registerBashTool(pi: ExtensionAPI, state?: FffRuntimeState): voi
 						startedAt: job.startedAt,
 						timedOut: job.timedOut,
 						...(job.endedAt === undefined ? {} : { endedAt: job.endedAt }),
-						...(job.outputArtifact === undefined ? {} : { outputArtifact: job.outputArtifact }),
+						...(job.outputOutput === undefined ? {} : { outputOutput: job.outputOutput }),
 					});
 				} catch (error) {
 					return result(
@@ -267,7 +281,7 @@ export function registerBashTool(pi: ExtensionAPI, state?: FffRuntimeState): voi
 				state?.getSettings().shellPath ?? process.env.SHELL ?? "/bin/sh",
 				params.timeout,
 				(state?.getSettings().bashOutputTailKiB ?? 10) * 1024,
-				state?.getArtifacts() ?? fallbackArtifacts,
+				state?.getOutputs() ?? fallbackOutputs,
 			);
 		},
 	} as unknown as ToolDefinition<typeof BashInput, unknown, unknown>;
@@ -282,7 +296,7 @@ export function registerBashTool(pi: ExtensionAPI, state?: FffRuntimeState): voi
 			conflictSets: [],
 			defaultActive: true,
 		},
-		tool,
+		withToolFrame(tool, trace, undefined, bashResultWarning),
 	);
 }
 

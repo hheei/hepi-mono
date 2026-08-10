@@ -9,10 +9,12 @@ import {
 	nativeFallbackPattern,
 	supportsFffPath,
 } from "./fff/query.js";
+import { withToolFrame } from "./pretty/frame.js";
+import { ToolTraceController } from "./pretty/trace.js";
 import { renderFindCall, renderFindResult } from "./search-renderer.js";
 
 const OWNER = "@hheei/pi-ext-tools";
-const ARTIFACT_PREFIX = "artifact:" + "//";
+const ARTIFACT_PREFIX = "output:" + "//";
 const DEFAULT_LIMIT = 30;
 const cursorStore = new Map<string, { query: string; limit: number; pageIndex: number }>();
 let cursorSequence = 0;
@@ -57,7 +59,11 @@ function nativeParams(params: {
 	};
 }
 
-export function registerFindTool(pi: ExtensionAPI, state: FffRuntimeState): void {
+export function registerFindTool(
+	pi: ExtensionAPI,
+	state: FffRuntimeState,
+	trace = new ToolTraceController(),
+): void {
 	const tool = {
 		name: "find",
 		label: "find",
@@ -87,7 +93,7 @@ export function registerFindTool(pi: ExtensionAPI, state: FffRuntimeState): void
 		) {
 			if (signal?.aborted) throw new Error("Operation aborted");
 			if (params.path?.startsWith(ARTIFACT_PREFIX))
-				throw new Error("find cannot search artifact URLs");
+				throw new Error("find cannot search output URLs");
 			const native = async () => {
 				const result = await createFindToolDefinition(context.cwd).execute(
 					id,
@@ -151,6 +157,6 @@ export function registerFindTool(pi: ExtensionAPI, state: FffRuntimeState): void
 			conflictSets: [],
 			defaultActive: true,
 		},
-		tool,
+		withToolFrame(tool, trace),
 	);
 }

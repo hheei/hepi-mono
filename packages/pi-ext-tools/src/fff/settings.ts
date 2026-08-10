@@ -15,7 +15,7 @@ export interface FffSettingsProviderOptions {
 
 export interface FffSettings {
 	readonly shellPath: string;
-	/** KiB retained in each foreground or PTY Bash result before artifact spill. */
+	/** KiB retained in each foreground or PTY Bash result before output spill. */
 	readonly bashOutputTailKiB: number;
 	/** FFF behavior toggles only; tool activation belongs to pi-loadout. */
 	readonly autocomplete: boolean;
@@ -120,7 +120,7 @@ export function createFffSettingsProvider(
 						label: "Output tail (KiB)",
 						type: "number",
 						defaultValue: DEFAULT_FFF_SETTINGS.bashOutputTailKiB,
-						description: "Visible Bash output retained before full output spills to an artifact.",
+						description: "Visible Bash output retained before full output spills to an output.",
 						parse: (value) => Number(value),
 						validate: (value) =>
 							typeof value !== "number" || !Number.isInteger(value) || value <= 0

@@ -44,7 +44,7 @@
 		"access": "public"
 	},
 	"dependencies": {
-		"@ff-labs/fff-node": "^0.9.6",
+		"@ff-labs/fff-node": "^0.10.3",
 		"@hheei/pi-ext-core": "workspace:*",
 		"better-result": "^2.10.0",
 		"typebox": "1.3.7"

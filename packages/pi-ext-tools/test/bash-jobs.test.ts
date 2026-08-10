@@ -4,7 +4,7 @@ import type {
 	ExtensionContext,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { createArtifactRegistry } from "@hheei/pi-ext-core";
+import { createOutputRegistry } from "@hheei/pi-ext-core";
 import { registerBashJobTool } from "../src/bash-job-tool.js";
 import { BashJobRegistry, MAX_JOB_OUTPUT } from "../src/bash-jobs.js";
 import { createFffRuntimeState } from "../src/fff/lifecycle.js";
@@ -41,11 +41,11 @@ test("retains bounded combined output and reports completion", async (): Promise
 	expect(Buffer.byteLength(completed.output)).toBeLessThanOrEqual(MAX_JOB_OUTPUT);
 });
 
-test("publishes completed output as an artifact without triggering a turn", async (): Promise<void> => {
-	const artifacts = createArtifactRegistry();
+test("publishes completed output as an output without triggering a turn", async (): Promise<void> => {
+	const outputs = createOutputRegistry();
 	const messages: unknown[] = [];
 	const registry = new BashJobRegistry({
-		artifacts,
+		outputs,
 		pi: {
 			sendMessage(
 				message: Parameters<ExtensionAPI["sendMessage"]>[0],
@@ -56,15 +56,15 @@ test("publishes completed output as an artifact without triggering a turn", asyn
 		} as unknown as ExtensionAPI,
 	});
 	registries.push(registry);
-	const started = registry.start("printf artifact-output", process.cwd());
+	const started = registry.start("printf output-output", process.cwd());
 	const completed = await eventually(
 		() => registry.get(started.id),
-		(job) => job.status === "completed" && job.outputArtifact !== undefined,
+		(job) => job.status === "completed" && job.outputOutput !== undefined,
 	);
-	expect(completed.outputArtifact).toMatch(/^artifact:\/\/[1-9]\d*$/);
-	expect(artifacts.read(completed.outputArtifact ?? "")).toBe("artifact-output");
+	expect(completed.outputOutput).toMatch(/^output:\/\/[1-9]\d*$/);
+	expect(outputs.read(completed.outputOutput ?? "")).toBe("output-output");
 	expect(messages).toEqual([expect.objectContaining({ options: { triggerTurn: false } })]);
-	artifacts.dispose();
+	outputs.dispose();
 });
 
 test("stops an owned process group", async (): Promise<void> => {

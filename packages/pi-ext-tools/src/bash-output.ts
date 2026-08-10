@@ -1,30 +1,30 @@
-import type { ArtifactRegistry, ArtifactUri } from "@hheei/pi-ext-core";
+import type { OutputRegistry, OutputUri } from "@hheei/pi-ext-core";
 
-interface ArtifactAppendHandle {
-	readonly uri: ArtifactUri;
+interface OutputAppendHandle {
+	readonly uri: OutputUri;
 	append(data: Uint8Array): void;
-	finalize(): ArtifactUri;
+	finalize(): OutputUri;
 }
 
 export const DEFAULT_VISIBLE_TAIL_BYTES: number = 10 * 1024;
 
 export interface BashOutputSinkOptions {
-	readonly artifacts?: ArtifactRegistry;
-	readonly reserveArtifact?: boolean;
+	readonly outputs?: OutputRegistry;
+	readonly reserveOutput?: boolean;
 	readonly tailBytes?: number;
 }
 
 export interface BashOutputResult {
 	readonly output: string;
 	readonly truncated: boolean;
-	readonly artifactUri?: ArtifactUri;
+	readonly outputUri?: OutputUri;
 }
 
 /** Collects complete output while exposing only a bounded, UTF-8-safe tail. */
 export class BashOutputSink {
-	readonly #artifacts: ArtifactRegistry | undefined;
+	readonly #outputs: OutputRegistry | undefined;
 	readonly #tailBytes: number;
-	#artifact: ArtifactAppendHandle | undefined;
+	#output: OutputAppendHandle | undefined;
 	#tail: Buffer[] = [];
 	#tailLength: number = 0;
 	#pending: Buffer[] = [];
@@ -32,17 +32,17 @@ export class BashOutputSink {
 	#finished: BashOutputResult | undefined;
 
 	constructor(options: BashOutputSinkOptions = {}) {
-		this.#artifacts = options.artifacts;
+		this.#outputs = options.outputs;
 		this.#tailBytes = options.tailBytes ?? DEFAULT_VISIBLE_TAIL_BYTES;
 		if (!Number.isSafeInteger(this.#tailBytes) || this.#tailBytes < 1)
 			throw new Error("tailBytes must be a positive safe integer");
-		if (options.reserveArtifact === true && this.#artifacts !== undefined)
-			this.#artifact = this.#artifacts.createAppend();
+		if (options.reserveOutput === true && this.#outputs !== undefined)
+			this.#output = this.#outputs.createAppend();
 	}
 
-	/** Reserved URI, if async output was configured with an artifact registry. */
-	get artifactUri(): ArtifactUri | undefined {
-		return this.#artifact?.uri;
+	/** Reserved URI, if async output was configured with an output registry. */
+	get outputUri(): OutputUri | undefined {
+		return this.#output?.uri;
 	}
 
 	push(data: Uint8Array): void {
@@ -50,16 +50,16 @@ export class BashOutputSink {
 		if (data.byteLength === 0) return;
 		const chunk = Buffer.from(data);
 		this.#totalLength += chunk.byteLength;
-		this.#artifact?.append(chunk);
+		this.#output?.append(chunk);
 		this.#tail.push(chunk);
 		this.#tailLength += chunk.byteLength;
-		if (this.#artifact === undefined) {
+		if (this.#output === undefined) {
 			this.#pending.push(chunk);
 		}
-		if (this.#totalLength > this.#tailBytes && this.#artifact === undefined) {
-			this.#artifact = this.#artifacts?.createAppend();
-			if (this.#artifact !== undefined)
-				for (const pending of this.#pending) this.#artifact.append(pending);
+		if (this.#totalLength > this.#tailBytes && this.#output === undefined) {
+			this.#output = this.#outputs?.createAppend();
+			if (this.#output !== undefined)
+				for (const pending of this.#pending) this.#output.append(pending);
 		}
 		if (this.#totalLength > this.#tailBytes) {
 			this.#pending = [];
@@ -81,7 +81,7 @@ export class BashOutputSink {
 		}
 	}
 
-	/** Returns current tail without closing its optional artifact stream. */
+	/** Returns current tail without closing its optional output stream. */
 	snapshot(): BashOutputResult {
 		const bytes = Buffer.concat(this.#tail);
 		let start = Math.max(0, bytes.byteLength - this.#tailBytes);
@@ -89,7 +89,7 @@ export class BashOutputSink {
 		return {
 			output: bytes.subarray(start).toString("utf8"),
 			truncated: this.#totalLength > this.#tailBytes,
-			...(this.#artifact === undefined ? {} : { artifactUri: this.#artifact.uri }),
+			...(this.#output === undefined ? {} : { outputUri: this.#output.uri }),
 		};
 	}
 
@@ -97,7 +97,7 @@ export class BashOutputSink {
 		if (this.#finished !== undefined) return this.#finished;
 		const result: BashOutputResult = {
 			...this.snapshot(),
-			...(this.#artifact === undefined ? {} : { artifactUri: this.#artifact.finalize() }),
+			...(this.#output === undefined ? {} : { outputUri: this.#output.finalize() }),
 		};
 		this.#finished = result;
 		return result;

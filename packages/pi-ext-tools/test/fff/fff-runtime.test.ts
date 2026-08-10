@@ -45,6 +45,45 @@ describe("FFF runtime", () => {
 		expect(seenOffsets).toEqual([null, 1]);
 	});
 
+	test("returns marked fuzzy fallback without broader suggestions", async () => {
+		const modes: string[] = [];
+		const runtime = new FffRuntime("/tmp", {
+			finder: {
+				grep: (_query: string, options: { mode: string }) => {
+					modes.push(options.mode);
+					return {
+						ok: true as const,
+						value: {
+							items:
+								options.mode === "fuzzy"
+									? [
+											{
+												relativePath: "src/example.ts",
+												lineNumber: 4,
+												lineContent: "near needle",
+												matchRanges: [],
+											},
+										]
+									: [],
+							nextCursor: null,
+						},
+					};
+				},
+			} as never,
+		});
+
+		const result = await runtime.grepSearch({
+			pattern: "needle",
+			mode: "regex",
+			fuzzyFallbackOnly: true,
+		});
+
+		if (result.isErr()) throw result.error;
+		expect(modes).toEqual(["regex", "fuzzy"]);
+		expect(result.value.approximate).toBe("fuzzy");
+		expect(result.value.items[0]?.lineNumber).toBe(4);
+	});
+
 	test("bounds scan admission and skips dependency directories", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "hepi-fff-admission-"));
 		try {

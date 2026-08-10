@@ -84,6 +84,12 @@ export type GrepSearchRequest = {
 	timeBudgetMs?: number;
 	cursor?: string;
 	includeCursorHint?: boolean;
+	/** Internal caller cancellation between FFF pages. */
+	signal?: AbortSignal;
+	/** Restrict fallback to FFF fuzzy matching; skip broadening and path suggestions. */
+	fuzzyFallbackOnly?: boolean;
+	/** Disable all approximate no-match suggestions. */
+	noMatchFallback?: boolean;
 	outputMode?: GrepOutputMode;
 };
 
@@ -94,6 +100,7 @@ export type GrepSearchResponse = {
 	matchLimitReached?: number;
 	linesTruncated: boolean;
 	regexFallbackError?: string;
+	approximate?: "fuzzy";
 	scope?: ResolvedPath;
 	nextCursor?: string;
 	constraintQuery?: string;
@@ -118,6 +125,9 @@ export type GrepBaseRequest = {
 	timeBudgetMs: number;
 	cursor?: string;
 	includeCursorHint?: boolean;
+	signal?: AbortSignal;
+	fuzzyFallbackOnly?: boolean;
+	noMatchFallback?: boolean;
 	outputMode?: GrepOutputMode;
 };
 

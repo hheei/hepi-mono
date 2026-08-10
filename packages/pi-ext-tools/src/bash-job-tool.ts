@@ -2,6 +2,8 @@ import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-age
 import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
+import { withToolFrame } from "./pretty/frame.js";
+import { ToolTraceController } from "./pretty/trace.js";
 
 const Params = Type.Object(
 	{
@@ -11,7 +13,11 @@ const Params = Type.Object(
 	{ additionalProperties: false },
 );
 type Params = Static<typeof Params>;
-export function registerBashJobTool(pi: ExtensionAPI, state: FffRuntimeState): void {
+export function registerBashJobTool(
+	pi: ExtensionAPI,
+	state: FffRuntimeState,
+	trace = new ToolTraceController(),
+): void {
 	const tool: ToolDefinition<typeof Params, unknown> = {
 		name: "bash_job",
 		label: "bash_job",
@@ -39,7 +45,7 @@ export function registerBashJobTool(pi: ExtensionAPI, state: FffRuntimeState): v
 				startedAt: job.startedAt,
 				timedOut: job.timedOut,
 				...(job.endedAt === undefined ? {} : { endedAt: job.endedAt }),
-				...(job.outputArtifact === undefined ? {} : { outputArtifact: job.outputArtifact }),
+				...(job.outputOutput === undefined ? {} : { outputOutput: job.outputOutput }),
 			};
 			return {
 				content: [
@@ -47,7 +53,7 @@ export function registerBashJobTool(pi: ExtensionAPI, state: FffRuntimeState): v
 						type: "text",
 						text:
 							params.action === "logs"
-								? JSON.stringify({ id: job.id, status: job.status, artifact: job.outputArtifact })
+								? JSON.stringify({ id: job.id, status: job.status, output: job.outputOutput })
 								: JSON.stringify(metadata),
 					},
 				],
@@ -66,7 +72,7 @@ export function registerBashJobTool(pi: ExtensionAPI, state: FffRuntimeState): v
 			conflictSets: [],
 			defaultActive: true,
 		},
-		tool,
+		withToolFrame(tool, trace),
 	);
 }
 export { Params as BashJobInput };
