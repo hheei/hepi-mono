@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { createArtifactRegistry } from "@hheei/pi-ext-core";
+import { createOutputRegistry } from "@hheei/pi-ext-core";
 import { grepNeedsBuiltinFallback, inferFffGrepMode } from "../../src/fff/extension-common.js";
 import { FffRuntime } from "../../src/fff/fff.js";
 import { createFffRuntimeState, type FffRuntimeState } from "../../src/fff/lifecycle.js";
@@ -125,7 +125,7 @@ describe("FFF tool registration", () => {
 				statusUI: true,
 			}),
 			getBashJobs: () => undefined,
-			getArtifacts: () => undefined,
+			getOutputs: () => undefined,
 		} satisfies FffRuntimeState;
 		registerFindTool(host.pi, state);
 		const find = host.tools[0];
@@ -143,7 +143,9 @@ describe("FFF tool registration", () => {
 		if (text?.type !== "text") throw new Error("Expected text result");
 		expect(text.text).toStartWith("1. src/find-enhancement.ts (fuzzy) - hot git:modified");
 		expect(text.text).toContain("cursor: find:");
-		expect(result.details).toBeUndefined();
+		expect(result.details).toMatchObject({
+			__piExtToolsCompletion: { durationMs: expect.any(Number) },
+		});
 	});
 
 	test("treats an empty cursor as a new FFF search", async () => {
@@ -168,7 +170,7 @@ describe("FFF tool registration", () => {
 				statusUI: true,
 			}),
 			getBashJobs: () => undefined,
-			getArtifacts: () => undefined,
+			getOutputs: () => undefined,
 		} satisfies FffRuntimeState;
 		registerFindTool(host.pi, state);
 		const find = host.tools[0];
@@ -185,9 +187,72 @@ describe("FFF tool registration", () => {
 		expect(result.content).toEqual([{ type: "text", text: "No files found matching pattern" }]);
 	});
 
-	test("searches artifact text with grep and rejects it from find", async () => {
-		const artifacts = createArtifactRegistry();
-		const path = artifacts.create("before\nNeedle\nafter");
+	test("allows only FFF fuzzy fallback for canonical grep", async () => {
+		const outputs = createOutputRegistry();
+		const fuzzyPath = `src/${"nested/".repeat(20)}example.ts`;
+		let request: { fuzzyFallbackOnly?: boolean } | undefined;
+		const state = {
+			getRuntime: () =>
+				({
+					grepSearch: async (value: { fuzzyFallbackOnly?: boolean }) => {
+						request = value;
+						return {
+							isOk: () => true,
+							value: {
+								items: [
+									{
+										relativePath: fuzzyPath,
+										lineNumber: 4,
+										lineContent: "near needle",
+										matchRanges: [[5, 11]],
+									},
+								],
+								linesTruncated: false,
+								approximate: "fuzzy",
+							},
+						};
+					},
+				}) as never,
+			getSettings: () => ({
+				shellPath: "sh",
+				bashOutputTailKiB: 10,
+				autocomplete: true,
+				grepEnhancement: true,
+				readEnhancement: true,
+				findEnhancement: true,
+				statusUI: true,
+			}),
+			getBashJobs: () => undefined,
+			getOutputs: () => outputs,
+		} satisfies FffRuntimeState;
+		const host = harness();
+		registerGrepTool(host.pi, state);
+		const grep = host.tools[0];
+		if (grep === undefined) throw new Error("grep was not registered");
+
+		const result = await grep.execute(
+			"grep-no-fuzzy",
+			{ pattern: "missing" },
+			undefined,
+			undefined,
+			{
+				cwd: process.cwd(),
+			} as never,
+		);
+
+		expect(request).toEqual(expect.objectContaining({ fuzzyFallbackOnly: true }));
+		const content = result.content[0];
+		if (content?.type !== "text") throw new Error("Expected grep text result");
+		const [summary, path, match] = content.text.split("\n");
+		expect(summary).toBe("1 fuzzy matches in 1 files");
+		expect(path?.startsWith(".../")).toBe(true);
+		expect(Array.from(path ?? "").length).toBeLessThanOrEqual(80);
+		expect(match).toBe("4:near needle");
+	});
+
+	test("searches output text with grep and rejects it from find", async () => {
+		const outputs = createOutputRegistry();
+		const path = outputs.create("before\nNeedle\nafter");
 		const state = {
 			getRuntime: () => undefined,
 			getSettings: () => ({
@@ -200,32 +265,100 @@ describe("FFF tool registration", () => {
 				statusUI: true,
 			}),
 			getBashJobs: () => undefined,
-			getArtifacts: () => artifacts,
+			getOutputs: () => outputs,
 		} satisfies FffRuntimeState;
 		const grepHost = harness();
 		registerGrepTool(grepHost.pi, state);
 		const grep = grepHost.tools[0];
 		if (grep === undefined) throw new Error("grep was not registered");
 		const grepResult = await grep.execute(
-			"grep-artifact",
+			"grep-output",
 			{ pattern: "Needle", path },
 			undefined,
 			undefined,
 			{ cwd: process.cwd() } as never,
 		);
 		expect(grepResult.content).toEqual([
-			{ type: "text", text: `${path}\n1│before\n2:Needle\n3│after` },
+			{ type: "text", text: `1 matches in 1 files\n${path}\n2:Needle` },
 		]);
+
+		const longPath = outputs.create(`${"prefix ".repeat(20)}needle${" suffix".repeat(20)}`);
+		const longResult = await grep.execute(
+			"grep-long-output",
+			{ pattern: "needle", path: longPath },
+			undefined,
+			undefined,
+			{ cwd: process.cwd() } as never,
+		);
+		const longDetails = longResult.details as {
+			readonly display: readonly {
+				readonly type: string;
+				readonly text: string;
+				readonly truncatedLeft?: boolean;
+				readonly truncatedRight?: boolean;
+			}[];
+		};
+		const longMatch = longDetails.display.find((line) => line.type === "match");
+		if (longMatch === undefined) throw new Error("Missing long grep match");
+		expect(longMatch.text).toContain("needle");
+		expect(Array.from(longMatch.text)).toHaveLength(80);
+		expect(longMatch.truncatedLeft).toBe(true);
+		expect(longMatch.truncatedRight).toBe(true);
 
 		const findHost = harness();
 		registerFindTool(findHost.pi, state);
 		const find = findHost.tools[0];
 		if (find === undefined) throw new Error("find was not registered");
 		await expect(
-			find.execute("find-artifact", { pattern: "Needle", path }, undefined, undefined, {
+			find.execute("find-output", { pattern: "Needle", path }, undefined, undefined, {
 				cwd: process.cwd(),
 			} as never),
-		).rejects.toThrow("find cannot search artifact URLs");
-		artifacts.dispose();
+		).rejects.toThrow("find cannot search output URLs");
+	});
+
+	test("maps compact grep omissions to recoverable output lines", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-grep-"));
+		const outputs = createOutputRegistry();
+		try {
+			await writeFile(join(cwd, "many.txt"), Array.from({ length: 26 }, () => "needle").join("\n"));
+			const state = {
+				getRuntime: () => undefined,
+				getSettings: () => ({
+					shellPath: "sh",
+					bashOutputTailKiB: 10,
+					autocomplete: true,
+					grepEnhancement: true,
+					readEnhancement: true,
+					findEnhancement: true,
+					statusUI: true,
+				}),
+				getBashJobs: () => undefined,
+				getOutputs: () => outputs,
+			} satisfies FffRuntimeState;
+			const host = harness();
+			registerGrepTool(host.pi, state);
+			const grep = host.tools[0];
+			if (grep === undefined) throw new Error("grep was not registered");
+			const result = await grep.execute(
+				"grep-many",
+				{ pattern: "needle", path: "many.txt", limit: 26 },
+				undefined,
+				undefined,
+				{ cwd } as never,
+			);
+			const details = result.details as {
+				readonly display: readonly { readonly text: string }[];
+				readonly recovery: { readonly output: string };
+			};
+			expect(
+				details.display.some((line) =>
+					/^\+1 matches omitted -> output:\/\/\d+:\d+-\d+$/.test(line.text),
+				),
+			).toBe(true);
+			expect(outputs.read(details.recovery.output)).toContain("26:needle");
+		} finally {
+			outputs.dispose();
+			await rm(cwd, { recursive: true, force: true });
+		}
 	});
 });

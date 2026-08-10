@@ -53,7 +53,7 @@ export default function piLoadoutExtension(pi: ExtensionAPI): void {
 	});
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-loadout",
-		start: async ({ extension, signal, resources, artifacts }) => {
+		start: async ({ extension, signal, resources, outputs }) => {
 			resources.add("loadout-host", registerLoadoutHost(pi));
 			const session: ActiveLoadoutSession = { signal };
 			active = session;
@@ -63,7 +63,7 @@ export default function piLoadoutExtension(pi: ExtensionAPI): void {
 			await engine.start(extension, signal);
 			resources.add("loadout-engine", () => engine.dispose());
 			registerExtensionPage(
-				{ pi, extension, signal, resources, artifacts },
+				{ pi, extension, signal, resources, outputs },
 				{
 					id: "loadout",
 					label: "Loadout",

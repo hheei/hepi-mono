@@ -1,24 +1,25 @@
+import { performance } from "node:perf_hooks";
 import type {
 	AgentToolResult,
 	ExtensionAPI,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { Container, Text } from "@earendil-works/pi-tui";
 import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import {
 	type ApplyPatchInWorkspaceResult,
+	type ApplyPatchProgress,
+	type ApplyPatchRejection,
 	applyPatchThroughCoordinator,
 } from "./apply-patch/index.js";
 import { parseV4aPatch } from "./apply-patch/parser.js";
-import {
-	finishApplyPatchRenderState,
-	renderApplyPatchCall,
-	setApplyPatchRenderState,
-} from "./apply-patch/renderer.js";
+import { formatApplyPatchFooter, renderApplyPatchResult } from "./apply-patch/renderer.js";
+import { withToolFrame } from "./pretty/frame.js";
+import { ToolTraceController } from "./pretty/trace.js";
 
 const OWNER = "@hheei/pi-ext-tools";
-const ARTIFACT_PREFIX = "artifact:" + "//";
+const OUTPUT_PREFIX = "output:" + "//";
+const MAX_CANDIDATES = 6;
 
 export const APPLY_PATCH_PARAMETERS = Type.Object(
 	{
@@ -31,16 +32,31 @@ export const APPLY_PATCH_PARAMETERS = Type.Object(
 );
 
 type ApplyPatchParameters = Static<typeof APPLY_PATCH_PARAMETERS>;
+export type ApplyPatchStatus = "success" | "partial" | "failed";
 
 export interface ApplyPatchToolDetails extends ApplyPatchInWorkspaceResult {
-	readonly status: "success";
+	readonly status: ApplyPatchStatus;
+	readonly progress?: ApplyPatchProgress;
+	readonly durationMs?: number;
 }
 
-export function modifiesArtifactPath(patch: string): boolean {
+export function isApplyPatchToolDetails(value: unknown): value is ApplyPatchToolDetails {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		!Array.isArray(value) &&
+		"status" in value &&
+		((value as { readonly status: unknown }).status === "success" ||
+			(value as { readonly status: unknown }).status === "partial" ||
+			(value as { readonly status: unknown }).status === "failed")
+	);
+}
+
+export function modifiesOutputPath(patch: string): boolean {
 	return parseV4aPatch(patch).operations.some(
 		(operation) =>
-			operation.path.startsWith(ARTIFACT_PREFIX) ||
-			("moveTo" in operation && operation.moveTo?.startsWith(ARTIFACT_PREFIX) === true),
+			operation.path.startsWith(OUTPUT_PREFIX) ||
+			("moveTo" in operation && operation.moveTo?.startsWith(OUTPUT_PREFIX) === true),
 	);
 }
 
@@ -57,36 +73,131 @@ function parseApplyPatchParameters(params: unknown): ApplyPatchParameters {
 	return { patch: params.patch };
 }
 
-function formatApplyPatchResult(result: ApplyPatchInWorkspaceResult): string {
-	const rejectedOperationCount = new Set(
-		result.rejected.flatMap((rejection) => rejection.operationIndices),
-	).size;
-	const status =
-		rejectedOperationCount === 0
-			? "Success"
-			: result.changedPaths.length === 0
-				? "Failed"
-				: "Partial";
+function rejectedOperationCount(result: ApplyPatchInWorkspaceResult): number {
+	return new Set(result.rejected.flatMap((rejection) => rejection.operationIndices)).size;
+}
+
+function statusFor(result: ApplyPatchInWorkspaceResult): ApplyPatchStatus {
+	return rejectedOperationCount(result) === 0
+		? "success"
+		: result.changedPaths.length === 0
+			? "failed"
+			: "partial";
+}
+
+function operationText(index: number): string {
+	return `operation ${index + 1}`;
+}
+
+function rejectionLines(rejection: ApplyPatchRejection): readonly string[] {
+	const operation = rejection.operationIndices.map(operationText).join(", ");
+	const path = rejection.paths.join(", ");
+	const prefix = `- ${operation}, ${path}`;
+	if (rejection.diagnostics.length === 0) return [`${prefix}: ${rejection.error}`];
+	return rejection.diagnostics.flatMap((diagnostic) => {
+		switch (diagnostic.kind) {
+			case "context_not_found":
+				return [`${prefix}, hunk ${diagnostic.hunkIndex}: context not found`];
+			case "ambiguous_exact":
+				return [
+					`${prefix}, hunk ${diagnostic.hunkIndex}: exact context is ambiguous at lines ${diagnostic.candidateStartLines
+						.slice(0, MAX_CANDIDATES)
+						.join(", ")} (${diagnostic.candidateStartLines.length} candidates)`,
+				];
+			case "ambiguous_fuzzy":
+				return [
+					`${prefix}, hunk ${diagnostic.hunkIndex}: fuzzy context is ambiguous at ${diagnostic.candidates
+						.slice(0, MAX_CANDIDATES)
+						.map(
+							(candidate) =>
+								`lines ${candidate.startLine}-${candidate.startLine + candidate.length - 1}`,
+						)
+						.join(", ")} (${diagnostic.candidates.length} candidates)`,
+				];
+			case "fuzzy_below_threshold": {
+				const score = diagnostic.best.score.toFixed(2);
+				const threshold = diagnostic.threshold.toFixed(2);
+				return diagnostic.best.score > diagnostic.threshold * 0.7
+					? [
+							`${prefix}, hunk ${diagnostic.hunkIndex}: best fuzzy candidate lines ${diagnostic.best.startLine}-${diagnostic.best.startLine + diagnostic.best.length - 1}, score ${score} < required ${threshold}`,
+						]
+					: [
+							`${prefix}, hunk ${diagnostic.hunkIndex}: best fuzzy score ${score} < required ${threshold}`,
+						];
+			}
+			default:
+				throw new Error(`Unknown patch diagnostic: ${String(diagnostic)}`);
+		}
+	});
+}
+
+function recoveryLines(result: ApplyPatchInWorkspaceResult): readonly string[] {
+	if (result.rejected.length === 0) return [];
+	const paths = [...new Set(result.rejected.flatMap((rejection) => rejection.paths))];
+	const operations = [
+		...new Set(result.rejected.flatMap((rejection) => rejection.operationIndices)),
+	];
+	const scope = operations.map(operationText).join(", ");
+	return [
+		`Recovery: read ${paths.join(", ")}, then retry only ${scope}.`,
+		...(result.applied.length === 0 ? [] : ["Do not retry applied operations."]),
+	];
+}
+
+export function formatApplyPatchResult(result: ApplyPatchInWorkspaceResult): string {
+	const status = statusFor(result);
+	const applied = result.applied.flatMap((operation) =>
+		operation.paths.map((path) => `- ${path}: ${operation.kind}`),
+	);
+	const fuzzy = result.applied.flatMap((operation) =>
+		operation.outcomes
+			.filter((outcome) => outcome.match === "fuzzy")
+			.map(
+				(outcome) =>
+					`- ${operation.paths.at(-1) ?? "unknown"}, ${operationText(operation.operationIndex)}, hunk ${outcome.hunkIndex}: lines ${outcome.startLine}-${outcome.startLine + outcome.length - 1}, similarity ${outcome.score?.toFixed(2) ?? "unknown"}`,
+			),
+	);
 	const headline =
-		status === "Success"
-			? "Done! Applied patch."
-			: status === "Partial"
-				? "Applied patch partially."
+		status === "success"
+			? `Applied patch: ${result.applied.length} operations in ${result.changedPaths.length} files.`
+			: status === "partial"
+				? "Patch partially applied."
 				: "Patch was not applied.";
 	return [
 		headline,
-		`Status: ${status}`,
-		`Files changed: ${result.changedPaths.length}`,
-		`Operations: ${result.operationCount}`,
-		`Exact updates: ${result.exactUpdateCount}`,
-		`Fuzzy updates: ${result.fuzzyUpdateCount}`,
-		`Fuzzy matching: ${result.fuzzyUpdateCount > 0 ? "used" : "not used"}`,
-		`Rejected operations: ${rejectedOperationCount}`,
-		...result.rejected.flatMap((rejection) => [
-			`Rejected paths: ${rejection.paths.join(", ")}`,
-			`Reason: ${rejection.error}`,
-		]),
+		...(applied.length === 0 ? [] : ["Changed:", ...applied]),
+		...(fuzzy.length === 0 ? [] : ["Fuzzy-applied:", ...fuzzy]),
+		...(result.rejected.length === 0
+			? []
+			: ["Rejected:", ...result.rejected.flatMap(rejectionLines), ...recoveryLines(result)]),
 	].join("\n");
+}
+
+function progressDetails(progress: ApplyPatchProgress, durationMs: number): ApplyPatchToolDetails {
+	return {
+		changedPaths: [],
+		addedLines: progress.addedLines,
+		removedLines: progress.removedLines,
+		operations: progress.operations,
+		operationCount: progress.operations.length,
+		exactUpdateCount: 0,
+		fuzzyUpdateCount: 0,
+		applied: [],
+		rejected: [],
+		status: "success",
+		progress,
+		durationMs,
+	};
+}
+
+export function applyPatchHeader(
+	latest: AgentToolResult<ApplyPatchToolDetails> | undefined,
+): string | undefined {
+	const details = latest?.details;
+	if (!isApplyPatchToolDetails(details)) return undefined;
+	const progress = details.progress;
+	const files = progress?.files ?? details.changedPaths.length;
+	return `${files} files · +${details.addedLines} -${details.removedLines} lines`;
 }
 
 export function createApplyPatchTool(): ToolDefinition<
@@ -100,47 +211,32 @@ export function createApplyPatchTool(): ToolDefinition<
 		description: "Apply a strict Codex V4A patch through the pi-ext-tools patch coordinator.",
 		parameters: APPLY_PATCH_PARAMETERS,
 		executionMode: "parallel",
-		renderCall: (args, theme, context) => renderApplyPatchCall(args, theme, context),
-		renderResult: (_result, { isPartial }, theme) => {
-			if (isPartial) return new Text(`${theme.fg("warning", "◐")} ${theme.bold("Patching")}`, 0, 0);
-			return new Container();
-		},
-		async execute(toolCallId, params, signal, _onUpdate, ctx) {
+		renderResult: (result, options, theme) =>
+			renderApplyPatchResult(result, options.expanded, theme),
+		async execute(_toolCallId, params, signal, onUpdate, ctx) {
+			const startedAt = performance.now();
 			const { patch } = parseApplyPatchParameters(params);
-			setApplyPatchRenderState(toolCallId);
-			if (modifiesArtifactPath(patch)) {
-				finishApplyPatchRenderState(toolCallId, "failed");
-				throw new Error("apply_patch cannot modify artifact URLs");
-			}
+			if (modifiesOutputPath(patch)) throw new Error("apply_patch cannot modify output URLs");
 			try {
 				const result = await applyPatchThroughCoordinator({
 					workspaceRoot: ctx.cwd,
 					patch,
 					...(signal === undefined ? {} : { signal }),
+					onProgress: (progress) =>
+						onUpdate?.({
+							content: [],
+							details: progressDetails(progress, Math.round(performance.now() - startedAt)),
+						}),
 				});
-				const failedOperationIndices = result.rejected.flatMap(
-					(rejection) => rejection.operationIndices,
-				);
-				const status =
-					failedOperationIndices.length === 0
-						? "success"
-						: result.changedPaths.length === 0
-							? "failed"
-							: "partial";
-				finishApplyPatchRenderState(toolCallId, status, failedOperationIndices);
 				return {
 					content: [{ type: "text", text: formatApplyPatchResult(result) }],
 					details: {
-						status: "success",
-						changedPaths: result.changedPaths,
-						operationCount: result.operationCount,
-						exactUpdateCount: result.exactUpdateCount,
-						fuzzyUpdateCount: result.fuzzyUpdateCount,
-						rejected: result.rejected,
+						...result,
+						status: statusFor(result),
+						durationMs: Math.round(performance.now() - startedAt),
 					},
 				} satisfies AgentToolResult<ApplyPatchToolDetails>;
 			} catch (error) {
-				finishApplyPatchRenderState(toolCallId, "failed");
 				const message = error instanceof Error ? error.message : String(error);
 				throw new Error(`apply_patch failed: ${message}`);
 			}
@@ -148,7 +244,7 @@ export function createApplyPatchTool(): ToolDefinition<
 	};
 }
 
-export function registerApplyPatchTool(pi: ExtensionAPI): void {
+export function registerApplyPatchTool(pi: ExtensionAPI, trace = new ToolTraceController()): void {
 	registerManagedLoadoutTool(
 		pi,
 		{
@@ -161,6 +257,15 @@ export function registerApplyPatchTool(pi: ExtensionAPI): void {
 			conflictsWith: ["edit", "write"],
 			defaultActive: true,
 		},
-		createApplyPatchTool(),
+		withToolFrame(
+			createApplyPatchTool(),
+			trace,
+			(result, completion) =>
+				isApplyPatchToolDetails(result.details)
+					? formatApplyPatchFooter(result, completion)
+					: undefined,
+			(result) => isApplyPatchToolDetails(result.details) && result.details.status !== "success",
+			(_args, latest) => applyPatchHeader(latest),
+		),
 	);
 }

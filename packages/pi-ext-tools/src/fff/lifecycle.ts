@@ -20,14 +20,14 @@ export interface FffRuntimeState {
 	getRuntime(): FffRuntime | undefined;
 	getSettings(): FffSettings;
 	getBashJobs(): BashJobRegistry | undefined;
-	getArtifacts(): import("@hheei/pi-ext-core").ArtifactRegistry | undefined;
+	getOutputs(): import("@hheei/pi-ext-core").OutputRegistry | undefined;
 }
 
 interface MutableFffRuntimeState {
 	runtime: FffRuntime | undefined;
 	settings: FffSettings;
 	jobs: BashJobRegistry | undefined;
-	artifacts: import("@hheei/pi-ext-core").ArtifactRegistry | undefined;
+	outputs: import("@hheei/pi-ext-core").OutputRegistry | undefined;
 }
 
 const runtimeStates = new WeakMap<FffRuntimeState, MutableFffRuntimeState>();
@@ -37,13 +37,13 @@ export function createFffRuntimeState(): FffRuntimeState {
 		getRuntime: (): FffRuntime | undefined => runtimeStates.get(state)?.runtime,
 		getSettings: (): FffSettings => runtimeStates.get(state)?.settings ?? DEFAULT_FFF_SETTINGS,
 		getBashJobs: (): BashJobRegistry | undefined => runtimeStates.get(state)?.jobs,
-		getArtifacts: () => runtimeStates.get(state)?.artifacts,
+		getOutputs: () => runtimeStates.get(state)?.outputs,
 	};
 	runtimeStates.set(state, {
 		runtime: undefined,
 		settings: DEFAULT_FFF_SETTINGS,
 		jobs: undefined,
-		artifacts: undefined,
+		outputs: undefined,
 	});
 	return state;
 }
@@ -94,9 +94,9 @@ async function startFffLifecycle(
 	state.settings = settings;
 	const runtime = new FffRuntime(context.extension.cwd);
 	state.runtime = runtime;
-	state.artifacts = context.artifacts;
+	state.outputs = context.outputs;
 	const jobs = new BashJobRegistry({
-		artifacts: context.artifacts,
+		outputs: context.outputs,
 		pi,
 		tailBytes: settings.bashOutputTailKiB * 1024,
 	});
@@ -105,8 +105,8 @@ async function startFffLifecycle(
 		jobs.dispose();
 		if (state.jobs === jobs) state.jobs = undefined;
 	});
-	context.resources.add("artifacts-state", () => {
-		if (state.artifacts === context.artifacts) state.artifacts = undefined;
+	context.resources.add("outputs-state", () => {
+		if (state.outputs === context.outputs) state.outputs = undefined;
 	});
 	context.resources.add("fff-runtime", () => {
 		runtime.dispose();

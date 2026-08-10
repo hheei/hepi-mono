@@ -47,6 +47,9 @@ describe("staged apply-patch executor", () => {
 		await save(root, "src/update.txt", "one\ntwo\nthree\n");
 		await save(root, "src/delete.txt", "remove\n");
 		await save(root, "src/move.txt", "old name\n");
+		const progress = [] as Parameters<
+			NonNullable<Parameters<typeof applyPatchInWorkspace>[0]["onProgress"]>
+		>[0][];
 
 		const result = await applyPatchInWorkspace({
 			workspaceRoot: root,
@@ -58,9 +61,10 @@ describe("staged apply-patch executor", () => {
 				"*** Delete File: src/delete.txt\n" +
 				"*** Update File: src/move.txt\n*** Move to: src/moved.txt\n-old name\n+new name\n" +
 				"*** End Patch",
+			onProgress: (update) => progress.push(update),
 		});
 
-		expect(result).toEqual({
+		expect(result).toMatchObject({
 			changedPaths: [
 				"src/add.txt",
 				"src/update.txt",
@@ -73,6 +77,18 @@ describe("staged apply-patch executor", () => {
 			fuzzyUpdateCount: 0,
 			rejected: [],
 		});
+		expect(result.applied).toHaveLength(4);
+		expect(progress.at(-1)?.operations).toEqual(result.operations);
+		expect(
+			progress.some((update) =>
+				update.operations.some((operation) => operation.status === "pending"),
+			),
+		).toBe(true);
+		expect(result.applied[1]).toMatchObject({
+			paths: ["src/update.txt"],
+			outcomes: [{ kind: "applied", hunkIndex: 1, match: "exact" }],
+		});
+		expect(result.applied[1]?.snapshots).toHaveLength(1);
 		expect(await load(root, "src/add.txt")).toBe("added\n");
 		expect(await load(root, "src/update.txt")).toBe("one\ntwo\ninserted\nthree\n");
 		await expect(readFile(join(root, "src", "delete.txt"), "utf8")).rejects.toThrow();
@@ -115,9 +131,32 @@ describe("staged apply-patch executor", () => {
 			{
 				paths: ["value.txt"],
 				error: "Patch update failed exactly and fuzzy is disabled: value.txt",
+				diagnostics: [{ kind: "context_not_found", hunkIndex: 1 }],
 			},
 		]);
 		expect(await load(root, "value.txt")).toBe("alpha\nchanged context\nomega\n");
+	});
+
+	test("rejects ambiguous exact context with candidate lines", async () => {
+		const root = await temporaryDirectory();
+		await save(root, "value.txt", "same\nkeep\nsame\nkeep\n");
+
+		const result = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch:
+				"*** Begin Patch\n" +
+				"*** Update File: value.txt\n same\n-keep\n+changed\n" +
+				"*** End Patch",
+		});
+		expect(result.changedPaths).toEqual([]);
+		expect(result.rejected).toMatchObject([
+			{
+				paths: ["value.txt"],
+				diagnostics: [{ kind: "ambiguous_exact", hunkIndex: 1, candidateStartLines: [1, 3] }],
+			},
+		]);
+		expect(await load(root, "value.txt")).toBe("same\nkeep\nsame\nkeep\n");
 	});
 
 	test("applies earlier operation when later operation fails", async () => {

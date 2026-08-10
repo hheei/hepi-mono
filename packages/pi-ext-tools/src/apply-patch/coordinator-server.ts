@@ -3,7 +3,8 @@ import { createServer, type Socket } from "node:net";
 import { fileURLToPath } from "node:url";
 import { defaultPiSettingsPaths } from "@hheei/pi-ext-core";
 import { coordinatorSocketPath } from "./coordinator-client.js";
-import { type ApplyPatchInWorkspaceResult, applyPatchInWorkspace } from "./executor.js";
+import { applyPatchInWorkspace } from "./executor.js";
+import type { ApplyPatchInWorkspaceResult, ApplyPatchProgress } from "./outcome.js";
 import { parseV4aPatch } from "./parser.js";
 import { type FuzzyApplyPatchPolicy, loadFuzzyApplyPatchPolicy } from "./policy.js";
 
@@ -26,6 +27,11 @@ interface RunningItem {
 type ApplyResponse =
 	| { readonly id: string; readonly ok: true; readonly result: ApplyPatchInWorkspaceResult }
 	| { readonly id: string; readonly ok: false; readonly error: string };
+type ProgressResponse = {
+	readonly type: "progress";
+	readonly id: string;
+	readonly progress: ApplyPatchProgress;
+};
 
 const COORDINATOR_IDLE_TIMEOUT_MS = 30_000;
 
@@ -51,6 +57,12 @@ function errorText(error: unknown): string {
 }
 function send(socket: Socket, response: ApplyResponse): void {
 	if (!socket.destroyed) socket.end(`${JSON.stringify(response)}\n`);
+}
+function sendProgress(socket: Socket, id: string, progress: ApplyPatchProgress): void {
+	if (!socket.destroyed)
+		socket.write(
+			`${JSON.stringify({ type: "progress", id, progress } satisfies ProgressResponse)}\n`,
+		);
 }
 
 function isMissingPath(error: unknown): boolean {
@@ -195,6 +207,7 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 				patch: item.request.patch,
 				policy,
 				signal: item.abort.signal,
+				onProgress: (progress) => sendProgress(item.socket, item.request.id, progress),
 			})
 				.then(
 					(result) => send(item.socket, { id: item.request.id, ok: true, result }),

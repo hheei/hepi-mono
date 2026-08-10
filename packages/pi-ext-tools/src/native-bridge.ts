@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { MpatchHunkOutcome } from "./apply-patch/outcome.js";
 
 export interface MpatchRunCommandOptions {
 	readonly cwd: string;
@@ -47,6 +48,7 @@ export interface MpatchRunResult {
 	readonly status: number | null;
 	readonly stdout: string;
 	readonly stderr: string;
+	readonly outcomes: readonly MpatchHunkOutcome[];
 }
 
 interface NativeModule {
@@ -78,7 +80,7 @@ interface NativePtySessionConstructor {
 
 /**
  * Loads the HEPI-owned N-API bridge built from `crates/pi-ext-bridge`.
- * The bridge is a release artifact (`native/pi-ext-tools-bridge.node`) and is
+ * The bridge is a release output (`native/pi-ext-tools-bridge.node`) and is
  * not committed; callers must tolerate its absence unless they require native
  * execution.
  */

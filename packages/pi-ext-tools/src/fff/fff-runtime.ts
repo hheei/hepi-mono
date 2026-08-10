@@ -631,6 +631,12 @@ export class FffRuntime {
 			...(request.includeCursorHint === undefined
 				? {}
 				: { includeCursorHint: request.includeCursorHint }),
+			...(request.fuzzyFallbackOnly === undefined
+				? {}
+				: { fuzzyFallbackOnly: request.fuzzyFallbackOnly }),
+			...(request.noMatchFallback === undefined
+				? {}
+				: { noMatchFallback: request.noMatchFallback }),
 			...(request.outputMode === undefined ? {} : { outputMode: request.outputMode }),
 		});
 	}
@@ -673,7 +679,7 @@ export class FffRuntime {
 				currentFile = item.relativePath;
 				lines.push(currentFile);
 			}
-			lines.push(`${item.lineNumber}?${cropMatchLine(item.lineContent, item.matchRanges).text}`);
+			lines.push(`${item.lineNumber}:${cropMatchLine(item.lineContent, item.matchRanges).text}`);
 		}
 		return lines.join("\n");
 	}
@@ -729,6 +735,34 @@ export class FffRuntime {
 		);
 	}
 
+	private buildFuzzyNoMatchFallback(
+		finder: FileFinder,
+		request: SingleGrepRequest,
+		constraintQuery: string | undefined,
+		resolvedScope: ResolvedPath | undefined,
+	): GrepSearchResponse | null {
+		if (request.mode === "fuzzy") return null;
+		const fuzzyPattern = cleanupFuzzyQuery(request.pattern);
+		if (!fuzzyPattern) return null;
+		const fuzzyResult = this.runFinderGrep(
+			finder,
+			{ ...request, pattern: fuzzyPattern, mode: "fuzzy" },
+			constraintQuery,
+			null,
+		);
+		if (fuzzyResult.isErr()) return null;
+		const items = fuzzyResult.value.items.slice(0, request.limit);
+		if (items.length === 0) return null;
+		return {
+			items,
+			formatted: this.buildApproximateMatchText(items),
+			linesTruncated: false,
+			approximate: "fuzzy",
+			...(resolvedScope === undefined ? {} : { scope: resolvedScope }),
+			...(constraintQuery === undefined ? {} : { constraintQuery }),
+		};
+	}
+
 	private async buildNoMatchFallback(
 		finder: FileFinder,
 		request: SingleGrepRequest,
@@ -775,29 +809,13 @@ export class FffRuntime {
 			}
 		}
 
-		if (request.mode !== "fuzzy") {
-			const fuzzyPattern = cleanupFuzzyQuery(request.pattern);
-			if (fuzzyPattern) {
-				const fuzzyResult = this.runFinderGrep(
-					finder,
-					{ ...request, pattern: fuzzyPattern, mode: "fuzzy" },
-					constraintQuery,
-					null,
-				);
-				if (fuzzyResult.isOk()) {
-					const fuzzyItems = fuzzyResult.value.items.slice(0, request.limit);
-					if (fuzzyItems.length > 0) {
-						return {
-							items: fuzzyItems,
-							formatted: this.buildApproximateMatchText(fuzzyItems),
-							linesTruncated: false,
-							...(resolvedScope === undefined ? {} : { scope: resolvedScope }),
-							...(constraintQuery === undefined ? {} : { constraintQuery }),
-						};
-					}
-				}
-			}
-		}
+		const fuzzyFallback = this.buildFuzzyNoMatchFallback(
+			finder,
+			request,
+			constraintQuery,
+			resolvedScope,
+		);
+		if (fuzzyFallback) return fuzzyFallback;
 
 		if (request.pattern.includes("/")) {
 			const pathCandidates = await this.searchFileCandidates(request.pattern, 1);
@@ -963,16 +981,18 @@ export class FffRuntime {
 			if (!engineCursor) break;
 		}
 
-		if (items.length === 0 && !request.cursor && Date.now() < deadline) {
+		if (
+			items.length === 0 &&
+			!request.cursor &&
+			!request.noMatchFallback &&
+			Date.now() < deadline
+		) {
 			if (request.kind === "single") {
-				const fallback = await this.buildNoMatchFallback(
-					finder,
-					request,
-					constraintQuery,
-					resolvedScope,
-				);
+				const fallback = request.fuzzyFallbackOnly
+					? this.buildFuzzyNoMatchFallback(finder, request, constraintQuery, resolvedScope)
+					: await this.buildNoMatchFallback(finder, request, constraintQuery, resolvedScope);
 				if (fallback) return Result.ok(fallback);
-			} else {
+			} else if (!request.fuzzyFallbackOnly) {
 				const fallback = await this.buildMultiNoMatchFallback(
 					finder,
 					request,
