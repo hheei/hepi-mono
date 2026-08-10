@@ -7,9 +7,17 @@ export {
 export { startApplyPatchCoordinatorServer } from "./coordinator-server.js";
 export {
 	type ApplyPatchInWorkspaceOptions,
-	type ApplyPatchInWorkspaceResult,
 	applyPatchInWorkspace,
 } from "./executor.js";
+export type {
+	ApplyPatchAppliedOperation,
+	ApplyPatchHunkSnapshot,
+	ApplyPatchInWorkspaceResult,
+	ApplyPatchOperationProgress,
+	ApplyPatchProgress,
+	ApplyPatchRejection,
+	MpatchHunkOutcome,
+} from "./outcome.js";
 export {
 	compileV4aUpdateToUnifiedDiff,
 	findV4aPatchConflicts,

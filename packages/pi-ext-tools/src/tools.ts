@@ -12,6 +12,8 @@ import { registerBashJobTool } from "./bash-job-tool.js";
 import { createFffRuntimeState, type FffRuntimeState } from "./fff/lifecycle.js";
 import { registerFindTool } from "./find.js";
 import { registerGrepTool } from "./grep.js";
+import { withToolFrame } from "./pretty/frame.js";
+import { ToolTraceController } from "./pretty/trace.js";
 import { registerReadTool } from "./read.js";
 
 const OWNER = "@hheei/pi-ext-tools";
@@ -25,6 +27,7 @@ const BUILT_IN_GROUP = "Built-in";
 function registerCanonicalTool<TParams extends TSchema, TDetails, TState>(
 	pi: ExtensionAPI,
 	factory: (cwd: string) => ToolDefinition<TParams, TDetails, TState>,
+	trace: ToolTraceController,
 	conflictsWith: readonly string[] = [],
 ): void {
 	const template = factory(process.cwd());
@@ -36,9 +39,9 @@ function registerCanonicalTool<TParams extends TSchema, TDetails, TState>(
 				params !== null &&
 				"path" in params &&
 				typeof params.path === "string" &&
-				params.path.startsWith("artifact://")
+				params.path.startsWith("output://")
 			)
-				throw new Error("Write/edit cannot modify artifact URLs");
+				throw new Error("Write/edit cannot modify output URLs");
 			return factory(context.cwd).execute(toolCallId, params, signal, onUpdate, context);
 		},
 	};
@@ -54,7 +57,7 @@ function registerCanonicalTool<TParams extends TSchema, TDetails, TState>(
 			conflictsWith,
 			defaultActive: true,
 		},
-		tool,
+		withToolFrame(tool, trace),
 	);
 }
 
@@ -62,13 +65,14 @@ function registerCanonicalTool<TParams extends TSchema, TDetails, TState>(
 export function registerTools(
 	pi: ExtensionAPI,
 	state: FffRuntimeState = createFffRuntimeState(),
+	trace = new ToolTraceController(),
 ): void {
-	registerReadTool(pi, state);
-	registerGrepTool(pi, state);
-	registerFindTool(pi, state);
-	registerCanonicalTool(pi, createEditToolDefinition, ["apply_patch"]);
-	registerCanonicalTool(pi, createWriteToolDefinition, ["apply_patch"]);
-	registerBashTool(pi, state);
-	registerBashJobTool(pi, state);
-	registerApplyPatchTool(pi);
+	registerReadTool(pi, state, trace);
+	registerGrepTool(pi, state, trace);
+	registerFindTool(pi, state, trace);
+	registerCanonicalTool(pi, createEditToolDefinition, trace, ["apply_patch"]);
+	registerCanonicalTool(pi, createWriteToolDefinition, trace, ["apply_patch"]);
+	registerBashTool(pi, state, trace);
+	registerBashJobTool(pi, state, trace);
+	registerApplyPatchTool(pi, trace);
 }

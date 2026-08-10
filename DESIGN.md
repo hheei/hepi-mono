@@ -76,10 +76,26 @@ Rules:
 
 ### Tools
 
-- Render each tool execution as one coherent block using the appropriate pending/success/error background.
-- Use `toolTitle` for action identity, `toolOutput` for output, `dim` for paths/secondary metadata, and semantic status/diff tokens where applicable.
-- Collapsed results SHOULD use concise semantic summaries.
+- `pi-ext-tools` renders every registered tool with `renderShell: "self"`: terminal background, no Pi `tool*Bg` box.
+- A tool frame has this order; omit result rule/body until a result exists:
+
+  ```text
+  ✓ tool summary · metadata
+  ─────────────────────────
+  tool-call render
+  ─────────────────────────
+  tool-result render
+  ```
+
+- When header fully represents a tool call, omit a duplicate call body and its empty rule; `grep` does this, so its final result follows the header's single rule directly.
+- Frame rules use a structural theme token. Call/result renderers retain their existing semantic colors, widths, collapse rules, and model-visible `content`.
+- A completed prior Trace collapses only while Pi global tool expansion is off. Current-Trace tools keep their full block; the next `agent_start` collapses prior Traces. A collapsed tool renders `status header -> blank line -> tool-owned metrics footer`; expanding tools restores its full call/result block. A Trace is `agent_start` through `agent_end`; resume treats every historical tool as prior.
+- A collapsed footer uses only tool-owned typed details, a wrapper-captured execution duration, or a caught single-line error message. It never parses model-visible `content`.
+- `grep` collapses to `N matches · M files · duration`, or FFF fallback `N fuzzies · M files · duration`.
+- An unexpanded successful text `read` shows an independent preview: three head lines, then a dim blank-number `│...` omission row, then two tail lines when more than five lines were returned. Its full header is `status read path[:range]`; an explicit `limit` shows inclusive `start-end`, while no `limit` shows at most `:start`. TUI rows derive one-based source line numbers from the request only; model-visible content stays Pi-native and unnumbered. The footer is `Unicode-code-point chars · returned lines · duration`. Each over-width displayed line ends with dim `>` after the cell-width-safe retained suffix. Expanded, error, partial, and image reads retain Pi native render behavior.
+- Grep line compaction marks TUI-only discarded left/right text with dim `<` / `>`; model `content` and Output recovery remain unmodified.
 - Streaming and completed states SHOULD share a visual grammar while remaining distinguishable.
+- `apply_patch` 的 live block 使用 `◐ apply_patch · N files · +A -D lines`、一个 rule、operation rows、一个 rule 与 typed footer。每个 row 为 `○|✓|!|✗ create|modify|delete path +A -D`；`!` 的 fuzzy update 在末尾用 `dim` 显示最低 hunk score。pending 可显示 parser/preflight 的 planned delta，但只有 commit progress 才能转为 `✓`/`!` 并计入 actual totals；rejection 转 `✗`。live progress 仅存 Trace session state，final Patch Outcome 持久化，resume 不伪造 live state。
 - NEVER fabricate counts, metrics, deltas, or success state absent from the underlying result.
 
 ### Lists and Forms

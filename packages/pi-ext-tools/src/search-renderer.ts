@@ -4,32 +4,20 @@ import type {
 	ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
 import { type Component, Text } from "@earendil-works/pi-tui";
-
-type GrepRenderArgs = {
-	readonly pattern: string;
-	readonly path?: string | undefined;
-	readonly timeout?: number | undefined;
-};
+import type { GrepDisplayLine, GrepToolDetails } from "./grep.js";
+import type { ToolCompletion } from "./pretty/trace.js";
 
 type FindRenderArgs = {
 	readonly pattern: string;
-	readonly limit?: number | undefined;
+	readonly limit?: number;
 };
 
-const GREP_SUMMARY = /^(\d+) matches in (\d+) files:$/;
-const GREP_FILE_HEADER = /^> (.+) \((\d+) matches\):$/;
-const GREP_FILE_SUMMARY = /^(.+) \((\d+) matches\)$/;
-const GREP_LINE_LIST = /^line: (.*)$/;
-const GREP_MATCH_LINE = /^\s*(\d+)([:|│?])(.*)$/;
-const GREP_TRUNCATION = /^\.\.\. \((\d+) more lines, ctrl\+o to expand\)$/i;
-const GREP_NO_MATCHES = /^(?:No files matched\b.*|No match(?:es)? found\.?)$/i;
-const FIND_SUMMARY = /^\d+\/\d+ matches$/;
+type RenderContext = { readonly isError: boolean; readonly lastComponent: Component | undefined };
+const MAX_COLLAPSED_GREP_RESULT_PREVIEW_LINES = 12;
 const FIND_CANDIDATE = /^\d+\. (.+) \(([^)]+)\)(?:(?: - | )(.+))?$/;
 const FIND_DIRECTORY_HEADER = /^.+\/$/;
+const FIND_SUMMARY = /^\d+\/\d+ matches$/;
 const FIND_CURSOR = /^cursor:\s+/;
-const MAX_COLLAPSED_GREP_CONTENT_LINES = 14;
-const DEFAULT_GREP_TIMEOUT_SECONDS = 30;
-type RenderContext = { readonly isError: boolean; readonly lastComponent: Component | undefined };
 
 function resultText(result: AgentToolResult<unknown>): string {
 	return result.content
@@ -38,216 +26,188 @@ function resultText(result: AgentToolResult<unknown>): string {
 		.join("\n");
 }
 
-function isFffGrepResult(result: AgentToolResult<unknown>): boolean {
-	if (typeof result.details !== "object" || result.details === null) return false;
-	return Reflect.get(result.details, "format") === "fff-grep";
+function grepDetails(value: unknown): GrepToolDetails | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	const details = value as Partial<GrepToolDetails>;
+	return details.format === "canonical-grep" && Array.isArray(details.display)
+		? (details as GrepToolDetails)
+		: undefined;
 }
 
-const FFF_GREP_LINE = /^(\s*)(\d+)([:|│?])(.*)$/;
-
-function fffGrepLineWidths(lines: readonly string[]): ReadonlyMap<number, number> {
-	const widths = new Map<number, number>();
-	let block: number[] = [];
-	let width = 0;
-	const commit = (): void => {
-		for (const index of block) widths.set(index, width);
-		block = [];
-		width = 0;
-	};
-	for (const [index, line] of lines.entries()) {
-		const match = line.match(FFF_GREP_LINE);
-		if (match) {
-			block.push(index);
-			width = Math.max(width, (match[2] ?? "").length);
-		} else if (line.trim() !== "") {
-			commit();
-		}
+function utf8Boundaries(text: string): ReadonlyMap<number, number> {
+	const boundaries = new Map<number, number>();
+	let bytes = 0;
+	let chars = 0;
+	boundaries.set(0, 0);
+	for (const character of text) {
+		bytes += Buffer.byteLength(character, "utf8");
+		chars += character.length;
+		boundaries.set(bytes, chars);
 	}
-	commit();
-	return widths;
+	return boundaries;
 }
 
-function renderFffGrepText(text: string, theme: Theme): string {
-	const lines = text.split("\n").filter((line) => !FIND_CURSOR.test(line));
-	const summaryIndex = lines.findIndex((line) => /^Found \d+ matches in \d+ files\.$/.test(line));
-	if (summaryIndex >= 0) {
-		const firstContent = summaryIndex + 1;
-		while (lines[firstContent] === "") lines.splice(firstContent, 1);
-		lines.splice(firstContent, 0, "");
-	}
-	const lineWidths = fffGrepLineWidths(lines);
-	return lines
-		.map((line, index) => {
-			if (line.trim() === "" || line.startsWith("!")) return line;
-			if (FIND_DIRECTORY_HEADER.test(line)) return theme.fg("mdCode", line);
-			if (/^\s*\d+[:|│?]/.test(line)) {
-				const match = line.match(FFF_GREP_LINE);
-				return match
-					? `${theme.fg("dim", `${match[1] ?? ""}${(match[2] ?? "").padStart(lineWidths.get(index) ?? 0)}${match[3] ?? ""}`)}${match[4] ?? ""}`
-					: line;
-			}
-			if (line.startsWith("line:")) return theme.fg("dim", line);
-			const summary = line.match(/^Found (\d+) matches in (\d+) files\.$/);
-			if (summary)
-				return `Found ${theme.fg("success", summary[1] ?? "0")} matches in ${theme.fg("success", summary[2] ?? "0")} files.`;
-			const fileMatchSummary = line.match(/^(.*):([\d,]+) \((\d+) matches\)$/);
-			if (fileMatchSummary) {
-				const numbers = (fileMatchSummary[2] ?? "").split(",");
-				const shown = numbers.slice(0, 5).join(",");
-				const suffix = numbers.length > 5 ? ", …" : "";
-				return `${theme.fg("dim", fileMatchSummary[1] ?? "")}${theme.fg("warning", `:${shown}${suffix}`)} (${theme.fg("success", fileMatchSummary[3] ?? "0")} matches)`;
-			}
-			const fileSummary = line.match(/^(.*) \((\d+) matches\)$/);
-			if (fileSummary)
-				return `${theme.fg("dim", fileSummary[1] ?? "")} (${theme.fg("success", fileSummary[2] ?? "0")} matches)`;
-			return theme.fg("mdCode", line);
-		})
-		.join("\n");
-}
-
-function grepTotalsFromText(text: string): { readonly matched: number; readonly files: number } {
-	const files = new Set<string>();
-	let currentFile: string | undefined;
-	let matched = 0;
-	for (const line of text.split("\n")) {
-		const match = line.match(GREP_MATCH_LINE);
-		if (match) {
-			matched += 1;
-			continue;
-		}
-		if (
-			line.trim() === "" ||
-			line.startsWith(" ") ||
-			line.startsWith("!") ||
-			line.startsWith("[") ||
-			line.startsWith("0 ") ||
-			line.startsWith("No ") ||
-			line.startsWith("cursor:")
-		)
-			continue;
-		currentFile = line;
-		files.add(currentFile);
-	}
-	return { matched, files: files.size };
-}
-
-function grepTotals(
-	result: AgentToolResult<unknown>,
-	content: string,
-): { readonly matched: number; readonly files: number } | undefined {
-	if (typeof result.details === "object" && result.details !== null) {
-		const matched = Reflect.get(result.details, "totalMatched");
-		const files = Reflect.get(result.details, "totalFiles");
-		if (typeof matched === "number" && typeof files === "number") return { matched, files };
-	}
-	return grepTotalsFromText(content);
-}
-
-function requestedGrepLimit(result: AgentToolResult<unknown>): number | undefined {
-	if (typeof result.details !== "object" || result.details === null) return undefined;
-	const requestedLimit = Reflect.get(result.details, "requestedLimit");
-	return typeof requestedLimit === "number" ? requestedLimit : undefined;
-}
-
-function renderGrepText(text: string, theme: Theme, limit: number | undefined): string {
-	const lines = text.split("\n");
-	const lineWidths = fffGrepLineWidths(lines);
-	const rendered = lines
-		.map((line, index) => {
-			if (GREP_NO_MATCHES.test(line)) return theme.fg("warning", line);
-			const truncation = line.match(GREP_TRUNCATION);
-			if (truncation)
-				return theme.fg("dim", `... (${truncation[1] ?? "0"} earlier lines, ^o to expand)`);
-			const summary = line.match(GREP_SUMMARY);
-			if (summary) {
-				const actualMatches = Number(summary[1] ?? "0");
-				const shownMatches = Math.min(limit ?? actualMatches, actualMatches);
-				return `${theme.fg("mdCode", `${shownMatches}/${actualMatches}`)} matches in ${theme.fg("success", summary[2] ?? "0")} files:`;
-			}
-			const fileHeader = line.match(GREP_FILE_HEADER);
-			if (fileHeader)
-				return `${theme.fg("dim", fileHeader[1] ?? "")} (${theme.fg("success", fileHeader[2] ?? "0")} matches)`;
-			const fileSummary = line.match(GREP_FILE_SUMMARY);
-			if (fileSummary)
-				return `${theme.fg("mdCode", fileSummary[1] ?? "")} (${theme.fg("success", fileSummary[2] ?? "0")} matches)`;
-			const lineList = line.match(GREP_LINE_LIST);
-			if (lineList) return `${theme.fg("dim", "line:")}${lineList[1] ?? ""}`;
-			const match = line.match(GREP_MATCH_LINE);
-			if (!match) {
-				if (line.trim() === "" || line.startsWith("!")) return line;
-				if (FIND_CURSOR.test(line)) return "";
-				if (line.startsWith("[")) return theme.fg("dim", line);
-				return theme.fg("mdCode", line);
-			}
-			const lineNumber = match[1] ?? "";
-			const separator = match[2] ?? ":";
-			const content = match[3] ?? "";
-			return `${theme.fg("dim", lineNumber.padStart(lineWidths.get(index) ?? 0, " ") + separator)}${content}`;
-		})
-		.join("\n");
-	return lines.some((line) => GREP_SUMMARY.test(line) || GREP_NO_MATCHES.test(line))
-		? `\n${rendered}`
-		: rendered;
-}
-
-function collapseGrepText(text: string, expanded: boolean): string {
-	const lines = text.split("\n");
-	if (expanded || lines.length <= MAX_COLLAPSED_GREP_CONTENT_LINES) return text;
-	const visibleLineCount = MAX_COLLAPSED_GREP_CONTENT_LINES - 1;
-	return [
-		...lines.slice(0, visibleLineCount),
-		`... (${lines.length - visibleLineCount} more lines, ctrl+o to expand)`,
-	].join("\n");
-}
-
-export function renderGrepCall(
-	args: GrepRenderArgs,
+function withTruncationMarkers(
+	text: string,
+	truncatedLeft: boolean,
+	truncatedRight: boolean,
 	theme: Theme,
-	context: Pick<RenderContext, "lastComponent">,
-): Text {
-	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-	const scope = args.path ? ` in ${theme.fg("dim", args.path)}` : "";
-	const timeout = theme.fg("dim", ` (timeout ${args.timeout ?? DEFAULT_GREP_TIMEOUT_SECONDS}s)`);
-	text.setText(
-		`${theme.fg("accent", "grep")} ${theme.fg("mdCode", `/${args.pattern}/`)}${scope}${timeout}`,
-	);
-	return text;
+): string {
+	return `${truncatedLeft ? theme.fg("dim", "<") : ""}${text}${truncatedRight ? theme.fg("dim", ">") : ""}`;
+}
+
+function renderMatch(
+	line: Extract<GrepDisplayLine, { type: "match" }>,
+	theme: Theme,
+	lineNumberWidth: number,
+): string {
+	const prefix = `${String(line.lineNumber).padStart(lineNumberWidth)}│`;
+	const boundaries = utf8Boundaries(line.source);
+	const visibleStart = boundaries.get(line.visibleStart);
+	const visibleEnd = boundaries.get(line.visibleEnd);
+	if (visibleStart === undefined || visibleEnd === undefined)
+		return `${theme.fg("dim", prefix)}${withTruncationMarkers(line.text, line.truncatedLeft, line.truncatedRight, theme)}`;
+	const ranges = line.submatches.flatMap((range) => {
+		if (range.start < line.visibleStart || range.end > line.visibleEnd || range.end <= range.start)
+			return [];
+		const start = boundaries.get(range.start);
+		const end = boundaries.get(range.end);
+		return start === undefined || end === undefined
+			? []
+			: [{ start: start - visibleStart, end: end - visibleStart }];
+	});
+	if (ranges.length === 0)
+		return `${theme.fg("dim", prefix)}${withTruncationMarkers(line.text, line.truncatedLeft, line.truncatedRight, theme)}`;
+	const highlighted: string[] = [];
+	let offset = 0;
+	for (const range of ranges.sort((left, right) => left.start - right.start)) {
+		if (range.start < offset) continue;
+		highlighted.push(line.text.slice(offset, range.start));
+		highlighted.push(theme.fg("success", line.text.slice(range.start, range.end)));
+		offset = range.end;
+	}
+	highlighted.push(line.text.slice(offset));
+	return `${theme.fg("dim", prefix)}${withTruncationMarkers(highlighted.join(""), line.truncatedLeft, line.truncatedRight, theme)}`;
+}
+
+function renderGrepLine(line: GrepDisplayLine, theme: Theme, lineNumberWidth = 0): string {
+	switch (line.type) {
+		case "path":
+			return theme.fg("mdCode", line.text);
+		case "match":
+			return renderMatch(line, theme, lineNumberWidth);
+		case "context":
+			return `${theme.fg("dim", `${String(line.lineNumber).padStart(lineNumberWidth)}│`)}${withTruncationMarkers(line.text, line.truncatedLeft, line.truncatedRight, theme)}`;
+		case "omission":
+			return theme.fg("warning", line.text);
+		case "text":
+			return line.text;
+	}
+}
+
+class GrepResultComponent implements Component {
+	constructor(
+		private readonly preview: Text,
+		private readonly theme: Theme,
+		private footer = "",
+	) {}
+
+	set(text: string, footer: string): void {
+		this.preview.setText(text);
+		this.footer = footer;
+	}
+
+	render(width: number): string[] {
+		const availableWidth = Math.max(1, width);
+		return [
+			...this.preview.render(availableWidth),
+			this.theme.fg("borderMuted", "─".repeat(availableWidth)),
+			this.theme.fg("dim", this.footer),
+		];
+	}
+
+	invalidate(): void {
+		this.preview.invalidate();
+	}
+}
+
+function durationText(durationMs: number): string {
+	return durationMs < 1_000 ? `${durationMs}ms` : `${(durationMs / 1_000).toFixed(1)}s`;
+}
+
+export function grepCollapsedFooter(
+	result: AgentToolResult<unknown>,
+	completion: ToolCompletion | undefined,
+): string | undefined {
+	const details = grepDetails(result.details);
+	if (details === undefined) return undefined;
+	const events = Reflect.get(details, "events");
+	const fuzzy =
+		Array.isArray(events) &&
+		events.some(
+			(event) =>
+				typeof event === "object" &&
+				event !== null &&
+				Reflect.get(event, "type") === "match" &&
+				Reflect.get(event, "approximate") === true,
+		);
+	return `${details.totalMatched} ${fuzzy ? "fuzzies" : "matches"} · ${details.totalFiles} files · ${durationText(completion?.durationMs ?? details.durationMs)}`;
+}
+
+function grepLineNumberWidth(lines: readonly GrepDisplayLine[], start: number): number {
+	let width = 0;
+	for (let index = start + 1; index < lines.length; index += 1) {
+		const line = lines[index];
+		if (line?.type === "path") break;
+		if (line?.type === "match" || line?.type === "context")
+			width = Math.max(width, String(line.lineNumber).length);
+	}
+	return width;
 }
 
 export function renderGrepResult(
 	result: AgentToolResult<unknown>,
-	_options: ToolRenderResultOptions,
+	options: ToolRenderResultOptions,
 	theme: Theme,
 	context: RenderContext,
-): Text {
+): Component {
 	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-	const content = resultText(result).replace(/(?:\r?\n)+$/, "");
-	if (isFffGrepResult(result)) {
-		text.setText(
-			context.isError
-				? theme.fg("error", content)
-				: renderFffGrepText(collapseGrepText(content, false), theme),
-		);
+	const details = grepDetails(result.details);
+	if (context.isError || details === undefined) {
+		text.setText(context.isError ? theme.fg("error", resultText(result)) : resultText(result));
 		return text;
 	}
-	const totals = grepTotals(result, content);
-	const summary =
-		totals === undefined
-			? undefined
-			: `Found ${theme.fg("success", String(totals.matched))} matches in ${theme.fg("success", String(totals.files))} files.`;
-	const renderedContent = renderGrepText(
-		collapseGrepText(content, false),
-		theme,
-		requestedGrepLimit(result),
+	const display = details.display.filter(
+		(line, index) =>
+			index !== 0 ||
+			line.type !== "text" ||
+			!/^\d+(?: fuzzy)? matches in \d+ files$/.test(line.text),
 	);
-	text.setText(
-		context.isError
-			? theme.fg("error", content)
-			: summary === undefined
-				? renderedContent
-				: `\n${summary}\n\n${renderedContent.trimStart()}`,
+	const collapsedLimit =
+		display.length > MAX_COLLAPSED_GREP_RESULT_PREVIEW_LINES
+			? MAX_COLLAPSED_GREP_RESULT_PREVIEW_LINES - 1
+			: MAX_COLLAPSED_GREP_RESULT_PREVIEW_LINES;
+	const visible = options.expanded ? display : display.slice(0, collapsedLimit);
+	let lineNumberWidth = 0;
+	const rendered = visible.map((line, index) => {
+		if (line.type === "path") lineNumberWidth = grepLineNumberWidth(visible, index);
+		return renderGrepLine(line, theme, lineNumberWidth);
+	});
+	const lines = rendered;
+	if (!options.expanded && display.length > visible.length)
+		lines.push(
+			theme.fg("dim", `... (${display.length - visible.length} more lines, expand to show)`),
+		);
+	const component =
+		context.lastComponent instanceof GrepResultComponent
+			? context.lastComponent
+			: new GrepResultComponent(new Text("", 0, 0), theme);
+	component.set(
+		lines.join("\n"),
+		grepCollapsedFooter(result, { durationMs: details.durationMs }) ??
+			`${details.totalMatched} matches · ${details.totalFiles} files · ${durationText(details.durationMs)}`,
 	);
-	return text;
+	return component;
 }
 
 function findTotalMatched(result: AgentToolResult<unknown>): number | undefined {
@@ -257,15 +217,14 @@ function findTotalMatched(result: AgentToolResult<unknown>): number | undefined 
 }
 
 function findTag(reason: string): string {
-	const normalizedReason = reason.startsWith("fff_") ? reason.slice(4) : reason;
-	if (normalizedReason === "fuzzy_filename" || normalizedReason === "fff") return "FF";
-	if (normalizedReason === "fuzzy_path" || normalizedReason === "ffp") return "FP";
-	const matchTag = normalizedReason
+	const normalized = reason.startsWith("fff_") ? reason.slice(4) : reason;
+	if (normalized === "fuzzy_filename" || normalized === "fff") return "FF";
+	if (normalized === "fuzzy_path" || normalized === "ffp") return "FP";
+	return `F${normalized
 		.split("_")
 		.filter((part) => part.length > 0)
 		.map((part) => part[0]?.toUpperCase() ?? "")
-		.join("");
-	return `F${matchTag}`;
+		.join("")}`;
 }
 
 export function renderFindCall(

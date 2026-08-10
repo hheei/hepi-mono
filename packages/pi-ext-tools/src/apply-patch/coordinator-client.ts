@@ -6,12 +6,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import type { ApplyPatchInWorkspaceResult } from "./executor.js";
+import type { ApplyPatchInWorkspaceResult, ApplyPatchProgress } from "./outcome.js";
 
 export interface ApplyPatchThroughCoordinatorOptions {
 	readonly workspaceRoot: string;
 	readonly patch: string;
 	readonly signal?: AbortSignal;
+	readonly onProgress?: (progress: ApplyPatchProgress) => void;
 }
 
 async function ensureCoordinator(
@@ -55,6 +56,12 @@ interface ApplyResponse {
 	readonly result?: ApplyPatchInWorkspaceResult;
 	readonly error?: string;
 }
+interface ProgressResponse {
+	readonly type: "progress";
+	readonly id: string;
+	readonly progress: ApplyPatchProgress;
+}
+type CoordinatorMessage = ApplyResponse | ProgressResponse;
 
 const startupPromises = new Map<string, Promise<void>>();
 const COORDINATOR_READY_TIMEOUT_MS = 10_000;
@@ -64,6 +71,60 @@ const COORDINATOR_STDERR_TAIL_MAX_CHARS = 8_192;
 export function coordinatorSocketPath(workspaceRoot: string): string {
 	const digest = createHash("sha256").update(workspaceRoot).digest("hex");
 	return join(tmpdir(), `hepi-apply-patch-${digest}.sock`);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isPositiveInteger(value: unknown): boolean {
+	return typeof value === "number" && Number.isInteger(value) && value >= 1;
+}
+
+function isNonNegativeInteger(value: unknown): boolean {
+	return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+function isMpatchHunkOutcome(value: unknown): boolean {
+	if (!isRecord(value) || !isPositiveInteger(value.hunkIndex)) return false;
+	switch (value.kind) {
+		case "applied":
+			return (
+				isPositiveInteger(value.startLine) &&
+				isNonNegativeInteger(value.length) &&
+				(value.match === "exact" ||
+					value.match === "exact_ignoring_whitespace" ||
+					value.match === "fuzzy") &&
+				(value.score === undefined || typeof value.score === "number")
+			);
+		case "context_not_found":
+			return true;
+		case "ambiguous_exact":
+			return (
+				Array.isArray(value.candidateStartLines) &&
+				value.candidateStartLines.every(isPositiveInteger)
+			);
+		case "ambiguous_fuzzy":
+			return (
+				Array.isArray(value.candidates) &&
+				value.candidates.every(
+					(candidate) =>
+						isRecord(candidate) &&
+						isPositiveInteger(candidate.startLine) &&
+						isNonNegativeInteger(candidate.length),
+				)
+			);
+		case "fuzzy_below_threshold":
+			return (
+				isRecord(value.best) &&
+				isPositiveInteger(value.best.startLine) &&
+				isNonNegativeInteger(value.best.length) &&
+				typeof value.best.score === "number" &&
+				typeof value.threshold === "number"
+			);
+		default:
+			return false;
+	}
 }
 
 function isApplyResponse(value: unknown): value is ApplyResponse {
@@ -89,26 +150,57 @@ function isApplyResponse(value: unknown): value is ApplyResponse {
 		Object.keys(result).every(
 			(key) =>
 				key === "changedPaths" ||
+				key === "addedLines" ||
+				key === "removedLines" ||
+				key === "operations" ||
 				key === "operationCount" ||
 				key === "exactUpdateCount" ||
 				key === "fuzzyUpdateCount" ||
+				key === "applied" ||
 				key === "rejected",
 		) &&
 		Array.isArray(result.changedPaths) &&
+		isNonNegativeInteger(result.addedLines) &&
+		isNonNegativeInteger(result.removedLines) &&
+		Array.isArray(result.operations) &&
+		result.operations.every(isApplyPatchOperationProgress) &&
 		result.changedPaths.every((path) => typeof path === "string") &&
+		Array.isArray(result.applied) &&
+		result.applied.every((entry) => {
+			if (!isRecord(entry)) return false;
+			return (
+				isNonNegativeInteger(entry.operationIndex) &&
+				(entry.kind === "add" || entry.kind === "delete" || entry.kind === "update") &&
+				Array.isArray(entry.paths) &&
+				entry.paths.every((path) => typeof path === "string") &&
+				Array.isArray(entry.outcomes) &&
+				entry.outcomes.every(isMpatchHunkOutcome) &&
+				Array.isArray(entry.snapshots) &&
+				entry.snapshots.every(
+					(snapshot) =>
+						isRecord(snapshot) &&
+						typeof snapshot.path === "string" &&
+						isPositiveInteger(snapshot.hunkIndex) &&
+						isPositiveInteger(snapshot.startLine) &&
+						isPositiveInteger(snapshot.afterStartLine) &&
+						Array.isArray(snapshot.before) &&
+						snapshot.before.every((line) => typeof line === "string") &&
+						Array.isArray(snapshot.after) &&
+						snapshot.after.every((line) => typeof line === "string"),
+				)
+			);
+		}) &&
 		Array.isArray(result.rejected) &&
 		result.rejected.every((entry) => {
-			if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return false;
-			const rejection = entry as Record<string, unknown>;
+			if (!isRecord(entry)) return false;
 			return (
-				Object.keys(rejection).every(
-					(key) => key === "operationIndices" || key === "paths" || key === "error",
-				) &&
-				Array.isArray(rejection.operationIndices) &&
-				rejection.operationIndices.every((index) => Number.isInteger(index) && index >= 0) &&
-				Array.isArray(rejection.paths) &&
-				rejection.paths.every((path) => typeof path === "string") &&
-				typeof rejection.error === "string"
+				Array.isArray(entry.operationIndices) &&
+				entry.operationIndices.every((index) => Number.isInteger(index) && index >= 0) &&
+				Array.isArray(entry.paths) &&
+				entry.paths.every((path) => typeof path === "string") &&
+				typeof entry.error === "string" &&
+				Array.isArray(entry.diagnostics) &&
+				entry.diagnostics.every(isMpatchHunkOutcome)
 			);
 		}) &&
 		Number.isInteger(result.operationCount) &&
@@ -117,10 +209,57 @@ function isApplyResponse(value: unknown): value is ApplyResponse {
 	);
 }
 
+function isApplyPatchOperationProgress(value: unknown): boolean {
+	return (
+		isRecord(value) &&
+		isNonNegativeInteger(value.operationIndex) &&
+		(value.kind === "add" || value.kind === "delete" || value.kind === "update") &&
+		typeof value.path === "string" &&
+		isNonNegativeInteger(value.addedLines) &&
+		isNonNegativeInteger(value.removedLines) &&
+		(value.status === "pending" ||
+			value.status === "applied" ||
+			value.status === "fuzzy" ||
+			value.status === "rejected") &&
+		(value.score === undefined || typeof value.score === "number")
+	);
+}
+
+function isApplyProgress(value: unknown): value is ApplyPatchProgress {
+	return (
+		isRecord(value) &&
+		Object.keys(value).every(
+			(key) =>
+				key === "files" || key === "addedLines" || key === "removedLines" || key === "operations",
+		) &&
+		isNonNegativeInteger(value.files) &&
+		isNonNegativeInteger(value.addedLines) &&
+		isNonNegativeInteger(value.removedLines) &&
+		Array.isArray(value.operations) &&
+		value.operations.every(isApplyPatchOperationProgress)
+	);
+}
+
+function isProgressResponse(value: unknown): value is ProgressResponse {
+	return (
+		isRecord(value) &&
+		Object.keys(value).every((key) => key === "type" || key === "id" || key === "progress") &&
+		value.type === "progress" &&
+		typeof value.id === "string" &&
+		isApplyProgress(value.progress)
+	);
+}
+
+function isCoordinatorMessage(value: unknown): value is CoordinatorMessage {
+	return isApplyResponse(value) || isProgressResponse(value);
+}
+
 function connectOnce(
 	socketPath: string,
 	request: string,
+	requestId: string,
 	signal?: AbortSignal,
+	onProgress?: (progress: ApplyPatchProgress) => void,
 ): Promise<ApplyResponse> {
 	const { promise, resolve, reject } = Promise.withResolvers<ApplyResponse>();
 	let settled = false;
@@ -142,16 +281,27 @@ function connectOnce(
 	socket.on("connect", () => socket?.write(`${request}\n`));
 	socket.on("data", (chunk: string) => {
 		buffer += chunk;
-		const newline = buffer.indexOf("\n");
-		if (newline < 0) return;
-		const line = buffer.slice(0, newline);
-		try {
-			const value: unknown = JSON.parse(line);
-			if (!isApplyResponse(value)) throw new Error("Invalid response from apply patch coordinator");
-			finish(() => resolve(value));
-			socket?.end();
-		} catch (error) {
-			finish(() => reject(error));
+		while (true) {
+			const newline = buffer.indexOf("\n");
+			if (newline < 0) return;
+			const line = buffer.slice(0, newline);
+			buffer = buffer.slice(newline + 1);
+			try {
+				const value: unknown = JSON.parse(line);
+				if (!isCoordinatorMessage(value))
+					throw new Error("Invalid response from apply patch coordinator");
+				if (value.id !== requestId) throw new Error("Apply patch coordinator response id mismatch");
+				if (isProgressResponse(value)) {
+					onProgress?.(value.progress);
+					continue;
+				}
+				finish(() => resolve(value));
+				socket?.end();
+				return;
+			} catch (error) {
+				finish(() => reject(error));
+				return;
+			}
 		}
 	});
 	socket.on("error", (error) => finish(() => reject(error)));
@@ -278,11 +428,11 @@ export async function applyPatchThroughCoordinator(
 	const request = JSON.stringify({ type: "apply", id, workspaceRoot, patch: options.patch });
 	let response: ApplyResponse;
 	try {
-		response = await connectOnce(socketPath, request, options.signal);
+		response = await connectOnce(socketPath, request, id, options.signal, options.onProgress);
 	} catch (error) {
 		if (options.signal?.aborted) throw options.signal.reason ?? error;
 		await ensureCoordinator(workspaceRoot, options.signal);
-		response = await connectOnce(socketPath, request, options.signal);
+		response = await connectOnce(socketPath, request, id, options.signal, options.onProgress);
 	}
 	if (response.id !== id) throw new Error("Apply patch coordinator response id mismatch");
 	if (!response.ok) throw new Error(response.error ?? "Apply patch coordinator rejected request");
