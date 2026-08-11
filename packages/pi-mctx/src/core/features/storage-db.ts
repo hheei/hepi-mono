@@ -95,46 +95,16 @@ export function resolveDatabasePath(dbPathOverride?: string): { dbDir: string; d
     if (dbPathOverride) {
         return { dbDir: dirname(dbPathOverride), dbPath: dbPathOverride };
     }
-    // Test-isolation guard. Under the test runner the preload
-    // (bunfig.toml `[test] preload`) sets MAGIC_CONTEXT_TEST_DATA_DIR to a
-    // throwaway temp dir AND XDG_DATA_HOME to the same dir. Tests that manage
-    // their OWN XDG_DATA_HOME (per-test temp dirs) keep working — we honor XDG
-    // below via getMagicContextStorageDir(). The guard fires ONLY when
-    // XDG_DATA_HOME is UNSET: that is the dangerous window, because
-    // getMagicContextStorageDir() would otherwise fall back to the REAL
-    // ~/.local/share and a bare openDatabase() would run migrations on the
-    // user's production DB. Some tests delete XDG_DATA_HOME to exercise
-    // path-fallback behavior (2026-06-01 incident: a dormant test migrated the
-    // live DB to v26 and fail-closed every running v25 binary); in that window
-    // we resolve into the dedicated test dir instead of the real path. No test
-    // mutates MAGIC_CONTEXT_TEST_DATA_DIR, so the guard cannot be defeated. It
-    // is never set in production.
+    // Test isolation: preload provides a root, while individual cases may
+    // replace or clear XDG_DATA_HOME. Production never reads this variable.
     const testDataDir = process.env.MAGIC_CONTEXT_TEST_DATA_DIR;
     if (testDataDir && !process.env.XDG_DATA_HOME) {
-        const dbDir = join(testDataDir, "cortexkit", "magic-context");
+        const dbDir = join(testDataDir, "extensions", "pi-mctx");
         return { dbDir, dbPath: join(dbDir, "context.db") };
     }
-    // CWD-INDEPENDENT TEST BACKSTOP. The MAGIC_CONTEXT_TEST_DATA_DIR / XDG guard
-    // above only fires when the bunfig `[test] preload` ran — which depends on
-    // `bun test`'s CWD having a bunfig with `[test] preload`. A `bun test` from a
-    // dir WITHOUT that wiring (monorepo root, a package missing its bunfig, or a
-    // brand-new package) recursively runs every *.test.ts with NO preload, so a
-    // bare openDatabase() would resolve to the user's REAL shared DB and run
-    // migrations on it. That is exactly how the live DB was migrated to v41 by a
-    // worktree whose LATEST was 41 (a re-run of the 2026-06-01 v26 incident).
-    //
-    // Bun sets NODE_ENV=test for EVERY `bun test` regardless of CWD/bunfig (and
-    // it is never "test" in the plugin runtime — production never sets it). So if
-    // we are under the test runner with neither the test data dir nor an explicit
-    // override, we MUST NOT touch real storage: redirect into a throwaway temp dir
-    // so the live DB is physically unreachable. This makes it structurally
-    // impossible for ANY test, from ANY CWD, to read or migrate production data.
-    // Fire ONLY when XDG_DATA_HOME is unset: that is the dangerous window where
-    // getMagicContextStorageDir() below would otherwise resolve to the REAL
-    // ~/.local/share shared DB. When a test sets its own XDG_DATA_HOME (a
-    // per-test temp dir, e.g. to exercise path fallbacks or share a DB across
-    // helper calls), getMagicContextStorageDir() already points inside that
-    // controlled dir — honor it, do not override.
+    // A test started outside the configured preload must never use Pi storage.
+    // Bun sets NODE_ENV=test under every test invocation. With no preload,
+    // redirect into a private temporary root before opening SQLite.
     if (process.env.NODE_ENV === "test" && !process.env.XDG_DATA_HOME) {
         // Memoized per-process so repeated openDatabase() calls in the same
         // unisolated test resolve to the SAME path (openDatabase caches by path;
@@ -161,8 +131,8 @@ function getTestBackstopDbDir(): string {
     if (!testBackstopDbDir) {
         testBackstopDbDir = join(
             mkdtempSync(join(tmpdir(), "mc-test-db-backstop-")),
-            "cortexkit",
-            "magic-context",
+            "extensions",
+            "pi-mctx",
         );
     }
     return testBackstopDbDir;

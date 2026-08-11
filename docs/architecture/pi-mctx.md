@@ -24,9 +24,7 @@ Pi raw-session data is supplied only by the adapter's `RawMessageProvider`; core
 
 ## 儲存版本邊界
 
-Pi MCTX 只支持新建数据库。启动时会建立完整的最新 SQLite schema，不保留历史 schema 升级、数据修复或跨版本兼容程序。
-
-已有的旧 `context.db` 不会被自动升级、重用或删除；用户必须先明确移除它，再让 Pi 建立新数据库。这避免旧数据在未确认迁移的情况下被静默改写。新数据库开启失败仍 fail-closed，不会回退到内存数据库。
+Pi MCTX 的持久化数据位于 `${PI_CODING_AGENT_DIR:-~/.pi/agent}/extensions/pi-mctx/`；默认数据库为 `context.db`。此目录与旧的 `~/.local/share/cortexkit/magic-context/context.db` 隔离，Pi MCTX 不会读取、升级或删除后者。
 
 最新 schema 不包含已退役的 v22 identity rekey 映射；workspace 只按当前成员身份解析。
 

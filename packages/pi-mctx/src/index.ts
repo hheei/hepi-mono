@@ -7,7 +7,7 @@
  * and agent_end cleanup.
  *
  * Storage: fresh Pi schema at
- *   ~/.local/share/cortexkit/magic-context/context.db
+ *   ${PI_CODING_AGENT_DIR:-~/.pi/agent}/extensions/pi-mctx/context.db
  *
  * Config: read from
  *   $cwd/.cortexkit/magic-context.jsonc (project) and
@@ -1413,15 +1413,12 @@ async function startPiMagicContextRuntime(
 	// `experimental.chat.system.transform` handler in
 	// `system-prompt-hash.ts`.
 	pi.on("before_agent_start", async (event, ctx) => {
-		// Startup release announcement (Pi parity with legacy host TUI dialog +
-		// Desktop ignored message). Fires once per ANNOUNCEMENT_VERSION across
-		// the whole machine — persistence file is shared with the legacy host
-		// plugin via `getMagicContextStorageDir()/last_announced_version`.
-		//
+		// Pi MCTX stores announcements under its own Pi-managed directory.
+		// Dismissing a Pi announcement never mutates legacy host state.
 		// Skipped silently when:
 		//   - announcement constants are empty (bugfix-only release)
-		//   - the current ANNOUNCEMENT_VERSION was already dismissed (here or
-		//     in legacy host TUI/Desktop)
+		//   - the current ANNOUNCEMENT_VERSION was already dismissed in
+		//     a prior Pi MCTX session
 		//   - ctx.hasUI is false (print/rpc subagent — no point notifying)
 		//
 		// Fire-and-forget: storage write happens inside markAnnouncementSeen,

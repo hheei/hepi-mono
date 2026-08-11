@@ -25,7 +25,7 @@ beforeEach(() => {
 	prevDataHome = process.env.XDG_DATA_HOME;
 	tempHome = mkdtempSync(join(tmpdir(), "mc-pi-memmig-"));
 	process.env.XDG_DATA_HOME = tempHome;
-	mkdirSync(join(tempHome, "cortexkit", "magic-context"), { recursive: true });
+	mkdirSync(join(tempHome, "extensions", "pi-mctx"), { recursive: true });
 	closeDatabase();
 });
 

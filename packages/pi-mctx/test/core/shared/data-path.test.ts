@@ -14,12 +14,18 @@ import {
 } from "../../../src/core/shared/data-path";
 
 const savedEnv = {
+    NODE_ENV: process.env.NODE_ENV,
+    PI_CODING_AGENT_DIR: process.env.PI_CODING_AGENT_DIR,
     XDG_DATA_HOME: process.env.XDG_DATA_HOME,
     MAGIC_CONTEXT_LOG_PATH: process.env.MAGIC_CONTEXT_LOG_PATH,
 };
 const tempDirs: string[] = [];
 
 afterEach(() => {
+    if (savedEnv.NODE_ENV === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = savedEnv.NODE_ENV;
+    if (savedEnv.PI_CODING_AGENT_DIR === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = savedEnv.PI_CODING_AGENT_DIR;
     if (savedEnv.XDG_DATA_HOME === undefined) delete process.env.XDG_DATA_HOME;
     else process.env.XDG_DATA_HOME = savedEnv.XDG_DATA_HOME;
     if (savedEnv.MAGIC_CONTEXT_LOG_PATH === undefined) delete process.env.MAGIC_CONTEXT_LOG_PATH;
@@ -29,18 +35,22 @@ afterEach(() => {
 });
 
 describe("data-path", () => {
-    test("resolves Pi data and storage paths", () => {
+    test("resolves production storage under Pi's extension root", () => {
         delete process.env.XDG_DATA_HOME;
+        delete process.env.PI_CODING_AGENT_DIR;
+        delete process.env.NODE_ENV;
         expect(getDataDir()).toBe(path.join(os.homedir(), ".local", "share"));
         expect(getMagicContextStorageDir()).toBe(
-            path.join(os.homedir(), ".local", "share", "cortexkit", "magic-context"),
+            path.join(os.homedir(), ".pi", "agent", "extensions", "pi-mctx"),
         );
     });
 
-    test("honors XDG_DATA_HOME for storage", () => {
+    test("honors Pi's configured agent directory", () => {
+        delete process.env.NODE_ENV;
+        process.env.PI_CODING_AGENT_DIR = "/tmp/pi-agent";
         process.env.XDG_DATA_HOME = "/tmp/mctx-data";
         expect(getDataDir()).toBe("/tmp/mctx-data");
-        expect(getMagicContextStorageDir()).toBe("/tmp/mctx-data/cortexkit/magic-context");
+        expect(getMagicContextStorageDir()).toBe("/tmp/pi-agent/extensions/pi-mctx");
     });
 
     test("resolves Pi temp, log, and historian paths", () => {
