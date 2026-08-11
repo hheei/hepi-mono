@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageRoot = path.join(root, "packages");
 const toolsPackageDir = path.join(packageRoot, "pi-ext-tools");
+const mctxExtensionPath = path.join(packageRoot, "pi-mctx", "src", "index.ts");
 const nativeBridgePath = path.join(toolsPackageDir, "native", "pi-ext-tools-bridge.node");
 const buildCacheDir = path.join(root, ".pi-dev");
 const piCli = path.join(root, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js");
@@ -25,68 +26,6 @@ if (!existsSync(piCli)) {
 	console.error("Missing local Pi. Run bun install from the repository root.");
 	process.exit(1);
 }
-
-const packageDirsForPrefix = (prefix: string): string[] =>
-	readdirSync(packageRoot, { withFileTypes: true })
-		.filter((entry) => entry.isDirectory() && entry.name.startsWith(prefix))
-		.map((entry) => path.join(packageRoot, entry.name))
-		.filter((directory) => {
-			const manifestPath = path.join(directory, "package.json");
-			if (!existsSync(manifestPath)) return false;
-			const manifest: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
-			return (
-				typeof manifest === "object" &&
-				manifest !== null &&
-				"pi" in manifest &&
-				"name" in manifest &&
-				typeof manifest.name === "string" &&
-				manifest.name.startsWith("@hheei/")
-			);
-		})
-		.sort();
-
-const independentPackageDirs = packageDirsForPrefix("pi-");
-const selectedPackageNames = new Set(
-	(process.env.PI_DEV_PACKAGES ?? "")
-		.split(",")
-		.map((name) => name.trim())
-		.filter((name) => name.length > 0),
-);
-
-function extensionPaths(directory: string): string[] {
-	const manifest: unknown = JSON.parse(
-		readFileSync(path.join(directory, "package.json"), "utf8"),
-	);
-	if (typeof manifest !== "object" || manifest === null || !("pi" in manifest)) return [];
-	const pi = manifest.pi;
-	if (typeof pi !== "object" || pi === null || !("extensions" in pi)) return [];
-	const extensions = pi.extensions;
-	if (!Array.isArray(extensions)) return [];
-	return extensions.filter((extension): extension is string => typeof extension === "string").map((extension) =>
-		path.join(directory, extension),
-	);
-}
-
-function hasBuildScript(directory: string): boolean {
-	const manifest: unknown = JSON.parse(
-		readFileSync(path.join(directory, "package.json"), "utf8"),
-	);
-	if (typeof manifest !== "object" || manifest === null || !("scripts" in manifest)) return false;
-	const scripts = manifest.scripts;
-	return (
-		typeof scripts === "object" &&
-		scripts !== null &&
-		"build" in scripts &&
-		typeof scripts.build === "string" &&
-		scripts.build.length > 0
-	);
-}
-
-const packageDirs = independentPackageDirs.filter((directory) =>
-	selectedPackageNames.size > 0
-		? selectedPackageNames.has(path.basename(directory))
-		: true,
-);
 
 function updateSourceHash(hash: ReturnType<typeof createHash>, directory: string): void {
 	for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) =>
@@ -156,11 +95,9 @@ function nativeBuildFingerprint(): string {
 
 mkdirSync(buildCacheDir, { recursive: true });
 const buildStatePath = path.join(buildCacheDir, "build.json");
-const buildDirectories = [
-	...new Set([...requiredBuildDirectories, ...packageDirs.filter(hasBuildScript)]),
-];
+const buildDirectories = [...requiredBuildDirectories, toolsPackageDir];
 const typescriptFingerprint = buildFingerprint(buildDirectories);
-const buildsNativeBridge = packageDirs.includes(toolsPackageDir);
+const buildsNativeBridge = true;
 const nativeFingerprint = buildsNativeBridge ? nativeBuildFingerprint() : undefined;
 let cachedTypeScriptFingerprint: string | undefined;
 let cachedNativeFingerprint: string | undefined;
@@ -225,9 +162,12 @@ if (needsNativeBuild || needsTypeScriptBuild) {
 	);
 }
 
-const extensionArgs = packageDirs.flatMap((directory) =>
-	extensionPaths(directory).flatMap((extension) => ["--extension", extension]),
-);
+const extensionArgs = [
+	"--extension",
+	path.join(toolsPackageDir, "dist", "extension.js"),
+	"--extension",
+	mctxExtensionPath,
+];
 const childEnv = { ...process.env };
 delete childEnv.OPENAI_API_KEY;
 const result = spawnSync(

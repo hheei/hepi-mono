@@ -24,7 +24,10 @@ Pi 默认路径与命令行行为决定。
 启动器不会向子进程继承 `OPENAI_API_KEY`，避免环境变量覆盖 Pi 默认认证；需要
 OpenAI 时用 `pi` 的 `--api-key` 参数显式提供。
 
-默认加载全部本仓库 `pi-*` 包。可用 `PI_DEV_PACKAGES` 传入以逗号分隔的包目录名
-测试局部组合，例如 `PI_DEV_PACKAGES=pi-auto-title,pi-todo`。
-默认集为 `packages/pi-*` 下的本仓库 `@hheei` 独立包。脚本不加载开发诊断包
-`pi-debug`。
+脚本固定加载两个 extension：
+
+- `packages/pi-ext-tools/dist/extension.js`；
+- `packages/pi-mctx/src/index.ts`。
+
+`pi-ext-tools` 及其 `pi-ext-core` 依赖会在启动前增量构建；`pi-mctx` 直接由 Pi
+加载 TypeScript source。其他本仓库 extension 暂不加载，也没有包选择环境变量。
