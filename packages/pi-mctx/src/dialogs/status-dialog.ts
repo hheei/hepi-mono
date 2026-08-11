@@ -73,6 +73,7 @@ interface StatusDialogDetail {
 	sessionId: string;
 	usagePercentage: number;
 	inputTokens: number;
+	tokenBreakdownAvailable: boolean;
 	systemPromptTokens: number;
 	compartmentCount: number;
 	memoryCount: number;
@@ -478,9 +479,9 @@ export function buildPiStatusDetail(
 	const activeBytes = activeTags.reduce((sum, tag) => sum + tag.byteSize, 0);
 	const pendingOps = readPendingOpsCount(deps.db, sessionId);
 
-	// Tool call + conversation tokens: read from session_meta where the
-	// pipeline persists post-tag/post-injection/post-strip totals each
-	// pass (see context-handler.ts:1858-1872 → tokenize-pi-messages.ts).
+	// Pipeline-side accounting describes the latest transformed prompt. On resume,
+	// live Pi usage can arrive before that transform refreshes persisted buckets.
+	// Render a composition only when every bucket fits the live input total.
 	//
 	// IMPORTANT: do NOT walk `ctx.sessionManager.getBranch()` here.
 	// `getBranch()` returns the full leaf-to-root path INCLUDING
@@ -492,8 +493,6 @@ export function buildPiStatusDetail(
 	// on a 162K context — ~650% impossible). The pipeline-side walk
 	// uses the post-compaction `event.messages` view, which is the
 	// authoritative source for what the LLM receives.
-	const toolCallTokens = meta.toolCallTokens;
-
 	// Tool definition tokens: serialize each registered tool the way Pi sends
 	// them to providers — name + description + JSON-stringified parameter
 	// schema. This is a structural estimate (not the exact wire payload), but
@@ -510,18 +509,25 @@ export function buildPiStatusDetail(
 		// best effort
 	}
 
-	const conversationTokens = Math.max(
-		0,
-		inputTokens -
-			systemPromptTokens -
-			compartmentTokens -
-			factTokens -
-			memoryTokens -
-			docsTokens -
-			profileTokens -
-			toolCallTokens -
-			toolDefinitionTokens,
-	);
+	const persistedToolCallTokens = meta.toolCallTokens;
+	const attributedTokens =
+		systemPromptTokens +
+		compartmentTokens +
+		factTokens +
+		memoryTokens +
+		docsTokens +
+		profileTokens +
+		persistedToolCallTokens +
+		toolDefinitionTokens;
+	const tokenBreakdownAvailable =
+		inputTokens > 0 &&
+		Number.isFinite(attributedTokens) &&
+		attributedTokens >= 0 &&
+		attributedTokens <= inputTokens;
+	const toolCallTokens = tokenBreakdownAvailable ? persistedToolCallTokens : 0;
+	const conversationTokens = tokenBreakdownAvailable
+		? Math.max(0, inputTokens - attributedTokens)
+		: 0;
 	const workMetrics = getSessionWorkMetrics(deps.db, sessionId);
 
 	const modelKey = ctx.model
@@ -568,6 +574,7 @@ export function buildPiStatusDetail(
 		sessionId,
 		usagePercentage,
 		inputTokens,
+		tokenBreakdownAvailable,
 		systemPromptTokens,
 		compartmentCount: compartments.length,
 		memoryCount: safeRead(
@@ -658,6 +665,7 @@ function breakdownSegments(s: StatusDialogDetail): Array<{
 	color: string;
 	detail?: string;
 }> {
+	if (!s.tokenBreakdownAvailable) return [];
 	const segs: Array<{
 		label: string;
 		tokens: number;
