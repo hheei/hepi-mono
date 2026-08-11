@@ -22,23 +22,61 @@ Pi host
 
 Pi raw-session data is supplied only by the adapter's `RawMessageProvider`; core fails closed when no provider is installed. Shared storage is Pi-owned and has no import or migration path from a legacy OpenCode database. Legacy subagent-invocation rows retain their invocation IDs and token totals, but the retired cross-host `harness` telemetry column is removed by a transactional table rebuild; callers no longer write or read a host origin for those rows.
 
-## 儲存版本邊界
+## 设置
+
+Pi MCTX 通过 `@hheei/pi-ext-core` 向 `/ext-settings` 注册唯一 provider：`pi-mctx`。设置仅写入 Pi 全局 `settings.json` 的直接 `pi-mctx.<field>` 键；不读取项目级 `.pi/settings.json`，也不读取、导入或迁移 CortexKit 的 JSONC 配置。
+
+```json
+{
+  "pi-mctx": {
+    "enabled": true,
+    "compactionEnabled": true,
+    "systemPromptInjection": true,
+    "temporalAwareness": true,
+    "memoryEnabled": true,
+    "memoryInjectionBudgetTokens": 4000,
+    "memoryAutoPromote": true,
+    "memoryRetrievalPromotionThreshold": 3,
+    "memoryAutoSearchEnabled": true,
+    "memoryAutoSearchScoreThreshold": 0.6,
+    "memoryAutoSearchMinPromptChars": 20,
+    "memoryGitCommitIndexingEnabled": false,
+    "memoryGitCommitSinceDays": 365,
+    "memoryGitCommitMaxCommits": 2000,
+    "historianEnabled": true,
+    "historianModel": "github-copilot/gpt-5.4",
+    "historianTwoPass": false,
+    "historianTimeoutMs": 300000,
+    "historyBudgetPercentage": 0.15,
+    "commitClusterTriggerEnabled": true,
+    "commitClusterMinClusters": 3,
+    "dreamerEnabled": false,
+    "dreamerModel": "github-copilot/gpt-5.4",
+    "dreamerInjectDocs": true,
+    "sidekickModel": "github-copilot/gpt-5.4",
+    "embeddingProvider": "local",
+    "embeddingModel": "Xenova/all-MiniLM-L6-v2",
+    "embeddingEndpoint": "",
+    "embeddingApiKeyEnv": ""
+  }
+}
+```
+
+这些是可编辑的运行设置：扩展/compaction/prompt/时间开关、memory 检索与 Git 索引、Historian 生命周期、模型和预算，以及 Dreamer 开关、模型与文档注入、sidekick 模型和 embedding 配置。embedding 支持 `local`、`off` 和 `openai-compatible`：remote 模式需要 model、endpoint；`embeddingApiKeyEnv` 保存环境变量名，不保存 API key，空值表示不发送凭据。Dreamer 启用时使用 schema 的 canonical task schedules；单任务 cron、fallback、thinking、Synapse embedding 的 fallback-provider 合约、remote provider 的请求格式高级项、agent overrides、项目覆盖以及安全/调试项不进入通用设置，继续使用 schema 默认值。保存通过 ext-core 的原子 JSON 更新完成，保留其他 extension section。运行时只在启动或 `/reload` 时读取设置；已运行 session 不做部分热更新。`enabled=false` 仍注册设置 provider，以便用户在 `/ext-settings` 中重新启用扩展。手工写入的无效值仅回退该字段的 schema 默认值，不会使整个配置失效。
+
+## 存储版本边界
 
 Pi MCTX 的持久化数据位于 `${PI_CODING_AGENT_DIR:-~/.pi/agent}/extensions/pi-mctx/`；默认数据库为 `context.db`。此目录与旧的 `~/.local/share/cortexkit/magic-context/context.db` 隔离，Pi MCTX 不会读取、升级或删除后者。
 
 最新 schema 不包含已退役的 v22 identity rekey 映射；workspace 只按当前成员身份解析。
 
-## 模組解析與啟用條件
 
 Adapter source imports shared code through private `#core/*` specifiers. The package `imports` map resolves those specifiers to `src/core/**` under Bun. No public subpath export is added for core.
 
-This is an inactive, private upstream baseline. It declares no `pi.extensions` entry, has no build or publish script, and root formatter/typecheck/test deliberately exclude `packages/pi-mctx/**`. The copied core references missing upstream companion modules and targets a different Pi API, so enabling it before an adapted slice would conceal failures rather than create a working extension.
+`pi-mctx` is a private source extension. Development loads it through an explicit source path such as `scripts/pi-dev`; it is not published through a package `pi.extensions` entry. The package remains excluded from repository-wide Biome/typecheck/test commands while its upstream-derived surface is adapted; its focused Pi suite and focused root typecheck are the current gate. Remove these exclusions once the package passes the repository root gates.
 
-Before enabling any slice, remove the root exclusions, add only its needed source dependencies, implement its Pi adapter boundary, and make its focused test/typecheck pass. The package becomes loadable only when `pi.extensions` declares a verified extension entry. The completion check for this baseline is `rg -i opencode packages/pi-mctx` returning no matches.
+The completion check is `rg -i opencode packages/pi-mctx` returning no matches.
 
-## 合併與驗證
+## 验证
 
-1. Move `xmagic-context/src/**` to `pi-mctx/src/core/**` and its tests to `pi-mctx/test/core/**`; rewrite test paths only where the added `core` directory changes resolution.
-2. Rewrite former `@magic-context/core/*` adapter/test imports to `#core/*`.
-3. Remove the `xmagic-context` workspace directory and manifest.
-4. Keep the inactive combined baseline out of root validation until its first Pi-adapted slice has a passing focused test and typecheck.
+Run the focused Pi MCTX suite and root typecheck after changes. Settings changes also require a Pi reload or restart before runtime behavior changes.

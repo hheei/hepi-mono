@@ -1,98 +1,42 @@
-import { statSync } from "node:fs";
-import {
-	cortexKitProjectConfigBasePath,
-	cortexKitUserConfigBasePath,
-	} from "#core/config/paths";
 import {
 	type EmbeddingFeatures,
 	registerProjectEmbedding,
 } from "#core/features/project-embedding-registry";
 import { resolveProjectIdentityForSession } from "#core/features/memory/project-identity";
 import type { ContextDatabase } from "#core/features/storage";
-import {
-	handleUntrustedLoad,
-	isConfigLoadUntrusted,
-} from "#core/plugin/embedding-bootstrap-helpers";
-import { loadPiConfigDetailed } from "./config";
+import { loadPiConfig } from "./config";
 
-interface RegistrationFingerprint {
-	paths: string[];
-	fingerprint: string;
-}
+const registeredProjectsByDatabase = new WeakMap<object, Set<string>>();
 
-const registrationFingerprintsByDatabase = new WeakMap<
-	object,
-	Map<string, RegistrationFingerprint>
->();
-
-function configCandidatePaths(
-	directory: string,
-	loadedPaths: readonly string[],
-): string[] {
-	const projectBase = cortexKitProjectConfigBasePath(directory);
-	const userBase = cortexKitUserConfigBasePath();
-	return [
-		`${projectBase}.jsonc`,
-		`${projectBase}.json`,
-		`${userBase}.jsonc`,
-		`${userBase}.json`,
-		...loadedPaths,
-	].filter((path, index, paths) => paths.indexOf(path) === index);
-}
-
-function configFingerprint(paths: readonly string[]): string {
-	return paths
-		.map((path) => {
-			try {
-				const stat = statSync(path);
-				return `${path}:${stat.size}:${stat.mtimeMs}`;
-			} catch {
-				return `${path}:missing`;
-			}
-		})
-		.join("|");
-}
-
+/** Registers one project embedding snapshot for the current Pi MCTX config boot. */
 export async function ensureProjectRegisteredFromPiDirectory(
 	directory: string,
 	db: ContextDatabase,
 ): Promise<void> {
-	const detailed = loadPiConfigDetailed({ cwd: directory });
+	const config = loadPiConfig();
 	const projectIdentity = resolveProjectIdentityForSession(
 		directory,
-		detailed.config.allow_home_project,
+		config.allow_home_project,
 	);
 	if (!projectIdentity) return;
-	let registrationFingerprints = registrationFingerprintsByDatabase.get(db);
-	if (!registrationFingerprints) {
-		registrationFingerprints = new Map();
-		registrationFingerprintsByDatabase.set(db, registrationFingerprints);
-	}
-	const cached = registrationFingerprints.get(projectIdentity);
-	if (cached && configFingerprint(cached.paths) === cached.fingerprint) return;
 
-	if (isConfigLoadUntrusted(detailed)) {
-		handleUntrustedLoad(db, projectIdentity, directory, detailed);
-		return;
+	let registeredProjects = registeredProjectsByDatabase.get(db);
+	if (!registeredProjects) {
+		registeredProjects = new Set();
+		registeredProjectsByDatabase.set(db, registeredProjects);
 	}
+	if (registeredProjects.has(projectIdentity)) return;
 
 	const features: EmbeddingFeatures = {
-		memoryEnabled: detailed.config.memory.enabled,
-		gitCommitEnabled: detailed.config.memory.git_commit_indexing.enabled,
+		memoryEnabled: config.memory.enabled,
+		gitCommitEnabled: config.memory.git_commit_indexing.enabled,
 	};
 	registerProjectEmbedding(
 		db,
 		projectIdentity,
-		detailed.config.embedding,
+		config.embedding,
 		features,
 		directory,
 	);
-	const fingerprintPaths = configCandidatePaths(
-		directory,
-		detailed.loadedFromPaths,
-	);
-	registrationFingerprints.set(projectIdentity, {
-		paths: fingerprintPaths,
-		fingerprint: configFingerprint(fingerprintPaths),
-	});
+	registeredProjects.add(projectIdentity);
 }

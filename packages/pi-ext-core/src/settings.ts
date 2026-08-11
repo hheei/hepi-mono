@@ -209,6 +209,13 @@ export interface JsonSectionSettingsStorageOptions {
 	readonly group: string;
 }
 
+/** Maps one provider group onto direct primitive fields in a root JSON section. */
+export interface JsonFlatSectionSettingsStorageOptions {
+	readonly path?: string;
+	readonly section: string;
+	readonly group: string;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -258,6 +265,42 @@ export function createJsonSectionSettingsStorage(
 					...(section ?? {}),
 					[options.group]: { ...(state[options.group] ?? {}) },
 				};
+			});
+		},
+	};
+}
+
+/**
+ * Atomic global JSON storage for a provider whose fields are direct keys in one
+ * root section. The group remains an in-memory UI construct and is never written.
+ */
+export function createJsonFlatSectionSettingsStorage(
+	options: JsonFlatSectionSettingsStorageOptions,
+): HepiSettingsStorage {
+	const resolvePath = (): string => options.path ?? defaultPiSettingsPaths().globalPath;
+	return {
+		async load(): Promise<HepiSettingsState | undefined> {
+			const path = resolvePath();
+			const root = await readJsonSettingsRoot(path);
+			const section = root[options.section];
+			if (section !== undefined && !isRecord(section))
+				throw new Error(`Expected ${options.section} to be an object in ${path}`);
+			if (!isRecord(section)) return undefined;
+			return {
+				[options.group]: Object.fromEntries(
+					Object.entries(section).filter((entry): entry is [string, HepiSettingValue] =>
+						isSettingValue(entry[1]),
+					),
+				),
+			};
+		},
+		async save(state): Promise<void> {
+			const path = resolvePath();
+			await updateJsonSettingsRoot(path, (root) => {
+				const section = root[options.section];
+				if (section !== undefined && !isRecord(section))
+					throw new Error(`Expected ${options.section} to be an object in ${path}`);
+				root[options.section] = { ...(state[options.group] ?? {}) };
 			});
 		},
 	};

@@ -1025,16 +1025,9 @@ export interface PiContextHandlerOptions {
 	 */
 	autoSearch?: PiAutoSearchHandlerOptions;
 	/**
-	 * Per-project config resolver (Pi `/cd` / multi-root). Pi can switch
-	 * projects mid-process; a switched-into checkout may carry its own
-	 * `.cortexkit/magic-context.jsonc` (different protected_tags, thresholds,
-	 * memory/key-files toggles, historian model). Without this, every
-	 * context pass after a switch would run with the LAUNCH project's
-	 * settings (config bleed). When provided, the handler calls it once per
-	 * pass with the current `ctx.cwd` and uses the returned options for that
-	 * pass; the caller is expected to MEMOIZE per cwd so the hot path stays
-	 * allocation-free after warmup. Returns the base options for the launch
-	 * cwd. Tests omit it (the static options are used directly).
+	 * Optional runtime option resolver. When provided, the handler reads it once
+	 * per pass for the current `ctx.cwd`; callers should memoize by directory.
+	 * Tests omit it and use static options.
 	 */
 	resolveForProject?: (projectDir: string) => PiContextHandlerOptions;
 	/** Boot-resolved compaction-off flag. It remains fixed for this Pi process. */

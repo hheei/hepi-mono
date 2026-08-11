@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	createJsonFlatSectionSettingsStorage,
 	defaultPiSettingsPaths,
 	readJsonSettingsRoot,
 	readJsonSettingsSection,
@@ -104,6 +105,26 @@ test("rejects non-object settings roots and sections", async (): Promise<void> =
 		await expect(readJsonSettingsSection(path, "pi-example")).rejects.toThrow(
 			"Expected pi-example to be an object",
 		);
+	});
+});
+
+test("persists one provider group as direct section fields", async () => {
+	await withDirectory(async (directory) => {
+		const path = join(directory, "settings.json");
+		const storage = createJsonFlatSectionSettingsStorage({
+			path,
+			section: "pi-example",
+			group: "operational",
+		});
+		const context = { sessionId: "test" };
+
+		await storage.save({ operational: { enabled: true, budget: 4_000 } }, context);
+		expect(await readJsonSettingsRoot(path)).toEqual({
+			"pi-example": { enabled: true, budget: 4_000 },
+		});
+		expect(await storage.load(context)).toEqual({
+			operational: { enabled: true, budget: 4_000 },
+		});
 	});
 });
 

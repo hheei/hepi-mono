@@ -17,9 +17,9 @@ const REPOSITORY_ROOT = resolve(import.meta.dir, "../../../../..");
 const SOURCE_ROOTS = ["packages/pi-mctx/src"];
 
 const ALLOWED_READERS = new Set<string>([
+    "packages/pi-mctx/src/config/index.ts",
     "packages/pi-mctx/src/core/config/agent-disable.ts",
     "packages/pi-mctx/src/core/config/schema/magic-context.ts",
-    "packages/pi-mctx/src/core/config/project-security.ts",
 ]);
 
 function sourceFiles(directory: string): string[] {

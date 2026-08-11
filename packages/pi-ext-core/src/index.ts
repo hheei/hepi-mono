@@ -106,9 +106,11 @@ export type {
 	HepiSettingTabCycle,
 	HepiSettingType,
 	HepiSettingValue,
+	JsonFlatSectionSettingsStorageOptions,
 	JsonSectionSettingsStorageOptions,
 } from "./settings.js";
 export {
+	createJsonFlatSectionSettingsStorage,
 	createJsonSectionSettingsStorage,
 	getHepiRuntimeSettingsRegistry,
 	registerHepiSettings,
