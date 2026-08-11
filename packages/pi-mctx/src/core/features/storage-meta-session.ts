@@ -21,7 +21,6 @@ const SESSION_META_FALLBACK_SELECTS: Partial<
     last_nudge_band: "'' AS last_nudge_band",
     last_transform_error: "'' AS last_transform_error",
     system_prompt_hash: "'' AS system_prompt_hash",
-    last_todo_state: "'' AS last_todo_state",
     tool_reclaim_watermark: "0 AS tool_reclaim_watermark",
     cached_m0_bytes: "NULL AS cached_m0_bytes",
     cached_m0_mural_data_url: "NULL AS cached_m0_mural_data_url",

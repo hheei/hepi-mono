@@ -76,7 +76,6 @@ export interface SessionMeta {
     toolCallTokens: number;
     clearedReasoningThroughTag: number;
     toolReclaimWatermark: number;
-    lastTodoState: string;
     cachedM0Bytes: Buffer | null;
     /** Frozen image payload paired atomically with cachedM0Bytes. */
     cachedM0MuralDataUrl: string | null;

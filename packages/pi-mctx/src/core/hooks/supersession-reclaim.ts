@@ -10,11 +10,8 @@ import type { TagTarget } from "./tag-messages";
 // execute + already-mutating gate, so this never originates a cache bust.
 //
 // Keep-counts are fixed constants (no config sub-knobs):
-//   - todowrite: keep newest 1 (the live plan is the synthetic todowrite we
-//     inject + protect every pass; real ones are older snapshots).
 //   - ctx_reduce: keep newest 5 (preserves the visible reduce rhythm).
 //   - zero-value meta: keep 0 (worthless once executed).
-const TODOWRITE_KEEP = 1;
 const CTX_REDUCE_KEEP = 5;
 
 // Tools whose output is worthless once the call ran. ctx_note is handled
@@ -44,7 +41,6 @@ export function buildSupersessionReclaimOps(input: {
         .sort((left, right) => right.tagNumber - left.tagNumber);
 
     const dropTagIds: number[] = [];
-    let todowriteSeen = 0;
     let ctxReduceSeen = 0;
 
     for (const tag of toolTags) {
@@ -52,10 +48,7 @@ export function buildSupersessionReclaimOps(input: {
         if (!name) continue;
 
         let isTarget = false;
-        if (name === "todowrite") {
-            todowriteSeen += 1;
-            isTarget = todowriteSeen > TODOWRITE_KEEP;
-        } else if (name === "ctx_reduce") {
+        if (name === "ctx_reduce") {
             ctxReduceSeen += 1;
             isTarget = ctxReduceSeen > CTX_REDUCE_KEEP;
         } else if (ZERO_VALUE_META_TOOLS.has(name)) {
