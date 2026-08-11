@@ -1,11 +1,14 @@
 import { spawn } from "node:child_process";
 import type { AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import {
+	type AgentToolResult,
 	createBashToolDefinition,
 	type ExtensionAPI,
 	type ExtensionContext,
+	type Theme,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { type Component, Text } from "@earendil-works/pi-tui";
 import type { OutputRegistry } from "@hheei/pi-ext-core";
 import {
 	createOutputRegistry,
@@ -18,7 +21,7 @@ import { BashPtySurface, type BashPtySurfaceResult } from "./bash-pty-surface.js
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import { PtySession } from "./native-bridge.js";
 import { withToolFrame } from "./pretty/frame.js";
-import { ToolTraceController } from "./pretty/trace.js";
+import { type ToolCompletion, ToolTraceController } from "./pretty/trace.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 const fallbackOutputs = createOutputRegistry();
@@ -59,6 +62,54 @@ type Input = Static<typeof BashInput>;
 interface BashToolResult {
 	readonly content: readonly { readonly type: "text"; readonly text: string }[];
 	readonly details: Record<string, unknown>;
+}
+
+function detailsRecord(value: unknown): Readonly<Record<string, unknown>> {
+	return typeof value === "object" && value !== null && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: {};
+}
+
+function lineCount(text: string): number {
+	if (text === "") return 0;
+	return text.replace(/\r?\n$/, "").split(/\r?\n/).length;
+}
+
+function bashFooter(
+	result: AgentToolResult<unknown>,
+	completion: ToolCompletion | undefined,
+): string {
+	const details = detailsRecord(result.details);
+	const output =
+		typeof details.output === "string"
+			? details.output
+			: result.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
+	const exitCode = typeof details.exitCode === "number" ? details.exitCode : "?";
+	const duration =
+		completion?.durationMs === undefined
+			? "completed"
+			: completion.durationMs < 1_000
+				? `${completion.durationMs}ms`
+				: `${(completion.durationMs / 1_000).toFixed(1)}s`;
+	return `exitcode ${exitCode} · ${lineCount(output)} lines · ${duration}`;
+}
+
+class BashOutputFrame implements Component {
+	constructor(
+		private readonly body: Component,
+		private readonly theme: Theme,
+	) {}
+
+	render(width: number): string[] {
+		return [
+			...this.body.render(width),
+			this.theme.fg("borderMuted", "─".repeat(Math.max(1, width))),
+		];
+	}
+
+	invalidate(): void {
+		this.body.invalidate();
+	}
 }
 
 function result(text: string, details: Record<string, unknown> = {}): BashToolResult {
@@ -112,7 +163,7 @@ async function runForeground(
 		{
 			...output,
 			...(timedOut ? { timedOut: true } : {}),
-			...(exitCode === 0 ? {} : { exitCode }),
+			exitCode,
 		},
 	);
 }
@@ -186,7 +237,7 @@ async function runPty(
 			outcome.status === "completed"
 				? {
 						...output,
-						code: outcome.exit.code,
+						exitCode: outcome.exit.code,
 						...(outcome.exit.signal === undefined ? {} : { signal: outcome.exit.signal }),
 					}
 				: { ...output, error: "aborted" },
@@ -217,13 +268,27 @@ export function registerBashTool(
 	state?: FffRuntimeState,
 	trace = new ToolTraceController(),
 ): void {
-	const template = createBashToolDefinition(process.cwd());
+	const {
+		renderCall: _upstreamRenderCall,
+		renderResult: upstreamRenderResult,
+		...template
+	} = createBashToolDefinition(process.cwd());
+	type UpstreamRenderResult = NonNullable<typeof upstreamRenderResult>;
 	const tool = {
 		...template,
 		description: BASH_DESCRIPTION,
 		promptSnippet: BASH_PROMPT_SNIPPET,
 		promptGuidelines: BASH_PROMPT_GUIDELINES,
 		parameters: BashInput,
+		renderResult(
+			result: Parameters<UpstreamRenderResult>[0],
+			options: Parameters<UpstreamRenderResult>[1],
+			theme: Parameters<UpstreamRenderResult>[2],
+			context: Parameters<UpstreamRenderResult>[3],
+		) {
+			const body = upstreamRenderResult?.(result, options, theme, context) ?? new Text("", 0, 0);
+			return new BashOutputFrame(body, theme);
+		},
 		async execute(
 			_id: string,
 			params: Input,
@@ -296,7 +361,7 @@ export function registerBashTool(
 			conflictSets: [],
 			defaultActive: true,
 		},
-		withToolFrame(tool, trace, undefined, bashResultWarning),
+		withToolFrame(tool, trace, bashFooter, bashResultWarning),
 	);
 }
 

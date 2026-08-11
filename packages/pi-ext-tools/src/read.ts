@@ -15,6 +15,8 @@ const OWNER = "@hheei/pi-ext-tools";
 const PREVIEW_HEAD_LINES = 3;
 const PREVIEW_TAIL_LINES = 2;
 const READ_METRICS_KEY = "__piExtToolsRead";
+const READ_CONTINUATION =
+	/\n\n\[(?:\d+ more lines in file|Showing lines \d+-\d+ of \d+(?: \([^\]]+\))?)\. Use offset=\d+ to continue\.\]$/;
 
 type ReadMetrics = { readonly characters: number; readonly lines: number };
 
@@ -35,6 +37,20 @@ function textResult(result: AgentToolResult<unknown>): string | undefined {
 	return text === "" ? undefined : text;
 }
 
+function displayText(result: AgentToolResult<unknown>): string | undefined {
+	const text = textResult(result);
+	return text === undefined ? undefined : text.replace(READ_CONTINUATION, "");
+}
+
+function resultForDisplay<T>(result: AgentToolResult<T>): AgentToolResult<T> {
+	return {
+		...result,
+		content: result.content.map((part) =>
+			part.type === "text" ? { ...part, text: part.text.replace(READ_CONTINUATION, "") } : part,
+		),
+	};
+}
+
 function readMetrics(result: AgentToolResult<unknown>): ReadMetrics | undefined {
 	const details = result.details;
 	if (typeof details !== "object" || details === null || Array.isArray(details)) return undefined;
@@ -47,7 +63,7 @@ function readMetrics(result: AgentToolResult<unknown>): ReadMetrics | undefined 
 }
 
 function withReadMetrics<T>(result: AgentToolResult<T>): AgentToolResult<T> {
-	const text = textResult(result);
+	const text = displayText(result);
 	if (text === undefined) return result;
 	const metrics = { characters: Array.from(text).length, lines: text.split("\n").length };
 	const details = result.details;
@@ -145,7 +161,7 @@ function renderReadPreview(
 	params: { readonly offset?: number },
 ): Component | undefined {
 	if (options.expanded || options.isPartial || context.isError) return undefined;
-	const text = textResult(result);
+	const text = displayText(result);
 	if (text === undefined) return undefined;
 	const lines = displayLines(text);
 	const metrics = readMetrics(result) ?? {
@@ -176,9 +192,10 @@ export function registerReadTool(
 	const tool: typeof template = {
 		...nativeTool,
 		renderResult(result, options, theme, context) {
+			const displayResult = resultForDisplay(result);
 			return (
-				renderReadPreview(result, options, theme, context, context.args) ??
-				nativeRenderResult?.(result, options, theme, context) ??
+				renderReadPreview(displayResult, options, theme, context, context.args) ??
+				nativeRenderResult?.(displayResult, options, theme, context) ??
 				new Text("", 0, 0)
 			);
 		},

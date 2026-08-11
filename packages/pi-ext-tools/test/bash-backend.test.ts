@@ -2,9 +2,14 @@ import { expect, test } from "bun:test";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
+	Theme,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { initTheme } from "@earendil-works/pi-coding-agent";
 import { registerBashTool } from "../src/bash.js";
+import { ToolTraceController } from "../src/pretty/trace.js";
+
+initTheme(undefined, false);
 
 test("bash executes through Pi host original backend", async (): Promise<void> => {
 	const tools: ToolDefinition[] = [];
@@ -110,4 +115,175 @@ test("bash exposes only async and PTY use guidance", (): void => {
 		"Use `pty` only for interactive terminal programs such as `sudo` or `ssh`.",
 		"NEVER combine `pty` with `async`.",
 	]);
+});
+
+test("bash displays its command only in the tool header", (): void => {
+	const tools: ToolDefinition[] = [];
+	registerBashTool({
+		registerTool(tool: ToolDefinition): void {
+			tools.push(tool);
+		},
+	} as unknown as ExtensionAPI);
+	const bash = tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("Expected bash tool");
+	const theme = {
+		bg: (_role: string, text: string): string => text,
+		fg: (_role: string, text: string): string => text,
+		bold: (text: string): string => text,
+	} as Theme;
+	const text = bash
+		.renderCall?.({ command: "printf one", timeout: 120 }, theme, {
+			isError: false,
+			isPartial: true,
+			lastComponent: undefined,
+			state: {},
+		} as never)
+		.render(120)
+		.join("\n");
+	expect(text.match(/printf one/g)).toHaveLength(1);
+});
+
+test("bash wraps the active command and retains its timeout suffix", (): void => {
+	const tools: ToolDefinition[] = [];
+	registerBashTool({
+		registerTool(tool: ToolDefinition): void {
+			tools.push(tool);
+		},
+	} as unknown as ExtensionAPI);
+	const bash = tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("Expected bash tool");
+	const theme = {
+		bg: (_role: string, text: string): string => text,
+		fg: (_role: string, text: string): string => text,
+		bold: (text: string): string => text,
+	} as Theme;
+	const text = bash
+		.renderCall?.({ command: "printf first\nprintf second", timeout: 20 }, theme, {
+			isError: false,
+			isPartial: true,
+			lastComponent: undefined,
+			state: {},
+		} as never)
+		.render(80)
+		.join("\n");
+	expect(text).toContain("printf second");
+	expect(text).toContain("(timeout 20s)");
+});
+
+test("bash collapses only the previous command before its timeout suffix", (): void => {
+	const tools: ToolDefinition[] = [];
+	const trace = new ToolTraceController();
+	registerBashTool(
+		{
+			registerTool(tool: ToolDefinition): void {
+				tools.push(tool);
+			},
+		} as unknown as ExtensionAPI,
+		undefined,
+		trace,
+	);
+	const bash = tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("Expected bash tool");
+	trace.startTrace();
+	trace.begin("previous-bash");
+	trace.complete("previous-bash");
+	trace.startTrace();
+	const theme = {
+		bg: (_role: string, text: string): string => text,
+		fg: (_role: string, text: string): string => text,
+		bold: (text: string): string => text,
+	} as Theme;
+	const line = bash
+		.renderCall?.({ command: `printf ${"x".repeat(80)}`, timeout: 20 }, theme, {
+			isError: false,
+			isPartial: false,
+			lastComponent: undefined,
+			state: {},
+			toolCallId: "previous-bash",
+			executionStarted: false,
+			expanded: false,
+			invalidate: (): void => undefined,
+		} as never)
+		.render(40)[0];
+	expect(line).toContain("✓ bash");
+	expect(line).toContain(">");
+	expect(line?.trimEnd()).toEndWith("(timeout 20s)");
+});
+
+test("bash encloses its output between full-width dividers", (): void => {
+	const tools: ToolDefinition[] = [];
+	registerBashTool({
+		registerTool(tool: ToolDefinition): void {
+			tools.push(tool);
+		},
+	} as unknown as ExtensionAPI);
+	const bash = tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("Expected bash tool");
+	const theme = {
+		bg: (_role: string, text: string): string => text,
+		fg: (_role: string, text: string): string => text,
+		bold: (text: string): string => text,
+	} as Theme;
+	const lines = bash
+		.renderResult?.(
+			{ content: [{ type: "text", text: "stdout" }], details: {} },
+			{ expanded: false, isPartial: false },
+			theme,
+			{
+				args: { command: "printf stdout" },
+				isError: false,
+				isPartial: false,
+				lastComponent: undefined,
+				state: {},
+			} as never,
+		)
+		.render(40);
+	expect(lines?.[0]).toBe("─".repeat(40));
+	expect(lines?.at(-1)).toBe("─".repeat(40));
+	expect(lines?.join("\n")).toContain("stdout");
+});
+
+test("bash summarizes exit code, output lines, and duration in collapsed traces", async (): Promise<void> => {
+	const tools: ToolDefinition[] = [];
+	const trace = new ToolTraceController();
+	registerBashTool(
+		{
+			registerTool(tool: ToolDefinition): void {
+				tools.push(tool);
+			},
+		} as unknown as ExtensionAPI,
+		undefined,
+		trace,
+	);
+	const bash = tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("Expected bash tool");
+	trace.startTrace();
+	const result = await bash.execute(
+		"completed-bash",
+		{ command: "printf 'one\\ntwo\\n'" },
+		undefined,
+		undefined,
+		{ cwd: process.cwd() } as ExtensionContext,
+	);
+	trace.startTrace();
+	const theme = {
+		bg: (_role: string, text: string): string => text,
+		fg: (_role: string, text: string): string => text,
+		bold: (text: string): string => text,
+	} as Theme;
+	const footer = bash
+		.renderResult?.(result, { expanded: false, isPartial: false }, theme, {
+			args: { command: "printf 'one\\ntwo\\n'" },
+			isError: false,
+			isPartial: false,
+			lastComponent: undefined,
+			state: {},
+			toolCallId: "completed-bash",
+			executionStarted: false,
+			expanded: false,
+			invalidate: (): void => undefined,
+		} as never)
+		.render(120)
+		.join("\n");
+	expect(footer).toMatch(/exitcode 0 · 2 lines · \d+ms/);
 });
