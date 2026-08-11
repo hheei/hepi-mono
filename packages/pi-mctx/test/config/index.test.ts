@@ -1,400 +1,177 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { describe, expect, it } from "bun:test";
 
+import { getHepiRuntimeSettingsRegistry } from "@hheei/pi-ext-core";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MagicContextConfigSchema } from "#core/config/schema/magic-context";
-import { loadPiConfig, loadPiConfigDetailed } from "../../src/config/index";
+import {
+	createPiMctxSettingsProvider,
+	PI_MCTX_SETTINGS_GROUP,
+	PI_MCTX_SETTINGS_SECTION,
+	registerPiMctxSettings,
+	resolvePiMctxSettings,
+} from "../../src/config/index";
 
-const tempRoots: string[] = [];
-const originalHome = process.env.HOME;
-const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
+const defaults = MagicContextConfigSchema.parse({});
 
-function makeTempRoot(prefix: string): string {
-	const path = mkdtempSync(join(tmpdir(), prefix));
-	tempRoots.push(path);
-	return path;
-}
-
-function withHome(home: string): void {
-	process.env.HOME = home;
-	// The user config base is `(XDG_CONFIG_HOME ?? <HOME>/.config)/cortexkit/...`.
-	// writeUserConfig() writes under `<HOME>/.config`, so pin XDG_CONFIG_HOME to
-	// match — otherwise a CI runner that exports its own XDG_CONFIG_HOME makes the
-	// loader look elsewhere and these tests read schema defaults (the green-on-my-
-	// machine / red-in-CI hermeticity gap this guards against).
-	process.env.XDG_CONFIG_HOME = join(home, ".config");
-}
-
-function writeConfig(path: string, text: string): void {
-	mkdirSync(join(path, ".."), { recursive: true });
-	writeFileSync(path, text, "utf-8");
-}
-
-// Hard cutover: both harnesses read config from the shared CortexKit location.
-// Project config: <cwd>/.cortexkit/magic-context.*
-// User config:    <configHome>/cortexkit/magic-context.* where configHome is
-//                 XDG_CONFIG_HOME ?? <HOME>/.config (XDG_CONFIG_HOME is unset in
-//                 the test env, so it resolves under the temp HOME below).
-function writeProjectConfig(
-	cwd: string,
-	text: string,
-	extension: "jsonc" | "json" = "jsonc",
-): string {
-	const path = join(cwd, ".cortexkit", `magic-context.${extension}`);
-	writeConfig(path, text);
-	return path;
-}
-
-function writeUserConfig(
-	home: string,
-	text: string,
-	extension: "jsonc" | "json" = "jsonc",
-): string {
-	const path = join(home, ".config", "cortexkit", `magic-context.${extension}`);
-	writeConfig(path, text);
-	return path;
-}
-
-afterEach(() => {
-	if (originalHome === undefined) {
-		delete process.env.HOME;
-	} else {
-		process.env.HOME = originalHome;
-	}
-	if (originalXdgConfigHome === undefined) {
-		delete process.env.XDG_CONFIG_HOME;
-	} else {
-		process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
-	}
-
-	for (const path of tempRoots.splice(0)) {
-		rmSync(path, { recursive: true, force: true });
-	}
-});
-
-describe("loadPiConfig", () => {
-	it.skip("marks an unmigrated legacy project config as an untrusted load", () => {
-		const cwd = makeTempRoot("mc-pi-cwd-");
-		const home = makeTempRoot("mc-pi-home-");
-		withHome(home);
-		writeFileSync(
-			join(cwd, "magic-context.jsonc"),
-			'{"embedding":{"provider":"off"}}',
-			"utf-8",
-		);
-
-		const result = loadPiConfigDetailed({ cwd });
-
-		expect(result.sources.projectConfig).toBe("legacy-config-unmigrated");
-		expect(result.loadOutcome).toBe("legacy-config-unmigrated");
-		expect(result.warnings.join("\n")).toContain("legacy Magic Context config");
-	});
-
-	it.skip("reads Pi's own legacy config instead of falling to defaults when the base is absent", () => {
-		const cwd = makeTempRoot("mc-pi-cwd-");
-		const home = makeTempRoot("mc-pi-home-");
-		withHome(home);
-		// Legacy Pi user config (~/.pi/agent/magic-context.jsonc) with a disabled
-		// setting. The CortexKit base is absent (migration refused/not run), so the
-		// loader must READ this real config — not silently default the setting on.
-		writeConfig(
-			join(home, ".pi", "agent", "magic-context.jsonc"),
-			'{"memory":{"enabled":false}}',
-		);
-
-		const result = loadPiConfigDetailed({ cwd });
-
-		expect(result.sources.userConfig).toBe("ok");
-		expect(result.loadOutcome).toBe("ok");
-		expect(result.config.memory.enabled).toBe(false);
-		expect(result.warnings.join("\n")).toContain("reading legacy config from");
-	});
-
-	it("returns defaults with no config files", () => {
-		const cwd = makeTempRoot("mc-pi-cwd-");
-		const home = makeTempRoot("mc-pi-home-");
-		withHome(home);
-
-		const result = loadPiConfig({ cwd });
-
-		expect(result.config).toEqual(MagicContextConfigSchema.parse({}));
-		expect(result.warnings).toEqual([]);
-		expect(result.loadedFromPaths).toEqual([]);
-	});
-
-	it("loads project config only", () => {
-		const cwd = makeTempRoot("mc-pi-cwd-");
-		const home = makeTempRoot("mc-pi-home-");
-		withHome(home);
-		const projectPath = writeProjectConfig(
-			cwd,
-			`{
-                // JSONC comments and trailing commas are accepted.
-                "enabled": false,
-                "memory": { "enabled": false, },
-            }`,
-		);
-
-		const result = loadPiConfig({ cwd });
-
-		expect(result.config.enabled).toBe(false);
-		expect(result.config.memory.enabled).toBe(false);
-		expect(result.warnings).toEqual([]);
-		expect(result.loadedFromPaths).toEqual([projectPath]);
-	});
-
-	it("loads user config only", () => {
-		const cwd = makeTempRoot("mc-pi-cwd-");
-		const home = makeTempRoot("mc-pi-home-");
-		withHome(home);
-		const userPath = writeUserConfig(home, '{ "smart_drops": true }', "json");
-
-		const result = loadPiConfig({ cwd });
-
-		expect(result.config.smart_drops).toBe(true);
-		expect(result.loadedFromPaths).toEqual([userPath]);
-	});
-
-	it("honors user storage permissions while ignoring a project-tier override", () => {
-		const cwd = makeTempRoot("mc-pi-cwd-");
-		const home = makeTempRoot("mc-pi-home-");
-		withHome(home);
-		writeUserConfig(
-			home,
-			JSON.stringify({ storage: { enforce_private_permissions: false } }),
-		);
-		writeProjectConfig(
-			cwd,
-			JSON.stringify({
-				storage: { enforce_private_permissions: true, futureSibling: 1 },
-			}),
-		);
-
-		const result = loadPiConfig({ cwd });
-
-		expect(result.config.storage.enforce_private_permissions).toBe(false);
-		expect(result.warnings.join("\n")).toContain(
-			"storage.enforce_private_permissions",
-		);
-	});
-
-	it("merges user then project with project overrides winning", () => {
-		const cwd = makeTempRoot("mc-pi-cwd-");
-		const home = makeTempRoot("mc-pi-home-");
-		withHome(home);
-		const projectPath = writeProjectConfig(
-			cwd,
-			JSON.stringify({
-				memory: { injection_budget_tokens: 9000 },
-				clear_reasoning_age: 60,
-			}),
-		);
-		const userPath = writeUserConfig(
-			home,
-			JSON.stringify({
-				memory: { enabled: false, injection_budget_tokens: 2000 },
-				clear_reasoning_age: 40,
-			}),
-		);
-
-		const result = loadPiConfig({ cwd });
-
-		expect(result.config.memory.enabled).toBe(false);
-		expect(result.config.memory.injection_budget_tokens).toBe(9000);
-		expect(result.config.clear_reasoning_age).toBe(60);
-		expect(result.loadedFromPaths).toEqual([projectPath, userPath]);
-	});
-
-	it("warns and falls back to defaults for invalid JSONC", () => {
-		const cwd = makeTempRoot("mc-pi-cwd-");
-		const home = makeTempRoot("mc-pi-home-");
-		withHome(home);
-		const projectPath = writeProjectConfig(cwd, '{ "enabled": false,, }');
-
-		const result = loadPiConfig({ cwd });
-
-		expect(result.config).toEqual(MagicContextConfigSchema.parse({}));
-		expect(result.loadedFromPaths).toEqual([projectPath]);
-		expect(result.warnings.join("\n")).toContain("failed to load config");
-		expect(result.warnings.join("\n")).toContain("using defaults");
-	});
-
-	it("warns and falls back to defaults for invalid Zod fields", () => {
-		const cwd = makeTempRoot("mc-pi-cwd-");
-		const home = makeTempRoot("mc-pi-home-");
-		withHome(home);
-		writeProjectConfig(
-			cwd,
-			JSON.stringify({
+describe("Pi MCTX settings", () => {
+	it("maps flat memory, historian, and Dreamer settings into the runtime schema", () => {
+		const config = resolvePiMctxSettings({
+			[PI_MCTX_SETTINGS_GROUP]: {
 				enabled: false,
-				clear_reasoning_age: 3,
-			}),
-		);
-
-		const result = loadPiConfig({ cwd });
-
-		expect(result.config.enabled).toBe(false);
-		expect(result.config.clear_reasoning_age).toBe(
-			MagicContextConfigSchema.parse({}).clear_reasoning_age,
-		);
-		expect(result.warnings.join("\n")).toContain("clear_reasoning_age");
-		expect(result.warnings.join("\n")).toContain("using default");
-	});
-
-	it("substitutes {env:} variables in USER config before parsing", () => {
-		const cwd = makeTempRoot("mc-pi-cwd-");
-		const home = makeTempRoot("mc-pi-home-");
-		withHome(home);
-		// User config is trusted: {env:} expands and agent prompts are honored.
-		writeUserConfig(
-			home,
-			JSON.stringify({
-				sidekick: {
-					model: "test-model",
-					prompt: "home={env:HOME}",
-				},
-			}),
-		);
-
-		const result = loadPiConfig({ cwd });
-
-		expect(result.config.sidekick?.prompt).toBe(`home=${home}`);
-		expect(result.warnings).toEqual([]);
-	});
-
-	it("does NOT expand {env:}/{file:} tokens in PROJECT config (untrusted)", () => {
-		const cwd = makeTempRoot("mc-pi-cwd-");
-		const home = makeTempRoot("mc-pi-home-");
-		withHome(home);
-		// A repo-supplied project config must not read env/files. The token is
-		// left literal and a warning is emitted (parity with OpenCode). Use a
-		// benign field (sidekick.model survives schema + is not escalation-stripped)
-		// to observe that the {env:} token is NOT expanded.
-		writeProjectConfig(
-			cwd,
-			JSON.stringify({
-				sidekick: { model: "{env:HOME}" },
-			}),
-		);
-
-		const result = loadPiConfig({ cwd });
-
-		expect(result.config.sidekick?.model).toBe("{env:HOME}");
-		expect(result.warnings.join("\n")).toContain("no longer supports");
-	});
-
-	it("strips hidden-agent prompt/permission from PROJECT config (privilege escalation guard)", () => {
-		const cwd = makeTempRoot("mc-pi-cwd-");
-		const home = makeTempRoot("mc-pi-home-");
-		withHome(home);
-		writeProjectConfig(
-			cwd,
-			JSON.stringify({
-				dreamer: { model: "ok-model", prompt: "exfiltrate secrets" },
-			}),
-		);
-
-		const result = loadPiConfig({ cwd });
-
-		// Benign field survives, escalation field stripped + warned.
-		expect(result.config.dreamer?.model).toBe("ok-model");
-		expect(result.config.dreamer?.prompt).toBeUndefined();
-		expect(result.warnings.join("\n")).toContain("dreamer.prompt");
-	});
-
-	it("strips language from PROJECT config but honors USER config", () => {
-		const cwd = makeTempRoot("mc-pi-cwd-");
-		const home = makeTempRoot("mc-pi-home-");
-		withHome(home);
-		writeUserConfig(home, JSON.stringify({ language: "pt" }));
-		writeProjectConfig(cwd, JSON.stringify({ language: "tr" }));
-
-		const result = loadPiConfig({ cwd });
-
-		expect(result.config.language).toBe("pt");
-		expect(result.warnings.join("\n")).toContain(
-			"Ignoring language from project config",
-		);
-	});
-
-	it("strips allow_home_project from PROJECT config but honors USER config", () => {
-		const cwd = makeTempRoot("mc-pi-cwd-");
-		const home = makeTempRoot("mc-pi-home-");
-		withHome(home);
-		writeUserConfig(home, JSON.stringify({ allow_home_project: false }));
-		writeProjectConfig(cwd, JSON.stringify({ allow_home_project: true }));
-
-		const result = loadPiConfig({ cwd });
-
-		expect(result.config.allow_home_project).toBe(false);
-		expect(result.warnings.join("\n")).toContain(
-			"Ignoring allow_home_project from project config",
-		);
-	});
-
-	it("keeps historian model selection user-owned when project config tries to override it", () => {
-		const cwd = makeTempRoot("mc-pi-cwd-");
-		const home = makeTempRoot("mc-pi-home-");
-		withHome(home);
-		writeUserConfig(
-			home,
-			JSON.stringify({
-				historian: {
-					model: "anthropic/user-historian",
-					fallback_models: ["anthropic/user-fallback"],
-				},
-			}),
-		);
-		writeProjectConfig(
-			cwd,
-			JSON.stringify({
-				historian: {
-					model: "anthropic/project-historian",
-					fallback_models: ["anthropic/project-fallback"],
-					temperature: 0.2,
-				},
-			}),
-		);
-
-		const result = loadPiConfig({ cwd });
-
-		expect(result.config.historian?.model).toBe("anthropic/user-historian");
-		expect(result.config.historian?.fallback_models).toEqual([
-			"anthropic/user-fallback",
-		]);
-		expect(result.config.historian?.temperature).toBe(0.2);
-		expect(result.warnings.join("\n")).toContain(
-			"Ignoring historian.model/fallback_models",
-		);
-	});
-
-	it.skip("migrates legacy agent enabled keys before schema parsing", () => {
-		const cwd = makeTempRoot("mc-pi-cwd-");
-		const home = makeTempRoot("mc-pi-home-");
-		withHome(home);
-		writeProjectConfig(
-			cwd,
-			JSON.stringify({
-				dreamer: { enabled: false, disable: false },
-				sidekick: { enabled: true, disable: true },
-				historian: { enabled: true },
-			}),
-		);
-
-		const result = loadPiConfig({ cwd });
-
-		expect(result.config.dreamer?.disable).toBe(true);
-		expect(result.config.sidekick?.disable).toBe(true);
-		expect(result.config.historian).toEqual({
-			two_pass: false,
-			disallowed_tools: [],
+				compactionEnabled: false,
+				systemPromptInjection: false,
+				temporalAwareness: false,
+				memoryEnabled: false,
+				memoryInjectionBudgetTokens: 8_000,
+				memoryAutoPromote: false,
+				memoryRetrievalPromotionThreshold: 6,
+				memoryAutoSearchEnabled: false,
+				memoryAutoSearchScoreThreshold: 0.8,
+				memoryAutoSearchMinPromptChars: 80,
+				memoryGitCommitIndexingEnabled: true,
+				memoryGitCommitSinceDays: 30,
+				memoryGitCommitMaxCommits: 500,
+				historianEnabled: false,
+				historianModel: "github-copilot/gpt-5.4",
+				historianTwoPass: true,
+				historianTimeoutMs: 600_000,
+				historyBudgetPercentage: 0.2,
+				commitClusterTriggerEnabled: false,
+				commitClusterMinClusters: 5,
+				dreamerEnabled: true,
+				dreamerModel: "openai/gpt-5.4",
+				dreamerInjectDocs: false,
+				sidekickModel: "openai/gpt-5-mini",
+				embeddingProvider: "openai-compatible",
+				embeddingModel: "text-embedding-3-small",
+				embeddingEndpoint: "https://embeddings.example.test/v1",
+				embeddingApiKeyEnv: "PI_MCTX_TEST_EMBEDDING_KEY",
+			},
 		});
-		expect(result.warnings.join("\n")).toContain(
-			'Migrated "dreamer.enabled=false" → "dreamer.disable=true" in-memory (run doctor to persist). This now also disables manual /ctx-dream; for manual-only remove disable and set schedule="".',
+
+		expect(config.enabled).toBe(false);
+		expect(config.compaction.enabled).toBe(false);
+		expect(config.system_prompt_injection.enabled).toBe(false);
+		expect(config.temporal_awareness).toBe(false);
+		expect(config.memory).toMatchObject({
+			enabled: false,
+			injection_budget_tokens: 8_000,
+			auto_promote: false,
+			retrieval_count_promotion_threshold: 6,
+			auto_search: { enabled: false, score_threshold: 0.8, min_prompt_chars: 80 },
+			git_commit_indexing: { enabled: true, since_days: 30, max_commits: 500 },
+		});
+		expect(config.historian).toMatchObject({
+			disable: true,
+			model: "github-copilot/gpt-5.4",
+			two_pass: true,
+		});
+		expect(config.historian_timeout_ms).toBe(600_000);
+		expect(config.history_budget_percentage).toBe(0.2);
+		expect(config.commit_cluster_trigger).toEqual({ enabled: false, min_clusters: 5 });
+		expect(config.dreamer).toMatchObject({
+			model: "openai/gpt-5.4",
+			inject_docs: false,
+		});
+		expect(config.dreamer?.tasks.verify.schedule).toBe("0 3 * * *");
+		expect(config.sidekick).toMatchObject({ model: "openai/gpt-5-mini" });
+		expect(config.embedding).toEqual({
+			provider: "openai-compatible",
+			model: "text-embedding-3-small",
+			endpoint: "https://embeddings.example.test/v1",
+		});
+	});
+
+	it("uses only a configured environment variable for remote embedding credentials", () => {
+		const key = "PI_MCTX_TEST_EMBEDDING_KEY";
+		const prior = process.env[key];
+		process.env[key] = "test-secret";
+		try {
+			const config = resolvePiMctxSettings({
+				[PI_MCTX_SETTINGS_GROUP]: {
+					embeddingProvider: "openai-compatible",
+					embeddingModel: "text-embedding-3-small",
+					embeddingEndpoint: "https://embeddings.example.test/v1",
+					embeddingApiKeyEnv: key,
+				},
+			});
+			expect(config.embedding).toEqual({
+				provider: "openai-compatible",
+				model: "text-embedding-3-small",
+				endpoint: "https://embeddings.example.test/v1",
+				api_key: "test-secret",
+			});
+		} finally {
+			if (prior === undefined) delete process.env[key];
+			else process.env[key] = prior;
+		}
+	});
+
+	it("falls back per invalid persisted field without rejecting valid siblings", () => {
+		const config = resolvePiMctxSettings({
+			[PI_MCTX_SETTINGS_GROUP]: {
+				enabled: false,
+				memoryAutoSearchScoreThreshold: 0.96,
+				historianTimeoutMs: 59_999,
+				dreamerEnabled: "on",
+				embeddingProvider: "openai-compatible",
+				embeddingModel: "text-embedding-3-small",
+			},
+		});
+
+		expect(config.enabled).toBe(false);
+		expect(config.memory.auto_search.score_threshold).toBe(
+			defaults.memory.auto_search.score_threshold,
 		);
-		expect(result.warnings.join("\n")).toContain(
-			'Removed invalid "historian.enabled" in-memory (run doctor to persist).',
+		expect(config.historian_timeout_ms).toBe(defaults.historian_timeout_ms);
+		expect(config.dreamer).toBeUndefined();
+		expect(config.embedding).toEqual(defaults.embedding);
+	});
+
+	it("registers direct operational settings for all supported controls", () => {
+		const provider = createPiMctxSettingsProvider();
+		const group = provider.groups[0];
+
+		expect(group?.id).toBe(PI_MCTX_SETTINGS_GROUP);
+		expect(group?.fields.map((field) => field.id)).toEqual([
+			"enabled",
+			"compactionEnabled",
+			"systemPromptInjection",
+			"temporalAwareness",
+			"memoryEnabled",
+			"memoryInjectionBudgetTokens",
+			"memoryAutoPromote",
+			"memoryRetrievalPromotionThreshold",
+			"memoryAutoSearchEnabled",
+			"memoryAutoSearchScoreThreshold",
+			"memoryAutoSearchMinPromptChars",
+			"memoryGitCommitIndexingEnabled",
+			"memoryGitCommitSinceDays",
+			"memoryGitCommitMaxCommits",
+			"historianEnabled",
+			"historianModel",
+			"historianTwoPass",
+			"historianTimeoutMs",
+			"historyBudgetPercentage",
+			"commitClusterTriggerEnabled",
+			"commitClusterMinClusters",
+			"dreamerEnabled",
+			"dreamerModel",
+			"dreamerInjectDocs",
+			"sidekickModel",
+			"embeddingProvider",
+			"embeddingModel",
+			"embeddingEndpoint",
+			"embeddingApiKeyEnv",
+		]);
+	});
+
+	it("registers its provider in the ext-core runtime registry", () => {
+		const pi = { events: {} } as ExtensionAPI;
+
+		registerPiMctxSettings(pi);
+		expect(getHepiRuntimeSettingsRegistry(pi).get(PI_MCTX_SETTINGS_SECTION)?.id).toBe(
+			PI_MCTX_SETTINGS_SECTION,
 		);
 	});
 });

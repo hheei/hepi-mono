@@ -9,14 +9,12 @@
  * Storage: fresh Pi schema at
  *   ${PI_CODING_AGENT_DIR:-~/.pi/agent}/extensions/pi-mctx/context.db
  *
- * Config: read from
- *   $cwd/.cortexkit/magic-context.jsonc (project) and
- *   ~/.config/cortexkit/magic-context.jsonc (user) via `loadPiConfig()`.
- *   Falls back to schema defaults when neither file exists.
+ * Config: direct global Pi `settings.json` fields under `pi-mctx`, registered through
+ * `@hheei/pi-ext-core`. Settings changes apply on `/reload` or restart.
  */
 
 import { createRequire } from "node:module";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	isCompactionEnabled,
@@ -100,7 +98,11 @@ import {
 	registerCtxStatusEntryRenderer,
 	sendCtxStatusMessage,
 } from "./commands/pi-command-utils";
-import { loadPiConfig } from "./config";
+import {
+	loadPiConfig,
+	registerPiMctxSettings,
+	resetPiMctxConfigForReload,
+} from "./config";
 import {
 	awaitInFlightHistorians,
 	clearContextHandlerSession,
@@ -395,35 +397,7 @@ function warn(message: string, data?: unknown): void {
 	log(`${PREFIX} WARN ${message}`, data);
 }
 
-// Memoized per directory so repeated /cd lookups do not spam the same config
-// summary/warning lines on every hot-path config resolution.
-const loggedPiConfigDirs = new Set<string>();
-function logPiConfigLoad(args: {
-	dir: string;
-	loadedFromPaths: string[];
-	warnings: string[];
-	dedupe?: boolean;
-}): void {
-	const key = resolve(args.dir);
-	if (args.dedupe && loggedPiConfigDirs.has(key)) return;
-	if (args.dedupe) {
-		loggedPiConfigDirs.add(key);
-	}
-	if (args.loadedFromPaths.length > 0) {
-		info(`config loaded from: ${args.loadedFromPaths.join(", ")}`);
-	} else {
-		info("config: no magic-context.jsonc found, using schema defaults");
-	}
-	for (const warning of args.warnings) {
-		warn(`config: ${warning}`);
-	}
-}
-
 export const __test = {
-	logPiConfigLoad,
-	resetLoggedPiConfigDirs(): void {
-		loggedPiConfigDirs.clear();
-	},
 	isPiMagicContextActiveInProcess,
 	markPiMagicContextActive,
 	clearPiMagicContextActive,
@@ -572,12 +546,9 @@ setHarness("pi");
 // ---------------------------------------------------------------------------
 // Config-driven resolvers
 //
-// Step 5b replaced the env-var stop-gaps with `loadPiConfig()`, which reads
-// the shared CortexKit config paths (project `.cortexkit/`, user `~/.config/`)
-// and falls back to Pi-owned legacy files only until migration completes. The
-// resolvers below
-// adapt the schema-shaped config into the Pi-specific options the various
-// registration helpers expect.
+// Pi MCTX reads one validated global `pi-mctx` snapshot through
+// ext-core at extension boot. `/reload` is the explicit configuration boundary;
+// resolvers below adapt that schema-shaped snapshot into Pi-specific options.
 //
 // Each resolver returns `undefined` when the relevant feature is disabled
 // in config, so the registration helpers can short-circuit cleanly.
@@ -703,18 +674,20 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 	}
 	markPiMagicContextActive();
 	beginBootQuietPeriod();
+	// Pi MCTX settings stay available even when `enabled=false`, so users can
+	// re-enable the extension from /ext-settings without editing JSON manually.
+	registerPiMctxSettings(pi);
+	resetPiMctxConfigForReload();
 
-	// Resolve the user-tier storage policy before opening the shared database.
-	// Project config cannot alter it, so every project in this process shares the
-	// operator's chosen owner-private or externally managed permission policy.
-	const bootProjectDir = process.cwd();
-	const bootConfig = loadPiConfig({ cwd: bootProjectDir });
+	// Resolve one global Pi settings snapshot before opening storage. The snapshot
+	// remains fixed until Pi re-evaluates this extension on /reload.
+	const bootConfig = loadPiConfig();
 	setStoragePrivatePermissionEnforcement(
-		bootConfig.config.storage.enforce_private_permissions,
+		bootConfig.storage.enforce_private_permissions,
 	);
 	setSqlitePragmaConfig({
-		cacheSizeMb: bootConfig.config.sqlite.cache_size_mb,
-		mmapSizeMb: bootConfig.config.sqlite.mmap_size_mb,
+		cacheSizeMb: bootConfig.sqlite.cache_size_mb,
+		mmapSizeMb: bootConfig.sqlite.mmap_size_mb,
 	});
 
 	const storageDir = getMagicContextStorageDir();
@@ -732,9 +705,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 	// Storage open failures are fatal for this runtime. The fresh-schema
 	// initializer rejects legacy databases before it writes anything.
 	if (!db) {
-		const projectDirForConfig = process.cwd();
-		const early = loadPiConfig({ cwd: projectDirForConfig });
-		if (!early.config.enabled) {
+		if (!bootConfig.enabled) {
 			info(
 				"plugin DISABLED via config (enabled: false) — skipping registration",
 			);
@@ -747,8 +718,8 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 				`storage unavailable at ${dbPath}`,
 		};
 		if (
-			early.config.fail_closed_blocking === false ||
-			!isCompactionEnabled(early.config)
+			bootConfig.fail_closed_blocking === false ||
+			!isCompactionEnabled(bootConfig)
 		) {
 			warn(
 				`Magic Context (pi) storage unavailable at ${dbPath}: ${formatFailClosedBlockingMessage(reason)}. ` +
@@ -772,13 +743,13 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 			onRecovered: async (recoveredDb) => {
 				if (fullRuntimeStarted) return;
 				fullRuntimeStarted = true;
-				await startPiMagicContextRuntime(pi, recoveredDb, dbPath);
+				await startPiMagicContextRuntime(pi, recoveredDb, dbPath, bootConfig);
 			},
 		});
 		return;
 	}
 
-	await startPiMagicContextRuntime(pi, db, dbPath);
+	await startPiMagicContextRuntime(pi, db, dbPath, bootConfig);
 }
 
 /**
@@ -790,6 +761,7 @@ async function startPiMagicContextRuntime(
 	pi: ExtensionAPI,
 	database: ContextDatabase,
 	dbPath: string,
+	config: MagicContextConfig,
 ): Promise<void> {
 	const db = database;
 
@@ -814,23 +786,10 @@ async function startPiMagicContextRuntime(
 		})();
 	}, 0);
 
-	// Capture boot project for initial config load and logging only. Runtime
-	// identity/path resolution uses ctx.cwd per hook/command so session cwd
-	// switches follow the active project without reloading config.
+	// Root config is global and immutable for this runtime. `/cd` changes only
+	// project identity; `/reload` is required to apply persisted settings.
 	const projectDir = process.cwd();
 	const seenDreamerProjectIdentities = new Set<string>();
-	// Step 5b: load the user's full magic-context.jsonc config. The loader
-	// reads the shared CortexKit project/user paths, validates them through the
-	// shared Zod schema, falls back to Pi-owned legacy files only while migration
-	// is incomplete, and uses defaults for invalid fields per-key. It returns
-	// the merged config plus warnings.
-	//
-	// We surface warnings via the standard `warn()` channel so users see
-	// them in the magic-context log. Loading never throws — bad config
-	// gracefully degrades to defaults.
-	const { config, warnings, loadedFromPaths } = loadPiConfig({
-		cwd: projectDir,
-	});
 	const projectIdentity =
 		resolveProjectIdentityForSession(projectDir, config.allow_home_project) ??
 		"";
@@ -860,20 +819,11 @@ async function startPiMagicContextRuntime(
 			);
 		}
 	}
-	// The allowlist is user-tier only, so configure all child runners once at
-	// boot. Project config is stripped before this merged config is returned.
+	// The child extension allowlist is global Pi settings, resolved once per boot.
 	configurePiSubagentExtensions(config.pi?.subagent_extensions);
-	logPiConfigLoad({
-		dir: projectDir,
-		loadedFromPaths,
-		warnings,
-		dedupe: true,
-	});
 
-	// Reapply boot-resolved storage and SQLite settings in case config changed
-	// between the initial open and runtime registration. cache_size / mmap_size
-	// take effect live; future opens in this process pick them up via
-	// setSqlitePragmaConfig.
+	// Reapply boot-resolved storage and SQLite settings before runtime registration.
+	// Cache and mmap pragmas take effect live; later opens inherit this snapshot.
 	setStoragePrivatePermissionEnforcement(
 		config.storage.enforce_private_permissions,
 	);
@@ -1009,14 +959,7 @@ async function startPiMagicContextRuntime(
 	): ResolvedPiProjectDeps {
 		const cached = projectDepsByDir.get(dir);
 		if (cached) return cached;
-		const switchedLoad = loadPiConfig({ cwd: dir });
-		logPiConfigLoad({
-			dir,
-			loadedFromPaths: switchedLoad.loadedFromPaths,
-			warnings: switchedLoad.warnings,
-			dedupe: true,
-		});
-		const switchedConfig = switchedLoad.config;
+		const switchedConfig = config;
 		const switchedIdentity =
 			identityOverride ??
 			resolveProjectIdentityForSession(
@@ -1587,11 +1530,7 @@ async function startPiMagicContextRuntime(
 				}
 			}
 
-			// Use effectiveConfig (re-resolved from the CURRENT checkout's cwd on
-			// a project switch) for every system-prompt decision below — a
-			// switched-into project may carry its own .cortexkit/magic-context.jsonc
-			// (memory/docs/key-files/injection toggles). Reusing boot `config`
-			// would render the launch project's adjuncts in the new checkout.
+			// Use the resolved runtime options for every system-prompt decision below.
 			if (effectiveConfig.system_prompt_injection?.enabled === false) {
 				return;
 			}

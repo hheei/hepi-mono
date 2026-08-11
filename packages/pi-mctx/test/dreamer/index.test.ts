@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
 	type DreamerConfig,
 	DreamerConfigSchema,
@@ -88,6 +88,10 @@ async function flushMicrotasks(): Promise<void> {
 	await Promise.resolve();
 	await Promise.resolve();
 }
+
+beforeEach(() => {
+	__test.reset();
+});
 
 afterEach(() => {
 	__test.reset();

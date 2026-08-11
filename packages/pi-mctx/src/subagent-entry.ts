@@ -58,7 +58,10 @@ import { openDatabase } from "#core/features/storage-db";
 import { setHarness } from "#core/shared/harness";
 import { log } from "#core/shared/logger";
 import { setStoragePrivatePermissionEnforcement } from "#core/shared/storage-permissions";
-import { loadPiConfig } from "./config";
+import {
+	loadPiConfig,
+	resetPiMctxConfigForReload,
+} from "./config";
 import { ensureProjectRegisteredFromPiDirectory } from "./embedding-bootstrap";
 import { registerMagicContextTools } from "./tools";
 
@@ -85,8 +88,9 @@ export default function magicContextSubagentExtension(pi: ExtensionAPI): void {
 		try {
 			// Load shared config before opening storage so a trusted-group deployment
 			// never has its externally managed permissions re-tightened by a child.
+			resetPiMctxConfigForReload();
+			const cfg = loadPiConfig();
 			const directory = process.cwd();
-			const { config: cfg } = loadPiConfig({ cwd: directory });
 			setStoragePrivatePermissionEnforcement(
 				cfg.storage.enforce_private_permissions,
 			);
