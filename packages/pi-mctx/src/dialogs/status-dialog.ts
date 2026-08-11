@@ -277,12 +277,15 @@ function renderInner(
 
 	// Legend
 	for (const seg of breakdownSegments(s)) {
-		const pct = ((seg.tokens / (s.inputTokens || 1)) * 100).toFixed(1);
+		const pct =
+			s.inputTokens > 0
+				? `${((seg.tokens / s.inputTokens) * 100).toFixed(1)}%`
+				: "—";
 		const left = colorHex(
 			seg.color,
 			`${seg.label}${seg.detail ? ` ${seg.detail}` : ""}`,
 		);
-		const right = theme.fg("muted", `${fmt(seg.tokens)} (${pct}%)`);
+		const right = theme.fg("muted", `${fmt(seg.tokens)} (${pct})`);
 		lines.push(`${left}   ${right}`);
 	}
 	lines.push("");
@@ -720,9 +723,9 @@ function renderBar(s: StatusDialogDetail, innerWidth: number): string {
 	// collapsing all segments to width 1.
 	const barWidth = Math.max(20, innerWidth);
 	const segs = breakdownSegments(s);
-	if (segs.length === 0) return "";
+	if (segs.length === 0 || s.inputTokens <= 0) return "";
 	const widths = segs.map((seg) =>
-		Math.max(1, Math.round((seg.tokens / (s.inputTokens || 1)) * barWidth)),
+		Math.max(1, Math.round((seg.tokens / s.inputTokens) * barWidth)),
 	);
 	let sum = widths.reduce((a, b) => a + b, 0);
 	while (sum > barWidth) {

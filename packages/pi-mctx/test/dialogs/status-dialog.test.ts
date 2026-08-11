@@ -82,6 +82,8 @@ describe("Pi status dialog", () => {
 
 			const text = rendered.flat().join("\n");
 			expect(text).toContain("Work tokens 1.2K new · 9.8K total input");
+			expect(text).toContain("(—)");
+			expect(text).not.toContain("█");
 		} finally {
 			closeQuietly(db);
 		}
