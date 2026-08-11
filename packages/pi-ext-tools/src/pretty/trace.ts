@@ -57,6 +57,22 @@ export class ToolTraceController {
 		tool.invalidate?.();
 	}
 
+	restore(
+		toolCallId: string | undefined,
+		result: AgentToolResult<unknown>,
+		completion: ToolCompletion | undefined,
+	): void {
+		if (toolCallId === undefined) return;
+		const tool = this.tools.get(toolCallId);
+		if (tool === undefined) return;
+		const changed =
+			!sameResult(tool.latest, result) || !sameCompletion(tool.completion, completion);
+		tool.latest = result;
+		if (completion === undefined) delete tool.completion;
+		else tool.completion = completion;
+		if (changed) queueMicrotask(() => tool.invalidate?.());
+	}
+
 	latestFor(toolCallId: string): AgentToolResult<unknown> | undefined {
 		return this.tools.get(toolCallId)?.latest;
 	}
@@ -85,4 +101,22 @@ export class ToolTraceController {
 	completionFor(toolCallId: string): ToolCompletion | undefined {
 		return this.tools.get(toolCallId)?.completion;
 	}
+}
+
+function sameCompletion(
+	left: ToolCompletion | undefined,
+	right: ToolCompletion | undefined,
+): boolean {
+	return (
+		left?.durationMs === right?.durationMs &&
+		left?.errorMessage === right?.errorMessage &&
+		left?.warning === right?.warning
+	);
+}
+
+function sameResult(
+	left: AgentToolResult<unknown> | undefined,
+	right: AgentToolResult<unknown>,
+): boolean {
+	return left?.content === right.content && left?.details === right.details;
 }

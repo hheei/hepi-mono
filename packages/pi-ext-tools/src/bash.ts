@@ -20,7 +20,7 @@ import { BashOutputSink } from "./bash-output.js";
 import { BashPtySurface, type BashPtySurfaceResult } from "./bash-pty-surface.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import { PtySession } from "./native-bridge.js";
-import { withToolFrame } from "./pretty/frame.js";
+import { completionFromResult, withToolFrame } from "./pretty/frame.js";
 import { type ToolCompletion, ToolTraceController } from "./pretty/trace.js";
 
 const OWNER = "@hheei/pi-ext-tools";
@@ -98,12 +98,14 @@ class BashOutputFrame implements Component {
 	constructor(
 		private readonly body: Component,
 		private readonly theme: Theme,
+		private readonly footer?: string,
 	) {}
 
 	render(width: number): string[] {
 		return [
 			...this.body.render(width),
 			this.theme.fg("borderMuted", "─".repeat(Math.max(1, width))),
+			...(this.footer === undefined ? [] : [this.theme.fg("dim", this.footer)]),
 		];
 	}
 
@@ -287,7 +289,11 @@ export function registerBashTool(
 			context: Parameters<UpstreamRenderResult>[3],
 		) {
 			const body = upstreamRenderResult?.(result, options, theme, context) ?? new Text("", 0, 0);
-			return new BashOutputFrame(body, theme);
+			return new BashOutputFrame(
+				body,
+				theme,
+				options.isPartial ? undefined : bashFooter(result, completionFromResult(result)),
+			);
 		},
 		async execute(
 			_id: string,

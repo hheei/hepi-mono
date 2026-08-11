@@ -117,7 +117,7 @@ test("bash exposes only async and PTY use guidance", (): void => {
 	]);
 });
 
-test("bash displays its command only in the tool header", (): void => {
+test("bash displays its active command in the base theme and timeout dim", (): void => {
 	const tools: ToolDefinition[] = [];
 	registerBashTool({
 		registerTool(tool: ToolDefinition): void {
@@ -128,7 +128,7 @@ test("bash displays its command only in the tool header", (): void => {
 	if (bash === undefined) throw new Error("Expected bash tool");
 	const theme = {
 		bg: (_role: string, text: string): string => text,
-		fg: (_role: string, text: string): string => text,
+		fg: (role: string, text: string): string => (role === "dim" ? `<dim>${text}</dim>` : text),
 		bold: (text: string): string => text,
 	} as Theme;
 	const text = bash
@@ -141,6 +141,8 @@ test("bash displays its command only in the tool header", (): void => {
 		.render(120)
 		.join("\n");
 	expect(text.match(/printf one/g)).toHaveLength(1);
+	expect(text).not.toContain("<dim>printf one</dim>");
+	expect(text).toContain("<dim> (timeout 120s)</dim>");
 });
 
 test("bash wraps the active command and retains its timeout suffix", (): void => {
@@ -239,7 +241,8 @@ test("bash encloses its output between full-width dividers", (): void => {
 		)
 		.render(40);
 	expect(lines?.[0]).toBe("─".repeat(40));
-	expect(lines?.at(-1)).toBe("─".repeat(40));
+	expect(lines?.at(-2)).toBe("─".repeat(40));
+	expect(lines?.at(-1)).toBe("exitcode ? · 1 lines · completed");
 	expect(lines?.join("\n")).toContain("stdout");
 });
 

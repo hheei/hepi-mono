@@ -67,7 +67,7 @@ describe("withToolFrame", () => {
 		expect(resultLines[1]?.trim()).toBe("result body");
 	});
 
-	test("renders the latest partial result in the active tool call", (): void => {
+	test("renders the latest partial result only in the result slot", (): void => {
 		const trace = new ToolTraceController();
 		const framed = withToolFrame(tool(), trace);
 		trace.startTrace();
@@ -83,9 +83,32 @@ describe("withToolFrame", () => {
 			expanded: false,
 			invalidate: (): void => undefined,
 		} as never);
+		const result = framed.renderResult?.(
+			{ content: [{ type: "text", text: "streaming result" }], details: undefined },
+			{ expanded: false, isPartial: true },
+			theme,
+			{
+				...(context(true) as object),
+				toolCallId: "call-1",
+				executionStarted: true,
+				expanded: false,
+				invalidate: (): void => undefined,
+			} as never,
+		);
 		const text = call?.render(80).join("\n");
-		expect(text).toContain("streaming result");
+		expect(text).not.toContain("streaming result");
 		expect(text).not.toContain("call body");
+		expect(result?.render(80).join("\n")).toContain("streaming result");
+		const completedCall = framed.renderCall?.({ path: "src/a.ts" }, theme, {
+			...(context(false) as object),
+			toolCallId: "call-1",
+			executionStarted: true,
+			expanded: false,
+			invalidate: (): void => undefined,
+		} as never);
+		const completedText = completedCall?.render(80).join("\n");
+		expect(completedText).not.toContain("streaming result");
+		expect(completedText).not.toContain("call body");
 	});
 
 	test("collapses prior traces until tools are globally expanded", (): void => {
@@ -137,29 +160,80 @@ describe("withToolFrame", () => {
 		expect(expanded?.render(80).join("\n")).toContain("result body");
 	});
 
-	test("keeps typed warning status and footer when Pi marks a partial result as error", (): void => {
+	test("dims read paths and truncation markers in prior traces", (): void => {
 		const trace = new ToolTraceController();
-		const framed = withToolFrame(tool(), trace, () => "actual partial metrics");
+		const framed = withToolFrame(tool(), trace);
 		trace.startTrace();
 		trace.begin("call-1");
-		trace.complete("call-1", true);
+		trace.complete("call-1");
 		trace.startTrace();
+		const collapsedTheme = {
+			bg: (_role: string, text: string): string => text,
+			fg: (role: string, text: string): string =>
+				role === "dim" ? `\u001B[2m${text}\u001B[22m` : text,
+			bold: (text: string): string => text,
+		} as Theme;
+		const call = framed.renderCall?.({ path: `src/${"a".repeat(80)}.ts` }, collapsedTheme, {
+			...(context(false) as object),
+			toolCallId: "call-1",
+			executionStarted: false,
+			expanded: false,
+			invalidate: (): void => undefined,
+		} as never);
+		const line = call?.render(30)[0];
+		expect(line).toContain("\u001B[2msrc/");
+		expect(line).toContain("\u001B[2m>\u001B[22m");
+	});
+
+	test("restores a warning header without synchronously repeating the result", async (): Promise<void> => {
+		const trace = new ToolTraceController();
+		const framed = withToolFrame(
+			tool(),
+			trace,
+			() => "actual partial metrics",
+			() => true,
+		);
+		trace.startTrace();
+		let invalidations = 0;
+		const renderContext = {
+			...(context(false, true) as object),
+			args: { path: "src/a.ts" },
+			toolCallId: "call-1",
+			executionStarted: false,
+			expanded: false,
+			invalidate: (): void => {
+				invalidations += 1;
+			},
+		} as never;
+		framed.renderCall?.({ path: "src/a.ts" }, theme, renderContext);
+		const restoredResult = {
+			content: [{ type: "text" as const, text: "result body" }],
+			details: undefined,
+		};
 		const result = framed.renderResult?.(
-			{ content: [{ type: "text", text: "result body" }], details: undefined },
+			restoredResult,
 			{ expanded: false, isPartial: false },
 			theme,
-			{
-				...(context(false, true) as object),
-				args: { path: "src/a.ts" },
-				toolCallId: "call-1",
-				executionStarted: false,
-				expanded: false,
-				invalidate: (): void => undefined,
-			} as never,
+			renderContext,
 		);
-		const lines = result?.render(80) ?? [];
-		expect(lines[0]).toContain("<warning>!</warning>");
-		expect(lines[2]?.trim()).toBe("<dim>actual partial metrics</dim>");
+		expect(result?.render(80).map((line) => line.trimEnd())).toEqual([
+			"<dim>actual partial metrics</dim>",
+		]);
+		expect(invalidations).toBe(0);
+		await Promise.resolve();
+		expect(invalidations).toBe(1);
+		framed.renderResult?.(
+			restoredResult,
+			{ expanded: false, isPartial: false },
+			theme,
+			renderContext,
+		);
+		await Promise.resolve();
+		expect(invalidations).toBe(1);
+		const restoredCall = framed.renderCall?.({ path: "src/a.ts" }, theme, renderContext);
+		const restoredText = restoredCall?.render(80).join("\n");
+		expect(restoredText).toContain("<warning>!</warning>");
+		expect(restoredText).not.toContain("<error>✗</error>");
 	});
 
 	test("uses the host text fallback when a tool has no renderer", (): void => {
