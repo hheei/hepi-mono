@@ -104,6 +104,30 @@ describe("apply_patch progress renderer", () => {
 		expect(roles).toEqual(expect.arrayContaining(["success", "error", "warning", "dim"]));
 	});
 
+	test("keeps created paths in the base theme", () => {
+		const taggedTheme = {
+			fg: (role: string, text: string) => `<${role}>${text}</${role}>`,
+			bold: (text: string) => text,
+		};
+		const text = renderApplyPatchResult(details, false, taggedTheme as never)
+			.render(200)
+			.join("\n");
+		expect(text).toContain("<success>create</success> src/created.ts");
+	});
+
+	test("matches the divider width to the result width", () => {
+		const lines = renderApplyPatchResult(details, false, theme as never).render(80);
+		expect(lines).toContain("─".repeat(80));
+	});
+
+	test("omits zero operation counts from the footer", () => {
+		const createdOnly: ApplyPatchToolDetails = {
+			...details,
+			operations: [details.operations[0]!],
+		};
+		expect(formatApplyPatchFooter(createdOnly)).toBe("created 1 · 0.72s");
+	});
+
 	test("keeps outcome-time diff expanded only", () => {
 		const collapsed = renderApplyPatchResult(details, false, theme as never)
 			.render(200)

@@ -32,7 +32,8 @@ function row(operation: ApplyPatchOperationProgress, theme: Theme): string {
 			: "";
 	const kind =
 		operation.kind === "add" ? "create" : operation.kind === "delete" ? "delete" : "modify";
-	return `${glyph} ${theme.fg("success", kind)} ${theme.fg("dim", operation.path)} ${delta(operation, theme)}${score}`.trimEnd();
+	const path = operation.kind === "add" ? operation.path : theme.fg("dim", operation.path);
+	return `${glyph} ${theme.fg("success", kind)} ${path} ${delta(operation, theme)}${score}`.trimEnd();
 }
 
 function operations(details: ApplyPatchToolDetails): readonly ApplyPatchOperationProgress[] {
@@ -68,7 +69,24 @@ function footer(details: ApplyPatchToolDetails, theme?: Theme): string {
 		operations(details).filter(
 			(operation) => operation.kind === kind && operation.status !== "pending",
 		).length;
-	return `${color("success", `created ${count("add")}`)} · ${color("error", `deleted ${count("delete")}`)} · ${color("warning", `modified ${count("update")}`)} · ${duration(details.durationMs)}`;
+	return [
+		count("add") > 0 ? color("success", `created ${count("add")}`) : undefined,
+		count("delete") > 0 ? color("error", `deleted ${count("delete")}`) : undefined,
+		count("update") > 0 ? color("warning", `modified ${count("update")}`) : undefined,
+		duration(details.durationMs),
+	]
+		.filter((value): value is string => value !== undefined)
+		.join(" · ");
+}
+
+class FullWidthRule implements Component {
+	constructor(private readonly theme: Theme) {}
+
+	render(width: number): string[] {
+		return [this.theme.fg("borderMuted", "─".repeat(Math.max(1, width)))];
+	}
+
+	invalidate(): void {}
 }
 
 export function formatApplyPatchFooter(
@@ -113,7 +131,7 @@ export function renderApplyPatchResult(
 		for (const rejected of details.rejected)
 			container.addChild(new Text(theme.fg("error", rejected.error), 0, 0));
 	}
-	container.addChild(new Text(theme.fg("borderMuted", "─".repeat(40)), 0, 0));
+	container.addChild(new FullWidthRule(theme));
 	container.addChild(new Text(theme.fg("dim", footer(details, theme)), 0, 0));
 	return container;
 }

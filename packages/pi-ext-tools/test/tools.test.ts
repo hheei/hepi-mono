@@ -167,6 +167,32 @@ describe("pi-ext-tools catalog", () => {
 		expect(narrow).toContain("<dim>></dim>");
 	});
 
+	test("hides read continuation instructions without changing model content", (): void => {
+		const host = harness();
+		registerTools(host.pi);
+		const read = host.tools.find((tool) => tool.name === "read");
+		if (read === undefined) throw new Error("read was not registered");
+		const theme = {
+			bg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
+			fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
+			bold: (text: string): string => `<b>${text}</b>`,
+		} as Theme;
+		const source = "first\nsecond\n\n[17 more lines in file. Use offset=310 to continue.]";
+		const result = { content: [{ type: "text" as const, text: source }], details: undefined };
+		const context = { ...(renderContext as object), args: { path: "sample.ts" } } as never;
+		const collapsed = read
+			.renderResult?.(result, { isPartial: false, expanded: false }, theme, context)
+			.render(120)
+			.join("\n");
+		const expanded = read
+			.renderResult?.(result, { isPartial: false, expanded: true }, theme, context)
+			.render(120)
+			.join("\n");
+		expect(collapsed).not.toContain("Use offset=310 to continue.");
+		expect(expanded).not.toContain("Use offset=310 to continue.");
+		expect(result.content[0]?.text).toBe(source);
+	});
+
 	test("hides pagination cursors from search renderers", (): void => {
 		const host = harness();
 		registerTools(host.pi);

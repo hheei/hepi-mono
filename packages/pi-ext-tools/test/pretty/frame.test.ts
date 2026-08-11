@@ -35,8 +35,11 @@ function tool(renderers = true): ToolDefinition<typeof Params> {
 			? {
 					renderCall: (_args, receivedTheme): Text =>
 						new Text(receivedTheme.bg("toolSuccessBg", "call body"), 0, 0),
-					renderResult: (_result, _options, receivedTheme): Text =>
-						new Text(receivedTheme.bg("toolSuccessBg", "result body"), 0, 0),
+					renderResult: (result, _options, receivedTheme): Text => {
+						const first = result.content[0];
+						const text = first?.type === "text" ? first.text : "";
+						return new Text(receivedTheme.bg("toolSuccessBg", text), 0, 0);
+					},
 				}
 			: {}),
 	};
@@ -64,6 +67,27 @@ describe("withToolFrame", () => {
 		expect(resultLines[1]?.trim()).toBe("result body");
 	});
 
+	test("renders the latest partial result in the active tool call", (): void => {
+		const trace = new ToolTraceController();
+		const framed = withToolFrame(tool(), trace);
+		trace.startTrace();
+		trace.begin("call-1");
+		trace.update("call-1", {
+			content: [{ type: "text", text: "streaming result" }],
+			details: undefined,
+		});
+		const call = framed.renderCall?.({ path: "src/a.ts" }, theme, {
+			...(context(true) as object),
+			toolCallId: "call-1",
+			executionStarted: true,
+			expanded: false,
+			invalidate: (): void => undefined,
+		} as never);
+		const text = call?.render(80).join("\n");
+		expect(text).toContain("streaming result");
+		expect(text).not.toContain("call body");
+	});
+
 	test("collapses prior traces until tools are globally expanded", (): void => {
 		const trace = new ToolTraceController();
 		const framed = withToolFrame(tool(), trace);
@@ -71,6 +95,13 @@ describe("withToolFrame", () => {
 		trace.begin("call-1");
 		trace.complete("call-1");
 		trace.startTrace();
+		const call = framed.renderCall?.({ path: "src/a.ts" }, theme, {
+			...(context(false) as object),
+			toolCallId: "call-1",
+			executionStarted: false,
+			expanded: false,
+			invalidate: (): void => undefined,
+		} as never);
 		const collapsed = framed.renderResult?.(
 			{ content: [{ type: "text", text: "result body" }], details: undefined },
 			{ expanded: false, isPartial: false },
@@ -84,9 +115,10 @@ describe("withToolFrame", () => {
 				invalidate: (): void => undefined,
 			} as never,
 		);
+		const combined = [...(call?.render(80) ?? []), ...(collapsed?.render(80) ?? [])].join("\n");
+		expect(combined.match(/<b>read<\/b>/g)).toHaveLength(1);
 		const collapsedLines = collapsed?.render(80) ?? [];
-		expect(collapsedLines[1]).toBe("");
-		expect(collapsedLines[2]?.trim()).toBe("<dim>0ms</dim>");
+		expect(collapsedLines.map((line) => line.trimEnd())).toEqual(["<dim>0ms</dim>"]);
 		expect(collapsedLines.join("\n")).not.toContain("result body");
 
 		const expanded = framed.renderResult?.(

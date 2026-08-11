@@ -1,10 +1,22 @@
 import type { AgentToolResult, Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { type Component, Container, Text, truncateToWidth } from "@earendil-works/pi-tui";
+import {
+	type Component,
+	Container,
+	Text,
+	truncateToWidth,
+	visibleWidth,
+} from "@earendil-works/pi-tui";
 import type { Static, TSchema } from "typebox";
 
 import { type ToolCompletion, ToolTraceController } from "./trace.js";
 
 type FrameStatus = "pending" | "success" | "warning" | "error";
+
+type FrameHeader = {
+	readonly primary: string;
+	readonly suffix?: string;
+	readonly wrap?: boolean;
+};
 
 export type ToolFrameFooter = (
 	result: AgentToolResult<unknown>,
@@ -69,16 +81,28 @@ function headerFor(
 	context: { readonly isError: boolean; readonly isPartial: boolean },
 	warning = false,
 	summaryOverride?: string,
-): string {
+	collapsed = false,
+): FrameHeader {
 	const status = statusPrefix(
 		warning ? "warning" : context.isError ? "error" : statusFor(context),
 		theme,
 	);
 	const values = argsRecord(args);
 	if (summaryOverride !== undefined)
-		return `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${theme.fg("dim", "·")} ${theme.fg("dim", summaryOverride)}`;
+		return {
+			primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${theme.fg("dim", "·")} ${theme.fg("dim", summaryOverride)}`,
+		};
 	const pattern = textValue(values.pattern);
 	const path = textValue(values.path);
+	const command = textValue(values.command);
+	if (tool.name === "bash" && command !== undefined) {
+		const timeout = typeof values.timeout === "number" ? values.timeout : undefined;
+		return {
+			primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${theme.fg("dim", collapsed ? (command.split("\n")[0] ?? command) : command)}`,
+			...(timeout === undefined ? {} : { suffix: theme.fg("dim", ` (timeout ${timeout}s)`) }),
+			...(collapsed ? {} : { wrap: true }),
+		};
+	}
 	if (tool.name === "read" && path !== undefined) {
 		const offset = typeof values.offset === "number" ? values.offset : undefined;
 		const limit = typeof values.limit === "number" ? values.limit : undefined;
@@ -88,7 +112,9 @@ function headerFor(
 					? ""
 					: `:${offset}`
 				: `:${offset ?? 1}-${(offset ?? 1) + limit - 1}`;
-		return `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${path}${theme.fg("warning", range)}`;
+		return {
+			primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${path}${theme.fg("warning", range)}`,
+		};
 	}
 	if (tool.name === "grep" && pattern !== undefined) {
 		const summary = [
@@ -96,14 +122,16 @@ function headerFor(
 			theme.fg("mdCode", `/${pattern}/`),
 			...(path === undefined ? [] : ["in", theme.fg("dim", path)]),
 		].join(" ");
-		return `${status} ${summary}`;
+		return { primary: `${status} ${summary}` };
 	}
 	const summary = summaryFor(tool.name, args);
-	return [
-		status,
-		theme.fg("toolTitle", theme.bold(tool.label)),
-		...(summary === "" ? [] : [theme.fg("dim", summary)]),
-	].join(" ");
+	return {
+		primary: [
+			status,
+			theme.fg("toolTitle", theme.bold(tool.label)),
+			...(summary === "" ? [] : [theme.fg("dim", summary)]),
+		].join(" "),
+	};
 }
 
 function statusFor(context: {
@@ -181,14 +209,29 @@ class ToolFrameSection implements Component {
 	constructor(
 		private readonly body: Component | undefined,
 		private readonly theme: Theme,
-		private readonly header?: string,
+		private readonly header?: FrameHeader,
 		private readonly separateBody = true,
+		private readonly collapsed = false,
 	) {}
 
 	render(width: number): string[] {
 		const availableWidth = Math.max(1, width);
 		const lines =
-			this.header === undefined ? [] : [truncateToWidth(this.header, availableWidth, "…")];
+			this.header === undefined
+				? []
+				: this.collapsed
+					? [collapsedHeader(this.header, availableWidth)]
+					: this.header.wrap
+						? new Text(`${this.header.primary}${this.header.suffix ?? ""}`, 0, 0).render(
+								availableWidth,
+							)
+						: [
+								truncateToWidth(
+									`${this.header.primary}${this.header.suffix ?? ""}`,
+									availableWidth,
+									"…",
+								),
+							];
 		const bodyLines = this.body?.render(availableWidth) ?? [];
 		if (bodyLines.length > 0) {
 			if (this.separateBody) lines.push(this.theme.fg("borderMuted", "─".repeat(availableWidth)));
@@ -201,6 +244,13 @@ class ToolFrameSection implements Component {
 	invalidate(): void {
 		this.body?.invalidate();
 	}
+}
+
+function collapsedHeader(header: FrameHeader, width: number): string {
+	if (header.suffix === undefined) return truncateToWidth(header.primary, width, ">");
+	const suffixWidth = visibleWidth(header.suffix);
+	if (suffixWidth >= width) return truncateToWidth(header.suffix, width, ">");
+	return `${truncateToWidth(header.primary, width - suffixWidth, ">")}${header.suffix}`;
 }
 
 function resultFallback(result: AgentToolResult<unknown>, theme: Theme): Component {
@@ -240,6 +290,12 @@ export function withToolFrame<TParams extends TSchema, TDetails, TState>(
 			}
 		},
 		renderCall(args, theme, context): Component {
+			const collapsed = trace.isCollapsed(
+				context.toolCallId,
+				context.expanded,
+				context.executionStarted,
+				context.invalidate,
+			);
 			const header = headerFor(
 				tool,
 				args,
@@ -250,25 +306,36 @@ export function withToolFrame<TParams extends TSchema, TDetails, TState>(
 					args,
 					trace.latestFor(context.toolCallId) as AgentToolResult<TDetails> | undefined,
 				),
+				collapsed,
 			);
-			if (
-				trace.isCollapsed(
-					context.toolCallId,
-					context.expanded,
-					context.executionStarted,
-					context.invalidate,
-				)
-			)
-				return new ToolFrameSection(undefined, theme, header);
-			const body = renderCall?.(args, unboxedTheme(theme), {
-				...context,
-				lastComponent: undefined,
-			});
+			if (collapsed) return new ToolFrameSection(undefined, theme, header, true, true);
+			const latest = trace.latestFor(context.toolCallId) as AgentToolResult<TDetails> | undefined;
+			const body =
+				latest === undefined
+					? renderCall?.(args, unboxedTheme(theme), {
+							...context,
+							lastComponent: undefined,
+						})
+					: (renderResult?.(
+							latest,
+							{ expanded: context.expanded, isPartial: true },
+							unboxedTheme(theme),
+							{
+								...context,
+								lastComponent: undefined,
+							},
+						) ?? resultFallback(latest, theme));
 			return new ToolFrameSection(body, theme, header);
 		},
 		renderResult(result, options, theme, context): Component {
 			const completion = completionFrom(result, trace.completionFor(context.toolCallId));
 			const isWarning = completion?.warning === true;
+			const collapsed = trace.isCollapsed(
+				context.toolCallId,
+				context.expanded,
+				context.executionStarted,
+				context.invalidate,
+			);
 			const header = headerFor(
 				tool,
 				context.args,
@@ -276,20 +343,21 @@ export function withToolFrame<TParams extends TSchema, TDetails, TState>(
 				context,
 				isWarning,
 				headerSummary?.(context.args, result),
+				collapsed,
 			);
-			if (
-				trace.isCollapsed(
-					context.toolCallId,
-					context.expanded,
-					context.executionStarted,
-					context.invalidate,
-				)
-			) {
+			if (collapsed) {
 				const summary =
 					context.isError && !isWarning
 						? defaultFooter(completion, true)
 						: (footer?.(result, completion) ?? defaultFooter(completion, false));
-				return new ToolFrameSection(new Text(theme.fg("dim", summary), 0, 0), theme, header, false);
+				if (!context.isError && !isWarning) return new Text(theme.fg("dim", summary), 0, 0);
+				return new ToolFrameSection(
+					new Text(theme.fg("dim", summary), 0, 0),
+					theme,
+					header,
+					false,
+					true,
+				);
 			}
 			const body =
 				renderResult?.(result, options, unboxedTheme(theme), {
