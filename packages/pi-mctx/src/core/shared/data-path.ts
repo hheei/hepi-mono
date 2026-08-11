@@ -54,5 +54,12 @@ export function ensureCortexKitArtifactGitignore(directory: string): void {
 }
 
 export function getMagicContextStorageDir(): string {
-    return path.join(getDataDir(), "cortexkit", "magic-context");
+    const testDataDir =
+        process.env.NODE_ENV === "test"
+            ? process.env.XDG_DATA_HOME?.trim() || process.env.MAGIC_CONTEXT_TEST_DATA_DIR?.trim()
+            : undefined;
+    if (testDataDir) return path.join(testDataDir, "extensions", "pi-mctx");
+
+    const agentDir = process.env.PI_CODING_AGENT_DIR?.trim() || path.join(os.homedir(), ".pi", "agent");
+    return path.join(agentDir, "extensions", "pi-mctx");
 }

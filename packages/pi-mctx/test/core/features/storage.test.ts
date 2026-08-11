@@ -77,8 +77,8 @@ function useTempDataHome(prefix: string): string {
 }
 
 function resolveDbPath(dataHome: string): string {
-    // Plugin v0.16+ — shared cortexkit/magic-context path. See data-path.ts.
-    return join(dataHome, "cortexkit", "magic-context", "context.db");
+    // Pi-owned extension storage path. See data-path.ts.
+    return join(dataHome, "extensions", "pi-mctx", "context.db");
 }
 
 function makeMemoryDatabase(): Database {
@@ -449,11 +449,10 @@ describe("magic-context storage", () => {
     it("fails closed in openDatabase when file path setup fails (no in-memory fallback)", () => {
         //#given
         const dataHome = useTempDataHome("context-storage-fail-closed-");
-        // Force mkdirSync to fail by creating a file at one of the expected
-        // parent directories (cortexkit). The new shared path is
-        // <dataHome>/cortexkit/magic-context/, so blocking the cortexkit
-        // segment forces openDatabase() into its fail-closed branch.
-        writeFileSync(join(dataHome, "cortexkit"), "not-a-directory", "utf-8");
+        // Force mkdirSync to fail by creating a file at the Pi extension
+        // parent directory. The path is <dataHome>/extensions/pi-mctx/, so
+        // blocking `extensions` forces openDatabase() to fail closed.
+        writeFileSync(join(dataHome, "extensions"), "not-a-directory", "utf-8");
         //#when/#then
         // openDatabase MUST throw — no silent in-memory fallback. See storage-db.ts.
         expect(() => openDatabase()).toThrow(/storage unavailable/i);

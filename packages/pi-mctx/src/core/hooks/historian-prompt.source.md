@@ -498,7 +498,7 @@ A specific value that future work needs to know exactly, AND that is intended to
 **Preferred shape: `key: value` format.** When the fact has a natural "name of the setting" + "current value" structure, write it as `key: value`. This lets the dreamer detect later changes to the same setting. Use consistent key wording across emissions of the same setting.
 
 **Positive examples (durable configuration)**:
-- "Plugin DB path: ~/.local/share/cortexkit/magic-context/context.db" — durable path
+- "Plugin DB path: ${PI_CODING_AGENT_DIR:-~/.pi/agent}/extensions/pi-mctx/context.db" — durable path
 - "execute_threshold_percentage range: 20-80, default 50" — durable knob with range and default
 - "Bridge idle timeout: Infinity" — current value of a knob (was 5min earlier in this project)
 - "Read command file size cap: 50KB" — durable limit
