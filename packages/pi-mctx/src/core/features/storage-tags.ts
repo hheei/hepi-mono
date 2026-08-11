@@ -208,16 +208,6 @@ export interface AgeReclaimToolTag extends ToolReclaimHintTag {
  * only to render lightweight nudge hints; it never mutates tag state.
  */
 /**
- * Tools whose output is task / plan STATE, never appropriate to surface as a
- * "you could drop this" hint regardless of size. `todowrite` is the agent's
- * working plan: the canonical todo state is the synthetic todowrite we inject
- * (and protect from dropping), so suggesting the agent drop a todowrite output
- * is both pointless and confusing. Name-excluded (not just floor-excluded)
- * because a todowrite output can be several hundred tokens, above the floor.
- */
-const RECLAIM_HINT_EXCLUDED_TOOLS = ["todowrite"] as const;
-
-/**
  * A reclaim hint should point at MEANINGFULLY reclaimable output, not a
  * 30-token status line or a tiny control-plane call (ctx_reduce, bash_status,
  * check_comments…). Tags whose cached token total is known AND below this are
@@ -225,12 +215,6 @@ const RECLAIM_HINT_EXCLUDED_TOOLS = ["todowrite"] as const;
  * cannot size it, so we never hide a potentially-large output).
  */
 export const AGE_RECLAIM_MIN_TOKENS = 250;
-
-// Constant-folded literal list (the names are compile-time constants, never
-// user input), so the prepared SQL text stays static across calls.
-const RECLAIM_HINT_EXCLUDED_LIST = RECLAIM_HINT_EXCLUDED_TOOLS.map(
-    (name) => `'${name.replace(/'/g, "''")}'`,
-).join(", ");
 
 export function getOldestActiveUnprotectedToolTags(
     db: Database,
@@ -248,13 +232,10 @@ export function getOldestActiveUnprotectedToolTags(
                     ORDER BY tag_number DESC LIMIT 1 OFFSET ?
                 )`
             : "";
-    // Drop task/plan-state tools (todowrite) and trivially-small outputs (below
-    // the token floor) from the hint, since they are not worth a drop suggestion.
+    // Skip only trivially-small outputs; all registered tools use the same
+    // reclaim policy.
     // Unsized tags (both token columns NULL) pass the floor clause so a
     // not-yet-backfilled large output is never wrongly hidden.
-    const excludeStateTools = RECLAIM_HINT_EXCLUDED_LIST
-        ? `AND (tool_name IS NULL OR tool_name NOT IN (${RECLAIM_HINT_EXCLUDED_LIST}))`
-        : "";
     const valueFloor = `AND (
             (token_count IS NULL AND input_token_count IS NULL)
             OR (COALESCE(token_count, 0) + COALESCE(input_token_count, 0)) >= ?
@@ -268,7 +249,6 @@ export function getOldestActiveUnprotectedToolTags(
             `SELECT tag_number, tool_name
              FROM tags
              WHERE session_id = ? AND status = 'active' AND type = 'tool'
-             ${excludeStateTools}
              ${valueFloor}
              ${whereProtected}
              ORDER BY tag_number ASC, id ASC

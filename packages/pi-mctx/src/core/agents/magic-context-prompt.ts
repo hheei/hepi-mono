@@ -33,13 +33,12 @@ const PARTNER_FRAME_CLOSER_NO_REDUCE = `\nContext is managed for you entirely au
 /**
  * Shared `ctx_note` guidance for both intro variants. Generalizes two observed
  * misuse patterns: (1) taking a note for work that's only a few turns away — that
- * stays in active context, and active multi-step work belongs in todos; (2)
- * taking a note "because we're about to restart / come back to this later" —
+ * stays in active context; (2) taking a note "because we're about to restart /
  * Magic Context preserves full context across both compaction AND restarts, so a
  * restart never loses anything and is never a reason to note. A note is worth it
  * only for a genuinely future concern you'd otherwise lose track of across tasks.
  */
-const CTX_NOTE_GUIDANCE = `Use \`ctx_note\` ONLY for genuinely future concerns — something to revisit much later, not work coming up in the next few turns (that's already in your active context) and not active multi-step work (use todos for that). Magic Context preserves your full context across both compaction and restarts, so an upcoming restart or "let's come back to this later" is never a reason to take a note — nothing is lost either way. Notes you do take survive compression and resurface at natural work boundaries (after commits, historian runs, todo completion).`;
+const CTX_NOTE_GUIDANCE = `Use \`ctx_note\` ONLY for genuinely future concerns — something to revisit much later, not work coming up in the next few turns (that's already in your active context) and not active multi-step work. Magic Context preserves your full context across both compaction and restarts, so an upcoming restart or "let's come back to this later" is never a reason to take a note — nothing is lost either way. Notes you do take survive compression and resurface at natural work boundaries (after commits or historian runs).`;
 
 // Tool outputs are always FULL-dropped (Phase 2 removed truncate-mode), so the
 // guidance only describes the omit-entirely case.

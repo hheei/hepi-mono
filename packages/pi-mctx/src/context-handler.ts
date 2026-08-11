@@ -204,7 +204,6 @@ import {
 import { hasVisibleNoteReadCallPi } from "./note-visibility-pi";
 import { resolvePiUsableContextLimit } from "./pi-context-limit";
 import { type PiHistorianDeps, runPiHistorian } from "./pi-historian-runner";
-import { injectSyntheticTodowriteForPi } from "./pi-todo-inject";
 import {
 	convertEntriesToRawMessages,
 	findLastModelKeyFromBranch,
@@ -2927,58 +2926,6 @@ export function registerPiContextHandler(
 			}
 			logTransformTiming(sessionId, "autoSearch", tAutoSearch);
 
-			// Synthetic todowrite injection — Pi parity with legacy host's
-			// transform-postprocess-phase.ts B7. On cache-busting passes,
-			// inject a Pi-shape toolCall + toolResult pair built from the
-			// `session_meta.last_todo_state` snapshot captured by
-			// `tool_execution_start` in index.ts. On defer passes, replay
-			// the same pair from the persisted snapshot to keep wire bytes
-			// byte-identical (Anthropic prompt cache stability).
-			//
-			// Cache-busting gate parity: legacy host uses
-			// `isCacheBustingPass = shouldApplyPendingOps || shouldRunHeuristics`
-			// (transform-postprocess-phase.ts:273). Pi's `isCacheBusting`
-			// flag from the outer handler only covers history refresh
-			// (historian publication), so we OR it with
-			// `result.executedWorkThisPass` — pending-op materialization,
-			// heuristic cleanup, or reasoning clearing — to match
-			// legacy host's broader "execute pass that actually mutated state"
-			// semantics.
-			//
-			// Subagents skip — they don't get synthetic injection in
-			// legacy host either (see B7 `args.fullFeatureMode` gate).
-			const tTodoCapture = performance.now();
-			try {
-				const sessionMetaForTodo = getOrCreateSessionMeta(
-					options.db,
-					sessionId,
-				);
-				if (
-					!options.compactionOff &&
-					!sessionMetaForTodo.isSubagent &&
-					sessionMetaForTodo.lastTodoState !== ""
-				) {
-					const isCacheBustingForTodo =
-						isCacheBusting || result.executedWorkThisPass;
-					outputMessages = injectSyntheticTodowriteForPi({
-						db: options.db,
-						sessionId,
-						isSubagent: sessionMetaForTodo.isSubagent,
-						isCacheBusting: isCacheBustingForTodo,
-						lastTodoState: sessionMetaForTodo.lastTodoState,
-						messages: outputMessages as unknown as Parameters<
-							typeof injectSyntheticTodowriteForPi
-						>[0]["messages"],
-					}) as unknown as typeof outputMessages;
-				}
-			} catch (err) {
-				sessionLog(
-					sessionId,
-					`synthetic todowrite injection failed: ${err instanceof Error ? err.message : String(err)}`,
-				);
-			}
-			logTransformTiming(sessionId, "todoCapture", tTodoCapture);
-
 			// Channel 1 baseline snapshot + Channel 2 ceiling trigger. Mirrors
 			// legacy host's transform.ts end-of-pass block. Computed from the final
 			// `outputMessages` (already trimmed to the live tail), refreshing here
@@ -5048,7 +4995,7 @@ async function runPipeline(args: RunPipelineArgs): Promise<RunPipelineResult> {
 			watermark: reclaimMeta.toolReclaimWatermark ?? 0,
 			pendingOps,
 		});
-		// Smart-drops: also reclaim older todowrite/ctx_reduce/meta outputs that
+		// Smart-drops reclaim older ctx_reduce/meta outputs that
 		// a later call supersedes, and compress superseded edits to an
 		// edit_marker (keep filePath + region hint). Merged into the same
 		// already-gated drop apply as the age-based sweep above. Dedupe (a tag

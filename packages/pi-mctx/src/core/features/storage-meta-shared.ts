@@ -26,7 +26,6 @@ export interface SessionMetaRow {
     tool_call_tokens: number;
     cleared_reasoning_through_tag: number;
     tool_reclaim_watermark: number | null;
-    last_todo_state: string;
     cached_m0_bytes: Buffer | Uint8Array | null;
     cached_m0_mural_data_url: string | null;
     cached_m0_mural_hash: string | null;
@@ -84,7 +83,6 @@ export const SESSION_META_SELECT_COLUMNS = [
     "tool_call_tokens",
     "cleared_reasoning_through_tag",
     "tool_reclaim_watermark",
-    "last_todo_state",
     "cached_m0_bytes",
     "cached_m0_mural_data_url",
     "cached_m0_mural_hash",
@@ -141,7 +139,6 @@ export const META_COLUMNS: Record<string, string> = {
     toolCallTokens: "tool_call_tokens",
     clearedReasoningThroughTag: "cleared_reasoning_through_tag",
     toolReclaimWatermark: "tool_reclaim_watermark",
-    lastTodoState: "last_todo_state",
     cachedM0Bytes: "cached_m0_bytes",
     cachedM0MuralDataUrl: "cached_m0_mural_data_url",
     cachedM0MuralHash: "cached_m0_mural_hash",
@@ -266,7 +263,6 @@ export function isSessionMetaRow(row: unknown): row is SessionMetaRow {
         isNumberOrNull(r.conversation_tokens) &&
         isNumberOrNull(r.tool_call_tokens) &&
         isNumberOrNull(r.cleared_reasoning_through_tag) &&
-        isStringOrNull(r.last_todo_state) &&
         isBlobOrNull(r.cached_m0_bytes) &&
         isStringOrNull(r.cached_m0_mural_data_url) &&
         isStringOrNull(r.cached_m0_mural_hash) &&
@@ -325,7 +321,6 @@ export function getDefaultSessionMeta(sessionId: string): SessionMeta {
         toolCallTokens: 0,
         clearedReasoningThroughTag: 0,
         toolReclaimWatermark: 0,
-        lastTodoState: "",
         cachedM0Bytes: null,
         cachedM0MuralDataUrl: null,
         cachedM0MuralHash: null,
@@ -414,7 +409,6 @@ export function toSessionMeta(row: SessionMetaRow): SessionMeta {
     const cacheTtlRaw =
         typeof row.cache_ttl === "string" && row.cache_ttl.length > 0 ? row.cache_ttl : "5m";
     const systemPromptHashRaw = row.system_prompt_hash == null ? "" : row.system_prompt_hash;
-    const lastTodoStateRaw = typeof row.last_todo_state === "string" ? row.last_todo_state : "";
     // Defensive numeric fallbacks: when isSessionMetaRow accepts NULL for
     // INTEGER columns added via ensureColumn, the raw row may have `null`
     // here. Coerce to 0 so callers see a usable SessionMeta without having
@@ -445,7 +439,6 @@ export function toSessionMeta(row: SessionMetaRow): SessionMeta {
         toolCallTokens: numOrZero(row.tool_call_tokens),
         clearedReasoningThroughTag: numOrZero(row.cleared_reasoning_through_tag),
         toolReclaimWatermark: numOrZero(row.tool_reclaim_watermark),
-        lastTodoState: lastTodoStateRaw,
         cachedM0Bytes: toBufferOrNull(row.cached_m0_bytes),
         cachedM0MuralDataUrl: stringOrNull(row.cached_m0_mural_data_url),
         cachedM0MuralHash: stringOrNull(row.cached_m0_mural_hash),

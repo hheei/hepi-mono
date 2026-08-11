@@ -123,25 +123,6 @@ describe("storage-tags", () => {
             ]);
         });
 
-        it("#then never surfaces todowrite (task-state tool), even when it is the oldest", () => {
-            db = makeMemoryDatabase();
-            // todowrite is the oldest entry; without the todowrite exclusion it would be returned as the oldest reclaim hint.
-            insertTag(db, "ses-todo", "msg-1", "tool", 100, 1, 0, "todowrite", 0, null, null, {
-                tokenCount: 700,
-                inputTokenCount: 0,
-                reasoningTokenCount: 0,
-            });
-            insertTag(db, "ses-todo", "msg-2", "tool", 100, 2, 0, "bash", 0, null, null, {
-                tokenCount: 800,
-                inputTokenCount: 0,
-                reasoningTokenCount: 0,
-            });
-
-            const hints = getOldestActiveUnprotectedToolTags(db, "ses-todo", 0, 4);
-
-            expect(hints).toEqual([{ tagNumber: 2, toolName: "bash" }]);
-        });
-
         it("#then skips trivially-small sized outputs below the token floor", () => {
             db = makeMemoryDatabase();
             // tiny control-plane outputs (ctx_reduce/bash_status) below the floor

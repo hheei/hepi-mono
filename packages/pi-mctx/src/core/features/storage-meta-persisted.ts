@@ -44,16 +44,6 @@ interface PersistedNoteNudgeRow {
     note_nudge_sticky_message_id: string;
 }
 
-interface PersistedTodoSyntheticAnchorRow {
-    todo_synthetic_call_id: string;
-    todo_synthetic_anchor_message_id: string;
-    todo_synthetic_state_json: string;
-}
-
-interface PersistedTodoPermissionRow {
-    todo_permission_denied: number;
-}
-
 interface PersistedHistorianFailureRow {
     historian_failure_count: number;
     historian_last_error: string | null;
@@ -94,18 +84,6 @@ export type AppendAutoSearchHintOutcome =
     | { ok: true; kind: "appended"; decision: AutoSearchHintDecision }
     | { ok: true; kind: "already-present"; decision: AutoSearchHintDecision }
     | { ok: false; kind: "cas-exhausted" };
-
-export interface PersistedTodoSyntheticAnchor {
-    callId: string;
-    messageId: string;
-    /**
-     * Snapshot JSON of the todos as they existed at the moment we injected.
-     * Source of truth for defer-pass replay so the prefix bytes stay
-     * identical across T0-cache-bust → T1-defer even when a real
-     * `todowrite` mutates `last_todo_state` between T0 and T1.
-     */
-    stateJson: string;
-}
 
 export interface PersistedHistorianFailureState {
     failureCount: number;
@@ -248,16 +226,6 @@ function parseJsonArray<T>(
     } catch {
         return [];
     }
-}
-
-function isPersistedTodoSyntheticAnchorRow(row: unknown): row is PersistedTodoSyntheticAnchorRow {
-    if (row === null || typeof row !== "object") return false;
-    const r = row as Record<string, unknown>;
-    return (
-        typeof r.todo_synthetic_call_id === "string" &&
-        typeof r.todo_synthetic_anchor_message_id === "string" &&
-        typeof r.todo_synthetic_state_json === "string"
-    );
 }
 
 function isPersistedHistorianFailureRow(row: unknown): row is PersistedHistorianFailureRow {
@@ -1551,79 +1519,6 @@ export function removeAutoSearchHintDecisionByMessageId(
         { ensureRow: false },
     );
     return ok && removed;
-}
-
-export function getPersistedTodoPermissionDenied(db: Database, sessionId: string): boolean | null {
-    const row = db
-        .prepare("SELECT todo_permission_denied FROM session_meta WHERE session_id = ?")
-        .get(sessionId) as PersistedTodoPermissionRow | undefined;
-    if (row?.todo_permission_denied === 1) return true;
-    if (row?.todo_permission_denied === 0) return false;
-    return null;
-}
-
-export function setPersistedTodoPermissionDenied(
-    db: Database,
-    sessionId: string,
-    denied: boolean,
-): void {
-    ensureSessionMetaRow(db, sessionId);
-    db.prepare("UPDATE session_meta SET todo_permission_denied = ? WHERE session_id = ?").run(
-        denied ? 1 : 0,
-        sessionId,
-    );
-}
-
-export function getPersistedTodoSyntheticAnchor(
-    db: Database,
-    sessionId: string,
-): PersistedTodoSyntheticAnchor | null {
-    const result = db
-        .prepare(
-            "SELECT todo_synthetic_call_id, todo_synthetic_anchor_message_id, todo_synthetic_state_json FROM session_meta WHERE session_id = ?",
-        )
-        .get(sessionId);
-
-    if (!isPersistedTodoSyntheticAnchorRow(result)) {
-        return null;
-    }
-
-    if (
-        result.todo_synthetic_call_id.length === 0 ||
-        result.todo_synthetic_anchor_message_id.length === 0
-    ) {
-        return null;
-    }
-
-    return {
-        callId: result.todo_synthetic_call_id,
-        messageId: result.todo_synthetic_anchor_message_id,
-        // stateJson may be empty for rows persisted by the pre-Finding-#1
-        // version of this code path. Defer-pass replay falls back to skip
-        // when stateJson is empty, which is the same behavior as before.
-        stateJson: result.todo_synthetic_state_json,
-    };
-}
-
-export function setPersistedTodoSyntheticAnchor(
-    db: Database,
-    sessionId: string,
-    callId: string,
-    messageId: string,
-    stateJson: string,
-): void {
-    db.transaction(() => {
-        ensureSessionMetaRow(db, sessionId);
-        db.prepare(
-            "UPDATE session_meta SET todo_synthetic_call_id = ?, todo_synthetic_anchor_message_id = ?, todo_synthetic_state_json = ? WHERE session_id = ?",
-        ).run(callId, messageId, stateJson, sessionId);
-    })();
-}
-
-export function clearPersistedTodoSyntheticAnchor(db: Database, sessionId: string): void {
-    db.prepare(
-        "UPDATE session_meta SET todo_synthetic_call_id = '', todo_synthetic_anchor_message_id = '', todo_synthetic_state_json = '' WHERE session_id = ?",
-    ).run(sessionId);
 }
 
 /**

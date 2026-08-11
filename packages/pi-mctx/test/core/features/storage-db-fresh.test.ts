@@ -38,6 +38,13 @@ describe("fresh Magic Context database", () => {
         expect(tableNames.has("memories")).toBe(true);
         expect(tableNames.has("compartments")).toBe(true);
         expect(tableNames.has("v22_identity_rekey_map")).toBe(false);
+        const sessionMetaColumns = new Set(
+            (db.prepare("PRAGMA table_info(session_meta)").all() as Array<{ name: string }>).map(
+                (row) => row.name,
+            ),
+        );
+        expect(sessionMetaColumns.has("last_todo_state")).toBe(false);
+        expect(sessionMetaColumns.has("todo_anchor_message_id")).toBe(false);
     });
 
     test("requeues stale Channel-2 claims when reopening", () => {

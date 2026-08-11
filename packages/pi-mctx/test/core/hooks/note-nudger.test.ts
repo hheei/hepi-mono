@@ -165,7 +165,7 @@ describe("note-nudger", () => {
         // Agent ran ctx_note(read) — watermark advances past note activity.
         setNoteLastReadAt(db, "ses-read-dropped", note.updatedAt + 1000);
 
-        // A work-boundary trigger fires (commit/historian/todos).
+        // A work-boundary trigger fires.
         onNoteTrigger(db, "ses-read-dropped", "historian_complete");
         // Defer first peek (trigger-time message).
         expect(peekNoteNudgeText(db, "ses-read-dropped", "u-1", undefined, false)).toBeNull();

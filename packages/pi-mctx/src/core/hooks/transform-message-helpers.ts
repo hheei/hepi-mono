@@ -142,8 +142,8 @@ function hasToolPartWithCallId(message: MessageLike, callId: string): boolean {
 }
 
 function isReplayableAssistantAnchor(message: MessageLike): boolean {
-    // A compaction summary is rebuilt by marker reconciliation, so anchoring a
-    // synthetic todo part there would lose it when the summary is replaced.
+    // A compaction summary is rebuilt by marker reconciliation, so it cannot
+    // anchor a replayable synthetic part.
     if (message.info.summary === true) return false;
     return message.info.error === undefined || message.info.error === null;
 }

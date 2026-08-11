@@ -8,7 +8,6 @@ export interface ToolAvailabilityVerdict {
 export type CtxReduceAvailabilityVerdict = ToolAvailabilityVerdict;
 
 const CTX_REDUCE_TOOL = "ctx_reduce";
-const TODOWRITE_TOOL = "todowrite";
 let ctxReduceRegisteredGlobally = true;
 const availabilityBySession = new BoundedSessionMap<boolean>(1000);
 
@@ -80,17 +79,3 @@ export function clearCtxReduceAvailability(sessionId: string): void {
     clearToolAvailability(sessionId, CTX_REDUCE_TOOL);
 }
 
-export function resolveTodowriteAvailabilityFromMessages(
-    sessionId: string,
-    messages: ReadonlyArray<{ info?: { role?: string; tools?: unknown } }>,
-): ToolAvailabilityVerdict {
-    return resolveToolAvailabilityFromMessages(sessionId, TODOWRITE_TOOL, messages);
-}
-
-export function resolveTodowriteAvailability(sessionId: string): ToolAvailabilityVerdict {
-    return resolveToolAvailability(sessionId, TODOWRITE_TOOL);
-}
-
-export function clearTodowriteAvailability(sessionId: string): void {
-    clearToolAvailability(sessionId, TODOWRITE_TOOL);
-}

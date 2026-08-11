@@ -55,11 +55,7 @@ import {
 	resolveHistorianContextLimit,
 } from "#core/hooks/derive-budgets";
 import { resolveCacheTtl } from "#core/hooks/event-resolvers";
-import {
-	clearNoteNudgeTriggerAndCooldown,
-	onNoteTrigger,
-} from "#core/hooks/note-nudger";
-import { normalizeTodoStateJson } from "#core/hooks/todo-view";
+import { clearNoteNudgeTriggerAndCooldown } from "#core/hooks/note-nudger";
 import { maybeSendUpgradeReminder } from "#core/hooks/upgrade-reminder";
 import {
 	beginBootQuietPeriod,
@@ -153,13 +149,6 @@ import {
 } from "./system-prompt";
 import { withTimeout } from "./timeout";
 import { registerMagicContextTools } from "./tools";
-import {
-	parseTodos,
-	registerTodoOverlay,
-	registerTodoStateLifecycle,
-	rememberTodowriteToolCallTodos,
-	setTodoSnapshot,
-} from "./tools/todo-view-pi";
 
 const PREFIX = "[magic-context][pi]";
 
@@ -290,104 +279,6 @@ export function persistPiMessageEndModelMeta(args: {
 	}
 }
 
-type TodoOverlayUpdater = { update: (sessionId?: string) => void };
-
-type CompatiblePiTodoCapture = {
-	normalized: string;
-	todos: Exclude<ReturnType<typeof parseTodos>, null>;
-};
-
-function getCompatiblePiTodoCapture(
-	todos: unknown,
-): CompatiblePiTodoCapture | null {
-	if (!Array.isArray(todos)) return null;
-	const normalized = normalizeTodoStateJson(todos);
-	if (normalized === null) return null;
-	const parsed = parseTodos(todos);
-	if (parsed === null) return null;
-	return { normalized, todos: parsed };
-}
-
-function applyCompatiblePiTodoCapture(args: {
-	db: ContextDatabase;
-	sessionId: string;
-	todowriteEnabled: boolean;
-	todoOverlay?: TodoOverlayUpdater;
-	persist: boolean;
-	toolCallId?: string;
-	capture: CompatiblePiTodoCapture;
-}): void {
-	rememberTodowriteToolCallTodos(args.toolCallId, args.capture.todos);
-	if (args.todowriteEnabled) {
-		setTodoSnapshot(args.sessionId, args.capture.todos);
-		args.todoOverlay?.update(args.sessionId);
-	}
-	if (args.persist) {
-		updateSessionMeta(args.db, args.sessionId, {
-			lastTodoState: args.capture.normalized,
-		});
-	}
-}
-
-/**
- * Capture a `todowrite` args.todos payload only when it matches Magic Context's
- * exact todo enum contract. Third-party Pi extensions can reuse the same tool
- * name, so incompatible shapes must not update `last_todo_state` or the
- * transcript render cache.
- */
-export function capturePiTodowriteArgsIfCompatible(args: {
-	db: ContextDatabase;
-	sessionId: string;
-	todos: unknown;
-	todowriteEnabled: boolean;
-	todoOverlay?: TodoOverlayUpdater;
-	persist: boolean;
-	toolCallId?: string;
-}): boolean {
-	const capture = getCompatiblePiTodoCapture(args.todos);
-	if (capture === null) return false;
-	applyCompatiblePiTodoCapture({ ...args, capture });
-	return true;
-}
-
-/**
- * Scan an assistant `message_end` payload for the first compatible `todowrite`
- * call. This keeps interop with third-party tools that share the name but only
- * captures state when their payload matches Magic Context's todo enums exactly.
- */
-export function capturePiTodowriteMessageIfCompatible(args: {
-	db: ContextDatabase;
-	sessionId: string;
-	message: unknown;
-	todowriteEnabled: boolean;
-	todoOverlay?: TodoOverlayUpdater;
-	persist: boolean;
-}): boolean {
-	const msg = args.message as { role?: unknown; content?: unknown } | undefined;
-	if (msg?.role !== "assistant" || !Array.isArray(msg.content)) {
-		return false;
-	}
-
-	for (const block of msg.content) {
-		if (!block || typeof block !== "object") continue;
-		const b = block as {
-			type?: unknown;
-			name?: unknown;
-			arguments?: unknown;
-		};
-		if (b.type !== "toolCall") continue;
-		if (typeof b.name !== "string") continue;
-		if (b.name !== "todowrite") continue;
-		const capture = getCompatiblePiTodoCapture(
-			(b.arguments as { todos?: unknown } | null | undefined)?.todos,
-		);
-		if (capture === null) continue;
-		applyCompatiblePiTodoCapture({ ...args, capture });
-		return true;
-	}
-
-	return false;
-}
 
 function info(message: string, data?: unknown): void {
 	log(`${PREFIX} ${message}`, data);
@@ -986,19 +877,12 @@ async function startPiMagicContextRuntime(
 
 	const bootProjectDeps = buildProjectDeps(projectDir, projectIdentity, config);
 	projectDepsByDir.set(projectDir, bootProjectDeps);
-	const todowriteEnabled = bootProjectDeps.config.todowrite.enabled !== false;
-	const todowriteOverlayEnabled =
-		todowriteEnabled && bootProjectDeps.config.todowrite.overlay !== false;
 
 	// Register the agent-facing tools. Reuses the same business logic
 	// the legacy host plugin uses (insertMemory, unifiedSearch, addNote, …)
 	// via the shared cortexkit DB. Cross-harness memory sharing is automatic
 	// because both plugins resolve the same project identity for the same
 	// directory.
-	// Pi registers tools, commands, and widgets once at extension boot. Therefore
-	// `todowrite.enabled` follows the boot project's config: after `/cd` into a
-	// project with a different value, users need `/reload` or a Pi restart for the
-	// tool/command/overlay surface to change, matching Pi's registration lifecycle.
 	registerMagicContextTools(pi, {
 		db,
 		ensureProjectRegistered: ensureProjectRegisteredFromPiDirectory,
@@ -1029,17 +913,12 @@ async function startPiMagicContextRuntime(
 		dreamerEnabled: isDreamerRunnable(config),
 		resolveDreamerEnabled: (ctx) =>
 			resolveCurrentProjectDeps(ctx).dreamerEnabled,
-		todowriteEnabled,
 		compactionOff,
 	});
 	info(
 		compactionOff
-			? todowriteEnabled
-				? "registered tools: ctx_search, ctx_memory, ctx_note, ctx_expand, todowrite; registered /todos (ctx_reduce unavailable in compaction-off mode)"
-				: "registered tools: ctx_search, ctx_memory, ctx_note, ctx_expand (ctx_reduce unavailable in compaction-off mode; todowrite disabled)"
-			: todowriteEnabled
-				? "registered tools: ctx_search, ctx_memory, ctx_note, ctx_expand, todowrite, ctx_reduce; registered /todos"
-				: "registered tools: ctx_search, ctx_memory, ctx_note, ctx_expand, ctx_reduce (todowrite disabled)",
+			? "registered tools: ctx_search, ctx_memory, ctx_note, ctx_expand (ctx_reduce unavailable in compaction-off mode)"
+			: "registered tools: ctx_search, ctx_memory, ctx_note, ctx_expand, ctx_reduce",
 	);
 
 	pi.on("session_start", async (event, ctx) => {
@@ -1048,22 +927,6 @@ async function startPiMagicContextRuntime(
 			signalPendingMarker: signalPiDeferredCompactionMarkerDrain,
 		});
 	});
-
-	const readLastTodoState = (sessionId: string) =>
-		getOrCreateSessionMeta(db, sessionId).lastTodoState;
-	if (todowriteEnabled) {
-		registerTodoStateLifecycle(pi, { readLastTodoState });
-	}
-	const todoOverlay = todowriteOverlayEnabled
-		? registerTodoOverlay(pi, {
-				readLastTodoState,
-			})
-		: undefined;
-	info(
-		todowriteOverlayEnabled
-			? "registered todowrite overlay"
-			: "registered todowrite overlay: DISABLED (todowrite.enabled=false or todowrite.overlay=false)",
-	);
 
 	// Register the per-LLM-call transform pipeline. Tags eligible message
 	// parts via the shared Tagger and applies queued drops from
@@ -1719,84 +1582,13 @@ async function startPiMagicContextRuntime(
 		}
 	});
 
-	// Tool-execution-start hook: detect note-nudge triggers from
-	// agent tool usage. Mirrors legacy host's `tool.execute.after` hook in
-	// `hook-handlers.ts` (`createToolExecuteAfterHook`). We use Pi's
-	// `tool_execution_start` event because (a) it fires before the tool
-	// runs (so we can inspect args without waiting for output, matching
-	// legacy host's `tool.execute.before`/`after` that have full args
-	// available), and (b) `tool_execution_end` is fire-and-forget and
-	// could race with the next pipeline pass.
-	//
-	// What we wire:
-	//
-	//   - `todowrite` with all-terminal todos → `todos_complete` trigger.
-	//     The agent's `todos` arg is an array of {id, content, status}
-	//     items. Note nudges should fire only when EVERY item is in a
-	//     terminal state (`completed` or `cancelled`) — firing on every
-	//     todowrite is too eager since agents call it repeatedly during
-	//     work to mark intermediate progress.
-	//
-	//   - `ctx_note` (any action) → `clearNoteNudgeState(sessionId)`.
-	//     The agent already saw / acted on notes, so we kill any
-	//     pending sticky reminder for this session right away. Subagents
-	//     never deliver note nudges (gated upstream in postprocess),
-	//     so we still skip the trigger for them. Mirrors legacy host's
-	//     `if (typedInput.tool === "ctx_note") clearNoteNudgeState(...)`.
+	// Tool-execution-start only clears note-nudge state after ctx_note.
 	pi.on("tool_execution_start", async (event, ctx) => {
 		try {
+			if (event.toolName !== "ctx_note") return;
 			const sessionId = ctx.sessionManager.getSessionId();
-			if (event.toolName === "todowrite") {
-				const todoArgs = event.args as
-					| { todos?: Array<{ status?: string }> }
-					| undefined;
-				const toolCallId =
-					typeof (event as { toolCallId?: unknown }).toolCallId === "string"
-						? (event as { toolCallId: string }).toolCallId
-						: undefined;
-				const todos = todoArgs?.todos;
-				const sessionMeta = Array.isArray(todos)
-					? getOrCreateSessionMeta(db, sessionId)
-					: null;
-
-				// Synthetic-todowrite snapshot capture (Pi parity with
-				// legacy host hook-handlers.ts:386-401). Persist normalized
-				// state on EVERY todowrite call so the transform-time
-				// injection path in pi-pipeline.ts always has a current
-				// snapshot to replay on the next cache-busting pass.
-				// Render-safe: this only stores validated todos in shared
-				// session state and the local tool-call cache; it does not
-				// mutate Pi messages. Subagents skip — they do not get synthetic
-				// todowrite injection. Foreign Pi extensions can share the
-				// `todowrite` name, so only the exact Magic Context todo
-				// shape updates the stored snapshot.
-				capturePiTodowriteArgsIfCompatible({
-					db,
-					sessionId,
-					todos,
-					todowriteEnabled,
-					todoOverlay,
-					persist: Boolean(sessionMeta && !sessionMeta.isSubagent),
-					toolCallId,
-				});
-
-				if (
-					Array.isArray(todos) &&
-					todos.length > 0 &&
-					todos.every(
-						(t) => t.status === "completed" || t.status === "cancelled",
-					)
-				) {
-					if (!compactionOff && sessionMeta && !sessionMeta.isSubagent) {
-						onNoteTrigger(db, sessionId, "todos_complete");
-					}
-				}
-			} else if (event.toolName === "ctx_note") {
-				clearNoteNudgeTriggerAndCooldown(db, sessionId);
-			}
+			clearNoteNudgeTriggerAndCooldown(db, sessionId);
 		} catch (err) {
-			// tool-event hook is opportunistic; failure should not break
-			// the agent loop.
 			log(
 				`tool_execution_start hook failed (continuing): ${err instanceof Error ? err.message : String(err)}`,
 			);
@@ -1959,40 +1751,6 @@ async function startPiMagicContextRuntime(
 				},
 			});
 
-			// Synthetic-todowrite capture (Pi parity with legacy host
-			// hook-handlers.ts `tool.execute.after` for `todowrite`).
-			//
-			// Why message_end and not tool_execution_start:
-			//   Pi's `tool_execution_start` only fires for tools Pi has
-			//   actually executed (i.e. tools the agent registered).
-			//   The mocked todowrite in tests — and any user-driven
-			//   custom todowrite-shaped tool that isn't in Pi's registry
-			//   — would not trigger `tool_execution_start`. Reading the
-			//   assistant message at `message_end` catches every
-			//   todowrite-shaped `toolCall` block regardless of whether
-			//   Pi could execute it locally, matching what legacy host
-			//   captures via `tool.execute.after` on every visible tool
-			//   call.
-			//
-			// Cache safety: pure DB write, no message mutation.
-			// Subagents skip — they don't get synthetic todowrite
-			// injection downstream (mirrors legacy host `fullFeatureMode`
-			// gate).
-			try {
-				const sessionMetaForTodo = getOrCreateSessionMeta(db, sessionId);
-				if (!sessionMetaForTodo.isSubagent) {
-					capturePiTodowriteMessageIfCompatible({
-						db,
-						sessionId,
-						message: event.message,
-						todowriteEnabled,
-						todoOverlay,
-						persist: true,
-					});
-				}
-			} catch (err) {
-				warn("message_end: synthetic todowrite capture failed:", err);
-			}
 		} catch (err) {
 			warn("message_end: persist session_meta usage failed:", err);
 		}

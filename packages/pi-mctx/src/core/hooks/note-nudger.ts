@@ -2,12 +2,11 @@
  * Note nudge state machine.
  *
  * State: idle → (trigger fires + notes exist) → nudged → (any trigger fires again) → nudged → ...
- * Suppression: after a nudge fires, suppress until the NEXT trigger event (any of 3).
+ * Suppression: after a nudge fires, suppress until the next trigger event.
  *
  * Triggers:
  *   1. Post-historian completion — compartments just compressed history
  *   2. Post-commit detection — agent committed work, natural boundary
- *   3. Todos complete — agent finished planned work, receptive to deferred items
  *
  * The nudge itself is a short reminder folded into the existing nudge anchor.
  * It does NOT include note content — just a count and "use ctx_note read" hint.
@@ -29,7 +28,7 @@ import {
 import { sessionLog } from "../shared/logger";
 import type { Database } from "../shared/sqlite";
 
-export type NoteNudgeTrigger = "historian_complete" | "commit_detected" | "todos_complete";
+export type NoteNudgeTrigger = "historian_complete" | "commit_detected";
 
 const NOTE_NUDGE_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -46,7 +45,7 @@ export function recordNoteNudgeDeliveryTime(sessionId: string): void {
 }
 
 /**
- * Signal that a trigger event occurred. Call from hook layer when any of the 3 triggers fire.
+ * Signal that a trigger event occurred.
  */
 export function onNoteTrigger(db: Database, sessionId: string, trigger: NoteNudgeTrigger): void {
     setPersistedNoteNudgeTrigger(db, sessionId);
@@ -106,7 +105,7 @@ export function peekNoteNudgeText(
     }
 
     // Suppress if we delivered a nudge recently (within 15 minutes).
-    // Prevents the same notes from being re-surfaced on every commit/todo boundary
+    // Prevents the same notes from being re-surfaced on every work boundary
     // in quick succession during active work.
     // Check unconditionally — a new trigger clears sticky fields, so gating on
     // stickyText presence would let triggers bypass the cooldown window.
