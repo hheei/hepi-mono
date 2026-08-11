@@ -98,7 +98,7 @@ function headerFor(
 	if (tool.name === "bash" && command !== undefined) {
 		const timeout = typeof values.timeout === "number" ? values.timeout : undefined;
 		return {
-			primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${theme.fg("dim", collapsed ? (command.split("\n")[0] ?? command) : command)}`,
+			primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${collapsed ? theme.fg("dim", command.split("\n")[0] ?? command) : command}`,
 			...(timeout === undefined ? {} : { suffix: theme.fg("dim", ` (timeout ${timeout}s)`) }),
 			...(collapsed ? {} : { wrap: true }),
 		};
@@ -113,7 +113,7 @@ function headerFor(
 					: `:${offset}`
 				: `:${offset ?? 1}-${(offset ?? 1) + limit - 1}`;
 		return {
-			primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${path}${theme.fg("warning", range)}`,
+			primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${collapsed ? theme.fg("dim", path) : path}${theme.fg("warning", range)}`,
 		};
 	}
 	if (tool.name === "grep" && pattern !== undefined) {
@@ -220,7 +220,7 @@ class ToolFrameSection implements Component {
 			this.header === undefined
 				? []
 				: this.collapsed
-					? [collapsedHeader(this.header, availableWidth)]
+					? [collapsedHeader(this.header, availableWidth, this.theme)]
 					: this.header.wrap
 						? new Text(`${this.header.primary}${this.header.suffix ?? ""}`, 0, 0).render(
 								availableWidth,
@@ -246,11 +246,12 @@ class ToolFrameSection implements Component {
 	}
 }
 
-function collapsedHeader(header: FrameHeader, width: number): string {
-	if (header.suffix === undefined) return truncateToWidth(header.primary, width, ">");
+function collapsedHeader(header: FrameHeader, width: number, theme: Theme): string {
+	const truncation = theme.fg("dim", ">");
+	if (header.suffix === undefined) return truncateToWidth(header.primary, width, truncation);
 	const suffixWidth = visibleWidth(header.suffix);
-	if (suffixWidth >= width) return truncateToWidth(header.suffix, width, ">");
-	return `${truncateToWidth(header.primary, width - suffixWidth, ">")}${header.suffix}`;
+	if (suffixWidth >= width) return truncateToWidth(header.suffix, width, truncation);
+	return `${truncateToWidth(header.primary, width - suffixWidth, truncation)}${header.suffix}`;
 }
 
 function resultFallback(result: AgentToolResult<unknown>, theme: Theme): Component {
@@ -316,48 +317,29 @@ export function withToolFrame<TParams extends TSchema, TDetails, TState>(
 							...context,
 							lastComponent: undefined,
 						})
-					: (renderResult?.(
-							latest,
-							{ expanded: context.expanded, isPartial: true },
-							unboxedTheme(theme),
-							{
-								...context,
-								lastComponent: undefined,
-							},
-						) ?? resultFallback(latest, theme));
+					: undefined;
 			return new ToolFrameSection(body, theme, header);
 		},
 		renderResult(result, options, theme, context): Component {
 			const completion = completionFrom(result, trace.completionFor(context.toolCallId));
-			const isWarning = completion?.warning === true;
+			const restoredCompletion =
+				completion?.warning === true || warningResult?.(result) !== true
+					? completion
+					: { ...completion, warning: true };
+			trace.restore(context.toolCallId, result, restoredCompletion);
+			const isWarning = restoredCompletion?.warning === true;
 			const collapsed = trace.isCollapsed(
 				context.toolCallId,
 				context.expanded,
 				context.executionStarted,
 				context.invalidate,
 			);
-			const header = headerFor(
-				tool,
-				context.args,
-				theme,
-				context,
-				isWarning,
-				headerSummary?.(context.args, result),
-				collapsed,
-			);
 			if (collapsed) {
 				const summary =
 					context.isError && !isWarning
-						? defaultFooter(completion, true)
-						: (footer?.(result, completion) ?? defaultFooter(completion, false));
-				if (!context.isError && !isWarning) return new Text(theme.fg("dim", summary), 0, 0);
-				return new ToolFrameSection(
-					new Text(theme.fg("dim", summary), 0, 0),
-					theme,
-					header,
-					false,
-					true,
-				);
+						? defaultFooter(restoredCompletion, true)
+						: (footer?.(result, restoredCompletion) ?? defaultFooter(restoredCompletion, false));
+				return new Text(theme.fg("dim", summary), 0, 0);
 			}
 			const body =
 				renderResult?.(result, options, unboxedTheme(theme), {
