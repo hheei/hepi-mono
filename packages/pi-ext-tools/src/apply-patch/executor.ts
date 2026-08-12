@@ -37,6 +37,8 @@ import type { FuzzyApplyPatchPolicy } from "./policy.js";
 export interface ApplyPatchInWorkspaceOptions {
 	readonly workspaceRoot: string;
 	readonly patch: string;
+	/** A coordinator-validated parse tree; avoids parsing the same patch twice. */
+	readonly parsedPatch?: V4aPatch;
 	readonly policy: FuzzyApplyPatchPolicy;
 	readonly signal?: AbortSignal;
 	readonly onProgress?: (progress: ApplyPatchProgress) => void;
@@ -455,7 +457,7 @@ export async function applyPatchInWorkspace(
 	options: ApplyPatchInWorkspaceOptions,
 ): Promise<ApplyPatchInWorkspaceResult> {
 	options.signal?.throwIfAborted();
-	const patch = parseV4aPatch(options.patch);
+	const patch = options.parsedPatch ?? parseV4aPatch(options.patch);
 	const initial = initialRejections(patch);
 	const rejected = initial.rejected;
 	const rejectedIndices = initial.indices;

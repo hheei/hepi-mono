@@ -3,6 +3,7 @@ import {
 	compileV4aUpdateToUnifiedDiff,
 	findV4aPatchConflicts,
 	parseV4aPatch,
+	parseV4aPatchProgressively,
 	type V4aAddOperation,
 	type V4aPatchOperation,
 } from "../src/apply-patch/index.js";
@@ -34,6 +35,21 @@ describe("V4A patch parser", () => {
 			{ kind: "delete", path: "gone.txt" },
 		];
 		expect(patch.operations).toEqual(expected);
+	});
+
+	test("reports each complete operation before completing the patch", async (): Promise<void> => {
+		const reported: string[] = [];
+		const patch = await parseV4aPatchProgressively(
+			"*** Begin Patch\n" +
+				"*** Add File: first.txt\n+one\n" +
+				"*** Update File: second.txt\n-old\n+new\n" +
+				"*** End Patch",
+			async (operation, index) => {
+				reported.push(`${index}:${operation.kind}:${operation.path}`);
+			},
+		);
+		expect(reported).toEqual(["0:add:first.txt", "1:update:second.txt"]);
+		expect(patch.operations).toHaveLength(2);
 	});
 
 	test("rejects repeated envelope markers with actionable errors", () => {

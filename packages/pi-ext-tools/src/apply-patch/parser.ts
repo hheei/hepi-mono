@@ -68,12 +68,32 @@ const UPDATE = "*** Update File: ";
 const MOVE = "*** Move to: ";
 
 export function parseV4aPatch(input: string): V4aPatch {
+	return Object.freeze({ operations: Object.freeze([...parseV4aPatchOperations(input)]) });
+}
+
+/**
+ * Parses a V4A patch one complete operation at a time. Callers may present
+ * parsed operations before workspace validation or mutation begins.
+ */
+export async function parseV4aPatchProgressively(
+	input: string,
+	onOperation: (operation: V4aPatchOperation, index: number) => void | Promise<void>,
+): Promise<V4aPatch> {
+	const operations: V4aPatchOperation[] = [];
+	for (const operation of parseV4aPatchOperations(input)) {
+		operations.push(operation);
+		await onOperation(operation, operations.length - 1);
+	}
+	return Object.freeze({ operations: Object.freeze(operations) });
+}
+
+function* parseV4aPatchOperations(input: string): Generator<V4aPatchOperation> {
 	const lines = normalizeEnvelope(splitLines(input));
 	if (lines.length < 2 || lines[0]?.text !== BEGIN)
 		throw parseError("missing Begin Patch envelope");
 
 	let index = 1;
-	const operations: V4aPatchOperation[] = [];
+	let operationCount = 0;
 	let sawEnd = false;
 
 	while (index < lines.length) {
@@ -90,7 +110,8 @@ export function parseV4aPatch(input: string): V4aPatch {
 
 		if (header.kind === "add") {
 			const result = parseAdd(lines, index + 1, header.path);
-			operations.push(result.operation);
+			operationCount += 1;
+			yield result.operation;
 			index = result.nextIndex;
 			continue;
 		}
@@ -99,21 +120,21 @@ export function parseV4aPatch(input: string): V4aPatch {
 			const nextIndex = index + 1;
 			if (nextIndex < lines.length && !isHeaderOrEnd(lines[nextIndex]?.text ?? ""))
 				throw parseError("Delete actions cannot contain body lines");
-			operations.push(Object.freeze({ kind: "delete", path: header.path }));
+			operationCount += 1;
+			yield Object.freeze({ kind: "delete", path: header.path });
 			index = nextIndex;
 			continue;
 		}
 
 		const result = parseUpdate(lines, index + 1, header.path);
-		operations.push(result.operation);
+		operationCount += 1;
+		yield result.operation;
 		index = result.nextIndex;
 	}
 
 	if (!sawEnd) throw parseError("missing End Patch envelope");
 	if (index !== lines.length) throw parseError("content after End Patch envelope");
-	if (operations.length === 0) throw parseError("patch contains no actions");
-
-	return Object.freeze({ operations: Object.freeze(operations) });
+	if (operationCount === 0) throw parseError("patch contains no actions");
 }
 
 export function operationTouchedPaths(operation: V4aPatchOperation): readonly string[] {

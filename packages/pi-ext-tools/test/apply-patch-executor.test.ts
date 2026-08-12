@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { applyPatchInWorkspace } from "../src/apply-patch/executor.js";
+import { parseV4aPatch } from "../src/apply-patch/parser.js";
 import {
 	DEFAULT_FUZZY_APPLY_PATCH_POLICY,
 	type FuzzyApplyPatchPolicy,
@@ -42,6 +43,19 @@ afterEach(async (): Promise<void> => {
 });
 
 describe("staged apply-patch executor", () => {
+	test("accepts the coordinator's pre-parsed patch without reparsing", async () => {
+		const root = await temporaryDirectory();
+		const patch = "*** Begin Patch\n*** Add File: parsed.txt\n+parsed\n*** End Patch";
+		const result = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			patch,
+			parsedPatch: parseV4aPatch(patch),
+			policy: noFuzzy,
+		});
+		expect(result.changedPaths).toEqual(["parsed.txt"]);
+		expect(await load(root, "parsed.txt")).toBe("parsed\n");
+	});
+
 	test("applies add, update, delete, and move through staging", async () => {
 		const root = await temporaryDirectory();
 		await save(root, "src/update.txt", "one\ntwo\nthree\n");

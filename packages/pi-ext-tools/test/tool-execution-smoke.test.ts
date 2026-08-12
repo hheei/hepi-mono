@@ -122,6 +122,8 @@ describe("ToolExecutionComponent smoke", () => {
 		trace.update(callId, partial);
 		component.updateResult({ ...partial, isError: false }, true);
 		const partialText = stripTerminalSequences(component.render(100).join("\n"));
+		expect(partialText).toContain("apply_patch · 1 files");
+		expect(partialText).not.toContain("apply_patch · 1 files · +3 -2 lines");
 		expect(partialText).toContain("modify src/stream.ts +3 -2");
 		expect(outputOccurrences(component, "modify src/stream.ts +3 -2")).toBe(1);
 
@@ -135,6 +137,8 @@ describe("ToolExecutionComponent smoke", () => {
 		trace.complete(callId);
 		component.updateResult({ ...final, isError: false });
 		const finalText = stripTerminalSequences(component.render(100).join("\n"));
+		expect(finalText).toContain("apply_patch · 1 files");
+		expect(finalText).not.toContain("apply_patch · 1 files · +3 -2 lines");
 		expect(finalText).toContain("✓ modify src/stream.ts +3 -2");
 		expect(outputOccurrences(component, "modify src/stream.ts +3 -2")).toBe(1);
 	});

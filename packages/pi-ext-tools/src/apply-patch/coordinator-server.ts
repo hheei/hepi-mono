@@ -4,8 +4,17 @@ import { fileURLToPath } from "node:url";
 import { defaultPiSettingsPaths } from "@hheei/pi-ext-core";
 import { coordinatorSocketPath } from "./coordinator-client.js";
 import { applyPatchInWorkspace } from "./executor.js";
-import type { ApplyPatchInWorkspaceResult, ApplyPatchProgress } from "./outcome.js";
-import { parseV4aPatch } from "./parser.js";
+import type {
+	ApplyPatchInWorkspaceResult,
+	ApplyPatchOperationProgress,
+	ApplyPatchProgress,
+} from "./outcome.js";
+import {
+	operationTouchedPaths,
+	parseV4aPatchProgressively,
+	type V4aPatch,
+	type V4aPatchOperation,
+} from "./parser.js";
 import { type FuzzyApplyPatchPolicy, loadFuzzyApplyPatchPolicy } from "./policy.js";
 
 interface ApplyRequest {
@@ -16,6 +25,7 @@ interface ApplyRequest {
 }
 interface QueueItem {
 	readonly request: ApplyRequest;
+	readonly parsedPatch: V4aPatch;
 	readonly socket: Socket;
 	readonly abort: AbortController;
 	readonly locks: readonly string[];
@@ -63,6 +73,50 @@ function sendProgress(socket: Socket, id: string, progress: ApplyPatchProgress):
 		socket.write(
 			`${JSON.stringify({ type: "progress", id, progress } satisfies ProgressResponse)}\n`,
 		);
+}
+
+function parsedDelta(operation: V4aPatchOperation): {
+	readonly addedLines: number;
+	readonly removedLines: number;
+} {
+	if (operation.kind === "add")
+		return {
+			addedLines: operation.content.split(/\r\n|\n|\r/).filter(Boolean).length,
+			removedLines: 0,
+		};
+	if (operation.kind === "delete") return { addedLines: 0, removedLines: 0 };
+	return {
+		addedLines: operation.hunks.reduce(
+			(total, hunk) => total + hunk.lines.filter((line) => line.kind === "add").length,
+			0,
+		),
+		removedLines: operation.hunks.reduce(
+			(total, hunk) => total + hunk.lines.filter((line) => line.kind === "remove").length,
+			0,
+		),
+	};
+}
+
+async function parseAndReport(patch: string, socket: Socket, id: string): Promise<V4aPatch> {
+	const rows: ApplyPatchOperationProgress[] = [];
+	const paths = new Set<string>();
+	return await parseV4aPatchProgressively(patch, async (operation) => {
+		rows.push({
+			operationIndex: rows.length,
+			kind: operation.kind,
+			path: operation.kind === "update" ? (operation.moveTo ?? operation.path) : operation.path,
+			...parsedDelta(operation),
+			status: "pending",
+		});
+		for (const path of operationTouchedPaths(operation)) paths.add(path);
+		sendProgress(socket, id, {
+			files: paths.size,
+			addedLines: 0,
+			removedLines: 0,
+			operations: Object.freeze([...rows]),
+		});
+		await new Promise<void>((resolve) => setImmediate(resolve));
+	});
 }
 
 function isMissingPath(error: unknown): boolean {
@@ -137,46 +191,53 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 			if (newline < 0) return;
 			const line = data.slice(0, newline);
 			data = data.slice(newline + 1);
-			let value: unknown;
-			try {
-				value = JSON.parse(line);
-			} catch {
-				send(socket, { id: "", ok: false, error: "Invalid JSON request" });
-				return;
-			}
-			if (!isApplyRequest(value) || value.workspaceRoot !== workspaceRoot) {
-				send(socket, {
-					id: isApplyRequest(value) ? value.id : "",
-					ok: false,
-					error: "Invalid apply patch request",
-				});
-				return;
-			}
-			let locks: readonly string[];
-			try {
-				const parsed = parseV4aPatch(value.patch);
-				locks = [
-					...new Set(
-						parsed.operations.flatMap((op) =>
-							op.kind === "update" && op.moveTo !== undefined ? [op.path, op.moveTo] : [op.path],
-						),
-					),
-				].sort();
-			} catch (error) {
-				send(socket, { id: value.id, ok: false, error: errorText(error) });
-				return;
-			}
-			if (pending.length >= policy.maxQueueDepth) {
-				send(socket, { id: value.id, ok: false, error: "Apply patch coordinator queue is full" });
-				return;
-			}
-			const item: QueueItem = { request: value, socket, abort: new AbortController(), locks };
-			pending.push(item);
-			if (idleTimer !== undefined) {
-				clearTimeout(idleTimer);
-				idleTimer = undefined;
-			}
-			pump();
+			void (async (): Promise<void> => {
+				let value: unknown;
+				try {
+					value = JSON.parse(line);
+				} catch {
+					send(socket, { id: "", ok: false, error: "Invalid JSON request" });
+					return;
+				}
+				if (!isApplyRequest(value) || value.workspaceRoot !== workspaceRoot) {
+					send(socket, {
+						id: isApplyRequest(value) ? value.id : "",
+						ok: false,
+						error: "Invalid apply patch request",
+					});
+					return;
+				}
+				let parsed: V4aPatch;
+				let locks: readonly string[];
+				try {
+					parsed = await parseAndReport(value.patch, socket, value.id);
+					locks = [...new Set(parsed.operations.flatMap(operationTouchedPaths))].sort();
+				} catch (error) {
+					send(socket, { id: value.id, ok: false, error: errorText(error) });
+					return;
+				}
+				if (pending.length >= policy.maxQueueDepth) {
+					send(socket, {
+						id: value.id,
+						ok: false,
+						error: "Apply patch coordinator queue is full",
+					});
+					return;
+				}
+				const item: QueueItem = {
+					request: value,
+					parsedPatch: parsed,
+					socket,
+					abort: new AbortController(),
+					locks,
+				};
+				pending.push(item);
+				if (idleTimer !== undefined) {
+					clearTimeout(idleTimer);
+					idleTimer = undefined;
+				}
+				pump();
+			})();
 		});
 		socket.on("close", () => {
 			for (let index = pending.length - 1; index >= 0; index -= 1) {
@@ -205,6 +266,7 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 			void applyPatchInWorkspace({
 				workspaceRoot,
 				patch: item.request.patch,
+				parsedPatch: item.parsedPatch,
 				policy,
 				signal: item.abort.signal,
 				onProgress: (progress) => sendProgress(item.socket, item.request.id, progress),

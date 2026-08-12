@@ -23,6 +23,7 @@ export {
 	findV4aPatchConflicts,
 	operationTouchedPaths,
 	parseV4aPatch,
+	parseV4aPatchProgressively,
 	type V4aAddedLine,
 	type V4aAddOperation,
 	type V4aContextLine,

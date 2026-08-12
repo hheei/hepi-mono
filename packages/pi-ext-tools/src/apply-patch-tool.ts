@@ -197,7 +197,7 @@ export function applyPatchHeader(
 	if (!isApplyPatchToolDetails(details)) return undefined;
 	const progress = details.progress;
 	const files = progress?.files ?? details.changedPaths.length;
-	return `${files} files · +${details.addedLines} -${details.removedLines} lines`;
+	return `${files} files`;
 }
 
 export function createApplyPatchTool(): ToolDefinition<
