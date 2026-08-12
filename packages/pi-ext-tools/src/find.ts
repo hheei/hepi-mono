@@ -1,7 +1,6 @@
 import { createFindToolDefinition, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
-import { formatCandidateLines } from "./fff/fff.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import {
 	buildFffQuery,
@@ -11,13 +10,26 @@ import {
 } from "./fff/query.js";
 import { withToolFrame } from "./pretty/frame.js";
 import { ToolTraceController } from "./pretty/trace.js";
-import { renderFindCall, renderFindResult } from "./search-renderer.js";
+import {
+	type FindToolDetails,
+	findCollapsedFooter,
+	formatFindModelOutput,
+	renderFindResult,
+} from "./search-renderer.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 const ARTIFACT_PREFIX = "output:" + "//";
 const DEFAULT_LIMIT = 30;
 const cursorStore = new Map<string, { query: string; limit: number; pageIndex: number }>();
 let cursorSequence = 0;
+
+type FindParams = {
+	readonly pattern: string;
+	readonly path?: string;
+	readonly exclude?: string | string[];
+	readonly limit?: number;
+	readonly cursor?: string;
+};
 
 const schema = Type.Object({
 	pattern: Type.String({
@@ -45,13 +57,7 @@ function nextCursor(query: string, limit: number, pageIndex: number): string {
 	return cursor;
 }
 
-function nativeParams(params: {
-	pattern: string;
-	path?: string;
-	exclude?: string | string[];
-	limit?: number;
-	cursor?: string;
-}): { pattern: string; path?: string; limit?: number } {
+function nativeParams(params: FindParams): { pattern: string; path?: string; limit?: number } {
 	return {
 		pattern: params.path?.match(/[*?[{]/) ? params.path : nativeFallbackPattern(params.pattern),
 		...(params.path === undefined || params.path.match(/[*?[{]/) ? {} : { path: params.path }),
@@ -76,17 +82,10 @@ export function registerFindTool(
 			"find: use for paths, not content. Use grep for content. AVOID `find` or `fd` through the `bash` tool; use find.",
 		],
 		parameters: schema,
-		renderCall: renderFindCall,
 		renderResult: renderFindResult,
 		async execute(
 			id: string,
-			params: {
-				pattern: string;
-				path?: string;
-				exclude?: string | string[];
-				limit?: number;
-				cursor?: string;
-			},
+			params: FindParams,
 			signal: AbortSignal | undefined,
 			onUpdate: undefined,
 			context: { cwd: string },
@@ -94,6 +93,7 @@ export function registerFindTool(
 			if (signal?.aborted) throw new Error("Operation aborted");
 			if (params.path?.startsWith(ARTIFACT_PREFIX))
 				throw new Error("find cannot search output URLs");
+			const startedAt = performance.now();
 			const native = async () => {
 				const result = await createFindToolDefinition(context.cwd).execute(
 					id,
@@ -135,14 +135,32 @@ export function registerFindTool(
 			if (result.isErr()) {
 				return native();
 			}
-			const lines = formatCandidateLines(result.value.items, limit);
-			if (result.value.hasMore)
-				lines.push(`cursor: ${nextCursor(query, limit, result.value.pageIndex + 1)}`);
+			const details = {
+				format: "canonical-find",
+				candidates: result.value.items.map((candidate) => ({
+					path: candidate.item.relativePath,
+					...(candidate.score?.matchType === undefined
+						? {}
+						: { matchType: candidate.score.matchType }),
+				})),
+				totalMatched: result.value.totalMatched,
+				totalFiles: result.value.totalFiles,
+				durationMs: Math.round(performance.now() - startedAt),
+			} satisfies FindToolDetails;
+			const cursorLine = result.value.hasMore
+				? `cursor: ${nextCursor(query, limit, result.value.pageIndex + 1)}`
+				: undefined;
 			return {
 				content: [
-					{ type: "text" as const, text: lines.join("\n") || "No files found matching pattern" },
+					{
+						type: "text" as const,
+						text:
+							[formatFindModelOutput(details), cursorLine]
+								.filter((line): line is string => line !== undefined && line !== "")
+								.join("\n") || "No files found matching pattern",
+					},
 				],
-				details: undefined,
+				details,
 			};
 		},
 	};
@@ -157,6 +175,6 @@ export function registerFindTool(
 			conflictSets: [],
 			defaultActive: true,
 		},
-		withToolFrame(tool, trace),
+		withToolFrame(tool, trace, findCollapsedFooter),
 	);
 }

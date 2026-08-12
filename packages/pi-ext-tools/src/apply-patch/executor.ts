@@ -45,8 +45,9 @@ export interface ApplyPatchInWorkspaceOptions {
 }
 
 interface StageUpdateResult {
-	readonly mode: "exact" | "fuzzy";
+	readonly mode: "exact" | "fuzzy" | undefined;
 	readonly outcomes: readonly Extract<MpatchHunkOutcome, { readonly kind: "applied" }>[];
+	readonly rejected: readonly Exclude<MpatchHunkOutcome, { readonly kind: "applied" }>[];
 }
 
 class PatchUpdateError extends Error {
@@ -210,6 +211,20 @@ function appliedOutcomes(
 	);
 }
 
+function reindexAppliedOutcome(
+	outcome: Extract<MpatchHunkOutcome, { readonly kind: "applied" }>,
+	hunkIndex: number,
+): Extract<MpatchHunkOutcome, { readonly kind: "applied" }> {
+	return { ...outcome, hunkIndex };
+}
+
+function reindexRejectedOutcome(
+	outcome: Exclude<MpatchHunkOutcome, { readonly kind: "applied" }>,
+	hunkIndex: number,
+): Exclude<MpatchHunkOutcome, { readonly kind: "applied" }> {
+	return { ...outcome, hunkIndex };
+}
+
 async function checkedMpatch(
 	cwd: string,
 	operation: V4aUpdateOperation,
@@ -244,19 +259,51 @@ async function stageUpdate(
 	policy: FuzzyApplyPatchPolicy,
 	signal?: AbortSignal,
 ): Promise<StageUpdateResult> {
-	const exact = await checkedMpatch(stagingRoot, operation, 0, signal);
-	if (exact.applied) return { mode: "exact", outcomes: appliedOutcomes(exact.result.outcomes) };
-	if (policy.minSimilarity === 0)
-		throw new PatchUpdateError(
-			`Patch update failed exactly and fuzzy is disabled: ${operation.path}`,
-			rejectedOutcomes(exact.result.outcomes),
+	const outcomes: Extract<MpatchHunkOutcome, { readonly kind: "applied" }>[] = [];
+	const rejected: Exclude<MpatchHunkOutcome, { readonly kind: "applied" }>[] = [];
+	let mode: "exact" | "fuzzy" | undefined;
+	for (const [index, hunk] of operation.hunks.entries()) {
+		const hunkIndex = index + 1;
+		const atomicOperation: V4aUpdateOperation = {
+			kind: "update",
+			path: operation.path,
+			hunks: [hunk],
+		};
+		const exact = await checkedMpatch(stagingRoot, atomicOperation, 0, signal);
+		if (exact.applied) {
+			outcomes.push(
+				...appliedOutcomes(exact.result.outcomes).map((outcome) =>
+					reindexAppliedOutcome(outcome, hunkIndex),
+				),
+			);
+			mode ??= "exact";
+			continue;
+		}
+		if (policy.minSimilarity !== 0) {
+			const fuzzy = await checkedMpatch(stagingRoot, atomicOperation, policy.minSimilarity, signal);
+			if (fuzzy.applied) {
+				outcomes.push(
+					...appliedOutcomes(fuzzy.result.outcomes).map((outcome) =>
+						reindexAppliedOutcome(outcome, hunkIndex),
+					),
+				);
+				mode = "fuzzy";
+				continue;
+			}
+			rejected.push(
+				...rejectedOutcomes(fuzzy.result.outcomes).map((outcome) =>
+					reindexRejectedOutcome(outcome, hunkIndex),
+				),
+			);
+			continue;
+		}
+		rejected.push(
+			...rejectedOutcomes(exact.result.outcomes).map((outcome) =>
+				reindexRejectedOutcome(outcome, hunkIndex),
+			),
 		);
-	const fuzzy = await checkedMpatch(stagingRoot, operation, policy.minSimilarity, signal);
-	if (fuzzy.applied) return { mode: "fuzzy", outcomes: appliedOutcomes(fuzzy.result.outcomes) };
-	throw new PatchUpdateError(
-		`Patch update failed: ${operation.path}`,
-		rejectedOutcomes(fuzzy.result.outcomes),
-	);
+	}
+	return { mode, outcomes, rejected };
 }
 
 async function stageOperation(
@@ -277,7 +324,7 @@ async function stageOperation(
 		return undefined;
 	}
 	const result = await stageUpdate(stagingRoot, operation, policy, signal);
-	if (operation.moveTo !== undefined) {
+	if (operation.moveTo !== undefined && result.outcomes.length > 0) {
 		const source = stagingPath(stagingRoot, operation.path);
 		const target = stagingPath(stagingRoot, operation.moveTo);
 		await ensureParent(target);
@@ -309,6 +356,25 @@ function plannedDelta(
 			0,
 		),
 	};
+}
+
+function appliedDelta(
+	operation: V4aPatchOperation,
+	outcomes: readonly Extract<MpatchHunkOutcome, { readonly kind: "applied" }>[],
+): { readonly addedLines: number; readonly removedLines: number } {
+	if (operation.kind !== "update") return plannedDelta(operation, undefined);
+	return outcomes.reduce(
+		(total, outcome) => {
+			const hunk = operation.hunks[outcome.hunkIndex - 1];
+			if (hunk === undefined) return total;
+			return {
+				addedLines: total.addedLines + hunk.lines.filter((line) => line.kind === "add").length,
+				removedLines:
+					total.removedLines + hunk.lines.filter((line) => line.kind === "remove").length,
+			};
+		},
+		{ addedLines: 0, removedLines: 0 },
+	);
 }
 
 function progressScore(outcome: ApplyPatchAppliedOperation): number | undefined {
@@ -519,6 +585,21 @@ export async function applyPatchInWorkspace(
 			}),
 		);
 	};
+	const rejectUpdateHunks = (
+		index: number,
+		operation: V4aUpdateOperation,
+		diagnostics: readonly Exclude<MpatchHunkOutcome, { readonly kind: "applied" }>[],
+	): void => {
+		if (diagnostics.length === 0) return;
+		rejected.push(
+			Object.freeze({
+				operationIndices: Object.freeze([index]),
+				paths: Object.freeze([operation.moveTo ?? operation.path]),
+				error: "One or more update hunks failed",
+				diagnostics: Object.freeze([...diagnostics]),
+			}),
+		);
+	};
 	for (const [index, operation] of patch.operations.entries()) {
 		options.signal?.throwIfAborted();
 		if (rejectedIndices.has(index)) continue;
@@ -589,6 +670,18 @@ export async function applyPatchInWorkspace(
 					options.policy,
 					options.signal,
 				);
+				if (
+					operation.kind === "update" &&
+					stageResult !== undefined &&
+					stageResult.outcomes.length === 0
+				) {
+					rejectUpdateHunks(index, operation, stageResult.rejected);
+					await rm(stagingRoot, { recursive: true, force: true });
+					stagingRoot = undefined;
+					setProgressStatus(index, "rejected");
+					emitProgress();
+					continue;
+				}
 				for (const path of operationTouchedPaths(operation)) {
 					const state = states.get(path);
 					if (state === undefined) throw new Error(`Missing validated patch path: ${path}`);
@@ -598,6 +691,8 @@ export async function applyPatchInWorkspace(
 					operation.kind === "update" ? (operation.moveTo ?? operation.path) : operation.path;
 				const after = states.get(resultPath)?.content;
 				const outcome = operationOutcome(index, operation, stageResult, sourceBefore, after);
+				if (operation.kind === "update" && stageResult !== undefined)
+					rejectUpdateHunks(index, operation, stageResult.rejected);
 				const mode = stageResult?.mode;
 				if (mode === "exact") exactUpdateCount += 1;
 				if (mode === "fuzzy") fuzzyUpdateCount += 1;
@@ -639,6 +734,12 @@ export async function applyPatchInWorkspace(
 					await commitPath(stagingRoot, state, options.signal);
 				}
 				committed.push(outcome);
+				const current = progressOperations[index];
+				if (current === undefined) throw new Error(`Missing patch progress operation: ${index}`);
+				progressOperations[index] = Object.freeze({
+					...current,
+					...appliedDelta(operation, outcome.outcomes),
+				});
 				setProgressStatus(
 					index,
 					outcome.outcomes.some((hunk) => hunk.match === "fuzzy") ? "fuzzy" : "applied",

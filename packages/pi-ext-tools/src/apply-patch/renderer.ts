@@ -2,7 +2,7 @@ import { renderDiff, type Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Container, Text } from "@earendil-works/pi-tui";
 
 import type { ApplyPatchToolDetails } from "../apply-patch-tool.js";
-import type { ApplyPatchOperationProgress } from "./outcome.js";
+import type { ApplyPatchOperationProgress, MpatchHunkOutcome } from "./outcome.js";
 
 function duration(durationMs: number | undefined): string {
 	return `${((durationMs ?? 0) / 1_000).toFixed(2)}s`;
@@ -116,6 +116,26 @@ function snapshotDiff(path: string, before: readonly string[], after: readonly s
 	return `--- a/${path}\n+++ b/${path}\n@@ -1,${before.length} +1,${after.length} @@\n${before.map((line) => `-${line}`).join("\n")}\n${after.map((line) => `+${line}`).join("\n")}`;
 }
 
+function diagnosticText(
+	diagnostic: Exclude<MpatchHunkOutcome, { readonly kind: "applied" }>,
+): string {
+	switch (diagnostic.kind) {
+		case "context_not_found":
+			return "context not found";
+		case "ambiguous_exact":
+			return `exact context is ambiguous at lines ${diagnostic.candidateStartLines.join(", ")}`;
+		case "ambiguous_fuzzy":
+			return `fuzzy context is ambiguous at ${diagnostic.candidates
+				.map(
+					(candidate) =>
+						`lines ${candidate.startLine}-${candidate.startLine + candidate.length - 1}`,
+				)
+				.join(", ")}`;
+		case "fuzzy_below_threshold":
+			return `best fuzzy score ${diagnostic.best.score.toFixed(2)} < required ${diagnostic.threshold.toFixed(2)}`;
+	}
+}
+
 export function renderApplyPatchResult(
 	value: { readonly details?: unknown } | ApplyPatchToolDetails,
 	expanded: boolean,
@@ -138,8 +158,20 @@ export function renderApplyPatchResult(
 						0,
 					),
 				);
-		for (const rejected of details.rejected)
+		for (const rejected of details.rejected) {
 			container.addChild(new Text(theme.fg("error", rejected.error), 0, 0));
+			for (const diagnostic of rejected.diagnostics)
+				container.addChild(
+					new Text(
+						theme.fg(
+							"error",
+							`✗ ${rejected.paths[0] ?? "<unknown>"} · hunk ${diagnostic.hunkIndex} · ${diagnosticText(diagnostic)}`,
+						),
+						0,
+						0,
+					),
+				);
+		}
 	}
 	container.addChild(new FullWidthRule(theme));
 	container.addChild(new Text(theme.fg("dim", footer(details)), 0, 0));

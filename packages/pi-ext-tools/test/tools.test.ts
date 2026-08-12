@@ -370,6 +370,7 @@ describe("pi-ext-tools catalog", () => {
 						engine: "rg",
 						totalMatched: 1,
 						totalFiles: 1,
+						totalLines: 3,
 						durationMs: 3_700,
 						display: [
 							{ type: "text", text: "1 matches in 1 files" },
@@ -418,7 +419,7 @@ describe("pi-ext-tools catalog", () => {
 		expect(grepResult).toContain("<dim> 1│</dim>before");
 		expect(grepResult).toContain("<dim>13│</dim><dim><</dim><success>needle</success><dim>></dim>");
 		expect(grepResult).not.toContain("1 matches in 1 files");
-		expect(grepResult).toContain("<dim>1 matches · 1 files · 3.7s</dim>");
+		expect(grepResult).toContain("<dim>1 matches · 1 files · 3 lines · 3.7s</dim>");
 		const collapsedResult = grep.renderResult?.(
 			{
 				content: [{ type: "text", text: "overflow" }],
@@ -427,6 +428,7 @@ describe("pi-ext-tools catalog", () => {
 					engine: "rg",
 					totalMatched: 20,
 					totalFiles: 1,
+					totalLines: 20,
 					durationMs: 0,
 					display: Array.from({ length: 20 }, (_, index) => ({
 						type: "text" as const,
@@ -442,7 +444,7 @@ describe("pi-ext-tools catalog", () => {
 		const collapsed = collapsedResult.render(200);
 		expect(collapsed).toHaveLength(15);
 		expect(collapsed.at(-3)).toContain("... (9 more lines, expand to show)");
-		expect(collapsed.at(-1)).toContain("20 matches · 1 files · 0ms");
+		expect(collapsed.at(-1)).toContain("20 matches · 1 files · 20 lines · 0ms");
 		const findResult = find
 			.renderResult?.(
 				{ content: [{ type: "text", text: "1. one.ts (fff_fuzzy)" }], details: undefined },
@@ -453,7 +455,58 @@ describe("pi-ext-tools catalog", () => {
 			.render(200)
 			.join("\n")
 			.trimEnd();
-		expect(findResult).toContain("<success>FF</success> <dim>one.ts</dim>");
+		expect(findResult).toContain("1. one.ts (fff_fuzzy)");
+	});
+
+	test("renders structured FFF find results inside the shared tool frame", (): void => {
+		const host = harness();
+		registerTools(host.pi);
+		const theme = {
+			bg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
+			fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
+			bold: (text: string): string => `<b>${text}</b>`,
+		} as Theme;
+		const find = host.tools.find((candidate) => candidate.name === "find");
+		if (find === undefined) throw new Error("Missing find tool");
+		const header = find
+			.renderCall?.({ pattern: "needle", path: "src" }, theme, renderCallContext)
+			.render(120)
+			.join("\n")
+			.trimEnd();
+		expect(header).toBe(
+			"<warning>◐</warning> <toolTitle><b>find</b></toolTitle> <mdCode>/needle/</mdCode> in <dim>src</dim>",
+		);
+
+		const result = find
+			.renderResult?.(
+				{
+					content: [{ type: "text", text: "model-visible find output" }],
+					details: {
+						format: "canonical-find",
+						candidates: [
+							{ path: "src/a.ts", matchType: "fuzzy_filename" },
+							{ path: "src/b.ts", matchType: "fuzzy_filename" },
+							{ path: "docs/readme.md", matchType: "fuzzy_path" },
+						],
+						totalMatched: 30,
+						totalFiles: 30,
+						durationMs: 20,
+					},
+				},
+				{ isPartial: false, expanded: false },
+				theme,
+				renderContext,
+			)
+			.render(80)
+			.map((line) => line.trimEnd());
+		expect(result.filter((line) => line.includes("─"))).toHaveLength(2);
+		expect(result).toContain("fuzzy files:");
+		expect(result).toContain("<mdCode>src/</mdCode>");
+		expect(result).toContain("a.ts");
+		expect(result).toContain("fuzzy paths:");
+		expect(result).toContain("docs/readme.md");
+		expect(result).toContain("<dim>2 fuzzy files · 1 fuzzy paths · 7 lines · 20ms</dim>");
+		expect(result.join("\n")).not.toContain("model-visible find output");
 	});
 
 	test("executes read with the call context cwd instead of extension construction cwd", async (): Promise<void> => {
@@ -522,6 +575,38 @@ describe("pi-ext-tools catalog", () => {
 		});
 		expect(await readFile(join(cwd, "created.txt"), "utf8")).toBe("created\n");
 		await expect(readFile(join(cwd, "first.txt"), "utf8")).rejects.toThrow();
+	});
+
+	test("reports only rejected hunks after a partially applied update", async (): Promise<void> => {
+		const cwd = await temporaryDirectory();
+		await writeFile(join(cwd, "value.txt"), "one\ntwo\nthree\nfour\nfive\n", "utf8");
+		const host = harness();
+		registerTools(host.pi);
+		const applyPatch = host.tools.find((tool) => tool.name === "apply_patch");
+		if (applyPatch === undefined) throw new Error("apply_patch was not registered");
+
+		const result = await applyPatch.execute(
+			"apply-patch-partial-hunks",
+			{
+				patch:
+					"*** Begin Patch\n" +
+					"*** Update File: value.txt\n" +
+					"@@\n-one\n+ONE\n" +
+					"@@\n-missing\n+MISS\n" +
+					"@@\n-five\n+FIVE\n" +
+					"*** End Patch",
+			},
+			undefined,
+			undefined,
+			{ cwd } as ExtensionContext,
+		);
+
+		expect(result.details).toMatchObject({ status: "partial" });
+		expect(result.content).toContainEqual({
+			type: "text",
+			text: "Patch partially applied.\nChanged:\n- value.txt: update\nRejected:\n- operation 1, value.txt, hunk 2: best fuzzy score 0.00 < required 0.70\nRecovery: read value.txt, then retry only rejected hunks from operation 1.\nDo not retry applied hunks.",
+		});
+		expect(await readFile(join(cwd, "value.txt"), "utf8")).toBe("ONE\ntwo\nthree\nfour\nFIVE\n");
 	});
 
 	test("preserves upstream write and edit execution semantics", async (): Promise<void> => {

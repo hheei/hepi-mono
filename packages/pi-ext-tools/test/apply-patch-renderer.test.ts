@@ -147,6 +147,28 @@ describe("apply_patch progress renderer", () => {
 		expect(expanded).toContain("--- a/src/updated.ts");
 	});
 
+	test("shows expanded hunk diagnostics for a partially applied update", () => {
+		const partial: ApplyPatchToolDetails = {
+			...details,
+			rejected: [
+				{
+					operationIndices: [1],
+					paths: ["src/updated.ts"],
+					error: "One or more update hunks failed",
+					diagnostics: [{ kind: "context_not_found", hunkIndex: 2 }],
+				},
+			],
+		};
+		const collapsed = renderApplyPatchResult(partial, false, theme as never)
+			.render(200)
+			.join("\n");
+		const expanded = renderApplyPatchResult(partial, true, theme as never)
+			.render(200)
+			.join("\n");
+		expect(collapsed).not.toContain("hunk 2 · context not found");
+		expect(expanded).toContain("✗ src/updated.ts · hunk 2 · context not found");
+	});
+
 	test("uses progress rows while applying", () => {
 		const progress: ApplyPatchToolDetails = {
 			...details,

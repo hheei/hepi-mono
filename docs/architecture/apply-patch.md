@@ -6,7 +6,7 @@
 
 `apply_patch` 必须把一次 V4A request 的实际结果，而不是请求 patch 或 renderer-local state，同时交给模型、TUI、Trace collapse 和 session resume。
 
-- 合规 operation 独立提交；一个 rejection 不回滚其他已提交 operation。
+- 合规 operation 独立提交；一个 rejection 不回滚其他已提交 operation。同一 `Update File` 的 hunks 也独立：按 V4A 顺序在同一个 file staging copy 上执行，失败 hunk 不回滚已成功 hunk，也不阻止后续 hunk。多个没有 `Move to` 的 `Update File` 可以按 patch 顺序作用于同一文件；后一个 operation 读取前一个 operation 的 staging state。`Add`、`Delete` 或移动与同路径混合仍是预检冲突。
 - 任何 partial 或 failed request 对 Pi host 标记为 error；模型内容必须明确哪些 operation 已提交、哪些可重试。
 - V4A 不包含可信源行号。重复上下文不得因伪造 unified-diff line hint 而静默选择文件中最早位置。
 - 完成后的 TUI 只读取实际结果。展开的 diff 是提交当时的稳定 hunk snapshot，不重读可能已变化的 workspace。
@@ -14,7 +14,7 @@
 ```text
 V4A patch
   -> parser + path validation
-  -> staging exact/fuzzy mpatch attempt
+  -> per-hunk staging exact/fuzzy mpatch attempt
   -> per-hunk diagnostics
   -> baseline revalidation + commit
   -> Patch Outcome
@@ -66,7 +66,7 @@ type MpatchHunkOutcome =
 
 ## Patch Outcome
 
-一次 V4A operation 产生一个 Patch Outcome。它是唯一的结果事实源：
+一次 V4A operation 产生一个 Patch Outcome。`Update File` 的每个 hunk 是顺序原子子操作；它们共享一个 staging copy，且所有成功 hunk 最终只通过一次文件替换提交。它是唯一的结果事实源：
 
 ```ts
 type PatchOutcome = {
@@ -77,8 +77,8 @@ type PatchOutcome = {
 };
 ```
 
-- `applied` 保存 operation index、动作、实际 changed path、每个 hunk 的 native match outcome，以及提交时的 before/after changed-hunk snapshot。
-- `rejected` 保存 operation index、目标 path、稳定的 non-native rejection reason，和导致最终拒绝的最后一次 dry-run 或 apply diagnostics。
+- `applied` 保存 operation index、动作、实际 changed path、每个已提交 hunk 的 native match outcome，以及提交时的 before/after changed-hunk snapshot。一个 update 即使另一个 hunk 被拒绝，仍可存在于 `applied`。
+- `rejected` 保存 operation index、目标 path、稳定的 non-native rejection reason，和每个失败 hunk 的最后一次 dry-run 或 apply diagnostics。失败 hunk 不撤销同 update 中已成功的 hunk。
 - `changedPaths` 仅来自实际 commit，不从 request 推导。
 普通 exact 成功不向模型逐 hunk 展开。fuzzy 成功向模型报告 path、hunk、实际 line range 和 score；exact-ignoring-whitespace 作为普通成功隐藏。fuzzy 成功不强制额外 `read`，但其事实仍可在 details/TUI 中审计。
 
@@ -111,15 +111,15 @@ Rejected:
 - operation 2, src/routes.ts, hunk 1:
   exact context is ambiguous at lines 18, 47
 
-Recovery: read src/routes.ts around lines 18 and 47, then retry only operation 2.
-Do not retry applied operations.
+Recovery: read src/routes.ts around lines 18 and 47, then retry only the rejected hunks from operation 2.
+Do not retry applied hunks.
 ```
 
-`context_not_found` 的 recovery 是读目标 path 后只重试 rejected operation。`fuzzy_below_threshold` 总会给 score 与 threshold，只有 score 严格高于 `threshold * 0.7` 才给最佳 candidate line range；ambiguous fuzzy 的候选共享一个已达 threshold 的 top score。模型内容每个 ambiguity 最多显示 6 个 candidates，并标示总数；完整 facts 仍在 details，不能因 TUI collapse 丢失。
+`context_not_found` 的 recovery 是读目标 path 后只重试 rejected hunk；没有 hunk diagnostics 的路径/解析 rejection 才重试 rejected operation。`fuzzy_below_threshold` 总会给 score 与 threshold，只有 score 严格高于 `threshold * 0.7` 才给最佳 candidate line range；ambiguous fuzzy 的候选共享一个已达 threshold 的 top score。模型内容每个 ambiguity 最多显示 6 个 candidates，并标示总数；完整 facts 仍在 details，不能因 TUI collapse 丢失。
 
 ## TUI
 
-执行中，coordinator 在 preflight 后发送 typed Patch Progress，之后每个 commit/rejection 发送下一份全量 snapshot。live state 只属于当前 Trace：`○` 是尚未 commit，`✓` 是 exact/whitespace commit，`!` 是 fuzzy commit（dim score），`✗` 是 rejection。header 的 `+/-` 只累计已 commit operation；row 同时显示 planned delta。final `Patch Outcome` 替代 live state，resume 不恢复 `○` rows。
+执行中，coordinator 在解析完每个完整 V4A operation 后发送 typed Patch Progress，之后每个 operation commit/rejection 发送下一份全量 snapshot。live state 只属于当前 Trace：`○` 是尚未 commit，`✓` 是 exact/whitespace commit，`!` 是 fuzzy commit（dim score），`✗` 是 rejection。一个 update 的成功 hunk 与失败 hunk 共同归属该 operation；展开结果以 hunk index 显示失败诊断。header 的 `+/-` 只累计已 commit operation；row 同时显示 planned delta。final `Patch Outcome` 替代 live state，resume 不恢复 `○` rows。
 
 Call 阶段使用 shared frame header。完成阶段不得使用 module-global renderer map、请求 patch 或当前 workspace 推断结果。
 

@@ -112,6 +112,7 @@ export type GrepToolDetails = {
 	readonly display: readonly GrepDisplayLine[];
 	readonly totalMatched: number;
 	readonly totalFiles: number;
+	readonly totalLines: number;
 	readonly durationMs: number;
 	readonly cap: {
 		readonly rows: number;
@@ -666,6 +667,7 @@ export function registerGrepTool(
 					display,
 					totalMatched: canonical.totalMatched,
 					totalFiles: new Set(canonical.events.map((event) => event.path)).size,
+					totalLines: canonical.events.length,
 					durationMs: Math.round(performance.now() - startedAt),
 					cap: canonical.cap,
 					recovery: { output: recoveryOutput },
