@@ -68,6 +68,7 @@ export interface Channel1State {
 export const TOKENS_PER_BYTE = 0.25;
 
 export const CHANNEL1_FLOOR_TOKENS = 10_000;
+export const CHANNEL1_MIN_TURNS_BETWEEN_NUDGES = 3;
 export const CHANNEL1_REFIRE_FLOOR_TOKENS = 10_000;
 
 export function channel1RefireTokens(workingWindowTokens: number): number {

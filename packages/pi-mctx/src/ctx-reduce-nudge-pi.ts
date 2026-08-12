@@ -13,6 +13,7 @@ import {
 	setLastNudgeUndropped,
 } from "#core/features/storage";
 import {
+	CHANNEL1_MIN_TURNS_BETWEEN_NUDGES,
 	buildChannel1Reminder,
 	buildChannel2Reminder,
 	type Channel1State,
@@ -68,6 +69,21 @@ function sealDeliveredAfterUnconfirmedSend(
 // pass (post-drop), read in the `tool_result` handler. Primary-only: subagents
 
 const channel1StateBySession = new Map<string, Channel1State>();
+const channel1TurnsSinceNudge = new Map<string, number>();
+
+export function advancePiChannel1Turn(sessionId: string): void {
+	const turns = channel1TurnsSinceNudge.get(sessionId);
+	if (turns === undefined) return;
+	channel1TurnsSinceNudge.set(
+		sessionId,
+		Math.min(CHANNEL1_MIN_TURNS_BETWEEN_NUDGES, turns + 1),
+	);
+}
+
+function canDeliverPiChannel1Reminder(sessionId: string): boolean {
+	const turns = channel1TurnsSinceNudge.get(sessionId);
+	return turns === undefined || turns >= CHANNEL1_MIN_TURNS_BETWEEN_NUDGES;
+}
 
 export function setPiChannel1Baseline(
 	sessionId: string,
@@ -84,6 +100,7 @@ export function getPiChannel1Baseline(
 
 export function clearPiChannel1State(sessionId: string): void {
 	channel1StateBySession.delete(sessionId);
+	channel1TurnsSinceNudge.delete(sessionId);
 }
 
 /** Mark that the agent ran ctx_reduce since the last baseline refresh (suppress self-nag). */
@@ -216,6 +233,7 @@ export function maybeChannel1ReminderForToolResult(args: {
 	const { db, sessionId, toolName } = args;
 	const state = channel1StateBySession.get(sessionId);
 	if (!state) return null; // primary-only: no baseline ⇒ subagent ⇒ off
+	if (!canDeliverPiChannel1Reminder(sessionId)) return null;
 
 	if (toolName === "ctx_reduce") {
 		state.reducedSinceRefresh = true;
@@ -276,6 +294,7 @@ export function markChannel1ReminderDelivered(
 	sessionId: string,
 	reminder: Pick<Channel1Reminder, "nextLastNudge" | "nextLastNudgeLevel">,
 ): void {
+	channel1TurnsSinceNudge.set(sessionId, 0);
 	setLastNudgeUndropped(db, sessionId, reminder.nextLastNudge);
 	setLastNudgeLevel(db, sessionId, reminder.nextLastNudgeLevel);
 }

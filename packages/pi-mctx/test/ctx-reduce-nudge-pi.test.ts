@@ -9,6 +9,7 @@ import {
 } from "#core/features/storage";
 import * as loggerModule from "#core/shared/logger";
 import {
+	advancePiChannel1Turn,
 	CHANNEL2_NUDGE_CUSTOM_TYPE,
 	clearPiChannel1State,
 	computeTailTokenEstimatePi,
@@ -170,6 +171,7 @@ describe("maybeChannel1ReminderForToolResult", () => {
 		expect(firm?.nextLastNudgeLevel).toBe("firm");
 		expect(firm?.display).toBe(false);
 		if (firm) markChannel1ReminderDelivered(db, SESSION, firm);
+		for (let turn = 0; turn < 3; turn += 1) advancePiChannel1Turn(SESSION);
 
 		const urgent = maybeChannel1ReminderForToolResult({
 			db,
@@ -179,6 +181,41 @@ describe("maybeChannel1ReminderForToolResult", () => {
 		});
 		expect(urgent?.nextLastNudgeLevel).toBe("urgent");
 		expect(urgent?.display).toBe(true);
+		clearPiChannel1State(SESSION);
+	});
+
+	it("waits three completed assistant turns before another reminder", () => {
+		const db = createTestDb();
+		seedBaseline(90_000);
+		const first = maybeChannel1ReminderForToolResult({
+			db,
+			sessionId: SESSION,
+			toolName: "bash",
+			content: [{ type: "text", text: "out" }],
+		});
+		if (first) markChannel1ReminderDelivered(db, SESSION, first);
+
+		for (let turn = 0; turn < 2; turn += 1) {
+			advancePiChannel1Turn(SESSION);
+			expect(
+				maybeChannel1ReminderForToolResult({
+					db,
+					sessionId: SESSION,
+					toolName: "bash",
+					content: [{ type: "text", text: "x".repeat(160_000) }],
+				}),
+			).toBeNull();
+		}
+
+		advancePiChannel1Turn(SESSION);
+		expect(
+			maybeChannel1ReminderForToolResult({
+				db,
+				sessionId: SESSION,
+				toolName: "bash",
+				content: [{ type: "text", text: "x".repeat(160_000) }],
+			}),
+		).not.toBeNull();
 		clearPiChannel1State(SESSION);
 	});
 
