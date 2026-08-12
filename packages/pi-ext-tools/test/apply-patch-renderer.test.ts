@@ -169,6 +169,29 @@ describe("apply_patch progress renderer", () => {
 		expect(expanded).toContain("✗ src/updated.ts · hunk 2 · context not found");
 	});
 
+	test("marks partially applied updates with their hunk count and reason", () => {
+		const partial: ApplyPatchToolDetails = {
+			...details,
+			operations: [
+				{
+					operationIndex: 0,
+					kind: "update",
+					path: "src/value.ts",
+					addedLines: 2,
+					removedLines: 2,
+					status: "partial",
+					appliedHunks: 2,
+					totalHunks: 3,
+					partialReason: "context not found",
+				},
+			],
+		};
+		const text = renderApplyPatchResult(partial, false, theme as never)
+			.render(200)
+			.join("\n");
+		expect(text).toContain("! modify src/value.ts +2 -2 (2/3 hunks applied; context not found)");
+	});
+
 	test("uses progress rows while applying", () => {
 		const progress: ApplyPatchToolDetails = {
 			...details,

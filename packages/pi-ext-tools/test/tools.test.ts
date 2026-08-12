@@ -41,23 +41,35 @@ function harness(): { readonly pi: ExtensionAPI; readonly tools: ToolDefinition[
 }
 
 describe("pi-ext-tools catalog", () => {
-	test("registers each approved name exactly once through managed Loadout ownership", (): void => {
+	test("registers the apply_patch editing catalog by default through managed Loadout ownership", (): void => {
 		const host = harness();
 		registerTools(host.pi);
 		const names = host.tools.map((tool) => tool.name);
-		expect(names).toEqual([
-			"read",
-			"grep",
-			"find",
-			"edit",
-			"write",
-			"bash",
-			"bash_job",
-			"apply_patch",
-		]);
+		expect(names).toEqual(["read", "grep", "find", "bash", "bash_job", "apply_patch"]);
 		expect(names.filter((name) => name === "apply_patch")).toHaveLength(1);
 		expect(host.tools.every((tool) => tool.renderShell === "self")).toBe(true);
 		expect(() => registerTools(host.pi)).toThrow("Loadout tool id already registered: read");
+	});
+
+	test("registers exactly the editing tools selected by Edit Mode", (): void => {
+		const native = harness();
+		registerTools(native.pi, undefined, undefined, "native");
+		expect(native.tools.map((tool) => tool.name)).toContain("edit");
+		expect(native.tools.map((tool) => tool.name)).toContain("write");
+		expect(native.tools.map((tool) => tool.name)).not.toContain("apply_patch");
+
+		const none = harness();
+		registerTools(none.pi, undefined, undefined, "none");
+		expect(none.tools.map((tool) => tool.name)).not.toContain("edit");
+		expect(none.tools.map((tool) => tool.name)).not.toContain("write");
+		expect(none.tools.map((tool) => tool.name)).not.toContain("apply_patch");
+		expect(none.tools.map((tool) => tool.name)).toEqual([
+			"read",
+			"grep",
+			"find",
+			"bash",
+			"bash_job",
+		]);
 	});
 
 	test("renders a bounded, numbered read preview without changing model content", (): void => {
@@ -271,7 +283,7 @@ describe("pi-ext-tools catalog", () => {
 		expect(properties(find)).toEqual(["pattern", "path", "exclude", "limit", "cursor"]);
 	});
 
-	test("registers Built-in provenance and bidirectional mutator locks", (): void => {
+	test("registers Built-in provenance for the selected mutator catalog", (): void => {
 		const host = harness();
 		const controller = new AbortController();
 		let inventory: readonly {
@@ -291,17 +303,37 @@ describe("pi-ext-tools catalog", () => {
 		expect(inventory.find((tool) => tool.id === "apply_patch")).toMatchObject({
 			group: "Built-in",
 			origin: "@hheei/pi-ext-tools",
-			conflictsWith: ["edit", "write"],
 		});
+		expect(inventory.find((tool) => tool.id === "edit")).toBeUndefined();
+		expect(inventory.find((tool) => tool.id === "write")).toBeUndefined();
+		expect(inventory.every((tool) => tool.group === "Built-in")).toBe(true);
+		controller.abort();
+	});
+
+	test("registers native edit and write with Built-in provenance", (): void => {
+		const host = harness();
+		const controller = new AbortController();
+		let inventory: readonly {
+			readonly id: string;
+			readonly group: string;
+			readonly origin?: string;
+		}[] = [];
+		observeLoadoutInventory(host.pi, {
+			signal: controller.signal,
+			onChange(items) {
+				inventory = items;
+			},
+		});
+
+		registerTools(host.pi, undefined, undefined, "native");
+		expect(inventory.find((tool) => tool.id === "apply_patch")).toBeUndefined();
 		expect(inventory.find((tool) => tool.id === "edit")).toMatchObject({
 			group: "Built-in",
 			origin: "@hheei/pi-ext-tools",
-			conflictsWith: ["apply_patch"],
 		});
 		expect(inventory.find((tool) => tool.id === "write")).toMatchObject({
 			group: "Built-in",
 			origin: "@hheei/pi-ext-tools",
-			conflictsWith: ["apply_patch"],
 		});
 		expect(inventory.every((tool) => tool.group === "Built-in")).toBe(true);
 		controller.abort();
@@ -333,7 +365,7 @@ describe("pi-ext-tools catalog", () => {
 
 	test("keeps upstream renderer contracts intact", (): void => {
 		const host = harness();
-		registerTools(host.pi);
+		registerTools(host.pi, undefined, undefined, "native");
 		for (const name of ["read", "grep", "find", "edit", "write", "bash"] as const) {
 			const tool = host.tools.find((candidate) => candidate.name === name);
 			if (tool === undefined) throw new Error(`Missing ${name} tool`);
@@ -612,7 +644,7 @@ describe("pi-ext-tools catalog", () => {
 	test("preserves upstream write and edit execution semantics", async (): Promise<void> => {
 		const cwd = await temporaryDirectory();
 		const host = harness();
-		registerTools(host.pi);
+		registerTools(host.pi, undefined, undefined, "native");
 		const context = {
 			cwd,
 			sessionManager: {

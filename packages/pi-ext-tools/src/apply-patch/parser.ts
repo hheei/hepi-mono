@@ -53,6 +53,7 @@ export interface V4aPatchConflict {
 interface SourceLine {
 	readonly text: string;
 	readonly newline: string;
+	readonly number: number;
 }
 
 interface ParsedHeader {
@@ -66,6 +67,13 @@ const ADD = "*** Add File: ";
 const DELETE = "*** Delete File: ";
 const UPDATE = "*** Update File: ";
 const MOVE = "*** Move to: ";
+
+export const MAX_V4A_PATCH_BYTES = 1_048_576;
+export const MAX_V4A_OPERATIONS = 128;
+export const MAX_V4A_HUNKS_PER_UPDATE = 128;
+export const MAX_V4A_HUNK_LINES = 4_096;
+export const MAX_V4A_PATH_BYTES = 4_096;
+export const MAX_V4A_PATH_SEGMENT_BYTES = 255;
 
 export function parseV4aPatch(input: string): V4aPatch {
 	return Object.freeze({ operations: Object.freeze([...parseV4aPatchOperations(input)]) });
@@ -88,9 +96,11 @@ export async function parseV4aPatchProgressively(
 }
 
 function* parseV4aPatchOperations(input: string): Generator<V4aPatchOperation> {
+	if (Buffer.byteLength(input, "utf8") > MAX_V4A_PATCH_BYTES)
+		throw parseError(`patch exceeds ${MAX_V4A_PATCH_BYTES} byte limit`);
 	const lines = normalizeEnvelope(splitLines(input));
 	if (lines.length < 2 || lines[0]?.text !== BEGIN)
-		throw parseError("missing Begin Patch envelope");
+		throw parseError("missing Begin Patch envelope", lines[0]?.number ?? 1);
 
 	let index = 1;
 	let operationCount = 0;
@@ -98,15 +108,18 @@ function* parseV4aPatchOperations(input: string): Generator<V4aPatchOperation> {
 
 	while (index < lines.length) {
 		const current = lines[index];
-		if (current === undefined) throw parseError("unexpected end of patch");
+		if (current === undefined) throw parseError("unexpected end of patch", lines.at(-1)?.number);
 		if (current.text === END) {
 			sawEnd = true;
 			index += 1;
 			break;
 		}
+		if (operationCount >= MAX_V4A_OPERATIONS)
+			throw parseError(`patch exceeds ${MAX_V4A_OPERATIONS} operation limit`, current.number);
 		const header = parseHeader(current.text);
-		if (header === undefined) throw parseError(`unknown patch header: ${current.text}`);
-		assertPatchPath(header.path);
+		if (header === undefined)
+			throw parseError(`unknown patch header: ${current.text}`, current.number);
+		assertPatchPath(header.path, current.number);
 
 		if (header.kind === "add") {
 			const result = parseAdd(lines, index + 1, header.path);
@@ -119,7 +132,7 @@ function* parseV4aPatchOperations(input: string): Generator<V4aPatchOperation> {
 		if (header.kind === "delete") {
 			const nextIndex = index + 1;
 			if (nextIndex < lines.length && !isHeaderOrEnd(lines[nextIndex]?.text ?? ""))
-				throw parseError("Delete actions cannot contain body lines");
+				throw parseError("Delete actions cannot contain body lines", lines[nextIndex]?.number);
 			operationCount += 1;
 			yield Object.freeze({ kind: "delete", path: header.path });
 			index = nextIndex;
@@ -132,9 +145,10 @@ function* parseV4aPatchOperations(input: string): Generator<V4aPatchOperation> {
 		index = result.nextIndex;
 	}
 
-	if (!sawEnd) throw parseError("missing End Patch envelope");
-	if (index !== lines.length) throw parseError("content after End Patch envelope");
-	if (operationCount === 0) throw parseError("patch contains no actions");
+	if (!sawEnd) throw parseError("missing End Patch envelope", lines.at(-1)?.number);
+	if (index !== lines.length)
+		throw parseError("content after End Patch envelope", lines[index]?.number);
+	if (operationCount === 0) throw parseError("patch contains no actions", lines[0]?.number);
 }
 
 export function operationTouchedPaths(operation: V4aPatchOperation): readonly string[] {
@@ -223,7 +237,8 @@ function parseAdd(
 		if (line.text === END && content.length === 0)
 			throw parseError("End Patch cannot appear before Add File content");
 		if (isHeaderOrEnd(line.text)) break;
-		if (!line.text.startsWith("+")) throw parseError("Add content lines must begin with +");
+		if (!line.text.startsWith("+"))
+			throw parseError("Add content lines must begin with +", line.number);
 		content.push(line.text.slice(1), line.newline);
 		index += 1;
 	}
@@ -243,8 +258,8 @@ function parseUpdate(
 	let moveTo: string | undefined;
 	if (index < lines.length && lines[index]?.text.startsWith(MOVE)) {
 		moveTo = lines[index]?.text.slice(MOVE.length);
-		if (moveTo === undefined) throw parseError("empty move target");
-		assertPatchPath(moveTo);
+		if (moveTo === undefined) throw parseError("empty move target", lines[index]?.number);
+		assertPatchPath(moveTo, lines[index]?.number);
 		index += 1;
 	}
 
@@ -262,7 +277,7 @@ function parseUpdate(
 			throw parseError("End Patch cannot appear before Update File body");
 		if (isHeaderOrEnd(line.text)) break;
 		if (line.text.startsWith(MOVE))
-			throw parseError("Move to must appear immediately after Update File");
+			throw parseError("Move to must appear immediately after Update File", line.number);
 		if (line.text.startsWith("@@")) {
 			if (current.lines.length > 0) hunks.push(freezeHunk(current));
 			current = { anchor: line.text.slice(2), lines: [] };
@@ -277,6 +292,10 @@ function parseUpdate(
 	}
 
 	if (current.lines.length > 0) hunks.push(freezeHunk(current));
+	if (hunks.length > MAX_V4A_HUNKS_PER_UPDATE)
+		throw parseError(`Update action exceeds ${MAX_V4A_HUNKS_PER_UPDATE} hunk limit`);
+	if (hunks.some((hunk) => hunk.lines.length > MAX_V4A_HUNK_LINES))
+		throw parseError(`Update action exceeds ${MAX_V4A_HUNK_LINES} lines per hunk limit`);
 	if (hunks.length === 0) throw parseError("Update action must contain body lines");
 	if (adds === 0 && removes === 0) throw parseError("Update action must change content");
 	const operation =
@@ -292,7 +311,7 @@ function parseUpdateLine(line: SourceLine): V4aUpdateLine {
 	if (marker === " ") return Object.freeze({ kind: "context", text });
 	if (marker === "+") return Object.freeze({ kind: "add", text });
 	if (marker === "-") return Object.freeze({ kind: "remove", text });
-	throw parseError("Update body lines must begin with space, +, -, or @@");
+	throw parseError("Update body lines must begin with space, +, -, or @@", line.number);
 }
 
 function freezeHunk(hunk: {
@@ -329,12 +348,20 @@ function parseHeader(text: string): ParsedHeader | undefined {
 	return undefined;
 }
 
-function assertPatchPath(path: string): void {
-	if (path.length === 0) throw parseError("empty path in patch header");
+function assertPatchPath(path: string, line?: number): void {
+	if (path.length === 0) throw parseError("empty path in patch header", line);
 	if (path === BEGIN || path === END)
-		throw parseError("patch envelope markers cannot be used as file paths");
+		throw parseError("patch envelope markers cannot be used as file paths", line);
 	if (path.startsWith("/") || path.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(path))
-		throw parseError("absolute paths are not allowed");
+		throw parseError("absolute paths are not allowed", line);
+	if (Buffer.byteLength(path, "utf8") > MAX_V4A_PATH_BYTES)
+		throw parseError(`path exceeds ${MAX_V4A_PATH_BYTES} byte limit`, line);
+	if (
+		path
+			.split("/")
+			.some((segment) => Buffer.byteLength(segment, "utf8") > MAX_V4A_PATH_SEGMENT_BYTES)
+	)
+		throw parseError(`path segment exceeds ${MAX_V4A_PATH_SEGMENT_BYTES} byte limit`, line);
 }
 
 function isHeaderOrEnd(text: string): boolean {
@@ -349,7 +376,7 @@ function splitLines(input: string): readonly SourceLine[] {
 		const newline = match[2] ?? "";
 		const text = lines.length === 0 ? rawText.replace(/^\uFEFF/, "") : rawText;
 		if (text.length === 0 && newline.length === 0) break;
-		lines.push(Object.freeze({ text, newline }));
+		lines.push(Object.freeze({ text, newline, number: lines.length + 1 }));
 	}
 	return Object.freeze(lines);
 }
@@ -373,6 +400,8 @@ function normalizeEnvelope(lines: readonly SourceLine[]): readonly SourceLine[] 
 	return Object.freeze(normalized);
 }
 
-function parseError(message: string): SyntaxError {
-	return new SyntaxError(`Invalid V4A patch: ${message}`);
+function parseError(message: string, line?: number): SyntaxError {
+	return new SyntaxError(
+		`Invalid V4A patch: ${message}${line === undefined ? "" : ` at line ${line}`}`,
+	);
 }

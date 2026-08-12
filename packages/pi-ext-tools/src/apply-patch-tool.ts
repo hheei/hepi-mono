@@ -149,11 +149,34 @@ function recoveryLines(result: ApplyPatchInWorkspaceResult): readonly string[] {
 	];
 }
 
+export function failureRecovery(message: string): string | undefined {
+	if (message.includes("workspace outcome is unknown"))
+		return "Recovery: read every path targeted by the patch before attempting another edit.";
+	if (message.includes("queue is full"))
+		return "Recovery: wait for the active patch requests to finish, then retry this unchanged patch.";
+	if (message.includes("cancelled by client"))
+		return "Recovery: the request was cancelled and its request-level commit was rolled back; read targets before retrying.";
+	if (message.includes("No operations were validated or applied"))
+		return "Recovery: correct the V4A syntax and submit a complete patch; parsed preview rows were not applied.";
+	return undefined;
+}
+
 export function formatApplyPatchResult(result: ApplyPatchInWorkspaceResult): string {
 	const status = statusFor(result);
-	const applied = result.applied.flatMap((operation) =>
-		operation.paths.map((path) => `- ${path}: ${operation.kind}`),
-	);
+	const rejectedHunksByOperation = new Map<number, number>();
+	for (const rejection of result.rejected)
+		if (rejection.diagnostics.length > 0)
+			for (const operationIndex of rejection.operationIndices)
+				rejectedHunksByOperation.set(
+					operationIndex,
+					(rejectedHunksByOperation.get(operationIndex) ?? 0) + rejection.diagnostics.length,
+				);
+	const applied = result.applied.map((operation) => {
+		const path = operation.paths.at(-1) ?? "<unknown>";
+		const rejectedHunks = rejectedHunksByOperation.get(operation.operationIndex) ?? 0;
+		const totalHunks = operation.outcomes.length + rejectedHunks;
+		return `- ${path}: ${operation.kind}${totalHunks === 0 ? "" : ` (${operation.outcomes.length}/${totalHunks} hunks applied)`}`;
+	});
 	const fuzzy = result.applied.flatMap((operation) =>
 		operation.outcomes
 			.filter((outcome) => outcome.match === "fuzzy")
@@ -218,7 +241,7 @@ export function createApplyPatchTool(): ToolDefinition<
 		executionMode: "parallel",
 		renderResult: (result, options, theme) =>
 			renderApplyPatchResult(result, options.expanded, theme),
-		async execute(_toolCallId, params, signal, onUpdate, ctx) {
+		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			const startedAt = performance.now();
 			const { patch } = parseApplyPatchParameters(params);
 			if (modifiesOutputPath(patch)) throw new Error("apply_patch cannot modify output URLs");
@@ -226,6 +249,7 @@ export function createApplyPatchTool(): ToolDefinition<
 				const result = await applyPatchThroughCoordinator({
 					workspaceRoot: ctx.cwd,
 					patch,
+					requestId: toolCallId,
 					...(signal === undefined ? {} : { signal }),
 					onProgress: (progress) =>
 						onUpdate?.({
@@ -243,7 +267,10 @@ export function createApplyPatchTool(): ToolDefinition<
 				} satisfies AgentToolResult<ApplyPatchToolDetails>;
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
-				throw new Error(`apply_patch failed: ${message}`);
+				const recovery = failureRecovery(message);
+				throw new Error(
+					`apply_patch failed: ${message}${recovery === undefined ? "" : `\n${recovery}`}`,
+				);
 			}
 		},
 	};

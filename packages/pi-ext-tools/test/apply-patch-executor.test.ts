@@ -186,6 +186,17 @@ describe("staged apply-patch executor", () => {
 				diagnostics: [{ kind: "context_not_found", hunkIndex: 2 }],
 			},
 		]);
+		expect(result.operations).toEqual([
+			expect.objectContaining({
+				path: "value.txt",
+				status: "partial",
+				appliedHunks: 2,
+				totalHunks: 3,
+				partialReason: "context not found",
+				addedLines: 2,
+				removedLines: 2,
+			}),
+		]);
 		expect(await load(root, "value.txt")).toBe("ONE\ntwo\nthree\nfour\nFIVE\nsix\n");
 	});
 
@@ -313,6 +324,38 @@ describe("staged apply-patch executor", () => {
 		expect(result.rejected).toMatchObject([{ paths: ["second.txt"] }]);
 		expect(await load(root, "first.txt")).toBe("changed\n");
 		expect(await load(root, "second.txt")).toBe("stale\n");
+	});
+
+	test("rolls back every path when cancellation interrupts commit", async (): Promise<void> => {
+		const root = await temporaryDirectory();
+		const controller = new AbortController();
+		const stages: ApplyPatchProgress[] = [];
+		await expect(
+			applyPatchInWorkspace({
+				workspaceRoot: root,
+				policy: noFuzzy,
+				signal: controller.signal,
+				patch:
+					"*** Begin Patch\n" +
+					"*** Add File: first.txt\n+first\n" +
+					"*** Add File: second.txt\n+second\n" +
+					"*** End Patch",
+				onProgress: (progress) => {
+					stages.push(progress);
+					if (
+						progress.stage === "committed" &&
+						progress.operations.some((operation) => operation.status === "applied")
+					)
+						controller.abort(new Error("cancelled during commit"));
+				},
+			}),
+		).rejects.toThrow("commit rolled back");
+		expect(stages.at(-1)).toMatchObject({
+			stage: "rolled_back",
+			operations: [{ status: "rejected" }, { status: "pending" }],
+		});
+		await expect(readFile(join(root, "first.txt"), "utf8")).rejects.toThrow();
+		await expect(readFile(join(root, "second.txt"), "utf8")).rejects.toThrow();
 	});
 
 	test("aborts before staging without changing workspace", async () => {

@@ -21,6 +21,12 @@ export type {
 export {
 	compileV4aUpdateToUnifiedDiff,
 	findV4aPatchConflicts,
+	MAX_V4A_HUNK_LINES,
+	MAX_V4A_HUNKS_PER_UPDATE,
+	MAX_V4A_OPERATIONS,
+	MAX_V4A_PATCH_BYTES,
+	MAX_V4A_PATH_BYTES,
+	MAX_V4A_PATH_SEGMENT_BYTES,
 	operationTouchedPaths,
 	parseV4aPatch,
 	parseV4aPatchProgressively,

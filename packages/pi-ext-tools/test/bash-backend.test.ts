@@ -247,6 +247,42 @@ test("bash encloses its output between full-width dividers", (): void => {
 	expect(lines?.join("\n")).not.toContain("<toolOutput>stdout</toolOutput>");
 });
 
+test("bash removes renderer padding around short newline-terminated output", (): void => {
+	const tools: ToolDefinition[] = [];
+	registerBashTool({
+		registerTool(tool: ToolDefinition): void {
+			tools.push(tool);
+		},
+	} as unknown as ExtensionAPI);
+	const bash = tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("Expected bash tool");
+	const theme = {
+		bg: (_role: string, text: string): string => text,
+		fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
+		bold: (text: string): string => text,
+	} as Theme;
+	for (const isPartial of [true, false]) {
+		const lines = bash
+			.renderResult?.(
+				{ content: [{ type: "text", text: "one\ntwo\n" }], details: {} },
+				{ expanded: false, isPartial },
+				theme,
+				{
+					args: { command: "printf 'one\\ntwo\\n'" },
+					isError: false,
+					isPartial,
+					lastComponent: undefined,
+					state: {},
+				} as never,
+			)
+			.render(40);
+		const body = lines?.filter((line) => !line.includes("─") && !line.includes("exit "));
+		expect(body).toHaveLength(2);
+		expect(body?.[0]).toContain("one");
+		expect(body?.[1]).toContain("two");
+	}
+});
+
 test("bash compacts and dims its collapsed earlier-lines hint", (): void => {
 	const tools: ToolDefinition[] = [];
 	registerBashTool({
