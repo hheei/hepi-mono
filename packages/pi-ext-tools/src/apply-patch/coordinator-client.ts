@@ -348,23 +348,23 @@ function connectOnce(
 	});
 	socket.on("data", (chunk: string) => {
 		buffer += chunk;
-		if (Buffer.byteLength(buffer, "utf8") > MAX_COORDINATOR_FRAME_BYTES) {
-			finish(() =>
-				reject(
-					new CoordinatorTransportError(
-						`Apply patch coordinator response exceeds ${MAX_COORDINATOR_FRAME_BYTES} byte frame limit`,
-						requestSent,
-					),
-				),
-			);
-			socket?.destroy();
-			return;
-		}
 		while (true) {
 			const newline = buffer.indexOf("\n");
-			if (newline < 0) return;
+			if (newline < 0) break;
 			const line = buffer.slice(0, newline);
 			buffer = buffer.slice(newline + 1);
+			if (Buffer.byteLength(line, "utf8") > MAX_COORDINATOR_FRAME_BYTES) {
+				finish(() =>
+					reject(
+						new CoordinatorTransportError(
+							`Apply patch coordinator response exceeds ${MAX_COORDINATOR_FRAME_BYTES} byte frame limit`,
+							requestSent,
+						),
+					),
+				);
+				socket?.destroy();
+				return;
+			}
 			try {
 				const value: unknown = JSON.parse(line);
 				if (!isCoordinatorMessage(value))
@@ -388,6 +388,17 @@ function connectOnce(
 				);
 				return;
 			}
+		}
+		if (Buffer.byteLength(buffer, "utf8") > MAX_COORDINATOR_FRAME_BYTES) {
+			finish(() =>
+				reject(
+					new CoordinatorTransportError(
+						`Apply patch coordinator response exceeds ${MAX_COORDINATOR_FRAME_BYTES} byte frame limit`,
+						requestSent,
+					),
+				),
+			);
+			socket?.destroy();
 		}
 	});
 	socket.on("error", (error) =>

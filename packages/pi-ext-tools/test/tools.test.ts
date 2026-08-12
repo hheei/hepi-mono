@@ -636,7 +636,7 @@ describe("pi-ext-tools catalog", () => {
 		expect(result.details).toMatchObject({ status: "partial" });
 		expect(result.content).toContainEqual({
 			type: "text",
-			text: "Patch partially applied.\nChanged:\n- value.txt: update\nRejected:\n- operation 1, value.txt, hunk 2: best fuzzy score 0.00 < required 0.70\nRecovery: read value.txt, then retry only rejected hunks from operation 1.\nDo not retry applied hunks.",
+			text: "Patch partially applied.\nChanged:\n- value.txt: update (2/3 hunks applied)\nRejected:\n- operation 1, value.txt, hunk 2: best fuzzy score 0.00 < required 0.70\nRecovery: read value.txt, then retry only rejected hunks from operation 1.\nDo not retry applied hunks.",
 		});
 		expect(await readFile(join(cwd, "value.txt"), "utf8")).toBe("ONE\ntwo\nthree\nfour\nFIVE\n");
 	});

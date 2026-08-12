@@ -867,7 +867,11 @@ export async function applyPatchInWorkspace(
 					operation.status === "fuzzy"
 				)
 					progressOperations[operation.operationIndex] = Object.freeze({
-						...operation,
+						operationIndex: operation.operationIndex,
+						kind: operation.kind,
+						path: operation.path,
+						addedLines: 0,
+						removedLines: 0,
 						status: "rejected",
 					});
 			}

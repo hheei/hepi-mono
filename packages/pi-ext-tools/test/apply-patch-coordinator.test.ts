@@ -1,8 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { responseFrame } from "../src/apply-patch/coordinator-server.js";
+import { progressFrame, responseFrame } from "../src/apply-patch/coordinator-server.js";
 import {
 	applyPatchThroughCoordinator,
 	coordinatorSocketPath,
@@ -114,6 +115,34 @@ test("compacts successful responses when snapshots exceed the response budget", 
 	expect(decoded.result.applied[0]?.snapshots).toEqual([]);
 });
 
+test("compacts oversized progress frames without dropping the request", (): void => {
+	const progress = {
+		stage: "staging" as const,
+		files: 10,
+		addedLines: 3,
+		removedLines: 1,
+		operations: Array.from({ length: 10 }, (_, operationIndex) => ({
+			operationIndex,
+			kind: "update" as const,
+			path: `file-${operationIndex}.txt`,
+			addedLines: 3,
+			removedLines: 1,
+			status: "partial" as const,
+			appliedHunks: 2,
+			totalHunks: 3,
+			partialReason: "x".repeat(120_000),
+		})),
+	};
+	const frame = progressFrame("large-progress", progress);
+	if (frame === undefined) throw new Error("Expected compact progress frame");
+	const decoded = JSON.parse(frame) as {
+		readonly progress: { readonly operations: readonly { readonly partialReason?: string }[] };
+	};
+
+	expect(decoded.progress.operations).toHaveLength(10);
+	expect(decoded.progress.operations[0]?.partialReason).toBeUndefined();
+});
+
 test("cancels a request while parsing before it enters the queue", async (): Promise<void> => {
 	const root = await temporaryDirectory();
 	const controller = new AbortController();
@@ -134,6 +163,121 @@ test("cancels a request while parsing before it enters the queue", async (): Pro
 
 	await expect(request).rejects.toThrow("cancelled during parsing");
 	await expect(readFile(join(root, "parsed-0.txt"), "utf8")).rejects.toThrow();
+});
+
+test("accepts multiple individually valid near-limit frames in one write", async (): Promise<void> => {
+	const root = await temporaryDirectory();
+	await warmApplyPatchCoordinator(root);
+	const socket = connect(coordinatorSocketPath(root));
+	socket.setEncoding("utf8");
+	const received = await new Promise<readonly string[]>((resolve, reject) => {
+		const ids: string[] = [];
+		let buffer = "";
+		socket.once("error", reject);
+		socket.on("data", (chunk: string) => {
+			buffer += chunk;
+			while (true) {
+				const newline = buffer.indexOf("\n");
+				if (newline < 0) return;
+				const line = buffer.slice(0, newline);
+				buffer = buffer.slice(newline + 1);
+				const message = JSON.parse(line) as {
+					readonly id: string;
+					readonly ok?: boolean;
+					readonly type?: string;
+				};
+				if (message.type === "progress") continue;
+				if (message.ok !== true) {
+					reject(new Error(`Unexpected coordinator response for ${message.id}`));
+					return;
+				}
+				ids.push(message.id);
+				if (ids.length === 2) {
+					socket.end();
+					resolve(ids);
+					return;
+				}
+			}
+		});
+		socket.once("connect", () => {
+			const content = "x".repeat(500_000);
+			const request = (id: string, path: string): string =>
+				`${JSON.stringify({
+					type: "apply",
+					id,
+					workspaceRoot: root,
+					patch: `*** Begin Patch\n*** Add File: ${path}\n+${content}\n*** End Patch`,
+				})}\n`;
+			socket.write(
+				`${request("near-limit-first", "first.txt")}${request("near-limit-second", "second.txt")}`,
+			);
+		});
+	});
+
+	expect(received.sort()).toEqual(["near-limit-first", "near-limit-second"]);
+	expect((await readFile(join(root, "first.txt"), "utf8")).length).toBe(500_001);
+	expect((await readFile(join(root, "second.txt"), "utf8")).length).toBe(500_001);
+});
+
+test("returns multiple final responses on one coordinator connection", async (): Promise<void> => {
+	const root = await temporaryDirectory();
+	await warmApplyPatchCoordinator(root);
+	const socket = connect(coordinatorSocketPath(root));
+	socket.setEncoding("utf8");
+	const responses = await new Promise<readonly { readonly id: string; readonly ok: boolean }[]>(
+		(resolve, reject) => {
+			const received: { readonly id: string; readonly ok: boolean }[] = [];
+			let buffer = "";
+			socket.once("error", reject);
+			socket.on("data", (chunk: string) => {
+				buffer += chunk;
+				while (true) {
+					const newline = buffer.indexOf("\n");
+					if (newline < 0) return;
+					const line = buffer.slice(0, newline);
+					buffer = buffer.slice(newline + 1);
+					const message = JSON.parse(line) as {
+						readonly type?: string;
+						readonly id: string;
+						readonly ok?: boolean;
+					};
+					if (message.type === "progress") continue;
+					if (message.ok !== true) {
+						reject(new Error(`Unexpected coordinator response for ${message.id}`));
+						return;
+					}
+					received.push({ id: message.id, ok: message.ok });
+					if (received.length === 2) {
+						socket.end();
+						resolve(received);
+						return;
+					}
+				}
+			});
+			socket.once("connect", () => {
+				socket.write(
+					`${JSON.stringify({
+						type: "apply",
+						id: "multiplex-first",
+						workspaceRoot: root,
+						patch: "*** Begin Patch\n*** Add File: first.txt\n+first\n*** End Patch",
+					})}\n${JSON.stringify({
+						type: "apply",
+						id: "multiplex-second",
+						workspaceRoot: root,
+						patch: "*** Begin Patch\n*** Add File: second.txt\n+second\n*** End Patch",
+					})}\n`,
+				);
+			});
+		},
+	);
+
+	expect(responses.map((response) => response.id).sort()).toEqual([
+		"multiplex-first",
+		"multiplex-second",
+	]);
+	expect(await readFile(join(root, "first.txt"), "utf8")).toBe("first\n");
+	expect(await readFile(join(root, "second.txt"), "utf8")).toBe("second\n");
 });
 
 test("returns a cached outcome when the request id is retried", async (): Promise<void> => {

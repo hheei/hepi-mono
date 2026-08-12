@@ -350,10 +350,18 @@ describe("staged apply-patch executor", () => {
 				},
 			}),
 		).rejects.toThrow("commit rolled back");
-		expect(stages.at(-1)).toMatchObject({
-			stage: "rolled_back",
-			operations: [{ status: "rejected" }, { status: "pending" }],
+		const rolledBack = stages.at(-1);
+		if (rolledBack === undefined) throw new Error("Expected rollback progress");
+		expect(rolledBack.stage).toBe("rolled_back");
+		expect(rolledBack.operations[0]).toMatchObject({
+			status: "rejected",
+			addedLines: 0,
+			removedLines: 0,
 		});
+		expect(rolledBack.operations[0]).not.toHaveProperty("appliedHunks");
+		expect(rolledBack.operations[0]).not.toHaveProperty("totalHunks");
+		expect(rolledBack.operations[0]).not.toHaveProperty("partialReason");
+		expect(rolledBack.operations[1]).toMatchObject({ status: "pending" });
 		await expect(readFile(join(root, "first.txt"), "utf8")).rejects.toThrow();
 		await expect(readFile(join(root, "second.txt"), "utf8")).rejects.toThrow();
 	});

@@ -61,6 +61,7 @@ interface RequestRecord {
 	completedAtMs?: number;
 	cancelled?: Error;
 	readonly onCompleted?: () => void;
+	readonly onTerminal?: () => void;
 }
 
 function isApplyRequest(value: unknown): value is ApplyRequest {
@@ -138,24 +139,67 @@ export function responseFrame(response: ApplyResponse): string {
 }
 
 function send(socket: Socket, response: ApplyResponse): void {
-	if (!socket.destroyed) socket.end(responseFrame(response));
+	if (!socket.destroyed) socket.write(responseFrame(response));
 }
+
+function compactProgress(progress: ApplyPatchProgress): ApplyPatchProgress {
+	return {
+		stage: progress.stage,
+		files: progress.files,
+		addedLines: progress.addedLines,
+		removedLines: progress.removedLines,
+		operations: Object.freeze(
+			progress.operations.map((operation) => ({
+				operationIndex: operation.operationIndex,
+				kind: operation.kind,
+				path: operation.path,
+				addedLines: operation.addedLines,
+				removedLines: operation.removedLines,
+				status: operation.status,
+			})),
+		),
+	};
+}
+
+function serializeProgress(
+	id: string,
+	progress: ApplyPatchProgress,
+): { readonly frame: string; readonly progress: ApplyPatchProgress } | undefined {
+	const full = `${JSON.stringify({ type: "progress", id, progress } satisfies ProgressResponse)}\n`;
+	if (Buffer.byteLength(full, "utf8") <= MAX_COORDINATOR_RESPONSE_BYTES)
+		return { frame: full, progress };
+	const compacted = compactProgress(progress);
+	const compact = `${JSON.stringify({
+		type: "progress",
+		id,
+		progress: compacted,
+	} satisfies ProgressResponse)}\n`;
+	return Buffer.byteLength(compact, "utf8") <= MAX_COORDINATOR_RESPONSE_BYTES
+		? { frame: compact, progress: compacted }
+		: undefined;
+}
+
+export function progressFrame(id: string, progress: ApplyPatchProgress): string | undefined {
+	return serializeProgress(id, progress)?.frame;
+}
+
 function sendProgress(socket: Socket, id: string, progress: ApplyPatchProgress): void {
-	if (!socket.destroyed)
-		socket.write(
-			`${JSON.stringify({ type: "progress", id, progress } satisfies ProgressResponse)}\n`,
-		);
+	const serialized = serializeProgress(id, progress);
+	if (!socket.destroyed && serialized !== undefined) socket.write(serialized.frame);
 }
 
 function sendRecordProgress(record: RequestRecord, progress: ApplyPatchProgress): void {
-	record.latestProgress = progress;
-	for (const socket of record.subscribers) sendProgress(socket, record.request.id, progress);
+	const serialized = serializeProgress(record.request.id, progress);
+	if (serialized === undefined) return;
+	record.latestProgress = serialized.progress;
+	for (const socket of record.subscribers) if (!socket.destroyed) socket.write(serialized.frame);
 }
 
 function sendRecordResponse(record: RequestRecord, response: ApplyResponse): void {
 	record.response = response;
 	record.completedAtMs = Date.now();
 	for (const socket of record.subscribers) send(socket, response);
+	record.onTerminal?.();
 	setTimeout(() => {
 		if (
 			record.completedAtMs !== undefined &&
@@ -326,13 +370,20 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 	const pending: QueueItem[] = [];
 	const requests = new Map<string, RequestRecord>();
 	const expiredRequests = new Map<string, string>();
+	const sockets = new Set<Socket>();
 	const running: RunningItem[] = [];
 	const activeLocks = new Set<string>();
 	let active = 0;
 	let idleTimer: NodeJS.Timeout | undefined;
+	const destroySockets = (): void => {
+		for (const socket of sockets) socket.destroy();
+	};
 	const scheduleIdleShutdown = (): void => {
 		if (active > 0 || pending.length > 0 || idleTimer !== undefined) return;
-		idleTimer = setTimeout(() => void server.close(), COORDINATOR_IDLE_TIMEOUT_MS);
+		idleTimer = setTimeout(() => {
+			destroySockets();
+			void server.close();
+		}, COORDINATOR_IDLE_TIMEOUT_MS);
 	};
 	const handleCancellation = (id: string): void => {
 		const record = requests.get(id);
@@ -361,6 +412,7 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 		}
 	};
 	const server = createServer((socket) => {
+		sockets.add(socket);
 		if (idleTimer !== undefined) {
 			clearTimeout(idleTimer);
 			idleTimer = undefined;
@@ -421,6 +473,7 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 				const record: RequestRecord = {
 					request: value,
 					subscribers: new Set([socket]),
+					onTerminal: scheduleIdleShutdown,
 					onCompleted: () => {
 						requests.delete(value.id);
 						rememberExpiredRequest(expiredRequests, value.id, requestFingerprint(value));
@@ -493,24 +546,33 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 		socket.setEncoding("utf8");
 		socket.on("data", (chunk: string) => {
 			data += chunk;
+			while (true) {
+				const newline = data.indexOf("\n");
+				if (newline < 0) break;
+				const line = data.slice(0, newline);
+				data = data.slice(newline + 1);
+				if (Buffer.byteLength(line, "utf8") > MAX_COORDINATOR_FRAME_BYTES) {
+					send(socket, {
+						id: "",
+						ok: false,
+						error: `Apply patch request exceeds ${MAX_COORDINATOR_FRAME_BYTES} byte frame limit`,
+					});
+					socket.destroy();
+					return;
+				}
+				processLine(line);
+			}
 			if (Buffer.byteLength(data, "utf8") > MAX_COORDINATOR_FRAME_BYTES) {
 				send(socket, {
 					id: "",
-					ok: false,
 					error: `Apply patch request exceeds ${MAX_COORDINATOR_FRAME_BYTES} byte frame limit`,
+					ok: false,
 				});
 				socket.destroy();
-				return;
-			}
-			while (true) {
-				const newline = data.indexOf("\n");
-				if (newline < 0) return;
-				const line = data.slice(0, newline);
-				data = data.slice(newline + 1);
-				processLine(line);
 			}
 		});
 		socket.on("close", () => {
+			sockets.delete(socket);
 			for (const request of requests.values()) request.subscribers.delete(socket);
 			scheduleIdleShutdown();
 		});
@@ -578,6 +640,7 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 	});
 	const shutdown = async (): Promise<void> => {
 		if (idleTimer !== undefined) clearTimeout(idleTimer);
+		destroySockets();
 		await new Promise<void>((resolve) => {
 			if (!server.listening) {
 				resolve();
