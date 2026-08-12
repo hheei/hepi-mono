@@ -1,9 +1,6 @@
-// Channel 1 of the ctx_reduce nudge redesign: an in-turn `<system-reminder>`
-// Appended to a tool's `output.output` in `tool.execute.after`. The host
-// persists the mutated tool output to its DB and replays it verbatim on every
-// later transform, so this is "free sticky" — no anchor store, no CAS, no
-// replay machinery (unlike the deleted assistant/user-anchored nudges).
-//
+// Channel 1 of the ctx_reduce nudge redesign. Pi delivers the resulting
+// `<system-reminder>` as a distinct custom session message; its renderer keeps
+// it out of tool output while preserving the model-visible block.
 // The metric is `severity = (undropped / workingWindow) × pressure`:
 //   - `undropped` = approximate tokens of NON-dropped tool output in the live
 //     tail (dropped outputs are `[dropped …]` sentinels, so a simple tail walk
@@ -63,16 +60,8 @@ export interface Channel1State {
     oldestReclaimableToolTags: ToolReclaimHint[];
 }
 
-// Content-based idempotency guard (robust to callID reuse on retries). The bare
-// `<system-reminder>` opener doubles as the marker — no extra attribute, so the
-// model sees no wasted tokens. A re-fire still detects our prior injection
-// because the appended text contains this opener. The only cost is a rare
-// false-skip when a tool output already contains the literal `<system-reminder>`
-// (e.g. reading MC's own source) — harmless for a nudge.
-export const CHANNEL1_SENTINEL = "<system-reminder>";
-
 // Approximate tokens-per-byte. Bytes are cheap to measure in the hot
-// `tool.execute.after` path; the gating only needs an order-of-magnitude
+// tool-result decision path; the gating only needs an order-of-magnitude
 // estimate, not an exact tokenizer count. Exported as the ONE canonical
 // byte→token estimator reused by the emergency-drop selection
 // (`emergency-drop.ts`) so reclaim accounting and nudge accounting agree.

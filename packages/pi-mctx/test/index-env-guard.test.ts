@@ -31,6 +31,7 @@ function createCountingPi() {
 	const flags: string[] = [];
 	const commands: string[] = [];
 	const entryRenderers: string[] = [];
+	const messageRenderers: string[] = [];
 	const pi = {
 		on: mock((event: string) => {
 			events.push(event);
@@ -47,11 +48,14 @@ function createCountingPi() {
 		registerEntryRenderer: mock((customType: string) => {
 			entryRenderers.push(customType);
 		}),
+		registerMessageRenderer: mock((customType: string) => {
+			messageRenderers.push(customType);
+		}),
 		appendEntry: mock(() => undefined),
 		sendMessage: mock(() => undefined),
 		sendUserMessage: mock(() => undefined),
 	} as unknown as ExtensionAPI;
-	return { pi, events, tools, flags, commands, entryRenderers };
+	return { pi, events, tools, flags, commands, entryRenderers, messageRenderers };
 }
 
 afterEach(() => {
@@ -74,6 +78,7 @@ describe("Pi full extension subagent env guard", () => {
 		expect(registrations.flags).toEqual([]);
 		expect(registrations.commands).toEqual([]);
 		expect(registrations.entryRenderers).toEqual([]);
+		expect(registrations.messageRenderers).toEqual([]);
 	});
 
 	it("registers the full runtime when the subagent guard is absent", async () => {
@@ -87,6 +92,10 @@ describe("Pi full extension subagent env guard", () => {
 		expect(registrations.tools.length).toBeGreaterThan(0);
 		expect(registrations.commands.length).toBeGreaterThan(0);
 		expect(registrations.entryRenderers).toEqual(["ctx-status"]);
+		expect(registrations.messageRenderers).toEqual([
+			"magic-context:ctx-reduce-nudge",
+			"magic-context:ceiling-nudge",
+		]);
 		expect(registrations.events).toContain("before_agent_start");
 		expect(registrations.tools).toContain("ctx_search");
 		expect(registrations.commands).toContain("ctx-status");

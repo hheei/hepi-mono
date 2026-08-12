@@ -1,17 +1,6 @@
-// Pi parity for the ctx_reduce nudge redesign (Channels 1 & 2).
-//
-// The metric math is fully shared from `@magic-context/core` — only the
-// harness-specific I/O differs:
-//
-//   Channel 1 (in-turn tool-output nudge): Pi appends a TextContent
-//   block to a `toolResult.content[]` in `pi.on("tool_result")`. It persists
-//   via `appendMessage` on `message_end`, so it stays sticky with no
-//
-//   Channel 2 (ceiling nudge): Pi uses native `pi.sendMessage`.
-//   deliverAs })` as a hidden custom message (`display:false`). The
-//   `channel2_nudge_state` lease is kept both to enforce the one-nudge-per-
-//   session cap and because the intent is recorded at one point in the pipeline
-//   but delivered later, when a `tool_result` or `agent_end` event arrives.
+// Pi-native ctx_reduce nudge delivery. Both channels send visible custom
+// session messages: the model sees raw <system-reminder> content, while the
+// registered renderer presents a distinct [magic context] transcript block.
 
 import {
 	casChannel2NudgeState,
@@ -26,7 +15,6 @@ import {
 import {
 	buildChannel1Reminder,
 	buildChannel2Reminder,
-	CHANNEL1_SENTINEL,
 	type Channel1State,
 	computePressure,
 	decideChannel1,
@@ -39,7 +27,20 @@ import {
 import { sessionLog } from "#core/shared/logger";
 import type { Database } from "#core/shared/sqlite";
 
-export type { Channel1State };
+export const CHANNEL1_NUDGE_CUSTOM_TYPE = "magic-context:ctx-reduce-nudge";
+export const CHANNEL2_NUDGE_CUSTOM_TYPE = "magic-context:ceiling-nudge";
+
+export interface Channel1NudgeMessageDetails {
+	displayText: string;
+}
+
+export interface Channel1Reminder {
+	content: string;
+	displayText: string;
+	nextLastNudge: number;
+	nextLastNudgeLevel: string;
+}
+
 
 function sealDeliveredAfterUnconfirmedSend(
 	db: Database,
@@ -201,18 +202,16 @@ export function computeTailTokenEstimatePi(
 }
 
 /**
- * Channel 1 decision for a just-finished tool result. Returns the reminder
- * TextContent block to append (so the caller's `tool_result` handler can return
- * `{ content: [...event.content, block] }`), or null when no nudge should fire.
- * `toolName` of `ctx_reduce` short-circuits to suppression (the agent is
- * actively managing context.
+ * Channel 1 decision for a just-finished tool result. The caller persists it as
+ * a distinct Pi custom message, leaving tool output untouched. `toolName` of
+ * `ctx_reduce` suppresses the reminder because the agent is managing context.
  */
 export function maybeChannel1ReminderForToolResult(args: {
 	db: Database;
 	sessionId: string;
 	toolName: string;
 	content: readonly unknown[];
-}): PiTextContent | null {
+}): Channel1Reminder | null {
 	const { db, sessionId, toolName } = args;
 	const state = channel1StateBySession.get(sessionId);
 	if (!state) return null; // primary-only: no baseline ⇒ subagent ⇒ off
@@ -225,8 +224,6 @@ export function maybeChannel1ReminderForToolResult(args: {
 
 	const text = toolResultText(args.content);
 	if (text.length === 0) return null;
-	// Content-based idempotency (bare `<system-reminder>` opener is the marker).
-	if (text.includes(CHANNEL1_SENTINEL)) return null;
 
 	// Accumulate this tool's tokens into the per-turn accumulator (prospective:
 	// not yet reflected in the baseline tail snapshot).
@@ -255,18 +252,30 @@ export function maybeChannel1ReminderForToolResult(args: {
 		hasRecentReduce: false, // handled by reducedSinceRefresh above
 	});
 
-	setLastNudgeUndropped(db, sessionId, decision.nextLastNudge);
-	setLastNudgeLevel(db, sessionId, decision.nextLastNudgeLevel);
 	if (!decision.fire) return null;
 
+	const content = buildChannel1Reminder(
+		decision.level,
+		decision.undroppedTokens,
+		state.oldestReclaimableToolTags,
+	);
 	return {
-		type: "text",
-		text: buildChannel1Reminder(
-			decision.level,
-			decision.undroppedTokens,
-			state.oldestReclaimableToolTags,
-		),
+		content,
+		displayText: content
+			.replace(/^\n*<system-reminder>\n?/, "")
+			.replace(/\n?<\/system-reminder>\s*$/, ""),
+		nextLastNudge: decision.nextLastNudge,
+		nextLastNudgeLevel: decision.nextLastNudgeLevel,
 	};
+}
+
+export function markChannel1ReminderDelivered(
+	db: Database,
+	sessionId: string,
+	reminder: Pick<Channel1Reminder, "nextLastNudge" | "nextLastNudgeLevel">,
+): void {
+	setLastNudgeUndropped(db, sessionId, reminder.nextLastNudge);
+	setLastNudgeLevel(db, sessionId, reminder.nextLastNudgeLevel);
 }
 
 /**
@@ -291,14 +300,12 @@ interface PiSendMessage {
 	) => void;
 }
 
-const CHANNEL2_NUDGE_CUSTOM_TYPE = "magic-context:ceiling-nudge";
-
 /**
  * Deliver a pending Channel 2 ceiling nudge for `sessionId`, if any. Safe to
  * call from BOTH delivery sites; no-ops unless a `pending` intent exists. Pi
  * is single-process so delivery coalesces natively — no #28202 workaround.
- * Delivered as a hidden custom message (`sendMessage` + `display:false`) so it
- * reaches the model but isn't presented as a literal user turn.
+ * Delivered as a visible custom message: renderer presents `[magic context]`
+ * while Pi sends raw `<system-reminder>` content to the model.
  *
  * Delivery sites + mode:
  * - `tool_result` (mid-turn, the primary site): deliverAs "steer" — Pi queues
@@ -360,18 +367,21 @@ export function maybeDeliverChannel2Pi(
 	if (!casChannel2NudgeState(db, sessionId, "pending", "claimed")) return false;
 
 	try {
-		// display: false → hidden from the Pi TUI (agent steer, not a user turn),
-		// but still model-visible via convertToLlm. deliverAs preserves the
-		// existing scheduling (steer mid-turn / followUp at agent_end).
+		const content = buildChannel2Reminder(
+			undropped,
+			baseline.oldestReclaimableToolTags,
+		);
 		pi.sendMessage(
 			{
 				customType: CHANNEL2_NUDGE_CUSTOM_TYPE,
-				content: buildChannel2Reminder(
-					undropped,
-					baseline.oldestReclaimableToolTags,
-				),
-				display: false,
-				details: { kind: "channel-2-ceiling-nudge" },
+				content,
+				display: true,
+				details: {
+					kind: "channel-2-ceiling-nudge",
+					displayText: content
+						.replace(/^\n*<system-reminder>\n?/, "")
+						.replace(/\n?<\/system-reminder>\s*$/, ""),
+				},
 			},
 			{ deliverAs },
 		);
