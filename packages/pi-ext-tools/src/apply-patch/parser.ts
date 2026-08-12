@@ -164,7 +164,16 @@ export function findV4aPatchConflicts(patch: V4aPatch): readonly V4aPatchConflic
 			operationIndices.length === 2 &&
 			touches.every(({ operation }) => operation.kind === "add" || operation.kind === "delete") &&
 			new Set(touches.map(({ operation }) => operation.kind)).size === 2;
-		if (!repeatedWithinOperation && (operationIndices.length < 2 || compatibleReplace)) continue;
+		const compatibleUpdates =
+			!repeatedWithinOperation &&
+			touches.every(
+				({ operation }) => operation.kind === "update" && operation.moveTo === undefined,
+			);
+		if (
+			!repeatedWithinOperation &&
+			(operationIndices.length < 2 || compatibleReplace || compatibleUpdates)
+		)
+			continue;
 		conflicts.push(
 			Object.freeze({
 				path,

@@ -144,11 +144,49 @@ describe("staged apply-patch executor", () => {
 		expect(result.rejected).toMatchObject([
 			{
 				paths: ["value.txt"],
-				error: "Patch update failed exactly and fuzzy is disabled: value.txt",
+				error: "One or more update hunks failed",
 				diagnostics: [{ kind: "context_not_found", hunkIndex: 1 }],
 			},
 		]);
 		expect(await load(root, "value.txt")).toBe("alpha\nchanged context\nomega\n");
+	});
+
+	test("commits successful hunks when another hunk in the same update fails", async () => {
+		const root = await temporaryDirectory();
+		await save(root, "value.txt", "one\ntwo\nthree\nfour\nfive\nsix\n");
+
+		const result = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch:
+				"*** Begin Patch\n" +
+				"*** Update File: value.txt\n" +
+				"@@\n-one\n+ONE\n" +
+				"@@\n-missing\n+MISS\n" +
+				"@@\n-five\n+FIVE\n" +
+				"*** End Patch",
+		});
+
+		expect(result.changedPaths).toEqual(["value.txt"]);
+		expect(result.addedLines).toBe(2);
+		expect(result.removedLines).toBe(2);
+		expect(result.applied).toMatchObject([
+			{
+				paths: ["value.txt"],
+				outcomes: [
+					{ kind: "applied", hunkIndex: 1, match: "exact" },
+					{ kind: "applied", hunkIndex: 3, match: "exact" },
+				],
+			},
+		]);
+		expect(result.rejected).toMatchObject([
+			{
+				operationIndices: [0],
+				paths: ["value.txt"],
+				diagnostics: [{ kind: "context_not_found", hunkIndex: 2 }],
+			},
+		]);
+		expect(await load(root, "value.txt")).toBe("ONE\ntwo\nthree\nfour\nFIVE\nsix\n");
 	});
 
 	test("rejects ambiguous exact context with candidate lines", async () => {
@@ -193,7 +231,7 @@ describe("staged apply-patch executor", () => {
 		expect(await load(root, "second.txt")).toBe("second\n");
 	});
 
-	test("rejects path conflicts before touching the workspace", async () => {
+	test("applies repeated updates to the same file in patch order", async () => {
 		const root = await temporaryDirectory();
 		await save(root, "value.txt", "before\n");
 
@@ -203,18 +241,12 @@ describe("staged apply-patch executor", () => {
 			patch:
 				"*** Begin Patch\n" +
 				"*** Update File: value.txt\n-before\n+first\n" +
-				"*** Update File: value.txt\n-before\n+second\n" +
+				"*** Update File: value.txt\n-first\n+second\n" +
 				"*** End Patch",
 		});
-		expect(result.changedPaths).toEqual([]);
-		expect(result.rejected).toMatchObject([
-			{
-				operationIndices: [0, 1],
-				paths: ["value.txt"],
-				error: "path touched more than once: value.txt",
-			},
-		]);
-		expect(await load(root, "value.txt")).toBe("before\n");
+		expect(result.changedPaths).toEqual(["value.txt"]);
+		expect(result.rejected).toEqual([]);
+		expect(await load(root, "value.txt")).toBe("second\n");
 	});
 
 	test("applies ordered delete and add on the same path", async () => {

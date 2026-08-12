@@ -102,9 +102,7 @@ describe("V4A patch parser", () => {
 			"*** Begin Patch\n*** Update File: x\n*** Move to: y\n-a\n+b\n*** Add File: y\n+v\n*** End Patch",
 		);
 		expect(findV4aPatchConflicts(duplicate)).toEqual([]);
-		expect(findV4aPatchConflicts(repeatedUpdate)).toEqual([
-			{ path: "x", operationIndices: [0, 1], message: "path touched more than once: x" },
-		]);
+		expect(findV4aPatchConflicts(repeatedUpdate)).toEqual([]);
 		expect(findV4aPatchConflicts(selfMove)).toEqual([
 			{ path: "x", operationIndices: [0], message: "path touched more than once: x" },
 		]);

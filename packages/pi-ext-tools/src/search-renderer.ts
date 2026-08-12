@@ -7,16 +7,16 @@ import { type Component, Text } from "@earendil-works/pi-tui";
 import type { GrepDisplayLine, GrepToolDetails } from "./grep.js";
 import type { ToolCompletion } from "./pretty/trace.js";
 
-type FindRenderArgs = {
-	readonly pattern: string;
-	readonly limit?: number;
+export type FindToolDetails = {
+	readonly format: "canonical-find";
+	readonly candidates: readonly { readonly path: string; readonly matchType?: string }[];
+	readonly totalMatched: number;
+	readonly totalFiles: number;
+	readonly durationMs: number;
 };
 
 type RenderContext = { readonly isError: boolean; readonly lastComponent: Component | undefined };
 const MAX_COLLAPSED_GREP_RESULT_PREVIEW_LINES = 12;
-const FIND_CANDIDATE = /^\d+\. (.+) \(([^)]+)\)(?:(?: - | )(.+))?$/;
-const FIND_DIRECTORY_HEADER = /^.+\/$/;
-const FIND_SUMMARY = /^\d+\/\d+ matches$/;
 const FIND_CURSOR = /^cursor:\s+/;
 
 function resultText(result: AgentToolResult<unknown>): string {
@@ -151,7 +151,7 @@ export function grepCollapsedFooter(
 				Reflect.get(event, "type") === "match" &&
 				Reflect.get(event, "approximate") === true,
 		);
-	return `${details.totalMatched} ${fuzzy ? "fuzzies" : "matches"} · ${details.totalFiles} files · ${durationText(completion?.durationMs ?? details.durationMs)}`;
+	return `${details.totalMatched} ${fuzzy ? "fuzzies" : "matches"} · ${details.totalFiles} files · ${details.totalLines} lines · ${durationText(completion?.durationMs ?? details.durationMs)}`;
 }
 
 function grepLineNumberWidth(lines: readonly GrepDisplayLine[], start: number): number {
@@ -205,74 +205,149 @@ export function renderGrepResult(
 	component.set(
 		lines.join("\n"),
 		grepCollapsedFooter(result, { durationMs: details.durationMs }) ??
-			`${details.totalMatched} matches · ${details.totalFiles} files · ${durationText(details.durationMs)}`,
+			`${details.totalMatched} matches · ${details.totalFiles} files · ${details.totalLines} lines · ${durationText(details.durationMs)}`,
 	);
 	return component;
 }
 
-function findTotalMatched(result: AgentToolResult<unknown>): number | undefined {
-	if (typeof result.details !== "object" || result.details === null) return undefined;
-	const totalMatched = Reflect.get(result.details, "totalMatched");
-	return typeof totalMatched === "number" ? totalMatched : undefined;
+function findDetails(value: unknown): FindToolDetails | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	const details = value as Partial<FindToolDetails>;
+	return details.format === "canonical-find" &&
+		Array.isArray(details.candidates) &&
+		typeof details.totalMatched === "number" &&
+		typeof details.totalFiles === "number" &&
+		typeof details.durationMs === "number"
+		? (details as FindToolDetails)
+		: undefined;
 }
 
-function findTag(reason: string): string {
-	const normalized = reason.startsWith("fff_") ? reason.slice(4) : reason;
-	if (normalized === "fuzzy_filename" || normalized === "fff") return "FF";
-	if (normalized === "fuzzy_path" || normalized === "ffp") return "FP";
-	return `F${normalized
-		.split("_")
-		.filter((part) => part.length > 0)
-		.map((part) => part[0]?.toUpperCase() ?? "")
-		.join("")}`;
+function findGroup(matchType: string | undefined): "fuzzy files" | "fuzzy paths" {
+	const normalized = matchType?.replace(/^fff_/, "");
+	return normalized === "fuzzy_path" || normalized === "ffp" ? "fuzzy paths" : "fuzzy files";
 }
 
-export function renderFindCall(
-	args: FindRenderArgs,
-	theme: Theme,
-	context: Pick<RenderContext, "lastComponent">,
-): Text {
-	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-	const limit = args.limit === undefined ? "" : ` (limit ${args.limit})`;
-	text.setText(`${theme.fg("accent", "find")} ${theme.fg("mdCode", args.pattern)}${limit}`);
-	return text;
+type FindBodyLine =
+	| { readonly kind: "heading"; readonly text: string }
+	| { readonly kind: "directory"; readonly text: string }
+	| { readonly kind: "path"; readonly text: string }
+	| { readonly kind: "omission"; readonly text: string }
+	| { readonly kind: "blank"; readonly text: "" };
+
+function parentDirectory(path: string): string | undefined {
+	const separator = path.lastIndexOf("/");
+	return separator > 0 ? path.slice(0, separator) : undefined;
 }
 
-function renderFindText(result: AgentToolResult<unknown>, theme: Theme): string {
-	const lines = resultText(result).split("\n");
-	const candidates = lines.flatMap((line) => {
-		const match = line.match(FIND_CANDIDATE);
-		return match ? [match] : [];
-	});
-	const totalMatched = findTotalMatched(result);
-	const summary =
-		totalMatched === undefined || candidates.length === 0
-			? undefined
-			: `${theme.fg("success", String(candidates.length))} matches in ${theme.fg("success", String(totalMatched))} files:`;
-	return [
-		...(summary === undefined ? [] : [summary]),
-		...lines
-			.filter((line) => !FIND_SUMMARY.test(line) && !FIND_CURSOR.test(line))
-			.map((line) => {
-				if (FIND_DIRECTORY_HEADER.test(line)) return theme.fg("mdCode", line);
-				const match = line.match(FIND_CANDIDATE);
-				if (!match) return line;
-				const path = match[1] ?? "";
-				const matchType = match[2] ?? "";
-				const reason = match[3];
-				return `${theme.fg("success", findTag(matchType))} ${theme.fg("dim", path)}${reason ? ` (${reason})` : ""}`;
-			}),
-	].join("\n");
+function findBodyLines(details: FindToolDetails): readonly FindBodyLine[] {
+	const groups = new Map<"fuzzy files" | "fuzzy paths", FindToolDetails["candidates"]>();
+	for (const group of ["fuzzy files", "fuzzy paths"] as const)
+		groups.set(
+			group,
+			details.candidates.filter((candidate) => findGroup(candidate.matchType) === group),
+		);
+	const lines: FindBodyLine[] = [];
+	for (const [group, candidates] of groups) {
+		if (candidates.length === 0) continue;
+		if (lines.length > 0) lines.push({ kind: "blank", text: "" });
+		lines.push({ kind: "heading", text: `${group}:` });
+		const directoryCounts = new Map<string, number>();
+		for (const candidate of candidates) {
+			const directory = parentDirectory(candidate.path);
+			if (directory !== undefined) {
+				directoryCounts.set(directory, (directoryCounts.get(directory) ?? 0) + 1);
+			}
+		}
+		const emittedDirectories = new Set<string>();
+		for (const candidate of candidates) {
+			const directory = parentDirectory(candidate.path);
+			const grouped = directory !== undefined && (directoryCounts.get(directory) ?? 0) > 1;
+			if (grouped && emittedDirectories.has(directory)) continue;
+			if (grouped) {
+				emittedDirectories.add(directory);
+				lines.push({ kind: "directory", text: `${directory}/` });
+				for (const groupedCandidate of candidates)
+					if (parentDirectory(groupedCandidate.path) === directory)
+						lines.push({
+							kind: "path",
+							text: groupedCandidate.path.slice(directory.length + 1),
+						});
+				continue;
+			}
+			lines.push({ kind: "path", text: candidate.path });
+		}
+	}
+	return lines;
+}
+
+function renderFindBody(lines: readonly FindBodyLine[], theme: Theme): string[] {
+	return lines.map((line) =>
+		line.kind === "directory"
+			? theme.fg("mdCode", line.text)
+			: line.kind === "omission"
+				? theme.fg("dim", line.text)
+				: line.text,
+	);
+}
+
+export function formatFindModelOutput(details: FindToolDetails): string {
+	return findBodyLines(details)
+		.map((line) => line.text)
+		.join("\n");
+}
+
+function findFooter(details: FindToolDetails, completion?: ToolCompletion): string {
+	const fuzzyPath = details.candidates.filter(
+		(candidate) => findGroup(candidate.matchType) === "fuzzy paths",
+	).length;
+	const fuzzyFilename = details.candidates.length - fuzzyPath;
+	const parts = [
+		fuzzyFilename > 0 ? `${fuzzyFilename} fuzzy files` : undefined,
+		fuzzyPath > 0 ? `${fuzzyPath} fuzzy paths` : undefined,
+		`${findBodyLines(details).length} lines`,
+		durationText(completion?.durationMs ?? details.durationMs),
+	];
+	return parts.filter((part): part is string => part !== undefined).join(" · ");
+}
+
+export function findCollapsedFooter(
+	result: AgentToolResult<unknown>,
+	completion: ToolCompletion | undefined,
+): string | undefined {
+	const details = findDetails(result.details);
+	return details === undefined ? undefined : findFooter(details, completion);
 }
 
 export function renderFindResult(
 	result: AgentToolResult<unknown>,
-	_options: ToolRenderResultOptions,
+	options: ToolRenderResultOptions,
 	theme: Theme,
 	context: RenderContext,
-): Text {
-	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-	const content = resultText(result);
-	text.setText(context.isError ? theme.fg("error", content) : renderFindText(result, theme));
-	return text;
+): Component {
+	const details = findDetails(result.details);
+	if (context.isError || details === undefined)
+		return new Text(
+			context.isError
+				? theme.fg("error", resultText(result))
+				: resultText(result)
+						.split("\n")
+						.filter((line) => !FIND_CURSOR.test(line))
+						.join("\n"),
+			0,
+			0,
+		);
+	const body = findBodyLines(details);
+	const visible = options.expanded
+		? [...body]
+		: body.slice(0, MAX_COLLAPSED_GREP_RESULT_PREVIEW_LINES - 1);
+	if (!options.expanded && body.length > visible.length)
+		visible.push({
+			kind: "omission",
+			text: `... (${body.length - visible.length} more lines, ctrl+o to expand)`,
+		});
+	return new GrepResultComponent(
+		new Text(renderFindBody(visible, theme).join("\n"), 0, 0),
+		theme,
+		findFooter(details),
+	);
 }

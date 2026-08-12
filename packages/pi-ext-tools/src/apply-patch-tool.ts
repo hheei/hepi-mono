@@ -138,9 +138,14 @@ function recoveryLines(result: ApplyPatchInWorkspaceResult): readonly string[] {
 		...new Set(result.rejected.flatMap((rejection) => rejection.operationIndices)),
 	];
 	const scope = operations.map(operationText).join(", ");
+	const hasHunkDiagnostics = result.rejected.some((rejection) => rejection.diagnostics.length > 0);
 	return [
-		`Recovery: read ${paths.join(", ")}, then retry only ${scope}.`,
-		...(result.applied.length === 0 ? [] : ["Do not retry applied operations."]),
+		hasHunkDiagnostics
+			? `Recovery: read ${paths.join(", ")}, then retry only rejected hunks from ${scope}.`
+			: `Recovery: read ${paths.join(", ")}, then retry only ${scope}.`,
+		...(result.applied.length === 0
+			? []
+			: [hasHunkDiagnostics ? "Do not retry applied hunks." : "Do not retry applied operations."]),
 	];
 }
 

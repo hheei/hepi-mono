@@ -32,6 +32,7 @@ const BASH_PROMPT_GUIDELINES = [
 	"Use `pty` only for interactive terminal programs such as `sudo` or `ssh`.",
 	"NEVER combine `pty` with `async`.",
 ] as const;
+const MAX_STREAMING_PREVIEW_LINES = 12;
 const Timeout = Type.Optional(
 	Type.Number({ description: "Timeout in seconds (optional, no default timeout)" }),
 );
@@ -94,6 +95,10 @@ function bashFooter(
 	return `exit ${exitCode} · ${lineCount(output)} lines · ${duration}`;
 }
 
+function outputText(result: AgentToolResult<unknown>): string {
+	return result.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
+}
+
 class BashOutputFrame implements Component {
 	constructor(
 		private readonly body: Component,
@@ -103,18 +108,19 @@ class BashOutputFrame implements Component {
 
 	render(width: number): string[] {
 		const output = this.body.render(width).map((line) => stripTerminalSequences(line));
-		const hintIndex = output.findIndex((line) => /^\.\.\. \(\d+ earlier lines,/.test(line));
+		const preview = this.footer === undefined ? compactStreamingOutput(output) : output;
+		const hintIndex = preview.findIndex((line) => /^\.\.\. \(\d+ earlier lines,/.test(line));
 		if (hintIndex !== -1) {
-			if (output[hintIndex - 1] === "") output.splice(hintIndex - 1, 1);
-			const adjustedHintIndex = output.findIndex((line) =>
+			if (preview[hintIndex - 1] === "") preview.splice(hintIndex - 1, 1);
+			const adjustedHintIndex = preview.findIndex((line) =>
 				/^\.\.\. \(\d+ earlier lines,/.test(line),
 			);
-			if (output[adjustedHintIndex + 1] === "") output.splice(adjustedHintIndex + 1, 1);
-			const hint = output[adjustedHintIndex];
-			if (hint !== undefined) output[adjustedHintIndex] = this.theme.fg("dim", hint);
+			if (preview[adjustedHintIndex + 1] === "") preview.splice(adjustedHintIndex + 1, 1);
+			const hint = preview[adjustedHintIndex];
+			if (hint !== undefined) preview[adjustedHintIndex] = this.theme.fg("dim", hint);
 		}
 		return [
-			...output.map((line) => this.theme.fg("text", line)),
+			...preview.map((line) => this.theme.fg("text", line)),
 			this.theme.fg("borderMuted", "─".repeat(Math.max(1, width))),
 			...(this.footer === undefined ? [] : [this.theme.fg("dim", this.footer)]),
 		];
@@ -123,6 +129,12 @@ class BashOutputFrame implements Component {
 	invalidate(): void {
 		this.body.invalidate();
 	}
+}
+
+function compactStreamingOutput(lines: readonly string[]): string[] {
+	if (lines.length <= MAX_STREAMING_PREVIEW_LINES) return [...lines];
+	const visible = lines.slice(-(MAX_STREAMING_PREVIEW_LINES - 1));
+	return [`... (${lines.length - visible.length} earlier lines, ctrl+o to expand)`, ...visible];
 }
 
 function result(text: string, details: Record<string, unknown> = {}): BashToolResult {
@@ -299,7 +311,9 @@ export function registerBashTool(
 			theme: Parameters<UpstreamRenderResult>[2],
 			context: Parameters<UpstreamRenderResult>[3],
 		) {
-			const body = upstreamRenderResult?.(result, options, theme, context) ?? new Text("", 0, 0);
+			const body = options.isPartial
+				? new Text(outputText(result), 0, 0)
+				: (upstreamRenderResult?.(result, options, theme, context) ?? new Text("", 0, 0));
 			return new BashOutputFrame(
 				body,
 				theme,

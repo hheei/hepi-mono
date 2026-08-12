@@ -117,7 +117,7 @@ function headerFor(
 			primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${collapsed ? theme.fg("dim", path) : path}${theme.fg(collapsed ? "dim" : "warning", range)}`,
 		};
 	}
-	if (tool.name === "grep" && pattern !== undefined) {
+	if ((tool.name === "grep" || tool.name === "find") && pattern !== undefined) {
 		if (collapsed)
 			return {
 				primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${theme.fg("dim", `/${pattern}/${path === undefined ? "" : ` in ${path}`}`)}`,

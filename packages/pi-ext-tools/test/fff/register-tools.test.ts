@@ -141,9 +141,13 @@ describe("FFF tool registration", () => {
 
 		const text = result.content[0];
 		if (text?.type !== "text") throw new Error("Expected text result");
-		expect(text.text).toStartWith("1. src/find-enhancement.ts (fuzzy) - hot git:modified");
+		expect(text.text).toBe("fuzzy files:\nsrc/find-enhancement.ts\ncursor: find:1");
 		expect(text.text).toContain("cursor: find:");
 		expect(result.details).toMatchObject({
+			format: "canonical-find",
+			candidates: [{ path: "src/find-enhancement.ts", matchType: "fuzzy" }],
+			totalMatched: 2,
+			totalFiles: 2,
 			__piExtToolsCompletion: { durationMs: expect.any(Number) },
 		});
 	});

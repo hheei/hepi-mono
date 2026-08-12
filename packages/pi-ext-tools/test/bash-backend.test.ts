@@ -289,6 +289,49 @@ test("bash compacts and dims its collapsed earlier-lines hint", (): void => {
 	expect(text).not.toMatch(/<\/dim><\/text>\n<text><\/text>\n<text>line/);
 });
 
+test("bash keeps twelve streaming output lines like grep", (): void => {
+	const tools: ToolDefinition[] = [];
+	registerBashTool({
+		registerTool(tool: ToolDefinition): void {
+			tools.push(tool);
+		},
+	} as unknown as ExtensionAPI);
+	const bash = tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("Expected bash tool");
+	const theme = {
+		bg: (_role: string, text: string): string => text,
+		fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
+		bold: (text: string): string => text,
+	} as Theme;
+	const lines = bash
+		.renderResult?.(
+			{
+				content: [
+					{
+						type: "text",
+						text: Array.from({ length: 30 }, (_, index) => `line ${index + 1}`).join("\n"),
+					},
+				],
+				details: {},
+			},
+			{ expanded: false, isPartial: true },
+			theme,
+			{
+				args: { command: "printf many" },
+				isError: false,
+				isPartial: true,
+				lastComponent: undefined,
+				state: {},
+			} as never,
+		)
+		.render(120)
+		.filter((line) => !line.includes("─"));
+	expect(lines).toHaveLength(12);
+	expect(lines[0]).toContain("... (19 earlier lines, ctrl+o to expand)");
+	expect(lines[0]).toContain("<dim>");
+	expect(lines.at(-1)).toContain("line 30");
+});
+
 test("bash summarizes exit code, output lines, and duration in collapsed traces", async (): Promise<void> => {
 	const tools: ToolDefinition[] = [];
 	const trace = new ToolTraceController();
