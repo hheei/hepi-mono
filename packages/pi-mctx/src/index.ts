@@ -124,6 +124,7 @@ import {
 	trackSessionForProject,
 } from "./context-handler";
 import {
+	advancePiChannel1Turn,
 	CHANNEL1_NUDGE_CUSTOM_TYPE,
 	CHANNEL2_NUDGE_CUSTOM_TYPE,
 	type Channel1NudgeMessageDetails,
@@ -1733,6 +1734,7 @@ async function startPiMagicContextRuntime(
 				typeof endedMsg.id === "string" &&
 				endedMsg.id.length > 0
 			) {
+				advancePiChannel1Turn(sessionId);
 				const messageId = endedMsg.id;
 				scheduleIncrementalIndex(db, sessionId, messageId, () => {
 					const rawMessages = readPiSessionMessages(ctx);
