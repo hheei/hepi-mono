@@ -95,13 +95,21 @@ describe("apply_patch progress renderer", () => {
 		expect(text).toContain("✓ modify src/updated.ts +6 -2");
 		expect(text).toContain("! modify src/fuzzy.ts +7 -1 (0.72)");
 		expect(text).toContain("✗ delete src/rejected.ts -7");
-		expect(text).toContain("created 1 · deleted 1 · modified 2 · 0.72s");
+		expect(text).toContain("created 1 · deleted 1 · modified 2 · +17 -10 lines · 0.72s");
 	});
 
-	test("uses semantic colors for patch facts", () => {
+	test("uses semantic colors for patch rows and dim-only footers", () => {
 		roles.splice(0);
+		const taggedTheme = {
+			fg: (role: string, text: string) => `<${role}>${text}</${role}>`,
+			bold: (text: string) => text,
+		};
+		const text = renderApplyPatchResult(details, false, taggedTheme as never)
+			.render(200)
+			.join("\n");
 		renderApplyPatchResult(details, false, theme as never).render(200);
 		expect(roles).toEqual(expect.arrayContaining(["success", "error", "warning", "dim"]));
+		expect(text).toContain("<dim>created 1 · deleted 1 · modified 2 · +17 -10 lines · 0.72s</dim>");
 	});
 
 	test("keeps created paths in the base theme", () => {
@@ -125,7 +133,7 @@ describe("apply_patch progress renderer", () => {
 			...details,
 			operations: [details.operations[0]!],
 		};
-		expect(formatApplyPatchFooter(createdOnly)).toBe("created 1 · 0.72s");
+		expect(formatApplyPatchFooter(createdOnly)).toBe("created 1 · +17 -10 lines · 0.72s");
 	});
 
 	test("keeps outcome-time diff expanded only", () => {
@@ -151,6 +159,19 @@ describe("apply_patch progress renderer", () => {
 			.render(200)
 			.join("\n");
 		expect(text).toContain("○ create src/created.ts +4");
-		expect(formatApplyPatchFooter(details)).toBe("created 1 · deleted 1 · modified 2 · 0.72s");
+		expect(formatApplyPatchFooter(details)).toBe(
+			"created 1 · deleted 1 · modified 2 · +17 -10 lines · 0.72s",
+		);
+	});
+
+	test("shows zero lines when the final outcome has no changes", () => {
+		expect(
+			formatApplyPatchFooter({
+				...details,
+				addedLines: 0,
+				removedLines: 0,
+				operations: [],
+			}),
+		).toBe("0 lines · 0.72s");
 	});
 });

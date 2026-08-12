@@ -8,7 +8,7 @@ import {
 	type Theme,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { type Component, Text } from "@earendil-works/pi-tui";
+import { type Component, stripTerminalSequences, Text } from "@earendil-works/pi-tui";
 import type { OutputRegistry } from "@hheei/pi-ext-core";
 import {
 	createOutputRegistry,
@@ -91,7 +91,7 @@ function bashFooter(
 			: completion.durationMs < 1_000
 				? `${completion.durationMs}ms`
 				: `${(completion.durationMs / 1_000).toFixed(1)}s`;
-	return `exitcode ${exitCode} · ${lineCount(output)} lines · ${duration}`;
+	return `exit ${exitCode} · ${lineCount(output)} lines · ${duration}`;
 }
 
 class BashOutputFrame implements Component {
@@ -102,8 +102,19 @@ class BashOutputFrame implements Component {
 	) {}
 
 	render(width: number): string[] {
+		const output = this.body.render(width).map((line) => stripTerminalSequences(line));
+		const hintIndex = output.findIndex((line) => /^\.\.\. \(\d+ earlier lines,/.test(line));
+		if (hintIndex !== -1) {
+			if (output[hintIndex - 1] === "") output.splice(hintIndex - 1, 1);
+			const adjustedHintIndex = output.findIndex((line) =>
+				/^\.\.\. \(\d+ earlier lines,/.test(line),
+			);
+			if (output[adjustedHintIndex + 1] === "") output.splice(adjustedHintIndex + 1, 1);
+			const hint = output[adjustedHintIndex];
+			if (hint !== undefined) output[adjustedHintIndex] = this.theme.fg("dim", hint);
+		}
 		return [
-			...this.body.render(width),
+			...output.map((line) => this.theme.fg("text", line)),
 			this.theme.fg("borderMuted", "─".repeat(Math.max(1, width))),
 			...(this.footer === undefined ? [] : [this.theme.fg("dim", this.footer)]),
 		];

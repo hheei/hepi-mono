@@ -223,7 +223,7 @@ test("bash encloses its output between full-width dividers", (): void => {
 	if (bash === undefined) throw new Error("Expected bash tool");
 	const theme = {
 		bg: (_role: string, text: string): string => text,
-		fg: (_role: string, text: string): string => text,
+		fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
 		bold: (text: string): string => text,
 	} as Theme;
 	const lines = bash
@@ -240,10 +240,53 @@ test("bash encloses its output between full-width dividers", (): void => {
 			} as never,
 		)
 		.render(40);
-	expect(lines?.[0]).toBe("─".repeat(40));
-	expect(lines?.at(-2)).toBe("─".repeat(40));
-	expect(lines?.at(-1)).toBe("exitcode ? · 1 lines · completed");
-	expect(lines?.join("\n")).toContain("stdout");
+	expect(lines?.[0]).toBe(`<borderMuted>${"─".repeat(40)}</borderMuted>`);
+	expect(lines?.at(-2)).toBe(`<borderMuted>${"─".repeat(40)}</borderMuted>`);
+	expect(lines?.at(-1)).toBe("<dim>exit ? · 1 lines · completed</dim>");
+	expect(lines?.join("\n")).toContain("<text>stdout");
+	expect(lines?.join("\n")).not.toContain("<toolOutput>stdout</toolOutput>");
+});
+
+test("bash compacts and dims its collapsed earlier-lines hint", (): void => {
+	const tools: ToolDefinition[] = [];
+	registerBashTool({
+		registerTool(tool: ToolDefinition): void {
+			tools.push(tool);
+		},
+	} as unknown as ExtensionAPI);
+	const bash = tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("Expected bash tool");
+	const theme = {
+		bg: (_role: string, text: string): string => text,
+		fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
+		bold: (text: string): string => text,
+	} as Theme;
+	const text = bash
+		.renderResult?.(
+			{
+				content: [
+					{
+						type: "text",
+						text: Array.from({ length: 90 }, (_, index) => `line ${index}`).join("\n"),
+					},
+				],
+				details: {},
+			},
+			{ expanded: false, isPartial: false },
+			theme,
+			{
+				args: { command: "printf many" },
+				isError: false,
+				isPartial: false,
+				lastComponent: undefined,
+				state: {},
+			} as never,
+		)
+		.render(120)
+		.join("\n");
+	expect(text).toMatch(/<text><dim>\.\.\. \(\d+ earlier lines,/);
+	expect(text).not.toMatch(/\n<text><\/text>\n<text><dim>\.\.\./);
+	expect(text).not.toMatch(/<\/dim><\/text>\n<text><\/text>\n<text>line/);
 });
 
 test("bash summarizes exit code, output lines, and duration in collapsed traces", async (): Promise<void> => {
@@ -288,5 +331,5 @@ test("bash summarizes exit code, output lines, and duration in collapsed traces"
 		} as never)
 		.render(120)
 		.join("\n");
-	expect(footer).toMatch(/exitcode 0 · 2 lines · \d+ms/);
+	expect(footer).toMatch(/exit 0 · 2 lines · \d+ms/);
 });

@@ -147,6 +147,10 @@ function normalizedContext(context: number | undefined): number {
 	return Math.max(0, Math.floor(context ?? 0));
 }
 
+function normalizeGrepParams(params: GrepParams): GrepParams {
+	return params.path?.trim() === "" ? { ...params, path: "." } : params;
+}
+
 function object(value: unknown): Record<string, unknown> | undefined {
 	return typeof value === "object" && value !== null
 		? (value as Record<string, unknown>)
@@ -602,6 +606,7 @@ export function registerGrepTool(
 			_onUpdate: undefined,
 			context: { cwd: string },
 		) {
+			params = normalizeGrepParams(params);
 			const startedAt = performance.now();
 			abortIfNeeded(signal);
 			if (params.path?.startsWith(ARTIFACT_PREFIX))

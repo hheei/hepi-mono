@@ -26,7 +26,7 @@ type ReadPreviewContext = {
 
 type ReadPreviewLine =
 	| { readonly type: "text"; readonly sourceIndex: number; readonly text: string }
-	| { readonly type: "omission" };
+	| { readonly type: "omission"; readonly hiddenLines: number };
 
 function textResult(result: AgentToolResult<unknown>): string | undefined {
 	if (result.content.some((part) => part.type === "image")) return undefined;
@@ -100,7 +100,10 @@ function previewLines(lines: readonly string[]): readonly ReadPreviewLine[] {
 			sourceIndex,
 			text,
 		})),
-		{ type: "omission" as const },
+		{
+			type: "omission" as const,
+			hiddenLines: lines.length - PREVIEW_HEAD_LINES - PREVIEW_TAIL_LINES,
+		},
 		...lines.slice(-PREVIEW_TAIL_LINES).map((text, index) => ({
 			type: "text" as const,
 			sourceIndex: lines.length - PREVIEW_TAIL_LINES + index,
@@ -134,7 +137,7 @@ class ReadPreviewComponent implements Component {
 		return [
 			...this.lines.map((line) => {
 				if (line.type === "omission")
-					return this.theme.fg("dim", `${" ".repeat(lineNumberWidth)}│...`);
+					return this.theme.fg("dim", `... (${line.hiddenLines} hidden lines, ctrl+o to expand)`);
 				const prefix = `${String(this.startLine + line.sourceIndex).padStart(lineNumberWidth)}│`;
 				const contentWidth = Math.max(0, availableWidth - visibleWidth(prefix));
 				const truncated = visibleWidth(line.text) > contentWidth;

@@ -141,7 +141,7 @@ describe("pi-ext-tools catalog", () => {
 			.join("\n");
 		expect(preview).toContain("<dim> 9│</dim>H1");
 		expect(preview).toContain("<dim>10│</dim>H2");
-		expect(preview).toContain("<dim>  │...</dim>");
+		expect(preview).toContain("<dim>... (43 hidden lines, ctrl+o to expand)</dim>");
 		expect(preview).toContain("<dim>55│</dim>T1");
 		expect(preview).toContain("<dim>56│</dim>T2");
 		expect(preview).toContain("<dim>315 chars · 48 lines · 10ms</dim>");
@@ -359,7 +359,7 @@ describe("pi-ext-tools catalog", () => {
 			.join("\n")
 			.trimEnd();
 		expect(grepCall).toBe(
-			"<warning>◐</warning> <accent>grep</accent> <mdCode>/needle/</mdCode> in <dim>src</dim>",
+			"<warning>◐</warning> <toolTitle>grep</toolTitle> <mdCode>/needle/</mdCode> in <dim>src</dim>",
 		);
 		const grepResult = grep
 			.renderResult?.(
