@@ -1663,7 +1663,7 @@ async function startPiMagicContextRuntime(
 				{
 					customType: CHANNEL1_NUDGE_CUSTOM_TYPE,
 					content: reminder.content,
-					display: true,
+					display: reminder.display,
 					details: { displayText: reminder.displayText },
 				},
 				{ deliverAs: "steer" },

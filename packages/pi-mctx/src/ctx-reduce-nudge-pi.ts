@@ -37,6 +37,7 @@ export interface Channel1NudgeMessageDetails {
 export interface Channel1Reminder {
 	content: string;
 	displayText: string;
+	display: boolean;
 	nextLastNudge: number;
 	nextLastNudgeLevel: string;
 }
@@ -264,6 +265,7 @@ export function maybeChannel1ReminderForToolResult(args: {
 		displayText: content
 			.replace(/^\n*<system-reminder>\n?/, "")
 			.replace(/\n?<\/system-reminder>\s*$/, ""),
+		display: decision.level === "urgent",
 		nextLastNudge: decision.nextLastNudge,
 		nextLastNudgeLevel: decision.nextLastNudgeLevel,
 	};

@@ -107,6 +107,7 @@ describe("maybeChannel1ReminderForToolResult", () => {
 		expect(reminder?.content).toContain("ctx_reduce");
 		expect(reminder?.displayText).not.toContain("<system-reminder>");
 		expect(reminder?.displayText).toContain("ctx_reduce");
+		expect(reminder?.display).toBe(false);
 		expect(getLastNudgeUndropped(db, SESSION)).toBe(0);
 		if (reminder) markChannel1ReminderDelivered(db, SESSION, reminder);
 		expect(getLastNudgeUndropped(db, SESSION)).toBeGreaterThan(0);
@@ -154,6 +155,30 @@ describe("maybeChannel1ReminderForToolResult", () => {
 			content: [{ type: "text", text: "more output" }],
 		});
 		expect(next).toBeNull();
+		clearPiChannel1State(SESSION);
+	});
+
+	it("keeps gentle and firm hidden but renders urgent", () => {
+		const db = createTestDb();
+		seedBaseline(90_000);
+		const firm = maybeChannel1ReminderForToolResult({
+			db,
+			sessionId: SESSION,
+			toolName: "bash",
+			content: [{ type: "text", text: "out" }],
+		});
+		expect(firm?.nextLastNudgeLevel).toBe("firm");
+		expect(firm?.display).toBe(false);
+		if (firm) markChannel1ReminderDelivered(db, SESSION, firm);
+
+		const urgent = maybeChannel1ReminderForToolResult({
+			db,
+			sessionId: SESSION,
+			toolName: "bash",
+			content: [{ type: "text", text: "x".repeat(160_000) }],
+		});
+		expect(urgent?.nextLastNudgeLevel).toBe("urgent");
+		expect(urgent?.display).toBe(true);
 		clearPiChannel1State(SESSION);
 	});
 
