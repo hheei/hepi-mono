@@ -39,9 +39,10 @@ const TOOL_BACKGROUNDS: ReadonlySet<Parameters<Theme["bg"]>[0]> = new Set([
 function unboxedTheme(theme: Theme): Theme {
 	return new Proxy(theme, {
 		get(target, property, receiver): unknown {
-			if (property !== "bg") return Reflect.get(target, property, receiver);
-			return (role: Parameters<Theme["bg"]>[0], text: string): string =>
-				TOOL_BACKGROUNDS.has(role) ? text : target.bg(role, text);
+			if (property === "bg")
+				return (role: Parameters<Theme["bg"]>[0], text: string): string =>
+					TOOL_BACKGROUNDS.has(role) ? text : target.bg(role, text);
+			return Reflect.get(target, property, receiver);
 		},
 	});
 }
@@ -113,12 +114,16 @@ function headerFor(
 					: `:${offset}`
 				: `:${offset ?? 1}-${(offset ?? 1) + limit - 1}`;
 		return {
-			primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${collapsed ? theme.fg("dim", path) : path}${theme.fg("warning", range)}`,
+			primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${collapsed ? theme.fg("dim", path) : path}${theme.fg(collapsed ? "dim" : "warning", range)}`,
 		};
 	}
 	if (tool.name === "grep" && pattern !== undefined) {
+		if (collapsed)
+			return {
+				primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${theme.fg("dim", `/${pattern}/${path === undefined ? "" : ` in ${path}`}`)}`,
+			};
 		const summary = [
-			theme.fg("accent", "grep"),
+			theme.fg("toolTitle", theme.bold(tool.label)),
 			theme.fg("mdCode", `/${pattern}/`),
 			...(path === undefined ? [] : ["in", theme.fg("dim", path)]),
 		].join(" ");

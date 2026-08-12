@@ -250,6 +250,46 @@ describe("FFF tool registration", () => {
 		expect(match).toBe("4:near needle");
 	});
 
+	test("treats an empty grep path as the current directory", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-grep-empty-path-"));
+		try {
+			await writeFile(join(cwd, "needle.ts"), "const needle = true;\n");
+			const outputs = createOutputRegistry();
+			const state = {
+				getRuntime: () => undefined,
+				getSettings: () => ({
+					shellPath: "sh",
+					bashOutputTailKiB: 10,
+					autocomplete: true,
+					grepEnhancement: true,
+					readEnhancement: true,
+					findEnhancement: true,
+					statusUI: true,
+				}),
+				getBashJobs: () => undefined,
+				getOutputs: () => outputs,
+			} satisfies FffRuntimeState;
+			const host = harness();
+			registerGrepTool(host.pi, state);
+			const grep = host.tools[0];
+			if (grep === undefined) throw new Error("Expected grep tool");
+			const result = await grep.execute(
+				"grep-empty-path",
+				{ pattern: "needle", path: "" },
+				undefined,
+				undefined,
+				{ cwd } as never,
+			);
+			const content = result.content[0];
+			if (content?.type !== "text") throw new Error("Expected grep text result");
+			expect(content.text).toContain("1 matches in 1 files");
+			expect(content.text).toContain("./needle.ts");
+			expect(content.text).toContain("1:const needle = true;");
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
 	test("searches output text with grep and rejects it from find", async () => {
 		const outputs = createOutputRegistry();
 		const path = outputs.create("before\nNeedle\nafter");

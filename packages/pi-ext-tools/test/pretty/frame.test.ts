@@ -160,12 +160,14 @@ describe("withToolFrame", () => {
 		expect(expanded?.render(80).join("\n")).toContain("result body");
 	});
 
-	test("dims read paths and truncation markers in prior traces", (): void => {
+	test("dims historical read and grep parameters", (): void => {
 		const trace = new ToolTraceController();
 		const framed = withToolFrame(tool(), trace);
 		trace.startTrace();
 		trace.begin("call-1");
 		trace.complete("call-1");
+		trace.begin("grep-1");
+		trace.complete("grep-1");
 		trace.startTrace();
 		const collapsedTheme = {
 			bg: (_role: string, text: string): string => text,
@@ -183,6 +185,30 @@ describe("withToolFrame", () => {
 		const line = call?.render(30)[0];
 		expect(line).toContain("\u001B[2msrc/");
 		expect(line).toContain("\u001B[2m>\u001B[22m");
+		const readRange = framed.renderCall?.(
+			{ path: "src/outcome.ts", offset: 58, limit: 70 },
+			collapsedTheme,
+			{
+				...(context(false) as object),
+				toolCallId: "call-1",
+				executionStarted: false,
+				expanded: false,
+				invalidate: (): void => undefined,
+			} as never,
+		);
+		expect(readRange?.render(100)[0]).toContain("\u001B[2m:58-127\u001B[22m");
+
+		const grepFramed = withToolFrame({ ...tool(), name: "grep", label: "grep" }, trace);
+		const grep = grepFramed.renderCall?.({ pattern: "needle", path: "src" }, collapsedTheme, {
+			...(context(false) as object),
+			toolCallId: "grep-1",
+			executionStarted: false,
+			expanded: false,
+			invalidate: (): void => undefined,
+		} as never);
+		const grepLine = grep?.render(100)[0];
+		expect(grepLine).toContain("grep");
+		expect(grepLine).toContain("\u001B[2m/needle/ in src\u001B[22m");
 	});
 
 	test("restores a warning header without synchronously repeating the result", async (): Promise<void> => {

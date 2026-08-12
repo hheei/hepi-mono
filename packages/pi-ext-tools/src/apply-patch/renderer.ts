@@ -62,17 +62,27 @@ function operations(details: ApplyPatchToolDetails): readonly ApplyPatchOperatio
 	];
 }
 
-function footer(details: ApplyPatchToolDetails, theme?: Theme): string {
-	const color = (role: "success" | "error" | "warning", text: string): string =>
-		theme?.fg(role, text) ?? text;
+function totalDelta(details: ApplyPatchToolDetails): string {
+	return (
+		[
+			details.addedLines === 0 ? undefined : `+${details.addedLines}`,
+			details.removedLines === 0 ? undefined : `-${details.removedLines}`,
+		]
+			.filter((value): value is string => value !== undefined)
+			.join(" ") || "0"
+	);
+}
+
+function footer(details: ApplyPatchToolDetails): string {
 	const count = (kind: ApplyPatchOperationProgress["kind"]): number =>
 		operations(details).filter(
 			(operation) => operation.kind === kind && operation.status !== "pending",
 		).length;
 	return [
-		count("add") > 0 ? color("success", `created ${count("add")}`) : undefined,
-		count("delete") > 0 ? color("error", `deleted ${count("delete")}`) : undefined,
-		count("update") > 0 ? color("warning", `modified ${count("update")}`) : undefined,
+		count("add") > 0 ? `created ${count("add")}` : undefined,
+		count("delete") > 0 ? `deleted ${count("delete")}` : undefined,
+		count("update") > 0 ? `modified ${count("update")}` : undefined,
+		details.progress === undefined ? `${totalDelta(details)} lines` : undefined,
 		duration(details.durationMs),
 	]
 		.filter((value): value is string => value !== undefined)
@@ -132,7 +142,7 @@ export function renderApplyPatchResult(
 			container.addChild(new Text(theme.fg("error", rejected.error), 0, 0));
 	}
 	container.addChild(new FullWidthRule(theme));
-	container.addChild(new Text(theme.fg("dim", footer(details, theme)), 0, 0));
+	container.addChild(new Text(theme.fg("dim", footer(details)), 0, 0));
 	return container;
 }
 
