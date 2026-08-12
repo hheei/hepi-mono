@@ -4,13 +4,16 @@ import { join } from "node:path";
 import {
 	getChannel2NudgeClaimedAt,
 	getChannel2NudgeState,
+	getLastNudgeUndropped,
 	setChannel2NudgeState,
 } from "#core/features/storage";
 import * as loggerModule from "#core/shared/logger";
 import {
+	CHANNEL2_NUDGE_CUSTOM_TYPE,
 	clearPiChannel1State,
 	computeTailTokenEstimatePi,
 	computeTailToolTokensPi,
+	markChannel1ReminderDelivered,
 	maybeChannel1ReminderForToolResult,
 	maybeDeliverChannel2Pi,
 	setPiChannel1Baseline,
@@ -91,19 +94,22 @@ describe("maybeChannel1ReminderForToolResult", () => {
 		expect(block).toBeNull();
 	});
 
-	it("fires a system-reminder block when pressure + undropped warrant it", () => {
+	it("returns a raw system-reminder plus an unwrapped display body", () => {
 		const db = createTestDb();
 		seedBaseline(90_000);
-		const block = maybeChannel1ReminderForToolResult({
+		const reminder = maybeChannel1ReminderForToolResult({
 			db,
 			sessionId: SESSION,
 			toolName: "bash",
 			content: [{ type: "text", text: "some bash output" }],
 		});
-		expect(block).not.toBeNull();
-		expect(block?.type).toBe("text");
-		expect(block?.text).toContain("<system-reminder>");
-		expect(block?.text).toContain("ctx_reduce");
+		expect(reminder?.content).toContain("<system-reminder>");
+		expect(reminder?.content).toContain("ctx_reduce");
+		expect(reminder?.displayText).not.toContain("<system-reminder>");
+		expect(reminder?.displayText).toContain("ctx_reduce");
+		expect(getLastNudgeUndropped(db, SESSION)).toBe(0);
+		if (reminder) markChannel1ReminderDelivered(db, SESSION, reminder);
+		expect(getLastNudgeUndropped(db, SESSION)).toBeGreaterThan(0);
 		clearPiChannel1State(SESSION);
 	});
 
@@ -126,7 +132,7 @@ describe("maybeChannel1ReminderForToolResult", () => {
 			toolName: "bash",
 			content: [{ type: "text", text: "some bash output" }],
 		});
-		expect(block?.text).toContain("oldest reclaimable: §123§ read.");
+		expect(block?.displayText).toContain("oldest reclaimable: §123§ read.");
 		clearPiChannel1State(SESSION);
 	});
 
@@ -151,16 +157,24 @@ describe("maybeChannel1ReminderForToolResult", () => {
 		clearPiChannel1State(SESSION);
 	});
 
-	it("is idempotent — does not double-append to a result already carrying the marker", () => {
+	it("is idempotent after delivery commits cadence state", () => {
 		const db = createTestDb();
 		seedBaseline(90_000);
-		const block = maybeChannel1ReminderForToolResult({
+		const first = maybeChannel1ReminderForToolResult({
 			db,
 			sessionId: SESSION,
 			toolName: "bash",
-			content: [{ type: "text", text: "out <system-reminder> already here" }],
+			content: [{ type: "text", text: "out" }],
 		});
-		expect(block).toBeNull();
+		expect(first).not.toBeNull();
+		if (first) markChannel1ReminderDelivered(db, SESSION, first);
+		const next = maybeChannel1ReminderForToolResult({
+			db,
+			sessionId: SESSION,
+			toolName: "bash",
+			content: [{ type: "text", text: "out" }],
+		});
+		expect(next).toBeNull();
 		clearPiChannel1State(SESSION);
 	});
 });
@@ -199,7 +213,7 @@ describe("maybeDeliverChannel2Pi", () => {
 		});
 	}
 
-	it("regression: keeps the model-visible ceiling nudge on sendMessage(display:false, followUp)", () => {
+	it("regression: renders a model-visible ceiling nudge as a custom block", () => {
 		const db = createTestDb();
 		setChannel2NudgeState(db, SESSION, "pending");
 		armStrongBaseline(SESSION);
@@ -221,9 +235,9 @@ describe("maybeDeliverChannel2Pi", () => {
 		);
 		expect(delivered).toBe(true);
 		expect(capturedDeliverAs).toBe("followUp");
-		// Hidden from the Pi TUI (agent steer, not a user turn) but still model-visible.
-		expect(capturedDisplay).toBe(false);
-		expect(capturedCustomType).toBe("magic-context:ceiling-nudge");
+		// Visible custom message rendered as [magic context], still model-visible.
+		expect(capturedDisplay).toBe(true);
+		expect(capturedCustomType).toBe(CHANNEL2_NUDGE_CUSTOM_TYPE);
 		expect(capturedContent).toContain("<system-reminder>");
 		expect(capturedContent).toContain("ctx_reduce");
 		expect(capturedContent).toContain("oldest reclaimable");

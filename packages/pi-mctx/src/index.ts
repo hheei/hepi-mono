@@ -15,7 +15,12 @@
 
 import { createRequire } from "node:module";
 import { join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+	CustomMessage,
+	ExtensionAPI,
+	Theme,
+} from "@earendil-works/pi-coding-agent";
+import { Box, type Component, Text } from "@earendil-works/pi-tui";
 import {
 	isCompactionEnabled,
 	isDreamerRunnable,
@@ -119,6 +124,10 @@ import {
 	trackSessionForProject,
 } from "./context-handler";
 import {
+	CHANNEL1_NUDGE_CUSTOM_TYPE,
+	CHANNEL2_NUDGE_CUSTOM_TYPE,
+	type Channel1NudgeMessageDetails,
+	markChannel1ReminderDelivered,
 	markPiChannel1Reduced,
 	maybeChannel1ReminderForToolResult,
 	maybeDeliverChannel2Pi,
@@ -151,6 +160,23 @@ import { withTimeout } from "./timeout";
 import { registerMagicContextTools } from "./tools";
 
 const PREFIX = "[magic-context][pi]";
+
+export function renderChannel1Nudge(
+	message: CustomMessage<Channel1NudgeMessageDetails>,
+	_options: { expanded: boolean; outputPad: number },
+	theme: Theme,
+): Component | undefined {
+	const text = message.details?.displayText;
+	if (typeof text !== "string") return undefined;
+	const box = new Box(1, 0, (content) => theme.bg("customMessageBg", content));
+	box.addChild(
+		new Text(
+			`${theme.bold(theme.fg("accent", "[magic context]"))}\n${theme.fg("customMessageText", text)}`,
+		),
+	);
+	return box;
+}
+
 
 // ---------------------------------------------------------------------------
 // Process-global init latch (issue #247)
@@ -655,6 +681,14 @@ async function startPiMagicContextRuntime(
 	config: MagicContextConfig,
 ): Promise<void> {
 	const db = database;
+	pi.registerMessageRenderer(
+		CHANNEL1_NUDGE_CUSTOM_TYPE,
+		renderChannel1Nudge,
+	);
+	pi.registerMessageRenderer(
+		CHANNEL2_NUDGE_CUSTOM_TYPE,
+		renderChannel1Nudge,
+	);
 
 	scheduleAfterBootQuiet(() => {
 		void (async () => {
@@ -1609,32 +1643,32 @@ async function startPiMagicContextRuntime(
 		}
 	});
 
-	// Channel 1 (ctx_reduce in-turn nudge), Pi parity with legacy host's
-	// `tool.execute.after` → `output.output` append. `tool_result` lets an
-	// extension REPLACE the recorded tool result content; returning the original
-	// content plus an appended `<system-reminder>` block persists to the session
-	// JSONL (via `appendMessage` on `message_end`) and replays verbatim on every
-	// later `context` pass — "free sticky", no anchor/CAS/replay machinery. The
-	// metric baseline is computed in the pipeline (`pi.on("context")`) and read
-	// here, exactly mirroring legacy host's transform→tool.execute.after split.
+	// Channel 1 is a separate persisted custom message. Its raw content remains
+	// model-visible `<system-reminder>` text; the renderer shows a [magic context]
+	// block and the original tool result stays byte-for-byte intact.
 	pi.on("tool_result", async (event, ctx) => {
 		try {
 			const sessionId = ctx.sessionManager.getSessionId();
 			if (typeof sessionId !== "string" || sessionId.length === 0) return;
-			// Channel 2 mid-turn delivery: a pending ceiling intent steers a
-			// queued user message into the NEXT STEP of the in-flight turn so
-			// the agent is warned while the pile is still growing (agent_end
-			// stays as the idle fallback). No-ops unless pending + revalidated.
 			if (compactionOff) return;
 			if (db) maybeDeliverChannel2Pi(pi, db, sessionId, "steer");
-			const block = maybeChannel1ReminderForToolResult({
+			const reminder = maybeChannel1ReminderForToolResult({
 				db,
 				sessionId,
 				toolName: event.toolName,
 				content: event.content,
 			});
-			if (!block) return;
-			return { content: [...event.content, block] };
+			if (!reminder) return;
+			pi.sendMessage(
+				{
+					customType: CHANNEL1_NUDGE_CUSTOM_TYPE,
+					content: reminder.content,
+					display: true,
+					details: { displayText: reminder.displayText },
+				},
+				{ deliverAs: "steer" },
+			);
+			markChannel1ReminderDelivered(db, sessionId, reminder);
 		} catch (err) {
 			log(
 				`tool_result hook failed (continuing): ${err instanceof Error ? err.message : String(err)}`,

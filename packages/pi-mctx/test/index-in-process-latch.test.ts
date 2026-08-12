@@ -38,6 +38,7 @@ function createCountingPi() {
 	const flags: string[] = [];
 	const commands: string[] = [];
 	const entryRenderers: string[] = [];
+	const messageRenderers: string[] = [];
 	const pi = {
 		on: mock((event: string) => {
 			events.push(event);
@@ -54,11 +55,14 @@ function createCountingPi() {
 		registerEntryRenderer: mock((customType: string) => {
 			entryRenderers.push(customType);
 		}),
+		registerMessageRenderer: mock((customType: string) => {
+			messageRenderers.push(customType);
+		}),
 		appendEntry: mock(() => undefined),
 		sendMessage: mock(() => undefined),
 		sendUserMessage: mock(() => undefined),
 	} as unknown as ExtensionAPI;
-	return { pi, events, tools, flags, commands, entryRenderers };
+	return { pi, events, tools, flags, commands, entryRenderers, messageRenderers };
 }
 
 afterEach(() => {
@@ -82,6 +86,10 @@ describe("Pi in-process re-init latch (#247)", () => {
 		expect(first.tools.length).toBeGreaterThan(0);
 		expect(first.commands.length).toBeGreaterThan(0);
 		expect(first.entryRenderers).toEqual(["ctx-status"]);
+		expect(first.messageRenderers).toEqual([
+			"magic-context:ctx-reduce-nudge",
+			"magic-context:ceiling-nudge",
+		]);
 
 		// The latch is now set in this process.
 		expect(__test.isPiMagicContextActiveInProcess()).toBe(true);
@@ -96,6 +104,7 @@ describe("Pi in-process re-init latch (#247)", () => {
 		expect(second.flags).toEqual([]);
 		expect(second.commands).toEqual([]);
 		expect(second.entryRenderers).toEqual([]);
+		expect(second.messageRenderers).toEqual([]);
 	}, 15_000);
 
 	it("clearing the latch (dispose) allows a full re-init", async () => {
@@ -119,6 +128,10 @@ describe("Pi in-process re-init latch (#247)", () => {
 		expect(second.tools.length).toBeGreaterThan(0);
 		expect(second.commands.length).toBeGreaterThan(0);
 		expect(second.entryRenderers).toEqual(["ctx-status"]);
+		expect(second.messageRenderers).toEqual([
+			"magic-context:ctx-reduce-nudge",
+			"magic-context:ceiling-nudge",
+		]);
 	}, 15_000);
 
 	it("spawned-child env guard still no-ops even when the latch is clear", async () => {
@@ -134,6 +147,7 @@ describe("Pi in-process re-init latch (#247)", () => {
 		expect(registrations.flags).toEqual([]);
 		expect(registrations.commands).toEqual([]);
 		expect(registrations.entryRenderers).toEqual([]);
+		expect(registrations.messageRenderers).toEqual([]);
 		// The env guard returns BEFORE setting the latch, so a later in-process
 		// init in the same process would still initialize fully. This pins the
 		// spawned-child contract: the env guard is a separate, earlier gate.

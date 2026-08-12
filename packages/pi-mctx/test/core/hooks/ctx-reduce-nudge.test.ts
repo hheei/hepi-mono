@@ -2,7 +2,6 @@ import { describe, expect, it } from "bun:test";
 import {
     buildChannel1Reminder,
     buildChannel2Reminder,
-    CHANNEL1_SENTINEL,
     CHANNEL2_MIN_RECLAIMABLE,
     CHANNEL2_USABLE_FRACTION,
     channel1RefireTokens,
@@ -248,9 +247,9 @@ describe("computePressure", () => {
 });
 
 describe("buildChannel1Reminder", () => {
-    it("wraps in the versioned sentinel and reports the amount", () => {
+    it("wraps a system-reminder and reports the amount", () => {
         const r = buildChannel1Reminder("firm", 42_000);
-        expect(r).toContain(CHANNEL1_SENTINEL);
+        expect(r).toContain("<system-reminder>");
         expect(r).toContain("</system-reminder>");
         expect(r).toContain("~42k");
     });
