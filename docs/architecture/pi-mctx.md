@@ -20,7 +20,7 @@ Pi host
 - `xpi-mctx` remains excluded: it is a historical archive, not part of active implementation.
 - OpenCode backend is not retained: no OpenCode DB access、config/RPC integration、legacy migration、plugin context, or cross-harness fallback remains under this package.
 - Pi MCTX 不拥有 Todo：不注册、观察或重放 `todowrite`，不提供 `/todos` 或 overlay，也不在数据库保存 Todo snapshot。独立 `pi-todo` package 是唯一的 Todo tool/UI owner；其工具 transcript 按普通 Pi tool 内容处理。
-- Pi MCTX 自动模型提醒使用 Pi `custom` session message：模型内容保留 `<system-reminder>…</system-reminder>`，交互 transcript 通过 `registerMessageRenderer` 显示 `[magic context]` 块。不得向 `toolResult.content` 挂载自动提醒。仅 `pi.on("context")` 的临时 message 变换可在当前 provider 请求中注入内容；该数组不写入 session，也没有 transcript 表示。
+- Pi MCTX 自动模型提醒使用 Pi `custom` session message：模型内容保留 `<system-reminder>…</system-reminder>`，交互 transcript 通过 `registerMessageRenderer` 显示 `[magic context]` 块。Channel 1 的 gentle/firm 级别保持模型可见但不显示；仅 urgent 级别显示该块，Channel 2 始终显示。不得向 `toolResult.content` 挂载自动提醒。仅 `pi.on("context")` 的临时 message 变换可在当前 provider 请求中注入内容；该数组不写入 session，也没有 transcript 表示。
 
 Pi raw-session data is supplied only by the adapter's `RawMessageProvider`; core fails closed when no provider is installed. Shared storage is Pi-owned and has no import or migration path from a legacy OpenCode database. Legacy subagent-invocation rows retain their invocation IDs and token totals, but the retired cross-host `harness` telemetry column is removed by a transactional table rebuild; callers no longer write or read a host origin for those rows.
 
