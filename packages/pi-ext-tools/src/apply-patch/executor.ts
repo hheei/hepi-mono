@@ -225,32 +225,40 @@ function reindexRejectedOutcome(
 	return { ...outcome, hunkIndex };
 }
 
+function hunkFailureSummary(
+	diagnostics: readonly Exclude<MpatchHunkOutcome, { readonly kind: "applied" }>[],
+): string | undefined {
+	const first = diagnostics[0];
+	if (first === undefined) return undefined;
+	switch (first.kind) {
+		case "context_not_found":
+			return "context not found";
+		case "ambiguous_exact":
+			return "exact context ambiguous";
+		case "ambiguous_fuzzy":
+			return "fuzzy context ambiguous";
+		case "fuzzy_below_threshold":
+			return `fuzzy score ${first.best.score.toFixed(2)} < ${first.threshold.toFixed(2)}`;
+	}
+}
+
 async function checkedMpatch(
 	cwd: string,
 	operation: V4aUpdateOperation,
 	fuzzFactor: number,
 	signal?: AbortSignal,
 ): Promise<MpatchAttempt> {
-	const unifiedDiff = compileV4aUpdateToUnifiedDiff(operation);
-	const dryRun = await runMpatch({
-		cwd,
-		unifiedDiff,
-		fuzzFactor,
-		dryRun: true,
-		...(signal === undefined ? {} : { signal }),
-	});
-	if (dryRun.status !== 0) return { applied: false, result: dryRun };
 	const source = stagingPath(cwd, operation.path);
 	const beforeApply = await readFile(source, { signal });
-	const applied = await runMpatch({
+	const result = await runMpatch({
 		cwd,
-		unifiedDiff,
+		unifiedDiff: compileV4aUpdateToUnifiedDiff(operation),
 		fuzzFactor,
 		dryRun: false,
 		...(signal === undefined ? {} : { signal }),
 	});
-	if (applied.status !== 0) await writeFile(source, beforeApply, { signal });
-	return { applied: applied.status === 0, result: applied };
+	if (result.status !== 0) await writeFile(source, beforeApply, { signal });
+	return { applied: result.status === 0, result };
 }
 
 async function stageUpdate(
@@ -467,6 +475,58 @@ function operationOutcome(
 	});
 }
 
+interface CommitJournalEntry {
+	readonly state: PathState;
+	readonly before?: Buffer;
+}
+
+async function snapshotCommitJournal(
+	states: readonly PathState[],
+): Promise<readonly CommitJournalEntry[]> {
+	const journal: CommitJournalEntry[] = [];
+	for (const state of states) {
+		try {
+			const info = await stat(state.absolutePath);
+			if (!info.isFile())
+				throw new Error(`Patch path is not a regular file: ${state.relativePath}`);
+			journal.push({ state, before: await readFile(state.absolutePath) });
+		} catch (error) {
+			if (isMissingPath(error)) journal.push({ state });
+			else throw error;
+		}
+	}
+	return Object.freeze(journal);
+}
+
+async function restoreCommitJournal(journal: readonly CommitJournalEntry[]): Promise<void> {
+	const failures: string[] = [];
+	for (const entry of [...journal].reverse()) {
+		try {
+			if (entry.before === undefined) {
+				await rm(entry.state.absolutePath, { force: true });
+				continue;
+			}
+			await ensureParent(entry.state.absolutePath);
+			const temporary = join(
+				dirname(entry.state.absolutePath),
+				`.hepi-apply-patch-rollback-${process.pid}-${Date.now()}-${Math.random()}`,
+			);
+			await writeFile(temporary, entry.before);
+			try {
+				await rename(temporary, entry.state.absolutePath);
+			} finally {
+				await rm(temporary, { force: true });
+			}
+		} catch (error) {
+			failures.push(
+				`${entry.state.relativePath}: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+	}
+	if (failures.length > 0)
+		throw new Error(`rollback failed for ${failures.length} path(s): ${failures.join("; ")}`);
+}
+
 async function commitPath(
 	stagingRoot: string,
 	state: PathState,
@@ -534,6 +594,8 @@ export async function applyPatchInWorkspace(
 		readonly stagingRoot: string;
 		readonly mode: "exact" | "fuzzy" | undefined;
 		readonly outcome: ApplyPatchAppliedOperation;
+		readonly rejectedHunkCount: number;
+		readonly partialReason?: string;
 	}[] = [];
 	let exactUpdateCount = 0;
 	let fuzzyUpdateCount = 0;
@@ -544,6 +606,9 @@ export async function applyPatchInWorkspace(
 			path: operation.kind === "update" ? (operation.moveTo ?? operation.path) : operation.path,
 			...plannedDelta(operation, undefined),
 			status: rejectedIndices.has(index) ? "rejected" : "pending",
+			...(operation.kind === "update"
+				? { appliedHunks: 0, totalHunks: operation.hunks.length }
+				: {}),
 		}),
 	);
 	const setProgressStatus = (
@@ -560,12 +625,16 @@ export async function applyPatchInWorkspace(
 			...(score === undefined ? {} : { score }),
 		});
 	};
-	const emitProgress = (): void => {
+	const emitProgress = (stage: ApplyPatchProgress["stage"] = "staging"): void => {
 		const committed = progressOperations.filter(
-			(operation) => operation.status === "applied" || operation.status === "fuzzy",
+			(operation) =>
+				operation.status === "applied" ||
+				operation.status === "partial" ||
+				operation.status === "fuzzy",
 		);
 		options.onProgress?.(
 			Object.freeze({
+				stage,
 				files: new Set(progressOperations.map((operation) => operation.path)).size,
 				addedLines: committed.reduce((total, operation) => total + operation.addedLines, 0),
 				removedLines: committed.reduce((total, operation) => total + operation.removedLines, 0),
@@ -694,9 +763,19 @@ export async function applyPatchInWorkspace(
 				if (operation.kind === "update" && stageResult !== undefined)
 					rejectUpdateHunks(index, operation, stageResult.rejected);
 				const mode = stageResult?.mode;
+				const partialReason =
+					stageResult === undefined ? undefined : hunkFailureSummary(stageResult.rejected);
 				if (mode === "exact") exactUpdateCount += 1;
 				if (mode === "fuzzy") fuzzyUpdateCount += 1;
-				successful.push({ index, operation, stagingRoot, mode, outcome });
+				successful.push({
+					index,
+					operation,
+					stagingRoot,
+					mode,
+					outcome,
+					rejectedHunkCount: stageResult?.rejected.length ?? 0,
+					...(partialReason === undefined ? {} : { partialReason }),
+				});
 			} catch (error) {
 				if (options.signal?.aborted) throw options.signal.reason ?? error;
 				if (stagingRoot !== undefined) await rm(stagingRoot, { recursive: true, force: true });
@@ -725,12 +804,28 @@ export async function applyPatchInWorkspace(
 				emitProgress();
 			}
 		}
+		const commitStates = new Map<string, PathState>();
+		for (const entry of successful)
+			for (const path of operationTouchedPaths(entry.operation)) {
+				const state = states.get(path);
+				if (state === undefined) throw new Error(`Missing validated patch path: ${path}`);
+				commitStates.set(path, state);
+			}
+		const journal = await snapshotCommitJournal([...commitStates.values()]);
+		await assertBaselines(options.workspaceRoot, commitStates, options.signal);
 		const committed: ApplyPatchAppliedOperation[] = [];
-		for (const { index, operation, stagingRoot, outcome } of successful) {
-			try {
+		try {
+			for (const {
+				index,
+				operation,
+				stagingRoot,
+				outcome,
+				rejectedHunkCount,
+				partialReason,
+			} of successful) {
 				for (const path of operationTouchedPaths(operation)) {
 					const state = states.get(path);
-					if (state === undefined) throw new Error(`Missing validated patch path: ${path}`);
+					if (state === undefined) throw new Error(`Missing patch path: ${path}`);
 					await commitPath(stagingRoot, state, options.signal);
 				}
 				committed.push(outcome);
@@ -740,21 +835,60 @@ export async function applyPatchInWorkspace(
 					...current,
 					...appliedDelta(operation, outcome.outcomes),
 				});
+				const currentProgress = progressOperations[index];
+				if (currentProgress === undefined)
+					throw new Error(`Missing patch progress operation: ${index}`);
+				progressOperations[index] = Object.freeze({
+					...currentProgress,
+					...(operation.kind === "update"
+						? {
+								appliedHunks: outcome.outcomes.length,
+								totalHunks: operation.hunks.length,
+								...(rejectedHunkCount === 0 ? {} : { partialReason }),
+							}
+						: {}),
+				});
 				setProgressStatus(
 					index,
-					outcome.outcomes.some((hunk) => hunk.match === "fuzzy") ? "fuzzy" : "applied",
+					rejectedHunkCount > 0
+						? "partial"
+						: outcome.outcomes.some((hunk) => hunk.match === "fuzzy")
+							? "fuzzy"
+							: "applied",
 					outcome,
 				);
-				emitProgress();
-			} catch (error) {
-				if (options.signal?.aborted) throw options.signal.reason ?? error;
-				rejectOperation(index, operation, error);
-				emitProgress();
+				emitProgress("committed");
 			}
+		} catch (error) {
+			for (const operation of progressOperations) {
+				if (
+					operation.status === "applied" ||
+					operation.status === "partial" ||
+					operation.status === "fuzzy"
+				)
+					progressOperations[operation.operationIndex] = Object.freeze({
+						...operation,
+						status: "rejected",
+					});
+			}
+			try {
+				await restoreCommitJournal(journal);
+				emitProgress("rolled_back");
+			} catch (rollbackError) {
+				throw new Error(
+					`workspace state indeterminate after commit failure; read ${[...commitStates.keys()].join(", ")}: ${error instanceof Error ? error.message : String(error)}; ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+				);
+			}
+			throw new Error(
+				`apply patch commit rolled back; no staged operations were applied: ${error instanceof Error ? error.message : String(error)}`,
+			);
 		}
 		const changed = Object.freeze([...new Set(committed.flatMap((outcome) => outcome.paths))]);
 		const committedProgress = progressOperations.filter(
-			(operation) => operation.status === "applied" || operation.status === "fuzzy",
+			(operation) =>
+				operation.status === "applied" ||
+				operation.status === "partial" ||
+				operation.status === "fuzzy",
 		);
 		return Object.freeze({
 			changedPaths: changed,

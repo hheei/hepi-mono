@@ -2,6 +2,12 @@ import { describe, expect, test } from "bun:test";
 import {
 	compileV4aUpdateToUnifiedDiff,
 	findV4aPatchConflicts,
+	MAX_V4A_HUNK_LINES,
+	MAX_V4A_HUNKS_PER_UPDATE,
+	MAX_V4A_OPERATIONS,
+	MAX_V4A_PATCH_BYTES,
+	MAX_V4A_PATH_BYTES,
+	MAX_V4A_PATH_SEGMENT_BYTES,
 	parseV4aPatch,
 	parseV4aPatchProgressively,
 	type V4aAddOperation,
@@ -115,6 +121,50 @@ describe("V4A patch parser", () => {
 		expect(() =>
 			parseV4aPatch("*** Begin Patch\n*** Update File: x\n  same\n*** End Patch"),
 		).toThrow();
+	});
+
+	test("rejects patches beyond the hard input limits", () => {
+		expect(() => parseV4aPatch("x".repeat(MAX_V4A_PATCH_BYTES + 1))).toThrow("byte limit");
+		const operations = Array.from(
+			{ length: MAX_V4A_OPERATIONS + 1 },
+			(_, index) => `*** Add File: ${index}.txt\n+value\n`,
+		).join("");
+		expect(() => parseV4aPatch(`*** Begin Patch\n${operations}*** End Patch`)).toThrow(
+			"operation limit",
+		);
+	});
+
+	test("rejects updates beyond hunk and hunk-line limits", () => {
+		const hunks = Array.from(
+			{ length: MAX_V4A_HUNKS_PER_UPDATE + 1 },
+			() => "@@\n-old\n+new\n",
+		).join("");
+		expect(() =>
+			parseV4aPatch(`*** Begin Patch\n*** Update File: value.txt\n${hunks}*** End Patch`),
+		).toThrow("hunk limit");
+		const lines = Array.from({ length: MAX_V4A_HUNK_LINES + 1 }, () => " old\n").join("");
+		expect(() =>
+			parseV4aPatch(`*** Begin Patch\n*** Update File: value.txt\n${lines}+new\n*** End Patch`),
+		).toThrow("lines per hunk limit");
+	});
+
+	test("rejects path segments and paths beyond platform-safe byte limits", () => {
+		const oversizedSegment = "a".repeat(MAX_V4A_PATH_SEGMENT_BYTES + 1);
+		expect(() =>
+			parseV4aPatch(`*** Begin Patch\n*** Add File: ${oversizedSegment}\n+value\n*** End Patch`),
+		).toThrow(`path segment exceeds ${MAX_V4A_PATH_SEGMENT_BYTES} byte limit`);
+		const oversizedPath = `a/${"b".repeat(MAX_V4A_PATH_BYTES)}`;
+		expect(() =>
+			parseV4aPatch(`*** Begin Patch\n*** Add File: ${oversizedPath}\n+value\n*** End Patch`),
+		).toThrow(`path exceeds ${MAX_V4A_PATH_BYTES} byte limit`);
+	});
+
+	test("reports original source lines for actionable V4A syntax errors", () => {
+		expect(() =>
+			parseV4aPatch(
+				"```patch\n*** Begin Patch\n*** Add File: value.txt\ninvalid\n*** End Patch\n```",
+			),
+		).toThrow("Add content lines must begin with + at line 4");
 	});
 
 	test("compiles update into unified diff with synthetic ranges", () => {

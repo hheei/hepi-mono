@@ -9,6 +9,7 @@ import { BashJobRegistry } from "../bash-jobs.js";
 import { createFffAutocompleteProvider } from "./autocomplete.js";
 import { FffRuntime } from "./fff.js";
 import {
+	createEditSettingsProvider,
 	createFffSettingsProvider,
 	DEFAULT_FFF_SETTINGS,
 	type FffSettings,
@@ -77,6 +78,10 @@ async function startFffLifecycle(
 	context.resources.add(
 		"fff-settings",
 		registerHepiSettings(provider, getHepiRuntimeSettingsRegistry(pi)),
+	);
+	context.resources.add(
+		"edit-settings",
+		registerHepiSettings(createEditSettingsProvider(), getHepiRuntimeSettingsRegistry(pi)),
 	);
 	let settings: FffSettings;
 	try {

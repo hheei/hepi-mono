@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { realpath } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +11,7 @@ import type { ApplyPatchInWorkspaceResult, ApplyPatchProgress } from "./outcome.
 export interface ApplyPatchThroughCoordinatorOptions {
 	readonly workspaceRoot: string;
 	readonly patch: string;
+	readonly requestId?: string;
 	readonly signal?: AbortSignal;
 	readonly onProgress?: (progress: ApplyPatchProgress) => void;
 }
@@ -67,10 +68,43 @@ const startupPromises = new Map<string, Promise<void>>();
 const COORDINATOR_READY_TIMEOUT_MS = 10_000;
 const COORDINATOR_READY_POLL_INTERVAL_MS = 25;
 const COORDINATOR_STDERR_TAIL_MAX_CHARS = 8_192;
+const MAX_COORDINATOR_FRAME_BYTES = 1_048_576 + 1_024;
+export const COORDINATOR_PROTOCOL_REVISION = 3;
 
 export function coordinatorSocketPath(workspaceRoot: string): string {
-	const digest = createHash("sha256").update(workspaceRoot).digest("hex");
+	const digest = createHash("sha256")
+		.update(`${COORDINATOR_PROTOCOL_REVISION}\0${workspaceRoot}`)
+		.digest("hex");
 	return join(tmpdir(), `hepi-apply-patch-${digest}.sock`);
+}
+
+interface CoordinatorLockMetadata {
+	readonly pid: number;
+	readonly protocolRevision: number;
+	readonly startedAtMs: number;
+}
+
+function isCoordinatorLockMetadata(value: unknown): value is CoordinatorLockMetadata {
+	return (
+		isRecord(value) &&
+		isPositiveInteger(value.pid) &&
+		isNonNegativeInteger(value.protocolRevision) &&
+		isNonNegativeInteger(value.startedAtMs)
+	);
+}
+
+async function describeCoordinatorLock(socketPath: string): Promise<string> {
+	const lockPath = `${socketPath}.lock`;
+	const raw = await readFile(lockPath, "utf8").catch(() => undefined);
+	if (raw === undefined) return `socket ${socketPath}; no lock file`;
+	try {
+		const value: unknown = JSON.parse(raw);
+		if (!isCoordinatorLockMetadata(value)) throw new Error("invalid metadata");
+		const ageMs = Math.max(0, Date.now() - value.startedAtMs);
+		return `socket ${socketPath}; lock pid ${value.pid}, protocol ${value.protocolRevision}, age ${ageMs}ms`;
+	} catch {
+		return `socket ${socketPath}; lock contains invalid metadata`;
+	}
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -219,9 +253,13 @@ function isApplyPatchOperationProgress(value: unknown): boolean {
 		isNonNegativeInteger(value.removedLines) &&
 		(value.status === "pending" ||
 			value.status === "applied" ||
+			value.status === "partial" ||
 			value.status === "fuzzy" ||
 			value.status === "rejected") &&
-		(value.score === undefined || typeof value.score === "number")
+		(value.score === undefined || typeof value.score === "number") &&
+		(value.appliedHunks === undefined || isNonNegativeInteger(value.appliedHunks)) &&
+		(value.totalHunks === undefined || isNonNegativeInteger(value.totalHunks)) &&
+		(value.partialReason === undefined || typeof value.partialReason === "string")
 	);
 }
 
@@ -230,8 +268,17 @@ function isApplyProgress(value: unknown): value is ApplyPatchProgress {
 		isRecord(value) &&
 		Object.keys(value).every(
 			(key) =>
-				key === "files" || key === "addedLines" || key === "removedLines" || key === "operations",
+				key === "stage" ||
+				key === "files" ||
+				key === "addedLines" ||
+				key === "removedLines" ||
+				key === "operations",
 		) &&
+		(value.stage === "parsed" ||
+			value.stage === "queued" ||
+			value.stage === "staging" ||
+			value.stage === "committed" ||
+			value.stage === "rolled_back") &&
 		isNonNegativeInteger(value.files) &&
 		isNonNegativeInteger(value.addedLines) &&
 		isNonNegativeInteger(value.removedLines) &&
@@ -254,6 +301,21 @@ function isCoordinatorMessage(value: unknown): value is CoordinatorMessage {
 	return isApplyResponse(value) || isProgressResponse(value);
 }
 
+class CoordinatorTransportError extends Error {
+	constructor(
+		message: string,
+		readonly requestSent: boolean,
+	) {
+		super(message);
+	}
+}
+
+function sendCancellation(socketPath: string, id: string): void {
+	const socket = connect(socketPath);
+	socket.once("connect", () => socket.end(`${JSON.stringify({ type: "cancel", id })}\n`));
+	socket.once("error", () => undefined);
+}
+
 function connectOnce(
 	socketPath: string,
 	request: string,
@@ -265,6 +327,7 @@ function connectOnce(
 	let settled = false;
 	let buffer = "";
 	let socket: Socket | undefined;
+	let requestSent = false;
 	const finish = (callback: () => void): void => {
 		if (settled) return;
 		settled = true;
@@ -272,15 +335,31 @@ function connectOnce(
 		callback();
 	};
 	const abort = (): void => {
+		sendCancellation(socketPath, requestId);
 		socket?.destroy();
 		finish(() => reject(signal?.reason ?? new Error("Apply patch coordinator aborted")));
 	};
 	signal?.throwIfAborted();
 	socket = connect(socketPath);
 	socket.setEncoding("utf8");
-	socket.on("connect", () => socket?.write(`${request}\n`));
+	socket.on("connect", () => {
+		requestSent = true;
+		socket?.write(`${request}\n`);
+	});
 	socket.on("data", (chunk: string) => {
 		buffer += chunk;
+		if (Buffer.byteLength(buffer, "utf8") > MAX_COORDINATOR_FRAME_BYTES) {
+			finish(() =>
+				reject(
+					new CoordinatorTransportError(
+						`Apply patch coordinator response exceeds ${MAX_COORDINATOR_FRAME_BYTES} byte frame limit`,
+						requestSent,
+					),
+				),
+			);
+			socket?.destroy();
+			return;
+		}
 		while (true) {
 			const newline = buffer.indexOf("\n");
 			if (newline < 0) return;
@@ -299,14 +378,27 @@ function connectOnce(
 				socket?.end();
 				return;
 			} catch (error) {
-				finish(() => reject(error));
+				finish(() =>
+					reject(
+						new CoordinatorTransportError(
+							error instanceof Error ? error.message : String(error),
+							requestSent,
+						),
+					),
+				);
 				return;
 			}
 		}
 	});
-	socket.on("error", (error) => finish(() => reject(error)));
+	socket.on("error", (error) =>
+		finish(() => reject(new CoordinatorTransportError(error.message, requestSent))),
+	);
 	socket.on("close", () =>
-		finish(() => reject(new Error("Apply patch coordinator closed connection"))),
+		finish(() =>
+			reject(
+				new CoordinatorTransportError("Apply patch coordinator closed connection", requestSent),
+			),
+		),
 	);
 	signal?.addEventListener("abort", abort, { once: true });
 	return promise;
@@ -399,7 +491,7 @@ async function ensureServer(
 				if (remaining > 0) await delay(Math.min(COORDINATOR_READY_POLL_INTERVAL_MS, remaining));
 			}
 			throw new Error(
-				`Apply patch coordinator did not become ready within ${COORDINATOR_READY_TIMEOUT_MS}ms: ${String(lastError)}`,
+				`Apply patch coordinator did not become ready within ${COORDINATOR_READY_TIMEOUT_MS}ms (${await describeCoordinatorLock(socketPath)}): ${String(lastError)}`,
 			);
 		} finally {
 			child.stderr?.removeListener("data", onStderr);
@@ -424,13 +516,17 @@ export async function applyPatchThroughCoordinator(
 		options.workspaceRoot,
 		options.signal,
 	);
-	const id = randomUUID();
+	const id = options.requestId ?? randomUUID();
 	const request = JSON.stringify({ type: "apply", id, workspaceRoot, patch: options.patch });
 	let response: ApplyResponse;
 	try {
 		response = await connectOnce(socketPath, request, id, options.signal, options.onProgress);
 	} catch (error) {
 		if (options.signal?.aborted) throw options.signal.reason ?? error;
+		if (error instanceof CoordinatorTransportError && error.requestSent)
+			throw new Error(
+				`Apply patch coordinator connection ended after receiving the request; workspace outcome is unknown. Read affected paths before retrying: ${error.message}`,
+			);
 		await ensureCoordinator(workspaceRoot, options.signal);
 		response = await connectOnce(socketPath, request, id, options.signal, options.onProgress);
 	}

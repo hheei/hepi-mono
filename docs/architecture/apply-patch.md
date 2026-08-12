@@ -6,6 +6,11 @@
 
 `apply_patch` 必须把一次 V4A request 的实际结果，而不是请求 patch 或 renderer-local state，同时交给模型、TUI、Trace collapse 和 session resume。
 
+- 每个 coordinator request id 代表一次 mutation；客户端断线可以用相同 id 重连取得进行中的或已完成的 outcome，但绝不重新执行 patch。若 coordinator 无法确认 outcome，工具返回明确的 transport failure，模型不得假定 workspace 未变。
+- commit 在 request 级 rollback journal 下进行。取消、I/O 或 commit failure 时必须恢复本 request 已写入的所有 path；只有 rollback 失败时才报告 `workspace state indeterminate`，并要求模型先 read affected paths 后再行动。
+- coordinator 对单个 newline-delimited JSON frame、patch bytes、operation 数、hunk 数和 hunk 行数实施上限；超限 request 在解析、staging 或 mutation 前被拒绝，并要求模型拆分 patch。
+- live progress 的阶段为 `parsed`、`queued`、`staging` 与 `committed`。`parsed` preview 不代表已验证或已入队；若完整 envelope 失败，最终错误必须明确无 operation 被验证或 applied。
+
 - 合规 operation 独立提交；一个 rejection 不回滚其他已提交 operation。同一 `Update File` 的 hunks 也独立：按 V4A 顺序在同一个 file staging copy 上执行，失败 hunk 不回滚已成功 hunk，也不阻止后续 hunk。多个没有 `Move to` 的 `Update File` 可以按 patch 顺序作用于同一文件；后一个 operation 读取前一个 operation 的 staging state。`Add`、`Delete` 或移动与同路径混合仍是预检冲突。
 - 任何 partial 或 failed request 对 Pi host 标记为 error；模型内容必须明确哪些 operation 已提交、哪些可重试。
 - V4A 不包含可信源行号。重复上下文不得因伪造 unified-diff line hint 而静默选择文件中最早位置。
@@ -86,7 +91,7 @@ partial 保留成功 operation。`tool_result` handler 根据 Outcome 的 `parti
 
 ## 模型内容
 
-模型只接收 deterministic text `content`，不接收 `details` 或 TUI render tree。
+模型只接收 deterministic text `content`，不接收 `details` 或 TUI render tree。解析失败的错误会包含原始 V4A source line；如果此前已经显示 parsed preview，错误还会明确 preview 的 operation 数，并说明这些 operation 没有经过 validation 或 apply。coordinator 启动/锁失败会包含 socket path、PID、protocol revision、lock age 或 child stderr tail，避免模型把启动诊断误判成 patch syntax failure。transport、queue、cancel 与 unknown-outcome failure 必须给出下一步：unknown outcome 先 read 所有目标 path；queue full 等待后重试原 patch；cancel 等 rollback 完成后 read 再重试；parse failure 修复指定 source line 后重新提交完整 envelope。
 
 成功结果列出真实 changed paths：
 
@@ -119,7 +124,7 @@ Do not retry applied hunks.
 
 ## TUI
 
-执行中，coordinator 在解析完每个完整 V4A operation 后发送 typed Patch Progress，之后每个 operation commit/rejection 发送下一份全量 snapshot。live state 只属于当前 Trace：`○` 是尚未 commit，`✓` 是 exact/whitespace commit，`!` 是 fuzzy commit（dim score），`✗` 是 rejection。一个 update 的成功 hunk 与失败 hunk 共同归属该 operation；展开结果以 hunk index 显示失败诊断。header 的 `+/-` 只累计已 commit operation；row 同时显示 planned delta。final `Patch Outcome` 替代 live state，resume 不恢复 `○` rows。
+执行中，coordinator 在解析完每个完整 V4A operation 后发送 typed Patch Progress，完整 envelope 通过后发送 queued，executor 进入 staging 与每个 operation commit/rejection 后发送下一份全量 snapshot。`parsed` 仅表示完整 operation 已被语法识别；`queued` 表示已通过完整 envelope 与 queue admission；`staging` 表示 workspace validation/staging 进行中；`committed` 才能带最终 operation status。断线后的同 request id 只能订阅既有执行或读取缓存 outcome，不能重新执行 mutation。live state 只属于当前 Trace：`○` 是尚未 commit，`✓` 是 exact/whitespace commit，`!` 是 fuzzy commit（dim score），`✗` 是 rejection。一个 update 的成功 hunk 与失败 hunk共同归属该 operation；展开结果以 hunk index 显示失败诊断。header 的 `+/-` 只累计已 commit operation；row 同时显示 planned delta。final `Patch Outcome` 替代 live state，resume 不恢复 `○` rows。
 
 Call 阶段使用 shared frame header。完成阶段不得使用 module-global renderer map、请求 patch 或当前 workspace 推断结果。
 
@@ -141,8 +146,10 @@ partial 使用 warning glyph `!`，同时 host result 仍为 `isError: true`。f
 
 ## 生命周期、取消与并发
 
-- dry-run、fuzzy attempt、staging apply 与 baseline revalidation 全都服从既有 `AbortSignal`/bridge cancellation。取消不产生 partial diagnostics 或 speculative snapshots。
-- 同 path jobs 保持 coordinator serialization；无交集 path jobs 保持现有 worker concurrency。
+- parser、path/security、coordinator/native failure 和 socket startup diagnostics 都保留稳定错误分类；parser errors 带 source line（若有），startup errors 带 socket/lock/child facts，transport error 不能被静默重试。
+- dry-run、fuzzy attempt、staging apply、baseline revalidation 与 commit 全都服从既有 `AbortSignal`/bridge cancellation。commit 前创建 request 级 rollback journal；取消或 commit error 后必须恢复本 request 已替换/删除的 path。rollback 无法完成时，工具返回 `workspace state indeterminate` 与 affected paths，模型必须先 `read` 后再行动。普通 socket 断线仅移除 subscriber，request 保留以允许同 id reconnect；用户 abort 发送显式 cancel request。parsing、queued 和 running request 都在不会继续 mutation 的第一个安全点完成取消，running request 等 executor rollback 后才发布最终 cancellation error。取消不产生 partial diagnostics 或 speculative snapshots。
+- 单 request 的 socket frame、patch bytes、operation/hunk 数、hunk 行数、relative path/segment bytes 均有硬上限；超限不会进入队列或 staging。response 超限时先去除 hunk snapshots 保留 outcome；仍无法传输时明确要求 `read`，不伪造 unknown success。
+- 同 path jobs 保持 coordinator serialization；无交集 path jobs 保持现有 worker concurrency。request id 是 mutation id：同 id 重连订阅已存在 job 或读取短时缓存 result，不创建第二个 job。完成 result 在 coordinator 内存中仅保留 10 秒，随后释放 patch/progress/result 但保留有界 fingerprint tombstone；同 id 只会要求 `read`，绝不重新 mutation。socket frame parser 会 drain 同一 chunk 的每个完整 request，SIGTERM/SIGINT 会等待 socket/lock cleanup 后退出。
 - baseline 变化、path policy conflict、filesystem error 和 parser error 由 `pi-ext-tools` 形成 stable typed rejection，而不是伪装成 mpatch hunk mismatch。
 - details 是 result persistence source；resume 和 global expand 从它渲染 completed outcome，不恢复 pending preview state。
 

@@ -23,17 +23,25 @@ function row(operation: ApplyPatchOperationProgress, theme: Theme): string {
 			? theme.fg("dim", "○")
 			: operation.status === "applied"
 				? theme.fg("success", "✓")
-				: operation.status === "fuzzy"
+				: operation.status === "partial"
 					? theme.fg("warning", "!")
-					: theme.fg("error", "✗");
+					: operation.status === "fuzzy"
+						? theme.fg("warning", "!")
+						: theme.fg("error", "✗");
 	const score =
 		operation.status === "fuzzy" && operation.score !== undefined
 			? ` ${theme.fg("dim", `(${operation.score.toFixed(2)})`)}`
 			: "";
+	const hunkSummary =
+		operation.status === "partial" &&
+		operation.appliedHunks !== undefined &&
+		operation.totalHunks !== undefined
+			? ` ${theme.fg("dim", `(${operation.appliedHunks}/${operation.totalHunks} hunks applied${operation.partialReason === undefined ? "" : `; ${operation.partialReason}`})`)} `
+			: " ";
 	const kind =
 		operation.kind === "add" ? "create" : operation.kind === "delete" ? "delete" : "modify";
 	const path = operation.kind === "add" ? operation.path : theme.fg("dim", operation.path);
-	return `${glyph} ${theme.fg("success", kind)} ${path} ${delta(operation, theme)}${score}`.trimEnd();
+	return `${glyph} ${theme.fg("success", kind)} ${path} ${delta(operation, theme)}${score}${hunkSummary}`.trimEnd();
 }
 
 function operations(details: ApplyPatchToolDetails): readonly ApplyPatchOperationProgress[] {

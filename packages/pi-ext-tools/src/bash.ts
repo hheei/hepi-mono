@@ -109,6 +109,8 @@ class BashOutputFrame implements Component {
 	render(width: number): string[] {
 		const output = this.body.render(width).map((line) => stripTerminalSequences(line));
 		const preview = this.footer === undefined ? compactStreamingOutput(output) : output;
+		if (this.footer === undefined && preview.at(-1)?.trim().length === 0) preview.pop();
+		if (this.footer !== undefined && preview[0]?.trim().length === 0) preview.shift();
 		const hintIndex = preview.findIndex((line) => /^\.\.\. \(\d+ earlier lines,/.test(line));
 		if (hintIndex !== -1) {
 			if (preview[hintIndex - 1] === "") preview.splice(hintIndex - 1, 1);

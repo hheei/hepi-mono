@@ -53,17 +53,23 @@ export interface ApplyPatchRejection {
 	readonly diagnostics: readonly Exclude<MpatchHunkOutcome, { readonly kind: "applied" }>[];
 }
 
+export type ApplyPatchProgressStage = "parsed" | "queued" | "staging" | "committed" | "rolled_back";
+
 export type ApplyPatchOperationProgress = {
 	readonly operationIndex: number;
 	readonly kind: "add" | "delete" | "update";
 	readonly path: string;
 	readonly addedLines: number;
 	readonly removedLines: number;
-	readonly status: "pending" | "applied" | "fuzzy" | "rejected";
+	readonly status: "pending" | "applied" | "partial" | "fuzzy" | "rejected";
 	readonly score?: number;
+	readonly appliedHunks?: number;
+	readonly totalHunks?: number;
+	readonly partialReason?: string;
 };
 
 export interface ApplyPatchProgress {
+	readonly stage: ApplyPatchProgressStage;
 	readonly files: number;
 	readonly addedLines: number;
 	readonly removedLines: number;

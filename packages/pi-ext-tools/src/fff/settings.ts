@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
 import {
 	createJsonSectionSettingsStorage,
+	defaultPiSettingsPaths,
 	type HepiContext,
 	type HepiSettingsProvider,
 	type HepiSettingsState,
@@ -8,8 +10,16 @@ import { defaultShellPath } from "../bash-jobs.js";
 
 const SECTION = "pi-ext-tools";
 const GROUP = "fff";
+const EDIT_GROUP = "edit";
+
+export type EditMode = "native" | "apply_patch" | "none";
+export const DEFAULT_EDIT_MODE: EditMode = "apply_patch";
 
 export interface FffSettingsProviderOptions {
+	readonly path?: string;
+}
+
+export interface EditSettingsProviderOptions {
 	readonly path?: string;
 }
 
@@ -76,6 +86,32 @@ export function fffSettingsFromState(state: HepiSettingsState | undefined): FffS
 		readEnhancement: booleanAt(state, GROUP, "readEnhancement"),
 		findEnhancement: booleanAt(state, GROUP, "findEnhancement"),
 	};
+}
+
+export function editModeFromState(state: HepiSettingsState | undefined): EditMode {
+	return editModeFromValue(state?.[EDIT_GROUP]?.mode);
+}
+
+function editModeFromValue(value: unknown): EditMode {
+	return value === "native" || value === "apply_patch" || value === "none"
+		? value
+		: DEFAULT_EDIT_MODE;
+}
+
+/** Static catalog settings are read before tool registration; malformed files retain the default. */
+export function readEditMode(path = defaultPiSettingsPaths().globalPath): EditMode {
+	try {
+		const root: unknown = JSON.parse(readFileSync(path, "utf8"));
+		if (typeof root !== "object" || root === null || Array.isArray(root)) return DEFAULT_EDIT_MODE;
+		const section = (root as Record<string, unknown>)[SECTION];
+		if (typeof section !== "object" || section === null || Array.isArray(section))
+			return DEFAULT_EDIT_MODE;
+		const edit = (section as Record<string, unknown>)[EDIT_GROUP];
+		if (typeof edit !== "object" || edit === null || Array.isArray(edit)) return DEFAULT_EDIT_MODE;
+		return editModeFromValue((edit as Record<string, unknown>).mode);
+	} catch {
+		return DEFAULT_EDIT_MODE;
+	}
 }
 
 export async function loadFffSettings(
@@ -172,5 +208,47 @@ export function createFffSettingsProvider(
 			},
 		],
 		storage,
+	};
+}
+
+export function createEditSettingsProvider(
+	options: EditSettingsProviderOptions = {},
+): HepiSettingsProvider {
+	return {
+		id: "pi-ext-tools.edit",
+		title: "Edit",
+		origin: "@hheei/pi-ext-tools",
+		description: "Choose the static editing tool catalog for pi-ext-tools.",
+		groups: [
+			{
+				id: EDIT_GROUP,
+				title: "",
+				fields: [
+					{
+						id: "mode",
+						label: "Edit Mode",
+						type: "enum",
+						defaultValue: DEFAULT_EDIT_MODE,
+						description:
+							"Choose native edit/write, strict apply_patch, or no editing tools; reload or start a new session after saving.",
+						options: [
+							{ value: "native", label: "Native" },
+							{ value: "apply_patch", label: "Apply Patch" },
+							{ value: "none", label: "None" },
+						],
+						parse: (value) => value,
+						validate: (value) =>
+							value === "native" || value === "apply_patch" || value === "none"
+								? undefined
+								: "Edit Mode must be native, apply_patch, or none",
+					},
+				],
+			},
+		],
+		storage: createJsonSectionSettingsStorage({
+			...(options.path === undefined ? {} : { path: options.path }),
+			section: SECTION,
+			group: EDIT_GROUP,
+		}),
 	};
 }

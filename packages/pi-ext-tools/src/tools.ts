@@ -10,6 +10,7 @@ import { registerApplyPatchTool } from "./apply-patch-tool.js";
 import { registerBashTool } from "./bash.js";
 import { registerBashJobTool } from "./bash-job-tool.js";
 import { createFffRuntimeState, type FffRuntimeState } from "./fff/lifecycle.js";
+import type { EditMode } from "./fff/settings.js";
 import { registerFindTool } from "./find.js";
 import { registerGrepTool } from "./grep.js";
 import { withToolFrame } from "./pretty/frame.js";
@@ -66,13 +67,16 @@ export function registerTools(
 	pi: ExtensionAPI,
 	state: FffRuntimeState = createFffRuntimeState(),
 	trace = new ToolTraceController(),
+	editMode: EditMode = "apply_patch",
 ): void {
 	registerReadTool(pi, state, trace);
 	registerGrepTool(pi, state, trace);
 	registerFindTool(pi, state, trace);
-	registerCanonicalTool(pi, createEditToolDefinition, trace, ["apply_patch"]);
-	registerCanonicalTool(pi, createWriteToolDefinition, trace, ["apply_patch"]);
+	if (editMode === "native") {
+		registerCanonicalTool(pi, createEditToolDefinition, trace);
+		registerCanonicalTool(pi, createWriteToolDefinition, trace);
+	}
 	registerBashTool(pi, state, trace);
 	registerBashJobTool(pi, state, trace);
-	registerApplyPatchTool(pi, trace);
+	if (editMode === "apply_patch") registerApplyPatchTool(pi, trace);
 }
