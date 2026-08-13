@@ -2,8 +2,11 @@ import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-age
 import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
-import { withToolFrame } from "./pretty/frame.js";
-import { ToolTraceController } from "./pretty/trace.js";
+import { createToolTui, type ToolTui } from "./pretty/frame.js";
+
+const OWNER = "@hheei/pi-ext-tools";
+const BASH_JOB_DESCRIPTION = "Inspect or stop an extension-owned asynchronous Bash job.";
+const NO_ACTIVE_JOB_SESSION = "No active Bash job session";
 
 const Params = Type.Object(
 	{
@@ -16,18 +19,18 @@ type Params = Static<typeof Params>;
 export function registerBashJobTool(
 	pi: ExtensionAPI,
 	state: FffRuntimeState,
-	trace = new ToolTraceController(),
+	tui: ToolTui = createToolTui(),
 ): void {
 	const tool: ToolDefinition<typeof Params, unknown> = {
 		name: "bash_job",
 		label: "bash_job",
-		description: "Inspect or stop an extension-owned asynchronous Bash job.",
+		description: BASH_JOB_DESCRIPTION,
 		parameters: Params,
 		async execute(_id, params: Params) {
 			const jobs = state.getBashJobs();
 			if (!jobs)
 				return {
-					content: [{ type: "text", text: "No active Bash job session" }],
+					content: [{ type: "text", text: NO_ACTIVE_JOB_SESSION }],
 					details: { error: "session_unavailable" },
 				};
 			const job = params.action === "stop" ? jobs.stop(params.id) : jobs.get(params.id);
@@ -65,14 +68,14 @@ export function registerBashJobTool(
 		pi,
 		{
 			id: "bash_job",
-			owner: "@hheei/pi-ext-tools",
+			owner: OWNER,
 			group: "Built-in",
-			origin: "@hheei/pi-ext-tools",
+			origin: OWNER,
 			priority: 100,
 			conflictSets: [],
 			defaultActive: true,
 		},
-		withToolFrame(tool, trace),
+		tui.frame(tool),
 	);
 }
 export { Params as BashJobInput };

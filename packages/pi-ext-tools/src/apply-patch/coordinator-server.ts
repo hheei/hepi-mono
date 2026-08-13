@@ -18,6 +18,11 @@ import {
 } from "./parser.js";
 import { type FuzzyApplyPatchPolicy, loadFuzzyApplyPatchPolicy } from "./policy.js";
 
+const COORDINATOR_SHUTTING_DOWN = "Apply patch coordinator is shutting down";
+const REQUEST_ID_REUSED = "Apply patch request id was reused with different arguments";
+const REQUEST_OUTCOME_EXPIRED =
+	"Apply patch request outcome expired; read affected paths before retrying";
+
 interface ApplyRequest {
 	readonly type: "apply";
 	readonly id: string;
@@ -541,7 +546,7 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 					sendTerminal(socket, {
 						id: "",
 						ok: false,
-						error: "Apply patch coordinator is shutting down",
+						error: COORDINATOR_SHUTTING_DOWN,
 					});
 					return;
 				}
@@ -573,7 +578,7 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 						sendTerminal(socket, {
 							id: value.id,
 							ok: false,
-							error: "Apply patch request id was reused with different arguments",
+							error: REQUEST_ID_REUSED,
 						});
 						return;
 					}
@@ -590,8 +595,8 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 						ok: false,
 						error:
 							expiredFingerprint === requestFingerprint(value)
-								? "Apply patch request outcome expired; read affected paths before retrying"
-								: "Apply patch request id was reused with different arguments",
+								? REQUEST_OUTCOME_EXPIRED
+								: REQUEST_ID_REUSED,
 					});
 					return;
 				}
@@ -599,7 +604,7 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 					sendTerminal(socket, {
 						id: value.id,
 						ok: false,
-						error: "Apply patch coordinator is shutting down",
+						error: COORDINATOR_SHUTTING_DOWN,
 					});
 					return;
 				}

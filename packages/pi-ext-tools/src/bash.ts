@@ -20,8 +20,8 @@ import { BashOutputSink } from "./bash-output.js";
 import { BashPtySurface, type BashPtySurfaceResult } from "./bash-pty-surface.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import { PtySession } from "./native-bridge.js";
-import { completionFromResult, withToolFrame } from "./pretty/frame.js";
-import { type ToolCompletion, ToolTraceController } from "./pretty/trace.js";
+import { createToolTui, type ToolTui } from "./pretty/frame.js";
+import type { ToolCompletion } from "./pretty/trace.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 const fallbackOutputs = createOutputRegistry();
@@ -32,10 +32,10 @@ const BASH_PROMPT_GUIDELINES = [
 	"Use `pty` only for interactive terminal programs such as `sudo` or `ssh`.",
 	"NEVER combine `pty` with `async`.",
 ] as const;
+const BASH_TIMEOUT_DESCRIPTION = "Timeout in seconds (optional, no default timeout)";
+const EXPAND_HINT = "ctrl+o to expand";
 const MAX_STREAMING_PREVIEW_LINES = 12;
-const Timeout = Type.Optional(
-	Type.Number({ description: "Timeout in seconds (optional, no default timeout)" }),
-);
+const Timeout = Type.Optional(Type.Number({ description: BASH_TIMEOUT_DESCRIPTION }));
 const DefaultInput = Type.Object(
 	{ command: Type.String(), timeout: Timeout },
 	{ additionalProperties: false },
@@ -99,24 +99,24 @@ function outputText(result: AgentToolResult<unknown>): string {
 	return result.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
 }
 
-class BashOutputFrame implements Component {
+class BashOutputBody implements Component {
 	constructor(
 		private readonly body: Component,
 		private readonly theme: Theme,
-		private readonly footer: string | undefined,
-		private readonly hasBody: boolean,
+		private readonly complete: boolean,
+		private readonly hasOutput: boolean,
 	) {}
 
-	hasResultBody(): boolean {
-		return this.hasBody;
+	sourceComponent(): Component {
+		return this.body;
 	}
 
 	render(width: number): string[] {
-		if (!this.hasBody) return this.footer === undefined ? [] : [this.theme.fg("dim", this.footer)];
+		if (!this.hasOutput) return [];
 		const output = this.body.render(width).map((line) => stripTerminalSequences(line));
-		const preview = this.footer === undefined ? compactStreamingOutput(output) : output;
-		if (this.footer === undefined && preview.at(-1)?.trim().length === 0) preview.pop();
-		if (this.footer !== undefined && preview[0]?.trim().length === 0) preview.shift();
+		const preview = this.complete ? output : compactStreamingOutput(output);
+		if (!this.complete && preview.at(-1)?.trim().length === 0) preview.pop();
+		if (this.complete && preview[0]?.trim().length === 0) preview.shift();
 		const hintIndex = preview.findIndex((line) => /^\.\.\. \(\d+ earlier lines,/.test(line));
 		if (hintIndex !== -1) {
 			if (preview[hintIndex - 1] === "") preview.splice(hintIndex - 1, 1);
@@ -127,11 +127,7 @@ class BashOutputFrame implements Component {
 			const hint = preview[adjustedHintIndex];
 			if (hint !== undefined) preview[adjustedHintIndex] = this.theme.fg("dim", hint);
 		}
-		return [
-			...preview.map((line) => this.theme.fg("text", line)),
-			this.theme.fg("borderMuted", "─".repeat(Math.max(1, width))),
-			...(this.footer === undefined ? [] : [this.theme.fg("dim", this.footer)]),
-		];
+		return preview.map((line) => this.theme.fg("text", line));
 	}
 
 	invalidate(): void {
@@ -142,7 +138,7 @@ class BashOutputFrame implements Component {
 function compactStreamingOutput(lines: readonly string[]): string[] {
 	if (lines.length <= MAX_STREAMING_PREVIEW_LINES) return [...lines];
 	const visible = lines.slice(-(MAX_STREAMING_PREVIEW_LINES - 1));
-	return [`... (${lines.length - visible.length} earlier lines, ctrl+o to expand)`, ...visible];
+	return [`... (${lines.length - visible.length} earlier lines, ${EXPAND_HINT})`, ...visible];
 }
 
 function result(text: string, details: Record<string, unknown> = {}): BashToolResult {
@@ -299,7 +295,7 @@ function bashResultWarning(result: { readonly details: unknown }): boolean {
 export function registerBashTool(
 	pi: ExtensionAPI,
 	state?: FffRuntimeState,
-	trace = new ToolTraceController(),
+	tui: ToolTui = createToolTui(),
 ): void {
 	const {
 		renderCall: _upstreamRenderCall,
@@ -319,15 +315,17 @@ export function registerBashTool(
 			theme: Parameters<UpstreamRenderResult>[2],
 			context: Parameters<UpstreamRenderResult>[3],
 		) {
+			const previous =
+				context.lastComponent instanceof BashOutputBody
+					? context.lastComponent.sourceComponent()
+					: context.lastComponent;
 			const body = options.isPartial
 				? new Text(outputText(result), 0, 0)
-				: (upstreamRenderResult?.(result, options, theme, context) ?? new Text("", 0, 0));
-			return new BashOutputFrame(
-				body,
-				theme,
-				options.isPartial ? undefined : bashFooter(result, completionFromResult(result)),
-				lineCount(outputText(result)) > 0,
-			);
+				: (upstreamRenderResult?.(result, options, theme, {
+						...context,
+						lastComponent: previous,
+					}) ?? new Text("", 0, 0));
+			return new BashOutputBody(body, theme, !options.isPartial, lineCount(outputText(result)) > 0);
 		},
 		async execute(
 			_id: string,
@@ -401,7 +399,11 @@ export function registerBashTool(
 			conflictSets: [],
 			defaultActive: true,
 		},
-		withToolFrame(tool, trace, bashFooter, bashResultWarning),
+		tui.frame(tool, {
+			footer: (result, completion, options) =>
+				options.isPartial ? undefined : bashFooter(result, completion),
+			warning: bashResultWarning,
+		}),
 	);
 }
 

@@ -9,6 +9,10 @@ import {
 } from "./extension-common.js";
 import type { FffRuntimeState } from "./lifecycle.js";
 
+const OWNER = "@hheei/pi-ext-tools";
+const MULTI_GREP_DESCRIPTION =
+	"Search file contents for any of multiple literal patterns using fff multi-grep.";
+
 /**
  * ponytail: dormant FFF-only implementation; keep it unregistered until a
  * translated unified grep contract has a product consumer and focused tests.
@@ -17,7 +21,7 @@ export function registerMultiGrepTool(pi: ExtensionAPI, state: FffRuntimeState):
 	const tool = {
 		name: "fff_multi_grep",
 		label: "FFF Multi Grep",
-		description: "Search file contents for any of multiple literal patterns using fff multi-grep.",
+		description: MULTI_GREP_DESCRIPTION,
 		parameters: Type.Object({
 			patterns: Type.Array(Type.String(), { minItems: 1 }),
 			path: Type.Optional(Type.String()),
@@ -69,7 +73,7 @@ export function registerMultiGrepTool(pi: ExtensionAPI, state: FffRuntimeState):
 		pi,
 		{
 			id: "fff_multi_grep",
-			owner: "@hheei/pi-ext-tools",
+			owner: OWNER,
 			group: "Tools",
 			priority: 100,
 			conflictSets: [],

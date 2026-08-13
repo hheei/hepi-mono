@@ -8,8 +8,7 @@ import {
 	nativeFallbackPattern,
 	supportsFffPath,
 } from "./fff/query.js";
-import { withToolFrame } from "./pretty/frame.js";
-import { ToolTraceController } from "./pretty/trace.js";
+import { createToolTui, type ToolTui } from "./pretty/frame.js";
 import {
 	type FindToolDetails,
 	findCollapsedFooter,
@@ -20,6 +19,22 @@ import {
 const OWNER = "@hheei/pi-ext-tools";
 const ARTIFACT_PREFIX = "output:" + "//";
 const DEFAULT_LIMIT = 30;
+const FIND_DESCRIPTION =
+	"Fuzzy path and glob search. Matches the whole repo-relative path, frecency-ranked and git-aware. Default limit 30.";
+const FIND_PROMPT_SNIPPET = "Find files by path or glob";
+const FIND_PROMPT_GUIDELINES: string[] = [
+	"find: prefer 1-2 terms; extra words narrow the whole-path match.",
+	"find: use path for exact glob constraints and exclude to remove noise.",
+	"find: use for paths, not content. Use grep for content. AVOID `find` or `fd` through the `bash` tool; use find.",
+] as const;
+const FIND_PARAMETER_DESCRIPTIONS = {
+	pattern:
+		"Fuzzy filename search and glob search. Frecency-ranked, git-aware. Multi-word narrows the result (AND).",
+	path: "Path constraint: directory prefix, filename, or glob, applied to the repo-relative path.",
+	limit: "Max results per page (default 30)",
+	cursor: "Pagination cursor from the previous result",
+} as const;
+const NO_FIND_RESULTS = "No files found matching pattern";
 const cursorStore = new Map<string, { query: string; limit: number; pageIndex: number }>();
 let cursorSequence = 0;
 
@@ -32,19 +47,11 @@ type FindParams = {
 };
 
 const schema = Type.Object({
-	pattern: Type.String({
-		description:
-			"Fuzzy filename search and glob search. Frecency-ranked, git-aware. Multi-word narrows the result (AND).",
-	}),
-	path: Type.Optional(
-		Type.String({
-			description:
-				"Path constraint: directory prefix, filename, or glob, applied to the repo-relative path.",
-		}),
-	),
+	pattern: Type.String({ description: FIND_PARAMETER_DESCRIPTIONS.pattern }),
+	path: Type.Optional(Type.String({ description: FIND_PARAMETER_DESCRIPTIONS.path })),
 	exclude: Type.Optional(Type.Union([Type.String(), Type.Array(Type.String())])),
-	limit: Type.Optional(Type.Number({ description: "Max results per page (default 30)" })),
-	cursor: Type.Optional(Type.String({ description: "Pagination cursor from the previous result" })),
+	limit: Type.Optional(Type.Number({ description: FIND_PARAMETER_DESCRIPTIONS.limit })),
+	cursor: Type.Optional(Type.String({ description: FIND_PARAMETER_DESCRIPTIONS.cursor })),
 });
 
 function nextCursor(query: string, limit: number, pageIndex: number): string {
@@ -68,19 +75,14 @@ function nativeParams(params: FindParams): { pattern: string; path?: string; lim
 export function registerFindTool(
 	pi: ExtensionAPI,
 	state: FffRuntimeState,
-	trace = new ToolTraceController(),
+	tui: ToolTui = createToolTui(),
 ): void {
 	const tool = {
 		name: "find",
 		label: "find",
-		description:
-			"Fuzzy path and glob search. Matches the whole repo-relative path, frecency-ranked and git-aware. Default limit 30.",
-		promptSnippet: "Find files by path or glob",
-		promptGuidelines: [
-			"find: prefer 1-2 terms; extra words narrow the whole-path match.",
-			"find: use path for exact glob constraints and exclude to remove noise.",
-			"find: use for paths, not content. Use grep for content. AVOID `find` or `fd` through the `bash` tool; use find.",
-		],
+		description: FIND_DESCRIPTION,
+		promptSnippet: FIND_PROMPT_SNIPPET,
+		promptGuidelines: FIND_PROMPT_GUIDELINES,
 		parameters: schema,
 		renderResult: renderFindResult,
 		async execute(
@@ -157,7 +159,7 @@ export function registerFindTool(
 						text:
 							[formatFindModelOutput(details), cursorLine]
 								.filter((line): line is string => line !== undefined && line !== "")
-								.join("\n") || "No files found matching pattern",
+								.join("\n") || NO_FIND_RESULTS,
 					},
 				],
 				details,
@@ -175,6 +177,8 @@ export function registerFindTool(
 			conflictSets: [],
 			defaultActive: true,
 		},
-		withToolFrame(tool, trace, findCollapsedFooter),
+		tui.frame(tool, {
+			footer: findCollapsedFooter,
+		}),
 	);
 }

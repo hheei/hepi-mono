@@ -6,8 +6,7 @@ import { Type } from "typebox";
 import { inferFffGrepMode } from "./fff/extension-common.js";
 import type { GrepMatch } from "./fff/fff.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
-import { withToolFrame } from "./pretty/frame.js";
-import { ToolTraceController } from "./pretty/trace.js";
+import { createToolTui, type ToolTui } from "./pretty/frame.js";
 import { grepCollapsedFooter, renderGrepResult } from "./search-renderer.js";
 
 const OWNER = "@hheei/pi-ext-tools";
@@ -19,31 +18,27 @@ const MAX_BYTES = 50 * 1024;
 const MAX_MATCHES_PER_FILE = 25;
 const MAX_DISPLAY_MATCHES = 200;
 const MAX_LINE_CHARS = 80;
+const GREP_DESCRIPTION =
+	"Search file contents with ripgrep or FFF when its exact grep contract applies.";
+const GREP_PROMPT_SNIPPET = "Search file contents for patterns (respects .gitignore)";
+const GREP_PARAMETER_DESCRIPTIONS = {
+	pattern: "Search pattern (regex or literal string)",
+	path: "Directory or file to search (default: current directory)",
+	glob: "Filter files by glob pattern, e.g. '*.ts' or '**/*.spec.ts'",
+	ignoreCase: "Case-insensitive search (default: false)",
+	literal: "Treat pattern as literal string instead of regex (default: false)",
+	context: "Number of lines to show before and after each match (default: 0)",
+	limit: "Maximum number of matches to return (default: 100)",
+} as const;
 
 const schema = Type.Object({
-	pattern: Type.String({ description: "Search pattern (regex or literal string)" }),
-	path: Type.Optional(
-		Type.String({ description: "Directory or file to search (default: current directory)" }),
-	),
-	glob: Type.Optional(
-		Type.String({ description: "Filter files by glob pattern, e.g. '*.ts' or '**/*.spec.ts'" }),
-	),
-	ignoreCase: Type.Optional(
-		Type.Boolean({ description: "Case-insensitive search (default: false)" }),
-	),
-	literal: Type.Optional(
-		Type.Boolean({
-			description: "Treat pattern as literal string instead of regex (default: false)",
-		}),
-	),
-	context: Type.Optional(
-		Type.Number({
-			description: "Number of lines to show before and after each match (default: 0)",
-		}),
-	),
-	limit: Type.Optional(
-		Type.Number({ description: "Maximum number of matches to return (default: 100)" }),
-	),
+	pattern: Type.String({ description: GREP_PARAMETER_DESCRIPTIONS.pattern }),
+	path: Type.Optional(Type.String({ description: GREP_PARAMETER_DESCRIPTIONS.path })),
+	glob: Type.Optional(Type.String({ description: GREP_PARAMETER_DESCRIPTIONS.glob })),
+	ignoreCase: Type.Optional(Type.Boolean({ description: GREP_PARAMETER_DESCRIPTIONS.ignoreCase })),
+	literal: Type.Optional(Type.Boolean({ description: GREP_PARAMETER_DESCRIPTIONS.literal })),
+	context: Type.Optional(Type.Number({ description: GREP_PARAMETER_DESCRIPTIONS.context })),
+	limit: Type.Optional(Type.Number({ description: GREP_PARAMETER_DESCRIPTIONS.limit })),
 });
 
 type GrepParams = {
@@ -591,13 +586,13 @@ async function useFff(params: GrepParams, cwd: string, state: FffRuntimeState): 
 export function registerGrepTool(
 	pi: ExtensionAPI,
 	state: FffRuntimeState,
-	trace = new ToolTraceController(),
+	tui: ToolTui = createToolTui(),
 ): void {
 	const tool = {
 		name: "grep",
 		label: "grep",
-		description: "Search file contents with ripgrep or FFF when its exact grep contract applies.",
-		promptSnippet: "Search file contents for patterns (respects .gitignore)",
+		description: GREP_DESCRIPTION,
+		promptSnippet: GREP_PROMPT_SNIPPET,
 		parameters: schema,
 		renderResult: renderGrepResult,
 		async execute(
@@ -687,6 +682,8 @@ export function registerGrepTool(
 			conflictSets: [],
 			defaultActive: true,
 		},
-		withToolFrame(tool, trace, grepCollapsedFooter),
+		tui.frame(tool, {
+			footer: grepCollapsedFooter,
+		}),
 	);
 }

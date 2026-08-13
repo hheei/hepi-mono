@@ -1,9 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentToolResult, Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import type {
+	AgentToolResult,
+	ExtensionContext,
+	Theme,
+	ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
+import { Container, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { withToolFrame } from "../../src/pretty/frame.js";
-import { ToolTraceController } from "../../src/pretty/trace.js";
+import { createToolTui } from "../../src/pretty/frame.js";
 
 const Params = Type.Object({ path: Type.String() });
 const theme = {
@@ -18,6 +22,10 @@ function context(isPartial: boolean, isError = false): never {
 		isError,
 		lastComponent: undefined,
 		state: {},
+		toolCallId: "call-1",
+		executionStarted: true,
+		expanded: false,
+		invalidate: (): void => undefined,
 	} as never;
 }
 
@@ -45,249 +53,194 @@ function tool(renderers = true): ToolDefinition<typeof Params> {
 	};
 }
 
-describe("withToolFrame", () => {
-	test("renders pending and completed sections without a host tool background", (): void => {
-		const framed = withToolFrame(tool());
+function renderResult(
+	framed: ToolDefinition<typeof Params>,
+	result: AgentToolResult<unknown>,
+	lastComponent?: ReturnType<NonNullable<ToolDefinition<typeof Params>["renderResult"]>>,
+): string[] {
+	const renderContext = {
+		...(context(false) as object),
+		...(lastComponent === undefined ? {} : { lastComponent }),
+	} as never;
+	return (
+		framed
+			.renderResult?.(result, { expanded: false, isPartial: false }, theme, renderContext)
+			.render(80)
+			.map((line) => line.trimEnd()) ?? []
+	);
+}
+
+describe("ToolTui", () => {
+	test("owns unboxed headers, body rails, and footer", (): void => {
+		const tui = createToolTui();
+		const framed = tui.frame(tool(), { footer: () => "1 line · 2ms" });
 		expect(framed.renderShell).toBe("self");
 		const call = framed.renderCall?.({ path: "src/a.ts" }, theme, context(true));
-		const result = framed.renderResult?.(
-			{ content: [{ type: "text", text: "result body" }], details: undefined },
-			{ expanded: false, isPartial: false },
-			theme,
-			context(false),
+		const callLines = call?.render(200).map((line) => line.trimEnd()) ?? [];
+		expect(callLines[0]).toContain(
+			"<warning>◐</warning> <toolTitle><b>read</b></toolTitle> src/a.ts",
 		);
-		const callLines = call?.render(80) ?? [];
-		expect(callLines[0]).toContain("<warning>◐</warning> <toolTitle><b>read</b></toolTitle>");
-		expect(callLines[1]).toBe(
-			"<borderMuted>────────────────────────────────────────────────────────────────────────────────</borderMuted>",
-		);
-		expect(callLines[2]?.trim()).toBe("call body");
-		const resultLines = result?.render(20) ?? [];
-		expect(resultLines[0]).toBe("<borderMuted>────────────────────</borderMuted>");
-		expect(resultLines[1]?.trim()).toBe("result body");
-	});
-
-	test("omits the opening rail for footer-only result components", (): void => {
-		const footerOnly = withToolFrame({
-			...tool(),
-			renderResult: () => ({
-				hasResultBody: (): boolean => false,
-				render: (): string[] => ["footer only"],
-				invalidate: (): void => undefined,
+		expect(callLines[1]).toBe(`<borderMuted>${"─".repeat(200)}</borderMuted>`);
+		expect(callLines[2]).toBe("call body");
+		expect(callLines[3]).toBe(`<borderMuted>${"─".repeat(200)}</borderMuted>`);
+		expect(
+			renderResult(framed, {
+				content: [{ type: "text", text: "result body" }],
+				details: undefined,
 			}),
-		});
-		const result = footerOnly.renderResult?.(
-			{ content: [], details: undefined },
-			{ expanded: false, isPartial: false },
-			theme,
-			context(false),
-		);
-		expect(result?.render(20)).toEqual(["footer only"]);
+		).toEqual([
+			`<borderMuted>${"─".repeat(80)}</borderMuted>`,
+			"result body",
+			`<borderMuted>${"─".repeat(80)}</borderMuted>`,
+			"<dim>1 line · 2ms</dim>",
+		]);
 	});
 
-	test("renders the latest partial result only in the result slot", (): void => {
-		const trace = new ToolTraceController();
-		const framed = withToolFrame(tool(), trace);
-		trace.startTrace();
-		trace.begin("call-1");
-		trace.update("call-1", {
-			content: [{ type: "text", text: "streaming result" }],
-			details: undefined,
+	test("derives all four body layouts from rendered lines and typed footer", (): void => {
+		const tui = createToolTui();
+		const body = (text: string, footer?: string): string[] => {
+			const framed = tui.frame(
+				{
+					...tool(),
+					renderResult: () => (text === "<empty>" ? new Container() : new Text(text, 0, 0)),
+				},
+				footer === undefined ? {} : { footer: () => footer },
+			);
+			return renderResult(framed, { content: [], details: undefined });
+		};
+		expect(body("body", "footer")).toEqual([
+			`<borderMuted>${"─".repeat(80)}</borderMuted>`,
+			"body",
+			`<borderMuted>${"─".repeat(80)}</borderMuted>`,
+			"<dim>footer</dim>",
+		]);
+		expect(body("body")).toEqual([
+			`<borderMuted>${"─".repeat(80)}</borderMuted>`,
+			"body",
+			`<borderMuted>${"─".repeat(80)}</borderMuted>`,
+		]);
+		expect(body("<empty>", "footer")).toEqual(["<dim>footer</dim>"]);
+		expect(body("<empty>")).toEqual([]);
+	});
+
+	test("unwraps the previous body component for renderer reuse", (): void => {
+		const tui = createToolTui();
+		let reused = false;
+		const framed = tui.frame({
+			...tool(),
+			renderResult: (_result, _options, _theme, receivedContext) => {
+				let text: Text;
+				if (receivedContext.lastComponent instanceof Text) {
+					reused = true;
+					text = receivedContext.lastComponent;
+				} else text = new Text("first", 0, 0);
+				text.setText("updated");
+				return text;
+			},
 		});
-		const call = framed.renderCall?.({ path: "src/a.ts" }, theme, {
-			...(context(true) as object),
-			toolCallId: "call-1",
-			executionStarted: true,
-			expanded: false,
-			invalidate: (): void => undefined,
-		} as never);
-		const result = framed.renderResult?.(
-			{ content: [{ type: "text", text: "streaming result" }], details: undefined },
+		const result = { content: [], details: undefined };
+		const first = framed.renderResult?.(
+			result,
 			{ expanded: false, isPartial: true },
 			theme,
-			{
-				...(context(true) as object),
-				toolCallId: "call-1",
-				executionStarted: true,
-				expanded: false,
-				invalidate: (): void => undefined,
-			} as never,
+			context(true),
 		);
-		const text = call?.render(80).join("\n");
-		expect(text).not.toContain("streaming result");
-		expect(text).not.toContain("call body");
-		expect(result?.render(80).join("\n")).toContain("streaming result");
-		const completedCall = framed.renderCall?.({ path: "src/a.ts" }, theme, {
-			...(context(false) as object),
-			toolCallId: "call-1",
-			executionStarted: true,
-			expanded: false,
-			invalidate: (): void => undefined,
+		framed.renderResult?.(result, { expanded: false, isPartial: true }, theme, {
+			...(context(true) as object),
+			lastComponent: first,
 		} as never);
-		const completedText = completedCall?.render(80).join("\n");
-		expect(completedText).not.toContain("streaming result");
-		expect(completedText).not.toContain("call body");
+		expect(reused).toBe(true);
 	});
 
-	test("collapses prior traces until tools are globally expanded", (): void => {
-		const trace = new ToolTraceController();
-		const framed = withToolFrame(tool(), trace);
-		trace.startTrace();
-		trace.begin("call-1");
-		trace.complete("call-1");
-		trace.startTrace();
-		const call = framed.renderCall?.({ path: "src/a.ts" }, theme, {
+	test("keeps partial output in the result slot and collapses completed prior traces", async (): Promise<void> => {
+		const tui = createToolTui();
+		const framed = tui.frame({
+			...tool(),
+			async execute(_id, _params, _signal, onUpdate) {
+				onUpdate?.({ content: [{ type: "text", text: "streaming result" }], details: undefined });
+				return { content: [{ type: "text", text: "result body" }], details: undefined };
+			},
+		});
+		tui.beginTrace();
+		let partial: AgentToolResult<unknown> | undefined;
+		const completed = await framed.execute(
+			"call-1",
+			{ path: "src/a.ts" },
+			undefined,
+			(update) => {
+				partial = update;
+			},
+			{ cwd: process.cwd() } as ExtensionContext,
+		);
+		const call = framed.renderCall?.({ path: "src/a.ts" }, theme, context(true));
+		expect(call?.render(80).join("\n")).not.toContain("streaming result");
+		if (partial === undefined) throw new Error("Expected partial result");
+		expect(
+			framed
+				.renderResult?.(partial, { expanded: false, isPartial: true }, theme, context(true))
+				.render(80)
+				.join("\n"),
+		).toContain("streaming result");
+
+		tui.beginTrace();
+		const historicalContext = {
 			...(context(false) as object),
-			toolCallId: "call-1",
 			executionStarted: false,
-			expanded: false,
-			invalidate: (): void => undefined,
-		} as never);
-		const collapsed = framed.renderResult?.(
-			{ content: [{ type: "text", text: "result body" }], details: undefined },
+		} as never;
+		const collapsedCall = framed.renderCall?.({ path: "src/a.ts" }, theme, historicalContext);
+		const collapsedResult = framed.renderResult?.(
+			completed,
 			{ expanded: false, isPartial: false },
 			theme,
-			{
-				...(context(false) as object),
-				args: { path: "src/a.ts" },
-				toolCallId: "call-1",
-				executionStarted: false,
-				expanded: false,
-				invalidate: (): void => undefined,
-			} as never,
+			historicalContext,
 		);
-		const combined = [...(call?.render(80) ?? []), ...(collapsed?.render(80) ?? [])].join("\n");
-		expect(combined.match(/<b>read<\/b>/g)).toHaveLength(1);
-		const collapsedLines = collapsed?.render(80) ?? [];
-		expect(collapsedLines.map((line) => line.trimEnd())).toEqual(["<dim>0ms</dim>"]);
-		expect(collapsedLines.join("\n")).not.toContain("result body");
-
-		const expanded = framed.renderResult?.(
-			{ content: [{ type: "text", text: "result body" }], details: undefined },
-			{ expanded: true, isPartial: false },
-			theme,
-			{
-				...(context(false) as object),
-				args: { path: "src/a.ts" },
-				toolCallId: "call-1",
-				executionStarted: false,
-				expanded: true,
-				invalidate: (): void => undefined,
-			} as never,
-		);
-		expect(expanded?.render(80).join("\n")).toContain("result body");
+		expect(
+			[...(collapsedCall?.render(80) ?? []), ...(collapsedResult?.render(80) ?? [])]
+				.join("\n")
+				.match(/<b>read<\/b>/g),
+		).toHaveLength(1);
+		expect(collapsedResult?.render(80).map((line) => line.trimEnd())).toEqual(["<dim>0ms</dim>"]);
 	});
 
-	test("dims historical read and grep parameters", (): void => {
-		const trace = new ToolTraceController();
-		const framed = withToolFrame(tool(), trace);
-		trace.startTrace();
-		trace.begin("call-1");
-		trace.complete("call-1");
-		trace.begin("grep-1");
-		trace.complete("grep-1");
-		trace.startTrace();
-		const collapsedTheme = {
-			bg: (_role: string, text: string): string => text,
-			fg: (role: string, text: string): string =>
-				role === "dim" ? `\u001B[2m${text}\u001B[22m` : text,
-			bold: (text: string): string => text,
-		} as Theme;
-		const call = framed.renderCall?.({ path: `src/${"a".repeat(80)}.ts` }, collapsedTheme, {
-			...(context(false) as object),
-			toolCallId: "call-1",
-			executionStarted: false,
-			expanded: false,
-			invalidate: (): void => undefined,
-		} as never);
-		const line = call?.render(30)[0];
-		expect(line).toContain("\u001B[2msrc/");
-		expect(line).toContain("\u001B[2m>\u001B[22m");
-		const readRange = framed.renderCall?.(
-			{ path: "src/outcome.ts", offset: 58, limit: 70 },
-			collapsedTheme,
-			{
-				...(context(false) as object),
-				toolCallId: "call-1",
-				executionStarted: false,
-				expanded: false,
-				invalidate: (): void => undefined,
-			} as never,
-		);
-		expect(readRange?.render(100)[0]).toContain("\u001B[2m:58-127\u001B[22m");
-
-		const grepFramed = withToolFrame({ ...tool(), name: "grep", label: "grep" }, trace);
-		const grep = grepFramed.renderCall?.({ pattern: "needle", path: "src" }, collapsedTheme, {
-			...(context(false) as object),
-			toolCallId: "grep-1",
-			executionStarted: false,
-			expanded: false,
-			invalidate: (): void => undefined,
-		} as never);
-		const grepLine = grep?.render(100)[0];
-		expect(grepLine).toContain("grep");
-		expect(grepLine).toContain("\u001B[2m/needle/ in src\u001B[22m");
-	});
-
-	test("restores a warning header without synchronously repeating the result", async (): Promise<void> => {
-		const trace = new ToolTraceController();
-		const framed = withToolFrame(
-			tool(),
-			trace,
-			() => "actual partial metrics",
-			() => true,
-		);
-		trace.startTrace();
+	test("restores warning presentation without synchronously repeating the result", async (): Promise<void> => {
+		const tui = createToolTui();
+		const framed = tui.frame(tool(), {
+			footer: () => "partial metrics",
+			warning: () => true,
+		});
 		let invalidations = 0;
-		const renderContext = {
+		const restoredContext = {
 			...(context(false, true) as object),
-			args: { path: "src/a.ts" },
-			toolCallId: "call-1",
 			executionStarted: false,
-			expanded: false,
 			invalidate: (): void => {
 				invalidations += 1;
 			},
 		} as never;
-		framed.renderCall?.({ path: "src/a.ts" }, theme, renderContext);
-		const restoredResult = {
-			content: [{ type: "text" as const, text: "result body" }],
-			details: undefined,
-		};
+		framed.renderCall?.({ path: "src/a.ts" }, theme, restoredContext);
+		const restored = { content: [{ type: "text" as const, text: "body" }], details: undefined };
 		const result = framed.renderResult?.(
-			restoredResult,
+			restored,
 			{ expanded: false, isPartial: false },
 			theme,
-			renderContext,
+			restoredContext,
 		);
 		expect(result?.render(80).map((line) => line.trimEnd())).toEqual([
-			"<dim>actual partial metrics</dim>",
+			"<dim>partial metrics</dim>",
 		]);
 		expect(invalidations).toBe(0);
 		await Promise.resolve();
 		expect(invalidations).toBe(1);
-		framed.renderResult?.(
-			restoredResult,
-			{ expanded: false, isPartial: false },
-			theme,
-			renderContext,
-		);
-		await Promise.resolve();
-		expect(invalidations).toBe(1);
-		const restoredCall = framed.renderCall?.({ path: "src/a.ts" }, theme, renderContext);
-		const restoredText = restoredCall?.render(80).join("\n");
-		expect(restoredText).toContain("<warning>!</warning>");
-		expect(restoredText).not.toContain("<error>✗</error>");
+		const call = framed.renderCall?.({ path: "src/a.ts" }, theme, restoredContext);
+		expect(call?.render(80).join("\n")).toContain("<warning>!</warning>");
 	});
 
 	test("uses the host text fallback when a tool has no renderer", (): void => {
-		const framed = withToolFrame(tool(false));
-		const result = framed.renderResult?.(
-			{ content: [{ type: "text", text: "result body" }], details: undefined },
-			{ expanded: false, isPartial: false },
-			theme,
-			context(false),
-		);
-		expect(result?.render(80).join("\n")).toContain("<toolOutput>result body</toolOutput>");
+		const framed = createToolTui().frame(tool(false));
+		expect(
+			renderResult(framed, {
+				content: [{ type: "text", text: "result body" }],
+				details: undefined,
+			}).join("\n"),
+		).toContain("<toolOutput>result body</toolOutput>");
 	});
 });

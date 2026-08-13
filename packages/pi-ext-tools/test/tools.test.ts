@@ -156,7 +156,7 @@ describe("pi-ext-tools catalog", () => {
 		expect(preview).toContain("<dim>... (43 hidden lines, ctrl+o to expand)</dim>");
 		expect(preview).toContain("<dim>55│</dim>T1");
 		expect(preview).toContain("<dim>56│</dim>T2");
-		expect(preview).toContain("<dim>315 chars · 48 lines · 10ms</dim>");
+		expect(preview).not.toContain("315 chars · 48 lines · 10ms");
 		expect(result.content[0]?.text).toBe(source);
 		const expanded = read
 			.renderResult?.(result, { isPartial: false, expanded: true }, theme, {
@@ -179,7 +179,7 @@ describe("pi-ext-tools catalog", () => {
 		expect(narrow).toContain("<dim>></dim>");
 	});
 
-	test("omits read result rails when the visible preview has no lines", (): void => {
+	test("omits read body rails when the visible preview has no lines", (): void => {
 		const host = harness();
 		registerTools(host.pi);
 		const read = host.tools.find((tool) => tool.name === "read");
@@ -229,7 +229,7 @@ describe("pi-ext-tools catalog", () => {
 		expect(result.content[0]?.text).toBe(source);
 	});
 
-	test("omits search result rails when there are no body lines", (): void => {
+	test("omits search body rails when there are no body lines", (): void => {
 		const host = harness();
 		registerTools(host.pi);
 		const grep = host.tools.find((tool) => tool.name === "grep");

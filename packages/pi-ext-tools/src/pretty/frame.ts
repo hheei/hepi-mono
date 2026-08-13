@@ -1,4 +1,9 @@
-import type { AgentToolResult, Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type {
+	AgentToolResult,
+	Theme,
+	ToolDefinition,
+	ToolRenderResultOptions,
+} from "@earendil-works/pi-coding-agent";
 import {
 	type Component,
 	Container,
@@ -18,12 +23,25 @@ type FrameHeader = {
 	readonly wrap?: boolean;
 };
 
-export type ToolFrameFooter = (
-	result: AgentToolResult<unknown>,
-	completion: ToolCompletion | undefined,
-) => string | undefined;
+type ToolPresentation<TParams extends TSchema, TDetails> = {
+	readonly summary?: ToolFrameHeader<TParams, TDetails>;
+	readonly footer?: (
+		result: AgentToolResult<TDetails>,
+		completion: ToolCompletion | undefined,
+		options: ToolRenderResultOptions,
+	) => string | undefined;
+	readonly warning?: (result: AgentToolResult<TDetails>) => boolean;
+};
 
-export type ToolFrameHeader<TParams extends TSchema, TDetails> = (
+export interface ToolTui {
+	beginTrace(): void;
+	frame<TParams extends TSchema, TDetails, TState>(
+		tool: ToolDefinition<TParams, TDetails, TState>,
+		presentation?: ToolPresentation<TParams, TDetails>,
+	): ToolDefinition<TParams, TDetails, TState>;
+}
+
+type ToolFrameHeader<TParams extends TSchema, TDetails> = (
 	args: Static<TParams>,
 	latest: AgentToolResult<TDetails> | undefined,
 ) => string | undefined;
@@ -181,10 +199,6 @@ function completionFrom(
 	};
 }
 
-export function completionFromResult(result: AgentToolResult<unknown>): ToolCompletion | undefined {
-	return completionFrom(result, undefined);
-}
-
 function withCompletion<T>(
 	result: AgentToolResult<T>,
 	completion: ToolCompletion,
@@ -210,47 +224,32 @@ function resultText(result: AgentToolResult<unknown>): string {
 		.join("\n");
 }
 
-function hasResultBody(component: Component | undefined): boolean {
-	if (component === undefined || !("hasResultBody" in component)) return true;
-	const candidate = component.hasResultBody;
-	return typeof candidate !== "function" || candidate.call(component);
-}
-
 class ToolFrameSection implements Component {
 	constructor(
-		private readonly body: Component | undefined,
+		private readonly body: ToolBodySection | undefined,
 		private readonly theme: Theme,
-		private readonly header?: FrameHeader,
-		private readonly separateBody = true,
+		private readonly header: FrameHeader,
 		private readonly collapsed = false,
 	) {}
 
+	bodyComponent(): Component | undefined {
+		return this.body?.bodyComponent();
+	}
+
 	render(width: number): string[] {
 		const availableWidth = Math.max(1, width);
-		const lines =
-			this.header === undefined
-				? []
-				: this.collapsed
-					? [collapsedHeader(this.header, availableWidth, this.theme)]
-					: this.header.wrap
-						? new Text(`${this.header.primary}${this.header.suffix ?? ""}`, 0, 0).render(
-								availableWidth,
-							)
-						: [
-								truncateToWidth(
-									`${this.header.primary}${this.header.suffix ?? ""}`,
-									availableWidth,
-									"…",
-								),
-							];
-		const bodyLines = this.body?.render(availableWidth) ?? [];
-		if (bodyLines.length > 0) {
-			if (this.separateBody) {
-				if (hasResultBody(this.body))
-					lines.push(this.theme.fg("borderMuted", "─".repeat(availableWidth)));
-			} else lines.push("");
-			lines.push(...bodyLines);
-		}
+		const lines = this.collapsed
+			? [collapsedHeader(this.header, availableWidth, this.theme)]
+			: this.header.wrap
+				? new Text(`${this.header.primary}${this.header.suffix ?? ""}`, 0, 0).render(availableWidth)
+				: [
+						truncateToWidth(
+							`${this.header.primary}${this.header.suffix ?? ""}`,
+							availableWidth,
+							"…",
+						),
+					];
+		lines.push(...(this.body?.render(availableWidth) ?? []));
 		return lines;
 	}
 
@@ -267,99 +266,142 @@ function collapsedHeader(header: FrameHeader, width: number, theme: Theme): stri
 	return `${truncateToWidth(header.primary, width - suffixWidth, truncation)}${header.suffix}`;
 }
 
+class ToolBodySection implements Component {
+	constructor(
+		private readonly body: Component,
+		private readonly footer: string | undefined,
+		private readonly theme: Theme,
+	) {}
+
+	bodyComponent(): Component {
+		return this.body;
+	}
+
+	render(width: number): string[] {
+		const availableWidth = Math.max(1, width);
+		const body = this.body.render(availableWidth);
+		if (body.length === 0)
+			return this.footer === undefined ? [] : [this.theme.fg("dim", this.footer)];
+		return [
+			this.theme.fg("borderMuted", "─".repeat(availableWidth)),
+			...body,
+			this.theme.fg("borderMuted", "─".repeat(availableWidth)),
+			...(this.footer === undefined ? [] : [this.theme.fg("dim", this.footer)]),
+		];
+	}
+
+	invalidate(): void {
+		this.body.invalidate();
+	}
+}
+
+function previousBody(component: Component | undefined): Component | undefined {
+	return component instanceof ToolFrameSection || component instanceof ToolBodySection
+		? component.bodyComponent()
+		: undefined;
+}
+
 function resultFallback(result: AgentToolResult<unknown>, theme: Theme): Component {
 	const text = resultText(result);
 	return text === "" ? new Container() : new Text(theme.fg("toolOutput", text), 0, 0);
 }
 
-/**
- * Adds Pi-native unboxed framing around a tool's existing renderer without
- * changing its schema, execution, model content, or result details.
- */
-export function withToolFrame<TParams extends TSchema, TDetails, TState>(
-	tool: ToolDefinition<TParams, TDetails, TState>,
-	trace = new ToolTraceController(),
-	footer?: ToolFrameFooter,
-	warningResult?: (result: AgentToolResult<unknown>) => boolean,
-	headerSummary?: ToolFrameHeader<TParams, TDetails>,
-): ToolDefinition<TParams, TDetails, TState> {
-	const renderCall = tool.renderCall;
-	const renderResult = tool.renderResult;
+/** Creates one session-scoped owner for framed tool rendering and Trace state. */
+export function createToolTui(): ToolTui {
+	const trace = new ToolTraceController();
 	return {
-		...tool,
-		renderShell: "self",
-		async execute(toolCallId, params, signal, onUpdate, context) {
-			trace.begin(toolCallId);
-			const forwardUpdate = (update: AgentToolResult<TDetails>): void => {
-				trace.update(toolCallId, update);
-				onUpdate?.(update);
-			};
-			try {
-				const result = await tool.execute(toolCallId, params, signal, forwardUpdate, context);
-				trace.update(toolCallId, result);
-				return withCompletion(result, trace.complete(toolCallId, warningResult?.(result) ?? false));
-			} catch (error) {
-				trace.fail(toolCallId, error);
-				throw error;
-			}
+		beginTrace(): void {
+			trace.startTrace();
 		},
-		renderCall(args, theme, context): Component {
-			const collapsed = trace.isCollapsed(
-				context.toolCallId,
-				context.expanded,
-				context.executionStarted,
-				context.invalidate,
-			);
-			const header = headerFor(
-				tool,
-				args,
-				theme,
-				context,
-				trace.completionFor(context.toolCallId)?.warning,
-				headerSummary?.(
-					args,
-					trace.latestFor(context.toolCallId) as AgentToolResult<TDetails> | undefined,
-				),
-				collapsed,
-			);
-			if (collapsed) return new ToolFrameSection(undefined, theme, header, true, true);
-			const latest = trace.latestFor(context.toolCallId) as AgentToolResult<TDetails> | undefined;
-			const body =
-				latest === undefined
-					? renderCall?.(args, unboxedTheme(theme), {
+		frame<TParams extends TSchema, TDetails, TState>(
+			tool: ToolDefinition<TParams, TDetails, TState>,
+			presentation: ToolPresentation<TParams, TDetails> = {},
+		): ToolDefinition<TParams, TDetails, TState> {
+			const renderCall = tool.renderCall;
+			const renderResult = tool.renderResult;
+			return {
+				...tool,
+				renderShell: "self",
+				async execute(toolCallId, params, signal, onUpdate, context) {
+					trace.begin(toolCallId);
+					const forwardUpdate = (update: AgentToolResult<TDetails>): void => {
+						trace.update(toolCallId, update);
+						onUpdate?.(update);
+					};
+					try {
+						const result = await tool.execute(toolCallId, params, signal, forwardUpdate, context);
+						trace.update(toolCallId, result);
+						const warning = presentation.warning?.(result) ?? false;
+						return withCompletion(result, trace.complete(toolCallId, warning));
+					} catch (error) {
+						trace.fail(toolCallId, error);
+						throw error;
+					}
+				},
+				renderCall(args, theme, context): Component {
+					const collapsed = trace.isCollapsed(
+						context.toolCallId,
+						context.expanded,
+						context.executionStarted,
+						context.invalidate,
+					);
+					const latest = trace.latestFor(context.toolCallId) as
+						| AgentToolResult<TDetails>
+						| undefined;
+					const header = headerFor(
+						tool,
+						args,
+						theme,
+						context,
+						trace.completionFor(context.toolCallId)?.warning,
+						presentation.summary?.(args, latest),
+						collapsed,
+					);
+					if (collapsed) return new ToolFrameSection(undefined, theme, header, true);
+					const body =
+						context.isPartial && latest === undefined
+							? renderCall?.(args, unboxedTheme(theme), {
+									...context,
+									lastComponent: previousBody(context.lastComponent),
+								})
+							: undefined;
+					return new ToolFrameSection(
+						body === undefined ? undefined : new ToolBodySection(body, undefined, theme),
+						theme,
+						header,
+					);
+				},
+				renderResult(result, options, theme, context): Component {
+					const completion = completionFrom(result, trace.completionFor(context.toolCallId));
+					const footer = presentation.footer?.(result, completion, options);
+					const warning = presentation.warning?.(result) ?? false;
+					const restoredCompletion =
+						completion?.warning === true || !warning
+							? completion
+							: { ...completion, warning: true };
+					trace.restore(context.toolCallId, result, restoredCompletion);
+					const isWarning = restoredCompletion?.warning === true;
+					const collapsed = trace.isCollapsed(
+						context.toolCallId,
+						context.expanded,
+						context.executionStarted,
+						context.invalidate,
+					);
+					if (collapsed) {
+						const summary =
+							context.isError && !isWarning
+								? defaultFooter(restoredCompletion, true)
+								: (footer ?? defaultFooter(restoredCompletion, false));
+						return new Text(theme.fg("dim", summary), 0, 0);
+					}
+					const body =
+						renderResult?.(result, options, unboxedTheme(theme), {
 							...context,
-							lastComponent: undefined,
-						})
-					: undefined;
-			return new ToolFrameSection(body, theme, header);
-		},
-		renderResult(result, options, theme, context): Component {
-			const completion = completionFrom(result, trace.completionFor(context.toolCallId));
-			const restoredCompletion =
-				completion?.warning === true || warningResult?.(result) !== true
-					? completion
-					: { ...completion, warning: true };
-			trace.restore(context.toolCallId, result, restoredCompletion);
-			const isWarning = restoredCompletion?.warning === true;
-			const collapsed = trace.isCollapsed(
-				context.toolCallId,
-				context.expanded,
-				context.executionStarted,
-				context.invalidate,
-			);
-			if (collapsed) {
-				const summary =
-					context.isError && !isWarning
-						? defaultFooter(restoredCompletion, true)
-						: (footer?.(result, restoredCompletion) ?? defaultFooter(restoredCompletion, false));
-				return new Text(theme.fg("dim", summary), 0, 0);
-			}
-			const body =
-				renderResult?.(result, options, unboxedTheme(theme), {
-					...context,
-					lastComponent: undefined,
-				}) ?? resultFallback(result, theme);
-			return new ToolFrameSection(body, theme);
+							lastComponent: previousBody(context.lastComponent),
+						}) ?? resultFallback(result, theme);
+					return new ToolBodySection(body, footer, theme);
+				},
+			};
 		},
 	};
 }

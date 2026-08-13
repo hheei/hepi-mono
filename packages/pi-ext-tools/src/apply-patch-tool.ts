@@ -14,19 +14,29 @@ import {
 } from "./apply-patch/index.js";
 import { parseV4aPatch } from "./apply-patch/parser.js";
 import { formatApplyPatchFooter, renderApplyPatchResult } from "./apply-patch/renderer.js";
-import { withToolFrame } from "./pretty/frame.js";
-import { ToolTraceController } from "./pretty/trace.js";
+import { createToolTui, type ToolTui } from "./pretty/frame.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 const OUTPUT_PREFIX = "output:" + "//";
 const MAX_CANDIDATES = 6;
+const APPLY_PATCH_DESCRIPTION =
+	"Apply a strict Codex V4A patch through the pi-ext-tools patch coordinator.";
+const APPLY_PATCH_PARAMETER_DESCRIPTION =
+	"V4A patch text. `*** Begin Patch` first, `*** End Patch` last; never repeat either marker. Use Add File, Update File, Delete File, and optional Move to sections.";
+const RECOVERY_READ_TARGETS =
+	"Recovery: read every path targeted by the patch before attempting another edit.";
+const RECOVERY_QUEUE_FULL =
+	"Recovery: wait for the active patch requests to finish, then retry this unchanged patch.";
+const RECOVERY_CANCELLED =
+	"Recovery: the request was cancelled and its request-level commit was rolled back; read targets before retrying.";
+const RECOVERY_INVALID_PATCH =
+	"Recovery: correct the V4A syntax and submit a complete patch; parsed preview rows were not applied.";
+const DO_NOT_RETRY_APPLIED_HUNKS = "Do not retry applied hunks.";
+const DO_NOT_RETRY_APPLIED_OPERATIONS = "Do not retry applied operations.";
 
 export const APPLY_PATCH_PARAMETERS = Type.Object(
 	{
-		patch: Type.String({
-			description:
-				"V4A patch text. `*** Begin Patch` first, `*** End Patch` last; never repeat either marker. Use Add File, Update File, Delete File, and optional Move to sections.",
-		}),
+		patch: Type.String({ description: APPLY_PATCH_PARAMETER_DESCRIPTION }),
 	},
 	{ additionalProperties: false },
 );
@@ -145,19 +155,16 @@ function recoveryLines(result: ApplyPatchInWorkspaceResult): readonly string[] {
 			: `Recovery: read ${paths.join(", ")}, then retry only ${scope}.`,
 		...(result.applied.length === 0
 			? []
-			: [hasHunkDiagnostics ? "Do not retry applied hunks." : "Do not retry applied operations."]),
+			: [hasHunkDiagnostics ? DO_NOT_RETRY_APPLIED_HUNKS : DO_NOT_RETRY_APPLIED_OPERATIONS]),
 	];
 }
 
 export function failureRecovery(message: string): string | undefined {
 	if (message.includes("workspace state indeterminate") || message.includes("outcome is unknown"))
-		return "Recovery: read every path targeted by the patch before attempting another edit.";
-	if (message.includes("queue is full"))
-		return "Recovery: wait for the active patch requests to finish, then retry this unchanged patch.";
-	if (message.includes("cancelled by client"))
-		return "Recovery: the request was cancelled and its request-level commit was rolled back; read targets before retrying.";
-	if (message.includes("No operations were validated or applied"))
-		return "Recovery: correct the V4A syntax and submit a complete patch; parsed preview rows were not applied.";
+		return RECOVERY_READ_TARGETS;
+	if (message.includes("queue is full")) return RECOVERY_QUEUE_FULL;
+	if (message.includes("cancelled by client")) return RECOVERY_CANCELLED;
+	if (message.includes("No operations were validated or applied")) return RECOVERY_INVALID_PATCH;
 	return undefined;
 }
 
@@ -236,7 +243,7 @@ export function createApplyPatchTool(): ToolDefinition<
 	return {
 		name: "apply_patch",
 		label: "apply_patch",
-		description: "Apply a strict Codex V4A patch through the pi-ext-tools patch coordinator.",
+		description: APPLY_PATCH_DESCRIPTION,
 		parameters: APPLY_PATCH_PARAMETERS,
 		executionMode: "parallel",
 		renderResult: (result, options, theme) =>
@@ -276,7 +283,7 @@ export function createApplyPatchTool(): ToolDefinition<
 	};
 }
 
-export function registerApplyPatchTool(pi: ExtensionAPI, trace = new ToolTraceController()): void {
+export function registerApplyPatchTool(pi: ExtensionAPI, tui: ToolTui = createToolTui()): void {
 	registerManagedLoadoutTool(
 		pi,
 		{
@@ -289,15 +296,15 @@ export function registerApplyPatchTool(pi: ExtensionAPI, trace = new ToolTraceCo
 			conflictsWith: ["edit", "write"],
 			defaultActive: true,
 		},
-		withToolFrame(
-			createApplyPatchTool(),
-			trace,
-			(result, completion) =>
-				isApplyPatchToolDetails(result.details)
+		tui.frame(createApplyPatchTool(), {
+			summary: (_args, latest) => applyPatchHeader(latest),
+			footer: (result, completion) => {
+				return isApplyPatchToolDetails(result.details)
 					? formatApplyPatchFooter(result, completion)
-					: undefined,
-			(result) => isApplyPatchToolDetails(result.details) && result.details.status !== "success",
-			(_args, latest) => applyPatchHeader(latest),
-		),
+					: undefined;
+			},
+			warning: (result) =>
+				isApplyPatchToolDetails(result.details) && result.details.status !== "success",
+		}),
 	);
 }

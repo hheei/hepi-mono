@@ -41,6 +41,11 @@ import {
 import { validatePatchPath } from "./paths.js";
 import type { FuzzyApplyPatchPolicy } from "./policy.js";
 
+const UNSUPPORTED_COMMIT_PLATFORM =
+	"apply_patch commit requires Linux descriptor-relative workspace protection";
+const UNSUPPORTED_TOOL_PLATFORM_GUIDANCE =
+	"apply_patch requires Linux descriptor-relative workspace protection; select Edit Mode: native and reload";
+
 export interface ApplyPatchInWorkspaceOptions {
 	readonly workspaceRoot: string;
 	readonly patch: string;
@@ -506,8 +511,7 @@ interface CreatedDirectory extends WorkspacePath {
 }
 
 async function openWorkspaceRoot(workspaceRoot: string): Promise<WorkspaceRoot> {
-	if (process.platform !== "linux")
-		throw new Error("apply_patch commit requires Linux descriptor-relative workspace protection");
+	if (process.platform !== "linux") throw new Error(UNSUPPORTED_COMMIT_PLATFORM);
 	const requestedPath = await realpath(workspaceRoot);
 	const handle = await open(requestedPath, COMMIT_DIRECTORY_FLAGS);
 	try {
@@ -921,10 +925,7 @@ export async function applyPatchInWorkspace(
 	options: ApplyPatchInWorkspaceOptions,
 ): Promise<ApplyPatchInWorkspaceResult> {
 	options.signal?.throwIfAborted();
-	if (process.platform !== "linux")
-		throw new Error(
-			"apply_patch requires Linux descriptor-relative workspace protection; select Edit Mode: native and reload",
-		);
+	if (process.platform !== "linux") throw new Error(UNSUPPORTED_TOOL_PLATFORM_GUIDANCE);
 	await using workspace = await openWorkspaceRoot(options.workspaceRoot);
 	const patch = options.parsedPatch ?? parseV4aPatch(options.patch);
 	const initial = initialRejections(patch);

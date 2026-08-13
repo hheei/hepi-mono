@@ -11,6 +11,20 @@ import { defaultShellPath } from "../bash-jobs.js";
 const SECTION = "pi-ext-tools";
 const GROUP = "fff";
 const EDIT_GROUP = "edit";
+const FFF_SETTINGS_DESCRIPTIONS = {
+	provider: "Configure FFF runtime behavior. Tool activation remains owned by Loadout.",
+	shellPath: "Select system shell used by extension-owned asynchronous Bash jobs.",
+	outputTail: "Visible Bash output retained before full output spills to an output.",
+	read: "Use FFF path resolution to improve read operations when safely applicable.",
+	find: "Use FFF indexed file search to improve find operations when enabled.",
+	autocomplete:
+		"Use the FFF index for @path autocomplete while preserving other autocomplete providers.",
+	grep: "Use FFF content search when its semantics are compatible with the requested grep operation.",
+} as const;
+const EDIT_SETTINGS_DESCRIPTIONS = {
+	provider: "Choose the static editing tool catalog for pi-ext-tools.",
+	mode: "Choose native edit/write, Linux-only strict apply_patch, or no editing tools; reload or start a new session after saving.",
+} as const;
 
 export type EditMode = "native" | "apply_patch" | "none";
 export const DEFAULT_EDIT_MODE: EditMode = "apply_patch";
@@ -133,7 +147,7 @@ export function createFffSettingsProvider(
 		id: "pi-ext-tools.fff",
 		title: "FFF",
 		origin: "@hheei/pi-ext-tools",
-		description: "Configure FFF runtime behavior. Tool activation remains owned by Loadout.",
+		description: FFF_SETTINGS_DESCRIPTIONS.provider,
 		groups: [
 			{
 				id: "bash",
@@ -144,7 +158,7 @@ export function createFffSettingsProvider(
 						label: "Shell path",
 						type: "path",
 						defaultValue: DEFAULT_FFF_SETTINGS.shellPath,
-						description: "Select system shell used by extension-owned asynchronous Bash jobs.",
+						description: FFF_SETTINGS_DESCRIPTIONS.shellPath,
 						parse: (value) => value.trim(),
 						validate: (value) =>
 							typeof value !== "string" || value.trim() === ""
@@ -156,7 +170,7 @@ export function createFffSettingsProvider(
 						label: "Output tail (KiB)",
 						type: "number",
 						defaultValue: DEFAULT_FFF_SETTINGS.bashOutputTailKiB,
-						description: "Visible Bash output retained before full output spills to an output.",
+						description: FFF_SETTINGS_DESCRIPTIONS.outputTail,
 						parse: (value) => Number(value),
 						validate: (value) =>
 							typeof value !== "number" || !Number.isInteger(value) || value <= 0
@@ -174,8 +188,7 @@ export function createFffSettingsProvider(
 						label: "Read enhancement",
 						type: "boolean",
 						defaultValue: true,
-						description:
-							"Use FFF path resolution to improve read operations when safely applicable.",
+						description: FFF_SETTINGS_DESCRIPTIONS.read,
 						parse: (value) => value === "true",
 					},
 					{
@@ -183,7 +196,7 @@ export function createFffSettingsProvider(
 						label: "Find enhancement",
 						type: "boolean",
 						defaultValue: true,
-						description: "Use FFF indexed file search to improve find operations when enabled.",
+						description: FFF_SETTINGS_DESCRIPTIONS.find,
 						parse: (value) => value === "true",
 					},
 					{
@@ -191,8 +204,7 @@ export function createFffSettingsProvider(
 						label: "Autocomplete",
 						type: "boolean",
 						defaultValue: true,
-						description:
-							"Use the FFF index for @path autocomplete while preserving other autocomplete providers.",
+						description: FFF_SETTINGS_DESCRIPTIONS.autocomplete,
 						parse: (value) => value === "true",
 					},
 					{
@@ -200,8 +212,7 @@ export function createFffSettingsProvider(
 						label: "Grep enhancement",
 						type: "boolean",
 						defaultValue: true,
-						description:
-							"Use FFF content search when its semantics are compatible with the requested grep operation.",
+						description: FFF_SETTINGS_DESCRIPTIONS.grep,
 						parse: (value) => value === "true",
 					},
 				],
@@ -218,7 +229,7 @@ export function createEditSettingsProvider(
 		id: "pi-ext-tools.edit",
 		title: "Edit",
 		origin: "@hheei/pi-ext-tools",
-		description: "Choose the static editing tool catalog for pi-ext-tools.",
+		description: EDIT_SETTINGS_DESCRIPTIONS.provider,
 		groups: [
 			{
 				id: EDIT_GROUP,
@@ -229,8 +240,7 @@ export function createEditSettingsProvider(
 						label: "Edit Mode",
 						type: "enum",
 						defaultValue: DEFAULT_EDIT_MODE,
-						description:
-							"Choose native edit/write, Linux-only strict apply_patch, or no editing tools; reload or start a new session after saving.",
+						description: EDIT_SETTINGS_DESCRIPTIONS.mode,
 						options: [
 							{ value: "native", label: "Native" },
 							{ value: "apply_patch", label: "Apply Patch" },
