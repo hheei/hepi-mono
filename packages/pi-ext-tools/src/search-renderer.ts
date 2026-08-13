@@ -110,18 +110,25 @@ class GrepResultComponent implements Component {
 		private readonly preview: Text,
 		private readonly theme: Theme,
 		private footer = "",
+		private hasBody = false,
 	) {}
 
-	set(text: string, footer: string): void {
+	hasResultBody(): boolean {
+		return this.hasBody;
+	}
+
+	set(text: string, footer: string, hasBody: boolean): void {
 		this.preview.setText(text);
 		this.footer = footer;
+		this.hasBody = hasBody;
 	}
 
 	render(width: number): string[] {
 		const availableWidth = Math.max(1, width);
+		const preview = this.preview.render(availableWidth);
 		return [
-			...this.preview.render(availableWidth),
-			this.theme.fg("borderMuted", "─".repeat(availableWidth)),
+			...preview,
+			...(this.hasBody ? [this.theme.fg("borderMuted", "─".repeat(availableWidth))] : []),
 			this.theme.fg("dim", this.footer),
 		];
 	}
@@ -206,6 +213,7 @@ export function renderGrepResult(
 		lines.join("\n"),
 		grepCollapsedFooter(result, { durationMs: details.durationMs }) ??
 			`${details.totalMatched} matches · ${details.totalFiles} files · ${details.totalLines} lines · ${durationText(details.durationMs)}`,
+		lines.length > 0,
 	);
 	return component;
 }
@@ -345,9 +353,7 @@ export function renderFindResult(
 			kind: "omission",
 			text: `... (${body.length - visible.length} more lines, ctrl+o to expand)`,
 		});
-	return new GrepResultComponent(
-		new Text(renderFindBody(visible, theme).join("\n"), 0, 0),
-		theme,
-		findFooter(details),
-	);
+	const component = new GrepResultComponent(new Text("", 0, 0), theme);
+	component.set(renderFindBody(visible, theme).join("\n"), findFooter(details), visible.length > 0);
+	return component;
 }

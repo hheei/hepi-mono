@@ -97,14 +97,30 @@ function footer(details: ApplyPatchToolDetails): string {
 		.join(" · ");
 }
 
-class FullWidthRule implements Component {
-	constructor(private readonly theme: Theme) {}
+class ApplyPatchResultComponent implements Component {
+	constructor(
+		private readonly body: Component,
+		private readonly hasBody: boolean,
+		private readonly footer: string,
+		private readonly theme: Theme,
+	) {}
 
-	render(width: number): string[] {
-		return [this.theme.fg("borderMuted", "─".repeat(Math.max(1, width)))];
+	hasResultBody(): boolean {
+		return this.hasBody;
 	}
 
-	invalidate(): void {}
+	render(width: number): string[] {
+		const availableWidth = Math.max(1, width);
+		return [
+			...(this.hasBody ? this.body.render(availableWidth) : []),
+			...(this.hasBody ? [this.theme.fg("borderMuted", "─".repeat(availableWidth))] : []),
+			this.theme.fg("dim", this.footer),
+		];
+	}
+
+	invalidate(): void {
+		this.body.invalidate();
+	}
 }
 
 export function formatApplyPatchFooter(
@@ -157,13 +173,15 @@ export function renderApplyPatchResult(
 ): Component {
 	const details = detailsFor(value);
 	if (details === undefined) return new Text("", 0, 0);
-	const container = new Container();
-	for (const operation of operations(details))
-		container.addChild(new Text(row(operation, theme), 0, 0));
+	const body = new Container();
+	const operationRows = operations(details);
+	let hasBody = operationRows.length > 0;
+	for (const operation of operationRows) body.addChild(new Text(row(operation, theme), 0, 0));
 	if (expanded) {
 		for (const applied of details.applied)
-			for (const snapshot of applied.snapshots)
-				container.addChild(
+			for (const snapshot of applied.snapshots) {
+				hasBody = true;
+				body.addChild(
 					new Text(
 						renderDiff(
 							snapshotDiff(
@@ -173,18 +191,18 @@ export function renderApplyPatchResult(
 								snapshot.before,
 								snapshot.after,
 							),
-							{
-								filePath: snapshot.path,
-							},
+							{ filePath: snapshot.path },
 						),
 						0,
 						0,
 					),
 				);
+			}
 		for (const rejected of details.rejected) {
-			container.addChild(new Text(theme.fg("error", rejected.error), 0, 0));
+			hasBody = true;
+			body.addChild(new Text(theme.fg("error", rejected.error), 0, 0));
 			for (const diagnostic of rejected.diagnostics)
-				container.addChild(
+				body.addChild(
 					new Text(
 						theme.fg(
 							"error",
@@ -196,9 +214,7 @@ export function renderApplyPatchResult(
 				);
 		}
 	}
-	container.addChild(new FullWidthRule(theme));
-	container.addChild(new Text(theme.fg("dim", footer(details)), 0, 0));
-	return container;
+	return new ApplyPatchResultComponent(body, hasBody, footer(details), theme);
 }
 
 function detailsFor(

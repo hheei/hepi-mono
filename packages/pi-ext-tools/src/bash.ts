@@ -103,10 +103,16 @@ class BashOutputFrame implements Component {
 	constructor(
 		private readonly body: Component,
 		private readonly theme: Theme,
-		private readonly footer?: string,
+		private readonly footer: string | undefined,
+		private readonly hasBody: boolean,
 	) {}
 
+	hasResultBody(): boolean {
+		return this.hasBody;
+	}
+
 	render(width: number): string[] {
+		if (!this.hasBody) return this.footer === undefined ? [] : [this.theme.fg("dim", this.footer)];
 		const output = this.body.render(width).map((line) => stripTerminalSequences(line));
 		const preview = this.footer === undefined ? compactStreamingOutput(output) : output;
 		if (this.footer === undefined && preview.at(-1)?.trim().length === 0) preview.pop();
@@ -320,6 +326,7 @@ export function registerBashTool(
 				body,
 				theme,
 				options.isPartial ? undefined : bashFooter(result, completionFromResult(result)),
+				lineCount(outputText(result)) > 0,
 			);
 		},
 		async execute(

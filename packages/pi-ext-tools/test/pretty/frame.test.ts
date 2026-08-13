@@ -67,6 +67,24 @@ describe("withToolFrame", () => {
 		expect(resultLines[1]?.trim()).toBe("result body");
 	});
 
+	test("omits the opening rail for footer-only result components", (): void => {
+		const footerOnly = withToolFrame({
+			...tool(),
+			renderResult: () => ({
+				hasResultBody: (): boolean => false,
+				render: (): string[] => ["footer only"],
+				invalidate: (): void => undefined,
+			}),
+		});
+		const result = footerOnly.renderResult?.(
+			{ content: [], details: undefined },
+			{ expanded: false, isPartial: false },
+			theme,
+			context(false),
+		);
+		expect(result?.render(20)).toEqual(["footer only"]);
+	});
+
 	test("renders the latest partial result only in the result slot", (): void => {
 		const trace = new ToolTraceController();
 		const framed = withToolFrame(tool(), trace);

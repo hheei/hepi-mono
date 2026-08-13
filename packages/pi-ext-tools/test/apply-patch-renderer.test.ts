@@ -128,6 +128,24 @@ describe("apply_patch progress renderer", () => {
 		expect(lines).toContain("─".repeat(80));
 	});
 
+	test("omits result rails when there are no operation rows", () => {
+		const lines = renderApplyPatchResult(
+			{
+				...details,
+				changedPaths: [],
+				addedLines: 0,
+				removedLines: 0,
+				operations: [],
+				operationCount: 0,
+				applied: [],
+				rejected: [],
+			},
+			false,
+			theme as never,
+		).render(80);
+		expect(lines).toEqual(["0 lines · 0.72s"]);
+	});
+
 	test("omits zero operation counts from the footer", () => {
 		const createdOnly: ApplyPatchToolDetails = {
 			...details,
