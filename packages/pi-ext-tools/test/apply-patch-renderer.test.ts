@@ -110,11 +110,13 @@ describe("apply_patch progress renderer", () => {
 			.render(200)
 			.join("\n");
 		renderApplyPatchResult(details, false, theme as never).render(200);
-		expect(roles).toEqual(expect.arrayContaining(["success", "error", "warning", "dim"]));
+		expect(roles).toEqual(
+			expect.arrayContaining(["success", "error", "warning", "dim", "toolTitle"]),
+		);
 		expect(text).not.toContain("<dim>created 1");
 	});
 
-	test("keeps created paths in the base theme", () => {
+	test("aligns patch verbs with tool titles while keeping created paths in the base theme", () => {
 		const taggedTheme = {
 			fg: (role: string, text: string) => `<${role}>${text}</${role}>`,
 			bold: (text: string) => text,
@@ -122,7 +124,7 @@ describe("apply_patch progress renderer", () => {
 		const text = renderApplyPatchResult(details, false, taggedTheme as never)
 			.render(200)
 			.join("\n");
-		expect(text).toContain("<success>create</success> src/created.ts");
+		expect(text).toContain("<toolTitle>create</toolTitle> src/created.ts");
 	});
 
 	test("leaves result framing to ToolTui", () => {

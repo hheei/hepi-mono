@@ -6,6 +6,7 @@ import type {
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { initTheme } from "@earendil-works/pi-coding-agent";
+import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { registerBashTool } from "../src/bash.js";
 import { createToolTui } from "../src/pretty/frame.js";
 
@@ -209,8 +210,9 @@ test("bash collapses only the previous command before its timeout suffix", async
 		} as never)
 		.render(40)[0];
 	expect(line).toContain("✓ bash");
-	expect(line).toContain(">");
-	expect(line?.trimEnd()).toEndWith("(timeout 20s)");
+	const plainLine = stripTerminalSequences(line ?? "");
+	expect(plainLine).toContain("…");
+	expect(plainLine.trimEnd()).toEndWith("(timeout 20s)");
 });
 
 test("bash encloses its output between full-width dividers", (): void => {
@@ -352,12 +354,12 @@ test("bash compacts and dims its collapsed earlier-lines hint", (): void => {
 		)
 		.render(120)
 		.join("\n");
-	expect(text).toMatch(/<text><dim>\.\.\. \(\d+ earlier lines,/);
+	expect(text).toMatch(/<text><dim>… \(\d+ earlier lines,/);
 	expect(text).not.toMatch(/\n<text><\/text>\n<text><dim>\.\.\./);
 	expect(text).not.toMatch(/<\/dim><\/text>\n<text><\/text>\n<text>line/);
 });
 
-test("bash keeps twelve streaming output lines like grep", (): void => {
+test("bash keeps its body to twelve lines in streaming and completed states", (): void => {
 	const tools: ToolDefinition[] = [];
 	registerBashTool({
 		registerTool(tool: ToolDefinition): void {
@@ -394,10 +396,36 @@ test("bash keeps twelve streaming output lines like grep", (): void => {
 	if (component === undefined) throw new Error("Expected bash result renderer");
 	const rendered = component.render(120).filter((line) => !line.includes("─"));
 	expect(rendered).toHaveLength(12);
-	expect(rendered[0]).toContain("... (19 earlier lines, ctrl+o to expand)");
+	expect(rendered[0]).toContain("… (19 earlier lines, ctrl+o to expand)");
 	expect(rendered[0]).toContain("<dim>");
 	expect(rendered.at(-1)).toContain("line 30");
 	expect(rendered.join("\n")).not.toContain("exit ?");
+	const completed = bash.renderResult?.(
+		{
+			content: [
+				{
+					type: "text",
+					text: Array.from({ length: 30 }, (_, index) => `line ${index + 1}`).join("\n"),
+				},
+			],
+			details: {},
+		},
+		{ expanded: true, isPartial: false },
+		theme,
+		{
+			args: { command: "printf many" },
+			isError: false,
+			isPartial: false,
+			lastComponent: undefined,
+			state: {},
+		} as never,
+	);
+	if (completed === undefined) throw new Error("Expected completed bash result renderer");
+	const completedLines = completed
+		.render(120)
+		.filter((line) => !line.includes("─") && !line.includes("exit ?"));
+	expect(completedLines).toHaveLength(12);
+	expect(completedLines.at(-1)).toContain("line 30");
 });
 
 test("bash summarizes exit code, output lines, and duration in collapsed traces", async (): Promise<void> => {

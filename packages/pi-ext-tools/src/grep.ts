@@ -314,10 +314,10 @@ function compactPath(path: string): string {
 	if (Array.from(path).length <= MAX_LINE_CHARS) return path;
 	const parts = path.split("/");
 	let tail = parts.pop() ?? path;
-	while (parts.length > 0 && Array.from(`.../${parts.at(-1)}/${tail}`).length <= MAX_LINE_CHARS) {
+	while (parts.length > 0 && Array.from(`…/${parts.at(-1)}/${tail}`).length <= MAX_LINE_CHARS) {
 		tail = `${parts.pop()}/${tail}`;
 	}
-	return `.../${tail}`;
+	return `…/${tail}`;
 }
 
 function charIndexAtByte(text: string, byteOffset: number): number | undefined {

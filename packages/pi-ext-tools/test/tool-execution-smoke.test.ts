@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
 	type AgentToolResult,
 	type ExtensionAPI,
@@ -8,6 +11,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, Text, type TUI } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { registerApplyPatchTool } from "../dist/apply-patch-tool.js";
 import { registerBashTool } from "../dist/bash.js";
 import { createToolTui } from "../dist/pretty/frame.js";
 
@@ -196,6 +200,93 @@ describe("ToolExecutionComponent smoke", () => {
 			expect(finalText).toContain("✓ modify src/stream.ts +3 -2");
 			expect(outputOccurrences(component, "modify src/stream.ts +3 -2")).toBe(1);
 			component.invalidate();
+		}
+	});
+
+	test("renders real apply_patch progress before its execution completes", async (): Promise<void> => {
+		initTheme("dark");
+		const registered: ToolDefinition[] = [];
+		const pi = {
+			registerTool(tool: ToolDefinition): void {
+				registered.push(tool);
+			},
+		} as unknown as ExtensionAPI;
+		const tui = createToolTui();
+		registerApplyPatchTool(pi, tui);
+		const tool = registered[0];
+		if (tool === undefined) throw new Error("apply_patch was not registered");
+		const ui = { requestRender: (): void => undefined } as unknown as TUI;
+		const root = await mkdtemp(join(tmpdir(), "hepi-apply-patch-host-stream-"));
+		try {
+			tui.beginTrace();
+			const component = new ToolExecutionComponent(
+				"apply_patch",
+				"apply-patch-stream",
+				{
+					patch:
+						"*** Begin Patch\n*** Add File: first.txt\n+one\n*** Add File: second.txt\n+two\n*** End Patch",
+				},
+				undefined,
+				tool,
+				ui,
+				root,
+			);
+			component.markExecutionStarted();
+			let resolveFirstUpdate: (() => void) | undefined;
+			const firstUpdate = new Promise<void>((resolve) => {
+				resolveFirstUpdate = resolve;
+			});
+			let resolveCommittedUpdate: (() => void) | undefined;
+			const committedUpdate = new Promise<void>((resolve) => {
+				resolveCommittedUpdate = resolve;
+			});
+			let settled = false;
+			const execution = tool.execute(
+				"apply-patch-stream",
+				{
+					patch:
+						"*** Begin Patch\n*** Add File: first.txt\n+one\n*** Add File: second.txt\n+two\n*** End Patch",
+				},
+				undefined,
+				(update) => {
+					component.updateResult({ ...update, isError: false }, true);
+					resolveFirstUpdate?.();
+					resolveFirstUpdate = undefined;
+					if (
+						typeof update.details === "object" &&
+						update.details !== null &&
+						"progress" in update.details &&
+						typeof update.details.progress === "object" &&
+						update.details.progress !== null &&
+						"stage" in update.details.progress &&
+						update.details.progress.stage === "committed"
+					) {
+						resolveCommittedUpdate?.();
+						resolveCommittedUpdate = undefined;
+					}
+				},
+				{ cwd: root } as never,
+			);
+			void execution.finally(() => {
+				settled = true;
+			});
+			await firstUpdate;
+			const partialText = stripTerminalSequences(component.render(100).join("\n"));
+			expect(settled).toBe(false);
+			expect(partialText).toContain("apply_patch 1 files");
+			expect(partialText).toContain("○ create first.txt +1");
+			await committedUpdate;
+			expect(settled).toBe(false);
+			expect(stripTerminalSequences(component.render(100).join("\n"))).toContain(
+				"✓ create first.txt +1",
+			);
+			const result = await execution;
+			component.updateResult({ ...result, isError: false });
+			expect(stripTerminalSequences(component.render(100).join("\n"))).toContain(
+				"✓ create first.txt +1",
+			);
+		} finally {
+			await rm(root, { recursive: true, force: true });
 		}
 	});
 });
