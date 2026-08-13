@@ -32,6 +32,14 @@ describe("apply_patch tool_result contract", () => {
 		expect(failureRecovery("workspace outcome is unknown after disconnect")).toContain(
 			"read every path",
 		);
+		expect(
+			failureRecovery(
+				"workspace state indeterminate after cancellation; Apply patch cancelled by client",
+			),
+		).toContain("read every path");
+		expect(failureRecovery("Apply patch cancellation outcome is unknown")).toContain(
+			"read every path",
+		);
 		expect(failureRecovery("Apply patch coordinator queue is full")).toContain("wait");
 		expect(failureRecovery("Apply patch cancelled by client after rollback")).toContain(
 			"read targets",
@@ -55,7 +63,7 @@ describe("apply_patch tool_result contract", () => {
 
 	test("forwards coordinator parse progress to the tool update callback", async () => {
 		const root = await mkdtemp(join(tmpdir(), "hepi-apply-patch-tool-result-"));
-		const updates: unknown[] = [];
+		const updates: { readonly details: { readonly operations: readonly unknown[] } }[] = [];
 		try {
 			const result = await createApplyPatchTool().execute(
 				"call-id",
@@ -67,12 +75,12 @@ describe("apply_patch tool_result contract", () => {
 						"*** End Patch",
 				},
 				undefined,
-				(update) => updates.push(update),
+				(update) => updates.push(update as (typeof updates)[number]),
 				{ cwd: root } as never,
 			);
-			expect(
-				updates.map((update) => (update.details as { operations: unknown[] }).operations.length),
-			).toEqual(expect.arrayContaining([1, 2]));
+			expect(updates.map((update) => update.details.operations.length)).toEqual(
+				expect.arrayContaining([1, 2]),
+			);
 			expect(result.content).toEqual([
 				{
 					type: "text",

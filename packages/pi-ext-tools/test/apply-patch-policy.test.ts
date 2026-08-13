@@ -32,13 +32,11 @@ describe("fuzzy apply-patch policy", () => {
 				minSimilarity: 0.9,
 				maxConcurrentWorkers: 4,
 				maxQueueDepth: 100,
-				cacheMiB: 128,
 			});
 			expect(await loadFuzzyApplyPatchPolicy({ paths })).toEqual({
 				minSimilarity: 0.9,
 				maxConcurrentWorkers: 4,
 				maxQueueDepth: 100,
-				cacheMiB: 128,
 			});
 		} finally {
 			await rm(paths.root, { recursive: true, force: true });
@@ -51,19 +49,16 @@ describe("fuzzy apply-patch policy", () => {
 				minSimilarity: 0.8,
 				maxConcurrentWorkers: 4,
 				maxQueueDepth: 100,
-				cacheMiB: 128,
 			});
 			await save(paths.projectPath, {
 				minSimilarity: 0.9,
 				maxConcurrentWorkers: 2,
 				maxQueueDepth: 20,
-				cacheMiB: 64,
 			});
 			expect(await loadFuzzyApplyPatchPolicy({ paths })).toEqual({
 				minSimilarity: 0.9,
 				maxConcurrentWorkers: 2,
 				maxQueueDepth: 20,
-				cacheMiB: 64,
 			});
 		} finally {
 			await rm(paths.root, { recursive: true, force: true });

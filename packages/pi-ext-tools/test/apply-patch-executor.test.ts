@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmodSync, writeFileSync } from "node:fs";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { applyPatchInWorkspace } from "../src/apply-patch/executor.js";
+import type { ApplyPatchProgress } from "../src/apply-patch/outcome.js";
 import { parseV4aPatch } from "../src/apply-patch/parser.js";
 import {
 	DEFAULT_FUZZY_APPLY_PATCH_POLICY,
@@ -43,6 +44,45 @@ afterEach(async (): Promise<void> => {
 });
 
 describe("staged apply-patch executor", () => {
+	test("preserves executable mode through an update", async () => {
+		const root = await temporaryDirectory();
+		const path = join(root, "script.sh");
+		await writeFile(path, "before\n", "utf8");
+		await chmod(path, 0o755);
+
+		await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch: "*** Begin Patch\n*** Update File: script.sh\n-before\n+after\n*** End Patch",
+		});
+
+		expect((await stat(path)).mode & 0o7777).toBe(0o755);
+		expect(await load(root, "script.sh")).toBe("after\n");
+	});
+	test("rejects an external mode change before commit", async () => {
+		const root = await temporaryDirectory();
+		const path = join(root, "script.sh");
+		await writeFile(path, "before\n", "utf8");
+		await chmod(path, 0o755);
+		let changedMode = false;
+
+		const result = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch: "*** Begin Patch\n*** Update File: script.sh\n-before\n+after\n*** End Patch",
+			onProgress: () => {
+				if (changedMode) return;
+				changedMode = true;
+				chmodSync(path, 0o600);
+			},
+		});
+
+		expect(result.changedPaths).toEqual([]);
+		expect(result.rejected).toMatchObject([{ paths: ["script.sh"] }]);
+		expect((await stat(path)).mode & 0o7777).toBe(0o600);
+		expect(await load(root, "script.sh")).toBe("before\n");
+	});
+
 	test("accepts the coordinator's pre-parsed patch without reparsing", async () => {
 		const root = await temporaryDirectory();
 		const patch = "*** Begin Patch\n*** Add File: parsed.txt\n+parsed\n*** End Patch";
@@ -56,6 +96,40 @@ describe("staged apply-patch executor", () => {
 		expect(await load(root, "parsed.txt")).toBe("parsed\n");
 	});
 
+	test("keeps snapshot coordinates in the per-hunk staging version", async () => {
+		const root = await temporaryDirectory();
+		await save(root, "value.txt", "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\n");
+
+		const result = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch:
+				"*** Begin Patch\n" +
+				"*** Update File: value.txt\n" +
+				"@@\n-one\n+ONE\n+ONE-B\n" +
+				"@@\n-nine\n+NINE\n" +
+				"*** End Patch",
+		});
+
+		const snapshots = result.applied[0]?.snapshots;
+		expect(snapshots).toHaveLength(2);
+		expect(snapshots?.[1]).toMatchObject({ startLine: 7, afterStartLine: 7 });
+		expect(await load(root, "value.txt")).toContain("NINE\n");
+	});
+	test("rejects a symlinked commit parent without writing outside the workspace", async () => {
+		const root = await temporaryDirectory();
+		const outside = await temporaryDirectory();
+		await symlink(outside, join(root, "nested"));
+
+		const result = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch: "*** Begin Patch\n*** Add File: nested/escaped.txt\n+outside\n*** End Patch",
+		});
+
+		expect(result.rejected).toHaveLength(1);
+		await expect(readFile(join(outside, "escaped.txt"), "utf8")).rejects.toThrow();
+	});
 	test("applies add, update, delete, and move through staging", async () => {
 		const root = await temporaryDirectory();
 		await save(root, "src/update.txt", "one\ntwo\nthree\n");
@@ -326,6 +400,32 @@ describe("staged apply-patch executor", () => {
 		expect(await load(root, "second.txt")).toBe("stale\n");
 	});
 
+	test("rejects a deleted parent during a later commit", async () => {
+		const root = await temporaryDirectory();
+		await save(root, "nested/first.txt", "first\n");
+		await save(root, "nested/second.txt", "second\n");
+		let removed = false;
+
+		await expect(
+			applyPatchInWorkspace({
+				workspaceRoot: root,
+				policy: noFuzzy,
+				patch:
+					"*** Begin Patch\n" +
+					"*** Update File: nested/first.txt\n-first\n+changed\n" +
+					"*** Update File: nested/second.txt\n-second\n+changed\n" +
+					"*** End Patch",
+				onProgress: (progress) => {
+					if (!removed && progress.stage === "committed") {
+						removed = true;
+						void rm(join(root, "nested"), { recursive: true, force: true });
+					}
+				},
+			}),
+		).rejects.toThrow("workspace state indeterminate");
+		expect(removed).toBe(true);
+	});
+
 	test("rolls back every path when cancellation interrupts commit", async (): Promise<void> => {
 		const root = await temporaryDirectory();
 		const controller = new AbortController();
@@ -337,8 +437,8 @@ describe("staged apply-patch executor", () => {
 				signal: controller.signal,
 				patch:
 					"*** Begin Patch\n" +
-					"*** Add File: first.txt\n+first\n" +
-					"*** Add File: second.txt\n+second\n" +
+					"*** Add File: nested/first.txt\n+first\n" +
+					"*** Add File: nested/second.txt\n+second\n" +
 					"*** End Patch",
 				onProgress: (progress) => {
 					stages.push(progress);
@@ -362,8 +462,9 @@ describe("staged apply-patch executor", () => {
 		expect(rolledBack.operations[0]).not.toHaveProperty("totalHunks");
 		expect(rolledBack.operations[0]).not.toHaveProperty("partialReason");
 		expect(rolledBack.operations[1]).toMatchObject({ status: "pending" });
-		await expect(readFile(join(root, "first.txt"), "utf8")).rejects.toThrow();
-		await expect(readFile(join(root, "second.txt"), "utf8")).rejects.toThrow();
+		await expect(readFile(join(root, "nested", "first.txt"), "utf8")).rejects.toThrow();
+		await expect(readFile(join(root, "nested", "second.txt"), "utf8")).rejects.toThrow();
+		await expect(stat(join(root, "nested"))).rejects.toThrow();
 	});
 
 	test("aborts before staging without changing workspace", async () => {

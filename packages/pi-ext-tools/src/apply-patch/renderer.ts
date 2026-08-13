@@ -120,8 +120,14 @@ export function formatApplyPatchFooter(
 	});
 }
 
-function snapshotDiff(path: string, before: readonly string[], after: readonly string[]): string {
-	return `--- a/${path}\n+++ b/${path}\n@@ -1,${before.length} +1,${after.length} @@\n${before.map((line) => `-${line}`).join("\n")}\n${after.map((line) => `+${line}`).join("\n")}`;
+function snapshotDiff(
+	path: string,
+	startLine: number,
+	afterStartLine: number,
+	before: readonly string[],
+	after: readonly string[],
+): string {
+	return `--- a/${path}\n+++ b/${path}\n@@ -${startLine},${before.length} +${afterStartLine},${after.length} @@\n${before.map((line) => `-${line}`).join("\n")}\n${after.map((line) => `+${line}`).join("\n")}`;
 }
 
 function diagnosticText(
@@ -159,9 +165,18 @@ export function renderApplyPatchResult(
 			for (const snapshot of applied.snapshots)
 				container.addChild(
 					new Text(
-						renderDiff(snapshotDiff(snapshot.path, snapshot.before, snapshot.after), {
-							filePath: snapshot.path,
-						}),
+						renderDiff(
+							snapshotDiff(
+								snapshot.path,
+								snapshot.startLine,
+								snapshot.afterStartLine,
+								snapshot.before,
+								snapshot.after,
+							),
+							{
+								filePath: snapshot.path,
+							},
+						),
 						0,
 						0,
 					),

@@ -150,7 +150,7 @@ function recoveryLines(result: ApplyPatchInWorkspaceResult): readonly string[] {
 }
 
 export function failureRecovery(message: string): string | undefined {
-	if (message.includes("workspace outcome is unknown"))
+	if (message.includes("workspace state indeterminate") || message.includes("outcome is unknown"))
 		return "Recovery: read every path targeted by the patch before attempting another edit.";
 	if (message.includes("queue is full"))
 		return "Recovery: wait for the active patch requests to finish, then retry this unchanged patch.";
