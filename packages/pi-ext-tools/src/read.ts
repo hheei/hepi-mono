@@ -125,6 +125,10 @@ class ReadPreviewComponent implements Component {
 		private readonly theme: Theme,
 	) {}
 
+	hasResultBody(): boolean {
+		return this.lines.length > 0;
+	}
+
 	render(width: number): string[] {
 		const availableWidth = Math.max(1, width);
 		const lastLine =
@@ -134,21 +138,22 @@ class ReadPreviewComponent implements Component {
 				...this.lines.flatMap((line) => (line.type === "text" ? [line.sourceIndex] : [])),
 			);
 		const lineNumberWidth = String(lastLine).length;
+		const preview = this.lines.map((line) => {
+			if (line.type === "omission")
+				return this.theme.fg("dim", `... (${line.hiddenLines} hidden lines, ctrl+o to expand)`);
+			const prefix = `${String(this.startLine + line.sourceIndex).padStart(lineNumberWidth)}│`;
+			const contentWidth = Math.max(0, availableWidth - visibleWidth(prefix));
+			const truncated = visibleWidth(line.text) > contentWidth;
+			const content = truncateToWidth(
+				line.text,
+				Math.max(0, contentWidth - (truncated ? 1 : 0)),
+				"",
+			);
+			return `${this.theme.fg("dim", prefix)}${content}${truncated ? this.theme.fg("dim", ">") : ""}`;
+		});
 		return [
-			...this.lines.map((line) => {
-				if (line.type === "omission")
-					return this.theme.fg("dim", `... (${line.hiddenLines} hidden lines, ctrl+o to expand)`);
-				const prefix = `${String(this.startLine + line.sourceIndex).padStart(lineNumberWidth)}│`;
-				const contentWidth = Math.max(0, availableWidth - visibleWidth(prefix));
-				const truncated = visibleWidth(line.text) > contentWidth;
-				const content = truncateToWidth(
-					line.text,
-					Math.max(0, contentWidth - (truncated ? 1 : 0)),
-					"",
-				);
-				return `${this.theme.fg("dim", prefix)}${content}${truncated ? this.theme.fg("dim", ">") : ""}`;
-			}),
-			this.theme.fg("borderMuted", "─".repeat(availableWidth)),
+			...preview,
+			...(preview.length === 0 ? [] : [this.theme.fg("borderMuted", "─".repeat(availableWidth))]),
 			this.theme.fg("dim", this.footer),
 		];
 	}

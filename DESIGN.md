@@ -88,7 +88,7 @@ Rules:
   ```
 
 - When header fully represents a tool call, omit a duplicate call body and its empty rule; `grep` does this, so its final result follows the header's single rule directly.
-- Frame rules use a structural theme token. Call/result renderers retain their existing semantic colors, widths, collapse rules, and model-visible `content`.
+- Frame rules use a structural theme token. Call/result renderers retain their existing semantic colors, widths, collapse rules, and model-visible `content`. When a result renderer has no body rows, omit its opening and closing rules and show only its typed footer.
 - A completed prior Trace collapses only while Pi global tool expansion is off. Current-Trace tools keep their full block; the next `agent_start` collapses prior Traces. A collapsed tool renders `status header -> blank line -> tool-owned metrics footer`; its non-status parameters, paths, and ranges use `dim`. Expanding tools restores its full call/result block. A Trace is `agent_start` through `agent_end`; resume treats every historical tool as prior.
 - A collapsed footer uses only tool-owned typed details, a wrapper-captured execution duration, or a caught single-line error message. It never parses model-visible `content`.
 - `grep` collapses to `N matches · M files · L lines · duration`, or FFF fallback `N fuzzies · M files · L lines · duration`.

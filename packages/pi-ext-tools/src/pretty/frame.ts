@@ -210,6 +210,12 @@ function resultText(result: AgentToolResult<unknown>): string {
 		.join("\n");
 }
 
+function hasResultBody(component: Component | undefined): boolean {
+	if (component === undefined || !("hasResultBody" in component)) return true;
+	const candidate = component.hasResultBody;
+	return typeof candidate !== "function" || candidate.call(component);
+}
+
 class ToolFrameSection implements Component {
 	constructor(
 		private readonly body: Component | undefined,
@@ -239,8 +245,10 @@ class ToolFrameSection implements Component {
 							];
 		const bodyLines = this.body?.render(availableWidth) ?? [];
 		if (bodyLines.length > 0) {
-			if (this.separateBody) lines.push(this.theme.fg("borderMuted", "─".repeat(availableWidth)));
-			else lines.push("");
+			if (this.separateBody) {
+				if (hasResultBody(this.body))
+					lines.push(this.theme.fg("borderMuted", "─".repeat(availableWidth)));
+			} else lines.push("");
 			lines.push(...bodyLines);
 		}
 		return lines;

@@ -70,6 +70,41 @@ describe("ToolExecutionComponent smoke", () => {
 		expect(requests).toBeGreaterThan(0);
 	});
 
+	test("omits bash result rails when the host receives zero output lines", async (): Promise<void> => {
+		initTheme("dark");
+		const registered: ToolDefinition[] = [];
+		const pi = {
+			registerTool(tool: ToolDefinition): void {
+				registered.push(tool);
+			},
+		} as unknown as ExtensionAPI;
+		const trace = new ToolTraceController();
+		registerBashTool(pi, undefined, trace);
+		const tool = registered[0]!;
+		const ui = { requestRender: (): void => undefined } as unknown as TUI;
+		trace.startTrace();
+		const component = new ToolExecutionComponent(
+			"bash",
+			callId,
+			{ command: "true" },
+			undefined,
+			tool,
+			ui,
+			process.cwd(),
+		);
+		component.markExecutionStarted();
+		const result = await tool.execute(callId, { command: "true" }, undefined, undefined, {
+			cwd: process.cwd(),
+		} as never);
+		component.updateResult({ ...result, isError: false });
+		for (let index = 0; index < 3; index += 1) {
+			const rendered = stripTerminalSequences(component.render(100).join("\n"));
+			expect(rendered).toContain("exit 0 · 0 lines");
+			expect(rendered).not.toContain("─");
+			component.invalidate();
+		}
+	});
+
 	test("renders apply_patch operation rows during partial progress", (): void => {
 		initTheme("dark");
 		const registered: ToolDefinition[] = [];

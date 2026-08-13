@@ -247,6 +247,37 @@ test("bash encloses its output between full-width dividers", (): void => {
 	expect(lines?.join("\n")).not.toContain("<toolOutput>stdout</toolOutput>");
 });
 
+test("bash omits result rails when output has zero lines", (): void => {
+	const tools: ToolDefinition[] = [];
+	registerBashTool({
+		registerTool(tool: ToolDefinition): void {
+			tools.push(tool);
+		},
+	} as unknown as ExtensionAPI);
+	const bash = tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("Expected bash tool");
+	const theme = {
+		bg: (_role: string, text: string): string => text,
+		fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
+		bold: (text: string): string => text,
+	} as Theme;
+	const lines = bash
+		.renderResult?.(
+			{ content: [{ type: "text", text: "" }], details: { output: "", exitCode: 0 } },
+			{ expanded: false, isPartial: false },
+			theme,
+			{
+				args: { command: "true" },
+				isError: false,
+				isPartial: false,
+				lastComponent: undefined,
+				state: {},
+			} as never,
+		)
+		.render(40);
+	expect(lines).toEqual(["<dim>exit 0 · 0 lines · completed</dim>"]);
+});
+
 test("bash removes renderer padding around short newline-terminated output", (): void => {
 	const tools: ToolDefinition[] = [];
 	registerBashTool({

@@ -179,6 +179,30 @@ describe("pi-ext-tools catalog", () => {
 		expect(narrow).toContain("<dim>></dim>");
 	});
 
+	test("omits read result rails when the visible preview has no lines", (): void => {
+		const host = harness();
+		registerTools(host.pi);
+		const read = host.tools.find((tool) => tool.name === "read");
+		if (read === undefined) throw new Error("read was not registered");
+		const theme = {
+			bg: (_role: string, text: string): string => text,
+			fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
+			bold: (text: string): string => text,
+		} as Theme;
+		const lines = read
+			.renderResult?.(
+				{
+					content: [{ type: "text", text: "\n" }],
+					details: { __piExtToolsRead: { characters: 1, lines: 2 } },
+				},
+				{ isPartial: false, expanded: false },
+				theme,
+				{ ...(renderContext as object), args: { path: "empty.ts" } } as never,
+			)
+			.render(80);
+		expect(lines).toEqual(["<dim>1 chars · 2 lines · 0ms</dim>"]);
+	});
+
 	test("hides read continuation instructions without changing model content", (): void => {
 		const host = harness();
 		registerTools(host.pi);
@@ -203,6 +227,58 @@ describe("pi-ext-tools catalog", () => {
 		expect(collapsed).not.toContain("Use offset=310 to continue.");
 		expect(expanded).not.toContain("Use offset=310 to continue.");
 		expect(result.content[0]?.text).toBe(source);
+	});
+
+	test("omits search result rails when there are no body lines", (): void => {
+		const host = harness();
+		registerTools(host.pi);
+		const grep = host.tools.find((tool) => tool.name === "grep");
+		const find = host.tools.find((tool) => tool.name === "find");
+		if (grep === undefined || find === undefined) throw new Error("Missing search tools");
+		const theme = {
+			bg: (_role: string, text: string): string => text,
+			fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
+			bold: (text: string): string => text,
+		} as Theme;
+		const grepLines = grep
+			.renderResult?.(
+				{
+					content: [{ type: "text", text: "" }],
+					details: {
+						format: "canonical-grep",
+						engine: "rg",
+						totalMatched: 0,
+						totalFiles: 0,
+						totalLines: 0,
+						durationMs: 5,
+						display: [],
+					},
+				},
+				{ isPartial: false, expanded: false },
+				theme,
+				renderContext,
+			)
+			.render(80);
+		expect(grepLines).toEqual(["<dim>0 matches · 0 files · 0 lines · 5ms</dim>"]);
+
+		const findLines = find
+			.renderResult?.(
+				{
+					content: [{ type: "text", text: "" }],
+					details: {
+						format: "canonical-find",
+						candidates: [],
+						totalMatched: 0,
+						totalFiles: 0,
+						durationMs: 5,
+					},
+				},
+				{ isPartial: false, expanded: false },
+				theme,
+				renderContext,
+			)
+			.render(80);
+		expect(findLines).toEqual(["<dim>0 lines · 5ms</dim>"]);
 	});
 
 	test("hides pagination cursors from search renderers", (): void => {
