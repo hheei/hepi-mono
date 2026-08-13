@@ -1,6 +1,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const APPLY_PATCH_COMMAND = /(?:^|[\n;&|()])\s*(?:command\s+)?apply_patch\s/;
+const NO_EDIT_TOOL_GUIDANCE =
+	"`apply_patch` is unavailable; the call was aborted. No supported file-editing tool is active. Enable `apply_patch`, `edit`, or `write` before retrying.";
+const APPLY_PATCH_RETRY_WARNING = "Do not retry `apply_patch`.";
 
 declare global {
 	var __piExtToolsApplyPatchGuardRegistrations: WeakMap<object, symbol> | undefined;
@@ -25,11 +28,10 @@ export function hasStreamingApplyPatchCommand(command: string): boolean {
 
 function blockReason(activeTools: readonly string[]): string {
 	const alternatives = ["edit", "write"].filter((name) => activeTools.includes(name));
-	if (alternatives.length === 0)
-		return "`apply_patch` is unavailable; the call was aborted. No supported file-editing tool is active. Enable `apply_patch`, `edit`, or `write` before retrying.";
+	if (alternatives.length === 0) return NO_EDIT_TOOL_GUIDANCE;
 	const names = alternatives.map((name) => `\`${name}\``);
 	const action = names.length === 1 ? names[0] : `${names[0]} or ${names[1]}`;
-	return `\`apply_patch\` is unavailable; the call was aborted. Continue with ${action}. Do not retry \`apply_patch\`.`;
+	return `\`apply_patch\` is unavailable; the call was aborted. Continue with ${action}. ${APPLY_PATCH_RETRY_WARNING}`;
 }
 
 /**

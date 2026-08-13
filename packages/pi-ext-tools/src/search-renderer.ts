@@ -17,6 +17,7 @@ export type FindToolDetails = {
 
 type RenderContext = { readonly isError: boolean; readonly lastComponent: Component | undefined };
 const MAX_COLLAPSED_GREP_RESULT_PREVIEW_LINES = 12;
+const EXPAND_HINT = "ctrl+o to expand";
 const FIND_CURSOR = /^cursor:\s+/;
 
 function resultText(result: AgentToolResult<unknown>): string {
@@ -106,31 +107,14 @@ function renderGrepLine(line: GrepDisplayLine, theme: Theme, lineNumberWidth = 0
 }
 
 class GrepResultComponent implements Component {
-	constructor(
-		private readonly preview: Text,
-		private readonly theme: Theme,
-		private footer = "",
-		private hasBody = false,
-	) {}
+	constructor(private readonly preview: Text) {}
 
-	hasResultBody(): boolean {
-		return this.hasBody;
-	}
-
-	set(text: string, footer: string, hasBody: boolean): void {
+	set(text: string): void {
 		this.preview.setText(text);
-		this.footer = footer;
-		this.hasBody = hasBody;
 	}
 
 	render(width: number): string[] {
-		const availableWidth = Math.max(1, width);
-		const preview = this.preview.render(availableWidth);
-		return [
-			...preview,
-			...(this.hasBody ? [this.theme.fg("borderMuted", "─".repeat(availableWidth))] : []),
-			this.theme.fg("dim", this.footer),
-		];
+		return this.preview.render(Math.max(1, width));
 	}
 
 	invalidate(): void {
@@ -208,13 +192,8 @@ export function renderGrepResult(
 	const component =
 		context.lastComponent instanceof GrepResultComponent
 			? context.lastComponent
-			: new GrepResultComponent(new Text("", 0, 0), theme);
-	component.set(
-		lines.join("\n"),
-		grepCollapsedFooter(result, { durationMs: details.durationMs }) ??
-			`${details.totalMatched} matches · ${details.totalFiles} files · ${details.totalLines} lines · ${durationText(details.durationMs)}`,
-		lines.length > 0,
-	);
+			: new GrepResultComponent(new Text("", 0, 0));
+	component.set(lines.join("\n"));
 	return component;
 }
 
@@ -351,9 +330,9 @@ export function renderFindResult(
 	if (!options.expanded && body.length > visible.length)
 		visible.push({
 			kind: "omission",
-			text: `... (${body.length - visible.length} more lines, ctrl+o to expand)`,
+			text: `... (${body.length - visible.length} more lines, ${EXPAND_HINT})`,
 		});
-	const component = new GrepResultComponent(new Text("", 0, 0), theme);
-	component.set(renderFindBody(visible, theme).join("\n"), findFooter(details), visible.length > 0);
+	const component = new GrepResultComponent(new Text("", 0, 0));
+	component.set(renderFindBody(visible, theme).join("\n"));
 	return component;
 }

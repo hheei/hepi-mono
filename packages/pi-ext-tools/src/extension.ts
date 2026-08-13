@@ -5,16 +5,16 @@ import { isApplyPatchToolDetails } from "./apply-patch-tool.js";
 import { createFffRuntimeState, registerFffLifecycle } from "./fff/lifecycle.js";
 import { registerCommands } from "./fff/register-commands.js";
 import { readEditMode } from "./fff/settings.js";
-import { ToolTraceController } from "./pretty/trace.js";
+import { createToolTui } from "./pretty/frame.js";
 import { registerTools } from "./tools.js";
 
 /** Registers pi-ext-tools' static, canonical tool catalog. */
 export default function piExtToolsExtension(pi: ExtensionAPI): void {
 	const state = createFffRuntimeState();
-	const trace = new ToolTraceController();
+	const tui = createToolTui();
 	const editMode = readEditMode();
 	pi.on("agent_start", (_event, ctx) => {
-		trace.startTrace();
+		tui.beginTrace();
 		// Model streaming usually covers coordinator cold start before its first tool call.
 		if (editMode === "apply_patch")
 			void warmApplyPatchCoordinator(ctx.cwd, ctx.signal).catch(() => undefined);
@@ -28,7 +28,7 @@ export default function piExtToolsExtension(pi: ExtensionAPI): void {
 			return;
 		return { isError: true };
 	});
-	registerTools(pi, state, trace, editMode);
+	registerTools(pi, state, tui, editMode);
 	registerApplyPatchGuard(pi);
 	registerCommands(pi, { getRuntime: () => state.getRuntime() ?? null });
 	registerFffLifecycle(pi, state);

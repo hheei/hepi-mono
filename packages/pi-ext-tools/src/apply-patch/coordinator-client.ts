@@ -8,6 +8,14 @@ import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import type { ApplyPatchInWorkspaceResult, ApplyPatchProgress } from "./outcome.js";
 
+const UNSUPPORTED_PLATFORM_GUIDANCE =
+	"apply_patch requires Linux descriptor-relative workspace protection; select Edit Mode: native and reload";
+const LATE_CANCELLATION_GUIDANCE =
+	"Apply patch cancellation arrived after mutation committed; read affected paths before retrying";
+const UNKNOWN_CANCELLATION_PREFIX = "Apply patch cancellation outcome is unknown";
+const UNKNOWN_POST_WRITE_PREFIX =
+	"Apply patch coordinator connection ended after receiving the request; workspace outcome is unknown. Read affected paths before retrying";
+
 export interface ApplyPatchThroughCoordinatorOptions {
 	readonly workspaceRoot: string;
 	readonly patch: string;
@@ -73,10 +81,7 @@ const MAX_COORDINATOR_FRAME_BYTES = 1_048_576 + 1_024;
 export const COORDINATOR_PROTOCOL_REVISION = 5;
 
 function assertCoordinatorPlatform(): void {
-	if (process.platform !== "linux")
-		throw new Error(
-			"apply_patch requires Linux descriptor-relative workspace protection; select Edit Mode: native and reload",
-		);
+	if (process.platform !== "linux") throw new Error(UNSUPPORTED_PLATFORM_GUIDANCE);
 }
 
 export function coordinatorSocketPath(workspaceRoot: string): string {
@@ -354,13 +359,7 @@ function connectOnce(
 			(response) =>
 				finish(() => {
 					if (response.ok) {
-						reject(
-							new CoordinatorTransportError(
-								"Apply patch cancellation arrived after mutation committed; read affected paths before retrying",
-								true,
-								true,
-							),
-						);
+						reject(new CoordinatorTransportError(LATE_CANCELLATION_GUIDANCE, true, true));
 						return;
 					}
 					resolve(response);
@@ -369,7 +368,7 @@ function connectOnce(
 				finish(() =>
 					reject(
 						new CoordinatorTransportError(
-							`Apply patch cancellation outcome is unknown: ${error instanceof Error ? error.message : String(error)}`,
+							`${UNKNOWN_CANCELLATION_PREFIX}: ${error instanceof Error ? error.message : String(error)}`,
 							true,
 							true,
 						),
@@ -579,9 +578,7 @@ export async function applyPatchThroughCoordinator(
 			throw new Error(error.message);
 		if (options.signal?.aborted) throw options.signal.reason ?? error;
 		if (error instanceof CoordinatorTransportError && error.requestSent)
-			throw new Error(
-				`Apply patch coordinator connection ended after receiving the request; workspace outcome is unknown. Read affected paths before retrying: ${error.message}`,
-			);
+			throw new Error(`${UNKNOWN_POST_WRITE_PREFIX}: ${error.message}`);
 		await ensureCoordinator(workspaceRoot, options.signal);
 		response = await connectOnce(socketPath, request, id, options.signal, options.onProgress);
 	}

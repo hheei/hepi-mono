@@ -13,8 +13,7 @@ import { createFffRuntimeState, type FffRuntimeState } from "./fff/lifecycle.js"
 import type { EditMode } from "./fff/settings.js";
 import { registerFindTool } from "./find.js";
 import { registerGrepTool } from "./grep.js";
-import { withToolFrame } from "./pretty/frame.js";
-import { ToolTraceController } from "./pretty/trace.js";
+import { createToolTui, type ToolTui } from "./pretty/frame.js";
 import { registerReadTool } from "./read.js";
 
 const OWNER = "@hheei/pi-ext-tools";
@@ -28,7 +27,7 @@ const BUILT_IN_GROUP = "Built-in";
 function registerCanonicalTool<TParams extends TSchema, TDetails, TState>(
 	pi: ExtensionAPI,
 	factory: (cwd: string) => ToolDefinition<TParams, TDetails, TState>,
-	trace: ToolTraceController,
+	tui: ToolTui,
 	conflictsWith: readonly string[] = [],
 ): void {
 	const template = factory(process.cwd());
@@ -58,7 +57,7 @@ function registerCanonicalTool<TParams extends TSchema, TDetails, TState>(
 			conflictsWith,
 			defaultActive: true,
 		},
-		withToolFrame(tool, trace),
+		tui.frame(tool),
 	);
 }
 
@@ -66,17 +65,17 @@ function registerCanonicalTool<TParams extends TSchema, TDetails, TState>(
 export function registerTools(
 	pi: ExtensionAPI,
 	state: FffRuntimeState = createFffRuntimeState(),
-	trace = new ToolTraceController(),
+	tui: ToolTui = createToolTui(),
 	editMode: EditMode = "apply_patch",
 ): void {
-	registerReadTool(pi, state, trace);
-	registerGrepTool(pi, state, trace);
-	registerFindTool(pi, state, trace);
+	registerReadTool(pi, state, tui);
+	registerGrepTool(pi, state, tui);
+	registerFindTool(pi, state, tui);
 	if (editMode === "native") {
-		registerCanonicalTool(pi, createEditToolDefinition, trace);
-		registerCanonicalTool(pi, createWriteToolDefinition, trace);
+		registerCanonicalTool(pi, createEditToolDefinition, tui);
+		registerCanonicalTool(pi, createWriteToolDefinition, tui);
 	}
-	registerBashTool(pi, state, trace);
-	registerBashJobTool(pi, state, trace);
-	if (editMode === "apply_patch") registerApplyPatchTool(pi, trace);
+	registerBashTool(pi, state, tui);
+	registerBashJobTool(pi, state, tui);
+	if (editMode === "apply_patch") registerApplyPatchTool(pi, tui);
 }

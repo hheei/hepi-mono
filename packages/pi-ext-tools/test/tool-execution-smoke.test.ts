@@ -1,14 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import {
+	type AgentToolResult,
 	type ExtensionAPI,
 	initTheme,
 	type ToolDefinition,
 	ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
-import { stripTerminalSequences, type TUI } from "@earendil-works/pi-tui";
-import { registerApplyPatchTool } from "../dist/apply-patch-tool.js";
+import { stripTerminalSequences, Text, type TUI } from "@earendil-works/pi-tui";
+import { Type } from "typebox";
 import { registerBashTool } from "../dist/bash.js";
-import { ToolTraceController } from "../dist/pretty/trace.js";
+import { createToolTui } from "../dist/pretty/frame.js";
 
 const callId = "smoke-call";
 
@@ -25,8 +26,8 @@ describe("ToolExecutionComponent smoke", () => {
 				registered.push(tool);
 			},
 		} as unknown as ExtensionAPI;
-		const trace = new ToolTraceController();
-		registerBashTool(pi, undefined, trace);
+		const tui = createToolTui();
+		registerBashTool(pi, undefined, tui);
 		const tool = registered[0]!;
 		let requests = 0;
 		const ui = {
@@ -34,43 +35,43 @@ describe("ToolExecutionComponent smoke", () => {
 				requests += 1;
 			},
 		} as unknown as TUI;
-		trace.startTrace();
-		trace.begin(callId);
+		tui.beginTrace();
 		const component = new ToolExecutionComponent(
 			"bash",
 			callId,
-			{ command: "printf smoke", timeout: 20 },
+			{ command: "printf BODY_ && printf MARKER", timeout: 20 },
 			undefined,
 			tool,
 			ui,
 			process.cwd(),
 		);
 		component.markExecutionStarted();
-		const partial = {
-			content: [{ type: "text", text: "partial smoke output" }],
-			details: { output: "partial smoke output", exitCode: 0 },
-		};
-		trace.update(callId, partial);
+		let partial: AgentToolResult<unknown> | undefined;
+		const final = await tool.execute(
+			callId,
+			{ command: "printf BODY_ && printf MARKER", timeout: 20 },
+			undefined,
+			(update) => {
+				partial = update;
+			},
+			{ cwd: process.cwd() } as never,
+		);
+		if (partial === undefined) throw new Error("Expected bash partial output");
 		component.updateResult({ ...partial, isError: false }, true);
-		expect(outputOccurrences(component, "partial smoke output")).toBe(1);
+		expect(outputOccurrences(component, "BODY_MARKER")).toBe(1);
 
-		const final = {
-			content: [{ type: "text", text: "final smoke output" }],
-			details: { output: "final smoke output", exitCode: 0 },
-		};
-		trace.complete(callId);
 		component.updateResult({ ...final, isError: false });
-		expect(outputOccurrences(component, "final smoke output")).toBe(1);
+		expect(outputOccurrences(component, "BODY_MARKER")).toBe(1);
 		for (let index = 0; index < 3; index += 1) {
 			component.invalidate();
-			expect(outputOccurrences(component, "final smoke output")).toBe(1);
+			expect(outputOccurrences(component, "BODY_MARKER")).toBe(1);
 		}
 		await Promise.resolve();
-		expect(outputOccurrences(component, "final smoke output")).toBe(1);
+		expect(outputOccurrences(component, "BODY_MARKER")).toBe(1);
 		expect(requests).toBeGreaterThan(0);
 	});
 
-	test("omits bash result rails when the host receives zero output lines", async (): Promise<void> => {
+	test("omits bash body rails when the host receives zero output lines", async (): Promise<void> => {
 		initTheme("dark");
 		const registered: ToolDefinition[] = [];
 		const pi = {
@@ -78,11 +79,11 @@ describe("ToolExecutionComponent smoke", () => {
 				registered.push(tool);
 			},
 		} as unknown as ExtensionAPI;
-		const trace = new ToolTraceController();
-		registerBashTool(pi, undefined, trace);
+		const tui = createToolTui();
+		registerBashTool(pi, undefined, tui);
 		const tool = registered[0]!;
 		const ui = { requestRender: (): void => undefined } as unknown as TUI;
-		trace.startTrace();
+		tui.beginTrace();
 		const component = new ToolExecutionComponent(
 			"bash",
 			callId,
@@ -105,76 +106,96 @@ describe("ToolExecutionComponent smoke", () => {
 		}
 	});
 
-	test("renders apply_patch operation rows during partial progress", (): void => {
+	test("renders one body on the first resumed result pass", (): void => {
 		initTheme("dark");
-		const registered: ToolDefinition[] = [];
-		const pi = {
-			registerTool(tool: ToolDefinition): void {
-				registered.push(tool);
-			},
-		} as unknown as ExtensionAPI;
-		const trace = new ToolTraceController();
-		registerApplyPatchTool(pi, trace);
-		const tool = registered[0]!;
+		const tui = createToolTui();
+		const Params = Type.Object({ path: Type.String() });
+		const tool = tui.frame({
+			name: "resume_body",
+			label: "resume_body",
+			description: "Synthetic resumed tool",
+			parameters: Params,
+			execute: async () => ({ content: [], details: undefined }),
+			renderCall: () => new Text("call preview", 0, 0),
+			renderResult: () => new Text("restored body", 0, 0),
+		});
 		const ui = { requestRender: (): void => undefined } as unknown as TUI;
-		trace.startTrace();
-		trace.begin(callId);
+		tui.beginTrace();
 		const component = new ToolExecutionComponent(
-			"apply_patch",
+			"resume_body",
+			"resumed-call",
+			{ path: "src/resumed.ts" },
+			undefined,
+			tool,
+			ui,
+			process.cwd(),
+		);
+		component.setExpanded(true);
+		component.updateResult({ content: [], details: undefined, isError: false });
+		const rendered = stripTerminalSequences(component.render(100).join("\n"));
+		expect(rendered).toContain("restored body");
+		expect(rendered).not.toContain("call preview");
+		expect(rendered.match(/─/g)).toHaveLength(200);
+	});
+
+	test("renders ToolTui body rows once through partial and final host updates", async (): Promise<void> => {
+		initTheme("dark");
+		const tui = createToolTui();
+		const Params = Type.Object({ path: Type.String() });
+		const tool = tui.frame(
+			{
+				name: "synthetic_patch",
+				label: "synthetic_patch",
+				description: "Synthetic host lifecycle tool",
+				parameters: Params,
+				async execute(_id, _params, _signal, onUpdate) {
+					onUpdate?.({ content: [], details: { row: "modify src/stream.ts +3 -2" } });
+					return { content: [], details: { row: "✓ modify src/stream.ts +3 -2" } };
+				},
+				renderResult(result) {
+					return new Text((result.details as { row: string }).row, 0, 0);
+				},
+			},
+			{
+				summary: () => "1 files",
+				footer: () => "+3 -2 lines",
+			},
+		);
+		const ui = { requestRender: (): void => undefined } as unknown as TUI;
+		tui.beginTrace();
+		const component = new ToolExecutionComponent(
+			"synthetic_patch",
 			callId,
-			{ patch: "*** Begin Patch\n*** End Patch" },
+			{ path: "src/stream.ts" },
 			undefined,
 			tool,
 			ui,
 			process.cwd(),
 		);
 		component.markExecutionStarted();
-		const partial = {
-			content: [],
-			details: {
-				changedPaths: [],
-				addedLines: 3,
-				removedLines: 2,
-				operations: [
-					{
-						operationIndex: 0,
-						kind: "update" as const,
-						path: "src/stream.ts",
-						addedLines: 3,
-						removedLines: 2,
-						status: "pending" as const,
-					},
-				],
-				operationCount: 1,
-				exactUpdateCount: 0,
-				fuzzyUpdateCount: 0,
-				applied: [],
-				rejected: [],
-				status: "success" as const,
-				progress: { files: 1, addedLines: 3, removedLines: 2, operations: [] },
+		let partial: AgentToolResult<unknown> | undefined;
+		const final = await tool.execute(
+			callId,
+			{ path: "src/stream.ts" },
+			undefined,
+			(update) => {
+				partial = update;
 			},
-		};
-		trace.update(callId, partial);
+			{ cwd: process.cwd() } as never,
+		);
+		if (partial === undefined) throw new Error("Expected synthetic partial output");
 		component.updateResult({ ...partial, isError: false }, true);
 		const partialText = stripTerminalSequences(component.render(100).join("\n"));
-		expect(partialText).toContain("apply_patch · 1 files");
-		expect(partialText).not.toContain("apply_patch · 1 files · +3 -2 lines");
-		expect(partialText).toContain("modify src/stream.ts +3 -2");
+		expect(partialText).toContain("synthetic_patch · 1 files");
 		expect(outputOccurrences(component, "modify src/stream.ts +3 -2")).toBe(1);
 
-		const final = {
-			...partial,
-			details: {
-				...partial.details,
-				operations: [{ ...partial.details.operations[0]!, status: "applied" as const }],
-			},
-		};
-		trace.complete(callId);
 		component.updateResult({ ...final, isError: false });
-		const finalText = stripTerminalSequences(component.render(100).join("\n"));
-		expect(finalText).toContain("apply_patch · 1 files");
-		expect(finalText).not.toContain("apply_patch · 1 files · +3 -2 lines");
-		expect(finalText).toContain("✓ modify src/stream.ts +3 -2");
-		expect(outputOccurrences(component, "modify src/stream.ts +3 -2")).toBe(1);
+		for (let index = 0; index < 3; index += 1) {
+			const finalText = stripTerminalSequences(component.render(100).join("\n"));
+			expect(finalText).toContain("+3 -2 lines");
+			expect(finalText).toContain("✓ modify src/stream.ts +3 -2");
+			expect(outputOccurrences(component, "modify src/stream.ts +3 -2")).toBe(1);
+			component.invalidate();
+		}
 	});
 });

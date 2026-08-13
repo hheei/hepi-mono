@@ -95,10 +95,12 @@ describe("apply_patch progress renderer", () => {
 		expect(text).toContain("✓ modify src/updated.ts +6 -2");
 		expect(text).toContain("! modify src/fuzzy.ts +7 -1 (0.72)");
 		expect(text).toContain("✗ delete src/rejected.ts -7");
-		expect(text).toContain("created 1 · deleted 1 · modified 2 · +17 -10 lines · 0.72s");
+		expect(formatApplyPatchFooter(details)).toBe(
+			"created 1 · deleted 1 · modified 2 · +17 -10 lines · 0.72s",
+		);
 	});
 
-	test("uses semantic colors for patch rows and dim-only footers", () => {
+	test("uses semantic colors for patch rows", () => {
 		roles.splice(0);
 		const taggedTheme = {
 			fg: (role: string, text: string) => `<${role}>${text}</${role}>`,
@@ -109,7 +111,7 @@ describe("apply_patch progress renderer", () => {
 			.join("\n");
 		renderApplyPatchResult(details, false, theme as never).render(200);
 		expect(roles).toEqual(expect.arrayContaining(["success", "error", "warning", "dim"]));
-		expect(text).toContain("<dim>created 1 · deleted 1 · modified 2 · +17 -10 lines · 0.72s</dim>");
+		expect(text).not.toContain("<dim>created 1");
 	});
 
 	test("keeps created paths in the base theme", () => {
@@ -123,12 +125,12 @@ describe("apply_patch progress renderer", () => {
 		expect(text).toContain("<success>create</success> src/created.ts");
 	});
 
-	test("matches the divider width to the result width", () => {
+	test("leaves result framing to ToolTui", () => {
 		const lines = renderApplyPatchResult(details, false, theme as never).render(80);
-		expect(lines).toContain("─".repeat(80));
+		expect(lines).not.toContain("─".repeat(80));
 	});
 
-	test("omits result rails when there are no operation rows", () => {
+	test("returns an empty body when there are no operation rows", () => {
 		const lines = renderApplyPatchResult(
 			{
 				...details,
@@ -143,7 +145,7 @@ describe("apply_patch progress renderer", () => {
 			false,
 			theme as never,
 		).render(80);
-		expect(lines).toEqual(["0 lines · 0.72s"]);
+		expect(lines).toEqual([]);
 	});
 
 	test("omits zero operation counts from the footer", () => {

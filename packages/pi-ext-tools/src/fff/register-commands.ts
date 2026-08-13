@@ -2,6 +2,9 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { buildStatusReport, FFF_RUNTIME_NOT_READY_TEXT } from "./extension-common.js";
 import type { FffRuntime } from "./fff.js";
 
+const REINDEX_COMMAND_DESCRIPTION = "Trigger an fff rescan for the current project";
+const STATUS_COMMAND_DESCRIPTION = "Show fff runtime status and index health";
+
 export interface CommandRegistrationDeps {
 	/** Commands remain registered for the host lifetime; runtime availability is session-scoped. */
 	getRuntime(): FffRuntime | null;
@@ -16,7 +19,7 @@ export function registerCommands(pi: ExtensionAPI, deps: CommandRegistrationDeps
 	};
 
 	pi.registerCommand("reindex-fff", {
-		description: "Trigger an fff rescan for the current project",
+		description: REINDEX_COMMAND_DESCRIPTION,
 		handler: async (_args, ctx) => {
 			const runtime = requireSlashRuntime(ctx);
 			if (!runtime) return;
@@ -30,7 +33,7 @@ export function registerCommands(pi: ExtensionAPI, deps: CommandRegistrationDeps
 	});
 
 	pi.registerCommand("fff-status", {
-		description: "Show fff runtime status and index health",
+		description: STATUS_COMMAND_DESCRIPTION,
 		handler: async (_args, ctx) => {
 			const runtime = requireSlashRuntime(ctx);
 			if (!runtime) return;

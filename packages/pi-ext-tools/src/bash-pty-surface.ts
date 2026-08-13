@@ -3,6 +3,8 @@ import { type Component, matchesKey, truncateToWidth, visibleWidth } from "@eare
 import type { PtyExitStatus, PtySession } from "./native-bridge.js";
 
 const MAX_LIVE_LINES = 10_000;
+const PTY_RUNNING_HINT = "Esc kill/dismiss · input forwarded to PTY";
+const PTY_DISMISS_HINT = "Press any key to dismiss";
 
 export type BashPtySurfaceResult =
 	| { readonly status: "completed"; readonly exit: PtyExitStatus; readonly output: string }
@@ -76,8 +78,8 @@ export class BashPtySurface implements Component {
 		while (output.length < contentRows) output.unshift("");
 		const footer =
 			this.#state === "running"
-				? this.theme.fg("dim", "Esc kill/dismiss · input forwarded to PTY")
-				: this.theme.fg(this.#exit?.code === 0 ? "success" : "warning", "Press any key to dismiss");
+				? this.theme.fg("dim", PTY_RUNNING_HINT)
+				: this.theme.fg(this.#exit?.code === 0 ? "success" : "warning", PTY_DISMISS_HINT);
 		return [
 			`${this.theme.fg("border", "┌")}${border}${this.theme.fg("border", "┐")}`,
 			box(header),

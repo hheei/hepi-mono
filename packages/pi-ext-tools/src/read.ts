@@ -8,13 +8,13 @@ import {
 import { type Component, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
 import { createFffRuntimeState, type FffRuntimeState } from "./fff/lifecycle.js";
-import { completionFromResult, withToolFrame } from "./pretty/frame.js";
-import { ToolTraceController } from "./pretty/trace.js";
+import { createToolTui, type ToolTui } from "./pretty/frame.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 const PREVIEW_HEAD_LINES = 3;
 const PREVIEW_TAIL_LINES = 2;
 const READ_METRICS_KEY = "__piExtToolsRead";
+const EXPAND_HINT = "ctrl+o to expand";
 const READ_CONTINUATION =
 	/\n\n\[(?:\d+ more lines in file|Showing lines \d+-\d+ of \d+(?: \([^\]]+\))?)\. Use offset=\d+ to continue\.\]$/;
 
@@ -121,13 +121,8 @@ class ReadPreviewComponent implements Component {
 	constructor(
 		private readonly lines: readonly ReadPreviewLine[],
 		private readonly startLine: number,
-		private readonly footer: string,
 		private readonly theme: Theme,
 	) {}
-
-	hasResultBody(): boolean {
-		return this.lines.length > 0;
-	}
 
 	render(width: number): string[] {
 		const availableWidth = Math.max(1, width);
@@ -140,7 +135,7 @@ class ReadPreviewComponent implements Component {
 		const lineNumberWidth = String(lastLine).length;
 		const preview = this.lines.map((line) => {
 			if (line.type === "omission")
-				return this.theme.fg("dim", `... (${line.hiddenLines} hidden lines, ctrl+o to expand)`);
+				return this.theme.fg("dim", `... (${line.hiddenLines} hidden lines, ${EXPAND_HINT})`);
 			const prefix = `${String(this.startLine + line.sourceIndex).padStart(lineNumberWidth)}│`;
 			const contentWidth = Math.max(0, availableWidth - visibleWidth(prefix));
 			const truncated = visibleWidth(line.text) > contentWidth;
@@ -151,11 +146,7 @@ class ReadPreviewComponent implements Component {
 			);
 			return `${this.theme.fg("dim", prefix)}${content}${truncated ? this.theme.fg("dim", ">") : ""}`;
 		});
-		return [
-			...preview,
-			...(preview.length === 0 ? [] : [this.theme.fg("borderMuted", "─".repeat(availableWidth))]),
-			this.theme.fg("dim", this.footer),
-		];
+		return preview;
 	}
 
 	invalidate(): void {}
@@ -172,24 +163,14 @@ function renderReadPreview(
 	const text = displayText(result);
 	if (text === undefined) return undefined;
 	const lines = displayLines(text);
-	const metrics = readMetrics(result) ?? {
-		characters: Array.from(text).length,
-		lines: text.split("\n").length,
-	};
-	const completion = completionFromResult(result);
-	return new ReadPreviewComponent(
-		previewLines(lines),
-		params.offset ?? 1,
-		`${metrics.characters} chars · ${metrics.lines} lines · ${durationText(completion?.durationMs)}`,
-		theme,
-	);
+	return new ReadPreviewComponent(previewLines(lines), params.offset ?? 1, theme);
 }
 
 /** Registers read while recreating execution for the call cwd. */
 export function registerReadTool(
 	pi: ExtensionAPI,
 	state: FffRuntimeState = createFffRuntimeState(),
-	trace = new ToolTraceController(),
+	tui: ToolTui = createToolTui(),
 ): void {
 	const template = createReadToolDefinition(process.cwd());
 	const {
@@ -265,6 +246,8 @@ export function registerReadTool(
 			conflictSets: [],
 			defaultActive: true,
 		},
-		withToolFrame(tool, trace, readCollapsedFooter),
+		tui.frame(tool, {
+			footer: readCollapsedFooter,
+		}),
 	);
 }

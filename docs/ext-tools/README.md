@@ -16,8 +16,45 @@ Pi upstream tool 的同名 replacement 由一个 Canonical tool owner 静态注�
 Pi upstream factory -> pi-ext-tools tool module -> one managed registration -> Pi-visible tool
 ```
 
-每个 tool module 自己决定如何复用 upstream factory、如何 render，以及如何处理特定 feature policy。
+每个 tool module 自己决定如何复用 upstream factory、如何产生 body 语义内容，以及如何处理特定 feature
+policy。package 内部的 `ToolTui` module 统一组装 status header、Trace collapse、body rails 与 typed footer；
 `pi-ext-core` 仅提供 managed registration。
+
+## Tool TUI module
+
+`ToolTui` 是 `pi-ext-tools` package-internal interface，不从 package entry export，也不由 `pi-ext-core` 拥有。
+extension composition root 为每个 session 建立一个 instance，并在可见的 `agent_start` handler 调用
+`beginTrace()`；每个 catalog registration 则显式以 `frame(tool, presentation)` 包装 definition。它不注册
+tool、不选择 active tool、不改写 schema、execute、model-visible content 或 typed details。
+
+```text
+agent_start ------------------------> ToolTui.beginTrace()
+tool definition + presentation -----> ToolTui.frame()
+                                         |
+Pi renderer slots (internal) -----------+
+                                         v
+header -> opening rail -> one body -> closing rail -> optional footer
+```
+
+Pi host 仍拥有 `renderCall` / `renderResult` lifecycle slots、global expand 与 renderer invocation；这两个 slot
+只是 `ToolTui` implementation 的 host adapter，不是两个可见 body。result 尚未出现时，call slot 可承载唯一 body；
+result 出现后，call slot 只保留 header，result slot 接管同一个 body 位置。`ToolTui` 拥有 session-scoped Trace、
+completion persistence、resume restoration、current/historical collapse、header status、rails 与 footer placement。
+具体 tool 拥有 body renderer、header summary、typed footer text 与 warning 判定，但不得自行加入 outer rails 或
+footer placement。
+
+Result layout 由 `ToolTui` 依 body 实际 render 后的行数决定：
+
+```text
+有 body + footer: opening rail -> body -> closing rail -> footer
+有 body、无 footer: opening rail -> body -> closing rail
+无 body + footer: footer
+无 body、无 footer: empty
+```
+
+这个规则保留真实空白 output line；只有 renderer 实际返回零行时省略 body 的两条 rails。body component cache
+由 `ToolTui` 从 Pi 的 outer `lastComponent` 解包后交回原 renderer，tool 不需理解 frame component。不存在第二个
+concrete extension consumer 前，这个 interface 不提升成 ext-core public contract。
 
 ## v1 Catalog
 

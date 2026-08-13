@@ -77,22 +77,24 @@ Rules:
 ### Tools
 
 - `pi-ext-tools` renders every registered tool with `renderShell: "self"`: terminal background, no Pi `tool*Bg` box.
-- A tool frame has this order; omit result rule/body until a result exists:
+- A tool frame has one body. Omit its paired rails when that body has no rendered lines:
 
   ```text
   ✓ tool summary · metadata
-  ─────────────────────────
-  tool-call render
-  ─────────────────────────
-  tool-result render
+  ─────────────────────────  opening rail
+  tool body                  tool-owned
+  ─────────────────────────  closing rail
+  typed footer               optional, tool-owned text
   ```
 
-- When header fully represents a tool call, omit a duplicate call body and its empty rule; `grep` does this, so its final result follows the header's single rule directly.
-- Frame rules use a structural theme token. Call/result renderers retain their existing semantic colors, widths, collapse rules, and model-visible `content`. When a result renderer has no body rows, omit its opening and closing rules and show only its typed footer.
-- A completed prior Trace collapses only while Pi global tool expansion is off. Current-Trace tools keep their full block; the next `agent_start` collapses prior Traces. A collapsed tool renders `status header -> blank line -> tool-owned metrics footer`; its non-status parameters, paths, and ranges use `dim`. Expanding tools restores its full call/result block. A Trace is `agent_start` through `agent_end`; resume treats every historical tool as prior.
+- Pi `renderCall` and `renderResult` are host lifecycle slots, not separate visible sections. Before a result exists, the call slot may carry the one body; once a result exists, the call slot retains only the header and the result slot owns the body.
+
+- When the header fully represents a tool call, omit a duplicate pre-result body. `grep` and `find` use only the header until their result body exists.
+- `ToolTui` owns status headers, Trace collapse/resume, the body's paired rails, and footer placement. Tool renderers retain their semantic colors, widths, collapse rules, model-visible `content`, and body component caches, but never add outer rails or typed footers. When the body has no rows, omit both rails and show only its typed footer when present.
+- A completed prior Trace collapses only while Pi global tool expansion is off. Current-Trace tools keep their full frame; the next `agent_start` collapses prior Traces. A collapsed tool renders `status header -> blank line -> tool-owned metrics footer`; its non-status parameters, paths, and ranges use `dim`. Expanding tools restores its full frame. A Trace is `agent_start` through `agent_end`; resume treats every historical tool as prior.
 - A collapsed footer uses only tool-owned typed details, a wrapper-captured execution duration, or a caught single-line error message. It never parses model-visible `content`.
 - `grep` collapses to `N matches · M files · L lines · duration`, or FFF fallback `N fuzzies · M files · L lines · duration`.
-- FFF-backed `find` fully represents its call in the shared header: `status find /pattern/ in path`; it has no duplicate call body. Its result body is framed by the shared opening rule and its own closing rule/footer. The body groups typed candidates under `fuzzy files:` and `fuzzy paths:`, with direct-parent directory headings in `mdCode` followed by base-text paths. Its typed footer is `X fuzzy files · Y fuzzy paths · Z lines · duration`; `Z` counts body rows before collapse. Collapsed body omission uses dim `... (N more lines, ctrl+o to expand)`.
+- FFF-backed `find` fully represents its call in the shared header: `status find /pattern/ in path`; it has no duplicate pre-result body. `ToolTui` frames its result-phase body with paired rails and places the typed footer after the closing rail. The body groups typed candidates under `fuzzy files:` and `fuzzy paths:`, with direct-parent directory headings in `mdCode` followed by base-text paths. Its typed footer is `X fuzzy files · Y fuzzy paths · Z lines · duration`; `Z` counts body rows before collapse. Collapsed body omission uses dim `... (N more lines, ctrl+o to expand)`.
 - `pi-ext-tools` has a static `Edit Mode` catalog setting. `native` registers Pi `edit` and `write`; `apply_patch` registers only strict V4A `apply_patch`; `none` registers neither. The setting is read during extension initialization and takes effect only after `/reload` or a new session; it never silently changes the active tool set mid-session. `apply_patch` requires Linux descriptor-relative workspace protection; unsupported platforms reject before coordinator startup and direct users to explicitly select `native`, never silently rerouting the request.
 - An unexpanded successful text `read` shows an independent preview: three head lines, then a dim `... (N hidden lines, ctrl+o to expand)` omission row, then two tail lines when more than five lines were returned. Its full header is `status read path[:range]`; an explicit `limit` shows inclusive `start-end`, while no `limit` shows at most `:start`. TUI rows derive one-based source line numbers from the request only; model-visible content stays Pi-native and unnumbered. The footer is `Unicode-code-point chars · returned lines · duration`. Each over-width displayed line ends with dim `>` after the cell-width-safe retained suffix. Expanded, error, partial, and image reads retain Pi native render behavior.
 - Grep line compaction marks TUI-only discarded left/right text with dim `<` / `>`; model `content` and Output recovery remain unmodified.

@@ -7,7 +7,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { registerBashTool } from "../src/bash.js";
-import { ToolTraceController } from "../src/pretty/trace.js";
+import { createToolTui } from "../src/pretty/frame.js";
 
 initTheme(undefined, false);
 
@@ -172,9 +172,9 @@ test("bash wraps the active command and retains its timeout suffix", (): void =>
 	expect(text).toContain("(timeout 20s)");
 });
 
-test("bash collapses only the previous command before its timeout suffix", (): void => {
+test("bash collapses only the previous command before its timeout suffix", async (): Promise<void> => {
 	const tools: ToolDefinition[] = [];
-	const trace = new ToolTraceController();
+	const tui = createToolTui();
 	registerBashTool(
 		{
 			registerTool(tool: ToolDefinition): void {
@@ -182,14 +182,15 @@ test("bash collapses only the previous command before its timeout suffix", (): v
 			},
 		} as unknown as ExtensionAPI,
 		undefined,
-		trace,
+		tui,
 	);
 	const bash = tools.find((tool) => tool.name === "bash");
 	if (bash === undefined) throw new Error("Expected bash tool");
-	trace.startTrace();
-	trace.begin("previous-bash");
-	trace.complete("previous-bash");
-	trace.startTrace();
+	tui.beginTrace();
+	await bash.execute("previous-bash", { command: "true" }, undefined, undefined, {
+		cwd: process.cwd(),
+	} as ExtensionContext);
+	tui.beginTrace();
 	const theme = {
 		bg: (_role: string, text: string): string => text,
 		fg: (_role: string, text: string): string => text,
@@ -247,7 +248,7 @@ test("bash encloses its output between full-width dividers", (): void => {
 	expect(lines?.join("\n")).not.toContain("<toolOutput>stdout</toolOutput>");
 });
 
-test("bash omits result rails when output has zero lines", (): void => {
+test("bash omits body rails when output has zero lines", (): void => {
 	const tools: ToolDefinition[] = [];
 	registerBashTool({
 		registerTool(tool: ToolDefinition): void {
@@ -370,38 +371,38 @@ test("bash keeps twelve streaming output lines like grep", (): void => {
 		fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
 		bold: (text: string): string => text,
 	} as Theme;
-	const lines = bash
-		.renderResult?.(
-			{
-				content: [
-					{
-						type: "text",
-						text: Array.from({ length: 30 }, (_, index) => `line ${index + 1}`).join("\n"),
-					},
-				],
-				details: {},
-			},
-			{ expanded: false, isPartial: true },
-			theme,
-			{
-				args: { command: "printf many" },
-				isError: false,
-				isPartial: true,
-				lastComponent: undefined,
-				state: {},
-			} as never,
-		)
-		.render(120)
-		.filter((line) => !line.includes("─"));
-	expect(lines).toHaveLength(12);
-	expect(lines[0]).toContain("... (19 earlier lines, ctrl+o to expand)");
-	expect(lines[0]).toContain("<dim>");
-	expect(lines.at(-1)).toContain("line 30");
+	const component = bash.renderResult?.(
+		{
+			content: [
+				{
+					type: "text",
+					text: Array.from({ length: 30 }, (_, index) => `line ${index + 1}`).join("\n"),
+				},
+			],
+			details: {},
+		},
+		{ expanded: false, isPartial: true },
+		theme,
+		{
+			args: { command: "printf many" },
+			isError: false,
+			isPartial: true,
+			lastComponent: undefined,
+			state: {},
+		} as never,
+	);
+	if (component === undefined) throw new Error("Expected bash result renderer");
+	const rendered = component.render(120).filter((line) => !line.includes("─"));
+	expect(rendered).toHaveLength(12);
+	expect(rendered[0]).toContain("... (19 earlier lines, ctrl+o to expand)");
+	expect(rendered[0]).toContain("<dim>");
+	expect(rendered.at(-1)).toContain("line 30");
+	expect(rendered.join("\n")).not.toContain("exit ?");
 });
 
 test("bash summarizes exit code, output lines, and duration in collapsed traces", async (): Promise<void> => {
 	const tools: ToolDefinition[] = [];
-	const trace = new ToolTraceController();
+	const tui = createToolTui();
 	registerBashTool(
 		{
 			registerTool(tool: ToolDefinition): void {
@@ -409,11 +410,11 @@ test("bash summarizes exit code, output lines, and duration in collapsed traces"
 			},
 		} as unknown as ExtensionAPI,
 		undefined,
-		trace,
+		tui,
 	);
 	const bash = tools.find((tool) => tool.name === "bash");
 	if (bash === undefined) throw new Error("Expected bash tool");
-	trace.startTrace();
+	tui.beginTrace();
 	const result = await bash.execute(
 		"completed-bash",
 		{ command: "printf 'one\\ntwo\\n'" },
@@ -421,7 +422,7 @@ test("bash summarizes exit code, output lines, and duration in collapsed traces"
 		undefined,
 		{ cwd: process.cwd() } as ExtensionContext,
 	);
-	trace.startTrace();
+	tui.beginTrace();
 	const theme = {
 		bg: (_role: string, text: string): string => text,
 		fg: (_role: string, text: string): string => text,
