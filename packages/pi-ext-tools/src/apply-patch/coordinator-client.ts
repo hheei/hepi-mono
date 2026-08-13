@@ -36,6 +36,7 @@ export async function warmApplyPatchCoordinator(
 	workspaceRoot: string,
 	signal?: AbortSignal,
 ): Promise<void> {
+	assertCoordinatorPlatform();
 	await ensureCoordinator(workspaceRoot, signal);
 }
 
@@ -69,7 +70,14 @@ const COORDINATOR_READY_TIMEOUT_MS = 10_000;
 const COORDINATOR_READY_POLL_INTERVAL_MS = 25;
 const COORDINATOR_STDERR_TAIL_MAX_CHARS = 8_192;
 const MAX_COORDINATOR_FRAME_BYTES = 1_048_576 + 1_024;
-export const COORDINATOR_PROTOCOL_REVISION = 3;
+export const COORDINATOR_PROTOCOL_REVISION = 4;
+
+function assertCoordinatorPlatform(): void {
+	if (process.platform !== "linux")
+		throw new Error(
+			"apply_patch requires Linux descriptor-relative workspace protection; select Edit Mode: native and reload",
+		);
+}
 
 export function coordinatorSocketPath(workspaceRoot: string): string {
 	const digest = createHash("sha256")
@@ -305,15 +313,14 @@ class CoordinatorTransportError extends Error {
 	constructor(
 		message: string,
 		readonly requestSent: boolean,
+		readonly outcomeUnknown = false,
 	) {
 		super(message);
 	}
 }
 
-function sendCancellation(socketPath: string, id: string): void {
-	const socket = connect(socketPath);
-	socket.once("connect", () => socket.end(`${JSON.stringify({ type: "cancel", id })}\n`));
-	socket.once("error", () => undefined);
+function sendCancellation(socketPath: string, id: string): Promise<ApplyResponse> {
+	return connectOnce(socketPath, JSON.stringify({ type: "cancel", id }), id);
 }
 
 function connectOnce(
@@ -334,10 +341,41 @@ function connectOnce(
 		signal?.removeEventListener("abort", abort);
 		callback();
 	};
+	let cancellationRequested = false;
 	const abort = (): void => {
-		sendCancellation(socketPath, requestId);
+		if (!requestSent) {
+			socket?.destroy();
+			finish(() => reject(signal?.reason ?? new Error("Apply patch coordinator aborted")));
+			return;
+		}
+		cancellationRequested = true;
 		socket?.destroy();
-		finish(() => reject(signal?.reason ?? new Error("Apply patch coordinator aborted")));
+		void sendCancellation(socketPath, requestId).then(
+			(response) =>
+				finish(() => {
+					if (response.ok) {
+						reject(
+							new CoordinatorTransportError(
+								"Apply patch cancellation arrived after mutation committed; read affected paths before retrying",
+								true,
+								true,
+							),
+						);
+						return;
+					}
+					resolve(response);
+				}),
+			(error) =>
+				finish(() =>
+					reject(
+						new CoordinatorTransportError(
+							`Apply patch cancellation outcome is unknown: ${error instanceof Error ? error.message : String(error)}`,
+							true,
+							true,
+						),
+					),
+				),
+		);
 	};
 	signal?.throwIfAborted();
 	socket = connect(socketPath);
@@ -347,6 +385,7 @@ function connectOnce(
 		socket?.write(`${request}\n`);
 	});
 	socket.on("data", (chunk: string) => {
+		if (cancellationRequested) return;
 		buffer += chunk;
 		while (true) {
 			const newline = buffer.indexOf("\n");
@@ -401,16 +440,18 @@ function connectOnce(
 			socket?.destroy();
 		}
 	});
-	socket.on("error", (error) =>
-		finish(() => reject(new CoordinatorTransportError(error.message, requestSent))),
-	);
-	socket.on("close", () =>
+	socket.on("error", (error) => {
+		if (cancellationRequested) return;
+		finish(() => reject(new CoordinatorTransportError(error.message, requestSent)));
+	});
+	socket.on("close", () => {
+		if (cancellationRequested) return;
 		finish(() =>
 			reject(
 				new CoordinatorTransportError("Apply patch coordinator closed connection", requestSent),
 			),
-		),
-	);
+		);
+	});
 	signal?.addEventListener("abort", abort, { once: true });
 	return promise;
 }
@@ -523,6 +564,7 @@ export async function applyPatchThroughCoordinator(
 	options: ApplyPatchThroughCoordinatorOptions,
 ): Promise<ApplyPatchInWorkspaceResult> {
 	options.signal?.throwIfAborted();
+	assertCoordinatorPlatform();
 	const { workspaceRoot, socketPath } = await ensureCoordinator(
 		options.workspaceRoot,
 		options.signal,
@@ -533,6 +575,8 @@ export async function applyPatchThroughCoordinator(
 	try {
 		response = await connectOnce(socketPath, request, id, options.signal, options.onProgress);
 	} catch (error) {
+		if (error instanceof CoordinatorTransportError && error.outcomeUnknown)
+			throw new Error(error.message);
 		if (options.signal?.aborted) throw options.signal.reason ?? error;
 		if (error instanceof CoordinatorTransportError && error.requestSent)
 			throw new Error(

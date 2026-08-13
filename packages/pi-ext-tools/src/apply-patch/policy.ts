@@ -11,7 +11,6 @@ export interface FuzzyApplyPatchPolicy {
 	readonly minSimilarity: number;
 	readonly maxConcurrentWorkers: number;
 	readonly maxQueueDepth: number;
-	readonly cacheMiB: number;
 }
 
 export interface LoadFuzzyApplyPatchPolicyOptions {
@@ -23,7 +22,6 @@ export const DEFAULT_FUZZY_APPLY_PATCH_POLICY: FuzzyApplyPatchPolicy = {
 	minSimilarity: 0.7,
 	maxConcurrentWorkers: 2,
 	maxQueueDepth: 32,
-	cacheMiB: 64,
 };
 
 type PolicyKey = keyof FuzzyApplyPatchPolicy;
@@ -31,7 +29,6 @@ const POLICY_KEYS: readonly PolicyKey[] = [
 	"minSimilarity",
 	"maxConcurrentWorkers",
 	"maxQueueDepth",
-	"cacheMiB",
 ];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -63,8 +60,6 @@ function readLayer(layer: string, value: unknown): Partial<FuzzyApplyPatchPolicy
 			invalid(layer, key, "must be an integer from 1 to 16");
 		} else if (key === "maxQueueDepth" && (item < 1 || item > 512)) {
 			invalid(layer, key, "must be an integer from 1 to 512");
-		} else if (key === "cacheMiB" && (item < 0 || item > 1024)) {
-			invalid(layer, key, "must be an integer from 0 to 1024");
 		}
 		Object.assign(result, { [key]: item });
 	}
@@ -83,10 +78,7 @@ function mergedPolicy(
 		if (typeof value === "number" && typeof baseline === "number") {
 			if (key === "minSimilarity" && value !== 0 && value < baseline)
 				invalid("project", key, `must be at least global value ${baseline}`);
-			if (
-				(key === "maxConcurrentWorkers" || key === "maxQueueDepth" || key === "cacheMiB") &&
-				value > baseline
-			)
+			if ((key === "maxConcurrentWorkers" || key === "maxQueueDepth") && value > baseline)
 				invalid("project", key, `must not exceed global value ${baseline}`);
 		}
 	}
@@ -103,7 +95,6 @@ function mergedPolicy(
 			project.maxQueueDepth ??
 			global.maxQueueDepth ??
 			DEFAULT_FUZZY_APPLY_PATCH_POLICY.maxQueueDepth,
-		cacheMiB: project.cacheMiB ?? global.cacheMiB ?? DEFAULT_FUZZY_APPLY_PATCH_POLICY.cacheMiB,
 	};
 }
 

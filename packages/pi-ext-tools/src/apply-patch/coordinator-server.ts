@@ -54,8 +54,10 @@ const MAX_EXPIRED_REQUESTS = 4_096;
 const MAX_COORDINATOR_FRAME_BYTES = 1_048_576 + 1_024;
 
 interface RequestRecord {
-	readonly request: ApplyRequest;
+	request: ApplyRequest;
+	readonly fingerprint: string;
 	readonly subscribers: Set<Socket>;
+	readonly terminal: Promise<void>;
 	latestProgress?: ApplyPatchProgress;
 	response?: ApplyResponse;
 	completedAtMs?: number;
@@ -142,6 +144,10 @@ function send(socket: Socket, response: ApplyResponse): void {
 	if (!socket.destroyed) socket.write(responseFrame(response));
 }
 
+export function hasCoordinatorCapacity(requestCount: number, maxQueueDepth: number): boolean {
+	return requestCount < maxQueueDepth;
+}
+
 function compactProgress(progress: ApplyPatchProgress): ApplyPatchProgress {
 	return {
 		stage: progress.stage,
@@ -196,9 +202,12 @@ function sendRecordProgress(record: RequestRecord, progress: ApplyPatchProgress)
 }
 
 function sendRecordResponse(record: RequestRecord, response: ApplyResponse): void {
-	record.response = response;
+	const cachedResponse = compactResponse(response);
+	record.response = cachedResponse;
 	record.completedAtMs = Date.now();
 	for (const socket of record.subscribers) send(socket, response);
+	delete record.latestProgress;
+	record.request = { ...record.request, patch: "" };
 	record.onTerminal?.();
 	setTimeout(() => {
 		if (
@@ -374,20 +383,58 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 	const running: RunningItem[] = [];
 	const activeLocks = new Set<string>();
 	let active = 0;
+	let admittedRequestCount = 0;
+	let shuttingDown = false;
+	let shutdownPromise: Promise<void> | undefined;
 	let idleTimer: NodeJS.Timeout | undefined;
 	const destroySockets = (): void => {
 		for (const socket of sockets) socket.destroy();
 	};
+	const flushSockets = async (): Promise<void> => {
+		const flushed = Promise.all(
+			[...sockets].map(
+				(socket) =>
+					new Promise<void>((resolve) => {
+						if (socket.destroyed) {
+							resolve();
+							return;
+						}
+						socket.end(resolve);
+					}),
+			),
+		);
+		await Promise.race([flushed, new Promise<void>((resolve) => setTimeout(resolve, 1_000))]);
+		destroySockets();
+	};
 	const scheduleIdleShutdown = (): void => {
-		if (active > 0 || pending.length > 0 || idleTimer !== undefined) return;
+		if (admittedRequestCount > 0 || idleTimer !== undefined) return;
 		idleTimer = setTimeout(() => {
 			destroySockets();
 			void server.close();
 		}, COORDINATOR_IDLE_TIMEOUT_MS);
 	};
-	const handleCancellation = (id: string): void => {
+	const sendTerminal = (socket: Socket, response: ApplyResponse): void => {
+		send(socket, response);
+		scheduleIdleShutdown();
+	};
+	const handleCancellation = (id: string, socket?: Socket): void => {
 		const record = requests.get(id);
-		if (record === undefined || record.response !== undefined) return;
+		if (record === undefined) {
+			if (socket !== undefined)
+				sendTerminal(socket, {
+					id,
+					ok: false,
+					error: "Apply patch cancellation outcome is unknown; read affected paths",
+				});
+			return;
+		}
+		if (socket !== undefined) {
+			record.subscribers.add(socket);
+			if (record.response !== undefined) {
+				sendTerminal(socket, record.response);
+				return;
+			}
+		}
 		let removedPending = false;
 		for (let index = pending.length - 1; index >= 0; index -= 1)
 			if (pending[index]?.request.id === id) {
@@ -420,19 +467,27 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 		let data = "";
 		const processLine = (line: string): void => {
 			void (async (): Promise<void> => {
+				if (shuttingDown) {
+					sendTerminal(socket, {
+						id: "",
+						ok: false,
+						error: "Apply patch coordinator is shutting down",
+					});
+					return;
+				}
 				let value: unknown;
 				try {
 					value = JSON.parse(line);
 				} catch {
-					send(socket, { id: "", ok: false, error: "Invalid JSON request" });
+					sendTerminal(socket, { id: "", ok: false, error: "Invalid JSON request" });
 					return;
 				}
 				if (isCancelRequest(value)) {
-					handleCancellation(value.id);
+					handleCancellation(value.id, socket);
 					return;
 				}
 				if (!isApplyRequest(value) || value.workspaceRoot !== workspaceRoot) {
-					send(socket, {
+					sendTerminal(socket, {
 						id: isApplyRequest(value) ? value.id : "",
 						ok: false,
 						error: "Invalid apply patch request",
@@ -443,9 +498,9 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 				if (existing !== undefined) {
 					if (
 						existing.request.workspaceRoot !== value.workspaceRoot ||
-						existing.request.patch !== value.patch
+						existing.fingerprint !== requestFingerprint(value)
 					) {
-						send(socket, {
+						sendTerminal(socket, {
 							id: value.id,
 							ok: false,
 							error: "Apply patch request id was reused with different arguments",
@@ -455,12 +510,12 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 					existing.subscribers.add(socket);
 					if (existing.latestProgress !== undefined)
 						sendProgress(socket, existing.request.id, existing.latestProgress);
-					if (existing.response !== undefined) send(socket, existing.response);
+					if (existing.response !== undefined) sendTerminal(socket, existing.response);
 					return;
 				}
 				const expiredFingerprint = expiredRequests.get(value.id);
 				if (expiredFingerprint !== undefined) {
-					send(socket, {
+					sendTerminal(socket, {
 						id: value.id,
 						ok: false,
 						error:
@@ -470,15 +525,44 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 					});
 					return;
 				}
+				if (shuttingDown) {
+					sendTerminal(socket, {
+						id: value.id,
+						ok: false,
+						error: "Apply patch coordinator is shutting down",
+					});
+					return;
+				}
+				if (!hasCoordinatorCapacity(admittedRequestCount, policy.maxQueueDepth)) {
+					sendTerminal(socket, {
+						id: value.id,
+						ok: false,
+						error: "Apply patch coordinator queue is full",
+					});
+					return;
+				}
+				let terminal = false;
+				const requestId = value.id;
+				const fingerprint = requestFingerprint(value);
+				const terminalState = Promise.withResolvers<void>();
 				const record: RequestRecord = {
 					request: value,
+					fingerprint,
 					subscribers: new Set([socket]),
-					onTerminal: scheduleIdleShutdown,
+					terminal: terminalState.promise,
+					onTerminal: () => {
+						if (terminal) return;
+						terminal = true;
+						admittedRequestCount -= 1;
+						terminalState.resolve();
+						scheduleIdleShutdown();
+					},
 					onCompleted: () => {
-						requests.delete(value.id);
-						rememberExpiredRequest(expiredRequests, value.id, requestFingerprint(value));
+						requests.delete(requestId);
+						rememberExpiredRequest(expiredRequests, requestId, fingerprint);
 					},
 				};
+				admittedRequestCount += 1;
 				requests.set(value.id, record);
 				let parsed: V4aPatch;
 				let locks: readonly string[];
@@ -517,14 +601,6 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 					});
 					return;
 				}
-				if (pending.length >= policy.maxQueueDepth) {
-					sendRecordResponse(record, {
-						id: value.id,
-						ok: false,
-						error: "Apply patch coordinator queue is full",
-					});
-					return;
-				}
 				sendRecordProgress(
 					record,
 					progressSnapshot("queued", record.latestProgress?.operations ?? []),
@@ -552,7 +628,7 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 				const line = data.slice(0, newline);
 				data = data.slice(newline + 1);
 				if (Buffer.byteLength(line, "utf8") > MAX_COORDINATOR_FRAME_BYTES) {
-					send(socket, {
+					sendTerminal(socket, {
 						id: "",
 						ok: false,
 						error: `Apply patch request exceeds ${MAX_COORDINATOR_FRAME_BYTES} byte frame limit`,
@@ -563,7 +639,7 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 				processLine(line);
 			}
 			if (Buffer.byteLength(data, "utf8") > MAX_COORDINATOR_FRAME_BYTES) {
-				send(socket, {
+				sendTerminal(socket, {
 					id: "",
 					error: `Apply patch request exceeds ${MAX_COORDINATOR_FRAME_BYTES} byte frame limit`,
 					ok: false,
@@ -638,21 +714,42 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 	process.once("exit", () => {
 		void cleanup();
 	});
-	const shutdown = async (): Promise<void> => {
-		if (idleTimer !== undefined) clearTimeout(idleTimer);
-		destroySockets();
-		await new Promise<void>((resolve) => {
-			if (!server.listening) {
-				resolve();
-				return;
+	const shutdown = (): Promise<void> => {
+		shutdownPromise ??= (async (): Promise<void> => {
+			shuttingDown = true;
+			if (idleTimer !== undefined) clearTimeout(idleTimer);
+			const cancelled = new Set<string>();
+			while (admittedRequestCount > 0) {
+				const activeRecords = [...requests.values()].filter(
+					(record) => record.response === undefined,
+				);
+				for (const record of activeRecords)
+					if (!cancelled.has(record.request.id)) {
+						cancelled.add(record.request.id);
+						handleCancellation(record.request.id);
+					}
+				await Promise.all(activeRecords.map((record) => record.terminal));
 			}
-			server.close(() => resolve());
-		});
-		await cleanup();
-		process.exit(0);
+			await flushSockets();
+			await new Promise<void>((resolve) => {
+				if (!server.listening) {
+					resolve();
+					return;
+				}
+				server.close(() => resolve());
+			});
+			await cleanup();
+			process.off("SIGTERM", handleSignal);
+			process.off("SIGINT", handleSignal);
+			process.exit(0);
+		})();
+		return shutdownPromise;
 	};
-	process.once("SIGTERM", () => void shutdown());
-	process.once("SIGINT", () => void shutdown());
+	const handleSignal = (): void => {
+		void shutdown();
+	};
+	process.on("SIGTERM", handleSignal);
+	process.on("SIGINT", handleSignal);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

@@ -230,7 +230,7 @@ export function createEditSettingsProvider(
 						type: "enum",
 						defaultValue: DEFAULT_EDIT_MODE,
 						description:
-							"Choose native edit/write, strict apply_patch, or no editing tools; reload or start a new session after saving.",
+							"Choose native edit/write, Linux-only strict apply_patch, or no editing tools; reload or start a new session after saving.",
 						options: [
 							{ value: "native", label: "Native" },
 							{ value: "apply_patch", label: "Apply Patch" },

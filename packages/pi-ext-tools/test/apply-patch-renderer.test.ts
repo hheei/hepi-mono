@@ -144,7 +144,8 @@ describe("apply_patch progress renderer", () => {
 			.render(200)
 			.join("\n");
 		expect(collapsed).not.toContain("--- a/src/updated.ts");
-		expect(expanded).toContain("--- a/src/updated.ts");
+		expect(expanded).toContain("@@ -2,1 +2,1 @@");
+		expect(expanded).not.toContain("@@ -1,1 +1,1 @@");
 	});
 
 	test("shows expanded hunk diagnostics for a partially applied update", () => {

@@ -1,17 +1,23 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import type { Stats } from "node:fs";
+import { constants as fsConstants } from "node:fs";
+import type { FileHandle } from "node:fs/promises";
 import {
-	copyFile,
+	chmod,
 	mkdir,
 	mkdtemp,
+	open,
 	readFile,
+	realpath,
 	rename,
 	rm,
+	rmdir,
 	stat,
 	unlink,
 	writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, relative, sep } from "node:path";
 import { type MpatchRunResult, runMpatch } from "./mpatch.js";
 import type {
 	ApplyPatchAppliedOperation,
@@ -48,6 +54,7 @@ interface StageUpdateResult {
 	readonly mode: "exact" | "fuzzy" | undefined;
 	readonly outcomes: readonly Extract<MpatchHunkOutcome, { readonly kind: "applied" }>[];
 	readonly rejected: readonly Exclude<MpatchHunkOutcome, { readonly kind: "applied" }>[];
+	readonly snapshots: readonly ApplyPatchHunkSnapshot[];
 }
 
 class PatchUpdateError extends Error {
@@ -59,84 +66,62 @@ class PatchUpdateError extends Error {
 	}
 }
 
-interface PathState {
+interface WorkspacePath {
 	readonly relativePath: string;
 	readonly absolutePath: string;
-	readonly baselineHash: string | undefined;
+}
+
+interface FileIdentity {
+	readonly hash: string;
+	readonly mode: number;
+	readonly dev: number;
+	readonly ino: number;
+	readonly size: number;
+	readonly mtimeMs: number;
+	readonly ctimeMs: number;
+}
+
+interface PathState extends WorkspacePath {
+	readonly baseline: FileIdentity | undefined;
 	readonly currentHash: string | undefined;
+	readonly mode?: number;
 	readonly content?: Buffer;
 }
 
-interface CachedSource {
-	readonly mtimeMs: number;
-	readonly size: number;
-	readonly hash: string;
-	readonly content: Buffer;
+interface WorkspaceSnapshot {
+	readonly identity?: FileIdentity;
+	readonly content?: Buffer;
 }
-
-class SourceCache {
-	readonly entries = new Map<string, CachedSource>();
-	bytes = 0;
-
-	async snapshot(
-		path: string,
-		cacheMiB: number,
-		signal?: AbortSignal,
-	): Promise<{ readonly hash: string | undefined; readonly content?: Buffer }> {
-		try {
-			const info = await stat(path);
-			if (!info.isFile()) throw new Error(`Patch path is not a regular file: ${path}`);
-			const cached = this.entries.get(path);
-			if (cached !== undefined && cached.mtimeMs === info.mtimeMs && cached.size === info.size) {
-				this.entries.delete(path);
-				this.entries.set(path, cached);
-				return { hash: cached.hash, content: cached.content };
-			}
-			const content = await readFile(path, { signal });
-			const hash = createHash("sha256").update(content).digest("hex");
-			const source: CachedSource = { mtimeMs: info.mtimeMs, size: info.size, hash, content };
-			this.store(path, source, cacheMiB * 1024 * 1024);
-			return { hash, content };
-		} catch (error) {
-			if (isMissingPath(error)) return { hash: undefined };
-			throw error;
-		}
-	}
-
-	private store(path: string, source: CachedSource, limit: number): void {
-		const previous = this.entries.get(path);
-		if (previous !== undefined) {
-			this.entries.delete(path);
-			this.bytes -= previous.content.byteLength;
-		}
-		if (source.content.byteLength > limit) return;
-		while (this.bytes + source.content.byteLength > limit) {
-			const oldest = this.entries.entries().next().value;
-			if (oldest === undefined) break;
-			this.entries.delete(oldest[0]);
-			this.bytes -= oldest[1].content.byteLength;
-		}
-		this.entries.set(path, source);
-		this.bytes += source.content.byteLength;
-	}
-}
-
-const sourceCache = new SourceCache();
 
 function isMissingPath(error: unknown): boolean {
 	return error !== null && typeof error === "object" && "code" in error && error.code === "ENOENT";
 }
 
-async function regularFileHash(path: string, signal?: AbortSignal): Promise<string | undefined> {
-	try {
-		const info = await stat(path);
-		if (!info.isFile()) throw new Error(`Patch path is not a regular file: ${path}`);
-		const content = await readFile(path, { signal });
-		return createHash("sha256").update(content).digest("hex");
-	} catch (error) {
-		if (isMissingPath(error)) return undefined;
-		throw error;
-	}
+function fileIdentity(info: Stats, content: Buffer): FileIdentity {
+	return {
+		hash: createHash("sha256").update(content).digest("hex"),
+		mode: info.mode & 0o7777,
+		dev: info.dev,
+		ino: info.ino,
+		size: info.size,
+		mtimeMs: info.mtimeMs,
+		ctimeMs: info.ctimeMs,
+	};
+}
+
+function sameFileIdentity(
+	actual: FileIdentity | undefined,
+	expected: FileIdentity | undefined,
+): boolean {
+	return (
+		actual?.hash === expected?.hash &&
+		actual?.mode === expected?.mode &&
+		actual?.dev === expected?.dev &&
+		actual?.ino === expected?.ino &&
+		actual?.size === expected?.size &&
+		actual?.mtimeMs === expected?.mtimeMs &&
+		actual?.ctimeMs === expected?.ctimeMs
+	);
 }
 
 function stagingPath(stagingRoot: string, relativePath: string): string {
@@ -157,7 +142,8 @@ async function assertBaselines(
 		const revalidated = await validatePatchPath(workspaceRoot, state.relativePath);
 		if (revalidated.absolutePath !== state.absolutePath)
 			throw new Error(`Patch path changed before commit: ${state.relativePath}`);
-		if ((await regularFileHash(state.absolutePath, signal)) !== state.baselineHash)
+		const snapshot = await snapshotWorkspacePath(workspaceRoot, state, signal);
+		if (!sameFileIdentity(snapshot.identity, state.baseline))
 			throw new Error(`Patch baseline changed before commit: ${state.relativePath}`);
 	}
 }
@@ -176,14 +162,19 @@ async function stagedPathState(
 		const info = await stat(path);
 		if (!info.isFile()) throw new Error(`Patch path is not a regular file: ${state.relativePath}`);
 		const content = await readFile(path, { signal });
-		return { ...state, currentHash: hashContent(content), content };
+		return {
+			...state,
+			currentHash: hashContent(content),
+			content,
+		};
 	} catch (error) {
 		if (!isMissingPath(error)) throw error;
 		return {
 			relativePath: state.relativePath,
 			absolutePath: state.absolutePath,
-			baselineHash: state.baselineHash,
+			baseline: state.baseline,
 			currentHash: undefined,
+			...(state.mode === undefined ? {} : { mode: state.mode }),
 		};
 	}
 }
@@ -191,6 +182,8 @@ async function stagedPathState(
 interface MpatchAttempt {
 	readonly applied: boolean;
 	readonly result: MpatchRunResult;
+	readonly before: Buffer;
+	readonly after?: Buffer;
 }
 
 function rejectedOutcomes(
@@ -257,8 +250,12 @@ async function checkedMpatch(
 		dryRun: false,
 		...(signal === undefined ? {} : { signal }),
 	});
-	if (result.status !== 0) await writeFile(source, beforeApply, { signal });
-	return { applied: result.status === 0, result };
+	if (result.status !== 0) {
+		await writeFile(source, beforeApply, { signal });
+		return { applied: false, result, before: beforeApply };
+	}
+	const afterApply = await readFile(source, { signal });
+	return { applied: true, result, before: beforeApply, after: afterApply };
 }
 
 async function stageUpdate(
@@ -269,6 +266,28 @@ async function stageUpdate(
 ): Promise<StageUpdateResult> {
 	const outcomes: Extract<MpatchHunkOutcome, { readonly kind: "applied" }>[] = [];
 	const rejected: Exclude<MpatchHunkOutcome, { readonly kind: "applied" }>[] = [];
+	const snapshots: ApplyPatchHunkSnapshot[] = [];
+	const recordApplied = (
+		attempt: MpatchAttempt,
+		hunkIndex: number,
+		hunk: V4aUpdateOperation["hunks"][number],
+	): void => {
+		const applied = appliedOutcomes(attempt.result.outcomes);
+		outcomes.push(...applied.map((outcome) => reindexAppliedOutcome(outcome, hunkIndex)));
+		if (attempt.after !== undefined) {
+			for (const outcome of applied)
+				snapshots.push(
+					snapshotHunk(
+						operation.moveTo ?? operation.path,
+						hunkIndex,
+						outcome,
+						hunk,
+						attempt.before,
+						attempt.after,
+					),
+				);
+		}
+	};
 	let mode: "exact" | "fuzzy" | undefined;
 	for (const [index, hunk] of operation.hunks.entries()) {
 		const hunkIndex = index + 1;
@@ -279,22 +298,14 @@ async function stageUpdate(
 		};
 		const exact = await checkedMpatch(stagingRoot, atomicOperation, 0, signal);
 		if (exact.applied) {
-			outcomes.push(
-				...appliedOutcomes(exact.result.outcomes).map((outcome) =>
-					reindexAppliedOutcome(outcome, hunkIndex),
-				),
-			);
+			recordApplied(exact, hunkIndex, hunk);
 			mode ??= "exact";
 			continue;
 		}
 		if (policy.minSimilarity !== 0) {
 			const fuzzy = await checkedMpatch(stagingRoot, atomicOperation, policy.minSimilarity, signal);
 			if (fuzzy.applied) {
-				outcomes.push(
-					...appliedOutcomes(fuzzy.result.outcomes).map((outcome) =>
-						reindexAppliedOutcome(outcome, hunkIndex),
-					),
-				);
+				recordApplied(fuzzy, hunkIndex, hunk);
 				mode = "fuzzy";
 				continue;
 			}
@@ -311,7 +322,7 @@ async function stageUpdate(
 			),
 		);
 	}
-	return { mode, outcomes, rejected };
+	return { mode, outcomes, rejected, snapshots: Object.freeze(snapshots) };
 }
 
 async function stageOperation(
@@ -398,46 +409,29 @@ function splitTextLines(content: Buffer): readonly string[] {
 	return Object.freeze(lines);
 }
 
-function snapshotUpdateHunks(
-	operation: V4aUpdateOperation,
-	outcomes: readonly Extract<MpatchHunkOutcome, { readonly kind: "applied" }>[],
+function snapshotHunk(
+	path: string,
+	hunkIndex: number,
+	outcome: Extract<MpatchHunkOutcome, { readonly kind: "applied" }>,
+	hunk: V4aUpdateOperation["hunks"][number],
 	before: Buffer,
 	after: Buffer,
-): readonly ApplyPatchHunkSnapshot[] {
+): ApplyPatchHunkSnapshot {
 	const beforeLines = splitTextLines(before);
 	const afterLines = splitTextLines(after);
-	const snapshots: ApplyPatchHunkSnapshot[] = [];
-	for (const outcome of outcomes) {
-		const hunk = operation.hunks[outcome.hunkIndex - 1];
-		if (hunk === undefined) continue;
-		const afterLength = hunk.lines.filter((line) => line.kind !== "remove").length;
-		const priorLineDelta = outcomes
-			.filter((previous) => previous.hunkIndex < outcome.hunkIndex)
-			.reduce((delta, previous) => {
-				const prior = operation.hunks[previous.hunkIndex - 1];
-				if (prior === undefined) return delta;
-				return (
-					delta +
-					prior.lines.filter((line) => line.kind !== "remove").length -
-					prior.lines.filter((line) => line.kind !== "add").length
-				);
-			}, 0);
-		const start = Math.max(0, outcome.startLine - 1 - 3);
-		const afterStart = Math.max(0, outcome.startLine - 1 + priorLineDelta - 3);
-		const beforeEnd = Math.min(beforeLines.length, outcome.startLine - 1 + outcome.length + 3);
-		const afterEnd = Math.min(afterLines.length, afterStart + 3 + afterLength + 3);
-		snapshots.push(
-			Object.freeze({
-				path: operation.moveTo ?? operation.path,
-				hunkIndex: outcome.hunkIndex,
-				startLine: start + 1,
-				afterStartLine: afterStart + 1,
-				before: Object.freeze(beforeLines.slice(start, beforeEnd)),
-				after: Object.freeze(afterLines.slice(afterStart, afterEnd)),
-			}),
-		);
-	}
-	return Object.freeze(snapshots);
+	const beforeStart = Math.max(0, outcome.startLine - 1 - 3);
+	const afterStart = Math.max(0, outcome.startLine - 1 - 3);
+	const beforeEnd = Math.min(beforeLines.length, outcome.startLine - 1 + outcome.length + 3);
+	const afterLength = hunk.lines.filter((line) => line.kind !== "remove").length;
+	const afterEnd = Math.min(afterLines.length, afterStart + afterLength + 6);
+	return Object.freeze({
+		path,
+		hunkIndex,
+		startLine: beforeStart + 1,
+		afterStartLine: afterStart + 1,
+		before: Object.freeze(beforeLines.slice(beforeStart, beforeEnd)),
+		after: Object.freeze(afterLines.slice(afterStart, afterEnd)),
+	});
 }
 
 function operationOutcome(
@@ -453,7 +447,7 @@ function operationOutcome(
 		stageResult !== undefined &&
 		before !== undefined &&
 		after !== undefined
-			? snapshotUpdateHunks(operation, stageResult.outcomes, before, after)
+			? stageResult.snapshots
 			: before === undefined && after === undefined
 				? []
 				: [
@@ -477,45 +471,250 @@ function operationOutcome(
 
 interface CommitJournalEntry {
 	readonly state: PathState;
-	readonly before?: Buffer;
+	readonly before: WorkspaceSnapshot;
 }
 
 async function snapshotCommitJournal(
+	workspaceRoot: string,
 	states: readonly PathState[],
+	signal?: AbortSignal,
 ): Promise<readonly CommitJournalEntry[]> {
 	const journal: CommitJournalEntry[] = [];
-	for (const state of states) {
-		try {
-			const info = await stat(state.absolutePath);
-			if (!info.isFile())
-				throw new Error(`Patch path is not a regular file: ${state.relativePath}`);
-			journal.push({ state, before: await readFile(state.absolutePath) });
-		} catch (error) {
-			if (isMissingPath(error)) journal.push({ state });
-			else throw error;
-		}
-	}
+	for (const state of states)
+		journal.push({ state, before: await snapshotWorkspacePath(workspaceRoot, state, signal) });
 	return Object.freeze(journal);
 }
 
-async function restoreCommitJournal(journal: readonly CommitJournalEntry[]): Promise<void> {
+interface CommitParent {
+	readonly handle: FileHandle;
+	readonly path: string;
+}
+
+const COMMIT_DIRECTORY_FLAGS =
+	fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW;
+
+interface CreatedDirectory extends WorkspacePath {
+	readonly dev: number;
+	readonly ino: number;
+}
+
+async function openCommitParent(
+	workspaceRoot: string,
+	state: WorkspacePath,
+	createMissing: boolean,
+	createdDirectories?: CreatedDirectory[],
+): Promise<CommitParent | undefined> {
+	const root = await realpath(workspaceRoot);
+	if (process.platform !== "linux")
+		throw new Error("apply_patch commit requires Linux descriptor-relative workspace protection");
+	const parent = dirname(state.absolutePath);
+	const parentRelative = relative(root, parent);
+	if (parentRelative === ".." || parentRelative.startsWith(`..${sep}`))
+		throw new Error(`Patch parent escapes workspace root: ${state.relativePath}`);
+	let handle = await open(root, COMMIT_DIRECTORY_FLAGS);
+	let logicalParent = root;
+	try {
+		for (const segment of parentRelative.split(sep).filter(Boolean)) {
+			const child = join(`/proc/self/fd/${handle.fd}`, segment);
+			logicalParent = join(logicalParent, segment);
+			let next: FileHandle;
+			try {
+				next = await open(child, COMMIT_DIRECTORY_FLAGS);
+			} catch (error) {
+				if (!isMissingPath(error) || !createMissing) {
+					if (!createMissing && isMissingPath(error)) {
+						await handle.close();
+						return undefined;
+					}
+					throw error;
+				}
+				await mkdir(child);
+				try {
+					next = await open(child, COMMIT_DIRECTORY_FLAGS);
+				} catch (openError) {
+					try {
+						await rmdir(child);
+					} catch (cleanupError) {
+						throw new Error(
+							`workspace state indeterminate after creating patch parent ${relative(root, logicalParent).split(sep).join("/")}: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+							{ cause: openError },
+						);
+					}
+					throw openError;
+				}
+				const info = await next.stat();
+				createdDirectories?.push({
+					relativePath: relative(root, logicalParent).split(sep).join("/"),
+					absolutePath: logicalParent,
+					dev: info.dev,
+					ino: info.ino,
+				});
+			}
+			await handle.close();
+			handle = next;
+		}
+		return { handle, path: `/proc/self/fd/${handle.fd}` };
+	} catch (error) {
+		await handle.close().catch(() => undefined);
+		throw error;
+	}
+}
+
+async function assertSafeCommitPath(workspaceRoot: string, state: WorkspacePath): Promise<void> {
+	const validated = await validatePatchPath(workspaceRoot, state.relativePath);
+	if (validated.absolutePath !== state.absolutePath)
+		throw new Error(`Patch path changed before commit: ${state.relativePath}`);
+}
+
+const TARGET_READ_FLAGS = fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW;
+const TEMPORARY_WRITE_FLAGS =
+	fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW;
+
+async function snapshotFixedTarget(
+	parent: CommitParent,
+	state: WorkspacePath,
+	signal?: AbortSignal,
+): Promise<WorkspaceSnapshot> {
+	const target = join(parent.path, basename(state.absolutePath));
+	let handle: FileHandle;
+	try {
+		handle = await open(target, TARGET_READ_FLAGS);
+	} catch (error) {
+		if (isMissingPath(error)) return {};
+		throw error;
+	}
+	try {
+		const before = await handle.stat();
+		if (!before.isFile())
+			throw new Error(`Patch path is not a regular file: ${state.relativePath}`);
+		const content = await handle.readFile({ signal });
+		const after = await handle.stat();
+		const beforeIdentity = fileIdentity(before, content);
+		const afterIdentity = fileIdentity(after, content);
+		if (!sameFileIdentity(beforeIdentity, afterIdentity))
+			throw new Error(`Patch path changed while reading: ${state.relativePath}`);
+		return { identity: afterIdentity, content };
+	} finally {
+		await handle.close();
+	}
+}
+
+async function snapshotWorkspacePath(
+	workspaceRoot: string,
+	state: WorkspacePath,
+	signal?: AbortSignal,
+): Promise<WorkspaceSnapshot> {
+	await assertSafeCommitPath(workspaceRoot, state);
+	const parent = await openCommitParent(workspaceRoot, state, false);
+	if (parent === undefined) return {};
+	try {
+		return await snapshotFixedTarget(parent, state, signal);
+	} finally {
+		await parent.handle.close();
+	}
+}
+
+async function writeExclusiveTemporary(
+	parent: CommitParent,
+	prefix: string,
+	content: Buffer,
+	mode: number,
+): Promise<{ readonly path: string; readonly handle: FileHandle; readonly content: Buffer }> {
+	const path = join(parent.path, `.${prefix}-${process.pid}-${randomUUID()}`);
+	let handle: FileHandle | undefined;
+	try {
+		handle = await open(path, TEMPORARY_WRITE_FLAGS, mode);
+		await handle.writeFile(content);
+		await handle.chmod(mode);
+		return { path, handle, content };
+	} catch (error) {
+		if (handle !== undefined) {
+			await handle.close().catch(() => undefined);
+			await unlink(path).catch(() => undefined);
+		}
+		throw error;
+	}
+}
+
+async function removeCreatedDirectories(
+	workspaceRoot: string,
+	createdDirectories: readonly CreatedDirectory[],
+): Promise<readonly string[]> {
+	const failures: string[] = [];
+	for (const directory of [...createdDirectories].reverse()) {
+		try {
+			const parent = await openCommitParent(workspaceRoot, directory, false);
+			if (parent === undefined) continue;
+			try {
+				const target = join(parent.path, basename(directory.absolutePath));
+				let handle: FileHandle;
+				try {
+					handle = await open(target, COMMIT_DIRECTORY_FLAGS);
+				} catch (error) {
+					if (isMissingPath(error)) continue;
+					throw error;
+				}
+				try {
+					const info = await handle.stat();
+					if (info.dev !== directory.dev || info.ino !== directory.ino)
+						throw new Error(`created directory changed externally: ${directory.relativePath}`);
+				} finally {
+					await handle.close();
+				}
+				await rmdir(target);
+			} finally {
+				await parent.handle.close();
+			}
+		} catch (error) {
+			failures.push(
+				`${directory.relativePath}: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+	}
+	return Object.freeze(failures);
+}
+
+async function restoreCommitJournal(
+	workspaceRoot: string,
+	journal: readonly CommitJournalEntry[],
+	expected: ReadonlyMap<string, FileIdentity | undefined>,
+	createdDirectories: readonly CreatedDirectory[],
+): Promise<void> {
 	const failures: string[] = [];
 	for (const entry of [...journal].reverse()) {
 		try {
-			if (entry.before === undefined) {
-				await rm(entry.state.absolutePath, { force: true });
-				continue;
-			}
-			await ensureParent(entry.state.absolutePath);
-			const temporary = join(
-				dirname(entry.state.absolutePath),
-				`.hepi-apply-patch-rollback-${process.pid}-${Date.now()}-${Math.random()}`,
+			const parent = await openCommitParent(
+				workspaceRoot,
+				entry.state,
+				entry.before.content !== undefined,
 			);
-			await writeFile(temporary, entry.before);
+			if (parent === undefined) continue;
 			try {
-				await rename(temporary, entry.state.absolutePath);
+				const actual = await snapshotFixedTarget(parent, entry.state);
+				if (!sameFileIdentity(actual.identity, expected.get(entry.state.relativePath)))
+					throw new Error(`rollback target changed externally: ${entry.state.relativePath}`);
+				if (sameFileIdentity(actual.identity, entry.before.identity)) continue;
+				const target = join(parent.path, basename(entry.state.absolutePath));
+				if (entry.before.content === undefined) {
+					await unlink(target).catch((error: unknown) => {
+						if (!isMissingPath(error)) throw error;
+					});
+					continue;
+				}
+				const temporary = await writeExclusiveTemporary(
+					parent,
+					"hepi-apply-patch-rollback",
+					entry.before.content,
+					entry.before.identity?.mode ?? 0o644,
+				);
+				try {
+					await rename(temporary.path, target);
+				} finally {
+					await temporary.handle.close().catch(() => undefined);
+					await unlink(temporary.path).catch(() => undefined);
+				}
 			} finally {
-				await rm(temporary, { force: true });
+				await parent.handle.close();
 			}
 		} catch (error) {
 			failures.push(
@@ -523,37 +722,73 @@ async function restoreCommitJournal(journal: readonly CommitJournalEntry[]): Pro
 			);
 		}
 	}
+	failures.push(...(await removeCreatedDirectories(workspaceRoot, createdDirectories)));
 	if (failures.length > 0)
 		throw new Error(`rollback failed for ${failures.length} path(s): ${failures.join("; ")}`);
 }
 
 async function commitPath(
+	workspaceRoot: string,
 	stagingRoot: string,
 	state: PathState,
+	expected: FileIdentity | undefined,
+	createdDirectories: CreatedDirectory[],
 	signal?: AbortSignal,
-): Promise<void> {
+): Promise<FileIdentity | undefined> {
 	signal?.throwIfAborted();
 	const source = stagingPath(stagingRoot, state.relativePath);
+	let sourceInfo: Stats;
 	try {
-		await stat(source);
+		sourceInfo = await stat(source);
 	} catch (error) {
-		if (isMissingPath(error)) {
-			await rm(state.absolutePath, { force: true });
-			return;
+		if (!isMissingPath(error)) throw error;
+		const parent = await openCommitParent(workspaceRoot, state, false);
+		if (parent === undefined) {
+			if (expected !== undefined)
+				throw new Error(`Patch baseline changed during commit: ${state.relativePath}`);
+			return undefined;
 		}
-		throw error;
+		try {
+			const actual = await snapshotFixedTarget(parent, state, signal);
+			if (!sameFileIdentity(actual.identity, expected))
+				throw new Error(`Patch baseline changed during commit: ${state.relativePath}`);
+			await unlink(join(parent.path, basename(state.absolutePath))).catch((error: unknown) => {
+				if (!isMissingPath(error)) throw error;
+			});
+		} finally {
+			await parent.handle.close();
+		}
+		return undefined;
 	}
-	await ensureParent(state.absolutePath);
-	const temporary = join(
-		dirname(state.absolutePath),
-		`.hepi-apply-patch-${process.pid}-${Date.now()}-${Math.random()}`,
-	);
-	await copyFile(source, temporary);
+	if (!sourceInfo.isFile())
+		throw new Error(`Patch staging path is not a regular file: ${state.relativePath}`);
+	const sourceContent = await readFile(source, { signal });
+	const parent = await openCommitParent(workspaceRoot, state, true, createdDirectories);
+	if (parent === undefined) throw new Error(`Patch parent is unavailable: ${state.relativePath}`);
 	try {
-		await rename(temporary, state.absolutePath);
-	} catch (error) {
-		await rm(temporary, { force: true });
-		throw error;
+		const actual = await snapshotFixedTarget(parent, state, signal);
+		if (!sameFileIdentity(actual.identity, expected))
+			throw new Error(`Patch baseline changed during commit: ${state.relativePath}`);
+		const target = join(parent.path, basename(state.absolutePath));
+		const temporary = await writeExclusiveTemporary(
+			parent,
+			"hepi-apply-patch",
+			sourceContent,
+			state.mode ?? sourceInfo.mode & 0o7777,
+		);
+		try {
+			await assertSafeCommitPath(workspaceRoot, state);
+			const beforeRename = await snapshotFixedTarget(parent, state, signal);
+			if (!sameFileIdentity(beforeRename.identity, expected))
+				throw new Error(`Patch baseline changed during commit: ${state.relativePath}`);
+			await rename(temporary.path, target);
+			return fileIdentity(await temporary.handle.stat(), temporary.content);
+		} finally {
+			await temporary.handle.close().catch(() => undefined);
+			await unlink(temporary.path).catch(() => undefined);
+		}
+	} finally {
+		await parent.handle.close();
 	}
 }
 
@@ -583,6 +818,10 @@ export async function applyPatchInWorkspace(
 	options: ApplyPatchInWorkspaceOptions,
 ): Promise<ApplyPatchInWorkspaceResult> {
 	options.signal?.throwIfAborted();
+	if (process.platform !== "linux")
+		throw new Error(
+			"apply_patch requires Linux descriptor-relative workspace protection; select Edit Mode: native and reload",
+		);
 	const patch = options.parsedPatch ?? parseV4aPatch(options.patch);
 	const initial = initialRejections(patch);
 	const rejected = initial.rejected;
@@ -676,17 +915,17 @@ export async function applyPatchInWorkspace(
 			for (const relativePath of operationTouchedPaths(operation)) {
 				if (states.has(relativePath)) continue;
 				const validated = await validatePatchPath(options.workspaceRoot, relativePath);
-				const snapshot = await sourceCache.snapshot(
-					validated.absolutePath,
-					options.policy.cacheMiB,
-					options.signal,
-				);
-				states.set(relativePath, {
+				const path: WorkspacePath = {
 					relativePath,
 					absolutePath: validated.absolutePath,
-					baselineHash: snapshot.hash,
-					currentHash: snapshot.hash,
+				};
+				const snapshot = await snapshotWorkspacePath(options.workspaceRoot, path, options.signal);
+				states.set(relativePath, {
+					...path,
+					baseline: snapshot.identity,
+					currentHash: snapshot.identity?.hash,
 					...(snapshot.content === undefined ? {} : { content: snapshot.content }),
+					...(snapshot.identity === undefined ? {} : { mode: snapshot.identity.mode }),
 				});
 			}
 		} catch (error) {
@@ -732,6 +971,7 @@ export async function applyPatchInWorkspace(
 					const staged = stagingPath(stagingRoot, path);
 					await ensureParent(staged);
 					await writeFile(staged, state.content, { signal: options.signal });
+					if (state.mode !== undefined) await chmod(staged, state.mode);
 				}
 				const stageResult = await stageOperation(
 					stagingRoot,
@@ -811,9 +1051,17 @@ export async function applyPatchInWorkspace(
 				if (state === undefined) throw new Error(`Missing validated patch path: ${path}`);
 				commitStates.set(path, state);
 			}
-		const journal = await snapshotCommitJournal([...commitStates.values()]);
+		const commitExpected = new Map<string, FileIdentity | undefined>();
+		for (const state of commitStates.values())
+			commitExpected.set(state.relativePath, state.baseline);
+		const journal = await snapshotCommitJournal(
+			options.workspaceRoot,
+			[...commitStates.values()],
+			options.signal,
+		);
 		await assertBaselines(options.workspaceRoot, commitStates, options.signal);
 		const committed: ApplyPatchAppliedOperation[] = [];
+		const createdDirectories: CreatedDirectory[] = [];
 		try {
 			for (const {
 				index,
@@ -826,7 +1074,17 @@ export async function applyPatchInWorkspace(
 				for (const path of operationTouchedPaths(operation)) {
 					const state = states.get(path);
 					if (state === undefined) throw new Error(`Missing patch path: ${path}`);
-					await commitPath(stagingRoot, state, options.signal);
+					const committedIdentity = await commitPath(
+						options.workspaceRoot,
+						stagingRoot,
+						state,
+						state.baseline,
+						createdDirectories,
+						options.signal,
+					);
+					states.set(path, { ...state, baseline: committedIdentity });
+					commitExpected.set(path, committedIdentity);
+					options.signal?.throwIfAborted();
 				}
 				committed.push(outcome);
 				const current = progressOperations[index];
@@ -876,7 +1134,12 @@ export async function applyPatchInWorkspace(
 					});
 			}
 			try {
-				await restoreCommitJournal(journal);
+				await restoreCommitJournal(
+					options.workspaceRoot,
+					journal,
+					commitExpected,
+					createdDirectories,
+				);
 				emitProgress("rolled_back");
 			} catch (rollbackError) {
 				throw new Error(

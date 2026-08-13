@@ -1,9 +1,16 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { progressFrame, responseFrame } from "../src/apply-patch/coordinator-server.js";
+import { fileURLToPath } from "node:url";
+import {
+	hasCoordinatorCapacity,
+	progressFrame,
+	responseFrame,
+} from "../src/apply-patch/coordinator-server.js";
 import {
 	applyPatchThroughCoordinator,
 	coordinatorSocketPath,
@@ -18,10 +25,84 @@ async function temporaryDirectory(): Promise<string> {
 	return path;
 }
 
+async function waitForSocket(path: string): Promise<void> {
+	const deadline = Date.now() + 10_000;
+	while (!existsSync(path)) {
+		if (Date.now() >= deadline)
+			throw new Error(`Timed out waiting for coordinator socket: ${path}`);
+		await Bun.sleep(20);
+	}
+}
+
+async function waitForChildExit(child: ReturnType<typeof spawn>): Promise<number | null> {
+	if (child.exitCode !== null) return child.exitCode;
+	return await new Promise<number | null>((resolve, reject) => {
+		child.once("error", reject);
+		child.once("exit", (code) => resolve(code));
+	});
+}
+
 afterEach(async (): Promise<void> => {
 	await Promise.all(
 		temporaryPaths.splice(0).map((path) => rm(path, { recursive: true, force: true })),
 	);
+});
+
+test("admits parsing, pending, and running work within one queue budget", (): void => {
+	expect(hasCoordinatorCapacity(0, 2)).toBe(true);
+	expect(hasCoordinatorCapacity(1, 2)).toBe(true);
+	expect(hasCoordinatorCapacity(2, 2)).toBe(false);
+});
+
+test("bounds concurrent parsing before queueing work", async (): Promise<void> => {
+	const root = await temporaryDirectory();
+	await warmApplyPatchCoordinator(root);
+	const socket = connect(coordinatorSocketPath(root));
+	socket.setEncoding("utf8");
+	const response = await new Promise<{
+		readonly id: string;
+		readonly ok: boolean;
+		readonly error?: string;
+	}>((resolve, reject) => {
+		let buffer = "";
+		socket.once("error", reject);
+		socket.on("data", (chunk: string) => {
+			buffer += chunk;
+			while (true) {
+				const newline = buffer.indexOf("\n");
+				if (newline < 0) return;
+				const line = buffer.slice(0, newline);
+				buffer = buffer.slice(newline + 1);
+				const message = JSON.parse(line) as {
+					readonly id: string;
+					readonly type?: string;
+					readonly ok: boolean;
+					readonly error?: string;
+				};
+				if (message.type === "progress" || message.id !== "parsing-32") continue;
+				socket.end();
+				resolve(message);
+				return;
+			}
+		});
+		socket.once("connect", () => {
+			const request = (id: string): string =>
+				`${JSON.stringify({
+					type: "apply",
+					id,
+					workspaceRoot: root,
+					patch: "*** Begin Patch\n*** Add File: preview.txt\n+preview\n",
+				})}\n`;
+			socket.write(Array.from({ length: 33 }, (_, index) => request(`parsing-${index}`)).join(""));
+		});
+	});
+
+	expect(response).toEqual({
+		id: "parsing-32",
+		ok: false,
+		error: "Apply patch coordinator queue is full",
+	});
+	await expect(readFile(join(root, "preview.txt"), "utf8")).rejects.toThrow();
 });
 
 test("prewarms a workspace coordinator before its first patch", async (): Promise<void> => {
@@ -55,10 +136,13 @@ test("starts one local coordinator and applies its V4A request", async (): Promi
 
 test("uses a revisioned coordinator socket path", (): void => {
 	const current = coordinatorSocketPath("/tmp/workspace");
-	const legacy =
-		"/tmp/hepi-apply-patch-cb5c3728e3b6d299d65e35f0368094c892a5b2bd191f4351c8d1266181d05a69.sock";
+	const revision2 =
+		"/tmp/hepi-apply-patch-89b427c905a5ab408be624b6911f0a31b171ed8e675fac137b447a4edd1ab422.sock";
+	const revision3 =
+		"/tmp/hepi-apply-patch-984b6201068741878bb3cea406f8384217d978684ee7787710307874256079a1.sock";
 	expect(current).toMatch(/hepi-apply-patch-[a-f0-9]{64}\.sock$/);
-	expect(current).not.toBe(legacy);
+	expect(current).not.toBe(revision2);
+	expect(current).not.toBe(revision3);
 });
 
 test("deduplicates the same request id while the first request is parsing", async (): Promise<void> => {
@@ -112,6 +196,7 @@ test("compacts successful responses when snapshots exceed the response budget", 
 	const decoded = JSON.parse(frame) as typeof response;
 
 	expect(decoded.ok).toBe(true);
+	if (!decoded.ok) throw new Error(decoded.error);
 	expect(decoded.result.applied[0]?.snapshots).toEqual([]);
 });
 
@@ -161,8 +246,89 @@ test("cancels a request while parsing before it enters the queue", async (): Pro
 		},
 	});
 
-	await expect(request).rejects.toThrow("cancelled during parsing");
+	await expect(request).rejects.toThrow("Apply patch cancelled by client during parsing");
 	await expect(readFile(join(root, "parsed-0.txt"), "utf8")).rejects.toThrow();
+});
+
+test("drains active rollback before exiting on SIGTERM", async (): Promise<void> => {
+	const root = await temporaryDirectory();
+	const extension = import.meta.url.endsWith(".ts") ? "ts" : "js";
+	const modulePath = fileURLToPath(
+		new URL(`../src/apply-patch/coordinator-server.${extension}`, import.meta.url),
+	);
+	const child = spawn(process.execPath, [modulePath, root], {
+		stdio: ["ignore", "ignore", "pipe"],
+	});
+	let stderr = "";
+	child.stderr?.setEncoding("utf8");
+	child.stderr?.on("data", (chunk: string) => {
+		stderr += chunk;
+	});
+	try {
+		const socketPath = coordinatorSocketPath(root);
+		await waitForSocket(socketPath);
+		const socket = connect(socketPath);
+		socket.setEncoding("utf8");
+		const terminal = await new Promise<{ readonly ok: boolean; readonly error?: string }>(
+			(resolve, reject) => {
+				let buffer = "";
+				let terminated = false;
+				socket.once("error", reject);
+				socket.on("data", (chunk: string) => {
+					buffer += chunk;
+					while (true) {
+						const newline = buffer.indexOf("\n");
+						if (newline < 0) return;
+						const line = buffer.slice(0, newline);
+						buffer = buffer.slice(newline + 1);
+						const message = JSON.parse(line) as {
+							readonly type?: string;
+							readonly ok?: boolean;
+							readonly error?: string;
+							readonly progress?: { readonly stage?: string };
+						};
+						if (message.type === "progress") {
+							if (!terminated && message.progress?.stage === "committed") {
+								terminated = true;
+								child.kill("SIGTERM");
+								child.kill("SIGTERM");
+							}
+							continue;
+						}
+						if (message.ok !== undefined) {
+							resolve({
+								ok: message.ok,
+								...(message.error === undefined ? {} : { error: message.error }),
+							});
+							return;
+						}
+					}
+				});
+				socket.once("connect", () => {
+					socket.write(
+						`${JSON.stringify({
+							type: "apply",
+							id: "sigterm-rollback",
+							workspaceRoot: root,
+							patch:
+								"*** Begin Patch\n" +
+								"*** Add File: nested/first.txt\n+first\n" +
+								"*** Add File: nested/second.txt\n+second\n" +
+								"*** End Patch",
+						})}\n`,
+					);
+				});
+			},
+		);
+		expect(terminal.ok).toBe(false);
+		expect(terminal.error).toContain("cancelled");
+		expect(await waitForChildExit(child)).toBe(0);
+		await expect(stat(join(root, "nested"))).rejects.toThrow();
+	} finally {
+		if (child.exitCode === null) child.kill("SIGKILL");
+		await waitForChildExit(child).catch(() => undefined);
+		if (stderr.length > 0) process.stderr.write(stderr);
+	}
 });
 
 test("accepts multiple individually valid near-limit frames in one write", async (): Promise<void> => {
@@ -214,7 +380,7 @@ test("accepts multiple individually valid near-limit frames in one write", async
 		});
 	});
 
-	expect(received.sort()).toEqual(["near-limit-first", "near-limit-second"]);
+	expect([...received].sort()).toEqual(["near-limit-first", "near-limit-second"]);
 	expect((await readFile(join(root, "first.txt"), "utf8")).length).toBe(500_001);
 	expect((await readFile(join(root, "second.txt"), "utf8")).length).toBe(500_001);
 });
@@ -290,7 +456,14 @@ test("returns a cached outcome when the request id is retried", async (): Promis
 	const first = await applyPatchThroughCoordinator(options);
 	const second = await applyPatchThroughCoordinator(options);
 
-	expect(second).toEqual(first);
+	expect(second).toMatchObject({
+		changedPaths: first.changedPaths,
+		addedLines: first.addedLines,
+		removedLines: first.removedLines,
+		operations: first.operations,
+		operationCount: first.operationCount,
+	});
+	expect(second.applied[0]?.snapshots).toEqual([]);
 	expect(await readFile(join(root, "created.txt"), "utf8")).toBe("created\n");
 });
 

@@ -65,7 +65,7 @@ tool 返回 exit code 与受限 stderr tail，便于区分 native bridge、polic
 空闲后自行退出；session reload、切换与 shutdown 不持有或复用旧 session 的资源。
 
 fuzzy policy 只读取 `pi-ext-tools.applyPatch` settings。默认值为 `minSimilarity: 0.7`、
-`maxConcurrentWorkers: 2`、`maxQueueDepth: 32`、`cacheMiB: 64`。`minSimilarity: 0` 关闭 fuzzy，
+`maxConcurrentWorkers: 2`、`maxQueueDepth: 32`。`minSimilarity: 0` 关闭 fuzzy，
 只允许 exact apply；`1` 只接受 score 为 `1` 的 fuzzy candidate。user-global settings 可配置完整
 policy；project settings 只能收紧 policy：设为 `0` 关闭 fuzzy、提高 minSimilarity、降低 resource
 limit，不能放宽写入匹配条件。
