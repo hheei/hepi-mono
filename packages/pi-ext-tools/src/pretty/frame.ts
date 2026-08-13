@@ -25,6 +25,7 @@ type FrameHeader = {
 
 type ToolPresentation<TParams extends TSchema, TDetails> = {
 	readonly summary?: ToolFrameHeader<TParams, TDetails>;
+	readonly summarySeparator?: "dot" | "space";
 	readonly footer?: (
 		result: AgentToolResult<TDetails>,
 		completion: ToolCompletion | undefined,
@@ -100,6 +101,7 @@ function headerFor(
 	context: { readonly isError: boolean; readonly isPartial: boolean },
 	warning = false,
 	summaryOverride?: string,
+	summarySeparator: "dot" | "space" = "dot",
 	collapsed = false,
 ): FrameHeader {
 	const status = statusPrefix(
@@ -109,7 +111,7 @@ function headerFor(
 	const values = argsRecord(args);
 	if (summaryOverride !== undefined)
 		return {
-			primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${theme.fg("dim", "·")} ${theme.fg("dim", summaryOverride)}`,
+			primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))}${summarySeparator === "dot" ? ` ${theme.fg("dim", "·")}` : ""} ${theme.fg("dim", summaryOverride)}`,
 		};
 	const pattern = textValue(values.pattern);
 	const path = textValue(values.path);
@@ -246,7 +248,7 @@ class ToolFrameSection implements Component {
 						truncateToWidth(
 							`${this.header.primary}${this.header.suffix ?? ""}`,
 							availableWidth,
-							"…",
+							this.theme.fg("dim", "…"),
 						),
 					];
 		lines.push(...(this.body?.render(availableWidth) ?? []));
@@ -259,7 +261,7 @@ class ToolFrameSection implements Component {
 }
 
 function collapsedHeader(header: FrameHeader, width: number, theme: Theme): string {
-	const truncation = theme.fg("dim", ">");
+	const truncation = theme.fg("dim", "…");
 	if (header.suffix === undefined) return truncateToWidth(header.primary, width, truncation);
 	const suffixWidth = visibleWidth(header.suffix);
 	if (suffixWidth >= width) return truncateToWidth(header.suffix, width, truncation);
@@ -355,6 +357,7 @@ export function createToolTui(): ToolTui {
 						context,
 						trace.completionFor(context.toolCallId)?.warning,
 						presentation.summary?.(args, latest),
+						presentation.summarySeparator,
 						collapsed,
 					);
 					if (collapsed) return new ToolFrameSection(undefined, theme, header, true);

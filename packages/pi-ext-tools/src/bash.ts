@@ -34,7 +34,7 @@ const BASH_PROMPT_GUIDELINES = [
 ] as const;
 const BASH_TIMEOUT_DESCRIPTION = "Timeout in seconds (optional, no default timeout)";
 const EXPAND_HINT = "ctrl+o to expand";
-const MAX_STREAMING_PREVIEW_LINES = 12;
+const MAX_BODY_LINES = 12;
 const Timeout = Type.Optional(Type.Number({ description: BASH_TIMEOUT_DESCRIPTION }));
 const DefaultInput = Type.Object(
 	{ command: Type.String(), timeout: Timeout },
@@ -114,18 +114,19 @@ class BashOutputBody implements Component {
 	render(width: number): string[] {
 		if (!this.hasOutput) return [];
 		const output = this.body.render(width).map((line) => stripTerminalSequences(line));
-		const preview = this.complete ? output : compactStreamingOutput(output);
+		const preview = compactBodyOutput(output);
 		if (!this.complete && preview.at(-1)?.trim().length === 0) preview.pop();
 		if (this.complete && preview[0]?.trim().length === 0) preview.shift();
-		const hintIndex = preview.findIndex((line) => /^\.\.\. \(\d+ earlier lines,/.test(line));
+		const isEarlierLinesHint = (line: string): boolean =>
+			/^(?:\.\.\.|…) \(\d+ earlier lines,/.test(line);
+		const hintIndex = preview.findIndex(isEarlierLinesHint);
 		if (hintIndex !== -1) {
 			if (preview[hintIndex - 1] === "") preview.splice(hintIndex - 1, 1);
-			const adjustedHintIndex = preview.findIndex((line) =>
-				/^\.\.\. \(\d+ earlier lines,/.test(line),
-			);
+			const adjustedHintIndex = preview.findIndex(isEarlierLinesHint);
 			if (preview[adjustedHintIndex + 1] === "") preview.splice(adjustedHintIndex + 1, 1);
 			const hint = preview[adjustedHintIndex];
-			if (hint !== undefined) preview[adjustedHintIndex] = this.theme.fg("dim", hint);
+			if (hint !== undefined)
+				preview[adjustedHintIndex] = this.theme.fg("dim", hint.replace(/^\.\.\./, "…"));
 		}
 		return preview.map((line) => this.theme.fg("text", line));
 	}
@@ -135,10 +136,10 @@ class BashOutputBody implements Component {
 	}
 }
 
-function compactStreamingOutput(lines: readonly string[]): string[] {
-	if (lines.length <= MAX_STREAMING_PREVIEW_LINES) return [...lines];
-	const visible = lines.slice(-(MAX_STREAMING_PREVIEW_LINES - 1));
-	return [`... (${lines.length - visible.length} earlier lines, ${EXPAND_HINT})`, ...visible];
+function compactBodyOutput(lines: readonly string[]): string[] {
+	if (lines.length <= MAX_BODY_LINES) return [...lines];
+	const visible = lines.slice(-(MAX_BODY_LINES - 1));
+	return [`… (${lines.length - visible.length} earlier lines, ${EXPAND_HINT})`, ...visible];
 }
 
 function result(text: string, details: Record<string, unknown> = {}): BashToolResult {

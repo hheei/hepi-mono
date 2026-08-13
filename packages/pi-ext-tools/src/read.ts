@@ -15,6 +15,7 @@ const PREVIEW_HEAD_LINES = 3;
 const PREVIEW_TAIL_LINES = 2;
 const READ_METRICS_KEY = "__piExtToolsRead";
 const EXPAND_HINT = "ctrl+o to expand";
+const TRUNCATION_MARKER = "…";
 const READ_CONTINUATION =
 	/\n\n\[(?:\d+ more lines in file|Showing lines \d+-\d+ of \d+(?: \([^\]]+\))?)\. Use offset=\d+ to continue\.\]$/;
 
@@ -135,16 +136,17 @@ class ReadPreviewComponent implements Component {
 		const lineNumberWidth = String(lastLine).length;
 		const preview = this.lines.map((line) => {
 			if (line.type === "omission")
-				return this.theme.fg("dim", `... (${line.hiddenLines} hidden lines, ${EXPAND_HINT})`);
+				return truncateToWidth(
+					this.theme.fg("dim", `… (${line.hiddenLines} hidden lines, ${EXPAND_HINT})`),
+					availableWidth,
+					this.theme.fg("dim", TRUNCATION_MARKER),
+				);
 			const prefix = `${String(this.startLine + line.sourceIndex).padStart(lineNumberWidth)}│`;
-			const contentWidth = Math.max(0, availableWidth - visibleWidth(prefix));
-			const truncated = visibleWidth(line.text) > contentWidth;
-			const content = truncateToWidth(
-				line.text,
-				Math.max(0, contentWidth - (truncated ? 1 : 0)),
-				"",
-			);
-			return `${this.theme.fg("dim", prefix)}${content}${truncated ? this.theme.fg("dim", ">") : ""}`;
+			const renderedPrefix = this.theme.fg("dim", prefix);
+			const row = `${renderedPrefix}${line.text}`;
+			if (visibleWidth(row) <= availableWidth) return row;
+			const marker = this.theme.fg("dim", TRUNCATION_MARKER);
+			return truncateToWidth(row, availableWidth, marker);
 		});
 		return preview;
 	}

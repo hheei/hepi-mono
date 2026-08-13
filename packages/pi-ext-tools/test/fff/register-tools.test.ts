@@ -249,7 +249,7 @@ describe("FFF tool registration", () => {
 		if (content?.type !== "text") throw new Error("Expected grep text result");
 		const [summary, path, match] = content.text.split("\n");
 		expect(summary).toBe("1 fuzzy matches in 1 files");
-		expect(path?.startsWith(".../")).toBe(true);
+		expect(path?.startsWith("…/")).toBe(true);
 		expect(Array.from(path ?? "").length).toBeLessThanOrEqual(80);
 		expect(match).toBe("4:near needle");
 	});

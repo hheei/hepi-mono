@@ -1222,6 +1222,7 @@ export async function applyPatchInWorkspace(
 					outcome,
 				);
 				emitProgress("committed");
+				await new Promise<void>((resolve) => setImmediate(resolve));
 			}
 		} catch (error) {
 			for (const operation of progressOperations) {

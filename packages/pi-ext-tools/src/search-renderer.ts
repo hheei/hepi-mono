@@ -18,6 +18,7 @@ export type FindToolDetails = {
 type RenderContext = { readonly isError: boolean; readonly lastComponent: Component | undefined };
 const MAX_COLLAPSED_GREP_RESULT_PREVIEW_LINES = 12;
 const EXPAND_HINT = "ctrl+o to expand";
+const TRUNCATION_MARKER = "…";
 const FIND_CURSOR = /^cursor:\s+/;
 
 function resultText(result: AgentToolResult<unknown>): string {
@@ -54,7 +55,10 @@ function withTruncationMarkers(
 	truncatedRight: boolean,
 	theme: Theme,
 ): string {
-	return `${truncatedLeft ? theme.fg("dim", "<") : ""}${text}${truncatedRight ? theme.fg("dim", ">") : ""}`;
+	return theme.fg(
+		"dim",
+		`${truncatedLeft ? TRUNCATION_MARKER : ""}${text}${truncatedRight ? TRUNCATION_MARKER : ""}`,
+	);
 }
 
 function renderMatch(
@@ -80,29 +84,34 @@ function renderMatch(
 	if (ranges.length === 0)
 		return `${theme.fg("dim", prefix)}${withTruncationMarkers(line.text, line.truncatedLeft, line.truncatedRight, theme)}`;
 	const highlighted: string[] = [];
+	if (line.truncatedLeft) highlighted.push(theme.fg("dim", TRUNCATION_MARKER));
 	let offset = 0;
 	for (const range of ranges.sort((left, right) => left.start - right.start)) {
 		if (range.start < offset) continue;
-		highlighted.push(line.text.slice(offset, range.start));
+		if (range.start > offset)
+			highlighted.push(theme.fg("dim", line.text.slice(offset, range.start)));
 		highlighted.push(theme.fg("success", line.text.slice(range.start, range.end)));
 		offset = range.end;
 	}
-	highlighted.push(line.text.slice(offset));
-	return `${theme.fg("dim", prefix)}${withTruncationMarkers(highlighted.join(""), line.truncatedLeft, line.truncatedRight, theme)}`;
+	if (offset < line.text.length) highlighted.push(theme.fg("dim", line.text.slice(offset)));
+	if (line.truncatedRight) highlighted.push(theme.fg("dim", TRUNCATION_MARKER));
+	return `${theme.fg("dim", prefix)}${highlighted.join("")}`;
 }
 
 function renderGrepLine(line: GrepDisplayLine, theme: Theme, lineNumberWidth = 0): string {
 	switch (line.type) {
 		case "path":
-			return theme.fg("mdCode", line.text);
+			return line.text.startsWith(TRUNCATION_MARKER)
+				? `${theme.fg("dim", TRUNCATION_MARKER)}${theme.fg("mdCode", line.text.slice(TRUNCATION_MARKER.length))}`
+				: theme.fg("mdCode", line.text);
 		case "match":
 			return renderMatch(line, theme, lineNumberWidth);
 		case "context":
 			return `${theme.fg("dim", `${String(line.lineNumber).padStart(lineNumberWidth)}│`)}${withTruncationMarkers(line.text, line.truncatedLeft, line.truncatedRight, theme)}`;
 		case "omission":
-			return theme.fg("warning", line.text);
+			return theme.fg("dim", line.text);
 		case "text":
-			return line.text;
+			return theme.fg("dim", line.text);
 	}
 }
 
@@ -187,7 +196,7 @@ export function renderGrepResult(
 	const lines = rendered;
 	if (!options.expanded && display.length > visible.length)
 		lines.push(
-			theme.fg("dim", `... (${display.length - visible.length} more lines, expand to show)`),
+			theme.fg("dim", `… (${display.length - visible.length} more lines, expand to show)`),
 		);
 	const component =
 		context.lastComponent instanceof GrepResultComponent
@@ -330,7 +339,7 @@ export function renderFindResult(
 	if (!options.expanded && body.length > visible.length)
 		visible.push({
 			kind: "omission",
-			text: `... (${body.length - visible.length} more lines, ${EXPAND_HINT})`,
+			text: `… (${body.length - visible.length} more lines, ${EXPAND_HINT})`,
 		});
 	const component = new GrepResultComponent(new Text("", 0, 0));
 	component.set(renderFindBody(visible, theme).join("\n"));

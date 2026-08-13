@@ -298,6 +298,7 @@ export function registerApplyPatchTool(pi: ExtensionAPI, tui: ToolTui = createTo
 		},
 		tui.frame(createApplyPatchTool(), {
 			summary: (_args, latest) => applyPatchHeader(latest),
+			summarySeparator: "space",
 			footer: (result, completion) => {
 				return isApplyPatchToolDetails(result.details)
 					? formatApplyPatchFooter(result, completion)

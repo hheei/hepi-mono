@@ -8,6 +8,7 @@ import type {
 	Theme,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { observeLoadoutInventory } from "@hheei/pi-ext-core";
 import { registerTools } from "../src/tools.js";
 
@@ -153,7 +154,7 @@ describe("pi-ext-tools catalog", () => {
 			.join("\n");
 		expect(preview).toContain("<dim> 9│</dim>H1");
 		expect(preview).toContain("<dim>10│</dim>H2");
-		expect(preview).toContain("<dim>... (43 hidden lines, ctrl+o to expand)</dim>");
+		expect(preview).toContain("<dim>… (43 hidden lines, ctrl+o to expand)</dim>");
 		expect(preview).toContain("<dim>55│</dim>T1");
 		expect(preview).toContain("<dim>56│</dim>T2");
 		expect(preview).not.toContain("315 chars · 48 lines · 10ms");
@@ -176,7 +177,7 @@ describe("pi-ext-tools catalog", () => {
 			)
 			?.render(10)
 			.join("\n");
-		expect(narrow).toContain("<dim>></dim>");
+		expect(stripTerminalSequences(narrow ?? "")).toContain("…");
 	});
 
 	test("omits read body rails when the visible preview has no lines", (): void => {
@@ -227,6 +228,34 @@ describe("pi-ext-tools catalog", () => {
 		expect(collapsed).not.toContain("Use offset=310 to continue.");
 		expect(expanded).not.toContain("Use offset=310 to continue.");
 		expect(result.content[0]?.text).toBe(source);
+	});
+
+	test("keeps narrow read rows to one cell-width-safe line", (): void => {
+		const host = harness();
+		registerTools(host.pi);
+		const read = host.tools.find((tool) => tool.name === "read");
+		if (read === undefined) throw new Error("read was not registered");
+		const plainTheme = {
+			bg: (_role: string, text: string): string => text,
+			fg: (_role: string, text: string): string => text,
+			bold: (text: string): string => text,
+		} as Theme;
+		const lines = read
+			.renderResult?.(
+				{
+					content: [{ type: "text", text: "abcdefghijklmnopqrstuvwxyz" }],
+					details: undefined,
+				},
+				{ isPartial: false, expanded: false },
+				plainTheme,
+				{ ...(renderContext as object), args: { path: "sample.ts", offset: 100 } } as never,
+			)
+			.render(6);
+		if (lines === undefined) throw new Error("read renderer is missing");
+		const body = lines.filter((line) => !line.includes("─") && !line.includes("completed"));
+		const plainBody = body.map(stripTerminalSequences);
+		expect(plainBody).toEqual(["100│a…"]);
+		expect(plainBody.every((line) => visibleWidth(line) <= 6 && !line.includes("\n"))).toBe(true);
 	});
 
 	test("omits search body rails when there are no body lines", (): void => {
@@ -524,8 +553,8 @@ describe("pi-ext-tools catalog", () => {
 			.join("\n")
 			.trimEnd();
 		expect(grepResult).toContain("<mdCode>src/a.ts</mdCode>");
-		expect(grepResult).toContain("<dim> 1│</dim>before");
-		expect(grepResult).toContain("<dim>13│</dim><dim><</dim><success>needle</success><dim>></dim>");
+		expect(grepResult).toContain("<dim> 1│</dim><dim>before</dim>");
+		expect(grepResult).toContain("<dim>13│</dim><dim>…</dim><success>needle</success><dim>…</dim>");
 		expect(grepResult).not.toContain("1 matches in 1 files");
 		expect(grepResult).toContain("<dim>1 matches · 1 files · 3 lines · 3.7s</dim>");
 		const collapsedResult = grep.renderResult?.(
@@ -551,7 +580,7 @@ describe("pi-ext-tools catalog", () => {
 		if (collapsedResult === undefined) throw new Error("grep renderer is missing");
 		const collapsed = collapsedResult.render(200);
 		expect(collapsed).toHaveLength(15);
-		expect(collapsed.at(-3)).toContain("... (9 more lines, expand to show)");
+		expect(collapsed.at(-3)).toContain("… (9 more lines, expand to show)");
 		expect(collapsed.at(-1)).toContain("20 matches · 1 files · 20 lines · 0ms");
 		const findResult = find
 			.renderResult?.(
