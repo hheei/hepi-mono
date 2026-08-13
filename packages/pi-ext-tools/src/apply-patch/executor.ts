@@ -4,6 +4,7 @@ import { constants as fsConstants } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import {
 	chmod,
+	lstat,
 	mkdir,
 	mkdtemp,
 	open,
@@ -71,6 +72,14 @@ interface WorkspacePath {
 	readonly absolutePath: string;
 }
 
+interface WorkspaceRoot {
+	readonly absolutePath: string;
+	readonly handle: FileHandle;
+	readonly dev: number;
+	readonly ino: number;
+	[Symbol.asyncDispose](): Promise<void>;
+}
+
 interface FileIdentity {
 	readonly hash: string;
 	readonly mode: number;
@@ -133,16 +142,14 @@ async function ensureParent(path: string): Promise<void> {
 }
 
 async function assertBaselines(
-	workspaceRoot: string,
+	workspace: WorkspaceRoot,
 	states: ReadonlyMap<string, PathState>,
 	signal?: AbortSignal,
 ): Promise<void> {
 	for (const state of states.values()) {
 		signal?.throwIfAborted();
-		const revalidated = await validatePatchPath(workspaceRoot, state.relativePath);
-		if (revalidated.absolutePath !== state.absolutePath)
-			throw new Error(`Patch path changed before commit: ${state.relativePath}`);
-		const snapshot = await snapshotWorkspacePath(workspaceRoot, state, signal);
+		await assertSafeCommitPath(workspace, state);
+		const snapshot = await snapshotWorkspacePath(workspace, state, signal);
 		if (!sameFileIdentity(snapshot.identity, state.baseline))
 			throw new Error(`Patch baseline changed before commit: ${state.relativePath}`);
 	}
@@ -475,13 +482,13 @@ interface CommitJournalEntry {
 }
 
 async function snapshotCommitJournal(
-	workspaceRoot: string,
+	workspace: WorkspaceRoot,
 	states: readonly PathState[],
 	signal?: AbortSignal,
 ): Promise<readonly CommitJournalEntry[]> {
 	const journal: CommitJournalEntry[] = [];
 	for (const state of states)
-		journal.push({ state, before: await snapshotWorkspacePath(workspaceRoot, state, signal) });
+		journal.push({ state, before: await snapshotWorkspacePath(workspace, state, signal) });
 	return Object.freeze(journal);
 }
 
@@ -498,21 +505,43 @@ interface CreatedDirectory extends WorkspacePath {
 	readonly ino: number;
 }
 
+async function openWorkspaceRoot(workspaceRoot: string): Promise<WorkspaceRoot> {
+	if (process.platform !== "linux")
+		throw new Error("apply_patch commit requires Linux descriptor-relative workspace protection");
+	const requestedPath = await realpath(workspaceRoot);
+	const handle = await open(requestedPath, COMMIT_DIRECTORY_FLAGS);
+	try {
+		const info = await handle.stat();
+		return {
+			absolutePath: await realpath(`/proc/self/fd/${handle.fd}`),
+			handle,
+			dev: info.dev,
+			ino: info.ino,
+			[Symbol.asyncDispose]: async (): Promise<void> => {
+				await handle.close();
+			},
+		};
+	} catch (error) {
+		await handle.close().catch(() => undefined);
+		throw error;
+	}
+}
+
 async function openCommitParent(
-	workspaceRoot: string,
+	workspace: WorkspaceRoot,
 	state: WorkspacePath,
 	createMissing: boolean,
 	createdDirectories?: CreatedDirectory[],
 ): Promise<CommitParent | undefined> {
-	const root = await realpath(workspaceRoot);
-	if (process.platform !== "linux")
-		throw new Error("apply_patch commit requires Linux descriptor-relative workspace protection");
 	const parent = dirname(state.absolutePath);
-	const parentRelative = relative(root, parent);
+	const parentRelative = relative(workspace.absolutePath, parent);
 	if (parentRelative === ".." || parentRelative.startsWith(`..${sep}`))
 		throw new Error(`Patch parent escapes workspace root: ${state.relativePath}`);
-	let handle = await open(root, COMMIT_DIRECTORY_FLAGS);
-	let logicalParent = root;
+	let handle = await open(
+		`/proc/self/fd/${workspace.handle.fd}`,
+		COMMIT_DIRECTORY_FLAGS & ~fsConstants.O_NOFOLLOW,
+	);
+	let logicalParent = workspace.absolutePath;
 	try {
 		for (const segment of parentRelative.split(sep).filter(Boolean)) {
 			const child = join(`/proc/self/fd/${handle.fd}`, segment);
@@ -536,7 +565,7 @@ async function openCommitParent(
 						await rmdir(child);
 					} catch (cleanupError) {
 						throw new Error(
-							`workspace state indeterminate after creating patch parent ${relative(root, logicalParent).split(sep).join("/")}: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+							`workspace state indeterminate after creating patch parent ${relative(workspace.absolutePath, logicalParent).split(sep).join("/")}: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
 							{ cause: openError },
 						);
 					}
@@ -544,7 +573,7 @@ async function openCommitParent(
 				}
 				const info = await next.stat();
 				createdDirectories?.push({
-					relativePath: relative(root, logicalParent).split(sep).join("/"),
+					relativePath: relative(workspace.absolutePath, logicalParent).split(sep).join("/"),
 					absolutePath: logicalParent,
 					dev: info.dev,
 					ino: info.ino,
@@ -560,15 +589,60 @@ async function openCommitParent(
 	}
 }
 
-async function assertSafeCommitPath(workspaceRoot: string, state: WorkspacePath): Promise<void> {
-	const validated = await validatePatchPath(workspaceRoot, state.relativePath);
-	if (validated.absolutePath !== state.absolutePath)
+async function assertWorkspaceRootPath(workspace: WorkspaceRoot): Promise<void> {
+	let handle: FileHandle;
+	try {
+		handle = await open(workspace.absolutePath, COMMIT_DIRECTORY_FLAGS);
+	} catch (error) {
+		throw new Error("Patch workspace root changed before commit", { cause: error });
+	}
+	try {
+		const info = await handle.stat();
+		if (info.dev !== workspace.dev || info.ino !== workspace.ino)
+			throw new Error("Patch workspace root changed before commit");
+	} finally {
+		await handle.close();
+	}
+}
+
+async function assertSafeCommitPath(workspace: WorkspaceRoot, state: WorkspacePath): Promise<void> {
+	await assertWorkspaceRootPath(workspace);
+	if (join(workspace.absolutePath, ...state.relativePath.split("/")) !== state.absolutePath)
 		throw new Error(`Patch path changed before commit: ${state.relativePath}`);
 }
 
 const TARGET_READ_FLAGS = fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW;
 const TEMPORARY_WRITE_FLAGS =
 	fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW;
+
+async function temporaryPathOwnership(
+	path: string,
+	handle: FileHandle,
+): Promise<"missing" | "owned" | "replaced"> {
+	try {
+		const [pathInfo, handleInfo] = await Promise.all([lstat(path), handle.stat()]);
+		return pathInfo.dev === handleInfo.dev && pathInfo.ino === handleInfo.ino
+			? "owned"
+			: "replaced";
+	} catch (error) {
+		if (isMissingPath(error)) return "missing";
+		throw error;
+	}
+}
+
+async function failedTemporaryInstall(
+	path: string,
+	handle: FileHandle,
+	relativePath: string,
+	cause: unknown,
+): Promise<never> {
+	const ownership = await temporaryPathOwnership(path, handle);
+	if (ownership === "missing") throw cause;
+	throw new Error(
+		`workspace state indeterminate after failed install for ${relativePath}; ${ownership} temporary entry ${basename(path)} remains for inspection`,
+		{ cause },
+	);
+}
 
 async function snapshotFixedTarget(
 	parent: CommitParent,
@@ -600,12 +674,12 @@ async function snapshotFixedTarget(
 }
 
 async function snapshotWorkspacePath(
-	workspaceRoot: string,
+	workspace: WorkspaceRoot,
 	state: WorkspacePath,
 	signal?: AbortSignal,
 ): Promise<WorkspaceSnapshot> {
-	await assertSafeCommitPath(workspaceRoot, state);
-	const parent = await openCommitParent(workspaceRoot, state, false);
+	await assertSafeCommitPath(workspace, state);
+	const parent = await openCommitParent(workspace, state, false);
 	if (parent === undefined) return {};
 	try {
 		return await snapshotFixedTarget(parent, state, signal);
@@ -617,6 +691,7 @@ async function snapshotWorkspacePath(
 async function writeExclusiveTemporary(
 	parent: CommitParent,
 	prefix: string,
+	affectedPath: string,
 	content: Buffer,
 	mode: number,
 ): Promise<{ readonly path: string; readonly handle: FileHandle; readonly content: Buffer }> {
@@ -629,21 +704,24 @@ async function writeExclusiveTemporary(
 		return { path, handle, content };
 	} catch (error) {
 		if (handle !== undefined) {
-			await handle.close().catch(() => undefined);
-			await unlink(path).catch(() => undefined);
+			try {
+				await failedTemporaryInstall(path, handle, affectedPath, error);
+			} finally {
+				await handle.close().catch(() => undefined);
+			}
 		}
 		throw error;
 	}
 }
 
 async function removeCreatedDirectories(
-	workspaceRoot: string,
+	workspace: WorkspaceRoot,
 	createdDirectories: readonly CreatedDirectory[],
 ): Promise<readonly string[]> {
 	const failures: string[] = [];
 	for (const directory of [...createdDirectories].reverse()) {
 		try {
-			const parent = await openCommitParent(workspaceRoot, directory, false);
+			const parent = await openCommitParent(workspace, directory, false);
 			if (parent === undefined) continue;
 			try {
 				const target = join(parent.path, basename(directory.absolutePath));
@@ -675,7 +753,7 @@ async function removeCreatedDirectories(
 }
 
 async function restoreCommitJournal(
-	workspaceRoot: string,
+	workspace: WorkspaceRoot,
 	journal: readonly CommitJournalEntry[],
 	expected: ReadonlyMap<string, FileIdentity | undefined>,
 	createdDirectories: readonly CreatedDirectory[],
@@ -684,7 +762,7 @@ async function restoreCommitJournal(
 	for (const entry of [...journal].reverse()) {
 		try {
 			const parent = await openCommitParent(
-				workspaceRoot,
+				workspace,
 				entry.state,
 				entry.before.content !== undefined,
 			);
@@ -704,14 +782,29 @@ async function restoreCommitJournal(
 				const temporary = await writeExclusiveTemporary(
 					parent,
 					"hepi-apply-patch-rollback",
+					entry.state.relativePath,
 					entry.before.content,
 					entry.before.identity?.mode ?? 0o644,
 				);
+				let installed = false;
 				try {
 					await rename(temporary.path, target);
+					installed = true;
+					const expectedIdentity = fileIdentity(await temporary.handle.stat(), temporary.content);
+					const restored = await snapshotFixedTarget(parent, entry.state);
+					if (!sameFileIdentity(restored.identity, expectedIdentity))
+						throw new Error(`rollback target changed during install: ${entry.state.relativePath}`);
+				} catch (error) {
+					if (!installed)
+						await failedTemporaryInstall(
+							temporary.path,
+							temporary.handle,
+							entry.state.relativePath,
+							error,
+						);
+					throw error;
 				} finally {
 					await temporary.handle.close().catch(() => undefined);
-					await unlink(temporary.path).catch(() => undefined);
 				}
 			} finally {
 				await parent.handle.close();
@@ -722,13 +815,13 @@ async function restoreCommitJournal(
 			);
 		}
 	}
-	failures.push(...(await removeCreatedDirectories(workspaceRoot, createdDirectories)));
+	failures.push(...(await removeCreatedDirectories(workspace, createdDirectories)));
 	if (failures.length > 0)
 		throw new Error(`rollback failed for ${failures.length} path(s): ${failures.join("; ")}`);
 }
 
 async function commitPath(
-	workspaceRoot: string,
+	workspace: WorkspaceRoot,
 	stagingRoot: string,
 	state: PathState,
 	expected: FileIdentity | undefined,
@@ -736,13 +829,14 @@ async function commitPath(
 	signal?: AbortSignal,
 ): Promise<FileIdentity | undefined> {
 	signal?.throwIfAborted();
+	await assertSafeCommitPath(workspace, state);
 	const source = stagingPath(stagingRoot, state.relativePath);
 	let sourceInfo: Stats;
 	try {
 		sourceInfo = await stat(source);
 	} catch (error) {
 		if (!isMissingPath(error)) throw error;
-		const parent = await openCommitParent(workspaceRoot, state, false);
+		const parent = await openCommitParent(workspace, state, false);
 		if (parent === undefined) {
 			if (expected !== undefined)
 				throw new Error(`Patch baseline changed during commit: ${state.relativePath}`);
@@ -763,7 +857,7 @@ async function commitPath(
 	if (!sourceInfo.isFile())
 		throw new Error(`Patch staging path is not a regular file: ${state.relativePath}`);
 	const sourceContent = await readFile(source, { signal });
-	const parent = await openCommitParent(workspaceRoot, state, true, createdDirectories);
+	const parent = await openCommitParent(workspace, state, true, createdDirectories);
 	if (parent === undefined) throw new Error(`Patch parent is unavailable: ${state.relativePath}`);
 	try {
 		const actual = await snapshotFixedTarget(parent, state, signal);
@@ -773,19 +867,28 @@ async function commitPath(
 		const temporary = await writeExclusiveTemporary(
 			parent,
 			"hepi-apply-patch",
+			state.relativePath,
 			sourceContent,
 			state.mode ?? sourceInfo.mode & 0o7777,
 		);
+		let installed = false;
 		try {
-			await assertSafeCommitPath(workspaceRoot, state);
 			const beforeRename = await snapshotFixedTarget(parent, state, signal);
 			if (!sameFileIdentity(beforeRename.identity, expected))
 				throw new Error(`Patch baseline changed during commit: ${state.relativePath}`);
 			await rename(temporary.path, target);
-			return fileIdentity(await temporary.handle.stat(), temporary.content);
+			installed = true;
+			const expectedIdentity = fileIdentity(await temporary.handle.stat(), temporary.content);
+			const installedTarget = await snapshotFixedTarget(parent, state);
+			if (!sameFileIdentity(installedTarget.identity, expectedIdentity))
+				throw new Error(`Patch target changed during install: ${state.relativePath}`);
+			return expectedIdentity;
+		} catch (error) {
+			if (!installed)
+				await failedTemporaryInstall(temporary.path, temporary.handle, state.relativePath, error);
+			throw error;
 		} finally {
 			await temporary.handle.close().catch(() => undefined);
-			await unlink(temporary.path).catch(() => undefined);
 		}
 	} finally {
 		await parent.handle.close();
@@ -822,6 +925,7 @@ export async function applyPatchInWorkspace(
 		throw new Error(
 			"apply_patch requires Linux descriptor-relative workspace protection; select Edit Mode: native and reload",
 		);
+	await using workspace = await openWorkspaceRoot(options.workspaceRoot);
 	const patch = options.parsedPatch ?? parseV4aPatch(options.patch);
 	const initial = initialRejections(patch);
 	const rejected = initial.rejected;
@@ -914,12 +1018,12 @@ export async function applyPatchInWorkspace(
 		try {
 			for (const relativePath of operationTouchedPaths(operation)) {
 				if (states.has(relativePath)) continue;
-				const validated = await validatePatchPath(options.workspaceRoot, relativePath);
+				const validated = await validatePatchPath(workspace.absolutePath, relativePath);
 				const path: WorkspacePath = {
 					relativePath,
 					absolutePath: validated.absolutePath,
 				};
-				const snapshot = await snapshotWorkspacePath(options.workspaceRoot, path, options.signal);
+				const snapshot = await snapshotWorkspacePath(workspace, path, options.signal);
 				states.set(relativePath, {
 					...path,
 					baseline: snapshot.identity,
@@ -1033,7 +1137,7 @@ export async function applyPatchInWorkspace(
 					if (state === undefined) throw new Error(`Missing validated patch path: ${path}`);
 					touched.set(path, state);
 				}
-				await assertBaselines(options.workspaceRoot, touched, options.signal);
+				await assertBaselines(workspace, touched, options.signal);
 			} catch (error) {
 				if (options.signal?.aborted) throw options.signal.reason ?? error;
 				rejectOperation(entry.index, entry.operation, error);
@@ -1055,11 +1159,11 @@ export async function applyPatchInWorkspace(
 		for (const state of commitStates.values())
 			commitExpected.set(state.relativePath, state.baseline);
 		const journal = await snapshotCommitJournal(
-			options.workspaceRoot,
+			workspace,
 			[...commitStates.values()],
 			options.signal,
 		);
-		await assertBaselines(options.workspaceRoot, commitStates, options.signal);
+		await assertBaselines(workspace, commitStates, options.signal);
 		const committed: ApplyPatchAppliedOperation[] = [];
 		const createdDirectories: CreatedDirectory[] = [];
 		try {
@@ -1075,7 +1179,7 @@ export async function applyPatchInWorkspace(
 					const state = states.get(path);
 					if (state === undefined) throw new Error(`Missing patch path: ${path}`);
 					const committedIdentity = await commitPath(
-						options.workspaceRoot,
+						workspace,
 						stagingRoot,
 						state,
 						state.baseline,
@@ -1084,6 +1188,7 @@ export async function applyPatchInWorkspace(
 					);
 					states.set(path, { ...state, baseline: committedIdentity });
 					commitExpected.set(path, committedIdentity);
+					await assertWorkspaceRootPath(workspace);
 					options.signal?.throwIfAborted();
 				}
 				committed.push(outcome);
@@ -1134,18 +1239,15 @@ export async function applyPatchInWorkspace(
 					});
 			}
 			try {
-				await restoreCommitJournal(
-					options.workspaceRoot,
-					journal,
-					commitExpected,
-					createdDirectories,
-				);
+				await restoreCommitJournal(workspace, journal, commitExpected, createdDirectories);
 				emitProgress("rolled_back");
 			} catch (rollbackError) {
 				throw new Error(
 					`workspace state indeterminate after commit failure; read ${[...commitStates.keys()].join(", ")}: ${error instanceof Error ? error.message : String(error)}; ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
 				);
 			}
+			if (error instanceof Error && error.message.includes("workspace state indeterminate"))
+				throw error;
 			throw new Error(
 				`apply patch commit rolled back; no staged operations were applied: ${error instanceof Error ? error.message : String(error)}`,
 			);

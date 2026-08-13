@@ -50,6 +50,8 @@ type ProgressResponse = {
 
 const COORDINATOR_IDLE_TIMEOUT_MS = 30_000;
 const COMPLETED_REQUEST_TTL_MS = 10_000;
+const MAX_COMPLETED_REQUESTS = 128;
+const MAX_COMPLETED_RESPONSE_BYTES = 8 * 1024 * 1024;
 const MAX_EXPIRED_REQUESTS = 4_096;
 const MAX_COORDINATOR_FRAME_BYTES = 1_048_576 + 1_024;
 
@@ -60,9 +62,9 @@ interface RequestRecord {
 	readonly terminal: Promise<void>;
 	latestProgress?: ApplyPatchProgress;
 	response?: ApplyResponse;
+	responseBytes?: number;
 	completedAtMs?: number;
 	cancelled?: Error;
-	readonly onCompleted?: () => void;
 	readonly onTerminal?: () => void;
 }
 
@@ -128,6 +130,18 @@ function compactResponse(response: ApplyResponse): ApplyResponse {
 	};
 }
 
+function cachedResponse(response: ApplyResponse): ApplyResponse {
+	const compact = compactResponse(response);
+	if (Buffer.byteLength(JSON.stringify(compact), "utf8") <= MAX_COORDINATOR_RESPONSE_BYTES)
+		return compact;
+	return {
+		id: response.id,
+		ok: false,
+		error:
+			"Apply patch completed but replay details exceed the coordinator cache limit; read affected paths before editing again",
+	};
+}
+
 export function responseFrame(response: ApplyResponse): string {
 	const full = `${JSON.stringify(response)}\n`;
 	if (Buffer.byteLength(full, "utf8") <= MAX_COORDINATOR_RESPONSE_BYTES) return full;
@@ -146,6 +160,10 @@ function send(socket: Socket, response: ApplyResponse): void {
 
 export function hasCoordinatorCapacity(requestCount: number, maxQueueDepth: number): boolean {
 	return requestCount < maxQueueDepth;
+}
+
+export function exceedsCompletedRequestBudget(recordCount: number, responseBytes: number): boolean {
+	return recordCount > MAX_COMPLETED_REQUESTS || responseBytes > MAX_COMPLETED_RESPONSE_BYTES;
 }
 
 function compactProgress(progress: ApplyPatchProgress): ApplyPatchProgress {
@@ -202,20 +220,15 @@ function sendRecordProgress(record: RequestRecord, progress: ApplyPatchProgress)
 }
 
 function sendRecordResponse(record: RequestRecord, response: ApplyResponse): void {
-	const cachedResponse = compactResponse(response);
-	record.response = cachedResponse;
-	record.completedAtMs = Date.now();
+	const retainedResponse = cachedResponse(response);
+	const completedAtMs = Date.now();
+	record.response = retainedResponse;
+	record.responseBytes = Buffer.byteLength(JSON.stringify(retainedResponse), "utf8");
+	record.completedAtMs = completedAtMs;
 	for (const socket of record.subscribers) send(socket, response);
 	delete record.latestProgress;
 	record.request = { ...record.request, patch: "" };
 	record.onTerminal?.();
-	setTimeout(() => {
-		if (
-			record.completedAtMs !== undefined &&
-			Date.now() - record.completedAtMs >= COMPLETED_REQUEST_TTL_MS
-		)
-			record.onCompleted?.();
-	}, COMPLETED_REQUEST_TTL_MS).unref();
 }
 
 function parsedDelta(operation: V4aPatchOperation): {
@@ -379,6 +392,63 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 	const pending: QueueItem[] = [];
 	const requests = new Map<string, RequestRecord>();
 	const expiredRequests = new Map<string, string>();
+	const completedRequestIds: string[] = [];
+	let completedResponseBytes = 0;
+	let completedExpiryTimer: NodeJS.Timeout | undefined;
+	const expireCompletedRequest = (
+		id: string,
+		fingerprint: string,
+		completedAtMs?: number,
+	): void => {
+		const record = requests.get(id);
+		if (
+			record === undefined ||
+			record.fingerprint !== fingerprint ||
+			(completedAtMs !== undefined && record.completedAtMs !== completedAtMs)
+		)
+			return;
+		requests.delete(id);
+		completedResponseBytes -= record.responseBytes ?? 0;
+		const completedIndex = completedRequestIds.indexOf(id);
+		if (completedIndex >= 0) completedRequestIds.splice(completedIndex, 1);
+		rememberExpiredRequest(expiredRequests, id, fingerprint);
+	};
+	const scheduleCompletedExpiry = (): void => {
+		if (completedExpiryTimer !== undefined) clearTimeout(completedExpiryTimer);
+		completedExpiryTimer = undefined;
+		const oldestId = completedRequestIds[0];
+		if (oldestId === undefined) return;
+		const oldest = requests.get(oldestId);
+		if (oldest?.completedAtMs === undefined || oldest.response === undefined) return;
+		const delay = Math.max(0, oldest.completedAtMs + COMPLETED_REQUEST_TTL_MS - Date.now());
+		completedExpiryTimer = setTimeout(() => {
+			completedExpiryTimer = undefined;
+			const now = Date.now();
+			while (true) {
+				const id = completedRequestIds[0];
+				if (id === undefined) break;
+				const record = requests.get(id);
+				if (
+					record?.completedAtMs === undefined ||
+					record.response === undefined ||
+					record.completedAtMs + COMPLETED_REQUEST_TTL_MS > now
+				)
+					break;
+				expireCompletedRequest(id, record.fingerprint, record.completedAtMs);
+			}
+			scheduleCompletedExpiry();
+		}, delay);
+		completedExpiryTimer.unref();
+	};
+	const enforceCompletedRequestBudget = (): void => {
+		while (exceedsCompletedRequestBudget(completedRequestIds.length, completedResponseBytes)) {
+			const id = completedRequestIds.shift();
+			if (id === undefined) return;
+			const record = requests.get(id);
+			if (record?.response === undefined) continue;
+			expireCompletedRequest(id, record.fingerprint, record.completedAtMs);
+		}
+	};
 	const sockets = new Set<Socket>();
 	const running: RunningItem[] = [];
 	const activeLocks = new Set<string>();
@@ -554,12 +624,12 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 						if (terminal) return;
 						terminal = true;
 						admittedRequestCount -= 1;
+						completedRequestIds.push(requestId);
+						completedResponseBytes += record.responseBytes ?? 0;
+						enforceCompletedRequestBudget();
+						scheduleCompletedExpiry();
 						terminalState.resolve();
 						scheduleIdleShutdown();
-					},
-					onCompleted: () => {
-						requests.delete(requestId);
-						rememberExpiredRequest(expiredRequests, requestId, fingerprint);
 					},
 				};
 				admittedRequestCount += 1;
@@ -710,7 +780,11 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 			unlink(lockPath).catch(() => undefined),
 		]);
 	};
-	server.once("close", () => void cleanup());
+	server.once("close", () => {
+		if (completedExpiryTimer !== undefined) clearTimeout(completedExpiryTimer);
+		completedExpiryTimer = undefined;
+		void cleanup();
+	});
 	process.once("exit", () => {
 		void cleanup();
 	});
@@ -718,6 +792,8 @@ export async function startApplyPatchCoordinatorServer(workspaceRootInput: strin
 		shutdownPromise ??= (async (): Promise<void> => {
 			shuttingDown = true;
 			if (idleTimer !== undefined) clearTimeout(idleTimer);
+			if (completedExpiryTimer !== undefined) clearTimeout(completedExpiryTimer);
+			completedExpiryTimer = undefined;
 			const cancelled = new Set<string>();
 			while (admittedRequestCount > 0) {
 				const activeRecords = [...requests.values()].filter(

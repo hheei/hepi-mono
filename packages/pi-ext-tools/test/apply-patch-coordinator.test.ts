@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+	exceedsCompletedRequestBudget,
 	hasCoordinatorCapacity,
 	progressFrame,
 	responseFrame,
@@ -52,6 +53,67 @@ test("admits parsing, pending, and running work within one queue budget", (): vo
 	expect(hasCoordinatorCapacity(0, 2)).toBe(true);
 	expect(hasCoordinatorCapacity(1, 2)).toBe(true);
 	expect(hasCoordinatorCapacity(2, 2)).toBe(false);
+});
+
+test("bounds completed replay records by count and serialized bytes", (): void => {
+	expect(exceedsCompletedRequestBudget(128, 8 * 1024 * 1024)).toBe(false);
+	expect(exceedsCompletedRequestBudget(129, 0)).toBe(true);
+	expect(exceedsCompletedRequestBudget(1, 8 * 1024 * 1024 + 1)).toBe(true);
+});
+
+test("evicts the oldest completed replay record into a fingerprint tombstone", async (): Promise<void> => {
+	const root = await temporaryDirectory();
+	await warmApplyPatchCoordinator(root);
+	const socket = connect(coordinatorSocketPath(root));
+	socket.setEncoding("utf8");
+	const replayError = await new Promise<string>((resolve, reject) => {
+		let buffer = "";
+		let nextRequest = 0;
+		let replaying = false;
+		const sendRequest = (id: string): void => {
+			socket.write(
+				`${JSON.stringify({
+					type: "apply",
+					id,
+					workspaceRoot: root,
+					patch: "*** Begin Patch\n",
+				})}\n`,
+			);
+		};
+		socket.once("error", reject);
+		socket.on("data", (chunk: string) => {
+			buffer += chunk;
+			while (true) {
+				const newline = buffer.indexOf("\n");
+				if (newline < 0) return;
+				const line = buffer.slice(0, newline);
+				buffer = buffer.slice(newline + 1);
+				const message = JSON.parse(line) as {
+					readonly id: string;
+					readonly type?: string;
+					readonly ok?: boolean;
+					readonly error?: string;
+				};
+				if (message.type === "progress" || message.ok !== false || message.error === undefined)
+					continue;
+				if (replaying) {
+					socket.end();
+					resolve(message.error);
+					return;
+				}
+				nextRequest += 1;
+				if (nextRequest < 129) sendRequest(`completed-${nextRequest}`);
+				else {
+					replaying = true;
+					sendRequest("completed-0");
+				}
+			}
+		});
+		socket.once("connect", () => sendRequest("completed-0"));
+	});
+
+	expect(replayError).toContain("outcome expired");
+	expect(replayError).toContain("read affected paths");
 });
 
 test("bounds concurrent parsing before queueing work", async (): Promise<void> => {
@@ -140,9 +202,12 @@ test("uses a revisioned coordinator socket path", (): void => {
 		"/tmp/hepi-apply-patch-89b427c905a5ab408be624b6911f0a31b171ed8e675fac137b447a4edd1ab422.sock";
 	const revision3 =
 		"/tmp/hepi-apply-patch-984b6201068741878bb3cea406f8384217d978684ee7787710307874256079a1.sock";
+	const revision4 =
+		"/tmp/hepi-apply-patch-c2bcf84ab433eb0002962f7910fd2f7786f75c83a4ad590a4139a92606c3f98c.sock";
 	expect(current).toMatch(/hepi-apply-patch-[a-f0-9]{64}\.sock$/);
 	expect(current).not.toBe(revision2);
 	expect(current).not.toBe(revision3);
+	expect(current).not.toBe(revision4);
 });
 
 test("deduplicates the same request id while the first request is parsing", async (): Promise<void> => {
