@@ -1,6 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, writeFileSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmodSync, mkdirSync, renameSync, watch, writeFileSync } from "node:fs";
+import {
+	chmod,
+	lstat,
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	stat,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { applyPatchInWorkspace } from "../src/apply-patch/executor.js";
@@ -130,6 +140,79 @@ describe("staged apply-patch executor", () => {
 		expect(result.rejected).toHaveLength(1);
 		await expect(readFile(join(outside, "escaped.txt"), "utf8")).rejects.toThrow();
 	});
+	test("reports indeterminate when the temporary source entry is replaced", async () => {
+		const root = await temporaryDirectory();
+		const outside = join(root, "outside.txt");
+		await writeFile(outside, "outside\n", "utf8");
+		let replaced = false;
+		let replacement: Promise<void> | undefined;
+		const watcher = watch(root, (_event, filename) => {
+			const name = String(filename ?? "");
+			if (replacement !== undefined || !name.startsWith(".hepi-apply-patch-")) return;
+			const temporary = join(root, name);
+			replacement = (async () => {
+				for (let attempt = 0; attempt < 20; attempt += 1)
+					try {
+						await rm(temporary, { force: true });
+						await symlink(outside, temporary);
+						replaced = true;
+						return;
+					} catch {
+						await Bun.sleep(0);
+					}
+				throw new Error("Could not replace apply_patch temporary entry");
+			})();
+		});
+
+		try {
+			await expect(
+				applyPatchInWorkspace({
+					workspaceRoot: root,
+					policy: noFuzzy,
+					patch: `*** Begin Patch\n*** Add File: value.txt\n+${"x".repeat(900_000)}\n*** End Patch`,
+				}),
+			).rejects.toThrow("workspace state indeterminate");
+		} finally {
+			watcher.close();
+		}
+
+		expect(replacement).toBeDefined();
+		await replacement;
+		expect(replaced).toBe(true);
+		expect(await load(root, "outside.txt")).toBe("outside\n");
+		expect((await lstat(join(root, "value.txt"))).isSymbolicLink()).toBe(true);
+	});
+
+	test("rolls back the fixed workspace inode when its pathname is replaced", async () => {
+		const root = await temporaryDirectory();
+		const original = `${root}-original`;
+		let replaced = false;
+
+		await expect(
+			applyPatchInWorkspace({
+				workspaceRoot: root,
+				policy: noFuzzy,
+				patch:
+					"*** Begin Patch\n" +
+					"*** Add File: first.txt\n+first\n" +
+					"*** Add File: second.txt\n+second\n" +
+					"*** End Patch",
+				onProgress: (progress) => {
+					if (replaced || progress.stage !== "committed") return;
+					replaced = true;
+					renameSync(root, original);
+					mkdirSync(root);
+				},
+			}),
+		).rejects.toThrow("commit rolled back");
+
+		expect(replaced).toBe(true);
+		await expect(readFile(join(original, "first.txt"), "utf8")).rejects.toThrow();
+		await expect(readFile(join(original, "second.txt"), "utf8")).rejects.toThrow();
+		await expect(readFile(join(root, "first.txt"), "utf8")).rejects.toThrow();
+		await expect(readFile(join(root, "second.txt"), "utf8")).rejects.toThrow();
+	});
+
 	test("applies add, update, delete, and move through staging", async () => {
 		const root = await temporaryDirectory();
 		await save(root, "src/update.txt", "one\ntwo\nthree\n");

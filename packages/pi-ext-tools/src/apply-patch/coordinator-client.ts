@@ -70,7 +70,7 @@ const COORDINATOR_READY_TIMEOUT_MS = 10_000;
 const COORDINATOR_READY_POLL_INTERVAL_MS = 25;
 const COORDINATOR_STDERR_TAIL_MAX_CHARS = 8_192;
 const MAX_COORDINATOR_FRAME_BYTES = 1_048_576 + 1_024;
-export const COORDINATOR_PROTOCOL_REVISION = 4;
+export const COORDINATOR_PROTOCOL_REVISION = 5;
 
 function assertCoordinatorPlatform(): void {
 	if (process.platform !== "linux")
