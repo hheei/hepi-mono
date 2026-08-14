@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import {
+	createJsonFlatSectionSettingsStorage,
 	createJsonSectionSettingsStorage,
 	defaultPiSettingsPaths,
 	type HepiContext,
@@ -10,6 +11,8 @@ import { defaultShellPath } from "../bash-jobs.js";
 
 const SECTION = "pi-ext-tools";
 const GROUP = "fff";
+const BASH_GROUP = "bash";
+const RTK_GROUP = "rtk";
 const EDIT_GROUP = "edit";
 const FFF_SETTINGS_DESCRIPTIONS = {
 	provider: "Configure FFF runtime behavior. Tool activation remains owned by Loadout.",
@@ -21,6 +24,12 @@ const FFF_SETTINGS_DESCRIPTIONS = {
 		"Use the FFF index for @path autocomplete while preserving other autocomplete providers.",
 	grep: "Use FFF content search when its semantics are compatible with the requested grep operation.",
 } as const;
+const RTK_SETTINGS_DESCRIPTIONS = {
+	provider: "Configure optional RTK foreground Bash command rewriting.",
+	enabled: "Rewrite eligible foreground Bash commands through RTK after reload or a new session.",
+	path: "Optional RTK executable path. Leave empty to resolve rtk from the process PATH.",
+} as const;
+
 const EDIT_SETTINGS_DESCRIPTIONS = {
 	provider: "Choose the static editing tool catalog for pi-ext-tools.",
 	mode: "Choose native edit/write, Linux-only strict apply_patch, or no editing tools; reload or start a new session after saving.",
@@ -30,6 +39,14 @@ export type EditMode = "native" | "apply_patch" | "none";
 export const DEFAULT_EDIT_MODE: EditMode = "apply_patch";
 
 export interface FffSettingsProviderOptions {
+	readonly path?: string;
+}
+
+export interface RtkSettingsProviderOptions {
+	readonly path?: string;
+}
+
+export interface BashSettingsProviderOptions {
 	readonly path?: string;
 }
 
@@ -47,6 +64,16 @@ export interface FffSettings {
 	readonly readEnhancement: boolean;
 	readonly findEnhancement: boolean;
 }
+
+export interface RtkSettings {
+	readonly enabled: boolean;
+	readonly path: string;
+}
+
+export const DEFAULT_RTK_SETTINGS: RtkSettings = {
+	enabled: false,
+	path: "",
+};
 
 export const DEFAULT_FFF_SETTINGS: FffSettings = {
 	shellPath: defaultShellPath(),
@@ -88,10 +115,10 @@ function positiveIntegerAt(
 
 export function fffSettingsFromState(state: HepiSettingsState | undefined): FffSettings {
 	return {
-		shellPath: nonEmptyStringAt(state, "bash", "shellPath", DEFAULT_FFF_SETTINGS.shellPath),
+		shellPath: nonEmptyStringAt(state, BASH_GROUP, "shellPath", DEFAULT_FFF_SETTINGS.shellPath),
 		bashOutputTailKiB: positiveIntegerAt(
 			state,
-			"bash",
+			BASH_GROUP,
 			"outputTailKiB",
 			DEFAULT_FFF_SETTINGS.bashOutputTailKiB,
 		),
@@ -99,6 +126,14 @@ export function fffSettingsFromState(state: HepiSettingsState | undefined): FffS
 		grepEnhancement: booleanAt(state, GROUP, "grepEnhancement"),
 		readEnhancement: booleanAt(state, GROUP, "readEnhancement"),
 		findEnhancement: booleanAt(state, GROUP, "findEnhancement"),
+	};
+}
+
+export function rtkSettingsFromState(state: HepiSettingsState | undefined): RtkSettings {
+	const values = state?.[RTK_GROUP];
+	return {
+		enabled: values?.rtk === true,
+		path: typeof values?.rtkPath === "string" ? values.rtkPath.trim() : "",
 	};
 }
 
@@ -128,30 +163,82 @@ export function readEditMode(path = defaultPiSettingsPaths().globalPath): EditMo
 	}
 }
 
-export async function loadFffSettings(
+export async function loadRtkSettings(
 	provider: HepiSettingsProvider,
 	context: HepiContext,
-): Promise<FffSettings> {
-	return fffSettingsFromState(await provider.storage.load(context));
+): Promise<RtkSettings> {
+	return rtkSettingsFromState(await provider.storage.load(context));
 }
 
-export function createFffSettingsProvider(
-	options: FffSettingsProviderOptions = {},
+export function createRtkSettingsProvider(
+	options: RtkSettingsProviderOptions = {},
+): HepiSettingsProvider {
+	return {
+		id: "pi-ext-tools.rtk",
+		title: "RTK",
+		origin: "@hheei/pi-ext-tools",
+		description: RTK_SETTINGS_DESCRIPTIONS.provider,
+		groups: [
+			{
+				id: RTK_GROUP,
+				title: "",
+				fields: [
+					{
+						id: "rtk",
+						label: "Enable RTK rewrite",
+						type: "boolean",
+						defaultValue: DEFAULT_RTK_SETTINGS.enabled,
+						description: RTK_SETTINGS_DESCRIPTIONS.enabled,
+						parse: (value) => value === "true",
+					},
+					{
+						id: "rtkPath",
+						label: "RTK executable path",
+						type: "path",
+						defaultValue: DEFAULT_RTK_SETTINGS.path,
+						description: RTK_SETTINGS_DESCRIPTIONS.path,
+						parse: (value) => value.trim(),
+					},
+				],
+			},
+		],
+		storage: createJsonFlatSectionSettingsStorage({
+			...(options.path === undefined ? {} : { path: options.path }),
+			section: SECTION,
+			group: RTK_GROUP,
+		}),
+	};
+}
+
+export async function loadFffSettings(
+	fffProvider: HepiSettingsProvider,
+	bashProvider: HepiSettingsProvider,
+	context: HepiContext,
+): Promise<FffSettings> {
+	const [fffState, bashState] = await Promise.all([
+		fffProvider.storage.load(context),
+		bashProvider.storage.load(context),
+	]);
+	return fffSettingsFromState({ ...(fffState ?? {}), ...(bashState ?? {}) });
+}
+
+export function createBashSettingsProvider(
+	options: BashSettingsProviderOptions = {},
 ): HepiSettingsProvider {
 	const storage = createJsonSectionSettingsStorage({
 		...(options.path === undefined ? {} : { path: options.path }),
 		section: SECTION,
-		group: GROUP,
+		group: BASH_GROUP,
 	});
 	return {
-		id: "pi-ext-tools.fff",
-		title: "FFF",
+		id: "pi-ext-tools.bash",
+		title: "Bash",
 		origin: "@hheei/pi-ext-tools",
-		description: FFF_SETTINGS_DESCRIPTIONS.provider,
+		description: "Configure extension-owned Bash behavior.",
 		groups: [
 			{
-				id: "bash",
-				title: "Bash",
+				id: BASH_GROUP,
+				title: "",
 				fields: [
 					{
 						id: "shellPath",
@@ -179,6 +266,25 @@ export function createFffSettingsProvider(
 					},
 				],
 			},
+		],
+		storage,
+	};
+}
+
+export function createFffSettingsProvider(
+	options: FffSettingsProviderOptions = {},
+): HepiSettingsProvider {
+	const storage = createJsonSectionSettingsStorage({
+		...(options.path === undefined ? {} : { path: options.path }),
+		section: SECTION,
+		group: GROUP,
+	});
+	return {
+		id: "pi-ext-tools.fff",
+		title: "FFF",
+		origin: "@hheei/pi-ext-tools",
+		description: FFF_SETTINGS_DESCRIPTIONS.provider,
+		groups: [
 			{
 				id: GROUP,
 				title: "",

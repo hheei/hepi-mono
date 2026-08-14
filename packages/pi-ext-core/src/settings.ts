@@ -272,7 +272,8 @@ export function createJsonSectionSettingsStorage(
 
 /**
  * Atomic global JSON storage for a provider whose fields are direct keys in one
- * root section. The group remains an in-memory UI construct and is never written.
+ * root section. Nested sibling groups are preserved; direct primitive keys belong
+ * to this provider. The group remains an in-memory UI construct and is never written.
  */
 export function createJsonFlatSectionSettingsStorage(
 	options: JsonFlatSectionSettingsStorageOptions,
@@ -300,7 +301,14 @@ export function createJsonFlatSectionSettingsStorage(
 				const section = root[options.section];
 				if (section !== undefined && !isRecord(section))
 					throw new Error(`Expected ${options.section} to be an object in ${path}`);
-				root[options.section] = { ...(state[options.group] ?? {}) };
+				root[options.section] = {
+					...Object.fromEntries(
+						Object.entries(section ?? {}).filter(
+							(entry): entry is [string, Record<string, unknown>] => isRecord(entry[1]),
+						),
+					),
+					...(state[options.group] ?? {}),
+				};
 			});
 		},
 	};

@@ -34,6 +34,7 @@ function harness(): { readonly pi: ExtensionAPI; readonly tools: ToolDefinition[
 	return {
 		pi: {
 			events: {},
+			on: (): void => {},
 			registerTool: (tool: ToolDefinition): void => {
 				tools.push(tool);
 			},
