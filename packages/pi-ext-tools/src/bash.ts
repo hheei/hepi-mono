@@ -33,8 +33,6 @@ const BASH_PROMPT_GUIDELINES = [
 	"NEVER combine `pty` with `async`.",
 ] as const;
 const BASH_TIMEOUT_DESCRIPTION = "Timeout in seconds (optional, no default timeout)";
-const EXPAND_HINT = "ctrl+o to expand";
-const MAX_BODY_LINES = 12;
 const RTK_REWRITE_TIMEOUT_MS = 1_000;
 const Timeout = Type.Optional(Type.Number({ description: BASH_TIMEOUT_DESCRIPTION }));
 const DefaultInput = Type.Object(
@@ -114,31 +112,14 @@ class BashOutputBody implements Component {
 	render(width: number): string[] {
 		if (this.output === "") return [];
 		const output = lineCount(this.output) > 1 ? this.output.replace(/\r?\n$/, "") : this.output;
-		const lines = new Text(output, 0, 0).render(width).map((line) => stripTerminalSequences(line));
-		const preview = compactBodyOutput(lines);
-		const isEarlierLinesHint = (line: string): boolean =>
-			/^(?:\.\.\.|…) \(\d+ earlier lines,/.test(line);
-		const hintIndex = preview.findIndex(isEarlierLinesHint);
-		if (hintIndex !== -1) {
-			if (preview[hintIndex - 1] === "") preview.splice(hintIndex - 1, 1);
-			const adjustedHintIndex = preview.findIndex(isEarlierLinesHint);
-			if (preview[adjustedHintIndex + 1] === "") preview.splice(adjustedHintIndex + 1, 1);
-			const hint = preview[adjustedHintIndex];
-			if (hint !== undefined)
-				preview[adjustedHintIndex] = this.theme.fg("dim", hint.replace(/^\.\.\./, "…"));
-		}
-		return preview.map((line) => this.theme.fg("text", line));
+		return new Text(output, 0, 0)
+			.render(width)
+			.map((line) => this.theme.fg("text", stripTerminalSequences(line)));
 	}
 
 	invalidate(): void {
 		this.source.invalidate();
 	}
-}
-
-function compactBodyOutput(lines: readonly string[]): string[] {
-	if (lines.length <= MAX_BODY_LINES) return [...lines];
-	const visible = lines.slice(-(MAX_BODY_LINES - 1));
-	return [`… (${lines.length - visible.length} earlier lines, ${EXPAND_HINT})`, ...visible];
 }
 
 function result(text: string, details: Record<string, unknown> = {}): BashToolResult {
@@ -350,7 +331,7 @@ function registerRtkForegroundRewrite(pi: ExtensionAPI, state: FffRuntimeState):
 		const input = event.input;
 		if (fieldIsTrue(input, "async") || fieldIsTrue(input, "pty")) return undefined;
 		const command = input.command;
-		if (command.trim() === "") return undefined;
+		if (typeof command !== "string" || command.trim() === "") return undefined;
 		const rewritten = await rewriteWithRtk(pi, rtkSettings.path || "rtk", command, context.signal);
 		if (rewritten.command !== command) input.command = rewritten.command;
 		if (rewritten.warning !== undefined && context.hasUI && state.consumeRtkRewriteWarning())

@@ -7,7 +7,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { createToolTui } from "../../src/pretty/frame.js";
+import { createToolTui, DEFAULT_MAX_BODY_LINES } from "../../src/pretty/frame.js";
 
 const Params = Type.Object({ path: Type.String() });
 const theme = {
@@ -80,18 +80,18 @@ describe("ToolTui", () => {
 		expect(callLines[0]).toContain(
 			"<warning>◐</warning> <toolTitle><b>read</b></toolTitle> src/a.ts",
 		);
-		expect(callLines[1]).toBe(`<borderMuted>${"─".repeat(200)}</borderMuted>`);
+		expect(callLines[1]).toBe(`<success>${"─".repeat(200)}</success>`);
 		expect(callLines[2]).toBe("call body");
-		expect(callLines[3]).toBe(`<borderMuted>${"─".repeat(200)}</borderMuted>`);
+		expect(callLines[3]).toBe(`<success>${"─".repeat(200)}</success>`);
 		expect(
 			renderResult(framed, {
 				content: [{ type: "text", text: "result body" }],
 				details: undefined,
 			}),
 		).toEqual([
-			`<borderMuted>${"─".repeat(80)}</borderMuted>`,
+			`<success>${"─".repeat(80)}</success>`,
 			"result body",
-			`<borderMuted>${"─".repeat(80)}</borderMuted>`,
+			`<success>${"─".repeat(80)}</success>`,
 			"<dim>1 line · 2ms</dim>",
 		]);
 	});
@@ -131,15 +131,15 @@ describe("ToolTui", () => {
 			return renderResult(framed, { content: [], details: undefined });
 		};
 		expect(body("body", "footer")).toEqual([
-			`<borderMuted>${"─".repeat(80)}</borderMuted>`,
+			`<success>${"─".repeat(80)}</success>`,
 			"body",
-			`<borderMuted>${"─".repeat(80)}</borderMuted>`,
+			`<success>${"─".repeat(80)}</success>`,
 			"<dim>footer</dim>",
 		]);
 		expect(body("body")).toEqual([
-			`<borderMuted>${"─".repeat(80)}</borderMuted>`,
+			`<success>${"─".repeat(80)}</success>`,
 			"body",
-			`<borderMuted>${"─".repeat(80)}</borderMuted>`,
+			`<success>${"─".repeat(80)}</success>`,
 		]);
 		expect(body("<empty>", "footer")).toEqual(["<dim>footer</dim>"]);
 		expect(body("<empty>")).toEqual([]);
@@ -264,5 +264,64 @@ describe("ToolTui", () => {
 				details: undefined,
 			}).join("\n"),
 		).toContain("<toolOutput>result body</toolOutput>");
+	});
+
+	test("caps an unexpanded body at 20 rows and lets tools override", (): void => {
+		const lines = Array.from(
+			{ length: DEFAULT_MAX_BODY_LINES + 10 },
+			(_, index) => `line ${index + 1}`,
+		);
+		const tui = createToolTui();
+		const defaulted = tui.frame({
+			...tool(),
+			renderResult: () => new Text(lines.join("\n"), 0, 0),
+		});
+		const overridden = tui.frame(
+			{
+				...tool(),
+				renderResult: () => new Text(lines.join("\n"), 0, 0),
+			},
+			{ maxBodyLines: 8 },
+		);
+		const result = { content: [], details: undefined };
+		const capped = renderResult(defaulted, result).filter((line) => !line.includes("─"));
+		expect(capped).toHaveLength(DEFAULT_MAX_BODY_LINES);
+		expect(capped[0]).toContain(`… (11 earlier lines, ctrl+o to expand)`);
+		expect(capped.at(-1)).toContain(`line ${lines.length}`);
+		const custom = renderResult(overridden, result).filter((line) => !line.includes("─"));
+		expect(custom).toHaveLength(8);
+		expect(custom[0]).toContain("… (23 earlier lines, ctrl+o to expand)");
+		const expanded =
+			defaulted
+				.renderResult?.(result, { expanded: true, isPartial: false }, theme, context(false))
+				.render(80)
+				.filter((line) => !line.includes("─")) ?? [];
+		expect(expanded).toHaveLength(lines.length);
+	});
+
+	test("colors body rails from success or error", (): void => {
+		const tui = createToolTui();
+		const ok = tui.frame({
+			...tool(),
+			renderResult: () => new Text("body", 0, 0),
+		});
+		const warned = tui.frame(
+			{
+				...tool(),
+				renderResult: () => new Text("body", 0, 0),
+			},
+			{ warning: () => true },
+		);
+		const result = { content: [], details: undefined };
+		const successRail = `<success>${"─".repeat(80)}</success>`;
+		const errorRail = `<error>${"─".repeat(80)}</error>`;
+		expect(renderResult(ok, result)[0]).toBe(successRail);
+		expect(renderResult(warned, result)[0]).toBe(errorRail);
+		const failed =
+			ok
+				.renderResult?.(result, { expanded: false, isPartial: false }, theme, context(false, true))
+				.render(80)
+				.map((line) => line.trimEnd()) ?? [];
+		expect(failed[0]).toBe(errorRail);
 	});
 });

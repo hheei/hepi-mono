@@ -168,9 +168,12 @@ describe("apply_patch progress renderer", () => {
 		const expanded = renderApplyPatchResult(details, true, theme as never)
 			.render(200)
 			.join("\n");
-		expect(collapsed).not.toContain("--- a/src/updated.ts");
-		expect(expanded).toContain("@@ -2,1 +2,1 @@");
-		expect(expanded).not.toContain("@@ -1,1 +1,1 @@");
+		expect(collapsed).not.toContain("old");
+		expect(expanded).toContain("old");
+		expect(expanded).toContain("new");
+		expect(expanded).toMatch(/\b2\b/);
+		expect(expanded).not.toContain("--- a/");
+		expect(expanded).not.toContain("@@");
 	});
 
 	test("shows expanded hunk diagnostics for a partially applied update", () => {

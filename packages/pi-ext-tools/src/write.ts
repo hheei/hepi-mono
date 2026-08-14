@@ -1,26 +1,68 @@
+import { existsSync, readFileSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 import {
 	type AgentToolResult,
 	createWriteToolDefinition,
 	type ExtensionAPI,
+	type Theme,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { type Component, Container } from "@earendil-works/pi-tui";
-import { adaptNativeBody, unwrapNativeBody } from "./native-body.js";
+import { Container, Text } from "@earendil-works/pi-tui";
 import { createCanonicalExecutionTool, registerCanonicalManagedTool } from "./native-tool.js";
+import { MAX_RENDER_LINES } from "./pretty/config.js";
+import { normalizeLineEndings, parseDiff } from "./pretty/diff.js";
+import {
+	renderDiffSummary,
+	renderSplit,
+	resolveDiffColors,
+	summarize,
+} from "./pretty/diff-render.js";
 import type { ToolTui } from "./pretty/frame.js";
+import { hlBlock } from "./pretty/highlight.js";
+import { lang } from "./pretty/lang.js";
+import { LinesBody } from "./pretty/lines-body.js";
 
 const WRITE_RENDER_DETAILS = "__piExtToolsWrite";
+const WRITE_VIEW_KEY = "__piExtToolsWriteView";
+const NEW_FILE_PREVIEW_LINES = 20;
+const EXPAND_HINT = "ctrl+o to expand";
 
 type WriteDefinition = ReturnType<typeof createWriteToolDefinition>;
 type WriteArgs = Parameters<NonNullable<WriteDefinition["renderCall"]>>[0];
+type WriteState = Record<string, never>;
 
-type WriteToolState = {
-	previewComponent?: Component;
-};
+type WriteView =
+	| {
+			readonly kind: "diff";
+			readonly summary: string;
+			readonly oldContent: string;
+			readonly newContent: string;
+			readonly language: string | undefined;
+	  }
+	| {
+			readonly kind: "new";
+			readonly lines: number;
+			readonly content: string;
+			readonly language: string | undefined;
+	  }
+	| { readonly kind: "noChange" };
 
 function durationText(durationMs: number | undefined): string | undefined {
 	if (durationMs === undefined) return undefined;
 	return durationMs < 1_000 ? `${durationMs}ms` : `${(durationMs / 1_000).toFixed(1)}s`;
+}
+
+function filePath(args: WriteArgs): string {
+	const extra = args as WriteArgs & { file_path?: unknown };
+	return typeof args.path === "string"
+		? args.path
+		: typeof extra.file_path === "string"
+			? extra.file_path
+			: "";
+}
+
+function resolvePath(cwd: string, path: string): string {
+	return isAbsolute(path) ? path : join(cwd, path);
 }
 
 function trimTrailingEmptyLines(lines: readonly string[]): string[] {
@@ -35,11 +77,18 @@ function writeMetrics(args: WriteArgs): { bytes: number; lines: number } | undef
 	return { bytes: args.content.length, lines: normalizedLines.length };
 }
 
-function withWriteMetrics(
+function resultText(result: AgentToolResult<unknown>): string {
+	return result.content
+		.filter((part) => part.type === "text")
+		.map((part) => part.text)
+		.join("\n");
+}
+
+function withWriteDetails(
 	result: AgentToolResult<unknown>,
 	metrics: { bytes: number; lines: number } | undefined,
+	view: WriteView | undefined,
 ): AgentToolResult<unknown> {
-	if (metrics === undefined) return result;
 	const details =
 		typeof result.details === "object" && result.details !== null && !Array.isArray(result.details)
 			? result.details
@@ -48,7 +97,8 @@ function withWriteMetrics(
 		...result,
 		details: {
 			...details,
-			[WRITE_RENDER_DETAILS]: metrics,
+			...(metrics === undefined ? {} : { [WRITE_RENDER_DETAILS]: metrics }),
+			...(view === undefined ? {} : { [WRITE_VIEW_KEY]: view }),
 		},
 	};
 }
@@ -69,73 +119,121 @@ function readWriteMetrics(
 		: undefined;
 }
 
-function previewComponent(
-	state: WriteToolState,
-	lastComponent: Component | undefined,
-): Component | undefined {
-	return unwrapNativeBody(lastComponent) ?? state.previewComponent;
+function writeView(result: AgentToolResult<unknown>): WriteView | undefined {
+	const details = result.details;
+	if (typeof details !== "object" || details === null || Array.isArray(details)) return undefined;
+	const value = (details as Record<string, unknown>)[WRITE_VIEW_KEY];
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+	const kind = (value as Record<string, unknown>).kind;
+	return kind === "diff" || kind === "new" || kind === "noChange"
+		? (value as WriteView)
+		: undefined;
 }
 
-function rememberPreview(state: WriteToolState, component: Component): Component {
-	state.previewComponent = component;
-	return component;
+function previewLines(
+	content: string,
+	language: string | undefined,
+	theme: Theme,
+	expanded: boolean,
+): string[] {
+	const lines = hlBlock(content, language, theme);
+	if (expanded || lines.length <= NEW_FILE_PREVIEW_LINES) return lines;
+	const visible = lines.slice(0, NEW_FILE_PREVIEW_LINES - 1);
+	return [
+		...visible,
+		theme.fg("dim", `… (${lines.length - visible.length} more lines, ${EXPAND_HINT})`),
+	];
+}
+
+function renderWriteDiff(
+	oldContent: string,
+	newContent: string,
+	language: string | undefined,
+	theme: Theme,
+	width: number,
+): string[] {
+	const text = renderSplit(
+		parseDiff(oldContent, newContent),
+		language,
+		MAX_RENDER_LINES,
+		resolveDiffColors(theme),
+		width,
+	);
+	return text === "" ? [] : text.split("\n");
 }
 
 export function registerWriteTool(pi: ExtensionAPI, tui: ToolTui): void {
-	const nativeTool = createWriteToolDefinition(process.cwd());
 	const baseTool = createCanonicalExecutionTool(createWriteToolDefinition) as ToolDefinition<
 		WriteDefinition["parameters"],
 		unknown,
-		WriteToolState
+		WriteState
 	>;
-	const nativeRenderCall = nativeTool.renderCall;
-	const nativeRenderResult = nativeTool.renderResult;
-	const tool: ToolDefinition<WriteDefinition["parameters"], unknown, WriteToolState> = {
+	const tool: ToolDefinition<WriteDefinition["parameters"], unknown, WriteState> = {
 		...baseTool,
 		async execute(toolCallId, params: WriteArgs, signal, onUpdate, context) {
+			const path = filePath(params);
+			const resolved = resolvePath(context.cwd, path);
+			let old: string | null = null;
+			try {
+				if (path !== "" && existsSync(resolved)) old = readFileSync(resolved, "utf-8");
+			} catch {
+				old = null;
+			}
 			const result = await baseTool.execute(toolCallId, params, signal, onUpdate, context);
-			return withWriteMetrics(result, writeMetrics(params));
+			const content = typeof params.content === "string" ? params.content : "";
+			const language = lang(path);
+			const parsed = old === null ? undefined : parseDiff(old, content);
+			const view: WriteView =
+				old !== null &&
+				parsed !== undefined &&
+				normalizeLineEndings(old) !== normalizeLineEndings(content)
+					? {
+							kind: "diff",
+							summary: summarize(parsed.added, parsed.removed),
+							oldContent: old,
+							newContent: content,
+							language,
+						}
+					: old === null
+						? {
+								kind: "new",
+								lines: content === "" ? 0 : content.split("\n").length,
+								content,
+								language,
+							}
+						: { kind: "noChange" };
+			return withWriteDetails(result, writeMetrics(params), view);
 		},
 		renderCall(args, theme, context) {
-			const state = context.state as WriteToolState;
-			const upstream = rememberPreview(
-				state,
-				nativeRenderCall?.(args, theme, {
-					...context,
-					lastComponent: previewComponent(state, context.lastComponent),
-				}) ?? new Container(),
-			);
-			return adaptNativeBody(context.lastComponent, upstream, "after-first-blank");
+			const path = filePath(args);
+			const content = typeof args.content === "string" ? args.content : "";
+			if (content === "" || existsSync(resolvePath(context.cwd, path))) return new Container();
+			return new LinesBody(() => previewLines(content, lang(path), theme, context.expanded));
 		},
 		renderResult(result, options, theme, context) {
-			if (context.isError) {
-				const upstream =
-					nativeRenderResult?.(
-						result as Awaited<ReturnType<WriteDefinition["execute"]>>,
-						options,
-						theme,
-						{
-							...context,
-							lastComponent: unwrapNativeBody(context.lastComponent),
-						},
-					) ?? new Container();
-				return adaptNativeBody(context.lastComponent, upstream, "trim-leading-blank");
+			if (context.isError) return new Text(resultText(result) || "Error", 0, 0);
+			const view = writeView(result);
+			if (view === undefined) return new Container();
+			if (view.kind === "noChange") return new Text(theme.fg("muted", "no changes"), 0, 0);
+			if (view.kind === "new") {
+				const heading = theme.fg("success", `new file (${view.lines} lines)`);
+				return new LinesBody(() => {
+					const body = previewLines(view.content, view.language, theme, options.expanded);
+					return view.content === "" ? [heading] : [heading, ...body];
+				});
 			}
-			const state = context.state as WriteToolState;
-			const preview = rememberPreview(
-				state,
-				nativeRenderCall?.(context.args as WriteArgs, theme, {
-					...context,
-					lastComponent: previewComponent(state, context.lastComponent),
-					argsComplete: true,
-				}) ?? new Container(),
-			);
-			return adaptNativeBody(context.lastComponent, preview, "after-first-blank");
+			const heading = renderDiffSummary(view.summary, theme);
+			return new LinesBody((width) => [
+				heading,
+				...renderWriteDiff(view.oldContent, view.newContent, view.language, theme, width),
+			]);
 		},
 	};
 	registerCanonicalManagedTool(
 		pi,
 		tui.frame(tool, {
+			summary: (args) => filePath(args as WriteArgs) || undefined,
+			maxBodyLines: Number.POSITIVE_INFINITY,
 			footer(result, completion) {
 				const metrics = readWriteMetrics(result);
 				const duration = durationText(completion?.durationMs);

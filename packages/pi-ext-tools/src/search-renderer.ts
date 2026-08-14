@@ -5,6 +5,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { type Component, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { GrepDisplayLine, GrepToolDetails } from "./grep.js";
+import { DEFAULT_MAX_BODY_LINES } from "./pretty/frame.js";
 import type { ToolCompletion } from "./pretty/trace.js";
 
 export type FindToolDetails = {
@@ -16,7 +17,6 @@ export type FindToolDetails = {
 };
 
 type RenderContext = { readonly isError: boolean; readonly lastComponent: Component | undefined };
-const MAX_COLLAPSED_GREP_RESULT_PREVIEW_LINES = 12;
 const EXPAND_HINT = "ctrl+o to expand";
 const TRUNCATION_MARKER = "…";
 const FIND_CURSOR = /^cursor:\s+/;
@@ -210,9 +210,7 @@ export function renderGrepResult(
 			!/^\d+(?: fuzzy)? matches in \d+ files$/.test(line.text),
 	);
 	const collapsedLimit =
-		display.length > MAX_COLLAPSED_GREP_RESULT_PREVIEW_LINES
-			? MAX_COLLAPSED_GREP_RESULT_PREVIEW_LINES - 1
-			: MAX_COLLAPSED_GREP_RESULT_PREVIEW_LINES;
+		display.length > DEFAULT_MAX_BODY_LINES ? DEFAULT_MAX_BODY_LINES - 1 : DEFAULT_MAX_BODY_LINES;
 	const visible = options.expanded ? display : display.slice(0, collapsedLimit);
 	let lineNumberWidth = 0;
 	let reserveLeftMarker = false;
@@ -363,9 +361,7 @@ export function renderFindResult(
 			0,
 		);
 	const body = findBodyLines(details);
-	const visible = options.expanded
-		? [...body]
-		: body.slice(0, MAX_COLLAPSED_GREP_RESULT_PREVIEW_LINES - 1);
+	const visible = options.expanded ? [...body] : body.slice(0, DEFAULT_MAX_BODY_LINES - 1);
 	if (!options.expanded && body.length > visible.length)
 		visible.push({
 			kind: "omission",

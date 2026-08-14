@@ -31,6 +31,8 @@ type ToolPresentation<TParams extends TSchema, TDetails> = {
 		options: ToolRenderResultOptions,
 	) => string | undefined;
 	readonly warning?: (result: AgentToolResult<TDetails>) => boolean;
+	/** Unexpanded body rows. Default 20. Non-finite or < 1 disables the cap. */
+	readonly maxBodyLines?: number;
 };
 
 export interface ToolTui {
@@ -46,6 +48,8 @@ type ToolFrameHeader<TParams extends TSchema, TDetails> = (
 	latest: AgentToolResult<TDetails> | undefined,
 ) => string | undefined;
 
+export const DEFAULT_MAX_BODY_LINES = 20;
+const EXPAND_HINT = "ctrl+o to expand";
 const COMPLETION_KEY = "__piExtToolsCompletion";
 
 const TOOL_BACKGROUNDS: ReadonlySet<Parameters<Theme["bg"]>[0]> = new Set([
@@ -258,11 +262,34 @@ function collapsedHeader(header: FrameHeader, width: number, theme: Theme): stri
 	return `${truncateToWidth(header.primary, width - suffixWidth, truncation)}${header.suffix}`;
 }
 
+function compactBodyLines(
+	lines: readonly string[],
+	maxBodyLines: number,
+	width: number,
+	theme: Theme,
+): string[] {
+	if (!Number.isFinite(maxBodyLines) || maxBodyLines < 1 || lines.length <= maxBodyLines)
+		return [...lines];
+	const visible = lines.slice(-(maxBodyLines - 1));
+	const hint = theme.fg(
+		"dim",
+		`… (${lines.length - visible.length} earlier lines, ${EXPAND_HINT})`,
+	);
+	return [truncateToWidth(hint, width, theme.fg("dim", "…")), ...visible];
+}
+
+function railRole(isError: boolean, warning: boolean): "success" | "error" {
+	return isError || warning ? "error" : "success";
+}
+
 class ToolBodySection implements Component {
 	constructor(
 		private readonly body: Component,
 		private readonly footer: string | undefined,
 		private readonly theme: Theme,
+		private readonly maxBodyLines: number,
+		private readonly expanded = false,
+		private readonly rail: "success" | "error" = "success",
 	) {}
 
 	bodyComponent(): Component {
@@ -271,13 +298,17 @@ class ToolBodySection implements Component {
 
 	render(width: number): string[] {
 		const availableWidth = Math.max(1, width);
-		const body = this.body.render(availableWidth);
+		const rendered = this.body.render(availableWidth);
+		const body = this.expanded
+			? rendered
+			: compactBodyLines(rendered, this.maxBodyLines, availableWidth, this.theme);
 		if (body.length === 0)
 			return this.footer === undefined ? [] : [this.theme.fg("dim", this.footer)];
+		const rail = this.theme.fg(this.rail, "─".repeat(availableWidth));
 		return [
-			this.theme.fg("borderMuted", "─".repeat(availableWidth)),
+			rail,
 			...body,
-			this.theme.fg("borderMuted", "─".repeat(availableWidth)),
+			rail,
 			...(this.footer === undefined ? [] : [this.theme.fg("dim", this.footer)]),
 		];
 	}
@@ -311,6 +342,7 @@ export function createToolTui(): ToolTui {
 		): ToolDefinition<TParams, TDetails, TState> {
 			const renderCall = tool.renderCall;
 			const renderResult = tool.renderResult;
+			const maxBodyLines = presentation.maxBodyLines ?? DEFAULT_MAX_BODY_LINES;
 			return {
 				...tool,
 				renderShell: "self",
@@ -359,7 +391,19 @@ export function createToolTui(): ToolTui {
 								})
 							: undefined;
 					return new ToolFrameSection(
-						body === undefined ? undefined : new ToolBodySection(body, undefined, theme),
+						body === undefined
+							? undefined
+							: new ToolBodySection(
+									body,
+									undefined,
+									theme,
+									maxBodyLines,
+									context.expanded,
+									railRole(
+										context.isError,
+										trace.completionFor(context.toolCallId)?.warning === true,
+									),
+								),
 						theme,
 						header,
 					);
@@ -392,7 +436,14 @@ export function createToolTui(): ToolTui {
 							...context,
 							lastComponent: previousBody(context.lastComponent),
 						}) ?? resultFallback(result, theme);
-					return new ToolBodySection(body, footer, theme);
+					return new ToolBodySection(
+						body,
+						footer,
+						theme,
+						maxBodyLines,
+						options.expanded,
+						railRole(context.isError, isWarning),
+					);
 				},
 			};
 		},

@@ -120,7 +120,7 @@ describe("ToolExecutionComponent smoke", () => {
 		}
 	});
 
-	test("keeps twelve complete bash output rows in the host body", async (): Promise<void> => {
+	test("keeps twenty complete bash output rows in the host body", async (): Promise<void> => {
 		initTheme("dark");
 		const registered: ToolDefinition[] = [];
 		const pi = {
@@ -142,7 +142,7 @@ describe("ToolExecutionComponent smoke", () => {
 			process.cwd(),
 		);
 		component.markExecutionStarted();
-		const command = "i=1; while [ $i -le 20 ]; do echo line $i; i=$((i + 1)); done";
+		const command = "i=1; while [ $i -le 30 ]; do echo line $i; i=$((i + 1)); done";
 		let partial: AgentToolResult<unknown> | undefined;
 		const result = await tool.execute(
 			"complete-bash-body",
@@ -157,9 +157,9 @@ describe("ToolExecutionComponent smoke", () => {
 		if (partial === undefined) throw new Error("Expected bash partial output");
 		component.updateResult({ ...result, isError: false });
 		const body = framedBody(component);
-		expect(body, stripTerminalSequences(component.render(100).join("\n"))).toHaveLength(12);
-		expect(body[0]).toMatch(/^… \(9 earlier lines,/);
-		expect(body.at(-1)).toContain("line 20");
+		expect(body, stripTerminalSequences(component.render(100).join("\n"))).toHaveLength(20);
+		expect(body[0]).toMatch(/^… \(11 earlier lines,/);
+		expect(body.at(-1)).toContain("line 30");
 	});
 
 	test("keeps native write preview body after final host completion", async (): Promise<void> => {
@@ -170,6 +170,7 @@ describe("ToolExecutionComponent smoke", () => {
 			registerTool(tool: ToolDefinition): void {
 				registered.push(tool);
 			},
+			on(): void {},
 		} as unknown as ExtensionAPI;
 		const tui = createToolTui();
 		registerTools(pi, undefined, tui, "native");

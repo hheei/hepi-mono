@@ -69,6 +69,43 @@ SOFTWARE.
 The N-API bridge links the vendored mpatch library above; it does not launch or
 bundle a separate mpatch executable.
 
+## pix-pretty (edit/write renderer)
+
+`src/pretty/diff.ts`, `src/pretty/diff-render.ts`, `src/pretty/highlight.ts`,
+and `src/pretty/ansi.ts` are adapted from
+[xynogen/pix-mono](https://github.com/xynogen/pix-mono) package `pix-pretty`
+at revision `1ca2d05aec5fdba679c6b3ac7b7b57822962c205` (local clone
+`references/repos/pix-mono`). `src/edit.ts` and `src/write.ts` adapt the
+`pix-edit` / `pix-write` presentation, not execution.
+
+Copyright (c) 2026 xynogen
+
+Licensed under the MIT License. The upstream license text is reproduced below.
+
+```text
+MIT License
+
+Copyright (c) 2026 xynogen
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ## portable-pty
 
 The N-API bridge links [WezTerm portable-pty](https://github.com/wezterm/wezterm)
