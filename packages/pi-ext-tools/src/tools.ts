@@ -1,65 +1,15 @@
-import {
-	createEditToolDefinition,
-	createWriteToolDefinition,
-	type ExtensionAPI,
-	type ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
-import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
-import type { TSchema } from "typebox";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerApplyPatchTool } from "./apply-patch-tool.js";
 import { registerBashTool } from "./bash.js";
 import { registerBashJobTool } from "./bash-job-tool.js";
+import { registerEditTool } from "./edit.js";
 import { createFffRuntimeState, type FffRuntimeState } from "./fff/lifecycle.js";
 import type { EditMode } from "./fff/settings.js";
 import { registerFindTool } from "./find.js";
 import { registerGrepTool } from "./grep.js";
 import { createToolTui, type ToolTui } from "./pretty/frame.js";
 import { registerReadTool } from "./read.js";
-
-const OWNER = "@hheei/pi-ext-tools";
-const BUILT_IN_GROUP = "Built-in";
-
-/**
- * Register each catalog name once, while creating execution definitions from the
- * call's cwd. This preserves Pi's schema, abort, streaming, renderer, and file
- * semantics without pinning a tool definition to extension construction cwd.
- */
-function registerCanonicalTool<TParams extends TSchema, TDetails, TState>(
-	pi: ExtensionAPI,
-	factory: (cwd: string) => ToolDefinition<TParams, TDetails, TState>,
-	tui: ToolTui,
-	conflictsWith: readonly string[] = [],
-): void {
-	const template = factory(process.cwd());
-	const tool: ToolDefinition<TParams, TDetails, TState> = {
-		...template,
-		async execute(toolCallId, params, signal, onUpdate, context) {
-			if (
-				typeof params === "object" &&
-				params !== null &&
-				"path" in params &&
-				typeof params.path === "string" &&
-				params.path.startsWith("output://")
-			)
-				throw new Error("Write/edit cannot modify output URLs");
-			return factory(context.cwd).execute(toolCallId, params, signal, onUpdate, context);
-		},
-	};
-	registerManagedLoadoutTool(
-		pi,
-		{
-			id: tool.name,
-			owner: OWNER,
-			group: BUILT_IN_GROUP,
-			origin: OWNER,
-			priority: 100,
-			conflictSets: [],
-			conflictsWith,
-			defaultActive: true,
-		},
-		tui.frame(tool),
-	);
-}
+import { registerWriteTool } from "./write.js";
 
 /** Statically registers the explicitly approved canonical tool catalog. */
 export function registerTools(
@@ -72,8 +22,8 @@ export function registerTools(
 	registerGrepTool(pi, state, tui);
 	registerFindTool(pi, state, tui);
 	if (editMode === "native") {
-		registerCanonicalTool(pi, createEditToolDefinition, tui);
-		registerCanonicalTool(pi, createWriteToolDefinition, tui);
+		registerEditTool(pi, tui);
+		registerWriteTool(pi, tui);
 	}
 	registerBashTool(pi, state, tui);
 	registerBashJobTool(pi, state, tui);
