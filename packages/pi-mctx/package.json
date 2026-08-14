@@ -28,16 +28,16 @@
 		"zod": "^4.1.8"
 	},
 	"peerDependencies": {
-		"@earendil-works/pi-agent-core": ">=0.84.0",
-		"@earendil-works/pi-ai": ">=0.84.0",
-		"@earendil-works/pi-coding-agent": ">=0.84.0",
-		"@earendil-works/pi-tui": ">=0.84.0"
+		"@earendil-works/pi-agent-core": ">=0.84.1",
+		"@earendil-works/pi-ai": ">=0.84.1",
+		"@earendil-works/pi-coding-agent": ">=0.84.1",
+		"@earendil-works/pi-tui": ">=0.84.1"
 	},
 	"devDependencies": {
-		"@earendil-works/pi-agent-core": ">=0.84.0",
-		"@earendil-works/pi-ai": ">=0.84.0",
-		"@earendil-works/pi-coding-agent": ">=0.84.0",
-		"@earendil-works/pi-tui": ">=0.84.0",
+		"@earendil-works/pi-agent-core": ">=0.84.1",
+		"@earendil-works/pi-ai": ">=0.84.1",
+		"@earendil-works/pi-coding-agent": ">=0.84.1",
+		"@earendil-works/pi-tui": ">=0.84.1",
 		"@types/better-sqlite3": "^7.6.13",
 		"@types/bun": "latest",
 		"@types/node": "^22.19.19"

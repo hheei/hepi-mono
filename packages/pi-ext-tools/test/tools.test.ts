@@ -2,7 +2,13 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { initTheme, type ExtensionAPI, type ExtensionContext, type Theme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import {
+	type ExtensionAPI,
+	type ExtensionContext,
+	initTheme,
+	type Theme,
+	type ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { observeLoadoutInventory } from "@hheei/pi-ext-core";
 import { registerTools } from "../src/tools.js";
@@ -554,7 +560,7 @@ describe("pi-ext-tools catalog", () => {
 			cwd,
 		} as ExtensionContext);
 		const rendered = write
-			.renderResult?.({ ...result, isError: false }, { isPartial: false, expanded: false }, theme, {
+			.renderResult?.(result, { isPartial: false, expanded: false }, theme, {
 				args,
 				toolCallId: "write-preview",
 				invalidate: (): void => undefined,
@@ -602,7 +608,7 @@ describe("pi-ext-tools catalog", () => {
 			},
 		} as unknown as ExtensionContext);
 		const rendered = edit
-			.renderResult?.({ ...result, isError: false }, { isPartial: false, expanded: false }, theme, {
+			.renderResult?.(result, { isPartial: false, expanded: false }, theme, {
 				args,
 				toolCallId: "edit-preview",
 				invalidate: (): void => undefined,
@@ -806,6 +812,7 @@ describe("pi-ext-tools catalog", () => {
 			)
 			.render(80)
 			.map((line) => line.trimEnd());
+		if (result === undefined) throw new Error("Expected find result renderer");
 		expect(result.filter((line) => line.includes("─"))).toHaveLength(2);
 		expect(result).toContain("fuzzy files:");
 		expect(result).toContain("<mdCode>src/</mdCode>");

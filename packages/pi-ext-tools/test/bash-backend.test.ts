@@ -141,6 +141,7 @@ test("bash displays its active command in the base theme and timeout dim", (): v
 		} as never)
 		.render(120)
 		.join("\n");
+	if (text === undefined) throw new Error("Expected bash call renderer");
 	expect(text.match(/printf one/g)).toHaveLength(1);
 	expect(text).not.toContain("<dim>printf one</dim>");
 	expect(text).toContain("<dim> (timeout 120s)</dim>");
