@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Agent } from "@earendil-works/pi-agent-core";
+import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import {
 	type AgentToolResult,
 	type ExtensionAPI,
@@ -19,6 +21,13 @@ const callId = "smoke-call";
 
 function outputOccurrences(component: ToolExecutionComponent, output: string): number {
 	return stripTerminalSequences(component.render(100).join("\n")).split(output).length - 1;
+}
+
+function framedBody(component: ToolExecutionComponent): readonly string[] {
+	const lines = stripTerminalSequences(component.render(100).join("\n")).split("\n");
+	const openingRail = lines.findIndex((line) => line.includes("─"));
+	const closingRail = lines.findIndex((line, index) => index > openingRail && line.includes("─"));
+	return openingRail < 0 || closingRail < 0 ? [] : lines.slice(openingRail + 1, closingRail);
 }
 
 describe("ToolExecutionComponent smoke", () => {
@@ -108,6 +117,48 @@ describe("ToolExecutionComponent smoke", () => {
 			expect(rendered).not.toContain("─");
 			component.invalidate();
 		}
+	});
+
+	test("keeps twelve complete bash output rows in the host body", async (): Promise<void> => {
+		initTheme("dark");
+		const registered: ToolDefinition[] = [];
+		const pi = {
+			registerTool(tool: ToolDefinition): void {
+				registered.push(tool);
+			},
+		} as unknown as ExtensionAPI;
+		const tui = createToolTui();
+		registerBashTool(pi, undefined, tui);
+		const tool = registered[0]!;
+		tui.beginTrace();
+		const component = new ToolExecutionComponent(
+			"bash",
+			"complete-bash-body",
+			{ command: "printf many" },
+			undefined,
+			tool,
+			{ requestRender: (): void => undefined } as unknown as TUI,
+			process.cwd(),
+		);
+		component.markExecutionStarted();
+		const command = "i=1; while [ $i -le 20 ]; do echo line $i; i=$((i + 1)); done";
+		let partial: AgentToolResult<unknown> | undefined;
+		const result = await tool.execute(
+			"complete-bash-body",
+			{ command },
+			undefined,
+			(update) => {
+				partial = update;
+				component.updateResult({ ...update, isError: false }, true);
+			},
+			{ cwd: process.cwd() } as never,
+		);
+		if (partial === undefined) throw new Error("Expected bash partial output");
+		component.updateResult({ ...result, isError: false });
+		const body = framedBody(component);
+		expect(body, stripTerminalSequences(component.render(100).join("\n"))).toHaveLength(12);
+		expect(body[0]).toMatch(/^… \(9 earlier lines,/);
+		expect(body.at(-1)).toContain("line 20");
 	});
 
 	test("renders one body on the first resumed result pass", (): void => {
@@ -285,6 +336,113 @@ describe("ToolExecutionComponent smoke", () => {
 			expect(stripTerminalSequences(component.render(100).join("\n"))).toContain(
 				"✓ create first.txt +1",
 			);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
+	test("streams apply_patch through the Pi agent event lifecycle before completion", async (): Promise<void> => {
+		initTheme("dark");
+		const registered: ToolDefinition[] = [];
+		const pi = {
+			registerTool(tool: ToolDefinition): void {
+				registered.push(tool);
+			},
+		} as unknown as ExtensionAPI;
+		const tui = createToolTui();
+		registerApplyPatchTool(pi, tui);
+		const definition = registered[0];
+		if (definition === undefined) throw new Error("apply_patch was not registered");
+		const root = await mkdtemp(join(tmpdir(), "hepi-apply-patch-agent-stream-"));
+		try {
+			// Pi wraps registered definitions before Agent execution to supply ExtensionContext.
+			// Keep the Agent's native four-argument execute path intact for this smoke.
+			const tool = {
+				...definition,
+				execute: (toolCallId: string, params: unknown, signal?: AbortSignal, onUpdate?: never) =>
+					definition.execute(toolCallId, params, signal, onUpdate, { cwd: root } as never),
+			};
+			const patch =
+				"*** Begin Patch\n*** Add File: first.txt\n+one\n*** Add File: second.txt\n+two\n*** End Patch";
+			const assistant = (content: unknown[], stopReason: "stop" | "toolUse") =>
+				({
+					role: "assistant",
+					content,
+					api: "test",
+					provider: "test",
+					model: "test",
+					usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+					stopReason,
+					timestamp: Date.now(),
+				}) as never;
+			let responses = 0;
+			const agent = new Agent({
+				initialState: {
+					model: { api: "test", provider: "test", id: "test" } as never,
+					thinkingLevel: "off",
+					tools: [tool] as never,
+				},
+				toolExecution: "sequential",
+				streamFn: () => {
+					const stream = createAssistantMessageEventStream();
+					responses += 1;
+					if (responses === 1) {
+						const message = assistant(
+							[
+								{
+									type: "toolCall",
+									id: "agent-apply-patch",
+									name: "apply_patch",
+									arguments: { patch },
+								},
+							],
+							"toolUse",
+						);
+						stream.push({ type: "start", partial: message });
+						stream.push({
+							type: "toolcall_end",
+							contentIndex: 0,
+							toolCall: message.content[0],
+							partial: message,
+						});
+						stream.push({ type: "done", reason: "toolUse", message });
+					} else {
+						const message = assistant([], "stop");
+						stream.push({ type: "start", partial: message });
+						stream.push({ type: "done", reason: "stop", message });
+					}
+					return stream;
+				},
+			});
+			let component: ToolExecutionComponent | undefined;
+			const eventOrder: string[] = [];
+			agent.subscribe((event) => {
+				if (event.type === "tool_execution_start") {
+					tui.beginTrace();
+					component = new ToolExecutionComponent(
+						event.toolName,
+						event.toolCallId,
+						event.args,
+						undefined,
+						tool,
+						{ requestRender: (): void => undefined } as unknown as TUI,
+						root,
+					);
+					component.markExecutionStarted();
+				}
+				if (event.type === "tool_execution_update") {
+					if (component === undefined) throw new Error("Missing apply_patch component");
+					component.updateResult({ ...event.partialResult, isError: false }, true);
+					const rendered = stripTerminalSequences(component.render(100).join("\n"));
+					if (rendered.includes("○ create first.txt +1")) eventOrder.push("parsed");
+					if (rendered.includes("✓ create first.txt +1")) eventOrder.push("committed");
+				}
+				if (event.type === "tool_execution_end") eventOrder.push("end");
+			});
+			await agent.prompt("apply the patch");
+			expect(eventOrder.indexOf("parsed")).toBeGreaterThanOrEqual(0);
+			expect(eventOrder.indexOf("committed")).toBeGreaterThanOrEqual(0);
+			expect(eventOrder.indexOf("end")).toBeGreaterThan(eventOrder.indexOf("committed"));
 		} finally {
 			await rm(root, { recursive: true, force: true });
 		}

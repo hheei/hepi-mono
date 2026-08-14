@@ -96,6 +96,28 @@ describe("ToolTui", () => {
 		]);
 	});
 
+	test("wraps current headers and truncates only collapsed headers", (): void => {
+		const tui = createToolTui();
+		const framed = tui.frame(tool());
+		tui.beginTrace();
+		const current = framed
+			.renderCall?.({ path: "a/very/long/current-trace/path.ts" }, theme, context(true))
+			.render(12)
+			.join("");
+		expect(current).toContain("a/very/long/current-trace/path.ts");
+		expect(current).not.toContain("…");
+
+		tui.beginTrace();
+		const historical = framed
+			.renderCall?.({ path: "a/very/long/current-trace/path.ts" }, theme, {
+				...(context(false) as object),
+				executionStarted: false,
+			} as never)
+			.render(12)
+			.join("");
+		expect(historical).toContain("…");
+	});
+
 	test("derives all four body layouts from rendered lines and typed footer", (): void => {
 		const tui = createToolTui();
 		const body = (text: string, footer?: string): string[] => {

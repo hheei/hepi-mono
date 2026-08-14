@@ -101,22 +101,20 @@ function outputText(result: AgentToolResult<unknown>): string {
 
 class BashOutputBody implements Component {
 	constructor(
-		private readonly body: Component,
+		private readonly source: Component,
+		private readonly output: string,
 		private readonly theme: Theme,
-		private readonly complete: boolean,
-		private readonly hasOutput: boolean,
 	) {}
 
 	sourceComponent(): Component {
-		return this.body;
+		return this.source;
 	}
 
 	render(width: number): string[] {
-		if (!this.hasOutput) return [];
-		const output = this.body.render(width).map((line) => stripTerminalSequences(line));
-		const preview = compactBodyOutput(output);
-		if (!this.complete && preview.at(-1)?.trim().length === 0) preview.pop();
-		if (this.complete && preview[0]?.trim().length === 0) preview.shift();
+		if (this.output === "") return [];
+		const output = lineCount(this.output) > 1 ? this.output.replace(/\r?\n$/, "") : this.output;
+		const lines = new Text(output, 0, 0).render(width).map((line) => stripTerminalSequences(line));
+		const preview = compactBodyOutput(lines);
 		const isEarlierLinesHint = (line: string): boolean =>
 			/^(?:\.\.\.|…) \(\d+ earlier lines,/.test(line);
 		const hintIndex = preview.findIndex(isEarlierLinesHint);
@@ -132,7 +130,7 @@ class BashOutputBody implements Component {
 	}
 
 	invalidate(): void {
-		this.body.invalidate();
+		this.source.invalidate();
 	}
 }
 
@@ -320,13 +318,13 @@ export function registerBashTool(
 				context.lastComponent instanceof BashOutputBody
 					? context.lastComponent.sourceComponent()
 					: context.lastComponent;
-			const body = options.isPartial
-				? new Text(outputText(result), 0, 0)
-				: (upstreamRenderResult?.(result, options, theme, {
-						...context,
-						lastComponent: previous,
-					}) ?? new Text("", 0, 0));
-			return new BashOutputBody(body, theme, !options.isPartial, lineCount(outputText(result)) > 0);
+			const output = outputText(result);
+			const source =
+				upstreamRenderResult?.(result, options, theme, {
+					...context,
+					lastComponent: previous,
+				}) ?? new Text("", 0, 0);
+			return new BashOutputBody(source, output, theme);
 		},
 		async execute(
 			_id: string,

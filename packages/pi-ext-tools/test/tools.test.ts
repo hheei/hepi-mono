@@ -142,7 +142,7 @@ describe("pi-ext-tools catalog", () => {
 			theme,
 			renderContext,
 		);
-		expect(call?.render(200)).toEqual([
+		expect(call?.render(200).map((line) => line.trimEnd())).toEqual([
 			"<success>✓</success> <toolTitle><b>read</b></toolTitle> sample.ts<warning>:9-56</warning>",
 		]);
 		const preview = read
@@ -256,6 +256,54 @@ describe("pi-ext-tools catalog", () => {
 		const plainBody = body.map(stripTerminalSequences);
 		expect(plainBody).toEqual(["100│a…"]);
 		expect(plainBody.every((line) => visibleWidth(line) <= 6 && !line.includes("\n"))).toBe(true);
+	});
+
+	test("keeps narrow grep rows to one cell-width-safe line", (): void => {
+		const host = harness();
+		registerTools(host.pi);
+		const grep = host.tools.find((tool) => tool.name === "grep");
+		if (grep === undefined) throw new Error("grep renderer is missing");
+		const plainTheme = {
+			bg: (_role: string, text: string): string => text,
+			fg: (_role: string, text: string): string => text,
+			bold: (text: string): string => text,
+		} as Theme;
+		const lines = grep
+			.renderResult?.(
+				{
+					content: [{ type: "text", text: "long needle result" }],
+					details: {
+						format: "canonical-grep",
+						engine: "rg",
+						totalMatched: 1,
+						totalFiles: 1,
+						totalLines: 1,
+						durationMs: 0,
+						display: [
+							{ type: "path", text: "src/long.ts" },
+							{
+								type: "match",
+								lineNumber: 100,
+								text: "needle followed by a long sentence",
+								source: "prefix needle followed by a long sentence",
+								visibleStart: 7,
+								visibleEnd: 40,
+								truncatedLeft: true,
+								submatches: [{ start: 7, end: 13 }],
+							},
+						],
+					},
+				},
+				{ isPartial: false, expanded: false },
+				plainTheme,
+				renderContext,
+			)
+			.render(10);
+		if (lines === undefined) throw new Error("grep renderer is missing");
+		const body = lines.filter((line) => !line.includes("─") && !line.includes("matches ·"));
+		const plainBody = body.map(stripTerminalSequences);
+		expect(plainBody).toContain("100│…need…");
+		expect(plainBody.every((line) => visibleWidth(line) <= 10 && !line.includes("\n"))).toBe(true);
 	});
 
 	test("omits search body rails when there are no body lines", (): void => {
@@ -554,6 +602,7 @@ describe("pi-ext-tools catalog", () => {
 			.trimEnd();
 		expect(grepResult).toContain("<mdCode>src/a.ts</mdCode>");
 		expect(grepResult).toContain("<dim> 1│</dim><dim>before</dim>");
+		expect(grepResult).toContain("<dim>12│</dim><dim> </dim><success>needle</success>");
 		expect(grepResult).toContain("<dim>13│</dim><dim>…</dim><success>needle</success><dim>…</dim>");
 		expect(grepResult).not.toContain("1 matches in 1 files");
 		expect(grepResult).toContain("<dim>1 matches · 1 files · 3 lines · 3.7s</dim>");
@@ -593,6 +642,30 @@ describe("pi-ext-tools catalog", () => {
 			.join("\n")
 			.trimEnd();
 		expect(findResult).toContain("1. one.ts (fff_fuzzy)");
+	});
+
+	test("wraps the current grep header instead of truncating it", (): void => {
+		const host = harness();
+		registerTools(host.pi);
+		const grep = host.tools.find((tool) => tool.name === "grep");
+		if (grep === undefined) throw new Error("grep was not registered");
+		const plainTheme = {
+			bg: (_role: string, text: string): string => text,
+			fg: (_role: string, text: string): string => text,
+			bold: (text: string): string => text,
+		} as Theme;
+		const header = grep
+			.renderCall?.(
+				{ pattern: "very-long-needle", path: "a/very/long/search/path" },
+				plainTheme,
+				renderCallContext,
+			)
+			.render(16);
+		if (header === undefined) throw new Error("grep call renderer is missing");
+		expect(header.join("")).toContain("very-long-needle");
+		expect(header.join("")).toContain("a/very/long/search/path");
+		expect(header.join("\n")).not.toContain("…");
+		expect(header.length).toBeGreaterThan(1);
 	});
 
 	test("renders structured FFF find results inside the shared tool frame", (): void => {
