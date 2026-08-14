@@ -428,22 +428,18 @@ describe("ToolExecutionComponent smoke", () => {
 					const stream = createAssistantMessageEventStream();
 					responses += 1;
 					if (responses === 1) {
-						const message = assistant(
-							[
-								{
-									type: "toolCall",
-									id: "agent-apply-patch",
-									name: "apply_patch",
-									arguments: { patch },
-								},
-							],
-							"toolUse",
-						);
+						const toolCall = {
+							type: "toolCall" as const,
+							id: "agent-apply-patch",
+							name: "apply_patch",
+							arguments: { patch },
+						};
+						const message = assistant([toolCall], "toolUse");
 						stream.push({ type: "start", partial: message });
 						stream.push({
 							type: "toolcall_end",
 							contentIndex: 0,
-							toolCall: message.content[0],
+							toolCall,
 							partial: message,
 						});
 						stream.push({ type: "done", reason: "toolUse", message });
