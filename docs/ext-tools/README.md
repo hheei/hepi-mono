@@ -43,6 +43,8 @@ completion persistence、resume restoration、current/historical collapse、head
 具体 tool 拥有 body renderer、header summary、typed footer text 与 warning 判定，但不得自行加入 outer rails 或
 footer placement。
 
+未展开的 body 默认最多 20 行（保留尾部，并加一行 dim `… (N earlier lines, ctrl+o to expand)`）。工具可通过 `maxBodyLines` 覆写；展开后不截断。Header、rails 与 typed footer 不计在此限额内。成对 rails 在正常调用时用 `success`，错误或 warning（含 bash 非零退出）用 `error`。
+
 Result layout 由 `ToolTui` 依 body 实际 render 后的行数决定：
 
 ```text
@@ -119,6 +121,8 @@ catalog 注册项在 Loadout 中归入 `Built-in`，并显式声明 origin 为 `
 `sourceInfo.path` 作为精确 fallback；只有 builtin path 才显示 `Pi built-in`。
 
 ## 写入工具选择与兼容 guard
+
+`Edit Mode` 默认 `auto`：第一次 `session_start` 用当前模型的 provider/id/name 解析一次，名称含 `gpt`（不区分大小写）则注册 `apply_patch`，否则注册 native `edit`/`write`。之后换模型不会改工具，需 `/reload` 或新 session。也可钉死 `native`、`apply_patch` 或 `none`。
 
 Loadout 将 `apply_patch` 视为 `edit` 与 `write` 这组工具的互斥替代：启用 `apply_patch` 时不会同时暴露
 `edit` 或 `write`；禁用它后可同时启用后两者。这个关系按 tool name 声明，避免把 `edit` 和 `write` 错误地彼此排斥；显式的 project/global

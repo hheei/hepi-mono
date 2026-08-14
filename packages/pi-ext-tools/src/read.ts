@@ -11,8 +11,8 @@ import { createFffRuntimeState, type FffRuntimeState } from "./fff/lifecycle.js"
 import { createToolTui, type ToolTui } from "./pretty/frame.js";
 
 const OWNER = "@hheei/pi-ext-tools";
-const PREVIEW_HEAD_LINES = 3;
-const PREVIEW_TAIL_LINES = 2;
+const PREVIEW_HEAD_LINES = 10;
+const PREVIEW_TAIL_LINES = 9;
 const READ_METRICS_KEY = "__piExtToolsRead";
 const EXPAND_HINT = "ctrl+o to expand";
 const TRUNCATION_MARKER = "…";

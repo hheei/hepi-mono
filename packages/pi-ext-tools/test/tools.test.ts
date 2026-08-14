@@ -11,7 +11,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { observeLoadoutInventory } from "@hheei/pi-ext-core";
-import { registerTools } from "../src/tools.js";
+import { createToolTui } from "../src/pretty/frame.js";
+import { registerEditCatalog, registerTools } from "../src/tools.js";
 
 const temporaryPaths: string[] = [];
 const renderContext = { isError: false, isPartial: false, lastComponent: undefined } as never;
@@ -73,6 +74,11 @@ describe("pi-ext-tools catalog", () => {
 			"bash",
 			"bash_job",
 		]);
+
+		const delayed = harness();
+		registerTools(delayed.pi, undefined, undefined, "none");
+		registerEditCatalog(delayed.pi, createToolTui(), "apply_patch");
+		expect(delayed.tools.map((tool) => tool.name)).toContain("apply_patch");
 	});
 
 	test("renders a bounded, numbered read preview without changing model content", (): void => {
@@ -86,54 +92,9 @@ describe("pi-ext-tools catalog", () => {
 			bold: (text: string): string => `<b>${text}</b>`,
 		} as Theme;
 		const source = [
-			"H1",
-			"H2",
-			"H3",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"hidden",
-			"T1",
-			"T2",
+			...Array.from({ length: 10 }, (_, index) => `H${index + 1}`),
+			...Array.from({ length: 29 }, () => "hidden"),
+			...Array.from({ length: 9 }, (_, index) => `T${index + 1}`),
 		].join("\n");
 		const result = {
 			content: [{ type: "text" as const, text: source }],
@@ -155,10 +116,10 @@ describe("pi-ext-tools catalog", () => {
 			?.render(80)
 			.join("\n");
 		expect(preview).toContain("<dim> 9│</dim>H1");
-		expect(preview).toContain("<dim>10│</dim>H2");
-		expect(preview).toContain("<dim>… (43 hidden lines, ctrl+o to expand)</dim>");
-		expect(preview).toContain("<dim>55│</dim>T1");
-		expect(preview).toContain("<dim>56│</dim>T2");
+		expect(preview).toContain("<dim>18│</dim>H10");
+		expect(preview).toContain("<dim>… (29 hidden lines, ctrl+o to expand)</dim>");
+		expect(preview).toContain("<dim>48│</dim>T1");
+		expect(preview).toContain("<dim>56│</dim>T9");
 		expect(preview).not.toContain("315 chars · 48 lines · 10ms");
 		expect(result.content[0]?.text).toBe(source);
 		const expanded = read
@@ -626,8 +587,8 @@ describe("pi-ext-tools catalog", () => {
 			.render(100)
 			.map((line) => stripTerminalSequences(line).trimEnd())
 			.join("\n");
-		expect(rendered).toContain("-1 before");
-		expect(rendered).toContain("+1 after");
+		expect(rendered).toContain("before");
+		expect(rendered).toContain("after");
 		expect(rendered).toContain("1 replacement");
 		expect(rendered).not.toContain("edit value.txt");
 	});
@@ -720,7 +681,7 @@ describe("pi-ext-tools catalog", () => {
 					totalFiles: 1,
 					totalLines: 20,
 					durationMs: 0,
-					display: Array.from({ length: 20 }, (_, index) => ({
+					display: Array.from({ length: 30 }, (_, index) => ({
 						type: "text" as const,
 						text: `row ${index + 1}`,
 					})),
@@ -732,8 +693,8 @@ describe("pi-ext-tools catalog", () => {
 		);
 		if (collapsedResult === undefined) throw new Error("grep renderer is missing");
 		const collapsed = collapsedResult.render(200);
-		expect(collapsed).toHaveLength(15);
-		expect(collapsed.at(-3)).toContain("… (9 more lines, expand to show)");
+		expect(collapsed).toHaveLength(23);
+		expect(collapsed.at(-3)).toContain("… (11 more lines, expand to show)");
 		expect(collapsed.at(-1)).toContain("20 matches · 1 files · 20 lines · 0ms");
 		const findResult = find
 			.renderResult?.(

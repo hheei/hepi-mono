@@ -17,6 +17,7 @@ import {
 	loadFffSettings,
 	loadRtkSettings,
 	readEditMode,
+	resolveEditCatalog,
 	rtkSettingsFromState,
 } from "../../src/fff/settings.js";
 
@@ -91,6 +92,17 @@ describe("FFF settings", () => {
 		}
 	});
 
+	test("resolves auto Edit Mode from the session model", () => {
+		expect(resolveEditCatalog("auto", { id: "gpt-5" })).toBe("apply_patch");
+		expect(resolveEditCatalog("auto", { provider: "openai", id: "GPT-4.1" })).toBe("apply_patch");
+		expect(resolveEditCatalog("auto", { name: "ChatGPT" })).toBe("apply_patch");
+		expect(resolveEditCatalog("auto", { id: "claude-sonnet-4" })).toBe("native");
+		expect(resolveEditCatalog("auto", undefined)).toBe("native");
+		expect(resolveEditCatalog("apply_patch", { id: "claude-sonnet-4" })).toBe("apply_patch");
+		expect(resolveEditCatalog("native", { id: "gpt-5" })).toBe("native");
+		expect(resolveEditCatalog("none", { id: "gpt-5" })).toBe("none");
+	});
+
 	test("loads and persists the static Edit Mode catalog setting", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "hepi-edit-settings-"));
 		try {
@@ -99,7 +111,9 @@ describe("FFF settings", () => {
 			await provider.storage.save({ edit: { mode: "native" } }, { sessionId: "settings-test" });
 			expect(readEditMode(path)).toBe("native");
 			expect(editModeFromState({ edit: { mode: "none" } })).toBe("none");
+			expect(editModeFromState({ edit: { mode: "auto" } })).toBe("auto");
 			expect(editModeFromState({ edit: { mode: "unsupported" } })).toBe(DEFAULT_EDIT_MODE);
+			expect(DEFAULT_EDIT_MODE).toBe("auto");
 			expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
 				"pi-ext-tools": { edit: { mode: "native" } },
 			});

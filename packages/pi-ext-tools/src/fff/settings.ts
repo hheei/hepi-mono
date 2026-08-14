@@ -32,11 +32,35 @@ const RTK_SETTINGS_DESCRIPTIONS = {
 
 const EDIT_SETTINGS_DESCRIPTIONS = {
 	provider: "Choose the static editing tool catalog for pi-ext-tools.",
-	mode: "Choose native edit/write, Linux-only strict apply_patch, or no editing tools; reload or start a new session after saving.",
+	mode: "auto uses apply_patch when the session model contains gpt, otherwise native edit/write. Pin native, Linux-only apply_patch, or none; reload or start a new session after saving.",
 } as const;
+const GPT_MODEL_TOKEN = "gpt";
 
-export type EditMode = "native" | "apply_patch" | "none";
-export const DEFAULT_EDIT_MODE: EditMode = "apply_patch";
+export type EditMode = "auto" | "native" | "apply_patch" | "none";
+export type EditCatalog = Exclude<EditMode, "auto">;
+export const DEFAULT_EDIT_MODE: EditMode = "auto";
+
+export type EditModelIdentity = {
+	readonly provider?: string;
+	readonly id?: string;
+	readonly name?: string;
+};
+
+export function editModelKey(model: EditModelIdentity | undefined): string {
+	if (model === undefined) return "";
+	return [model.provider, model.id, model.name]
+		.filter((part): part is string => typeof part === "string" && part !== "")
+		.join(" ");
+}
+
+export function resolveEditCatalog(
+	mode: EditMode,
+	model: EditModelIdentity | string | undefined,
+): EditCatalog {
+	if (mode !== "auto") return mode;
+	const key = typeof model === "string" ? model : editModelKey(model);
+	return key.toLowerCase().includes(GPT_MODEL_TOKEN) ? "apply_patch" : "native";
+}
 
 export interface FffSettingsProviderOptions {
 	readonly path?: string;
@@ -142,7 +166,7 @@ export function editModeFromState(state: HepiSettingsState | undefined): EditMod
 }
 
 function editModeFromValue(value: unknown): EditMode {
-	return value === "native" || value === "apply_patch" || value === "none"
+	return value === "auto" || value === "native" || value === "apply_patch" || value === "none"
 		? value
 		: DEFAULT_EDIT_MODE;
 }
@@ -348,15 +372,16 @@ export function createEditSettingsProvider(
 						defaultValue: DEFAULT_EDIT_MODE,
 						description: EDIT_SETTINGS_DESCRIPTIONS.mode,
 						options: [
+							{ value: "auto", label: "Auto" },
 							{ value: "native", label: "Native" },
 							{ value: "apply_patch", label: "Apply Patch" },
 							{ value: "none", label: "None" },
 						],
 						parse: (value) => value,
 						validate: (value) =>
-							value === "native" || value === "apply_patch" || value === "none"
+							value === "auto" || value === "native" || value === "apply_patch" || value === "none"
 								? undefined
-								: "Edit Mode must be native, apply_patch, or none",
+								: "Edit Mode must be auto, native, apply_patch, or none",
 					},
 				],
 			},

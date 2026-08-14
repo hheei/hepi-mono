@@ -244,8 +244,8 @@ test("bash encloses its output between full-width dividers", (): void => {
 			} as never,
 		)
 		.render(40);
-	expect(lines?.[0]).toBe(`<borderMuted>${"─".repeat(40)}</borderMuted>`);
-	expect(lines?.at(-2)).toBe(`<borderMuted>${"─".repeat(40)}</borderMuted>`);
+	expect(lines?.[0]).toBe(`<success>${"─".repeat(40)}</success>`);
+	expect(lines?.at(-2)).toBe(`<success>${"─".repeat(40)}</success>`);
 	expect(lines?.at(-1)).toBe("<dim>exit ? · 1 lines · completed</dim>");
 	expect(lines?.join("\n")).toContain("<text>stdout");
 	expect(lines?.join("\n")).not.toContain("<toolOutput>stdout</toolOutput>");
@@ -355,12 +355,12 @@ test("bash compacts and dims its collapsed earlier-lines hint", (): void => {
 		)
 		.render(120)
 		.join("\n");
-	expect(text).toMatch(/<text><dim>… \(\d+ earlier lines,/);
+	expect(text).toMatch(/<dim>… \(\d+ earlier lines,/);
 	expect(text).not.toMatch(/\n<text><\/text>\n<text><dim>\.\.\./);
 	expect(text).not.toMatch(/<\/dim><\/text>\n<text><\/text>\n<text>line/);
 });
 
-test("bash keeps its body to twelve lines in streaming and completed states", (): void => {
+test("bash keeps its unexpanded body to the shared ToolTui height cap", (): void => {
 	const tools: ToolDefinition[] = [];
 	registerBashTool({
 		registerTool(tool: ToolDefinition): void {
@@ -396,8 +396,8 @@ test("bash keeps its body to twelve lines in streaming and completed states", ()
 	);
 	if (component === undefined) throw new Error("Expected bash result renderer");
 	const rendered = component.render(120).filter((line) => !line.includes("─"));
-	expect(rendered).toHaveLength(12);
-	expect(rendered[0]).toContain("… (19 earlier lines, ctrl+o to expand)");
+	expect(rendered).toHaveLength(20);
+	expect(rendered[0]).toContain("… (11 earlier lines, ctrl+o to expand)");
 	expect(rendered[0]).toContain("<dim>");
 	expect(rendered.at(-1)).toContain("line 30");
 	expect(rendered.join("\n")).not.toContain("exit ?");
@@ -425,7 +425,7 @@ test("bash keeps its body to twelve lines in streaming and completed states", ()
 	const completedLines = completed
 		.render(120)
 		.filter((line) => !line.includes("─") && !line.includes("exit ?"));
-	expect(completedLines).toHaveLength(12);
+	expect(completedLines).toHaveLength(30);
 	expect(completedLines.at(-1)).toContain("line 30");
 });
 

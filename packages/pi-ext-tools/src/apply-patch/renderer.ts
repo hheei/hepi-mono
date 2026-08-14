@@ -1,8 +1,17 @@
-import { renderDiff, type Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Container, Text } from "@earendil-works/pi-tui";
 
 import type { ApplyPatchToolDetails } from "../apply-patch-tool.js";
-import type { ApplyPatchOperationProgress, MpatchHunkOutcome } from "./outcome.js";
+import { MAX_RENDER_LINES } from "../pretty/config.js";
+import { parseDiff } from "../pretty/diff.js";
+import { renderSplit, resolveDiffColors } from "../pretty/diff-render.js";
+import { lang } from "../pretty/lang.js";
+import { LinesBody } from "../pretty/lines-body.js";
+import type {
+	ApplyPatchHunkSnapshot,
+	ApplyPatchOperationProgress,
+	MpatchHunkOutcome,
+} from "./outcome.js";
 
 function duration(durationMs: number | undefined): string {
 	return `${((durationMs ?? 0) / 1_000).toFixed(2)}s`;
@@ -109,14 +118,22 @@ export function formatApplyPatchFooter(
 	});
 }
 
-function snapshotDiff(
-	path: string,
-	startLine: number,
-	afterStartLine: number,
-	before: readonly string[],
-	after: readonly string[],
-): string {
-	return `--- a/${path}\n+++ b/${path}\n@@ -${startLine},${before.length} +${afterStartLine},${after.length} @@\n${before.map((line) => `-${line}`).join("\n")}\n${after.map((line) => `+${line}`).join("\n")}`;
+function snapshotLines(snapshot: ApplyPatchHunkSnapshot, theme: Theme, width: number): string[] {
+	if (snapshot.before.length === 0 && snapshot.after.length === 0) return [];
+	const parsed = parseDiff(
+		snapshot.before.join("\n"),
+		snapshot.after.join("\n"),
+		Math.max(snapshot.before.length, snapshot.after.length, 1),
+		snapshot.startLine,
+	);
+	const text = renderSplit(
+		parsed,
+		lang(snapshot.path),
+		MAX_RENDER_LINES,
+		resolveDiffColors(theme),
+		width,
+	);
+	return text === "" ? [] : text.split("\n");
 }
 
 function diagnosticText(
@@ -146,45 +163,32 @@ export function renderApplyPatchResult(
 ): Component {
 	const details = detailsFor(value);
 	if (details === undefined) return new Text("", 0, 0);
-	const body = new Container();
 	const operationRows = operations(details);
-	for (const operation of operationRows) body.addChild(new Text(row(operation, theme), 0, 0));
-	if (expanded) {
-		for (const applied of details.applied)
+	if (!expanded) {
+		const body = new Container();
+		for (const operation of operationRows) body.addChild(new Text(row(operation, theme), 0, 0));
+		return body;
+	}
+	return new LinesBody((width) => {
+		const lines = operationRows.map((operation) => row(operation, theme));
+		for (const applied of details.applied) {
 			for (const snapshot of applied.snapshots) {
-				body.addChild(
-					new Text(
-						renderDiff(
-							snapshotDiff(
-								snapshot.path,
-								snapshot.startLine,
-								snapshot.afterStartLine,
-								snapshot.before,
-								snapshot.after,
-							),
-							{ filePath: snapshot.path },
-						),
-						0,
-						0,
+				lines.push(...snapshotLines(snapshot, theme, width));
+			}
+		}
+		for (const rejected of details.rejected) {
+			lines.push(theme.fg("error", rejected.error));
+			for (const diagnostic of rejected.diagnostics) {
+				lines.push(
+					theme.fg(
+						"error",
+						`✗ ${rejected.paths[0] ?? "<unknown>"} · hunk ${diagnostic.hunkIndex} · ${diagnosticText(diagnostic)}`,
 					),
 				);
 			}
-		for (const rejected of details.rejected) {
-			body.addChild(new Text(theme.fg("error", rejected.error), 0, 0));
-			for (const diagnostic of rejected.diagnostics)
-				body.addChild(
-					new Text(
-						theme.fg(
-							"error",
-							`✗ ${rejected.paths[0] ?? "<unknown>"} · hunk ${diagnostic.hunkIndex} · ${diagnosticText(diagnostic)}`,
-						),
-						0,
-						0,
-					),
-				);
 		}
-	}
-	return body;
+		return lines;
+	});
 }
 
 function detailsFor(
