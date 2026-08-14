@@ -3,7 +3,7 @@ import type {
 	Theme,
 	ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
-import { type Component, Text } from "@earendil-works/pi-tui";
+import { type Component, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { GrepDisplayLine, GrepToolDetails } from "./grep.js";
 import type { ToolCompletion } from "./pretty/trace.js";
 
@@ -65,13 +65,15 @@ function renderMatch(
 	line: Extract<GrepDisplayLine, { type: "match" }>,
 	theme: Theme,
 	lineNumberWidth: number,
+	reserveLeftMarker: boolean,
 ): string {
 	const prefix = `${String(line.lineNumber).padStart(lineNumberWidth)}│`;
+	const leftMarker = line.truncatedLeft ? TRUNCATION_MARKER : reserveLeftMarker ? " " : "";
 	const boundaries = utf8Boundaries(line.source);
 	const visibleStart = boundaries.get(line.visibleStart);
 	const visibleEnd = boundaries.get(line.visibleEnd);
 	if (visibleStart === undefined || visibleEnd === undefined)
-		return `${theme.fg("dim", prefix)}${withTruncationMarkers(line.text, line.truncatedLeft, line.truncatedRight, theme)}`;
+		return `${theme.fg("dim", prefix)}${theme.fg("dim", `${leftMarker}${line.text}${line.truncatedRight ? TRUNCATION_MARKER : ""}`)}`;
 	const ranges = line.submatches.flatMap((range) => {
 		if (range.start < line.visibleStart || range.end > line.visibleEnd || range.end <= range.start)
 			return [];
@@ -82,9 +84,9 @@ function renderMatch(
 			: [{ start: start - visibleStart, end: end - visibleStart }];
 	});
 	if (ranges.length === 0)
-		return `${theme.fg("dim", prefix)}${withTruncationMarkers(line.text, line.truncatedLeft, line.truncatedRight, theme)}`;
+		return `${theme.fg("dim", prefix)}${theme.fg("dim", `${leftMarker}${line.text}${line.truncatedRight ? TRUNCATION_MARKER : ""}`)}`;
 	const highlighted: string[] = [];
-	if (line.truncatedLeft) highlighted.push(theme.fg("dim", TRUNCATION_MARKER));
+	if (leftMarker !== "") highlighted.push(theme.fg("dim", leftMarker));
 	let offset = 0;
 	for (const range of ranges.sort((left, right) => left.start - right.start)) {
 		if (range.start < offset) continue;
@@ -98,14 +100,19 @@ function renderMatch(
 	return `${theme.fg("dim", prefix)}${highlighted.join("")}`;
 }
 
-function renderGrepLine(line: GrepDisplayLine, theme: Theme, lineNumberWidth = 0): string {
+function renderGrepLine(
+	line: GrepDisplayLine,
+	theme: Theme,
+	lineNumberWidth = 0,
+	reserveLeftMarker = false,
+): string {
 	switch (line.type) {
 		case "path":
 			return line.text.startsWith(TRUNCATION_MARKER)
 				? `${theme.fg("dim", TRUNCATION_MARKER)}${theme.fg("mdCode", line.text.slice(TRUNCATION_MARKER.length))}`
 				: theme.fg("mdCode", line.text);
 		case "match":
-			return renderMatch(line, theme, lineNumberWidth);
+			return renderMatch(line, theme, lineNumberWidth, reserveLeftMarker);
 		case "context":
 			return `${theme.fg("dim", `${String(line.lineNumber).padStart(lineNumberWidth)}│`)}${withTruncationMarkers(line.text, line.truncatedLeft, line.truncatedRight, theme)}`;
 		case "omission":
@@ -116,19 +123,29 @@ function renderGrepLine(line: GrepDisplayLine, theme: Theme, lineNumberWidth = 0
 }
 
 class GrepResultComponent implements Component {
-	constructor(private readonly preview: Text) {}
+	private lines: readonly string[] = [];
+	private theme: Theme;
 
-	set(text: string): void {
-		this.preview.setText(text);
+	constructor(theme: Theme) {
+		this.theme = theme;
+	}
+
+	set(lines: readonly string[], theme: Theme): void {
+		this.lines = lines;
+		this.theme = theme;
 	}
 
 	render(width: number): string[] {
-		return this.preview.render(Math.max(1, width));
+		const availableWidth = Math.max(1, width);
+		const truncation = this.theme.fg("dim", TRUNCATION_MARKER);
+		return this.lines.map((line) =>
+			visibleWidth(line) <= availableWidth
+				? line
+				: truncateToWidth(line, availableWidth, truncation),
+		);
 	}
 
-	invalidate(): void {
-		this.preview.invalidate();
-	}
+	invalidate(): void {}
 }
 
 function durationText(durationMs: number): string {
@@ -165,6 +182,15 @@ function grepLineNumberWidth(lines: readonly GrepDisplayLine[], start: number): 
 	return width;
 }
 
+function grepGroupHasLeftTruncation(lines: readonly GrepDisplayLine[], start: number): boolean {
+	for (let index = start + 1; index < lines.length; index += 1) {
+		const line = lines[index];
+		if (line?.type === "path") return false;
+		if (line?.type === "match" && line.truncatedLeft) return true;
+	}
+	return false;
+}
+
 export function renderGrepResult(
 	result: AgentToolResult<unknown>,
 	options: ToolRenderResultOptions,
@@ -189,9 +215,13 @@ export function renderGrepResult(
 			: MAX_COLLAPSED_GREP_RESULT_PREVIEW_LINES;
 	const visible = options.expanded ? display : display.slice(0, collapsedLimit);
 	let lineNumberWidth = 0;
+	let reserveLeftMarker = false;
 	const rendered = visible.map((line, index) => {
-		if (line.type === "path") lineNumberWidth = grepLineNumberWidth(visible, index);
-		return renderGrepLine(line, theme, lineNumberWidth);
+		if (line.type === "path") {
+			lineNumberWidth = grepLineNumberWidth(visible, index);
+			reserveLeftMarker = grepGroupHasLeftTruncation(visible, index);
+		}
+		return renderGrepLine(line, theme, lineNumberWidth, reserveLeftMarker);
 	});
 	const lines = rendered;
 	if (!options.expanded && display.length > visible.length)
@@ -201,8 +231,8 @@ export function renderGrepResult(
 	const component =
 		context.lastComponent instanceof GrepResultComponent
 			? context.lastComponent
-			: new GrepResultComponent(new Text("", 0, 0));
-	component.set(lines.join("\n"));
+			: new GrepResultComponent(theme);
+	component.set(lines, theme);
 	return component;
 }
 
@@ -341,7 +371,7 @@ export function renderFindResult(
 			kind: "omission",
 			text: `… (${body.length - visible.length} more lines, ${EXPAND_HINT})`,
 		});
-	const component = new GrepResultComponent(new Text("", 0, 0));
-	component.set(renderFindBody(visible, theme).join("\n"));
+	const component = new GrepResultComponent(theme);
+	component.set(renderFindBody(visible, theme), theme);
 	return component;
 }

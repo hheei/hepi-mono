@@ -20,7 +20,6 @@ type FrameStatus = "pending" | "success" | "warning" | "error";
 type FrameHeader = {
 	readonly primary: string;
 	readonly suffix?: string;
-	readonly wrap?: boolean;
 };
 
 type ToolPresentation<TParams extends TSchema, TDetails> = {
@@ -121,7 +120,6 @@ function headerFor(
 		return {
 			primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${collapsed ? theme.fg("dim", command.split("\n")[0] ?? command) : command}`,
 			...(timeout === undefined ? {} : { suffix: theme.fg("dim", ` (timeout ${timeout}s)`) }),
-			...(collapsed ? {} : { wrap: true }),
 		};
 	}
 	if (tool.name === "read" && path !== undefined) {
@@ -242,15 +240,7 @@ class ToolFrameSection implements Component {
 		const availableWidth = Math.max(1, width);
 		const lines = this.collapsed
 			? [collapsedHeader(this.header, availableWidth, this.theme)]
-			: this.header.wrap
-				? new Text(`${this.header.primary}${this.header.suffix ?? ""}`, 0, 0).render(availableWidth)
-				: [
-						truncateToWidth(
-							`${this.header.primary}${this.header.suffix ?? ""}`,
-							availableWidth,
-							this.theme.fg("dim", "…"),
-						),
-					];
+			: new Text(`${this.header.primary}${this.header.suffix ?? ""}`, 0, 0).render(availableWidth);
 		lines.push(...(this.body?.render(availableWidth) ?? []));
 		return lines;
 	}
