@@ -108,9 +108,14 @@ test("rejects non-object settings roots and sections", async (): Promise<void> =
 	});
 });
 
-test("persists one provider group as direct section fields", async () => {
+test("persists direct fields while retaining nested section groups", async () => {
 	await withDirectory(async (directory) => {
 		const path = join(directory, "settings.json");
+		await writeFile(
+			path,
+			JSON.stringify({ "pi-example": { grouped: { retained: true } } }),
+			"utf8",
+		);
 		const storage = createJsonFlatSectionSettingsStorage({
 			path,
 			section: "pi-example",
@@ -120,7 +125,7 @@ test("persists one provider group as direct section fields", async () => {
 
 		await storage.save({ operational: { enabled: true, budget: 4_000 } }, context);
 		expect(await readJsonSettingsRoot(path)).toEqual({
-			"pi-example": { enabled: true, budget: 4_000 },
+			"pi-example": { grouped: { retained: true }, enabled: true, budget: 4_000 },
 		});
 		expect(await storage.load(context)).toEqual({
 			operational: { enabled: true, budget: 4_000 },

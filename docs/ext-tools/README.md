@@ -142,6 +142,16 @@ settings 属于 concrete extension：`pi-ext-tools` 的 Bash settings 配置该 
 
 PTY、stdin 回写、terminal resize 与后台 job 是独立 feature，不能由 `bash` tool 隐式 fallback 提供。
 
+### Optional RTK foreground rewrite
+
+`pi-ext-tools.rtk` 是全局、默认关闭的 boolean setting；`pi-ext-tools.rtkPath` 是全局 string，默认空字符串。`rtkPath` 为空时通过 `PATH` 执行 `rtk`；非空时作为 RTK executable 的明确路径。保存后在 `/reload` 或下一 session 生效。两个字段是 `pi-ext-tools` section 的 direct primitive fields，RTK provider 写入时保留 `fff`、`bash` 与 `edit` sibling groups。旧 `pi-ext-tools.bash.rtkRewrite` 不迁移且不再读取。
+
+启用时，只在普通前台 `bash({ command, timeout? })` 调用前执行 `<rtkPath || "rtk"> rewrite <command>`，使用 1 秒 deadline。`async: true` 与 `pty: true` 保留原 command，不参与此 feature。
+
+RTK 是唯一 rewrite policy owner：extension 不注入 prompt、不维护 command allowlist，也不加入 RTK 的 output compaction、metrics、database path 或单独 config。为避免递归，空白 command、显式 `rtk` 以及 leading env assignment 后仍是 `rtk` 的 command（如 `FOO=bar rtk …`）会跳过 rewrite；这不是 rewrite policy。仅当 RTK 返回 exit `0` 或 `3`，且 stdout 是非空并不同于原 command 的完整 command string 时，extension 才原地替换 Pi `tool_call` input；因此 Pi 记录与工具 call renderer 显示实际执行 command。
+
+`rtk` 缺失、拒绝、空 stdout、超时或执行异常时，原 command 完整执行；每 session 仅显示一次 TUI warning。取消 rewrite 时静默保留原 command。无匹配时同样保留原 command，但不提示。该 fallback 不改变既有 Bash output URI、tail、timeout、abort、async job、PTY 或 renderer contract。focused tests 覆盖 disabled、success、no-match、missing/error/timeout、abort、empty 0/3、exit 2、whitespace、env-prefixed `rtk`、already-RTK、explicit path、lifecycle settings 与 async/PTY bypass。
+
 ### Extension-owned async Bash
 
 `bash` 可显式接受 `async: true`。当前路径不是 Pi host Bash 的 fallback：`pi-ext-tools` 创建
@@ -165,7 +175,7 @@ output URI 采用 ext-core process registry 分配的单调十进制 id：`outpu
 host filesystem path、也不得伪造 URI；ext-core 保留 URI 到 process-owned resource 的映射，并在 process exit 清理。
 
 async job 使用 `pi-ext-tools` 自己的 shell-path setting，而不是读取 Pi host 的 private shell setting；
-默认 shell 由平台环境决定。`async` 与未来的 `pty` 参数互斥。普通不带 `async` 的调用仍完整委托 Pi host。
+默认 shell 由平台环境决定。`async` 与未来的 `pty` 参数互斥。普通不带 `async` 或 `pty` 的调用由 `pi-ext-tools` 的前台 shell 路径执行，并保留其原有 cwd、streaming、abort 与 output contract。
 
 ### PtySession native boundary
 
@@ -201,7 +211,7 @@ dispose runtime。settings 写入在下一 session 或 `/reload` 生效。
 只控制对应 Pi native tool 的 FFF acceleration/resolution：关闭、runtime unavailable、FFF error 或请求语义不兼容时都完整委托
 upstream factory；selection renderer 不受 read enhancement 影响。当前 FFF fuzzy/ranked `findFiles` 不能保真 Pi native
 find 的 glob/path/result contract，因此 `find` 始终 native fallback；`findEnhancement` 仅为未来出现保真 mapping 保留。
-settings 只读取和写入 `pi-ext-tools.fff`。不注册 `find_files`，也不保留其 cursor/query schema。`src/fff/multi-grep.ts`
+FFF settings 只读取和写入 `pi-ext-tools.fff`；Bash settings（shell path、output tail）只读取和写入 `pi-ext-tools.bash`；RTK settings 则直接读取和写入 `pi-ext-tools.rtk` 与 `pi-ext-tools.rtkPath`。不注册 `find_files`，也不保留其 cursor/query schema。`src/fff/multi-grep.ts`
 保留为未注册的 future implementation；只有形成 translated unified `grep` contract 且出现 product consumer 后才能接入 catalog。
 
 FFF `find` 结果按首次命中顺序聚合目录。一个目录出现至少两个候选时，输出一个 `dir/` 标题，候选行只显示文件名；根目录和仅一个候选的目录保留完整 repo-relative path。分组只改变展示，不改变 FFF 的候选、排序、limit 或 cursor。renderer 使用 grep 一致的 `mdCode` 目录标题、`success` 匹配标签和 `dim` 路径。
