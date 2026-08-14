@@ -16,6 +16,7 @@ import { Type } from "typebox";
 import { registerApplyPatchTool } from "../dist/apply-patch-tool.js";
 import { registerBashTool } from "../dist/bash.js";
 import { createToolTui } from "../dist/pretty/frame.js";
+import { registerTools } from "../dist/tools.js";
 
 const callId = "smoke-call";
 
@@ -159,6 +160,46 @@ describe("ToolExecutionComponent smoke", () => {
 		expect(body, stripTerminalSequences(component.render(100).join("\n"))).toHaveLength(12);
 		expect(body[0]).toMatch(/^… \(9 earlier lines,/);
 		expect(body.at(-1)).toContain("line 20");
+	});
+
+	test("keeps native write preview body after final host completion", async (): Promise<void> => {
+		initTheme("dark");
+		const cwd = await mkdtemp(join(tmpdir(), "hepi-native-write-smoke-"));
+		const registered: ToolDefinition[] = [];
+		const pi = {
+			registerTool(tool: ToolDefinition): void {
+				registered.push(tool);
+			},
+		} as unknown as ExtensionAPI;
+		const tui = createToolTui();
+		registerTools(pi, undefined, tui, "native");
+		const tool = registered.find((candidate) => candidate.name === "write");
+		if (tool === undefined) throw new Error("write tool was not registered");
+		tui.beginTrace();
+		const component = new ToolExecutionComponent(
+			"write",
+			"native-write-body",
+			{ path: "value.ts", content: "alpha\nbeta\n" },
+			undefined,
+			tool,
+			{ requestRender: (): void => undefined } as unknown as TUI,
+			cwd,
+		);
+		component.markExecutionStarted();
+		const result = await tool.execute(
+			"native-write-body",
+			{ path: "value.ts", content: "alpha\nbeta\n" },
+			undefined,
+			undefined,
+			{ cwd } as never,
+		);
+		component.updateResult({ ...result, isError: false });
+		const rendered = stripTerminalSequences(component.render(100).join("\n"));
+		expect(rendered).toContain("alpha");
+		expect(rendered).toContain("beta");
+		expect(rendered).toContain("11 bytes · 2 lines");
+		expect(outputOccurrences(component, "write")).toBe(1);
+		await rm(cwd, { recursive: true, force: true });
 	});
 
 	test("renders one body on the first resumed result pass", (): void => {

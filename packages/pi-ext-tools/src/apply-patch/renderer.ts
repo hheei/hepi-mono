@@ -40,8 +40,7 @@ function row(operation: ApplyPatchOperationProgress, theme: Theme): string {
 			: " ";
 	const kind =
 		operation.kind === "add" ? "create" : operation.kind === "delete" ? "delete" : "modify";
-	const path = operation.kind === "add" ? operation.path : theme.fg("dim", operation.path);
-	return `${glyph} ${theme.fg("toolTitle", kind)} ${path} ${delta(operation, theme)}${score}${hunkSummary}`.trimEnd();
+	return `${glyph} ${theme.fg("toolTitle", kind)} ${operation.path} ${delta(operation, theme)}${score}${hunkSummary}`.trimEnd();
 }
 
 function operations(details: ApplyPatchToolDetails): readonly ApplyPatchOperationProgress[] {

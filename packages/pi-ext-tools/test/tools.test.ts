@@ -2,12 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type {
-	ExtensionAPI,
-	ExtensionContext,
-	Theme,
-	ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import { initTheme, type ExtensionAPI, type ExtensionContext, type Theme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { observeLoadoutInventory } from "@hheei/pi-ext-core";
 import { registerTools } from "../src/tools.js";
@@ -526,6 +521,108 @@ describe("pi-ext-tools catalog", () => {
 			expect(tool.renderCall).toBeDefined();
 			expect(tool.renderResult).toBeDefined();
 		}
+	});
+
+	test("renders native write inside the shared frame without a duplicate built-in header", async (): Promise<void> => {
+		const cwd = await temporaryDirectory();
+		const host = harness();
+		registerTools(host.pi, undefined, undefined, "native");
+		const write = host.tools.find((tool) => tool.name === "write");
+		if (write === undefined) throw new Error("write was not registered");
+		const theme = {
+			bg: (_role: string, text: string): string => text,
+			fg: (_role: string, text: string): string => text,
+			bold: (text: string): string => text,
+		} as Theme;
+		const args = { path: "value.ts", content: "alpha\nbeta\n" };
+		const state = {};
+		write.renderCall?.(args, theme, {
+			args,
+			toolCallId: "write-preview",
+			invalidate: (): void => undefined,
+			state,
+			cwd,
+			executionStarted: false,
+			argsComplete: true,
+			showImages: false,
+			expanded: false,
+			lastComponent: undefined,
+			isPartial: false,
+			isError: false,
+		} as never);
+		const result = await write.execute("write-preview", args, undefined, undefined, {
+			cwd,
+		} as ExtensionContext);
+		const rendered = write
+			.renderResult?.({ ...result, isError: false }, { isPartial: false, expanded: false }, theme, {
+				args,
+				toolCallId: "write-preview",
+				invalidate: (): void => undefined,
+				state,
+				cwd,
+				executionStarted: true,
+				argsComplete: true,
+				showImages: false,
+				expanded: false,
+				lastComponent: undefined,
+				isPartial: false,
+				isError: false,
+			} as never)
+			.render(100)
+			.map((line) => stripTerminalSequences(line).trimEnd())
+			.join("\n");
+		expect(rendered).toContain("alpha");
+		expect(rendered).toContain("beta");
+		expect(rendered).toContain("11 bytes · 2 lines");
+		expect(rendered).not.toContain("write value.ts");
+	});
+
+	test("renders native edit diff inside the shared frame without a duplicate built-in header", async (): Promise<void> => {
+		initTheme("dark");
+		const cwd = await temporaryDirectory();
+		await writeFile(join(cwd, "value.txt"), "before\n", "utf8");
+		const host = harness();
+		registerTools(host.pi, undefined, undefined, "native");
+		const edit = host.tools.find((tool) => tool.name === "edit");
+		if (edit === undefined) throw new Error("edit was not registered");
+		const theme = {
+			bg: (_role: string, text: string): string => text,
+			fg: (_role: string, text: string): string => text,
+			bold: (text: string): string => text,
+		} as Theme;
+		const args = {
+			path: "value.txt",
+			edits: [{ oldText: "before", newText: "after" }],
+		};
+		const result = await edit.execute("edit-preview", args, undefined, undefined, {
+			cwd,
+			sessionManager: {
+				getSessionId: (): string => "ext-tools-render-test",
+				getSessionFile: (): undefined => undefined,
+			},
+		} as unknown as ExtensionContext);
+		const rendered = edit
+			.renderResult?.({ ...result, isError: false }, { isPartial: false, expanded: false }, theme, {
+				args,
+				toolCallId: "edit-preview",
+				invalidate: (): void => undefined,
+				state: {},
+				cwd,
+				executionStarted: true,
+				argsComplete: true,
+				showImages: false,
+				expanded: false,
+				lastComponent: undefined,
+				isPartial: false,
+				isError: false,
+			} as never)
+			.render(100)
+			.map((line) => stripTerminalSequences(line).trimEnd())
+			.join("\n");
+		expect(rendered).toContain("-1 before");
+		expect(rendered).toContain("+1 after");
+		expect(rendered).toContain("1 replacement");
+		expect(rendered).not.toContain("edit value.txt");
 	});
 
 	test("renders canonical grep details and existing find results", (): void => {
