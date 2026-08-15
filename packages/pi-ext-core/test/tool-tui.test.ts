@@ -300,6 +300,29 @@ describe("ToolTui", () => {
 		expect(collapsedResult?.render(80).map((line) => line.trimEnd())).toEqual(["<dim>0ms</dim>"]);
 	});
 
+	test("keeps a collapsed metrics footer when the tool returns a blank footer", async (): Promise<void> => {
+		const tui = createToolTui();
+		const framed = tui.frame(tool(), { footer: () => "" });
+		tui.beginTrace();
+		const completed = await framed.execute(
+			"call-blank-footer",
+			{ path: "src/a.ts" },
+			undefined,
+			undefined,
+			{ cwd: process.cwd() } as ExtensionContext,
+		);
+		tui.beginTrace();
+		const historicalContext = {
+			...(context(false) as object),
+			executionStarted: false,
+		} as never;
+		const collapsed = framed
+			.renderResult?.(completed, { expanded: false, isPartial: false }, theme, historicalContext)
+			.render(80)
+			.map((line) => line.trimEnd());
+		expect(collapsed).toEqual(["<dim>0ms</dim>"]);
+	});
+
 	test("restores warning presentation without synchronously repeating the result", async (): Promise<void> => {
 		const tui = createToolTui();
 		const framed = tui.frame(tool(), {

@@ -195,17 +195,28 @@ function editMetrics(result: AgentToolResult<unknown>): EditMetrics | undefined 
 			};
 	}
 	const view = record[EDIT_VIEW_KEY];
-	if (typeof view !== "object" || view === null || Array.isArray(view)) return undefined;
-	const legacy = view as Record<string, unknown>;
-	return typeof legacy.edits === "number" &&
-		typeof legacy.added === "number" &&
-		typeof legacy.removed === "number"
-		? {
+	if (typeof view === "object" && view !== null && !Array.isArray(view)) {
+		const legacy = view as Record<string, unknown>;
+		if (
+			typeof legacy.edits === "number" &&
+			typeof legacy.added === "number" &&
+			typeof legacy.removed === "number"
+		)
+			return {
 				replacements: legacy.edits,
 				added: legacy.added,
 				removed: legacy.removed,
-			}
-		: undefined;
+			};
+	}
+	const diff = legacyEditDiff(result);
+	if (diff === undefined) return undefined;
+	const patch = record.patch;
+	const hunks = typeof patch === "string" ? (patch.match(/^@@/gm)?.length ?? 0) : 0;
+	return {
+		replacements: Math.max(1, hunks),
+		added: diff.added,
+		removed: diff.removed,
+	};
 }
 
 function editView(result: AgentToolResult<unknown>): EditView | undefined {
@@ -262,9 +273,12 @@ function renderLegacyEditDiff(
 	).split("\n");
 }
 
-function editFooter(metrics: EditMetrics | undefined, durationMs: number | undefined): string {
+function editFooter(
+	metrics: EditMetrics | undefined,
+	durationMs: number | undefined,
+): string | undefined {
 	const duration = durationText(durationMs);
-	if (metrics === undefined) return duration ?? "";
+	if (metrics === undefined) return duration;
 	const edits = `${metrics.replacements} edit${metrics.replacements === 1 ? "" : "s"}`;
 	const lines =
 		metrics.added > 0 || metrics.removed > 0
