@@ -24,6 +24,8 @@ export interface ParsedDiff {
 	chars: number;
 }
 
+type StructuredPatch = ReturnType<typeof Diff.structuredPatch>;
+
 export function normalizeLineEndings(text: string): string {
 	return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
@@ -47,6 +49,22 @@ export function parseDiff(
 			context: ctx,
 		},
 	);
+	return flattenPatch(patch, oldContent.length + newContent.length, baseLine);
+}
+
+/** Parses one persisted unified patch without consulting the current workspace. */
+export function parseUnifiedPatch(patchText: string): ParsedDiff | undefined {
+	try {
+		const patches = Diff.parsePatch(normalizeLineEndings(patchText));
+		const patch = patches.length === 1 ? patches[0] : undefined;
+		if (patch === undefined || patch.hunks.length === 0) return undefined;
+		return flattenPatch(patch, patchText.length, 0);
+	} catch {
+		return undefined;
+	}
+}
+
+function flattenPatch(patch: StructuredPatch, chars: number, baseLine: number): ParsedDiff {
 	const lines: DiffLine[] = [];
 	let added = 0;
 	let removed = 0;
@@ -85,6 +103,6 @@ export function parseDiff(
 		lines,
 		added,
 		removed,
-		chars: oldContent.length + newContent.length,
+		chars,
 	};
 }

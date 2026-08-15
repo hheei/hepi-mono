@@ -6,6 +6,7 @@ import { Result } from "better-result";
 import { ExternalGrepScopeError } from "../../src/fff/errors.js";
 import { FffRuntime } from "../../src/fff/fff.js";
 import { admitFffScan } from "../../src/fff/fff-runtime.js";
+import { GREP_TIMEOUT_RECOVERY } from "../../src/search-timeout.js";
 
 describe("FFF runtime", () => {
 	test("continues grep pages after the runtime is recreated", async () => {
@@ -139,6 +140,42 @@ describe("FFF runtime", () => {
 		const result = await ensuring;
 		expect(result.isErr()).toBe(true);
 		expect(destroyed).toEqual(["destroyed"]);
+	});
+
+	test("tells the caller to narrow scope when the grep budget expires", async () => {
+		const runtime = new FffRuntime("/tmp", {
+			finder: {
+				multiGrep: () => {
+					const start = Date.now();
+					while (Date.now() - start < 5) {}
+					return {
+						ok: true as const,
+						value: {
+							items: [
+								{
+									relativePath: "slow.ts",
+									lineNumber: 1,
+									lineContent: "needle",
+									matchRanges: [],
+								},
+							],
+							nextCursor: { __brand: "GrepCursor", _offset: 1 },
+						},
+					};
+				},
+			} as never,
+		});
+
+		const result = await runtime.grepSearch({
+			pattern: "needle",
+			timeBudgetMs: 1,
+			limit: 10,
+		});
+		if (result.isErr()) throw result.error;
+		expect(result.value.timedOut).toBe(true);
+		expect(result.value.formatted).toContain(GREP_TIMEOUT_RECOVERY);
+		expect(result.value.nextCursor).toBeUndefined();
+		expect(result.value.items).toHaveLength(1);
 	});
 
 	test("rejects an external grep scope before creating an FFF constraint", async () => {

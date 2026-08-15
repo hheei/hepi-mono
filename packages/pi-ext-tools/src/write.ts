@@ -8,7 +8,12 @@ import {
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
-import { createCanonicalExecutionTool, registerCanonicalManagedTool } from "./native-tool.js";
+import type { ToolTui } from "@hheei/pi-ext-core";
+import {
+	createCanonicalExecutionTool,
+	createCanonicalToolRegistration,
+	registerCanonicalTool,
+} from "./native-tool.js";
 import { MAX_RENDER_LINES } from "./pretty/config.js";
 import { normalizeLineEndings, parseDiff } from "./pretty/diff.js";
 import {
@@ -17,7 +22,6 @@ import {
 	resolveDiffColors,
 	summarize,
 } from "./pretty/diff-render.js";
-import type { ToolTui } from "./pretty/frame.js";
 import { hlBlock } from "./pretty/highlight.js";
 import { lang } from "./pretty/lang.js";
 import { LinesBody } from "./pretty/lines-body.js";
@@ -26,6 +30,7 @@ const WRITE_RENDER_DETAILS = "__piExtToolsWrite";
 const WRITE_VIEW_KEY = "__piExtToolsWriteView";
 const NEW_FILE_PREVIEW_LINES = 20;
 const EXPAND_HINT = "ctrl+o to expand";
+export const WRITE_TOOL_REGISTRATION = createCanonicalToolRegistration("write", ["apply_patch"]);
 
 type WriteDefinition = ReturnType<typeof createWriteToolDefinition>;
 type WriteArgs = Parameters<NonNullable<WriteDefinition["renderCall"]>>[0];
@@ -229,8 +234,9 @@ export function registerWriteTool(pi: ExtensionAPI, tui: ToolTui): void {
 			]);
 		},
 	};
-	registerCanonicalManagedTool(
+	registerCanonicalTool(
 		pi,
+		WRITE_TOOL_REGISTRATION,
 		tui.frame(tool, {
 			summary: (args) => filePath(args as WriteArgs) || undefined,
 			maxBodyLines: Number.POSITIVE_INFINITY,
@@ -246,6 +252,5 @@ export function registerWriteTool(pi: ExtensionAPI, tui: ToolTui): void {
 					.join(" · ");
 			},
 		}),
-		[],
 	);
 }

@@ -10,13 +10,14 @@ import {
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
-import { observeLoadoutInventory } from "@hheei/pi-ext-core";
-import { createToolTui } from "../src/pretty/frame.js";
-import { registerEditCatalog, registerTools } from "../src/tools.js";
+import { type ExtensionLifecycleContext, observeLoadoutInventory } from "@hheei/pi-ext-core";
+import type { EditCatalog } from "../src/fff/settings.js";
+import { activateEditCatalog, registerTools } from "../src/tools.js";
 
 const temporaryPaths: string[] = [];
 const renderContext = { isError: false, isPartial: false, lastComponent: undefined } as never;
 const renderCallContext = { isError: false, isPartial: true, lastComponent: undefined } as never;
+const renderCallContextValues = { isError: false, isPartial: true, lastComponent: undefined };
 
 afterEach(async (): Promise<void> => {
 	await Promise.all(
@@ -30,8 +31,13 @@ async function temporaryDirectory(): Promise<string> {
 	return path;
 }
 
-function harness(): { readonly pi: ExtensionAPI; readonly tools: ToolDefinition[] } {
+function harness(): {
+	readonly pi: ExtensionAPI;
+	readonly tools: ToolDefinition[];
+	readonly activeTools: () => readonly string[];
+} {
 	const tools: ToolDefinition[] = [];
+	let activeTools = ["read", "bash", "edit", "write"];
 	return {
 		pi: {
 			events: {},
@@ -39,46 +45,60 @@ function harness(): { readonly pi: ExtensionAPI; readonly tools: ToolDefinition[
 			registerTool: (tool: ToolDefinition): void => {
 				tools.push(tool);
 			},
+			getActiveTools: (): readonly string[] => activeTools,
+			setActiveTools: (names: string[]): void => {
+				activeTools = names;
+			},
 		} as unknown as ExtensionAPI,
 		tools,
+		activeTools: () => activeTools,
 	};
 }
 
+function activate(host: ReturnType<typeof harness>, catalog: EditCatalog): void {
+	activateEditCatalog(
+		{
+			pi: host.pi,
+			resources: { add: (): void => undefined },
+		} as unknown as ExtensionLifecycleContext,
+		catalog,
+	);
+}
+
 describe("pi-ext-tools catalog", () => {
-	test("registers the apply_patch editing catalog by default through managed Loadout ownership", (): void => {
+	test("registers every canonical editing definition before catalog activation", (): void => {
 		const host = harness();
 		registerTools(host.pi);
 		const names = host.tools.map((tool) => tool.name);
-		expect(names).toEqual(["read", "grep", "find", "bash", "bash_job", "apply_patch"]);
+		expect(names).toEqual([
+			"read",
+			"grep",
+			"find",
+			"edit",
+			"write",
+			"bash",
+			"bash_job",
+			"apply_patch",
+		]);
 		expect(names.filter((name) => name === "apply_patch")).toHaveLength(1);
+		expect(host.tools.find((tool) => tool.name === "edit")?.renderShell).toBe("self");
 		expect(host.tools.every((tool) => tool.renderShell === "self")).toBe(true);
 		expect(() => registerTools(host.pi)).toThrow("Loadout tool id already registered: read");
 	});
 
-	test("registers exactly the editing tools selected by Edit Mode", (): void => {
-		const native = harness();
-		registerTools(native.pi, undefined, undefined, "native");
-		expect(native.tools.map((tool) => tool.name)).toContain("edit");
-		expect(native.tools.map((tool) => tool.name)).toContain("write");
-		expect(native.tools.map((tool) => tool.name)).not.toContain("apply_patch");
-
-		const none = harness();
-		registerTools(none.pi, undefined, undefined, "none");
-		expect(none.tools.map((tool) => tool.name)).not.toContain("edit");
-		expect(none.tools.map((tool) => tool.name)).not.toContain("write");
-		expect(none.tools.map((tool) => tool.name)).not.toContain("apply_patch");
-		expect(none.tools.map((tool) => tool.name)).toEqual([
-			"read",
-			"grep",
-			"find",
-			"bash",
-			"bash_job",
-		]);
-
-		const delayed = harness();
-		registerTools(delayed.pi, undefined, undefined, "none");
-		registerEditCatalog(delayed.pi, createToolTui(), "apply_patch");
-		expect(delayed.tools.map((tool) => tool.name)).toContain("apply_patch");
+	test("activates only the editing tools selected by Edit Mode", (): void => {
+		for (const [catalog, expected] of [
+			["native", ["edit", "write"]],
+			["apply_patch", ["apply_patch"]],
+			["none", []],
+		] as const) {
+			const host = harness();
+			registerTools(host.pi);
+			activate(host, catalog);
+			expect(
+				host.activeTools().filter((name) => ["edit", "write", "apply_patch"].includes(name)),
+			).toEqual(expected);
+		}
 	});
 
 	test("renders a bounded, numbered read preview without changing model content", (): void => {
@@ -115,11 +135,17 @@ describe("pi-ext-tools catalog", () => {
 			} as never)
 			?.render(80)
 			.join("\n");
-		expect(preview).toContain("<dim> 9│</dim>H1");
-		expect(preview).toContain("<dim>18│</dim>H10");
-		expect(preview).toContain("<dim>… (29 hidden lines, ctrl+o to expand)</dim>");
-		expect(preview).toContain("<dim>48│</dim>T1");
-		expect(preview).toContain("<dim>56│</dim>T9");
+		const plainPreview = stripTerminalSequences(preview ?? "");
+		expect(plainPreview).toContain(" 9 │ H1");
+		expect(plainPreview).toContain("18 │ H10");
+		expect(plainPreview).toContain("…");
+		expect(plainPreview).toContain("┊");
+		const numbered = plainPreview.split("\n").find((line) => line.includes("18 │ H10"));
+		const omission = plainPreview.split("\n").find((line) => line.includes("┊"));
+		expect(numbered?.indexOf("│")).toBe(omission?.indexOf("┊"));
+		expect(plainPreview).toContain("(29 hidden lines, ctrl+o to expand)");
+		expect(plainPreview).toContain("48 │ T1");
+		expect(plainPreview).toContain("56 │ T9");
 		expect(preview).not.toContain("315 chars · 48 lines · 10ms");
 		expect(result.content[0]?.text).toBe(source);
 		const expanded = read
@@ -213,12 +239,12 @@ describe("pi-ext-tools catalog", () => {
 				plainTheme,
 				{ ...(renderContext as object), args: { path: "sample.ts", offset: 100 } } as never,
 			)
-			.render(6);
+			.render(10);
 		if (lines === undefined) throw new Error("read renderer is missing");
 		const body = lines.filter((line) => !line.includes("─") && !line.includes("completed"));
 		const plainBody = body.map(stripTerminalSequences);
-		expect(plainBody).toEqual(["100│a…"]);
-		expect(plainBody.every((line) => visibleWidth(line) <= 6 && !line.includes("\n"))).toBe(true);
+		expect(plainBody).toEqual([" 100 │ ab…"]);
+		expect(plainBody.every((line) => visibleWidth(line) <= 10 && !line.includes("\n"))).toBe(true);
 	});
 
 	test("keeps narrow grep rows to one cell-width-safe line", (): void => {
@@ -265,7 +291,7 @@ describe("pi-ext-tools catalog", () => {
 		if (lines === undefined) throw new Error("grep renderer is missing");
 		const body = lines.filter((line) => !line.includes("─") && !line.includes("matches ·"));
 		const plainBody = body.map(stripTerminalSequences);
-		expect(plainBody).toContain("100│…need…");
+		expect(plainBody).toContain(" 100 │ pr…");
 		expect(plainBody.every((line) => visibleWidth(line) <= 10 && !line.includes("\n"))).toBe(true);
 	});
 
@@ -319,6 +345,40 @@ describe("pi-ext-tools catalog", () => {
 			)
 			.render(80);
 		expect(findLines).toEqual(["<dim>0 lines · 5ms</dim>"]);
+
+		const grepPlaceholder = grep
+			.renderResult?.(
+				{
+					content: [{ type: "text", text: "No matches found" }],
+					details: {
+						format: "canonical-grep",
+						engine: "rg",
+						totalMatched: 0,
+						totalFiles: 0,
+						totalLines: 0,
+						durationMs: 5,
+						display: [{ type: "text", text: "No matches found" }],
+					},
+				},
+				{ isPartial: false, expanded: false },
+				theme,
+				renderContext,
+			)
+			.render(80);
+		expect(grepPlaceholder).toEqual(["<dim>0 matches · 0 files · 0 lines · 5ms</dim>"]);
+
+		const findPlaceholder = find
+			.renderResult?.(
+				{
+					content: [{ type: "text", text: "No files found matching pattern" }],
+					details: undefined,
+				},
+				{ isPartial: false, expanded: false },
+				theme,
+				renderContext,
+			)
+			.render(80);
+		expect(findPlaceholder).toEqual([]);
 	});
 
 	test("hides pagination cursors from search renderers", (): void => {
@@ -416,6 +476,7 @@ describe("pi-ext-tools catalog", () => {
 		});
 
 		registerTools(host.pi);
+		activate(host, "apply_patch");
 		expect(inventory.find((tool) => tool.id === "apply_patch")).toMatchObject({
 			group: "Built-in",
 			origin: "@hheei/pi-ext-tools",
@@ -441,7 +502,8 @@ describe("pi-ext-tools catalog", () => {
 			},
 		});
 
-		registerTools(host.pi, undefined, undefined, "native");
+		registerTools(host.pi);
+		activate(host, "native");
 		expect(inventory.find((tool) => tool.id === "apply_patch")).toBeUndefined();
 		expect(inventory.find((tool) => tool.id === "edit")).toMatchObject({
 			group: "Built-in",
@@ -481,7 +543,7 @@ describe("pi-ext-tools catalog", () => {
 
 	test("keeps upstream renderer contracts intact", (): void => {
 		const host = harness();
-		registerTools(host.pi, undefined, undefined, "native");
+		registerTools(host.pi);
 		for (const name of ["read", "grep", "find", "edit", "write", "bash"] as const) {
 			const tool = host.tools.find((candidate) => candidate.name === name);
 			if (tool === undefined) throw new Error(`Missing ${name} tool`);
@@ -494,7 +556,7 @@ describe("pi-ext-tools catalog", () => {
 	test("renders native write inside the shared frame without a duplicate built-in header", async (): Promise<void> => {
 		const cwd = await temporaryDirectory();
 		const host = harness();
-		registerTools(host.pi, undefined, undefined, "native");
+		registerTools(host.pi);
 		const write = host.tools.find((tool) => tool.name === "write");
 		if (write === undefined) throw new Error("write was not registered");
 		const theme = {
@@ -548,19 +610,26 @@ describe("pi-ext-tools catalog", () => {
 	test("renders native edit diff inside the shared frame without a duplicate built-in header", async (): Promise<void> => {
 		initTheme("dark");
 		const cwd = await temporaryDirectory();
-		await writeFile(join(cwd, "value.txt"), "before\n", "utf8");
+		await writeFile(
+			join(cwd, "value.txt"),
+			"first\r\nbefore\r\nmiddle\r\nsecond\r\nlast\r\n",
+			"utf8",
+		);
 		const host = harness();
-		registerTools(host.pi, undefined, undefined, "native");
+		registerTools(host.pi);
 		const edit = host.tools.find((tool) => tool.name === "edit");
 		if (edit === undefined) throw new Error("edit was not registered");
 		const theme = {
 			bg: (_role: string, text: string): string => text,
-			fg: (_role: string, text: string): string => text,
+			fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
 			bold: (text: string): string => text,
 		} as Theme;
 		const args = {
 			path: "value.txt",
-			edits: [{ oldText: "before", newText: "after" }],
+			edits: [
+				{ oldText: "before", newText: "after" },
+				{ oldText: "second", newText: "third" },
+			],
 		};
 		const result = await edit.execute("edit-preview", args, undefined, undefined, {
 			cwd,
@@ -569,6 +638,27 @@ describe("pi-ext-tools catalog", () => {
 				getSessionFile: (): undefined => undefined,
 			},
 		} as unknown as ExtensionContext);
+		const header = edit
+			.renderCall?.(args, theme, {
+				...renderCallContextValues,
+				args,
+				toolCallId: "edit-preview",
+				invalidate: (): void => undefined,
+				state: {},
+				cwd,
+				executionStarted: true,
+				argsComplete: true,
+				showImages: false,
+				expanded: false,
+			} as never)
+			.render(100)
+			.map((line) => line.trimEnd())
+			.join("\n");
+		expect(header).toContain("edit");
+		expect(header).toContain("value.txt");
+		expect(header).not.toContain("·");
+		expect(header).not.toContain("+2 -2");
+		expect(header).not.toContain("1 files");
 		const rendered = edit
 			.renderResult?.(result, { isPartial: false, expanded: false }, theme, {
 				args,
@@ -587,10 +677,151 @@ describe("pi-ext-tools catalog", () => {
 			.render(100)
 			.map((line) => stripTerminalSequences(line).trimEnd())
 			.join("\n");
+		expect(rendered).toContain("first");
 		expect(rendered).toContain("before");
 		expect(rendered).toContain("after");
-		expect(rendered).toContain("1 replacement");
+		expect(rendered).toContain("second");
+		expect(rendered).toContain("third");
+		expect(rendered).toContain("last");
+		expect(rendered).toContain("…");
+		expect(rendered).toContain("┊");
+		const editNumbered = rendered.split("\n").find((line) => line.includes("2- │"));
+		const editOmission = rendered.split("\n").find((line) => line.includes("┊"));
+		expect(editNumbered?.indexOf("│")).toBe(editOmission?.indexOf("┊"));
+		expect(rendered).toContain("2- │");
+		expect(rendered).toContain("4- │");
+		expect(rendered).not.toContain("at line");
+		expect(rendered).not.toContain("unmodified");
+		expect(rendered).not.toContain("<muted>2 edits</muted>");
+		expect(rendered).toMatch(/2 edits · \+2 -2 lines · \d+ms/);
 		expect(rendered).not.toContain("edit value.txt");
+	});
+
+	test("renders a resumed Pi-native edit from its persisted unified patch", (): void => {
+		initTheme("dark");
+		const host = harness();
+		registerTools(host.pi);
+		const edit = host.tools.find((tool) => tool.name === "edit");
+		if (edit === undefined) throw new Error("edit was not registered");
+		const theme = {
+			bg: (_role: string, text: string): string => text,
+			fg: (_role: string, text: string): string => text,
+			bold: (text: string): string => text,
+		} as Theme;
+		const args = {
+			path: "value.ts",
+			edits: [{ oldText: "const before = 1;", newText: "const after = 2;" }],
+		};
+		const result = {
+			content: [{ type: "text" as const, text: "Successfully replaced text." }],
+			details: {
+				patch: [
+					"--- value.ts",
+					"+++ value.ts",
+					"@@ -41,3 +41,3 @@",
+					" const keep = true;",
+					"-const before = 1;",
+					"+const after = 2;",
+					" export { keep };",
+				].join("\n"),
+			},
+		};
+		const rendered = edit
+			.renderResult?.(result, { isPartial: false, expanded: true }, theme, {
+				args,
+				toolCallId: "legacy-edit",
+				invalidate: (): void => undefined,
+				state: {},
+				cwd: "/workspace",
+				executionStarted: true,
+				argsComplete: true,
+				showImages: false,
+				expanded: true,
+				lastComponent: undefined,
+				isPartial: false,
+				isError: false,
+			} as never)
+			.render(100)
+			.map((line) => stripTerminalSequences(line).trimEnd())
+			.join("\n");
+		expect(rendered).toContain("42- │ const before = 1;");
+		expect(rendered).toContain("42+ │ const after = 2;");
+		expect(rendered).not.toContain("Successfully replaced text.");
+	});
+
+	test("preserves persisted edit text when no legacy patch can be rendered", (): void => {
+		const host = harness();
+		registerTools(host.pi);
+		const edit = host.tools.find((tool) => tool.name === "edit");
+		if (edit === undefined) throw new Error("edit was not registered");
+		const theme = {
+			bg: (_role: string, text: string): string => text,
+			fg: (_role: string, text: string): string => text,
+			bold: (text: string): string => text,
+		} as Theme;
+		const rendered = edit
+			.renderResult?.(
+				{
+					content: [{ type: "text", text: "Edit failed: old text was not found" }],
+					details: { patch: "not a unified patch" },
+				},
+				{ isPartial: false, expanded: true },
+				theme,
+				{
+					args: { path: "value.ts", edits: [] },
+					isError: false,
+				} as never,
+			)
+			.render(100)
+			.map((line) => stripTerminalSequences(line).trimEnd())
+			.join("\n");
+		expect(rendered).toContain("Edit failed: old text was not found");
+		expect(rendered.split("Edit failed: old text was not found")).toHaveLength(2);
+	});
+
+	test("clips edit context rows to the live TUI width", async (): Promise<void> => {
+		initTheme("dark");
+		const cwd = await temporaryDirectory();
+		const contextLine = `keep ${"x".repeat(120)}`;
+		await writeFile(join(cwd, "value.txt"), `${contextLine}\nbefore\n`, "utf8");
+		const host = harness();
+		registerTools(host.pi);
+		const edit = host.tools.find((tool) => tool.name === "edit");
+		if (edit === undefined) throw new Error("edit was not registered");
+		const theme = {
+			bg: (_role: string, text: string): string => text,
+			fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
+			bold: (text: string): string => text,
+		} as Theme;
+		const args = { path: "value.txt", edits: [{ oldText: "before", newText: "after" }] };
+		const result = await edit.execute("edit-clip", args, undefined, undefined, {
+			cwd,
+			sessionManager: {
+				getSessionId: (): string => "ext-tools-render-test",
+				getSessionFile: (): undefined => undefined,
+			},
+		} as unknown as ExtensionContext);
+		const rows = edit
+			.renderResult?.(result, { isPartial: false, expanded: false }, theme, {
+				args,
+				toolCallId: "edit-clip",
+				invalidate: (): void => undefined,
+				state: {},
+				cwd,
+				executionStarted: true,
+				argsComplete: true,
+				showImages: false,
+				expanded: false,
+				lastComponent: undefined,
+				isPartial: false,
+				isError: false,
+			} as never)
+			.render(40);
+		const contextRows = rows.filter((line) => stripTerminalSequences(line).includes("keep "));
+		expect(contextRows).toHaveLength(1);
+		expect(visibleWidth(contextRows[0] ?? "")).toBeLessThanOrEqual(40);
+		expect(stripTerminalSequences(contextRows[0] ?? "")).toContain("…");
+		expect(stripTerminalSequences(contextRows[0] ?? "")).not.toContain("x".repeat(80));
 	});
 
 	test("renders canonical grep details and existing find results", (): void => {
@@ -666,9 +897,11 @@ describe("pi-ext-tools catalog", () => {
 			.join("\n")
 			.trimEnd();
 		expect(grepResult).toContain("<mdCode>src/a.ts</mdCode>");
-		expect(grepResult).toContain("<dim> 1│</dim><dim>before</dim>");
-		expect(grepResult).toContain("<dim>12│</dim><dim> </dim><success>needle</success>");
-		expect(grepResult).toContain("<dim>13│</dim><dim>…</dim><success>needle</success><dim>…</dim>");
+		expect(stripTerminalSequences(grepResult ?? "")).toContain("  1 │ before");
+		expect(stripTerminalSequences(grepResult ?? "")).toContain(" 12 │ needle");
+		expect(stripTerminalSequences(grepResult ?? "")).toContain(" 13 │   needle trailing");
+		expect(grepResult).toContain("\x1b[2m");
+		expect(grepResult).toContain("\x1b[48;2;18;42;28m");
 		expect(grepResult).not.toContain("1 matches in 1 files");
 		expect(grepResult).toContain("<dim>1 matches · 1 files · 3 lines · 3.7s</dim>");
 		const collapsedResult = grep.renderResult?.(
@@ -888,7 +1121,7 @@ describe("pi-ext-tools catalog", () => {
 	test("preserves upstream write and edit execution semantics", async (): Promise<void> => {
 		const cwd = await temporaryDirectory();
 		const host = harness();
-		registerTools(host.pi, undefined, undefined, "native");
+		registerTools(host.pi);
 		const context = {
 			cwd,
 			sessionManager: {

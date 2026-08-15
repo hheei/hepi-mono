@@ -7,6 +7,7 @@
 // shared with other pix-pretty renderers, and paints foreground tokens only.
 
 import type { ThemeColor } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import * as Diff from "diff";
 import { BG_BASE, BOLD, FG_DIM, FG_GREEN, FG_LNUM, FG_RED, FG_RULE, RST } from "./ansi.js";
 import { MAX_HL_CHARS, MAX_PREVIEW_LINES, MAX_RENDER_LINES, WORD_DIFF_MIN_SIM } from "./config.js";
@@ -140,30 +141,18 @@ function tabs(s: string): string {
 	return s.replace(/\t/g, "  ");
 }
 
-function termW(width?: number): number {
-	return Math.max(80, Math.min(width ?? process.stdout.columns ?? 80, MAX_TERM_WIDTH));
+function truncateAnsi(s: string, w: number, fillBg = ""): string {
+	if (w <= 0) return "";
+	const width = visibleWidth(s);
+	if (width <= w) {
+		const pad = w - width;
+		return pad > 0 ? `${s}${fillBg}${" ".repeat(pad)}${fillBg ? RST : ""}` : s;
+	}
+	return truncateToWidth(s, w, `${RST}${FG_DIM}…${RST}`);
 }
 
-/** Pad/truncate `s` to exactly `w` visible chars. ANSI-aware. */
-function fit(s: string, w: number): string {
-	if (w <= 0) return "";
-	const plain = strip(s);
-	if (plain.length <= w) return s + " ".repeat(w - plain.length);
-	const showW = w > 2 ? w - 1 : w;
-	let vis = 0;
-	let i = 0;
-	while (i < s.length && vis < showW) {
-		if (s[i] === "\x1b") {
-			const e = s.indexOf("m", i);
-			if (e !== -1) {
-				i = e + 1;
-				continue;
-			}
-		}
-		vis++;
-		i++;
-	}
-	return w > 2 ? `${s.slice(0, i)}${RST}${FG_DIM}›${RST}` : `${s.slice(0, i)}${RST}`;
+function termW(width?: number): number {
+	return Math.max(1, Math.min(width ?? process.stdout.columns ?? 80, MAX_TERM_WIDTH));
 }
 
 /** Extract last active fg + bg ANSI codes from a string (for wrap continuations). */
@@ -297,6 +286,19 @@ function buildGutter(opts: {
 
 function rule(w: number): string {
 	return `${BG_BASE}${FG_RULE}${"─".repeat(w)}${RST}`;
+}
+
+/** Dim `…` right-aligned in the line-number column; `┊` aligns with that view's `│`. */
+export function renderDiffOmission(nw: number, signed = true): string {
+	const width = Math.max(1, nw);
+	const gap = signed ? "  " : " ";
+	return `${BG_BASE} ${FG_DIM}${"…".padStart(width)}${RST}${gap}${FG_RULE}┊ ${RST}`;
+}
+
+/** Shared ` XXX │ ` gutter used by read and grep. */
+export function renderCodeGutter(lineNumber: number, numberWidth: number, body: string): string {
+	const num = String(lineNumber).padStart(Math.max(1, numberWidth));
+	return `${BG_BASE} ${FG_LNUM}${num}${RST} ${FG_RULE}│ ${RST}${body}`;
 }
 
 /** Compact plain "+a -d" summary for persisted renderer details. */
@@ -478,12 +480,16 @@ export function renderUnified(
 	max = MAX_RENDER_LINES,
 	dc: DiffColors = DEFAULT_DIFF_COLORS,
 	width?: number,
+	borders = true,
+	numberWidth?: number,
 ): string {
 	if (!diff.lines.length) return "";
 
 	const vis = diff.lines.slice(0, max);
 	const tw = termW(width);
-	const nw = Math.max(2, String(Math.max(...vis.map((l) => l.oldNum ?? l.newNum ?? 0), 0)).length);
+	const nw =
+		numberWidth ??
+		Math.max(2, String(Math.max(...vis.map((l) => l.oldNum ?? l.newNum ?? 0), 0)).length);
 	const gw = nw + 5;
 	const cw = Math.max(20, tw - gw);
 	const canHL = diff.chars <= MAX_HL_CHARS && vis.length <= MAX_RENDER_LINES;
@@ -505,7 +511,7 @@ export function renderUnified(
 	let nI = 0;
 	let idx = 0;
 	const out: string[] = [];
-	out.push(rule(tw));
+	if (borders) out.push(rule(tw));
 
 	function emitRow(
 		num: number | null,
@@ -514,6 +520,7 @@ export function renderUnified(
 		signFg: string,
 		body: string,
 		bodyBg = "",
+		singleLine = false,
 	): void {
 		const borderFg = sign === "-" ? dc.fgDel : sign === "+" ? dc.fgAdd : "";
 		const numFg = borderFg || FG_LNUM;
@@ -529,6 +536,10 @@ export function renderUnified(
 		};
 		const gutter = buildGutter({ ...gutterArgs, continuation: false });
 		const contGutter = buildGutter({ ...gutterArgs, continuation: true });
+		if (singleLine) {
+			out.push(`${gutter}${truncateAnsi(tabs(body), cw, bodyBg)}${RST}`);
+			return;
+		}
 		const rows = wrapAnsi(tabs(body), cw, adaptiveWrapRows(), bodyBg);
 		out.push(`${gutter}${rows[0]}${RST}`);
 		for (let r = 1; r < rows.length; r++) out.push(`${contGutter}${rows[r]}${RST}`);
@@ -538,20 +549,14 @@ export function renderUnified(
 		const l = at(vis, idx);
 
 		if (l.type === "sep") {
-			const gap = l.newNum;
-			const label = gap && gap > 0 ? ` ${gap} unmodified lines ` : "···";
-			const totalW = Math.min(tw, 72);
-			const pad = Math.max(0, totalW - label.length - 2);
-			const half1 = Math.floor(pad / 2);
-			const half2 = pad - half1;
-			out.push(`${BG_BASE}${FG_DIM}${"─".repeat(half1)}${label}${"─".repeat(half2)}${RST}`);
+			out.push(renderDiffOmission(nw));
 			idx++;
 			continue;
 		}
 
 		if (l.type === "ctx") {
 			const hl = oldHL[oI] ?? l.content;
-			emitRow(l.newNum, " ", BG_BASE, dc.fgCtx, `${BG_BASE}${DIM}${hl}`, BG_BASE);
+			emitRow(l.newNum, " ", BG_BASE, dc.fgCtx, `${BG_BASE}${DIM}${hl}`, BG_BASE, true);
 			oI++;
 			nI++;
 			idx++;
@@ -621,7 +626,7 @@ export function renderUnified(
 		}
 	}
 
-	out.push(rule(tw));
+	if (borders) out.push(rule(tw));
 	if (diff.lines.length > vis.length) {
 		out.push(`${BG_BASE}${FG_DIM}  … ${diff.lines.length - vis.length} more lines${RST}`);
 	}
@@ -638,9 +643,13 @@ export function renderSplit(
 	max = MAX_PREVIEW_LINES,
 	dc: DiffColors = DEFAULT_DIFF_COLORS,
 	width?: number,
+	borders = true,
+	numberWidth?: number,
 ): string {
 	const tw = termW(width);
-	if (!shouldUseSplit(diff, tw, max)) return renderUnified(diff, language, max, dc, width);
+	if (!shouldUseSplit(diff, tw, max)) {
+		return renderUnified(diff, language, max, dc, width, borders, numberWidth);
+	}
 	if (!diff.lines.length) return "";
 
 	type Row = { left: DiffLine | null; right: DiffLine | null };
@@ -673,10 +682,9 @@ export function renderSplit(
 
 	const vis = rows.slice(0, max);
 	const half = Math.floor((tw - 1) / 2);
-	const nw = Math.max(
-		2,
-		String(Math.max(...diff.lines.map((l) => l.oldNum ?? l.newNum ?? 0), 0)).length,
-	);
+	const nw =
+		numberWidth ??
+		Math.max(2, String(Math.max(...diff.lines.map((l) => l.oldNum ?? l.newNum ?? 0), 0)).length);
 	const gw = nw + 5;
 	const cw = Math.max(12, half - gw);
 	const canHL = diff.chars <= MAX_HL_CHARS && vis.length * 2 <= MAX_RENDER_LINES * 2;
@@ -713,13 +721,11 @@ export function renderSplit(
 			return { gutter: g, contGutter: g, bodyRows: [stripes(cw, stripeRow)] };
 		}
 		if (line.type === "sep") {
-			const gap = line.newNum;
-			const label = gap && gap > 0 ? `··· ${gap} lines ···` : "···";
-			const g = `${BG_BASE} ${FG_DIM}${fit("", nw + 2)}${RST}${FG_RULE}│${RST} `;
+			const g = renderDiffOmission(nw);
 			return {
 				gutter: g,
 				contGutter: g,
-				bodyRows: [`${BG_BASE}${FG_DIM}${fit(label, cw)}${RST}`],
+				bodyRows: [`${BG_BASE}${" ".repeat(cw)}${RST}`],
 			};
 		}
 
@@ -755,12 +761,15 @@ export function renderSplit(
 		const numCell = `${lnum(num, nw, numFg, true)}${sFg}${BOLD}${sign} `;
 		const gutter = `${splitBorder}${gBg}${numCell}${FG_RULE}│${cBg} ${RST}`;
 		const contGutter = `${splitBorder}${gBg}${" ".repeat(nw + 2)}${FG_RULE}│${cBg} ${RST}`;
-		const bodyRows = wrapAnsi(tabs(body), cw, adaptiveWrapRows(), cBg);
+		const bodyRows =
+			line.type === "ctx"
+				? [truncateAnsi(tabs(body), cw, cBg)]
+				: wrapAnsi(tabs(body), cw, adaptiveWrapRows(), cBg);
 		return { gutter, contGutter, bodyRows };
 	}
 
 	const out: string[] = [];
-	out.push(`${rule(half)}${FG_RULE}┊${RST}${rule(half)}`);
+	if (borders) out.push(`${rule(half)}${FG_RULE}┊${RST}${rule(half)}`);
 
 	for (const r of vis) {
 		const leftLine = r.left;
@@ -804,7 +813,7 @@ export function renderSplit(
 		}
 	}
 
-	out.push(`${rule(half)}${FG_RULE}┊${RST}${rule(half)}`);
+	if (borders) out.push(`${rule(half)}${FG_RULE}┊${RST}${rule(half)}`);
 	if (rows.length > vis.length) {
 		out.push(`${BG_BASE}${FG_DIM}  … ${rows.length - vis.length} more lines${RST}`);
 	}

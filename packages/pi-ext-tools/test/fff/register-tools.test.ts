@@ -11,6 +11,7 @@ import { registerMultiGrepTool } from "../../src/fff/multi-grep.js";
 import { DEFAULT_RTK_SETTINGS } from "../../src/fff/settings.js";
 import { registerFindTool } from "../../src/find.js";
 import { registerGrepTool } from "../../src/grep.js";
+import { GREP_TIMEOUT_RECOVERY } from "../../src/search-timeout.js";
 
 function harness(): { readonly pi: ExtensionAPI; readonly tools: ToolDefinition[] } {
 	const tools: ToolDefinition[] = [];
@@ -356,9 +357,11 @@ describe("FFF tool registration", () => {
 		const longMatch = longDetails.display.find((line) => line.type === "match");
 		if (longMatch === undefined) throw new Error("Missing long grep match");
 		expect(longMatch.text).toContain("needle");
-		expect(Array.from(longMatch.text)).toHaveLength(80);
-		expect(longMatch.truncatedLeft).toBe(true);
-		expect(longMatch.truncatedRight).toBe(true);
+		expect(longMatch.text.startsWith("prefix ")).toBe(true);
+		expect(longMatch.text.endsWith("suffix")).toBe(true);
+		expect(Array.from(longMatch.text).length).toBeGreaterThan(80);
+		expect(longMatch.truncatedLeft).toBe(false);
+		expect(longMatch.truncatedRight).toBe(false);
 
 		const findHost = harness();
 		registerFindTool(findHost.pi, state);
@@ -417,5 +420,46 @@ describe("FFF tool registration", () => {
 			outputs.dispose();
 			await rm(cwd, { recursive: true, force: true });
 		}
+	});
+
+	test("surfaces a grep timeout as a narrow-scope recovery", async () => {
+		const outputs = createOutputRegistry();
+		const state = {
+			getRuntime: () =>
+				({
+					grepSearch: async () => ({
+						isOk: () => true,
+						value: {
+							items: [],
+							linesTruncated: false,
+							timedOut: true,
+						},
+					}),
+				}) as never,
+			getSettings: () => ({
+				shellPath: "sh",
+				bashOutputTailKiB: 10,
+				autocomplete: true,
+				grepEnhancement: true,
+				readEnhancement: true,
+				findEnhancement: true,
+				statusUI: true,
+			}),
+			getBashJobs: () => undefined,
+			getOutputs: () => outputs,
+			getRtkSettings: () => DEFAULT_RTK_SETTINGS,
+			consumeRtkRewriteWarning: () => false,
+		} satisfies FffRuntimeState;
+		const host = harness();
+		registerGrepTool(host.pi, state);
+		const grep = host.tools[0];
+		if (grep === undefined) throw new Error("grep was not registered");
+		const result = await grep.execute("grep-timeout", { pattern: "needle" }, undefined, undefined, {
+			cwd: process.cwd(),
+		} as never);
+		const content = result.content[0];
+		if (content?.type !== "text") throw new Error("Expected grep text result");
+		expect(content.text).toBe(GREP_TIMEOUT_RECOVERY);
+		expect((result.details as { timedOut?: boolean }).timedOut).toBe(true);
 	});
 });

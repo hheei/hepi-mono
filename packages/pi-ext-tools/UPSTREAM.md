@@ -25,8 +25,8 @@ and `find` retain their upstream schemas; FFF only accelerates a semantics-compa
 
 `src/pretty/{diff,diff-render,highlight,ansi}.ts` are adapted from
 `references/repos/pix-mono/packages/pix-pretty` (revision `1ca2d05aec5fdba679c6b3ac7b7b57822962c205`).
-Presentation from `pix-edit` and `pix-write` lives in `src/edit.ts` and
-`src/write.ts`. Intentional differences: no pix-runtime config, no process-level
+Presentation from `pix-write` lives in `src/write.ts`. Native `edit` no longer
+uses the pix split/unified renderer. Intentional differences: no pix-runtime config, no process-level
 resize tracker, highlight and split/unified render are synchronous, layout width
 comes from the TUI `render(width)` argument, and `ToolTui` owns header, rails,
 footer, and collapse.

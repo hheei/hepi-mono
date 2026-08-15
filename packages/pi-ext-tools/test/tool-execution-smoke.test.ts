@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Agent } from "@earendil-works/pi-agent-core";
@@ -12,10 +12,10 @@ import {
 	ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, Text, type TUI } from "@earendil-works/pi-tui";
+import { createToolTui } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { registerApplyPatchTool } from "../dist/apply-patch-tool.js";
 import { registerBashTool } from "../dist/bash.js";
-import { createToolTui } from "../dist/pretty/frame.js";
 import { registerTools } from "../dist/tools.js";
 
 const callId = "smoke-call";
@@ -173,7 +173,7 @@ describe("ToolExecutionComponent smoke", () => {
 			on(): void {},
 		} as unknown as ExtensionAPI;
 		const tui = createToolTui();
-		registerTools(pi, undefined, tui, "native");
+		registerTools(pi, undefined, tui);
 		const tool = registered.find((candidate) => candidate.name === "write");
 		if (tool === undefined) throw new Error("write tool was not registered");
 		tui.beginTrace();
@@ -235,6 +235,56 @@ describe("ToolExecutionComponent smoke", () => {
 		expect(rendered.match(/─/g)).toHaveLength(200);
 	});
 
+	test("renders a legacy Pi edit patch on the first resumed host pass", (): void => {
+		initTheme("dark");
+		const registered: ToolDefinition[] = [];
+		const pi = {
+			events: {},
+			registerTool(tool: ToolDefinition): void {
+				registered.push(tool);
+			},
+			on(): void {},
+		} as unknown as ExtensionAPI;
+		const tui = createToolTui();
+		registerTools(pi, undefined, tui);
+		const tool = registered.find((candidate) => candidate.name === "edit");
+		if (tool === undefined) throw new Error("edit tool was not registered");
+		tui.beginTrace();
+		const component = new ToolExecutionComponent(
+			"edit",
+			"resumed-legacy-edit",
+			{
+				path: "value.ts",
+				edits: [{ oldText: "const before = 1;", newText: "const after = 2;" }],
+			},
+			undefined,
+			tool,
+			{ requestRender: (): void => undefined } as unknown as TUI,
+			process.cwd(),
+		);
+		component.setExpanded(true);
+		component.updateResult({
+			content: [{ type: "text", text: "Successfully replaced text." }],
+			details: {
+				patch: [
+					"--- value.ts",
+					"+++ value.ts",
+					"@@ -41,3 +41,3 @@",
+					" const keep = true;",
+					"-const before = 1;",
+					"+const after = 2;",
+					" export { keep };",
+				].join("\n"),
+			},
+			isError: false,
+		});
+		const rendered = stripTerminalSequences(component.render(100).join("\n"));
+		expect(rendered).toContain("edit value.ts");
+		expect(rendered).toContain("42- │ const before = 1;");
+		expect(rendered).toContain("42+ │ const after = 2;");
+		expect(rendered).not.toContain("Successfully replaced text.");
+	});
+
 	test("renders ToolTui body rows once through partial and final host updates", async (): Promise<void> => {
 		initTheme("dark");
 		const tui = createToolTui();
@@ -293,6 +343,48 @@ describe("ToolExecutionComponent smoke", () => {
 			expect(finalText).toContain("✓ modify src/stream.ts +3 -2");
 			expect(outputOccurrences(component, "modify src/stream.ts +3 -2")).toBe(1);
 			component.invalidate();
+		}
+	});
+
+	test("renders apply_patch rows from toolcall_delta arguments before execute starts", async (): Promise<void> => {
+		initTheme("dark");
+		const registered: ToolDefinition[] = [];
+		const pi = {
+			registerTool(tool: ToolDefinition): void {
+				registered.push(tool);
+			},
+		} as unknown as ExtensionAPI;
+		const tui = createToolTui();
+		registerApplyPatchTool(pi, tui);
+		const tool = registered[0];
+		if (tool === undefined) throw new Error("apply_patch was not registered");
+		const root = await mkdtemp(join(tmpdir(), "hepi-apply-patch-delta-"));
+		try {
+			tui.beginTrace();
+			const component = new ToolExecutionComponent(
+				"apply_patch",
+				"apply-patch-delta",
+				{ patch: "*** Begin Patch\n" },
+				undefined,
+				tool,
+				{ requestRender: (): void => undefined } as unknown as TUI,
+				root,
+			);
+			expect(stripTerminalSequences(component.render(100).join("\n"))).not.toContain("create");
+			component.updateArgs({ patch: "*** Begin Patch\n*** Add File: first.txt\n" });
+			const afterHeader = stripTerminalSequences(component.render(100).join("\n"));
+			expect(afterHeader).toContain("apply_patch 1 files");
+			expect(afterHeader).toContain("○ create first.txt");
+			component.updateArgs({
+				patch: "*** Begin Patch\n*** Add File: first.txt\n+one\n*** Add File: second.txt\n",
+			});
+			const afterPayload = stripTerminalSequences(component.render(100).join("\n"));
+			expect(afterPayload).toContain("○ create first.txt +1");
+			expect(afterPayload).toContain("○ create second.txt");
+			expect(outputOccurrences(component, "○ create first.txt +1")).toBe(1);
+			expect(await readdir(root)).toEqual([]);
+		} finally {
+			await rm(root, { recursive: true, force: true });
 		}
 	});
 
