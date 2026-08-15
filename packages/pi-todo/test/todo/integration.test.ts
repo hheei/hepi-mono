@@ -32,7 +32,10 @@ interface RegisteredTool {
 		context: unknown,
 	) => unknown;
 	readonly renderResult?: (
-		result: { readonly details?: unknown },
+		result: {
+			readonly content?: readonly { readonly type: string; readonly text?: string }[];
+			readonly details?: unknown;
+		},
 		options: unknown,
 		theme: unknown,
 		context: unknown,
@@ -47,6 +50,15 @@ interface RegisteredTool {
 		readonly content: readonly { readonly type: string; readonly text: string }[];
 		readonly details: { readonly snapshot: TodoSnapshot };
 	}>;
+}
+
+function renderToolComponent(value: unknown): string {
+	if (!value || typeof value !== "object" || !("render" in value))
+		throw new Error("Expected a renderable tool component");
+	const component = value as { readonly render?: (width: number) => readonly string[] };
+	if (typeof component.render !== "function")
+		throw new Error("Expected a tool component render function");
+	return component.render(120).join("\n");
 }
 
 function harness(mode: "tui" | "json" = "tui", sessionId = "todo-session") {
@@ -284,41 +296,37 @@ describe("Todo integration", () => {
 			},
 			theme,
 			{ toolCallId: "batch" },
-		) as { readonly text: string };
-		expect(call.text).toBe("todo → #1 #2 #3");
+		);
+		expect(renderToolComponent(call)).toContain("Todo · update 2 · delete 1");
 		const partial = tool.renderCall?.({ operations: [null, {}] }, theme, {
 			toolCallId: "partial",
-		}) as {
-			readonly text: string;
-		};
-		expect(partial.text).toBe("todo");
+		});
+		expect(renderToolComponent(partial)).toContain("Todo");
 
 		const unsafe = tool.renderCall?.(
 			{ operations: [{ action: "update", id: "\x1b[2J", status: "blocked" }] },
 			theme,
 			{ toolCallId: "unsafe" },
-		) as { readonly text: string };
-		expect(unsafe.text).toBe("todo");
+		);
+		expect(renderToolComponent(unsafe)).not.toContain("\x1b[2J");
 		const unsafeList = tool.renderCall?.(
 			{ operations: [{ action: "list", status: "\x1b[2J" }] },
 			theme,
 			{ toolCallId: "unsafe-list" },
-		) as { readonly text: string };
-		expect(unsafeList.text).toBe("todo ☰");
+		);
+		expect(renderToolComponent(unsafeList)).toContain("Todo · list");
 
 		const createParams = { operations: [{ action: "create", subject: "First" }] };
 		const createRenderContext = { toolCallId: "create" };
-		expect(tool.renderCall?.(createParams, theme, createRenderContext)).toMatchObject({
-			text: "todo →",
-		});
+		expect(
+			renderToolComponent(tool.renderCall?.(createParams, theme, createRenderContext)),
+		).toContain("Todo · create 1");
 		const created = await tool.execute("create", createParams, undefined, undefined, host.ctx);
-		expect(tool.renderCall?.(createParams, theme, createRenderContext)).toMatchObject({
-			text: "todo → #1",
-		});
-		const active = tool.renderResult?.(created, {}, theme, { isError: false }) as {
-			readonly text: string;
-		};
-		expect(active.text).toBe("◐ #1 First");
+		expect(
+			renderToolComponent(tool.renderCall?.(createParams, theme, createRenderContext)),
+		).toContain("Todo · created #1");
+		const active = tool.renderResult?.(created, {}, theme, { isError: false });
+		expect(renderToolComponent(active)).toContain("+ ◐ #1 First");
 
 		const completed = await tool.execute(
 			"complete",
@@ -327,10 +335,8 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		const done = tool.renderResult?.(completed, {}, theme, { isError: false }) as {
-			readonly text: string;
-		};
-		expect(done.text).toBe("✓ #1 First");
+		const done = tool.renderResult?.(completed, {}, theme, { isError: false });
+		expect(renderToolComponent(done)).toContain("→ ✓ #1 ~First~");
 
 		const nextParams = {
 			operations: [
@@ -339,11 +345,13 @@ describe("Todo integration", () => {
 			],
 		};
 		const nextContext = { toolCallId: "create-next" };
-		expect(tool.renderCall?.(nextParams, theme, nextContext)).toMatchObject({ text: "todo →" });
+		expect(renderToolComponent(tool.renderCall?.(nextParams, theme, nextContext))).toContain(
+			"Todo · create 2",
+		);
 		await tool.execute("create-next", nextParams, undefined, undefined, host.ctx);
-		expect(tool.renderCall?.(nextParams, theme, nextContext)).toMatchObject({
-			text: "todo → #2 #3",
-		});
+		expect(renderToolComponent(tool.renderCall?.(nextParams, theme, nextContext))).toContain(
+			"Todo · 2 created",
+		);
 
 		await tool.execute(
 			"block-second",
@@ -359,18 +367,16 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		const blocked = tool.renderResult?.(blockedResult, {}, theme, { isError: false }) as {
-			readonly text: string;
-		};
-		expect(blocked.text).toBe("⊘ #3 ~Third~");
+		const blocked = tool.renderResult?.(blockedResult, {}, theme, { isError: false });
+		expect(renderToolComponent(blocked)).toContain("→ ⊘ #3 ~Third~");
 
 		const failed = tool.renderResult?.(
-			{},
+			{ content: [] },
 			{},
 			{ fg: (color: string, text: string) => `<${color}>${text}</${color}>` },
 			{ isError: true },
-		) as { readonly text: string };
-		expect(failed.text).toBe("<error>✗</error>");
+		);
+		expect(renderToolComponent(failed)).toContain("<error>Error</error>");
 	});
 
 	test("executes ordered atomic batches and returns display snapshots", async () => {

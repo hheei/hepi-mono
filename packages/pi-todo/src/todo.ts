@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
+import { getToolTui, registerManagedLoadoutTool, registerToolTuiTrace } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import {
 	applyTodo,
@@ -38,8 +38,9 @@ export const TODO_REMINDER_IDLE_TURNS = 3;
 export const TODO_REMINDER_IDLE_MS = 3 * 60_000;
 const TODO_REMINDER_CUSTOM_TYPE = "pi-todo:reminder";
 const TODO_STATE_CUSTOM_TYPE = "pi-todo:state";
+const TODO_MAX_BODY_ROWS = 8;
 
-const taskStatus = Type.String({
+const todoTaskStatus = Type.String({
 	enum: ["pending", "in_progress", "blocked", "completed", "suppressed"],
 });
 const agentTaskStatus = Type.String({ enum: ["pending", "in_progress", "blocked", "completed"] });
@@ -65,7 +66,7 @@ const todoOperation = Type.Union([
 	Type.Object(
 		{
 			action: Type.Literal("list"),
-			status: Type.Optional(taskStatus),
+			status: Type.Optional(todoTaskStatus),
 		},
 		{ additionalProperties: false },
 	),
@@ -304,77 +305,223 @@ function formatTodoResult(
 	return lines.join("\n");
 }
 
-function renderedTaskStatus(value: unknown): string | undefined {
+function taskStatus(value: unknown): TaskStatus | undefined {
 	return value === "pending" ||
 		value === "in_progress" ||
 		value === "blocked" ||
 		value === "completed" ||
 		value === "suppressed"
-		? value.replaceAll("_", " ")
+		? value
 		: undefined;
 }
 
-function renderTodoCall(
-	value: unknown,
-	theme: Theme,
-	actualIds: readonly number[] | undefined,
-): Text {
-	const title = theme.fg("toolTitle", theme.bold("todo"));
-	if (!value || typeof value !== "object") return new Text(title, 0, 0);
-	const operations = (value as { readonly operations?: unknown }).operations;
-	if (!Array.isArray(operations) || operations.length === 0) return new Text(title, 0, 0);
-	const records = operations.filter(
-		(operation): operation is Record<string, unknown> =>
-			typeof operation === "object" && operation !== null,
-	);
-	const list = records[0];
-	let summary: string;
-	if (records.length === 1 && list?.action === "list") {
-		const status = renderedTaskStatus(list.status);
-		summary = `☰${status === undefined ? "" : ` ${status}`}`;
-	} else {
-		const ids =
-			actualIds ??
-			records.flatMap((operation) => {
-				if (operation.action !== "update" && operation.action !== "delete") return [];
-				const id = canonicalPositiveInteger(operation.id);
-				return id === undefined ? [] : [id];
-			});
-		const hasCreate = records.some((operation) => operation.action === "create");
-		summary = ids.length > 0 ? `→ ${ids.map((id) => `#${id}`).join(" ")}` : hasCreate ? "→" : "";
-	}
-	return new Text(summary === "" ? title : `${title} ${theme.fg("muted", summary)}`, 0, 0);
+interface TodoToolDetails {
+	readonly state: TaskState;
+	readonly operations: readonly TodoOperationResult[];
+	readonly listStatus?: TaskStatus;
 }
 
-function renderTodoResult(
-	result: { readonly details?: unknown },
+function readTodoToolDetails(value: unknown): TodoToolDetails | undefined {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+	const details = value as Record<string, unknown>;
+	const state = stateFromSnapshot(details.snapshot);
+	if (!state || !Array.isArray(details.operations)) return undefined;
+	const operations: TodoOperationResult[] = [];
+	for (const value of details.operations) {
+		if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+		const operation = value as Record<string, unknown>;
+		const action = operation.action;
+		if (
+			typeof operation.index !== "number" ||
+			!Number.isSafeInteger(operation.index) ||
+			operation.index < 0 ||
+			typeof operation.changed !== "boolean" ||
+			(action !== "create" && action !== "update" && action !== "list" && action !== "delete")
+		)
+			return undefined;
+		const id = canonicalPositiveInteger(operation.id);
+		if (operation.id !== undefined && id === undefined) return undefined;
+		operations.push({
+			index: operation.index,
+			action,
+			changed: operation.changed,
+			...(id === undefined ? {} : { id }),
+		});
+	}
+	const listStatus = taskStatus(details.listStatus);
+	if (details.listStatus !== undefined && listStatus === undefined) return undefined;
+	return { state, operations, ...(listStatus === undefined ? {} : { listStatus }) };
+}
+
+function todoSummary(value: unknown, latest: { readonly details?: unknown } | undefined): string {
+	const details = latest === undefined ? undefined : readTodoToolDetails(latest.details);
+	if (details !== undefined) {
+		const changed = details.operations.filter((operation) => operation.changed);
+		if (changed.length === 0) return details.listStatus === undefined ? "no changes" : "list";
+		if (changed.length === 1) {
+			const operation = changed[0];
+			if (operation === undefined) return "no changes";
+			if (operation.action === "create") return `created #${operation.id ?? "?"}`;
+			if (operation.action === "delete") return `deleted #${operation.id ?? "?"}`;
+			const task = details.state.tasks.find((candidate) => candidate.id === operation.id);
+			return task === undefined
+				? `updated #${operation.id ?? "?"}`
+				: `#${task.id} ${task.status.replaceAll("_", " ")}`;
+		}
+		const counts = new Map<TodoOperationResult["action"], number>();
+		for (const operation of changed)
+			counts.set(operation.action, (counts.get(operation.action) ?? 0) + 1);
+		return [...counts]
+			.map(
+				([action, count]) =>
+					`${count} ${action === "create" ? "created" : action === "update" ? "updated" : action === "delete" ? "deleted" : "listed"}`,
+			)
+			.join(" · ");
+	}
+	if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+	const operations = (value as { readonly operations?: unknown }).operations;
+	if (!Array.isArray(operations) || operations.length === 0) return "";
+	const records = operations.filter(
+		(operation): operation is Record<string, unknown> =>
+			typeof operation === "object" && operation !== null && !Array.isArray(operation),
+	);
+	if (records.length === 1 && records[0]?.action === "list") {
+		const status = taskStatus(records[0].status);
+		return `list${status === undefined ? "" : ` ${status.replaceAll("_", " ")}`}`;
+	}
+	const counts = new Map<string, number>();
+	for (const operation of records) {
+		if (typeof operation.action !== "string") continue;
+		counts.set(operation.action, (counts.get(operation.action) ?? 0) + 1);
+	}
+	return [...counts].map(([action, count]) => `${action} ${count}`).join(" · ");
+}
+
+function taskRow(task: Task, theme: Theme): string {
+	const glyph =
+		task.status === "completed"
+			? theme.fg("success", "✓")
+			: task.status === "in_progress"
+				? theme.fg("warning", "◐")
+				: task.status === "blocked"
+					? theme.fg("dim", "⊘")
+					: theme.fg("muted", "○");
+	const subject =
+		task.status === "completed" || task.status === "blocked"
+			? theme.fg("dim", theme.strikethrough(task.subject))
+			: theme.fg("text", task.subject);
+	return `${glyph} ${theme.fg("accent", `#${task.id}`)} ${subject}`;
+}
+
+function taskRows(
+	state: TaskState,
+	status: TaskStatus | undefined,
+	theme: Theme,
+	expanded: boolean,
+): string[] {
+	const selected = state.tasks
+		.filter(
+			(task) => task.status !== "suppressed" && (status === undefined || task.status === status),
+		)
+		.slice()
+		.sort((left, right) => {
+			const rank = (task: Task): number =>
+				task.status === "in_progress"
+					? 0
+					: task.status === "pending"
+						? 1
+						: task.status === "blocked"
+							? 2
+							: 3;
+			return rank(left) - rank(right) || left.id - right.id;
+		});
+	const visible = expanded ? selected : selected.slice(0, TODO_MAX_BODY_ROWS);
+	const rows: string[] = [];
+	for (const currentStatus of ["in_progress", "pending", "blocked", "completed"] as const) {
+		const group = visible.filter((task) => task.status === currentStatus);
+		if (group.length === 0) continue;
+		rows.push(theme.fg("dim", currentStatus.replaceAll("_", " ")));
+		for (const task of group) rows.push(taskRow(task, theme));
+	}
+	if (selected.length > visible.length)
+		rows.push(theme.fg("dim", `… +${selected.length - visible.length} more`));
+	return rows.length === 0 ? [theme.fg("dim", "No tasks.")] : rows;
+}
+
+function mutationRows(details: TodoToolDetails, theme: Theme): string[] {
+	const rows = details.operations
+		.filter((operation) => operation.changed)
+		.map((operation) => {
+			const task = details.state.tasks.find((candidate) => candidate.id === operation.id);
+			if (operation.action === "delete") return theme.fg("dim", `− #${operation.id ?? "?"}`);
+			if (operation.action === "create")
+				return task === undefined ? `+ #${operation.id ?? "?"}` : `+ ${taskRow(task, theme)}`;
+			return task === undefined ? `→ #${operation.id ?? "?"}` : `→ ${taskRow(task, theme)}`;
+		});
+	return rows.length === 0 ? [theme.fg("dim", "No changes.")] : rows;
+}
+
+function todoResultText(result: {
+	readonly content?: readonly { readonly type: string; readonly text?: string }[];
+}): string {
+	return (result.content ?? [])
+		.flatMap((part) => (part.type === "text" && typeof part.text === "string" ? [part.text] : []))
+		.join("\n");
+}
+
+function renderTodoToolTuiResult(
+	result: {
+		readonly content?: readonly { readonly type: string; readonly text?: string }[];
+		readonly details?: unknown;
+	},
 	theme: Theme,
 	isError: boolean,
+	expanded: boolean,
 ): Text {
-	if (isError) return new Text(theme.fg("error", "✗"), 0, 0);
-	const details = result.details;
-	if (!details || typeof details !== "object") return new Text(theme.fg("success", "✓"), 0, 0);
-	const snapshot = (details as { readonly snapshot?: unknown }).snapshot;
-	const state = stateFromSnapshot(snapshot);
-	if (!state) return new Text(theme.fg("success", "✓"), 0, 0);
-	const active = activeTodoTask(state);
-	if (active) return new Text(theme.fg("warning", `◐ #${active.id} ${active.subject}`), 0, 0);
-	const focusTaskId = (details as { readonly focusTaskId?: unknown }).focusTaskId;
-	const focusTask =
-		typeof focusTaskId === "number" && Number.isSafeInteger(focusTaskId)
-			? state.tasks.find((task) => task.id === focusTaskId)
-			: undefined;
-	if (focusTask?.status === "completed")
-		return new Text(theme.fg("success", `✓ #${focusTask.id} ${focusTask.subject}`), 0, 0);
-	if (focusTask?.status === "blocked")
-		return new Text(
-			theme.fg("dim", `⊘ #${focusTask.id} ${theme.strikethrough(focusTask.subject)}`),
-			0,
-			0,
+	if (isError) return new Text(theme.fg("error", todoResultText(result) || "Error"), 0, 0);
+	const details = readTodoToolDetails(result.details);
+	if (details === undefined) return new Text(theme.fg("dim", "No Todo state."), 0, 0);
+	const rows =
+		details.listStatus !== undefined ||
+		details.operations.some((operation) => operation.action === "list")
+			? taskRows(details.state, details.listStatus, theme, expanded)
+			: mutationRows(details, theme);
+	return new Text(rows.join("\n"), 0, 0);
+}
+
+function todoToolTuiFooter(
+	result: { readonly details?: unknown },
+	completion: { readonly durationMs?: number } | undefined,
+): string | undefined {
+	const details = readTodoToolDetails(result.details);
+	if (details === undefined) return undefined;
+	const tasks = details.state.tasks.filter(
+		(task) =>
+			task.status !== "suppressed" &&
+			(details.listStatus === undefined || task.status === details.listStatus),
+	);
+	const labels: Array<[TaskStatus, string]> = [
+		["in_progress", "active"],
+		["pending", "pending"],
+		["blocked", "blocked"],
+		["completed", "done"],
+	];
+	const counts = labels
+		.map(([status, label]) => {
+			const count = tasks.filter((task) => task.status === status).length;
+			return count === 0 ? undefined : `${count} ${label}`;
+		})
+		.filter((value): value is string => value !== undefined);
+	if (counts.length === 0)
+		counts.push(
+			details.listStatus === undefined
+				? "No tasks"
+				: `0 ${details.listStatus.replaceAll("_", " ")}`,
 		);
-	const blocked = state.tasks.filter((task) => task.status === "blocked").length;
-	if (blocked > 0) return new Text(theme.fg("dim", `⊘ ${blocked} blocked`), 0, 0);
-	return new Text(theme.fg("success", "✓ complete"), 0, 0);
+	const duration = completion?.durationMs;
+	if (duration !== undefined)
+		counts.push(duration < 1_000 ? `${duration}ms` : `${(duration / 1_000).toFixed(1)}s`);
+	return counts.join(" · ");
 }
 
 function reconcileBlockedQuietTurns(current: ActiveTodoRuntime, nextState: TaskState): void {
@@ -408,68 +555,62 @@ function hideExpiredBlockedTasks(current: ActiveTodoRuntime): void {
 
 export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions = {}): TodoFeature {
 	let active: ActiveTodoRuntime | undefined;
-	const renderedIdsByCall = new Map<string, readonly number[]>();
 	const now = options.now ?? (() => performance.now());
-
-	registerManagedLoadoutTool(pi, TODO_LOADOUT_REGISTRATION, {
-		name: TODO_TOOL_NAME,
-		label: "Todo",
-		description: TODO_TOOL_DESCRIPTION,
-		promptSnippet: TODO_PROMPT_SNIPPET,
-		promptGuidelines: [...TODO_PROMPT_GUIDELINES],
-		parameters: TODO_PARAMETERS,
-		prepareArguments: prepareTodoArguments,
-		executionMode: "sequential",
-		renderCall(args, theme, context) {
-			return renderTodoCall(args, theme, renderedIdsByCall.get(context.toolCallId));
+	registerToolTuiTrace(pi);
+	const tool = getToolTui(pi).frame(
+		{
+			name: TODO_TOOL_NAME,
+			label: "Todo",
+			description: TODO_TOOL_DESCRIPTION,
+			promptSnippet: TODO_PROMPT_SNIPPET,
+			promptGuidelines: [...TODO_PROMPT_GUIDELINES],
+			parameters: TODO_PARAMETERS,
+			prepareArguments: prepareTodoArguments,
+			executionMode: "sequential",
+			renderResult(result, options, theme, context) {
+				return renderTodoToolTuiResult(result, theme, context.isError, options.expanded);
+			},
+			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+				signal?.throwIfAborted();
+				const current = active;
+				if (!current || current.sessionId !== ctx.sessionManager.getSessionId())
+					throw new Error("Todo runtime is not active");
+				// applyTodo validates the entire candidate batch before returning a new
+				// state. Keep the live state untouched on every error to preserve atomicity.
+				const todoParams = params as TodoParams;
+				const result = applyTodo(current.state, todoParams);
+				if (!result.ok) {
+					const message = result.error.endsWith(".") ? result.error : `${result.error}.`;
+					throw new Error(`${message}\nNo change made.`);
+				}
+				if (result.changed) {
+					reconcileBlockedQuietTurns(current, result.state);
+					current.state = result.state;
+					current.idleTurns = 0;
+					current.reminderWindowStartedAtMs = now();
+					current.todoChangedThisTurn = true;
+				}
+				const listOperation =
+					todoParams.operations.length === 1 && todoParams.operations[0]?.action === "list"
+						? todoParams.operations[0]
+						: undefined;
+				return {
+					content: [{ type: "text", text: formatTodoResult(todoParams, result) }],
+					details: {
+						snapshot: snapshotFromState(current.state),
+						operations: result.operations,
+						...(listOperation?.status === undefined ? {} : { listStatus: listOperation.status }),
+					},
+				};
+			},
 		},
-		renderResult(result, _options, theme, context) {
-			return renderTodoResult(result, theme, context.isError);
+		{
+			summary: todoSummary,
+			footer: todoToolTuiFooter,
+			maxBodyLines: Number.POSITIVE_INFINITY,
 		},
-		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			signal?.throwIfAborted();
-			const current = active;
-			if (!current || current.sessionId !== ctx.sessionManager.getSessionId())
-				throw new Error("Todo runtime is not active");
-			// applyTodo validates the entire candidate batch before returning a new
-			// state. Keep the live state untouched on every error to preserve atomicity.
-			const todoParams = params as TodoParams;
-			const result = applyTodo(current.state, todoParams);
-			if (!result.ok) {
-				const message = result.error.endsWith(".") ? result.error : `${result.error}.`;
-				throw new Error(`${message}\nNo change made.`);
-			}
-			if (result.changed) {
-				reconcileBlockedQuietTurns(current, result.state);
-				current.state = result.state;
-				current.idleTurns = 0;
-				current.reminderWindowStartedAtMs = now();
-				current.todoChangedThisTurn = true;
-			}
-			const renderedIds = result.operations.flatMap((operation) =>
-				operation.id === undefined ? [] : [operation.id],
-			);
-			if (renderedIds.length > 0) renderedIdsByCall.set(_toolCallId, renderedIds);
-			const changedTaskIds = [
-				...new Set(
-					result.operations.flatMap((operation) =>
-						operation.changed &&
-						operation.id !== undefined &&
-						result.state.tasks.some((task) => task.id === operation.id)
-							? [operation.id]
-							: [],
-					),
-				),
-			];
-			return {
-				content: [{ type: "text", text: formatTodoResult(todoParams, result) }],
-				details: {
-					snapshot: snapshotFromState(current.state),
-					...(changedTaskIds.length === 1 ? { focusTaskId: changedTaskIds[0] } : {}),
-				},
-			};
-		},
-	});
+	);
+	registerManagedLoadoutTool(pi, TODO_LOADOUT_REGISTRATION, tool);
 
 	pi.registerCommand(TODO_COMMAND_NAME, {
 		description: "Show todos or suppress one as the user",
@@ -602,7 +743,6 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 
 	return {
 		start(context, signal) {
-			renderedIdsByCall.clear();
 			const state = restoreTodoState(context);
 			const current: ActiveTodoRuntime = {
 				sessionId: context.sessionManager.getSessionId(),
@@ -624,7 +764,6 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 			} finally {
 				// Clear the shared pointer last so in-flight handlers either finish against
 				// their matching session or observe no active runtime on their next event.
-				renderedIdsByCall.clear();
 				if (active === current) active = undefined;
 			}
 		},

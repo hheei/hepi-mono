@@ -14,9 +14,11 @@ editor 上方 widget。它依赖 `@hheei/pi-ext-core` 的 session lifecycle，�
   inventory item。metadata 固定为 owner `@hheei/pi-todo`、group `Tasks`、priority `100`、无
   conflict、default active。没有 `pi-loadout` 时，core 保留 Pi 默认 activation；安装
   `pi-loadout` 后才由其 policy 决定是否启用；
-- core 还提供 session lifecycle cleanup。widget 继续直接使用 Pi 原生
-  `setWidget(..., { placement: "aboveEditor" })`，不等待尚未实现的 widget layout；
-- 不新增 shared TUI frame/background API。widget 的行布局、主题 token 和宽度裁剪仍属于 Todo；
+- core 还提供 session lifecycle cleanup 与共享 `ToolTui` renderer transport。widget 继续直接使用 Pi 原生
+  `setWidget(..., { placement: "aboveEditor" })`；widget 的行布局、主题 token 和宽度裁剪仍属于 Todo；
+- Todo 以 core 的 host-scoped `ToolTui` 包装自己的 definition，因此与 coding tools 使用同一 Trace collapse。
+  header、body、typed footer 的 task 语义仍属于 Todo：mutation 只显示本次 operation outcome，`list` 显示
+  state rows，footer 从 typed snapshot 计算 progress counts；
 - 旧 aggregate package 不再注册 Todo，不提供 adapter 或重复 command/tool。
 
 ## 当前行为
