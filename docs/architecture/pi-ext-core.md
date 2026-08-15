@@ -67,8 +67,22 @@ Pi 没有为大部分 extension 注册面提供公开 unregister。core 的 life
 
 根入口 `@hheei/pi-ext-core` 只导出实际 consumer 需要的类型与函数，不允许 deep
 import。已实现 v1 包含 lifecycle、Service、ExtensionPoint、cleanup、JSON settings/provider registry、
-Loadout registration、custom surface runtime、Extension page router API 与 Subagent execution contract。Subagent execution contract 的边界见
+Loadout registration、custom surface runtime、Extension page router API、Subagent execution contract 与 Pi context usage 解析。Subagent execution contract 的边界见
 [Subagent 执行架构](subagents.md)，Loadout 细节见 [Loadout 架构](loadout.md)。
+
+### Pi context usage
+
+`resolvePiContextUsage()` 是纯函数：任意时刻把 Pi `getContextUsage()` 读数解成可展示的输入量。
+它不读 `ExtensionContext`、不持有 session state、也不决定 historian / compaction policy。
+
+Pi 只估 session messages（最后一条有效 assistant usage + 之后 chars/4）。因此：
+
+- `tokens > 0`：直接用 live。这个数已包含上一轮的 system prompt、`<available_skills>` 目录与 `tools[]`。
+- `tokens === 0`：新 session。用调用方传入的 `prefixTokens` 做下限（通常是 `estimatePiPrefixTokens(systemPrompt, tools)`；技能正文要等 `read`）。
+- `tokens === null` 或缺少：compaction 后未知。不用 prefix 冒充，`tokens` / `percent` 为 `undefined`。
+
+调用方自己读 `getContextUsage` / `getSystemPrompt` / `getAllTools`。默认 prefix 估算是 `ceil(chars/4)`；需要模型 tokenizer 的包传 `estimateTokens`。
+mctx 的 persisted `lastInputTokens`、m[0] 与 scheduler 仍由 `pi-mctx` 拥有；调度器不得用此函数替代 raw 0（imported-session 检测依赖 `usagePercentage===0`）。
 
 ### JSON Settings
 
@@ -306,3 +320,4 @@ packages/pi-ext-core/
 15. v1 只支持 Pi 完整 reload lifecycle，不提供单一 Service HMR replace 后门。
 16. Pi 串行 session start 下，consumer 不得 await `waitForService()`；改以自行处理的
     non-blocking continuation 等待 provider。
+17. `resolvePiContextUsage()` 只解释 Pi live usage；不下沉 mctx persisted pressure、m[0] 或 historian 阈值。

@@ -2,11 +2,17 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import {
+	type PiPrefixTool,
+	resolvePiContextUsage,
+} from "@hheei/pi-ext-core";
 import type { ContextDatabase } from "#core/features/storage";
+import { estimateTokens } from "#core/hooks/read-session-formatting";
 
 const STATUS_KEY = "magic-context";
 const RECENT_FAILURE_MS = 60_000;
 const recompSessions = new Set<string>();
+let listedTools: () => ReadonlyArray<PiPrefixTool> = () => [];
 
 export interface StatusLineDeps {
 	db: ContextDatabase;
@@ -32,14 +38,22 @@ const lastRenderedBySession = new Map<string, string>();
 /**
  * Persistent Magic Context footer status for Pi.
  *
- * Hot path by design: one session_meta row read + ctx.getContextUsage(). No tag
- * or compartment enumeration here; the rich breakdown is reserved for /ctx-status.
+ * Hot path by design: one session_meta row read + resolvePiContextUsage(). Prefix
+ * tokenize (system prompt + tool defs) runs inside that helper. No tag or
+ * compartment enumeration here; the rich breakdown is reserved for /ctx-status.
  */
 export function registerStatusLine(
 	pi: ExtensionAPI,
 	deps: StatusLineDeps,
 ): void {
 	void deps.projectIdentity;
+	listedTools = () => {
+		try {
+			return pi.getAllTools?.() ?? [];
+		} catch {
+			return [];
+		}
+	};
 
 	pi.on("session_start", async (_event, ctx) =>
 		updateStatusLine(ctx, deps, true),
@@ -81,9 +95,20 @@ function renderStatusText(
 	sessionId: string,
 ): string {
 	const usage = ctx.getContextUsage?.();
-	const inputTokens =
-		typeof usage?.tokens === "number" ? usage.tokens : undefined;
-	const pct = typeof usage?.percent === "number" ? usage.percent : undefined;
+	const liveReady = typeof usage?.tokens === "number" && usage.tokens > 0;
+	const resolved = resolvePiContextUsage({
+		live: usage,
+		contextWindow: ctx.model?.contextWindow,
+		...(liveReady
+			? {}
+			: {
+					systemPrompt: readSystemPrompt(ctx),
+					tools: listedTools(),
+					estimateTokens,
+				}),
+	});
+	const inputTokens = resolved.tokens;
+	const pct = resolved.percent;
 	const meta = readSessionMetaStatus(db, sessionId);
 	const state = renderHistorianState(meta, recompSessions.has(sessionId));
 	return `mc: ${inputTokens === undefined ? "--" : fmt(inputTokens)} (${pct === undefined ? "--" : `${Math.round(pct)}%`}) · ${state}`;
@@ -114,6 +139,18 @@ function readSessionMetaStatus(
 				"SELECT compartment_in_progress, historian_failure_count, historian_last_failure_at FROM session_meta WHERE session_id = ?",
 			)
 			.get(sessionId);
+	} catch {
+		return undefined;
+	}
+}
+
+function readSystemPrompt(ctx: ExtensionContext): string | undefined {
+	try {
+		const prompt =
+			typeof ctx.getSystemPrompt === "function"
+				? ctx.getSystemPrompt()
+				: undefined;
+		return typeof prompt === "string" && prompt.length > 0 ? prompt : undefined;
 	} catch {
 		return undefined;
 	}
