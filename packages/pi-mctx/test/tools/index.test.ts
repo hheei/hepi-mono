@@ -114,6 +114,71 @@ describe("registerMagicContextTools", () => {
 		}
 	});
 
+	it("frames registered tools with the shared ToolTui", () => {
+		const db = createTestDb();
+		try {
+			const registered: Array<{
+				name: string;
+				renderShell?: string;
+				renderCall?: (...args: never[]) => { render: (width: number) => string[] };
+				renderResult?: (...args: never[]) => { render: (width: number) => string[] };
+			}> = [];
+			const pi = {
+				registerTool: (tool: (typeof registered)[number]) => {
+					registered.push(tool);
+				},
+				registerCommand: () => undefined,
+				on: () => undefined,
+			} as never;
+			registerMagicContextTools(pi, { db });
+
+			const search = registered.find((tool) => tool.name === "ctx_search");
+			expect(search?.renderShell).toBe("self");
+			const theme = {
+				bg: (_role: string, text: string): string => text,
+				fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
+				bold: (text: string): string => text,
+			};
+			const context = {
+				args: { query: "token usage" },
+				toolCallId: "search-1",
+				invalidate: (): void => undefined,
+				state: {},
+				cwd: "/tmp",
+				executionStarted: true,
+				argsComplete: true,
+				showImages: false,
+				expanded: false,
+				lastComponent: undefined,
+				isPartial: false,
+				isError: false,
+			};
+			const header = search
+				?.renderCall?.(context.args as never, theme as never, context as never)
+				.render(80)
+				.join("\n");
+			expect(header).toContain("Magic Context: Search");
+			expect(header).toContain("token usage");
+			const body = search
+				?.renderResult?.(
+					{
+						content: [{ type: "text", text: "[1] [memory] id=1" }],
+						details: undefined,
+					} as never,
+					{ isPartial: false, expanded: false } as never,
+					theme as never,
+					context as never,
+				)
+				.render(80);
+			expect(body?.some((line) => line.includes("[1] [memory] id=1"))).toBe(
+				true,
+			);
+			expect(body?.some((line) => line.includes("─"))).toBe(true);
+		} finally {
+			closeQuietly(db);
+		}
+	});
+
 	it("registered tools resolve smart-note gating from the invocation cwd", async () => {
 		const db = createTestDb();
 		try {
