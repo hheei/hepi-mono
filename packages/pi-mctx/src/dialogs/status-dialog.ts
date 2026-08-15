@@ -1,3 +1,4 @@
+import { estimatePiPrefixTokens, resolvePiContextUsage } from "@hheei/pi-ext-core";
 import type {
 	ExtensionAPI,
 	ExtensionCommandContext,
@@ -406,7 +407,7 @@ export function buildPiStatusDetail(
 ): StatusDialogDetail {
 	const usage = ctx.getContextUsage?.();
 	const meta = getOrCreateSessionMeta(deps.db, sessionId);
-	const inputTokens =
+	let inputTokens =
 		typeof usage?.tokens === "number" ? usage.tokens : meta.lastInputTokens;
 	let detectedContextLimit: number | undefined;
 	try {
@@ -424,7 +425,7 @@ export function buildPiStatusDetail(
 		(meta.lastContextPercentage > 0
 			? Math.round(inputTokens / (meta.lastContextPercentage / 100))
 			: 0);
-	const usagePercentage =
+	let usagePercentage =
 		contextLimit > 0 && inputTokens > 0
 			? (inputTokens / contextLimit) * 100
 			: meta.lastContextPercentage;
@@ -460,14 +461,15 @@ export function buildPiStatusDetail(
 	// experimental.chat.system.transform hook). Compute it on demand from
 	// ctx.getSystemPrompt() when available; fall back to the stored value
 	// so the dialog still has a sensible number outside command context.
-	let systemPromptTokens = meta.systemPromptTokens;
+	// Skills are already inside that prompt (`<available_skills>`).
+	let systemPrompt: string | undefined;
 	try {
 		const sysPrompt =
 			typeof ctx.getSystemPrompt === "function"
 				? ctx.getSystemPrompt()
 				: undefined;
 		if (typeof sysPrompt === "string" && sysPrompt.length > 0) {
-			systemPromptTokens = estimateTokens(sysPrompt);
+			systemPrompt = sysPrompt;
 		}
 	} catch {
 		// best effort; fall back to stored
@@ -497,16 +499,40 @@ export function buildPiStatusDetail(
 	// them to providers — name + description + JSON-stringified parameter
 	// schema. This is a structural estimate (not the exact wire payload), but
 	// matches the calibrated bucket within a reasonable margin.
-	let toolDefinitionTokens = 0;
+	let tools: Array<{
+		name?: string;
+		description?: string;
+		parameters?: unknown;
+	}> = [];
 	try {
-		const tools = pi.getAllTools?.() ?? [];
-		for (const tool of tools) {
-			toolDefinitionTokens += estimateTokens(
-				`${tool.name ?? ""}\n${tool.description ?? ""}\n${safeStringify(tool.parameters)}`,
-			);
-		}
+		tools = pi.getAllTools?.() ?? [];
 	} catch {
 		// best effort
+	}
+	const prefix = estimatePiPrefixTokens({
+		...(systemPrompt !== undefined ? { systemPrompt } : {}),
+		tools,
+		estimateTokens,
+	});
+	const systemPromptTokens =
+		prefix.systemPromptTokens > 0
+			? prefix.systemPromptTokens
+			: meta.systemPromptTokens;
+	const toolDefinitionTokens = prefix.toolDefinitionTokens;
+	const resolved = resolvePiContextUsage({
+		live: usage,
+		contextWindow: ctx.model?.contextWindow,
+		prefixTokens:
+			prefix.tokens +
+			compartmentTokens +
+			factTokens +
+			memoryTokens +
+			docsTokens +
+			profileTokens,
+	});
+	inputTokens = resolved.tokens ?? inputTokens;
+	if (contextLimit > 0 && inputTokens > 0) {
+		usagePercentage = (inputTokens / contextLimit) * 100;
 	}
 
 	const persistedToolCallTokens = meta.toolCallTokens;
@@ -648,15 +674,6 @@ export function buildPiStatusDetail(
 		),
 		recompInFlight: isPiRecompInFlight(sessionId),
 	};
-}
-
-function safeStringify(value: unknown): string {
-	try {
-		if (value === undefined || value === null) return "";
-		return typeof value === "string" ? value : JSON.stringify(value);
-	} catch {
-		return "";
-	}
 }
 
 function breakdownSegments(s: StatusDialogDetail): Array<{

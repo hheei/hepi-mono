@@ -5,6 +5,20 @@
  */
 
 export type {
+	EstimateTextTokens,
+	PiContextUsageReading,
+	PiContextUsageSource,
+	PiPrefixTokens,
+	PiPrefixTool,
+	ResolvedPiContextUsage,
+} from "./context-usage.js";
+export {
+	estimatePiPrefixTokens,
+	estimatePiToolDefinitionTokens,
+	estimateTextTokens,
+	resolvePiContextUsage,
+} from "./context-usage.js";
+export type {
 	OpenTuiSurfaceOptions,
 	TuiSurfaceContext,
 	TuiSurfaceResult,
