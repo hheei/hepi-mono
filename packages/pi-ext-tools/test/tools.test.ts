@@ -8,9 +8,14 @@ import {
 	initTheme,
 	type Theme,
 	type ToolDefinition,
+	ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
-import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
-import { type ExtensionLifecycleContext, observeLoadoutInventory } from "@hheei/pi-ext-core";
+import { stripTerminalSequences, type TUI, visibleWidth } from "@earendil-works/pi-tui";
+import {
+	createToolTui,
+	type ExtensionLifecycleContext,
+	observeLoadoutInventory,
+} from "@hheei/pi-ext-core";
 import type { EditCatalog } from "../src/fff/settings.js";
 import { activateEditCatalog, registerTools } from "../src/tools.js";
 
@@ -695,6 +700,70 @@ describe("pi-ext-tools catalog", () => {
 		expect(rendered).not.toContain("<muted>2 edits</muted>");
 		expect(rendered).toMatch(/2 edits · \+2 -2 lines · \d+ms/);
 		expect(rendered).not.toContain("edit value.txt");
+	});
+
+	test("keeps the edit metrics footer after a later Trace collapses the body", async (): Promise<void> => {
+		initTheme("dark");
+		const cwd = await temporaryDirectory();
+		await writeFile(join(cwd, "value.txt"), "before\n", "utf8");
+		const host = harness();
+		const tui = createToolTui();
+		registerTools(host.pi, undefined, tui);
+		const edit = host.tools.find((tool) => tool.name === "edit");
+		if (edit === undefined) throw new Error("edit was not registered");
+		const args = { path: "value.txt", edits: [{ oldText: "before", newText: "after" }] };
+		const ui = { requestRender: (): void => undefined } as unknown as TUI;
+		const component = new ToolExecutionComponent(
+			"edit",
+			"edit-collapsed",
+			args,
+			undefined,
+			edit,
+			ui,
+			cwd,
+		);
+		tui.beginTrace();
+		component.markExecutionStarted();
+		const result = await edit.execute("edit-collapsed", args, undefined, undefined, {
+			cwd,
+			sessionManager: {
+				getSessionId: (): string => "ext-tools-render-test",
+				getSessionFile: (): undefined => undefined,
+			},
+		} as unknown as ExtensionContext);
+		component.updateResult({ ...result, isError: false });
+		const live = stripTerminalSequences(component.render(100).join("\n"));
+		expect(live).toContain("before");
+		expect(live).toMatch(/1 edit · \+1 -1 lines · \d+ms/);
+		tui.beginTrace();
+		const collapsed = stripTerminalSequences(component.render(100).join("\n"));
+		expect(collapsed).toContain("edit");
+		expect(collapsed).toContain("value.txt");
+		expect(collapsed).toMatch(/1 edit · \+1 -1 lines · \d+ms/);
+		expect(collapsed).not.toContain("before");
+
+		const resumed = new ToolExecutionComponent(
+			"edit",
+			"edit-resumed",
+			args,
+			undefined,
+			edit,
+			ui,
+			cwd,
+		);
+		resumed.updateResult({
+			content: [{ type: "text", text: "Successfully replaced text." }],
+			details: {
+				patch: ["--- value.txt", "+++ value.txt", "@@ -1,1 +1,1 @@", "-before", "+after"].join(
+					"\n",
+				),
+			},
+			isError: false,
+		});
+		const historical = stripTerminalSequences(resumed.render(100).join("\n"));
+		expect(historical).toContain("edit");
+		expect(historical).toContain("value.txt");
+		expect(historical).toMatch(/1 edit · \+1 -1 lines/);
 	});
 
 	test("renders a resumed Pi-native edit from its persisted unified patch", (): void => {

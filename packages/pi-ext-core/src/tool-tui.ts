@@ -225,6 +225,11 @@ function withCompletion<T>(
 	};
 }
 
+function typedFooter(value: string | undefined): string | undefined {
+	const footer = value?.trim();
+	return footer === undefined || footer === "" ? undefined : footer;
+}
+
 function defaultFooter(completion: ToolCompletion | undefined, isError: boolean): string {
 	const duration = durationText(completion?.durationMs);
 	if (isError) return [completion?.errorMessage ?? "failed", duration].filter(Boolean).join(" · ");
@@ -537,7 +542,7 @@ export function createToolTui(): ToolTui {
 				},
 				renderResult(result, options, theme, context): Component {
 					const completion = completionFrom(result, trace.completionFor(context.toolCallId));
-					const footer = presentation.footer?.(result, completion, options);
+					const footer = typedFooter(presentation.footer?.(result, completion, options));
 					const warning = presentation.warning?.(result) ?? false;
 					const restoredCompletion =
 						completion?.warning === true || !warning
