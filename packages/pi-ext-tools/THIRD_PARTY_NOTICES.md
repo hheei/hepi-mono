@@ -75,8 +75,8 @@ bundle a separate mpatch executable.
 and `src/pretty/ansi.ts` are adapted from
 [xynogen/pix-mono](https://github.com/xynogen/pix-mono) package `pix-pretty`
 at revision `1ca2d05aec5fdba679c6b3ac7b7b57822962c205` (local clone
-`references/repos/pix-mono`). `src/edit.ts` and `src/write.ts` adapt the
-`pix-edit` / `pix-write` presentation, not execution.
+`references/repos/pix-mono`). `src/write.ts` adapts the `pix-write` presentation,
+not execution. Native `edit` no longer uses this renderer.
 
 Copyright (c) 2026 xynogen
 

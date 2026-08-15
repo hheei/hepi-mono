@@ -4,9 +4,14 @@ import type {
 	ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
 import { type Component, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { GrepDisplayLine, GrepToolDetails } from "./grep.js";
-import { DEFAULT_MAX_BODY_LINES } from "./pretty/frame.js";
-import type { ToolCompletion } from "./pretty/trace.js";
+import { DEFAULT_MAX_BODY_LINES, type ToolCompletion } from "@hheei/pi-ext-core";
+import type { GrepDisplayLine, GrepSubmatch, GrepToolDetails } from "./grep.js";
+import { RST } from "./pretty/ansi.js";
+import { renderCodeGutter, renderDiffOmission, resolveDiffColors } from "./pretty/diff-render.js";
+import { hlBlock } from "./pretty/highlight.js";
+import { lang } from "./pretty/lang.js";
+
+const DIM = "\x1b[2m";
 
 export type FindToolDetails = {
 	readonly format: "canonical-find";
@@ -20,6 +25,7 @@ type RenderContext = { readonly isError: boolean; readonly lastComponent: Compon
 const EXPAND_HINT = "ctrl+o to expand";
 const TRUNCATION_MARKER = "…";
 const FIND_CURSOR = /^cursor:\s+/;
+const EMPTY_FIND_BODY = /^(?:No files found matching pattern)?$/;
 
 function resultText(result: AgentToolResult<unknown>): string {
 	return result.content
@@ -36,6 +42,8 @@ function grepDetails(value: unknown): GrepToolDetails | undefined {
 		: undefined;
 }
 
+const ANSI_SGR = /^\[[0-9;]*m/;
+
 function utf8Boundaries(text: string): ReadonlyMap<number, number> {
 	const boundaries = new Map<number, number>();
 	let bytes = 0;
@@ -49,62 +57,106 @@ function utf8Boundaries(text: string): ReadonlyMap<number, number> {
 	return boundaries;
 }
 
-function withTruncationMarkers(
-	text: string,
-	truncatedLeft: boolean,
-	truncatedRight: boolean,
-	theme: Theme,
-): string {
-	return theme.fg(
-		"dim",
-		`${truncatedLeft ? TRUNCATION_MARKER : ""}${text}${truncatedRight ? TRUNCATION_MARKER : ""}`,
-	);
+function visibleText(text: string): string {
+	return text.replace(/\u001b\[[0-9;]*m/g, "");
 }
 
-function renderMatch(
-	line: Extract<GrepDisplayLine, { type: "match" }>,
-	theme: Theme,
-	lineNumberWidth: number,
-	reserveLeftMarker: boolean,
+function takeVisible(
+	text: string,
+	index: number,
+	visibleChars: number,
+): { readonly slice: string; readonly next: number } {
+	let slice = "";
+	let taken = 0;
+	let cursor = index;
+	while (taken < visibleChars && cursor < text.length) {
+		const ansi = text.slice(cursor).match(ANSI_SGR);
+		if (ansi) {
+			slice += ansi[0];
+			cursor += ansi[0].length;
+			continue;
+		}
+		const character = [...text.slice(cursor)][0] ?? "";
+		slice += character;
+		cursor += character.length;
+		taken += character.length;
+	}
+	return { slice, next: cursor };
+}
+
+function overlayMatches(
+	highlighted: string,
+	source: string,
+	ranges: readonly { readonly start: number; readonly end: number }[],
+	paint: (text: string) => string,
 ): string {
-	const prefix = `${String(line.lineNumber).padStart(lineNumberWidth)}│`;
-	const leftMarker = line.truncatedLeft ? TRUNCATION_MARKER : reserveLeftMarker ? " " : "";
-	const boundaries = utf8Boundaries(line.source);
-	const visibleStart = boundaries.get(line.visibleStart);
-	const visibleEnd = boundaries.get(line.visibleEnd);
-	if (visibleStart === undefined || visibleEnd === undefined)
-		return `${theme.fg("dim", prefix)}${theme.fg("dim", `${leftMarker}${line.text}${line.truncatedRight ? TRUNCATION_MARKER : ""}`)}`;
-	const ranges = line.submatches.flatMap((range) => {
-		if (range.start < line.visibleStart || range.end > line.visibleEnd || range.end <= range.start)
-			return [];
+	const colored = visibleText(highlighted).length === source.length ? highlighted : source;
+	const parts: string[] = [];
+	let sourceIndex = 0;
+	let colorIndex = 0;
+	for (const range of [...ranges].sort((left, right) => left.start - right.start)) {
+		if (range.end <= sourceIndex || range.end <= range.start) continue;
+		const start = Math.max(range.start, sourceIndex);
+		if (start > sourceIndex) {
+			const taken = takeVisible(colored, colorIndex, start - sourceIndex);
+			parts.push(`${DIM}${taken.slice}${RST}`);
+			colorIndex = taken.next;
+			sourceIndex = start;
+		}
+		const match = takeVisible(colored, colorIndex, range.end - sourceIndex);
+		parts.push(paint(match.slice));
+		colorIndex = match.next;
+		sourceIndex = range.end;
+	}
+	if (sourceIndex < source.length) {
+		const rest = takeVisible(colored, colorIndex, source.length - sourceIndex).slice;
+		parts.push(`${DIM}${rest}${RST}`);
+	}
+	return parts.join("");
+}
+
+function submatchCharRanges(
+	source: string,
+	submatches: readonly GrepSubmatch[],
+): readonly { readonly start: number; readonly end: number }[] {
+	const boundaries = utf8Boundaries(source);
+	return submatches.flatMap((range) => {
+		if (range.end <= range.start) return [];
 		const start = boundaries.get(range.start);
 		const end = boundaries.get(range.end);
-		return start === undefined || end === undefined
-			? []
-			: [{ start: start - visibleStart, end: end - visibleStart }];
+		if (start !== undefined && end !== undefined) return [{ start, end }];
+		return range.start >= 0 && range.end <= source.length
+			? [{ start: range.start, end: range.end }]
+			: [];
 	});
-	if (ranges.length === 0)
-		return `${theme.fg("dim", prefix)}${theme.fg("dim", `${leftMarker}${line.text}${line.truncatedRight ? TRUNCATION_MARKER : ""}`)}`;
-	const highlighted: string[] = [];
-	if (leftMarker !== "") highlighted.push(theme.fg("dim", leftMarker));
-	let offset = 0;
-	for (const range of ranges.sort((left, right) => left.start - right.start)) {
-		if (range.start < offset) continue;
-		if (range.start > offset)
-			highlighted.push(theme.fg("dim", line.text.slice(offset, range.start)));
-		highlighted.push(theme.fg("success", line.text.slice(range.start, range.end)));
-		offset = range.end;
-	}
-	if (offset < line.text.length) highlighted.push(theme.fg("dim", line.text.slice(offset)));
-	if (line.truncatedRight) highlighted.push(theme.fg("dim", TRUNCATION_MARKER));
-	return `${theme.fg("dim", prefix)}${highlighted.join("")}`;
+}
+
+function highlightSource(source: string, path: string, theme: Theme): string {
+	const highlighted = hlBlock(source, lang(path), theme);
+	return highlighted.length === 1 ? (highlighted[0] ?? source) : source;
+}
+
+function renderGrepSource(
+	line: Extract<GrepDisplayLine, { type: "match" | "context" }>,
+	theme: Theme,
+	lineNumberWidth: number,
+	path: string,
+): string {
+	const highlighted = highlightSource(line.source, path, theme);
+	const ranges = line.type === "match" ? submatchCharRanges(line.source, line.submatches) : [];
+	const addBg = resolveDiffColors(theme).bgAdd;
+	const body =
+		ranges.length === 0
+			? `${DIM}${highlighted}${RST}`
+			: overlayMatches(highlighted, line.source, ranges, (text) => `${addBg}${text}${RST}`);
+	return renderCodeGutter(line.lineNumber, lineNumberWidth, body);
 }
 
 function renderGrepLine(
 	line: GrepDisplayLine,
 	theme: Theme,
-	lineNumberWidth = 0,
-	reserveLeftMarker = false,
+	lineNumberWidth: number,
+	path: string,
 ): string {
 	switch (line.type) {
 		case "path":
@@ -112,11 +164,10 @@ function renderGrepLine(
 				? `${theme.fg("dim", TRUNCATION_MARKER)}${theme.fg("mdCode", line.text.slice(TRUNCATION_MARKER.length))}`
 				: theme.fg("mdCode", line.text);
 		case "match":
-			return renderMatch(line, theme, lineNumberWidth, reserveLeftMarker);
 		case "context":
-			return `${theme.fg("dim", `${String(line.lineNumber).padStart(lineNumberWidth)}│`)}${withTruncationMarkers(line.text, line.truncatedLeft, line.truncatedRight, theme)}`;
+			return renderGrepSource(line, theme, lineNumberWidth, path);
 		case "omission":
-			return theme.fg("dim", line.text);
+			return `${renderDiffOmission(lineNumberWidth, false)}${theme.fg("dim", line.text)}`;
 		case "text":
 			return theme.fg("dim", line.text);
 	}
@@ -182,15 +233,6 @@ function grepLineNumberWidth(lines: readonly GrepDisplayLine[], start: number): 
 	return width;
 }
 
-function grepGroupHasLeftTruncation(lines: readonly GrepDisplayLine[], start: number): boolean {
-	for (let index = start + 1; index < lines.length; index += 1) {
-		const line = lines[index];
-		if (line?.type === "path") return false;
-		if (line?.type === "match" && line.truncatedLeft) return true;
-	}
-	return false;
-}
-
 export function renderGrepResult(
 	result: AgentToolResult<unknown>,
 	options: ToolRenderResultOptions,
@@ -205,21 +247,22 @@ export function renderGrepResult(
 	}
 	const display = details.display.filter(
 		(line, index) =>
-			index !== 0 ||
-			line.type !== "text" ||
-			!/^\d+(?: fuzzy)? matches in \d+ files$/.test(line.text),
+			!(line.type === "text" && /^No matches found\.?$/.test(line.text)) &&
+			(index !== 0 ||
+				line.type !== "text" ||
+				!/^\d+(?: fuzzy)? matches in \d+ files$/.test(line.text)),
 	);
 	const collapsedLimit =
 		display.length > DEFAULT_MAX_BODY_LINES ? DEFAULT_MAX_BODY_LINES - 1 : DEFAULT_MAX_BODY_LINES;
 	const visible = options.expanded ? display : display.slice(0, collapsedLimit);
-	let lineNumberWidth = 0;
-	let reserveLeftMarker = false;
+	let lineNumberWidth = 1;
+	let path = "";
 	const rendered = visible.map((line, index) => {
 		if (line.type === "path") {
-			lineNumberWidth = grepLineNumberWidth(visible, index);
-			reserveLeftMarker = grepGroupHasLeftTruncation(visible, index);
+			lineNumberWidth = Math.max(1, grepLineNumberWidth(visible, index));
+			path = line.text;
 		}
-		return renderGrepLine(line, theme, lineNumberWidth, reserveLeftMarker);
+		return renderGrepLine(line, theme, lineNumberWidth, path);
 	});
 	const lines = rendered;
 	if (!options.expanded && display.length > visible.length)
@@ -349,17 +392,20 @@ export function renderFindResult(
 	context: RenderContext,
 ): Component {
 	const details = findDetails(result.details);
-	if (context.isError || details === undefined)
-		return new Text(
-			context.isError
-				? theme.fg("error", resultText(result))
-				: resultText(result)
-						.split("\n")
-						.filter((line) => !FIND_CURSOR.test(line))
-						.join("\n"),
-			0,
-			0,
-		);
+	if (context.isError || details === undefined) {
+		const text = context.isError
+			? theme.fg("error", resultText(result))
+			: resultText(result)
+					.split("\n")
+					.filter((line) => !FIND_CURSOR.test(line))
+					.join("\n");
+		if (!context.isError && EMPTY_FIND_BODY.test(text.trim())) {
+			const empty = new GrepResultComponent(theme);
+			empty.set([], theme);
+			return empty;
+		}
+		return new Text(text, 0, 0);
+	}
 	const body = findBodyLines(details);
 	const visible = options.expanded ? [...body] : body.slice(0, DEFAULT_MAX_BODY_LINES - 1);
 	if (!options.expanded && body.length > visible.length)

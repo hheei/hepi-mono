@@ -1,13 +1,13 @@
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
+import { createToolTui, registerManagedLoadoutTool, type ToolTui } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { inferFffGrepMode } from "./fff/extension-common.js";
 import type { GrepMatch } from "./fff/fff.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
-import { createToolTui, type ToolTui } from "./pretty/frame.js";
 import { grepCollapsedFooter, renderGrepResult } from "./search-renderer.js";
+import { GREP_TIMEOUT_RECOVERY, SEARCH_TIMEOUT_MS } from "./search-timeout.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 const OUTPUT_PREFIX = "output://";
@@ -21,6 +21,9 @@ const MAX_LINE_CHARS = 80;
 const GREP_DESCRIPTION =
 	"Search file contents with ripgrep or FFF when its exact grep contract applies.";
 const GREP_PROMPT_SNIPPET = "Search file contents for patterns (respects .gitignore)";
+const GREP_PROMPT_GUIDELINES: string[] = [
+	"grep: if search times out, narrow path/glob or use a more specific pattern.",
+];
 const GREP_PARAMETER_DESCRIPTIONS = {
 	pattern: "Search pattern (regex or literal string)",
 	path: "Directory or file to search (default: current directory)",
@@ -118,12 +121,14 @@ export type GrepToolDetails = {
 	};
 	readonly recovery: { readonly output: string };
 	readonly fff?: { readonly itemCount: number };
+	readonly timedOut?: boolean;
 };
 
 type CanonicalResult = {
 	readonly events: readonly GrepEvent[];
 	readonly totalMatched: number;
 	readonly cap: GrepToolDetails["cap"];
+	readonly timedOut?: boolean;
 };
 
 type FullOutput = {
@@ -320,81 +325,28 @@ function compactPath(path: string): string {
 	return `…/${tail}`;
 }
 
-function charIndexAtByte(text: string, byteOffset: number): number | undefined {
-	let bytes = 0;
-	let index = 0;
-	if (byteOffset === 0) return 0;
-	for (const character of text) {
-		bytes += Buffer.byteLength(character, "utf8");
-		index += 1;
-		if (bytes === byteOffset) return index;
-		if (bytes > byteOffset) return undefined;
-	}
-	return undefined;
-}
-
-function compactText(
-	text: string,
-	focusByteOffset?: number,
-): {
-	text: string;
-	visibleStart: number;
-	visibleEnd: number;
-	truncatedLeft: boolean;
-	truncatedRight: boolean;
-} {
-	const leading = text.length - text.trimStart().length;
-	const trimmed = text.trim();
-	const characters = Array.from(trimmed);
-	const leadingBytes = Buffer.byteLength(text.slice(0, leading), "utf8");
-	const focus =
-		focusByteOffset === undefined
-			? undefined
-			: charIndexAtByte(trimmed, focusByteOffset - leadingBytes);
-	const start =
-		characters.length <= MAX_LINE_CHARS || focus === undefined
-			? 0
-			: Math.max(
-					0,
-					Math.min(focus - Math.floor(MAX_LINE_CHARS / 2), characters.length - MAX_LINE_CHARS),
-				);
-	const visible = characters.slice(start, start + MAX_LINE_CHARS).join("");
-	const visibleStart =
-		leadingBytes + Buffer.byteLength(characters.slice(0, start).join(""), "utf8");
-	return {
-		text: visible,
-		visibleStart,
-		visibleEnd: visibleStart + Buffer.byteLength(visible, "utf8"),
-		truncatedLeft: start > 0,
-		truncatedRight: start + MAX_LINE_CHARS < characters.length,
-	};
-}
-
 function displayEvent(event: GrepEvent): GrepDisplayLine {
-	const compact = compactText(
-		event.lines,
-		event.type === "match" ? event.submatches[0]?.start : undefined,
-	);
+	const bytes = Buffer.byteLength(event.lines, "utf8");
 	if (event.type === "context")
 		return {
 			type: "context",
 			lineNumber: event.lineNumber,
-			text: compact.text,
+			text: event.lines,
 			source: event.lines,
-			visibleStart: compact.visibleStart,
-			visibleEnd: compact.visibleEnd,
-			truncatedLeft: compact.truncatedLeft,
-			truncatedRight: compact.truncatedRight,
+			visibleStart: 0,
+			visibleEnd: bytes,
+			truncatedLeft: false,
+			truncatedRight: false,
 		};
 	return {
 		type: "match",
 		lineNumber: event.lineNumber,
-		text: compact.text,
+		text: event.lines,
 		source: event.lines,
-		visibleStart: compact.visibleStart,
-		visibleEnd: compact.visibleEnd,
-		truncatedLeft: compact.truncatedLeft,
-		truncatedRight: compact.truncatedRight,
+		visibleStart: 0,
+		visibleEnd: bytes,
+		truncatedLeft: false,
+		truncatedRight: false,
 		submatches: event.submatches,
 		...(event.approximate ? { approximate: true } : {}),
 	};
@@ -418,7 +370,8 @@ function compactOutput(
 	output: string,
 	context: number,
 ): readonly GrepDisplayLine[] {
-	if (canonical.totalMatched === 0) return [{ type: "text", text: "No matches found" }];
+	if (canonical.totalMatched === 0)
+		return canonical.timedOut ? [{ type: "text", text: GREP_TIMEOUT_RECOVERY }] : [];
 	const fuzzy = canonical.events.some((event) => event.type === "match" && event.approximate);
 	const files = new Set(canonical.events.map((event) => event.path)).size;
 	const display: GrepDisplayLine[] = [
@@ -524,38 +477,53 @@ async function runRg(
 	if (context > 0) args.push("--context", String(context));
 	args.push("--", params.pattern);
 	if (outputText === undefined) args.push(params.path ?? ".");
-	const stdout = await new Promise<string>((resolveOutput, reject) => {
-		abortIfNeeded(signal);
-		const child = spawn("rg", args, {
-			cwd,
-			stdio: [outputText === undefined ? "ignore" : "pipe", "pipe", "pipe"],
-		});
-		const output: Buffer[] = [];
-		const errorOutput: Buffer[] = [];
-		let aborted = false;
-		const onAbort = () => {
-			aborted = true;
-			child.kill();
-		};
-		signal?.addEventListener("abort", onAbort, { once: true });
-		child.stdout?.on("data", (chunk: Buffer) => output.push(chunk));
-		child.stderr?.on("data", (chunk: Buffer) => errorOutput.push(chunk));
-		child.once("error", (error) => {
-			signal?.removeEventListener("abort", onAbort);
-			reject(new Error(`Failed to run ripgrep: ${error.message}`));
-		});
-		child.once("close", (code) => {
-			signal?.removeEventListener("abort", onAbort);
-			if (aborted) return reject(new Error("Operation aborted"));
-			if (code !== 0 && code !== 1) {
-				const message = Buffer.concat(errorOutput).toString("utf8").trim();
-				return reject(new Error(message || `ripgrep exited with code ${code}`));
-			}
-			resolveOutput(Buffer.concat(output).toString("utf8"));
-		});
-		if (outputText !== undefined) child.stdin?.end(outputText);
-	});
+	const collected = await new Promise<{ stdout: string; timedOut: boolean }>(
+		(resolveOutput, reject) => {
+			abortIfNeeded(signal);
+			const child = spawn("rg", args, {
+				cwd,
+				stdio: [outputText === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+			});
+			const output: Buffer[] = [];
+			const errorOutput: Buffer[] = [];
+			let aborted = false;
+			let timedOut = false;
+			const onAbort = () => {
+				aborted = true;
+				child.kill();
+			};
+			const timer = setTimeout(() => {
+				timedOut = true;
+				child.kill();
+			}, SEARCH_TIMEOUT_MS);
+			signal?.addEventListener("abort", onAbort, { once: true });
+			const finish = (fn: () => void): void => {
+				clearTimeout(timer);
+				signal?.removeEventListener("abort", onAbort);
+				fn();
+			};
+			child.stdout?.on("data", (chunk: Buffer) => output.push(chunk));
+			child.stderr?.on("data", (chunk: Buffer) => errorOutput.push(chunk));
+			child.once("error", (error) => {
+				finish(() => reject(new Error(`Failed to run ripgrep: ${error.message}`)));
+			});
+			child.once("close", (code) => {
+				finish(() => {
+					if (aborted && !timedOut) return reject(new Error("Operation aborted"));
+					const stdout = Buffer.concat(output).toString("utf8");
+					if (timedOut) return resolveOutput({ stdout, timedOut: true });
+					if (code !== 0 && code !== 1) {
+						const message = Buffer.concat(errorOutput).toString("utf8").trim();
+						return reject(new Error(message || `ripgrep exited with code ${code}`));
+					}
+					resolveOutput({ stdout, timedOut: false });
+				});
+			});
+			if (outputText !== undefined) child.stdin?.end(outputText);
+		},
+	);
 	abortIfNeeded(signal);
+	const stdout = collected.stdout;
 	const fallbackPath =
 		outputText === undefined ? (params.path ?? ".") : (params.path ?? "output://unknown");
 	const events = stdout
@@ -569,7 +537,10 @@ async function runRg(
 				return [];
 			}
 		});
-	return capEvents(rgOrder(events), normalizedLimit(params.limit), context);
+	return {
+		...capEvents(rgOrder(events), normalizedLimit(params.limit), context),
+		...(collected.timedOut ? { timedOut: true } : {}),
+	};
 }
 
 async function useFff(params: GrepParams, cwd: string, state: FffRuntimeState): Promise<boolean> {
@@ -593,6 +564,7 @@ export function registerGrepTool(
 		label: "grep",
 		description: GREP_DESCRIPTION,
 		promptSnippet: GREP_PROMPT_SNIPPET,
+		promptGuidelines: GREP_PROMPT_GUIDELINES,
 		parameters: schema,
 		renderResult: renderGrepResult,
 		async execute(
@@ -626,6 +598,7 @@ export function registerGrepTool(
 					afterContext: normalizedContext(params.context),
 					limit: normalizedLimit(params.limit),
 					fuzzyFallbackOnly: true,
+					...(signal === undefined ? {} : { signal }),
 				});
 				abortIfNeeded(signal);
 				if (result.isOk() && result.value.regexFallbackError !== undefined) {
@@ -635,11 +608,14 @@ export function registerGrepTool(
 				}
 				if (result.isOk()) {
 					engine = "fff";
-					canonical = capEvents(
-						fffEvents(result.value.items, result.value.approximate === "fuzzy"),
-						normalizedLimit(params.limit),
-						normalizedContext(params.context),
-					);
+					canonical = {
+						...capEvents(
+							fffEvents(result.value.items, result.value.approximate === "fuzzy"),
+							normalizedLimit(params.limit),
+							normalizedContext(params.context),
+						),
+						...(result.value.timedOut ? { timedOut: true } : {}),
+					};
 					fff = { itemCount: result.value.items.length };
 				} else canonical = await runRg(params, context.cwd, undefined, signal);
 			} else canonical = await runRg(params, context.cwd, outputText, signal);
@@ -653,8 +629,17 @@ export function registerGrepTool(
 				recoveryOutput,
 				normalizedContext(params.context),
 			);
+			const body = displayText(display);
+			const text =
+				canonical.timedOut === true && canonical.totalMatched > 0
+					? `${body}\n\n${GREP_TIMEOUT_RECOVERY}`
+					: body.length > 0
+						? body
+						: canonical.timedOut
+							? GREP_TIMEOUT_RECOVERY
+							: "No matches found";
 			return {
-				content: [{ type: "text" as const, text: displayText(display) }],
+				content: [{ type: "text" as const, text }],
 				details: {
 					format: "canonical-grep" as const,
 					engine,
@@ -667,6 +652,7 @@ export function registerGrepTool(
 					cap: canonical.cap,
 					recovery: { output: recoveryOutput },
 					...(fff === undefined ? {} : { fff }),
+					...(canonical.timedOut ? { timedOut: true } : {}),
 				} satisfies GrepToolDetails,
 			};
 		},

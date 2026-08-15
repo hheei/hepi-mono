@@ -1,8 +1,7 @@
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
+import { createToolTui, registerManagedLoadoutTool, type ToolTui } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
-import { createToolTui, type ToolTui } from "./pretty/frame.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 const BASH_JOB_DESCRIPTION = "Inspect or stop an extension-owned asynchronous Bash job.";

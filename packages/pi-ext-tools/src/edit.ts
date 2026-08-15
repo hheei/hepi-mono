@@ -8,21 +8,26 @@ import {
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
-import { createCanonicalExecutionTool, registerCanonicalManagedTool } from "./native-tool.js";
-import { MAX_RENDER_LINES } from "./pretty/config.js";
-import { parseDiff } from "./pretty/diff.js";
+import type { ToolTui } from "@hheei/pi-ext-core";
 import {
-	renderDiffSummary,
+	createCanonicalExecutionTool,
+	createCanonicalToolRegistration,
+	registerCanonicalTool,
+} from "./native-tool.js";
+import { MAX_RENDER_LINES } from "./pretty/config.js";
+import { type ParsedDiff, parseDiff, parseUnifiedPatch } from "./pretty/diff.js";
+import {
+	renderDiffOmission,
 	renderSplit,
 	resolveDiffColors,
 	summarize,
 } from "./pretty/diff-render.js";
-import type { ToolTui } from "./pretty/frame.js";
 import { lang } from "./pretty/lang.js";
 import { LinesBody } from "./pretty/lines-body.js";
 
 const EDIT_RENDER_DETAILS = "__piExtToolsEdit";
 const EDIT_VIEW_KEY = "__piExtToolsEditView";
+export const EDIT_TOOL_REGISTRATION = createCanonicalToolRegistration("edit", ["apply_patch"]);
 
 type EditDefinition = ReturnType<typeof createEditToolDefinition>;
 type EditArgs = Parameters<NonNullable<EditDefinition["renderCall"]>>[0];
@@ -38,11 +43,12 @@ type EditOpView = {
 	readonly newContent: string;
 	readonly language: string | undefined;
 	readonly editLine: number;
+	readonly startLine: number;
 };
 
 type EditView =
-	| { readonly kind: "single"; readonly summary: string; readonly op: EditOpView }
-	| { readonly kind: "multi"; readonly summary: string; readonly ops: readonly EditOpView[] };
+	| { readonly kind: "single"; readonly op: EditOpView }
+	| { readonly kind: "multi"; readonly ops: readonly EditOpView[] };
 
 function durationText(durationMs: number | undefined): string | undefined {
 	if (durationMs === undefined) return undefined;
@@ -92,10 +98,50 @@ export function getEditOperations(input: EditArgs): EditOperation[] {
 	return top.oldText !== "" && top.oldText !== top.newText ? [top] : [];
 }
 
-function opEditLine(file: string, needle: string): number {
-	if (file === "" || needle === "") return 0;
-	const index = file.indexOf(needle);
-	return index >= 0 ? file.slice(0, index).split("\n").length : 0;
+function contextualOperation(
+	file: string,
+	operation: EditOperation,
+	language: string | undefined,
+): EditOpView {
+	const index = file.indexOf(operation.oldText);
+	if (index < 0) {
+		return {
+			oldContent: operation.oldText,
+			newContent: operation.newText,
+			language,
+			editLine: 0,
+			startLine: 0,
+		};
+	}
+
+	let start = file.lastIndexOf("\n", index - 1) + 1;
+	for (let remaining = 3; remaining > 0 && start > 0; remaining--) {
+		start = file.lastIndexOf("\n", start - 2) + 1;
+	}
+	let end = file.indexOf("\n", index + operation.oldText.length);
+	if (end < 0) {
+		end = file.length;
+	} else {
+		for (let remaining = 3; remaining > 0; remaining--) {
+			const next = file.indexOf("\n", end + 1);
+			if (next < 0) {
+				end = file.length;
+				break;
+			}
+			end = next;
+		}
+		if (end < file.length) end++;
+	}
+	return {
+		oldContent: file.slice(start, end),
+		newContent: `${file.slice(start, index)}${operation.newText}${file.slice(
+			index + operation.oldText.length,
+			end,
+		)}`,
+		language,
+		editLine: file.slice(0, index).split("\n").length,
+		startLine: file.slice(0, start).split("\n").length,
+	};
 }
 
 function resultText(result: AgentToolResult<unknown>): string {
@@ -105,9 +151,15 @@ function resultText(result: AgentToolResult<unknown>): string {
 		.join("\n");
 }
 
+type EditMetrics = {
+	readonly replacements: number;
+	readonly added: number;
+	readonly removed: number;
+};
+
 function withEditDetails(
 	result: AgentToolResult<unknown>,
-	replacements: number | undefined,
+	metrics: EditMetrics | undefined,
 	view: EditView | undefined,
 ): AgentToolResult<unknown> {
 	const details =
@@ -118,19 +170,41 @@ function withEditDetails(
 		...result,
 		details: {
 			...details,
-			...(replacements === undefined ? {} : { [EDIT_RENDER_DETAILS]: { replacements } }),
+			...(metrics === undefined ? {} : { [EDIT_RENDER_DETAILS]: metrics }),
 			...(view === undefined ? {} : { [EDIT_VIEW_KEY]: view }),
 		},
 	};
 }
 
-function editMetrics(result: AgentToolResult<unknown>): { replacements: number } | undefined {
+function editMetrics(result: AgentToolResult<unknown>): EditMetrics | undefined {
 	const details = result.details;
 	if (typeof details !== "object" || details === null || Array.isArray(details)) return undefined;
-	const value = (details as Record<string, unknown>)[EDIT_RENDER_DETAILS];
-	if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
-	return typeof (value as Record<string, unknown>).replacements === "number"
-		? { replacements: (value as { replacements: number }).replacements }
+	const record = details as Record<string, unknown>;
+	const value = record[EDIT_RENDER_DETAILS];
+	if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+		const metrics = value as Record<string, unknown>;
+		if (
+			typeof metrics.replacements === "number" &&
+			typeof metrics.added === "number" &&
+			typeof metrics.removed === "number"
+		)
+			return {
+				replacements: metrics.replacements,
+				added: metrics.added,
+				removed: metrics.removed,
+			};
+	}
+	const view = record[EDIT_VIEW_KEY];
+	if (typeof view !== "object" || view === null || Array.isArray(view)) return undefined;
+	const legacy = view as Record<string, unknown>;
+	return typeof legacy.edits === "number" &&
+		typeof legacy.added === "number" &&
+		typeof legacy.removed === "number"
+		? {
+				replacements: legacy.edits,
+				added: legacy.added,
+				removed: legacy.removed,
+			}
 		: undefined;
 }
 
@@ -143,13 +217,62 @@ function editView(result: AgentToolResult<unknown>): EditView | undefined {
 	return kind === "single" || kind === "multi" ? (value as EditView) : undefined;
 }
 
+function legacyEditDiff(result: AgentToolResult<unknown>): ParsedDiff | undefined {
+	const details = result.details;
+	if (typeof details !== "object" || details === null || Array.isArray(details)) return undefined;
+	const patch = (details as Record<string, unknown>).patch;
+	return typeof patch === "string" ? parseUnifiedPatch(patch) : undefined;
+}
+
+function maxNumberWidth(diffs: readonly ReturnType<typeof parseDiff>[]): number {
+	let max = 0;
+	for (const diff of diffs) {
+		for (const line of diff.lines) {
+			const n = Math.max(line.oldNum ?? 0, line.newNum ?? 0);
+			if (n > max) max = n;
+		}
+	}
+	return Math.max(2, String(max).length);
+}
+
 function renderEditDiff(ops: readonly EditOpView[], theme: Theme, width: number): string[] {
 	const colors = resolveDiffColors(theme);
-	const blocks = ops.map((op) => {
-		const parsed = parseDiff(op.oldContent, op.newContent, 3, op.editLine);
-		return renderSplit(parsed, op.language, MAX_RENDER_LINES, colors, width);
-	});
-	return blocks.join("\n···\n").split("\n");
+	const diffs = ops.map((op) => parseDiff(op.oldContent, op.newContent, 3, op.startLine));
+	const numberWidth = maxNumberWidth(diffs);
+	const blocks = diffs.map((parsed, index) =>
+		renderSplit(parsed, ops[index]?.language, MAX_RENDER_LINES, colors, width, false, numberWidth),
+	);
+	return blocks.join(`\n${renderDiffOmission(numberWidth)}\n`).split("\n");
+}
+
+function renderLegacyEditDiff(
+	diff: ParsedDiff,
+	language: string | undefined,
+	theme: Theme,
+	width: number,
+): string[] {
+	return renderSplit(
+		diff,
+		language,
+		MAX_RENDER_LINES,
+		resolveDiffColors(theme),
+		width,
+		false,
+		maxNumberWidth([diff]),
+	).split("\n");
+}
+
+function editFooter(metrics: EditMetrics | undefined, durationMs: number | undefined): string {
+	const duration = durationText(durationMs);
+	if (metrics === undefined) return duration ?? "";
+	const edits = `${metrics.replacements} edit${metrics.replacements === 1 ? "" : "s"}`;
+	const lines =
+		metrics.added > 0 || metrics.removed > 0
+			? `${summarize(metrics.added, metrics.removed)} lines`
+			: undefined;
+	return [edits, lines, duration]
+		.filter((value): value is string => value !== undefined)
+		.join(" · ");
 }
 
 export function registerEditTool(pi: ExtensionAPI, tui: ToolTui): void {
@@ -165,19 +288,16 @@ export function registerEditTool(pi: ExtensionAPI, tui: ToolTui): void {
 			const resolved = resolvePath(context.cwd, path);
 			let before = "";
 			try {
-				if (path !== "" && existsSync(resolved)) before = readFileSync(resolved, "utf-8");
+				if (path !== "" && existsSync(resolved)) {
+					before = readFileSync(resolved, "utf-8").replaceAll("\r\n", "\n");
+				}
 			} catch {
 				before = "";
 			}
 			const result = await baseTool.execute(toolCallId, params, signal, onUpdate, context);
 			const operations = getEditOperations(params);
 			const language = lang(path);
-			const ops = operations.map((operation) => ({
-				oldContent: operation.oldText,
-				newContent: operation.newText,
-				language,
-				editLine: opEditLine(before, operation.oldText),
-			}));
+			const ops = operations.map((operation) => contextualOperation(before, operation, language));
 			const totals = ops.reduce(
 				(sum, op) => {
 					const parsed = parseDiff(op.oldContent, op.newContent);
@@ -185,16 +305,23 @@ export function registerEditTool(pi: ExtensionAPI, tui: ToolTui): void {
 				},
 				{ added: 0, removed: 0 },
 			);
-			const added = totals.added;
-			const removed = totals.removed;
-			const summary = summarize(added, removed);
 			const view: EditView | undefined =
 				ops.length === 1 && ops[0] !== undefined
-					? { kind: "single", summary, op: ops[0] }
+					? { kind: "single", op: ops[0] }
 					: ops.length > 1
-						? { kind: "multi", summary, ops }
+						? { kind: "multi", ops }
 						: undefined;
-			return withEditDetails(result, operations.length > 0 ? operations.length : undefined, view);
+			return withEditDetails(
+				result,
+				operations.length > 0
+					? {
+							replacements: operations.length,
+							added: totals.added,
+							removed: totals.removed,
+						}
+					: undefined,
+				view,
+			);
 		},
 		renderCall() {
 			return new Container();
@@ -202,50 +329,29 @@ export function registerEditTool(pi: ExtensionAPI, tui: ToolTui): void {
 		renderResult(result, _options, theme, context) {
 			if (context.isError) return new Text(resultText(result) || "Error", 0, 0);
 			const view = editView(result);
-			if (view === undefined) return new Container();
-			const ops = view.kind === "single" ? [view.op] : view.ops;
-			const loc =
-				view.kind === "single" && view.op.editLine > 0
-					? ` ${theme.fg("muted", `at line ${view.op.editLine}`)}`
-					: "";
-			const heading =
-				view.kind === "single"
-					? `${renderDiffSummary(view.summary, theme)}${loc}`
-					: `${theme.fg("muted", `${view.ops.length} edits`)} ${renderDiffSummary(view.summary, theme)}`;
-			return new LinesBody((width) => [heading, ...renderEditDiff(ops, theme, width)]);
+			if (view !== undefined) {
+				const ops = view.kind === "single" ? [view.op] : view.ops;
+				return new LinesBody((width) => renderEditDiff(ops, theme, width));
+			}
+			const diff = legacyEditDiff(result);
+			if (diff === undefined) {
+				const fallback = resultText(result);
+				return fallback === "" ? new Container() : new Text(fallback, 0, 0);
+			}
+			const language = lang(filePath(context.args as EditArgs));
+			return new LinesBody((width) => renderLegacyEditDiff(diff, language, theme, width));
 		},
 	};
-	registerCanonicalManagedTool(
+	registerCanonicalTool(
 		pi,
+		EDIT_TOOL_REGISTRATION,
 		tui.frame(tool, {
-			summary: (args) => {
-				const path = filePath(args as EditArgs);
-				const operations = getEditOperations(args as EditArgs);
-				if (operations.length === 0) return path || undefined;
-				const totals = operations.reduce(
-					(sum, operation) => {
-						const parsed = parseDiff(operation.oldText, operation.newText);
-						return { added: sum.added + parsed.added, removed: sum.removed + parsed.removed };
-					},
-					{ added: 0, removed: 0 },
-				);
-				const delta = summarize(totals.added, totals.removed);
-				return path === "" ? delta : `${path} ${delta}`;
-			},
+			summary: (args) => filePath(args as EditArgs) || undefined,
+			summarySeparator: "space",
 			maxBodyLines: Number.POSITIVE_INFINITY,
 			footer(result, completion) {
-				const replacements = editMetrics(result)?.replacements;
-				const duration = durationText(completion?.durationMs);
-				return [
-					replacements === undefined
-						? undefined
-						: `${replacements} replacement${replacements === 1 ? "" : "s"}`,
-					duration,
-				]
-					.filter((value): value is string => value !== undefined)
-					.join(" · ");
+				return editFooter(editMetrics(result), completion?.durationMs);
 			},
 		}),
-		[],
 	);
 }

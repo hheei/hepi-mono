@@ -28,6 +28,7 @@ import {
 	type FindSearchResponse,
 	type FindSearchResult,
 	GREP_CURSOR_PREFIX,
+	GREP_TIMEOUT_RECOVERY,
 	type GrepCursor,
 	type GrepMatch,
 	type GrepOutputMode,
@@ -957,13 +958,18 @@ export class FffRuntime {
 		let engineCursor = cursor ? grepCursorAt(cursor.engineOffset) : null;
 		const items: GrepMatch[] = [];
 		let regexFallbackError: string | undefined;
-
-		const deadline = Date.now() + request.timeBudgetMs;
+		const unlimited = request.timeBudgetMs <= 0;
+		const deadline = unlimited ? Number.POSITIVE_INFINITY : Date.now() + request.timeBudgetMs;
+		let timedOut = false;
 
 		while (items.length < request.limit) {
+			request.signal?.throwIfAborted();
 			if (items.length > 0 && engineCursor === null) break;
 			const remainingTimeBudgetMs = deadline - Date.now();
-			if (remainingTimeBudgetMs <= 0) break;
+			if (!unlimited && remainingTimeBudgetMs <= 0) {
+				timedOut = true;
+				break;
+			}
 
 			const result = this.runFinderGrep(
 				finder,
@@ -971,7 +977,7 @@ export class FffRuntime {
 				constraintQuery,
 				engineCursor,
 				request.limit - items.length,
-				remainingTimeBudgetMs,
+				unlimited ? 0 : remainingTimeBudgetMs,
 			);
 			if (result.isErr()) return propagateError(result);
 
@@ -985,6 +991,7 @@ export class FffRuntime {
 			items.length === 0 &&
 			!request.cursor &&
 			!request.noMatchFallback &&
+			!timedOut &&
 			Date.now() < deadline
 		) {
 			if (request.kind === "single") {
@@ -1004,7 +1011,7 @@ export class FffRuntime {
 		}
 
 		const nextCursor =
-			engineCursor === null
+			timedOut || engineCursor === null
 				? undefined
 				: encodeJsonCursor(GREP_CURSOR_PREFIX, {
 						requestHash,
@@ -1014,15 +1021,18 @@ export class FffRuntime {
 		const built = buildGrepText(items.slice(0, request.limit), {
 			limit: request.limit,
 			requestedContext: request.beforeContext,
-			includeCursorHint: request.includeCursorHint ?? false,
-			...(nextCursor === undefined ? {} : { matchLimitReached: request.limit }),
-			...(nextCursor === undefined ? {} : { nextCursor }),
+			includeCursorHint: timedOut ? false : (request.includeCursorHint ?? false),
+			...(timedOut || nextCursor === undefined ? {} : { matchLimitReached: request.limit }),
+			...(timedOut || nextCursor === undefined ? {} : { nextCursor }),
 			...(regexFallbackError === undefined ? {} : { regexFallbackError }),
 			...(request.outputMode === undefined ? {} : { outputMode: request.outputMode }),
 		});
+		const formatted = timedOut
+			? `${built.text}${built.text.length > 0 ? "\n\n" : ""}${GREP_TIMEOUT_RECOVERY}`
+			: built.text;
 		return Result.ok({
 			items: items.slice(0, request.limit),
-			formatted: built.text,
+			formatted,
 			...(built.truncation === undefined ? {} : { truncation: built.truncation }),
 			...(built.matchLimitReached === undefined
 				? {}
@@ -1035,6 +1045,7 @@ export class FffRuntime {
 			...(built.suggestedReadPath === undefined
 				? {}
 				: { suggestedReadPath: built.suggestedReadPath }),
+			...(timedOut ? { timedOut: true } : {}),
 		} satisfies GrepSearchResponse);
 	}
 

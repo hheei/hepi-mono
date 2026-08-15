@@ -1,5 +1,8 @@
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
+import {
+	registerManagedTool,
+	type ManagedLoadoutToolRegistration,
+} from "@hheei/pi-ext-core";
 import type { TSchema } from "typebox";
 
 const OWNER = "@hheei/pi-ext-tools";
@@ -25,23 +28,26 @@ export function createCanonicalExecutionTool<TParams extends TSchema, TDetails, 
 	};
 }
 
-export function registerCanonicalManagedTool<TParams extends TSchema, TDetails, TState>(
-	pi: ExtensionAPI,
-	tool: ToolDefinition<TParams, TDetails, TState>,
+export function createCanonicalToolRegistration(
+	id: string,
 	conflictsWith: readonly string[] = [],
+): ManagedLoadoutToolRegistration {
+	return {
+		id,
+		owner: OWNER,
+		group: BUILT_IN_GROUP,
+		origin: OWNER,
+		priority: 100,
+		conflictSets: [],
+		conflictsWith,
+		defaultActive: true,
+	};
+}
+
+export function registerCanonicalTool<TParams extends TSchema, TDetails, TState>(
+	pi: ExtensionAPI,
+	registration: ManagedLoadoutToolRegistration,
+	tool: ToolDefinition<TParams, TDetails, TState>,
 ): void {
-	registerManagedLoadoutTool(
-		pi,
-		{
-			id: tool.name,
-			owner: OWNER,
-			group: BUILT_IN_GROUP,
-			origin: OWNER,
-			priority: 100,
-			conflictSets: [],
-			conflictsWith,
-			defaultActive: true,
-		},
-		tool,
-	);
+	registerManagedTool(pi, registration, tool);
 }

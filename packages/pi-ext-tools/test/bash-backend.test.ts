@@ -7,8 +7,8 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
+import { createToolTui } from "@hheei/pi-ext-core";
 import { registerBashTool } from "../src/bash.js";
-import { createToolTui } from "../src/pretty/frame.js";
 
 initTheme(undefined, false);
 

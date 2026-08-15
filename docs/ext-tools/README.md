@@ -17,19 +17,19 @@ Pi upstream factory -> pi-ext-tools tool module -> one managed registration -> P
 ```
 
 每个 tool module 自己决定如何复用 upstream factory、如何产生 body 语义内容，以及如何处理特定 feature
-policy。package 内部的 `ToolTui` module 统一组装 status header、Trace collapse、body rails 与 typed footer；
-`pi-ext-core` 仅提供 managed registration。
+policy。`pi-ext-core` 的共享 `ToolTui` 统一组装 status header、跨 extension Trace collapse、body rails 与 typed footer；
+`pi-ext-tools` 只提供 concrete tool 的 summary、body、footer 与 warning policy。
 
 ## Tool TUI module
 
-`ToolTui` 是 `pi-ext-tools` package-internal interface，不从 package entry export，也不由 `pi-ext-core` 拥有。
-extension composition root 为每个 session 建立一个 instance，并在可见的 `agent_start` handler 调用
-`beginTrace()`；每个 catalog registration 则显式以 `frame(tool, presentation)` 包装 definition。它不注册
+`ToolTui` 是 `pi-ext-core` 的共享 renderer primitive，不从任一 concrete package entry export。每个 Pi host
+以 runtime identity 持有一个 instance；`registerToolTuiTrace(pi)` 幂等安装可见的 `agent_start` handler，
+每个 catalog 或 Todo registration 则显式以 `getToolTui(pi).frame(tool, presentation)` 包装 definition。它不注册
 tool、不选择 active tool、不改写 schema、execute、model-visible content 或 typed details。
 
 ```text
-agent_start ------------------------> ToolTui.beginTrace()
-tool definition + presentation -----> ToolTui.frame()
+agent_start ------------------------> registerToolTuiTrace() -> shared ToolTui.beginTrace()
+tool definition + presentation -----> getToolTui(pi).frame()
                                          |
 Pi renderer slots (internal) -----------+
                                          v
@@ -41,9 +41,8 @@ Pi host 仍拥有 `renderCall` / `renderResult` lifecycle slots、global expand 
 result 出现后，call slot 只保留 header，result slot 接管同一个 body 位置。`ToolTui` 拥有 session-scoped Trace、
 completion persistence、resume restoration、current/historical collapse、header status、rails 与 footer placement。
 具体 tool 拥有 body renderer、header summary、typed footer text 与 warning 判定，但不得自行加入 outer rails 或
-footer placement。
-
-未展开的 body 默认最多 20 行（保留尾部，并加一行 dim `… (N earlier lines, ctrl+o to expand)`）。工具可通过 `maxBodyLines` 覆写；展开后不截断。Header、rails 与 typed footer 不计在此限额内。成对 rails 在正常调用时用 `success`，错误或 warning（含 bash 非零退出）用 `error`。
+footer placement。两个 concrete extension consumer 共同使用同一 host-scoped Trace，因此 Todo 与 coding tools 的
+历史 blocks 会按同一 `agent_start` 收合。
 
 Result layout 由 `ToolTui` 依 body 实际 render 后的行数决定：
 
@@ -54,9 +53,7 @@ Result layout 由 `ToolTui` 依 body 实际 render 后的行数决定：
 无 body、无 footer: empty
 ```
 
-这个规则保留真实空白 output line；只有 renderer 实际返回零行时省略 body 的两条 rails。body component cache
-由 `ToolTui` 从 Pi 的 outer `lastComponent` 解包后交回原 renderer，tool 不需理解 frame component。不存在第二个
-concrete extension consumer 前，这个 interface 不提升成 ext-core public contract。
+未展开的 body 默认最多 20 行（保留尾部，并加一行 dim `… (N earlier lines, ctrl+o to expand)`）。工具可通过 `maxBodyLines` 覆写；展开后不截断。Header、rails 与 typed footer 不计在此限额内。成对 rails 在正常调用时用 `success`，错误或 warning（含 bash 非零退出）用 `error`。这个规则保留真实空白 output line；只有 renderer 实际返回零行时省略 body 的两条 rails。body component cache 由 `ToolTui` 从 Pi 的 outer `lastComponent` 解包后交回原 renderer，tool 不需理解 frame component。
 
 ## v1 Catalog
 
@@ -112,9 +109,10 @@ limit，不能放宽写入匹配条件。
 每次升级 mpatch 必须固定 release、验证每个 archive 的 SHA-256，并更新 package 的 upstream
 record 与 MIT notice。
 
-`read`、`grep`、`find`、`edit`、`write`、`bash`、`apply_patch` 每个名称只通过一次 `registerManagedLoadoutTool()` 静态注册。不存在 tool-definition
-priority、同名 fallback registration 或运行时 provider arbitration。Loadout priority 仍只属于 activation/inventory
-policy，不能用于决定哪个 implementation 执行。
+`read`、`grep`、`find`、`edit`、`write`、`bash`、`apply_patch` 每个名称只有一次 static managed definition。不存在 tool-definition
+priority、同名 fallback registration 或运行时 provider arbitration。`edit`、`write` 与 `apply_patch` 的 definition 在 construction
+时全部注册，让 Pi resume 按当前同名 canonical renderer 重画历史 tool call；session lifecycle 只把本次选中的 execution catalog
+加入 active tools 与 Loadout inventory。Loadout priority 仍只属于 activation/inventory policy，不能用于决定哪个 implementation 执行。
 
 catalog 注册项在 Loadout 中归入 `Built-in`，并显式声明 origin 为 `@hheei/pi-ext-tools`；这说明它们是由该 package
 提供的 Pi core-tool replacement，而不是把 host 的宽泛 source type 显示为 `Third-party`。未提供 origin 的工具使用 Pi
@@ -122,7 +120,17 @@ catalog 注册项在 Loadout 中归入 `Built-in`，并显式声明 origin 为 `
 
 ## 写入工具选择与兼容 guard
 
-`Edit Mode` 默认 `auto`：第一次 `session_start` 用当前模型的 provider/id/name 解析一次，名称含 `gpt`（不区分大小写）则注册 `apply_patch`，否则注册 native `edit`/`write`。之后换模型不会改工具，需 `/reload` 或新 session。也可钉死 `native`、`apply_patch` 或 `none`。
+`Edit Mode` 默认 `auto`：第一次 `session_start` 用当前模型的 provider/id/name 解析一次，名称含 `gpt`（不区分大小写）则激活 `apply_patch`，否则激活 native `edit`/`write`。之后换模型不会改工具，需 `/reload` 或新 session。也可钉死 `native`、`apply_patch` 或 `none`。inactive definition 只保留历史 renderer ownership，不进入 active tools、模型 tool schema 或 Loadout inventory。
+
+```text
+construction -> register edit/write/apply_patch definitions
+session_start -> resolve Edit Mode -> activate + publish selected catalog
+resume        -> lookup current definition by historical tool name -> render persisted result
+```
+
+`edit` resume 优先读取执行时持久化的 typed view。旧 Pi-native result 没有该 view 时，只能从其 persisted unified patch
+进入同一 diff renderer；不得读取当前 workspace 反推旧状态，也不得从 model-visible content 猜测 footer metrics。缺失的 typed
+edit count、line delta 或 duration 保持不显示。patch 缺失或无法解析时保留 persisted text body，不能显示空结果。
 
 Loadout 将 `apply_patch` 视为 `edit` 与 `write` 这组工具的互斥替代：启用 `apply_patch` 时不会同时暴露
 `edit` 或 `write`；禁用它后可同时启用后两者。这个关系按 tool name 声明，避免把 `edit` 和 `write` 错误地彼此排斥；显式的 project/global
@@ -200,7 +208,7 @@ Pi host 仍拥有默认 Bash。只有 `mode === "tui"` 且 `PI_NO_PTY !== "1"` �
   renderer、ToolRenderContext state、abort、streaming 与 cleanup；`bash` 保持 Pi host 原始 execute 行为。
 - 每个 module 可以调用对应 upstream `create...Tool()`；这用于复用运行行为，不表示必须复用 upstream renderer。
 - `read`、`grep`、`find`、`edit`、`write`、`bash` 都保留 upstream-compatible 参数、execute 与 renderer 语义。
-- `apply_patch` 是 `pi-ext-tools` owner 的 Canonical V4A-only tool；public JSON transport 只接受 `{ "patch": string }`，并委托 package 内 patch coordinator 执行。其 call renderer 从 V4A patch text 生成 streaming、折叠和展开预览；它是纯计算，不读取 workspace、调用 coordinator 或修改 patch。执行结果同时报告成功路径与被拒 operation。
+- `apply_patch` 是 `pi-ext-tools` owner 的 Canonical V4A-only tool；public JSON transport 只接受 `{ "patch": string }`，并委托 package 内 patch coordinator 执行。其 call renderer 从 partial 或完整 V4A patch text 生成 model-time streaming preview；它是纯计算，不读取 workspace、调用 coordinator 或修改 patch，也不得把 recognized rows 标成 validated 或 applied。`execute()` 只在完整参数后启动；执行结果同时报告成功路径与被拒 operation。
 - 其他 extension 不得为 catalog 名称直接 `pi.registerTool()` 或 managed-register competing definition。它们不能
   import `pi-ext-tools`；跨包协作若确有需求，另行定义 narrow core capability。
 

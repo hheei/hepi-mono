@@ -25,7 +25,10 @@ export type GrepMatch = EngineGrepMatch & { path?: string };
 
 export const DEFAULT_FILE_CANDIDATE_LIMIT = 8;
 export const DEFAULT_GREP_LIMIT = 100;
-export const DEFAULT_GREP_TIMEOUT_MS = 30_000;
+export {
+	GREP_TIMEOUT_RECOVERY,
+	SEARCH_TIMEOUT_MS as DEFAULT_GREP_TIMEOUT_MS,
+} from "../search-timeout.js";
 export const MAX_MATCHES_PER_FILE = 200;
 export const AUTO_EXPAND_AFTER_CONTEXT = 6;
 export const MAX_AUTO_EXPAND_LINES = 5;
@@ -105,6 +108,8 @@ export type GrepSearchResponse = {
 	nextCursor?: string;
 	constraintQuery?: string;
 	suggestedReadPath?: string;
+	/** True when the search stopped because the wall-clock budget ran out. */
+	timedOut?: boolean;
 };
 
 export type RelatedFilesResponse = {

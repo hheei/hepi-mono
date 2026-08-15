@@ -6,9 +6,11 @@ import {
 	type ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
 import { type Component, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
+import { createToolTui, registerManagedLoadoutTool, type ToolTui } from "@hheei/pi-ext-core";
 import { createFffRuntimeState, type FffRuntimeState } from "./fff/lifecycle.js";
-import { createToolTui, type ToolTui } from "./pretty/frame.js";
+import { renderCodeGutter, renderDiffOmission } from "./pretty/diff-render.js";
+import { hlBlock } from "./pretty/highlight.js";
+import { lang } from "./pretty/lang.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 const PREVIEW_HEAD_LINES = 10;
@@ -118,37 +120,41 @@ function durationText(durationMs: number | undefined): string {
 	return durationMs < 1_000 ? `${durationMs}ms` : `${(durationMs / 1_000).toFixed(1)}s`;
 }
 
+function sourceLineNumbers(
+	lines: readonly ReadPreviewLine[],
+	startLine: number,
+): readonly number[] {
+	return lines.flatMap((line) => (line.type === "text" ? [startLine + line.sourceIndex] : []));
+}
+
 class ReadPreviewComponent implements Component {
 	constructor(
 		private readonly lines: readonly ReadPreviewLine[],
+		private readonly highlighted: readonly string[],
 		private readonly startLine: number,
 		private readonly theme: Theme,
 	) {}
 
 	render(width: number): string[] {
 		const availableWidth = Math.max(1, width);
-		const lastLine =
-			this.startLine +
-			Math.max(
-				0,
-				...this.lines.flatMap((line) => (line.type === "text" ? [line.sourceIndex] : [])),
-			);
-		const lineNumberWidth = String(lastLine).length;
-		const preview = this.lines.map((line) => {
-			if (line.type === "omission")
+		const lastLine = Math.max(0, ...sourceLineNumbers(this.lines, this.startLine));
+		const lineNumberWidth = Math.max(1, String(lastLine).length);
+		const marker = this.theme.fg("dim", TRUNCATION_MARKER);
+		return this.lines.map((line) => {
+			if (line.type === "omission") {
+				const hint = this.theme.fg("dim", `(${line.hiddenLines} hidden lines, ${EXPAND_HINT})`);
 				return truncateToWidth(
-					this.theme.fg("dim", `… (${line.hiddenLines} hidden lines, ${EXPAND_HINT})`),
+					`${renderDiffOmission(lineNumberWidth, false)}${hint}`,
 					availableWidth,
-					this.theme.fg("dim", TRUNCATION_MARKER),
+					marker,
 				);
-			const prefix = `${String(this.startLine + line.sourceIndex).padStart(lineNumberWidth)}│`;
-			const renderedPrefix = this.theme.fg("dim", prefix);
-			const row = `${renderedPrefix}${line.text}`;
-			if (visibleWidth(row) <= availableWidth) return row;
-			const marker = this.theme.fg("dim", TRUNCATION_MARKER);
-			return truncateToWidth(row, availableWidth, marker);
+			}
+			const body = this.highlighted[line.sourceIndex] ?? line.text;
+			const row = renderCodeGutter(this.startLine + line.sourceIndex, lineNumberWidth, body);
+			return visibleWidth(row) <= availableWidth
+				? row
+				: truncateToWidth(row, availableWidth, marker);
 		});
-		return preview;
 	}
 
 	invalidate(): void {}
@@ -159,13 +165,18 @@ function renderReadPreview(
 	options: ToolRenderResultOptions,
 	theme: Theme,
 	context: ReadPreviewContext,
-	params: { readonly offset?: number },
+	params: { readonly path?: string; readonly offset?: number },
 ): Component | undefined {
-	if (options.expanded || options.isPartial || context.isError) return undefined;
+	if (options.isPartial || context.isError) return undefined;
 	const text = displayText(result);
 	if (text === undefined) return undefined;
 	const lines = displayLines(text);
-	return new ReadPreviewComponent(previewLines(lines), params.offset ?? 1, theme);
+	const highlighted = hlBlock(lines.join("\n"), lang(params.path ?? ""), theme);
+	const colored = highlighted.length === lines.length ? highlighted : lines;
+	const preview = options.expanded
+		? lines.map((text, sourceIndex) => ({ type: "text" as const, sourceIndex, text }))
+		: previewLines(lines);
+	return new ReadPreviewComponent(preview, colored, params.offset ?? 1, theme);
 }
 
 /** Registers read while recreating execution for the call cwd. */
@@ -250,6 +261,7 @@ export function registerReadTool(
 		},
 		tui.frame(tool, {
 			footer: readCollapsedFooter,
+			maxBodyLines: Number.POSITIVE_INFINITY,
 		}),
 	);
 }

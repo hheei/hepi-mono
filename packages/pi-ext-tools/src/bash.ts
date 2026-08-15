@@ -12,16 +12,17 @@ import { type Component, stripTerminalSequences, Text } from "@earendil-works/pi
 import type { OutputRegistry } from "@hheei/pi-ext-core";
 import {
 	createOutputRegistry,
+	createToolTui,
 	openTuiSurface,
 	registerManagedLoadoutTool,
+	type ToolCompletion,
+	type ToolTui,
 } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import { BashOutputSink } from "./bash-output.js";
 import { BashPtySurface, type BashPtySurfaceResult } from "./bash-pty-surface.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import { PtySession } from "./native-bridge.js";
-import { createToolTui, type ToolTui } from "./pretty/frame.js";
-import type { ToolCompletion } from "./pretty/trace.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 const fallbackOutputs = createOutputRegistry();
