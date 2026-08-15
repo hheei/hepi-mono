@@ -13,6 +13,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getToolTui, registerToolTuiTrace, type ToolTui } from "@hheei/pi-ext-core";
 import type { ContextDatabase } from "#core/features/storage";
 import { createCtxExpandTool } from "./ctx-expand";
 import { createCtxMemoryTool } from "./ctx-memory";
@@ -60,35 +61,74 @@ export interface RegisterToolsOptions {
 	compactionOff?: boolean;
 }
 
+function toolSummary(args: unknown): string | undefined {
+	if (typeof args !== "object" || args === null || Array.isArray(args)) {
+		return undefined;
+	}
+	const value = args as Record<string, unknown>;
+	if (typeof value.query === "string" && value.query.trim() !== "") {
+		return value.query.trim();
+	}
+	if (typeof value.drop === "string" && value.drop.trim() !== "") {
+		return value.drop.trim();
+	}
+	if (typeof value.message === "number") return `#${value.message}`;
+	if (typeof value.start === "number" && typeof value.end === "number") {
+		return `${value.start}-${value.end}`;
+	}
+	const action = typeof value.action === "string" ? value.action.trim() : "";
+	if (action === "") return undefined;
+	const ids = Array.isArray(value.ids)
+		? value.ids.filter((id): id is number => typeof id === "number").join(",")
+		: typeof value.note_id === "number"
+			? String(value.note_id)
+			: "";
+	return ids === "" ? action : `${action} ${ids}`;
+}
+
+function frameTool<T>(tui: ToolTui, tool: T): T {
+	return tui.frame(tool as never, {
+		summary: (args) => toolSummary(args),
+	}) as T;
+}
+
 export function registerMagicContextTools(
 	pi: ExtensionAPI,
 	opts: RegisterToolsOptions,
 ): void {
+	const tui = getToolTui(pi);
+	if (typeof pi.on === "function") registerToolTuiTrace(pi);
 	const resolveProjectIdentity = opts.resolveProjectIdentity
 		? (directory: string) => opts.resolveProjectIdentity?.({ cwd: directory })
 		: undefined;
 
 	pi.registerTool(
-		createCtxSearchTool({
-			db: opts.db,
-			ensureProjectRegistered: opts.ensureProjectRegistered,
-			memoryEnabled: opts.memoryEnabled,
-			embeddingEnabled: opts.embeddingEnabled,
-			gitCommitsEnabled: opts.gitCommitsEnabled,
-			resolveProjectIdentity,
-		}),
-	);
-
-	if (opts.memoryToolEnabled !== false) {
-		pi.registerTool(
-			createCtxMemoryTool({
+		frameTool(
+			tui,
+			createCtxSearchTool({
 				db: opts.db,
 				ensureProjectRegistered: opts.ensureProjectRegistered,
 				memoryEnabled: opts.memoryEnabled,
 				embeddingEnabled: opts.embeddingEnabled,
-				allowDreamerActions: opts.allowDreamerActions ?? false,
+				gitCommitsEnabled: opts.gitCommitsEnabled,
 				resolveProjectIdentity,
 			}),
+		),
+	);
+
+	if (opts.memoryToolEnabled !== false) {
+		pi.registerTool(
+			frameTool(
+				tui,
+				createCtxMemoryTool({
+					db: opts.db,
+					ensureProjectRegistered: opts.ensureProjectRegistered,
+					memoryEnabled: opts.memoryEnabled,
+					embeddingEnabled: opts.embeddingEnabled,
+					allowDreamerActions: opts.allowDreamerActions ?? false,
+					resolveProjectIdentity,
+				}),
+			),
 		);
 	}
 
@@ -99,15 +139,18 @@ export function registerMagicContextTools(
 	// stays available and ctx_memory is controlled above.
 	if (!opts.sessionScopedToolsDisabled) {
 		pi.registerTool(
-			createCtxNoteTool({
-				db: opts.db,
-				dreamerEnabled: opts.dreamerEnabled ?? false,
-				resolveDreamerEnabled: opts.resolveDreamerEnabled,
-				resolveProjectIdentity,
-			}),
+			frameTool(
+				tui,
+				createCtxNoteTool({
+					db: opts.db,
+					dreamerEnabled: opts.dreamerEnabled ?? false,
+					resolveDreamerEnabled: opts.resolveDreamerEnabled,
+					resolveProjectIdentity,
+				}),
+			),
 		);
 
-		pi.registerTool(createCtxExpandTool({ db: opts.db }));
+		pi.registerTool(frameTool(tui, createCtxExpandTool({ db: opts.db })));
 	}
 
 	// ctx_reduce is session-scoped just like ctx_note/ctx_expand: it resolves the
@@ -115,11 +158,14 @@ export function registerMagicContextTools(
 	// that id points at a hidden ephemeral child session.
 	if (!opts.sessionScopedToolsDisabled && !opts.compactionOff) {
 		pi.registerTool(
-			createCtxReduceTool({
-				db: opts.db,
-				protectedTags: opts.protectedTags ?? 20,
-				resolveProtectedTags: opts.resolveProtectedTags,
-			}),
+			frameTool(
+				tui,
+				createCtxReduceTool({
+					db: opts.db,
+					protectedTags: opts.protectedTags ?? 20,
+					resolveProtectedTags: opts.resolveProtectedTags,
+				}),
+			),
 		);
 	}
 }
