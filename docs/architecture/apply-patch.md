@@ -124,9 +124,11 @@ Do not retry applied hunks.
 
 ## TUI
 
-执行中，coordinator 在解析完每个完整 V4A operation 后发送 typed Patch Progress，完整 envelope 通过后发送 queued，executor 进入 staging 与每个 operation commit/rejection 后发送下一份全量 snapshot。`parsed` 仅表示完整 operation 已被语法识别；`queued` 表示已通过完整 envelope 与 queue admission；`staging` 表示 workspace validation/staging 进行中；`committed` 才能带最终 operation status。断线后的同 request id 只能订阅既有执行或读取缓存 outcome，不能重新执行 mutation。live state 只属于当前 Trace：`○` 是尚未 commit，`✓` 是 exact/whitespace commit，`!` 是 fuzzy commit（dim score），`✗` 是 rejection。一个 update 的成功 hunk 与失败 hunk共同归属该 operation；展开结果以 hunk index 显示失败诊断。header 的 `+/-` 只累计已 commit operation；row 同时显示 planned delta。final `Patch Outcome` 替代 live state，resume 不恢复 `○` rows。
+模型生成 arguments 时，TUI 只走纯计算的 call renderer：partial `args.patch` 每出现一个已换行的 operation header 就增加一行 `○ create|modify|delete path`，hunk `+/-` 行到达后更新 planned delta。该 preview 不得读取 workspace、启动 coordinator、取得锁或声称 validated/applied。`execute()` 仍只在完整 tool 参数后开始。
 
-Call 阶段使用 shared frame header。完成阶段不得使用 module-global renderer map、请求 patch 或当前 workspace 推断结果。
+执行中，coordinator 在解析完每个完整 V4A operation 后发送 typed Patch Progress，完整 envelope 通过后发送 queued，executor 进入 staging 与每个 operation commit/rejection 后发送下一份全量 snapshot。`parsed` 仅表示完整 operation 已被语法识别；`queued` 表示已通过完整 envelope 与 queue admission；`staging` 表示 workspace validation/staging 进行中；`committed` 才能带最终 operation status。断线后的同 request id 只能订阅既有执行或读取缓存 outcome，不能重新执行 mutation。live state 只属于当前 Trace：`○` 是尚未 commit（model-time 与 parsed 共用），`✓` 是 exact/whitespace commit，`!` 是 fuzzy commit（dim score），`✗` 是 rejection。一个 update 的成功 hunk 与失败 hunk共同归属该 operation；展开结果以 hunk index 显示失败诊断。header 的 `+/-` 只累计已 commit operation；row 同时显示 planned delta。final `Patch Outcome` 替代 live state，resume 不恢复 `○` rows 或 model-time preview。
+
+Call 阶段使用 shared frame header，并可从 preview 操作数显示 `N files`。完成阶段不得使用 module-global renderer map、请求 patch 或当前 workspace 推断结果。
 
 未展开的完成结果显示简短 outcome summary；prior Trace collapse 由 shared frame 显示 header、空行、tool-owned footer。footer 是 typed metrics，不解析模型 content：
 
@@ -164,3 +166,4 @@ partial 使用 warning glyph `!`，同时 host result 仍为 `isError: true`。f
 5. actual changed paths、partial applied/rejected grouping、6-candidate model cap、低质量 fuzzy candidate range suppression、details full report。
 6. collapsed footer、warning partial glyph、expanded stable hunk diff、resume/global expand，以及 renderer 不读取 current workspace。
 7. cancellation、baseline race、path conflict、invalid grammar 和 coordinator/native failures保持既有安全语义。
+8. 多个 `toolcall_delta` 在 `toolcall_end` / `execute()` 之前逐步更新 call preview；abort 不启动 coordinator；两条并行 preview 的 state 不串线。

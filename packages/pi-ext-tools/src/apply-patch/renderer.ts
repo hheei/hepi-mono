@@ -12,6 +12,7 @@ import type {
 	ApplyPatchOperationProgress,
 	MpatchHunkOutcome,
 } from "./outcome.js";
+import { previewV4aPatchPrefix } from "./parser.js";
 
 function duration(durationMs: number | undefined): string {
 	return `${((durationMs ?? 0) / 1_000).toFixed(2)}s`;
@@ -154,6 +155,40 @@ function diagnosticText(
 		case "fuzzy_below_threshold":
 			return `best fuzzy score ${diagnostic.best.score.toFixed(2)} < required ${diagnostic.threshold.toFixed(2)}`;
 	}
+}
+
+export function renderApplyPatchCall(
+	args: unknown,
+	theme: Theme,
+	context: { readonly argsComplete?: boolean } = {},
+): Component {
+	const patch =
+		typeof args === "object" && args !== null && "patch" in args && typeof args.patch === "string"
+			? args.patch
+			: "";
+	const operations = previewV4aPatchPrefix(patch, context.argsComplete === true);
+	if (operations.length === 0) return new Container();
+	const body = new Container();
+	for (const [index, operation] of operations.entries()) {
+		body.addChild(
+			new Text(
+				row(
+					{
+						operationIndex: index,
+						kind: operation.kind,
+						path: operation.path,
+						addedLines: operation.addedLines,
+						removedLines: operation.removedLines,
+						status: "pending",
+					},
+					theme,
+				),
+				0,
+				0,
+			),
+		);
+	}
+	return body;
 }
 
 export function renderApplyPatchResult(

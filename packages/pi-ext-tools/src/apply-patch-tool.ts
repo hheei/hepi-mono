@@ -4,7 +4,12 @@ import type {
 	ExtensionAPI,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
+import {
+	createToolTui,
+	type ManagedLoadoutToolRegistration,
+	registerManagedTool,
+	type ToolTui,
+} from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import {
 	type ApplyPatchInWorkspaceResult,
@@ -12,9 +17,12 @@ import {
 	type ApplyPatchRejection,
 	applyPatchThroughCoordinator,
 } from "./apply-patch/index.js";
-import { parseV4aPatch } from "./apply-patch/parser.js";
-import { formatApplyPatchFooter, renderApplyPatchResult } from "./apply-patch/renderer.js";
-import { createToolTui, type ToolTui } from "./pretty/frame.js";
+import { parseV4aPatch, previewV4aPatchPrefix } from "./apply-patch/parser.js";
+import {
+	formatApplyPatchFooter,
+	renderApplyPatchCall,
+	renderApplyPatchResult,
+} from "./apply-patch/renderer.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 const OUTPUT_PREFIX = "output:" + "//";
@@ -33,6 +41,17 @@ const RECOVERY_INVALID_PATCH =
 	"Recovery: correct the V4A syntax and submit a complete patch; parsed preview rows were not applied.";
 const DO_NOT_RETRY_APPLIED_HUNKS = "Do not retry applied hunks.";
 const DO_NOT_RETRY_APPLIED_OPERATIONS = "Do not retry applied operations.";
+
+export const APPLY_PATCH_TOOL_REGISTRATION: ManagedLoadoutToolRegistration = {
+	id: "apply_patch",
+	owner: OWNER,
+	group: "Built-in",
+	origin: OWNER,
+	priority: 100,
+	conflictSets: [],
+	conflictsWith: ["edit", "write"],
+	defaultActive: true,
+};
 
 export const APPLY_PATCH_PARAMETERS = Type.Object(
 	{
@@ -227,12 +246,20 @@ function progressDetails(progress: ApplyPatchProgress, durationMs: number): Appl
 
 export function applyPatchHeader(
 	latest: AgentToolResult<ApplyPatchToolDetails> | undefined,
+	args?: unknown,
 ): string | undefined {
 	const details = latest?.details;
-	if (!isApplyPatchToolDetails(details)) return undefined;
-	const progress = details.progress;
-	const files = progress?.files ?? details.changedPaths.length;
-	return `${files} files`;
+	if (isApplyPatchToolDetails(details)) {
+		const progress = details.progress;
+		const files = progress?.files ?? details.changedPaths.length;
+		return `${files} files`;
+	}
+	const patch =
+		typeof args === "object" && args !== null && "patch" in args && typeof args.patch === "string"
+			? args.patch
+			: "";
+	const files = new Set(previewV4aPatchPrefix(patch).map((operation) => operation.path)).size;
+	return files === 0 ? undefined : `${files} files`;
 }
 
 export function createApplyPatchTool(): ToolDefinition<
@@ -246,6 +273,7 @@ export function createApplyPatchTool(): ToolDefinition<
 		description: APPLY_PATCH_DESCRIPTION,
 		parameters: APPLY_PATCH_PARAMETERS,
 		executionMode: "parallel",
+		renderCall: (args, theme, context) => renderApplyPatchCall(args, theme, context),
 		renderResult: (result, options, theme) =>
 			renderApplyPatchResult(result, options.expanded, theme),
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
@@ -284,20 +312,11 @@ export function createApplyPatchTool(): ToolDefinition<
 }
 
 export function registerApplyPatchTool(pi: ExtensionAPI, tui: ToolTui = createToolTui()): void {
-	registerManagedLoadoutTool(
+	registerManagedTool(
 		pi,
-		{
-			id: "apply_patch",
-			owner: OWNER,
-			group: "Built-in",
-			origin: OWNER,
-			priority: 100,
-			conflictSets: [],
-			conflictsWith: ["edit", "write"],
-			defaultActive: true,
-		},
+		APPLY_PATCH_TOOL_REGISTRATION,
 		tui.frame(createApplyPatchTool(), {
-			summary: (_args, latest) => applyPatchHeader(latest),
+			summary: (args, latest) => applyPatchHeader(latest, args),
 			summarySeparator: "space",
 			footer: (result, completion) => {
 				return isApplyPatchToolDetails(result.details)

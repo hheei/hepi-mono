@@ -169,6 +169,13 @@ export {
 	redeliverTask,
 	startSubagent,
 } from "./subagents.js";
+export type { ToolCompletion, ToolTui, ToolTuiPresentation } from "./tool-tui.js";
+export {
+	createToolTui,
+	DEFAULT_MAX_BODY_LINES,
+	getToolTui,
+	registerToolTuiTrace,
+} from "./tool-tui.js";
 export type {
 	HepiWidgetHandle,
 	HepiWidgetPlacement,
