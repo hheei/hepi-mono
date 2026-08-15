@@ -75,6 +75,84 @@ export const MAX_V4A_HUNK_LINES = 4_096;
 export const MAX_V4A_PATH_BYTES = 4_096;
 export const MAX_V4A_PATH_SEGMENT_BYTES = 255;
 
+export interface V4aPreviewOperation {
+	readonly kind: "add" | "delete" | "update";
+	readonly path: string;
+	readonly addedLines: number;
+	readonly removedLines: number;
+}
+
+export function previewV4aPatchPrefix(
+	input: string,
+	argsComplete = false,
+): readonly V4aPreviewOperation[] {
+	const operations: V4aPreviewOperation[] = [];
+	const lines = splitLines(input);
+	let current:
+		| { kind: V4aPreviewOperation["kind"]; path: string; addedLines: number; removedLines: number }
+		| undefined;
+	let bytes = 0;
+
+	for (const [index, line] of lines.entries()) {
+		if (line === undefined) break;
+		const encoded = `${line.text}${line.newline}`;
+		const size = Buffer.byteLength(encoded, "utf8");
+		if (bytes + size > MAX_V4A_PATCH_BYTES) break;
+		bytes += size;
+		const complete = line.newline !== "" || (argsComplete && index === lines.length - 1);
+		if (!complete) break;
+		if (line.text === BEGIN) continue;
+		if (line.text === END) break;
+
+		const header = parseHeader(line.text);
+		if (header !== undefined) {
+			if (!isPreviewablePath(header.path) || operations.length >= MAX_V4A_OPERATIONS) break;
+			current = { kind: header.kind, path: header.path, addedLines: 0, removedLines: 0 };
+			operations.push(current);
+			continue;
+		}
+		if (current === undefined) continue;
+		if (current.kind === "update" && line.text.startsWith(MOVE)) {
+			const moveTo = line.text.slice(MOVE.length);
+			if (isPreviewablePath(moveTo)) current = { ...current, path: moveTo };
+			else break;
+			operations[operations.length - 1] = current;
+			continue;
+		}
+		if (current.kind === "add") {
+			if (!line.text.startsWith("+")) break;
+			if (line.text.slice(1).length === 0) continue;
+			current = { ...current, addedLines: current.addedLines + 1 };
+			operations[operations.length - 1] = current;
+			continue;
+		}
+		if (current.kind === "delete") break;
+		if (line.text.startsWith("@@") || line.text.startsWith(" ")) continue;
+		if (line.text.startsWith("+")) {
+			current = { ...current, addedLines: current.addedLines + 1 };
+			operations[operations.length - 1] = current;
+			continue;
+		}
+		if (line.text.startsWith("-")) {
+			current = { ...current, removedLines: current.removedLines + 1 };
+			operations[operations.length - 1] = current;
+			continue;
+		}
+		break;
+	}
+
+	return Object.freeze(operations.map((operation) => Object.freeze(operation)));
+}
+
+function isPreviewablePath(path: string): boolean {
+	try {
+		assertPatchPath(path);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 export function parseV4aPatch(input: string): V4aPatch {
 	return Object.freeze({ operations: Object.freeze([...parseV4aPatchOperations(input)]) });
 }

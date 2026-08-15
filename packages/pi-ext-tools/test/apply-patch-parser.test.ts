@@ -10,6 +10,7 @@ import {
 	MAX_V4A_PATH_SEGMENT_BYTES,
 	parseV4aPatch,
 	parseV4aPatchProgressively,
+	previewV4aPatchPrefix,
 	type V4aAddOperation,
 	type V4aPatchOperation,
 } from "../src/apply-patch/index.js";
@@ -183,5 +184,97 @@ describe("V4A patch parser", () => {
 		).operations[0];
 		if (operation === undefined || operation.kind !== "update") throw new Error("expected update");
 		expect(compileV4aUpdateToUnifiedDiff(operation)).toContain("+++ b/old\n");
+	});
+});
+
+describe("V4A prefix preview", () => {
+	const complete =
+		"*** Begin Patch\n" +
+		"*** Add File: new.txt\n+one\n+two\n" +
+		"*** Update File: old.txt\n*** Move to: moved.txt\n-old\n+new\n" +
+		"*** Delete File: gone.txt\n" +
+		"*** End Patch";
+
+	test("exposes a complete Add File header before any payload arrives", () => {
+		expect(previewV4aPatchPrefix("*** Begin Patch\n*** Add File: stream.txt\n", false)).toEqual([
+			{ kind: "add", path: "stream.txt", addedLines: 0, removedLines: 0 },
+		]);
+	});
+
+	test("does not expose a partial path", () => {
+		expect(previewV4aPatchPrefix("*** Begin Patch\n*** Add File: stream.tx", false)).toEqual([]);
+	});
+
+	test("counts completed add and update lines without inventing delete size", () => {
+		expect(
+			previewV4aPatchPrefix(
+				"*** Begin Patch\n*** Add File: new.txt\n+one\n*** Update File: old.txt\n-old\n+new\n*** Delete File: gone.txt\n",
+				false,
+			),
+		).toEqual([
+			{ kind: "add", path: "new.txt", addedLines: 1, removedLines: 0 },
+			{ kind: "update", path: "old.txt", addedLines: 1, removedLines: 1 },
+			{ kind: "delete", path: "gone.txt", addedLines: 0, removedLines: 0 },
+		]);
+	});
+
+	test("finalizes an unterminated last line only when arguments are complete", () => {
+		const prefix = "*** Begin Patch\n*** Add File: stream.txt\n+one";
+		expect(previewV4aPatchPrefix(prefix, false)).toEqual([
+			{ kind: "add", path: "stream.txt", addedLines: 0, removedLines: 0 },
+		]);
+		expect(previewV4aPatchPrefix(prefix, true)).toEqual([
+			{ kind: "add", path: "stream.txt", addedLines: 1, removedLines: 0 },
+		]);
+	});
+
+	test("keeps confirmed rows when a later suffix is malformed", () => {
+		expect(
+			previewV4aPatchPrefix(
+				"*** Begin Patch\n*** Add File: keep.txt\n+ok\n*** Nope\n*** Add File: later.txt\n+nope\n",
+				false,
+			),
+		).toEqual([{ kind: "add", path: "keep.txt", addedLines: 1, removedLines: 0 }]);
+	});
+
+	test("never throws on partial or malformed prefixes", () => {
+		const prefixes = [
+			"",
+			"***",
+			"*** Begin Patch\n*** Add File: ",
+			complete.slice(0, 17),
+			"not a patch",
+		];
+		for (const prefix of prefixes) {
+			expect(() => previewV4aPatchPrefix(prefix, false)).not.toThrow();
+			expect(() => previewV4aPatchPrefix(prefix, true)).not.toThrow();
+		}
+	});
+
+	test("matches the strict parser on a complete add/update/delete/move patch", () => {
+		expect(parseV4aPatch(complete).operations.map((operation) => operation.kind)).toEqual([
+			"add",
+			"update",
+			"delete",
+		]);
+		expect(previewV4aPatchPrefix(complete, true)).toEqual([
+			{ kind: "add", path: "new.txt", addedLines: 2, removedLines: 0 },
+			{ kind: "update", path: "moved.txt", addedLines: 1, removedLines: 1 },
+			{ kind: "delete", path: "gone.txt", addedLines: 0, removedLines: 0 },
+		]);
+	});
+
+	test("stops expanding once the patch byte limit is reached", () => {
+		const huge = `${"x".repeat(MAX_V4A_PATCH_BYTES + 1)}\n*** Add File: late.txt\n+nope\n`;
+		expect(previewV4aPatchPrefix(huge, true)).toEqual([]);
+	});
+
+	test("grows monotonically across every character of a complete patch", () => {
+		let previous = 0;
+		for (let index = 0; index <= complete.length; index += 1) {
+			const operations = previewV4aPatchPrefix(complete.slice(0, index), false);
+			expect(operations.length).toBeGreaterThanOrEqual(previous);
+			previous = operations.length;
+		}
 	});
 });

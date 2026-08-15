@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { initTheme } from "@earendil-works/pi-coding-agent";
-import { formatApplyPatchFooter, renderApplyPatchResult } from "../src/apply-patch/renderer.js";
+import {
+	formatApplyPatchFooter,
+	renderApplyPatchCall,
+	renderApplyPatchResult,
+} from "../src/apply-patch/renderer.js";
 import type { ApplyPatchToolDetails } from "../src/apply-patch-tool.js";
 
 initTheme(undefined, false);
@@ -247,5 +251,32 @@ describe("apply_patch progress renderer", () => {
 				operations: [],
 			}),
 		).toBe("0 lines · 0.72s");
+	});
+});
+
+describe("apply_patch call preview", () => {
+	test("renders pending rows from a partial patch without claiming applied state", () => {
+		const text = renderApplyPatchCall(
+			{
+				patch: "*** Begin Patch\n*** Add File: stream.txt\n+one\n*** Update File: old.txt\n-old\n",
+			},
+			theme as never,
+			{ argsComplete: false },
+		)
+			.render(200)
+			.join("\n");
+		expect(text).toContain("○ create stream.txt +1");
+		expect(text).toContain("○ modify old.txt -1");
+		expect(text).not.toContain("✓");
+		expect(text).not.toContain("0.00s");
+	});
+
+	test("returns an empty body before any operation header is complete", () => {
+		const lines = renderApplyPatchCall(
+			{ patch: "*** Begin Patch\n*** Add File: stream.tx" },
+			theme as never,
+			{ argsComplete: false },
+		).render(80);
+		expect(lines).toEqual([]);
 	});
 });
