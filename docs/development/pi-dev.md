@@ -24,10 +24,12 @@ Pi 默认路径与命令行行为决定。
 启动器不会向子进程继承 `OPENAI_API_KEY`，避免环境变量覆盖 Pi 默认认证；需要
 OpenAI 时用 `pi` 的 `--api-key` 参数显式提供。
 
-脚本固定加载两个 extension：
+脚本固定加载这些 extension：
 
 - `packages/pi-ext-tools/dist/extension.js`；
+- `packages/pi-todo/dist/extension.js`；
+- `packages/pi-dollar-skill/dist/extension.js`；
 - `packages/pi-mctx/src/index.ts`。
 
-`pi-ext-tools` 及其 `pi-ext-core` 依赖会在启动前增量构建；`pi-mctx` 直接由 Pi
+`pi-ext-tools`、`pi-todo`、`pi-dollar-skill` 及其 `pi-ext-core` 依赖会在启动前增量构建；`pi-mctx` 直接由 Pi
 加载 TypeScript source。其他本仓库 extension 暂不加载，也没有包选择环境变量。
