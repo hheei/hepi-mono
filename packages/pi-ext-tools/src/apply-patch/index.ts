@@ -20,6 +20,7 @@ export type {
 } from "./outcome.js";
 export {
 	compileV4aUpdateToUnifiedDiff,
+	createV4aPreviewCursor,
 	findV4aPatchConflicts,
 	MAX_V4A_HUNK_LINES,
 	MAX_V4A_HUNKS_PER_UPDATE,
@@ -30,6 +31,7 @@ export {
 	operationTouchedPaths,
 	parseV4aPatch,
 	parseV4aPatchProgressively,
+	previewV4aPatchFileCount,
 	previewV4aPatchPrefix,
 	type V4aAddedLine,
 	type V4aAddOperation,
@@ -38,6 +40,7 @@ export {
 	type V4aPatch,
 	type V4aPatchConflict,
 	type V4aPatchOperation,
+	type V4aPreviewCursor,
 	type V4aPreviewOperation,
 	type V4aRemovedLine,
 	type V4aUpdateHunk,

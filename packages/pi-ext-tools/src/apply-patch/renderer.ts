@@ -12,7 +12,7 @@ import type {
 	ApplyPatchOperationProgress,
 	MpatchHunkOutcome,
 } from "./outcome.js";
-import { previewV4aPatchPrefix } from "./parser.js";
+import { createV4aPreviewCursor, previewV4aPatchPrefix, type V4aPreviewCursor } from "./parser.js";
 
 function duration(durationMs: number | undefined): string {
 	return `${((durationMs ?? 0) / 1_000).toFixed(2)}s`;
@@ -157,16 +157,27 @@ function diagnosticText(
 	}
 }
 
+type ApplyPatchCallState = {
+	cursor?: V4aPreviewCursor;
+};
+
+function applyPatchCallState(value: unknown): ApplyPatchCallState | undefined {
+	return typeof value === "object" && value !== null ? (value as ApplyPatchCallState) : undefined;
+}
+
 export function renderApplyPatchCall(
 	args: unknown,
 	theme: Theme,
-	context: { readonly argsComplete?: boolean } = {},
+	context: { readonly argsComplete?: boolean; readonly state?: unknown } = {},
 ): Component {
 	const patch =
 		typeof args === "object" && args !== null && "patch" in args && typeof args.patch === "string"
 			? args.patch
 			: "";
-	const operations = previewV4aPatchPrefix(patch, context.argsComplete === true);
+	const state = applyPatchCallState(context.state);
+	const cursor = state?.cursor ?? createV4aPreviewCursor();
+	if (state !== undefined) state.cursor = cursor;
+	const operations = previewV4aPatchPrefix(patch, context.argsComplete === true, cursor);
 	if (operations.length === 0) return new Container();
 	const body = new Container();
 	for (const [index, operation] of operations.entries()) {

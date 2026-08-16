@@ -82,66 +82,139 @@ export interface V4aPreviewOperation {
 	readonly removedLines: number;
 }
 
+type MutablePreviewOperation = {
+	kind: V4aPreviewOperation["kind"];
+	path: string;
+	addedLines: number;
+	removedLines: number;
+};
+
+export interface V4aPreviewCursor {
+	consumed: string;
+	bytes: number;
+	operations: MutablePreviewOperation[];
+	stopped: boolean;
+}
+
+export function createV4aPreviewCursor(): V4aPreviewCursor {
+	return { consumed: "", bytes: 0, operations: [], stopped: false };
+}
+
 export function previewV4aPatchPrefix(
 	input: string,
 	argsComplete = false,
+	cursor?: V4aPreviewCursor,
 ): readonly V4aPreviewOperation[] {
-	const operations: V4aPreviewOperation[] = [];
-	const lines = splitLines(input);
-	let current:
-		| { kind: V4aPreviewOperation["kind"]; path: string; addedLines: number; removedLines: number }
-		| undefined;
-	let bytes = 0;
+	const state = cursor ?? createV4aPreviewCursor();
+	if (!input.startsWith(state.consumed)) {
+		state.consumed = "";
+		state.bytes = 0;
+		state.operations = [];
+		state.stopped = false;
+	}
+	if (state.stopped) return freezePreview(state.operations);
 
+	const lines = splitLines(input.slice(state.consumed.length));
 	for (const [index, line] of lines.entries()) {
 		if (line === undefined) break;
 		const encoded = `${line.text}${line.newline}`;
 		const size = Buffer.byteLength(encoded, "utf8");
-		if (bytes + size > MAX_V4A_PATCH_BYTES) break;
-		bytes += size;
+		if (state.bytes + size > MAX_V4A_PATCH_BYTES) {
+			state.stopped = true;
+			break;
+		}
 		const complete = line.newline !== "" || (argsComplete && index === lines.length - 1);
 		if (!complete) break;
-		if (line.text === BEGIN) continue;
-		if (line.text === END) break;
-
-		const header = parseHeader(line.text);
-		if (header !== undefined) {
-			if (!isPreviewablePath(header.path) || operations.length >= MAX_V4A_OPERATIONS) break;
-			current = { kind: header.kind, path: header.path, addedLines: 0, removedLines: 0 };
-			operations.push(current);
-			continue;
+		const applied = applyPreviewLine(state, line.text);
+		if (!applied) {
+			state.stopped = true;
+			break;
 		}
-		if (current === undefined) continue;
-		if (current.kind === "update" && line.text.startsWith(MOVE)) {
-			const moveTo = line.text.slice(MOVE.length);
-			if (isPreviewablePath(moveTo)) current = { ...current, path: moveTo };
-			else break;
-			operations[operations.length - 1] = current;
-			continue;
-		}
-		if (current.kind === "add") {
-			if (!line.text.startsWith("+")) break;
-			if (line.text.slice(1).length === 0) continue;
-			current = { ...current, addedLines: current.addedLines + 1 };
-			operations[operations.length - 1] = current;
-			continue;
-		}
-		if (current.kind === "delete") break;
-		if (line.text.startsWith("@@") || line.text.startsWith(" ")) continue;
-		if (line.text.startsWith("+")) {
-			current = { ...current, addedLines: current.addedLines + 1 };
-			operations[operations.length - 1] = current;
-			continue;
-		}
-		if (line.text.startsWith("-")) {
-			current = { ...current, removedLines: current.removedLines + 1 };
-			operations[operations.length - 1] = current;
-			continue;
-		}
-		break;
+		state.bytes += size;
+		state.consumed += encoded;
 	}
 
-	return Object.freeze(operations.map((operation) => Object.freeze(operation)));
+	return freezePreview(state.operations);
+}
+
+/** Counts unique completed operation paths. Ignores payload lines and partial last lines. */
+export function previewV4aPatchFileCount(input: string, cursor?: V4aPreviewCursor): number {
+	if (cursor !== undefined) {
+		return new Set(previewV4aPatchPrefix(input, false, cursor).map((operation) => operation.path))
+			.size;
+	}
+	const paths = new Set<string>();
+	let last: string | undefined;
+	let offset = 0;
+	let bytes = 0;
+	while (offset < input.length) {
+		const newline = input.indexOf("\n", offset);
+		if (newline < 0) break;
+		let text = input.slice(offset, newline);
+		if (text.endsWith("\r")) text = text.slice(0, -1);
+		const size = newline + 1 - offset;
+		if (bytes + size > MAX_V4A_PATCH_BYTES || paths.size >= MAX_V4A_OPERATIONS) break;
+		bytes += size;
+		offset = newline + 1;
+		if (text === END) break;
+		const header = parseHeader(text);
+		if (header !== undefined) {
+			if (!isPreviewablePath(header.path)) break;
+			last = header.path;
+			paths.add(header.path);
+			continue;
+		}
+		if (last !== undefined && text.startsWith(MOVE)) {
+			const moveTo = text.slice(MOVE.length);
+			if (!isPreviewablePath(moveTo)) break;
+			paths.delete(last);
+			paths.add(moveTo);
+			last = moveTo;
+		}
+	}
+	return paths.size;
+}
+
+function applyPreviewLine(state: V4aPreviewCursor, text: string): boolean {
+	if (text === BEGIN) return true;
+	if (text === END) return false;
+	const header = parseHeader(text);
+	if (header !== undefined) {
+		if (!isPreviewablePath(header.path) || state.operations.length >= MAX_V4A_OPERATIONS)
+			return false;
+		state.operations.push({ kind: header.kind, path: header.path, addedLines: 0, removedLines: 0 });
+		return true;
+	}
+	const current = state.operations.at(-1);
+	if (current === undefined) return true;
+	if (current.kind === "update" && text.startsWith(MOVE)) {
+		const moveTo = text.slice(MOVE.length);
+		if (!isPreviewablePath(moveTo)) return false;
+		current.path = moveTo;
+		return true;
+	}
+	if (current.kind === "add") {
+		if (!text.startsWith("+")) return false;
+		if (text.slice(1).length > 0) current.addedLines += 1;
+		return true;
+	}
+	if (current.kind === "delete") return false;
+	if (text.startsWith("@@") || text.startsWith(" ")) return true;
+	if (text.startsWith("+")) {
+		current.addedLines += 1;
+		return true;
+	}
+	if (text.startsWith("-")) {
+		current.removedLines += 1;
+		return true;
+	}
+	return false;
+}
+
+function freezePreview(
+	operations: readonly MutablePreviewOperation[],
+): readonly V4aPreviewOperation[] {
+	return Object.freeze(operations.map((operation) => Object.freeze({ ...operation })));
 }
 
 function isPreviewablePath(path: string): boolean {

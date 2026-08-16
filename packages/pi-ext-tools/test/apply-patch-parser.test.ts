@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	compileV4aUpdateToUnifiedDiff,
+	createV4aPreviewCursor,
 	findV4aPatchConflicts,
 	MAX_V4A_HUNK_LINES,
 	MAX_V4A_HUNKS_PER_UPDATE,
@@ -10,6 +11,7 @@ import {
 	MAX_V4A_PATH_SEGMENT_BYTES,
 	parseV4aPatch,
 	parseV4aPatchProgressively,
+	previewV4aPatchFileCount,
 	previewV4aPatchPrefix,
 	type V4aAddOperation,
 	type V4aPatchOperation,
@@ -276,5 +278,44 @@ describe("V4A prefix preview", () => {
 			expect(operations.length).toBeGreaterThanOrEqual(previous);
 			previous = operations.length;
 		}
+	});
+
+	test("incremental cursor matches a full rescan after each appended chunk", () => {
+		const cursor = createV4aPreviewCursor();
+		for (let index = 0; index <= complete.length; index += 1) {
+			const prefix = complete.slice(0, index);
+			expect(previewV4aPatchPrefix(prefix, false, cursor)).toEqual(
+				previewV4aPatchPrefix(prefix, false),
+			);
+		}
+	});
+
+	test("rewritten prefixes discard the cursor and rebuild", () => {
+		const cursor = createV4aPreviewCursor();
+		previewV4aPatchPrefix("*** Begin Patch\n*** Add File: old.txt\n+one\n", false, cursor);
+		expect(
+			previewV4aPatchPrefix("*** Begin Patch\n*** Add File: new.txt\n+two\n", false, cursor),
+		).toEqual([{ kind: "add", path: "new.txt", addedLines: 1, removedLines: 0 }]);
+	});
+
+	test("file count uses completed headers and move targets", () => {
+		expect(previewV4aPatchFileCount("*** Begin Patch\n*** Add File: a.txt")).toBe(0);
+		expect(previewV4aPatchFileCount("*** Begin Patch\n*** Add File: a.txt\n")).toBe(1);
+		expect(
+			previewV4aPatchFileCount(
+				"*** Begin Patch\n*** Update File: old.txt\n*** Move to: moved.txt\n*** Add File: extra.txt\n",
+			),
+		).toBe(2);
+	});
+
+	test("file count reuses a preview cursor instead of rescanning payload", () => {
+		const cursor = createV4aPreviewCursor();
+		const header = "*** Begin Patch\n*** Add File: a.txt\n";
+		const payload = `${header}${"+line\n".repeat(40)}`;
+		expect(previewV4aPatchFileCount(header, cursor)).toBe(1);
+		const consumedAfterHeader = cursor.consumed.length;
+		expect(previewV4aPatchFileCount(payload, cursor)).toBe(1);
+		expect(cursor.consumed.length).toBeGreaterThan(consumedAfterHeader);
+		expect(cursor.consumed).toBe(payload);
 	});
 });
