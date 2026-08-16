@@ -267,6 +267,29 @@ describe("staged apply-patch executor", () => {
 		expect(await load(root, "src/moved.txt")).toBe("new name\n");
 	});
 
+	test("windows add and delete snapshots instead of persisting the whole file", async () => {
+		const root = await temporaryDirectory();
+		const lines = Array.from({ length: 200 }, (_value, index) => `line-${index}`);
+		await save(root, "gone.txt", `${lines.join("\n")}\n`);
+		const result = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch:
+				"*** Begin Patch\n" +
+				`*** Add File: created.txt\n${lines.map((line) => `+${line}`).join("\n")}\n` +
+				"*** Delete File: gone.txt\n" +
+				"*** End Patch",
+		});
+		const created = result.applied.find((entry) => entry.kind === "add")?.snapshots[0];
+		const deleted = result.applied.find((entry) => entry.kind === "delete")?.snapshots[0];
+		expect(created?.after).toHaveLength(150);
+		expect(created?.after.at(-1)).toBe("line-149");
+		expect(created?.after).not.toContain("line-199");
+		expect(deleted?.before).toHaveLength(150);
+		expect(deleted?.before.at(-1)).toBe("line-149");
+		expect(deleted?.before).not.toContain("line-199");
+	});
+
 	test("classifies near-context update as fuzzy when policy permits", async () => {
 		const root = await temporaryDirectory();
 		await save(root, "value.txt", "alpha\nchanged context\nomega\n");

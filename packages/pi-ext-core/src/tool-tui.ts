@@ -53,6 +53,7 @@ export interface ToolTui {
 type ToolFrameHeader<TParams extends TSchema, TDetails> = (
 	args: Static<TParams>,
 	latest: AgentToolResult<TDetails> | undefined,
+	context?: { readonly state?: unknown },
 ) => string | undefined;
 
 export const DEFAULT_MAX_BODY_LINES = 20;
@@ -510,7 +511,7 @@ export function createToolTui(): ToolTui {
 						theme,
 						context,
 						trace.completionFor(context.toolCallId)?.warning,
-						presentation.summary?.(args, latest),
+						presentation.summary?.(args, latest, context),
 						presentation.summarySeparator,
 						collapsed,
 					);

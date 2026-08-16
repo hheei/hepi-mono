@@ -17,7 +17,12 @@ import {
 	type ApplyPatchRejection,
 	applyPatchThroughCoordinator,
 } from "./apply-patch/index.js";
-import { parseV4aPatch, previewV4aPatchPrefix } from "./apply-patch/parser.js";
+import {
+	createV4aPreviewCursor,
+	parseV4aPatch,
+	previewV4aPatchFileCount,
+	type V4aPreviewCursor,
+} from "./apply-patch/parser.js";
 import {
 	formatApplyPatchFooter,
 	renderApplyPatchCall,
@@ -247,6 +252,7 @@ function progressDetails(progress: ApplyPatchProgress, durationMs: number): Appl
 export function applyPatchHeader(
 	latest: AgentToolResult<ApplyPatchToolDetails> | undefined,
 	args?: unknown,
+	state?: unknown,
 ): string | undefined {
 	const details = latest?.details;
 	if (isApplyPatchToolDetails(details)) {
@@ -258,8 +264,19 @@ export function applyPatchHeader(
 		typeof args === "object" && args !== null && "patch" in args && typeof args.patch === "string"
 			? args.patch
 			: "";
-	const files = new Set(previewV4aPatchPrefix(patch).map((operation) => operation.path)).size;
+	const files = previewV4aPatchFileCount(patch, previewCursor(state));
 	return files === 0 ? undefined : `${files} files`;
+}
+
+function previewCursor(state: unknown): V4aPreviewCursor {
+	if (typeof state === "object" && state !== null) {
+		const current = (state as { cursor?: V4aPreviewCursor }).cursor;
+		if (current !== undefined) return current;
+		const created = createV4aPreviewCursor();
+		(state as { cursor?: V4aPreviewCursor }).cursor = created;
+		return created;
+	}
+	return createV4aPreviewCursor();
 }
 
 export function createApplyPatchTool(): ToolDefinition<
@@ -316,7 +333,7 @@ export function registerApplyPatchTool(pi: ExtensionAPI, tui: ToolTui = createTo
 		pi,
 		APPLY_PATCH_TOOL_REGISTRATION,
 		tui.frame(createApplyPatchTool(), {
-			summary: (args, latest) => applyPatchHeader(latest, args),
+			summary: (args, latest, context) => applyPatchHeader(latest, args, context?.state),
 			summarySeparator: "space",
 			footer: (result, completion) => {
 				return isApplyPatchToolDetails(result.details)

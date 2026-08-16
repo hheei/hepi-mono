@@ -41,6 +41,7 @@ import {
 import { validatePatchPath } from "./paths.js";
 import type { FuzzyApplyPatchPolicy } from "./policy.js";
 
+const SNAPSHOT_MAX_LINES = 150;
 const UNSUPPORTED_COMMIT_PLATFORM =
 	"apply_patch commit requires Linux descriptor-relative workspace protection";
 const UNSUPPORTED_TOOL_PLATFORM_GUIDANCE =
@@ -468,8 +469,12 @@ function operationOutcome(
 							hunkIndex: 1,
 							startLine: 1,
 							afterStartLine: 1,
-							before: Object.freeze(before === undefined ? [] : splitTextLines(before)),
-							after: Object.freeze(after === undefined ? [] : splitTextLines(after)),
+							before: Object.freeze(
+								(before === undefined ? [] : splitTextLines(before)).slice(0, SNAPSHOT_MAX_LINES),
+							),
+							after: Object.freeze(
+								(after === undefined ? [] : splitTextLines(after)).slice(0, SNAPSHOT_MAX_LINES),
+							),
 						}),
 					];
 	return Object.freeze({

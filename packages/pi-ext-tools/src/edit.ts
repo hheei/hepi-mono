@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import {
 	type AgentToolResult,
@@ -14,7 +14,7 @@ import {
 	createCanonicalToolRegistration,
 	registerCanonicalTool,
 } from "./native-tool.js";
-import { MAX_RENDER_LINES } from "./pretty/config.js";
+import { MAX_HL_CHARS, MAX_RENDER_LINES } from "./pretty/config.js";
 import { type ParsedDiff, parseDiff, parseUnifiedPatch } from "./pretty/diff.js";
 import {
 	renderDiffOmission,
@@ -66,6 +66,15 @@ function filePath(args: EditArgs): string {
 
 function resolvePath(cwd: string, path: string): string {
 	return isAbsolute(path) ? path : join(cwd, path);
+}
+
+function readTextIfSmall(path: string): string {
+	try {
+		if (statSync(path).size > MAX_HL_CHARS) return "";
+		return readFileSync(path, "utf-8").replaceAll("\r\n", "\n");
+	} catch {
+		return "";
+	}
 }
 
 function operationText(value: {
@@ -300,14 +309,7 @@ export function registerEditTool(pi: ExtensionAPI, tui: ToolTui): void {
 		async execute(toolCallId, params: EditArgs, signal, onUpdate, context) {
 			const path = filePath(params);
 			const resolved = resolvePath(context.cwd, path);
-			let before = "";
-			try {
-				if (path !== "" && existsSync(resolved)) {
-					before = readFileSync(resolved, "utf-8").replaceAll("\r\n", "\n");
-				}
-			} catch {
-				before = "";
-			}
+			const before = path === "" ? "" : readTextIfSmall(resolved);
 			const result = await baseTool.execute(toolCallId, params, signal, onUpdate, context);
 			const operations = getEditOperations(params);
 			const language = lang(path);

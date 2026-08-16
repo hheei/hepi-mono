@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import {
 	type AgentToolResult,
@@ -14,8 +14,8 @@ import {
 	createCanonicalToolRegistration,
 	registerCanonicalTool,
 } from "./native-tool.js";
-import { MAX_RENDER_LINES } from "./pretty/config.js";
-import { normalizeLineEndings, parseDiff } from "./pretty/diff.js";
+import { MAX_HL_CHARS, MAX_RENDER_LINES } from "./pretty/config.js";
+import { normalizeLineEndings, type ParsedDiff, parseDiff } from "./pretty/diff.js";
 import {
 	renderDiffSummary,
 	renderSplit,
@@ -40,15 +40,25 @@ type WriteView =
 	| {
 			readonly kind: "diff";
 			readonly summary: string;
-			readonly oldContent: string;
-			readonly newContent: string;
 			readonly language: string | undefined;
+			readonly added?: number;
+			readonly removed?: number;
+			readonly chars?: number;
+			readonly lines?: ParsedDiff["lines"];
+			readonly oldContent?: string;
+			readonly newContent?: string;
 	  }
 	| {
 			readonly kind: "new";
 			readonly lines: number;
-			readonly content: string;
 			readonly language: string | undefined;
+			readonly content?: string;
+	  }
+	| {
+			readonly kind: "replace";
+			readonly lines: number;
+			readonly language: string | undefined;
+			readonly content?: string;
 	  }
 	| { readonly kind: "noChange" };
 
@@ -68,6 +78,16 @@ function filePath(args: WriteArgs): string {
 
 function resolvePath(cwd: string, path: string): string {
 	return isAbsolute(path) ? path : join(cwd, path);
+}
+
+function readTextIfSmall(path: string): { exists: boolean; text?: string } {
+	try {
+		const size = statSync(path).size;
+		if (size > MAX_HL_CHARS) return { exists: true };
+		return { exists: true, text: readFileSync(path, "utf-8") };
+	} catch {
+		return { exists: false };
+	}
 }
 
 function trimTrailingEmptyLines(lines: readonly string[]): string[] {
@@ -130,7 +150,7 @@ function writeView(result: AgentToolResult<unknown>): WriteView | undefined {
 	const value = (details as Record<string, unknown>)[WRITE_VIEW_KEY];
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
 	const kind = (value as Record<string, unknown>).kind;
-	return kind === "diff" || kind === "new" || kind === "noChange"
+	return kind === "diff" || kind === "new" || kind === "replace" || kind === "noChange"
 		? (value as WriteView)
 		: undefined;
 }
@@ -141,30 +161,76 @@ function previewLines(
 	theme: Theme,
 	expanded: boolean,
 ): string[] {
-	const lines = hlBlock(content, language, theme);
-	if (expanded || lines.length <= NEW_FILE_PREVIEW_LINES) return lines;
-	const visible = lines.slice(0, NEW_FILE_PREVIEW_LINES - 1);
-	return [
-		...visible,
-		theme.fg("dim", `… (${lines.length - visible.length} more lines, ${EXPAND_HINT})`),
-	];
+	const raw = content.split("\n");
+	const visibleCount =
+		expanded || raw.length <= NEW_FILE_PREVIEW_LINES ? raw.length : NEW_FILE_PREVIEW_LINES - 1;
+	const source = raw.length === visibleCount ? content : raw.slice(0, visibleCount).join("\n");
+	const lines = hlBlock(source, language, theme);
+	if (raw.length === visibleCount) return lines;
+	return [...lines, theme.fg("dim", `… (${raw.length - visibleCount} more lines, ${EXPAND_HINT})`)];
+}
+
+function renderWritePreview(
+	kind: "new" | "replace",
+	lines: number,
+	content: string,
+	language: string | undefined,
+	theme: Theme,
+	expanded: boolean,
+): LinesBody {
+	const heading = theme.fg(
+		"success",
+		kind === "new" ? `new file (${lines} lines)` : `wrote (${lines} lines)`,
+	);
+	return new LinesBody(() => {
+		const body = previewLines(content, language, theme, expanded);
+		return content === "" ? [heading] : [heading, ...body];
+	});
+}
+
+function parsedWriteDiff(view: Extract<WriteView, { kind: "diff" }>): ParsedDiff {
+	if (view.lines !== undefined)
+		return {
+			lines: view.lines,
+			added: view.added ?? 0,
+			removed: view.removed ?? 0,
+			chars: view.chars ?? 0,
+		};
+	return parseDiff(view.oldContent ?? "", view.newContent ?? "");
+}
+
+function persistWriteDiff(
+	parsed: ParsedDiff,
+	language: string | undefined,
+): Extract<WriteView, { kind: "diff" }> {
+	return {
+		kind: "diff",
+		summary: summarize(parsed.added, parsed.removed),
+		language,
+		added: parsed.added,
+		removed: parsed.removed,
+		chars: parsed.chars,
+		lines: parsed.lines.slice(0, MAX_RENDER_LINES),
+	};
 }
 
 function renderWriteDiff(
-	oldContent: string,
-	newContent: string,
+	diff: ParsedDiff,
 	language: string | undefined,
 	theme: Theme,
 	width: number,
 ): string[] {
-	const text = renderSplit(
-		parseDiff(oldContent, newContent),
-		language,
-		MAX_RENDER_LINES,
-		resolveDiffColors(theme),
-		width,
-	);
+	const text = renderSplit(diff, language, MAX_RENDER_LINES, resolveDiffColors(theme), width);
 	return text === "" ? [] : text.split("\n");
+}
+
+function previewSource(
+	view: Extract<WriteView, { kind: "new" | "replace" }>,
+	args: WriteArgs,
+): string {
+	if (typeof view.content === "string") return view.content;
+	const content = typeof args.content === "string" ? args.content : "";
+	return content.length > MAX_HL_CHARS ? content.slice(0, MAX_HL_CHARS) : content;
 }
 
 export function registerWriteTool(pi: ExtensionAPI, tui: ToolTui): void {
@@ -178,36 +244,30 @@ export function registerWriteTool(pi: ExtensionAPI, tui: ToolTui): void {
 		async execute(toolCallId, params: WriteArgs, signal, onUpdate, context) {
 			const path = filePath(params);
 			const resolved = resolvePath(context.cwd, path);
-			let old: string | null = null;
-			try {
-				if (path !== "" && existsSync(resolved)) old = readFileSync(resolved, "utf-8");
-			} catch {
-				old = null;
-			}
+			const baseline = path === "" ? { exists: false } : readTextIfSmall(resolved);
 			const result = await baseTool.execute(toolCallId, params, signal, onUpdate, context);
 			const content = typeof params.content === "string" ? params.content : "";
 			const language = lang(path);
-			const parsed = old === null ? undefined : parseDiff(old, content);
-			const view: WriteView =
-				old !== null &&
-				parsed !== undefined &&
-				normalizeLineEndings(old) !== normalizeLineEndings(content)
-					? {
-							kind: "diff",
-							summary: summarize(parsed.added, parsed.removed),
-							oldContent: old,
-							newContent: content,
-							language,
-						}
-					: old === null
-						? {
-								kind: "new",
-								lines: content === "" ? 0 : content.split("\n").length,
-								content,
-								language,
-							}
-						: { kind: "noChange" };
-			return withWriteDetails(result, writeMetrics(params), view);
+			const old = baseline.text;
+			const parsed = old === undefined ? undefined : parseDiff(old, content);
+			const metrics = writeMetrics(params);
+			const preview = {
+				lines: metrics?.lines ?? 0,
+				language,
+			};
+			const view: WriteView = !baseline.exists
+				? { kind: "new", ...preview }
+				: old !== undefined &&
+						parsed !== undefined &&
+						content.length <= MAX_HL_CHARS &&
+						normalizeLineEndings(old) !== normalizeLineEndings(content)
+					? persistWriteDiff(parsed, language)
+					: old !== undefined &&
+							parsed !== undefined &&
+							normalizeLineEndings(old) === normalizeLineEndings(content)
+						? { kind: "noChange" }
+						: { kind: "replace", ...preview };
+			return withWriteDetails(result, metrics, view);
 		},
 		renderCall(args, theme, context) {
 			const path = filePath(args);
@@ -218,19 +278,34 @@ export function registerWriteTool(pi: ExtensionAPI, tui: ToolTui): void {
 		renderResult(result, options, theme, context) {
 			if (context.isError) return new Text(resultText(result) || "Error", 0, 0);
 			const view = writeView(result);
-			if (view === undefined) return new Container();
+			const args = context.args as WriteArgs;
+			if (view === undefined) {
+				const content = typeof args.content === "string" ? args.content : "";
+				const lines = content === "" ? 0 : content.split("\n").length;
+				return renderWritePreview(
+					"replace",
+					lines,
+					content.length > MAX_HL_CHARS ? content.slice(0, MAX_HL_CHARS) : content,
+					lang(filePath(args)),
+					theme,
+					options.expanded,
+				);
+			}
 			if (view.kind === "noChange") return new Text(theme.fg("muted", "no changes"), 0, 0);
-			if (view.kind === "new") {
-				const heading = theme.fg("success", `new file (${view.lines} lines)`);
-				return new LinesBody(() => {
-					const body = previewLines(view.content, view.language, theme, options.expanded);
-					return view.content === "" ? [heading] : [heading, ...body];
-				});
+			if (view.kind === "new" || view.kind === "replace") {
+				return renderWritePreview(
+					view.kind,
+					view.lines,
+					previewSource(view, args),
+					view.language,
+					theme,
+					options.expanded,
+				);
 			}
 			const heading = renderDiffSummary(view.summary, theme);
 			return new LinesBody((width) => [
 				heading,
-				...renderWriteDiff(view.oldContent, view.newContent, view.language, theme, width),
+				...renderWriteDiff(parsedWriteDiff(view), view.language, theme, width),
 			]);
 		},
 	};

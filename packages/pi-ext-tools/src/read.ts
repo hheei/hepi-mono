@@ -94,6 +94,42 @@ function displayLines(text: string): readonly string[] {
 	return lines;
 }
 
+function highlightChunk(
+	chunk: readonly string[],
+	language: string | undefined,
+	theme: Theme,
+): readonly string[] {
+	const highlighted = hlBlock(chunk.join("\n"), language, theme);
+	return highlighted.length === chunk.length ? highlighted : chunk;
+}
+
+function highlightReadLines(
+	lines: readonly string[],
+	preview: readonly ReadPreviewLine[],
+	language: string | undefined,
+	theme: Theme,
+): readonly string[] {
+	const visible = preview.flatMap((line) => (line.type === "text" ? [line.sourceIndex] : []));
+	if (visible.length === lines.length) return highlightChunk(lines, language, theme);
+	const colored = lines.slice();
+	const paint = (indexes: readonly number[]): void => {
+		if (indexes.length === 0) return;
+		const start = indexes[0];
+		const end = indexes[indexes.length - 1];
+		if (start === undefined || end === undefined) return;
+		const chunk = lines.slice(start, end + 1);
+		const highlighted = highlightChunk(chunk, language, theme);
+		for (const [offset, text] of highlighted.entries())
+			colored[start + offset] = text ?? lines[start + offset] ?? "";
+	};
+	const split = visible.findIndex(
+		(index, offset) => offset > 0 && index !== (visible[offset - 1] ?? 0) + 1,
+	);
+	paint(split < 0 ? visible : visible.slice(0, split));
+	if (split >= 0) paint(visible.slice(split));
+	return colored;
+}
+
 function previewLines(lines: readonly string[]): readonly ReadPreviewLine[] {
 	if (lines.length <= PREVIEW_HEAD_LINES + PREVIEW_TAIL_LINES)
 		return lines.map((text, sourceIndex) => ({ type: "text", sourceIndex, text }));
@@ -171,11 +207,10 @@ function renderReadPreview(
 	const text = displayText(result);
 	if (text === undefined) return undefined;
 	const lines = displayLines(text);
-	const highlighted = hlBlock(lines.join("\n"), lang(params.path ?? ""), theme);
-	const colored = highlighted.length === lines.length ? highlighted : lines;
 	const preview = options.expanded
 		? lines.map((text, sourceIndex) => ({ type: "text" as const, sourceIndex, text }))
 		: previewLines(lines);
+	const colored = highlightReadLines(lines, preview, lang(params.path ?? ""), theme);
 	return new ReadPreviewComponent(preview, colored, params.offset ?? 1, theme);
 }
 

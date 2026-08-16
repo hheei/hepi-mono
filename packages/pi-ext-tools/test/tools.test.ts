@@ -17,6 +17,7 @@ import {
 	observeLoadoutInventory,
 } from "@hheei/pi-ext-core";
 import type { EditCatalog } from "../src/fff/settings.js";
+import { MAX_HL_CHARS } from "../src/pretty/config.js";
 import { activateEditCatalog, registerTools } from "../src/tools.js";
 
 const temporaryPaths: string[] = [];
@@ -1185,6 +1186,185 @@ describe("pi-ext-tools catalog", () => {
 			text: "Patch partially applied.\nChanged:\n- value.txt: update (2/3 hunks applied)\nRejected:\n- operation 1, value.txt, hunk 2: best fuzzy score 0.00 < required 0.70\nRecovery: read value.txt, then retry only rejected hunks from operation 1.\nDo not retry applied hunks.",
 		});
 		expect(await readFile(join(cwd, "value.txt"), "utf8")).toBe("ONE\ntwo\nthree\nfour\nFIVE\n");
+	});
+
+	test("persists only the visible write diff instead of the unchanged file body", async (): Promise<void> => {
+		const cwd = await temporaryDirectory();
+		const head = Array.from({ length: 40 }, (_value, index) => `head-${index}`).join("\n");
+		const tail = Array.from({ length: 40 }, (_value, index) => `tail-${index}`).join("\n");
+		await writeFile(join(cwd, "value.txt"), `${head}\nOLD\n${tail}\n`, "utf8");
+		const host = harness();
+		registerTools(host.pi);
+		const write = host.tools.find((tool) => tool.name === "write");
+		if (write === undefined) throw new Error("write was not registered");
+		const args = { path: "value.txt", content: `${head}\nNEW\n${tail}\n` };
+		const written = await write.execute("write-snippet", args, undefined, undefined, {
+			cwd,
+		} as ExtensionContext);
+		const serialized = JSON.stringify(
+			(written.details as Record<string, unknown>).__piExtToolsWriteView ?? {},
+		);
+		expect(serialized).not.toContain("head-0");
+		expect(serialized).not.toContain("tail-39");
+		const rendered = write
+			.renderResult?.(
+				written,
+				{ isPartial: false, expanded: false },
+				{
+					bg: (_role: string, text: string): string => text,
+					fg: (_role: string, text: string): string => text,
+					bold: (text: string): string => text,
+				} as Theme,
+				{
+					args,
+					toolCallId: "write-snippet",
+					invalidate: (): void => undefined,
+					state: {},
+					cwd,
+					executionStarted: true,
+					argsComplete: true,
+					showImages: false,
+					expanded: false,
+					lastComponent: undefined,
+					isPartial: false,
+					isError: false,
+				} as never,
+			)
+			?.render(100)
+			.map((line) => stripTerminalSequences(line).trimEnd())
+			.join("\n");
+		expect(rendered).toContain("OLD");
+		expect(rendered).toContain("NEW");
+	});
+
+	test("renders a legacy persisted write diff without full file bodies", (): void => {
+		const host = harness();
+		registerTools(host.pi);
+		const write = host.tools.find((tool) => tool.name === "write");
+		if (write === undefined) throw new Error("write was not registered");
+		const rendered = write
+			.renderResult?.(
+				{
+					content: [{ type: "text", text: "Wrote 1 file" }],
+					details: {
+						__piExtToolsWriteView: {
+							kind: "diff",
+							summary: "+1 -1",
+							oldContent: "OLD\n",
+							newContent: "NEW\n",
+						},
+					},
+				},
+				{ isPartial: false, expanded: false },
+				{
+					bg: (_role: string, text: string): string => text,
+					fg: (_role: string, text: string): string => text,
+					bold: (text: string): string => text,
+				} as Theme,
+				{
+					args: { path: "value.txt", content: "NEW\n" },
+					toolCallId: "write-legacy",
+					invalidate: (): void => undefined,
+					state: {},
+					cwd: ".",
+					executionStarted: true,
+					argsComplete: true,
+					showImages: false,
+					expanded: false,
+					lastComponent: undefined,
+					isPartial: false,
+					isError: false,
+				} as never,
+			)
+			?.render(100)
+			.map((line) => stripTerminalSequences(line).trimEnd())
+			.join("\n");
+		expect(rendered).toContain("OLD");
+		expect(rendered).toContain("NEW");
+	});
+
+	test("keeps custom write/edit views when the existing file exceeds the highlight budget", async (): Promise<void> => {
+		const cwd = await temporaryDirectory();
+		const huge = `HEAD\n${"x".repeat(MAX_HL_CHARS)}\n`;
+		await writeFile(join(cwd, "huge.txt"), huge, "utf8");
+		const host = harness();
+		registerTools(host.pi);
+		const context = {
+			cwd,
+			sessionManager: {
+				getSessionId: (): string => "ext-tools-test",
+				getSessionFile: (): undefined => undefined,
+			},
+		} as unknown as ExtensionContext;
+		const write = host.tools.find((tool) => tool.name === "write");
+		const edit = host.tools.find((tool) => tool.name === "edit");
+		if (write === undefined || edit === undefined)
+			throw new Error("catalog tool was not registered");
+
+		const written = await write.execute(
+			"write-huge",
+			{ path: "huge.txt", content: "small\n" },
+			undefined,
+			undefined,
+			context,
+		);
+		const writeView = (written.details as Record<string, unknown>).__piExtToolsWriteView as
+			| { kind?: string; content?: string; lines?: number }
+			| undefined;
+		expect(writeView).toEqual({
+			kind: "replace",
+			lines: 1,
+			language: undefined,
+		});
+		const writeRendered = write
+			.renderResult?.(
+				written,
+				{ isPartial: false, expanded: false },
+				{
+					bg: (_role: string, text: string): string => text,
+					fg: (_role: string, text: string): string => text,
+					bold: (text: string): string => text,
+				} as Theme,
+				{
+					args: { path: "huge.txt", content: "small\n" },
+					toolCallId: "write-huge",
+					invalidate: (): void => undefined,
+					state: {},
+					cwd,
+					executionStarted: true,
+					argsComplete: true,
+					showImages: false,
+					expanded: false,
+					lastComponent: undefined,
+					isPartial: false,
+					isError: false,
+				} as never,
+			)
+			?.render(100)
+			.map((line) => stripTerminalSequences(line).trimEnd())
+			.join("\n");
+		expect(writeRendered).toContain("wrote (1 lines)");
+		expect(writeRendered).toContain("small");
+		expect(writeRendered).not.toContain("Wrote");
+		expect(writeRendered).not.toContain("at line");
+
+		await writeFile(join(cwd, "huge.txt"), huge, "utf8");
+		const edited = await edit.execute(
+			"edit-huge",
+			{ path: "huge.txt", edits: [{ oldText: "HEAD", newText: "TAIL" }] },
+			undefined,
+			undefined,
+			context,
+		);
+		const editView = (edited.details as Record<string, unknown>).__piExtToolsEditView as
+			| { op?: { oldContent?: string; newContent?: string } }
+			| undefined;
+		expect(editView?.op).toEqual({
+			oldContent: "HEAD",
+			newContent: "TAIL",
+			editLine: 0,
+			startLine: 0,
+		});
 	});
 
 	test("preserves upstream write and edit execution semantics", async (): Promise<void> => {
