@@ -6,6 +6,7 @@ import {
 	registerHepiSettings,
 } from "@hheei/pi-ext-core";
 import { BashJobRegistry } from "../bash-jobs.js";
+import { TargetRuntime } from "../targets.js";
 import { createFffAutocompleteProvider } from "./autocomplete.js";
 import { FffRuntime } from "./fff.js";
 import {
@@ -18,8 +19,11 @@ import {
 	type FffSettings,
 	loadFffSettings,
 	loadRtkSettings,
+	loadTargetSettings,
 	type RtkSettings,
+	type TargetSettings,
 } from "./settings.js";
+import { createTargetSettingsProvider } from "./target-settings.js";
 
 /** Live session view consumed by statically registered tools and commands. */
 export interface FffRuntimeState {
@@ -28,6 +32,7 @@ export interface FffRuntimeState {
 	getRtkSettings(): RtkSettings;
 	getBashJobs(): BashJobRegistry | undefined;
 	getOutputs(): import("@hheei/pi-ext-core").OutputRegistry | undefined;
+	getTargetRuntime(): TargetRuntime | undefined;
 	consumeRtkRewriteWarning(): boolean;
 }
 
@@ -37,6 +42,7 @@ interface MutableFffRuntimeState {
 	rtkSettings: RtkSettings;
 	jobs: BashJobRegistry | undefined;
 	outputs: import("@hheei/pi-ext-core").OutputRegistry | undefined;
+	targets: TargetRuntime | undefined;
 	rtkRewriteWarningShown: boolean;
 }
 
@@ -50,6 +56,7 @@ export function createFffRuntimeState(): FffRuntimeState {
 			runtimeStates.get(state)?.rtkSettings ?? DEFAULT_RTK_SETTINGS,
 		getBashJobs: (): BashJobRegistry | undefined => runtimeStates.get(state)?.jobs,
 		getOutputs: () => runtimeStates.get(state)?.outputs,
+		getTargetRuntime: () => runtimeStates.get(state)?.targets,
 		consumeRtkRewriteWarning: (): boolean => {
 			const mutable = runtimeStates.get(state);
 			if (mutable === undefined || mutable.rtkRewriteWarningShown) return false;
@@ -63,6 +70,7 @@ export function createFffRuntimeState(): FffRuntimeState {
 		rtkSettings: DEFAULT_RTK_SETTINGS,
 		jobs: undefined,
 		outputs: undefined,
+		targets: undefined,
 		rtkRewriteWarningShown: false,
 	});
 	return state;
@@ -77,6 +85,7 @@ export function registerFffLifecycle(
 	provider = createFffSettingsProvider(),
 	bashProvider = createBashSettingsProvider(),
 	rtkProvider = createRtkSettingsProvider(),
+	targetProvider = createTargetSettingsProvider(),
 ): void {
 	const mutable = runtimeStates.get(state);
 	if (mutable === undefined)
@@ -84,7 +93,16 @@ export function registerFffLifecycle(
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-ext-tools",
 		start: async (context) => {
-			await startFffLifecycle(pi, context, state, mutable, provider, bashProvider, rtkProvider);
+			await startFffLifecycle(
+				pi,
+				context,
+				state,
+				mutable,
+				provider,
+				bashProvider,
+				rtkProvider,
+				targetProvider,
+			);
 		},
 	});
 }
@@ -97,6 +115,7 @@ async function startFffLifecycle(
 	provider: ReturnType<typeof createFffSettingsProvider>,
 	bashProvider: ReturnType<typeof createBashSettingsProvider>,
 	rtkProvider: ReturnType<typeof createRtkSettingsProvider>,
+	targetProvider: ReturnType<typeof createTargetSettingsProvider>,
 ): Promise<void> {
 	context.resources.add(
 		"fff-settings",
@@ -114,20 +133,27 @@ async function startFffLifecycle(
 		"edit-settings",
 		registerHepiSettings(createEditSettingsProvider(), getHepiRuntimeSettingsRegistry(pi)),
 	);
+	context.resources.add(
+		"target-settings",
+		registerHepiSettings(targetProvider, getHepiRuntimeSettingsRegistry(pi)),
+	);
 	let settings: FffSettings;
 	let rtkSettings: RtkSettings;
+	let targetSettings: TargetSettings;
 	try {
 		const settingsContext = {
 			sessionId: context.extension.sessionManager.getSessionId(),
 			cwd: context.extension.cwd,
 		};
-		[settings, rtkSettings] = await Promise.all([
+		[settings, rtkSettings, targetSettings] = await Promise.all([
 			loadFffSettings(provider, bashProvider, settingsContext),
 			loadRtkSettings(rtkProvider, settingsContext),
+			loadTargetSettings(targetProvider, settingsContext),
 		]);
 	} catch (error) {
 		settings = DEFAULT_FFF_SETTINGS;
 		rtkSettings = DEFAULT_RTK_SETTINGS;
+		targetSettings = { sshWhitelist: [] };
 		context.extension.ui.notify(
 			`Unable to load extension settings: ${error instanceof Error ? error.message : String(error)}`,
 			"warning",
@@ -139,12 +165,25 @@ async function startFffLifecycle(
 	const runtime = new FffRuntime(context.extension.cwd);
 	state.runtime = runtime;
 	state.outputs = context.outputs;
+	const targetRuntime = await TargetRuntime.create(
+		{
+			outputs: context.outputs,
+			sessionManager: context.extension.sessionManager,
+			notify: (message, level) => context.extension.ui.notify(message, level),
+		},
+		targetSettings.sshWhitelist,
+	);
+	state.targets = targetRuntime;
 	const jobs = new BashJobRegistry({
 		outputs: context.outputs,
 		pi,
 		tailBytes: settings.bashOutputTailKiB * 1024,
 	});
 	state.jobs = jobs;
+	context.resources.add("targets", async () => {
+		await targetRuntime.close();
+		if (state.targets === targetRuntime) state.targets = undefined;
+	});
 	context.resources.add("bash-jobs", () => {
 		jobs.dispose();
 		if (state.jobs === jobs) state.jobs = undefined;

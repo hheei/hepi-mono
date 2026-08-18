@@ -234,6 +234,10 @@ FFF `find` 结果按首次命中顺序聚合目录。一个目录出现至少两
 
 grep renderer 在每个文件块内以最大行号宽度右对齐 `│` 前的数字。模型 compact output 首行是 `N matches in M files` 或 `N fuzzy matches in M files`；approximate match 仍用 `:`，不引入 `?`。TUI path 使用 `mdCode`，行号与 `│` 使用 `dim`，普通文本保持基础 theme，match range 使用 `success` highlight。未展开的整个结果（含 engine header 与 expansion hint）最多 15 行。
 
+## Target 路由
+
+`read`、`grep`、`find` 的 local、Output 与 SSH target contract、session-bound Output persistence、remote search boundary，以及 SSH whitelist settings 见 [Target 路由](targets.md)。该设计已确认并已实现第一版；真实 Pi ToolExecutionComponent smoke 仍待补。
+
 ## 验证与发布
 
 - 每个 catalog tool：upstream schema/execute compatibility、managed registration singleton、abort、streaming（如适用）

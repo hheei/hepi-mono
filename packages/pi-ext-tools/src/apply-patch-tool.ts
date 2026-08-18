@@ -28,6 +28,7 @@ import {
 	renderApplyPatchCall,
 	renderApplyPatchResult,
 } from "./apply-patch/renderer.js";
+import { rejectUnsupportedTarget } from "./targets.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 const OUTPUT_PREFIX = "output:" + "//";
@@ -294,6 +295,7 @@ export function createApplyPatchTool(): ToolDefinition<
 		renderResult: (result, options, theme) =>
 			renderApplyPatchResult(result, options.expanded, theme),
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
+			rejectUnsupportedTarget("apply_patch", params);
 			const startedAt = performance.now();
 			const { patch } = parseApplyPatchParameters(params);
 			if (modifiesOutputPath(patch)) throw new Error("apply_patch cannot modify output URLs");

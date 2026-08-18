@@ -15,6 +15,12 @@ import {
 	renderFindResult,
 } from "./search-renderer.js";
 import { FIND_TIMEOUT_RECOVERY, SEARCH_TIMEOUT_MS } from "./search-timeout.js";
+import {
+	isTargetError,
+	type RemoteFindCandidate,
+	type TargetOutcome,
+	type TargetRuntime,
+} from "./targets.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 const ARTIFACT_PREFIX = "output:" + "//";
@@ -34,10 +40,22 @@ const FIND_PARAMETER_DESCRIPTIONS = {
 	path: "Path constraint: directory prefix, filename, or glob, applied to the repo-relative path.",
 	limit: "Max results per page (default 30)",
 	cursor: "Pagination cursor from the previous result",
+	target: "Execution target: local or an authorized SSH host; output is unsupported",
 } as const;
 const NO_FIND_RESULTS = "No files found matching pattern";
 const cursorStore = new Map<string, { query: string; limit: number; pageIndex: number }>();
 let cursorSequence = 0;
+const remoteCursorStore = new Map<
+	string,
+	{
+		target: string;
+		query: string;
+		path: string | undefined;
+		candidates: readonly RemoteFindCandidate[];
+		limit: number;
+		pageIndex: number;
+	}
+>();
 
 type FindParams = {
 	readonly pattern: string;
@@ -45,6 +63,7 @@ type FindParams = {
 	readonly exclude?: string | string[];
 	readonly limit?: number;
 	readonly cursor?: string;
+	readonly target?: string;
 };
 
 const schema = Type.Object({
@@ -53,6 +72,7 @@ const schema = Type.Object({
 	exclude: Type.Optional(Type.Union([Type.String(), Type.Array(Type.String())])),
 	limit: Type.Optional(Type.Number({ description: FIND_PARAMETER_DESCRIPTIONS.limit })),
 	cursor: Type.Optional(Type.String({ description: FIND_PARAMETER_DESCRIPTIONS.cursor })),
+	target: Type.Optional(Type.String({ description: FIND_PARAMETER_DESCRIPTIONS.target })),
 });
 
 function nextCursor(query: string, limit: number, pageIndex: number): string {
@@ -63,6 +83,36 @@ function nextCursor(query: string, limit: number, pageIndex: number): string {
 		if (typeof oldest === "string") cursorStore.delete(oldest);
 	}
 	return cursor;
+}
+
+function nextRemoteCursor(
+	target: string,
+	query: string,
+	path: string | undefined,
+	candidates: readonly RemoteFindCandidate[],
+	limit: number,
+	pageIndex: number,
+): string {
+	const cursor = `find-remote:${++cursorSequence}`;
+	remoteCursorStore.set(cursor, { target, query, path, candidates, limit, pageIndex });
+	if (remoteCursorStore.size > 200) {
+		const oldest = remoteCursorStore.keys().next().value;
+		if (typeof oldest === "string") remoteCursorStore.delete(oldest);
+	}
+	return cursor;
+}
+
+function excluded(path: string, value: string | string[] | undefined): boolean {
+	const patterns = value === undefined ? [] : Array.isArray(value) ? value : [value];
+	return patterns.some((pattern) => {
+		let escaped = "";
+		for (const character of pattern) {
+			if ("\\.^$+()[]{}|".includes(character)) escaped += "\\";
+			escaped += character;
+		}
+		const expression = `^${escaped.replaceAll("*", ".*").replaceAll("?", ".")}$`;
+		return new RegExp(expression, "u").test(path);
+	});
 }
 
 function rejectWhenAborted(signal: AbortSignal): Promise<never> {
@@ -96,6 +146,53 @@ async function executeFind(
 	if (signal.aborted) throw new Error("Operation aborted");
 	if (params.path?.startsWith(ARTIFACT_PREFIX)) throw new Error("find cannot search output URLs");
 	const startedAt = performance.now();
+	if (params.target !== undefined && params.target !== "local") {
+		if (params.target === "output") throw new Error("find does not support target: output.");
+		const targetRuntime: TargetRuntime | undefined = state.getTargetRuntime();
+		if (targetRuntime === undefined) throw new Error("Target runtime is unavailable.");
+		const resumed = params.cursor === undefined ? undefined : remoteCursorStore.get(params.cursor);
+		if (params.cursor !== undefined && resumed === undefined)
+			throw new Error("Invalid or expired find cursor.");
+		if (resumed !== undefined && resumed.target !== params.target)
+			throw new Error("Find cursor belongs to another target.");
+		const limit = resumed?.limit ?? Math.max(1, params.limit ?? DEFAULT_LIMIT);
+		const candidates =
+			resumed?.candidates ??
+			(await targetRuntime.find(params.target, params.path, params.pattern, signal)).filter(
+				(candidate) => !excluded(candidate.path, params.exclude),
+			);
+		const pageIndex = resumed?.pageIndex ?? 0;
+		const page = candidates.slice(pageIndex * limit, (pageIndex + 1) * limit);
+		const details = {
+			format: "canonical-find" as const,
+			candidates: page.map((candidate) => ({
+				path: candidate.path,
+				matchType: candidate.matchType,
+			})),
+			totalMatched: candidates.length,
+			totalFiles: candidates.length,
+			durationMs: Math.round(performance.now() - startedAt),
+			target: params.target,
+			...(params.path === undefined ? {} : { path: params.path }),
+			outcome: "ok" as const,
+		} satisfies FindToolDetails;
+		const hasMore = (pageIndex + 1) * limit < candidates.length;
+		const cursorLine = hasMore
+			? `cursor: ${nextRemoteCursor(params.target, params.pattern, params.path, candidates, limit, pageIndex + 1)}`
+			: undefined;
+		return {
+			content: [
+				{
+					type: "text" as const,
+					text:
+						[formatFindModelOutput(details), cursorLine]
+							.filter((line): line is string => line !== undefined)
+							.join("\n") || NO_FIND_RESULTS,
+				},
+			],
+			details,
+		};
+	}
 	const native = async () => {
 		const result = await createFindToolDefinition(context.cwd).execute(
 			id,
@@ -192,10 +289,31 @@ export function registerFindTool(
 			try {
 				return await executeFind(id, params, combined, onUpdate, context, state);
 			} catch (error) {
-				if (timeout.aborted && signal?.aborted !== true)
+				const outcome: TargetOutcome | undefined =
+					timeout.aborted && signal?.aborted !== true
+						? "timeout"
+						: isTargetError(error)
+							? error.outcome
+							: undefined;
+				if (outcome !== undefined)
 					return {
-						content: [{ type: "text" as const, text: FIND_TIMEOUT_RECOVERY }],
-						details: { timedOut: true },
+						content: [
+							{
+								type: "text" as const,
+								text:
+									outcome === "timeout"
+										? FIND_TIMEOUT_RECOVERY
+										: error instanceof Error
+											? error.message
+											: String(error),
+							},
+						],
+						details: {
+							outcome,
+							...(params.target === undefined ? {} : { target: params.target }),
+							...(params.path === undefined ? {} : { path: params.path }),
+							...(outcome === "timeout" ? { timedOut: true } : {}),
+						},
 					};
 				throw error;
 			}

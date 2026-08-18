@@ -37,6 +37,8 @@ function cloneState(state: HepiSettingsState): HepiSettingsState {
 }
 
 function isValidStoredValue(field: HepiSettingField, value: unknown): value is HepiSettingValue {
+	if (field.type === "list")
+		return Array.isArray(value) && value.every((item) => typeof item === "string");
 	if (value === null || typeof value !== typeof field.defaultValue) return false;
 	if (typeof value === "number" && !Number.isFinite(value)) return false;
 	return (
@@ -176,7 +178,9 @@ function formattedValue(
 			: (state[row.groupId]?.[related.fieldId] ?? related.defaultValue);
 	const formatter = surface === "display" ? row.field.formatDisplay : row.field.formatDescription;
 	if (formatter !== undefined) return formatter(value as never, relatedValue as never);
-	const base = row.field.format?.(value as never) ?? (value === null ? "" : String(value));
+	const base =
+		row.field.format?.(value as never) ??
+		(value === null ? "" : Array.isArray(value) ? value.join(", ") : String(value));
 	if (related === undefined) return base;
 	const label = related.options.find((option) => Object.is(option.value, relatedValue))?.label;
 	return `${base}${related.separator ?? " · "}${label ?? String(relatedValue)}`;
@@ -235,6 +239,10 @@ export async function createSettingsPage(
 	let selectedId: string | undefined;
 	let scrollTop = 0;
 	let editor: Input | undefined;
+	let listDraft: string[] | undefined;
+	let listIndex = 0;
+	let listItemEditor: Input | undefined;
+	let listItemIndex: number | undefined;
 	let editing: FieldRow | undefined;
 	let relatedDraft: HepiSettingValue | undefined;
 	let error: string | undefined;
@@ -411,18 +419,76 @@ export async function createSettingsPage(
 			row.field.tabCycle === undefined
 				? undefined
 				: (draft[row.groupId]?.[row.field.tabCycle.fieldId] ?? row.field.tabCycle.defaultValue);
-		editor = new Input();
-		editor.setValue(String(valueFor(row, draft) ?? ""));
-		editor.handleInput("\x1b[F");
+		if (row.field.type === "list") {
+			listDraft = [...(valueFor(row, draft) as readonly string[])];
+			listIndex = 0;
+			listItemEditor = undefined;
+			listItemIndex = undefined;
+		} else {
+			editor = new Input();
+			editor.setValue(String(valueFor(row, draft) ?? ""));
+			editor.handleInput("\x1b[F");
+		}
 		error = undefined;
 		requestRender();
 	};
 	const cancelEdit = (): void => {
 		editor = undefined;
+		listItemEditor = undefined;
+		listItemIndex = undefined;
+		listDraft = undefined;
 		editing = undefined;
 		relatedDraft = undefined;
 		error = undefined;
 		requestRender();
+	};
+	const startListItemEdit = (index: number): void => {
+		if (listDraft === undefined) return;
+		listIndex = Math.max(0, Math.min(index, listDraft.length));
+		listItemIndex = listIndex;
+		listItemEditor = new Input();
+		listItemEditor.setValue(listDraft[listIndex] ?? "");
+		listItemEditor.handleInput("\x1b[F");
+		error = undefined;
+		requestRender();
+	};
+	const commitListItem = (): void => {
+		if (listDraft === undefined || listItemEditor === undefined || listItemIndex === undefined)
+			return;
+		const value = listItemEditor.getValue().trim();
+		if (value.length === 0) {
+			error = "List items cannot be empty";
+			requestRender();
+			return;
+		}
+		if (listDraft.some((item, index) => index !== listItemIndex && item === value)) {
+			error = "List items must be unique";
+			requestRender();
+			return;
+		}
+		const next = [...listDraft];
+		next[listItemIndex] = value;
+		listDraft = next;
+		listIndex = listItemIndex;
+		listItemEditor = undefined;
+		listItemIndex = undefined;
+		error = undefined;
+		requestRender();
+	};
+	const commitList = async (): Promise<void> => {
+		const row = editing;
+		if (row === undefined || row.field.type !== "list" || listDraft === undefined) return;
+		try {
+			const validation = row.field.validate?.(listDraft as never);
+			if (validation !== undefined) throw new Error(validation);
+			const next = updateValue(draft, row, listDraft);
+			await provider.storage.validate?.(cloneState(next), hepiContext);
+			draft = next;
+			cancelEdit();
+		} catch (cause: unknown) {
+			error = readableError(cause);
+			requestRender();
+		}
 	};
 	const cycleEditor = (direction: number): void => {
 		if (editing?.field.type !== "enum" || editor === undefined) return;
@@ -444,6 +510,11 @@ export async function createSettingsPage(
 		requestRender();
 	};
 	const commitEdit = async (): Promise<void> => {
+		if (editing?.field.type === "list") {
+			if (listItemEditor !== undefined) commitListItem();
+			else await commitList();
+			return;
+		}
 		const row = editing;
 		if (row === undefined || editor === undefined) return;
 		try {
@@ -466,9 +537,26 @@ export async function createSettingsPage(
 			requestRender();
 		}
 	};
-	const renderEditor = (width: number): string => {
-		const rendered = editor?.render(width)[0] ?? "";
+	const renderListEditor = (width: number): readonly string[] => {
+		const values = listDraft ?? [];
+		const rows = values.map((value, index) => {
+			const marker = index === listIndex ? "→" : " ";
+			const text =
+				listItemIndex === index && listItemEditor !== undefined
+					? renderInput(listItemEditor, width - 4)
+					: value;
+			return truncateToWidth(`${marker} ${text}`, width);
+		});
+		if (values.length === 0) rows.push(theme.fg("muted", "(empty)"));
+		rows.push(theme.fg("dim", "Enter edit/add · a add · d delete · Ctrl+↑/↓ reorder"));
+		return rows;
+	};
+	const renderInput = (input: Input, width: number): string => {
+		const rendered = input.render(Math.max(1, width))[0] ?? "";
 		return rendered.startsWith("> ") ? rendered.slice(2) : rendered;
+	};
+	const renderEditor = (width: number): string => {
+		return editor === undefined ? "" : renderInput(editor, width);
 	};
 
 	return {
@@ -538,19 +626,38 @@ export async function createSettingsPage(
 					selected?.kind === "panel"
 						? [...selected.panel.render(detailWidth)]
 						: selected?.kind === "field"
-							? [
-									theme.bold(truncateToWidth(selected.row.field.label, detailWidth)),
-									"",
-									...wrap(selected.row.field.description, detailWidth),
-									"",
-									theme.fg("muted", `Origin: ${provider.origin ?? provider.id}`),
-									"",
-									theme.fg(
-										"text",
-										`Value: ${editing?.groupId === selected.row.groupId && editing.field.id === selected.row.field.id ? renderEditor(Math.max(0, detailWidth - 7)) : truncateToWidth(formattedValue(selected.row, draft, "description"), Math.max(0, detailWidth - 7))}`,
-									),
-									...(error === undefined ? [] : [theme.fg("error", `Error: ${error}`)]),
-								]
+							? selected.row.field.type === "list"
+								? [
+										theme.bold(truncateToWidth(selected.row.field.label, detailWidth)),
+										"",
+										...wrap(selected.row.field.description, detailWidth),
+										"",
+										theme.fg("muted", `Origin: ${provider.origin ?? provider.id}`),
+										"",
+										...(editing?.groupId === selected.row.groupId &&
+										editing.field.id === selected.row.field.id
+											? renderListEditor(detailWidth)
+											: [
+													truncateToWidth(
+														formattedValue(selected.row, draft, "description"),
+														detailWidth,
+													),
+												]),
+										...(error === undefined ? [] : [theme.fg("error", `Error: ${error}`)]),
+									]
+								: [
+										theme.bold(truncateToWidth(selected.row.field.label, detailWidth)),
+										"",
+										...wrap(selected.row.field.description, detailWidth),
+										"",
+										theme.fg("muted", `Origin: ${provider.origin ?? provider.id}`),
+										"",
+										theme.fg(
+											"text",
+											`Value: ${editing?.groupId === selected.row.groupId && editing.field.id === selected.row.field.id ? renderEditor(Math.max(0, detailWidth - 7)) : truncateToWidth(formattedValue(selected.row, draft, "description"), Math.max(0, detailWidth - 7))}`,
+										),
+										...(error === undefined ? [] : [theme.fg("error", `Error: ${error}`)]),
+									]
 							: [
 									theme.fg(
 										"muted",
@@ -573,6 +680,58 @@ export async function createSettingsPage(
 			},
 		},
 		async handleInput(input: string): Promise<boolean> {
+			if (editing?.field.type === "list") {
+				if (listItemEditor !== undefined) {
+					if (matchesKey(input, Key.escape)) {
+						listItemEditor = undefined;
+						listItemIndex = undefined;
+						error = undefined;
+						requestRender();
+					} else if (matchesKey(input, Key.enter)) commitListItem();
+					else {
+						listItemEditor.handleInput(input);
+						requestRender();
+					}
+					return true;
+				}
+				if (matchesKey(input, Key.escape)) cancelEdit();
+				else if (matchesKey(input, Key.up)) {
+					listIndex = Math.max(0, listIndex - 1);
+					requestRender();
+				} else if (matchesKey(input, Key.down)) {
+					listIndex = Math.min((listDraft?.length ?? 1) - 1, listIndex + 1);
+					requestRender();
+				} else if (matchesKey(input, Key.enter)) startListItemEdit(listIndex);
+				else if (input === "a") startListItemEdit(listDraft?.length ?? 0);
+				else if (input === "d" && listDraft !== undefined && listDraft.length > 0) {
+					listDraft = listDraft.filter((_item, index) => index !== listIndex);
+					listIndex = Math.max(0, Math.min(listIndex, listDraft.length - 1));
+					requestRender();
+				} else if (input === "\x1b[1;5A" && listDraft !== undefined && listIndex > 0) {
+					const next = [...listDraft];
+					const previous = next[listIndex - 1];
+					const current = next[listIndex];
+					if (previous === undefined || current === undefined) return true;
+					[next[listIndex - 1], next[listIndex]] = [current, previous];
+					listDraft = next;
+					listIndex -= 1;
+					requestRender();
+				} else if (
+					input === "\x1b[1;5B" &&
+					listDraft !== undefined &&
+					listIndex + 1 < listDraft.length
+				) {
+					const next = [...listDraft];
+					const current = next[listIndex];
+					const following = next[listIndex + 1];
+					if (current === undefined || following === undefined) return true;
+					[next[listIndex], next[listIndex + 1]] = [following, current];
+					listDraft = next;
+					listIndex += 1;
+					requestRender();
+				}
+				return true;
+			}
 			if (editing !== undefined && editor !== undefined) {
 				if (matchesKey(input, Key.escape)) cancelEdit();
 				else if (matchesKey(input, Key.enter)) await commitEdit();

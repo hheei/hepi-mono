@@ -115,6 +115,7 @@ Rules:
 - Descriptions, providers, scroll metadata, and ordinary empty states use `muted` or `dim`.
 - Current/confirmed values MAY use `success` with `✓`.
 - Forms use aligned label/value rows; informational rows are not focusable and disabled values use `dim`.
+- List-valued settings open a nested editor with one focus list. The editor exposes existing items and an add action, keeps selection geometry stable while add/edit/remove/reorder changes occur, and handles `Esc` before its parent form.
 - Prefer compact in-place editing/cycling; use Pi native input/editor for free-form values.
 - Forms SHOULD keep their geometry stable while editing.
 - Long labels MAY marquee only while selected and non-editing.

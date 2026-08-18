@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { resolve } from "node:path";
+import { relative, resolve, sep } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createToolTui, registerManagedLoadoutTool, type ToolTui } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
@@ -8,6 +8,7 @@ import type { GrepMatch } from "./fff/fff.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import { grepCollapsedFooter, renderGrepResult } from "./search-renderer.js";
 import { GREP_TIMEOUT_RECOVERY, SEARCH_TIMEOUT_MS } from "./search-timeout.js";
+import { isTargetError, remoteShellQuote, type TargetOutcome } from "./targets.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 const OUTPUT_PREFIX = "output://";
@@ -32,6 +33,7 @@ const GREP_PARAMETER_DESCRIPTIONS = {
 	literal: "Treat pattern as literal string instead of regex (default: false)",
 	context: "Number of lines to show before and after each match (default: 0)",
 	limit: "Maximum number of matches to return (default: 100)",
+	target: "Execution target: local, output, or an authorized SSH host",
 } as const;
 
 const schema = Type.Object({
@@ -42,6 +44,7 @@ const schema = Type.Object({
 	literal: Type.Optional(Type.Boolean({ description: GREP_PARAMETER_DESCRIPTIONS.literal })),
 	context: Type.Optional(Type.Number({ description: GREP_PARAMETER_DESCRIPTIONS.context })),
 	limit: Type.Optional(Type.Number({ description: GREP_PARAMETER_DESCRIPTIONS.limit })),
+	target: Type.Optional(Type.String({ description: GREP_PARAMETER_DESCRIPTIONS.target })),
 });
 
 type GrepParams = {
@@ -52,6 +55,7 @@ type GrepParams = {
 	readonly literal?: boolean;
 	readonly context?: number;
 	readonly limit?: number;
+	readonly target?: string;
 };
 
 export type GrepSubmatch = {
@@ -122,6 +126,10 @@ export type GrepToolDetails = {
 	readonly recovery: { readonly output: string };
 	readonly fff?: { readonly itemCount: number };
 	readonly timedOut?: boolean;
+	readonly target?: string;
+	readonly path?: string;
+	readonly outcome?: TargetOutcome;
+	readonly persistent?: boolean;
 };
 
 type CanonicalResult = {
@@ -325,6 +333,20 @@ function compactPath(path: string): string {
 	return `…/${tail}`;
 }
 
+function pathRelativeToSearch(
+	eventPath: string,
+	searchPath: string | undefined,
+	cwd: string,
+): string {
+	if (eventPath.startsWith(OUTPUT_PREFIX) || eventPath.startsWith(ARTIFACT_PREFIX))
+		return eventPath === (searchPath ?? eventPath) ? "" : eventPath;
+	const from = resolve(cwd, searchPath?.trim() ? searchPath.trim() : ".");
+	const rel = relative(from, resolve(cwd, eventPath)).split(sep).join("/");
+	if (rel === "" || rel === ".") return "";
+	if (rel === ".." || rel.startsWith("../")) return eventPath.replaceAll("\\", "/");
+	return rel;
+}
+
 function displayEvent(event: GrepEvent): GrepDisplayLine {
 	const bytes = Buffer.byteLength(event.lines, "utf8");
 	if (event.type === "context")
@@ -369,6 +391,8 @@ function compactOutput(
 	full: FullOutput,
 	output: string,
 	context: number,
+	searchPath: string | undefined,
+	cwd: string,
 ): readonly GrepDisplayLine[] {
 	if (canonical.totalMatched === 0)
 		return canonical.timedOut ? [{ type: "text", text: GREP_TIMEOUT_RECOVERY }] : [];
@@ -406,7 +430,8 @@ function compactOutput(
 		const allowed = Math.min(MAX_MATCHES_PER_FILE, MAX_DISPLAY_MATCHES - shown);
 		const visibleMatches = matches.slice(0, allowed);
 		if (visibleMatches.length === 0) continue;
-		display.push({ type: "path", text: compactPath(path) });
+		const heading = compactPath(pathRelativeToSearch(path, searchPath, cwd));
+		if (heading !== "") display.push({ type: "path", text: heading });
 		const matchSet = new Set(visibleMatches);
 		const visibleLines = new Set(
 			visibleMatches.flatMap((match) =>
@@ -543,10 +568,39 @@ async function runRg(
 	};
 }
 
+async function runRemoteRg(
+	params: GrepParams,
+	target: string,
+	runtime: import("./targets.js").TargetRuntime,
+	signal: AbortSignal | undefined,
+): Promise<CanonicalResult> {
+	if (params.path !== undefined) runtime.validateRemotePath(params.path);
+	const context = normalizedContext(params.context);
+	const args = ["rg", "--json", "--line-number", "--color=never", "--hidden"];
+	if (params.ignoreCase) args.push("--ignore-case");
+	if (params.literal) args.push("--fixed-strings");
+	if (params.glob) args.push("--glob", remoteShellQuote(params.glob));
+	if (context > 0) args.push("--context", String(context));
+	args.push("--", remoteShellQuote(params.pattern), remoteShellQuote(params.path ?? "."));
+	const stdout = await runtime.grep(target, args.join(" "), signal);
+	const fallbackPath = params.path ?? ".";
+	const events = stdout
+		.split("\n")
+		.filter(Boolean)
+		.flatMap((line) => {
+			try {
+				const event = rgEvent(JSON.parse(line) as unknown, fallbackPath);
+				return event === undefined ? [] : [event];
+			} catch {
+				return [];
+			}
+		});
+	return capEvents(rgOrder(events), normalizedLimit(params.limit), context);
+}
+
 async function useFff(params: GrepParams, cwd: string, state: FffRuntimeState): Promise<boolean> {
 	return (
 		state.getSettings().grepEnhancement &&
-		state.getRuntime() !== undefined &&
 		params.path === undefined &&
 		params.glob === undefined &&
 		params.ignoreCase !== true &&
@@ -576,85 +630,140 @@ export function registerGrepTool(
 		) {
 			params = normalizeGrepParams(params);
 			const startedAt = performance.now();
-			abortIfNeeded(signal);
-			if (params.path?.startsWith(ARTIFACT_PREFIX))
-				throw new Error("artifact:// URLs are no longer supported; use output:// URLs.");
-			const outputs = state.getOutputs();
-			const outputText =
-				params.path?.startsWith(OUTPUT_PREFIX) === true ? outputs?.read(params.path) : undefined;
-			if (params.path?.startsWith(OUTPUT_PREFIX) && outputText === undefined)
-				throw new Error("Unknown output URL or unavailable output registry.");
-			let engine: GrepToolDetails["engine"] = "rg";
-			let canonical: CanonicalResult;
-			let fff: GrepToolDetails["fff"] | undefined;
-			if (outputText === undefined && (await useFff(params, context.cwd, state))) {
-				const runtime = state.getRuntime();
-				if (runtime === undefined) throw new Error("FFF runtime became unavailable.");
-				const result = await runtime.grepSearch({
-					pattern: params.pattern,
-					mode: inferFffGrepMode(params.literal, params.pattern),
-					caseSensitive: true,
-					beforeContext: normalizedContext(params.context),
-					afterContext: normalizedContext(params.context),
-					limit: normalizedLimit(params.limit),
-					fuzzyFallbackOnly: true,
-					...(signal === undefined ? {} : { signal }),
-				});
-				abortIfNeeded(signal);
-				if (result.isOk() && result.value.regexFallbackError !== undefined) {
-					const error = new Error(`FFF regex error: ${result.value.regexFallbackError}`);
-					Object.assign(error, { regexFallbackError: result.value.regexFallbackError });
-					throw error;
-				}
-				if (result.isOk()) {
-					engine = "fff";
-					canonical = {
-						...capEvents(
-							fffEvents(result.value.items, result.value.approximate === "fuzzy"),
-							normalizedLimit(params.limit),
-							normalizedContext(params.context),
-						),
-						...(result.value.timedOut ? { timedOut: true } : {}),
-					};
-					fff = { itemCount: result.value.items.length };
-				} else canonical = await runRg(params, context.cwd, undefined, signal);
-			} else canonical = await runRg(params, context.cwd, outputText, signal);
-			abortIfNeeded(signal);
-			if (outputs === undefined) throw new Error("Output registry is unavailable.");
-			const full = fullOutput(canonical.events);
-			const recoveryOutput = outputs.create(full.text);
-			const display = compactOutput(
-				canonical,
-				full,
-				recoveryOutput,
-				normalizedContext(params.context),
-			);
-			const body = displayText(display);
-			const text =
-				canonical.timedOut === true && canonical.totalMatched > 0
-					? `${body}\n\n${GREP_TIMEOUT_RECOVERY}`
-					: body.length > 0
-						? body
-						: canonical.timedOut
-							? GREP_TIMEOUT_RECOVERY
-							: "No matches found";
-			return {
-				content: [{ type: "text" as const, text }],
+			const targetFields = {
+				...(params.target === undefined ? {} : { target: params.target }),
+				...(params.path === undefined ? {} : { path: params.path }),
+			};
+			const fail = (outcome: TargetOutcome, message: string) => ({
+				content: [{ type: "text" as const, text: message }],
 				details: {
 					format: "canonical-grep" as const,
-					engine,
-					events: canonical.events,
-					display,
-					totalMatched: canonical.totalMatched,
-					totalFiles: new Set(canonical.events.map((event) => event.path)).size,
-					totalLines: canonical.events.length,
+					engine: "rg" as const,
+					events: [],
+					display: [{ type: "text" as const, text: message }],
+					totalMatched: 0,
+					totalFiles: 0,
+					totalLines: 0,
 					durationMs: Math.round(performance.now() - startedAt),
-					cap: canonical.cap,
-					recovery: { output: recoveryOutput },
-					...(fff === undefined ? {} : { fff }),
-					...(canonical.timedOut ? { timedOut: true } : {}),
+					cap: { rows: 0, bytes: 0, maxRows: MAX_ROWS, maxBytes: MAX_BYTES, truncated: false },
+					recovery: { output: "" },
+					outcome,
+					...targetFields,
+					...(outcome === "timeout" ? { timedOut: true } : {}),
 				} satisfies GrepToolDetails,
-			};
+			});
+			try {
+				abortIfNeeded(signal);
+				if (params.path?.startsWith(ARTIFACT_PREFIX))
+					throw new Error("artifact:// URLs are no longer supported; use output:// URLs.");
+				const outputs = state.getOutputs();
+				const targetRuntime = state.getTargetRuntime();
+				let outputText: string | undefined;
+				let engine: GrepToolDetails["engine"] = "rg";
+				let canonical: CanonicalResult | undefined;
+				if (params.path?.startsWith(OUTPUT_PREFIX) === true) {
+					outputText = outputs?.read(params.path);
+				} else if (params.target !== undefined && params.target !== "local") {
+					if (targetRuntime === undefined) throw new Error("Target runtime is unavailable.");
+					if (params.target === "output") {
+						if (params.path === undefined || params.path === "")
+							throw new Error("target: output requires an output id in path.");
+						outputText = targetRuntime.readOutput(params.path);
+					} else canonical = await runRemoteRg(params, params.target, targetRuntime, signal);
+				}
+				if (params.path?.startsWith(OUTPUT_PREFIX) && outputText === undefined)
+					throw new Error("Unknown output URL or unavailable output registry.");
+
+				let fff: GrepToolDetails["fff"] | undefined;
+				if (canonical === undefined) {
+					if (outputText === undefined && (await useFff(params, context.cwd, state))) {
+						const runtime = state.getRuntime();
+						if (runtime === undefined) throw new Error("FFF runtime became unavailable.");
+						const result = await runtime.grepSearch({
+							pattern: params.pattern,
+							mode: inferFffGrepMode(params.literal, params.pattern),
+							caseSensitive: true,
+							beforeContext: normalizedContext(params.context),
+							afterContext: normalizedContext(params.context),
+							limit: normalizedLimit(params.limit),
+							fuzzyFallbackOnly: true,
+							...(signal === undefined ? {} : { signal }),
+						});
+						abortIfNeeded(signal);
+						if (result.isOk() && result.value.regexFallbackError !== undefined) {
+							const error = new Error(`FFF regex error: ${result.value.regexFallbackError}`);
+							Object.assign(error, { regexFallbackError: result.value.regexFallbackError });
+							throw error;
+						}
+						if (result.isOk()) {
+							engine = "fff";
+							canonical = {
+								...capEvents(
+									fffEvents(result.value.items, result.value.approximate === "fuzzy"),
+									normalizedLimit(params.limit),
+									normalizedContext(params.context),
+								),
+								...(result.value.timedOut ? { timedOut: true } : {}),
+							};
+							fff = { itemCount: result.value.items.length };
+						} else canonical = await runRg(params, context.cwd, undefined, signal);
+					} else if (canonical === undefined)
+						canonical = await runRg(params, context.cwd, outputText, signal);
+				}
+				if (canonical === undefined) throw new Error("Grep execution did not produce a result.");
+				if (outputs === undefined) throw new Error("Output registry is unavailable.");
+				const full = fullOutput(canonical.events);
+				const created =
+					targetRuntime === undefined ? undefined : targetRuntime.createOutput(full.text);
+				const recoveryOutput =
+					created === undefined ? outputs.create(full.text) : `target=output path=${created.id}`;
+				const display = compactOutput(
+					canonical,
+					full,
+					recoveryOutput,
+					normalizedContext(params.context),
+					params.path,
+					context.cwd,
+				);
+				const body = displayText(display);
+				const resultText =
+					canonical.timedOut === true && canonical.totalMatched > 0
+						? `${body}\n\n${GREP_TIMEOUT_RECOVERY}`
+						: body.length > 0
+							? body
+							: canonical.timedOut
+								? GREP_TIMEOUT_RECOVERY
+								: "No matches found";
+				const outcome =
+					canonical.timedOut === true
+						? "timeout"
+						: created?.persistent === false
+							? "non_persistent"
+							: "ok";
+				return {
+					content: [{ type: "text" as const, text: resultText }],
+					details: {
+						format: "canonical-grep" as const,
+						engine,
+						events: canonical.events,
+						display,
+						totalMatched: canonical.totalMatched,
+						totalFiles: new Set(canonical.events.map((event) => event.path)).size,
+						totalLines: canonical.events.length,
+						durationMs: Math.round(performance.now() - startedAt),
+						cap: canonical.cap,
+						recovery: { output: recoveryOutput },
+						outcome,
+						...targetFields,
+						...(created === undefined ? {} : { persistent: created.persistent }),
+						...(fff === undefined ? {} : { fff }),
+						...(canonical.timedOut ? { timedOut: true } : {}),
+					} satisfies GrepToolDetails,
+				};
+			} catch (error) {
+				if (isTargetError(error)) return fail(error.outcome, error.message);
+				throw error;
+			}
 		},
 	};
 	registerManagedLoadoutTool(

@@ -87,6 +87,11 @@ function argsRecord(value: unknown): Readonly<Record<string, unknown>> {
 		: {};
 }
 
+function targetSuffix(values: Record<string, unknown>): string {
+	const target = textValue(values.target);
+	return target === undefined || target === "local" ? "" : ` @${target}`;
+}
+
 function summaryFor(tool: string, args: unknown): string {
 	const values = argsRecord(args);
 	const path = textValue(values.path) ?? textValue(values.file_path);
@@ -94,11 +99,12 @@ function summaryFor(tool: string, args: unknown): string {
 	const command = textValue(values.command);
 	const action = textValue(values.action);
 	const id = textValue(values.id);
+	const location = path === undefined ? undefined : `${path}${targetSuffix(values)}`;
 
 	if (tool === "grep" && pattern !== undefined)
-		return path === undefined ? `/${pattern}/` : `/${pattern}/ in ${path}`;
+		return location === undefined ? `/${pattern}/` : `/${pattern}/ in ${location}`;
 	if (tool === "find" && pattern !== undefined)
-		return path === undefined ? pattern : `${pattern} in ${path}`;
+		return location === undefined ? pattern : `${pattern} in ${location}`;
 	if (command !== undefined) return command.split("\n")[0] ?? command;
 	if (path !== undefined) return path;
 	if (action !== undefined && id !== undefined) return `${action} ${id}`;
@@ -145,19 +151,21 @@ function headerFor(
 					? ""
 					: `:${offset}`
 				: `:${offset ?? 1}-${(offset ?? 1) + limit - 1}`;
+		const location = `${path}${targetSuffix(values)}`;
 		return {
-			primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${collapsed ? theme.fg("dim", path) : path}${theme.fg(collapsed ? "dim" : "warning", range)}`,
+			primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${collapsed ? theme.fg("dim", location) : location}${theme.fg(collapsed ? "dim" : "warning", range)}`,
 		};
 	}
 	if ((tool.name === "grep" || tool.name === "find") && pattern !== undefined) {
+		const located = path === undefined ? undefined : `${path}${targetSuffix(values)}`;
 		if (collapsed)
 			return {
-				primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${theme.fg("dim", `/${pattern}/${path === undefined ? "" : ` in ${path}`}`)}`,
+				primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${theme.fg("dim", `/${pattern}/${located === undefined ? "" : ` in ${located}`}`)}`,
 			};
 		const summary = [
 			theme.fg("toolTitle", theme.bold(tool.label)),
 			theme.fg("mdCode", `/${pattern}/`),
-			...(path === undefined ? [] : ["in", theme.fg("dim", path)]),
+			...(located === undefined ? [] : ["in", theme.fg("dim", located)]),
 		].join(" ");
 		return { primary: `${status} ${summary}` };
 	}

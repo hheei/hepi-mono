@@ -8,7 +8,7 @@ import {
 import { runtimeIdentity } from "./runtime-identity.js";
 
 export type HepiSettingPrimitive = boolean | number | string;
-export type HepiSettingValue = HepiSettingPrimitive | null;
+export type HepiSettingValue = HepiSettingPrimitive | readonly string[] | null;
 export type HepiSettingsState = Record<string, Record<string, HepiSettingValue>>;
 
 export interface HepiContext {
@@ -19,7 +19,7 @@ export interface HepiContext {
 	readonly [key: string]: unknown;
 }
 
-export type HepiSettingType = "boolean" | "enum" | "text" | "number" | "path";
+export type HepiSettingType = "boolean" | "enum" | "text" | "number" | "path" | "list";
 
 export interface HepiSettingOption<T extends HepiSettingPrimitive = HepiSettingPrimitive> {
 	readonly value: T;
@@ -36,13 +36,13 @@ export interface HepiSettingTabCycle {
 	readonly separator?: string;
 }
 
-export interface HepiSettingField<T extends HepiSettingPrimitive = HepiSettingPrimitive> {
+export interface HepiSettingField<T extends HepiSettingValue = HepiSettingValue> {
 	readonly id: string;
 	readonly label: string;
 	readonly type: HepiSettingType;
 	readonly defaultValue: T;
 	readonly description: string;
-	readonly options?: readonly HepiSettingOption<T>[];
+	readonly options?: readonly HepiSettingOption[];
 	readonly tabCycle?: HepiSettingTabCycle;
 	format?(value: T): string;
 	formatDisplay?(value: T, relatedValue?: HepiSettingPrimitive): string;
@@ -225,7 +225,8 @@ function isSettingValue(value: unknown): value is HepiSettingValue {
 		value === null ||
 		typeof value === "boolean" ||
 		typeof value === "number" ||
-		typeof value === "string"
+		typeof value === "string" ||
+		(Array.isArray(value) && value.every((item) => typeof item === "string"))
 	);
 }
 
