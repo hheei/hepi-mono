@@ -24,6 +24,7 @@ import {
 } from "./pretty/diff-render.js";
 import { lang } from "./pretty/lang.js";
 import { LinesBody } from "./pretty/lines-body.js";
+import { rejectUnsupportedTarget } from "./targets.js";
 
 const EDIT_RENDER_DETAILS = "__piExtToolsEdit";
 const EDIT_VIEW_KEY = "__piExtToolsEditView";
@@ -307,6 +308,7 @@ export function registerEditTool(pi: ExtensionAPI, tui: ToolTui): void {
 	const tool: ToolDefinition<EditDefinition["parameters"], unknown, EditState> = {
 		...baseTool,
 		async execute(toolCallId, params: EditArgs, signal, onUpdate, context) {
+			rejectUnsupportedTarget("edit", params);
 			const path = filePath(params);
 			const resolved = resolvePath(context.cwd, path);
 			const before = path === "" ? "" : readTextIfSmall(resolved);

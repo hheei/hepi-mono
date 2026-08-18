@@ -98,6 +98,12 @@ API 不验证 section fields，也不决定某个 project override 是否可信�
 读取返回的 raw layers 并自行应用 policy；例如 project 不得选择 user-paid model 时，consumer 不能直接把
 `merged` 当作 active configuration。
 
+### Settings 值与 List Field
+
+`HepiSettingValue` 可表示 scalar primitive、`null` 或 `readonly string[]`。`list` 是明确的 string-list field type：storage 保留 JSON array，不以逗号或换行编码到 text field。它不预先泛化为 mixed-value container；numeric、boolean 或 enum collections 只有在出现独立 consumer 后才定义自己的 field type。
+
+core 只验证 settings transport 所需的 JSON value shape，并提供 provider schema 所需的 list type。具体 list 项语义、最大数量、authorization 与 live/reload policy 属于 concrete extension。`pi-settings` 作为 host 为 list 提供 nested multi-row editor；core 不拥有页面、keyboard policy 或 feature list content。
+
 ### Lifecycle
 
 extension 通过 stable key 注册 session-scoped feature。core 串行 start/shutdown，启动

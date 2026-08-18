@@ -6,6 +6,7 @@ import { isApplyPatchToolDetails } from "./apply-patch-tool.js";
 import { createFffRuntimeState, registerFffLifecycle } from "./fff/lifecycle.js";
 import { registerCommands } from "./fff/register-commands.js";
 import { type EditCatalog, readEditMode, resolveEditCatalog } from "./fff/settings.js";
+import { stripTargetPrompt, targetPromptBlock } from "./targets.js";
 import { activateEditCatalog, registerTools } from "./tools.js";
 
 /** Registers pi-ext-tools' static, canonical tool catalog. */
@@ -26,6 +27,11 @@ export default function piExtToolsExtension(pi: ExtensionAPI): void {
 				if (editCatalog === resolved) editCatalog = undefined;
 			});
 		},
+	});
+	pi.on("before_agent_start", (event) => {
+		const prompt = targetPromptBlock(state.getTargetRuntime());
+		if (prompt === undefined) return;
+		return { systemPrompt: `${stripTargetPrompt(event.systemPrompt).trimEnd()}\n\n${prompt}` };
 	});
 	pi.on("agent_start", (_event, ctx) => {
 		// Model streaming usually covers coordinator cold start before its first tool call.

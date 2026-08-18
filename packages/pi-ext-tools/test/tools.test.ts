@@ -461,8 +461,9 @@ describe("pi-ext-tools catalog", () => {
 			"literal",
 			"context",
 			"limit",
+			"target",
 		]);
-		expect(properties(find)).toEqual(["pattern", "path", "exclude", "limit", "cursor"]);
+		expect(properties(find)).toEqual(["pattern", "path", "exclude", "limit", "cursor", "target"]);
 	});
 
 	test("registers Built-in provenance for the selected mutator catalog", (): void => {

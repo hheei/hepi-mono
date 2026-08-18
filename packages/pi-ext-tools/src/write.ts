@@ -25,6 +25,7 @@ import {
 import { hlBlock } from "./pretty/highlight.js";
 import { lang } from "./pretty/lang.js";
 import { LinesBody } from "./pretty/lines-body.js";
+import { rejectUnsupportedTarget } from "./targets.js";
 
 const WRITE_RENDER_DETAILS = "__piExtToolsWrite";
 const WRITE_VIEW_KEY = "__piExtToolsWriteView";
@@ -242,6 +243,7 @@ export function registerWriteTool(pi: ExtensionAPI, tui: ToolTui): void {
 	const tool: ToolDefinition<WriteDefinition["parameters"], unknown, WriteState> = {
 		...baseTool,
 		async execute(toolCallId, params: WriteArgs, signal, onUpdate, context) {
+			rejectUnsupportedTarget("write", params);
 			const path = filePath(params);
 			const resolved = resolvePath(context.cwd, path);
 			const baseline = path === "" ? { exists: false } : readTextIfSmall(resolved);

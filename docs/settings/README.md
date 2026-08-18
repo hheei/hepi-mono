@@ -76,8 +76,7 @@ handoff 时，按 provider 顺序执行 `validate -> onChange -> storage.save`�
 使 callback 与保存可预测，但不同 provider 不构成可回滚 transaction。保存失败保留 draft、显示 error 并阻止离开，
 以便用户重试；不会套用 Loadout JSON delta 的 discard-and-warning 行为。
 
-`Space` toggle boolean；enum、text、number 和 path 使用原 Pi `Input` editor。`Tab` 只服务 field 的 `tabCycle`；
-它不会切换 router page。编辑时 `Esc` cancel editor，非编辑时首个 `Esc` clear filter，随后才 close。
+`Space` toggle boolean；enum、text、number 和 path 使用原 Pi `Input` editor。`list` 进入 nested multi-row editor：items 与 add action 共享一个 focus list，支持新增、编辑、移除与上下排序；`Esc` 先关闭该 editor，才回到 Settings page。list 的 value 是 string array，编辑和保存不以逗号分隔文本重编码。`Tab` 只服务 field 的 `tabCycle`；它不会切换 router page。编辑时 `Esc` cancel editor，非编辑时首个 `Esc` clear filter，随后才 close。
 
 ## 验证
 

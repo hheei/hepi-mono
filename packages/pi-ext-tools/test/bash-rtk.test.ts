@@ -39,6 +39,7 @@ function registerRtk(
 		getRtkSettings: () => ({ enabled, path }),
 		getBashJobs: () => undefined,
 		getOutputs: () => undefined,
+		getTargetRuntime: () => undefined,
 		consumeRtkRewriteWarning: () => {
 			if (warnings > 0) return false;
 			warnings++;

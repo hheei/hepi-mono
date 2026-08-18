@@ -8,6 +8,13 @@ Pi concrete extensions and ext-core use this language to keep tool contracts and
 Processed text produced by a tool and retained behind an opaque, read-only `output://` URI for the process lifetime. It is a resource for inspection, not a reusable search-result data model. In displayed text, `output://N:START-END` denotes inclusive, one-based Output lines. It is not an input URI: agents read it with base `output://N` plus native `offset` and `limit`.
 _Avoid_: Artifact, artifact URL
 
+**Target**:
+An explicit tool execution destination. Omitted or `local` means the current local filesystem; `output` means a read-only Output resource; an SSH Target means an authorized OpenSSH Host alias. An internal URL in `path` remains a legacy resource identifier and takes precedence over Target.
+
+**SSH Target**:
+A literal OpenSSH `Host` alias admitted by pi-ext-tools' user-controlled whitelist. It identifies an authorized remote destination, not an arbitrary hostname, credential, SSH option, or generic URL.
+_Avoid_: Remote URL, SSH command
+
 **Grep Result**:
 The canonical representation of content-search matches, based on ripgrep match data. FFF results add available indexed-search metadata without replacing the common match meaning.
 _Avoid_: FFF result, rg result

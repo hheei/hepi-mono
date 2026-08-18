@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -12,6 +12,7 @@ import { DEFAULT_RTK_SETTINGS } from "../../src/fff/settings.js";
 import { registerFindTool } from "../../src/find.js";
 import { registerGrepTool } from "../../src/grep.js";
 import { GREP_TIMEOUT_RECOVERY } from "../../src/search-timeout.js";
+import type { TargetRuntime } from "../../src/targets.js";
 
 function harness(): { readonly pi: ExtensionAPI; readonly tools: ToolDefinition[] } {
 	const tools: ToolDefinition[] = [];
@@ -94,6 +95,51 @@ describe("FFF tool registration", () => {
 		}
 	});
 
+	test("joins remote find pages with real newlines and records target details", async () => {
+		const host = harness();
+		const state = {
+			getRuntime: () => undefined,
+			getSettings: () => ({
+				shellPath: "sh",
+				bashOutputTailKiB: 10,
+				autocomplete: true,
+				grepEnhancement: false,
+				readEnhancement: false,
+				findEnhancement: false,
+				statusUI: true,
+			}),
+			getBashJobs: () => undefined,
+			getOutputs: () => undefined,
+			getRtkSettings: () => DEFAULT_RTK_SETTINGS,
+			getTargetRuntime: () =>
+				({
+					find: async () => [
+						{ path: "a.ts", matchType: "path", score: 2 },
+						{ path: "b.ts", matchType: "fuzzy", score: 1 },
+					],
+				}) as unknown as TargetRuntime,
+			consumeRtkRewriteWarning: () => false,
+		} satisfies FffRuntimeState;
+		registerFindTool(host.pi, state);
+		const find = host.tools[0];
+		if (find === undefined) throw new Error("find was not registered");
+		const result = await find.execute(
+			"find-remote-newlines",
+			{ pattern: "ts", target: "devbox" },
+			undefined,
+			undefined,
+			{ cwd: process.cwd() } as never,
+		);
+		const content = result.content[0];
+		if (content?.type !== "text") throw new Error("Expected find text result");
+		expect(content.text).toContain("a.ts");
+		expect(content.text).toContain("b.ts");
+		expect(content.text).not.toContain("\\n");
+		expect(content.text.split("\n").length).toBeGreaterThan(1);
+		expect((result.details as { target?: string; outcome?: string }).target).toBe("devbox");
+		expect((result.details as { outcome?: string }).outcome).toBe("ok");
+	});
+
 	test("uses FFF for unscoped non-glob find queries when enabled", async () => {
 		const host = harness();
 		const runtime = new FffRuntime(process.cwd(), {
@@ -129,6 +175,7 @@ describe("FFF tool registration", () => {
 			getBashJobs: () => undefined,
 			getOutputs: () => undefined,
 			getRtkSettings: () => DEFAULT_RTK_SETTINGS,
+			getTargetRuntime: () => undefined,
 			consumeRtkRewriteWarning: () => false,
 		} satisfies FffRuntimeState;
 		registerFindTool(host.pi, state);
@@ -180,6 +227,7 @@ describe("FFF tool registration", () => {
 			getBashJobs: () => undefined,
 			getOutputs: () => undefined,
 			getRtkSettings: () => DEFAULT_RTK_SETTINGS,
+			getTargetRuntime: () => undefined,
 			consumeRtkRewriteWarning: () => false,
 		} satisfies FffRuntimeState;
 		registerFindTool(host.pi, state);
@@ -235,6 +283,7 @@ describe("FFF tool registration", () => {
 			getBashJobs: () => undefined,
 			getOutputs: () => outputs,
 			getRtkSettings: () => DEFAULT_RTK_SETTINGS,
+			getTargetRuntime: () => undefined,
 			consumeRtkRewriteWarning: () => false,
 		} satisfies FffRuntimeState;
 		const host = harness();
@@ -281,6 +330,7 @@ describe("FFF tool registration", () => {
 				getBashJobs: () => undefined,
 				getOutputs: () => outputs,
 				getRtkSettings: () => DEFAULT_RTK_SETTINGS,
+				getTargetRuntime: () => undefined,
 				consumeRtkRewriteWarning: () => false,
 			} satisfies FffRuntimeState;
 			const host = harness();
@@ -297,7 +347,8 @@ describe("FFF tool registration", () => {
 			const content = result.content[0];
 			if (content?.type !== "text") throw new Error("Expected grep text result");
 			expect(content.text).toContain("1 matches in 1 files");
-			expect(content.text).toContain("./needle.ts");
+			expect(content.text).toContain("needle.ts");
+			expect(content.text).not.toContain(`${cwd}/`);
 			expect(content.text).toContain("1:const needle = true;");
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
@@ -321,6 +372,7 @@ describe("FFF tool registration", () => {
 			getBashJobs: () => undefined,
 			getOutputs: () => outputs,
 			getRtkSettings: () => DEFAULT_RTK_SETTINGS,
+			getTargetRuntime: () => undefined,
 			consumeRtkRewriteWarning: () => false,
 		} satisfies FffRuntimeState;
 		const grepHost = harness();
@@ -334,9 +386,7 @@ describe("FFF tool registration", () => {
 			undefined,
 			{ cwd: process.cwd() } as never,
 		);
-		expect(grepResult.content).toEqual([
-			{ type: "text", text: `1 matches in 1 files\n${path}\n2:Needle` },
-		]);
+		expect(grepResult.content).toEqual([{ type: "text", text: "1 matches in 1 files\n2:Needle" }]);
 
 		const longPath = outputs.create(`${"prefix ".repeat(20)}needle${" suffix".repeat(20)}`);
 		const longResult = await grep.execute(
@@ -374,6 +424,121 @@ describe("FFF tool registration", () => {
 		).rejects.toThrow("find cannot search output URLs");
 	});
 
+	test("writes new grep recoveries as target=output path ids", async () => {
+		const outputs = createOutputRegistry();
+		const created: string[] = [];
+		const state = {
+			getRuntime: () => undefined,
+			getSettings: () => ({
+				shellPath: "sh",
+				bashOutputTailKiB: 10,
+				autocomplete: true,
+				grepEnhancement: false,
+				readEnhancement: false,
+				findEnhancement: false,
+				statusUI: true,
+			}),
+			getBashJobs: () => undefined,
+			getOutputs: () => outputs,
+			getRtkSettings: () => DEFAULT_RTK_SETTINGS,
+			getTargetRuntime: () =>
+				({
+					createOutput: (text: string) => {
+						created.push(text);
+						return { id: "abc123", uri: "output://ignored", persistent: true };
+					},
+				}) as unknown as TargetRuntime,
+			consumeRtkRewriteWarning: () => false,
+		} satisfies FffRuntimeState;
+		const host = harness();
+		registerGrepTool(host.pi, state);
+		const grep = host.tools[0];
+		if (grep === undefined) throw new Error("grep was not registered");
+		const cwd = await mkdtemp(join(tmpdir(), "hepi-grep-recovery-"));
+		try {
+			await writeFile(join(cwd, "hit.ts"), "const needle = true;\n", "utf8");
+			const result = await grep.execute(
+				"grep-recovery",
+				{ pattern: "needle", path: "hit.ts" },
+				undefined,
+				undefined,
+				{ cwd } as never,
+			);
+			const details = result.details as {
+				readonly recovery: { readonly output: string };
+				readonly outcome?: string;
+				readonly persistent?: boolean;
+			};
+			expect(details.recovery.output).toBe("target=output path=abc123");
+			expect(details.outcome).toBe("ok");
+			expect(details.persistent).toBe(true);
+			expect(created.length).toBe(1);
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	test("shows grep hits relative to the search path and omits a single-file heading", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-grep-rel-"));
+		const outputs = createOutputRegistry();
+		try {
+			await mkdir(join(cwd, "src"));
+			await writeFile(join(cwd, "src/a.ts"), "needle\n");
+			await writeFile(join(cwd, "src/b.ts"), "needle\n");
+			const state = {
+				getRuntime: () => undefined,
+				getSettings: () => ({
+					shellPath: "sh",
+					bashOutputTailKiB: 10,
+					autocomplete: true,
+					grepEnhancement: true,
+					readEnhancement: true,
+					findEnhancement: true,
+					statusUI: true,
+				}),
+				getBashJobs: () => undefined,
+				getOutputs: () => outputs,
+				getRtkSettings: () => DEFAULT_RTK_SETTINGS,
+				getTargetRuntime: () => undefined,
+				consumeRtkRewriteWarning: () => false,
+			} satisfies FffRuntimeState;
+			const host = harness();
+			registerGrepTool(host.pi, state);
+			const grep = host.tools[0];
+			if (grep === undefined) throw new Error("grep was not registered");
+			const dirResult = await grep.execute(
+				"grep-dir",
+				{ pattern: "needle", path: join(cwd, "src") },
+				undefined,
+				undefined,
+				{ cwd } as never,
+			);
+			const dirText = dirResult.content[0];
+			if (dirText?.type !== "text") throw new Error("Expected grep text result");
+			expect(dirText.text).toContain("a.ts");
+			expect(dirText.text).toContain("b.ts");
+			expect(dirText.text).not.toContain(cwd);
+			const fileResult = await grep.execute(
+				"grep-file",
+				{ pattern: "needle", path: join(cwd, "src/a.ts") },
+				undefined,
+				undefined,
+				{ cwd } as never,
+			);
+			const fileDetails = fileResult.details as {
+				readonly display: readonly { readonly type: string; readonly text: string }[];
+			};
+			expect(fileDetails.display.some((line) => line.type === "path")).toBe(false);
+			const fileText = fileResult.content[0];
+			if (fileText?.type !== "text") throw new Error("Expected grep text result");
+			expect(fileText.text).toContain("1:needle");
+			expect(fileText.text).not.toContain("a.ts\n");
+		} finally {
+			outputs.dispose();
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
 	test("maps compact grep omissions to recoverable output lines", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-grep-"));
 		const outputs = createOutputRegistry();
@@ -393,6 +558,7 @@ describe("FFF tool registration", () => {
 				getBashJobs: () => undefined,
 				getOutputs: () => outputs,
 				getRtkSettings: () => DEFAULT_RTK_SETTINGS,
+				getTargetRuntime: () => undefined,
 				consumeRtkRewriteWarning: () => false,
 			} satisfies FffRuntimeState;
 			const host = harness();
@@ -448,6 +614,7 @@ describe("FFF tool registration", () => {
 			getBashJobs: () => undefined,
 			getOutputs: () => outputs,
 			getRtkSettings: () => DEFAULT_RTK_SETTINGS,
+			getTargetRuntime: () => undefined,
 			consumeRtkRewriteWarning: () => false,
 		} satisfies FffRuntimeState;
 		const host = harness();

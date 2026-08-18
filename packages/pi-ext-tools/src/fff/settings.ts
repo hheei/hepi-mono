@@ -14,6 +14,7 @@ const GROUP = "fff";
 const BASH_GROUP = "bash";
 const RTK_GROUP = "rtk";
 const EDIT_GROUP = "edit";
+const TARGET_GROUP = "targets";
 const FFF_SETTINGS_DESCRIPTIONS = {
 	provider: "Configure FFF runtime behavior. Tool activation remains owned by Loadout.",
 	shellPath: "Select system shell used by extension-owned asynchronous Bash jobs.",
@@ -78,6 +79,10 @@ export interface EditSettingsProviderOptions {
 	readonly path?: string;
 }
 
+export interface TargetSettingsProviderOptions {
+	readonly path?: string;
+}
+
 export interface FffSettings {
 	readonly shellPath: string;
 	/** KiB retained in each foreground or PTY Bash result before output spill. */
@@ -94,9 +99,17 @@ export interface RtkSettings {
 	readonly path: string;
 }
 
+export interface TargetSettings {
+	readonly sshWhitelist: readonly string[];
+}
+
 export const DEFAULT_RTK_SETTINGS: RtkSettings = {
 	enabled: false,
 	path: "",
+};
+
+export const DEFAULT_TARGET_SETTINGS: TargetSettings = {
+	sshWhitelist: [],
 };
 
 export const DEFAULT_FFF_SETTINGS: FffSettings = {
@@ -163,6 +176,29 @@ export function rtkSettingsFromState(state: HepiSettingsState | undefined): RtkS
 
 export function editModeFromState(state: HepiSettingsState | undefined): EditMode {
 	return editModeFromValue(state?.[EDIT_GROUP]?.mode);
+}
+
+export function targetSettingsFromState(state: HepiSettingsState | undefined): TargetSettings {
+	const value = state?.[TARGET_GROUP]?.sshWhitelist;
+	if (!Array.isArray(value)) return DEFAULT_TARGET_SETTINGS;
+	const aliases = value
+		.filter((item): item is string => typeof item === "string")
+		.map((item) => item.trim());
+	if (
+		aliases.length !== value.length ||
+		aliases.some((item) => item === "") ||
+		new Set(aliases).size !== aliases.length ||
+		aliases.length > 32
+	)
+		throw new Error("SSH target whitelist must be unique non-empty aliases (max 32)");
+	return { sshWhitelist: aliases };
+}
+
+export async function loadTargetSettings(
+	provider: HepiSettingsProvider,
+	context: HepiContext,
+): Promise<TargetSettings> {
+	return targetSettingsFromState(await provider.storage.load(context));
 }
 
 function editModeFromValue(value: unknown): EditMode {

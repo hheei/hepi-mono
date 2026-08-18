@@ -23,6 +23,7 @@ import { BashOutputSink } from "./bash-output.js";
 import { BashPtySurface, type BashPtySurfaceResult } from "./bash-pty-surface.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import { PtySession } from "./native-bridge.js";
+import { rejectUnsupportedTarget } from "./targets.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 const fallbackOutputs = createOutputRegistry();
@@ -385,6 +386,7 @@ export function registerBashTool(
 			onUpdate: AgentToolUpdateCallback<unknown> | undefined,
 			context: ExtensionContext,
 		) {
+			rejectUnsupportedTarget("bash", params);
 			if ("pty" in params && params.pty === true)
 				return runPty(
 					pi,

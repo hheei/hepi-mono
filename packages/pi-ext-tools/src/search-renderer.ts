@@ -19,6 +19,9 @@ export type FindToolDetails = {
 	readonly totalMatched: number;
 	readonly totalFiles: number;
 	readonly durationMs: number;
+	readonly target?: string;
+	readonly path?: string;
+	readonly outcome?: import("./targets.js").TargetOutcome;
 };
 
 type RenderContext = { readonly isError: boolean; readonly lastComponent: Component | undefined };

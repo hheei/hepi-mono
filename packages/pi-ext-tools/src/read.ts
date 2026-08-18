@@ -7,7 +7,9 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { type Component, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { createToolTui, registerManagedLoadoutTool, type ToolTui } from "@hheei/pi-ext-core";
+import { Type } from "typebox";
 import { createFffRuntimeState, type FffRuntimeState } from "./fff/lifecycle.js";
+import { isTargetError, type TargetOutcome } from "./targets.js";
 import { renderCodeGutter, renderDiffOmission } from "./pretty/diff-render.js";
 import { hlBlock } from "./pretty/highlight.js";
 import { lang } from "./pretty/lang.js";
@@ -22,6 +24,63 @@ const READ_CONTINUATION =
 	/\n\n\[(?:\d+ more lines in file|Showing lines \d+-\d+ of \d+(?: \([^\]]+\))?)\. Use offset=\d+ to continue\.\]$/;
 
 type ReadMetrics = { readonly characters: number; readonly lines: number };
+
+type ReadToolParams = {
+	readonly path: string;
+	readonly offset?: number;
+	readonly limit?: number;
+	readonly target?: string;
+};
+
+const readSchema = Type.Object({
+	path: Type.String(),
+	offset: Type.Optional(Type.Number()),
+	limit: Type.Optional(Type.Number()),
+	target: Type.Optional(
+		Type.String({ description: "Execution target: local, output, or an authorized SSH host" }),
+	),
+});
+
+function remoteReadDetails(
+	params: ReadToolParams,
+	outcome: TargetOutcome = "ok",
+): { readonly target?: string; readonly path: string; readonly outcome: TargetOutcome } {
+	return {
+		...(params.target === undefined ? {} : { target: params.target }),
+		path: params.path,
+		outcome,
+	};
+}
+
+function remoteReadResult(buffer: Buffer, params: ReadToolParams): AgentToolResult<unknown> {
+	const imageMime =
+		buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+			? "image/png"
+			: buffer.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))
+				? "image/jpeg"
+				: buffer.subarray(0, 6).toString("ascii") === "GIF89a" ||
+						buffer.subarray(0, 6).toString("ascii") === "GIF87a"
+					? "image/gif"
+					: buffer.subarray(0, 4).toString("ascii") === "RIFF" &&
+							buffer.subarray(8, 12).toString("ascii") === "WEBP"
+						? "image/webp"
+						: undefined;
+	if (imageMime !== undefined)
+		return {
+			content: [{ type: "image" as const, data: buffer.toString("base64"), mimeType: imageMime }],
+			details: remoteReadDetails(params),
+		};
+	const lines = buffer.toString("utf8").split("\n");
+	const start = Math.max(0, (params.offset ?? 1) - 1);
+	const visible =
+		params.limit === undefined
+			? lines.slice(start)
+			: lines.slice(start, start + Math.max(0, params.limit));
+	return {
+		content: [{ type: "text" as const, text: visible.join("\n") }],
+		details: remoteReadDetails(params),
+	};
+}
 
 type ReadPreviewContext = {
 	readonly isError: boolean;
@@ -228,6 +287,7 @@ export function registerReadTool(
 	} = template;
 	const tool: typeof template = {
 		...nativeTool,
+		parameters: readSchema as unknown as typeof template.parameters,
 		renderResult(result, options, theme, context) {
 			const displayResult = resultForDisplay(result);
 			return (
@@ -237,21 +297,43 @@ export function registerReadTool(
 			);
 		},
 		async execute(toolCallId, params, signal, onUpdate, context) {
+			const readParams = params as ReadToolParams;
 			const original = createReadToolDefinition(context.cwd);
 			const outputs = state.getOutputs();
-			if (outputs !== undefined && params.path.startsWith("output://"))
+			if (outputs !== undefined && readParams.path.startsWith("output://"))
 				return withReadMetrics({
 					content: [
 						{
 							type: "text" as const,
-							text: outputs.read(params.path, {
-								...(params.offset === undefined ? {} : { offset: params.offset }),
-								...(params.limit === undefined ? {} : { limit: params.limit }),
+							text: outputs.read(readParams.path, {
+								...(readParams.offset === undefined ? {} : { offset: readParams.offset }),
+								...(readParams.limit === undefined ? {} : { limit: readParams.limit }),
 							}),
 						},
 					],
 					details: undefined,
 				});
+			const targetRuntime = state.getTargetRuntime();
+			if (readParams.target !== undefined && readParams.target !== "local") {
+				if (targetRuntime === undefined) throw new Error("Target runtime is unavailable.");
+				try {
+					if (readParams.target === "output" && readParams.path.startsWith("output://"))
+						throw new Error(
+							"Use target: output with an output id, or omit target for legacy output:// URLs.",
+						);
+					const buffer = await targetRuntime.read(readParams.target, readParams.path, signal);
+					return withReadMetrics(remoteReadResult(buffer, readParams)) as Awaited<
+						ReturnType<typeof template.execute>
+					>;
+				} catch (error) {
+					if (isTargetError(error))
+						return withReadMetrics({
+							content: [{ type: "text" as const, text: error.message }],
+							details: remoteReadDetails(readParams, error.outcome),
+						}) as Awaited<ReturnType<typeof template.execute>>;
+					throw error;
+				}
+			}
 			if (!state.getSettings().readEnhancement)
 				return withReadMetrics(
 					await original.execute(toolCallId, params, signal, onUpdate, context),
