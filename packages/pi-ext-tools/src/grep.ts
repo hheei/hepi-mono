@@ -713,10 +713,16 @@ export function registerGrepTool(
 				if (canonical === undefined) throw new Error("Grep execution did not produce a result.");
 				if (outputs === undefined) throw new Error("Output registry is unavailable.");
 				const full = fullOutput(canonical.events);
-				const created =
-					targetRuntime === undefined ? undefined : targetRuntime.createOutput(full.text);
-				const recoveryOutput =
-					created === undefined ? outputs.create(full.text) : `target=output path=${created.id}`;
+				const created = targetRuntime?.createOutput(full.text);
+				let recoveryId = created?.id;
+				if (recoveryId === undefined) {
+					const fallback = outputs.create(full.text);
+					recoveryId = fallback.startsWith(OUTPUT_PREFIX)
+						? fallback.slice(OUTPUT_PREFIX.length)
+						: fallback;
+				}
+				const recoveryOutput = `target=output path=${recoveryId}`;
+
 				const display = compactOutput(
 					canonical,
 					full,

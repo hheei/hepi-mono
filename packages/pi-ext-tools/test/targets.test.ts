@@ -94,6 +94,38 @@ describe("pi-ext-tools target runtime", () => {
 		}
 	});
 
+	test("warns once when an output exceeds the persistence cap", async () => {
+		const directory = await temporaryDirectory();
+		const session = join(directory, "session.jsonl");
+		try {
+			await writeFile(session, "{}\n", "utf8");
+			const warnings: string[] = [];
+			const runtime = await TargetRuntime.create(
+				{
+					outputs: createOutputRegistry(),
+					home: directory,
+					sessionManager: {
+						getSessionId: () => "session-id",
+						getSessionFile: () => session,
+					},
+					notify: (message) => warnings.push(message),
+				},
+				[],
+			);
+			try {
+				const first = runtime.createOutput(`${"x".repeat(1024 * 1024 + 1)}`);
+				const second = runtime.createOutput(`${"y".repeat(1024 * 1024 + 1)}`);
+				expect(first.persistent).toBe(false);
+				expect(second.persistent).toBe(false);
+				expect(warnings).toHaveLength(1);
+			} finally {
+				await runtime.close();
+			}
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
+
 	test("rejects invalid SSH whitelist values at load", () => {
 		expect(() =>
 			targetSettingsFromState({
