@@ -9,6 +9,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
 import type { ToolTui } from "@hheei/pi-ext-core";
+import { counted } from "./counted.js";
 import {
 	createCanonicalExecutionTool,
 	createCanonicalToolRegistration,
@@ -16,12 +17,7 @@ import {
 } from "./native-tool.js";
 import { MAX_HL_CHARS, MAX_RENDER_LINES } from "./pretty/config.js";
 import { normalizeLineEndings, type ParsedDiff, parseDiff } from "./pretty/diff.js";
-import {
-	renderDiffSummary,
-	renderSplit,
-	resolveDiffColors,
-	summarize,
-} from "./pretty/diff-render.js";
+import { renderSplit, resolveDiffColors, summarize } from "./pretty/diff-render.js";
 import { hlBlock } from "./pretty/highlight.js";
 import { lang } from "./pretty/lang.js";
 import { LinesBody } from "./pretty/lines-body.js";
@@ -221,7 +217,14 @@ function renderWriteDiff(
 	theme: Theme,
 	width: number,
 ): string[] {
-	const text = renderSplit(diff, language, MAX_RENDER_LINES, resolveDiffColors(theme), width);
+	const text = renderSplit(
+		diff,
+		language,
+		MAX_RENDER_LINES,
+		resolveDiffColors(theme),
+		width,
+		false,
+	);
 	return text === "" ? [] : text.split("\n");
 }
 
@@ -304,11 +307,9 @@ export function registerWriteTool(pi: ExtensionAPI, tui: ToolTui): void {
 					options.expanded,
 				);
 			}
-			const heading = renderDiffSummary(view.summary, theme);
-			return new LinesBody((width) => [
-				heading,
-				...renderWriteDiff(parsedWriteDiff(view), view.language, theme, width),
-			]);
+			return new LinesBody((width) =>
+				renderWriteDiff(parsedWriteDiff(view), view.language, theme, width),
+			);
 		},
 	};
 	registerCanonicalTool(
@@ -319,10 +320,14 @@ export function registerWriteTool(pi: ExtensionAPI, tui: ToolTui): void {
 			maxBodyLines: Number.POSITIVE_INFINITY,
 			footer(result, completion) {
 				const metrics = readWriteMetrics(result);
+				const view = writeView(result);
 				const duration = durationText(completion?.durationMs);
+				const delta =
+					view?.kind === "diff" && view.summary !== "no changes" ? view.summary : undefined;
 				return [
-					metrics === undefined ? undefined : `${metrics.bytes} bytes`,
-					metrics === undefined ? undefined : `${metrics.lines} lines`,
+					metrics === undefined ? undefined : counted(metrics.bytes, "byte"),
+					delta !== undefined && delta !== "no changes" ? delta : undefined,
+					metrics === undefined ? undefined : counted(metrics.lines, "line"),
 					duration,
 				]
 					.filter((value): value is string => value !== undefined)

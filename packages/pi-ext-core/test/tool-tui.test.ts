@@ -145,18 +145,18 @@ describe("ToolTui", () => {
 		expect(callLines[0]).toContain(
 			"<warning>◐</warning> <toolTitle><b>read</b></toolTitle> src/a.ts",
 		);
-		expect(callLines[1]).toBe(`<success>${"─".repeat(200)}</success>`);
+		expect(callLines[1]).toBe(`<muted>${"─".repeat(200)}</muted>`);
 		expect(callLines[2]).toBe("call body");
-		expect(callLines[3]).toBe(`<success>${"─".repeat(200)}</success>`);
+		expect(callLines[3]).toBe(`<muted>${"─".repeat(200)}</muted>`);
 		expect(
 			renderResult(framed, {
 				content: [{ type: "text", text: "result body" }],
 				details: undefined,
 			}),
 		).toEqual([
-			`<success>${"─".repeat(80)}</success>`,
+			`<muted>${"─".repeat(80)}</muted>`,
 			"result body",
-			`<success>${"─".repeat(80)}</success>`,
+			`<muted>${"─".repeat(80)}</muted>`,
 			"<dim>1 line · 2ms</dim>",
 		]);
 	});
@@ -170,6 +170,65 @@ describe("ToolTui", () => {
 		const lines = call?.render(200).map((line) => line.trimEnd()) ?? [];
 		expect(lines[0]).toContain("<warning>◐</warning> <toolTitle><b>read</b></toolTitle> src/a.ts");
 		expect(lines).toContain("call body");
+	});
+
+	test("paints grep and find in-path together and dims both on later traces", (): void => {
+		const tui = createToolTui();
+		for (const name of ["grep", "find"] as const) {
+			const framed = tui.frame({ ...tool(), name, label: name });
+			tui.beginTrace();
+			const current =
+				framed
+					.renderCall?.({ pattern: "needle", path: "src" }, theme, context(true))
+					.render(200)
+					.join("\n") ?? "";
+			expect(current).toContain("in src");
+			expect(current).not.toContain("<text>in src</text>");
+			expect(current).not.toContain("<dim>in src</dim>");
+			tui.beginTrace();
+			const historical =
+				framed
+					.renderCall?.({ pattern: "needle", path: "src" }, theme, {
+						...(context(false) as object),
+						executionStarted: false,
+					} as never)
+					.render(200)
+					.join("\n") ?? "";
+			expect(historical).toContain("<dim>in src</dim>");
+			expect(historical).not.toContain("<text>in src</text>");
+		}
+	});
+
+	test("dims body text on later traces to match in-path", (): void => {
+		const tui = createToolTui();
+		const framed = tui.frame({
+			...tool(),
+			name: "bash",
+			label: "bash",
+			renderResult: (_result, _options, receivedTheme): Text =>
+				new Text(receivedTheme.fg("text", "stdout"), 0, 0),
+		});
+		tui.beginTrace();
+		const current = renderResult(framed, { content: [], details: undefined });
+		expect(current.join("\n")).toContain("stdout");
+		expect(current.join("\n")).not.toContain("<text>stdout</text>");
+		tui.beginTrace();
+		const historical =
+			framed
+				.renderResult?.(
+					{ content: [], details: undefined },
+					{ expanded: true, isPartial: false },
+					theme,
+					{
+						...(context(false) as object),
+						executionStarted: false,
+						expanded: true,
+					} as never,
+				)
+				.render(200)
+				.map((line) => line.trimEnd()) ?? [];
+		expect(historical.join("\n")).toContain("<dim>stdout</dim>");
+		expect(historical.join("\n")).not.toContain("<text>stdout</text>");
 	});
 
 	test("wraps current headers and truncates only collapsed headers", (): void => {
@@ -207,15 +266,15 @@ describe("ToolTui", () => {
 			return renderResult(framed, { content: [], details: undefined });
 		};
 		expect(body("body", "footer")).toEqual([
-			`<success>${"─".repeat(80)}</success>`,
+			`<muted>${"─".repeat(80)}</muted>`,
 			"body",
-			`<success>${"─".repeat(80)}</success>`,
+			`<muted>${"─".repeat(80)}</muted>`,
 			"<dim>footer</dim>",
 		]);
 		expect(body("body")).toEqual([
-			`<success>${"─".repeat(80)}</success>`,
+			`<muted>${"─".repeat(80)}</muted>`,
 			"body",
-			`<success>${"─".repeat(80)}</success>`,
+			`<muted>${"─".repeat(80)}</muted>`,
 		]);
 		expect(body("<empty>", "footer")).toEqual(["<dim>footer</dim>"]);
 		expect(body("<empty>")).toEqual([]);
@@ -398,7 +457,7 @@ describe("ToolTui", () => {
 		expect(expanded).toHaveLength(lines.length);
 	});
 
-	test("colors body rails from success or error", (): void => {
+	test("uses muted body rails regardless of status", (): void => {
 		const tui = createToolTui();
 		const ok = tui.frame({
 			...tool(),
@@ -412,15 +471,14 @@ describe("ToolTui", () => {
 			{ warning: () => true },
 		);
 		const result = { content: [], details: undefined };
-		const successRail = `<success>${"─".repeat(80)}</success>`;
-		const errorRail = `<error>${"─".repeat(80)}</error>`;
-		expect(renderResult(ok, result)[0]).toBe(successRail);
-		expect(renderResult(warned, result)[0]).toBe(errorRail);
+		const mutedRail = `<muted>${"─".repeat(80)}</muted>`;
+		expect(renderResult(ok, result)[0]).toBe(mutedRail);
+		expect(renderResult(warned, result)[0]).toBe(mutedRail);
 		const failed =
 			ok
 				.renderResult?.(result, { expanded: false, isPartial: false }, theme, context(false, true))
 				.render(80)
 				.map((line) => line.trimEnd()) ?? [];
-		expect(failed[0]).toBe(errorRail);
+		expect(failed[0]).toBe(mutedRail);
 	});
 });

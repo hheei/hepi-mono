@@ -5,14 +5,15 @@ import {
 	type Theme,
 	type ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
-import { type Component, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { type Component, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { createToolTui, registerManagedLoadoutTool, type ToolTui } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
+import { counted } from "./counted.js";
 import { createFffRuntimeState, type FffRuntimeState } from "./fff/lifecycle.js";
-import { isTargetError, type TargetOutcome } from "./targets.js";
 import { renderCodeGutter, renderDiffOmission } from "./pretty/diff-render.js";
 import { hlBlock } from "./pretty/highlight.js";
 import { lang } from "./pretty/lang.js";
+import { isTargetError, type TargetOutcome } from "./targets.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 const PREVIEW_HEAD_LINES = 10;
@@ -41,6 +42,14 @@ const readSchema = Type.Object({
 	),
 });
 
+type ReadPreviewContext = {
+	readonly isError: boolean;
+};
+
+type ReadPreviewLine =
+	| { readonly type: "text"; readonly sourceIndex: number; readonly text: string }
+	| { readonly type: "omission"; readonly hiddenLines: number };
+
 function remoteReadDetails(
 	params: ReadToolParams,
 	outcome: TargetOutcome = "ok",
@@ -53,18 +62,19 @@ function remoteReadDetails(
 }
 
 function remoteReadResult(buffer: Buffer, params: ReadToolParams): AgentToolResult<unknown> {
-	const imageMime =
-		buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
-			? "image/png"
-			: buffer.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))
-				? "image/jpeg"
-				: buffer.subarray(0, 6).toString("ascii") === "GIF89a" ||
-						buffer.subarray(0, 6).toString("ascii") === "GIF87a"
-					? "image/gif"
-					: buffer.subarray(0, 4).toString("ascii") === "RIFF" &&
-							buffer.subarray(8, 12).toString("ascii") === "WEBP"
-						? "image/webp"
-						: undefined;
+	const imageMime = buffer
+		.subarray(0, 8)
+		.equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+		? "image/png"
+		: buffer.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))
+			? "image/jpeg"
+			: buffer.subarray(0, 6).toString("ascii") === "GIF89a" ||
+					buffer.subarray(0, 6).toString("ascii") === "GIF87a"
+				? "image/gif"
+				: buffer.subarray(0, 4).toString("ascii") === "RIFF" &&
+						buffer.subarray(8, 12).toString("ascii") === "WEBP"
+					? "image/webp"
+					: undefined;
 	if (imageMime !== undefined)
 		return {
 			content: [{ type: "image" as const, data: buffer.toString("base64"), mimeType: imageMime }],
@@ -81,15 +91,6 @@ function remoteReadResult(buffer: Buffer, params: ReadToolParams): AgentToolResu
 		details: remoteReadDetails(params),
 	};
 }
-
-type ReadPreviewContext = {
-	readonly isError: boolean;
-};
-
-type ReadPreviewLine =
-	| { readonly type: "text"; readonly sourceIndex: number; readonly text: string }
-	| { readonly type: "omission"; readonly hiddenLines: number };
-
 function textResult(result: AgentToolResult<unknown>): string | undefined {
 	if (result.content.some((part) => part.type === "image")) return undefined;
 	const text = result.content
@@ -144,7 +145,7 @@ function readCollapsedFooter(
 	const metrics = readMetrics(result);
 	return metrics === undefined
 		? undefined
-		: `${metrics.characters} chars · ${metrics.lines} lines · ${durationText(completion?.durationMs)}`;
+		: `${counted(metrics.characters, "char")} · ${counted(metrics.lines, "line")} · ${durationText(completion?.durationMs)}`;
 }
 
 function displayLines(text: string): readonly string[] {
@@ -223,33 +224,38 @@ function sourceLineNumbers(
 }
 
 class ReadPreviewComponent implements Component {
+	private readonly lineNumberWidth: number;
+	private cached: { readonly width: number; readonly rows: string[] } | undefined;
+
 	constructor(
 		private readonly lines: readonly ReadPreviewLine[],
 		private readonly highlighted: readonly string[],
 		private readonly startLine: number,
 		private readonly theme: Theme,
-	) {}
+	) {
+		const lastLine = Math.max(0, ...sourceLineNumbers(lines, startLine));
+		this.lineNumberWidth = Math.max(1, String(lastLine).length);
+	}
 
 	render(width: number): string[] {
+		if (this.cached?.width === width) return this.cached.rows;
 		const availableWidth = Math.max(1, width);
-		const lastLine = Math.max(0, ...sourceLineNumbers(this.lines, this.startLine));
-		const lineNumberWidth = Math.max(1, String(lastLine).length);
 		const marker = this.theme.fg("dim", TRUNCATION_MARKER);
-		return this.lines.map((line) => {
+		const rows = this.lines.map((line) => {
 			if (line.type === "omission") {
 				const hint = this.theme.fg("dim", `(${line.hiddenLines} hidden lines, ${EXPAND_HINT})`);
 				return truncateToWidth(
-					`${renderDiffOmission(lineNumberWidth, false)}${hint}`,
+					`${renderDiffOmission(this.lineNumberWidth, false)}${hint}`,
 					availableWidth,
 					marker,
 				);
 			}
 			const body = this.highlighted[line.sourceIndex] ?? line.text;
-			const row = renderCodeGutter(this.startLine + line.sourceIndex, lineNumberWidth, body);
-			return visibleWidth(row) <= availableWidth
-				? row
-				: truncateToWidth(row, availableWidth, marker);
+			const row = renderCodeGutter(this.startLine + line.sourceIndex, this.lineNumberWidth, body);
+			return truncateToWidth(row, availableWidth, marker);
 		});
+		this.cached = { width, rows };
+		return rows;
 	}
 
 	invalidate(): void {}

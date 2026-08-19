@@ -99,7 +99,9 @@ function footer(details: ApplyPatchToolDetails): string {
 		count("add") > 0 ? `created ${count("add")}` : undefined,
 		count("delete") > 0 ? `deleted ${count("delete")}` : undefined,
 		count("update") > 0 ? `modified ${count("update")}` : undefined,
-		details.progress === undefined ? `${totalDelta(details)} lines` : undefined,
+		details.progress === undefined
+			? `${totalDelta(details)} ${details.addedLines + details.removedLines === 1 ? "line" : "lines"}`
+			: undefined,
 		duration(details.durationMs),
 	]
 		.filter((value): value is string => value !== undefined)

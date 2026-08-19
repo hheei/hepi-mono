@@ -5,7 +5,7 @@ import { BashOutputSink, DEFAULT_VISIBLE_TAIL_BYTES } from "../src/bash-output.j
 test("keeps under-limit output visible without output", (): void => {
 	const sink = new BashOutputSink();
 	sink.push(Buffer.from("small output"));
-	expect(sink.finish()).toEqual({ output: "small output", truncated: false });
+	expect(sink.finish()).toEqual({ output: "small output", truncated: false, totalLines: 1 });
 });
 
 test("promotes threshold overflow and retains early bytes in output", (): void => {
@@ -19,6 +19,7 @@ test("promotes threshold overflow and retains early bytes in output", (): void =
 	expect(result.outputUri).toMatch(/^output:\/\/[1-9]\d*$/);
 	expect(outputs.read(result.outputUri ?? "")).toBe(early + "x".repeat(DEFAULT_VISIBLE_TAIL_BYTES));
 	expect(result.output).toBe("x".repeat(DEFAULT_VISIBLE_TAIL_BYTES));
+	expect(result.totalLines).toBe(2);
 });
 
 test("pre-reserves async output and keeps stable URI tied to output", (): void => {
@@ -41,9 +42,21 @@ test("reports a running bounded tail without finalizing its output", (): void =>
 	expect(sink.snapshot()).toEqual({
 		output: "bc",
 		truncated: true,
+		totalLines: 1,
 		outputUri: reserved,
 	});
 	expect(outputs.read(reserved ?? "")).toBe("abc");
+});
+
+test("counts logical lines across a sliding tail", (): void => {
+	const sink = new BashOutputSink({ tailBytes: 8 });
+	const seen: number[] = [];
+	for (let index = 0; index < 20; index += 1) {
+		sink.push(Buffer.from(`${index}\n`));
+		seen.push(sink.snapshot().totalLines);
+	}
+	expect(seen).toEqual(Array.from({ length: 20 }, (_, index) => index + 1));
+	expect(sink.snapshot().output.split("\n").filter(Boolean).length).toBeLessThan(20);
 });
 
 test("keeps split UTF-8 byte boundaries valid", (): void => {

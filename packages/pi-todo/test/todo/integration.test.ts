@@ -297,11 +297,11 @@ describe("Todo integration", () => {
 			theme,
 			{ toolCallId: "batch" },
 		);
-		expect(renderToolComponent(call)).toContain("Todo · update 2 · delete 1");
+		expect(renderToolComponent(call)).toContain("todo #1 #2 #3");
 		const partial = tool.renderCall?.({ operations: [null, {}] }, theme, {
 			toolCallId: "partial",
 		});
-		expect(renderToolComponent(partial)).toContain("Todo");
+		expect(renderToolComponent(partial)).toContain("todo");
 
 		const unsafe = tool.renderCall?.(
 			{ operations: [{ action: "update", id: "\x1b[2J", status: "blocked" }] },
@@ -314,19 +314,24 @@ describe("Todo integration", () => {
 			theme,
 			{ toolCallId: "unsafe-list" },
 		);
-		expect(renderToolComponent(unsafeList)).toContain("Todo · list");
+		expect(renderToolComponent(unsafeList)).toContain("todo");
+		expect(renderToolComponent(unsafeList)).not.toContain("todo ·");
 
 		const createParams = { operations: [{ action: "create", subject: "First" }] };
 		const createRenderContext = { toolCallId: "create" };
 		expect(
 			renderToolComponent(tool.renderCall?.(createParams, theme, createRenderContext)),
-		).toContain("Todo · create 1");
+		).toContain("todo");
+		expect(
+			renderToolComponent(tool.renderCall?.(createParams, theme, createRenderContext)),
+		).not.toContain("#1");
 		const created = await tool.execute("create", createParams, undefined, undefined, host.ctx);
 		expect(
 			renderToolComponent(tool.renderCall?.(createParams, theme, createRenderContext)),
-		).toContain("Todo · created #1");
+		).toContain("todo #1");
 		const active = tool.renderResult?.(created, {}, theme, { isError: false });
 		expect(renderToolComponent(active)).toContain("+ ◐ #1 First");
+		expect(renderToolComponent(active)).toContain("active #1");
 
 		const completed = await tool.execute(
 			"complete",
@@ -336,7 +341,7 @@ describe("Todo integration", () => {
 			host.ctx,
 		);
 		const done = tool.renderResult?.(completed, {}, theme, { isError: false });
-		expect(renderToolComponent(done)).toContain("→ ✓ #1 ~First~");
+		expect(renderToolComponent(done)).toContain("✓ #1 ~First~");
 
 		const nextParams = {
 			operations: [
@@ -346,11 +351,11 @@ describe("Todo integration", () => {
 		};
 		const nextContext = { toolCallId: "create-next" };
 		expect(renderToolComponent(tool.renderCall?.(nextParams, theme, nextContext))).toContain(
-			"Todo · create 2",
+			"todo",
 		);
 		await tool.execute("create-next", nextParams, undefined, undefined, host.ctx);
 		expect(renderToolComponent(tool.renderCall?.(nextParams, theme, nextContext))).toContain(
-			"Todo · 2 created",
+			"todo #2 #3",
 		);
 
 		await tool.execute(
@@ -368,7 +373,7 @@ describe("Todo integration", () => {
 			host.ctx,
 		);
 		const blocked = tool.renderResult?.(blockedResult, {}, theme, { isError: false });
-		expect(renderToolComponent(blocked)).toContain("→ ⊘ #3 ~Third~");
+		expect(renderToolComponent(blocked)).toContain("⊘ #3 ~Third~");
 
 		const failed = tool.renderResult?.(
 			{ content: [] },

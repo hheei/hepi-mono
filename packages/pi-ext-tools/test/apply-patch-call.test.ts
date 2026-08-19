@@ -49,7 +49,7 @@ describe("apply_patch model-time call preview", () => {
 			expect(render(component)).not.toContain(" files");
 
 			component.updateArgs({ patch: "*** Begin Patch\n*** Add File: first.txt\n" });
-			expect(render(component)).toContain("apply_patch 1 files");
+			expect(render(component)).toContain("apply_patch 1 file");
 			expect(render(component)).toContain("○ create first.txt");
 			expect(render(component)).not.toContain("+1");
 

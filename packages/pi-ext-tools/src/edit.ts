@@ -9,6 +9,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
 import type { ToolTui } from "@hheei/pi-ext-core";
+import { counted } from "./counted.js";
 import {
 	createCanonicalExecutionTool,
 	createCanonicalToolRegistration,
@@ -289,10 +290,11 @@ function editFooter(
 ): string | undefined {
 	const duration = durationText(durationMs);
 	if (metrics === undefined) return duration;
-	const edits = `${metrics.replacements} edit${metrics.replacements === 1 ? "" : "s"}`;
+	const edits = counted(metrics.replacements, "edit");
+	const changed = metrics.added + metrics.removed;
 	const lines =
-		metrics.added > 0 || metrics.removed > 0
-			? `${summarize(metrics.added, metrics.removed)} lines`
+		changed > 0
+			? `${summarize(metrics.added, metrics.removed)} ${changed === 1 ? "line" : "lines"}`
 			: undefined;
 	return [edits, lines, duration]
 		.filter((value): value is string => value !== undefined)

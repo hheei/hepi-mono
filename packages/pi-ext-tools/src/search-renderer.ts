@@ -3,8 +3,14 @@ import type {
 	Theme,
 	ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
-import { type Component, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import {
+	type Component,
+	stripTerminalSequences,
+	Text,
+	truncateToWidth,
+} from "@earendil-works/pi-tui";
 import { DEFAULT_MAX_BODY_LINES, type ToolCompletion } from "@hheei/pi-ext-core";
+import { counted } from "./counted.js";
 import type { GrepDisplayLine, GrepSubmatch, GrepToolDetails } from "./grep.js";
 import { RST } from "./pretty/ansi.js";
 import { renderCodeGutter, renderDiffOmission, resolveDiffColors } from "./pretty/diff-render.js";
@@ -60,10 +66,6 @@ function utf8Boundaries(text: string): ReadonlyMap<number, number> {
 	return boundaries;
 }
 
-function visibleText(text: string): string {
-	return text.replace(/\u001b\[[0-9;]*m/g, "");
-}
-
 function takeVisible(
 	text: string,
 	index: number,
@@ -87,35 +89,56 @@ function takeVisible(
 	return { slice, next: cursor };
 }
 
-function overlayMatches(
+function applySgrThroughout(text: string, sgr: string): string {
+	if (text === "") return "";
+	let out = sgr;
+	let cursor = 0;
+	while (cursor < text.length) {
+		const ansi = text.slice(cursor).match(ANSI_SGR);
+		if (ansi) {
+			out += ansi[0] === sgr ? ansi[0] : `${ansi[0]}${sgr}`;
+			cursor += ansi[0].length;
+			continue;
+		}
+		const character = [...text.slice(cursor)][0] ?? "";
+		out += character;
+		cursor += character.length;
+	}
+	return out;
+}
+
+function overlayGrepSource(
 	highlighted: string,
 	source: string,
 	ranges: readonly { readonly start: number; readonly end: number }[],
-	paint: (text: string) => string,
+	matchSgr: string,
 ): string {
-	const colored = visibleText(highlighted).length === source.length ? highlighted : source;
+	const colored =
+		stripTerminalSequences(highlighted).length === source.length ? highlighted : source;
 	const parts: string[] = [];
 	let sourceIndex = 0;
 	let colorIndex = 0;
+	const push = (slice: string, sgr: string): void => {
+		if (slice.length === 0) return;
+		parts.push(`${RST}${applySgrThroughout(slice, sgr)}`);
+	};
 	for (const range of [...ranges].sort((left, right) => left.start - right.start)) {
 		if (range.end <= sourceIndex || range.end <= range.start) continue;
 		const start = Math.max(range.start, sourceIndex);
 		if (start > sourceIndex) {
 			const taken = takeVisible(colored, colorIndex, start - sourceIndex);
-			parts.push(`${DIM}${taken.slice}${RST}`);
+			push(taken.slice, DIM);
 			colorIndex = taken.next;
 			sourceIndex = start;
 		}
 		const match = takeVisible(colored, colorIndex, range.end - sourceIndex);
-		parts.push(paint(match.slice));
+		push(match.slice, matchSgr);
 		colorIndex = match.next;
 		sourceIndex = range.end;
 	}
-	if (sourceIndex < source.length) {
-		const rest = takeVisible(colored, colorIndex, source.length - sourceIndex).slice;
-		parts.push(`${DIM}${rest}${RST}`);
-	}
-	return parts.join("");
+	if (sourceIndex < source.length)
+		push(takeVisible(colored, colorIndex, source.length - sourceIndex).slice, DIM);
+	return `${parts.join("")}${RST}`;
 }
 
 function submatchCharRanges(
@@ -147,11 +170,7 @@ function renderGrepSource(
 ): string {
 	const highlighted = highlightSource(line.source, path, theme);
 	const ranges = line.type === "match" ? submatchCharRanges(line.source, line.submatches) : [];
-	const addBg = resolveDiffColors(theme).bgAdd;
-	const body =
-		ranges.length === 0
-			? `${DIM}${highlighted}${RST}`
-			: overlayMatches(highlighted, line.source, ranges, (text) => `${addBg}${text}${RST}`);
+	const body = overlayGrepSource(highlighted, line.source, ranges, resolveDiffColors(theme).bgAdd);
 	return renderCodeGutter(line.lineNumber, lineNumberWidth, body);
 }
 
@@ -164,8 +183,8 @@ function renderGrepLine(
 	switch (line.type) {
 		case "path":
 			return line.text.startsWith(TRUNCATION_MARKER)
-				? `${theme.fg("dim", TRUNCATION_MARKER)}${theme.fg("mdCode", line.text.slice(TRUNCATION_MARKER.length))}`
-				: theme.fg("mdCode", line.text);
+				? `${theme.fg("dim", TRUNCATION_MARKER)}${theme.fg("text", line.text.slice(TRUNCATION_MARKER.length))}`
+				: theme.fg("text", line.text);
 		case "match":
 		case "context":
 			return renderGrepSource(line, theme, lineNumberWidth, path);
@@ -179,6 +198,7 @@ function renderGrepLine(
 class GrepResultComponent implements Component {
 	private lines: readonly string[] = [];
 	private theme: Theme;
+	private cached: { readonly width: number; readonly rows: string[] } | undefined;
 
 	constructor(theme: Theme) {
 		this.theme = theme;
@@ -187,16 +207,15 @@ class GrepResultComponent implements Component {
 	set(lines: readonly string[], theme: Theme): void {
 		this.lines = lines;
 		this.theme = theme;
+		this.cached = undefined;
 	}
 
 	render(width: number): string[] {
-		const availableWidth = Math.max(1, width);
+		if (this.cached?.width === width) return this.cached.rows;
 		const truncation = this.theme.fg("dim", TRUNCATION_MARKER);
-		return this.lines.map((line) =>
-			visibleWidth(line) <= availableWidth
-				? line
-				: truncateToWidth(line, availableWidth, truncation),
-		);
+		const rows = this.lines.map((line) => truncateToWidth(line, Math.max(1, width), truncation));
+		this.cached = { width, rows };
+		return rows;
 	}
 
 	invalidate(): void {}
@@ -222,7 +241,7 @@ export function grepCollapsedFooter(
 				Reflect.get(event, "type") === "match" &&
 				Reflect.get(event, "approximate") === true,
 		);
-	return `${details.totalMatched} ${fuzzy ? "fuzzies" : "matches"} · ${details.totalFiles} files · ${details.totalLines} lines · ${durationText(completion?.durationMs ?? details.durationMs)}`;
+	return `${counted(details.totalMatched, fuzzy ? "fuzzy" : "match", fuzzy ? "fuzzies" : "matches")} · ${counted(details.totalFiles, "file")} · ${counted(details.totalLines, "line")} · ${durationText(completion?.durationMs ?? details.durationMs)}`;
 }
 
 function grepLineNumberWidth(lines: readonly GrepDisplayLine[], start: number): number {
@@ -351,13 +370,7 @@ function findBodyLines(details: FindToolDetails): readonly FindBodyLine[] {
 }
 
 function renderFindBody(lines: readonly FindBodyLine[], theme: Theme): string[] {
-	return lines.map((line) =>
-		line.kind === "directory"
-			? theme.fg("mdCode", line.text)
-			: line.kind === "omission"
-				? theme.fg("dim", line.text)
-				: line.text,
-	);
+	return lines.map((line) => theme.fg(line.kind === "omission" ? "dim" : "text", line.text));
 }
 
 export function formatFindModelOutput(details: FindToolDetails): string {
@@ -372,9 +385,9 @@ function findFooter(details: FindToolDetails, completion?: ToolCompletion): stri
 	).length;
 	const fuzzyFilename = details.candidates.length - fuzzyPath;
 	const parts = [
-		fuzzyFilename > 0 ? `${fuzzyFilename} fuzzy files` : undefined,
-		fuzzyPath > 0 ? `${fuzzyPath} fuzzy paths` : undefined,
-		`${findBodyLines(details).length} lines`,
+		fuzzyFilename > 0 ? counted(fuzzyFilename, "fuzzy file") : undefined,
+		fuzzyPath > 0 ? counted(fuzzyPath, "fuzzy path") : undefined,
+		counted(findBodyLines(details).length, "line"),
 		durationText(completion?.durationMs ?? details.durationMs),
 	];
 	return parts.filter((part): part is string => part !== undefined).join(" · ");

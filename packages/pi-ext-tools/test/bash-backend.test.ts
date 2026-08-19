@@ -244,10 +244,11 @@ test("bash encloses its output between full-width dividers", (): void => {
 			} as never,
 		)
 		.render(40);
-	expect(lines?.[0]).toBe(`<success>${"─".repeat(40)}</success>`);
-	expect(lines?.at(-2)).toBe(`<success>${"─".repeat(40)}</success>`);
-	expect(lines?.at(-1)).toBe("<dim>exit ? · 1 lines · completed</dim>");
-	expect(lines?.join("\n")).toContain("<text>stdout");
+	expect(lines?.[0]).toBe(`<muted>${"─".repeat(40)}</muted>`);
+	expect(lines?.at(-2)).toBe(`<muted>${"─".repeat(40)}</muted>`);
+	expect(lines?.at(-1)).toBe("<dim>exit ? · 1 line · completed</dim>");
+	expect(lines?.join("\n")).toContain("stdout");
+	expect(lines?.join("\n")).not.toContain("<text>stdout");
 	expect(lines?.join("\n")).not.toContain("<toolOutput>stdout</toolOutput>");
 });
 
@@ -427,6 +428,63 @@ test("bash keeps its unexpanded body to the shared ToolTui height cap", (): void
 		.filter((line) => !line.includes("─") && !line.includes("exit ?"));
 	expect(completedLines).toHaveLength(30);
 	expect(completedLines.at(-1)).toContain("line 30");
+});
+
+test("bash omitted-line count uses logical lines, not wraps or the tail window", (): void => {
+	const tools: ToolDefinition[] = [];
+	registerBashTool({
+		registerTool(tool: ToolDefinition): void {
+			tools.push(tool);
+		},
+	} as unknown as ExtensionAPI);
+	const bash = tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("Expected bash tool");
+	const theme = {
+		bg: (_role: string, text: string): string => text,
+		fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
+		bold: (text: string): string => text,
+	} as Theme;
+	const long = Array.from({ length: 30 }, (_, index) => `line ${index + 1} ${"x".repeat(80)}`).join(
+		"\n",
+	);
+	const body = bash.renderResult?.(
+		{ content: [{ type: "text", text: long }], details: {} },
+		{ expanded: false, isPartial: true },
+		theme,
+		{
+			args: { command: "printf long" },
+			isError: false,
+			isPartial: true,
+			lastComponent: undefined,
+			state: {},
+		} as never,
+	);
+	if (body === undefined) throw new Error("Expected wrapped bash body");
+	const narrow = body.render(20).filter((line) => !line.includes("─"));
+	const wide = body.render(120).filter((line) => !line.includes("─"));
+	expect(narrow).toHaveLength(20);
+	expect(wide).toHaveLength(20);
+	expect(wide[0]).toContain("… (11 earlier lines, ctrl+o to expand)");
+	const tail = bash
+		.renderResult?.(
+			{
+				content: [{ type: "text", text: "tail-a\ntail-b\ntail-c" }],
+				details: { totalLines: 80 },
+			},
+			{ expanded: false, isPartial: true },
+			theme,
+			{
+				args: { command: "printf tail" },
+				isError: false,
+				isPartial: true,
+				lastComponent: undefined,
+				state: {},
+			} as never,
+		)
+		?.render(120)
+		.filter((line) => !line.includes("─"));
+	if (tail === undefined) throw new Error("Expected tailed bash body");
+	expect(tail[0]).toContain("… (77 earlier lines, ctrl+o to expand)");
 });
 
 test("bash summarizes exit code, output lines, and duration in collapsed traces", async (): Promise<void> => {

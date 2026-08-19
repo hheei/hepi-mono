@@ -71,10 +71,13 @@ export class BashPtySurface implements Component {
 		const side = this.theme.fg("border", "│");
 		const box = (line: string): string =>
 			`${side}${line}${" ".repeat(Math.max(0, innerWidth - visibleWidth(line)))}${side}`;
-		const header = this.theme.fg("bashMode", truncateToWidth(this.command, innerWidth));
+		const ellipsis = this.theme.fg("dim", "…");
+		const header = truncateToWidth(this.theme.fg("bashMode", this.command), innerWidth, ellipsis);
 		const output = this.#lines
 			.slice(-contentRows)
-			.map((line) => this.theme.fg("muted", truncateToWidth(line.replace(/\r/gu, ""), innerWidth)));
+			.map((line) =>
+				truncateToWidth(this.theme.fg("muted", line.replace(/\r/gu, "")), innerWidth, ellipsis),
+			);
 		while (output.length < contentRows) output.unshift("");
 		const footer =
 			this.#state === "running"
@@ -84,7 +87,7 @@ export class BashPtySurface implements Component {
 			`${this.theme.fg("border", "┌")}${border}${this.theme.fg("border", "┐")}`,
 			box(header),
 			...output.map(box),
-			box(truncateToWidth(footer, innerWidth)),
+			box(truncateToWidth(footer, innerWidth, ellipsis)),
 			`${this.theme.fg("border", "└")}${border}${this.theme.fg("border", "┘")}`,
 		];
 	}

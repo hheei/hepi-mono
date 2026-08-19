@@ -196,7 +196,7 @@ describe("pi-ext-tools catalog", () => {
 				{ ...(renderContext as object), args: { path: "empty.ts" } } as never,
 			)
 			.render(80);
-		expect(lines).toEqual(["<dim>1 chars · 2 lines · 0ms</dim>"]);
+		expect(lines).toEqual(["<dim>1 char · 2 lines · 0ms</dim>"]);
 	});
 
 	test("hides read continuation instructions without changing model content", (): void => {
@@ -295,7 +295,7 @@ describe("pi-ext-tools catalog", () => {
 			)
 			.render(10);
 		if (lines === undefined) throw new Error("grep renderer is missing");
-		const body = lines.filter((line) => !line.includes("─") && !line.includes("matches ·"));
+		const body = lines.filter((line) => !line.includes("─") && !line.includes(" · "));
 		const plainBody = body.map(stripTerminalSequences);
 		expect(plainBody).toContain(" 100 │ pr…");
 		expect(plainBody.every((line) => visibleWidth(line) <= 10 && !line.includes("\n"))).toBe(true);
@@ -915,7 +915,7 @@ describe("pi-ext-tools catalog", () => {
 			.join("\n")
 			.trimEnd();
 		expect(grepCall).toBe(
-			"<warning>◐</warning> <toolTitle>grep</toolTitle> <mdCode>/needle/</mdCode> in <dim>src</dim>",
+			"<warning>◐</warning> <toolTitle>grep</toolTitle> <mdCode>/needle/</mdCode> in src",
 		);
 		const grepResult = grep
 			.renderResult?.(
@@ -971,14 +971,15 @@ describe("pi-ext-tools catalog", () => {
 			.map((line) => line.trimEnd())
 			.join("\n")
 			.trimEnd();
-		expect(grepResult).toContain("<mdCode>src/a.ts</mdCode>");
+		expect(grepResult).toContain("src/a.ts");
+		expect(grepResult).not.toContain("<text>src/a.ts</text>");
 		expect(stripTerminalSequences(grepResult ?? "")).toContain("  1 │ before");
 		expect(stripTerminalSequences(grepResult ?? "")).toContain(" 12 │ needle");
 		expect(stripTerminalSequences(grepResult ?? "")).toContain(" 13 │   needle trailing");
 		expect(grepResult).toContain("\x1b[2m");
 		expect(grepResult).toContain("\x1b[48;2;18;42;28m");
 		expect(grepResult).not.toContain("1 matches in 1 files");
-		expect(grepResult).toContain("<dim>1 matches · 1 files · 3 lines · 3.7s</dim>");
+		expect(grepResult).toContain("<dim>1 match · 1 file · 3 lines · 3.7s</dim>");
 		const collapsedResult = grep.renderResult?.(
 			{
 				content: [{ type: "text", text: "overflow" }],
@@ -1003,7 +1004,7 @@ describe("pi-ext-tools catalog", () => {
 		const collapsed = collapsedResult.render(200);
 		expect(collapsed).toHaveLength(23);
 		expect(collapsed.at(-3)).toContain("… (11 more lines, expand to show)");
-		expect(collapsed.at(-1)).toContain("20 matches · 1 files · 20 lines · 0ms");
+		expect(collapsed.at(-1)).toContain("20 matches · 1 file · 20 lines · 0ms");
 		const findResult = find
 			.renderResult?.(
 				{ content: [{ type: "text", text: "1. one.ts (fff_fuzzy)" }], details: undefined },
@@ -1041,6 +1042,110 @@ describe("pi-ext-tools catalog", () => {
 		expect(header.length).toBeGreaterThan(1);
 	});
 
+	test("keeps grep match syntax bright and dims the rest of the line", (): void => {
+		const host = harness();
+		registerTools(host.pi);
+		const theme = {
+			bg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
+			fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
+			bold: (text: string): string => text,
+		} as Theme;
+		const grep = host.tools.find((candidate) => candidate.name === "grep");
+		if (grep === undefined) throw new Error("Missing grep tool");
+		const result = grep
+			.renderResult?.(
+				{
+					content: [{ type: "text", text: `notes.txt\n1: hello needle world` }],
+					details: {
+						format: "canonical-grep",
+						engine: "rg",
+						totalMatched: 1,
+						totalFiles: 1,
+						totalLines: 2,
+						durationMs: 1,
+						display: [
+							{ type: "path", text: "notes.txt" },
+							{
+								type: "match",
+								lineNumber: 1,
+								text: "hello needle world",
+								source: "hello needle world",
+								submatches: [{ start: 6, end: 12 }],
+								visibleStart: 0,
+								visibleEnd: 18,
+							},
+						],
+					},
+				},
+				{ isPartial: false, expanded: false },
+				theme,
+				renderContext,
+			)
+			.render(200)
+			.join("\n");
+		const dim = "\x1b[2m";
+		const reset = "\x1b[0m";
+		const addBg = "\x1b[48;2;18;42;28m";
+		expect(result).toContain(`${dim}hello `);
+		expect(result).toContain(`${addBg}needle`);
+		expect(result).toContain(`${dim} world`);
+		expect(result).not.toContain(`${dim}needle`);
+		expect(result).not.toContain("<text>");
+		expect(result.indexOf(`${dim}hello `)).toBeLessThan(result.indexOf(`${addBg}needle`));
+		expect(result.indexOf(`${addBg}needle`)).toBeLessThan(result.indexOf(`${dim} world`));
+		expect(result).toContain(reset);
+	});
+
+	test("keeps dim syntax after a highlighted grep match", (): void => {
+		const host = harness();
+		registerTools(host.pi);
+		const theme = {
+			bg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
+			fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
+			bold: (text: string): string => text,
+		} as Theme;
+		const grep = host.tools.find((candidate) => candidate.name === "grep");
+		if (grep === undefined) throw new Error("Missing grep tool");
+		const source = "const needle = 1;";
+		const result = grep
+			.renderResult?.(
+				{
+					content: [{ type: "text", text: `a.ts\n1: ${source}` }],
+					details: {
+						format: "canonical-grep",
+						engine: "rg",
+						totalMatched: 1,
+						totalFiles: 1,
+						totalLines: 2,
+						durationMs: 1,
+						display: [
+							{ type: "path", text: "a.ts" },
+							{
+								type: "match",
+								lineNumber: 1,
+								text: source,
+								source,
+								submatches: [{ start: 6, end: 12 }],
+								visibleStart: 0,
+								visibleEnd: source.length,
+							},
+						],
+					},
+				},
+				{ isPartial: false, expanded: false },
+				theme,
+				renderContext,
+			)
+			.render(200)
+			.join("\n");
+		const dim = "\x1b[2m";
+		const needleAt = result.indexOf("needle");
+		expect(needleAt).toBeGreaterThan(-1);
+		expect(result.slice(0, needleAt)).toContain(dim);
+		expect(result.slice(needleAt + "needle".length)).toContain(dim);
+		expect(stripTerminalSequences(result)).toContain(source);
+	});
+
 	test("renders structured FFF find results inside the shared tool frame", (): void => {
 		const host = harness();
 		registerTools(host.pi);
@@ -1057,7 +1162,7 @@ describe("pi-ext-tools catalog", () => {
 			.join("\n")
 			.trimEnd();
 		expect(header).toBe(
-			"<warning>◐</warning> <toolTitle><b>find</b></toolTitle> <mdCode>/needle/</mdCode> in <dim>src</dim>",
+			"<warning>◐</warning> <toolTitle><b>find</b></toolTitle> <mdCode>/needle/</mdCode> in src",
 		);
 
 		const result = find
@@ -1085,11 +1190,12 @@ describe("pi-ext-tools catalog", () => {
 		if (result === undefined) throw new Error("Expected find result renderer");
 		expect(result.filter((line) => line.includes("─"))).toHaveLength(2);
 		expect(result).toContain("fuzzy files:");
-		expect(result).toContain("<mdCode>src/</mdCode>");
+		expect(result).toContain("src/");
 		expect(result).toContain("a.ts");
 		expect(result).toContain("fuzzy paths:");
 		expect(result).toContain("docs/readme.md");
-		expect(result).toContain("<dim>2 fuzzy files · 1 fuzzy paths · 7 lines · 20ms</dim>");
+		expect(result.join("\n")).not.toContain("<text>");
+		expect(result).toContain("<dim>2 fuzzy files · 1 fuzzy path · 7 lines · 20ms</dim>");
 		expect(result.join("\n")).not.toContain("model-visible find output");
 	});
 
@@ -1286,6 +1392,10 @@ describe("pi-ext-tools catalog", () => {
 			.join("\n");
 		expect(rendered).toContain("OLD");
 		expect(rendered).toContain("NEW");
+		expect(rendered.split("\n").at(-1)).toContain("+1 -1");
+		expect(rendered.split("\n").some((line) => line.includes("│") && line.includes("+1 -1"))).toBe(
+			false,
+		);
 	});
 
 	test("keeps custom write/edit views when the existing file exceeds the highlight budget", async (): Promise<void> => {
