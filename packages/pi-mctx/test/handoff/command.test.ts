@@ -1,8 +1,19 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { initializeDatabase } from "../../src/core/features/storage-db";
 import { Database } from "#core/shared/sqlite";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
-import { runHandoffCommand } from "../../src/handoff/command";
+import {
+	publishHandoffContext,
+	registerHandoffCommand,
+	runHandoffCommand,
+} from "../../src/handoff/command";
+import {
+	HANDOFF_CONTEXT_TYPE,
+	type HandoffContextDetails,
+} from "../../src/handoff/model";
 import { acquireHandoffLease } from "../../src/handoff/lease";
 
 function createDb(): Database {
@@ -38,6 +49,74 @@ function ctx(
 }
 
 describe("handoff command", () => {
+	test("publishes Handoff Context through sendMessage without starting a turn", async () => {
+		const sent: Array<{ message: unknown; options: unknown }> = [];
+		const dir = await mkdtemp(join(tmpdir(), "handoff-publish-"));
+		const sessionFile = join(dir, "dest.jsonl");
+		try {
+			await publishHandoffContext(
+				{
+					sendMessage(message, options) {
+						sent.push({ message, options });
+					},
+					sessionManager: {
+						getSessionFile: () => sessionFile,
+						getHeader: () => ({ type: "session", id: "dest", cwd: "/tmp" }),
+						getEntries: () => [
+							{
+								type: "custom_message",
+								customType: HANDOFF_CONTEXT_TYPE,
+								content: "<handoff-context/>",
+							},
+						],
+					},
+				},
+				"<handoff-context/>",
+				{
+					requestId: "req-1",
+					sourcePath: "/tmp/source.jsonl",
+					sourceSessionId: "sess-1",
+					projectIdentity: "/tmp/project",
+					model: "anthropic/claude",
+					thinkingLevel: "off",
+					generatedAt: "2026-01-01T00:00:00.000Z",
+					images: [],
+				} as HandoffContextDetails,
+			);
+			expect(sent).toHaveLength(1);
+			expect(sent[0]?.options).toEqual({ triggerTurn: false });
+			expect(sent[0]?.message).toEqual(
+				expect.objectContaining({
+					customType: HANDOFF_CONTEXT_TYPE,
+					display: true,
+				}),
+			);
+			const persisted = await readFile(sessionFile, "utf8");
+			expect(persisted).toContain(HANDOFF_CONTEXT_TYPE);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("does not overwrite entry renderers registered by runtime startup", () => {
+		const entryTypes: string[] = [];
+		const messageTypes: string[] = [];
+		registerHandoffCommand(
+			{
+				registerCommand() {},
+				registerEntryRenderer(type: string) {
+					entryTypes.push(type);
+				},
+				registerMessageRenderer(type: string) {
+					messageTypes.push(type);
+				},
+			} as never,
+			{} as never,
+		);
+		expect(entryTypes).toEqual([]);
+		expect(messageTypes).toEqual([]);
+	});
+
 	test("rejects arguments before acquiring a lease", async () => {
 		const db = createDb();
 		const warnings: string[] = [];

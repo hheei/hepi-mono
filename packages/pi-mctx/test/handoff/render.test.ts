@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	createHandoffProgressComponent,
 	renderHandoffProgressLines,
+	renderHandoffRequest,
 	renderHandoffRequestCollapsed,
 } from "../../src/handoff/render";
 import type { HandoffRequestRecord } from "../../src/handoff/model";
@@ -57,6 +58,14 @@ describe("handoff render", () => {
 		const component = renderHandoffRequestCollapsed(record, theme as never);
 		const lines = component.render(80);
 		expect(lines.join("\n")).toContain("◐ handoff · snapshot ready");
+		const registered = renderHandoffRequest(
+			{ data: record } as never,
+			{ expanded: false },
+			theme as never,
+		);
+		expect(registered?.render(80).join("\n")).toContain(
+			"◐ handoff · snapshot ready",
+		);
 	});
 
 	test("progress component updates without changing size contract", () => {
