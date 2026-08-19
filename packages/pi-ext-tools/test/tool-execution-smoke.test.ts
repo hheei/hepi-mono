@@ -373,7 +373,7 @@ describe("ToolExecutionComponent smoke", () => {
 			expect(stripTerminalSequences(component.render(100).join("\n"))).not.toContain("create");
 			component.updateArgs({ patch: "*** Begin Patch\n*** Add File: first.txt\n" });
 			const afterHeader = stripTerminalSequences(component.render(100).join("\n"));
-			expect(afterHeader).toContain("apply_patch 1 files");
+			expect(afterHeader).toContain("apply_patch 1 file");
 			expect(afterHeader).toContain("○ create first.txt");
 			component.updateArgs({
 				patch: "*** Begin Patch\n*** Add File: first.txt\n+one\n*** Add File: second.txt\n",
@@ -458,7 +458,7 @@ describe("ToolExecutionComponent smoke", () => {
 			await firstUpdate;
 			const partialText = stripTerminalSequences(component.render(100).join("\n"));
 			expect(settled).toBe(false);
-			expect(partialText).toContain("apply_patch 1 files");
+			expect(partialText).toContain("apply_patch 1 file");
 			expect(partialText).toContain("○ create first.txt +1");
 			await committedUpdate;
 			expect(settled).toBe(false);

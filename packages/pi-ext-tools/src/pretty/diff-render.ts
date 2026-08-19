@@ -143,12 +143,14 @@ function tabs(s: string): string {
 
 function truncateAnsi(s: string, w: number, fillBg = ""): string {
 	if (w <= 0) return "";
+	const ellipsis = `${RST}${FG_DIM}…${RST}`;
+	if (!fillBg) return truncateToWidth(s, w, ellipsis);
 	const width = visibleWidth(s);
 	if (width <= w) {
 		const pad = w - width;
-		return pad > 0 ? `${s}${fillBg}${" ".repeat(pad)}${fillBg ? RST : ""}` : s;
+		return pad > 0 ? `${s}${fillBg}${" ".repeat(pad)}${RST}` : s;
 	}
-	return truncateToWidth(s, w, `${RST}${FG_DIM}…${RST}`);
+	return truncateToWidth(s, w, ellipsis);
 }
 
 function termW(width?: number): number {

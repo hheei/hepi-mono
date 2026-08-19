@@ -2,6 +2,21 @@ import { describe, expect, test } from "bun:test";
 import { getEditOperations } from "../src/edit.js";
 import { parseDiff } from "../src/pretty/diff.js";
 import { lang } from "../src/pretty/lang.js";
+import { LinesBody } from "../src/pretty/lines-body.js";
+
+describe("LinesBody", () => {
+	test("reuses rows until width changes", (): void => {
+		let paints = 0;
+		const body = new LinesBody((width) => {
+			paints += 1;
+			return [`width ${width}`];
+		});
+		expect(body.render(80)).toEqual(["width 80"]);
+		expect(body.render(80)).toEqual(["width 80"]);
+		expect(body.render(40)).toEqual(["width 40"]);
+		expect(paints).toBe(2);
+	});
+});
 
 describe("parseDiff", () => {
 	test("counts added and removed lines", (): void => {

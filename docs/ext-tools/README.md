@@ -53,7 +53,7 @@ Result layout 由 `ToolTui` 依 body 实际 render 后的行数决定：
 无 body、无 footer: empty
 ```
 
-未展开的 body 默认最多 20 行（保留尾部，并加一行 dim `… (N earlier lines, ctrl+o to expand)`）。工具可通过 `maxBodyLines` 覆写；展开后不截断。Header、rails 与 typed footer 不计在此限额内。成对 rails 在正常调用时用 `success`，错误或 warning（含 bash 非零退出）用 `error`。这个规则保留真实空白 output line；只有 renderer 实际返回零行时省略 body 的两条 rails。body component cache 由 `ToolTui` 从 Pi 的 outer `lastComponent` 解包后交回原 renderer，tool 不需理解 frame component。
+未展开的 body 默认最多 20 行（保留尾部，并加一行 dim `… (N earlier lines, ctrl+o to expand)`）。工具可通过 `maxBodyLines` 覆写；展开后不截断。Header、rails 与 typed footer 不计在此限额内。成对 rails 一律用 `muted`，不区分 success / warning / error。这个规则保留真实空白 output line；只有 renderer 实际返回零行时省略 body 的两条 rails。body component cache 由 `ToolTui` 从 Pi 的 outer `lastComponent` 解包后交回原 renderer，tool 不需理解 frame component。
 
 ## v1 Catalog
 
@@ -226,13 +226,13 @@ find 的 glob/path/result contract，因此 `find` 始终 native fallback；`fin
 FFF settings 只读取和写入 `pi-ext-tools.fff`；Bash settings（shell path、output tail）只读取和写入 `pi-ext-tools.bash`；RTK settings 则直接读取和写入 `pi-ext-tools.rtk` 与 `pi-ext-tools.rtkPath`。不注册 `find_files`，也不保留其 cursor/query schema。`src/fff/multi-grep.ts`
 保留为未注册的 future implementation；只有形成 translated unified `grep` contract 且出现 product consumer 后才能接入 catalog。
 
-FFF `find` 结果按首次命中顺序聚合目录。一个目录出现至少两个候选时，输出一个 `dir/` 标题，候选行只显示文件名；根目录和仅一个候选的目录保留完整 repo-relative path。分组只改变展示，不改变 FFF 的候选、排序、limit 或 cursor。renderer 使用 grep 一致的 `mdCode` 目录标题、`success` 匹配标签和 `dim` 路径。
+FFF `find` 结果按首次命中顺序聚合目录。一个目录出现至少两个候选时，输出一个 `dir/` 标题，候选行只显示文件名；根目录和仅一个候选的目录保留完整 repo-relative path。分组只改变展示，不改变 FFF 的候选、排序、limit 或 cursor。renderer 使用 grep 一致的 `text` 目录标题、`success` 匹配标签和 `text` 路径。
 
-当 FFF `grep` 达到 page limit 时，原始 tool result 使用 `path:line,line (N matches)` 汇总，模型仍接收此完整文本。TUI 将 path 渲染为 `dim`、行号段渲染为 `mdCode`、计数渲染为 `success`；theme 不改变模型上下文。
+当 FFF `grep` 达到 page limit 时，原始 tool result 使用 `path:line,line (N matches)` 汇总，模型仍接收此完整文本。TUI 将 path 渲染为 `text`、行号段渲染为 `mdCode`、计数渲染为 `success`；theme 不改变模型上下文。
 
 压缩 grep 汇总也按 parent dir 合并：同一目录至少两个匹配文件时输出 `dir/` 标题，文件行只保留 basename；根目录和单项目录继续输出完整 path。该原始结构同时发送给模型和 renderer。
 
-grep renderer 在每个文件块内以最大行号宽度右对齐 `│` 前的数字。模型 compact output 首行是 `N matches in M files` 或 `N fuzzy matches in M files`；approximate match 仍用 `:`，不引入 `?`。TUI path 使用 `mdCode`，行号与 `│` 使用 `dim`，普通文本保持基础 theme，match range 使用 `success` highlight。未展开的整个结果（含 engine header 与 expansion hint）最多 15 行。
+grep renderer 在每个文件块内以最大行号宽度右对齐 `│` 前的数字。模型 compact output 首行是 `N matches in M files` 或 `N fuzzy matches in M files`；approximate match 仍用 `:`，不引入 `?`。TUI path 使用 `text`，行号与 `│` 使用 `dim`，普通文本保持基础 theme，match range 使用 `success` highlight。未展开的整个结果（含 engine header 与 expansion hint）最多 15 行。
 
 ## Target 路由
 

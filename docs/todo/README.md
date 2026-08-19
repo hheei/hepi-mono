@@ -17,8 +17,8 @@ editor 上方 widget。它依赖 `@hheei/pi-ext-core` 的 session lifecycle，�
 - core 还提供 session lifecycle cleanup 与共享 `ToolTui` renderer transport。widget 继续直接使用 Pi 原生
   `setWidget(..., { placement: "aboveEditor" })`；widget 的行布局、主题 token 和宽度裁剪仍属于 Todo；
 - Todo 以 core 的 host-scoped `ToolTui` 包装自己的 definition，因此与 coding tools 使用同一 Trace collapse。
-  header、body、typed footer 的 task 语义仍属于 Todo：mutation 只显示本次 operation outcome，`list` 显示
-  state rows，footer 从 typed snapshot 计算 progress counts；
+  header、body、typed footer 的 task 语义仍属于 Todo：header 列出本次 task id，mutation 只显示本次
+  operation outcome，`list` 显示 state rows，footer 只显示 `active #X · N pending · duration`；
 - 旧 aggregate package 不再注册 Todo，不提供 adapter 或重复 command/tool。
 
 ## 当前行为

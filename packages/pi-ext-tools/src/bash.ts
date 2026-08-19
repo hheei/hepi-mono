@@ -8,11 +8,17 @@ import {
 	type Theme,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { type Component, stripTerminalSequences, Text } from "@earendil-works/pi-tui";
+import {
+	type Component,
+	stripTerminalSequences,
+	Text,
+	truncateToWidth,
+} from "@earendil-works/pi-tui";
 import type { OutputRegistry } from "@hheei/pi-ext-core";
 import {
 	createOutputRegistry,
 	createToolTui,
+	DEFAULT_MAX_BODY_LINES,
 	openTuiSurface,
 	registerManagedLoadoutTool,
 	type ToolCompletion,
@@ -21,6 +27,7 @@ import {
 import { type Static, Type } from "typebox";
 import { BashOutputSink } from "./bash-output.js";
 import { BashPtySurface, type BashPtySurfaceResult } from "./bash-pty-surface.js";
+import { counted } from "./counted.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import { PtySession } from "./native-bridge.js";
 import { rejectUnsupportedTarget } from "./targets.js";
@@ -92,24 +99,53 @@ function bashFooter(
 			? details.output
 			: result.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
 	const exitCode = typeof details.exitCode === "number" ? details.exitCode : "?";
+	const lines =
+		typeof details.totalLines === "number" && Number.isFinite(details.totalLines)
+			? details.totalLines
+			: lineCount(output);
 	const duration =
 		completion?.durationMs === undefined
 			? "completed"
 			: completion.durationMs < 1_000
 				? `${completion.durationMs}ms`
 				: `${(completion.durationMs / 1_000).toFixed(1)}s`;
-	return `exit ${exitCode} · ${lineCount(output)} lines · ${duration}`;
+	return `exit ${exitCode} · ${counted(lines, "line")} · ${duration}`;
+}
+
+function logicalOutputLines(output: string): string[] {
+	if (output === "") return [];
+	return output
+		.replace(/\r?\n$/, "")
+		.split("\n")
+		.map((line) => line.replace(/\r/g, ""));
+}
+
+function outputTotalLines(result: AgentToolResult<unknown>, output: string): number {
+	const details = detailsRecord(result.details);
+	return typeof details.totalLines === "number" && Number.isFinite(details.totalLines)
+		? details.totalLines
+		: lineCount(output);
 }
 
 function outputText(result: AgentToolResult<unknown>): string {
 	return result.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
 }
 
+function bashBodyLine(theme: Theme, line: string): string {
+	const stripped = stripTerminalSequences(line);
+	const dimmed = theme.fg("dim", stripped);
+	return theme.fg("text", stripped) === dimmed ? dimmed : stripped;
+}
+
 class BashOutputBody implements Component {
+	private cached: { readonly width: number; readonly rows: string[] } | undefined;
+
 	constructor(
 		private readonly source: Component,
 		private readonly output: string,
 		private readonly theme: Theme,
+		private readonly expanded: boolean,
+		private readonly totalLines: number,
 	) {}
 
 	sourceComponent(): Component {
@@ -117,11 +153,28 @@ class BashOutputBody implements Component {
 	}
 
 	render(width: number): string[] {
-		if (this.output === "") return [];
-		const output = lineCount(this.output) > 1 ? this.output.replace(/\r?\n$/, "") : this.output;
-		return new Text(output, 0, 0)
-			.render(width)
-			.map((line) => this.theme.fg("text", stripTerminalSequences(line)));
+		if (this.cached?.width === width) return this.cached.rows;
+		const lines = logicalOutputLines(this.output);
+		if (lines.length === 0) return [];
+		const available = Math.max(1, width);
+		const truncation = this.theme.fg("dim", "…");
+		const budget = this.expanded ? lines.length : DEFAULT_MAX_BODY_LINES;
+		const hiddenTotal = Math.max(this.totalLines, lines.length);
+		const needsHint = !this.expanded && hiddenTotal > budget;
+		const take = needsHint ? Math.min(lines.length, budget - 1) : Math.min(lines.length, budget);
+		const visible = lines.slice(-take);
+		const hidden = hiddenTotal - visible.length;
+		const rows = visible.map((line) =>
+			truncateToWidth(bashBodyLine(this.theme, line), available, truncation),
+		);
+		if (!needsHint) {
+			this.cached = { width, rows };
+			return rows;
+		}
+		const hint = this.theme.fg("dim", `… (${hidden} earlier lines, ctrl+o to expand)`);
+		const cached = [truncateToWidth(hint, available, truncation), ...rows];
+		this.cached = { width, rows: cached };
+		return cached;
 	}
 
 	invalidate(): void {
@@ -382,7 +435,13 @@ export function registerBashTool(
 					...context,
 					lastComponent: previous,
 				}) ?? new Text("", 0, 0);
-			return new BashOutputBody(source, output, theme);
+			return new BashOutputBody(
+				source,
+				output,
+				theme,
+				options.expanded,
+				outputTotalLines(result, output),
+			);
 		},
 		async execute(
 			_id: string,
@@ -458,6 +517,7 @@ export function registerBashTool(
 			defaultActive: true,
 		},
 		tui.frame(tool, {
+			maxBodyLines: Number.POSITIVE_INFINITY,
 			footer: (result, completion, options) =>
 				options.isPartial ? undefined : bashFooter(result, completion),
 			warning: bashResultWarning,

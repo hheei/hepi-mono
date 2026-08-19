@@ -17,6 +17,7 @@ export interface BashOutputSinkOptions {
 export interface BashOutputResult {
 	readonly output: string;
 	readonly truncated: boolean;
+	readonly totalLines: number;
 	readonly outputUri?: OutputUri;
 }
 
@@ -29,6 +30,8 @@ export class BashOutputSink {
 	#tailLength: number = 0;
 	#pending: Buffer[] = [];
 	#totalLength: number = 0;
+	#newlineCount: number = 0;
+	#endsWithNewline: boolean = true;
 	#finished: BashOutputResult | undefined;
 
 	constructor(options: BashOutputSinkOptions = {}) {
@@ -50,6 +53,14 @@ export class BashOutputSink {
 		if (data.byteLength === 0) return;
 		const chunk = Buffer.from(data);
 		this.#totalLength += chunk.byteLength;
+		for (const byte of chunk) {
+			if (byte === 0x0a) {
+				this.#newlineCount += 1;
+				this.#endsWithNewline = true;
+			} else if (byte !== 0x0d) {
+				this.#endsWithNewline = false;
+			}
+		}
 		this.#output?.append(chunk);
 		this.#tail.push(chunk);
 		this.#tailLength += chunk.byteLength;
@@ -89,6 +100,8 @@ export class BashOutputSink {
 		return {
 			output: bytes.subarray(start).toString("utf8"),
 			truncated: this.#totalLength > this.#tailBytes,
+			totalLines:
+				this.#totalLength === 0 ? 0 : this.#newlineCount + (this.#endsWithNewline ? 0 : 1),
 			...(this.#output === undefined ? {} : { outputUri: this.#output.uri }),
 		};
 	}

@@ -77,6 +77,17 @@ function unboxedTheme(theme: Theme): Theme {
 	});
 }
 
+function toneTheme(theme: Theme, historical: boolean): Theme {
+	return new Proxy(theme, {
+		get(target, property, receiver): unknown {
+			if (property === "fg")
+				return (role: Parameters<Theme["fg"]>[0], text: string): string =>
+					role === "text" ? (historical ? target.fg("dim", text) : text) : target.fg(role, text);
+			return Reflect.get(target, property, receiver);
+		},
+	});
+}
+
 function textValue(value: unknown): string | undefined {
 	return typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
 }
@@ -120,6 +131,7 @@ function headerFor(
 	summaryOverride?: string,
 	summarySeparator: "dot" | "space" = "dot",
 	collapsed = false,
+	historical = collapsed,
 ): FrameHeader {
 	const status = statusPrefix(
 		warning ? "warning" : context.isError ? "error" : statusFor(context),
@@ -158,14 +170,16 @@ function headerFor(
 	}
 	if ((tool.name === "grep" || tool.name === "find") && pattern !== undefined) {
 		const located = path === undefined ? undefined : `${path}${targetSuffix(values)}`;
-		if (collapsed)
-			return {
-				primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${theme.fg("dim", `/${pattern}/${located === undefined ? "" : ` in ${located}`}`)}`,
-			};
+		const location =
+			located === undefined
+				? undefined
+				: historical
+					? theme.fg("dim", `in ${located}`)
+					: `in ${located}`;
 		const summary = [
 			theme.fg("toolTitle", theme.bold(tool.label)),
 			theme.fg("mdCode", `/${pattern}/`),
-			...(located === undefined ? [] : ["in", theme.fg("dim", located)]),
+			...(location === undefined ? [] : [location]),
 		].join(" ");
 		return { primary: `${status} ${summary}` };
 	}
@@ -324,14 +338,22 @@ class ToolTraceController {
 		return tool;
 	}
 
+	isPriorTrace(
+		toolCallId: string | undefined,
+		executionStarted: boolean,
+		invalidate: () => void,
+	): boolean {
+		if (toolCallId === undefined) return false;
+		return this.observe(toolCallId, executionStarted, invalidate).trace < this.trace;
+	}
+
 	isCollapsed(
 		toolCallId: string | undefined,
 		expanded: boolean,
 		executionStarted: boolean,
 		invalidate: () => void,
 	): boolean {
-		if (toolCallId === undefined) return false;
-		return !expanded && this.observe(toolCallId, executionStarted, invalidate).trace < this.trace;
+		return !expanded && this.isPriorTrace(toolCallId, executionStarted, invalidate);
 	}
 
 	completionFor(toolCallId: string): ToolCompletion | undefined {
@@ -415,10 +437,6 @@ function compactBodyLines(
 	return [truncateToWidth(hint, width, theme.fg("dim", "…")), ...visible];
 }
 
-function railRole(isError: boolean, warning: boolean): "success" | "error" {
-	return isError || warning ? "error" : "success";
-}
-
 class ToolBodySection implements Component {
 	constructor(
 		private readonly body: Component,
@@ -426,7 +444,6 @@ class ToolBodySection implements Component {
 		private readonly theme: Theme,
 		private readonly maxBodyLines: number,
 		private readonly expanded = false,
-		private readonly rail: "success" | "error" = "success",
 	) {}
 
 	bodyComponent(): Component {
@@ -441,7 +458,7 @@ class ToolBodySection implements Component {
 			: compactBodyLines(rendered, this.maxBodyLines, availableWidth, this.theme);
 		if (body.length === 0)
 			return this.footer === undefined ? [] : [this.theme.fg("dim", this.footer)];
-		const rail = this.theme.fg(this.rail, "─".repeat(availableWidth));
+		const rail = this.theme.fg("muted", "─".repeat(availableWidth));
 		return [
 			rail,
 			...body,
@@ -504,15 +521,10 @@ export function createToolTui(): ToolTui {
 						| AgentToolResult<TDetails>
 						| undefined;
 					const previewing = context.isPartial && latest === undefined;
-					const collapsed =
-						previewing || context.expanded
-							? false
-							: trace.isCollapsed(
-									context.toolCallId,
-									context.expanded,
-									context.executionStarted,
-									context.invalidate,
-								);
+					const historical = previewing
+						? false
+						: trace.isPriorTrace(context.toolCallId, context.executionStarted, context.invalidate);
+					const collapsed = !context.expanded && historical;
 					const header = headerFor(
 						tool,
 						args,
@@ -522,11 +534,13 @@ export function createToolTui(): ToolTui {
 						presentation.summary?.(args, latest, context),
 						presentation.summarySeparator,
 						collapsed,
+						historical,
 					);
 					if (collapsed) return new ToolFrameSection(undefined, theme, header, true);
+					const innerTheme = toneTheme(unboxedTheme(theme), historical);
 					const body =
 						context.isPartial && latest === undefined
-							? renderCall?.(args, unboxedTheme(theme), {
+							? renderCall?.(args, innerTheme, {
 									...context,
 									lastComponent: previousBody(context.lastComponent),
 								})
@@ -534,17 +548,7 @@ export function createToolTui(): ToolTui {
 					return new ToolFrameSection(
 						body === undefined
 							? undefined
-							: new ToolBodySection(
-									body,
-									undefined,
-									theme,
-									maxBodyLines,
-									context.expanded,
-									railRole(
-										context.isError,
-										trace.completionFor(context.toolCallId)?.warning === true,
-									),
-								),
+							: new ToolBodySection(body, undefined, theme, maxBodyLines, context.expanded),
 						theme,
 						header,
 					);
@@ -559,12 +563,12 @@ export function createToolTui(): ToolTui {
 							: { ...completion, warning: true };
 					trace.restore(context.toolCallId, result, restoredCompletion);
 					const isWarning = restoredCompletion?.warning === true;
-					const collapsed = trace.isCollapsed(
+					const historical = trace.isPriorTrace(
 						context.toolCallId,
-						context.expanded,
 						context.executionStarted,
 						context.invalidate,
 					);
+					const collapsed = !context.expanded && historical;
 					if (collapsed) {
 						const summary =
 							context.isError && !isWarning
@@ -573,18 +577,11 @@ export function createToolTui(): ToolTui {
 						return new Text(theme.fg("dim", summary), 0, 0);
 					}
 					const body =
-						renderResult?.(result, options, unboxedTheme(theme), {
+						renderResult?.(result, options, toneTheme(unboxedTheme(theme), historical), {
 							...context,
 							lastComponent: previousBody(context.lastComponent),
 						}) ?? resultFallback(result, theme);
-					return new ToolBodySection(
-						body,
-						footer,
-						theme,
-						maxBodyLines,
-						options.expanded,
-						railRole(context.isError, isWarning),
-					);
+					return new ToolBodySection(body, footer, theme, maxBodyLines, options.expanded);
 				},
 			};
 		},

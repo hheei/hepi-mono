@@ -120,6 +120,8 @@ function buildHighlightTheme(theme?: FgTheme): HighlightTheme | undefined {
 	};
 }
 
+const MAX_CACHED_HL_CHARS = 8 * 1024;
+
 export const _cache = new Map<string, string[]>();
 
 function _touch(k: string, v: string[]): string[] {
@@ -153,9 +155,12 @@ export function hlBlock(
 	const hljsLang = toHljsLang(language);
 	if (!hljsLang) return code.split("\n");
 
-	const k = `${hljsLang}\0${highlightThemeKey(theme)}\0${code}`;
-	const hit = _cache.get(k);
-	if (hit) return _touch(k, hit);
+	const cacheKey =
+		code.length <= MAX_CACHED_HL_CHARS
+			? `${hljsLang}\0${highlightThemeKey(theme)}\0${code}`
+			: undefined;
+	const hit = cacheKey === undefined ? undefined : _cache.get(cacheKey);
+	if (cacheKey !== undefined && hit !== undefined) return _touch(cacheKey, hit);
 
 	const hl = cliHighlight();
 	if (!hl) return code.split("\n");
@@ -170,7 +175,7 @@ export function hlBlock(
 			}),
 		);
 		const out = (ansi.endsWith("\n") ? ansi.slice(0, -1) : ansi).split("\n");
-		return _touch(k, out);
+		return cacheKey === undefined ? out : _touch(cacheKey, out);
 	} catch {
 		return code.split("\n");
 	}

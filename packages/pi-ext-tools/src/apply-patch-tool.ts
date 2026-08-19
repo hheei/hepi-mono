@@ -28,6 +28,7 @@ import {
 	renderApplyPatchCall,
 	renderApplyPatchResult,
 } from "./apply-patch/renderer.js";
+import { counted } from "./counted.js";
 import { rejectUnsupportedTarget } from "./targets.js";
 
 const OWNER = "@hheei/pi-ext-tools";
@@ -258,14 +259,14 @@ export function applyPatchHeader(
 	if (isApplyPatchToolDetails(details)) {
 		const progress = details.progress;
 		const files = progress?.files ?? details.changedPaths.length;
-		return `${files} files`;
+		return counted(files, "file");
 	}
 	const patch =
 		typeof args === "object" && args !== null && "patch" in args && typeof args.patch === "string"
 			? args.patch
 			: "";
 	const files = previewV4aPatchFileCount(patch, previewCursor(state));
-	return files === 0 ? undefined : `${files} files`;
+	return files === 0 ? undefined : counted(files, "file");
 }
 
 function previewCursor(state: unknown): V4aPreviewCursor {

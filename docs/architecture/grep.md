@@ -80,7 +80,7 @@ read({ path: "output://7", offset: 120, limit: 77 })
 
 ## TUI
 
-`renderCall` 显示 `grep /PATTERN/ in path`：`grep` 使用原工具的 accent、pattern 使用 `mdCode`、` in ` 使用基础 text、path 使用 `dim`。`renderResult` 显示 compact result、cap/recovery 状态；未展开时**整个 result 最多 15 行**，包括 expansion hint。每个文件块的 path 使用 `mdCode`；行号和 `│` 使用 `dim` 并按该文件最大行号宽度右对齐；普通文本使用基础 text，`submatches` 使用 `success` highlight。Pi 的 `expanded` state 仍可展开已保存的 tool result。颜色不是唯一的信息载体；path、match/context 结构和 omission marker 必须在无颜色时可读。
+`renderCall` 显示 `grep /PATTERN/ in path`：`grep` 使用原工具的 accent、pattern 使用 `mdCode`、`in path` 与 body path 使用终端默认色（跨 Trace 为 `dim`），不套 theme `text`。find 与 bash 正文遵循同一套 tone。`renderResult` 显示 compact result、cap/recovery 状态；未展开时**整个 result 最多 15 行**，包括 expansion hint。每个文件块的 path 相对于 grep `path`；搜单个文件时省略 path heading。行号和 `│` 使用 `dim` 并按该文件最大行号宽度右对齐；`submatches` 使用 `success` highlight。Pi 的 `expanded` state 仍可展开已保存的 tool result。颜色不是唯一的信息载体；path、match/context 结构和 omission marker 必须在无颜色时可读。
 
 当下一 Trace 的 `agent_start` 到来且 Pi 全局 tools 未展开时，已完成的 grep block 收起为 header、rule、`N matches · M files · duration`；FFF fuzzy fallback 使用 `N fuzzies · M files · duration`。展开时继续显示完整 block。
 
