@@ -91,7 +91,6 @@ export function registerHandoffCommand(
 	pi: ExtensionAPI,
 	deps: RegisterHandoffDeps,
 ): void {
-	registerHandoffRenderers(pi);
 	pi.registerCommand("handoff", {
 		description:
 			"Create a clean continuation session from a historian wrapup and current-model summary",
@@ -105,35 +104,39 @@ export function registerHandoffCommand(
 	});
 }
 
-export function registerHandoffRenderers(pi: ExtensionAPI): void {
-	if (typeof pi.registerEntryRenderer === "function") {
-		pi.registerEntryRenderer(HANDOFF_REQUEST_TYPE, (entry, options, theme) => {
-			const record = entry.data as HandoffRequestRecord;
-			return options.expanded
-				? renderHandoffRequestExpanded(record, theme)
-				: renderHandoffRequestCollapsed(record, theme);
-		});
-		pi.registerEntryRenderer(HANDOFF_ATTEMPT_TYPE, (entry, _options, theme) =>
-			renderHandoffAttemptCollapsed(entry.data as HandoffAttemptRecord, theme),
-		);
-	}
-	if (typeof pi.registerMessageRenderer === "function") {
-		pi.registerMessageRenderer(HANDOFF_CONTEXT_TYPE, (entry, options, theme) => {
-			const details = entry.details as HandoffContextDetails;
-			const xml =
-				typeof entry.content === "string"
-					? entry.content
-					: Array.isArray(entry.content)
-						? String(
-								(entry.content.find((part) => part.type === "text") as { text?: string } | undefined)
-									?.text ?? "",
-							)
-						: "";
-			return options.expanded
-				? renderHandoffContextExpanded(xml, theme)
-				: renderHandoffContextCollapsed(details, extractSummary(xml), theme);
-		});
-	}
+export async function publishHandoffContext(
+	ctx: {
+		sendMessage: (
+			message: {
+				customType: string;
+				content: unknown;
+				display?: boolean;
+				details?: unknown;
+			},
+			options?: { triggerTurn?: boolean },
+		) => unknown;
+		sessionManager: {
+			getSessionFile(): string | undefined;
+			getHeader(): SessionHeader | null;
+			getEntries(): readonly unknown[];
+		};
+	},
+	xml: string,
+	details: HandoffContextDetails,
+): Promise<void> {
+	await ctx.sendMessage(
+		{
+			customType: HANDOFF_CONTEXT_TYPE,
+			content: handoffContextContent({
+				xml,
+				images: details.images,
+			}) as never,
+			display: true,
+			details,
+		},
+		{ triggerTurn: false },
+	);
+	persistHandoffSession(ctx.sessionManager);
 }
 
 export function branchHasHandoffContext(ctx: ExtensionContext): boolean {
@@ -772,16 +775,7 @@ async function replaceSession(
 					destWarn(payloadError, "new-request");
 					return;
 				}
-				writable.appendCustomMessageEntry(
-					HANDOFF_CONTEXT_TYPE,
-					handoffContextContent({
-						xml,
-						images: details.images,
-					}) as never,
-					true,
-					details,
-				);
-				persistHandoffSession(writable);
+				await publishHandoffContext(replacement, xml, details);
 			},
 		});
 		if (created.cancelled && ctx.sessionManager.getSessionFile() === sourcePath) {
@@ -923,14 +917,7 @@ async function finalizeCurrentAttempt(
 		tokens: request.snapshot.tokens,
 		images: collectHandoffImages(request.snapshot.recentMessages),
 	};
-	const writable = ctx.sessionManager as SessionManager;
-	writable.appendCustomMessageEntry(
-		HANDOFF_CONTEXT_TYPE,
-		handoffContextContent({ xml, images: details.images }) as never,
-		true,
-		details,
-	);
-	persistHandoffSession(writable);
+	await publishHandoffContext(ctx, xml, details);
 	void pi;
 }
 
@@ -1175,11 +1162,6 @@ function latestAttempt(
 	records: readonly HandoffAttemptRecord[],
 ): HandoffAttemptRecord | undefined {
 	return records.length === 0 ? undefined : records[records.length - 1];
-}
-
-function extractSummary(xml: string): string {
-	const match = xml.match(/<handoff-summary>\s*([\s\S]*?)\s*<\/handoff-summary>/);
-	return match?.[1] ?? "";
 }
 
 function sessionIsPersisted(

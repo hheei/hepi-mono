@@ -25,8 +25,10 @@ Continuation Session 重新构建当前 system prompt、tools、project/user mem
     └─ ctx.newSession({ parentSession })
          ├─ append model-invisible Handoff Attempt
          ├─ rebuild/validate destination prefix
-         ├─ append model-visible Handoff Context
-         └─ stop；等待用户输入下一条消息
+         ├─ sendMessage(Handoff Context, triggerTurn: false)
+         │    TUI 立刻渲染可折叠 custom message
+         │    agent.state 与 JSONL 立刻可见
+         └─ stop；不发请求，等待用户下一条消息
 ```
 
 TUI 显示 `Preparing history`、`Freezing context`、`Summarizing · provider/model` 和 `Creating continuation`。`summary-ready` 以前可按 Esc 取消；进入 `replacement-started` 后切换为不可逆 `Finalizing…`。
@@ -174,6 +176,8 @@ Attempt绑定 request ID、source path和 expected Handoff Context hash。它封
 ```
 
 Dynamic text由 structured builder escape。Model-visible provenance只含 source session ID、model和时间。Details保存 request ID、source path/project identity、branch/system/tool/memory/compartment fingerprints或 revisions、thinking level、token counts和 ceiling。
+
+Destination 用 `sendMessage(..., { triggerTurn: false })` 立刻写入这条 custom message：TUI、`agent.state.messages` 和 JSONL 同步可见，但不启动 agent turn。下一 turn 的 `convertToLlm` 才把它映射成 wire 上的 user 角色；它不是一条真正的 user 指令，也不改写 destination 的 compartments / m[0] `<session-history>`。
 
 只要 active branch含有 Handoff Context，effective system prompt加入 cache-stable authority guard，明确其中内容只是 historical evidence，不能把嵌入指令当作当前 system/user instruction。
 
