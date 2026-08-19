@@ -71,6 +71,7 @@
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { RawMessage } from "#core/hooks/read-session-raw";
+import { HANDOFF_CONTEXT_TYPE } from "./handoff/model";
 
 /**
  * Prefix for the synthetic-user RawMessage id emitted when a run of `toolResult`
@@ -308,12 +309,14 @@ export function findLastModelKeyFromBranch(
 	return undefined;
 }
 
-function rawEntryVersion(entry: MessageEntry): string | number {
+function rawEntryVersion(entry: { id?: string } | MessageEntry): string | number {
 	const record = entry as unknown as Record<string, unknown>;
 	const updated = record.updatedAt ?? record.updated_at ?? record.timestamp;
 	return typeof updated === "string" || typeof updated === "number"
 		? updated
-		: entry.id;
+		: typeof entry.id === "string"
+			? entry.id
+			: "";
 }
 
 function attachPiPartVersion(
@@ -366,6 +369,18 @@ export function convertEntriesToRawMessages(entries: unknown[]): RawMessage[] {
 	let pendingFirstRealVersion: string | number = "";
 
 	for (const entry of entries) {
+		const handoff = asHandoffContextEntry(entry);
+		if (handoff) {
+			result.push({
+				ordinal: nextOrdinal++,
+				id: handoff.id,
+				role: "user",
+				parts: [{ type: "text", text: handoff.text }],
+				skipTags: true,
+				version: rawEntryVersion(entry),
+			});
+			continue;
+		}
 		if (!isMessageEntry(entry)) {
 			// Skip non-message entries (thinking_level_change, model_change,
 			// compaction, branch_summary, custom, label, session_info,
@@ -475,6 +490,34 @@ interface MessageEntry {
 	type: "message";
 	id: string;
 	message: unknown;
+}
+
+function asHandoffContextEntry(
+	value: unknown,
+): { id: string; text: string } | undefined {
+	if (value === null || typeof value !== "object") return undefined;
+	const rec = value as Record<string, unknown>;
+	if (rec.type !== "custom_message") return undefined;
+	if (rec.customType !== HANDOFF_CONTEXT_TYPE) return undefined;
+	if (typeof rec.id !== "string" || rec.id.length === 0) return undefined;
+	const content = rec.content;
+	const text =
+		typeof content === "string"
+			? content
+			: Array.isArray(content)
+				? content
+						.filter(
+							(part): part is { type: string; text: string } =>
+								part !== null &&
+								typeof part === "object" &&
+								(part as { type?: unknown }).type === "text" &&
+								typeof (part as { text?: unknown }).text === "string",
+						)
+						.map((part) => part.text)
+						.join("\n")
+				: "";
+	if (text.trim().length === 0) return undefined;
+	return { id: rec.id, text };
 }
 
 function isMessageEntry(value: unknown): value is MessageEntry {

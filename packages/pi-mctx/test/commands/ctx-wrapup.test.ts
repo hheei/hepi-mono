@@ -209,7 +209,9 @@ describe("Pi /ctx-wrapup", () => {
 				2,
 			);
 
-			expect(result).toContain("only available in primary sessions");
+			expect(result.ok).toBe(false);
+			expect(result.kind).toBe("blocked");
+			expect(result.message).toContain("only available in primary sessions");
 			expect(runPiHistorianForWrapup).not.toHaveBeenCalled();
 		} finally {
 			closeQuietly(db);
@@ -230,9 +232,11 @@ describe("Pi /ctx-wrapup", () => {
 				2,
 			);
 
-			expect(result).toContain("## Magic Wrapup — Partial");
-			expect(result).toContain("No forward progress");
-			expect(result).toContain("Run /ctx-wrapup again to continue");
+			expect(result.ok).toBe(false);
+			expect(result.kind).toBe("partial");
+			expect(result.message).toContain("## Magic Wrapup — Partial");
+			expect(result.message).toContain("No forward progress");
+			expect(result.message).toContain("Run /ctx-wrapup again to continue");
 			const row = db
 				.prepare(
 					"SELECT wrapup_in_progress_state FROM session_meta WHERE session_id = ?",
@@ -265,8 +269,10 @@ describe("Pi /ctx-wrapup", () => {
 				2,
 			);
 
-			expect(result).toContain("## Magic Wrapup — Partial");
-			expect(result).toContain("Timed out waiting");
+			expect(result.ok).toBe(false);
+			expect(result.kind).toBe("partial");
+			expect(result.message).toContain("## Magic Wrapup — Partial");
+			expect(result.message).toContain("Timed out waiting");
 			expect(runPiHistorianForWrapup).not.toHaveBeenCalled();
 			expect(getWrapupInProgressState(db, sessionId)).toBeNull();
 			releaseCompartmentLease(db, sessionId, foreignHolder);
@@ -292,7 +298,7 @@ describe("Pi /ctx-wrapup", () => {
 				2,
 			);
 
-			expect(result).toContain("## Magic Wrapup");
+			expect(result.message).toContain("## Magic Wrapup");
 			expect(consumeDeferredHistoryRefresh(sessionId)).toBe(true);
 			expect(consumeDeferredMaterialization(sessionId)).toBe(true);
 		} finally {
@@ -357,8 +363,10 @@ describe("Pi /ctx-wrapup", () => {
 				2,
 			);
 
-			expect(result).toContain("## Magic Wrapup — Partial");
-			expect(result).toContain(
+			expect(result.ok).toBe(false);
+			expect(result.kind).toBe("partial");
+			expect(result.message).toContain("## Magic Wrapup — Partial");
+			expect(result.message).toContain(
 				"another process took over this session's wrapup",
 			);
 			expect(calls).toBe(1);
@@ -400,8 +408,9 @@ describe("Pi /ctx-wrapup", () => {
 				2,
 			);
 
-			expect(result).toContain("## Magic Wrapup");
-			expect(result).not.toContain("## Magic Wrapup — Partial");
+			expect(result.ok).toBe(true);
+			expect(result.message).toContain("## Magic Wrapup");
+			expect(result.message).not.toContain("## Magic Wrapup — Partial");
 			expect(getLastCompartmentEndMessage(db, sessionId)).toBe(6);
 			expect(getPendingPiCompactionMarkerState(db, sessionId)).toEqual(
 				expect.objectContaining({ ordinal: 6, endMessageId: "m-6" }),
@@ -426,9 +435,11 @@ describe("Pi /ctx-wrapup", () => {
 				3,
 			);
 
-			expect(result).toContain("## Magic Wrapup — Partial");
-			expect(result).toContain("No runnable wrapup boundary");
-			expect(result).toContain("Run /ctx-wrapup again");
+			expect(result.ok).toBe(false);
+			expect(result.kind).toBe("partial");
+			expect(result.message).toContain("## Magic Wrapup — Partial");
+			expect(result.message).toContain("No runnable wrapup boundary");
+			expect(result.message).toContain("Run /ctx-wrapup again");
 			expect(getLastCompartmentEndMessage(db, sessionId)).toBe(-1);
 			expect(getOverflowState(db, sessionId).needsEmergencyRecovery).toBe(true);
 		} finally {

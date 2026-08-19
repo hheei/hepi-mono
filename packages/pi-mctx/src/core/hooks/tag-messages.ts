@@ -87,6 +87,8 @@ export type MessageInfo = {
     summary?: boolean;
     /** Marks one of the two m[0]/m[1] messages prepended by compartment injection. */
     syntheticHead?: boolean;
+    skipTags?: boolean;
+    customType?: string;
     finish?: string;
     error?: unknown;
 };
@@ -247,6 +249,16 @@ function extractToolTagMetadata(part: unknown): {
     };
 }
 
+function isHandoffHistoricalMessage(message: MessageLike): boolean {
+    if (message.info.skipTags === true) return true;
+    if (message.info.customType === "magic-context:handoff") return true;
+    return message.parts.some((part) => {
+        if (!isTextPart(part)) return false;
+        const text = typeof part.text === "string" ? part.text : "";
+        return text.includes("<handoff-context>");
+    });
+}
+
 export interface TagMessagesOptions {
     /**
      * When true, skip injecting §N§ prefix into message text/tool output parts.
@@ -327,6 +339,9 @@ export function tagMessages(
     for (let msgIndex = 0; msgIndex < messages.length; msgIndex++) {
         const message = messages[msgIndex];
         const messageId = typeof message.info.id === "string" ? message.info.id : null;
+        if (isHandoffHistoricalMessage(message)) {
+            continue;
+        }
 
         if (message.info.role === "user") {
             precedingThinkingParts = [];
