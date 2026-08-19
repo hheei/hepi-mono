@@ -102,12 +102,6 @@ export function rejectUnsupportedTarget(tool: string, params: unknown): void {
 	throw new TargetError("unauthorized", `${tool} does not support remote or output targets.`);
 }
 
-export function formatTargetLocation(target: string | undefined, path: string | undefined): string {
-	const alias = target === undefined || target === LOCAL_TARGET ? undefined : target;
-	if (path === undefined || path === "") return alias === undefined ? "" : `@${alias}`;
-	return alias === undefined ? path : `${path} @${alias}`;
-}
-
 export function remoteShellQuote(value: string): string {
 	return `'${value.replaceAll("'", "'\\''")}'`;
 }
@@ -297,6 +291,7 @@ export class TargetRuntime {
 	#persistedCount = 0;
 	#persistedBytes = 0;
 	#warningShown = false;
+	#persistWarningShown = false;
 	#closed = false;
 
 	private constructor(options: TargetRuntimeOptions, allowedHosts: readonly string[]) {
@@ -357,6 +352,12 @@ export class TargetRuntime {
 		this.#notify(message, "warning");
 	}
 
+	private warnNonPersistent(): void {
+		if (this.#persistWarningShown) return;
+		this.#persistWarningShown = true;
+		this.#notify("Unable to persist output; it remains available only in this session.", "warning");
+	}
+
 	isRemoteTarget(target: string | undefined): boolean {
 		return target !== undefined && target !== LOCAL_TARGET && target !== OUTPUT_TARGET;
 	}
@@ -381,20 +382,20 @@ export class TargetRuntime {
 		this.#outputUris.set(id, uri);
 		const bytes = Buffer.byteLength(text, "utf8");
 		const sidecar = this.#sidecarPath;
+		if (sidecar === undefined) return { id, uri, persistent: false };
 		const canPersist =
-			sidecar !== undefined &&
 			bytes <= MAX_OUTPUT_BYTES_EACH &&
 			this.#persistedCount < MAX_OUTPUTS &&
 			this.#persistedBytes + bytes <= MAX_OUTPUT_BYTES;
-		if (!canPersist || sidecar === undefined) return { id, uri, persistent: false };
+		if (!canPersist) {
+			this.warnNonPersistent();
+			return { id, uri, persistent: false };
+		}
 		const record = `${JSON.stringify({ id, text } satisfies OutputRecord)}\n`;
 		try {
 			appendFileSync(sidecar, record, "utf8");
 		} catch {
-			this.#notify(
-				`Unable to persist output ${id}; it remains available only in this session.`,
-				"warning",
-			);
+			this.warnNonPersistent();
 			return { id, uri, persistent: false };
 		}
 		this.#persistedCount += 1;

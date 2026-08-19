@@ -62,6 +62,9 @@ export const APPLY_PATCH_TOOL_REGISTRATION: ManagedLoadoutToolRegistration = {
 export const APPLY_PATCH_PARAMETERS = Type.Object(
 	{
 		patch: Type.String({ description: APPLY_PATCH_PARAMETER_DESCRIPTION }),
+		target: Type.Optional(
+			Type.String({ description: "Unsupported; apply_patch only runs on the local workspace." }),
+		),
 	},
 	{ additionalProperties: false },
 );
@@ -96,14 +99,10 @@ export function modifiesOutputPath(patch: string): boolean {
 }
 
 function parseApplyPatchParameters(params: unknown): ApplyPatchParameters {
-	if (
-		typeof params !== "object" ||
-		params === null ||
-		Array.isArray(params) ||
-		Object.keys(params).length !== 1 ||
-		!("patch" in params) ||
-		typeof params.patch !== "string"
-	)
+	if (typeof params !== "object" || params === null || Array.isArray(params))
+		throw new Error("apply_patch requires exactly one string parameter: patch");
+	const keys = Object.keys(params).filter((key) => key !== "target");
+	if (keys.length !== 1 || !("patch" in params) || typeof params.patch !== "string")
 		throw new Error("apply_patch requires exactly one string parameter: patch");
 	return { patch: params.patch };
 }

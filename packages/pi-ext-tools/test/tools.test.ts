@@ -533,7 +533,7 @@ describe("pi-ext-tools catalog", () => {
 		expect(applyPatch.parameters).toMatchObject({
 			additionalProperties: false,
 			required: ["patch"],
-			properties: { patch: { type: "string" } },
+			properties: { patch: { type: "string" }, target: { type: "string" } },
 		});
 		const parameters: unknown = applyPatch.parameters;
 		if (
@@ -544,7 +544,7 @@ describe("pi-ext-tools catalog", () => {
 			parameters.properties === null
 		)
 			throw new Error("apply_patch parameters are missing object properties");
-		expect(Object.keys(parameters.properties)).toEqual(["patch"]);
+		expect(Object.keys(parameters.properties)).toEqual(["patch", "target"]);
 		expect("prepareArguments" in applyPatch).toBe(false);
 	});
 

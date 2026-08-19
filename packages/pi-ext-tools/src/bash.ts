@@ -37,8 +37,11 @@ const BASH_PROMPT_GUIDELINES = [
 const BASH_TIMEOUT_DESCRIPTION = "Timeout in seconds (optional, no default timeout)";
 const RTK_REWRITE_TIMEOUT_MS = 1_000;
 const Timeout = Type.Optional(Type.Number({ description: BASH_TIMEOUT_DESCRIPTION }));
+const Target = Type.Optional(
+	Type.String({ description: "Unsupported; bash only runs on the local workspace." }),
+);
 const DefaultInput = Type.Object(
-	{ command: Type.String(), timeout: Timeout },
+	{ command: Type.String(), timeout: Timeout, target: Target },
 	{ additionalProperties: false },
 );
 const AsyncInput = Type.Object(
@@ -47,6 +50,7 @@ const AsyncInput = Type.Object(
 		timeout: Timeout,
 		async: Type.Literal(true),
 		pty: Type.Optional(Type.Literal(false)),
+		target: Target,
 	},
 	{ additionalProperties: false },
 );
@@ -56,6 +60,7 @@ const PtyInput = Type.Object(
 		timeout: Timeout,
 		pty: Type.Literal(true),
 		async: Type.Optional(Type.Literal(false)),
+		target: Target,
 	},
 	{ additionalProperties: false },
 );

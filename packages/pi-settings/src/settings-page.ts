@@ -452,7 +452,26 @@ export async function createSettingsPage(
 		error = undefined;
 		requestRender();
 	};
-	const commitListItem = (): void => {
+	const applyListDraft = async (next: readonly string[]): Promise<boolean> => {
+		const row = editing;
+		if (row === undefined || row.field.type !== "list") return false;
+		try {
+			const validation = row.field.validate?.(next as never);
+			if (validation !== undefined) throw new Error(validation);
+			const state = updateValue(draft, row, [...next]);
+			await provider.storage.validate?.(cloneState(state), hepiContext);
+			draft = state;
+			listDraft = [...next];
+			error = undefined;
+			requestRender();
+			return true;
+		} catch (cause: unknown) {
+			error = readableError(cause);
+			requestRender();
+			return false;
+		}
+	};
+	const commitListItem = async (): Promise<void> => {
 		if (listDraft === undefined || listItemEditor === undefined || listItemIndex === undefined)
 			return;
 		const value = listItemEditor.getValue().trim();
@@ -468,27 +487,11 @@ export async function createSettingsPage(
 		}
 		const next = [...listDraft];
 		next[listItemIndex] = value;
-		listDraft = next;
+		if (!(await applyListDraft(next))) return;
 		listIndex = listItemIndex;
 		listItemEditor = undefined;
 		listItemIndex = undefined;
-		error = undefined;
 		requestRender();
-	};
-	const commitList = async (): Promise<void> => {
-		const row = editing;
-		if (row === undefined || row.field.type !== "list" || listDraft === undefined) return;
-		try {
-			const validation = row.field.validate?.(listDraft as never);
-			if (validation !== undefined) throw new Error(validation);
-			const next = updateValue(draft, row, listDraft);
-			await provider.storage.validate?.(cloneState(next), hepiContext);
-			draft = next;
-			cancelEdit();
-		} catch (cause: unknown) {
-			error = readableError(cause);
-			requestRender();
-		}
 	};
 	const cycleEditor = (direction: number): void => {
 		if (editing?.field.type !== "enum" || editor === undefined) return;
@@ -511,8 +514,8 @@ export async function createSettingsPage(
 	};
 	const commitEdit = async (): Promise<void> => {
 		if (editing?.field.type === "list") {
-			if (listItemEditor !== undefined) commitListItem();
-			else await commitList();
+			if (listItemEditor !== undefined) await commitListItem();
+			else cancelEdit();
 			return;
 		}
 		const row = editing;
@@ -687,7 +690,7 @@ export async function createSettingsPage(
 						listItemIndex = undefined;
 						error = undefined;
 						requestRender();
-					} else if (matchesKey(input, Key.enter)) commitListItem();
+					} else if (matchesKey(input, Key.enter)) await commitListItem();
 					else {
 						listItemEditor.handleInput(input);
 						requestRender();
@@ -704,18 +707,16 @@ export async function createSettingsPage(
 				} else if (matchesKey(input, Key.enter)) startListItemEdit(listIndex);
 				else if (input === "a") startListItemEdit(listDraft?.length ?? 0);
 				else if (input === "d" && listDraft !== undefined && listDraft.length > 0) {
-					listDraft = listDraft.filter((_item, index) => index !== listIndex);
-					listIndex = Math.max(0, Math.min(listIndex, listDraft.length - 1));
-					requestRender();
+					const next = listDraft.filter((_item, index) => index !== listIndex);
+					if (await applyListDraft(next))
+						listIndex = Math.max(0, Math.min(listIndex, next.length - 1));
 				} else if (input === "\x1b[1;5A" && listDraft !== undefined && listIndex > 0) {
 					const next = [...listDraft];
 					const previous = next[listIndex - 1];
 					const current = next[listIndex];
 					if (previous === undefined || current === undefined) return true;
 					[next[listIndex - 1], next[listIndex]] = [current, previous];
-					listDraft = next;
-					listIndex -= 1;
-					requestRender();
+					if (await applyListDraft(next)) listIndex -= 1;
 				} else if (
 					input === "\x1b[1;5B" &&
 					listDraft !== undefined &&
@@ -726,9 +727,7 @@ export async function createSettingsPage(
 					const following = next[listIndex + 1];
 					if (current === undefined || following === undefined) return true;
 					[next[listIndex], next[listIndex + 1]] = [following, current];
-					listDraft = next;
-					listIndex += 1;
-					requestRender();
+					if (await applyListDraft(next)) listIndex += 1;
 				}
 				return true;
 			}

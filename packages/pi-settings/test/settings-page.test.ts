@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { ExtensionPageViewContext, HepiSettingsProvider } from "@hheei/pi-ext-core";
+import type {
+	ExtensionPageViewContext,
+	HepiSettingsProvider,
+	HepiSettingsState,
+} from "@hheei/pi-ext-core";
 import { replayTui, viewFrame } from "../../pi-debug/src/tui-replay.js";
 import { createSettingsPage } from "../src/settings-page.js";
 
@@ -273,5 +277,52 @@ describe("Settings provider page", () => {
 		const advanced = page.component.render(48).join("\n");
 		expect(advanced).not.toBe(initial);
 		await page.close();
+	});
+
+	test("adds, reorders, and deletes list items, then persists them", async () => {
+		const saved: HepiSettingsState[] = [];
+		const provider: HepiSettingsProvider = {
+			id: "targets",
+			title: "Targets",
+			groups: [
+				{
+					id: "targets",
+					title: "Targets",
+					fields: [
+						{
+							id: "sshWhitelist",
+							label: "SSH target whitelist",
+							type: "list",
+							defaultValue: ["dev"],
+							description: "Authorized SSH aliases for this list-editor fixture.",
+							parse: (value) => JSON.parse(value) as string[],
+						},
+					],
+				},
+			],
+			storage: {
+				load: () => ({ targets: { sshWhitelist: ["dev"] } }),
+				save: (state) => {
+					saved.push(state);
+				},
+			},
+		};
+		const page = await createSettingsPage({ list: () => [provider] } as never, context().value);
+		await page.handleInput(" ");
+		expect(page.component.render(80).join("\n")).toContain("dev");
+		await page.handleInput("a");
+		for (const character of "prod") await page.handleInput(character);
+		await page.handleInput("\r");
+		expect(page.component.render(80).join("\n")).toContain("prod");
+		await page.handleInput("\x1b[1;5A");
+		await page.handleInput("\u001b[B");
+		await page.handleInput("d");
+		await page.handleInput("a");
+		await page.handleInput("\r");
+		expect(page.component.render(80).join("\n")).toContain("List items cannot be empty");
+		await page.handleInput("\u001b");
+		await page.handleInput("\u001b");
+		expect(await page.handleInput("\u001b[C")).toBe(false);
+		expect(saved.at(-1)).toEqual({ targets: { sshWhitelist: ["prod"] } });
 	});
 });

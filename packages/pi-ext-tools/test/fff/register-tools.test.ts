@@ -578,10 +578,12 @@ describe("FFF tool registration", () => {
 			};
 			expect(
 				details.display.some((line) =>
-					/^\+1 matches omitted -> output:\/\/\d+:\d+-\d+$/.test(line.text),
+					/^\+1 matches omitted -> target=output path=\S+:\d+-\d+$/.test(line.text),
 				),
 			).toBe(true);
-			expect(outputs.read(details.recovery.output)).toContain("26:needle");
+			expect(details.recovery.output.startsWith("target=output path=")).toBe(true);
+			const recoveryId = details.recovery.output.slice("target=output path=".length);
+			expect(outputs.read(`output://${recoveryId}`)).toContain("26:needle");
 		} finally {
 			outputs.dispose();
 			await rm(cwd, { recursive: true, force: true });
