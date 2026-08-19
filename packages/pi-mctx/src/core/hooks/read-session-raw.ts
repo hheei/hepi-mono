@@ -4,6 +4,7 @@ export interface RawMessageParts {
     parts: unknown[];
     createdAt?: number | null;
     version?: string | number | null;
+    skipTags?: boolean;
 }
 
 export interface RawMessage extends RawMessageParts {

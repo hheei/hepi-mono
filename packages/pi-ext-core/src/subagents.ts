@@ -886,6 +886,7 @@ function startCompletion(
 							},
 							{
 								signal: controller.signal,
+								...(spec.thinkingLevel === "off" ? {} : { reasoning: spec.thinkingLevel }),
 								...(auth.apiKey === undefined ? {} : { apiKey: auth.apiKey }),
 								...(auth.headers === undefined ? {} : { headers: auth.headers }),
 								...(auth.env === undefined ? {} : { env: auth.env }),
@@ -901,7 +902,12 @@ function startCompletion(
 										mode: "completion",
 										status: "failed",
 										output: "",
-										failure: invalidResponseFailure("Completion produced no final text"),
+										failure: invalidResponseFailure(
+											message.errorMessage?.trim() ||
+												(message.stopReason === "stop"
+													? "Completion produced no final text"
+													: `Completion stopped with ${message.stopReason}`),
+										),
 									};
 					}
 				}

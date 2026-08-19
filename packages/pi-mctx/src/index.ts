@@ -14,6 +14,11 @@
  */
 
 import { createRequire } from "node:module";
+import {
+	ensureSubagentCoordinator,
+	registerExtensionLifecycle,
+	type ExtensionLifecycleContext,
+} from "@hheei/pi-ext-core";
 import { join } from "node:path";
 import type {
 	CustomMessage,
@@ -95,6 +100,21 @@ import { registerCtxRecompCommand } from "./commands/ctx-recomp";
 import { registerCtxSessionUpgradeCommand } from "./commands/ctx-session-upgrade";
 import { registerCtxStatusCommand } from "./commands/ctx-status";
 import { registerCtxWrapupCommand } from "./commands/ctx-wrapup";
+import {
+	branchHasHandoffContext,
+	registerHandoffCommand,
+} from "./handoff/command";
+import {
+	renderHandoffAttempt,
+	renderHandoffContext,
+	renderHandoffRequest,
+} from "./handoff/render";
+import {
+	applyHandoffAuthorityGuard,
+	HANDOFF_ATTEMPT_TYPE,
+	HANDOFF_CONTEXT_TYPE,
+	HANDOFF_REQUEST_TYPE,
+} from "./handoff/model";
 import {
 	registerCtxStatusEntryRenderer,
 	sendCtxStatusMessage,
@@ -320,6 +340,13 @@ export const __test = {
 	markPiMagicContextActive,
 	clearPiMagicContextActive,
 };
+
+function appendHandoffAuthorityGuard(
+	systemPrompt: string,
+	ctx: { sessionManager?: { getEntries?: () => unknown[] } },
+): string {
+	return applyHandoffAuthorityGuard(systemPrompt, branchHasHandoffContext(ctx));
+}
 
 function formatTokens(value: number): string {
 	return value.toLocaleString();
@@ -675,6 +702,8 @@ export default async function (pi: ExtensionAPI): Promise<void> {
  * Extracted so a healed re-probe from the fail-closed surface can start the
  * runtime without requiring a process restart.
  */
+let handoffLifecycle: ExtensionLifecycleContext | undefined;
+
 async function startPiMagicContextRuntime(
 	pi: ExtensionAPI,
 	database: ContextDatabase,
@@ -682,6 +711,16 @@ async function startPiMagicContextRuntime(
 	config: MagicContextConfig,
 ): Promise<void> {
 	const db = database;
+	registerExtensionLifecycle(pi, {
+		key: "@hheei/pi-mctx/handoff",
+		start(context) {
+			ensureSubagentCoordinator(context);
+			handoffLifecycle = context;
+			context.resources.add("handoff-lifecycle", () => {
+				if (handoffLifecycle === context) handoffLifecycle = undefined;
+			});
+		},
+	});
 	pi.registerMessageRenderer(
 		CHANNEL1_NUDGE_CUSTOM_TYPE,
 		renderChannel1Nudge,
@@ -690,6 +729,9 @@ async function startPiMagicContextRuntime(
 		CHANNEL2_NUDGE_CUSTOM_TYPE,
 		renderChannel1Nudge,
 	);
+	pi.registerEntryRenderer(HANDOFF_REQUEST_TYPE, renderHandoffRequest);
+	pi.registerEntryRenderer(HANDOFF_ATTEMPT_TYPE, renderHandoffAttempt);
+	pi.registerMessageRenderer(HANDOFF_CONTEXT_TYPE, renderHandoffContext);
 
 	scheduleAfterBootQuiet(() => {
 		void (async () => {
@@ -1130,6 +1172,55 @@ async function startPiMagicContextRuntime(
 	});
 	info("registered /ctx-wrapup");
 
+	registerHandoffCommand(pi, {
+		db,
+		runner: wrapupRunner,
+		historianModel: bootProjectDeps.historianConfig?.model,
+		historianChunkTokens: deriveHistorianChunkTokens(
+			resolveHistorianContextLimit(bootProjectDeps.historianConfig?.model),
+		),
+		historianFallbacks: bootProjectDeps.historianConfig?.fallbackModels,
+		historianTimeoutMs: bootProjectDeps.config.historian_timeout_ms,
+		historianThinkingLevel: bootProjectDeps.historianConfig?.thinkingLevel,
+		language: bootProjectDeps.config.language,
+		memoryEnabled: bootProjectDeps.config.memory.enabled,
+		autoPromote: bootProjectDeps.config.memory.auto_promote,
+		compactionOff,
+		userMemoriesEnabled: userMemoryCollectionEnabled(
+			bootProjectDeps.config.dreamer,
+		),
+		executeThresholdPercentage:
+			bootProjectDeps.config.execute_threshold_percentage,
+		executeThresholdTokens: bootProjectDeps.config.execute_threshold_tokens,
+		get lifecycle() {
+			return handoffLifecycle;
+		},
+		resolveRuntimeDeps: (ctx) => {
+			const current = resolveCurrentProjectDeps(ctx);
+			return {
+				db,
+				runner: wrapupRunner,
+				historianModel: current.historianConfig?.model,
+				historianChunkTokens: deriveHistorianChunkTokens(
+					resolveHistorianContextLimit(current.historianConfig?.model),
+				),
+				historianFallbacks: current.historianConfig?.fallbackModels,
+				historianTimeoutMs: current.config.historian_timeout_ms,
+				historianThinkingLevel: current.historianConfig?.thinkingLevel,
+				language: current.config.language,
+				memoryEnabled: current.config.memory.enabled,
+				autoPromote: current.config.memory.auto_promote,
+				compactionOff,
+				userMemoriesEnabled: userMemoryCollectionEnabled(
+					current.config.dreamer,
+				),
+				executeThresholdPercentage: current.config.execute_threshold_percentage,
+				executeThresholdTokens: current.config.execute_threshold_tokens,
+			};
+		},
+	});
+	info("registered /handoff");
+
 	// E6b/E6c: /ctx-session-upgrade — full recomp (legacy→v2 tiered) + once-per-
 	// project memory migration into the 5-category taxonomy. Own runner instance
 	// for the same isolation reasons as /ctx-recomp.
@@ -1489,15 +1580,18 @@ async function startPiMagicContextRuntime(
 			// composed string so even sessions with no data block (e.g.
 			// memories disabled, no docs, no key files) still get
 			// sticky-date freezing and hash-change tracking.
-			const composedPrompt = block
-				? `${event.systemPrompt}\n\n${block}`
-				: event.systemPrompt;
+			const composedPrompt = appendHandoffAuthorityGuard(
+				block ? `${event.systemPrompt}\n\n${block}` : event.systemPrompt,
+				ctx,
+			);
 
 			if (!sessionId) {
 				// No session id yet — return the composed prompt without
 				// cache logic. The next turn (with a session id) will
 				// compute the first hash and set sticky date.
-				if (block) return { systemPrompt: composedPrompt };
+				if (composedPrompt !== event.systemPrompt) {
+					return { systemPrompt: composedPrompt };
+				}
 				return;
 			}
 

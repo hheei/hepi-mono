@@ -176,14 +176,32 @@ export function registerCtxWrapupCommand(
 			);
 			sendCtxStatusMessage(pi, {
 				title: "/ctx-wrapup",
-				text: result,
-				level:
-					result.includes("Failed") || result.includes("Partial")
-						? "error"
-						: "success",
+				text: result.message,
+				level: result.ok ? "success" : "error",
 			});
 		},
 	});
+}
+
+export type PiWrapupKind =
+	| "complete"
+	| "already-current"
+	| "partial"
+	| "blocked"
+	| "failed";
+
+export interface PiWrapupOutcome {
+	readonly ok: boolean;
+	readonly kind: PiWrapupKind;
+	readonly message: string;
+}
+
+function wrapupOutcome(
+	ok: boolean,
+	kind: PiWrapupKind,
+	message: string,
+): PiWrapupOutcome {
+	return { ok, kind, message };
 }
 
 export async function runPiWrapup(
@@ -192,12 +210,20 @@ export async function runPiWrapup(
 	ctx: ExtensionCommandContext,
 	sessionId: string,
 	messagesToKeep: number,
-): Promise<string> {
+): Promise<PiWrapupOutcome> {
 	if (getOrCreateSessionMeta(deps.db, sessionId).isSubagent) {
-		return "## Magic Wrapup — Skipped\n\n/ctx-wrapup is only available in primary sessions.";
+		return wrapupOutcome(
+			false,
+			"blocked",
+			"## Magic Wrapup — Skipped\n\n/ctx-wrapup is only available in primary sessions.",
+		);
 	}
 	if (isPiRecompInFlight(sessionId)) {
-		return "## Magic Wrapup — Skipped\n\nA recomp or upgrade is already running for this session. Wait for it to finish, then try `/ctx-wrapup` again.";
+		return wrapupOutcome(
+			false,
+			"blocked",
+			"## Magic Wrapup — Skipped\n\nA recomp or upgrade is already running for this session. Wait for it to finish, then try `/ctx-wrapup` again.",
+		);
 	}
 
 	const provider = { readMessages: () => readPiSessionMessages(ctx) };
@@ -231,10 +257,18 @@ export async function runPiWrapup(
 			messagesToKeep,
 		});
 		if (initialPlan.rawMessagesAboveLastCompartment <= messagesToKeep) {
-			return `## Magic Wrapup\n\nNothing to wrap up — only ${initialPlan.rawMessagesAboveLastCompartment} messages above the last compartment.`;
+			return wrapupOutcome(
+				true,
+				"already-current",
+				`## Magic Wrapup\n\nNothing to wrap up — only ${initialPlan.rawMessagesAboveLastCompartment} messages above the last compartment.`,
+			);
 		}
 		if (!hasRunnableCompartmentWindow(initialPlan.snapshot)) {
-			return `## Magic Wrapup — Partial\n\nNo runnable wrapup boundary is available yet; wrapped up 0 messages into 0 compartments. Run /ctx-wrapup again to continue.`;
+			return wrapupOutcome(
+				false,
+				"partial",
+				"## Magic Wrapup — Partial\n\nNo runnable wrapup boundary is available yet; wrapped up 0 messages into 0 compartments. Run /ctx-wrapup again to continue.",
+			);
 		}
 
 		holderId = crypto.randomUUID();
@@ -251,8 +285,12 @@ export async function runPiWrapup(
 			),
 		});
 		if (!acquired.ok) {
-			return formatExistingWrapup(
-				acquired.state ?? getWrapupInProgressState(deps.db, sessionId),
+			return wrapupOutcome(
+				false,
+				"blocked",
+				formatExistingWrapup(
+					acquired.state ?? getWrapupInProgressState(deps.db, sessionId),
+				),
 			);
 		}
 
@@ -472,14 +510,22 @@ export async function runPiWrapup(
 				finalCompartmentCount - startCompartmentCount,
 			);
 			if (failure) {
-				return `## Magic Wrapup — Partial\n\nWrapped up ${messagesWrapped} messages into ${compartmentsCreated} compartments; ${failure}`;
+				return wrapupOutcome(
+					false,
+					"partial",
+					`## Magic Wrapup — Partial\n\nWrapped up ${messagesWrapped} messages into ${compartmentsCreated} compartments; ${failure}`,
+				);
 			}
 			try {
 				clearEmergencyRecovery(deps.db, sessionId);
 			} catch {
 				// Best-effort: normal historian recovery disarm remains the backstop.
 			}
-			return `## Magic Wrapup\n\nWrapped up ${messagesWrapped} messages into ${compartmentsCreated} compartments. The compacted history is queued and materializes on your next message.`;
+			return wrapupOutcome(
+				true,
+				"complete",
+				`## Magic Wrapup\n\nWrapped up ${messagesWrapped} messages into ${compartmentsCreated} compartments. The compacted history is queued and materializes on your next message.`,
+			);
 		} finally {
 			clearInterval(renewal);
 			releaseWrapupInProgress(deps.db, sessionId, holderId);
