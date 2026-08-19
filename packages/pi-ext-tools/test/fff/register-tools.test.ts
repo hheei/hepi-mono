@@ -355,6 +355,46 @@ describe("FFF tool registration", () => {
 		}
 	});
 
+	test("hints when ripgrep rejects an over-escaped brace", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-grep-regex-hint-"));
+		try {
+			await writeFile(join(cwd, "needle.ts"), "properties: { patch\n");
+			const outputs = createOutputRegistry();
+			const state = {
+				getRuntime: () => undefined,
+				getSettings: () => ({
+					shellPath: "sh",
+					bashOutputTailKiB: 10,
+					autocomplete: true,
+					grepEnhancement: false,
+					readEnhancement: true,
+					findEnhancement: true,
+					statusUI: true,
+				}),
+				getBashJobs: () => undefined,
+				getOutputs: () => outputs,
+				getRtkSettings: () => DEFAULT_RTK_SETTINGS,
+				getTargetRuntime: () => undefined,
+				consumeRtkRewriteWarning: () => false,
+			} satisfies FffRuntimeState;
+			const host = harness();
+			registerGrepTool(host.pi, state);
+			const grep = host.tools[0];
+			if (grep === undefined) throw new Error("Expected grep tool");
+			await expect(
+				grep.execute(
+					"grep-over-escaped",
+					{ pattern: "properties: \\\\{ patch", path: "needle.ts" },
+					undefined,
+					undefined,
+					{ cwd } as never,
+				),
+			).rejects.toThrow(/regex parse error[\s\S]*decoded pattern needs exactly one backslash/);
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
 	test("searches output text with grep and rejects it from find", async () => {
 		const outputs = createOutputRegistry();
 		const path = outputs.create("before\nNeedle\nafter");

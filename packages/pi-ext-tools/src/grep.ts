@@ -26,7 +26,8 @@ const GREP_PROMPT_GUIDELINES: string[] = [
 	"grep: if search times out, narrow path/glob or use a more specific pattern.",
 ];
 const GREP_PARAMETER_DESCRIPTIONS = {
-	pattern: "Search pattern (regex or literal string)",
+	pattern:
+		"ripgrep regex after JSON decoding, same bytes as `rg PATTERN`. Exact text: set literal=true. `{` `(` `)` `.` need exactly one backslash in that decoded string.",
 	path: "Directory or file to search (default: current directory)",
 	glob: "Filter files by glob pattern, e.g. '*.ts' or '**/*.spec.ts'",
 	ignoreCase: "Case-insensitive search (default: false)",
@@ -35,6 +36,8 @@ const GREP_PARAMETER_DESCRIPTIONS = {
 	limit: "Maximum number of matches to return (default: 100)",
 	target: "Execution target: local, output, or an authorized SSH host",
 } as const;
+const RG_REGEX_PARSE_HINT =
+	"Hint: `{` starts a quantifier. For a literal brace, the decoded pattern needs exactly one backslash before `{`. Exact text: retry with literal=true.";
 
 const schema = Type.Object({
 	pattern: Type.String({ description: GREP_PARAMETER_DESCRIPTIONS.pattern }),
@@ -487,6 +490,13 @@ function worktreeRoot(cwd: string): Promise<boolean> {
 	});
 }
 
+function annotateRgRegexError(error: unknown): unknown {
+	if (!(error instanceof Error) || !error.message.includes("regex parse error")) return error;
+	if (error.message.includes(RG_REGEX_PARSE_HINT)) return error;
+	error.message = `${error.message}\n${RG_REGEX_PARSE_HINT}`;
+	return error;
+}
+
 async function runRg(
 	params: GrepParams,
 	cwd: string,
@@ -768,7 +778,7 @@ export function registerGrepTool(
 				};
 			} catch (error) {
 				if (isTargetError(error)) return fail(error.outcome, error.message);
-				throw error;
+				throw annotateRgRegexError(error);
 			}
 		},
 	};

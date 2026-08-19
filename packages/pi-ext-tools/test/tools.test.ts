@@ -463,6 +463,10 @@ describe("pi-ext-tools catalog", () => {
 			"limit",
 			"target",
 		]);
+		const schema = grep.parameters as {
+			readonly properties?: { readonly pattern?: { readonly description?: string } };
+		};
+		expect(schema.properties?.pattern?.description).toContain("after JSON decoding");
 		expect(properties(find)).toEqual(["pattern", "path", "exclude", "limit", "cursor", "target"]);
 	});
 
