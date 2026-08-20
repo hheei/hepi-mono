@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { _cache, clearHighlightCache, hlBlock } from "../src/pretty/highlight.js";
 
+beforeEach(clearHighlightCache);
 afterEach(clearHighlightCache);
 
 describe("hlBlock", () => {
