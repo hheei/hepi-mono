@@ -6,16 +6,20 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import {
 	createToolTui,
+	defaultPiSettingsPaths,
 	type ManagedLoadoutToolRegistration,
 	registerManagedTool,
 	type ToolTui,
 } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import {
+	ApplyPatchBusyError,
 	type ApplyPatchInWorkspaceResult,
 	type ApplyPatchProgress,
 	type ApplyPatchRejection,
-	applyPatchThroughCoordinator,
+	applyPatchInWorkspace,
+	createSftpPatchFs,
+	loadFuzzyApplyPatchPolicy,
 } from "./apply-patch/index.js";
 import {
 	createV4aPreviewCursor,
@@ -29,21 +33,22 @@ import {
 	renderApplyPatchResult,
 } from "./apply-patch/renderer.js";
 import { counted } from "./counted.js";
-import { rejectUnsupportedTarget } from "./targets.js";
+import type { FffRuntimeState } from "./fff/lifecycle.js";
+import { LOCAL_TARGET, OUTPUT_TARGET } from "./targets.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 const OUTPUT_PREFIX = "output:" + "//";
 const MAX_CANDIDATES = 6;
 const APPLY_PATCH_DESCRIPTION =
-	"Apply a strict Codex V4A patch through the pi-ext-tools patch coordinator.";
+	"Apply a strict Codex V4A patch to the local workspace or an authorized SSH host. Existing and resulting files are capped at 32 MiB. Confirmed path changes are never rolled back.";
 const APPLY_PATCH_PARAMETER_DESCRIPTION =
 	"V4A patch text. `*** Begin Patch` first, `*** End Patch` last; never repeat either marker. Use Add File, Update File, Delete File, and optional Move to sections.";
 const RECOVERY_READ_TARGETS =
-	"Recovery: read every path targeted by the patch before attempting another edit.";
-const RECOVERY_QUEUE_FULL =
-	"Recovery: wait for the active patch requests to finish, then retry this unchanged patch.";
+	"Recovery: read every Unconfirmed path before attempting another mutation.";
+const RECOVERY_BUSY =
+	"Recovery: wait for the active apply_patch request to finish, then retry this unchanged patch.";
 const RECOVERY_CANCELLED =
-	"Recovery: the request was cancelled and its request-level commit was rolled back; read targets before retrying.";
+	"Recovery: confirmed paths stay changed; read Unconfirmed paths; retry only Rejected or NotApplied operations.";
 const RECOVERY_INVALID_PATCH =
 	"Recovery: correct the V4A syntax and submit a complete patch; parsed preview rows were not applied.";
 const DO_NOT_RETRY_APPLIED_HUNKS = "Do not retry applied hunks.";
@@ -64,7 +69,9 @@ export const APPLY_PATCH_PARAMETERS = Type.Object(
 	{
 		patch: Type.String({ description: APPLY_PATCH_PARAMETER_DESCRIPTION }),
 		target: Type.Optional(
-			Type.String({ description: "Unsupported; apply_patch only runs on the local workspace." }),
+			Type.String({
+				description: "local or an authorized SSH alias. Omit for local. Does not support output.",
+			}),
 		),
 	},
 	{ additionalProperties: false },
@@ -77,6 +84,7 @@ export interface ApplyPatchToolDetails extends ApplyPatchInWorkspaceResult {
 	readonly status: ApplyPatchStatus;
 	readonly progress?: ApplyPatchProgress;
 	readonly durationMs?: number;
+	readonly target?: string;
 }
 
 export function isApplyPatchToolDetails(value: unknown): value is ApplyPatchToolDetails {
@@ -112,12 +120,13 @@ function rejectedOperationCount(result: ApplyPatchInWorkspaceResult): number {
 	return new Set(result.rejected.flatMap((rejection) => rejection.operationIndices)).size;
 }
 
+function unknownCount(result: ApplyPatchInWorkspaceResult): number {
+	return result.unconfirmed.length + result.notApplied.length;
+}
+
 function statusFor(result: ApplyPatchInWorkspaceResult): ApplyPatchStatus {
-	return rejectedOperationCount(result) === 0
-		? "success"
-		: result.changedPaths.length === 0
-			? "failed"
-			: "partial";
+	if (rejectedOperationCount(result) === 0 && unknownCount(result) === 0) return "success";
+	return result.changedPaths.length === 0 ? "failed" : "partial";
 }
 
 function operationText(index: number): string {
@@ -167,28 +176,47 @@ function rejectionLines(rejection: ApplyPatchRejection): readonly string[] {
 }
 
 function recoveryLines(result: ApplyPatchInWorkspaceResult): readonly string[] {
-	if (result.rejected.length === 0) return [];
-	const paths = [...new Set(result.rejected.flatMap((rejection) => rejection.paths))];
-	const operations = [
-		...new Set(result.rejected.flatMap((rejection) => rejection.operationIndices)),
-	];
-	const scope = operations.map(operationText).join(", ");
-	const hasHunkDiagnostics = result.rejected.some((rejection) => rejection.diagnostics.length > 0);
-	return [
-		hasHunkDiagnostics
-			? `Recovery: read ${paths.join(", ")}, then retry only rejected hunks from ${scope}.`
-			: `Recovery: read ${paths.join(", ")}, then retry only ${scope}.`,
-		...(result.applied.length === 0
-			? []
-			: [hasHunkDiagnostics ? DO_NOT_RETRY_APPLIED_HUNKS : DO_NOT_RETRY_APPLIED_OPERATIONS]),
-	];
+	const lines: string[] = [];
+	if (result.unconfirmed.length > 0) {
+		const paths = [...new Set(result.unconfirmed.flatMap((entry) => entry.paths))];
+		lines.push(`Recovery: read ${paths.join(", ")} before another mutation of those paths.`);
+	}
+	if (result.rejected.length > 0) {
+		const paths = [...new Set(result.rejected.flatMap((rejection) => rejection.paths))];
+		const operations = [
+			...new Set(result.rejected.flatMap((rejection) => rejection.operationIndices)),
+		];
+		const scope = operations.map(operationText).join(", ");
+		const hasHunkDiagnostics = result.rejected.some(
+			(rejection) => rejection.diagnostics.length > 0,
+		);
+		lines.push(
+			hasHunkDiagnostics
+				? `Recovery: read ${paths.join(", ")}, then retry only rejected hunks from ${scope}.`
+				: `Recovery: read ${paths.join(", ")}, then retry only ${scope}.`,
+		);
+	}
+	if (result.notApplied.length > 0) {
+		const operations = [...new Set(result.notApplied.flatMap((entry) => entry.operationIndices))];
+		lines.push(`Recovery: retry only ${operations.map(operationText).join(", ")}.`);
+	}
+	if (
+		result.applied.length > 0 &&
+		(result.rejected.length > 0 || result.unconfirmed.length > 0 || result.notApplied.length > 0)
+	)
+		lines.push(
+			result.rejected.some((rejection) => rejection.diagnostics.length > 0)
+				? DO_NOT_RETRY_APPLIED_HUNKS
+				: DO_NOT_RETRY_APPLIED_OPERATIONS,
+		);
+	return lines;
 }
 
 export function failureRecovery(message: string): string | undefined {
 	if (message.includes("workspace state indeterminate") || message.includes("outcome is unknown"))
 		return RECOVERY_READ_TARGETS;
-	if (message.includes("queue is full")) return RECOVERY_QUEUE_FULL;
-	if (message.includes("cancelled by client")) return RECOVERY_CANCELLED;
+	if (message.includes("already running")) return RECOVERY_BUSY;
+	if (message.includes("cancelled")) return RECOVERY_CANCELLED;
 	if (message.includes("No operations were validated or applied")) return RECOVERY_INVALID_PATCH;
 	return undefined;
 }
@@ -229,11 +257,22 @@ export function formatApplyPatchResult(result: ApplyPatchInWorkspaceResult): str
 		...(fuzzy.length === 0 ? [] : ["Fuzzy-applied:", ...fuzzy]),
 		...(result.rejected.length === 0
 			? []
-			: ["Rejected:", ...result.rejected.flatMap(rejectionLines), ...recoveryLines(result)]),
+			: ["Rejected:", ...result.rejected.flatMap(rejectionLines)]),
+		...(result.unconfirmed.length === 0
+			? []
+			: ["Unconfirmed:", ...result.unconfirmed.flatMap(rejectionLines)]),
+		...(result.notApplied.length === 0
+			? []
+			: ["NotApplied:", ...result.notApplied.flatMap(rejectionLines)]),
+		...recoveryLines(result),
 	].join("\n");
 }
 
-function progressDetails(progress: ApplyPatchProgress, durationMs: number): ApplyPatchToolDetails {
+function progressDetails(
+	progress: ApplyPatchProgress,
+	durationMs: number,
+	target?: string,
+): ApplyPatchToolDetails {
 	return {
 		changedPaths: [],
 		addedLines: progress.addedLines,
@@ -244,9 +283,12 @@ function progressDetails(progress: ApplyPatchProgress, durationMs: number): Appl
 		fuzzyUpdateCount: 0,
 		applied: [],
 		rejected: [],
+		unconfirmed: [],
+		notApplied: [],
 		status: "success",
 		progress,
 		durationMs,
+		...(target === undefined ? {} : { target }),
 	};
 }
 
@@ -280,11 +322,9 @@ function previewCursor(state: unknown): V4aPreviewCursor {
 	return createV4aPreviewCursor();
 }
 
-export function createApplyPatchTool(): ToolDefinition<
-	typeof APPLY_PATCH_PARAMETERS,
-	ApplyPatchToolDetails,
-	unknown
-> {
+export function createApplyPatchTool(
+	state?: FffRuntimeState,
+): ToolDefinition<typeof APPLY_PATCH_PARAMETERS, ApplyPatchToolDetails, unknown> {
 	return {
 		name: "apply_patch",
 		label: "apply_patch",
@@ -294,22 +334,47 @@ export function createApplyPatchTool(): ToolDefinition<
 		renderCall: (args, theme, context) => renderApplyPatchCall(args, theme, context),
 		renderResult: (result, options, theme) =>
 			renderApplyPatchResult(result, options.expanded, theme),
-		async execute(toolCallId, params, signal, onUpdate, ctx) {
-			rejectUnsupportedTarget("apply_patch", params);
+		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const startedAt = performance.now();
 			const { patch } = parseApplyPatchParameters(params);
+			const target =
+				typeof params === "object" &&
+				params !== null &&
+				"target" in params &&
+				typeof params.target === "string"
+					? params.target
+					: undefined;
+			if (target === OUTPUT_TARGET) throw new Error("apply_patch does not support output targets.");
 			if (modifiesOutputPath(patch)) throw new Error("apply_patch cannot modify output URLs");
 			try {
-				const result = await applyPatchThroughCoordinator({
+				const policy = await loadFuzzyApplyPatchPolicy({
+					paths: defaultPiSettingsPaths(ctx.cwd),
+					...(signal === undefined ? {} : { signal }),
+				});
+				const remote = target !== undefined && target !== LOCAL_TARGET;
+				const runtime = remote ? state?.getTargetRuntime() : undefined;
+				if (remote && runtime === undefined) throw new Error("Target runtime is unavailable.");
+				if (
+					remote &&
+					runtime !== undefined &&
+					target !== undefined &&
+					!runtime.isAllowedHost(target)
+				)
+					throw new Error(`Unknown or unauthorized SSH target: ${target}`);
+				const host = remote ? target : undefined;
+				const result = await applyPatchInWorkspace({
 					workspaceRoot: ctx.cwd,
 					patch,
-					requestId: toolCallId,
+					policy,
 					...(signal === undefined ? {} : { signal }),
 					onProgress: (progress) =>
 						onUpdate?.({
 							content: [],
-							details: progressDetails(progress, Math.round(performance.now() - startedAt)),
+							details: progressDetails(progress, Math.round(performance.now() - startedAt), host),
 						}),
+					...(remote && runtime !== undefined && target !== undefined
+						? { fs: createSftpPatchFs(runtime, target), lockKey: `ssh:${target}` }
+						: {}),
 				});
 				return {
 					content: [{ type: "text", text: formatApplyPatchResult(result) }],
@@ -317,10 +382,16 @@ export function createApplyPatchTool(): ToolDefinition<
 						...result,
 						status: statusFor(result),
 						durationMs: Math.round(performance.now() - startedAt),
+						...(host === undefined ? {} : { target: host }),
 					},
 				} satisfies AgentToolResult<ApplyPatchToolDetails>;
 			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
+				const message =
+					error instanceof ApplyPatchBusyError
+						? error.message
+						: error instanceof Error
+							? error.message
+							: String(error);
 				const recovery = failureRecovery(message);
 				throw new Error(
 					`apply_patch failed: ${message}${recovery === undefined ? "" : `\n${recovery}`}`,
@@ -330,11 +401,15 @@ export function createApplyPatchTool(): ToolDefinition<
 	};
 }
 
-export function registerApplyPatchTool(pi: ExtensionAPI, tui: ToolTui = createToolTui()): void {
+export function registerApplyPatchTool(
+	pi: ExtensionAPI,
+	tui: ToolTui = createToolTui(),
+	state?: FffRuntimeState,
+): void {
 	registerManagedTool(
 		pi,
 		APPLY_PATCH_TOOL_REGISTRATION,
-		tui.frame(createApplyPatchTool(), {
+		tui.frame(createApplyPatchTool(state), {
 			summary: (args, latest, context) => applyPatchHeader(latest, args, context?.state),
 			summarySeparator: "space",
 			footer: (result, completion) => {

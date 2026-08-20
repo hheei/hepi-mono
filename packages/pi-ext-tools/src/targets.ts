@@ -3,12 +3,12 @@ import { randomUUID } from "node:crypto";
 import { appendFileSync } from "node:fs";
 import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, posix } from "node:path";
+import { join, posix } from "node:path";
 import type { OutputRegistry, OutputUri } from "@hheei/pi-ext-core";
 
 export const LOCAL_TARGET = "local";
 export const OUTPUT_TARGET = "output";
-export const REMOTE_TIMEOUT_MS = 30_000;
+export const REMOTE_TIMEOUT_MS = 20_000;
 export const CONTROL_PERSIST = "15m";
 export const MAX_REMOTE_FIND_PATHS = 1_024;
 export const MAX_REMOTE_FIND_BYTES = 256 * 1024;
@@ -18,9 +18,9 @@ const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 const MAX_OUTPUT_BYTES_EACH = 1024 * 1024;
 const TARGET_PROMPT_MARKER = "<pi-ext-tools-targets>";
 const TARGET_PROMPT_LINES = [
-	"read, grep, and find accept target: local, output, or an authorized SSH host.",
-	"Omitting target uses local. Remote targets are POSIX hosts, use a 30 second timeout, and do not use FFF.",
-	"target: output reads persisted output ids; find does not support output.",
+	"read, grep, and find accept target: local, output, or an authorized SSH host. bash and apply_patch accept local or an authorized SSH host.",
+	"Omitting target uses local. Remote targets are POSIX hosts. read/grep/find use a 20 second timeout and do not use FFF; bash has no default timeout and does not support pty, async, or output. apply_patch files are capped at 32 MiB.",
+	"target: output reads persisted output ids; find, bash, and apply_patch do not support output.",
 ] as const;
 
 export type TargetOutcome =
@@ -38,6 +38,7 @@ type ProcessResult = {
 	readonly stdout: Buffer;
 	readonly stderr: Buffer;
 	readonly code: number;
+	readonly timedOut: boolean;
 };
 
 type OutputRecord = {
@@ -220,8 +221,10 @@ async function runProcess(
 		readonly cwd?: string | undefined;
 		readonly input?: string | undefined;
 		readonly signal?: AbortSignal | undefined;
-		readonly timeoutMs: number;
+		readonly timeoutMs?: number | undefined;
+		readonly timeoutAsError?: boolean | undefined;
 		readonly maxStdoutBytes?: number;
+		readonly onData?: ((chunk: Buffer) => void) | undefined;
 	},
 ): Promise<ProcessResult> {
 	return await new Promise<ProcessResult>((resolveResult, reject) => {
@@ -245,11 +248,18 @@ async function runProcess(
 			child.kill();
 			finish(() => reject(new TargetError("cancelled", "Operation aborted")));
 		};
-		const timer = setTimeout(() => {
-			timedOut = true;
-			child.kill();
-		}, options.timeoutMs);
+		const timer =
+			options.timeoutMs === undefined
+				? undefined
+				: setTimeout(() => {
+						timedOut = true;
+						child.kill();
+					}, options.timeoutMs);
 		options.signal?.addEventListener("abort", abort, { once: true });
+		const push = (chunk: Buffer, stream: Buffer[]): void => {
+			stream.push(chunk);
+			options.onData?.(chunk);
+		};
 		child.stdout?.on("data", (chunk: Buffer) => {
 			stdoutBytes += chunk.length;
 			if (options.maxStdoutBytes !== undefined && stdoutBytes > options.maxStdoutBytes) {
@@ -257,18 +267,24 @@ async function runProcess(
 				finish(() => reject(new RemoteScopeTooBroadError()));
 				return;
 			}
-			stdout.push(chunk);
+			push(chunk, stdout);
 		});
-		child.stderr?.on("data", (chunk: Buffer) => stderr.push(chunk));
+		child.stderr?.on("data", (chunk: Buffer) => push(chunk, stderr));
 		child.once("error", (error) => finish(() => reject(error)));
 		child.once("close", (code) => {
 			finish(() => {
-				if (timedOut)
-					return reject(new TargetError("timeout", "Remote operation timed out after 30 seconds."));
+				if (timedOut && options.timeoutAsError !== false)
+					return reject(
+						new TargetError(
+							"timeout",
+							`Remote operation timed out after ${REMOTE_TIMEOUT_MS / 1000} seconds.`,
+						),
+					);
 				resolveResult({
 					stdout: Buffer.concat(stdout),
 					stderr: Buffer.concat(stderr),
 					code: code ?? 1,
+					timedOut,
 				});
 			});
 		});
@@ -286,7 +302,6 @@ export class TargetRuntime {
 	readonly #sidecarPath: string | undefined;
 	readonly #outputUris = new Map<string, OutputUri>();
 	readonly #allowedHosts = new Set<string>();
-	readonly #controlPaths = new Map<string, string>();
 	readonly #posixHosts = new Map<string, boolean>();
 	#persistedCount = 0;
 	#persistedBytes = 0;
@@ -416,29 +431,112 @@ export class TargetRuntime {
 		this.remotePath(path);
 	}
 
-	async read(target: string | undefined, path: string, signal?: AbortSignal): Promise<Buffer> {
+	async read(
+		target: string | undefined,
+		path: string,
+		signal?: AbortSignal,
+		timeoutMs: number = REMOTE_TIMEOUT_MS,
+	): Promise<Buffer> {
 		if (target === OUTPUT_TARGET) return Buffer.from(this.readOutput(path), "utf8");
 		if (target === undefined || target === LOCAL_TARGET)
 			return await readFile(posix.isAbsolute(path) ? path : join(process.cwd(), path));
 		this.assertHost(target);
 		await this.assertPosix(target, signal);
 		const remotePath = this.remotePath(path);
-		const directory = await this.controlDirectory(target);
+		const directory = await this.ensureControlDir();
 		const temporary = join(directory, `.read-${randomUUID()}`);
-		await mkdir(directory, { recursive: true });
 		try {
 			const batch = `get ${sftpQuote(remotePath)} ${sftpQuote(temporary)}\n`;
-			const result = await runProcess("sftp", this.sftpArgs(target), {
-				input: batch,
-				signal,
-				timeoutMs: REMOTE_TIMEOUT_MS,
+			const result = await this.sftpBatch(target, batch, {
+				...(signal === undefined ? {} : { signal }),
+				timeoutMs,
 			});
-			if (result.code !== 0)
-				throw new Error(result.stderr.toString("utf8").trim() || "Remote SFTP read failed.");
+			if (result.timedOut)
+				throw new TargetError(
+					"timeout",
+					`Remote SFTP read timed out after ${timeoutMs / 1000} seconds.`,
+				);
+			if (result.code !== 0) throw new Error(result.stderr.trim() || "Remote SFTP read failed.");
 			return await readFile(temporary);
 		} finally {
 			await rm(temporary, { force: true }).catch(() => undefined);
 		}
+	}
+
+	async sshCapture(
+		target: string,
+		command: string,
+		options: { readonly signal?: AbortSignal; readonly timeoutMs?: number } = {},
+	): Promise<{
+		readonly stdout: string;
+		readonly stderr: string;
+		readonly code: number;
+		readonly timedOut: boolean;
+	}> {
+		this.assertHost(target);
+		await this.assertPosix(target, options.signal);
+		const result = await runProcess("ssh", this.sshArgs(target, [`cd "$HOME" && ${command}`]), {
+			timeoutAsError: false,
+			...(options.signal === undefined ? {} : { signal: options.signal }),
+			...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+		});
+		return {
+			stdout: result.stdout.toString("utf8"),
+			stderr: result.stderr.toString("utf8"),
+			code: result.code,
+			timedOut: result.timedOut,
+		};
+	}
+
+	async sftpBatch(
+		target: string,
+		batch: string,
+		options: { readonly signal?: AbortSignal; readonly timeoutMs?: number } = {},
+	): Promise<{ readonly stderr: string; readonly code: number; readonly timedOut: boolean }> {
+		this.assertHost(target);
+		await this.assertPosix(target, options.signal);
+		const result = await runProcess("sftp", this.sftpArgs(target), {
+			input: batch,
+			timeoutAsError: false,
+			...(options.signal === undefined ? {} : { signal: options.signal }),
+			timeoutMs: options.timeoutMs ?? REMOTE_TIMEOUT_MS,
+		});
+		return {
+			stderr: result.stderr.toString("utf8"),
+			code: result.code,
+			timedOut: result.timedOut,
+		};
+	}
+
+	async sftpPut(
+		target: string,
+		localPath: string,
+		remotePath: string,
+		options: { readonly signal?: AbortSignal; readonly timeoutMs?: number } = {},
+	): Promise<{ readonly code: number; readonly timedOut: boolean; readonly stderr: string }> {
+		const batch = `put ${sftpQuote(localPath)} ${sftpQuote(this.remotePath(remotePath))}\n`;
+		return await this.sftpBatch(target, batch, options);
+	}
+
+	async sftpRename(
+		target: string,
+		from: string,
+		to: string,
+		replace: boolean,
+		options: { readonly signal?: AbortSignal; readonly timeoutMs?: number } = {},
+	): Promise<{ readonly code: number; readonly timedOut: boolean; readonly stderr: string }> {
+		const flag = replace ? "-l " : "";
+		const batch = `rename ${flag}${sftpQuote(this.remotePath(from))} ${sftpQuote(this.remotePath(to))}\n`;
+		return await this.sftpBatch(target, batch, options);
+	}
+
+	async sftpRm(
+		target: string,
+		remotePath: string,
+		options: { readonly signal?: AbortSignal; readonly timeoutMs?: number } = {},
+	): Promise<{ readonly code: number; readonly timedOut: boolean; readonly stderr: string }> {
+		const batch = `rm ${sftpQuote(this.remotePath(remotePath))}\n`;
+		return await this.sftpBatch(target, batch, options);
 	}
 
 	async grep(
@@ -459,6 +557,27 @@ export class TargetRuntime {
 		if (result.code !== 0 && result.code !== 1)
 			throw new Error(result.stderr.toString("utf8").trim() || "Remote search failed.");
 		return result.stdout.toString("utf8");
+	}
+
+	async exec(
+		target: string,
+		command: string,
+		options: {
+			readonly signal?: AbortSignal;
+			readonly timeoutMs?: number;
+			readonly onData?: (chunk: Buffer) => void;
+		} = {},
+	): Promise<{ readonly code: number; readonly timedOut: boolean }> {
+		this.assertHost(target);
+		if (options.signal?.aborted) throw new TargetError("cancelled", "Operation aborted");
+		await this.assertPosix(target, options.signal);
+		const result = await runProcess("ssh", this.sshArgs(target, [`cd "$HOME" && ${command}`]), {
+			timeoutAsError: false,
+			...(options.signal === undefined ? {} : { signal: options.signal }),
+			...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+			...(options.onData === undefined ? {} : { onData: options.onData }),
+		});
+		return { code: result.code, timedOut: result.timedOut };
 	}
 
 	async find(
@@ -502,7 +621,6 @@ export class TargetRuntime {
 	async close(): Promise<void> {
 		if (this.#closed) return;
 		this.#closed = true;
-		this.#controlPaths.clear();
 	}
 
 	private assertHost(target: string): void {
@@ -515,11 +633,17 @@ export class TargetRuntime {
 		if (cached === true) return;
 		if (cached === false)
 			throw new TargetError("dependency", `SSH target ${target} is not a POSIX host.`);
+		await this.ensureControlDir();
 		const result = await runProcess("ssh", this.sshArgs(target, ["uname -s"]), {
 			signal,
 			timeoutMs: REMOTE_TIMEOUT_MS,
 		});
-		const posix = result.code === 0 && isPosixUname(result.stdout.toString("utf8"));
+		if (result.code !== 0) {
+			throw new Error(
+				result.stderr.toString("utf8").trim() || `SSH target ${target} probe failed.`,
+			);
+		}
+		const posix = isPosixUname(result.stdout.toString("utf8"));
 		this.#posixHosts.set(target, posix);
 		if (!posix) throw new TargetError("dependency", `SSH target ${target} is not a POSIX host.`);
 	}
@@ -531,11 +655,17 @@ export class TargetRuntime {
 		return path;
 	}
 
-	private async controlDirectory(target: string): Promise<string> {
-		const directory = join(this.#home, ".pi", "agent", "extensions", "pi-ext-tools", target);
-		const path = join(directory, `${this.#sessionId}.sock`);
-		this.#controlPaths.set(target, path);
-		await mkdir(dirname(path), { recursive: true });
+	private controlDir(): string {
+		return join(this.#home, ".pi", "agent", "extensions", "pi-ext-tools", "targets");
+	}
+
+	private controlPath(target: string): string {
+		return join(this.controlDir(), `${target}.sock`);
+	}
+
+	private async ensureControlDir(): Promise<string> {
+		const directory = this.controlDir();
+		await mkdir(directory, { recursive: true });
 		return directory;
 	}
 
@@ -548,22 +678,12 @@ export class TargetRuntime {
 	}
 
 	private connectionOptions(target: string): string[] {
-		const path =
-			this.#controlPaths.get(target) ??
-			join(
-				this.#home,
-				".pi",
-				"agent",
-				"extensions",
-				"pi-ext-tools",
-				target,
-				`${this.#sessionId}.sock`,
-			);
+		const path = this.controlPath(target);
 		return [
 			"-o",
 			"BatchMode=yes",
 			"-o",
-			"ConnectTimeout=30",
+			`ConnectTimeout=${REMOTE_TIMEOUT_MS / 1000}`,
 			"-o",
 			"ControlMaster=auto",
 			"-o",

@@ -30,7 +30,7 @@ import { BashPtySurface, type BashPtySurfaceResult } from "./bash-pty-surface.js
 import { counted } from "./counted.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import { PtySession } from "./native-bridge.js";
-import { rejectUnsupportedTarget } from "./targets.js";
+import { isTargetError, LOCAL_TARGET, OUTPUT_TARGET, type TargetRuntime } from "./targets.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 const fallbackOutputs = createOutputRegistry();
@@ -40,12 +40,15 @@ const BASH_PROMPT_GUIDELINES = [
 	"Use `async` only for finite commands that may outlive this tool call.",
 	"Use `pty` only for interactive terminal programs such as `sudo` or `ssh`.",
 	"NEVER combine `pty` with `async`.",
+	"Remote `target` is an authorized SSH host; omit pty and async. Working directory is the remote home.",
 ] as const;
 const BASH_TIMEOUT_DESCRIPTION = "Timeout in seconds (optional, no default timeout)";
 const RTK_REWRITE_TIMEOUT_MS = 1_000;
 const Timeout = Type.Optional(Type.Number({ description: BASH_TIMEOUT_DESCRIPTION }));
 const Target = Type.Optional(
-	Type.String({ description: "Unsupported; bash only runs on the local workspace." }),
+	Type.String({
+		description: "Execution target: local or an authorized SSH host; output is unsupported.",
+	}),
 );
 const DefaultInput = Type.Object(
 	{ command: Type.String(), timeout: Timeout, target: Target },
@@ -337,6 +340,10 @@ function fieldIsTrue(value: object, key: string): boolean {
 	return Object.getOwnPropertyDescriptor(value, key)?.value === true;
 }
 
+function isRemoteBashTarget(target: unknown): target is string {
+	return typeof target === "string" && target !== LOCAL_TARGET && target !== OUTPUT_TARGET;
+}
+
 function skipRtkRewrite(command: string): boolean {
 	if (command.trim() === "") return true;
 	const body = command
@@ -384,12 +391,68 @@ async function rewriteWithRtk(
 	}
 }
 
+async function runRemoteBash(
+	target: string,
+	command: string,
+	runtime: TargetRuntime,
+	signal: AbortSignal | undefined,
+	onUpdate: AgentToolUpdateCallback<unknown> | undefined,
+	timeoutSeconds: number | undefined,
+	tailBytes: number,
+	outputs: OutputRegistry,
+): Promise<BashToolResult> {
+	if (signal?.aborted) return result("Bash aborted", { error: "aborted", target });
+	const sink = new BashOutputSink({ outputs, tailBytes });
+	try {
+		const { code, timedOut } = await runtime.exec(target, command, {
+			...(signal === undefined ? {} : { signal }),
+			...(timeoutSeconds === undefined || timeoutSeconds <= 0
+				? {}
+				: { timeoutMs: timeoutSeconds * 1000 }),
+			onData: (data) => {
+				sink.push(data);
+				const output = sink.snapshot();
+				onUpdate?.({ content: [{ type: "text", text: output.output }], details: output });
+			},
+		});
+		const output = sink.finish();
+		return result(
+			`${output.output}${output.truncated && output.outputUri ? `\n\n[Output truncated. Read ${output.outputUri} for full output.]` : ""}`,
+			{
+				...output,
+				...(timedOut ? { timedOut: true } : {}),
+				exitCode: code,
+				target,
+				outcome: timedOut ? "timeout" : "ok",
+			},
+		);
+	} catch (error) {
+		const output = sink.finish();
+		if (isTargetError(error)) {
+			const aborted = error.outcome === "cancelled";
+			return result(aborted ? "Bash aborted" : error.message, {
+				...output,
+				error: aborted ? "aborted" : error.outcome,
+				outcome: error.outcome,
+				target,
+			});
+		}
+		throw error;
+	}
+}
+
 function registerRtkForegroundRewrite(pi: ExtensionAPI, state: FffRuntimeState): void {
 	pi.on("tool_call", async (event, context) => {
 		const rtkSettings = state.getRtkSettings();
 		if (rtkSettings.enabled !== true || event.toolName !== "bash") return undefined;
 		const input = event.input;
-		if (fieldIsTrue(input, "async") || fieldIsTrue(input, "pty")) return undefined;
+		const target = Object.getOwnPropertyDescriptor(input, "target")?.value;
+		if (
+			fieldIsTrue(input, "async") ||
+			fieldIsTrue(input, "pty") ||
+			(typeof target === "string" && target !== LOCAL_TARGET)
+		)
+			return undefined;
 		const command = input.command;
 		if (typeof command !== "string" || command.trim() === "") return undefined;
 		const rewritten = await rewriteWithRtk(pi, rtkSettings.path || "rtk", command, context.signal);
@@ -450,7 +513,36 @@ export function registerBashTool(
 			onUpdate: AgentToolUpdateCallback<unknown> | undefined,
 			context: ExtensionContext,
 		) {
-			rejectUnsupportedTarget("bash", params);
+			if (params.target === OUTPUT_TARGET)
+				return result("bash does not support output targets.", {
+					error: "unauthorized",
+					outcome: "unauthorized",
+					target: params.target,
+				});
+			if (isRemoteBashTarget(params.target)) {
+				if ("pty" in params && params.pty === true)
+					return result("PTY Bash is local-only; omit pty for SSH targets.", {
+						error: "pty_unsupported",
+						target: params.target,
+					});
+				if ("async" in params && params.async === true)
+					return result("Async Bash is local-only; omit async for SSH targets.", {
+						error: "async_unsupported",
+						target: params.target,
+					});
+				const runtime = state?.getTargetRuntime();
+				if (runtime === undefined) throw new Error("Target runtime is unavailable.");
+				return runRemoteBash(
+					params.target,
+					params.command,
+					runtime,
+					signal,
+					onUpdate,
+					params.timeout,
+					(state?.getSettings().bashOutputTailKiB ?? 10) * 1024,
+					state?.getOutputs() ?? fallbackOutputs,
+				);
+			}
 			if ("pty" in params && params.pty === true)
 				return runPty(
 					pi,

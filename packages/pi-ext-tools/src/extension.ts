@@ -1,6 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getToolTui, registerExtensionLifecycle, registerToolTuiTrace } from "@hheei/pi-ext-core";
-import { warmApplyPatchCoordinator } from "./apply-patch/coordinator-client.js";
 import { registerApplyPatchGuard } from "./apply-patch-guard.js";
 import { isApplyPatchToolDetails } from "./apply-patch-tool.js";
 import { createFffRuntimeState, registerFffLifecycle } from "./fff/lifecycle.js";
@@ -33,19 +32,16 @@ export default function piExtToolsExtension(pi: ExtensionAPI): void {
 		if (prompt === undefined) return;
 		return { systemPrompt: `${stripTargetPrompt(event.systemPrompt).trimEnd()}\n\n${prompt}` };
 	});
-	pi.on("agent_start", (_event, ctx) => {
-		// Model streaming usually covers coordinator cold start before its first tool call.
-		if (editCatalog === "apply_patch")
-			void warmApplyPatchCoordinator(ctx.cwd, ctx.signal).catch(() => undefined);
-	});
 	pi.on("tool_result", (event) => {
+		if (event.toolName !== "apply_patch" || !isApplyPatchToolDetails(event.details)) return;
+		const details = event.details;
 		if (
-			event.toolName !== "apply_patch" ||
-			!isApplyPatchToolDetails(event.details) ||
-			event.details.status === "success"
+			details.status === "failed" ||
+			(details.unconfirmed?.length ?? 0) > 0 ||
+			(details.notApplied?.length ?? 0) > 0
 		)
-			return;
-		return { isError: true };
+			return { isError: true };
+		return;
 	});
 	registerApplyPatchGuard(pi);
 	registerCommands(pi, { getRuntime: () => state.getRuntime() ?? null });

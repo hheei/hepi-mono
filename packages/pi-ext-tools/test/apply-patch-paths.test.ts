@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validatePatchPath } from "../src/apply-patch/paths.js";
@@ -25,7 +25,7 @@ describe("apply_patch workspace paths", () => {
 		await writeFile(join(root, "src", "value.ts"), "value\n");
 		await expect(validatePatchPath(root, "src/value.ts")).resolves.toEqual({
 			relativePath: "src/value.ts",
-			absolutePath: join(await realpath(root), "src", "value.ts"),
+			absolutePath: join(root, "src", "value.ts"),
 		});
 	});
 
@@ -36,12 +36,13 @@ describe("apply_patch workspace paths", () => {
 		}
 	});
 
-	test("rejects a symlinked path segment", async (): Promise<void> => {
+	test("accepts a lexically valid path even when a segment is a symlink", async (): Promise<void> => {
 		const root = await temporaryDirectory();
 		const outside = await temporaryDirectory();
 		await symlink(outside, join(root, "linked"));
-		await expect(validatePatchPath(root, "linked/value.ts")).rejects.toThrow(
-			"Patch path traverses a symbolic link",
-		);
+		await expect(validatePatchPath(root, "linked/value.ts")).resolves.toEqual({
+			relativePath: "linked/value.ts",
+			absolutePath: join(root, "linked", "value.ts"),
+		});
 	});
 });

@@ -421,9 +421,9 @@ describe("ToolExecutionComponent smoke", () => {
 			const firstUpdate = new Promise<void>((resolve) => {
 				resolveFirstUpdate = resolve;
 			});
-			let resolveCommittedUpdate: (() => void) | undefined;
-			const committedUpdate = new Promise<void>((resolve) => {
-				resolveCommittedUpdate = resolve;
+			let resolvePublishedUpdate: (() => void) | undefined;
+			const publishedUpdate = new Promise<void>((resolve) => {
+				resolvePublishedUpdate = resolve;
 			});
 			let settled = false;
 			const execution = tool.execute(
@@ -444,10 +444,10 @@ describe("ToolExecutionComponent smoke", () => {
 						typeof update.details.progress === "object" &&
 						update.details.progress !== null &&
 						"stage" in update.details.progress &&
-						update.details.progress.stage === "committed"
+						update.details.progress.stage === "publishing"
 					) {
-						resolveCommittedUpdate?.();
-						resolveCommittedUpdate = undefined;
+						resolvePublishedUpdate?.();
+						resolvePublishedUpdate = undefined;
 					}
 				},
 				{ cwd: root } as never,
@@ -458,9 +458,9 @@ describe("ToolExecutionComponent smoke", () => {
 			await firstUpdate;
 			const partialText = stripTerminalSequences(component.render(100).join("\n"));
 			expect(settled).toBe(false);
-			expect(partialText).toContain("apply_patch 1 file");
+			expect(partialText).toContain("apply_patch 2 files");
 			expect(partialText).toContain("○ create first.txt +1");
-			await committedUpdate;
+			await publishedUpdate;
 			expect(settled).toBe(false);
 			expect(stripTerminalSequences(component.render(100).join("\n"))).toContain(
 				"✓ create first.txt +1",
