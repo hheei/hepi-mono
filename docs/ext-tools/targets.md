@@ -2,16 +2,16 @@
 
 ## 状态
 
-已确认，已实现第一版。真实 Pi ToolExecutionComponent smoke 仍待补。
+已确认。`read`、`grep`、`find`、`bash`、`apply_patch` 已实现 SSH Target。`apply_patch` 是逐 path Publish（见 [ADR-0018](../adr/0018-apply-patch-per-path-publish.md)）；ADR-0017 已作废。`edit` / `write` 的 SSH 走同一 Publish（见 [ADR-0019](../adr/0019-write-edit-ssh-use-publish.md)），排在 Patch Core 落地之后。真实 Pi ToolExecutionComponent smoke 仍待补。
 
-`pi-ext-tools` 为 `read`、`grep`、`find` 增加可见且显式的 target 选择。它不把 remote workspace、Output 与 local filesystem 伪装成同一种 URL，也不静默切换 transport 或 SSH destination。
+`pi-ext-tools` 为可见且显式的 target 选择。它不把 remote workspace、Output 与 local filesystem 伪装成同一种 URL，也不静默切换 transport 或 SSH destination。
 
 ## 用户目标
 
 同一个 tool 参数形状可以明确选择本地、内部 Output 或已授权的 SSH host：
 
 ```text
-tool arguments { path, target? }
+tool arguments { path?, target? }
         |
         +-- internal URL in path -> legacy internal resolver
         +-- target omitted / local -> local filesystem
@@ -19,17 +19,18 @@ tool arguments { path, target? }
         +-- target SSH alias -> authorized SSH host
 ```
 
-第一版只改变 `read`、`grep`、`find`。`edit`、`write`、`bash`、`apply_patch` 不接受 remote execution；它们不得因为 path 或 target 看起来像 remote 而回退、改写或静默在 local workspace 执行。
+失败不得因为 path 或 target 看起来像 remote 而回退、改写或静默在 local workspace 执行。
 
 ## 公开工具契约
 
-三个 tool 都增加可选 string `target`：
+工具增加可选 string `target`：
 
 ```json
 { "path": "src/config.ts" }
 { "path": "src/config.ts", "target": "local" }
 { "path": "opaque-output-id", "target": "output" }
 { "path": "src/config.ts", "target": "devbox" }
+{ "command": "uname -s", "target": "devbox" }
 ```
 
 省略 `target` 与 `target: "local"` 等价。`local` 和 `output` 是保留名称；它们优先于同名 SSH alias。extension 加载时若白名单 SSH alias 与保留名称冲突，只显示一次 warning，并排除该 alias。
@@ -45,8 +46,11 @@ unknown target、未授权 alias、target/path capability 不匹配、或 remote
 | `read` | existing local behavior | read one Output id | SFTP text/image read |
 | `grep` | existing local/FFF behavior | search one Output id | remote `rg --json` |
 | `find` | existing local/FFF behavior | rejected | remote `rg --files` plus local non-FFF ranking |
+| `bash` | existing local foreground/pty/async | rejected | foreground `ssh` only；cwd 为远端 `$HOME` |
+| `apply_patch` | Patch Core + LocalBackend | rejected | Patch Core + SftpBackend（ADR-0018） |
+| `edit` / `write` | existing local Pi native | rejected | Publish + SftpBackend（ADR-0019；方言仍是 native；排在 Patch Core 之后） |
 
-Output 没有 tree/directory 语义：`find({ target: "output" })` 一律拒绝。`read` 和 `grep` 的 output target 都要求 `path`。local 与 SSH `grep`/`find` 保留其原有的 optional search path。
+Output 没有 tree/directory 语义：`find({ target: "output" })` 一律拒绝。`read` 和 `grep` 的 output target 都要求 `path`。local 与 SSH `grep`/`find` 保留其原有的 optional search path。`bash` 与 `apply_patch` 不接受 `output`。
 
 ## Target 解析与授权
 
@@ -67,17 +71,18 @@ SSH target 只支持 POSIX remote hosts。执行使用系统 `ssh` 和 `sftp`，
 - `read` 使用 SFTP，沿用 Pi read 的 text/image 行为与限制；
 - `grep` 以 remote `rg --json` 搜索；
 - `find` 以 remote `rg --files` 枚举；
-- remote host 必须提供 `rg`；缺失时明确报告 remote dependency error。
+- `bash` 以 `ssh alias -- command` 在远端 `$HOME` 前台执行，复用同一条 ControlMaster；
+- remote `grep`/`find` 必须提供 `rg`；缺失时明确报告 remote dependency error。
 
 OpenSSH config 仍拥有 hostname、user、port、identity、agent、known-hosts 与 ProxyJump 等连接配置。extension 只追加 non-interactive 与其 own connection-master options。认证、host-key 或 passphrase prompt 不可交互完成，必须失败而不阻塞 Pi session。
 
-每一个 target 的 ControlMaster socket 位于：
+每一个 alias 的 ControlMaster socket 位于：
 
 ```text
-~/.pi/agent/extensions/pi-ext-tools/<target>/
+~/.pi/agent/extensions/pi-ext-tools/targets/<alias>.sock
 ```
 
-它以 `ControlPersist=15m` 跨短期 session reuse。extension 在 startup 清理失效 socket；不在一般 session cleanup 主动关闭尚可被其它 session 使用的 master。所有本地 child process 和 SFTP/SSH operation 都接受 caller cancellation，且 `read`、`grep`、`find` 的整体 timeout 固定为 30 秒；这不是模型可控制参数。
+同一 alias 的所有 session 共用这一条 master，不再按 session 建子目录。`ControlMaster=auto` 且 `ControlPersist=15m`：idle 到期或 master 被清掉后，下一次 ssh/sftp 会新建 master；并发 session 挂到同一条 socket。extension 在 startup 清理失效 socket；不在一般 session cleanup 主动关闭尚可被其它 session 使用的 master。所有本地 child process 和 SFTP/SSH operation 都接受 caller cancellation。`read`、`grep`、`find` 的整体 timeout 固定为 20 秒（含 SSH 连接）；这不是模型可控制参数，也不出现在 tool schema。`bash` 的 `timeout` 与 local 相同：可省略，省略则跑到结束或取消。
 
 remote path 遵从明确、可预测的 SSH/SFTP 语义：
 
@@ -86,7 +91,27 @@ path = "XXX"   -> remote home relative path
 path = "/XXX"  -> remote filesystem absolute path
 ```
 
-所有 remote path 拒绝 `..` segment 与 `~` expansion。extension 不配置 workspace root，也不构造可绕过 SSH user permissions 的 sandbox。renderer 和 persisted details 显示 target alias 加相对/绝对 path，不显示 credentials、private key path 或 local ControlPath。
+所有 remote path 拒绝 `..` segment 与 `~` expansion。V4A 与 tool 参数使用未加前缀的 Remote Path；TUI 可以画 `host:path` 或 bash 的 `(host)`。extension 不配置 workspace root，也不构造可绕过 SSH user permissions 的 sandbox。不显示 credentials、private key path 或 local ControlPath。
+
+## remote bash
+
+remote bash 不是包一层本机 `ssh` 的 local bash：
+
+- 只接受 `local` 或已授权 SSH alias；`output`、`pty`、`async` 一律拒绝；
+- 不传本机 `ctx.cwd`、`shellPath` 或环境变量；远端 sshd 用该帐号 login shell；
+- cwd 为远端 `$HOME`（`cd "$HOME" && command`）；
+- 取消只终止本机 ssh session，不宣称远端 process 已死；结果是 interrupted；
+- 不跑 RTK rewrite；
+- stdout/stderr 仍进入本机 session `BashOutputSink`；
+- header 为 `status bash (host) <command>`，`(host)` 在当前 Trace 为 warning 色，塌缩后与 command 一起 dim。
+
+## remote apply_patch（ADR-0018）
+
+与 local 同一套 Patch Core。Unix-like SSH 走 SftpBackend：lstat/read/put/rename/rm，不是 sshfs，也不是远端 coordinator。workspace 为远端 `$HOME`。`✓` 只在 sibling 临时文件 replace 确认后。已确认 path 不 rollback。现有文件大于 32 MiB 拒绝。同 alias 跨 session 由本机平台原生 lock 串行化 apply_patch，忙则拒绝；不检测外部写入。SFTP 单 path：传输 ≤1 MiB 逾时 30s，否则 60s。Update 写穿 leaf symlink；Delete unlink 字面目录项。header 为 `apply_patch (host) N file(s)`；operation rows 为 warning 色 `host:path`。
+
+## remote write / edit（ADR-0019，排在 Patch Core 之后）
+
+与 apply_patch 共用 Publish 与 mutation lock，不另做 SFTP 覆盖。本机仍走 Pi native execute。远端 Write 没有就创建、有就覆盖、自动建父目录；远端 Edit 精确唯一匹配。路径是 Remote Path（相对 `$HOME` 或远端绝对路径）。锁内内容已相同则成功 no-change、不 Publish。现有文件与 new bytes 大于 32 MiB 拒绝。Unconfirmed 用 `?`，必须先 `read`。SFTP 逾时与 apply_patch 相同。header 为 warning 色 `host:path`。`output` 仍拒绝；失败不 fallback local。
 
 ## 远程搜索
 
@@ -121,6 +146,8 @@ fork 不复制 payload。resolver 以 opaque session-qualified id 在当前 sess
 
 ToolTui 仍拥有 frame、collapse 与 resume lifecycle；target backend 只提供 canonical result/details。每一个 persisted remote result 都记录足够的 target/path/typed outcome，以便 resume 仅从 persisted data 重画，不需要重新建立 SSH connection。target conflict、non-persistent Output 与 remote dependency/cancellation/timeout 都是 typed result states，不能只作为 transient notification。
 
+path 类工具在当前 Trace 使用 warning 色 `host:path`；bash 使用 warning 色 `(host)`。collapsed / 后续 Trace 去掉 warning 色，整段 dim。
+
 ## 所有权、清理与测试
 
 `pi-ext-tools` 拥有 target parsing、authorization、transport process lifecycle、Output sidecar policy、canonical result conversion、cursor snapshots 与 target-aware rendering。`pi-ext-core` 只扩展 feature-neutral Settings contract，以支持 `list<string>` value 和 field type；它不拥有 SSH、Output、whitelist 或 any target policy。`pi-settings` 只提供 list editor UI。
@@ -130,6 +157,7 @@ ToolTui 仍拥有 frame、collapse 与 resume lifecycle；target backend 只提�
 - local default、reserved target、legacy URL precedence、target conflict warning 与 unknown/unauthorized target；
 - whitelist snapshot/reload behavior、reserved collision、SSH config literal validation 与 no-probe load；
 - SFTP read text/image、remote `rg` conversion、timeout、abort、non-interactive authentication failure、POSIX rejection；
+- remote bash：SSH exec、home cwd、optional timeout、cancel、output/pty/async 拒绝、无 RTK、`(host)` header、details.target；
 - remote path rules、FFF bypass、find snapshot cursor、scope limits 与 cursor expiry；
 - sidecar normal reload、caps、non-persistent fallback、invalid records、write failure、fork and Handoff ancestry resolution；
 - list<string> storage validation and Settings TUI narrow/wide add/edit/remove/reorder behavior;

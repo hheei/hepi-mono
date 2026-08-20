@@ -98,9 +98,27 @@ function argsRecord(value: unknown): Readonly<Record<string, unknown>> {
 		: {};
 }
 
-function targetSuffix(values: Record<string, unknown>): string {
+function remoteTarget(values: Record<string, unknown>): string | undefined {
 	const target = textValue(values.target);
-	return target === undefined || target === "local" ? "" : ` @${target}`;
+	return target === undefined || target === "local" ? undefined : target;
+}
+
+function remoteLocation(values: Record<string, unknown>, path: string): string {
+	const target = remoteTarget(values);
+	return target === undefined ? path : `${target}:${path}`;
+}
+
+function paintRemotePath(
+	values: Record<string, unknown>,
+	path: string,
+	theme: Theme,
+	muted: boolean,
+): string {
+	const location = remoteLocation(values, path);
+	const target = remoteTarget(values);
+	if (muted) return theme.fg("dim", location);
+	if (target === undefined) return location;
+	return `${theme.fg("warning", `${target}:`)}${path}`;
 }
 
 function summaryFor(tool: string, args: unknown): string {
@@ -110,7 +128,7 @@ function summaryFor(tool: string, args: unknown): string {
 	const command = textValue(values.command);
 	const action = textValue(values.action);
 	const id = textValue(values.id);
-	const location = path === undefined ? undefined : `${path}${targetSuffix(values)}`;
+	const location = path === undefined ? undefined : remoteLocation(values, path);
 
 	if (tool === "grep" && pattern !== undefined)
 		return location === undefined ? `/${pattern}/` : `/${pattern}/ in ${location}`;
@@ -139,9 +157,12 @@ function headerFor(
 	);
 	const values = argsRecord(args);
 	if (summaryOverride !== undefined) {
+		const host = remoteTarget(values);
+		const hostLabel =
+			host === undefined ? "" : `${theme.fg(collapsed ? "dim" : "warning", `(${host})`)} `;
 		const summary = collapsed ? theme.fg("dim", summaryOverride) : summaryOverride;
 		return {
-			primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))}${summarySeparator === "dot" ? ` ${theme.fg("dim", "·")}` : ""} ${summary}`,
+			primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))}${summarySeparator === "dot" ? ` ${theme.fg("dim", "·")}` : ""} ${hostLabel}${summary}`,
 		};
 	}
 	const pattern = textValue(values.pattern);
@@ -149,8 +170,12 @@ function headerFor(
 	const command = textValue(values.command);
 	if (tool.name === "bash" && command !== undefined) {
 		const timeout = typeof values.timeout === "number" ? values.timeout : undefined;
+		const shown = collapsed ? (command.split("\n")[0] ?? command) : command;
+		const host = remoteTarget(values);
+		const hostLabel =
+			host === undefined ? "" : `${theme.fg(collapsed ? "dim" : "warning", `(${host})`)} `;
 		return {
-			primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${collapsed ? theme.fg("dim", command.split("\n")[0] ?? command) : command}`,
+			primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${hostLabel}${theme.fg(collapsed ? "dim" : "muted", shown)}`,
 			...(timeout === undefined ? {} : { suffix: theme.fg("dim", ` (timeout ${timeout}s)`) }),
 		};
 	}
@@ -163,19 +188,17 @@ function headerFor(
 					? ""
 					: `:${offset}`
 				: `:${offset ?? 1}-${(offset ?? 1) + limit - 1}`;
-		const location = `${path}${targetSuffix(values)}`;
 		return {
-			primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${collapsed ? theme.fg("dim", location) : location}${theme.fg(collapsed ? "dim" : "warning", range)}`,
+			primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${paintRemotePath(values, path, theme, collapsed)}${theme.fg(collapsed ? "dim" : "warning", range)}`,
 		};
 	}
 	if ((tool.name === "grep" || tool.name === "find") && pattern !== undefined) {
-		const located = path === undefined ? undefined : `${path}${targetSuffix(values)}`;
 		const location =
-			located === undefined
+			path === undefined
 				? undefined
 				: historical
-					? theme.fg("dim", `in ${located}`)
-					: `in ${located}`;
+					? theme.fg("dim", `in ${remoteLocation(values, path)}`)
+					: `in ${paintRemotePath(values, path, theme, false)}`;
 		const summary = [
 			theme.fg("toolTitle", theme.bold(tool.label)),
 			theme.fg("mdCode", `/${pattern}/`),

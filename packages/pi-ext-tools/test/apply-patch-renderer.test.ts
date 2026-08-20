@@ -87,6 +87,8 @@ const details: ApplyPatchToolDetails = {
 			diagnostics: [],
 		},
 	],
+	unconfirmed: [],
+	notApplied: [],
 	durationMs: 720,
 };
 
@@ -225,6 +227,56 @@ describe("apply_patch progress renderer", () => {
 		expect(text).toContain("! modify src/value.ts +2 -2 (2/3 hunks applied; context not found)");
 	});
 
+	test("prefixes SSH operation paths with host", () => {
+		const remote: ApplyPatchToolDetails = {
+			...details,
+			target: "devbox",
+			operations: [
+				{
+					operationIndex: 0,
+					kind: "update",
+					path: "src/app.ts",
+					addedLines: 1,
+					removedLines: 0,
+					status: "applied",
+				},
+			],
+		};
+		const text = renderApplyPatchResult(remote, false, theme as never)
+			.render(200)
+			.join("\n");
+		expect(text).toContain("modify devbox:src/app.ts +1");
+	});
+
+	test("renders unconfirmed and not-applied terminal glyphs", () => {
+		const unknown: ApplyPatchToolDetails = {
+			...details,
+			operations: [
+				{
+					operationIndex: 0,
+					kind: "update",
+					path: "src/maybe.ts",
+					addedLines: 1,
+					removedLines: 0,
+					status: "unconfirmed",
+				},
+				{
+					operationIndex: 1,
+					kind: "add",
+					path: "src/later.ts",
+					addedLines: 1,
+					removedLines: 0,
+					status: "not_applied",
+				},
+			],
+		};
+		const text = renderApplyPatchResult(unknown, false, theme as never)
+			.render(200)
+			.join("\n");
+		expect(text).toContain("? modify src/maybe.ts +1");
+		expect(text).toContain("– create src/later.ts +1");
+	});
+
 	test("uses progress rows while applying", () => {
 		const progress: ApplyPatchToolDetails = {
 			...details,
@@ -269,6 +321,20 @@ describe("apply_patch call preview", () => {
 		expect(text).toContain("○ modify old.txt -1");
 		expect(text).not.toContain("✓");
 		expect(text).not.toContain("0.00s");
+	});
+
+	test("prefixes SSH preview paths with host", () => {
+		const text = renderApplyPatchCall(
+			{
+				patch: "*** Begin Patch\n*** Add File: stream.txt\n+one\n",
+				target: "devbox",
+			},
+			theme as never,
+			{ argsComplete: false },
+		)
+			.render(200)
+			.join("\n");
+		expect(text).toContain("○ create devbox:stream.txt +1");
 	});
 
 	test("returns an empty body before any operation header is complete", () => {

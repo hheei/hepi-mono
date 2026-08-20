@@ -1267,7 +1267,7 @@ describe("pi-ext-tools catalog", () => {
 		await expect(readFile(join(cwd, "first.txt"), "utf8")).rejects.toThrow();
 	});
 
-	test("reports only rejected hunks after a partially applied update", async (): Promise<void> => {
+	test("does not publish an update when any hunk fails", async (): Promise<void> => {
 		const cwd = await temporaryDirectory();
 		await writeFile(join(cwd, "value.txt"), "one\ntwo\nthree\nfour\nfive\n", "utf8");
 		const host = harness();
@@ -1291,12 +1291,12 @@ describe("pi-ext-tools catalog", () => {
 			{ cwd } as ExtensionContext,
 		);
 
-		expect(result.details).toMatchObject({ status: "partial" });
+		expect(result.details).toMatchObject({ status: "failed" });
 		expect(result.content).toContainEqual({
 			type: "text",
-			text: "Patch partially applied.\nChanged:\n- value.txt: update (2/3 hunks applied)\nRejected:\n- operation 1, value.txt, hunk 2: best fuzzy score 0.00 < required 0.70\nRecovery: read value.txt, then retry only rejected hunks from operation 1.\nDo not retry applied hunks.",
+			text: "Patch was not applied.\nRejected:\n- operation 1, value.txt, hunk 2: best fuzzy score 0.00 < required 0.70\nRecovery: read value.txt, then retry only rejected hunks from operation 1.",
 		});
-		expect(await readFile(join(cwd, "value.txt"), "utf8")).toBe("ONE\ntwo\nthree\nfour\nFIVE\n");
+		expect(await readFile(join(cwd, "value.txt"), "utf8")).toBe("one\ntwo\nthree\nfour\nfive\n");
 	});
 
 	test("persists only the visible write diff instead of the unchanged file body", async (): Promise<void> => {

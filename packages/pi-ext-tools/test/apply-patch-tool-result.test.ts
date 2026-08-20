@@ -28,40 +28,34 @@ function toolResultHandler(): ToolResultHandler {
 }
 
 describe("apply_patch tool_result contract", () => {
-	test("provides targeted recovery for coordinator failures", () => {
+	test("provides targeted recovery for request failures", () => {
 		expect(failureRecovery("workspace outcome is unknown after disconnect")).toContain(
-			"read every path",
+			"Unconfirmed",
 		);
-		expect(
-			failureRecovery(
-				"workspace state indeterminate after cancellation; Apply patch cancelled by client",
-			),
-		).toContain("read every path");
-		expect(failureRecovery("Apply patch cancellation outcome is unknown")).toContain(
-			"read every path",
-		);
-		expect(failureRecovery("Apply patch coordinator queue is full")).toContain("wait");
-		expect(failureRecovery("Apply patch cancelled by client after rollback")).toContain(
-			"read targets",
-		);
+		expect(failureRecovery("apply_patch is already running for /tmp/ws")).toContain("wait");
+		expect(failureRecovery("cancelled after first publish")).toContain("confirmed paths stay");
 		expect(
 			failureRecovery("Invalid V4A patch at line 4. No operations were validated or applied."),
 		).toContain("correct the V4A syntax");
 	});
 
-	test("marks only partial and failed actual outcomes as Pi errors", () => {
+	test("marks failed and unknown outcomes as Pi errors, not Changed+Rejected partial", () => {
 		const handler = toolResultHandler();
 		expect(handler({ toolName: "apply_patch", details: { status: "success" } })).toBeUndefined();
-		expect(handler({ toolName: "apply_patch", details: { status: "partial" } })).toEqual({
-			isError: true,
-		});
+		expect(handler({ toolName: "apply_patch", details: { status: "partial" } })).toBeUndefined();
+		expect(
+			handler({
+				toolName: "apply_patch",
+				details: { status: "partial", unconfirmed: [{ paths: ["a.ts"] }] },
+			}),
+		).toEqual({ isError: true });
 		expect(handler({ toolName: "apply_patch", details: { status: "failed" } })).toEqual({
 			isError: true,
 		});
 		expect(handler({ toolName: "read", details: { status: "partial" } })).toBeUndefined();
 	});
 
-	test("forwards coordinator parse progress to the tool update callback", async () => {
+	test("forwards parse progress to the tool update callback", async () => {
 		const root = await mkdtemp(join(tmpdir(), "hepi-apply-patch-tool-result-"));
 		const updates: { readonly details: { readonly operations: readonly unknown[] } }[] = [];
 		try {
@@ -78,9 +72,7 @@ describe("apply_patch tool_result contract", () => {
 				(update) => updates.push(update as (typeof updates)[number]),
 				{ cwd: root } as never,
 			);
-			expect(updates.map((update) => update.details.operations.length)).toEqual(
-				expect.arrayContaining([1, 2]),
-			);
+			expect(updates.some((update) => update.details.operations.length === 2)).toBe(true);
 			expect(result.content).toEqual([
 				{
 					type: "text",
@@ -90,5 +82,52 @@ describe("apply_patch tool_result contract", () => {
 		} finally {
 			await rm(root, { recursive: true, force: true });
 		}
+	});
+
+	test("rejects output targets before mutation", async () => {
+		await expect(
+			createApplyPatchTool().execute(
+				"call-id",
+				{
+					patch: "*** Begin Patch\n*** Add File: first.txt\n+one\n*** End Patch",
+					target: "output",
+				},
+				undefined,
+				undefined,
+				{ cwd: process.cwd() } as never,
+			),
+		).rejects.toThrow("does not support output targets");
+	});
+
+	test("rejects SSH apply_patch when the target runtime is missing", async () => {
+		await expect(
+			createApplyPatchTool().execute(
+				"call-id",
+				{
+					patch: "*** Begin Patch\n*** Add File: first.txt\n+one\n*** End Patch",
+					target: "devbox",
+				},
+				undefined,
+				undefined,
+				{ cwd: process.cwd() } as never,
+			),
+		).rejects.toThrow("Target runtime is unavailable");
+	});
+
+	test("rejects unauthorized SSH aliases before mutation", async () => {
+		await expect(
+			createApplyPatchTool({
+				getTargetRuntime: () => ({ isAllowedHost: () => false }) as never,
+			} as never).execute(
+				"call-id",
+				{
+					patch: "*** Begin Patch\n*** Add File: first.txt\n+one\n*** End Patch",
+					target: "devbox",
+				},
+				undefined,
+				undefined,
+				{ cwd: process.cwd() } as never,
+			),
+		).rejects.toThrow("Unknown or unauthorized SSH target: devbox");
 	});
 });

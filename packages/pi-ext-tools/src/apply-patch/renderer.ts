@@ -27,17 +27,23 @@ function delta(operation: ApplyPatchOperationProgress, theme: Theme): string {
 		.join(" ");
 }
 
-function row(operation: ApplyPatchOperationProgress, theme: Theme): string {
+function paintPath(path: string, host: string | undefined, theme: Theme): string {
+	return host === undefined ? path : `${theme.fg("warning", `${host}:`)}${path}`;
+}
+
+function row(operation: ApplyPatchOperationProgress, theme: Theme, host?: string): string {
 	const glyph =
 		operation.status === "pending"
 			? theme.fg("dim", "○")
 			: operation.status === "applied"
 				? theme.fg("success", "✓")
-				: operation.status === "partial"
+				: operation.status === "partial" || operation.status === "fuzzy"
 					? theme.fg("warning", "!")
-					: operation.status === "fuzzy"
-						? theme.fg("warning", "!")
-						: theme.fg("error", "✗");
+					: operation.status === "unconfirmed"
+						? theme.fg("warning", "?")
+						: operation.status === "not_applied"
+							? theme.fg("dim", "–")
+							: theme.fg("error", "✗");
 	const score =
 		operation.status === "fuzzy" && operation.score !== undefined
 			? ` ${theme.fg("dim", `(${operation.score.toFixed(2)})`)}`
@@ -50,7 +56,7 @@ function row(operation: ApplyPatchOperationProgress, theme: Theme): string {
 			: " ";
 	const kind =
 		operation.kind === "add" ? "create" : operation.kind === "delete" ? "delete" : "modify";
-	return `${glyph} ${theme.fg("toolTitle", kind)} ${operation.path} ${delta(operation, theme)}${score}${hunkSummary}`.trimEnd();
+	return `${glyph} ${theme.fg("toolTitle", kind)} ${paintPath(operation.path, host, theme)} ${delta(operation, theme)}${score}${hunkSummary}`.trimEnd();
 }
 
 function operations(details: ApplyPatchToolDetails): readonly ApplyPatchOperationProgress[] {
@@ -181,6 +187,15 @@ export function renderApplyPatchCall(
 	if (state !== undefined) state.cursor = cursor;
 	const operations = previewV4aPatchPrefix(patch, context.argsComplete === true, cursor);
 	if (operations.length === 0) return new Container();
+	const host =
+		typeof args === "object" &&
+		args !== null &&
+		"target" in args &&
+		typeof args.target === "string" &&
+		args.target !== "local" &&
+		args.target !== "output"
+			? args.target
+			: undefined;
 	const body = new Container();
 	for (const [index, operation] of operations.entries()) {
 		body.addChild(
@@ -195,6 +210,7 @@ export function renderApplyPatchCall(
 						status: "pending",
 					},
 					theme,
+					host,
 				),
 				0,
 				0,
@@ -212,13 +228,18 @@ export function renderApplyPatchResult(
 	const details = detailsFor(value);
 	if (details === undefined) return new Text("", 0, 0);
 	const operationRows = operations(details);
+	const host =
+		details.target !== undefined && details.target !== "local" && details.target !== "output"
+			? details.target
+			: undefined;
 	if (!expanded) {
 		const body = new Container();
-		for (const operation of operationRows) body.addChild(new Text(row(operation, theme), 0, 0));
+		for (const operation of operationRows)
+			body.addChild(new Text(row(operation, theme, host), 0, 0));
 		return body;
 	}
 	return new LinesBody((width) => {
-		const lines = operationRows.map((operation) => row(operation, theme));
+		const lines = operationRows.map((operation) => row(operation, theme, host));
 		for (const applied of details.applied) {
 			for (const snapshot of applied.snapshots) {
 				lines.push(...snapshotLines(snapshot, theme, width));
@@ -234,6 +255,12 @@ export function renderApplyPatchResult(
 					),
 				);
 			}
+		}
+		for (const entry of details.unconfirmed ?? []) {
+			lines.push(theme.fg("warning", `? ${entry.paths[0] ?? "<unknown>"} · ${entry.error}`));
+		}
+		for (const entry of details.notApplied ?? []) {
+			lines.push(theme.fg("dim", `– ${entry.paths[0] ?? "<unknown>"} · ${entry.error}`));
 		}
 		return lines;
 	});

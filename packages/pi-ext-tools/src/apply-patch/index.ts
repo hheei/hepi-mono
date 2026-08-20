@@ -1,14 +1,15 @@
 export {
-	type ApplyPatchThroughCoordinatorOptions,
-	applyPatchThroughCoordinator,
-	coordinatorSocketPath,
-	warmApplyPatchCoordinator,
-} from "./coordinator-client.js";
-export { startApplyPatchCoordinatorServer } from "./coordinator-server.js";
-export {
 	type ApplyPatchInWorkspaceOptions,
 	applyPatchInWorkspace,
 } from "./executor.js";
+export {
+	APPLY_PATCH_MAX_FILE_SIZE,
+	createLocalPatchFs,
+	createSftpPatchFs,
+	FsTransportError,
+	type PatchFs,
+} from "./fs.js";
+export { ApplyPatchBusyError, acquireApplyPatchLock } from "./lock.js";
 export type {
 	ApplyPatchAppliedOperation,
 	ApplyPatchHunkSnapshot,

@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -7,8 +10,11 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
-import { createToolTui } from "@hheei/pi-ext-core";
+import { createOutputRegistry, createToolTui } from "@hheei/pi-ext-core";
 import { registerBashTool } from "../src/bash.js";
+import type { FffRuntimeState } from "../src/fff/lifecycle.js";
+import { DEFAULT_FFF_SETTINGS, DEFAULT_RTK_SETTINGS } from "../src/fff/settings.js";
+import { TargetRuntime } from "../src/targets.js";
 
 initTheme(undefined, false);
 
@@ -115,6 +121,7 @@ test("bash exposes only async and PTY use guidance", (): void => {
 		"Use `async` only for finite commands that may outlive this tool call.",
 		"Use `pty` only for interactive terminal programs such as `sudo` or `ssh`.",
 		"NEVER combine `pty` with `async`.",
+		"Remote `target` is an authorized SSH host; omit pty and async. Working directory is the remote home.",
 	]);
 });
 
@@ -530,4 +537,145 @@ test("bash summarizes exit code, output lines, and duration in collapsed traces"
 		.render(120)
 		.join("\n");
 	expect(footer).toMatch(/exit 0 · 2 lines · \d+ms/);
+});
+
+test("bash rejects output, pty, and async on SSH targets", async (): Promise<void> => {
+	const tools: ToolDefinition[] = [];
+	registerBashTool({
+		registerTool(tool: ToolDefinition): void {
+			tools.push(tool);
+		},
+	} as unknown as ExtensionAPI);
+	const bash = tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("Expected bash tool");
+	const context = { cwd: process.cwd() } as ExtensionContext;
+	expect(
+		await bash.execute(
+			"bash-output",
+			{ command: "true", target: "output" },
+			undefined,
+			undefined,
+			context,
+		),
+	).toMatchObject({
+		content: [{ type: "text", text: "bash does not support output targets." }],
+		details: { error: "unauthorized", target: "output" },
+	});
+	expect(
+		await bash.execute(
+			"bash-remote-pty",
+			{ command: "true", target: "ileqm", pty: true },
+			undefined,
+			undefined,
+			context,
+		),
+	).toMatchObject({
+		content: [{ type: "text", text: "PTY Bash is local-only; omit pty for SSH targets." }],
+		details: { error: "pty_unsupported", target: "ileqm" },
+	});
+	expect(
+		await bash.execute(
+			"bash-remote-async",
+			{ command: "true", target: "ileqm", async: true },
+			undefined,
+			undefined,
+			context,
+		),
+	).toMatchObject({
+		content: [{ type: "text", text: "Async Bash is local-only; omit async for SSH targets." }],
+		details: { error: "async_unsupported", target: "ileqm" },
+	});
+	await expect(
+		bash.execute(
+			"bash-remote-missing-runtime",
+			{ command: "true", target: "ileqm" },
+			undefined,
+			undefined,
+			context,
+		),
+	).rejects.toThrow("Target runtime is unavailable.");
+});
+
+test("bash executes authorized SSH targets from remote home", async (): Promise<void> => {
+	const directory = await mkdtemp(join(tmpdir(), "hepi-bash-remote-"));
+	const bin = join(directory, "bin");
+	await mkdir(bin);
+	await writeFile(
+		join(bin, "ssh"),
+		[
+			"#!/bin/sh",
+			'last=""',
+			'for arg in "$@"; do last=$arg; done',
+			'if [ "$last" = "uname -s" ]; then echo Linux; exit 0; fi',
+			'eval "$last"',
+			"",
+		].join("\n"),
+		"utf8",
+	);
+	await chmod(join(bin, "ssh"), 0o755);
+	await writeFile(join(directory, "ssh-config"), "Host ileqm\n  HostName example.test\n", "utf8");
+	const previousPath = process.env.PATH;
+	process.env.PATH = `${bin}:${previousPath ?? ""}`;
+	try {
+		const runtime = await TargetRuntime.create(
+			{
+				outputs: createOutputRegistry(),
+				home: directory,
+				sshConfigPath: join(directory, "ssh-config"),
+			},
+			["ileqm"],
+		);
+		try {
+			const tools: ToolDefinition[] = [];
+			const state: FffRuntimeState = {
+				getRuntime: () => undefined,
+				getSettings: () => DEFAULT_FFF_SETTINGS,
+				getRtkSettings: () => DEFAULT_RTK_SETTINGS,
+				getBashJobs: () => undefined,
+				getOutputs: () => createOutputRegistry(),
+				getTargetRuntime: () => runtime,
+				consumeRtkRewriteWarning: () => false,
+			};
+			registerBashTool(
+				{
+					registerTool(tool: ToolDefinition): void {
+						tools.push(tool);
+					},
+					on(): void {},
+				} as unknown as ExtensionAPI,
+				state,
+			);
+			const bash = tools.find((tool) => tool.name === "bash");
+			if (bash === undefined) throw new Error("Expected bash tool");
+			const result = await bash.execute(
+				"bash-remote-ok",
+				{ command: "printf remote-ok", target: "ileqm" },
+				undefined,
+				undefined,
+				{ cwd: process.cwd() } as ExtensionContext,
+			);
+			expect(result.content).toEqual([{ type: "text", text: "remote-ok" }]);
+			expect(result.details).toMatchObject({
+				exitCode: 0,
+				target: "ileqm",
+				outcome: "ok",
+			});
+			const denied = await bash.execute(
+				"bash-remote-denied",
+				{ command: "true", target: "nope" },
+				undefined,
+				undefined,
+				{ cwd: process.cwd() } as ExtensionContext,
+			);
+			expect(denied.content[0]).toMatchObject({
+				type: "text",
+				text: "Unknown or unauthorized SSH target: nope",
+			});
+		} finally {
+			await runtime.close();
+		}
+	} finally {
+		process.env.PATH = previousPath;
+		await rm(directory, { recursive: true, force: true });
+	}
 });

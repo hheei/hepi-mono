@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createOutputRegistry } from "@hheei/pi-ext-core";
@@ -50,6 +50,7 @@ describe("pi-ext-tools target runtime", () => {
 			);
 			try {
 				expect(runtime.prompt()).toContain("dev");
+				expect(runtime.prompt()).toContain("bash and apply_patch accept local");
 				expect(runtime.prompt()).not.toContain("missing");
 				expect(warnings).toHaveLength(1);
 				expect(() => runtime.validateRemotePath("../secret")).toThrow("..");
@@ -184,6 +185,174 @@ describe("pi-ext-tools target runtime", () => {
 				await runtime.close();
 			}
 		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
+
+	test("creates ControlPath before the POSIX probe and does not cache SSH failures", async () => {
+		const directory = await temporaryDirectory();
+		const bin = join(directory, "bin");
+		const state = join(directory, "state");
+		await mkdir(bin);
+		await mkdir(state);
+		const ssh = join(bin, "ssh");
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell ${arg#prefix} parameter expansion
+		const assignControl = " control=${arg#ControlPath=}";
+		await writeFile(
+			ssh,
+			[
+				"#!/bin/sh",
+				'control=""',
+				'prev=""',
+				'for arg in "$@"; do',
+				'  if [ "$prev" = "-o" ]; then',
+				'    case "$arg" in',
+				`      ControlPath=*)${assignControl} ;;`,
+				"    esac",
+				"  fi",
+				'  prev="$arg"',
+				"done",
+				`echo "$control" >> "${state}/control"`,
+				'if [ -n "$control" ] && [ ! -d "$(dirname "$control")" ]; then',
+				'  echo "unix_listener: cannot bind to path $control: No such file or directory" >&2',
+				"  exit 255",
+				"fi",
+				`if [ ! -f "${state}/once" ]; then`,
+				`  touch "${state}/once"`,
+				'  echo "Connection refused" >&2',
+				"  exit 255",
+				"fi",
+				"echo Linux",
+				"exit 0",
+				"",
+			].join("\n"),
+			"utf8",
+		);
+		await chmod(ssh, 0o755);
+		await writeFile(join(directory, "ssh-config"), "Host ileqm\n  HostName example.test\n", "utf8");
+		const previousPath = process.env.PATH;
+		process.env.PATH = `${bin}:${previousPath ?? ""}`;
+		const sessionId = "01a018bf-3468-7ca4-8e67-f3bcdf3e119e";
+		const expected = join(
+			directory,
+			".pi",
+			"agent",
+			"extensions",
+			"pi-ext-tools",
+			"targets",
+			"ileqm.sock",
+		);
+		try {
+			const runtime = await TargetRuntime.create(
+				{
+					outputs: createOutputRegistry(),
+					home: directory,
+					sshConfigPath: join(directory, "ssh-config"),
+					sessionManager: { getSessionId: () => sessionId },
+				},
+				["ileqm"],
+			);
+			try {
+				await expect(runtime.grep("ileqm", "rg --json foo")).rejects.toThrow("Connection refused");
+				await expect(runtime.grep("ileqm", "rg --json foo")).resolves.toBe("Linux\n");
+			} finally {
+				await runtime.close();
+			}
+			const recorded = (await readFile(join(state, "control"), "utf8")).trim().split("\n");
+			expect(recorded.every((path) => path === expected)).toBe(true);
+			expect(recorded.some((path) => path.includes(sessionId))).toBe(false);
+		} finally {
+			process.env.PATH = previousPath;
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
+
+	test("exec runs remote commands from home without a default timeout", async () => {
+		const directory = await temporaryDirectory();
+		const bin = join(directory, "bin");
+		await mkdir(bin);
+		await writeFile(
+			join(bin, "ssh"),
+			[
+				"#!/bin/sh",
+				'last=""',
+				'for arg in "$@"; do last=$arg; done',
+				'if [ "$last" = "uname -s" ]; then echo Linux; exit 0; fi',
+				'printf "%s\n" "$last"',
+				'eval "$last"',
+				"",
+			].join("\n"),
+			"utf8",
+		);
+		await chmod(join(bin, "ssh"), 0o755);
+		await writeFile(join(directory, "ssh-config"), "Host ileqm\n  HostName example.test\n", "utf8");
+		const previousPath = process.env.PATH;
+		process.env.PATH = `${bin}:${previousPath ?? ""}`;
+		try {
+			const runtime = await TargetRuntime.create(
+				{
+					outputs: createOutputRegistry(),
+					home: directory,
+					sshConfigPath: join(directory, "ssh-config"),
+				},
+				["ileqm"],
+			);
+			try {
+				const chunks: Buffer[] = [];
+				const result = await runtime.exec("ileqm", "printf ran; exit 7", {
+					onData: (chunk) => chunks.push(chunk),
+				});
+				expect(result).toEqual({ code: 7, timedOut: false });
+				const output = Buffer.concat(chunks).toString("utf8");
+				expect(output).toContain('cd "$HOME" && printf ran; exit 7');
+				expect(output).toContain("ran");
+				await expect(runtime.exec("nope", "true")).rejects.toThrow("unauthorized");
+			} finally {
+				await runtime.close();
+			}
+		} finally {
+			process.env.PATH = previousPath;
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
+
+	test("exec timeout returns timedOut instead of throwing", async () => {
+		const directory = await temporaryDirectory();
+		const bin = join(directory, "bin");
+		await mkdir(bin);
+		await writeFile(
+			join(bin, "ssh"),
+			[
+				"#!/bin/sh",
+				'last=""',
+				'for arg in "$@"; do last=$arg; done',
+				'if [ "$last" = "uname -s" ]; then echo Linux; exit 0; fi',
+				"exec sleep 30",
+				"",
+			].join("\n"),
+			"utf8",
+		);
+		await chmod(join(bin, "ssh"), 0o755);
+		await writeFile(join(directory, "ssh-config"), "Host ileqm\n  HostName example.test\n", "utf8");
+		const previousPath = process.env.PATH;
+		process.env.PATH = `${bin}:${previousPath ?? ""}`;
+		try {
+			const runtime = await TargetRuntime.create(
+				{
+					outputs: createOutputRegistry(),
+					home: directory,
+					sshConfigPath: join(directory, "ssh-config"),
+				},
+				["ileqm"],
+			);
+			try {
+				const result = await runtime.exec("ileqm", "sleep 30", { timeoutMs: 150 });
+				expect(result.timedOut).toBe(true);
+			} finally {
+				await runtime.close();
+			}
+		} finally {
+			process.env.PATH = previousPath;
 			await rm(directory, { recursive: true, force: true });
 		}
 	});

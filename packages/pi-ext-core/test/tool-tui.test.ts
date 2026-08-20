@@ -199,6 +199,143 @@ describe("ToolTui", () => {
 		}
 	});
 
+	test("prefixes remote paths with a warning-colored host", (): void => {
+		const tui = createToolTui();
+		const read = tui.frame(tool());
+		const readHeader =
+			read
+				.renderCall?.(
+					{ path: ".bashrc", target: "ileqm", offset: 1, limit: 20 },
+					theme,
+					context(true),
+				)
+				.render(200)
+				.join("\n") ?? "";
+		expect(readHeader).toContain(
+			"<toolTitle><b>read</b></toolTitle> <warning>ileqm:</warning>.bashrc<warning>:1-20</warning>",
+		);
+		expect(readHeader).not.toContain("@ileqm");
+
+		const local =
+			read.renderCall?.({ path: "src/a.ts" }, theme, context(true)).render(200).join("\n") ?? "";
+		expect(local).toContain("<toolTitle><b>read</b></toolTitle> src/a.ts");
+		expect(local).not.toContain("<warning>local:");
+
+		const grep = tui.frame({ ...tool(), name: "grep", label: "grep" });
+		const grepHeader =
+			grep
+				.renderCall?.(
+					{ pattern: "CLUSTER", path: ".bashrc", target: "ileqm" },
+					theme,
+					context(true),
+				)
+				.render(200)
+				.join("\n") ?? "";
+		expect(grepHeader).toContain("in <warning>ileqm:</warning>.bashrc");
+
+		tui.beginTrace();
+		tui.beginTrace();
+		const historical =
+			read
+				.renderCall?.({ path: ".bashrc", target: "ileqm", offset: 1, limit: 20 }, theme, {
+					...(context(false) as object),
+					executionStarted: false,
+				} as never)
+				.render(200)
+				.join("\n") ?? "";
+		expect(historical).toContain("<dim>ileqm:.bashrc</dim><dim>:1-20</dim>");
+		expect(historical).not.toContain("<warning>ileqm:</warning>");
+	});
+
+	test("paints bash header commands muted on the current trace", (): void => {
+		const tui = createToolTui();
+		const framed = tui.frame({
+			...tool(),
+			name: "bash",
+			label: "bash",
+		});
+		tui.beginTrace();
+		const current =
+			framed.renderCall?.({ command: "ls -la" }, theme, context(true)).render(200).join("\n") ?? "";
+		expect(current).toContain("<toolTitle><b>bash</b></toolTitle> <muted>ls -la</muted>");
+		tui.beginTrace();
+		const historical =
+			framed
+				.renderCall?.({ command: "ls -la" }, theme, {
+					...(context(false) as object),
+					executionStarted: false,
+				} as never)
+				.render(200)
+				.join("\n") ?? "";
+		expect(historical).toContain("<toolTitle><b>bash</b></toolTitle> <dim>ls -la</dim>");
+		expect(historical).not.toContain("<muted>ls -la</muted>");
+	});
+
+	test("paints summary-override SSH host before the summary", (): void => {
+		const tui = createToolTui();
+		const framed = tui.frame(
+			{
+				...tool(),
+				name: "apply_patch",
+				label: "apply_patch",
+			},
+			{ summary: () => "2 files", summarySeparator: "space" },
+		);
+		tui.beginTrace();
+		const current =
+			framed
+				.renderCall?.({ patch: "...", target: "devbox" }, theme, context(true))
+				.render(200)
+				.join("\n") ?? "";
+		expect(current).toContain(
+			"<toolTitle><b>apply_patch</b></toolTitle> <warning>(devbox)</warning> 2 files",
+		);
+		tui.beginTrace();
+		const historical =
+			framed
+				.renderCall?.({ patch: "...", target: "devbox" }, theme, {
+					...(context(false) as object),
+					executionStarted: false,
+				} as never)
+				.render(200)
+				.join("\n") ?? "";
+		expect(historical).toContain(
+			"<toolTitle><b>apply_patch</b></toolTitle> <dim>(devbox)</dim> <dim>2 files</dim>",
+		);
+		expect(historical).not.toContain("<warning>(devbox)</warning>");
+	});
+
+	test("paints bash SSH host in parentheses before the command", (): void => {
+		const tui = createToolTui();
+		const framed = tui.frame({
+			...tool(),
+			name: "bash",
+			label: "bash",
+		});
+		tui.beginTrace();
+		const current =
+			framed
+				.renderCall?.({ command: "uname -s", target: "devbox" }, theme, context(true))
+				.render(200)
+				.join("\n") ?? "";
+		expect(current).toContain(
+			"<toolTitle><b>bash</b></toolTitle> <warning>(devbox)</warning> <muted>uname -s</muted>",
+		);
+		tui.beginTrace();
+		const historical =
+			framed
+				.renderCall?.({ command: "uname -s", target: "devbox" }, theme, {
+					...(context(false) as object),
+					executionStarted: false,
+				} as never)
+				.render(200)
+				.join("\n") ?? "";
+		expect(historical).toContain(
+			"<toolTitle><b>bash</b></toolTitle> <dim>(devbox)</dim> <dim>uname -s</dim>",
+		);
+		expect(historical).not.toContain("<warning>(devbox)</warning>");
+	});
+
 	test("dims body text on later traces to match in-path", (): void => {
 		const tui = createToolTui();
 		const framed = tui.frame({

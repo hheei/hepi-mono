@@ -82,29 +82,16 @@ per-call fuzzy option 或绝对 path。
 
 mpatch 是 `apply_patch` 的私有 fuzzy worker，不是独立 Pi tool，也不从用户的 `PATH`、
 `MPATCH_BIN` 或网络取得 executable。bridge 的一次性 run handle 在文件循环、fuzzy 搜索和
-写入前协作检查取消 flag；写入只发生在 coordinator 的 staging 目录。
+写入前协作检查取消 flag；写入发生在 Patch Core 的 sibling 临时文件上，replace 确认后才算 Changed。
 
 mpatch 只接受 unified diff，不能替代 Codex V4A parser。tool 在 TypeScript 中严格解析
 V4A，但容忍 UTF-8 BOM、envelope 外空行与最外层 ` ```patch` / ` ```diff` 代码围栏；内部
-grammar、body whitespace 与 path 仍严格校验。tool 拒绝 workspace 外 path 与 symlink escape；每个 operation 独立在隔离 staging root 中
-预检。某个 operation 的 path 冲突、source/destination 不合规、dry-run failure 或 stale
-baseline 只拒绝该 operation，其他合规 operation 仍会提交；取消和无效 grammar 仍拒绝整个
-request。真实 workspace 只在对应 source hash 未变化时替换，结果会报告 changed paths 与
-rejected operations。
-同 path job 会串行；无交集 path job 可在共享 worker limit 内并发。
+grammar、body whitespace 与 path 仍严格校验。workspace 路径是 lexical：相对路径、禁止 `..` 与绝对路径；symlink 可解析到 workspace 外。某个 operation 的 path 冲突、source/destination 不合规或 hunk mismatch 只拒绝该 operation，其他已确认 path 不 rollback。取消不撤回已 Changed 的 path。现有文件与结果都不得超过 32 MiB。
 
-`apply_patch` 在每个 workspace 使用一个短生命周期 coordinator 进程维护跨 tool call 的 path lock。
-Pi host 进入 agent run 时由 `pi-ext-tools` 异步预热该 coordinator，把 native bridge、policy 与
-socket bind 的 cold-start 移到模型等待期间；tool 执行仍在 coordinator ready 后才开始。若预热未完成，
-首次 tool call 等待 coordinator readiness；启动 deadline 只保护异常，不能作为正常流程。child 提前退出时
-tool 返回 exit code 与受限 stderr tail，便于区分 native bridge、policy 或 socket bind 失败。coordinator
-空闲后自行退出；session reload、切换与 shutdown 不持有或复用旧 session 的资源。
+`apply_patch` 使用同一套 Patch Core 覆盖 local Linux/macOS/Windows 与 Unix-like SSH Target。local 按 workspace、SSH 按 alias 持有平台原生 exclusive lock；忙则立刻拒绝，不排队。`/reload` 取消 execute，不重连 mutation。
 
-fuzzy policy 只读取 `pi-ext-tools.applyPatch` settings。默认值为 `minSimilarity: 0.7`、
-`maxConcurrentWorkers: 2`、`maxQueueDepth: 32`。`minSimilarity: 0` 关闭 fuzzy，
-只允许 exact apply；`1` 只接受 score 为 `1` 的 fuzzy candidate。user-global settings 可配置完整
-policy；project settings 只能收紧 policy：设为 `0` 关闭 fuzzy、提高 minSimilarity、降低 resource
-limit，不能放宽写入匹配条件。
+fuzzy policy 只读取 `pi-ext-tools.applyPatch.minSimilarity`。默认 `0.7`。`0` 关闭 fuzzy，
+只允许 exact apply；`1` 只接受 score 为 `1` 的 fuzzy candidate。user-global settings 可配置；project settings 只能收紧：设为 `0` 关闭 fuzzy，或提高 minSimilarity，不能放宽写入匹配条件。
 
 每次升级 mpatch 必须固定 release、验证每个 archive 的 SHA-256，并更新 package 的 upstream
 record 与 MIT notice。
@@ -208,7 +195,7 @@ Pi host 仍拥有默认 Bash。只有 `mode === "tui"` 且 `PI_NO_PTY !== "1"` �
   renderer、ToolRenderContext state、abort、streaming 与 cleanup；`bash` 保持 Pi host 原始 execute 行为。
 - 每个 module 可以调用对应 upstream `create...Tool()`；这用于复用运行行为，不表示必须复用 upstream renderer。
 - `read`、`grep`、`find`、`edit`、`write`、`bash` 都保留 upstream-compatible 参数、execute 与 renderer 语义。
-- `apply_patch` 是 `pi-ext-tools` owner 的 Canonical V4A-only tool；public JSON transport 只接受 `{ "patch": string }`，并委托 package 内 patch coordinator 执行。其 call renderer 从 partial 或完整 V4A patch text 生成 model-time streaming preview；它是纯计算，不读取 workspace、调用 coordinator 或修改 patch，也不得把 recognized rows 标成 validated 或 applied。`execute()` 只在完整参数后启动；执行结果同时报告成功路径与被拒 operation。
+- `apply_patch` 是 `pi-ext-tools` owner 的 Canonical V4A-only tool；public JSON transport 接受 `{ "patch": string, "target"?: string }`，由 Patch Core 执行。其 call renderer 从 partial 或完整 V4A patch text 生成 model-time streaming preview；它是纯计算，不读取 workspace 或修改 patch，也不得把 recognized rows 标成 validated 或 applied。`execute()` 只在完整参数后启动；执行结果同时报告 Changed、Rejected、Unconfirmed 与 NotApplied。
 - 其他 extension 不得为 catalog 名称直接 `pi.registerTool()` 或 managed-register competing definition。它们不能
   import `pi-ext-tools`；跨包协作若确有需求，另行定义 narrow core capability。
 
@@ -236,7 +223,7 @@ grep renderer 在每个文件块内以最大行号宽度右对齐 `│` 前的�
 
 ## Target 路由
 
-`read`、`grep`、`find` 的 local、Output 与 SSH target contract、session-bound Output persistence、remote search boundary，以及 SSH whitelist settings 见 [Target 路由](targets.md)。该设计已确认并已实现第一版；真实 Pi ToolExecutionComponent smoke 仍待补。
+`read`、`grep`、`find`、`bash` 的 local、Output 与 SSH target contract、session-bound Output persistence、remote search boundary，以及 SSH whitelist settings 见 [Target 路由](targets.md)。`apply_patch` remote 合约已确认、尚未实现。真实 Pi ToolExecutionComponent smoke 仍待补。
 
 ## 验证与发布
 

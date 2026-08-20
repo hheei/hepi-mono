@@ -53,7 +53,16 @@ export interface ApplyPatchRejection {
 	readonly diagnostics: readonly Exclude<MpatchHunkOutcome, { readonly kind: "applied" }>[];
 }
 
-export type ApplyPatchProgressStage = "parsed" | "queued" | "staging" | "committed" | "rolled_back";
+export type ApplyPatchProgressStage = "parsed" | "publishing" | "done";
+
+export type ApplyPatchOperationStatus =
+	| "pending"
+	| "applied"
+	| "partial"
+	| "fuzzy"
+	| "rejected"
+	| "unconfirmed"
+	| "not_applied";
 
 export type ApplyPatchOperationProgress = {
 	readonly operationIndex: number;
@@ -61,7 +70,7 @@ export type ApplyPatchOperationProgress = {
 	readonly path: string;
 	readonly addedLines: number;
 	readonly removedLines: number;
-	readonly status: "pending" | "applied" | "partial" | "fuzzy" | "rejected";
+	readonly status: ApplyPatchOperationStatus;
 	readonly score?: number;
 	readonly appliedHunks?: number;
 	readonly totalHunks?: number;
@@ -86,4 +95,6 @@ export interface ApplyPatchInWorkspaceResult {
 	readonly fuzzyUpdateCount: number;
 	readonly applied: readonly ApplyPatchAppliedOperation[];
 	readonly rejected: readonly ApplyPatchRejection[];
+	readonly unconfirmed: readonly ApplyPatchRejection[];
+	readonly notApplied: readonly ApplyPatchRejection[];
 }

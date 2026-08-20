@@ -41,5 +41,5 @@ export function registerTools(
 	registerWriteTool(pi, tui);
 	registerBashTool(pi, state, tui);
 	registerBashJobTool(pi, state, tui);
-	registerApplyPatchTool(pi, tui);
+	registerApplyPatchTool(pi, tui, state);
 }

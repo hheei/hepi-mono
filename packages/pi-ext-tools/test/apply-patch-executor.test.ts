@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, renameSync, watch, writeFileSync } from "node:fs";
 import {
 	chmod,
 	lstat,
@@ -14,7 +13,8 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { applyPatchInWorkspace } from "../src/apply-patch/executor.js";
-import type { ApplyPatchProgress } from "../src/apply-patch/outcome.js";
+import { APPLY_PATCH_MAX_FILE_SIZE } from "../src/apply-patch/fs.js";
+import { ApplyPatchBusyError } from "../src/apply-patch/lock.js";
 import { parseV4aPatch } from "../src/apply-patch/parser.js";
 import {
 	DEFAULT_FUZZY_APPLY_PATCH_POLICY,
@@ -53,7 +53,7 @@ afterEach(async (): Promise<void> => {
 	);
 });
 
-describe("staged apply-patch executor", () => {
+describe("apply-patch executor", () => {
 	test("preserves executable mode through an update", async () => {
 		const root = await temporaryDirectory();
 		const path = join(root, "script.sh");
@@ -69,31 +69,8 @@ describe("staged apply-patch executor", () => {
 		expect((await stat(path)).mode & 0o7777).toBe(0o755);
 		expect(await load(root, "script.sh")).toBe("after\n");
 	});
-	test("rejects an external mode change before commit", async () => {
-		const root = await temporaryDirectory();
-		const path = join(root, "script.sh");
-		await writeFile(path, "before\n", "utf8");
-		await chmod(path, 0o755);
-		let changedMode = false;
 
-		const result = await applyPatchInWorkspace({
-			workspaceRoot: root,
-			policy: noFuzzy,
-			patch: "*** Begin Patch\n*** Update File: script.sh\n-before\n+after\n*** End Patch",
-			onProgress: () => {
-				if (changedMode) return;
-				changedMode = true;
-				chmodSync(path, 0o600);
-			},
-		});
-
-		expect(result.changedPaths).toEqual([]);
-		expect(result.rejected).toMatchObject([{ paths: ["script.sh"] }]);
-		expect((await stat(path)).mode & 0o7777).toBe(0o600);
-		expect(await load(root, "script.sh")).toBe("before\n");
-	});
-
-	test("accepts the coordinator's pre-parsed patch without reparsing", async () => {
+	test("accepts a pre-parsed patch without reparsing", async () => {
 		const root = await temporaryDirectory();
 		const patch = "*** Begin Patch\n*** Add File: parsed.txt\n+parsed\n*** End Patch";
 		const result = await applyPatchInWorkspace({
@@ -126,7 +103,8 @@ describe("staged apply-patch executor", () => {
 		expect(snapshots?.[1]).toMatchObject({ startLine: 7, afterStartLine: 7 });
 		expect(await load(root, "value.txt")).toContain("NINE\n");
 	});
-	test("rejects a symlinked commit parent without writing outside the workspace", async () => {
+
+	test("follows a parent symlink and writes through it", async () => {
 		const root = await temporaryDirectory();
 		const outside = await temporaryDirectory();
 		await symlink(outside, join(root, "nested"));
@@ -137,83 +115,11 @@ describe("staged apply-patch executor", () => {
 			patch: "*** Begin Patch\n*** Add File: nested/escaped.txt\n+outside\n*** End Patch",
 		});
 
-		expect(result.rejected).toHaveLength(1);
-		await expect(readFile(join(outside, "escaped.txt"), "utf8")).rejects.toThrow();
-	});
-	test("reports indeterminate when the temporary source entry is replaced", async () => {
-		const root = await temporaryDirectory();
-		const outside = join(root, "outside.txt");
-		await writeFile(outside, "outside\n", "utf8");
-		let replaced = false;
-		let replacement: Promise<void> | undefined;
-		const watcher = watch(root, (_event, filename) => {
-			const name = String(filename ?? "");
-			if (replacement !== undefined || !name.startsWith(".hepi-apply-patch-")) return;
-			const temporary = join(root, name);
-			replacement = (async () => {
-				for (let attempt = 0; attempt < 20; attempt += 1)
-					try {
-						await rm(temporary, { force: true });
-						await symlink(outside, temporary);
-						replaced = true;
-						return;
-					} catch {
-						await Bun.sleep(0);
-					}
-				throw new Error("Could not replace apply_patch temporary entry");
-			})();
-		});
-
-		try {
-			await expect(
-				applyPatchInWorkspace({
-					workspaceRoot: root,
-					policy: noFuzzy,
-					patch: `*** Begin Patch\n*** Add File: value.txt\n+${"x".repeat(900_000)}\n*** End Patch`,
-				}),
-			).rejects.toThrow("workspace state indeterminate");
-		} finally {
-			watcher.close();
-		}
-
-		expect(replacement).toBeDefined();
-		await replacement;
-		expect(replaced).toBe(true);
-		expect(await load(root, "outside.txt")).toBe("outside\n");
-		expect((await lstat(join(root, "value.txt"))).isSymbolicLink()).toBe(true);
+		expect(result.rejected).toEqual([]);
+		expect(await load(outside, "escaped.txt")).toBe("outside\n");
 	});
 
-	test("rolls back the fixed workspace inode when its pathname is replaced", async () => {
-		const root = await temporaryDirectory();
-		const original = `${root}-original`;
-		let replaced = false;
-
-		await expect(
-			applyPatchInWorkspace({
-				workspaceRoot: root,
-				policy: noFuzzy,
-				patch:
-					"*** Begin Patch\n" +
-					"*** Add File: first.txt\n+first\n" +
-					"*** Add File: second.txt\n+second\n" +
-					"*** End Patch",
-				onProgress: (progress) => {
-					if (replaced || progress.stage !== "committed") return;
-					replaced = true;
-					renameSync(root, original);
-					mkdirSync(root);
-				},
-			}),
-		).rejects.toThrow("commit rolled back");
-
-		expect(replaced).toBe(true);
-		await expect(readFile(join(original, "first.txt"), "utf8")).rejects.toThrow();
-		await expect(readFile(join(original, "second.txt"), "utf8")).rejects.toThrow();
-		await expect(readFile(join(root, "first.txt"), "utf8")).rejects.toThrow();
-		await expect(readFile(join(root, "second.txt"), "utf8")).rejects.toThrow();
-	});
-
-	test("applies add, update, delete, and move through staging", async () => {
+	test("applies add, update, delete, and move", async () => {
 		const root = await temporaryDirectory();
 		await save(root, "src/update.txt", "one\ntwo\nthree\n");
 		await save(root, "src/delete.txt", "remove\n");
@@ -247,6 +153,8 @@ describe("staged apply-patch executor", () => {
 			exactUpdateCount: 2,
 			fuzzyUpdateCount: 0,
 			rejected: [],
+			unconfirmed: [],
+			notApplied: [],
 		});
 		expect(result.applied).toHaveLength(4);
 		expect(progress.at(-1)?.operations).toEqual(result.operations);
@@ -331,7 +239,7 @@ describe("staged apply-patch executor", () => {
 		expect(await load(root, "value.txt")).toBe("alpha\nchanged context\nomega\n");
 	});
 
-	test("commits successful hunks when another hunk in the same update fails", async () => {
+	test("does not publish when any hunk in the same update fails", async () => {
 		const root = await temporaryDirectory();
 		await save(root, "value.txt", "one\ntwo\nthree\nfour\nfive\nsix\n");
 
@@ -347,18 +255,8 @@ describe("staged apply-patch executor", () => {
 				"*** End Patch",
 		});
 
-		expect(result.changedPaths).toEqual(["value.txt"]);
-		expect(result.addedLines).toBe(2);
-		expect(result.removedLines).toBe(2);
-		expect(result.applied).toMatchObject([
-			{
-				paths: ["value.txt"],
-				outcomes: [
-					{ kind: "applied", hunkIndex: 1, match: "exact" },
-					{ kind: "applied", hunkIndex: 3, match: "exact" },
-				],
-			},
-		]);
+		expect(result.changedPaths).toEqual([]);
+		expect(result.applied).toEqual([]);
 		expect(result.rejected).toMatchObject([
 			{
 				operationIndices: [0],
@@ -369,15 +267,10 @@ describe("staged apply-patch executor", () => {
 		expect(result.operations).toEqual([
 			expect.objectContaining({
 				path: "value.txt",
-				status: "partial",
-				appliedHunks: 2,
-				totalHunks: 3,
-				partialReason: "context not found",
-				addedLines: 2,
-				removedLines: 2,
+				status: "rejected",
 			}),
 		]);
-		expect(await load(root, "value.txt")).toBe("ONE\ntwo\nthree\nfour\nFIVE\nsix\n");
+		expect(await load(root, "value.txt")).toBe("one\ntwo\nthree\nfour\nfive\nsix\n");
 	});
 
 	test("rejects ambiguous exact context with candidate lines", async () => {
@@ -477,103 +370,84 @@ describe("staged apply-patch executor", () => {
 		await expect(readFile(join(root, "value.txt"), "utf8")).rejects.toThrow();
 	});
 
-	test("rejects stale operation without blocking valid operations", async () => {
+	test("follows a leaf symlink on update and keeps the symlink", async () => {
 		const root = await temporaryDirectory();
-		await save(root, "first.txt", "first\n");
-		await save(root, "second.txt", "second\n");
-		const controller = new AbortController();
-		let checks = 0;
-		Object.defineProperty(controller.signal, "throwIfAborted", {
-			value: () => {
-				checks += 1;
-				if (checks === 2) writeFileSync(join(root, "second.txt"), "stale\n", "utf8");
-			},
+		const outside = await temporaryDirectory();
+		await writeFile(join(outside, "target.txt"), "before\n", "utf8");
+		await chmod(join(outside, "target.txt"), 0o755);
+		await symlink(join(outside, "target.txt"), join(root, "link.txt"));
+
+		const result = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch: "*** Begin Patch\n*** Update File: link.txt\n-before\n+after\n*** End Patch",
 		});
 
+		expect(result.rejected).toEqual([]);
+		expect(await load(outside, "target.txt")).toBe("after\n");
+		expect((await stat(join(outside, "target.txt"))).mode & 0o7777).toBe(0o755);
+		expect((await lstat(join(root, "link.txt"))).isSymbolicLink()).toBe(true);
+	});
+
+	test("delete unlinks the symlink instead of its target", async () => {
+		const root = await temporaryDirectory();
+		const outside = await temporaryDirectory();
+		await writeFile(join(outside, "target.txt"), "keep\n", "utf8");
+		await symlink(join(outside, "target.txt"), join(root, "link.txt"));
+
+		const result = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch: "*** Begin Patch\n*** Delete File: link.txt\n*** End Patch",
+		});
+
+		expect(result.changedPaths).toEqual(["link.txt"]);
+		await expect(stat(join(root, "link.txt"))).rejects.toThrow();
+		expect(await load(outside, "target.txt")).toBe("keep\n");
+	});
+
+	test("rejects add when the destination name is a symlink", async () => {
+		const root = await temporaryDirectory();
+		const outside = await temporaryDirectory();
+		await symlink(outside, join(root, "exists.txt"));
+
+		const result = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch: "*** Begin Patch\n*** Add File: exists.txt\n+nope\n*** End Patch",
+		});
+
+		expect(result.rejected).toMatchObject([{ paths: ["exists.txt"] }]);
+		expect((await lstat(join(root, "exists.txt"))).isSymbolicLink()).toBe(true);
+	});
+
+	test("keeps confirmed paths when later operations are cancelled", async () => {
+		const root = await temporaryDirectory();
+		const controller = new AbortController();
 		const result = await applyPatchInWorkspace({
 			workspaceRoot: root,
 			policy: noFuzzy,
 			signal: controller.signal,
 			patch:
 				"*** Begin Patch\n" +
-				"*** Update File: first.txt\n-first\n+changed\n" +
-				"*** Update File: second.txt\n-second\n+changed\n" +
+				"*** Add File: first.txt\n+first\n" +
+				"*** Add File: second.txt\n+second\n" +
 				"*** End Patch",
+			onProgress: (progress) => {
+				if (
+					progress.stage === "publishing" &&
+					progress.operations.some((operation) => operation.status === "applied")
+				)
+					controller.abort(new Error("cancelled after first"));
+			},
 		});
 		expect(result.changedPaths).toEqual(["first.txt"]);
-		expect(result.rejected).toMatchObject([{ paths: ["second.txt"] }]);
-		expect(await load(root, "first.txt")).toBe("changed\n");
-		expect(await load(root, "second.txt")).toBe("stale\n");
+		expect(result.notApplied).toMatchObject([{ paths: ["second.txt"] }]);
+		expect(await load(root, "first.txt")).toBe("first\n");
+		await expect(readFile(join(root, "second.txt"), "utf8")).rejects.toThrow();
 	});
 
-	test("rejects a deleted parent during a later commit", async () => {
-		const root = await temporaryDirectory();
-		await save(root, "nested/first.txt", "first\n");
-		await save(root, "nested/second.txt", "second\n");
-		let removed = false;
-
-		await expect(
-			applyPatchInWorkspace({
-				workspaceRoot: root,
-				policy: noFuzzy,
-				patch:
-					"*** Begin Patch\n" +
-					"*** Update File: nested/first.txt\n-first\n+changed\n" +
-					"*** Update File: nested/second.txt\n-second\n+changed\n" +
-					"*** End Patch",
-				onProgress: (progress) => {
-					if (!removed && progress.stage === "committed") {
-						removed = true;
-						void rm(join(root, "nested"), { recursive: true, force: true });
-					}
-				},
-			}),
-		).rejects.toThrow("workspace state indeterminate");
-		expect(removed).toBe(true);
-	});
-
-	test("rolls back every path when cancellation interrupts commit", async (): Promise<void> => {
-		const root = await temporaryDirectory();
-		const controller = new AbortController();
-		const stages: ApplyPatchProgress[] = [];
-		await expect(
-			applyPatchInWorkspace({
-				workspaceRoot: root,
-				policy: noFuzzy,
-				signal: controller.signal,
-				patch:
-					"*** Begin Patch\n" +
-					"*** Add File: nested/first.txt\n+first\n" +
-					"*** Add File: nested/second.txt\n+second\n" +
-					"*** End Patch",
-				onProgress: (progress) => {
-					stages.push(progress);
-					if (
-						progress.stage === "committed" &&
-						progress.operations.some((operation) => operation.status === "applied")
-					)
-						controller.abort(new Error("cancelled during commit"));
-				},
-			}),
-		).rejects.toThrow("commit rolled back");
-		const rolledBack = stages.at(-1);
-		if (rolledBack === undefined) throw new Error("Expected rollback progress");
-		expect(rolledBack.stage).toBe("rolled_back");
-		expect(rolledBack.operations[0]).toMatchObject({
-			status: "rejected",
-			addedLines: 0,
-			removedLines: 0,
-		});
-		expect(rolledBack.operations[0]).not.toHaveProperty("appliedHunks");
-		expect(rolledBack.operations[0]).not.toHaveProperty("totalHunks");
-		expect(rolledBack.operations[0]).not.toHaveProperty("partialReason");
-		expect(rolledBack.operations[1]).toMatchObject({ status: "pending" });
-		await expect(readFile(join(root, "nested", "first.txt"), "utf8")).rejects.toThrow();
-		await expect(readFile(join(root, "nested", "second.txt"), "utf8")).rejects.toThrow();
-		await expect(stat(join(root, "nested"))).rejects.toThrow();
-	});
-
-	test("aborts before staging without changing workspace", async () => {
+	test("aborts before work without changing workspace", async () => {
 		const root = await temporaryDirectory();
 		await save(root, "value.txt", "before\n");
 		const controller = new AbortController();
@@ -588,5 +462,60 @@ describe("staged apply-patch executor", () => {
 			}),
 		).rejects.toThrow("cancelled");
 		expect(await load(root, "value.txt")).toBe("before\n");
+	});
+
+	test("rejects a second request while the workspace lock is held", async () => {
+		const root = await temporaryDirectory();
+		const controller = new AbortController();
+		const { createLocalPatchFs } = await import("../src/apply-patch/fs.js");
+		const local = createLocalPatchFs(root);
+		const hung = {
+			...local,
+			async writeAtomic(
+				path: string,
+				data: Buffer,
+				mode: number | undefined,
+				signal?: AbortSignal,
+			) {
+				await new Promise<void>((_resolve, reject) => {
+					signal?.addEventListener("abort", () => reject(signal.reason ?? new Error("aborted")), {
+						once: true,
+					});
+					if (signal?.aborted) reject(signal.reason ?? new Error("aborted"));
+				});
+				await local.writeAtomic(path, data, mode, signal);
+			},
+		};
+		const first = applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			fs: hung,
+			patch: "*** Begin Patch\n*** Add File: first.txt\n+first\n*** End Patch",
+			signal: controller.signal,
+		});
+		await Bun.sleep(30);
+		await expect(
+			applyPatchInWorkspace({
+				workspaceRoot: root,
+				policy: noFuzzy,
+				patch: "*** Begin Patch\n*** Add File: second.txt\n+second\n*** End Patch",
+			}),
+		).rejects.toBeInstanceOf(ApplyPatchBusyError);
+		controller.abort(new Error("cancelled"));
+		await first.catch(() => undefined);
+	});
+
+	test("rejects existing files larger than 32 MiB", async () => {
+		const root = await temporaryDirectory();
+		const handle = Bun.file(join(root, "huge.bin"));
+		await handle.write(new Uint8Array(APPLY_PATCH_MAX_FILE_SIZE + 1));
+
+		const result = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch: "*** Begin Patch\n*** Delete File: huge.bin\n*** End Patch",
+		});
+		expect(result.rejected[0]?.error).toContain("file_too_large");
+		expect(await stat(join(root, "huge.bin"))).toBeDefined();
 	});
 });
