@@ -10,7 +10,7 @@ import { withContentLanguageDirective } from "../../agents/language-directive";
 import type { DreamingTask } from "../../config/schema/magic-context";
 import { createChildSessionWithFence } from "../../hooks/child-session-spawn";
 import type { RawMessageProvider } from "../../hooks/read-session-chunk";
-import type { PluginContext } from "../../plugin/types";
+import type { PluginContext } from "../../../plugin/types";
 import * as shared from "../../shared";
 import { extractLatestAssistantText } from "../../shared/assistant-message-extractor";
 import { describeError } from "../../shared/error-message";

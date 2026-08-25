@@ -11,7 +11,7 @@ import {
     clearEmergencyRecovery,
     isWrapupInProgress,
 } from "../features/storage-meta-persisted";
-import type { PluginContext } from "../plugin/types";
+import type { PluginContext } from "../../plugin/types";
 import type { Database } from "../shared/sqlite";
 import {
     executeContextRecomp,

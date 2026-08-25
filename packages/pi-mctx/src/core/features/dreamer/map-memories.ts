@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { DREAMER_MEMORY_MAPPER_AGENT } from "../../agents/dreamer";
 import { createChildSessionWithFence } from "../../hooks/child-session-spawn";
-import type { PluginContext } from "../../plugin/types";
+import type { PluginContext } from "../../../plugin/types";
 import * as shared from "../../shared";
 import {
     extractLatestAssistantText,

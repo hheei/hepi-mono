@@ -1,7 +1,7 @@
 import { DREAMER_REVIEWER_AGENT } from "../../agents/dreamer";
 import { withContentLanguageDirective } from "../../agents/language-directive";
 import { createChildSessionWithFence } from "../../hooks/child-session-spawn";
-import type { PluginContext } from "../../plugin/types";
+import type { PluginContext } from "../../../plugin/types";
 import * as shared from "../../shared";
 import { extractLatestAssistantText } from "../../shared/assistant-message-extractor";
 import { describeError, getErrorMessage } from "../../shared/error-message";
