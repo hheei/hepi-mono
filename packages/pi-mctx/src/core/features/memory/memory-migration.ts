@@ -155,11 +155,15 @@ export function parseMemoryMigrationOutput(text: string): MemoryMigrationResult 
     const migratedMatch = text.match(MIGRATED_BLOCK_RE);
     if (migratedMatch) {
         const body = migratedMatch[1];
-        for (const category of V2_CATEGORIES) {
-            const block = body.match(CATEGORY_BLOCK_RE(category));
-            if (!block) continue;
-            for (const line of extractBullets(block[1])) {
-                memories.push({ category, content: line });
+		if (typeof body === "string") {
+			for (const category of V2_CATEGORIES) {
+				const block = body.match(CATEGORY_BLOCK_RE(category));
+				if (!block) continue;
+				const blockBody = block[1];
+				if (typeof blockBody !== "string") continue;
+				for (const line of extractBullets(blockBody)) {
+					memories.push({ category, content: line });
+				}
             }
         }
     }
@@ -167,7 +171,10 @@ export function parseMemoryMigrationOutput(text: string): MemoryMigrationResult 
     const userObservations: string[] = [];
     const obsMatch = text.match(USER_OBS_BLOCK_RE);
     if (obsMatch) {
-        userObservations.push(...extractBullets(obsMatch[1]));
+		const body = obsMatch[1];
+		if (typeof body === "string") {
+			userObservations.push(...extractBullets(body));
+		}
     }
 
     return { memories, userObservations, parsed: migratedMatch !== null };
@@ -409,8 +416,7 @@ export async function runMemoryMigration(
                         timeoutMs: deps.timeoutMs ?? 5 * 60 * 1000,
                         // We drive the chain here (validating each), so don't let the
                         // prompt call re-iterate its own throw-only chain.
-                        fallbackModels: undefined,
-                        callContext: `memory-migration:${parentSessionId.slice(0, 12)}`,
+                        fallbackModels: [],
                     },
                 );
             } catch (error) {
