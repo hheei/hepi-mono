@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test, vi } from "vitest";
 
 import { Database } from "../../../../src/core/shared/sqlite";
 import { initializeDatabase } from "../../../../src/core/features/storage-db";
@@ -22,11 +22,11 @@ describe("reviewUserMemories", () => {
         const deleted: string[] = [];
         const client = {
             session: {
-                create: mock(async () => ({ id: "child-user-memories" })),
-                prompt: mock(async () => {
+                create: vi.fn(async () => ({ id: "child-user-memories" })),
+                prompt: vi.fn(async () => {
                     throw new Error("model unavailable");
                 }),
-                delete: mock(async ({ path }: { path: { id: string } }) => {
+                delete: vi.fn(async ({ path }: { path: { id: string } }) => {
                     deleted.push(path.id);
                     return {};
                 }),

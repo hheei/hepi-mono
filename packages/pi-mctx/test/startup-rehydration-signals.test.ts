@@ -1,10 +1,10 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 describe("Pi startup rehydration signal contract", () => {
 	it("rehydrates pending Pi marker sessions into history and materialization signals", () => {
-		const source = readFileSync(join(import.meta.dir, "../src/index.ts"), "utf8");
+		const source = readFileSync(join(import.meta.dirname, "../src/index.ts"), "utf8");
 		const block = source.slice(
 			source.indexOf("const pendingPiMarkerSessions"),
 			source.indexOf(

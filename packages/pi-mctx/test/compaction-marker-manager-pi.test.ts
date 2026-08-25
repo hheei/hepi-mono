@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it, vi } from "vitest";
 import { appendCompartments } from "#core/features/compartment-storage";
 import type { PendingPiCompactionMarker } from "#core/features/storage";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
@@ -59,7 +59,7 @@ describe("Pi deferred compaction marker manager", () => {
 					content: "B",
 				},
 			]);
-			const appendCompaction = mock(() => "compact-1");
+			const appendCompaction = vi.fn(() => "compact-1");
 			const outcome = applyDeferredPiCompactionMarker(
 				{
 					db,
@@ -96,7 +96,7 @@ describe("Pi deferred compaction marker manager", () => {
 					content: "B",
 				},
 			]);
-			const appendCompaction = mock(() => "compact-1");
+			const appendCompaction = vi.fn(() => "compact-1");
 			expect(
 				applyDeferredPiCompactionMarker(
 					{
@@ -123,7 +123,7 @@ describe("Pi deferred compaction marker manager", () => {
 					db,
 					readBranchEntries: () =>
 						branch([{ type: "compaction", firstKeptEntryId: "entry-3" }]),
-					appendCompaction: mock(() => "compact"),
+					appendCompaction: vi.fn(() => "compact"),
 				},
 				"ses",
 				pending({ firstKeptEntryId: "missing" }),
@@ -156,7 +156,7 @@ describe("Pi deferred compaction marker manager", () => {
 					db,
 					readBranchEntries: () =>
 						branch([{ type: "compaction", firstKeptEntryId: "entry-3" }]),
-					appendCompaction: mock(() => "compact"),
+					appendCompaction: vi.fn(() => "compact"),
 				},
 				"ses",
 				pending({ firstKeptEntryId: "missing" }),
@@ -189,7 +189,7 @@ describe("Pi deferred compaction marker manager", () => {
 					db,
 					readBranchEntries: () =>
 						branch([{ type: "compaction", firstKeptEntryId: "missing" }]),
-					appendCompaction: mock(() => "compact"),
+					appendCompaction: vi.fn(() => "compact"),
 				},
 				"ses",
 				pending({ firstKeptEntryId: "missing" }),
@@ -228,7 +228,7 @@ describe("Pi deferred compaction marker manager", () => {
 					{
 						db,
 						readBranchEntries: () => branch(),
-						appendCompaction: mock(() => "compact"),
+						appendCompaction: vi.fn(() => "compact"),
 					},
 					"ses",
 					pending(),
@@ -275,7 +275,7 @@ describe("Pi deferred compaction marker manager", () => {
 					content: "B",
 				},
 			]);
-			const appendCompaction = mock(() => "compact-1");
+			const appendCompaction = vi.fn(() => "compact-1");
 			const outcome = applyDeferredPiCompactionMarker(
 				{
 					db,
@@ -314,7 +314,7 @@ describe("Pi deferred compaction marker manager", () => {
 				{
 					db,
 					readBranchEntries: () => branch(),
-					appendCompaction: mock(() => undefined),
+					appendCompaction: vi.fn(() => undefined),
 				},
 				"ses",
 				pending(),

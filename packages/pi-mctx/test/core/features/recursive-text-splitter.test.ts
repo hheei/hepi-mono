@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { recursiveCharacterSplit } from "../../../src/core/features/recursive-text-splitter";
 
 const charLen = (t: string) => t.length;

@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { Database } from "../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../src/core/shared/sqlite-helpers";
 import { ensureContextStoreUuid } from "../../../../src/core/features/context-authority";
@@ -63,14 +63,14 @@ describe("createDreamTaskExecutor — curate", () => {
         let capturedPrompt = "";
         const client = {
             session: {
-                list: mock(async () => ({ data: [] })),
-                create: mock(async () => ({ data: { id: "dream-child" } })),
-                prompt: mock(async (args: { body?: { parts?: Array<{ text?: string }> } }) => {
+                list: vi.fn(async () => ({ data: [] })),
+                create: vi.fn(async () => ({ data: { id: "dream-child" } })),
+                prompt: vi.fn(async (args: { body?: { parts?: Array<{ text?: string }> } }) => {
                     capturedPrompt = args.body?.parts?.[0]?.text ?? "";
                     return {};
                 }),
-                messages: mock(async () => ({ data: assistantMessages("curation complete") })),
-                delete: mock(async () => ({})),
+                messages: vi.fn(async () => ({ data: assistantMessages("curation complete") })),
+                delete: vi.fn(async () => ({})),
             },
         };
         const executor = createDreamTaskExecutor({
@@ -114,14 +114,14 @@ describe("createDreamTaskExecutor — curate", () => {
         let capturedSystem = "";
         const client = {
             session: {
-                list: mock(async () => ({ data: [] })),
-                create: mock(async () => ({ data: { id: "dream-child" } })),
-                prompt: mock(async (args: { body?: { system?: string } }) => {
+                list: vi.fn(async () => ({ data: [] })),
+                create: vi.fn(async () => ({ data: { id: "dream-child" } })),
+                prompt: vi.fn(async (args: { body?: { system?: string } }) => {
                     capturedSystem = args.body?.system ?? "";
                     return {};
                 }),
-                messages: mock(async () => ({ data: assistantMessages("curation complete") })),
-                delete: mock(async () => ({})),
+                messages: vi.fn(async () => ({ data: assistantMessages("curation complete") })),
+                delete: vi.fn(async () => ({})),
             },
         };
         const executor = createDreamTaskExecutor({
@@ -166,18 +166,18 @@ describe("createDreamTaskExecutor — parent session resolution", () => {
         const createParentIds: Array<string | undefined> = [];
         const client = {
             session: {
-                list: mock(async () => {
+                list: vi.fn(async () => {
                     listCalls += 1;
                     await new Promise((r) => setTimeout(r, 20));
                     return { data: [{ id: "real-parent-session" }] };
                 }),
-                create: mock(async (args: { body?: { parentID?: string } }) => {
+                create: vi.fn(async (args: { body?: { parentID?: string } }) => {
                     createParentIds.push(args.body?.parentID);
                     return { data: { id: `child-${createParentIds.length}` } };
                 }),
-                prompt: mock(async () => ({})),
-                messages: mock(async () => ({ data: assistantMessages("done") })),
-                delete: mock(async () => ({})),
+                prompt: vi.fn(async () => ({})),
+                messages: vi.fn(async () => ({ data: assistantMessages("done") })),
+                delete: vi.fn(async () => ({})),
             },
         };
         const executor = createDreamTaskExecutor({
@@ -237,9 +237,9 @@ describe("createDreamTaskExecutor — classify-memories", () => {
             .join("\n")}\n</classify>`;
         const client = {
             session: {
-                list: mock(async () => ({ data: [] })),
-                create: mock(async () => ({ data: { id: "dream-child" } })),
-                prompt: mock(
+                list: vi.fn(async () => ({ data: [] })),
+                create: vi.fn(async () => ({ data: { id: "dream-child" } })),
+                prompt: vi.fn(
                     async (args: {
                         body?: { agent?: string; parts?: Array<{ text?: string }> };
                     }) => {
@@ -248,8 +248,8 @@ describe("createDreamTaskExecutor — classify-memories", () => {
                         return {};
                     },
                 ),
-                messages: mock(async () => ({ data: assistantMessages(manifest) })),
-                delete: mock(async () => ({})),
+                messages: vi.fn(async () => ({ data: assistantMessages(manifest) })),
+                delete: vi.fn(async () => ({})),
             },
         };
         const executor = createDreamTaskExecutor({
@@ -317,9 +317,9 @@ describe("createDreamTaskExecutor — classify-memories", () => {
         let authorityStatusCalls = 0;
         const client = {
             session: {
-                list: mock(async () => ({ data: [{ id: "parent" }] })),
-                create: mock(async () => ({ data: { id: "must-not-create" } })),
-                delete: mock(async () => ({})),
+                list: vi.fn(async () => ({ data: [{ id: "parent" }] })),
+                create: vi.fn(async () => ({ data: { id: "must-not-create" } })),
+                delete: vi.fn(async () => ({})),
             },
         };
         // This must be a class-backed fake: object-literal mocks cannot expose a detached-method
@@ -403,9 +403,9 @@ describe("createDreamTaskExecutor — classify-memories", () => {
 
         const client = {
             session: {
-                list: mock(async () => ({ data: [] })),
-                create: mock(async () => ({ data: { id: "must-not-create" } })),
-                delete: mock(async () => ({})),
+                list: vi.fn(async () => ({ data: [] })),
+                create: vi.fn(async () => ({ data: { id: "must-not-create" } })),
+                delete: vi.fn(async () => ({})),
             },
         };
         const moduleCalls: string[] = [];
@@ -465,15 +465,15 @@ describe("createDreamTaskExecutor — compress-cues", () => {
         });
         const client = {
             session: {
-                list: mock(async () => ({ data: [] })),
-                create: mock(async () => ({ data: { id: "must-not-create" } })),
-                prompt: mock(async () => ({})),
+                list: vi.fn(async () => ({ data: [] })),
+                create: vi.fn(async () => ({ data: { id: "must-not-create" } })),
+                prompt: vi.fn(async () => ({})),
             },
         };
-        const authorityStatus = mock(async () => ({
+        const authorityStatus = vi.fn(async () => ({
             authority: { state: "MODULE", generation: 12 },
         }));
-        const moduleCall = mock(async () => ({}));
+        const moduleCall = vi.fn(async () => ({}));
         const executor = createDreamTaskExecutor({
             client: client as never,
             sessionDirectory: project,
@@ -508,11 +508,11 @@ describe("createDreamTaskExecutor — compress-cues", () => {
         });
         const client = {
             session: {
-                list: mock(async () => ({ data: [] })),
-                create: mock(async () => ({ data: { id: "cue-child" } })),
-                prompt: mock(async () => ({})),
-                messages: mock(async () => ({ data: assistantMessages("<cues></cues>") })),
-                delete: mock(async () => ({})),
+                list: vi.fn(async () => ({ data: [] })),
+                create: vi.fn(async () => ({ data: { id: "cue-child" } })),
+                prompt: vi.fn(async () => ({})),
+                messages: vi.fn(async () => ({ data: assistantMessages("<cues></cues>") })),
+                delete: vi.fn(async () => ({})),
             },
         };
         const executor = createDreamTaskExecutor({
@@ -545,15 +545,15 @@ describe("createDreamTaskExecutor — compress-cues", () => {
         });
         const client = {
             session: {
-                list: mock(async () => ({ data: [] })),
-                create: mock(async () => ({ data: { id: "cue-child" } })),
-                prompt: mock(async () => ({})),
-                messages: mock(async () => ({
+                list: vi.fn(async () => ({ data: [] })),
+                create: vi.fn(async () => ({ data: { id: "cue-child" } })),
+                prompt: vi.fn(async () => ({})),
+                messages: vi.fn(async () => ({
                     data: assistantMessages(
                         `<cues><cue id="${memory.id}">completed anchor</cue></cues>`,
                     ),
                 })),
-                delete: mock(async () => ({})),
+                delete: vi.fn(async () => ({})),
             },
         };
         const executor = createDreamTaskExecutor({
@@ -605,8 +605,8 @@ describe("createDreamTaskExecutor — retrospective", () => {
         db = freshDb();
         const project = "/repo/project";
         const provider = {
-            listProjectSessions: mock(() => [{ sessionId: "s1" }]),
-            readUserMessagesSince: mock(() => ({
+            listProjectSessions: vi.fn(() => [{ sessionId: "s1" }]),
+            readUserMessagesSince: vi.fn(() => ({
                 messages: [
                     {
                         sessionId: "s1",
@@ -618,20 +618,20 @@ describe("createDreamTaskExecutor — retrospective", () => {
                 ],
                 truncated: false,
             })),
-            readUserMessagesBefore: mock(() => []),
+            readUserMessagesBefore: vi.fn(() => []),
         };
         let prompts = 0;
         const client = {
             session: {
-                list: mock(async () => ({ data: [] })),
-                create: mock(async () => ({ data: { id: "retro-child" } })),
-                prompt: mock(async () => {
+                list: vi.fn(async () => ({ data: [] })),
+                create: vi.fn(async () => ({ data: { id: "retro-child" } })),
+                prompt: vi.fn(async () => {
                     prompts += 1;
                     return {};
                 }),
                 // Gate turn → verdict "n" (no friction). The deepen turn never runs.
-                messages: mock(async () => ({ data: assistantMessages("n") })),
-                delete: mock(async () => ({})),
+                messages: vi.fn(async () => ({ data: assistantMessages("n") })),
+                delete: vi.fn(async () => ({})),
             },
         };
         const executor = createDreamTaskExecutor({
@@ -667,8 +667,8 @@ describe("createDreamTaskExecutor — retrospective", () => {
         db = freshDb();
         const project = "/repo/project";
         const provider = {
-            listProjectSessions: mock(() => [{ sessionId: "s1" }]),
-            readUserMessagesSince: mock(() => ({
+            listProjectSessions: vi.fn(() => [{ sessionId: "s1" }]),
+            readUserMessagesSince: vi.fn(() => ({
                 messages: [
                     {
                         sessionId: "s1",
@@ -695,7 +695,7 @@ describe("createDreamTaskExecutor — retrospective", () => {
                 truncated: false,
             })),
         };
-        provider.readUserMessagesBefore = mock(() => []);
+        provider.readUserMessagesBefore = vi.fn(() => []);
         // The two turns share one `messages` mock — drive the response off the
         // per-prompt system string the runner sets: gate system → "y: <ord>",
         // deepen system → the learnings XML.
@@ -703,9 +703,9 @@ describe("createDreamTaskExecutor — retrospective", () => {
         let lastSystem = "";
         const client = {
             session: {
-                list: mock(async () => ({ data: [] })),
-                create: mock(async () => ({ data: { id: "retro-child" } })),
-                prompt: mock(
+                list: vi.fn(async () => ({ data: [] })),
+                create: vi.fn(async () => ({ data: { id: "retro-child" } })),
+                prompt: vi.fn(
                     async (args: {
                         body?: {
                             agent?: string;
@@ -722,7 +722,7 @@ describe("createDreamTaskExecutor — retrospective", () => {
                         return {};
                     },
                 ),
-                messages: mock(async () => {
+                messages: vi.fn(async () => {
                     const isGate = lastSystem.includes("friction detector");
                     return {
                         data: assistantMessages(
@@ -736,7 +736,7 @@ describe("createDreamTaskExecutor — retrospective", () => {
                         ),
                     };
                 }),
-                delete: mock(async () => ({})),
+                delete: vi.fn(async () => ({})),
             },
         };
         const executor = createDreamTaskExecutor({
@@ -782,8 +782,8 @@ describe("createDreamTaskExecutor — retrospective", () => {
         db = freshDb();
         const project = "/repo/project";
         const provider = {
-            listProjectSessions: mock(() => [{ sessionId: "s1" }]),
-            readUserMessagesSince: mock(() => ({
+            listProjectSessions: vi.fn(() => [{ sessionId: "s1" }]),
+            readUserMessagesSince: vi.fn(() => ({
                 messages: [
                     {
                         sessionId: "s1",
@@ -802,18 +802,18 @@ describe("createDreamTaskExecutor — retrospective", () => {
                 ],
                 truncated: false,
             })),
-            readUserMessagesBefore: mock(() => []),
+            readUserMessagesBefore: vi.fn(() => []),
         };
         let lastSystem = "";
         const client = {
             session: {
-                list: mock(async () => ({ data: [] })),
-                create: mock(async () => ({ data: { id: "retro-child" } })),
-                prompt: mock(async (args: { body?: { system?: string } }) => {
+                list: vi.fn(async () => ({ data: [] })),
+                create: vi.fn(async () => ({ data: { id: "retro-child" } })),
+                prompt: vi.fn(async (args: { body?: { system?: string } }) => {
                     lastSystem = args.body?.system ?? "";
                     return {};
                 }),
-                messages: mock(async () => ({
+                messages: vi.fn(async () => ({
                     data: assistantMessages(
                         lastSystem.includes("friction detector")
                             ? "y: 2"
@@ -822,7 +822,7 @@ describe("createDreamTaskExecutor — retrospective", () => {
 </learnings>`,
                     ),
                 })),
-                delete: mock(async () => ({})),
+                delete: vi.fn(async () => ({})),
             },
         };
         const executor = createDreamTaskExecutor({

@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { RawMessage } from "../../../src/core/hooks/read-session-raw";
 import { Database } from "../../../src/core/shared/sqlite";

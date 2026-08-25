@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -25,10 +25,10 @@ import { join } from "node:path";
  * the contract is short and stable enough to pin via grep.
  */
 
-const HANDLER_PATH = join(import.meta.dir, "../src/context-handler.ts");
+const HANDLER_PATH = join(import.meta.dirname, "../src/context-handler.ts");
 const HANDLER_SRC = readFileSync(HANDLER_PATH, "utf8");
 const RUNNER_SRC = readFileSync(
-	join(import.meta.dir, "../src/pi-historian-runner.ts"),
+	join(import.meta.dirname, "../src/pi-historian-runner.ts"),
 	"utf8",
 );
 

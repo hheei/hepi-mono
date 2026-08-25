@@ -1,20 +1,22 @@
-import { afterEach, describe, expect, it, mock, spyOn } from "bun:test";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import * as subagentModule from "../../src/subagent-runner";
 import { createFakePi, fakeContext } from "../test-utils.test";
 import { registerCtxAugCommand } from "../../src/commands/ctx-aug";
 
 function installRunner(result: unknown) {
-	const run = mock(async () => result);
-	const runnerConstructor = spyOn(
-		subagentModule,
-		"PiSubagentRunner",
-	).mockImplementation(() => ({ harness: "pi", run }) as never);
+	const run = vi.fn(async () => result);
+	const runnerConstructor = vi.spyOn(subagentModule, "PiSubagentRunner").mockImplementation(
+		function MockRunner(this: { harness: string; run: typeof run }) {
+			this.harness = "pi";
+			this.run = run;
+		} as never,
+	);
 	return { run, constructor: runnerConstructor };
 }
 
 describe("registerCtxAugCommand", () => {
 	afterEach(() => {
-		mock.restore();
+		vi.restoreAllMocks();
 	});
 
 	it('registers the "ctx-aug" command with Pi', () => {
@@ -63,7 +65,7 @@ describe("registerCtxAugCommand", () => {
 
 	it("surfaces not configured when sidekick config is absent", async () => {
 		const fake = createFakePi();
-		const notify = mock(() => undefined);
+		const notify = vi.fn(() => undefined);
 		registerCtxAugCommand(fake.pi as never, undefined);
 		const command = fake.commands.get("ctx-aug") as {
 			handler: (args: string, ctx: never) => Promise<void>;

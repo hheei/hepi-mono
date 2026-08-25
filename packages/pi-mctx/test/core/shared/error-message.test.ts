@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { describeError, getErrorMessage } from "../../../src/core/shared/error-message";
 
 describe("describeError", () => {

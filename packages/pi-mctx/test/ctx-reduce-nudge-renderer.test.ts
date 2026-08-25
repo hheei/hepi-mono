@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { renderChannel1Nudge } from "../src/index";
 import { CHANNEL1_NUDGE_CUSTOM_TYPE } from "../src/ctx-reduce-nudge-pi";

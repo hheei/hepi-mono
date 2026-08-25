@@ -14,7 +14,7 @@
 // include a `limit` in the query. The test does a static source-text scan
 // so it catches the issue at lint-time without runtime mocking overhead.
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 

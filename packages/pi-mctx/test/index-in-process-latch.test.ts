@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -40,27 +40,27 @@ function createCountingPi() {
 	const entryRenderers: string[] = [];
 	const messageRenderers: string[] = [];
 	const pi = {
-		on: mock((event: string) => {
+		on: vi.fn((event: string) => {
 			events.push(event);
 		}),
-		registerTool: mock((tool: { name?: string }) => {
+		registerTool: vi.fn((tool: { name?: string }) => {
 			tools.push(tool.name ?? "<unnamed>");
 		}),
-		registerFlag: mock((name: string) => {
+		registerFlag: vi.fn((name: string) => {
 			flags.push(name);
 		}),
-		registerCommand: mock((name: string) => {
+		registerCommand: vi.fn((name: string) => {
 			commands.push(name);
 		}),
-		registerEntryRenderer: mock((customType: string) => {
+		registerEntryRenderer: vi.fn((customType: string) => {
 			entryRenderers.push(customType);
 		}),
-		registerMessageRenderer: mock((customType: string) => {
+		registerMessageRenderer: vi.fn((customType: string) => {
 			messageRenderers.push(customType);
 		}),
-		appendEntry: mock(() => undefined),
-		sendMessage: mock(() => undefined),
-		sendUserMessage: mock(() => undefined),
+		appendEntry: vi.fn(() => undefined),
+		sendMessage: vi.fn(() => undefined),
+		sendUserMessage: vi.fn(() => undefined),
 	} as unknown as ExtensionAPI;
 	return { pi, events, tools, flags, commands, entryRenderers, messageRenderers };
 }
@@ -85,10 +85,15 @@ describe("Pi in-process re-init latch (#247)", () => {
 		expect(first.events.length).toBeGreaterThan(0);
 		expect(first.tools.length).toBeGreaterThan(0);
 		expect(first.commands.length).toBeGreaterThan(0);
-		expect(first.entryRenderers).toEqual(["ctx-status"]);
+		expect(first.entryRenderers).toEqual([
+			"magic-context:handoff-request",
+			"magic-context:handoff-attempt",
+			"ctx-status",
+		]);
 		expect(first.messageRenderers).toEqual([
 			"magic-context:ctx-reduce-nudge",
 			"magic-context:ceiling-nudge",
+			"magic-context:handoff",
 		]);
 
 		// The latch is now set in this process.
@@ -127,10 +132,15 @@ describe("Pi in-process re-init latch (#247)", () => {
 		expect(second.events.length).toBeGreaterThan(0);
 		expect(second.tools.length).toBeGreaterThan(0);
 		expect(second.commands.length).toBeGreaterThan(0);
-		expect(second.entryRenderers).toEqual(["ctx-status"]);
+		expect(second.entryRenderers).toEqual([
+			"magic-context:handoff-request",
+			"magic-context:handoff-attempt",
+			"ctx-status",
+		]);
 		expect(second.messageRenderers).toEqual([
 			"magic-context:ctx-reduce-nudge",
 			"magic-context:ceiling-nudge",
+			"magic-context:handoff",
 		]);
 	}, 15_000);
 

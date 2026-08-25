@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { buildMagicContextSection } from "../../../src/core/agents/magic-context-prompt";
 
 const CAVEMAN_MARKER = "BEWARE";

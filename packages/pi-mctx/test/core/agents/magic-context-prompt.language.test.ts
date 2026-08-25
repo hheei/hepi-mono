@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 
 import { COMPARTMENT_AGENT_SYSTEM_PROMPT } from "../../../src/core/hooks/compartment-prompt";
 import { withContentLanguageDirective } from "../../../src/core/agents/language-directive";

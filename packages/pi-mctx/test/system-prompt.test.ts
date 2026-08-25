@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -151,7 +151,7 @@ describe("buildMagicContextBlock v2 system-prompt parity", () => {
 
 			expect(unset).toBe(baseline);
 			expect(localized).toContain(
-				"Use Spanish (Español) for your natural-language replies",
+				"Use Spanish (español) for your natural-language replies",
 			);
 		} finally {
 			closeQuietly(db);

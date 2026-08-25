@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { getEmbeddingProviderIdentity } from "../../../../src/core/features/memory/embedding-identity";
 import {
     isNativeRuntimeMissingError,

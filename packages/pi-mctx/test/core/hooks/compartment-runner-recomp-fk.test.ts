@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -9,8 +9,8 @@ import { join } from "node:path";
 // invocation instead of the actual recomp pass. The fix threads the exact
 // successful-attempt invocation id through ValidatedHistorianPassResult.
 
-const recompSrc = readFileSync(join(import.meta.dir, "../../../src/core/hooks/compartment-runner-recomp.ts"), "utf8");
-const historianSrc = readFileSync(join(import.meta.dir, "../../../src/core/hooks/compartment-runner-historian.ts"), "utf8");
+const recompSrc = readFileSync(join(import.meta.dirname, "../../../src/core/hooks/compartment-runner-recomp.ts"), "utf8");
+const historianSrc = readFileSync(join(import.meta.dirname, "../../../src/core/hooks/compartment-runner-historian.ts"), "utf8");
 
 test("recomp links historian_runs FK via the threaded validatedPass.invocationId", () => {
     // Both the success and the terminal-failure record sites must use the exact

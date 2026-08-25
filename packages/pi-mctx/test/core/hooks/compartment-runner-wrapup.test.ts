@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it, vi } from "vitest";
 import {
     acquireCompartmentLease,
     releaseCompartmentLease,
@@ -105,10 +105,10 @@ function twoCompartmentHistorianXml(): string {
 function client(output = historianXml()): PluginContext["client"] {
     return {
         session: {
-            get: mock(async () => ({ data: { directory: "/tmp/wrapup-runner" } })),
-            create: mock(async () => ({ data: { id: `child-${Math.random()}` } })),
-            prompt: mock(async () => ({})),
-            messages: mock(async () => ({
+            get: vi.fn(async () => ({ data: { directory: "/tmp/wrapup-runner" } })),
+            create: vi.fn(async () => ({ data: { id: `child-${Math.random()}` } })),
+            prompt: vi.fn(async () => ({})),
+            messages: vi.fn(async () => ({
                 data: [
                     {
                         info: { role: "assistant", time: { created: 1 } },
@@ -116,7 +116,7 @@ function client(output = historianXml()): PluginContext["client"] {
                     },
                 ],
             })),
-            delete: mock(async () => ({})),
+            delete: vi.fn(async () => ({})),
         },
     } as unknown as PluginContext["client"];
 }
@@ -302,7 +302,7 @@ describe("runCompartmentAgent wrapup controls", () => {
                     rawLastMessageIdAtTrigger: "m-1",
                     rawRangeFingerprint: "stale-fingerprint",
                 };
-                const refresh = mock(() => fresh);
+                const refresh = vi.fn(() => fresh);
                 await runWithLease({
                     db,
                     sessionId,

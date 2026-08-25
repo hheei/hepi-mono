@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { BoundedSessionMap } from "../../../src/core/shared/bounded-session-map";
 
 describe("BoundedSessionMap", () => {

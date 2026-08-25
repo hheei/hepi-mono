@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 
-import { beforeEach, describe, expect, it, mock } from "bun:test";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
     clearOldReasoning,
     replayStrippedInlineThinking,
@@ -27,10 +27,10 @@ const SENTINEL = { type: "text", text: "" };
 const WHOLE_MESSAGE_SENTINEL = { type: "text", text: "[dropped]" };
 
 describe("strip-content", () => {
-    let buildDataUrl: ReturnType<typeof mock<(payloadSize: number) => string>>;
+    let buildDataUrl: ReturnType<typeof vi.fn<(payloadSize: number) => string>>;
 
     beforeEach(() => {
-        buildDataUrl = mock(
+        buildDataUrl = vi.fn(
             (payloadSize: number) => `data:image/png;base64,${"a".repeat(payloadSize)}`,
         );
     });

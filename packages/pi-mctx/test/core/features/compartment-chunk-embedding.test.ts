@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { estimateTokens } from "../../../src/core/hooks/read-session-formatting";
 import { Database } from "../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../src/core/shared/sqlite-helpers";

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { computePiWorkMetrics } from "#core/features/work-metrics";
 
 describe("Pi work metrics", () => {

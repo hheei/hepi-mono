@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { EmbeddingConfig } from "../../../../src/core/config/schema/magic-context";
 import { getEmbeddingProviderIdentity } from "../../../../src/core/features/memory/embedding-identity";
 import { embeddingModelsMatch, OpenAICompatibleEmbeddingProvider } from "../../../../src/core/features/memory/embedding-openai";
@@ -114,7 +114,7 @@ describe("OpenAICompatibleEmbeddingProvider request body (NVIDIA NIM fields, iss
     let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">>;
 
     beforeEach(() => {
-        fetchSpy = spyOn(globalThis, "fetch");
+        fetchSpy = vi.spyOn(globalThis, "fetch");
     });
     afterEach(() => {
         fetchSpy.mockRestore();
@@ -224,7 +224,7 @@ describe("OpenAICompatibleEmbeddingProvider circuit breaker", () => {
     let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">>;
 
     beforeEach(() => {
-        fetchSpy = spyOn(globalThis, "fetch");
+        fetchSpy = vi.spyOn(globalThis, "fetch");
     });
 
     afterEach(() => {
@@ -437,7 +437,7 @@ describe("OpenAICompatibleEmbeddingProvider circuit breaker", () => {
 describe("OpenAICompatibleEmbeddingProvider model-substitution guard", () => {
     let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">>;
     beforeEach(() => {
-        fetchSpy = spyOn(globalThis, "fetch");
+        fetchSpy = vi.spyOn(globalThis, "fetch");
     });
     afterEach(() => {
         fetchSpy.mockRestore();

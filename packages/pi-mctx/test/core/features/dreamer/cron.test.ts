@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { isValidCron, matchesCron, nextDueAtMs, nextOccurrence, parseCron } from "../../../../src/core/features/dreamer/cron";
 
 function parsed(expr: string) {

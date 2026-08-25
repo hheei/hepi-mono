@@ -4,9 +4,8 @@ import {
 	describe,
 	expect,
 	it,
-	mock,
-	spyOn,
-} from "bun:test";
+	vi,
+} from "vitest";
 import { EventEmitter } from "node:events";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -78,7 +77,7 @@ function createMockChild({ stdout = true }: { stdout?: boolean } = {}) {
 		get stdinText() {
 			return stdinText;
 		},
-		kill: mock((signal?: NodeJS.Signals | number) => {
+		kill: vi.fn((signal?: NodeJS.Signals | number) => {
 			killSignals.push(signal);
 			killed = true;
 			return true;
@@ -141,7 +140,7 @@ function runnerWith(
 	const remainingChildren = Array.isArray(childOrChildren)
 		? [...childOrChildren]
 		: null;
-	const spawnImpl = mock(() => {
+	const spawnImpl = vi.fn(() => {
 		if (remainingChildren === null) return childOrChildren as never;
 		const nextChild = remainingChildren.shift();
 		if (!nextChild) throw new Error("unexpected extra spawn");
@@ -678,7 +677,7 @@ describe("subagent-runner pure helpers", () => {
 
 describe("PiSubagentRunner spawn lifecycle", () => {
 	it("refuses to spawn known zero-tool agents without a system prompt", async () => {
-		const spawnImpl = mock(() => {
+		const spawnImpl = vi.fn(() => {
 			throw new Error("spawn must not be reached");
 		});
 		// Replace the runner's test seam with a throwing spawn so this assertion
@@ -830,7 +829,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		// because npm installs a pi.cmd shim, not a literal pi). It re-invokes the
 		// exact host CLI: process.execPath + process.argv[1], with no shell.
 		const child = createMockChild();
-		const spawnImpl = mock(() => child as never);
+		const spawnImpl = vi.fn(() => child as never);
 		const { PiSubagentRunner } = await import("../src/subagent-runner");
 		const runner = new PiSubagentRunner({ spawnImpl: spawnImpl as never });
 
@@ -968,7 +967,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 	});
 
 	it("returns spawn_failed when spawn throws synchronously", async () => {
-		const spawnImpl = mock(() => {
+		const spawnImpl = vi.fn(() => {
 			throw new Error("ENOENT pi");
 		});
 		const runner = new PiSubagentRunner({ spawnImpl: spawnImpl as never });
@@ -984,7 +983,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 	it("writes the system prompt to a temp file path and removes it after success", async () => {
 		const child = createMockChild();
 		let promptPath: string | undefined;
-		const spawnImpl = mock((_command: string, args: string[]) => {
+		const spawnImpl = vi.fn((_command: string, args: string[]) => {
 			const promptFlagIndex = args.indexOf("--system-prompt");
 			expect(promptFlagIndex).toBeGreaterThan(-1);
 			promptPath = args[promptFlagIndex + 1];
@@ -1030,7 +1029,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 
 	it("removes the temp system prompt file when spawn throws", async () => {
 		let promptPath: string | undefined;
-		const spawnImpl = mock((_command: string, args: string[]) => {
+		const spawnImpl = vi.fn((_command: string, args: string[]) => {
 			const promptFlagIndex = args.indexOf("--system-prompt");
 			expect(promptFlagIndex).toBeGreaterThan(-1);
 			promptPath = args[promptFlagIndex + 1];
@@ -1448,7 +1447,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		const second = createMockChild();
 		const third = createMockChild();
 		const { runner, spawnImpl } = runnerWith([first, second, third]);
-		const logSpy = spyOn(loggerModule, "sessionLog").mockImplementation(
+		const logSpy = vi.spyOn(loggerModule, "sessionLog").mockImplementation(
 			() => {},
 		);
 
@@ -1504,7 +1503,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		const first = createMockChild();
 		const second = createMockChild();
 		const { runner, spawnImpl } = runnerWith([first, second]);
-		const logSpy = spyOn(loggerModule, "sessionLog").mockImplementation(
+		const logSpy = vi.spyOn(loggerModule, "sessionLog").mockImplementation(
 			() => {},
 		);
 
@@ -1621,7 +1620,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		const { runner, spawnImpl } = runnerWith(first, {
 			subagentExtensions: ["provider-package", "./provider.ts"],
 		});
-		const logSpy = spyOn(loggerModule, "sessionLog").mockImplementation(
+		const logSpy = vi.spyOn(loggerModule, "sessionLog").mockImplementation(
 			() => {},
 		);
 
@@ -1661,7 +1660,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		const { runner, spawnImpl } = runnerWith([first, second], {
 			extraArgs: ["--no-extensions"],
 		});
-		const logSpy = spyOn(loggerModule, "sessionLog").mockImplementation(
+		const logSpy = vi.spyOn(loggerModule, "sessionLog").mockImplementation(
 			() => {},
 		);
 
@@ -1709,7 +1708,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		const first = createMockChild();
 		const second = createMockChild();
 		const { runner } = runnerWith([first, second]);
-		const logSpy = spyOn(loggerModule, "sessionLog").mockImplementation(
+		const logSpy = vi.spyOn(loggerModule, "sessionLog").mockImplementation(
 			() => {},
 		);
 
@@ -1808,7 +1807,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		const first = createMockChild();
 		const second = createMockChild();
 		const { runner, spawnImpl } = runnerWith([first, second]);
-		const logSpy = spyOn(loggerModule, "sessionLog").mockImplementation(
+		const logSpy = vi.spyOn(loggerModule, "sessionLog").mockImplementation(
 			() => {},
 		);
 
@@ -1860,7 +1859,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		// than spend the one-shot isolated retry.
 		const child = createMockChild();
 		const { runner, spawnImpl } = runnerWith(child);
-		const logSpy = spyOn(loggerModule, "sessionLog").mockImplementation(
+		const logSpy = vi.spyOn(loggerModule, "sessionLog").mockImplementation(
 			() => {},
 		);
 
@@ -2062,7 +2061,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		const first = createMockChild();
 		const second = createMockChild();
 		let spawnCount = 0;
-		const spawnImpl = mock(() => {
+		const spawnImpl = vi.fn(() => {
 			spawnCount += 1;
 			return (spawnCount === 1 ? first : second) as never;
 		});
@@ -2120,7 +2119,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		const first = createMockChild();
 		const second = createMockChild();
 		let spawnCount = 0;
-		const spawnImpl = mock(() => {
+		const spawnImpl = vi.fn(() => {
 			spawnCount += 1;
 			return (spawnCount === 1 ? first : second) as never;
 		});

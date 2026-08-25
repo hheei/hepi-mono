@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 
 import { buildClassifyPrompt, parseClassifyManifest } from "../../../../src/core/features/dreamer/classify-prompt";
 

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, mock, spyOn } from "bun:test";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -26,7 +26,7 @@ function toolResultMsg(text: string) {
 }
 
 afterEach(() => {
-	mock.restore();
+	vi.restoreAllMocks();
 });
 
 describe("computeTailToolTokensPi", () => {
@@ -434,7 +434,7 @@ describe("maybeDeliverChannel2Pi", () => {
 		setChannel2NudgeState(db, session, "pending");
 		armStrongBaseline(session);
 
-		const sessionLog = spyOn(loggerModule, "sessionLog").mockImplementation(
+		const sessionLog = vi.spyOn(loggerModule, "sessionLog").mockImplementation(
 			() => {},
 		);
 
@@ -484,7 +484,7 @@ describe("Channel 2 delivery wiring (regression)", () => {
 	// The helper is well-tested above, but the bug it guards against is that
 	// `index.ts` never CALLED it — Pi recorded `pending` and never delivered.
 	// Assert the agent_end handler actually invokes the delivery.
-	const INDEX_SRC = readFileSync(join(import.meta.dir, "../src/index.ts"), "utf8");
+	const INDEX_SRC = readFileSync(join(import.meta.dirname, "../src/index.ts"), "utf8");
 
 	it("index.ts imports maybeDeliverChannel2Pi", () => {
 		expect(INDEX_SRC).toContain("maybeDeliverChannel2Pi");

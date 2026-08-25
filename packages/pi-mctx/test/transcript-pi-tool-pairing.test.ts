@@ -20,7 +20,7 @@
  * and the API accepts the request.
  */
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { createPiTranscript } from "../src/transcript-pi";
 
 describe("transcript-pi tool pairing preservation", () => {

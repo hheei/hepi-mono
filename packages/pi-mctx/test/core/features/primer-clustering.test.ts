@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -84,7 +84,7 @@ describe("primer clustering", () => {
 
     it("keeps Primers cache-neutral in v1", () => {
         const inject = readFileSync(
-            join(import.meta.dir, "../../../src/core/hooks/inject-compartments.ts"),
+            join(import.meta.dirname, "../../../src/core/hooks/inject-compartments.ts"),
             "utf8",
         );
         expect(inject).not.toContain("primer");

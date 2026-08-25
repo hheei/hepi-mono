@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { initializeDatabase } from "../../../src/core/features/storage-db";
 import type { ContextDatabase } from "../../../src/core/features/storage";
 

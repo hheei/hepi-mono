@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { enforceProtectedRegions, extractProtectedBlocks } from "../../../../src/core/features/dreamer/protected-regions";
 
 const START = "<!-- mc:protected START — hand-authored cache-stability core. Only humans edit. -->";

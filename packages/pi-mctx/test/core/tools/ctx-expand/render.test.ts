@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 
 import { setRawMessageProvider } from "../../../../src/core/hooks/read-session-chunk";
 import type { RawMessage } from "../../../../src/core/hooks/read-session-raw";

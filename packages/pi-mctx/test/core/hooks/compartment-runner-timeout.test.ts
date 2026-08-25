@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 
-import { afterEach, describe, expect, it, mock, spyOn } from "bun:test";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -48,7 +48,7 @@ describe("historian timeout wiring", () => {
             "/tmp/incremental-timeout",
             `<compartment start="1" end="2" title="Eligible history"><p1>Summary</p1></compartment>`,
         );
-        const promptSyncSpy = spyOn(shared, "promptSyncWithModelSuggestionRetry").mockResolvedValue(
+        const promptSyncSpy = vi.spyOn(shared, "promptSyncWithModelSuggestionRetry").mockResolvedValue(
             undefined,
         );
 
@@ -93,7 +93,7 @@ describe("historian timeout wiring", () => {
             "/tmp/recomp-timeout",
             `<compartment start="1" end="4" title="Recovered history"><p1>Summary</p1></compartment>`,
         );
-        const promptSyncSpy = spyOn(shared, "promptSyncWithModelSuggestionRetry").mockResolvedValue(
+        const promptSyncSpy = vi.spyOn(shared, "promptSyncWithModelSuggestionRetry").mockResolvedValue(
             undefined,
         );
 
@@ -136,10 +136,10 @@ function makeBoundarySnapshot(db: ReturnType<typeof openDatabase>, sessionId: st
 function createHistorianClient(directory: string, output: string): PluginContext["client"] {
     return {
         session: {
-            get: mock(async () => ({ data: { directory } })),
-            create: mock(async () => ({ data: { id: "ses-historian-child" } })),
-            prompt: mock(async () => ({})),
-            messages: mock(async () => ({
+            get: vi.fn(async () => ({ data: { directory } })),
+            create: vi.fn(async () => ({ data: { id: "ses-historian-child" } })),
+            prompt: vi.fn(async () => ({})),
+            messages: vi.fn(async () => ({
                 data: [
                     {
                         info: { role: "assistant", time: { created: 1 } },
@@ -147,7 +147,7 @@ function createHistorianClient(directory: string, output: string): PluginContext
                     },
                 ],
             })),
-            delete: mock(async () => ({})),
+            delete: vi.fn(async () => ({})),
         },
     } as unknown as PluginContext["client"];
 }

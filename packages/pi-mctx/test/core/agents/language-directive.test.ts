@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 
 import {
     buildContentLanguageDirective,
@@ -51,7 +51,7 @@ const EXHAUSTIVE_STRUCTURAL_TOKENS = [
 describe("resolveLanguageName", () => {
     it("maps a 2-letter ISO 639-1 code to 'English (Endonym)'", () => {
         expect(resolveLanguageName("tr")).toBe("Turkish (Türkçe)");
-        expect(resolveLanguageName("es")).toBe("Spanish (Español)");
+        expect(resolveLanguageName("es")).toBe("Spanish (español)");
         expect(resolveLanguageName("ja")).toBe("Japanese (日本語)");
     });
     it("normalizes case and surrounding whitespace", () => {
@@ -88,7 +88,7 @@ describe("language directives", () => {
             preserveUserQuotes: true,
         });
         expect(directive).toContain(
-            "Preserve U: lines and directly quoted user text in their original source language; write the surrounding summary prose in Spanish (Español).",
+            "Preserve U: lines and directly quoted user text in their original source language; write the surrounding summary prose in Spanish (español).",
         );
     });
 

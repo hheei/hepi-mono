@@ -1,10 +1,10 @@
 /// <reference types="bun-types" />
 
-import { describe, expect, it, spyOn } from "bun:test";
+import { describe, expect, it, vi } from "vitest";
+import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { $ } from "bun";
 import { Database } from "../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../src/core/shared/sqlite-helpers";
 import { initializeDatabase } from "../../../../src/core/features/storage-db";
@@ -21,6 +21,24 @@ import {
 } from "../../../../src/core/features/dreamer/lease";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function bunEvalJson(script: string, holder: string): Promise<{ ok: boolean }> {
+    return new Promise((resolve, reject) => {
+        const child = spawn("bun", ["-e", script, holder], { stdio: ["ignore", "pipe", "pipe"] });
+        const stdout: Buffer[] = [];
+        const stderr: Buffer[] = [];
+        child.stdout.on("data", (chunk) => stdout.push(chunk));
+        child.stderr.on("data", (chunk) => stderr.push(chunk));
+        child.on("error", reject);
+        child.on("close", (code) => {
+            if (code !== 0) {
+                reject(new Error(Buffer.concat(stderr).toString() || `bun -e exited ${code}`));
+                return;
+            }
+            resolve(JSON.parse(Buffer.concat(stdout).toString()) as { ok: boolean });
+        });
+    });
+}
 function expireLease(db: Database, key = "dreaming_lease_expiry"): void {
     db.prepare(`UPDATE dream_state SET value = ? WHERE key = '${key}'`).run(String(Date.now() - 1));
 }
@@ -171,7 +189,7 @@ describe("dreamer lease (atomic CAS)", () => {
         const setup = makeDb(path);
         closeQuietly(setup);
         try {
-            const packageRoot = join(import.meta.dir, "../../../..");
+            const packageRoot = join(import.meta.dirname, "../../../..");
             const script = `
                 const sqlite = await import(${JSON.stringify(`file://${packageRoot}/src/core/shared/sqlite.ts`)});
                 const lease = await import(${JSON.stringify(`file://${packageRoot}/src/core/features/dreamer/lease.ts`)});
@@ -182,8 +200,8 @@ describe("dreamer lease (atomic CAS)", () => {
                 console.log(JSON.stringify({ ok }));
             `;
             const [a, b] = await Promise.all([
-                $`bun -e ${script} holder-a`.json() as Promise<{ ok: boolean }>,
-                $`bun -e ${script} holder-b`.json() as Promise<{ ok: boolean }>,
+                bunEvalJson(script, "holder-a"),
+                bunEvalJson(script, "holder-b"),
             ]);
             expect([a.ok, b.ok].filter(Boolean)).toHaveLength(1);
         } finally {
@@ -258,7 +276,7 @@ describe("startLeaseHeartbeat", () => {
         const db = makeDb();
         const realNow = Date.now();
         const clock = { value: realNow };
-        const nowSpy = spyOn(Date, "now").mockImplementation(() => clock.value);
+        const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => clock.value);
         try {
             expect(acquireLease(db, "holder-a")).toBe(true);
             let lostReason: string | null = null;

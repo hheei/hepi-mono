@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 
-import { beforeEach, describe, expect, it, mock } from "bun:test";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	clearCachedModule,
 	loadDefaultPiSessionApi,
@@ -54,10 +54,10 @@ describe("loadDefaultPiSessionApi", () => {
 
 	describe("resolution ladder mechanics", () => {
 		it("ladder order: first loader succeeds -> second never called", async () => {
-			const firstLoaderCalled = mock(() =>
+			const firstLoaderCalled = vi.fn(() =>
 				Promise.resolve({ SessionManager: { listAll: () => [] } }),
 			);
-			const secondLoaderCalled = mock(() =>
+			const secondLoaderCalled = vi.fn(() =>
 				Promise.resolve({ SessionManager: { listAll: () => [] } }),
 			);
 
@@ -73,10 +73,10 @@ describe("loadDefaultPiSessionApi", () => {
 		});
 
 		it("first loader throws ERR_MODULE_NOT_FOUND -> second loader's module used", async () => {
-			const firstLoaderCalled = mock(() =>
+			const firstLoaderCalled = vi.fn(() =>
 				Promise.reject(new Error("Cannot find module")),
 			);
-			const secondLoaderCalled = mock(() =>
+			const secondLoaderCalled = vi.fn(() =>
 				Promise.resolve({ SessionManager: { listAll: () => [] } }),
 			);
 
@@ -92,10 +92,10 @@ describe("loadDefaultPiSessionApi", () => {
 		});
 
 		it("all loaders fail -> single aggregated error naming both strategies (assert message mentions the symlink/layout hint)", async () => {
-			const firstLoaderCalled = mock(() =>
+			const firstLoaderCalled = vi.fn(() =>
 				Promise.reject(new Error("Cannot find module")),
 			);
-			const secondLoaderCalled = mock(() =>
+			const secondLoaderCalled = vi.fn(() =>
 				Promise.reject(new Error("process.argv[1] is undefined")),
 			);
 
@@ -125,7 +125,7 @@ describe("loadDefaultPiSessionApi", () => {
 		});
 
 		it("memoization: two calls -> loaders invoked once", async () => {
-			const loaderCalled = mock(() =>
+			const loaderCalled = vi.fn(() =>
 				Promise.resolve({ SessionManager: { listAll: () => [] } }),
 			);
 

@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "vitest";
 import { Database } from "../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../src/core/shared/sqlite-helpers";
 import {
@@ -266,7 +266,7 @@ describe("storage-memory", () => {
             );
 
             const cacheAfterUpdate = getProjectEmbeddings(db, "/repo/project", "local:model-a");
-            expect(cacheAfterUpdate.has(memory.id)).toBeFalse();
+            expect(cacheAfterUpdate.has(memory.id)).toBe(false);
 
             const secondMemory = insertMemory(db, {
                 projectPath: "/repo/project",

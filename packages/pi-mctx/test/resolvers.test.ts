@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { MagicContextConfigSchema } from "#core/config/schema/magic-context";
 import {
 	resolveDreamerFromConfig,

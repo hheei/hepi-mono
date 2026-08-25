@@ -11,7 +11,7 @@
 // mocking. Tests, generated files, and the doctor's deletion routine (which
 // must name the dead keys to strip them) are intentionally excluded.
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { computeBudgetPressure, renderedTier } from "../../../src/core/hooks/decay-curve";
 import {
     type DecayRenderCompartment,
@@ -154,14 +154,20 @@ describe("decay-render", () => {
         };
 
         expect(
-            renderCompartmentAtTier({ ...base, startDate: "2026-06-08", endDate: "2026-06-08" }, 1),
-        ).toStartWith("## 1-2 · 2026-06-08 · dated");
+            renderCompartmentAtTier({ ...base, startDate: "2026-06-08", endDate: "2026-06-08" }, 1).startsWith(
+                "## 1-2 · 2026-06-08 · dated",
+            ),
+        ).toBe(true);
         expect(
-            renderCompartmentAtTier({ ...base, startDate: "2026-06-08", endDate: "2026-06-09" }, 1),
-        ).toStartWith("## 1-2 · 2026-06-08→09 · dated");
+            renderCompartmentAtTier({ ...base, startDate: "2026-06-08", endDate: "2026-06-09" }, 1).startsWith(
+                "## 1-2 · 2026-06-08→09 · dated",
+            ),
+        ).toBe(true);
         expect(
-            renderCompartmentAtTier({ ...base, startDate: "2026-06-08", endDate: "2026-07-02" }, 1),
-        ).toStartWith("## 1-2 · 2026-06-08→2026-07-02 · dated");
+            renderCompartmentAtTier({ ...base, startDate: "2026-06-08", endDate: "2026-07-02" }, 1).startsWith(
+                "## 1-2 · 2026-06-08→2026-07-02 · dated",
+            ),
+        ).toBe(true);
     });
 
     it("omits the date segment when a range is absent or partial", () => {
@@ -173,10 +179,12 @@ describe("decay-render", () => {
             legacy: 1,
         };
 
-        expect(renderCompartmentAtTier(base, 1)).toStartWith("## 1-2 · undated");
-        expect(renderCompartmentAtTier({ ...base, startDate: "2026-01-02" }, 1)).toStartWith(
-            "## 1-2 · undated",
-        );
+        expect(renderCompartmentAtTier(base, 1).startsWith("## 1-2 · undated")).toBe(true);
+        expect(
+            renderCompartmentAtTier({ ...base, startDate: "2026-01-02" }, 1).startsWith(
+                "## 1-2 · undated",
+            ),
+        ).toBe(true);
     });
 
     it("indents body lines that could be mistaken for compartment headings", () => {

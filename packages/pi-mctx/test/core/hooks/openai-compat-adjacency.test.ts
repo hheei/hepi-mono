@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { ISSUE_135_ORPHAN_WIRE } from "../../../src/core/hooks/issue-135-wire-fixtures";
 import {
     assertOpenAiCompatAdjacency,

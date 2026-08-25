@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Database } from "../../../src/core/shared/sqlite";
 
 let queryEmbedding: Float32Array | null = null;

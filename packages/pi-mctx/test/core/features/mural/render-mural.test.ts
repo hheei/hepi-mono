@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { MURAL_FONT_GLYPHS } from "../../../../src/core/features/mural/mural-font.generated";
 import {
     MURAL_CELL_WIDTH,

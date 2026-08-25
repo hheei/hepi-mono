@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { ContextLimitProvenance } from "../../../src/core/shared/context-limit-provenance";
 import { detectOverflow, extractErrorMessage, parseReportedLimit } from "../../../src/core/features/overflow-detection";
 

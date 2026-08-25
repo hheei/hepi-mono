@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import type { ContextUsage, PendingOp, SchedulerDecision, SessionMeta, TagEntry } from "../../../src/core/features/types";
 
 describe("magic-context types", () => {

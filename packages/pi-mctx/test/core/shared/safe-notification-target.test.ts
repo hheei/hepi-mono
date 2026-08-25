@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { isDefaultSessionTitle, waitForSafeNotificationTarget } from "../../../src/core/shared/safe-notification-target";
 
 function clientWithTitle(title: string | undefined, calls?: { count: number }) {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { Database } from "../../../src/core/shared/sqlite";
 import { initializeDatabase } from "../../../src/core/features/storage";
 import {

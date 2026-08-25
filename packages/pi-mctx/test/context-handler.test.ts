@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, it, mock, spyOn } from "bun:test";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendCompartments } from "#core/features/compartment-storage";
+import { escalationBands } from "#core/shared/escalation-bands";
 import {
 	__resetMessageIndexAsyncForTests,
 	isSessionReconciled,
@@ -142,7 +143,7 @@ describe("applyForwardPressureFloor", () => {
 
 	it("keeps the emergency recovery bump as a floor instead of a cap", () => {
 		const src = readFileSync(
-			join(import.meta.dir, "../src/context-handler.ts"),
+			join(import.meta.dirname, "../src/context-handler.ts"),
 			"utf8",
 		);
 		expect(src).not.toContain("usagePercentage = 95;");
@@ -150,7 +151,7 @@ describe("applyForwardPressureFloor", () => {
 	describe("two-pass tool reclaim source invariants", () => {
 		it("uses confirmed mutation booleans rather than executedWorkThisPass for the reclaim gate", () => {
 			const src = readFileSync(
-				join(import.meta.dir, "../src/context-handler.ts"),
+				join(import.meta.dirname, "../src/context-handler.ts"),
 				"utf8",
 			);
 			expect(src).toContain("let pendingOpsDidMutate = false");
@@ -1528,7 +1529,7 @@ describe("registerPiContextHandler", () => {
 
 	it("appends an auto-search hint to the latest user message when the threshold is met", async () => {
 		const db = createTestDb();
-		const spy = spyOn(searchModule, "unifiedSearch").mockImplementation(
+		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(
 			async () =>
 				[
 					{
@@ -1577,7 +1578,7 @@ describe("registerPiContextHandler", () => {
 
 	it("clearContextHandlerSession preserves persisted auto-search decisions", async () => {
 		const db = createTestDb();
-		const spy = spyOn(searchModule, "unifiedSearch").mockImplementation(
+		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(
 			async () => [],
 		);
 		try {
@@ -1722,7 +1723,7 @@ describe("registerPiContextHandler", () => {
 			updateSessionMeta(db, "ses-pi-pressure-alert", {
 				observedSafeInputTokens: 80_000,
 			});
-			const notify = mock(async () => undefined);
+			const notify = vi.fn(async () => undefined);
 
 			for (const inputTokens of [90_000, 120_000]) {
 				await persistPiPressureFromMessageEnd({
@@ -2327,7 +2328,7 @@ describe("registerPiContextHandler", () => {
 				event: { messages: never[] },
 				ctx: never,
 			) => Promise<{ messages: never[] }>;
-			const notify = mock(() => undefined);
+			const notify = vi.fn(() => undefined);
 			const messages = [userMessage("continue", 1)] as never[];
 			await handler({ messages }, {
 				...fakeContext(sessionId, process.cwd(), ["entry-1"], messages),
@@ -2362,7 +2363,7 @@ describe("registerPiContextHandler", () => {
 				event: { messages: never[] },
 				ctx: never,
 			) => Promise<{ messages: never[] }>;
-			const notify = mock(async () => {
+			const notify = vi.fn(async () => {
 				throw new Error("toast unavailable");
 			});
 			const messages = [userMessage("continue", 1)] as never[];
@@ -2432,7 +2433,7 @@ describe("registerPiContextHandler", () => {
 			updateSessionMeta(db, sessionId, { piStableIdScheme: 1 });
 			const runner = {
 				harness: "pi",
-				run: mock(async () => ({
+				run: vi.fn(async () => ({
 					ok: true as const,
 					assistantText:
 						'<compartment start="1" end="2" title="Forward"><p1>Forward pressure history.</p1></compartment>',
@@ -2512,7 +2513,7 @@ describe("registerPiContextHandler", () => {
 			});
 			const runner = {
 				harness: "pi",
-				run: mock(async () => ({
+				run: vi.fn(async () => ({
 					ok: true as const,
 					assistantText:
 						'<compartment start="1" end="2" title="Skipped"><p1>Should not run.</p1></compartment>',
@@ -2561,7 +2562,7 @@ describe("registerPiContextHandler", () => {
 					"SELECT holder_id AS holderId FROM compartment_state_lease WHERE session_id = ?",
 				)
 				.get(sessionId) as { holderId: string } | null;
-			expect(leaseRow).toBeNull();
+			expect(leaseRow ?? null).toBeNull();
 			expect(runner.run).not.toHaveBeenCalled();
 		} finally {
 			clearContextHandlerSession(sessionId);
@@ -2589,7 +2590,7 @@ describe("registerPiContextHandler", () => {
 			);
 			const runner = {
 				harness: "pi",
-				run: mock(async () => ({
+				run: vi.fn(async () => ({
 					ok: true as const,
 					assistantText:
 						'<compartment start="1" end="2" title="Expired"><p1>Expired wrapup marker no longer blocks.</p1></compartment>',
@@ -3031,7 +3032,7 @@ describe("registerPiContextHandler", () => {
 			incrementHistorianFailure(db, "ses-context", "previous failure");
 			const runner = {
 				harness: "pi",
-				run: mock(async () => ({
+				run: vi.fn(async () => ({
 					ok: true as const,
 					assistantText:
 						'<compartment start="1" end="2" title="Recovered"><p1>Recovered prior Pi history.</p1></compartment>',
@@ -3060,7 +3061,7 @@ describe("registerPiContextHandler", () => {
 			for (let index = 0; index < messages.length; index++) {
 				insertTag(db, "ses-context", `entry-${index + 1}`, "message", 100, index + 1);
 			}
-			const notify = mock(() => undefined);
+			const notify = vi.fn(() => undefined);
 			const ctx = {
 				...fakeContext("ses-context"),
 				ui: { notify },
@@ -3147,7 +3148,7 @@ describe("registerPiContextHandler", () => {
 			incrementHistorianFailure(db, sessionId, "previous failure");
 			const runner = {
 				harness: "pi",
-				run: mock(async () => {
+				run: vi.fn(async () => {
 					await new Promise<void>((resolve) => {
 						release = resolve;
 					});
@@ -3209,7 +3210,7 @@ describe("registerPiContextHandler", () => {
 			incrementHistorianFailure(db, sessionId, "previous failure");
 			const runner = {
 				harness: "pi",
-				run: mock(async () => {
+				run: vi.fn(async () => {
 					await new Promise<void>((resolve) => {
 						release = resolve;
 					});
@@ -3270,7 +3271,7 @@ describe("registerPiContextHandler", () => {
 			incrementHistorianFailure(db, activeSessionId, "previous failure");
 			const runner = {
 				harness: "pi",
-				run: mock(async () => {
+				run: vi.fn(async () => {
 					const callIndex = releases.length;
 					await new Promise<void>((resolve) => {
 						releases.push(resolve);
@@ -3534,7 +3535,7 @@ describe("registerPiContextHandler", () => {
 				});
 				signalPiDeferredHistoryRefresh(sessionId);
 				signalPiPendingMaterialization(sessionId);
-				const appendCompaction = mock(() => "compact-1");
+				const appendCompaction = vi.fn(() => "compact-1");
 
 				await runDrainPass({ db, sessionId, appendCompaction });
 
@@ -3550,7 +3551,7 @@ describe("registerPiContextHandler", () => {
 		it("preserves deferred marker signals on contention fallback, then drains after a covered render", async () => {
 			const db = createTestDb();
 			const sessionId = "ses-pi-marker-contention-retry";
-			const appendCompaction = mock(() => "compact-1");
+			const appendCompaction = vi.fn(() => "compact-1");
 			let contention = true;
 			const restoreInjection = contextHandlerInternals.setInjectM0M1PiForTests(
 				(_state, _db, _messages) => ({
@@ -3625,7 +3626,7 @@ describe("registerPiContextHandler", () => {
 					"../src/index"
 				);
 				seedCompartment(db, sessionId);
-				const appendCompaction = mock(() => "compact-1");
+				const appendCompaction = vi.fn(() => "compact-1");
 
 				await runDrainPass({ db, sessionId, appendCompaction });
 
@@ -3689,7 +3690,7 @@ describe("registerPiContextHandler", () => {
 				});
 				signalPiDeferredHistoryRefresh(sessionId);
 				signalPiPendingMaterialization(sessionId);
-				const appendCompaction = mock(() => {
+				const appendCompaction = vi.fn(() => {
 					setPendingPiCompactionMarkerState(db, sessionId, blobY);
 					return "compact-1";
 				});
@@ -3720,7 +3721,7 @@ describe("registerPiContextHandler", () => {
 				setPendingPiCompactionMarkerState(db, sessionId, blob);
 				signalPiHistoryRefresh(sessionId);
 				signalPiPendingMaterialization(sessionId);
-				const appendCompaction = mock(() => "compact-1");
+				const appendCompaction = vi.fn(() => "compact-1");
 
 				await runDrainPass({ db, sessionId, appendCompaction });
 
@@ -3735,7 +3736,7 @@ describe("registerPiContextHandler", () => {
 		it("drains on m[1]-only coverage: fresh publication, no HARD fold", async () => {
 			const db = createTestDb();
 			const sessionId = "ses-pi-marker-m1-coverage";
-			const appendCompaction = mock(() => "compact-1");
+			const appendCompaction = vi.fn(() => "compact-1");
 			// The exact shape a normal publication produces: m[0] still carries
 			// the empty pre-publication baseline (renderedBoundary <none> — no
 			// HARD fold has moved the compartment into m[0]), while the new
@@ -3790,7 +3791,7 @@ describe("registerPiContextHandler", () => {
 		it("preserves the marker when a sibling-fallback serves stale m[1] (null coverage)", async () => {
 			const db = createTestDb();
 			const sessionId = "ses-pi-marker-sibling-fallback";
-			const appendCompaction = mock(() => "compact-1");
+			const appendCompaction = vi.fn(() => "compact-1");
 			// softRefreshCachedM1Pi's sibling-fallback serves a sibling's stale
 			// cached m[1] with recomputed=false while contentionExhausted stays
 			// FALSE — the contention veto alone does not catch it, so the
@@ -3847,7 +3848,7 @@ describe("registerPiContextHandler", () => {
 		it("does not fire the drain on a pure defer pass even with coverage present", async () => {
 			const db = createTestDb();
 			const sessionId = "ses-pi-marker-defer-no-drain";
-			const appendCompaction = mock(() => "compact-1");
+			const appendCompaction = vi.fn(() => "compact-1");
 			// Regression pin for the deferredHistoryDrainEligible gate: a pure
 			// SOFT+ defer/replay pass (no history-refresh consumption, no
 			// materialization this pass) must never drain — even when the
@@ -4184,7 +4185,7 @@ describe("Pi branch projection cache", () => {
 describe("maybeFireHistorian raw provider cleanup", () => {
 	it("unregisters the raw-message provider in finally when no historian is spawned", () => {
 		const src = readFileSync(
-			join(import.meta.dir, "../src/context-handler.ts"),
+			join(import.meta.dirname, "../src/context-handler.ts"),
 			"utf8",
 		);
 		const start = src.indexOf("function maybeFireHistorian");
@@ -4203,18 +4204,12 @@ describe("emergency-scaled boundary retry derives its band from the execute thre
 	// force band is 92: usage in [80, 92) must NOT trigger the emergency-scaled
 	// relaxation (a revert to `usage.percentage >= 80` makes this test fail).
 	it("does not relax the boundary below the derived force band at T=90", () => {
-		const {
-			escalationBands,
-		} = require("#core/shared/escalation-bands");
 		const band = escalationBands(90).forceMaterializationPercentage;
 		expect(band).toBe(92);
 		// The literal the fix removed sits below the derived band — pin the gap.
 		expect(band).toBeGreaterThan(80);
 	});
 	it("keeps the default-config band at 85 (zero drift for T<=80)", () => {
-		const {
-			escalationBands,
-		} = require("#core/shared/escalation-bands");
 		expect(escalationBands(65).forceMaterializationPercentage).toBe(85);
 		expect(escalationBands(80).forceMaterializationPercentage).toBe(85);
 	});

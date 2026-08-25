@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { convertEntriesToRawMessages } from "../../src/read-session-pi";
 import { HANDOFF_CONTEXT_TYPE } from "../../src/handoff/model";
 

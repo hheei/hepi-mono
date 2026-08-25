@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -211,7 +211,7 @@ describe("shadow embedding historical backfill", () => {
         }
         // The old identity's rows coexist until the 14-day GC ages them out.
         expect(countShadowMemoryRows(db, projectIdentity, shadowA)).toBe(150);
-    });
+    }, 20_000);
 
     it("backfills commits alongside memories on rotation", async () => {
         useFakeProviders();

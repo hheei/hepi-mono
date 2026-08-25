@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "vitest";
 import { Database } from "../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../src/core/shared/sqlite-helpers";
 import { initializeDatabase } from "../../../../src/core/features/storage-db";
@@ -98,9 +98,9 @@ describe("task_schedule_state storage", () => {
 
     it("lists rows for a project, scoped by project", () => {
         db = freshDb();
-        seedTaskScheduleState(db, "git:abc", "consolidate", 1, null);
-        seedTaskScheduleState(db, "git:abc", "verify", 2, null);
-        seedTaskScheduleState(db, "git:other", "consolidate", 3, null);
+        seedTaskScheduleState(db, "git:abc", "consolidate", 1, null, "0 3 * * *");
+        seedTaskScheduleState(db, "git:abc", "verify", 2, null, "0 3 * * *");
+        seedTaskScheduleState(db, "git:other", "consolidate", 3, null, "0 3 * * *");
         const rows = getTaskScheduleStatesForProject(db, "git:abc");
         expect(rows.map((r) => r.task).sort()).toEqual(["consolidate", "verify"]);
     });
@@ -108,22 +108,22 @@ describe("task_schedule_state storage", () => {
     describe("getMostRecentTaskRunAt (issue #194 sidebar/status source)", () => {
         it("returns null when no task has run yet", () => {
             db = freshDb();
-            seedTaskScheduleState(db, "git:abc", "verify", 1000, null);
+            seedTaskScheduleState(db, "git:abc", "verify", 1000, null, "0 3 * * *");
             expect(getMostRecentTaskRunAt(db, "git:abc")).toBeNull();
         });
 
         it("returns the MAX last_run_at across the project's tasks", () => {
             db = freshDb();
-            seedTaskScheduleState(db, "git:abc", "verify", 0, 5000);
-            seedTaskScheduleState(db, "git:abc", "curate", 0, 8000);
-            seedTaskScheduleState(db, "git:abc", "classify-memories", 0, 3000);
+            seedTaskScheduleState(db, "git:abc", "verify", 0, 5000, "0 3 * * *");
+            seedTaskScheduleState(db, "git:abc", "curate", 0, 8000, "0 3 * * *");
+            seedTaskScheduleState(db, "git:abc", "classify-memories", 0, 3000, "0 3 * * *");
             expect(getMostRecentTaskRunAt(db, "git:abc")).toBe(8000);
         });
 
         it("is scoped to the project", () => {
             db = freshDb();
-            seedTaskScheduleState(db, "git:abc", "verify", 0, 5000);
-            seedTaskScheduleState(db, "git:other", "verify", 0, 9000);
+            seedTaskScheduleState(db, "git:abc", "verify", 0, 5000, "0 3 * * *");
+            seedTaskScheduleState(db, "git:other", "verify", 0, 9000, "0 3 * * *");
             expect(getMostRecentTaskRunAt(db, "git:abc")).toBe(5000);
         });
 

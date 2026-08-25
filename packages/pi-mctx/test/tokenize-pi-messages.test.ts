@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { tokenizePiMessages } from "../src/tokenize-pi-messages";
 
 /**

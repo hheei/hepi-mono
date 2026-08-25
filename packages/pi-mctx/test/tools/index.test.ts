@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import { createTestDb } from "../test-utils.test";
 import { registerMagicContextTools } from "../../src/tools/index";
