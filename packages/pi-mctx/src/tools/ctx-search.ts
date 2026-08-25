@@ -300,34 +300,32 @@ export function createCtxSearchTool(
 				}
 			}
 
+			const searchOptions = {
+				limit: normalizeLimit(params.limit),
+				...(memoryEnabled === undefined ? {} : { memoryEnabled }),
+				...(embeddingEnabled === undefined ? {} : { embeddingEnabled }),
+				embedQuery: async (text: string, signal?: AbortSignal) => {
+					const result = await embedTextForProject(
+						projectIdentity,
+						text,
+						signal,
+						"query",
+					);
+					return result?.vector ?? null;
+				},
+				isEmbeddingRuntimeEnabled: () => embeddingEnabled === true,
+				maxMessageOrdinal: messageOrdinalCutoff,
+				...(gitCommitsEnabled === undefined ? {} : { gitCommitsEnabled }),
+				...(params.sources === undefined ? {} : { sources: params.sources }),
+				visibleMemoryIds,
+				explicitSearch: true,
+			};
 			const results = await unifiedSearch(
 				deps.db,
 				sessionId,
 				projectIdentity,
 				query,
-				{
-					limit: normalizeLimit(params.limit),
-					memoryEnabled,
-					embeddingEnabled,
-					embedQuery: async (text, signal) => {
-						const result = await embedTextForProject(
-							projectIdentity,
-							text,
-							signal,
-							"query",
-						);
-						return result?.vector ?? null;
-					},
-					isEmbeddingRuntimeEnabled: () => embeddingEnabled === true,
-					maxMessageOrdinal: messageOrdinalCutoff,
-					gitCommitsEnabled,
-					sources: params.sources,
-					visibleMemoryIds,
-					// Explicit agent search → literal-probe multi-query recall
-					// Pi auto-search leaves
-					// this off to protect its latency budget.
-					explicitSearch: true,
-				},
+				searchOptions,
 			);
 
 			return {

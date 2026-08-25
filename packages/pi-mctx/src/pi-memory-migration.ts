@@ -142,10 +142,9 @@ export async function runPiMemoryMigration(
 			model,
 			// We drive the chain here (validating each), so don't let the runner
 			// re-iterate its own hard-failure-only chain.
-			fallbackModels: undefined,
 			timeoutMs: deps.timeoutMs ?? 5 * 60 * 1000,
 			cwd: deps.directory,
-			thinkingLevel: deps.thinkingLevel,
+			...(deps.thinkingLevel === undefined ? {} : { thinkingLevel: deps.thinkingLevel }),
 			accountingSessionId: deps.sessionId,
 			// Reuse the "recomp" accounting bucket — memory migration is part of the
 			// session-upgrade flow and there is no dedicated subagent tag for it.
