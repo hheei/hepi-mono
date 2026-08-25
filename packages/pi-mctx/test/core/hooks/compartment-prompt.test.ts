@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import {
     buildCompartmentAgentPrompt,
     COMPARTMENT_STRUCTURAL_SYSTEM_PROMPT,

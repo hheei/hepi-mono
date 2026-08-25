@@ -13,7 +13,7 @@
  * signature, and counter safety.
  */
 
-import { beforeEach, describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it } from "vitest";
 import { type Database as DatabaseType, Database } from "../../../src/core/shared/sqlite";
 
 import { initializeDatabase } from "../../../src/core/features/storage-db";

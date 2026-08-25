@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -22,7 +22,7 @@ import { join } from "node:path";
 // bind written in their code would break under node:sqlite (Pi/Desktop) exactly
 // like #151, and the plugin-only scan would never see it. Roots are resolved
 // relative to plugin/src so the guard works from the plugin package.
-const PLUGIN_SRC = join(import.meta.dir, "..");
+const PLUGIN_SRC = join(import.meta.dirname, "..");
 const SCAN_ROOTS = [
     PLUGIN_SRC,
     join(PLUGIN_SRC, "../../pi-plugin/src"),

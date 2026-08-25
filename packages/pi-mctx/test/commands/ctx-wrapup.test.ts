@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it, vi } from "vitest";
 import {
 	acquireCompartmentLease,
 	releaseCompartmentLease,
@@ -172,7 +172,7 @@ function deps(
 		historianChunkTokens: 10,
 		memoryEnabled: false,
 		autoPromote: false,
-		runPiHistorianForWrapup: mock(async (args) => {
+		runPiHistorianForWrapup: vi.fn(async (args) => {
 			const sessionId = args.sessionId;
 			const start = getLastCompartmentEndMessage(db, sessionId) + 1;
 			const end = Math.min(
@@ -199,7 +199,7 @@ describe("Pi /ctx-wrapup", () => {
 		try {
 			const sessionId = "pi-subagent-wrapup";
 			updateSessionMeta(db, sessionId, { isSubagent: true });
-			const runPiHistorianForWrapup = mock(async () => {});
+			const runPiHistorianForWrapup = vi.fn(async () => {});
 
 			const result = await runPiWrapup(
 				pi().api,
@@ -225,7 +225,7 @@ describe("Pi /ctx-wrapup", () => {
 			const result = await runPiWrapup(
 				pi().api,
 				deps(db, {
-					runPiHistorianForWrapup: mock(async () => {}),
+					runPiHistorianForWrapup: vi.fn(async () => {}),
 				}),
 				ctx(sessionId, 8),
 				sessionId,
@@ -256,7 +256,7 @@ describe("Pi /ctx-wrapup", () => {
 			expect(
 				acquireCompartmentLease(db, sessionId, foreignHolder),
 			).not.toBeNull();
-			const runPiHistorianForWrapup = mock(async () => {});
+			const runPiHistorianForWrapup = vi.fn(async () => {});
 
 			const result = await runPiWrapup(
 				pi().api,
@@ -288,7 +288,7 @@ describe("Pi /ctx-wrapup", () => {
 			const result = await runPiWrapup(
 				pi().api,
 				deps(db, {
-					runPiHistorianForWrapup: mock(async (args) => {
+					runPiHistorianForWrapup: vi.fn(async (args) => {
 						appendRange(db, sessionId, 1, 3);
 						args.onPublished?.();
 					}),
@@ -310,7 +310,7 @@ describe("Pi /ctx-wrapup", () => {
 		const db = createDb();
 		try {
 			const sessionId = "pi-wrapup-session-model";
-			const runPiHistorianForWrapup = mock(async (args) => {
+			const runPiHistorianForWrapup = vi.fn(async (args) => {
 				appendRange(db, sessionId, 1, 3);
 				args.onPublished?.();
 			});
@@ -339,7 +339,7 @@ describe("Pi /ctx-wrapup", () => {
 			const result = await runPiWrapup(
 				pi().api,
 				deps(db, {
-					runPiHistorianForWrapup: mock(async (args) => {
+					runPiHistorianForWrapup: vi.fn(async (args) => {
 						calls += 1;
 						appendRange(db, sessionId, 1, 3);
 						args.onPublished?.();
@@ -385,7 +385,7 @@ describe("Pi /ctx-wrapup", () => {
 			const result = await runPiWrapup(
 				pi().api,
 				deps(db, {
-					runPiHistorianForWrapup: mock(async (args) => {
+					runPiHistorianForWrapup: vi.fn(async (args) => {
 						const start = getLastCompartmentEndMessage(db, sessionId) + 1;
 						const end = Math.min(
 							args.boundarySnapshot.eligibleEndOrdinal - 1,

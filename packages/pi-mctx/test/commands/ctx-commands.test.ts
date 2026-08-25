@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { replaceAllCompartmentState } from "#core/features/compartment-storage";
 import { initializeDatabase } from "../../src/core/features/storage-db";
 import { queuePendingOp } from "#core/features/storage-ops";

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -17,7 +17,7 @@ import { join } from "node:path";
  * called).
  */
 
-const PATH = join(import.meta.dir, "../../src/commands/ctx-flush.ts");
+const PATH = join(import.meta.dirname, "../../src/commands/ctx-flush.ts");
 const SRC = readFileSync(PATH, "utf8");
 
 // Strip comments so the contract checks look at code only — comments

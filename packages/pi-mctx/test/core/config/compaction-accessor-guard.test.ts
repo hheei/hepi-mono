@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
@@ -13,7 +13,7 @@ import { join, relative, resolve } from "node:path";
 // single consumer and is excluded. The storage helpers read a DB column
 // (compaction_mode_record), not the config path, so they are not in scope.
 
-const REPOSITORY_ROOT = resolve(import.meta.dir, "../../../../..");
+const REPOSITORY_ROOT = resolve(import.meta.dirname, "../../../../..");
 const SOURCE_ROOTS = ["packages/pi-mctx/src"];
 
 const ALLOWED_READERS = new Set<string>([

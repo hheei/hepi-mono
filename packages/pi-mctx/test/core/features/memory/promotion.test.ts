@@ -1,28 +1,25 @@
 /// <reference types="bun-types" />
 
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Database } from "../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../src/core/shared/sqlite-helpers";
 import { CATEGORY_DEFAULT_TTL } from "../../../../src/core/features/memory/constants";
-// The real module is imported (and evaluated) here BEFORE the mock registers,
-// so it captures every real export. Bun's mock.module is process-global and
-// persists across files in one test run, so a PARTIAL mock leaks into sibling
-// tests that import the omitted exports (e.g. embedding-backfill.test.ts /
-// embedding-cache.test.ts fail with "Export named 'embedBatchForProject' not
-// found" under a whole-dir run). Spreading the real module keeps the mock
-// complete while the project embedding call is overridden.
-import * as realEmbedding from "../../../../src/core/features/project-embedding-registry";
 import { computeNormalizedHash } from "../../../../src/core/features/memory/normalize-hash";
 
-const mockEmbedText = mock(async () => null);
-const mockLog = mock(() => {});
-
-mock.module("../../../../src/core/features/project-embedding-registry", () => ({
-    ...realEmbedding,
-    embedTextForProject: mockEmbedText,
+const { mockEmbedText, mockLog } = vi.hoisted(() => ({
+    mockEmbedText: vi.fn(async () => null),
+    mockLog: vi.fn(() => {}),
 }));
 
-mock.module("../../../../src/core/shared/logger", () => ({
+vi.mock("../../../../src/core/features/project-embedding-registry", async (importOriginal) => {
+    const realEmbedding = await importOriginal<typeof import("../../../../src/core/features/project-embedding-registry")>();
+    return {
+        ...realEmbedding,
+        embedTextForProject: mockEmbedText,
+    };
+});
+
+vi.mock("../../../../src/core/shared/logger", () => ({
     log: mockLog,
     sessionLog: mockLog,
     getLogFilePath: () => "/tmp/test.log",
@@ -195,7 +192,7 @@ describe("promotion", () => {
 
         it("sets expires_at for WORKFLOW_RULES based on TTL", () => {
             db = makeMemoryDatabase();
-            const nowSpy = spyOn(Date, "now").mockReturnValue(10_000);
+            const nowSpy = vi.spyOn(Date, "now").mockReturnValue(10_000);
 
             promoteSessionFactsDurable(db, "ses-1", "/repo/project", [
                 { category: "WORKFLOW_RULES", content: "Run bun test before release" },
@@ -214,7 +211,7 @@ describe("promotion", () => {
 
         it("sets expires_at for KNOWN_ISSUES based on TTL", () => {
             db = makeMemoryDatabase();
-            const nowSpy = spyOn(Date, "now").mockReturnValue(20_000);
+            const nowSpy = vi.spyOn(Date, "now").mockReturnValue(20_000);
 
             promoteSessionFactsDurable(db, "ses-1", "/repo/project", [
                 { category: "KNOWN_ISSUES", content: "Historian can retry on malformed XML" },
@@ -292,7 +289,7 @@ describe("promotion", () => {
 
         it("updates last_seen_at when seen again", () => {
             db = makeMemoryDatabase();
-            const nowSpy = spyOn(Date, "now");
+            const nowSpy = vi.spyOn(Date, "now");
             nowSpy.mockReturnValueOnce(1_000);
             const memory = insertMemory(db, {
                 projectPath: "/repo/project",

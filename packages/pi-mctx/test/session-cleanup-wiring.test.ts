@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -18,9 +18,9 @@ import { join } from "node:path";
  * `event-handler.ts:262-276`.
  */
 
-const INDEX_SRC = readFileSync(join(import.meta.dir, "../src/index.ts"), "utf8");
+const INDEX_SRC = readFileSync(join(import.meta.dirname, "../src/index.ts"), "utf8");
 const HANDLER_SRC = readFileSync(
-	join(import.meta.dir, "../src/context-handler.ts"),
+	join(import.meta.dirname, "../src/context-handler.ts"),
 	"utf8",
 );
 

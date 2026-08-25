@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { createScheduler, parseCacheTtl } from "../../../src/core/features/scheduler";
 import type { ContextUsage, SessionMeta } from "../../../src/core/features/types";
 

@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "vitest";
 import { Database } from "../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../src/core/shared/sqlite-helpers";
 import { insertMemory } from "../../../../src/core/features/memory/storage-memory";

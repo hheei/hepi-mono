@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
 	type DreamerConfig,
 	DreamerConfigSchema,
@@ -138,7 +138,7 @@ describe("Pi dreamer wiring", () => {
 		let language: string | undefined;
 		__test.setStartDreamScheduleTimerFactory(async (registration) => {
 			language = (registration as { language?: string }).language;
-			return mock(() => {});
+			return vi.fn(() => {});
 		});
 
 		registerPiDreamerProject(
@@ -156,11 +156,11 @@ describe("Pi dreamer wiring", () => {
 	test("manual dreamer passes a directive-bearing system prompt when language is set", async () => {
 		db = createDb();
 		let capturedSystem = "";
-		__test.setStartDreamScheduleTimerFactory(async () => mock(() => {}));
+		__test.setStartDreamScheduleTimerFactory(async () => vi.fn(() => {}));
 		__test.setPiSubagentRunnerFactory(
 			() =>
 				({
-					run: mock(async (args: { systemPrompt?: string }) => {
+					run: vi.fn(async (args: { systemPrompt?: string }) => {
 						capturedSystem = args.systemPrompt ?? "";
 						return { ok: true, assistantText: "done" };
 					}),
@@ -200,13 +200,13 @@ describe("Pi dreamer wiring", () => {
 		});
 
 		expect(capturedSystem).toContain(
-			"Write human-readable prose you author in: Spanish (Español).",
+			"Write human-readable prose you author in: Spanish (español).",
 		);
 	});
 
 	test("re-registering the SAME dir is a no-op (keeps the first timer)", async () => {
 		db = createDb();
-		const timerCleanup = mock(() => {});
+		const timerCleanup = vi.fn(() => {});
 		__test.setStartDreamScheduleTimerFactory(async () => timerCleanup);
 
 		const opts = dreamerOptions({
@@ -226,13 +226,13 @@ describe("Pi dreamer wiring", () => {
 
 	test("re-registering the same identity with a DIFFERENT dir rebuilds (worktree switch)", async () => {
 		db = createDb();
-		const firstCleanup = mock(() => {});
-		const secondCleanup = mock(() => {});
+		const firstCleanup = vi.fn(() => {});
+		const secondCleanup = vi.fn(() => {});
 		const cleanups = [firstCleanup, secondCleanup];
 		const dirs: string[] = [];
 		__test.setStartDreamScheduleTimerFactory(async (registration) => {
 			dirs.push((registration as { directory: string }).directory);
-			return cleanups.shift() ?? mock(() => {});
+			return cleanups.shift() ?? vi.fn(() => {});
 		});
 
 		// Worktree A of the same repo → identity X.
@@ -283,7 +283,7 @@ describe("Pi dreamer wiring", () => {
 	test("fires onAdjunctsRefreshNeeded after successful dreamer prompt", async () => {
 		db = createDb();
 		let capturedClient: CapturedDreamClient | null = null;
-		const timerCleanup = mock(() => {});
+		const timerCleanup = vi.fn(() => {});
 		__test.setStartDreamScheduleTimerFactory(async (registration) => {
 			capturedClient = registration.client as unknown as CapturedDreamClient;
 			return timerCleanup;
@@ -291,10 +291,10 @@ describe("Pi dreamer wiring", () => {
 		__test.setPiSubagentRunnerFactory(
 			() =>
 				({
-					run: mock(async () => ({ ok: true, assistantText: "done" })),
+					run: vi.fn(async () => ({ ok: true, assistantText: "done" })),
 				}) as never,
 		);
-		const onAdjunctsRefreshNeeded = mock(() => {});
+		const onAdjunctsRefreshNeeded = vi.fn(() => {});
 
 		registerPiDreamerProject(
 			dreamerOptions({
@@ -321,12 +321,12 @@ describe("Pi dreamer wiring", () => {
 		let capturedClient: CapturedDreamClient | null = null;
 		__test.setStartDreamScheduleTimerFactory(async (registration) => {
 			capturedClient = registration.client as unknown as CapturedDreamClient;
-			return mock(() => {});
+			return vi.fn(() => {});
 		});
 		__test.setPiSubagentRunnerFactory(
 			() =>
 				({
-					run: mock(async () => ({ ok: true, assistantText: "done" })),
+					run: vi.fn(async () => ({ ok: true, assistantText: "done" })),
 				}) as never,
 		);
 
@@ -350,19 +350,19 @@ describe("Pi dreamer wiring", () => {
 		let capturedClient: CapturedDreamClient | null = null;
 		__test.setStartDreamScheduleTimerFactory(async (registration) => {
 			capturedClient = registration.client as unknown as CapturedDreamClient;
-			return mock(() => {});
+			return vi.fn(() => {});
 		});
 		__test.setPiSubagentRunnerFactory(
 			() =>
 				({
-					run: mock(async () => ({
+					run: vi.fn(async () => ({
 						ok: false,
 						reason: "error",
 						error: "boom",
 					})),
 				}) as never,
 		);
-		const onAdjunctsRefreshNeeded = mock(() => {});
+		const onAdjunctsRefreshNeeded = vi.fn(() => {});
 
 		registerPiDreamerProject(
 			dreamerOptions({
@@ -390,12 +390,12 @@ describe("Pi dreamer wiring", () => {
 		let capturedClient: CapturedDreamClient | null = null;
 		__test.setStartDreamScheduleTimerFactory(async (registration) => {
 			capturedClient = registration.client as unknown as CapturedDreamClient;
-			return mock(() => {});
+			return vi.fn(() => {});
 		});
 		__test.setPiSubagentRunnerFactory(
 			() =>
 				({
-					run: mock(async () => ({
+					run: vi.fn(async () => ({
 						ok: false,
 						reason: "invalid_prompt",
 						transient: true,
@@ -423,7 +423,7 @@ describe("Pi dreamer wiring", () => {
 
 	test("unregister before timer promise resolves invokes timer cleanup when it eventually resolves", async () => {
 		db = createDb();
-		const timerCleanup = mock(() => {});
+		const timerCleanup = vi.fn(() => {});
 		const timer = deferred<() => void>();
 		__test.setStartDreamScheduleTimerFactory(() => timer.promise);
 
@@ -441,7 +441,7 @@ describe("Pi dreamer wiring", () => {
 
 	test("normal timer lifecycle invokes cleanup exactly once on unregister", async () => {
 		db = createDb();
-		const timerCleanup = mock(() => {});
+		const timerCleanup = vi.fn(() => {});
 		const timer = deferred<() => void>();
 		__test.setStartDreamScheduleTimerFactory(() => timer.promise);
 

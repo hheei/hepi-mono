@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { initializeDatabase } from "../../../src/core/features/storage-db";
 import { getOrCreateSessionMeta } from "../../../src/core/features/storage-meta";
 import { Database } from "../../../src/core/shared/sqlite";

@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { initializeDatabase } from "../../src/core/features/storage-db";
 import { Database } from "#core/shared/sqlite";
 import { closeQuietly } from "#core/shared/sqlite-helpers";

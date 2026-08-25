@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 
-import { beforeEach, describe, expect, it, mock } from "bun:test";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { toDatabase } from "../../../src/core/features/mock-database";
 import { createTagger } from "../../../src/core/features/tagger";
 import type { TagEntry } from "../../../src/core/features/types";
@@ -17,7 +17,7 @@ function createMockDb(options?: { failCounterWrite?: boolean; rollbackTransactio
     const sessionMeta: Record<string, { counter: number }> = {};
     let nextId = 1;
 
-    const prepare = mock((sql: string) => {
+    const prepare = vi.fn((sql: string) => {
         if (sql.includes("INSERT INTO tags")) {
             return {
                 run: (
@@ -119,7 +119,7 @@ function createMockDb(options?: { failCounterWrite?: boolean; rollbackTransactio
         return { run: () => {}, get: () => undefined };
     });
 
-    const transaction = mock((callback: () => void) => {
+    const transaction = vi.fn((callback: () => void) => {
         return () => {
             if (!options?.rollbackTransactions) {
                 callback();
@@ -263,7 +263,7 @@ describe("createTagger", () => {
             //#given
             const sessionId = "session-1";
             const failingDb = createMockDb();
-            failingDb.transaction = mock(() => {
+            failingDb.transaction = vi.fn(() => {
                 return () => {
                     throw new Error("DB write failed");
                 };

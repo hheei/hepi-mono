@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { cavemanCompress } from "../../../src/core/hooks/caveman";
 
 describe("cavemanCompress", () => {

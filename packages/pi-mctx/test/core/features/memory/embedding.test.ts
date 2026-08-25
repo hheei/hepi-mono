@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { cosineSimilarity } from "../../../../src/core/features/memory/cosine-similarity";
 import { getEmbeddingProviderIdentity } from "../../../../src/core/features/memory/embedding-identity";
 import { LocalEmbeddingProvider } from "../../../../src/core/features/memory/embedding-local";

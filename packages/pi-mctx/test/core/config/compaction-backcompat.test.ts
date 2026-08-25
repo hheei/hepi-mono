@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { isCompactionEnabled } from "../../../src/core/config/agent-disable";
 import { MagicContextConfigSchema } from "../../../src/core/config/schema/magic-context";
 

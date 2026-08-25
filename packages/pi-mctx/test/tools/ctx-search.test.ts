@@ -1,4 +1,4 @@
-import { describe, expect, it, spyOn } from "bun:test";
+import { describe, expect, it, vi } from "vitest";
 import { resolveProjectIdentity } from "#core/features/memory/project-identity";
 import * as searchModule from "#core/features/search";
 
@@ -9,7 +9,7 @@ import { createCtxSearchTool } from "../../src/tools/ctx-search";
 describe("createCtxSearchTool", () => {
 	it("prints ctx_expand ranges and footer for message search hits", async () => {
 		const db = createTestDb();
-		const spy = spyOn(searchModule, "unifiedSearch").mockImplementation(
+		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(
 			async () =>
 				[
 					{
@@ -51,7 +51,7 @@ describe("createCtxSearchTool", () => {
 
 	it("accepts note sources and renders note anchors", async () => {
 		const db = createTestDb();
-		const spy = spyOn(searchModule, "unifiedSearch").mockImplementation(
+		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(
 			async (_db, _sessionId, _project, _query, options) => {
 				expect(options?.sources).toEqual(["note"]);
 				return [
@@ -99,7 +99,7 @@ describe("createCtxSearchTool", () => {
 
 	it("omits note anchors and footer hints for foreign-session smart notes", async () => {
 		const db = createTestDb();
-		const spy = spyOn(searchModule, "unifiedSearch").mockImplementation(
+		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(
 			async () =>
 				[
 					{
@@ -157,7 +157,7 @@ describe("createCtxSearchTool", () => {
 			category: "USER_DIRECTIVES",
 			content: "Direct id hit for the short-circuit.",
 		});
-		const spy = spyOn(searchModule, "unifiedSearch").mockImplementation(
+		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(
 			async () => {
 				throw new Error("unifiedSearch must not run for ID-shaped queries");
 			},

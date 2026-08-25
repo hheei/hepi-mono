@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test, vi } from "vitest";
 
 import {
     promptSyncWithModelSuggestionRetry,
@@ -22,8 +22,8 @@ function createClient(
     return {
         session: {
             prompt,
-            abort: abort ?? mock(async () => ({})),
-            messages: messages ?? mock(async () => []),
+            abort: abort ?? vi.fn(async () => ({})),
+            messages: messages ?? vi.fn(async () => []),
         },
     } as never;
 }
@@ -37,7 +37,7 @@ function createArgs(model?: { providerID: string; modelID: string }) {
 
 describe("promptSyncWithModelSuggestionRetry", () => {
     test("primary succeeds, no fallback iteration", async () => {
-        const prompt = mock(async () => ({}));
+        const prompt = vi.fn(async () => ({}));
         const client = createClient(prompt);
 
         await promptSyncWithModelSuggestionRetry(client, createArgs(), {
@@ -48,7 +48,7 @@ describe("promptSyncWithModelSuggestionRetry", () => {
     });
 
     test("primary succeeds with no fallbacks configured", async () => {
-        const prompt = mock(async () => ({}));
+        const prompt = vi.fn(async () => ({}));
         const client = createClient(prompt);
 
         await promptSyncWithModelSuggestionRetry(client, createArgs());
@@ -57,7 +57,7 @@ describe("promptSyncWithModelSuggestionRetry", () => {
     });
 
     test("primary fails, fallback[0] succeeds", async () => {
-        const prompt = mock(async () => {
+        const prompt = vi.fn(async () => {
             if (prompt.mock.calls.length === 1) throw new Error("primary failed");
             return {};
         });
@@ -75,7 +75,7 @@ describe("promptSyncWithModelSuggestionRetry", () => {
     });
 
     test("primary fails, fallback[0] fails, fallback[1] succeeds", async () => {
-        const prompt = mock(async () => {
+        const prompt = vi.fn(async () => {
             if (prompt.mock.calls.length <= 2)
                 throw new Error(`failed ${prompt.mock.calls.length}`);
             return {};
@@ -98,7 +98,7 @@ describe("promptSyncWithModelSuggestionRetry", () => {
         const firstFallbackError = new Error("fallback 0 failed");
         const lastFallbackError = new Error("fallback 1 failed");
         const errors = [primaryError, firstFallbackError, lastFallbackError];
-        const prompt = mock(async () => {
+        const prompt = vi.fn(async () => {
             throw errors[prompt.mock.calls.length - 1];
         });
         const client = createClient(prompt);
@@ -114,7 +114,7 @@ describe("promptSyncWithModelSuggestionRetry", () => {
     test("abort signal short-circuits", async () => {
         const controller = new AbortController();
         controller.abort();
-        const prompt = mock(async () => {
+        const prompt = vi.fn(async () => {
             throw new Error("provider noticed abort");
         });
         const client = createClient(prompt);
@@ -134,7 +134,7 @@ describe("promptSyncWithModelSuggestionRetry", () => {
     test("AbortError name short-circuits", async () => {
         const abortError = new Error("aborted by provider");
         abortError.name = "AbortError";
-        const prompt = mock(async () => {
+        const prompt = vi.fn(async () => {
             throw abortError;
         });
         const client = createClient(prompt);
@@ -149,7 +149,7 @@ describe("promptSyncWithModelSuggestionRetry", () => {
 
     test("timeout short-circuits", async () => {
         const timeoutError = new Error("prompt timed out after 5000ms");
-        const prompt = mock(async () => {
+        const prompt = vi.fn(async () => {
             throw timeoutError;
         });
         const client = createClient(prompt);
@@ -164,7 +164,7 @@ describe("promptSyncWithModelSuggestionRetry", () => {
 
     test("context overflow short-circuits", async () => {
         const overflowError = new Error("prompt is too long: 50000 tokens > 32000");
-        const prompt = mock(async () => {
+        const prompt = vi.fn(async () => {
             throw overflowError;
         });
         const client = createClient(prompt);
@@ -183,12 +183,12 @@ describe("promptSyncWithModelSuggestionRetry", () => {
     test("timeout fires session.abort on the child session", async () => {
         // A prompt that respects the AbortController by hanging until aborted,
         // then throwing — mirrors a real in-flight request our timeout cancels.
-        const prompt = mock((opts: { signal?: AbortSignal }) => {
+        const prompt = vi.fn((opts: { signal?: AbortSignal }) => {
             return new Promise((_resolve, reject) => {
                 opts.signal?.addEventListener("abort", () => reject(new Error("aborted")));
             });
         });
-        const abort = mock(async () => ({}));
+        const abort = vi.fn(async () => ({}));
         const client = createClient(prompt as never, abort);
 
         await expect(
@@ -202,12 +202,12 @@ describe("promptSyncWithModelSuggestionRetry", () => {
     // server-side loop, not just our fetch.
     test("external abort fires session.abort on the child session", async () => {
         const controller = new AbortController();
-        const prompt = mock((opts: { signal?: AbortSignal }) => {
+        const prompt = vi.fn((opts: { signal?: AbortSignal }) => {
             return new Promise((_resolve, reject) => {
                 opts.signal?.addEventListener("abort", () => reject(new Error("aborted")));
             });
         });
-        const abort = mock(async () => ({}));
+        const abort = vi.fn(async () => ({}));
         const client = createClient(prompt as never, abort);
 
         setTimeout(() => controller.abort(), 10);
@@ -220,12 +220,12 @@ describe("promptSyncWithModelSuggestionRetry", () => {
 
     // A failing session.abort must not mask the original timeout/abort error.
     test("session.abort failure does not mask the timeout error", async () => {
-        const prompt = mock((opts: { signal?: AbortSignal }) => {
+        const prompt = vi.fn((opts: { signal?: AbortSignal }) => {
             return new Promise((_resolve, reject) => {
                 opts.signal?.addEventListener("abort", () => reject(new Error("aborted")));
             });
         });
-        const abort = mock(async () => {
+        const abort = vi.fn(async () => {
             throw new Error("abort endpoint 500");
         });
         const client = createClient(prompt as never, abort);
@@ -246,7 +246,7 @@ describe("promptSyncWithModelSuggestionRetry", () => {
                 suggestions: ["claude-sonnet-4-7"],
             },
         });
-        const prompt = mock(async () => {
+        const prompt = vi.fn(async () => {
             if (prompt.mock.calls.length === 1) throw suggestionError;
             return {};
         });
@@ -266,7 +266,7 @@ describe("promptSyncWithModelSuggestionRetry", () => {
     });
 
     test("invalid fallback specs are skipped", async () => {
-        const prompt = mock(async () => {
+        const prompt = vi.fn(async () => {
             if (prompt.mock.calls.length === 1) throw new Error("primary failed");
             return {};
         });
@@ -284,7 +284,7 @@ describe("promptSyncWithModelSuggestionRetry", () => {
     });
 
     test("iteration order respected", async () => {
-        const prompt = mock(async () => {
+        const prompt = vi.fn(async () => {
             throw new Error(`failed ${prompt.mock.calls.length}`);
         });
         const client = createClient(prompt);
@@ -310,7 +310,7 @@ describe("promptSyncWithModelSuggestionRetry", () => {
 
     test("empty fallbackModels = legacy", async () => {
         const originalError = new Error("primary failed without suggestion");
-        const prompt = mock(async () => {
+        const prompt = vi.fn(async () => {
             throw originalError;
         });
         const client = createClient(prompt);
@@ -324,8 +324,8 @@ describe("promptSyncWithModelSuggestionRetry", () => {
 
 describe("promptSyncWithValidatedOutputRetry", () => {
     test("valid first model returns without trying fallbacks", async () => {
-        const prompt = mock(async () => ({}));
-        const messages = mock(async () => "primary-output");
+        const prompt = vi.fn(async () => ({}));
+        const messages = vi.fn(async () => "primary-output");
         const client = createClient(prompt, undefined, messages);
 
         const result = await promptSyncWithValidatedOutputRetry(client, createArgs(), {
@@ -343,7 +343,7 @@ describe("promptSyncWithValidatedOutputRetry", () => {
     });
 
     test("preserves body.system when a failed Pi-shaped attempt mutates its body", async () => {
-        const prompt = mock(async (args: PromptCall) => {
+        const prompt = vi.fn(async (args: PromptCall) => {
             if (prompt.mock.calls.length === 1) {
                 // Reproduce a facade/SDK that consumes the request body before
                 // rejecting the primary model. The fallback must not inherit
@@ -379,8 +379,8 @@ describe("promptSyncWithValidatedOutputRetry", () => {
     });
 
     test("empty first model tries the next fallback", async () => {
-        const prompt = mock(async () => ({}));
-        const messages = mock(async () =>
+        const prompt = vi.fn(async () => ({}));
+        const messages = vi.fn(async () =>
             messages.mock.calls.length === 1 ? "" : "fallback-output",
         );
         const client = createClient(prompt, undefined, messages);
@@ -405,8 +405,8 @@ describe("promptSyncWithValidatedOutputRetry", () => {
     });
 
     test("all empty outputs surface the original validation failure", async () => {
-        const prompt = mock(async () => ({}));
-        const messages = mock(async () => "");
+        const prompt = vi.fn(async () => ({}));
+        const messages = vi.fn(async () => "");
         const client = createClient(prompt, undefined, messages);
 
         await expect(

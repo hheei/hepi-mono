@@ -14,7 +14,7 @@
  * messaging to know which drops are immediate vs deferred.
  */
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import {
 	getPendingOps,
 	queuePendingOp,

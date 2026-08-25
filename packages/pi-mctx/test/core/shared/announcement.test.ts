@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -21,6 +21,11 @@ import * as path from "node:path";
 
 let tmpRoot = "";
 let originalXdg: string | undefined;
+
+async function loadAnnouncement() {
+    vi.resetModules();
+    return import("../../../src/core/shared/announcement.ts");
+}
 
 beforeEach(() => {
     tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mc-announcement-test-"));
@@ -45,7 +50,7 @@ afterEach(() => {
 describe("announcement state persistence", () => {
     test("round-trips a dismissed version through the file", async () => {
         // Fresh import after XDG override so the module captures the temp path
-        const mod = await import(`../../../src/core/shared/announcement?t=${Date.now()}-rt`);
+        const mod = await loadAnnouncement();
         const { readLastAnnouncedVersion, markAnnouncementSeen } = mod;
 
         expect(readLastAnnouncedVersion()).toBe("");
@@ -58,7 +63,7 @@ describe("announcement state persistence", () => {
     });
 
     test("ignores empty / zero-length version marks", async () => {
-        const mod = await import(`../../../src/core/shared/announcement?t=${Date.now()}-empty`);
+        const mod = await loadAnnouncement();
         const { readLastAnnouncedVersion, markAnnouncementSeen } = mod;
 
         markAnnouncementSeen("");
@@ -66,7 +71,7 @@ describe("announcement state persistence", () => {
     });
 
     test("creates the storage directory if it does not exist", async () => {
-        const mod = await import(`../../../src/core/shared/announcement?t=${Date.now()}-mkdir`);
+        const mod = await loadAnnouncement();
         const { markAnnouncementSeen } = mod;
 
         // Storage dir lives under tmpRoot + extensions/pi-mctx — does not
@@ -83,7 +88,7 @@ describe("announcement state persistence", () => {
     });
 
     test("trims whitespace from stored version on read", async () => {
-        const mod = await import(`../../../src/core/shared/announcement?t=${Date.now()}-trim`);
+        const mod = await loadAnnouncement();
         const { readLastAnnouncedVersion } = mod;
 
         const dir = path.join(tmpRoot, "extensions", "pi-mctx");
@@ -96,7 +101,7 @@ describe("announcement state persistence", () => {
 
 describe("shouldShowAnnouncement gating", () => {
     test("returns false when the live version is already marked", async () => {
-        const mod = await import(`../../../src/core/shared/announcement?t=${Date.now()}-match`);
+        const mod = await loadAnnouncement();
         const {
             ANNOUNCEMENT_VERSION,
             ANNOUNCEMENT_FEATURES,
@@ -115,7 +120,7 @@ describe("shouldShowAnnouncement gating", () => {
     });
 
     test("seeds state and returns false on first run / wiped sandbox (issue #99)", async () => {
-        const mod = await import(`../../../src/core/shared/announcement?t=${Date.now()}-none`);
+        const mod = await loadAnnouncement();
         const {
             ANNOUNCEMENT_VERSION,
             ANNOUNCEMENT_FEATURES,
@@ -141,7 +146,7 @@ describe("shouldShowAnnouncement gating", () => {
     });
 
     test("does not seed or advance state when an existing state file is unreadable/corrupt", async () => {
-        const mod = await import(`../../../src/core/shared/announcement?t=${Date.now()}-corrupt`);
+        const mod = await loadAnnouncement();
         const { ANNOUNCEMENT_VERSION, ANNOUNCEMENT_FEATURES, shouldShowAnnouncement } = mod;
 
         if (!ANNOUNCEMENT_VERSION || ANNOUNCEMENT_FEATURES.length === 0) {
@@ -159,7 +164,7 @@ describe("shouldShowAnnouncement gating", () => {
     });
 
     test("returns true when a different (older) version is marked", async () => {
-        const mod = await import(`../../../src/core/shared/announcement?t=${Date.now()}-older`);
+        const mod = await loadAnnouncement();
         const {
             ANNOUNCEMENT_VERSION,
             ANNOUNCEMENT_FEATURES,
@@ -176,7 +181,7 @@ describe("shouldShowAnnouncement gating", () => {
     });
 
     test("does NOT re-announce on a downgrade (stored version is newer)", async () => {
-        const mod = await import(`../../../src/core/shared/announcement?t=${Date.now()}-downgrade`);
+        const mod = await loadAnnouncement();
         const {
             ANNOUNCEMENT_VERSION,
             ANNOUNCEMENT_FEATURES,

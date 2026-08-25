@@ -1,6 +1,7 @@
 /// <reference types="bun-types" />
 
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "vitest";
+import { setTimeout as sleep } from "node:timers/promises";
 import { Database } from "../../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../../src/core/shared/sqlite-helpers";
 import { initializeDatabase } from "../../../../src/core/features/storage-db";
@@ -51,7 +52,7 @@ describe("embedding-cache", () => {
         const beforeExpiry = getProjectEmbeddings(db, "/repo/project", "mock:model");
         expect(toNumbers(beforeExpiry.get(memory.id))).toEqual([1, 0]);
 
-        await Bun.sleep(20);
+        await sleep(20);
 
         const afterExpiry = getProjectEmbeddings(db, "/repo/project", "mock:model");
         expect(toNumbers(afterExpiry.get(memory.id))).toEqual([0, 1]);

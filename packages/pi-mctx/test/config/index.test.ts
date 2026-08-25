@@ -1,6 +1,6 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 
-import { getHepiRuntimeSettingsRegistry } from "@hheei/pi-ext-core";
+import { getRuntimeSettingsRegistry } from "@hheei/pi-ext-core";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MagicContextConfigSchema } from "#core/config/schema/magic-context";
 import {
@@ -170,7 +170,7 @@ describe("Pi MCTX settings", () => {
 		const pi = { events: {} } as ExtensionAPI;
 
 		registerPiMctxSettings(pi);
-		expect(getHepiRuntimeSettingsRegistry(pi).get(PI_MCTX_SETTINGS_SECTION)?.id).toBe(
+		expect(getRuntimeSettingsRegistry(pi).get(PI_MCTX_SETTINGS_SECTION)?.id).toBe(
 			PI_MCTX_SETTINGS_SECTION,
 		);
 	});

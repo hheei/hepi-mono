@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "vitest";
 import type { EmbeddingConfig } from "#core/config/schema/magic-context";
 import { appendCompartments } from "#core/features/compartment-storage";
 import type {

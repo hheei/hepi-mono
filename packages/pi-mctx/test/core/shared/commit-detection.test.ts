@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import {
     COMMIT_HASH_TEST_PATTERN,
     COMMIT_VERB_PATTERN,

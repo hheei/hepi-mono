@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { type ImitatedArgsSchema, unwrapImitatedReducedArgs } from "../../../src/core/tools/unwrap-imitated-reduced-args";
 
 const cases: Array<{

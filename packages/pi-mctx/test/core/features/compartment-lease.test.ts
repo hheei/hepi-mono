@@ -1,10 +1,10 @@
 /// <reference types="bun-types" />
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
+import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { $ } from "bun";
 import { Database } from "../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../src/core/shared/sqlite-helpers";
 import {
@@ -14,6 +14,24 @@ import {
     renewCompartmentLease,
 } from "../../../src/core/features/compartment-lease";
 import { initializeDatabase } from "../../../src/core/features/storage-db";
+
+function bunEvalJson(script: string, holder: string): Promise<{ ok: boolean }> {
+    return new Promise((resolve, reject) => {
+        const child = spawn("bun", ["-e", script, holder], { stdio: ["ignore", "pipe", "pipe"] });
+        const stdout: Buffer[] = [];
+        const stderr: Buffer[] = [];
+        child.stdout.on("data", (chunk) => stdout.push(chunk));
+        child.stderr.on("data", (chunk) => stderr.push(chunk));
+        child.on("error", reject);
+        child.on("close", (code) => {
+            if (code !== 0) {
+                reject(new Error(Buffer.concat(stderr).toString() || `bun -e exited ${code}`));
+                return;
+            }
+            resolve(JSON.parse(Buffer.concat(stdout).toString()) as { ok: boolean });
+        });
+    });
+}
 
 function makeDb(path = ":memory:"): Database {
     const db = new Database(path);
@@ -127,7 +145,7 @@ describe("compartment state lease", () => {
         closeQuietly(setup);
 
         try {
-            const packageRoot = join(import.meta.dir, "../../..");
+            const packageRoot = join(import.meta.dirname, "../../..");
 
             const script = `
                 const sqlite = await import(${JSON.stringify(`file://${packageRoot}/src/core/shared/sqlite.ts`)});
@@ -140,8 +158,8 @@ describe("compartment state lease", () => {
             `;
 
             const [a, b] = await Promise.all([
-                $`bun -e ${script} holder-a`.json() as Promise<{ ok: boolean }>,
-                $`bun -e ${script} holder-b`.json() as Promise<{ ok: boolean }>,
+                bunEvalJson(script, "holder-a"),
+                bunEvalJson(script, "holder-b"),
             ]);
             expect([a.ok, b.ok].filter(Boolean)).toHaveLength(1);
         } finally {

@@ -9,7 +9,7 @@
  *  - tags.caveman_depth is persisted so later passes can skip already-done tags
  */
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
     getTagsBySession,
     insertTag,

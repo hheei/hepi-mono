@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
     __ignoredNotificationTest,
     flushIgnoredMessages,
@@ -25,8 +25,8 @@ describe("sendIgnoredMessage", () => {
         }) as typeof setTimeout;
 
         try {
-            const prompt = mock(async () => ({}));
-            const get = mock(async () => ({ title: DEFAULT_TITLE }));
+            const prompt = vi.fn(async () => ({}));
+            const get = vi.fn(async () => ({ title: DEFAULT_TITLE }));
             const result = await sendIgnoredMessage(
                 { session: { get, prompt } },
                 "ses-never-titled",
@@ -46,9 +46,9 @@ describe("sendIgnoredMessage", () => {
     // variant. `messages` feeds resolvePromptContext; `get` returns a real title
     // so the post is not skipped.
     function titledClientWithLastTurn() {
-        const prompt = mock(async () => ({}));
-        const get = mock(async () => ({ title: "Real title" }));
-        const messages = mock(async () => ({
+        const prompt = vi.fn(async () => ({}));
+        const get = vi.fn(async () => ({ title: "Real title" }));
+        const messages = vi.fn(async () => ({
             data: [
                 {
                     info: {
@@ -130,9 +130,9 @@ describe("sendIgnoredMessage", () => {
     });
 
     it("passes noReply to promptAsync as well as prompt", async () => {
-        const promptAsync = mock(async () => ({}));
-        const get = mock(async () => ({ title: "Real title" }));
-        const messages = mock(async () => ({
+        const promptAsync = vi.fn(async () => ({}));
+        const get = vi.fn(async () => ({ title: "Real title" }));
+        const messages = vi.fn(async () => ({
             data: [
                 {
                     info: {

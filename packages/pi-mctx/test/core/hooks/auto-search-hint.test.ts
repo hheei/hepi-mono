@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import type { UnifiedSearchResult } from "../../../src/core/features/search";
 import { buildAutoSearchHint } from "../../../src/core/hooks/auto-search-hint";
 

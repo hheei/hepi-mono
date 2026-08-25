@@ -14,7 +14,7 @@
  * (truncation markers, line counts) that wouldn't compose cleanly with
  * caveman compression — caveman is text-only.
  */
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { getSourceContents } from "#core/features/storage-source";
 import { createTagger } from "#core/features/tagger";
 import { closeQuietly } from "#core/shared/sqlite-helpers";

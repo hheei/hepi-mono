@@ -1,5 +1,5 @@
 /// <reference types="bun-types" />
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { dropStaleReduceCalls } from "../../../src/core/hooks/drop-stale-reduce-calls";
 import { isSentinel } from "../../../src/core/hooks/sentinel";
 import type { MessageLike } from "../../../src/core/hooks/tag-messages";

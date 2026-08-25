@@ -14,7 +14,7 @@
  * runtime mocking.
  */
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -36,10 +36,10 @@ import {
 import { createTestDb } from "./test-utils.test";
 
 const CONTEXT_HANDLER_SRC = readFileSync(
-	join(import.meta.dir, "../src/context-handler.ts"),
+	join(import.meta.dirname, "../src/context-handler.ts"),
 	"utf-8",
 );
-const INDEX_SRC = readFileSync(join(import.meta.dir, "../src/index.ts"), "utf-8");
+const INDEX_SRC = readFileSync(join(import.meta.dirname, "../src/index.ts"), "utf-8");
 
 function stripComments(src: string): string {
 	// Strip both /* ... */ and // ... single-line comments so source-pinning

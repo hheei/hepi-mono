@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -12,7 +12,7 @@ import { join } from "node:path";
 // recordChildInvocation, and (b) use subagent:"dreamer" with the EXACT canonical
 // task string, otherwise the dashboard shows "—" tokens for a real LLM call.
 
-const HERE = import.meta.dir;
+const HERE = import.meta.dirname;
 
 function read(relFromFeatures: string): string {
     return readFileSync(join(HERE, "../../../../src/core/features", relFromFeatures), "utf-8");

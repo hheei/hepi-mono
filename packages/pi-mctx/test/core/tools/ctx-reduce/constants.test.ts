@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { CTX_REDUCE_DESCRIPTION } from "../../../../src/core/tools/ctx-reduce/constants";
 
 describe("ctx-reduce constants", () => {

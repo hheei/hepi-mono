@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { estimateTokens } from "../../../src/core/hooks/read-session-formatting";
 
 // The real Claude tokenizer throws "Text contains disallowed special token"

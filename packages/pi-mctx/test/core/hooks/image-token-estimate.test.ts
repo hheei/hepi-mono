@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { estimateImageTokensFromDataUrl } from "../../../src/core/hooks/image-token-estimate";
 
 function makePngDataUrl(width: number, height: number): string {

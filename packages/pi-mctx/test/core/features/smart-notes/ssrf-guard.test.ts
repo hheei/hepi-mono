@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test, vi } from "vitest";
 import * as https from "node:https";
 
 import {
@@ -113,7 +113,7 @@ describe("smart-note SSRF guard", () => {
 
     test("stops after a terminal per-target failure", async () => {
         const contacted: string[] = [];
-        const requestAddress = mock(async (_validation, candidate) => {
+        const requestAddress = vi.fn(async (_validation, candidate) => {
             contacted.push(candidate.address);
             throw new SmartNoteNetworkError("SMART_NOTE_NETWORK: response body too large", {
                 terminal: true,
@@ -137,7 +137,7 @@ describe("smart-note SSRF guard", () => {
 
     test("advances to the next address after a connection-level failure", async () => {
         const contacted: string[] = [];
-        const requestAddress = mock(async (_validation, candidate) => {
+        const requestAddress = vi.fn(async (_validation, candidate) => {
             contacted.push(candidate.address);
             if (candidate.address === "93.184.216.34") {
                 throw new SmartNoteNetworkError("SMART_NOTE_NETWORK: connect ECONNREFUSED");
@@ -169,7 +169,7 @@ describe("smart-note SSRF guard", () => {
             "208.67.222.222",
         ].map((address) => ({ address, family: 4 as const }));
         const contacted: string[] = [];
-        const requestAddress = mock(async (_validation, candidate) => {
+        const requestAddress = vi.fn(async (_validation, candidate) => {
             contacted.push(candidate.address);
             throw new SmartNoteNetworkError("SMART_NOTE_NETWORK: connect ECONNREFUSED");
         });
@@ -233,7 +233,7 @@ describe("guarded HTTPS request agent", () => {
         // stable node:https shim leaves globalAgent.createConnection undefined,
         // so spying on createConnection only works on canary builds.
         const originalAddRequest = https.globalAgent.addRequest;
-        const globalAddRequest = mock(originalAddRequest.bind(https.globalAgent));
+        const globalAddRequest = vi.fn(originalAddRequest.bind(https.globalAgent));
         https.globalAgent.addRequest = globalAddRequest;
         try {
             const dedicated = createSmartNoteRequestAgent();

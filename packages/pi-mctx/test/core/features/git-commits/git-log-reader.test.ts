@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { classifyGitLogFailure, parseGitLogOutput, readGitCommits } from "../../../../src/core/features/git-commits/git-log-reader";
 
 // Field separator is US (0x1f, ASCII Unit Separator). We deliberately moved

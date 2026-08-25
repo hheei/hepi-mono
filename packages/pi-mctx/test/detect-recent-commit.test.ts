@@ -11,7 +11,7 @@
  *   5. Returns false when no verb-paired hash exists in recent assistants
  */
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { detectRecentCommit } from "../src/detect-recent-commit";
 
 function assistant(text: string) {

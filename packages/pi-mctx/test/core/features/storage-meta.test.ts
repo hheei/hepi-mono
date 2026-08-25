@@ -1,15 +1,15 @@
 /// <reference types="bun-types" />
 
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it, vi } from "vitest";
 import { toDatabase } from "../../../src/core/features/mock-database";
 import { clearSession, updateSessionMeta } from "../../../src/core/features/storage-meta";
 
 function createMockDb() {
-    const prepare = mock((_sql: string) => ({
-        run: mock((..._args: unknown[]) => {}),
+    const prepare = vi.fn((_sql: string) => ({
+        run: vi.fn((..._args: unknown[]) => {}),
     }));
 
-    const transaction = mock((callback: () => void) => {
+    const transaction = vi.fn((callback: () => void) => {
         return () => callback();
     });
 

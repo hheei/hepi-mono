@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "vitest";
 import { readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -153,7 +153,7 @@ describe("runManagedRecomp clears stale emergency recovery", () => {
     // bumping pressure to 95% every later pass once the session is small again.
     // The full behavioral path needs a live historian client; this guard pins
     // the clear-on-done wiring against a silent revert.
-    const SRC = readFileSync(join(import.meta.dir, "../../../src/core/hooks/recomp-orchestrator.ts"), "utf8");
+    const SRC = readFileSync(join(import.meta.dirname, "../../../src/core/hooks/recomp-orchestrator.ts"), "utf8");
 
     it("clears the flag only in the done terminal phase", () => {
         expect(SRC).toContain("clearEmergencyRecovery(ctx.db, sessionId)");

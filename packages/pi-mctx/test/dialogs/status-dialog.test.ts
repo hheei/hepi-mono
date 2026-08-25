@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { resolveProjectIdentity } from "#core/features/memory/project-identity";
 import { updateSessionMeta } from "#core/features/storage-meta";
 import { setSessionWorkMetrics } from "#core/features/storage-meta-persisted";

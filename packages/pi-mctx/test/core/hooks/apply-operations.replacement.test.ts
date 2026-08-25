@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { buildReplacementContent } from "../../../src/core/hooks/apply-operations";
 
 describe("buildReplacementContent — one canonical placeholder", () => {

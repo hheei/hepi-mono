@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 
-import { beforeEach, describe, expect, it, mock } from "bun:test";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MessageLike, ThinkingLikePart } from "../../../src/core/hooks/tag-messages";
 import {
     createToolDropTarget,
@@ -55,10 +55,10 @@ function buildIndex(messages: MessageLike[]): ToolCallIndex {
 }
 
 describe("tool-drop-target", () => {
-    let buildOutput: ReturnType<typeof mock<(suffix: string) => string>>;
+    let buildOutput: ReturnType<typeof vi.fn<(suffix: string) => string>>;
 
     beforeEach(() => {
-        buildOutput = mock((suffix: string) => `output-${suffix}`);
+        buildOutput = vi.fn((suffix: string) => `output-${suffix}`);
     });
 
     describe("extractToolCallObservation", () => {

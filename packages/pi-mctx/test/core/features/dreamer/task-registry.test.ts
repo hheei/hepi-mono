@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { CANONICAL_DREAM_TASKS, isCanonicalDreamTask, MEMORY_DOMAIN_TASKS } from "../../../../src/core/features/dreamer/task-registry";
 
 describe("dreamer task registry", () => {

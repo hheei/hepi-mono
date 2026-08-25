@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it, vi } from "vitest";
 import { acquireCompartmentLease } from "#core/features/compartment-lease";
 import {
 	appendCompartments,
@@ -142,7 +142,7 @@ function okRun(text: string): SubagentRunResult {
 function runnerWithSteps(
 	steps: Array<string | SubagentRunResult | Error>,
 ): SubagentRunner {
-	const run = mock(async () => {
+	const run = vi.fn(async () => {
 		const step = steps.shift() ?? "";
 		if (step instanceof Error) throw step;
 		if (typeof step === "string") return okRun(step);
@@ -361,7 +361,7 @@ describe("runPiHistorian", () => {
 			eligibleEndOrdinal: 3,
 			eligibleEndMessageId: "m2",
 		});
-		const refreshBoundarySnapshot = mock(() => refreshedBoundary);
+		const refreshBoundarySnapshot = vi.fn(() => refreshedBoundary);
 		const { db, runner } = await runHistorianWith({
 			outputs: [successXml()],
 			boundarySnapshot: staleBoundary,
@@ -388,7 +388,7 @@ describe("runPiHistorian", () => {
 			rawLastMessageIdAtTrigger: "old-m12",
 			rawRangeFingerprint: "stale-fingerprint",
 		});
-		const refreshBoundarySnapshot = mock(() =>
+		const refreshBoundarySnapshot = vi.fn(() =>
 			makeBoundarySnapshot({
 				protectedTailStart: 1,
 				protectedTailStartMessageId: "m1",
@@ -586,7 +586,7 @@ describe("runPiHistorian", () => {
 	it("notifies failed historian runs once with the transient failure framing", async () => {
 		clearPiHistorianAlertState("ses-historian");
 		const notices: string[] = [];
-		const notifyIssue = mock((text: string) => {
+		const notifyIssue = vi.fn((text: string) => {
 			notices.push(text);
 		});
 		const first = await runHistorianWith({ outputs: [""], notifyIssue });
@@ -620,14 +620,14 @@ describe("runPiHistorian", () => {
 			const factRow = db
 				.prepare("SELECT harness FROM session_facts WHERE session_id = ?")
 				.get("ses-historian");
-			expect(factRow).toBeNull();
+			expect(factRow ?? null).toBeNull();
 		} finally {
 			closeQuietly(db);
 		}
 	});
 
 	it("fires note-nudge trigger and onPublished after successful publication", async () => {
-		const onPublished = mock(() => undefined);
+		const onPublished = vi.fn(() => undefined);
 		const { db } = await runHistorianWith({
 			outputs: [successXml()],
 			onPublished,
@@ -643,8 +643,8 @@ describe("runPiHistorian", () => {
 	});
 
 	it("keeps publish succeeded and signaled when post-commit project registration throws", async () => {
-		const onPublished = mock(() => undefined);
-		const ensureProjectRegistered = mock(async () => {
+		const onPublished = vi.fn(() => undefined);
+		const ensureProjectRegistered = vi.fn(async () => {
 			throw new Error("embedding provider unavailable");
 		});
 		const { db } = await runHistorianWith({
@@ -676,7 +676,7 @@ describe("runPiHistorian", () => {
 	});
 
 	it("queues a Pi-native compaction marker after publication", async () => {
-		const appendCompaction = mock(() => "compact-1");
+		const appendCompaction = vi.fn(() => "compact-1");
 		const entries = Array.from({ length: 6 }, (_, index) => ({
 			type: "message",
 			id: `entry-${index + 1}`,

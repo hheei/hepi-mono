@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
@@ -144,7 +144,7 @@ describe("project identity", () => {
 
     it("uses the no-git fast path without invoking git", () => {
         const directory = makeTempDir("project-identity-no-git-fast-");
-        const execMock = mock(() => {
+        const execMock = vi.fn(() => {
             throw new Error("git should not be launched for a directory with no .git ancestor");
         });
         __setProjectIdentityTestHooks({ execFileSync: execMock as unknown as typeof execFileSync });
@@ -174,7 +174,7 @@ describe("project identity", () => {
             if ((error as { code?: unknown }).code === "EPERM") return;
             throw error;
         }
-        const execMock = mock(() => `${FIRST_ROOT_COMMIT}\n`);
+        const execMock = vi.fn(() => `${FIRST_ROOT_COMMIT}\n`);
         __setProjectIdentityTestHooks({ execFileSync: execMock as unknown as typeof execFileSync });
 
         expect(resolveProjectIdentity(link)).toBe(`git:${FIRST_ROOT_COMMIT}`);
@@ -185,7 +185,7 @@ describe("project identity", () => {
         const directory = makeRepoWithGitMetadata("project-identity-last-known-");
         let now = 1_000;
         let mode: "first" | "timeout" | "second" = "first";
-        const execMock = mock(() => {
+        const execMock = vi.fn(() => {
             if (mode === "first") return `${FIRST_ROOT_COMMIT}\n`;
             if (mode === "second") return `${SECOND_ROOT_COMMIT}\n`;
             throw makeGitFailure({ code: "ETIMEDOUT" });
@@ -213,7 +213,7 @@ describe("project identity", () => {
         const directory = makeRepoWithGitMetadata("project-identity-dubious-");
         let now = 1_000;
         let recovered = false;
-        const execMock = mock(() => {
+        const execMock = vi.fn(() => {
             if (recovered) return `${FIRST_ROOT_COMMIT}\n`;
             throw makeGitFailure({
                 stderr:
@@ -248,7 +248,7 @@ describe("project identity", () => {
 
     it("cools down git timeouts so immediate retries do not rerun git", () => {
         const directory = makeRepoWithGitMetadata("project-identity-timeout-");
-        const execMock = mock(() => {
+        const execMock = vi.fn(() => {
             throw makeGitFailure({ code: "ETIMEDOUT" });
         });
         __setProjectIdentityTestHooks({ execFileSync: execMock as unknown as typeof execFileSync });
@@ -261,7 +261,7 @@ describe("project identity", () => {
     it("re-probes after a transient cooldown is cleared", () => {
         const directory = makeRepoWithGitMetadata("project-identity-clear-cooldown-");
         let recovered = false;
-        const execMock = mock(() => {
+        const execMock = vi.fn(() => {
             if (recovered) return `${FIRST_ROOT_COMMIT}\n`;
             throw makeGitFailure({ code: "ETIMEDOUT" });
         });
@@ -278,7 +278,7 @@ describe("project identity", () => {
     it("still propagates permission_denied git failures", () => {
         const directory = makeRepoWithGitMetadata("project-identity-permission-");
         __setProjectIdentityTestHooks({
-            execFileSync: mock(() => {
+            execFileSync: vi.fn(() => {
                 throw makeGitFailure({ code: "EACCES" });
             }) as unknown as typeof execFileSync,
         });

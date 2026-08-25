@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 
 import { nextSmartNoteCheckDueAt } from "../../../../src/core/features/smart-notes/schedule";
 
