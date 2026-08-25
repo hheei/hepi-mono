@@ -124,11 +124,15 @@ export function registerCtxAugCommand(
 				),
 				userMessage: prompt,
 				model: currentConfig.model,
-				fallbackModels: currentConfig.fallbackModels,
 				timeoutMs: currentConfig.timeoutMs ?? 30_000,
 				cwd: ctx.cwd,
-				signal: ctx.signal,
-				thinkingLevel: currentConfig.thinking_level,
+				...(currentConfig.fallbackModels === undefined
+					? {}
+					: { fallbackModels: currentConfig.fallbackModels }),
+				...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
+				...(currentConfig.thinking_level === undefined
+					? {}
+					: { thinkingLevel: currentConfig.thinking_level }),
 				accountingSessionId: sessionLabel,
 				accountingSubagent: "sidekick",
 			});

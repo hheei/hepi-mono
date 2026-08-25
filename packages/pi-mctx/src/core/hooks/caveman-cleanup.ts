@@ -146,7 +146,8 @@ export function applyCavemanCleanup(
     // findIndex inside the hot loop which is O(n²) over eligible tags.
     const positionByTag = new Map<number, number>();
     for (let i = 0; i < eligible.length; i += 1) {
-        positionByTag.set(eligible[i].tagNumber, i);
+        const tag = eligible[i];
+        if (tag !== undefined) positionByTag.set(tag.tagNumber, i);
     }
 
     db.transaction(() => {

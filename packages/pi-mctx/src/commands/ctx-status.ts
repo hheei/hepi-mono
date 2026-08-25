@@ -110,8 +110,8 @@ export function registerCtxStatusCommand(
 				}
 				const usableContextLimit = resolvePiUsableContextLimit({
 					rawContextWindow: usage?.contextWindow ?? ctx.model?.contextWindow,
-					model: ctx.model,
-					detectedContextLimit,
+					...(ctx.model === undefined ? {} : { model: ctx.model }),
+					...(detectedContextLimit === undefined ? {} : { detectedContextLimit }),
 				});
 				const statusText = executeStatus(
 					currentDeps.db,

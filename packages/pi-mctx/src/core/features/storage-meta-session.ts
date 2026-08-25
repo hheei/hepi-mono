@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import type { Database } from "../shared/sqlite";
+import { getHarness } from "../shared/harness";
 import { clearCompressionDepth } from "./compression-depth-storage";
 import { clearIndexedMessages } from "./message-index";
 import {

@@ -537,7 +537,7 @@ export function getLegacyProtectedTailStartOrdinal(sessionId: string): number {
     if (userOrdinals.length < PROTECTED_TAIL_USER_TURNS) {
         return 1;
     }
-    return userOrdinals[userOrdinals.length - PROTECTED_TAIL_USER_TURNS];
+    return userOrdinals[userOrdinals.length - PROTECTED_TAIL_USER_TURNS] ?? 1;
 }
 
 export function getProtectedTailStartOrdinal(sessionId: string): number {
