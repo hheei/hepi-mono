@@ -193,7 +193,9 @@ function advanceAfterRun(
         lastStatus: status,
         lastError: error,
         retryCount: 0,
-        retrospectiveWatermarkMs: schedulePatch?.retrospectiveWatermarkMs,
+        ...(schedulePatch?.retrospectiveWatermarkMs === undefined
+            ? {}
+            : { retrospectiveWatermarkMs: schedulePatch.retrospectiveWatermarkMs }),
     });
 }
 
@@ -282,7 +284,9 @@ async function runDomainGroup(
 ): Promise<void> {
     const { db, projectIdentity, executor } = deps;
     // All tasks in a group share a lease domain → one key for the group.
-    const leaseKey = leaseKeyFor(group[0].config.task, projectIdentity);
+    const firstDue = group[0];
+    if (!firstDue) return;
+    const leaseKey = leaseKeyFor(firstDue.config.task, projectIdentity);
     const holderId = crypto.randomUUID();
 
     let acquired = acquireLease(db, holderId, leaseKey);

@@ -579,7 +579,7 @@ export class PiSubagentRunner implements SubagentRunner {
 			const attemptOptions = {
 				...options,
 				model,
-				fallbackModels: undefined,
+				fallbackModels: [],
 			};
 			const result = await this.runOnce(
 				attemptOptions,
@@ -615,7 +615,7 @@ export class PiSubagentRunner implements SubagentRunner {
 		return (
 			lastResult ??
 			this.runOnce(
-				{ ...options, fallbackModels: undefined },
+				{ ...options, fallbackModels: [] },
 				runMode,
 				primaryModelRef,
 			)
@@ -643,10 +643,14 @@ export class PiSubagentRunner implements SubagentRunner {
 		) => {
 			if (!options.accountingSessionId || recordedAccounting) return;
 			recordedAccounting = true;
+			const errorMessage = result.ok ? undefined : result.error;
+			const providerId =
+				typeof options.model === "string"
+					? options.model.split("/")[0]
+					: null;
 			recordChildInvocation({
 				db: openDatabase(),
 				parentSessionId: options.accountingSessionId,
-				harness: "pi",
 				subagent:
 					options.accountingSubagent ?? inferAccountingSubagent(options.agent),
 				task: options.accountingTask ?? null,
@@ -657,15 +661,14 @@ export class PiSubagentRunner implements SubagentRunner {
 						? "aborted"
 						: "failed",
 				messages,
-				providerId:
-					typeof options.model === "string"
-						? options.model.split("/")[0]
-						: null,
+				...(providerId === undefined ? {} : { providerId }),
 				modelId:
 					typeof options.model === "string"
 						? options.model.split("/").slice(1).join("/")
 						: null,
-				error: result.ok ? null : result.error,
+				...(typeof errorMessage !== "string"
+					? {}
+					: { error: errorMessage }),
 				parentInvocationId: options.accountingParentInvocationId ?? null,
 			});
 		};
@@ -765,10 +768,12 @@ export class PiSubagentRunner implements SubagentRunner {
 		}
 		const args = buildArgs(options, {
 			disableDiscoveredExtensions: runMode.disableDiscoveredExtensions,
-			subagentExtensions: this.subagentExtensions,
+			...(this.subagentExtensions === undefined
+				? {}
+				: { subagentExtensions: this.subagentExtensions }),
 			omitPositionalMessage: deliverViaStdin,
-			systemPromptPath,
-			modelRef: modelRefOverride,
+			...(systemPromptPath === undefined ? {} : { systemPromptPath }),
+			...(modelRefOverride === undefined ? {} : { modelRef: modelRefOverride }),
 		});
 
 		// The model spec is `provider/model` — Pi accepts that directly via

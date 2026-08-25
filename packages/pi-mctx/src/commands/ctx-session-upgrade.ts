@@ -154,16 +154,26 @@ export function registerCtxSessionUpgradeCommand(
 					const outcome = await runPiMemoryMigration({
 						db: currentDeps.db,
 						runner: currentDeps.runner,
-						primaryModel: sessionMainModel,
+						...(sessionMainModel === undefined ? {} : { primaryModel: sessionMainModel }),
 						model: currentDeps.historianModel as string,
-						fallbackModels: currentDeps.historianFallbacks,
-						timeoutMs: currentDeps.historianTimeoutMs,
-						thinkingLevel: currentDeps.historianThinkingLevel,
+						...(currentDeps.historianFallbacks === undefined
+							? {}
+							: { fallbackModels: currentDeps.historianFallbacks }),
+						...(currentDeps.historianTimeoutMs === undefined
+							? {}
+							: { timeoutMs: currentDeps.historianTimeoutMs }),
+						...(currentDeps.historianThinkingLevel === undefined
+							? {}
+							: { thinkingLevel: currentDeps.historianThinkingLevel }),
 						directory: ctx.cwd,
-						allowHomeProject: currentDeps.allowHomeProject,
+						...(currentDeps.allowHomeProject === undefined
+							? {}
+							: { allowHomeProject: currentDeps.allowHomeProject }),
 						sessionId,
-						userMemoriesEnabled: currentDeps.userMemoriesEnabled,
-						language: currentDeps.language,
+						...(currentDeps.userMemoriesEnabled === undefined
+							? {}
+							: { userMemoriesEnabled: currentDeps.userMemoriesEnabled }),
+						...(currentDeps.language === undefined ? {} : { language: currentDeps.language }),
 					});
 					return outcome.summary;
 				} catch (error) {
@@ -261,9 +271,15 @@ export function registerCtxSessionUpgradeCommand(
 							client: createPiHistorianClient({
 								runner: currentDeps.runner,
 								model: currentDeps.historianModel as string,
-								fallbackModels: currentDeps.historianFallbacks,
-								timeoutMs: currentDeps.historianTimeoutMs,
-								thinkingLevel: currentDeps.historianThinkingLevel,
+								...(currentDeps.historianFallbacks === undefined
+									? {}
+									: { fallbackModels: currentDeps.historianFallbacks }),
+								...(currentDeps.historianTimeoutMs === undefined
+									? {}
+									: { timeoutMs: currentDeps.historianTimeoutMs }),
+								...(currentDeps.historianThinkingLevel === undefined
+									? {}
+									: { thinkingLevel: currentDeps.historianThinkingLevel }),
 								directory: ctx.cwd,
 								accountingSessionId: sessionId,
 								systemPrompt: withContentLanguageDirective(
@@ -282,7 +298,9 @@ export function registerCtxSessionUpgradeCommand(
 							sessionId,
 							historianChunkTokens: currentDeps.historianChunkTokens,
 							directory: ctx.cwd,
-							historianTimeoutMs: currentDeps.historianTimeoutMs,
+							...(currentDeps.historianTimeoutMs === undefined
+								? {}
+								: { historianTimeoutMs: currentDeps.historianTimeoutMs }),
 							memoryEnabled: currentDeps.memoryEnabled,
 							autoPromote: currentDeps.autoPromote,
 							// Embedding substrate: without this the recomp publish path
@@ -293,9 +311,13 @@ export function registerCtxSessionUpgradeCommand(
 							// recomp-orchestrator): configured fallbacks + the session's
 							// own model as the last-ditch retry, so an empty/invalid-but-
 							// HTTP-200 historian primary escalates instead of failing.
-							fallbackModels: currentDeps.historianFallbacks,
-							fallbackModelId: sessionMainModel,
-							language: currentDeps.language,
+							...(currentDeps.historianFallbacks === undefined
+								? {}
+								: { fallbackModels: currentDeps.historianFallbacks }),
+							...(sessionMainModel === undefined
+								? {}
+								: { fallbackModelId: sessionMainModel }),
+							...(currentDeps.language === undefined ? {} : { language: currentDeps.language }),
 						},
 						{},
 					);
