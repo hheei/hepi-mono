@@ -8,7 +8,7 @@ import {
     recordChildInvocation,
     sumTokensFromChildMessages,
 } from "../features/subagent-token-capture";
-import type { PluginContext } from "../plugin/types";
+import type { PluginContext } from "../../plugin/types";
 import * as shared from "../shared";
 import {
     extractLatestAssistantText,

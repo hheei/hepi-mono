@@ -142,7 +142,7 @@ const NO_TRANSITION: CompactionModeTransitionResult = {
  * every marker atomically with the bytes it rendered.
  */
 function clearCachedM0Baseline(
-    db: import("../../shared/sqlite").Database,
+    db: import("../shared/sqlite").Database,
     sessionId: string,
 ): boolean {
     const result = db
@@ -158,7 +158,7 @@ function cleanupOffMarkers(_sessionId: string): MarkerCleanupResult {
 }
 
 export function reconcileCompactionMode(args: {
-    db: import("../../shared/sqlite").Database;
+    db: import("../shared/sqlite").Database;
     sessionId: string;
     /** Boot-resolved mode for this process. */
     compactionOff: boolean;
@@ -350,7 +350,7 @@ export function reconcileCompactionMode(args: {
  * separate so the caller controls the at-least-once notice ordering.
  */
 export function commitCompactionModeRecord(
-    db: import("../../shared/sqlite").Database,
+    db: import("../shared/sqlite").Database,
     sessionId: string,
     record: CompactionModeRecord,
 ): void {

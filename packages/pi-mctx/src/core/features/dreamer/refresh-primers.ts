@@ -7,7 +7,7 @@ import {
     withRawSessionMessageCache,
 } from "../../hooks/read-session-chunk";
 import { extractToolCallSummaries } from "../../hooks/read-session-formatting";
-import type { PluginContext } from "../../plugin/types";
+import type { PluginContext } from "../../../plugin/types";
 import * as shared from "../../shared";
 import { extractLatestAssistantText } from "../../shared/assistant-message-extractor";
 import { describeError, getErrorMessage } from "../../shared/error-message";

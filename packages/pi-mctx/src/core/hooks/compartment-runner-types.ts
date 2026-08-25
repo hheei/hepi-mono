@@ -1,4 +1,4 @@
-import type { PluginContext } from "../plugin/types";
+import type { PluginContext } from "../../plugin/types";
 import type { Database } from "../shared/sqlite";
 import type { ParsedEvent } from "./compartment-parser";
 import type {

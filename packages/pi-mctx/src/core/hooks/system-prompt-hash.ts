@@ -211,7 +211,7 @@ export function createSystemPromptHashHandler(deps: {
         // guidance. Subagents without the tool get no Magic Context guidance,
         // because the primary-session no-reduce block would incorrectly describe
         // memory/search/note behavior for a bounded, parent-driven child task.
-        let sessionMetaEarly: import("../../features/types").SessionMeta | undefined;
+        let sessionMetaEarly: import("../features/types").SessionMeta | undefined;
         try {
             sessionMetaEarly = getOrCreateSessionMeta(deps.db, sessionId);
         } catch (error) {

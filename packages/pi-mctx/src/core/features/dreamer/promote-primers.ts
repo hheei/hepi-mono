@@ -1,4 +1,4 @@
-import type { PluginContext } from "../../plugin/types";
+import type { PluginContext } from "../../../plugin/types";
 import { log } from "../../shared/logger";
 import type { Database } from "../../shared/sqlite";
 import {
