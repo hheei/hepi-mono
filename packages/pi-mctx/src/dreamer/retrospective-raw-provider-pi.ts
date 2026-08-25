@@ -65,11 +65,11 @@ export class PiRetrospectiveRawProvider implements RetrospectiveRawProvider {
 				continue;
 
 			this.sessionPathById.set(info.id, info.path);
+			const updatedAt = typeof info.modified === "number" ? info.modified : undefined;
 			result.push({
 				sessionId: info.id,
 				path: info.path,
-				updatedAt:
-					typeof info.modified === "number" ? info.modified : undefined,
+				...(updatedAt === undefined ? {} : { updatedAt }),
 			});
 		}
 

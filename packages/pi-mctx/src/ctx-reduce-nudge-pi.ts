@@ -17,6 +17,7 @@ import {
 	buildChannel1Reminder,
 	buildChannel2Reminder,
 	type Channel1State,
+	type Channel1Level,
 	computePressure,
 	decideChannel1,
 	isDroppedToolOutput,
@@ -40,7 +41,7 @@ export interface Channel1Reminder {
 	displayText: string;
 	display: boolean;
 	nextLastNudge: number;
-	nextLastNudgeLevel: string;
+	nextLastNudgeLevel: Channel1Level | "";
 }
 
 

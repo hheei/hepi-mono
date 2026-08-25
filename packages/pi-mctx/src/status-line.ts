@@ -96,17 +96,21 @@ function renderStatusText(
 ): string {
 	const usage = ctx.getContextUsage?.();
 	const liveReady = typeof usage?.tokens === "number" && usage.tokens > 0;
-	const resolved = resolvePiContextUsage({
-		live: usage,
-		contextWindow: ctx.model?.contextWindow,
+	const systemPrompt = liveReady ? undefined : readSystemPrompt(ctx);
+	const usageOptions = {
+		...(usage === undefined ? {} : { live: usage }),
+		...(ctx.model?.contextWindow === undefined
+			? {}
+			: { contextWindow: ctx.model.contextWindow }),
 		...(liveReady
 			? {}
 			: {
-					systemPrompt: readSystemPrompt(ctx),
+					...(systemPrompt === undefined ? {} : { systemPrompt }),
 					tools: listedTools(),
 					estimateTokens,
 				}),
-	});
+	};
+	const resolved = resolvePiContextUsage(usageOptions);
 	const inputTokens = resolved.tokens;
 	const pct = resolved.percent;
 	const meta = readSessionMetaStatus(db, sessionId);
