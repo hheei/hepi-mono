@@ -34,12 +34,14 @@ export function buildDreamTaskRuntimeConfigs(
         return {
             task,
             schedule: t.schedule,
-            model,
-            fallbackModels,
-            thinkingLevel,
-            language,
+            ...(model === undefined ? {} : { model }),
+            ...(fallbackModels === undefined ? {} : { fallbackModels }),
+            ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
+            ...(language === undefined ? {} : { language }),
             timeoutMinutes: t.timeout_minutes ?? 20,
-            promotionThreshold: t.promotion_threshold,
+            ...(t.promotion_threshold === undefined
+                ? {}
+                : { promotionThreshold: t.promotion_threshold }),
         };
     });
 }

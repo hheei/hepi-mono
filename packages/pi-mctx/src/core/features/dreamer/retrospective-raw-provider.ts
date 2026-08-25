@@ -119,7 +119,8 @@ export async function readRetrospectiveScanWindow(
 
     let maxScannedTs = keptNewMessages.at(-1)?.ts ?? sinceMs;
     const clamps: number[] = [];
-    if (droppedNewMessages.length > 0) clamps.push(droppedNewMessages[0].ts - 1);
+    const firstDropped = droppedNewMessages[0];
+    if (firstDropped) clamps.push(firstDropped.ts - 1);
     for (const read of reads) {
         if (!read.since.truncated) continue;
         const lastKept = read.since.messages.at(-1);

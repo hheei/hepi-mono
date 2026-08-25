@@ -93,7 +93,7 @@ export function resolveHistorianContextLimit(historianModelOverride?: string): n
         const [providerID, ...rest] = historianModelOverride.split("/");
         const modelID = rest.join("/");
         if (providerID && modelID) {
-            const limit = getSdkContextLimit(providerID, modelID);
+            const limit = getSdkContextLimit();
             if (typeof limit === "number" && limit > 0) return limit;
         }
         return DEFAULT_HISTORIAN_CONTEXT_FALLBACK;

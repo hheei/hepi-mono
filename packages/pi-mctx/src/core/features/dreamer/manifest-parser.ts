@@ -7,7 +7,7 @@ export function extractCompleteManifestBody(text: string, rootName: string): str
         `<${escapedRoot}\\b[^>]*>([\\s\\S]*?)<\\/${escapedRoot}>`,
         "i",
     ).exec(text);
-    if (rootMatch) return rootMatch[1];
+    if (rootMatch?.[1] !== undefined) return rootMatch[1];
 
     const hasOpenRoot = new RegExp(`<${escapedRoot}\\b`, "i").test(text);
     const hasCloseRoot = new RegExp(`<\\/${escapedRoot}>`, "i").test(text);
