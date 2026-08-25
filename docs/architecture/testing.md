@@ -12,6 +12,12 @@ npm ci -> npm run build -> npm run check -> Vitest (Node)
 - `test.sh` 用临时 HOME、TMPDIR 与 npm cache 运行测试，不读取用户凭据或本地 Pi 状态。
 - Bun 不是默认 test runner。它仅作为显式 compatibility runtime：Pi standalone binary、Bun-host smoke，以及产品明确要求的 Bun child runtime。
 - `pi-mctx` 的 SQLite adapter 保持 Node `node:sqlite` 与 Bun `bun:sqlite` 双路径；Node 是默认 coverage，Bun 兼容 smoke 另行运行。
+- `pi-mctx/scripts/handoff-live-smoke.ts` 是显式、需要凭据和网络的 Node handoff host smoke，不属于默认测试 gate。它通过 Jiti 加载 TypeScript source，并在 Node 与 Bun 条件下解析同一套 `#core/*` source imports。
+- Root TypeScript gate 当前仍排除 `pi-mctx`；将其纳入需要先修复既有的 strict source、script 与 fixture typing，不能通过放宽 compiler options 或保留永久 exclusion 伪装为覆盖。
+
+```text
+npm run smoke:handoff --workspace=@hheei/pi-mctx -- all
+```
 
 ## 依赖与发布
 

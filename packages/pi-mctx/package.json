@@ -6,9 +6,14 @@
 	"type": "module",
 	"imports": {
 		"#core/*": {
+			"types": "./src/core/*.ts",
+			"node": "./src/core/*.ts",
 			"bun": "./src/core/*.ts",
 			"default": "./dist/core/*.js"
 		}
+	},
+	"scripts": {
+		"smoke:handoff": "node --no-warnings --import jiti/register scripts/handoff-live-smoke.ts"
 	},
 	"files": ["README.md", "LICENSE"],
 	"license": "MIT",
