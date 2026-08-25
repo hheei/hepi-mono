@@ -3,13 +3,13 @@ import { Input, Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil
 import type {
 	ExtensionPageView,
 	ExtensionPageViewContext,
-	HepiContext,
-	HepiSettingField,
-	HepiSettingsPanel,
-	HepiSettingsProvider,
-	HepiSettingsRegistry,
-	HepiSettingsState,
-	HepiSettingValue,
+	SettingField,
+	SettingsContext,
+	SettingsPanel,
+	SettingsProvider,
+	SettingsRegistry,
+	SettingsState,
+	SettingValue,
 } from "@hheei/pi-ext-core";
 import { combineSettingsProviders } from "./combined.js";
 
@@ -24,19 +24,19 @@ const MARQUEE_END_PAUSE_MS = 1_500;
 
 interface FieldRow {
 	readonly groupId: string;
-	readonly field: HepiSettingField;
+	readonly field: SettingField;
 }
 
 type ListItem =
 	| { readonly kind: "group"; readonly id: string; readonly label: string }
 	| { readonly kind: "field"; readonly id: string; readonly row: FieldRow }
-	| { readonly kind: "panel"; readonly id: string; readonly panel: HepiSettingsPanel };
+	| { readonly kind: "panel"; readonly id: string; readonly panel: SettingsPanel };
 
-function cloneState(state: HepiSettingsState): HepiSettingsState {
+function cloneState(state: SettingsState): SettingsState {
 	return Object.fromEntries(Object.entries(state).map(([group, values]) => [group, { ...values }]));
 }
 
-function isValidStoredValue(field: HepiSettingField, value: unknown): value is HepiSettingValue {
+function isValidStoredValue(field: SettingField, value: unknown): value is SettingValue {
 	if (field.type === "list")
 		return Array.isArray(value) && value.every((item) => typeof item === "string");
 	if (value === null || typeof value !== typeof field.defaultValue) return false;
@@ -48,9 +48,9 @@ function isValidStoredValue(field: HepiSettingField, value: unknown): value is H
 
 /** Applies only schema defaults; extra provider-owned data remains round-trippable. */
 function mergeDefaults(
-	provider: HepiSettingsProvider,
-	stored: HepiSettingsState | undefined,
-): HepiSettingsState {
+	provider: SettingsProvider,
+	stored: SettingsState | undefined,
+): SettingsState {
 	const state = cloneState(stored ?? {});
 	for (const group of provider.groups) {
 		const values = { ...(state[group.id] ?? {}) };
@@ -85,30 +85,22 @@ function rowId(groupId: string, fieldId: string): string {
 	return `field:${groupId}:${fieldId}`;
 }
 
-function panelId(panel: HepiSettingsPanel): string {
+function panelId(panel: SettingsPanel): string {
 	return `panel:${panel.id}`;
 }
 
-function valueFor(row: FieldRow, state: HepiSettingsState): HepiSettingValue {
+function valueFor(row: FieldRow, state: SettingsState): SettingValue {
 	return state[row.groupId]?.[row.field.id] ?? row.field.defaultValue;
 }
 
-function updateValue(
-	state: HepiSettingsState,
-	row: FieldRow,
-	value: HepiSettingValue,
-): HepiSettingsState {
+function updateValue(state: SettingsState, row: FieldRow, value: SettingValue): SettingsState {
 	return {
 		...state,
 		[row.groupId]: { ...(state[row.groupId] ?? {}), [row.field.id]: value },
 	};
 }
 
-function cycleOption(
-	field: HepiSettingField,
-	value: HepiSettingValue,
-	direction = 1,
-): HepiSettingValue {
+function cycleOption(field: SettingField, value: SettingValue, direction = 1): SettingValue {
 	const options = field.options;
 	if (options === undefined || options.length === 0)
 		throw new Error(`Setting has no options: ${field.id}`);
@@ -167,7 +159,7 @@ function scrollbar(total: number, top: number, theme: Theme): readonly string[] 
 
 function formattedValue(
 	row: FieldRow,
-	state: HepiSettingsState,
+	state: SettingsState,
 	surface: "display" | "description",
 ): string {
 	const value = valueFor(row, state);
@@ -187,9 +179,9 @@ function formattedValue(
 }
 
 function allChangedFields(
-	provider: HepiSettingsProvider,
-	before: HepiSettingsState,
-	after: HepiSettingsState,
+	provider: SettingsProvider,
+	before: SettingsState,
+	after: SettingsState,
 ): readonly FieldRow[] {
 	const seen = new Set<string>();
 	const result: FieldRow[] = [];
@@ -216,20 +208,20 @@ function allChangedFields(
  * live-policy ownership; this page only holds a draft until an explicit flush.
  */
 export async function createSettingsPage(
-	registry: HepiSettingsRegistry,
+	registry: SettingsRegistry,
 	context: ExtensionPageViewContext,
 ): Promise<ExtensionPageView> {
 	const provider = combineSettingsProviders(registry.list());
-	const hepiContext: HepiContext = {
+	const settingsContext: SettingsContext = {
 		// Provider callbacks receive the real session identity. A constant host label would
 		// silently collapse per-session provider behavior when Settings is opened twice.
 		sessionId: context.command.sessionManager.getSessionId(),
 		cwd: context.command.cwd,
 		signal: context.signal,
 	};
-	const initial = mergeDefaults(provider, await provider.storage.load(hepiContext));
+	const initial = mergeDefaults(provider, await provider.storage.load(settingsContext));
 	context.signal.throwIfAborted();
-	await provider.onLoad?.(cloneState(initial), hepiContext);
+	await provider.onLoad?.(cloneState(initial), settingsContext);
 	context.signal.throwIfAborted();
 
 	let theme = context.theme;
@@ -244,7 +236,7 @@ export async function createSettingsPage(
 	let listItemEditor: Input | undefined;
 	let listItemIndex: number | undefined;
 	let editing: FieldRow | undefined;
-	let relatedDraft: HepiSettingValue | undefined;
+	let relatedDraft: SettingValue | undefined;
 	let error: string | undefined;
 	let closed = false;
 	let closing = false;
@@ -324,7 +316,7 @@ export async function createSettingsPage(
 		if (JSON.stringify(draft) === JSON.stringify(committed)) return;
 		// Validate the complete draft before any live callback. Providers may enforce a
 		// cross-field invariant that a single editor commit cannot see in isolation.
-		await provider.storage.validate?.(cloneState(draft), hepiContext);
+		await provider.storage.validate?.(cloneState(draft), settingsContext);
 		for (const changed of allChangedFields(provider, committed, draft)) {
 			const previousValue = committed[changed.groupId]?.[changed.field.id];
 			await provider.onChange?.(
@@ -335,13 +327,13 @@ export async function createSettingsPage(
 					...(previousValue === undefined ? {} : { previousValue }),
 					state: cloneState(draft),
 				},
-				hepiContext,
+				settingsContext,
 			);
 		}
 		// Storage is deliberately serialized by provider. Several providers share Pi's
 		// settings root; core locks individual writes, while this order keeps callback and
 		// persistence observation deterministic. There is no cross-provider rollback.
-		await provider.storage.save(cloneState(draft), hepiContext);
+		await provider.storage.save(cloneState(draft), settingsContext);
 		committed = cloneState(draft);
 	};
 	const cleanup = async (): Promise<void> => {
@@ -350,12 +342,12 @@ export async function createSettingsPage(
 		stopMarquee();
 		const failures: unknown[] = [];
 		try {
-			await provider.onClose?.(cloneState(draft), hepiContext);
+			await provider.onClose?.(cloneState(draft), settingsContext);
 		} catch (cause: unknown) {
 			failures.push(cause);
 		}
 		try {
-			await provider.storage.close?.(hepiContext);
+			await provider.storage.close?.(settingsContext);
 		} catch (cause: unknown) {
 			failures.push(cause);
 		}
@@ -459,7 +451,7 @@ export async function createSettingsPage(
 			const validation = row.field.validate?.(next as never);
 			if (validation !== undefined) throw new Error(validation);
 			const state = updateValue(draft, row, [...next]);
-			await provider.storage.validate?.(cloneState(state), hepiContext);
+			await provider.storage.validate?.(cloneState(state), settingsContext);
 			draft = state;
 			listDraft = [...next];
 			error = undefined;
@@ -504,7 +496,7 @@ export async function createSettingsPage(
 		const row = editing;
 		const related = row?.field.tabCycle;
 		if (row === undefined || related === undefined) return;
-		const field: HepiSettingField = {
+		const field: SettingField = {
 			...row.field,
 			id: related.fieldId,
 			options: related.options,
@@ -532,7 +524,7 @@ export async function createSettingsPage(
 					{ groupId: row.groupId, field: { ...row.field, id: related.fieldId } },
 					relatedDraft ?? related.defaultValue,
 				);
-			await provider.storage.validate?.(cloneState(next), hepiContext);
+			await provider.storage.validate?.(cloneState(next), settingsContext);
 			draft = next;
 			cancelEdit();
 		} catch (cause: unknown) {

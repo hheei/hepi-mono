@@ -468,7 +468,7 @@ export function registerBashTool(
 	pi: ExtensionAPI,
 	state?: FffRuntimeState,
 	tui: ToolTui = createToolTui(),
-): void {
+): ToolDefinition {
 	if (state !== undefined) registerRtkForegroundRewrite(pi, state);
 	const {
 		renderCall: _upstreamRenderCall,
@@ -615,6 +615,7 @@ export function registerBashTool(
 			warning: bashResultWarning,
 		}),
 	);
+	return tool;
 }
 
 export { BashInput };

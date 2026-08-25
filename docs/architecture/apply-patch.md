@@ -7,20 +7,22 @@
 `apply_patch` 必须把一次 V4A request 的实际 Path Outcome，而不是请求 patch 或 renderer-local state，同时交给模型、TUI、Trace collapse 和 session resume。
 
 - local Linux/macOS/Windows 与 Unix-like SSH Target 共用同一套 Patch Core。没有 detached coordinator、request id 重连或 request-level rollback。
+- local V4A path 可为绝对或相对 path。相对 path 从 workspace root 解析，允许以 `..` 到 workspace 外；判断只做 lexical resolve，不 `realpath`，所以 workspace 内 symlink 指向外部不会被当成外部写入。实际 Changed 的 local path 在 lexical workspace 外时，模型 result 末尾必须给出一行 warning；Rejected、Unconfirmed 与 NotApplied 不警告。
 - 每个 path 独立 Publish：sibling 临时文件 + replace/remove 确认后才是 Changed。已确认 path 不撤回。
-- 语法错误、busy lock、非 POSIX SSH、缺原子 replace 在任何 path 改变前拒绝整次 request。
+- 语法错误、非 POSIX SSH、缺原子 replace 在任何 path 改变前拒绝整次 request。同一 workspace（local）或 SSH alias 的 apply_patch / edit / write 共用一把 mutation lock；后到的请求排队，取消排队中的请求不会改 workspace。一次调用应包含本次所有文件变更；多余的 `*** Begin Patch` / `*** End Patch` 只保留最外层一对。
 - patch bytes、operation 数、hunk 数和 hunk 行数有硬上限；超限在 mutation 前拒绝，要求模型拆分 patch。
 - live progress 阶段为 `parsed`、`publishing` 与 `done`。model-time preview 与 `parsed` 都不代表已验证或已 Publish。
-- 同一 `Update File` 的全部 hunk 必须 exact 或 fuzzy 成功后才 Publish；任一 hunk 失败则该 path 为 Rejected，原档不动。多个没有 `Move to` 的 `Update File` 按 patch 顺序作用于同一文件。`Update + Move to` 是 dest Publish 与 source delete 两次独立 mutation。
+- 同一 `Update File` 的 hunk 依 patch 顺序作用于同一 staging copy。失败 hunk 记为 Rejected，但不阻止后续 hunk 尝试；至少一个 hunk 成功时，以成功 hunk 的 staging 结果只 Publish 一次，并把该 operation 标为 `partial`。没有 hunk 成功时该 path 为 Rejected，原档不动。多个没有 `Move to` 的 `Update File` 按 patch 顺序作用于同一文件。`Update + Move to` 是 dest Publish 与 source delete 两次独立 mutation。
 - 仅 Changed+Rejected 且无 Unconfirmed/NotApplied 时为 `partial`、`isError: false`。出现 Unconfirmed 或 NotApplied 时 `isError: true`，已 Changed 的 path 仍报告。
 - V4A 不包含可信源行号。重复上下文不得因伪造 unified-diff line hint 而静默选择文件中最早位置。
 - 完成后的 TUI 只读取实际结果。展开的 diff 是 Publish 当时的稳定 hunk snapshot，不重读可能已变化的 workspace。
 
 ```text
 V4A patch
-  -> parser + lexical path validation
+  -> parser + structural path validation
   -> mutation lock
-  -> per-path prepare (all hunks) then Publish
+  -> per-path sequential hunk staging
+  -> Publish once when at least one hunk succeeded
   -> Patch Outcome
      +-> model content
      +-> structured details
@@ -31,7 +33,7 @@ V4A patch
 
 `pi-ext-bridge` 只拥有一次 mpatch invocation、取消，以及无原文的 native hunk report。它不拥有 V4A 语法、workspace paths、fuzzy policy、model text、TUI 或 persistence。
 
-`pi-ext-tools` 拥有 V4A parse、lexical path validation、Publish、fuzzy admission、Patch Outcome、model formatter、Pi `tool_result` error marking、renderer 和 Trace footer。
+`pi-ext-tools` 拥有 V4A parse、local path resolution / external-write warning、Publish、mutation lock、fuzzy admission、Patch Outcome、model formatter、Pi `tool_result` error marking、renderer 和 Trace footer。
 
 ext-core 不拥有 patch policy 或结果；它只提供已有的 shared lifecycle primitives。
 
@@ -70,7 +72,7 @@ type MpatchHunkOutcome =
 
 ## Patch Outcome
 
-一次 V4A operation 产生一个 Patch Outcome。`Update File` 的全部 hunk 共享一份 staging copy，全部成功后只 Publish 一次。它是唯一的结果事实源：
+一次 V4A operation 产生一个 Patch Outcome。`Update File` 的全部 hunk 共享一份 staging copy，依序尝试；成功 hunk 修改 staging，拒绝 hunk 只记录 diagnostic，后续 hunk 继续尝试。至少一个 hunk 成功时只 Publish 一次；零个成功 hunk 不 Publish。它是唯一的结果事实源：
 
 ```ts
 type PatchOutcome = {
@@ -84,7 +86,7 @@ type PatchOutcome = {
 ```
 
 - `applied` 保存 operation index、动作、实际 changed path、每个已确认 hunk 的 native match outcome，以及 Publish 时的 before/after snapshot。
-- `rejected` 保存确定未写入的 path：hunk mismatch、已存在的 Add、过大文件等。
+- `rejected` 保存确定未写入的 path 或未应用 hunk：hunk mismatch、已存在的 Add、过大文件等。partial Update 同时有一条 `applied` 和一条带 hunk diagnostics 的 `rejected`。
 - `unconfirmed` 是 replace/remove 已发出但未见确认。必须先 `read` 再 mutation。
 - `notApplied` 是从未发出 replace/remove，通常因为前面的 path 已经 halt。
 - `changedPaths` 仅来自确认后的 Publish，不从 request 推导。
@@ -93,9 +95,9 @@ type PatchOutcome = {
 
 ## 模型内容
 
-模型只接收 deterministic text `content`，不接收 `details` 或 TUI render tree。解析失败的错误会包含原始 V4A source line，并说明 parsed preview 没有被验证或 applied。busy lock、cancel 与 Unconfirmed 必须给出下一步：Unconfirmed 先 read 那些 path；busy 等待后重试原 patch；cancel 后已 Changed 保留，Unconfirmed 先 read，只重试 Rejected/NotApplied；parse failure 修复指定 source line 后重新提交完整 envelope。
+模型只接收 deterministic text `content`，不接收 `details` 或 TUI render tree。解析失败的错误会包含原始 V4A source line，并说明 parsed preview 没有被验证或 applied。cancel 与 Unconfirmed 必须给出下一步：Unconfirmed 先 read 那些 path；cancel 后已 Changed 保留，Unconfirmed 先 read，只重试 Rejected/NotApplied；parse failure 修复指定 source line 后重新提交完整 envelope。
 
-成功结果列出真实 changed paths：
+成功结果列出真实 changed paths。若一个已确认的 local change 以 lexical path 落在 workspace 外，末尾附加一条 warning：
 
 ```text
 Applied patch: 2 operations in 2 files.
@@ -105,6 +107,8 @@ Changed:
 
 Fuzzy-applied:
 - src/routes.ts, hunk 1: lines 42-49, similarity 0.84
+
+Warning: changed path outside the workspace: /tmp/config.ts
 ```
 
 partial 结果必须先区分 Changed / Rejected / Unconfirmed / NotApplied，再给出最窄的下一步。`context_not_found` 的 recovery 是读目标 path 后只重试 rejected hunk。模型内容每个 ambiguity 最多显示 6 个 candidates，并标示总数；完整 facts 仍在 details。
@@ -113,7 +117,7 @@ partial 结果必须先区分 Changed / Rejected / Unconfirmed / NotApplied，�
 
 模型生成 arguments 时，TUI 只走纯计算的 call renderer：partial `args.patch` 每出现一个已换行的 operation header 就增加一行 `○ create|modify|delete path`，hunk `+/-` 行到达后更新 planned delta。该 preview 不得读取 workspace、取得锁或声称 validated/applied。`execute()` 仍只在完整 tool 参数后开始。
 
-执行中，Patch Core 在完整 envelope 通过后发送 typed Patch Progress，每个 path Publish 或拒绝后再发下一份 snapshot。live state 只属于当前 Trace：`○` 尚未 Publish，`✓` 是 exact/whitespace Changed，`!` 是 fuzzy Changed（dim score），`✗` 是 Rejected，`?` 是 Unconfirmed，dim `–` 是 NotApplied。header 的 `+/-` 只累计已确认 operation。SSH header 为 `apply_patch (host) N file(s)`，row 为 warning 色 `host:path`。final Patch Outcome 替代 live state，resume 不恢复 `○` rows 或 model-time preview。
+执行中，Patch Core 在完整 envelope 通过后发送 typed Patch Progress，每个 path Publish 或拒绝后再发下一份 snapshot。live state 只属于当前 Trace：`○` 尚未 Publish，`✓` 是 exact/whitespace Changed，`!` 是 fuzzy Changed 或 Changed+Rejected partial（显示 `N/M hunks applied` 与拒绝原因），`✗` 是 Rejected，`?` 是 Unconfirmed，dim `–` 是 NotApplied。header 的 `+/-` 只累计已确认 operation。SSH header 为 `apply_patch (host) N file(s)`，row 为 warning 色 `host:path`。final Patch Outcome 替代 live state，resume 不恢复 `○` rows 或 model-time preview。
 
 未展开的完成结果显示 operation rows；prior Trace collapse 由 shared frame 显示 header、空行、tool-owned footer。footer 是 typed metrics，不解析模型 content：
 
@@ -136,7 +140,7 @@ warning glyph `!` 用于 Changed+Rejected partial；Unconfirmed/NotApplied 由 h
 - parser、path 与 native failure 保留稳定错误分类；parser errors 带 source line（若有）。transport 失败不能被静默重试。
 - 准备、fuzzy attempt 与 Publish 服从 `AbortSignal`。取消不撤回已 Changed 的 path。尚未发出 replace/remove 的为 NotApplied；已发出未见 ACK 的为 Unconfirmed。
 - local 无逾时，只靠取消。SFTP 单 path：传输 ≤1 MiB 为 30s，否则 60s；写 temp 逾时为 NotApplied，rename/rm 逾时为 Unconfirmed。
-- apply_patch lock 只串行化 apply_patch：local 按 workspace，SSH 按本机 alias，原语为平台原生 exclusive lock。忙则立刻拒绝整次 request，不排队、不偷锁。不检测也不阻止外部写入。
+- mutation lock 串行化 apply_patch、write 与 edit：local 按 workspace，SSH 按本机 alias，原语为平台原生 exclusive lock。后到的请求排队直到持锁者释放；取消排队中的请求不会取得锁、也不会改 workspace。不检测也不阻止外部写入。
 - `/reload` 取消 execute，不重连进行中的 mutation。
 - 现有文件（含 Delete 与 Move 源）大于 32 MiB 在读完整内容前拒绝；Add/Update 结果也不得超过 32 MiB。
 - details 是 result persistence source；resume 和 global expand 从它渲染 completed outcome，不恢复 pending preview state。
@@ -147,10 +151,10 @@ warning glyph `!` 用于 Changed+Rejected partial；Unconfirmed/NotApplied 由 h
 
 1. V4A 重复 exact context 不能再静默选择最早位置；返回 one-based ambiguity candidates，workspace 不变。
 2. context-not-found 且 fuzzy disabled、fuzzy candidates tie、fuzzy below threshold 的 typed diagnostics、模型 recovery text 和 `isError`。
-3. 同 operation 任一 hunk 失败则整档不 Publish。
+3. 同 operation 的成功 hunk 按顺序 Publish 一次、失败 hunk 保留 diagnostics；零个成功 hunk 时整档不 Publish。
 4. fuzzy applied result 保存 line range/score；ordinary exact 和 whitespace success 不扩大模型内容。
 5. actual changed paths、Changed/Rejected/Unconfirmed/NotApplied grouping、6-candidate model cap。
 6. collapsed footer、warning partial glyph、expanded stable hunk diff、resume/global expand，以及 renderer 不读取 current workspace。
-7. 取消保留已 Changed path；busy lock 立刻拒绝；过大文件拒绝。
+7. 取消保留已 Changed path；后到的 mutation 排队直到锁释放或排队请求被取消；过大文件拒绝。
 8. 多个 `toolcall_delta` 在 `toolcall_end` / `execute()` 之前逐步更新 call preview；abort 在 execute 前不 Publish；两条并行 preview 的 state 不串线。
 }

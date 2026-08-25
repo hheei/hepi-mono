@@ -1,5 +1,5 @@
-import { expect, test } from "bun:test";
 import { stat } from "node:fs/promises";
+import { expect, test } from "vitest";
 import { createSftpPatchFs } from "../src/apply-patch/fs.js";
 
 test("SFTP staging writes preserve the requested mode", async () => {

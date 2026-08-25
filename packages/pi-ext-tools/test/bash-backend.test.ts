@@ -1,4 +1,3 @@
-import { expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +10,7 @@ import type {
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { createOutputRegistry, createToolTui } from "@hheei/pi-ext-core";
+import { expect, test } from "vitest";
 import { registerBashTool } from "../src/bash.js";
 import type { FffRuntimeState } from "../src/fff/lifecycle.js";
 import { DEFAULT_FFF_SETTINGS, DEFAULT_RTK_SETTINGS } from "../src/fff/settings.js";
@@ -220,7 +220,7 @@ test("bash collapses only the previous command before its timeout suffix", async
 	expect(line).toContain("✓ bash");
 	const plainLine = stripTerminalSequences(line ?? "");
 	expect(plainLine).toContain("…");
-	expect(plainLine.trimEnd()).toEndWith("(timeout 20s)");
+	expect(plainLine.trimEnd().endsWith("(timeout 20s)")).toBe(true);
 });
 
 test("bash encloses its output between full-width dividers", (): void => {

@@ -3,15 +3,15 @@ import type { Component, TUI } from "@earendil-works/pi-tui";
 import { getGlobalState } from "./global-state.js";
 import { runtimeIdentity } from "./runtime-identity.js";
 
-export type HepiWidgetPlacement = "aboveEditor" | "belowEditor";
+export type WidgetPlacement = "aboveEditor" | "belowEditor";
 
 type WidgetComponent = Component & { dispose?(): void };
 
 /** Contributor declaration for one core-managed editor-adjacent widget. */
-export interface HepiWidgetRegistration {
+export interface WidgetRegistration {
 	/** Runtime-unique stable Pi widget key. */
 	readonly id: string;
-	readonly placement: HepiWidgetPlacement;
+	readonly placement: WidgetPlacement;
 	/** Starts hidden when feature-owned presentation has no visible content yet. */
 	readonly visible?: boolean;
 	/** Creates visible content only while core has mounted this contributor. */
@@ -19,7 +19,7 @@ export interface HepiWidgetRegistration {
 }
 
 /** Feature-owned presentation handle. Core retains Pi transport and suspension policy. */
-export interface HepiWidgetHandle {
+export interface WidgetHandle {
 	/** Mounts or unmounts this contributor without changing feature-owned model state. */
 	setVisible(visible: boolean): void;
 	/** Requests a visible component render, remounting after Pi invalidates it. */
@@ -29,13 +29,13 @@ export interface HepiWidgetHandle {
 }
 
 /** A reference-counted Settings-host lease that suppresses all core-managed widgets. */
-export interface HepiWidgetSuspension {
+export interface WidgetSuspension {
 	/** Releases this lease; widgets return only after the final lease is released. */
 	release(): void;
 }
 
 interface WidgetEntry {
-	readonly registration: HepiWidgetRegistration;
+	readonly registration: WidgetRegistration;
 	readonly extension: ExtensionContext;
 	readonly signal: AbortSignal;
 	readonly onAbort: () => void;
@@ -52,10 +52,7 @@ interface WidgetState {
 }
 
 function stateFor(pi: ExtensionAPI): WidgetState {
-	const states = getGlobalState(
-		"hepi-widget-states",
-		(): WeakMap<object, WidgetState> => new WeakMap(),
-	);
+	const states = getGlobalState("widget-states", (): WeakMap<object, WidgetState> => new WeakMap());
 	const identity = runtimeIdentity(pi);
 	const current = states.get(identity);
 	if (current !== undefined) return current;
@@ -115,16 +112,16 @@ function reconcileAll(state: WidgetState): void {
  * restore all registered widgets without understanding feature state. The caller's
  * signal and explicit handle disposal are both idempotent cleanup paths.
  */
-export function registerHepiWidget(
+export function registerWidget(
 	pi: ExtensionAPI,
 	extension: ExtensionContext,
 	signal: AbortSignal,
-	registration: HepiWidgetRegistration,
-): HepiWidgetHandle {
-	if (!registration.id.trim()) throw new Error("HEPI widget id must not be empty");
+	registration: WidgetRegistration,
+): WidgetHandle {
+	if (!registration.id.trim()) throw new Error("Widget id must not be empty");
 	const state = stateFor(pi);
 	if (state.entries.has(registration.id))
-		throw new Error(`HEPI widget id collision: ${registration.id}`);
+		throw new Error(`Widget id collision: ${registration.id}`);
 
 	let entry: WidgetEntry;
 	const dispose = (): void => {
@@ -170,7 +167,7 @@ export function registerHepiWidget(
  * reference-counted so overlapping Settings surfaces cannot restore widgets early;
  * direct Pi widgets remain outside this contract and are intentionally untouched.
  */
-export function suspendHepiWidgets(pi: ExtensionAPI): HepiWidgetSuspension {
+export function suspendWidgets(pi: ExtensionAPI): WidgetSuspension {
 	const state = stateFor(pi);
 	state.suspensions++;
 	reconcileAll(state);

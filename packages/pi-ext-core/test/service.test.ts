@@ -1,5 +1,5 @@
-import { expect, test } from "bun:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { expect, test } from "vitest";
 import {
 	createServiceKey,
 	getService,

@@ -51,7 +51,6 @@ export {
 export type { ExtensionLifecycleContext, ExtensionLifecycleOptions } from "./lifecycle.js";
 export { registerExtensionLifecycle } from "./lifecycle.js";
 export type {
-	LoadoutHostObserver,
 	LoadoutInventoryItem,
 	LoadoutInventoryObserver,
 	LoadoutInventoryRegistration,
@@ -67,11 +66,9 @@ export type {
 export {
 	clearLoadoutToolActivation,
 	isManagedLoadoutTool,
-	observeLoadoutHost,
 	observeLoadoutInventory,
 	observeLoadoutToolActivation,
 	publishLoadoutToolActivation,
-	registerLoadoutHost,
 	registerLoadoutInventory,
 	registerLoadoutResource,
 	registerManagedLoadoutTool,
@@ -79,18 +76,18 @@ export {
 	setManagedLoadoutToolsActive,
 } from "./loadout.js";
 export type {
-	CreateHepiModelSelectionFieldOptions,
-	HepiModelSelectionCandidate,
-	HepiModelSelectionOption,
-	HepiModelSelectionRegistry,
-	HepiModelThinkingCycle,
-	HepiModelThinkingLevel,
+	CreateModelSelectionFieldOptions,
+	ModelSelectionCandidate,
+	ModelSelectionOption,
+	ModelSelectionRegistry,
+	ModelThinkingCycle,
+	ModelThinkingLevel,
 } from "./model-selection.js";
 export {
-	createHepiModelSelectionField,
-	hepiAuthenticatedModelSelectionOptions,
-	hepiModelSelectionOptions,
-	hepiThinkingGlyph,
+	authenticatedModelSelectionOptions,
+	createModelSelectionField,
+	modelSelectionOptions,
+	thinkingGlyph,
 } from "./model-selection.js";
 export type { OutputRegistry, OutputUri } from "./output.js";
 export { createOutputRegistry } from "./output.js";
@@ -106,28 +103,28 @@ export { createResponseStatusFeature } from "./response-status.js";
 export type { ServiceKey, WaitForServiceOptions } from "./service.js";
 export { createServiceKey, getService, provideService, waitForService } from "./service.js";
 export type {
-	HepiContext,
-	HepiSettingChange,
-	HepiSettingField,
-	HepiSettingGroup,
-	HepiSettingOption,
-	HepiSettingPrimitive,
-	HepiSettingsPanel,
-	HepiSettingsProvider,
-	HepiSettingsRegistry,
-	HepiSettingsState,
-	HepiSettingsStorage,
-	HepiSettingTabCycle,
-	HepiSettingType,
-	HepiSettingValue,
 	JsonFlatSectionSettingsStorageOptions,
 	JsonSectionSettingsStorageOptions,
+	SettingChange,
+	SettingField,
+	SettingGroup,
+	SettingOption,
+	SettingPrimitive,
+	SettingsContext,
+	SettingsPanel,
+	SettingsProvider,
+	SettingsRegistry,
+	SettingsState,
+	SettingsStorage,
+	SettingTabCycle,
+	SettingType,
+	SettingValue,
 } from "./settings.js";
 export {
 	createJsonFlatSectionSettingsStorage,
 	createJsonSectionSettingsStorage,
-	getHepiRuntimeSettingsRegistry,
-	registerHepiSettings,
+	getRuntimeSettingsRegistry,
+	registerSettings,
 } from "./settings.js";
 export {
 	clearDisabledSkillKeys,
@@ -191,9 +188,9 @@ export {
 	registerToolTuiTrace,
 } from "./tool-tui.js";
 export type {
-	HepiWidgetHandle,
-	HepiWidgetPlacement,
-	HepiWidgetRegistration,
-	HepiWidgetSuspension,
+	WidgetHandle,
+	WidgetPlacement,
+	WidgetRegistration,
+	WidgetSuspension,
 } from "./widgets.js";
-export { registerHepiWidget, suspendHepiWidgets } from "./widgets.js";
+export { registerWidget, suspendWidgets } from "./widgets.js";

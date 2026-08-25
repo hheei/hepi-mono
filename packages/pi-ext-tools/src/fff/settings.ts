@@ -3,9 +3,9 @@ import {
 	createJsonFlatSectionSettingsStorage,
 	createJsonSectionSettingsStorage,
 	defaultPiSettingsPaths,
-	type HepiContext,
-	type HepiSettingsProvider,
-	type HepiSettingsState,
+	type SettingsContext,
+	type SettingsProvider,
+	type SettingsState,
 } from "@hheei/pi-ext-core";
 import { defaultShellPath } from "../bash-jobs.js";
 
@@ -87,7 +87,7 @@ export interface FffSettings {
 	readonly shellPath: string;
 	/** KiB retained in each foreground or PTY Bash result before output spill. */
 	readonly bashOutputTailKiB: number;
-	/** FFF behavior toggles only; tool activation belongs to pi-loadout. */
+	/** FFF behavior toggles only; tool activation belongs to pi-settings. */
 	readonly autocomplete: boolean;
 	readonly grepEnhancement: boolean;
 	readonly readEnhancement: boolean;
@@ -122,7 +122,7 @@ export const DEFAULT_FFF_SETTINGS: FffSettings = {
 };
 
 function booleanAt(
-	state: HepiSettingsState | undefined,
+	state: SettingsState | undefined,
 	group: string,
 	key: "autocomplete" | "grepEnhancement" | "readEnhancement" | "findEnhancement",
 ): boolean {
@@ -131,7 +131,7 @@ function booleanAt(
 }
 
 function nonEmptyStringAt(
-	state: HepiSettingsState | undefined,
+	state: SettingsState | undefined,
 	group: string,
 	key: string,
 	fallback: string,
@@ -141,7 +141,7 @@ function nonEmptyStringAt(
 }
 
 function positiveIntegerAt(
-	state: HepiSettingsState | undefined,
+	state: SettingsState | undefined,
 	group: string,
 	key: string,
 	fallback: number,
@@ -150,7 +150,7 @@ function positiveIntegerAt(
 	return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : fallback;
 }
 
-export function fffSettingsFromState(state: HepiSettingsState | undefined): FffSettings {
+export function fffSettingsFromState(state: SettingsState | undefined): FffSettings {
 	return {
 		shellPath: nonEmptyStringAt(state, BASH_GROUP, "shellPath", DEFAULT_FFF_SETTINGS.shellPath),
 		bashOutputTailKiB: positiveIntegerAt(
@@ -166,7 +166,7 @@ export function fffSettingsFromState(state: HepiSettingsState | undefined): FffS
 	};
 }
 
-export function rtkSettingsFromState(state: HepiSettingsState | undefined): RtkSettings {
+export function rtkSettingsFromState(state: SettingsState | undefined): RtkSettings {
 	const values = state?.[RTK_GROUP];
 	return {
 		enabled: values?.rtk === true,
@@ -174,11 +174,11 @@ export function rtkSettingsFromState(state: HepiSettingsState | undefined): RtkS
 	};
 }
 
-export function editModeFromState(state: HepiSettingsState | undefined): EditMode {
+export function editModeFromState(state: SettingsState | undefined): EditMode {
 	return editModeFromValue(state?.[EDIT_GROUP]?.mode);
 }
 
-export function targetSettingsFromState(state: HepiSettingsState | undefined): TargetSettings {
+export function targetSettingsFromState(state: SettingsState | undefined): TargetSettings {
 	const value = state?.[TARGET_GROUP]?.sshWhitelist;
 	if (!Array.isArray(value)) return DEFAULT_TARGET_SETTINGS;
 	const aliases = value
@@ -195,8 +195,8 @@ export function targetSettingsFromState(state: HepiSettingsState | undefined): T
 }
 
 export async function loadTargetSettings(
-	provider: HepiSettingsProvider,
-	context: HepiContext,
+	provider: SettingsProvider,
+	context: SettingsContext,
 ): Promise<TargetSettings> {
 	return targetSettingsFromState(await provider.storage.load(context));
 }
@@ -224,15 +224,15 @@ export function readEditMode(path = defaultPiSettingsPaths().globalPath): EditMo
 }
 
 export async function loadRtkSettings(
-	provider: HepiSettingsProvider,
-	context: HepiContext,
+	provider: SettingsProvider,
+	context: SettingsContext,
 ): Promise<RtkSettings> {
 	return rtkSettingsFromState(await provider.storage.load(context));
 }
 
 export function createRtkSettingsProvider(
 	options: RtkSettingsProviderOptions = {},
-): HepiSettingsProvider {
+): SettingsProvider {
 	return {
 		id: "pi-ext-tools.rtk",
 		title: "RTK",
@@ -271,9 +271,9 @@ export function createRtkSettingsProvider(
 }
 
 export async function loadFffSettings(
-	fffProvider: HepiSettingsProvider,
-	bashProvider: HepiSettingsProvider,
-	context: HepiContext,
+	fffProvider: SettingsProvider,
+	bashProvider: SettingsProvider,
+	context: SettingsContext,
 ): Promise<FffSettings> {
 	const [fffState, bashState] = await Promise.all([
 		fffProvider.storage.load(context),
@@ -284,7 +284,7 @@ export async function loadFffSettings(
 
 export function createBashSettingsProvider(
 	options: BashSettingsProviderOptions = {},
-): HepiSettingsProvider {
+): SettingsProvider {
 	const storage = createJsonSectionSettingsStorage({
 		...(options.path === undefined ? {} : { path: options.path }),
 		section: SECTION,
@@ -333,7 +333,7 @@ export function createBashSettingsProvider(
 
 export function createFffSettingsProvider(
 	options: FffSettingsProviderOptions = {},
-): HepiSettingsProvider {
+): SettingsProvider {
 	const storage = createJsonSectionSettingsStorage({
 		...(options.path === undefined ? {} : { path: options.path }),
 		section: SECTION,
@@ -390,7 +390,7 @@ export function createFffSettingsProvider(
 
 export function createEditSettingsProvider(
 	options: EditSettingsProviderOptions = {},
-): HepiSettingsProvider {
+): SettingsProvider {
 	return {
 		id: "pi-ext-tools.edit",
 		title: "Edit",

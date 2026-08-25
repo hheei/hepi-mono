@@ -1,17 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import {
 	APPLY_PATCH_MAX_FILE_SIZE,
-	agentPatchTempName,
 	createLocalPatchFs,
 	FsTransportError,
+	fileTooLarge,
 	gcAgentPatchTemps,
 	type PatchFs,
+	publishPreparedFile,
 	sftpTimeoutMs,
 } from "./fs.js";
-import { acquireApplyPatchLock } from "./lock.js";
+import { acquireMutationLock } from "./lock.js";
 import { type MpatchRunResult, runMpatch } from "./mpatch.js";
 import type {
 	ApplyPatchAppliedOperation,
@@ -67,17 +68,6 @@ class PatchUpdateError extends Error {
 function parentDir(path: string): string {
 	const index = path.lastIndexOf("/");
 	return index < 0 ? "." : path.slice(0, index);
-}
-
-function baseName(path: string): string {
-	const index = path.lastIndexOf("/");
-	return index < 0 ? path : path.slice(index + 1);
-}
-
-function tooLarge(size: number, path: string): Error {
-	return new Error(
-		`file_too_large (${size} > ${APPLY_PATCH_MAX_FILE_SIZE}) at ${path}; use another tool suitable for large-file edits.`,
-	);
 }
 
 function lineCount(content: Uint8Array | string | undefined): number {
@@ -191,6 +181,23 @@ function rejectedOutcomes(
 	);
 }
 
+function hunkFailureSummary(
+	diagnostics: readonly Exclude<MpatchHunkOutcome, { readonly kind: "applied" }>[],
+): string | undefined {
+	const diagnostic = diagnostics[0];
+	if (diagnostic === undefined) return undefined;
+	switch (diagnostic.kind) {
+		case "context_not_found":
+			return "context not found";
+		case "ambiguous_exact":
+			return "exact context is ambiguous";
+		case "ambiguous_fuzzy":
+			return "fuzzy context is ambiguous";
+		case "fuzzy_below_threshold":
+			return "fuzzy score below threshold";
+	}
+}
+
 function appliedOutcomes(
 	outcomes: readonly MpatchHunkOutcome[],
 ): readonly Extract<MpatchHunkOutcome, { readonly kind: "applied" }>[] {
@@ -229,6 +236,8 @@ async function checkedMpatch(
 	return { applied: true, result, before: beforeApply, after: await readFile(source) };
 }
 
+const STAGING_PATH = "__apply_patch_target__";
+
 async function stageUpdate(
 	stagingRoot: string,
 	operation: V4aUpdateOperation,
@@ -239,12 +248,12 @@ async function stageUpdate(
 	const rejected: Exclude<MpatchHunkOutcome, { readonly kind: "applied" }>[] = [];
 	const snapshots: ApplyPatchHunkSnapshot[] = [];
 	let mode: "exact" | "fuzzy" | undefined;
-	let after: Uint8Array = await readFile(join(stagingRoot, ...operation.path.split("/")));
+	let after: Uint8Array = await readFile(join(stagingRoot, STAGING_PATH));
 	for (const [index, hunk] of operation.hunks.entries()) {
 		const hunkIndex = index + 1;
 		const atomicOperation: V4aUpdateOperation = {
 			kind: "update",
-			path: operation.path,
+			path: STAGING_PATH,
 			hunks: [hunk],
 		};
 		const exact = await checkedMpatch(stagingRoot, atomicOperation, 0, signal);
@@ -338,13 +347,12 @@ async function prepareUpdateBytes(
 		throw new Error(`Patch source does not exist: ${operation.path}`);
 	if (followed.kind !== "file")
 		throw new Error(`Patch path is not a regular file: ${operation.path}`);
-	if (followed.size > APPLY_PATCH_MAX_FILE_SIZE) throw tooLarge(followed.size, operation.path);
+	if (followed.size > APPLY_PATCH_MAX_FILE_SIZE) throw fileTooLarge(followed.size, operation.path);
 	const before = await fs.readFollow(operation.path, signal, sftpTimeoutMs(followed.size));
-	if (before.length > APPLY_PATCH_MAX_FILE_SIZE) throw tooLarge(before.length, operation.path);
+	if (before.length > APPLY_PATCH_MAX_FILE_SIZE) throw fileTooLarge(before.length, operation.path);
 	const stagingRoot = join(tmpdir(), `hepi-apply-patch-${randomUUID()}`);
 	await mkdir(stagingRoot);
-	const stagedFile = join(stagingRoot, ...operation.path.split("/"));
-	await mkdir(dirname(stagedFile), { recursive: true });
+	const stagedFile = join(stagingRoot, STAGING_PATH);
 	await writeFile(
 		stagedFile,
 		before,
@@ -352,35 +360,13 @@ async function prepareUpdateBytes(
 	);
 	try {
 		const stage = await stageUpdate(stagingRoot, operation, policy, signal);
-		if (stage.rejected.length > 0)
+		if (stage.outcomes.length === 0)
 			throw new PatchUpdateError("One or more update hunks failed", stage.rejected);
 		if (stage.after.length > APPLY_PATCH_MAX_FILE_SIZE)
-			throw tooLarge(stage.after.length, operation.moveTo ?? operation.path);
+			throw fileTooLarge(stage.after.length, operation.moveTo ?? operation.path);
 		return { bytes: stage.after, before, mode: followed.mode, stage };
 	} finally {
 		await rm(stagingRoot, { recursive: true, force: true });
-	}
-}
-
-async function publishFile(
-	fs: PatchFs,
-	path: string,
-	data: Uint8Array,
-	mode: number | undefined,
-	replaceExisting: boolean,
-	signal?: AbortSignal,
-): Promise<void> {
-	const directory = parentDir(path);
-	if (directory !== ".") await fs.mkdirp(directory, signal);
-	const temp = `${directory === "." ? "" : `${directory}/`}${agentPatchTempName(baseName(path))}`;
-	try {
-		await fs.writeAtomic(temp, data, mode, signal);
-		if (replaceExisting) await fs.replace(temp, path, signal);
-		else await fs.renameNew(temp, path, signal);
-	} catch (error) {
-		if (!(error instanceof FsTransportError) || error.phase === "write")
-			await fs.unlink(temp, signal).catch(() => undefined);
-		throw error;
 	}
 }
 
@@ -394,8 +380,8 @@ async function applyAdd(
 	if (existing.kind !== "missing")
 		throw new Error(`Patch add target already exists: ${operation.path}`);
 	const bytes = Buffer.from(operation.content, "utf8");
-	if (bytes.length > APPLY_PATCH_MAX_FILE_SIZE) throw tooLarge(bytes.length, operation.path);
-	await publishFile(fs, operation.path, bytes, undefined, false, signal);
+	if (bytes.length > APPLY_PATCH_MAX_FILE_SIZE) throw fileTooLarge(bytes.length, operation.path);
+	await publishPreparedFile(fs, operation.path, bytes, undefined, false, signal);
 	return Object.freeze({
 		operationIndex: index,
 		kind: "add",
@@ -419,7 +405,7 @@ async function applyDelete(
 	if (meta.kind === "directory")
 		throw new Error(`Patch path is not a regular file: ${operation.path}`);
 	if (meta.kind === "file" && meta.size > APPLY_PATCH_MAX_FILE_SIZE)
-		throw tooLarge(meta.size, operation.path);
+		throw fileTooLarge(meta.size, operation.path);
 	const before =
 		meta.kind === "file"
 			? await fs.readFollow(operation.path, signal, sftpTimeoutMs(meta.size))
@@ -440,6 +426,7 @@ async function applyDelete(
 interface UpdatePublishResult {
 	readonly outcome: ApplyPatchAppliedOperation;
 	readonly mode: "exact" | "fuzzy" | undefined;
+	readonly rejectedHunks: readonly Exclude<MpatchHunkOutcome, { readonly kind: "applied" }>[];
 	readonly sourceError?: unknown;
 	readonly sourceUnknown?: boolean;
 }
@@ -458,7 +445,7 @@ async function applyUpdate(
 		if (destMeta.kind !== "missing")
 			throw new Error(`Patch move destination already exists: ${operation.moveTo}`);
 	}
-	await publishFile(
+	await publishPreparedFile(
 		fs,
 		dest,
 		prepared.bytes,
@@ -474,20 +461,24 @@ async function applyUpdate(
 		outcomes: Object.freeze([...prepared.stage.outcomes]),
 		snapshots: Object.freeze([...prepared.stage.snapshots]),
 	});
-	if (operation.moveTo === undefined) return { outcome, mode: prepared.stage.mode };
+	const result = {
+		outcome,
+		mode: prepared.stage.mode,
+		rejectedHunks: prepared.stage.rejected,
+	};
+	if (operation.moveTo === undefined) return result;
 	try {
 		await fs.unlink(operation.path, signal);
 		return {
+			...result,
 			outcome: Object.freeze({
 				...outcome,
 				paths: Object.freeze([operation.path, operation.moveTo]),
 			}),
-			mode: prepared.stage.mode,
 		};
 	} catch (sourceError) {
 		return {
-			outcome,
-			mode: prepared.stage.mode,
+			...result,
 			sourceError,
 			sourceUnknown: sourceError instanceof FsTransportError && sourceError.phase !== "write",
 		};
@@ -536,9 +527,37 @@ export async function applyPatchInWorkspace(
 			...(score === undefined ? {} : { score }),
 		});
 	};
+	const setUpdateStatus = (
+		index: number,
+		operation: V4aUpdateOperation,
+		outcome: ApplyPatchAppliedOperation,
+		status: "applied" | "fuzzy" | "partial",
+		partialReason?: string,
+	): void => {
+		const current = progressOperations[index];
+		if (current === undefined) throw new Error(`Missing patch progress operation: ${index}`);
+		const score = status === "fuzzy" ? progressScore(outcome) : undefined;
+		const { score: _score, ...rest } = current;
+		progressOperations[index] = Object.freeze({
+			...rest,
+			...appliedDelta(operation, outcome.outcomes),
+			status,
+			...(score === undefined ? {} : { score }),
+			...(status === "partial"
+				? {
+						appliedHunks: outcome.outcomes.length,
+						totalHunks: operation.hunks.length,
+						...(partialReason === undefined ? {} : { partialReason }),
+					}
+				: {}),
+		});
+	};
 	const emit = (stage: ApplyPatchProgress["stage"]): void => {
 		const counted = progressOperations.filter(
-			(operation) => operation.status === "applied" || operation.status === "fuzzy",
+			(operation) =>
+				operation.status === "applied" ||
+				operation.status === "fuzzy" ||
+				operation.status === "partial",
 		);
 		options.onProgress?.(
 			Object.freeze({
@@ -550,7 +569,7 @@ export async function applyPatchInWorkspace(
 			}),
 		);
 	};
-	const release = await acquireApplyPatchLock(options.lockKey ?? fs.scope);
+	const release = await acquireMutationLock(options.lockKey ?? fs.scope, options.signal);
 	try {
 		await gcAgentPatchTemps(
 			fs,
@@ -597,6 +616,19 @@ export async function applyPatchInWorkspace(
 					if (published.mode === "exact") exactUpdateCount += 1;
 					if (published.mode === "fuzzy") fuzzyUpdateCount += 1;
 					applied.push(published.outcome);
+					const partialReason =
+						published.rejectedHunks.length === 0
+							? undefined
+							: (hunkFailureSummary(published.rejectedHunks) ?? "hunk rejected");
+					if (published.rejectedHunks.length > 0)
+						rejected.push(
+							rejection(
+								index,
+								operationTouchedPaths(operation),
+								"One or more update hunks failed",
+								published.rejectedHunks,
+							),
+						);
 					if (published.sourceError !== undefined) {
 						if (published.sourceUnknown === true) {
 							unconfirmed.push(rejection(index, [operation.path], published.sourceError));
@@ -604,20 +636,26 @@ export async function applyPatchInWorkspace(
 							halt = "unconfirmed";
 						} else {
 							rejected.push(rejection(index, [operation.path], published.sourceError));
-							setStatus(index, "rejected", published.outcome);
+							setUpdateStatus(
+								index,
+								operation,
+								published.outcome,
+								"partial",
+								partialReason ?? String(published.sourceError),
+							);
 						}
 					} else {
-						const current = progressOperations[index];
-						if (current !== undefined) {
-							const { score: _score, ...rest } = current;
-							const score = progressScore(published.outcome);
-							progressOperations[index] = Object.freeze({
-								...rest,
-								...appliedDelta(operation, published.outcome.outcomes),
-								status: (published.mode === "fuzzy" ? "fuzzy" : "applied") as "fuzzy" | "applied",
-								...(score === undefined ? {} : { score }),
-							});
-						}
+						setUpdateStatus(
+							index,
+							operation,
+							published.outcome,
+							partialReason === undefined
+								? published.mode === "fuzzy"
+									? "fuzzy"
+									: "applied"
+								: "partial",
+							partialReason,
+						);
 					}
 				}
 			} catch (error) {
@@ -657,7 +695,10 @@ export async function applyPatchInWorkspace(
 		}
 		emit("done");
 		const counted = progressOperations.filter(
-			(operation) => operation.status === "applied" || operation.status === "fuzzy",
+			(operation) =>
+				operation.status === "applied" ||
+				operation.status === "fuzzy" ||
+				operation.status === "partial",
 		);
 		return Object.freeze({
 			changedPaths: Object.freeze([

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { buildGrepText, formatCandidateLines } from "../../src/fff/fff-format.js";
 import type { FffFileCandidate, GrepMatch } from "../../src/fff/fff-types.js";
 

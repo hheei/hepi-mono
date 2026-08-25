@@ -1,4 +1,3 @@
-import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,9 +15,10 @@ import {
 	type ExtensionLifecycleContext,
 	observeLoadoutInventory,
 } from "@hheei/pi-ext-core";
+import { afterEach, describe, expect, test } from "vitest";
 import type { EditCatalog } from "../src/fff/settings.js";
 import { MAX_HL_CHARS } from "../src/pretty/config.js";
-import { activateEditCatalog, registerTools } from "../src/tools.js";
+import { activateEditCatalog, activateEvalCatalog, registerTools } from "../src/tools.js";
 
 const temporaryPaths: string[] = [];
 const renderContext = { isError: false, isPartial: false, lastComponent: undefined } as never;
@@ -85,6 +85,7 @@ describe("pi-ext-tools catalog", () => {
 			"bash",
 			"bash_job",
 			"apply_patch",
+			"eval",
 		]);
 		expect(names.filter((name) => name === "apply_patch")).toHaveLength(1);
 		expect(host.tools.find((tool) => tool.name === "edit")?.renderShell).toBe("self");
@@ -105,6 +106,50 @@ describe("pi-ext-tools catalog", () => {
 				host.activeTools().filter((name) => ["edit", "write", "apply_patch"].includes(name)),
 			).toEqual(expected);
 		}
+	});
+
+	test("can switch the editing catalog after the session has started", (): void => {
+		const host = harness();
+		registerTools(host.pi);
+		activate(host, "native");
+		activate(host, "apply_patch");
+		expect(
+			host.activeTools().filter((name) => ["edit", "write", "apply_patch"].includes(name)),
+		).toEqual(["apply_patch"]);
+		activate(host, "native");
+		expect(
+			host.activeTools().filter((name) => ["edit", "write", "apply_patch"].includes(name)),
+		).toEqual(["edit", "write"]);
+	});
+
+	test("re-registers eval guidelines when the edit catalog changes", (): void => {
+		const host = harness();
+		const evalTool = registerTools(host.pi);
+		activateEditCatalog(
+			{
+				pi: host.pi,
+				resources: { add: (): void => undefined },
+			} as unknown as ExtensionLifecycleContext,
+			"apply_patch",
+			evalTool,
+		);
+		const registered = [...host.tools].reverse().find((tool) => tool.name === "eval");
+		expect(registered?.promptGuidelines?.some((line) => line.includes("and apply_patch"))).toBe(
+			true,
+		);
+	});
+
+	test("activates eval only through its explicit static setting", (): void => {
+		const host = harness();
+		registerTools(host.pi);
+		activateEvalCatalog(
+			{
+				pi: host.pi,
+				resources: { add: (): void => undefined },
+			} as unknown as ExtensionLifecycleContext,
+			true,
+		);
+		expect(host.activeTools()).toContain("eval");
 	});
 
 	test("renders a bounded, numbered read preview without changing model content", (): void => {
@@ -688,6 +733,7 @@ describe("pi-ext-tools catalog", () => {
 			.render(100)
 			.map((line) => stripTerminalSequences(line).trimEnd())
 			.join("\n");
+		if (rendered === undefined) throw new Error("edit renderer is missing");
 		expect(rendered).toContain("first");
 		expect(rendered).toContain("before");
 		expect(rendered).toContain("after");
@@ -819,6 +865,7 @@ describe("pi-ext-tools catalog", () => {
 			.render(100)
 			.map((line) => stripTerminalSequences(line).trimEnd())
 			.join("\n");
+		if (rendered === undefined) throw new Error("legacy edit renderer is missing");
 		expect(rendered).toContain("42- │ const before = 1;");
 		expect(rendered).toContain("42+ │ const after = 2;");
 		expect(rendered).not.toContain("Successfully replaced text.");
@@ -850,6 +897,7 @@ describe("pi-ext-tools catalog", () => {
 			.render(100)
 			.map((line) => stripTerminalSequences(line).trimEnd())
 			.join("\n");
+		if (rendered === undefined) throw new Error("edit renderer is missing");
 		expect(rendered).toContain("Edit failed: old text was not found");
 		expect(rendered.split("Edit failed: old text was not found")).toHaveLength(2);
 	});
@@ -892,6 +940,7 @@ describe("pi-ext-tools catalog", () => {
 				isError: false,
 			} as never)
 			.render(40);
+		if (rows === undefined) throw new Error("edit renderer is missing");
 		const contextRows = rows.filter((line) => stripTerminalSequences(line).includes("keep "));
 		expect(contextRows).toHaveLength(1);
 		expect(visibleWidth(contextRows[0] ?? "")).toBeLessThanOrEqual(40);
@@ -971,6 +1020,7 @@ describe("pi-ext-tools catalog", () => {
 			.map((line) => line.trimEnd())
 			.join("\n")
 			.trimEnd();
+		if (grepResult === undefined) throw new Error("grep renderer is missing");
 		expect(grepResult).toContain("src/a.ts");
 		expect(grepResult).not.toContain("<text>src/a.ts</text>");
 		expect(stripTerminalSequences(grepResult ?? "")).toContain("  1 │ before");
@@ -1083,6 +1133,7 @@ describe("pi-ext-tools catalog", () => {
 			)
 			.render(200)
 			.join("\n");
+		if (result === undefined) throw new Error("grep renderer is missing");
 		const dim = "\x1b[2m";
 		const reset = "\x1b[0m";
 		const addBg = "\x1b[48;2;18;42;28m";
@@ -1138,6 +1189,7 @@ describe("pi-ext-tools catalog", () => {
 			)
 			.render(200)
 			.join("\n");
+		if (result === undefined) throw new Error("grep renderer is missing");
 		const dim = "\x1b[2m";
 		const needleAt = result.indexOf("needle");
 		expect(needleAt).toBeGreaterThan(-1);
@@ -1267,7 +1319,7 @@ describe("pi-ext-tools catalog", () => {
 		await expect(readFile(join(cwd, "first.txt"), "utf8")).rejects.toThrow();
 	});
 
-	test("does not publish an update when any hunk fails", async (): Promise<void> => {
+	test("publishes successful hunks when another hunk fails", async (): Promise<void> => {
 		const cwd = await temporaryDirectory();
 		await writeFile(join(cwd, "value.txt"), "one\ntwo\nthree\nfour\nfive\n", "utf8");
 		const host = harness();
@@ -1291,12 +1343,22 @@ describe("pi-ext-tools catalog", () => {
 			{ cwd } as ExtensionContext,
 		);
 
-		expect(result.details).toMatchObject({ status: "failed" });
+		expect(result.details).toMatchObject({
+			status: "partial",
+			operations: [{ status: "partial", appliedHunks: 2, totalHunks: 3 }],
+		});
 		expect(result.content).toContainEqual({
 			type: "text",
-			text: "Patch was not applied.\nRejected:\n- operation 1, value.txt, hunk 2: best fuzzy score 0.00 < required 0.70\nRecovery: read value.txt, then retry only rejected hunks from operation 1.",
+			text:
+				"Patch partially applied.\n" +
+				"Changed:\n" +
+				"- value.txt: update (2/3 hunks applied)\n" +
+				"Rejected:\n" +
+				"- operation 1, value.txt, hunk 2: best fuzzy score 0.00 < required 0.70\n" +
+				"Recovery: read value.txt, then retry only rejected hunks from operation 1.\n" +
+				"Do not retry applied hunks.",
 		});
-		expect(await readFile(join(cwd, "value.txt"), "utf8")).toBe("one\ntwo\nthree\nfour\nfive\n");
+		expect(await readFile(join(cwd, "value.txt"), "utf8")).toBe("ONE\ntwo\nthree\nfour\nFIVE\n");
 	});
 
 	test("persists only the visible write diff instead of the unchanged file body", async (): Promise<void> => {
@@ -1390,6 +1452,7 @@ describe("pi-ext-tools catalog", () => {
 			?.render(100)
 			.map((line) => stripTerminalSequences(line).trimEnd())
 			.join("\n");
+		if (rendered === undefined) throw new Error("write renderer is missing");
 		expect(rendered).toContain("OLD");
 		expect(rendered).toContain("NEW");
 		expect(rendered.split("\n").at(-1)).toContain("+1 -1");
@@ -1458,6 +1521,7 @@ describe("pi-ext-tools catalog", () => {
 			?.render(100)
 			.map((line) => stripTerminalSequences(line).trimEnd())
 			.join("\n");
+		if (writeRendered === undefined) throw new Error("write renderer is missing");
 		expect(writeRendered).toContain("wrote (1 lines)");
 		expect(writeRendered).toContain("small");
 		expect(writeRendered).not.toContain("Wrote");

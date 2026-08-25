@@ -1,8 +1,5 @@
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import {
-	registerManagedTool,
-	type ManagedLoadoutToolRegistration,
-} from "@hheei/pi-ext-core";
+import { type ManagedLoadoutToolRegistration, registerManagedTool } from "@hheei/pi-ext-core";
 import type { TSchema } from "typebox";
 
 const OWNER = "@hheei/pi-ext-tools";

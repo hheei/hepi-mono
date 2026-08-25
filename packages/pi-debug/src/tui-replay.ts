@@ -4,6 +4,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { parseArgs } from "node:util";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { lock } from "proper-lockfile";
@@ -403,7 +404,7 @@ export function createTuiReplaySession(options: Omit<ReplayOptions, "actions">):
 				case "wait":
 					if (!Number.isFinite(action.ms) || action.ms < 0)
 						throw new Error("wait ms must be non-negative");
-					await Bun.sleep(action.ms);
+					await sleep(action.ms);
 					break;
 				case "model": {
 					const request: ReplayModelRequest = {

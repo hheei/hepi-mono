@@ -1,9 +1,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	type ExtensionLifecycleContext,
-	getHepiRuntimeSettingsRegistry,
+	getRuntimeSettingsRegistry,
 	registerExtensionLifecycle,
-	registerHepiSettings,
+	registerSettings,
 } from "@hheei/pi-ext-core";
 import { BashJobRegistry } from "../bash-jobs.js";
 import { TargetRuntime } from "../targets.js";
@@ -117,25 +117,22 @@ async function startFffLifecycle(
 	rtkProvider: ReturnType<typeof createRtkSettingsProvider>,
 	targetProvider: ReturnType<typeof createTargetSettingsProvider>,
 ): Promise<void> {
-	context.resources.add(
-		"fff-settings",
-		registerHepiSettings(provider, getHepiRuntimeSettingsRegistry(pi)),
-	);
+	context.resources.add("fff-settings", registerSettings(provider, getRuntimeSettingsRegistry(pi)));
 	context.resources.add(
 		"bash-settings",
-		registerHepiSettings(bashProvider, getHepiRuntimeSettingsRegistry(pi)),
+		registerSettings(bashProvider, getRuntimeSettingsRegistry(pi)),
 	);
 	context.resources.add(
 		"rtk-settings",
-		registerHepiSettings(rtkProvider, getHepiRuntimeSettingsRegistry(pi)),
+		registerSettings(rtkProvider, getRuntimeSettingsRegistry(pi)),
 	);
 	context.resources.add(
 		"edit-settings",
-		registerHepiSettings(createEditSettingsProvider(), getHepiRuntimeSettingsRegistry(pi)),
+		registerSettings(createEditSettingsProvider(), getRuntimeSettingsRegistry(pi)),
 	);
 	context.resources.add(
 		"target-settings",
-		registerHepiSettings(targetProvider, getHepiRuntimeSettingsRegistry(pi)),
+		registerSettings(targetProvider, getRuntimeSettingsRegistry(pi)),
 	);
 	let settings: FffSettings;
 	let rtkSettings: RtkSettings;

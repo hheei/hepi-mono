@@ -1,5 +1,5 @@
-import { expect, test } from "bun:test";
 import { createOutputRegistry } from "@hheei/pi-ext-core";
+import { expect, test } from "vitest";
 import { BashOutputSink, DEFAULT_VISIBLE_TAIL_BYTES } from "../src/bash-output.js";
 
 test("keeps under-limit output visible without output", (): void => {

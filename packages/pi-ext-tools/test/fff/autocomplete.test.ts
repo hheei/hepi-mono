@@ -1,6 +1,6 @@
-import { describe, expect, test } from "bun:test";
 import type { AutocompleteProvider } from "@earendil-works/pi-tui";
 import { Result } from "better-result";
+import { describe, expect, test } from "vitest";
 import { createFffAutocompleteProvider } from "../../src/fff/autocomplete.js";
 
 const baseProvider: AutocompleteProvider = {

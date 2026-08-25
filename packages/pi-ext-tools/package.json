@@ -23,8 +23,8 @@
 	},
 	"scripts": {
 		"build:native": "bun ../../scripts/build-rust.mjs",
-		"test:native": "bun run build:native && bun test ./test/native-shell.native.ts",
-		"build": "bunx tsc -p tsconfig.build.json",
+		"test:native": "bun run build:native && bunx vitest run ./test/native-shell.native.ts",
+		"build": "bunx tsc -p tsconfig.build.json && bun -e \"import { cpSync } from 'node:fs'; cpSync('src/eval/kernel/child.py', 'dist/eval/kernel/child.py')\"",
 		"prepack": "bun run build"
 	},
 	"keywords": [
@@ -46,6 +46,7 @@
 	"dependencies": {
 		"@ff-labs/fff-node": "^0.10.3",
 		"@hheei/pi-ext-core": "workspace:*",
+		"acorn": "^8.18.0",
 		"better-result": "^2.10.0",
 		"cli-highlight": "^2.1.11",
 		"diff": "^9.0.0",

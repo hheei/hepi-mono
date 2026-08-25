@@ -1,12 +1,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
+	authenticatedModelSelectionOptions,
 	type ExtensionLifecycleContext,
 	ensureSubagentCoordinator,
-	getHepiRuntimeSettingsRegistry,
-	type HepiSettingsState,
-	hepiAuthenticatedModelSelectionOptions,
+	getRuntimeSettingsRegistry,
 	registerExtensionLifecycle,
-	registerHepiSettings,
+	registerSettings,
+	type SettingsState,
 } from "@hheei/pi-ext-core";
 import {
 	AUTO_TITLE_FIELD,
@@ -24,8 +24,8 @@ export default function piAutoTitleExtension(pi: ExtensionAPI): void {
 		// Core owns lifecycle ordering and settings registration; this package owns
 		// model selection, title policy, and the coordinator's transient job state.
 		ensureSubagentCoordinator(runtime);
-		const modelOptions = hepiAuthenticatedModelSelectionOptions(runtime.extension.modelRegistry);
-		let settingsState: HepiSettingsState = {
+		const modelOptions = authenticatedModelSelectionOptions(runtime.extension.modelRegistry);
+		let settingsState: SettingsState = {
 			[AUTO_TITLE_GROUP]: { [AUTO_TITLE_FIELD]: false, [AUTO_TITLE_MODEL_FIELD]: "" },
 		};
 		const disposeCoordinator = (): void => {
@@ -60,11 +60,11 @@ export default function piAutoTitleExtension(pi: ExtensionAPI): void {
 				else ensureCoordinator(model);
 			},
 		});
-		const settingsRegistry = getHepiRuntimeSettingsRegistry(pi);
+		const settingsRegistry = getRuntimeSettingsRegistry(pi);
 		// Auto Title is a plain settings extension: it never appears in the
 		// Loadout `Agents` group, so the coordinator is gated only by the
 		// `auto-title` enabled switch in `/ext-settings`.
-		const disposeSettings = registerHepiSettings(provider, settingsRegistry);
+		const disposeSettings = registerSettings(provider, settingsRegistry);
 		try {
 			const context = {
 				sessionId: runtime.extension.sessionManager.getSessionId(),

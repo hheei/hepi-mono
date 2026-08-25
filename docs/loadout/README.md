@@ -1,8 +1,8 @@
 # Loadout
 
-`@hheei/pi-loadout` 是 Pi 工具、技能与 extension resource 激活策略扩展。它读取 global 和 project JSON delta，在每个
-session 开始时解析可用资源并应用给 Pi；它注册 `/loadout`，以 Loadout 为 initial page 打开 shared
-Settings router，而不维护另一份 renderer。
+`@hheei/pi-settings` 拥有 Pi 工具、技能与 extension resource 的 Loadout activation policy。它读取
+global 和 project JSON delta，在每个 session 开始时解析可用资源并应用给 Pi；它注册 `/loadout`，以
+Loadout 为 initial page 打开自己的 shared Settings router，而不维护另一份 renderer。
 
 ## 用户意图
 
@@ -36,7 +36,7 @@ disabled 的行是只读的——行尾无 `↵`、`Enter` 不打开 detail。�
 key 下决定（`Space` 切换三态并 persist 到 settings JSON），agent Markdown 不参与启停。
 
 Agent contributor 可把 `model` 与 `thinking` 合并为单个 `Model` 行，复用 Settings 的
-cycler 交互（与 `HepiSettingTabCycle` 语义一致）：行值以 `glyph + model` 形式显示（thinking
+cycler 交互（与 `SettingTabCycle` 语义一致）：行值以 `glyph + model` 形式显示（thinking
 glyph 仅在已 pin 级别时出现），按 `Enter` 打开单一选择器，`↑`/`↓` 在 model 选项间循环移动
 （到头回绕，`inherit` 为首项），`Tab`/`Shift+Tab` 就地正向/反向循环 thinking 值
 （`off`…`max`，不含 `inherit`——不按 Tab 保持继承），再次 `Enter` 确认，`Esc` 取消并保留原值。
@@ -89,7 +89,7 @@ configuration 时显示 `inherit`，不猜测 provider。
 
 ## 配置与作用域
 
-配置段为 `pi-loadout`。全局 `<agentDir>/settings.json` 与项目
+配置段保留为 `pi-loadout`。全局 `<agentDir>/settings.json` 与项目
 `<cwd>/.pi/settings.json` 各自使用同一段：
 
 ```json
@@ -126,7 +126,7 @@ winner inherit 或回到其 default，才可操作被锁定 member。
 
 - `pi-ext-core` 提供 runtime-scoped resource inventory、已解析 activation snapshot 与
   disabled-skill capability；它不持有策略、存储或 UI。
-- `pi-loadout` 发现 Pi 中的 native、HEPI 与第三方工具。同名工具合并为一个 name-level
+- `pi-settings` 发现 Pi 中的 native、HEPI 与第三方工具。同名工具合并为一个 name-level
   项，因为 Pi 的 active set 和 handler 选择同样按 name 工作。
 - 未配置的已发现工具保留 session-start Pi active set；HEPI managed tool 可声明自身默认值。
 - skill disable 不卸载 Pi skill，也不阻止用户显式 `/skill:<name>` 调用；它过滤 Pi `0.83`
@@ -141,9 +141,9 @@ winner inherit 或回到其 default，才可操作被锁定 member。
 - 被 policy 关闭的工具 UI 由该工具扩展订阅 core activation snapshot 自行清理；Loadout
   不直接调用具体扩展。
 
-## 后续
+## 宿主边界
 
-`pi-settings` 独占 `/ext-settings` host，`pi-loadout` 独占 `/loadout` direct entry；二者打开同一 router。
-Loadout 页面把 Tools、Skills 与按需出现的 resource groups 放在一个列表，通过 Global/Project scope draft 修改这些 delta；它不 hot-apply，
-关闭 Settings router 后提示用户 `/reload`。`pi-ext-tools` 的 integrated FFF tools 通过 core managed registration 接入该策略，不依赖已删除的
-aggregate Loadout。
+`pi-settings` 独占 `/ext-settings` 与 `/loadout`；两个 command 打开同一 router，后者只固定初始 page 为
+Loadout。Loadout 页面把 Tools、Skills 与按需出现的 resource groups 放在一个列表，通过 Global/Project
+scope draft 修改这些 delta；它不 hot-apply，关闭 Settings router 后提示用户 `/reload`。`pi-ext-tools`
+的 integrated FFF tools 通过 core managed registration 接入该策略。

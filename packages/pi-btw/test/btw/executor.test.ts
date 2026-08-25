@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
 import type { Api, AssistantMessage, Context, Model } from "@earendil-works/pi-ai";
+import { describe, expect, test } from "vitest";
 import { type BtwExecutionResult, executeBtwTurn } from "../../src/executor.js";
 
 const model = { provider: "test", id: "model", api: "test" } as Model<Api>;

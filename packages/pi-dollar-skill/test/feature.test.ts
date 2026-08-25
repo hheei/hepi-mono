@@ -1,6 +1,6 @@
-import { describe, expect, test } from "bun:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteProvider } from "@earendil-works/pi-tui";
+import { describe, expect, test } from "vitest";
 import { createDollarSkillFeature, registerDollarSkillInputTransform } from "../src/index.js";
 import type { DollarSkillCommand } from "../src/model.js";
 

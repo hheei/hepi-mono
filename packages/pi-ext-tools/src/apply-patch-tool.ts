@@ -13,13 +13,13 @@ import {
 } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import {
-	ApplyPatchBusyError,
 	type ApplyPatchInWorkspaceResult,
 	type ApplyPatchProgress,
 	type ApplyPatchRejection,
 	applyPatchInWorkspace,
 	createSftpPatchFs,
 	loadFuzzyApplyPatchPolicy,
+	MutationBusyError,
 } from "./apply-patch/index.js";
 import {
 	createV4aPreviewCursor,
@@ -27,6 +27,7 @@ import {
 	previewV4aPatchFileCount,
 	type V4aPreviewCursor,
 } from "./apply-patch/parser.js";
+import { isPatchPathOutsideWorkspace } from "./apply-patch/paths.js";
 import {
 	formatApplyPatchFooter,
 	renderApplyPatchCall,
@@ -40,9 +41,16 @@ const OWNER = "@hheei/pi-ext-tools";
 const OUTPUT_PREFIX = "output:" + "//";
 const MAX_CANDIDATES = 6;
 const APPLY_PATCH_DESCRIPTION =
-	"Apply a strict Codex V4A patch to the local workspace or an authorized SSH host. Existing and resulting files are capped at 32 MiB. Confirmed path changes are never rolled back.";
+	"Apply one Codex V4A patch to the local workspace or an authorized SSH host. Put every file change in that single patch. Existing and resulting files are capped at 32 MiB. Confirmed path changes are never rolled back.";
 const APPLY_PATCH_PARAMETER_DESCRIPTION =
-	"V4A patch text. `*** Begin Patch` first, `*** End Patch` last; never repeat either marker. Use Add File, Update File, Delete File, and optional Move to sections.";
+	"One V4A envelope. First line `*** Begin Patch`, last line `*** End Patch`. Multiple files are multiple Add/Update/Delete sections in this same string, not extra apply_patch calls. Extra Begin/End markers are ignored. Paths may be absolute or workspace-relative.";
+const APPLY_PATCH_PROMPT_SNIPPET =
+	"One V4A patch per call. Multiple files are sections in the same patch, not multiple apply_patch calls.";
+const APPLY_PATCH_PROMPT_GUIDELINES = [
+	"apply_patch: put all related file changes in one patch. Each file is an Add File, Update File, or Delete File section. Do not call apply_patch once per file.",
+	"apply_patch: start with `*** Begin Patch` and end with `*** End Patch`. Extra copies of those markers are ignored. Do not wrap the patch in markdown fences.",
+	"apply_patch: target is local or an authorized SSH alias. output is not supported. Confirmed path changes are never rolled back.",
+];
 const RECOVERY_READ_TARGETS =
 	"Recovery: read every Unconfirmed path before attempting another mutation.";
 const RECOVERY_BUSY =
@@ -268,6 +276,17 @@ export function formatApplyPatchResult(result: ApplyPatchInWorkspaceResult): str
 	].join("\n");
 }
 
+function externalPathWarning(workspaceRoot: string, result: ApplyPatchInWorkspaceResult): string {
+	const paths = [
+		...new Set(
+			result.changedPaths.filter((path) => isPatchPathOutsideWorkspace(workspaceRoot, path)),
+		),
+	];
+	return paths.length === 0
+		? ""
+		: `\nWarning: changed path outside the workspace: ${paths.join(", ")}`;
+}
+
 function progressDetails(
 	progress: ApplyPatchProgress,
 	durationMs: number,
@@ -330,7 +349,9 @@ export function createApplyPatchTool(
 		label: "apply_patch",
 		description: APPLY_PATCH_DESCRIPTION,
 		parameters: APPLY_PATCH_PARAMETERS,
-		executionMode: "parallel",
+		promptSnippet: APPLY_PATCH_PROMPT_SNIPPET,
+		promptGuidelines: APPLY_PATCH_PROMPT_GUIDELINES,
+		executionMode: "sequential",
 		renderCall: (args, theme, context) => renderApplyPatchCall(args, theme, context),
 		renderResult: (result, options, theme) =>
 			renderApplyPatchResult(result, options.expanded, theme),
@@ -376,8 +397,9 @@ export function createApplyPatchTool(
 						? { fs: createSftpPatchFs(runtime, target), lockKey: `ssh:${target}` }
 						: {}),
 				});
+				const warning = remote ? "" : externalPathWarning(ctx.cwd, result);
 				return {
-					content: [{ type: "text", text: formatApplyPatchResult(result) }],
+					content: [{ type: "text", text: `${formatApplyPatchResult(result)}${warning}` }],
 					details: {
 						...result,
 						status: statusFor(result),
@@ -387,7 +409,7 @@ export function createApplyPatchTool(
 				} satisfies AgentToolResult<ApplyPatchToolDetails>;
 			} catch (error) {
 				const message =
-					error instanceof ApplyPatchBusyError
+					error instanceof MutationBusyError
 						? error.message
 						: error instanceof Error
 							? error.message
@@ -405,11 +427,12 @@ export function registerApplyPatchTool(
 	pi: ExtensionAPI,
 	tui: ToolTui = createToolTui(),
 	state?: FffRuntimeState,
-): void {
+): ToolDefinition {
+	const tool = createApplyPatchTool(state);
 	registerManagedTool(
 		pi,
 		APPLY_PATCH_TOOL_REGISTRATION,
-		tui.frame(createApplyPatchTool(state), {
+		tui.frame(tool, {
 			summary: (args, latest, context) => applyPatchHeader(latest, args, context?.state),
 			summarySeparator: "space",
 			footer: (result, completion) => {
@@ -421,4 +444,5 @@ export function registerApplyPatchTool(
 				isApplyPatchToolDetails(result.details) && result.details.status !== "success",
 		}),
 	);
+	return tool as unknown as ToolDefinition;
 }

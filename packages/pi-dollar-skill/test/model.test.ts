@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
 import type { AutocompleteProvider } from "@earendil-works/pi-tui";
+import { describe, expect, test } from "vitest";
 import {
 	createDollarSkillAutocompleteProvider,
 	type DollarSkillCommand,

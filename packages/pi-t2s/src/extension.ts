@@ -1,8 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-	getHepiRuntimeSettingsRegistry,
+	getRuntimeSettingsRegistry,
 	registerExtensionLifecycle,
-	registerHepiSettings,
+	registerSettings,
 } from "@hheei/pi-ext-core";
 import { convertInputText } from "./model.js";
 import {
@@ -17,7 +17,7 @@ export default function piT2sExtension(
 	const provider = createTraditionalToSimplifiedSettingsProvider(
 		options.settingsPath === undefined ? {} : { path: options.settingsPath },
 	);
-	const registry = getHepiRuntimeSettingsRegistry(pi);
+	const registry = getRuntimeSettingsRegistry(pi);
 	let registered = false;
 	let sessionId: string | undefined;
 	let enabled = true;
@@ -39,7 +39,7 @@ export default function piT2sExtension(
 			}
 			sessionId = runtime.extension.sessionManager.getSessionId();
 			enabled = false;
-			const unregister = registerHepiSettings(provider, registry);
+			const unregister = registerSettings(provider, registry);
 			runtime.resources.add("pi-t2s-settings", unregister);
 			try {
 				const state = await provider.storage.load({

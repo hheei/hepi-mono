@@ -1,9 +1,9 @@
-import { expect, test } from "bun:test";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { expect, test } from "vitest";
 import { registerBashTool } from "../src/bash.js";
 import type { FffRuntimeState } from "../src/fff/lifecycle.js";
 import { DEFAULT_FFF_SETTINGS } from "../src/fff/settings.js";

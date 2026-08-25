@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
 import { initTheme } from "@earendil-works/pi-coding-agent";
+import { describe, expect, test } from "vitest";
 import {
 	formatApplyPatchFooter,
 	renderApplyPatchCall,

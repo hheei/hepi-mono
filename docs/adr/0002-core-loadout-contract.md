@@ -1,5 +1,8 @@
 # Core Loadout Contract
 
+> Superseded: `pi-settings` now owns Loadout activation policy and UI. This record preserves the
+> original decision to keep inventory registration in `pi-ext-core`.
+
 > 2026-08-02 更新：本 ADR 对非-tool inventory 的限制由
 > [ADR 0008](0008-loadout-agent-resources.md) 有限扩展为 lifecycle-bound resource inventory；
 > `pi-loadout` 仍独占 activation policy 和 UI。

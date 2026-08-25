@@ -7,9 +7,13 @@ export {
 	createLocalPatchFs,
 	createSftpPatchFs,
 	FsTransportError,
+	fileTooLarge,
+	gcAgentPatchTemps,
 	type PatchFs,
+	publishPreparedFile,
+	sftpTimeoutMs,
 } from "./fs.js";
-export { ApplyPatchBusyError, acquireApplyPatchLock } from "./lock.js";
+export { acquireMutationLock, MutationBusyError, withMutationLock } from "./lock.js";
 export type {
 	ApplyPatchAppliedOperation,
 	ApplyPatchHunkSnapshot,

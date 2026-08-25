@@ -1,26 +1,19 @@
-import type { HepiSettingField, HepiSettingOption, HepiSettingTabCycle } from "./settings.js";
+import type { SettingField, SettingOption, SettingTabCycle } from "./settings.js";
 
-export type HepiModelThinkingLevel =
-	| "off"
-	| "minimal"
-	| "low"
-	| "medium"
-	| "high"
-	| "xhigh"
-	| "max";
+export type ModelThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 /** A settings-host option whose value is the exact `provider/model` reference. */
-export interface HepiModelSelectionOption extends HepiSettingOption<string> {
+export interface ModelSelectionOption extends SettingOption<string> {
 	readonly label: string;
 }
 
 /** Minimal model identity needed to build a settings option list. */
-export interface HepiModelSelectionCandidate {
+export interface ModelSelectionCandidate {
 	readonly provider: string;
 	readonly id: string;
 }
 
-export interface HepiModelSelectionRegistry<T extends HepiModelSelectionCandidate> {
+export interface ModelSelectionRegistry<T extends ModelSelectionCandidate> {
 	/** Missing availability means the caller receives only the `Not set` option. */
 	getAvailable?(): readonly T[];
 	/** Authentication filtering belongs to the host registry, not core. */
@@ -28,25 +21,25 @@ export interface HepiModelSelectionRegistry<T extends HepiModelSelectionCandidat
 }
 
 /** Declarative thinking-level cycle rendered beside a model field by a settings host. */
-export interface HepiModelThinkingCycle {
+export interface ModelThinkingCycle {
 	readonly fieldId: string;
 	readonly label: string;
 	readonly description: string;
-	readonly defaultValue: HepiModelThinkingLevel;
-	readonly options: readonly HepiSettingOption<HepiModelThinkingLevel>[];
+	readonly defaultValue: ModelThinkingLevel;
+	readonly options: readonly SettingOption<ModelThinkingLevel>[];
 }
 
 /** Inputs for a model field; core validates the reference shape but not provider policy. */
-export interface CreateHepiModelSelectionFieldOptions {
+export interface CreateModelSelectionFieldOptions {
 	readonly id: string;
 	readonly label: string;
 	readonly description: string;
-	readonly modelOptions: readonly HepiModelSelectionOption[];
-	readonly thinking: HepiModelThinkingLevel | HepiModelThinkingCycle;
+	readonly modelOptions: readonly ModelSelectionOption[];
+	readonly thinking: ModelThinkingLevel | ModelThinkingCycle;
 }
 
 /** Maps untrusted setting values to a stable display glyph, with `?` as fallback. */
-export function hepiThinkingGlyph(level: unknown): string {
+export function thinkingGlyph(level: unknown): string {
 	if (level === "off" || level === "minimal") return "○";
 	if (level === "low") return "◔";
 	if (level === "medium") return "◑";
@@ -55,9 +48,9 @@ export function hepiThinkingGlyph(level: unknown): string {
 	return "?";
 }
 
-export function hepiModelSelectionOptions(
-	models: Iterable<HepiModelSelectionCandidate>,
-): readonly HepiModelSelectionOption[] {
+export function modelSelectionOptions(
+	models: Iterable<ModelSelectionCandidate>,
+): readonly ModelSelectionOption[] {
 	// Deduplicate and sort so settings panels remain stable across provider reloads.
 	const values = new Set<string>();
 	for (const model of models) values.add(`${model.provider}/${model.id}`);
@@ -69,24 +62,24 @@ export function hepiModelSelectionOptions(
 	];
 }
 
-export function hepiAuthenticatedModelSelectionOptions<T extends HepiModelSelectionCandidate>(
-	registry: HepiModelSelectionRegistry<T>,
-): readonly HepiModelSelectionOption[] {
+export function authenticatedModelSelectionOptions<T extends ModelSelectionCandidate>(
+	registry: ModelSelectionRegistry<T>,
+): readonly ModelSelectionOption[] {
 	// Auth filtering is intentionally performed before exposing options; consumers
 	// may still validate a saved reference separately when loading settings.
-	return hepiModelSelectionOptions(
+	return modelSelectionOptions(
 		(registry.getAvailable?.() ?? []).filter((model) => registry.hasConfiguredAuth(model)),
 	);
 }
 
-export function createHepiModelSelectionField(
-	options: CreateHepiModelSelectionFieldOptions,
-): HepiSettingField<string> {
+export function createModelSelectionField(
+	options: CreateModelSelectionFieldOptions,
+): SettingField<string> {
 	// The field stores only the model reference. Thinking is a related display/control
 	// value so core does not persist or own a second model-selection state machine.
 	const fixedThinking = typeof options.thinking === "string" ? options.thinking : undefined;
 	const cycle = typeof options.thinking === "string" ? undefined : options.thinking;
-	const thinking = (related: unknown): HepiModelThinkingLevel =>
+	const thinking = (related: unknown): ModelThinkingLevel =>
 		related === "off" ||
 		related === "minimal" ||
 		related === "low" ||
@@ -98,7 +91,7 @@ export function createHepiModelSelectionField(
 			: cycle === undefined
 				? (fixedThinking ?? "off")
 				: cycle.defaultValue;
-	const tabCycle: HepiSettingTabCycle | undefined =
+	const tabCycle: SettingTabCycle | undefined =
 		cycle === undefined ? undefined : { ...cycle, separator: " " };
 	const modelText = (value: string): string => value.trim() || "Not set";
 	return {
@@ -108,8 +101,7 @@ export function createHepiModelSelectionField(
 		defaultValue: "",
 		description: options.description,
 		options: options.modelOptions,
-		formatDisplay: (value, related) =>
-			`${hepiThinkingGlyph(thinking(related))} ${modelText(value)}`,
+		formatDisplay: (value, related) => `${thinkingGlyph(thinking(related))} ${modelText(value)}`,
 		formatDescription: (value, related) => `${modelText(value)} ${thinking(related)}`,
 		parse: (draft) => draft,
 		validate: (value) =>

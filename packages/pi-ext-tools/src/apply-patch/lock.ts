@@ -4,11 +4,11 @@ import { createConnection, createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-export class ApplyPatchBusyError extends Error {
-	readonly code = "APPLY_PATCH_BUSY";
+export class MutationBusyError extends Error {
+	readonly code = "MUTATION_BUSY";
 	constructor(scope: string) {
-		super(`apply_patch is already running for ${scope}`);
-		this.name = "ApplyPatchBusyError";
+		super(`A mutation is already running for ${scope}`);
+		this.name = "MutationBusyError";
 	}
 }
 
@@ -16,7 +16,7 @@ function hashKey(key: string): string {
 	return createHash("sha256").update(key).digest("hex").slice(0, 16);
 }
 
-export function applyPatchLockPath(key: string): string {
+export function mutationLockPath(key: string): string {
 	if (process.platform === "win32") return `\\\\.\\pipe\\hepi-apply-patch-${hashKey(key)}`;
 	return join(tmpdir(), `hepi-apply-patch-${hashKey(key)}.sock`);
 }
@@ -62,20 +62,63 @@ function release(server: Server, path: string): () => Promise<void> {
 	};
 }
 
-/** Exclusive apply_patch lock. Busy rejects immediately; kernel-held, released on process death. */
-export async function acquireApplyPatchLock(key: string): Promise<() => Promise<void>> {
-	const path = applyPatchLockPath(key);
-	try {
-		return release(await listen(path), path);
-	} catch (error) {
-		if (!isAddrInUse(error)) throw error;
-		if (await canConnect(path)) throw new ApplyPatchBusyError(key);
-		if (process.platform !== "win32") await unlink(path).catch(() => undefined);
+function throwIfAborted(signal?: AbortSignal): void {
+	if (!signal?.aborted) return;
+	throw signal.reason instanceof Error ? signal.reason : new Error("aborted");
+}
+
+async function waitUntilReleased(path: string, signal?: AbortSignal): Promise<void> {
+	while (await canConnect(path)) {
+		throwIfAborted(signal);
+		await new Promise<void>((resolve, reject) => {
+			const timer = setTimeout(() => {
+				signal?.removeEventListener("abort", onAbort);
+				resolve();
+			}, 25);
+			const onAbort = (): void => {
+				clearTimeout(timer);
+				reject(signal?.reason instanceof Error ? signal.reason : new Error("aborted"));
+			};
+			if (signal === undefined) return;
+			if (signal.aborted) {
+				onAbort();
+				return;
+			}
+			signal.addEventListener("abort", onAbort, { once: true });
+		});
+	}
+}
+
+/** Exclusive mutation lock. Waiters queue until the holder releases or the waiter aborts. Kernel-held, released on process death. */
+export async function acquireMutationLock(
+	key: string,
+	signal?: AbortSignal,
+): Promise<() => Promise<void>> {
+	const path = mutationLockPath(key);
+	for (;;) {
+		throwIfAborted(signal);
 		try {
 			return release(await listen(path), path);
-		} catch (retryError) {
-			if (isAddrInUse(retryError)) throw new ApplyPatchBusyError(key);
-			throw retryError;
+		} catch (error) {
+			if (!isAddrInUse(error)) throw error;
+			if (await canConnect(path)) {
+				await waitUntilReleased(path, signal);
+				continue;
+			}
+			if (process.platform !== "win32") await unlink(path).catch(() => undefined);
 		}
+	}
+}
+
+export async function withMutationLock<T>(
+	key: string,
+	signal: AbortSignal | undefined,
+	run: () => Promise<T>,
+): Promise<T> {
+	const unlock = await acquireMutationLock(key, signal);
+	try {
+		return await run();
+	} finally {
+		await unlock();
 	}
 }

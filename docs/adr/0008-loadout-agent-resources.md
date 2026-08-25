@@ -1,5 +1,8 @@
 # Loadout Agent Resource Contract
 
+> Superseded in ownership: `pi-settings` consumes agent resources and owns the Loadout page. This
+> record preserves the resource-registration contract.
+
 ## 决定
 
 `@hheei/pi-ext-core` 的 Loadout registration contract 从 tool inventory 扩展为 lifecycle-bound resource

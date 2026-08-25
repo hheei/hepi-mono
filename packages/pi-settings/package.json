@@ -1,7 +1,7 @@
 {
 	"name": "@hheei/pi-settings",
 	"version": "0.0.0",
-	"description": "Settings surface host for Pi extensions.",
+	"description": "Settings surface host and Loadout policy for Pi extensions.",
 	"type": "module",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
@@ -27,7 +27,8 @@
 		"pi-package",
 		"pi-extension",
 		"hepi",
-		"settings"
+		"settings",
+		"loadout"
 	],
 	"license": "MIT",
 	"repository": {

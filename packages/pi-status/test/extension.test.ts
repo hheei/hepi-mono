@@ -1,12 +1,12 @@
-import { expect, test } from "bun:test";
 import { join } from "node:path";
 import {
 	createEventBus,
 	DefaultResourceLoader,
 	type EventBus,
 } from "@earendil-works/pi-coding-agent";
+import { expect, test } from "vitest";
 
-const repositoryRoot = join(import.meta.dir, "../../..");
+const repositoryRoot = join(import.meta.dirname, "../../..");
 
 function loader(eventBus: EventBus): DefaultResourceLoader {
 	return new DefaultResourceLoader({

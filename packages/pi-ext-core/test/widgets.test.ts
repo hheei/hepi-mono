@@ -1,6 +1,6 @@
-import { expect, test } from "bun:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { registerHepiWidget, suspendHepiWidgets } from "../src/index.js";
+import { expect, test } from "vitest";
+import { registerWidget, suspendWidgets } from "../src/index.js";
 
 function fixture(): {
 	readonly pi: ExtensionAPI;
@@ -32,14 +32,14 @@ function fixture(): {
 test("suspends all managed widgets until the final Settings lease releases", () => {
 	const h = fixture();
 	const controller = new AbortController();
-	const handle = registerHepiWidget(h.pi, h.extension, controller.signal, {
+	const handle = registerWidget(h.pi, h.extension, controller.signal, {
 		id: "test:widget",
 		placement: "aboveEditor",
 		create: () => ({ render: () => ["widget"], invalidate: () => undefined }),
 	});
 	expect(typeof h.calls.at(-1)?.content).toBe("function");
-	const first = suspendHepiWidgets(h.pi);
-	const second = suspendHepiWidgets(h.pi);
+	const first = suspendWidgets(h.pi);
+	const second = suspendWidgets(h.pi);
 	expect(h.calls.at(-1)?.content).toBeUndefined();
 	first.release();
 	expect(h.calls.at(-1)?.content).toBeUndefined();
@@ -52,7 +52,7 @@ test("suspends all managed widgets until the final Settings lease releases", () 
 test("removes a managed widget when its lifecycle signal aborts", () => {
 	const h = fixture();
 	const controller = new AbortController();
-	registerHepiWidget(h.pi, h.extension, controller.signal, {
+	registerWidget(h.pi, h.extension, controller.signal, {
 		id: "test:widget",
 		placement: "belowEditor",
 		create: () => ({ render: () => ["widget"], invalidate: () => undefined }),

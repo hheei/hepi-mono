@@ -1,7 +1,7 @@
-import { describe, expect, test } from "bun:test";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
+import { describe, expect, test } from "vitest";
 import { createBtwComponent } from "../../src/component.js";
 import { createBtwTurn } from "../../src/model.js";
 

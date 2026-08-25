@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { describe, expect, test } from "vitest";
 import { createDisposerRegistry } from "../src/disposer-registry.js";
 import {
 	clearDisabledSkillKeys,
@@ -7,11 +7,9 @@ import {
 	getDisabledSkillKeys,
 	isManagedLoadoutTool,
 	isSkillEnabled,
-	observeLoadoutHost,
 	observeLoadoutInventory,
 	observeLoadoutToolActivation,
 	publishLoadoutToolActivation,
-	registerLoadoutHost,
 	registerLoadoutInventory,
 	registerLoadoutResource,
 	registerManagedLoadoutTool,
@@ -43,25 +41,6 @@ function host(events: object = {}) {
 }
 
 describe("Loadout core contract", () => {
-	test("publishes lifecycle-bound Loadout host presence", () => {
-		const h = host();
-		const controller = new AbortController();
-		const states: boolean[] = [];
-		observeLoadoutHost(h.pi, {
-			signal: controller.signal,
-			onChange(active) {
-				states.push(active);
-			},
-		});
-		const dispose = registerLoadoutHost(h.pi);
-		expect(states).toEqual([false, true]);
-		expect(() => registerLoadoutHost(h.pi)).toThrow("Loadout host is already active");
-		dispose();
-		dispose();
-		expect(states).toEqual([false, true, false]);
-		controller.abort();
-	});
-
 	test("activates a managed bundle without changing unrelated tools and cleans it up", async () => {
 		const h = host();
 		const activeTools = ["read"];
@@ -94,6 +73,45 @@ describe("Loadout core contract", () => {
 		await resources.cleanup();
 		expect(activeTools).toEqual(["read"]);
 		expect(snapshots.at(-1)).toEqual([]);
+		controller.abort();
+	});
+
+	test("can unpublish and republish a managed catalog after the first activation", async () => {
+		const h = host();
+		const activeTools = ["read"];
+		const pi = {
+			...h.pi,
+			getActiveTools(): string[] {
+				return activeTools;
+			},
+			setActiveTools(next: string[]): void {
+				activeTools.splice(0, activeTools.length, ...next);
+			},
+		};
+		const alpha = { ...metadata("alpha"), forcedActive: true };
+		const beta = { ...metadata("beta"), forcedActive: true };
+		registerManagedTool(pi, alpha, { name: "alpha" } as never);
+		registerManagedTool(pi, beta, { name: "beta" } as never);
+		const resources = createDisposerRegistry();
+		const context = { pi, resources } as never;
+		const snapshots: string[][] = [];
+		const controller = new AbortController();
+		observeLoadoutInventory(pi, {
+			signal: controller.signal,
+			onChange(items) {
+				snapshots.push(items.map((item) => item.id));
+			},
+		});
+		setManagedLoadoutToolsActive(context, [alpha], true);
+		setManagedLoadoutToolsActive(context, [alpha], false);
+		setManagedLoadoutToolsActive(context, [beta], true);
+		expect(activeTools).toEqual(["read", "beta"]);
+		expect(snapshots.at(-1)).toEqual(["beta"]);
+		setManagedLoadoutToolsActive(context, [beta], false);
+		setManagedLoadoutToolsActive(context, [alpha], true);
+		expect(activeTools).toEqual(["read", "alpha"]);
+		expect(snapshots.at(-1)).toEqual(["alpha"]);
+		await resources.cleanup();
 		controller.abort();
 	});
 

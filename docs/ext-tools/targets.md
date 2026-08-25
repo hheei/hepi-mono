@@ -2,7 +2,7 @@
 
 ## 状态
 
-已确认。`read`、`grep`、`find`、`bash`、`apply_patch` 已实现 SSH Target。`apply_patch` 是逐 path Publish（见 [ADR-0018](../adr/0018-apply-patch-per-path-publish.md)）；ADR-0017 已作废。`edit` / `write` 的 SSH 走同一 Publish（见 [ADR-0019](../adr/0019-write-edit-ssh-use-publish.md)），排在 Patch Core 落地之后。真实 Pi ToolExecutionComponent smoke 仍待补。
+已确认。`read`、`grep`、`find`、`bash`、`apply_patch`、`edit`、`write` 已实现 SSH Target。`apply_patch` 是逐 path Publish（见 [ADR-0018](../adr/0018-apply-patch-per-path-publish.md)）；ADR-0017 已作废。`edit` / `write` 共用该 Publish 与 mutation lock（见 [ADR-0019](../adr/0019-write-edit-ssh-use-publish.md)）。真实 Pi `ToolExecutionComponent` smoke 已覆盖。
 
 `pi-ext-tools` 为可见且显式的 target 选择。它不把 remote workspace、Output 与 local filesystem 伪装成同一种 URL，也不静默切换 transport 或 SSH destination。
 
@@ -48,7 +48,7 @@ unknown target、未授权 alias、target/path capability 不匹配、或 remote
 | `find` | existing local/FFF behavior | rejected | remote `rg --files` plus local non-FFF ranking |
 | `bash` | existing local foreground/pty/async | rejected | foreground `ssh` only；cwd 为远端 `$HOME` |
 | `apply_patch` | Patch Core + LocalBackend | rejected | Patch Core + SftpBackend（ADR-0018） |
-| `edit` / `write` | existing local Pi native | rejected | Publish + SftpBackend（ADR-0019；方言仍是 native；排在 Patch Core 之后） |
+| `edit` / `write` | existing local Pi native | rejected | Publish + SftpBackend（ADR-0019；方言仍是 native；实现中） |
 
 Output 没有 tree/directory 语义：`find({ target: "output" })` 一律拒绝。`read` 和 `grep` 的 output target 都要求 `path`。local 与 SSH `grep`/`find` 保留其原有的 optional search path。`bash` 与 `apply_patch` 不接受 `output`。
 
@@ -109,7 +109,7 @@ remote bash 不是包一层本机 `ssh` 的 local bash：
 
 与 local 同一套 Patch Core。Unix-like SSH 走 SftpBackend：lstat/read/put/rename/rm，不是 sshfs，也不是远端 coordinator。workspace 为远端 `$HOME`。`✓` 只在 sibling 临时文件 replace 确认后。已确认 path 不 rollback。现有文件大于 32 MiB 拒绝。同 alias 跨 session 由本机平台原生 lock 串行化 apply_patch，忙则拒绝；不检测外部写入。SFTP 单 path：传输 ≤1 MiB 逾时 30s，否则 60s。Update 写穿 leaf symlink；Delete unlink 字面目录项。header 为 `apply_patch (host) N file(s)`；operation rows 为 warning 色 `host:path`。
 
-## remote write / edit（ADR-0019，排在 Patch Core 之后）
+## remote write / edit（ADR-0019，已实现）
 
 与 apply_patch 共用 Publish 与 mutation lock，不另做 SFTP 覆盖。本机仍走 Pi native execute。远端 Write 没有就创建、有就覆盖、自动建父目录；远端 Edit 精确唯一匹配。路径是 Remote Path（相对 `$HOME` 或远端绝对路径）。锁内内容已相同则成功 no-change、不 Publish。现有文件与 new bytes 大于 32 MiB 拒绝。Unconfirmed 用 `?`，必须先 `read`。SFTP 逾时与 apply_patch 相同。header 为 warning 色 `host:path`。`output` 仍拒绝；失败不 fallback local。
 
@@ -123,6 +123,8 @@ remote `find` 先通过 `rg --files` 取得 snapshot，再在 extension 本地�
 - 普通文字是 case-insensitive path subsequence fuzzy match；
 - 多字 query 的每个字都必须命中；
 - details 只报告 `fuzzy` 或 `path` match type，不报告 FFF frecency、Git status 或 index metadata。
+
+`grep` 专门处理部分权限拒绝：当 ripgrep 的 stderr 全部可明确归类为 `EACCES`/`EPERM`（例如 `Permission denied`）时，已在 stdout 确认的 matches 仍返回；typed details 持久化每项诊断，TUI 与模型明确标示 results may be incomplete。它是 warning，不把已有 matches 变成 tool error。若请求范围没有任何可搜索路径，则 `grep` 返回 structured access-denied error，绝不谎称 `No matches found`。其他 ripgrep exit `2`（regex/glob/path/transport 等）仍失败。这个宽容规则只属于 content `grep`；`find` 的 directory snapshot 不完整时仍严格失败，避免返回看似完整的文件列表。
 
 snapshot 只要超过 `1024` paths 或 `256 KiB`，立即以 scope-too-broad 失败，不返回看似完整的部分结果。符合限制的 snapshot 由 cursor record 保存 target、query、排序候选与 page index；后续 page 不重新查询 remote filesystem。cursor 在 reload 或 expiry 后明确报 invalid/expired。
 

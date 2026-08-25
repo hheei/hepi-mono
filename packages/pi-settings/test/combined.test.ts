@@ -1,8 +1,8 @@
-import { describe, expect, test } from "bun:test";
-import type { HepiSettingsProvider } from "@hheei/pi-ext-core";
+import type { SettingsProvider } from "@hheei/pi-ext-core";
+import { describe, expect, test } from "vitest";
 import { combineSettingsProviders } from "../src/combined.js";
 
-function provider(id: string, calls: string[]): HepiSettingsProvider {
+function provider(id: string, calls: string[]): SettingsProvider {
 	return {
 		id,
 		title: id,

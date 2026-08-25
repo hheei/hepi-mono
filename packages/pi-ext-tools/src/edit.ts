@@ -9,7 +9,16 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
 import type { ToolTui } from "@hheei/pi-ext-core";
+import { type Static, Type } from "typebox";
+import { withMutationLock } from "./apply-patch/index.js";
 import { counted } from "./counted.js";
+import type { FffRuntimeState } from "./fff/lifecycle.js";
+import {
+	editRemoteFile,
+	REMOTE_MUTATION_DETAILS,
+	type RemoteMutationDetails,
+	remoteMutationDetails,
+} from "./native-remote.js";
 import {
 	createCanonicalExecutionTool,
 	createCanonicalToolRegistration,
@@ -25,14 +34,38 @@ import {
 } from "./pretty/diff-render.js";
 import { lang } from "./pretty/lang.js";
 import { LinesBody } from "./pretty/lines-body.js";
-import { rejectUnsupportedTarget } from "./targets.js";
 
 const EDIT_RENDER_DETAILS = "__piExtToolsEdit";
 const EDIT_VIEW_KEY = "__piExtToolsEditView";
 export const EDIT_TOOL_REGISTRATION = createCanonicalToolRegistration("edit", ["apply_patch"]);
 
+const EDIT_PARAMETERS = Type.Object(
+	{
+		path: Type.String({ description: "Path to the file to edit (relative or absolute)" }),
+		edits: Type.Array(
+			Type.Object({
+				oldText: Type.String({
+					description:
+						"Exact text for one targeted replacement. It must be unique in the original file and must not overlap with any other edits[].oldText in the same call.",
+				}),
+				newText: Type.String({ description: "Replacement text for this targeted edit." }),
+			}),
+			{
+				description:
+					"One or more targeted replacements. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead.",
+			},
+		),
+		target: Type.Optional(
+			Type.String({
+				description: "local or an authorized SSH alias. Omit for local. Does not support output.",
+			}),
+		),
+	},
+	{ additionalProperties: false },
+);
+
 type EditDefinition = ReturnType<typeof createEditToolDefinition>;
-type EditArgs = Parameters<NonNullable<EditDefinition["renderCall"]>>[0];
+type EditArgs = Static<typeof EDIT_PARAMETERS>;
 type EditState = Record<string, never>;
 
 type EditOperation = {
@@ -172,6 +205,7 @@ function withEditDetails(
 	result: AgentToolResult<unknown>,
 	metrics: EditMetrics | undefined,
 	view: EditView | undefined,
+	remote?: RemoteMutationDetails,
 ): AgentToolResult<unknown> {
 	const details =
 		typeof result.details === "object" && result.details !== null && !Array.isArray(result.details)
@@ -183,6 +217,7 @@ function withEditDetails(
 			...details,
 			...(metrics === undefined ? {} : { [EDIT_RENDER_DETAILS]: metrics }),
 			...(view === undefined ? {} : { [EDIT_VIEW_KEY]: view }),
+			...(remote === undefined ? {} : { [REMOTE_MUTATION_DETAILS]: remote }),
 		},
 	};
 }
@@ -301,52 +336,121 @@ function editFooter(
 		.join(" · ");
 }
 
-export function registerEditTool(pi: ExtensionAPI, tui: ToolTui): void {
+function editPresentation(
+	before: string,
+	path: string,
+	operations: readonly EditOperation[],
+): { readonly metrics: EditMetrics | undefined; readonly view: EditView | undefined } {
+	const language = lang(path);
+	const ops = operations.map((operation) => contextualOperation(before, operation, language));
+	const totals = ops.reduce(
+		(sum, op) => {
+			const parsed = parseDiff(op.oldContent, op.newContent);
+			return { added: sum.added + parsed.added, removed: sum.removed + parsed.removed };
+		},
+		{ added: 0, removed: 0 },
+	);
+	return {
+		metrics:
+			operations.length > 0
+				? { replacements: operations.length, added: totals.added, removed: totals.removed }
+				: undefined,
+		view:
+			ops.length === 1 && ops[0] !== undefined
+				? { kind: "single", op: ops[0] }
+				: ops.length > 1
+					? { kind: "multi", ops }
+					: undefined,
+	};
+}
+
+function remoteEditFailureText(details: RemoteMutationDetails): string {
+	const location = `${details.target}:${details.path}`;
+	if (details.outcome === "unconfirmed")
+		return `Edit outcome is unknown for ${location}: ${details.error}\nRecovery: read ${location} before another mutation.`;
+	if (details.outcome === "not_applied")
+		return `Edit was not applied to ${location}: ${details.error}`;
+	return `Could not edit ${location}: ${details.error}`;
+}
+
+export function registerEditTool(
+	pi: ExtensionAPI,
+	tui: ToolTui,
+	state?: FffRuntimeState,
+): ToolDefinition {
 	const baseTool = createCanonicalExecutionTool(createEditToolDefinition) as ToolDefinition<
 		EditDefinition["parameters"],
 		unknown,
 		EditState
 	>;
-	const tool: ToolDefinition<EditDefinition["parameters"], unknown, EditState> = {
+	const tool: ToolDefinition<typeof EDIT_PARAMETERS, unknown, EditState> = {
 		...baseTool,
+		parameters: EDIT_PARAMETERS,
 		async execute(toolCallId, params: EditArgs, signal, onUpdate, context) {
-			rejectUnsupportedTarget("edit", params);
 			const path = filePath(params);
-			const resolved = resolvePath(context.cwd, path);
-			const before = path === "" ? "" : readTextIfSmall(resolved);
-			const result = await baseTool.execute(toolCallId, params, signal, onUpdate, context);
 			const operations = getEditOperations(params);
-			const language = lang(path);
-			const ops = operations.map((operation) => contextualOperation(before, operation, language));
-			const totals = ops.reduce(
-				(sum, op) => {
-					const parsed = parseDiff(op.oldContent, op.newContent);
-					return { added: sum.added + parsed.added, removed: sum.removed + parsed.removed };
-				},
-				{ added: 0, removed: 0 },
-			);
-			const view: EditView | undefined =
-				ops.length === 1 && ops[0] !== undefined
-					? { kind: "single", op: ops[0] }
-					: ops.length > 1
-						? { kind: "multi", ops }
-						: undefined;
-			return withEditDetails(
-				result,
-				operations.length > 0
-					? {
-							replacements: operations.length,
-							added: totals.added,
-							removed: totals.removed,
-						}
-					: undefined,
-				view,
-			);
+			if (params.target !== undefined && params.target !== "local") {
+				const remote = await editRemoteFile(state, params.target, path, operations, signal);
+				if (remote.outcome !== "changed" && remote.outcome !== "no_change")
+					return withEditDetails(
+						{
+							content: [{ type: "text", text: remoteEditFailureText(remote) }],
+							details: undefined,
+						},
+						undefined,
+						undefined,
+						remote,
+					);
+				const presentation =
+					remote.outcome === "no_change"
+						? undefined
+						: editPresentation(remote.before, path, operations);
+				return withEditDetails(
+					{
+						content: [
+							{
+								type: "text",
+								text:
+									remote.outcome === "no_change"
+										? `No changes made to ${path}.`
+										: `Successfully replaced ${operations.length} block(s) in ${path}.`,
+							},
+						],
+						details: undefined,
+					},
+					presentation?.metrics,
+					presentation?.view,
+					remote,
+				);
+			}
+			return await withMutationLock(context.cwd, signal, async () => {
+				const resolved = resolvePath(context.cwd, path);
+				const before = path === "" ? "" : readTextIfSmall(resolved);
+				const result = await baseTool.execute(toolCallId, params, signal, onUpdate, context);
+				const presentation = editPresentation(before, path, operations);
+				return withEditDetails(result, presentation.metrics, presentation.view);
+			});
 		},
 		renderCall() {
 			return new Container();
 		},
 		renderResult(result, _options, theme, context) {
+			const remote = remoteMutationDetails(result.details);
+			if (context.isError && remote?.outcome === "unconfirmed")
+				return new Text(
+					theme.fg(
+						"warning",
+						`? ${remote.target}:${remote.path} · ${remote.error ?? "outcome unknown"}`,
+					),
+					0,
+					0,
+				);
+			if (context.isError && remote?.outcome === "not_applied")
+				return new Text(
+					theme.fg("dim", `– ${remote.target}:${remote.path} · ${remote.error ?? "not applied"}`),
+					0,
+					0,
+				);
 			if (context.isError) return new Text(resultText(result) || "Error", 0, 0);
 			const view = editView(result);
 			if (view !== undefined) {
@@ -368,10 +472,12 @@ export function registerEditTool(pi: ExtensionAPI, tui: ToolTui): void {
 		tui.frame(tool, {
 			summary: (args) => filePath(args as EditArgs) || undefined,
 			summarySeparator: "space",
+			remotePathSummary: true,
 			maxBodyLines: Number.POSITIVE_INFINITY,
 			footer(result, completion) {
 				return editFooter(editMetrics(result), completion?.durationMs);
 			},
 		}),
 	);
+	return tool as unknown as ToolDefinition;
 }

@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test } from "vitest";
 import { type RuntimeHost, runtimeIdentity } from "../src/runtime-identity.js";
 
 test("uses the shared Pi event bus as runtime identity", () => {

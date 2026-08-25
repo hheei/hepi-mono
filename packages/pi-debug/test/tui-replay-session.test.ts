@@ -1,5 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import { spawn } from "node:child_process";
 import {
+	access,
 	chmod,
 	mkdir,
 	mkdtemp,
@@ -12,11 +13,57 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { describe, expect, test } from "vitest";
 import { stripAnsi } from "../src/tui-replay.js";
 import { runReplaySessionCli } from "../src/tui-replay-session.js";
 
 const SESSION_CLI = fileURLToPath(new URL("../src/tui-replay-session.ts", import.meta.url));
+
+function spawnCaptured(
+	argv: readonly string[],
+	options: { cwd?: string; env?: NodeJS.ProcessEnv },
+) {
+	const child = spawn("bun", [SESSION_CLI, ...argv], {
+		cwd: options.cwd,
+		env: options.env,
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+	const stdoutChunks: Buffer[] = [];
+	const stderrChunks: Buffer[] = [];
+	child.stdout?.on("data", (chunk: Buffer) => {
+		stdoutChunks.push(chunk);
+	});
+	child.stderr?.on("data", (chunk: Buffer) => {
+		stderrChunks.push(chunk);
+	});
+	const closed = new Promise<{ stdout: string; stderr: string; exitCode: number | null }>(
+		(resolve, reject) => {
+			child.on("error", reject);
+			child.on("close", (exitCode) => {
+				resolve({
+					stdout: Buffer.concat(stdoutChunks).toString("utf8"),
+					stderr: Buffer.concat(stderrChunks).toString("utf8"),
+					exitCode,
+				});
+			});
+		},
+	);
+	return { closed, kill: () => void child.kill() };
+}
+
+async function waitForFile(path: string): Promise<void> {
+	for (let attempt = 0; attempt < 200; attempt++) {
+		try {
+			await access(path);
+			return;
+		} catch {
+			await sleep(10);
+		}
+	}
+	throw new Error(`missing ${path}`);
+}
 
 async function runProcess(
 	cwd: string,
@@ -24,25 +71,18 @@ async function runProcess(
 	args: readonly string[],
 	timeoutMs = 5_000,
 ) {
-	const subprocess = Bun.spawn([process.execPath, SESSION_CLI, ...args], {
+	const subprocess = spawnCaptured(args, {
 		cwd,
 		env: { ...process.env, PI_TUI_REPLAY_STATE_DIR: stateDir },
-		stdin: "ignore",
-		stdout: "pipe",
-		stderr: "pipe",
 	});
 	let timedOut = false;
 	const timeout = setTimeout(() => {
 		timedOut = true;
 		subprocess.kill();
 	}, timeoutMs);
-	const [stdout, stderr, exitCode] = await Promise.all([
-		new Response(subprocess.stdout).text(),
-		new Response(subprocess.stderr).text(),
-		subprocess.exited,
-	]);
+	const result = await subprocess.closed;
 	clearTimeout(timeout);
-	return { stdout, stderr, exitCode, timedOut };
+	return { ...result, timedOut };
 }
 
 async function fixture() {
@@ -188,23 +228,14 @@ export default function scenario(host) {
 		);
 		try {
 			await context.run("start", "--module", modulePath);
-			const first = Bun.spawn([process.execPath, SESSION_CLI, "send", "slow"], {
+			const first = spawnCaptured(["send", "slow"], {
 				cwd: context.cwd,
 				env: { ...process.env, PI_TUI_REPLAY_STATE_DIR: context.stateDir },
-				stdin: "ignore",
-				stdout: "pipe",
-				stderr: "pipe",
 			});
-			for (let attempt = 0; attempt < 200 && !(await Bun.file(marker).exists()); attempt++)
-				await Bun.sleep(10);
-			expect(await Bun.file(marker).exists()).toBe(true);
+			await waitForFile(marker);
 			const second = await runProcess(context.cwd, context.stateDir, ["send", "fast"], 1_000);
 			await writeFile(release, "", "utf8");
-			const [firstStdout, firstStderr, firstExit] = await Promise.all([
-				new Response(first.stdout).text(),
-				new Response(first.stderr).text(),
-				first.exited,
-			]);
+			const { stdout: firstStdout, stderr: firstStderr, exitCode: firstExit } = await first.closed;
 			expect(second).toMatchObject({ exitCode: 0, timedOut: false });
 			expect(firstExit).toBe(0);
 			expect(firstStderr).toBe("");
@@ -245,16 +276,11 @@ export default function scenario(host) {
 		try {
 			await context.run("start", "--module", modulePath);
 			const initialStatus = JSON.parse((await context.run("status"))[0] ?? "{}");
-			const first = Bun.spawn([process.execPath, SESSION_CLI, "send", "slow"], {
+			const first = spawnCaptured(["send", "slow"], {
 				cwd: context.cwd,
 				env: { ...process.env, PI_TUI_REPLAY_STATE_DIR: context.stateDir },
-				stdin: "ignore",
-				stdout: "pipe",
-				stderr: "pipe",
 			});
-			for (let attempt = 0; attempt < 200 && !(await Bun.file(marker).exists()); attempt++)
-				await Bun.sleep(10);
-			expect(await Bun.file(marker).exists()).toBe(true);
+			await waitForFile(marker);
 			await context.run("reset");
 			await writeFile(
 				modulePath,
@@ -277,11 +303,7 @@ export default function scenario(host) {
 			const restartedStatus = JSON.parse((await context.run("status"))[0] ?? "{}");
 			expect(restartedStatus.generation).not.toBe(initialStatus.generation);
 			await writeFile(release, "", "utf8");
-			const [stdout, stderr, exitCode] = await Promise.all([
-				new Response(first.stdout).text(),
-				new Response(first.stderr).text(),
-				first.exited,
-			]);
+			const { stdout, stderr, exitCode } = await first.closed;
 			expect(exitCode).not.toBe(0);
 			expect(stderr).toContain("reset or restarted");
 			expect(stdout).toBe("");
@@ -314,23 +336,14 @@ export default function scenario() {
 			"utf8",
 		);
 		try {
-			const starting = Bun.spawn([process.execPath, SESSION_CLI, "start", "--module", modulePath], {
+			const starting = spawnCaptured(["start", "--module", modulePath], {
 				cwd: context.cwd,
 				env: { ...process.env, PI_TUI_REPLAY_STATE_DIR: context.stateDir },
-				stdin: "ignore",
-				stdout: "pipe",
-				stderr: "pipe",
 			});
-			for (let attempt = 0; attempt < 200 && !(await Bun.file(marker).exists()); attempt++)
-				await Bun.sleep(10);
-			expect(await Bun.file(marker).exists()).toBe(true);
+			await waitForFile(marker);
 			await context.run("reset");
 			await writeFile(release, "", "utf8");
-			const [stdout, stderr, exitCode] = await Promise.all([
-				new Response(starting.stdout).text(),
-				new Response(starting.stderr).text(),
-				starting.exited,
-			]);
+			const { stdout, stderr, exitCode } = await starting.closed;
 			expect(exitCode).not.toBe(0);
 			expect(stdout).toBe("");
 			expect(stderr).toContain("changed while start was running");
@@ -365,23 +378,14 @@ export default function scenario() {
 		try {
 			await context.run("start", "--module", modulePath);
 			await writeFile(block, "", "utf8");
-			const showing = Bun.spawn([process.execPath, SESSION_CLI, "show"], {
+			const showing = spawnCaptured(["show"], {
 				cwd: context.cwd,
 				env: { ...process.env, PI_TUI_REPLAY_STATE_DIR: context.stateDir },
-				stdin: "ignore",
-				stdout: "pipe",
-				stderr: "pipe",
 			});
-			for (let attempt = 0; attempt < 200 && !(await Bun.file(marker).exists()); attempt++)
-				await Bun.sleep(10);
-			expect(await Bun.file(marker).exists()).toBe(true);
+			await waitForFile(marker);
 			await context.run("reset");
 			await writeFile(release, "", "utf8");
-			const [stdout, stderr, exitCode] = await Promise.all([
-				new Response(showing.stdout).text(),
-				new Response(showing.stderr).text(),
-				showing.exited,
-			]);
+			const { stdout, stderr, exitCode } = await showing.closed;
 			expect(exitCode).not.toBe(0);
 			expect(stdout).toBe("");
 			expect(stderr).toContain("reset or restarted");
@@ -391,23 +395,18 @@ export default function scenario() {
 			await rm(release, { force: true });
 			await context.run("start", "--module", modulePath);
 			await writeFile(block, "", "utf8");
-			const saving = Bun.spawn([process.execPath, SESSION_CLI, "save"], {
+			const saving = spawnCaptured(["save"], {
 				cwd: context.cwd,
 				env: { ...process.env, PI_TUI_REPLAY_STATE_DIR: context.stateDir },
-				stdin: "ignore",
-				stdout: "pipe",
-				stderr: "pipe",
 			});
-			for (let attempt = 0; attempt < 200 && !(await Bun.file(marker).exists()); attempt++)
-				await Bun.sleep(10);
-			expect(await Bun.file(marker).exists()).toBe(true);
+			await waitForFile(marker);
 			await context.run("reset");
 			await writeFile(release, "", "utf8");
-			const [saveStdout, saveStderr, saveExitCode] = await Promise.all([
-				new Response(saving.stdout).text(),
-				new Response(saving.stderr).text(),
-				saving.exited,
-			]);
+			const {
+				stdout: saveStdout,
+				stderr: saveStderr,
+				exitCode: saveExitCode,
+			} = await saving.closed;
 			expect(saveExitCode).not.toBe(0);
 			expect(saveStdout).toBe("");
 			expect(saveStderr).toContain("reset or restarted");

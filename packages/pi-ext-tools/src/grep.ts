@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { relative, resolve, sep } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createToolTui, registerManagedLoadoutTool, type ToolTui } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { inferFffGrepMode } from "./fff/extension-common.js";
@@ -8,7 +8,13 @@ import type { GrepMatch } from "./fff/fff.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import { grepCollapsedFooter, renderGrepResult } from "./search-renderer.js";
 import { GREP_TIMEOUT_RECOVERY, SEARCH_TIMEOUT_MS } from "./search-timeout.js";
-import { isTargetError, remoteShellQuote, type TargetOutcome } from "./targets.js";
+import {
+	accessDeniedDiagnostics,
+	isTargetError,
+	RemoteGrepAccessDeniedError,
+	remoteShellQuote,
+	type TargetOutcome,
+} from "./targets.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 const OUTPUT_PREFIX = "output://";
@@ -110,6 +116,12 @@ export type GrepDisplayLine =
 			readonly truncatedRight: boolean;
 	  };
 
+export type GrepIncomplete = {
+	readonly reason: "access_denied";
+	readonly diagnostics: readonly string[];
+	readonly noSearchablePaths: boolean;
+};
+
 export type GrepToolDetails = {
 	readonly format: "canonical-grep";
 	readonly engine: "fff" | "rg";
@@ -133,6 +145,7 @@ export type GrepToolDetails = {
 	readonly path?: string;
 	readonly outcome?: TargetOutcome;
 	readonly persistent?: boolean;
+	readonly incomplete?: GrepIncomplete;
 };
 
 type CanonicalResult = {
@@ -140,6 +153,7 @@ type CanonicalResult = {
 	readonly totalMatched: number;
 	readonly cap: GrepToolDetails["cap"];
 	readonly timedOut?: boolean;
+	readonly incomplete?: GrepIncomplete;
 };
 
 type FullOutput = {
@@ -172,6 +186,31 @@ function object(value: unknown): Record<string, unknown> | undefined {
 function textAt(value: unknown): string | undefined {
 	const record = object(value);
 	return typeof record?.text === "string" ? record.text : undefined;
+}
+
+function grepIncomplete(value: unknown): GrepIncomplete | undefined {
+	const incomplete = object(value)?.incomplete;
+	const record = object(incomplete);
+	if (record?.reason !== "access_denied" || typeof record.noSearchablePaths !== "boolean")
+		return undefined;
+	if (
+		!Array.isArray(record.diagnostics) ||
+		!record.diagnostics.every((line) => typeof line === "string")
+	)
+		return undefined;
+	return {
+		reason: "access_denied",
+		diagnostics: record.diagnostics,
+		noSearchablePaths: record.noSearchablePaths,
+	};
+}
+
+export function grepHasIncompleteAccess(value: unknown): boolean {
+	return grepIncomplete(value) !== undefined;
+}
+
+export function grepHasNoSearchablePaths(value: unknown): boolean {
+	return grepIncomplete(value)?.noSearchablePaths === true;
 }
 
 function numberAt(value: unknown): number | undefined {
@@ -217,6 +256,19 @@ function rgEvent(value: unknown, fallbackPath: string): GrepEvent | undefined {
 		...(absoluteOffset === undefined ? {} : { absoluteOffset }),
 		submatches,
 	};
+}
+
+function searchedAnyFile(stdout: string): boolean {
+	return stdout.split("\n").some((line) => {
+		try {
+			const event = object(JSON.parse(line) as unknown);
+			if (event?.type !== "summary") return false;
+			const stats = object(object(event.data)?.stats);
+			return (numberAt(stats?.searches) ?? 0) > 0;
+		} catch {
+			return false;
+		}
+	});
 }
 
 function capEvents(events: readonly GrepEvent[], limit: number, context: number): CanonicalResult {
@@ -303,7 +355,16 @@ function fffEvents(items: readonly GrepMatch[], approximate = false): GrepEvent[
 	);
 }
 
-function fullOutput(events: readonly GrepEvent[]): FullOutput {
+function incompleteSummary(incomplete: GrepIncomplete): string {
+	return `Results may be incomplete: skipped ${incomplete.diagnostics.length} inaccessible path${
+		incomplete.diagnostics.length === 1 ? "" : "s"
+	}.`;
+}
+
+function fullOutput(
+	events: readonly GrepEvent[],
+	incomplete: GrepIncomplete | undefined,
+): FullOutput {
 	const lines: string[] = [];
 	const eventLines = new Map<GrepEvent, number>();
 	const groups = new Map<string, GrepEvent[]>();
@@ -319,6 +380,10 @@ function fullOutput(events: readonly GrepEvent[]): FullOutput {
 			lines.push(`${event.lineNumber}${event.type === "match" ? ":" : "-"}${event.lines}`);
 			eventLines.set(event, lines.length);
 		}
+	}
+	if (incomplete !== undefined) {
+		if (lines.length > 0) lines.push("");
+		lines.push(incompleteSummary(incomplete), ...incomplete.diagnostics);
 	}
 	return {
 		text: lines.length === 0 ? "No matches found" : lines.join("\n"),
@@ -397,8 +462,18 @@ function compactOutput(
 	searchPath: string | undefined,
 	cwd: string,
 ): readonly GrepDisplayLine[] {
-	if (canonical.totalMatched === 0)
-		return canonical.timedOut ? [{ type: "text", text: GREP_TIMEOUT_RECOVERY }] : [];
+	if (canonical.totalMatched === 0) {
+		const empty = canonical.timedOut
+			? [{ type: "text" as const, text: GREP_TIMEOUT_RECOVERY }]
+			: [];
+		return canonical.incomplete === undefined
+			? empty
+			: [
+					...empty,
+					{ type: "text" as const, text: incompleteSummary(canonical.incomplete) },
+					...canonical.incomplete.diagnostics.map((text) => ({ type: "text" as const, text })),
+				];
+	}
 	const fuzzy = canonical.events.some((event) => event.type === "match" && event.approximate);
 	const files = new Set(canonical.events.map((event) => event.path)).size;
 	const display: GrepDisplayLine[] = [
@@ -458,6 +533,11 @@ function compactOutput(
 				});
 		}
 	}
+	if (canonical.incomplete !== undefined)
+		display.push(
+			{ type: "text", text: incompleteSummary(canonical.incomplete) },
+			...canonical.incomplete.diagnostics.map((text) => ({ type: "text" as const, text })),
+		);
 	return display;
 }
 
@@ -512,51 +592,64 @@ async function runRg(
 	if (context > 0) args.push("--context", String(context));
 	args.push("--", params.pattern);
 	if (outputText === undefined) args.push(params.path ?? ".");
-	const collected = await new Promise<{ stdout: string; timedOut: boolean }>(
-		(resolveOutput, reject) => {
-			abortIfNeeded(signal);
-			const child = spawn("rg", args, {
-				cwd,
-				stdio: [outputText === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+	const collected = await new Promise<{
+		stdout: string;
+		timedOut: boolean;
+		incomplete?: GrepIncomplete;
+	}>((resolveOutput, reject) => {
+		abortIfNeeded(signal);
+		const child = spawn("rg", args, {
+			cwd,
+			stdio: [outputText === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+		});
+		const output: Buffer[] = [];
+		const errorOutput: Buffer[] = [];
+		let aborted = false;
+		let timedOut = false;
+		const onAbort = () => {
+			aborted = true;
+			child.kill();
+		};
+		const timer = setTimeout(() => {
+			timedOut = true;
+			child.kill();
+		}, SEARCH_TIMEOUT_MS);
+		signal?.addEventListener("abort", onAbort, { once: true });
+		const finish = (fn: () => void): void => {
+			clearTimeout(timer);
+			signal?.removeEventListener("abort", onAbort);
+			fn();
+		};
+		child.stdout?.on("data", (chunk: Buffer) => output.push(chunk));
+		child.stderr?.on("data", (chunk: Buffer) => errorOutput.push(chunk));
+		child.once("error", (error) => {
+			finish(() => reject(new Error(`Failed to run ripgrep: ${error.message}`)));
+		});
+		child.once("close", (code) => {
+			finish(() => {
+				if (aborted && !timedOut) return reject(new Error("Operation aborted"));
+				const stdout = Buffer.concat(output).toString("utf8");
+				if (timedOut) return resolveOutput({ stdout, timedOut: true });
+				if (code !== 0 && code !== 1) {
+					const stderr = Buffer.concat(errorOutput).toString("utf8");
+					const diagnostics = code === 2 ? accessDeniedDiagnostics(stderr) : undefined;
+					if (diagnostics !== undefined)
+						return resolveOutput({
+							stdout,
+							timedOut: false,
+							incomplete: {
+								reason: "access_denied",
+								diagnostics,
+								noSearchablePaths: !searchedAnyFile(stdout),
+							},
+						});
+					return reject(new Error(stderr.trim() || `ripgrep exited with code ${code}`));
+				}
+				resolveOutput({ stdout, timedOut: false });
 			});
-			const output: Buffer[] = [];
-			const errorOutput: Buffer[] = [];
-			let aborted = false;
-			let timedOut = false;
-			const onAbort = () => {
-				aborted = true;
-				child.kill();
-			};
-			const timer = setTimeout(() => {
-				timedOut = true;
-				child.kill();
-			}, SEARCH_TIMEOUT_MS);
-			signal?.addEventListener("abort", onAbort, { once: true });
-			const finish = (fn: () => void): void => {
-				clearTimeout(timer);
-				signal?.removeEventListener("abort", onAbort);
-				fn();
-			};
-			child.stdout?.on("data", (chunk: Buffer) => output.push(chunk));
-			child.stderr?.on("data", (chunk: Buffer) => errorOutput.push(chunk));
-			child.once("error", (error) => {
-				finish(() => reject(new Error(`Failed to run ripgrep: ${error.message}`)));
-			});
-			child.once("close", (code) => {
-				finish(() => {
-					if (aborted && !timedOut) return reject(new Error("Operation aborted"));
-					const stdout = Buffer.concat(output).toString("utf8");
-					if (timedOut) return resolveOutput({ stdout, timedOut: true });
-					if (code !== 0 && code !== 1) {
-						const message = Buffer.concat(errorOutput).toString("utf8").trim();
-						return reject(new Error(message || `ripgrep exited with code ${code}`));
-					}
-					resolveOutput({ stdout, timedOut: false });
-				});
-			});
-			if (outputText !== undefined) child.stdin?.end(outputText);
-		},
-	);
+		});
+		if (outputText !== undefined) child.stdin?.end(outputText);
+	});
 	abortIfNeeded(signal);
 	const stdout = collected.stdout;
 	const fallbackPath =
@@ -575,6 +668,7 @@ async function runRg(
 	return {
 		...capEvents(rgOrder(events), normalizedLimit(params.limit), context),
 		...(collected.timedOut ? { timedOut: true } : {}),
+		...(collected.incomplete === undefined ? {} : { incomplete: collected.incomplete }),
 	};
 }
 
@@ -592,7 +686,19 @@ async function runRemoteRg(
 	if (params.glob) args.push("--glob", remoteShellQuote(params.glob));
 	if (context > 0) args.push("--context", String(context));
 	args.push("--", remoteShellQuote(params.pattern), remoteShellQuote(params.path ?? "."));
-	const stdout = await runtime.grep(target, args.join(" "), signal);
+	let stdout: string;
+	let incomplete: GrepIncomplete | undefined;
+	try {
+		stdout = await runtime.grep(target, args.join(" "), signal);
+	} catch (error) {
+		if (!(error instanceof RemoteGrepAccessDeniedError)) throw error;
+		stdout = error.stdout;
+		incomplete = {
+			reason: "access_denied",
+			diagnostics: error.diagnostics,
+			noSearchablePaths: !searchedAnyFile(stdout),
+		};
+	}
 	const fallbackPath = params.path ?? ".";
 	const events = stdout
 		.split("\n")
@@ -605,7 +711,10 @@ async function runRemoteRg(
 				return [];
 			}
 		});
-	return capEvents(rgOrder(events), normalizedLimit(params.limit), context);
+	return {
+		...capEvents(rgOrder(events), normalizedLimit(params.limit), context),
+		...(incomplete === undefined ? {} : { incomplete }),
+	};
 }
 
 async function useFff(params: GrepParams, cwd: string, state: FffRuntimeState): Promise<boolean> {
@@ -622,7 +731,7 @@ export function registerGrepTool(
 	pi: ExtensionAPI,
 	state: FffRuntimeState,
 	tui: ToolTui = createToolTui(),
-): void {
+): ToolDefinition {
 	const tool = {
 		name: "grep",
 		label: "grep",
@@ -722,7 +831,7 @@ export function registerGrepTool(
 				}
 				if (canonical === undefined) throw new Error("Grep execution did not produce a result.");
 				if (outputs === undefined) throw new Error("Output registry is unavailable.");
-				const full = fullOutput(canonical.events);
+				const full = fullOutput(canonical.events, canonical.incomplete);
 				const created = targetRuntime?.createOutput(full.text);
 				let recoveryId = created?.id;
 				if (recoveryId === undefined) {
@@ -743,13 +852,15 @@ export function registerGrepTool(
 				);
 				const body = displayText(display);
 				const resultText =
-					canonical.timedOut === true && canonical.totalMatched > 0
-						? `${body}\n\n${GREP_TIMEOUT_RECOVERY}`
-						: body.length > 0
-							? body
-							: canonical.timedOut
-								? GREP_TIMEOUT_RECOVERY
-								: "No matches found";
+					canonical.incomplete?.noSearchablePaths === true
+						? `Search could not inspect any files due to permission denied.\n${canonical.incomplete.diagnostics.join("\n")}`
+						: canonical.timedOut === true && canonical.totalMatched > 0
+							? `${body}\n\n${GREP_TIMEOUT_RECOVERY}`
+							: body.length > 0
+								? body
+								: canonical.timedOut
+									? GREP_TIMEOUT_RECOVERY
+									: "No matches found";
 				const outcome =
 					canonical.timedOut === true
 						? "timeout"
@@ -774,6 +885,7 @@ export function registerGrepTool(
 						...(created === undefined ? {} : { persistent: created.persistent }),
 						...(fff === undefined ? {} : { fff }),
 						...(canonical.timedOut ? { timedOut: true } : {}),
+						...(canonical.incomplete === undefined ? {} : { incomplete: canonical.incomplete }),
 					} satisfies GrepToolDetails,
 				};
 			} catch (error) {
@@ -795,6 +907,9 @@ export function registerGrepTool(
 		},
 		tui.frame(tool, {
 			footer: grepCollapsedFooter,
+			warning: (result) =>
+				grepHasIncompleteAccess(result.details) && !grepHasNoSearchablePaths(result.details),
 		}),
 	);
+	return tool as unknown as ToolDefinition;
 }
