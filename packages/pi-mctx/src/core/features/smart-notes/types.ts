@@ -89,13 +89,17 @@ export function parseSmartNoteManifest(json: string | null): SmartNoteCheckManif
                   ["readFile", "gitHeadSha", "gitTag", "gitLog", "httpGet"].includes(String(c)),
               )
             : [];
+        const readFiles = stringArray(parsed.readFiles);
+        const hosts = stringArray(parsed.hosts);
+        const urls = stringArray(parsed.urls);
+        const signals = stringArray(parsed.signals);
         return {
             capabilities,
-            readFiles: stringArray(parsed.readFiles),
-            hosts: stringArray(parsed.hosts),
-            urls: stringArray(parsed.urls),
-            signals: stringArray(parsed.signals),
-            summary: typeof parsed.summary === "string" ? parsed.summary : undefined,
+            ...(readFiles === undefined ? {} : { readFiles }),
+            ...(hosts === undefined ? {} : { hosts }),
+            ...(urls === undefined ? {} : { urls }),
+            ...(signals === undefined ? {} : { signals }),
+            ...(typeof parsed.summary === "string" ? { summary: parsed.summary } : {}),
         };
     } catch {
         return { capabilities: [] };

@@ -174,9 +174,13 @@ export function detectOverflow(error: unknown): OverflowDetection {
 
     return {
         isOverflow: true,
-        reportedLimit: reportedLimit?.value,
-        reportedLimitProvenance: reportedLimit?.provenance,
-        matchedPattern: matched?.source,
+        ...(reportedLimit === undefined
+            ? {}
+            : {
+                  reportedLimit: reportedLimit.value,
+                  reportedLimitProvenance: reportedLimit.provenance,
+              }),
+        ...(matched === undefined ? {} : { matchedPattern: matched.source }),
     };
 }
 
