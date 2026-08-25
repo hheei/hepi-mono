@@ -31,7 +31,12 @@ export function resolvePiUsableContextLimit(args: {
 			: (rawContext ?? detected);
 	if (context === undefined) return undefined;
 	return resolveLimit(
-		{ context, output: args.model?.maxTokens },
+		{
+			context,
+			...(args.model?.maxTokens === undefined
+				? {}
+				: { output: args.model.maxTokens }),
+		},
 		args.model?.provider ?? "unknown",
 		args.model?.id ?? "unknown",
 	);
