@@ -442,8 +442,10 @@ export async function runPiWrapup(
 						provider,
 						runner: deps.runner,
 						historianModel: deps.historianModel as string,
-						fallbackModels: deps.historianFallbacks,
-						fallbackModelId: modelKey,
+						...(deps.historianFallbacks === undefined
+							? {}
+							: { fallbackModels: deps.historianFallbacks }),
+						...(modelKey === undefined ? {} : { fallbackModelId: modelKey }),
 						historianChunkTokens: deps.historianChunkTokens,
 						boundarySnapshot: plan.snapshot,
 						refreshBoundarySnapshot: () =>
@@ -461,12 +463,18 @@ export async function runPiWrapup(
 								anchorRawMessageCount: initialPlan.anchorRawMessageCount,
 							}).snapshot,
 						currentContextLimit: contextLimit,
-						historianTimeoutMs: deps.historianTimeoutMs,
-						thinkingLevel: deps.historianThinkingLevel,
+						...(deps.historianTimeoutMs === undefined
+							? {}
+							: { historianTimeoutMs: deps.historianTimeoutMs }),
+						...(deps.historianThinkingLevel === undefined
+							? {}
+							: { thinkingLevel: deps.historianThinkingLevel }),
 						memoryEnabled: deps.memoryEnabled,
 						autoPromote: deps.autoPromote,
-						userMemoriesEnabled: deps.userMemoriesEnabled,
-						language: deps.language,
+						...(deps.userMemoriesEnabled === undefined
+							? {}
+							: { userMemoriesEnabled: deps.userMemoriesEnabled }),
+						...(deps.language === undefined ? {} : { language: deps.language }),
 						compartmentLeaseHolderId: leaseHolder,
 						readBranchEntries: () => readBranchEntries(ctx),
 						notifyIssue: (text) =>
@@ -551,8 +559,8 @@ function resolvePiContextLimit(
 	return (
 		resolvePiUsableContextLimit({
 			rawContextWindow: usage?.contextWindow ?? ctx.model?.contextWindow,
-			model: ctx.model,
-			detectedContextLimit,
+			...(ctx.model === undefined ? {} : { model: ctx.model }),
+			...(detectedContextLimit === undefined ? {} : { detectedContextLimit }),
 		}) ?? 128_000
 	);
 }
