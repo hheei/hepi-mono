@@ -1,9 +1,9 @@
-import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { getHepiRuntimeSettingsRegistry, registerLoadoutResource } from "@hheei/pi-ext-core";
+import { getRuntimeSettingsRegistry, registerLoadoutResource } from "@hheei/pi-ext-core";
+import { describe, expect, test } from "vitest";
 import piAutoTitleExtension from "../src/extension.js";
 
 function fakePi() {
@@ -64,7 +64,7 @@ describe("pi-auto-title extension lifecycle", () => {
 
 			await emit(handlers, "session_start", { reason: "startup" }, fakeExtension(dir));
 
-			const registry = getHepiRuntimeSettingsRegistry(pi);
+			const registry = getRuntimeSettingsRegistry(pi);
 			expect(registry.get("pi-auto-title")?.id).toBe("pi-auto-title");
 
 			// Auto Title must not register a Loadout resource: registering the

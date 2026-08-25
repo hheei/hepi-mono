@@ -1,10 +1,11 @@
-import { afterEach, expect, test } from "bun:test";
+import { setTimeout as sleep } from "node:timers/promises";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { createOutputRegistry } from "@hheei/pi-ext-core";
+import { afterEach, expect, test } from "vitest";
 import { registerBashJobTool } from "../src/bash-job-tool.js";
 import { BashJobRegistry, MAX_JOB_OUTPUT } from "../src/bash-jobs.js";
 import { createFffRuntimeState } from "../src/fff/lifecycle.js";
@@ -22,7 +23,7 @@ async function eventually<T>(
 	for (let attempt = 0; attempt < 100; attempt += 1) {
 		const value = read();
 		if (value !== undefined && predicate(value)) return value;
-		await Bun.sleep(10);
+		await sleep(10);
 	}
 	throw new Error("job did not reach expected state");
 }

@@ -77,8 +77,10 @@ tool schema、rendering、lifecycle、Loadout metadata 与 focused tests。
 `apply_patch` 使用 N-API bridge 内链接的 vendored mpatch `v1.6.4`，不分发或启动独立
 mpatch executable。它是 catalog 中唯一公开的 patch tool；其 JSON 参数固定为
 `{ "patch": "<Codex V4A text>" }`。它只接受 `*** Begin Patch` / `*** End Patch`、`Add File`、
-`Update File`、`Delete File` 与 `Move to` 组成的 Codex V4A grammar；不接受 raw Git diff、参数别名、
-per-call fuzzy option 或绝对 path。
+`Update File`、`Delete File` 与 `Move to` 组成的 Codex V4A grammar；不接受 raw Git diff、参数别名或
+per-call fuzzy option。本机 V4A path 可以是绝对或相对 path；相对 path 从 workspace root 解析，也可用 `..`
+到 workspace 外。已确认的本机 workspace 外变更会在模型 result 后给出 warning；判定不 `realpath`，因此
+workspace 内 symlink 指向外部不算外部写入。
 
 mpatch 是 `apply_patch` 的私有 fuzzy worker，不是独立 Pi tool，也不从用户的 `PATH`、
 `MPATCH_BIN` 或网络取得 executable。bridge 的一次性 run handle 在文件循环、fuzzy 搜索和
@@ -86,9 +88,11 @@ mpatch 是 `apply_patch` 的私有 fuzzy worker，不是独立 Pi tool，也不�
 
 mpatch 只接受 unified diff，不能替代 Codex V4A parser。tool 在 TypeScript 中严格解析
 V4A，但容忍 UTF-8 BOM、envelope 外空行与最外层 ` ```patch` / ` ```diff` 代码围栏；内部
-grammar、body whitespace 与 path 仍严格校验。workspace 路径是 lexical：相对路径、禁止 `..` 与绝对路径；symlink 可解析到 workspace 外。某个 operation 的 path 冲突、source/destination 不合规或 hunk mismatch 只拒绝该 operation，其他已确认 path 不 rollback。取消不撤回已 Changed 的 path。现有文件与结果都不得超过 32 MiB。
+grammar、body whitespace 与 path size 仍严格校验。本机 path lexical resolve，但不是 workspace jail：绝对 path
+与 `..` 都可用，symlink 也不 `realpath` 追踪。某个 operation 的 path 冲突、source/destination 不合规或 hunk
+mismatch 只拒绝该 operation，其他已确认 path 不 rollback。取消不撤回已 Changed 的 path。现有文件与结果都不得超过 32 MiB。
 
-`apply_patch` 使用同一套 Patch Core 覆盖 local Linux/macOS/Windows 与 Unix-like SSH Target。local 按 workspace、SSH 按 alias 持有平台原生 exclusive lock；忙则立刻拒绝，不排队。`/reload` 取消 execute，不重连 mutation。
+`apply_patch` 使用同一套 Patch Core 覆盖 local Linux/macOS/Windows 与 Unix-like SSH Target。local 按 workspace、SSH 按 alias 持有平台原生 exclusive lock，并与 write/edit 共用；后到的请求排队，取消排队中的请求不会改 workspace。`/reload` 取消 execute，不重连 mutation。
 
 fuzzy policy 只读取 `pi-ext-tools.applyPatch.minSimilarity`。默认 `0.7`。`0` 关闭 fuzzy，
 只允许 exact apply；`1` 只接受 score 为 `1` 的 fuzzy candidate。user-global settings 可配置；project settings 只能收紧：设为 `0` 关闭 fuzzy，或提高 minSimilarity，不能放宽写入匹配条件。
@@ -223,7 +227,7 @@ grep renderer 在每个文件块内以最大行号宽度右对齐 `│` 前的�
 
 ## Target 路由
 
-`read`、`grep`、`find`、`bash` 的 local、Output 与 SSH target contract、session-bound Output persistence、remote search boundary，以及 SSH whitelist settings 见 [Target 路由](targets.md)。`apply_patch` remote 合约已确认、尚未实现。真实 Pi ToolExecutionComponent smoke 仍待补。
+`read`、`grep`、`find`、`bash` 的 local、Output 与 SSH target contract、session-bound Output persistence、remote search boundary，以及 SSH whitelist settings 见 [Target 路由](targets.md)。`apply_patch`、`edit` 与 `write` 的 SSH Publish 接入见 [ADR-0018](../adr/0018-apply-patch-per-path-publish.md) 与 [ADR-0019](../adr/0019-write-edit-ssh-use-publish.md)。真实 Pi `ToolExecutionComponent` smoke 覆盖见 `test/tool-execution-smoke.test.ts`。
 
 ## 验证与发布
 

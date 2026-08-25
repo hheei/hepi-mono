@@ -6,7 +6,7 @@ import {
 	type ExtensionContext,
 	getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import type { HepiSettingField, HepiSettingsProvider, HepiSettingsState } from "@hheei/pi-ext-core";
+import type { SettingField, SettingsProvider, SettingsState } from "@hheei/pi-ext-core";
 import { createDollarSkillAtomicEditor } from "./atomic-editor.js";
 import {
 	DOLLAR_SKILL_SETTINGS_SECTION,
@@ -35,7 +35,7 @@ interface AtomicEditorOwner {
 	dispose(): void;
 }
 
-const enabledField: HepiSettingField<boolean> = {
+const enabledField: SettingField<boolean> = {
 	id: ENABLED_FIELD,
 	label: "Dollar skill references",
 	type: "boolean",
@@ -44,7 +44,7 @@ const enabledField: HepiSettingField<boolean> = {
 	parse: (draft) => draft === "true",
 };
 
-const maxSuggestionsField: HepiSettingField<number> = {
+const maxSuggestionsField: SettingField<number> = {
 	id: MAX_SUGGESTIONS_FIELD,
 	label: "Dollar skill suggestions",
 	type: "number",
@@ -58,9 +58,9 @@ const maxSuggestionsField: HepiSettingField<number> = {
 	enabled: (state) => state[DOLLAR_SKILL_SETTINGS_SECTION]?.[ENABLED_FIELD] !== false,
 };
 
-const fields: readonly HepiSettingField[] = [enabledField, maxSuggestionsField];
+const fields: readonly SettingField[] = [enabledField, maxSuggestionsField];
 
-function configFromState(state: HepiSettingsState): DollarSkillConfig {
+function configFromState(state: SettingsState): DollarSkillConfig {
 	return normalizeDollarSkillConfig(state[DOLLAR_SKILL_SETTINGS_SECTION]);
 }
 
@@ -158,7 +158,7 @@ export function registerDollarSkillInputTransform(
 
 export function createDollarSkillSettingsProvider(
 	options: { readonly settingsDirectory?: string } = {},
-): HepiSettingsProvider {
+): SettingsProvider {
 	const settingsDirectory = options.settingsDirectory ?? getAgentDir();
 	return {
 		id: "pi-dollar-skill",
@@ -176,7 +176,7 @@ export function createDollarSkillSettingsProvider(
 					},
 				};
 			},
-			async save(state: HepiSettingsState) {
+			async save(state: SettingsState) {
 				const config = configFromState(state);
 				await saveDollarSkillConfig(settingsDirectory, config);
 			},

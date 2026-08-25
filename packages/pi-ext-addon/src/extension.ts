@@ -1,8 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-	getHepiRuntimeSettingsRegistry,
+	getRuntimeSettingsRegistry,
 	registerExtensionLifecycle,
-	registerHepiSettings,
+	registerSettings,
 } from "@hheei/pi-ext-core";
 import {
 	createOpenAIResponsesCompatFeature,
@@ -17,10 +17,7 @@ export default function piExtAddonExtension(pi: ExtensionAPI): void {
 		key: "@hheei/pi-ext-addon",
 		start: async (runtime): Promise<void> => {
 			const sessionId = runtime.extension.sessionManager.getSessionId();
-			runtime.resources.add(
-				"settings",
-				registerHepiSettings(settings, getHepiRuntimeSettingsRegistry(pi)),
-			);
+			runtime.resources.add("settings", registerSettings(settings, getRuntimeSettingsRegistry(pi)));
 			await responsesCompat.start({ ctx: runtime.extension });
 			runtime.resources.add("openai-responses-compat", () => responsesCompat.dispose(sessionId));
 		},

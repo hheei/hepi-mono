@@ -18,9 +18,9 @@ const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 const MAX_OUTPUT_BYTES_EACH = 1024 * 1024;
 const TARGET_PROMPT_MARKER = "<pi-ext-tools-targets>";
 const TARGET_PROMPT_LINES = [
-	"read, grep, and find accept target: local, output, or an authorized SSH host. bash and apply_patch accept local or an authorized SSH host.",
-	"Omitting target uses local. Remote targets are POSIX hosts. read/grep/find use a 20 second timeout and do not use FFF; bash has no default timeout and does not support pty, async, or output. apply_patch files are capped at 32 MiB.",
-	"target: output reads persisted output ids; find, bash, and apply_patch do not support output.",
+	"read, grep, find, edit, and write accept target: local, output, or an authorized SSH host. bash and apply_patch accept local or an authorized SSH host.",
+	"Omitting target uses local. Remote targets are POSIX hosts. read/grep/find use a 20 second timeout and do not use FFF; bash has no default timeout and does not support pty, async, or output. apply_patch, remote edit, and remote write files are capped at 32 MiB.",
+	"target: output reads persisted output ids; find, edit, write, bash, and apply_patch do not support output.",
 ] as const;
 
 export type TargetOutcome =
@@ -70,6 +70,33 @@ export type RemoteFindCandidate = {
 	readonly matchType: "path" | "fuzzy";
 	readonly score: number;
 };
+
+export function accessDeniedDiagnostics(stderr: string): readonly string[] | undefined {
+	const diagnostics = stderr
+		.split(/\r?\n/u)
+		.map((line) => line.trim())
+		.filter(Boolean);
+	if (diagnostics.length === 0) return undefined;
+	return diagnostics.every((diagnostic) =>
+		/(?:\bEACCES\b|\bEPERM\b|\(os error (?:1|13)\)|permission denied|operation not permitted)/iu.test(
+			diagnostic,
+		),
+	)
+		? diagnostics
+		: undefined;
+}
+
+export class RemoteGrepAccessDeniedError extends Error {
+	readonly stdout: string;
+	readonly diagnostics: readonly string[];
+
+	constructor(stdout: string, diagnostics: readonly string[]) {
+		super(diagnostics.join("\n"));
+		this.name = "RemoteGrepAccessDeniedError";
+		this.stdout = stdout;
+		this.diagnostics = diagnostics;
+	}
+}
 
 export class TargetError extends Error {
 	readonly outcome: Exclude<TargetOutcome, "ok" | "non_persistent">;
@@ -554,9 +581,14 @@ export class TargetRuntime {
 		});
 		if (missingRemoteCommand(result, "rg"))
 			throw new TargetError("dependency", "Remote host is missing rg.");
-		if (result.code !== 0 && result.code !== 1)
-			throw new Error(result.stderr.toString("utf8").trim() || "Remote search failed.");
-		return result.stdout.toString("utf8");
+		const stdout = result.stdout.toString("utf8");
+		if (result.code !== 0 && result.code !== 1) {
+			const stderr = result.stderr.toString("utf8");
+			const diagnostics = result.code === 2 ? accessDeniedDiagnostics(stderr) : undefined;
+			if (diagnostics !== undefined) throw new RemoteGrepAccessDeniedError(stdout, diagnostics);
+			throw new Error(stderr.trim() || "Remote search failed.");
+		}
+		return stdout;
 	}
 
 	async exec(

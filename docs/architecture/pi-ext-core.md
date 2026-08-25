@@ -27,9 +27,9 @@ runtime 的性能或界面。
 
 ## 非目标
 
-已实现 v1 不迁移或提供下列 HEPI 专属行为：
+已实现 v1 不提供下列行为：
 
-- Settings policy、feature-owned schema/content、UI、`/hepi` command、model selection；
+- Settings policy、feature-owned schema/content、UI、Settings host command、model selection；
 - 具体 feature 的业务状态、持久化和 UI；
 - 通用 event bus、RPC 框架或自动 discovery；
 - 对旧 aggregate API 的兼容 adapter。
@@ -100,7 +100,7 @@ API 不验证 section fields，也不决定某个 project override 是否可信�
 
 ### Settings 值与 List Field
 
-`HepiSettingValue` 可表示 scalar primitive、`null` 或 `readonly string[]`。`list` 是明确的 string-list field type：storage 保留 JSON array，不以逗号或换行编码到 text field。它不预先泛化为 mixed-value container；numeric、boolean 或 enum collections 只有在出现独立 consumer 后才定义自己的 field type。
+`SettingValue` 可表示 scalar primitive、`null` 或 `readonly string[]`。`list` 是明确的 string-list field type：storage 保留 JSON array，不以逗号或换行编码到 text field。它不预先泛化为 mixed-value container；numeric、boolean 或 enum collections 只有在出现独立 consumer 后才定义自己的 field type。
 
 core 只验证 settings transport 所需的 JSON value shape，并提供 provider schema 所需的 list type。具体 list 项语义、最大数量、authorization 与 live/reload policy 属于 concrete extension。`pi-settings` 作为 host 为 list 提供 nested multi-row editor；core 不拥有页面、keyboard policy 或 feature list content。
 

@@ -608,9 +608,7 @@ if (import.meta.main) {
 		);
 		process.exit(0);
 	} catch (error) {
-		const message = stripAnsi(
-			error instanceof Error ? (error.stack ?? error.message) : String(error),
-		);
+		const message = stripAnsi(error instanceof Error ? error.message : String(error));
 		await new Promise<void>((resolveWrite, rejectWrite) =>
 			process.stderr.write(`${message}\n`, (writeError) => {
 				if (writeError) rejectWrite(writeError);

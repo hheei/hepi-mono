@@ -108,20 +108,12 @@ export interface LoadoutToolActivationObserver {
 	onChange(snapshot: LoadoutToolActivationSnapshot | undefined): void;
 }
 
-export interface LoadoutHostObserver {
-	/** Aborting the signal removes this observer; current host state arrives immediately. */
-	readonly signal: AbortSignal;
-	onChange(active: boolean): void;
-}
-
 interface RuntimeLoadoutState {
 	readonly registrations: Map<string, LoadoutInventoryItem>;
 	readonly managed: Map<string, { readonly owner: string; readonly runner: object }>;
 	readonly observers: Set<LoadoutInventoryObserver>;
 	activation: LoadoutToolActivationSnapshot | undefined;
 	readonly activationObservers: Set<LoadoutToolActivationObserver>;
-	host: object | undefined;
-	readonly hostObservers: Set<LoadoutHostObserver>;
 }
 
 interface RuntimeLoadoutRegistries {
@@ -142,8 +134,6 @@ function stateFor(pi: RuntimeHost): RuntimeLoadoutState {
 		observers: new Set(),
 		activation: undefined,
 		activationObservers: new Set(),
-		host: undefined,
-		hostObservers: new Set(),
 	};
 	registries().byRuntime.set(identity, created);
 	return created;
@@ -211,23 +201,40 @@ function notifyActivation(state: RuntimeLoadoutState): void {
 	}
 }
 
-function notifyHost(state: RuntimeLoadoutState): void {
-	const active = state.host !== undefined;
-	for (const observer of state.hostObservers) {
-		if (observer.signal.aborted) continue;
-		try {
-			observer.onChange(active);
-		} catch {}
-	}
-}
-
 function registerMetadata(pi: RuntimeHost, metadata: LoadoutInventoryItem): void {
 	validateMetadata(metadata);
 	const state = stateFor(pi);
-	if (state.registrations.has(metadata.id))
+	const existing = state.registrations.get(metadata.id);
+	if (existing !== undefined) {
+		if (existing === metadata) return;
 		throw new Error(`Loadout tool id already registered: ${metadata.id}`);
+	}
 	state.registrations.set(metadata.id, metadata);
 	notify(state);
+}
+
+function unpublishInventory(pi: RuntimeHost, ids: Iterable<string>): void {
+	const state = stateFor(pi);
+	let changed = false;
+	for (const id of ids) {
+		if (!state.registrations.has(id)) continue;
+		state.registrations.delete(id);
+		changed = true;
+	}
+	if (changed) notify(state);
+}
+
+function addResourceCleanup(
+	resources: ExtensionLifecycleContext["resources"],
+	id: string,
+	cleanup: () => void,
+): void {
+	try {
+		resources.add(id, cleanup);
+	} catch (error) {
+		if (error instanceof Error && error.message === `Cleanup id already registered: ${id}`) return;
+		throw error;
+	}
 }
 
 /**
@@ -262,7 +269,7 @@ export function registerLoadoutInventory(
 ): void {
 	registerMetadata(context.pi, registration);
 	let active = true;
-	context.resources.add(`loadout:${registration.id}`, () => {
+	addResourceCleanup(context.resources, `loadout:${registration.id}`, () => {
 		if (!active) return;
 		active = false;
 		const state = stateFor(context.pi);
@@ -335,10 +342,14 @@ export function setManagedLoadoutToolsActive(
 		context.pi.setActiveTools([...next]);
 	};
 	apply(active);
-	if (!active) return;
+	if (!active) {
+		unpublishInventory(context.pi, ids);
+		return;
+	}
 	for (const registration of registrations) registerLoadoutInventory(context, registration);
-	context.resources.add(`managed-loadout-tools:${[...ids].join(",")}`, () => {
+	addResourceCleanup(context.resources, `managed-loadout-tools:${[...ids].join(",")}`, () => {
 		apply(false);
+		unpublishInventory(context.pi, ids);
 	});
 }
 
@@ -407,35 +418,4 @@ export function observeLoadoutToolActivation(
 		once: true,
 	});
 	observer.onChange(state.activation);
-}
-
-/**
- * Claims the active Loadout UI host for one lifecycle. This intentionally only
- * advertises host presence; contributors retain their own fallback settings UI.
- */
-export function registerLoadoutHost(pi: ExtensionAPI): () => void {
-	const state = stateFor(pi);
-	if (state.host !== undefined) throw new Error("Loadout host is already active");
-	const host = {};
-	state.host = host;
-	notifyHost(state);
-	let active = true;
-	return () => {
-		if (!active) return;
-		active = false;
-		if (state.host !== host) return;
-		state.host = undefined;
-		notifyHost(state);
-	};
-}
-
-/** Observes whether this runtime currently has an active Loadout UI host. */
-export function observeLoadoutHost(pi: ExtensionAPI, observer: LoadoutHostObserver): void {
-	const state = stateFor(pi);
-	if (observer.signal.aborted) return;
-	state.hostObservers.add(observer);
-	observer.signal.addEventListener("abort", () => state.hostObservers.delete(observer), {
-		once: true,
-	});
-	observer.onChange(state.host !== undefined);
 }

@@ -1,4 +1,8 @@
-import { createFindToolDefinition, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+	createFindToolDefinition,
+	type ExtensionAPI,
+	type ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import { createToolTui, registerManagedLoadoutTool, type ToolTui } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
@@ -268,7 +272,7 @@ export function registerFindTool(
 	pi: ExtensionAPI,
 	state: FffRuntimeState,
 	tui: ToolTui = createToolTui(),
-): void {
+): ToolDefinition {
 	const tool = {
 		name: "find",
 		label: "find",
@@ -334,4 +338,5 @@ export function registerFindTool(
 			footer: findCollapsedFooter,
 		}),
 	);
+	return tool as unknown as ToolDefinition;
 }

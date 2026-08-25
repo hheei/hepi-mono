@@ -1,8 +1,8 @@
 import {
 	defaultPiSettingsPaths,
-	type HepiSettingsProvider,
-	type HepiSettingsState,
 	readJsonSettingsRoot,
+	type SettingsProvider,
+	type SettingsState,
 	updateJsonSettingsRoot,
 } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
@@ -40,13 +40,13 @@ function storedValues(root: JsonObject, name: string): Values | undefined {
 		: values(value, `${name}.${TRADITIONAL_TO_SIMPLIFIED_GROUP}`);
 }
 
-export function traditionalToSimplifiedEnabled(state: HepiSettingsState): boolean {
+export function traditionalToSimplifiedEnabled(state: SettingsState): boolean {
 	return state[TRADITIONAL_TO_SIMPLIFIED_GROUP]?.[TRADITIONAL_TO_SIMPLIFIED_FIELD] !== "off";
 }
 
 export function createTraditionalToSimplifiedSettingsProvider(
 	options: { readonly path?: string } = {},
-): HepiSettingsProvider {
+): SettingsProvider {
 	const path = options.path ?? defaultPiSettingsPaths().globalPath;
 	return {
 		id: "pi-t2s",
@@ -103,7 +103,7 @@ export function createTraditionalToSimplifiedSettingsProvider(
 				);
 				return migrated === undefined ? undefined : { [TRADITIONAL_TO_SIMPLIFIED_GROUP]: migrated };
 			},
-			async save(state: HepiSettingsState, context) {
+			async save(state: SettingsState, context) {
 				const mode: Mode = values(state[TRADITIONAL_TO_SIMPLIFIED_GROUP], "saved").mode;
 				await updateJsonSettingsRoot(
 					path,

@@ -1,9 +1,10 @@
-import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { createJsonSectionSettingsStorage } from "@hheei/pi-ext-core";
+import { describe, expect, test } from "vitest";
 import {
 	AUTO_TITLE_MODEL_FIELD,
 	AUTO_TITLE_SYSTEM_PROMPT,
@@ -40,7 +41,7 @@ describe("Pi Auto Title", () => {
 		const dir = await mkdtemp(join(tmpdir(), "pi-basics-title-"));
 		try {
 			const path = join(dir, "settings.json");
-			await Bun.write(path, JSON.stringify({ packages: ["npm:pi-todo"], other: true }));
+			await writeFile(path, JSON.stringify({ packages: ["npm:pi-todo"], other: true }));
 			const storage = createAutoTitleStorage({ path });
 			await storage.save(
 				{ "auto-title": { autoTitle: true, autoTitleModel: "provider/model" } },
@@ -113,7 +114,7 @@ describe("Pi Auto Title", () => {
 		const initial = renderTitleGenerationShimmer(0);
 		const middle = renderTitleGenerationShimmer(1_500);
 		expect(initial).toContain("\x1b[38;2;");
-		expect(initial).toEndWith("\x1b[0m");
+		expect(initial.endsWith("\x1b[0m")).toBe(true);
 		expect(initial).not.toBe(middle);
 		expect(initial.replace(ANSI_SGR, "")).toBe("Generating title");
 		expect(renderTitleGenerationShimmer(0)).toBe(renderTitleGenerationShimmer(2_000));
@@ -332,7 +333,7 @@ describe("Pi Auto Title", () => {
 		expect(created).toBe(1);
 		expect(appended).toBe(0);
 		releasePrompt?.();
-		await Bun.sleep(0);
+		await sleep(0);
 		expect(appended).toBe(1);
 		coordinator.dispose();
 		const reloaded = createAutoTitleCoordinator({ pi, ctx } as never, "provider/model", () => {
@@ -405,7 +406,7 @@ describe("Pi Auto Title", () => {
 			},
 		);
 		handlers.get("agent_settled")?.({});
-		await Bun.sleep(0);
+		await sleep(0);
 
 		expect(created).toBe(1);
 		expect(generatedPrompt).toContain(`Primary user request:\n${userText}`);
@@ -460,7 +461,7 @@ describe("Pi Auto Title", () => {
 		coordinator.trigger(true);
 		expect(applied).toBe("Old title");
 		idle = true;
-		await Bun.sleep(200);
+		await sleep(200);
 		expect(applied).toBe("My Session");
 		expect(
 			statuses.some((entry) => entry.text?.replace(ANSI_SGR, "").includes("Generating title")),
@@ -509,14 +510,14 @@ describe("Pi Auto Title", () => {
 
 		const first = createAutoTitleCoordinator({ pi, ctx } as never, "provider/model", createAgent);
 		first.trigger();
-		await Bun.sleep(0);
+		await sleep(0);
 		first.dispose();
 		expect(created).toBe(1);
 		expect(entries).toEqual([]);
 
 		const second = createAutoTitleCoordinator({ pi, ctx } as never, "provider/model", createAgent);
 		second.trigger();
-		await Bun.sleep(0);
+		await sleep(0);
 		expect(created).toBe(2);
 		second.dispose();
 	});
@@ -562,11 +563,11 @@ describe("Pi Auto Title", () => {
 		});
 
 		coordinator.trigger();
-		await Bun.sleep(0);
+		await sleep(0);
 		expect(created).toBe(1);
 		expect(result).toBeUndefined();
 		handlers.get("agent_settled")?.({});
-		await Bun.sleep(0);
+		await sleep(0);
 		expect(created).toBe(2);
 		expect(result).toBe("Retry title");
 		coordinator.dispose();

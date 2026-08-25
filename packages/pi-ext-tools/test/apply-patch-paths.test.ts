@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { validatePatchPath } from "../src/apply-patch/paths.js";
+import { afterEach, describe, expect, test } from "vitest";
+import { isPatchPathOutsideWorkspace, resolvePatchPath } from "../src/apply-patch/paths.js";
 
 const temporaryPaths: string[] = [];
 
@@ -18,31 +18,26 @@ afterEach(async (): Promise<void> => {
 	);
 });
 
-describe("apply_patch workspace paths", () => {
-	test("accepts a relative non-symlink target", async (): Promise<void> => {
+describe("apply_patch paths", () => {
+	test("resolves relative paths from the workspace", async (): Promise<void> => {
 		const root = await temporaryDirectory();
 		await mkdir(join(root, "src"));
 		await writeFile(join(root, "src", "value.ts"), "value\n");
-		await expect(validatePatchPath(root, "src/value.ts")).resolves.toEqual({
-			relativePath: "src/value.ts",
-			absolutePath: join(root, "src", "value.ts"),
-		});
+		expect(resolvePatchPath(root, "src/value.ts")).toBe(join(root, "src", "value.ts"));
 	});
 
-	test("rejects root escapes and Windows absolute paths", async (): Promise<void> => {
+	test("allows absolute and workspace-escaping paths", async (): Promise<void> => {
 		const root = await temporaryDirectory();
-		for (const path of ["../outside", "src/../outside", "/tmp/outside", "C:\\outside"]) {
-			await expect(validatePatchPath(root, path)).rejects.toThrow("Patch path");
-		}
+		expect(resolvePatchPath(root, "../outside")).toBe(join(root, "..", "outside"));
+		expect(resolvePatchPath(root, "/tmp/outside")).toBe("/tmp/outside");
+		expect(isPatchPathOutsideWorkspace(root, "../outside")).toBe(true);
+		expect(isPatchPathOutsideWorkspace(root, "/tmp/outside")).toBe(true);
 	});
 
-	test("accepts a lexically valid path even when a segment is a symlink", async (): Promise<void> => {
+	test("does not follow symlinks when classifying workspace paths", async (): Promise<void> => {
 		const root = await temporaryDirectory();
 		const outside = await temporaryDirectory();
 		await symlink(outside, join(root, "linked"));
-		await expect(validatePatchPath(root, "linked/value.ts")).resolves.toEqual({
-			relativePath: "linked/value.ts",
-			absolutePath: join(root, "linked", "value.ts"),
-		});
+		expect(isPatchPathOutsideWorkspace(root, "linked/value.ts")).toBe(false);
 	});
 });

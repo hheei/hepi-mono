@@ -1,9 +1,9 @@
-import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createOutputRegistry } from "@hheei/pi-ext-core";
+import { describe, expect, test } from "vitest";
 import { grepNeedsBuiltinFallback, inferFffGrepMode } from "../../src/fff/extension-common.js";
 import { FffRuntime } from "../../src/fff/fff.js";
 import { createFffRuntimeState, type FffRuntimeState } from "../../src/fff/lifecycle.js";
@@ -12,7 +12,7 @@ import { DEFAULT_RTK_SETTINGS } from "../../src/fff/settings.js";
 import { registerFindTool } from "../../src/find.js";
 import { registerGrepTool } from "../../src/grep.js";
 import { GREP_TIMEOUT_RECOVERY } from "../../src/search-timeout.js";
-import type { TargetRuntime } from "../../src/targets.js";
+import { RemoteGrepAccessDeniedError, type TargetRuntime } from "../../src/targets.js";
 
 function harness(): { readonly pi: ExtensionAPI; readonly tools: ToolDefinition[] } {
 	const tools: ToolDefinition[] = [];
@@ -625,6 +625,180 @@ describe("FFF tool registration", () => {
 			const recoveryId = details.recovery.output.slice("target=output path=".length);
 			expect(outputs.read(`output://${recoveryId}`)).toContain("26:needle");
 		} finally {
+			outputs.dispose();
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	test("preserves readable grep matches and records inaccessible paths", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-grep-permission-"));
+		const blocked = join(cwd, "blocked");
+		const outputs = createOutputRegistry();
+		try {
+			await writeFile(join(cwd, "visible.txt"), "needle\n", "utf8");
+			await mkdir(blocked);
+			await writeFile(join(blocked, "secret.txt"), "needle\n", "utf8");
+			await chmod(blocked, 0o000);
+			const state = {
+				getRuntime: () => undefined,
+				getSettings: () => ({
+					shellPath: "sh",
+					bashOutputTailKiB: 10,
+					autocomplete: true,
+					grepEnhancement: false,
+					readEnhancement: true,
+					findEnhancement: true,
+					statusUI: true,
+				}),
+				getBashJobs: () => undefined,
+				getOutputs: () => outputs,
+				getRtkSettings: () => DEFAULT_RTK_SETTINGS,
+				getTargetRuntime: () => undefined,
+				consumeRtkRewriteWarning: () => false,
+			} satisfies FffRuntimeState;
+			const host = harness();
+			registerGrepTool(host.pi, state);
+			const grep = host.tools[0];
+			if (grep === undefined) throw new Error("grep was not registered");
+			const result = await grep.execute(
+				"grep-inaccessible",
+				{ pattern: "needle", path: cwd },
+				undefined,
+				undefined,
+				{ cwd } as never,
+			);
+			const content = result.content[0];
+			if (content?.type !== "text") throw new Error("Expected grep text result");
+			expect(content.text).toContain("visible.txt");
+			expect(content.text).toContain("Results may be incomplete");
+			expect(content.text).not.toContain("No matches found");
+			expect(result.details).toMatchObject({
+				incomplete: {
+					reason: "access_denied",
+					noSearchablePaths: false,
+					diagnostics: [expect.stringContaining("Permission denied")],
+				},
+			});
+			const recovery = (result.details as { readonly recovery: { readonly output: string } })
+				.recovery;
+			const recoveryId = recovery.output.slice("target=output path=".length);
+			expect(outputs.read(`output://${recoveryId}`)).toContain("Permission denied");
+		} finally {
+			await chmod(blocked, 0o700).catch(() => undefined);
+			outputs.dispose();
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	test("preserves remote grep matches after an access-denied diagnostic", async () => {
+		const outputs = createOutputRegistry();
+		try {
+			const stdout = [
+				'{"type":"match","data":{"path":{"text":"visible.txt"},"lines":{"text":"needle\\n"},"line_number":1,"absolute_offset":0,"submatches":[{"match":{"text":"needle"},"start":0,"end":6}]}}',
+				'{"type":"summary","data":{"stats":{"searches":1}}}',
+			].join("\n");
+			const state = {
+				getRuntime: () => undefined,
+				getSettings: () => ({
+					shellPath: "sh",
+					bashOutputTailKiB: 10,
+					autocomplete: true,
+					grepEnhancement: false,
+					readEnhancement: true,
+					findEnhancement: true,
+					statusUI: true,
+				}),
+				getBashJobs: () => undefined,
+				getOutputs: () => outputs,
+				getRtkSettings: () => DEFAULT_RTK_SETTINGS,
+				getTargetRuntime: () =>
+					({
+						validateRemotePath: () => undefined,
+						createOutput: () => undefined,
+						grep: async () => {
+							throw new RemoteGrepAccessDeniedError(stdout, [
+								"rg: /root: Permission denied (os error 13)",
+							]);
+						},
+					}) as unknown as TargetRuntime,
+				consumeRtkRewriteWarning: () => false,
+			} satisfies FffRuntimeState;
+			const host = harness();
+			registerGrepTool(host.pi, state);
+			const grep = host.tools[0];
+			if (grep === undefined) throw new Error("grep was not registered");
+			const result = await grep.execute(
+				"grep-remote-inaccessible",
+				{ pattern: "needle", path: ".", target: "ileqm" },
+				undefined,
+				undefined,
+				{ cwd: process.cwd() } as never,
+			);
+			const content = result.content[0];
+			if (content?.type !== "text") throw new Error("Expected grep text result");
+			expect(content.text).toContain("visible.txt");
+			expect(content.text).toContain("Results may be incomplete");
+			expect(result.details).toMatchObject({
+				target: "ileqm",
+				incomplete: {
+					reason: "access_denied",
+					noSearchablePaths: false,
+				},
+			});
+		} finally {
+			outputs.dispose();
+		}
+	});
+
+	test("returns a typed error when grep cannot search any requested path", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-grep-inaccessible-"));
+		const blocked = join(cwd, "blocked");
+		const outputs = createOutputRegistry();
+		try {
+			await mkdir(blocked);
+			await writeFile(join(blocked, "secret.txt"), "needle\n", "utf8");
+			await chmod(blocked, 0o000);
+			const state = {
+				getRuntime: () => undefined,
+				getSettings: () => ({
+					shellPath: "sh",
+					bashOutputTailKiB: 10,
+					autocomplete: true,
+					grepEnhancement: false,
+					readEnhancement: true,
+					findEnhancement: true,
+					statusUI: true,
+				}),
+				getBashJobs: () => undefined,
+				getOutputs: () => outputs,
+				getRtkSettings: () => DEFAULT_RTK_SETTINGS,
+				getTargetRuntime: () => undefined,
+				consumeRtkRewriteWarning: () => false,
+			} satisfies FffRuntimeState;
+			const host = harness();
+			registerGrepTool(host.pi, state);
+			const grep = host.tools[0];
+			if (grep === undefined) throw new Error("grep was not registered");
+			const result = await grep.execute(
+				"grep-only-inaccessible",
+				{ pattern: "needle", path: blocked },
+				undefined,
+				undefined,
+				{ cwd } as never,
+			);
+			const content = result.content[0];
+			if (content?.type !== "text") throw new Error("Expected grep text result");
+			expect(content.text).toContain("could not inspect any files");
+			expect(content.text).not.toContain("No matches found");
+			expect(result.details).toMatchObject({
+				incomplete: {
+					reason: "access_denied",
+					noSearchablePaths: true,
+					diagnostics: [expect.stringContaining("Permission denied")],
+				},
+			});
+		} finally {
+			await chmod(blocked, 0o700).catch(() => undefined);
 			outputs.dispose();
 			await rm(cwd, { recursive: true, force: true });
 		}

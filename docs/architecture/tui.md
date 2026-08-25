@@ -5,8 +5,8 @@
 第一阶段 core runtime、page router 与 BTW consumer 已实现。此文定义 `@hheei/pi-ext-core` 的 TUI 宿主边界；它不定义任何 extension 的页面内容、设置 schema、命令、业务状态或交互 policy。
 
 第一阶段实现并验证 custom surface runtime、page router 与 BTW consumer。`pi-settings` 已作为独立 host
-实现，并提供完整 combined-provider Settings page；`pi-loadout` 作为 router page 注册，core-managed widget 会在 Settings
-surface 打开期间 suspend。第二阶段另行实现 editor/footer rail compositor，并迁移现有 statusbar；TODO 和
+实现，并提供完整 combined-provider Settings 与 Loadout page，core-managed widget 会在 Settings surface
+打开期间 suspend。第二阶段另行实现 editor/footer rail compositor，并迁移现有 statusbar；TODO 和
 subagent 仅在该 compositor 通过验证后接入。
 
 ## 目标
@@ -36,9 +36,9 @@ non-TUI dialog fallback、问卷 model 和结果 policy。
 
 ## Settings Host
 
-`packages/pi-settings` 独占 `/ext-settings [page-id]`，并调用 core router。`pi-loadout` 额外注册
-`/loadout`，以 Loadout 为 initial page 打开同一 router。它们不 import concrete extensions；provider page
-与 `pi-loadout` page 都经 runtime-scoped core registry 组合；没有 legacy aggregate Settings shell。
+`packages/pi-settings` 独占 `/ext-settings [page-id]` 与 `/loadout`，并调用 core router；后者以 Loadout
+为 initial page 打开同一 router。它不 import concrete extensions；provider page 与 package-owned Loadout
+page 都经 runtime-scoped core registry 组合；没有 legacy aggregate Settings shell。
 
 Loadout 是独立 router page，Tools 与 Skills 同页；任一 router command host 打开期间 suspend 所有
 core-managed editor widget；Loadout 持有 scope draft，切 scope/离开 page/close 时写入而不 hot-apply。旧

@@ -1,8 +1,8 @@
 import type {
-	HepiContext,
-	HepiSettingChange,
-	HepiSettingsProvider,
-	HepiSettingsState,
+	SettingChange,
+	SettingsContext,
+	SettingsProvider,
+	SettingsState,
 } from "@hheei/pi-ext-core";
 
 interface GroupMapping {
@@ -10,11 +10,11 @@ interface GroupMapping {
 	readonly originalId: string;
 	readonly moduleName: string;
 	readonly showModuleHeader: boolean;
-	readonly provider: HepiSettingsProvider;
-	readonly group: HepiSettingsProvider["groups"][number];
+	readonly provider: SettingsProvider;
+	readonly group: SettingsProvider["groups"][number];
 }
 
-function providerModuleName(provider: HepiSettingsProvider): string {
+function providerModuleName(provider: SettingsProvider): string {
 	if (provider.moduleName !== undefined) return provider.moduleName;
 	const originName = provider.origin?.split("/").at(-1);
 	if (originName?.startsWith("pi-") && originName !== "pi-basics") return originName;
@@ -27,9 +27,7 @@ function providerModuleName(provider: HepiSettingsProvider): string {
  * Display IDs solve UI collisions only; every storage and callback boundary is
  * mapped back to the provider's own group IDs before it crosses package ownership.
  */
-export function combineSettingsProviders(
-	providers: readonly HepiSettingsProvider[],
-): HepiSettingsProvider {
+export function combineSettingsProviders(providers: readonly SettingsProvider[]): SettingsProvider {
 	const usedGroupIds = new Set<string>();
 	const seenModules = new Set<string>();
 	const mappings: readonly GroupMapping[] = providers.flatMap((provider) => {
@@ -48,10 +46,7 @@ export function combineSettingsProviders(
 			return { displayId, originalId: group.id, moduleName, showModuleHeader, provider, group };
 		});
 	});
-	const providerState = (
-		state: HepiSettingsState,
-		provider: HepiSettingsProvider,
-	): HepiSettingsState =>
+	const providerState = (state: SettingsState, provider: SettingsProvider): SettingsState =>
 		Object.fromEntries(
 			mappings
 				.filter((mapping) => mapping.provider === provider)
@@ -67,7 +62,7 @@ export function combineSettingsProviders(
 				? field
 				: {
 						...field,
-						enabled: (state: HepiSettingsState) => enabled(providerState(state, provider)),
+						enabled: (state: SettingsState) => enabled(providerState(state, provider)),
 					};
 		}),
 	}));
@@ -81,7 +76,7 @@ export function combineSettingsProviders(
 		groups,
 		panels: providers.flatMap((provider) => provider.panels ?? []),
 		storage: {
-			async load(context: HepiContext): Promise<HepiSettingsState> {
+			async load(context: SettingsContext): Promise<SettingsState> {
 				const entries = await Promise.all(
 					providers.map(
 						async (provider) => [provider, await provider.storage.load(context)] as const,
@@ -98,17 +93,17 @@ export function combineSettingsProviders(
 					),
 				);
 			},
-			async save(state: HepiSettingsState, context: HepiContext): Promise<void> {
+			async save(state: SettingsState, context: SettingsContext): Promise<void> {
 				// Keep provider writes ordered. Individual storage implementations own their
 				// atomic root update; unrelated provider files are not a transaction.
 				for (const provider of providers)
 					await provider.storage.save(providerState(state, provider), context);
 			},
-			async validate(state: HepiSettingsState, context: HepiContext): Promise<void> {
+			async validate(state: SettingsState, context: SettingsContext): Promise<void> {
 				for (const provider of providers)
 					await provider.storage.validate?.(providerState(state, provider), context);
 			},
-			async close(context: HepiContext): Promise<void> {
+			async close(context: SettingsContext): Promise<void> {
 				for (const provider of providers) await provider.storage.close?.(context);
 			},
 		},
@@ -116,7 +111,7 @@ export function combineSettingsProviders(
 			for (const provider of providers)
 				await provider.onLoad?.(providerState(state, provider), context);
 		},
-		onChange: async (change: HepiSettingChange, context: HepiContext): Promise<void> => {
+		onChange: async (change: SettingChange, context: SettingsContext): Promise<void> => {
 			const mapping = owners.get(change.groupId);
 			if (mapping?.provider.onChange === undefined) return;
 			await mapping.provider.onChange(

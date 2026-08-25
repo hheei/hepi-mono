@@ -82,16 +82,12 @@ function contentPartText(
 ): string {
 	// Pi AI exposes message content through a generic message type, while the runtime values are discriminated.
 	switch (part.type) {
-		// biome-ignore lint/suspicious/noUnnecessaryConditions: Pi AI exposes this discriminated union through a generic message type.
 		case "text":
 			return part.text;
-		// biome-ignore lint/suspicious/noUnnecessaryConditions: Pi AI exposes this discriminated union through a generic message type.
 		case "image":
 			return `[image omitted: ${part.mimeType}]`;
-		// biome-ignore lint/suspicious/noUnnecessaryConditions: Pi AI exposes this discriminated union through a generic message type.
 		case "thinking":
 			return "";
-		// biome-ignore lint/suspicious/noUnnecessaryConditions: Pi AI exposes this discriminated union through a generic message type.
 		case "toolCall":
 			return `[tool call: ${part.name} ${safeJson(part.arguments)}]`;
 		default:
@@ -110,13 +106,10 @@ function contentText(message: Message): string {
 function serializeMessageByRole(message: Message, body: string): string {
 	// Pi AI exposes message roles through a generic message type, while the runtime values are discriminated.
 	switch (message.role) {
-		// biome-ignore lint/suspicious/noUnnecessaryConditions: Pi AI exposes this discriminated union through a generic message type.
 		case "user":
 			return `User:\n${body}`;
-		// biome-ignore lint/suspicious/noUnnecessaryConditions: Pi AI exposes this discriminated union through a generic message type.
 		case "assistant":
 			return `Assistant:\n${body}`;
-		// biome-ignore lint/suspicious/noUnnecessaryConditions: Pi AI exposes this discriminated union through a generic message type.
 		case "toolResult":
 			return `Tool result (${message.toolName}):\n${body}`;
 		default:

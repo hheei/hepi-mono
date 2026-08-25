@@ -1,7 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, test } from "vitest";
 import {
 	createTextReplayFrame,
 	finalFrameAnsi,
@@ -14,7 +16,7 @@ import {
 	writeReplaySnapshot,
 } from "../src/tui-replay.js";
 
-const REPLAY_CLI = join(dirname(import.meta.path), "../src/tui-replay.ts");
+const REPLAY_CLI = join(dirname(fileURLToPath(import.meta.url)), "../src/tui-replay.ts");
 
 describe("TUI replay", () => {
 	test("captures input and resize actions", async () => {
@@ -99,21 +101,14 @@ describe("TUI replay", () => {
 		const cwd = join(root, "cwd\x1b]0;path-injection\x07");
 		await mkdir(cwd);
 		try {
-			const child = Bun.spawn([process.execPath, REPLAY_CLI, "--text", "ok", "--format", "ans"], {
+			const child = spawnSync("bun", [REPLAY_CLI, "--text", "ok", "--format", "ans"], {
 				cwd,
-				stdin: "ignore",
-				stdout: "pipe",
-				stderr: "pipe",
+				encoding: "utf8",
 			});
-			const [stdout, stderr, exitCode] = await Promise.all([
-				new Response(child.stdout).text(),
-				new Response(child.stderr).text(),
-				child.exited,
-			]);
-			expect(exitCode).toBe(0);
-			expect(stderr).toBe("");
-			expect(stdout).not.toContain("\x1b]");
-			expect(stdout).not.toContain("\x07");
+			expect(child.status).toBe(0);
+			expect(child.stderr).toBe("");
+			expect(child.stdout).not.toContain("\x1b]");
+			expect(child.stdout).not.toContain("\x07");
 			expect(await readdir(join(cwd, "outputs"))).toEqual(["replay-0001"]);
 		} finally {
 			await rm(root, { recursive: true, force: true });

@@ -1,4 +1,4 @@
-import { createJsonSectionSettingsStorage, type HepiSettingsProvider } from "@hheei/pi-ext-core";
+import { createJsonSectionSettingsStorage, type SettingsProvider } from "@hheei/pi-ext-core";
 
 export const DEBUG_SETTINGS_SECTION = "pi-debug";
 export const DEBUG_SETTINGS_GROUP = "cache";
@@ -6,7 +6,7 @@ export const DEBUG_ENABLED_FIELD = "enabled";
 
 export function createDebugSettingsProvider(
 	onEnabledChange: (sessionId: string, enabled: boolean) => void,
-): HepiSettingsProvider {
+): SettingsProvider {
 	return {
 		id: DEBUG_SETTINGS_SECTION,
 		title: "Pi Debug",

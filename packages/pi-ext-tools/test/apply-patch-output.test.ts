@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { modifiesOutputPath } from "../src/apply-patch-tool.js";
 
 describe("apply_patch output targets", () => {

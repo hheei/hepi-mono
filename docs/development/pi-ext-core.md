@@ -114,7 +114,7 @@ content model、worker framework 或 shared dependency。
 所有 HEPI-owned non-native executable tool 必须在 extension composition root 使用 core 的 managed
 Loadout registration，禁止直接调用 Pi tool registration API。非-tool resource 使用 lifecycle-bound
 Loadout resource registration；agent contributor 使用 `agent:<name>`，不得伪装为 Pi tool。
-`pi-loadout` 是强烈推荐 companion；
+`pi-settings` 是强烈推荐 companion；
 缺席时 core fallback 仅保留 Pi 默认 activation，不提供 inventory、conflict 或 persisted policy。
 
 所有 Loadout resource registration 与 page registration 的 ID 必须稳定且 runtime 内唯一；重复 ID 是

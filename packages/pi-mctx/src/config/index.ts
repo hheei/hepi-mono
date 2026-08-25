@@ -3,10 +3,10 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	createJsonFlatSectionSettingsStorage,
 	defaultPiSettingsPaths,
-	getHepiRuntimeSettingsRegistry,
-	type HepiSettingField,
-	type HepiSettingsProvider,
-	type HepiSettingsState,
+	getRuntimeSettingsRegistry,
+	type SettingField,
+	type SettingsProvider,
+	type SettingsState,
 } from "@hheei/pi-ext-core";
 import {
 	type MagicContextConfig,
@@ -62,7 +62,7 @@ function booleanField(args: {
 	label: string;
 	defaultValue: boolean;
 	description: string;
-}): HepiSettingField<boolean> {
+}): SettingField<boolean> {
 	return { ...args, type: "boolean", parse: parseBoolean };
 }
 
@@ -73,7 +73,7 @@ function numberField(args: {
 	description: string;
 	minimum: number;
 	maximum?: number;
-}): HepiSettingField<number> {
+}): SettingField<number> {
 	return {
 		...args,
 		type: "number",
@@ -96,7 +96,7 @@ function textField(args: {
 	label: string;
 	defaultValue?: string;
 	description: string;
-}): HepiSettingField<string> {
+}): SettingField<string> {
 	return {
 		...args,
 		defaultValue: args.defaultValue ?? "",
@@ -109,7 +109,7 @@ function environmentVariableField(args: {
 	id: string;
 	label: string;
 	description: string;
-}): HepiSettingField<string> {
+}): SettingField<string> {
 	return {
 		...textField(args),
 		validate: (value) =>
@@ -123,12 +123,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function settingValue(state: HepiSettingsState, field: string): unknown {
+function settingValue(state: SettingsState, field: string): unknown {
 	return state[PI_MCTX_SETTINGS_GROUP]?.[field];
 }
 
 function settingBoolean(
-	state: HepiSettingsState,
+	state: SettingsState,
 	field: string,
 	fallback: boolean,
 ): boolean {
@@ -136,13 +136,13 @@ function settingBoolean(
 	return typeof value === "boolean" ? value : fallback;
 }
 
-function settingText(state: HepiSettingsState, field: string): string | undefined {
+function settingText(state: SettingsState, field: string): string | undefined {
 	const value = settingValue(state, field);
 	return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
 function settingNumber(
-	state: HepiSettingsState,
+	state: SettingsState,
 	field: string,
 	fallback: number,
 	minimum: number,
@@ -157,7 +157,7 @@ function settingNumber(
 
 /** Converts flat ext-core settings into the Pi MCTX runtime schema. */
 export function resolvePiMctxSettings(
-	state: HepiSettingsState = {},
+	state: SettingsState = {},
 ): MagicContextConfig {
 	const memory = DEFAULT_CONFIG.memory;
 	const historianEnabled = settingBoolean(
@@ -337,7 +337,7 @@ export function resolvePiMctxSettings(
 	});
 }
 
-function readPiMctxSettings(): HepiSettingsState {
+function readPiMctxSettings(): SettingsState {
 	try {
 		const root = JSON.parse(
 			readFileSync(defaultPiSettingsPaths().globalPath, "utf8"),
@@ -373,7 +373,7 @@ export function resetPiMctxConfigForReload(): void {
 	bootConfig = undefined;
 }
 
-export function createPiMctxSettingsProvider(): HepiSettingsProvider {
+export function createPiMctxSettingsProvider(): SettingsProvider {
 	const memory = DEFAULT_CONFIG.memory;
 	const historianEnabled = DEFAULT_CONFIG.historian?.disable !== true;
 	const dreamerEnabled = DEFAULT_CONFIG.dreamer !== undefined && DEFAULT_CONFIG.dreamer.disable !== true;
@@ -429,7 +429,7 @@ export function createPiMctxSettingsProvider(): HepiSettingsProvider {
 
 /** Replaces stale providers when Pi reloads the extension. */
 export function registerPiMctxSettings(pi: ExtensionAPI): () => void {
-	return getHepiRuntimeSettingsRegistry(pi).replace(
+	return getRuntimeSettingsRegistry(pi).replace(
 		createPiMctxSettingsProvider(),
 	);
 }

@@ -1,9 +1,6 @@
-import { describe, expect, test } from "bun:test";
-import type {
-	ExtensionPageViewContext,
-	HepiSettingsProvider,
-	HepiSettingsState,
-} from "@hheei/pi-ext-core";
+import { setTimeout as sleep } from "node:timers/promises";
+import type { ExtensionPageViewContext, SettingsProvider, SettingsState } from "@hheei/pi-ext-core";
+import { describe, expect, test } from "vitest";
 import { replayTui, viewFrame } from "../../pi-debug/src/tui-replay.js";
 import { createSettingsPage } from "../src/settings-page.js";
 
@@ -44,7 +41,7 @@ describe("Settings provider page", () => {
 		const saved: unknown[] = [];
 		const changes: unknown[] = [];
 		const sessionIds: string[] = [];
-		const provider: HepiSettingsProvider = {
+		const provider: SettingsProvider = {
 			id: "example",
 			title: "Example",
 			groups: [
@@ -89,7 +86,7 @@ describe("Settings provider page", () => {
 
 	test("renders the combined group tree and flushes before handing arrows to the router", async () => {
 		const saves: unknown[] = [];
-		const providers: HepiSettingsProvider[] = ["Alpha", "Beta"].map((title) => ({
+		const providers: SettingsProvider[] = ["Alpha", "Beta"].map((title) => ({
 			id: title.toLocaleLowerCase(),
 			title,
 			groups: [
@@ -134,7 +131,7 @@ describe("Settings provider page", () => {
 	});
 
 	test("keeps a failed save draft visible and consumes router navigation", async () => {
-		const provider: HepiSettingsProvider = {
+		const provider: SettingsProvider = {
 			id: "failure",
 			title: "Failure",
 			groups: [
@@ -179,7 +176,7 @@ describe("Settings provider page", () => {
 			description: `Controls fixture field ${index} for the Settings viewport regression test.`,
 			parse: (value: string) => value === "true",
 		}));
-		const provider: HepiSettingsProvider = {
+		const provider: SettingsProvider = {
 			id: "many",
 			title: "Many",
 			groups: [{ id: "general", title: "General", fields }],
@@ -206,7 +203,7 @@ describe("Settings provider page", () => {
 
 	test("cycles a related tab value inside the legacy enum editor", async () => {
 		const saved: unknown[] = [];
-		const provider: HepiSettingsProvider = {
+		const provider: SettingsProvider = {
 			id: "cycle",
 			title: "Cycle",
 			groups: [
@@ -249,7 +246,7 @@ describe("Settings provider page", () => {
 	});
 
 	test("marquees only an overflowing selected label and clears it on disposal", async () => {
-		const provider: HepiSettingsProvider = {
+		const provider: SettingsProvider = {
 			id: "marquee",
 			title: "Marquee",
 			groups: [
@@ -273,15 +270,15 @@ describe("Settings provider page", () => {
 		};
 		const page = await createSettingsPage({ list: () => [provider] } as never, context().value);
 		const initial = page.component.render(48).join("\n");
-		await Bun.sleep(800);
+		await sleep(800);
 		const advanced = page.component.render(48).join("\n");
 		expect(advanced).not.toBe(initial);
 		await page.close();
 	});
 
 	test("adds, reorders, and deletes list items, then persists them", async () => {
-		const saved: HepiSettingsState[] = [];
-		const provider: HepiSettingsProvider = {
+		const saved: SettingsState[] = [];
+		const provider: SettingsProvider = {
 			id: "targets",
 			title: "Targets",
 			groups: [

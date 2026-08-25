@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { describe, expect, test } from "vitest";
 import { createResponseStatusFeature } from "../src/index.js";
 
 type EventHandler = (event: never, ctx: ExtensionContext) => unknown;

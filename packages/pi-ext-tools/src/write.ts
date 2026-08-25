@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import {
@@ -9,7 +10,16 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
 import type { ToolTui } from "@hheei/pi-ext-core";
+import { type Static, Type } from "typebox";
+import { withMutationLock } from "./apply-patch/index.js";
 import { counted } from "./counted.js";
+import type { FffRuntimeState } from "./fff/lifecycle.js";
+import {
+	REMOTE_MUTATION_DETAILS,
+	type RemoteMutationDetails,
+	remoteMutationDetails,
+	writeRemoteFile,
+} from "./native-remote.js";
 import {
 	createCanonicalExecutionTool,
 	createCanonicalToolRegistration,
@@ -21,7 +31,6 @@ import { renderSplit, resolveDiffColors, summarize } from "./pretty/diff-render.
 import { hlBlock } from "./pretty/highlight.js";
 import { lang } from "./pretty/lang.js";
 import { LinesBody } from "./pretty/lines-body.js";
-import { rejectUnsupportedTarget } from "./targets.js";
 
 const WRITE_RENDER_DETAILS = "__piExtToolsWrite";
 const WRITE_VIEW_KEY = "__piExtToolsWriteView";
@@ -29,8 +38,21 @@ const NEW_FILE_PREVIEW_LINES = 20;
 const EXPAND_HINT = "ctrl+o to expand";
 export const WRITE_TOOL_REGISTRATION = createCanonicalToolRegistration("write", ["apply_patch"]);
 
+const WRITE_PARAMETERS = Type.Object(
+	{
+		path: Type.String({ description: "Path to the file to write (relative or absolute)" }),
+		content: Type.String({ description: "Content to write to the file" }),
+		target: Type.Optional(
+			Type.String({
+				description: "local or an authorized SSH alias. Omit for local. Does not support output.",
+			}),
+		),
+	},
+	{ additionalProperties: false },
+);
+
 type WriteDefinition = ReturnType<typeof createWriteToolDefinition>;
-type WriteArgs = Parameters<NonNullable<WriteDefinition["renderCall"]>>[0];
+type WriteArgs = Static<typeof WRITE_PARAMETERS>;
 type WriteState = Record<string, never>;
 
 type WriteView =
@@ -96,7 +118,7 @@ function trimTrailingEmptyLines(lines: readonly string[]): string[] {
 function writeMetrics(args: WriteArgs): { bytes: number; lines: number } | undefined {
 	if (typeof args.content !== "string") return undefined;
 	const normalizedLines = trimTrailingEmptyLines(args.content.replace(/\r/g, "").split("\n"));
-	return { bytes: args.content.length, lines: normalizedLines.length };
+	return { bytes: Buffer.byteLength(args.content), lines: normalizedLines.length };
 }
 
 function resultText(result: AgentToolResult<unknown>): string {
@@ -110,6 +132,7 @@ function withWriteDetails(
 	result: AgentToolResult<unknown>,
 	metrics: { bytes: number; lines: number } | undefined,
 	view: WriteView | undefined,
+	remote?: RemoteMutationDetails,
 ): AgentToolResult<unknown> {
 	const details =
 		typeof result.details === "object" && result.details !== null && !Array.isArray(result.details)
@@ -121,6 +144,7 @@ function withWriteDetails(
 			...details,
 			...(metrics === undefined ? {} : { [WRITE_RENDER_DETAILS]: metrics }),
 			...(view === undefined ? {} : { [WRITE_VIEW_KEY]: view }),
+			...(remote === undefined ? {} : { [REMOTE_MUTATION_DETAILS]: remote }),
 		},
 	};
 }
@@ -237,50 +261,128 @@ function previewSource(
 	return content.length > MAX_HL_CHARS ? content.slice(0, MAX_HL_CHARS) : content;
 }
 
-export function registerWriteTool(pi: ExtensionAPI, tui: ToolTui): void {
+function writePresentation(
+	args: WriteArgs,
+	baseline: { readonly exists: boolean; readonly text?: string },
+): { readonly metrics: { bytes: number; lines: number } | undefined; readonly view: WriteView } {
+	const path = filePath(args);
+	const content = typeof args.content === "string" ? args.content : "";
+	const language = lang(path);
+	const old = baseline.text;
+	const parsed = old === undefined ? undefined : parseDiff(old, content);
+	const metrics = writeMetrics(args);
+	const preview = { lines: metrics?.lines ?? 0, language };
+	const view: WriteView = !baseline.exists
+		? { kind: "new", ...preview }
+		: old !== undefined &&
+				parsed !== undefined &&
+				content.length <= MAX_HL_CHARS &&
+				normalizeLineEndings(old) !== normalizeLineEndings(content)
+			? persistWriteDiff(parsed, language)
+			: old !== undefined &&
+					parsed !== undefined &&
+					normalizeLineEndings(old) === normalizeLineEndings(content)
+				? { kind: "noChange" }
+				: { kind: "replace", ...preview };
+	return { metrics, view };
+}
+
+function remoteWriteFailureText(details: RemoteMutationDetails): string {
+	const location = `${details.target}:${details.path}`;
+	if (details.outcome === "unconfirmed")
+		return `Write outcome is unknown for ${location}: ${details.error}\nRecovery: read ${location} before another mutation.`;
+	if (details.outcome === "not_applied")
+		return `Write was not applied to ${location}: ${details.error}`;
+	return `Could not write ${location}: ${details.error}`;
+}
+
+export function registerWriteTool(
+	pi: ExtensionAPI,
+	tui: ToolTui,
+	state?: FffRuntimeState,
+): ToolDefinition {
 	const baseTool = createCanonicalExecutionTool(createWriteToolDefinition) as ToolDefinition<
 		WriteDefinition["parameters"],
 		unknown,
 		WriteState
 	>;
-	const tool: ToolDefinition<WriteDefinition["parameters"], unknown, WriteState> = {
+	const tool: ToolDefinition<typeof WRITE_PARAMETERS, unknown, WriteState> = {
 		...baseTool,
+		parameters: WRITE_PARAMETERS,
 		async execute(toolCallId, params: WriteArgs, signal, onUpdate, context) {
-			rejectUnsupportedTarget("write", params);
 			const path = filePath(params);
-			const resolved = resolvePath(context.cwd, path);
-			const baseline = path === "" ? { exists: false } : readTextIfSmall(resolved);
-			const result = await baseTool.execute(toolCallId, params, signal, onUpdate, context);
-			const content = typeof params.content === "string" ? params.content : "";
-			const language = lang(path);
-			const old = baseline.text;
-			const parsed = old === undefined ? undefined : parseDiff(old, content);
-			const metrics = writeMetrics(params);
-			const preview = {
-				lines: metrics?.lines ?? 0,
-				language,
-			};
-			const view: WriteView = !baseline.exists
-				? { kind: "new", ...preview }
-				: old !== undefined &&
-						parsed !== undefined &&
-						content.length <= MAX_HL_CHARS &&
-						normalizeLineEndings(old) !== normalizeLineEndings(content)
-					? persistWriteDiff(parsed, language)
-					: old !== undefined &&
-							parsed !== undefined &&
-							normalizeLineEndings(old) === normalizeLineEndings(content)
-						? { kind: "noChange" }
-						: { kind: "replace", ...preview };
-			return withWriteDetails(result, metrics, view);
+			if (params.target !== undefined && params.target !== "local") {
+				const content = typeof params.content === "string" ? params.content : "";
+				const remote = await writeRemoteFile(state, params.target, path, content, signal);
+				if (remote.outcome !== "changed" && remote.outcome !== "no_change")
+					return withWriteDetails(
+						{
+							content: [{ type: "text", text: remoteWriteFailureText(remote) }],
+							details: undefined,
+						},
+						undefined,
+						undefined,
+						remote,
+					);
+				const baseline = {
+					exists: remote.existed,
+					...(remote.before === undefined ? {} : { text: new TextDecoder().decode(remote.before) }),
+				};
+				const presentation = writePresentation(params, baseline);
+				return withWriteDetails(
+					{
+						content: [
+							{
+								type: "text",
+								text:
+									remote.outcome === "no_change"
+										? `No changes made to ${path}.`
+										: `Successfully wrote ${Buffer.byteLength(content)} bytes to ${path}`,
+							},
+						],
+						details: undefined,
+					},
+					presentation.metrics,
+					presentation.view,
+					remote,
+				);
+			}
+			return await withMutationLock(context.cwd, signal, async () => {
+				const resolved = resolvePath(context.cwd, path);
+				const baseline = path === "" ? { exists: false } : readTextIfSmall(resolved);
+				const result = await baseTool.execute(toolCallId, params, signal, onUpdate, context);
+				const presentation = writePresentation(params, baseline);
+				return withWriteDetails(result, presentation.metrics, presentation.view);
+			});
 		},
 		renderCall(args, theme, context) {
 			const path = filePath(args);
 			const content = typeof args.content === "string" ? args.content : "";
-			if (content === "" || existsSync(resolvePath(context.cwd, path))) return new Container();
+			if (
+				content === "" ||
+				(args.target !== undefined && args.target !== "local") ||
+				existsSync(resolvePath(context.cwd, path))
+			)
+				return new Container();
 			return new LinesBody(() => previewLines(content, lang(path), theme, context.expanded));
 		},
 		renderResult(result, options, theme, context) {
+			const remote = remoteMutationDetails(result.details);
+			if (context.isError && remote?.outcome === "unconfirmed")
+				return new Text(
+					theme.fg(
+						"warning",
+						`? ${remote.target}:${remote.path} · ${remote.error ?? "outcome unknown"}`,
+					),
+					0,
+					0,
+				);
+			if (context.isError && remote?.outcome === "not_applied")
+				return new Text(
+					theme.fg("dim", `– ${remote.target}:${remote.path} · ${remote.error ?? "not applied"}`),
+					0,
+					0,
+				);
 			if (context.isError) return new Text(resultText(result) || "Error", 0, 0);
 			const view = writeView(result);
 			const args = context.args as WriteArgs;
@@ -317,6 +419,8 @@ export function registerWriteTool(pi: ExtensionAPI, tui: ToolTui): void {
 		WRITE_TOOL_REGISTRATION,
 		tui.frame(tool, {
 			summary: (args) => filePath(args as WriteArgs) || undefined,
+			summarySeparator: "space",
+			remotePathSummary: true,
 			maxBodyLines: Number.POSITIVE_INFINITY,
 			footer(result, completion) {
 				const metrics = readWriteMetrics(result);
@@ -335,4 +439,5 @@ export function registerWriteTool(pi: ExtensionAPI, tui: ToolTui): void {
 			},
 		}),
 	);
+	return tool as unknown as ToolDefinition;
 }

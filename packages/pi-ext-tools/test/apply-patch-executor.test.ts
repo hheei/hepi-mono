@@ -1,4 +1,3 @@
-import { afterEach, describe, expect, test } from "bun:test";
 import {
 	chmod,
 	lstat,
@@ -12,9 +11,11 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
+import { afterEach, describe, expect, test } from "vitest";
 import { applyPatchInWorkspace } from "../src/apply-patch/executor.js";
 import { APPLY_PATCH_MAX_FILE_SIZE } from "../src/apply-patch/fs.js";
-import { ApplyPatchBusyError } from "../src/apply-patch/lock.js";
+import type { ApplyPatchProgress } from "../src/apply-patch/outcome.js";
 import { parseV4aPatch } from "../src/apply-patch/parser.js";
 import {
 	DEFAULT_FUZZY_APPLY_PATCH_POLICY,
@@ -117,6 +118,23 @@ describe("apply-patch executor", () => {
 
 		expect(result.rejected).toEqual([]);
 		expect(await load(outside, "escaped.txt")).toBe("outside\n");
+	});
+
+	test("updates an absolute path outside the workspace", async () => {
+		const root = await temporaryDirectory();
+		const outside = await temporaryDirectory();
+		const path = join(outside, "absolute.txt");
+		await writeFile(path, "before\n", "utf8");
+
+		const result = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch: `*** Begin Patch\n*** Update File: ${path}\n-before\n+after\n*** End Patch`,
+		});
+
+		expect(result.rejected).toEqual([]);
+		expect(result.changedPaths).toEqual([path]);
+		expect(await readFile(path, "utf8")).toBe("after\n");
 	});
 
 	test("applies add, update, delete, and move", async () => {
@@ -239,13 +257,15 @@ describe("apply-patch executor", () => {
 		expect(await load(root, "value.txt")).toBe("alpha\nchanged context\nomega\n");
 	});
 
-	test("does not publish when any hunk in the same update fails", async () => {
+	test("publishes successful hunks when another hunk in the same update fails", async () => {
 		const root = await temporaryDirectory();
 		await save(root, "value.txt", "one\ntwo\nthree\nfour\nfive\nsix\n");
+		const progress: ApplyPatchProgress[] = [];
 
 		const result = await applyPatchInWorkspace({
 			workspaceRoot: root,
 			policy: noFuzzy,
+			onProgress: (update) => progress.push(update),
 			patch:
 				"*** Begin Patch\n" +
 				"*** Update File: value.txt\n" +
@@ -255,8 +275,18 @@ describe("apply-patch executor", () => {
 				"*** End Patch",
 		});
 
-		expect(result.changedPaths).toEqual([]);
-		expect(result.applied).toEqual([]);
+		expect(result.changedPaths).toEqual(["value.txt"]);
+		expect(result.addedLines).toBe(2);
+		expect(result.removedLines).toBe(2);
+		expect(result.applied).toMatchObject([
+			{
+				paths: ["value.txt"],
+				outcomes: [
+					{ kind: "applied", hunkIndex: 1, match: "exact" },
+					{ kind: "applied", hunkIndex: 3, match: "exact" },
+				],
+			},
+		]);
 		expect(result.rejected).toMatchObject([
 			{
 				operationIndices: [0],
@@ -267,10 +297,56 @@ describe("apply-patch executor", () => {
 		expect(result.operations).toEqual([
 			expect.objectContaining({
 				path: "value.txt",
-				status: "rejected",
+				status: "partial",
+				appliedHunks: 2,
+				totalHunks: 3,
+				partialReason: "context not found",
+				addedLines: 2,
+				removedLines: 2,
 			}),
 		]);
-		expect(await load(root, "value.txt")).toBe("one\ntwo\nthree\nfour\nfive\nsix\n");
+		expect(await load(root, "value.txt")).toBe("ONE\ntwo\nthree\nfour\nFIVE\nsix\n");
+		expect(progress.at(-1)).toMatchObject({
+			stage: "done",
+			addedLines: 2,
+			removedLines: 2,
+			operations: [
+				{
+					status: "partial",
+					appliedHunks: 2,
+					totalHunks: 3,
+				},
+			],
+		});
+	});
+
+	test("moves a partially applied update after publishing successful hunks", async () => {
+		const root = await temporaryDirectory();
+		await save(root, "source.txt", "one\ntwo\nthree\n");
+
+		const result = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch:
+				"*** Begin Patch\n" +
+				"*** Update File: source.txt\n" +
+				"*** Move to: destination.txt\n" +
+				"@@\n-one\n+ONE\n" +
+				"@@\n-missing\n+MISS\n" +
+				"*** End Patch",
+		});
+
+		expect(result.changedPaths).toEqual(["source.txt", "destination.txt"]);
+		expect(result.operations).toEqual([
+			expect.objectContaining({
+				path: "destination.txt",
+				status: "partial",
+				appliedHunks: 1,
+				totalHunks: 2,
+			}),
+		]);
+		expect(await load(root, "destination.txt")).toBe("ONE\ntwo\nthree\n");
+		await expect(readFile(join(root, "source.txt"), "utf8")).rejects.toThrow();
 	});
 
 	test("rejects ambiguous exact context with candidate lines", async () => {
@@ -464,7 +540,7 @@ describe("apply-patch executor", () => {
 		expect(await load(root, "value.txt")).toBe("before\n");
 	});
 
-	test("rejects a second request while the workspace lock is held", async () => {
+	test("queues a second request until the workspace lock is released", async () => {
 		const root = await temporaryDirectory();
 		const controller = new AbortController();
 		const { createLocalPatchFs } = await import("../src/apply-patch/fs.js");
@@ -493,22 +569,22 @@ describe("apply-patch executor", () => {
 			patch: "*** Begin Patch\n*** Add File: first.txt\n+first\n*** End Patch",
 			signal: controller.signal,
 		});
-		await Bun.sleep(30);
-		await expect(
-			applyPatchInWorkspace({
-				workspaceRoot: root,
-				policy: noFuzzy,
-				patch: "*** Begin Patch\n*** Add File: second.txt\n+second\n*** End Patch",
-			}),
-		).rejects.toBeInstanceOf(ApplyPatchBusyError);
+		await sleep(30);
+		const second = applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch: "*** Begin Patch\n*** Add File: second.txt\n+second\n*** End Patch",
+		});
 		controller.abort(new Error("cancelled"));
 		await first.catch(() => undefined);
+		const result = await second;
+		expect(result.changedPaths).toEqual(["second.txt"]);
+		expect(await load(root, "second.txt")).toBe("second\n");
 	});
 
 	test("rejects existing files larger than 32 MiB", async () => {
 		const root = await temporaryDirectory();
-		const handle = Bun.file(join(root, "huge.bin"));
-		await handle.write(new Uint8Array(APPLY_PATCH_MAX_FILE_SIZE + 1));
+		await writeFile(join(root, "huge.bin"), new Uint8Array(APPLY_PATCH_MAX_FILE_SIZE + 1));
 
 		const result = await applyPatchInWorkspace({
 			workspaceRoot: root,

@@ -1,7 +1,7 @@
-import { expect, test } from "bun:test";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createTestModel } from "@hheei/pi-ext-core/testing";
+import { expect, test } from "vitest";
 import { BTW_CHILD_BUILTIN_TOOLS, createBtwChildFactory } from "../../src/child.js";
 
 const model = createTestModel({

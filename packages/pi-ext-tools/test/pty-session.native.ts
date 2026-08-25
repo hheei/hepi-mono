@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { setTimeout as sleep } from "node:timers/promises";
+import { expect, test } from "vitest";
 import { PtySession } from "../src/native-bridge.js";
 
 const decoder = new TextDecoder();
@@ -70,7 +71,7 @@ test("PtySession close settles a pending read", async (): Promise<void> => {
 		() => "settled",
 	);
 	session.close();
-	const outcome = await Promise.race([read, Bun.sleep(1000).then(() => "timeout")]);
+	const outcome = await Promise.race([read, sleep(1000).then(() => "timeout")]);
 	expect(outcome).toBe("settled");
 	await session.wait();
 });

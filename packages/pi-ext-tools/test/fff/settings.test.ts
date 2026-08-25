@@ -1,8 +1,8 @@
-import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { describe, expect, test } from "vitest";
 import { createFffRuntimeState, registerFffLifecycle } from "../../src/fff/lifecycle.js";
 import {
 	createBashSettingsProvider,

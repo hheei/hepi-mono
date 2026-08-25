@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
 	compileV4aUpdateToUnifiedDiff,
 	createV4aPreviewCursor,
@@ -61,17 +61,38 @@ describe("V4A patch parser", () => {
 		expect(patch.operations).toHaveLength(2);
 	});
 
-	test("rejects repeated envelope markers with actionable errors", () => {
+	test("keeps the first Begin Patch and last End Patch", () => {
 		expect(() =>
 			parseV4aPatch(
 				"*** Begin Patch\n*** Update File: *** Begin Patch\n*** Update File: file.txt\n-old\n+new\n*** End Patch",
 			),
 		).toThrow("patch envelope markers cannot be used as file paths");
-		expect(() =>
+		expect(
 			parseV4aPatch(
 				"*** Begin Patch\n*** Update File: file.txt\n*** Begin Patch\n-old\n+new\n*** End Patch",
-			),
-		).toThrow("Begin Patch must appear only as the first line of the patch");
+			).operations,
+		).toEqual([
+			{
+				kind: "update",
+				path: "file.txt",
+				hunks: [
+					{
+						lines: [
+							{ kind: "remove", text: "old\n" },
+							{ kind: "add", text: "new\n" },
+						],
+					},
+				],
+			},
+		]);
+		expect(
+			parseV4aPatch(
+				"*** Begin Patch\n*** Add File: a.txt\n+a\n*** End Patch\n*** Begin Patch\n*** Add File: b.txt\n+b\n*** End Patch",
+			).operations,
+		).toEqual([
+			{ kind: "add", path: "a.txt", content: "a\n" },
+			{ kind: "add", path: "b.txt", content: "b\n" },
+		]);
 	});
 
 	test("preserves literal whitespace and rejects malformed full input", () => {
@@ -95,6 +116,19 @@ describe("V4A patch parser", () => {
 				"```patch\n*** Begin Patch\n*** Add File: x\n+keep\n*** Nope\n*** End Patch\n```",
 			),
 		).toThrow();
+	});
+
+	test("accepts absolute and workspace-escaping paths", () => {
+		const patch = parseV4aPatch(
+			"*** Begin Patch\n" +
+				"*** Add File: /tmp/value.txt\n+value\n" +
+				"*** Update File: ../outside.txt\n-old\n+new\n" +
+				"*** End Patch",
+		);
+		expect(patch.operations.map((operation) => operation.path)).toEqual([
+			"/tmp/value.txt",
+			"../outside.txt",
+		]);
 	});
 
 	test("reports duplicate and touch-conflicting paths", () => {
@@ -263,6 +297,16 @@ describe("V4A prefix preview", () => {
 			{ kind: "add", path: "new.txt", addedLines: 2, removedLines: 0 },
 			{ kind: "update", path: "moved.txt", addedLines: 1, removedLines: 1 },
 			{ kind: "delete", path: "gone.txt", addedLines: 0, removedLines: 0 },
+		]);
+	});
+
+	test("counts files across extra Begin/End markers", () => {
+		const concatenated =
+			"*** Begin Patch\n*** Add File: a.txt\n+a\n*** End Patch\n*** Begin Patch\n*** Add File: b.txt\n+b\n*** End Patch";
+		expect(previewV4aPatchFileCount(concatenated)).toBe(2);
+		expect(previewV4aPatchPrefix(concatenated, true).map((operation) => operation.path)).toEqual([
+			"a.txt",
+			"b.txt",
 		]);
 	});
 

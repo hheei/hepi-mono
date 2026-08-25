@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test } from "vitest";
 import { createDisposerRegistry } from "../src/disposer-registry.js";
 
 test("cleans resources in reverse order and continues after failures", async () => {

@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test } from "vitest";
 import {
 	configureSubagentCoordinator,
 	DEFAULT_SUBAGENT_COORDINATOR_BUDGET,
@@ -74,7 +74,6 @@ test("runs a task through the consumer-resolved child-session factory", async ()
 				...DEFAULT_SUBAGENT_COORDINATOR_BUDGET,
 				maxActiveTurns: 1,
 			});
-			const messages: unknown[] = [];
 			const task = startSubagent(context, {
 				mode: "task",
 				session: {
@@ -123,7 +122,6 @@ test("keeps one child session across sequential conversation messages", async ()
 				...DEFAULT_SUBAGENT_COORDINATOR_BUDGET,
 				maxActiveTurns: 1,
 			});
-			const messages: unknown[] = [];
 			conversation = startSubagent(context, {
 				mode: "conversation",
 				session: {

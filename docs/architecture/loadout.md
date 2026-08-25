@@ -3,27 +3,26 @@
 ## 状态
 
 本文记录 Loadout 重构目标与已落地的 engine/page。core registration contract、独立
-`pi-loadout` policy engine、skill capability 与 Settings router page 按 focused tests、用户确认、行为实现的顺序落地；
-当前 aggregate Loadout 仅是迁移参考，不是兼容目标。
+`pi-settings` Loadout policy engine、skill capability 与 Settings router page 按 focused tests、用户确认、
+行为实现的顺序落地；当前 aggregate Loadout 仅是迁移参考，不是兼容目标。
 
 ## 目标与包边界
 
 Loadout 管理主动登记的 **resource**。resource 目前包括 Pi tool、skill 与 concrete extension 声明的
-agent profile。`@hheei/pi-ext-core` 公开跨 extension 的 Loadout registration contract；`pi-loadout`
-拥有 resource inventory、activation policy、持久化与 Loadout tab 内容；
-`pi-settings` 是唯一 Settings host，拥有 `/ext-settings [page-id]` command 并打开 core 的 global
-Extension page router。
+agent profile。`@hheei/pi-ext-core` 公开跨 extension 的 Loadout registration contract；`pi-settings`
+拥有 resource inventory、activation policy、持久化、Loadout tab 与 `/ext-settings [page-id]`、`/loadout`
+commands，并打开 core 的 global Extension page router。
 
-三个 package 不互相 import concrete extension：tool contributor 只依赖 core，`pi-loadout` 从 core
-registry 消费 registration，`pi-settings` 从 core router 打开页面。core 始终直接向 Pi 注册 managed
-executable tool，消除 extension load order 依赖。
+concrete extension 不互相 import：tool contributor 只依赖 core，`pi-settings` 从 core registry 消费
+registration 并从 core router 打开页面。core 始终直接向 Pi 注册 managed executable tool，消除 extension
+load order 依赖。
 
-`pi-loadout` 是 managed-tool/resource contributor 的推荐 companion extension，但不是硬依赖。缺少它时，
-core 仍注册 executable tool，保留 Pi 默认 activation；不应用 Loadout inventory、conflict、priority
-或 persisted override。agent profile 则保留其 contributor 声明的 default activation。`pi-loadout` 不提供 standalone renderer，但提供 `/loadout` command；它打开 shared router
-并初始选中 Loadout page。安装 `pi-settings` 时同一 router 也能显示其它页面。它只读取新的
-`pi-loadout` global/project JSON sections；旧 `pi-basics-loadout` state 与早期 `tools` / `skills`
-boolean map schema 不迁移。
+`pi-settings` 是 managed-tool/resource contributor 的推荐 companion package，但不是硬依赖。缺少它时，
+core 仍注册 executable tool，保留 Pi 默认 activation；不应用 Loadout inventory、conflict、priority 或
+persisted override。agent profile 则保留其 contributor 声明的 default activation。`pi-settings` 不提供
+第二份 renderer；`/loadout` 只以 Loadout 为 initial page 打开 shared router。它读取既有 `pi-loadout`
+global/project JSON sections；该 section name 是 persistence schema，不是 package owner。旧
+`pi-basics-loadout` state 与早期 `tools` / `skills` boolean map schema 不迁移。
 
 ## Tool Registration
 
@@ -47,7 +46,7 @@ runner 时可以替换自己的旧 registration。managed tool 只能在 extensi
 调用 Pi tool registration API。非-tool resource 可随其 owner 的 active session 增删；例如 profile discovery
 reload 更新 `agent:<name>` registration，但必须保留 lifecycle cleanup 的精确释放。
 
-`pi-loadout` 自动观察 Pi native 与 third-party tools，并消费 core resource registry；managed/native 是明确
+`pi-settings` 自动观察 Pi native 与 third-party tools，并消费 core resource registry；managed/native 是明确
 tool inventory，未提供 metadata 的 observed tool 以 session start 的 Pi active list 作为默认状态。同名 tool
 source 合并为一个 name-level item，Pi 仍决定实际 handler。
 
@@ -80,9 +79,9 @@ priority；registration 必须 fail-fast，不能依赖 extension load order。
 conflict set 内多个 enabled item 的 winner 先按 delta source rank，再按 priority 和 name。resolver
 只锁定较低 item，不自动改写其 raw delta；Settings UI 禁止直接交换 locked item。用户先把 winner
 设为 inherit，或让 global winner 回到 discovered default，才可操作其它 conflict member。新
-`pi-loadout` state 从空开始，不迁移 legacy entries。
+Loadout state 从空开始，不迁移 legacy entries。
 
-skill enable/disable 由 `pi-loadout` 自己管理；core 只提供 runtime-scoped disabled-skill capability
+skill enable/disable 由 `pi-settings` 自己管理；core 只提供 runtime-scoped disabled-skill capability
 供 Loadout 发布、dollar-skill 读取。agent profile activation 则通过 core 的 runtime-scoped Loadout
 activation snapshot 发布；profile owner 读取 `agent:<name>` 的 effective state 后，将它与自身 profile
 settings 的 enabled state 相交。core 不读取 profile 文件，也不解释 agent policy。
@@ -123,7 +122,7 @@ metadata，不能挤压 activation 或 name column。
 
 Loadout 的 `Enter` 可以进入 resource contributor 提供的 detail controller，并仍留在同一 shared router
 surface。Loadout 拥有 tab、焦点、scope、Enter/Esc 路由、component mounting 与 cleanup；contributor 拥有
-detail fields、runtime validation、配置读写与描述。该 detail capability 由 core 注册表传输，禁止 agent contributor import concrete `pi-loadout`。
+detail fields、runtime validation、配置读写与描述。该 detail capability 由 core 注册表传输，禁止 agent contributor import concrete `pi-settings`。
 
 Agent contributor 拥有 profile 的 model、thinking、tools、memory、isolation、turn budget 与 profile-file
 mutation。运行中的 child record、live transcript、steer 和 stop 不属于配置；它们应由独立 Runtime surface
@@ -135,9 +134,9 @@ core 提供一个 global Extension page router。它维护 dynamic page registry
 layout、focus、key routing、render host 和 page lifecycle；page contributor 只提供 page metadata、
 controller 和 visible content。router 不拥有 page data、actions、persistence 或 feature policy。
 
-`pi-settings` 注册 `/ext-settings [page-id]`，`pi-loadout` 注册 `/loadout`。两个 command host 都调用同一
-router；前者接受 page ID，后者固定传入 `loadout`。core 不持久化 selected tab，找不到 requested page 时选择稳定
-fallback。`pi-loadout` 不复制 Settings renderer 或竞争 `/ext-settings` command。
+`pi-settings` 注册 `/ext-settings [page-id]` 与 `/loadout`。两个 command 都调用同一 router；前者接受
+page ID，后者固定传入 `loadout`。core 不持久化 selected tab，找不到 requested page 时选择稳定 fallback。
+`pi-settings` 不复制 Settings renderer 或创建第二个 surface host。
 
 page registration 是 lifecycle-bound：tab 可在 router 已打开时动态加入或移除。移除 active tab 时，
 router 原子选择下一个 tab；没有剩余 tab 时关闭 router。page ID 在 runtime 内唯一，重复 registration
@@ -160,7 +159,7 @@ signal。页面遵守 `DESIGN.md` 的 token、稳定尺寸、narrow/wide 验证�
 ## 开发要求
 
 - 新 HEPI-owned non-native tool 必须在 extension composition root 通过 managed registration 登记，
-  并在 package README 标明推荐安装 `pi-loadout`。
+  并在 package README 标明推荐安装 `pi-settings`。
 - inventory-only registration 只用于已存在 tool；生命周期 cleanup 必须移除其 exact registration。
 - contributor 在代码注释中写明 tool 的 ownership、default activation、priority、conflict set 和
   handler cancellation；高频 handler 另记录 allocation、dispatch 与 reference cost。

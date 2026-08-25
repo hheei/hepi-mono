@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test } from "vitest";
 import { counted } from "../src/counted.js";
 
 test("uses singular only when the count is 1", (): void => {

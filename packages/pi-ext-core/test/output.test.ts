@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test } from "vitest";
 import { createOutputRegistry } from "../src/output.js";
 
 test("shares outputs across registries without exposing backing paths", () => {

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { getEditOperations } from "../src/edit.js";
 import { parseDiff } from "../src/pretty/diff.js";
 import { lang } from "../src/pretty/lang.js";

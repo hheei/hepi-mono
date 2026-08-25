@@ -191,12 +191,12 @@ async function writeJsonSettingsRoot(
 }
 
 declare global {
-	var __hepiJsonSettingsWriteQueues: Map<string, Promise<void>> | undefined;
+	var __jsonSettingsWriteQueues: Map<string, Promise<void>> | undefined;
 }
 
 function settingsWriteQueues(): Map<string, Promise<void>> {
-	globalThis.__hepiJsonSettingsWriteQueues ??= new Map();
-	return globalThis.__hepiJsonSettingsWriteQueues;
+	globalThis.__jsonSettingsWriteQueues ??= new Map();
+	return globalThis.__jsonSettingsWriteQueues;
 }
 
 /**

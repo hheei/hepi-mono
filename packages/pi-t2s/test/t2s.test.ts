@@ -1,8 +1,8 @@
-import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { updateJsonSettingsRoot } from "@hheei/pi-ext-core";
+import { describe, expect, test } from "vitest";
 import { convertInputText } from "../src/model.js";
 import {
 	createTraditionalToSimplifiedSettingsProvider,
@@ -41,7 +41,7 @@ describe("traditional to simplified settings", () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-t2s-settings-"));
 		const path = join(cwd, "settings.json");
 		try {
-			await Bun.write(
+			await writeFile(
 				path,
 				JSON.stringify({
 					"pi-t2s": { "traditional-to-simplified": { mode: "off" }, sibling: { kept: true } },
@@ -69,7 +69,7 @@ describe("traditional to simplified settings", () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-t2s-migrate-"));
 		const path = join(cwd, "settings.json");
 		try {
-			await Bun.write(
+			await writeFile(
 				path,
 				JSON.stringify({
 					"pi-basics": {
@@ -101,7 +101,7 @@ describe("traditional to simplified settings", () => {
 			"pi-t2s": { "traditional-to-simplified": { mode: "t2s" } },
 		};
 		try {
-			await Bun.write(path, JSON.stringify(root));
+			await writeFile(path, JSON.stringify(root));
 			const provider = createTraditionalToSimplifiedSettingsProvider({ path });
 			expect(
 				(await provider.storage.load({ sessionId: "s" }))?.["traditional-to-simplified"],
@@ -123,7 +123,7 @@ describe("traditional to simplified settings", () => {
 				{ "pi-t2s": { "traditional-to-simplified": { mode: "t2s", extra: true } } },
 				{ "pi-basics": { "traditional-to-simplified": { enabled: true } } },
 			]) {
-				await Bun.write(path, JSON.stringify(root));
+				await writeFile(path, JSON.stringify(root));
 				await expect(provider.storage.load({ sessionId: "s" })).rejects.toThrow();
 			}
 		} finally {

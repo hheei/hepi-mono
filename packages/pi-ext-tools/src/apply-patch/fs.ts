@@ -14,7 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, win32 } from "node:path";
 import { TargetError, type TargetRuntime } from "../targets.js";
-import { joinWorkspacePath } from "./paths.js";
+import { resolvePatchPath } from "./paths.js";
 
 export const APPLY_PATCH_MAX_FILE_SIZE = 32 * 1024 * 1024;
 export const SFTP_SMALL_BYTES = 1_048_576;
@@ -75,6 +75,45 @@ export function isAgentPatchTemp(name: string): boolean {
 	return TEMP_RE.test(name);
 }
 
+function publishParentDir(path: string): string {
+	const index = path.lastIndexOf("/");
+	return index < 0 ? "." : path.slice(0, index);
+}
+
+function publishBaseName(path: string): string {
+	const index = path.lastIndexOf("/");
+	return index < 0 ? path : path.slice(index + 1);
+}
+
+export function fileTooLarge(size: number, path: string): Error {
+	return new Error(
+		`file_too_large (${size} > ${APPLY_PATCH_MAX_FILE_SIZE}) at ${path}; use another tool suitable for large-file edits.`,
+	);
+}
+
+/** Installs fully prepared bytes through one sibling temporary file. */
+export async function publishPreparedFile(
+	fs: PatchFs,
+	path: string,
+	data: Uint8Array,
+	mode: number | undefined,
+	replaceExisting: boolean,
+	signal?: AbortSignal,
+): Promise<void> {
+	const directory = publishParentDir(path);
+	if (directory !== ".") await fs.mkdirp(directory, signal);
+	const temp = `${directory === "." ? "" : `${directory}/`}${agentPatchTempName(publishBaseName(path))}`;
+	try {
+		await fs.writeAtomic(temp, data, mode, signal);
+		if (replaceExisting) await fs.replace(temp, path, signal);
+		else await fs.renameNew(temp, path, signal);
+	} catch (error) {
+		if (!(error instanceof FsTransportError) || error.phase === "write")
+			await fs.unlink(temp, signal).catch(() => undefined);
+		throw error;
+	}
+}
+
 function isMissing(error: unknown): boolean {
 	return error !== null && typeof error === "object" && "code" in error && error.code === "ENOENT";
 }
@@ -107,7 +146,7 @@ function localMeta(
 
 export function createLocalPatchFs(workspaceRoot: string): PatchFs {
 	const abs = (path: string): string =>
-		isAbsolute(path) || win32.isAbsolute(path) ? path : joinWorkspacePath(workspaceRoot, path);
+		isAbsolute(path) || win32.isAbsolute(path) ? path : resolvePatchPath(workspaceRoot, path);
 	return {
 		scope: workspaceRoot,
 		async lstat(path, signal) {

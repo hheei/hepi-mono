@@ -1,4 +1,3 @@
-import { describe, expect, test } from "bun:test";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +9,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, type TUI } from "@earendil-works/pi-tui";
 import { createToolTui } from "@hheei/pi-ext-core";
+import { describe, expect, test } from "vitest";
 import { registerApplyPatchTool } from "../src/apply-patch-tool.js";
 
 function render(component: ToolExecutionComponent): string {

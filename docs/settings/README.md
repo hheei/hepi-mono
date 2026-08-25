@@ -3,30 +3,30 @@
 ## 用户意图
 
 `pi-settings` 是 `/ext-settings [page-id]` 宿主。它让安装的 HEPI extension 在同一 Pi custom
-surface 中提供设置页面；它不拥有任何具体 extension 的 schema、业务状态或运行时 policy。`pi-loadout`
-额外提供 `/loadout` 直接入口，打开同一 router 并初始选中 Loadout。
+surface 中提供设置页面；它不拥有其他 concrete extension 的 schema 或业务状态。它还拥有 Loadout
+activation policy，并提供 `/loadout` 直接入口，打开同一 router 并初始选中 Loadout。
 
-第一份页面是 `pi-loadout` 提供的 `Loadout`。它编辑工具与技能的 activation delta，但不会在当前
+第一份页面是 `pi-settings` 提供的 `Loadout`。它编辑工具与技能的 activation delta，但不会在当前
 session hot-apply；用户在关闭 Settings 后自行 `/reload`。
 
 ## 包与宿主边界
 
-- `pi-settings` 打开 core Extension page router、拥有 `/ext-settings`、surface 生命周期和退出通知；
-- `pi-loadout` 的 `/loadout` 也打开该 router，但只决定 initial page，绝不复制 Settings/Loadout renderer；
-- `pi-loadout` 注册 Loadout page，拥有 inventory projection、scope draft、conflict explanation 与 JSON
-  delta writer；
+- `pi-settings` 打开 core Extension page router、拥有 `/ext-settings`、`/loadout`、surface 生命周期、
+  Loadout policy、Loadout page 与退出通知；
+- `/loadout` 只决定 initial page 为 Loadout，绝不复制 Settings/Loadout renderer；
 - `pi-ext-core` 只拥有 router tabs、page close coordination、page minimum height，以及 core-managed editor
   widget 的注册和 suspension；
 - concrete extension 不互相 import。page 通过 core runtime registry 动态加入 router。
 
 任一 Settings router surface 打开期间，command host 获取 core widget suspension lease。core 卸载所有已注册的
-above-editor/below-editor HEPI widget；surface close、abort、reload 与 session shutdown 都释放 lease，最后
+above-editor/below-editor widget；surface close、abort、reload 与 session shutdown 都释放 lease，最后
 一个 lease 释放后才恢复仍有效的 widget。Pi 没有枚举或恢复其它 extension 直接 `setWidget()` 内容的公开
 API，所以这个保证只覆盖 core-managed widget。
 
 ## Loadout 页面
 
-Loadout 是单页 selector，不是二级 tab：Tools 与 Skills 共享同一个可滚动资源列表，以 group header 分段。
+Loadout 是 `pi-settings` 的单页 selector，不是二级 tab：Tools 与 Skills 共享同一个可滚动资源列表，
+以 group header 分段。
 顶层 router tab strip 只 highlight active page，`Left`/`Right` 只在页面没有消费输入时切换页面。
 
 宽终端由左侧资源列表、仅溢出时显示的中间 scrollbar、以及右侧单一 Description block 组成。Description

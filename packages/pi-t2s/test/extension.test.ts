@@ -1,9 +1,9 @@
-import { describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { getHepiRuntimeSettingsRegistry } from "@hheei/pi-ext-core";
+import { getRuntimeSettingsRegistry } from "@hheei/pi-ext-core";
+import { describe, expect, test } from "vitest";
 import piT2sExtension from "../src/extension.js";
 
 type Handler = (event: never, context: never) => unknown | Promise<unknown>;
@@ -46,7 +46,7 @@ describe("pi-t2s extension lifecycle", () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-t2s-extension-"));
 		const path = join(cwd, "settings.json");
 		try {
-			await Bun.write(
+			await writeFile(
 				path,
 				JSON.stringify({ "pi-t2s": { "traditional-to-simplified": { mode: "t2s" } } }),
 			);
@@ -85,7 +85,7 @@ describe("pi-t2s extension lifecycle", () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-t2s-invalid-extension-"));
 		const path = join(cwd, "settings.json");
 		try {
-			await Bun.write(
+			await writeFile(
 				path,
 				JSON.stringify({ "pi-t2s": { "traditional-to-simplified": { mode: "invalid" } } }),
 			);
@@ -95,7 +95,7 @@ describe("pi-t2s extension lifecycle", () => {
 			const ctx = context(cwd, "s", notifications);
 			await emit(handlers, "session_start", { reason: "startup" }, ctx);
 
-			const registry = getHepiRuntimeSettingsRegistry(pi);
+			const registry = getRuntimeSettingsRegistry(pi);
 			expect(registry.get("pi-t2s")?.origin).toBe("@hheei/pi-t2s");
 			expect(await emit(handlers, "input", { text: "設定", source: "interactive" }, ctx)).toEqual([
 				undefined,

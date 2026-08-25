@@ -3,6 +3,7 @@ import {
 	createReadToolDefinition,
 	type ExtensionAPI,
 	type Theme,
+	type ToolDefinition,
 	type ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
 import { type Component, Text, truncateToWidth } from "@earendil-works/pi-tui";
@@ -284,7 +285,7 @@ export function registerReadTool(
 	pi: ExtensionAPI,
 	state: FffRuntimeState = createFffRuntimeState(),
 	tui: ToolTui = createToolTui(),
-): void {
+): ToolDefinition {
 	const template = createReadToolDefinition(process.cwd());
 	const {
 		renderCall: _nativeRenderCall,
@@ -387,4 +388,5 @@ export function registerReadTool(
 			maxBodyLines: Number.POSITIVE_INFINITY,
 		}),
 	);
+	return tool as unknown as ToolDefinition;
 }

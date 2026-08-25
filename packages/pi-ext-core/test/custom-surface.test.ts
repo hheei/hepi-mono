@@ -1,6 +1,6 @@
-import { expect, test } from "bun:test";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { OverlayHandle, OverlayOptions } from "@earendil-works/pi-tui";
+import { expect, test } from "vitest";
 import { openTuiSurface, type TuiSurfaceContext, TuiSurfaceQueueFullError } from "../src/index.js";
 
 type ActiveSurface = {

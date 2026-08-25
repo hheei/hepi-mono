@@ -1,4 +1,4 @@
-import { createJsonSectionSettingsStorage, type HepiSettingsProvider } from "@hheei/pi-ext-core";
+import { createJsonSectionSettingsStorage, type SettingsProvider } from "@hheei/pi-ext-core";
 import type { TargetSettingsProviderOptions } from "./settings.js";
 import { DEFAULT_TARGET_SETTINGS } from "./settings.js";
 
@@ -12,7 +12,7 @@ const TARGET_SETTINGS_DESCRIPTIONS = {
 
 export function createTargetSettingsProvider(
 	options: TargetSettingsProviderOptions = {},
-): HepiSettingsProvider {
+): SettingsProvider {
 	return {
 		id: "pi-ext-tools.targets",
 		title: "Targets",

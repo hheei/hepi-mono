@@ -1,4 +1,3 @@
-import { describe, expect, test } from "bun:test";
 import type { Api, AssistantMessage, Model } from "@earendil-works/pi-ai";
 import type {
 	ExtensionAPI,
@@ -8,6 +7,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
 import { createAssistantMessage, createTestModel } from "@hheei/pi-ext-core/testing";
+import { describe, expect, test } from "vitest";
 import type { BtwComponentController, BtwComponentOptions } from "../../src/component.js";
 import type { BtwExecutionResult, ExecuteBtwTurnOptions } from "../../src/executor.js";
 import { type BtwFeatureOptions, createBtwFeature } from "../../src/feature.js";

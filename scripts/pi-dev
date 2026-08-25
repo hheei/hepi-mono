@@ -14,8 +14,8 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageRoot = path.join(root, "packages");
 const toolsPackageDir = path.join(packageRoot, "pi-ext-tools");
-const todoPackageDir = path.join(packageRoot, "pi-todo");
 const dollarSkillPackageDir = path.join(packageRoot, "pi-dollar-skill");
+const settingsPackageDir = path.join(packageRoot, "pi-settings");
 const mctxExtensionPath = path.join(packageRoot, "pi-mctx", "src", "index.ts");
 const nativeBridgePath = path.join(toolsPackageDir, "native", "pi-ext-tools-bridge.node");
 const buildCacheDir = path.join(root, ".pi-dev");
@@ -100,8 +100,8 @@ const buildStatePath = path.join(buildCacheDir, "build.json");
 const buildDirectories = [
 	...requiredBuildDirectories,
 	toolsPackageDir,
-	todoPackageDir,
 	dollarSkillPackageDir,
+	settingsPackageDir,
 ];
 const typescriptFingerprint = buildFingerprint(buildDirectories);
 const buildsNativeBridge = true;
@@ -172,10 +172,9 @@ if (needsNativeBuild || needsTypeScriptBuild) {
 const extensionArgs = [
 	"--extension",
 	path.join(toolsPackageDir, "dist", "extension.js"),
-	"--extension",
-	path.join(todoPackageDir, "dist", "extension.js"),
-	"--extension",
 	path.join(dollarSkillPackageDir, "dist", "extension.js"),
+	"--extension",
+	path.join(settingsPackageDir, "dist", "extension.js"),
 	"--extension",
 	mctxExtensionPath,
 ];

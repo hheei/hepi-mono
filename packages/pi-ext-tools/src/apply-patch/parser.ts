@@ -156,7 +156,7 @@ export function previewV4aPatchFileCount(input: string, cursor?: V4aPreviewCurso
 		if (bytes + size > MAX_V4A_PATCH_BYTES || paths.size >= MAX_V4A_OPERATIONS) break;
 		bytes += size;
 		offset = newline + 1;
-		if (text === END) break;
+		if (text === END) continue;
 		const header = parseHeader(text);
 		if (header !== undefined) {
 			if (!isPreviewablePath(header.path)) break;
@@ -177,7 +177,7 @@ export function previewV4aPatchFileCount(input: string, cursor?: V4aPreviewCurso
 
 function applyPreviewLine(state: V4aPreviewCursor, text: string): boolean {
 	if (text === BEGIN) return true;
-	if (text === END) return false;
+	if (text === END) return true;
 	const header = parseHeader(text);
 	if (header !== undefined) {
 		if (!isPreviewablePath(header.path) || state.operations.length >= MAX_V4A_OPERATIONS)
@@ -503,8 +503,6 @@ function assertPatchPath(path: string, line?: number): void {
 	if (path.length === 0) throw parseError("empty path in patch header", line);
 	if (path === BEGIN || path === END)
 		throw parseError("patch envelope markers cannot be used as file paths", line);
-	if (path.startsWith("/") || path.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(path))
-		throw parseError("absolute paths are not allowed", line);
 	if (Buffer.byteLength(path, "utf8") > MAX_V4A_PATH_BYTES)
 		throw parseError(`path exceeds ${MAX_V4A_PATH_BYTES} byte limit`, line);
 	if (
@@ -548,7 +546,23 @@ function normalizeEnvelope(lines: readonly SourceLine[]): readonly SourceLine[] 
 		while (end > start && normalized[end - 1]?.text === "") end -= 1;
 		normalized = normalized.slice(start, end);
 	}
-	return Object.freeze(normalized);
+	return Object.freeze(keepOuterEnvelope(normalized));
+}
+
+function keepOuterEnvelope(lines: readonly SourceLine[]): readonly SourceLine[] {
+	const start = lines.findIndex((line) => line.text === BEGIN);
+	let end = -1;
+	for (let index = lines.length - 1; index >= 0; index -= 1) {
+		if (lines[index]?.text === END) {
+			end = index;
+			break;
+		}
+	}
+	if (start < 0 || end <= start) return lines;
+	const inner = lines
+		.slice(start + 1, end)
+		.filter((line) => line.text !== BEGIN && line.text !== END && line.text !== "");
+	return [lines[start] as SourceLine, ...inner, lines[end] as SourceLine];
 }
 
 function parseError(message: string, line?: number): SyntaxError {

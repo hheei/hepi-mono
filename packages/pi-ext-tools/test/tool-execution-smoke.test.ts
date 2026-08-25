@@ -1,4 +1,3 @@
-import { describe, expect, test } from "bun:test";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,10 +11,16 @@ import {
 	ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, Text, type TUI } from "@earendil-works/pi-tui";
-import { createToolTui } from "@hheei/pi-ext-core";
+import { createToolTui, getToolTui } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
+import { describe, expect, test } from "vitest";
 import { registerApplyPatchTool } from "../dist/apply-patch-tool.js";
 import { registerBashTool } from "../dist/bash.js";
+import { EvalToolBridge } from "../dist/eval/bridge.js";
+import { EvalKernelHost } from "../dist/eval/kernel/host.js";
+import { createEvalRuntimeState, startEvalRuntime } from "../dist/eval/lifecycle.js";
+import { registerEvalTool } from "../dist/eval/tool.js";
+import { createTodoFeature } from "../dist/todo/todo.js";
 import { registerTools } from "../dist/tools.js";
 
 const callId = "smoke-call";
@@ -32,6 +37,112 @@ function framedBody(component: ToolExecutionComponent): readonly string[] {
 }
 
 describe("ToolExecutionComponent smoke", () => {
+	test("renders one persisted eval body after invalidation and resume", async (): Promise<void> => {
+		initTheme("dark");
+		const registered: ToolDefinition[] = [];
+		const pi = {
+			registerTool(tool: ToolDefinition): void {
+				registered.push(tool);
+			},
+		} as unknown as ExtensionAPI;
+		const state = createEvalRuntimeState();
+		const stopRuntime = startEvalRuntime(state, new EvalKernelHost(process.cwd()));
+		const tui = createToolTui();
+		registerEvalTool(pi, state, new EvalToolBridge(new Map(), () => false), tui);
+		const tool = registered[0]!;
+		const ui = { requestRender: (): void => undefined } as unknown as TUI;
+		try {
+			tui.beginTrace();
+			const component = new ToolExecutionComponent(
+				"eval",
+				callId,
+				{ code: "console.log(40 + 2);" },
+				undefined,
+				tool,
+				ui,
+				process.cwd(),
+			);
+			component.markExecutionStarted();
+			const result = await tool.execute(
+				callId,
+				{ code: "console.log(40 + 2);" },
+				undefined,
+				undefined,
+				{ cwd: process.cwd() } as never,
+			);
+			component.updateResult({ ...result, isError: false });
+			expect(outputOccurrences(component, "42")).toBe(1);
+			component.invalidate();
+			component.invalidate();
+			expect(outputOccurrences(component, "42")).toBe(1);
+
+			tui.beginTrace();
+			const resumed = new ToolExecutionComponent(
+				"eval",
+				"resumed-eval",
+				{ code: "console.log(40 + 2);" },
+				undefined,
+				tool,
+				ui,
+				process.cwd(),
+			);
+			resumed.setExpanded(true);
+			resumed.updateResult({ ...result, isError: false });
+			expect(outputOccurrences(resumed, "42")).toBe(1);
+		} finally {
+			stopRuntime();
+		}
+	});
+
+	test("renders one eval body through partial updates and invalidations", async (): Promise<void> => {
+		initTheme("dark");
+		const registered: ToolDefinition[] = [];
+		const pi = {
+			registerTool(tool: ToolDefinition): void {
+				registered.push(tool);
+			},
+		} as unknown as ExtensionAPI;
+		const state = createEvalRuntimeState();
+		const stopRuntime = startEvalRuntime(state, new EvalKernelHost(process.cwd()));
+		const tui = createToolTui();
+		registerEvalTool(pi, state, new EvalToolBridge(new Map(), () => false), tui);
+		const tool = registered[0]!;
+		const ui = { requestRender: (): void => undefined } as unknown as TUI;
+		try {
+			tui.beginTrace();
+			const component = new ToolExecutionComponent(
+				"eval",
+				callId,
+				{ code: "print(40 + 2)" },
+				undefined,
+				tool,
+				ui,
+				process.cwd(),
+			);
+			component.markExecutionStarted();
+			let partial: AgentToolResult<unknown> | undefined;
+			const final = await tool.execute(
+				callId,
+				{ code: "print(40 + 2)" },
+				undefined,
+				(update) => {
+					partial = update;
+				},
+				{ cwd: process.cwd() } as never,
+			);
+			if (partial === undefined) throw new Error("Expected eval partial output");
+			component.updateResult({ ...partial, isError: false }, true);
+			expect(outputOccurrences(component, "42")).toBe(1);
+			component.updateResult({ ...final, isError: false });
+			expect(outputOccurrences(component, "42")).toBe(1);
+			component.invalidate();
+			component.invalidate();
+			expect(outputOccurrences(component, "42")).toBe(1);
+		} finally {
+			stopRuntime();
+		}
+	});
+
 	test("renders one final bash result after partial updates and invalidations", async (): Promise<void> => {
 		initTheme("dark");
 		const registered: ToolDefinition[] = [];
@@ -201,6 +312,52 @@ describe("ToolExecutionComponent smoke", () => {
 		expect(rendered).toContain("11 bytes · 2 lines");
 		expect(outputOccurrences(component, "write")).toBe(1);
 		await rm(cwd, { recursive: true, force: true });
+	});
+
+	test("renders SSH write headers and Unconfirmed recovery through the host", (): void => {
+		initTheme("dark");
+		const registered: ToolDefinition[] = [];
+		const pi = {
+			events: {},
+			registerTool(tool: ToolDefinition): void {
+				registered.push(tool);
+			},
+			on(): void {},
+		} as unknown as ExtensionAPI;
+		const tui = createToolTui();
+		registerTools(pi, undefined, tui);
+		const tool = registered.find((candidate) => candidate.name === "write");
+		if (tool === undefined) throw new Error("write tool was not registered");
+		tui.beginTrace();
+		const component = new ToolExecutionComponent(
+			"write",
+			"ssh-write-unconfirmed",
+			{ path: "value.ts", content: "next\n", target: "ileqm" },
+			undefined,
+			tool,
+			{ requestRender: (): void => undefined } as unknown as TUI,
+			process.cwd(),
+		);
+		component.markExecutionStarted();
+		component.updateResult({
+			content: [{ type: "text", text: "Remote outcome is unknown" }],
+			details: {
+				__piExtToolsRemoteMutation: {
+					target: "ileqm",
+					path: "value.ts",
+					outcome: "unconfirmed",
+					error: "rename acknowledgement was lost",
+				},
+			},
+			isError: true,
+		});
+		for (let index = 0; index < 3; index += 1) {
+			const rendered = stripTerminalSequences(component.render(100).join("\n"));
+			expect(rendered).toContain("write ileqm:value.ts");
+			expect(rendered).toContain("? ileqm:value.ts");
+			expect(outputOccurrences(component, "write ileqm:value.ts")).toBe(1);
+			component.invalidate();
+		}
 	});
 
 	test("renders one body on the first resumed result pass", (): void => {
@@ -576,5 +733,81 @@ describe("ToolExecutionComponent smoke", () => {
 		} finally {
 			await rm(root, { recursive: true, force: true });
 		}
+	});
+
+	test("renders Todo once across normal, cross-trace, and resumed host results", async (): Promise<void> => {
+		initTheme("dark");
+		const registered: ToolDefinition[] = [];
+		const pi = {
+			registerTool(tool: ToolDefinition): void {
+				registered.push(tool);
+			},
+			registerCommand(): void {},
+			getActiveTools(): string[] {
+				return ["todo"];
+			},
+			appendEntry(): void {},
+			on(): void {},
+		} as unknown as ExtensionAPI;
+		const feature = createTodoFeature(pi);
+		const tool = registered.find((candidate) => candidate.name === "todo");
+		if (tool === undefined) throw new Error("todo tool was not registered");
+		const context = {
+			mode: "json",
+			ui: { notify(): void {}, setWidget(): void {} },
+			sessionManager: { getSessionId: () => "todo-host-smoke", getBranch: () => [] },
+		} as never;
+		await feature.start(context);
+		const ui = { requestRender: (): void => undefined } as unknown as TUI;
+		const args = { operations: [{ action: "create", subject: "Host-rendered Todo" }] };
+		const result = await tool.execute("todo-host", args, undefined, undefined, context);
+		const tui = getToolTui(pi);
+		tui.beginTrace();
+		const component = new ToolExecutionComponent(
+			"todo",
+			"todo-host",
+			args,
+			undefined,
+			tool,
+			ui,
+			process.cwd(),
+		);
+		component.markExecutionStarted();
+		component.setExpanded(true);
+		component.updateResult({ ...result, isError: false });
+		for (let index = 0; index < 3; index += 1) {
+			expect(outputOccurrences(component, "Host-rendered Todo")).toBe(1);
+			component.invalidate();
+		}
+
+		tui.beginTrace();
+		const crossTrace = new ToolExecutionComponent(
+			"todo",
+			"todo-cross-trace",
+			args,
+			undefined,
+			tool,
+			ui,
+			process.cwd(),
+		);
+		crossTrace.markExecutionStarted();
+		crossTrace.setExpanded(true);
+		crossTrace.updateResult({ ...result, isError: false });
+		expect(outputOccurrences(crossTrace, "Host-rendered Todo")).toBe(1);
+
+		tui.beginTrace();
+		const resumed = new ToolExecutionComponent(
+			"todo",
+			"todo-resumed",
+			args,
+			undefined,
+			tool,
+			ui,
+			process.cwd(),
+		);
+		resumed.setExpanded(true);
+		resumed.updateResult({ ...result, isError: false });
+		expect(outputOccurrences(resumed, "Host-rendered Todo")).toBe(1);
+		await feature.dispose("todo-host-smoke");
 	});
 });

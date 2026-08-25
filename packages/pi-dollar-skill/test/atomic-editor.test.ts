@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
 import { Editor, type EditorComponent, getKeybindings } from "@earendil-works/pi-tui";
+import { describe, expect, test } from "vitest";
 import { createDollarSkillAtomicEditor } from "../src/atomic-editor.js";
 import type { DollarSkillCommand } from "../src/model.js";
 

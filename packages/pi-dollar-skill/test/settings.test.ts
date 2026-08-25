@@ -1,7 +1,7 @@
-import { describe, expect, test } from "bun:test";
-import { mkdtemp, readdir, readFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { describe, expect, test } from "vitest";
 import {
 	DOLLAR_SKILL_SETTINGS_SECTION,
 	loadDollarSkillConfig,
@@ -25,7 +25,7 @@ describe("dollar skill settings", () => {
 	test("round-trips its section without overwriting sibling settings", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-dollar-skill-"));
 		const settingsPath = join(cwd, "settings.json");
-		await Bun.write(
+		await writeFile(
 			settingsPath,
 			JSON.stringify({ "pi-dollar-skill": { unrelated: true }, external: true }),
 		);

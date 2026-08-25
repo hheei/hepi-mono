@@ -1,4 +1,3 @@
-import { describe, expect, test } from "bun:test";
 import type {
 	AgentToolResult,
 	ExtensionContext,
@@ -7,6 +6,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { describe, expect, test } from "vitest";
 import {
 	createToolTui,
 	DEFAULT_MAX_BODY_LINES,
@@ -14,7 +14,7 @@ import {
 	registerToolTuiTrace,
 } from "../src/tool-tui.js";
 
-const Params = Type.Object({ path: Type.String() });
+const Params = Type.Record(Type.String(), Type.Unknown());
 const theme = {
 	bg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
 	fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,

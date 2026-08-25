@@ -7,12 +7,12 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import {
 	defaultPiSettingsPaths,
-	type HepiContext,
-	type HepiSettingField,
-	type HepiSettingsProvider,
-	type HepiSettingsState,
 	readJsonSettingsSection,
 	readMergedJsonSettingsSection,
+	type SettingField,
+	type SettingsContext,
+	type SettingsProvider,
+	type SettingsState,
 	updateJsonSettingsRoot,
 } from "@hheei/pi-ext-core";
 
@@ -61,12 +61,12 @@ function configFromValues(values: JsonObject | undefined): OpenAIResponsesCompat
 	};
 }
 
-function configFromState(state: HepiSettingsState): OpenAIResponsesCompatConfig {
+function configFromState(state: SettingsState): OpenAIResponsesCompatConfig {
 	const values = state[OPENAI_RESPONSES_COMPAT_GROUP];
 	return configFromValues(values);
 }
 
-function settingState(config: OpenAIResponsesCompatConfig): HepiSettingsState {
+function settingState(config: OpenAIResponsesCompatConfig): SettingsState {
 	return {
 		[OPENAI_RESPONSES_COMPAT_GROUP]: {
 			[OPENAI_RESPONSES_COMPAT_FIELD]: config.stripAssistantMessageStatus,
@@ -83,7 +83,7 @@ function compatValues(section: JsonObject | undefined): JsonObject | undefined {
 
 async function loadConfig(
 	settingsFilePath: string | undefined,
-	context: Pick<HepiContext, "cwd" | "signal"> | undefined,
+	context: Pick<SettingsContext, "cwd" | "signal"> | undefined,
 ): Promise<OpenAIResponsesCompatConfig> {
 	const section =
 		settingsFilePath === undefined
@@ -102,7 +102,7 @@ async function loadConfig(
 	return configFromValues(compatValues(section));
 }
 
-function settingsContext(context: ExtensionContext): Pick<HepiContext, "cwd" | "signal"> {
+function settingsContext(context: ExtensionContext): Pick<SettingsContext, "cwd" | "signal"> {
 	return {
 		...(context.cwd === undefined ? {} : { cwd: context.cwd }),
 		...(context.signal === undefined ? {} : { signal: context.signal }),
@@ -195,7 +195,7 @@ export function createOpenAIResponsesCompatFeature(
 	};
 }
 
-const fields: readonly HepiSettingField[] = [
+const fields: readonly SettingField[] = [
 	{
 		id: OPENAI_RESPONSES_COMPAT_FIELD,
 		label: "Strip status",
@@ -217,17 +217,17 @@ const fields: readonly HepiSettingField[] = [
 
 export function createOpenAIResponsesCompatSettingsProvider(
 	options: OpenAIResponsesCompatOptions = {},
-): HepiSettingsProvider {
+): SettingsProvider {
 	return {
 		id: "pi-ext-addon-openai-responses-compat",
 		title: "OpenAI Responses compatibility",
 		origin: "@hheei/pi-ext-addon",
 		groups: [{ id: OPENAI_RESPONSES_COMPAT_GROUP, title: "", fields }],
 		storage: {
-			async load(context): Promise<HepiSettingsState> {
+			async load(context): Promise<SettingsState> {
 				return settingState(await loadConfig(options.settingsFilePath, context));
 			},
-			async save(state: HepiSettingsState, context): Promise<void> {
+			async save(state: SettingsState, context): Promise<void> {
 				const config = configFromState(state);
 				const stateValues = state[OPENAI_RESPONSES_COMPAT_GROUP] ?? {};
 				await updateJsonSettingsRoot(

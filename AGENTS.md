@@ -28,7 +28,7 @@
 ```bash
 bunx biome check --write <changed-paths...>
 bunx biome check <changed-paths...>
-bun test <focused-test-path>
+bunx vitest run <focused-test-path>
 
 ```
 
@@ -42,7 +42,6 @@ bun test <focused-test-path>
 - Each `packages/pi-<name>/` workspace owns one independent feature or cohesive feature family and exactly one `pi.extensions` entry.
 - Concrete extensions **MUST** depend on `@hheei/pi-ext-core`, never directly on another concrete extension; cross-extension cooperation goes through ext-core-owned runtime capabilities.
 - `@hheei/pi-ext-core` is a side-effect-free foundation package and **MUST NEVER** import concrete extensions.
-- `@hheei/hepi-*` packages are deprecated and frozen; migrate touched behavior instead of extending them.
 - Keep runtime state session-scoped and cleanup idempotent unless persistence is explicitly part of the contract.
 - Avoid vendoring external repositories under `packages/`; if unavoidable, vendor the smallest surface and record the upstream URL/revision.
 - Events are notifications, not shared state or RPC.

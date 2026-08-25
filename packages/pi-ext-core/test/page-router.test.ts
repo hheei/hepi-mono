@@ -1,6 +1,6 @@
-import { expect, test } from "bun:test";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { Component, OverlayHandle, OverlayOptions } from "@earendil-works/pi-tui";
+import { expect, test } from "vitest";
 import {
 	type ExtensionPageRegistration,
 	openExtensionPageRouter,

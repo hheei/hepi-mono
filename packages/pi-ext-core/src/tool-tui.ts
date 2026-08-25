@@ -32,6 +32,8 @@ export type ToolCompletion = {
 export type ToolTuiPresentation<TParams extends TSchema, TDetails> = {
 	readonly summary?: ToolFrameHeader<TParams, TDetails>;
 	readonly summarySeparator?: "dot" | "space";
+	/** Paint a path summary as warning-colored `host:path` for SSH targets. */
+	readonly remotePathSummary?: boolean;
 	readonly footer?: (
 		result: AgentToolResult<TDetails>,
 		completion: ToolCompletion | undefined,
@@ -148,6 +150,7 @@ function headerFor(
 	warning = false,
 	summaryOverride?: string,
 	summarySeparator: "dot" | "space" = "dot",
+	remotePathSummary = false,
 	collapsed = false,
 	historical = collapsed,
 ): FrameHeader {
@@ -156,7 +159,13 @@ function headerFor(
 		theme,
 	);
 	const values = argsRecord(args);
+	const path = textValue(values.path);
 	if (summaryOverride !== undefined) {
+		if (remotePathSummary && path !== undefined) {
+			return {
+				primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))}${summarySeparator === "dot" ? ` ${theme.fg("dim", "·")}` : ""} ${paintRemotePath(values, path, theme, collapsed)}`,
+			};
+		}
 		const host = remoteTarget(values);
 		const hostLabel =
 			host === undefined ? "" : `${theme.fg(collapsed ? "dim" : "warning", `(${host})`)} `;
@@ -166,7 +175,6 @@ function headerFor(
 		};
 	}
 	const pattern = textValue(values.pattern);
-	const path = textValue(values.path);
 	const command = textValue(values.command);
 	if (tool.name === "bash" && command !== undefined) {
 		const timeout = typeof values.timeout === "number" ? values.timeout : undefined;
@@ -556,6 +564,7 @@ export function createToolTui(): ToolTui {
 						trace.completionFor(context.toolCallId)?.warning,
 						presentation.summary?.(args, latest, context),
 						presentation.summarySeparator,
+						presentation.remotePathSummary,
 						collapsed,
 						historical,
 					);

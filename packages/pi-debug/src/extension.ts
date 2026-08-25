@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
-	getHepiRuntimeSettingsRegistry,
+	getRuntimeSettingsRegistry,
 	registerExtensionLifecycle,
-	registerHepiSettings,
+	registerSettings,
 } from "@hheei/pi-ext-core";
 import {
 	comparePayloadSnapshots,
@@ -166,7 +166,7 @@ export default function piDebugExtension(pi: ExtensionAPI): void {
 				if (enabled) enabledSessions.add(sessionId);
 				else enabledSessions.delete(sessionId);
 			});
-			const disposeSettings = registerHepiSettings(provider, getHepiRuntimeSettingsRegistry(pi));
+			const disposeSettings = registerSettings(provider, getRuntimeSettingsRegistry(pi));
 			try {
 				const context = {
 					sessionId: runtime.extension.sessionManager.getSessionId(),

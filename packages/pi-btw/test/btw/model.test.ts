@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
+import { describe, expect, test } from "vitest";
 import {
 	BTW_MAX_QUESTION_CHARACTERS,
 	buildBtwMessages,

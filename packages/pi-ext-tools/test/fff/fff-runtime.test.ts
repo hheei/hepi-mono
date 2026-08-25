@@ -1,8 +1,8 @@
-import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Result } from "better-result";
+import { describe, expect, test } from "vitest";
 import { ExternalGrepScopeError } from "../../src/fff/errors.js";
 import { FffRuntime } from "../../src/fff/fff.js";
 import { admitFffScan } from "../../src/fff/fff-runtime.js";

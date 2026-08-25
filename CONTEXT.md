@@ -99,36 +99,51 @@ A path that never began Publish, usually because a request-global stop (cancel o
 _Avoid_: Rejected, pending, rolled back
 
 **Eval**:
-An explicit opt-in pi-ext-tools tool that runs trusted local JavaScript in a session-scoped Eval Runtime. It is additive to the canonical tool catalog and is not a sandbox or a replacement tool mode.
-_Avoid_: Code Mode, sandbox, tool router
+An explicit opt-in pi-ext-tools tool that runs trusted local JavaScript or Python through a session-scoped Eval Kernel. The v1 Sibling Exposition keeps Eval additive to the canonical catalog; a later Code Mode Exposition may hide file and shell tools from the model without replacing the kernel.
+_Avoid_: Sandbox, tool router, second runtime
+
+**Eval Exposition**:
+The policy that decides which tools the model sees versus which tools exist only as Nested Tools. v1 is the Sibling Exposition. Code Mode is a later optional Exposition over the same Eval Kernel.
+_Avoid_: Separate Code Mode runtime, provider-specific eval
+
+**Eval Kernel**:
+The killable per-language subprocess that executes Eval Source, preserves completed-run scope, and performs Nested Tool invokes through an injected table. JavaScript and Python share one host protocol. Python uses `pi-ext-tools.eval.pythonBin` when set, otherwise `python3`/`python` on PATH. Reload, resume, handoff, and session cleanup dispose the kernel; JavaScript or Python memory is not restored.
+_Avoid_: Shared VM, in-process eval, notebook kernel, inline host eval, Jupyter, vendored V8 isolate, Pi registry
+
+**Eval Reset**:
+An Eval Request that discards one language's Eval Kernel and scope before running. The other language is untouched. It is not session dispose and not cancellation of a running cell.
+_Avoid_: Reset all languages, timeout, reload
+
+**Eval Cell**:
+One kernel execution identified by cell_id. v1 Eval waits until the cell completes or is terminated. A later wait tool may resume or terminate the same cell; v1 does not yield and does not register wait.
+_Avoid_: Inline run, queued job
 
 **Eval Runtime**:
-The per-extension-instance JavaScript execution scope used by Eval. It preserves completed-run state within that instance and is disposed on reload, resume, handoff, or session cleanup.
-_Avoid_: Worker, sandbox, persistent session state
-
+The per-extension-instance owner of Eval Kernels, the Eval Lease, and the Nested Catalog Policy used by the active Exposition. It does not execute source in the Pi host process.
+_Avoid_: Host AsyncFunction, process-global runtime on pi.events
 **Nested Tool**:
-A pi-ext-tools canonical tool invoked from Eval through its explicitly admitted bridge. It retains the tool's schema validation, authorization, cancellation, and normalized result contract; Eval itself is never a Nested Tool.
+A tool invoked from Eval Source through the kernel's injected invoke table. It retains that tool's schema validation, authorization, cancellation, and normalized result contract. Eval, wait, and Magic Context tools are never Nested Tools.
 _Avoid_: Direct registry access, recursive eval
 
 **Eval Activation**:
-The explicit static pi-ext-tools setting that admits Eval to a session's active catalog and Loadout. It is disabled by default and only changes after reload or a new session; it is never inferred from a model or provider.
+The explicit static pi-ext-tools setting that admits the Sibling Exposition's `eval` tool to a session's active catalog and Loadout. It is disabled by default and only changes after reload or a new session; it is never inferred from a model or provider. A later Code Mode Exposition uses its own opt-in setting and must not activate from model name alone.
 _Avoid_: Automatic routing, model detection, runtime toggle
 
 **Eval Source**:
-Trusted local JavaScript executed by Eval. It supports top-level await but has no module-loading contract: static import, dynamic import, require, and TypeScript syntax are unavailable.
-_Avoid_: Sandboxed script, TypeScript cell, module
+Trusted local JavaScript or Python executed by an Eval Kernel. JavaScript supports top-level await and has no module-loading contract. Python has no Jupyter, notebook, or implicit pip contract.
+_Avoid_: Sandboxed script, TypeScript cell, notebook
 
-**Cooperative Cancellation**:
-Eval cancellation at awaited boundaries, including a Nested Tool call. It cannot stop a synchronous CPU-bound Eval Source run.
-_Avoid_: Forced termination, execution timeout
+**Eval Cancellation**:
+Terminating the active Eval Cell and aborting its Nested Tool calls. Python first receives SIGINT and keeps the kernel if the cell stops; JavaScript first receives a cancel at await boundaries. If the cell ignores interrupt, the language kernel is SIGKILL'd and that language's scope is discarded. An optional request timeout uses this same path. Session dispose still kills kernels. There is no default timeout and no wait tool.
+_Avoid_: Immediate kill on every cancel, cooperative-only inline abort, execution timeout
 
 **Eval Transcript**:
 The ordered model-visible execution record for one Eval: printed text, Nested Tool summaries, and final serialized result. It is distinct from persisted structured details and from the tool's rendered body.
 _Avoid_: TUI trace, details payload
 
-**Eval Nested Catalog**:
-The fixed set of Nested Tools: read, grep, find, bash, plus only the active Edit Mode tools. It excludes bash_job, Eval, Magic Context, and every tool owned outside pi-ext-tools.
-_Avoid_: Pi registry, all active tools
+**Eval Nested Catalog Policy**:
+The invoke table injected into an Eval Kernel for one Exposition. The v1 Sibling Exposition admits read, grep, find, foreground bash, and the active Edit Mode tools, and excludes bash_job, Eval, wait, Magic Context, and every tool owned outside pi-ext-tools. A later Code Mode Exposition may inject a wider table that still excludes Eval, wait, and Magic Context. The kernel never reads the Pi registry.
+_Avoid_: Pi registry, all active tools, hardcoded kernel catalog
 
 **Eval Tool Error**:
 The structured, serializable error thrown by a Nested Tool bridge call after validation, authorization, or execution failure. Its persisted trace preserves the underlying normalized tool result and diagnostic.
@@ -139,7 +154,7 @@ A bounded, inspectable value emitted through display() separately from an Eval T
 _Avoid_: Arbitrary object serialization, UI trace
 
 **Eval Lease**:
-The exclusive ownership of one active run by an Eval Runtime. A concurrent request is refused as busy and does not queue, cancel, or share the active run.
+The exclusive ownership of one active Eval Cell by an Eval Runtime. A concurrent request is refused as busy and does not queue, cancel, or share the active cell.
 _Avoid_: Run queue, concurrent cell
 
 **Eval Final Value**:
@@ -147,7 +162,7 @@ The awaited value of an Eval Source's final expression. It is emitted separately
 _Avoid_: Console output, display output
 
 **Detached Eval Work**:
-Async work started by Eval Source but not awaited by its top-level execution. Inline Eval does not attribute its later output or unhandled rejection to the Eval Transcript.
+Async work started by Eval Source but not awaited by the Eval Cell. After the cell completes or is terminated, later output or rejection is outside the Eval Transcript. Kernel shutdown drops that work.
 _Avoid_: Managed background run, recoverable floating promise
 
 **Eval Result Detail**:
@@ -155,5 +170,17 @@ The bounded persisted representation of an Eval Transcript, Display Values, and 
 _Avoid_: Raw result dump, TUI cache
 
 **Eval Script API**:
-The supported globals in Eval Source: admitted `tool` methods, `console`/`print`, `display()`, and optionally read-only `cwd()`. Host APIs outside this set, even if reachable in trusted local JavaScript, have no Eval compatibility contract.
-_Avoid_: Helper bag, Bun API contract
+The supported host bindings in Eval Source: injected `tool` methods, `console`/`print`, `display()`, and read-only `cwd()`. Language builtins remain available inside the kernel process. Host APIs outside this set have no Eval compatibility contract.
+_Avoid_: Helper bag, Bun API contract, OMP prelude
+
+**Eval Request**:
+The public Eval input for the Sibling Exposition. It identifies Eval Source and the language backend (`js` default, or `py`). Optional reset wipes that language kernel only. Optional timeout matches bash: seconds, no default, omitted or `<= 0` disables. Nested tools pause the clock and start a fresh window when they return. It has no title, target, cwd, or model-routing parameter, and does not accept wait or yield fields in v1.
+_Avoid_: Execution profile, target selector, code mode request, title
+
+**Caught Eval Tool Error**:
+An Eval Tool Error handled by Eval Source. Its Nested Tool trace remains failed, but it does not make the enclosing Eval fail; an uncaught error does.
+_Avoid_: Automatic outer failure, suppressed trace
+
+**Foreground Nested Bash**:
+The only Bash execution admitted by the Eval Nested Catalog. It preserves normal foreground local or SSH target behavior but rejects async background jobs and PTY surfaces.
+_Avoid_: Nested background job, nested terminal

@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test } from "vitest";
 import { registerExtensionLifecycle } from "../src/lifecycle.js";
 import { createFakePiHost } from "./fixtures.js";
 
