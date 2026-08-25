@@ -425,11 +425,17 @@ export async function runAutoSearchHintForPi(args: {
 		return messages;
 	}
 
+	const topResult = results[0];
+	if (!topResult) {
+		writeNoHintAndReconcile("empty");
+		return messages;
+	}
+
 	const scoreThreshold = options.scoreThreshold ?? DEFAULT_SCORE_THRESHOLD;
-	if (results[0].score < scoreThreshold) {
+	if (topResult.score < scoreThreshold) {
 		sessionLog(
 			sessionId,
-			`auto-search: top score ${results[0].score.toFixed(3)} below threshold ${scoreThreshold}`,
+			`auto-search: top score ${topResult.score.toFixed(3)} below threshold ${scoreThreshold}`,
 		);
 		writeNoHintAndReconcile("below-threshold");
 		return messages;
@@ -455,7 +461,7 @@ export async function runAutoSearchHintForPi(args: {
 	}
 	sessionLog(
 		sessionId,
-		`auto-search: attached hint to ${userMsgId} (${results.length} fragments, top score ${results[0].score.toFixed(3)})`,
+		`auto-search: attached hint to ${userMsgId} (${results.length} fragments, top score ${topResult.score.toFixed(3)})`,
 	);
 
 	return messages;
