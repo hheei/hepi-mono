@@ -508,7 +508,9 @@ export async function prepareAuthority(args: PrepareAuthorityArgs): Promise<Auth
                     { moduleRowId: number; sourceRowId: number }
                 >();
                 for (const [index, moduleRowId] of (seedResponse.module_row_ids ?? []).entries()) {
-                    const sourceRowId = seedSourceRowId(page[index]);
+                    const row = page[index];
+                    if (row === undefined) continue;
+                    const sourceRowId = seedSourceRowId(row);
                     if (sourceRowId === null) continue;
                     // The module coalesces same-frame natural-key duplicates to the
                     // last snapshot. Repeated module ids therefore choose the last
@@ -2022,7 +2024,7 @@ export function pullMemoryMirrorOnce(args: {
         db: args.db,
         module: args.module,
         domain: "memories",
-        limit: args.limit,
+        ...(args.limit === undefined ? {} : { limit: args.limit }),
     }).finally(() => mirrorFlights.delete(args.module));
     mirrorFlights.set(args.module, flight);
     return flight;
