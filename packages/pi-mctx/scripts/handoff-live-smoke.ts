@@ -1,16 +1,19 @@
-#!/usr/bin/env bun
+#!/usr/bin/env -S node --no-warnings --import jiti/register
 /**
  * Live host smoke for `/handoff`.
  *
- *   bun packages/pi-mctx/scripts/handoff-live-smoke.ts [all|happy|cancel|resume|historian]
+ *   npm run smoke:handoff --workspace=@hheei/pi-mctx -- [all|happy|cancel|resume|historian]
  *
  * Child-only modes used by resume:
  *   crash-after-snapshot, resume-continue
  */
+import { spawn } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
 	createAgentSessionFromServices,
 	createAgentSessionRuntime,
@@ -36,6 +39,12 @@ const MODEL = process.env.HANDOFF_SMOKE_MODEL ?? "gpt-5.6-luna";
 const HISTORIAN = process.env.HANDOFF_SMOKE_HISTORIAN ?? `${PROVIDER}/${MODEL}`;
 const TIMEOUT_MS = 180_000;
 const SCENARIO = process.argv[2] ?? process.env.HANDOFF_SMOKE_SCENARIO ?? "all";
+const SCRIPT_PATH = fileURLToPath(import.meta.url);
+const JITI_REGISTER = join(
+	dirname(createRequire(import.meta.url).resolve("jiti/package.json")),
+	"lib",
+	"jiti-register.mjs",
+);
 
 type CustomEntry = {
 	type?: string;
@@ -58,6 +67,30 @@ function pass(message: string): void {
 
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function sessionFiles(sessionsDir: string): string[] {
+	if (!existsSync(sessionsDir)) return [];
+	return readdirSync(sessionsDir, { withFileTypes: true })
+		.filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
+		.map((entry) => entry.name);
+}
+
+function waitForExit(child: ReturnType<typeof spawn>): Promise<number> {
+	return new Promise((resolve, reject) => {
+		child.once("error", reject);
+		child.once("close", (code) => resolve(code ?? 1));
+	});
+}
+
+function runSmokeChild(args: readonly string[], env: NodeJS.ProcessEnv): Promise<number> {
+	return waitForExit(
+		spawn(process.execPath, ["--no-warnings", "--import", JITI_REGISTER, SCRIPT_PATH, ...args], {
+			cwd: process.cwd(),
+			env,
+			stdio: "inherit",
+		}),
+	);
 }
 
 function stubTheme() {
@@ -481,7 +514,7 @@ async function runCancel(): Promise<void> {
 		fail(`cancel switched away from source to ${runtime.session.sessionFile}`);
 	}
 	const sessionsDir = join(prepared.agentDir, "sessions");
-	const extra = Array.from(new Bun.Glob("*.jsonl").scanSync(sessionsDir)).filter(
+	const extra = sessionFiles(sessionsDir).filter(
 		(name) => !sourcePath.endsWith(name),
 	);
 	if (extra.length > 0) fail(`cancel created extra sessions: ${extra.join(", ")}`);
@@ -491,24 +524,20 @@ async function runCancel(): Promise<void> {
 async function runResume(): Promise<void> {
 	const prepared = prepareRoot();
 	console.log(`\n== resume ==\nsmoke root ${prepared.root}`);
-	const crash = Bun.spawn({
-		cmd: ["bun", import.meta.path, "crash-after-snapshot"],
-		cwd: process.cwd(),
-		env: {
+	const crashCode = await runSmokeChild(
+		["crash-after-snapshot"],
+		{
 			...process.env,
 			HANDOFF_SMOKE_ROOT: prepared.root,
 			HANDOFF_SMOKE_PROVIDER: PROVIDER,
 			HANDOFF_SMOKE_MODEL: MODEL,
 			HANDOFF_SMOKE_HISTORIAN: HISTORIAN,
 		},
-		stdout: "inherit",
-		stderr: "inherit",
-	});
-	const crashCode = await crash.exited;
+	);
 	if (crashCode !== 99) fail(`crash child exited ${crashCode}, expected 99`);
 	const recorded = join(prepared.root, "source-path.txt");
 	const recordedPath = existsSync(recorded)
-		? (await Bun.file(recorded).text()).trim()
+		? (await readFile(recorded, "utf8")).trim()
 		: undefined;
 	const crashedSource =
 		recordedPath && existsSync(recordedPath)
@@ -551,7 +580,7 @@ async function runResume(): Promise<void> {
 
 function findSourceWithPhase(agentDir: string, phase: string): string | undefined {
 	const sessionsDir = join(agentDir, "sessions");
-	for (const name of new Bun.Glob("*.jsonl").scanSync(sessionsDir)) {
+	for (const name of sessionFiles(sessionsDir)) {
 		const path = join(sessionsDir, name);
 		const latest = latestRequest(inspectQuiet(path));
 		if (latest?.data?.phase === phase) return path;
@@ -582,39 +611,40 @@ async function runCrashAfterSnapshot(): Promise<void> {
 }
 
 async function spawnScenario(name: string): Promise<void> {
-	const child = Bun.spawn({
-		cmd: ["bun", import.meta.path, name],
-		cwd: process.cwd(),
-		env: {
+	const code = await runSmokeChild(
+		[name],
+		{
 			...process.env,
 			HANDOFF_SMOKE_PROVIDER: PROVIDER,
 			HANDOFF_SMOKE_MODEL: MODEL,
 			HANDOFF_SMOKE_HISTORIAN: HISTORIAN,
 		},
-		stdout: "inherit",
-		stderr: "inherit",
-	});
-	const code = await child.exited;
+	);
 	if (code !== 0) fail(`scenario ${name} exited ${code}`);
 }
 
 async function main(): Promise<void> {
 	if (process.argv.includes("--print")) {
-		const require = createRequire(import.meta.url);
 		const piCli = join(
-			require.resolve("@earendil-works/pi-coding-agent/package.json"),
+			dirname(SCRIPT_PATH),
 			"..",
+			"node_modules",
+			"@earendil-works",
+			"pi-coding-agent",
 			"dist",
 			"cli.js",
 		);
+		if (!existsSync(piCli)) {
+			fail(`Pi CLI is missing from the pi-mctx development dependency: ${piCli}`);
+		}
 		const forwarded = process.argv.slice(process.argv.indexOf("--print"));
-		const child = Bun.spawn([process.execPath, piCli, ...forwarded], {
+		const child = spawn(process.execPath, [piCli, ...forwarded], {
 			stdin: "inherit",
 			stdout: "inherit",
 			stderr: "inherit",
 			env: process.env,
 		});
-		process.exit(await child.exited);
+		process.exit(await waitForExit(child));
 	}
 	if (SCENARIO === "crash-after-snapshot") {
 		await runCrashAfterSnapshot();
