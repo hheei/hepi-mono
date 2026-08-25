@@ -1,3 +1,4 @@
+import process from "node:process";
 import { expect, test } from "vitest";
 import {
 	createExtensionPointKey,
@@ -8,6 +9,11 @@ import { createFakePiHost } from "./fixtures.js";
 
 interface FormatterHook {
 	readonly name: string;
+}
+
+interface UnhandledRejectionObserver {
+	on(event: "unhandledRejection", listener: (reason: unknown) => void): unknown;
+	off(event: "unhandledRejection", listener: (reason: unknown) => void): unknown;
 }
 
 const formatter = createExtensionPointKey<FormatterHook>("@hheei/pi-tools/formatter");
@@ -61,7 +67,8 @@ test("observes a rejected ready Promise without a host unhandled rejection", asy
 	const onUnhandled = (reason: unknown): void => {
 		unhandled.push(reason);
 	};
-	process.on("unhandledRejection", onUnhandled);
+	const nodeProcess = process as unknown as UnhandledRejectionObserver;
+	nodeProcess.on("unhandledRejection", onUnhandled);
 	try {
 		const owner = openExtensionPoint(host.pi, formatter, {
 			signal: new AbortController().signal,
@@ -76,7 +83,7 @@ test("observes a rejected ready Promise without a host unhandled rejection", asy
 		await owner.dispose();
 		await registration.dispose();
 	} finally {
-		process.off("unhandledRejection", onUnhandled);
+		nodeProcess.off("unhandledRejection", onUnhandled);
 	}
 });
 

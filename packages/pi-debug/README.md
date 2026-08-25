@@ -28,6 +28,6 @@ replay                          Incremental action-journal CLI
 ## Development
 
 ```bash
-bun test packages/pi-debug/test
-bun run typecheck
+npm test -- packages/pi-debug/test
+npm run typecheck
 ```

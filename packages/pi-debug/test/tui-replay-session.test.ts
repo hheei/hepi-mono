@@ -20,16 +20,21 @@ import { stripAnsi } from "../src/tui-replay.js";
 import { runReplaySessionCli } from "../src/tui-replay-session.js";
 
 const SESSION_CLI = fileURLToPath(new URL("../src/tui-replay-session.ts", import.meta.url));
+const JITI_REGISTER = fileURLToPath(import.meta.resolve("jiti/register"));
 
 function spawnCaptured(
 	argv: readonly string[],
 	options: { cwd?: string; env?: NodeJS.ProcessEnv },
 ) {
-	const child = spawn("bun", [SESSION_CLI, ...argv], {
-		cwd: options.cwd,
-		env: options.env,
-		stdio: ["ignore", "pipe", "pipe"],
-	});
+	const child = spawn(
+		process.execPath,
+		["--no-warnings", "--import", JITI_REGISTER, SESSION_CLI, ...argv],
+		{
+			cwd: options.cwd,
+			env: { ...process.env, ...options.env, NODE_NO_WARNINGS: "1" },
+			stdio: ["ignore", "pipe", "pipe"],
+		},
+	);
 	const stdoutChunks: Buffer[] = [];
 	const stderrChunks: Buffer[] = [];
 	child.stdout?.on("data", (chunk: Buffer) => {
