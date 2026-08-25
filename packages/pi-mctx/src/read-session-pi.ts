@@ -309,13 +309,13 @@ export function findLastModelKeyFromBranch(
 	return undefined;
 }
 
-function rawEntryVersion(entry: { id?: string } | MessageEntry): string | number {
+function rawEntryVersion(entry: unknown): string | number {
 	const record = entry as unknown as Record<string, unknown>;
 	const updated = record.updatedAt ?? record.updated_at ?? record.timestamp;
 	return typeof updated === "string" || typeof updated === "number"
 		? updated
-		: typeof entry.id === "string"
-			? entry.id
+		: typeof record.id === "string"
+			? record.id
 			: "";
 }
 
