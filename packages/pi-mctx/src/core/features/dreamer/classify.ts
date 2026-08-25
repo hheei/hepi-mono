@@ -215,6 +215,7 @@ function stratifiedAnchors(classified: ClassifyCandidate[], count: number): Clas
     const out: ClassifyAnchorMemory[] = [];
     for (let i = 0; i < count; i += 1) {
         const candidate = sorted[Math.min(sorted.length - 1, Math.floor(i * step))];
+        if (!candidate) continue;
         out.push({
             id: candidate.id,
             category: candidate.contextMemory.category,
@@ -294,9 +295,11 @@ export async function runClassify(args: ClassifyArgs): Promise<ClassifyResult> {
             const chunksRemaining = chunks.length - i;
             const sliceMs = Math.max(1, Math.floor(remainingMs / chunksRemaining));
 
+            const chunk = chunks[i];
+            if (!chunk) break;
             const counts = await classifyOneChunk(
                 args,
-                chunks[i],
+                chunk,
                 anchors,
                 sliceMs,
                 abortController.signal,
@@ -341,7 +344,7 @@ async function classifyOneChunk(
         const createResponse = await createChildSessionWithFence({
             client: args.client,
             db: args.db,
-            parentSessionId: args.parentSessionId,
+            ...(args.parentSessionId === undefined ? {} : { parentSessionId: args.parentSessionId }),
             title: "magic-context-dream-classify",
             directory: args.sessionDirectory,
         });
@@ -355,7 +358,7 @@ async function classifyOneChunk(
         agentSessionId = typeof created?.id === "string" ? created.id : null;
         if (!agentSessionId) throw new Error("Could not create classify session.");
 
-        const run = await shared.promptSyncWithValidatedOutputRetry(
+        const run = await shared.promptSyncWithValidatedOutputRetry<unknown[], string>(
             args.client,
             {
                 path: { id: agentSessionId },
@@ -370,7 +373,7 @@ async function classifyOneChunk(
             {
                 timeoutMs: sliceMs,
                 signal,
-                fallbackModels: args.fallbackModels,
+                ...(args.fallbackModels === undefined ? {} : { fallbackModels: args.fallbackModels }),
                 callContext: "dreamer:classify-memories",
                 fetchOutput: async () => {
                     const messagesResponse = await args.client.session.messages({
@@ -602,9 +605,9 @@ export function applyClassifications(
                     ? false
                     : p.shareable;
             const didChange = setMemoryClassification(args.db, p.id, {
-                importance: p.importance,
-                scope: p.scope,
-                shareable,
+                ...(p.importance === undefined ? {} : { importance: p.importance }),
+                ...(p.scope === undefined ? {} : { scope: p.scope }),
+                ...(shareable === undefined ? {} : { shareable }),
             });
             classified += 1; // stamped classified_at (run-gate satisfied)
             if (didChange) changed += 1; // an actual column value moved
@@ -626,7 +629,7 @@ function recordInvocation(
         task: "classify-memories",
         startedAt,
         status: params.status,
-        messages: params.messages,
-        error: params.error,
+        ...(params.messages === undefined ? {} : { messages: params.messages }),
+        ...(params.error === undefined ? {} : { error: params.error }),
     });
 }
