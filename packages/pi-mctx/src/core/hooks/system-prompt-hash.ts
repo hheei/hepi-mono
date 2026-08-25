@@ -270,7 +270,9 @@ export function createSystemPromptHashHandler(deps: {
         const DATE_PATTERN = /Today's date: .+/;
 
         for (let i = 0; i < output.system.length; i++) {
-            const match = output.system[i].match(DATE_PATTERN);
+            const systemPart = output.system[i];
+            if (systemPart === undefined) continue;
+            const match = systemPart.match(DATE_PATTERN);
             if (!match) continue;
 
             const currentDate = match[0];
@@ -289,7 +291,7 @@ export function createSystemPromptHashHandler(deps: {
                     );
                 } else {
                     // Defer pass — replace with the sticky date to keep prompt stable
-                    output.system[i] = output.system[i].replace(DATE_PATTERN, stickyDate);
+                    output.system[i] = systemPart.replace(DATE_PATTERN, stickyDate);
                     sessionLog(
                         sessionId,
                         `system prompt date frozen: real=${currentDate}, using=${stickyDate} (defer pass)`,

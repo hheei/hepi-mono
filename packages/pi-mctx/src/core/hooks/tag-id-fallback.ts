@@ -30,11 +30,13 @@ export interface ExistingTagResolver {
 function parseScopedContentId(contentId: string): ParsedContentId | null {
     const match = /^(.*):(p|file)(\d+)$/.exec(contentId);
     if (!match) return null;
+    const [messageId, type, partIndex] = [match[1], match[2], match[3]];
+    if (messageId === undefined || type === undefined || partIndex === undefined) return null;
 
     return {
-        messageId: match[1],
-        type: match[2] === "file" ? "file" : "message",
-        partIndex: Number.parseInt(match[3], 10),
+        messageId,
+        type: type === "file" ? "file" : "message",
+        partIndex: Number.parseInt(partIndex, 10),
     };
 }
 
