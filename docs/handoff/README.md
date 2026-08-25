@@ -300,12 +300,12 @@ Real Pi smoke必须验证 Source → Completion → Continuation → first model
 Repository gate：
 
 ```text
-bun install
-bunx biome check --write <changed TypeScript paths>
-bunx biome check <changed TypeScript paths>
-bun test <focused handoff/context/storage/renderer tests>
+npm ci --ignore-scripts
+npm exec -- biome check --write <changed TypeScript paths>
+npm exec -- biome check <changed TypeScript paths>
+npm test -- <focused handoff/context/storage/renderer tests>
 focused pi-mctx typecheck
-bun run typecheck
+npm run typecheck
 full repository test gate
 ```
 

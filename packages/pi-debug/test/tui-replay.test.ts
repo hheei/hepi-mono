@@ -17,6 +17,7 @@ import {
 } from "../src/tui-replay.js";
 
 const REPLAY_CLI = join(dirname(fileURLToPath(import.meta.url)), "../src/tui-replay.ts");
+const JITI_REGISTER = fileURLToPath(import.meta.resolve("jiti/register"));
 
 describe("TUI replay", () => {
 	test("captures input and resize actions", async () => {
@@ -101,10 +102,15 @@ describe("TUI replay", () => {
 		const cwd = join(root, "cwd\x1b]0;path-injection\x07");
 		await mkdir(cwd);
 		try {
-			const child = spawnSync("bun", [REPLAY_CLI, "--text", "ok", "--format", "ans"], {
-				cwd,
-				encoding: "utf8",
-			});
+			const child = spawnSync(
+				process.execPath,
+				["--no-warnings", "--import", JITI_REGISTER, REPLAY_CLI, "--text", "ok", "--format", "ans"],
+				{
+					cwd,
+					encoding: "utf8",
+					env: { ...process.env, NODE_NO_WARNINGS: "1" },
+				},
+			);
 			expect(child.status).toBe(0);
 			expect(child.stderr).toBe("");
 			expect(child.stdout).not.toContain("\x1b]");

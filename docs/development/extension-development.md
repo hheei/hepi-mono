@@ -36,20 +36,20 @@ For UI or UX work, every plan and implementation must reference [DESIGN.md](../.
 Install dependencies:
 
 ```bash
-bun install
+npm ci --ignore-scripts
 ```
 
 Run checks only for the affected code:
 
 ```bash
-bun test <focused-test-path>
-bunx biome check <changed paths...>
+npm test -- <focused-test-path>
+npm exec -- biome check <changed paths...>
 ```
 
 Apply formatting or safe lint fixes only to changed paths:
 
 ```bash
-bunx biome check --write <changed paths...>
+npm exec -- biome check --write <changed paths...>
 ```
 
 ## Extension Entry Point
@@ -80,7 +80,7 @@ Build and run the affected extension directly:
 
 ```bash
 cd packages/pi-<name>
-bun run build
+npm run build
 pi --no-extensions --no-skills -e dist/extension.js
 ```
 

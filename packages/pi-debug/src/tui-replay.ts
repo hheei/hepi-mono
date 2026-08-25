@@ -1,6 +1,7 @@
-#!/usr/bin/env bun
+#!/usr/bin/env -S node --no-warnings --import jiti/register
 // biome-ignore-all lint/suspicious/noControlCharactersInRegex: ANSI parser intentionally matches terminal controls.
 // biome-ignore-all lint/suspicious/noUnnecessaryConditions: ReplayAction switch handles all runtime action variants.
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -43,6 +44,33 @@ export interface ReplayModelResult extends ReplayModelRequest {
 	readonly text: string;
 	readonly events: readonly unknown[];
 	readonly stderr: string;
+}
+
+interface CapturedProcess {
+	readonly stdout: string;
+	readonly stderr: string;
+	readonly exitCode: number;
+}
+
+async function captureProcess(
+	command: string,
+	args: readonly string[],
+	cwd: string,
+): Promise<CapturedProcess> {
+	const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+	const stdout: Buffer[] = [];
+	const stderr: Buffer[] = [];
+	child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
+	child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+	const exitCode = await new Promise<number>((resolve, reject) => {
+		child.once("error", reject);
+		child.once("close", (code) => resolve(code ?? 1));
+	});
+	return {
+		stdout: Buffer.concat(stdout).toString("utf8"),
+		stderr: Buffer.concat(stderr).toString("utf8"),
+		exitCode,
+	};
 }
 
 export type ReplayAction =
@@ -277,9 +305,9 @@ function assistantOutput(event: unknown): { text?: string; error?: string } | un
 export async function runPiModel(request: ReplayModelRequest): Promise<ReplayModelResult> {
 	if (!request.prompt.trim()) throw new Error("model prompt must not be blank");
 	if (!request.model.trim()) throw new Error("model must not be blank");
-	const subprocess = Bun.spawn(
+	const { stdout, stderr, exitCode } = await captureProcess(
+		"pi",
 		[
-			"pi",
 			"-p",
 			"--mode",
 			"json",
@@ -296,13 +324,8 @@ export async function runPiModel(request: ReplayModelRequest): Promise<ReplayMod
 			"Respond directly and concisely.",
 			request.prompt,
 		],
-		{ cwd: request.cwd ?? process.cwd(), stdout: "pipe", stderr: "pipe" },
+		request.cwd ?? process.cwd(),
 	);
-	const [stdout, stderr, exitCode] = await Promise.all([
-		new Response(subprocess.stdout).text(),
-		new Response(subprocess.stderr).text(),
-		subprocess.exited,
-	]);
 	const events = stdout
 		.split(/\r?\n/u)
 		.filter(Boolean)
@@ -820,15 +843,11 @@ function singleCliValue(values: readonly string[] | undefined, name: string): st
 async function captureShellCommand(
 	command: string,
 ): Promise<{ readonly text: string; readonly exitCode: number }> {
-	const subprocess = Bun.spawn(["/bin/sh", "-lc", command], {
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	const [stdout, stderr, exitCode] = await Promise.all([
-		new Response(subprocess.stdout).text(),
-		new Response(subprocess.stderr).text(),
-		subprocess.exited,
-	]);
+	const { stdout, stderr, exitCode } = await captureProcess(
+		"/bin/sh",
+		["-lc", command],
+		process.cwd(),
+	);
 	const separator = stdout !== "" && stderr !== "" && !stdout.endsWith("\n") ? "\n" : "";
 	return { text: `${stdout}${separator}${stderr}`, exitCode };
 }

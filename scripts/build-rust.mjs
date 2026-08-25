@@ -1,10 +1,12 @@
 import { spawn } from "node:child_process";
 import { mkdir, rename, rm } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
 const toolsPackageRoot = resolve(root, "packages/pi-ext-tools");
-const napiCli = resolve(toolsPackageRoot, "node_modules/@napi-rs/cli/dist/cli.js");
+const require = createRequire(resolve(toolsPackageRoot, "package.json"));
+const napiCli = resolve(require.resolve("@napi-rs/cli/package.json"), "../dist/cli.js");
 const output = resolve(toolsPackageRoot, "native");
 await mkdir(output, { recursive: true });
 

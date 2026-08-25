@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env -S node --no-warnings --import jiti/register
 import { createHash, randomUUID } from "node:crypto";
 import type { Stats } from "node:fs";
 import { lstat, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";

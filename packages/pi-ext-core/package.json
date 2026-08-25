@@ -15,8 +15,8 @@
 		"LICENSE"
 	],
 	"scripts": {
-		"build": "bunx tsc -p tsconfig.build.json",
-		"prepack": "bun run build"
+		"build": "tsc -p tsconfig.build.json",
+		"prepack": "npm run build"
 	},
 	"keywords": [
 		"pi",
@@ -44,10 +44,10 @@
 		"@earendil-works/pi-tui": ">=0.84.1"
 	},
 	"devDependencies": {
-		"@earendil-works/pi-agent-core": ">=0.84.1",
-		"@earendil-works/pi-ai": ">=0.84.1",
-		"@earendil-works/pi-coding-agent": ">=0.84.1",
-		"@earendil-works/pi-tui": ">=0.84.1",
+		"@earendil-works/pi-agent-core": "0.84.1",
+		"@earendil-works/pi-ai": "0.84.1",
+		"@earendil-works/pi-coding-agent": "0.84.1",
+		"@earendil-works/pi-tui": "0.84.1",
 		"@types/proper-lockfile": "4.1.4"
 	}
 }

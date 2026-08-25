@@ -22,20 +22,20 @@
 
 ## Tooling
 
-- **MUST** use Bun from the repository root; **NEVER** introduce npm, Yarn, or pnpm lockfiles.
+- **MUST** use npm from the repository root; `package-lock.json` is the sole dependency lockfile.
 - For ordinary changes, format/check only changed TypeScript paths and run focused tests:
 
 ```bash
-bunx biome check --write <changed-paths...>
-bunx biome check <changed-paths...>
-bunx vitest run <focused-test-path>
+npm exec -- biome check --write <changed-paths...>
+npm exec -- biome check <changed-paths...>
+npm exec -- vitest run <focused-test-path>
 
 ```
 
-- Use `bun run check:fix` only when the whole owned tree is intentionally in scope, and inspect its diff.
+- Use `npm run check:fix` only when the whole owned tree is intentionally in scope, and inspect its diff.
 - Run broader validation for shared/public contracts, package boundaries, dependency changes, and releases.
-- Keep Pi peer/dev dependencies on the root compatibility baseline. After changing their ranges, run `bun install`, verify a single resolved Pi version set, then typecheck.
-- Use focused package typechecks for local edits and root `bun run typecheck` for dependency or package-boundary changes.
+- Keep Pi peer/dev dependencies on the root compatibility baseline. After changing their ranges, run `npm install`, verify a single resolved Pi version set, then typecheck.
+- Use focused package typechecks for local edits and root `npm run typecheck` for dependency or package-boundary changes.
 
 ## Package Boundaries
 

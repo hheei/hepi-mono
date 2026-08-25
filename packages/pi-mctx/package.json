@@ -19,7 +19,7 @@
 	},
 	"dependencies": {
 		"@cortexkit/subc-client": "0.4.1",
-		"@hheei/pi-ext-core": "workspace:*",
+		"@hheei/pi-ext-core": "0.0.0",
 		"@huggingface/transformers": "^4.1.0",
 		"@jitl/quickjs-singlefile-cjs-release-asyncify": "0.32.0",
 		"ai-tokenizer": "^1.0.6",
@@ -34,10 +34,10 @@
 		"@earendil-works/pi-tui": ">=0.84.1"
 	},
 	"devDependencies": {
-		"@earendil-works/pi-agent-core": ">=0.84.1",
-		"@earendil-works/pi-ai": ">=0.84.1",
-		"@earendil-works/pi-coding-agent": ">=0.84.1",
-		"@earendil-works/pi-tui": ">=0.84.1",
+		"@earendil-works/pi-agent-core": "0.84.1",
+		"@earendil-works/pi-ai": "0.84.1",
+		"@earendil-works/pi-coding-agent": "0.84.1",
+		"@earendil-works/pi-tui": "0.84.1",
 		"@types/better-sqlite3": "^7.6.13",
 		"@types/bun": "latest",
 		"@types/node": "^22.19.19"

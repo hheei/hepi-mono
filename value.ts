@@ -1,2 +1,2 @@
-alpha
-beta
+alpha;
+beta;
