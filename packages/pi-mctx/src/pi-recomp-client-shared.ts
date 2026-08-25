@@ -46,10 +46,12 @@ export function createPiHistorianClient(args: {
 			systemPrompt: args.systemPrompt,
 			userMessage: promptText,
 			model: modelOverride ?? args.model,
-			fallbackModels: modelOverride ? undefined : args.fallbackModels,
-			timeoutMs: args.timeoutMs,
+			...(modelOverride || args.fallbackModels === undefined
+				? {}
+				: { fallbackModels: args.fallbackModels }),
+			...(args.timeoutMs === undefined ? {} : { timeoutMs: args.timeoutMs }),
 			cwd: args.directory,
-			thinkingLevel: args.thinkingLevel,
+			...(args.thinkingLevel === undefined ? {} : { thinkingLevel: args.thinkingLevel }),
 			accountingSessionId: args.accountingSessionId,
 			accountingSubagent: "recomp",
 		});

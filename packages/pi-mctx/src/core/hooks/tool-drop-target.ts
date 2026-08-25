@@ -332,7 +332,8 @@ export class ToolMutationBatch {
         }
 
         for (let i = this.messages.length - 1; i >= 0; i -= 1) {
-            if (!this.messages[i].parts.some(hasMeaningfulPart)) {
+            const message = this.messages[i];
+            if (message !== undefined && !message.parts.some(hasMeaningfulPart)) {
                 this.messages.splice(i, 1);
             }
         }

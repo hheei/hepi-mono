@@ -9,12 +9,12 @@ type ParsedTierFields = Pick<
 
 function tierFieldsOf(c: ParsedTierFields): ParsedTierFields {
     return {
-        p1: c.p1,
-        p2: c.p2,
-        p3: c.p3,
-        p4: c.p4,
-        importance: c.importance,
-        episodeType: c.episodeType,
+        ...(c.p1 === undefined ? {} : { p1: c.p1 }),
+        ...(c.p2 === undefined ? {} : { p2: c.p2 }),
+        ...(c.p3 === undefined ? {} : { p3: c.p3 }),
+        ...(c.p4 === undefined ? {} : { p4: c.p4 }),
+        ...(c.importance === undefined ? {} : { importance: c.importance }),
+        ...(c.episodeType === undefined ? {} : { episodeType: c.episodeType }),
     };
 }
 

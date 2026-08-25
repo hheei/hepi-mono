@@ -221,7 +221,8 @@ export function planEmergencyDrop(input: {
         nums.sort((a, b) => b - a); // newest first
         const reserveCount = Math.ceil(TIER_RECENCY_RESERVE * nums.length);
         for (let i = 0; i < reserveCount && i < nums.length; i++) {
-            reserved.add(nums[i]);
+            const tagNumber = nums[i];
+            if (tagNumber !== undefined) reserved.add(tagNumber);
         }
     }
 

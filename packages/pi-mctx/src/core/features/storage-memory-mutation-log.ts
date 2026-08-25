@@ -259,7 +259,10 @@ export function getMaxMemoryMutationIdForProjects(
 ): number | null {
     const identities = uniqueProjectPaths(projectPaths);
     if (identities.length === 0) return null;
-    if (identities.length === 1) return getMaxMemoryMutationId(db, identities[0]);
+    const [firstIdentity] = identities;
+    if (identities.length === 1 && firstIdentity !== undefined) {
+        return getMaxMemoryMutationId(db, firstIdentity);
+    }
     const row = db
         .prepare(
             `SELECT MAX(id) AS max_id

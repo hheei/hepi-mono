@@ -70,7 +70,7 @@ export async function resolvePiCodingAgentModule(
 		throw new Error(
 			`Failed to resolve ${PI_CODING_AGENT_MODULE} via all strategies:\n` +
 				errors
-					.map((e, i) => `  - ${activeLoaders[i].name}: ${e.message || e}`)
+					.map((e, i) => `  - ${activeLoaders[i]?.name ?? "unknown"}: ${e.message || e}`)
 					.join("\n") +
 				"\nLikely cause: symlinked or nonstandard install layout.",
 		);
