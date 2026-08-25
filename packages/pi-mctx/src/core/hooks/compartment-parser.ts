@@ -109,6 +109,20 @@ const EVENTS_BLOCK_REGEX = /<events>(.*?)<\/events>/s;
 const EVENT_ELEMENT_REGEX = /<([a-z_]+)\s+at_compartment="(\d+)"\s*>(.*?)<\/\1>/gs;
 const EVENT_FIELD_REGEX = /<([a-z_]+)\s*>(.*?)<\/\1>/gs;
 
+function capture(match: readonly (string | undefined)[], index: number): string | undefined {
+    return match[index];
+}
+
+function optionalCompartmentMetadata(
+    importance: number | undefined,
+    episodeType: string | undefined,
+): Pick<ParsedCompartment, "importance" | "episodeType"> {
+    return {
+        ...(importance === undefined ? {} : { importance }),
+        ...(episodeType === undefined ? {} : { episodeType }),
+    };
+}
+
 /**
  * Extract a single tier body from a compartment inner string.
  *
@@ -122,7 +136,9 @@ const EVENT_FIELD_REGEX = /<([a-z_]+)\s*>(.*?)<\/\1>/gs;
  *  - undefined when the element is absent entirely
  */
 function extractTier(inner: string, index: number): string | undefined {
-    const openMatch = TIER_OPEN_REGEXES[index].exec(inner);
+    const openRegex = TIER_OPEN_REGEXES[index];
+    if (!openRegex) return undefined;
+    const openMatch = openRegex.exec(inner);
     if (!openMatch) return undefined;
     // Self-close form (<p4/> or <p4 />) → empty tier.
     if (openMatch[1] === "/") return "";
@@ -151,11 +167,15 @@ export function extractTiersFromInner(inner: string): {
     p3?: string;
     p4?: string;
 } {
+    const p1 = extractTier(inner, 0);
+    const p2 = extractTier(inner, 1);
+    const p3 = extractTier(inner, 2);
+    const p4 = extractTier(inner, 3);
     return {
-        p1: extractTier(inner, 0),
-        p2: extractTier(inner, 1),
-        p3: extractTier(inner, 2),
-        p4: extractTier(inner, 3),
+        ...(p1 === undefined ? {} : { p1 }),
+        ...(p2 === undefined ? {} : { p2 }),
+        ...(p3 === undefined ? {} : { p3 }),
+        ...(p4 === undefined ? {} : { p4 }),
     };
 }
 
@@ -164,23 +184,31 @@ export function parseCompartmentOutput(text: string): ParsedCompartmentOutput {
     const facts: ParsedFact[] = [];
 
     for (const match of text.matchAll(COMPARTMENT_REGEX)) {
-        const attrs = match[1];
-        const inner = match[2];
+        const attrs = capture(match, 1);
+        const inner = capture(match, 2);
+        if (attrs === undefined || inner === undefined) continue;
 
         const startMatch = attrs.match(ATTR_START_REGEX);
         const endMatch = attrs.match(ATTR_END_REGEX);
         const titleMatch = attrs.match(ATTR_TITLE_REGEX);
         if (!startMatch || !endMatch || !titleMatch) continue;
 
-        const startMessage = parseInt(startMatch[1], 10);
-        const endMessage = parseInt(endMatch[1], 10);
-        const title = unescapeXml(titleMatch[1]);
+        const startRaw = capture(startMatch, 1);
+        const endRaw = capture(endMatch, 1);
+        const titleRaw = capture(titleMatch, 1);
+        if (startRaw === undefined || endRaw === undefined || titleRaw === undefined) continue;
+        const startMessage = parseInt(startRaw, 10);
+        const endMessage = parseInt(endRaw, 10);
+        const title = unescapeXml(titleRaw);
         if (Number.isNaN(startMessage) || Number.isNaN(endMessage) || !title) continue;
 
         const episodeMatch = attrs.match(ATTR_EPISODE_REGEX);
         const importanceMatch = attrs.match(ATTR_IMPORTANCE_REGEX);
-        const episodeType = episodeMatch ? unescapeXml(episodeMatch[1]) : undefined;
-        const importance = importanceMatch ? parseInt(importanceMatch[1], 10) : undefined;
+        const episodeRaw = episodeMatch ? capture(episodeMatch, 1) : undefined;
+        const importanceRaw = importanceMatch ? capture(importanceMatch, 1) : undefined;
+        const episodeType = episodeRaw === undefined ? undefined : unescapeXml(episodeRaw);
+        const importance = importanceRaw === undefined ? undefined : parseInt(importanceRaw, 10);
+        const metadata = optionalCompartmentMetadata(importance, episodeType);
 
         // v2 tiered shape: at least <p1> present.
         const p1 = extractTier(inner, 0);
@@ -199,8 +227,7 @@ export function parseCompartmentOutput(text: string): ParsedCompartmentOutput {
                 p2: typeof p2 === "string" ? p2 : p1,
                 p3: typeof p3 === "string" ? p3 : typeof p2 === "string" ? p2 : p1,
                 p4: typeof p4 === "string" ? p4 : "",
-                importance,
-                episodeType,
+                ...metadata,
             });
             continue;
         }
@@ -213,8 +240,7 @@ export function parseCompartmentOutput(text: string): ParsedCompartmentOutput {
                 endMessage,
                 title,
                 content,
-                importance,
-                episodeType,
+                ...metadata,
             });
         }
     }
@@ -232,16 +258,19 @@ export function parseCompartmentOutput(text: string): ParsedCompartmentOutput {
     // BOTH the events block AND every <compartment> body first — otherwise a
     // category-shaped tag living inside a compartment's P1-P4 prose (or its
     // attributes) would be misread as a promotable fact.
-    const factsScope = factsBlockMatch
-        ? factsBlockMatch[1]
-        : text
-              .replace(EVENTS_BLOCK_REGEX, "")
-              .replace(/<compartment\s+[^>]*?\s*>.*?<\/compartment>/gs, "");
+    const factsBlockContent = factsBlockMatch ? capture(factsBlockMatch, 1) : undefined;
+    const legacyFactsScope = text
+        .replace(EVENTS_BLOCK_REGEX, "")
+        .replace(/<compartment\s+[^>]*?\s*>.*?<\/compartment>/gs, "");
+    const factsScope = factsBlockContent ?? legacyFactsScope;
     for (const categoryMatch of factsScope.matchAll(CATEGORY_BLOCK_REGEX)) {
-        const category = categoryMatch[1];
-        const blockContent = categoryMatch[2];
+        const category = capture(categoryMatch, 1);
+        const blockContent = capture(categoryMatch, 2);
+        if (category === undefined || blockContent === undefined) continue;
         for (const itemMatch of blockContent.matchAll(FACT_ITEM_REGEX)) {
-            const content = unescapeXml(itemMatch[1].trim());
+            const item = capture(itemMatch, 1);
+            if (item === undefined) continue;
+            const content = unescapeXml(item.trim());
             if (content) {
                 facts.push({ category, content });
             }
@@ -249,39 +278,52 @@ export function parseCompartmentOutput(text: string): ParsedCompartmentOutput {
     }
 
     const unprocessedMatch = text.match(UNPROCESSED_REGEX);
-    const unprocessedFrom = unprocessedMatch ? parseInt(unprocessedMatch[1], 10) : null;
+    const unprocessedRaw = unprocessedMatch ? capture(unprocessedMatch, 1) : undefined;
+    const unprocessedFrom = unprocessedRaw === undefined ? null : parseInt(unprocessedRaw, 10);
 
     const userObservations: string[] = [];
     const userObsMatch = text.match(USER_OBSERVATIONS_REGEX);
     if (userObsMatch) {
-        for (const itemMatch of userObsMatch[1].matchAll(USER_OBS_ITEM_REGEX)) {
-            const obs = unescapeXml(itemMatch[1].trim());
-            if (obs) userObservations.push(obs);
+        const block = capture(userObsMatch, 1);
+        if (block !== undefined) {
+            for (const itemMatch of block.matchAll(USER_OBS_ITEM_REGEX)) {
+                const item = capture(itemMatch, 1);
+                if (item === undefined) continue;
+                const obs = unescapeXml(item.trim());
+                if (obs) userObservations.push(obs);
+            }
         }
     }
 
     const primerCandidates: ParsedPrimerCandidate[] = [];
     const primerMatch = text.match(PRIMER_CANDIDATES_REGEX);
     if (primerMatch) {
-        const block = primerMatch[1];
-        // Preferred: <primer at_compartment="N">…</primer> with origin ordinal.
-        let sawElement = false;
-        for (const el of block.matchAll(PRIMER_ELEMENT_REGEX)) {
-            sawElement = true;
-            const question = unescapeXml(el[2].trim());
-            if (question) {
-                primerCandidates.push({
-                    question,
-                    originCompartmentIndex: Number.parseInt(el[1], 10),
-                });
+        const block = capture(primerMatch, 1);
+        if (block !== undefined) {
+            // Preferred: <primer at_compartment="N">…</primer> with origin ordinal.
+            let sawElement = false;
+            for (const el of block.matchAll(PRIMER_ELEMENT_REGEX)) {
+                const originRaw = capture(el, 1);
+                const questionRaw = capture(el, 2);
+                if (originRaw === undefined || questionRaw === undefined) continue;
+                sawElement = true;
+                const question = unescapeXml(questionRaw.trim());
+                if (question) {
+                    primerCandidates.push({
+                        question,
+                        originCompartmentIndex: Number.parseInt(originRaw, 10),
+                    });
+                }
             }
-        }
-        // Legacy bullet form (no origin tag) — only if no element form was used,
-        // so an element-form question isn't also captured as a bullet line.
-        if (!sawElement) {
-            for (const itemMatch of block.matchAll(PRIMER_ITEM_REGEX)) {
-                const question = unescapeXml(itemMatch[1].trim());
-                if (question) primerCandidates.push({ question });
+            // Legacy bullet form (no origin tag) — only if no element form was used,
+            // so an element-form question isn't also captured as a bullet line.
+            if (!sawElement) {
+                for (const itemMatch of block.matchAll(PRIMER_ITEM_REGEX)) {
+                    const item = capture(itemMatch, 1);
+                    if (item === undefined) continue;
+                    const question = unescapeXml(item.trim());
+                    if (question) primerCandidates.push({ question });
+                }
             }
         }
     }
@@ -302,16 +344,22 @@ export function parseCompartmentOutput(text: string): ParsedCompartmentOutput {
 function parseEvents(text: string): ParsedEvent[] {
     const blockMatch = text.match(EVENTS_BLOCK_REGEX);
     if (!blockMatch) return [];
-    const block = blockMatch[1];
+    const block = capture(blockMatch, 1);
+    if (block === undefined) return [];
     const events: ParsedEvent[] = [];
     for (const elMatch of block.matchAll(EVENT_ELEMENT_REGEX)) {
-        const kind = elMatch[1];
-        const atRaw = parseInt(elMatch[2], 10);
+        const kind = capture(elMatch, 1);
+        const atCompartmentRaw = capture(elMatch, 2);
+        const fieldsBlock = capture(elMatch, 3);
+        if (kind === undefined || atCompartmentRaw === undefined || fieldsBlock === undefined) continue;
+        const atRaw = parseInt(atCompartmentRaw, 10);
         const atCompartment = Number.isNaN(atRaw) ? null : atRaw;
         const fields: Record<string, string> = {};
-        for (const fieldMatch of elMatch[3].matchAll(EVENT_FIELD_REGEX)) {
-            const name = fieldMatch[1];
-            const value = unescapeXml(fieldMatch[2].trim());
+        for (const fieldMatch of fieldsBlock.matchAll(EVENT_FIELD_REGEX)) {
+            const name = capture(fieldMatch, 1);
+            const fieldValue = capture(fieldMatch, 2);
+            if (name === undefined || fieldValue === undefined) continue;
+            const value = unescapeXml(fieldValue.trim());
             if (value) fields[name] = value;
         }
         events.push({ kind, atCompartment, fields });
