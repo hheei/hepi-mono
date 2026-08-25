@@ -5,10 +5,12 @@ import {
 	defaultPiSettingsPaths,
 	getRuntimeSettingsRegistry,
 	type SettingField,
+	type SettingValue,
 	type SettingsProvider,
 	type SettingsState,
 } from "@hheei/pi-ext-core";
 import {
+	DEFAULT_LOCAL_EMBEDDING_MODEL,
 	type MagicContextConfig,
 	MagicContextConfigSchema,
 } from "#core/config/schema/magic-context";
@@ -123,6 +125,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function isSettingValue(value: unknown): value is SettingValue {
+	return (
+		typeof value === "boolean" ||
+		typeof value === "number" ||
+		typeof value === "string" ||
+		value === null ||
+		(Array.isArray(value) && value.every((entry) => typeof entry === "string"))
+	);
+}
+
 function settingValue(state: SettingsState, field: string): unknown {
 	return state[PI_MCTX_SETTINGS_GROUP]?.[field];
 }
@@ -192,7 +204,7 @@ export function resolvePiMctxSettings(
 			: embeddingProvider === "local"
 				? {
 					provider: "local" as const,
-					model: embeddingModel ?? DEFAULT_CONFIG.embedding.model,
+					model: embeddingModel ?? DEFAULT_LOCAL_EMBEDDING_MODEL,
 				}
 				: DEFAULT_CONFIG.embedding;
 
@@ -347,11 +359,8 @@ function readPiMctxSettings(): SettingsState {
 		if (!isRecord(section)) return {};
 		return {
 			[PI_MCTX_SETTINGS_GROUP]: Object.fromEntries(
-				Object.entries(section).filter(([, value]) =>
-					typeof value === "boolean" ||
-					typeof value === "number" ||
-					typeof value === "string" ||
-					value === null,
+				Object.entries(section).filter((entry): entry is [string, SettingValue] =>
+					isSettingValue(entry[1]),
 				),
 			),
 		};
