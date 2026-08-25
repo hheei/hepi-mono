@@ -390,10 +390,11 @@ export function buildDreamTaskPrompt(
 ): string {
     switch (task) {
         case "curate":
+            const userProfile = formatUserProfileList(args.userMemories);
             return buildCuratePrompt({
                 projectPath: args.projectPath,
                 memories: args.curate?.memories ?? [],
-                userProfile: formatUserProfileList(args.userMemories),
+                ...(userProfile === undefined ? {} : { userProfile }),
             });
         case "maintain-docs":
             return buildMaintainDocsPrompt(

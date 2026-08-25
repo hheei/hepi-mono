@@ -156,7 +156,7 @@ async function gitTrackedPath(gitRoot: string, repoRelativePath: string): Promis
     return (
         matches.find((match) => match === repoRelativePath) ??
         matches.find((match) => match.toLowerCase() === repoRelativePath.toLowerCase()) ??
-        (matches.length === 1 ? matches[0] : null)
+        (matches.length === 1 ? (matches[0] ?? null) : null)
     );
 }
 

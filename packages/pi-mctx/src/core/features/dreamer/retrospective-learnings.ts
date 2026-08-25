@@ -212,7 +212,8 @@ export function applyRetrospectiveLearnings(args: {
 function parseAttributes(raw: string): Record<string, string> {
     const attrs: Record<string, string> = {};
     for (const match of raw.matchAll(ATTR_REGEX)) {
-        attrs[match[1]] = unescapeXml(match[2] ?? "");
+        const key = match[1];
+        if (key !== undefined) attrs[key] = unescapeXml(match[2] ?? "");
     }
     return attrs;
 }
