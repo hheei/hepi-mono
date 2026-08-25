@@ -72,8 +72,9 @@ async function embedMissingCandidates(
     for (let i = 0; i < candidates.length; i += 1) {
         assertLeaseHeld("embedding commit");
         const vector = batch.vectors[i];
-        if (!vector) continue;
-        updatePrimerCandidateEmbedding(args.db, candidates[i].id, vector, batch.modelId);
+        const candidate = candidates[i];
+        if (!vector || !candidate) continue;
+        updatePrimerCandidateEmbedding(args.db, candidate.id, vector, batch.modelId);
     }
 }
 
