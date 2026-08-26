@@ -154,7 +154,8 @@ function collectRelevantSourceTagIds(
     for (const [contentId, tagId] of assignments) {
         const match = /^(.*):(p|file)\d+$/.exec(contentId);
         if (!match) continue;
-        if (!currentMessageIds.has(match[1])) continue;
+        const messageId = match[1];
+        if (messageId === undefined || !currentMessageIds.has(messageId)) continue;
         relevantTagIds.add(tagId);
     }
 
@@ -338,6 +339,7 @@ export function tagMessages(
     const tLoop = performance.now();
     for (let msgIndex = 0; msgIndex < messages.length; msgIndex++) {
         const message = messages[msgIndex];
+        if (message === undefined) continue;
         const messageId = typeof message.info.id === "string" ? message.info.id : null;
         if (isHandoffHistoricalMessage(message)) {
             continue;
