@@ -101,11 +101,11 @@ export interface OverflowDetection {
     /** True if the error message matches a known overflow pattern. */
     isOverflow: boolean;
     /** Reported context limit in tokens, if extractable from the message. */
-    reportedLimit?: number;
+    reportedLimit?: number | undefined;
     /** Whether the number is a prompt-only ceiling or a combined context window. */
-    reportedLimitProvenance?: ContextLimitProvenance;
+    reportedLimitProvenance?: ContextLimitProvenance | undefined;
     /** The pattern that matched, useful for logging/diagnostics. */
-    matchedPattern?: string;
+    matchedPattern?: string | undefined;
 }
 
 /**

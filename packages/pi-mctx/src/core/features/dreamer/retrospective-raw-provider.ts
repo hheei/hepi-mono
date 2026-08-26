@@ -4,13 +4,13 @@ export interface RetrospectiveRawMessage {
     role: "user" | "assistant" | "tool";
     text: string;
     ts: number;
-    toolName?: string;
+    toolName?: string | undefined;
 }
 
 export interface RetrospectiveProjectSession {
     sessionId: string;
-    path?: string;
-    updatedAt?: number;
+    path?: string | undefined;
+    updatedAt?: number | undefined;
 }
 
 export interface RetrospectiveSinceRead {
@@ -39,9 +39,9 @@ export interface RetrospectiveRawProvider {
 }
 
 export interface RetrospectiveScanOptions {
-    maxMessagesPerRun?: number;
-    capPerSession?: number;
-    maxSessionsPerRun?: number;
+    maxMessagesPerRun?: number | undefined;
+    capPerSession?: number | undefined;
+    maxSessionsPerRun?: number | undefined;
 }
 
 export interface RetrospectiveScanWindow {

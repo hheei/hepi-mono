@@ -136,16 +136,16 @@ export interface UpgradeReminderDeps {
      *  path. Optional: harnesses without a dialog system
      *  (e.g. Pi, which delivers via `ctx.ui.notify`) omit this and always take
      *  the `sendIgnoredMessage` path. */
-    isTuiConnected?: (sessionId?: string) => boolean;
+    isTuiConnected?: ((sessionId?: string) => boolean) | undefined;
     /** Enqueue a server→TUI action so the TUI shows an interactive upgrade dialog
      *  ("Run upgrade now"/"Later") instead of a transient toast. TUI path only;
      *  omitted on harnesses without a dialog system. When `resume` is set, the
      *  dialog shows resume-flavored copy. */
-    pushTuiDialogAction?: (sessionId: string, resume?: ResumeInfo) => void;
+    pushTuiDialogAction?: ((sessionId: string, resume?: ResumeInfo) => void) | undefined;
     /** Whether delivery persists in scrollback. Default true. Pi uses transient
      *  toasts, so it ignores the old explicit-dismissal stamp; both harnesses
      *  still persist the shared cooldown and delivery cap. */
-    deliveryPersists?: boolean;
+    deliveryPersists?: boolean | undefined;
 }
 
 export async function maybeSendUpgradeReminder(

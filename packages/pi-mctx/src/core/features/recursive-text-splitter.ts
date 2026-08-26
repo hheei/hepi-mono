@@ -24,9 +24,9 @@ export interface RecursiveCharacterSplitOptions {
     /** Max length (in `lengthFunction` units) of an emitted chunk. */
     chunkSize: number;
     /** Length function; defaults to character count. */
-    lengthFunction?: LengthFunction;
+    lengthFunction?: LengthFunction | undefined;
     /** Separator hierarchy, tried in order; "" means split into characters. */
-    separators?: string[];
+    separators?: string[] | undefined;
 }
 
 const DEFAULT_SEPARATORS = ["\n\n", "\n", " ", ""];
@@ -65,7 +65,9 @@ function mergeSplits(
                 // `while (total > chunkOverlap || ...)` reduces to `while (total > 0)`,
                 // i.e. fully flush the accumulated window before starting the next.
                 while (total > 0 && currentDoc.length > 0) {
-                    total -= lengthFunction(currentDoc[0]);
+                    const first = currentDoc[0];
+                    if (first === undefined) break;
+                    total -= lengthFunction(first);
                     currentDoc.shift();
                 }
             }
@@ -86,10 +88,11 @@ function splitTextRecursive(
 ): string[] {
     const finalChunks: string[] = [];
     // Pick the finest separator that occurs in `text`; "" forces a char split.
-    let separator = separators[separators.length - 1];
+    let separator = separators[separators.length - 1] ?? "";
     let newSeparators: string[] | undefined;
     for (let i = 0; i < separators.length; i += 1) {
         const s = separators[i];
+        if (s === undefined) continue;
         if (s === "") {
             separator = s;
             break;

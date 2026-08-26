@@ -4,17 +4,17 @@ import {
 } from "#core/shared/models-dev-cache";
 
 export interface PiModelLimit {
-	provider?: string;
-	id?: string;
-	contextWindow?: number;
-	maxTokens?: number;
+	provider?: string | undefined;
+	id?: string | undefined;
+	contextWindow?: number | undefined;
+	maxTokens?: number | undefined;
 }
 
 /** Resolve Pi's raw runtime window through the shared output-reservation chokepoint. */
 export function resolvePiUsableContextLimit(args: {
 	rawContextWindow: number | undefined;
-	model?: PiModelLimit;
-	detectedContextLimit?: number;
+	model?: PiModelLimit | undefined;
+	detectedContextLimit?: number | undefined;
 }): number | undefined {
 	const rawContext = isSaneLimit(args.rawContextWindow)
 		? args.rawContextWindow

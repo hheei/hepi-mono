@@ -4,9 +4,9 @@ export interface WorkMetrics {
 }
 
 export interface PiSessionEntry {
-    role?: unknown;
-    usage?: unknown;
-    message?: unknown;
+    role?: unknown | undefined;
+    usage?: unknown | undefined;
+    message?: unknown | undefined;
 }
 
 interface PiUsage {

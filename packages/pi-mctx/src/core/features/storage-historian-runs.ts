@@ -28,35 +28,35 @@ export interface HistorianRunInput {
     sessionId: string;
     harness: string;
     /** FK to subagent_invocations.id (tokens/model/timing). NULL if no invocation. */
-    subagentInvocationId?: number | null;
+    subagentInvocationId?: number | null | undefined;
     runKind: HistorianRunKind;
     status: HistorianRunStatus;
     /** Failure reason for `failed` (and optionally a no-op explanation). */
-    failureReason?: string | null;
+    failureReason?: string | null | undefined;
     /** Raw-ordinal range of the input chunk. */
-    chunkStartOrdinal?: number | null;
-    chunkEndOrdinal?: number | null;
+    chunkStartOrdinal?: number | null | undefined;
+    chunkEndOrdinal?: number | null | undefined;
     /** Historian's reported next-start (its `<unprocessed_from>`). */
-    unprocessedFrom?: number | null;
+    unprocessedFrom?: number | null | undefined;
     /** Compartments actually persisted (post discard-last). */
-    compartmentsProduced?: number;
+    compartmentsProduced?: number | undefined;
     /** Durable id range of the persisted compartments. */
-    compartmentIdMin?: number | null;
-    compartmentIdMax?: number | null;
+    compartmentIdMin?: number | null | undefined;
+    compartmentIdMax?: number | null | undefined;
     /** Facts emitted in the `<facts>` block. */
-    factsEmitted?: number;
+    factsEmitted?: number | undefined;
     /** `{ [category]: count }` of emitted facts. */
-    factsByCategory?: Record<string, number> | null;
+    factsByCategory?: Record<string, number> | null | undefined;
     /** Events emitted (causal_incident / trajectory_correction). */
-    eventsEmitted?: number;
+    eventsEmitted?: number | undefined;
     /** Importance distribution across persisted compartments. */
-    importanceMin?: number | null;
-    importanceMax?: number | null;
-    importanceAvg?: number | null;
+    importanceMin?: number | null | undefined;
+    importanceMax?: number | null | undefined;
+    importanceAvg?: number | null | undefined;
     /** Whether the lookahead-free last compartment was discarded (boundary healing). */
-    discardedLast?: boolean;
+    discardedLast?: boolean | undefined;
     /** Whether the run produced/processed legacy (pre-v2) compartments. */
-    legacy?: boolean;
+    legacy?: boolean | undefined;
 }
 
 /**
@@ -113,9 +113,10 @@ export function summarizeImportance(values: readonly number[]): {
     avg: number | null;
 } {
     const nums = values.filter((v) => typeof v === "number" && Number.isFinite(v));
-    if (nums.length === 0) return { min: null, max: null, avg: null };
-    let min = nums[0];
-    let max = nums[0];
+    const first = nums[0];
+    if (first === undefined) return { min: null, max: null, avg: null };
+    let min = first;
+    let max = first;
     let sum = 0;
     for (const v of nums) {
         if (v < min) min = v;

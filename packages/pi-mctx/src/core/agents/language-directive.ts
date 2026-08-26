@@ -1,6 +1,6 @@
 interface ContentLanguageDirectiveOptions {
-    preserveUserQuotes?: boolean;
-    retrospective?: boolean;
+    preserveUserQuotes?: boolean | undefined;
+    retrospective?: boolean | undefined;
 }
 
 const ENGLISH_LANGUAGE_NAMES = new Intl.DisplayNames(["en"], {

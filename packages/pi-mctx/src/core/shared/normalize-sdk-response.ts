@@ -1,5 +1,5 @@
 export interface NormalizeSDKResponseOptions {
-    preferResponseOnMissingData?: boolean;
+    preferResponseOnMissingData?: boolean | undefined;
 }
 
 // Audit note: `as TData` casts are intentional at this external SDK boundary. The types

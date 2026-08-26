@@ -184,15 +184,15 @@ function formatSearchResults(
 
 export interface CtxSearchToolDeps {
 	db: ContextDatabase;
-	ensureProjectRegistered?: (
+	ensureProjectRegistered?: ((
 		directory: string,
 		db: ContextDatabase,
-	) => Promise<void>;
-	memoryEnabled?: boolean;
-	embeddingEnabled?: boolean;
-	gitCommitsEnabled?: boolean;
+	) => Promise<void>) | undefined;
+	memoryEnabled?: boolean | undefined;
+	embeddingEnabled?: boolean | undefined;
+	gitCommitsEnabled?: boolean | undefined;
 	/** Resolve a directory's project identity, allowing home only when user-level configuration enables it. */
-	resolveProjectIdentity?: (directory: string) => string | undefined;
+	resolveProjectIdentity?: ((directory: string) => string | undefined) | undefined;
 }
 
 export function createCtxSearchTool(

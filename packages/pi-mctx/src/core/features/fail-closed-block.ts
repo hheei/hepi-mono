@@ -70,9 +70,9 @@ export function isFailClosedBlockingError(error: unknown): error is FailClosedBl
  * Magic Context hidden children and Pi subagent processes are.
  */
 export function shouldBypassFailClosedBlock(input: {
-    agent?: string | null;
-    isInternalChildSession?: boolean;
-    isPiSubagentEnv?: boolean;
+    agent?: string | null | undefined;
+    isInternalChildSession?: boolean | undefined;
+    isPiSubagentEnv?: boolean | undefined;
 }): boolean {
     if (input.isPiSubagentEnv === true) return true;
     if (input.isInternalChildSession === true) return true;
@@ -108,7 +108,7 @@ export interface FailClosedController {
     enforce(input: {
         blockingEnabled: boolean;
         exempt: boolean;
-        tryReopen?: () => boolean | Promise<boolean>;
+        tryReopen?: (() => boolean | Promise<boolean>) | undefined;
     }): void | Promise<void>;
 }
 
@@ -117,7 +117,7 @@ export interface FailClosedController {
  * inoperability) and the per-turn transform (enforces / re-probes).
  */
 export function createFailClosedController(options?: {
-    reprobeEveryN?: number;
+    reprobeEveryN?: number | undefined;
 }): FailClosedController {
     const reprobeEveryN = Math.max(1, options?.reprobeEveryN ?? FAIL_CLOSED_REPROBE_EVERY_N);
     let reason: FailClosedReason | null = null;

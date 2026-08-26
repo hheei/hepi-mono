@@ -56,8 +56,8 @@ export async function partitionVerifyScope(args: {
     db: Database;
     projectIdentity: string;
     projectDirectory: string;
-    forceBroad?: boolean;
-    now?: number;
+    forceBroad?: boolean | undefined;
+    now?: number | undefined;
 }): Promise<VerifyGateResult> {
     const runStartedAt = args.now ?? Date.now();
     const active = getMemoriesByProject(args.db, args.projectIdentity);

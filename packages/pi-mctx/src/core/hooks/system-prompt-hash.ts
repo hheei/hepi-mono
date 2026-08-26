@@ -84,9 +84,9 @@ export function createSystemPromptHashHandler(deps: {
      *  never injected, so ctx_memory guidance is dropped from the prompt and the
      *  ctx_memory tool is not registered. ctx_search guidance stays (it still
      *  recalls conversation + git commits). Default true. */
-    memoryEnabled?: boolean;
+    memoryEnabled?: boolean | undefined;
     /** Optional language from user config for the main agent's generated text. */
-    language?: string;
+    language?: string | undefined;
     /**
      * One-shot signal that disk-backed adjuncts (user profile, key files,
      * sticky date) need to be re-read on this pass.
@@ -110,7 +110,7 @@ export function createSystemPromptHashHandler(deps: {
      * for ALL agents. Global escape hatch for users who don't want Magic
      * Context guidance / sticky date touching the system prompt. (default: true)
      */
-    injectionEnabled?: boolean;
+    injectionEnabled?: boolean | undefined;
     /**
      * Issue #53: per-agent opt-out. If the agent's system prompt contains
      * any of these substrings, skip ALL injection for this call. Lets users
@@ -118,7 +118,7 @@ export function createSystemPromptHashHandler(deps: {
      * `ctx_*` tools) as no-injection without having to disable injection
      * globally.
      */
-    injectionSkipSignatures?: string[];
+    injectionSkipSignatures?: string[] | undefined;
     /**
      * Process-scoped set of Magic Context's OWN hidden child sessions
      * (historian/dreamer/sidekick/memory-migration), flagged by title prefix at
@@ -127,18 +127,18 @@ export function createSystemPromptHashHandler(deps: {
      * never benefit from the MC guidance block. Belt to the prompt-signature
      * detection below (which is the pass-1 timing-independent suspenders).
      */
-    internalChildSessions?: Set<string>;
+    internalChildSessions?: Set<string> | undefined;
     /** @deprecated user memories now render in m[0]/m[1], not system prompt. */
-    experimentalUserMemories?: boolean;
+    experimentalUserMemories?: boolean | undefined;
     /** @deprecated key files now render in m[1], not system prompt. */
-    experimentalPinKeyFiles?: boolean;
+    experimentalPinKeyFiles?: boolean | undefined;
     /** @deprecated key files now render in m[1], not system prompt. */
-    experimentalPinKeyFilesTokenBudget?: number;
+    experimentalPinKeyFilesTokenBudget?: number | undefined;
     /** When true, add a temporal-awareness guidance paragraph + surface compartment dates */
-    experimentalTemporalAwareness?: boolean;
+    experimentalTemporalAwareness?: boolean | undefined;
     /** When true, inject a "BEWARE: history compression is on" warning so the
      *  agent doesn't mimic its own caveman-compressed past output. */
-    experimentalCavemanTextCompression?: boolean;
+    experimentalCavemanTextCompression?: boolean | undefined;
 }): {
     handler: (input: { sessionID?: string }, output: { system: string[] }) => Promise<void>;
     clearSession: (sessionId: string) => void;

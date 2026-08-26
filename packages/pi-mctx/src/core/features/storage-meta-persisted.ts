@@ -131,7 +131,7 @@ export interface ProtectedTailDrainReserveResult {
     reservedTokens: number;
     overQuotaBypass: boolean;
     reservation: ProtectedTailDrainReservation | null;
-    skippedReason?: string;
+    skippedReason?: string | undefined;
 }
 
 export interface WrapupInProgressState {
@@ -722,7 +722,7 @@ export function reserveProtectedTailDrainTokens(args: {
     usable: number;
     perRunCap: number;
     executeThresholdPercentage: number;
-    now?: number;
+    now?: number | undefined;
 }): ProtectedTailDrainReserveResult {
     const now = args.now ?? Date.now();
     const requested = Math.max(0, Math.floor(args.trueRawTokens));
@@ -1066,9 +1066,9 @@ interface PersistedChannel2StateRow {
 }
 
 interface PersistedChannel2ClaimRow {
-    channel2_nudge_state?: string;
+    channel2_nudge_state?: string | undefined;
     channel2_nudge_claimed_at: number;
-    channel2_nudge_claim_token?: string | null;
+    channel2_nudge_claim_token?: string | null | undefined;
 }
 
 function isChannel2StateRow(row: unknown): row is PersistedChannel2StateRow {
@@ -1656,11 +1656,11 @@ export function getOverflowState(
         )
         .get(sessionId) as
         | {
-              detected_context_limit?: number;
-              detected_context_limit_model_key?: string | null;
-              detected_context_limit_provenance?: string | null;
-              needs_emergency_recovery?: number;
-              emergency_recovery_origin?: string | null;
+              detected_context_limit?: number | undefined;
+              detected_context_limit_model_key?: string | null | undefined;
+              detected_context_limit_provenance?: string | null | undefined;
+              needs_emergency_recovery?: number | undefined;
+              emergency_recovery_origin?: string | null | undefined;
           }
         | undefined;
     if (!result) {
@@ -1827,8 +1827,8 @@ export function getPersistedCompactionMarkerState(
             "SELECT compaction_marker_state, compaction_marker_target_end_message_id FROM session_meta WHERE session_id = ?",
         )
         .get(sessionId) as {
-        compaction_marker_state?: string;
-        compaction_marker_target_end_message_id?: string | null;
+        compaction_marker_state?: string | undefined;
+        compaction_marker_target_end_message_id?: string | null | undefined;
     } | null;
     const raw = row?.compaction_marker_state;
     if (!raw || raw.length === 0) return null;
@@ -2391,8 +2391,8 @@ export function getSessionWorkMetrics(
             "SELECT new_work_tokens, total_input_tokens FROM session_meta WHERE session_id = ?",
         )
         .get(sessionId) as {
-        new_work_tokens?: number | null;
-        total_input_tokens?: number | null;
+        new_work_tokens?: number | null | undefined;
+        total_input_tokens?: number | null | undefined;
     } | null;
     return {
         newWorkTokens: typeof row?.new_work_tokens === "number" ? row.new_work_tokens : 0,

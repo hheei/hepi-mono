@@ -7,7 +7,7 @@ export interface DeferredConsumptionArgs {
     justAwaitedPublication: boolean;
     /** True when an active run would block materialization below the emergency bypass. */
     activeRunBlocksMaterialization: boolean;
-    forceMaterializationPercentage?: number;
+    forceMaterializationPercentage?: number | undefined;
 }
 
 export function canConsumeDeferredOnThisPass(args: DeferredConsumptionArgs): boolean {

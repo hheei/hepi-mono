@@ -723,10 +723,10 @@ export interface WorkspaceMemorySqlFilter {
 // category from rendering in one path while advancing another path's cursor.
 export function buildWorkspaceMemorySqlFilter(args: {
     identities: readonly string[];
-    ownIdentities?: readonly string[];
-    shareCategories?: readonly string[] | null;
-    tableName?: string;
-    includeClassificationFields?: boolean;
+    ownIdentities?: readonly string[] | undefined;
+    shareCategories?: readonly string[] | null | undefined;
+    tableName?: string | undefined;
+    includeClassificationFields?: boolean | undefined;
 }): WorkspaceMemorySqlFilter {
     if (args.shareCategories === null || args.shareCategories === undefined) {
         return { clause: "", params: [], active: false, predicate: FOREIGN_VISIBLE_SQL };
@@ -797,7 +797,9 @@ export function getMemoriesByProjects(
         shareCategories === undefined
     ) {
         if (identities.length === 1) {
-            return getMemoriesByProject(db, identities[0], statuses, expiryCutoff);
+            const only = identities[0];
+            if (only === undefined) return [];
+            return getMemoriesByProject(db, only, statuses, expiryCutoff);
         }
         const rows = db
             .prepare(
@@ -1055,9 +1057,9 @@ export function updateMemoryContent(
 }
 
 export interface MemoryClassificationUpdate {
-    importance?: number;
-    scope?: MemoryScope;
-    shareable?: boolean;
+    importance?: number | undefined;
+    scope?: MemoryScope | undefined;
+    shareable?: boolean | undefined;
 }
 
 function normalizeImportance(value: number): number {

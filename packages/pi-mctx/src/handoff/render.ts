@@ -1,9 +1,8 @@
 import { Box, Container, Text, type Component } from "@earendil-works/pi-tui";
 import type {
 	CustomEntry,
-	CustomMessage,
 	EntryRenderOptions,
-	MessageRenderOptions,
+	MessageRenderer,
 	Theme,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -18,8 +17,8 @@ import {
 
 export interface HandoffProgressState {
 	stage: HandoffProgressStage;
-	model?: string;
-	tokenSummary?: string;
+	model?: string | undefined;
+	tokenSummary?: string | undefined;
 	startedAt: number;
 	cancellable: boolean;
 	now: number;
@@ -220,11 +219,11 @@ export function renderHandoffAttempt(
 	return box;
 }
 
-export function renderHandoffContext(
-	message: CustomMessage<HandoffContextDetails>,
-	options: MessageRenderOptions,
-	theme: Theme,
-): Component | undefined {
+export const renderHandoffContext: MessageRenderer<HandoffContextDetails> = (
+	message,
+	options,
+	theme,
+) => {
 	const details = message.details;
 	if (!details) return undefined;
 	const xml =
@@ -238,7 +237,7 @@ export function renderHandoffContext(
 	return options.expanded
 		? renderHandoffContextExpanded(xml, theme)
 		: renderHandoffContextCollapsed(details, summary, theme);
-}
+};
 
 function extractSummary(xml: string): string {
 	const start = xml.indexOf("<handoff-summary>");

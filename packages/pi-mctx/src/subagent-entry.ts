@@ -95,11 +95,6 @@ export default function magicContextSubagentExtension(pi: ExtensionAPI): void {
 				cfg.storage.enforce_private_permissions,
 			);
 			const db = openDatabase();
-			if (!db) {
-				throw new Error(
-					"storage open failed; refusing to start without Magic Context tools",
-				);
-			}
 			openedDb = db;
 			await ensureProjectRegisteredFromPiDirectory(directory, db);
 			const dreamerActionsEnabled =

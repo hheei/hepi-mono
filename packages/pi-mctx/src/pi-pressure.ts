@@ -28,11 +28,11 @@
  */
 
 interface PiAssistantUsage {
-	input?: number;
-	output?: number;
-	cacheRead?: number;
-	cacheWrite?: number;
-	totalTokens?: number;
+	input?: number | undefined;
+	output?: number | undefined;
+	cacheRead?: number | undefined;
+	cacheWrite?: number | undefined;
+	totalTokens?: number | undefined;
 }
 
 export interface PiPressure {

@@ -30,17 +30,17 @@ export interface TaskScheduleStateRow {
      *  first), so no global commit watermark is written. Column kept (v43) to
      *  avoid a DROP-COLUMN migration; field kept for a faithful round-trip. Do
      *  NOT read it for new logic. */
-    lastCheckedCommit?: string | null;
+    lastCheckedCommit?: string | null | undefined;
     /** LEGACY/INERT: the old internal broad-pass cadence watermark. Broad is now
      *  its own scheduled task (`verify-broad`); nothing writes a meaningful value.
      *  Column kept (v43) to avoid a DROP-COLUMN migration; field kept so the
      *  COALESCE round-trip is faithful. Do NOT read it for new logic. */
-    lastBroadRunAt?: number | null;
+    lastBroadRunAt?: number | null | undefined;
     /** retrospective CONTENT watermark: max message ts actually scanned. Distinct
      *  from lastRunAt (schedule-completion time) — lastRunAt as a content cutoff
      *  loses messages that arrive mid-run. Undefined on writes preserves the DB
      *  value. */
-    retrospectiveWatermarkMs?: number | null;
+    retrospectiveWatermarkMs?: number | null | undefined;
 }
 
 interface RawRow {

@@ -18,11 +18,11 @@ export interface RunDueCompiledSmartNoteChecksArgs {
     db: Database;
     projectIdentity: string;
     projectRoot: string;
-    now?: number;
-    maxChecks?: number;
-    sweepBudgetMs?: number;
-    leaseHeld?: () => boolean;
-    signal?: AbortSignal;
+    now?: number | undefined;
+    maxChecks?: number | undefined;
+    sweepBudgetMs?: number | undefined;
+    leaseHeld?: (() => boolean) | undefined;
+    signal?: AbortSignal | undefined;
 }
 
 export interface RunDueCompiledSmartNoteChecksResult {

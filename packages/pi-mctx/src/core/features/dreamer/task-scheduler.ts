@@ -23,25 +23,25 @@ export interface DreamTaskRuntimeConfig {
     task: DreamTaskName;
     /** Cron string; `""` = disabled (never due). */
     schedule: string;
-    model?: string;
-    fallbackModels?: readonly string[];
-    thinkingLevel?: PiThinkingLevel;
-    language?: string;
+    model?: string | undefined;
+    fallbackModels?: readonly string[] | undefined;
+    thinkingLevel?: PiThinkingLevel | undefined;
+    language?: string | undefined;
     timeoutMinutes: number;
     /** review-user-memories */
-    promotionThreshold?: number;
+    promotionThreshold?: number | undefined;
 }
 
 export interface TaskExecOutcome {
     status: "completed" | "failed";
     /** A transient failure (provider/network/rate-limit/timeout) hot-retries up to
      *  MAX_TASK_RETRIES; a permanent failure advances to the next cron slot. */
-    transient?: boolean;
-    error?: string;
+    transient?: boolean | undefined;
+    error?: string | undefined;
     schedulePatch?: {
         /** retrospective content watermark (max message ts scanned this run). */
-        retrospectiveWatermarkMs?: number | null;
-    };
+        retrospectiveWatermarkMs?: number | null | undefined;
+    } | undefined;
 }
 
 /** Runs ONE task's actual work (LLM loop). Supplied by the runner (step 4). The
@@ -57,7 +57,7 @@ export interface RunDueTasksDeps {
     projectIdentity: string;
     tasks: readonly DreamTaskRuntimeConfig[];
     executor: TaskExecutor;
-    now?: number;
+    now?: number | undefined;
 }
 
 /** First-seed a task's schedule row if absent. next_due_at from cron(after now);
@@ -261,15 +261,15 @@ function recordTransientFailure(
 
 interface DomainGroupCallbacks {
     /** Manual single-task run ignores the post-lease activity gate re-check. */
-    forceGate?: boolean;
+    forceGate?: boolean | undefined;
     /**
      * How long a manual run may wait for a busy domain lease before giving
      * up. Scheduled ticks leave this unset (the next tick retries anyway).
      */
-    leaseWaitMs?: number;
-    onRan?: (task: DreamTaskName) => void;
-    onFailed?: (task: DreamTaskName) => void;
-    onBusy?: (task: DreamTaskName) => void;
+    leaseWaitMs?: number | undefined;
+    onRan?: ((task: DreamTaskName) => void) | undefined;
+    onFailed?: ((task: DreamTaskName) => void) | undefined;
+    onBusy?: ((task: DreamTaskName) => void) | undefined;
 }
 
 /** Poll cadence while a manual run waits for a busy domain lease. */
@@ -402,7 +402,7 @@ export interface ManualRunResult {
  * Still advances next_due_at on completion so the manual run resets the cadence.
  */
 export async function runManualDream(
-    deps: Omit<RunDueTasksDeps, "now"> & { task?: DreamTaskName },
+    deps: Omit<RunDueTasksDeps, "now"> & { task?: DreamTaskName | undefined },
 ): Promise<ManualRunResult> {
     const now = Date.now();
     const result: ManualRunResult = { ran: [], skippedNoWork: [], deferredBusy: [], failed: [] };

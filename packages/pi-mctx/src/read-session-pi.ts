@@ -600,9 +600,9 @@ function synthesizeAssistantParts(msg: unknown): unknown[] {
  */
 function synthesizeToolResultParts(msg: unknown): unknown[] {
 	const m = msg as {
-		toolCallId?: unknown;
-		toolName?: unknown;
-		content?: unknown;
+		toolCallId?: unknown | undefined;
+		toolName?: unknown | undefined;
+		content?: unknown | undefined;
 	};
 	const callID = typeof m.toolCallId === "string" ? m.toolCallId : "";
 	const tool = typeof m.toolName === "string" ? m.toolName : "unknown";

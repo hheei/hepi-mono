@@ -44,7 +44,7 @@ export function computeM0BlockTokens(
         injectionBudgetTokens: number | undefined;
         memoryBlockCount: number;
         /** Exact history token count managed by the Rust module outside this local database. */
-        compartmentTokensOverride?: number;
+        compartmentTokensOverride?: number | undefined;
     },
 ): M0BlockTokens {
     const {

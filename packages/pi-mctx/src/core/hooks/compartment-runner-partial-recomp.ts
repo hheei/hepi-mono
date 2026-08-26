@@ -69,13 +69,14 @@ export function snapRangeToCompartments(
     if (firstEnclosingIdx === -1) {
         const last = sorted[sorted.length - 1];
         return {
-            error: `Range ${start}-${end} starts after the last compartment (which ends at message ${last.endMessage}). Nothing to rebuild.`,
+            error: `Range ${start}-${end} starts after the last compartment (which ends at message ${last?.endMessage ?? 0}). Nothing to rebuild.`,
         };
     }
 
     let lastEnclosingIdx = -1;
     for (let i = sorted.length - 1; i >= 0; i--) {
-        if (sorted[i].startMessage <= end) {
+        const current = sorted[i];
+        if (current && current.startMessage <= end) {
             lastEnclosingIdx = i;
             break;
         }
@@ -87,8 +88,8 @@ export function snapRangeToCompartments(
     }
 
     return {
-        snapStart: sorted[firstEnclosingIdx].startMessage,
-        snapEnd: sorted[lastEnclosingIdx].endMessage,
+        snapStart: sorted[firstEnclosingIdx]?.startMessage ?? start,
+        snapEnd: sorted[lastEnclosingIdx]?.endMessage ?? end,
         priorCompartments: sorted.slice(0, firstEnclosingIdx),
         rangeCompartments: sorted.slice(firstEnclosingIdx, lastEnclosingIdx + 1),
         tailCompartments: sorted.slice(lastEnclosingIdx + 1),

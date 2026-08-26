@@ -7,9 +7,9 @@ interface ChildSessionClient {
 interface ChildSessionSpawnArgs {
     client: ChildSessionClient;
     db: Database | null;
-    parentSessionId?: string;
+    parentSessionId?: string | undefined;
     title: string;
-    directory?: string;
+    directory?: string | undefined;
 }
 
 /**

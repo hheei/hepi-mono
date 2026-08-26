@@ -115,9 +115,9 @@ type MessageLikeWithTime = {
 };
 
 type MutableTextPart = {
-    type?: string;
-    text?: string;
-    ignored?: boolean;
+    type?: string | undefined;
+    text?: string | undefined;
+    ignored?: boolean | undefined;
 };
 
 function isMutableTextPart(part: unknown): part is MutableTextPart {

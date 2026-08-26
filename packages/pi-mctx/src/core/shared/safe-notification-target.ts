@@ -61,9 +61,9 @@ async function readSessionTitle(client: unknown, sessionId: string): Promise<str
 
 export interface SafeTargetOptions {
     /** Total title checks before giving up (default 4). */
-    attempts?: number;
+    attempts?: number | undefined;
     /** Delay between checks in ms (default 15s). */
-    delayMs?: number;
+    delayMs?: number | undefined;
 }
 
 /**

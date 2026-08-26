@@ -74,7 +74,7 @@ function numberField(args: {
 	defaultValue: number;
 	description: string;
 	minimum: number;
-	maximum?: number;
+	maximum?: number | undefined;
 }): SettingField<number> {
 	return {
 		...args,
@@ -96,7 +96,7 @@ function numberField(args: {
 function textField(args: {
 	id: string;
 	label: string;
-	defaultValue?: string;
+	defaultValue?: string | undefined;
 	description: string;
 }): SettingField<string> {
 	return {

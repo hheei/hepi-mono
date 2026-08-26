@@ -4,28 +4,28 @@ import type { EmbeddingProvider, EmbeddingPurpose } from "./embedding-provider";
 import { blockedEmbeddingEndpointReason } from "./embedding-ssrf";
 
 interface OpenAICompatibleEmbeddingProviderOptions {
-    endpoint?: string;
-    model?: string;
-    apiKey?: string;
+    endpoint?: string | undefined;
+    model?: string | undefined;
+    apiKey?: string | undefined;
     /** Default/passage `input_type` body field (e.g. NVIDIA NIM 'passage'). */
-    inputType?: string;
+    inputType?: string | undefined;
     /** Optional query `input_type` for search embeddings; falls back to inputType when unset. */
-    queryInputType?: string;
+    queryInputType?: string | undefined;
     /** Optional `truncate` body field (e.g. NVIDIA NIM 'NONE'/'START'/'END'). */
-    truncate?: string;
+    truncate?: string | undefined;
     /** Maximum safe input tokens for chunk embeddings. */
-    maxInputTokens?: number;
+    maxInputTokens?: number | undefined;
 }
 
 interface EmbeddingResponseBody {
     data?: Array<{
-        embedding?: number[];
-    }>;
+        embedding?: number[] | undefined;
+    }> | undefined;
     /** The model the endpoint actually served. OpenAI and most compatible
      *  servers echo back the requested model; LMStudio/Ollama return the model
      *  they ACTUALLY ran, which can differ from the request when the requested
      *  model isn't loaded and the server substitutes a loaded one. */
-    model?: string;
+    model?: string | undefined;
 }
 
 /** The WHATWG fetch response surface used by this adapter. */

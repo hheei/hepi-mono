@@ -32,16 +32,16 @@ import {
 	temporalMarkerPrefix,
 } from "#core/hooks/temporal-awareness";
 
-type PiTextContent = { type: "text"; text: string; textSignature?: string };
+type PiTextContent = { type: "text"; text: string; textSignature?: string | undefined};
 type PiImageContent = { type: "image"; data: string; mimeType: string };
 type PiUserMessage = {
 	role: "user";
 	content: string | (PiTextContent | PiImageContent)[];
-	timestamp?: number;
+	timestamp?: number | undefined;
 };
 type PiOtherMessage = {
 	role: "assistant" | "toolResult" | string;
-	timestamp?: number;
+	timestamp?: number | undefined;
 };
 type PiAgentMessage = PiUserMessage | PiOtherMessage;
 

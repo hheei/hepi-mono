@@ -38,19 +38,19 @@ export interface PiMemoryMigrationDeps {
 	 * and `fallbackModels` as the safety net behind it. When omitted the chain
 	 * starts at `model` (the historian model), preserving prior behavior.
 	 */
-	primaryModel?: string;
-	fallbackModels?: readonly string[];
-	timeoutMs?: number;
-	thinkingLevel?: string;
+	primaryModel?: string | undefined;
+	fallbackModels?: readonly string[] | undefined;
+	timeoutMs?: number | undefined;
+	thinkingLevel?: string | undefined;
 	/** Project working directory (resolves project identity). */
 	directory: string;
 	/** Allow a session started exactly in the canonical home directory only when user-level configuration enables it. */
-	allowHomeProject?: boolean;
+	allowHomeProject?: boolean | undefined;
 	/** Session id used for token accounting attribution. */
 	sessionId: string;
 	/** Route user_observations to the user-memory candidate pool when enabled. */
-	userMemoriesEnabled?: boolean;
-	language?: string;
+	userMemoriesEnabled?: boolean | undefined;
+	language?: string | undefined;
 }
 
 export interface PiMemoryMigrationOutcome {

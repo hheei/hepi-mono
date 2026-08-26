@@ -13,9 +13,9 @@ export function createPiHistorianClient(args: {
 	runner: SubagentRunner;
 	model: string;
 	systemPrompt: string;
-	fallbackModels?: readonly string[];
-	timeoutMs?: number;
-	thinkingLevel?: string;
+	fallbackModels?: readonly string[] | undefined;
+	timeoutMs?: number | undefined;
+	thinkingLevel?: string | undefined;
 	directory: string;
 	accountingSessionId: string;
 	notify: (text: string) => void;
@@ -91,9 +91,9 @@ function readPathId(input: unknown): string {
 }
 
 function readBody(input: unknown): {
-	noReply?: boolean;
-	parts?: unknown;
-	model?: unknown;
+	noReply?: boolean | undefined;
+	parts?: unknown | undefined;
+	model?: unknown | undefined;
 } {
 	if (typeof input !== "object" || input === null) return {};
 	const body = (input as { body?: unknown }).body;
@@ -112,8 +112,8 @@ function readBodyModel(body: { model?: unknown }): string | undefined {
 	const model = body.model;
 	if (typeof model !== "object" || model === null) return undefined;
 	const { providerID, modelID } = model as {
-		providerID?: unknown;
-		modelID?: unknown;
+		providerID?: unknown | undefined;
+		modelID?: unknown | undefined;
 	};
 	if (
 		typeof providerID === "string" &&

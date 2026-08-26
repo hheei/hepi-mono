@@ -26,7 +26,7 @@ export type SmartNoteCommitExpectation =
           content: string;
           surfaceCondition: string | null;
           updatedAt: number;
-          checkStatus?: NoteCheckStatus;
+          checkStatus?: NoteCheckStatus | undefined;
       }
     | {
           kind: "compiled-check";
@@ -41,7 +41,7 @@ export function commitSmartNoteState(
     args: {
         phase: string;
         expected: SmartNoteCommitExpectation;
-        leaseHeld?: () => boolean;
+        leaseHeld?: (() => boolean) | undefined;
         write: () => void;
     },
 ): boolean {

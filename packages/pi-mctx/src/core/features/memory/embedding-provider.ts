@@ -3,7 +3,7 @@ export type EmbeddingPurpose = "query" | "passage";
 export interface EmbeddingProvider {
     readonly modelId: string;
     /** Maximum safe input window for one embedding request. Unknown providers default to 512. */
-    readonly maxInputTokens?: number;
+    readonly maxInputTokens?: number | undefined;
     initialize(): Promise<boolean>;
     /** Embed a single text. `signal` lets callers abort the underlying network
      *  request (or long-running local inference) before the provider's internal

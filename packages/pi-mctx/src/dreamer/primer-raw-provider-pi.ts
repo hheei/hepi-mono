@@ -1,7 +1,7 @@
 import type { RawMessageProvider } from "#core/hooks/read-session-chunk";
 import type { RawMessage } from "#core/hooks/read-session-raw";
 import { convertEntriesToRawMessages } from "../read-session-pi";
-import { loadDefaultPiSessionApi } from "./pi-session-api";
+import { loadDefaultPiSessionApi, type PiSessionApi } from "./pi-session-api";
 
 /**
  * Pi `primerRawProviderFactory`: resolve a historical session id to a
@@ -14,24 +14,20 @@ import { loadDefaultPiSessionApi } from "./pi-session-api";
  * or has no entries → refresh-primers falls back to closed-book for that primer.
  */
 export interface PiPrimerRawProviderDeps {
-	listSessions?: (sessionDir?: string) => unknown[] | Promise<unknown[]>;
-	loadEntriesFromFile?: (filePath: string) => unknown[] | Promise<unknown[]>;
-	sessionDir?: string;
+	listSessions?: ((sessionDir?: string) => unknown[] | Promise<unknown[]>) | undefined;
+	loadEntriesFromFile?: ((filePath: string) => unknown[] | Promise<unknown[]>) | undefined;
+	sessionDir?: string | undefined;
 }
 
 interface PiSessionInfoLike {
-	id?: unknown;
-	path?: unknown;
+	id?: unknown | undefined;
+	path?: unknown | undefined;
 }
 
 export function createPiPrimerRawProviderFactory(
 	deps: PiPrimerRawProviderDeps = {},
 ): (sessionId: string) => Promise<RawMessageProvider | null> {
-	let resolved: Promise<
-		Required<
-			Pick<PiPrimerRawProviderDeps, "listSessions" | "loadEntriesFromFile">
-		>
-	> | null = null;
+	let resolved: Promise<PiSessionApi> | null = null;
 
 	const resolveDeps = async () => {
 		if (deps.listSessions && deps.loadEntriesFromFile) {

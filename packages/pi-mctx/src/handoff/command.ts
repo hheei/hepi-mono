@@ -84,7 +84,7 @@ export { HANDOFF_SYSTEM_GUARD };
 const HANDOFF_HOST_ID = "pi-mctx-handoff";
 
 export interface RegisterHandoffDeps extends RegisterCtxWrapupDeps {
-	lifecycle?: ExtensionLifecycleContext;
+	lifecycle?: ExtensionLifecycleContext | undefined;
 }
 
 export function registerHandoffCommand(
@@ -104,23 +104,29 @@ export function registerHandoffCommand(
 	});
 }
 
-export async function publishHandoffContext(
-	ctx: {
-		sendMessage: (
-			message: {
-				customType: string;
-				content: unknown;
-				display?: boolean;
-				details?: unknown;
-			},
-			options?: { triggerTurn?: boolean },
-		) => unknown;
-		sessionManager: {
-			getSessionFile(): string | undefined;
-			getHeader(): SessionHeader | null;
-			getEntries(): readonly unknown[];
-		};
-	},
+type HandoffPublishContext = {
+	sendMessage: (
+		message: {
+			customType: string;
+			content: string;
+			display: boolean;
+			details: unknown;
+		},
+		options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
+	) => Promise<void>;
+	sessionManager: ExtensionCommandContext["sessionManager"];
+};
+
+function hasHandoffSendMessage(
+	ctx: ExtensionCommandContext,
+): ctx is ExtensionCommandContext & HandoffPublishContext {
+	return (
+		"sendMessage" in ctx &&
+		typeof (ctx as HandoffPublishContext).sendMessage === "function"
+	);
+}
+
+export async function publishHandoffContext(ctx: HandoffPublishContext,
 	xml: string,
 	details: HandoffContextDetails,
 ): Promise<void> {
@@ -139,7 +145,9 @@ export async function publishHandoffContext(
 	persistHandoffSession(ctx.sessionManager);
 }
 
-export function branchHasHandoffContext(ctx: ExtensionContext): boolean {
+export function branchHasHandoffContext(
+	ctx: { sessionManager?: { getEntries?: () => unknown[] } },
+): boolean {
 	const entries = readSessionEntries(ctx);
 	return parseHandoffEntries(entries).contexts.length > 0;
 }
@@ -166,6 +174,13 @@ export async function runHandoffCommand(
 
 	const sourcePath = ctx.sessionManager.getSessionFile();
 	const sessionId = ctx.sessionManager.getSessionId();
+	if (!sourcePath || !sessionId) {
+		warning({
+			title: "/handoff",
+			text: "No active session file is available for /handoff.",
+		});
+		return;
+	}
 	const parsedCurrent = parseHandoffEntries(readSessionEntries(ctx));
 	const currentAttempt = latestAttempt(parsedCurrent.attempts);
 	if (currentAttempt?.phase === "attempt-started") {
@@ -253,8 +268,10 @@ export async function runHandoffCommand(
 				renewHandoffLease(deps.db, sessionId, holderId, stage);
 				progress?.update({
 					stage,
-					model: extras?.model,
-					tokenSummary: extras?.tokenSummary,
+					...(extras?.model !== undefined ? { model: extras.model } : {}),
+					...(extras?.tokenSummary !== undefined
+						? { tokenSummary: extras.tokenSummary }
+						: {}),
 					startedAt,
 					cancellable: stage !== "finalizing" && stage !== "creating",
 					now: Date.now(),
@@ -288,7 +305,7 @@ interface ExecuteArgs {
 	abort: AbortController;
 	setStage: (
 		stage: HandoffProgressStage,
-		extras?: { model?: string; tokenSummary?: string; status?: string },
+		extras?: { model?: string | undefined; tokenSummary?: string | undefined; status?: string | undefined } | undefined,
 	) => void;
 	warning: (content: { title: string; text: string }) => void;
 }
@@ -917,6 +934,19 @@ async function finalizeCurrentAttempt(
 		tokens: request.snapshot.tokens,
 		images: collectHandoffImages(request.snapshot.recentMessages),
 	};
+	if (!hasHandoffSendMessage(ctx)) {
+		warning(
+			formatHandoffWarning({
+				outcome: "failed",
+				stage: "recovery",
+				reason: "continuation session cannot publish Handoff Context",
+				requestId: attempt.requestId,
+				sourceAvailable: true,
+				nextAction: "resume",
+			}),
+		);
+		return;
+	}
 	await publishHandoffContext(ctx, xml, details);
 	void pi;
 }
@@ -925,9 +955,10 @@ export async function discoverContinuations(
 	ctx: ExtensionCommandContext,
 	sourcePath: string,
 	requestId: string,
-):
-	| { ok: true; switchTo?: string; finalize?: string }
-	| { ok: false; reason: string } {
+): Promise<
+	| { ok: true; switchTo?: string | undefined; finalize?: string | undefined }
+	| { ok: false; reason: string }
+> {
 	const listed = await listSiblingSessions(ctx);
 	const valid: string[] = [];
 	const unfinished: string[] = [];
@@ -955,8 +986,10 @@ export async function discoverContinuations(
 			reason: "multiple continuation candidates exist for this request",
 		};
 	}
-	if (valid.length === 1) return { ok: true, switchTo: valid[0] };
-	if (unfinished.length === 1) return { ok: true, finalize: unfinished[0] };
+	const switchTo = valid[0];
+	if (valid.length === 1 && switchTo !== undefined) return { ok: true, switchTo };
+	const finalize = unfinished[0];
+	if (unfinished.length === 1 && finalize !== undefined) return { ok: true, finalize };
 	if (failed.length > 0) {
 		return { ok: false, reason: "the previous replacement attempt already failed" };
 	}
@@ -1139,11 +1172,14 @@ function hasExternalBranchDrift(
 	);
 }
 
-function readSessionEntries(ctx: Pick<ExtensionContext, "sessionManager">): unknown[] {
-	const manager = ctx.sessionManager as {
-		getEntries?: () => unknown[];
-		getBranch?: () => { entries?: unknown[] } | unknown[];
+function readSessionEntries(ctx: {
+	sessionManager?: {
+		getEntries?: (() => unknown[]) | undefined;
+		getBranch?: (() => { entries?: unknown[] } | unknown[]) | undefined;
 	};
+}): unknown[] {
+	const manager = ctx.sessionManager;
+	if (!manager) return [];
 	if (typeof manager.getEntries === "function") {
 		const entries = manager.getEntries();
 		if (Array.isArray(entries)) return entries;
@@ -1177,7 +1213,7 @@ async function listSiblingSessions(
 	ctx: ExtensionCommandContext,
 ): Promise<Array<{ path: string; parentSessionPath?: string }>> {
 	const local = ctx.sessionManager as {
-		list?: (cwd: string) => Promise<Array<{ path: string; parentSessionPath?: string }>>;
+		list?: ((cwd: string) => Promise<Array<{ path: string; parentSessionPath?: string }>>) | undefined;
 	};
 	if (typeof local.list === "function") return local.list(ctx.cwd);
 	return SessionManager.list(ctx.cwd);

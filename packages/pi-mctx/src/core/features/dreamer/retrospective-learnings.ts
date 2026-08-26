@@ -17,7 +17,7 @@ export type RetrospectiveLearningRoute = "memory" | "observation";
 export interface ParsedRetrospectiveLearning {
     route: RetrospectiveLearningRoute;
     content: string;
-    category?: MemoryCategory;
+    category?: MemoryCategory | undefined;
 }
 
 export interface RetrospectiveApplyResult {
@@ -144,7 +144,7 @@ export function applyRetrospectiveLearnings(args: {
     learnings: ParsedRetrospectiveLearning[];
     userMemoryCollectionEnabled: boolean;
     /** The raw source user lines, for the near-transcription reject check. */
-    sourceUserTexts?: readonly string[];
+    sourceUserTexts?: readonly string[] | undefined;
 }): RetrospectiveApplyResult {
     const result: RetrospectiveApplyResult = {
         memoryWritten: 0,

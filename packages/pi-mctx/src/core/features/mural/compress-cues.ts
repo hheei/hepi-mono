@@ -76,8 +76,8 @@ export interface CompressCuesArgs {
     holderId: string;
     leaseKey: string;
     deadline: number;
-    model?: string;
-    fallbackModels?: readonly string[];
+    model?: string | undefined;
+    fallbackModels?: readonly string[] | undefined;
 }
 
 /** How a chunk failed, used by the run loop to decide whether to keep going.
@@ -96,7 +96,7 @@ interface ChunkOutcome {
         class: ChunkFailureClass;
         brief: string;
         elapsedMs: number;
-    };
+    } | undefined;
 }
 
 export interface CompressCuesResult {

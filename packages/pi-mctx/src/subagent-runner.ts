@@ -461,13 +461,13 @@ export class PiSubagentRunner implements SubagentRunner {
 
 	constructor(
 		options: {
-			piBinary?: string;
-			platform?: NodeJS.Platform;
-			extraArgs?: readonly string[];
+			piBinary?: string | undefined;
+			platform?: NodeJS.Platform | undefined;
+			extraArgs?: readonly string[] | undefined;
 			/** User-tier explicit extension allowlist; an empty list disables all discovered extensions. */
-			subagentExtensions?: readonly string[];
+			subagentExtensions?: readonly string[] | undefined;
 			/** Test seam for subprocess lifecycle tests. Production uses child_process.spawn. */
-			spawnImpl?: typeof childProcess.spawn;
+			spawnImpl?: typeof childProcess.spawn | undefined;
 		} = {},
 	) {
 		this.invocation = options.piBinary
@@ -999,9 +999,9 @@ export class PiSubagentRunner implements SubagentRunner {
 
 				if (typeof event !== "object" || event === null) return;
 				const e = event as {
-					type?: string;
-					messages?: unknown;
-					message?: unknown;
+					type?: string | undefined;
+					messages?: unknown | undefined;
+					message?: unknown | undefined;
 				};
 
 				const isFirstEvent = eventCount === 0;
@@ -1061,10 +1061,10 @@ export class PiSubagentRunner implements SubagentRunner {
 				if (e.type === "message_end" && e.message) {
 					accumulatedMessages.push(e.message);
 					const m = e.message as {
-						role?: string;
-						content?: unknown;
-						stopReason?: string;
-						errorMessage?: string;
+						role?: string | undefined;
+						content?: unknown | undefined;
+						stopReason?: string | undefined;
+						errorMessage?: string | undefined;
 					};
 					if (m.role === "assistant") {
 						const hasToolCall =
@@ -1483,12 +1483,12 @@ export const PROMPT_ARGV_MAX_BYTES = 96 * 1024;
 export function buildArgs(
 	options: SubagentRunOptions,
 	opts?: {
-		disableDiscoveredExtensions?: boolean;
-		subagentExtensions?: readonly string[];
-		omitPositionalMessage?: boolean;
-		subagentEntryPath?: string;
-		systemPromptPath?: string;
-		modelRef?: string;
+		disableDiscoveredExtensions?: boolean | undefined;
+		subagentExtensions?: readonly string[] | undefined;
+		omitPositionalMessage?: boolean | undefined;
+		subagentEntryPath?: string | undefined;
+		systemPromptPath?: string | undefined;
+		modelRef?: string | undefined;
 	},
 ): string[] {
 	const args: string[] = [
@@ -1667,10 +1667,10 @@ export function extractFinalAssistant(messages: unknown[]): {
 		const msg = messages[i];
 		if (typeof msg !== "object" || msg === null) continue;
 		const m = msg as {
-			role?: string;
-			content?: unknown;
-			stopReason?: string;
-			errorMessage?: string;
+			role?: string | undefined;
+			content?: unknown | undefined;
+			stopReason?: string | undefined;
+			errorMessage?: string | undefined;
 		};
 		if (m.role !== "assistant") continue;
 

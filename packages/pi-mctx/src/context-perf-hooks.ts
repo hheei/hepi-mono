@@ -2,7 +2,7 @@ export interface PiTransformTimingSample {
 	sessionId: string;
 	stage: string;
 	elapsedMs: number;
-	extra?: string;
+	extra?: string | undefined;
 }
 
 export type PiTransformTimingObserver = (

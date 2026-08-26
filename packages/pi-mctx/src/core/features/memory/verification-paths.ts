@@ -276,7 +276,7 @@ export async function normalizeVerificationFiles(args: {
 }
 
 export function __setVerificationPathsTestHooks(hooks: {
-    execFile?: VerificationPathsExecFile;
+    execFile?: VerificationPathsExecFile | undefined;
 }): void {
     // Keep the real filesystem shape on disk, but let tests script git output.
     // Under heavy machine load, launching git can stall while the operating

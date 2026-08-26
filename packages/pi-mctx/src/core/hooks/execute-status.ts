@@ -55,7 +55,7 @@ export function executeStatus(
     liveModelKey?: string,
     historyBudgetPercentage?: number,
     commitClusterTrigger?: { enabled: boolean; min_clusters: number },
-    executeThresholdTokens?: { default?: number; [modelKey: string]: number | undefined },
+    executeThresholdTokens?: { default?: number | undefined; [modelKey: string]: number | undefined } | undefined,
     contextLimit?: number,
 ): string {
     // Single source of truth — resolver tells us both the effective percentage AND

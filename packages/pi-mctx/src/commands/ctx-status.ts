@@ -16,23 +16,23 @@ import { resolveSessionId, sendCtxStatusMessage } from "./pi-command-utils";
 export interface RegisterCtxStatusDeps {
 	db: ContextDatabase;
 	projectIdentity: string;
-	resolveStatusDeps?: (ctx: { cwd: string }) => CtxStatusRuntimeDeps;
-	resolveProject?: (ctx: { cwd: string }) => {
+	resolveStatusDeps?: ((ctx: { cwd: string }) => CtxStatusRuntimeDeps) | undefined;
+	resolveProject?: ((ctx: { cwd: string }) => {
 		projectDir: string;
 		projectIdentity: string;
-	};
-	protectedTags?: number;
+	}) | undefined;
+	protectedTags?: number | undefined;
 	executeThresholdPercentage?:
 		| number
-		| { default: number; [modelKey: string]: number };
-	historyBudgetPercentage?: number;
-	injectionBudgetTokens?: number;
-	commitClusterTrigger?: { enabled: boolean; min_clusters: number };
+		| { default: number; [modelKey: string]: number } | undefined;
+	historyBudgetPercentage?: number | undefined;
+	injectionBudgetTokens?: number | undefined;
+	commitClusterTrigger?: { enabled: boolean; min_clusters: number } | undefined;
 	executeThresholdTokens?: {
-		default?: number;
+		default?: number | undefined;
 		[modelKey: string]: number | undefined;
-	};
-	dreamer?: { runnable?: boolean; scheduleSummary?: string };
+	} | undefined;
+	dreamer?: { runnable?: boolean; scheduleSummary?: string } | undefined;
 }
 
 export type CtxStatusRuntimeDeps = Omit<

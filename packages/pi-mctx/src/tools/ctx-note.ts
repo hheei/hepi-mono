@@ -174,13 +174,13 @@ export interface CtxNoteToolDeps {
 	 *  the dreamer will evaluate them. When false, smart-note writes are
 	 *  rejected because they'd be stuck `pending` forever with no
 	 *  evaluator. */
-	dreamerEnabled?: boolean;
+	dreamerEnabled?: boolean | undefined;
 	/** Resolve dreamer enablement from the current cwd at tool-call time. Pi
 	 *  registers tools once, but `/cd` can switch to a project with different
 	 *  smart-note support. */
-	resolveDreamerEnabled?: (ctx: { cwd: string }) => boolean | undefined;
+	resolveDreamerEnabled?: ((ctx: { cwd: string }) => boolean | undefined) | undefined;
 	/** Resolve a directory's project identity, allowing home only when user-level configuration enables it. */
-	resolveProjectIdentity?: (directory: string) => string | undefined;
+	resolveProjectIdentity?: ((directory: string) => string | undefined) | undefined;
 }
 
 export function createCtxNoteTool(

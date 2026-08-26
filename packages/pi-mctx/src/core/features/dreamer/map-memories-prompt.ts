@@ -64,7 +64,7 @@ export function extractMemoryCandidatePaths(content: string, repoDir: string): s
     const root = path.resolve(repoDir);
     for (const match of content.matchAll(new RegExp(PATH_PATTERN, "g"))) {
         const rel = match[1];
-        if (rel.includes("..")) continue;
+        if (rel === undefined || rel.includes("..")) continue;
         const abs = path.resolve(repoDir, rel);
         if (!abs.startsWith(`${root}/`)) continue;
         try {
@@ -116,19 +116,18 @@ export function parseMapMemoriesManifest(text: string): ParsedMemoryMapping[] {
     const out: ParsedMemoryMapping[] = [];
     const body = extractCompleteManifestBody(text, "mappings");
     for (const m of body.matchAll(/<memory\b([^>]*)\/?>/g)) {
-        const attrs = m[1];
+        const attrs = m[1] ?? "";
         const idMatch = attrs.match(/\bid\s*=\s*"(\d+)"/);
-        if (!idMatch) throw new Error("mappings manifest entry missing numeric id");
-        const id = Number.parseInt(idMatch[1], 10);
+        const rawId = idMatch?.[1];
+        if (rawId === undefined) throw new Error("mappings manifest entry missing numeric id");
+        const id = Number.parseInt(rawId, 10);
         if (!Number.isInteger(id)) throw new Error("mappings manifest entry missing numeric id");
         const independent = /\bindependent\s*=\s*"(?:true|1)"/i.test(attrs);
         const filesMatch = attrs.match(/\bfiles\s*=\s*"([^"]*)"/);
-        const files = filesMatch
-            ? filesMatch[1]
-                  .split(",")
-                  .map((f) => f.trim())
-                  .filter(Boolean)
-            : [];
+        const files = filesMatch?.[1]
+            ?.split(",")
+            .map((f) => f.trim())
+            .filter(Boolean) ?? [];
         out.push({ id, files, independent: independent || files.length === 0 });
     }
     assertNoDuplicateManifestIds(

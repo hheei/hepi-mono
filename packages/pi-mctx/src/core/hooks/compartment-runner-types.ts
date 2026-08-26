@@ -29,7 +29,7 @@ export interface RecompProgress {
      *  a 0-compartment session in a project whose other sessions had them).
      *  Optional + defaults to "recomp" so runner-emitted per-pass entries (which
      *  don't know the flow) inherit the kind set by setRecompStarting. */
-    kind?: "recomp" | "upgrade" | "embed" | "wrapup";
+    kind?: "recomp" | "upgrade" | "embed" | "wrapup" | undefined;
     /** "skipped" is a TRANSIENT non-failure outcome: the incremental historian
      *  briefly held the compartment-state lease (or another process is mutating
      *  it), so the run no-op'd. It renders neutrally with retry guidance and
@@ -46,12 +46,12 @@ export interface RecompProgress {
     startedAt: number;
     updatedAt: number;
     /** Terminal summary/reason (done | failed). */
-    message?: string;
+    message?: string | undefined;
     /** Transient status line for the active phase — e.g. "Starting…", "Running
      *  historian…", "Primary returned nothing — trying fallback sonnet-4.6…",
      *  "Repair retry…". Surfaced under the progress bar so a long/retrying pass
      *  shows live activity instead of a frozen bar. */
-    note?: string;
+    note?: string | undefined;
 }
 
 export interface CompartmentRunnerDeps {
@@ -64,60 +64,60 @@ export interface CompartmentRunnerDeps {
      * Derived via `deriveHistorianChunkTokens(historianContextLimit)`.
      */
     historianChunkTokens: number;
-    historianTimeoutMs?: number;
+    historianTimeoutMs?: number | undefined;
     /** Immutable protected-tail boundary resolved by the trigger/force path. Tests may omit it and use the default-snapshot factory. */
-    boundarySnapshot?: ProtectedTailBoundarySnapshot;
+    boundarySnapshot?: ProtectedTailBoundarySnapshot | undefined;
     /** Optional stale-snapshot refresh hook. Manual wrapup uses this so stale
      *  snapshots re-resolve with the keep-watermark override instead of falling
      *  back to normal pressure math. */
-    refreshBoundarySnapshot?: (
+    refreshBoundarySnapshot?: ((
         snapshot: ProtectedTailBoundarySnapshot,
         validation: BoundarySnapshotValidationResult,
-    ) => ProtectedTailBoundarySnapshot | null;
+    ) => ProtectedTailBoundarySnapshot | null) | undefined;
     /** Current resolved main-model context limit used to reject stale boundary snapshots after model switches. */
-    currentContextLimit?: number;
+    currentContextLimit?: number | undefined;
     /** Resolved fallback chain for historian-family calls (historian + compressor). */
-    fallbackModels?: readonly string[];
-    language?: string;
+    fallbackModels?: readonly string[] | undefined;
+    language?: string | undefined;
     directory: string;
-    historyBudgetTokens?: number;
-    fallbackModelId?: string;
-    ensureProjectRegistered?: (directory: string, db: Database) => Promise<void>;
-    getNotificationParams?: () => NotificationParams;
+    historyBudgetTokens?: number | undefined;
+    fallbackModelId?: string | undefined;
+    ensureProjectRegistered?: ((directory: string, db: Database) => Promise<void>) | undefined;
+    getNotificationParams?: (() => NotificationParams) | undefined;
     /** When true, extract user behavior observations from historian output */
-    experimentalUserMemories?: boolean;
+    experimentalUserMemories?: boolean | undefined;
     /** When true, inject wall-clock dates on compartments in <session-history>. */
-    experimentalTemporalAwareness?: boolean;
+    experimentalTemporalAwareness?: boolean | undefined;
     /** When true, run an editor pass after successful historian output to clean
      *  low-signal U: lines and cross-compartment duplicates. */
-    historianTwoPass?: boolean;
+    historianTwoPass?: boolean | undefined;
     /**
      * Cross-session memory feature gate (`memory.enabled` config). When false,
      * historian/recomp must NOT promote session facts into project memories
      * and must NOT generate or store embeddings. Issue #44.
      */
-    memoryEnabled?: boolean;
+    memoryEnabled?: boolean | undefined;
     /**
      * Automatic-promotion gate (`memory.auto_promote` config). When false (and
      * memory is otherwise enabled), tools and search still work, but historian
      * does not auto-promote session facts to memories. Users can still write
      * memories explicitly via `ctx_memory write`. Issue #44.
      */
-    autoPromote?: boolean;
+    autoPromote?: boolean | undefined;
     /**
      * Called after compartment state is published. The runner marks the active
      * run as published before invoking this callback.
      */
-    onCompartmentStatePublished?: (sessionId: string) => void;
+    onCompartmentStatePublished?: ((sessionId: string) => void) | undefined;
     /** Live recomp-phase progress callback (sidebar / status). The runner emits
      *  "recomp"-phase updates (start + each pass); the caller owns the migration
      *  and terminal (done/failed) phases. Best-effort, never throws into the loop. */
-    onRecompProgress?: (progress: RecompProgress) => void;
+    onRecompProgress?: ((progress: RecompProgress) => void) | undefined;
     /**
      * When true, marker application waits for a later materializing pass that
      * renders the matching compartment state.
      */
-    preserveInjectionCacheUntilConsumed?: boolean;
+    preserveInjectionCacheUntilConsumed?: boolean | undefined;
     /**
      * Plan v6 §4: Called when historian/recomp publication wrote a pending
      * compaction-marker row in-transaction (deferring marker application to a
@@ -125,9 +125,9 @@ export interface CompartmentRunnerDeps {
      * `liveSessionState.deferredHistoryRefreshSessions` so the next consuming
      * postprocess pass drains the pending blob and applies the marker.
      */
-    onDeferredMarkerPending?: (sessionId: string) => void;
+    onDeferredMarkerPending?: ((sessionId: string) => void) | undefined;
     /** Holder id for the DB-backed compartment-state lease guarding publish paths. */
-    compartmentLeaseHolderId?: string;
+    compartmentLeaseHolderId?: string | undefined;
     /**
      * Called synchronously the moment the runner commits to a REAL historian
      * pass — after every no-op early-return (stale/empty snapshot, nothing to
@@ -137,11 +137,11 @@ export interface CompartmentRunnerDeps {
      * the rest of the transform pass believing a historian is in progress
      * (which would defer queued drop ops — the production livelock).
      */
-    onHistorianRunStarted?: () => void;
+    onHistorianRunStarted?: (() => void) | undefined;
     /** Manual wrapup bypasses the pressure-window quota but keeps the no-progress breaker. */
-    forceDrainQuota?: boolean;
+    forceDrainQuota?: boolean | undefined;
     /** Persist a weak-lookahead final compartment for coverage, but skip durable promotion. */
-    forceKeepLastCompartment?: boolean;
+    forceKeepLastCompartment?: boolean | undefined;
 }
 
 export interface CandidateCompartment {
@@ -156,22 +156,22 @@ export interface CandidateCompartment {
     /** v2 paraphrase tiers (model B). Null/undefined for v1/flat compartments.
      *  Nullability matches CompartmentInput so candidates and staging rows
      *  round-trip through each other without type friction. */
-    p1?: string | null;
-    p2?: string | null;
-    p3?: string | null;
-    p4?: string | null;
+    p1?: string | null | undefined;
+    p2?: string | null | undefined;
+    p3?: string | null | undefined;
+    p4?: string | null | undefined;
     /** v2 decay-rate signal (1-100). Null/undefined for v1/flat. */
-    importance?: number | null;
+    importance?: number | null | undefined;
     /** v2 comma-separated activity types. Null/undefined for v1/flat. */
-    episodeType?: string | null;
+    episodeType?: string | null | undefined;
 }
 
 export interface HistorianRunResult {
     ok: boolean;
-    result?: string;
-    error?: string;
-    dumpPath?: string;
-    invocationId?: number;
+    result?: string | undefined;
+    error?: string | undefined;
+    dumpPath?: string | undefined;
+    invocationId?: number | undefined;
 }
 
 export type ValidatedHistorianPassResult =
@@ -179,14 +179,14 @@ export type ValidatedHistorianPassResult =
           ok: true;
           compartments: CandidateCompartment[];
           facts: Array<{ category: string; content: string }>;
-          userObservations?: string[];
+          userObservations?: string[] | undefined;
           /** Durable standing-question candidates for Primers v1 (stored side-table only).
            *  `originCompartmentIndex` is the 1-based index into THIS publish's
            *  emitted compartments (same convention as `<events>` at_compartment);
            *  undefined → emission falls back to the chunk span. */
-          primerCandidates?: Array<{ question: string; originCompartmentIndex?: number }>;
+          primerCandidates?: Array<{ question: string; originCompartmentIndex?: number | undefined }> | undefined;
           /** v2: historian-extracted events (stored, not rendered). */
-          events?: ParsedEvent[];
+          events?: ParsedEvent[] | undefined;
           /**
            * Subagent-invocation id of the model attempt that actually produced
            * this validated output (primary, repair, editor, or fallback). The
@@ -195,7 +195,7 @@ export type ValidatedHistorianPassResult =
            * filtered "latest invocation" lookup mislinks recomp passes (recorded
            * under subagent='recomp') to a stale subagent='historian' row.
            */
-          invocationId?: number | null;
+          invocationId?: number | null | undefined;
       }
     | { ok: false; error: string; invocationId?: number | null };
 
@@ -205,10 +205,10 @@ export interface StoredCompartmentRange {
 }
 
 export interface HistorianProgressCallbacks {
-    onRepairRetry?: (error: string) => Promise<void>;
+    onRepairRetry?: ((error: string) => Promise<void>) | undefined;
     /** Fired before each fallback model attempt in `runFallbackHistorianPass`
      *  (after the primary + repair failed). `modelId` is the model about to be
      *  tried; `index`/`total` describe its position in the fallback chain. Lets
      *  the caller surface "trying fallback X…" in live progress. */
-    onModelFallback?: (modelId: string, index: number, total: number) => void;
+    onModelFallback?: ((modelId: string, index: number, total: number) => void) | undefined;
 }

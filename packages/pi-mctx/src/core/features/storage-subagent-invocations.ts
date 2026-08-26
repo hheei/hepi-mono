@@ -14,9 +14,9 @@ export type SubagentInvocationStatus = "completed" | "failed" | "aborted";
 export interface SubagentInvocationInput {
     sessionId: string;
     subagent: SubagentKind;
-    task?: string | null;
-    providerId?: string | null;
-    modelId?: string | null;
+    task?: string | null | undefined;
+    providerId?: string | null | undefined;
+    modelId?: string | null | undefined;
     startedAt: number;
     endedAt: number;
     status: SubagentInvocationStatus;
@@ -24,8 +24,8 @@ export interface SubagentInvocationInput {
     outputTokens: number;
     cacheReadTokens: number;
     cacheWriteTokens: number;
-    error?: string | null;
-    parentInvocationId?: number | null;
+    error?: string | null | undefined;
+    parentInvocationId?: number | null | undefined;
 }
 
 export interface SubagentInvocationRow {

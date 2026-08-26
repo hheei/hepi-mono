@@ -241,10 +241,10 @@ export function modelVisibleBranchFingerprint(entries: readonly unknown[]): stri
 	for (const entry of entries) {
 		if (entry === null || typeof entry !== "object") continue;
 		const row = entry as {
-			id?: unknown;
-			type?: unknown;
-			customType?: unknown;
-			message?: unknown;
+			id?: unknown | undefined;
+			type?: unknown | undefined;
+			customType?: unknown | undefined;
+			message?: unknown | undefined;
 		};
 		if (typeof row.id !== "string") continue;
 		if (row.type === "custom" || row.type === "custom_entry") continue;

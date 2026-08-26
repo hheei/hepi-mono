@@ -58,16 +58,16 @@ const REFRESH_INTERVAL_MS = 1000;
 export interface StatusDialogDeps {
 	db: ContextDatabase;
 	projectIdentity: string;
-	protectedTags?: number;
+	protectedTags?: number | undefined;
 	executeThresholdPercentage?:
 		| number
-		| { default: number; [modelKey: string]: number };
-	historyBudgetPercentage?: number;
-	injectionBudgetTokens?: number;
+		| { default: number; [modelKey: string]: number } | undefined;
+	historyBudgetPercentage?: number | undefined;
+	injectionBudgetTokens?: number | undefined;
 	executeThresholdTokens?: {
-		default?: number;
+		default?: number | undefined;
 		[modelKey: string]: number | undefined;
-	};
+	} | undefined;
 }
 
 interface StatusDialogDetail {
@@ -99,9 +99,9 @@ interface StatusDialogDetail {
 	/** Which config source produced `executeThreshold` (tokens vs percentage). */
 	executeThresholdMode: "percentage" | "tokens";
 	/** True when `executeThreshold` was clamped down from a higher configured value (#241). */
-	executeThresholdClamped?: boolean;
+	executeThresholdClamped?: boolean | undefined;
 	/** Raw configured value before clamping, for showing the math in the clamp note. */
-	executeThresholdConfigured?: number;
+	executeThresholdConfigured?: number | undefined;
 	protectedTagCount: number;
 	historyBlockTokens: number;
 	compressionBudget: number | null;
@@ -500,9 +500,9 @@ export function buildPiStatusDetail(
 	// schema. This is a structural estimate (not the exact wire payload), but
 	// matches the calibrated bucket within a reasonable margin.
 	let tools: Array<{
-		name?: string;
-		description?: string;
-		parameters?: unknown;
+		name?: string | undefined;
+		description?: string | undefined;
+		parameters?: unknown | undefined;
 	}> = [];
 	try {
 		tools = pi.getAllTools?.() ?? [];
@@ -680,14 +680,14 @@ function breakdownSegments(s: StatusDialogDetail): Array<{
 	label: string;
 	tokens: number;
 	color: string;
-	detail?: string;
+	detail?: string | undefined;
 }> {
 	if (!s.tokenBreakdownAvailable) return [];
 	const segs: Array<{
 		label: string;
 		tokens: number;
 		color: string;
-		detail?: string;
+		detail?: string | undefined;
 	}> = [];
 	// Category order/labels/colors use the established sidebar
 	// (packages/plugin/src/tui/slots/sidebar-content.tsx) for cross-harness
@@ -755,14 +755,16 @@ function renderBar(s: StatusDialogDetail, innerWidth: number): string {
 	let sum = widths.reduce((a, b) => a + b, 0);
 	while (sum > barWidth) {
 		const maxIdx = widths.indexOf(Math.max(...widths));
-		if ((widths[maxIdx] ?? 0) > 1) {
-			widths[maxIdx] -= 1;
+		const current = widths[maxIdx];
+		if (current !== undefined && current > 1) {
+			widths[maxIdx] = current - 1;
 			sum--;
 		} else break;
 	}
 	while (sum < barWidth) {
 		const maxIdx = widths.indexOf(Math.max(...widths));
-		widths[maxIdx] = (widths[maxIdx] ?? 0) + 1;
+		const current = widths[maxIdx] ?? 0;
+		widths[maxIdx] = current + 1;
 		sum++;
 	}
 	return segs

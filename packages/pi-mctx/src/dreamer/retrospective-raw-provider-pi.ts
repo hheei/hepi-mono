@@ -6,44 +6,37 @@ import type {
 	RetrospectiveRawProvider,
 	RetrospectiveSinceRead,
 } from "#core/features/dreamer/retrospective-raw-provider";
-import { loadDefaultPiSessionApi } from "./pi-session-api";
+import { loadDefaultPiSessionApi, type PiSessionApi } from "./pi-session-api";
 
 interface PiSessionInfoLike {
-	id?: unknown;
-	path?: unknown;
-	cwd?: unknown;
-	modified?: unknown;
+	id?: unknown | undefined;
+	path?: unknown | undefined;
+	cwd?: unknown | undefined;
+	modified?: unknown | undefined;
 }
 
 interface PiMessageEntryLike {
-	type?: unknown;
-	id?: unknown;
-	message?: unknown;
+	type?: unknown | undefined;
+	id?: unknown | undefined;
+	message?: unknown | undefined;
 }
 
 interface PiUserMessageLike {
-	role?: unknown;
-	timestamp?: unknown;
-	content?: unknown;
+	role?: unknown | undefined;
+	timestamp?: unknown | undefined;
+	content?: unknown | undefined;
 }
 
 export interface PiRetrospectiveRawProviderDeps {
 	projectCwd: string;
-	sessionDir?: string;
-	listSessions?: (sessionDir?: string) => unknown[] | Promise<unknown[]>;
-	loadEntriesFromFile?: (filePath: string) => unknown[] | Promise<unknown[]>;
+	sessionDir?: string | undefined;
+	listSessions?: ((sessionDir?: string) => unknown[] | Promise<unknown[]>) | undefined;
+	loadEntriesFromFile?: ((filePath: string) => unknown[] | Promise<unknown[]>) | undefined;
 }
 
 export class PiRetrospectiveRawProvider implements RetrospectiveRawProvider {
 	private readonly sessionPathById = new Map<string, string>();
-	private resolvedDefaultDeps: Promise<
-		Required<
-			Pick<
-				PiRetrospectiveRawProviderDeps,
-				"listSessions" | "loadEntriesFromFile"
-			>
-		>
-	> | null = null;
+	private resolvedDefaultDeps: Promise<PiSessionApi> | null = null;
 
 	constructor(private readonly deps: PiRetrospectiveRawProviderDeps) {}
 
@@ -142,14 +135,7 @@ export class PiRetrospectiveRawProvider implements RetrospectiveRawProvider {
 			.filter((entry): entry is RetrospectiveRawMessage => entry !== null);
 	}
 
-	private async resolveDeps(): Promise<
-		Required<
-			Pick<
-				PiRetrospectiveRawProviderDeps,
-				"listSessions" | "loadEntriesFromFile"
-			>
-		>
-	> {
+	private async resolveDeps(): Promise<PiSessionApi> {
 		if (this.deps.listSessions && this.deps.loadEntriesFromFile) {
 			return {
 				listSessions: this.deps.listSessions,

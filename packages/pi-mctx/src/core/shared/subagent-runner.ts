@@ -40,7 +40,7 @@ export interface SubagentRunOptions {
     systemPrompt: string;
     userMessage: string;
     model?: string | undefined;
-    fallbackModels?: readonly string[];
+    fallbackModels?: readonly string[] | undefined;
     timeoutMs?: number | undefined;
     cwd?: string | undefined;
     signal?: AbortSignal | undefined;
@@ -66,7 +66,7 @@ export interface SubagentRunOptions {
      * Implementations must be non-throwing and fast — they're called on the
      * runner's hot path. Errors are swallowed.
      */
-    onProgress?: (event: SubagentProgressEvent) => void;
+    onProgress?: ((event: SubagentProgressEvent) => void) | undefined;
 
     /** Optional token accounting metadata. When present, harness runners persist subagent_invocations. */
     accountingSessionId?: string | undefined;
@@ -166,8 +166,8 @@ export type SubagentRunResult =
            * leaves it undefined — its callers read tool-call parts straight off
            * the real session messages.
            */
-          toolCallCount?: number;
-          meta?: Record<string, unknown>;
+          toolCallCount?: number | undefined;
+          meta?: Record<string, unknown> | undefined;
       }
     | {
           ok: false;
@@ -184,8 +184,8 @@ export type SubagentRunResult =
           error: string;
           durationMs: number;
           /** True when the caller should retry the task rather than advance its schedule. */
-          transient?: boolean;
-          meta?: Record<string, unknown>;
+          transient?: boolean | undefined;
+          meta?: Record<string, unknown> | undefined;
       };
 
 /**

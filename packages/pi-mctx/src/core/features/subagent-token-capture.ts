@@ -24,15 +24,15 @@ export interface ChildInvocationRecordInput {
     parentSessionId: string;
     subagent: SubagentKind;
     startedAt: number;
-    endedAt?: number;
+    endedAt?: number | undefined;
     status: SubagentInvocationStatus;
-    task?: string | null;
-    messages?: unknown[];
-    tokens?: TokenTotals;
-    providerId?: string | null;
-    modelId?: string | null;
-    error?: unknown;
-    parentInvocationId?: number | null;
+    task?: string | null | undefined;
+    messages?: unknown[] | undefined;
+    tokens?: TokenTotals | undefined;
+    providerId?: string | null | undefined;
+    modelId?: string | null | undefined;
+    error?: unknown | undefined;
+    parentInvocationId?: number | null | undefined;
 }
 
 function asNumber(value: unknown): number {
@@ -110,9 +110,9 @@ export function findLastAssistantModel(messages: unknown[]): LastAssistantModel 
 }
 
 export function recordChildInvocation(input: ChildInvocationRecordInput): number | null {
-    // Best-effort telemetry: when storage is unavailable (openDatabase() returned
-    // null on the schema fence), silently skip recording rather than crash the
-    // subagent that was only trying to log its token usage.
+    // Best-effort telemetry: callers may pass a null db when storage is not
+    // available for this child. Skip recording rather than crash the subagent
+    // that was only trying to log its token usage.
     if (!input.db) return null;
     const tokens = input.tokens ?? sumTokensFromChildMessages(input.messages ?? []);
     const model =

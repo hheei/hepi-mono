@@ -11,21 +11,21 @@
 
 export type OpenAiCompatWireMessage = {
     role: string;
-    content?: string | null | unknown;
+    content?: string | null | unknown | undefined;
     tool_calls?: Array<{
         id: string;
-        type?: string;
+        type?: string | undefined;
         function?: { name: string; arguments: string };
-    }>;
-    tool_call_id?: string;
+    }> | undefined;
+    tool_call_id?: string | undefined;
 };
 
 export type AdjacencyViolation = {
     index: number;
     kind: "missing_tool_messages" | "orphan_tool_message" | "unmatched_tool_call_id";
-    assistantToolCallIds?: string[];
-    followingRoles?: string[];
-    toolCallId?: string;
+    assistantToolCallIds?: string[] | undefined;
+    followingRoles?: string[] | undefined;
+    toolCallId?: string | undefined;
     detail: string;
 };
 

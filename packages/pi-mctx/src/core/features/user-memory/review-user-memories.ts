@@ -31,14 +31,14 @@ interface ReviewUserMemoriesArgs {
     holderId: string;
     /** Keyed lease this task holds (Dreamer v2: global user-memories domain).
      *  Defaults to the legacy single lease key for back-compat. */
-    leaseKey?: string;
+    leaseKey?: string | undefined;
     deadline: number;
     promotionThreshold: number;
     /** Per-task model override (Dreamer v2). */
-    model?: string;
+    model?: string | undefined;
     /** Resolved dreamer fallback chain. */
-    fallbackModels?: readonly string[];
-    language?: string;
+    fallbackModels?: readonly string[] | undefined;
+    language?: string | undefined;
 }
 
 interface ReviewResult {
@@ -130,8 +130,8 @@ If no promotions are warranted, return empty arrays. Always consume reviewed can
     let invocationRecorded = false;
     const recordInvocation = (params: {
         status: "completed" | "failed";
-        messages?: unknown[];
-        error?: unknown;
+        messages?: unknown[] | undefined;
+        error?: unknown | undefined;
     }) => {
         if (!args.parentSessionId || invocationRecorded) return;
         invocationRecorded = true;
@@ -232,15 +232,19 @@ If no promotions are warranted, return empty arrays. Always consume reviewed can
                     }
 
                     try {
-                        return JSON.parse(jsonMatch[1]) as {
+                        const jsonText = jsonMatch[1];
+                        if (jsonText === undefined) {
+                            throw new Error("User memory review returned no JSON.");
+                        }
+                        return JSON.parse(jsonText) as {
                             promote?: Array<{ content: string; candidate_ids: number[] }>;
                             update_existing?: Array<{
                                 memory_id: number;
                                 content: string;
-                                candidate_ids?: number[];
+                                candidate_ids?: number[] | undefined;
                             }>;
                             dismiss_existing?: Array<{ memory_id: number; reason?: string }>;
-                            consume_candidate_ids?: number[];
+                            consume_candidate_ids?: number[] | undefined;
                         };
                     } catch {
                         throw new Error("User memory review returned invalid JSON.");

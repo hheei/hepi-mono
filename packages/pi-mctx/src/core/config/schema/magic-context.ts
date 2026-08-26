@@ -392,7 +392,7 @@ export interface ExperimentalMuralConfig {
     enabled: boolean;
     /** The CUE COMPRESSOR model for the compress-cues dreamer task (the mural is
      *  now rendered deterministically, so this no longer names an author model). */
-    model?: string;
+    model?: string | undefined;
 }
 
 export interface ExperimentalConfig {
@@ -405,19 +405,19 @@ export interface MagicContextConfig {
     allow_home_project: boolean;
     experimental: ExperimentalConfig;
     /** Output language for generated Magic Context prose. USER config only. */
-    language?: string;
-    historian?: HistorianConfig;
-    dreamer?: DreamerConfig;
+    language?: string | undefined;
+    historian?: HistorianConfig | undefined;
+    dreamer?: DreamerConfig | undefined;
     cache_ttl: string | { default: string; [modelKey: string]: string };
     /** User-only output-token reservation override. Zero disables reservation. */
-    output_reserve?: number | { default: number; [modelKey: string]: number };
+    output_reserve?: number | { default: number; [modelKey: string]: number } | undefined;
     /** TUI toast lifetime in milliseconds for Magic Context notifications. Default: 5000. */
-    toast_duration_ms?: number;
+    toast_duration_ms?: number | undefined;
     execute_threshold_percentage: number | { default: number; [modelKey: string]: number };
     /** Absolute token thresholds per model. When set for a given model (or via `default`),
      *  this overrides `execute_threshold_percentage` for that model. Useful for hard caps
      *  matching provider input limits. Values above 90% × context_limit are clamped with a warning. */
-    execute_threshold_tokens?: { default?: number; [modelKey: string]: number | undefined };
+    execute_threshold_tokens?: { default?: number | undefined; [modelKey: string]: number | undefined } | undefined;
     protected_tags: number;
     clear_reasoning_age: number;
     history_budget_percentage: number;
@@ -486,7 +486,7 @@ export interface MagicContextConfig {
         enabled: boolean;
     };
     /** Pi-only child-process extension controls. */
-    pi?: PiConfig;
+    pi?: PiConfig | undefined;
     /** Content-aware reclaim of tool output that a later call supersedes, added
      *  to the normal age-based auto-drop: superseded ctx_reduce/meta
      *  outputs are dropped, and older edits to a file are compressed to a marker
@@ -518,9 +518,9 @@ export interface MagicContextConfig {
     };
     embedding: EmbeddingConfig;
     /** User-only connection settings for the Synapse daemon. */
-    subc?: SubcConfig;
+    subc?: SubcConfig | undefined;
     /** Developer-only Synapse shadow lane switch. */
-    shadow_embedding?: ShadowEmbeddingConfig;
+    shadow_embedding?: ShadowEmbeddingConfig | undefined;
     memory: {
         enabled: boolean;
         injection_budget_tokens: number;
@@ -553,7 +553,7 @@ export interface MagicContextConfig {
             max_commits: number;
         };
     };
-    sidekick?: SidekickConfig;
+    sidekick?: SidekickConfig | undefined;
 }
 
 export const MagicContextConfigSchema = z

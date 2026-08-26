@@ -23,42 +23,42 @@ import { createCtxSearchTool } from "./ctx-search";
 
 export interface RegisterToolsOptions {
 	db: ContextDatabase;
-	ensureProjectRegistered?: (
+	ensureProjectRegistered?: ((
 		directory: string,
 		db: ContextDatabase,
-	) => Promise<void>;
-	memoryEnabled?: boolean;
-	embeddingEnabled?: boolean;
-	gitCommitsEnabled?: boolean;
+	) => Promise<void>) | undefined;
+	memoryEnabled?: boolean | undefined;
+	embeddingEnabled?: boolean | undefined;
+	gitCommitsEnabled?: boolean | undefined;
 	/** Resolve the current directory's project identity using the user-level home-project setting. */
-	resolveProjectIdentity?: (ctx: { cwd: string }) => string | undefined;
+	resolveProjectIdentity?: ((ctx: { cwd: string }) => string | undefined) | undefined;
 	/** When true, ctx_memory exposes dreamer-only actions (update, merge, archive).
 	 *  Set by the subagent extension entry when the parent passes
 	 *  `--magic-context-dreamer-actions`. The main extension entry
 	 *  (./index.ts) leaves this false for the primary-agent surface. */
-	allowDreamerActions?: boolean;
+	allowDreamerActions?: boolean | undefined;
 	/** Number of recent tags that ctx_reduce should treat as protected
 	 *  (deferred drops instead of immediate). Should match `magic_context.protected_tags`. */
-	protectedTags?: number;
+	protectedTags?: number | undefined;
 	/** Resolve protected-tag config from the current cwd at tool-call time. */
-	resolveProtectedTags?: (ctx: { cwd: string }) => number | undefined;
+	resolveProtectedTags?: ((ctx: { cwd: string }) => number | undefined) | undefined;
 	/** When true, ctx_note accepts smart notes (surface_condition) because
 	 *  the dreamer is configured to evaluate them. When false, smart-note
 	 *  writes are rejected to avoid stuck-pending state. */
-	dreamerEnabled?: boolean;
+	dreamerEnabled?: boolean | undefined;
 	/** Resolve smart-note enablement from the current cwd at tool-call time. */
-	resolveDreamerEnabled?: (ctx: { cwd: string }) => boolean | undefined;
+	resolveDreamerEnabled?: ((ctx: { cwd: string }) => boolean | undefined) | undefined;
 	/** When false, omit ctx_memory from the registered surface. Sidekick only
 	 *  needs read-only ctx_search; dreamer and the main agent keep ctx_memory. */
-	memoryToolEnabled?: boolean;
+	memoryToolEnabled?: boolean | undefined;
 	/** When true, omit session-scoped tools (ctx_note, ctx_expand) from the
 	 *  registered surface. Set by `--no-session` children (sidekick, dreamer):
 	 *  those tools resolve `ctx.sessionManager.getSessionId()` to the EPHEMERAL
 	 *  child session, so ctx_note would write notes orphaned under the hidden
 	 *  child id and ctx_expand would expand the child's empty transcript. */
-	sessionScopedToolsDisabled?: boolean;
+	sessionScopedToolsDisabled?: boolean | undefined;
 	/** In compaction-off mode, omit ctx_reduce and keep the other Pi tools available. */
-	compactionOff?: boolean;
+	compactionOff?: boolean | undefined;
 }
 
 function toolSummary(args: unknown): string | undefined {

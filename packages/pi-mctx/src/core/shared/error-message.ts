@@ -23,10 +23,10 @@ export function getErrorMessage(error: unknown): string {
 export interface ErrorDescription {
     name: string;
     message: string;
-    status?: string;
-    code?: string;
-    causeName?: string;
-    stackHead?: string;
+    status?: string | undefined;
+    code?: string | undefined;
+    causeName?: string | undefined;
+    stackHead?: string | undefined;
     stringForm: string;
     /** Best short summary for human-readable logs. Never empty. */
     brief: string;

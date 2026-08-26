@@ -113,23 +113,23 @@ export async function runValidatedHistorianPass(args: {
     priorCompartments: StoredCompartmentRange[];
     sequenceOffset: number;
     dumpLabelBase: string;
-    timeoutMs?: number;
-    fallbackModelId?: string;
+    timeoutMs?: number | undefined;
+    fallbackModelId?: string | undefined;
     /**
      * Resolved historian fallback chain ("provider/modelID" entries). When the
      * primary historian model fails (auth, model-not-found, transient network),
      * each fallback is tried in order. Independent of `fallbackModelId` (which
      * is a last-ditch single-model retry against the active session model).
      */
-    fallbackModels?: readonly string[];
-    callbacks?: HistorianProgressCallbacks;
+    fallbackModels?: readonly string[] | undefined;
+    callbacks?: HistorianProgressCallbacks | undefined;
     /** When true, run a second editor pass after successful historian output
      *  to clean low-signal U: lines and cross-compartment duplicates. If editor
      *  validation fails, falls back to the draft (first-pass) result. */
-    twoPass?: boolean;
-    subagentKind?: SubagentKind;
-    agentId?: string;
-    language?: string;
+    twoPass?: boolean | undefined;
+    subagentKind?: SubagentKind | undefined;
+    agentId?: string | undefined;
+    language?: string | undefined;
 }): Promise<ValidatedHistorianPassResult> {
     const firstRun = await runHistorianPrompt({
         ...args,
@@ -248,11 +248,11 @@ async function runEditorPassOrFallback(args: {
     priorCompartments: StoredCompartmentRange[];
     sequenceOffset: number;
     dumpLabelBase: string;
-    timeoutMs?: number;
+    timeoutMs?: number | undefined;
     draftXml: string;
     draftValidation: ValidatedHistorianPassResult;
-    draftDumpPath?: string;
-    draftInvocationId?: number | null;
+    draftDumpPath?: string | undefined;
+    draftInvocationId?: number | null | undefined;
 }): Promise<ValidatedHistorianPassResult> {
     shared.sessionLog(args.parentSessionId, "historian two-pass: running editor on draft");
     const editorRun = await runHistorianPrompt({
@@ -303,16 +303,16 @@ async function runHistorianPrompt(args: {
     parentSessionId: string;
     sessionDirectory: string;
     prompt: string;
-    timeoutMs?: number;
-    dumpLabel?: string;
-    modelOverride?: HistorianModelOverride;
+    timeoutMs?: number | undefined;
+    dumpLabel?: string | undefined;
+    modelOverride?: HistorianModelOverride | undefined;
     /** Agent identifier to route the request to. Defaults to HISTORIAN_AGENT.
      *  Use HISTORIAN_EDITOR_AGENT for the second pass in two-pass mode. */
-    agentId?: string;
+    agentId?: string | undefined;
     /** Resolved historian fallback chain (forwarded to the prompt helper). */
-    fallbackModels?: readonly string[];
-    subagentKind?: SubagentKind;
-    parentInvocationId?: number | null;
+    fallbackModels?: readonly string[] | undefined;
+    subagentKind?: SubagentKind | undefined;
+    parentInvocationId?: number | null | undefined;
 }): Promise<HistorianRunResult> {
     const {
         client,
@@ -338,8 +338,8 @@ async function runHistorianPrompt(args: {
 
     const recordInvocation = (params: {
         status: "completed" | "failed" | "aborted";
-        messages?: unknown[];
-        error?: unknown;
+        messages?: unknown[] | undefined;
+        error?: unknown | undefined;
     }): number | null => {
         if (invocationRecorded) return null;
         invocationRecorded = true;
@@ -415,8 +415,6 @@ async function runHistorianPrompt(args: {
                         // When modelOverride is set we're already in the last-ditch retry
                         // path; iterating fallbacks again would be redundant.
                         fallbackModels: modelOverride ? undefined : fallbackModels,
-                        callContext:
-                            agentId === HISTORIAN_EDITOR_AGENT ? "historian:editor" : "historian",
                     },
                 );
                 shared.sessionLog(
@@ -531,7 +529,7 @@ async function runFallbackHistorianPass(args: {
     priorCompartments: StoredCompartmentRange[];
     sequenceOffset: number;
     dumpLabelBase: string;
-    timeoutMs?: number;
+    timeoutMs?: number | undefined;
     /**
      * Configured historian fallback chain (e.g. `anthropic/claude-sonnet-4-6`),
      * tried IN ORDER before the session-model last resort. Each candidate's
@@ -540,14 +538,14 @@ async function runFallbackHistorianPass(args: {
      * instead of emitting compartments) escalates to the next candidate rather
      * than failing the whole pass.
      */
-    fallbackModels?: readonly string[];
+    fallbackModels?: readonly string[] | undefined;
     /**
      * The live session provider/model, used as the absolute last resort AFTER
      * the configured chain is exhausted.
      */
-    fallbackModelId?: string;
-    callbacks?: HistorianProgressCallbacks;
-    agentId?: string;
+    fallbackModelId?: string | undefined;
+    callbacks?: HistorianProgressCallbacks | undefined;
+    agentId?: string | undefined;
     error: string;
     dumpPaths: Array<string | undefined>;
 }): Promise<ValidatedHistorianPassResult> {
@@ -573,6 +571,7 @@ async function runFallbackHistorianPass(args: {
     let lastError = args.error;
     for (let i = 0; i < chain.length; i += 1) {
         const modelId = chain[i];
+        if (modelId === undefined) continue;
         const modelOverride = parseModelOverride(modelId);
         if (!modelOverride) continue;
 

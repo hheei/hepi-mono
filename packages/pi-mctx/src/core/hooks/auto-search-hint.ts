@@ -28,8 +28,8 @@ const MAX_HINT_CHARS = 800; // ~200 tokens hard ceiling
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 export interface AutoSearchHintOptions {
-    maxFragments?: number;
-    fragmentCharCap?: number;
+    maxFragments?: number | undefined;
+    fragmentCharCap?: number | undefined;
 }
 
 function truncate(text: string, limit: number): string {

@@ -36,21 +36,21 @@ export interface CtxSessionUpgradeRuntimeDeps {
 	runner: SubagentRunner;
 	historianModel: string | undefined;
 	historianChunkTokens: number;
-	historianFallbacks?: readonly string[];
-	historianTimeoutMs?: number;
-	historianThinkingLevel?: string;
-	language?: string;
+	historianFallbacks?: readonly string[] | undefined;
+	historianTimeoutMs?: number | undefined;
+	historianThinkingLevel?: string | undefined;
+	language?: string | undefined;
 	memoryEnabled: boolean;
 	/** Allow a session started exactly in the canonical home directory only when user-level configuration enables it. */
-	allowHomeProject?: boolean;
+	allowHomeProject?: boolean | undefined;
 	autoPromote: boolean;
-	userMemoriesEnabled?: boolean;
-	compactionOff?: boolean;
+	userMemoriesEnabled?: boolean | undefined;
+	compactionOff?: boolean | undefined;
 }
 
 export interface RegisterCtxSessionUpgradeDeps
 	extends CtxSessionUpgradeRuntimeDeps {
-	resolveRuntimeDeps?: (ctx: { cwd: string }) => CtxSessionUpgradeRuntimeDeps;
+	resolveRuntimeDeps?: ((ctx: { cwd: string }) => CtxSessionUpgradeRuntimeDeps) | undefined;
 }
 
 /**

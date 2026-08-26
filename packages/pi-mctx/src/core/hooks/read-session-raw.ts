@@ -2,9 +2,9 @@ export interface RawMessageParts {
     id: string;
     role: string;
     parts: unknown[];
-    createdAt?: number | null;
-    version?: string | number | null;
-    skipTags?: boolean;
+    createdAt?: number | null | undefined;
+    version?: string | number | null | undefined;
+    skipTags?: boolean | undefined;
 }
 
 export interface RawMessage extends RawMessageParts {
@@ -31,8 +31,8 @@ export interface InMemoryMessageView {
     id: string;
     role: string;
     parts: unknown[];
-    summary?: boolean;
-    finish?: string;
+    summary?: boolean | undefined;
+    finish?: string | undefined;
 }
 
 export interface InMemoryTailResult {

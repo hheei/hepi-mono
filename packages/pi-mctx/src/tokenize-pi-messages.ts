@@ -54,28 +54,28 @@ export interface PiMessageTokenCacheEntry {
 export interface TokenizePiMessagesOptions {
 	cache: Map<string, PiMessageTokenCacheEntry>;
 	stableId: (message: object) => string | undefined;
-	onTiming?: (
+	onTiming?: ((
 		phase: "cacheValidation" | "bpe" | "cachePrune",
 		elapsedMs: number,
-	) => void;
+	) => void) | undefined;
 }
 
 interface MaybePart {
-	type?: string;
-	text?: string;
-	thinking?: string;
-	thinkingSignature?: string;
-	textSignature?: string;
-	data?: string;
-	mimeType?: string;
-	name?: string;
-	arguments?: unknown;
+	type?: string | undefined;
+	text?: string | undefined;
+	thinking?: string | undefined;
+	thinkingSignature?: string | undefined;
+	textSignature?: string | undefined;
+	data?: string | undefined;
+	mimeType?: string | undefined;
+	name?: string | undefined;
+	arguments?: unknown | undefined;
 }
 
 interface MaybeMessage {
-	role?: string;
-	content?: unknown;
-	toolCallId?: string;
+	role?: string | undefined;
+	content?: unknown | undefined;
+	toolCallId?: string | undefined;
 }
 
 /**

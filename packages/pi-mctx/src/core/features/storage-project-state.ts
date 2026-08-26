@@ -106,9 +106,9 @@ export function setProjectState(
     db: Database,
     projectPath: string,
     updates: {
-        projectMemoryEpoch?: number;
-        projectUserProfileVersion?: number;
-        updatedAt?: number;
+        projectMemoryEpoch?: number | undefined;
+        projectUserProfileVersion?: number | undefined;
+        updatedAt?: number | undefined;
     },
 ): ProjectStateRow {
     const now = getNow(updates.updatedAt);
@@ -136,7 +136,7 @@ export function deleteProjectState(db: Database, projectPath: string): boolean {
     const result = db
         .prepare("DELETE FROM project_state WHERE project_path = ?")
         .run(projectPath) as {
-        changes?: number;
+        changes?: number | undefined;
     };
     return (result.changes ?? 0) > 0;
 }

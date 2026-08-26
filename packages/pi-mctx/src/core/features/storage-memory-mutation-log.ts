@@ -69,10 +69,10 @@ export function queueMemoryMutation(
         projectPath: string;
         mutationType: MemoryMutationType;
         targetMemoryId: number;
-        supersededById?: number | null;
-        category?: string | null;
-        newContent?: string | null;
-        queuedAt?: number;
+        supersededById?: number | null | undefined;
+        category?: string | null | undefined;
+        newContent?: string | null | undefined;
+        queuedAt?: number | undefined;
     },
 ): MemoryMutationLogRow {
     assertMemoryMutationType(input.mutationType);
@@ -91,7 +91,7 @@ export function queueMemoryMutation(
             input.newContent ?? null,
             input.queuedAt ?? Date.now(),
         ) as {
-        lastInsertRowid?: number | bigint;
+        lastInsertRowid?: number | bigint | undefined;
     };
     const row = getMemoryMutation(db, Number(result.lastInsertRowid));
     if (!row) {

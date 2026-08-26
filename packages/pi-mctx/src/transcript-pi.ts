@@ -85,12 +85,12 @@ import { resolvePiStableId, SYNTH_USER_ID_PREFIX } from "./read-session-pi";
 // to construct synthetic messages, and a local type makes that easier.
 // The shape MUST stay structurally compatible with pi-ai's exports.
 
-type PiTextContent = { type: "text"; text: string; textSignature?: string };
+type PiTextContent = { type: "text"; text: string; textSignature?: string | undefined};
 type PiThinkingContent = {
 	type: "thinking";
 	thinking: string;
-	thinkingSignature?: string;
-	redacted?: boolean;
+	thinkingSignature?: string | undefined;
+	redacted?: boolean | undefined;
 };
 type PiImageContent = { type: "image"; data: string; mimeType: string };
 type PiToolCall = {
@@ -98,7 +98,7 @@ type PiToolCall = {
 	id: string;
 	name: string;
 	arguments: Record<string, unknown>;
-	thoughtSignature?: string;
+	thoughtSignature?: string | undefined;
 };
 
 type PiUserMessage = {
@@ -113,10 +113,10 @@ type PiAssistantMessage = {
 	api: string;
 	provider: string;
 	model: string;
-	responseId?: string;
+	responseId?: string | undefined;
 	usage: unknown;
 	stopReason: string;
-	errorMessage?: string;
+	errorMessage?: string | undefined;
 	timestamp: number;
 };
 
@@ -125,7 +125,7 @@ type PiToolResultMessage = {
 	toolCallId: string;
 	toolName: string;
 	content: (PiTextContent | PiImageContent)[];
-	details?: unknown;
+	details?: unknown | undefined;
 	isError: boolean;
 	timestamp: number;
 };
@@ -212,7 +212,10 @@ export function createPiTranscript(
 			// so copying just the dirty indices is sufficient.
 			for (const idx of dirtyMessages) {
 				if (idx < source.length && idx < working.length) {
-					(source as unknown as PiAgentMessage[])[idx] = working[idx];
+					const next = working[idx];
+					if (next !== undefined) {
+						(source as unknown as PiAgentMessage[])[idx] = next;
+					}
 				}
 			}
 		},

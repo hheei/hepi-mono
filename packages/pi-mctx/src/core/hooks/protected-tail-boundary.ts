@@ -51,10 +51,10 @@ export interface ResolvedBoundaryContext {
     priorBoundaryOrdinal: number;
     protectedTailPolicyVersion: number;
     migrationFloorActive: boolean;
-    emergencyTailScale?: 0.5 | 0.25;
+    emergencyTailScale?: 0.5 | 0.25 | undefined;
     providerShapeVersion: "legacy-v1" | "pi-folded-v1";
     cacheNamespace: string;
-    createdAt?: number;
+    createdAt?: number | undefined;
     /**
      * Durable per-message token totals (sum of the message's active tag
      * token_counts), keyed by real message id. When present, the boundary's
@@ -63,7 +63,7 @@ export interface ResolvedBoundaryContext {
      * tag) falls back to live tokenization. Built once in resolveBoundaryContext
      * from the tag store; omitted (→ all-live) when the caller has no tag store.
      */
-    storedTokenTotals?: Map<string, number>;
+    storedTokenTotals?: Map<string, number> | undefined;
 }
 
 export interface ProtectedTailBoundarySnapshot {
@@ -86,7 +86,7 @@ export interface ProtectedTailBoundarySnapshot {
     triggerBudget: number;
     priorBoundaryOrdinal: number;
     migrationFloorActive: boolean;
-    emergencyTailScale?: 0.5 | 0.25;
+    emergencyTailScale?: 0.5 | 0.25 | undefined;
     providerShapeVersion: "legacy-v1" | "pi-folded-v1";
     cacheNamespace: string;
     createdAt: number;
@@ -127,8 +127,8 @@ export interface ProactiveTriggerInfo {
 
 export interface BoundarySnapshotValidationResult {
     ok: boolean;
-    reason?: "stale_snapshot" | "model_or_limit_changed";
-    detail?: string;
+    reason?: "stale_snapshot" | "model_or_limit_changed" | undefined;
+    detail?: string | undefined;
 }
 
 export interface WrapupBoundaryPlan {
@@ -178,7 +178,7 @@ export function deriveProtectedTailTokenTarget(args: {
     contextLimit: number;
     executeThresholdPercentage: number;
     usagePercentage: number;
-    triggerBudget?: number;
+    triggerBudget?: number | undefined;
 }): ProtectedTailTokenTarget {
     const safeContextLimit =
         Number.isFinite(args.contextLimit) && args.contextLimit > 0 ? args.contextLimit : 128_000;
@@ -569,6 +569,7 @@ function buildProtectedTailBoundary(
         let lastMeaningfulUserOrdinal = 0;
         for (let i = messages.length - 1; i >= 0; i--) {
             const message = messages[i];
+            if (!message) continue;
             if (message.role !== "user") continue;
             if (!hasMeaningfulUserText(message.parts)) continue;
             lastMeaningfulUserOrdinal = message.ordinal;
@@ -643,11 +644,11 @@ export function resolveBoundaryContext(args: {
     mode: BoundaryMode;
     contextLimit: number;
     executeThresholdPercentage: number;
-    usage?: BoundaryUsage | null;
-    usageSource?: ResolvedBoundaryContext["usageSource"];
-    emergencyTailScale?: 0.5 | 0.25;
-    providerShapeVersion?: "legacy-v1" | "pi-folded-v1";
-    cacheNamespace?: string;
+    usage?: BoundaryUsage | null | undefined;
+    usageSource?: ResolvedBoundaryContext["usageSource"] | undefined;
+    emergencyTailScale?: 0.5 | 0.25 | undefined;
+    providerShapeVersion?: "legacy-v1" | "pi-folded-v1" | undefined;
+    cacheNamespace?: string | undefined;
     /**
      * Tagger load-scoping floor. When > 0, the stored-token map
      * is loaded only for tags at/above this floor (the live wire) instead of
@@ -657,7 +658,7 @@ export function resolveBoundaryContext(args: {
      * so the cut point is byte-identical. Omit / 0 = full scan (Pi, recomp,
      * tests) — unchanged.
      */
-    taggerFloor?: number;
+    taggerFloor?: number | undefined;
 }): ResolvedBoundaryContext {
     const lastCompartmentEndOrdinal = getLastCompartmentEndMessage(args.db, args.sessionId);
     const triggerBudget = deriveTriggerBudget(args.contextLimit, args.executeThresholdPercentage);
@@ -722,15 +723,17 @@ export function resolveBoundaryContext(args: {
 export function resolveProtectedTailBoundary(
     args: Parameters<typeof resolveBoundaryContext>[0] | ResolvedBoundaryContext,
 ): ProtectedTailBoundarySnapshot {
-    return buildProtectedTailBoundary(
-        "providerShapeVersion" in args ? args : resolveBoundaryContext(args),
-    );
+    const ctx =
+        "lastCompartmentEndOrdinal" in args && "triggerBudget" in args
+            ? args
+            : resolveBoundaryContext(args);
+    return buildProtectedTailBoundary(ctx);
 }
 
 export function resolveWrapupProtectedTailBoundary(
     args: Parameters<typeof resolveBoundaryContext>[0] & {
         messagesToKeep: number;
-        anchorRawMessageCount?: number;
+        anchorRawMessageCount?: number | undefined;
     },
 ): WrapupBoundaryPlan {
     const ctx = resolveBoundaryContext({ ...args, mode: "manual-wrapup" });
@@ -905,7 +908,7 @@ export function hasRunnableCompartmentWindow(snapshot: ProtectedTailBoundarySnap
 export function validateBoundarySnapshot(args: {
     db: Database;
     snapshot: ProtectedTailBoundarySnapshot;
-    currentContextLimit?: number;
+    currentContextLimit?: number | undefined;
 }): BoundarySnapshotValidationResult {
     const { snapshot } = args;
     if (args.currentContextLimit && args.currentContextLimit !== snapshot.contextLimit) {

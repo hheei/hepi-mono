@@ -181,7 +181,7 @@ async function injectWasmOrtForElectron(): Promise<boolean> {
         const ortWebSpec = `onnxruntime-${"web"}`;
         const ortWeb = (await import(ortWebSpec)) as {
             env?: { wasm?: { wasmPaths?: string | Record<string, string> } };
-            default?: unknown;
+            default?: unknown | undefined;
         };
 
         // Resolve the actual on-disk location of onnxruntime-web/dist/ so we can
@@ -238,7 +238,7 @@ async function injectWasmOrtForElectron(): Promise<boolean> {
 
 type EmbeddingPipelineResult = {
     data: ArrayLike<number> | ArrayLike<number>[];
-    dims?: number[];
+    dims?: number[] | undefined;
 };
 
 type EmbeddingPipeline = {
@@ -246,7 +246,7 @@ type EmbeddingPipeline = {
         input: string | string[],
         options: { pooling: "mean"; normalize: true },
     ): Promise<EmbeddingPipelineResult>;
-    dispose?: () => Promise<void> | void;
+    dispose?: (() => Promise<void> | void) | undefined;
 };
 
 type CreateEmbeddingPipeline = (
@@ -483,8 +483,8 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
                     unknown
                 >;
                 const env = transformersModule.env as {
-                    logLevel?: unknown;
-                    cacheDir?: string;
+                    logLevel?: unknown | undefined;
+                    cacheDir?: string | undefined;
                 };
                 const LogLevel = transformersModule.LogLevel as Record<string, unknown> | undefined;
                 if (LogLevel && "ERROR" in LogLevel) {

@@ -239,11 +239,11 @@ let projectSweepInProgress = false;
 let testProviderFactory: ((config: EmbeddingConfig) => EmbeddingProvider | null) | null = null;
 
 function synapseConfigFields(config: EmbeddingConfig): {
-    model?: string;
-    fingerprint?: string;
-    tableEpoch?: number;
-    dims?: number;
-    provenance?: unknown;
+    model?: string | undefined;
+    fingerprint?: string | undefined;
+    tableEpoch?: number | undefined;
+    dims?: number | undefined;
+    provenance?: unknown | undefined;
 } {
     const raw = config as unknown as Record<string, unknown>;
     return {
@@ -427,13 +427,13 @@ function resolveEmbeddingConfig(config?: EmbeddingConfig): EmbeddingConfig {
 
     if (config.provider === "synapse") {
         const synapse = config as EmbeddingConfig & {
-            model?: string;
-            synapse_connection_file?: string;
-            synapse_fingerprint?: string;
-            synapse_table_epoch?: number;
-            synapse_dims?: number;
-            synapse_recommended_batch?: number;
-            synapse_provenance?: unknown;
+            model?: string | undefined;
+            synapse_connection_file?: string | undefined;
+            synapse_fingerprint?: string | undefined;
+            synapse_table_epoch?: number | undefined;
+            synapse_dims?: number | undefined;
+            synapse_recommended_batch?: number | undefined;
+            synapse_provenance?: unknown | undefined;
         };
         return {
             provider: "synapse",
@@ -502,13 +502,13 @@ function createProvider(
 
     if (config.provider === "synapse") {
         const synapse = config as EmbeddingConfig & {
-            model?: string;
-            synapse_connection_file?: string;
-            synapse_fingerprint?: string;
-            synapse_table_epoch?: number;
-            synapse_dims?: number;
-            synapse_recommended_batch?: number;
-            synapse_provenance?: unknown;
+            model?: string | undefined;
+            synapse_connection_file?: string | undefined;
+            synapse_fingerprint?: string | undefined;
+            synapse_table_epoch?: number | undefined;
+            synapse_dims?: number | undefined;
+            synapse_recommended_batch?: number | undefined;
+            synapse_provenance?: unknown | undefined;
         };
         const options = {
             connectionFile: synapse.synapse_connection_file ?? "",
@@ -2446,9 +2446,9 @@ export async function embedSessionCompartmentChunks(
     projectIdentity: string,
     sessionId: string,
     options?: {
-        signal?: AbortSignal;
-        onProgress?: (p: SessionChunkBackfillProgress) => void;
-        batchSize?: number;
+        signal?: AbortSignal | undefined;
+        onProgress?: ((p: SessionChunkBackfillProgress) => void) | undefined;
+        batchSize?: number | undefined;
     },
 ): Promise<SessionChunkBackfillOutcome> {
     const snapshot = getProjectEmbeddingSnapshot(projectIdentity);

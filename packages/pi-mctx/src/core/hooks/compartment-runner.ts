@@ -17,7 +17,7 @@ import type { CompartmentRunnerDeps } from "./compartment-runner-types";
 export interface ActiveCompartmentRun {
     promise: Promise<void>;
     published: boolean;
-    kind?: "incremental" | "recomp" | "wrapup" | "other";
+    kind?: "incremental" | "recomp" | "wrapup" | "other" | undefined;
     /**
      * Set to true once the 95%-emergency user-facing notification has been
      * dispatched for this run. Prevents the notification from re-firing on
@@ -25,7 +25,7 @@ export interface ActiveCompartmentRun {
      * still active — which would otherwise persist a fresh ignored user
      * message every pass and drive the runner break condition false.
      */
-    notificationSent?: boolean;
+    notificationSent?: boolean | undefined;
 }
 
 const activeRuns = new Map<string, ActiveCompartmentRun>();
@@ -205,9 +205,9 @@ export interface ExecuteContextRecompOptions {
      * When omitted, runs full recomp from message 1 to the protected tail,
      * replacing all compartments and facts.
      */
-    range?: PartialRecompRange;
+    range?: PartialRecompRange | undefined;
     /** @internal Exercises the lease/marker race without delaying production callers. */
-    onLeaseAcquired?: () => void;
+    onLeaseAcquired?: (() => void) | undefined;
 }
 
 export interface ExecuteContextRecompResult {

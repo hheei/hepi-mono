@@ -28,15 +28,15 @@ export async function resolveDreamerModuleRoute(args: {
     db: Database;
     projectIdentity: string;
     projectRoot: string;
-    transformMode?: "ts" | "rust";
-    moduleClient?: ClassifyModuleClient & {
+    transformMode?: "ts" | "rust" | undefined;
+    moduleClient?: (ClassifyModuleClient & {
         authorityStatus?: (args: {
             context_store_uuid: string;
             project: string;
-            projectRoot?: string;
+            projectRoot?: string | undefined;
             domain: "memories" | "notes";
         }) => Promise<{ authority: { state?: string; generation?: number } | null }>;
-    };
+    }) | undefined;
     commandId: string;
 }): Promise<DreamerModuleRoute | undefined> {
     const transport = args.transformMode === "ts" ? undefined : args.moduleClient;
@@ -86,9 +86,9 @@ export function getModuleMemoryIdentities(
                 AND identity.context_row_id IN (${placeholders})`,
         )
         .all(projectIdentity, ...contextIds) as Array<{
-        context_row_id?: number;
-        module_row_id?: number;
-        normalized_hash?: string | null;
+        context_row_id?: number | undefined;
+        module_row_id?: number | undefined;
+        normalized_hash?: string | null | undefined;
     }>;
     return new Map(
         rows.flatMap((row) =>

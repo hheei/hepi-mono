@@ -15,6 +15,7 @@ export function findSessionId(messages: MessageLike[]): string | null {
     // Session ID is valid on any user message, including ignored ones
     for (let index = messages.length - 1; index >= 0; index -= 1) {
         const message = messages[index];
+        if (!message) continue;
         if (message.info.role === "user" && typeof message.info.sessionID === "string") {
             return message.info.sessionID;
         }
@@ -26,6 +27,7 @@ export function findSessionId(messages: MessageLike[]): string | null {
 export function findLastUserMessageId(messages: MessageLike[]): string | null {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
         const message = messages[index];
+        if (!message) continue;
         if (isMeaningfulUserMessage(message) && typeof message.info.id === "string") {
             return message.info.id;
         }
@@ -40,7 +42,7 @@ export function appendReminderToLatestUserMessage(
 ): string | null {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
         const message = messages[index];
-        if (!isMeaningfulUserMessage(message)) {
+        if (!message || !isMeaningfulUserMessage(message)) {
             continue;
         }
 
@@ -71,7 +73,9 @@ export function appendReminderToUserMessageById(
 export function countMessagesSinceLastUser(messages: MessageLike[]): number {
     let messagesSinceLastUser = 0;
     for (let i = messages.length - 1; i >= 0; i -= 1) {
-        if (isMeaningfulUserMessage(messages[i])) break;
+        const message = messages[i];
+        if (!message) continue;
+        if (isMeaningfulUserMessage(message)) break;
         messagesSinceLastUser += 1;
     }
     return messagesSinceLastUser;
@@ -95,6 +99,7 @@ export function injectToolPartIntoLatestAssistant(
 ): string | null {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
         const message = messages[index];
+        if (!message) continue;
         if (message.info.role !== "assistant") continue;
         if (typeof message.info.id !== "string") continue;
         if (!isReplayableAssistantAnchor(message)) continue;

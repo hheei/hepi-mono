@@ -10,8 +10,8 @@ import { computeCueContentHash, getMuralCueState } from "./storage-mural-cues";
 export interface MuralWireOptions {
     enabled: boolean;
     supportsVision: boolean;
-    dataUrl?: string;
-    contentHash?: string;
+    dataUrl?: string | undefined;
+    contentHash?: string | undefined;
 }
 
 /** A single deterministic mural entry: a compressed cue plus the ordering

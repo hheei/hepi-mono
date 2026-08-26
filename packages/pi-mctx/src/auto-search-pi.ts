@@ -90,7 +90,7 @@ export interface PiAutoSearchOptions {
 	scoreThreshold: number;
 	minPromptChars: number;
 	projectPath: string;
-	visibleMemoryIds?: Set<number> | null;
+	visibleMemoryIds?: Set<number> | null | undefined;
 }
 
 const AUTO_SEARCH_TIMEOUT_MS = 3_000;
@@ -281,9 +281,9 @@ export async function runAutoSearchHintForPi(args: {
 	 * against branch entries; correct even though `messages` was spliced since
 	 * the positional `entryIds` was computed. Takes precedence over `entryIds`.
 	 */
-	entryIdByRef?: ReadonlyMap<object, string> | null;
+	entryIdByRef?: ReadonlyMap<object, string> | null | undefined;
 	options: PiAutoSearchOptions;
-	ensureProjectRegistered?: () => Promise<void>;
+	ensureProjectRegistered?: (() => Promise<void>) | undefined;
 }): Promise<AgentMessage[]> {
 	const { sessionId, db, messages, options, entryIdByRef } = args;
 	const entryIds =

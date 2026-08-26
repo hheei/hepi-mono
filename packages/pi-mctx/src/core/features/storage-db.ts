@@ -21,7 +21,7 @@ import {
 } from "./tool-definition-tokens";
 
 const databases = new Map<string, Database>();
-const pendingAsyncOpens = new Map<string, Promise<Database | null>>();
+const pendingAsyncOpens = new Map<string, Promise<Database>>();
 const persistenceByDatabase = new WeakMap<Database, boolean>();
 const pathByDatabase = new WeakMap<Database, string>();
 
@@ -86,7 +86,7 @@ function restrictDatabaseFilePermissions(dbPath: string): void {
 }
 
 export interface OpenDatabaseOptions {
-    dbPath?: string;
+    dbPath?: string | undefined;
 }
 
 // Exported for the test-isolation guard test. Returns a PATH only — opens no DB —
@@ -198,7 +198,7 @@ function healWedgedChannel2Claims(db: Database): void {
 function finishDatabaseOpen(
     db: Database,
     dbPath: string,
-): Database | null {
+): Database {
     // Recover any Channel-2 ceiling-nudge lease left at `claimed` by a crash
     // mid-delivery (see healWedgedChannel2Claims). Fresh opens and later
     // cached-handle reuses both run this TTL-scoped heal so long-lived
@@ -259,10 +259,10 @@ export function initializeDatabase(db: Database): void {
  * Any open error fails closed: callers disable Magic Context for that run.
  * There is never an in-memory fallback.
  */
-export function openDatabase(): Database | null;
-export function openDatabase(dbPath: string): Database | null;
-export function openDatabase(options: OpenDatabaseOptions): Database | null;
-export function openDatabase(dbPathOrOptions?: string | OpenDatabaseOptions): Database | null {
+export function openDatabase(): Database;
+export function openDatabase(dbPath: string): Database;
+export function openDatabase(options: OpenDatabaseOptions): Database;
+export function openDatabase(dbPathOrOptions?: string | OpenDatabaseOptions): Database {
     const options =
         typeof dbPathOrOptions === "string" ? { dbPath: dbPathOrOptions } : dbPathOrOptions;
     const { dbDir, dbPath } = resolveDatabasePath(options?.dbPath);
@@ -305,7 +305,7 @@ export function openDatabase(dbPathOrOptions?: string | OpenDatabaseOptions): Da
  */
 export async function openDatabaseAsync(
     dbPathOrOptions?: string | OpenDatabaseOptions,
-): Promise<Database | null> {
+): Promise<Database> {
     const options =
         typeof dbPathOrOptions === "string" ? { dbPath: dbPathOrOptions } : dbPathOrOptions;
     const { dbDir, dbPath } = resolveDatabasePath(options?.dbPath);
@@ -319,7 +319,7 @@ export async function openDatabaseAsync(
     const pending = pendingAsyncOpens.get(dbPath);
     if (pending) return pending;
 
-    const opening = (async (): Promise<Database | null> => {
+    const opening = (async (): Promise<Database> => {
         let db: Database | undefined;
         try {
             ensureSecureStorageDir(dbDir);

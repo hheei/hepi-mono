@@ -12,9 +12,9 @@ export function isSaneLimit(limit: number | undefined): limit is number {
 export type OutputReserveConfig = number | { default: number; [modelKey: string]: number };
 
 export interface ModelLimit {
-    context?: number;
-    input?: number;
-    output?: number;
+    context?: number | undefined;
+    input?: number | undefined;
+    output?: number | undefined;
 }
 
 const SEPARATE_OUTPUT_QUOTA_PROVIDERS = new Set(["google", "google-antigravity"]);

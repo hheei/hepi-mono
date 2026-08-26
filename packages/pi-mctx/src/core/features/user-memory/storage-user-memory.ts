@@ -34,8 +34,8 @@ export function insertUserMemoryCandidates(
     candidates: Array<{
         content: string;
         sessionId: string;
-        sourceCompartmentStart?: number;
-        sourceCompartmentEnd?: number;
+        sourceCompartmentStart?: number | undefined;
+        sourceCompartmentEnd?: number | undefined;
     }>,
 ): void {
     if (candidates.length === 0) return;

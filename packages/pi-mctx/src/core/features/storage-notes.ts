@@ -41,10 +41,10 @@ export interface Note {
 }
 
 export interface GetNotesOptions {
-    sessionId?: string;
-    projectPath?: string;
-    type?: NoteType;
-    status?: NoteStatus | NoteStatus[];
+    sessionId?: string | undefined;
+    projectPath?: string | undefined;
+    type?: NoteType | undefined;
+    status?: NoteStatus | NoteStatus[] | undefined;
 }
 
 export interface NoteMutationScope {
@@ -53,14 +53,14 @@ export interface NoteMutationScope {
 }
 
 export interface UpdateNoteOptions {
-    content?: string;
-    sessionId?: string | null;
-    projectPath?: string | null;
-    surfaceCondition?: string | null;
-    status?: NoteStatus;
-    lastCheckedAt?: number | null;
-    readyAt?: number | null;
-    readyReason?: string | null;
+    content?: string | undefined;
+    sessionId?: string | null | undefined;
+    projectPath?: string | null | undefined;
+    surfaceCondition?: string | null | undefined;
+    status?: NoteStatus | undefined;
+    lastCheckedAt?: number | null | undefined;
+    readyAt?: number | null | undefined;
+    readyReason?: string | null | undefined;
 }
 
 interface NoteRow {
@@ -76,35 +76,35 @@ interface NoteRow {
     last_checked_at: number | null;
     ready_at: number | null;
     ready_reason: string | null;
-    anchor_ordinal?: number | null;
-    compiled_check?: string | null;
-    manifest_json?: string | null;
-    check_hash?: string | null;
-    check_cron?: string | null;
-    check_version?: number | null;
-    check_status?: string | null;
-    check_failure_count?: number | null;
-    check_network_failure_count?: number | null;
-    check_quarantined_until?: number | null;
-    check_next_due_at?: number | null;
-    check_compiled_at?: number | null;
-    check_false_since_at?: number | null;
-    check_last_liveness_at?: number | null;
-    policy_version?: number | null;
+    anchor_ordinal?: number | null | undefined;
+    compiled_check?: string | null | undefined;
+    manifest_json?: string | null | undefined;
+    check_hash?: string | null | undefined;
+    check_cron?: string | null | undefined;
+    check_version?: number | null | undefined;
+    check_status?: string | null | undefined;
+    check_failure_count?: number | null | undefined;
+    check_network_failure_count?: number | null | undefined;
+    check_quarantined_until?: number | null | undefined;
+    check_next_due_at?: number | null | undefined;
+    check_compiled_at?: number | null | undefined;
+    check_false_since_at?: number | null | undefined;
+    check_last_liveness_at?: number | null | undefined;
+    policy_version?: number | null | undefined;
 }
 
 interface SessionNoteInput {
     sessionId: string;
     content: string;
-    anchorOrdinal?: number | null;
+    anchorOrdinal?: number | null | undefined;
 }
 
 interface SmartNoteInput {
     content: string;
-    sessionId?: string;
+    sessionId?: string | undefined;
     projectPath: string;
     surfaceCondition: string;
-    anchorOrdinal?: number | null;
+    anchorOrdinal?: number | null | undefined;
 }
 
 const NOTE_TYPES = new Set<NoteType>(["session", "smart"]);

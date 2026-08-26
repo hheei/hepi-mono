@@ -45,7 +45,7 @@ export interface IndexCommitsOptions {
     maxCommits: number;
     /** If true, skip the embed step after indexing. Useful when the caller
      *  plans to embed in a separate scheduled pass. Default false. */
-    skipEmbed?: boolean;
+    skipEmbed?: boolean | undefined;
 }
 
 export interface IndexCommitsResult {

@@ -27,16 +27,16 @@ export interface PiSidekickConfig {
 	/** Provider/model identifier in `provider/model` form, e.g. `anthropic/claude-haiku-4-5`. */
 	model: string;
 	/** Override for sidekick system prompt. Defaults to SIDEKICK_SYSTEM_PROMPT. */
-	systemPrompt?: string;
+	systemPrompt?: string | undefined;
 	/** Hard timeout in ms. Defaults to 30s — sidekick is expected to be fast. */
-	timeoutMs?: number;
+	timeoutMs?: number | undefined;
 	/** Pi only: explicit thinking level (--thinking <level>) for sidekick subagent. */
-	thinking_level?: string;
+	thinking_level?: string | undefined;
 	/** Ordered fallback chain after the primary sidekick model. */
-	fallbackModels?: readonly string[];
-	language?: string;
+	fallbackModels?: readonly string[] | undefined;
+	language?: string | undefined;
 	/** Allow a session started exactly in the canonical home directory only when user-level configuration enables it. */
-	allowHomeProject?: boolean;
+	allowHomeProject?: boolean | undefined;
 }
 
 type ResolveSidekickConfig = (ctx: {

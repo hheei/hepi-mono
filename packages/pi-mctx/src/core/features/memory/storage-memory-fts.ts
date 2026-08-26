@@ -98,7 +98,7 @@ export function searchMemoriesFTSUnion(
         tableName: "memories",
         includeClassificationFields: (() => {
             const columns = db.prepare("PRAGMA table_info(memories)").all() as Array<{
-                name?: string;
+                name?: string | undefined;
             }>;
             return (
                 columns.some((row) => row.name === "shareable") &&

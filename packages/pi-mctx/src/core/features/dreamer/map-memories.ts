@@ -67,9 +67,9 @@ export interface MapMemoriesArgs {
     holderId: string;
     leaseKey: string;
     deadline: number;
-    model?: string;
-    fallbackModels?: readonly string[];
-    moduleRoute?: DreamerModuleRoute;
+    model?: string | undefined;
+    fallbackModels?: readonly string[] | undefined;
+    moduleRoute?: DreamerModuleRoute | undefined;
 }
 
 export interface MapMemoriesResult {
@@ -133,7 +133,9 @@ export async function mapMemories(args: MapMemoriesArgs): Promise<MapMemoriesRes
             const batchesRemaining = batches.length - i;
             const sliceMs = Math.max(1, Math.floor(remainingMs / batchesRemaining));
 
-            const counts = await mapOneBatch(args, batches[i], sliceMs, abortController.signal);
+            const batch = batches[i];
+            if (!batch) continue;
+            const counts = await mapOneBatch(args, batch, sliceMs, abortController.signal);
             result.mapped += counts.mapped;
             result.independent += counts.independent;
             result.remaining -= counts.mapped + counts.independent;
@@ -332,7 +334,7 @@ export async function applyBatchMappings(
             throw new DreamerModuleFailureError("memory.set_mapping", error);
         }
         const result = ((response as { result?: unknown })?.result ?? response) as {
-            accepted?: unknown;
+            accepted?: unknown | undefined;
         };
         if (!Array.isArray(result?.accepted))
             throw new DreamerModuleFailureError(

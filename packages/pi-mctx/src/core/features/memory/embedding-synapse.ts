@@ -28,14 +28,14 @@ export interface SynapseCatalogEntry {
     table_epoch: number;
     // The live catalog omits dims; it is adopted from the first embed response
     // envelope and pinned for the provider's lifetime.
-    dims?: number;
+    dims?: number | undefined;
     /** Rows per embed.batch call, from the service's measured per-lane policy. */
-    recommended_batch?: number;
+    recommended_batch?: number | undefined;
     /** Token ceiling per embed.batch call; pages split on whichever limit hits first. */
-    recommended_token_budget?: number;
-    provenance?: unknown;
-    certified?: boolean;
-    status?: string;
+    recommended_token_budget?: number | undefined;
+    provenance?: unknown | undefined;
+    certified?: boolean | undefined;
+    status?: string | undefined;
 }
 
 export interface SynapseLaneMetadata extends SynapseCatalogEntry {
@@ -46,12 +46,12 @@ export interface SynapseClientLike {
     call<Response = unknown>(
         moduleId: string,
         method: string,
-        params?: unknown,
+        params?: unknown | undefined,
         options?: {
-            timeoutMs?: number;
+            timeoutMs?: number | undefined;
             identity?: { project_root: string; harness: string; session: string };
-            targetKind?: "management_surface" | "tool_provider";
-        },
+            targetKind?: "management_surface" | "tool_provider" | undefined;
+        } | undefined,
     ): Promise<Response>;
     close(): void;
 }
@@ -60,27 +60,27 @@ export interface SynapseEmbeddingProviderOptions {
     connectionFile: string;
     projectRoot: string;
     session: string;
-    model?: string;
-    fingerprint?: string;
-    tableEpoch?: number;
-    dims?: number;
-    recommendedBatch?: number;
-    provenance?: unknown;
-    moduleId?: string;
-    queryTimeoutMs?: number;
-    batchTimeoutMs?: number;
-    clientFactory?: () => Promise<SynapseClientLike>;
+    model?: string | undefined;
+    fingerprint?: string | undefined;
+    tableEpoch?: number | undefined;
+    dims?: number | undefined;
+    recommendedBatch?: number | undefined;
+    provenance?: unknown | undefined;
+    moduleId?: string | undefined;
+    queryTimeoutMs?: number | undefined;
+    batchTimeoutMs?: number | undefined;
+    clientFactory?: (() => Promise<SynapseClientLike>) | undefined;
 }
 
 export class SynapseEmbeddingError extends Error {
     readonly code: SynapseErrorCode;
-    readonly retryAfterMs?: number;
+    readonly retryAfterMs?: number | undefined;
     readonly permanent: boolean;
 
     constructor(
         code: SynapseErrorCode,
         message: string,
-        options?: { retryAfterMs?: number; permanent?: boolean; cause?: unknown },
+        options?: { retryAfterMs?: number | undefined; permanent?: boolean | undefined; cause?: unknown } | undefined,
     ) {
         super(message, options?.cause === undefined ? undefined : { cause: options.cause });
         this.name = "SynapseEmbeddingError";
@@ -403,7 +403,9 @@ export class SynapseEmbeddingProvider implements EmbeddingProvider {
         let end = start;
         let tokens = 0;
         while (end < hardEnd) {
-            tokens += Math.ceil(items[end].text.length / 4);
+            const item = items[end];
+            if (!item) break;
+            tokens += Math.ceil(item.text.length / 4);
             if (tokens > this.tokenBudget && end > start) break;
             end += 1;
         }

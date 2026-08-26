@@ -202,7 +202,7 @@ export interface TranscriptMessage {
      * underlying Pi storage has them as separate top-level entries. This
      * is the *only* shape normalization the adapter performs.
      */
-    readonly info: { id?: string; role: string; sessionId?: string };
+    readonly info: { id?: string | undefined; role: string; sessionId?: string | undefined };
 
     /** Ordered parts. Same ordering invariants as the underlying source. */
     readonly parts: TranscriptPart[];

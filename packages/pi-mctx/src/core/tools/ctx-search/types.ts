@@ -7,15 +7,15 @@ import type { ImitatedReducedArgs } from "../unwrap-imitated-reduced-args";
 export type CtxSearchSource = "memory" | "message" | "git_commit" | "primer" | "note";
 
 export interface CtxSearchArgs extends ImitatedReducedArgs {
-    query?: string;
-    limit?: number;
+    query?: string | undefined;
+    limit?: number | undefined;
     /** Restrict search to specific sources. Omit to search all; [] searches none. */
-    sources?: CtxSearchSource[];
+    sources?: CtxSearchSource[] | undefined;
 }
 
 export interface CtxSearchToolDeps {
     db: Database;
-    ensureProjectRegistered?: (directory: string, db: Database) => Promise<void>;
+    ensureProjectRegistered?: ((directory: string, db: Database) => Promise<void>) | undefined;
     /**
      * Resolve the project identity for the session's directory at call time.
      * See CtxMemoryToolDeps.resolveProjectPath for why this is a function:
@@ -23,15 +23,15 @@ export interface CtxSearchToolDeps {
      * session's working directory.
      */
     resolveProjectPath: (directory: string) => string | undefined;
-    memoryEnabled?: boolean;
-    embeddingEnabled?: boolean;
+    memoryEnabled?: boolean | undefined;
+    embeddingEnabled?: boolean | undefined;
     /** When true, ctx_search surfaces indexed git commits as a 3rd source. */
-    gitCommitsEnabled?: boolean;
+    gitCommitsEnabled?: boolean | undefined;
     /** Override message reader for testing without a provider store. */
-    readMessages?: (sessionId: string) => Array<{
+    readMessages?: ((sessionId: string) => Array<{
         ordinal: number;
         id: string;
         role: string;
         parts: unknown[];
-    }>;
+    }>) | undefined;
 }

@@ -30,7 +30,7 @@ export function buildSupersessionReclaimOps(input: {
     db: ContextDatabase;
     sessionId: string;
     targets: Map<number, TagTarget>;
-    pendingOps?: readonly PendingOp[];
+    pendingOps?: readonly PendingOp[] | undefined;
 }): PendingOp[] {
     const realPendingTagIds = new Set((input.pendingOps ?? []).map((op) => op.tagId));
     const tags = getActiveTagsBySession(input.db, input.sessionId);
@@ -90,7 +90,7 @@ export function buildEditSupersessionReclaim(input: {
     db: ContextDatabase;
     sessionId: string;
     targets: Map<number, TagTarget>;
-    pendingOps?: readonly PendingOp[];
+    pendingOps?: readonly PendingOp[] | undefined;
 }): { ops: PendingOp[]; editMarkerTagIds: Set<number> } {
     const realPendingTagIds = new Set((input.pendingOps ?? []).map((op) => op.tagId));
     const tags = getActiveTagsBySession(input.db, input.sessionId);

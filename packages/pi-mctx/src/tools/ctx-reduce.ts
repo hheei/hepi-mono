@@ -63,11 +63,11 @@ export interface CtxReduceToolDeps {
 	/** Resolve the protected-tail size from the current cwd at tool-call time.
 	 *  Pi keeps the tool registered across `/cd`, so the threshold must follow
 	 *  the active project rather than the launch project. */
-	resolveProtectedTags?: (ctx: { cwd: string }) => number | undefined;
+	resolveProtectedTags?: ((ctx: { cwd: string }) => number | undefined) | undefined;
 	/** Optional callback to read live session input tokens; falls back to
 	 *  `getOrCreateSessionMeta(...).lastInputTokens`.
 	 *  `getSessionTokens` deps field. */
-	getSessionTokens?: (sessionId: string) => number;
+	getSessionTokens?: ((sessionId: string) => number) | undefined;
 }
 
 export function createCtxReduceTool(

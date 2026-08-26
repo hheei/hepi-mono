@@ -105,7 +105,7 @@ export interface SaveCompartmentChunkEmbeddingInput {
     window: CompartmentChunkWindow;
     modelId: string;
     vector: Float32Array;
-    createdAt?: number;
+    createdAt?: number | undefined;
 }
 
 const loadFtsRowsStatements = new WeakMap<Database, PreparedStatement>();

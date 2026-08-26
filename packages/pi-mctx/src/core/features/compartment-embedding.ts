@@ -43,7 +43,7 @@ export interface CompartmentChunkToEmbed {
     startMessage: number;
     endMessage: number;
     /** Optional publish-time chunk text. When present, TC: tool summaries are stripped. */
-    sourceChunkText?: string;
+    sourceChunkText?: string | undefined;
 }
 
 export async function embedAndStoreCompartmentChunks(

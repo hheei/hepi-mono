@@ -28,13 +28,13 @@ const WHOLE_MESSAGE_PLACEHOLDER_TEXT = "[dropped]";
 
 type PiToolCall = {
 	type: "toolCall";
-	id?: unknown;
-	name?: unknown;
-	arguments?: unknown;
+	id?: unknown | undefined;
+	name?: unknown | undefined;
+	arguments?: unknown | undefined;
 };
 type PiAssistantMessage = {
 	role: "assistant";
-	content?: unknown;
+	content?: unknown | undefined;
 };
 
 /**

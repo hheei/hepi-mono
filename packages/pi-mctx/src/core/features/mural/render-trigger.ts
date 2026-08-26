@@ -30,15 +30,15 @@ export interface EnsureMuralResult {
     /** True when a resolved cue pool exists (the mural block should be injected). */
     hasMural: boolean;
     /** data URL of the current mural PNG, when hasMural. */
-    dataUrl?: string;
+    dataUrl?: string | undefined;
     /** sha256 of the mural PNG bytes — the m0 mural fold identity. */
-    contentHash?: string;
+    contentHash?: string | undefined;
     /** True when this call re-rendered + upserted (the text changed or was new). */
     rerendered: boolean;
     /** Set when the coverage gate intentionally omitted the mural. */
-    skipReason?: string;
-    width?: number;
-    height?: number;
+    skipReason?: string | undefined;
+    width?: number | undefined;
+    height?: number | undefined;
 }
 
 /** A mural is useful with enough cues or broad enough pool coverage. */

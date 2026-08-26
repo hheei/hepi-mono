@@ -71,7 +71,7 @@ function parseField(token: string, spec: FieldSpec): Set<number> | null {
 
         // Split off an optional /step.
         const [rangePart, stepPart, ...extra] = piece.split("/");
-        if (extra.length > 0) return null;
+        if (rangePart === undefined || extra.length > 0) return null;
         let step = 1;
         if (stepPart !== undefined) {
             if (!/^\d+$/.test(stepPart)) return null;
@@ -86,7 +86,7 @@ function parseField(token: string, spec: FieldSpec): Set<number> | null {
             hi = spec.max;
         } else if (rangePart.includes("-")) {
             const [loStr, hiStr, ...rest] = rangePart.split("-");
-            if (rest.length > 0) return null;
+            if (loStr === undefined || hiStr === undefined || rest.length > 0) return null;
             if (!/^\d+$/.test(loStr) || !/^\d+$/.test(hiStr)) return null;
             lo = Number(loStr);
             hi = Number(hiStr);
@@ -127,24 +127,33 @@ export function parseCron(expression: string): ParseCronResult {
 
     const sets: Set<number>[] = [];
     for (let i = 0; i < FIELDS.length; i++) {
-        const parsed = parseField(tokens[i], FIELDS[i]);
+        const spec = FIELDS[i];
+        const token = tokens[i];
+        if (!spec || token === undefined) {
+            return { ok: false, error: "internal cron field mismatch" };
+        }
+        const parsed = parseField(token, spec);
         if (!parsed) {
             return {
                 ok: false,
-                error: `invalid ${FIELDS[i].name} field "${tokens[i]}" (allowed ${FIELDS[i].min}-${FIELDS[i].max})`,
+                error: `invalid ${spec.name} field "${token}" (allowed ${spec.min}-${spec.max})`,
             };
         }
         sets.push(parsed);
+    }
+    const [minute, hour, dom, month, dow] = sets;
+    if (!minute || !hour || !dom || !month || !dow) {
+        return { ok: false, error: "internal cron field mismatch" };
     }
 
     return {
         ok: true,
         cron: {
-            minute: sets[0],
-            hour: sets[1],
-            dom: sets[2],
-            month: sets[3],
-            dow: sets[4],
+            minute,
+            hour,
+            dom,
+            month,
+            dow,
             domRestricted: tokens[2] !== "*",
             dowRestricted: tokens[4] !== "*",
         },

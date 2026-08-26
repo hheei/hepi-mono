@@ -47,7 +47,7 @@ export { BLOCK_UNTIL_DONE_PERCENTAGE, POST_DROP_TARGET_RATIO };
 
 export interface CompartmentTriggerResult {
     shouldFire: boolean;
-    reason?: "projected_headroom" | "force_band" | "commit_clusters" | "tail_size";
+    reason?: "projected_headroom" | "force_band" | "commit_clusters" | "tail_size" | undefined;
     /**
      * The protected-tail boundary snapshot the decision was computed from.
      * Present whenever the tail inspection ran. Callers that start the
@@ -55,7 +55,7 @@ export interface CompartmentTriggerResult {
      * not re-resolve the boundary — one resolution per pass, and the historian
      * decision saw.
      */
-    boundarySnapshot?: ProtectedTailBoundarySnapshot;
+    boundarySnapshot?: ProtectedTailBoundarySnapshot | undefined;
 }
 
 /**
@@ -77,8 +77,8 @@ export interface InMemoryTailSource {
  * serializers safely omit cleared thinking for every provider.
  */
 export interface ReasoningProjectionCapability {
-    providerID?: string;
-    canClearReasoning?: boolean;
+    providerID?: string | undefined;
+    canClearReasoning?: boolean | undefined;
 }
 
 /**
@@ -280,7 +280,7 @@ interface TailInfo {
     chunkHasMore: boolean;
     trueRawEligibleTokens: number;
     commitClusterCount: number;
-    boundarySnapshot?: ProtectedTailBoundarySnapshot;
+    boundarySnapshot?: ProtectedTailBoundarySnapshot | undefined;
 }
 
 const TAIL_INFO_DEFAULTS: TailInfo = {

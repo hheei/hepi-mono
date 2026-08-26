@@ -14,8 +14,8 @@ export type CtxStatusLevel = "info" | "success" | "warning" | "error";
 export interface CtxStatusEntryData {
 	title: string;
 	text: string;
-	level?: CtxStatusLevel;
-	details?: unknown;
+	level?: CtxStatusLevel | undefined;
+	details?: unknown | undefined;
 }
 
 export type CtxStatusMessageContent = CtxStatusEntryData;
@@ -34,7 +34,7 @@ type PiEntryRendererRegistration = {
 			options: { expanded: boolean },
 			theme: Theme,
 		) => Component | undefined,
-	) => void;
+	) => void | undefined;
 };
 
 export type PiMessageSender = Pick<ExtensionAPI, "appendEntry"> &

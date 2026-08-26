@@ -1,6 +1,6 @@
 export interface ImitatedReducedArgs {
-    reduced?: boolean;
-    summary?: string;
+    reduced?: boolean | undefined;
+    summary?: string | undefined;
 }
 
 export type ImitatedArgRule =
@@ -14,8 +14,8 @@ export type ImitatedArgRule =
     | {
           type: "array";
           items: "string" | "number";
-          maxItems?: number;
-          values?: readonly string[];
+          maxItems?: number | undefined;
+          values?: readonly string[] | undefined;
       };
 
 export type ImitatedArgsSchema = Readonly<Record<string, ImitatedArgRule>>;
