@@ -168,7 +168,7 @@ export function clearOldReasoningPi(args: {
 				// working-array state.
 				if (tp.thinking !== CLEARED || tp.thinkingSignature !== undefined) {
 					tp.thinking = CLEARED;
-					tp.thinkingSignature = undefined;
+					delete tp.thinkingSignature;
 					cleared++;
 				}
 			}
@@ -288,7 +288,7 @@ export function replayClearedReasoningPi(args: {
 				// to the cache-busting pass that set the watermark.
 				if (tp.thinking !== CLEARED || tp.thinkingSignature !== undefined) {
 					tp.thinking = CLEARED;
-					tp.thinkingSignature = undefined;
+					delete tp.thinkingSignature;
 					cleared++;
 				}
 			}
