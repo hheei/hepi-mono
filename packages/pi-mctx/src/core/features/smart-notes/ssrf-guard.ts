@@ -106,10 +106,11 @@ export async function guardedSmartNoteHttpGet(
     input: string,
     options: GuardedSmartNoteHttpGetOptions,
 ): Promise<{ status: number; body: string }> {
-    const validation = await validateSmartNoteHttpUrl(input, {
-        signal: options.signal,
-        resolver: options.resolver,
-    });
+    const validationOptions =
+        options.resolver === undefined
+            ? { signal: options.signal }
+            : { signal: options.signal, resolver: options.resolver };
+    const validation = await validateSmartNoteHttpUrl(input, validationOptions);
     const timeoutMs = options.timeoutMs ?? DEFAULT_HTTP_TIMEOUT_MS;
     const bodyLimitBytes = options.bodyLimitBytes ?? DEFAULT_HTTP_BODY_LIMIT_BYTES;
     const requestAddress = options.requestAddress ?? requestValidatedAddress;
@@ -362,7 +363,9 @@ function parseIpLiteral(
         if (!parsed) return null;
         const value = ipv6PartsToBigInt(parsed.parts);
         const mappedIpv4 = ipv4MappedValue(parsed.parts);
-        return { family: 6, address: host, value, mappedIpv4 };
+        return mappedIpv4 === undefined
+            ? { family: 6, address: host, value }
+            : { family: 6, address: host, value, mappedIpv4 };
     }
     return null;
 }
@@ -379,7 +382,11 @@ function ipv4ToNumber(address: string): number {
     ) {
         throw new SmartNoteSecurityError(`invalid IPv4 address: ${address}`);
     }
-    return (((parts[0] << 24) >>> 0) + (parts[1] << 16) + (parts[2] << 8) + parts[3]) >>> 0;
+    const [first, second, third, fourth] = parts;
+    if (first === undefined || second === undefined || third === undefined || fourth === undefined) {
+        throw new SmartNoteSecurityError(`invalid IPv4 address: ${address}`);
+    }
+    return (((first << 24) >>> 0) + (second << 16) + (third << 8) + fourth) >>> 0;
 }
 
 function parseIpv6ToParts(address: string): { parts: number[] } | null {
@@ -421,8 +428,18 @@ function ipv6PartsToBigInt(parts: number[]): bigint {
 
 function ipv4MappedValue(parts: number[]): number | undefined {
     if (parts.length !== 8) return undefined;
-    if (parts.slice(0, 5).some((part) => part !== 0) || parts[5] !== 0xffff) return undefined;
-    return (((parts[6] << 16) >>> 0) + parts[7]) >>> 0;
+    const fifth = parts[5];
+    const sixth = parts[6];
+    const seventh = parts[7];
+    if (
+        parts.slice(0, 5).some((part) => part !== 0) ||
+        fifth !== 0xffff ||
+        sixth === undefined ||
+        seventh === undefined
+    ) {
+        return undefined;
+    }
+    return (((sixth << 16) >>> 0) + seventh) >>> 0;
 }
 
 function isGlobalAddress(
