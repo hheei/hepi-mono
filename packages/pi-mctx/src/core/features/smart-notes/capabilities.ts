@@ -50,7 +50,10 @@ export function createSmartNoteCapabilities(
             ),
         gitLog: (opts) => guardedGitLog(projectRoot, opts, options.signal),
         httpGet: (url) =>
-            guardedSmartNoteHttpGet(url, { signal: options.signal, resolver: options.resolver }),
+            guardedSmartNoteHttpGet(url, {
+                signal: options.signal,
+                ...(options.resolver !== undefined ? { resolver: options.resolver } : {}),
+            }),
     };
 }
 
@@ -214,7 +217,7 @@ async function runGitScalar(
 ): Promise<string | null> {
     const stdout = await runGit(projectRoot, args, signal).catch(() => null);
     const value = stdout?.trim();
-    return value ? value.split("\n")[0] : null;
+    return value ? (value.split("\n")[0] ?? null) : null;
 }
 
 async function guardedGitLog(
