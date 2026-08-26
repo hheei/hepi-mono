@@ -93,8 +93,8 @@ export function searchMemoriesFTSUnion(
     if (identities.length === 0) return [];
     const sharingFilter = buildWorkspaceMemorySqlFilter({
         identities,
-        ownIdentities,
-        shareCategories,
+        ...(ownIdentities !== undefined ? { ownIdentities } : {}),
+        ...(shareCategories !== undefined ? { shareCategories } : {}),
         tableName: "memories",
         includeClassificationFields: (() => {
             const columns = db.prepare("PRAGMA table_info(memories)").all() as Array<{
@@ -107,7 +107,9 @@ export function searchMemoriesFTSUnion(
         })(),
     });
     if (identities.length === 1 && !sharingFilter.active) {
-        return searchMemoriesFTS(db, identities[0], query, limit);
+        const identity = identities[0];
+        if (identity === undefined) return [];
+        return searchMemoriesFTS(db, identity, query, limit);
     }
 
     const trimmedQuery = query.trim();
