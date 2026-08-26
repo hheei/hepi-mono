@@ -28,11 +28,10 @@ export function isValidSemver(version: string): boolean {
 export function compareSemverCore(a: string, b: string): number | null {
     if (!isValidSemver(a) || !isValidSemver(b)) return null;
     const core = (v: string) =>
-        v
-            .split(/[-+]/, 1)[0]
+        (v.split(/[-+]/, 1)[0] ?? "")
             .split(".")
             .map((n) => Number.parseInt(n, 10));
     const [a0, a1, a2] = core(a);
     const [b0, b1, b2] = core(b);
-    return a0 - b0 || a1 - b1 || a2 - b2;
+    return (a0 ?? 0) - (b0 ?? 0) || (a1 ?? 0) - (b1 ?? 0) || (a2 ?? 0) - (b2 ?? 0);
 }
