@@ -28,6 +28,15 @@ interface EmbeddingResponseBody {
     model?: string;
 }
 
+/** The WHATWG fetch response surface used by this adapter. */
+interface EmbeddingHttpResponse {
+    ok: boolean;
+    status: number;
+    statusText: string;
+    headers: { get(name: string): string | null };
+    text(): Promise<string>;
+}
+
 function normalizeEndpoint(endpoint?: string): string {
     return endpoint?.trim().replace(/\/+$/, "") ?? "";
 }
@@ -247,7 +256,9 @@ export class OpenAICompatibleEmbeddingProvider implements EmbeddingProvider {
             }
 
             const inputTypeForRequest = this.resolveInputTypeForPurpose(purpose);
-            const response = await fetch(`${this.endpoint}/embeddings`, {
+            // Pi TUI's Bun declarations also expose an unrelated global Response.
+            // This request runs through Node's WHATWG fetch implementation.
+            const response = (await fetch(`${this.endpoint}/embeddings`, {
                 method: "POST",
                 headers: {
                     "content-type": "application/json",
@@ -270,7 +281,7 @@ export class OpenAICompatibleEmbeddingProvider implements EmbeddingProvider {
                 // redirects, so `redirect: "error"` rejects the response instead.
                 redirect: "error",
                 signal: internalController.signal,
-            });
+            })) as unknown as EmbeddingHttpResponse;
 
             if (!response.ok) {
                 log(
