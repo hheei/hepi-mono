@@ -29,7 +29,7 @@ export class BashPtySurface implements Component {
 		readonly onClose: (result: BashPtySurfaceResult) => void,
 	) {}
 
-	append(bytes: Uint8Array, decoder: TextDecoder): void {
+	append(bytes: Uint8Array, decoder: InstanceType<typeof TextDecoder>): void {
 		const text = decoder.decode(bytes, { stream: true }).replaceAll("\u001b", "");
 		const parts = `${this.#remainder}${text}`.split("\n");
 		this.#remainder = parts.pop() ?? "";
@@ -38,7 +38,7 @@ export class BashPtySurface implements Component {
 			this.#lines.splice(0, this.#lines.length - MAX_LIVE_LINES);
 	}
 
-	complete(exit: PtyExitStatus, decoder: TextDecoder): void {
+	complete(exit: PtyExitStatus, decoder: InstanceType<typeof TextDecoder>): void {
 		const line = `${this.#remainder}${decoder.decode()}`;
 		if (line.length > 0) this.#lines.push(line);
 		this.#remainder = "";

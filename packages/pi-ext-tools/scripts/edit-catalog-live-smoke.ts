@@ -55,7 +55,7 @@ const resourceLoader = new DefaultResourceLoader({
 	extensionFactories: [
 		{
 			factory: piExtTools,
-			path: join(import.meta.dir, "../dist/extension.js"),
+			path: join(import.meta.dirname, "../dist/extension.js"),
 		} as never,
 	],
 });

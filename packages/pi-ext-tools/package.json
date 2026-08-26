@@ -63,7 +63,6 @@
 		"@earendil-works/pi-ai": "0.84.1",
 		"@earendil-works/pi-coding-agent": "0.84.1",
 		"@earendil-works/pi-tui": "0.84.1",
-		"@napi-rs/cli": "^3.5.0",
-		"@types/bun": "latest"
+		"@napi-rs/cli": "^3.5.0"
 	}
 }
