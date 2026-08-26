@@ -8,9 +8,11 @@ export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
     let normB = 0;
 
     for (let index = 0; index < a.length; index++) {
-        dotProduct += a[index] * b[index];
-        normA += a[index] * a[index];
-        normB += b[index] * b[index];
+        const aValue = a[index] ?? 0;
+        const bValue = b[index] ?? 0;
+        dotProduct += aValue * bValue;
+        normA += aValue * aValue;
+        normB += bValue * bValue;
     }
 
     const denominator = Math.sqrt(normA) * Math.sqrt(normB);
