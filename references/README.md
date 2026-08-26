@@ -1,6 +1,6 @@
 # Public Reference Repositories
 
-External source used for research lives locally under `references/repos/`. That directory is ignored by Git and is never part of the Bun workspace, build, tests, lint, or published packages.
+External source used for research lives locally under `references/repos/`. That directory is ignored by Git and is never part of the npm workspace, build, tests, lint, or published packages.
 
 Use `<owner>-<repo>` directory names. Documentation must cite the public URL and exact revision; a local clone path is optional and must not be required by a clean checkout.
 
