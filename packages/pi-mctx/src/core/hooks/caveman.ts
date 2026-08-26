@@ -77,7 +77,9 @@ function restoreRegions(text: string, preserved: PreservedRegion[]): string {
     let working = text;
     // Restore in reverse order so nested placeholders resolve correctly.
     for (let i = preserved.length - 1; i >= 0; i--) {
-        working = working.split(preserved[i].placeholder).join(preserved[i].original);
+        const region = preserved[i];
+        if (!region) continue;
+        working = working.split(region.placeholder).join(region.original);
     }
     return working;
 }
@@ -275,8 +277,11 @@ function applyUltraAbbreviations(text: string): string {
         const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         working = working.replace(new RegExp(`\\b${escaped}\\b`, "gi"), (match) => {
             // Preserve first-letter capitalization.
-            return match[0] === match[0].toUpperCase()
-                ? abbreviation[0].toUpperCase() + abbreviation.slice(1)
+            const firstMatchCharacter = match[0];
+            const firstAbbreviationCharacter = abbreviation[0];
+            if (!firstMatchCharacter || !firstAbbreviationCharacter) return match;
+            return firstMatchCharacter === firstMatchCharacter.toUpperCase()
+                ? firstAbbreviationCharacter.toUpperCase() + abbreviation.slice(1)
                 : abbreviation;
         });
     }
