@@ -31,6 +31,8 @@ function healCompartmentGaps(
     for (let i = 1; i < compartments.length; i++) {
         const prev = compartments[i - 1];
         const curr = compartments[i];
+        if (!prev || !curr) continue;
+        if (!prev || !curr) continue;
         const gapStart = prev.endMessage + 1;
         const gapEnd = curr.startMessage - 1;
         const gapSize = gapEnd - gapStart + 1;
@@ -73,7 +75,26 @@ export function validateHistorianOutput(
     // the runner keeps its prior boundary and re-reads those raw messages.
     healCompartmentGaps(parsed.compartments, chunk.toolOnlyRanges);
 
-    const mapped = mapParsedCompartmentsToChunk(parsed.compartments, chunk, sequenceOffset);
+    const mapped = mapParsedCompartmentsToChunk(
+        parsed.compartments.map((compartment) => ({
+            startMessage: compartment.startMessage,
+            endMessage: compartment.endMessage,
+            title: compartment.title,
+            content: compartment.content,
+            ...(compartment.p1 === undefined ? {} : { p1: compartment.p1 }),
+            ...(compartment.p2 === undefined ? {} : { p2: compartment.p2 }),
+            ...(compartment.p3 === undefined ? {} : { p3: compartment.p3 }),
+            ...(compartment.p4 === undefined ? {} : { p4: compartment.p4 }),
+            ...(compartment.importance === undefined
+                ? {}
+                : { importance: compartment.importance }),
+            ...(compartment.episodeType === undefined
+                ? {}
+                : { episodeType: compartment.episodeType }),
+        })),
+        chunk,
+        sequenceOffset,
+    );
     if (!mapped.ok) {
         return {
             ok: false,
@@ -100,7 +121,14 @@ export function validateHistorianOutput(
         facts: parsed.facts,
         userObservations: parsed.userObservations.length > 0 ? parsed.userObservations : undefined,
         primerCandidates:
-            parsed.primerCandidates.length > 0 ? parsed.primerCandidates.slice(0, 1) : undefined,
+            parsed.primerCandidates.length > 0
+                ? parsed.primerCandidates.slice(0, 1).map((candidate) => ({
+                      question: candidate.question,
+                      ...(candidate.originCompartmentIndex === undefined
+                          ? {}
+                          : { originCompartmentIndex: candidate.originCompartmentIndex }),
+                  }))
+                : undefined,
         // v2: surface events so the runner can persist them (stored, not rendered).
         events: parsed.events.length > 0 ? parsed.events : undefined,
     };
@@ -196,7 +224,7 @@ export function validateStoredCompartments(
 }
 
 function validateParsedCompartments(
-    compartments: Array<{ startMessage: number; endMessage: number; p1?: string }>,
+    compartments: Array<{ startMessage: number; endMessage: number; p1?: string | undefined }>,
     chunkStart: number,
     chunkEnd: number,
     unprocessedFrom: number | null,
