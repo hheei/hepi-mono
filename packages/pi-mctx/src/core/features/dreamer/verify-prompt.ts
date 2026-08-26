@@ -73,7 +73,7 @@ export interface ParsedVerifyManifest {
 
 function attrOf(s: string, name: string): string | null {
     const m = s.match(new RegExp(`\\b${name}\\s*=\\s*"([^"]*)"`));
-    return m ? m[1] : null;
+    return m?.[1] ?? null;
 }
 
 function filesOf(s: string): string[] {
@@ -90,19 +90,22 @@ export function parseVerifyManifest(text: string): ParsedVerifyManifest {
     const body = extractCompleteManifestBody(text, "verify");
 
     for (const m of body.matchAll(/<verified\b([^>]*)\/?>/g)) {
-        const id = Number.parseInt(attrOf(m[1], "id") ?? "", 10);
+        const attrs = m[1] ?? "";
+        const id = Number.parseInt(attrOf(attrs, "id") ?? "", 10);
         if (!Number.isInteger(id)) throw new Error("verify manifest entry missing numeric id");
-        out.verified.push({ id, files: filesOf(m[1]) });
+        out.verified.push({ id, files: filesOf(attrs) });
     }
     for (const m of body.matchAll(/<update\b([^>]*?)(?:\/>|>([\s\S]*?)<\/update>)/g)) {
-        const id = Number.parseInt(attrOf(m[1], "id") ?? "", 10);
+        const attrs = m[1] ?? "";
+        const id = Number.parseInt(attrOf(attrs, "id") ?? "", 10);
         if (!Number.isInteger(id)) throw new Error("verify manifest entry missing numeric id");
-        out.updated.push({ id, files: filesOf(m[1]), content: (m[2] ?? "").trim() });
+        out.updated.push({ id, files: filesOf(attrs), content: (m[2] ?? "").trim() });
     }
     for (const m of body.matchAll(/<archive\b([^>]*)\/?>/g)) {
-        const id = Number.parseInt(attrOf(m[1], "id") ?? "", 10);
+        const attrs = m[1] ?? "";
+        const id = Number.parseInt(attrOf(attrs, "id") ?? "", 10);
         if (!Number.isInteger(id)) throw new Error("verify manifest entry missing numeric id");
-        out.archived.push({ id, reason: attrOf(m[1], "reason") ?? "" });
+        out.archived.push({ id, reason: attrOf(attrs, "reason") ?? "" });
     }
     assertNoDuplicateManifestIds(
         [...out.verified, ...out.updated, ...out.archived].map((entry) => entry.id),
