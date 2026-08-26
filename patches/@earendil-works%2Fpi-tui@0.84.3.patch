@@ -40,7 +40,6 @@ index 05279f4699c298ca345785dd2f896a33d8271f4a..c50e7f9d0f83f196a9b08dffd6fa9f6c
 +                }
              }
              for (let i = 0; i < newLines.length; i++) {
-                 if (i > 0)
 @@ -238,7 +241,9 @@ export class TuiMainScreen extends TuiBase {
          // Width changes always need a full re-render because wrapping changes.
          if (widthChanged) {
@@ -51,4 +50,3 @@ index 05279f4699c298ca345785dd2f896a33d8271f4a..c50e7f9d0f83f196a9b08dffd6fa9f6c
 +            fullRender(true, false);
              return;
          }
-         // Height changes normally need a full re-render to keep the visible viewport aligned,
