@@ -169,7 +169,8 @@ function messageId(message: MessageLike): string | null {
 
 function latestAssistant(messages: LkgEntryProjection[]): LkgEntryProjection | null {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
-        if (messages[index].role === "assistant") return messages[index];
+        const message = messages[index];
+        if (message?.role === "assistant") return message;
     }
     return null;
 }
@@ -189,6 +190,7 @@ export function findLkgAnchor(messages: LkgEntryProjection[]): number | null {
     let anchor = -1;
     for (let index = messages.length - 1; index >= 0; index -= 1) {
         const message = messages[index];
+        if (message === undefined) continue;
         if (!isRealUser(message)) continue;
         if (assistant && assistantIsActive(assistant)) {
             if (
@@ -264,6 +266,7 @@ export function buildLkgPrefix(
     const validIds = ids as string[];
     if (new Set(validIds).size !== validIds.length) return null;
     const anchorMessageId = validIds[anchorIndex];
+    if (anchorMessageId === undefined) return null;
     const inputContentDigests = projected
         .slice(0, anchorIndex + 1)
         .map((message) => message.contentDigest?.() ?? null);
@@ -372,14 +375,17 @@ function partIsAnthropicThinking(part: unknown): boolean {
 export function validateAnthropicReasoningRuns(messages: MessageLike[]): boolean {
     let index = 0;
     while (index < messages.length) {
-        if (messageRole(messages[index]) !== "assistant") {
+        const message = messages[index];
+        if (message === undefined || messageRole(message) !== "assistant") {
             index += 1;
             continue;
         }
         let thinkingBlocks = 0;
         let sawOtherContent = false;
-        while (index < messages.length && messageRole(messages[index]) === "assistant") {
-            for (const part of messageParts(messages[index])) {
+        while (index < messages.length) {
+            const assistant = messages[index];
+            if (assistant === undefined || messageRole(assistant) !== "assistant") break;
+            for (const part of messageParts(assistant)) {
                 if (partIsAnthropicThinking(part)) {
                     thinkingBlocks += 1;
                     if (thinkingBlocks > 1 || sawOtherContent) return false;
