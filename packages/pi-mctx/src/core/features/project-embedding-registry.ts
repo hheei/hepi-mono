@@ -476,15 +476,20 @@ function createProvider(
     }
 
     if (config.provider === "openai-compatible") {
-        return new OpenAICompatibleEmbeddingProvider({
+        const options = {
             endpoint: config.endpoint,
             model: config.model,
-            apiKey: config.api_key,
-            inputType: config.input_type,
-            queryInputType: config.query_input_type,
-            truncate: config.truncate,
-            maxInputTokens: config.max_input_tokens,
-        });
+            ...(config.api_key !== undefined ? { apiKey: config.api_key } : {}),
+            ...(config.input_type !== undefined ? { inputType: config.input_type } : {}),
+            ...(config.query_input_type !== undefined
+                ? { queryInputType: config.query_input_type }
+                : {}),
+            ...(config.truncate !== undefined ? { truncate: config.truncate } : {}),
+            ...(config.max_input_tokens !== undefined
+                ? { maxInputTokens: config.max_input_tokens }
+                : {}),
+        };
+        return new OpenAICompatibleEmbeddingProvider(options);
     }
 
     if (config.provider === "local") {
@@ -505,17 +510,26 @@ function createProvider(
             synapse_recommended_batch?: number;
             synapse_provenance?: unknown;
         };
-        return new SynapseEmbeddingProvider({
+        const options = {
             connectionFile: synapse.synapse_connection_file ?? "",
             projectRoot: context?.projectRoot ?? "",
             session: context?.session ?? "embedding",
-            model: synapse.model,
-            fingerprint: synapse.synapse_fingerprint,
-            tableEpoch: synapse.synapse_table_epoch,
-            dims: synapse.synapse_dims,
-            recommendedBatch: synapse.synapse_recommended_batch,
-            provenance: synapse.synapse_provenance,
-        });
+            ...(synapse.model !== undefined ? { model: synapse.model } : {}),
+            ...(synapse.synapse_fingerprint !== undefined
+                ? { fingerprint: synapse.synapse_fingerprint }
+                : {}),
+            ...(synapse.synapse_table_epoch !== undefined
+                ? { tableEpoch: synapse.synapse_table_epoch }
+                : {}),
+            ...(synapse.synapse_dims !== undefined ? { dims: synapse.synapse_dims } : {}),
+            ...(synapse.synapse_recommended_batch !== undefined
+                ? { recommendedBatch: synapse.synapse_recommended_batch }
+                : {}),
+            ...(synapse.synapse_provenance !== undefined
+                ? { provenance: synapse.synapse_provenance }
+                : {}),
+        };
+        return new SynapseEmbeddingProvider(options);
     }
 
     throw new Error("Unknown embedding provider");
@@ -1829,6 +1843,8 @@ export async function embedItemsForProject(
 ): Promise<{ vectors: Map<string, Float32Array>; modelId: string; generation: number } | null> {
     const registration = projectRegistrations.get(projectIdentity);
     if (!registration || registration.observationMode || items.length === 0) return null;
+    const firstItem = items[0];
+    if (!firstItem) return null;
     const generation = registration.generation;
     const modelId = registration.modelId;
     const runtimeFingerprint = registration.runtimeFingerprint;
@@ -1858,7 +1874,7 @@ export async function embedItemsForProject(
         beginSynapseBatchLedger(db, {
             sessionId,
             projectPath: projectIdentity,
-            scope: items[0].id.split(":", 1)[0] as "memory" | "commit" | "chunk",
+            scope: firstItem.id.split(":", 1)[0] as "memory" | "commit" | "chunk",
             manifest: items.map(({ id, contentSha256 }) => ({ id, contentSha256 })),
             requestKey: ledgerKey,
         });
@@ -2230,14 +2246,18 @@ async function embedCandidateChunkBatch(
         let windowCount = 0;
         // Always include at least one compartment, even if it alone exceeds the
         // cap (a single very large compartment must still be embeddable).
+        let nextItem: Prepared | undefined;
         do {
             const item = prepared[i];
+            if (!item) break;
             slice.push(item);
             windowCount += item.windows.length;
             i += 1;
+            nextItem = prepared[i];
         } while (
             i < prepared.length &&
-            windowCount + prepared[i].windows.length <= MAX_WINDOWS_PER_EMBED_CALL
+            nextItem !== undefined &&
+            windowCount + nextItem.windows.length <= MAX_WINDOWS_PER_EMBED_CALL
         );
 
         const items = slice.flatMap((item) =>
