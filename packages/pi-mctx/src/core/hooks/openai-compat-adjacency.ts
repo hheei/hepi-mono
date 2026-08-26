@@ -39,6 +39,7 @@ export function assertOpenAiCompatAdjacency(messages: OpenAiCompatWireMessage[])
 
     for (let i = 0; i < messages.length; i++) {
         const msg = messages[i];
+        if (msg === undefined) continue;
         if (msg.role !== "assistant" || !msg.tool_calls || msg.tool_calls.length === 0) {
             continue;
         }
@@ -48,8 +49,9 @@ export function assertOpenAiCompatAdjacency(messages: OpenAiCompatWireMessage[])
         const collected = new Map<string, number>();
 
         let j = i + 1;
-        while (j < messages.length && messages[j].role === "tool") {
+        while (j < messages.length && messages[j]?.role === "tool") {
             const toolMsg = messages[j];
+            if (toolMsg === undefined) break;
             const id = toolMsg.tool_call_id;
             if (!id) {
                 violations.push({
@@ -86,8 +88,10 @@ export function assertOpenAiCompatAdjacency(messages: OpenAiCompatWireMessage[])
                         ? `assistant at index ${i} has tool_calls but next messages are not contiguous tool role (following: ${followingRoles.join(", ") || "none"})`
                         : `assistant at index ${i} missing tool results for: ${missing.join(", ")}`,
             });
-            if (j < messages.length && messages[j].role !== "tool") {
+            const blockedMessage = messages[j];
+            if (j < messages.length && blockedMessage?.role !== "tool") {
                 const last = violations[violations.length - 1];
+                if (last === undefined) continue;
                 last.detail += `; blocked by ${messages
                     .slice(i + 1, j + 1)
                     .map((m, off) => `${m.role}[${i + 1 + off}]`)
@@ -97,12 +101,14 @@ export function assertOpenAiCompatAdjacency(messages: OpenAiCompatWireMessage[])
     }
 
     for (let i = 0; i < messages.length; i++) {
-        if (messages[i].role !== "tool") continue;
-        const id = messages[i].tool_call_id ?? "";
+        const message = messages[i];
+        if (message === undefined || message.role !== "tool") continue;
+        const id = message.tool_call_id ?? "";
         if (!id) continue;
         let found = false;
         for (let k = i - 1; k >= 0; k--) {
             const prev = messages[k];
+            if (prev === undefined) continue;
             if (prev.role === "assistant" && prev.tool_calls?.some((tc) => tc.id === id)) {
                 const between = messages.slice(k + 1, i);
                 if (between.every((m) => m.role === "tool")) {
