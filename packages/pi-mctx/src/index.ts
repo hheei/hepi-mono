@@ -21,8 +21,8 @@ import {
 } from "@hheei/pi-ext-core";
 import { join } from "node:path";
 import type {
-	CustomMessage,
 	ExtensionAPI,
+	MessageRenderer,
 	Theme,
 } from "@earendil-works/pi-coding-agent";
 import { Box, type Component, Text } from "@earendil-works/pi-tui";
@@ -182,11 +182,11 @@ import { registerMagicContextTools } from "./tools";
 
 const PREFIX = "[magic-context][pi]";
 
-export function renderChannel1Nudge(
-	message: CustomMessage<Channel1NudgeMessageDetails>,
-	_options: { expanded: boolean; outputPad: number },
-	theme: Theme,
-): Component | undefined {
+export const renderChannel1Nudge: MessageRenderer<Channel1NudgeMessageDetails> = (
+	message,
+	_options,
+	theme,
+) => {
 	const text = message.details?.displayText;
 	if (typeof text !== "string") return undefined;
 	const box = new Box(1, 0, (content) => theme.bg("customMessageBg", content));
@@ -196,7 +196,7 @@ export function renderChannel1Nudge(
 		),
 	);
 	return box;
-}
+};
 
 
 // ---------------------------------------------------------------------------
@@ -304,9 +304,9 @@ export function persistPiMessageEndModelMeta(args: {
 }): void {
 	if (!args.message || typeof args.message !== "object") return;
 	const msg = args.message as {
-		role?: string;
-		provider?: string;
-		model?: string;
+		role?: string | undefined;
+		provider?: string | undefined;
+		model?: string | undefined;
 	};
 	if (
 		msg.role !== "assistant" ||
@@ -370,7 +370,7 @@ function resolvePiPressureContextLimit(args: {
 	db: ContextDatabase;
 	sessionId: string;
 	piContextWindow: number;
-	model?: { provider?: string; id?: string; maxTokens?: number };
+	model?: { provider?: string | undefined; id?: string | undefined; maxTokens?: number | undefined } | undefined;
 }): number {
 	// Pi reports the model's context window directly (ctx.getContextUsage() /
 	// ctx.model.contextWindow) — its own authoritative source. We no longer
@@ -399,9 +399,9 @@ export async function persistPiPressureFromMessageEnd(args: {
 	sessionId: string;
 	message: unknown;
 	piContextWindow: number;
-	piModel?: { provider?: string; id?: string; maxTokens?: number };
-	piTokens?: number;
-	notifyIssue?: (message: string) => unknown | Promise<unknown>;
+	piModel?: { provider?: string | undefined; id?: string | undefined; maxTokens?: number | undefined } | undefined;
+	piTokens?: number | undefined;
+	notifyIssue?: ((message: string) => unknown | Promise<unknown>) | undefined;
 }): Promise<void> {
 	const { provider, model } = getPiMessageModel(args.message);
 	const effectiveContextLimit = resolvePiPressureContextLimit({
@@ -738,8 +738,8 @@ async function startPiMagicContextRuntime(
 			try {
 				const api = await loadDefaultPiSessionApi();
 				const sessions = (await api.listSessions()) as Array<{
-					id?: unknown;
-					cwd?: unknown;
+					id?: unknown | undefined;
+					cwd?: unknown | undefined;
 				}>;
 				await runSessionProjectBackfill(
 					database,
@@ -1472,8 +1472,8 @@ async function startPiMagicContextRuntime(
 				// marker can actually be applied.
 				try {
 					const smForDrain = sm as {
-						appendCompaction?: unknown;
-						getBranch?: unknown;
+						appendCompaction?: unknown | undefined;
+						getBranch?: unknown | undefined;
 					};
 					const canDrain =
 						typeof smForDrain.appendCompaction === "function" &&
@@ -1820,8 +1820,8 @@ async function startPiMagicContextRuntime(
 			const sessionId = sm?.getSessionId?.();
 			if (typeof sessionId !== "string" || sessionId.length === 0) return;
 			const endedMsg = event.message as unknown as {
-				id?: string;
-				role?: string;
+				id?: string | undefined;
+				role?: string | undefined;
 			};
 			if (
 				endedMsg?.role === "assistant" &&
@@ -1910,10 +1910,10 @@ async function startPiMagicContextRuntime(
 			const msgRaw = event.message as unknown;
 			if (!msgRaw || typeof msgRaw !== "object") return;
 			const msg = msgRaw as {
-				role?: string;
-				errorMessage?: string;
-				provider?: string;
-				model?: string;
+				role?: string | undefined;
+				errorMessage?: string | undefined;
+				provider?: string | undefined;
+				model?: string | undefined;
 			};
 			if (msg.role !== "assistant") return;
 			if (

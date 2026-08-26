@@ -63,12 +63,12 @@ export interface PiHeuristicCleanupConfig {
 	emergency?: {
 		currentTotalInputTokens: number;
 		ceilingTokens: number;
-	};
+	} | undefined;
 	/**
 	 * Age-tier caveman text compression settings. Caller is responsible
 	 * for forwarding this only for primary sessions where caveman is enabled.
 	 */
-	caveman?: CavemanCleanupConfig;
+	caveman?: CavemanCleanupConfig | undefined;
 }
 
 export interface PiHeuristicCleanupResult {
@@ -100,9 +100,9 @@ function buildPiToolFingerprints(
 		const message = messages[i];
 		if (!message || typeof message !== "object") continue;
 		const msg = message as {
-			role?: unknown;
-			content?: unknown;
-			timestamp?: number;
+			role?: unknown | undefined;
+			content?: unknown | undefined;
+			timestamp?: number | undefined;
 		};
 		if (msg.role !== "assistant") continue;
 		if (!Array.isArray(msg.content)) continue;
@@ -113,10 +113,10 @@ function buildPiToolFingerprints(
 		for (const part of msg.content) {
 			if (!part || typeof part !== "object") continue;
 			const p = part as {
-				type?: unknown;
-				id?: unknown;
-				name?: unknown;
-				arguments?: unknown;
+				type?: unknown | undefined;
+				id?: unknown | undefined;
+				name?: unknown | undefined;
+				arguments?: unknown | undefined;
 			};
 			if (p.type !== "toolCall") continue;
 			if (typeof p.name !== "string") continue;
@@ -183,9 +183,9 @@ function collectStaleReduceCallIds(
 		const raw = messages[i];
 		if (!raw || typeof raw !== "object") continue;
 		const msg = raw as {
-			role?: unknown;
-			content?: unknown;
-			timestamp?: number;
+			role?: unknown | undefined;
+			content?: unknown | undefined;
+			timestamp?: number | undefined;
 		};
 		if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
 
@@ -445,6 +445,7 @@ export function applyPiHeuristicCleanup(
 				// Keep the newest, drop the rest.
 				for (let i = 0; i < group.length - 1; i++) {
 					const tag = group[i];
+					if (!tag) continue;
 					const target = targets.get(tag.tagNumber);
 					// Deduplication stays full-drop; only emergency recent arcs keep skeletons.
 					const result = target?.drop?.() ?? "absent";

@@ -99,7 +99,7 @@ ${list}
 export function buildClassifyPrompt(args: {
     projectPath: string;
     memories: ClassifyPromptMemory[];
-    anchors?: ClassifyAnchorMemory[];
+    anchors?: ClassifyAnchorMemory[] | undefined;
 }): string {
     return `## Task: Classify Project Memories
 
@@ -113,9 +113,9 @@ ${renderPool(args.memories)}`;
 
 export interface ParsedClassification {
     id: number;
-    importance?: number;
-    scope?: "project" | "ecosystem" | "universe";
-    shareable?: boolean;
+    importance?: number | undefined;
+    scope?: "project" | "ecosystem" | "universe" | undefined;
+    shareable?: boolean | undefined;
 }
 
 const SCOPES = new Set(["project", "ecosystem", "universe"]);
@@ -126,27 +126,31 @@ export function parseClassifyManifest(text: string): ParsedClassification[] {
     const out: ParsedClassification[] = [];
     const body = extractCompleteManifestBody(text, "classify");
     for (const m of body.matchAll(/<memory\b([^>]*)\/?>/g)) {
-        const attrs = m[1];
+        const attrs = m[1] ?? "";
         const idMatch = attrs.match(/\bid\s*=\s*"(\d+)"/);
-        if (!idMatch) throw new Error("classify manifest entry missing numeric id");
-        const id = Number.parseInt(idMatch[1], 10);
+        const rawId = idMatch?.[1];
+        if (rawId === undefined) throw new Error("classify manifest entry missing numeric id");
+        const id = Number.parseInt(rawId, 10);
         if (!Number.isInteger(id)) throw new Error("classify manifest entry missing numeric id");
 
         const entry: ParsedClassification = { id };
         const impMatch = attrs.match(/\bimportance\s*=\s*"(\d+)"/);
-        if (impMatch) {
-            const imp = Number.parseInt(impMatch[1], 10);
+        const rawImp = impMatch?.[1];
+        if (rawImp !== undefined) {
+            const imp = Number.parseInt(rawImp, 10);
             if (Number.isInteger(imp)) entry.importance = Math.max(1, Math.min(100, imp));
         }
         const scopeMatch = attrs.match(/\bscope\s*=\s*"([a-z]+)"/i);
-        if (scopeMatch) {
-            const scope = scopeMatch[1].toLowerCase();
+        const rawScope = scopeMatch?.[1];
+        if (rawScope !== undefined) {
+            const scope = rawScope.toLowerCase();
             if (!SCOPES.has(scope)) throw new Error(`classify manifest invalid scope ${scope}`);
             entry.scope = scope as ParsedClassification["scope"];
         }
         const shareMatch = attrs.match(/\bshareable\s*=\s*"(true|false|1|0)"/i);
-        if (shareMatch) {
-            const v = shareMatch[1].toLowerCase();
+        const rawShare = shareMatch?.[1];
+        if (rawShare !== undefined) {
+            const v = rawShare.toLowerCase();
             entry.shareable = v === "true" || v === "1";
         }
         if (entry.importance === undefined && !entry.scope && entry.shareable === undefined) {

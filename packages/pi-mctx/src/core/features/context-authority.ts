@@ -12,22 +12,22 @@ export interface AuthorityStatus {
     domain: AuthorityDomain;
     state: AuthorityState;
     generation: number;
-    captured_upper_bound?: number | null;
-    drain_cursor?: number;
-    step_seed?: boolean;
-    step_memories?: boolean;
-    step_notes?: boolean;
-    step_compartments?: boolean;
-    step_reconcile?: boolean;
-    step_verify?: boolean;
-    step_flip?: boolean;
-    coordinator_lease?: string | null;
-    lease_expires_at?: number | null;
+    captured_upper_bound?: number | null | undefined;
+    drain_cursor?: number | undefined;
+    step_seed?: boolean | undefined;
+    step_memories?: boolean | undefined;
+    step_notes?: boolean | undefined;
+    step_compartments?: boolean | undefined;
+    step_reconcile?: boolean | undefined;
+    step_verify?: boolean | undefined;
+    step_flip?: boolean | undefined;
+    coordinator_lease?: string | null | undefined;
+    lease_expires_at?: number | null | undefined;
     /** Attempt-unique drain coordinator token minted at begin/takeover. */
-    coordinator_token?: string | null;
-    checksum_expected?: string | null;
-    checksum_actual?: string | null;
-    checksum_ok?: number | boolean | null;
+    coordinator_token?: string | null | undefined;
+    checksum_expected?: string | null | undefined;
+    checksum_actual?: string | null | undefined;
+    checksum_ok?: number | boolean | null | undefined;
 }
 
 export interface AuthorityDrainContended {
@@ -41,16 +41,16 @@ export interface AuthorityDrainContended {
 export type AuthorityDrainResult = AuthorityStatus | AuthorityDrainContended;
 
 export interface AuthorityDrainResponse {
-    authority?: AuthorityStatus;
-    code?: string;
-    retryable?: boolean;
+    authority?: AuthorityStatus | undefined;
+    code?: string | undefined;
+    retryable?: boolean | undefined;
 }
 
 export interface AuthorityModuleClient {
     authorityStatus(args: {
         context_store_uuid: string;
         project: string;
-        projectRoot?: string;
+        projectRoot?: string | undefined;
         domain: AuthorityDomain;
     }): Promise<{ authority: AuthorityStatus | null }>;
     authorityPrepare(args: Record<string, unknown>): Promise<{ authority: AuthorityStatus }>;
@@ -62,8 +62,8 @@ export interface AuthorityModuleClient {
         domain: AuthorityDomain;
         cursor: number;
         limit: number;
-        live_only?: boolean;
-        projectRoot?: string;
+        live_only?: boolean | undefined;
+        projectRoot?: string | undefined;
     }): Promise<{ page: ChangefeedPage }>;
 }
 
@@ -315,11 +315,11 @@ export async function reconcileAuthorityProject(args: {
 export interface PrepareAuthorityArgs {
     db: Database;
     projectPath: string;
-    domains?: readonly AuthorityDomain[];
+    domains?: readonly AuthorityDomain[] | undefined;
     module: AuthorityModuleClient;
     seedPages: (domain: AuthorityDomain) => Promise<readonly Record<string, unknown>[]>;
     /** Test seam for alternate canonical encoders. Production uses the shared row digest. */
-    checksum?: (domain: AuthorityDomain, rows: readonly Record<string, unknown>[]) => string;
+    checksum?: ((domain: AuthorityDomain, rows: readonly Record<string, unknown>[]) => string) | undefined;
 }
 
 function canonicalizeSeedValue(value: unknown): unknown {
@@ -628,7 +628,7 @@ export async function drainAuthority(args: {
     domain: AuthorityDomain;
     module: AuthorityModuleClient;
     checksum: string | (() => string);
-    limit?: number;
+    limit?: number | undefined;
 }): Promise<AuthorityDrainResult> {
     if (!args.module.authorityDrain) {
         throw new Error("authority drain is unavailable on this module client");
@@ -1452,30 +1452,30 @@ function applyMemoryRow(db: Database, feed: ChangefeedRow, statements: MirrorPag
     );
     const existing = statements.memoryById.get(contextId) as
         | {
-              project_path?: string;
-              category?: string;
-              content?: string;
-              normalized_hash?: string;
-              importance?: number | null;
-              scope?: string;
-              shareable?: number;
-              source_session_id?: string | null;
-              source_type?: string | null;
-              seen_count?: number;
-              retrieval_count?: number;
-              first_seen_at?: number;
-              created_at?: number;
-              updated_at?: number;
-              last_seen_at?: number;
-              last_retrieved_at?: number | null;
-              status?: string;
-              expires_at?: number | null;
-              verification_status?: string;
-              verified_at?: number | null;
-              classified_at?: number | null;
-              superseded_by_memory_id?: number | null;
-              merged_from?: string | null;
-              metadata_json?: string | null;
+              project_path?: string | undefined;
+              category?: string | undefined;
+              content?: string | undefined;
+              normalized_hash?: string | undefined;
+              importance?: number | null | undefined;
+              scope?: string | undefined;
+              shareable?: number | undefined;
+              source_session_id?: string | null | undefined;
+              source_type?: string | null | undefined;
+              seen_count?: number | undefined;
+              retrieval_count?: number | undefined;
+              first_seen_at?: number | undefined;
+              created_at?: number | undefined;
+              updated_at?: number | undefined;
+              last_seen_at?: number | undefined;
+              last_retrieved_at?: number | null | undefined;
+              status?: string | undefined;
+              expires_at?: number | null | undefined;
+              verification_status?: string | undefined;
+              verified_at?: number | null | undefined;
+              classified_at?: number | null | undefined;
+              superseded_by_memory_id?: number | null | undefined;
+              merged_from?: string | null | undefined;
+              metadata_json?: string | null | undefined;
           }
         | undefined;
     if (existing && existing.project_path !== moduleProject) {
@@ -1590,7 +1590,7 @@ function repairNullClobberedMemoryRows(statements: MirrorPageStatements): void {
     if (pending?.dirty !== 1) return;
     const candidates = statements.repairCandidates.all() as Array<{
         id: number;
-        full_row_snapshot?: string | null;
+        full_row_snapshot?: string | null | undefined;
     }>;
     for (const candidate of candidates) {
         if (!candidate.full_row_snapshot) continue;
@@ -1989,7 +1989,7 @@ export async function pullAndApplyMirrorPage(args: {
     db: Database;
     module: AuthorityModuleClient;
     domain: AuthorityDomain;
-    limit?: number;
+    limit?: number | undefined;
 }): Promise<number> {
     if (!args.module.mirrorPull) {
         throw new Error("memory mirror consumer requires the mirror.pull module route");
@@ -2016,7 +2016,7 @@ const mirrorFlights = new WeakMap<object, Promise<number>>();
 export function pullMemoryMirrorOnce(args: {
     db: Database;
     module: AuthorityModuleClient;
-    limit?: number;
+    limit?: number | undefined;
 }): Promise<number> {
     const existing = mirrorFlights.get(args.module);
     if (existing) return existing;

@@ -15,17 +15,17 @@ import { convertEntriesToRawMessages } from "./read-session-pi";
 const CONTENT_ID_SUFFIX = /:(?:p|file)\d+$/;
 
 type SessionManagerLike = {
-	getSessionId?: () => string | undefined;
-	getBranch?: () => unknown[];
+	getSessionId?: (() => string | undefined) | undefined;
+	getBranch?: (() => unknown[]) | undefined;
 };
 
-type CloneContextLike = { sessionManager?: SessionManagerLike };
-type CloneStartEventLike = { reason?: unknown; previousSessionFile?: unknown };
+type CloneContextLike = { sessionManager?: SessionManagerLike | undefined};
+type CloneStartEventLike = { reason?: unknown | undefined; previousSessionFile?: unknown | undefined};
 
 export interface PiCloneInheritanceDeps {
 	db: ContextDatabase;
 	signalPendingMarker: (sessionId: string) => void;
-	writeLog?: (message: string) => void;
+	writeLog?: ((message: string) => void) | undefined;
 }
 
 function entryId(entry: unknown): string | null {

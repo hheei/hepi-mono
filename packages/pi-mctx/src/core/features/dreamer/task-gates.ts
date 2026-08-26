@@ -25,7 +25,7 @@ export interface TaskGateContext {
     /** retrospective content watermark (max message ts scanned). Distinct from
      *  lastRunAt: a session updated mid-run is newer than its scanned content but
      *  older than the run-completion time, so gating on lastRunAt would skip it. */
-    retrospectiveWatermarkMs?: number | null;
+    retrospectiveWatermarkMs?: number | null | undefined;
     /** review-user-memories: min candidate observations before a review is worthwhile. */
     promotionThreshold: number;
 }

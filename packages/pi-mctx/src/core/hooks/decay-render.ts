@@ -31,14 +31,14 @@ export interface DecayRenderCompartment {
     endMessage: number;
     title: string;
     content: string;
-    startDate?: string | null;
-    endDate?: string | null;
-    p1?: string | null;
-    p2?: string | null;
-    p3?: string | null;
-    p4?: string | null;
-    importance?: number | null;
-    legacy?: number | null;
+    startDate?: string | null | undefined;
+    endDate?: string | null | undefined;
+    p1?: string | null | undefined;
+    p2?: string | null | undefined;
+    p3?: string | null | undefined;
+    p4?: string | null | undefined;
+    importance?: number | null | undefined;
+    legacy?: number | null | undefined;
 }
 
 function escapeXmlContent(s: string): string {

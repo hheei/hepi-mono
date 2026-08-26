@@ -57,20 +57,20 @@ const GIT_COMMIT_SOURCE_BOOST = 1.2;
 const PRIMER_SOURCE_BOOST = 1.25;
 
 interface MessageSearchRow {
-    messageOrdinal?: number | string;
-    messageId?: string;
-    role?: string;
-    content?: string;
+    messageOrdinal?: number | string | undefined;
+    messageId?: string | undefined;
+    role?: string | undefined;
+    content?: string | undefined;
 }
 
 interface BatchedMessageSearchRow extends MessageSearchRow {
-    queryIndex?: number;
-    ftsRank?: number;
+    queryIndex?: number | undefined;
+    ftsRank?: number | undefined;
 }
 
 interface BatchedFtsCountRow {
-    queryIndex?: number;
-    count?: number;
+    queryIndex?: number | undefined;
+    count?: number | undefined;
 }
 
 const messageSearchStatements = new WeakMap<Database, PreparedStatement>();
@@ -88,37 +88,37 @@ export interface CapturedQueryEmbedding {
 }
 
 export interface UnifiedSearchOptions {
-    limit?: number;
-    memoryEnabled?: boolean;
-    embeddingEnabled?: boolean;
+    limit?: number | undefined;
+    memoryEnabled?: boolean | undefined;
+    embeddingEnabled?: boolean | undefined;
     /** Deprecated: message search no longer reads raw messages on the hot path. */
-    readMessages?: (sessionId: string) => unknown[];
-    embedQuery?: (
+    readMessages?: ((sessionId: string) => unknown[]) | undefined;
+    embedQuery?: ((
         text: string,
         signal?: AbortSignal,
-    ) => Promise<CapturedQueryEmbedding | Float32Array | null>;
-    isEmbeddingRuntimeEnabled?: () => boolean;
+    ) => Promise<CapturedQueryEmbedding | Float32Array | null>) | undefined;
+    isEmbeddingRuntimeEnabled?: (() => boolean) | undefined;
     /** Only return message-history hits with ordinal ≤ this value (e.g. last compartment end). -1 or omit to search all. */
-    maxMessageOrdinal?: number;
+    maxMessageOrdinal?: number | undefined;
     /** Include indexed git commits in the result set. Default false — the
      *  feature is gated behind experimental.git_commit_indexing config. */
-    gitCommitsEnabled?: boolean;
+    gitCommitsEnabled?: boolean | undefined;
     /** Restrict results to these sources. Omit or pass undefined to search all
      *  enabled sources. Empty array is treated as "no sources enabled" → [].
      *  Facts are NOT a source — they're already always rendered in the
      *  <session-history> block injected into message[0]. */
-    sources?: SearchSource[];
+    sources?: SearchSource[] | undefined;
     /** Hard-filter memories already rendered in <session-history>. The agent
      *  can see them in message[0] — surfacing them via ctx_search wastes
      *  tokens and crowds out high-signal raw-history hits. Pass null or omit
      *  to disable filtering (for callers outside the transform context that
      *  can't resolve the visible set). */
-    visibleMemoryIds?: Set<number> | null;
+    visibleMemoryIds?: Set<number> | null | undefined;
     /** Abort signal — if provided, cancels in-flight embedding requests
      *  (and any downstream HTTP calls) when the caller gives up. Used by
      *  transform-hot-path callers like auto-search whose own 3s timeout
      *  needs to cancel the 30s embedding fetch. */
-    signal?: AbortSignal;
+    signal?: AbortSignal | undefined;
     /** When true (default), increment retrieval_count on memory hits. Explicit
      *  `ctx_search` tool calls from the agent SHOULD count — the agent asked
      *  for the memory, saw it, and used it. Plugin-internal automatic surfacing
@@ -126,18 +126,18 @@ export interface UnifiedSearchOptions {
      *  because the agent may never actually consume the hint, and even if they
      *  do, automatic surfacing doesn't indicate usefulness. Mis-counting drives
      *  spurious retrieval-count-based memory promotion decisions. */
-    countRetrievals?: boolean;
+    countRetrievals?: boolean | undefined;
     /** When true, run multi-probe message search: extract literal symbol/command/
      *  path probes from the query and query each one separately (RRF-fused) so a
      *  message containing the exact literal but not the query's other tokens is
      *  still recalled. Default false — only explicit `ctx_search` tool calls opt
      *  in; the auto-search hot path stays single-probe to protect its latency
      *  budget. NL queries with no extractable probes are unaffected either way. */
-    explicitSearch?: boolean;
+    explicitSearch?: boolean | undefined;
     /** Disables production search metrics while running an offline shadow quality comparison. */
-    measurementDisabled?: boolean;
-    embeddingModelIdOverride?: string;
-    chunkModelIdOverride?: string;
+    measurementDisabled?: boolean | undefined;
+    embeddingModelIdOverride?: string | undefined;
+    chunkModelIdOverride?: string | undefined;
 }
 
 export interface MemorySearchResult {
@@ -147,7 +147,7 @@ export interface MemorySearchResult {
     memoryId: number;
     category: string;
     matchType: "semantic" | "fts" | "hybrid";
-    sourceName?: string;
+    sourceName?: string | undefined;
 }
 
 export interface MessageSearchResult {
@@ -169,7 +169,7 @@ export interface CompartmentSearchResult {
     startOrdinal: number;
     endOrdinal: number;
     matchType: "semantic" | "hybrid";
-    snippet?: string;
+    snippet?: string | undefined;
 }
 
 export interface GitCommitSearchResult {
@@ -451,8 +451,8 @@ async function getSemanticScores(args: {
      *  same vector to memory + git-commit searches so we never embed the
      *  same query twice in parallel. */
     queryEmbedding: Float32Array | null;
-    queryModelId?: string | null;
-    workspace?: SearchWorkspaceContext;
+    queryModelId?: string | null | undefined;
+    workspace?: SearchWorkspaceContext | undefined;
 }): Promise<Map<number, number>> {
     const semanticScores = new Map<number, number>();
 
@@ -536,7 +536,7 @@ function getFtsMatches(args: {
     projectPath: string;
     query: string;
     limit: number;
-    workspace?: SearchWorkspaceContext;
+    workspace?: SearchWorkspaceContext | undefined;
 }): Memory[] {
     try {
         return args.workspace?.isWorkspaced
@@ -565,8 +565,8 @@ function selectSemanticCandidates(args: {
     memories: Memory[];
     projectPath: string;
     ftsMatches: Memory[];
-    queryModelId?: string | null;
-    workspace?: SearchWorkspaceContext;
+    queryModelId?: string | null | undefined;
+    workspace?: SearchWorkspaceContext | undefined;
 }): Memory[] {
     if (args.ftsMatches.length === 0) {
         return args.memories;
@@ -594,8 +594,8 @@ function mergeMemoryResults(args: {
     semanticScores: Map<number, number>;
     ftsScores: Map<number, number>;
     limit: number;
-    visibleMemoryIds?: Set<number> | null;
-    sourceNameByMemoryId?: ReadonlyMap<number, string>;
+    visibleMemoryIds?: Set<number> | null | undefined;
+    sourceNameByMemoryId?: ReadonlyMap<number, string> | undefined;
 }): MemorySearchResult[] {
     const memoryById = new Map(args.memories.map((memory) => [memory.id, memory]));
     const candidateIds = new Set<number>([...args.semanticScores.keys(), ...args.ftsScores.keys()]);
@@ -665,9 +665,9 @@ async function searchMemories(args: {
      *  unifiedSearch embeds once and passes the same vector here and to
      *  searchGitCommitsAsync — never embed twice for one query. */
     queryEmbedding: Float32Array | null;
-    queryModelId?: string | null;
-    workspace?: SearchWorkspaceContext;
-    visibleMemoryIds?: Set<number> | null;
+    queryModelId?: string | null | undefined;
+    workspace?: SearchWorkspaceContext | undefined;
+    visibleMemoryIds?: Set<number> | null | undefined;
 }): Promise<MemorySearchResult[]> {
     if (!args.memoryEnabled) {
         return [];
@@ -869,7 +869,8 @@ function runMessageFtsQueriesBatch(
             continue;
         }
         const normalized = normalizeMessageSearchRow(row, cutoff);
-        if (normalized) result[row.queryIndex].push(normalized);
+        const bucket = result[row.queryIndex];
+        if (normalized && bucket) bucket.push(normalized);
     }
     return result;
 }
@@ -905,10 +906,10 @@ function searchMessages(args: {
     query: string;
     limit: number;
     /** Only return messages with ordinal ≤ this value. Omit or -1 to search all indexed messages. */
-    maxOrdinal?: number;
+    maxOrdinal?: number | undefined;
     /** Literal probes to additionally query (multi-probe recall). Empty = the
      * original single-query behavior (unchanged for NL queries / hot path). */
-    probes?: string[];
+    probes?: string[] | undefined;
 }): MessageSearchResult[] {
     const cutoff = args.maxOrdinal != null && args.maxOrdinal >= 0 ? args.maxOrdinal : null;
     const fetchLimit =
@@ -1100,7 +1101,7 @@ function searchNotes(args: {
     projectPath: string;
     query: string;
     limit: number;
-    probes?: string[];
+    probes?: string[] | undefined;
 }): NoteSearchResult[] {
     if (args.limit <= 0) {
         return [];
@@ -1210,8 +1211,8 @@ function searchCompartmentChunks(args: {
     projectPath: string;
     queryEmbedding: Float32Array | null;
     limit: number;
-    maxOrdinal?: number;
-    modelId?: string | null;
+    maxOrdinal?: number | undefined;
+    modelId?: string | null | undefined;
 }): CompartmentSearchResult[] {
     if (!args.queryEmbedding || args.limit <= 0 || !args.modelId || args.modelId === "off")
         return [];
@@ -1419,7 +1420,7 @@ function searchGitCommits(args: {
      *  unifiedSearch embeds once and passes the same vector here and to
      *  searchMemories — never embed twice for one query. */
     queryEmbedding: Float32Array | null;
-    queryModelId?: string | null;
+    queryModelId?: string | null | undefined;
 }): GitCommitSearchResult[] {
     if (args.limit <= 0) return [];
 
@@ -1525,7 +1526,7 @@ function resolveSources(sources: SearchSource[] | undefined): Set<SearchSource> 
 function memoriesToIdLookupResults(args: {
     memories: readonly Memory[];
     limit: number;
-    sourceNameByMemoryId?: ReadonlyMap<number, string>;
+    sourceNameByMemoryId?: ReadonlyMap<number, string> | undefined;
 }): MemorySearchResult[] {
     // Preserve the caller's order so a `parseIdShapedQuery` result like
     // `["#12", "34"]` renders hits in the same order the user typed them.
@@ -1551,7 +1552,7 @@ export function resolveMemoriesByIdsForSearch(args: {
     limit: number;
     /** Optional filter mirroring the m[0] hard-filter — already-rendered
      *  memories are skipped so the agent doesn't see the same content twice. */
-    visibleMemoryIds?: Set<number> | null;
+    visibleMemoryIds?: Set<number> | null | undefined;
 }): MemorySearchResult[] | null {
     if (args.ids.length === 0) {
         return null;

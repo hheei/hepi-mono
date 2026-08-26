@@ -149,14 +149,14 @@ export interface CompartmentInput {
     /** v2: P1 tier text. Legacy/compressor inserts: flat content. */
     content: string;
     /** v2 paraphrase tiers (model B). Omitted/null for legacy or compressor inserts → stored NULL. */
-    p1?: string | null;
-    p2?: string | null;
-    p3?: string | null;
-    p4?: string | null;
+    p1?: string | null | undefined;
+    p2?: string | null | undefined;
+    p3?: string | null | undefined;
+    p4?: string | null | undefined;
     /** Decay-rate signal (1-100). Omitted → stored 50. */
-    importance?: number | null;
+    importance?: number | null | undefined;
     /** Comma-separated activity types. Omitted/null → stored NULL. */
-    episodeType?: string | null;
+    episodeType?: string | null | undefined;
 }
 
 function insertCompartmentRows(

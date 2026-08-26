@@ -41,7 +41,7 @@ export interface PiDreamerOptions {
 	 * previously made dreamer's memory tasks a no-op.
 	 */
 	memoryEnabled: boolean;
-	language?: string;
+	language?: string | undefined;
 	gitCommitIndexing: {
 		enabled: boolean;
 		since_days: number;
@@ -55,7 +55,7 @@ export interface PiDreamerOptions {
 	 * system-prompt hash change). Slice 3 passes
 	 * `signalPiSystemPromptRefreshForProject` here.
 	 */
-	onAdjunctsRefreshNeeded?: (projectIdentity: string) => void;
+	onAdjunctsRefreshNeeded?: ((projectIdentity: string) => void) | undefined;
 }
 
 type DreamTimerClient = { session: unknown };
@@ -66,7 +66,7 @@ interface DreamTimerRegistration {
 	projectIdentity: string;
 	client: DreamTimerClient;
 	dreamerConfig: DreamerConfig;
-	language?: string;
+	language?: string | undefined;
 	ensureRegistered: (directory: string, db: ContextDatabase) => Promise<void> | void;
 	retrospectiveRawProvider: () => PiRetrospectiveRawProvider;
 	primerRawProviderFactory: ReturnType<typeof createPiPrimerRawProviderFactory>;
@@ -115,8 +115,8 @@ async function defaultStartDreamScheduleTimer(
 }
 
 interface SessionCreateArgs {
-	query?: unknown;
-	body?: unknown;
+	query?: unknown | undefined;
+	body?: unknown | undefined;
 }
 
 interface SessionMessagesArgs {
@@ -124,8 +124,8 @@ interface SessionMessagesArgs {
 }
 
 interface SessionPromptArgs extends SessionMessagesArgs {
-	body?: unknown;
-	signal?: AbortSignal | null;
+	body?: unknown | undefined;
+	signal?: AbortSignal | null | undefined;
 }
 
 type SessionDeleteArgs = SessionMessagesArgs;
@@ -150,7 +150,7 @@ type PiSubagentRunnerFactory = () => PiSubagentRunner;
 interface PiDreamerSession {
 	id: string;
 	directory: string;
-	title?: string;
+	title?: string | undefined;
 	messages: unknown[];
 }
 

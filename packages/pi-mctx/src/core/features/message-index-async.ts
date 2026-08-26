@@ -79,13 +79,13 @@ const pendingIncrementalKeys = new Set<string>();
 const completedIncrementalKeys = new Set<string>();
 
 type ReadMessages = ((sessionId: string) => RawMessage[]) & {
-    readPage?: (
+    readPage?: ((
         sessionId: string,
         afterOrdinal: number,
         limit: number,
         finalWatermark: number,
-    ) => RawMessage[];
-    getCount?: (sessionId: string) => number;
+    ) => RawMessage[]) | undefined;
+    getCount?: ((sessionId: string) => number) | undefined;
 };
 type ReadSingleMessage = (sessionId: string, messageId: string) => RawMessage | null;
 type IncrementalMessageSource = ReadSingleMessage | RawMessage;

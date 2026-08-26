@@ -110,7 +110,7 @@ function formatUserProfileList(
 export function buildCuratePrompt(args: {
     projectPath: string;
     memories: CuratePromptMemory[];
-    userProfile?: string;
+    userProfile?: string | undefined;
 }): string {
     // adapted from validated shadow-trial prompt; further tuning happens in the harness
     return `## Task: Curate Project Memory Pool (hygiene)
@@ -380,12 +380,12 @@ export function buildDreamTaskPrompt(
     task: DreamingTask,
     args: {
         projectPath: string;
-        lastDreamAt?: string | null;
-        existingDocs?: { architecture: boolean; structure: boolean };
-        userMemories?: Array<{ id: number; content: string }>;
+        lastDreamAt?: string | null | undefined;
+        existingDocs?: { architecture: boolean; structure: boolean } | undefined;
+        userMemories?: Array<{ id: number; content: string }> | undefined;
         curate?: {
             memories: CuratePromptMemory[];
-        };
+        } | undefined;
     },
 ): string {
     switch (task) {

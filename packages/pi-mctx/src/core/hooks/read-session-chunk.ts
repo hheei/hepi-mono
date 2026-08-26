@@ -92,19 +92,19 @@ let activeAbsoluteCountCache: Map<string, number> | null = null;
  */
 export interface RawMessageProvider {
     readMessages(): RawMessage[];
-    readMessagePage?: (afterOrdinal: number, limit: number, finalWatermark: number) => RawMessage[];
-    readMessageById?: (messageId: string) => RawMessage | null;
-    readMessagePartsById?: (messageId: string) => RawMessageParts | null;
-    readMessageOrdinalById?: (messageId: string) => number | null;
-    readMessageIdOrdinals?: () => Map<string, number>;
-    readMessageOrdinalPage?: (
+    readMessagePage?: ((afterOrdinal: number, limit: number, finalWatermark: number) => RawMessage[]) | undefined;
+    readMessageById?: ((messageId: string) => RawMessage | null) | undefined;
+    readMessagePartsById?: ((messageId: string) => RawMessageParts | null) | undefined;
+    readMessageOrdinalById?: ((messageId: string) => number | null) | undefined;
+    readMessageIdOrdinals?: (() => Map<string, number>) | undefined;
+    readMessageOrdinalPage?: ((
         after: RawMessageOrdinalAnchor | null,
         limit: number,
-    ) => RawMessageOrdinalEntry[];
+    ) => RawMessageOrdinalEntry[]) | undefined;
     /** Optional fast count path; falls back to readMessages().length. */
-    getMessageCount?: () => number;
+    getMessageCount?: (() => number) | undefined;
     /** Stored row count including compaction summaries, used for ordinal drift detection. */
-    getStoredMessageCount?: () => number;
+    getStoredMessageCount?: (() => number) | undefined;
 }
 
 const sessionProviders = new Map<string, RawMessageProvider>();

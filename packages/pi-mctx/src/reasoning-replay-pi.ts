@@ -42,8 +42,8 @@ type PiTextContent = { type: "text"; text: string };
 type PiThinkingContent = {
 	type: "thinking";
 	thinking: string;
-	thinkingSignature?: string;
-	redacted?: boolean;
+	thinkingSignature?: string | undefined;
+	redacted?: boolean | undefined;
 };
 type PiToolCall = {
 	type: "toolCall";
@@ -55,7 +55,7 @@ type PiAssistantContent = PiTextContent | PiThinkingContent | PiToolCall;
 type PiAssistantMessage = {
 	role: "assistant";
 	content: PiAssistantContent[];
-	timestamp?: number;
+	timestamp?: number | undefined;
 };
 
 const INLINE_THINKING_PATTERNS = [

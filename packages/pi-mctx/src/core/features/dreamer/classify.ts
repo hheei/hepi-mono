@@ -75,8 +75,8 @@ export interface ClassifyModuleCallArgs {
     projectRoot: string;
     method: string;
     body: unknown;
-    signal?: AbortSignal;
-    timeoutMs?: number;
+    signal?: AbortSignal | undefined;
+    timeoutMs?: number | undefined;
 }
 
 export interface ClassifyModuleClient {
@@ -108,15 +108,15 @@ export interface ClassifyArgs {
     holderId: string;
     leaseKey: string;
     deadline: number;
-    model?: string;
-    fallbackModels?: readonly string[];
+    model?: string | undefined;
+    fallbackModels?: readonly string[] | undefined;
     /** Present only for rust-mode projects whose memories authority is MODULE. */
-    moduleClient?: ClassifyModuleClient;
-    moduleSessionId?: string;
-    moduleProjectRoot?: string;
-    moduleContextStoreUuid?: string;
-    moduleAuthorityGeneration?: number;
-    moduleCommandId?: string;
+    moduleClient?: ClassifyModuleClient | undefined;
+    moduleSessionId?: string | undefined;
+    moduleProjectRoot?: string | undefined;
+    moduleContextStoreUuid?: string | undefined;
+    moduleAuthorityGeneration?: number | undefined;
+    moduleCommandId?: string | undefined;
 }
 
 export interface ClassifyResult {

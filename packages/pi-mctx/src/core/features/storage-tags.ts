@@ -284,10 +284,10 @@ export function getActiveToolTagsForAgeReclaim(
         getActiveToolTagsForAgeReclaimStatements.set(db, stmt);
     }
     const rows = stmt.all(sessionId) as Array<{
-        tag_number?: unknown;
-        tool_name?: unknown;
-        token_count?: unknown;
-        input_token_count?: unknown;
+        tag_number?: unknown | undefined;
+        tool_name?: unknown | undefined;
+        token_count?: unknown | undefined;
+        input_token_count?: unknown | undefined;
     }>;
     return rows
         .filter((row) => typeof row.tag_number === "number")

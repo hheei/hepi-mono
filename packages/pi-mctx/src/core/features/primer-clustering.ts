@@ -29,15 +29,23 @@ function cloneVector(vector: Float32Array | null): Float32Array | null {
 }
 
 function averageVectors(vectors: Float32Array[]): Float32Array | null {
-    if (vectors.length === 0) return null;
-    const dims = vectors[0].length;
-    if (dims === 0) return null;
+    const first = vectors[0];
+    if (first === undefined || first.length === 0) return null;
+    const dims = first.length;
     const out = new Float32Array(dims);
     for (const vector of vectors) {
         if (vector.length !== dims) return null;
-        for (let i = 0; i < dims; i += 1) out[i] += vector[i];
+        for (let i = 0; i < dims; i += 1) {
+            const add = vector[i];
+            if (add === undefined) return null;
+            out[i] = (out[i] ?? 0) + add;
+        }
     }
-    for (let i = 0; i < dims; i += 1) out[i] /= vectors.length;
+    for (let i = 0; i < dims; i += 1) {
+        const current = out[i];
+        if (current === undefined) return null;
+        out[i] = current / vectors.length;
+    }
     return out;
 }
 
@@ -82,8 +90,8 @@ function normalizedTextMatches(candidate: PrimerCandidate, cluster: PrimerCluste
 export function buildPrimerClusters(args: {
     candidates: PrimerCandidate[];
     activePrimers: Primer[];
-    threshold?: number;
-    hysteresis?: number;
+    threshold?: number | undefined;
+    hysteresis?: number | undefined;
 }): PrimerCluster[] {
     const threshold = args.threshold ?? PRIMER_CLUSTER_THRESHOLD;
     const hysteresis = args.hysteresis ?? PRIMER_CLUSTER_HYSTERESIS;

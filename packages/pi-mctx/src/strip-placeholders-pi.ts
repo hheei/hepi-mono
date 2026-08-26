@@ -81,15 +81,15 @@ export function stripPiDroppedPlaceholderMessages(args: {
 	 * identity survives the splice. Skip-on-miss: the only legitimate misses are
 	 * injection's synthetic m[0]/m[1] prepends (never placeholders).
 	 */
-	stableIdByRef?: ReadonlyMap<object, string>;
+	stableIdByRef?: ReadonlyMap<object, string> | undefined;
 	/**
 	 * Force placeholder rediscovery regardless of isCacheBusting. Set on the
 	 * stable-id-scheme cutover pass so previously-stripped placeholders get
 	 * re-keyed under the new scheme (discovery is otherwise history-refresh-gated).
 	 */
-	forceDiscovery?: boolean;
+	forceDiscovery?: boolean | undefined;
 	/** Test seam for exhausting the durable CAS write. */
-	applyDelta?: typeof applyStrippedPlaceholderDelta;
+	applyDelta?: typeof applyStrippedPlaceholderDelta | undefined;
 }): StripPiDroppedPlaceholderResult {
 	const { db, sessionId, messages, isCacheBusting, stableIdByRef } = args;
 	const persistedIds = getStrippedPlaceholderIds(db, sessionId);

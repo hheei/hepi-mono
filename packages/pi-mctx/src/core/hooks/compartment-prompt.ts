@@ -105,9 +105,9 @@ export interface CompartmentPromptInputs {
      *  v2 faithful facts are stored only as project memories; with memory
      *  disabled there is no fact store, so emitting facts is pure waste
      *  (and they would never be rendered). Defaults to enabled. */
-    memoryEnabled?: boolean;
+    memoryEnabled?: boolean | undefined;
     /** Recomp/session-upgrade structural rebuilds must use the extraction-free prompt. */
-    extractionFree?: boolean;
+    extractionFree?: boolean | undefined;
 }
 
 /**

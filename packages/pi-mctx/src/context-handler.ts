@@ -876,31 +876,31 @@ export interface PiHistorianOptions {
 	/** Historian provider/model id (e.g. `anthropic/claude-haiku-4-5`). */
 	model: string;
 	/** Optional ordered fallback chain. */
-	fallbackModels?: readonly string[];
+	fallbackModels?: readonly string[] | undefined;
 	/** Historian context window — used to derive chunk token budget. */
 	historianChunkTokens: number;
 	/** Optional per-call timeout (default 120s). */
-	timeoutMs?: number;
+	timeoutMs?: number | undefined;
 	/** When true, run a second editor pass after a successful first pass to
 	 *  clean low-signal U: lines and cross-compartment duplicates. Mirrors
 	 *  legacy host's `historian.two_pass` config. */
-	twoPass?: boolean;
+	twoPass?: boolean | undefined;
 	/** Pi only: explicit thinking level for historian/compressor subagent
 	 *  invocations (passed as --thinking <level>). When unset, Pi's own
 	 *  default resolution applies. See `historian.thinking_level` in config. */
-	thinkingLevel?: string;
+	thinkingLevel?: string | undefined;
 	/** Cross-session memory feature gate (`memory.enabled`). */
-	memoryEnabled?: boolean;
+	memoryEnabled?: boolean | undefined;
 	/** Allow a session started exactly in the canonical home directory only when user-level configuration enables it. */
-	allowHomeProject?: boolean;
+	allowHomeProject?: boolean | undefined;
 	/** Automatic-promotion gate (`memory.auto_promote`). */
-	autoPromote?: boolean;
+	autoPromote?: boolean | undefined;
 	/** User-memory feature gate (`dreamer.user_memories.enabled`). Gates whether
 	 *  historian user observations are persisted as candidates. */
-	userMemoriesEnabled?: boolean;
-	language?: string;
+	userMemoriesEnabled?: boolean | undefined;
+	language?: string | undefined;
 	/** Notify UI/status surfaces after historian state changes. */
-	onStatusChange?: (ctx: ExtensionContext, sessionId: string) => void;
+	onStatusChange?: ((ctx: ExtensionContext, sessionId: string) => void) | undefined;
 	/**
 	 * Execute-threshold percentage used by the trigger logic to compute
 	 * pressure-driven trigger points. Mirrors legacy host's
@@ -908,18 +908,18 @@ export interface PiHistorianOptions {
 	 */
 	executeThresholdPercentage?:
 		| number
-		| { default: number; [modelKey: string]: number };
+		| { default: number; [modelKey: string]: number } | undefined;
 	/** Token-based execute-threshold overrides. Mirrors legacy host `execute_threshold_tokens`. */
 	executeThresholdTokens?: {
-		default?: number;
+		default?: number | undefined;
 		[modelKey: string]: number | undefined;
-	};
+	} | undefined;
 	/** Commit-cluster trigger config. Mirrors legacy host `commit_cluster_trigger`. */
-	commitClusterTrigger?: { enabled: boolean; min_clusters: number };
-	protectedTags?: number;
-	clearReasoningAge?: number;
+	commitClusterTrigger?: { enabled: boolean; min_clusters: number } | undefined;
+	protectedTags?: number | undefined;
+	clearReasoningAge?: number | undefined;
 	/** Fraction of executable context reserved for rendered <session-history>. */
-	historyBudgetPercentage?: number;
+	historyBudgetPercentage?: number | undefined;
 }
 
 /**
@@ -936,7 +936,7 @@ export interface PiAutoSearchHandlerOptions {
 
 /** Heuristic-cleanup config — tiered emergency drop, dedup, strips system injections. */
 export interface PiHeuristicsOptions {
-	caveman?: { enabled: boolean; minChars: number };
+	caveman?: { enabled: boolean; minChars: number } | undefined;
 	/**
 	 * Number of tags before the most recent tag whose typed reasoning is
 	 * cleared on cache-busting passes. Mirrors legacy host's
@@ -944,20 +944,20 @@ export interface PiHeuristicsOptions {
 	 * Default `50` matches legacy host. Pi previously hardcoded `30`, which
 	 * cleared reasoning more aggressively than the user configured.
 	 */
-	clearReasoningAge?: number;
+	clearReasoningAge?: number | undefined;
 }
 
 /** <session-history> injection config — writes compartments+facts+memories into message[0]. */
 export interface PiInjectionOptions {
 	/** When false (config `memory.enabled=false`), project memories are NOT read
 	 *  or rendered into m[0]/m[1]. Docs are controlled by injectDocs. */
-	memoryEnabled?: boolean;
+	memoryEnabled?: boolean | undefined;
 	/** Defaults true. When false, m[0] omits the <project-docs> block and docs hash. */
-	injectDocs?: boolean;
+	injectDocs?: boolean | undefined;
 	injectionBudgetTokens: number;
-	temporalAwareness?: boolean;
+	temporalAwareness?: boolean | undefined;
 	/** experimental.mural.enabled — on-demand deterministic mural image on HARD folds. */
-	muralEnabled?: boolean;
+	muralEnabled?: boolean | undefined;
 }
 
 /** Scheduler config — gates cache-busting stages on TTL + threshold. */
@@ -966,9 +966,9 @@ export interface PiSchedulerOptions {
 		| number
 		| { default: number; [modelKey: string]: number };
 	executeThresholdTokens?: {
-		default?: number;
+		default?: number | undefined;
 		[modelKey: string]: number | undefined;
-	};
+	} | undefined;
 }
 
 export interface PiContextHandlerOptions {
@@ -976,25 +976,25 @@ export interface PiContextHandlerOptions {
 	/** Smart-drops (experimental, default off): also reclaim tool output that a
 	 *  later call supersedes, on top of the age-based auto-drop. Off → messages
 	 *  sent to the model are byte-identical to the age-based-only behavior. */
-	smartDrops?: boolean;
+	smartDrops?: boolean | undefined;
 	/**
 	 * Heuristic-cleanup config (tiered emergency drop + caveman). When
 	 * omitted, heuristic cleanup is disabled — tagging and queued-drop
 	 * application still run, but the transform won't proactively shrink
 	 * context. Use this only for tests; production always passes this.
 	 */
-	heuristics?: PiHeuristicsOptions;
+	heuristics?: PiHeuristicsOptions | undefined;
 	/**
 	 * `<session-history>` injection config. When omitted, the prepared
 	 * compartment/fact/memory block is NOT written into message[0].
 	 * Production always passes this; tests can omit.
 	 */
-	injection?: PiInjectionOptions;
+	injection?: PiInjectionOptions | undefined;
 	/**
 	 * Scheduler config — gates heuristic cleanup on TTL/threshold.
 	 * When omitted, defaults to 65% threshold + 5m TTL behavior.
 	 */
-	scheduler?: PiSchedulerOptions;
+	scheduler?: PiSchedulerOptions | undefined;
 	/**
 	 * Number of most-recent tags treated as protected (mirrors legacy host
 	 * `protected_tags`). Drops with tag IDs in the protected window are
@@ -1008,36 +1008,36 @@ export interface PiContextHandlerOptions {
 	 * hardcoded `0` here — the council audit caught that recent turns
 	 * were getting dropped mid-task.
 	 */
-	protectedTags?: number;
-	language?: string;
+	protectedTags?: number | undefined;
+	language?: string | undefined;
 	/**
 	 * Optional historian wiring (Step 4b.3b). When omitted, the trigger
 	 * check is skipped — context events still tag + drop normally, and
 	 * historian state stays untouched. When provided, the trigger fires
 	 * async after each tagging pass.
 	 */
-	historian?: PiHistorianOptions;
+	historian?: PiHistorianOptions | undefined;
 	/**
 	 * Optional auto-search hint wiring (Step 4b.4). When omitted or
 	 * disabled, no hint computation runs. Notes that auto-search shares
 	 * the cortexkit DB with legacy host, so memories ARE cross-harness.
 	 */
-	autoSearch?: PiAutoSearchHandlerOptions;
+	autoSearch?: PiAutoSearchHandlerOptions | undefined;
 	/**
 	 * Optional runtime option resolver. When provided, the handler reads it once
 	 * per pass for the current `ctx.cwd`; callers should memoize by directory.
 	 * Tests omit it and use static options.
 	 */
-	resolveForProject?: (projectDir: string) => PiContextHandlerOptions;
+	resolveForProject?: ((projectDir: string) => PiContextHandlerOptions) | undefined;
 	/** Boot-resolved compaction-off flag. It remains fixed for this Pi process. */
-	compactionOff?: boolean;
+	compactionOff?: boolean | undefined;
 	/** Allow a session started exactly in the canonical home directory only when user-level configuration enables it. */
-	allowHomeProject?: boolean;
-	maybeAutoEmbedSession?: (
+	allowHomeProject?: boolean | undefined;
+	maybeAutoEmbedSession?: ((
 		sessionId: string,
 		projectDir: string,
 		projectIdentity: string,
-	) => void;
+	) => void) | undefined;
 }
 
 /**
@@ -1142,8 +1142,8 @@ function collectMessageEntryIds(
 ): readonly (string | undefined)[] | undefined {
 	const sm = ctx.sessionManager as
 		| {
-				getBranch?: (fromId?: string) => unknown[];
-				getLeafId?: () => string | undefined;
+				getBranch?: ((fromId?: string) => unknown[]) | undefined;
+				getLeafId?: (() => string | undefined) | undefined;
 		  }
 		| undefined;
 	if (typeof sm?.getBranch !== "function") return undefined;
@@ -1162,8 +1162,8 @@ function collectMessageEntryIds(
 	let firstKeptEntryId: string | undefined;
 	for (let i = entries.length - 1; i >= 0; i--) {
 		const e = entries[i] as {
-			type?: unknown;
-			firstKeptEntryId?: unknown;
+			type?: unknown | undefined;
+			firstKeptEntryId?: unknown | undefined;
 		} | null;
 		if (e && typeof e === "object" && e.type === "compaction") {
 			compactionIndex = i;
@@ -1243,7 +1243,7 @@ function collectMessageEntryIds(
 	// guess so the trim is robust. Log so future divergence shows up.
 	if (ids.length !== expectedLength) {
 		const sm2 = sm as {
-			getBranch?: (fromId?: string) => unknown[];
+			getBranch?: ((fromId?: string) => unknown[]) | undefined;
 		};
 		const totalEntries = entries.length;
 		log(
@@ -1316,7 +1316,7 @@ export function collectMessageEntryIdsByRef(
 	} else {
 		const sm = ctx.sessionManager as
 			| {
-					getBranch?: (fromId?: string) => unknown[];
+					getBranch?: ((fromId?: string) => unknown[]) | undefined;
 			  }
 			| undefined;
 		if (typeof sm?.getBranch !== "function") return null;
@@ -1512,9 +1512,9 @@ function readPiBranchEntriesForContext(
 ): readonly unknown[] | null {
 	const sm = ctx.sessionManager as
 		| {
-				getLeafId?: () => string | null;
-				getEntry?: (id: string) => unknown;
-				getBranch?: (fromId?: string) => unknown[];
+				getLeafId?: (() => string | null) | undefined;
+				getEntry?: ((id: string) => unknown) | undefined;
+				getBranch?: ((fromId?: string) => unknown[]) | undefined;
 		  }
 		| undefined;
 
@@ -1645,11 +1645,11 @@ function readPiBranchEntriesForContext(
 function piMessageEntryFingerprint(message: unknown): string | null {
 	if (!message || typeof message !== "object") return null;
 	const record = message as {
-		responseId?: unknown;
-		timestamp?: unknown;
-		role?: unknown;
-		toolCallId?: unknown;
-		content?: unknown;
+		responseId?: unknown | undefined;
+		timestamp?: unknown | undefined;
+		role?: unknown | undefined;
+		toolCallId?: unknown | undefined;
+		content?: unknown | undefined;
 	};
 	if (typeof record.role !== "string") return null;
 	const firstText = firstPiTextContent(record.content);
@@ -1722,9 +1722,9 @@ function buildPiToolOwnerMap(
 		const message = messages[i];
 		if (!message || typeof message !== "object") continue;
 		const msg = message as {
-			role?: unknown;
-			content?: unknown;
-			timestamp?: unknown;
+			role?: unknown | undefined;
+			content?: unknown | undefined;
+			timestamp?: unknown | undefined;
 		};
 		if (msg.role !== "assistant") continue;
 		if (typeof msg.timestamp !== "number" || !Number.isFinite(msg.timestamp)) {
@@ -1762,8 +1762,8 @@ function parsePiFallbackToolOwnerId(
 
 function databaseIsInTransaction(db: ContextDatabase): boolean {
 	const state = db as unknown as {
-		inTransaction?: unknown;
-		isTransaction?: unknown;
+		inTransaction?: unknown | undefined;
+		isTransaction?: unknown | undefined;
 	};
 	return state.inTransaction === true || state.isTransaction === true;
 }
@@ -1784,10 +1784,10 @@ function runImmediateTransaction<T>(db: ContextDatabase, fn: () => T): T {
 }
 
 interface AdoptPiFallbackTagsOptions {
-	messages?: readonly PiAgentMessage[];
-	resolveStableId?: (msg: unknown, index: number) => string | undefined;
-	hasFallbackMessageTags?: boolean;
-	hasFallbackToolOwnerTags?: boolean;
+	messages?: readonly PiAgentMessage[] | undefined;
+	resolveStableId?: ((msg: unknown, index: number) => string | undefined) | undefined;
+	hasFallbackMessageTags?: boolean | undefined;
+	hasFallbackToolOwnerTags?: boolean | undefined;
 }
 
 function hasAdoptablePiFallbackMessageTags(
@@ -1857,13 +1857,15 @@ function adoptPiFallbackTags(
 				const baseIds = new Set<string>();
 				for (const c of candidates) {
 					const m = /^(.*):p\d+$/.exec(c.messageId);
-					baseIds.add(m ? m[1] : c.messageId);
+					baseIds.add(m?.[1] ?? c.messageId);
 				}
 				if (baseIds.size !== 1) continue;
 				for (const c of candidates) {
 					const ordinalMatch = /:p(\d+)$/.exec(c.messageId);
 					if (!ordinalMatch) continue;
-					const realContentId = `${realMessageId}:p${ordinalMatch[1]}`;
+					const partOrdinal = ordinalMatch[1];
+					if (partOrdinal === undefined) continue;
+					const realContentId = `${realMessageId}:p${partOrdinal}`;
 					const adoption = adoptPiFallbackMessageTag(
 						db,
 						sessionId,
@@ -3201,7 +3203,7 @@ export function resolvePiHistorianTriggerInputs(args: {
 	sessionId: string;
 	historian: PiHistorianOptions;
 	modelKey: string | undefined;
-	usageContextLimit?: number;
+	usageContextLimit?: number | undefined;
 }): {
 	executeThresholdPercentage: number;
 	triggerBudget: number;
@@ -3252,7 +3254,7 @@ export function resolvePiHistorianTriggerInputs(args: {
 
 export function selectPiHistorianRunBoundarySnapshot(args: {
 	resolvedBoundarySnapshot: ProtectedTailBoundarySnapshot;
-	triggerBoundarySnapshot?: ProtectedTailBoundarySnapshot;
+	triggerBoundarySnapshot?: ProtectedTailBoundarySnapshot | undefined;
 }): ProtectedTailBoundarySnapshot {
 	// The trigger may re-resolve under emergency pressure; the runner must
 	// consume the exact boundary the fire decision evaluated, falling back only
@@ -3413,9 +3415,9 @@ function spawnPiHistorianRun(args: {
 	provider: { readMessages: () => ReturnType<typeof readPiSessionMessages> };
 	unregister: () => void;
 	boundarySnapshot: ProtectedTailBoundarySnapshot;
-	refreshBoundarySnapshot?: () => ProtectedTailBoundarySnapshot;
+	refreshBoundarySnapshot?: (() => ProtectedTailBoundarySnapshot) | undefined;
 	currentContextLimit: number;
-	fallbackModelId?: string;
+	fallbackModelId?: string | undefined;
 }): void {
 	const {
 		pi,
@@ -3589,12 +3591,12 @@ function maybeFireHistorian(args: {
 	sessionId: string;
 	db: ContextDatabase;
 	historian: PiHistorianOptions;
-	isFirstContextPassForSession?: boolean;
-	activeTags?: ReturnType<typeof getActiveTagsBySession>;
+	isFirstContextPassForSession?: boolean | undefined;
+	activeTags?: ReturnType<typeof getActiveTagsBySession> | undefined;
 	rawMessageProvider?: {
 		readMessages: () => ReturnType<typeof readPiSessionMessages>;
 	};
-	taggerFloor?: number;
+	taggerFloor?: number | undefined;
 }): void {
 	const { ctx, sessionId, db, historian, isFirstContextPassForSession } = args;
 
@@ -3949,32 +3951,32 @@ interface RunPipelineArgs {
 	/** Smart-drops (experimental, default off): also reclaim tool output that a
 	 *  later call supersedes, on top of the age-based auto-drop. Off → messages
 	 *  sent to the model are byte-identical to the age-based-only behavior. */
-	smartDrops?: boolean;
+	smartDrops?: boolean | undefined;
 	protectedTags: number;
 	/** Heuristic-cleanup config — when omitted, defaults to legacy host parity values. */
 	heuristics?: {
-		caveman?: { enabled: boolean; minChars: number };
-	};
-	isSubagent?: boolean;
+		caveman?: { enabled: boolean; minChars: number } | undefined;
+	} | undefined;
+	isSubagent?: boolean | undefined;
 	/** Additive-only transform mode: no tags, drops, history trim, markers, or nudges. */
-	compactionOff?: boolean;
+	compactionOff?: boolean | undefined;
 	/** ceiling = contextLimit × executeThreshold% for the tiered emergency drop. */
-	emergencyCeilingTokens?: number;
+	emergencyCeilingTokens?: number | undefined;
 	/** Memory-injection config — when omitted, no <session-history> injection runs. */
 	injection?: {
 		/** When false (config `memory.enabled=false`), project memories are NOT
 		 *  read or rendered into m[0]/m[1]. Docs are controlled by injectDocs. */
-		memoryEnabled?: boolean;
+		memoryEnabled?: boolean | undefined;
 		/** Defaults true. When false, m[0] omits the <project-docs> block and docs hash. */
-		injectDocs?: boolean;
+		injectDocs?: boolean | undefined;
 		injectionBudgetTokens: number;
 		/** v2 decay-render history budget (~60K), distinct from the memory
 		 *  injection budget. Drives compartment tier demotion in renderM0Pi. */
-		historyBudgetTokens?: number;
-		temporalAwareness?: boolean;
+		historyBudgetTokens?: number | undefined;
+		temporalAwareness?: boolean | undefined;
 		/** experimental.mural.enabled — on-demand deterministic mural image on HARD folds. */
-		muralEnabled?: boolean;
-	};
+		muralEnabled?: boolean | undefined;
+	} | undefined;
 	/**
 	 * Optional entry-id array, indexed 1:1 with `messages`, providing
 	 * the SessionEntry id for each AgentMessage. When supplied,
@@ -3989,7 +3991,7 @@ interface RunPipelineArgs {
 	 * `pi-msg-${index}-${ts}-${role}` id, which never matches anything
 	 * historian wrote → `<session-history>` cannot trim raw history.
 	 */
-	entryIds?: readonly (string | undefined)[];
+	entryIds?: readonly (string | undefined)[] | undefined;
 	/**
 	 * Splice-safe message→entryId map keyed by AgentMessage reference. Best-effort
 	 * first try for stable-id resolution (misses messages tagging/drops cloned this
@@ -3997,9 +3999,9 @@ interface RunPipelineArgs {
 	 * transcript-tag path and the reasoning/heuristic stable-id paths resolve the
 	 * SAME id for a message (the cross-path lookup invariant).
 	 */
-	entryIdByRef?: ReadonlyMap<object, string> | null;
+	entryIdByRef?: ReadonlyMap<object, string> | null | undefined;
 	/** Real entry ids whose append-only Pi message objects were tagged previously. */
-	reusableMessageIds?: ReadonlySet<string>;
+	reusableMessageIds?: ReadonlySet<string> | undefined;
 	/**
 	 * True on the one-time stable-id-scheme cutover pass (Pi message identity
 	 * switched from index-based to real-entry-id). Forces placeholder rediscovery
@@ -4007,7 +4009,7 @@ interface RunPipelineArgs {
 	 * (pi_stable_id_scheme persisted version) is wired by the caller; when unset,
 	 * no cutover behavior runs (safe default).
 	 */
-	stableIdSchemeCutover?: boolean;
+	stableIdSchemeCutover?: boolean | undefined;
 	/**
 	 * Pre-resolved scheduler decision for THIS pass. When `"execute"`,
 	 * heuristic cleanup runs (cache-busting). When `"defer"`, only the
@@ -4020,9 +4022,9 @@ interface RunPipelineArgs {
 	 * activates (mirrors legacy host's derived force-band emergency cleanup). Caller
 	 * computes from current usage percentage.
 	 */
-	forceMaterialization?: boolean;
+	forceMaterialization?: boolean | undefined;
 	/** Resolved escalation band for this pass (defaults to 85 for test/direct callers). */
-	forceMaterializationPercentage?: number;
+	forceMaterializationPercentage?: number | undefined;
 	contextUsage: { percentage: number; inputTokens: number };
 	/**
 	 * One-shot signal that the injection cache should be invalidated and
@@ -4046,7 +4048,7 @@ interface RunPipelineArgs {
 	 */
 	reasoningClearing?: {
 		clearReasoningAge: number;
-	};
+	} | undefined;
 	/** True only when the active provider filters empty sentinel content safely. */
 	canUseEmptySentinels: boolean;
 	/**
@@ -4054,9 +4056,9 @@ interface RunPipelineArgs {
 	 * messages with large gaps. Mirrors legacy host's
 	 * `experimental.temporal_awareness`. Idempotent across passes.
 	 */
-	temporalAwareness?: boolean;
-	appendCompaction?: ApplyDeferredPiCompactionMarkerDeps["appendCompaction"];
-	readBranchEntries?: ApplyDeferredPiCompactionMarkerDeps["readBranchEntries"];
+	temporalAwareness?: boolean | undefined;
+	appendCompaction?: ApplyDeferredPiCompactionMarkerDeps["appendCompaction"] | undefined;
+	readBranchEntries?: ApplyDeferredPiCompactionMarkerDeps["readBranchEntries"] | undefined;
 }
 
 interface RunPipelineResult {
@@ -4133,8 +4135,8 @@ function captureReasoningMutationRollback(
 		part: Record<string, unknown>;
 		field: "thinking" | "text";
 		value: unknown;
-		hadSignature?: boolean;
-		signature?: unknown;
+		hadSignature?: boolean | undefined;
+		signature?: unknown | undefined;
 	}> = [];
 	for (const raw of messages) {
 		if (!raw || typeof raw !== "object") continue;
@@ -5480,7 +5482,7 @@ function applyNoteNudges(args: {
 	 * against branch entries and correct even though `messages` was spliced since
 	 * `entryIds` (positional) was computed. Takes precedence over `entryIds`.
 	 */
-	entryIdByRef?: ReadonlyMap<object, string> | null;
+	entryIdByRef?: ReadonlyMap<object, string> | null | undefined;
 	/**
 	 * Whether THIS pass is cache-busting. Sticky-anchor pruning is storage-only
 	 * and must run ONLY on cache-busting passes (parity with legacy host
@@ -5496,7 +5498,7 @@ function applyNoteNudges(args: {
 	 * of them resolve to a real entry id. Position is irrelevant; only the count
 	 * matters for the denominator.
 	 */
-	syntheticLeadingCount?: number;
+	syntheticLeadingCount?: number | undefined;
 }): PiAgentMessage[] {
 	const { sessionId, db, messages, projectIdentity, entryIds, entryIdByRef } =
 		args;
@@ -5791,8 +5793,8 @@ function appendReminderToPiUserMessage(
 	if (!Array.isArray(userMsg.content)) return;
 
 	const contentArr = userMsg.content as Array<{
-		type?: unknown;
-		text?: unknown;
+		type?: unknown | undefined;
+		text?: unknown | undefined;
 	}>;
 	for (let i = 0; i < contentArr.length; i += 1) {
 		const part = contentArr[i];

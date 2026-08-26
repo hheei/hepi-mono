@@ -1,18 +1,18 @@
-type MessageTime = { created?: number };
+type MessageTime = { created?: number | undefined};
 
 type MessageInfo = {
-    role?: string;
-    time?: MessageTime;
+    role?: string | undefined;
+    time?: MessageTime | undefined;
 };
 
 type MessagePart = {
-    type?: string;
-    text?: string;
+    type?: string | undefined;
+    text?: string | undefined;
 };
 
 type SessionMessage = {
-    info?: MessageInfo;
-    parts?: unknown;
+    info?: MessageInfo | undefined;
+    parts?: unknown | undefined;
 };
 
 import { isRecord } from "./record-type-guard";

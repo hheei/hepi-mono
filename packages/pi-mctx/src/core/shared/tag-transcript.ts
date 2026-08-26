@@ -76,7 +76,7 @@ export interface TagTranscriptOptions {
      * tool surface has no `ctx_reduce` tool to act on the markers. Cache-safe
      * because the availability verdict is frozen per session.
      */
-    skipPrefixInjection?: boolean;
+    skipPrefixInjection?: boolean | undefined;
     /**
      * Pi-only: map of messageId → raw-message fingerprint. When a NEW message
      * text tag is created, its fingerprint is persisted on the tag row so a
@@ -85,31 +85,31 @@ export interface TagTranscriptOptions {
      * → adoption never fires. Keyed by the bare messageId (not the `:pN`
      * contentId) since all parts of a message share one fingerprint.
      */
-    entryFingerprintByMessageId?: ReadonlyMap<string, string>;
+    entryFingerprintByMessageId?: ReadonlyMap<string, string> | undefined;
     /**
      * Stable Pi message ids observed on a prior pass. Their immutable parts may
      * reuse tag assignments while this pass still reapplies visible prefixes and
      * rebuilds the complete set of messages affected by each tag.
      */
-    reuseMessageIds?: ReadonlySet<string>;
+    reuseMessageIds?: ReadonlySet<string> | undefined;
     /**
      * Pi message ids whose persisted text-part vector no longer matches the
      * current vector. Their parts use content-derived identities instead of
      * positional `:pN` keys, so sibling insertion/deletion cannot rebind an
      * older durable tag to different text.
      */
-    textIdentityDriftMessageIds?: ReadonlySet<string>;
+    textIdentityDriftMessageIds?: ReadonlySet<string> | undefined;
     /** Source-content cache shared with Pi's batched identity preflight. */
-    textIdentitySourceCache?: Map<number, string>;
+    textIdentitySourceCache?: Map<number, string> | undefined;
     /** Exact text/count pairs retained by Pi for safe lazy-token backfill reuse. */
-    textTokenCache?: Map<string, { text: string; tokenCount: number }>;
+    textTokenCache?: Map<string, { text: string; tokenCount: number }> | undefined;
     /** Exact tool-result text/count pairs retained under composite tag identity. */
-    toolTokenCache?: Map<string, { text: string; tokenCount: number }>;
+    toolTokenCache?: Map<string, { text: string; tokenCount: number }> | undefined;
     /** Optional process-local benchmark callback; production callers omit it. */
-    onTiming?: (
+    onTiming?: ((
         phase: "identity" | "prefix" | "targets" | "tokenCounting",
         elapsedMs: number,
-    ) => void;
+    ) => void) | undefined;
 }
 
 export interface TagTranscriptResult {
@@ -156,7 +156,7 @@ export interface TagTranscriptResult {
  *      replaces both halves with a sentinel instead of last-write-wins.
  */
 interface ToolOccurrence {
-    message: { info: { id?: string; role: string } };
+    message: { info: { id?: string | undefined; role: string } };
     part: TranscriptPart;
     kind: "tool_use" | "tool_result";
 }
@@ -599,9 +599,9 @@ interface GrownToolResultAccountingArgs {
     part: TranscriptPart;
     text: string;
     timing: TagTranscriptTiming | undefined;
-    tokenCache?: Map<string, { text: string; tokenCount: number }>;
-    tokenCacheKey?: string;
-    knownTokenCount?: number;
+    tokenCache?: Map<string, { text: string; tokenCount: number }> | undefined;
+    tokenCacheKey?: string | undefined;
+    knownTokenCount?: number | undefined;
 }
 
 function optionalAccountingArgs(
@@ -812,7 +812,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 interface TagTextPartArgs {
     sessionId: string;
-    message: { info: { id?: string; role: string } };
+    message: { info: { id?: string | undefined; role: string } };
     messageId: string;
     contentId: string;
     msgIndex: number;
@@ -824,9 +824,9 @@ interface TagTextPartArgs {
     skipPrefixInjection: boolean;
     entryFingerprint: string | null;
     reuseIdentity: boolean;
-    timing?: TagTranscriptTiming;
-    textIdentitySourceCache?: Map<number, string>;
-    textTokenCache?: Map<string, { text: string; tokenCount: number }>;
+    timing?: TagTranscriptTiming | undefined;
+    textIdentitySourceCache?: Map<number, string> | undefined;
+    textTokenCache?: Map<string, { text: string; tokenCount: number }> | undefined;
 }
 
 function optionalTextTagArgs(
@@ -919,7 +919,7 @@ function applyTextPrefixAndTarget(args: TagTextPartArgs, tagId: number, text: st
 
 interface TagToolPartArgs {
     sessionId: string;
-    message: { info: { id?: string; role: string } };
+    message: { info: { id?: string | undefined; role: string } };
     messageId: string;
     msgIndex: number;
     partIndex: number;
@@ -1137,13 +1137,13 @@ function buildAggregateTarget(tagId: number, occurrences: ToolOccurrence[]): Tag
  * `apply-operations.ts` to differentiate user-message drops (which
  * preserve a truncated preview) from assistant drops (full sentinel).
  */
-function targetMessageInfo(id: string | undefined, role: string): { id?: string; role: string } {
+function targetMessageInfo(id: string | undefined, role: string): { id?: string | undefined; role: string } {
     return id === undefined ? { role } : { id, role };
 }
 
 function buildTextTarget(
     part: TranscriptPart,
-    message: { info: { id?: string; role: string } },
+    message: { info: { id?: string | undefined; role: string } },
 ): TagTarget {
     const info = targetMessageInfo(message.info.id, message.info.role);
     return {
@@ -1174,7 +1174,7 @@ function buildTextTarget(
  */
 function buildToolTarget(
     part: TranscriptPart,
-    message: { info: { id?: string; role: string } },
+    message: { info: { id?: string | undefined; role: string } },
     tagId: number,
 ): TagTarget {
     const info = targetMessageInfo(message.info.id, message.info.role);

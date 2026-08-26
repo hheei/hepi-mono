@@ -22,9 +22,9 @@ export function resolveContextLimit(
     providerID: string | undefined,
     modelID: string | undefined,
     ctx?: {
-        db?: ContextDatabase;
-        sessionID?: string;
-        reservation?: "default" | "none";
+        db?: ContextDatabase | undefined;
+        sessionID?: string | undefined;
+        reservation?: "default" | "none" | undefined;
     },
 ): number {
     const modelKey = resolveModelKey(providerID, modelID);
@@ -45,12 +45,7 @@ export function resolveContextLimit(
     // Combined/unknown detections narrow the raw context before output
     // reservation. Prompt-only detections enter the pre-carved input arm.
     const fromModelsDev =
-        providerID && modelID
-            ? getSdkContextLimit(providerID, modelID, detected, {
-                  reservation: ctx?.reservation,
-                  detectedLimitProvenance,
-              })
-            : undefined;
+        providerID && modelID ? getSdkContextLimit() : undefined;
     return fromModelsDev ?? detected ?? DEFAULT_CONTEXT_LIMIT;
 }
 
@@ -97,11 +92,7 @@ export function resolveTrustedContextLimit(
     // combined detection against an already-reserved budget would double-count
     // output, while a prompt-only detection must not reserve output again.
     const fromModelsDev =
-        providerID && modelID
-            ? getSdkContextLimit(providerID, modelID, detected, {
-                  detectedLimitProvenance,
-              })
-            : undefined;
+        providerID && modelID ? getSdkContextLimit() : undefined;
     if (typeof fromModelsDev === "number" && fromModelsDev > 0) return fromModelsDev;
     if (detected !== undefined) return detected;
 
@@ -144,19 +135,20 @@ export function resolveCacheTtl(cacheTtl: CacheTtlConfig, modelKey: string | und
 }
 
 type ExecuteThresholdConfig = number | { default: number; [modelKey: string]: number };
-type ExecuteThresholdTokensConfig =
-    | { default?: number; [modelKey: string]: number | undefined }
-    | undefined;
+type ExecuteThresholdTokensConfig = {
+    default?: number | undefined;
+    [modelKey: string]: number | undefined;
+};
 
 export interface ExecuteThresholdOptions {
     /** Optional tokens-based threshold config. When matched for the given modelKey,
      *  overrides the percentage-based threshold. */
-    tokensConfig?: ExecuteThresholdTokensConfig;
+    tokensConfig?: ExecuteThresholdTokensConfig | undefined;
     /** Required when `tokensConfig` is provided — used to convert tokens → percentage
      *  and to clamp values above 90% × context_limit. */
-    contextLimit?: number;
+    contextLimit?: number | undefined;
     /** Session ID for warn logs when clamping. If absent, warns to global log. */
-    sessionId?: string;
+    sessionId?: string | undefined;
 }
 
 export type ExecuteThresholdMode = "percentage" | "tokens";
@@ -167,9 +159,9 @@ export interface ExecuteThresholdDetail {
     /** Which source was authoritative: tokens config (when matched + valid context) or percentage. */
     mode: ExecuteThresholdMode;
     /** When mode is "tokens", the absolute token value after clamping (≤ 90% × contextLimit). */
-    absoluteTokens?: number;
+    absoluteTokens?: number | undefined;
     /** The config key that matched, if any (for display/debugging). `"default"` when default fallback. */
-    matchedKey?: string;
+    matchedKey?: string | undefined;
     /**
      * True when the user's configured value exceeded the safe cap and was reduced.
      * Tokens mode: configured tokens > 90% × contextLimit. Percentage mode:
@@ -177,13 +169,13 @@ export interface ExecuteThresholdDetail {
      * to tell the user their value was clamped instead of silently ignoring it (#241).
      * Only present (true) when a clamp actually happened; absent otherwise.
      */
-    clamped?: boolean;
+    clamped?: boolean | undefined;
     /**
      * The raw configured value before clamping — a token count in tokens mode, a
      * percentage in percentage mode. Populated only alongside `clamped` so display
      * surfaces can show the math (e.g. "190,000 > 90% of 128,000").
      */
-    configuredValue?: number;
+    configuredValue?: number | undefined;
 }
 
 // Module-level dedupe for clamp warnings. Key: `${sessionId}|${modelKey}|${tokenVal}|${cap}`.
@@ -368,7 +360,7 @@ export function resolveExecuteThreshold(
 
 // Variant of resolveTokensMatch that also returns which key matched, for mode display.
 function resolveTokensMatchWithKey(
-    tokensConfig: ExecuteThresholdTokensConfig,
+    tokensConfig: ExecuteThresholdTokensConfig | undefined,
     modelKey: string | undefined,
 ): { value: number; matchedKey: string } | undefined {
     if (!tokensConfig) {

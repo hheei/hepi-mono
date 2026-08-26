@@ -2,10 +2,10 @@ import { getErrorMessage } from "../shared/error-message";
 import { sessionLog } from "../shared/logger";
 
 export interface NotificationParams {
-    agent?: string;
-    variant?: string;
-    providerId?: string;
-    modelId?: string;
+    agent?: string | undefined;
+    variant?: string | undefined;
+    providerId?: string | undefined;
+    modelId?: string | undefined;
 }
 
 export type NotificationDeliveryDisposition = "sent" | "queued" | "skipped" | "failed";
@@ -27,7 +27,7 @@ interface QueuedIgnoredNotification {
 
 const queuedIgnoredNotifications = new Map<string, QueuedIgnoredNotification[]>();
 const flushingIgnoredNotifications = new Set<string>();
-let midTurnDetector = (): boolean => false;
+let midTurnDetector: (sessionId: string) => boolean = () => false;
 
 function queueIgnoredNotification(notification: QueuedIgnoredNotification): void {
     const queued = queuedIgnoredNotifications.get(notification.sessionId) ?? [];
@@ -62,9 +62,9 @@ interface NotificationClient {
         messages?: (query: { limit: number }) => Promise<{
             data?: Array<{ info?: Record<string, unknown> }>;
         }>;
-        prompt?: (opts: unknown) => unknown | Promise<unknown>;
-        promptAsync?: (opts: unknown) => Promise<unknown>;
-    };
+        prompt?: ((opts: unknown) => unknown | Promise<unknown>) | undefined;
+        promptAsync?: ((opts: unknown) => Promise<unknown>) | undefined;
+    } | undefined;
 }
 
 function hasNotificationSessionClient(client: unknown): client is NotificationClient {

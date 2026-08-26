@@ -18,9 +18,9 @@ export function registerCtxDreamCommand(
 			projectDir: string;
 			projectIdentity: string;
 		};
-		dreamerEnabled?: boolean;
-		resolveDreamerEnabled?: (ctx: { cwd: string }) => boolean | undefined;
-		onProjectSeen?: (projectIdentity: string) => void;
+		dreamerEnabled?: boolean | undefined;
+		resolveDreamerEnabled?: ((ctx: { cwd: string }) => boolean | undefined) | undefined;
+		onProjectSeen?: ((projectIdentity: string) => void) | undefined;
 	},
 ): void {
 	pi.registerCommand("ctx-dream", {

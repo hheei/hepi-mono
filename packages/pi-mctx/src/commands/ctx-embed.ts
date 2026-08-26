@@ -34,9 +34,9 @@ export async function runEmbedDrain(
 	projectIdentity: string,
 	sessionId: string,
 	options: {
-		onStatus?: (status: EmbedDrainStatus) => void;
-		now?: () => number;
-		batchSize?: number;
+		onStatus?: ((status: EmbedDrainStatus) => void) | undefined;
+		now?: (() => number) | undefined;
+		batchSize?: number | undefined;
 	} = {},
 ): Promise<EmbedDrainStatus> {
 	// Idempotent start: a drain already running for this session means a second
@@ -147,8 +147,8 @@ export function registerCtxEmbedCommand(
 		db: ContextDatabase;
 		projectDir: string;
 		projectIdentity: string;
-		memoryEnabled?: boolean;
-		resolveMemoryEnabled?: (ctx: { cwd: string }) => boolean | undefined;
+		memoryEnabled?: boolean | undefined;
+		resolveMemoryEnabled?: ((ctx: { cwd: string }) => boolean | undefined) | undefined;
 		resolveProject?: (ctx: { cwd: string }) => {
 			projectDir: string;
 			projectIdentity: string;
@@ -251,7 +251,7 @@ export function maybeAutoEmbedPiSession(
 		db: ContextDatabase;
 		projectDir: string;
 		projectIdentity: string;
-		memoryEnabled?: boolean;
+		memoryEnabled?: boolean | undefined;
 	},
 	sessionId: string,
 	projectDir: string,

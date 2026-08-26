@@ -14,11 +14,11 @@ export type SmartNoteCheckStatus = "uncompiled" | "compiled" | "failing" | "fall
 
 export interface SmartNoteCheckManifest {
     capabilities: SmartNoteCapabilityName[];
-    readFiles?: string[];
-    hosts?: string[];
-    urls?: string[];
-    signals?: string[];
-    summary?: string;
+    readFiles?: string[] | undefined;
+    hosts?: string[] | undefined;
+    urls?: string[] | undefined;
+    signals?: string[] | undefined;
+    summary?: string | undefined;
 }
 
 export interface SmartNoteCheckNote extends Note {
@@ -43,7 +43,7 @@ export interface SmartNoteCheckResult {
 }
 
 export interface SmartNoteNetworkErrorOptions {
-    terminal?: boolean;
+    terminal?: boolean | undefined;
 }
 
 export class SmartNoteNetworkError extends Error {

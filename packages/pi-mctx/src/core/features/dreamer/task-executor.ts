@@ -80,34 +80,34 @@ export interface DreamTaskExecutorDeps {
     sessionDirectory: string;
     retrospectiveRawProvider?:
         | RetrospectiveRawProvider
-        | ((db: Database, projectIdentity: string) => RetrospectiveRawProvider | null);
+        | ((db: Database, projectIdentity: string) => RetrospectiveRawProvider | null) | undefined;
     /** Host-side privacy gate for route="observation" learnings. */
-    userMemoryCollectionEnabled?: boolean;
+    userMemoryCollectionEnabled?: boolean | undefined;
     /** Ensure the project embedding provider is registered before primer clustering embeds candidates. */
-    ensureProjectRegistered?: (directory: string, db: Database) => Promise<void> | void;
+    ensureProjectRegistered?: ((directory: string, db: Database) => Promise<void> | void) | undefined;
     /**
      * Pi only: builds a RawMessageProvider for an arbitrary historical session id
      * so refresh-primers can render the orientation seed from Pi JSONL.
      * Returning null for a session keeps the closed-book fallback.
      */
-    primerRawProviderFactory?: (
+    primerRawProviderFactory?: ((
         sessionId: string,
-    ) => Promise<RawMessageProvider | null> | RawMessageProvider | null;
-    language?: string;
+    ) => Promise<RawMessageProvider | null> | RawMessageProvider | null) | undefined;
+    language?: string | undefined;
     /** Resolved project transform mode; an explicit TS mode always stays on TS. */
-    transformMode?: "ts" | "rust";
+    transformMode?: "ts" | "rust" | undefined;
     /** Rust-mode module transport; classify uses it only after MODULE authority is confirmed. */
-    dreamerModel?: string;
-    experimentalMural?: { enabled: boolean; model?: string };
-    memoryInjectionBudgetTokens?: number;
+    dreamerModel?: string | undefined;
+    experimentalMural?: { enabled: boolean; model?: string } | undefined;
+    memoryInjectionBudgetTokens?: number | undefined;
     moduleClient?: ClassifyModuleClient & {
         authorityStatus?: (args: {
             context_store_uuid: string;
             project: string;
-            projectRoot?: string;
+            projectRoot?: string | undefined;
             domain: "memories" | "notes";
         }) => Promise<{ authority: { state?: string; generation?: number } | null }>;
-    };
+    } | undefined;
 }
 
 /** A failed task either hot-retries (transient: provider/network/rate-limit/
@@ -237,9 +237,9 @@ export function createDreamTaskExecutor(deps: DreamTaskExecutorDeps): TaskExecut
             status: "completed" | "failed",
             error: string | null,
             extra?: {
-                memoryChanges?: ReturnType<typeof computeMemoryDelta>;
-                smartNotesSurfaced?: number;
-                smartNotesPending?: number;
+                memoryChanges?: ReturnType<typeof computeMemoryDelta> | undefined;
+                smartNotesSurfaced?: number | undefined;
+                smartNotesPending?: number | undefined;
             },
         ): void => {
             try {
@@ -652,7 +652,7 @@ export function parseFrictionGateVerdict(verdict: string): { hit: boolean; ordin
     // No clean verdict line — accept an embedded `y: <nums>` form, else fail safe.
     const embedded = verdict.toLowerCase().match(/\by(?:es)?\s*:\s*([\d,\s]+)/);
     if (embedded) {
-        const ordinals = (embedded[1].match(/\d+/g) ?? [])
+        const ordinals = ((embedded[1] ?? "").match(/\d+/g) ?? [])
             .map(Number)
             .filter((n) => Number.isInteger(n) && n > 0);
         return { hit: ordinals.length > 0, ordinals };
@@ -734,7 +734,7 @@ async function runRetrospectiveTask(
         deadline: number;
         parent: string | undefined;
         invocationStartedAt: number;
-        moduleRoute?: DreamerModuleRoute;
+        moduleRoute?: DreamerModuleRoute | undefined;
     },
 ): Promise<{ retrospectiveWatermarkMs: number | null }> {
     const { db, projectIdentity, holderId, leaseKey } = ctx;
@@ -946,8 +946,8 @@ async function runRetrospectiveTask(
                         },
                     });
                     const body = ((response as { result?: unknown })?.result ?? response) as {
-                        ok?: unknown;
-                        error?: unknown;
+                        ok?: unknown | undefined;
+                        error?: unknown | undefined;
                     };
                     if (body?.ok === false || body?.error)
                         throw new Error("module rejected retrospective memory");

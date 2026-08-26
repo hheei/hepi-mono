@@ -22,23 +22,23 @@ export const CTX_MEMORY_DREAMER_ACTIONS = [...CTX_MEMORY_ACTIONS, "list"] as con
 export type CtxMemoryAction = (typeof CTX_MEMORY_DREAMER_ACTIONS)[number];
 
 export interface CtxMemoryArgs extends ImitatedReducedArgs {
-    action?: CtxMemoryAction;
-    content?: string;
-    category?: string;
+    action?: CtxMemoryAction | undefined;
+    content?: string | undefined;
+    category?: string | undefined;
     /**
      * Target memory id(s). One unified parameter for all id-taking actions:
      * update requires exactly one, archive one or more (batch), merge two or
      * more, get one or more (≤20, batch read). The former scalar `id` param
      * was folded in here.
      */
-    ids?: number[];
-    limit?: number;
-    reason?: string;
+    ids?: number[] | undefined;
+    limit?: number | undefined;
+    reason?: string | undefined;
 }
 
 export interface CtxMemoryToolDeps {
     db: Database;
-    ensureProjectRegistered?: (directory: string, db: Database) => Promise<void>;
+    ensureProjectRegistered?: ((directory: string, db: Database) => Promise<void>) | undefined;
     /**
      * Resolve the project identity for the active session's directory.
      *
@@ -51,9 +51,9 @@ export interface CtxMemoryToolDeps {
      * directory's project.
      */
     resolveProjectPath: (directory: string) => string | undefined;
-    memoryEnabled?: boolean;
-    embeddingEnabled?: boolean;
-    allowedActions?: CtxMemoryAction[];
-    sourceType?: MemorySourceType;
-    rustToolBackends?: unknown;
+    memoryEnabled?: boolean | undefined;
+    embeddingEnabled?: boolean | undefined;
+    allowedActions?: CtxMemoryAction[] | undefined;
+    sourceType?: MemorySourceType | undefined;
+    rustToolBackends?: unknown | undefined;
 }

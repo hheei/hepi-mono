@@ -5,14 +5,14 @@ export interface ParsedCompartment {
     /** v2: P1 tier text (mirror). v1/flat: the flat compartment body. */
     content: string;
     /** v2 paraphrase tiers (model B). Undefined for v1/flat compartments. p4 may be "" (self-close). */
-    p1?: string;
-    p2?: string;
-    p3?: string;
-    p4?: string;
+    p1?: string | undefined;
+    p2?: string | undefined;
+    p3?: string | undefined;
+    p4?: string | undefined;
     /** v2 decay-rate signal (1-100). Undefined for v1/flat. */
-    importance?: number;
+    importance?: number | undefined;
     /** v2 comma-separated activity types. Undefined for v1/flat. */
-    episodeType?: string;
+    episodeType?: string | undefined;
 }
 
 export interface ParsedFact {
@@ -41,7 +41,7 @@ export interface ParsedPrimerCandidate {
      *  (`<primer at_compartment="N">`), matching the SAME convention as
      *  `<events>` anchoring. Undefined for the legacy bullet form, in which case
      *  emission falls back to the chunk span. */
-    originCompartmentIndex?: number;
+    originCompartmentIndex?: number | undefined;
 }
 
 export interface ParsedCompartmentOutput {
@@ -162,10 +162,10 @@ function extractTier(inner: string, index: number): string | undefined {
  * model mismatched a tier's closing tag. Each tier is undefined when absent.
  */
 export function extractTiersFromInner(inner: string): {
-    p1?: string;
-    p2?: string;
-    p3?: string;
-    p4?: string;
+    p1?: string | undefined;
+    p2?: string | undefined;
+    p3?: string | undefined;
+    p4?: string | undefined;
 } {
     const p1 = extractTier(inner, 0);
     const p2 = extractTier(inner, 1);

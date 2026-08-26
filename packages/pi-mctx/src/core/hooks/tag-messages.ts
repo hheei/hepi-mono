@@ -81,22 +81,22 @@ function deriveToolOwnerMessageId(
 }
 
 export type MessageInfo = {
-    id?: string;
-    role?: string;
-    sessionID?: string;
-    summary?: boolean;
+    id?: string | undefined;
+    role?: string | undefined;
+    sessionID?: string | undefined;
+    summary?: boolean | undefined;
     /** Marks one of the two m[0]/m[1] messages prepended by compartment injection. */
-    syntheticHead?: boolean;
-    skipTags?: boolean;
-    customType?: string;
-    finish?: string;
-    error?: unknown;
+    syntheticHead?: boolean | undefined;
+    skipTags?: boolean | undefined;
+    customType?: string | undefined;
+    finish?: string | undefined;
+    error?: unknown | undefined;
 };
 
 export interface ThinkingLikePart {
     type: string;
-    thinking?: string;
-    text?: string;
+    thinking?: string | undefined;
+    text?: string | undefined;
 }
 
 export type MessageLike = { info: MessageInfo; parts: unknown[] };
@@ -110,21 +110,21 @@ export interface TagNormalizationTarget {
 
 export type TagTarget = {
     setContent: (content: string) => boolean;
-    getContent?: () => string | null;
-    drop?: () => ToolDropResult;
-    truncate?: () => ToolDropResult;
+    getContent?: (() => string | null) | undefined;
+    drop?: (() => ToolDropResult) | undefined;
+    truncate?: (() => ToolDropResult) | undefined;
     /** Edit-marker compression for an edit/write superseded by a later edit to
      * the same file: keep the call + filePath + a region hint of the diff,
      * output → [dropped §N§]. Used by smart-drops. */
-    editMarker?: () => ToolDropResult;
+    editMarker?: (() => ToolDropResult) | undefined;
     /** Non-mutating: would drop()/truncate() actually reclaim bytes? Tool
      * targets only; absent on message/file targets. */
-    canDrop?: () => boolean;
+    canDrop?: (() => boolean) | undefined;
     /** Non-mutating read of the tool invocation's input object (e.g. to read
      * `ctx_note`'s action or an edit's filePath for supersession selection).
      * Tool targets only; null when no invocation part is present. */
-    readInput?: () => Record<string, unknown> | null;
-    message?: MessageLike;
+    readInput?: (() => Record<string, unknown> | null) | undefined;
+    message?: MessageLike | undefined;
 };
 
 export interface TagMessagesResult {
@@ -269,7 +269,7 @@ export interface TagMessagesOptions {
      * markers they can't act on. Cache-safe: the availability verdict is frozen
      * per session, so message shape stays stable.
      */
-    skipPrefixInjection?: boolean;
+    skipPrefixInjection?: boolean | undefined;
 }
 
 export function tagMessages(

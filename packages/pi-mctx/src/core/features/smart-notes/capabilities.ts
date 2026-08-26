@@ -17,9 +17,9 @@ export interface SmartNoteCapabilityApi {
     gitHeadSha(): Promise<string | null>;
     gitTag(): Promise<string | null>;
     gitLog(opts?: {
-        maxCount?: number;
-        path?: string;
-        since?: string;
+        maxCount?: number | undefined;
+        path?: string | undefined;
+        since?: string | undefined;
     }): Promise<Array<{ sha: string; subject: string; authorDate: string }>>;
     httpGet(url: string): Promise<{ status: number; body: string }>;
 }
@@ -29,8 +29,8 @@ export type SmartNoteCapabilityFactory = (signal: AbortSignal) => SmartNoteCapab
 export interface SmartNoteCapabilitiesOptions {
     projectRoot: string;
     signal: AbortSignal;
-    fileLimitBytes?: number;
-    resolver?: SmartNoteResolver;
+    fileLimitBytes?: number | undefined;
+    resolver?: SmartNoteResolver | undefined;
 }
 
 export function createSmartNoteCapabilities(
@@ -222,7 +222,7 @@ async function runGitScalar(
 
 async function guardedGitLog(
     projectRoot: string,
-    opts: { maxCount?: number; path?: string; since?: string } | undefined,
+    opts: { maxCount?: number | undefined; path?: string | undefined; since?: string | undefined } | undefined,
     signal: AbortSignal,
 ): Promise<Array<{ sha: string; subject: string; authorDate: string }>> {
     const maxCount = Math.max(1, Math.min(50, Math.floor(opts?.maxCount ?? 10)));

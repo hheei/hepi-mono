@@ -21,9 +21,9 @@ export interface CloneSessionStateFilter {
     includeTag(tag: CloneTagRow): boolean;
     includeMessageId(messageId: string): boolean;
     /** Map a source message/content id into the destination session. */
-    mapMessageId?: (messageId: string) => string;
+    mapMessageId?: ((messageId: string) => string) | undefined;
     /** Opt into remapping globally keyed tag ids; leave undefined for Pi compatibility. */
-    mapTagId?: (sourceTagId: number, destinationTagId: number) => number;
+    mapTagId?: ((sourceTagId: number, destinationTagId: number) => number) | undefined;
     selectPendingPiMarker(
         rawState: string | null,
         copiedCompartments: readonly CloneCompartmentRow[],

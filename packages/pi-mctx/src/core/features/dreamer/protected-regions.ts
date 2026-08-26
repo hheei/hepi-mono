@@ -21,10 +21,11 @@ export function extractProtectedBlocks(text: string): ProtectedBlock[] {
     let i = 0;
     while (i < lines.length) {
         const line = lines[i];
+        if (line === undefined) break;
         if (line.includes(PROTECTED_START_TOKEN)) {
             const startMarkerLine = line;
             const startIdx = i;
-            while (i < lines.length && !lines[i].includes(PROTECTED_END_TOKEN)) {
+            while (i < lines.length && !lines[i]?.includes(PROTECTED_END_TOKEN)) {
                 i += 1;
             }
             if (i >= lines.length) {
@@ -51,7 +52,7 @@ function findCandidateBlockSpan(
             continue;
         }
         const startIdx = i;
-        while (i < lines.length && !lines[i].includes(PROTECTED_END_TOKEN)) {
+        while (i < lines.length && !lines[i]?.includes(PROTECTED_END_TOKEN)) {
             i += 1;
         }
         if (i >= lines.length) {
@@ -75,7 +76,7 @@ function spliceProtectedBlock(
             continue;
         }
         const startIdx = i;
-        while (i < lines.length && !lines[i].includes(PROTECTED_END_TOKEN)) {
+        while (i < lines.length && !lines[i]?.includes(PROTECTED_END_TOKEN)) {
             i += 1;
         }
         if (i >= lines.length) {

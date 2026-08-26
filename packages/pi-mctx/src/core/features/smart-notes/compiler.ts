@@ -22,7 +22,7 @@ import {
 
 interface CompileSmartNoteArgs {
     client: PluginContext["client"];
-    db?: Database;
+    db?: Database | undefined;
     parentSessionId: string | undefined;
     sessionDirectory: string | undefined;
     projectIdentity: string;
@@ -30,8 +30,8 @@ interface CompileSmartNoteArgs {
     capabilityFactory: SmartNoteCapabilityFactory;
     signal: AbortSignal;
     deadline: number;
-    model?: string;
-    fallbackModels?: readonly string[];
+    model?: string | undefined;
+    fallbackModels?: readonly string[] | undefined;
 }
 
 export interface CompileSmartNoteSuccess {
@@ -83,8 +83,8 @@ Remember: output only the JSON object described by the system prompt.`;
     let invocationRecorded = false;
     const recordInvocation = (params: {
         status: "completed" | "failed" | "aborted";
-        messages?: unknown[];
-        error?: unknown;
+        messages?: unknown[] | undefined;
+        error?: unknown | undefined;
     }) => {
         if (!args.db || !args.parentSessionId || invocationRecorded) return;
         invocationRecorded = true;
@@ -219,7 +219,7 @@ export function normalizeCompiledCheck(source: string): string {
     }
     let code = source.trim();
     const fence = code.match(/^```(?:javascript|js)?\s*([\s\S]*?)```$/i);
-    if (fence) code = fence[1].trim();
+    if (fence) code = (fence[1] ?? "").trim();
     code = code.replace(/export\s+function\s+check\s*\(/, "function check(");
     if (/\basync\s+function\s+check\s*\(/.test(code)) {
         throw new Error("compiled_check must be synchronous");
@@ -315,7 +315,7 @@ export function hashCheck(
 
 function extractJsonObject(output: string): string {
     const fenced = output.match(/```(?:json)?\s*([\s\S]*?)```/i);
-    const text = fenced ? fenced[1] : output;
+    const text = (fenced ? fenced[1] : output) ?? output;
     const start = text.indexOf("{");
     const end = text.lastIndexOf("}");
     if (start < 0 || end <= start) throw new Error("smart-note compiler returned no JSON object");
@@ -325,7 +325,10 @@ function extractJsonObject(output: string): string {
 function capabilityUses(code: string): Set<SmartNoteCapabilityName> {
     const uses = new Set<SmartNoteCapabilityName>();
     const regex = /\bcap\s*\.\s*(readFile|gitHeadSha|gitTag|gitLog|httpGet)\s*\(/g;
-    for (const match of code.matchAll(regex)) uses.add(match[1] as SmartNoteCapabilityName);
+    for (const match of code.matchAll(regex)) {
+        const name = match[1];
+        if (name) uses.add(name as SmartNoteCapabilityName);
+    }
     return uses;
 }
 
@@ -336,7 +339,8 @@ function literalCalls(code: string, method: "readFile" | "httpGet"): string[] {
     );
     const values: string[] = [];
     for (const match of code.matchAll(regex)) {
-        values.push(match[2].replace(/\\([\\"'])/g, "$1"));
+        const value = match[2];
+        if (value !== undefined) values.push(value.replace(/\\([\\"'])/g, "$1"));
     }
     return values;
 }

@@ -33,12 +33,12 @@ export interface ReferenceCompartment {
     endMessage: number;
     title: string;
     content: string;
-    p1?: string | null;
-    p2?: string | null;
-    p3?: string | null;
-    p4?: string | null;
-    importance?: number | null;
-    episodeType?: string | null;
+    p1?: string | null | undefined;
+    p2?: string | null | undefined;
+    p3?: string | null | undefined;
+    p4?: string | null | undefined;
+    importance?: number | null | undefined;
+    episodeType?: string | null | undefined;
 }
 
 /** Permanent seed floor — never drops, even when the session is mature. */
@@ -63,7 +63,9 @@ const SEED_BANDS: ReadonlyArray<readonly [number, number]> = [
 
 function seedBandIndex(importance: number): number {
     for (let i = 0; i < SEED_BANDS.length; i++) {
-        const [lo, hi] = SEED_BANDS[i];
+        const band = SEED_BANDS[i];
+        if (!band) continue;
+        const [lo, hi] = band;
         if (importance >= lo && importance <= hi) return i;
     }
     // Defensive: importance is validated 1-100, but clamp out-of-range to nearest band.
@@ -74,7 +76,8 @@ function seedBandIndex(importance: number): number {
 function seedsByBand(): ReferenceSeed[][] {
     const bands: ReferenceSeed[][] = SEED_BANDS.map(() => []);
     for (const seed of REFERENCE_SEEDS) {
-        bands[seedBandIndex(seed.importance)].push(seed);
+        const band = bands[seedBandIndex(seed.importance)];
+        band?.push(seed);
     }
     return bands;
 }
@@ -127,22 +130,23 @@ export function selectSeeds(
     let bi = 0;
     let guard = 0;
     while (picks.length < count && guard < SEED_BANDS.length * 4) {
-        const band = bands[bandOrder[bi % bandOrder.length]];
+        const bandIndex = bandOrder[bi % bandOrder.length];
         bi++;
         guard++;
-        if (band.length === 0) continue;
+        const band = bandIndex === undefined ? undefined : bands[bandIndex];
+        if (!band || band.length === 0) continue;
         // Rotate within the band by the hash + how many we've already taken so two
         // picks from the same band (if a band is empty and we wrap) differ.
         const idx = (seed + picks.length) % band.length;
         const candidate = band[idx];
-        if (!picks.includes(candidate)) picks.push(candidate);
+        if (candidate && !picks.includes(candidate)) picks.push(candidate);
     }
 
     // Fallback: if band-walking under-fills (tiny/oddly-distributed corpus),
     // top up from the flat corpus deterministically.
     for (let i = 0; picks.length < count && i < REFERENCE_SEEDS.length; i++) {
         const candidate = REFERENCE_SEEDS[(seed + i) % REFERENCE_SEEDS.length];
-        if (!picks.includes(candidate)) picks.push(candidate);
+        if (candidate && !picks.includes(candidate)) picks.push(candidate);
     }
 
     return picks;

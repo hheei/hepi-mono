@@ -204,9 +204,9 @@ export function computeTailTokenEstimatePi(
 			for (const part of msg.content) {
 				if (!part || typeof part !== "object") continue;
 				const p = part as {
-					type?: unknown;
-					name?: unknown;
-					arguments?: unknown;
+					type?: unknown | undefined;
+					name?: unknown | undefined;
+					arguments?: unknown | undefined;
 				};
 				if (p.type === "toolCall") {
 					if (typeof p.name === "string")
@@ -316,7 +316,7 @@ interface PiSendMessage {
 			customType: string;
 			content: string;
 			display: boolean;
-			details?: unknown;
+			details?: unknown | undefined;
 		},
 		options?: { deliverAs?: "steer" | "followUp"; triggerTurn?: boolean },
 	) => void;

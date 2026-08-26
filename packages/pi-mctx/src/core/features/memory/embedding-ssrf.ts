@@ -52,13 +52,17 @@ function ipv4FromMappedIpv6(host: string): string | null {
     const m = /^::ffff:(.+)$/.exec(host);
     if (!m) return null;
     const tail = m[1];
+    if (tail === undefined) return null;
     // Dotted form: ::ffff:169.254.169.254
     if (/^\d{1,3}(\.\d{1,3}){3}$/.test(tail)) return tail;
     // Hex form: ::ffff:a9fe:a9fe → 169.254.169.254
     const hex = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(tail);
     if (hex) {
-        const hi = Number.parseInt(hex[1], 16);
-        const lo = Number.parseInt(hex[2], 16);
+        const hiRaw = hex[1];
+        const loRaw = hex[2];
+        if (hiRaw === undefined || loRaw === undefined) return null;
+        const hi = Number.parseInt(hiRaw, 16);
+        const lo = Number.parseInt(loRaw, 16);
         if (Number.isNaN(hi) || Number.isNaN(lo)) return null;
         return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
     }

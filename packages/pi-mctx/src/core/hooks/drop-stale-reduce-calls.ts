@@ -117,6 +117,7 @@ export function dropStaleReduceCalls(
 
     for (let i = 0; i < messages.length; i++) {
         const message = messages[i];
+        if (!message) continue;
         const id = typeof message.info.id === "string" ? message.info.id : undefined;
 
         // Replay: any message frozen on a prior cache-busting pass.

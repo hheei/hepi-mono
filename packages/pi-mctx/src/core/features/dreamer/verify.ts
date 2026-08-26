@@ -71,11 +71,11 @@ export interface VerifyArgs {
     holderId: string;
     leaseKey: string;
     deadline: number;
-    forceBroad?: boolean;
-    model?: string;
-    fallbackModels?: readonly string[];
-    language?: string;
-    moduleRoute?: DreamerModuleRoute;
+    forceBroad?: boolean | undefined;
+    model?: string | undefined;
+    fallbackModels?: readonly string[] | undefined;
+    language?: string | undefined;
+    moduleRoute?: DreamerModuleRoute | undefined;
 }
 
 export interface VerifyResult {
@@ -132,7 +132,9 @@ export async function runVerify(args: VerifyArgs): Promise<VerifyResult> {
             const batchesRemaining = batches.length - i;
             const sliceMs = Math.max(1, Math.floor(remainingMs / batchesRemaining));
 
-            const counts = await verifyOneBatch(args, batches[i], sliceMs, abortController.signal);
+            const batch = batches[i];
+            if (!batch) continue;
+            const counts = await verifyOneBatch(args, batch, sliceMs, abortController.signal);
             result.verified += counts.verified;
             result.updated += counts.updated;
             result.archived += counts.archived;
@@ -353,7 +355,7 @@ export async function applyVerifyManifest(
             throw new DreamerModuleFailureError("memory.set_verification", error);
         }
         const result = ((response as { result?: unknown })?.result ?? response) as {
-            accepted?: unknown;
+            accepted?: unknown | undefined;
         };
         if (!Array.isArray(result?.accepted))
             throw new DreamerModuleFailureError(

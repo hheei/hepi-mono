@@ -50,8 +50,8 @@ export function queueM0Mutation(
     input: {
         sessionId: string;
         mutationType: M0MutationType;
-        targetId?: number | null;
-        queuedAt?: number;
+        targetId?: number | null | undefined;
+        queuedAt?: number | undefined;
     },
 ): M0MutationLogRow {
     assertMutationType(input.mutationType);
@@ -66,7 +66,7 @@ export function queueM0Mutation(
             input.targetId ?? null,
             input.queuedAt ?? Date.now(),
         ) as {
-        lastInsertRowid?: number | bigint;
+        lastInsertRowid?: number | bigint | undefined;
     };
     const row = getM0Mutation(db, Number(result.lastInsertRowid));
     if (!row) {
@@ -123,7 +123,7 @@ export function getMaxM0MutationId(db: Database, sessionId: string): number | nu
 
 export function deleteM0Mutation(db: Database, id: number): boolean {
     const result = db.prepare("DELETE FROM m0_mutation_log WHERE id = ?").run(id) as {
-        changes?: number;
+        changes?: number | undefined;
     };
     return (result.changes ?? 0) > 0;
 }
@@ -132,7 +132,7 @@ export function clearM0MutationsForSession(db: Database, sessionId: string): num
     const result = db
         .prepare("DELETE FROM m0_mutation_log WHERE session_id = ?")
         .run(sessionId) as {
-        changes?: number;
+        changes?: number | undefined;
     };
     return result.changes ?? 0;
 }

@@ -36,9 +36,9 @@ export interface RefreshPrimersArgs {
     holderId: string;
     leaseKey: string;
     deadline: number;
-    model?: string;
-    fallbackModels?: readonly string[];
-    language?: string;
+    model?: string | undefined;
+    fallbackModels?: readonly string[] | undefined;
+    language?: string | undefined;
     /**
      * Pi only: builds a RawMessageProvider for an arbitrary historical session id
      * Pi obtains the origin session through its raw-message provider; returning
@@ -46,9 +46,9 @@ export interface RefreshPrimersArgs {
      * May be async (Pi JSONL discovery is async); the returned provider's
      * `readMessages()` itself is synchronous (wraps already-loaded entries).
      */
-    rawProviderFactory?: (
+    rawProviderFactory?: ((
         sessionId: string,
-    ) => Promise<RawMessageProvider | null> | RawMessageProvider | null;
+    ) => Promise<RawMessageProvider | null> | RawMessageProvider | null) | undefined;
 }
 
 export interface RefreshPrimersResult {
@@ -153,7 +153,9 @@ function parseAnswer(messages: unknown[], fallback: string): string {
     if (!text) throw new Error("refresh-primers returned no output");
     const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/) ?? text.match(/(\{[\s\S]*\})/);
     if (!jsonMatch) throw new Error("refresh-primers returned no JSON");
-    const parsed = JSON.parse(jsonMatch[1]) as { answer?: unknown };
+    const jsonText = jsonMatch[1];
+    if (jsonText === undefined) throw new Error("refresh-primers returned no JSON");
+    const parsed = JSON.parse(jsonText) as { answer?: unknown };
     const answer = typeof parsed.answer === "string" ? parsed.answer.trim() : "";
     if (!answer && fallback.trim()) return fallback.trim();
     if (answer.length > 20_000) throw new Error("refresh-primers answer too large");
@@ -173,6 +175,7 @@ export async function refreshPrimers(args: RefreshPrimersArgs): Promise<RefreshP
     try {
         for (let i = 0; i < primers.length; i += 1) {
             const primer = primers[i];
+            if (!primer) continue;
             const remainingMs = Math.max(0, args.deadline - Date.now());
             if (remainingMs <= 0) break;
             // Fair per-primer slice so one deep primer can't zero out the rest.

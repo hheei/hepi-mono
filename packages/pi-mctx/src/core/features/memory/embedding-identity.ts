@@ -21,8 +21,8 @@ export function getEmbeddingProviderIdentity(config: EmbeddingConfig): string {
 
     if (config.provider === "synapse") {
         const resolved = config as EmbeddingConfig & {
-            model?: string;
-            synapse_fingerprint?: string;
+            model?: string | undefined;
+            synapse_fingerprint?: string | undefined;
         };
         if (!resolved.model || !resolved.synapse_fingerprint) return "synapse:v1:pending";
         return getSynapseLaneIdentity(resolved.model, resolved.synapse_fingerprint);

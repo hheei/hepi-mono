@@ -47,10 +47,10 @@ export interface SessionProjectBackfillStateRow {
 }
 
 interface RunSessionProjectBackfillOptions {
-    resolveIdentity?: (directory: string) => string | Promise<string>;
-    now?: () => number;
-    yieldFn?: () => Promise<void>;
-    holderId?: string;
+    resolveIdentity?: ((directory: string) => string | Promise<string>) | undefined;
+    now?: (() => number) | undefined;
+    yieldFn?: (() => Promise<void>) | undefined;
+    holderId?: string | undefined;
 }
 
 function ensureBackfillStateTable(db: Database): void {
@@ -65,7 +65,7 @@ function ensureBackfillStateTable(db: Database): void {
         );
     `);
     const columns = db.prepare("PRAGMA table_info(session_project_backfill_state)").all() as Array<{
-        name?: string;
+        name?: string | undefined;
     }>;
     if (!columns.some((column) => column.name === "holder_id")) {
         try {

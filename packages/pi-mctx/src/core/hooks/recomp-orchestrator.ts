@@ -66,19 +66,19 @@ export interface ManagedRecompContext {
     autoPromote: boolean;
     /** Resolved historian fallback chain (config `fallback_models` → builtin). */
     fallbackModels: readonly string[];
-    language?: string;
+    language?: string | undefined;
     /** Pre-resolved last-resort model key (the live session model). When omitted,
      *  the orchestrator resolves it from `liveModelBySession`. The hook path passes
      *  this explicitly so it can include a persisted-model fallback (the live map can
      *  be empty when `/ctx-recomp` runs before the first transform pass). */
-    fallbackModelId?: string;
+    fallbackModelId?: string | undefined;
     /** Gate the upgrade's memory-migration step (memory enabled + historian model set). */
     runMigration: boolean;
     userMemoriesEnabled: boolean;
     /** Two-pass historian (editor cleanup) — config `historian.two_pass`. */
-    historianTwoPass?: boolean;
+    historianTwoPass?: boolean | undefined;
     getNotificationParams: (sessionId: string) => NotificationParams;
-    ensureProjectRegistered?: (directory: string, db: Database) => Promise<void>;
+    ensureProjectRegistered?: ((directory: string, db: Database) => Promise<void>) | undefined;
 }
 
 /** The runner's outcome messages are headed "## Magic Recomp — <Status>" /
@@ -281,7 +281,7 @@ async function resolveSessionDirectory(
         const info = await (
             ctx.client as {
                 session?: {
-                    get?: (a: unknown) => Promise<{ data?: { directory?: string } }>;
+                    get?: ((a: unknown) => Promise<{ data?: { directory?: string } }>) | undefined;
                 };
             }
         )?.session?.get?.({ path: { id: sessionId } });

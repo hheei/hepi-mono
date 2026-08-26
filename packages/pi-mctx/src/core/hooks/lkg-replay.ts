@@ -47,7 +47,7 @@ export interface LkgEntryProjection {
     finish: unknown;
     hasIncompleteTool: boolean;
     /** Compute the non-enumerable digest lazily so only LKG capture or replay validation hashes message content. */
-    contentDigest?: () => string | null;
+    contentDigest?: (() => string | null) | undefined;
 }
 
 export function projectLkgEntry(messages: MessageLike[]): LkgEntryProjection[] {
@@ -108,7 +108,7 @@ export interface LkgCaptureInput {
     output: MessageLike[];
     modelKey: string | null;
     providerKey: string | null;
-    capturedAt?: number;
+    capturedAt?: number | undefined;
 }
 
 export type LkgValidationFailure =
@@ -478,8 +478,8 @@ export function replayLkg(args: {
     messages: MessageLike[];
     modelKey: string | null;
     providerKey: string | null;
-    entry?: LkgEntryNote | null;
-    skipSeamValidation?: boolean;
+    entry?: LkgEntryNote | null | undefined;
+    skipSeamValidation?: boolean | undefined;
 }): { ok: true; messages: MessageLike[] } | { ok: false; reason: LkgValidationFailure } {
     const slot = getSlot(args.sessionId);
     if (!slot) return { ok: false, reason: "lkg_invalidated_reshape" };

@@ -6,11 +6,11 @@ import {
 } from "./types";
 
 export interface SmartNoteScheduleOptions {
-    now?: number;
-    noteId?: number;
-    hash?: string | null;
-    floorMs?: number;
-    ceilingMs?: number;
+    now?: number | undefined;
+    noteId?: number | undefined;
+    hash?: string | null | undefined;
+    floorMs?: number | undefined;
+    ceilingMs?: number | undefined;
 }
 
 export function nextSmartNoteCheckDueAt(

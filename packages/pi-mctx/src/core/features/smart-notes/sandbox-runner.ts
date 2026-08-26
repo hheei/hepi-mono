@@ -75,12 +75,12 @@ function withSandboxLock<T>(fn: () => Promise<T>): Promise<T> {
 
 export interface RunCompiledSmartNoteCheckOptions {
     compiledCheck: string;
-    capabilities?: SmartNoteCapabilityApi;
-    capabilityFactory?: SmartNoteCapabilityFactory;
-    signal?: AbortSignal;
-    timeoutMs?: number;
-    heapLimitBytes?: number;
-    stackLimitBytes?: number;
+    capabilities?: SmartNoteCapabilityApi | undefined;
+    capabilityFactory?: SmartNoteCapabilityFactory | undefined;
+    signal?: AbortSignal | undefined;
+    timeoutMs?: number | undefined;
+    heapLimitBytes?: number | undefined;
+    stackLimitBytes?: number | undefined;
 }
 
 export interface RunCompiledSmartNoteCheckSuccess {

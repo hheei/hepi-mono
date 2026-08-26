@@ -32,22 +32,22 @@ const stickyDateBySession = new Map<string, string>();
 export interface BuildMagicContextBlockOptions {
 	db: ContextDatabase;
 	cwd: string;
-	sessionId?: string;
+	sessionId?: string | undefined;
 	/** Reserved for compatibility; project memories now live in m[0]/m[1]. */
 	memoryEnabled: boolean;
-	memoryBudgetChars?: number;
+	memoryBudgetChars?: number | undefined;
 	/** When true (default), emit the `## Magic Context` guidance section. */
-	includeGuidance?: boolean;
-	protectedTags?: number;
-	ctxReduceCallable?: boolean;
-	dreamerEnabled?: boolean;
-	temporalAwarenessEnabled?: boolean;
-	cavemanTextCompressionEnabled?: boolean;
-	language?: string;
+	includeGuidance?: boolean | undefined;
+	protectedTags?: number | undefined;
+	ctxReduceCallable?: boolean | undefined;
+	dreamerEnabled?: boolean | undefined;
+	temporalAwarenessEnabled?: boolean | undefined;
+	cavemanTextCompressionEnabled?: boolean | undefined;
+	language?: string | undefined;
 	/** Reserved for compatibility; user profile now lives in m[0]. */
-	userMemoriesEnabled?: boolean;
-	existingSystemPrompt?: string;
-	isCacheBusting?: boolean;
+	userMemoriesEnabled?: boolean | undefined;
+	existingSystemPrompt?: string | undefined;
+	isCacheBusting?: boolean | undefined;
 }
 
 /**

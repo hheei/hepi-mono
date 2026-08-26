@@ -13,7 +13,7 @@ export function buildSyntheticToolReclaimOps(input: {
     sessionId: string;
     targets: Map<number, TagTarget>;
     watermark: number;
-    pendingOps?: readonly PendingOp[];
+    pendingOps?: readonly PendingOp[] | undefined;
 }): PendingOp[] {
     const watermark = Math.max(0, input.watermark);
     if (watermark <= 0) return [];

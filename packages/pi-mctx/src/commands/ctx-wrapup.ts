@@ -48,24 +48,24 @@ export interface RegisterCtxWrapupDeps {
 	runner: SubagentRunner;
 	historianModel: string | undefined;
 	historianChunkTokens: number;
-	historianFallbacks?: readonly string[];
-	historianTimeoutMs?: number;
-	historianThinkingLevel?: string;
-	language?: string;
+	historianFallbacks?: readonly string[] | undefined;
+	historianTimeoutMs?: number | undefined;
+	historianThinkingLevel?: string | undefined;
+	language?: string | undefined;
 	memoryEnabled: boolean;
 	autoPromote: boolean;
-	userMemoriesEnabled?: boolean;
+	userMemoriesEnabled?: boolean | undefined;
 	executeThresholdPercentage?:
 		| number
-		| { default: number; [modelKey: string]: number };
+		| { default: number; [modelKey: string]: number } | undefined;
 	executeThresholdTokens?: {
-		default?: number;
+		default?: number | undefined;
 		[modelKey: string]: number | undefined;
-	};
-	runPiHistorianForWrapup?: typeof runPiHistorian;
-	wrapupLeaseWaitTimeoutMs?: number;
-	resolveRuntimeDeps?: (ctx: { cwd: string }) => CtxWrapupRuntimeDeps;
-	compactionOff?: boolean;
+	} | undefined;
+	runPiHistorianForWrapup?: typeof runPiHistorian | undefined;
+	wrapupLeaseWaitTimeoutMs?: number | undefined;
+	resolveRuntimeDeps?: ((ctx: { cwd: string }) => CtxWrapupRuntimeDeps) | undefined;
+	compactionOff?: boolean | undefined;
 }
 
 export type CtxWrapupRuntimeDeps = Omit<

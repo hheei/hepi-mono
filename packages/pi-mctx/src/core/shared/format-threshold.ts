@@ -39,10 +39,10 @@ export function formatThresholdPercent(value: number | undefined | null): string
  * free of a dependency on the resolver that owns the cap constant.
  */
 export function formatThresholdClampNote(opts: {
-    clamped?: boolean;
+    clamped?: boolean | undefined;
     mode: "tokens" | "percentage";
     /** Raw configured value before clamping (tokens in tokens mode, % in percentage mode). */
-    configuredValue?: number;
+    configuredValue?: number | undefined;
     contextLimit: number;
     maxPercentage: number;
 }): string {

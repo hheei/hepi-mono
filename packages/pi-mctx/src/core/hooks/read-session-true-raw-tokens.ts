@@ -15,7 +15,7 @@ export interface TrueRawTokenBreakdown {
 
 export interface TrueRawEstimateOptions {
     providerShapeVersion: "legacy-v1" | "pi-folded-v1";
-    imageTokenHeuristic?: (part: unknown) => number;
+    imageTokenHeuristic?: ((part: unknown) => number) | undefined;
 }
 
 export interface TrueRawTokenIndex {
@@ -47,7 +47,7 @@ export interface TrueRawTokenIndexBuildOptions extends TrueRawEstimateOptions {
      * back to live tokenization for that message (untagged / legacy-NULL rows),
      * which converges to the stored path once the tagger backfills.
      */
-    storedTotalForMessage?: (message: RawMessage) => number | null;
+    storedTotalForMessage?: ((message: RawMessage) => number | null) | undefined;
     /**
      * Absolute total message count for the session, when `messages` is a
      * TAIL-ONLY slice carrying absolute ordinals (e.g. only messages after the
@@ -62,7 +62,7 @@ export interface TrueRawTokenIndexBuildOptions extends TrueRawEstimateOptions {
      * contiguous 1..N ordinals the result is byte-identical to the prior
      * index-positional fill.
      */
-    absoluteMessageCount?: number;
+    absoluteMessageCount?: number | undefined;
 }
 
 interface CachedMessageEstimate {
@@ -689,8 +689,8 @@ export function computeRawRangeFingerprint(
 }
 
 export function invalidateTrueRawTokenCache(args: {
-    sessionId?: string;
-    messageId?: string;
+    sessionId?: string | undefined;
+    messageId?: string | undefined;
     reason:
         | "message.updated"
         | "message.removed"

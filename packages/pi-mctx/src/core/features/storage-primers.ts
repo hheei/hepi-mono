@@ -8,15 +8,15 @@ export interface PrimerCandidateInput {
     harness: string;
     sessionId: string;
     question: string;
-    normalizedQuestion?: string;
-    sourceCompartmentStart?: number | null;
-    sourceCompartmentEnd?: number | null;
+    normalizedQuestion?: string | undefined;
+    sourceCompartmentStart?: number | null | undefined;
+    sourceCompartmentEnd?: number | null | undefined;
     sourceStartMessageId: string;
     sourceEndMessageId: string;
     sourceMessageTime: number;
-    questionEmbedding?: Float32Array | null;
-    questionEmbeddingModelId?: string | null;
-    createdAt?: number;
+    questionEmbedding?: Float32Array | null | undefined;
+    questionEmbeddingModelId?: string | null | undefined;
+    createdAt?: number | undefined;
 }
 
 export interface PrimerCandidate {
@@ -322,13 +322,13 @@ export function createPrimer(
     input: {
         projectPath: string;
         question: string;
-        questionEmbedding?: Float32Array | null;
-        questionEmbeddingModelId?: string | null;
-        answer?: string;
+        questionEmbedding?: Float32Array | null | undefined;
+        questionEmbeddingModelId?: string | null | undefined;
+        answer?: string | undefined;
         totalSupport: number;
         lastObservedAt: number;
         sourceCandidateIds: number[];
-        now?: number;
+        now?: number | undefined;
     },
 ): number {
     const now = input.now ?? Date.now();
@@ -359,12 +359,12 @@ export function updatePrimerSupport(
     db: Database,
     input: {
         primerId: number;
-        questionEmbedding?: Float32Array | null;
-        questionEmbeddingModelId?: string | null;
+        questionEmbedding?: Float32Array | null | undefined;
+        questionEmbeddingModelId?: string | null | undefined;
         totalSupport: number;
         lastObservedAt: number;
         sourceCandidateIds: number[];
-        now?: number;
+        now?: number | undefined;
     },
 ): void {
     db.prepare(

@@ -24,7 +24,7 @@ export interface Scheduler {
 
 interface SchedulerConfig {
     executeThresholdPercentage: number | { default: number; [modelKey: string]: number };
-    executeThresholdTokens?: { default?: number; [modelKey: string]: number | undefined };
+    executeThresholdTokens?: { default?: number | undefined; [modelKey: string]: number | undefined } | undefined;
 }
 
 export function parseCacheTtl(ttl: string): number {

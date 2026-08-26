@@ -91,10 +91,10 @@ export async function loadDefaultPiSessionApi(
 ): Promise<PiSessionApi> {
 	const mod = (await resolvePiCodingAgentModule(loaders)) as {
 		SessionManager?: {
-			listAll?: (sessionDir?: string) => unknown[] | Promise<unknown[]>;
+			listAll?: ((sessionDir?: string) => unknown[] | Promise<unknown[]>) | undefined;
 		};
-		loadEntriesFromFile?: (filePath: string) => unknown[] | Promise<unknown[]>;
-		parseSessionEntries?: (content: string) => unknown[];
+		loadEntriesFromFile?: ((filePath: string) => unknown[] | Promise<unknown[]>) | undefined;
+		parseSessionEntries?: ((content: string) => unknown[]) | undefined;
 	};
 	const listSessions = mod.SessionManager?.listAll;
 	if (typeof listSessions !== "function") {

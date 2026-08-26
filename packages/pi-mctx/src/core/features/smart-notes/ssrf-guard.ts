@@ -36,10 +36,10 @@ type SmartNoteAddressRequest = (
 
 export interface GuardedSmartNoteHttpGetOptions {
     signal: AbortSignal;
-    resolver?: SmartNoteResolver;
-    timeoutMs?: number;
-    bodyLimitBytes?: number;
-    requestAddress?: SmartNoteAddressRequest;
+    resolver?: SmartNoteResolver | undefined;
+    timeoutMs?: number | undefined;
+    bodyLimitBytes?: number | undefined;
+    requestAddress?: SmartNoteAddressRequest | undefined;
 }
 
 const DNS_TIMEOUT_MS = 3_000;

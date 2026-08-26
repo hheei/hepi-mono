@@ -76,11 +76,11 @@ export interface GitCommit {
 
 export interface ReadGitCommitsOptions {
     /** Only include commits newer than this (milliseconds since epoch). */
-    sinceMs?: number;
+    sinceMs?: number | undefined;
     /** Only include commits reachable from HEAD (the default). */
-    branch?: string;
+    branch?: string | undefined;
     /** Hard cap on returned commits. Default 5000. */
-    maxCommits?: number;
+    maxCommits?: number | undefined;
     /**
      * Project identity (`git:<sha>` / `dir:<hash>`) used ONLY for log
      * correlation. We never log the absolute `directory` — it carries the
@@ -88,7 +88,7 @@ export interface ReadGitCommitsOptions {
      * `doctor --issue` reports). When omitted, logs fall back to a neutral
      * "<project>" placeholder.
      */
-    projectIdentity?: string;
+    projectIdentity?: string | undefined;
 }
 
 /**
@@ -210,11 +210,25 @@ export function parseGitLogOutput(stdout: string): GitCommit[] {
         fields.push(remaining); // the body (may contain further \x1f bytes)
         if (fields.length < 5) continue;
 
-        const sha = fields[0].trim();
-        const subject = fields[1].trim();
-        const author = fields[2].trim();
-        const timeSec = Number.parseInt(fields[3].trim(), 10);
-        const body = fields[4].trim();
+        const shaRaw = fields[0];
+        const subjectRaw = fields[1];
+        const authorRaw = fields[2];
+        const timeRaw = fields[3];
+        const bodyRaw = fields[4];
+        if (
+            shaRaw === undefined ||
+            subjectRaw === undefined ||
+            authorRaw === undefined ||
+            timeRaw === undefined ||
+            bodyRaw === undefined
+        ) {
+            continue;
+        }
+        const sha = shaRaw.trim();
+        const subject = subjectRaw.trim();
+        const author = authorRaw.trim();
+        const timeSec = Number.parseInt(timeRaw.trim(), 10);
+        const body = bodyRaw.trim();
 
         if (sha.length !== 40 || !Number.isFinite(timeSec) || timeSec <= 0) {
             continue;

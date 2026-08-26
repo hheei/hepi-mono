@@ -8,9 +8,9 @@ type PromptClient = {
 };
 
 type RetryOptions = {
-    fallbackModels?: readonly string[];
-    signal?: AbortSignal;
-    timeoutMs?: number;
+    fallbackModels?: readonly string[] | undefined;
+    signal?: AbortSignal | undefined;
+    timeoutMs?: number | undefined;
 };
 
 function stopRetry(error: unknown, signal: AbortSignal | undefined): boolean {
@@ -25,8 +25,8 @@ function abortError(): Error {
 
 function suggestionModels(error: unknown): string[] {
     const value = error as {
-        name?: unknown;
-        message?: unknown;
+        name?: unknown | undefined;
+        message?: unknown | undefined;
         data?: { providerID?: unknown; suggestions?: unknown };
     };
     if (value.name !== "ProviderModelNotFoundError" && value.message !== "model not found") return [];

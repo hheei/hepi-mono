@@ -29,8 +29,8 @@ export interface PromotePrimersArgs {
     holderId: string;
     leaseKey: string;
     deadline: number;
-    promotionThreshold?: number;
-    ensureProjectRegistered?: (directory: string, db: Database) => Promise<void> | void;
+    promotionThreshold?: number | undefined;
+    ensureProjectRegistered?: ((directory: string, db: Database) => Promise<void> | void) | undefined;
 }
 
 export interface PromotePrimersResult {

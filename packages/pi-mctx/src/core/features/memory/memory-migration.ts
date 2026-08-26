@@ -262,9 +262,9 @@ export interface MemoryMigrationOutcome {
     ran: boolean;
     /** Human-readable summary for the command result message. */
     summary: string;
-    removed?: number;
-    inserted?: number;
-    userObservations?: number;
+    removed?: number | undefined;
+    inserted?: number | undefined;
+    userObservations?: number | undefined;
 }
 
 export interface RunMemoryMigrationDeps {
@@ -275,19 +275,19 @@ export interface RunMemoryMigrationDeps {
     /** Parent session id (child session is created under it). */
     parentSessionId: string;
     /** Resolved historian fallback chain (forwarded to the prompt helper). */
-    fallbackModels?: readonly string[];
+    fallbackModels?: readonly string[] | undefined;
     /** Primary model for the migration child session, as "provider/modelID".
      *  When set, this runs FIRST (ahead of the fallback chain) and the historian
      *  agent default is NOT used. The upgrade path passes the session's live main
      *  model here — it's the user's working interactive model (typically stronger
      *  and, unlike a possibly-misconfigured historian model, guaranteed present).
      *  When omitted, the chain starts at the historian agent default. */
-    primaryModelId?: string;
+    primaryModelId?: string | undefined;
     /** Prompt timeout. */
-    timeoutMs?: number;
+    timeoutMs?: number | undefined;
     /** When true, route user_observations into the user-memory candidate pool. */
-    userMemoriesEnabled?: boolean;
-    language?: string;
+    userMemoriesEnabled?: boolean | undefined;
+    language?: string | undefined;
 }
 
 /**

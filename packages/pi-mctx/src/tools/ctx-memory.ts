@@ -331,14 +331,14 @@ function queueEmbedding(args: {
 
 export interface CtxMemoryToolDeps {
 	db: ContextDatabase;
-	ensureProjectRegistered?: (
+	ensureProjectRegistered?: ((
 		directory: string,
 		db: ContextDatabase,
-	) => Promise<void>;
+	) => Promise<void>) | undefined;
 	memoryEnabled?: boolean | undefined;
 	embeddingEnabled?: boolean | undefined;
 	/** Resolve a directory's project identity, allowing home only when user-level configuration enables it. */
-	resolveProjectIdentity?: (directory: string) => string | undefined;
+	resolveProjectIdentity?: ((directory: string) => string | undefined) | undefined;
 	/** When true, the dreamer-only `list` action is exposed. Set by the subagent
 	 *  extension entry when the parent passes `--magic-context-dreamer-actions`.
 	 *  Default: false (primary set only: write/archive/update/merge). */

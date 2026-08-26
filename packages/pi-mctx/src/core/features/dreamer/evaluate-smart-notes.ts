@@ -37,9 +37,9 @@ export interface EvaluateSmartNotesArgs {
     /** Keyed lease this task holds (Dreamer v2: per-project evaluate-smart-notes domain). */
     leaseKey: string;
     deadline: number;
-    model?: string;
-    fallbackModels?: readonly string[];
-    onLeaseLost?: (phase: string, error?: unknown) => void;
+    model?: string | undefined;
+    fallbackModels?: readonly string[] | undefined;
+    onLeaseLost?: ((phase: string, error?: unknown) => void) | undefined;
 }
 
 export interface EvaluateSmartNotesResult {
@@ -420,8 +420,8 @@ async function confirmReadOnly(
     let invocationRecorded = false;
     const recordInvocation = (params: {
         status: "completed" | "failed" | "aborted";
-        messages?: unknown[];
-        error?: unknown;
+        messages?: unknown[] | undefined;
+        error?: unknown | undefined;
     }) => {
         if (!args.parentSessionId || invocationRecorded) return;
         invocationRecorded = true;

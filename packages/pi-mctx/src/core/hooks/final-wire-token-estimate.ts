@@ -56,18 +56,18 @@ export function estimateMessageTokens(message: MessageLike): MessageTokenEstimat
     for (const part of message.parts) {
         if (!part || typeof part !== "object") continue;
         const p = part as {
-            type?: string;
-            text?: string;
-            thinking?: string;
-            signature?: string;
-            data?: string;
-            ignored?: boolean;
+            type?: string | undefined;
+            text?: string | undefined;
+            thinking?: string | undefined;
+            signature?: string | undefined;
+            data?: string | undefined;
+            ignored?: boolean | undefined;
             state?: { input?: unknown; output?: unknown };
-            args?: unknown;
-            input?: unknown;
-            content?: unknown;
-            mime?: string;
-            url?: unknown;
+            args?: unknown | undefined;
+            input?: unknown | undefined;
+            content?: unknown | undefined;
+            mime?: string | undefined;
+            url?: unknown | undefined;
             metadata?: { anthropic?: { signature?: string } };
         };
         if (p.ignored) continue;

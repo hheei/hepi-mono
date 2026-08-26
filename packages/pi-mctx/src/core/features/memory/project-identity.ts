@@ -598,9 +598,9 @@ export function storedPathBelongsToIdentity(
 }
 
 export function __setProjectIdentityTestHooks(hooks: {
-    execFileSync?: typeof execFileSync;
-    homeDirectory?: () => string;
-    nowMs?: () => number;
+    execFileSync?: typeof execFileSync | undefined;
+    homeDirectory?: (() => string) | undefined;
+    nowMs?: (() => number) | undefined;
 }): void {
     execFileSyncForIdentity = hooks.execFileSync ?? execFileSync;
     userHomeDirectoryForIdentity = hooks.homeDirectory ?? (() => homedir());

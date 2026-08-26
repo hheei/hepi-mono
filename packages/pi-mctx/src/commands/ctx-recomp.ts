@@ -48,17 +48,17 @@ export interface CtxRecompRuntimeDeps {
 	runner: SubagentRunner;
 	historianModel: string | undefined;
 	historianChunkTokens: number;
-	historianFallbacks?: readonly string[];
-	historianTimeoutMs?: number;
-	historianThinkingLevel?: string;
-	language?: string;
+	historianFallbacks?: readonly string[] | undefined;
+	historianTimeoutMs?: number | undefined;
+	historianThinkingLevel?: string | undefined;
+	language?: string | undefined;
 	memoryEnabled: boolean;
 	autoPromote: boolean;
-	compactionOff?: boolean;
+	compactionOff?: boolean | undefined;
 }
 
 export interface RegisterCtxRecompDeps extends CtxRecompRuntimeDeps {
-	resolveRuntimeDeps?: (ctx: { cwd: string }) => CtxRecompRuntimeDeps;
+	resolveRuntimeDeps?: ((ctx: { cwd: string }) => CtxRecompRuntimeDeps) | undefined;
 }
 
 export function registerCtxRecompCommand(
@@ -295,8 +295,16 @@ function parseRecompArgs(
 			message: `Invalid /ctx-recomp arguments: \`${trimmed}\`.\n\n${RECOMP_USAGE}`,
 		};
 	}
-	const start = Number.parseInt(match[1], 10);
-	const end = Number.parseInt(match[2], 10);
+	const startRaw = match[1];
+	const endRaw = match[2];
+	if (startRaw === undefined || endRaw === undefined) {
+		return {
+			kind: "error",
+			message: `Invalid /ctx-recomp arguments: \`${trimmed}\`.\n\n${RECOMP_USAGE}`,
+		};
+	}
+	const start = Number.parseInt(startRaw, 10);
+	const end = Number.parseInt(endRaw, 10);
 	if (start < 1)
 		return { kind: "error", message: `Start must be >= 1 (got ${start}).` };
 	if (end < start)

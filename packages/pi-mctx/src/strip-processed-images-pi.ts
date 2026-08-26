@@ -45,7 +45,7 @@ export function stripPiProcessedImages(args: {
 	watermark: number;
 	messageIdToMaxTag: ReadonlyMap<string, number>;
 	stableId: (message: unknown, index: number) => string | undefined;
-	addIds?: typeof addProcessedImageStrippedIds;
+	addIds?: typeof addProcessedImageStrippedIds | undefined;
 }): StripPiProcessedImagesResult {
 	const frozenIds = getProcessedImageStrippedIds(args.db, args.sessionId);
 	const newlyStrippedIds: string[] = [];

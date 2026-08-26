@@ -56,9 +56,9 @@ export interface MemoryInput {
     projectPath: string;
     category: MemoryCategory;
     content: string;
-    importance?: number | null;
-    sourceSessionId?: string;
-    sourceType?: MemorySourceType;
-    expiresAt?: number | null;
-    metadataJson?: string | null;
+    importance?: number | null | undefined;
+    sourceSessionId?: string | undefined;
+    sourceType?: MemorySourceType | undefined;
+    expiresAt?: number | null | undefined;
+    metadataJson?: string | null | undefined;
 }

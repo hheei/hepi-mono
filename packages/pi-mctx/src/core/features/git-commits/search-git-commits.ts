@@ -93,16 +93,16 @@ export interface GitCommitSearchHit {
 export interface SearchGitCommitsOptions {
     limit: number;
     /** Raw semantic score weight. Default 0.7. */
-    semanticWeight?: number;
+    semanticWeight?: number | undefined;
     /** Raw FTS score weight. Default 0.3. */
-    ftsWeight?: number;
+    ftsWeight?: number | undefined;
     /** When semantic OR FTS has only one signal, scale the score by this
      *  penalty to favor hybrid matches. Default 0.8. */
-    singleSourcePenalty?: number;
+    singleSourcePenalty?: number | undefined;
     /** Pre-computed query embedding. When omitted, we skip the semantic pass. */
-    queryEmbedding?: Float32Array | null;
+    queryEmbedding?: Float32Array | null | undefined;
     /** ID of the model that generated queryEmbedding; commit vectors are read only from the same model space. */
-    queryModelId?: string | null;
+    queryModelId?: string | null | undefined;
 }
 
 function clamp01(value: number): number {

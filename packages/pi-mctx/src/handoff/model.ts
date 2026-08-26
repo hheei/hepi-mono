@@ -139,24 +139,24 @@ export interface HandoffRequestRecord {
 	readonly requestId: string;
 	readonly phase: HandoffPhase;
 	readonly stage: HandoffProgressStage;
-	readonly model?: string;
-	readonly snapshot?: HandoffSourceContextSnapshot;
-	readonly summary?: string;
-	readonly failureCategory?: HandoffFailureCategory;
-	readonly reason?: string;
+	readonly model?: string | undefined;
+	readonly snapshot?: HandoffSourceContextSnapshot | undefined;
+	readonly summary?: string | undefined;
+	readonly failureCategory?: HandoffFailureCategory | undefined;
+	readonly reason?: string | undefined;
 	readonly createdAt: string;
-	readonly elapsedMs?: number;
-	readonly tokenCounts?: HandoffTokenCounts;
+	readonly elapsedMs?: number | undefined;
+	readonly tokenCounts?: HandoffTokenCounts | undefined;
 }
 
 export interface HandoffAttemptRecord {
 	readonly requestId: string;
 	readonly phase: "attempt-started" | "attempt-failed";
 	readonly sourcePath: string;
-	readonly expectedContextHash?: string;
+	readonly expectedContextHash?: string | undefined;
 	readonly startedAt: string;
-	readonly category?: HandoffFailureCategory;
-	readonly reason?: string;
+	readonly category?: HandoffFailureCategory | undefined;
+	readonly reason?: string | undefined;
 }
 
 export interface BudgetPlan {
@@ -395,8 +395,8 @@ export function formatHandoffWarning(args: {
 	outcome: HandoffTerminalPhase | "failed";
 	stage: string;
 	reason: string;
-	requestId?: string;
-	model?: string;
+	requestId?: string | undefined;
+	model?: string | undefined;
 	sourceAvailable: boolean;
 	nextAction: "resume" | "new-request";
 }): { title: string; text: string } {
@@ -592,9 +592,9 @@ function serializeOneMessage(
 		return { ok: false, reason: "recent message is not an object" };
 	}
 	const row = message as {
-		role?: unknown;
-		parts?: unknown;
-		content?: unknown;
+		role?: unknown | undefined;
+		parts?: unknown | undefined;
+		content?: unknown | undefined;
 	};
 	if (row.role !== "user" && row.role !== "assistant") {
 		return {
@@ -622,8 +622,8 @@ function serializeOneMessage(
 }
 
 function collectParts(row: {
-	parts?: unknown;
-	content?: unknown;
+	parts?: unknown | undefined;
+	content?: unknown | undefined;
 }): unknown[] {
 	if (Array.isArray(row.parts)) return row.parts;
 	if (typeof row.content === "string") return [{ type: "text", text: row.content }];

@@ -67,22 +67,22 @@ import { resolvePiStableId, SYNTH_USER_ID_PREFIX } from "../../read-session-pi";
  * `@earendil-works/pi-coding-agent`'s `AgentMessage` union. Same minimal
  * subset transcript-pi.ts uses.
  */
-type PiTextContent = { type: "text"; text: string; textSignature?: string };
+type PiTextContent = { type: "text"; text: string; textSignature?: string | undefined};
 type PiImageContent = { type: "image"; data: string; mimeType: string };
 type PiUserMessage = {
 	role: "user";
 	content: string | (PiTextContent | PiImageContent)[];
-	timestamp?: number;
+	timestamp?: number | undefined;
 };
 type PiAssistantMessage = {
 	role: "assistant";
 	content: unknown[];
-	timestamp?: number;
+	timestamp?: number | undefined;
 };
 type PiToolResultMessage = {
 	role: "toolResult";
 	content: unknown[];
-	timestamp?: number;
+	timestamp?: number | undefined;
 };
 type PiAgentMessage = PiUserMessage | PiAssistantMessage | PiToolResultMessage;
 
@@ -335,30 +335,30 @@ export interface PiM0M1State {
 	 *  (config `memory.enabled=false`). Mirrors legacy host, which passes
 	 *  `projectPath: undefined` in that case so every memory read short-circuits.
 	 *  Docs are controlled independently by injectDocs. Unset/true keeps memory on. */
-	memoryEnabled?: boolean;
+	memoryEnabled?: boolean | undefined;
 	/** Defaults true. When false, m[0] omits the <project-docs> block and docs hash. */
-	injectDocs?: boolean;
+	injectDocs?: boolean | undefined;
 	/** Memory-block trim budget (~4K). Bounds the <project-memory> block. */
-	injectionBudgetTokens?: number;
+	injectionBudgetTokens?: number | undefined;
 	/** v2 decay-render history budget (~60K). Drives compartment tier demotion.
 	 *  Distinct from injectionBudgetTokens — using the memory budget here would
 	 *  over-demote every compartment. */
-	historyBudgetTokens?: number;
+	historyBudgetTokens?: number | undefined;
 	/** User-profile block budget (~4K). The m[1] new-user-profile delta is
 	 *  trimmed to 25% of this (matches legacy host renderM1). Defaults when unset. */
-	userProfileBudgetTokens?: number;
+	userProfileBudgetTokens?: number | undefined;
 	/** Provider-side cache-eviction signals for HARD-bust detection. */
-	hardSignals?: PiM0HardSignals;
+	hardSignals?: PiM0HardSignals | undefined;
 	/** Experimental mural feature switch (`experimental.mural.enabled`). When
 	 *  true and the fold's model accepts images, HARD materialization resolves
 	 *  + renders the deterministic mural on demand and folds its image into the
 	 *  cached baseline. Defer passes replay the baked-in bytes without re-render. */
-	muralEnabled?: boolean;
+	muralEnabled?: boolean | undefined;
 	/** Explicit mural wire options for tests. When set, skips on-demand resolve
 	 * during HARD materialization (mirrors legacy host `M0M1RenderOptions.mural`). */
-	mural?: MuralWireOptions;
+	mural?: MuralWireOptions | undefined;
 	/** Keeps memory/docs injection while suppressing compartment history rendering and trimming. */
-	compactionOff?: boolean;
+	compactionOff?: boolean | undefined;
 }
 
 const EMPTY_PI_PROJECT_DOCS: PiProjectDocsRender = {
@@ -438,7 +438,7 @@ function resolveWorkspaceRenderContextPi(
 
 function sourceNamesForPiMemories(args: {
 	memories: readonly Memory[];
-	projectPath?: string;
+	projectPath?: string | undefined;
 	workspace: WorkspaceRenderContext;
 }): Map<number, string> | undefined {
 	if (!args.projectPath || !args.workspace.isWorkspaced) return undefined;
@@ -567,7 +567,10 @@ function muralForWire(sessionId: string): MuralWireOptions | undefined {
 function piImageFromDataUrl(dataUrl: string): PiImageContent | null {
 	const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s.exec(dataUrl);
 	if (!match) return null;
-	return { type: "image", mimeType: match[1], data: match[2] };
+	const mimeType = match[1];
+	const data = match[2];
+	if (!mimeType || !data) return null;
+	return { type: "image", mimeType, data };
 }
 
 /**
@@ -1048,7 +1051,7 @@ export function renderM0Pi(
 	workspaceOverride?: WorkspaceRenderContext,
 	/** Optional mural wire options (HARD fold only). When vision-capable, emits
 	 *  the `<memory-mural>` marker block; the PNG rides as a separate image part. */
-	mural?: { enabled: boolean; supportsVision: boolean; dataUrl?: string },
+	mural?: MuralWireOptions | undefined,
 ): string {
 	const memPath = memoryProjectPath(state);
 	const workspace =
@@ -2164,7 +2167,7 @@ function prependM0M1Messages(
 	piMessages: PiAgentMessage[],
 	m0: string,
 	m1: string,
-	mural?: { enabled: boolean; supportsVision: boolean; dataUrl?: string },
+	mural?: MuralWireOptions | undefined,
 ): void {
 	const firstTimestamp = piMessages[0]?.timestamp;
 	const baseTimestamp =
@@ -2524,7 +2527,7 @@ export interface WorkspaceRenderContext {
 }
 
 export interface MemoryRenderOptions {
-    sourceNameByMemoryId?: ReadonlyMap<number, string>;
+    sourceNameByMemoryId?: ReadonlyMap<number, string> | undefined;
 }
 
 function memoryCanonicalIdentity(memory: Memory, workspace: WorkspaceRenderContext): string | null {

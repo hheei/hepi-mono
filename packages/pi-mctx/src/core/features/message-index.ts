@@ -11,15 +11,15 @@ import { removeSystemReminders } from "../shared/system-directive";
 import { clearCompressionDepth } from "./compression-depth-storage";
 
 interface MessageHistoryIndexRow {
-    last_indexed_ordinal?: number;
-    dirty_floor_ordinal?: number;
+    last_indexed_ordinal?: number | undefined;
+    dirty_floor_ordinal?: number | undefined;
 }
 
 interface MessageHistorySourceRow {
-    message_ordinal?: number;
-    source_version?: string;
-    normalized_content_hash?: string;
-    role?: string;
+    message_ordinal?: number | undefined;
+    source_version?: string | undefined;
+    normalized_content_hash?: string | undefined;
+    role?: string | undefined;
 }
 
 const lastIndexedStatements = new WeakMap<Database, PreparedStatement>();

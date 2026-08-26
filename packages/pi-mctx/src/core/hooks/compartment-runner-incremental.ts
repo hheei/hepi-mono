@@ -1,4 +1,7 @@
-import { embedAndStoreCompartmentChunks } from "../features/compartment-embedding";
+import {
+    type CompartmentChunkToEmbed,
+    embedAndStoreCompartmentChunks,
+} from "../features/compartment-embedding";
 import { insertCompartmentEvents } from "../features/compartment-events";
 import {
     appendCompartments,
@@ -210,10 +213,8 @@ export async function runCompartmentAgent(deps: CompartmentRunnerDeps): Promise<
             return;
         }
 
-        const offset =
-            priorCompartments.length > 0
-                ? priorCompartments[priorCompartments.length - 1].endMessage + 1
-                : 1;
+        const lastPrior = priorCompartments[priorCompartments.length - 1];
+        const offset = lastPrior ? lastPrior.endMessage + 1 : 1;
 
         let boundarySnapshot =
             deps.boundarySnapshot ??
@@ -506,14 +507,16 @@ export async function runCompartmentAgent(deps: CompartmentRunnerDeps): Promise<
         let persistedCompartments = emittedCompartments;
         if (!inEmergency && !forceKeepLastCompartmentForChunk && emittedCompartments.length >= 2) {
             const lastEmitted = emittedCompartments[emittedCompartments.length - 1];
-            const lookaheadMargin = chunk.endIndex - lastEmitted.endMessage;
-            if (lookaheadMargin <= BOUNDARY_HEALING_SLACK) {
-                persistedCompartments = emittedCompartments.slice(0, -1);
-                telemetry.discardedLast = true;
-                sessionLog(
-                    sessionId,
-                    `historian discard-last: dropped provisional compartment ${lastEmitted.startMessage}-${lastEmitted.endMessage} (lookaheadMargin=${lookaheadMargin} <= ${BOUNDARY_HEALING_SLACK}); will re-derive from raw next run`,
-                );
+            if (lastEmitted) {
+                const lookaheadMargin = chunk.endIndex - lastEmitted.endMessage;
+                if (lookaheadMargin <= BOUNDARY_HEALING_SLACK) {
+                    persistedCompartments = emittedCompartments.slice(0, -1);
+                    telemetry.discardedLast = true;
+                    sessionLog(
+                        sessionId,
+                        `historian discard-last: dropped provisional compartment ${lastEmitted.startMessage}-${lastEmitted.endMessage} (lookaheadMargin=${lookaheadMargin} <= ${BOUNDARY_HEALING_SLACK}); will re-derive from raw next run`,
+                    );
+                }
             }
         }
 
@@ -768,14 +771,17 @@ export async function runCompartmentAgent(deps: CompartmentRunnerDeps): Promise<
         // substrate over session history). Fire-and-forget, best-effort, gated by
         // memory flags so a memory-off user never hits the embedding endpoint.
         if (embeddingActive) {
-            const chunksToEmbed = persistedCompartments
-                .map((c, i) => ({
-                    id: persistedIds[i],
+            const chunksToEmbed: CompartmentChunkToEmbed[] = [];
+            for (const [i, c] of persistedCompartments.entries()) {
+                const id = persistedIds[i];
+                if (typeof id !== "number") continue;
+                chunksToEmbed.push({
+                    id,
                     startMessage: c.startMessage,
                     endMessage: c.endMessage,
                     sourceChunkText: chunk.text,
-                }))
-                .filter((c) => typeof c.id === "number");
+                });
+            }
             void (async () => {
                 try {
                     await deps.ensureProjectRegistered?.(promotionDirectory, db);
@@ -853,6 +859,7 @@ export async function runCompartmentAgent(deps: CompartmentRunnerDeps): Promise<
                 // therefore a source chunk stores at most one candidate occurrence
                 // (its origin-compartment tag is the single tagged origin).
                 const [candidate] = validatedPass.primerCandidates;
+                if (candidate) {
                 // Origin-tag: narrow the source to the SPECIFIC compartment the
                 // question came from (refresh-primers seeds its investigation from
                 // that compartment's raw chunk). `originCompartmentIndex` is 1-based
@@ -888,6 +895,7 @@ export async function runCompartmentAgent(deps: CompartmentRunnerDeps): Promise<
                     sessionId,
                     `stored ${stored.length} primer candidate occurrence(s)${origin ? " (origin-tagged)" : " (chunk-span fallback)"}`,
                 );
+                }
             } catch (error) {
                 sessionLog(sessionId, "failed to store primer candidates:", error);
             }

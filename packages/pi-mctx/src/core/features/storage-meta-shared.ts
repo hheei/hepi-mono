@@ -476,23 +476,23 @@ export function toSessionMeta(row: SessionMetaRow): SessionMeta {
 
 export interface PersistCachedM0Payload {
     m0Bytes: Buffer;
-    muralDataUrl?: string | null;
-    muralHash?: string | null;
+    muralDataUrl?: string | null | undefined;
+    muralHash?: string | null | undefined;
     projectMemoryEpoch: number | null;
-    workspaceFingerprint?: string | null;
+    workspaceFingerprint?: string | null | undefined;
     projectUserProfileVersion: number | null;
     maxCompartmentSeq: number;
     maxMemoryId: number | null;
     maxMutationId: number | null;
-    maxMemoryMutationId?: number | null;
-    m1Bytes?: Buffer | null;
+    maxMemoryMutationId?: number | null | undefined;
+    m1Bytes?: Buffer | null | undefined;
     projectDocsHash: string | null;
     materializedAt: number;
     sessionFactsVersion: number;
     upgradeState: string | null;
-    systemHash?: string | null;
-    modelKey?: string | null;
-    projectIdentity?: string | null;
+    systemHash?: string | null | undefined;
+    modelKey?: string | null | undefined;
+    projectIdentity?: string | null | undefined;
 }
 
 export function persistCachedM0(

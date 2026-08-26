@@ -39,7 +39,10 @@
 
 import * as crypto from "node:crypto";
 import { withContentLanguageDirective } from "#core/agents/language-directive";
-import { embedAndStoreCompartmentChunks } from "#core/features/compartment-embedding";
+import {
+	type CompartmentChunkToEmbed,
+	embedAndStoreCompartmentChunks,
+} from "#core/features/compartment-embedding";
 import { insertCompartmentEvents } from "#core/features/compartment-events";
 import { isCompartmentLeaseHeld } from "#core/features/compartment-lease";
 import {
@@ -212,7 +215,7 @@ async function runHistorianSubagentWithTransientRetries(args: {
 	options: SubagentRunOptions;
 	sessionId: string;
 	passLabel: string;
-	retryBackoffMs?: (retryIndex: number) => number;
+	retryBackoffMs?: ((retryIndex: number) => number) | undefined;
 }): Promise<SubagentRunResult> {
 	const startedAt = Date.now();
 	if (args.options.signal?.aborted) return historianAbortResult(startedAt);
@@ -342,70 +345,70 @@ export interface PiHistorianDeps {
 	/** Historian model id (provider/model) — required for PiSubagentRunner. */
 	historianModel: string;
 	/** Optional ordered fallback chain. */
-	fallbackModels?: readonly string[];
+	fallbackModels?: readonly string[] | undefined;
 	/** Live session model used as the final fallback after configured fallbacks. */
-	fallbackModelId?: string;
+	fallbackModelId?: string | undefined;
 	/** Historian context window — used to derive chunk token budget. */
 	historianChunkTokens: number;
 	/** Boundary resolved by the Pi trigger/recovery decision with the real model context. */
-	boundarySnapshot?: ProtectedTailBoundarySnapshot;
+	boundarySnapshot?: ProtectedTailBoundarySnapshot | undefined;
 	/**
 	 * Optional live boundary resolver used only to recover a stale trigger snapshot.
 	 * It must recompute against the currently registered Pi raw-message provider.
 	 */
-	refreshBoundarySnapshot?: () => ProtectedTailBoundarySnapshot;
+	refreshBoundarySnapshot?: (() => ProtectedTailBoundarySnapshot) | undefined;
 	/** Current resolved context limit used to reject stale snapshots after model switches. */
-	currentContextLimit?: number;
+	currentContextLimit?: number | undefined;
 	/** Optional per-call timeout (default 120s). */
-	historianTimeoutMs?: number;
+	historianTimeoutMs?: number | undefined;
 	/** Optional cancellation signal for the historian run and retry backoff. */
-	signal?: AbortSignal;
+	signal?: AbortSignal | undefined;
 	/** Test seam for transient retry backoff. Defaults to legacy host's retry cadence. */
-	retryBackoffMs?: (retryIndex: number) => number;
+	retryBackoffMs?: ((retryIndex: number) => number) | undefined;
 	/** When true, run a second editor pass after a successful first pass to
 	 *  clean low-signal U: lines and cross-compartment duplicates. Mirrors
 	 *  legacy host's `historian.two_pass` config. Editor validation falls back
 	 *  to the first-pass result on failure. Default: false. */
-	twoPass?: boolean;
+	twoPass?: boolean | undefined;
 	/** Pi only: explicit thinking level passed as --thinking <level> to
 	 *  historian subagent invocations. When unset, Pi's own resolution runs
 	 *  (works for most providers; may fail for e.g. github-copilot/gpt-5.4). */
-	thinkingLevel?: string;
+	thinkingLevel?: string | undefined;
 	/** Cross-session memory feature gate (`memory.enabled`). */
-	memoryEnabled?: boolean;
+	memoryEnabled?: boolean | undefined;
 	/** Allow a session started exactly in the canonical home directory only when user-level configuration enables it. */
-	allowHomeProject?: boolean;
+	allowHomeProject?: boolean | undefined;
 	/** Automatic-promotion gate (`memory.auto_promote`). */
-	autoPromote?: boolean;
+	autoPromote?: boolean | undefined;
 	/** User-memory feature gate (`dreamer.user_memories.enabled`). Gates whether
 	 *  historian-extracted user observations are persisted as candidates. */
-	userMemoriesEnabled?: boolean;
-	language?: string;
+	userMemoriesEnabled?: boolean | undefined;
+	language?: string | undefined;
 	/** Optional callback invoked on successful publication for cache-bust signaling. */
-	onPublished?: () => void;
+	onPublished?: (() => void) | undefined;
 	/** Holder id for the DB-backed compartment-state lease guarding publish paths. */
-	compartmentLeaseHolderId?: string;
+	compartmentLeaseHolderId?: string | undefined;
 	/** Optional Pi-native compaction append hook (`sessionManager.appendCompaction`). */
-	appendCompaction?: (
+	appendCompaction?: ((
 		summary: string,
 		firstKeptEntryId: string,
 		tokensBefore: number,
 		details?: unknown,
 		fromHook?: boolean,
-	) => string | undefined;
+	) => string | undefined) | undefined;
 	/** Optional raw Pi branch entries used to map raw ordinals back to entry ids. */
-	readBranchEntries?: () => unknown[];
+	readBranchEntries?: (() => unknown[]) | undefined;
 	/** Optional callback for surfacing failure notices (Pi UI / logs). */
-	notifyIssue?: (message: string) => void | Promise<void>;
+	notifyIssue?: ((message: string) => void | Promise<void>) | undefined;
 	/** Test seam / embedding bootstrap override. Defaults to Pi directory registration. */
-	ensureProjectRegistered?: (
+	ensureProjectRegistered?: ((
 		directory: string,
 		db: Database,
-	) => void | Promise<void>;
+	) => void | Promise<void>) | undefined;
 	/** Manual wrapup bypasses the pressure-window quota but keeps no-progress protection. */
-	forceDrainQuota?: boolean;
+	forceDrainQuota?: boolean | undefined;
 	/** Persist the final weak-lookahead compartment for coverage while skipping promotion. */
-	forceKeepLastCompartment?: boolean;
+	forceKeepLastCompartment?: boolean | undefined;
 }
 
 export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
@@ -505,10 +508,8 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 			}
 
 			// Where does the new chunk start?
-			const offset =
-				priorCompartments.length > 0
-					? priorCompartments[priorCompartments.length - 1].endMessage + 1
-					: 1;
+			const lastPrior = priorCompartments[priorCompartments.length - 1];
+			const offset = lastPrior ? lastPrior.endMessage + 1 : 1;
 
 			let boundarySnapshot =
 				providedBoundarySnapshot ??
@@ -915,6 +916,7 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 			) {
 				for (let i = 0; i < fallbackChain.length; i += 1) {
 					const candidate = fallbackChain[i];
+					if (!candidate) continue;
 					sessionLog(
 						sessionId,
 						`historian: escalating to ${candidate.kind === "session" ? "session-model last resort" : "configured fallback model"} ${candidate.modelId}`,
@@ -1062,13 +1064,15 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 				emittedCompartments.length >= 2
 			) {
 				const lastEmitted = emittedCompartments[emittedCompartments.length - 1];
-				const lookaheadMargin = chunk.endIndex - lastEmitted.endMessage;
-				if (lookaheadMargin <= BOUNDARY_HEALING_SLACK) {
-					newCompartments = emittedCompartments.slice(0, -1);
-					sessionLog(
-						sessionId,
-						`historian discard-last: dropped provisional compartment ${lastEmitted.startMessage}-${lastEmitted.endMessage} (lookaheadMargin=${lookaheadMargin} <= ${BOUNDARY_HEALING_SLACK}); will re-derive next run`,
-					);
+				if (lastEmitted) {
+					const lookaheadMargin = chunk.endIndex - lastEmitted.endMessage;
+					if (lookaheadMargin <= BOUNDARY_HEALING_SLACK) {
+						newCompartments = emittedCompartments.slice(0, -1);
+						sessionLog(
+							sessionId,
+							`historian discard-last: dropped provisional compartment ${lastEmitted.startMessage}-${lastEmitted.endMessage} (lookaheadMargin=${lookaheadMargin} <= ${BOUNDARY_HEALING_SLACK}); will re-derive next run`,
+						);
+					}
 				}
 			}
 			const lastNewEnd =
@@ -1313,6 +1317,7 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 					// source chunk stores at most one candidate occurrence (its
 					// origin-compartment tag is the single tagged origin).
 					const [candidate] = validatedPass.primerCandidates;
+					if (candidate) {
 					// Origin-tag (mirrors legacy host): narrow the source to the SPECIFIC
 					// compartment the question came from. originCompartmentIndex is
 					// 1-based into the emitted list (same convention as <events>);
@@ -1350,6 +1355,7 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 						sessionId,
 						`stored ${stored.length} primer candidate occurrence(s)${origin ? " (origin-tagged)" : " (chunk-span fallback)"}`,
 					);
+					}
 				} catch (error) {
 					sessionLog(sessionId, "failed to store primer candidates:", error);
 				}
@@ -1358,14 +1364,17 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 			// Raw chunk embeddings: the ctx_search semantic substrate over session
 			// history. Fire-and-forget, best-effort, memory-gated.
 			if (embeddingActive) {
-				const chunksToEmbed = newCompartments
-					.map((c, i) => ({
-						id: persistedIds[i],
+				const chunksToEmbed: CompartmentChunkToEmbed[] = [];
+				for (const [i, c] of newCompartments.entries()) {
+					const id = persistedIds[i];
+					if (typeof id !== "number") continue;
+					chunksToEmbed.push({
+						id,
 						startMessage: c.startMessage,
 						endMessage: c.endMessage,
 						sourceChunkText: chunk.text,
-					}))
-					.filter((c) => typeof c.id === "number");
+					});
+				}
 				void (async () => {
 					try {
 						await ensureProjectRegistered(directory, db);
@@ -1508,7 +1517,7 @@ type ValidationOutcome =
 					? F
 					: never
 				: never;
-			userObservations?: string[];
+			userObservations?: string[] | undefined;
 			primerCandidates?: ReturnType<
 				typeof validateHistorianOutput
 			> extends infer T

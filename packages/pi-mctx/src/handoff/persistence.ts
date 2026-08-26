@@ -30,11 +30,11 @@ export function parseHandoffEntries(entries: readonly unknown[]): ParsedHandoffS
 	for (const entry of entries) {
 		if (entry === null || typeof entry !== "object") continue;
 		const row = entry as {
-			type?: unknown;
-			customType?: unknown;
-			data?: unknown;
-			details?: unknown;
-			content?: unknown;
+			type?: unknown | undefined;
+			customType?: unknown | undefined;
+			data?: unknown | undefined;
+			details?: unknown | undefined;
+			content?: unknown | undefined;
 		};
 		if (row.customType === HANDOFF_REQUEST_TYPE) {
 			const record = asRequest(row.data ?? row.details);

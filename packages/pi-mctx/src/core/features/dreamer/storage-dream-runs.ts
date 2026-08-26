@@ -4,7 +4,7 @@ export interface DreamRunTaskSummary {
     name: string;
     durationMs: number;
     resultChars: number;
-    error?: string;
+    error?: string | undefined;
 }
 
 export interface DreamRunMemoryChanges {
@@ -18,10 +18,10 @@ export interface DreamRunMemoryChanges {
     // reconstructing them with an approximate created_at/updated_at time-window
     // query. Optional: older rows + the manual /ctx-dream summary path carry
     // counts only. Each count stays === its array length when arrays are present.
-    writtenIds?: number[];
-    deletedIds?: number[];
-    archivedIds?: number[];
-    mergedIds?: number[];
+    writtenIds?: number[] | undefined;
+    deletedIds?: number[] | undefined;
+    archivedIds?: number[] | undefined;
+    mergedIds?: number[] | undefined;
 }
 
 export interface DreamRunRow {
@@ -48,11 +48,11 @@ export interface DreamRunInput {
     tasksFailed: number;
     smartNotesSurfaced: number;
     smartNotesPending: number;
-    memoryChanges?: DreamRunMemoryChanges | null;
+    memoryChanges?: DreamRunMemoryChanges | null | undefined;
     /** Dreamer child session that produced this run — lets the dashboard scope
      *  the token join to this run (avoids cross-summing concurrent same-name
      *  cross-project runs). null when no parent session was resolved. */
-    parentSessionId?: string | null;
+    parentSessionId?: string | null | undefined;
 }
 
 const insertDreamRunStatements = new WeakMap<Database, PreparedStatement>();
