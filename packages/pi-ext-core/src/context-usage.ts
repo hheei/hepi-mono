@@ -18,8 +18,8 @@ export type PiContextUsageReading = {
 };
 
 export type PiPrefixTool = {
-	readonly name?: string;
-	readonly description?: string;
+	readonly name?: string | undefined;
+	readonly description?: string | undefined;
 	readonly parameters?: unknown;
 };
 
@@ -86,12 +86,12 @@ export function estimatePiToolDefinitionTokens(
  * passing the sum; those adjuncts only apply when live tokens are `0`.
  */
 export function resolvePiContextUsage(input: {
-	readonly live?: PiContextUsageReading;
-	readonly prefixTokens?: number;
-	readonly contextWindow?: number;
-	readonly systemPrompt?: string;
-	readonly tools?: ReadonlyArray<PiPrefixTool>;
-	readonly estimateTokens?: EstimateTextTokens;
+	readonly live?: PiContextUsageReading | undefined;
+	readonly prefixTokens?: number | undefined;
+	readonly contextWindow?: number | undefined;
+	readonly systemPrompt?: string | undefined;
+	readonly tools?: ReadonlyArray<PiPrefixTool> | undefined;
+	readonly estimateTokens?: EstimateTextTokens | undefined;
 }): ResolvedPiContextUsage {
 	const contextWindow =
 		positiveNumber(input.live?.contextWindow) ?? positiveNumber(input.contextWindow);

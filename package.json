@@ -22,7 +22,6 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.2",
-		"@types/bun": "latest",
 		"@types/node": "^22.19.19",
 		"jiti": "2.7.0",
 		"get-east-asian-width": "1.6.0",
