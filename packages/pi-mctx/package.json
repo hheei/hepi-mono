@@ -33,16 +33,16 @@
 		"zod": "^4.1.8"
 	},
 	"peerDependencies": {
-		"@earendil-works/pi-agent-core": ">=0.84.1",
-		"@earendil-works/pi-ai": ">=0.84.1",
-		"@earendil-works/pi-coding-agent": ">=0.84.1",
-		"@earendil-works/pi-tui": ">=0.84.1"
+		"@earendil-works/pi-agent-core": ">=0.84.3",
+		"@earendil-works/pi-ai": ">=0.84.3",
+		"@earendil-works/pi-coding-agent": ">=0.84.3",
+		"@earendil-works/pi-tui": ">=0.84.3"
 	},
 	"devDependencies": {
-		"@earendil-works/pi-agent-core": "0.84.1",
-		"@earendil-works/pi-ai": "0.84.1",
-		"@earendil-works/pi-coding-agent": "0.84.1",
-		"@earendil-works/pi-tui": "0.84.1",
+		"@earendil-works/pi-agent-core": "0.84.3",
+		"@earendil-works/pi-ai": "0.84.3",
+		"@earendil-works/pi-coding-agent": "0.84.3",
+		"@earendil-works/pi-tui": "0.84.3",
 		"@types/better-sqlite3": "^7.6.13",
 		"@types/node": "^22.19.19"
 	}
