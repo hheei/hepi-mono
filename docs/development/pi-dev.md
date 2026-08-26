@@ -1,7 +1,7 @@
 # 本仓库 Pi 开发启动
 
-`scripts/pi-dev` 用仓库根目录安装的
-`@earendil-works/pi-coding-agent` 启动 Pi，使用 Pi 默认的
+`scripts/pi-dev` 通过 Node 启动仓库根目录 npm workspace 中的
+`@earendil-works/pi-coding-agent`，使用 Pi 默认的
 `~/.pi/agent` 配置、认证、模型、会话和资源路径。它只替换本次进程加载的
 extension，不写入 Pi 配置。
 
@@ -22,7 +22,9 @@ Pi 默认路径与命令行行为决定。
   `.pi-dev/build.json` 可强制下一次构建。
 
 启动器不会向子进程继承 `OPENAI_API_KEY`，避免环境变量覆盖 Pi 默认认证；需要
-OpenAI 时用 `pi` 的 `--api-key` 参数显式提供。
+OpenAI 时用 `pi` 的 `--api-key` 参数显式提供。首次使用前执行
+`npm ci`；依赖使用 nested workspace layout，Pi CLI 从
+`packages/pi-ext-tools/node_modules` 解析。
 
 脚本固定加载这些 extension：
 
