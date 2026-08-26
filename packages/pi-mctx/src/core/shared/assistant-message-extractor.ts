@@ -21,20 +21,15 @@ function asSessionMessage(value: unknown): SessionMessage | null {
     if (!isRecord(value)) return null;
     const info = value.info;
     const parts = value.parts;
+    const messageInfo: MessageInfo = {};
+    if (isRecord(info)) {
+        if (typeof info.role === "string") messageInfo.role = info.role;
+        if (isRecord(info.time) && typeof info.time.created === "number") {
+            messageInfo.time = { created: info.time.created };
+        }
+    }
     return {
-        info: isRecord(info)
-            ? {
-                  role: typeof info.role === "string" ? info.role : undefined,
-                  time: isRecord(info.time)
-                      ? {
-                            created:
-                                typeof info.time.created === "number"
-                                    ? info.time.created
-                                    : undefined,
-                        }
-                      : undefined,
-              }
-            : undefined,
+        ...(Object.keys(messageInfo).length > 0 ? { info: messageInfo } : {}),
         parts,
     };
 }
@@ -47,11 +42,11 @@ function getTextParts(message: SessionMessage): MessagePart[] {
     if (!Array.isArray(message.parts)) return [];
     return message.parts
         .filter((part): part is Record<string, unknown> => isRecord(part))
-        .map((part) => ({
-            type: typeof part.type === "string" ? part.type : undefined,
-            text: typeof part.text === "string" ? part.text : undefined,
-        }))
-        .filter((part) => part.type === "text" && Boolean(part.text));
+        .flatMap((part): MessagePart[] => {
+            const type = typeof part.type === "string" ? part.type : null;
+            const text = typeof part.text === "string" ? part.text : null;
+            return type === "text" && text ? [{ type, text }] : [];
+        });
 }
 
 export function extractLatestAssistantText(messages: unknown): string | null {
