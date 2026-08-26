@@ -136,7 +136,7 @@ Capture shell output as an ANSI file:
 
 ```bash
 pi-tui-replay \
-  --command "bun test packages/pi-debug/test" \
+  --command "npm exec -- vitest run packages/pi-debug/test" \
   --format ans
 ```
 
