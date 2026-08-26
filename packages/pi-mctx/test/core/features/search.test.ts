@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Database } from "../../../src/core/shared/sqlite";
 

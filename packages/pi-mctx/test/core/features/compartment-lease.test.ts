@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 import { describe, expect, it } from "vitest";
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";

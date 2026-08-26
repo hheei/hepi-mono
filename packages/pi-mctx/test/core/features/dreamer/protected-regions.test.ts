@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 import { describe, expect, it } from "vitest";
 import { enforceProtectedRegions, extractProtectedBlocks } from "../../../../src/core/features/dreamer/protected-regions";
 

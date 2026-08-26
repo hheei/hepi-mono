@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 import { describe, expect, it, vi } from "vitest";
 import { toDatabase } from "../../../src/core/features/mock-database";
 import { clearSession, updateSessionMeta } from "../../../src/core/features/storage-meta";

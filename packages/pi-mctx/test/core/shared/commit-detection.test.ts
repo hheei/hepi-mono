@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 import { describe, expect, it } from "vitest";
 import {
     COMMIT_HASH_TEST_PATTERN,

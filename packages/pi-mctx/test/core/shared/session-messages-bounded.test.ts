@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 // Regression guard: every `client.session.messages(...)` call in plugin code
 // must include `limit` in its `query`. Without `limit`, OpenCode's legacy
 // messages endpoint hydrates the ENTIRE session into RAM — catastrophic on

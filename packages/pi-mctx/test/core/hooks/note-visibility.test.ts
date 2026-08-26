@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 import { describe, expect, it } from "vitest";
 import { hasVisibleNoteReadCall } from "../../../src/core/hooks/note-visibility";
 import { makeSentinel } from "../../../src/core/hooks/sentinel";

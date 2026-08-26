@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 import { describe, expect, it, vi } from "vitest";
 import {
     acquireCompartmentLease,

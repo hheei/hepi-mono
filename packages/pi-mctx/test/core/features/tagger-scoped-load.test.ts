@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 /**
  * Tagger load-scoping tests (OpenCode `initFromDb(sessionId, db, floor)`).
  *

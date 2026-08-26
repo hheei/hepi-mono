@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";

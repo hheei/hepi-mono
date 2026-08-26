@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 import { describe, expect, it } from "vitest";
 import { computeNormalizedHash, normalizeMemoryContent } from "../../../../src/core/features/memory/normalize-hash";
 

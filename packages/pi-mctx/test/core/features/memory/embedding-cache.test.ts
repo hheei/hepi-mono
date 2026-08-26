@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 import { afterEach, describe, expect, it } from "vitest";
 import { setTimeout as sleep } from "node:timers/promises";
 import { Database } from "../../../../src/core/shared/sqlite";

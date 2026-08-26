@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 import { describe, expect, it } from "vitest";
 import { applyEditMarkerToInput, EDIT_REGION_HINT_LEN, isEditTool } from "../../../src/core/hooks/edit-marker";
 

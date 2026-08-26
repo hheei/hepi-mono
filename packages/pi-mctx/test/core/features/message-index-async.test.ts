@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { RawMessage } from "../../../src/core/hooks/read-session-raw";

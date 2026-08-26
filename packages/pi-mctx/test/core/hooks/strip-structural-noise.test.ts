@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 import { describe, expect, it } from "vitest";
 import { stripStructuralNoise } from "../../../src/core/hooks/strip-structural-noise";
 import type { MessageLike } from "../../../src/core/hooks/tag-messages";

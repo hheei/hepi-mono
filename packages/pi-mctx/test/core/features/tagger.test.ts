@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { toDatabase } from "../../../src/core/features/mock-database";
 import { createTagger } from "../../../src/core/features/tagger";

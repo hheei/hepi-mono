@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 import { describe, expect, test } from "vitest";
 import type { RawMessage } from "#core/hooks/read-session-raw";
 import { buildToolArcs, buildTrueRawTokenIndex, computeRawRangeFingerprint } from "#core/hooks/read-session-true-raw-tokens";

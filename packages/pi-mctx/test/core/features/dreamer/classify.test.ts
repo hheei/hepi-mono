@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 import { describe, expect, test } from "vitest";
 
 import { Database, withPrivilegedWriter } from "../../../../src/core/shared/sqlite";

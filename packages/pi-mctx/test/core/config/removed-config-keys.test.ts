@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 // Regression guard: the `auto_drop_tool_age` and `drop_tool_structure` config
 // keys (and their camelCase threads `autoDropToolAge` / `dropToolStructure`)
 // were REMOVED in Phase 2 — routine age-based tool drops were replaced by the
