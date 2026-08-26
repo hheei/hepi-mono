@@ -193,26 +193,31 @@ export function renderDecayedCompartments(args: {
     const tiers = computeTiers(compartments, historyBudgetTokens);
     const renderedByTier = compartments.map(() => new Array<string | undefined>(6));
     const tokensByTier = compartments.map(() => new Array<number | undefined>(6));
+    const valueAt = <T>(values: readonly T[], index: number): T => {
+        const value = values[index];
+        if (value === undefined) throw new Error(`missing decay render value at ${index}`);
+        return value;
+    };
 
     const renderedAt = (index: number, tier: number): string => {
-        const cached = renderedByTier[index][tier];
+        const cached = valueAt(renderedByTier, index)[tier];
         if (cached !== undefined) return cached;
-        const rendered = renderOneCompartment(compartments[index], tier);
-        renderedByTier[index][tier] = rendered;
+        const rendered = renderOneCompartment(valueAt(compartments, index), tier);
+        valueAt(renderedByTier, index)[tier] = rendered;
         return rendered;
     };
     const tokensAt = (index: number, tier: number): number => {
-        const cached = tokensByTier[index][tier];
+        const cached = valueAt(tokensByTier, index)[tier];
         if (cached !== undefined) return cached;
         const rendered = renderedAt(index, tier);
         const tokens = rendered.length === 0 ? 0 : estimateTokens(rendered);
-        tokensByTier[index][tier] = tokens;
+        valueAt(tokensByTier, index)[tier] = tokens;
         return tokens;
     };
     const render = (): string => {
         const parts: string[] = [];
         for (let i = 0; i < compartments.length; i++) {
-            const rendered = renderedAt(i, tiers[i]);
+            const rendered = renderedAt(i, valueAt(tiers, i));
             if (rendered.length > 0) parts.push(rendered);
         }
         return parts.join("\n\n");
@@ -225,19 +230,22 @@ export function renderDecayedCompartments(args: {
     // check below accounts for separators and tokenizer effects at boundaries.
     let runningTokens = 0;
     for (let i = 0; i < tiers.length; i++) {
-        runningTokens += tokensAt(i, tiers[i]);
+        runningTokens += tokensAt(i, valueAt(tiers, i));
     }
 
     let guard = compartments.length * 5;
     let oldestDemotableIndex = 0;
     const demoteOldest = (): boolean => {
-        while (oldestDemotableIndex < tiers.length && tiers[oldestDemotableIndex] >= 5) {
+        while (
+            oldestDemotableIndex < tiers.length &&
+            valueAt(tiers, oldestDemotableIndex) >= 5
+        ) {
             oldestDemotableIndex += 1;
         }
         if (oldestDemotableIndex >= tiers.length) return false;
 
         const index = oldestDemotableIndex;
-        const previousTier = tiers[index];
+        const previousTier = valueAt(tiers, index);
         const nextTier = previousTier + 1;
         runningTokens += tokensAt(index, nextTier) - tokensAt(index, previousTier);
         tiers[index] = nextTier;
