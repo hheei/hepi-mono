@@ -41,7 +41,7 @@ describe("Eval tool", () => {
 			await tool.execute("default", { code: "1" }, undefined, undefined, {
 				cwd: process.cwd(),
 			} as never);
-			expect(seen).toEqual(["javascript", "python", "javascript"]);
+			expect(seen).toEqual(["javascript", "python", "python"]);
 		} finally {
 			stop();
 		}
