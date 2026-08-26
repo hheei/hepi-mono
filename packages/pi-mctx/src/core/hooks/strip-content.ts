@@ -56,6 +56,7 @@ export function stripSystemInjectedMessages(
         if (i >= protectedTailStart) continue;
 
         const msg = messages[i];
+        if (msg === undefined) continue;
         if (msg.parts.length === 0) continue;
 
         // Never neutralize user-role messages — they anchor turn boundaries
@@ -168,6 +169,7 @@ export function stripDroppedPlaceholderMessages(
     const sentineledIds: string[] = [];
     for (let i = 0; i < messages.length; i++) {
         const msg = messages[i];
+        if (msg === undefined) continue;
         if (msg.parts.length === 0) continue;
 
         // Never neutralize user-role messages — they anchor turn boundaries
@@ -624,6 +626,7 @@ export function stripProcessedImages(
 
     for (let i = messages.length - 1; i >= 0; i--) {
         const msg = messages[i];
+        if (msg === undefined) continue;
         if (msg.info.role === "assistant") {
             hasAssistantResponse = true;
             continue;
