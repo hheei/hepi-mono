@@ -283,9 +283,11 @@ export function tagTranscript(
                     skipPrefixInjection,
                     entryFingerprint: options.entryFingerprintByMessageId?.get(messageId) ?? null,
                     reuseIdentity: reuseIdentity || contentDerivedTextIds !== undefined,
-                    timing,
-                    textIdentitySourceCache: options.textIdentitySourceCache,
-                    textTokenCache: options.textTokenCache,
+                    ...optionalTextTagArgs(
+                        timing,
+                        options.textIdentitySourceCache,
+                        options.textTokenCache,
+                    ),
                 });
                 textOrdinal += 1;
                 continue;
@@ -360,9 +362,11 @@ export function tagTranscript(
                                 byteSize: getToolPartByteSize(part, text),
                                 part,
                                 text,
-                                timing,
-                                tokenCache: options.toolTokenCache,
-                                tokenCacheKey,
+                                ...optionalAccountingArgs(
+                                    timing,
+                                    options.toolTokenCache,
+                                    tokenCacheKey,
+                                ),
                             });
                         }
                         if (timing) timing.identity += performance.now() - identityStart;
@@ -383,7 +387,7 @@ export function tagTranscript(
                                 byteSize: accounting.byteSize,
                                 part,
                                 text,
-                                timing,
+                                ...optionalAccountingArgs(timing, undefined, undefined),
                                 knownTokenCount: accounting.tokenCount,
                             });
                         }
@@ -473,9 +477,11 @@ export function tagTranscript(
                             byteSize: getToolPartByteSize(part, text),
                             part,
                             text,
-                            timing,
-                            tokenCache: options.toolTokenCache,
-                            tokenCacheKey,
+                            ...optionalAccountingArgs(
+                                timing,
+                                options.toolTokenCache,
+                                tokenCacheKey,
+                            ),
                         });
                     }
                     if (timing) timing.identity += performance.now() - identityStart;
@@ -536,7 +542,7 @@ export function tagTranscript(
                             byteSize: accounting.byteSize,
                             part,
                             text,
-                            timing,
+                            ...optionalAccountingArgs(timing, undefined, undefined),
                             knownTokenCount: accounting.tokenCount,
                         });
                     }
@@ -596,6 +602,18 @@ interface GrownToolResultAccountingArgs {
     tokenCache?: Map<string, { text: string; tokenCount: number }>;
     tokenCacheKey?: string;
     knownTokenCount?: number;
+}
+
+function optionalAccountingArgs(
+    timing: TagTranscriptTiming | undefined,
+    tokenCache: Map<string, { text: string; tokenCount: number }> | undefined,
+    tokenCacheKey: string | undefined,
+): Pick<GrownToolResultAccountingArgs, "timing" | "tokenCache" | "tokenCacheKey"> {
+    return {
+        timing,
+        ...(tokenCache === undefined ? {} : { tokenCache }),
+        ...(tokenCacheKey === undefined ? {} : { tokenCacheKey }),
+    };
 }
 
 function syncToolAggregateAccounting(
@@ -811,6 +829,18 @@ interface TagTextPartArgs {
     textTokenCache?: Map<string, { text: string; tokenCount: number }>;
 }
 
+function optionalTextTagArgs(
+    timing: TagTranscriptTiming | undefined,
+    textIdentitySourceCache: Map<number, string> | undefined,
+    textTokenCache: Map<string, { text: string; tokenCount: number }> | undefined,
+): Pick<TagTextPartArgs, "timing" | "textIdentitySourceCache" | "textTokenCache"> {
+    return {
+        ...(timing === undefined ? {} : { timing }),
+        ...(textIdentitySourceCache === undefined ? {} : { textIdentitySourceCache }),
+        ...(textTokenCache === undefined ? {} : { textTokenCache }),
+    };
+}
+
 function tagTextPart(args: TagTextPartArgs): void {
     const identityStart = args.timing ? performance.now() : 0;
     const text = args.part.getText() ?? "";
@@ -899,7 +929,7 @@ interface TagToolPartArgs {
     targets: Map<number, TagTarget>;
     skipPrefixInjection: boolean;
     reuseIdentity: boolean;
-    timing?: TagTranscriptTiming;
+    timing?: TagTranscriptTiming | undefined;
 }
 
 function tagToolPart(args: TagToolPartArgs): void {
@@ -1002,6 +1032,7 @@ function setToolContentOrText(part: TranscriptPart, content: string): boolean {
 function buildAggregateTarget(tagId: number, occurrences: ToolOccurrence[]): TagTarget {
     const role = occurrences[0]?.message.info.role ?? "user";
     const messageId = occurrences[0]?.message.info.id;
+    const info = targetMessageInfo(messageId, role);
 
     return {
         setContent(content: string): boolean {
@@ -1089,7 +1120,7 @@ function buildAggregateTarget(tagId: number, occurrences: ToolOccurrence[]): Tag
             return null;
         },
         message: {
-            info: { id: messageId, role },
+            info,
             parts: [],
         },
     };
@@ -1106,10 +1137,15 @@ function buildAggregateTarget(tagId: number, occurrences: ToolOccurrence[]): Tag
  * `apply-operations.ts` to differentiate user-message drops (which
  * preserve a truncated preview) from assistant drops (full sentinel).
  */
+function targetMessageInfo(id: string | undefined, role: string): { id?: string; role: string } {
+    return id === undefined ? { role } : { id, role };
+}
+
 function buildTextTarget(
     part: TranscriptPart,
     message: { info: { id?: string; role: string } },
 ): TagTarget {
+    const info = targetMessageInfo(message.info.id, message.info.role);
     return {
         setContent(content: string): boolean {
             return part.setText(content);
@@ -1122,7 +1158,7 @@ function buildTextTarget(
         // reads `info.role` on this field), so a minimal stub is
         // sufficient.
         message: {
-            info: { id: message.info.id, role: message.info.role },
+            info,
             parts: [],
         },
     };
@@ -1141,6 +1177,7 @@ function buildToolTarget(
     message: { info: { id?: string; role: string } },
     tagId: number,
 ): TagTarget {
+    const info = targetMessageInfo(message.info.id, message.info.role);
     return {
         setContent(content: string): boolean {
             return setToolContentOrText(part, content);
@@ -1168,7 +1205,7 @@ function buildToolTarget(
             return ok ? "truncated" : "absent";
         },
         message: {
-            info: { id: message.info.id, role: message.info.role },
+            info,
             parts: [],
         },
     };
