@@ -26,9 +26,11 @@ function formatExecuteThreshold(detail: ExecuteThresholdDetail, contextLimit: nu
     // the 90% safety cap, append a note showing the configured value and the cap so
     // the user sees the math (e.g. "190,000 > 90% of 128,000"). "" when not clamped.
     const clampNote = formatThresholdClampNote({
-        clamped: detail.clamped,
+        ...(detail.clamped !== undefined ? { clamped: detail.clamped } : {}),
         mode,
-        configuredValue: detail.configuredValue,
+        ...(detail.configuredValue !== undefined
+            ? { configuredValue: detail.configuredValue }
+            : {}),
         contextLimit,
         maxPercentage: MAX_EXECUTE_THRESHOLD,
     });
@@ -60,15 +62,18 @@ export function executeStatus(
     // which config source won (tokens vs percentage). Previously /ctx-status
     // reimplemented the token-match check here and missed progressive base-model
     // lookup (e.g. `openai/gpt-5.4-fast` → `openai/gpt-5.4`), causing display drift.
+    const thresholdOptions = {
+        ...(executeThresholdTokens !== undefined
+            ? { tokensConfig: executeThresholdTokens }
+            : {}),
+        ...(contextLimit !== undefined ? { contextLimit } : {}),
+        sessionId,
+    };
     const thresholdDetail = resolveExecuteThresholdDetail(
         executeThresholdPercentageConfig,
         liveModelKey,
         DEFAULT_EXECUTE_THRESHOLD_PERCENTAGE,
-        {
-            tokensConfig: executeThresholdTokens,
-            contextLimit,
-            sessionId,
-        },
+        thresholdOptions,
     );
     const executeThresholdPercentage = thresholdDetail.percentage;
     try {
